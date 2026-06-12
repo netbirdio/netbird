@@ -54,9 +54,6 @@ func (t *Tray) loadConfig() {
 // into the live submenu) is what makes KDE/Plasma actually repaint and keep
 // the click→id mapping live — see relayoutMenu's doc comment.
 func (t *Tray) loadProfiles() {
-	if t.profileSubmenu == nil {
-		return
-	}
 	t.profileLoadMu.Lock()
 	defer t.profileLoadMu.Unlock()
 	ctx := context.Background()

@@ -89,13 +89,15 @@ type Tray struct {
 	// language switch.
 	loc *Localizer
 
+	// menu and the *Item/*Submenu fields below are reassigned by buildMenu
+	// on every relayout — touch them only with menuMu held. Exceptions:
+	// the Connect/Disconnect OnClick closures capture their own item, and
+	// refreshSessionExpiresLabel snapshots its item under menuMu.
 	menu       *application.Menu
 	statusItem *application.MenuItem
 	// sessionExpiresItem displays the SSO session deadline as a humanised
-	// remaining-time label ("Session: 47m"). Hidden when no deadline is
-	// tracked (non-SSO peer or login-expiration disabled on the account).
-	// Refreshed by applyStatus on every Status push and by a 1-minute
-	// ticker between pushes so the countdown moves naturally.
+	// remaining-time label ("Session: 47m"). Painted by relayoutMenu from
+	// the sessionMu cache; a 30s ticker keeps the countdown moving.
 	sessionExpiresItem *application.MenuItem
 	upItem             *application.MenuItem
 	downItem           *application.MenuItem
@@ -180,11 +182,10 @@ type Tray struct {
 	profiles     []services.Profile
 	profilesUser string
 
-	// menuMu serialises relayoutMenu — the full buildMenu + SetMenu cycle.
-	// loadProfiles (under profileLoadMu) and refreshExitNodes (under
-	// exitNodesRebuildMu) both drive a relayout from independent mutexes, and
-	// applyLanguage drives one from the Localizer goroutine; without this guard
-	// two relayouts could interleave their t.menu swap and SetMenu push.
+	// menuMu serialises relayoutMenu (buildMenu + SetMenu) and guards the
+	// menu/item-pointer fields above. relayoutMenu is the only post-startup
+	// SetMenu call site — a menu snapshot pushed outside the lock could
+	// reinstall a stale tree.
 	menuMu sync.Mutex
 
 	// exitNodesMu guards the t.exitNodes row cache so reading the cached
@@ -411,10 +412,13 @@ func (t *Tray) relayoutMenu() {
 		}
 	}
 	if t.upItem != nil {
+		// Connect stays visible in the NeedsLogin states too — Up drives
+		// the SSO re-auth flow; hidden only when it would be a no-op.
 		t.upItem.SetHidden(connected || connecting || daemonUnavailable)
 		t.upItem.SetEnabled(!connected && !connecting && !daemonUnavailable)
 	}
 	if t.downItem != nil {
+		// Disconnect doubles as the abort path while still Connecting.
 		t.downItem.SetHidden(!connected && !connecting)
 		t.downItem.SetEnabled(connected || connecting)
 	}
@@ -468,11 +472,16 @@ func (t *Tray) buildMenu() *application.Menu {
 	menu.AddSeparator()
 
 	// Only the action that applies to the current state is visible: Connect
-	// when disconnected, Disconnect when connected. applyStatus swaps them on
-	// each daemon status change.
-	t.upItem = menu.Add(t.loc.T("tray.menu.connect")).OnClick(func(*application.Context) { t.handleConnect() })
-	t.downItem = menu.Add(t.loc.T("tray.menu.disconnect")).OnClick(func(*application.Context) { t.handleDisconnect() })
-	t.downItem.SetHidden(true)
+	// when disconnected, Disconnect when connected. The OnClick closures
+	// capture the local item — t.upItem/t.downItem are menuMu-guarded and
+	// must not be read from the click goroutine.
+	upItem := menu.Add(t.loc.T("tray.menu.connect"))
+	upItem.OnClick(func(*application.Context) { t.handleConnect(upItem) })
+	t.upItem = upItem
+	downItem := menu.Add(t.loc.T("tray.menu.disconnect"))
+	downItem.OnClick(func(*application.Context) { t.handleDisconnect(downItem) })
+	downItem.SetHidden(true)
+	t.downItem = downItem
 
 	menu.AddSeparator()
 
@@ -584,7 +593,9 @@ func (t *Tray) buildMenu() *application.Menu {
 	return menu
 }
 
-func (t *Tray) handleConnect() {
+// handleConnect receives the clicked item from the buildMenu closure —
+// t.upItem is menuMu-guarded and must not be read here.
+func (t *Tray) handleConnect(upItem *application.MenuItem) {
 	// NeedsLogin/SessionExpired/LoginFailed mean the daemon won't honor a
 	// plain Up RPC ("up already in progress: current status NeedsLogin") —
 	// it needs the Login → WaitSSOLogin → Up sequence instead. Emit
@@ -601,7 +612,7 @@ func (t *Tray) handleConnect() {
 		t.app.Event.Emit(services.EventTriggerLogin)
 		return
 	}
-	t.upItem.SetEnabled(false)
+	upItem.SetEnabled(false)
 	// Arm the SSO auto-handoff: Up() is async and the daemon may flip to
 	// NeedsLogin once it detects an SSO peer with no cached token. The
 	// flag is consumed by applyStatus on that transition, which then
@@ -619,7 +630,7 @@ func (t *Tray) handleConnect() {
 			t.statusMu.Lock()
 			t.pendingConnectLogin = false
 			t.statusMu.Unlock()
-			t.upItem.SetEnabled(true)
+			upItem.SetEnabled(true)
 		}
 	}()
 }
@@ -630,8 +641,9 @@ func (t *Tray) handleConnect() {
 // no-op. Also clears Peers' optimistic-Connecting guard so the daemon's
 // Idle push (and any subsequent updates) paint through immediately
 // instead of being swallowed by the profile-switch suppression filter.
-func (t *Tray) handleDisconnect() {
-	t.downItem.SetEnabled(false)
+// Receives the clicked item from the buildMenu closure (see handleConnect).
+func (t *Tray) handleDisconnect(downItem *application.MenuItem) {
+	downItem.SetEnabled(false)
 	t.profileMu.Lock()
 	if t.switchCancel != nil {
 		t.switchCancel()
@@ -643,7 +655,7 @@ func (t *Tray) handleDisconnect() {
 		if err := t.svc.Connection.Down(context.Background()); err != nil {
 			log.Errorf("disconnect: %v", err)
 			t.notifyError(t.loc.T("notify.error.disconnect"))
-			t.downItem.SetEnabled(true)
+			downItem.SetEnabled(true)
 		}
 	}()
 }

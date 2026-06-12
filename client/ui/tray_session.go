@@ -50,11 +50,10 @@ func (t *Tray) handleSessionExpired() {
 	}
 }
 
-// applySessionExpiry refreshes the "Session: 47m" tray row from the latest
-// SSO deadline carried on the Status snapshot. Hidden when no deadline is
-// tracked or the tunnel is down; otherwise renders the remaining time via
-// formatSessionRemaining.
-func (t *Tray) applySessionExpiry(deadline *time.Time, connected bool) {
+// applySessionExpiry refreshes the cached SSO deadline and reports whether
+// it changed. Cache-only — the tray row is painted by relayoutMenu;
+// applyStatus drives a relayout when this returns true.
+func (t *Tray) applySessionExpiry(deadline *time.Time, connected bool) bool {
 	var d time.Time
 	if connected && deadline != nil {
 		d = *deadline
@@ -76,17 +75,7 @@ func (t *Tray) applySessionExpiry(deadline *time.Time, connected bool) {
 				deadline.Format(time.RFC3339), time.Until(*deadline), connected)
 		}
 	}
-
-	if t.sessionExpiresItem == nil {
-		return
-	}
-	if d.IsZero() {
-		t.sessionExpiresItem.SetHidden(true)
-		return
-	}
-	remaining := t.formatSessionRemaining(time.Until(d))
-	t.sessionExpiresItem.SetLabel(t.loc.T("tray.session.expiresIn", "remaining", remaining))
-	t.sessionExpiresItem.SetHidden(false)
+	return changed
 }
 
 // runSessionExpiryTicker keeps the "Expires in …" countdown row fresh by
@@ -99,10 +88,15 @@ func (t *Tray) runSessionExpiryTicker() {
 	}
 }
 
-// refreshSessionExpiresLabel recomputes the "Session expires in …" tray
-// row label from the cached SSO deadline.
+// refreshSessionExpiresLabel recomputes the countdown row label from the
+// cached SSO deadline. The item is snapshotted under menuMu (buildMenu
+// reassigns it on every relayout); no full relayout here — a 30s-cadence
+// rebuild could disturb an open menu.
 func (t *Tray) refreshSessionExpiresLabel() {
-	if t.sessionExpiresItem == nil {
+	t.menuMu.Lock()
+	item := t.sessionExpiresItem
+	t.menuMu.Unlock()
+	if item == nil {
 		return
 	}
 	t.sessionMu.Lock()
@@ -112,7 +106,7 @@ func (t *Tray) refreshSessionExpiresLabel() {
 		return
 	}
 	remaining := t.formatSessionRemaining(time.Until(deadline))
-	t.sessionExpiresItem.SetLabel(t.loc.T("tray.session.expiresIn", "remaining", remaining))
+	item.SetLabel(t.loc.T("tray.session.expiresIn", "remaining", remaining))
 }
 
 // formatSessionRemaining renders the time-to-deadline as a localised
