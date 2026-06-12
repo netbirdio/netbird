@@ -53,7 +53,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/client/internal/rosenpass"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
-	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"github.com/netbirdio/netbird/client/internal/syncstore"
 	"github.com/netbirdio/netbird/client/internal/updater"
@@ -1909,7 +1908,6 @@ func (e *Engine) newWgIface() (*iface.WGIface, error) {
 		WGPrivKey:    e.config.WgPrivateKey.String(),
 		MTU:          e.config.MTU,
 		TransportNet: transportNet,
-		FilterFn:     e.addrViaRoutes,
 		DisableDNS:   e.config.DisableDNS,
 	}
 
@@ -2155,21 +2153,6 @@ func (e *Engine) startNetworkMonitor() {
 		log.Infof("Network monitor: detected network change, triggering client restart")
 		e.triggerClientRestart()
 	}()
-}
-
-func (e *Engine) addrViaRoutes(addr netip.Addr) (bool, netip.Prefix, error) {
-	var vpnRoutes []netip.Prefix
-	for _, routes := range e.routeManager.GetClientRoutes() {
-		if len(routes) > 0 && routes[0] != nil {
-			vpnRoutes = append(vpnRoutes, routes[0].Network)
-		}
-	}
-
-	if isVpn, prefix := systemops.IsAddrRouted(addr, vpnRoutes); isVpn {
-		return true, prefix, nil
-	}
-
-	return false, netip.Prefix{}, nil
 }
 
 func (e *Engine) stopDNSServer() {
