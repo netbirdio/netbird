@@ -64,6 +64,7 @@ disableMetricsCollection="$NULL"
 disableUpdateSettings="$NULL"
 disableProfiles="$NULL"
 disableNetworks="$NULL"
+disableAdvancedView="$NULL"           # tristate at the daemon
 rosenpassEnabled="$NULL"
 rosenpassPermissive="$NULL"
 wireguardPort='51820'
@@ -160,6 +161,7 @@ main() {
   is_set "$disableUpdateSettings"     && emit_bool    disableUpdateSettings     "$disableUpdateSettings"
   is_set "$disableProfiles"           && emit_bool    disableProfiles           "$disableProfiles"
   is_set "$disableNetworks"           && emit_bool    disableNetworks           "$disableNetworks"
+  is_set "$disableAdvancedView"       && emit_bool    disableAdvancedView       "$disableAdvancedView"
   is_set "$rosenpassEnabled"          && emit_bool    rosenpassEnabled          "$rosenpassEnabled"
   is_set "$rosenpassPermissive"       && emit_bool    rosenpassPermissive       "$rosenpassPermissive"
   is_set "$wireguardPort"             && emit_int     wireguardPort             "$wireguardPort"
