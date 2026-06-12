@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -101,19 +100,14 @@ func (s *Server) publishConfigChangedEvent(source string) {
 	if s.statusRecorder == nil {
 		return
 	}
-	var managed []string
-	if s.config != nil {
-		managed = s.config.Policy().ManagedKeys()
-	}
 	s.statusRecorder.PublishEvent(
 		proto.SystemEvent_INFO,
 		proto.SystemEvent_SYSTEM,
 		fmt.Sprintf("daemon config changed (source=%s)", source),
 		"",
 		map[string]string{
-			"source":         source,
-			"type":           "config_changed",
-			"managed_fields": strings.Join(managed, ","),
+			"source": source,
+			"type":   "config_changed",
 		},
 	)
 }
