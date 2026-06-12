@@ -218,21 +218,13 @@ func (s *Server) Start() error {
 
 // connectWithRetryRuns runs the client connection with a backoff strategy where we retry the operation as additional
 // mechanism to keep the client connected even when the connection is lost.
-// we cancel retry if the client receive a stop or down command, or if disable auto connect is configured.
+// we cancel retry if the client receive a stop or down command.
 func (s *Server) connectWithRetryRuns(ctx context.Context, profileConfig *profilemanager.Config, statusRecorder *peer.Status, runningChan chan struct{}, giveUpChan chan struct{}) {
 	defer func() {
 		s.mutex.Lock()
 		s.clientRunning = false
 		s.mutex.Unlock()
 	}()
-
-	if s.config.DisableAutoConnect {
-		if err := s.connect(ctx, s.config, s.statusRecorder, runningChan); err != nil {
-			log.Debugf("run client connection exited with error: %v", err)
-		}
-		log.Tracef("client connection exited")
-		return
-	}
 
 	backOff := getConnectWithBackoff(ctx)
 	go func() {
@@ -1663,6 +1655,7 @@ func (s *Server) connect(ctx context.Context, config *profilemanager.Config, sta
 	s.mutex.Unlock()
 
 	if err := client.Run(runningChan, s.logFile); err != nil {
+		log.Debugf("run client connection exited with error: %v", err)
 		return err
 	}
 	return nil
