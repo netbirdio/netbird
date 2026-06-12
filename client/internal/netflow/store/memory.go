@@ -81,7 +81,7 @@ type aggregationKey struct {
 func (am *AggregatingMemory) GetAggregatedEvents() []*types.Event {
 	aggregated := make(map[aggregationKey]*types.Event)
 	for _, v := range am.events {
-		lookupKey := aggregationKey{destAddr: v.DestIP, destPort: v.DestPort, protocol: uint8(v.Protocol), icmpType: v.ICMPCode}
+		lookupKey := aggregationKey{destAddr: v.DestIP, destPort: v.DestPort, protocol: uint8(v.Protocol), icmpType: v.ICMPType}
 		if _, ok := aggregated[lookupKey]; !ok {
 			aggregated[lookupKey] = v.Clone()
 			event := aggregated[lookupKey]
