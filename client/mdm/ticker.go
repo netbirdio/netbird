@@ -59,7 +59,7 @@ func (t *Ticker) Run(ctx context.Context, onChange func(prev, curr *Policy) erro
 			return
 		case <-tk.C:
 			curr := policyLoader()
-			if PoliciesEqual(t.prev, curr) {
+			if policiesEqual(t.prev, curr) {
 				continue
 			}
 			added, removed, changed := diffPolicies(t.prev, curr)
@@ -75,11 +75,11 @@ func (t *Ticker) Run(ctx context.Context, onChange func(prev, curr *Policy) erro
 	}
 }
 
-// PoliciesEqual reports whether two Policy instances carry the same
+// policiesEqual reports whether two Policy instances carry the same
 // managed key set with identical values. Nil and empty policies
 // compare equal; one-nil/one-non-empty compare not equal; otherwise
 // the underlying values maps are compared with reflect.DeepEqual.
-func PoliciesEqual(a, b *Policy) bool {
+func policiesEqual(a, b *Policy) bool {
 	if a.IsEmpty() && b.IsEmpty() {
 		return true
 	}

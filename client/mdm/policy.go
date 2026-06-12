@@ -49,27 +49,6 @@ const (
 	SplitTunnelModeDisallow = "disallow"
 )
 
-// AllKeys is the set of recognised MDM keys. Unknown keys in a managed
-// configuration are ignored but logged.
-var AllKeys = []string{
-	KeyManagementURL,
-	KeyDisableUpdateSettings,
-	KeyDisableProfiles,
-	KeyDisableNetworks,
-	KeyDisableClientRoutes,
-	KeyDisableServerRoutes,
-	KeyBlockInbound,
-	KeyDisableMetricsCollection,
-	KeyAllowServerSSH,
-	KeyDisableAutoConnect,
-	KeyPreSharedKey,
-	KeyRosenpassEnabled,
-	KeyRosenpassPermissive,
-	KeyWireguardPort,
-	KeySplitTunnelMode,
-	KeySplitTunnelApps,
-}
-
 // SecretKeys lists keys whose values must be redacted in logs.
 var SecretKeys = map[string]struct{}{
 	KeyPreSharedKey: {},
