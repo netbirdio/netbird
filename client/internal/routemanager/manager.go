@@ -817,7 +817,7 @@ func pickPreferredExitNode(info exitNodeInfo) route.NetID {
 // disturbing non-exit route selections. A global deselect-all is left untouched
 // so the user's "all off" stays in effect.
 func (m *DefaultManager) enforceSingleExitNode(preferred route.NetID, allIDs []route.NetID) {
-	if m.routeSelector.IsDeselectAllActive() {
+	if m.routeSelector.IsDeselectAll() {
 		return
 	}
 
