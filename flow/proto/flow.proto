@@ -75,6 +75,9 @@ message FlowFields {
   bytes source_resource_id = 14;
   bytes dest_resource_id = 15;
 
+  uint64 num_of_starts = 16;
+  uint64 num_of_ends = 17;
+  uint64 num_of_drops = 18;
 }
 
 // Flow event types
