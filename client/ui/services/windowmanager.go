@@ -44,8 +44,6 @@ const WindowHeight = 660
 // Wails reads CustomTheme colours as 0x00BBGGRR (RGB byte order reversed).
 // Border/title bar match AppRightPanel bg-nb-gray-940 (#1C1E21); title text
 // matches text-nb-gray-100 (#E4E7E9).
-func u32ptr(v uint32) *uint32 { return &v }
-
 var microsoftWindowsTheme = &application.WindowTheme{
 	BorderColour:    u32ptr(0x00211E1C),
 	TitleBarColour:  u32ptr(0x00211E1C),
@@ -144,21 +142,6 @@ type WindowManager struct {
 	recenterOnShow func() bool
 }
 
-// title resolves a window-title i18n key in the user's current language.
-// Falls back to the raw key when translator or prefs are missing.
-func (s *WindowManager) title(key string) string {
-	if s.translator == nil {
-		return key
-	}
-	lang := i18n.DefaultLanguage
-	if s.prefs != nil {
-		if pref := s.prefs.Get().Language; pref != "" {
-			lang = pref
-		}
-	}
-	return s.translator.Translate(lang, key)
-}
-
 // NewWindowManager wires the manager to the main app. translator and prefs may
 // be nil (tests), in which case title() falls back to the raw i18n key.
 //
@@ -208,32 +191,6 @@ func NewWindowManager(app *application.App, mainWindow *application.WebviewWindo
 		s.settings.Hide()
 	})
 	return s
-}
-
-// retitleAll re-applies the localised title to every alive auxiliary window.
-// Snapshots the window pointers under s.mu so a concurrent Open*/Close* can't
-// race; SetTitle dispatches to the OS UI thread, so the calls are safe to make
-// after releasing the lock.
-func (s *WindowManager) retitleAll() {
-	s.mu.Lock()
-	type pair struct {
-		win *application.WebviewWindow
-		key string
-	}
-	wins := []pair{
-		{s.settings, "window.title.settings"},
-		{s.browserLogin, "window.title.signIn"},
-		{s.sessionExpiration, "window.title.sessionExpiration"},
-		{s.installProgress, "window.title.updating"},
-		{s.welcome, "window.title.welcome"},
-		{s.errorDialog, "window.title.error"},
-	}
-	s.mu.Unlock()
-	for _, p := range wins {
-		if p.win != nil {
-			p.win.SetTitle(s.title(p.key))
-		}
-	}
 }
 
 // OpenSettings shows the settings window on tab (empty → General).
@@ -303,33 +260,6 @@ func (s *WindowManager) OpenBrowserLogin(uri string) {
 	s.browserLogin.Show()
 	s.browserLogin.Focus()
 	s.centerWhenReady(s.browserLogin)
-}
-
-// hideOtherWindowsLocked hides every visible window except keepName, recording
-// them in hiddenForLogin for restoreHiddenWindowsLocked. Caller must hold s.mu.
-func (s *WindowManager) hideOtherWindowsLocked(keepName string) {
-	for _, w := range s.app.Window.GetAll() {
-		if w == nil || w.Name() == keepName {
-			continue
-		}
-		if !w.IsVisible() {
-			continue
-		}
-		w.Hide()
-		s.hiddenForLogin = append(s.hiddenForLogin, w)
-	}
-}
-
-// restoreHiddenWindowsLocked re-shows windows hidden by
-// hideOtherWindowsLocked. Caller must hold s.mu.
-func (s *WindowManager) restoreHiddenWindowsLocked() {
-	for _, w := range s.hiddenForLogin {
-		if w == nil {
-			continue
-		}
-		w.Show()
-	}
-	s.hiddenForLogin = nil
 }
 
 // BrowserLoginWindow returns the live SSO popup, or nil if no SSO flow is in
@@ -508,24 +438,6 @@ func (s *WindowManager) OpenError(title, message string) {
 	s.centerWhenReady(s.errorDialog)
 }
 
-// errorDialogURL builds the error window's hash-route start URL with title and
-// message as query params, escaped so newlines and ampersands common in
-// formatted daemon errors survive into useSearchParams.
-func errorDialogURL(title, message string) string {
-	q := url.Values{}
-	if title != "" {
-		q.Set("title", title)
-	}
-	if message != "" {
-		q.Set("message", message)
-	}
-	startURL := "/#/dialog/error"
-	if enc := q.Encode(); enc != "" {
-		startURL += "?" + enc
-	}
-	return startURL
-}
-
 func (s *WindowManager) CloseError() {
 	s.mu.Lock()
 	w := s.errorDialog
@@ -562,27 +474,6 @@ func (s *WindowManager) ShowMain() {
 // it unset.
 func (s *WindowManager) SetRecenterOnShow(pred func() bool) {
 	s.recenterOnShow = pred
-}
-
-// getScreenBasedOnCursorPosition returns the display the OS cursor is on,
-// falling back to the main-window screen, then nil (OS-default placement).
-// On Linux the cursor query uses XQueryPointer, which works on Wayland via
-// XWayland.
-func (s *WindowManager) getScreenBasedOnCursorPosition() *application.Screen {
-	if s.app == nil || s.app.Screen == nil {
-		return nil
-	}
-	if p, ok := getCursorPosition(s.app); ok {
-		if sc := s.app.Screen.ScreenNearestDipPoint(p); sc != nil {
-			return sc
-		}
-	}
-	if s.mainWindow != nil {
-		if sc, err := s.mainWindow.GetScreen(); err == nil {
-			return sc
-		}
-	}
-	return nil
 }
 
 // centerWhenReady centers w once its native window exists, but only where the
@@ -648,3 +539,113 @@ func (s *WindowManager) centerOnCursorScreen(w *application.WebviewWindow) {
 		}
 	}()
 }
+
+// title resolves a window-title i18n key in the user's current language.
+// Falls back to the raw key when translator or prefs are missing.
+func (s *WindowManager) title(key string) string {
+	if s.translator == nil {
+		return key
+	}
+	lang := i18n.DefaultLanguage
+	if s.prefs != nil {
+		if pref := s.prefs.Get().Language; pref != "" {
+			lang = pref
+		}
+	}
+	return s.translator.Translate(lang, key)
+}
+
+// retitleAll re-applies the localised title to every alive auxiliary window.
+// Snapshots the window pointers under s.mu so a concurrent Open*/Close* can't
+// race; SetTitle dispatches to the OS UI thread, so the calls are safe to make
+// after releasing the lock.
+func (s *WindowManager) retitleAll() {
+	s.mu.Lock()
+	type pair struct {
+		win *application.WebviewWindow
+		key string
+	}
+	wins := []pair{
+		{s.settings, "window.title.settings"},
+		{s.browserLogin, "window.title.signIn"},
+		{s.sessionExpiration, "window.title.sessionExpiration"},
+		{s.installProgress, "window.title.updating"},
+		{s.welcome, "window.title.welcome"},
+		{s.errorDialog, "window.title.error"},
+	}
+	s.mu.Unlock()
+	for _, p := range wins {
+		if p.win != nil {
+			p.win.SetTitle(s.title(p.key))
+		}
+	}
+}
+
+// hideOtherWindowsLocked hides every visible window except keepName, recording
+// them in hiddenForLogin for restoreHiddenWindowsLocked. Caller must hold s.mu.
+func (s *WindowManager) hideOtherWindowsLocked(keepName string) {
+	for _, w := range s.app.Window.GetAll() {
+		if w == nil || w.Name() == keepName {
+			continue
+		}
+		if !w.IsVisible() {
+			continue
+		}
+		w.Hide()
+		s.hiddenForLogin = append(s.hiddenForLogin, w)
+	}
+}
+
+// restoreHiddenWindowsLocked re-shows windows hidden by
+// hideOtherWindowsLocked. Caller must hold s.mu.
+func (s *WindowManager) restoreHiddenWindowsLocked() {
+	for _, w := range s.hiddenForLogin {
+		if w == nil {
+			continue
+		}
+		w.Show()
+	}
+	s.hiddenForLogin = nil
+}
+
+// getScreenBasedOnCursorPosition returns the display the OS cursor is on,
+// falling back to the main-window screen, then nil (OS-default placement).
+// On Linux the cursor query uses XQueryPointer, which works on Wayland via
+// XWayland.
+func (s *WindowManager) getScreenBasedOnCursorPosition() *application.Screen {
+	if s.app == nil || s.app.Screen == nil {
+		return nil
+	}
+	if p, ok := getCursorPosition(s.app); ok {
+		if sc := s.app.Screen.ScreenNearestDipPoint(p); sc != nil {
+			return sc
+		}
+	}
+	if s.mainWindow != nil {
+		if sc, err := s.mainWindow.GetScreen(); err == nil {
+			return sc
+		}
+	}
+	return nil
+}
+
+// errorDialogURL builds the error window's hash-route start URL with title and
+// message as query params, escaped so newlines and ampersands common in
+// formatted daemon errors survive into useSearchParams.
+func errorDialogURL(title, message string) string {
+	q := url.Values{}
+	if title != "" {
+		q.Set("title", title)
+	}
+	if message != "" {
+		q.Set("message", message)
+	}
+	startURL := "/#/dialog/error"
+	if enc := q.Encode(); enc != "" {
+		startURL += "?" + enc
+	}
+	return startURL
+}
+
+// u32ptr returns a pointer to v, for the optional *uint32 Wails theme fields.
+func u32ptr(v uint32) *uint32 { return &v }

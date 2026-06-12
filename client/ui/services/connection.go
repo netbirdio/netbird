@@ -58,66 +58,6 @@ func (e *ClientError) MarshalJSON() ([]byte, error) {
 	return json.Marshal((*alias)(e))
 }
 
-// classifyDaemonError maps a gRPC error to a ClientError by matching known
-// substrings to a stable code. A missing locale entry surfaces as a visible
-// "error.<code>" string — a deliberate fail-loud signal to update the bundle.
-func (s *Connection) classifyDaemonError(err error) *ClientError {
-	if err == nil {
-		return nil
-	}
-
-	msg := err.Error()
-	if st, ok := gstatus.FromError(err); ok {
-		msg = st.Message()
-	}
-	lower := strings.ToLower(msg)
-
-	code := "unknown"
-	switch {
-	case strings.Contains(lower, "token used before issued"),
-		strings.Contains(lower, "token is not valid yet"):
-		code = "jwt_clock_skew"
-	case strings.Contains(lower, "token is expired"),
-		strings.Contains(lower, "token has expired"):
-		code = "jwt_expired"
-	case strings.Contains(lower, "token signature is invalid"):
-		code = "jwt_signature_invalid"
-	case strings.Contains(lower, "peer login has expired"):
-		code = "session_expired"
-	case strings.Contains(lower, "invalid setup-key"),
-		strings.Contains(lower, "invalid setup key"):
-		code = "invalid_setup_key"
-	case strings.Contains(lower, "permission denied"):
-		code = "permission_denied"
-	case strings.Contains(lower, "no connection could be made"),
-		strings.Contains(lower, "connection refused"),
-		strings.Contains(lower, "context deadline exceeded"):
-		code = "daemon_unreachable"
-	}
-
-	return &ClientError{
-		Code:  code,
-		Short: s.translateShort(code),
-		Long:  msg,
-	}
-}
-
-// translateShort resolves the localised short message for code, returning the
-// bare "error.<code>" key when no translation is available so the gap stays visible.
-func (s *Connection) translateShort(code string) string {
-	key := "error." + code
-	if s.translator == nil {
-		return key
-	}
-	lang := i18n.DefaultLanguage
-	if s.prefs != nil {
-		if pref := s.prefs.Get().Language; pref != "" {
-			lang = pref
-		}
-	}
-	return s.translator.Translate(lang, key)
-}
-
 // LoginParams are the inputs to Login.
 type LoginParams struct {
 	ProfileName   string `json:"profileName"`
@@ -316,4 +256,64 @@ func (s *Connection) Logout(ctx context.Context, p LogoutParams) error {
 	}
 
 	return nil
+}
+
+// classifyDaemonError maps a gRPC error to a ClientError by matching known
+// substrings to a stable code. A missing locale entry surfaces as a visible
+// "error.<code>" string — a deliberate fail-loud signal to update the bundle.
+func (s *Connection) classifyDaemonError(err error) *ClientError {
+	if err == nil {
+		return nil
+	}
+
+	msg := err.Error()
+	if st, ok := gstatus.FromError(err); ok {
+		msg = st.Message()
+	}
+	lower := strings.ToLower(msg)
+
+	code := "unknown"
+	switch {
+	case strings.Contains(lower, "token used before issued"),
+		strings.Contains(lower, "token is not valid yet"):
+		code = "jwt_clock_skew"
+	case strings.Contains(lower, "token is expired"),
+		strings.Contains(lower, "token has expired"):
+		code = "jwt_expired"
+	case strings.Contains(lower, "token signature is invalid"):
+		code = "jwt_signature_invalid"
+	case strings.Contains(lower, "peer login has expired"):
+		code = "session_expired"
+	case strings.Contains(lower, "invalid setup-key"),
+		strings.Contains(lower, "invalid setup key"):
+		code = "invalid_setup_key"
+	case strings.Contains(lower, "permission denied"):
+		code = "permission_denied"
+	case strings.Contains(lower, "no connection could be made"),
+		strings.Contains(lower, "connection refused"),
+		strings.Contains(lower, "context deadline exceeded"):
+		code = "daemon_unreachable"
+	}
+
+	return &ClientError{
+		Code:  code,
+		Short: s.translateShort(code),
+		Long:  msg,
+	}
+}
+
+// translateShort resolves the localised short message for code, returning the
+// bare "error.<code>" key when no translation is available so the gap stays visible.
+func (s *Connection) translateShort(code string) string {
+	key := "error." + code
+	if s.translator == nil {
+		return key
+	}
+	lang := i18n.DefaultLanguage
+	if s.prefs != nil {
+		if pref := s.prefs.Get().Language; pref != "" {
+			lang = pref
+		}
+	}
+	return s.translator.Translate(lang, key)
 }
