@@ -240,7 +240,7 @@ type Engine struct {
 	syncStore    syncstore.Store
 	syncStoreDir string
 
-	flowManager         nftypes.FlowManager
+	flowManager nftypes.FlowManager
 
 	// auto-update
 	updateManager *updater.Manager
@@ -529,6 +529,10 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		log.Errorf("failed creating tunnel interface %s: [%s]", e.config.WgIfaceName, err.Error())
 		e.close()
 		return fmt.Errorf("create wg interface: %w", err)
+	}
+
+	if filteredDevice := e.wgInterface.GetDevice(); filteredDevice != nil {
+		filteredDevice.SetPanicHandler(e.triggerClientRestart)
 	}
 
 	if err := e.createFirewall(); err != nil {
