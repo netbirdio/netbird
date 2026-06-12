@@ -516,6 +516,14 @@ func (g *BundleGenerator) addConfig() error {
 		}
 	}
 
+	// Surface the set of MDM-enforced keys so a support engineer reading
+	// the bundle can tell which field values are user-set vs MDM-overridden.
+	// Same semantics as the mDMManagedFields list returned by the
+	// GetConfig RPC consumed by `netbird debug config`.
+	if managed := g.internalConfig.Policy().ManagedKeys(); len(managed) > 0 {
+		configContent.WriteString(fmt.Sprintf("MDMManagedFields: %v\n", managed))
+	}
+
 	configReader := strings.NewReader(configContent.String())
 	if err := g.addFileToZip(configReader, "config.txt"); err != nil {
 		return fmt.Errorf("add config file to zip: %w", err)
