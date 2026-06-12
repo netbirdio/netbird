@@ -64,6 +64,11 @@ const useSettingsState = () => {
     const [loaded, setLoaded] = useState<LoadedConfig | null>(null);
     const [guiVersion, setGuiVersion] = useState<string>("—");
     const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const loadedRef = useRef<LoadedConfig | null>(null);
+
+    useEffect(() => {
+        loadedRef.current = loaded;
+    }, [loaded]);
 
     useEffect(() => {
         if (!profileLoaded || !activeProfile) return;
@@ -130,15 +135,18 @@ const useSettingsState = () => {
 
     const setField = useCallback(
         <K extends keyof Config>(k: K, v: Config[K]) => {
-            setLoaded((cur) => {
-                if (!cur) return cur;
-                const next = { ...cur.data, [k]: v };
-                if (saveTimer.current) clearTimeout(saveTimer.current);
-                saveTimer.current = setTimeout(() => {
-                    save(cur.profileName, next).catch(logSaveError);
-                }, SAVE_DEBOUNCE_MS);
-                return { profileName: cur.profileName, data: next };
-            });
+            const cur = loadedRef.current;
+            if (!cur) return;
+            const next: LoadedConfig = {
+                profileName: cur.profileName,
+                data: { ...cur.data, [k]: v },
+            };
+            loadedRef.current = next;
+            setLoaded(next);
+            if (saveTimer.current) clearTimeout(saveTimer.current);
+            saveTimer.current = setTimeout(() => {
+                save(next.profileName, next.data).catch(logSaveError);
+            }, SAVE_DEBOUNCE_MS);
         },
         [save],
     );
