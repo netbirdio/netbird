@@ -58,6 +58,10 @@ var DefaultInterfaceBlacklist = []string{
 	"Tailscale", "tailscale", "docker", "veth", "br-", "lo",
 }
 
+// loadMDMPolicy is the package-level indirection used by apply() to read the
+// active MDM policy. Tests override this to inject a fake policy.
+var loadMDMPolicy = mdm.LoadPolicy
+
 // ConfigInput carries configuration changes to the client
 type ConfigInput struct {
 	ManagementURL                 string
@@ -636,10 +640,6 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 
 	return updated, nil
 }
-
-// loadMDMPolicy is the package-level indirection used by apply() to read the
-// active MDM policy. Tests override this to inject a fake policy.
-var loadMDMPolicy = mdm.LoadPolicy
 
 // applyMDMPolicy overlays MDM-supplied values on top of the resolved Config.
 // The provided Policy is also stored on the Config so callers can later query

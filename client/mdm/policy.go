@@ -75,6 +75,19 @@ var SecretKeys = map[string]struct{}{
 	KeyPreSharedKey: {},
 }
 
+// boolStringLiterals enumerates the textual boolean encodings the
+// platform loaders may produce (Windows REG_SZ "true", iOS / Android
+// managed-config booleans-as-strings, etc.). Lookup keeps GetBool flat
+// (no nested switch on the string case).
+var boolStringLiterals = map[string]bool{
+	"true":  true,
+	"1":     true,
+	"yes":   true,
+	"false": false,
+	"0":     false,
+	"no":    false,
+}
+
 
 // Policy holds MDM-managed settings read from the platform source. A nil or
 // empty Policy means no enforcement is active.
@@ -155,19 +168,6 @@ func (p *Policy) GetString(key string) (string, bool) {
 		return "", false
 	}
 	return s, true
-}
-
-// boolStringLiterals enumerates the textual boolean encodings the
-// platform loaders may produce (Windows REG_SZ "true", iOS / Android
-// managed-config booleans-as-strings, etc.). Lookup keeps GetBool flat
-// (no nested switch on the string case).
-var boolStringLiterals = map[string]bool{
-	"true":  true,
-	"1":     true,
-	"yes":   true,
-	"false": false,
-	"0":     false,
-	"no":    false,
 }
 
 // GetBool returns the managed value for key coerced to bool, and whether the

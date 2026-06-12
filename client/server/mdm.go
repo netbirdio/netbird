@@ -13,9 +13,27 @@ import (
 	"github.com/netbirdio/netbird/client/proto"
 )
 
+// preSharedKeyRedactedSentinel is the value GetConfig returns in place
+// of an actual PSK, so a UI that round-trips the field back to the
+// daemon (via SetConfig / Login) can be distinguished from a deliberate
+// override. Any incoming PSK that equals this sentinel is treated as
+// a no-op echo, never as a conflict with the policy.
+const preSharedKeyRedactedSentinel = "**********"
+
 // loadMDMPolicy is the indirection used by server handlers to read the
 // active MDM policy. Tests override this to inject a fake policy.
 var loadMDMPolicy = mdm.LoadPolicy
+
+// conflictCheck is a value-aware comparison between a single field in
+// the incoming request and the corresponding MDM-enforced value. It
+// runs only when the field was actually set in the request (presence
+// already filtered upstream); ok=true reports the policy value, ok=false
+// means the policy is silent on the key — both are treated as conflicts
+// to be safe (an MDM key declared as managed must hold a value).
+type conflictCheck struct {
+	key   string
+	check func(*mdm.Policy) (match bool)
+}
 
 // onMDMPolicyChange is invoked by the MDM reload ticker every time the
 // OS-native managed-config store reports a diff vs the last observation.
@@ -145,24 +163,6 @@ func (s *Server) restartEngineForMDMLocked() error {
 	go s.connectWithRetryRuns(ctx, config, s.statusRecorder, s.clientRunningChan, s.clientGiveUpChan)
 	s.publishConfigChangedEvent("mdm")
 	return nil
-}
-
-// preSharedKeyRedactedSentinel is the value GetConfig returns in place
-// of an actual PSK, so a UI that round-trips the field back to the
-// daemon (via SetConfig / Login) can be distinguished from a deliberate
-// override. Any incoming PSK that equals this sentinel is treated as
-// a no-op echo, never as a conflict with the policy.
-const preSharedKeyRedactedSentinel = "**********"
-
-// conflictCheck is a value-aware comparison between a single field in
-// the incoming request and the corresponding MDM-enforced value. It
-// runs only when the field was actually set in the request (presence
-// already filtered upstream); ok=true reports the policy value, ok=false
-// means the policy is silent on the key — both are treated as conflicts
-// to be safe (an MDM key declared as managed must hold a value).
-type conflictCheck struct {
-	key   string
-	check func(*mdm.Policy) (match bool)
 }
 
 // conflictBool builds a conflictCheck for a boolean MDM key. If p is nil
