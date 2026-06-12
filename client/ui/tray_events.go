@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"strings"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/wailsapp/wails/v3/pkg/application"
 
+	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/ui/authsession"
 	"github.com/netbirdio/netbird/client/ui/services"
 )
@@ -20,6 +22,39 @@ import (
 func (t *Tray) onSystemEvent(ev *application.CustomEvent) {
 	se, ok := ev.Data.(services.SystemEvent)
 	if !ok {
+		return
+	}
+	// config_changed: the daemon re-applied its effective config (engine
+	// spawn, Up, or MDM policy diff) and signals the UI to re-sync. It
+	// carries no UserMessage, so it must be handled before the user-facing
+	// message gate below. Re-fetch the feature kill switches (DisableProfiles
+	// / DisableNetworks) and the notifications gate so CLI- or MDM-driven
+	// changes reflect in the tray without a periodic poll. This replaces the
+	// legacy Fyne UI's 2s GetFeatures poll.
+	if se.Category == "system" && se.Metadata[proto.MetadataTypeKey] == proto.MetadataTypeConfigChanged {
+		log.Infof("config_changed event received (source=%s); refreshing tray features", se.Metadata[proto.MetadataSourceKey])
+		go t.refreshFeatures()
+		go t.loadConfig()
+		// An MDM-driven config change gets a user-facing toast so the
+		// operator knows their IT policy was applied. The daemon also
+		// emits a separate "policy_applied" event carrying an English
+		// UserMessage, but that text has no locale context — it's
+		// suppressed in shouldSkipSystemEvent and the tray builds the
+		// localised toast here instead. Other sources (startup, up_rpc)
+		// stay silent, matching the daemon's empty-UserMessage intent.
+		// Gated by the notifications toggle like every other INFO event.
+		if se.Metadata[proto.MetadataSourceKey] == proto.MetadataSourceMDM {
+			t.profileMu.Lock()
+			enabled := t.notificationsEnabled
+			t.profileMu.Unlock()
+			if enabled {
+				t.notify(
+					t.loc.T("notify.mdm.policyApplied.title"),
+					t.loc.T("notify.mdm.policyApplied.body"),
+					notifyIDMDMPolicy,
+				)
+			}
+		}
 		return
 	}
 	// Session-warning and deadline-rejected events carry no UserMessage —
@@ -112,6 +147,13 @@ func titleCase(s string) string {
 //     partner already drove the user-facing toast, so the v6 row is
 //     suppressed to avoid a duplicate notification)
 func shouldSkipSystemEvent(se services.SystemEvent) bool {
+	// The daemon's MDM "policy_applied" event carries a hardcoded English
+	// UserMessage. The tray shows its own localised toast on the paired
+	// config_changed (source=mdm) event instead, so drop this one to avoid
+	// a duplicate, non-localised notification.
+	if se.Metadata[proto.MetadataTypeKey] == proto.MetadataTypePolicyApplied {
+		return true
+	}
 	if _, isUpdate := se.Metadata["new_version_available"]; isUpdate {
 		return true
 	}

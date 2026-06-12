@@ -446,8 +446,8 @@ func (c *Client) Expose(ctx context.Context, req ExposeRequest) (*ExposeSession,
 
 // IdentityForIP looks up a remote peer by its tunnel IP using the
 // embedded client's status recorder. Returns the peer's WireGuard public
-// key and FQDN. ok=false means the IP isn't in this client's peer
-// roster — callers should treat that as "unknown peer".
+// key and FQDN. ok=false means the IP doesn't belong to an active peer
+// — offline roster peers are treated as unknown, same as foreign IPs.
 func (c *Client) IdentityForIP(ip netip.Addr) (pubKey, fqdn string, ok bool) {
 	if !ip.IsValid() || c.recorder == nil {
 		return "", "", false

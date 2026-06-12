@@ -167,6 +167,12 @@
     "notify.sessionDeadlineRejected.body": {
         "message": "Il server ha inviato una scadenza di sessione non valida. Effettui di nuovo l'accesso."
     },
+    "notify.mdm.policyApplied.title": {
+        "message": "Impostazioni NetBird aggiornate"
+    },
+    "notify.mdm.policyApplied.body": {
+        "message": "La configurazione di NetBird è stata aggiornata dalla policy IT."
+    },
     "common.cancel": {
         "message": "Annulla"
     },
@@ -694,6 +700,9 @@
     },
     "settings.advanced.psk.help": {
         "message": "PSK WireGuard opzionale per una crittografia simmetrica aggiuntiva. Non è la stessa cosa di una chiave di configurazione NetBird. Comunicherà solo con i peer che usano la stessa chiave pre-condivisa."
+    },
+    "settings.advanced.psk.configured": {
+        "message": "Una chiave pre-condivisa è impostata: ne inserisca una nuova per sostituirla."
     },
     "settings.troubleshooting.section.title": {
         "message": "Pacchetto di debug"

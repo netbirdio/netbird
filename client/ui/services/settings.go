@@ -5,8 +5,27 @@ package services
 import (
 	"context"
 
+	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/client/proto"
 )
+
+// mdmKeyToConfigField maps an MDM policy key (mdm.Key*) to the JSON field name
+// of the matching Config field, so GetConfig can translate the daemon's key
+// names to the frontend's field names in exactly one place. Mirrors the
+// conflict set the daemon enforces on SetConfig/Login (mdmManagedFieldConflicts);
+// keys with no settings field are absent.
+var mdmKeyToConfigField = map[string]string{
+	mdm.KeyManagementURL:       "managementUrl",
+	mdm.KeyPreSharedKey:        "preSharedKey",
+	mdm.KeyWireguardPort:       "wireguardPort",
+	mdm.KeyRosenpassEnabled:    "rosenpassEnabled",
+	mdm.KeyRosenpassPermissive: "rosenpassPermissive",
+	mdm.KeyDisableClientRoutes: "disableClientRoutes",
+	mdm.KeyDisableServerRoutes: "disableServerRoutes",
+	mdm.KeyAllowServerSSH:      "serverSshAllowed",
+	mdm.KeyDisableAutoConnect:  "disableAutoConnect",
+	mdm.KeyBlockInbound:        "blockInbound",
+}
 
 // ConfigParams selects which profile/user to read or write config for.
 type ConfigParams struct {
@@ -18,33 +37,51 @@ type ConfigParams struct {
 // Pointer fields mark "set" vs "unset" so the UI can omit a value to keep the
 // daemon's current setting (matching SetConfigRequest's optional semantics).
 type Config struct {
-	ManagementURL                 string  `json:"managementUrl"`
-	AdminURL                      string  `json:"adminUrl"`
-	ConfigFile                    string  `json:"configFile"`
-	LogFile                       string  `json:"logFile"`
-	PreSharedKey                  string  `json:"preSharedKey"`
-	InterfaceName                 string  `json:"interfaceName"`
-	WireguardPort                 int64   `json:"wireguardPort"`
-	MTU                           int64   `json:"mtu"`
-	DisableAutoConnect            bool    `json:"disableAutoConnect"`
-	ServerSSHAllowed              bool    `json:"serverSshAllowed"`
-	RosenpassEnabled              bool    `json:"rosenpassEnabled"`
-	RosenpassPermissive           bool    `json:"rosenpassPermissive"`
-	DisableNotifications          bool    `json:"disableNotifications"`
-	LazyConnectionEnabled         bool    `json:"lazyConnectionEnabled"`
-	BlockInbound                  bool    `json:"blockInbound"`
-	NetworkMonitor                bool    `json:"networkMonitor"`
-	DisableClientRoutes           bool    `json:"disableClientRoutes"`
-	DisableServerRoutes           bool    `json:"disableServerRoutes"`
-	DisableDNS                    bool    `json:"disableDns"`
-	DisableIPv6                   bool    `json:"disableIpv6"`
-	BlockLANAccess                bool    `json:"blockLanAccess"`
-	EnableSSHRoot                 bool    `json:"enableSshRoot"`
-	EnableSSHSFTP                 bool    `json:"enableSshSftp"`
-	EnableSSHLocalPortForwarding  bool    `json:"enableSshLocalPortForwarding"`
-	EnableSSHRemotePortForwarding bool    `json:"enableSshRemotePortForwarding"`
-	DisableSSHAuth                bool    `json:"disableSshAuth"`
-	SSHJWTCacheTTL                int32   `json:"sshJwtCacheTtl"`
+	ManagementURL string `json:"managementUrl"`
+	AdminURL      string `json:"adminUrl"`
+	ConfigFile    string `json:"configFile"`
+	LogFile       string `json:"logFile"`
+	// PreSharedKeySet reports whether a pre-shared key is configured, without
+	// exposing its value (the daemon redacts the PSK). The settings form shows
+	// its own "configured" / "managed by MDM" placeholder when true and sends a
+	// new PSK only when the user actually types one — the redaction sentinel
+	// never crosses to the UI.
+	PreSharedKeySet               bool   `json:"preSharedKeySet"`
+	InterfaceName                 string `json:"interfaceName"`
+	WireguardPort                 int64  `json:"wireguardPort"`
+	MTU                           int64  `json:"mtu"`
+	DisableAutoConnect            bool   `json:"disableAutoConnect"`
+	ServerSSHAllowed              bool   `json:"serverSshAllowed"`
+	RosenpassEnabled              bool   `json:"rosenpassEnabled"`
+	RosenpassPermissive           bool   `json:"rosenpassPermissive"`
+	DisableNotifications          bool   `json:"disableNotifications"`
+	LazyConnectionEnabled         bool   `json:"lazyConnectionEnabled"`
+	BlockInbound                  bool   `json:"blockInbound"`
+	NetworkMonitor                bool   `json:"networkMonitor"`
+	DisableClientRoutes           bool   `json:"disableClientRoutes"`
+	DisableServerRoutes           bool   `json:"disableServerRoutes"`
+	DisableDNS                    bool   `json:"disableDns"`
+	DisableIPv6                   bool   `json:"disableIpv6"`
+	BlockLANAccess                bool   `json:"blockLanAccess"`
+	EnableSSHRoot                 bool   `json:"enableSshRoot"`
+	EnableSSHSFTP                 bool   `json:"enableSshSftp"`
+	EnableSSHLocalPortForwarding  bool   `json:"enableSshLocalPortForwarding"`
+	EnableSSHRemotePortForwarding bool   `json:"enableSshRemotePortForwarding"`
+	DisableSSHAuth                bool   `json:"disableSshAuth"`
+	SSHJWTCacheTTL                int32  `json:"sshJwtCacheTtl"`
+	// MDMManagedFields is the raw list of MDM-managed policy keys exactly as
+	// the daemon reports them (mdm.Key* names, e.g. "managementURL",
+	// "preSharedKey", "splitTunnelMode"). Includes keys with no settings
+	// field (split-tunnel, metrics, the Disable* feature flags). The faithful
+	// full set; prefer ManagedFields for per-field gating.
+	MDMManagedFields []string `json:"mdmManagedFields"`
+	// ManagedFields is the MDM-managed set normalised to Config JSON field
+	// names (e.g. "managementUrl", "serverSshAllowed", "preSharedKey"), so the
+	// settings form can gate a control with managedFields[fieldName] without
+	// translating the daemon's mdm.Key* names. Only managed fields are present
+	// (value true); keys with no settings field are omitted (the Disable*
+	// feature flags come via GetFeatures instead).
+	ManagedFields map[string]bool `json:"managedFields"`
 }
 
 // SetConfigParams is a partial update — only fields with non-nil pointers
@@ -114,7 +151,7 @@ func (s *Settings) GetConfig(ctx context.Context, p ConfigParams) (Config, error
 		AdminURL:                      resp.GetAdminURL(),
 		ConfigFile:                    resp.GetConfigFile(),
 		LogFile:                       resp.GetLogFile(),
-		PreSharedKey:                  resp.GetPreSharedKey(),
+		PreSharedKeySet:               resp.GetPreSharedKey() != "",
 		InterfaceName:                 resp.GetInterfaceName(),
 		WireguardPort:                 resp.GetWireguardPort(),
 		MTU:                           resp.GetMtu(),
@@ -137,6 +174,8 @@ func (s *Settings) GetConfig(ctx context.Context, p ConfigParams) (Config, error
 		EnableSSHRemotePortForwarding: resp.GetEnableSSHRemotePortForwarding(),
 		DisableSSHAuth:                resp.GetDisableSSHAuth(),
 		SSHJWTCacheTTL:                resp.GetSshJWTCacheTTL(),
+		MDMManagedFields:              resp.GetMDMManagedFields(),
+		ManagedFields:                 configManagedFields(resp.GetMDMManagedFields()),
 	}, nil
 }
 
@@ -193,4 +232,18 @@ func (s *Settings) GetFeatures(ctx context.Context) (Features, error) {
 		DisableUpdateSettings: resp.GetDisableUpdateSettings(),
 		DisableNetworks:       resp.GetDisableNetworks(),
 	}, nil
+}
+
+// configManagedFields normalises the daemon's MDM-managed key list (mdm.Key*
+// names) to a set keyed by Config JSON field names, so the settings form can
+// look up a field's locked state directly. Returns a non-nil (possibly empty)
+// map so it marshals to {} rather than null.
+func configManagedFields(managed []string) map[string]bool {
+	out := make(map[string]bool, len(managed))
+	for _, k := range managed {
+		if field, ok := mdmKeyToConfigField[k]; ok {
+			out[field] = true
+		}
+	}
+	return out
 }

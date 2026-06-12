@@ -26,7 +26,10 @@ type SettingsContextValue = {
     guiVersion: string;
     setField: <K extends keyof Config>(k: K, v: Config[K]) => void;
     saveField: <K extends keyof Config>(k: K, v: Config[K]) => Promise<void>;
-    saveFields: (partial: Partial<Config>) => Promise<void>;
+    // opts.preSharedKey carries a new PSK to write. Config no longer exposes the
+    // PSK value (only preSharedKeySet), so it rides alongside the Config fields
+    // here and is sent only when non-empty.
+    saveFields: (partial: Partial<Config>, opts?: { preSharedKey?: string }) => Promise<void>;
     saveNow: () => Promise<void>;
 };
 
@@ -104,13 +107,14 @@ const useSettingsState = () => {
     );
 
     const save = useCallback(
-        async (profileName: string, next: Config) => {
-            // Sending the "**********" PSK mask back corrupts the stored PSK (wgtypes.ParseKey fails next connect).
-            const { preSharedKey, ...rest } = next;
+        async (profileName: string, next: Config, preSharedKey?: string) => {
             try {
                 await SettingsSvc.SetConfig({
-                    ...rest,
-                    ...(preSharedKey === "**********" ? {} : { preSharedKey }),
+                    ...next,
+                    // The daemon never returns the PSK value (only preSharedKeySet),
+                    // so send one only when the user actually typed a new key; an
+                    // empty field means "leave unchanged", never "clear".
+                    ...(preSharedKey ? { preSharedKey } : {}),
                     profileName,
                     username,
                 });
@@ -163,7 +167,7 @@ const useSettingsState = () => {
     );
 
     const saveFields = useCallback(
-        async (partial: Partial<Config>) => {
+        async (partial: Partial<Config>, opts?: { preSharedKey?: string }) => {
             if (!loaded) return;
             if (saveTimer.current) {
                 clearTimeout(saveTimer.current);
@@ -171,7 +175,7 @@ const useSettingsState = () => {
             }
             const next = { ...loaded.data, ...partial };
             setLoaded({ profileName: loaded.profileName, data: next });
-            await save(loaded.profileName, next);
+            await save(loaded.profileName, next, opts?.preSharedKey);
         },
         [loaded, save],
     );

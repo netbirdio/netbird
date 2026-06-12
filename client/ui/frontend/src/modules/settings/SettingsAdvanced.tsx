@@ -20,8 +20,6 @@ const PORT_MAX = 65535;
 // Mirrors client/iface/iface.go MinMTU / MaxMTU.
 const MTU_MIN = 576;
 const MTU_MAX = 8192;
-// GetConfig returns existing PSKs as this mask; revealing it would only show the asterisks.
-const PSK_MASK = "**********";
 
 export function SettingsAdvanced() {
     const { t } = useTranslation();
@@ -31,8 +29,11 @@ export function SettingsAdvanced() {
         interfaceName: config.interfaceName,
         wireguardPort: config.wireguardPort,
         mtu: config.mtu,
-        preSharedKey: config.preSharedKey,
     });
+    // PSK is write-only from the UI: the daemon returns only preSharedKeySet,
+    // never the value. Empty means "leave unchanged"; a typed value is sent on
+    // save. Reset on every config reload (e.g. after a successful save).
+    const [psk, setPsk] = useState("");
     const [saving, setSaving] = useState(false);
 
     useEffect(() => {
@@ -40,9 +41,9 @@ export function SettingsAdvanced() {
             interfaceName: config.interfaceName,
             wireguardPort: config.wireguardPort,
             mtu: config.mtu,
-            preSharedKey: config.preSharedKey,
         });
-    }, [config.interfaceName, config.wireguardPort, config.mtu, config.preSharedKey]);
+        setPsk("");
+    }, [config.interfaceName, config.wireguardPort, config.mtu, config.preSharedKeySet]);
 
     const errors = useMemo(() => {
         const out: { interfaceName?: string; wireguardPort?: string; mtu?: string } = {};
@@ -70,13 +71,13 @@ export function SettingsAdvanced() {
         values.interfaceName !== config.interfaceName ||
         values.wireguardPort !== config.wireguardPort ||
         values.mtu !== config.mtu ||
-        values.preSharedKey !== config.preSharedKey;
+        psk !== "";
 
     const handleSave = async () => {
         if (!hasChanges || saving || hasErrors) return;
         setSaving(true);
         try {
-            await saveFields(values);
+            await saveFields(values, psk ? { preSharedKey: psk } : undefined);
         } finally {
             setSaving(false);
         }
@@ -127,10 +128,14 @@ export function SettingsAdvanced() {
                     <HelpText>{t("settings.advanced.psk.help")}</HelpText>
                     <Input
                         type={"password"}
-                        showPasswordToggle={values.preSharedKey !== PSK_MASK}
-                        placeholder={"kQv0qF3oQpJYdgD5mC9hL7sB2xZ8nT4eU6wY1aR3jK0="}
-                        value={values.preSharedKey}
-                        onChange={(e) => setValues((v) => ({ ...v, preSharedKey: e.target.value }))}
+                        showPasswordToggle={psk !== ""}
+                        placeholder={
+                            config.preSharedKeySet
+                                ? t("settings.advanced.psk.configured")
+                                : "kQv0qF3oQpJYdgD5mC9hL7sB2xZ8nT4eU6wY1aR3jK0="
+                        }
+                        value={psk}
+                        onChange={(e) => setPsk(e.target.value)}
                     />
                 </div>
             </SectionGroup>

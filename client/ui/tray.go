@@ -33,6 +33,7 @@ const (
 	notifyIDUpdatePrefix = "netbird-update-"
 	notifyIDEvent        = "netbird-event-"
 	notifyIDTrayError    = "netbird-tray-error"
+	notifyIDMDMPolicy    = "netbird-mdm-policy"
 
 	statusError = "Error"
 
@@ -199,6 +200,16 @@ type Tray struct {
 	// succession and each may kick a refresh, but the ListNetworks fetch +
 	// submenu rebuild + SetMenu must not run concurrently with itself.
 	exitNodesRebuildMu sync.Mutex
+
+	// featureMu guards the daemon feature kill switches mirrored on the
+	// tray. Fetched once at startup and refreshed on every config_changed
+	// system event (the daemon re-applies MDM policy on each engine spawn
+	// and signals it via that event). Folded into the Profiles and Exit
+	// Node menu enablement by featuresDisabled so an operator- or
+	// MDM-disabled surface greys out without a periodic GetFeatures poll.
+	featureMu       sync.Mutex
+	disableProfiles bool
+	disableNetworks bool
 }
 
 func NewTray(app *application.App, window *application.WebviewWindow, svc TrayServices) *Tray {
@@ -261,6 +272,10 @@ func NewTray(app *application.App, window *application.WebviewWindow, svc TraySe
 	// nil-deref).
 	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
 		go t.loadProfiles()
+		// Seed the feature kill switches so a DisableProfiles / DisableNetworks
+		// policy already greys out the matching menus on the first paint
+		// (config_changed events refresh them afterwards).
+		go t.refreshFeatures()
 		go t.runSessionExpiryTicker()
 		// Notification-category registration must run after the Wails
 		// notifications service Startup has populated wn.appName /
@@ -376,6 +391,8 @@ func (t *Tray) relayoutMenu() {
 	exitNodeEntries := append([]exitNodeEntry(nil), t.exitNodes...)
 	t.exitNodesMu.Unlock()
 
+	disableProfiles, disableNetworks := t.featuresDisabled()
+
 	daemonUnavailable := strings.EqualFold(lastStatus, services.StatusDaemonUnavailable)
 	connecting := strings.EqualFold(lastStatus, services.StatusConnecting)
 
@@ -402,13 +419,13 @@ func (t *Tray) relayoutMenu() {
 		t.downItem.SetEnabled(connected || connecting)
 	}
 	if t.exitNodeItem != nil {
-		t.exitNodeItem.SetEnabled(connected && len(exitNodeEntries) > 0)
+		t.exitNodeItem.SetEnabled(connected && len(exitNodeEntries) > 0 && !disableNetworks)
 	}
 	if t.settingsItem != nil {
 		t.settingsItem.SetEnabled(!daemonUnavailable)
 	}
 	if t.profileSubmenuItem != nil {
-		t.profileSubmenuItem.SetEnabled(!daemonUnavailable)
+		t.profileSubmenuItem.SetEnabled(!daemonUnavailable && !disableProfiles)
 	}
 	if daemonVersion != "" && t.daemonVersionItem != nil {
 		t.daemonVersionItem.SetLabel(t.loc.T("tray.menu.daemonVersion", "version", daemonVersion))

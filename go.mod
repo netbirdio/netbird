@@ -132,6 +132,7 @@ require (
 	gorm.io/driver/sqlite v1.5.7
 	gorm.io/gorm v1.25.12
 	gvisor.dev/gvisor v0.0.0-20260219192049-0f2374377e89
+	howett.net/plist v1.0.2-0.20250314012144-ee69052608d9
 )
 
 require (

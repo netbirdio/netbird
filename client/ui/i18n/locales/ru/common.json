@@ -167,6 +167,12 @@
     "notify.sessionDeadlineRejected.body": {
         "message": "Сервер передал неверный срок действия сеанса. Пожалуйста, войдите снова."
     },
+    "notify.mdm.policyApplied.title": {
+        "message": "Настройки NetBird обновлены"
+    },
+    "notify.mdm.policyApplied.body": {
+        "message": "Конфигурация NetBird была обновлена в соответствии с вашей ИТ-политикой."
+    },
     "common.cancel": {
         "message": "Отмена"
     },
@@ -694,6 +700,9 @@
     },
     "settings.advanced.psk.help": {
         "message": "Необязательный PSK WireGuard для дополнительного симметричного шифрования. Это не то же самое, что ключ установки NetBird. Вы будете обмениваться данными только с пирами, использующими тот же общий ключ."
+    },
+    "settings.advanced.psk.configured": {
+        "message": "Общий ключ установлен — введите новый, чтобы заменить его."
     },
     "settings.troubleshooting.section.title": {
         "message": "Отладочный пакет"

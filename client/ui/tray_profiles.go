@@ -96,6 +96,13 @@ func (t *Tray) fillProfileSubmenu() {
 
 	sort.Slice(profiles, func(i, j int) bool { return profiles[i].Name < profiles[j].Name })
 
+	// When the daemon (or an MDM policy) disables profiles, the parent menu
+	// is greyed out by relayoutMenu/refreshMenuItemsForStatus, but Wails'
+	// systray does not reliably propagate a disabled parent to its children
+	// on every platform — so disable each row and "Manage Profiles" too,
+	// mirroring the legacy Fyne UI's profile.setEnabled lock.
+	disableProfiles, _ := t.featuresDisabled()
+
 	t.profileSubmenu.Clear()
 	var activeName, activeEmail string
 	for _, p := range profiles {
@@ -118,15 +125,18 @@ func (t *Tray) fillProfileSubmenu() {
 			}
 			t.switchProfile(name)
 		})
+		item.SetEnabled(!disableProfiles)
 		if active {
 			activeName = name
 			activeEmail = p.Email
 		}
 	}
 	t.profileSubmenu.AddSeparator()
-	t.profileSubmenu.Add(t.loc.T("tray.menu.manageProfiles")).OnClick(func(*application.Context) {
+	manageProfiles := t.profileSubmenu.Add(t.loc.T("tray.menu.manageProfiles"))
+	manageProfiles.OnClick(func(*application.Context) {
 		t.svc.WindowManager.OpenSettings("profiles")
 	})
+	manageProfiles.SetEnabled(!disableProfiles)
 	log.Infof("tray fillProfileSubmenu: %d profile(s) for user %q, active=%q", len(profiles), username, activeName)
 	if t.profileSubmenuItem != nil && activeName != "" {
 		t.profileSubmenuItem.SetLabel(activeName)

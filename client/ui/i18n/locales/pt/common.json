@@ -167,6 +167,12 @@
     "notify.sessionDeadlineRejected.body": {
         "message": "O servidor enviou um prazo de sessão inválido. Faça login novamente."
     },
+    "notify.mdm.policyApplied.title": {
+        "message": "Definições do NetBird atualizadas"
+    },
+    "notify.mdm.policyApplied.body": {
+        "message": "A sua configuração do NetBird foi atualizada pela política de TI."
+    },
     "common.cancel": {
         "message": "Cancelar"
     },
@@ -694,6 +700,9 @@
     },
     "settings.advanced.psk.help": {
         "message": "PSK opcional do WireGuard para criptografia simétrica adicional. Não é o mesmo que uma chave de configuração do NetBird. Você só se comunicará com peers que usem a mesma chave pré-compartilhada."
+    },
+    "settings.advanced.psk.configured": {
+        "message": "Uma chave pré-compartilhada está definida — introduza uma nova para a substituir."
     },
     "settings.troubleshooting.section.title": {
         "message": "Pacote de depuração"

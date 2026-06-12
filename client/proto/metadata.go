@@ -28,3 +28,34 @@ const (
 	// MetadataKindLogLevelChanged.
 	MetadataLevelKey = "level"
 )
+
+// SystemEvent metadata markers for daemon config-change events. The daemon
+// publishes a SYSTEM-category event whenever its effective Config is
+// replaced (engine spawn, Up RPC, MDM policy diff); the UI re-fetches its
+// cached config/features in response and, for the MDM source, shows a
+// localised toast. Producer (client/server) and consumer (client/ui) share
+// these so neither duplicates the wire literals.
+const (
+	// MetadataTypeKey is the SystemEvent.metadata key carrying the
+	// config-change event type (one of the MetadataType* values below).
+	MetadataTypeKey = "type"
+	// MetadataTypeConfigChanged marks a config replacement that should nudge
+	// UIs to re-fetch their cached config + features. UserMessage is empty so
+	// the change is silent; the source is carried in MetadataSourceKey.
+	MetadataTypeConfigChanged = "config_changed"
+	// MetadataTypePolicyApplied marks an MDM-policy-driven config change. The
+	// daemon stamps it with a (non-localised) UserMessage; the UI suppresses
+	// that and builds its own localised toast off the paired config_changed
+	// event instead.
+	MetadataTypePolicyApplied = "policy_applied"
+
+	// MetadataSourceKey is the SystemEvent.metadata key carrying what
+	// triggered a config_changed event (one of the MetadataSource* values).
+	MetadataSourceKey = "source"
+	// MetadataSourceStartup marks a config_changed from the daemon Start path.
+	MetadataSourceStartup = "startup"
+	// MetadataSourceUpRPC marks a config_changed from the Up RPC.
+	MetadataSourceUpRPC = "up_rpc"
+	// MetadataSourceMDM marks a config_changed driven by an MDM policy diff.
+	MetadataSourceMDM = "mdm"
+)

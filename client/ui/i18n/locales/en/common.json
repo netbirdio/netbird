@@ -223,6 +223,14 @@
         "message": "The server sent an invalid session deadline. Please sign in again.",
         "description": "Body explaining the server sent an invalid session deadline and the user must sign in again."
     },
+    "notify.mdm.policyApplied.title": {
+        "message": "NetBird settings updated",
+        "description": "Title of the desktop notification shown when an MDM (IT-managed) policy changed the daemon configuration at runtime."
+    },
+    "notify.mdm.policyApplied.body": {
+        "message": "Your NetBird configuration was updated by your IT policy.",
+        "description": "Body of the MDM policy-applied notification, telling the user their settings were changed by their organization's device-management policy."
+    },
     "common.cancel": {
         "message": "Cancel",
         "description": "Generic Cancel button label, reused across dialogs. Keep short."
@@ -926,6 +934,10 @@
     "settings.advanced.psk.help": {
         "message": "Optional WireGuard PSK for extra symmetric encryption. Not the same as a NetBird Setup Key. You will only communicate with peers that use the same pre-shared key.",
         "description": "Helper text for the WireGuard PSK. 'WireGuard', 'PSK', and 'NetBird Setup Key' are product/technical terms — keep them."
+    },
+    "settings.advanced.psk.configured": {
+        "message": "A pre-shared key is set — enter a new one to replace it.",
+        "description": "Placeholder shown in the empty PSK input when a pre-shared key is already configured; the field stays blank because the daemon never returns the value."
     },
     "settings.troubleshooting.section.title": {
         "message": "Debug bundle",

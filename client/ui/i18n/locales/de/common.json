@@ -167,6 +167,12 @@
     "notify.sessionDeadlineRejected.body": {
         "message": "Der Server hat eine ungültige Sitzungsablaufzeit übermittelt. Bitte melden Sie sich erneut an."
     },
+    "notify.mdm.policyApplied.title": {
+        "message": "NetBird-Einstellungen aktualisiert"
+    },
+    "notify.mdm.policyApplied.body": {
+        "message": "Ihre NetBird-Konfiguration wurde durch Ihre IT-Richtlinie aktualisiert."
+    },
     "common.cancel": {
         "message": "Abbrechen"
     },
@@ -694,6 +700,9 @@
     },
     "settings.advanced.psk.help": {
         "message": "Optionaler WireGuard-PSK für zusätzliche symmetrische Verschlüsselung. Nicht identisch mit einem NetBird Setup-Key. Sie kommunizieren nur mit Peers, die denselben Pre-shared Key verwenden."
+    },
+    "settings.advanced.psk.configured": {
+        "message": "Ein Pre-shared Key ist gesetzt – geben Sie einen neuen ein, um ihn zu ersetzen."
     },
     "settings.troubleshooting.section.title": {
         "message": "Debug-Paket"

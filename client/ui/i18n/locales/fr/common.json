@@ -167,6 +167,12 @@
     "notify.sessionDeadlineRejected.body": {
         "message": "Le serveur a envoyé une échéance de session invalide. Veuillez vous reconnecter."
     },
+    "notify.mdm.policyApplied.title": {
+        "message": "Paramètres NetBird mis à jour"
+    },
+    "notify.mdm.policyApplied.body": {
+        "message": "Votre configuration NetBird a été mise à jour par votre politique informatique."
+    },
     "common.cancel": {
         "message": "Annuler"
     },
@@ -694,6 +700,9 @@
     },
     "settings.advanced.psk.help": {
         "message": "PSK WireGuard facultative pour un chiffrement symétrique supplémentaire. Différente d’une clé d’installation NetBird. Vous ne communiquerez qu’avec les pairs utilisant la même clé pré-partagée."
+    },
+    "settings.advanced.psk.configured": {
+        "message": "Une clé pré-partagée est définie — saisissez-en une nouvelle pour la remplacer."
     },
     "settings.troubleshooting.section.title": {
         "message": "Lot de diagnostic"

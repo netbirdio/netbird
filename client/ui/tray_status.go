@@ -153,8 +153,9 @@ func (t *Tray) refreshMenuItemsForStatus(st services.Status, connected bool) {
 	if t.settingsItem != nil {
 		t.settingsItem.SetEnabled(!daemonUnavailable)
 	}
+	disableProfiles, _ := t.featuresDisabled()
 	if t.profileSubmenuItem != nil {
-		t.profileSubmenuItem.SetEnabled(!daemonUnavailable)
+		t.profileSubmenuItem.SetEnabled(!daemonUnavailable && !disableProfiles)
 	}
 	// Refresh the Profiles submenu on every status-text transition: the
 	// daemon does not emit an active-profile event, so the startup race

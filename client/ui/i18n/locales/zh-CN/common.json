@@ -167,6 +167,12 @@
     "notify.sessionDeadlineRejected.body": {
         "message": "服务器发送了无效的会话截止时间。请重新登录。"
     },
+    "notify.mdm.policyApplied.title": {
+        "message": "NetBird 设置已更新"
+    },
+    "notify.mdm.policyApplied.body": {
+        "message": "您的 NetBird 配置已根据 IT 策略更新。"
+    },
     "common.cancel": {
         "message": "取消"
     },
@@ -694,6 +700,9 @@
     },
     "settings.advanced.psk.help": {
         "message": "可选的 WireGuard PSK，用于额外的对称加密。它与 NetBird 设置密钥不同。您将只能与使用相同预共享密钥的对等节点通信。"
+    },
+    "settings.advanced.psk.configured": {
+        "message": "已设置预共享密钥，输入新密钥即可替换。"
     },
     "settings.troubleshooting.section.title": {
         "message": "调试包"
