@@ -791,6 +791,12 @@ message GetFeaturesResponse{
   bool disable_profiles = 1;
   bool disable_update_settings = 2;
   bool disable_networks = 3;
+  // disableAdvancedView gates the upcoming UI revision's advanced
+  // section. Tristate: unset = no MDM directive, the UI applies its
+  // own default; true = MDM enforces disable; false = MDM enforces
+  // enable. Sourced exclusively from the MDM policy — no CLI /
+  // config flag backs this value.
+  optional bool disable_advanced_view = 4;
 }
 
 // MDMManagedFieldsViolation is attached as a gRPC error detail on a

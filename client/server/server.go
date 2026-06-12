@@ -2115,9 +2115,25 @@ func (s *Server) GetFeatures(ctx context.Context, msg *proto.GetFeaturesRequest)
 		DisableProfiles:       s.checkProfilesDisabled(),
 		DisableUpdateSettings: s.checkUpdateSettingsDisabled(),
 		DisableNetworks:       s.checkNetworksDisabled(),
+		DisableAdvancedView:   s.checkDisableAdvancedView(),
 	}
 
 	return features, nil
+}
+
+// checkDisableAdvancedView reports the MDM-policy directive for the
+// upcoming UI's advanced-view section. Tristate: returns nil when no
+// MDM directive is set so the UI applies its own default; returns
+// &true / &false when MDM explicitly enforces. No CLI flag backs
+// this feature — MDM is the sole source.
+func (s *Server) checkDisableAdvancedView() *bool {
+	if s.config == nil {
+		return nil
+	}
+	if v, ok := s.config.Policy().GetBool(mdm.KeyDisableAdvancedView); ok {
+		return &v
+	}
+	return nil
 }
 
 func (s *Server) connect(ctx context.Context, config *profilemanager.Config, statusRecorder *peer.Status, runningChan chan struct{}) error {

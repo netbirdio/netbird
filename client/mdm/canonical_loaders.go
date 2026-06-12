@@ -15,6 +15,7 @@ var allKeys = []string{
 	KeyDisableUpdateSettings,
 	KeyDisableProfiles,
 	KeyDisableNetworks,
+	KeyDisableAdvancedView,
 	KeyDisableClientRoutes,
 	KeyDisableServerRoutes,
 	KeyBlockInbound,
