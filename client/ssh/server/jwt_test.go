@@ -108,7 +108,7 @@ func TestJWTEnforcement(t *testing.T) {
 
 }
 
-func TestUpdateJWTConfigUpdatesRuntimeConfig(t *testing.T) {
+func TestUpdateJWTConfig(t *testing.T) {
 	originalConfig := &JWTConfig{
 		Issuer:       "original-issuer",
 		Audiences:    []string{"original-audience"},
