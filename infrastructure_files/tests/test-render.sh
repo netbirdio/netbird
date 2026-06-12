@@ -156,6 +156,30 @@ NETBIRD_AUTH_CLIENT_ID="netbird"
 NETBIRD_REVERSE_PROXY_TYPE="5"
 EOF
 
+run_case split-external-keycloak-extra-config docker-compose.yml management.json dashboard.env <<EOF
+NETBIRD_DOMAIN="netbird.example.org"
+NETBIRD_IDP_MODE="external"
+NETBIRD_AUTH_OIDC_CONFIGURATION_ENDPOINT="file://$OIDC_FIXTURE"
+NETBIRD_AUTH_CLIENT_ID="netbird"
+NETBIRD_REVERSE_PROXY_TYPE="5"
+NETBIRD_MGMT_IDP="keycloak"
+NETBIRD_IDP_MGMT_CLIENT_ID="netbird-backend"
+NETBIRD_IDP_MGMT_CLIENT_SECRET="backend-secret"
+NETBIRD_IDP_MGMT_EXTRA_ADMIN_ENDPOINT="https://idp.example.org/admin/realms/netbird"
+NETBIRD_MGMT_IDP_SIGNKEY_REFRESH="true"
+EOF
+
+run_case split-external-keycloak-no-extra-config docker-compose.yml management.json dashboard.env <<EOF
+NETBIRD_DOMAIN="netbird.example.org"
+NETBIRD_IDP_MODE="external"
+NETBIRD_AUTH_OIDC_CONFIGURATION_ENDPOINT="file://$OIDC_FIXTURE"
+NETBIRD_AUTH_CLIENT_ID="netbird"
+NETBIRD_REVERSE_PROXY_TYPE="5"
+NETBIRD_MGMT_IDP="keycloak"
+NETBIRD_IDP_MGMT_CLIENT_ID="netbird-backend"
+NETBIRD_IDP_MGMT_CLIENT_SECRET="backend-secret"
+EOF
+
 # Invalid combination must fail: combined + external IdP
 echo "--- case: combined-external-rejected"
 REJECT_DIR="$WORK_DIR/combined-external-rejected"
@@ -174,6 +198,19 @@ if (cd "$REJECT_DIR" && bash "$GETTING_STARTED" --non-interactive --render-only 
 fi
 
 # Spot-check rendered content
+SPLIT_KEYCLOAK_EXTRA="$WORK_DIR/split-external-keycloak-extra-config"
+if [[ -f "$SPLIT_KEYCLOAK_EXTRA/management.json" ]]; then
+  [[ $(jq -r '.IdpManagerConfig.ManagerType' "$SPLIT_KEYCLOAK_EXTRA/management.json") == "keycloak" ]] || { echo "FAIL: IdP manager type mismatch"; FAILURES=$((FAILURES + 1)); }
+  [[ $(jq -r '.IdpManagerConfig.ClientConfig.ClientID' "$SPLIT_KEYCLOAK_EXTRA/management.json") == "netbird-backend" ]] || { echo "FAIL: IdP manager client ID mismatch"; FAILURES=$((FAILURES + 1)); }
+  [[ $(jq -r '.IdpManagerConfig.ExtraConfig.AdminEndpoint' "$SPLIT_KEYCLOAK_EXTRA/management.json") == "https://idp.example.org/admin/realms/netbird" ]] || { echo "FAIL: IdP manager ExtraConfig.AdminEndpoint missing"; FAILURES=$((FAILURES + 1)); }
+  [[ $(jq -r '.HttpConfig.IdpSignKeyRefreshEnabled' "$SPLIT_KEYCLOAK_EXTRA/management.json") == "true" ]] || { echo "FAIL: IdP sign-key refresh env not honored"; FAILURES=$((FAILURES + 1)); }
+fi
+
+SPLIT_KEYCLOAK_NO_EXTRA="$WORK_DIR/split-external-keycloak-no-extra-config"
+if [[ -f "$SPLIT_KEYCLOAK_NO_EXTRA/management.json" ]]; then
+  [[ $(jq -c '.IdpManagerConfig.ExtraConfig // {}' "$SPLIT_KEYCLOAK_NO_EXTRA/management.json") == "{}" ]] || { echo "FAIL: IdP manager ExtraConfig should be empty without EXTRA vars"; FAILURES=$((FAILURES + 1)); }
+fi
+
 SPLIT_EXT="$WORK_DIR/split-external-nginx-postgres"
 if [[ -f "$SPLIT_EXT/management.json" ]]; then
   [[ $(jq -r '.HttpConfig.AuthIssuer' "$SPLIT_EXT/management.json") == "https://idp.example.org/realms/netbird" ]] || { echo "FAIL: external AuthIssuer mismatch"; FAILURES=$((FAILURES + 1)); }

@@ -635,6 +635,19 @@ load_setup_env() {
   return 0
 }
 
+render_setup_env_idp_manager_vars() {
+  local var
+
+  [[ -n "${NETBIRD_MGMT_IDP:-}" ]] && printf '%s=%q\n' "NETBIRD_MGMT_IDP" "$NETBIRD_MGMT_IDP"
+  [[ -n "${NETBIRD_MGMT_IDP_SIGNKEY_REFRESH:-}" ]] && printf '%s=%q\n' "NETBIRD_MGMT_IDP_SIGNKEY_REFRESH" "$NETBIRD_MGMT_IDP_SIGNKEY_REFRESH"
+  [[ -n "${NETBIRD_IDP_MGMT_CLIENT_ID:-}" ]] && printf '%s=%q\n' "NETBIRD_IDP_MGMT_CLIENT_ID" "$NETBIRD_IDP_MGMT_CLIENT_ID"
+  [[ -n "${NETBIRD_IDP_MGMT_CLIENT_SECRET:-}" ]] && printf '%s=%q\n' "NETBIRD_IDP_MGMT_CLIENT_SECRET" "$NETBIRD_IDP_MGMT_CLIENT_SECRET"
+  for var in ${!NETBIRD_IDP_MGMT_EXTRA_*}; do
+    printf '%s=%q\n' "$var" "${!var}"
+  done
+  return 0
+}
+
 write_setup_env() {
   if [[ "$NON_INTERACTIVE" == "true" ]]; then
     persist_generated_secrets
@@ -695,8 +708,12 @@ NETBIRD_DATASTORE_ENC_KEY="$DATASTORE_ENCRYPTION_KEY"
 # IdP management API for user/group sync (external IdP only), see
 # https://docs.netbird.io/selfhosted/identity-providers:
 #NETBIRD_MGMT_IDP=""
+#NETBIRD_MGMT_IDP_SIGNKEY_REFRESH="false"
 #NETBIRD_IDP_MGMT_CLIENT_ID=""
 #NETBIRD_IDP_MGMT_CLIENT_SECRET=""
+# Extra IdP-manager settings (provider-specific), for example:
+#NETBIRD_IDP_MGMT_EXTRA_ADMIN_ENDPOINT=""
+$(render_setup_env_idp_manager_vars)
 # Docker image overrides:
 #DASHBOARD_IMAGE=""
 #NETBIRD_SERVER_IMAGE=""
@@ -1450,6 +1467,7 @@ render_management_json() {
     mgmt_oidc_endpoint="$AUTH_OIDC_ENDPOINT"
     mgmt_signkey_refresh="false"
   fi
+  mgmt_signkey_refresh="${NETBIRD_MGMT_IDP_SIGNKEY_REFRESH:-$mgmt_signkey_refresh}"
 
   local trusted_proxies="[]"
   if [[ "$REVERSE_PROXY_TYPE" == "0" ]]; then
@@ -1497,6 +1515,25 @@ render_management_json() {
     }$(render_management_json_idp_section)
 }
 EOF
+  return 0
+}
+
+render_idp_manager_extra_config() {
+  local extra_config="{}"
+  local var key value
+
+  # Extract extra config from all env prefixed with NETBIRD_IDP_MGMT_EXTRA_.
+  # Preserve configure.sh's snake-case to CamelCase conversion so existing setup.env files keep working.
+  for var in ${!NETBIRD_IDP_MGMT_EXTRA_*}; do
+    key=$(
+      echo "${var#NETBIRD_IDP_MGMT_EXTRA_}" | awk -F "_" \
+        '{for (i=1; i<=NF; i++) {output=output substr($i,1,1) tolower(substr($i,2))} print output}'
+    )
+    value="${!var}"
+    extra_config=$(jq -c --arg k "$key" --arg v "$value" '.[$k] = $v' <<<"$extra_config")
+  done
+
+  printf '%s' "$extra_config"
   return 0
 }
 
@@ -1575,7 +1612,8 @@ EOF
             "ClientID": "$NETBIRD_IDP_MGMT_CLIENT_ID",
             "ClientSecret": "$NETBIRD_IDP_MGMT_CLIENT_SECRET",
             "GrantType": "client_credentials"
-        }
+        },
+        "ExtraConfig": $(render_idp_manager_extra_config)
     }
 EOF
   fi
