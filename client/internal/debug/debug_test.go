@@ -843,6 +843,7 @@ func TestAddConfig_AllFieldsCovered(t *testing.T) {
 		"PreSharedKey":      "sensitive: WireGuard pre-shared key",
 		"SSHKey":            "sensitive: SSH private key",
 		"ClientCertKeyPair": "non-config: parsed cert pair, not serialized",
+		"Name":              "non-config: profile name is not needed for debug purposes",
 	}
 
 	mURL, _ := url.Parse("https://api.example.com:443")
