@@ -145,17 +145,17 @@ func DialogWindowOptions(name, title, url string, linuxIcon []byte) application.
 // than hiding means the macOS dock-reopen handler doesn't find a hidden
 // window to resurrect.
 type WindowManager struct {
-	app                  *application.App
-	mainWindow           *application.WebviewWindow
-	translator           ErrorTranslator
-	prefs                LanguagePreference
-	linuxIcon            []byte
-	settings             *application.WebviewWindow
-	browserLogin         *application.WebviewWindow
+	app               *application.App
+	mainWindow        *application.WebviewWindow
+	translator        ErrorTranslator
+	prefs             LanguagePreference
+	linuxIcon         []byte
+	settings          *application.WebviewWindow
+	browserLogin      *application.WebviewWindow
 	sessionExpiration *application.WebviewWindow
-	installProgress      *application.WebviewWindow
-	welcome              *application.WebviewWindow
-	errorDialog          *application.WebviewWindow
+	installProgress   *application.WebviewWindow
+	welcome           *application.WebviewWindow
+	errorDialog       *application.WebviewWindow
 	// hiddenForLogin remembers windows that were visible when the
 	// BrowserLogin popup opened. They were Hide()n to keep focus on the
 	// SSO flow without resorting to AlwaysOnTop, and are restored when
