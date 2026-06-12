@@ -17,8 +17,7 @@ import (
 	"github.com/netbirdio/netbird/client/ui/desktop"
 )
 
-// Conn is a lazy, lock-protected gRPC connection to the NetBird daemon.
-// One Conn instance is shared by all services so they reuse the same channel.
+// Conn is the lazy, lock-protected gRPC connection shared by all services so they reuse one channel.
 type Conn struct {
 	addr string
 
@@ -41,11 +40,8 @@ func (c *Conn) Client() (proto.DaemonServiceClient, error) {
 		strings.TrimPrefix(c.addr, "tcp://"),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithUserAgent(desktop.GetUIUserAgent()),
-		// Without ConnectParams the SubChannel uses gRPC's default 120s
-		// MaxDelay, so after a couple of failed dials the UI waits 30-60s
-		// before noticing a freshly-started daemon. The Wails UI is a
-		// desktop client expecting prompt reconnects, not a high-fanout
-		// backend, so a 5s cap is a better trade-off than the default.
+		// Cap reconnect backoff at 5s; gRPC's default 120s MaxDelay would
+		// leave the UI waiting 30-60s to notice a freshly-started daemon.
 		grpc.WithConnectParams(grpc.ConnectParams{
 			Backoff: backoff.Config{
 				BaseDelay:  1 * time.Second,
@@ -62,8 +58,7 @@ func (c *Conn) Client() (proto.DaemonServiceClient, error) {
 	return c.client, nil
 }
 
-// DaemonAddr returns the default daemon gRPC address for the current OS.
-// Linux/macOS use a Unix socket; Windows uses TCP loopback.
+// DaemonAddr returns the default daemon gRPC address: a Unix socket on Linux/macOS, TCP loopback on Windows.
 func DaemonAddr() string {
 	if runtime.GOOS == "windows" {
 		return "tcp://127.0.0.1:41731"

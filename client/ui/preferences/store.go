@@ -1,14 +1,9 @@
 //go:build !android && !ios && !freebsd && !js
 
-// Package preferences holds user-scope UI state that is independent of the
-// daemon profile: language, and any future toggles the React UI exposes to
-// the user. The Store reads from and writes to a JSON file under
-// os.UserConfigDir(), validates input against an injected language
-// validator (typically *i18n.Bundle), and broadcasts changes to in-process
-// subscribers (tray) plus an optional Wails emitter (frontend).
-//
-// No Wails dependency — the emitter is consumed through a minimal
-// interface so the package can be tested without spinning up Wails.
+// Package preferences holds user-scope UI state, independent of the daemon
+// profile and shared across all profiles. The Store persists to JSON under
+// os.UserConfigDir() and broadcasts changes to in-process subscribers plus an
+// optional emitter.
 package preferences
 
 import (
@@ -25,21 +20,15 @@ import (
 	"github.com/netbirdio/netbird/util"
 )
 
-// preferencesFileName is the JSON file holding user-scope UI preferences.
-// Stored under os.UserConfigDir()/netbird so it lives in the OS-user's
-// writable config dir, not the daemon's root-owned state. Per-OS-user,
-// shared across all daemon profiles.
+// Lives under os.UserConfigDir()/netbird (OS-user writable, not the daemon's
+// root-owned state).
 const preferencesFileName = "ui-preferences.json"
 
-// EventPreferencesChanged fires whenever the on-disk preferences are
-// updated (from any source). The payload is the fresh UIPreferences value.
-// Wails registers this name in init() so the React frontend can subscribe.
+// EventPreferencesChanged fires on every persisted update, payload UIPreferences.
 const EventPreferencesChanged = "netbird:preferences:changed"
 
-// ViewMode is the user's preferred Main-window layout. "default" is the
-// compact 380-wide layout shown on first launch; "advanced" is the wider
-// 900-px layout that matches the Settings window. Persisted so the next
-// launch comes up in the same mode the user last picked.
+// ViewMode is the preferred Main-window layout: "default" (compact, 380-wide)
+// or "advanced" (900-wide).
 type ViewMode string
 
 const (
@@ -47,15 +36,11 @@ const (
 	ViewModeAdvanced ViewMode = "advanced"
 )
 
-// DefaultViewMode is the value served when no preferences file exists yet
-// or the on-disk file has an empty view-mode field.
+// DefaultViewMode applies when no file exists or its view-mode is empty.
 const DefaultViewMode = ViewModeDefault
 
-// ErrUnsupportedViewMode is returned by SetViewMode when the caller passes
-// a value outside the known set.
 var ErrUnsupportedViewMode = errors.New("unsupported view mode")
 
-// IsValid reports whether v is one of the known ViewMode constants.
 func (v ViewMode) IsValid() bool {
 	switch v {
 	case ViewModeDefault, ViewModeAdvanced:
@@ -64,31 +49,26 @@ func (v ViewMode) IsValid() bool {
 	return false
 }
 
-// UIPreferences is the user-scope UI state mirrored to disk and to the
-// frontend. Pointer-free because the whole document is rewritten on every
-// change — there are no per-field partial updates.
+// UIPreferences is rewritten in full on every change; there are no partial updates.
 type UIPreferences struct {
 	Language            i18n.LanguageCode `json:"language"`
 	ViewMode            ViewMode          `json:"viewMode"`
 	OnboardingCompleted bool              `json:"onboardingCompleted"`
 }
 
-// LanguageValidator is the dependency Store needs to reject SetLanguage
-// inputs that have no shipped bundle. *i18n.Bundle satisfies it directly.
+// LanguageValidator rejects SetLanguage inputs with no shipped bundle.
+// *i18n.Bundle satisfies it.
 type LanguageValidator interface {
 	HasLanguage(code i18n.LanguageCode) bool
 }
 
-// Emitter is the dependency Store needs to broadcast changes to the
-// frontend. *application.EventProcessor (Wails) satisfies it; tests pass
-// nil or a fake.
+// Emitter broadcasts changes to the frontend. Wails'
+// *application.EventProcessor satisfies it; tests pass nil or a fake.
 type Emitter interface {
 	Emit(name string, data ...any) bool
 }
 
-// Store is the user-scope UI preferences store. Read at app start,
-// updated by the React settings page (via the Wails-bound facade), and
-// observed by the tray which re-renders its menu in the new language.
+// Store is the user-scope UI preferences store.
 type Store struct {
 	path string
 
@@ -102,21 +82,16 @@ type Store struct {
 	emitter   Emitter
 }
 
-// NewStore loads preferences from disk (creating a default file when
-// none exists). The validator is consulted on SetLanguage; pass nil to
-// skip validation (used by the unit tests). The emitter is optional —
-// when set, SetLanguage broadcasts EventPreferencesChanged.
+// NewStore loads preferences from disk, falling back to defaults. A nil
+// validator skips SetLanguage validation; a nil emitter skips broadcasting.
 func NewStore(validator LanguageValidator, emitter Emitter) (*Store, error) {
 	path, err := preferencesPath()
 	if err != nil {
 		return nil, fmt.Errorf("resolve preferences path: %w", err)
 	}
 
-	// Language starts empty — the absence of a value is the signal the
-	// frontend uses on first launch to detect the browser locale and call
-	// SetLanguage. Consumers that need an effective language (tray
-	// Localizer, i18n.Bundle.Translate) already fall back to
-	// i18n.DefaultLanguage when the code is empty.
+	// Language starts empty: the frontend treats absence as the signal to
+	// detect the browser locale on first launch and call SetLanguage.
 	s := &Store{
 		path:      path,
 		validator: validator,
@@ -138,8 +113,7 @@ func (s *Store) Get() UIPreferences {
 	return s.current
 }
 
-// SetViewMode validates and persists the user's Main-window view choice,
-// then broadcasts the change so any other open window can react.
+// SetViewMode validates, persists, and broadcasts. No-op if unchanged.
 func (s *Store) SetViewMode(mode ViewMode) error {
 	if !mode.IsValid() {
 		return fmt.Errorf("%w: %q", ErrUnsupportedViewMode, mode)
@@ -163,9 +137,7 @@ func (s *Store) SetViewMode(mode ViewMode) error {
 	return nil
 }
 
-// SetOnboardingCompleted persists the welcome-window dismissal so the
-// welcome flow doesn't run again on subsequent launches. Idempotent — a
-// repeat of the current value is a no-op (no disk write, no broadcast).
+// SetOnboardingCompleted persists the welcome-window dismissal. No-op if unchanged.
 func (s *Store) SetOnboardingCompleted(done bool) error {
 	s.mu.Lock()
 	if s.current.OnboardingCompleted == done {
@@ -185,9 +157,7 @@ func (s *Store) SetOnboardingCompleted(done bool) error {
 	return nil
 }
 
-// SetLanguage validates and persists a new language preference, then
-// broadcasts the change to internal subscribers (tray) and the emitter
-// (frontend).
+// SetLanguage validates, persists, and broadcasts. No-op if unchanged.
 func (s *Store) SetLanguage(lang i18n.LanguageCode) error {
 	if lang == "" {
 		return fmt.Errorf("%w: empty code", i18n.ErrUnsupportedLanguage)
@@ -214,9 +184,8 @@ func (s *Store) SetLanguage(lang i18n.LanguageCode) error {
 	return nil
 }
 
-// Subscribe returns a channel that receives every persisted change. The
-// unsubscribe function closes the channel and removes it from the list;
-// callers must not close the channel themselves.
+// Subscribe returns a channel of persisted changes and an unsubscribe func.
+// The unsubscribe func closes the channel; callers must not close it themselves.
 func (s *Store) Subscribe() (<-chan UIPreferences, func()) {
 	ch := make(chan UIPreferences, 4)
 	s.subsMu.Lock()
@@ -237,9 +206,8 @@ func (s *Store) Subscribe() (<-chan UIPreferences, func()) {
 	return ch, unsubscribe
 }
 
-// load reads the on-disk file into current. A missing file is not an
-// error (we keep the in-memory default); malformed contents are reported
-// so the caller can log+continue with the default.
+// load reads the file into current. A missing file is not an error (the
+// in-memory default stands); malformed contents return an error.
 func (s *Store) load() error {
 	if _, err := os.Stat(s.path); errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -260,9 +228,8 @@ func (s *Store) load() error {
 	return nil
 }
 
-// persistLocked writes the candidate preferences atomically. Caller must
-// hold s.mu (write lock); the lock is not released here so the in-memory
-// state is updated only after a successful write.
+// persistLocked writes v to disk. Caller must hold s.mu and update in-memory
+// state only after this returns nil.
 func (s *Store) persistLocked(v UIPreferences) error {
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
 		return fmt.Errorf("mkdir %s: %w", filepath.Dir(s.path), err)
@@ -270,10 +237,8 @@ func (s *Store) persistLocked(v UIPreferences) error {
 	return util.WriteJson(context.Background(), s.path, v)
 }
 
-// broadcast fans the new value out to internal subscribers and to the
-// frontend emitter. Subscribers with a full buffer are skipped — the tray
-// only cares about the latest value, so dropping intermediate frames
-// during a burst is safe.
+// broadcast fans v out to subscribers and the emitter. Full-buffer subscribers
+// are skipped: consumers only need the latest value, so dropping is safe.
 func (s *Store) broadcast(v UIPreferences) {
 	s.subsMu.Lock()
 	subs := make([]chan UIPreferences, len(s.subs))
@@ -293,7 +258,6 @@ func (s *Store) broadcast(v UIPreferences) {
 	}
 }
 
-// preferencesPath resolves os.UserConfigDir()/netbird/ui-preferences.json.
 func preferencesPath() (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {

@@ -8,12 +8,9 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// refreshRestrictions pulls the daemon's operator-disabled UI surfaces
-// (DisableProfiles / DisableNetworks) and re-applies the tray menu gating.
-// Called once at startup (ApplicationStarted) and on every config_changed
-// system event — the daemon re-applies its MDM policy on each engine spawn
-// and emits that event, so this is the tray's signal to re-sync the kill
-// switches.
+// refreshRestrictions re-reads the operator-disabled UI flags and re-gates the
+// menu. Must run on every config_changed event: the daemon re-applies its MDM
+// policy on each engine spawn.
 func (t *Tray) refreshRestrictions() {
 	r, err := t.svc.Settings.GetRestrictions(context.Background())
 	if err != nil {
@@ -26,20 +23,13 @@ func (t *Tray) refreshRestrictions() {
 	t.disableProfiles = r.Features.DisableProfiles
 	t.disableNetworks = r.Features.DisableNetworks
 	t.featureMu.Unlock()
-	// Repaint only when a flag actually flipped: relayoutMenu rebuilds the
-	// whole menu tree, so a no-op refresh (the common case) must not churn
-	// it. relayoutMenu and fillProfileSubmenu read the cached flags via
-	// featuresDisabled, so the new state applies regardless of which relayout
-	// (this one, a status push, or a profile reload) runs last.
+	// relayoutMenu rebuilds the whole tree, so skip the no-op refresh (common case).
 	if changed {
 		t.relayoutMenu()
 	}
 }
 
-// featuresDisabled returns the cached DisableProfiles / DisableNetworks kill
-// switches under featureMu. Read by relayoutMenu, refreshMenuItemsForStatus,
-// and fillProfileSubmenu to grey out the Profiles and Exit Node menus when
-// the operator (or an MDM policy) disabled those surfaces server-side.
+// featuresDisabled returns the cached flags under featureMu.
 func (t *Tray) featuresDisabled() (profiles, networks bool) {
 	t.featureMu.Lock()
 	defer t.featureMu.Unlock()

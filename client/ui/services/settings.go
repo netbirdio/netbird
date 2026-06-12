@@ -12,18 +12,18 @@ import (
 type MDMFields struct {
 	ManagementURL            string `json:"managementURL"`
 	PreSharedKey             bool   `json:"preSharedKey"`
-	WireguardPort            bool `json:"wireguardPort"`
-	RosenpassEnabled         bool `json:"rosenpassEnabled"`
-	RosenpassPermissive      bool `json:"rosenpassPermissive"`
-	DisableClientRoutes      bool `json:"disableClientRoutes"`
-	DisableServerRoutes      bool `json:"disableServerRoutes"`
-	AllowServerSSH           bool `json:"allowServerSSH"`
-	DisableAutoConnect       bool `json:"disableAutoConnect"`
-	BlockInbound             bool `json:"blockInbound"`
-	DisableMetricsCollection bool `json:"disableMetricsCollection"`
-	SplitTunnelMode          bool `json:"splitTunnelMode"`
-	SplitTunnelApps          bool `json:"splitTunnelApps"`
-	DisableAdvancedView      bool `json:"disableAdvancedView"`
+	WireguardPort            bool   `json:"wireguardPort"`
+	RosenpassEnabled         bool   `json:"rosenpassEnabled"`
+	RosenpassPermissive      bool   `json:"rosenpassPermissive"`
+	DisableClientRoutes      bool   `json:"disableClientRoutes"`
+	DisableServerRoutes      bool   `json:"disableServerRoutes"`
+	AllowServerSSH           bool   `json:"allowServerSSH"`
+	DisableAutoConnect       bool   `json:"disableAutoConnect"`
+	BlockInbound             bool   `json:"blockInbound"`
+	DisableMetricsCollection bool   `json:"disableMetricsCollection"`
+	SplitTunnelMode          bool   `json:"splitTunnelMode"`
+	SplitTunnelApps          bool   `json:"splitTunnelApps"`
+	DisableAdvancedView      bool   `json:"disableAdvancedView"`
 }
 
 type Features struct {
@@ -37,19 +37,16 @@ type Restrictions struct {
 	Features Features  `json:"features"`
 }
 
-
-// ConfigParams selects which profile/user to read or write config for.
 type ConfigParams struct {
 	ProfileName string `json:"profileName"`
 	Username    string `json:"username"`
 }
 
-
 type Config struct {
-	ManagementURL string `json:"managementUrl"`
-	AdminURL      string `json:"adminUrl"`
-	ConfigFile    string `json:"configFile"`
-	LogFile       string `json:"logFile"`
+	ManagementURL                 string `json:"managementUrl"`
+	AdminURL                      string `json:"adminUrl"`
+	ConfigFile                    string `json:"configFile"`
+	LogFile                       string `json:"logFile"`
 	PreSharedKeySet               bool   `json:"preSharedKeySet"`
 	InterfaceName                 string `json:"interfaceName"`
 	WireguardPort                 int64  `json:"wireguardPort"`
@@ -75,8 +72,8 @@ type Config struct {
 	SSHJWTCacheTTL                int32  `json:"sshJwtCacheTtl"`
 }
 
-// SetConfigParams is a partial update — only fields with non-nil pointers
-// are sent to the daemon. The frontend uses this to flip individual toggles.
+// SetConfigParams is a partial update — only non-nil pointer fields are sent
+// to the daemon; nil fields are preserved.
 type SetConfigParams struct {
 	ProfileName                   string  `json:"profileName"`
 	Username                      string  `json:"username"`
@@ -108,7 +105,6 @@ type SetConfigParams struct {
 	SSHJWTCacheTTL                *int32  `json:"sshJwtCacheTtl,omitempty"`
 }
 
-// Settings groups the daemon RPCs that read and write the daemon config.
 type Settings struct {
 	conn DaemonConn
 }
@@ -199,7 +195,6 @@ func (s *Settings) SetConfig(ctx context.Context, p SetConfigParams) error {
 	return err
 }
 
-// MDM + Features Restrictions
 func (s *Settings) GetRestrictions(ctx context.Context) (Restrictions, error) {
 	cli, err := s.conn.Client()
 	if err != nil {

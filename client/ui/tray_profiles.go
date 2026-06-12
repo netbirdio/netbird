@@ -13,15 +13,8 @@ import (
 	"github.com/netbirdio/netbird/client/ui/services"
 )
 
-// loadConfig seeds the in-process notifications gate from the daemon's
-// stored config and caches the active-profile identity for any future
-// SetConfig calls. Called once at startup from a goroutine so a slow or
-// unreachable daemon does not block menu construction.
-//
-// The Settings page in the main window is the source of truth for every
-// other knob (SSH, auto-connect, Rosenpass, lazy connections, block-inbound,
-// notifications); we only mirror the notifications flag because the tray
-// itself uses it to gate OS toasts in onSystemEvent.
+// loadConfig caches the active-profile identity and the notifications gate.
+// Runs in a startup goroutine so a slow daemon does not block menu construction.
 func (t *Tray) loadConfig() {
 	ctx := context.Background()
 
@@ -43,16 +36,10 @@ func (t *Tray) loadConfig() {
 	t.profileMu.Unlock()
 }
 
-// loadProfiles fetches the profile list from the daemon, caches it under
-// profilesMu, and drives a full tray relayout (relayoutMenu) so the Profiles
-// submenu repaints. Called on ApplicationStarted, after a successful
-// switchProfile, and from applyStatus whenever the daemon's status text
-// changes — the last case catches profile flips driven by another channel
-// (CLI "netbird profile select", autoconnect picking the persisted profile
-// after the UI's first ListProfiles, etc.) since the daemon does not emit a
-// dedicated active-profile event. The relayout (rather than a Clear()+Add()
-// into the live submenu) is what makes KDE/Plasma actually repaint and keep
-// the click→id mapping live — see relayoutMenu's doc comment.
+// loadProfiles fetches the profile list and relayouts the menu. Also called
+// from applyStatus to catch flips from another channel (CLI, autoconnect),
+// since the daemon emits no active-profile event. Full relayout (not
+// Clear()+Add()) is required for KDE/Plasma — see relayoutMenu's doc comment.
 func (t *Tray) loadProfiles() {
 	t.profileLoadMu.Lock()
 	defer t.profileLoadMu.Unlock()
@@ -77,11 +64,8 @@ func (t *Tray) loadProfiles() {
 	t.relayoutMenu()
 }
 
-// fillProfileSubmenu paints the cached profile rows into the (freshly built)
-// Profiles submenu and updates the parent label + email row. Pure UI: it
-// never fetches and never calls SetMenu — relayoutMenu owns the single
-// SetMenu that pushes the whole tree. Reads the rows captured by loadProfiles
-// under profilesMu.
+// fillProfileSubmenu paints cached profile rows into the freshly built submenu.
+// Pure UI: never fetches, never calls SetMenu (relayoutMenu owns the SetMenu).
 func (t *Tray) fillProfileSubmenu() {
 	if t.profileSubmenu == nil {
 		return
@@ -93,11 +77,8 @@ func (t *Tray) fillProfileSubmenu() {
 
 	sort.Slice(profiles, func(i, j int) bool { return profiles[i].Name < profiles[j].Name })
 
-	// When the daemon (or an MDM policy) disables profiles, the parent menu
-	// is greyed out by relayoutMenu/refreshMenuItemsForStatus, but Wails'
-	// systray does not reliably propagate a disabled parent to its children
-	// on every platform — so disable each row and "Manage Profiles" too,
-	// mirroring the legacy Fyne UI's profile.setEnabled lock.
+	// Wails' systray does not reliably propagate a disabled parent to its
+	// children on every platform, so disable each row explicitly.
 	disableProfiles, _ := t.featuresDisabled()
 
 	t.profileSubmenu.Clear()
@@ -105,11 +86,9 @@ func (t *Tray) fillProfileSubmenu() {
 	for _, p := range profiles {
 		name := p.Name
 		active := p.IsActive
-		// Use Add instead of AddCheckbox: Wails auto-toggles a checkbox's
-		// checked state on click (before the OnClick handler fires), so with
-		// AddCheckbox both the old and the new profile would briefly show as
-		// checked while the switchProfile goroutine is running. A plain item
-		// with a "✓ " prefix avoids the race entirely.
+		// Add, not AddCheckbox: Wails auto-toggles a checkbox on click before
+		// OnClick fires, so both old and new would briefly show checked during
+		// the switch. A plain item with a "✓ " prefix avoids the race.
 		label := name
 		if active {
 			label = "✓ " + name
@@ -148,17 +127,9 @@ func (t *Tray) fillProfileSubmenu() {
 	}
 }
 
-// switchProfile cancels any in-flight profile switch, then starts a new one.
-// Cancelling the previous context aborts its in-flight gRPC calls (Down/Up)
-// so rapid clicks always converge to the last selected profile.
-//
-// The optimistic Connecting paint (and suppression of the transient
-// Idle/stale Connected daemon events that follow Down) lives in
-// services/daemon_feed.go — ProfileSwitcher calls DaemonFeed.BeginProfileSwitch
-// when the previous status was Connected/Connecting, which emits a
-// synthetic Connecting status to the event bus and starts filtering
-// the daemon stream. That way both this tray and the React Status
-// page see the same optimistic state without duplicating policy.
+// switchProfile cancels any in-flight switch before starting a new one, so
+// rapid clicks converge to the last selected profile. Optimistic paint and
+// event suppression live in ProfileSwitcher, shared with the React Status page.
 func (t *Tray) switchProfile(name string) {
 	t.profileMu.Lock()
 	if t.switchCancel != nil {

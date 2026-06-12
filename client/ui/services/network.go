@@ -8,7 +8,6 @@ import (
 	"github.com/netbirdio/netbird/client/proto"
 )
 
-// Network is one routed network the daemon offers to the client.
 type Network struct {
 	ID          string              `json:"id"`
 	Range       string              `json:"range"`
@@ -17,16 +16,13 @@ type Network struct {
 	ResolvedIPs map[string][]string `json:"resolvedIps"`
 }
 
-// SelectNetworksParams selects which networks to enable / disable.
-// All means "every available network" (used by Select-All / Deselect-All buttons);
-// Append means "leave the existing selection in place and merge these IDs in".
+// SelectNetworksParams: All targets every available network; Append merges IDs into the existing selection.
 type SelectNetworksParams struct {
 	NetworkIDs []string `json:"networkIds"`
 	Append     bool     `json:"append"`
 	All        bool     `json:"all"`
 }
 
-// Networks groups the daemon RPCs that read and toggle routed networks.
 type Networks struct {
 	conn DaemonConn
 }

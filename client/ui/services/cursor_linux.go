@@ -14,9 +14,8 @@ typedef struct CursorPoint {
     int ok;
 } CursorPoint;
 
-// XQueryPointer hits Xorg directly on X11 sessions and XWayland on
-// Wayland sessions (shipped by default on the supported distros). ok=0
-// when no X server is reachable — caller falls back gracefully.
+// XQueryPointer works on X11 and, via XWayland, on Wayland sessions.
+// ok=0 when no X server is reachable.
 CursorPoint nbGetCursorPos(void) {
     CursorPoint p = {0, 0, 0};
     Display *dpy = XOpenDisplay(NULL);

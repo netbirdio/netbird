@@ -19,28 +19,15 @@ const (
 	notifyIDSessionExpired = "netbird-session-expired"
 	notifyIDSessionWarning = "netbird-session-warning"
 
-	// notifyCategorySessionWarning groups the "Extend now" / "Dismiss"
-	// actions on the T-10min OS notification. Registered once at tray
-	// construction with the Wails notifications service; subsequent
-	// SendNotificationWithActions calls reference it by ID.
 	notifyCategorySessionWarning = "netbird-session-warning"
 	notifyActionExtendNow        = "extend-now"
 	notifyActionDismiss          = "dismiss"
 
-	// finalWarningCountdownSeconds is the countdown shown in the auto-opened
-	// SessionExpiration dialog. Mirrors sessionwatch.FinalWarningLead
-	// (2 minutes); the values stay in sync by hand because the lead is fixed
-	// for the initial rollout.
+	// finalWarningCountdownSeconds must stay in sync by hand with sessionwatch.FinalWarningLead.
 	finalWarningCountdownSeconds = 120
 )
 
-// handleSessionExpired surfaces the SSO re-authentication path when the
-// daemon reports StatusSessionExpired. Posts a single OS notification
-// (the applyStatus guard ensures it fires only on the transition, not
-// on every status snapshot) and brings the main window forward so the
-// frontend's /login route can drive the renewed SSO flow. Mirrors the
-// Fyne client's onSessionExpire, which used a runSelfCommand to spawn
-// the login-url helper; here the window is already in-process.
+// handleSessionExpired notifies and brings the window forward so the frontend's /login route drives renewal.
 func (t *Tray) handleSessionExpired() {
 	t.notify(t.loc.T("notify.sessionExpired.title"), t.loc.T("notify.sessionExpired.body"), notifyIDSessionExpired)
 	if t.window != nil {
@@ -50,9 +37,8 @@ func (t *Tray) handleSessionExpired() {
 	}
 }
 
-// applySessionExpiry refreshes the cached SSO deadline and reports whether
-// it changed. Cache-only — the tray row is painted by relayoutMenu;
-// applyStatus drives a relayout when this returns true.
+// applySessionExpiry refreshes the cached SSO deadline and reports whether it changed.
+// Cache-only; the caller relayouts when this returns true.
 func (t *Tray) applySessionExpiry(deadline *time.Time, connected bool) bool {
 	var d time.Time
 	if connected && deadline != nil {
@@ -78,9 +64,7 @@ func (t *Tray) applySessionExpiry(deadline *time.Time, connected bool) bool {
 	return changed
 }
 
-// runSessionExpiryTicker keeps the "Expires in …" countdown row fresh by
-// recomputing its label every 30 seconds for the app's lifetime. Started
-// once on ApplicationStarted; the goroutine lives until the process exits.
+// runSessionExpiryTicker recomputes the "Expires in …" row label every 30s. Runs until process exit.
 func (t *Tray) runSessionExpiryTicker() {
 	tk := time.NewTicker(30 * time.Second)
 	for range tk.C {
@@ -88,10 +72,8 @@ func (t *Tray) runSessionExpiryTicker() {
 	}
 }
 
-// refreshSessionExpiresLabel recomputes the countdown row label from the
-// cached SSO deadline. The item is snapshotted under menuMu (buildMenu
-// reassigns it on every relayout); no full relayout here — a 30s-cadence
-// rebuild could disturb an open menu.
+// refreshSessionExpiresLabel updates only the countdown label, no relayout, to avoid disturbing an open menu.
+// The item is snapshotted under menuMu since buildMenu reassigns it on every relayout.
 func (t *Tray) refreshSessionExpiresLabel() {
 	t.menuMu.Lock()
 	item := t.sessionExpiresItem
@@ -109,14 +91,8 @@ func (t *Tray) refreshSessionExpiresLabel() {
 	item.SetLabel(t.loc.T("tray.session.expiresIn", "remaining", remaining))
 }
 
-// formatSessionRemaining renders the time-to-deadline as a localised
-// long-form string ("47 minutes", "2 hours", "1 day"). Picks the
-// largest unit that fits non-zero and keeps singular/plural distinct
-// — the unit name keys (`tray.session.unit.minute(s)|hour(s)|day(s)`)
-// are split per language so translators can spell each form properly.
-// Sub-minute deltas read as "less than a minute" so a countdown that
-// has rolled past zero between Status pushes still produces something
-// sensible.
+// formatSessionRemaining renders d as a localised long-form string picking the largest non-zero unit.
+// Singular/plural keys are split per language for proper translation.
 func (t *Tray) formatSessionRemaining(d time.Duration) string {
 	switch {
 	case d < time.Minute:
@@ -142,12 +118,8 @@ func (t *Tray) formatSessionRemaining(d time.Duration) string {
 	}
 }
 
-// registerSessionWarningCategory wires the OS notification category for the
-// T-10min SSO expiry warning. The category carries two actions ("Extend now"
-// and "Dismiss") and the global response handler so a click resolves back
-// into runExtendSession. Idempotent — called once from NewTray; errors are
-// logged and swallowed because the worst case is a plain text notification
-// without buttons.
+// registerSessionWarningCategory wires the OS notification category and response handler for the expiry warning.
+// Errors are swallowed since the worst case is a plain notification without buttons.
 func (t *Tray) registerSessionWarningCategory() {
 	if t.svc.Notifier == nil {
 		return
@@ -171,30 +143,17 @@ func (t *Tray) registerSessionWarningCategory() {
 		}
 		switch result.Response.ActionIdentifier {
 		case notifyActionExtendNow, notifications.DefaultActionIdentifier:
-			// DefaultActionIdentifier covers the body-click on platforms
-			// that don't expose buttons separately (e.g. some minimal
-			// Linux notification daemons fall back to a single click
-			// area). Treat it as Extend so the user always has a path.
+			// DefaultActionIdentifier is the body-click on platforms with no separate buttons; treat as Extend.
 			go t.runExtendSession()
 		case notifyActionDismiss:
-			// Explicit user opt-out. Tell the daemon so the
-			// T-FinalWarningLead fallback dialog stays closed for this
-			// deadline; the regular watcher remains armed for the next
-			// deadline value (e.g. after a successful extend elsewhere).
 			go t.dismissSessionWarning()
 		}
 	})
 }
 
-// buildSessionWarningBody composes the localised body for the T-10min
-// notification from the daemon's metadata. The daemon does not have a
-// locale, so it ships a stable RFC3339 deadline ("session_expires_at")
-// and integer lead time ("lead_minutes") in metadata; the tray turns
-// them into a user-language sentence via the active i18n bundle.
-//
-// Falls back to a constant string when the metadata is missing or the
-// timestamp fails to parse — the user still sees the warning, just
-// without the remaining-time count.
+// buildSessionWarningBody composes the localised notification body from the daemon's metadata.
+// The daemon has no locale, so it ships an RFC3339 deadline the tray turns into a user-language sentence.
+// Falls back to a generic string when metadata is missing or unparsable.
 func (t *Tray) buildSessionWarningBody(meta map[string]string) string {
 	if meta == nil {
 		return t.loc.T("notify.sessionWarning.bodyGeneric")
@@ -211,9 +170,8 @@ func (t *Tray) buildSessionWarningBody(meta map[string]string) string {
 	return t.loc.T("notify.sessionWarning.body", "remaining", remaining)
 }
 
-// notifySessionWarning sends the interactive T-10min OS notification. Falls
-// back to the plain `notify` helper if the Wails service doesn't expose the
-// with-actions variant (older platform impls, or a bare Notifier in tests).
+// notifySessionWarning sends the interactive expiry notification, falling back to plain notify when the
+// with-actions variant is unavailable (older platform impls, or a bare Notifier in tests).
 func (t *Tray) notifySessionWarning(title, body string) {
 	if t.svc.Notifier == nil {
 		return
@@ -225,23 +183,13 @@ func (t *Tray) notifySessionWarning(title, body string) {
 		CategoryID: notifyCategorySessionWarning,
 	})
 	if err != nil {
-		// Fall back to a plain notification so the user at least gets
-		// the warning text, even without buttons. (A nil err here also
-		// covers the panic-recovered case, where the bus is dead and the
-		// plain fallback would fail too — so we correctly skip it.)
+		// A recovered panic returns nil err, so a dead bus correctly skips this fallback (it would panic too).
 		t.notify(title, body, notifyIDSessionWarning)
 	}
 }
 
-// runExtendSession drives the daemon's RequestExtendAuthSession +
-// WaitExtendAuthSession pair when the user clicks "Extend now" on the
-// session-warning notification. Mirrors `doExtendSession` in
-// client/cmd/login.go but talks to the in-process Wails Session service
-// instead of opening a daemon gRPC channel from a CLI process. The
-// browser is opened via Connection.OpenURL (which honours $BROWSER on
-// Unix). Errors surface as plain notifyError calls — there is no foreground
-// UI flow here because the warning may fire while the main window is
-// closed.
+// runExtendSession drives the daemon's RequestExtend + WaitExtend pair, opening the browser via Connection.OpenURL.
+// Errors surface as notifyError rather than foreground UI, since the warning may fire while the window is closed.
 func (t *Tray) runExtendSession() {
 	if t.svc.Session == nil || t.svc.Connection == nil {
 		log.Debugf("session-warning: extend requested but services not wired")
@@ -276,18 +224,15 @@ func (t *Tray) runExtendSession() {
 		return
 	}
 	if result.Preempted {
-		// Another UI surface (e.g. the about-to-expire dialog) started a
-		// flow for the same deadline and took over. Stay silent so the
-		// user only sees the outcome of the surviving flow.
+		// Another UI surface owns the flow; stay silent so the user only sees the surviving flow's outcome.
 		log.Debugf("session-warning: WaitExtend preempted by a newer flow")
 		return
 	}
 	t.notify(t.loc.T("notify.sessionWarning.successTitle"), t.loc.T("notify.sessionWarning.successBody"), notifyIDSessionWarning)
 }
 
-// dismissSessionWarning tells the daemon to silence the T-FinalWarningLead
-// fallback dialog for the current deadline. Best-effort: a failure only
-// means the dialog will still appear, so we log and move on.
+// dismissSessionWarning tells the daemon to silence the fallback dialog for the current deadline.
+// Best-effort: a failure only means the dialog will still appear.
 func (t *Tray) dismissSessionWarning() {
 	if t.svc.Session == nil {
 		return
@@ -297,10 +242,8 @@ func (t *Tray) dismissSessionWarning() {
 	}
 }
 
-// openSessionExpiration fires the auto-opened fallback dialog at
-// T-FinalWarningLead when the user did not dismiss the earlier T-10
-// notification. Idempotent on the WindowManager side (a second call
-// while the window is already open is a no-op).
+// openSessionExpiration fires the fallback dialog when the earlier warning notification wasn't dismissed.
+// Idempotent on the WindowManager side.
 func (t *Tray) openSessionExpiration() {
 	if t.svc.WindowManager == nil {
 		return
@@ -308,12 +251,8 @@ func (t *Tray) openSessionExpiration() {
 	t.svc.WindowManager.OpenSessionExpiration(finalWarningCountdownSeconds)
 }
 
-// openSessionExtendFlow opens the SessionExpiration window seeded with
-// the actual remaining time on the cached SSO deadline. Triggered by a
-// click on the "Expires in …" tray row so the user can extend the session
-// proactively, instead of waiting for the daemon's T-FinalWarningLead
-// auto-prompt. Silently no-ops when the deadline is unknown or already
-// elapsed — the menu row is hidden in those states anyway.
+// openSessionExtendFlow opens the SessionExpiration window seeded with the cached deadline's remaining time,
+// for the "Expires in …" tray row. No-ops when the deadline is unknown or elapsed.
 func (t *Tray) openSessionExtendFlow() {
 	if t.svc.WindowManager == nil {
 		return

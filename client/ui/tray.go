@@ -20,15 +20,8 @@ import (
 	"github.com/netbirdio/netbird/version"
 )
 
-// Translation keys for every user-facing string the tray paints. The text
-// itself lives in i18n/locales/<lang>/common.json — both the tray and the
-// React UI read from there so a single bundle drives the whole product.
-// Keys are referenced by the Tray.tr helper.
-
-// Non-translated identifiers. Notification IDs coalesce duplicate toasts
-// (the OS uses them as dedup keys); statusError is a tray-only sentinel
-// distinguishing the error-icon state from real daemon status strings;
-// URLs are baked-in product links.
+// Notification IDs are OS dedup keys that coalesce duplicate toasts;
+// statusError is a tray-only sentinel for the error-icon state.
 const (
 	notifyIDUpdatePrefix = "netbird-update-"
 	notifyIDEvent        = "netbird-event-"
@@ -42,13 +35,8 @@ const (
 	urlDocs           = "https://docs.netbird.io"
 )
 
-// Tray builds and updates the systray menu. It mirrors the layout of the Fyne
-// systray 1:1 and routes clicks back to the gRPC services. Dynamic state
-// (status icon, exit-node submenu) is driven by the netbird:status event.
-// TrayServices bundles the daemon-RPC and notification services the tray
-// menu needs. Grouped into a single struct so NewTray stays under the
-// linter's parameter-count threshold and so adding another service later
-// is a one-line struct change instead of a NewTray signature break.
+// TrayServices bundles the services the tray menu needs, grouped so NewTray
+// stays under the linter's parameter-count threshold.
 type TrayServices struct {
 	Connection      *services.Connection
 	Settings        *services.Settings
@@ -59,16 +47,9 @@ type TrayServices struct {
 	Update          *services.Update
 	ProfileSwitcher *services.ProfileSwitcher
 	WindowManager   *services.WindowManager
-	// Session drives the SSO session-extend flow invoked from the
-	// "Extend now" action on the T-10min OS notification, plus the
-	// Dismiss hand-off that suppresses the T-2 fallback dialog. Bound to
-	// the authsession package directly because the Wails wrapper in
-	// services only re-exposes the React-facing subset.
-	Session *authsession.Session
-	// Localizer is the tray's bridge to translations. Constructed in main
-	// from i18n.Bundle + preferences.Store; the Wails-bound facades
-	// (services.I18n, services.Preferences) are registered separately for
-	// React and are not needed here.
+	// Session is bound to authsession directly because the services wrapper
+	// only re-exposes the React subset.
+	Session   *authsession.Session
 	Localizer *Localizer
 }
 
@@ -77,17 +58,12 @@ type Tray struct {
 	tray   *application.SystemTray
 	window *application.WebviewWindow
 	svc    TrayServices
-	// panelDark reports whether the desktop panel uses a dark colour
-	// scheme, so iconForState can pick the black vs white monochrome tray
-	// icon on Linux. Set by startTrayTheme (Linux only); nil on macOS and
-	// Windows, where the OS/Wails handles light-vs-dark icon selection and
-	// panelIsDark falls back to its default.
+	// panelDark reports whether the desktop panel uses a dark scheme, so
+	// iconForState can pick the black vs white mono tray icon on Linux. Set
+	// by startTrayTheme (Linux only); nil elsewhere, where panelIsDark falls
+	// back to its default.
 	panelDark func() bool
-	// loc owns the active language plus the preference subscription. The
-	// tray talks to it for every translated label (t.loc.T(...)) and
-	// registers a callback in NewTray that re-renders the menu on a
-	// language switch.
-	loc *Localizer
+	loc       *Localizer
 
 	// menu and the *Item/*Submenu fields below are reassigned by buildMenu
 	// on every relayout — touch them only with menuMu held. Exceptions:
@@ -95,9 +71,8 @@ type Tray struct {
 	// refreshSessionExpiresLabel snapshots its item under menuMu.
 	menu       *application.Menu
 	statusItem *application.MenuItem
-	// sessionExpiresItem displays the SSO session deadline as a humanised
-	// remaining-time label ("Session: 47m"). Painted by relayoutMenu from
-	// the sessionMu cache; a 30s ticker keeps the countdown moving.
+	// sessionExpiresItem shows the SSO deadline as a remaining-time label,
+	// repainted by a 30s ticker.
 	sessionExpiresItem *application.MenuItem
 	upItem             *application.MenuItem
 	downItem           *application.MenuItem
@@ -111,73 +86,53 @@ type Tray struct {
 
 	updater *trayUpdater
 
-	// statusMu guards the daemon-status core mirrored on the tray —
-	// connected, the last status string, the daemon version, the
-	// routed-networks revision, and the post-connect login-trigger flag.
-	// These are all written by applyStatus and read by the menu painters
-	// (applyIcon, relayoutMenu, refreshExitNodes' connected sample,
-	// etc.). One mutex covers them because they change together on every
-	// Status push.
+	// statusMu guards the daemon-status core mirrored on the tray. One mutex
+	// covers these fields because applyStatus writes them together on every
+	// Status push and the menu painters read them.
 	statusMu          sync.Mutex
 	connected         bool
 	lastStatus        string
 	lastDaemonVersion string
-	// lastNetworksRevision is the daemon's routed-networks revision from
-	// the last Status snapshot; a bump in it — or a connect/disconnect
-	// transition — is what triggers a refreshExitNodes re-fetch, so we
-	// hit ListNetworks only when routes or their selection actually
-	// change rather than on every push. The peer-status route list can't
-	// be used here: it only carries actively-routed (chosen) routes, not
-	// candidate exit nodes.
+	// lastNetworksRevision is the daemon's routed-networks revision; a bump (or
+	// a connect/disconnect transition) gates the refreshExitNodes re-fetch so
+	// ListNetworks runs only when routes change. The peer-status route list
+	// can't substitute: it carries only actively-routed routes, not candidate
+	// exit nodes.
 	lastNetworksRevision uint64
-	// pendingConnectLogin is set when handleConnect kicks off an Up on
-	// an idle daemon. The daemon will flip to NeedsLogin if the peer is
-	// SSO-tracked and has no cached token; applyStatus consumes this
-	// flag on that transition to automatically open the browser-login
-	// flow, saving the user a second Connect click.
-	//
-	// Profile-switch reconnects (which also fire an Up) are handled
-	// centrally by DaemonFeed.statusStreamLoop — see DaemonFeed's
-	// switchInProgress transitions and its EventTriggerLogin emit, so
-	// that the React UI's profile dropdown gets the same auto-handoff
-	// without going through this tray flag.
+	// pendingConnectLogin is set when handleConnect fires an Up on an idle
+	// daemon. The daemon flips to NeedsLogin if the peer is SSO-tracked with
+	// no cached token; applyStatus consumes the flag on that transition to
+	// open the browser-login flow, saving a second Connect click.
+	// Profile-switch reconnects are handled separately by
+	// DaemonFeed.statusStreamLoop.
 	pendingConnectLogin bool
 
-	// sessionMu guards the cached SSO deadline used by the "Session: 47m"
-	// tray row. Independent of statusMu because the ticker reads it on a
-	// 30s cadence and applySessionExpiry writes it whenever the daemon's
-	// Status push carries a new value — neither should block the other's
-	// readers.
-	sessionMu sync.Mutex
-	// sessionExpiresAt is the most recent deadline observed on a Status
-	// snapshot. Used to skip a no-op label rewrite when the daemon
-	// repeats the same value across rapid pushes.
+	// sessionMu guards the cached SSO deadline used by the session row.
+	// Independent of statusMu so the 30s ticker reader and the Status-push
+	// writer don't block each other.
+	sessionMu        sync.Mutex
 	sessionExpiresAt time.Time
 
-	// profileMu guards the profile-domain state: the active profile
-	// identity cached by loadConfig, the notifications gate also cached
-	// there, and the in-flight switchProfile cancel. Independent of
-	// statusMu because a long-running switch (Down + Up) holds the
-	// switchCancel write under this lock, and we don't want it to block
-	// a concurrent Status-push reader of t.connected.
+	// profileMu guards the profile-domain state (active identity, the
+	// notifications gate, the in-flight switch cancel). Independent of
+	// statusMu so a long-running switch holding switchCancel doesn't block a
+	// Status-push reader of t.connected.
 	profileMu            sync.Mutex
 	activeProfile        string
 	activeUsername       string
 	notificationsEnabled bool
 	switchCancel         context.CancelFunc
 
-	// profileLoadMu serializes loadProfiles so the daemon-status-driven
-	// refresh in applyStatus cannot race with the ApplicationStarted seed
-	// or the post-switchProfile reload — both manipulate profileSubmenu and
-	// SetMenu, which the Wails menu API is not safe against concurrent
-	// callers.
+	// profileLoadMu serializes loadProfiles so the applyStatus refresh can't
+	// race the ApplicationStarted seed or the post-switch reload — all
+	// manipulate profileSubmenu + SetMenu, which Wails isn't concurrency-safe
+	// against.
 	profileLoadMu sync.Mutex
 
 	// profilesMu guards the cached profile rows that relayoutMenu repaints
-	// into a freshly built Profiles submenu. loadProfiles fetches and stores
-	// them here; fillProfileSubmenu reads them. Kept separate from the live
-	// submenu so a relayout (which throws the old submenu away) always has a
-	// source of truth to repaint from without re-hitting the daemon.
+	// into a freshly built Profiles submenu, kept separate from the live
+	// submenu so a relayout always has a source to repaint from without
+	// re-hitting the daemon.
 	profilesMu   sync.Mutex
 	profiles     []services.Profile
 	profilesUser string
@@ -188,26 +143,19 @@ type Tray struct {
 	// reinstall a stale tree.
 	menuMu sync.Mutex
 
-	// exitNodesMu guards the t.exitNodes row cache so reading the cached
-	// rows in relayoutMenu (and tearing a copy off the slice for
-	// Repaint) doesn't contend with status-push readers of statusMu.
+	// exitNodesMu guards the exitNodes row cache so relayoutMenu's read (and
+	// the Repaint copy) doesn't contend with status-push readers of statusMu.
 	exitNodesMu sync.Mutex
-	// exitNodes are the rows currently painted into the Exit Node
-	// submenu, sourced from Networks.List() (NetID + selected state) so
-	// each row can be toggled.
-	exitNodes []exitNodeEntry
-	// exitNodesRebuildMu serialises the submenu.Clear + Add + SetMenu
-	// cycle. The Status stream can fire several pushes in quick
-	// succession and each may kick a refresh, but the ListNetworks fetch +
-	// submenu rebuild + SetMenu must not run concurrently with itself.
+	exitNodes   []exitNodeEntry
+	// exitNodesRebuildMu serialises the ListNetworks fetch + submenu rebuild +
+	// SetMenu cycle so back-to-back Status pushes can't run it concurrently
+	// with itself.
 	exitNodesRebuildMu sync.Mutex
 
-	// featureMu guards the daemon feature kill switches mirrored on the
-	// tray. Fetched once at startup and refreshed on every config_changed
-	// system event (the daemon re-applies MDM policy on each engine spawn
-	// and signals it via that event). Folded into the Profiles and Exit
-	// Node menu enablement by featuresDisabled so an operator- or
-	// MDM-disabled surface greys out without a periodic GetFeatures poll.
+	// featureMu guards the daemon feature kill switches mirrored on the tray.
+	// Fetched at startup and refreshed on every config_changed event (the
+	// daemon re-applies MDM policy per engine spawn), so featuresDisabled can
+	// grey out menus without polling GetFeatures.
 	featureMu       sync.Mutex
 	disableProfiles bool
 	disableNetworks bool
@@ -219,78 +167,54 @@ func NewTray(app *application.App, window *application.WebviewWindow, svc TraySe
 		window:               window,
 		svc:                  svc,
 		notificationsEnabled: true,
-		// Localizer is constructed by main from the i18n.Bundle and
-		// preferences.Store so the first menu render below is already in
-		// the right locale — no English flash followed by a re-paint.
+		// Localizer is constructed by main so the first menu render is already
+		// in the right locale — no English flash then re-paint.
 		loc: svc.Localizer,
 	}
 	t.updater = newTrayUpdater(app, window, svc.Update, svc.Notifier, t.loc, func() { t.applyIcon() }, func() { t.relayoutMenu() })
 	t.tray = app.SystemTray.New()
-	// Seed panel-theme detection (Linux only) before the first paint so the
-	// initial icon already matches the panel's light/dark scheme; repaints
-	// on live theme switches.
+	// Seed panel-theme detection before the first paint so the initial icon
+	// matches the panel's light/dark scheme (Linux only).
 	t.startTrayTheme()
 	t.applyIcon()
 	t.tray.SetTooltip(t.loc.T("tray.tooltip"))
-	// On Linux the SNI hover tooltip is sourced from the systray *Label*
-	// (the StatusNotifierItem Title/ToolTip props), not SetTooltip —
-	// SetTooltip is a no-op on Linux. With no label set, Wails falls back
-	// to the literal "Wails", so set it explicitly here. macOS is skipped
-	// because its setLabel paints visible text next to the icon; Windows
-	// is skipped because its tooltip comes from SetTooltip above.
+	// On Linux the SNI hover tooltip rides on the systray label, not
+	// SetTooltip (a no-op there); without a label Wails shows the literal
+	// "Wails". macOS/Windows are skipped (label paints visible text on
+	// macOS; Windows uses SetTooltip above).
 	if runtime.GOOS == "linux" {
 		t.tray.SetLabel(t.loc.T("tray.tooltip"))
 	}
 	t.menu = t.buildMenu()
 	t.tray.SetMenu(t.menu)
-	// Left-click on the tray icon opens the menu, and the window is reached
-	// through the explicit "Open NetBird" entry. This matches macOS
-	// NSStatusItem convention (click → menu), the Linux StatusNotifierItem
-	// spec, and the legacy Fyne client. macOS and Linux give us click→menu
-	// natively, so bindTrayClick is a no-op there (binding OnClick→OpenMenu
-	// on macOS would freeze the tray — see tray_click_other.go). Windows has
-	// no native left-click handler, so bindTrayClick wires one explicitly
-	// (see tray_click_windows.go). On Linux we deliberately skip AttachWindow:
-	// it plus Wails3's applySmartDefaults would pop the window alongside the
-	// menu on environments like GNOME Shell with the AppIndicator extension.
-	// Right-click opens the menu through Wails' default rightClickHandler on
-	// every platform.
+	// macOS/Linux give click→menu natively, so bindTrayClick is a no-op there
+	// (binding OnClick→OpenMenu on macOS would freeze the tray); Windows has no
+	// native handler so it wires one (see tray_click_*.go). On Linux
+	// AttachWindow is skipped — with applySmartDefaults it would pop the window
+	// alongside the menu (e.g. GNOME Shell AppIndicator).
 	bindTrayClick(t)
 
 	app.Event.On(services.EventStatusSnapshot, t.onStatusEvent)
 	app.Event.On(services.EventDaemonNotification, t.onSystemEvent)
-	// Refresh the Profiles submenu when ProfileSwitcher fires the change.
-	// applyStatus already reloads on status-text transitions, but a
-	// switch on an idle daemon doesn't drive one — without this hook,
-	// a React-initiated switch leaves the tray's submenu and active-
-	// profile label stale.
+	// Refresh the Profiles submenu on ProfileSwitcher's change event. A
+	// switch on an idle daemon drives no status transition, so without this
+	// hook a React-initiated switch leaves the tray's submenu stale.
 	app.Event.On(services.EventProfileChanged, func(*application.CustomEvent) {
 		go t.loadProfiles()
 	})
-	// Defer the first profile load until the macOS/GTK/Win32 menu impl is
-	// live — Menu.Update() short-circuits while app.running is false, and
-	// AppKit's main queue isn't ready earlier either (see d23ef34 InvokeSync
-	// nil-deref).
+	// Defer the first profile load until the menu impl is live — Menu.Update()
+	// short-circuits while app.running is false, and AppKit's main queue isn't
+	// ready earlier (see d23ef34 InvokeSync nil-deref).
 	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
 		go t.loadProfiles()
-		// Seed the feature kill switches so a DisableProfiles / DisableNetworks
-		// policy already greys out the matching menus on the first paint
-		// (config_changed events refresh them afterwards).
 		go t.refreshRestrictions()
 		go t.runSessionExpiryTicker()
-		// Notification-category registration must run after the Wails
-		// notifications service Startup has populated wn.appName /
-		// registry path on Windows; before app.Run() the category lookup
-		// in SendNotificationWithActions silently falls back to a
-		// gomb-nélküli notification (the Windows impl logs "Category not
-		// found"). The macOS/Linux impls don't strictly require this
-		// ordering, but running here is harmless for them.
+		// Category registration must run after the notifications service
+		// Startup populates appName/registry path on Windows; before app.Run()
+		// the category lookup silently falls back to a plain notification.
 		t.registerSessionWarningCategory()
 	})
 
-	// Localizer fires this callback after it has already swapped its own
-	// cached language, so every t.loc.T(...) lookup inside applyLanguage
-	// runs against the new locale.
 	t.loc.Watch(func(i18n.LanguageCode) { t.applyLanguage() })
 
 	go t.loadConfig()
@@ -298,25 +222,16 @@ func NewTray(app *application.App, window *application.WebviewWindow, svc TraySe
 }
 
 // ShowWindow brings the main window forward — used by SIGUSR1 / Windows event.
-// Show() alone is not enough on macOS: makeKeyAndOrderFront skips app
-// activation, so a tray-style app's window pops up behind the currently
-// active app. Focus() additionally calls activateIgnoringOtherApps:YES on
-// macOS and SetForegroundWindow on Windows.
+// Show() alone is not enough on macOS (makeKeyAndOrderFront skips activation,
+// so the window pops up behind the active app); Focus() additionally calls
+// activateIgnoringOtherApps:YES on macOS and SetForegroundWindow on Windows.
 func (t *Tray) ShowWindow() {
-	// While an auto-update install is running the install-progress window
-	// is the focal surface (all other windows hidden by WindowManager).
-	// Tray "Open" / SIGUSR1 / dock-reopen should bring it forward, not
-	// resurrect the main one mid-install. Checked before BrowserLogin
-	// because an install supersedes every other flow.
+	// An install supersedes every other flow, so check it before BrowserLogin.
 	if w := t.svc.WindowManager.InstallProgressWindow(); w != nil {
 		w.Show()
 		w.Focus()
 		return
 	}
-	// While an SSO flow is in progress the BrowserLogin popup is the focal
-	// window — the main window was hidden by WindowManager so the user
-	// stays on the sign-in surface. Tray "Open" / SIGUSR1 / dock-reopen
-	// should bring that window forward, not resurrect the main one mid-flow.
 	if w := t.svc.WindowManager.BrowserLoginWindow(); w != nil {
 		w.Show()
 		w.Focus()
@@ -325,9 +240,9 @@ func (t *Tray) ShowWindow() {
 	if t.window == nil {
 		return
 	}
-	// Route through WindowManager so the main window is centered on its
-	// first show (see WindowManager.ShowMain) — minimal WMs (fluxbox, the
-	// XEmbed tray path) otherwise drop it in the top-left corner.
+	// Route through WindowManager so the main window is centered on first
+	// show — minimal WMs (fluxbox, the XEmbed tray path) otherwise drop it in
+	// the top-left corner.
 	if t.svc.WindowManager != nil {
 		t.svc.WindowManager.ShowMain()
 		return
@@ -336,42 +251,35 @@ func (t *Tray) ShowWindow() {
 	t.window.Focus()
 }
 
-// applyLanguage re-renders every translated surface using the Localizer's
-// current language. Wails dispatches menu/tray APIs onto the platform's
-// UI thread internally, so calling them from the Localizer's background
-// goroutine is safe; profileLoadMu prevents loadProfiles from racing the
-// rebuild.
+// applyLanguage re-renders every translated surface in the Localizer's current
+// language. Wails dispatches menu/tray APIs onto the UI thread internally, so
+// calling them from the Localizer's background goroutine is safe; profileLoadMu
+// prevents loadProfiles from racing the rebuild.
 func (t *Tray) applyLanguage() {
 	t.tray.SetTooltip(t.loc.T("tray.tooltip"))
-	// Mirror the Linux label fix from NewTray — the SNI hover tooltip
-	// rides on the label, so refresh it on language change too.
+	// Mirror the Linux label fix from NewTray (the SNI tooltip rides on the
+	// label).
 	if runtime.GOOS == "linux" {
 		t.tray.SetLabel(t.loc.T("tray.tooltip"))
 	}
 	t.relayoutMenu()
 }
 
-// relayoutMenu rebuilds the ENTIRE tray menu from scratch (buildMenu), repaints
-// the cached status/session/profile/exit-node state into the fresh items, and
-// pushes the whole tree with a single SetMenu. It is the only Linux path that
-// reliably propagates submenu changes.
+// relayoutMenu rebuilds the entire tray menu, repaints the cached
+// status/session/profile/exit-node state into the fresh items, and pushes the
+// whole tree with a single SetMenu.
 //
-// Why a full rebuild rather than mutating the existing submenu in place: on
-// KDE/Plasma the StatusNotifierItem host caches a submenu's layout the first
-// time it is opened (GetLayout for that submenu id) and never re-fetches it on
-// a LayoutUpdated(parent=0) signal — so Clear()+Add() into the same submenu
-// container left the visible menu (and, worse, the click→id mapping) frozen on
-// the first snapshot: clicks sent the stale ids, which the freshly-rebuilt
-// itemMap no longer knew, so they silently no-op'd. buildMenu allocates a brand
-// new submenu container id every time, which Plasma treats as an unseen menu
-// and re-queries on next open — both the labels and the click ids stay live.
-// (Confirmed via dbus-monitor: a re-opened submenu issued no GetLayout until
-// its container id changed.) The darwin detached-NSMenu workaround that the old
-// per-submenu SetMenu addressed is also covered, since this rebuilds the whole
-// tree against the cached top-level pointer.
+// A full rebuild is required because on KDE/Plasma the StatusNotifierItem host
+// caches a submenu's layout on first open (GetLayout for that submenu id) and
+// never re-fetches it on a LayoutUpdated(parent=0) signal — so Clear()+Add()
+// into the same container froze both the visible rows and the click→id mapping,
+// and stale ids no-op'd. buildMenu allocates a fresh submenu container id each
+// time, which Plasma treats as unseen and re-queries (confirmed via
+// dbus-monitor). This also covers the darwin detached-NSMenu workaround, since
+// it rebuilds the whole tree against the cached top-level pointer.
 //
-// Pulls profile/exit-node rows from their caches (profilesMu / exitNodes) so it
-// never re-hits the daemon and never recurses back into loadProfiles.
+// Rows come from the profilesMu/exitNodes caches, so it never re-hits the
+// daemon or recurses back into loadProfiles.
 func (t *Tray) relayoutMenu() {
 	t.menuMu.Lock()
 	defer t.menuMu.Unlock()
@@ -418,7 +326,7 @@ func (t *Tray) relayoutMenu() {
 		t.upItem.SetEnabled(!connected && !connecting && !daemonUnavailable)
 	}
 	if t.downItem != nil {
-		// Disconnect doubles as the abort path while still Connecting.
+		// Disconnect doubles as the Connecting abort path.
 		t.downItem.SetHidden(!connected && !connecting)
 		t.downItem.SetEnabled(connected || connecting)
 	}
@@ -437,44 +345,33 @@ func (t *Tray) relayoutMenu() {
 	if t.updater != nil {
 		t.updater.applyLanguage()
 	}
-	// buildMenu just recreated empty Profiles + Exit Node submenus, so repaint
-	// both from their caches before the single SetMenu below. fillExitNodeSubmenu
-	// uses the entries snapshotted above; fillProfileSubmenu reads profilesMu.
-	// Neither re-fetches, so relayoutMenu never recurses back into
-	// loadProfiles/refreshExitNodes. (We must NOT re-take exitNodesRebuildMu
-	// here — refreshExitNodes already holds it when it calls relayoutMenu.)
+	// buildMenu recreated empty submenus, so repaint both from their caches
+	// before SetMenu. Neither fill re-fetches. Do NOT re-take
+	// exitNodesRebuildMu here — refreshExitNodes already holds it when it
+	// calls relayoutMenu.
 	t.fillExitNodeSubmenu(exitNodeEntries)
 	t.fillProfileSubmenu()
 
-	// Single push of the whole tree. On Linux this emits one LayoutUpdated with
-	// fresh submenu container ids; on darwin it rebuilds the NSMenu against the
-	// cached top-level pointer.
+	// Single push of the whole tree: on Linux one LayoutUpdated with fresh
+	// container ids; on darwin an NSMenu rebuild against the cached pointer.
 	t.tray.SetMenu(t.menu)
 }
 
 func (t *Tray) buildMenu() *application.Menu {
 	menu := application.NewMenu()
 
-	// statusItem shows the daemon's current status. Informational row
-	// with no OnClick handler — clicks are no-ops. Whether the row is
-	// kept enabled is platform-dependent (see statusRowEnabled): on
-	// Windows the disabled-state mask would desaturate the coloured
-	// status dot painted into the check-mark slot, so the row stays
-	// enabled there; macOS/Linux disable it so the greyed-out label
-	// signals that it is not clickable. The Connect entry below drives
-	// every actionable transition, including the SSO re-auth flow for
-	// NeedsLogin/SessionExpired (the daemon's Up RPC returns
-	// NeedsSSOLogin when applicable).
+	// Enabled state is platform-dependent (see statusRowEnabled): Windows keeps
+	// it enabled because the disabled mask would desaturate the coloured status
+	// dot; macOS/Linux disable it so the greyed label signals it isn't
+	// clickable.
 	t.statusItem = menu.Add(t.loc.T("tray.status.disconnected")).
 		SetEnabled(statusRowEnabled()).
 		SetBitmap(iconMenuDotIdle)
 
 	menu.AddSeparator()
 
-	// Only the action that applies to the current state is visible: Connect
-	// when disconnected, Disconnect when connected. The OnClick closures
-	// capture the local item — t.upItem/t.downItem are menuMu-guarded and
-	// must not be read from the click goroutine.
+	// The OnClick closures capture the local item because t.upItem/t.downItem
+	// are menuMu-guarded and must not be read from the click goroutine.
 	upItem := menu.Add(t.loc.T("tray.menu.connect"))
 	upItem.OnClick(func(*application.Context) { t.handleConnect(upItem) })
 	t.upItem = upItem
@@ -485,60 +382,32 @@ func (t *Tray) buildMenu() *application.Menu {
 
 	menu.AddSeparator()
 
-	// Profiles submenu is populated asynchronously once the application
-	// has started — Menu.Update() is a no-op before app.running is true,
-	// so the initial fill is gated on the ApplicationStarted hook.
+	// Populated asynchronously once the app has started — Menu.Update() is a
+	// no-op before app.running is true, so the initial fill is gated on the
+	// ApplicationStarted hook.
 	profilesLabel := t.loc.T("tray.menu.profiles")
 	t.profileSubmenu = menu.AddSubmenu(profilesLabel)
-	// profileSubmenuItem is the parent MenuItem whose label is the active
-	// profile name. AddSubmenu returns the child *Menu, so we retrieve the
-	// parent *MenuItem via FindByLabel immediately after insertion.
+	// AddSubmenu returns the child *Menu, so retrieve the parent *MenuItem via
+	// FindByLabel.
 	t.profileSubmenuItem = menu.FindByLabel(profilesLabel)
-	// profileEmailItem shows the account email of the active profile directly
-	// in the main menu, below the Profiles submenu — matching the behaviour of
-	// the legacy Fyne/systray UI. It is hidden until loadProfiles resolves a
-	// non-empty email for the active profile.
 	t.profileEmailItem = menu.Add("").SetEnabled(false)
 	t.profileEmailItem.SetHidden(true)
-	// sessionExpiresItem sits below the profile email so the active profile,
-	// its account email, and the SSO session deadline read as a single block.
-	// Hidden until applyStatus sees a non-zero SessionExpiresAt on the daemon
-	// Status snapshot — peers without SSO tracking or with login expiry
-	// disabled never reveal this row. Click opens the SessionExpiration
-	// window so the user can extend the session ahead of the daemon's
-	// T-FinalWarningLead auto-prompt.
+	// Click opens the SessionExpiration window so the user can extend ahead of
+	// the daemon's T-FinalWarningLead auto-prompt.
 	t.sessionExpiresItem = menu.Add("").OnClick(func(*application.Context) { t.openSessionExtendFlow() })
 	t.sessionExpiresItem.SetHidden(true)
 
 	menu.AddSeparator()
-	// The tray icon's left-click handler is intentionally unbound (see
-	// NewTray for the rationale), so expose the window through an explicit
-	// menu entry on every platform.
-	//
-	// Accelerators are wired on the Settings and Quit entries below.
-	// Cross-platform behaviour in Wails v3 alpha.95:
-	//   - macOS: SetAccelerator calls NSMenuItem.setKeyEquivalent — the
-	//     glyph row paints to the right of the label and the combo fires
-	//     when the menu is open OR while the app is the frontmost app.
-	//   - Linux (GTK): SetAccelerator binds the GTK accel — the combo
-	//     fires while the menu is open and the label paints the row. On
-	//     XEmbed/AppIndicator hosts the visual hint may not render but
-	//     activation through the keyboard still resolves.
-	//   - Windows: SetAccelerator is a no-op in alpha.95 (the impl is
-	//     commented out in menuitem_windows.go), so the row is plain
-	//     text. We still call it for forward compatibility — a future
-	//     Wails release picks the labels up without churn here.
+	// Accelerators on the Settings/Quit entries below are a no-op on Windows in
+	// Wails v3 alpha.95 (impl commented out in menuitem_windows.go); still set
+	// for forward compatibility. macOS/GTK render and fire them.
 	menu.Add(t.loc.T("tray.menu.open")).OnClick(func(*application.Context) { t.ShowWindow() })
 
 	menu.AddSeparator()
 
-	// exitNodeSubmenu hosts one row per peer advertising a default
-	// route (0.0.0.0/0 or ::/0). Populated asynchronously by
-	// refreshExitNodes (via relayoutMenu) on every Status push that changes the set;
-	// the parent row stays disabled until at least one candidate is
-	// known. We grab the parent MenuItem via FindByLabel (same
-	// pattern as the Profiles submenu) so applyStatus can flip its
-	// enabled state independently of the children.
+	// exitNodeSubmenu hosts one row per peer advertising a default route
+	// (0.0.0.0/0 or ::/0). FindByLabel grabs the parent so applyStatus can flip
+	// its enabled state independently of the children.
 	exitNodeLabel := t.loc.T("tray.menu.exitNode")
 	t.exitNodeSubmenu = menu.AddSubmenu(exitNodeLabel)
 	t.exitNodeItem = menu.FindByLabel(exitNodeLabel)
@@ -546,12 +415,8 @@ func (t *Tray) buildMenu() *application.Menu {
 
 	menu.AddSeparator()
 
-	// Settings, runtime toggles (SSH, Quantum-Resistance, lazy connection,
-	// block-inbound, auto-connect, notifications) and profile switching
-	// all live in the in-window Settings page now. The tray menu only
-	// surfaces the day-to-day actions. The trailing ellipsis on the label
-	// (i18n string) follows the macOS HIG convention for menu items that
-	// open a dialog/window rather than performing an inline action.
+	// The label's trailing ellipsis follows the macOS HIG convention for items
+	// that open a window.
 	t.settingsItem = menu.Add(t.loc.T("tray.menu.settings")).
 		SetAccelerator("CmdOrCtrl+,").
 		OnClick(func(*application.Context) { t.svc.WindowManager.OpenSettings("") })
@@ -564,22 +429,14 @@ func (t *Tray) buildMenu() *application.Menu {
 	about.Add(t.loc.T("tray.menu.documentation")).OnClick(func(*application.Context) {
 		_ = t.app.Browser.OpenURL(urlDocs)
 	})
-	// Troubleshoot deep-links into the Settings window at the
-	// Troubleshooting tab, which hosts the debug-bundle flow that used
-	// to live as a top-level tray entry.
 	about.Add(t.loc.T("tray.menu.troubleshoot")).OnClick(func(*application.Context) {
 		t.svc.WindowManager.OpenSettings("troubleshooting")
 	})
 	about.AddSeparator()
-	// Disabled informational entries: the GUI version is baked in at
-	// build time via -ldflags, the daemon version comes from the first
-	// Status snapshot and is updated in applyStatus.
 	about.Add(t.loc.T("tray.menu.guiVersion", "version", version.NetbirdVersion())).SetEnabled(false)
 	t.daemonVersionItem = about.Add(t.loc.T("tray.menu.daemonVersion", "version", t.loc.T("tray.menu.versionUnknown"))).SetEnabled(false)
-	// Update menu item is hidden until the daemon reports a new version
-	// (EventUpdateState with Available=true). trayUpdater rewrites the
-	// label between tray.menu.downloadLatest (opt-in) and
-	// tray.menu.installVersion (enforced) and drives the click.
+	// trayUpdater rewrites the label between downloadLatest (opt-in) and
+	// installVersion (enforced) and drives the click.
 	updateItem := about.Add(t.loc.T("tray.menu.downloadLatest")).
 		OnClick(func(*application.Context) { t.updater.handleClick() })
 	updateItem.SetHidden(true)
@@ -596,13 +453,10 @@ func (t *Tray) buildMenu() *application.Menu {
 // handleConnect receives the clicked item from the buildMenu closure —
 // t.upItem is menuMu-guarded and must not be read here.
 func (t *Tray) handleConnect(upItem *application.MenuItem) {
-	// NeedsLogin/SessionExpired/LoginFailed mean the daemon won't honor a
-	// plain Up RPC ("up already in progress: current status NeedsLogin") —
-	// it needs the Login → WaitSSOLogin → Up sequence instead. Emit
-	// EventTriggerLogin so the React-side startLogin() (which owns the
-	// BrowserLogin popup) drives the flow. The main window's webview is
-	// alive even while hidden, so we don't surface it — only the popup
-	// appears.
+	// NeedsLogin/SessionExpired/LoginFailed won't honor a plain Up RPC — they
+	// need the Login → WaitSSOLogin → Up sequence. Emit EventTriggerLogin so
+	// the React startLogin() (which owns the BrowserLogin popup) drives it;
+	// the hidden main webview is alive and subscribed, so only the popup shows.
 	t.statusMu.Lock()
 	needsLogin := strings.EqualFold(t.lastStatus, services.StatusNeedsLogin) ||
 		strings.EqualFold(t.lastStatus, services.StatusSessionExpired) ||
@@ -614,12 +468,9 @@ func (t *Tray) handleConnect(upItem *application.MenuItem) {
 	}
 	upItem.SetEnabled(false)
 	// Arm the SSO auto-handoff: Up() is async and the daemon may flip to
-	// NeedsLogin once it detects an SSO peer with no cached token. The
-	// flag is consumed by applyStatus on that transition, which then
-	// triggers the browser-login flow without the user having to click
-	// Connect a second time. Cleared on any terminal state (Connected /
-	// Idle / LoginFailed / DaemonUnavailable / SessionExpired) so a stale
-	// flag can't hijack a future status push.
+	// NeedsLogin on an SSO peer with no cached token. applyStatus consumes the
+	// flag on that transition to trigger browser-login without a second Connect
+	// click, and clears it on any terminal state.
 	t.statusMu.Lock()
 	t.pendingConnectLogin = true
 	t.statusMu.Unlock()
@@ -635,12 +486,10 @@ func (t *Tray) handleConnect(upItem *application.MenuItem) {
 	}()
 }
 
-// handleDisconnect aborts any in-flight profile switch before sending
-// Down — otherwise the switcher's queued Up would re-establish the
-// connection right after the Disconnect, making the click look like a
-// no-op. Also clears Peers' optimistic-Connecting guard so the daemon's
-// Idle push (and any subsequent updates) paint through immediately
-// instead of being swallowed by the profile-switch suppression filter.
+// handleDisconnect aborts any in-flight profile switch before sending Down —
+// otherwise the switcher's queued Up would reconnect right after, making the
+// click a no-op. Also clears Peers' optimistic-Connecting guard so the daemon's
+// Idle push paints through instead of being swallowed by the suppression filter.
 // Receives the clicked item from the buildMenu closure (see handleConnect).
 func (t *Tray) handleDisconnect(downItem *application.MenuItem) {
 	downItem.SetEnabled(false)

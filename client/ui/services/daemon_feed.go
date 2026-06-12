@@ -20,42 +20,22 @@ import (
 )
 
 const (
-	// EventStatusSnapshot is emitted to the frontend whenever a fresh
-	// Status snapshot is captured (from a poll or a stream-driven refresh).
 	EventStatusSnapshot = "netbird:status"
-	// EventDaemonNotification is emitted for each SubscribeEvents message
-	// (DNS, network, auth, connectivity categories). Auto-update
-	// SystemEvents are also forwarded here to updater.Holder.OnSystemEvent
-	// so the typed update state can be maintained without a second daemon
-	// subscription.
+	// EventDaemonNotification carries each SubscribeEvents message. Auto-update
+	// SystemEvents are also forwarded to updater.Holder.OnSystemEvent so the typed
+	// update state needs no second daemon subscription.
 	EventDaemonNotification = "netbird:event"
-	// EventProfileChanged fires after ProfileSwitcher.SwitchActive completes
-	// a daemon-side switch. The payload is the new ProfileRef. Both tray
-	// and React subscribers refresh their profile views off this so a flip
-	// driven from one surface (tray menu, settings page) paints in the
-	// others without polling. The daemon itself does not emit a profile
-	// event, so this is the only signal that closes the gap.
+	// EventProfileChanged fires after a daemon-side switch (payload: the new
+	// ProfileRef). The daemon emits no profile event, so this is the only signal
+	// that lets a flip driven from one surface paint in the others.
 	EventProfileChanged = "netbird:profile:changed"
-	// EventSessionWarning is emitted on every session-warning watcher
-	// fire (T-WarningLead and T-FinalWarningLead) as a strongly-typed
-	// sibling of EventDaemonNotification so React / tray subscribers
-	// don't have to filter the firehose of EventDaemonNotification.
-	// Consumers branch on the
-	// SessionWarning.Final flag to tell the interactive T-10 event apart
-	// from the fallback T-2 event; the dialog auto-open lives in the
-	// tray (Go side) so the frontend stays passive on this flow.
+	// EventSessionWarning is a typed sibling of EventDaemonNotification so
+	// subscribers needn't filter the notification firehose. Consumers branch on
+	// SessionWarning.Final to tell the T-10 event from the T-2 fallback.
 	EventSessionWarning = "netbird:session:warning"
 
-	// The SystemEvent.metadata markers the daemon stamps on its internal
-	// control events live in the shared proto package
-	// (proto.MetadataKind*/MetadataKindKey/MetadataLevelKey) so producer
-	// (client/server) and consumer (here) reference the same constants. See
-	// dispatchSystemEvent for how they're recognised.
-
-	// StatusDaemonUnavailable is the synthetic Status the UI emits when the
-	// daemon's gRPC socket is unreachable (daemon not running, socket
-	// permission, etc.). Real daemon statuses come straight from
-	// internal.Status* — none of those collide with this label.
+	// StatusDaemonUnavailable is the synthetic Status emitted when the daemon's
+	// gRPC socket is unreachable. No internal.Status* collides with this label.
 	StatusDaemonUnavailable = "DaemonUnavailable"
 
 	// Daemon connection status strings — mirror internal.Status* in
@@ -68,9 +48,7 @@ const (
 	StatusSessionExpired = "SessionExpired"
 )
 
-// Emitter is what DaemonFeed.Watch needs from the host application: a simple
-// "send this name and payload to the frontend" hook.  The Wails app.Event
-// satisfies this with its Emit method.
+// Emitter sends a named payload to the frontend. Satisfied by Wails app.Event.
 type Emitter interface {
 	Emit(name string, data ...any) bool
 }
@@ -86,9 +64,7 @@ type SystemEvent struct {
 	Metadata    map[string]string `json:"metadata"`
 }
 
-// PeerStatus is the frontend-facing shape of a daemon PeerState. Carries
-// enough detail for the dashboard's compact peer row plus the on-click
-// troubleshooting expansion (ICE candidate types, endpoints, handshake age).
+// PeerStatus is the frontend-facing shape of a daemon PeerState.
 type PeerStatus struct {
 	IP                         string   `json:"ip"`
 	IPv6                       string   `json:"ipv6"`
@@ -110,15 +86,14 @@ type PeerStatus struct {
 	Networks                   []string `json:"networks"`
 }
 
-// PeerLink is one of the named connections between this peer and its mgmt
-// or signal server.
+// PeerLink is this peer's connection to its mgmt or signal server.
 type PeerLink struct {
 	URL       string `json:"url"`
 	Connected bool   `json:"connected"`
 	Error     string `json:"error,omitempty"`
 }
 
-// LocalPeer mirrors LocalPeerState — what this client looks like on the mesh.
+// LocalPeer mirrors LocalPeerState.
 type LocalPeer struct {
 	IP       string   `json:"ip"`
 	IPv6     string   `json:"ipv6"`
@@ -137,42 +112,31 @@ type Status struct {
 	Peers         []PeerStatus  `json:"peers"`
 	Events        []SystemEvent `json:"events"`
 	// NetworksRevision bumps whenever the daemon's routed-networks set or their
-	// selected state changes. Consumers fingerprint on it to know when to
-	// re-fetch ListNetworks instead of polling every snapshot.
+	// selected state changes, so consumers know when to re-fetch ListNetworks
+	// instead of polling every snapshot.
 	NetworksRevision uint64 `json:"networksRevision"`
-	// SessionExpiresAt is the absolute UTC instant at which the peer's
-	// SSO session expires. nil when the peer is not SSO-tracked or login
-	// expiration is disabled (either server-side off, or peer not
-	// SSO-registered). The UI derives "warning active" from this value
-	// plus its own clock.
+	// SessionExpiresAt is the absolute UTC instant the SSO session expires; nil
+	// when the peer is not SSO-tracked or login expiration is disabled.
 	SessionExpiresAt *time.Time `json:"sessionExpiresAt,omitempty"`
 }
 
-// DaemonFeed fans the daemon's two long-running gRPC streams out to the
-// frontend and the tray: SubscribeStatus snapshots (per state change) and
-// SubscribeEvents system notifications (per DNS / network / auth / etc.
-// event). Also exposes a one-shot Status RPC for callers that want the
-// current snapshot without subscribing.
+// DaemonFeed fans the daemon's two long-running gRPC streams (SubscribeStatus,
+// SubscribeEvents) out to the frontend and tray, and exposes a one-shot Status
+// RPC for callers wanting the current snapshot without subscribing.
 //
-// Profile-switch suppression: ProfileSwitcher calls BeginProfileSwitch
-// before tearing down the old profile when it would otherwise be followed
-// by an Up on the new profile (i.e. previous status was Connected or
-// Connecting). statusStreamLoop then swallows the transient stale
-// Connected and Idle pushes the daemon emits during Down so the tray
-// and the React Status page both see Connecting → new-profile-state
-// instead of Connected → Connected → Idle → Connecting → new-state.
+// Profile-switch suppression: BeginProfileSwitch makes statusStreamLoop swallow
+// the transient stale Connected and Idle pushes the daemon emits during Down, so
+// consumers see Connecting → new-profile-state instead of the full blink.
 //
 // Two flags govern the switch lifecycle, evaluated independently by
-// consumeForSwitch on every push (lifetimes differ — see godoc):
+// consumeForSwitch on every push because their lifetimes differ:
 //
-//	switchInProgress (suppression): clears on the first real push from
-//	    the new Up. The daemon-side StatusConnecting comes BEFORE any
-//	    NeedsLogin, so suppression has to release here even though the
-//	    final terminal hasn't arrived yet.
-//	switchLoginWatch (trigger):     outlives suppression. Watches for
-//	    NeedsLogin / LoginFailed / SessionExpired anywhere along the
-//	    Up's retry loop and emits EventTriggerLogin so the React
-//	    orchestrator opens the browser-login flow.
+//	switchInProgress (suppression): clears on the first real push from the new
+//	    Up. Daemon-side StatusConnecting comes BEFORE any NeedsLogin, so
+//	    suppression must release here before the terminal arrives.
+//	switchLoginWatch (trigger):     outlives suppression. Watches for NeedsLogin
+//	    / LoginFailed / SessionExpired along the Up's retry loop and emits
+//	    EventTriggerLogin so the React orchestrator opens browser-login.
 //
 //	┌────────────────────────────────────────────┬──────────────────────────────────┐
 //	│ Incoming daemon status                     │ Action                           │
@@ -189,12 +153,10 @@ type DaemonFeed struct {
 	conn    DaemonConn
 	emitter Emitter
 	updater *updater.Holder
-	// logCtl reacts to the daemon's log level (delivered as a marked
-	// SystemEvent over the same SubscribeEvents stream) by attaching/detaching
-	// the GUI file log. nil when the GUI doesn't manage its log (server build /
-	// not wired), in which case the marker is ignored. Held as a narrow
-	// interface so this package doesn't depend on client/ui/guilog (the concrete
-	// type lives there; main passes it into NewDaemonFeed).
+	// logCtl attaches/detaches the GUI file log in response to the daemon's log
+	// level (a marked SystemEvent on the SubscribeEvents stream). nil when the GUI
+	// doesn't manage its log (server build / not wired), in which case the marker
+	// is ignored.
 	logCtl LogController
 
 	mu       sync.Mutex
@@ -204,24 +166,13 @@ type DaemonFeed struct {
 	switchMu              sync.Mutex
 	switchInProgress      bool
 	switchInProgressUntil time.Time
-	// switchLoginWatch outlives switchInProgress: the suppression flag
-	// clears on Connecting (first real push from the new Up) but the
-	// trigger-login watcher must survive past that to catch the eventual
-	// NeedsLogin / LoginFailed / SessionExpired terminal. Cleared on
-	// Connected (success), Idle (the new profile is offline), or
-	// DaemonUnavailable (daemon went away mid-switch) — and on a 30s
-	// timeout for safety.
 	switchLoginWatch      bool
 	switchLoginWatchUntil time.Time
 }
 
-// LogController is the subset of client/ui/guilog.DebugLog that DaemonFeed
-// drives: Apply turns the GUI file log on/off for a daemon level, Path is the
-// gui-client.log path to register with the daemon (empty when the GUI doesn't
-// own its log). Kept as an interface so services doesn't import guilog. The
-// daemon delivers log-level changes as marked SystemEvents on the same
-// SubscribeEvents stream this feed consumes, so it rides along here rather than
-// opening a second daemon subscription.
+// LogController is the subset of guilog.DebugLog that DaemonFeed drives: Apply
+// turns the GUI file log on/off for a daemon level; Path is the gui-client.log
+// path to register with the daemon (empty when the GUI doesn't own its log).
 type LogController interface {
 	Apply(level string)
 	Path() string
@@ -229,20 +180,15 @@ type LogController interface {
 
 // NewDaemonFeed builds the feed. logCtl may be nil (server build / GUI log not
 // managed), in which case log-level markers on the event stream are ignored.
-// Injected at construction rather than via a setter so DaemonFeed (a Wails
-// service) exposes no extra method to the binding generator.
 func NewDaemonFeed(conn DaemonConn, emitter Emitter, updaterHolder *updater.Holder, logCtl LogController) *DaemonFeed {
 	return &DaemonFeed{conn: conn, emitter: emitter, updater: updaterHolder, logCtl: logCtl}
 }
 
-// BeginProfileSwitch is called by ProfileSwitcher at the start of a switch
-// when the previous status was Connected/Connecting — i.e. the daemon is
-// about to emit Connected updates during Down's peer-count teardown and
-// then an Idle before the new profile's Up resumes the stream. The flag
-// makes statusStreamLoop drop those transient events. A synthetic
-// Connecting snapshot is emitted right away so both consumers (tray and
-// React) paint the optimistic state immediately. A 30s safety timeout
-// clears the flag if the daemon never emits a follow-up status.
+// BeginProfileSwitch arms suppression for a switch from Connected/Connecting,
+// where the daemon emits stale Connected updates during Down's teardown then an
+// Idle before the new Up; statusStreamLoop drops those, and a synthetic
+// Connecting snapshot is emitted so consumers paint optimistically. A 30s safety
+// timeout clears the flag if no follow-up status arrives.
 func (s *DaemonFeed) BeginProfileSwitch() {
 	now := time.Now()
 	s.switchMu.Lock()
@@ -254,11 +200,9 @@ func (s *DaemonFeed) BeginProfileSwitch() {
 	s.emitter.Emit(EventStatusSnapshot, Status{Status: StatusConnecting})
 }
 
-// CancelProfileSwitch is called by callers that abort the switch midway
-// (the tray's Disconnect click while Connecting). Clears the suppression
-// flag so the next daemon Idle paints through immediately instead of
-// being swallowed, and disarms the login-watch so the abort doesn't pop
-// a browser-login window after the user explicitly cancelled.
+// CancelProfileSwitch aborts a switch midway (tray Disconnect while Connecting):
+// clears suppression so the next daemon Idle paints through, and disarms the
+// login-watch so the abort doesn't pop a browser-login after the user cancelled.
 func (s *DaemonFeed) CancelProfileSwitch() {
 	s.switchMu.Lock()
 	s.switchInProgress = false
@@ -266,18 +210,8 @@ func (s *DaemonFeed) CancelProfileSwitch() {
 	s.switchMu.Unlock()
 }
 
-// Watch starts the background loops that feed the frontend:
-//   - statusStreamLoop: push-driven snapshots on connection-state change
-//     (Connected/Disconnected/Connecting, peer list, address). Drives the
-//     tray icon, Status page, and Peers page.
-//   - toastStreamLoop:   DNS / network / auth / connectivity / update
-//     SystemEvent stream. Drives OS notifications, the Recent Events
-//     list, and the update-overlay flag. The daemon-side RPC is named
-//     SubscribeEvents — only the loop's local alias differs to keep the
-//     two streams distinguishable in this file.
-//
-// Safe to call once at boot; both loops self-restart on stream errors
-// via exponential backoff.
+// Watch starts the two background stream loops. Idempotent (a second call while
+// running is a no-op); both loops self-restart via exponential backoff.
 func (s *DaemonFeed) Watch(ctx context.Context) {
 	s.mu.Lock()
 	if s.cancel != nil {
@@ -306,12 +240,9 @@ func (s *DaemonFeed) ServiceShutdown() error {
 	return nil
 }
 
-// Get returns the current daemon status snapshot. When the daemon socket
-// is unreachable (process down, socket missing, permission denied) it
-// returns Status{Status: StatusDaemonUnavailable} instead of an error so
-// the frontend's initial useStatus().refresh() picks up the same string
-// the live event stream emits — the React overlay and per-screen gating
-// then key off a single status enum without a parallel "error" path.
+// Get returns the current daemon status snapshot. An unreachable daemon socket
+// yields Status{Status: StatusDaemonUnavailable} rather than an error, so the
+// frontend keys off a single status enum without a parallel "error" path.
 func (s *DaemonFeed) Get(ctx context.Context) (Status, error) {
 	cli, err := s.conn.Client()
 	if err != nil {
@@ -330,21 +261,14 @@ func (s *DaemonFeed) Get(ctx context.Context) (Status, error) {
 	return statusFromProto(resp), nil
 }
 
-// consumeForSwitch decides whether the incoming status push should be
-// suppressed during an in-progress profile switch and whether the switch
-// landed in a state that warrants kicking the SSO flow (NeedsLogin,
-// SessionExpired, LoginFailed — the three "Up won't proceed without a
-// fresh token" states the React UI collapses under NEEDS_LOGIN_STATES).
-// The triggerLogin signal centralises the auto-handoff for both
-// tray-initiated and React-initiated profile switches, mirroring the
-// tray's pendingConnectLogin path for the plain Connect button.
+// consumeForSwitch decides, for an incoming push during a profile switch,
+// whether to suppress it (suppress) and whether the switch landed in a state
+// needing the SSO flow (triggerLogin: NeedsLogin / SessionExpired / LoginFailed).
 //
-// The suppression and trigger flags are evaluated independently because
-// they have different lifetimes: suppression clears on the first real
-// push from the new Up (Connecting), but the trigger watcher must survive
-// past Connecting to catch the eventual NeedsLogin terminal —
-// daemon-side state.Set(StatusConnecting) at connect.go:246 fires before
-// loginToManagement, which is what may then set StatusNeedsLogin at :297.
+// The two flags have different lifetimes: suppression clears on Connecting, but
+// the trigger watcher must survive past it to catch the eventual NeedsLogin —
+// daemon-side StatusConnecting fires before loginToManagement, which is what may
+// then set StatusNeedsLogin.
 func (s *DaemonFeed) consumeForSwitch(st Status) (suppress, triggerLogin bool) {
 	s.switchMu.Lock()
 	defer s.switchMu.Unlock()
@@ -364,16 +288,11 @@ func (s *DaemonFeed) consumeForSwitch(st Status) (suppress, triggerLogin bool) {
 			strings.EqualFold(st.Status, StatusLoginFailed),
 			strings.EqualFold(st.Status, StatusSessionExpired),
 			strings.EqualFold(st.Status, StatusDaemonUnavailable):
-			// New profile's flow has officially begun (Up started, or
-			// daemon refused to start it). Clear the suppression guard
-			// and let it through.
+			// New flow has begun (Up started, or daemon refused it).
 			s.switchInProgress = false
 		default:
-			// Connected (stale carryover from old profile's teardown) or
-			// Idle (transient between Down and Up). Suppress so the
-			// optimistic Connecting from BeginProfileSwitch stays
-			// painted. Login-watch stays armed for the eventual
-			// terminal.
+			// Stale Connected from teardown or transient Idle: suppress so the
+			// optimistic Connecting stays painted. Login-watch stays armed.
 			return true, false
 		}
 	}
@@ -383,17 +302,13 @@ func (s *DaemonFeed) consumeForSwitch(st Status) (suppress, triggerLogin bool) {
 		case strings.EqualFold(st.Status, StatusNeedsLogin),
 			strings.EqualFold(st.Status, StatusLoginFailed),
 			strings.EqualFold(st.Status, StatusSessionExpired):
-			// Up landed on an "SSO needed" terminal: clear the watch and
-			// ask the React orchestrator to drive the browser-login flow
-			// without the user having to click Connect a second time.
+			// SSO-needed terminal: trigger browser-login without a second click.
 			s.switchLoginWatch = false
 			return false, true
 		case strings.EqualFold(st.Status, StatusConnected),
 			strings.EqualFold(st.Status, StatusIdle),
 			strings.EqualFold(st.Status, StatusDaemonUnavailable):
-			// Terminal but not SSO — switch finished without needing
-			// re-auth (Connected) or with no new flow to await (Idle /
-			// DaemonUnavailable). Disarm without triggering.
+			// Terminal but not SSO — disarm without triggering.
 			s.switchLoginWatch = false
 		}
 	}
@@ -401,12 +316,9 @@ func (s *DaemonFeed) consumeForSwitch(st Status) (suppress, triggerLogin bool) {
 	return false, false
 }
 
-// statusStreamLoop subscribes to the daemon's SubscribeStatus stream and
-// re-emits each FullStatus snapshot on the Wails event bus. The first
-// message is the current snapshot; subsequent messages fire on
-// connection-state changes only — no fixed-interval polling, no idle
-// chatter. Reconnects with exponential backoff if the stream drops
-// (daemon restart, socket break).
+// statusStreamLoop subscribes to SubscribeStatus and re-emits each snapshot on
+// the Wails event bus. The first message is the current snapshot; later ones
+// fire on connection-state changes only — no polling.
 func (s *DaemonFeed) statusStreamLoop(ctx context.Context) {
 	defer s.streamWg.Done()
 
@@ -420,10 +332,7 @@ func (s *DaemonFeed) statusStreamLoop(ctx context.Context) {
 		Clock:               backoff.SystemClock,
 	}, ctx)
 
-	// unavailable tracks whether we've already signalled the daemon as
-	// unreachable. The synthetic event is emitted once per outage so the
-	// tray flips to the "Daemon not running" state, but the exponential
-	// backoff retries don't re-fire it on every attempt.
+	// unavailable fires the synthetic event once per outage, not on every retry.
 	unavailable := false
 	emitUnavailable := func() {
 		if unavailable {
@@ -442,10 +351,9 @@ func (s *DaemonFeed) statusStreamLoop(ctx context.Context) {
 	}
 }
 
-// subscribeAndStreamStatus is one attempt of the status backoff loop: open the
-// SubscribeStatus stream and re-emit every snapshot until it errors. Returns a
-// wrapped error so backoff retries; a daemon-unreachable failure also flips the
-// synthetic-unavailable signal (once per outage, guarded by *unavailable).
+// subscribeAndStreamStatus is one attempt of the status backoff loop: open
+// SubscribeStatus and re-emit every snapshot until it errors. A daemon-
+// unreachable failure also flips the synthetic-unavailable signal.
 func (s *DaemonFeed) subscribeAndStreamStatus(ctx context.Context, unavailable *bool, emitUnavailable func()) error {
 	cli, err := s.conn.Client()
 	if err != nil {
@@ -469,10 +377,9 @@ func (s *DaemonFeed) subscribeAndStreamStatus(ctx context.Context, unavailable *
 	}
 }
 
-// handleStatusRecvErr maps a SubscribeStatus stream.Recv error into the
-// backoff loop's return value: ctx cancellation stops the loop, an
-// unreachable socket flips the synthetic-unavailable signal, everything
-// else is a retryable wrapped error.
+// handleStatusRecvErr maps a SubscribeStatus Recv error into the backoff loop's
+// return: ctx cancellation stops the loop, an unreachable socket flips the
+// synthetic-unavailable signal, everything else is retryable.
 func (s *DaemonFeed) handleStatusRecvErr(ctx context.Context, err error, emitUnavailable func()) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
@@ -483,7 +390,7 @@ func (s *DaemonFeed) handleStatusRecvErr(ctx context.Context, err error, emitUna
 	return fmt.Errorf("status stream recv: %w", err)
 }
 
-// emitStatus pushes a fresh snapshot to the frontend, dropping the transient
+// emitStatus pushes a snapshot to the frontend, dropping the transient
 // stale-Connected / Idle pushes that occur mid profile switch.
 func (s *DaemonFeed) emitStatus(st Status) {
 	log.Infof("backend event: status status=%q peers=%d", st.Status, len(st.Peers))
@@ -498,13 +405,9 @@ func (s *DaemonFeed) emitStatus(st Status) {
 	}
 }
 
-// toastStreamLoop subscribes to the daemon's SubscribeEvents RPC and
-// re-emits every SystemEvent on the Wails event bus. The downstream
-// consumers turn these into OS notifications, populate the Recent
-// Events card on the Status page, and listen for the
-// "new_version_available" metadata to flip the tray's update overlay.
-// Local name differs from the RPC ("SubscribeEvents") so the file's
-// two streams aren't both called streamLoop.
+// toastStreamLoop subscribes to SubscribeEvents and re-emits every SystemEvent
+// on the Wails event bus. Local name differs from the RPC so the file's two
+// streams aren't both called streamLoop.
 func (s *DaemonFeed) toastStreamLoop(ctx context.Context) {
 	defer s.streamWg.Done()
 
@@ -527,9 +430,8 @@ func (s *DaemonFeed) toastStreamLoop(ctx context.Context) {
 	}
 }
 
-// subscribeAndStreamEvents is one attempt of the event backoff loop: open the
-// SubscribeEvents stream and fan out every SystemEvent until it errors. ctx
-// cancellation stops the loop; any other error is wrapped so backoff retries.
+// subscribeAndStreamEvents is one attempt of the event backoff loop: open
+// SubscribeEvents and fan out every SystemEvent until it errors.
 func (s *DaemonFeed) subscribeAndStreamEvents(ctx context.Context) error {
 	cli, err := s.conn.Client()
 	if err != nil {
@@ -541,10 +443,8 @@ func (s *DaemonFeed) subscribeAndStreamEvents(ctx context.Context) error {
 	}
 
 	// Re-register the GUI log path on every (re)connect so a daemon restart
-	// re-learns it and a later debug bundle still finds the file. Best-effort —
-	// a failure here must not abort the event stream. Done even when file
-	// logging is off (enabled but not in debug), so the path is known ahead of
-	// any debug toggle.
+	// re-learns it. Best-effort — a failure must not abort the stream. Done even
+	// when file logging is off, so the path is known ahead of any debug toggle.
 	if s.logCtl != nil && s.logCtl.Path() != "" {
 		if _, err := cli.RegisterUILog(ctx, &proto.RegisterUILogRequest{Path: s.logCtl.Path()}); err != nil {
 			log.Warnf("register UI log path: %v", err)
@@ -568,19 +468,14 @@ func (s *DaemonFeed) subscribeAndStreamEvents(ctx context.Context) error {
 func (s *DaemonFeed) dispatchSystemEvent(ev *proto.SystemEvent) {
 	se := systemEventFromProto(ev)
 	log.Infof("backend event: system severity=%s category=%s msg=%q", se.Severity, se.Category, se.UserMessage)
-	// A CLI-driven profile add/remove publishes a marked SYSTEM event purely
-	// to nudge the UI's profile views. Translate it into the existing
-	// EventProfileChanged (which the tray's loadProfiles and React's
-	// ProfileContext.refresh already subscribe to) and stop — it's an internal
-	// refresh signal, not a user-facing notification, so it must not reach the
-	// Recent Events list or fire an OS toast.
+	// Internal refresh signal (CLI-driven profile add/remove), not a notification:
+	// translate and stop so it never reaches Recent Events or fires an OS toast.
 	if se.Metadata[proto.MetadataKindKey] == proto.MetadataKindProfileListChanged {
 		s.emitter.Emit(EventProfileChanged, ProfileRef{})
 		return
 	}
-	// A marked log-level-changed event drives the GUI file log on/off. It's an
-	// internal control signal, not a user-facing notification — handle and stop
-	// so it never reaches the Recent Events list or fires an OS toast.
+	// Internal control signal driving the GUI file log on/off — handle and stop
+	// so it never reaches Recent Events or toasts.
 	if se.Metadata[proto.MetadataKindKey] == proto.MetadataKindLogLevelChanged {
 		if s.logCtl != nil {
 			s.logCtl.Apply(se.Metadata[proto.MetadataLevelKey])
@@ -675,12 +570,10 @@ func systemEventFromProto(e *proto.SystemEvent) SystemEvent {
 	return out
 }
 
-// isDaemonUnreachable reports whether a gRPC stream error indicates the
-// daemon socket itself is not answering (process down, socket missing,
-// permission denied) versus the daemon responding with an application-level
-// error code. Only the former should flip the tray to "Not running" — a
-// daemon that returns FailedPrecondition (e.g. while it's retrying the
-// management connection) is alive and shouldn't be reported as down.
+// isDaemonUnreachable reports whether a gRPC error means the daemon socket isn't
+// answering, versus the daemon responding with an application-level code. Only
+// the former should flip the tray to "Not running" — a daemon returning e.g.
+// FailedPrecondition is alive and must not be reported as down.
 func isDaemonUnreachable(err error) bool {
 	if err == nil {
 		return false

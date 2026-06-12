@@ -4,11 +4,8 @@ package main
 
 import _ "embed"
 
-// 22x22 status dot icons used on macOS. Apple's HIG recommends an
-// 18–22 px glyph for NSMenuItem leading images; 22 matches the visual
-// weight of the surrounding row text. Windows ships a 16x16 variant
-// (Win32 SM_CXMENUCHECK slot) and Linux a 24x24 variant (GTK menu row
-// supports the larger range) — see the sibling icons_menu_*.go files.
+// 22px matches the NSMenuItem row text weight (HIG's 18-22 range);
+// Windows uses 16px and Linux 24px — see the sibling icons_menu_*.go.
 
 //go:embed assets/netbird-menu-dot-connected-22.png
 var iconMenuDotConnected []byte

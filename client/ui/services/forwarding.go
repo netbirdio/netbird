@@ -8,21 +8,19 @@ import (
 	"github.com/netbirdio/netbird/client/proto"
 )
 
-// PortRange describes a contiguous port range. Both ends are inclusive.
+// PortRange is a port range; both ends are inclusive.
 type PortRange struct {
 	Start uint32 `json:"start"`
 	End   uint32 `json:"end"`
 }
 
-// PortInfo carries the destination or translated port for a forwarding rule.
-// Exactly one of Port or Range is populated, mirroring the daemon's oneof.
+// PortInfo holds exactly one of Port or Range (the daemon's oneof).
 type PortInfo struct {
 	Port  *uint32    `json:"port,omitempty"`
 	Range *PortRange `json:"range,omitempty"`
 }
 
-// ForwardingRule is one entry from the daemon's reverse-proxy table —
-// what we ship to the frontend's "exposed services" view.
+// ForwardingRule is one entry from the daemon's reverse-proxy table.
 type ForwardingRule struct {
 	Protocol           string   `json:"protocol"`
 	DestinationPort    PortInfo `json:"destinationPort"`
@@ -40,8 +38,6 @@ func NewForwarding(conn DaemonConn) *Forwarding {
 	return &Forwarding{conn: conn}
 }
 
-// List returns the current set of forwarding rules from the daemon's
-// reverse proxy. The frontend renders these as the "exposed services" list.
 func (s *Forwarding) List(ctx context.Context) ([]ForwardingRule, error) {
 	cli, err := s.conn.Client()
 	if err != nil {

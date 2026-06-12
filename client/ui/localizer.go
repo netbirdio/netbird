@@ -13,15 +13,11 @@ import (
 	"github.com/netbirdio/netbird/client/ui/services"
 )
 
-// Localizer is the tray's bridge to the i18n bundle and preferences store.
-// It caches the active language so every menu-build pass and notification
-// call can resolve a key without re-querying preferences, and it owns
-// the preference-subscription lifecycle so consumers don't have to.
+// Localizer caches the active language so key lookups skip the preferences store.
 //
 // Kept in the main package (not i18n/) because StatusLabel maps daemon
-// status enum strings (services.StatusIdle, services.StatusDaemonUnavailable)
-// to translations — pulling those into i18n would invert the dependency
-// direction.
+// status enum strings to translations; moving it would invert the
+// dependency direction.
 type Localizer struct {
 	bundle *i18n.Bundle
 	store  *preferences.Store
@@ -32,10 +28,8 @@ type Localizer struct {
 	unsubscribe func()
 }
 
-// NewLocalizer seeds the active language from the on-disk preference so
-// the first menu render is already in the right locale. Either argument
-// may be nil — useful for tests/dry-runs — in which case Translate falls
-// back to the raw key and Watch is a no-op.
+// NewLocalizer seeds the active language from the on-disk preference. Either
+// argument may be nil (tests): T then returns the raw key and Watch is a no-op.
 func NewLocalizer(bundle *i18n.Bundle, store *preferences.Store) *Localizer {
 	l := &Localizer{
 		bundle: bundle,
@@ -50,16 +44,15 @@ func NewLocalizer(bundle *i18n.Bundle, store *preferences.Store) *Localizer {
 	return l
 }
 
-// Language returns the BCP-47 code currently driving translations.
+// Language returns the active language code.
 func (l *Localizer) Language() i18n.LanguageCode {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	return l.lang
 }
 
-// T resolves key in the current language with optional {placeholder}/value
-// argument pairs. When no bundle is wired the key is returned as-is so
-// callers always get a non-empty string.
+// T resolves key in the current language; args are {placeholder}/value pairs.
+// With no bundle wired it returns key unchanged.
 func (l *Localizer) T(key string, args ...string) string {
 	if l == nil || l.bundle == nil {
 		return key
@@ -70,10 +63,8 @@ func (l *Localizer) T(key string, args ...string) string {
 	return l.bundle.Translate(lang, key, args...)
 }
 
-// Watch subscribes to preference changes; cb fires for each new language
-// (after the Localizer's own cached language has been updated, so cb can
-// call l.T to render with the new locale). Safe to call once per
-// Localizer; later calls overwrite the previous subscription.
+// Watch invokes cb on each language change, after the cached language is
+// updated so cb may call l.T with the new locale. Replaces any prior subscription.
 func (l *Localizer) Watch(cb func(lang i18n.LanguageCode)) {
 	if l.store == nil {
 		return
@@ -106,9 +97,7 @@ func (l *Localizer) Watch(cb func(lang i18n.LanguageCode)) {
 	}()
 }
 
-// Close drops the preference subscription. Currently unused (the tray
-// lives for the whole process) but kept so a future shutdown path can
-// release the channel cleanly.
+// Close cancels the preference subscription.
 func (l *Localizer) Close() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -118,10 +107,8 @@ func (l *Localizer) Close() {
 	}
 }
 
-// StatusLabel maps a daemon status string to its user-facing tray label.
-// Idle and the daemon-unavailable sentinel get translated phrasing; every
-// other status passes through verbatim (matches the legacy behaviour of
-// surfacing the raw daemon enum for the connecting/needs-login states).
+// StatusLabel maps a daemon status string to its tray label; unrecognised
+// statuses pass through verbatim.
 func (l *Localizer) StatusLabel(status string) string {
 	switch {
 	case status == "", strings.EqualFold(status, services.StatusIdle):

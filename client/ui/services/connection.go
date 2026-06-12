@@ -21,41 +21,26 @@ import (
 	"github.com/netbirdio/netbird/client/ui/preferences"
 )
 
-// ErrorTranslator is the subset of i18n.Bundle Connection needs to localise
-// daemon errors. Defined as an interface so tests can stub it; the runtime
-// implementation is *i18n.Bundle.
+// ErrorTranslator localises daemon errors; runtime impl is *i18n.Bundle.
 type ErrorTranslator interface {
 	Translate(lang i18n.LanguageCode, key string, args ...string) string
 }
 
-// LanguagePreference is the subset of preferences.Store Connection needs
-// to discover the current UI language at error-classification time. The
-// runtime implementation is *preferences.Store.
+// LanguagePreference reports the current UI language; runtime impl is *preferences.Store.
 type LanguagePreference interface {
 	Get() preferences.UIPreferences
 }
 
-// ClientError is a structured error returned to the frontend.
-//
-// The daemon hands us gRPC errors whose Message is a stack of wrapped strings
-// from the management server and the underlying JWT library, for example:
-//
-//	"invalid jwt token, err: token could not be parsed: token has invalid
-//	 claims: token used before issued"
-//
-// Showing that raw message in a native dialog is unreadable, so we map the
-// substrings we recognise to a {code, short, long} triple. The frontend
-// translates Code through i18n (preferred); Short is an English fallback so
-// the dialog still reads cleanly if a code is missing from the locale; Long
-// always carries the unwrapped daemon message for the operator.
+// ClientError is a structured error returned to the frontend. The frontend
+// translates Code via i18n; Short is an English fallback; Long carries the
+// unwrapped daemon message.
 type ClientError struct {
 	Code  string `json:"code"`
 	Short string `json:"short"`
 	Long  string `json:"long"`
 }
 
-// Error returns the user-facing short message so plain Go callers and the
-// Wails default error path still get a readable string.
+// Error returns the short message for plain Go callers.
 func (e *ClientError) Error() string {
 	if e == nil {
 		return ""
@@ -63,9 +48,8 @@ func (e *ClientError) Error() string {
 	return e.Short
 }
 
-// MarshalJSON encodes the full {code, short, long} triple so the Wails
-// binding emits a structured object instead of the default "error: ..."
-// string. The TS layer accesses these fields via try/catch.
+// MarshalJSON emits the struct so the Wails binding sends an object, not the
+// default "error: ..." string.
 func (e *ClientError) MarshalJSON() ([]byte, error) {
 	if e == nil {
 		return []byte("null"), nil
@@ -74,14 +58,9 @@ func (e *ClientError) MarshalJSON() ([]byte, error) {
 	return json.Marshal((*alias)(e))
 }
 
-// classifyDaemonError turns a raw gRPC error from the daemon into a
-// ClientError with a stable code and a short localised summary. The Long
-// field always carries the unwrapped daemon message so the operator can
-// inspect the root cause when the short text is too generic. Short is
-// looked up via i18n under "error.<code>": i18n.Bundle.Translate already
-// handles current-language → English → key passthrough, so any missing
-// locale entry surfaces as a visible "error.<code>" string in the dialog —
-// a deliberate fail-loud signal that the bundle needs updating.
+// classifyDaemonError maps a gRPC error to a ClientError by matching known
+// substrings to a stable code. A missing locale entry surfaces as a visible
+// "error.<code>" string — a deliberate fail-loud signal to update the bundle.
 func (s *Connection) classifyDaemonError(err error) *ClientError {
 	if err == nil {
 		return nil
@@ -123,12 +102,8 @@ func (s *Connection) classifyDaemonError(err error) *ClientError {
 	}
 }
 
-// translateShort resolves the localised short message for code. The i18n
-// Bundle's own Translate already falls back current-language → English →
-// key passthrough, so callers either see the localised string or the bare
-// "error.<code>" key (which makes the missing translation obvious). If
-// the translator is nil — e.g. a Connection constructed in a unit test —
-// we return the key for the same reason.
+// translateShort resolves the localised short message for code, returning the
+// bare "error.<code>" key when no translation is available so the gap stays visible.
 func (s *Connection) translateShort(code string) string {
 	key := "error." + code
 	if s.translator == nil {
@@ -143,7 +118,7 @@ func (s *Connection) translateShort(code string) string {
 	return s.translator.Translate(lang, key)
 }
 
-// LoginParams carries the fields the UI sets when starting a login.
+// LoginParams are the inputs to Login.
 type LoginParams struct {
 	ProfileName   string `json:"profileName"`
 	Username      string `json:"username"`
@@ -154,7 +129,7 @@ type LoginParams struct {
 	Hint          string `json:"hint"`
 }
 
-// LoginResult is the daemon's reply to a Login call.
+// LoginResult is the daemon's reply to Login.
 type LoginResult struct {
 	NeedsSSOLogin           bool   `json:"needsSsoLogin"`
 	UserCode                string `json:"userCode"`
@@ -162,19 +137,19 @@ type LoginResult struct {
 	VerificationURIComplete string `json:"verificationUriComplete"`
 }
 
-// WaitSSOParams carries the fields the UI passes to WaitSSOLogin.
+// WaitSSOParams are the inputs to WaitSSOLogin.
 type WaitSSOParams struct {
 	UserCode string `json:"userCode"`
 	Hostname string `json:"hostname"`
 }
 
-// UpParams selects the profile the daemon should bring up.
+// UpParams selects the profile to bring up.
 type UpParams struct {
 	ProfileName string `json:"profileName"`
 	Username    string `json:"username"`
 }
 
-// LogoutParams selects the profile the daemon should log out.
+// LogoutParams selects the profile to log out.
 type LogoutParams struct {
 	ProfileName string `json:"profileName"`
 	Username    string `json:"username"`
@@ -187,10 +162,8 @@ type Connection struct {
 	prefs      LanguagePreference
 }
 
-// NewConnection wires Connection with its translation dependencies. Either
-// translator or prefs may be nil; in that case classifyDaemonError falls
-// back to the English Short text baked into the error map. main.go always
-// supplies both at startup.
+// NewConnection wires up a Connection. translator or prefs may be nil, in which
+// case classifyDaemonError falls back to the bare error key.
 func NewConnection(conn DaemonConn, translator ErrorTranslator, prefs LanguagePreference) *Connection {
 	return &Connection{conn: conn, translator: translator, prefs: prefs}
 }
@@ -201,18 +174,10 @@ func (s *Connection) Login(ctx context.Context, p LoginParams) (LoginResult, err
 		return LoginResult{}, err
 	}
 
-	// No pre-Login Down: the daemon's Login dislodges a pending WaitSSOLogin
-	// itself (server.go cancels the in-flight wait via actCancel), and an
-	// abandoned browser leg is torn down by startLogin cancelling the
-	// WaitSSOLogin RPC, which the daemon reacts to by clearing the stale
-	// OAuth flow. A defensive Down here would only add a visible Idle blink
-	// to the tray during the SSO handoff (Connect/profile-switch →
-	// NeedsLogin → auto-login) for no gain.
+	// No pre-Login Down: Login dislodges a pending WaitSSOLogin itself, and a
+	// defensive Down would only flash an Idle blink in the tray during handoff.
 
-	// Mirror the Fyne client's defaulting: when the frontend doesn't supply
-	// profile / username, fall back to the daemon's active profile and the
-	// current OS user. The flag matches the Fyne ui's IsUnixDesktopClient
-	// condition so the daemon knows we can render an SSO browser flow.
+	// Fall back to the daemon's active profile and the current OS user.
 	profileName := p.ProfileName
 	username := p.Username
 	if profileName == "" {
@@ -280,7 +245,7 @@ func (s *Connection) Up(ctx context.Context, p UpParams) error {
 	if err != nil {
 		return err
 	}
-	// The UI always uses async mode: status updates flow via SubscribeStatus.
+	// Always async: status updates flow via SubscribeStatus.
 	req := &proto.UpRequest{Async: true}
 	if p.ProfileName != "" {
 		req.ProfileName = ptrStr(p.ProfileName)
@@ -305,11 +270,9 @@ func (s *Connection) Down(ctx context.Context) error {
 	return nil
 }
 
-// OpenURL launches the user's preferred browser to display url. Mirrors the
-// Fyne client's openURL helper so the SSO flow can pop the verification page
-// the same way as the legacy UI — WebKitGTK's window.open is blocked by the
-// embedded webview, and asking the user to copy/paste defeats the point of
-// SSO. Honors $BROWSER first, then falls back to the platform default.
+// OpenURL opens url in an external browser; the embedded webview blocks
+// window.open, so the SSO verification page can't pop inline. Honors $BROWSER
+// before the platform default.
 func (s *Connection) OpenURL(url string) error {
 	if browser := os.Getenv("BROWSER"); browser != "" {
 		return exec.Command(browser, url).Start()
@@ -343,9 +306,8 @@ func (s *Connection) Logout(ctx context.Context, p LogoutParams) error {
 	}
 
 	// The daemon runs as root and can't reach the user-owned per-profile state
-	// file that holds the account email (see Profiles.List). Drop it here from
-	// the UI process so a logged-out profile no longer shows a stale email; the
-	// next SSO login recreates it.
+	// file holding the account email (see Profiles.List), so clear the stale
+	// email here; the next SSO login recreates it.
 	if p.ProfileName != "" {
 		if err := profilemanager.NewProfileManager().RemoveProfileState(p.ProfileName); err != nil {
 			// Non-fatal: the logout itself succeeded.

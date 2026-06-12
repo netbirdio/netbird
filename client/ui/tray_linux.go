@@ -19,40 +19,25 @@ func disableDMABUFRenderer() {
 		return
 	}
 
-	// WebKitGTK's DMA-BUF renderer fails on many setups (VMs, containers,
-	// minimal WMs without proper GPU access) and leaves the window blank
-	// white. Wails only disables it for NVIDIA+Wayland, but the issue is
-	// broader. Always disable it — software rendering works fine for a
-	// small UI like this.
+	// WebKitGTK's DMA-BUF renderer leaves a blank-white window on many setups
+	// (VMs, containers, minimal WMs). Wails only disables it for NVIDIA+Wayland,
+	// but the issue is broader; software rendering is fine for a small UI.
 	_ = os.Setenv("WEBKIT_DISABLE_DMABUF_RENDERER", "1")
 }
 
-// disableCompositingMode turns off WebKitGTK's accelerated (GL) compositing
-// path. Disabling the DMA-BUF renderer alone is not enough on some Intel
-// setups: WebKitGTK 2.52 still drives the GPU through the GL compositor, and
-// Mesa's anv/i965 hits unimplemented DRM-format-modifier code paths
-// ("FINISHME: support YUV colorspace with DRM format modifiers" /
-// "...multi-planar formats...") that crash with a SIGSEGV inside
-// g_application_run before the first frame paints. Forcing compositing off
-// makes WebKit render on the CPU, which is fine for a small UI like this and
-// sidesteps the broken modifier path. The user can re-enable it by setting
-// WEBKIT_DISABLE_COMPOSITING_MODE themselves (e.g. to "0").
 func disableCompositingMode() {
 	if os.Getenv("WEBKIT_DISABLE_COMPOSITING_MODE") != "" {
 		return
 	}
+	// Disabling the DMA-BUF renderer alone isn't enough on some Intel setups: the
+	// GL compositor still hits Mesa's unimplemented DRM-format-modifier paths and
+	// SIGSEGVs inside g_application_run before the first frame.
 	_ = os.Setenv("WEBKIT_DISABLE_COMPOSITING_MODE", "1")
 }
 
 // disableWebKitSandboxIfNeeded works around WebKitGTK crashing at startup when
-// its bubblewrap (bwrap) sandbox can't create an unprivileged user namespace —
-// "bwrap: setting up uid map: Permission denied" followed by "Failed to fully
-// launch dbus-proxy" and a panic in webkit_web_view_load_uri. This happens in
-// containers/VMs and on Ubuntu 24.04+ where AppArmor restricts unprivileged
-// user namespaces (kernel.apparmor_restrict_unprivileged_userns=1). Software
-// can't grant the namespace from here, so when we detect that userns are
-// blocked we disable the WebKit sandbox to keep the UI usable. The user can
-// override either way by setting WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS.
+// its bwrap sandbox can't create an unprivileged user namespace (containers/VMs,
+// or Ubuntu 24.04+ AppArmor restrictions).
 func disableWebKitSandboxIfNeeded() {
 	if _, set := os.LookupEnv("WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS"); set {
 		return
@@ -63,11 +48,9 @@ func disableWebKitSandboxIfNeeded() {
 	_ = os.Setenv("WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS", "1")
 }
 
-// unprivilegedUsernsAllowed reports whether the kernel currently permits
-// unprivileged user namespaces, which WebKit's bwrap sandbox needs. It reads
-// the relevant procfs knobs; on a kernel that doesn't expose them (older or
-// hardened), it conservatively assumes namespaces are available so we don't
-// needlessly weaken the sandbox.
+// unprivilegedUsernsAllowed reports whether the kernel permits unprivileged
+// user namespaces (needed by WebKit's bwrap sandbox). Absent knobs are treated
+// as allowed, to avoid needlessly weakening the sandbox.
 func unprivilegedUsernsAllowed() bool {
 	// Debian/Ubuntu legacy switch: 0 disables unprivileged user namespaces.
 	if v, err := os.ReadFile("/proc/sys/kernel/unprivileged_userns_clone"); err == nil {
@@ -84,7 +67,5 @@ func unprivilegedUsernsAllowed() bool {
 	return true
 }
 
-// On Linux, the system tray provider may require the menu to be recreated
-// rather than updated in place. The rebuildExitNodeMenu method in tray.go
-// already handles this by removing and re-adding items; no additional
-// Linux-specific workaround is needed for Wails v3.
+// Linux's tray provider needs the menu recreated rather than updated in place;
+// tray.go's rebuildExitNodeMenu already does this, so no extra workaround here.

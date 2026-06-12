@@ -16,14 +16,11 @@ const (
 	waitTimeout                  = 5 * time.Second
 	desiredAccesses              = windows.SYNCHRONIZE | windows.EVENT_MODIFY_STATE
 
-	// WaitForSingleObject returns this when the timeout elapses without the
-	// object being signalled. golang.org/x/sys/windows does not expose it.
+	// WAIT_TIMEOUT return code; not exposed by golang.org/x/sys/windows.
 	waitTimeoutCode uint32 = 0x00000102
 )
 
-// listenForShowSignal opens the main window when an external process pulses
-// the named event Global\NetBirdQuickActionsTriggerEvent. Mirrors the trigger
-// the legacy Fyne UI used so the installer and CLI integrations keep working.
+// listenForShowSignal shows the main window when an external process pulses the named event.
 func listenForShowSignal(ctx context.Context, tray *Tray) {
 	namePtr, err := windows.UTF16PtrFromString(quickActionsTriggerEventName)
 	if err != nil {

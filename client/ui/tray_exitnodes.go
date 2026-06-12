@@ -15,24 +15,15 @@ import (
 	"github.com/netbirdio/netbird/client/ui/services"
 )
 
-// exitNodeEntry is one selectable row in the Exit Node submenu. ID is the
-// network's NetID — both the row label and the argument the Select/Deselect
-// RPCs take; Selected drives the ✓ prefix.
+// exitNodeEntry is one Exit Node submenu row; ID is the network's NetID, the Select/Deselect argument.
 type exitNodeEntry struct {
 	ID       string
 	Selected bool
 }
 
-// fillExitNodeSubmenu paints one clickable row per exit-node candidate into
-// the (freshly built) Exit Node submenu. Each row carries the network's NetID
-// and its selected state from ListNetworks; clicking toggles it via
-// toggleExitNode. The active node is marked with a "✓ " prefix using a plain
-// Add rather than AddCheckbox for the same reason as fillProfileSubmenu —
-// Wails auto-toggles a checkbox's state on click before the OnClick handler
-// runs, so the deselect/select round-trip would briefly show two checked rows.
-// Pure UI: it never calls SetMenu — relayoutMenu owns the single SetMenu that
-// pushes the whole tree. Callers must hold exitNodesRebuildMu so concurrent
-// rebuilds can't race the submenu's item slice.
+// fillExitNodeSubmenu uses a "✓ " prefix with plain Add, not AddCheckbox: Wails
+// auto-toggles a checkbox on click before OnClick runs, so the deselect/select
+// round-trip would briefly show two checked rows. Callers must hold exitNodesRebuildMu.
 func (t *Tray) fillExitNodeSubmenu(nodes []exitNodeEntry) {
 	if t.exitNodeSubmenu == nil {
 		return
@@ -51,13 +42,9 @@ func (t *Tray) fillExitNodeSubmenu(nodes []exitNodeEntry) {
 	}
 }
 
-// refreshExitNodes re-fetches the routed-network list from the daemon and
-// repaints the Exit Node submenu. Sourcing the rows from Networks.List() (not
-// the Status stream) is what makes them selectable: the stream only ships peer
-// FQDNs, whereas ListNetworks returns the NetID + selected state the
-// Select/Deselect RPCs need. Serialized by exitNodesRebuildMu so overlapping
-// Status pushes can't race the submenu rebuild. Owns the parent item's
-// enablement: greyed unless the tunnel is up and at least one candidate exists.
+// refreshExitNodes sources rows from Networks.List() rather than the Status stream
+// because only ListNetworks carries the NetID + selected state Select/Deselect need.
+// Serialized by exitNodesRebuildMu against overlapping Status pushes.
 func (t *Tray) refreshExitNodes() {
 	t.exitNodesRebuildMu.Lock()
 	defer t.exitNodesRebuildMu.Unlock()
@@ -88,22 +75,15 @@ func (t *Tray) refreshExitNodes() {
 	t.exitNodes = nodes
 	t.exitNodesMu.Unlock()
 
-	// relayoutMenu rebuilds the whole tree (allocating a fresh exitNodeItem) and
-	// repaints the parent's enablement from the cached entries we just stored,
-	// so there is no need to poke the old exitNodeItem here.
+	// relayoutMenu repaints from the cached entries, so the old exitNodeItem needs no poking here.
 	if changed {
 		t.relayoutMenu()
 	}
 }
 
-// toggleExitNode activates or deactivates one exit node by NetID. Exit nodes
-// are mutually exclusive, but enforcement of that lives daemon-side: the
-// SelectNetworks handler deselects every other exit node when this Select
-// activates one. So Select uses append=true — append=false would tell the
-// RouteSelector to drop the whole current selection (default-on semantics),
-// which also turns off every non-exit routed network the user had enabled.
-// Mirrors the frontend's toggleExitNode semantics. Runs the RPC off the
-// menu-click goroutine and re-fetches so the ✓ moves to the new selection.
+// toggleExitNode uses append=true: append=false would drop the whole current
+// selection (default-on semantics), turning off every other routed network the
+// user had enabled. Mutual exclusion of exit nodes is enforced daemon-side.
 func (t *Tray) toggleExitNode(id string, selected bool) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -125,9 +105,7 @@ func (t *Tray) toggleExitNode(id string, selected bool) {
 	}()
 }
 
-// exitNodesFromNetworks filters the daemon's routed-network list down to
-// exit-node candidates (a default-route range) and maps them to selectable
-// rows. Sorted case-insensitively by ID so the submenu reads alphabetically.
+// exitNodesFromNetworks keeps only networks whose range is a default route: those are the exit-node candidates.
 func exitNodesFromNetworks(networks []services.Network) []exitNodeEntry {
 	out := []exitNodeEntry{}
 	for _, n := range networks {
@@ -142,10 +120,8 @@ func exitNodesFromNetworks(networks []services.Network) []exitNodeEntry {
 	return out
 }
 
-// rangeIsDefaultRoute reports whether a Network.Range string contains an IPv4
-// or IPv6 default route. The daemon may merge a v4+v6 exit pair into a single
-// comma-joined range ("0.0.0.0/0, ::/0"), so we split and check each part,
-// matching by Bits()==0 && unspecified rather than a literal string compare.
+// rangeIsDefaultRoute reports whether r contains a default route. The daemon may
+// comma-join a v4+v6 pair ("0.0.0.0/0, ::/0"), so each part is parsed rather than string-compared.
 func rangeIsDefaultRoute(r string) bool {
 	for _, part := range strings.Split(r, ",") {
 		pref, err := netip.ParsePrefix(strings.TrimSpace(part))

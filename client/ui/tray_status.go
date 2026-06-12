@@ -18,26 +18,15 @@ func (t *Tray) onStatusEvent(ev *application.CustomEvent) {
 	t.applyStatus(st)
 }
 
-// applyStatus updates the tray icon, status label, exit-node submenu, and
-// connect/disconnect enablement based on the latest daemon snapshot.
-// Skips the icon refresh when none of the icon-relevant inputs
-// (connected, hasUpdate, status label) changed — the daemon emits
-// rapid SubscribeStatus bursts during health probes that would
-// otherwise spam Shell_NotifyIcon and the log.
-//
-// Profile-switch suppression lives one layer up in services/daemon_feed.go
-// (DaemonFeed.BeginProfileSwitch / consumeForSwitch) so the optimistic
-// Connecting paint and the suppressed Idle/Connected events are shared
-// with the React Status page rather than being a tray-only behaviour.
+// applyStatus repaints the tray from a daemon snapshot. Icon refresh is skipped
+// when no icon-relevant input changed: the daemon emits rapid SubscribeStatus
+// bursts during health probes that would otherwise spam Shell_NotifyIcon.
 func (t *Tray) applyStatus(st services.Status) {
 	t.statusMu.Lock()
 	connected := strings.EqualFold(st.Status, services.StatusConnected)
 	iconChanged := connected != t.connected || st.Status != t.lastStatus
-	// Detect the transition into SessionExpired: the daemon emits the
-	// state on every Status snapshot for as long as the session stays
-	// expired, so without this guard we would re-fire the notification
-	// on every push. Mirrors the legacy Fyne client's sendNotification
-	// flag in onSessionExpire.
+	// The daemon re-emits SessionExpired on every snapshot while expired; act
+	// only on the transition into it so the notification fires once.
 	sessionExpiredEnter := strings.EqualFold(st.Status, services.StatusSessionExpired) &&
 		!strings.EqualFold(t.lastStatus, services.StatusSessionExpired)
 
@@ -64,20 +53,14 @@ func (t *Tray) applyStatus(st services.Status) {
 	if iconChanged {
 		t.applyIcon()
 	}
-	// All repainting goes through relayoutMenu (menuMu-serialised, paints
-	// from the caches committed above): applyStatus runs concurrently with
-	// itself and with relayouts (Wails dispatches listeners on fresh
-	// goroutines), so in-place item mutation here would race the buildMenu
-	// pointer swap.
+	// All repainting goes through relayoutMenu (menuMu-serialised): applyStatus
+	// runs concurrently with itself and with relayouts, so in-place item
+	// mutation would race the buildMenu pointer swap.
 	if iconChanged || daemonVersionChanged || sessionChanged {
 		t.relayoutMenu()
 	}
-	// Re-fetch the selectable exit-node list whenever the daemon's routed-
-	// networks revision bumps (a route candidate added/removed, or a selection
-	// applied from any surface) or the tunnel flips state (iconChanged). The
-	// revision is the only reliable signal: candidate routes never appear in
-	// the peer-status snapshot, so a removed exit node would otherwise go
-	// unnoticed. The refresh owns the parent item's enablement and the rebuild.
+	// The revision is the only reliable signal: candidate routes never appear
+	// in the peer-status snapshot, so a removed exit node would go unnoticed.
 	if iconChanged || revisionChanged {
 		go t.refreshExitNodes()
 	}
@@ -92,13 +75,9 @@ func (t *Tray) applyStatus(st services.Status) {
 }
 
 // consumePendingConnectLogin acts on the SSO auto-handoff flag armed by
-// handleConnect. It returns true (and clears the flag) when the daemon
-// reached NeedsLogin, signalling the browser-login flow should start so the
-// user doesn't need to click Connect a second time. The flag is also cleared
-// on any other terminal state — including Connecting bursts that resolve to
-// Connected / Idle / LoginFailed / DaemonUnavailable — so a stale flag can't
-// fire weeks later when the daemon happens to flip. Must be called with
-// statusMu held.
+// handleConnect. Returns true on NeedsLogin so the browser-login flow starts
+// without a second Connect click; clears the flag on any terminal state so a
+// stale flag can't fire on a later daemon flip. Must hold statusMu.
 func (t *Tray) consumePendingConnectLogin(status string) bool {
 	if !t.pendingConnectLogin {
 		return false
@@ -117,9 +96,9 @@ func (t *Tray) consumePendingConnectLogin(status string) bool {
 	return false
 }
 
-// applyStatusIndicator sets the coloured status dot. Called only from
-// relayoutMenu (menuMu held): on macOS the bitmap repaints via the
-// relayout's trailing SetMenu — no SetMenu here, the tree is half-built.
+// applyStatusIndicator sets the status dot bitmap. Call only from relayoutMenu
+// (menuMu held): on macOS the bitmap repaints via the relayout's trailing
+// SetMenu, not here — the tree is half-built.
 func (t *Tray) applyStatusIndicator(status string) {
 	if t.statusItem == nil {
 		return

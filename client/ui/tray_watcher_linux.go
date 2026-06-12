@@ -2,19 +2,9 @@
 
 package main
 
-// startStatusNotifierWatcher registers org.kde.StatusNotifierWatcher on the
-// session D-Bus if no other process has already claimed it.
-//
-// Minimal window managers (Fluxbox, OpenBox, i3, etc.) do not ship a
-// StatusNotifier watcher, so tray icons using libayatana-appindicator or
-// the KDE/freedesktop StatusNotifier protocol silently fail.
-//
-// By owning the watcher name in-process we allow the Wails v3 built-in tray
-// to register itself — no external daemon or package needed.
-//
-// When an XEmbed system tray is available (_NET_SYSTEM_TRAY_S0), we also
-// start an in-process XEmbed host that bridges the SNI icon into the
-// XEmbed tray (Fluxbox, IceWM, etc.).
+// In-process org.kde.StatusNotifierWatcher for minimal WMs (Fluxbox, OpenBox,
+// i3) that ship no watcher. When an XEmbed tray exists (_NET_SYSTEM_TRAY_S0),
+// an in-process XEmbed host bridges the SNI icon into it.
 
 import (
 	"sync"
@@ -29,13 +19,8 @@ const (
 	watcherPath  = "/StatusNotifierWatcher"
 	watcherIface = "org.kde.StatusNotifierWatcher"
 
-	// watcherProbeInterval / watcherProbeTimeout bound how long we keep
-	// re-probing for an XEmbed tray before giving up. The UI is commonly
-	// autostarted *before* the panel/tray on minimal WMs, so a single probe
-	// at startup would miss a tray that comes up a second or two later and
-	// the icon would silently never appear. ~10s of polling covers a slow
-	// panel launch while staying short enough that a headless / pure-Wayland
-	// session (no XEmbed tray ever) winds down quickly.
+	// The UI is often autostarted before the panel on minimal WMs, so a single
+	// startup probe would miss a tray that appears a second later.
 	watcherProbeInterval = 500 * time.Millisecond
 	watcherProbeTimeout  = 10 * time.Second
 )
@@ -48,8 +33,7 @@ type statusNotifierWatcher struct {
 }
 
 // RegisterStatusNotifierItem is the D-Bus method called by tray clients.
-// The sender parameter is automatically injected by godbus with the caller's
-// unique bus name (e.g. ":1.42"). It does not appear in the D-Bus signature.
+// sender is injected by godbus and is not part of the D-Bus signature.
 func (w *statusNotifierWatcher) RegisterStatusNotifierItem(sender dbus.Sender, service string) *dbus.Error {
 	for _, s := range w.items {
 		if s == service {
@@ -69,8 +53,7 @@ func (w *statusNotifierWatcher) RegisterStatusNotifierHost(service string) *dbus
 	return nil
 }
 
-// tryStartXembedHost attempts to create an XEmbed tray icon for the given
-// SNI item. If no XEmbed tray manager is available, this is a no-op.
+// tryStartXembedHost is a no-op when no XEmbed tray manager is available.
 func (w *statusNotifierWatcher) tryStartXembedHost(busName string, objPath dbus.ObjectPath) {
 	w.hostsMu.Lock()
 	defer w.hostsMu.Unlock()
@@ -79,8 +62,8 @@ func (w *statusNotifierWatcher) tryStartXembedHost(busName string, objPath dbus.
 		return
 	}
 
-	// Use a private session bus so our signal subscriptions don't
-	// interfere with Wails' signal handler (which panics on unexpected signals).
+	// Private session bus so our signal subscriptions don't reach Wails'
+	// signal handler, which panics on unexpected signals.
 	sessionConn, err := dbus.SessionBusPrivate()
 	if err != nil {
 		log.Debugf("StatusNotifierWatcher: cannot open private session bus for XEmbed host: %v", err)
@@ -108,27 +91,15 @@ func (w *statusNotifierWatcher) tryStartXembedHost(busName string, objPath dbus.
 	log.Infof("StatusNotifierWatcher: XEmbed tray icon created for %s", busName)
 }
 
-// startStatusNotifierWatcher claims org.kde.StatusNotifierWatcher on the
-// session bus, but ONLY as a bridge to an XEmbed system tray on minimal WMs.
-//
-// The in-process watcher is a stub: its RegisterStatusNotifierItem only
-// tracks items so it can mirror them into an XEmbed tray icon — it does
-// NOT relay them to any other StatusNotifierHost. So if we claim the name
-// on a desktop that has a real watcher/host (e.g. Hyprland + Waybar), every
-// other tray app (Slack, etc.) registers into our dead-end watcher and its
-// icon never reaches the real host. We won that name purely by starting
-// first; a GetNameOwner check doesn't help against a login-order race.
-//
-// The correct discriminator is whether an XEmbed tray actually exists. If
-// one does, we are the bridge of last resort and should claim the watcher.
-// If not (pure Wayland, or any environment already running a real watcher),
-// we have nothing to bridge and must stay off the bus entirely so the real
-// watcher owns the name. Safe to call unconditionally.
-//
-// The XEmbed tray may come up *after* the UI (the panel and the autostarted
-// app race at login), so we re-probe for a short grace period instead of
-// deciding once at startup. The probing runs in a goroutine so it never
-// blocks the caller's startup path.
+// startStatusNotifierWatcher claims org.kde.StatusNotifierWatcher only as a
+// bridge to an XEmbed tray on minimal WMs. The watcher is a stub that never
+// relays items to a real StatusNotifierHost, so claiming the name on a desktop
+// with a real host (e.g. Hyprland + Waybar) would dead-end every other tray
+// app's icon. It gates on the actual presence of an XEmbed tray rather than
+// GetNameOwner, which can't win a login-order race; without one it stays off
+// the bus so the real watcher owns the name. The XEmbed tray may come up after
+// the UI, so it re-probes for a grace period rather than deciding once.
+// Safe to call unconditionally.
 func startStatusNotifierWatcher() {
 	go func() {
 		deadline := time.Now().Add(watcherProbeTimeout)
@@ -146,11 +117,9 @@ func startStatusNotifierWatcher() {
 	}()
 }
 
-// claimStatusNotifierWatcher opens a private session-bus connection and takes
-// ownership of org.kde.StatusNotifierWatcher, exporting the in-process stub
-// watcher. The caller has already confirmed an XEmbed tray is present, so we
-// genuinely have an item to bridge. The GetNameOwner / DoNotQueue guards still
-// back off if a real watcher already holds the name.
+// claimStatusNotifierWatcher takes ownership of org.kde.StatusNotifierWatcher
+// on a private session bus and exports the stub watcher. The GetNameOwner /
+// DoNotQueue guards back off if a real watcher already holds the name.
 func claimStatusNotifierWatcher() {
 	conn, err := dbus.SessionBusPrivate()
 	if err != nil {
@@ -168,7 +137,6 @@ func claimStatusNotifierWatcher() {
 		return
 	}
 
-	// Check whether another process already owns the watcher name.
 	var owner string
 	callErr := conn.BusObject().Call("org.freedesktop.DBus.GetNameOwner", 0, watcherName).Store(&owner)
 	if callErr == nil && owner != "" {
@@ -195,5 +163,5 @@ func claimStatusNotifierWatcher() {
 	}
 
 	log.Infof("StatusNotifierWatcher: active on session bus (enables tray on minimal WMs)")
-	// Connection intentionally kept open for the lifetime of the process.
+	// Connection kept open for the process lifetime.
 }
