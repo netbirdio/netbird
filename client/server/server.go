@@ -24,6 +24,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/expose"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	sleephandler "github.com/netbirdio/netbird/client/internal/sleep/handler"
+	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/client/system"
 	mgm "github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/management/domain"
@@ -71,7 +72,13 @@ type Server struct {
 	mutex  sync.Mutex
 	config *profilemanager.Config
 	proto.UnimplementedDaemonServiceServer
-	clientRunning     bool // protected by mutex
+	// clientRunning tracks "the daemon wants to be connected" — set true by
+	// Start / Up, cleared by Down / Logout. Persists across retry
+	// loops, signal disconnects, and ErrResetConnection cycles. NOT
+	// changed by connectWithRetryRuns goroutine exit — for that
+	// (goroutine-still-alive) check, see connectionGoroutineRunning() which
+	// derives from clientGiveUpChan close state. Protected by s.mutex.
+	clientRunning          bool
 	clientRunningChan chan struct{}
 	clientGiveUpChan  chan struct{} // closed when connectWithRetryRuns goroutine exits
 
@@ -97,6 +104,11 @@ type Server struct {
 	networksDisabled bool
 
 	sleepHandler *sleephandler.SleepHandler
+
+	// mdmTicker periodically re-reads the OS-native MDM policy and triggers
+	// an engine restart when the policy changes. Launched once by Start;
+	// stopped by the rootCtx cancellation.
+	mdmTicker *mdm.Ticker
 
 	updateManager *updater.Manager
 
@@ -153,6 +165,17 @@ func (s *Server) Start() error {
 		stateMgr := statemanager.New(s.profileManager.GetStatePath())
 		s.updateManager = updater.NewManager(s.statusRecorder, stateMgr)
 		s.updateManager.CheckUpdateSuccess(s.rootCtx)
+	}
+
+	// MDM policy reload ticker: every minute the desktop daemon re-reads
+	// the OS-native managed-config store and, on diff vs the previous
+	// observation, cancels the active engine context so connectWithRetry-
+	// Runs re-resolves Config (re-running profilemanager.Config.apply which
+	// applies the freshly-read MDM policy as the last layer) and brings
+	// the engine back with the new values.
+	if s.mdmTicker == nil {
+		s.mdmTicker = mdm.NewTicker(mdm.DefaultReloadInterval)
+		go s.mdmTicker.Run(s.rootCtx, s.onMDMPolicyChange)
 	}
 
 	// if current state contains any error, return it
@@ -213,17 +236,27 @@ func (s *Server) Start() error {
 	s.clientRunningChan = make(chan struct{})
 	s.clientGiveUpChan = make(chan struct{})
 	go s.connectWithRetryRuns(ctx, config, s.statusRecorder, s.clientRunningChan, s.clientGiveUpChan)
+	s.publishConfigChangedEvent("startup")
 	return nil
 }
 
 // connectWithRetryRuns runs the client connection with a backoff strategy where we retry the operation as additional
 // mechanism to keep the client connected even when the connection is lost.
 // we cancel retry if the client receive a stop or down command, or if disable auto connect is configured.
+//
+// The goroutine's exit is signalled to the daemon via close(giveUpChan)
+// — placed in the function-scope defer so every return path (panic,
+// DisableAutoConnect early-exit, backoff exhausted, ctx cancel) closes
+// it. Callers that need to observe "is the goroutine still alive?" use
+// Server.connectionGoroutineRunning() which non-blockingly checks the close state
+// of clientGiveUpChan. The defer does NOT touch s.mutex; the daemon's
+// "intent" (clientRunning) is maintained by the RPC handlers, not by this
+// goroutine.
 func (s *Server) connectWithRetryRuns(ctx context.Context, profileConfig *profilemanager.Config, statusRecorder *peer.Status, runningChan chan struct{}, giveUpChan chan struct{}) {
 	defer func() {
-		s.mutex.Lock()
-		s.clientRunning = false
-		s.mutex.Unlock()
+		if giveUpChan != nil {
+			close(giveUpChan)
+		}
 	}()
 
 	if s.config.DisableAutoConnect {
@@ -269,9 +302,26 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, profileConfig *profil
 	if err := backoff.Retry(runOperation, backOff); err != nil {
 		log.Errorf("operation failed: %v", err)
 	}
+	// giveUpChan is closed by the function-scope defer.
+}
 
-	if giveUpChan != nil {
-		close(giveUpChan)
+// connectionGoroutineRunning reports whether the connectWithRetryRuns goroutine is
+// still running. Returns false when no goroutine has ever been started
+// AND when the most recent one has already closed clientGiveUpChan on
+// exit (whether due to ctx cancel, DisableAutoConnect single-shot
+// completion, or backoff retry exhaustion).
+//
+// MUST be called with s.mutex held — accesses s.clientGiveUpChan which
+// is written by Start/Up under the same lock.
+func (s *Server) connectionGoroutineRunning() bool {
+	if s.clientGiveUpChan == nil {
+		return false
+	}
+	select {
+	case <-s.clientGiveUpChan:
+		return false
+	default:
+		return true
 	}
 }
 
@@ -304,54 +354,85 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	if s.checkUpdateSettingsDisabled() {
-		return nil, gstatus.Errorf(codes.Unavailable, errUpdateSettingsDisabled)
+	// Skip the update-settings gate when the request carries no actual
+	// overrides: the CLI builds a SetConfigRequest unconditionally on
+	// every `netbird up` (setupSetConfigReq in cmd/up.go), so a plain
+	// `netbird up` would otherwise always trip the gate and surface a
+	// misleading "setConfig method is not available" warning, even when
+	// the user did not pass any config flag.
+	if setConfigRequestHasConfigOverrides(msg) {
+		if s.checkUpdateSettingsDisabled() {
+			return nil, gstatus.Errorf(codes.Unavailable, errUpdateSettingsDisabled)
+		}
 	}
+
+	// MDM gate: refuse the whole request if any of its fields is enforced
+	// by the active MDM policy. The error carries an MDMManagedFields-
+	// Violation detail listing the offending key names. Non-conflicting
+	// fields in the same request are not applied either.
+	policy := loadMDMPolicy()
+	if err := rejectMDMManagedFieldConflicts(mdmManagedFieldConflicts(msg, policy)); err != nil {
+		return nil, err
+	}
+
+	config, err := setConfigInputFromRequest(msg)
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := profilemanager.UpdateConfig(config); err != nil {
+		log.Errorf("failed to update profile config: %v", err)
+		return nil, fmt.Errorf("failed to update profile config: %w", err)
+	}
+
+	return &proto.SetConfigResponse{}, nil
+}
+
+// setConfigInputFromRequest translates a SetConfigRequest into the
+// profilemanager.ConfigInput that profilemanager.UpdateConfig consumes.
+// Pure mapping with no business logic beyond presence-aware copying of
+// optional fields and the "empty / clean" semantics for the two slice
+// fields (DNS labels, NAT external IPs). Extracted from SetConfig to
+// keep the handler's cognitive complexity below the SonarCube
+// threshold; the body is intentionally linear because each proto
+// field is its own optional case. Returns the resolved ConfigInput
+// and a non-nil error only when the active profile file path cannot
+// be determined.
+func setConfigInputFromRequest(msg *proto.SetConfigRequest) (profilemanager.ConfigInput, error) {
+	var config profilemanager.ConfigInput
 
 	profState := profilemanager.ActiveProfileState{
 		Name:     msg.ProfileName,
 		Username: msg.Username,
 	}
-
 	profPath, err := profState.FilePath()
 	if err != nil {
 		log.Errorf("failed to get active profile file path: %v", err)
-		return nil, fmt.Errorf("failed to get active profile file path: %w", err)
+		return config, fmt.Errorf("failed to get active profile file path: %w", err)
 	}
-
-	var config profilemanager.ConfigInput
-
 	config.ConfigPath = profPath
 
 	if msg.ManagementUrl != "" {
 		config.ManagementURL = msg.ManagementUrl
 	}
-
 	if msg.AdminURL != "" {
 		config.AdminURL = msg.AdminURL
 	}
-
 	if msg.InterfaceName != nil {
 		config.InterfaceName = msg.InterfaceName
 	}
-
 	if msg.WireguardPort != nil {
 		wgPort := int(*msg.WireguardPort)
 		config.WireguardPort = &wgPort
 	}
-
-	if msg.OptionalPreSharedKey != nil {
-		if *msg.OptionalPreSharedKey != "" {
-			config.PreSharedKey = msg.OptionalPreSharedKey
-		}
+	if msg.OptionalPreSharedKey != nil && *msg.OptionalPreSharedKey != "" {
+		config.PreSharedKey = msg.OptionalPreSharedKey
 	}
 
 	if msg.CleanDNSLabels {
 		config.DNSLabels = domain.List{}
-
 	} else if msg.DnsLabels != nil {
-		dnsLabels := domain.FromPunycodeList(msg.DnsLabels)
-		config.DNSLabels = dnsLabels
+		config.DNSLabels = domain.FromPunycodeList(msg.DnsLabels)
 	}
 
 	if msg.CleanNATExternalIPs {
@@ -364,7 +445,6 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 	if string(msg.CustomDNSAddress) == "empty" {
 		config.CustomDNSAddress = []byte{}
 	}
-
 	config.ExtraIFaceBlackList = msg.ExtraIFaceBlacklist
 
 	if msg.DnsRouteInterval != nil {
@@ -397,22 +477,31 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 		ttl := int(*msg.SshJWTCacheTTL)
 		config.SSHJWTCacheTTL = &ttl
 	}
-
 	if msg.Mtu != nil {
 		mtu := uint16(*msg.Mtu)
 		config.MTU = &mtu
 	}
-
-	if _, err := profilemanager.UpdateConfig(config); err != nil {
-		log.Errorf("failed to update profile config: %v", err)
-		return nil, fmt.Errorf("failed to update profile config: %w", err)
-	}
-
-	return &proto.SetConfigResponse{}, nil
+	return config, nil
 }
 
 // Login uses setup key to prepare configuration for the daemon.
 func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*proto.LoginResponse, error) {
+	// Config-override gates. LoginRequest carries the same surface as
+	// SetConfigRequest (managementUrl, PSK, ssh/rosenpass/port toggles,
+	// ...), so the same protections must apply. Without these the CLI
+	// command `netbird up --management-url=X` (which falls through to
+	// Login when SetConfig is rejected — see cmd/up.go) would silently
+	// bypass `--disable-update-settings` and any MDM policy.
+	if loginRequestHasConfigOverrides(msg) {
+		if s.checkUpdateSettingsDisabled() {
+			return nil, gstatus.Errorf(codes.Unavailable, errUpdateSettingsDisabled)
+		}
+		policy := loadMDMPolicy()
+		if err := rejectMDMManagedFieldConflicts(loginRequestMDMConflicts(msg, policy)); err != nil {
+			return nil, err
+		}
+	}
+
 	s.mutex.Lock()
 	if s.actCancel != nil {
 		s.actCancel()
@@ -652,7 +741,13 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 // Up starts engine work in the daemon.
 func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpResponse, error) {
 	s.mutex.Lock()
-	if s.clientRunning {
+	// clientRunning is the daemon-intent flag (set by previous Up/Start, cleared
+	// by Down). connectionGoroutineRunning() reports whether the previous retry-loop
+	// goroutine is still trying. When intent is up AND goroutine is alive,
+	// the existing engine is on the job — just wait for it. When intent
+	// is up but the goroutine has given up (backoff exhausted) OR when
+	// intent is down, fall through to spawn a fresh retry loop.
+	if s.clientRunning && s.connectionGoroutineRunning() {
 		state := internal.CtxGetState(s.rootCtx)
 		status, err := state.Status()
 		if err != nil {
@@ -743,6 +838,7 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	s.clientGiveUpChan = make(chan struct{})
 
 	go s.connectWithRetryRuns(ctx, s.config, s.statusRecorder, s.clientRunningChan, s.clientGiveUpChan)
+	s.publishConfigChangedEvent("up_rpc")
 
 	s.mutex.Unlock()
 	return s.waitForUp(callerCtx)
@@ -870,6 +966,12 @@ func (s *Server) cleanupConnection() error {
 	if s.actCancel == nil {
 		return ErrServiceNotUp
 	}
+
+	// Daemon intent flips to "down" — all callers (Down RPC,
+	// Logout RPC handlers) tear down the connection because the user
+	// explicitly asked for it. MDM restart does NOT go through this
+	// path, so its clientRunning stays true.
+	s.clientRunning = false
 
 	// Capture the engine reference before cancelling the context.
 	// After actCancel(), the connectWithRetryRuns goroutine wakes up
@@ -1074,10 +1176,14 @@ func (s *Server) Status(
 	msg *proto.StatusRequest,
 ) (*proto.StatusResponse, error) {
 	s.mutex.Lock()
-	clientRunning := s.clientRunning
+	// Only wait if the retry-loop goroutine is alive and making
+	// progress. clientRunning=true with connectionGoroutineRunning=false means the
+	// backoff has given up — there is nothing to wait for; let the
+	// caller observe the failed status directly.
+	alive := s.connectionGoroutineRunning()
 	s.mutex.Unlock()
 
-	if msg.WaitForReady != nil && *msg.WaitForReady && clientRunning {
+	if msg.WaitForReady != nil && *msg.WaitForReady && alive {
 		state := internal.CtxGetState(s.rootCtx)
 		status, err := state.Status()
 		if err != nil {
@@ -1548,6 +1654,7 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 		EnableSSHRemotePortForwarding: enableSSHRemotePortForwarding,
 		DisableSSHAuth:                disableSSHAuth,
 		SshJWTCacheTTL:                sshJWTCacheTTL,
+		MDMManagedFields:              cfg.Policy().ManagedKeys(),
 	}, nil
 }
 
@@ -1646,7 +1753,7 @@ func (s *Server) GetFeatures(ctx context.Context, msg *proto.GetFeaturesRequest)
 	features := &proto.GetFeaturesResponse{
 		DisableProfiles:       s.checkProfilesDisabled(),
 		DisableUpdateSettings: s.checkUpdateSettingsDisabled(),
-		DisableNetworks:       s.networksDisabled,
+		DisableNetworks:       s.checkNetworksDisabled(),
 	}
 
 	return features, nil
@@ -1668,22 +1775,46 @@ func (s *Server) connect(ctx context.Context, config *profilemanager.Config, sta
 	return nil
 }
 
+// MDM authority: when the platform-native MDM source sets a kill switch
+// key (regardless of true/false value), that value wins. The CLI flag
+// supplied at service install time is the fallback used only when the
+// MDM source is silent on the key. This honors the "MDM decides
+// everything" semantic agreed for NET-1214 — an admin pushing
+// disableX=false via MDM explicitly re-enables the feature even on a
+// box installed with --disable-X.
 func (s *Server) checkProfilesDisabled() bool {
-	// Check if the environment variable is set to disable profiles
-	if s.profilesDisabled {
-		return true
+	if s.config != nil {
+		if v, ok := s.config.Policy().GetBool(mdm.KeyDisableProfiles); ok {
+			return v
+		}
 	}
+	return s.profilesDisabled
+}
 
-	return false
+// checkNetworksDisabled reports whether the networks/exit-node feature
+// is disabled on this daemon instance. Resolved MDM-first: when the
+// active policy declares mdm.KeyDisableNetworks the policy value wins
+// (regardless of true/false), so an admin can re-enable the feature
+// via MDM even on a host that was installed with --disable-networks.
+// Falls back to the s.networksDisabled CLI flag when the policy is
+// silent on the key. Mirrors checkProfilesDisabled and
+// checkUpdateSettingsDisabled.
+func (s *Server) checkNetworksDisabled() bool {
+	if s.config != nil {
+		if v, ok := s.config.Policy().GetBool(mdm.KeyDisableNetworks); ok {
+			return v
+		}
+	}
+	return s.networksDisabled
 }
 
 func (s *Server) checkUpdateSettingsDisabled() bool {
-	// Check if the environment variable is set to disable profiles
-	if s.updateSettingsDisabled {
-		return true
+	if s.config != nil {
+		if v, ok := s.config.Policy().GetBool(mdm.KeyDisableUpdateSettings); ok {
+			return v
+		}
 	}
-
-	return false
+	return s.updateSettingsDisabled
 }
 
 func (s *Server) startUpdateManagerForGUI() {

@@ -14,6 +14,10 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+// errNoSuitableAddress mirrors the unexported error string the net package
+// uses when a resolved host has no addresses of the requested family.
+const errNoSuitableAddress = "no suitable address found"
+
 // GenerateRequestID creates a random 8-character hex string for request tracing.
 func GenerateRequestID() string {
 	bytes := make([]byte, 4)
@@ -126,6 +130,14 @@ func LookupIP(ctx context.Context, r resolver, network, host string, qtype uint1
 }
 
 func getRcodeForError(ctx context.Context, r resolver, host string, qtype uint16, err error) int {
+	// The net package returns this AddrError when the host resolves but has
+	// no addresses of the requested family. The domain exists, so answer
+	// NODATA instead of SERVFAIL.
+	var addrErr *net.AddrError
+	if errors.As(err, &addrErr) && addrErr.Err == errNoSuitableAddress {
+		return dns.RcodeSuccess
+	}
+
 	var dnsErr *net.DNSError
 	if !errors.As(err, &dnsErr) {
 		return dns.RcodeServerFailure

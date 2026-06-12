@@ -2738,6 +2738,17 @@ func TestLocalResolver_FilterDisconnectedPeerAnswers(t *testing.T) {
 			connByIP:    nil,
 			wantInOrder: []string{"100.64.0.10", "100.64.0.11"},
 		},
+		{
+			// A single answer is never filtered: dropping it would only
+			// trigger the empty-answer escape hatch, so the fast path
+			// returns it untouched.
+			name:    "single disconnected answer passes through",
+			records: []nbdns.SimpleRecord{disconnectedRec},
+			connByIP: map[string]ipState{
+				"100.64.0.11": {known: true, connected: false},
+			},
+			wantInOrder: []string{"100.64.0.11"},
+		},
 	}
 
 	for _, tc := range tests {
