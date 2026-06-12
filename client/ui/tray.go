@@ -276,7 +276,7 @@ func NewTray(app *application.App, window *application.WebviewWindow, svc TraySe
 		// Seed the feature kill switches so a DisableProfiles / DisableNetworks
 		// policy already greys out the matching menus on the first paint
 		// (config_changed events refresh them afterwards).
-		go t.refreshFeatures()
+		go t.refreshRestrictions()
 		go t.runSessionExpiryTicker()
 		// Notification-category registration must run after the Wails
 		// notifications service Startup has populated wn.appName /

@@ -7,6 +7,7 @@ import { Input } from "@/components/inputs/Input";
 import { Label } from "@/components/typography/Label";
 import { SectionGroup, SettingsBottomBar } from "@/modules/settings/SettingsSection.tsx";
 import { useSettings } from "@/contexts/SettingsContext.tsx";
+import { useRestrictions } from "@/contexts/RestrictionsContext.tsx";
 
 // macOS daemon/CLI only accept utun<N> (Darwin parses digits as the utun unit); Linux caps at IFNAMSIZ-1 = 15 chars.
 const IS_MAC = System.IsMac();
@@ -14,9 +15,11 @@ const INTERFACE_NAME_RE = IS_MAC ? /^utun\d+$/ : /^[A-Za-z0-9._-]{1,15}$/;
 const INTERFACE_NAME_ERROR_KEY = IS_MAC
     ? "settings.advanced.interfaceName.errorMac"
     : "settings.advanced.interfaceName.error";
+
 // Port 0 lets the daemon pick a random free port.
 const PORT_MIN = 0;
 const PORT_MAX = 65535;
+
 // Mirrors client/iface/iface.go MinMTU / MaxMTU.
 const MTU_MIN = 576;
 const MTU_MAX = 8192;
@@ -24,15 +27,14 @@ const MTU_MAX = 8192;
 export function SettingsAdvanced() {
     const { t } = useTranslation();
     const { config, saveFields } = useSettings();
+    const { mdm } = useRestrictions();
 
     const [values, setValues] = useState({
         interfaceName: config.interfaceName,
         wireguardPort: config.wireguardPort,
         mtu: config.mtu,
     });
-    // PSK is write-only from the UI: the daemon returns only preSharedKeySet,
-    // never the value. Empty means "leave unchanged"; a typed value is sent on
-    // save. Reset on every config reload (e.g. after a successful save).
+
     const [psk, setPsk] = useState("");
     const [saving, setSaving] = useState(false);
 
@@ -66,18 +68,22 @@ export function SettingsAdvanced() {
         return out;
     }, [values.interfaceName, values.wireguardPort, values.mtu, t]);
 
-    const hasErrors = Object.keys(errors).length > 0;
+    const filteredErrors = mdm.wireguardPort ? { ...errors, wireguardPort: undefined } : errors;
+    const hasErrors = Object.values(filteredErrors).some((v) => v !== undefined);
     const hasChanges =
         values.interfaceName !== config.interfaceName ||
-        values.wireguardPort !== config.wireguardPort ||
+        (!mdm.wireguardPort && values.wireguardPort !== config.wireguardPort) ||
         values.mtu !== config.mtu ||
-        psk !== "";
+        (!mdm.preSharedKey && psk !== "");
 
     const handleSave = async () => {
         if (!hasChanges || saving || hasErrors) return;
         setSaving(true);
         try {
-            await saveFields(values, psk ? { preSharedKey: psk } : undefined);
+            const partial: typeof values = { ...values };
+            if (mdm.wireguardPort) partial.wireguardPort = config.wireguardPort;
+            const pskOpts = !mdm.preSharedKey && psk ? { preSharedKey: psk } : undefined;
+            await saveFields(partial, pskOpts);
         } finally {
             setSaving(false);
         }
@@ -92,24 +98,28 @@ export function SettingsAdvanced() {
                     error={errors.interfaceName}
                     onChange={(e) => setValues((v) => ({ ...v, interfaceName: e.target.value }))}
                 />
-                <div className={"grid grid-cols-2 gap-4"}>
-                    <div>
-                        <Input
-                            label={t("settings.advanced.port.label")}
-                            type={"number"}
-                            min={PORT_MIN}
-                            max={PORT_MAX}
-                            value={values.wireguardPort}
-                            error={errors.wireguardPort}
-                            onChange={(e) =>
-                                setValues((v) => ({
-                                    ...v,
-                                    wireguardPort: Number(e.target.value),
-                                }))
-                            }
-                        />
-                        <HelpText className={"mt-1.5"}>{t("settings.advanced.port.help")}</HelpText>
-                    </div>
+                <div className={mdm.wireguardPort ? "" : "grid grid-cols-2 gap-4"}>
+                    {!mdm.wireguardPort && (
+                        <div>
+                            <Input
+                                label={t("settings.advanced.port.label")}
+                                type={"number"}
+                                min={PORT_MIN}
+                                max={PORT_MAX}
+                                value={values.wireguardPort}
+                                error={errors.wireguardPort}
+                                onChange={(e) =>
+                                    setValues((v) => ({
+                                        ...v,
+                                        wireguardPort: Number(e.target.value),
+                                    }))
+                                }
+                            />
+                            <HelpText className={"mt-1.5"}>
+                                {t("settings.advanced.port.help")}
+                            </HelpText>
+                        </div>
+                    )}
                     <Input
                         label={t("settings.advanced.mtu.label")}
                         type={"number"}
@@ -122,23 +132,25 @@ export function SettingsAdvanced() {
                 </div>
             </SectionGroup>
 
-            <SectionGroup title={t("settings.advanced.section.security")}>
-                <div>
-                    <Label as={"div"}>{t("settings.advanced.psk.label")}</Label>
-                    <HelpText>{t("settings.advanced.psk.help")}</HelpText>
-                    <Input
-                        type={"password"}
-                        showPasswordToggle={psk !== ""}
-                        placeholder={
-                            config.preSharedKeySet
-                                ? t("settings.advanced.psk.configured")
-                                : "kQv0qF3oQpJYdgD5mC9hL7sB2xZ8nT4eU6wY1aR3jK0="
-                        }
-                        value={psk}
-                        onChange={(e) => setPsk(e.target.value)}
-                    />
-                </div>
-            </SectionGroup>
+            {!mdm.preSharedKey && (
+                <SectionGroup title={t("settings.advanced.section.security")}>
+                    <div>
+                        <Label as={"div"}>{t("settings.advanced.psk.label")}</Label>
+                        <HelpText>{t("settings.advanced.psk.help")}</HelpText>
+                        <Input
+                            type={"password"}
+                            showPasswordToggle={psk !== ""}
+                            placeholder={
+                                config.preSharedKeySet
+                                    ? t("settings.advanced.psk.configured")
+                                    : "kQv0qF3oQpJYdgD5mC9hL7sB2xZ8nT4eU6wY1aR3jK0="
+                            }
+                            value={psk}
+                            onChange={(e) => setPsk(e.target.value)}
+                        />
+                    </div>
+                </SectionGroup>
+            )}
 
             <SettingsBottomBar>
                 <Button

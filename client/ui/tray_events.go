@@ -32,8 +32,8 @@ func (t *Tray) onSystemEvent(ev *application.CustomEvent) {
 	// changes reflect in the tray without a periodic poll. This replaces the
 	// legacy Fyne UI's 2s GetFeatures poll.
 	if se.Category == "system" && se.Metadata[proto.MetadataTypeKey] == proto.MetadataTypeConfigChanged {
-		log.Infof("config_changed event received (source=%s); refreshing tray features", se.Metadata[proto.MetadataSourceKey])
-		go t.refreshFeatures()
+		log.Infof("config_changed event received (source=%s); refreshing tray restrictions", se.Metadata[proto.MetadataSourceKey])
+		go t.refreshRestrictions()
 		go t.loadConfig()
 		// An MDM-driven config change gets a user-facing toast so the
 		// operator knows their IT policy was applied. The daemon also

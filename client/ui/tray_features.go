@@ -8,23 +8,23 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// refreshFeatures pulls the daemon's operator-disabled UI surfaces
+// refreshRestrictions pulls the daemon's operator-disabled UI surfaces
 // (DisableProfiles / DisableNetworks) and re-applies the tray menu gating.
 // Called once at startup (ApplicationStarted) and on every config_changed
 // system event — the daemon re-applies its MDM policy on each engine spawn
 // and emits that event, so this is the tray's signal to re-sync the kill
-// switches. It replaces the legacy Fyne UI's 2s GetFeatures poll.
-func (t *Tray) refreshFeatures() {
-	features, err := t.svc.Settings.GetFeatures(context.Background())
+// switches.
+func (t *Tray) refreshRestrictions() {
+	r, err := t.svc.Settings.GetRestrictions(context.Background())
 	if err != nil {
-		log.Debugf("get features: %v", err)
+		log.Debugf("get restrictions: %v", err)
 		return
 	}
 	t.featureMu.Lock()
-	changed := t.disableProfiles != features.DisableProfiles ||
-		t.disableNetworks != features.DisableNetworks
-	t.disableProfiles = features.DisableProfiles
-	t.disableNetworks = features.DisableNetworks
+	changed := t.disableProfiles != r.Features.DisableProfiles ||
+		t.disableNetworks != r.Features.DisableNetworks
+	t.disableProfiles = r.Features.DisableProfiles
+	t.disableNetworks = r.Features.DisableNetworks
 	t.featureMu.Unlock()
 	// Repaint only when a flag actually flipped: relayoutMenu rebuilds the
 	// whole menu tree, so a no-op refresh (the common case) must not churn

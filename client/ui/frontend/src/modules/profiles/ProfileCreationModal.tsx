@@ -14,6 +14,7 @@ import {
     isValidManagementUrl,
     normalizeManagementUrl,
 } from "@/hooks/useManagementUrl";
+import { useRestrictions } from "@/contexts/RestrictionsContext.tsx";
 
 type Props = {
     open: boolean;
@@ -31,6 +32,8 @@ const sanitizeProfileInput = (value: string): string =>
 
 export const ProfileCreationModal = ({ open, onOpenChange, onCreate }: Props) => {
     const { t } = useTranslation();
+    const { mdm } = useRestrictions();
+    const managedManagementUrl = mdm.managementURL;
     const [name, setName] = useState("");
     const [nameError, setNameError] = useState<string | null>(null);
     const nameRef = useRef<HTMLInputElement>(null);
@@ -67,6 +70,12 @@ export const ProfileCreationModal = ({ open, onOpenChange, onCreate }: Props) =>
         if (sanitized.length === 0) {
             setNameError(t("profile.dialog.required"));
             nameRef.current?.focus();
+            return;
+        }
+
+        if (managedManagementUrl) {
+            onCreate(sanitized, managedManagementUrl);
+            onOpenChange(false);
             return;
         }
 
@@ -145,35 +154,41 @@ export const ProfileCreationModal = ({ open, onOpenChange, onCreate }: Props) =>
                             />
                         </div>
 
-                        <div className="flex flex-col gap-2">
-                            <div className={"pl-1"}>
-                                <Label as={"div"} className={"mb-0.5"}>
-                                    {t("settings.general.management.label")}
-                                </Label>
-                                <HelpText margin={false}>
-                                    {t("profile.dialog.managementHelp")}
-                                </HelpText>
-                            </div>
-                            <div className="flex flex-col gap-3">
-                                <ManagementServerSwitch value={mode} onChange={setMode} fullWidth />
-                                {mode === ManagementMode.SelfHosted && (
-                                    <Input
-                                        ref={urlRef}
-                                        autoFocus
-                                        placeholder={t(
-                                            "settings.general.management.urlPlaceholder",
-                                        )}
-                                        value={url}
-                                        onChange={(e) => setUrl(e.target.value)}
-                                        error={urlInputError}
-                                        warning={urlInputWarning}
-                                        spellCheck={false}
-                                        autoComplete="off"
-                                        autoCapitalize="off"
+                        {!managedManagementUrl && (
+                            <div className="flex flex-col gap-2">
+                                <div className={"pl-1"}>
+                                    <Label as={"div"} className={"mb-0.5"}>
+                                        {t("settings.general.management.label")}
+                                    </Label>
+                                    <HelpText margin={false}>
+                                        {t("profile.dialog.managementHelp")}
+                                    </HelpText>
+                                </div>
+                                <div className="flex flex-col gap-3">
+                                    <ManagementServerSwitch
+                                        value={mode}
+                                        onChange={setMode}
+                                        fullWidth
                                     />
-                                )}
+                                    {mode === ManagementMode.SelfHosted && (
+                                        <Input
+                                            ref={urlRef}
+                                            autoFocus
+                                            placeholder={t(
+                                                "settings.general.management.urlPlaceholder",
+                                            )}
+                                            value={url}
+                                            onChange={(e) => setUrl(e.target.value)}
+                                            error={urlInputError}
+                                            warning={urlInputWarning}
+                                            spellCheck={false}
+                                            autoComplete="off"
+                                            autoCapitalize="off"
+                                        />
+                                    )}
+                                </div>
                             </div>
-                        </div>
+                        )}
 
                         <DialogActions className={"flex-row items-center justify-end gap-2.5 pt-2"}>
                             <Button

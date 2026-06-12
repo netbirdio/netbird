@@ -3,6 +3,7 @@ import { Tooltip } from "@/components/Tooltip.tsx";
 import { VerticalTabs } from "@/components/VerticalTabs.tsx";
 import { UpdateBadge } from "@/modules/auto-update/UpdateBadge.tsx";
 import { useClientVersion } from "@/contexts/ClientVersionContext.tsx";
+import { useRestrictions } from "@/contexts/RestrictionsContext.tsx";
 import {
     BoltIcon,
     InfoIcon,
@@ -17,6 +18,7 @@ import {
 export const SettingsNavigation = () => {
     const { t } = useTranslation();
     const { updateAvailable } = useClientVersion();
+    const { mdm, features } = useRestrictions();
 
     const aboutAdornment = updateAvailable ? (
         <Tooltip content={t("settings.tabs.updateAvailable")} side={"right"}>
@@ -27,36 +29,44 @@ export const SettingsNavigation = () => {
     return (
         <div className={"flex flex-col w-52 shrink-0 items-center select-none"}>
             <VerticalTabs.List>
-                <VerticalTabs.Trigger
-                    value={"general"}
-                    icon={SlidersHorizontalIcon}
-                    title={t("settings.tabs.general")}
-                />
-                <VerticalTabs.Trigger
-                    value={"network"}
-                    icon={NetworkIcon}
-                    title={t("settings.tabs.network")}
-                />
-                <VerticalTabs.Trigger
-                    value={"security"}
-                    icon={ShieldIcon}
-                    title={t("settings.tabs.security")}
-                />
-                <VerticalTabs.Trigger
-                    value={"profiles"}
-                    icon={UserCircleIcon}
-                    title={t("settings.tabs.profiles")}
-                />
-                <VerticalTabs.Trigger
-                    value={"ssh"}
-                    icon={SquareTerminalIcon}
-                    title={t("settings.tabs.ssh")}
-                />
-                <VerticalTabs.Trigger
-                    value={"advanced"}
-                    icon={BoltIcon}
-                    title={t("settings.tabs.advanced")}
-                />
+                {!features.disableUpdateSettings && (
+                    <>
+                        <VerticalTabs.Trigger
+                            value={"general"}
+                            icon={SlidersHorizontalIcon}
+                            title={t("settings.tabs.general")}
+                        />
+                        <VerticalTabs.Trigger
+                            value={"network"}
+                            icon={NetworkIcon}
+                            title={t("settings.tabs.network")}
+                        />
+                        <VerticalTabs.Trigger
+                            value={"security"}
+                            icon={ShieldIcon}
+                            title={t("settings.tabs.security")}
+                        />
+                        {!features.disableProfiles && (
+                            <VerticalTabs.Trigger
+                                value={"profiles"}
+                                icon={UserCircleIcon}
+                                title={t("settings.tabs.profiles")}
+                            />
+                        )}
+                        {!mdm.allowServerSSH && (
+                            <VerticalTabs.Trigger
+                                value={"ssh"}
+                                icon={SquareTerminalIcon}
+                                title={t("settings.tabs.ssh")}
+                            />
+                        )}
+                        <VerticalTabs.Trigger
+                            value={"advanced"}
+                            icon={BoltIcon}
+                            title={t("settings.tabs.advanced")}
+                        />
+                    </>
+                )}
                 <VerticalTabs.Trigger
                     value={"troubleshooting"}
                     icon={LifeBuoyIcon}

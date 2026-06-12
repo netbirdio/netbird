@@ -6,12 +6,14 @@ import { Navigation } from "@/modules/main/advanced/Navigation.tsx";
 import { cn } from "@/lib/cn";
 import { NavSectionProvider, useNavSection } from "@/contexts/NavSectionContext";
 import { ViewModeProvider, useViewMode } from "@/contexts/ViewModeContext";
+import { useEffect } from "react";
 import { NotConnectedState } from "@/components/empty-state/NotConnectedState";
 import { useStatus } from "@/contexts/StatusContext";
 import { Peers } from "@/modules/main/advanced/peers/Peers";
 import { Networks } from "@/modules/main/advanced/networks/Networks";
 import { NetworksProvider } from "@/contexts/NetworksContext";
 import { PeerDetailProvider, usePeerDetail } from "@/contexts/PeerDetailContext";
+import { useRestrictions } from "@/contexts/RestrictionsContext";
 import { PeerDetailPanel } from "@/modules/main/advanced/peers/PeerDetailPanel";
 import { isWindows } from "@/lib/platform.ts";
 
@@ -29,7 +31,16 @@ export const MainPage = () => {
 };
 
 const MainBody = () => {
-    const { viewMode } = useViewMode();
+    const { viewMode, setViewMode } = useViewMode();
+    const { mdm, features } = useRestrictions();
+
+    // Force flip the view if mdm changed it
+    useEffect(() => {
+        if (mdm.disableAdvancedView && viewMode === "advanced") {
+            setViewMode("default");
+        }
+    }, [mdm.disableAdvancedView, viewMode, setViewMode]);
+
     const isAdvanced = viewMode === "advanced";
 
     return (
@@ -43,9 +54,11 @@ const MainBody = () => {
                 )}
             >
                 <MainConnectionStatusSwitch />
-                <div className={"absolute left-5 right-5 bottom-5 wails-no-draggable"}>
-                    <MainExitNodeSwitcher />
-                </div>
+                {!features.disableNetworks && (
+                    <div className={"absolute left-5 right-5 bottom-5 wails-no-draggable"}>
+                        <MainExitNodeSwitcher />
+                    </div>
+                )}
             </div>
             {isAdvanced && (
                 <NavSectionProvider>
