@@ -229,7 +229,7 @@ jobs:
             sh -c ' \
               apk update; apk add --no-cache \
                 ca-certificates iptables ip6tables dbus dbus-dev libpcap-dev build-base; \
-              go test -buildvcs=false -tags 'devcert privileged' -v -timeout 10m -p 1 $(go list -buildvcs=false ./... | grep -v -e /management -e /signal -e /relay -e /proxy -e /combined -e /client/ui -e /upload-server -e /client/testutil/privileged)
+              go test -buildvcs=false -tags "devcert privileged" -v -timeout 10m -p 1 $(go list -buildvcs=false ./... | grep -v -e /management -e /signal -e /relay -e /proxy -e /combined -e /client/ui -e /upload-server -e /client/testutil/privileged)
             '
 
   test_relay:

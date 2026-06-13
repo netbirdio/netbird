@@ -1,4 +1,4 @@
-//go:build privileged && linux
+//go:build privileged && (linux || darwin)
 
 // Package privileged provides a self-hosting harness that runs the repo's
 // privileged-tagged test suite inside a --privileged --cap-add=NET_ADMIN
@@ -29,9 +29,9 @@ const (
 )
 
 const (
-	containerWorkdir   = "/app"
-	containerGoCache   = "/root/.cache/go-build"
-	containerGoModache = "/go/pkg/mod"
+	containerWorkdir    = "/app"
+	containerGoCache    = "/root/.cache/go-build"
+	containerGoModCache = "/go/pkg/mod"
 )
 
 // alpinePackages are the build/runtime deps the privileged tests need, mirroring
@@ -67,6 +67,12 @@ func TestRunPrivilegedSuiteInDocker(t *testing.T) {
 	}
 	goCache, goModCache := hostGoCaches(t)
 
+	// dockertest reads DOCKER_HOST; point it at the active context's socket when
+	// the default one is absent (macOS Docker Desktop, Colima, OrbStack).
+	if host := dockerHost(); host != "" {
+		t.Setenv("DOCKER_HOST", host)
+	}
+
 	// NewPoolT registers container cleanup via t.Cleanup automatically.
 	pool := dockertest.NewPoolT(t, "", dockertest.WithMaxWait(30*time.Minute))
 
@@ -78,7 +84,7 @@ func TestRunPrivilegedSuiteInDocker(t *testing.T) {
 		dockertest.WithMounts([]string{
 			repoRoot + ":" + containerWorkdir,
 			goCache + ":" + containerGoCache,
-			goModCache + ":" + containerGoModache,
+			goModCache + ":" + containerGoModCache,
 		}),
 		dockertest.WithEnv([]string{
 			"CGO_ENABLED=1",
@@ -86,7 +92,7 @@ func TestRunPrivilegedSuiteInDocker(t *testing.T) {
 			"DOCKER_CI=true",
 			"CONTAINER=true",
 			"GOCACHE=" + containerGoCache,
-			"GOMODCACHE=" + containerGoModache,
+			"GOMODCACHE=" + containerGoModCache,
 		}),
 		dockertest.WithCmd([]string{"sleep", "infinity"}),
 		dockertest.WithHostConfig(func(hc *container.HostConfig) {
@@ -129,6 +135,26 @@ func findRepoRoot() (string, error) {
 		}
 		dir = parent
 	}
+}
+
+// dockerHost returns a DOCKER_HOST override when the default socket is missing.
+// An empty result means the caller should leave DOCKER_HOST untouched (it is
+// already set, or the default unix socket exists). When neither is present
+// (common on macOS Docker Desktop, Colima and OrbStack, which use a per-user
+// socket), it resolves the active docker context's endpoint.
+func dockerHost() string {
+	if os.Getenv("DOCKER_HOST") != "" {
+		return ""
+	}
+	if _, err := os.Stat("/var/run/docker.sock"); err == nil {
+		return ""
+	}
+
+	out, err := exec.Command("docker", "context", "inspect", "-f", "{{.Endpoints.docker.Host}}").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // hostGoCaches resolves the host GOCACHE/GOMODCACHE so the container reuses the
