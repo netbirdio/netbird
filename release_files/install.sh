@@ -135,10 +135,9 @@ EOF
 }
 
 add_zypper_repo() {
-    ${SUDO} rpm --import https://pkgs.netbird.io/yum/repodata/repomd.xml.key
-    ${SUDO} zypper --non-interactive removerepo netbird >/dev/null 2>&1 || true
-    ${SUDO} zypper --non-interactive addrepo -f -g https://pkgs.netbird.io/yum/ netbird
-    ${SUDO} zypper --gpg-auto-import-keys refresh netbird
+  ${SUDO} zypper --non-interactive removerepo netbird >/dev/null 2>&1 || true
+  ${SUDO} zypper --non-interactive addrepo -f -g https://pkgs.netbird.io/yum/ netbird
+  ${SUDO} zypper --gpg-auto-import-keys refresh netbird
 }
 
 prepare_tun_module() {
