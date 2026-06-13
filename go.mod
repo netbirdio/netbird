@@ -30,7 +30,7 @@ require (
 
 require (
 	fyne.io/fyne/v2 v2.7.0
-	fyne.io/systray v1.12.1-0.20260116214250-81f8e1a496f9
+	fyne.io/systray v1.12.2
 	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3
 	github.com/DeRuina/timberjack v1.4.2
 	github.com/awnumar/memguard v0.23.0
