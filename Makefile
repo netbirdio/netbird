@@ -33,5 +33,7 @@ test-unit:
 
 # Privileged suite: runs the `privileged`-tagged tests inside a --privileged
 # --cap-add=NET_ADMIN container via the ory/dockertest harness. Requires Docker.
+# Narrow the run with env vars, e.g.:
+#   PRIV_RUN=TestNftablesManager PRIV_PKGS=./client/firewall/nftables/... make test-privileged
 test-privileged:
 	@go test -tags 'devcert privileged' -timeout 30m -run TestRunPrivilegedSuiteInDocker -v ./client/testutil/privileged/...

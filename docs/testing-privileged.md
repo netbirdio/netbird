@@ -19,7 +19,13 @@ go test -tags devcert ./...
 # Privileged suite: runs the privileged-tagged tests inside a
 # --privileged --cap-add=NET_ADMIN container (requires Docker).
 make test-privileged
+
+# Narrow the container run to a single test / package:
+PRIV_RUN=TestNftablesManager PRIV_PKGS=./client/firewall/nftables/... make test-privileged
 ```
+
+`PRIV_RUN` adds a `-run` test-name filter and `PRIV_PKGS` overrides the package
+list; both are optional and default to the full privileged suite.
 
 `make test-privileged` invokes the `ory/dockertest` harness in
 `client/testutil/privileged/`. The harness:

@@ -99,12 +99,7 @@ func TestRunPrivilegedSuiteInDocker(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 
-	script := fmt.Sprintf(
-		"apk update >/dev/null && apk add --no-cache %s >/dev/null && %s | xargs go test -buildvcs=false -tags 'devcert privileged' -v -timeout 20m -p 1",
-		alpinePackages, privilegedTestPackages,
-	)
-
-	result, err := resource.Exec(ctx, []string{"sh", "-c", script})
+	result, err := resource.Exec(ctx, []string{"sh", "-c", buildTestScript()})
 	if err != nil {
 		t.Fatalf("run privileged suite in container: %v", err)
 	}
@@ -152,4 +147,24 @@ func goEnv(t *testing.T, key string) string {
 		t.Fatalf("go env %s: %v", key, err)
 	}
 	return strings.TrimSpace(out.String())
+}
+
+// buildTestScript builds the in-container command. PRIV_PKGS overrides the package
+// list (default: the full filtered set); PRIV_RUN adds a -run test-name filter.
+// Both empty reproduces the full privileged suite.
+func buildTestScript() string {
+	pkgs := privilegedTestPackages + " | xargs"
+	if p := os.Getenv("PRIV_PKGS"); p != "" {
+		pkgs = "echo " + p + " | xargs"
+	}
+
+	runFilter := ""
+	if r := os.Getenv("PRIV_RUN"); r != "" {
+		runFilter = "-run '" + r + "' "
+	}
+
+	return fmt.Sprintf(
+		"apk update >/dev/null && apk add --no-cache %s >/dev/null && %s go test -buildvcs=false -tags 'devcert privileged' %s-v -timeout 20m -p 1",
+		alpinePackages, pkgs, runFilter,
+	)
 }
