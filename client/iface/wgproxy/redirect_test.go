@@ -1,4 +1,4 @@
-//go:build linux && !android
+//go:build linux && !android && privileged
 
 package wgproxy
 
@@ -24,64 +24,6 @@ func compareUDPAddr(addr1, addr2 net.Addr) bool {
 
 	// Compare IP and Port, ignoring zone
 	return udpAddr1.IP.Equal(udpAddr2.IP) && udpAddr1.Port == udpAddr2.Port
-}
-
-// TestRedirectAs_eBPF_IPv4 tests RedirectAs with eBPF proxy using IPv4 addresses
-func TestRedirectAs_eBPF_IPv4(t *testing.T) {
-	wgPort := 51850
-	ebpfProxy := ebpf.NewWGEBPFProxy(wgPort, 1280)
-	if err := ebpfProxy.Listen(); err != nil {
-		t.Fatalf("failed to initialize ebpf proxy: %v", err)
-	}
-	defer func() {
-		if err := ebpfProxy.Free(); err != nil {
-			t.Errorf("failed to free ebpf proxy: %v", err)
-		}
-	}()
-
-	proxy := ebpf.NewProxyWrapper(ebpfProxy)
-
-	// NetBird UDP address of the remote peer
-	nbAddr := &net.UDPAddr{
-		IP:   net.ParseIP("100.108.111.177"),
-		Port: 38746,
-	}
-
-	p2pEndpoint := &net.UDPAddr{
-		IP:   net.ParseIP("192.168.0.56"),
-		Port: 51820,
-	}
-
-	testRedirectAs(t, proxy, wgPort, nbAddr, p2pEndpoint)
-}
-
-// TestRedirectAs_eBPF_IPv6 tests RedirectAs with eBPF proxy using IPv6 addresses
-func TestRedirectAs_eBPF_IPv6(t *testing.T) {
-	wgPort := 51851
-	ebpfProxy := ebpf.NewWGEBPFProxy(wgPort, 1280)
-	if err := ebpfProxy.Listen(); err != nil {
-		t.Fatalf("failed to initialize ebpf proxy: %v", err)
-	}
-	defer func() {
-		if err := ebpfProxy.Free(); err != nil {
-			t.Errorf("failed to free ebpf proxy: %v", err)
-		}
-	}()
-
-	proxy := ebpf.NewProxyWrapper(ebpfProxy)
-
-	// NetBird UDP address of the remote peer
-	nbAddr := &net.UDPAddr{
-		IP:   net.ParseIP("100.108.111.177"),
-		Port: 38746,
-	}
-
-	p2pEndpoint := &net.UDPAddr{
-		IP:   net.ParseIP("fe80::56"),
-		Port: 51820,
-	}
-
-	testRedirectAs(t, proxy, wgPort, nbAddr, p2pEndpoint)
 }
 
 // TestRedirectAs_UDP_IPv4 tests RedirectAs with UDP proxy using IPv4 addresses
@@ -254,6 +196,64 @@ func testRedirectAs(t *testing.T, proxy Proxy, wgPort int, nbAddr, p2pEndpoint *
 				i+1, p2pEndpoint.String(), srcAddr.String())
 		}
 	}
+}
+
+// TestRedirectAs_eBPF_IPv4 tests RedirectAs with eBPF proxy using IPv4 addresses
+func TestRedirectAs_eBPF_IPv4(t *testing.T) {
+	wgPort := 51850
+	ebpfProxy := ebpf.NewWGEBPFProxy(wgPort, 1280)
+	if err := ebpfProxy.Listen(); err != nil {
+		t.Fatalf("failed to initialize ebpf proxy: %v", err)
+	}
+	defer func() {
+		if err := ebpfProxy.Free(); err != nil {
+			t.Errorf("failed to free ebpf proxy: %v", err)
+		}
+	}()
+
+	proxy := ebpf.NewProxyWrapper(ebpfProxy)
+
+	// NetBird UDP address of the remote peer
+	nbAddr := &net.UDPAddr{
+		IP:   net.ParseIP("100.108.111.177"),
+		Port: 38746,
+	}
+
+	p2pEndpoint := &net.UDPAddr{
+		IP:   net.ParseIP("192.168.0.56"),
+		Port: 51820,
+	}
+
+	testRedirectAs(t, proxy, wgPort, nbAddr, p2pEndpoint)
+}
+
+// TestRedirectAs_eBPF_IPv6 tests RedirectAs with eBPF proxy using IPv6 addresses
+func TestRedirectAs_eBPF_IPv6(t *testing.T) {
+	wgPort := 51851
+	ebpfProxy := ebpf.NewWGEBPFProxy(wgPort, 1280)
+	if err := ebpfProxy.Listen(); err != nil {
+		t.Fatalf("failed to initialize ebpf proxy: %v", err)
+	}
+	defer func() {
+		if err := ebpfProxy.Free(); err != nil {
+			t.Errorf("failed to free ebpf proxy: %v", err)
+		}
+	}()
+
+	proxy := ebpf.NewProxyWrapper(ebpfProxy)
+
+	// NetBird UDP address of the remote peer
+	nbAddr := &net.UDPAddr{
+		IP:   net.ParseIP("100.108.111.177"),
+		Port: 38746,
+	}
+
+	p2pEndpoint := &net.UDPAddr{
+		IP:   net.ParseIP("fe80::56"),
+		Port: 51820,
+	}
+
+	testRedirectAs(t, proxy, wgPort, nbAddr, p2pEndpoint)
 }
 
 // TestRedirectAs_Multiple_Switches tests switching between multiple endpoints
