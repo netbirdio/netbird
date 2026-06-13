@@ -22,7 +22,21 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/shared/management/domain"
 )
+
+func generateDummyHandler(d string, servers []nbdns.NameServer) *upstreamResolverBase {
+	var srvs []netip.AddrPort
+	for _, srv := range servers {
+		srvs = append(srvs, srv.AddrPort())
+	}
+	u := &upstreamResolverBase{
+		domain: domain.Domain(d),
+		cancel: func() {},
+	}
+	u.addRace(srvs)
+	return u
+}
 
 func TestUpdateDNSServer(t *testing.T) {
 

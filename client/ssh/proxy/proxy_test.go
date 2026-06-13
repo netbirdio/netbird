@@ -150,10 +150,6 @@ func (m *mockDaemon) setHostKey(addr string, pubKey []byte) {
 	m.impl.hostKeys[addr] = pubKey
 }
 
-func (m *mockDaemon) setJWTToken(token string) {
-	m.impl.jwtToken = token
-}
-
 func (m *mockDaemon) stop() {
 	if m.server != nil {
 		m.server.Stop()

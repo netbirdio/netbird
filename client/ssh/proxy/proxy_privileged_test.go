@@ -33,6 +33,10 @@ import (
 	sshuserhash "github.com/netbirdio/netbird/shared/sshauth"
 )
 
+func (m *mockDaemon) setJWTToken(token string) {
+	m.impl.jwtToken = token
+}
+
 func TestSSHProxy_Connect(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")

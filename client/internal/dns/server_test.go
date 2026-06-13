@@ -102,19 +102,6 @@ func init() {
 	formatter.SetTextFormatter(log.StandardLogger())
 }
 
-func generateDummyHandler(d string, servers []nbdns.NameServer) *upstreamResolverBase {
-	var srvs []netip.AddrPort
-	for _, srv := range servers {
-		srvs = append(srvs, srv.AddrPort())
-	}
-	u := &upstreamResolverBase{
-		domain: domain.Domain(d),
-		cancel: func() {},
-	}
-	u.addRace(srvs)
-	return u
-}
-
 func TestDNSServerStartStop(t *testing.T) {
 	testCases := []struct {
 		name     string
