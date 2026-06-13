@@ -196,6 +196,7 @@ nfpms:
     description: Netbird client.
     homepage: https://netbird.io/
     license: BSD-3-Clause
+    vendor: NetBird
     id: netbird_deb
     bindir: /usr/bin
     builds:
@@ -210,6 +211,7 @@ nfpms:
     description: Netbird client.
     homepage: https://netbird.io/
     license: BSD-3-Clause
+    vendor: NetBird
     id: netbird_rpm
     bindir: /usr/bin
     builds:

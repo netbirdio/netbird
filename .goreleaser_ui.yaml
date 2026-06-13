@@ -1,6 +1,15 @@
 version: 2
 
 project_name: netbird-ui
+
+before:
+  hooks:
+    # Bindings are gitignored; regenerate before the frontend build so
+    # the @wailsio/runtime Vite plugin can resolve them (vite refuses to
+    # build without them).
+    - sh -c 'cd client/ui && wails3 generate bindings -clean=true -ts'
+    - sh -c 'cd client/ui/frontend && pnpm install --frozen-lockfile && pnpm build'
+
 builds:
   - id: netbird-ui
     dir: client/ui
@@ -61,6 +70,8 @@ nfpms:
   - maintainer: Netbird <dev@netbird.io>
     description: Netbird client UI.
     homepage: https://netbird.io/
+    license: BSD-3-Clause
+    vendor: NetBird
     id: netbird_ui_deb
     package_name: netbird-ui
     builds:
@@ -70,16 +81,20 @@ nfpms:
     scripts:
       postinstall: "release_files/ui-post-install.sh"
     contents:
-      - src: client/ui/build/netbird.desktop
-        dst: /usr/share/applications/netbird.desktop
-      - src: client/ui/assets/netbird.png
+      - src: client/ui/build/linux/netbird.desktop
+        dst: /usr/share/applications/org.wails.netbird.desktop
+      - src: client/ui/build/appicon.png
         dst: /usr/share/pixmaps/netbird.png
     dependencies:
       - netbird
+      - libgtk-4-1
+      - libwebkitgtk-6.0-4
 
   - maintainer: Netbird <dev@netbird.io>
     description: Netbird client UI.
     homepage: https://netbird.io/
+    license: BSD-3-Clause
+    vendor: NetBird
     id: netbird_ui_rpm
     package_name: netbird-ui
     builds:
@@ -89,12 +104,14 @@ nfpms:
     scripts:
       postinstall: "release_files/ui-post-install.sh"
     contents:
-      - src: client/ui/build/netbird.desktop
-        dst: /usr/share/applications/netbird.desktop
-      - src: client/ui/assets/netbird.png
+      - src: client/ui/build/linux/netbird.desktop
+        dst: /usr/share/applications/org.wails.netbird.desktop
+      - src: client/ui/build/appicon.png
         dst: /usr/share/pixmaps/netbird.png
     dependencies:
       - netbird
+      - gtk4
+      - webkitgtk6.0
     rpm:
       signature:
         key_file: '{{ if index .Env "GPG_RPM_KEY_FILE" }}{{ .Env.GPG_RPM_KEY_FILE }}{{ end }}'

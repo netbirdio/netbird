@@ -1,0 +1,7 @@
+dist
+build
+node_modules
+pnpm-lock.yaml
+wailsjs
+*.min.js
+*.min.css

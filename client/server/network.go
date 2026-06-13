@@ -172,6 +172,17 @@ func (s *Server) SelectNetworks(_ context.Context, req *proto.SelectNetworksRequ
 		if err := routeSelector.SelectRoutes(routes, req.GetAppend(), netIdRoutes); err != nil {
 			return nil, fmt.Errorf("select routes: %w", err)
 		}
+
+		// Exit nodes are mutually exclusive: if this selection activates an
+		// exit node, deselect every other available exit node so two can't be
+		// selected at once. Non-exit route selections are left untouched.
+		if requestActivatesExitNode(routes, routesMap) {
+			if others := otherExitNodeIDs(routesMap, routes); len(others) > 0 {
+				if err := routeSelector.DeselectRoutes(others, netIdRoutes); err != nil {
+					return nil, fmt.Errorf("deselect sibling exit nodes: %w", err)
+				}
+			}
+		}
 	}
 	routeManager.TriggerSelection(routeManager.GetClientRoutes())
 
@@ -248,4 +259,39 @@ func toNetIDs(routes []string) []route.NetID {
 		netIDs = append(netIDs, route.NetID(rt))
 	}
 	return netIDs
+}
+
+func isExitNodeRoutes(routes []*route.Route) bool {
+	return len(routes) > 0 && (route.IsV4DefaultRoute(routes[0].Network) || route.IsV6DefaultRoute(routes[0].Network))
+}
+
+// requestActivatesExitNode reports whether any requested NetID maps to an exit
+// node (default route) in the current route table.
+func requestActivatesExitNode(requested []route.NetID, routesMap map[route.NetID][]*route.Route) bool {
+	for _, id := range requested {
+		if isExitNodeRoutes(routesMap[id]) {
+			return true
+		}
+	}
+	return false
+}
+
+// otherExitNodeIDs returns every available exit-node NetID that is not in the
+// requested set — the siblings to deselect so a single exit node stays active.
+func otherExitNodeIDs(routesMap map[route.NetID][]*route.Route, requested []route.NetID) []route.NetID {
+	keep := make(map[route.NetID]struct{}, len(requested))
+	for _, id := range requested {
+		keep[id] = struct{}{}
+	}
+	var others []route.NetID
+	for id, routes := range routesMap {
+		if !isExitNodeRoutes(routes) {
+			continue
+		}
+		if _, ok := keep[id]; ok {
+			continue
+		}
+		others = append(others, id)
+	}
+	return others
 }
