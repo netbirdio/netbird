@@ -31,6 +31,14 @@ type WorkerRelay struct {
 	relayLock   sync.Mutex
 
 	relaySupportedOnRemotePeer atomic.Bool
+
+	// relayConnStale is set to true when an event indicates that the current
+	// relay connection entry in the relay client's conns map is no longer
+	// backed by a live peer session (e.g. local WG handshake timeout, relay
+	// server close event, explicit CloseConn). When OnNewOffer observes
+	// ErrConnAlreadyExists, it only closes the stale entry if this flag is
+	// set; otherwise it bails out and reuses the existing healthy connection.
+	relayConnStale atomic.Bool
 }
 
 func NewWorkerRelay(ctx context.Context, log *log.Entry, ctrl bool, config ConnConfig, conn *Conn, relayManager *relayClient.Manager) *WorkerRelay {
@@ -69,11 +77,28 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	relayedConn, err := w.relayManager.OpenConn(w.peerCtx, srv, w.config.Key, serverIP)
 	if err != nil {
 		if errors.Is(err, relayClient.ErrConnAlreadyExists) {
-			w.log.Debugf("handled offer by reusing existing relay connection")
+			// Only tear down the existing conn if something previously marked
+			// it as stale (local WG handshake timeout, relay server close, or
+			// explicit CloseConn). Without that signal, the existing conn is
+			// assumed healthy and is reused — unconditional close on every
+			// colliding offer causes an infinite tear-down/rebuild loop when
+			// the remote peer sends rapid successive offers.
+			if !w.relayConnStale.Load() {
+				w.log.Debugf("relay conn already exists and is not marked stale, reusing")
+				return
+			}
+			w.log.Infof("relay conn already exists and is marked stale, closing and retrying")
+			w.relayManager.CloseConnByPeerKey(srv, w.config.Key)
+			relayedConn, err = w.relayManager.OpenConn(w.peerCtx, srv, w.config.Key)
+			if err != nil {
+				w.log.Errorf("failed to reopen connection via Relay after closing stale: %s", err)
+				return
+			}
+			w.relayConnStale.Store(false)
+		} else {
+			w.log.Errorf("failed to open connection via Relay: %s", err)
 			return
 		}
-		w.log.Errorf("failed to open connection via Relay: %s", err)
-		return
 	}
 
 	w.relayLock.Lock()
@@ -114,9 +139,19 @@ func (w *WorkerRelay) CloseConn() {
 		return
 	}
 
+	w.relayConnStale.Store(true)
 	if err := w.relayedConn.Close(); err != nil {
 		w.log.Warnf("failed to close relay connection: %v", err)
 	}
+}
+
+// MarkStale marks the relay connection entry as stale so that the next
+// OnNewOffer call with ErrConnAlreadyExists will tear it down and open a
+// fresh one. Callers signal staleness from outside the relay client path,
+// e.g. when the local WG handshake watcher fires while the relay is the
+// active transport.
+func (w *WorkerRelay) MarkStale() {
+	w.relayConnStale.Store(true)
 }
 
 func (w *WorkerRelay) isRelaySupported(answer *OfferAnswer) bool {
@@ -134,5 +169,6 @@ func (w *WorkerRelay) preferredRelayServer(myRelayAddress, remoteRelayAddress st
 }
 
 func (w *WorkerRelay) onRelayClientDisconnected() {
+	w.relayConnStale.Store(true)
 	go w.conn.onRelayDisconnected()
 }
