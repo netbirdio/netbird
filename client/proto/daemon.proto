@@ -378,6 +378,7 @@ message RelayState {
   string URI = 1;
   bool available = 2;
   string error = 3;
+  string transport = 4;
 }
 
 message NSGroupState {
