@@ -358,7 +358,7 @@ initialize_default_values() {
     SHOULD_CLEAN_OPENSSL_IMAGE=true
     OPENSSL_IMAGE=$(docker images --filter=reference="alpine/openssl:*" --format "{{.Repository}}:{{.Tag}}" | head -n 1)
     
-    if [ -z $OPENSSL_IMAGE ]; then
+    if [[ -z $OPENSSL_IMAGE ]]; then
       OPENSSL_IMAGE="alpine/openssl"
     else
       SHOULD_CLEAN_OPENSSL_IMAGE=false
