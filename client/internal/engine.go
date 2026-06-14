@@ -890,62 +890,25 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		e.handleAutoUpdateVersion(update.NetworkMap.PeerConfig.AutoUpdate)
 	}
 
-	if update.GetNetbirdConfig() != nil {
-		wCfg := update.GetNetbirdConfig()
-		err := e.updateTURNs(wCfg.GetTurns())
-		if err != nil {
-			return fmt.Errorf("update TURNs: %w", err)
-		}
+	if err := e.updateNetbirdConfig(update.GetNetbirdConfig()); err != nil {
+		return err
+	}
 
-		err = e.updateSTUNs(wCfg.GetStuns())
-		if err != nil {
-			return fmt.Errorf("update STUNs: %w", err)
-		}
-
-		var stunTurn []*stun.URI
-		stunTurn = append(stunTurn, e.STUNs...)
-		stunTurn = append(stunTurn, e.TURNs...)
-		e.stunTurn.Store(stunTurn)
-
-		err = e.handleRelayUpdate(wCfg.GetRelay())
-		if err != nil {
-			return err
-		}
-
-		err = e.handleFlowUpdate(wCfg.GetFlow())
-		if err != nil {
-			return fmt.Errorf("handle the flow configuration: %w", err)
-		}
-
-		if err := e.PopulateNetbirdConfig(wCfg, nil); err != nil {
-			log.Warnf("Failed to update DNS server config: %v", err)
-		}
-
-		// todo update signal
+	// Posture checks are bound to the network map presence:
+	//   NetworkMap != nil, checks present -> apply the received checks
+	//   NetworkMap != nil, checks nil     -> posture checks were removed, clear them
+	//   NetworkMap == nil                 -> config-only update (e.g. relay token rotation),
+	//                                        leave the previously applied checks untouched
+	nm := update.GetNetworkMap()
+	if nm == nil {
+		return nil
 	}
 
 	if err := e.updateChecksIfNew(update.Checks); err != nil {
 		return err
 	}
 
-	nm := update.GetNetworkMap()
-	if nm == nil {
-		return nil
-	}
-
-	// Persist sync response under the dedicated lock (syncRespMux), not under syncMsgMux.
-	// A non-nil syncStore is what marks persistence as enabled. Hold the lock for
-	// the whole Set so the store cannot be cleared (disabled / engine close)
-	// mid-call and have this write resurrect a file that was just removed.
-	e.syncRespMux.RLock()
-	if e.syncStore != nil {
-		if err := e.syncStore.Set(update); err != nil {
-			log.Errorf("failed to persist sync response: %v", err)
-		} else {
-			log.Debugf("sync response persisted with serial %d", nm.GetSerial())
-		}
-	}
-	e.syncRespMux.RUnlock()
+	e.persistSyncResponse(update)
 
 	// only apply new changes and ignore old ones
 	if err := e.updateNetworkMap(nm); err != nil {
@@ -955,6 +918,64 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	e.statusRecorder.PublishEvent(cProto.SystemEvent_INFO, cProto.SystemEvent_SYSTEM, "Network map updated", "", nil)
 
 	return nil
+}
+
+// updateNetbirdConfig applies the management-provided NetBird configuration:
+// STUN/TURN and relay servers, flow logging and DNS settings. A nil config is a no-op,
+// which is the case for sync updates carrying only a network map.
+func (e *Engine) updateNetbirdConfig(wCfg *mgmProto.NetbirdConfig) error {
+	if wCfg == nil {
+		return nil
+	}
+
+	if err := e.updateTURNs(wCfg.GetTurns()); err != nil {
+		return fmt.Errorf("update TURNs: %w", err)
+	}
+
+	if err := e.updateSTUNs(wCfg.GetStuns()); err != nil {
+		return fmt.Errorf("update STUNs: %w", err)
+	}
+
+	var stunTurn []*stun.URI
+	stunTurn = append(stunTurn, e.STUNs...)
+	stunTurn = append(stunTurn, e.TURNs...)
+	e.stunTurn.Store(stunTurn)
+
+	if err := e.handleRelayUpdate(wCfg.GetRelay()); err != nil {
+		return err
+	}
+
+	if err := e.handleFlowUpdate(wCfg.GetFlow()); err != nil {
+		return fmt.Errorf("handle the flow configuration: %w", err)
+	}
+
+	if err := e.PopulateNetbirdConfig(wCfg, nil); err != nil {
+		log.Warnf("Failed to update DNS server config: %v", err)
+	}
+
+	// todo update signal
+
+	return nil
+}
+
+// persistSyncResponse stores the full sync response so it can be restored on the next
+// startup. Persistence is enabled only when syncStore is set. The dedicated syncRespMux
+// (not syncMsgMux) is held for the whole Set so the store cannot be cleared (disabled /
+// engine close) mid-call and have this write resurrect a file that was just removed.
+func (e *Engine) persistSyncResponse(update *mgmProto.SyncResponse) {
+	e.syncRespMux.RLock()
+	defer e.syncRespMux.RUnlock()
+
+	if e.syncStore == nil {
+		return
+	}
+
+	if err := e.syncStore.Set(update); err != nil {
+		log.Errorf("failed to persist sync response: %v", err)
+		return
+	}
+
+	log.Debugf("sync response persisted with serial %d", update.GetNetworkMap().GetSerial())
 }
 
 func (e *Engine) handleRelayUpdate(update *mgmProto.RelayConfig) error {
