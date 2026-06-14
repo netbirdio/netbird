@@ -14,11 +14,11 @@ var (
 )
 
 type MocFwRule struct {
-	id string
+	id firewall.RuleID
 }
 
-func (m *MocFwRule) ID() string {
-	return string(m.id)
+func (m *MocFwRule) ID() firewall.RuleID {
+	return m.id
 }
 
 type MockDNATFirewall struct {

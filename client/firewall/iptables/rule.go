@@ -1,18 +1,20 @@
 package iptables
 
-// Rule to handle management of rules
-type Rule struct {
-	ruleID    string
-	ipsetName string
+import "github.com/netbirdio/netbird/client/firewall/manager"
 
+// Rule to handle management of rules. Source set membership (when the
+// rule was built against a shared hash:net ipset) is encoded in specs;
+// DeleteFilterRule recovers it via findSets so the refcounter can drop
+// the right reference.
+type Rule struct {
+	id          manager.RuleID
 	specs       []string
 	mangleSpecs []string
-	ip          string
 	chain       string
 	v6          bool
 }
 
-// GetRuleID returns the rule id
-func (r *Rule) ID() string {
-	return r.ruleID
+// ID returns the rule id
+func (r *Rule) ID() manager.RuleID {
+	return r.id
 }

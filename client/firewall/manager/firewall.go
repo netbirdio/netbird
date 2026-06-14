@@ -3,7 +3,6 @@ package manager
 import (
 	"errors"
 	"fmt"
-	"net"
 	"net/netip"
 	"sort"
 
@@ -16,6 +15,12 @@ import (
 // method but the IPv6 firewall components were not initialized.
 var ErrIPv6NotInitialized = errors.New("IPv6 firewall not initialized")
 
+// ErrNoSources is returned when AddFilterRule is called with an empty
+// source list. "Match any source" must be expressed explicitly with a
+// /0 prefix; an empty list is a caller error and is rejected rather
+// than silently widening the rule to every source.
+var ErrNoSources = errors.New("rule has no sources")
+
 const (
 	ForwardingFormatPrefix = "netbird-fwd-"
 	ForwardingFormat       = "netbird-fwd-%s-%t"
@@ -23,13 +28,18 @@ const (
 	NatFormat              = "netbird-nat-%s-%t"
 )
 
+// RuleID identifies a firewall rule. It is a typed string so the
+// compiler catches accidental mixing with arbitrary string keys. It is
+// only an identifier and does not implement Rule.
+type RuleID string
+
 // Rule abstraction should be implemented by each firewall manager
 //
 // Each firewall type for different OS can use different type
 // of the properties to hold data of the created rule
 type Rule interface {
 	// ID returns the rule id
-	ID() string
+	ID() RuleID
 }
 
 // RuleDirection is the traffic direction which a rule is applied
@@ -91,6 +101,13 @@ func (d Network) IsPrefix() bool {
 	return d.Prefix.IsValid()
 }
 
+// IsZero returns true if the network designates no destination, i.e. it
+// is the zero value. A zero Network is the peer-rule sentinel; a non-zero
+// one carries a prefix or set destination.
+func (d Network) IsZero() bool {
+	return !d.IsPrefix() && !d.IsSet()
+}
+
 // Manager is the high level abstraction of a firewall manager
 //
 // It declares methods which handle actions required by the
@@ -98,45 +115,41 @@ func (d Network) IsPrefix() bool {
 type Manager interface {
 	Init(stateManager *statemanager.Manager) error
 
-	// AllowNetbird allows netbird interface traffic
-	AllowNetbird() error
-
-	// AddPeerFiltering adds a rule to the firewall
+	// AddFilterRule adds a packet-filtering rule to the firewall.
 	//
-	// If comment argument is empty firewall manager should set
-	// rule ID as comment for the rule
+	// If destination is the zero Network, the rule applies to traffic
+	// inbound to this node, i.e. peer ACL semantics, installed in
+	// the kernel's input chain. If destination is set (prefix or
+	// set), the rule applies to forwarded traffic with that
+	// destination, route ACL semantics, installed in the forward
+	// chain.
 	//
-	// Note: Callers should call Flush() after adding rules to ensure
-	// they are applied to the kernel and rule handles are refreshed.
-	AddPeerFiltering(
+	// sources must be a single address family; the caller splits mixed
+	// families and calls once per family. "Match any source" must be
+	// expressed with an explicit /0 prefix; an empty sources list is
+	// rejected with ErrNoSources so a zeroed list can never widen a
+	// rule to every source.
+	//
+	// Note: callers should call Flush() after adding rules.
+	AddFilterRule(
 		id []byte,
-		ip net.IP,
+		sources []netip.Prefix,
+		destination Network,
 		proto Protocol,
 		sPort *Port,
 		dPort *Port,
 		action Action,
-		ipsetName string,
-	) ([]Rule, error)
+	) (Rule, error)
 
-	// DeletePeerRule from the firewall by rule definition
-	DeletePeerRule(rule Rule) error
+	// DeleteFilterRule removes a filtering rule previously added via
+	// AddFilterRule. The rule's own type identifies whether it lives
+	// in the peer (input) or route (forward) path.
+	DeleteFilterRule(rule Rule) error
 
 	// IsServerRouteSupported returns true if the firewall supports server side routing operations
 	IsServerRouteSupported() bool
 
 	IsStateful() bool
-
-	AddRouteFiltering(
-		id []byte,
-		sources []netip.Prefix,
-		destination Network,
-		proto Protocol,
-		sPort, dPort *Port,
-		action Action,
-	) (Rule, error)
-
-	// DeleteRouteRule deletes a routing rule
-	DeleteRouteRule(rule Rule) error
 
 	// AddNatRule inserts a routing NAT rule
 	AddNatRule(pair RouterPair) error
@@ -185,8 +198,9 @@ type Manager interface {
 	SetupEBPFProxyNoTrack(proxyPort, wgPort uint16) error
 }
 
-func GenKey(format string, pair RouterPair) string {
-	return fmt.Sprintf(format, pair.ID, pair.Inverse)
+// GenKey builds the rule id for this pair from the given format.
+func (p RouterPair) GenKey(format string) RuleID {
+	return RuleID(fmt.Sprintf(format, p.ID, p.Inverse))
 }
 
 // LegacyManager defines the interface for legacy management operations
@@ -240,6 +254,20 @@ func MergeIPRanges(prefixes []netip.Prefix) []netip.Prefix {
 	}
 
 	return merged
+}
+
+// UnmapPrefix normalizes a v4-mapped v6 prefix (::ffff:a.b.c.d) to its
+// plain v4 form, shifting the prefix length out of the 96-bit mapped
+// range. Other prefixes are returned unchanged. Keeping prefixes
+// unmapped ensures v4 rules match consistently and the match builders
+// read the correct address length.
+func UnmapPrefix(p netip.Prefix) netip.Prefix {
+	addr := p.Addr()
+	if !addr.Is4In6() {
+		return p
+	}
+	bits := max(p.Bits()-96, 0)
+	return netip.PrefixFrom(addr.Unmap(), bits)
 }
 
 // SortPrefixes sorts the given slice of netip.Prefix in place.
