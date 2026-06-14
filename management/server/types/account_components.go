@@ -342,7 +342,12 @@ func (a *Account) getPeersGroupsPoliciesRoutes(
 				for _, srcGroupID := range rule.Sources {
 					relevantGroupIDs[srcGroupID] = a.GetGroup(srcGroupID)
 				}
+			}
 
+			// SSH auth requirements are gathered whenever this peer serves
+			// the rule. For bidirectional rules the peer-in-sources side
+			// also serves inbound traffic and must be treated as a destination.
+			if peerInDestinations || (rule.Bidirectional && peerInSources) {
 				if rule.Protocol == PolicyRuleProtocolNetbirdSSH {
 					switch {
 					case len(rule.AuthorizedGroups) > 0:
