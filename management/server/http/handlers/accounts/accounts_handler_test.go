@@ -52,6 +52,9 @@ func initAccountsTestData(t *testing.T, account *types.Account) *handler {
 				if newSettings.PeerLoginExpiration < time.Hour {
 					return nil, status.Errorf(status.InvalidArgument, "peer login expiration can't be smaller than one hour")
 				}
+				if newSettings.SSHJWTMaxTokenAge < 0 {
+					return nil, status.Errorf(status.InvalidArgument, "ssh jwt max token age can't be negative")
+				}
 
 				return newSettings, nil
 			},
@@ -84,6 +87,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 
 	sr := func(v string) *string { return &v }
 	br := func(v bool) *bool { return &v }
+	ir := func(v int) *int { return &v }
 
 	handler := initAccountsTestData(t, &types.Account{
 		Id:      accountID,
@@ -132,6 +136,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				EmbeddedIdpEnabled:              br(false),
 				LocalAuthDisabled:               br(false),
 				LocalMfaEnabled:                 br(false),
+				SshJwtMaxTokenAge:               ir(0),
 			},
 			expectedArray: true,
 			expectedID:    accountID,
@@ -159,6 +164,35 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				EmbeddedIdpEnabled:              br(false),
 				LocalAuthDisabled:               br(false),
 				LocalMfaEnabled:                 br(false),
+				SshJwtMaxTokenAge:               ir(0),
+			},
+			expectedArray: false,
+			expectedID:    accountID,
+		},
+		{
+			name:           "PutAccount OK with SSH JWT max token age",
+			expectedBody:   true,
+			requestType:    http.MethodPut,
+			requestPath:    "/api/accounts/" + accountID,
+			requestBody:    bytes.NewBufferString("{\"settings\": {\"peer_login_expiration\": 15552000,\"peer_login_expiration_enabled\": true,\"ssh_jwt_max_token_age\":600},\"onboarding\": {\"onboarding_flow_pending\": true,\"signup_form_pending\": true}}"),
+			expectedStatus: http.StatusOK,
+			expectedSettings: api.AccountSettings{
+				PeerLoginExpiration:             15552000,
+				PeerLoginExpirationEnabled:      true,
+				GroupsPropagationEnabled:        br(false),
+				JwtGroupsClaimName:              sr(""),
+				JwtGroupsEnabled:                br(false),
+				JwtAllowGroups:                  &[]string{},
+				RegularUsersViewBlocked:         false,
+				RoutingPeerDnsResolutionEnabled: br(false),
+				LazyConnectionEnabled:           br(false),
+				DnsDomain:                       sr(""),
+				AutoUpdateAlways:                br(false),
+				AutoUpdateVersion:               sr(""),
+				EmbeddedIdpEnabled:              br(false),
+				LocalAuthDisabled:               br(false),
+				LocalMfaEnabled:                 br(false),
+				SshJwtMaxTokenAge:               ir(600),
 			},
 			expectedArray: false,
 			expectedID:    accountID,
@@ -186,6 +220,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				EmbeddedIdpEnabled:              br(false),
 				LocalAuthDisabled:               br(false),
 				LocalMfaEnabled:                 br(false),
+				SshJwtMaxTokenAge:               ir(0),
 			},
 			expectedArray: false,
 			expectedID:    accountID,
@@ -213,6 +248,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				EmbeddedIdpEnabled:              br(false),
 				LocalAuthDisabled:               br(false),
 				LocalMfaEnabled:                 br(false),
+				SshJwtMaxTokenAge:               ir(0),
 			},
 			expectedArray: false,
 			expectedID:    accountID,
@@ -240,6 +276,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				EmbeddedIdpEnabled:              br(false),
 				LocalAuthDisabled:               br(false),
 				LocalMfaEnabled:                 br(false),
+				SshJwtMaxTokenAge:               ir(0),
 			},
 			expectedArray: false,
 			expectedID:    accountID,
@@ -267,6 +304,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				EmbeddedIdpEnabled:              br(false),
 				LocalAuthDisabled:               br(false),
 				LocalMfaEnabled:                 br(false),
+				SshJwtMaxTokenAge:               ir(0),
 			},
 			expectedArray: false,
 			expectedID:    accountID,
@@ -286,6 +324,15 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 			requestType:    http.MethodPut,
 			requestPath:    "/api/accounts/" + accountID,
 			requestBody:    bytes.NewBufferString("{\"settings\": {\"peer_login_expiration\": 3599,\"peer_login_expiration_enabled\": true},\"onboarding\": {\"onboarding_flow_pending\": true,\"signup_form_pending\": true}}"),
+			expectedStatus: http.StatusUnprocessableEntity,
+			expectedArray:  false,
+		},
+		{
+			name:           "Update account failure with negative SSH JWT max token age",
+			expectedBody:   true,
+			requestType:    http.MethodPut,
+			requestPath:    "/api/accounts/" + accountID,
+			requestBody:    bytes.NewBufferString("{\"settings\": {\"peer_login_expiration\": 3600,\"peer_login_expiration_enabled\": true,\"ssh_jwt_max_token_age\":-1},\"onboarding\": {\"onboarding_flow_pending\": true,\"signup_form_pending\": true}}"),
 			expectedStatus: http.StatusUnprocessableEntity,
 			expectedArray:  false,
 		},

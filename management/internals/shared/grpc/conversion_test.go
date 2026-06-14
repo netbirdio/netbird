@@ -8,11 +8,13 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller/cache"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
 func TestToProtocolDNSConfigWithCache(t *testing.T) {
@@ -192,7 +194,7 @@ func TestBuildJWTConfig_Audiences(t *testing.T) {
 				CLIAuthAudience: tc.cliAuthAudience,
 			}
 
-			result := buildJWTConfig(config, nil)
+			result := buildJWTConfig(config, nil, &types.Settings{})
 
 			assert.NotNil(t, result)
 			assert.Equal(t, tc.expectedAudiences, result.Audiences, "audiences should match expected")
@@ -261,5 +263,28 @@ func TestEncodeSessionExpiresAt(t *testing.T) {
 		got := encodeSessionExpiresAt(deadline)
 		assert.NotNil(t, got)
 		assert.True(t, got.AsTime().Equal(deadline))
+	})
+}
+
+func TestBuildJWTConfig_MaxTokenAge(t *testing.T) {
+	config := &nbconfig.HttpServerConfig{
+		AuthIssuer:   "https://issuer.example.com",
+		AuthAudience: "dashboard-aud",
+	}
+
+	t.Run("unset leaves max token age zero", func(t *testing.T) {
+		result := buildJWTConfig(config, nil, &types.Settings{})
+
+		require.NotNil(t, result)
+		assert.Equal(t, int64(0), result.MaxTokenAge)
+	})
+
+	t.Run("explicit duration is sent as seconds", func(t *testing.T) {
+		result := buildJWTConfig(config, nil, &types.Settings{
+			SSHJWTMaxTokenAge: 10 * time.Minute,
+		})
+
+		require.NotNil(t, result)
+		assert.Equal(t, int64(600), result.MaxTokenAge)
 	})
 }

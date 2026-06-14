@@ -1621,7 +1621,7 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 			settings_jwt_groups_enabled, settings_jwt_groups_claim_name, settings_jwt_allow_groups,
 			settings_routing_peer_dns_resolution_enabled, settings_dns_domain, settings_network_range,
 			settings_network_range_v6, settings_ipv6_enabled_groups, settings_lazy_connection_enabled,
-			settings_local_mfa_enabled,
+			settings_local_mfa_enabled, settings_ssh_jwt_max_token_age,
 			-- Embedded ExtraSettings
 			settings_extra_peer_approval_enabled, settings_extra_user_approval_required,
 			settings_extra_integrated_validator, settings_extra_integrated_validator_groups
@@ -1644,6 +1644,7 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		sIPv6EnabledGroups               sql.NullString
 		sLazyConnectionEnabled           sql.NullBool
 		sLocalMFAEnabled                 sql.NullBool
+		sSSHJWTMaxTokenAge               sql.NullInt64
 		sExtraPeerApprovalEnabled        sql.NullBool
 		sExtraUserApprovalRequired       sql.NullBool
 		sExtraIntegratedValidator        sql.NullString
@@ -1666,7 +1667,7 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		&sJWTGroupsEnabled, &sJWTGroupsClaimName, &sJWTAllowGroups,
 		&sRoutingPeerDNSResolutionEnabled, &sDNSDomain, &sNetworkRange,
 		&sNetworkRangeV6, &sIPv6EnabledGroups, &sLazyConnectionEnabled,
-		&sLocalMFAEnabled,
+		&sLocalMFAEnabled, &sSSHJWTMaxTokenAge,
 		&sExtraPeerApprovalEnabled, &sExtraUserApprovalRequired,
 		&sExtraIntegratedValidator, &sExtraIntegratedValidatorGroups,
 	)
@@ -1731,6 +1732,9 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 	}
 	if sLocalMFAEnabled.Valid {
 		account.Settings.LocalMfaEnabled = sLocalMFAEnabled.Bool
+	}
+	if sSSHJWTMaxTokenAge.Valid {
+		account.Settings.SSHJWTMaxTokenAge = time.Duration(sSSHJWTMaxTokenAge.Int64)
 	}
 	if sJWTAllowGroups.Valid {
 		_ = json.Unmarshal([]byte(sJWTAllowGroups.String), &account.Settings.JWTAllowGroups)
