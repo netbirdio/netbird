@@ -349,7 +349,7 @@ initialize_default_values() {
   NETBIRD_RELAY_AUTH_SECRET=""
   DATASTORE_ENCRYPTION_KEY=""
 
-  if openssl &> /dev/null
+  if command -v openssl &> /dev/null
   then
     NETBIRD_RELAY_AUTH_SECRET=$(openssl rand -base64 32 | sed "$SED_STRIP_PADDING")
     # Note: DataStoreEncryptionKey must keep base64 padding (=) for Go's base64.StdEncoding
@@ -358,18 +358,18 @@ initialize_default_values() {
     SHOULD_CLEAN_OPENSSL_IMAGE=true
     OPENSSL_IMAGE=$(docker images --filter=reference="alpine/openssl:*" --format "{{.Repository}}:{{.Tag}}" | head -n 1)
     
-    if [[ -z $OPENSSL_IMAGE ]]; then
+    if [[ -z "$OPENSSL_IMAGE" ]]; then
       OPENSSL_IMAGE="alpine/openssl"
     else
       SHOULD_CLEAN_OPENSSL_IMAGE=false
     fi
     
-    NETBIRD_RELAY_AUTH_SECRET=$(docker run --rm $OPENSSL_IMAGE rand -base64 32 | sed "$SED_STRIP_PADDING")
+    NETBIRD_RELAY_AUTH_SECRET=$(docker run --rm "$OPENSSL_IMAGE" rand -base64 32 | sed "$SED_STRIP_PADDING")
     # Note: DataStoreEncryptionKey must keep base64 padding (=) for Go's base64.StdEncoding
-    DATASTORE_ENCRYPTION_KEY=$(docker run --rm $OPENSSL_IMAGE rand -base64 32)
+    DATASTORE_ENCRYPTION_KEY=$(docker run --rm "$OPENSSL_IMAGE" rand -base64 32)
   
     if $SHOULD_CLEAN_OPENSSL_IMAGE; then
-      docker rmi $OPENSSL_IMAGE
+      docker rmi "$OPENSSL_IMAGE"
     fi
   fi
   
