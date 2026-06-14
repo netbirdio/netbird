@@ -763,12 +763,9 @@ func flushRoutes(tableID, family int) error {
 	return nberrors.FormatErrorOrNil(result)
 }
 
-func EnableIPForwarding() error {
+func EnableV4IPForwarding() error {
 	if _, err := sysctl.Set(ipv4ForwardingPath, 1, false); err != nil {
 		return err
-	}
-	if _, err := sysctl.Set(ipv6ForwardingPath, 1, false); err != nil {
-		log.Warnf("failed to enable IPv6 forwarding: %v", err)
 	}
 	return nil
 }
