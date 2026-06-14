@@ -1,6 +1,7 @@
-package auth
+package sessionauth
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -609,4 +610,62 @@ func TestAuthorizer_Wildcard_WithPartialIndexes_AllowsAllUsers(t *testing.T) {
 	_, err = authorizer.Authorize("user3", "root")
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, ErrUserNotAuthorized, "unauthorized user should be denied")
+}
+
+func TestAuthorizer_LookupSessionKey_Valid(t *testing.T) {
+	pub := bytesRepeat(0x11, sessionPubKeyLen)
+	userHash, err := sshauth.HashUserID("alice")
+	require.NoError(t, err)
+
+	a := NewAuthorizer()
+	a.Update(&Config{
+		AuthorizedUsers: []sshauth.UserIDHash{userHash},
+		MachineUsers:    map[string][]uint32{Wildcard: {0}},
+		SessionPubKeys:  []SessionPubKey{{PubKey: pub, UserIDHash: userHash}},
+	})
+
+	got, err := a.LookupSessionKey(pub)
+	require.NoError(t, err)
+	assert.Equal(t, userHash, got)
+
+	if _, err := a.AuthorizeOSUserBySessionKey(got, "alice"); err != nil {
+		t.Fatalf("AuthorizeOSUserBySessionKey: %v", err)
+	}
+}
+
+func TestAuthorizer_LookupSessionKey_UnknownPub(t *testing.T) {
+	a := NewAuthorizer()
+	a.Update(&Config{})
+	_, err := a.LookupSessionKey(bytesRepeat(0x22, sessionPubKeyLen))
+	require.ErrorIs(t, err, ErrSessionKeyNotKnown)
+}
+
+func TestAuthorizer_LookupSessionKey_WrongLength(t *testing.T) {
+	a := NewAuthorizer()
+	_, err := a.LookupSessionKey([]byte("short"))
+	require.Error(t, err)
+}
+
+func TestAuthorizer_LookupSessionKey_UpdateClears(t *testing.T) {
+	pub := bytesRepeat(0x33, sessionPubKeyLen)
+	userHash, err := sshauth.HashUserID("alice")
+	require.NoError(t, err)
+
+	a := NewAuthorizer()
+	a.Update(&Config{SessionPubKeys: []SessionPubKey{{PubKey: pub, UserIDHash: userHash}}})
+	if _, err := a.LookupSessionKey(pub); err != nil {
+		t.Fatalf("setup lookup: %v", err)
+	}
+	a.Update(&Config{})
+	if _, err := a.LookupSessionKey(pub); !errors.Is(err, ErrSessionKeyNotKnown) {
+		t.Fatalf("expected ErrSessionKeyNotKnown, got %v", err)
+	}
+}
+
+func bytesRepeat(b byte, n int) []byte {
+	out := make([]byte, n)
+	for i := range out {
+		out[i] = b
+	}
+	return out
 }

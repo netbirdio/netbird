@@ -23,10 +23,10 @@ import (
 	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
-	sshauth "github.com/netbirdio/netbird/client/ssh/auth"
 	"github.com/netbirdio/netbird/client/ssh/detection"
 	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/auth/jwt"
+	sshauth "github.com/netbirdio/netbird/shared/sessionauth"
 	"github.com/netbirdio/netbird/util/netrelay"
 	"github.com/netbirdio/netbird/version"
 )
@@ -197,6 +197,14 @@ type Config struct {
 
 	// HostKey is the SSH server host key in PEM format
 	HostKeyPEM []byte
+
+	// NetstackNet, when non-nil, makes the SSH server listen via the
+	// supplied userspace network stack instead of an OS socket.
+	NetstackNet *netstack.Net
+
+	// NetworkValidation, when non-zero, restricts inbound connections to
+	// peers inside the NetBird overlay defined by this WireGuard address.
+	NetworkValidation wgaddr.Address
 }
 
 // SessionInfo contains information about an active SSH session
@@ -208,12 +216,15 @@ type SessionInfo struct {
 	PortForwards  []string
 }
 
-// New creates an SSH server instance with the provided host key and optional JWT configuration
-// If jwtConfig is nil, JWT authentication is disabled
+// New creates an SSH server instance from the supplied Config. Fields are
+// read once at construction; mutating Config afterwards has no effect.
+// JWT == nil disables JWT authentication.
 func New(config *Config) *Server {
 	s := &Server{
 		mu:                     sync.RWMutex{},
 		hostKeyPEM:             config.HostKeyPEM,
+		netstackNet:            config.NetstackNet,
+		wgAddress:              config.NetworkValidation,
 		sessions:               make(map[sessionKey]*sessionState),
 		pendingAuthJWT:         make(map[authKey]string),
 		remoteForwardListeners: make(map[forwardKey]net.Listener),
@@ -432,20 +443,6 @@ func (s *Server) buildSessionInfo(state *sessionState) SessionInfo {
 	}
 
 	return info
-}
-
-// SetNetstackNet sets the netstack network for userspace networking
-func (s *Server) SetNetstackNet(net *netstack.Net) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.netstackNet = net
-}
-
-// SetNetworkValidation configures network-based connection filtering
-func (s *Server) SetNetworkValidation(addr wgaddr.Address) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.wgAddress = addr
 }
 
 // UpdateSSHAuth updates the SSH fine-grained access control configuration

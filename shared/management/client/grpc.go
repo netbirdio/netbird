@@ -985,6 +985,7 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 			RosenpassEnabled:    info.RosenpassEnabled,
 			RosenpassPermissive: info.RosenpassPermissive,
 			ServerSSHAllowed:    info.ServerSSHAllowed,
+			ServerVNCAllowed:    info.ServerVNCAllowed,
 
 			DisableClientRoutes: info.DisableClientRoutes,
 			DisableServerRoutes: info.DisableServerRoutes,
@@ -995,6 +996,8 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 			DisableIPv6:         info.DisableIPv6,
 
 			LazyConnectionEnabled: info.LazyConnectionEnabled,
+
+			DisableSSHAuth: info.DisableSSHAuth,
 		},
 
 		Capabilities: peerCapabilities(*info),
