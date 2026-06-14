@@ -6,4 +6,5 @@ const (
 	RoleKey      = "role"
 	UserIDKey    = "userID"
 	PeerIDKey    = "peerID"
+	UserAgentKey = "userAgent"
 )
