@@ -202,6 +202,42 @@ func TestBuildJWTConfig_Audiences(t *testing.T) {
 	}
 }
 
+// TestShouldSkipSendingDeprecatedRemotePeers covers the version gate that
+// stops populating the deprecated top-level SyncResponse.RemotePeers field for
+// peers new enough to read RemotePeers off the NetworkMap. Development builds
+// are treated as latest and skip the field. The gate otherwise fails safe: a
+// release version older than the boundary, or one that can't be parsed (empty,
+// garbage, prereleases of the boundary) still receives the deprecated field so
+// older/unknown clients keep working.
+func TestShouldSkipSendingDeprecatedRemotePeers(t *testing.T) {
+	tests := []struct {
+		name        string
+		peerVersion string
+		wantSkip    bool
+	}{
+		{"exact boundary skips", "0.29.3", true},
+		{"newer patch skips", "0.29.4", true},
+		{"newer minor skips", "0.30.0", true},
+		{"newer major skips", "1.0.0", true},
+		{"v-prefixed newer skips", "v0.30.0", true},
+		{"development build skips", "development", true},
+		{"development build with commit skips", "development-abc123def456-dirty", true},
+		{"older patch keeps field", "0.29.2", false},
+		{"older minor keeps field", "0.28.0", false},
+		{"prerelease of boundary keeps field", "0.29.3-SNAPSHOT", false},
+		{"tagged dev prerelease keeps field", "v0.31.1-dev", false},
+		{"empty version keeps field", "", false},
+		{"garbage version keeps field", "not-a-version", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := shouldSkipSendingDeprecatedRemotePeers(tc.peerVersion)
+			assert.Equal(t, tc.wantSkip, got, "skip decision for peer version %q", tc.peerVersion)
+		})
+	}
+}
+
 // TestEncodeSessionExpiresAt pins the wire encoding the client's
 // applySessionDeadline depends on:
 //

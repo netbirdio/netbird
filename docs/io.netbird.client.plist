@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+    NetBird MDM preferences (macOS) — bare plist for MDM platforms that
+    accept a managed-preferences plist tied to a bundle identifier
+    (e.g. JumpCloud "Mac Application Custom Settings", Mosyle "Custom
+    Settings", Jamf "Application & Custom Settings" → External
+    Application).
+
+    Bundle identifier (preference domain): io.netbird.client
+
+    The MDM provider will wrap this plist into a Configuration Profile
+    payload of type com.apple.ManagedClient.preferences and push it to
+    target devices via the Apple MDM protocol. The OS materializes the
+    final file at:
+        /Library/Managed Preferences/io.netbird.client.plist
+    which is what the NetBird daemon's client/mdm/policy_darwin.go
+    loader reads on every 1-minute MDM reload tick.
+
+    For MDM platforms that expect a full Configuration Profile instead
+    of a bare plist (Custom Configuration Profile / .mobileconfig upload),
+    use docs/netbird-macos.mobileconfig — same keys, additional Payload*
+    envelope.
+
+    Editing this file:
+      - Remove or comment out any key you do NOT want to enforce. The
+        daemon treats an absent key as "no enforcement" for that field.
+      - Keep the document well-formed XML. Validate locally with:
+            plutil -lint docs/io.netbird.client.plist
+      - Keys are camelCase; values are typed (<string>, <true/>, <false/>,
+        <integer>). See docs/src/pages/client/mdm-integration.mdx (the
+        public docs page) for the full reference.
+
+    Persistence caveat:
+      macOS wipes /Library/Managed Preferences/ at every boot on
+      devices that are NOT MDM-enrolled. This plist only sticks across
+      reboots when delivered through a real MDM channel. For local
+      testing on an un-enrolled host, write the file manually as root
+      and accept it will not survive the next boot.
+-->
+<plist version="1.0">
+<dict>
+
+    <!-- ===== Identity / auth ===== -->
+    <key>managementURL</key>
+    <string>https://api.netbird.io:443</string>
+
+    <!--
+        Pre-shared key: secret. Remove the entry entirely when not used;
+        do NOT leave an empty <string></string>, which the daemon would
+        otherwise treat as a deliberate empty-PSK enforcement.
+    -->
+    <!--
+    <key>preSharedKey</key>
+    <string>REPLACE_ME</string>
+    -->
+
+    <!-- ===== Engine / runtime behavior =====
+         Each key is optional. Remove or comment out to leave the
+         field unmanaged on the client. -->
+
+    <key>allowServerSSH</key>
+    <true/>
+
+    <!--
+    <key>disableAutoConnect</key>
+    <false/>
+
+    <key>disableClientRoutes</key>
+    <false/>
+
+    <key>disableServerRoutes</key>
+    <false/>
+
+    <key>blockInbound</key>
+    <false/>
+
+    <key>rosenpassEnabled</key>
+    <true/>
+
+    <key>rosenpassPermissive</key>
+    <false/>
+    -->
+
+    <!-- ===== WireGuard UDP port =====
+         Range 1-65535. Omit to keep the daemon default. -->
+    <!--
+    <key>wireguardPort</key>
+    <integer>51820</integer>
+    -->
+
+    <!-- ===== UI / lockdown kill switches =====
+         disableUpdateSettings   : block every config change from UI and CLI
+                                   on this device (Settings view stays
+                                   readable but read-only).
+         disableProfiles         : hide the profile menu, reject profile CRUD.
+         disableNetworks         : hide the Networks / Exit Node menus,
+                                   reject the related RPCs.
+         disableMetricsCollection: opt out of anonymous usage telemetry. -->
+    <!--
+    <key>disableUpdateSettings</key>
+    <true/>
+
+    <key>disableProfiles</key>
+    <true/>
+
+    <key>disableNetworks</key>
+    <true/>
+
+    <key>disableMetricsCollection</key>
+    <false/>
+    -->
+
+    <!-- ===== Split tunnel =====
+         Android-only at the client level. Safe to ship on macOS for
+         mixed-platform fleets; the macOS daemon parses and ignores. -->
+    <!--
+    <key>splitTunnelMode</key>
+    <string>allow</string>
+
+    <key>splitTunnelApps</key>
+    <string>com.acme.app1,com.acme.app2</string>
+    -->
+
+</dict>
+</plist>

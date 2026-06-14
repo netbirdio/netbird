@@ -30,7 +30,7 @@ func (s *Server) ListNetworks(context.Context, *proto.ListNetworksRequest) (*pro
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	if s.networksDisabled {
+	if s.checkNetworksDisabled() {
 		return nil, gstatus.Errorf(codes.Unavailable, errNetworksDisabled)
 	}
 
@@ -143,7 +143,7 @@ func (s *Server) SelectNetworks(_ context.Context, req *proto.SelectNetworksRequ
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	if s.networksDisabled {
+	if s.checkNetworksDisabled() {
 		return nil, gstatus.Errorf(codes.Unavailable, errNetworksDisabled)
 	}
 
@@ -195,7 +195,7 @@ func (s *Server) DeselectNetworks(_ context.Context, req *proto.SelectNetworksRe
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	if s.networksDisabled {
+	if s.checkNetworksDisabled() {
 		return nil, gstatus.Errorf(codes.Unavailable, errNetworksDisabled)
 	}
 

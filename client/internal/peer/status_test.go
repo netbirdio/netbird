@@ -90,12 +90,11 @@ func TestStatus_PeerStateByIP_MatchesIPv6(t *testing.T) {
 	req.Equal("pk-1", state.PubKey, "matching state must carry the right pub key")
 }
 
-// TestStatus_PeerStateByIP_MatchesOfflinePeers covers peers that have
-// been moved into the offline slice via ReplaceOfflinePeers. Callers
-// (DNS filter, embed.Client.IdentityForIP) need to treat them as known
-// rather than unknown — otherwise authentication / DNS filtering treats
-// known-but-offline peers as foreign IPs.
-func TestStatus_PeerStateByIP_MatchesOfflinePeers(t *testing.T) {
+// TestStatus_PeerStateByIP_IgnoresOfflinePeers documents that peers
+// moved into the offline slice via ReplaceOfflinePeers are intentionally
+// not resolvable by IP: only active peers can carry traffic, so callers
+// (DNS filter, embed.Client.IdentityForIP) treat them as unknown.
+func TestStatus_PeerStateByIP_IgnoresOfflinePeers(t *testing.T) {
 	status := NewRecorder("https://mgm")
 	req := require.New(t)
 
@@ -103,13 +102,31 @@ func TestStatus_PeerStateByIP_MatchesOfflinePeers(t *testing.T) {
 		{PubKey: "pk-offline", FQDN: "offline.netbird", IP: "100.64.0.20", IPv6: "fd00::20"},
 	})
 
-	state, ok := status.PeerStateByIP("100.64.0.20")
-	req.True(ok, "offline peer must resolve by IPv4 tunnel address")
-	req.Equal("pk-offline", state.PubKey, "matching state must carry the offline peer's pub key")
+	_, ok := status.PeerStateByIP("100.64.0.20")
+	req.False(ok, "offline peer must not resolve by IPv4 tunnel address")
 
-	state, ok = status.PeerStateByIP("fd00::20")
-	req.True(ok, "offline peer must resolve by IPv6 tunnel address")
-	req.Equal("pk-offline", state.PubKey, "IPv6 match must carry the offline peer's pub key")
+	_, ok = status.PeerStateByIP("fd00::20")
+	req.False(ok, "offline peer must not resolve by IPv6 tunnel address")
+}
+
+// TestStatus_PeerStateByIP_RemovedPeer verifies RemovePeer drops the
+// IP index entries for both address families.
+func TestStatus_PeerStateByIP_RemovedPeer(t *testing.T) {
+	status := NewRecorder("https://mgm")
+	req := require.New(t)
+
+	req.NoError(status.AddPeer("pk-1", "peer-1.netbird", "100.64.0.10", "fd00::1"))
+
+	_, ok := status.PeerStateByIP("100.64.0.10")
+	req.True(ok, "active peer must resolve before removal")
+
+	req.NoError(status.RemovePeer("pk-1"))
+
+	_, ok = status.PeerStateByIP("100.64.0.10")
+	req.False(ok, "removed peer must not resolve by IPv4 tunnel address")
+
+	_, ok = status.PeerStateByIP("fd00::1")
+	req.False(ok, "removed peer must not resolve by IPv6 tunnel address")
 }
 
 func TestStatus_UpdatePeerFQDN(t *testing.T) {
