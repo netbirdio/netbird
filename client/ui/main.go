@@ -265,6 +265,7 @@ func newApplication(onSecondInstance func()) *application.App {
 		},
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: false,
+			ActivationPolicy: application.ActivationPolicyAccessory,
 		},
 		Linux: application.LinuxOptions{
 			ProgramName: "netbird",
