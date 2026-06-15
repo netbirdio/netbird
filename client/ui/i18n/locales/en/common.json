@@ -1372,11 +1372,11 @@
         "description": "Status shown while checking the server URL. Ends with an ellipsis."
     },
     "browserLogin.title": {
-        "message": "Continue in your browser to complete the login",
+        "message": "Complete login in your browser",
         "description": "Heading telling the user to finish signing in via their browser."
     },
     "browserLogin.notSeeing": {
-        "message": "Not seeing the browser tab?",
+        "message": "We opened a browser tab so you can finish signing in. Not seeing it?",
         "description": "Prompt asking whether the user doesn't see the opened browser tab."
     },
     "browserLogin.tryAgain": {
