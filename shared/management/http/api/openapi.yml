@@ -2765,6 +2765,18 @@ components:
           type: integer
           description: "Number of packets transmitted."
           example: 5
+        num_of_starts:
+          type: integer
+          description: "Number of start events."
+          example: 3
+        num_of_ends:
+          type: integer
+          description: "Number of end events."
+          example: 4
+        num_of_drops:
+          type: integer
+          description: "Number of drop events."
+          example: 5
         events:
           type: array
           description: "List of events that are correlated to this flow (e.g., start, end)."
