@@ -17,6 +17,10 @@ const DevelopmentVersion = "development"
 // are treated as development versions by IsDevelopmentVersion.
 const CIVersionPrefix = "ci-"
 
+// DevVersionPrefix marks dev snapshot builds (e.g. "dev-7470fbdd"). Such builds
+// are treated as development versions by IsDevelopmentVersion.
+const DevVersionPrefix = "dev-"
+
 // will be replaced with the release version when using goreleaser
 var version = DevelopmentVersion
 
@@ -74,8 +78,10 @@ func NetbirdCommit() string {
 //
 // Matches the bare DevelopmentVersion constant as well as any future
 // extension such as "development-<sha>" or "development-<sha>-dirty", and
-// CI snapshot builds prefixed with "ci-", while excluding tagged prereleases
-// like "v0.31.1-dev".
+// CI/dev snapshot builds prefixed with "ci-" or "dev-", while excluding
+// tagged prereleases like "v0.31.1-dev".
 func IsDevelopmentVersion(v string) bool {
-	return strings.HasPrefix(v, DevelopmentVersion) || strings.HasPrefix(v, CIVersionPrefix)
+	return strings.HasPrefix(v, DevelopmentVersion) ||
+		strings.HasPrefix(v, CIVersionPrefix) ||
+		strings.HasPrefix(v, DevVersionPrefix)
 }
