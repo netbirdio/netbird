@@ -60,20 +60,3 @@ func SetMobilePolicyFetcher(p PolicyFetcher) {
 	}
 	mdm.SetMobilePolicyFetcher(&jsonFetcherAdapter{inner: p})
 }
-
-// OnMDMPolicyChanged is the mobile entry point the native layer calls
-// when the OS broadcasts a managed-config change
-// (ACTION_APPLICATION_RESTRICTIONS_CHANGED on Android,
-// UserDefaults.didChangeNotification on iOS). The hook cancels the
-// current engine context so the current Run() returns; the native
-// loop is expected to re-invoke Run() afterwards, which re-reads
-// the config (including the fresh MDM overlay via the registered
-// PolicyFetcher).
-//
-// No payload is passed — the OS notification only signals "something
-// changed"; the actual values are read on-demand by the next
-// loadPlatformPolicy call inside Config.apply.
-func (c *Client) OnMDMPolicyChanged() {
-	log.Info("MDM policy change signaled by native; stopping engine to restart with fresh config")
-	c.Stop()
-}
