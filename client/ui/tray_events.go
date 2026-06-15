@@ -53,7 +53,7 @@ func (t *Tray) onSystemEvent(ev *application.CustomEvent) {
 		return
 	}
 
-	critical := se.Severity == "critical"
+	critical := strings.EqualFold(se.Severity, "critical")
 	t.profileMu.Lock()
 	enabled := t.notificationsEnabled
 	t.profileMu.Unlock()
