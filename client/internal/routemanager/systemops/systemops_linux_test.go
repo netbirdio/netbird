@@ -1,4 +1,4 @@
-//go:build !android && privileged
+//go:build linux && !android && privileged
 
 package systemops
 
