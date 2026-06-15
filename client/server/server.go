@@ -1163,6 +1163,9 @@ func (s *Server) logoutFromProfile(ctx context.Context, profileName, username st
 	if err != nil {
 		return fmt.Errorf("profile '%s' not found", profileName)
 	}
+	// Honour any MDM-enforced ManagementURL when issuing the logout
+	// RPC: the user-stored value may have been overridden by policy.
+	config.ApplyMDMPolicy(s.mdmLoader.Load())
 
 	return s.sendLogoutRequestWithConfig(ctx, config)
 }
@@ -1595,6 +1598,11 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 		log.Errorf("failed to get active profile config: %v", err)
 		return nil, fmt.Errorf("failed to get active profile config: %w", err)
 	}
+	// Overlay the active MDM policy so the response's MDMManagedFields
+	// list reflects what the GUI / CLI must render as read-only.
+	// profilemanager.GetConfig itself returns a Config without the
+	// overlay (Loader lives outside profilemanager).
+	cfg.ApplyMDMPolicy(s.mdmLoader.Load())
 	managementURL := cfg.ManagementURL
 	adminURL := cfg.AdminURL
 
