@@ -34,7 +34,7 @@ const MainBody = () => {
     const { viewMode, setViewMode } = useViewMode();
     const { mdm, features } = useRestrictions();
 
-    // Force flip the view if mdm changed it
+    // Force flip the view if MDM disabled advanced
     useEffect(() => {
         if (mdm.disableAdvancedView && viewMode === "advanced") {
             setViewMode("default");

@@ -19,7 +19,7 @@ export const SettingsNavigation = () => {
     const { t } = useTranslation();
     const { updateAvailable } = useClientVersion();
     const { mdm, features } = useRestrictions();
-    const showSsh = mdm.allowServerSSH || !features.disableUpdateSettings;
+    const showSsh = mdm.allowServerSSH ?? !features.disableUpdateSettings;
 
     const aboutAdornment = updateAvailable ? (
         <Tooltip content={t("settings.tabs.updateAvailable")} side={"right"}>

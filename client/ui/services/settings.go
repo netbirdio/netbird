@@ -18,13 +18,13 @@ type MDMFields struct {
 	RosenpassPermissive      bool   `json:"rosenpassPermissive"`
 	DisableClientRoutes      bool   `json:"disableClientRoutes"`
 	DisableServerRoutes      bool   `json:"disableServerRoutes"`
-	AllowServerSSH           bool   `json:"allowServerSSH"`
+	AllowServerSSH           *bool  `json:"allowServerSSH"`
 	DisableAutoConnect       bool   `json:"disableAutoConnect"`
 	BlockInbound             bool   `json:"blockInbound"`
 	DisableMetricsCollection bool   `json:"disableMetricsCollection"`
 	SplitTunnelMode          bool   `json:"splitTunnelMode"`
 	SplitTunnelApps          bool   `json:"splitTunnelApps"`
-	DisableAdvancedView      bool   `json:"disableAdvancedView"`
+	DisableAdvancedView bool `json:"disableAdvancedView"`
 }
 
 type Features struct {
@@ -222,6 +222,9 @@ func (s *Settings) GetRestrictions(ctx context.Context) (Restrictions, error) {
 			DisableNetworks:       featResp.GetDisableNetworks(),
 			DisableUpdateSettings: featResp.GetDisableUpdateSettings(),
 		},
+		MDM: MDMFields{
+			DisableAdvancedView: featResp.GetDisableAdvancedView(),
+		},
 	}
 	managed := cfgResp.GetMDMManagedFields()
 	if len(managed) > 0 {
@@ -235,10 +238,6 @@ func (s *Settings) GetRestrictions(ctx context.Context) (Restrictions, error) {
 			if v.Field(i).Kind() != reflect.Bool {
 				continue
 			}
-			// AllowServerSSH carries the resolved value (like ManagementURL), not the is-managed flag.
-			if t.Field(i).Name == "AllowServerSSH" {
-				continue
-			}
 			if _, ok := set[t.Field(i).Tag.Get("json")]; ok {
 				v.Field(i).SetBool(true)
 			}
@@ -247,9 +246,9 @@ func (s *Settings) GetRestrictions(ctx context.Context) (Restrictions, error) {
 			r.MDM.ManagementURL = cfgResp.GetManagementUrl()
 		}
 		if _, ok := set["allowServerSSH"]; ok {
-			r.MDM.AllowServerSSH = cfgResp.GetServerSSHAllowed()
+			allowed := cfgResp.GetServerSSHAllowed()
+			r.MDM.AllowServerSSH = &allowed
 		}
 	}
-	r.MDM.DisableAdvancedView = featResp.GetDisableAdvancedView()
 	return r, nil
 }
