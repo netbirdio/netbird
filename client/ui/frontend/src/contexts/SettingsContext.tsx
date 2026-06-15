@@ -8,6 +8,7 @@ import {
     useState,
     type ReactNode,
 } from "react";
+import { Events } from "@wailsio/runtime";
 import { Autostart, Settings as SettingsSvc, Version } from "@bindings/services";
 import type { Config } from "@bindings/services/models.js";
 import i18next from "@/lib/i18n";
@@ -70,24 +71,37 @@ const useSettingsState = () => {
     useEffect(() => {
         if (!profileLoaded || !activeProfile) return;
         let cancelled = false;
-        (async () => {
+
+        const load = async (showError: boolean) => {
             try {
                 const data = await SettingsSvc.GetConfig({
                     profileName: activeProfile,
                     username,
                 });
                 if (cancelled) return;
+                if (saveTimer.current) return;
                 setLoaded({ profileName: activeProfile, data });
             } catch (e) {
-                if (cancelled) return;
+                if (cancelled || !showError) return;
                 await errorDialog({
                     Title: i18next.t("settings.error.loadTitle"),
                     Message: errorMessage(e),
                 });
             }
-        })();
+        };
+
+        load(true);
+
+        const off = Events.On(
+            "netbird:event",
+            (e: { data?: { metadata?: { [k: string]: string | undefined } } }) => {
+                if (e.data?.metadata?.type === "config_changed") load(false);
+            },
+        );
+
         return () => {
             cancelled = true;
+            off();
         };
     }, [profileLoaded, activeProfile, username]);
 
@@ -140,6 +154,7 @@ const useSettingsState = () => {
             setLoaded(next);
             if (saveTimer.current) clearTimeout(saveTimer.current);
             saveTimer.current = setTimeout(() => {
+                saveTimer.current = null;
                 save(next.profileName, next.data).catch(logSaveError);
             }, SAVE_DEBOUNCE_MS);
         },

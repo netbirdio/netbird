@@ -8,7 +8,10 @@ export function SettingsSecurity() {
     const { t } = useTranslation();
     const { config, setField } = useSettings();
     const { mdm } = useRestrictions();
-    const showEncryptionSection = !(mdm.rosenpassEnabled && mdm.rosenpassPermissive);
+    const hideRosenpassEnabled = mdm.rosenpassEnabled;
+    const hideRosenpassPermissive =
+        mdm.rosenpassPermissive || (mdm.rosenpassEnabled && !config.rosenpassEnabled);
+    const showEncryptionSection = !(hideRosenpassEnabled && hideRosenpassPermissive);
 
     return (
         <>
@@ -31,7 +34,7 @@ export function SettingsSecurity() {
 
             {showEncryptionSection && (
                 <SectionGroup title={t("settings.security.section.encryption")}>
-                    {!mdm.rosenpassEnabled && (
+                    {!hideRosenpassEnabled && (
                         <FancyToggleSwitch
                             value={config.rosenpassEnabled}
                             onChange={(v) => {
@@ -42,7 +45,7 @@ export function SettingsSecurity() {
                             helpText={t("settings.security.rosenpass.help")}
                         />
                     )}
-                    {!mdm.rosenpassPermissive && (
+                    {!hideRosenpassPermissive && (
                         <FancyToggleSwitch
                             value={config.rosenpassPermissive}
                             onChange={(v) => setField("rosenpassPermissive", v)}
