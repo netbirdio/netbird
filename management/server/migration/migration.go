@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"reflect"
 	"strings"
 	"unicode/utf8"
 
@@ -630,6 +631,115 @@ func RemoveDuplicatePeerKeys(ctx context.Context, db *gorm.DB) error {
 
 		if err := db.Table("peers").Where("id IN ?", idsToDelete).Delete(nil).Error; err != nil {
 			return fmt.Errorf("delete duplicate peers: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// FixPostgresBoolColumns walks the gorm-mapped fields of T and ensures every
+// bool-typed field has the corresponding Postgres column declared as type
+// `boolean`. This addresses the failure mode reported in
+// https://github.com/netbirdio/netbird/issues/4326 where a SQLite -> Postgres
+// data migration done with external tooling (e.g. pgloader) preserves the
+// SQLite INTEGER 0/1 representation as Postgres `numeric`. The Go struct
+// fields are bool, so any subsequent attempt to write `true` from the
+// management server fails with:
+//
+//	failed to encode args[N]: unable to encode true into binary format for
+//	numeric (OID 1700): cannot find encode plan
+//
+// On non-Postgres engines the function is a no-op. On Postgres it queries
+// information_schema.columns for each gorm-mapped bool field and runs an
+// idempotent ALTER TABLE ... ALTER COLUMN ... TYPE boolean USING ... when
+// the current type is anything other than `boolean`. Default values are
+// re-applied so the migrated schema matches what gorm.AutoMigrate would
+// have produced on a fresh install.
+//
+// The migration must run in the pre-AutoMigrate phase so AutoMigrate's own
+// type-mismatch check does not trip on the still-numeric columns.
+func FixPostgresBoolColumns[T any](ctx context.Context, db *gorm.DB) error {
+	if db.Name() != "postgres" {
+		return nil
+	}
+
+	var model T
+
+	if !db.Migrator().HasTable(&model) {
+		log.WithContext(ctx).Debugf("table for %T does not exist, no postgres bool migration needed", model)
+		return nil
+	}
+
+	stmt := &gorm.Statement{DB: db}
+	if err := stmt.Parse(&model); err != nil {
+		return fmt.Errorf("parse model: %w", err)
+	}
+	tableName := stmt.Schema.Table
+
+	for _, field := range stmt.Schema.Fields {
+		if field.IgnoreMigration || field.DBName == "" {
+			continue
+		}
+		if field.FieldType.Kind() != reflect.Bool {
+			continue
+		}
+
+		columnName := field.DBName
+		var dataType string
+		row := db.Raw(`
+			SELECT data_type
+			FROM information_schema.columns
+			WHERE table_schema = current_schema()
+			  AND table_name = ?
+			  AND column_name = ?
+		`, tableName, columnName).Row()
+		if err := row.Scan(&dataType); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				// column not in DB yet — AutoMigrate will create it as boolean
+				continue
+			}
+			return fmt.Errorf("inspect %s.%s: %w", tableName, columnName, err)
+		}
+		if dataType == "" || dataType == "boolean" {
+			continue
+		}
+
+		log.WithContext(ctx).Infof(
+			"converting Postgres column %s.%s from %s to boolean (issue #4326)",
+			tableName, columnName, dataType,
+		)
+
+		// USING expression: cast to numeric (covers numeric/integer/bigint/
+		// smallint) and compare to 0; NULL -> false via COALESCE. text-typed
+		// columns containing "0"/"1" also work; "true"/"false" text values
+		// would error but are not produced by the SQLite-import path that
+		// motivates this migration.
+		usingExpr := fmt.Sprintf(`COALESCE(%q::numeric, 0) <> 0`, columnName)
+
+		alters := []string{
+			// drop any existing default first — the cast may be incompatible
+			// with the current default expression.
+			fmt.Sprintf(`ALTER TABLE %q ALTER COLUMN %q DROP DEFAULT`, tableName, columnName),
+			fmt.Sprintf(
+				`ALTER TABLE %q ALTER COLUMN %q TYPE boolean USING (%s)`,
+				tableName, columnName, usingExpr,
+			),
+			// re-establish the default and the NOT NULL constraint that
+			// gorm.AutoMigrate would have applied on a fresh install.
+			fmt.Sprintf(`UPDATE %q SET %q = false WHERE %q IS NULL`, tableName, columnName, columnName),
+			fmt.Sprintf(`ALTER TABLE %q ALTER COLUMN %q SET NOT NULL`, tableName, columnName),
+			fmt.Sprintf(`ALTER TABLE %q ALTER COLUMN %q SET DEFAULT false`, tableName, columnName),
+		}
+
+		if err := db.Transaction(func(tx *gorm.DB) error {
+			for _, sqlStmt := range alters {
+				if err := tx.Exec(sqlStmt).Error; err != nil {
+					return fmt.Errorf("apply %s: %w", sqlStmt, err)
+				}
+			}
+			return nil
+		}); err != nil {
+			return fmt.Errorf("convert %s.%s: %w", tableName, columnName, err)
 		}
 	}
 

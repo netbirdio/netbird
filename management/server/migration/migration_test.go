@@ -639,3 +639,209 @@ func TestCleanupOrphanedResources_SkipsWhenForeignKeyExists(t *testing.T) {
 	db.Model(&testChildWithFK{}).Count(&count)
 	assert.Equal(t, int64(2), count, "Both rows should survive — migration must skip when FK constraint exists")
 }
+
+// --- FixPostgresBoolColumns (issue #4326) -----------------------------------
+
+// boolColTestModel is the synthetic model used by the FixPostgresBoolColumns
+// tests. Mirrors the shape of a settings-bearing entity (top-level bool +
+// embedded Settings-style bool) so the test exercises both direct columns and
+// columns produced via gorm `embedded;embeddedPrefix:`.
+type boolColTestSettings struct {
+	LazyConnectionEnabled bool `gorm:"default:false"`
+	JWTGroupsEnabled      bool `gorm:"default:false"`
+}
+
+type boolColTestModel struct {
+	ID                 string `gorm:"primaryKey"`
+	TopLevelBool       bool   `gorm:"default:false"`
+	NonBool            string
+	Settings           *boolColTestSettings `gorm:"embedded;embeddedPrefix:settings_"`
+}
+
+func (boolColTestModel) TableName() string { return "bool_col_test_models" }
+
+func TestFixPostgresBoolColumns_NoOpOnSqlite(t *testing.T) {
+	t.Setenv("NETBIRD_STORE_ENGINE", "sqlite")
+	db := setupDatabase(t)
+	require.NoError(t, db.AutoMigrate(&boolColTestModel{}))
+
+	// Function returns nil and changes nothing on SQLite.
+	err := migration.FixPostgresBoolColumns[boolColTestModel](context.Background(), db)
+	require.NoError(t, err)
+
+	// Sanity: AutoMigrate-created columns are usable (insert + read bool).
+	require.NoError(t, db.Create(&boolColTestModel{ID: "a", TopLevelBool: true,
+		Settings: &boolColTestSettings{LazyConnectionEnabled: true}}).Error)
+	var got boolColTestModel
+	require.NoError(t, db.First(&got, "id = ?", "a").Error)
+	assert.True(t, got.TopLevelBool)
+	assert.True(t, got.Settings.LazyConnectionEnabled)
+}
+
+func TestFixPostgresBoolColumns_TableMissingIsNoOp(t *testing.T) {
+	if os.Getenv("NETBIRD_STORE_ENGINE") != "postgres" {
+		t.Skip("NETBIRD_STORE_ENGINE != postgres — skipping postgres-only test")
+	}
+	db := setupDatabase(t)
+
+	// Table not created.
+	err := migration.FixPostgresBoolColumns[boolColTestModel](context.Background(), db)
+	require.NoError(t, err, "missing table must be a no-op, not an error")
+}
+
+func TestFixPostgresBoolColumns_AlreadyBooleanIsNoOp(t *testing.T) {
+	if os.Getenv("NETBIRD_STORE_ENGINE") != "postgres" {
+		t.Skip("NETBIRD_STORE_ENGINE != postgres — skipping postgres-only test")
+	}
+	db := setupDatabase(t)
+	require.NoError(t, db.AutoMigrate(&boolColTestModel{}))
+
+	err := migration.FixPostgresBoolColumns[boolColTestModel](context.Background(), db)
+	require.NoError(t, err)
+
+	// Bool inserts must still work afterwards.
+	require.NoError(t, db.Create(&boolColTestModel{ID: "a", TopLevelBool: true,
+		Settings: &boolColTestSettings{LazyConnectionEnabled: true}}).Error)
+
+	// Verify column type stayed `boolean`.
+	for _, col := range []string{"top_level_bool", "settings_lazy_connection_enabled", "settings_jwt_groups_enabled"} {
+		var dt string
+		require.NoError(t, db.Raw(
+			`SELECT data_type FROM information_schema.columns WHERE table_name = ? AND column_name = ?`,
+			"bool_col_test_models", col,
+		).Row().Scan(&dt))
+		assert.Equal(t, "boolean", dt, "column %s should be boolean", col)
+	}
+}
+
+// TestFixPostgresBoolColumns_ConvertsNumericColumnsAndPreservesData is the
+// core regression test for issue #4326. It synthesises the broken-schema
+// state produced by a SQLite -> Postgres data migration done with external
+// tooling (numeric columns where the Go struct expects bool), seeds rows
+// with NULL/0/1 values, runs the migration, and asserts that:
+//
+//  1. each affected column is now declared as `boolean`
+//  2. existing rows have correctly-converted boolean values
+//  3. management-server-style writes (Go bool true) succeed afterwards
+//     (this is the actual user-reported failure mode).
+func TestFixPostgresBoolColumns_ConvertsNumericColumnsAndPreservesData(t *testing.T) {
+	if os.Getenv("NETBIRD_STORE_ENGINE") != "postgres" {
+		t.Skip("NETBIRD_STORE_ENGINE != postgres — skipping postgres-only test")
+	}
+	db := setupDatabase(t)
+
+	// Build the broken schema by hand: integer/numeric columns where the
+	// gorm-mapped Go field is bool. This reproduces the post-pgloader state
+	// reported in #4326.
+	require.NoError(t, db.Exec(`DROP TABLE IF EXISTS bool_col_test_models`).Error)
+	require.NoError(t, db.Exec(`
+		CREATE TABLE bool_col_test_models (
+			id text PRIMARY KEY,
+			top_level_bool numeric DEFAULT 0,
+			non_bool text,
+			settings_lazy_connection_enabled numeric DEFAULT 0,
+			settings_jwt_groups_enabled numeric DEFAULT 0
+		)
+	`).Error)
+
+	// Seed rows representing the three input states the migration must handle:
+	// NULL, 0 (false), 1 (true).
+	require.NoError(t, db.Exec(`
+		INSERT INTO bool_col_test_models
+			(id, top_level_bool, non_bool, settings_lazy_connection_enabled, settings_jwt_groups_enabled)
+		VALUES
+			('null',  NULL, 'a', NULL, NULL),
+			('false', 0,    'b', 0,    0),
+			('true',  1,    'c', 1,    1)
+	`).Error)
+
+	// Run the migration.
+	err := migration.FixPostgresBoolColumns[boolColTestModel](context.Background(), db)
+	require.NoError(t, err)
+
+	// 1. Column types are now boolean.
+	for _, col := range []string{"top_level_bool", "settings_lazy_connection_enabled", "settings_jwt_groups_enabled"} {
+		var dt string
+		require.NoError(t, db.Raw(
+			`SELECT data_type FROM information_schema.columns WHERE table_name = ? AND column_name = ?`,
+			"bool_col_test_models", col,
+		).Row().Scan(&dt))
+		assert.Equal(t, "boolean", dt, "column %s should be boolean after migration", col)
+	}
+
+	// non_bool column must NOT have been touched.
+	var nonBoolType string
+	require.NoError(t, db.Raw(
+		`SELECT data_type FROM information_schema.columns WHERE table_name = ? AND column_name = ?`,
+		"bool_col_test_models", "non_bool",
+	).Row().Scan(&nonBoolType))
+	assert.Equal(t, "text", nonBoolType, "non-bool columns must be left untouched")
+
+	// 2. Existing rows have correctly-converted values; NULL became false.
+	var rows []struct {
+		ID                            string
+		TopLevelBool                  bool `gorm:"column:top_level_bool"`
+		SettingsLazyConnectionEnabled bool `gorm:"column:settings_lazy_connection_enabled"`
+		SettingsJwtGroupsEnabled      bool `gorm:"column:settings_jwt_groups_enabled"`
+	}
+	require.NoError(t, db.Table("bool_col_test_models").Order("id").Find(&rows).Error)
+	require.Len(t, rows, 3)
+	// rows are: false (id=false), null->false (id=null), true (id=true) by id-sort
+	byID := map[string]bool{}
+	for _, r := range rows {
+		byID[r.ID+"|top"] = r.TopLevelBool
+		byID[r.ID+"|lazy"] = r.SettingsLazyConnectionEnabled
+		byID[r.ID+"|jwt"] = r.SettingsJwtGroupsEnabled
+	}
+	for _, suffix := range []string{"top", "lazy", "jwt"} {
+		assert.False(t, byID["null|"+suffix], "NULL must have become false (col=%s)", suffix)
+		assert.False(t, byID["false|"+suffix], "0 must have stayed false (col=%s)", suffix)
+		assert.True(t, byID["true|"+suffix], "1 must have become true (col=%s)", suffix)
+	}
+
+	// 3. The user-reported failure mode: writing Go bool true via gorm now works.
+	require.NoError(t, db.Create(&boolColTestModel{
+		ID:           "post",
+		TopLevelBool: true,
+		Settings:     &boolColTestSettings{LazyConnectionEnabled: true, JWTGroupsEnabled: true},
+	}).Error, "writing Go bool=true after migration must succeed")
+
+	var roundTripped boolColTestModel
+	require.NoError(t, db.First(&roundTripped, "id = ?", "post").Error)
+	assert.True(t, roundTripped.TopLevelBool)
+	require.NotNil(t, roundTripped.Settings)
+	assert.True(t, roundTripped.Settings.LazyConnectionEnabled)
+	assert.True(t, roundTripped.Settings.JWTGroupsEnabled)
+}
+
+// TestFixPostgresBoolColumns_IsIdempotent verifies that running the migration
+// twice in a row is safe — the second run is a no-op because all columns are
+// already boolean. This matters for the management-server startup path, which
+// runs the migration unconditionally.
+func TestFixPostgresBoolColumns_IsIdempotent(t *testing.T) {
+	if os.Getenv("NETBIRD_STORE_ENGINE") != "postgres" {
+		t.Skip("NETBIRD_STORE_ENGINE != postgres — skipping postgres-only test")
+	}
+	db := setupDatabase(t)
+
+	require.NoError(t, db.Exec(`DROP TABLE IF EXISTS bool_col_test_models`).Error)
+	require.NoError(t, db.Exec(`
+		CREATE TABLE bool_col_test_models (
+			id text PRIMARY KEY,
+			top_level_bool numeric DEFAULT 0,
+			non_bool text,
+			settings_lazy_connection_enabled numeric DEFAULT 0,
+			settings_jwt_groups_enabled numeric DEFAULT 0
+		)
+	`).Error)
+	require.NoError(t, db.Exec(`INSERT INTO bool_col_test_models (id, top_level_bool) VALUES ('x', 1)`).Error)
+
+	require.NoError(t, migration.FixPostgresBoolColumns[boolColTestModel](context.Background(), db))
+	require.NoError(t, migration.FixPostgresBoolColumns[boolColTestModel](context.Background(), db),
+		"second run must be a no-op")
+
+	// Existing data must still be correct.
+	var topLevel bool
+	require.NoError(t, db.Raw(`SELECT top_level_bool FROM bool_col_test_models WHERE id = 'x'`).Row().Scan(&topLevel))
+	assert.True(t, topLevel)
+}
