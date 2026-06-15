@@ -25,8 +25,10 @@ import (
 // writable plist, as a defense against tampered installs.
 const policyPlistPath = "/Library/Managed Preferences/io.netbird.client.plist"
 
-// loadPlatformPolicy reads the MDM-managed configuration from the macOS
-// managed-preferences plist at policyPlistPath. Returns:
+// loadPlatform reads the MDM-managed configuration from the macOS
+// managed-preferences plist at policyPlistPath. The Loader's fetcher
+// field is unused on this platform — the plist is the authoritative
+// source. Returns:
 //   - (nil, nil)  when the plist is absent (device not MDM-enrolled for
 //     NetBird, or admin has not yet pushed a payload)
 //   - (map, nil)  with N entries when N managed values are present
@@ -39,7 +41,13 @@ const policyPlistPath = "/Library/Managed Preferences/io.netbird.client.plist"
 // skipped so a stray entry in the payload does not block startup.
 // Native plist value types map naturally onto the Policy accessor
 // expectations (GetString / GetBool / GetInt / GetStringSlice).
-func loadPlatformPolicy() (map[string]any, error) {
+func (l *Loader) loadPlatform() (map[string]any, error) {
+	// Honour the injected fetcher when present so tests (and any
+	// future non-macOS MDM channel) can short-circuit the plist read
+	// with a scripted policy.
+	if l != nil && l.fetcher != nil {
+		return l.fetcher.Fetch(), nil
+	}
 	f, err := os.Open(policyPlistPath)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {

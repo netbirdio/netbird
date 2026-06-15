@@ -84,16 +84,48 @@ func NewPolicy(values map[string]any) *Policy {
 	return &Policy{values: values}
 }
 
-// LoadPolicy reads the platform-native MDM configuration. Returns an
-// empty (but non-nil) Policy when no source is present, the source is
-// empty, or the platform is unsupported.
+// PolicyFetcher is implemented by mobile platforms (Android / iOS) that
+// push the OS-managed configuration into the Go runtime instead of
+// having Go read an on-disk source directly. Desktop platforms ignore
+// this interface — Loader.loadPlatform on windows/darwin reads the
+// registry / plist on its own. A Loader constructed with a non-nil
+// fetcher delegates to it on mobile; passing nil disables MDM
+// enforcement (loadPlatform returns nil values).
+type PolicyFetcher interface {
+	Fetch() map[string]any
+}
+
+// Loader is the DI-friendly entry point for reading the active MDM
+// policy. Construct one at the daemon's lifecycle owner (Server on
+// desktop, gomobile-exposed bridge on mobile) and pass it to anything
+// that needs to read MDM state (the reload ticker, profilemanager's
+// Config). Each callsite has the Loader handed in instead of looking
+// up package-level state.
+type Loader struct {
+	fetcher PolicyFetcher
+}
+
+// NewLoader constructs a Loader. The fetcher is consulted only on
+// mobile builds (ios || android); on desktop it is unused but accepted
+// to keep a single constructor signature across platforms — pass nil
+// on desktop.
+func NewLoader(f PolicyFetcher) *Loader {
+	return &Loader{fetcher: f}
+}
+
+// Load reads the platform-native MDM configuration and returns a
+// Policy. Returns an empty (but non-nil) Policy when no source is
+// present, the source is empty, or the platform is unsupported.
 //
 // Diagnostic logging differentiates the three states:
 //   - source absent / unsupported platform: trace log only
 //   - source present, zero keys:             info "MDM enrolled (no managed keys)"
 //   - source present, N keys:                info "MDM enrolled with N managed keys: [...]"
-func LoadPolicy() *Policy {
-	values, err := loadPlatformPolicy()
+func (l *Loader) Load() *Policy {
+	if l == nil {
+		return &Policy{values: map[string]any{}}
+	}
+	values, err := l.loadPlatform()
 	if err != nil {
 		log.Tracef("MDM policy load: %v", err)
 		return &Policy{values: map[string]any{}}

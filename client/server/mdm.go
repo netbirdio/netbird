@@ -20,10 +20,6 @@ import (
 // a no-op echo, never as a conflict with the policy.
 const preSharedKeyRedactedSentinel = "**********"
 
-// loadMDMPolicy is the indirection used by server handlers to read the
-// active MDM policy. Tests override this to inject a fake policy.
-var loadMDMPolicy = mdm.LoadPolicy
-
 // conflictCheck is a value-aware comparison between a single field in
 // the incoming request and the corresponding MDM-enforced value. It
 // runs only when the field was actually set in the request (presence

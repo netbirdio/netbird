@@ -150,10 +150,12 @@ func TestPolicy_GetStringSlice(t *testing.T) {
 	})
 }
 
-func TestLoadPolicy_PlatformStubReturnsEmpty(t *testing.T) {
-	// loadPlatformPolicy is a stub on every OS for Phase 1. LoadPolicy must
-	// degrade gracefully and never return nil.
-	p := LoadPolicy()
+func TestLoader_NilFetcherReturnsEmpty(t *testing.T) {
+	// Loader.Load with no fetcher (desktop construction) must degrade
+	// gracefully and never return nil; on linux loadPlatform is a stub
+	// returning (nil, nil), and Load is expected to translate that
+	// into a non-nil empty Policy.
+	p := NewLoader(nil).Load()
 	require.NotNil(t, p)
 	assert.True(t, p.IsEmpty())
 	assert.Empty(t, p.ManagedKeys())
