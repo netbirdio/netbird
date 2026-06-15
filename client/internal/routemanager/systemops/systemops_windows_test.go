@@ -1,4 +1,4 @@
-//go:build privileged
+//go:build windows && privileged
 
 package systemops
 
