@@ -176,7 +176,7 @@ func (c *Client) Run(fd int32, interfaceName string, envList *EnvList) error {
 	// map. On iOS this is backed by disk to keep it out of the constrained
 	// process memory (see the syncstore package).
 	connectClient.SetSyncResponsePersistence(true)
-	return connectClient.RunOniOS(fd, c.networkChangeListener, c.dnsManager, c.stateFile, c.cacheDir)
+	return connectClient.RunOniOS(fd, c.networkChangeListener, c.dnsManager, c.stateFile, c.cacheDir, c.logFilePath)
 }
 
 // Stop the internal client and free the resources
