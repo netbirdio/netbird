@@ -218,7 +218,7 @@ func startSignal(t *testing.T) (*grpc.Server, string, error) {
 
 	lis, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
+		return nil, "", err
 	}
 
 	srv, err := signalServer.NewServer(context.Background(), otel.Meter(""))
