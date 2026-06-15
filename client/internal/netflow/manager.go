@@ -299,9 +299,11 @@ func (m *Manager) send(event *nftypes.Event) error {
 
 func toProtoEvent(publicKey []byte, event *nftypes.Event) *proto.FlowEvent {
 	protoEvent := &proto.FlowEvent{
-		EventId:   event.ID[:],
-		Timestamp: timestamppb.New(event.Timestamp),
-		PublicKey: publicKey,
+		EventId:     event.ID[:],
+		Timestamp:   timestamppb.New(event.Timestamp),
+		PublicKey:   publicKey,
+		WindowStart: timestamppb.New(event.WindowStart),
+		WindowEnd:   timestamppb.New(event.WindowEnd),
 		FlowFields: &proto.FlowFields{
 			FlowId:           event.FlowID[:],
 			RuleId:           event.RuleID,

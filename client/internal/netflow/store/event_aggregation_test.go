@@ -50,10 +50,12 @@ func TestFlowAggregation(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.description+" "+protocol.String(), func(t *testing.T) {
 				store := NewAggregatingMemoryStore()
+				store.WindowEnd = time.Now().Add(5 * time.Second)
+
 				allExpected := make([]*types.Event, 0)
 
 				for _, srcAndDst := range tt.addresses {
-					inEvents, expected := generateEvents(srcAndDst[0], srcAndDst[1], tt.dstPort, tt.eventTypes, protocol, types.Ingress, 0)
+					inEvents, expected := generateEvents(srcAndDst[0], srcAndDst[1], tt.dstPort, tt.eventTypes, protocol, types.Ingress, 0, store.WindowStart, store.WindowEnd)
 					for _, e := range inEvents {
 						store.StoreEvent(e)
 					}
@@ -101,9 +103,11 @@ func TestIcmpEventAggregation(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.description+" "+protocol.String(), func(t *testing.T) {
 				store := NewAggregatingMemoryStore()
+				store.WindowEnd = time.Now().Add(5 * time.Second)
+
 				allExpected := make([]*types.Event, 0)
 				for _, icmpType := range icmpTypes {
-					events, expected := generateEvents(tt.addresses[0][0], tt.addresses[0][1], 0, tt.eventTypes, protocol, types.Ingress, icmpType)
+					events, expected := generateEvents(tt.addresses[0][0], tt.addresses[0][1], 0, tt.eventTypes, protocol, types.Ingress, icmpType, store.WindowStart, store.WindowEnd)
 					for _, e := range events {
 						store.StoreEvent(e)
 					}
@@ -122,7 +126,8 @@ func ipAddr(a string) netip.Addr {
 	return addr
 }
 
-func generateEvents(srcIp, dstIp netip.Addr, dstPort uint16, eventTypes []types.Type, protocol types.Protocol, direction types.Direction, icmpType uint8) ([]*types.Event, *types.Event) {
+func generateEvents(srcIp, dstIp netip.Addr, dstPort uint16, eventTypes []types.Type, protocol types.Protocol,
+	direction types.Direction, icmpType uint8, windowStart, windowEnd time.Time) ([]*types.Event, *types.Event) {
 	var rxPackets, txPackets, rxBytes, txBytes uint64
 	inEvents := make([]*types.Event, 0)
 	ts := time.Now()
@@ -172,8 +177,10 @@ func generateEvents(srcIp, dstIp netip.Addr, dstPort uint16, eventTypes []types.
 		}
 	}
 	aggregatedEvent := &types.Event{
-		ID:        inEvents[0].ID,
-		Timestamp: inEvents[0].Timestamp,
+		ID:          inEvents[0].ID,
+		Timestamp:   inEvents[0].Timestamp,
+		WindowStart: windowStart,
+		WindowEnd:   windowEnd,
 		EventFields: types.EventFields{
 			FlowID:           flowId,
 			Type:             types.TypeUnknown,

@@ -24,6 +24,8 @@ type Memory struct {
 
 type AggregatingMemory struct {
 	Memory
+	WindowStart time.Time
+	WindowEnd   time.Time
 }
 
 func (m *Memory) StoreEvent(event *types.Event) {
@@ -57,15 +59,17 @@ func (m *Memory) DeleteEvents(ids []uuid.UUID) {
 }
 
 func NewAggregatingMemoryStore() *AggregatingMemory {
-	return &AggregatingMemory{Memory{events: make(map[uuid.UUID]*types.Event)}}
+	return &AggregatingMemory{WindowStart: time.Now(), Memory: Memory{events: make(map[uuid.UUID]*types.Event)}}
 }
 
 func (am *AggregatingMemory) ResetAggregationWindow() types.FlowEventAggregator {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	toret := AggregatingMemory{Memory: Memory{events: am.events}}
+	toret := AggregatingMemory{WindowStart: am.WindowStart, WindowEnd: time.Now(), Memory: Memory{events: am.events}}
+
 	am.events = make(map[uuid.UUID]*types.Event)
+	am.WindowStart = time.Now()
 
 	return &toret
 }
@@ -110,6 +114,8 @@ func (am *AggregatingMemory) GetAggregatedEvents() []*types.Event {
 			// Please note that ICMPCode field isn't propagated by the manager (see flow/proto/flow.pb.go, FlowFields struct)
 			// so the field value in an icmp event in the "aggregated" doesn't matter
 
+			event.WindowStart = am.WindowStart
+			event.WindowEnd = am.WindowEnd
 			continue
 		}
 

@@ -70,8 +70,10 @@ const (
 )
 
 type Event struct {
-	ID        uuid.UUID
-	Timestamp time.Time
+	ID          uuid.UUID
+	Timestamp   time.Time
+	WindowStart time.Time
+	WindowEnd   time.Time
 	EventFields
 }
 

@@ -24,6 +24,9 @@ message FlowEvent {
   FlowFields flow_fields = 4;
 
   bool isInitiator = 5;
+
+  google.protobuf.Timestamp window_start = 6;
+  google.protobuf.Timestamp window_end = 7;
 }
 
 message FlowEventAck {
