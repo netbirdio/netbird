@@ -21,6 +21,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/mdm"
 	sshcommon "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/shared/management/domain"
@@ -215,6 +216,10 @@ func New(opts Options) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create config: %w", err)
 	}
+	// Embedded path runs without the daemon Server: apply the active
+	// MDM policy explicitly so a forced ManagementURL / PSK / other
+	// managed key takes effect on this embedded engine instance.
+	config.ApplyMDMPolicy(mdm.NewLoader(nil).Load())
 
 	if opts.PrivateKey != "" {
 		config.PrivateKey = opts.PrivateKey
