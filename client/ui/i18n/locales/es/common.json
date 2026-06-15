@@ -701,9 +701,6 @@
     "settings.advanced.psk.help": {
         "message": "PSK de WireGuard opcional para cifrado simétrico adicional. No es lo mismo que una clave de instalación de NetBird. Solo se comunicará con peers que usen la misma clave precompartida."
     },
-    "settings.advanced.psk.configured": {
-        "message": "Hay una clave precompartida configurada: introduzca una nueva para reemplazarla."
-    },
     "settings.troubleshooting.section.title": {
         "message": "Paquete de diagnóstico"
     },

@@ -701,9 +701,6 @@
     "settings.advanced.psk.help": {
         "message": "Необязательный PSK WireGuard для дополнительного симметричного шифрования. Это не то же самое, что ключ установки NetBird. Вы будете обмениваться данными только с пирами, использующими тот же общий ключ."
     },
-    "settings.advanced.psk.configured": {
-        "message": "Общий ключ установлен — введите новый, чтобы заменить его."
-    },
     "settings.troubleshooting.section.title": {
         "message": "Отладочный пакет"
     },

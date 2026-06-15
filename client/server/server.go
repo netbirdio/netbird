@@ -462,7 +462,7 @@ func setConfigInputFromRequest(msg *proto.SetConfigRequest) (profilemanager.Conf
 		wgPort := int(*msg.WireguardPort)
 		config.WireguardPort = &wgPort
 	}
-	if msg.OptionalPreSharedKey != nil && *msg.OptionalPreSharedKey != "" {
+	if msg.OptionalPreSharedKey != nil {
 		config.PreSharedKey = msg.OptionalPreSharedKey
 	}
 

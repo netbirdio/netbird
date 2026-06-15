@@ -701,9 +701,6 @@
     "settings.advanced.psk.help": {
         "message": "PSK WireGuard facultative pour un chiffrement symétrique supplémentaire. Différente d’une clé d’installation NetBird. Vous ne communiquerez qu’avec les pairs utilisant la même clé pré-partagée."
     },
-    "settings.advanced.psk.configured": {
-        "message": "Une clé pré-partagée est définie — saisissez-en une nouvelle pour la remplacer."
-    },
     "settings.troubleshooting.section.title": {
         "message": "Lot de diagnostic"
     },

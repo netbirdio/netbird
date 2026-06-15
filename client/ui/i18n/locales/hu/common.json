@@ -701,9 +701,6 @@
     "settings.advanced.psk.help": {
         "message": "Opcionális WireGuard PSK további szimmetrikus titkosításhoz. Nem azonos a NetBird telepítőkulccsal. Csak olyan Peerekkel kommunikál, akik ugyanazt a pre-shared kulcsot használják."
     },
-    "settings.advanced.psk.configured": {
-        "message": "Pre-shared kulcs be van állítva – új megadásával cserélhető."
-    },
     "settings.troubleshooting.section.title": {
         "message": "Hibakeresési csomag"
     },

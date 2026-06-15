@@ -26,9 +26,6 @@ type SettingsContextValue = {
     guiVersion: string;
     setField: <K extends keyof Config>(k: K, v: Config[K]) => void;
     saveField: <K extends keyof Config>(k: K, v: Config[K]) => Promise<void>;
-    // opts.preSharedKey carries a new PSK to write. Config no longer exposes the
-    // PSK value (only preSharedKeySet), so it rides alongside the Config fields
-    // here and is sent only when non-empty.
     saveFields: (partial: Partial<Config>, opts?: { preSharedKey?: string }) => Promise<void>;
     saveNow: () => Promise<void>;
 };
@@ -113,13 +110,11 @@ const useSettingsState = () => {
 
     const save = useCallback(
         async (profileName: string, next: Config, preSharedKey?: string) => {
+            const preSharedKeyWrite = preSharedKey !== undefined ? { preSharedKey } : {};
             try {
                 await SettingsSvc.SetConfig({
                     ...next,
-                    // The daemon never returns the PSK value (only preSharedKeySet),
-                    // so send one only when the user actually typed a new key; an
-                    // empty field means "leave unchanged", never "clear".
-                    ...(preSharedKey ? { preSharedKey } : {}),
+                    ...preSharedKeyWrite,
                     profileName,
                     username,
                 });
@@ -181,7 +176,12 @@ const useSettingsState = () => {
                 clearTimeout(saveTimer.current);
                 saveTimer.current = null;
             }
-            const next = { ...loaded.data, ...partial };
+
+            const merged: Config = { ...loaded.data, ...partial };
+            const next: Config =
+                opts?.preSharedKey !== undefined
+                    ? { ...merged, preSharedKeySet: opts.preSharedKey !== "" }
+                    : merged;
             setLoaded({ profileName: loaded.profileName, data: next });
             await save(loaded.profileName, next, opts?.preSharedKey);
         },

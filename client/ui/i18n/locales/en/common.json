@@ -935,10 +935,6 @@
         "message": "Optional WireGuard PSK for extra symmetric encryption. Not the same as a NetBird Setup Key. You will only communicate with peers that use the same pre-shared key.",
         "description": "Helper text for the WireGuard PSK. 'WireGuard', 'PSK', and 'NetBird Setup Key' are product/technical terms — keep them."
     },
-    "settings.advanced.psk.configured": {
-        "message": "A pre-shared key is set — enter a new one to replace it.",
-        "description": "Placeholder shown in the empty PSK input when a pre-shared key is already configured; the field stays blank because the daemon never returns the value."
-    },
     "settings.troubleshooting.section.title": {
         "message": "Debug bundle",
         "description": "Section heading: Debug bundle."

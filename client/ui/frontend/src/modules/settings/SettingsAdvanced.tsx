@@ -24,10 +24,14 @@ const PORT_MAX = 65535;
 const MTU_MIN = 576;
 const MTU_MAX = 8192;
 
+const PSK_MASK = "**********";
+
 export function SettingsAdvanced() {
     const { t } = useTranslation();
     const { config, saveFields } = useSettings();
     const { mdm } = useRestrictions();
+
+    const initialPsk = config.preSharedKeySet ? PSK_MASK : "";
 
     const [values, setValues] = useState({
         interfaceName: config.interfaceName,
@@ -35,7 +39,7 @@ export function SettingsAdvanced() {
         mtu: config.mtu,
     });
 
-    const [psk, setPsk] = useState("");
+    const [pskInputValue, setPskInputValue] = useState(initialPsk);
     const [saving, setSaving] = useState(false);
 
     useEffect(() => {
@@ -44,7 +48,7 @@ export function SettingsAdvanced() {
             wireguardPort: config.wireguardPort,
             mtu: config.mtu,
         });
-        setPsk("");
+        setPskInputValue(config.preSharedKeySet ? PSK_MASK : "");
     }, [config.interfaceName, config.wireguardPort, config.mtu, config.preSharedKeySet]);
 
     const errors = useMemo(() => {
@@ -70,11 +74,12 @@ export function SettingsAdvanced() {
 
     const filteredErrors = mdm.wireguardPort ? { ...errors, wireguardPort: undefined } : errors;
     const hasErrors = Object.values(filteredErrors).some((v) => v !== undefined);
+    const pskChanged = pskInputValue !== initialPsk;
     const hasChanges =
         values.interfaceName !== config.interfaceName ||
         (!mdm.wireguardPort && values.wireguardPort !== config.wireguardPort) ||
         values.mtu !== config.mtu ||
-        (!mdm.preSharedKey && psk !== "");
+        (!mdm.preSharedKey && pskChanged);
 
     const handleSave = async () => {
         if (!hasChanges || saving || hasErrors) return;
@@ -82,8 +87,11 @@ export function SettingsAdvanced() {
         try {
             const partial: typeof values = { ...values };
             if (mdm.wireguardPort) partial.wireguardPort = config.wireguardPort;
-            const pskOpts = !mdm.preSharedKey && psk ? { preSharedKey: psk } : undefined;
+
+            const pskEdited = !mdm.preSharedKey && pskChanged && pskInputValue !== PSK_MASK;
+            const pskOpts = pskEdited ? { preSharedKey: pskInputValue } : undefined;
             await saveFields(partial, pskOpts);
+            if (pskEdited) setPskInputValue(pskInputValue === "" ? "" : PSK_MASK);
         } finally {
             setSaving(false);
         }
@@ -139,14 +147,10 @@ export function SettingsAdvanced() {
                         <HelpText>{t("settings.advanced.psk.help")}</HelpText>
                         <Input
                             type={"password"}
-                            showPasswordToggle={psk !== ""}
-                            placeholder={
-                                config.preSharedKeySet
-                                    ? t("settings.advanced.psk.configured")
-                                    : "kQv0qF3oQpJYdgD5mC9hL7sB2xZ8nT4eU6wY1aR3jK0="
-                            }
-                            value={psk}
-                            onChange={(e) => setPsk(e.target.value)}
+                            showPasswordToggle={pskInputValue !== PSK_MASK}
+                            placeholder={"kQv0qF3oQpJYdgD5mC9hL7sB2xZ8nT4eU6wY1aR3jK0="}
+                            value={pskInputValue}
+                            onChange={(e) => setPskInputValue(e.target.value)}
                         />
                     </div>
                 </SectionGroup>

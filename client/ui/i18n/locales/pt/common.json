@@ -701,9 +701,6 @@
     "settings.advanced.psk.help": {
         "message": "PSK opcional do WireGuard para criptografia simétrica adicional. Não é o mesmo que uma chave de configuração do NetBird. Você só se comunicará com peers que usem a mesma chave pré-compartilhada."
     },
-    "settings.advanced.psk.configured": {
-        "message": "Uma chave pré-compartilhada está definida — introduza uma nova para a substituir."
-    },
     "settings.troubleshooting.section.title": {
         "message": "Pacote de depuração"
     },

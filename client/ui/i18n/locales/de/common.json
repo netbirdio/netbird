@@ -701,9 +701,6 @@
     "settings.advanced.psk.help": {
         "message": "Optionaler WireGuard-PSK für zusätzliche symmetrische Verschlüsselung. Nicht identisch mit einem NetBird Setup-Key. Sie kommunizieren nur mit Peers, die denselben Pre-shared Key verwenden."
     },
-    "settings.advanced.psk.configured": {
-        "message": "Ein Pre-shared Key ist gesetzt – geben Sie einen neuen ein, um ihn zu ersetzen."
-    },
     "settings.troubleshooting.section.title": {
         "message": "Debug-Paket"
     },
