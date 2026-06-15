@@ -4,6 +4,7 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 
 	"github.com/netbirdio/netbird/client/proto"
@@ -200,7 +201,14 @@ func (s *Settings) GetRestrictions(ctx context.Context) (Restrictions, error) {
 	if err != nil {
 		return Restrictions{}, err
 	}
-	cfgResp, err := cli.GetConfig(ctx, &proto.GetConfigRequest{})
+	active, err := cli.GetActiveProfile(ctx, &proto.GetActiveProfileRequest{})
+	if err != nil {
+		return Restrictions{}, fmt.Errorf("get active profile: %w", err)
+	}
+	cfgResp, err := cli.GetConfig(ctx, &proto.GetConfigRequest{
+		ProfileName: active.GetProfileName(),
+		Username:    active.GetUsername(),
+	})
 	if err != nil {
 		return Restrictions{}, err
 	}
