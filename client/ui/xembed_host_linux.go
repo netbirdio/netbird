@@ -73,6 +73,7 @@ func newXembedHost(conn *dbus.Conn, busName string, objPath dbus.ObjectPath) (*x
 	if dpy == nil {
 		return nil, errors.New("cannot open X display")
 	}
+	C.xembed_install_error_handlers()
 
 	screen := C.xembed_default_screen(dpy)
 	trayMgr := C.xembed_find_tray(dpy, screen)
@@ -383,6 +384,7 @@ func xembedTrayAvailable() bool {
 	if dpy == nil {
 		return false
 	}
+	C.xembed_install_error_handlers()
 	defer C.XCloseDisplay(dpy)
 	screen := C.xembed_default_screen(dpy)
 	return C.xembed_find_tray(dpy, screen) != 0

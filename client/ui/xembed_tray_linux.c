@@ -13,6 +13,41 @@
 #define SYSTEM_TRAY_REQUEST_DOCK 0
 #define XEMBED_MAPPED            (1 << 0)
 
+/* Xlib's default protocol-error handler calls exit() on any async X error,
+   killing the whole UI process. Handlers are process-global (not
+   per-Display), so a single install covers our raw tray Display and GDK's.
+   Tray work is full of races the X server reports asynchronously — the tray
+   manager window dying between xembed_find_tray and xembed_dock (BadWindow
+   on XSendEvent), or x11_move_window touching a popup the WM already
+   destroyed — and the default handler would take us down for any of them.
+   Returning 0 here makes the error a logged no-op instead. */
+static int xembed_x_error_handler(Display *dpy, XErrorEvent *ev) {
+    char buf[256];
+    XGetErrorText(dpy, ev->error_code, buf, sizeof(buf));
+    fprintf(stderr,
+            "xembed: X error (ignored): %s (code=%d, request=%d.%d, resource=0x%lx)\n",
+            buf, ev->error_code, ev->request_code, ev->minor_code,
+            ev->resourceid);
+    return 0;
+}
+
+/* The I/O error handler fires when the X connection itself drops (server
+   gone, socket closed). Xlib treats this as fatal and exits even if we
+   return, so this can't keep the process alive — it only logs a clearer
+   line than Xlib's terse default before the unavoidable exit. */
+static int xembed_x_io_error_handler(Display *dpy) {
+    (void)dpy;
+    fprintf(stderr, "xembed: X I/O error (connection lost)\n");
+    return 0;
+}
+
+/* Install the process-global handlers. Idempotent and cheap, so callers may
+   invoke it after every XOpenDisplay without tracking prior installs. */
+void xembed_install_error_handlers(void) {
+    XSetErrorHandler(xembed_x_error_handler);
+    XSetIOErrorHandler(xembed_x_io_error_handler);
+}
+
 Window xembed_find_tray(Display *dpy, int screen) {
     char atom_name[64];
     snprintf(atom_name, sizeof(atom_name), "_NET_SYSTEM_TRAY_S%d", screen);
@@ -363,6 +398,14 @@ static void x11_move_window(GtkWidget *win, int x, int y) {
     GdkDisplay *display = gdk_surface_get_display(surface);
     Display *xdpy = gdk_x11_display_get_xdisplay(GDK_X11_DISPLAY(display));
 
+    /* These calls poke a window the WM may have already destroyed (a popup
+       torn down between scheduling and this idle callback). On GDK's Display
+       use GDK's own error trap rather than our global handler — push/pop is
+       the spec-correct way to make untrapped BadWindow/BadMatch from these
+       raw Xlib calls non-fatal, independent of whichever process-global
+       handler happens to be installed. */
+    gdk_x11_display_error_trap_push(display);
+
     /* _NET_WM_WINDOW_TYPE_POPUP_MENU: makes fluxbox / openbox / etc
        render the window above panels and skip decorations. Must be
        set before the window is mapped to be honoured by some WMs;
@@ -409,6 +452,7 @@ static void x11_move_window(GtkWidget *win, int x, int y) {
                (XEvent *)&ev);
 
     XFlush(xdpy);
+    gdk_x11_display_error_trap_pop_ignored(display);
 }
 
 /* Forward declaration — submenu buttons need to schedule a child popup. */
@@ -453,8 +497,12 @@ static void on_submenu_button_clicked(GtkButton *btn, gpointer user_data) {
         GdkDisplay *display = gdk_surface_get_display(anchor_surface);
         Display *xdpy = gdk_x11_display_get_xdisplay(GDK_X11_DISPLAY(display));
         Window child;
+        /* Trap BadWindow in case the anchor's surface is torn down between
+           the click and this handler running. */
+        gdk_x11_display_error_trap_push(display);
         XTranslateCoordinates(xdpy, axid, DefaultRootWindow(xdpy),
                               0, 0, &ox, &oy, &child);
+        gdk_x11_display_error_trap_pop_ignored(display);
     }
     int ax = ox + (int)bounds.origin.x;
     int ay = oy + (int)bounds.origin.y;
