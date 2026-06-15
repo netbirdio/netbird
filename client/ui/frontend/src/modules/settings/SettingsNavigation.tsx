@@ -46,13 +46,17 @@ export const SettingsNavigation = () => {
                             icon={ShieldIcon}
                             title={t("settings.tabs.security")}
                         />
-                        {!features.disableProfiles && (
-                            <VerticalTabs.Trigger
-                                value={"profiles"}
-                                icon={UserCircleIcon}
-                                title={t("settings.tabs.profiles")}
-                            />
-                        )}
+                    </>
+                )}
+                {!features.disableProfiles && (
+                    <VerticalTabs.Trigger
+                        value={"profiles"}
+                        icon={UserCircleIcon}
+                        title={t("settings.tabs.profiles")}
+                    />
+                )}
+                {!features.disableUpdateSettings && (
+                    <>
                         {!mdm.allowServerSSH && (
                             <VerticalTabs.Trigger
                                 value={"ssh"}
