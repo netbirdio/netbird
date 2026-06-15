@@ -161,6 +161,8 @@ jobs:
             ${{ runner.os }}-go-releaser-
       - name: Install modules
         run: go mod tidy
+      - name: run openapi generator
+        run: bash shared/management/http/api/generate.sh
       - name: check git status
         run: git --no-pager diff --exit-code
       - name: Set up QEMU
