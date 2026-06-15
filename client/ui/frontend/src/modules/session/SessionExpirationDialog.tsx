@@ -34,6 +34,8 @@ export default function SessionExpirationDialog() {
     const busyRef = useRef(busy);
     busyRef.current = busy;
     const expired = remaining <= 0;
+    const expiredRef = useRef(expired);
+    expiredRef.current = expired;
     const soon = remaining <= SOON_THRESHOLD_SECONDS;
     const activeTitle = soon ? t("sessionExpiration.title") : t("sessionExpiration.titleLater");
     const activeDescription = soon
@@ -51,11 +53,13 @@ export default function SessionExpirationDialog() {
         return () => globalThis.clearInterval(id);
     }, [initialSeconds]);
 
-    // Suppressed while `busy`: the tunnel stays up so Connected re-fires for
-    // unrelated reasons (peer/route changes), and closing would abort our own WaitExtend.
+    // Suppressed while `busy` or once expired: the tunnel stays up so Connected re-fires for
+    // unrelated reasons (peer/route changes); closing would abort our own WaitExtend, or — at
+    // the moment the countdown hits 0 — hide the "session expired" state before the user sees it.
     useEffect(() => {
         const off = Events.On("netbird:status", (ev: { data: { status?: string } }) => {
-            if (!busyRef.current && ev?.data?.status === "Connected") {
+            if (busyRef.current || expiredRef.current) return;
+            if (ev?.data?.status === "Connected") {
                 WindowManager.CloseSessionExpiration().catch(console.error);
             }
         });
