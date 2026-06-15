@@ -46,6 +46,10 @@ const (
 	StatusNeedsLogin     = "NeedsLogin"
 	StatusLoginFailed    = "LoginFailed"
 	StatusSessionExpired = "SessionExpired"
+
+	// SeverityCritical is the lower-cased proto SystemEvent_CRITICAL severity, as
+	// emitted by systemEventFromProto. Critical events bypass the notifications gate.
+	SeverityCritical = "critical"
 )
 
 // Emitter sends a named payload to the frontend. Satisfied by Wails app.Event.
