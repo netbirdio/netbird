@@ -326,7 +326,7 @@ func TestEngine_MultiplePeers(t *testing.T) {
 	// wait until all have been created and started
 	wg.Wait()
 	if len(engines) != numPeers {
-		t.Fatal("not all peers was started")
+		t.Fatal("not all peers were started")
 	}
 	// check whether all the peer have expected peers connected
 
