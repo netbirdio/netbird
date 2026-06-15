@@ -2909,13 +2909,13 @@ type NetworkTrafficEvent struct {
 	Icmp   NetworkTrafficICMP `json:"icmp"`
 
 	// NumOfDrops Number of drop events.
-	NumOfDrops *int `json:"num_of_drops,omitempty"`
+	NumOfDrops int `json:"num_of_drops"`
 
 	// NumOfEnds Number of end events.
-	NumOfEnds *int `json:"num_of_ends,omitempty"`
+	NumOfEnds int `json:"num_of_ends"`
 
 	// NumOfStarts Number of start events.
-	NumOfStarts *int                 `json:"num_of_starts,omitempty"`
+	NumOfStarts int                  `json:"num_of_starts"`
 	Policy      NetworkTrafficPolicy `json:"policy"`
 
 	// Protocol Protocol is the protocol of the traffic (e.g. 1 = ICMP, 6 = TCP, 17 = UDP, etc.).
@@ -2937,6 +2937,12 @@ type NetworkTrafficEvent struct {
 	// TxPackets Number of packets transmitted.
 	TxPackets int                `json:"tx_packets"`
 	User      NetworkTrafficUser `json:"user"`
+
+	// WindowEnd Timestamp of the end of the aggregation window.
+	WindowEnd time.Time `json:"window_end"`
+
+	// WindowStart Timestamp of the start of the aggregation window.
+	WindowStart time.Time `json:"window_start"`
 }
 
 // NetworkTrafficEventsResponse defines model for NetworkTrafficEventsResponse.
