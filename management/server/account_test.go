@@ -26,6 +26,7 @@ import (
 	"github.com/netbirdio/netbird/shared/management/status"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/idp/dex"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
@@ -722,6 +723,28 @@ func TestDefaultAccountManager_SyncUserJWTGroups(t *testing.T) {
 		require.True(t, ok, "group2 should be added to the account")
 		require.Equal(t, g2.Name, "group2", "group2 name should match")
 		require.Equal(t, g2.Issued, types.GroupIssuedJWT, "group2 issued should match")
+	})
+	t.Run("local embedded-Dex user is skipped", func(t *testing.T) {
+		initAccount.Settings.JWTGroupsEnabled = true
+		initAccount.Settings.JWTGroupsClaimName = "idp-groups"
+		err := manager.Store.SaveAccount(context.Background(), initAccount)
+		require.NoError(t, err, "save account failed")
+
+		localClaims := auth.UserAuth{
+			AccountId: accountID,
+			Domain:    domain,
+			UserId:    dex.EncodeDexUserID("local-owner", "local"),
+			Groups:    []string{"group3", "group4"},
+		}
+		err = manager.SyncUserJWTGroups(context.Background(), localClaims)
+		require.NoError(t, err, "sync should be a no-op for local users")
+
+		account, err := manager.Store.GetAccount(context.Background(), accountID)
+		require.NoError(t, err, "get account failed")
+		for _, g := range account.Groups {
+			require.NotEqual(t, "group3", g.Name, "local user JWT groups must not be synced")
+			require.NotEqual(t, "group4", g.Name, "local user JWT groups must not be synced")
+		}
 	})
 }
 
