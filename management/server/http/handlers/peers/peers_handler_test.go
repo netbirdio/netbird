@@ -141,6 +141,9 @@ func initTestMetaData(t *testing.T, peers ...*nbpeer.Peer) *Handler {
 				p.SSHEnabled = update.SSHEnabled
 				p.LoginExpirationEnabled = update.LoginExpirationEnabled
 				p.Name = update.Name
+				if update.Kind != "" {
+					p.Kind = update.Kind
+				}
 				return p, nil
 			},
 			UpdatePeerIPFunc: func(_ context.Context, accountID, userID, peerID string, newIP netip.Addr) error {
@@ -252,6 +255,7 @@ func TestGetPeers(t *testing.T) {
 	expectedUpdatedPeer.LoginExpirationEnabled = true
 	expectedUpdatedPeer.SSHEnabled = true
 	expectedUpdatedPeer.Name = "New Name"
+	expectedUpdatedPeer.Kind = nbpeer.KindServer
 
 	expectedPeer1 := peer1.Copy()
 	expectedPeer1.Status.Connected = false
@@ -287,7 +291,7 @@ func TestGetPeers(t *testing.T) {
 			requestPath:    "/api/peers/" + testPeerID,
 			expectedStatus: http.StatusOK,
 			expectedArray:  false,
-			requestBody:    bytes.NewBufferString("{\"login_expiration_enabled\":true,\"name\":\"New Name\",\"ssh_enabled\":true}"),
+			requestBody:    bytes.NewBufferString("{\"login_expiration_enabled\":true,\"name\":\"New Name\",\"ssh_enabled\":true,\"kind\":\"server\"}"),
 			expectedPeer:   expectedUpdatedPeer,
 		},
 	}
@@ -361,8 +365,37 @@ func TestGetPeers(t *testing.T) {
 			assert.Equal(t, tc.expectedPeer.SSHEnabled, got.SshEnabled)
 			assert.Equal(t, tc.expectedPeer.Status.Connected, got.Connected)
 			assert.Equal(t, tc.expectedPeer.Meta.SystemSerialNumber, got.SerialNumber)
+			assert.Equal(t, api.PeerKind(tc.expectedPeer.Kind.Normalize()), got.Kind)
 		})
 	}
+}
+
+func TestPeersHandlerUpdatePeerKindRejectsInvalidValue(t *testing.T) {
+	testPeer := &nbpeer.Peer{
+		ID:     testPeerID,
+		Key:    "key",
+		IP:     netip.MustParseAddr("100.64.0.1"),
+		Status: &nbpeer.PeerStatus{Connected: false, LastSeen: time.Now()},
+		Name:   "test-host",
+	}
+
+	p := initTestMetaData(t, testPeer)
+
+	req := httptest.NewRequest(http.MethodPut, "/peers/"+testPeerID, bytes.NewBufferString(`{"kind":"workstation"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
+		UserId:    adminUser,
+		Domain:    "hotmail.com",
+		AccountId: "test_id",
+	})
+
+	rr := httptest.NewRecorder()
+	router := mux.NewRouter()
+	router.HandleFunc("/peers/{peerId}", p.HandlePeer).Methods("PUT")
+
+	router.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusUnprocessableEntity, rr.Code)
 }
 
 func TestGetAccessiblePeers(t *testing.T) {

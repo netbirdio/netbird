@@ -2890,3 +2890,42 @@ func TestUpdatePeer_DnsLabelUniqueName(t *testing.T) {
 	require.NoError(t, err, "renaming to unique FQDN should succeed")
 	assert.Equal(t, "api-server", updated.DNSLabel, "DNS label should be first label of FQDN")
 }
+
+func TestUpdatePeer_Kind(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
+	require.NoError(t, err, "unable to create an account")
+
+	key, err := wgtypes.GenerateKey()
+	require.NoError(t, err)
+	peer, _, _, err := manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
+		Key:  key.PublicKey().String(),
+		Meta: nbpeer.PeerSystemMeta{Hostname: "kind-test-peer"},
+	}, false)
+	require.NoError(t, err)
+
+	update := peer.Copy()
+	update.Kind = nbpeer.KindDevice
+
+	updated, err := manager.UpdatePeer(context.Background(), accountID, userID, update)
+	require.NoError(t, err)
+	assert.Equal(t, nbpeer.KindDevice, updated.Kind)
+
+	stored, err := manager.GetPeer(context.Background(), accountID, updated.ID, userID)
+	require.NoError(t, err)
+	assert.Equal(t, nbpeer.KindDevice, stored.Kind)
+
+	updateWithoutKind := &nbpeer.Peer{
+		ID:                          updated.ID,
+		Name:                        updated.Name,
+		SSHEnabled:                  updated.SSHEnabled,
+		LoginExpirationEnabled:      updated.LoginExpirationEnabled,
+		InactivityExpirationEnabled: updated.InactivityExpirationEnabled,
+	}
+
+	preserved, err := manager.UpdatePeer(context.Background(), accountID, userID, updateWithoutKind)
+	require.NoError(t, err)
+	assert.Equal(t, nbpeer.KindDevice, preserved.Kind)
+}
