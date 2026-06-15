@@ -19,6 +19,7 @@ export const SettingsNavigation = () => {
     const { t } = useTranslation();
     const { updateAvailable } = useClientVersion();
     const { mdm, features } = useRestrictions();
+    const showSsh = mdm.allowServerSSH || !features.disableUpdateSettings;
 
     const aboutAdornment = updateAvailable ? (
         <Tooltip content={t("settings.tabs.updateAvailable")} side={"right"}>
@@ -55,21 +56,19 @@ export const SettingsNavigation = () => {
                         title={t("settings.tabs.profiles")}
                     />
                 )}
+                {showSsh && (
+                    <VerticalTabs.Trigger
+                        value={"ssh"}
+                        icon={SquareTerminalIcon}
+                        title={t("settings.tabs.ssh")}
+                    />
+                )}
                 {!features.disableUpdateSettings && (
-                    <>
-                        {!mdm.allowServerSSH && (
-                            <VerticalTabs.Trigger
-                                value={"ssh"}
-                                icon={SquareTerminalIcon}
-                                title={t("settings.tabs.ssh")}
-                            />
-                        )}
-                        <VerticalTabs.Trigger
-                            value={"advanced"}
-                            icon={BoltIcon}
-                            title={t("settings.tabs.advanced")}
-                        />
-                    </>
+                    <VerticalTabs.Trigger
+                        value={"advanced"}
+                        icon={BoltIcon}
+                        title={t("settings.tabs.advanced")}
+                    />
                 )}
                 <VerticalTabs.Trigger
                     value={"troubleshooting"}

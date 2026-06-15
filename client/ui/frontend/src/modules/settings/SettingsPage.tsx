@@ -54,7 +54,7 @@ export const SettingsPage = () => {
             [Tab.Network]: editable,
             [Tab.Security]: editable,
             [Tab.Profiles]: !features.disableProfiles,
-            [Tab.SSH]: editable && !mdm.allowServerSSH,
+            [Tab.SSH]: mdm.allowServerSSH || editable,
             [Tab.Advanced]: editable,
             [Tab.Troubleshooting]: true,
             [Tab.About]: true,

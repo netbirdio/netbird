@@ -235,12 +235,19 @@ func (s *Settings) GetRestrictions(ctx context.Context) (Restrictions, error) {
 			if v.Field(i).Kind() != reflect.Bool {
 				continue
 			}
+			// AllowServerSSH carries the resolved value (like ManagementURL), not the is-managed flag.
+			if t.Field(i).Name == "AllowServerSSH" {
+				continue
+			}
 			if _, ok := set[t.Field(i).Tag.Get("json")]; ok {
 				v.Field(i).SetBool(true)
 			}
 		}
 		if _, ok := set["managementURL"]; ok {
 			r.MDM.ManagementURL = cfgResp.GetManagementUrl()
+		}
+		if _, ok := set["allowServerSSH"]; ok {
+			r.MDM.AllowServerSSH = cfgResp.GetServerSSHAllowed()
 		}
 	}
 	r.MDM.DisableAdvancedView = featResp.GetDisableAdvancedView()
