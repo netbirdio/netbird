@@ -71,18 +71,19 @@ func (w *statusNotifierWatcher) tryStartXembedHost(busName string, objPath dbus.
 	}
 	if err := sessionConn.Auth(nil); err != nil {
 		log.Debugf("StatusNotifierWatcher: XEmbed host auth failed: %v", err)
-		_ = sessionConn.Close()
+		closeBus(sessionConn)
 		return
 	}
 	if err := sessionConn.Hello(); err != nil {
 		log.Debugf("StatusNotifierWatcher: XEmbed host Hello failed: %v", err)
-		_ = sessionConn.Close()
+		closeBus(sessionConn)
 		return
 	}
 
 	host, err := newXembedHost(sessionConn, busName, objPath)
 	if err != nil {
 		log.Debugf("StatusNotifierWatcher: XEmbed host not started: %v", err)
+		closeBus(sessionConn)
 		return
 	}
 
@@ -128,12 +129,12 @@ func claimStatusNotifierWatcher() {
 	}
 	if err := conn.Auth(nil); err != nil {
 		log.Debugf("StatusNotifierWatcher: auth failed: %v", err)
-		_ = conn.Close()
+		closeBus(conn)
 		return
 	}
 	if err := conn.Hello(); err != nil {
 		log.Debugf("StatusNotifierWatcher: Hello failed: %v", err)
-		_ = conn.Close()
+		closeBus(conn)
 		return
 	}
 
@@ -141,14 +142,14 @@ func claimStatusNotifierWatcher() {
 	callErr := conn.BusObject().Call("org.freedesktop.DBus.GetNameOwner", 0, watcherName).Store(&owner)
 	if callErr == nil && owner != "" {
 		log.Debugf("StatusNotifierWatcher: already owned by %s, skipping", owner)
-		_ = conn.Close()
+		closeBus(conn)
 		return
 	}
 
 	reply, err := conn.RequestName(watcherName, dbus.NameFlagDoNotQueue)
 	if err != nil || reply != dbus.RequestNameReplyPrimaryOwner {
 		log.Debugf("StatusNotifierWatcher: could not claim name (reply=%v err=%v)", reply, err)
-		_ = conn.Close()
+		closeBus(conn)
 		return
 	}
 
@@ -158,10 +159,18 @@ func claimStatusNotifierWatcher() {
 	}
 	if err := conn.ExportAll(w, dbus.ObjectPath(watcherPath), watcherIface); err != nil {
 		log.Errorf("StatusNotifierWatcher: export failed: %v", err)
-		_ = conn.Close()
+		closeBus(conn)
 		return
 	}
 
 	log.Infof("StatusNotifierWatcher: active on session bus (enables tray on minimal WMs)")
 	// Connection kept open for the process lifetime.
+}
+
+// closeBus closes a private session bus opened on a back-off path, logging a
+// warning rather than swallowing the error.
+func closeBus(conn *dbus.Conn) {
+	if err := conn.Close(); err != nil {
+		log.Warnf("StatusNotifierWatcher: closing session bus failed: %v", err)
+	}
 }
