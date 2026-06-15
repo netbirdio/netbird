@@ -85,6 +85,10 @@ export function SettingsGeneral() {
                                             ? t("settings.general.management.urlUnreachable")
                                             : undefined
                                     }
+                                    spellCheck={false}
+                                    autoComplete="off"
+                                    autoCorrect="off"
+                                    autoCapitalize="off"
                                 />
                                 <Button
                                     variant={"primary"}

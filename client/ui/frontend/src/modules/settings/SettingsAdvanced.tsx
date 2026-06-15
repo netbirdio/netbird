@@ -105,6 +105,10 @@ export function SettingsAdvanced() {
                     value={values.interfaceName}
                     error={errors.interfaceName}
                     onChange={(e) => setValues((v) => ({ ...v, interfaceName: e.target.value }))}
+                    spellCheck={false}
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="off"
                 />
                 <div className={mdm.wireguardPort ? "" : "grid grid-cols-2 gap-4"}>
                     {!mdm.wireguardPort && (
@@ -151,6 +155,10 @@ export function SettingsAdvanced() {
                             placeholder={"kQv0qF3oQpJYdgD5mC9hL7sB2xZ8nT4eU6wY1aR3jK0="}
                             value={pskInputValue}
                             onChange={(e) => setPskInputValue(e.target.value)}
+                            spellCheck={false}
+                            autoComplete="new-password"
+                            autoCorrect="off"
+                            autoCapitalize="off"
                         />
                     </div>
                 </SectionGroup>

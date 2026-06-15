@@ -183,6 +183,7 @@ export const ProfileCreationModal = ({ open, onOpenChange, onCreate }: Props) =>
                                             warning={urlInputWarning}
                                             spellCheck={false}
                                             autoComplete="off"
+                                            autoCorrect="off"
                                             autoCapitalize="off"
                                         />
                                     )}

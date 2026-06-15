@@ -101,6 +101,10 @@ export function WelcomeStepManagement({
                         error={inputError}
                         warning={inputWarning}
                         autoFocus
+                        spellCheck={false}
+                        autoComplete="off"
+                        autoCorrect="off"
+                        autoCapitalize="off"
                     />
                 </div>
             )}
