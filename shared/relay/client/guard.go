@@ -51,10 +51,6 @@ func (g *Guard) LastError() error {
 	return nil
 }
 
-func (g *Guard) setLastError(err error) {
-	g.lastErr.Store(&err)
-}
-
 // StartReconnectTrys is called when the relay client is disconnected from the relay server.
 // It attempts to reconnect to the relay server. The function first tries a quick reconnect
 // to the same server that was used before, if the server URL is still valid. If the quick
@@ -89,6 +85,10 @@ func (g *Guard) StartReconnectTrys(ctx context.Context, relayClient *Client) {
 			return
 		}
 	}
+}
+
+func (g *Guard) setLastError(err error) {
+	g.lastErr.Store(&err)
 }
 
 func (g *Guard) tryToQuickReconnect(parentCtx context.Context, rc *Client) bool {

@@ -43,6 +43,17 @@ type OnServerCloseListener func()
 // ManagerOption configures a Manager at construction time.
 type ManagerOption func(*Manager)
 
+// RelayConnState is the connection state of a single relay server.
+type RelayConnState struct {
+	// URL is the server's instance address when connected, otherwise the
+	// configured server URL.
+	URL string
+	// Transport is the negotiated transport, empty if not connected.
+	Transport string
+	// Err is set when the relay is not connected.
+	Err error
+}
+
 // WithMaxBackoffInterval caps the exponential backoff between reconnect
 // attempts to the home relay. A non-positive value keeps the default.
 func WithMaxBackoffInterval(d time.Duration) ManagerOption {
@@ -249,17 +260,6 @@ func (m *Manager) ServerURLs() []string {
 // reconnect attempt, or nil if the relay last connected successfully.
 func (m *Manager) RelayConnectError() error {
 	return m.reconnectGuard.LastError()
-}
-
-// RelayConnState is the connection state of a single relay server.
-type RelayConnState struct {
-	// URL is the server's instance address when connected, otherwise the
-	// configured server URL.
-	URL string
-	// Transport is the negotiated transport, empty if not connected.
-	Transport string
-	// Err is set when the relay is not connected.
-	Err error
 }
 
 // RelayStates returns the connection state of the home relay and every foreign

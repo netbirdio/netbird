@@ -2,6 +2,7 @@ package quic
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -68,6 +69,10 @@ func (d Dialer) Dial(ctx context.Context, address, serverName string) (net.Conn,
 
 	session, err := quic.Dial(ctx, udpConn, udpAddr, tlsClientConfig, quicConfig)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return nil, err
+		}
+		log.Debugf("failed to dial to Relay server via QUIC '%s': %s", quicURL, err)
 		return nil, err
 	}
 

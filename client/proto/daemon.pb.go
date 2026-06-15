@@ -1836,11 +1836,13 @@ func (x *ManagementState) GetError() string {
 
 // RelayState contains the latest state of the relay
 type RelayState struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	URI           string                 `protobuf:"bytes,1,opt,name=URI,proto3" json:"URI,omitempty"`
-	Available     bool                   `protobuf:"varint,2,opt,name=available,proto3" json:"available,omitempty"`
-	Error         string                 `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`
-	Transport     string                 `protobuf:"bytes,4,opt,name=transport,proto3" json:"transport,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	URI       string                 `protobuf:"bytes,1,opt,name=URI,proto3" json:"URI,omitempty"`
+	Available bool                   `protobuf:"varint,2,opt,name=available,proto3" json:"available,omitempty"`
+	Error     string                 `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`
+	// transport is the negotiated relay transport (e.g. "ws", "quic"),
+	// empty for stun/turn probes or when not connected.
+	Transport     string `protobuf:"bytes,4,opt,name=transport,proto3" json:"transport,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
