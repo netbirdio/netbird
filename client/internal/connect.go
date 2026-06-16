@@ -296,10 +296,8 @@ func (c *ConnectClient) run(runCtx context.Context, config *profilemanager.Confi
 			log.Debug(err)
 			if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.PermissionDenied) {
 				state.Set(StatusNeedsLogin)
-				// Called from inside the run goroutine: tear the engine down
-				// directly, never through the lifecycle queue (sup.stop would
-				// deadlock — the supervisor would wait for this very run to end).
-				_ = c.stopEngine()
+				// No teardown needed: login fails before the engine is started
+				// (engine.Start is below), so there is nothing running to stop.
 				return backoff.Permanent(wrapErr(err)) // unrecoverable error
 			}
 			return wrapErr(err)
