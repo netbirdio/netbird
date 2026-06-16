@@ -18,6 +18,7 @@ import (
 
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	gstatus "google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
@@ -85,12 +86,13 @@ func (c *ConnectClient) SetUpdateManager(um *updater.Manager) {
 	c.updateManager = um
 }
 
-// Run with main logic.
-func (c *ConnectClient) Run(config *profilemanager.Config, runningChan chan struct{}, logPath string) error {
+// Run with main logic. md carries optional gRPC metadata (e.g. the UI
+// user-agent) to forward to the management/signal services; nil when none.
+func (c *ConnectClient) Run(config *profilemanager.Config, md metadata.MD, runningChan chan struct{}, logPath string) error {
 	if androidRunOverride != nil {
 		return androidRunOverride(c, config, runningChan, logPath)
 	}
-	return c.sup.start(config, MobileDependency{}, runningChan, logPath)
+	return c.sup.start(config, md, MobileDependency{}, runningChan, logPath)
 }
 
 // RunOnAndroid with main logic on mobile system
@@ -114,7 +116,7 @@ func (c *ConnectClient) RunOnAndroid(
 		StateFilePath:         stateFilePath,
 		TempDir:               cacheDir,
 	}
-	return c.sup.start(config, mobileDependency, nil, "")
+	return c.sup.start(config, nil, mobileDependency, nil, "")
 }
 
 func (c *ConnectClient) RunOniOS(
@@ -133,7 +135,7 @@ func (c *ConnectClient) RunOniOS(
 		DnsManager:            dnsManager,
 		StateFilePath:         stateFilePath,
 	}
-	return c.sup.start(config, mobileDependency, nil, "")
+	return c.sup.start(config, nil, mobileDependency, nil, "")
 }
 
 // run executes a single client run. runCtx is owned by the supervisor: cancelling

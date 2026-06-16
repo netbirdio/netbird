@@ -30,5 +30,5 @@ func (c *ConnectClient) runOnAndroidEmbed(
 		HostDNSAddresses:      dnsAddresses,
 		DnsReadyListener:      dnsReadyListener,
 	}
-	return c.sup.start(config, mobileDependency, runningChan, logPath)
+	return c.sup.start(config, nil, mobileDependency, runningChan, logPath)
 }

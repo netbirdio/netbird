@@ -285,8 +285,12 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, client *internal.Conn
 		}
 	}()
 
+	// Forward any gRPC metadata the RPC caller attached (e.g. the UI
+	// user-agent in Up); nil for boot/MDM paths that have no incoming call.
+	md, _ := metadata.FromOutgoingContext(ctx)
+
 	runOperation := func() error {
-		err := s.connectOnce(client, profileConfig, runningChan)
+		err := s.connectOnce(client, profileConfig, md, runningChan)
 		if err != nil {
 			log.Debugf("will retry the connection in the background")
 			return err
@@ -1737,9 +1741,9 @@ func (s *Server) GetFeatures(ctx context.Context, msg *proto.GetFeaturesRequest)
 // connectOnce performs a single client run (Run blocks, retrying its own
 // internal backoff, until the run ends). The outer connectWithRetryRuns
 // backoff re-invokes it only when a run returns an error.
-func (s *Server) connectOnce(client *internal.ConnectClient, config *profilemanager.Config, runningChan chan struct{}) error {
+func (s *Server) connectOnce(client *internal.ConnectClient, config *profilemanager.Config, md metadata.MD, runningChan chan struct{}) error {
 	log.Tracef("running client connection")
-	if err := client.Run(config, runningChan, s.logFile); err != nil {
+	if err := client.Run(config, md, runningChan, s.logFile); err != nil {
 		log.Debugf("run client connection exited with error: %v", err)
 		return err
 	}

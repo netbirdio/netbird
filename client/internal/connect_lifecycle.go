@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 
+	"google.golang.org/grpc/metadata"
+
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 )
 
@@ -33,6 +35,7 @@ const (
 type lifecycleCmd struct {
 	op          lifecycleOp
 	config      *profilemanager.Config
+	md          metadata.MD
 	mobileDep   MobileDependency
 	runningChan chan struct{}
 	logPath     string
@@ -108,6 +111,12 @@ func (s *supervisor) handleStart(cmd lifecycleCmd) {
 	}
 
 	runCtx, cancel := context.WithCancel(s.ctx)
+	if cmd.md != nil {
+		// Carry caller-supplied gRPC metadata (e.g. UI user-agent) into the run
+		// context so the engine's management/signal calls forward it. The cancel
+		// still drives runCtx (metadata wrapping preserves cancellation).
+		runCtx = metadata.NewOutgoingContext(runCtx, cmd.md)
+	}
 	s.runCancel = cancel
 	s.curStart = &cmd
 
@@ -163,8 +172,8 @@ func (s *supervisor) shutdown() {
 // startAsync enqueues a start without blocking. If done is non-nil it receives
 // the run's end result (or errAlreadyRunning on rejection, or the context error
 // on shutdown).
-func (s *supervisor) startAsync(config *profilemanager.Config, mobileDep MobileDependency, runningChan chan struct{}, logPath string, done chan error) {
-	cmd := lifecycleCmd{op: opStart, config: config, mobileDep: mobileDep, runningChan: runningChan, logPath: logPath, done: done}
+func (s *supervisor) startAsync(config *profilemanager.Config, md metadata.MD, mobileDep MobileDependency, runningChan chan struct{}, logPath string, done chan error) {
+	cmd := lifecycleCmd{op: opStart, config: config, md: md, mobileDep: mobileDep, runningChan: runningChan, logPath: logPath, done: done}
 	select {
 	case s.cmdCh <- cmd:
 	case <-s.ctx.Done():
@@ -174,9 +183,9 @@ func (s *supervisor) startAsync(config *profilemanager.Config, mobileDep MobileD
 
 // start enqueues a start and blocks until the run terminates, preserving the
 // blocking contract of the legacy Run entry points.
-func (s *supervisor) start(config *profilemanager.Config, mobileDep MobileDependency, runningChan chan struct{}, logPath string) error {
+func (s *supervisor) start(config *profilemanager.Config, md metadata.MD, mobileDep MobileDependency, runningChan chan struct{}, logPath string) error {
 	done := make(chan error, 1)
-	s.startAsync(config, mobileDep, runningChan, logPath, done)
+	s.startAsync(config, md, mobileDep, runningChan, logPath, done)
 	select {
 	case err := <-done:
 		return err
