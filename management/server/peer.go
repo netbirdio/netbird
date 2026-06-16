@@ -27,6 +27,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/affectedpeers"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -73,7 +74,7 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 //
 // Disconnects use MarkPeerDisconnected and require the session to match
 // exactly; see PeerStatus.SessionStartedAt for the protocol.
-func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubKey string, realIP net.IP, accountID string, sessionStartedAt int64) error {
+func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubKey string, realIP net.IP, accountID string, sessionStartedAt int64, nmap *types.NetworkMap) error {
 	start := time.Now()
 	defer func() {
 		am.metrics.AccountManagerMetrics().RecordPeerStatusUpdateDuration(telemetry.PeerStatusConnect, time.Since(start))
@@ -105,39 +106,45 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 		am.updatePeerLocationIfChanged(ctx, accountID, peer, realIP)
 	}
 
-	expired := peer.Status != nil && peer.Status.LoginExpired
-
-	if peer.AddedWithSSOLogin() {
-		settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
-		if err != nil {
-			return err
-		}
-		if peer.LoginExpirationEnabled && settings.PeerLoginExpirationEnabled {
-			am.schedulePeerLoginExpiration(ctx, accountID)
-		}
-		if peer.InactivityExpirationEnabled && settings.PeerInactivityExpirationEnabled {
-			am.checkAndSchedulePeerInactivityExpiration(ctx, accountID)
-		}
+	if err = am.schedulePeerExpirations(ctx, accountID, peer); err != nil {
+		return err
 	}
 
-	if expired {
-		if err = am.networkMapController.OnPeersUpdated(ctx, accountID, []string{peer.ID}); err != nil {
+	// A login-expired peer reconnecting, or an embedded proxy peer flipping to
+	// connected (which triggers SynthesizePrivateServiceZones), must refresh the
+	// peers reachable from it. The embedded-proxy fan-out tolerates a dispatch error.
+	if peer.Status != nil && peer.Status.LoginExpired {
+		affectedPeerIDs := am.markConnectedAffectedPeers(ctx, accountID, peer.ID, nmap)
+		if err = am.networkMapController.OnPeersUpdated(ctx, accountID, []string{peer.ID}, affectedPeerIDs); err != nil {
 			return fmt.Errorf("notify network map controller of peer update: %w", err)
 		}
 	}
-
-	// An embedded proxy peer flipping to connected is the trigger for
-	// SynthesizePrivateServiceZones to emit DNS A records pointing at its
-	// tunnel IP. Without an account-wide netmap recompute, user peers keep
-	// the stale synth (or no synth at all on first connect) until some
-	// other change pokes the controller. Fire OnPeersUpdated so the
-	// buffered recompute fans the new state out to every peer.
 	if peer.ProxyMeta.Embedded {
-		if err := am.networkMapController.OnPeersUpdated(ctx, accountID, []string{peer.ID}); err != nil {
+		affectedPeerIDs := am.markConnectedAffectedPeers(ctx, accountID, peer.ID, nmap)
+		if err := am.networkMapController.OnPeersUpdated(ctx, accountID, []string{peer.ID}, affectedPeerIDs); err != nil {
 			log.WithContext(ctx).Warnf("notify network map controller of embedded proxy %s connect: %v", peer.ID, err)
 		}
 	}
 
+	return nil
+}
+
+// schedulePeerExpirations reschedules the account's login/inactivity expiration
+// timers for an SSO peer that just connected.
+func (am *DefaultAccountManager) schedulePeerExpirations(ctx context.Context, accountID string, peer *nbpeer.Peer) error {
+	if !peer.AddedWithSSOLogin() {
+		return nil
+	}
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return err
+	}
+	if peer.LoginExpirationEnabled && settings.PeerLoginExpirationEnabled {
+		am.schedulePeerLoginExpiration(ctx, accountID)
+	}
+	if peer.InactivityExpirationEnabled && settings.PeerInactivityExpirationEnabled {
+		am.checkAndSchedulePeerInactivityExpiration(ctx, accountID)
+	}
 	return nil
 }
 
@@ -175,11 +182,12 @@ func (am *DefaultAccountManager) MarkPeerDisconnected(ctx context.Context, peerP
 	am.metrics.AccountManagerMetrics().CountPeerStatusUpdate(telemetry.PeerStatusDisconnect, telemetry.PeerStatusApplied)
 
 	// Symmetric with MarkPeerConnected: when an embedded proxy peer goes
-	// offline, drive an account-wide netmap recompute so the synthesized
-	// DNS records that pointed at it are pulled. Without this the records
-	// linger client-side at TTL until something else triggers a refresh.
+	// offline, refresh the peers that had synthesized records pointing at
+	// it so they pull the stale entries instead of waiting out TTL.
 	if peer.ProxyMeta.Embedded {
-		if err := am.networkMapController.OnPeersUpdated(ctx, accountID, []string{peer.ID}); err != nil {
+		changedPeerIDs := []string{peer.ID}
+		affectedPeerIDs := am.resolveAffectedPeersForPeerChanges(ctx, am.Store, accountID, changedPeerIDs)
+		if err := am.networkMapController.OnPeersUpdated(ctx, accountID, changedPeerIDs, affectedPeerIDs); err != nil {
 			log.WithContext(ctx).Warnf("notify network map controller of embedded proxy %s disconnect: %v", peer.ID, err)
 		}
 	}
@@ -346,7 +354,10 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 		}
 	}
 
-	err = am.networkMapController.OnPeersUpdated(ctx, accountID, []string{peer.ID})
+	changedPeerIDs := []string{peer.ID}
+	affectedPeerIDs := am.resolveAffectedPeersForPeerChanges(ctx, am.Store, accountID, changedPeerIDs)
+	affectedPeerIDs = append(affectedPeerIDs, peer.ID)
+	err = am.networkMapController.OnPeersUpdated(ctx, accountID, changedPeerIDs, affectedPeerIDs)
 	if err != nil {
 		return nil, fmt.Errorf("notify network map controller of peer update: %w", err)
 	}
@@ -501,10 +512,6 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 		return status.NewPeerNotPartOfAccountError()
 	}
 
-	var peer *nbpeer.Peer
-	var settings *types.Settings
-	var eventsToStore []func()
-
 	serviceID, err := am.serviceManager.GetServiceIDByTargetID(ctx, accountID, peerID)
 	if err != nil {
 		return fmt.Errorf("failed to check if resource is used by service: %w", err)
@@ -513,8 +520,38 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 		return status.NewPeerInUseError(peerID, serviceID)
 	}
 
-	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		peer, err = transaction.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
+	change := affectedpeers.Change{ChangedPeerIDs: []string{peerID}}
+	settings, eventsToStore, snap, err := am.deletePeerInTransaction(ctx, accountID, userID, peerID, change)
+	if err != nil {
+		return err
+	}
+
+	for _, storeEvent := range eventsToStore {
+		storeEvent()
+	}
+
+	if err = am.integratedPeerValidator.PeerDeleted(ctx, accountID, peerID, settings.Extra); err != nil {
+		log.WithContext(ctx).Errorf("failed to delete peer %s from integrated validator: %v", peerID, err)
+	}
+
+	affectedPeerIDs := snap.Expand(ctx, accountID, change)
+	if err = am.networkMapController.OnPeersDeleted(ctx, accountID, []string{peerID}, affectedPeerIDs); err != nil {
+		log.WithContext(ctx).Errorf("failed to delete peer %s from network map: %v", peerID, err)
+	}
+
+	return nil
+}
+
+// deletePeerInTransaction loads the peer + settings, captures the affected-peers
+// snapshot (before the delete, while the peer's group memberships still exist),
+// then deletes the peer and bumps the network serial — all in one transaction.
+func (am *DefaultAccountManager) deletePeerInTransaction(ctx context.Context, accountID, userID, peerID string, change affectedpeers.Change) (*types.Settings, []func(), *affectedpeers.Snapshot, error) {
+	var settings *types.Settings
+	var eventsToStore []func()
+	var snap *affectedpeers.Snapshot
+
+	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		peer, err := transaction.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
 		if err != nil {
 			return err
 		}
@@ -528,8 +565,11 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 			return err
 		}
 
-		eventsToStore, err = deletePeers(ctx, am, transaction, accountID, userID, []*nbpeer.Peer{peer}, settings)
-		if err != nil {
+		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
+			return err
+		}
+
+		if eventsToStore, err = deletePeers(ctx, am, transaction, accountID, userID, []*nbpeer.Peer{peer}, settings); err != nil {
 			return fmt.Errorf("failed to delete peer: %w", err)
 		}
 
@@ -539,23 +579,7 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 
 		return nil
 	})
-	if err != nil {
-		return err
-	}
-
-	for _, storeEvent := range eventsToStore {
-		storeEvent()
-	}
-
-	if err = am.integratedPeerValidator.PeerDeleted(ctx, accountID, peerID, settings.Extra); err != nil {
-		log.WithContext(ctx).Errorf("failed to delete peer %s from integrated validator: %v", peerID, err)
-	}
-
-	if err = am.networkMapController.OnPeersDeleted(ctx, accountID, []string{peerID}); err != nil {
-		log.WithContext(ctx).Errorf("failed to delete peer %s from network map: %v", peerID, err)
-	}
-
-	return nil
+	return settings, eventsToStore, snap, err
 }
 
 // GetNetworkMap returns Network map for a given peer (omits original peer from the Peers result)
@@ -924,12 +948,18 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 		am.StoreEvent(ctx, opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)
 	}
 
-	if err := am.networkMapController.OnPeersAdded(ctx, accountID, []string{newPeer.ID}); err != nil {
+	p, nmap, pc, _, err := am.networkMapController.GetValidatedPeerWithMap(ctx, false, accountID, newPeer)
+	if err != nil {
+		return p, nmap, pc, err
+	}
+
+	changedPeerIDs := []string{newPeer.ID}
+	affectedPeerIDs := affectedPeerIDsFromNetworkMap(nmap, newPeer.ID)
+	if err := am.networkMapController.OnPeersAdded(ctx, accountID, changedPeerIDs, affectedPeerIDs); err != nil {
 		log.WithContext(ctx).Errorf("failed to update network map cache for peer %s: %v", newPeer.ID, err)
 	}
 
-	p, nmap, pc, _, err := am.networkMapController.GetValidatedPeerWithMap(ctx, false, accountID, newPeer)
-	return p, nmap, pc, err
+	return p, nmap, pc, nil
 }
 
 func getPeerIPDNSLabel(ip netip.Addr, peerHostName string) (string, error) {
@@ -1011,14 +1041,48 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 		return nil, nil, nil, 0, err
 	}
 
+	resPeer, nmap, resPostureChecks, dnsFwdPort, err := am.networkMapController.GetValidatedPeerWithMap(ctx, peerNotValid, accountID, peer)
+	if err != nil {
+		return nil, nil, nil, 0, err
+	}
+
 	if isStatusChanged || sync.UpdateAccountPeers || ipv6CapabilityChanged || (updated && (len(postureChecks) > 0 || versionChanged)) {
-		err = am.networkMapController.OnPeersUpdated(ctx, accountID, []string{peer.ID})
-		if err != nil {
+		changedPeerIDs := []string{peer.ID}
+		affectedPeerIDs := am.syncPeerAffectedPeers(ctx, accountID, peer.ID, nmap, peerNotValid, updated, len(postureChecks) > 0)
+		if err = am.networkMapController.OnPeersUpdated(ctx, accountID, changedPeerIDs, affectedPeerIDs); err != nil {
 			return nil, nil, nil, 0, fmt.Errorf("notify network map controller of peer update: %w", err)
 		}
 	}
 
-	return am.networkMapController.GetValidatedPeerWithMap(ctx, peerNotValid, accountID, peer)
+	return resPeer, nmap, resPostureChecks, dnsFwdPort, nil
+}
+
+// syncPeerAffectedPeers resolves the peers affected by a SyncPeer change. The
+// peer's own validated network map is bidirectional for policy and routing
+// reachability, so when the peer stays valid and no source-posture gate is in
+// play it already lists every affected peer — reuse it and skip the full
+// dependency walk. Posture checks gate the source side of a policy only, so a
+// metadata change that flips a posture result removes this peer from others'
+// maps asymmetrically; that case (and an invalid peer, whose map is empty) falls
+// back to the resolver.
+func (am *DefaultAccountManager) syncPeerAffectedPeers(ctx context.Context, accountID, peerID string, nmap *types.NetworkMap, peerNotValid, metaUpdated, hasPostureChecks bool) []string {
+	if peerNotValid || (metaUpdated && hasPostureChecks) {
+		return am.resolveAffectedPeersForPeerChanges(ctx, am.Store, accountID, []string{peerID})
+	}
+	return affectedPeerIDsFromNetworkMap(nmap, peerID)
+}
+
+// markConnectedAffectedPeers resolves the peers affected when a peer connects
+// (login-expiry reconnect or embedded-proxy connect). The connecting peer's
+// network map already lists them bidirectionally — the synthesized
+// private-service policy puts proxy access-group members in the proxy peer's own
+// map, and these edges carry no source-posture gate. An invalid peer has an
+// empty map, so fall back to the resolver in that case.
+func (am *DefaultAccountManager) markConnectedAffectedPeers(ctx context.Context, accountID, peerID string, nmap *types.NetworkMap) []string {
+	if nmap == nil || len(nmap.Peers)+len(nmap.OfflinePeers) == 0 {
+		return am.resolveAffectedPeersForPeerChanges(ctx, am.Store, accountID, []string{peerID})
+	}
+	return affectedPeerIDsFromNetworkMap(nmap, peerID)
 }
 
 func (am *DefaultAccountManager) handlePeerLoginNotFound(ctx context.Context, login types.PeerLogin, err error) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
@@ -1141,15 +1205,20 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 		return nil, nil, nil, err
 	}
 
+	p, nmap, pc, _, err := am.networkMapController.GetValidatedPeerWithMap(ctx, isRequiresApproval, accountID, peer)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
 	if updateRemotePeers || isStatusChanged || ipv6CapabilityChanged || (isPeerUpdated && len(postureChecks) > 0) {
-		err = am.networkMapController.OnPeersUpdated(ctx, accountID, []string{peer.ID})
-		if err != nil {
+		changedPeerIDs := []string{peer.ID}
+		affectedPeerIDs := am.syncPeerAffectedPeers(ctx, accountID, peer.ID, nmap, isRequiresApproval, isPeerUpdated, len(postureChecks) > 0)
+		if err = am.networkMapController.OnPeersUpdated(ctx, accountID, changedPeerIDs, affectedPeerIDs); err != nil {
 			return nil, nil, nil, fmt.Errorf("notify network map controller of peer update: %w", err)
 		}
 	}
 
-	p, nmap, pc, _, err := am.networkMapController.GetValidatedPeerWithMap(ctx, isRequiresApproval, accountID, peer)
-	return p, nmap, pc, err
+	return p, nmap, pc, nil
 }
 
 // ExtendPeerSession refreshes the peer's SSO session deadline by updating
@@ -1405,6 +1474,100 @@ func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID,
 // Should be called when changes have to be synced to peers.
 func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) {
 	_ = am.networkMapController.UpdateAccountPeers(ctx, accountID, reason)
+}
+
+// ExpandAndUpdateAffected expands a Snapshot (loaded INSIDE the now-committed
+// transaction) into the affected peers and dispatches the network-map refresh.
+// Pure in-memory work plus dispatch, so it runs AFTER commit — the fan-out walk
+// never holds the write lock, over the consistent in-tx snapshot. Exported so the
+// networks sub-package managers (which hold only account.Manager) share it.
+func (am *DefaultAccountManager) ExpandAndUpdateAffected(ctx context.Context, accountID string, snap *affectedpeers.Snapshot, change affectedpeers.Change) {
+	go am.dispatchAffected(ctx, accountID, []*affectedpeers.Snapshot{snap}, []affectedpeers.Change{change})
+}
+
+// dispatchAffected expands one or more (snapshot, change) pairs — collected across
+// one or several transactions — unions their affected peers, and dispatches a
+// single network-map refresh. Each snapshot must already be loaded inside its
+// transaction; this runs AFTER commit (pure in-memory + dispatch). It is spawned
+// in a goroutine that outlives the request, so it detaches from the request
+// context's cancellation up front.
+func (am *DefaultAccountManager) dispatchAffected(ctx context.Context, accountID string, snaps []*affectedpeers.Snapshot, changes []affectedpeers.Change) {
+	ctx = context.WithoutCancel(ctx)
+
+	var lists [][]string
+	for i, snap := range snaps {
+		if snap == nil {
+			continue
+		}
+		lists = append(lists, snap.Expand(ctx, accountID, changes[i]))
+	}
+
+	affectedPeerIDs := unionStrings(lists...)
+	if len(affectedPeerIDs) == 0 {
+		log.WithContext(ctx).Tracef("no affected peers for account %s", accountID)
+		return
+	}
+
+	log.WithContext(ctx).Debugf("updating %d affected peers for account %s: %v", len(affectedPeerIDs), accountID, affectedPeerIDs)
+	_ = am.networkMapController.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
+}
+
+// unionStrings concatenates the given string lists into one deduplicated slice,
+// preserving first-occurrence order.
+func unionStrings(lists ...[]string) []string {
+	seen := make(map[string]struct{})
+	var out []string
+	for _, list := range lists {
+		for _, id := range list {
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// affectedPeerIDsFromNetworkMap returns the peer IDs referenced by a peer's
+// network map (its connected and offline peers, which include routing and proxy
+// peers), excluding the peer itself. For a freshly added peer these are, by ACL
+// symmetry, exactly the peers its addition affects.
+func affectedPeerIDsFromNetworkMap(nmap *types.NetworkMap, selfPeerID string) []string {
+	if nmap == nil {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(nmap.Peers)+len(nmap.OfflinePeers))
+	ids := make([]string, 0, len(nmap.Peers)+len(nmap.OfflinePeers))
+	add := func(peers []*nbpeer.Peer) {
+		for _, p := range peers {
+			if p == nil || p.ID == "" || p.ID == selfPeerID {
+				continue
+			}
+			if _, ok := seen[p.ID]; ok {
+				continue
+			}
+			seen[p.ID] = struct{}{}
+			ids = append(ids, p.ID)
+		}
+	}
+	add(nmap.Peers)
+	add(nmap.OfflinePeers)
+	return ids
+}
+
+// resolveAffectedPeersForPeerChanges loads a snapshot and expands it for a peer
+// change. The graph is unchanged by these paths, so it runs out of the mutating
+// transaction (after commit); the resolver derives the peers' group memberships
+// during the walk, so the caller passes only the changed peer IDs.
+func (am *DefaultAccountManager) resolveAffectedPeersForPeerChanges(ctx context.Context, s store.Store, accountID string, changedPeerIDs []string) []string {
+	change := affectedpeers.Change{ChangedPeerIDs: changedPeerIDs}
+	snap, err := affectedpeers.Load(ctx, s, accountID, change)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to load snapshot for affected peers: %v", err)
+		return nil
+	}
+	return snap.Expand(ctx, accountID, change)
 }
 
 func (am *DefaultAccountManager) BufferUpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) {
