@@ -53,11 +53,14 @@ export async function initI18n(): Promise<void> {
             firstRun = true;
             language = detectBrowserLanguage(available) ?? "en";
         }
-    } catch {
+    } catch (e) {
+        console.warn("read preferences for language failed, defaulting to en", e);
     }
 
     if (firstRun) {
-        Preferences.SetLanguage(language as LanguageCode).catch(() => {});
+        Preferences.SetLanguage(language as LanguageCode).catch((err: unknown) =>
+            console.warn("persist detected language failed", err),
+        );
     }
 
     await i18next.use(initReactI18next).init({

@@ -279,7 +279,8 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
             setCopied(true);
             if (copyTimer.current) clearTimeout(copyTimer.current);
             copyTimer.current = setTimeout(() => setCopied(false), 1500);
-        } catch {
+        } catch (e) {
+            console.warn("copy to clipboard failed", e);
         }
     };
 

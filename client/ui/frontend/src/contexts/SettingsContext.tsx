@@ -124,7 +124,7 @@ const useSettingsState = () => {
 
     const save = useCallback(
         async (profileName: string, next: Config, preSharedKey?: string) => {
-            const preSharedKeyWrite = preSharedKey !== undefined ? { preSharedKey } : {};
+            const preSharedKeyWrite = preSharedKey === undefined ? {} : { preSharedKey };
             try {
                 await SettingsSvc.SetConfig({
                     ...next,
@@ -194,9 +194,9 @@ const useSettingsState = () => {
 
             const merged: Config = { ...loaded.data, ...partial };
             const next: Config =
-                opts?.preSharedKey !== undefined
-                    ? { ...merged, preSharedKeySet: opts.preSharedKey !== "" }
-                    : merged;
+                opts?.preSharedKey === undefined
+                    ? merged
+                    : { ...merged, preSharedKeySet: opts.preSharedKey !== "" };
             setLoaded({ profileName: loaded.profileName, data: next });
             await save(loaded.profileName, next, opts?.preSharedKey);
         },
@@ -235,8 +235,9 @@ export const AutostartSettingsProvider = ({ children }: { children: ReactNode })
             const enabled = supported ? await Autostart.IsEnabled() : false;
             if (cancelled) return;
             setAutostart({ supported, enabled });
-        })().catch(() => {
+        })().catch((err: unknown) => {
             if (cancelled) return;
+            console.warn("[SettingsContext] load autostart state failed", err);
             setAutostart({ supported: false, enabled: false });
         });
         return () => {

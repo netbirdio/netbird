@@ -38,18 +38,24 @@ export const MainHeader = () => {
 
     const openSettings = useCallback(() => {
         setMenuOpen(false);
-        WindowManager.OpenSettings("").catch(() => {});
+        WindowManager.OpenSettings("").catch((err: unknown) =>
+            console.error("open settings window failed", err),
+        );
     }, []);
 
     useKeyboardShortcut(SETTINGS_SHORTCUT, openSettings);
 
     const openAbout = () => {
         setMenuOpen(false);
-        WindowManager.OpenSettings("about").catch(() => {});
+        WindowManager.OpenSettings("about").catch((err: unknown) =>
+            console.error("open settings (about) window failed", err),
+        );
     };
 
     const openManageProfiles = () => {
-        WindowManager.OpenSettings("profiles").catch(() => {});
+        WindowManager.OpenSettings("profiles").catch((err: unknown) =>
+            console.error("open settings (profiles) window failed", err),
+        );
     };
 
     const selectMode = (mode: ViewMode) => {

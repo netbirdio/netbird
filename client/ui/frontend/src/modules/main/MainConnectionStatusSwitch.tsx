@@ -197,7 +197,9 @@ export const MainConnectionStatusSwitch = () => {
                 console.error("emit browser-login cancel failed", err),
             );
         }
-        WindowManager.CloseBrowserLogin().catch(() => {});
+        WindowManager.CloseBrowserLogin().catch((err: unknown) =>
+            console.warn("close browser-login window failed", err),
+        );
         setAction("disconnect");
         try {
             await Connection.Down();
@@ -356,7 +358,9 @@ const IpRow = ({ value }: { value: string }) => {
             await navigator.clipboard.writeText(value);
             setCopied(true);
             setTimeout(() => setCopied(false), 500);
-        } catch {}
+        } catch (e) {
+            console.warn("copy IP to clipboard failed", e);
+        }
     };
     return (
         <button

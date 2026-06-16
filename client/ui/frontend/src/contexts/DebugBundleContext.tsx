@@ -8,9 +8,6 @@ import { startConnection } from "@/lib/connection.ts";
 const NETBIRD_UPLOAD_URL = "https://upload.debug.netbird.io/upload-url";
 const TRACE_LOG_FILE_COUNT = 5;
 const PLAIN_LOG_FILE_COUNT = 1;
-// Lowercase logrus level name sent to Debug.SetLogLevel (the Go binding
-// upper-cases before the proto enum lookup). Raising to trace is what drives
-// the daemon's verbose logging and the GUI's gui-client.log during a bundle.
 const TRACE_LOG_LEVEL = "trace";
 const DEFAULT_LOG_LEVEL = "info";
 
@@ -51,21 +48,52 @@ const throwIfAborted = (signal: AbortSignal) => {
 const setLogLevelBestEffort = async (level: string) => {
     try {
         await DebugSvc.SetLogLevel({ level });
-    } catch {
-        // empty
+    } catch (e) {
+        console.warn("[DebugBundle] best-effort set log level failed", e);
     }
 };
 
 const stopCaptureBestEffort = async () => {
     try {
         await DebugSvc.StopBundleCapture();
-    } catch {
-        // empty
+    } catch (e) {
+        console.warn("[DebugBundle] best-effort stop packet capture failed", e);
     }
 };
 
 type LevelState = { original: string; raised: boolean };
 type CaptureState = { started: boolean };
+
+type BundleOptions = {
+    trace: boolean;
+    capture: boolean;
+    capturePackets: boolean;
+    hasWindow: boolean;
+    totalSec: number;
+    uploadUrl: string;
+    anonymize: boolean;
+    systemInfo: boolean;
+};
+
+const startCaptureBestEffort = async (totalSec: number, pcap: CaptureState) => {
+    try {
+        // Mirror the CLI's safety margin: window + 30s, server caps at 10m.
+        await DebugSvc.StartBundleCapture(totalSec + 30);
+        pcap.started = true;
+    } catch (e) {
+        console.warn("[DebugBundle] start packet capture failed", e);
+    }
+};
+
+const cleanupBestEffort = async (pcap: CaptureState, level: LevelState, restoreLevel: boolean) => {
+    if (pcap.started) {
+        await stopCaptureBestEffort();
+        pcap.started = false;
+    }
+    if (restoreLevel && level.raised) {
+        await setLogLevelBestEffort(level.original);
+    }
+};
 
 const raiseToTrace = async (
     signal: AbortSignal,
@@ -76,8 +104,8 @@ const raiseToTrace = async (
     try {
         const cur = await DebugSvc.GetLogLevel();
         if (cur?.level) level.original = cur.level;
-    } catch {
-        // empty
+    } catch (e) {
+        console.warn("[DebugBundle] read current log level failed", e);
     }
     throwIfAborted(signal);
     await DebugSvc.SetLogLevel({ level: TRACE_LOG_LEVEL });
@@ -89,8 +117,8 @@ const cycleConnection = async (signal: AbortSignal, setStage: (s: DebugStage) =>
     setStage({ kind: "reconnecting" });
     try {
         await ConnectionSvc.Down();
-    } catch {
-        // empty
+    } catch (e) {
+        console.warn("[DebugBundle] disconnect before capture failed", e);
     }
     throwIfAborted(signal);
     await startConnection(undefined, signal);
@@ -101,8 +129,8 @@ const restoreLogLevel = async (level: LevelState, setStage: (s: DebugStage) => v
     try {
         await DebugSvc.SetLogLevel({ level: level.original });
         level.raised = false;
-    } catch {
-        // empty
+    } catch (e) {
+        console.warn("[DebugBundle] restore log level failed", e);
     }
 };
 
@@ -115,6 +143,58 @@ const waitCaptureWindow = async (
         setStage({ kind: "capturing", remainingSec: remaining, totalSec });
         await sleep(1000, signal);
     }
+};
+
+const runBundleFlow = async (
+    signal: AbortSignal,
+    opts: BundleOptions,
+    level: LevelState,
+    pcap: CaptureState,
+    setStage: (s: DebugStage) => void,
+    setLastBundlePath: (p: string) => void,
+) => {
+    if (opts.trace) {
+        await raiseToTrace(signal, level, setStage);
+    }
+    throwIfAborted(signal);
+
+    if (opts.capture) {
+        await cycleConnection(signal, setStage);
+    }
+    throwIfAborted(signal);
+
+    if (opts.hasWindow && opts.capturePackets) {
+        await startCaptureBestEffort(opts.totalSec, pcap);
+    }
+    throwIfAborted(signal);
+
+    if (opts.hasWindow) {
+        await waitCaptureWindow(signal, setStage, opts.totalSec);
+    }
+
+    if (pcap.started) {
+        await stopCaptureBestEffort();
+        pcap.started = false;
+    }
+
+    if (level.raised) {
+        await restoreLogLevel(level, setStage);
+    }
+
+    throwIfAborted(signal);
+    setStage({ kind: "bundling" });
+    const logFileCount = opts.trace ? TRACE_LOG_FILE_COUNT : PLAIN_LOG_FILE_COUNT;
+
+    if (opts.uploadUrl) setStage({ kind: "uploading" });
+    const result = await DebugSvc.Bundle({
+        anonymize: opts.anonymize,
+        systemInfo: opts.systemInfo,
+        uploadUrl: opts.uploadUrl,
+        logFileCount,
+    });
+    throwIfAborted(signal);
+    if (result.path) setLastBundlePath(result.path);
+    setStage({ kind: "done", result, uploadAttempted: Boolean(opts.uploadUrl) });
 };
 
 const useDebugBundle = () => {
@@ -150,74 +230,30 @@ const useDebugBundle = () => {
         abortRef.current = ctrl;
         const signal = ctrl.signal;
 
-        const uploadUrl = upload ? NETBIRD_UPLOAD_URL : "";
+        const totalSec = Math.max(1, Math.min(30, traceMinutes)) * 60;
         const level: LevelState = { original: DEFAULT_LOG_LEVEL, raised: false };
         const pcap: CaptureState = { started: false };
-        const totalSec = Math.max(1, Math.min(30, traceMinutes)) * 60;
-        const hasWindow = capture && totalSec > 0;
+        const opts: BundleOptions = {
+            trace,
+            capture,
+            capturePackets,
+            hasWindow: capture && totalSec > 0,
+            totalSec,
+            uploadUrl: upload ? NETBIRD_UPLOAD_URL : "",
+            anonymize,
+            systemInfo,
+        };
 
         try {
-            if (trace) {
-                await raiseToTrace(signal, level, setStage);
-            }
-            throwIfAborted(signal);
-
-            if (capture) {
-                await cycleConnection(signal, setStage);
-            }
-            throwIfAborted(signal);
-
-            if (hasWindow && capturePackets) {
-                try {
-                    // Mirror the CLI's safety margin: window + 30s, server caps at 10m.
-                    await DebugSvc.StartBundleCapture(totalSec + 30);
-                    pcap.started = true;
-                } catch {
-                    // empty
-                }
-            }
-            throwIfAborted(signal);
-
-            if (hasWindow) {
-                await waitCaptureWindow(signal, setStage, totalSec);
-            }
-
-            if (pcap.started) {
-                await stopCaptureBestEffort();
-                pcap.started = false;
-            }
-
-            if (level.raised) {
-                await restoreLogLevel(level, setStage);
-            }
-
-            throwIfAborted(signal);
-            setStage({ kind: "bundling" });
-            const logFileCount = trace ? TRACE_LOG_FILE_COUNT : PLAIN_LOG_FILE_COUNT;
-
-            if (uploadUrl) setStage({ kind: "uploading" });
-            const result = await DebugSvc.Bundle({
-                anonymize,
-                systemInfo,
-                uploadUrl,
-                logFileCount,
-            });
-            throwIfAborted(signal);
-            if (result.path) setLastBundlePath(result.path);
-            setStage({
-                kind: "done",
-                result,
-                uploadAttempted: Boolean(uploadUrl),
-            });
+            await runBundleFlow(signal, opts, level, pcap, setStage, setLastBundlePath);
         } catch (e) {
             if (isAbort(e)) {
                 setStage({ kind: "cancelling" });
-                if (pcap.started) await stopCaptureBestEffort();
-                if (level.raised) await setLogLevelBestEffort(level.original);
+                await cleanupBestEffort(pcap, level, true);
                 setStage({ kind: "idle" });
                 return;
             }
-            if (pcap.started) await stopCaptureBestEffort();
+            await cleanupBestEffort(pcap, level, false);
             setStage({ kind: "idle" });
             await errorDialog({
                 Title: i18next.t("settings.error.debugBundleTitle"),
