@@ -3,7 +3,6 @@ package internal
 import (
 	"context"
 	"errors"
-	"sync/atomic"
 
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 )
@@ -18,13 +17,19 @@ type lifecycleOp int
 const (
 	opStart lifecycleOp = iota
 	opStop
+	opStatus
 )
 
-// lifecycleCmd is a single start/stop request handed to the supervisor goroutine.
+// lifecycleCmd is a single start/stop/status request handed to the supervisor
+// goroutine. All three flow through the same cmdCh so they are strictly
+// ordered (FIFO) with respect to each other.
+//
 // done is the caller-supplied notification channel (nil for fire-and-forget):
 //   - for opStart it receives the run's end result when the run terminates, or
 //     errAlreadyRunning immediately if a run is already in flight.
 //   - for opStop it receives nil once the in-flight run has fully unwound.
+//
+// reply is used only by opStatus: it receives whether a run is in flight.
 type lifecycleCmd struct {
 	op          lifecycleOp
 	config      *profilemanager.Config
@@ -32,6 +37,7 @@ type lifecycleCmd struct {
 	runningChan chan struct{}
 	logPath     string
 	done        chan error
+	reply       chan bool
 }
 
 // runEndResult is sent by the run goroutine to the supervisor when a run ends,
@@ -60,10 +66,6 @@ type supervisor struct {
 	// runCancel cancels that run.
 	curExecOp *lifecycleCmd
 	runCancel context.CancelFunc
-
-	// running mirrors "a run is in flight" for lock-free reads from outside the
-	// loop goroutine (the single source of truth for "is the client running").
-	running atomic.Bool
 }
 
 func newSupervisor(ctx context.Context, run runFunc) *supervisor {
@@ -89,6 +91,8 @@ func (s *supervisor) loop() {
 				s.handleStart(cmd)
 			case opStop:
 				s.handleStop(cmd)
+			case opStatus:
+				cmd.reply <- (s.curExecOp != nil)
 			}
 		case res := <-s.runEnded:
 			// Run ended on its own, without an explicit Stop.
@@ -106,7 +110,6 @@ func (s *supervisor) handleStart(cmd lifecycleCmd) {
 	runCtx, cancel := context.WithCancel(s.ctx)
 	s.runCancel = cancel
 	s.curExecOp = &cmd
-	s.running.Store(true)
 
 	go func(ctx context.Context, cfg *profilemanager.Config, m MobileDependency, rc chan struct{}, lp string) {
 		err := s.run(ctx, cfg, m, rc, lp)
@@ -133,7 +136,6 @@ func (s *supervisor) handleStop(cmd lifecycleCmd) {
 // error back to whoever asked to be notified of the start.
 func (s *supervisor) finishRun(err error) {
 	s.runCancel = nil
-	s.running.Store(false)
 	if s.curExecOp != nil {
 		notify(s.curExecOp.done, err)
 		s.curExecOp = nil
@@ -180,6 +182,24 @@ func (s *supervisor) start(config *profilemanager.Config, mobileDep MobileDepend
 		return err
 	case <-s.ctx.Done():
 		return s.ctx.Err()
+	}
+}
+
+// isRunning asks the loop whether a run is in flight. The query is serialized
+// with start/stop, so during a stop it waits for the teardown to settle and
+// then reports the final state — never a transient "half-stopped".
+func (s *supervisor) isRunning() bool {
+	reply := make(chan bool, 1)
+	select {
+	case s.cmdCh <- lifecycleCmd{op: opStatus, reply: reply}:
+	case <-s.ctx.Done():
+		return false
+	}
+	select {
+	case r := <-reply:
+		return r
+	case <-s.ctx.Done():
+		return false
 	}
 }
 
