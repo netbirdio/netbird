@@ -235,7 +235,8 @@ func (s *Server) Start() error {
 	s.clientRunning = true
 	s.clientRunningChan = make(chan struct{})
 	s.clientGiveUpChan = make(chan struct{})
-	go s.connectWithRetryRuns(ctx, config, s.statusRecorder, s.clientRunningChan, s.clientGiveUpChan)
+	client := s.newSessionClient(ctx)
+	go s.connectWithRetryRuns(ctx, client, config, s.statusRecorder, s.clientRunningChan, s.clientGiveUpChan)
 	s.publishConfigChangedEvent("startup")
 	return nil
 }
@@ -252,7 +253,7 @@ func (s *Server) Start() error {
 // of clientGiveUpChan. The defer does NOT touch s.mutex; the daemon's
 // "intent" (clientRunning) is maintained by the RPC handlers, not by this
 // goroutine.
-func (s *Server) connectWithRetryRuns(ctx context.Context, profileConfig *profilemanager.Config, statusRecorder *peer.Status, runningChan chan struct{}, giveUpChan chan struct{}) {
+func (s *Server) connectWithRetryRuns(ctx context.Context, client *internal.ConnectClient, profileConfig *profilemanager.Config, statusRecorder *peer.Status, runningChan chan struct{}, giveUpChan chan struct{}) {
 	defer func() {
 		if giveUpChan != nil {
 			close(giveUpChan)
@@ -260,7 +261,7 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, profileConfig *profil
 	}()
 
 	if s.config.DisableAutoConnect {
-		if err := s.connect(ctx, s.config, s.statusRecorder, runningChan); err != nil {
+		if err := s.connect(client, s.config, runningChan); err != nil {
 			log.Debugf("run client connection exited with error: %v", err)
 		}
 		log.Tracef("client connection exited")
@@ -289,7 +290,7 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, profileConfig *profil
 	}()
 
 	runOperation := func() error {
-		err := s.connect(ctx, profileConfig, statusRecorder, runningChan)
+		err := s.connect(client, profileConfig, runningChan)
 		if err != nil {
 			log.Debugf("run client connection exited with error: %v. Will retry in the background", err)
 			return err
@@ -837,7 +838,8 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	s.clientRunningChan = make(chan struct{})
 	s.clientGiveUpChan = make(chan struct{})
 
-	go s.connectWithRetryRuns(ctx, s.config, s.statusRecorder, s.clientRunningChan, s.clientGiveUpChan)
+	client := s.newSessionClient(ctx)
+	go s.connectWithRetryRuns(ctx, client, s.config, s.statusRecorder, s.clientRunningChan, s.clientGiveUpChan)
 	s.publishConfigChangedEvent("up_rpc")
 
 	s.mutex.Unlock()
@@ -1752,12 +1754,23 @@ func (s *Server) GetFeatures(ctx context.Context, msg *proto.GetFeaturesRequest)
 	return features, nil
 }
 
-func (s *Server) connect(client *internal.ConnectClient, runningChan chan struct{}) error {
+func (s *Server) connect(client *internal.ConnectClient, config *profilemanager.Config, runningChan chan struct{}) error {
 	log.Tracef("running client connection")
-	if err := client.Run(runningChan, s.logFile); err != nil {
+	if err := client.Run(config, runningChan, s.logFile); err != nil {
 		return err
 	}
 	return nil
+}
+
+// newSessionClient builds a ConnectClient for a connection session and records
+// it as the active client. Config is supplied per Run (see connect), not at
+// construction, so the same client can be reused across reconnects.
+func (s *Server) newSessionClient(ctx context.Context) *internal.ConnectClient {
+	client := internal.NewConnectClient(ctx, s.statusRecorder)
+	client.SetUpdateManager(s.updateManager)
+	client.SetSyncResponsePersistence(s.persistSyncResponse)
+	s.connectClient = client
+	return client
 }
 
 // MDM authority: when the platform-native MDM source sets a kill switch

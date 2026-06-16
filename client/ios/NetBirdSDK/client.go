@@ -161,8 +161,8 @@ func (c *Client) Run(fd int32, interfaceName string, envList *EnvList) error {
 	c.onHostDnsFn = func([]string) {}
 	cfg.WgIface = interfaceName
 
-	c.connectClient = internal.NewConnectClient(ctx, cfg, c.recorder)
-	return c.connectClient.RunOniOS(fd, c.networkChangeListener, c.dnsManager, c.stateFile)
+	c.connectClient = internal.NewConnectClient(ctx, c.recorder)
+	return c.connectClient.RunOniOS(cfg, fd, c.networkChangeListener, c.dnsManager, c.stateFile)
 }
 
 // Stop the internal client and free the resources

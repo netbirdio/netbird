@@ -3,6 +3,8 @@ package internal
 import (
 	"context"
 	"errors"
+
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 )
 
 // errAlreadyRunning is returned when a start is requested while a run is already
@@ -24,6 +26,7 @@ const (
 //   - for opStop it receives nil once the in-flight run has fully unwound.
 type lifecycleCmd struct {
 	op          lifecycleOp
+	config      *profilemanager.Config
 	mobileDep   MobileDependency
 	runningChan chan struct{}
 	logPath     string
@@ -36,8 +39,9 @@ type runEndResult struct {
 	err error
 }
 
-// runFunc executes a single client run bound to the supervisor-owned context.
-type runFunc func(ctx context.Context, mobileDep MobileDependency, runningChan chan struct{}, logPath string) error
+// runFunc executes a single client run bound to the supervisor-owned context,
+// with the config supplied by the start request.
+type runFunc func(ctx context.Context, config *profilemanager.Config, mobileDep MobileDependency, runningChan chan struct{}, logPath string) error
 
 // supervisor serializes start/stop of a single client run. Every request goes
 // through cmdCh and is handled one at a time by the loop goroutine, so two
@@ -98,10 +102,10 @@ func (s *supervisor) handleStart(cmd lifecycleCmd) {
 	s.runCancel = cancel
 	s.curExecOp = &cmd
 
-	go func(ctx context.Context, m MobileDependency, rc chan struct{}, lp string) {
-		err := s.run(ctx, m, rc, lp)
+	go func(ctx context.Context, cfg *profilemanager.Config, m MobileDependency, rc chan struct{}, lp string) {
+		err := s.run(ctx, cfg, m, rc, lp)
 		s.runEnded <- runEndResult{err: err}
-	}(runCtx, cmd.mobileDep, cmd.runningChan, cmd.logPath)
+	}(runCtx, cmd.config, cmd.mobileDep, cmd.runningChan, cmd.logPath)
 }
 
 func (s *supervisor) handleStop(cmd lifecycleCmd) {
@@ -150,8 +154,8 @@ func (s *supervisor) shutdown() {
 // startAsync enqueues a start without blocking. If done is non-nil it receives
 // the run's end result (or errAlreadyRunning on rejection, or the context error
 // on shutdown).
-func (s *supervisor) startAsync(mobileDep MobileDependency, runningChan chan struct{}, logPath string, done chan error) {
-	cmd := lifecycleCmd{op: opStart, mobileDep: mobileDep, runningChan: runningChan, logPath: logPath, done: done}
+func (s *supervisor) startAsync(config *profilemanager.Config, mobileDep MobileDependency, runningChan chan struct{}, logPath string, done chan error) {
+	cmd := lifecycleCmd{op: opStart, config: config, mobileDep: mobileDep, runningChan: runningChan, logPath: logPath, done: done}
 	select {
 	case s.cmdCh <- cmd:
 	case <-s.ctx.Done():
@@ -161,9 +165,9 @@ func (s *supervisor) startAsync(mobileDep MobileDependency, runningChan chan str
 
 // start enqueues a start and blocks until the run terminates, preserving the
 // blocking contract of the legacy Run entry points.
-func (s *supervisor) start(mobileDep MobileDependency, runningChan chan struct{}, logPath string) error {
+func (s *supervisor) start(config *profilemanager.Config, mobileDep MobileDependency, runningChan chan struct{}, logPath string) error {
 	done := make(chan error, 1)
-	s.startAsync(mobileDep, runningChan, logPath, done)
+	s.startAsync(config, mobileDep, runningChan, logPath, done)
 	select {
 	case err := <-done:
 		return err

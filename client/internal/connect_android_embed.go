@@ -7,6 +7,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/listener"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 )
 
@@ -15,6 +16,7 @@ import (
 // It provides complete MobileDependency so the engine's existing
 // Android code paths work unchanged.
 func (c *ConnectClient) runOnAndroidEmbed(
+	config *profilemanager.Config,
 	iFaceDiscover stdnet.ExternalIFaceDiscover,
 	networkChangeListener listener.NetworkChangeListener,
 	dnsAddresses []netip.AddrPort,
@@ -28,5 +30,5 @@ func (c *ConnectClient) runOnAndroidEmbed(
 		HostDNSAddresses:      dnsAddresses,
 		DnsReadyListener:      dnsReadyListener,
 	}
-	return c.sup.start(mobileDependency, runningChan, logPath)
+	return c.sup.start(config, mobileDependency, runningChan, logPath)
 }

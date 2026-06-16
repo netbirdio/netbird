@@ -202,10 +202,10 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *pr
 	r := peer.NewRecorder(config.ManagementURL.String())
 	r.GetFullStatus()
 
-	connectClient := internal.NewConnectClient(ctx, config, r)
+	connectClient := internal.NewConnectClient(ctx, r)
 	SetupDebugHandler(ctx, config, r, connectClient, "")
 
-	return connectClient.Run(nil, util.FindFirstLogPath(logFiles))
+	return connectClient.Run(config, nil, util.FindFirstLogPath(logFiles))
 }
 
 func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager.ProfileManager, activeProf *profilemanager.Profile, profileSwitched bool) error {

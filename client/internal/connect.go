@@ -50,11 +50,10 @@ import (
 
 // androidRunOverride is set on Android to inject mobile dependencies
 // when using embed.Client (which calls Run() with empty MobileDependency).
-var androidRunOverride func(c *ConnectClient, runningChan chan struct{}, logPath string) error
+var androidRunOverride func(c *ConnectClient, config *profilemanager.Config, runningChan chan struct{}, logPath string) error
 
 type ConnectClient struct {
 	ctx            context.Context
-	config         *profilemanager.Config
 	statusRecorder *peer.Status
 
 	engine        *Engine
@@ -71,12 +70,10 @@ type ConnectClient struct {
 
 func NewConnectClient(
 	ctx context.Context,
-	config *profilemanager.Config,
 	statusRecorder *peer.Status,
 ) *ConnectClient {
 	c := &ConnectClient{
 		ctx:            ctx,
-		config:         config,
 		statusRecorder: statusRecorder,
 		engineMutex:    sync.Mutex{},
 	}
@@ -89,15 +86,16 @@ func (c *ConnectClient) SetUpdateManager(um *updater.Manager) {
 }
 
 // Run with main logic.
-func (c *ConnectClient) Run(runningChan chan struct{}, logPath string) error {
+func (c *ConnectClient) Run(config *profilemanager.Config, runningChan chan struct{}, logPath string) error {
 	if androidRunOverride != nil {
-		return androidRunOverride(c, runningChan, logPath)
+		return androidRunOverride(c, config, runningChan, logPath)
 	}
-	return c.sup.start(MobileDependency{}, runningChan, logPath)
+	return c.sup.start(config, MobileDependency{}, runningChan, logPath)
 }
 
 // RunOnAndroid with main logic on mobile system
 func (c *ConnectClient) RunOnAndroid(
+	config *profilemanager.Config,
 	tunAdapter device.TunAdapter,
 	iFaceDiscover stdnet.ExternalIFaceDiscover,
 	networkChangeListener listener.NetworkChangeListener,
@@ -116,10 +114,11 @@ func (c *ConnectClient) RunOnAndroid(
 		StateFilePath:         stateFilePath,
 		TempDir:               cacheDir,
 	}
-	return c.sup.start(mobileDependency, nil, "")
+	return c.sup.start(config, mobileDependency, nil, "")
 }
 
 func (c *ConnectClient) RunOniOS(
+	config *profilemanager.Config,
 	fileDescriptor int32,
 	networkChangeListener listener.NetworkChangeListener,
 	dnsManager dns.IosDnsManager,
@@ -134,12 +133,12 @@ func (c *ConnectClient) RunOniOS(
 		DnsManager:            dnsManager,
 		StateFilePath:         stateFilePath,
 	}
-	return c.sup.start(mobileDependency, nil, "")
+	return c.sup.start(config, mobileDependency, nil, "")
 }
 
 // run executes a single client run. runCtx is owned by the supervisor: cancelling
 // it tears the run down (it is the parent of the per-attempt engine context).
-func (c *ConnectClient) run(runCtx context.Context, mobileDependency MobileDependency, runningChan chan struct{}, logPath string) error {
+func (c *ConnectClient) run(runCtx context.Context, config *profilemanager.Config, mobileDependency MobileDependency, runningChan chan struct{}, logPath string) error {
 	defer func() {
 		if r := recover(); r != nil {
 			rec := c.statusRecorder
@@ -203,18 +202,18 @@ func (c *ConnectClient) run(runCtx context.Context, mobileDependency MobileDepen
 	}()
 
 	wrapErr := state.Wrap
-	myPrivateKey, err := wgtypes.ParseKey(c.config.PrivateKey)
+	myPrivateKey, err := wgtypes.ParseKey(config.PrivateKey)
 	if err != nil {
-		log.Errorf("failed parsing Wireguard key %s: [%s]", c.config.PrivateKey, err.Error())
+		log.Errorf("failed parsing Wireguard key %s: [%s]", config.PrivateKey, err.Error())
 		return wrapErr(err)
 	}
 
 	var mgmTlsEnabled bool
-	if c.config.ManagementURL.Scheme == "https" {
+	if config.ManagementURL.Scheme == "https" {
 		mgmTlsEnabled = true
 	}
 
-	publicSSHKey, err := ssh.GeneratePublicKey([]byte(c.config.SSHKey))
+	publicSSHKey, err := ssh.GeneratePublicKey([]byte(config.SSHKey))
 	if err != nil {
 		return err
 	}
@@ -262,8 +261,8 @@ func (c *ConnectClient) run(runCtx context.Context, mobileDependency MobileDepen
 			cancel()
 		}()
 
-		log.Debugf("connecting to the Management service %s", c.config.ManagementURL.Host)
-		mgmClient, err := mgm.NewClient(engineCtx, c.config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled)
+		log.Debugf("connecting to the Management service %s", config.ManagementURL.Host)
+		mgmClient, err := mgm.NewClient(engineCtx, config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled)
 		if err != nil {
 			return wrapErr(gstatus.Errorf(codes.FailedPrecondition, "failed connecting to Management Service : %s", err))
 		}
@@ -280,7 +279,7 @@ func (c *ConnectClient) run(runCtx context.Context, mobileDependency MobileDepen
 		}
 		c.clientMetrics.UpdateAgentInfo(agentInfo, myPrivateKey.PublicKey().String())
 
-		log.Debugf("connected to the Management service %s", c.config.ManagementURL.Host)
+		log.Debugf("connected to the Management service %s", config.ManagementURL.Host)
 		defer func() {
 			if err = mgmClient.Close(); err != nil {
 				log.Warnf("failed to close the Management service client %v", err)
@@ -289,7 +288,7 @@ func (c *ConnectClient) run(runCtx context.Context, mobileDependency MobileDepen
 
 		// connect (just a connection, no stream yet) and login to Management Service to get an initial global Netbird config
 		loginStarted := time.Now()
-		loginResp, err := loginToManagement(engineCtx, mgmClient, publicSSHKey, c.config)
+		loginResp, err := loginToManagement(engineCtx, mgmClient, publicSSHKey, config)
 		if err != nil {
 			c.clientMetrics.RecordLoginDuration(engineCtx, time.Since(loginStarted), false)
 			log.Debug(err)
@@ -349,7 +348,7 @@ func (c *ConnectClient) run(runCtx context.Context, mobileDependency MobileDepen
 		}
 		peerConfig := loginResp.GetPeerConfig()
 
-		engineConfig, err := createEngineConfig(myPrivateKey, c.config, peerConfig, logPath)
+		engineConfig, err := createEngineConfig(myPrivateKey, config, peerConfig, logPath)
 		if err != nil {
 			log.Error(err)
 			return wrapErr(err)
@@ -393,7 +392,7 @@ func (c *ConnectClient) run(runCtx context.Context, mobileDependency MobileDepen
 		c.engine = engine
 		c.engineMutex.Unlock()
 
-		if err := engine.Start(loginResp.GetNetbirdConfig(), c.config.ManagementURL); err != nil {
+		if err := engine.Start(loginResp.GetNetbirdConfig(), config.ManagementURL); err != nil {
 			log.Errorf("error while starting Netbird Connection Engine: %s", err)
 			return wrapErr(err)
 		}

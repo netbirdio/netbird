@@ -22,7 +22,7 @@ func newTestServer() *Server {
 }
 
 func newDummyConnectClient(ctx context.Context) *internal.ConnectClient {
-	return internal.NewConnectClient(ctx, nil, nil)
+	return internal.NewConnectClient(ctx, nil)
 }
 
 // TestConnectSetsClientWithMutex validates that connect() sets s.connectClient
