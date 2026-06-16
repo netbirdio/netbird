@@ -106,9 +106,9 @@ func (am *AggregatingMemory) GetAggregatedEvents() []*types.Event {
 				event.NumOfEnds += 1
 			}
 
-			if event.Protocol == types.ICMP || event.Protocol == types.ICMPv6 {
-				event.ICMPCode = 0 // reset icmp code
-			}
+			// Please note that ICMPCode field isn't propagated by the manager (see flow/proto/flow.pb.go, FlowFields struct)
+			// so the field value in an icmp event in the "aggregated" doesn't matter
+
 			continue
 		}
 
