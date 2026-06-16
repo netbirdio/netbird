@@ -54,6 +54,7 @@ type selectRoute struct {
 	Network       netip.Prefix
 	Domains       domain.List
 	Selected      bool
+	Status        string
 	extraNetworks []netip.Prefix
 }
 
@@ -377,7 +378,55 @@ func (c *Client) GetRoutesSelectionDetails() (*RoutesSelectionDetails, error) {
 	routes := buildSelectRoutes(routesMap, routeSelector.IsSelected, v6ExitMerged)
 	resolvedDomains := c.recorder.GetResolvedDomainsStates()
 
+	// Compute each route's connection status in the core (mirroring the Android
+	// bridge), so the UI doesn't have to infer it by string-matching the joined
+	// Network value against peer routes. For a merged exit node the status reflects
+	// whichever of the v4/v6 prefixes is served by a connected peer; for dynamic
+	// (DNS) routes the peer route key is the domain pattern (see dynamic.Route.String).
+	connectedRoutes := c.connectedRouteSet()
+	for _, r := range routes {
+		r.Status = routeStatus(r, connectedRoutes)
+	}
+
 	return prepareRouteSelectionDetails(routes, resolvedDomains), nil
+}
+
+// connectedRouteSet returns the set of route keys (as strings) currently served by a
+// connected peer, gathered across all connected peers' route tables. The keys match
+// what the route manager records: a prefix string for static routes (e.g. "0.0.0.0/0")
+// and the domain pattern for dynamic routes (e.g. "*.example.com").
+func (c *Client) connectedRouteSet() map[string]struct{} {
+	connected := map[string]struct{}{}
+	for _, p := range c.recorder.GetFullStatus().Peers {
+		if p.ConnStatus != peer.StatusConnected {
+			continue
+		}
+		for r := range p.GetRoutes() {
+			connected[r] = struct{}{}
+		}
+	}
+	return connected
+}
+
+// routeStatus reports "Connected" if any of the route's keys is served by a connected
+// peer: the primary Network prefix, an extra v6 network of a merged exit node, or the
+// domain pattern for a dynamic DNS route. Otherwise "Idle".
+func routeStatus(r *selectRoute, connectedRoutes map[string]struct{}) string {
+	keys := make([]string, 0, 1+len(r.extraNetworks))
+	if len(r.Domains) > 0 {
+		keys = append(keys, r.Domains.SafeString())
+	} else {
+		keys = append(keys, r.Network.String())
+	}
+	for _, extra := range r.extraNetworks {
+		keys = append(keys, extra.String())
+	}
+	for _, k := range keys {
+		if _, ok := connectedRoutes[k]; ok {
+			return peer.StatusConnected.String()
+		}
+	}
+	return peer.StatusIdle.String()
 }
 
 func buildSelectRoutes(routesMap map[route.NetID][]*route.Route, isSelected func(route.NetID) bool, v6Merged map[route.NetID]struct{}) []*selectRoute {
@@ -462,6 +511,7 @@ func prepareRouteSelectionDetails(routes []*selectRoute, resolvedDomains map[dom
 			Network:  netStr,
 			Domains:  &domainDetails,
 			Selected: r.Selected,
+			Status:   r.Status,
 		})
 	}
 
