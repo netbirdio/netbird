@@ -105,6 +105,7 @@ func (am *AggregatingMemory) GetAggregatedEvents() []*types.Event {
 			case types.TypeEnd:
 				event.NumOfEnds += 1
 			}
+			event.Type = types.TypeUnknown
 
 			// Please note that ICMPCode field isn't propagated by the manager (see flow/proto/flow.pb.go, FlowFields struct)
 			// so the field value in an icmp event in the "aggregated" doesn't matter
