@@ -18,7 +18,7 @@ export function SettingsGeneral() {
     const { autostart, setAutostartEnabled } = useAutostartSetting();
     const { mode, setMode, setUrl, displayUrl, showError, canSave, save, checking, unreachable } =
         useManagementUrl();
-    const { mdm } = useRestrictions();
+    const { mdm, features } = useRestrictions();
 
     const inputRef = useRef<HTMLInputElement>(null);
     const prevMode = useRef(mode);
@@ -39,7 +39,7 @@ export function SettingsGeneral() {
                     label={t("settings.general.notifications.label")}
                     helpText={t("settings.general.notifications.help")}
                 />
-                {!mdm.disableAutoConnect && (
+                {!mdm.disableAutoConnect && !features.disableUpdateSettings && (
                     <FancyToggleSwitch
                         value={!config.disableAutoConnect}
                         onChange={(v) => setField("disableAutoConnect", !v)}
@@ -58,7 +58,7 @@ export function SettingsGeneral() {
                 )}
             </SectionGroup>
 
-            {!mdm.managementURL && (
+            {!mdm.managementURL && !features.disableUpdateSettings && (
                 <SectionGroup title={t("settings.general.section.connection")}>
                     <div>
                         <div className={"flex items-start gap-3"}>

@@ -50,7 +50,7 @@ export const SettingsPage = () => {
     const visibleTabs = useMemo<Tab[]>(() => {
         const editable = !features.disableUpdateSettings;
         const visibility: Record<Tab, boolean> = {
-            [Tab.General]: editable,
+            [Tab.General]: true,
             [Tab.Network]: editable,
             [Tab.Security]: editable,
             [Tab.Profiles]: !features.disableProfiles,

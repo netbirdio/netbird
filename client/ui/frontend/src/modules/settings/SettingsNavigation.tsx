@@ -30,13 +30,13 @@ export const SettingsNavigation = () => {
     return (
         <div className={"flex flex-col w-52 shrink-0 items-center select-none"}>
             <VerticalTabs.List>
+                <VerticalTabs.Trigger
+                    value={"general"}
+                    icon={SlidersHorizontalIcon}
+                    title={t("settings.tabs.general")}
+                />
                 {!features.disableUpdateSettings && (
                     <>
-                        <VerticalTabs.Trigger
-                            value={"general"}
-                            icon={SlidersHorizontalIcon}
-                            title={t("settings.tabs.general")}
-                        />
                         <VerticalTabs.Trigger
                             value={"network"}
                             icon={NetworkIcon}
