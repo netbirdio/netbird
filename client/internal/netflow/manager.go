@@ -314,6 +314,9 @@ func toProtoEvent(publicKey []byte, event *nftypes.Event) *proto.FlowEvent {
 			TxBytes:          event.TxBytes,
 			SourceResourceId: event.SourceResourceID,
 			DestResourceId:   event.DestResourceID,
+			NumOfStarts:      event.NumOfStarts,
+			NumOfEnds:        event.NumOfEnds,
+			NumOfDrops:       event.NumOfDrops,
 		},
 	}
 
