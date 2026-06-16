@@ -977,7 +977,14 @@ func (s *DefaultServer) updateMux(muxUpdates []handlerWrapper) {
 	// this will introduce a short period of time when the server is not able to handle DNS requests
 	for _, existing := range s.dnsMuxHandlers {
 		s.deregisterHandler([]string{existing.domain}, existing.priority)
-		existing.handler.Stop()
+		// The local resolver is a persistent singleton shared by every custom
+		// zone and reused across config updates. Its chain registrations are
+		// per-config and must be deregistered, but Stop() cancels its lookup
+		// context (breaking external CNAME-target resolution) and clears its
+		// records, so it must not be torn down here.
+		if existing.handler != s.localResolver {
+			existing.handler.Stop()
+		}
 	}
 
 	for _, update := range muxUpdates {

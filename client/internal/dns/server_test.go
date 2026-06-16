@@ -1430,13 +1430,14 @@ func chainHasPattern(s *DefaultServer, pattern string, priority int) bool {
 	return false
 }
 
-// TestDefaultServer_UpdateMux_SharedHandlerZoneRemoval guards against the custom
-// zone teardown leak: every custom zone is served by the same handler instance
-// (the local resolver, whose ID is the constant "local-resolver"). updateMux
-// must track each (handler, domain) registration independently, so that removing
-// one zone deregisters exactly that zone's chain entry. Keying the registration
-// set by handler ID alone collapsed all zones onto one entry, leaving removed
-// zones leaked in the chain where they answered authoritatively with no records.
+// TestDefaultServer_UpdateMux_SharedHandlerZoneRemoval verifies that updateMux
+// tracks each (handler, domain) registration independently when one handler
+// serves multiple zones. Every custom zone is served by the same handler
+// instance (the local resolver, whose ID is the constant "local-resolver"), so
+// removing one zone must deregister exactly that zone's chain entry and leave
+// the others in place. Tracking registrations by handler ID alone collapses all
+// zones onto one entry, leaving removed zones in the chain to answer
+// authoritatively with no records.
 func TestDefaultServer_UpdateMux_SharedHandlerZoneRemoval(t *testing.T) {
 	// One handler serves every custom zone, mirroring s.localResolver.
 	shared := &mockHandler{Id: "local-resolver"}
@@ -1446,8 +1447,8 @@ func TestDefaultServer_UpdateMux_SharedHandlerZoneRemoval(t *testing.T) {
 		service:      &mockService{},
 	}
 
-	// Two custom zones under the same handler. The surviving peer zone is
-	// registered last, mirroring the management emission order.
+	// Two custom zones under the same handler. The surviving zone is registered
+	// last, mirroring the management emission order.
 	server.updateMux([]handlerWrapper{
 		{domain: "userzone.test", handler: shared, priority: PriorityLocal},
 		{domain: "peerzone.test", handler: shared, priority: PriorityLocal},
@@ -1458,7 +1459,7 @@ func TestDefaultServer_UpdateMux_SharedHandlerZoneRemoval(t *testing.T) {
 	require.True(t, chainHasPattern(server, "peerzone.test.", PriorityLocal),
 		"peerzone.test should be registered after the first update")
 
-	// Remove the user zone, keep the peer zone (the dist-group revert).
+	// Remove one zone, keep the other.
 	server.updateMux([]handlerWrapper{
 		{domain: "peerzone.test", handler: shared, priority: PriorityLocal},
 	})
@@ -1467,6 +1468,51 @@ func TestDefaultServer_UpdateMux_SharedHandlerZoneRemoval(t *testing.T) {
 		"peerzone.test should remain after removing userzone.test")
 	assert.False(t, chainHasPattern(server, "userzone.test.", PriorityLocal),
 		"userzone.test handler must be deregistered, not leaked in the chain")
+}
+
+// TestDefaultServer_UpdateMux_PreservesLocalResolver verifies that updateMux
+// does not tear down the shared local resolver during reconfiguration. The
+// resolver is a process-lifetime singleton reused across config updates;
+// Stop() cancels its lookup context (breaking external CNAME-target
+// resolution) and clears its records. updateMux must deregister its chain
+// entries without stopping it. Records surviving a teardown update is the
+// observable proxy: Stop() would have cleared them.
+func TestDefaultServer_UpdateMux_PreservesLocalResolver(t *testing.T) {
+	resolver := local.NewResolver()
+	require.NoError(t, resolver.RegisterRecord(nbdns.SimpleRecord{
+		Name:  "peer.netbird.cloud.",
+		Type:  int(dns.TypeA),
+		Class: nbdns.DefaultClass,
+		TTL:   300,
+		RData: "10.0.0.1",
+	}))
+
+	server := &DefaultServer{
+		handlerChain:  NewHandlerChain(),
+		service:       &mockService{},
+		localResolver: resolver,
+	}
+
+	server.updateMux([]handlerWrapper{
+		{domain: "netbird.cloud", handler: resolver, priority: PriorityLocal},
+	})
+
+	// Remove the zone. The resolver must survive so its records and lookup
+	// context stay intact for the next registration.
+	server.updateMux(nil)
+
+	var response *dns.Msg
+	resolver.ServeDNS(&test.MockResponseWriter{
+		WriteMsgFunc: func(m *dns.Msg) error {
+			response = m
+			return nil
+		},
+	}, &dns.Msg{Question: []dns.Question{{Name: "peer.netbird.cloud.", Qtype: dns.TypeA, Qclass: dns.ClassINET}}})
+
+	require.NotNil(t, response, "local resolver should answer after teardown")
+	assert.Equal(t, dns.RcodeSuccess, response.Rcode,
+		"local resolver records must survive teardown; updateMux must not Stop() the shared resolver")
+	assert.NotEmpty(t, response.Answer, "answer should contain the surviving record")
 }
 
 func TestExtraDomains(t *testing.T) {
