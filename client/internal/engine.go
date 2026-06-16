@@ -86,6 +86,8 @@ const (
 
 var ErrResetConnection = fmt.Errorf("reset connection")
 
+var ErrEngineAlreadyStarted = errors.New("engine already started")
+
 type EngineConfig struct {
 	WgPort      int
 	WgIfaceName string
@@ -199,6 +201,8 @@ type Engine struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
+	started bool
+
 	wgInterface WGIface
 
 	udpMux *udpmux.UniversalUDPMuxDefault
@@ -279,9 +283,15 @@ func NewEngine(
 	services EngineServices,
 	mobileDep MobileDependency,
 ) *Engine {
+	// The engine is single-use: a fresh instance is built per connection
+	// cycle (see Client.run), so the run context is created once here rather
+	// than in Start.
+	ctx, cancel := context.WithCancel(clientCtx)
 	engine := &Engine{
 		clientCtx:          clientCtx,
 		clientCancel:       clientCancel,
+		ctx:                ctx,
+		cancel:             cancel,
 		signal:             services.SignalClient,
 		signaler:           peer.NewSignaler(services.SignalClient, config.WgPrivateKey),
 		mgmClient:          services.MgmClient,
@@ -314,6 +324,7 @@ func (e *Engine) Stop() error {
 		log.Debugf("tried stopping engine that is nil")
 		return nil
 	}
+	e.cancel()
 	e.syncMsgMux.Lock()
 
 	if e.connMgr != nil {
@@ -365,10 +376,6 @@ func (e *Engine) Stop() error {
 	// stop/restore DNS after peers are closed but before interface goes down
 	// so dbus and friends don't complain because of a missing interface
 	e.stopDNSServer()
-
-	if e.cancel != nil {
-		e.cancel()
-	}
 
 	e.jobExecutorWG.Wait() // block until job goroutines finish
 
@@ -444,15 +451,17 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
-	if err := iface.ValidateMTU(e.config.MTU); err != nil {
-		return fmt.Errorf("invalid MTU configuration: %w", err)
+	// The engine is single-use. Reject a duplicate start and a start on an
+	// already-stopped engine (run context cancelled).
+	if e.started {
+		return ErrEngineAlreadyStarted
 	}
 
-	if e.cancel != nil {
-		e.cancel()
+	if ctxErr := e.ctx.Err(); ctxErr != nil {
+		return fmt.Errorf("engine already stopped: %w", ctxErr)
 	}
-	e.ctx, e.cancel = context.WithCancel(e.clientCtx)
-	e.exposeManager = expose.NewManager(e.ctx, e.mgmClient)
+
+	e.started = true
 
 	// Tear down any partially-initialized state on a failed start.
 	defer func() {
@@ -460,6 +469,12 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 			e.close()
 		}
 	}()
+
+	if err = iface.ValidateMTU(e.config.MTU); err != nil {
+		return fmt.Errorf("invalid MTU configuration: %w", err)
+	}
+
+	e.exposeManager = expose.NewManager(e.ctx, e.mgmClient)
 
 	wgIface, err := e.newWgIface()
 	if err != nil {
