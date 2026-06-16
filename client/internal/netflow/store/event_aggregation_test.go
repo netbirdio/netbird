@@ -176,7 +176,7 @@ func generateEvents(srcIp, dstIp netip.Addr, dstPort uint16, eventTypes []types.
 		Timestamp: inEvents[0].Timestamp,
 		EventFields: types.EventFields{
 			FlowID:           flowId,
-			Type:             inEvents[0].Type,
+			Type:             types.TypeUnknown,
 			Protocol:         inEvents[0].Protocol,
 			RuleID:           []byte("rule-id-1"),
 			Direction:        inEvents[0].Direction,
