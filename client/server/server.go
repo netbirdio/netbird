@@ -973,26 +973,19 @@ func (s *Server) cleanupConnection() error {
 	// path, so its clientRunning stays true.
 	s.clientRunning = false
 
-	// Capture the engine reference before cancelling the context.
-	// After actCancel(), the connectWithRetryRuns goroutine wakes up
-	// and sets connectClient.engine = nil, causing connectClient.Stop()
-	// to skip the engine shutdown entirely.
-	var engine *internal.Engine
+	// Tear the client down through the lifecycle supervisor BEFORE cancelling
+	// the retry context. Stop serializes on the supervisor queue and blocks
+	// until the in-flight run has fully unwound (a clean, synchronous teardown).
+	// It must run before actCancel: cancelling the context first would make
+	// Stop observe a dead context and return early without waiting.
 	if s.connectClient != nil {
-		engine = s.connectClient.Engine()
-	}
-
-	s.actCancel()
-
-	if s.connectClient == nil {
-		return nil
-	}
-
-	if engine != nil {
-		if err := engine.Stop(); err != nil {
+		if err := s.connectClient.Stop(); err != nil {
 			return err
 		}
 	}
+
+	// Stop the retry goroutine so it does not start a fresh run.
+	s.actCancel()
 
 	s.connectClient = nil
 	s.isSessionActive.Store(false)
