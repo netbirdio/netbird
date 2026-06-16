@@ -1,7 +1,7 @@
 version: 2
 env:
   - SKIP_PUBLISH={{ if index .Env "SKIP_PUBLISH" }}{{ .Env.SKIP_PUBLISH }}{{ else }}true{{ end }}
-  - SKIP_DOCKER_PUSH={{ if index .Env "SKIP_DOCKER_PUSH" }}{{ .Env.SKIP_PUBLISH }}{{ else }}false{{ end }}
+  - SKIP_DOCKER_PUSH={{ if index .Env "SKIP_DOCKER_PUSH" }}{{ .Env.SKIP_DOCKER_PUSH }}{{ else }}false{{ end }}
 project_name: netbird
 builds:
   - id: netbird-wasm
@@ -256,8 +256,10 @@ dockers_v2:
        - ghcr.io/netbirdio/netbird
      tags:
        - "v{{ .Version }}-rootless"
-       - "{{ if not .IsNightly }}latest-rootless{{ end }}"
+       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}latest{{ end }}"
      dockerfile: client/Dockerfile-rootless
+     extra_files:
+       - client/netbird-entrypoint.sh
      platforms:
        - linux/amd64
        - linux/arm64
@@ -345,7 +347,7 @@ dockers_v2:
      tags:
        - "v{{ .Version }}"
        - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}latest{{ end }}"
-     dockerfile: upload/Dockerfile
+     dockerfile: upload-server/Dockerfile
      platforms:
        - linux/amd64
        - linux/arm64
