@@ -248,6 +248,8 @@ func (m *Manager) receiveACKs(ctx context.Context, client *client.GRPCClient) {
 	}
 }
 
+// We effectively never drop events (see MaxInterval), which makes eventsWithoutAcks unbounded.
+// We may want to limit the max size of the store, and start dropping oldest events when the threshold is reached.
 func (m *Manager) startRetries(ctx context.Context) {
 	timer := time.NewTimer(m.retryInterval)
 	retryBackoff := backoff.WithContext(&backoff.ExponentialBackOff{
