@@ -327,6 +327,31 @@ func (e *Engine) Stop() error {
 	e.cancel()
 	e.syncMsgMux.Lock()
 
+	e.stopLocked()
+
+	e.syncMsgMux.Unlock()
+
+	timeout := e.calculateShutdownTimeout()
+	log.Debugf("waiting for goroutines to finish with timeout: %v", timeout)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	if err := waitWithContext(shutdownCtx, &e.shutdownWg); err != nil {
+		log.Warnf("shutdown timeout exceeded after %v, some goroutines may still be running", timeout)
+	}
+
+	log.Infof("stopped Netbird Engine")
+
+	return nil
+}
+
+// stopLocked tears down everything Start may have brought up, in the order
+// teardown requires (DNS before the interface goes down, flow manager after).
+// The caller must hold syncMsgMux. It is shared by Stop and by Start's failure
+// path, so a partially-initialized engine is cleaned up the same way; every
+// step is nil-guarded. It does not wait on shutdownWg — the caller does that
+// after releasing the lock, since the goroutines also take syncMsgMux.
+func (e *Engine) stopLocked() {
 	if e.connMgr != nil {
 		e.connMgr.Close()
 	}
@@ -395,21 +420,6 @@ func (e *Engine) Stop() error {
 	if err := e.stateManager.PersistState(context.Background()); err != nil {
 		log.Errorf("failed to persist state: %v", err)
 	}
-
-	e.syncMsgMux.Unlock()
-
-	timeout := e.calculateShutdownTimeout()
-	log.Debugf("waiting for goroutines to finish with timeout: %v", timeout)
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	if err := waitWithContext(shutdownCtx, &e.shutdownWg); err != nil {
-		log.Warnf("shutdown timeout exceeded after %v, some goroutines may still be running", timeout)
-	}
-
-	log.Infof("stopped Netbird Engine")
-
-	return nil
 }
 
 // calculateShutdownTimeout returns shutdown timeout: 10s base + 100ms per peer, capped at 30s.
@@ -463,10 +473,15 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 
 	e.started = true
 
-	// Tear down any partially-initialized state on a failed start.
+	// Tear down any partially-initialized state on a failed start. Cancel the
+	// run context first so goroutines started before the failure (connMgr,
+	// srWatcher, monitors) unwind, then stopLocked mirrors Stop's teardown (we
+	// already hold syncMsgMux), cleaning up route/DNS/flow/state managers too,
+	// not just what close() covers.
 	defer func() {
 		if err != nil {
-			e.close()
+			e.cancel()
+			e.stopLocked()
 		}
 	}()
 
