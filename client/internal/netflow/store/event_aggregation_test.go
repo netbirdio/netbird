@@ -17,22 +17,32 @@ func TestFlowAggregation(t *testing.T) {
 	var protocols = []types.Protocol{types.ICMP, types.ICMPv6, types.TCP, types.UDP}
 	var tests = []struct {
 		description string
+		addresses   [][]netip.Addr
+		dstPort     uint16
 		eventTypes  []types.Type
 	}{
 		{
 			description: "start and stop",
+			addresses:   [][]netip.Addr{{ipAddr("1.1.1.1"), ipAddr("2.2.2.2")}, {ipAddr("3.3.3.3"), ipAddr("2.2.2.2")}},
+			dstPort:     uint16(random.Uint32() >> 16),
 			eventTypes:  []types.Type{types.TypeStart, types.TypeEnd},
 		},
 		{
 			description: "start and drop",
+			addresses:   [][]netip.Addr{{ipAddr("1.1.1.1"), ipAddr("2.2.2.2")}, {ipAddr("3.3.3.3"), ipAddr("2.2.2.2")}},
+			dstPort:     uint16(random.Uint32() >> 16),
 			eventTypes:  []types.Type{types.TypeStart, types.TypeDrop},
 		},
 		{
 			description: "start only",
+			addresses:   [][]netip.Addr{{ipAddr("1.1.1.1"), ipAddr("2.2.2.2")}, {ipAddr("3.3.3.3"), ipAddr("2.2.2.2")}},
+			dstPort:     uint16(random.Uint32() >> 16),
 			eventTypes:  []types.Type{types.TypeStart},
 		},
 		{
 			description: "drop only",
+			addresses:   [][]netip.Addr{{ipAddr("1.1.1.1"), ipAddr("2.2.2.2")}, {ipAddr("3.3.3.3"), ipAddr("2.2.2.2")}},
+			dstPort:     uint16(random.Uint32() >> 16),
 			eventTypes:  []types.Type{types.TypeDrop},
 		}}
 
@@ -42,8 +52,8 @@ func TestFlowAggregation(t *testing.T) {
 				store := NewAggregatingMemoryStore()
 				allExpected := make([]*types.Event, 0)
 
-				for i := 0; i < 2; i++ {
-					inEvents, expected := generateEvents(tt.eventTypes, protocol, types.Ingress, 0)
+				for _, srcAndDst := range tt.addresses {
+					inEvents, expected := generateEvents(srcAndDst[0], srcAndDst[1], tt.dstPort, tt.eventTypes, protocol, types.Ingress, 0)
 					for _, e := range inEvents {
 						store.StoreEvent(e)
 					}
@@ -63,22 +73,27 @@ func TestIcmpEventAggregation(t *testing.T) {
 
 	var tests = []struct {
 		description string
+		addresses   [][]netip.Addr
 		eventTypes  []types.Type
 	}{
 		{
 			description: "start and stop",
+			addresses:   [][]netip.Addr{{ipAddr("1.1.1.1"), ipAddr("2.2.2.2")}},
 			eventTypes:  []types.Type{types.TypeStart, types.TypeEnd},
 		},
 		{
 			description: "start and drop",
+			addresses:   [][]netip.Addr{{ipAddr("1.1.1.1"), ipAddr("2.2.2.2")}},
 			eventTypes:  []types.Type{types.TypeStart, types.TypeDrop},
 		},
 		{
 			description: "start only",
+			addresses:   [][]netip.Addr{{ipAddr("1.1.1.1"), ipAddr("2.2.2.2")}},
 			eventTypes:  []types.Type{types.TypeStart},
 		},
 		{
 			description: "drop only",
+			addresses:   [][]netip.Addr{{ipAddr("1.1.1.1"), ipAddr("2.2.2.2")}},
 			eventTypes:  []types.Type{types.TypeDrop},
 		}}
 
@@ -88,7 +103,7 @@ func TestIcmpEventAggregation(t *testing.T) {
 				store := NewAggregatingMemoryStore()
 				allExpected := make([]*types.Event, 0)
 				for _, icmpType := range icmpTypes {
-					events, expected := generateEvents(tt.eventTypes, protocol, types.Ingress, icmpType)
+					events, expected := generateEvents(tt.addresses[0][0], tt.addresses[0][1], 0, tt.eventTypes, protocol, types.Ingress, icmpType)
 					for _, e := range events {
 						store.StoreEvent(e)
 					}
@@ -107,15 +122,12 @@ func ipAddr(a string) netip.Addr {
 	return addr
 }
 
-func generateEvents(eventTypes []types.Type, protocol types.Protocol, direction types.Direction, icmpType uint8) ([]*types.Event, *types.Event) {
+func generateEvents(srcIp, dstIp netip.Addr, dstPort uint16, eventTypes []types.Type, protocol types.Protocol, direction types.Direction, icmpType uint8) ([]*types.Event, *types.Event) {
 	var rxPackets, txPackets, rxBytes, txBytes uint64
 	inEvents := make([]*types.Event, 0)
 	ts := time.Now()
 	flowId := uuid.New()
-	srcIp := ipAddr("1.1.1.1")
 	srcPort := uint16(random.Uint32() >> 16)
-	dstIp := ipAddr("2.2.2.2")
-	dstPort := uint16(random.Uint32() >> 16)
 
 	for idx, eventType := range eventTypes {
 		e := &types.Event{

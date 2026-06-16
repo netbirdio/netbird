@@ -71,17 +71,22 @@ func (am *AggregatingMemory) ResetAggregationWindow() types.FlowEventAggregator 
 }
 
 type aggregationKey struct {
-	destAddr netip.Addr
-	destPort uint16
-	protocol uint8
-	icmpType uint8
-	unique   int64 // used to prevent aggregation on non icmp/udp/tcp events
+	srcAddr   netip.Addr
+	destAddr  netip.Addr
+	destPort  uint16
+	direction int
+	protocol  uint8
+	icmpType  uint8
+	unique    int64 // used to prevent aggregation on non icmp/udp/tcp events
 }
 
 func (am *AggregatingMemory) GetAggregatedEvents() []*types.Event {
+	am.mux.Lock()
+	defer am.mux.Unlock()
+
 	aggregated := make(map[aggregationKey]*types.Event)
 	for _, v := range am.events {
-		lookupKey := aggregationKey{destAddr: v.DestIP, destPort: v.DestPort, protocol: uint8(v.Protocol), icmpType: v.ICMPType}
+		lookupKey := aggregationKey{srcAddr: v.SourceIP, destAddr: v.DestIP, destPort: v.DestPort, direction: int(v.Direction), protocol: uint8(v.Protocol), icmpType: v.ICMPType}
 		if _, ok := aggregated[lookupKey]; !ok {
 			aggregated[lookupKey] = v.Clone()
 			event := aggregated[lookupKey]

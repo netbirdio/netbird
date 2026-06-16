@@ -249,7 +249,7 @@ func (m *Manager) receiveACKs(ctx context.Context, client *client.GRPCClient) {
 }
 
 func (m *Manager) startRetries(ctx context.Context) {
-	ticker := time.NewTimer(m.retryInterval)
+	timer := time.NewTimer(m.retryInterval)
 	retryBackoff := backoff.WithContext(&backoff.ExponentialBackOff{
 		InitialInterval:     1 * time.Second,
 		RandomizationFactor: 0.5,
@@ -259,13 +259,13 @@ func (m *Manager) startRetries(ctx context.Context) {
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
 	}, ctx)
-	defer ticker.Stop()
+	defer timer.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-timer.C:
 			for _, e := range m.eventsWithoutAcks.GetEvents() {
 				if e.Timestamp.Add(time.Second).After(time.Now()) {
 					// grace period on retries to avoid early retries
@@ -273,12 +273,12 @@ func (m *Manager) startRetries(ctx context.Context) {
 					continue
 				}
 				if err := m.send(e); err != nil {
-					ticker = time.NewTimer(retryBackoff.NextBackOff()) //nolint:staticcheck,wastedassign
+					timer = time.NewTimer(retryBackoff.NextBackOff()) //nolint:staticcheck,wastedassign
 					break
 				}
 			}
 			retryBackoff.Reset()
-			ticker = time.NewTimer(time.Second)
+			timer = time.NewTimer(time.Second)
 		}
 	}
 }
