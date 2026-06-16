@@ -10,7 +10,7 @@ import (
 
 // NewWGIFace Creates a new WireGuard interface instance
 func NewWGIFace(opts WGIFaceOpts) (*WGIface, error) {
-	iceBind := bind.NewICEBind(opts.TransportNet, opts.FilterFn, opts.Address, opts.MTU)
+	iceBind := bind.NewICEBind(opts.TransportNet, opts.Address, opts.MTU)
 
 	wgIFace := &WGIface{
 		tun:            device.NewTunDevice(opts.IFaceName, opts.Address, opts.WGPort, opts.WGPrivKey, opts.MTU, iceBind, opts.MobileArgs.TunFd),

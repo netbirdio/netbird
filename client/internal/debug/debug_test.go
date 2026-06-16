@@ -844,6 +844,7 @@ func TestAddConfig_AllFieldsCovered(t *testing.T) {
 		"SSHKey":            "sensitive: SSH private key",
 		"ClientCertKeyPair": "non-config: parsed cert pair, not serialized",
 		"Name":              "non-config: profile name is not needed for debug purposes",
+		"policy":            "non-config: in-memory MDM policy snapshot, surfaced via Config.Policy() / GetConfigResponse.MDMManagedFields",
 	}
 
 	mURL, _ := url.Parse("https://api.example.com:443")

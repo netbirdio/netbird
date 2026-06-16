@@ -1855,7 +1855,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 	t.Run("adding peer to unlinked group", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg) //
+			peerShouldNotReceiveUpdate(t, updMsg)
 			close(done)
 		}()
 
@@ -1880,7 +1880,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 	t.Run("deleting peer with unlinked group", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg)
 			close(done)
 		}()
 
@@ -2018,7 +2018,10 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 		}
 	})
 
-	// Adding peer to group linked with route should update account peers and send peer update
+	// drain any buffered updates from previous subtests
+	drainPeerUpdates(updMsg)
+
+	// Adding peer to group linked with route should update peers in that group, not unrelated peers
 	t.Run("adding peer to group linked with route", func(t *testing.T) {
 		route := nbroute.Route{
 			ID:          "testingRoute1",
@@ -2042,7 +2045,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg)
 			close(done)
 		}()
 
@@ -2059,16 +2062,16 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(peerUpdateTimeout):
-			t.Error("timeout waiting for peerShouldReceiveUpdate")
+		case <-time.After(time.Second):
+			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
 		}
 	})
 
-	// Deleting peer with linked group to route should update account peers and send peer update
+	// Deleting peer with linked group to route should update peers in that group, not unrelated peers
 	t.Run("deleting peer with linked group to route", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg)
 			close(done)
 		}()
 
@@ -2077,12 +2080,12 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(peerUpdateTimeout):
-			t.Error("timeout waiting for peerShouldReceiveUpdate")
+		case <-time.After(time.Second):
+			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
 		}
 	})
 
-	// Adding peer to group linked with name server group should update account peers and send peer update
+	// Adding peer to group linked with name server group should update peers in that group, not unrelated peers
 	t.Run("adding peer to group linked with name server group", func(t *testing.T) {
 		_, err = manager.CreateNameServerGroup(
 			context.Background(), account.Id, "nsGroup", "nsGroup", []nbdns.NameServer{{
@@ -2097,7 +2100,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg)
 			close(done)
 		}()
 
@@ -2114,16 +2117,16 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(peerUpdateTimeout):
-			t.Error("timeout waiting for peerShouldReceiveUpdate")
+		case <-time.After(time.Second):
+			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
 		}
 	})
 
-	// Deleting peer with linked group to name server group should update account peers and send peer update
+	// Deleting peer with linked group to name server group should update peers in that group, not unrelated peers
 	t.Run("deleting peer with linked group to route", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg)
 			close(done)
 		}()
 
@@ -2132,8 +2135,8 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(peerUpdateTimeout):
-			t.Error("timeout waiting for peerShouldReceiveUpdate")
+		case <-time.After(time.Second):
+			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
 		}
 	})
 }

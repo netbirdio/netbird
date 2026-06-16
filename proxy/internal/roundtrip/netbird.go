@@ -28,6 +28,10 @@ import (
 
 const deviceNamePrefix = "ingress-proxy-"
 
+const clientStopTimeout = 30 * time.Second
+
+const createProxyPeerTimeout = 30 * time.Second
+
 // backendKey identifies a backend by its host:port from the target URL.
 type backendKey string
 
@@ -162,6 +166,7 @@ type NetBird struct {
 
 	clientsMux     sync.RWMutex
 	clients        map[types.AccountID]*clientEntry
+	lifecycleMu    sync.Map
 	initLogOnce    sync.Once
 	statusNotifier statusNotifier
 	// readyHandler runs after the embedded client for an account reports
@@ -177,6 +182,10 @@ type NetBird struct {
 	// (i.e. when a new client was actually created, not when an existing one
 	// was reused). The duration covers keygen + gRPC CreateProxyPeer + embed.New.
 	OnAddPeer func(d time.Duration, err error)
+
+	// startClient runs the post-create client startup. Nil uses runClientStartup;
+	// tests override it to avoid a real embed client.Start.
+	startClient func(accountID types.AccountID, client *embed.Client)
 }
 
 // ClientDebugInfo contains debug information about a client.
@@ -200,31 +209,20 @@ type skipTLSVerifyContextKey struct{}
 func (n *NetBird) AddPeer(ctx context.Context, accountID types.AccountID, key ServiceKey, authToken string, serviceID types.ServiceID) error {
 	si := serviceInfo{serviceID: serviceID}
 
-	n.clientsMux.Lock()
+	if n.registerExistingClient(accountID, key, si) {
+		return nil
+	}
 
-	entry, exists := n.clients[accountID]
-	if exists {
-		entry.services[key] = si
-		started := entry.started
-		n.clientsMux.Unlock()
-
-		n.logger.WithFields(log.Fields{
-			"account_id":  accountID,
-			"service_key": key,
-		}).Debug("registered service with existing client")
-
-		if started && n.statusNotifier != nil {
-			// Use a background context, not the caller's: the management
-			// connection notification must land even if the request /
-			// stream that triggered this registration is cancelled.
-			// Mirrors the async runClientStartup path.
-			if err := n.statusNotifier.NotifyStatus(context.Background(), accountID, serviceID, true); err != nil {
-				n.logger.WithFields(log.Fields{
-					"account_id":  accountID,
-					"service_key": key,
-				}).WithError(err).Warn("failed to notify status for existing client")
-			}
+	lifecycle := n.accountLifecycle(accountID)
+	lifecycle.Lock()
+	transferred := false
+	defer func() {
+		if !transferred {
+			lifecycle.Unlock()
 		}
+	}()
+
+	if n.registerExistingClient(accountID, key, si) {
 		return nil
 	}
 
@@ -234,10 +232,10 @@ func (n *NetBird) AddPeer(ctx context.Context, accountID types.AccountID, key Se
 		n.OnAddPeer(time.Since(createStart), err)
 	}
 	if err != nil {
-		n.clientsMux.Unlock()
 		return err
 	}
 
+	n.clientsMux.Lock()
 	n.clients[accountID] = entry
 	n.clientsMux.Unlock()
 
@@ -246,17 +244,64 @@ func (n *NetBird) AddPeer(ctx context.Context, accountID types.AccountID, key Se
 		"service_key": key,
 	}).Info("created new client for account")
 
-	// Attempt to start the client in the background; if this fails we will
-	// retry on the first request via RoundTrip. runClientStartup uses its
-	// own background context so the caller's request-scoped ctx can't
-	// cancel the inbound bring-up.
-	go n.runClientStartup(accountID, entry.client)
+	transferred = true
+	go func() {
+		defer lifecycle.Unlock()
+		n.startClientStartup(accountID, entry.client)
+	}()
 
 	return nil
 }
 
+func (n *NetBird) startClientStartup(accountID types.AccountID, client *embed.Client) {
+	if n.startClient != nil {
+		n.startClient(accountID, client)
+		return
+	}
+	n.runClientStartup(accountID, client)
+}
+
+// registerExistingClient registers the service against an already-present
+// client for the account and returns true when it did. It notifies management
+// of the new service when the client is already started.
+func (n *NetBird) registerExistingClient(accountID types.AccountID, key ServiceKey, si serviceInfo) bool {
+	n.clientsMux.Lock()
+	entry, exists := n.clients[accountID]
+	if !exists {
+		n.clientsMux.Unlock()
+		return false
+	}
+	entry.services[key] = si
+	started := entry.started
+	n.clientsMux.Unlock()
+
+	n.logger.WithFields(log.Fields{
+		"account_id":  accountID,
+		"service_key": key,
+	}).Debug("registered service with existing client")
+
+	if started && n.statusNotifier != nil {
+		if err := n.statusNotifier.NotifyStatus(context.Background(), accountID, si.serviceID, true); err != nil {
+			n.logger.WithFields(log.Fields{
+				"account_id":  accountID,
+				"service_key": key,
+			}).WithError(err).Warn("failed to notify status for existing client")
+		}
+	}
+	return true
+}
+
+// accountLifecycle returns the per-account lifecycle mutex, serialising client
+// creation against teardown so a slow client.Stop cannot race a new
+// client.Start for the same account, without blocking clientsMux.
+func (n *NetBird) accountLifecycle(accountID types.AccountID) *sync.Mutex {
+	mu, _ := n.lifecycleMu.LoadOrStore(accountID, &sync.Mutex{})
+	return mu.(*sync.Mutex)
+}
+
 // createClientEntry generates a WireGuard keypair, authenticates with management,
-// and creates an embedded NetBird client. Must be called with clientsMux held.
+// and creates an embedded NetBird client. Must be called with the account's
+// lifecycle mutex held.
 func (n *NetBird) createClientEntry(ctx context.Context, accountID types.AccountID, key ServiceKey, authToken string, si serviceInfo) (*clientEntry, error) {
 	serviceID := si.serviceID
 	n.logger.WithFields(log.Fields{
@@ -276,7 +321,9 @@ func (n *NetBird) createClientEntry(ctx context.Context, accountID types.Account
 		"public_key": publicKey.String(),
 	}).Debug("authenticating new proxy peer with management")
 
-	resp, err := n.mgmtClient.CreateProxyPeer(ctx, &proto.CreateProxyPeerRequest{
+	createCtx, cancel := context.WithTimeout(ctx, createProxyPeerTimeout)
+	defer cancel()
+	resp, err := n.mgmtClient.CreateProxyPeer(createCtx, &proto.CreateProxyPeerRequest{
 		ServiceId:          string(serviceID),
 		AccountId:          string(accountID),
 		Token:              authToken,
@@ -444,6 +491,15 @@ func (n *NetBird) notifyClientReady(accountID types.AccountID, client *embed.Cli
 // RemovePeer unregisters a service from an account. The client is only stopped
 // when no services are using it anymore.
 func (n *NetBird) RemovePeer(ctx context.Context, accountID types.AccountID, key ServiceKey) error {
+	lifecycle := n.accountLifecycle(accountID)
+	lifecycle.Lock()
+	transferred := false
+	defer func() {
+		if !transferred {
+			lifecycle.Unlock()
+		}
+	}()
+
 	n.clientsMux.Lock()
 
 	entry, exists := n.clients[accountID]
@@ -466,17 +522,8 @@ func (n *NetBird) RemovePeer(ctx context.Context, accountID types.AccountID, key
 	delete(entry.services, key)
 
 	stopClient := len(entry.services) == 0
-	var client *embed.Client
-	var transport, insecureTransport *http.Transport
-	var inbound any
-	var stopHandler func(types.AccountID, any)
 	if stopClient {
 		n.logger.WithField("account_id", accountID).Info("stopping client, no more services")
-		client = entry.client
-		transport = entry.transport
-		insecureTransport = entry.insecureTransport
-		inbound = entry.inbound
-		stopHandler = n.stopHandler
 		delete(n.clients, accountID)
 	} else {
 		n.logger.WithFields(log.Fields{
@@ -490,17 +537,38 @@ func (n *NetBird) RemovePeer(ctx context.Context, accountID types.AccountID, key
 	n.notifyDisconnect(ctx, accountID, key, si.serviceID)
 
 	if stopClient {
-		if inbound != nil && stopHandler != nil {
-			stopHandler(accountID, inbound)
-		}
-		transport.CloseIdleConnections()
-		insecureTransport.CloseIdleConnections()
-		if err := client.Stop(ctx); err != nil {
-			n.logger.WithField("account_id", accountID).WithError(err).Warn("failed to stop netbird client")
-		}
+		transferred = true
+		go n.stopClientLocked(accountID, lifecycle, entry)
 	}
 
 	return nil
+}
+
+// stopClientLocked releases a client's resources off the caller's goroutine so a
+// slow client.Stop cannot wedge the mapping receive loop (which calls RemovePeer
+// synchronously). It unlocks lifecycle when done so a new client.Start for the
+// same account waits for this teardown.
+func (n *NetBird) stopClientLocked(accountID types.AccountID, lifecycle *sync.Mutex, entry *clientEntry) {
+	defer lifecycle.Unlock()
+
+	if entry.inbound != nil && n.stopHandler != nil {
+		n.stopHandler(accountID, entry.inbound)
+	}
+	if entry.transport != nil {
+		entry.transport.CloseIdleConnections()
+	}
+	if entry.insecureTransport != nil {
+		entry.insecureTransport.CloseIdleConnections()
+	}
+	if entry.client == nil {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), clientStopTimeout)
+	defer cancel()
+	if err := entry.client.Stop(ctx); err != nil {
+		n.logger.WithField("account_id", accountID).WithError(err).Warn("failed to stop netbird client")
+	}
 }
 
 func (n *NetBird) notifyDisconnect(ctx context.Context, accountID types.AccountID, key ServiceKey, serviceID types.ServiceID) {
