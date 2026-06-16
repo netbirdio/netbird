@@ -90,6 +90,8 @@ builds:
       - amd64
       - arm64
       - arm
+    goarm:
+      - 7
     ldflags:
       - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
     mod_timestamp: "{{ .CommitTimestamp }}"
@@ -104,6 +106,8 @@ builds:
       - amd64
       - arm64
       - arm
+    goarm:
+      - 7
     ldflags:
       - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
     mod_timestamp: "{{ .CommitTimestamp }}"
@@ -124,6 +128,8 @@ builds:
       - amd64
       - arm64
       - arm
+    goarm:
+      - 7
     ldflags:
       - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
     mod_timestamp: "{{ .CommitTimestamp }}"
@@ -138,6 +144,8 @@ builds:
       - amd64
       - arm64
       - arm
+    goarm:
+      - 7
     ldflags:
       - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
     mod_timestamp: "{{ .CommitTimestamp }}"
@@ -152,6 +160,8 @@ builds:
       - amd64
       - arm64
       - arm
+    goarm:
+      - 7
     ldflags:
       - -s -w -X main.Version={{.Version}} -X main.Commit={{.Commit}} -X main.BuildDate={{.CommitDate}}
     mod_timestamp: "{{ .CommitTimestamp }}"
@@ -172,6 +182,8 @@ builds:
       - amd64
       - arm64
       - arm
+    goarm:
+      - 7
     ldflags:
       - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
     mod_timestamp: "{{ .CommitTimestamp }}"
@@ -287,7 +299,7 @@ dockers_v2:
      platforms:
        - linux/amd64
        - linux/arm64
-       - linux/arm/6
+       - linux/arm
      annotations:
        "org.opencontainers.image.created": "{{.Date}}"
        "org.opencontainers.image.title": "{{.ProjectName}}"
@@ -309,7 +321,7 @@ dockers_v2:
      platforms:
        - linux/amd64
        - linux/arm64
-       - linux/arm/6
+       - linux/arm
      annotations:
        "org.opencontainers.image.created": "{{.Date}}"
        "org.opencontainers.image.title": "{{.ProjectName}}"
@@ -331,7 +343,7 @@ dockers_v2:
      platforms:
        - linux/amd64
        - linux/arm64
-       - linux/arm/6
+       - linux/arm
      annotations:
        "org.opencontainers.image.created": "{{.Date}}"
        "org.opencontainers.image.title": "{{.ProjectName}}"
@@ -353,7 +365,7 @@ dockers_v2:
      platforms:
        - linux/amd64
        - linux/arm64
-       - linux/arm/6
+       - linux/arm
      annotations:
        "org.opencontainers.image.created": "{{.Date}}"
        "org.opencontainers.image.title": "{{.ProjectName}}"
@@ -375,7 +387,7 @@ dockers_v2:
      platforms:
        - linux/amd64
        - linux/arm64
-       - linux/arm/6
+       - linux/arm
      annotations:
        "org.opencontainers.image.created": "{{.Date}}"
        "org.opencontainers.image.title": "{{.ProjectName}}"
@@ -397,7 +409,7 @@ dockers_v2:
      platforms:
        - linux/amd64
        - linux/arm64
-       - linux/arm/6
+       - linux/arm
      annotations:
        "org.opencontainers.image.created": "{{.Date}}"
        "org.opencontainers.image.title": "{{.ProjectName}}"
