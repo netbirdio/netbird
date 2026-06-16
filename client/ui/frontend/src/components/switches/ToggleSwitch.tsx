@@ -35,9 +35,9 @@ const switchVariants = cva("", {
             ],
         },
         "thumb-size": {
-            default: "h-5 w-5 data-[state=checked]:translate-x-5",
-            small: "h-[14px] w-[14px] data-[state=checked]:translate-x-[17px]",
-            large: "h-[28px] w-[28px] data-[state=checked]:translate-x-[34px]",
+            default: "h-5 w-5 data-[state=unchecked]:translate-x-0 data-[state=checked]:translate-x-5",
+            small: "h-[14px] w-[14px] data-[state=unchecked]:translate-x-0 data-[state=checked]:translate-x-[17px]",
+            large: "h-[30px] w-[30px] data-[state=unchecked]:translate-x-[1px] data-[state=checked]:translate-x-[31px]",
         },
     },
 });
@@ -64,7 +64,7 @@ const ToggleSwitch = React.forwardRef<
         <SwitchPrimitives.Thumb
             className={cn(
                 switchVariants({ "thumb-size": size }),
-                "pointer-events-none block rounded-full bg-white shadow-lg ring-0 transition-transform data-[state=unchecked]:translate-x-0 dark:bg-white",
+                "pointer-events-none block rounded-full bg-white shadow-lg ring-0 transition-transform dark:bg-white",
             )}
         />
     </SwitchPrimitives.Root>
