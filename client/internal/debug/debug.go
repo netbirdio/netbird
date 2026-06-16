@@ -250,6 +250,7 @@ type BundleGenerator struct {
 	syncResponse   *mgmProto.SyncResponse
 	logPath        string
 	tempDir        string
+	statePath      string
 	cpuProfile     []byte
 	capturePath    string
 	refreshStatus  func() // Optional callback to refresh status before bundle generation
@@ -276,6 +277,7 @@ type GeneratorDependencies struct {
 	SyncResponse   *mgmProto.SyncResponse
 	LogPath        string
 	TempDir        string // Directory for temporary bundle zip files. If empty, os.TempDir() is used.
+	StatePath      string // Path to the state file. If empty, the ServiceManager default path is used.
 	CPUProfile     []byte
 	CapturePath    string
 	RefreshStatus  func()
@@ -299,6 +301,7 @@ func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGen
 		syncResponse:   deps.SyncResponse,
 		logPath:        deps.LogPath,
 		tempDir:        deps.TempDir,
+		statePath:      deps.StatePath,
 		cpuProfile:     deps.CPUProfile,
 		capturePath:    deps.CapturePath,
 		refreshStatus:  deps.RefreshStatus,
@@ -514,6 +517,14 @@ func (g *BundleGenerator) addConfig() error {
 		if g.internalConfig.CustomDNSAddress != "" {
 			configContent.WriteString(fmt.Sprintf("CustomDNSAddress: %s\n", g.internalConfig.CustomDNSAddress))
 		}
+	}
+
+	// Surface the set of MDM-enforced keys so a support engineer reading
+	// the bundle can tell which field values are user-set vs MDM-overridden.
+	// Same semantics as the mDMManagedFields list returned by the
+	// GetConfig RPC consumed by `netbird debug config`.
+	if managed := g.internalConfig.Policy().ManagedKeys(); len(managed) > 0 {
+		configContent.WriteString(fmt.Sprintf("MDMManagedFields: %v\n", managed))
 	}
 
 	configReader := strings.NewReader(configContent.String())
@@ -806,6 +817,8 @@ func (g *BundleGenerator) addSyncResponse() error {
 		AllowPartial:    true,
 	}
 
+	g.maskSecrets()
+
 	jsonBytes, err := options.Marshal(g.syncResponse)
 	if err != nil {
 		return fmt.Errorf("generate json: %w", err)
@@ -818,9 +831,33 @@ func (g *BundleGenerator) addSyncResponse() error {
 	return nil
 }
 
+func (g *BundleGenerator) maskSecrets() {
+	if g.syncResponse == nil || g.syncResponse.NetbirdConfig == nil {
+		return
+	}
+
+	if g.syncResponse.NetbirdConfig.Flow != nil {
+		g.syncResponse.NetbirdConfig.Flow.TokenPayload = maskedValue
+
+	}
+
+	if g.syncResponse.NetbirdConfig.Relay != nil {
+		g.syncResponse.NetbirdConfig.Relay.TokenPayload = maskedValue
+	}
+
+	for i := range g.syncResponse.NetbirdConfig.Turns {
+		if g.syncResponse.NetbirdConfig.Turns[i] != nil {
+			g.syncResponse.NetbirdConfig.Turns[i].Password = maskedValue
+		}
+	}
+}
+
 func (g *BundleGenerator) addStateFile() error {
-	sm := profilemanager.NewServiceManager("")
-	path := sm.GetStatePath()
+	path := g.statePath
+	if path == "" {
+		sm := profilemanager.NewServiceManager("")
+		path = sm.GetStatePath()
+	}
 	if path == "" {
 		return nil
 	}

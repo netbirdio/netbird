@@ -10,6 +10,8 @@ func TestIsDevelopmentVersion(t *testing.T) {
 		{"development", true},
 		{"development-0823f3ff9ab1", true},
 		{"development-0823f3ff9ab1-dirty", true},
+		{"ci-7470fbdd", true},
+		{"dev-7470fbdd", true},
 		{"0.50.0", false},
 		{"v0.31.1-dev", false},
 		{"1.0.0-dev", false},

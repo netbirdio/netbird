@@ -666,8 +666,10 @@ func (s *ProxyServiceServer) sender(conn *proxyConnection, errChan chan<- error)
 		case resp := <-conn.sendChan:
 			if err := conn.sendResponse(resp); err != nil {
 				errChan <- err
+				log.WithContext(conn.ctx).Tracef("Failed to send response to proxy %s: %v", conn.proxyID, err)
 				return
 			}
+			log.WithContext(conn.ctx).Tracef("Send response to proxy %s", conn.proxyID)
 		case <-conn.ctx.Done():
 			return
 		}
@@ -978,6 +980,7 @@ func shallowCloneMapping(m *proto.ProxyMapping) *proto.ProxyMapping {
 		Mode:               m.Mode,
 		ListenPort:         m.ListenPort,
 		AccessRestrictions: m.AccessRestrictions,
+		Private:            m.Private,
 	}
 }
 

@@ -29,10 +29,10 @@ jobs:
           persist-credentials: false
 
       - name: Generate FreeBSD port diff
-        run: bash release_files/freebsd-port-diff.sh
+        run: bash -x release_files/freebsd-port-diff.sh
 
       - name: Generate FreeBSD port issue body
-        run: bash release_files/freebsd-port-issue-body.sh
+        run: bash -x release_files/freebsd-port-issue-body.sh
 
       - name: Check if diff was generated
         id: check_diff
@@ -161,6 +161,8 @@ jobs:
             ${{ runner.os }}-go-releaser-
       - name: Install modules
         run: go mod tidy
+      - name: run openapi generator
+        run: bash shared/management/http/api/generate.sh
       - name: check git status
         run: git --no-pager diff --exit-code
       - name: Set up QEMU
