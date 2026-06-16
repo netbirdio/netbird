@@ -1663,7 +1663,7 @@ func addPeerToAccount(t *testing.T, manager *DefaultAccountManager, _, setupKeyK
 	key, err := wgtypes.GeneratePrivateKey()
 	require.NoError(t, err)
 
-	peer, _, _, err := manager.AddPeer(context.Background(), "", setupKeyKey, "", &nbpeer.Peer{
+	peer, _, _, _, err := manager.AddPeer(context.Background(), "", setupKeyKey, "", &nbpeer.Peer{
 		Key:  key.PublicKey().String(),
 		Meta: nbpeer.PeerSystemMeta{Hostname: key.PublicKey().String()},
 	}, false)
