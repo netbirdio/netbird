@@ -575,8 +575,8 @@ func (s *ServiceManager) activeProfileID() (ID, bool) {
 }
 
 // ResolveProfile turns a user-supplied handle into a Profile. Resolution
-// precedence is: exact ID match, then unique ID prefix, then unique exact
-// name. Ambiguous matches return *ErrAmbiguousHandle so callers can
+// precedence is: exact ID match, then unique exact name, then unique ID
+// prefix. Ambiguous matches return *ErrAmbiguousHandle so callers can
 // surface the candidates.
 func (s *ServiceManager) ResolveProfile(handle, username string) (*Profile, error) {
 	if handle == "" {
@@ -591,6 +591,23 @@ func (s *ServiceManager) ResolveProfile(handle, username string) (*Profile, erro
 	for i := range profiles {
 		if profiles[i].ID == ID(handle) {
 			return &profiles[i], nil
+		}
+	}
+
+	var nameMatches []Profile
+	for i := range profiles {
+		if profiles[i].Name == handle {
+			nameMatches = append(nameMatches, profiles[i])
+		}
+	}
+	if len(nameMatches) == 1 {
+		return &nameMatches[0], nil
+	}
+	if len(nameMatches) > 1 {
+		return nil, &ErrAmbiguousHandle{
+			Handle:     handle,
+			Candidates: nameMatches,
+			Kind:       AmbiguityKindName,
 		}
 	}
 
@@ -613,23 +630,6 @@ func (s *ServiceManager) ResolveProfile(handle, username string) (*Profile, erro
 			Handle:     handle,
 			Candidates: prefixMatches,
 			Kind:       AmbiguityKindIDPrefix,
-		}
-	}
-
-	var nameMatches []Profile
-	for i := range profiles {
-		if profiles[i].Name == handle {
-			nameMatches = append(nameMatches, profiles[i])
-		}
-	}
-	if len(nameMatches) == 1 {
-		return &nameMatches[0], nil
-	}
-	if len(nameMatches) > 1 {
-		return nil, &ErrAmbiguousHandle{
-			Handle:     handle,
-			Candidates: nameMatches,
-			Kind:       AmbiguityKindName,
 		}
 	}
 

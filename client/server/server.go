@@ -78,7 +78,7 @@ type Server struct {
 	// changed by connectWithRetryRuns goroutine exit — for that
 	// (goroutine-still-alive) check, see connectionGoroutineRunning() which
 	// derives from clientGiveUpChan close state. Protected by s.mutex.
-	clientRunning          bool
+	clientRunning     bool
 	clientRunningChan chan struct{}
 	clientGiveUpChan  chan struct{} // closed when connectWithRetryRuns goroutine exits
 
@@ -375,7 +375,7 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 		return nil, err
 	}
 
-	config, err := setConfigInputFromRequest(msg)
+	config, err := s.setConfigInputFromRequest(msg)
 	if err != nil {
 		return nil, err
 	}
@@ -398,17 +398,18 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 // field is its own optional case. Returns the resolved ConfigInput
 // and a non-nil error only when the active profile file path cannot
 // be determined.
-func setConfigInputFromRequest(msg *proto.SetConfigRequest) (profilemanager.ConfigInput, error) {
+func (s *Server) setConfigInputFromRequest(msg *proto.SetConfigRequest) (profilemanager.ConfigInput, error) {
 	var config profilemanager.ConfigInput
 
 	resolved, err := s.resolveProfileHandle(msg.ProfileName, msg.Username)
 	if err != nil {
 		log.Errorf("failed to resolve profile %q: %v", msg.ProfileName, err)
-		return nil, err
+		return config, err
 	}
 	profPath := resolved.Path
 	if profPath == "" {
 		profPath = profilemanager.DefaultConfigPath
+	}
 	config.ConfigPath = profPath
 
 	if msg.ManagementUrl != "" {
