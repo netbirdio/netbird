@@ -465,6 +465,15 @@ func parseRelayInfo(loginResp *mgmProto.LoginResponse) ([]string, *hmac.Token) {
 	return relayCfg.GetUrls(), token
 }
 
+// IsRunning reports whether a client run is currently in flight. It is the
+// single source of truth for "is the client running", owned by the supervisor.
+func (c *ConnectClient) IsRunning() bool {
+	if c == nil || c.sup == nil {
+		return false
+	}
+	return c.sup.running.Load()
+}
+
 func (c *ConnectClient) Engine() *Engine {
 	if c == nil {
 		return nil

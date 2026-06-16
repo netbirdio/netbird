@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 )
@@ -59,6 +60,10 @@ type supervisor struct {
 	// runCancel cancels that run.
 	curExecOp *lifecycleCmd
 	runCancel context.CancelFunc
+
+	// running mirrors "a run is in flight" for lock-free reads from outside the
+	// loop goroutine (the single source of truth for "is the client running").
+	running atomic.Bool
 }
 
 func newSupervisor(ctx context.Context, run runFunc) *supervisor {
@@ -101,6 +106,7 @@ func (s *supervisor) handleStart(cmd lifecycleCmd) {
 	runCtx, cancel := context.WithCancel(s.ctx)
 	s.runCancel = cancel
 	s.curExecOp = &cmd
+	s.running.Store(true)
 
 	go func(ctx context.Context, cfg *profilemanager.Config, m MobileDependency, rc chan struct{}, lp string) {
 		err := s.run(ctx, cfg, m, rc, lp)
@@ -127,6 +133,7 @@ func (s *supervisor) handleStop(cmd lifecycleCmd) {
 // error back to whoever asked to be notified of the start.
 func (s *supervisor) finishRun(err error) {
 	s.runCancel = nil
+	s.running.Store(false)
 	if s.curExecOp != nil {
 		notify(s.curExecOp.done, err)
 		s.curExecOp = nil
