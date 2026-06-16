@@ -282,7 +282,7 @@ func (c *GrpcClient) IsHealthy() bool {
 }
 
 // WaitStreamConnected waits until the client is connected to the Signal stream
-func (c *GrpcClient) WaitStreamConnected() {
+func (c *GrpcClient) WaitStreamConnected(ctx context.Context) {
 
 	if c.status == StreamConnected {
 		return
@@ -290,6 +290,7 @@ func (c *GrpcClient) WaitStreamConnected() {
 
 	ch := c.getStreamStatusChan()
 	select {
+	case <-ctx.Done():
 	case <-c.ctx.Done():
 	case <-ch:
 	}

@@ -65,7 +65,7 @@ var _ = Describe("GrpcClient", func() {
 						return
 					}
 				}()
-				clientA.WaitStreamConnected()
+				clientA.WaitStreamConnected(context.Background())
 
 				// connect PeerB to Signal
 				keyB, _ := wgtypes.GenerateKey()
@@ -91,7 +91,7 @@ var _ = Describe("GrpcClient", func() {
 					}
 				}()
 
-				clientB.WaitStreamConnected()
+				clientB.WaitStreamConnected(context.Background())
 
 				// PeerA initiates ping-pong
 				err := clientA.Send(&sigProto.Message{
@@ -129,7 +129,7 @@ var _ = Describe("GrpcClient", func() {
 						return
 					}
 				}()
-				client.WaitStreamConnected()
+				client.WaitStreamConnected(context.Background())
 				Expect(client).NotTo(BeNil())
 			})
 		})
