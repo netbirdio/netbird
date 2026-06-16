@@ -444,10 +444,9 @@ func (c *ConnectClient) run(runCtx context.Context, config *profilemanager.Confi
 	if err != nil {
 		log.Debugf("exiting client retry loop due to unrecoverable error: %s", err)
 		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.PermissionDenied) {
+			// Login failed permanently: the engine was never started, so there
+			// is nothing to tear down — just record that a login is needed.
 			state.Set(StatusNeedsLogin)
-			// Called from inside the run goroutine: tear the engine down
-			// directly, never through the lifecycle queue (would deadlock).
-			_ = c.stopEngine()
 		}
 		return err
 	}
@@ -539,19 +538,6 @@ func (c *ConnectClient) Status() StatusType {
 // until the in-flight run is fully torn down.
 func (c *ConnectClient) Stop() error {
 	return c.sup.stop()
-}
-
-// stopEngine stops the engine directly, bypassing the lifecycle queue. It is
-// only safe to call from inside the run goroutine itself (which is what the
-// supervisor is waiting on); routing it through the queue there would deadlock.
-func (c *ConnectClient) stopEngine() error {
-	engine := c.Engine()
-	if engine != nil {
-		if err := engine.Stop(); err != nil {
-			return fmt.Errorf("stop engine: %w", err)
-		}
-	}
-	return nil
 }
 
 // SetSyncResponsePersistence enables or disables sync response persistence.
