@@ -76,6 +76,8 @@ builds:
       - amd64
       - arm64
       - arm
+    goarm:
+      - 7
     ldflags:
       - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
     mod_timestamp: "{{ .CommitTimestamp }}"
