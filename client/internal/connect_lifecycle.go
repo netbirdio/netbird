@@ -53,7 +53,7 @@ type runFunc func(ctx context.Context, config *profilemanager.Config, mobileDep 
 // supervisor serializes start/stop of a single client run. Every request goes
 // through cmdCh and is handled one at a time by the loop goroutine, so two
 // lifecycle operations can never overlap and their order is preserved (FIFO).
-// The loop goroutine is the sole owner of curExecOp/runCancel, so that state
+// The loop goroutine is the sole owner of curStart/runCancel, so that state
 // needs no locking. The loop exits when the parent context is cancelled.
 type supervisor struct {
 	ctx      context.Context
@@ -61,10 +61,10 @@ type supervisor struct {
 	cmdCh    chan lifecycleCmd
 	runEnded chan runEndResult
 
-	// owned exclusively by the loop goroutine. curExecOp is the in-flight start
+	// owned exclusively by the loop goroutine. curStart is the in-flight start
 	// command (nil = idle); its done channel is notified when the run ends.
 	// runCancel cancels that run.
-	curExecOp *lifecycleCmd
+	curStart  *lifecycleCmd
 	runCancel context.CancelFunc
 }
 
@@ -92,7 +92,7 @@ func (s *supervisor) loop() {
 			case opStop:
 				s.handleStop(cmd)
 			case opStatus:
-				cmd.reply <- (s.curExecOp != nil)
+				cmd.reply <- (s.curStart != nil)
 			}
 		case res := <-s.runEnded:
 			// Run ended on its own, without an explicit Stop.
@@ -102,14 +102,14 @@ func (s *supervisor) loop() {
 }
 
 func (s *supervisor) handleStart(cmd lifecycleCmd) {
-	if s.curExecOp != nil {
+	if s.curStart != nil {
 		notify(cmd.done, errAlreadyRunning)
 		return
 	}
 
 	runCtx, cancel := context.WithCancel(s.ctx)
 	s.runCancel = cancel
-	s.curExecOp = &cmd
+	s.curStart = &cmd
 
 	go func(ctx context.Context, cfg *profilemanager.Config, m MobileDependency, rc chan struct{}, lp string) {
 		err := s.run(ctx, cfg, m, rc, lp)
@@ -118,7 +118,7 @@ func (s *supervisor) handleStart(cmd lifecycleCmd) {
 }
 
 func (s *supervisor) handleStop(cmd lifecycleCmd) {
-	if s.curExecOp == nil {
+	if s.curStart == nil {
 		notify(cmd.done, nil)
 		return
 	}
@@ -136,9 +136,9 @@ func (s *supervisor) handleStop(cmd lifecycleCmd) {
 // error back to whoever asked to be notified of the start.
 func (s *supervisor) finishRun(err error) {
 	s.runCancel = nil
-	if s.curExecOp != nil {
-		notify(s.curExecOp.done, err)
-		s.curExecOp = nil
+	if s.curStart != nil {
+		notify(s.curStart.done, err)
+		s.curStart = nil
 	}
 }
 
