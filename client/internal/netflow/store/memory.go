@@ -88,13 +88,14 @@ func (am *AggregatingMemory) GetAggregatedEvents() []*types.Event {
 	for _, v := range am.events {
 		lookupKey := aggregationKey{srcAddr: v.SourceIP, destAddr: v.DestIP, destPort: v.DestPort, direction: int(v.Direction), protocol: uint8(v.Protocol), icmpType: v.ICMPType}
 		if _, ok := aggregated[lookupKey]; !ok {
-			aggregated[lookupKey] = v.Clone()
-			event := aggregated[lookupKey]
+			event := v.Clone()
 
 			if event.Protocol != types.ICMP && event.Protocol != types.ICMPv6 && event.Protocol != types.UDP && event.Protocol != types.TCP {
 				lookupKey.unique = time.Now().UnixNano() // to make the lookup key unique so we don't aggregate on it
+				aggregated[lookupKey] = event
 				continue
 			}
+			aggregated[lookupKey] = event
 
 			switch event.Type {
 			case types.TypeStart:
@@ -103,6 +104,10 @@ func (am *AggregatingMemory) GetAggregatedEvents() []*types.Event {
 				event.NumOfDrops += 1
 			case types.TypeEnd:
 				event.NumOfEnds += 1
+			}
+
+			if event.Protocol == types.ICMP || event.Protocol == types.ICMPv6 {
+				event.ICMPCode = 0 // reset icmp code
 			}
 			continue
 		}
@@ -130,7 +135,6 @@ func (am *AggregatingMemory) GetAggregatedEvents() []*types.Event {
 			aggregatedEvent.ID = v.ID
 			aggregatedEvent.Type = v.Type
 		}
-		// do we aggregate icmp by code?
 	}
 
 	return slices.Collect(maps.Values(aggregated)) // could return an iterator instead here
