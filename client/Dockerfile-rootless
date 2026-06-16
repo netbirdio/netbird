@@ -4,7 +4,7 @@
 #   podman build -t localhost/netbird:latest -f client/Dockerfile --ignorefile .dockerignore-client .
 #   podman run --rm -it --cap-add={BPF,NET_ADMIN,NET_RAW} localhost/netbird:latest
 
-FROM alpine:3.22.0
+FROM alpine:3.24
 
 RUN apk add --no-cache \
       bash \
