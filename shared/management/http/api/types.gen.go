@@ -959,6 +959,30 @@ func (e SentinelOneMatchAttributesNetworkStatus) Valid() bool {
 	}
 }
 
+// Defines values for ServiceMode.
+const (
+	ServiceModeHttp ServiceMode = "http"
+	ServiceModeTcp  ServiceMode = "tcp"
+	ServiceModeTls  ServiceMode = "tls"
+	ServiceModeUdp  ServiceMode = "udp"
+)
+
+// Valid indicates whether the value is a known member of the ServiceMode enum.
+func (e ServiceMode) Valid() bool {
+	switch e {
+	case ServiceModeHttp:
+		return true
+	case ServiceModeTcp:
+		return true
+	case ServiceModeTls:
+		return true
+	case ServiceModeUdp:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ServiceMetaStatus.
 const (
 	ServiceMetaStatusActive             ServiceMetaStatus = "active"
@@ -983,6 +1007,30 @@ func (e ServiceMetaStatus) Valid() bool {
 	case ServiceMetaStatusPending:
 		return true
 	case ServiceMetaStatusTunnelNotCreated:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ServiceRequestMode.
+const (
+	ServiceRequestModeHttp ServiceRequestMode = "http"
+	ServiceRequestModeTcp  ServiceRequestMode = "tcp"
+	ServiceRequestModeTls  ServiceRequestMode = "tls"
+	ServiceRequestModeUdp  ServiceRequestMode = "udp"
+)
+
+// Valid indicates whether the value is a known member of the ServiceRequestMode enum.
+func (e ServiceRequestMode) Valid() bool {
+	switch e {
+	case ServiceRequestModeHttp:
+		return true
+	case ServiceRequestModeTcp:
+		return true
+	case ServiceRequestModeTls:
+		return true
+	case ServiceRequestModeUdp:
 		return true
 	default:
 		return false
@@ -4054,7 +4102,57 @@ type SentinelOneMatchAttributes struct {
 type SentinelOneMatchAttributesNetworkStatus string
 
 // Service defines model for Service.
-type Service = interface{}
+type Service struct {
+	// AccessGroups NetBird group IDs whose peers may reach this private service over the tunnel. Required when private=true; ignored otherwise. Mutually exclusive with bearer auth (SSO).
+	AccessGroups *[]string `json:"access_groups,omitempty"`
+
+	// AccessRestrictions Connection-level access restrictions based on IP address or geography. Applies to both HTTP and L4 services.
+	AccessRestrictions *AccessRestrictions `json:"access_restrictions,omitempty"`
+	Auth               ServiceAuthConfig   `json:"auth"`
+
+	// Domain Domain for the service
+	Domain string `json:"domain"`
+
+	// Enabled Whether the service is enabled
+	Enabled bool `json:"enabled"`
+
+	// Id Service ID
+	Id string `json:"id"`
+
+	// ListenPort Port the proxy listens on (L4/TLS only)
+	ListenPort *int        `json:"listen_port,omitempty"`
+	Meta       ServiceMeta `json:"meta"`
+
+	// Mode Service mode. "http" for L7 reverse proxy, "tcp"/"udp"/"tls" for L4 passthrough.
+	Mode *ServiceMode `json:"mode,omitempty"`
+
+	// Name Service name
+	Name string `json:"name"`
+
+	// PassHostHeader When true, the original client Host header is passed through to the backend instead of being rewritten to the backend's address
+	PassHostHeader *bool `json:"pass_host_header,omitempty"`
+
+	// PortAutoAssigned Whether the listen port was auto-assigned
+	PortAutoAssigned *bool `json:"port_auto_assigned,omitempty"`
+
+	// Private When true, the service is NetBird-only — its target points at a proxy cluster, inbound peers authenticate via their WireGuard tunnel identity (no OIDC), and an ACL policy is auto-generated from access_groups to the cluster's proxy-peer group. Requires mode=http.
+	Private *bool `json:"private,omitempty"`
+
+	// ProxyCluster The proxy cluster handling this service (derived from domain)
+	ProxyCluster *string `json:"proxy_cluster,omitempty"`
+
+	// RewriteRedirects When true, Location headers in backend responses are rewritten to replace the backend address with the public-facing domain
+	RewriteRedirects *bool `json:"rewrite_redirects,omitempty"`
+
+	// Targets List of target backends for this service
+	Targets []ServiceTarget `json:"targets"`
+
+	// Terminated Whether the service has been terminated. Terminated services cannot be updated. Services that violate the Terms of Service will be terminated.
+	Terminated *bool `json:"terminated,omitempty"`
+}
+
+// ServiceMode Service mode. "http" for L7 reverse proxy, "tcp"/"udp"/"tls" for L4 passthrough.
+type ServiceMode string
 
 // ServiceAuthConfig defines model for ServiceAuthConfig.
 type ServiceAuthConfig struct {
@@ -4081,7 +4179,44 @@ type ServiceMeta struct {
 type ServiceMetaStatus string
 
 // ServiceRequest defines model for ServiceRequest.
-type ServiceRequest = interface{}
+type ServiceRequest struct {
+	// AccessGroups NetBird group IDs whose peers may reach this private service over the tunnel. Required when private=true; ignored otherwise. Mutually exclusive with bearer auth (SSO).
+	AccessGroups *[]string `json:"access_groups,omitempty"`
+
+	// AccessRestrictions Connection-level access restrictions based on IP address or geography. Applies to both HTTP and L4 services.
+	AccessRestrictions *AccessRestrictions `json:"access_restrictions,omitempty"`
+	Auth               *ServiceAuthConfig  `json:"auth,omitempty"`
+
+	// Domain Domain for the service
+	Domain string `json:"domain"`
+
+	// Enabled Whether the service is enabled
+	Enabled bool `json:"enabled"`
+
+	// ListenPort Port the proxy listens on (L4/TLS only). Set to 0 for auto-assignment.
+	ListenPort *int `json:"listen_port,omitempty"`
+
+	// Mode Service mode. "http" for L7 reverse proxy, "tcp"/"udp"/"tls" for L4 passthrough.
+	Mode *ServiceRequestMode `json:"mode,omitempty"`
+
+	// Name Service name
+	Name string `json:"name"`
+
+	// PassHostHeader When true, the original client Host header is passed through to the backend instead of being rewritten to the backend's address
+	PassHostHeader *bool `json:"pass_host_header,omitempty"`
+
+	// Private When true, the service is NetBird-only — its target points at a proxy cluster, inbound peers authenticate via their WireGuard tunnel identity (no OIDC), and an ACL policy is auto-generated from access_groups to the cluster's proxy-peer group. Requires mode=http.
+	Private *bool `json:"private,omitempty"`
+
+	// RewriteRedirects When true, Location headers in backend responses are rewritten to replace the backend address with the public-facing domain
+	RewriteRedirects *bool `json:"rewrite_redirects,omitempty"`
+
+	// Targets List of target backends for this service
+	Targets *[]ServiceTarget `json:"targets,omitempty"`
+}
+
+// ServiceRequestMode Service mode. "http" for L7 reverse proxy, "tcp"/"udp"/"tls" for L4 passthrough.
+type ServiceRequestMode string
 
 // ServiceTarget defines model for ServiceTarget.
 type ServiceTarget struct {
