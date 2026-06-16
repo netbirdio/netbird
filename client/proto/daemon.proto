@@ -85,6 +85,11 @@ service DaemonService {
 
   rpc GetEvents(GetEventsRequest) returns (GetEventsResponse) {}
 
+  // RegisterUILog records the desktop UI's absolute log path so the daemon's
+  // debug bundle can collect it (the daemon runs as root and can't resolve the
+  // user's config dir).
+  rpc RegisterUILog(RegisterUILogRequest) returns (RegisterUILogResponse) {}
+
   rpc SwitchProfile(SwitchProfileRequest) returns (SwitchProfileResponse) {}
 
   rpc SetConfig(SetConfigRequest) returns (SetConfigResponse) {}
@@ -349,6 +354,13 @@ message GetConfigResponse {
   int32 sshJWTCacheTTL = 26;
 
   bool disable_ipv6 = 27;
+
+  // mDMManagedFields lists the names of configuration keys whose value is
+  // currently enforced by an MDM policy. Names match mdm.Key* constants
+  // (e.g. "managementURL", "disableClientRoutes"). UI/CLI clients should
+  // render the corresponding inputs as read-only and display a "managed
+  // by MDM" indicator.
+  repeated string mDMManagedFields = 28;
 }
 
 // PeerState contains the latest state of a peer
@@ -545,6 +557,13 @@ message SetLogLevelRequest {
 }
 
 message SetLogLevelResponse {
+}
+
+message RegisterUILogRequest {
+  string path = 1;
+}
+
+message RegisterUILogResponse {
 }
 
 // State represents a daemon state entry
@@ -772,6 +791,21 @@ message GetFeaturesResponse{
   bool disable_profiles = 1;
   bool disable_update_settings = 2;
   bool disable_networks = 3;
+  // disableAdvancedView gates the upcoming UI revision's advanced
+  // section. Tristate: unset = no MDM directive, the UI applies its
+  // own default; true = MDM enforces disable; false = MDM enforces
+  // enable. Sourced exclusively from the MDM policy — no CLI /
+  // config flag backs this value.
+  optional bool disable_advanced_view = 4;
+}
+
+// MDMManagedFieldsViolation is attached as a gRPC error detail on a
+// FailedPrecondition status returned from SetConfig (and similar mutating
+// RPCs) when the caller tries to modify one or more MDM-enforced fields.
+// The fields list contains the offending key names; the entire request is
+// rejected (no partial apply).
+message MDMManagedFieldsViolation {
+  repeated string fields = 1;
 }
 
 message TriggerUpdateRequest {}

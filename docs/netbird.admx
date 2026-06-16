@@ -1,0 +1,235 @@
+<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitions xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   revision="1.0"
+                   schemaVersion="1.0"
+                   xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">
+  <policyNamespaces>
+    <target prefix="netbird" namespace="NetBird.Policies.Client" />
+  </policyNamespaces>
+  <resources minRequiredRevision="1.0" />
+  <supportedOn>
+    <definitions>
+      <definition name="SUPPORTED_NetBird_All" displayName="$(string.SUPPORTED_NetBird_All)" />
+    </definitions>
+  </supportedOn>
+  <categories>
+    <category name="NetBird" displayName="$(string.NetBird_Category)" />
+  </categories>
+  <policies>
+
+    <!-- ============================================================ -->
+    <!-- TOP-LEVEL: foundational identity / authentication              -->
+    <!-- ============================================================ -->
+
+    <policy name="ManagementURL"
+            class="Machine"
+            displayName="$(string.ManagementURL_Name)"
+            explainText="$(string.ManagementURL_Help)"
+            key="Software\Policies\NetBird"
+            presentation="$(presentation.ManagementURL_Pres)">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <elements>
+        <text id="ManagementURL_Text" valueName="ManagementURL" required="true" />
+      </elements>
+    </policy>
+
+    <policy name="PreSharedKey"
+            class="Machine"
+            displayName="$(string.PreSharedKey_Name)"
+            explainText="$(string.PreSharedKey_Help)"
+            key="Software\Policies\NetBird"
+            presentation="$(presentation.PreSharedKey_Pres)">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <elements>
+        <text id="PreSharedKey_Text" valueName="PreSharedKey" />
+      </elements>
+    </policy>
+
+    <!-- ============================================================ -->
+    <!-- SETTINGS: engine / runtime / connection behavior              -->
+    <!-- ============================================================ -->
+
+    <policy name="DisableAutoConnect"
+            class="Machine"
+            displayName="$(string.DisableAutoConnect_Name)"
+            explainText="$(string.DisableAutoConnect_Help)"
+            key="Software\Policies\NetBird"
+            valueName="DisableAutoConnect">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <policy name="DisableClientRoutes"
+            class="Machine"
+            displayName="$(string.DisableClientRoutes_Name)"
+            explainText="$(string.DisableClientRoutes_Help)"
+            key="Software\Policies\NetBird"
+            valueName="DisableClientRoutes">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <policy name="DisableServerRoutes"
+            class="Machine"
+            displayName="$(string.DisableServerRoutes_Name)"
+            explainText="$(string.DisableServerRoutes_Help)"
+            key="Software\Policies\NetBird"
+            valueName="DisableServerRoutes">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <policy name="BlockInbound"
+            class="Machine"
+            displayName="$(string.BlockInbound_Name)"
+            explainText="$(string.BlockInbound_Help)"
+            key="Software\Policies\NetBird"
+            valueName="BlockInbound">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <policy name="AllowServerSSH"
+            class="Machine"
+            displayName="$(string.AllowServerSSH_Name)"
+            explainText="$(string.AllowServerSSH_Help)"
+            key="Software\Policies\NetBird"
+            valueName="AllowServerSSH">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <policy name="RosenpassEnabled"
+            class="Machine"
+            displayName="$(string.RosenpassEnabled_Name)"
+            explainText="$(string.RosenpassEnabled_Help)"
+            key="Software\Policies\NetBird"
+            valueName="RosenpassEnabled">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <policy name="RosenpassPermissive"
+            class="Machine"
+            displayName="$(string.RosenpassPermissive_Name)"
+            explainText="$(string.RosenpassPermissive_Help)"
+            key="Software\Policies\NetBird"
+            valueName="RosenpassPermissive">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <policy name="WireguardPort"
+            class="Machine"
+            displayName="$(string.WireguardPort_Name)"
+            explainText="$(string.WireguardPort_Help)"
+            key="Software\Policies\NetBird"
+            presentation="$(presentation.WireguardPort_Pres)">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <elements>
+        <decimal id="WireguardPort_Decimal" valueName="WireguardPort"
+                 minValue="1" maxValue="65535" required="true" />
+      </elements>
+    </policy>
+
+    <policy name="SplitTunnel"
+            class="Machine"
+            displayName="$(string.SplitTunnel_Name)"
+            explainText="$(string.SplitTunnel_Help)"
+            key="Software\Policies\NetBird"
+            presentation="$(presentation.SplitTunnel_Pres)">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <elements>
+        <enum id="SplitTunnel_Mode" valueName="SplitTunnelMode" required="true">
+          <item displayName="$(string.SplitTunnel_Allow)"><value><string>allow</string></value></item>
+          <item displayName="$(string.SplitTunnel_Disallow)"><value><string>disallow</string></value></item>
+        </enum>
+        <text id="SplitTunnel_Apps" valueName="SplitTunnelApps" required="true" />
+      </elements>
+    </policy>
+
+    <!-- ============================================================ -->
+    <!-- UI: visibility / UX kill switches                             -->
+    <!-- ============================================================ -->
+
+    <policy name="DisableUpdateSettings"
+            class="Machine"
+            displayName="$(string.DisableUpdateSettings_Name)"
+            explainText="$(string.DisableUpdateSettings_Help)"
+            key="Software\Policies\NetBird"
+            valueName="DisableUpdateSettings">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <policy name="DisableProfiles"
+            class="Machine"
+            displayName="$(string.DisableProfiles_Name)"
+            explainText="$(string.DisableProfiles_Help)"
+            key="Software\Policies\NetBird"
+            valueName="DisableProfiles">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <policy name="DisableNetworks"
+            class="Machine"
+            displayName="$(string.DisableNetworks_Name)"
+            explainText="$(string.DisableNetworks_Help)"
+            key="Software\Policies\NetBird"
+            valueName="DisableNetworks">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <policy name="DisableAdvancedView"
+            class="Machine"
+            displayName="$(string.DisableAdvancedView_Name)"
+            explainText="$(string.DisableAdvancedView_Help)"
+            key="Software\Policies\NetBird"
+            valueName="DisableAdvancedView">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <policy name="DisableMetricsCollection"
+            class="Machine"
+            displayName="$(string.DisableMetricsCollection_Name)"
+            explainText="$(string.DisableMetricsCollection_Help)"
+            key="Software\Policies\NetBird"
+            valueName="DisableMetricsCollection">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+  </policies>
+</policyDefinitions>

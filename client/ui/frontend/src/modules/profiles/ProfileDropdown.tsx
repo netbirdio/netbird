@@ -19,7 +19,7 @@ const MANAGE_VALUE = "__manage_profiles__";
 
 export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
     const { t } = useTranslation();
-    const { activeProfile, profiles, switchProfile } = useProfile();
+    const { activeProfile, profiles, switchProfile, loaded } = useProfile();
     const [open, setOpen] = useState(false);
     const [busy, setBusy] = useState(false);
 
@@ -55,12 +55,15 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
         onManageProfiles?.();
     };
 
-    const displayName = activeProfile || t("profile.selector.loading");
+    if (!loaded) return <ProfileTriggerSkeleton />;
+
+    const hasProfile = !!activeProfile;
+    const displayName = hasProfile ? activeProfile : t("profile.selector.noProfile");
 
     return (
         <Popover.Root open={open} onOpenChange={setOpen}>
-            <Popover.Trigger asChild className={"wails-no-draggable"}>
-                <ProfileTriggerButton name={displayName} />
+            <Popover.Trigger asChild className={"wails-no-draggable"} disabled={!hasProfile}>
+                <ProfileTriggerButton name={displayName} disabled={!hasProfile} />
             </Popover.Trigger>
             <Popover.Portal>
                 <Popover.Content
@@ -134,6 +137,13 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
     );
 };
 
+const ProfileTriggerSkeleton = () => (
+    <div className="h-10 flex items-center gap-2 px-3 rounded-lg select-none wails-no-draggable">
+        <div className="size-4 rounded-full bg-nb-gray-900 animate-pulse shrink-0" />
+        <div className="h-4 w-24 rounded bg-nb-gray-900 animate-pulse" />
+    </div>
+);
+
 type ProfileTriggerButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
     name: string;
 };
@@ -149,6 +159,7 @@ const ProfileTriggerButton = forwardRef<HTMLButtonElement, ProfileTriggerButtonP
                     "h-10 flex items-center gap-2 px-3 rounded-lg outline-none cursor-default select-none wails-no-draggable",
                     "text-nb-gray-200 hover:bg-nb-gray-900",
                     "data-[state=open]:bg-nb-gray-900",
+                    "disabled:opacity-50 disabled:hover:bg-transparent",
                     "transition-colors duration-150 wails-no-draggable",
                     className,
                 )}

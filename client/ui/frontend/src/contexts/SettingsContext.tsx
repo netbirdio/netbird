@@ -8,6 +8,7 @@ import {
     useState,
     type ReactNode,
 } from "react";
+import { Events } from "@wailsio/runtime";
 import { Autostart, Settings as SettingsSvc, Version } from "@bindings/services";
 import type { Config } from "@bindings/services/models.js";
 import i18next from "@/lib/i18n";
@@ -26,7 +27,7 @@ type SettingsContextValue = {
     guiVersion: string;
     setField: <K extends keyof Config>(k: K, v: Config[K]) => void;
     saveField: <K extends keyof Config>(k: K, v: Config[K]) => Promise<void>;
-    saveFields: (partial: Partial<Config>) => Promise<void>;
+    saveFields: (partial: Partial<Config>, opts?: { preSharedKey?: string }) => Promise<void>;
     saveNow: () => Promise<void>;
 };
 
@@ -54,28 +55,54 @@ export const useAutostartSetting = () => {
     return ctx;
 };
 
+type LoadedConfig = { profileName: string; data: Config };
+
 const useSettingsState = () => {
     const { username, activeProfile, loaded: profileLoaded } = useProfile();
-    const [config, setConfig] = useState<Config | null>(null);
+    const [loaded, setLoaded] = useState<LoadedConfig | null>(null);
     const [guiVersion, setGuiVersion] = useState<string>("—");
     const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const loadedRef = useRef<LoadedConfig | null>(null);
+
+    useEffect(() => {
+        loadedRef.current = loaded;
+    }, [loaded]);
 
     useEffect(() => {
         if (!profileLoaded || !activeProfile) return;
-        (async () => {
+        let cancelled = false;
+
+        const load = async (showError: boolean) => {
             try {
-                const c = await SettingsSvc.GetConfig({
+                const data = await SettingsSvc.GetConfig({
                     profileName: activeProfile,
                     username,
                 });
-                setConfig(c);
+                if (cancelled) return;
+                if (saveTimer.current) return;
+                setLoaded({ profileName: activeProfile, data });
             } catch (e) {
+                if (cancelled || !showError) return;
                 await errorDialog({
                     Title: i18next.t("settings.error.loadTitle"),
                     Message: errorMessage(e),
                 });
             }
-        })();
+        };
+
+        load(true);
+
+        const off = Events.On(
+            "netbird:event",
+            (e: { data?: { metadata?: { [k: string]: string | undefined } } }) => {
+                if (e.data?.metadata?.type === "config_changed") load(false);
+            },
+        );
+
+        return () => {
+            cancelled = true;
+            off();
+        };
     }, [profileLoaded, activeProfile, username]);
 
     useEffect(() => {
@@ -96,14 +123,13 @@ const useSettingsState = () => {
     );
 
     const save = useCallback(
-        async (next: Config) => {
-            // Sending the "**********" PSK mask back corrupts the stored PSK (wgtypes.ParseKey fails next connect).
-            const { preSharedKey, ...rest } = next;
+        async (profileName: string, next: Config, preSharedKey?: string) => {
+            const preSharedKeyWrite = preSharedKey === undefined ? {} : { preSharedKey };
             try {
                 await SettingsSvc.SetConfig({
-                    ...rest,
-                    ...(preSharedKey === "**********" ? {} : { preSharedKey }),
-                    profileName: activeProfile,
+                    ...next,
+                    ...preSharedKeyWrite,
+                    profileName,
                     username,
                 });
             } catch (e) {
@@ -113,62 +139,71 @@ const useSettingsState = () => {
                 });
             }
         },
-        [activeProfile, username],
+        [username],
     );
 
     const setField = useCallback(
         <K extends keyof Config>(k: K, v: Config[K]) => {
-            setConfig((c) => {
-                if (!c) return c;
-                const next = { ...c, [k]: v };
-                if (saveTimer.current) clearTimeout(saveTimer.current);
-                saveTimer.current = setTimeout(() => {
-                    save(next).catch(logSaveError);
-                }, SAVE_DEBOUNCE_MS);
-                return next;
-            });
+            const cur = loadedRef.current;
+            if (!cur) return;
+            const next: LoadedConfig = {
+                profileName: cur.profileName,
+                data: { ...cur.data, [k]: v },
+            };
+            loadedRef.current = next;
+            setLoaded(next);
+            if (saveTimer.current) clearTimeout(saveTimer.current);
+            saveTimer.current = setTimeout(() => {
+                saveTimer.current = null;
+                save(next.profileName, next.data).catch(logSaveError);
+            }, SAVE_DEBOUNCE_MS);
         },
         [save],
     );
 
     const saveNow = useCallback(async () => {
-        if (!config) return;
+        if (!loaded) return;
         if (saveTimer.current) {
             clearTimeout(saveTimer.current);
             saveTimer.current = null;
         }
-        await save(config);
-    }, [config, save]);
+        await save(loaded.profileName, loaded.data);
+    }, [loaded, save]);
 
     const saveField = useCallback(
         async <K extends keyof Config>(k: K, v: Config[K]) => {
-            if (!config) return;
+            if (!loaded) return;
             if (saveTimer.current) {
                 clearTimeout(saveTimer.current);
                 saveTimer.current = null;
             }
-            const next = { ...config, [k]: v };
-            setConfig(next);
-            await save(next);
+            const next = { ...loaded.data, [k]: v };
+            setLoaded({ profileName: loaded.profileName, data: next });
+            await save(loaded.profileName, next);
         },
-        [config, save],
+        [loaded, save],
     );
 
     const saveFields = useCallback(
-        async (partial: Partial<Config>) => {
-            if (!config) return;
+        async (partial: Partial<Config>, opts?: { preSharedKey?: string }) => {
+            if (!loaded) return;
             if (saveTimer.current) {
                 clearTimeout(saveTimer.current);
                 saveTimer.current = null;
             }
-            const next = { ...config, ...partial };
-            setConfig(next);
-            await save(next);
+
+            const merged: Config = { ...loaded.data, ...partial };
+            const next: Config =
+                opts?.preSharedKey === undefined
+                    ? merged
+                    : { ...merged, preSharedKeySet: opts.preSharedKey !== "" };
+            setLoaded({ profileName: loaded.profileName, data: next });
+            await save(loaded.profileName, next, opts?.preSharedKey);
         },
-        [config, save],
+        [loaded, save],
     );
 
-    return { config, guiVersion, setField, saveField, saveFields, saveNow };
+    return { config: loaded?.data ?? null, guiVersion, setField, saveField, saveFields, saveNow };
 };
 
 export const SettingsProvider = ({ children }: { children: ReactNode }) => {
@@ -200,8 +235,9 @@ export const AutostartSettingsProvider = ({ children }: { children: ReactNode })
             const enabled = supported ? await Autostart.IsEnabled() : false;
             if (cancelled) return;
             setAutostart({ supported, enabled });
-        })().catch(() => {
+        })().catch((err: unknown) => {
             if (cancelled) return;
+            console.warn("[SettingsContext] load autostart state failed", err);
             setAutostart({ supported: false, enabled: false });
         });
         return () => {

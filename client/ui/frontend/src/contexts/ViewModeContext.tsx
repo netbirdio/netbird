@@ -43,7 +43,7 @@ export const ViewModeProvider = ({ children }: { children: ReactNode }) => {
                     setMode(saved);
                 }
             })
-            .catch(() => {});
+            .catch((err: unknown) => console.warn("[ViewModeContext] load preferences failed", err));
         return () => {
             cancelled = true;
         };
@@ -54,10 +54,15 @@ export const ViewModeProvider = ({ children }: { children: ReactNode }) => {
         if (modeRef.current === mode) return;
         modeRef.current = mode;
         (async () => {
-            const size = await Window.Size().catch(() => null);
+            const size = await Window.Size().catch((err: unknown) => {
+                console.warn("[ViewModeContext] read window size failed", err);
+                return null;
+            });
             const width = VIEW_WIDTH[mode];
             const height = size?.height ?? 640;
-            await Window.SetSize(width, height).catch(() => {});
+            await Window.SetSize(width, height).catch((err: unknown) =>
+                console.warn("[ViewModeContext] set window size failed", err),
+            );
             setMode(mode);
             const pref =
                 mode === "advanced" ? ViewModePref.ViewModeAdvanced : ViewModePref.ViewModeDefault;

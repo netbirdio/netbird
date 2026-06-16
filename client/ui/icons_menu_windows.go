@@ -4,16 +4,9 @@ package main
 
 import _ "embed"
 
-// 16x16 menu-row icons used on Windows. The Win32 SetMenuItemBitmaps API
-// paints the HBITMAP into the check-mark slot, sized to SM_CXMENUCHECK /
-// SM_CYMENUCHECK (typically 16x16 at 100% DPI). Larger bitmaps overflow
-// the row visually, so Windows ships its own scaled set instead of the
-// 24x24 assets used on macOS/Linux. The status dots are downscaled from
-// the 24x24 originals with ImageMagick — simple solid-fill circles
-// survive the bicubic resize without visible quality loss:
-//   magick netbird-menu-dot-<state>.png -resize 16x16 \
-//     -background none -gravity center -extent 16x16 \
-//     netbird-menu-dot-<state>-16.png
+// SetMenuItemBitmaps sizes the HBITMAP to SM_CXMENUCHECK/SM_CYMENUCHECK (16x16
+// at 100% DPI); larger bitmaps overflow the row, hence this Windows-only set
+// downscaled from the 24x24 originals.
 
 //go:embed assets/netbird-menu-dot-connected-16.png
 var iconMenuDotConnected []byte

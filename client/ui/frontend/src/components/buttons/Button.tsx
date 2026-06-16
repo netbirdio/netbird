@@ -163,7 +163,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
                             if (copyTimer.current) clearTimeout(copyTimer.current);
                             copyTimer.current = setTimeout(() => setCopied(false), 1500);
                         })
-                        .catch(() => {});
+                        .catch((e: unknown) => console.warn("copy to clipboard failed", e));
                 }
                 onClick?.(e);
             }}

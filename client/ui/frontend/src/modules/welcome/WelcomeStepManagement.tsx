@@ -10,7 +10,7 @@ import {
     CLOUD_MANAGEMENT_URL,
     ManagementMode,
     checkManagementUrlReachable,
-    isCloudManagementUrl,
+    isNetbirdCloud,
     isValidManagementUrl,
     normalizeManagementUrl,
 } from "@/hooks/useManagementUrl";
@@ -27,7 +27,7 @@ export function WelcomeStepManagement({
     onContinue,
 }: Readonly<WelcomeStepManagementProps>) {
     const { t } = useTranslation();
-    const startsCloud = isCloudManagementUrl(initialUrl);
+    const startsCloud = isNetbirdCloud(initialUrl);
     const [mode, setMode] = useState<ManagementMode>(
         startsCloud ? ManagementMode.Cloud : ManagementMode.SelfHosted,
     );
@@ -101,6 +101,10 @@ export function WelcomeStepManagement({
                         error={inputError}
                         warning={inputWarning}
                         autoFocus
+                        spellCheck={false}
+                        autoComplete="off"
+                        autoCorrect="off"
+                        autoCapitalize="off"
                     />
                 </div>
             )}

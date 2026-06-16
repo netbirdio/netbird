@@ -22,16 +22,13 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// activeMenuHost is the xembedHost that currently owns the popup menu.
-// This is needed because C callbacks cannot carry Go pointers.
+// activeMenuHost holds the popup owner; C callbacks cannot carry Go pointers.
 var (
 	activeMenuHost   *xembedHost
 	activeMenuHostMu sync.Mutex
 )
 
-// menuItemInfo is the Go-side representation of one popup menu entry,
-// flattened from a dbusMenuLayout tree before it is handed to the C
-// popup builder. Submenus populate children; leaves leave it nil.
+// menuItemInfo is a dbusMenuLayout entry flattened for the C popup builder.
 type menuItemInfo struct {
 	id          int32
 	label       string
@@ -42,9 +39,8 @@ type menuItemInfo struct {
 	children    []menuItemInfo
 }
 
-// dbusMenuLayout mirrors the (ia{sv}av) result returned by
-// com.canonical.dbusmenu.GetLayout. The Children variants each wrap a
-// nested dbusMenuLayout; we decode them lazily in flattenMenu.
+// dbusMenuLayout mirrors the (ia{sv}av) result of com.canonical.dbusmenu.GetLayout.
+// Each Children variant wraps a nested dbusMenuLayout, decoded in flattenMenu.
 type dbusMenuLayout struct {
 	ID         int32
 	Properties map[string]dbus.Variant
@@ -71,12 +67,13 @@ type xembedHost struct {
 }
 
 // newXembedHost creates an XEmbed tray icon for the given SNI item.
-// Returns an error if no XEmbed tray manager is available (graceful fallback).
+// Errors when no XEmbed tray manager is available, so callers can fall back.
 func newXembedHost(conn *dbus.Conn, busName string, objPath dbus.ObjectPath) (*xembedHost, error) {
 	dpy := C.XOpenDisplay(nil)
 	if dpy == nil {
 		return nil, errors.New("cannot open X display")
 	}
+	C.xembed_install_error_handlers()
 
 	screen := C.xembed_default_screen(dpy)
 	trayMgr := C.xembed_find_tray(dpy, screen)
@@ -85,7 +82,6 @@ func newXembedHost(conn *dbus.Conn, busName string, objPath dbus.ObjectPath) (*x
 		return nil, errors.New("no XEmbed system tray found")
 	}
 
-	// Query the tray manager's preferred icon size.
 	iconSize := int(C.xembed_get_icon_size(dpy, trayMgr))
 	if iconSize <= 0 {
 		iconSize = 24 // fallback
@@ -118,7 +114,6 @@ func newXembedHost(conn *dbus.Conn, busName string, objPath dbus.ObjectPath) (*x
 	return h, nil
 }
 
-// fetchAndDrawIcon reads IconPixmap from the SNI item via D-Bus and draws it.
 func (h *xembedHost) fetchAndDrawIcon() {
 	obj := h.conn.Object(h.busName, h.objPath)
 	variant, err := obj.GetProperty("org.kde.StatusNotifierItem.IconPixmap")
@@ -127,8 +122,7 @@ func (h *xembedHost) fetchAndDrawIcon() {
 		return
 	}
 
-	// IconPixmap is []struct{W, H int32; Pix []byte} on D-Bus,
-	// represented as a(iiay) signature.
+	// IconPixmap has D-Bus signature a(iiay).
 	type px struct {
 		W   int32
 		H   int32
@@ -161,7 +155,6 @@ func (h *xembedHost) fetchAndDrawIcon() {
 	h.drawIcon()
 }
 
-// drawIcon draws the cached icon data onto the X11 window.
 func (h *xembedHost) drawIcon() {
 	h.mu.Lock()
 	data := h.iconData
@@ -180,10 +173,8 @@ func (h *xembedHost) drawIcon() {
 		(*C.uchar)(cData), C.int(w), C.int(ht))
 }
 
-// run is the main event loop. It polls X11 events and listens for D-Bus
-// NewIcon signals to keep the tray icon updated.
+// run is the event loop: polls X11 events and D-Bus NewIcon signals until stopped.
 func (h *xembedHost) run() {
-	// Subscribe to NewIcon signals from the SNI item.
 	matchRule := "type='signal',interface='org.kde.StatusNotifierItem',member='NewIcon',sender='" + h.busName + "'"
 	if err := h.conn.BusObject().Call("org.freedesktop.DBus.AddMatch", 0, matchRule).Err; err != nil {
 		log.Debugf("xembed: failed to add signal match: %v", err)
@@ -242,10 +233,8 @@ func (h *xembedHost) activate(x, y int32) {
 }
 
 func (h *xembedHost) contextMenu(x, y int32) {
-	// Read the menu path from the SNI item's Menu property.
 	menuPath := dbus.ObjectPath("/StatusNotifierMenu")
 
-	// Fetch menu layout from com.canonical.dbusmenu.
 	menuObj := h.conn.Object(h.busName, menuPath)
 	var revision uint32
 	var layout dbusMenuLayout
@@ -265,11 +254,6 @@ func (h *xembedHost) contextMenu(x, y int32) {
 		return
 	}
 
-	// Build a C-allocated tree from the Go menu. xembed_show_popup_menu
-	// deep-copies into its own buffer (so it can outlive this stack
-	// frame), but it expects valid C strings + pointers in the caller's
-	// array — we still have to walk the items on the Go side and build
-	// matching C.xembed_menu_item nodes recursively.
 	var allocs []unsafe.Pointer
 	cItems := buildCItems(items, &allocs)
 	defer func() {
@@ -278,7 +262,7 @@ func (h *xembedHost) contextMenu(x, y int32) {
 		}
 	}()
 
-	// Set the active menu host so the C callback can reach us.
+	// C callback reaches us through this global.
 	activeMenuHostMu.Lock()
 	activeMenuHost = h
 	activeMenuHostMu.Unlock()
@@ -303,9 +287,7 @@ func (h *xembedHost) flattenMenu(layout dbusMenuLayout) []menuItemInfo {
 	return items
 }
 
-// menuItemFromLayout decodes one dbusmenu child node into a menuItemInfo,
-// recursing into submenus. The bool return is false when the item is hidden
-// (visible=false) and should be dropped from the parent's list.
+// menuItemFromLayout decodes one dbusmenu child; ok is false for hidden items (drop them).
 func (h *xembedHost) menuItemFromLayout(child dbusMenuLayout) (menuItemInfo, bool) {
 	mi := menuItemInfo{id: child.ID, enabled: true}
 
@@ -329,10 +311,7 @@ func (h *xembedHost) menuItemFromLayout(child dbusMenuLayout) (menuItemInfo, boo
 		mi.checked = true
 	}
 
-	// Recurse into nested submenus. The dbusmenu spec marks a folder
-	// item with children-display=="submenu"; the children are already
-	// in child.Children because GetLayout was called with
-	// recursionDepth=-1 (all levels).
+	// children are already present from the recursionDepth=-1 GetLayout.
 	if propString(child.Properties, "children-display") == "submenu" {
 		mi.children = h.flattenMenu(child)
 	}
@@ -354,7 +333,7 @@ func (h *xembedHost) sendMenuEvent(id int32) {
 func (h *xembedHost) stop() {
 	select {
 	case <-h.stopCh:
-		return // already stopped
+		return
 	default:
 		close(h.stopCh)
 	}
@@ -363,13 +342,8 @@ func (h *xembedHost) stop() {
 	C.XCloseDisplay(h.dpy)
 }
 
-// buildCItems recursively translates Go menuItemInfo slices into a
-// C-allocated array of xembed_menu_item suitable for passing across the
-// Cgo boundary. The C side deep-copies the structure when it stages
-// the popup, so any transient labels/children we allocate here can be
-// released as soon as xembed_show_popup_menu returns. Every malloc is
-// recorded in *allocs so the caller can free it via a single deferred
-// loop. Returns nil for empty slices.
+// buildCItems builds a C-allocated xembed_menu_item tree. Every malloc is
+// appended to *allocs for the caller to free once the C side has deep-copied it.
 func buildCItems(items []menuItemInfo, allocs *[]unsafe.Pointer) *C.xembed_menu_item {
 	if len(items) == 0 {
 		return nil
@@ -400,30 +374,25 @@ func buildCItems(items []menuItemInfo, allocs *[]unsafe.Pointer) *C.xembed_menu_
 	return (*C.xembed_menu_item)(arr)
 }
 
-// xembedTrayAvailable reports whether an XEmbed system tray manager
-// (_NET_SYSTEM_TRAY_S0) currently owns its selection on the default screen.
-// It is a cheap, side-effect-free probe — it only queries the selection
-// owner, creating no windows. Used to decide whether the in-process
-// StatusNotifierWatcher is needed at all: the watcher exists solely to
-// bridge SNI items into an XEmbed tray on minimal WMs, so when no XEmbed
-// tray is present (e.g. Wayland compositors with a real SNI host like
-// Waybar) we must not claim org.kde.StatusNotifierWatcher and shadow the
-// real one. Returns false when there is no X display (pure Wayland).
+// xembedTrayAvailable reports whether an XEmbed tray manager (_NET_SYSTEM_TRAY_S0)
+// owns the default screen. Side-effect-free probe. Gates the in-process
+// StatusNotifierWatcher: when a real SNI host already owns the tray (e.g. Waybar
+// on Wayland) we must not claim org.kde.StatusNotifierWatcher and shadow it.
+// Returns false when there is no X display (pure Wayland).
 func xembedTrayAvailable() bool {
 	dpy := C.XOpenDisplay(nil)
 	if dpy == nil {
 		return false
 	}
+	C.xembed_install_error_handlers()
 	defer C.XCloseDisplay(dpy)
 	screen := C.xembed_default_screen(dpy)
 	return C.xembed_find_tray(dpy, screen) != 0
 }
 
-// goMenuItemClicked is the C callback invoked from the GTK main thread
-// when the user activates a popup-menu entry. C callbacks cannot carry
-// Go pointers, so the active xembedHost is looked up through the
-// activeMenuHost global instead. //export makes this symbol visible to
-// the C side; the function must therefore live in package main.
+// goMenuItemClicked is the C callback fired from the GTK main thread on popup
+// activation. The host is looked up via activeMenuHost since C callbacks can't
+// carry Go pointers; //export requires this to live in package main.
 //
 //export goMenuItemClicked
 func goMenuItemClicked(id C.int) {
@@ -436,8 +405,6 @@ func goMenuItemClicked(id C.int) {
 	}
 }
 
-// boolToInt converts a Go bool to the C int the dbusmenu C API uses
-// for boolean flags.
 func boolToInt(b bool) C.int {
 	if b {
 		return 1
@@ -445,8 +412,7 @@ func boolToInt(b bool) C.int {
 	return 0
 }
 
-// propString returns the string value of a dbusmenu property, or "" when the
-// property is absent or not a string.
+// propString returns the property's string value, or "" if absent or not a string.
 func propString(props map[string]dbus.Variant, key string) string {
 	if v, ok := props[key]; ok {
 		if s, ok := v.Value().(string); ok {
@@ -456,8 +422,7 @@ func propString(props map[string]dbus.Variant, key string) string {
 	return ""
 }
 
-// propBool returns the bool value of a dbusmenu property; ok is false when the
-// property is absent or not a bool.
+// propBool returns the property's bool value; ok is false if absent or not a bool.
 func propBool(props map[string]dbus.Variant, key string) (value, ok bool) {
 	if v, present := props[key]; present {
 		if b, isBool := v.Value().(bool); isBool {
@@ -467,8 +432,7 @@ func propBool(props map[string]dbus.Variant, key string) (value, ok bool) {
 	return false, false
 }
 
-// propInt32 returns the int32 value of a dbusmenu property; ok is false when
-// the property is absent or not an int32.
+// propInt32 returns the property's int32 value; ok is false if absent or not an int32.
 func propInt32(props map[string]dbus.Variant, key string) (value int32, ok bool) {
 	if v, present := props[key]; present {
 		if n, isInt := v.Value().(int32); isInt {

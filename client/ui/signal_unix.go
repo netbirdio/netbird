@@ -11,9 +11,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// listenForShowSignal opens the main window when the process receives SIGUSR1.
-// External tools (the daemon, the installer, or another `netbird-ui` invocation)
-// can poke this channel by signalling the running pid.
+// listenForShowSignal lets external tools surface the running UI by signalling its pid (SIGUSR1).
 func listenForShowSignal(ctx context.Context, tray *Tray) {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGUSR1)

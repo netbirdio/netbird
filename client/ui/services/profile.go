@@ -10,34 +10,25 @@ import (
 	"github.com/netbirdio/netbird/client/proto"
 )
 
-// Profile is one named daemon profile.
 type Profile struct {
 	Name     string `json:"name"`
 	IsActive bool   `json:"isActive"`
-	// Email is the account address associated with this profile, sourced from
-	// the per-profile state file written by the CLI after a successful SSO
-	// login (e.g. ~/Library/Application Support/netbird/default.state.json on
-	// macOS). The daemon always runs as root, so its getConfigDir() resolves to
-	// the root home directory and cannot reach the user-owned state file. The
-	// UI process runs as the logged-in user and can read it directly via
-	// profilemanager.ProfileManager, which is why the email is fetched here
-	// instead of being returned by the ListProfiles RPC.
+	// Email is read from the user-owned per-profile state file (CLI writes it
+	// after SSO login), not via ListProfiles: the daemon runs as root and can't
+	// reach it, while the UI runs as the logged-in user.
 	Email string `json:"email"`
 }
 
-// ProfileRef identifies a profile by name+username.
 type ProfileRef struct {
 	ProfileName string `json:"profileName"`
 	Username    string `json:"username"`
 }
 
-// ActiveProfile is the result of GetActiveProfile.
 type ActiveProfile struct {
 	ProfileName string `json:"profileName"`
 	Username    string `json:"username"`
 }
 
-// Profiles groups the daemon RPCs that manage named profiles.
 type Profiles struct {
 	conn DaemonConn
 }
@@ -47,7 +38,6 @@ func NewProfiles(conn DaemonConn) *Profiles {
 }
 
 // Username returns the OS username the daemon expects for profile lookups.
-// The frontend calls this once at boot and reuses the result.
 func (s *Profiles) Username() (string, error) {
 	u, err := user.Current()
 	if err != nil {

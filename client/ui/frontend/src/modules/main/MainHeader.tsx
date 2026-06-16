@@ -24,6 +24,7 @@ import { useClientVersion } from "@/contexts/ClientVersionContext";
 import { cn } from "@/lib/cn";
 import { formatShortcut, useKeyboardShortcut } from "@/hooks/useKeyboardShortcut";
 import { useViewMode, type ViewMode } from "@/contexts/ViewModeContext";
+import { useRestrictions } from "@/contexts/RestrictionsContext";
 import { isWindows } from "@/lib/platform.ts";
 
 const SETTINGS_SHORTCUT = { key: ",", cmd: true } as const;
@@ -33,21 +34,28 @@ export const MainHeader = () => {
     const [menuOpen, setMenuOpen] = useState(false);
     const { viewMode, setViewMode } = useViewMode();
     const { updateAvailable } = useClientVersion();
+    const { mdm, features } = useRestrictions();
 
     const openSettings = useCallback(() => {
         setMenuOpen(false);
-        WindowManager.OpenSettings("").catch(() => {});
+        WindowManager.OpenSettings("").catch((err: unknown) =>
+            console.error("open settings window failed", err),
+        );
     }, []);
 
     useKeyboardShortcut(SETTINGS_SHORTCUT, openSettings);
 
     const openAbout = () => {
         setMenuOpen(false);
-        WindowManager.OpenSettings("about").catch(() => {});
+        WindowManager.OpenSettings("about").catch((err: unknown) =>
+            console.error("open settings (about) window failed", err),
+        );
     };
 
     const openManageProfiles = () => {
-        WindowManager.OpenSettings("profiles").catch(() => {});
+        WindowManager.OpenSettings("profiles").catch((err: unknown) =>
+            console.error("open settings (profiles) window failed", err),
+        );
     };
 
     const selectMode = (mode: ViewMode) => {
@@ -55,7 +63,9 @@ export const MainHeader = () => {
         setViewMode(mode);
     };
 
-    const profileSlot = <ProfileDropdown onManageProfiles={openManageProfiles} />;
+    const profileSlot = features.disableProfiles ? null : (
+        <ProfileDropdown onManageProfiles={openManageProfiles} />
+    );
 
     const settingsSlot = (
         <div className={"relative"}>
@@ -94,19 +104,23 @@ export const MainHeader = () => {
                             </DropdownMenuShortcut>
                         </div>
                     </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <ViewModeItem
-                        icon={RectangleVertical}
-                        label={t("header.menu.defaultView")}
-                        selected={viewMode === "default"}
-                        onSelect={() => selectMode("default")}
-                    />
-                    <ViewModeItem
-                        icon={PanelsRightBottom}
-                        label={t("header.menu.advancedView")}
-                        selected={viewMode === "advanced"}
-                        onSelect={() => selectMode("advanced")}
-                    />
+                    {!mdm.disableAdvancedView && (
+                        <>
+                            <DropdownMenuSeparator />
+                            <ViewModeItem
+                                icon={RectangleVertical}
+                                label={t("header.menu.defaultView")}
+                                selected={viewMode === "default"}
+                                onSelect={() => selectMode("default")}
+                            />
+                            <ViewModeItem
+                                icon={PanelsRightBottom}
+                                label={t("header.menu.advancedView")}
+                                selected={viewMode === "advanced"}
+                                onSelect={() => selectMode("advanced")}
+                            />
+                        </>
+                    )}
                 </DropdownMenuContent>
             </DropdownMenu>
             {updateAvailable && (

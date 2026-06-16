@@ -8,6 +8,12 @@ static inline int xembed_default_screen(Display *dpy) {
     return DefaultScreen(dpy);
 }
 
+// xembed_install_error_handlers replaces Xlib's default protocol- and
+// I/O-error handlers (which call exit()) with logging handlers, so an async
+// X error from a tray race doesn't kill the UI process. Process-global and
+// idempotent; safe to call after every XOpenDisplay.
+void xembed_install_error_handlers(void);
+
 // xembed_find_tray returns the selection owner window for
 // _NET_SYSTEM_TRAY_S{screen}, or 0 if no XEmbed tray manager exists.
 Window xembed_find_tray(Display *dpy, int screen);

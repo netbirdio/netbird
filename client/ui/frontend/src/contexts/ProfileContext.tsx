@@ -4,6 +4,7 @@ import {
     useContext,
     useEffect,
     useMemo,
+    useRef,
     useState,
     type ReactNode,
 } from "react";
@@ -42,8 +43,13 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
     const [activeProfile, setActiveProfile] = useState("");
     const [profiles, setProfiles] = useState<Profile[]>([]);
     const [loaded, setLoaded] = useState(false);
+    const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const refresh = useCallback(async () => {
+        if (retryRef.current) {
+            clearTimeout(retryRef.current);
+            retryRef.current = null;
+        }
         try {
             const u = await ProfilesSvc.Username();
             const [active, list] = await Promise.all([
@@ -53,23 +59,28 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
             setUsername(u);
             setActiveProfile(active.profileName || "default");
             setProfiles(list);
+            setLoaded(true);
         } catch (e) {
-            // Daemon-down is already surfaced by DaemonUnavailableOverlay; swallow it here.
             const msg = e instanceof Error ? e.message : String(e);
             if (msg.includes("code = Unavailable")) {
+                retryRef.current = setTimeout(() => {
+                    void refresh();
+                }, 1000);
                 return;
             }
+            setLoaded(true);
             await errorDialog({
                 Title: i18next.t("profile.error.loadTitle"),
                 Message: formatErrorMessage(e),
             });
-        } finally {
-            setLoaded(true);
         }
     }, []);
 
     useEffect(() => {
         refresh().catch((err: unknown) => console.error("[ProfileContext] refresh failed", err));
+        return () => {
+            if (retryRef.current) clearTimeout(retryRef.current);
+        };
     }, [refresh]);
 
     useEffect(() => {

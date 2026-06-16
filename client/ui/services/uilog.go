@@ -8,15 +8,13 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// UILog lets the frontend forward console output into the Go logrus
-// pipeline. The JS origin is carried as the "ui" log field so it stays
-// distinct from logrus's own Go-caller source.
+// UILog forwards frontend console output into logrus, tagging the JS origin
+// as the "ui" field to stay distinct from logrus's Go-caller source.
 type UILog struct{}
 
 func NewUILog() *UILog { return &UILog{} }
 
-// Log forwards one frontend console entry. level is trace/debug/info/warn/
-// error (anything else → info); source is the JS origin (may be empty).
+// Log maps an unrecognised level to info; empty source becomes "unknown".
 func (s *UILog) Log(_ context.Context, level, source, msg string) {
 	origin := "unknown"
 	if source != "" {

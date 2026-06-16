@@ -2,12 +2,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Events } from "@wailsio/runtime";
 import { Connection, WindowManager } from "@bindings/services";
-import i18next from "@/lib/i18n";
 import { ToggleSwitch } from "@/components/switches/ToggleSwitch.tsx";
 import { useStatus } from "@/contexts/StatusContext.tsx";
 import { useProfile } from "@/contexts/ProfileContext.tsx";
 import { cn } from "@/lib/cn.ts";
 import { errorDialog, formatErrorMessage } from "@/lib/errors.ts";
+import {
+    startConnection,
+    EVENT_BROWSER_LOGIN_CANCEL,
+    EVENT_TRIGGER_LOGIN,
+} from "@/lib/connection.ts";
 import { CopyToClipboard } from "@/components/CopyToClipboard";
 import { TruncatedText } from "@/components/TruncatedText";
 import { shortenDns } from "@/lib/formatters";
@@ -15,89 +19,6 @@ import { contentTop } from "@/components/empty-state/EmptyState";
 import { Check as CheckIcon, ChevronDownIcon, Copy as CopyIcon } from "lucide-react";
 import * as Popover from "@radix-ui/react-popover";
 import netbirdFullLogo from "@/assets/logos/netbird-full.svg";
-
-const EVENT_BROWSER_LOGIN_CANCEL = "browser-login:cancel";
-
-const EVENT_TRIGGER_LOGIN = "trigger-login";
-
-let loginInFlight = false;
-
-// onSettled (re-arm guards) must fire before the error dialog, never gated on it:
-// a hanging dialog would silently drop every later login until restart.
-async function startLogin(onSettled?: () => void): Promise<void> {
-    if (loginInFlight) {
-        onSettled?.();
-        return;
-    }
-    loginInFlight = true;
-
-    let cancelled = false;
-    let offCancel: (() => void) | undefined;
-    let loginError: unknown;
-
-    try {
-        const result = await Connection.Login({
-            profileName: "",
-            username: "",
-            managementUrl: "",
-            setupKey: "",
-            preSharedKey: "",
-            hostname: "",
-            hint: "",
-        });
-
-        if (result.needsSsoLogin) {
-            const uri = result.verificationUriComplete || result.verificationUri;
-            if (uri) {
-                try {
-                    await WindowManager.OpenBrowserLogin(uri);
-                } catch (e) {
-                    console.error(e);
-                }
-            }
-
-            const cancelPromise = new Promise<void>((resolve) => {
-                offCancel = Events.On(EVENT_BROWSER_LOGIN_CANCEL, () => {
-                    cancelled = true;
-                    resolve();
-                });
-            });
-
-            const waitPromise = Connection.WaitSSOLogin({
-                userCode: result.userCode,
-                hostname: "",
-            });
-
-            try {
-                await Promise.race([waitPromise, cancelPromise]);
-            } finally {
-                WindowManager.CloseBrowserLogin().catch(console.error);
-            }
-
-            if (cancelled) {
-                waitPromise.cancel?.();
-                waitPromise.catch(() => {});
-                return;
-            }
-        }
-
-        await Connection.Up({ profileName: "", username: "" });
-    } catch (e) {
-        WindowManager.CloseBrowserLogin().catch(console.error);
-        if (!cancelled) loginError = e;
-    } finally {
-        offCancel?.();
-        loginInFlight = false;
-        onSettled?.();
-    }
-
-    if (loginError !== undefined) {
-        await errorDialog({
-            Title: i18next.t("connect.error.loginTitle"),
-            Message: formatErrorMessage(loginError),
-        });
-    }
-}
 
 enum ConnectionState {
     Disconnected = "disconnected",
@@ -136,7 +57,7 @@ export const MainConnectionStatusSwitch = () => {
         if (loginGuard.current) return;
         loginGuard.current = true;
         setAction("logging-in");
-        void startLogin(() => {
+        void startConnection(() => {
             loginGuard.current = false;
             setAction(null);
             refresh().catch((err: unknown) => console.error("refresh after login failed", err));
@@ -276,7 +197,9 @@ export const MainConnectionStatusSwitch = () => {
                 console.error("emit browser-login cancel failed", err),
             );
         }
-        WindowManager.CloseBrowserLogin().catch(() => {});
+        WindowManager.CloseBrowserLogin().catch((err: unknown) =>
+            console.warn("close browser-login window failed", err),
+        );
         setAction("disconnect");
         try {
             await Connection.Down();
@@ -435,7 +358,9 @@ const IpRow = ({ value }: { value: string }) => {
             await navigator.clipboard.writeText(value);
             setCopied(true);
             setTimeout(() => setCopied(false), 500);
-        } catch {}
+        } catch (e) {
+            console.warn("copy IP to clipboard failed", e);
+        }
     };
     return (
         <button

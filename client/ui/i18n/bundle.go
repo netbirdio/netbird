@@ -1,14 +1,10 @@
 //go:build !android && !ios && !freebsd && !js
 
-// Package i18n carries the translation domain: the BCP-47 LanguageCode
-// type, the per-language Language metadata, and the Bundle that loads and
-// serves translation strings for both the tray (Go) and the React UI
-// (via the Wails-bound services.I18n facade).
+// Package i18n loads and serves translation strings for both the tray (Go)
+// and the React UI (via the services.I18n facade).
 //
-// No Wails or daemon dependencies — this package can be tested and used
-// standalone. The locale tree is passed in as an fs.FS so the embed
-// directive can live in the main binary alongside the rest of the
-// embedded assets.
+// The locale tree is passed in as an fs.FS so the embed directive can live in
+// the main binary.
 package i18n
 
 import (
@@ -25,64 +21,45 @@ import (
 )
 
 const (
-	// localeIndexFile sits at the locale tree root and lists every shipped
-	// language with its display name. Adding a new language means dropping
-	// a new <code>/common.json bundle and appending a row to this index.
 	localeIndexFile = "_index.json"
 
-	// commonBundleFile is the per-language translation bundle. Single
-	// namespace for now ("common") — split later if the key set grows
-	// enough to warrant per-screen bundles.
-	//
-	// Shape is Chrome-extension JSON (each key maps to an object with a
-	// "message" and an optional "description") so Crowdin reads the
-	// description as translator context straight from the source file.
-	// Only the source bundle (en) needs descriptions; target bundles carry
-	// just "message". loadBundle flattens both back to key->message.
+	// commonBundleFile shape is Chrome-extension JSON (key -> "message" plus
+	// optional Crowdin "description"); loadBundle flattens to key->message.
 	commonBundleFile = "common.json"
 )
 
-// LanguageCode is a BCP-47-ish locale identifier ("en", "hu", ...). Carried
-// as a named string so the compiler distinguishes a language code from a
-// translation key or an arbitrary user-supplied string in function
-// signatures; JSON serialisation is unchanged (still a plain string).
+// LanguageCode is a BCP-47-ish locale identifier ("en", "hu", ...).
 type LanguageCode string
 
-// DefaultLanguage is used when no preference is on disk and as the fallback
-// bundle for missing keys.
+// DefaultLanguage is the fallback bundle for missing keys and the default
+// when no preference is on disk.
 const DefaultLanguage LanguageCode = "en"
 
-// ErrUnsupportedLanguage is returned when a caller asks for a language
-// that has no bundle loaded.
 var ErrUnsupportedLanguage = errors.New("unsupported language")
 
-// Language describes one shipped UI locale. DisplayName is shown in the
-// picker in its own script (so a Hungarian user sees "Magyar" even when
-// the current UI language is English).
+// Language describes one shipped UI locale. DisplayName is in the locale's
+// own script (a Hungarian entry reads "Magyar" regardless of UI language).
 type Language struct {
 	Code        LanguageCode `json:"code"`
 	DisplayName string       `json:"displayName"`
 	EnglishName string       `json:"englishName"`
 }
 
-// localeIndex is the on-disk shape of _index.json.
 type localeIndex struct {
 	Languages []Language `json:"languages"`
 }
 
 // Bundle holds the parsed translation bundles. Loaded once at construction
-// and never mutated, so concurrent readers (tray menu rebuilds + Wails
-// service calls) don't need to coordinate beyond the RW mutex.
+// and never mutated.
 type Bundle struct {
 	mu        sync.RWMutex
 	languages []Language
 	bundles   map[LanguageCode]map[string]string
 }
 
-// NewBundle parses _index.json plus every <code>/common.json file in the
-// locale tree. Hard-fails only when the default language is missing —
-// individual locales without a bundle are dropped with a warning so the
-// rest of the product keeps shipping.
+// NewBundle parses _index.json plus every <code>/common.json in the locale
+// tree. Hard-fails only when the default language is missing; other locales
+// without a bundle are dropped with a warning.
 func NewBundle(localesFS fs.FS) (*Bundle, error) {
 	idx, err := loadLocaleIndex(localesFS)
 	if err != nil {
@@ -113,7 +90,7 @@ func NewBundle(localesFS fs.FS) (*Bundle, error) {
 	}, nil
 }
 
-// Languages returns the list of available locales as a copy.
+// Languages returns a copy of the available locales.
 func (b *Bundle) Languages() []Language {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -122,8 +99,6 @@ func (b *Bundle) Languages() []Language {
 	return out
 }
 
-// HasLanguage reports whether a bundle is loaded for the given code.
-// preferences.Store uses this to validate SetLanguage input.
 func (b *Bundle) HasLanguage(code LanguageCode) bool {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -131,9 +106,7 @@ func (b *Bundle) HasLanguage(code LanguageCode) bool {
 	return ok
 }
 
-// BundleFor returns the full key->text map for one language as a copy.
-// The Wails facade exposes this to React so the frontend can drive its
-// own translation library (i18next, etc.) off the same source bundles.
+// BundleFor returns a copy of the full key->text map for one language.
 func (b *Bundle) BundleFor(code LanguageCode) (map[string]string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -149,11 +122,9 @@ func (b *Bundle) BundleFor(code LanguageCode) (map[string]string, error) {
 	return out, nil
 }
 
-// Translate resolves key for the given language with a placeholder pass.
-// Args must come in {placeholderName, value} pairs (e.g. "version", "1.2.3"
-// substitutes "{version}"). Unknown keys fall back to the default language;
-// if even that fails, the key itself is returned — a missed key is visible
-// in the UI rather than blank.
+// Translate resolves key for lang, substituting args given as name/value
+// pairs ("version", "1.2.3" replaces "{version}"). Unknown keys fall back to
+// the default language, then to the key itself so a miss is visible in the UI.
 func (b *Bundle) Translate(lang LanguageCode, key string, args ...string) string {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -169,9 +140,8 @@ func (b *Bundle) Translate(lang LanguageCode, key string, args ...string) string
 	return key
 }
 
-// applyPlaceholders substitutes {name} occurrences in s using args interpreted
-// as flat name/value pairs. Odd-length args lists drop the trailing item with
-// a debug log — preferable to a hard error since the caller is internal code.
+// applyPlaceholders substitutes {name} in s using args as flat name/value
+// pairs. An odd-length args drops the trailing item.
 func applyPlaceholders(s string, args []string) string {
 	if len(args) == 0 {
 		return s
@@ -201,9 +171,8 @@ func loadLocaleIndex(localesFS fs.FS) (*localeIndex, error) {
 	return &idx, nil
 }
 
-// bundleEntry is the on-disk shape of one translation key: a Chrome-JSON
-// object carrying the translatable "message" plus an optional translator
-// "description" (consumed by Crowdin, ignored at runtime).
+// bundleEntry is one translation key on disk; Description is Crowdin context,
+// ignored at runtime.
 type bundleEntry struct {
 	Message     string `json:"message"`
 	Description string `json:"description,omitempty"`

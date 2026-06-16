@@ -11,6 +11,7 @@ import { DialogHeading } from "@/components/dialog/DialogHeading";
 import { SquareIcon } from "@/components/SquareIcon";
 import { Connection, Profiles as ProfilesSvc, Session, WindowManager } from "@bindings/services";
 import { useAutoSizeWindow } from "@/hooks/useAutoSizeWindow";
+import { EVENT_BROWSER_LOGIN_CANCEL } from "@/lib/connection";
 import { errorDialog, formatErrorMessage } from "@/lib/errors.ts";
 import { formatRemaining } from "@/lib/formatters";
 
@@ -34,6 +35,8 @@ export default function SessionExpirationDialog() {
     const busyRef = useRef(busy);
     busyRef.current = busy;
     const expired = remaining <= 0;
+    const expiredRef = useRef(expired);
+    expiredRef.current = expired;
     const soon = remaining <= SOON_THRESHOLD_SECONDS;
     const activeTitle = soon ? t("sessionExpiration.title") : t("sessionExpiration.titleLater");
     const activeDescription = soon
@@ -51,11 +54,11 @@ export default function SessionExpirationDialog() {
         return () => globalThis.clearInterval(id);
     }, [initialSeconds]);
 
-    // Suppressed while `busy`: the tunnel stays up so Connected re-fires for
-    // unrelated reasons (peer/route changes), and closing would abort our own WaitExtend.
+    // Don't auto-close while busy (aborts our WaitExtend) or expired (hides the state).
     useEffect(() => {
         const off = Events.On("netbird:status", (ev: { data: { status?: string } }) => {
-            if (!busyRef.current && ev?.data?.status === "Connected") {
+            if (busyRef.current || expiredRef.current) return;
+            if (ev?.data?.status === "Connected") {
                 WindowManager.CloseSessionExpiration().catch(console.error);
             }
         });
@@ -67,25 +70,50 @@ export default function SessionExpirationDialog() {
     const stay = useCallback(async () => {
         if (busy) return;
         setBusy(true);
+
+        let offCancel: (() => void) | undefined;
+
         try {
             const start = await Session.RequestExtend({ hint: "" });
             const uri = start.verificationUriComplete || start.verificationUri;
+
+            // The popup opens the URL and (Go-side) hides this window, restoring it on close.
             if (uri) {
                 try {
-                    await Connection.OpenURL(uri);
+                    await WindowManager.OpenBrowserLogin(uri);
                 } catch (e) {
-                    console.debug("OpenURL failed during extend", e);
+                    console.error(e);
                 }
             }
-            const result = await Session.WaitExtend({
+
+            const cancelPromise = new Promise<void>((resolve) => {
+                offCancel = Events.On(EVENT_BROWSER_LOGIN_CANCEL, () => {
+                    resolve();
+                });
+            });
+
+            const waitPromise = Session.WaitExtend({
                 deviceCode: start.deviceCode,
                 userCode: start.userCode,
             });
-            if (result.preempted) {
-                // Another surface took over this deadline's flow; keep the dialog
-                // open to retry. A successful extend elsewhere auto-closes this window.
+
+            const outcome = await Promise.race([
+                waitPromise.then((r) => ({ kind: "done" as const, result: r })),
+                cancelPromise.then(() => ({ kind: "cancel" as const })),
+            ]);
+
+            if (outcome.kind === "cancel") {
+                waitPromise.cancel?.();
+                waitPromise.catch(() => {});
                 return;
             }
+
+            // Another surface owns this flow; keep the dialog open to retry.
+            if (outcome.result.preempted) {
+                return;
+            }
+
+            // Close before the popup so the restore can't flash this window back.
             WindowManager.CloseSessionExpiration().catch(console.error);
         } catch (e) {
             await errorDialog({
@@ -93,6 +121,8 @@ export default function SessionExpirationDialog() {
                 Message: formatErrorMessage(e),
             });
         } finally {
+            offCancel?.();
+            WindowManager.CloseBrowserLogin().catch(console.error);
             setBusy(false);
         }
     }, [busy, t]);

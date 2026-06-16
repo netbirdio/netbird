@@ -67,6 +67,7 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 			StatusRecorder: s.statusRecorder,
 			SyncResponse:   syncResponse,
 			LogPath:        s.logFile,
+			UILogPath:      s.uiLogPath,
 			CPUProfile:     cpuProfileData,
 			CapturePath:    capturePath,
 			RefreshStatus:  refreshStatus,
@@ -127,7 +128,24 @@ func (s *Server) SetLogLevel(_ context.Context, req *proto.SetLogLevelRequest) (
 
 	log.Infof("Log level set to %s", level.String())
 
+	// Signal the desktop UI so it can attach/detach its gui-client.log. Rides
+	// the SubscribeEvents stream as a marked event (see publishLogLevelChanged).
+	s.publishLogLevelChanged(level.String())
+
 	return &proto.SetLogLevelResponse{}, nil
+}
+
+// RegisterUILog records the desktop UI's absolute log path so DebugBundle can
+// collect the GUI log. The daemon runs as root and can't resolve the user's
+// config dir, so the UI reports it. Last-writer-wins (one UI per socket).
+func (s *Server) RegisterUILog(_ context.Context, req *proto.RegisterUILogRequest) (*proto.RegisterUILogResponse, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	s.uiLogPath = req.GetPath()
+	log.Infof("registered UI log path: %s", s.uiLogPath)
+
+	return &proto.RegisterUILogResponse{}, nil
 }
 
 // SetSyncResponsePersistence sets the sync response persistence for the server.

@@ -50,7 +50,8 @@ export const CopyToClipboard = ({
             setCopied(true);
             if (copyTimer.current) clearTimeout(copyTimer.current);
             copyTimer.current = setTimeout(() => setCopied(false), 500);
-        } catch {
+        } catch (e) {
+            console.warn("copy to clipboard failed", e);
         }
     };
 

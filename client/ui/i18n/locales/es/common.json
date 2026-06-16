@@ -167,6 +167,12 @@
     "notify.sessionDeadlineRejected.body": {
         "message": "El servidor envió un plazo de sesión no válido. Inicie sesión de nuevo."
     },
+    "notify.mdm.policyApplied.title": {
+        "message": "Configuración de NetBird actualizada"
+    },
+    "notify.mdm.policyApplied.body": {
+        "message": "Su configuración de NetBird fue actualizada por su política de TI."
+    },
     "common.cancel": {
         "message": "Cancelar"
     },
@@ -698,9 +704,6 @@
     "settings.troubleshooting.section.title": {
         "message": "Paquete de diagnóstico"
     },
-    "settings.troubleshooting.intro": {
-        "message": "Un paquete de diagnóstico ayuda al soporte de NetBird a investigar problemas de conexión. <br /> Es un archivo .zip con registros, detalles del sistema e información de depuración de su dispositivo."
-    },
     "settings.troubleshooting.anonymize.label": {
         "message": "Anonimizar información sensible"
     },
@@ -717,19 +720,31 @@
         "message": "Subir el paquete a los servidores de NetBird"
     },
     "settings.troubleshooting.upload.help": {
-        "message": "Sube el paquete de forma segura y devuelve una clave de subida. Comparta la clave con el soporte de NetBird por GitHub o Slack en lugar de adjuntar el archivo directamente."
+        "message": "Devuelve una clave de subida para compartir con el soporte de NetBird."
     },
     "settings.troubleshooting.trace.label": {
-        "message": "Capturar registros de seguimiento"
+        "message": "Activar registros de seguimiento"
     },
     "settings.troubleshooting.trace.help": {
-        "message": "Eleva el registro a TRACE y reinicia NetBird para capturar los registros de conexión. El nivel anterior se restaura después de generar el paquete."
+        "message": "Eleva el nivel de registro a TRACE y lo restaura después."
+    },
+    "settings.troubleshooting.capture.label": {
+        "message": "Sesión de captura"
+    },
+    "settings.troubleshooting.capture.help": {
+        "message": "Vuelve a conectar y espera para que pueda reproducir el problema."
+    },
+    "settings.troubleshooting.packets.label": {
+        "message": "Capturar paquetes de red"
+    },
+    "settings.troubleshooting.packets.help": {
+        "message": "Guarda un .pcap del tráfico de red durante la sesión de captura."
     },
     "settings.troubleshooting.duration.label": {
         "message": "Duración de la captura"
     },
     "settings.troubleshooting.duration.help": {
-        "message": "Cuánto tiempo capturar registros de seguimiento antes de generar el paquete."
+        "message": "Cuánto tiempo se ejecuta la sesión de captura."
     },
     "settings.troubleshooting.duration.suffix": {
         "message": "min"
@@ -770,17 +785,11 @@
     "settings.troubleshooting.uploadFailed": {
         "message": "Error en la subida. El paquete sigue guardado localmente."
     },
-    "settings.troubleshooting.stage.preparingTrace": {
-        "message": "Cambiando al registro de seguimiento…"
-    },
     "settings.troubleshooting.stage.reconnecting": {
         "message": "Reconectando NetBird…"
     },
     "settings.troubleshooting.stage.capturing": {
-        "message": "Capturando registros"
-    },
-    "settings.troubleshooting.stage.restoring": {
-        "message": "Restaurando el nivel de registro anterior…"
+        "message": "Capturando registros de depuración"
     },
     "settings.troubleshooting.stage.bundling": {
         "message": "Generando el paquete de diagnóstico…"

@@ -15,36 +15,24 @@ import (
 	"github.com/netbirdio/netbird/client/ui/updater"
 )
 
-// trayUpdater owns every piece of tray UI that reacts to the auto-update
-// feature: the "Download latest / Install version X" menu item, the
-// EventUpdateState subscription, the click that either opens the GitHub
-// releases page or triggers the in-window installer flow, the OS
-// notification for a freshly announced version, and the bring-window-forward
-// call when the daemon enters force-install. Composed inside Tray; never
-// used standalone.
+// trayUpdater owns the tray UI that reacts to auto-update. Composed inside Tray.
 type trayUpdater struct {
-	app      *application.App
-	window   *application.WebviewWindow
-	update   *services.Update
-	notifier *notifications.NotificationService
-	loc      *Localizer
-	// onIconChange is invoked whenever the "update available" flag
-	// transitions, so the tray can repaint its icon (the small badge
-	// overlay differs between has-update / no-update).
+	app          *application.App
+	window       *application.WebviewWindow
+	update       *services.Update
+	notifier     *notifications.NotificationService
+	loc          *Localizer
 	onIconChange func()
-	// onMenuChange drives a full tray relayout (Tray.relayoutMenu) after an
-	// event-driven update-state change. The update row lives in the About
-	// submenu, which KDE/Plasma caches on first open and never re-fetches on a
-	// plain SetLabel/SetHidden — so a newly-available update would never paint
-	// there. relayoutMenu rebuilds the whole tree (fresh submenu ids) and
-	// re-attaches this item from the cached state via attach → refreshMenuItem.
+	// onMenuChange drives a full tray relayout: the update row lives in the
+	// About submenu, which KDE/Plasma caches on first open and never re-fetches
+	// on a plain SetLabel/SetHidden — only a relayout (fresh submenu ids) repaints.
 	onMenuChange func()
 
 	mu                 sync.Mutex
 	item               *application.MenuItem
 	state              updater.State
-	notifiedVersion    string // last version we surfaced as an OS notification
-	progressWindowOpen bool   // last installing value we acted on
+	notifiedVersion    string
+	progressWindowOpen bool
 }
 
 func newTrayUpdater(app *application.App, window *application.WebviewWindow, update *services.Update, notifier *notifications.NotificationService, loc *Localizer, onIconChange func(), onMenuChange func()) *trayUpdater {
@@ -58,17 +46,13 @@ func newTrayUpdater(app *application.App, window *application.WebviewWindow, upd
 		onMenuChange: onMenuChange,
 	}
 	app.Event.On(updater.EventStateChanged, u.onStateEvent)
-	// Seed from the cached state so we don't miss an event that fired
-	// before NewTray finished wiring (DaemonFeed.Watch starts after tray
-	// construction today, but treat that as an implementation detail).
+	// Seed from cached state to cover an event that fired before wiring completed.
 	u.state = update.GetState()
 	return u
 }
 
-// attach (re)binds the menu item the tray builds for us. Called every time
-// Tray.buildMenu runs — initial menu construction and language switches.
-// The menu item's OnClick handler is owned by the caller; this method only
-// configures label and visibility from the cached state.
+// attach (re)binds the menu item on each Tray.buildMenu run. The caller owns the
+// item's OnClick handler.
 func (u *trayUpdater) attach(item *application.MenuItem) {
 	u.mu.Lock()
 	u.item = item
@@ -77,16 +61,14 @@ func (u *trayUpdater) attach(item *application.MenuItem) {
 	u.refreshMenuItem(state)
 }
 
-// hasUpdate reports whether the tray should paint the "update available"
-// icon variant. Read by Tray.iconForState during applyIcon.
+// hasUpdate reports whether the tray should paint the "update available" icon.
 func (u *trayUpdater) hasUpdate() bool {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	return u.state.Available
 }
 
-// applyLanguage re-renders the menu item label from the cached state, used
-// after Tray.applyLanguage rebuilds the menu with a fresh locale.
+// applyLanguage re-renders the menu item label after a locale switch.
 func (u *trayUpdater) applyLanguage() {
 	u.mu.Lock()
 	state := u.state
@@ -94,10 +76,8 @@ func (u *trayUpdater) applyLanguage() {
 	u.refreshMenuItem(state)
 }
 
-// handleClick runs when the user clicks the tray update entry. Branch 1
-// (Enforced=false) opens the GitHub releases page in the browser; Branch 2
-// (Enforced=true) surfaces the in-window /update progress page and asks
-// the daemon to start the installer.
+// handleClick opens the GitHub releases page when not Enforced, otherwise shows
+// the progress page and asks the daemon to start the installer.
 func (u *trayUpdater) handleClick() {
 	u.mu.Lock()
 	state := u.state
@@ -128,10 +108,8 @@ func (u *trayUpdater) onStateEvent(ev *application.CustomEvent) {
 	u.applyState(st)
 }
 
-// applyState diffs the incoming UpdateState against the cached copy and
-// drives every side effect: icon repaint, menu label/visibility, OS
-// notification on a newly-announced version, /update window on install
-// entry.
+// applyState diffs st against the cached state and drives the resulting side
+// effects: icon repaint, menu refresh, new-version notification, progress window.
 func (u *trayUpdater) applyState(st updater.State) {
 	u.mu.Lock()
 	prev := u.state
@@ -150,11 +128,8 @@ func (u *trayUpdater) applyState(st updater.State) {
 	}
 	u.mu.Unlock()
 
-	// Drive a full relayout rather than mutating u.item in place: on KDE the
-	// About submenu is layout-cached, so a direct SetLabel/SetHidden here would
-	// not paint the newly-available update. relayoutMenu re-attaches the item
-	// from u.state, which re-runs refreshMenuItem. Fall back to the in-place
-	// refresh if no relayout hook was wired (defensive — always set today).
+	// Full relayout rather than in-place: KDE layout-caches the About submenu, so
+	// a direct SetLabel/SetHidden wouldn't paint. Fall back if no hook was wired.
 	if u.onMenuChange != nil {
 		u.onMenuChange()
 	} else {
@@ -171,9 +146,6 @@ func (u *trayUpdater) applyState(st updater.State) {
 	}
 }
 
-// refreshMenuItem updates the menu item's label and visibility from the
-// given state. Called from applyState (event-driven), attach (menu rebuild)
-// and applyLanguage (locale switch) — all three converge on the same shape.
 func (u *trayUpdater) refreshMenuItem(st updater.State) {
 	u.mu.Lock()
 	item := u.item
@@ -209,10 +181,8 @@ func (u *trayUpdater) sendUpdateNotification(st updater.State) {
 	})
 }
 
-// openProgressWindow points the main window at the /update progress page
-// and brings it forward. Used both when the user clicks an enforced-update
-// menu entry (Branch 2) and when the daemon flips Installing to true on
-// its own (Branch 3, force install).
+// openProgressWindow points the main window at the /update progress page and
+// brings it forward.
 func (u *trayUpdater) openProgressWindow(version string) {
 	if u.window == nil {
 		return

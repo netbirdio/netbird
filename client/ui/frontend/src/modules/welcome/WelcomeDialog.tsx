@@ -5,12 +5,12 @@ import {
     Settings as SettingsSvc,
     WindowManager,
 } from "@bindings/services";
-import { SetConfigParams } from "@bindings/services/models.js";
+import { Restrictions, SetConfigParams } from "@bindings/services/models.js";
 import { ConfirmDialog } from "@/components/dialog/ConfirmDialog";
 import { useAutoSizeWindow } from "@/hooks/useAutoSizeWindow";
 import { errorDialog, formatErrorMessage } from "@/lib/errors";
 import i18next from "@/lib/i18n";
-import { isCloudManagementUrl } from "@/hooks/useManagementUrl";
+import { isNetbirdCloud } from "@/hooks/useManagementUrl";
 import { WelcomeStepTray } from "./WelcomeStepTray";
 import { WelcomeStepManagement } from "./WelcomeStepManagement";
 
@@ -22,10 +22,12 @@ function shouldShowManagementStep(
     activeProfile: string,
     email: string,
     managementUrl: string,
+    managedManagementUrl: string,
 ): boolean {
+    if (managedManagementUrl) return false;
     if (activeProfile !== "default") return false;
     if (email.trim() !== "") return false;
-    return isCloudManagementUrl(managementUrl);
+    return isNetbirdCloud(managementUrl);
 }
 
 type InitialState = {
@@ -50,9 +52,10 @@ export default function WelcomeDialog() {
                     ProfilesSvc.GetActive(),
                 ]);
                 const profileName = active.profileName || "default";
-                const [config, list] = await Promise.all([
+                const [config, list, restrictions] = await Promise.all([
                     SettingsSvc.GetConfig({ profileName, username }),
                     ProfilesSvc.List(username),
+                    SettingsSvc.GetRestrictions().catch(() => new Restrictions()),
                 ]);
                 const profile = list.find((p) => p.name === profileName);
                 const email = profile?.email ?? "";
@@ -65,6 +68,7 @@ export default function WelcomeDialog() {
                         profileName,
                         email,
                         config.managementUrl,
+                        restrictions.mdm.managementURL,
                     ),
                 });
             } catch (e) {

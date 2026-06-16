@@ -3,6 +3,5 @@
 package main
 
 func (t *Tray) startTrayTheme() {
-	// No-op off Linux: macOS template icons and Windows colored PNGs need no
-	// colour-scheme probe. panelDark stays nil; panelIsDark uses its default.
+	// No-op off Linux: leaves panelDark nil so panelIsDark uses its default.
 }

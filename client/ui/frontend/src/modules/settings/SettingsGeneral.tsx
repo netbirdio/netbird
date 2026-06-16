@@ -10,6 +10,7 @@ import { useAutostartSetting, useSettings } from "@/contexts/SettingsContext.tsx
 import { ManagementServerSwitch } from "@/components/ManagementServerSwitch.tsx";
 import { ManagementMode, useManagementUrl } from "@/hooks/useManagementUrl.ts";
 import { LanguagePicker } from "@/components/LanguagePicker.tsx";
+import { useRestrictions } from "@/contexts/RestrictionsContext.tsx";
 
 export function SettingsGeneral() {
     const { t } = useTranslation();
@@ -17,6 +18,7 @@ export function SettingsGeneral() {
     const { autostart, setAutostartEnabled } = useAutostartSetting();
     const { mode, setMode, setUrl, displayUrl, showError, canSave, save, checking, unreachable } =
         useManagementUrl();
+    const { mdm, features } = useRestrictions();
 
     const inputRef = useRef<HTMLInputElement>(null);
     const prevMode = useRef(mode);
@@ -37,12 +39,14 @@ export function SettingsGeneral() {
                     label={t("settings.general.notifications.label")}
                     helpText={t("settings.general.notifications.help")}
                 />
-                <FancyToggleSwitch
-                    value={!config.disableAutoConnect}
-                    onChange={(v) => setField("disableAutoConnect", !v)}
-                    label={t("settings.general.connectOnStartup.label")}
-                    helpText={t("settings.general.connectOnStartup.help")}
-                />
+                {!mdm.disableAutoConnect && !features.disableUpdateSettings && (
+                    <FancyToggleSwitch
+                        value={!config.disableAutoConnect}
+                        onChange={(v) => setField("disableAutoConnect", !v)}
+                        label={t("settings.general.connectOnStartup.label")}
+                        helpText={t("settings.general.connectOnStartup.help")}
+                    />
+                )}
                 {(autostart === null || autostart.supported) && (
                     <FancyToggleSwitch
                         value={autostart?.enabled ?? false}
@@ -54,46 +58,52 @@ export function SettingsGeneral() {
                 )}
             </SectionGroup>
 
-            <SectionGroup title={t("settings.general.section.connection")}>
-                <div>
-                    <div className={"flex items-start gap-3"}>
-                        <div className={"flex-1 min-w-0"}>
-                            <Label as={"div"}>{t("settings.general.management.label")}</Label>
-                            <HelpText>{t("settings.general.management.help")}</HelpText>
+            {!mdm.managementURL && !features.disableUpdateSettings && (
+                <SectionGroup title={t("settings.general.section.connection")}>
+                    <div>
+                        <div className={"flex items-start gap-3"}>
+                            <div className={"flex-1 min-w-0"}>
+                                <Label as={"div"}>{t("settings.general.management.label")}</Label>
+                                <HelpText>{t("settings.general.management.help")}</HelpText>
+                            </div>
+                            <ManagementServerSwitch value={mode} onChange={setMode} />
                         </div>
-                        <ManagementServerSwitch value={mode} onChange={setMode} />
+                        {mode === ManagementMode.SelfHosted && (
+                            <div className={"flex items-start gap-3 mt-2"}>
+                                <Input
+                                    ref={inputRef}
+                                    value={displayUrl}
+                                    onChange={(e) => setUrl(e.target.value)}
+                                    placeholder={t("settings.general.management.urlPlaceholder")}
+                                    error={
+                                        showError
+                                            ? t("settings.general.management.urlError")
+                                            : undefined
+                                    }
+                                    warning={
+                                        unreachable
+                                            ? t("settings.general.management.urlUnreachable")
+                                            : undefined
+                                    }
+                                    spellCheck={false}
+                                    autoComplete="off"
+                                    autoCorrect="off"
+                                    autoCapitalize="off"
+                                />
+                                <Button
+                                    variant={"primary"}
+                                    size={"md"}
+                                    disabled={!canSave}
+                                    loading={checking}
+                                    onClick={() => save()}
+                                >
+                                    {t("common.save")}
+                                </Button>
+                            </div>
+                        )}
                     </div>
-                    {mode === ManagementMode.SelfHosted && (
-                        <div className={"flex items-start gap-3 mt-2"}>
-                            <Input
-                                ref={inputRef}
-                                value={displayUrl}
-                                onChange={(e) => setUrl(e.target.value)}
-                                placeholder={t("settings.general.management.urlPlaceholder")}
-                                error={
-                                    showError
-                                        ? t("settings.general.management.urlError")
-                                        : undefined
-                                }
-                                warning={
-                                    unreachable
-                                        ? t("settings.general.management.urlUnreachable")
-                                        : undefined
-                                }
-                            />
-                            <Button
-                                variant={"primary"}
-                                size={"md"}
-                                disabled={!canSave}
-                                loading={checking}
-                                onClick={() => save()}
-                            >
-                                {t("common.save")}
-                            </Button>
-                        </div>
-                    )}
-                </div>
-            </SectionGroup>
+                </SectionGroup>
+            )}
         </>
     );
 }

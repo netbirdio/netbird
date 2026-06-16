@@ -167,6 +167,12 @@
     "notify.sessionDeadlineRejected.body": {
         "message": "Der Server hat eine ungültige Sitzungsablaufzeit übermittelt. Bitte melden Sie sich erneut an."
     },
+    "notify.mdm.policyApplied.title": {
+        "message": "NetBird-Einstellungen aktualisiert"
+    },
+    "notify.mdm.policyApplied.body": {
+        "message": "Ihre NetBird-Konfiguration wurde durch Ihre IT-Richtlinie aktualisiert."
+    },
     "common.cancel": {
         "message": "Abbrechen"
     },
@@ -698,9 +704,6 @@
     "settings.troubleshooting.section.title": {
         "message": "Debug-Paket"
     },
-    "settings.troubleshooting.intro": {
-        "message": "Ein Debug-Paket hilft dem NetBird-Support bei der Untersuchung von Verbindungsproblemen. <br /> Es ist eine .zip-Datei mit Logs, Systemdetails und Debug-Informationen Ihres Geräts."
-    },
     "settings.troubleshooting.anonymize.label": {
         "message": "Sensible Informationen anonymisieren"
     },
@@ -717,19 +720,31 @@
         "message": "Paket an NetBird-Server hochladen"
     },
     "settings.troubleshooting.upload.help": {
-        "message": "Lädt das Paket sicher hoch und gibt einen Upload-Schlüssel zurück. Teilen Sie den Schlüssel über GitHub oder Slack mit dem NetBird-Support, anstatt die Datei direkt anzuhängen."
+        "message": "Gibt einen Upload-Schlüssel zurück, den Sie mit dem NetBird-Support teilen können."
     },
     "settings.troubleshooting.trace.label": {
-        "message": "Trace-Logs erfassen"
+        "message": "Trace-Logs aktivieren"
     },
     "settings.troubleshooting.trace.help": {
-        "message": "Erhöht das Logging auf TRACE und schaltet NetBird kurz aus und wieder ein, um Verbindungs-Logs zu erfassen. Das vorherige Level wird nach Erstellung des Pakets wiederhergestellt."
+        "message": "Hebt das Log-Level auf TRACE an und stellt es danach wieder her."
+    },
+    "settings.troubleshooting.capture.label": {
+        "message": "Aufzeichnungssitzung"
+    },
+    "settings.troubleshooting.capture.help": {
+        "message": "Stellt die Verbindung neu her und wartet, damit Sie das Problem reproduzieren können."
+    },
+    "settings.troubleshooting.packets.label": {
+        "message": "Netzwerkpakete aufzeichnen"
+    },
+    "settings.troubleshooting.packets.help": {
+        "message": "Speichert eine .pcap-Datei des Netzwerkverkehrs während der Aufzeichnung."
     },
     "settings.troubleshooting.duration.label": {
         "message": "Aufzeichnungsdauer"
     },
     "settings.troubleshooting.duration.help": {
-        "message": "Wie lange Trace-Logs vor der Paketerstellung erfasst werden sollen."
+        "message": "Wie lange die Aufzeichnungssitzung läuft."
     },
     "settings.troubleshooting.duration.suffix": {
         "message": "Minute(n)"
@@ -770,17 +785,11 @@
     "settings.troubleshooting.uploadFailed": {
         "message": "Upload fehlgeschlagen. Das Paket wurde trotzdem lokal gespeichert."
     },
-    "settings.troubleshooting.stage.preparingTrace": {
-        "message": "Wechsel zu Trace-Logging…"
-    },
     "settings.troubleshooting.stage.reconnecting": {
         "message": "NetBird wird neu verbunden…"
     },
     "settings.troubleshooting.stage.capturing": {
-        "message": "Logs werden erfasst"
-    },
-    "settings.troubleshooting.stage.restoring": {
-        "message": "Vorheriges Log-Level wird wiederhergestellt…"
+        "message": "Debug-Logs werden erfasst"
     },
     "settings.troubleshooting.stage.bundling": {
         "message": "Debug-Paket wird erstellt…"
@@ -1020,7 +1029,7 @@
         "message": "Wird geprüft …"
     },
     "browserLogin.title": {
-        "message": "Setzen Sie den Anmeldevorgang im Browser fort"
+        "message": "Anmeldung im Browser abschließen"
     },
     "browserLogin.notSeeing": {
         "message": "Sehen Sie den Browser-Tab nicht?"

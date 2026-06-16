@@ -167,6 +167,12 @@
     "notify.sessionDeadlineRejected.body": {
         "message": "Il server ha inviato una scadenza di sessione non valida. Effettui di nuovo l'accesso."
     },
+    "notify.mdm.policyApplied.title": {
+        "message": "Impostazioni NetBird aggiornate"
+    },
+    "notify.mdm.policyApplied.body": {
+        "message": "La configurazione di NetBird è stata aggiornata dalla policy IT."
+    },
     "common.cancel": {
         "message": "Annulla"
     },
@@ -698,9 +704,6 @@
     "settings.troubleshooting.section.title": {
         "message": "Pacchetto di debug"
     },
-    "settings.troubleshooting.intro": {
-        "message": "Un pacchetto di debug aiuta il supporto NetBird a indagare sui problemi di connessione. <br /> È un file .zip con log, dettagli di sistema e informazioni di debug del suo dispositivo."
-    },
     "settings.troubleshooting.anonymize.label": {
         "message": "Anonimizza informazioni sensibili"
     },
@@ -717,19 +720,31 @@
         "message": "Carica il pacchetto sui server NetBird"
     },
     "settings.troubleshooting.upload.help": {
-        "message": "Carica il pacchetto in modo sicuro e restituisce una chiave di caricamento. Condivida la chiave con il supporto NetBird tramite GitHub o Slack invece di allegare direttamente il file."
+        "message": "Restituisce una chiave di caricamento da condividere con il supporto NetBird."
     },
     "settings.troubleshooting.trace.label": {
-        "message": "Acquisisci log di traccia"
+        "message": "Abilita log di traccia"
     },
     "settings.troubleshooting.trace.help": {
-        "message": "Aumenta il livello di log a TRACE e riavvia NetBird per acquisire i log di connessione. Il livello precedente viene ripristinato dopo la creazione del pacchetto."
+        "message": "Aumenta il livello di log a TRACE e lo ripristina al termine."
+    },
+    "settings.troubleshooting.capture.label": {
+        "message": "Sessione di acquisizione"
+    },
+    "settings.troubleshooting.capture.help": {
+        "message": "Si riconnette e attende per consentirle di riprodurre il problema."
+    },
+    "settings.troubleshooting.packets.label": {
+        "message": "Acquisisci pacchetti di rete"
+    },
+    "settings.troubleshooting.packets.help": {
+        "message": "Salva un .pcap del traffico di rete durante la sessione di acquisizione."
     },
     "settings.troubleshooting.duration.label": {
         "message": "Durata acquisizione"
     },
     "settings.troubleshooting.duration.help": {
-        "message": "Per quanto tempo acquisire i log di traccia prima di generare il pacchetto."
+        "message": "Per quanto tempo viene eseguita la sessione di acquisizione."
     },
     "settings.troubleshooting.duration.suffix": {
         "message": "min."
@@ -770,17 +785,11 @@
     "settings.troubleshooting.uploadFailed": {
         "message": "Caricamento non riuscito. Il pacchetto è comunque salvato localmente."
     },
-    "settings.troubleshooting.stage.preparingTrace": {
-        "message": "Passaggio al logging di traccia…"
-    },
     "settings.troubleshooting.stage.reconnecting": {
         "message": "Riconnessione di NetBird…"
     },
     "settings.troubleshooting.stage.capturing": {
-        "message": "Acquisizione log"
-    },
-    "settings.troubleshooting.stage.restoring": {
-        "message": "Ripristino del livello di log precedente…"
+        "message": "Acquisizione log di debug"
     },
     "settings.troubleshooting.stage.bundling": {
         "message": "Generazione del pacchetto di debug…"

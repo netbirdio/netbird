@@ -4,12 +4,7 @@ package main
 
 import _ "embed"
 
-// Tray icons embedded from the legacy Fyne UI's asset set. Each pair is a
-// light-mode PNG and its dark-mode variant; macOS template variants
-// (*-macos.png) live alongside for menubar use. Windows uses the same
-// PNGs — multi-resolution .ico files looked promising on disk but
-// Wails3's Shell_NotifyIcon NIM_MODIFY never redrew them on the running
-// tray; PNG single-frame works.
+// Windows reuses these PNGs: multi-frame .ico never redrew under Wails3's NIM_MODIFY, single-frame PNG does.
 
 //go:embed assets/netbird-systemtray-connected.png
 var iconConnected []byte
@@ -56,12 +51,8 @@ var iconUpdateConnectedMacOS []byte
 //go:embed assets/netbird-systemtray-update-disconnected-macos.png
 var iconUpdateDisconnectedMacOS []byte
 
-// Linux monochrome tray icons. Linux's SNI tray has no template-recoloring
-// (unlike macOS's SetTemplateIcon), so we ship an explicit black/white pair:
-// the black silhouette (*-mono.png) goes to SetIcon for light panels, the
-// white one (*-mono-dark.png) goes to SetDarkModeIcon for dark panels, and
-// the SNI host picks per panel theme. Generated from the macOS template
-// silhouettes — states differ by shape, not color.
+// SNI has no template recoloring, so ship an explicit pair: black (*-mono.png)
+// for light panels, white (*-mono-dark.png) for dark panels.
 
 //go:embed assets/netbird-systemtray-connected-mono.png
 var iconConnectedMono []byte
@@ -108,9 +99,6 @@ var iconUpdateDisconnectedMonoDark []byte
 //go:embed assets/netbird.png
 var iconWindow []byte
 
-// Per-platform menu-row icons (status dots + NetBird brand mark) live in
-// icons_menu_windows.go and icons_menu_other.go. Windows installs them
-// into the Win32 check-mark slot, which expects SM_CXMENUCHECK-sized
-// bitmaps (~16x16 at 100% DPI) — anything bigger gets cropped, anything
-// smaller leaves blank space — so Windows ships its own 16x16 set
-// while macOS/Linux keep the larger 24x24 assets that fit their menus.
+// Per-platform menu-row icons live in icons_menu_{windows,other}.go. Windows
+// uses 16x16: they go into the Win32 check-mark slot (SM_CXMENUCHECK, ~16x16 at
+// 100% DPI) which crops anything bigger; macOS/Linux use 24x24.

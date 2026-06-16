@@ -12,18 +12,14 @@ import (
 	"github.com/netbirdio/netbird/client/ui/updater"
 )
 
-// UpdateResult mirrors TriggerUpdateResponse: Success false carries an error
-// message in ErrorMsg.
+// UpdateResult mirrors TriggerUpdateResponse.
 type UpdateResult struct {
 	Success  bool   `json:"success"`
 	ErrorMsg string `json:"errorMsg"`
 }
 
-// Update is the Wails-bound facade over the daemon's update RPCs and the
-// updater.Holder cached state. The state machine, metadata schema, and
-// push event live in client/ui/updater — this file exists only to give
-// the binding generator a service type with the context.Context-first
-// signatures it expects.
+// Update is the Wails-bound facade over the daemon's update RPCs. The state
+// machine and push event live in client/ui/updater.
 type Update struct {
 	conn   DaemonConn
 	holder *updater.Holder
@@ -33,18 +29,12 @@ func NewUpdate(conn DaemonConn, holder *updater.Holder) *Update {
 	return &Update{conn: conn, holder: holder}
 }
 
-// GetState returns the latest update.State snapshot. The frontend calls
-// this once on mount, then subscribes to updater.EventStateChanged for
-// live updates.
 func (s *Update) GetState() updater.State {
 	return s.holder.Get()
 }
 
-// Quit asks the host application to exit. The /update page calls this once
-// the daemon-side installer has reported success, mirroring the legacy
-// Fyne UI's app.Quit() in showInstallerResult. Schedules the actual exit
-// off the calling goroutine so the JS-side caller's response can return
-// before the runtime tears down.
+// Quit exits the app. Scheduled off the calling goroutine so the JS caller's
+// response returns before the runtime tears down.
 func (s *Update) Quit() {
 	go func() {
 		time.Sleep(100 * time.Millisecond)

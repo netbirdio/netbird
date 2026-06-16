@@ -2,10 +2,11 @@ import { ComponentType } from "react";
 import { LucideProps } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { SquareIcon } from "@/components/SquareIcon";
+import { isMacOS } from "@/lib/platform";
 
 // Knob to shift the centered main-window content up/down together.
-export const CONTENT_VERTICAL_OFFSET = "-1.4rem";
-export const contentTop = (base: string) => `calc(${base} + ${CONTENT_VERTICAL_OFFSET})`;
+export const contentVerticalOffset = (): string => (isMacOS() ? "0.6rem" : "-1.4rem");
+export const contentTop = (base: string) => `calc(${base} + ${contentVerticalOffset()})`;
 
 type Props = {
     icon: ComponentType<LucideProps>;
@@ -18,9 +19,7 @@ export const EmptyState = ({ icon, title, description, className }: Props) => {
     return (
         <div className={cn("py-12 text-center", className)}>
             <div
-                className={
-                    "flex flex-col items-center justify-start max-w-sm mx-auto relative"
-                }
+                className={"flex flex-col items-center justify-start max-w-sm mx-auto relative"}
                 style={{ top: contentTop("7.8rem") }}
             >
                 <SquareIcon icon={icon} className={"mb-3"} />

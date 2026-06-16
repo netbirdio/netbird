@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitionResources xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+                           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                           revision="1.0"
+                           schemaVersion="1.0"
+                           xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">
+  <displayName>NetBird Client Policies</displayName>
+  <description>Group Policy template for NetBird client MDM-managed settings. Values are written under HKLM\Software\Policies\NetBird and consumed by the netbird daemon at startup and every 1-minute reload tick.</description>
+  <resources>
+    <stringTable>
+
+      <!-- Categories -->
+      <string id="NetBird_Category">NetBird</string>
+      <string id="SUPPORTED_NetBird_All">NetBird Client 0.40+</string>
+
+      <!-- Identity / auth -->
+      <string id="ManagementURL_Name">Management URL</string>
+      <string id="ManagementURL_Help">URL of the NetBird management server. Format: https://host[:port]. When set, users cannot override this value via UI or CLI.</string>
+
+      <string id="PreSharedKey_Name">Pre-shared key</string>
+      <string id="PreSharedKey_Help">WireGuard pre-shared key used as an additional symmetric secret on every peer-to-peer tunnel. Secret value.</string>
+
+      <!-- Settings: engine / runtime behavior -->
+      <string id="DisableAutoConnect_Name">Disable auto-connect</string>
+      <string id="DisableAutoConnect_Help">When enabled, the NetBird tunnel does not auto-connect at daemon startup. Equivalent to --disable-auto-connect.</string>
+
+      <string id="DisableClientRoutes_Name">Disable client routes</string>
+      <string id="DisableClientRoutes_Help">When enabled, this client will not consume routes advertised by routing peers. Equivalent to --disable-client-routes.</string>
+
+      <string id="DisableServerRoutes_Name">Disable server routes</string>
+      <string id="DisableServerRoutes_Help">When enabled, this client will not act as a routing peer for other clients. Equivalent to --disable-server-routes.</string>
+
+      <string id="BlockInbound_Name">Block inbound</string>
+      <string id="BlockInbound_Help">When enabled, the client firewall blocks all inbound peer traffic on the WireGuard interface. Equivalent to --block-inbound.</string>
+
+      <string id="AllowServerSSH_Name">Allow server SSH</string>
+      <string id="AllowServerSSH_Help">When enabled, this client accepts incoming SSH sessions via NetBird SSH. Equivalent to --allow-server-ssh.</string>
+
+      <string id="RosenpassEnabled_Name">Enable Rosenpass</string>
+      <string id="RosenpassEnabled_Help">Enables Rosenpass post-quantum key exchange on WireGuard tunnels. Both peers must support it.</string>
+
+      <string id="RosenpassPermissive_Name">Rosenpass permissive</string>
+      <string id="RosenpassPermissive_Help">When enabled, the client falls back to plain WireGuard if a peer does not support Rosenpass; otherwise it refuses the connection.</string>
+
+      <string id="WireguardPort_Name">WireGuard port</string>
+      <string id="WireguardPort_Help">UDP port used by the local WireGuard interface. Allowed range: 1-65535.</string>
+
+      <string id="SplitTunnel_Name">Split tunnel</string>
+      <string id="SplitTunnel_Help">Restrict the NetBird tunnel to or from a chosen list of application package names. Choose either the allow mode (only the listed apps route through NetBird) or the disallow mode (the listed apps bypass NetBird; everything else routes through). The mode is mutually exclusive — only one can be active at a time. Android-only at the daemon level; Windows/macOS/iOS clients ignore this policy.</string>
+      <string id="SplitTunnel_Allow">Allow only listed apps (everything else bypasses)</string>
+      <string id="SplitTunnel_Disallow">Disallow listed apps (everything else routes)</string>
+
+      <!-- UI -->
+      <string id="DisableUpdateSettings_Name">Disable update settings</string>
+      <string id="DisableUpdateSettings_Help">When enabled, blocks every configuration change from the client UI and from the CLI (netbird up / login / setconfig). The Settings view stays viewable but read-only. Equivalent to --disable-update-settings.</string>
+
+      <string id="DisableProfiles_Name">Disable profiles</string>
+      <string id="DisableProfiles_Help">When enabled, the client UI/CLI cannot list, create, switch or remove NetBird connection profiles. Equivalent to --disable-profiles.</string>
+
+      <string id="DisableNetworks_Name">Disable networks</string>
+      <string id="DisableNetworks_Help">When enabled, the client UI/CLI cannot list, select or deselect NetBird networks (the corresponding daemon RPCs return Unavailable). Equivalent to --disable-networks.</string>
+
+      <string id="DisableAdvancedView_Name">Disable advanced view</string>
+      <string id="DisableAdvancedView_Help">When enabled, the client UI hides the advanced-view section of the new UI revision. Tristate at the daemon: 1 (enabled) hides the section; 0 (disabled) explicitly shows it; not configured leaves the UI's default behavior in place. MDM is the sole source — no equivalent CLI flag exists.</string>
+
+      <string id="DisableMetricsCollection_Name">Disable metrics collection</string>
+      <string id="DisableMetricsCollection_Help">When enabled, the client does not collect or report local usage metrics.</string>
+
+    </stringTable>
+    <presentationTable>
+
+      <presentation id="ManagementURL_Pres">
+        <textBox refId="ManagementURL_Text">
+          <label>Management URL:</label>
+          <defaultValue>https://api.netbird.io:443</defaultValue>
+        </textBox>
+      </presentation>
+
+      <presentation id="PreSharedKey_Pres">
+        <textBox refId="PreSharedKey_Text">
+          <label>Pre-shared key:</label>
+        </textBox>
+      </presentation>
+
+      <presentation id="WireguardPort_Pres">
+        <decimalTextBox refId="WireguardPort_Decimal" defaultValue="51820">WireGuard UDP port:</decimalTextBox>
+      </presentation>
+
+      <presentation id="SplitTunnel_Pres">
+        <dropdownList refId="SplitTunnel_Mode" defaultItem="0">Mode:</dropdownList>
+        <textBox refId="SplitTunnel_Apps">
+          <label>Package names (comma-separated):</label>
+        </textBox>
+      </presentation>
+
+    </presentationTable>
+  </resources>
+</policyDefinitionResources>

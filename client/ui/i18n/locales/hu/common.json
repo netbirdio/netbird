@@ -167,6 +167,12 @@
     "notify.sessionDeadlineRejected.body": {
         "message": "A szerver érvénytelen munkamenet-határidőt küldött. Kérjük, jelentkezzen be újra."
     },
+    "notify.mdm.policyApplied.title": {
+        "message": "NetBird beállítások frissítve"
+    },
+    "notify.mdm.policyApplied.body": {
+        "message": "A NetBird konfigurációt az IT-szabályzat frissítette."
+    },
     "common.cancel": {
         "message": "Mégse"
     },
@@ -698,9 +704,6 @@
     "settings.troubleshooting.section.title": {
         "message": "Hibakeresési csomag"
     },
-    "settings.troubleshooting.intro": {
-        "message": "A hibakeresési csomag segít a NetBird támogatásnak a kapcsolati problémák kivizsgálásában. <br /> Egy .zip fájl, amely naplókat, rendszerinformációkat és hibakeresési adatokat tartalmaz az eszközéről."
-    },
     "settings.troubleshooting.anonymize.label": {
         "message": "Érzékeny információk anonimizálása"
     },
@@ -717,19 +720,31 @@
         "message": "Csomag feltöltése a NetBird szerverekre"
     },
     "settings.troubleshooting.upload.help": {
-        "message": "Biztonságosan feltölti a csomagot, és visszaad egy feltöltési kulcsot. Ossza meg a kulcsot a NetBird támogatással a GitHubon vagy Slacken keresztül a fájl közvetlen csatolása helyett."
+        "message": "Egy feltöltési kulcsot ad vissza, amelyet megoszthat a NetBird támogatással."
     },
     "settings.troubleshooting.trace.label": {
-        "message": "Trace naplók rögzítése"
+        "message": "Trace naplók engedélyezése"
     },
     "settings.troubleshooting.trace.help": {
-        "message": "TRACE szintre emeli a naplózást, és újraindítja a NetBird kapcsolatot a kapcsolati naplók rögzítéséhez. Az előző szint a csomag elkészülte után visszaáll."
+        "message": "TRACE szintre emeli a naplózást, majd utána visszaállítja."
+    },
+    "settings.troubleshooting.capture.label": {
+        "message": "Rögzítési munkamenet"
+    },
+    "settings.troubleshooting.capture.help": {
+        "message": "Újra csatlakozik és vár, hogy reprodukálhassa a problémát."
+    },
+    "settings.troubleshooting.packets.label": {
+        "message": "Hálózati csomagok rögzítése"
+    },
+    "settings.troubleshooting.packets.help": {
+        "message": "A rögzítés ideje alatt elmenti a hálózati forgalom .pcap fájlját."
     },
     "settings.troubleshooting.duration.label": {
         "message": "Rögzítés időtartama"
     },
     "settings.troubleshooting.duration.help": {
-        "message": "Mennyi ideig rögzítse a trace naplókat a csomag elkészítése előtt."
+        "message": "Mennyi ideig fusson a rögzítési munkamenet."
     },
     "settings.troubleshooting.duration.suffix": {
         "message": "perc"
@@ -770,17 +785,11 @@
     "settings.troubleshooting.uploadFailed": {
         "message": "Feltöltés sikertelen. A csomag továbbra is el van mentve helyileg."
     },
-    "settings.troubleshooting.stage.preparingTrace": {
-        "message": "Váltás trace naplózásra…"
-    },
     "settings.troubleshooting.stage.reconnecting": {
         "message": "NetBird újracsatlakoztatása…"
     },
     "settings.troubleshooting.stage.capturing": {
-        "message": "Naplók rögzítése"
-    },
-    "settings.troubleshooting.stage.restoring": {
-        "message": "Korábbi napló szint visszaállítása…"
+        "message": "Hibakeresési naplók rögzítése"
     },
     "settings.troubleshooting.stage.bundling": {
         "message": "Hibakeresési csomag generálása…"

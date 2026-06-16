@@ -167,6 +167,12 @@
     "notify.sessionDeadlineRejected.body": {
         "message": "Сервер передал неверный срок действия сеанса. Пожалуйста, войдите снова."
     },
+    "notify.mdm.policyApplied.title": {
+        "message": "Настройки NetBird обновлены"
+    },
+    "notify.mdm.policyApplied.body": {
+        "message": "Конфигурация NetBird была обновлена в соответствии с вашей ИТ-политикой."
+    },
     "common.cancel": {
         "message": "Отмена"
     },
@@ -698,9 +704,6 @@
     "settings.troubleshooting.section.title": {
         "message": "Отладочный пакет"
     },
-    "settings.troubleshooting.intro": {
-        "message": "Отладочный пакет помогает поддержке NetBird исследовать проблемы с подключением. <br /> Это .zip-файл с журналами, сведениями о системе и отладочной информацией с вашего устройства."
-    },
     "settings.troubleshooting.anonymize.label": {
         "message": "Анонимизировать конфиденциальную информацию"
     },
@@ -717,19 +720,31 @@
         "message": "Загрузить пакет на серверы NetBird"
     },
     "settings.troubleshooting.upload.help": {
-        "message": "Безопасно загружает пакет и возвращает ключ загрузки. Поделитесь ключом с поддержкой NetBird через GitHub или Slack вместо того, чтобы прикреплять файл напрямую."
+        "message": "Возвращает ключ загрузки, который можно передать поддержке NetBird."
     },
     "settings.troubleshooting.trace.label": {
-        "message": "Собирать журналы TRACE"
+        "message": "Включить журналы TRACE"
     },
     "settings.troubleshooting.trace.help": {
-        "message": "Повышает уровень журналирования до TRACE и перезапускает NetBird (отключение и подключение) для сбора журналов подключения. Прежний уровень восстанавливается после создания пакета."
+        "message": "Повышает уровень журналирования до TRACE и затем восстанавливает прежний."
+    },
+    "settings.troubleshooting.capture.label": {
+        "message": "Сеанс записи"
+    },
+    "settings.troubleshooting.capture.help": {
+        "message": "Переподключается и ожидает, чтобы вы могли воспроизвести проблему."
+    },
+    "settings.troubleshooting.packets.label": {
+        "message": "Записывать сетевые пакеты"
+    },
+    "settings.troubleshooting.packets.help": {
+        "message": "Сохраняет .pcap сетевого трафика во время сеанса записи."
     },
     "settings.troubleshooting.duration.label": {
         "message": "Длительность записи"
     },
     "settings.troubleshooting.duration.help": {
-        "message": "Как долго собирать журналы TRACE перед созданием пакета."
+        "message": "Как долго длится сеанс записи."
     },
     "settings.troubleshooting.duration.suffix": {
         "message": "мин."
@@ -770,17 +785,11 @@
     "settings.troubleshooting.uploadFailed": {
         "message": "Не удалось загрузить. Пакет всё равно сохранён локально."
     },
-    "settings.troubleshooting.stage.preparingTrace": {
-        "message": "Переключение на журналирование TRACE…"
-    },
     "settings.troubleshooting.stage.reconnecting": {
         "message": "Переподключение NetBird…"
     },
     "settings.troubleshooting.stage.capturing": {
-        "message": "Сбор журналов"
-    },
-    "settings.troubleshooting.stage.restoring": {
-        "message": "Восстановление прежнего уровня журналирования…"
+        "message": "Сбор отладочных журналов"
     },
     "settings.troubleshooting.stage.bundling": {
         "message": "Создание отладочного пакета…"
@@ -1020,10 +1029,10 @@
         "message": "Проверка…"
     },
     "browserLogin.title": {
-        "message": "Продолжите в браузере, чтобы завершить вход"
+        "message": "Завершите вход в браузере"
     },
     "browserLogin.notSeeing": {
-        "message": "Не видите вкладку браузера?"
+        "message": "Мы открыли вкладку браузера, чтобы вы могли войти в аккаунт. Не видите вкладку?"
     },
     "browserLogin.tryAgain": {
         "message": "Повторить"

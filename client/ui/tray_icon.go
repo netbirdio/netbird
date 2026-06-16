@@ -30,11 +30,9 @@ func (t *Tray) applyIcon() {
 		return
 	}
 	if runtime.GOOS == "linux" {
-		// Wails' Linux SNI backend ignores SetDarkModeIcon (its
-		// setDarkModeIcon just calls setIcon, last-write-wins), so we pick
-		// the black-vs-white silhouette ourselves in iconForState based on
-		// the panel theme and push a single SetIcon. Calling
-		// SetDarkModeIcon here would only clobber that choice.
+		// Wails' Linux SNI backend ignores SetDarkModeIcon (last write wins
+		// over SetIcon), so iconForState already picked the silhouette by
+		// panel theme; push that single icon.
 		t.tray.SetIcon(icon)
 		return
 	}
@@ -44,10 +42,8 @@ func (t *Tray) applyIcon() {
 	}
 }
 
-// panelIsDark reports whether the desktop panel uses a dark colour scheme, so
-// the Linux branch of iconForState can choose the white silhouette. Defaults
-// to true when no detector is wired (panelDark nil — non-Linux, or the
-// freedesktop portal was unavailable), matching the common dark Linux panel.
+// panelIsDark defaults to true when no detector is wired (panelDark nil —
+// non-Linux or portal unavailable), matching the common dark Linux panel.
 func (t *Tray) panelIsDark() bool {
 	if t.panelDark == nil {
 		return true
@@ -92,11 +88,9 @@ func (t *Tray) iconForState() (icon, dark []byte) {
 	}
 
 	if runtime.GOOS == "linux" {
-		// Linux: monochrome silhouette chosen by panel theme. Wails' SNI
-		// backend can't switch icons per theme itself (see applyIcon), so we
-		// resolve black (light panel) vs white (dark panel) here and the
-		// caller pushes a single SetIcon. The second return is unused on
-		// Linux.
+		// Theme resolved here (black for light panel, white for dark) since
+		// the SNI backend can't switch per theme (see applyIcon); second
+		// return is unused on Linux.
 		dark := t.panelIsDark()
 		pick := func(black, white []byte) ([]byte, []byte) {
 			if dark {

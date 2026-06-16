@@ -2,16 +2,10 @@
 
 package main
 
-// themeWatcher: the live half of Linux panel-theme detection. It seeds the
-// current dark/light state, then watches for changes from two sources and
-// repaints the tray icon when the panel theme flips:
-//   - the freedesktop Settings portal's SettingChanged signal (the cross-
-//     desktop colour-scheme source), and
-//   - on KDE, the user kdeglobals file (the portal's color-scheme doesn't
-//     track the panel's Complementary colour — see readDarkMode).
-//
-// The dark/light decision itself lives in tray_theme_linux.go; this file owns
-// the session-bus connection, the signal/file subscriptions, and the repaint.
+// Sources: the freedesktop Settings portal's SettingChanged signal, and on KDE
+// the kdeglobals file (the portal's color-scheme doesn't track the panel's
+// Complementary colour — see readDarkMode). The dark/light decision lives in
+// tray_theme_linux.go; this file owns the session-bus connection and subscriptions.
 
 import (
 	"path/filepath"
@@ -35,9 +29,8 @@ const (
 	colorSchemePreferLight  = 2
 )
 
-// themeWatcher reads the desktop colour-scheme preference over the session
-// bus and invokes onChange whenever it flips. It owns a private session-bus
-// connection so its signal subscription is isolated from the SNI watcher's.
+// themeWatcher owns a private session-bus connection so its signal subscription
+// is isolated from the SNI watcher's.
 type themeWatcher struct {
 	conn     *dbus.Conn
 	onChange func()
@@ -46,10 +39,8 @@ type themeWatcher struct {
 	darkMode bool
 }
 
-// startThemeWatcher opens a private session-bus connection, seeds the current
-// colour scheme, and subscribes to the portal's SettingChanged signal. It
-// returns nil (and logs) if the portal is unavailable — callers treat a nil
-// watcher as "no preference", which keeps the default-dark icon choice.
+// startThemeWatcher returns nil if the session bus is unavailable; callers treat
+// a nil watcher as "no preference", keeping the default-dark icon.
 func startThemeWatcher(onChange func()) *themeWatcher {
 	conn, err := dbus.SessionBusPrivate()
 	if err != nil {
@@ -75,9 +66,7 @@ func startThemeWatcher(onChange func()) *themeWatcher {
 		// Keep the connection: the seeded darkMode value is still useful.
 	}
 
-	// On KDE the portal's color-scheme signal doesn't track the panel's
-	// Complementary colour, so watch kdeglobals directly to repaint on a
-	// theme switch.
+	// The portal's signal doesn't track KDE's panel Complementary colour.
 	if isKDE() {
 		w.watchKdeglobals()
 	}
@@ -86,9 +75,8 @@ func startThemeWatcher(onChange func()) *themeWatcher {
 	return w
 }
 
-// IsDark reports the last observed colour-scheme preference. A nil watcher
-// (portal unavailable) reports true so the icon defaults to the white
-// silhouette, which suits the common dark Linux panel.
+// IsDark reports true for a nil watcher, so the icon defaults to the white
+// silhouette suiting the common dark Linux panel.
 func (w *themeWatcher) IsDark() bool {
 	if w == nil {
 		return true
@@ -98,22 +86,14 @@ func (w *themeWatcher) IsDark() bool {
 	return w.darkMode
 }
 
-// readDarkMode resolves whether the desktop panel (where the tray icon sits)
-// is dark.
+// readDarkMode resolves whether the panel the tray icon sits on is dark.
 //
-// On KDE the freedesktop color-scheme is the *application* window preference,
-// not the panel's: Plasma paints its panel and system tray from the Breeze
-// "Complementary" colour group, which stays dark even under a Light global
-// scheme (kdeglobals [Colors:Window] light vs [Colors:Complementary] dark).
-// So a light color-scheme there would wrongly pick the black silhouette,
-// which then disappears against the dark panel. We therefore read the actual
-// panel background from kdeglobals first under KDE and decide by its luma.
-//
-// Off KDE (or when kdeglobals can't be read), the freedesktop color-scheme
-// portal is the source; when it is unavailable or reports "no preference"
-// (0), we fall back to the GTK_THEME env var (the GTK convention appends
-// ":dark" for the dark variant, e.g. "Adwaita:dark"). If nothing yields a
-// signal we default to dark, matching the common dark Linux panel.
+// On KDE the freedesktop color-scheme is the application preference, not the
+// panel's: Plasma paints its panel from the Breeze "Complementary" group, which
+// stays dark even under a Light global scheme, so we read the panel background
+// from kdeglobals first and decide by its luma. Off KDE the color-scheme portal
+// is the source; on "no preference" (0) or when unavailable we fall back to
+// GTK_THEME (":dark" suffix ⇒ dark), then default to dark.
 func (w *themeWatcher) readDarkMode() bool {
 	if dark, ok := kdePanelIsDark(); ok {
 		return dark
@@ -123,14 +103,13 @@ func (w *themeWatcher) readDarkMode() bool {
 		return true
 	case colorSchemePreferLight:
 		return false
-	default: // colorSchemeNoPreference or portal unavailable
+	default:
 		return gtkThemeIsDark()
 	}
 }
 
-// readColorScheme returns the raw freedesktop color-scheme value (0 = no
-// preference, 1 = prefer dark, 2 = prefer light), or colorSchemeNoPreference
-// when the portal can't be reached.
+// readColorScheme returns the raw freedesktop color-scheme value, or
+// colorSchemeNoPreference when the portal can't be reached.
 func (w *themeWatcher) readColorScheme() uint32 {
 	obj := w.conn.Object(portalBusName, portalObjectPath)
 	call := obj.Call(portalSettings+".Read", 0, appearanceNamespace, colorSchemeKey)
@@ -148,9 +127,6 @@ func (w *themeWatcher) readColorScheme() uint32 {
 	return variantToColorScheme(v)
 }
 
-// subscribe registers a match rule for the portal's SettingChanged signal and
-// spawns a goroutine that re-reads the scheme and fires onChange on each
-// relevant change.
 func (w *themeWatcher) subscribe() error {
 	if err := w.conn.AddMatchSignal(
 		dbus.WithMatchObjectPath(portalObjectPath),
@@ -166,8 +142,6 @@ func (w *themeWatcher) subscribe() error {
 	return nil
 }
 
-// loop consumes SettingChanged signals, filters to the colour-scheme key, and
-// repaints the icon when the dark/light preference actually flips.
 func (w *themeWatcher) loop(sigs chan *dbus.Signal) {
 	for sig := range sigs {
 		if sig.Name != portalSettings+".SettingChanged" {
@@ -186,16 +160,12 @@ func (w *themeWatcher) loop(sigs chan *dbus.Signal) {
 			continue
 		}
 
-		// Re-resolve via readDarkMode rather than the signal's value: under
-		// KDE the panel colour comes from kdeglobals' Complementary group,
-		// not the portal's color-scheme, so the signal value alone would be
-		// wrong there. Off KDE this just re-reads the same color-scheme.
+		// Re-resolve via readDarkMode, not the signal value: under KDE the panel
+		// colour comes from kdeglobals, so the signal value would be wrong.
 		w.update()
 	}
 }
 
-// update re-resolves the panel dark/light state and repaints the icon if it
-// flipped. Shared by the portal-signal loop and the KDE kdeglobals watcher.
 func (w *themeWatcher) update() {
 	dark := w.readDarkMode()
 	w.mu.Lock()
@@ -209,11 +179,9 @@ func (w *themeWatcher) update() {
 	}
 }
 
-// watchKdeglobals watches the user kdeglobals file for changes and re-resolves
-// the panel theme on each write, so a KDE colour-scheme switch repaints the
-// icon live. KDE rewrites kdeglobals atomically (write-temp + rename), which
-// drops the inotify watch on the original inode, so we watch the parent
-// directory and filter to the kdeglobals name, re-arming implicitly.
+// watchKdeglobals watches the parent directory, not the file: KDE rewrites
+// kdeglobals atomically (write-temp + rename), which would drop an inotify watch
+// on the original inode. Filtering by name re-arms implicitly.
 func (w *themeWatcher) watchKdeglobals() {
 	path := kdeglobalsPath()
 	if path == "" {
@@ -257,9 +225,7 @@ func (w *themeWatcher) watchKdeglobals() {
 	}()
 }
 
-// variantToColorScheme unwraps the color-scheme variant (the portal nests it
-// one level: a variant holding a uint32) into the raw scheme value, returning
-// colorSchemeNoPreference for an unexpected payload.
+// variantToColorScheme unwraps the color-scheme variant; the portal nests it one level.
 func variantToColorScheme(v dbus.Variant) uint32 {
 	inner := v.Value()
 	if nested, ok := inner.(dbus.Variant); ok {

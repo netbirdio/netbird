@@ -13,7 +13,7 @@ import { useProfile } from "@/contexts/ProfileContext";
 import { useConfirm } from "@/contexts/DialogContext";
 import { Settings as SettingsSvc } from "@bindings/services";
 import { SetConfigParams } from "@bindings/services/models.js";
-import { CLOUD_MANAGEMENT_URL } from "@/hooks/useManagementUrl.ts";
+import { isNetbirdCloud } from "@/hooks/useManagementUrl.ts";
 import { SectionGroup, SettingsBottomBar } from "@/modules/settings/SettingsSection.tsx";
 import { cn } from "@/lib/cn";
 import { reconcileOrder } from "@/lib/sorting";
@@ -108,7 +108,7 @@ export function ProfilesTab() {
             await addProfile(name);
             // SetConfig is keyed by profile name, so it writes the not-yet-active
             // profile. Write before switching so any reconnect targets the right deployment.
-            if (managementUrl !== CLOUD_MANAGEMENT_URL) {
+            if (!isNetbirdCloud(managementUrl)) {
                 await SettingsSvc.SetConfig(
                     new SetConfigParams({ profileName: name, username, managementUrl }),
                 );

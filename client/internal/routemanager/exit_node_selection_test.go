@@ -116,7 +116,7 @@ func TestEnforceSingleExitNode_RespectsDeselectAll(t *testing.T) {
 
 	m.enforceSingleExitNode("b", []route.NetID{"a", "b"})
 
-	assert.True(t, m.routeSelector.IsDeselectAllActive(), "global deselect-all must stay in effect")
+	assert.True(t, m.routeSelector.IsDeselectAll(), "global deselect-all must stay in effect")
 	assert.False(t, m.routeSelector.IsSelected("b"), "no exit node should be forced on while deselect-all is set")
 }
 

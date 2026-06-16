@@ -223,6 +223,14 @@
         "message": "The server sent an invalid session deadline. Please sign in again.",
         "description": "Body explaining the server sent an invalid session deadline and the user must sign in again."
     },
+    "notify.mdm.policyApplied.title": {
+        "message": "NetBird settings updated",
+        "description": "Title of the desktop notification shown when an MDM (IT-managed) policy changed the daemon configuration at runtime."
+    },
+    "notify.mdm.policyApplied.body": {
+        "message": "Your NetBird configuration was updated by your IT policy.",
+        "description": "Body of the MDM policy-applied notification, telling the user their settings were changed by their organization's device-management policy."
+    },
     "common.cancel": {
         "message": "Cancel",
         "description": "Generic Cancel button label, reused across dialogs. Keep short."
@@ -931,10 +939,6 @@
         "message": "Debug bundle",
         "description": "Section heading: Debug bundle."
     },
-    "settings.troubleshooting.intro": {
-        "message": "A debug bundle helps NetBird support investigate connection problems. <br /> It's a .zip file with logs, system details and debug information from your device.",
-        "description": "Intro paragraph on the Troubleshoot tab. Contains an HTML '<br />' line break — keep it exactly. '.zip' is a file extension — keep it."
-    },
     "settings.troubleshooting.anonymize.label": {
         "message": "Anonymize Sensitive Information",
         "description": "Toggle label: anonymize sensitive information in the bundle."
@@ -956,23 +960,39 @@
         "description": "Toggle label: upload the bundle to NetBird servers."
     },
     "settings.troubleshooting.upload.help": {
-        "message": "Securely uploads the bundle and returns an upload key. Share the key with NetBird support over GitHub or Slack instead of attaching the file directly.",
-        "description": "Helper text for uploading the bundle. 'GitHub' and 'Slack' are brands — keep them."
+        "message": "Returns an upload key to share with NetBird support.",
+        "description": "Helper text for uploading the bundle."
     },
     "settings.troubleshooting.trace.label": {
-        "message": "Capture Trace Logs",
-        "description": "Toggle label: capture trace logs. 'TRACE' is a log level."
+        "message": "Enable Trace Logs",
+        "description": "Toggle label: raise daemon log level to TRACE while the bundle is built. 'TRACE' is a log level."
     },
     "settings.troubleshooting.trace.help": {
-        "message": "Raises logging to TRACE and cycles NetBird up and down to capture connection logs. The previous level is restored after the bundle is built.",
-        "description": "Helper text explaining trace capture restarts NetBird briefly. 'TRACE' — keep as-is."
+        "message": "Raises the log level to TRACE and restores it after.",
+        "description": "Helper text for the trace toggle. 'TRACE' is a log level — keep as-is."
+    },
+    "settings.troubleshooting.capture.label": {
+        "message": "Capture Session",
+        "description": "Toggle label: open a capture session — reconnect NetBird, wait a duration, optionally record packets."
+    },
+    "settings.troubleshooting.capture.help": {
+        "message": "Reconnects and waits so you can reproduce the issue.",
+        "description": "Helper text for the master Capture Session toggle."
+    },
+    "settings.troubleshooting.packets.label": {
+        "message": "Capture Network Packets",
+        "description": "Toggle label: capture packets to a .pcap during the capture session."
+    },
+    "settings.troubleshooting.packets.help": {
+        "message": "Saves a .pcap of network traffic during the capture window.",
+        "description": "Helper text for the packet recording toggle. '.pcap' is a file extension — keep it."
     },
     "settings.troubleshooting.duration.label": {
         "message": "Capture Duration",
         "description": "Label for the trace-capture duration field."
     },
     "settings.troubleshooting.duration.help": {
-        "message": "How long to capture trace logs before generating the bundle.",
+        "message": "How long the capture session runs.",
         "description": "Helper text for the capture duration."
     },
     "settings.troubleshooting.duration.suffix": {
@@ -1027,21 +1047,13 @@
         "message": "Upload failed. The bundle is still saved locally.",
         "description": "Shown when upload failed (no specific reason) but the bundle was saved locally."
     },
-    "settings.troubleshooting.stage.preparingTrace": {
-        "message": "Switching to trace logging…",
-        "description": "Progress stage: switching to trace logging. Ends with an ellipsis."
-    },
     "settings.troubleshooting.stage.reconnecting": {
         "message": "Reconnecting NetBird…",
         "description": "Progress stage: reconnecting NetBird. Ends with an ellipsis."
     },
     "settings.troubleshooting.stage.capturing": {
-        "message": "Capturing logs",
+        "message": "Capturing debug logs",
         "description": "Progress stage: capturing logs. {elapsed} and {total} are time values (e.g. 0:30 / 2:00); keep both."
-    },
-    "settings.troubleshooting.stage.restoring": {
-        "message": "Restoring previous log level…",
-        "description": "Progress stage: restoring the previous log level. Ends with an ellipsis."
     },
     "settings.troubleshooting.stage.bundling": {
         "message": "Generating debug bundle…",
@@ -1360,11 +1372,11 @@
         "description": "Status shown while checking the server URL. Ends with an ellipsis."
     },
     "browserLogin.title": {
-        "message": "Continue in your browser to complete the login",
+        "message": "Complete login in your browser",
         "description": "Heading telling the user to finish signing in via their browser."
     },
     "browserLogin.notSeeing": {
-        "message": "Not seeing the browser tab?",
+        "message": "We opened a browser tab so you can finish signing in. Not seeing it?",
         "description": "Prompt asking whether the user doesn't see the opened browser tab."
     },
     "browserLogin.tryAgain": {

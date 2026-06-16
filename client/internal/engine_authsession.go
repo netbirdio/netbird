@@ -9,8 +9,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/internal/auth/sessionwatch"
+	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/system"
 )
 

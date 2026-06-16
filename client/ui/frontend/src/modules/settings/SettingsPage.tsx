@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useLocation } from "react-router-dom";
 import { Events } from "@wailsio/runtime";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
@@ -16,13 +16,54 @@ import { SettingsSSH } from "@/modules/settings/SettingsSSH.tsx";
 import { SettingsAdvanced } from "@/modules/settings/SettingsAdvanced.tsx";
 import { SettingsTroubleshooting } from "@/modules/settings/SettingsTroubleshooting.tsx";
 import { SettingsAbout } from "@/modules/settings/SettingsAbout.tsx";
+import { useRestrictions } from "@/contexts/RestrictionsContext.tsx";
 
 const EVENT_SETTINGS_OPEN = "netbird:settings:open";
+
+const enum Tab {
+    General = "general",
+    Network = "network",
+    Security = "security",
+    Profiles = "profiles",
+    SSH = "ssh",
+    Advanced = "advanced",
+    Troubleshooting = "troubleshooting",
+    About = "about",
+}
+
+const TAB_CONTENT: Record<Tab, ReactNode> = {
+    [Tab.General]: <SettingsGeneral />,
+    [Tab.Network]: <SettingsNetwork />,
+    [Tab.Security]: <SettingsSecurity />,
+    [Tab.Profiles]: <ProfilesTab />,
+    [Tab.SSH]: <SettingsSSH />,
+    [Tab.Advanced]: <SettingsAdvanced />,
+    [Tab.Troubleshooting]: <SettingsTroubleshooting />,
+    [Tab.About]: <SettingsAbout />,
+};
 
 export const SettingsPage = () => {
     const location = useLocation();
     const navState = location.state as { tab?: string } | null;
-    const [active, setActive] = useState(() => navState?.tab ?? "general");
+    const { mdm, features } = useRestrictions();
+
+    const visibleTabs = useMemo<Tab[]>(() => {
+        const editable = !features.disableUpdateSettings;
+        const visibility: Record<Tab, boolean> = {
+            [Tab.General]: true,
+            [Tab.Network]: editable,
+            [Tab.Security]: editable,
+            [Tab.Profiles]: !features.disableProfiles,
+            [Tab.SSH]: mdm.allowServerSSH ?? editable,
+            [Tab.Advanced]: editable,
+            [Tab.Troubleshooting]: true,
+            [Tab.About]: true,
+        };
+        return (Object.keys(visibility) as Tab[]).filter((t) => visibility[t]);
+    }, [features.disableUpdateSettings, features.disableProfiles, mdm.allowServerSSH]);
+
+    const defaultTab = visibleTabs[0];
+    const [active, setActive] = useState<string>(() => navState?.tab ?? defaultTab);
 
     useEffect(() => {
         if (navState?.tab) setActive(navState.tab);
@@ -30,9 +71,14 @@ export const SettingsPage = () => {
 
     useEffect(() => {
         return Events.On(EVENT_SETTINGS_OPEN, (e: { data: string }) => {
-            setActive(e.data || "general");
+            setActive(e.data || defaultTab);
         });
-    }, []);
+    }, [defaultTab]);
+
+    // Reset active tab if it got disabled by any feature flag or mdm restrictions
+    useEffect(() => {
+        if (!visibleTabs.includes(active as Tab)) setActive(defaultTab);
+    }, [visibleTabs, active, defaultTab]);
 
     return (
         <>
@@ -52,31 +98,12 @@ export const SettingsPage = () => {
                                 className={"flex-1 min-h-0 overflow-hidden"}
                             >
                                 <ScrollArea.Viewport className={"h-full w-full"}>
-                                    <div className={"py-8 px-7"}>
-                                        <VerticalTabs.Content value={"general"}>
-                                            <SettingsGeneral />
-                                        </VerticalTabs.Content>
-                                        <VerticalTabs.Content value={"network"}>
-                                            <SettingsNetwork />
-                                        </VerticalTabs.Content>
-                                        <VerticalTabs.Content value={"security"}>
-                                            <SettingsSecurity />
-                                        </VerticalTabs.Content>
-                                        <VerticalTabs.Content value={"profiles"}>
-                                            <ProfilesTab />
-                                        </VerticalTabs.Content>
-                                        <VerticalTabs.Content value={"ssh"}>
-                                            <SettingsSSH />
-                                        </VerticalTabs.Content>
-                                        <VerticalTabs.Content value={"advanced"}>
-                                            <SettingsAdvanced />
-                                        </VerticalTabs.Content>
-                                        <VerticalTabs.Content value={"troubleshooting"}>
-                                            <SettingsTroubleshooting />
-                                        </VerticalTabs.Content>
-                                        <VerticalTabs.Content value={"about"}>
-                                            <SettingsAbout />
-                                        </VerticalTabs.Content>
+                                    <div className={"py-6 px-7"}>
+                                        {visibleTabs.map((tab) => (
+                                            <VerticalTabs.Content key={tab} value={tab}>
+                                                {TAB_CONTENT[tab]}
+                                            </VerticalTabs.Content>
+                                        ))}
                                     </div>
                                 </ScrollArea.Viewport>
                                 <ScrollArea.Scrollbar

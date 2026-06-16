@@ -4,6 +4,8 @@ import { Layers3Icon, LucideProps, MonitorSmartphoneIcon } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useNavSection, type NavSection } from "@/contexts/NavSectionContext";
 import { useStatus } from "@/contexts/StatusContext";
+import { useRestrictions } from "@/contexts/RestrictionsContext";
+import { useEffect } from "react";
 
 type TabEntry = {
     value: NavSection;
@@ -15,7 +17,15 @@ export const Navigation = () => {
     const { t } = useTranslation();
     const { section, setSection } = useNavSection();
     const { status } = useStatus();
+    const { features } = useRestrictions();
     const isConnected = status?.status === "Connected";
+
+    // Reset back to peers tab if mdm or feature flag flipped it
+    useEffect(() => {
+        if (features.disableNetworks && section === "networks") {
+            setSection("peers");
+        }
+    }, [features.disableNetworks, section, setSection]);
 
     const tabs: TabEntry[] = [
         {
@@ -23,12 +33,14 @@ export const Navigation = () => {
             label: t("nav.peers.title"),
             icon: MonitorSmartphoneIcon,
         },
-        {
+    ];
+    if (!features.disableNetworks) {
+        tabs.push({
             value: "networks",
             label: t("nav.resources.title"),
             icon: Layers3Icon,
-        },
-    ];
+        });
+    }
 
     return (
         <div className={"wails-no-draggable shrink-0 flex items-stretch "}>

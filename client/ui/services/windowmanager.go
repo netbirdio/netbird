@@ -15,57 +15,33 @@ import (
 	"github.com/netbirdio/netbird/client/ui/preferences"
 )
 
-// LanguageSubscriber delivers UI preference changes (currently only the
-// language flip; reusing preferences.UIPreferences keeps the channel
-// payload identical to preferences.Store.Subscribe). The runtime
-// implementation is *preferences.Store. WindowManager uses this to keep
-// the long-lived Settings window title in the active language.
+// LanguageSubscriber delivers UI preference changes so window titles follow the language.
 type LanguageSubscriber interface {
 	Subscribe() (<-chan preferences.UIPreferences, func())
 }
 
-// EventTriggerLogin asks the frontend's startLogin() orchestrator to begin
-// an SSO flow. Emitted by the tray (Login menu item, session expired) since
-// the tray can't call JS directly.
+// EventTriggerLogin asks the frontend's startLogin() to begin an SSO flow.
 const EventTriggerLogin = "trigger-login"
 
-// EventBrowserLoginCancel is emitted by the BrowserLogin popup window when
-// the user clicks Cancel or closes the window. startLogin() listens for it
-// and tears down the daemon's pending SSO wait.
+// EventBrowserLoginCancel signals the user dismissed the BrowserLogin popup.
 const EventBrowserLoginCancel = "browser-login:cancel"
 
-// EventSettingsOpen tells the (already-mounted, currently-hidden) settings
-// window which tab to land on, then drives Window.Show()/Focus() from the
-// React side. Routing the open through the React layer avoids the
-// SetURL-on-every-open path that re-mounted the entire provider tree and
-// flashed the SettingsSkeleton between opens.
+// EventSettingsOpen tells the mounted settings window which tab to show.
 const EventSettingsOpen = "netbird:settings:open"
 
-// WindowBackgroundColour is the shared in-window background for every
-// NetBird webview (matches the bg-nb-gray utility in the Tailwind config
-// at #181A1D / nb-gray-950, used by AppLayout's <html> background).
-var WindowBackgroundColour = application.NewRGB(24, 26, 29)
+var WindowBackgroundColour = application.NewRGB(24, 26, 29) // bg-nb-gray-950
 
-// WindowHeight is the shared frame height for the main window and the
-// Settings window so the right panel inside both ends up the same size.
+// WindowHeight is shared by the main and Settings windows.
 const WindowHeight = 660
 
 // Wails reads CustomTheme colours as 0x00BBGGRR (RGB byte order reversed).
-// Border + title bar match AppRightPanel's bg-nb-gray-940 (#1C1E21);
-// title text matches text-nb-gray-100 (#E4E7E9). u32ptr exists only
-// because WindowTheme fields are *uint32 and Go has no literal address-of.
-func u32ptr(v uint32) *uint32 { return &v }
-
 var microsoftWindowsTheme = &application.WindowTheme{
 	BorderColour:    u32ptr(0x00211E1C),
 	TitleBarColour:  u32ptr(0x00211E1C),
 	TitleTextColour: u32ptr(0x00E9E7E4),
 }
 
-// MicrosoftWindowsAppearanceOptions is the per-window Microsoft Windows OS
-// chrome shared by every NetBird webview window. Mica backdrop (no-op on
-// pre-22621), dark theme, custom title bar/border colours so the chrome
-// reads as an extension of the in-window AppRightPanel.
+// MicrosoftWindowsAppearanceOptions is the shared Windows chrome (Mica + dark + custom title bar).
 func MicrosoftWindowsAppearanceOptions() application.WindowsWindow {
 	return application.WindowsWindow{
 		BackdropType: application.Mica,
@@ -79,11 +55,7 @@ func MicrosoftWindowsAppearanceOptions() application.WindowsWindow {
 	}
 }
 
-// AppleMacOSAppearanceOptions is the per-window macOS chrome shared by
-// every NetBird webview window. The hidden title bar inset clears space
-// for the traffic-light buttons; the FullScreenNone collection behavior
-// keeps the green button from offering a full-screen mode that breaks
-// our fixed-size layouts.
+// AppleMacOSAppearanceOptions is the shared macOS chrome; FullScreenNone keeps the fixed-size layout.
 func AppleMacOSAppearanceOptions() application.MacWindow {
 	return application.MacWindow{
 		InvisibleTitleBarHeight: 38,
@@ -93,10 +65,7 @@ func AppleMacOSAppearanceOptions() application.MacWindow {
 	}
 }
 
-// LinuxAppearanceOptions is the per-window Linux chrome shared by every
-// NetBird webview window. Icon shows up in the WM task list / minimised
-// state; WindowIsTranslucent is left off so the opaque background colour
-// paints reliably on compositors that fake translucency badly.
+// LinuxAppearanceOptions is the shared Linux chrome; opaque so fake-translucency compositors paint it.
 func LinuxAppearanceOptions(icon []byte) application.LinuxWindow {
 	return application.LinuxWindow{
 		Icon:                icon,
@@ -104,14 +73,7 @@ func LinuxAppearanceOptions(icon []byte) application.LinuxWindow {
 	}
 }
 
-// DialogWindowOptions is the baseline for every auxiliary dialog window
-// (BrowserLogin, SessionExpiration, InstallProgress).
-// All share size (360x320), the no-resize / no-min / no-max chrome,
-// Hidden-on-create (so the React side can auto-size before first paint),
-// AlwaysOnTop (the dialogs interrupt the user, the SSO popup overrides
-// this), and the shared background/Mac/Windows appearance. Callers fill
-// in per-dialog overrides (URL params, screen targeting, etc.) on the
-// returned value before passing it to Window.NewWithOptions.
+// DialogWindowOptions is the baseline for every auxiliary dialog window; callers override per-dialog.
 func DialogWindowOptions(name, title, url string, linuxIcon []byte) application.WebviewWindowOptions {
 	return application.WebviewWindowOptions{
 		Name:                name,
@@ -132,86 +94,35 @@ func DialogWindowOptions(name, title, url string, linuxIcon []byte) application.
 	}
 }
 
-// WindowManager opens auxiliary application windows on demand from the
-// frontend. The main window is created up-front in main.go; this service is
-// for secondary surfaces (Settings, BrowserLogin, Session*, InstallProgress).
-//
-// Settings is created eagerly (hidden) at construction and hides — rather
-// than destroys — on close, so reopens are instant and the React side keeps
-// whatever in-window state the user left behind (selected tab, scroll
-// position, unsaved form fields). All other auxiliary windows are created
-// on first open and destroyed on close — the Wails-recommended singleton
-// pattern (see Multiple Windows docs: "Cleanup on close"). Destroying rather
-// than hiding means the macOS dock-reopen handler doesn't find a hidden
-// window to resurrect.
+// WindowManager owns the auxiliary windows (main is created in main.go). Settings is created
+// eagerly and hidden on close to keep React state; the rest are created on open, destroyed on
+// close, so the macOS dock-reopen handler finds no hidden window to resurrect.
 type WindowManager struct {
-	app                  *application.App
-	mainWindow           *application.WebviewWindow
-	translator           ErrorTranslator
-	prefs                LanguagePreference
-	linuxIcon            []byte
-	settings             *application.WebviewWindow
-	browserLogin         *application.WebviewWindow
+	app               *application.App
+	mainWindow        *application.WebviewWindow
+	translator        ErrorTranslator
+	prefs             LanguagePreference
+	linuxIcon         []byte
+	settings          *application.WebviewWindow
+	browserLogin      *application.WebviewWindow
 	sessionExpiration *application.WebviewWindow
-	installProgress      *application.WebviewWindow
-	welcome              *application.WebviewWindow
-	errorDialog          *application.WebviewWindow
-	// hiddenForLogin remembers windows that were visible when the
-	// BrowserLogin popup opened. They were Hide()n to keep focus on the
-	// SSO flow without resorting to AlwaysOnTop, and are restored when
-	// the BrowserLogin window closes (success or cancel).
+	installProgress   *application.WebviewWindow
+	welcome           *application.WebviewWindow
+	errorDialog       *application.WebviewWindow
+	// hiddenForLogin holds windows hidden while the BrowserLogin popup is open, restored on close.
 	hiddenForLogin []application.Window
 	mu             sync.Mutex
-	// recenterOnShow reports whether Go should re-center the Go-shown
-	// windows (main, Settings) on each show. Only true in the minimal-WM /
-	// in-process XEmbed-tray environment, where the WM neither centers small
-	// windows for us nor restores their position across a hide -> show
-	// round-trip. On full desktops (GNOME/KDE) the WM handles placement, so
-	// re-centering is unnecessary and would fight a window the user moved —
-	// there this stays nil and centerWhenReady is a no-op. Set by the Linux
-	// startup path via SetRecenterOnShow; nil on macOS/Windows and in tests.
-	// A predicate (not a bool) because the XEmbed tray can appear after the
-	// UI starts (panel/app login race), so the answer is evaluated per show.
+	// recenterOnShow is set only on the minimal-WM/XEmbed path, where the WM neither centers nor
+	// restores position; nil on full desktops so re-centering can't fight a user-moved window.
 	recenterOnShow func() bool
 }
 
-// title resolves a window-title i18n key in the user's current language.
-// Falls back to the raw key when the translator or prefs are missing
-// (mirrors services.Connection.translateShort) — a deliberate fail-loud
-// signal that a key is missing from the bundle.
-func (s *WindowManager) title(key string) string {
-	if s.translator == nil {
-		return key
-	}
-	lang := i18n.DefaultLanguage
-	if s.prefs != nil {
-		if pref := s.prefs.Get().Language; pref != "" {
-			lang = pref
-		}
-	}
-	return s.translator.Translate(lang, key)
-}
-
-// NewWindowManager wires the manager to the main app. `mainWindow` is the
-// up-front-created webview the user interacts with from the tray — used to
-// pick the BrowserLogin window's display so the sign-in popup follows the
-// user onto the screen they're already looking at. `translator` + `prefs`
-// resolve the user-facing window titles in the active UI language; both
-// may be nil (callers in tests can omit them), in which case title() falls
-// back to the raw i18n key.
-//
-// The Settings window is created here, hidden, so the first OpenSettings
-// call paints instantly instead of paying webview construction + asset load
-// at click time.
+// NewWindowManager wires the manager to the main app; translator/prefs may be nil (tests). The
+// Settings window is created here (hidden) so the first OpenSettings is instant.
 func NewWindowManager(app *application.App, mainWindow *application.WebviewWindow, translator ErrorTranslator, prefs LanguagePreference, linuxIcon []byte) *WindowManager {
 	s := &WindowManager{app: app, mainWindow: mainWindow, translator: translator, prefs: prefs, linuxIcon: linuxIcon}
-	// If the prefs implementation also exposes Subscribe (the runtime
-	// *preferences.Store does), wire up a goroutine that re-titles every
-	// live auxiliary window on language flip. Done here — instead of via
-	// an exported WatchLanguage method on the service — so the Wails
-	// binding generator doesn't try to expose a LanguageSubscriber-taking
-	// method to the frontend (interface params can't round-trip through
-	// JSON and would emit a generator warning).
+	// Re-title live windows on language flip. Wired internally so the binding generator
+	// doesn't try to expose the interface param.
 	if sub, ok := prefs.(LanguageSubscriber); ok && sub != nil {
 		ch, _ := sub.Subscribe()
 		go func() {
@@ -241,11 +152,7 @@ func NewWindowManager(app *application.App, mainWindow *application.WebviewWindo
 		Windows:             MicrosoftWindowsAppearanceOptions(),
 		Linux:               LinuxAppearanceOptions(linuxIcon),
 	})
-	// Hide on close instead of destroying — preserves in-window React state
-	// across reopens. Mirrors the main window's close behaviour. Resetting
-	// the active tab to General on hide means the *next* OpenSettings("")
-	// finds the window already on General, so showing it is a single Show()
-	// with nothing to update first — no flash.
+	// Hide (not destroy) on close to keep React state; reset to General for a flash-free reopen.
 	s.settings.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
 		e.Cancel()
 		s.app.Event.Emit(EventSettingsOpen, "general")
@@ -254,42 +161,8 @@ func NewWindowManager(app *application.App, mainWindow *application.WebviewWindo
 	return s
 }
 
-// retitleAll re-applies the localised title to every currently-alive
-// auxiliary window. Reads the window pointers under s.mu so a concurrent
-// Open*/Close* can't observe a torn slice. SetTitle itself dispatches to
-// the OS UI thread, so calling it from this goroutine is safe.
-func (s *WindowManager) retitleAll() {
-	s.mu.Lock()
-	type pair struct {
-		win *application.WebviewWindow
-		key string
-	}
-	wins := []pair{
-		{s.settings, "window.title.settings"},
-		{s.browserLogin, "window.title.signIn"},
-		{s.sessionExpiration, "window.title.sessionExpiration"},
-		{s.installProgress, "window.title.updating"},
-		{s.welcome, "window.title.welcome"},
-		{s.errorDialog, "window.title.error"},
-	}
-	s.mu.Unlock()
-	for _, p := range wins {
-		if p.win != nil {
-			p.win.SetTitle(s.title(p.key))
-		}
-	}
-}
-
-// OpenSettings asks the (already-mounted, currently-hidden) settings window
-// to land on `tab` and bring itself to front. Empty `tab` lands on General.
-//
-// The window stays at a single URL (`/#/settings`) for its entire lifetime:
-// calling SetURL on every open re-loaded the WKWebView, which re-mounted the
-// `AppLayout` provider stack and visibly flashed the `SettingsSkeleton` while
-// `SettingsContext` re-fetched config. Instead, the React side keeps tab in
-// local state and listens for `EventSettingsOpen` to switch it. The close
-// hook (above) already resets state to "general", so the common-case
-// reopen-on-gear path has nothing to update — Show is a no-op repaint.
+// OpenSettings shows the settings window on tab (empty → General), switching tab via
+// EventSettingsOpen rather than SetURL (which would remount the provider tree).
 func (s *WindowManager) OpenSettings(tab string) {
 	target := tab
 	if target == "" {
@@ -298,15 +171,11 @@ func (s *WindowManager) OpenSettings(tab string) {
 	s.app.Event.Emit(EventSettingsOpen, target)
 	s.settings.Show()
 	s.settings.Focus()
-	// Re-center on every open (minimal-WM only): like the main window,
-	// Settings is hidden (not destroyed) on close, and a hide -> show
-	// round-trip lands it back in the corner there unless re-centered.
+	// Re-center (minimal-WM only; see centerWhenReady).
 	s.centerWhenReady(s.settings)
 }
 
-// OpenBrowserLogin shows the SSO popup window, creating it on first use (and
-// after the user has closed a previous instance). The URI is encoded into
-// the window's start URL so the React page reads it via useSearchParams.
+// OpenBrowserLogin shows the SSO popup, creating it on first use.
 func (s *WindowManager) OpenBrowserLogin(uri string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -316,10 +185,7 @@ func (s *WindowManager) OpenBrowserLogin(uri string) {
 			startURL = "/#/dialog/browser-login?uri=" + url.QueryEscape(uri)
 		}
 		s.hideOtherWindowsLocked("browser-login")
-		// Prefer the screen the main window is on so the sign-in popup
-		// shows up where the user is already looking on multi-monitor
-		// setups. Falls back to OS-default centering if the main window
-		// has no resolvable screen yet.
+		// Prefer the main window's screen (multi-monitor); falls back to OS-default centering.
 		var screen *application.Screen
 		if s.mainWindow != nil {
 			if sc, err := s.mainWindow.GetScreen(); err == nil {
@@ -327,20 +193,13 @@ func (s *WindowManager) OpenBrowserLogin(uri string) {
 			}
 		}
 		opts := DialogWindowOptions("browser-login", s.title("window.title.signIn"), startURL, s.linuxIcon)
-		// SSO popup deliberately is NOT always-on-top — the user moves
-		// between the browser tab and our popup; pinning it would obscure
-		// the browser at the moment they need to interact with it.
+		// Not always-on-top: it would obscure the browser tab the user logs in through.
 		opts.AlwaysOnTop = false
-		// WindowCentered + Screen centers on the chosen display's
-		// WorkArea (see WebviewWindowOptions.Screen docs) so the popup
-		// follows the user onto the screen they're already looking at.
 		opts.InitialPosition = application.WindowCentered
 		opts.Screen = screen
 		s.browserLogin = s.app.Window.NewWithOptions(opts)
 		bl := s.browserLogin
-		// User-initiated close (red X) means cancel. Emit the event so
-		// startLogin() can tear the SSO wait down, then let the window
-		// destroy naturally — no hide trickery.
+		// Red-X close means cancel: emit the event so startLogin() tears down the SSO wait.
 		bl.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
 			s.app.Event.Emit(EventBrowserLoginCancel)
 			s.mu.Lock()
@@ -348,11 +207,6 @@ func (s *WindowManager) OpenBrowserLogin(uri string) {
 			s.restoreHiddenWindowsLocked()
 			s.mu.Unlock()
 		})
-		// First open: window is Hidden, the React side auto-sizes via
-		// useAutoSizeWindow and calls Window.Show/Focus once content is
-		// measured. Returning here avoids the snap from placeholder to
-		// measured height. centerWhenReady polls for that JS-driven show,
-		// so it centers (minimal-WM only) whoever ends up calling Show.
 		s.centerWhenReady(s.browserLogin)
 		return
 	}
@@ -364,58 +218,22 @@ func (s *WindowManager) OpenBrowserLogin(uri string) {
 	s.centerWhenReady(s.browserLogin)
 }
 
-// hideOtherWindowsLocked hides every currently visible window except the one
-// named `keepName` and remembers them in hiddenForLogin so they can be
-// restored when the BrowserLogin flow ends. Caller must hold s.mu.
-func (s *WindowManager) hideOtherWindowsLocked(keepName string) {
-	for _, w := range s.app.Window.GetAll() {
-		if w == nil || w.Name() == keepName {
-			continue
-		}
-		if !w.IsVisible() {
-			continue
-		}
-		w.Hide()
-		s.hiddenForLogin = append(s.hiddenForLogin, w)
-	}
-}
-
-// restoreHiddenWindowsLocked re-shows every window that was hidden by
-// hideOtherWindowsLocked. Caller must hold s.mu.
-func (s *WindowManager) restoreHiddenWindowsLocked() {
-	for _, w := range s.hiddenForLogin {
-		if w == nil {
-			continue
-		}
-		w.Show()
-	}
-	s.hiddenForLogin = nil
-}
-
-// BrowserLoginWindow returns the live SSO popup window, or nil if no SSO
-// flow is in progress. While it is non-nil it should be treated as the
-// app's focal window — tray "Open" and dock/taskbar activation hand off
-// to it instead of the (currently hidden) main window.
+// BrowserLoginWindow returns the live SSO popup, or nil. While non-nil it is the
+// app's focal window: tray "Open" and dock activation hand off to it, not the main window.
 func (s *WindowManager) BrowserLoginWindow() *application.WebviewWindow {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.browserLogin
 }
 
-// InstallProgressWindow returns the live install-progress window, or nil
-// if no install is in progress. Same contract as BrowserLoginWindow: while
-// it is non-nil it is the app's focal window — tray "Open" and dock /
-// taskbar activation route to it instead of the (currently hidden) main
-// window. Install supersedes every other surface, so callers should check
-// this before BrowserLoginWindow.
+// InstallProgressWindow returns the live install-progress window, or nil. Same focal-window
+// contract as BrowserLoginWindow; install supersedes everything, so check this first.
 func (s *WindowManager) InstallProgressWindow() *application.WebviewWindow {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.installProgress
 }
 
-// CloseBrowserLogin destroys the SSO popup window if it exists. Called from
-// startLogin() when the flow completes or cancels programmatically.
 func (s *WindowManager) CloseBrowserLogin() {
 	s.mu.Lock()
 	w := s.browserLogin
@@ -426,9 +244,8 @@ func (s *WindowManager) CloseBrowserLogin() {
 	}
 }
 
-// OpenSessionExpiration shows the countdown warning above all other
-// windows on the display the cursor is currently on. `seconds` seeds the
-// mm:ss countdown rendered React-side. Singleton, destroyed on close.
+// OpenSessionExpiration shows the countdown warning on the cursor's display; seconds seeds
+// the countdown. Singleton, destroyed on close.
 func (s *WindowManager) OpenSessionExpiration(seconds int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -452,7 +269,6 @@ func (s *WindowManager) OpenSessionExpiration(seconds int) {
 	s.sessionExpiration.Focus()
 }
 
-// CloseSessionExpiration destroys the countdown warning window if open.
 func (s *WindowManager) CloseSessionExpiration() {
 	s.mu.Lock()
 	w := s.sessionExpiration
@@ -463,17 +279,8 @@ func (s *WindowManager) CloseSessionExpiration() {
 	}
 }
 
-// OpenInstallProgress shows the install-progress window above all other
-// application windows for the duration of the auto-update install. The
-// daemon is unreliable mid-install (it gets restarted by the installer),
-// so this window owns its own polling loop against Update.GetInstallerResult
-// and treats a sustained gRPC failure as success.
-//
-// All other visible windows are hidden while the install runs — the ticket
-// requires that the user can't reach other menus during install — and are
-// restored when the window closes (cancel, error dismissal, success-quit
-// race). Singleton, destroyed on close. Created Hidden so the React side
-// can auto-size before paint.
+// OpenInstallProgress shows the install-progress window and hides the rest for the duration
+// (restored on close). It owns its own result polling since the daemon restarts mid-install.
 func (s *WindowManager) OpenInstallProgress(version string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -501,7 +308,6 @@ func (s *WindowManager) OpenInstallProgress(version string) {
 	s.centerWhenReady(s.installProgress)
 }
 
-// CloseInstallProgress destroys the install-progress window if open.
 func (s *WindowManager) CloseInstallProgress() {
 	s.mu.Lock()
 	w := s.installProgress
@@ -512,24 +318,13 @@ func (s *WindowManager) CloseInstallProgress() {
 	}
 }
 
-// OpenWelcome shows the first-launch onboarding window. The React side
-// auto-sizes the window height to its content; the Continue button calls
-// Preferences.SetOnboardingCompleted(true) before closing so the flow
-// doesn't re-run. Singleton, destroyed on close. Created Hidden so the
-// React side can auto-size before paint.
+// OpenWelcome shows the first-launch onboarding window. Singleton, destroyed on close.
 func (s *WindowManager) OpenWelcome() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.welcome == nil {
 		opts := DialogWindowOptions("welcome", s.title("window.title.welcome"), "/#/dialog/welcome", s.linuxIcon)
 		opts.Width = 420
-		// Onboarding stays AlwaysOnTop (inherited from DialogWindowOptions)
-		// so the user can't accidentally bury the first-launch flow behind
-		// another window and lose track of how to finish setup.
-		// Land in the middle of the user's primary display — the welcome
-		// flow is identity-defining and shouldn't read as an incidental
-		// dialog floating in a corner. WindowCentered + nil Screen
-		// resolves against the primary display (see WebviewWindowOptions).
 		opts.InitialPosition = application.WindowCentered
 		s.welcome = s.app.Window.NewWithOptions(opts)
 		w := s.welcome
@@ -546,7 +341,6 @@ func (s *WindowManager) OpenWelcome() {
 	s.centerWhenReady(s.welcome)
 }
 
-// CloseWelcome destroys the welcome window if open.
 func (s *WindowManager) CloseWelcome() {
 	s.mu.Lock()
 	w := s.welcome
@@ -557,20 +351,8 @@ func (s *WindowManager) CloseWelcome() {
 	}
 }
 
-// OpenError shows a custom error dialog window above all other application
-// windows. The window's chrome title is always the generic localised "Error";
-// `title` is the error's name (e.g. a login failure passes the translated
-// "Login Failed") and is rendered as the dialog heading in the body, while
-// `message` is the body text below it. The caller is responsible for localising
-// both. title + message are carried in the window's start URL so the page reads
-// them via useSearchParams; if the window is already open it is steered to the
-// new content via SetURL so a second error replaces the first instead of
-// stacking another window. Singleton — destroyed on close. Created Hidden so
-// the React side can auto-size to the (variable-length) message before paint.
-//
-// This is the in-window alternative to the native errorDialog wrapper: it
-// keeps the frameless NetBird chrome and survives the Windows-MessageBox
-// parent-disable race that the native path has to detach around.
+// OpenError shows the custom error dialog; title/message are pre-localised and ride in the
+// start URL. A second error replaces the open one via SetURL. Singleton, destroyed on close.
 func (s *WindowManager) OpenError(title, message string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -593,26 +375,6 @@ func (s *WindowManager) OpenError(title, message string) {
 	s.centerWhenReady(s.errorDialog)
 }
 
-// errorDialogURL builds the hash-route start URL for the error window with the
-// title (rendered as the body heading) and message carried as query params.
-// Both are query-escaped so newlines, ampersands, and other characters common
-// in formatted daemon errors survive the round-trip into useSearchParams.
-func errorDialogURL(title, message string) string {
-	q := url.Values{}
-	if title != "" {
-		q.Set("title", title)
-	}
-	if message != "" {
-		q.Set("message", message)
-	}
-	startURL := "/#/dialog/error"
-	if enc := q.Encode(); enc != "" {
-		startURL += "?" + enc
-	}
-	return startURL
-}
-
-// CloseError destroys the error dialog window if open.
 func (s *WindowManager) CloseError() {
 	s.mu.Lock()
 	w := s.errorDialog
@@ -623,81 +385,33 @@ func (s *WindowManager) CloseError() {
 	}
 }
 
-// OpenMain brings the main window forward. Used by the welcome Continue
-// button to hand off from onboarding to the regular UI without depending
-// on the tray.
+// OpenMain brings the main window forward; the welcome handoff uses it instead of the tray.
 func (s *WindowManager) OpenMain() {
 	s.ShowMain()
 }
 
-// ShowMain brings the main window forward, centering it on each show (see
-// centerWhenReady). The single entry point every surface — tray, SIGUSR1,
-// welcome handoff — should use so the centering fix applies uniformly.
+// ShowMain brings the main window forward (re-centering on minimal WMs). The single entry
+// point every surface (tray, SIGUSR1, welcome) should use so centering applies uniformly.
 func (s *WindowManager) ShowMain() {
 	if s.mainWindow == nil {
 		return
 	}
 	s.mainWindow.Show()
 	s.mainWindow.Focus()
-	// Re-center on every show (minimal-WM only — see centerWhenReady). The
-	// window is hidden (not destroyed) on close, and on a hide -> show
-	// round-trip minimal WMs (the XEmbed tray path) re-place it in the
-	// top-left corner rather than restoring its prior position, so
-	// re-opening from the tray lands it in the corner again otherwise.
+	// Re-center (minimal-WM only; see centerWhenReady).
 	s.centerWhenReady(s.mainWindow)
 }
 
-// SetRecenterOnShow installs the predicate that gates Go-side re-centering of
-// the main and Settings windows (see the recenterOnShow field). The Linux
-// startup path passes xembedTrayAvailable so re-centering happens only in the
-// minimal-WM / in-process-XEmbed-tray environment; macOS/Windows and tests
-// leave it unset, making centerWhenReady a no-op.
+// SetRecenterOnShow installs the recenterOnShow predicate (see the field).
 func (s *WindowManager) SetRecenterOnShow(pred func() bool) {
 	s.recenterOnShow = pred
 }
 
-// getScreenBasedOnCursorPosition returns the display the OS cursor is
-// on, falling back through main-window screen → nil (Wails treats nil
-// as OS-default placement). Linux uses XQueryPointer via XWayland on
-// Wayland sessions, which ships by default on the supported distros.
-func (s *WindowManager) getScreenBasedOnCursorPosition() *application.Screen {
-	if s.app == nil || s.app.Screen == nil {
-		return nil
-	}
-	if p, ok := getCursorPosition(s.app); ok {
-		if sc := s.app.Screen.ScreenNearestDipPoint(p); sc != nil {
-			return sc
-		}
-	}
-	if s.mainWindow != nil {
-		if sc, err := s.mainWindow.GetScreen(); err == nil {
-			return sc
-		}
-	}
-	return nil
-}
-
-// centerWhenReady centers w once its native window actually exists — but only
-// in environments where the WM won't do it for us (recenterOnShow). On full
-// desktops the WM centers small windows and restores position across hide ->
-// show, so this returns immediately and never fights a user-moved window.
-//
-// Why it can't be a simple inline Center() after Show(): on Linux/GTK4 (Wails'
-// linux_cgo backend) Center() moves the window via raw X11 (window_move_x11),
-// which silently no-ops while the GdkSurface is still nil — and GTK4 realizes
-// the surface asynchronously on the main loop, *after* Show() returns. So an
-// immediate Center() races realization and lands in the top-left corner; the
-// minimal WMs this targets don't re-center for us, so it sticks.
-//
-// It also can't be deferred via InvokeAsync(w.Center): Center() itself hops to
-// the main thread with InvokeSync, so running it *on* the main thread would
-// deadlock. So we drive it from a background goroutine (Center() and Position()
-// are main-thread-safe off-thread for exactly that reason) and retry until the
-// move actually takes effect, which is the unambiguous signal that the surface
-// now exists: position() goes through X11 (window_get_position_x11) and reports
-// (0,0) while the surface is nil — so a non-zero post-Center position means the
-// centering landed. Bounded so a window that legitimately centers at the origin
-// (e.g. fills the monitor) can't spin forever.
+// centerWhenReady centers w only on minimal WMs (recenterOnShow); elsewhere it
+// returns so it never fights a user-moved window. On GTK4 an inline Center()
+// no-ops until the GdkSurface is realized (async, after Show) and InvokeAsync
+// would deadlock, so a background goroutine retries until Position is non-zero,
+// bounded so a window genuinely at the origin can't spin forever.
 func (s *WindowManager) centerWhenReady(w *application.WebviewWindow) {
 	if w == nil || s.recenterOnShow == nil || !s.recenterOnShow() {
 		return
@@ -706,20 +420,15 @@ func (s *WindowManager) centerWhenReady(w *application.WebviewWindow) {
 		for i := 0; i < 50; i++ { // ~1s budget at 20ms steps
 			w.Center()
 			if x, y := w.Position(); x != 0 || y != 0 {
-				return // move took effect -> surface is realized
+				return // surface realized
 			}
 			time.Sleep(20 * time.Millisecond)
 		}
 	}()
 }
 
-// centerOnCursorScreen centers w in the work area of the display the
-// cursor is on. Each guard is a no-op (nil window, no cursor screen,
-// zero size, zero work area) so a headless / no-monitor session is safe.
-// On minimal WMs (recenterOnShow → Fluxbox/XEmbed) the same retry loop
-// centerWhenReady uses kicks in: Linux SetPosition silently no-ops while
-// the GdkSurface is nil, and a non-zero post-move Position is the
-// signal that it landed.
+// centerOnCursorScreen centers w on the cursor's display; guards no-op on headless sessions.
+// On minimal WMs it uses the same realize-detection retry loop as centerWhenReady.
 func (s *WindowManager) centerOnCursorScreen(w *application.WebviewWindow) {
 	if w == nil {
 		return
@@ -753,3 +462,115 @@ func (s *WindowManager) centerOnCursorScreen(w *application.WebviewWindow) {
 		}
 	}()
 }
+
+// title resolves a window-title i18n key in the current language, or the raw key if unavailable.
+func (s *WindowManager) title(key string) string {
+	if s.translator == nil {
+		return key
+	}
+	lang := i18n.DefaultLanguage
+	if s.prefs != nil {
+		if pref := s.prefs.Get().Language; pref != "" {
+			lang = pref
+		}
+	}
+	return s.translator.Translate(lang, key)
+}
+
+// retitleAll re-applies the localised title to every live auxiliary window. Pointers are
+// snapshotted under s.mu; SetTitle is then safe to call after releasing the lock.
+func (s *WindowManager) retitleAll() {
+	s.mu.Lock()
+	type pair struct {
+		win *application.WebviewWindow
+		key string
+	}
+	wins := []pair{
+		{s.settings, "window.title.settings"},
+		{s.browserLogin, "window.title.signIn"},
+		{s.sessionExpiration, "window.title.sessionExpiration"},
+		{s.installProgress, "window.title.updating"},
+		{s.welcome, "window.title.welcome"},
+		{s.errorDialog, "window.title.error"},
+	}
+	s.mu.Unlock()
+	for _, p := range wins {
+		if p.win != nil {
+			p.win.SetTitle(s.title(p.key))
+		}
+	}
+}
+
+// hideOtherWindowsLocked hides every visible window except keepName, recording
+// them in hiddenForLogin for restoreHiddenWindowsLocked. Caller must hold s.mu.
+func (s *WindowManager) hideOtherWindowsLocked(keepName string) {
+	for _, w := range s.app.Window.GetAll() {
+		if w == nil || w.Name() == keepName {
+			continue
+		}
+		if !w.IsVisible() {
+			continue
+		}
+		w.Hide()
+		s.hiddenForLogin = append(s.hiddenForLogin, w)
+	}
+}
+
+// restoreHiddenWindowsLocked re-shows windows hidden by hideOtherWindowsLocked
+// (caller holds s.mu). If the main window was among them, raiseToForeground
+// lifts it above the SSO browser, which still owns the foreground — a plain
+// Show/Focus would be demoted to a taskbar flash and leave it stranded behind.
+func (s *WindowManager) restoreHiddenWindowsLocked() {
+	mainRestored := false
+	for _, w := range s.hiddenForLogin {
+		if w == nil {
+			continue
+		}
+		w.Show()
+		if w == s.mainWindow {
+			mainRestored = true
+		}
+	}
+	s.hiddenForLogin = nil
+	if mainRestored && s.mainWindow != nil {
+		raiseToForeground(s.mainWindow)
+	}
+}
+
+// getScreenBasedOnCursorPosition returns the cursor's display, falling back to the
+// main-window screen, then nil (OS-default placement).
+func (s *WindowManager) getScreenBasedOnCursorPosition() *application.Screen {
+	if s.app == nil || s.app.Screen == nil {
+		return nil
+	}
+	if p, ok := getCursorPosition(s.app); ok {
+		if sc := s.app.Screen.ScreenNearestDipPoint(p); sc != nil {
+			return sc
+		}
+	}
+	if s.mainWindow != nil {
+		if sc, err := s.mainWindow.GetScreen(); err == nil {
+			return sc
+		}
+	}
+	return nil
+}
+
+// errorDialogURL builds the error window's start URL with title/message as escaped query params.
+func errorDialogURL(title, message string) string {
+	q := url.Values{}
+	if title != "" {
+		q.Set("title", title)
+	}
+	if message != "" {
+		q.Set("message", message)
+	}
+	startURL := "/#/dialog/error"
+	if enc := q.Encode(); enc != "" {
+		startURL += "?" + enc
+	}
+	return startURL
+}
+
+// u32ptr returns a pointer to v, for the optional *uint32 Wails theme fields.
+func u32ptr(v uint32) *uint32 { return &v }

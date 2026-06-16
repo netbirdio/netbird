@@ -21,11 +21,25 @@ let inForward = false;
 let windowStart = 0;
 let windowCount = 0;
 
+// WebKit (macOS WKWebView) omits the "Name: message" header from Error.stack,
+// so a bare stack hides the real cause. Prepend name+message, then the stack.
+function formatError(e: Error): string {
+    const head = `${e.name}: ${e.message}`;
+    const rawCause = (e as { cause?: unknown }).cause;
+    const cause =
+        rawCause instanceof Error
+            ? `\ncaused by ${rawCause.name}: ${rawCause.message}`
+            : rawCause !== undefined
+              ? `\ncaused by ${String(rawCause)}`
+              : "";
+    return e.stack && !e.stack.startsWith(head) ? `${head}${cause}\n${e.stack}` : `${head}${cause}`;
+}
+
 function format(args: unknown[]): string {
     return args
         .map((a) => {
             if (typeof a === "string") return a;
-            if (a instanceof Error) return a.stack || a.message;
+            if (a instanceof Error) return formatError(a);
             try {
                 return JSON.stringify(a);
             } catch {

@@ -31,7 +31,7 @@ export function LanguagePicker() {
             .then((list) => {
                 if (!cancelled) setLanguages(list);
             })
-            .catch(() => {});
+            .catch((err: unknown) => console.error("load languages failed", err));
         return () => {
             cancelled = true;
         };

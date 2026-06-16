@@ -20,7 +20,7 @@ export const SectionGroup = ({
 
 export const SettingsBottomBar = ({ children }: { children: ReactNode }) => (
     <>
-        <div className={"h-[4rem] shrink-0"} aria-hidden />
+        <div className={"h-[3.2rem] shrink-0"} aria-hidden />
         <div className={"absolute bottom-0 left-0 w-full"}>
             <div
                 className={

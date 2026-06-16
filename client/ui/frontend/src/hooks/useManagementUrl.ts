@@ -4,6 +4,15 @@ import { useSettings } from "@/contexts/SettingsContext.tsx";
 import { useConfirm } from "@/contexts/DialogContext.tsx";
 
 export const CLOUD_MANAGEMENT_URL = "https://api.netbird.io:443";
+const CLOUD_MANAGEMENT_URLS = new Set([
+    CLOUD_MANAGEMENT_URL,
+    "https://api.wiretrustee.com:443", // legacy cloud endpoint
+]);
+
+export function isNetbirdCloud(url: string): boolean {
+    if (!url || url.trim() === "") return true;
+    return CLOUD_MANAGEMENT_URLS.has(url);
+}
 
 // Matches http(s)://host[:port][/path][?query][#fragment]; host = domain, localhost, or IPv4.
 // Syntactic validation only — reachability is checked via checkManagementUrlReachable.
@@ -28,11 +37,6 @@ export function isValidManagementUrl(input: string): boolean {
     const trimmed = input.trim();
     if (!trimmed) return false;
     return URL_PATTERN.test(trimmed);
-}
-
-export function isCloudManagementUrl(url: string): boolean {
-    if (!url || url.trim() === "") return true;
-    return url === CLOUD_MANAGEMENT_URL;
 }
 
 // Can false-negative for self-hosted behind internal DNS / self-signed certs — treat as a soft warning, not a hard block.
@@ -60,7 +64,7 @@ export enum ManagementMode {
 }
 
 function modeFromUrl(url: string): ManagementMode {
-    return url === CLOUD_MANAGEMENT_URL ? ManagementMode.Cloud : ManagementMode.SelfHosted;
+    return isNetbirdCloud(url) ? ManagementMode.Cloud : ManagementMode.SelfHosted;
 }
 
 export function useManagementUrl() {
@@ -69,14 +73,14 @@ export function useManagementUrl() {
     const { config, saveField } = useSettings();
     const [modeState, setModeState] = useState<ManagementMode>(modeFromUrl(config.managementUrl));
     const [url, setUrl] = useState(
-        config.managementUrl === CLOUD_MANAGEMENT_URL ? "" : config.managementUrl,
+        isNetbirdCloud(config.managementUrl) ? "" : config.managementUrl,
     );
     const [checking, setChecking] = useState(false);
     const [unreachable, setUnreachable] = useState(false);
 
     useEffect(() => {
         setModeState(modeFromUrl(config.managementUrl));
-        if (config.managementUrl !== CLOUD_MANAGEMENT_URL) {
+        if (!isNetbirdCloud(config.managementUrl)) {
             setUrl(config.managementUrl);
         }
     }, [config.managementUrl]);
@@ -86,7 +90,7 @@ export function useManagementUrl() {
     }, [url, modeState]);
 
     const setMode = async (next: ManagementMode) => {
-        if (next === ManagementMode.Cloud && config.managementUrl !== CLOUD_MANAGEMENT_URL) {
+        if (next === ManagementMode.Cloud && !isNetbirdCloud(config.managementUrl)) {
             const ok = await confirm({
                 title: t("settings.general.management.switchCloudTitle"),
                 description: t("settings.general.management.switchCloudMessage"),

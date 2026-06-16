@@ -30,7 +30,7 @@ jobs:
           # segment by codespell and behave the same across versions; the
           # recursive "**" form did not take effect with the codespell shipped
           # by this action.
-          skip: go.mod,go.sum,*/proxy/web/*,*pnpm-lock.yaml,*package-lock.json,*/locales/de/*,*/locales/hu/*
+          skip: go.mod,go.sum,*/proxy/web/*,*pnpm-lock.yaml,*package-lock.json,*/locales/de/*,*/locales/es/*,*/locales/fr/*,*/locales/hu/*,*/locales/it/*,*/locales/pt/*,*/locales/ru/*,*/locales/zh-CN/*,*/i18n/TRANSLATING.md
   golangci:
     strategy:
       fail-fast: false
