@@ -109,6 +109,7 @@ func main() {
 	// authorized).
 	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
 		go requestNotificationAuthorization(notifier)
+		initDockObserver()
 	})
 
 	bundle, prefStore, localizer := buildI18n(app)
