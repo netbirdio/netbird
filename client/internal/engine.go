@@ -601,7 +601,9 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	e.srWatcher = guard.NewSRWatcher(e.signal, e.relayManager, e.mobileDep.IFaceDiscover, iceCfg)
 	e.srWatcher.Start(peer.IsForceRelayed())
 
-	e.receiveSignalEvents()
+	if err = e.receiveSignalEvents(); err != nil {
+		return err
+	}
 	e.receiveManagementEvents()
 	e.receiveJobEvents()
 
@@ -1712,7 +1714,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix, agentV
 }
 
 // receiveSignalEvents connects to the Signal Service event stream to negotiate connection with remote peers
-func (e *Engine) receiveSignalEvents() {
+func (e *Engine) receiveSignalEvents() error {
 	e.shutdownWg.Add(1)
 	go func() {
 		defer e.shutdownWg.Done()
@@ -1778,6 +1780,10 @@ func (e *Engine) receiveSignalEvents() {
 
 	// todo: consider to remove this blocker. I do not see benefit to block the Start operations
 	e.signal.WaitStreamConnected(e.ctx)
+	if err := e.ctx.Err(); err != nil {
+		return fmt.Errorf("wait for signal stream: %w", err)
+	}
+	return nil
 }
 
 func (e *Engine) parseNATExternalIPMappings() []string {
