@@ -417,14 +417,12 @@ func (c *ConnectClient) run(runCtx context.Context, config *profilemanager.Confi
 		c.engine = nil
 		c.engineMutex.Unlock()
 
-		// todo: consider to remove this condition. Is not thread safe.
-		// We should always call Stop(), but we need to verify that it is idempotent
-		if engine.wgInterface != nil {
-			log.Infof("ensuring %s is removed, Netbird engine context cancelled", engine.wgInterface.Name())
-
-			if err := engine.Stop(); err != nil {
-				log.Errorf("Failed to stop engine: %v", err)
-			}
+		// Always tear the engine down once its context is cancelled. engine.Stop
+		// is nil-guarded per component, so calling it unconditionally is safe and
+		// avoids both the data race on engine.wgInterface and skipping teardown
+		// when the interface was never brought up (e.g. a mid-start failure).
+		if err := engine.Stop(); err != nil {
+			log.Errorf("Failed to stop engine: %v", err)
 		}
 		c.statusRecorder.ClientTeardown()
 
