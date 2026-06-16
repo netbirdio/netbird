@@ -5,9 +5,6 @@ package services
 import (
 	"context"
 	"fmt"
-	"os/exec"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -85,16 +82,7 @@ func (s *Debug) RevealFile(_ context.Context, path string) error {
 	if path == "" {
 		return fmt.Errorf("empty path")
 	}
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("open", "-R", path)
-	case "windows":
-		cmd = exec.Command("explorer", "/select,"+path)
-	default:
-		cmd = exec.Command("xdg-open", filepath.Dir(path))
-	}
-	return cmd.Start()
+	return revealFile(path)
 }
 
 // RegisterUILog reports the GUI log path to the daemon for bundle collection;
