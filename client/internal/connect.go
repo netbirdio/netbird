@@ -63,6 +63,10 @@ type ConnectClient struct {
 	updateManager *updater.Manager
 
 	persistSyncResponse bool
+
+	// sup serializes all start/stop requests so two lifecycle operations can
+	// never overlap. See connect_lifecycle.go.
+	sup *supervisor
 }
 
 func NewConnectClient(
@@ -70,12 +74,14 @@ func NewConnectClient(
 	config *profilemanager.Config,
 	statusRecorder *peer.Status,
 ) *ConnectClient {
-	return &ConnectClient{
+	c := &ConnectClient{
 		ctx:            ctx,
 		config:         config,
 		statusRecorder: statusRecorder,
 		engineMutex:    sync.Mutex{},
 	}
+	c.sup = newSupervisor(ctx, c.run)
+	return c
 }
 
 func (c *ConnectClient) SetUpdateManager(um *updater.Manager) {
@@ -87,7 +93,7 @@ func (c *ConnectClient) Run(runningChan chan struct{}, logPath string) error {
 	if androidRunOverride != nil {
 		return androidRunOverride(c, runningChan, logPath)
 	}
-	return c.run(MobileDependency{}, runningChan, logPath)
+	return c.sup.start(MobileDependency{}, runningChan, logPath)
 }
 
 // RunOnAndroid with main logic on mobile system
@@ -110,7 +116,7 @@ func (c *ConnectClient) RunOnAndroid(
 		StateFilePath:         stateFilePath,
 		TempDir:               cacheDir,
 	}
-	return c.run(mobileDependency, nil, "")
+	return c.sup.start(mobileDependency, nil, "")
 }
 
 func (c *ConnectClient) RunOniOS(
@@ -128,10 +134,12 @@ func (c *ConnectClient) RunOniOS(
 		DnsManager:            dnsManager,
 		StateFilePath:         stateFilePath,
 	}
-	return c.run(mobileDependency, nil, "")
+	return c.sup.start(mobileDependency, nil, "")
 }
 
-func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan struct{}, logPath string) error {
+// run executes a single client run. runCtx is owned by the supervisor: cancelling
+// it tears the run down (it is the parent of the per-attempt engine context).
+func (c *ConnectClient) run(runCtx context.Context, mobileDependency MobileDependency, runningChan chan struct{}, logPath string) error {
 	defer func() {
 		if r := recover(); r != nil {
 			rec := c.statusRecorder
@@ -240,13 +248,13 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 	defer c.statusRecorder.ClientStop()
 	operation := func() error {
 		// if context cancelled we not start new backoff cycle
-		if c.ctx.Err() != nil {
+		if runCtx.Err() != nil {
 			return nil
 		}
 
 		state.Set(StatusConnecting)
 
-		engineCtx, cancel := context.WithCancel(c.ctx)
+		engineCtx, cancel := context.WithCancel(runCtx)
 		defer func() {
 			_, err := state.Status()
 			c.statusRecorder.MarkManagementDisconnected(err)
@@ -435,7 +443,9 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		log.Debugf("exiting client retry loop due to unrecoverable error: %s", err)
 		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.PermissionDenied) {
 			state.Set(StatusNeedsLogin)
-			_ = c.Stop()
+			// Called from inside the run goroutine: tear the engine down
+			// directly, never through the lifecycle queue (would deadlock).
+			_ = c.stopEngine()
 		}
 		return err
 	}
@@ -512,7 +522,16 @@ func (c *ConnectClient) Status() StatusType {
 	return status
 }
 
+// Stop serializes a stop request through the lifecycle supervisor and blocks
+// until the in-flight run is fully torn down.
 func (c *ConnectClient) Stop() error {
+	return c.sup.stop()
+}
+
+// stopEngine stops the engine directly, bypassing the lifecycle queue. It is
+// only safe to call from inside the run goroutine itself (which is what the
+// supervisor is waiting on); routing it through the queue there would deadlock.
+func (c *ConnectClient) stopEngine() error {
 	engine := c.Engine()
 	if engine != nil {
 		if err := engine.Stop(); err != nil {
