@@ -114,7 +114,7 @@ func TestConnectWithRetryRuns(t *testing.T) {
 	t.Setenv(maxRetryTimeVar, "5s")
 	t.Setenv(retryMultiplierVar, "1")
 
-	client := s.newSessionClient(ctx)
+	client := s.ensureConnectClient()
 	s.connectWithRetryRuns(ctx, client, config, s.statusRecorder, nil, nil)
 	if counter < 3 {
 		t.Fatalf("expected counter > 2, got %d", counter)

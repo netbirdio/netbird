@@ -235,7 +235,7 @@ func (s *Server) Start() error {
 	s.clientRunning = true
 	s.clientRunningChan = make(chan struct{})
 	s.clientGiveUpChan = make(chan struct{})
-	client := s.newSessionClient(ctx)
+	client := s.ensureConnectClient()
 	go s.connectWithRetryRuns(ctx, client, config, s.statusRecorder, s.clientRunningChan, s.clientGiveUpChan)
 	s.publishConfigChangedEvent("startup")
 	return nil
@@ -838,7 +838,7 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	s.clientRunningChan = make(chan struct{})
 	s.clientGiveUpChan = make(chan struct{})
 
-	client := s.newSessionClient(ctx)
+	client := s.ensureConnectClient()
 	go s.connectWithRetryRuns(ctx, client, s.config, s.statusRecorder, s.clientRunningChan, s.clientGiveUpChan)
 	s.publishConfigChangedEvent("up_rpc")
 
@@ -986,10 +986,10 @@ func (s *Server) cleanupConnection() error {
 		}
 	}
 
-	// Stop the retry goroutine so it does not start a fresh run.
+	// Stop the retry goroutine so it does not start a fresh run. The client
+	// itself is daemon-lifetime and intentionally kept (a later Up reuses it).
 	s.actCancel()
 
-	s.connectClient = nil
 	s.isSessionActive.Store(false)
 
 	log.Infof("service is down")
@@ -1120,7 +1120,7 @@ func (s *Server) validateProfileOperation(profileName string, allowActiveProfile
 // logoutFromProfile logs out from a specific profile by loading its config and sending logout request
 func (s *Server) logoutFromProfile(ctx context.Context, profileName, username string) error {
 	activeProf, err := s.profileManager.GetActiveProfileState()
-	if err == nil && activeProf.Name == profileName && s.connectClient != nil {
+	if err == nil && activeProf.Name == profileName && s.clientRunning {
 		return s.sendLogoutRequest(ctx)
 	}
 
@@ -1249,10 +1249,6 @@ func (s *Server) getSSHServerState() *proto.SSHServerState {
 	connectClient := s.connectClient
 	s.mutex.Unlock()
 
-	if connectClient == nil {
-		return nil
-	}
-
 	engine := connectClient.Engine()
 	if engine == nil {
 		return nil
@@ -1289,10 +1285,6 @@ func (s *Server) GetPeerSSHHostKey(
 	connectClient := s.connectClient
 	statusRecorder := s.statusRecorder
 	s.mutex.Unlock()
-
-	if connectClient == nil {
-		return nil, errors.New("client not initialized")
-	}
 
 	engine := connectClient.Engine()
 	if engine == nil {
@@ -1467,10 +1459,6 @@ func (s *Server) ExposeService(req *proto.ExposeServiceRequest, srv proto.Daemon
 	connectClient := s.connectClient
 	s.mutex.Unlock()
 
-	if connectClient == nil {
-		return gstatus.Errorf(codes.FailedPrecondition, "client not initialized")
-	}
-
 	engine := connectClient.Engine()
 	if engine == nil {
 		return gstatus.Errorf(codes.FailedPrecondition, "engine not initialized")
@@ -1524,10 +1512,6 @@ func isUnixRunningDesktop() bool {
 }
 
 func (s *Server) runProbes(waitForProbeResult bool) {
-	if s.connectClient == nil {
-		return
-	}
-
 	engine := s.connectClient.Engine()
 	if engine == nil {
 		return
@@ -1762,15 +1746,19 @@ func (s *Server) connect(client *internal.ConnectClient, config *profilemanager.
 	return nil
 }
 
-// newSessionClient builds a ConnectClient for a connection session and records
-// it as the active client. Config is supplied per Run (see connect), not at
-// construction, so the same client can be reused across reconnects.
-func (s *Server) newSessionClient(ctx context.Context) *internal.ConnectClient {
-	client := internal.NewConnectClient(ctx, s.statusRecorder)
-	client.SetUpdateManager(s.updateManager)
-	client.SetSyncResponsePersistence(s.persistSyncResponse)
-	s.connectClient = client
-	return client
+// ensureConnectClient lazily builds the single, daemon-lifetime ConnectClient
+// and returns it. The client is bound to s.rootCtx (so its supervisor lives as
+// long as the daemon) and is never torn down on Down — Up/Down/MDM just drive
+// its supervisor via Run/Stop. Config is supplied per Run (see connect), not at
+// construction, so the same client is reused across reconnects and restarts.
+// Callers must hold s.mutex.
+func (s *Server) ensureConnectClient() *internal.ConnectClient {
+	if s.connectClient == nil {
+		s.connectClient = internal.NewConnectClient(s.rootCtx, s.statusRecorder)
+		s.connectClient.SetUpdateManager(s.updateManager)
+		s.connectClient.SetSyncResponsePersistence(s.persistSyncResponse)
+	}
+	return s.connectClient
 }
 
 // MDM authority: when the platform-native MDM source sets a kill switch

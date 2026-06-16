@@ -66,6 +66,14 @@ func (s *Server) onMDMPolicyChange(_, _ *mdm.Policy) error {
 		// The client is not running, so there's no engine to restart.
 		return nil
 	}
+
+	// End the in-flight run through the supervisor. With a daemon-lifetime
+	// client, cancelling actCtx alone no longer tears the run down (the run is
+	// bound to rootCtx), so Stop is what releases connectWithRetryRuns from
+	// client.Run and lets giveUpChan close below.
+	if err := s.connectClient.Stop(); err != nil {
+		log.Warnf("MDM restart: failed to stop current run: %v", err)
+	}
 	if s.actCancel != nil {
 		s.actCancel()
 	}
@@ -159,7 +167,7 @@ func (s *Server) restartEngineForMDMLocked() error {
 	s.clientRunning = true
 	s.clientRunningChan = make(chan struct{})
 	s.clientGiveUpChan = make(chan struct{})
-	client := s.newSessionClient(ctx)
+	client := s.ensureConnectClient()
 	log.Info("MDM restart: spawning connectWithRetryRuns with re-resolved config")
 	go s.connectWithRetryRuns(ctx, client, config, s.statusRecorder, s.clientRunningChan, s.clientGiveUpChan)
 	s.publishConfigChangedEvent("mdm")
