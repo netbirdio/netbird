@@ -134,6 +134,7 @@ func (am *AggregatingMemory) GetAggregatedEvents() []*types.Event {
 		if aggregatedEvent.Timestamp.Compare(v.Timestamp) > 0 {
 			aggregatedEvent.Timestamp = v.Timestamp
 			aggregatedEvent.ID = v.ID
+			aggregatedEvent.SourcePort = v.SourcePort
 		}
 	}
 
