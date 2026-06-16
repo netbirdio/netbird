@@ -442,7 +442,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 	}
 
 	c.statusRecorder.ClientStart()
-	err = backoff.Retry(operation, backOff)
+	err = backoff.Retry(operation, backoff.WithContext(backOff, c.ctx))
 	if err != nil {
 		log.Debugf("exiting client retry loop due to unrecoverable error: %s", err)
 		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.PermissionDenied) {
