@@ -1989,7 +1989,7 @@ func (s *Server) addUDPRelay(ctx context.Context, mapping *proto.ProxyMapping, t
 		"service_id":  svcID,
 	})
 
-	relay := udprelay.New(ctx, udprelay.RelayConfig{
+	relay := udprelay.New(s.portRouterContext(ctx), udprelay.RelayConfig{
 		Logger:      entry,
 		Listener:    listener,
 		Target:      targetAddress,
