@@ -27,7 +27,7 @@ ENV \
     NB_ENTRYPOINT_SERVICE_TIMEOUT="30"
 
 ENTRYPOINT [ "/usr/local/bin/netbird-entrypoint.sh" ]
-ARG TARGETPLATFORM=.
-ARG NETBIRD_BINARY=${TARGETPLATFORM}/netbird
+ARG TARGETPLATFORM
+ARG NETBIRD_BINARY=$TARGETPLATFORM/netbird
 COPY client/netbird-entrypoint.sh /usr/local/bin/netbird-entrypoint.sh
 COPY "${NETBIRD_BINARY}"  /usr/local/bin/netbird

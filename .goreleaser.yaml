@@ -239,7 +239,7 @@ dockers_v2:
      platforms:
        - linux/amd64
        - linux/arm64
-       - linux/arm
+       - linux/arm/6
      annotations:
        "org.opencontainers.image.created": "{{.Date}}"
        "org.opencontainers.image.title": "{{.ProjectName}}"
@@ -263,7 +263,7 @@ dockers_v2:
      platforms:
        - linux/amd64
        - linux/arm64
-       - linux/arm
+       - linux/arm/6
      annotations:
        "org.opencontainers.image.created": "{{.Date}}"
        "org.opencontainers.image.title": "{{.ProjectName}}"
@@ -285,7 +285,7 @@ dockers_v2:
      platforms:
        - linux/amd64
        - linux/arm64
-       - linux/arm
+       - linux/arm/6
      annotations:
        "org.opencontainers.image.created": "{{.Date}}"
        "org.opencontainers.image.title": "{{.ProjectName}}"
@@ -307,7 +307,7 @@ dockers_v2:
      platforms:
        - linux/amd64
        - linux/arm64
-       - linux/arm
+       - linux/arm/6
      annotations:
        "org.opencontainers.image.created": "{{.Date}}"
        "org.opencontainers.image.title": "{{.ProjectName}}"
@@ -329,7 +329,7 @@ dockers_v2:
      platforms:
        - linux/amd64
        - linux/arm64
-       - linux/arm
+       - linux/arm/6
      annotations:
        "org.opencontainers.image.created": "{{.Date}}"
        "org.opencontainers.image.title": "{{.ProjectName}}"
@@ -351,7 +351,7 @@ dockers_v2:
      platforms:
        - linux/amd64
        - linux/arm64
-       - linux/arm
+       - linux/arm/6
      annotations:
        "org.opencontainers.image.created": "{{.Date}}"
        "org.opencontainers.image.title": "{{.ProjectName}}"
@@ -373,7 +373,7 @@ dockers_v2:
      platforms:
        - linux/amd64
        - linux/arm64
-       - linux/arm
+       - linux/arm/6
      annotations:
        "org.opencontainers.image.created": "{{.Date}}"
        "org.opencontainers.image.title": "{{.ProjectName}}"
@@ -395,7 +395,7 @@ dockers_v2:
      platforms:
        - linux/amd64
        - linux/arm64
-       - linux/arm
+       - linux/arm/6
      annotations:
        "org.opencontainers.image.created": "{{.Date}}"
        "org.opencontainers.image.title": "{{.ProjectName}}"
