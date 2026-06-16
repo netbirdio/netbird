@@ -87,9 +87,10 @@ func TestConcurrentConnectClientAccess(t *testing.T) {
 	assert.Equal(t, 50, nilCount+setCount, "all goroutines should complete without panic")
 }
 
-// TestCleanupConnection_ClearsConnectClient validates that cleanupConnection
-// properly nils out connectClient.
-func TestCleanupConnection_ClearsConnectClient(t *testing.T) {
+// TestCleanupConnection_KeepsClientStopsRunning validates that cleanupConnection
+// clears the daemon "up" intent but KEEPS the daemon-lifetime ConnectClient
+// (it is reused across Up/Down; only the run is stopped).
+func TestCleanupConnection_KeepsClientStopsRunning(t *testing.T) {
 	s := newTestServer()
 	_, cancel := context.WithCancel(context.Background())
 	s.actCancel = cancel
@@ -100,7 +101,8 @@ func TestCleanupConnection_ClearsConnectClient(t *testing.T) {
 	err := s.cleanupConnection()
 	require.NoError(t, err)
 
-	assert.Nil(t, s.connectClient, "connectClient should be nil after cleanup")
+	assert.NotNil(t, s.connectClient, "connectClient is daemon-lifetime and must persist after cleanup")
+	assert.False(t, s.connectClient.IsRunning(), "no run should be in flight after cleanup")
 	assert.False(t, s.clientRunning, "clientRunning should be cleared after cleanup (intent = down)")
 }
 
@@ -157,7 +159,8 @@ func TestDownThenUp_StaleRunningChan(t *testing.T) {
 	// cleared by cleanupConnection), connectionGoroutineRunning may still be true
 	// (goroutine teardown is independent of the intent flag).
 	s.mutex.Lock()
-	assert.Nil(t, s.connectClient, "connectClient should be nil after cleanup")
+	assert.NotNil(t, s.connectClient, "connectClient is daemon-lifetime and persists after cleanup")
+	assert.False(t, s.connectClient.IsRunning(), "no run should be in flight after cleanup")
 	assert.False(t, s.clientRunning, "clientRunning should be cleared by cleanupConnection (intent = down)")
 	s.mutex.Unlock()
 
@@ -176,7 +179,7 @@ func TestDownThenUp_StaleRunningChan(t *testing.T) {
 		assert.NoError(t, err, "waitForUp returns success on stale channel")
 		// But connectClient is still nil — this is the stale state issue
 		s.mutex.Lock()
-		assert.Nil(t, s.connectClient, "connectClient is nil despite waitForUp success")
+		assert.NotNil(t, s.connectClient, "connectClient persists (daemon-lifetime) despite waitForUp success")
 		s.mutex.Unlock()
 	case <-time.After(1 * time.Second):
 		t.Fatal("waitForUp should have returned immediately due to stale closed channel")
