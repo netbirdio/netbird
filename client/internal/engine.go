@@ -22,6 +22,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/tun/netstack"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+	"google.golang.org/grpc/codes"
+	gstatus "google.golang.org/grpc/status"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/firewall"
@@ -1125,6 +1127,20 @@ func (e *Engine) hasIPv6Changed(conf *mgmProto.PeerConfig) bool {
 	return !current.HasIPv6() || current.IPv6 != prefix.Addr() || current.IPv6Net != prefix.Masked()
 }
 
+// wrapDisconnectError classifies a receive-loop failure before the run is torn
+// down. An auth rejection (PermissionDenied/Unauthenticated) means the session
+// needs re-login and retrying is futile, so mark it terminal (NeedsLogin) — run()
+// then exits on its own instead of spinning the backoff. Any other failure is a
+// recoverable connection reset that the backoff should retry.
+func (e *Engine) wrapDisconnectError(err error) {
+	state := CtxGetState(e.ctx)
+	if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.PermissionDenied || s.Code() == codes.Unauthenticated) {
+		state.Set(StatusNeedsLogin)
+		return
+	}
+	_ = state.Wrap(ErrResetConnection)
+}
+
 func (e *Engine) receiveJobEvents() {
 	e.jobExecutorWG.Add(1)
 	go func() {
@@ -1151,9 +1167,9 @@ func (e *Engine) receiveJobEvents() {
 			}
 		})
 		if err != nil {
-			// happens if management is unavailable for a long time.
-			// We want to cancel the operation of the whole client
-			_ = CtxGetState(e.ctx).Wrap(ErrResetConnection)
+			// happens if management is unavailable for a long time, or rejects
+			// us (auth). wrapDisconnectError decides retry vs needs-login.
+			e.wrapDisconnectError(err)
 			e.clientCancel()
 			return
 		}
@@ -1235,9 +1251,9 @@ func (e *Engine) receiveManagementEvents() {
 
 		err = e.mgmClient.Sync(e.ctx, info, e.handleSync)
 		if err != nil {
-			// happens if management is unavailable for a long time.
-			// We want to cancel the operation of the whole client
-			_ = CtxGetState(e.ctx).Wrap(ErrResetConnection)
+			// happens if management is unavailable for a long time, or rejects
+			// us (auth). wrapDisconnectError decides retry vs needs-login.
+			e.wrapDisconnectError(err)
 			e.clientCancel()
 			return
 		}
@@ -1754,9 +1770,9 @@ func (e *Engine) receiveSignalEvents() {
 			return nil
 		})
 		if err != nil {
-			// happens if signal is unavailable for a long time.
-			// We want to cancel the operation of the whole client
-			_ = CtxGetState(e.ctx).Wrap(ErrResetConnection)
+			// happens if signal is unavailable for a long time, or rejects us
+			// (auth). wrapDisconnectError decides retry vs needs-login.
+			e.wrapDisconnectError(err)
 			e.clientCancel()
 			return
 		}
