@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"net/netip"
 	"strconv"
 	"sync"
 	"time"
@@ -162,10 +161,6 @@ func (w *WorkerICE) OnRemoteCandidate(candidate ice.Candidate, haRoutes route.HA
 	w.log.Debugf("OnRemoteCandidate from peer %s -> %s", w.config.Key, candidate.String())
 	if w.agent == nil {
 		w.log.Warnf("ICE Agent is not initialized yet")
-		return
-	}
-
-	if candidateViaRoutes(candidate, haRoutes) {
 		return
 	}
 
@@ -587,34 +582,6 @@ func extraSrflxCandidate(candidate ice.Candidate) (*ice.CandidateServerReflexive
 	}
 
 	return ec, nil
-}
-
-func candidateViaRoutes(candidate ice.Candidate, clientRoutes route.HAMap) bool {
-	addr, err := netip.ParseAddr(candidate.Address())
-	if err != nil {
-		log.Errorf("Failed to parse IP address %s: %v", candidate.Address(), err)
-		return false
-	}
-
-	var routePrefixes []netip.Prefix
-	for _, routes := range clientRoutes {
-		if len(routes) > 0 && routes[0] != nil {
-			routePrefixes = append(routePrefixes, routes[0].Network)
-		}
-	}
-
-	for _, prefix := range routePrefixes {
-		// default route is handled by route exclusion / ip rules
-		if prefix.Bits() == 0 {
-			continue
-		}
-
-		if prefix.Contains(addr) {
-			log.Debugf("Ignoring candidate [%s], its address is part of routed network %s", candidate.String(), prefix)
-			return true
-		}
-	}
-	return false
 }
 
 func isRelayCandidate(candidate ice.Candidate) bool {

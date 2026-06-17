@@ -258,6 +258,7 @@ type BundleGenerator struct {
 	logPath        string
 	uiLogPath      string
 	tempDir        string
+	statePath      string
 	cpuProfile     []byte
 	capturePath    string
 	refreshStatus  func() // Optional callback to refresh status before bundle generation
@@ -285,6 +286,7 @@ type GeneratorDependencies struct {
 	LogPath        string
 	UILogPath      string // Absolute path to the desktop UI's gui-client.log, reported via RegisterUILog. Empty if no UI registered one.
 	TempDir        string // Directory for temporary bundle zip files. If empty, os.TempDir() is used.
+	StatePath      string // Path to the state file. If empty, the ServiceManager default path is used.
 	CPUProfile     []byte
 	CapturePath    string
 	RefreshStatus  func()
@@ -309,6 +311,7 @@ func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGen
 		logPath:        deps.LogPath,
 		uiLogPath:      deps.UILogPath,
 		tempDir:        deps.TempDir,
+		statePath:      deps.StatePath,
 		cpuProfile:     deps.CPUProfile,
 		capturePath:    deps.CapturePath,
 		refreshStatus:  deps.RefreshStatus,
@@ -864,8 +867,11 @@ func (g *BundleGenerator) maskSecrets() {
 }
 
 func (g *BundleGenerator) addStateFile() error {
-	sm := profilemanager.NewServiceManager("")
-	path := sm.GetStatePath()
+	path := g.statePath
+	if path == "" {
+		sm := profilemanager.NewServiceManager("")
+		path = sm.GetStatePath()
+	}
 	if path == "" {
 		return nil
 	}

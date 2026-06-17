@@ -423,6 +423,9 @@ message RelayState {
   string URI = 1;
   bool available = 2;
   string error = 3;
+  // transport is the negotiated relay transport (e.g. "ws", "quic"),
+  // empty for stun/turn probes or when not connected.
+  string transport = 4;
 }
 
 message NSGroupState {

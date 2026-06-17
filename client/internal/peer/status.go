@@ -1115,14 +1115,17 @@ func (d *Status) GetRelayStates() []relay.ProbeResult {
 		return d.relayStates
 	}
 
-	// extend the list of stun, turn servers with relay address
+	// extend the list of stun, turn servers with the relay server connections
 	relayStates := slices.Clone(d.relayStates)
 
-	// if the server connection is not established then we will use the general address
-	// in case of connection we will use the instance specific address
-	instanceAddr, _, err := d.relayMgr.RelayInstanceAddress()
-	if err != nil {
-		// TODO add their status
+	states := d.relayMgr.RelayStates()
+	if len(states) == 0 {
+		// no relay connection tracked yet; surface configured servers as
+		// unavailable with the real reconnect error when known
+		err := relayClient.ErrRelayClientNotConnected
+		if connErr := d.relayMgr.RelayConnectError(); connErr != nil {
+			err = connErr
+		}
 		for _, r := range d.relayMgr.ServerURLs() {
 			relayStates = append(relayStates, relay.ProbeResult{
 				URI: r,
@@ -1132,10 +1135,14 @@ func (d *Status) GetRelayStates() []relay.ProbeResult {
 		return relayStates
 	}
 
-	relayState := relay.ProbeResult{
-		URI: instanceAddr,
+	for _, rs := range states {
+		relayStates = append(relayStates, relay.ProbeResult{
+			URI:       rs.URL,
+			Err:       rs.Err,
+			Transport: rs.Transport,
+		})
 	}
-	return append(relayStates, relayState)
+	return relayStates
 }
 
 func (d *Status) ForwardingRules() []firewall.ForwardRule {
@@ -1572,6 +1579,7 @@ func (fs FullStatus) ToProto() *proto.FullStatus {
 		pbRelayState := &proto.RelayState{
 			URI:       relayState.URI,
 			Available: relayState.Err == nil,
+			Transport: relayState.Transport,
 		}
 		if err := relayState.Err; err != nil {
 			pbRelayState.Error = err.Error()
