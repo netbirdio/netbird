@@ -1,4 +1,4 @@
-//go:build !linux || (linux && 386)
+//go:build (!linux || (linux && 386)) && !freebsd && !android && !ios && !js
 
 package main
 
