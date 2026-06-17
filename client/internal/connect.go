@@ -483,6 +483,18 @@ func (c *ConnectClient) IsRunning() bool {
 	return c.sup.isRunning()
 }
 
+// ServiceRunning reports whether the client's lifecycle supervisor is alive and
+// able to accept start/stop commands — i.e. the daemon-lifetime client exists
+// and its context has not been cancelled. It is independent of whether a run is
+// currently up (that is IsRunning). Nil-safe, so callers can ask it on a
+// not-yet-constructed client and treat false as "service not running".
+func (c *ConnectClient) ServiceRunning() bool {
+	if c == nil || c.sup == nil {
+		return false
+	}
+	return c.sup.ctx.Err() == nil
+}
+
 func (c *ConnectClient) Engine() *Engine {
 	if c == nil {
 		return nil

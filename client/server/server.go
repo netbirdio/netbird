@@ -656,9 +656,14 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpResponse, error) {
 	s.mutex.Lock()
 
-	// The client is built once in New(); a nil here means the service was never
-	// started. Fail loud rather than lazily creating it.
-	if s.connectClient == nil {
+	// The client (and its supervisor) is built once in New(), so a nil here
+	// never happens in production — Up is only reachable after New() has run and
+	// the gRPC server is serving. The real case this guards is the daemon
+	// SHUTTING DOWN: rootCtx is cancelled, the supervisor is no longer accepting
+	// commands, so ServiceRunning() is false even though the client exists. Bail
+	// loud instead of enqueuing a run that will never start. (nil only happens in
+	// tests that build a Server without New(); ServiceRunning is nil-safe.)
+	if !s.connectClient.ServiceRunning() {
 		s.mutex.Unlock()
 		return nil, fmt.Errorf("service is not running, start the netbird service for 'up' to take effect")
 	}
