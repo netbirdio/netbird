@@ -130,4 +130,4 @@ A few habits that keep a bundle reading like one product rather than a word-for-
 
 A bundle can pass every check above and still read wrong on screen. **Run the app, switch to your language, and click through the real surfaces** — tray menu, main window, every Settings tab, the dialogs. Watch for text overflow or truncation, labels that are technically right but wrong *for what the control does*, leaked placeholders, and terms that drift between screens.
 
-How to run the app and switch language: see `../CLAUDE.md` and `../frontend/CLAUDE.md`. Can't run it (e.g. a headless agent)? Say so in your summary — don't silently skip this step.
+How to run the app and switch language: see the project README. Can't run it (e.g. a headless agent)? Say so in your summary — don't silently skip this step.
