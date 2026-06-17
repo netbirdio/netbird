@@ -2484,6 +2484,32 @@ func TestProjection_StopClearsHealthState(t *testing.T) {
 // rule 3: startup failures while the peer is handshaking, then the peer
 // comes up and a query succeeds before the grace window elapses. No
 // warning should ever have fired, and no recovery either.
+func TestWarningDelayBaseFromEnv(t *testing.T) {
+	tests := []struct {
+		name string
+		set  bool
+		val  string
+		want time.Duration
+	}{
+		{name: "unset uses default", set: false, want: defaultWarningDelayBase},
+		{name: "valid override", set: true, val: "90s", want: 90 * time.Second},
+		{name: "valid minutes", set: true, val: "2m", want: 2 * time.Minute},
+		{name: "invalid falls back", set: true, val: "notaduration", want: defaultWarningDelayBase},
+		{name: "zero falls back", set: true, val: "0s", want: defaultWarningDelayBase},
+		{name: "negative falls back", set: true, val: "-30s", want: defaultWarningDelayBase},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(envWarningDelay, tc.val)
+			if !tc.set {
+				os.Unsetenv(envWarningDelay)
+			}
+			assert.Equal(t, tc.want, warningDelayBaseFromEnv(), "grace window base")
+		})
+	}
+}
+
 func TestProjection_OverlayRecoversDuringGrace(t *testing.T) {
 	fx := newProjTestFixture(t)
 	fx.server.warningDelayBase = 200 * time.Millisecond

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/netip"
 	"net/url"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -38,11 +39,15 @@ const (
 	// defaultWarningDelayBase is the starting grace window before a
 	// "Nameserver group unreachable" event fires for a group that's
 	// never been healthy and only has overlay upstreams with no
-	// Connected peer. Per-server and overridable; see warningDelayFor.
-	defaultWarningDelayBase = 30 * time.Second
+	// Connected peer. Per-server and overridable via envWarningDelay;
+	// see warningDelay.
+	defaultWarningDelayBase = 60 * time.Second
 	// warningDelayBonusCap caps the route-count bonus added to the
-	// base grace window. See warningDelayFor.
+	// base grace window. See warningDelay.
 	warningDelayBonusCap = 30 * time.Second
+	// envWarningDelay overrides defaultWarningDelayBase with a Go duration
+	// string (e.g. "90s", "2m"). Invalid or non-positive values are ignored.
+	envWarningDelay = "NB_DNS_HEALTH_WARNING_DELAY"
 )
 
 // errNoUsableNameservers signals that a merged-domain group has no usable
@@ -298,7 +303,7 @@ func newDefaultServer(
 		hostManager:       &noopHostConfigurator{},
 		mgmtCacheResolver: mgmtCacheResolver,
 		currentConfigHash: ^uint64(0), // Initialize to max uint64 to ensure first config is always applied
-		warningDelayBase:  defaultWarningDelayBase,
+		warningDelayBase:  warningDelayBaseFromEnv(),
 		healthRefresh:     make(chan struct{}, 1),
 	}
 	// Wire the local resolver against the peer status recorder so it can
@@ -1152,6 +1157,26 @@ func (s *DefaultServer) projectUnhealthy(p *nsGroupProj, servers []netip.AddrPor
 		log.Debugf("DNS health: group [%s] unreachable but holding warning for up to %v (overlay-routed, no connected peer)", joinAddrPorts(servers), delay)
 	}
 	return false
+}
+
+// warningDelayBaseFromEnv returns the base grace window, honoring
+// envWarningDelay when it holds a valid positive Go duration. Invalid or
+// non-positive values fall back to defaultWarningDelayBase.
+func warningDelayBaseFromEnv() time.Duration {
+	val := os.Getenv(envWarningDelay)
+	if val == "" {
+		return defaultWarningDelayBase
+	}
+	d, err := time.ParseDuration(val)
+	if err != nil {
+		log.Warnf("invalid %s value %q, using default %v: %v", envWarningDelay, val, defaultWarningDelayBase, err)
+		return defaultWarningDelayBase
+	}
+	if d <= 0 {
+		log.Warnf("%s must be positive, got %v, using default %v", envWarningDelay, d, defaultWarningDelayBase)
+		return defaultWarningDelayBase
+	}
+	return d
 }
 
 // warningDelay returns the grace window for the given selected-route
