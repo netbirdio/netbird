@@ -249,6 +249,7 @@ export const MainConnectionStatusSwitch = () => {
                 <CopyToClipboard
                     message={fqdn}
                     variant={"bright"}
+                    iconClassName={"-top-px"}
                     className={cn(
                         "min-h-[1em] transition-opacity duration-300 max-w-full",
                         "relative left-[0.55rem]",
