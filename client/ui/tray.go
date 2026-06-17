@@ -189,9 +189,10 @@ func NewTray(app *application.App, window *application.WebviewWindow, svc TraySe
 	t.tray.SetMenu(t.menu)
 	// macOS/Linux give click→menu natively, so bindTrayClick is a no-op there
 	// (binding OnClick→OpenMenu on macOS would freeze the tray); Windows has no
-	// native handler so it wires one (see tray_click_*.go). On Linux
-	// AttachWindow is skipped — with applySmartDefaults it would pop the window
-	// alongside the menu (e.g. GNOME Shell AppIndicator).
+	// native left-click handler so it wires one to open the main window, leaving
+	// the menu on right-click (see tray_click_*.go). On Linux AttachWindow is
+	// skipped — with applySmartDefaults it would pop the window alongside the
+	// menu (e.g. GNOME Shell AppIndicator).
 	bindTrayClick(t)
 
 	app.Event.On(services.EventStatusSnapshot, t.onStatusEvent)
