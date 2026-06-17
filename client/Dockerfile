@@ -4,7 +4,7 @@
 #   sudo podman build -t localhost/netbird:latest -f client/Dockerfile --ignorefile .dockerignore-client .
 #   sudo podman run --rm -it --cap-add={BPF,NET_ADMIN,NET_RAW} localhost/netbird:latest
 
-FROM alpine:3.23.3
+FROM alpine:3.24
 # iproute2: busybox doesn't display ip rules properly
 RUN apk add --no-cache \
     bash \
@@ -21,7 +21,7 @@ ENV \
     NB_ENTRYPOINT_SERVICE_TIMEOUT="30"
 
 ENTRYPOINT [ "/usr/local/bin/netbird-entrypoint.sh" ]
-
-ARG NETBIRD_BINARY=netbird
+ARG TARGETPLATFORM
+ARG NETBIRD_BINARY=$TARGETPLATFORM/netbird
 COPY client/netbird-entrypoint.sh /usr/local/bin/netbird-entrypoint.sh
 COPY "${NETBIRD_BINARY}"  /usr/local/bin/netbird
