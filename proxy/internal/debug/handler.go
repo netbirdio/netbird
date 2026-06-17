@@ -131,7 +131,7 @@ func (h *Handler) SetCertStatus(cs certStatus) {
 
 // SetInboundProvider wires per-account inbound listener observability.
 // Pass nil (or skip the call) to keep the inbound section out of debug
-// responses on proxies that don't run --private-inbound.
+// responses on proxies that don't run --private.
 func (h *Handler) SetInboundProvider(p InboundProvider) {
 	h.inbound = p
 }

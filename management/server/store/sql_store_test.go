@@ -6,7 +6,6 @@ import (
 	b64 "encoding/base64"
 	"encoding/binary"
 	"fmt"
-	"math/rand"
 	"net"
 	"net/netip"
 	"os"
@@ -92,7 +91,7 @@ func runLargeTest(t *testing.T, store Store) {
 	account.SetupKeys[setupKey.Key] = setupKey
 	const numPerAccount = 6000
 	for n := 0; n < numPerAccount; n++ {
-		netIP := randomIPv4()
+		netIP := sequentialIPv4(n)
 		peerID := fmt.Sprintf("%s-peer-%d", account.Id, n)
 		addr, _ := netip.AddrFromSlice(netIP)
 
@@ -216,12 +215,12 @@ func runLargeTest(t *testing.T, store Store) {
 	}
 }
 
-func randomIPv4() net.IP {
-	rand.New(rand.NewSource(time.Now().UnixNano()))
+// sequentialIPv4 returns a unique IPv4 address for the given index, avoiding
+// the random collisions that would otherwise violate the unique (account_id, ip)
+// index when generating a large number of peers.
+func sequentialIPv4(n int) net.IP {
 	b := make([]byte, 4)
-	for i := range b {
-		b[i] = byte(rand.Intn(256))
-	}
+	binary.BigEndian.PutUint32(b, 0x0A000000+uint32(n))
 	return net.IP(b)
 }
 
@@ -488,6 +487,27 @@ func Test_GetAccount(t *testing.T) {
 		require.True(t, ok)
 		require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
 
+	})
+}
+
+// TestSqlStore_GetPeerByIP_NotFound pins the not-found semantics the
+// proxy's ValidateTunnelPeer relies on: a tunnel-IP that isn't in the
+// account roster must surface as a NotFound error (not a generic
+// Internal) so callers can distinguish an expected miss from a real
+// store failure. A known IP still resolves.
+func TestSqlStore_GetPeerByIP_NotFound(t *testing.T) {
+	runTestForAllEngines(t, "../testdata/store.sql", func(t *testing.T, store Store) {
+		const accountID = "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+		peer, err := store.GetPeerByIP(context.Background(), LockingStrengthNone, accountID, net.ParseIP("192.168.0.0"))
+		require.NoError(t, err, "known tunnel IP must resolve")
+		require.NotNil(t, peer)
+
+		_, err = store.GetPeerByIP(context.Background(), LockingStrengthNone, accountID, net.ParseIP("100.65.0.99"))
+		require.Error(t, err, "unknown tunnel IP must error")
+		parsedErr, ok := status.FromError(err)
+		require.True(t, ok, "error must be a status error")
+		require.Equal(t, status.NotFound, parsedErr.Type(), "tunnel-IP miss must be NotFound, not Internal")
 	})
 }
 

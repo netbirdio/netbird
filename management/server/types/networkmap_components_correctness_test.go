@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"slices"
 	"testing"
 	"time"
 
@@ -1029,6 +1030,48 @@ func TestComponents_RouteDefaultPermit(t *testing.T) {
 	assert.True(t, hasDefaultPermit, "route without ACG should have default permit rule with 0.0.0.0/0 source")
 }
 
+// TestComponents_ExitNodeDefaultPermitIPv6 verifies that a default exit node route
+// (0.0.0.0/0) without AccessControlGroups also emits an IPv6 default permit rule
+// (::/0 source and destination) for peers that support IPv6, mirroring the route
+// the client installs. Without it, IPv6 traffic is routed to the exit node but
+// dropped at the forward chain.
+func TestComponents_ExitNodeDefaultPermitIPv6(t *testing.T) {
+	account, validatedPeers := scalableTestAccount(20, 2)
+
+	routingPeerID := "peer-5"
+	routingPeer := account.Peers[routingPeerID]
+	routingPeer.IPv6 = netip.MustParseAddr("fd00::5")
+	routingPeer.Meta.Capabilities = append(routingPeer.Meta.Capabilities, nbpeer.PeerCapabilityIPv6Overlay)
+
+	account.Routes["route-exit"] = &route.Route{
+		ID: "route-exit", Network: netip.MustParsePrefix("0.0.0.0/0"),
+		PeerID: routingPeerID, Peer: routingPeer.Key,
+		Enabled: true, Groups: []string{"group-all"}, PeerGroups: []string{"group-0"},
+		AccessControlGroups: []string{},
+		AccountID:           "test-account",
+	}
+
+	nm := componentsNetworkMap(account, routingPeerID, validatedPeers)
+	require.NotNil(t, nm)
+
+	hasV4 := false
+	hasV6 := false
+	for _, rfr := range nm.RoutesFirewallRules {
+		switch rfr.Destination {
+		case "0.0.0.0/0":
+			if slices.Contains(rfr.SourceRanges, "0.0.0.0/0") {
+				hasV4 = true
+			}
+		case "::/0":
+			if slices.Contains(rfr.SourceRanges, "::/0") {
+				hasV6 = true
+			}
+		}
+	}
+	assert.True(t, hasV4, "exit node route should have an IPv4 default permit rule (0.0.0.0/0)")
+	assert.True(t, hasV6, "exit node route should have an IPv6 default permit rule (::/0)")
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // 15. MULTIPLE ROUTERS PER NETWORK
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1189,4 +1232,98 @@ func TestComponents_DisabledRuleInEnabledPolicy(t *testing.T) {
 	}
 	assert.True(t, has3000, "enabled rule should generate firewall rule for port 3000")
 	assert.False(t, has3001, "disabled rule should NOT generate firewall rule for port 3001")
+}
+
+func peerGroupIDSet(account *types.Account, peerID string) map[string]struct{} {
+	return account.GetPeerGroups(peerID)
+}
+
+func assertSSHEquivalence(t *testing.T, account *types.Account, peerID string, validatedPeers map[string]struct{}) {
+	t.Helper()
+	nm := componentsNetworkMap(account, peerID, validatedPeers)
+	require.NotNil(t, nm)
+
+	got := types.PeerSSHEnabledFromPolicies(account.Policies, peerID, peerGroupIDSet(account, peerID), account.Peers[peerID].SSHEnabled)
+	assert.Equalf(t, nm.EnableSSH, got, "PeerSSHEnabledFromPolicies mismatch for %s", peerID)
+}
+
+func TestPeerSSHEnabledFromPolicies_MatchesMap_NetbirdSSHProtocol(t *testing.T) {
+	account, validatedPeers := scalableTestAccount(20, 2)
+	account.Groups["ssh-users"] = &types.Group{ID: "ssh-users", Name: "SSH Users", Peers: []string{}}
+	account.Policies = append(account.Policies, &types.Policy{
+		ID: "policy-ssh", Name: "SSH Access", Enabled: true, AccountID: "test-account",
+		Rules: []*types.PolicyRule{{
+			ID: "rule-ssh", Name: "Allow SSH", Enabled: true,
+			Action: types.PolicyTrafficActionAccept, Protocol: types.PolicyRuleProtocolNetbirdSSH,
+			Bidirectional: false,
+			Sources:       []string{"group-0"}, Destinations: []string{"group-1"},
+			AuthorizedGroups: map[string][]string{"ssh-users": {"root"}},
+		}},
+	})
+
+	assertSSHEquivalence(t, account, "peer-10", validatedPeers)
+	assertSSHEquivalence(t, account, "peer-0", validatedPeers)
+}
+
+func TestPeerSSHEnabledFromPolicies_MatchesMap_NoSSHPolicy(t *testing.T) {
+	account, validatedPeers := scalableTestAccount(20, 2)
+	assertSSHEquivalence(t, account, "peer-0", validatedPeers)
+}
+
+func TestPeerSSHEnabledFromPolicies_MatchesMap_LegacyImpliedSSH(t *testing.T) {
+	account, validatedPeers := scalableTestAccount(20, 2)
+	account.Peers["peer-10"].SSHEnabled = true
+	assertSSHEquivalence(t, account, "peer-10", validatedPeers)
+	assertSSHEquivalence(t, account, "peer-11", validatedPeers)
+}
+
+func TestPeerSSHEnabledFromPolicies_MatchesMap_PeerAsDestinationResource(t *testing.T) {
+	account, validatedPeers := scalableTestAccountWithoutDefaultPolicy(20, 2)
+	account.Policies = append(account.Policies, &types.Policy{
+		ID: "policy-ssh-res", Name: "SSH to peer", Enabled: true, AccountID: "test-account",
+		Rules: []*types.PolicyRule{{
+			ID: "rule-ssh-res", Name: "SSH to peer-5", Enabled: true,
+			Action: types.PolicyTrafficActionAccept, Protocol: types.PolicyRuleProtocolNetbirdSSH,
+			Sources:             []string{"group-0"},
+			DestinationResource: types.Resource{ID: "peer-5", Type: types.ResourceTypePeer},
+		}},
+	})
+
+	assertSSHEquivalence(t, account, "peer-5", validatedPeers)
+	assertSSHEquivalence(t, account, "peer-6", validatedPeers)
+}
+
+func TestPeerSSHEnabledFromPolicies_MatchesMap_DisabledSSHPolicy(t *testing.T) {
+	account, validatedPeers := scalableTestAccountWithoutDefaultPolicy(20, 2)
+	account.Policies = append(account.Policies, &types.Policy{
+		ID: "policy-ssh-off", Name: "SSH disabled", Enabled: false, AccountID: "test-account",
+		Rules: []*types.PolicyRule{{
+			ID: "rule-ssh-off", Name: "Allow SSH", Enabled: true,
+			Action: types.PolicyTrafficActionAccept, Protocol: types.PolicyRuleProtocolNetbirdSSH,
+			Sources: []string{"group-0"}, Destinations: []string{"group-1"},
+		}},
+	})
+	assertSSHEquivalence(t, account, "peer-10", validatedPeers)
+}
+
+func TestPeerSSHEnabledFromPolicies_MatchesMap_Sweep(t *testing.T) {
+	account, validatedPeers := scalableTestAccount(60, 6)
+	account.Policies = append(account.Policies, &types.Policy{
+		ID: "policy-ssh-sweep", Name: "SSH sweep", Enabled: true, AccountID: "test-account",
+		Rules: []*types.PolicyRule{{
+			ID: "rule-ssh-sweep", Name: "Allow SSH", Enabled: true,
+			Action: types.PolicyTrafficActionAccept, Protocol: types.PolicyRuleProtocolNetbirdSSH,
+			Sources: []string{"group-0"}, Destinations: []string{"group-2"},
+		}},
+	})
+	for peerID := range account.Peers {
+		account.Peers[peerID].SSHEnabled = len(peerID)%2 == 0
+	}
+
+	for peerID := range account.Peers {
+		if _, ok := validatedPeers[peerID]; !ok {
+			continue
+		}
+		assertSSHEquivalence(t, account, peerID, validatedPeers)
+	}
 }

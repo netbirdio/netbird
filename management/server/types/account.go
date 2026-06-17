@@ -41,7 +41,6 @@ const (
 	PublicCategory  = "public"
 	PrivateCategory = "private"
 	UnknownCategory = "unknown"
-
 )
 
 // AccountMeta is a struct that contains a stripped down version of the Account object.
@@ -254,7 +253,7 @@ func (a *Account) SynthesizePrivateServiceZones(peerID string) []nbdns.CustomZon
 	}
 
 	peerGroups := a.GetPeerGroups(peerID)
-	zonesByCluster := map[string]*nbdns.CustomZone{}
+	zonesByApex := map[string]*nbdns.CustomZone{}
 
 	for _, svc := range a.Services {
 		if svc == nil || !svc.Enabled || !svc.Private {
@@ -271,19 +270,24 @@ func (a *Account) SynthesizePrivateServiceZones(peerID string) []nbdns.CustomZon
 			continue
 		}
 
-		zone, exists := zonesByCluster[svc.ProxyCluster]
+		serviceDomainZone := a.privateServiceDomainZone(svc)
+		if serviceDomainZone == "" {
+			continue
+		}
+
+		zone, exists := zonesByApex[serviceDomainZone]
 		if !exists {
 			// NonAuthoritative makes this a match-only zone: queries for
 			// names without an explicit record fall through to the
 			// upstream resolver instead of returning NXDOMAIN. Without
 			// it, adding a single private service would black-hole every
-			// other name under the cluster apex.
+			// other name under the zone apex.
 			zone = &nbdns.CustomZone{
-				Domain:           dns.Fqdn(svc.ProxyCluster),
+				Domain:           dns.Fqdn(serviceDomainZone),
 				Records:          []nbdns.SimpleRecord{},
 				NonAuthoritative: true,
 			}
-			zonesByCluster[svc.ProxyCluster] = zone
+			zonesByApex[serviceDomainZone] = zone
 		}
 
 		emitted := 0
@@ -321,8 +325,8 @@ func (a *Account) SynthesizePrivateServiceZones(peerID string) []nbdns.CustomZon
 		}
 	}
 
-	out := make([]nbdns.CustomZone, 0, len(zonesByCluster))
-	for _, zone := range zonesByCluster {
+	out := make([]nbdns.CustomZone, 0, len(zonesByApex))
+	for _, zone := range zonesByApex {
 		if len(zone.Records) == 0 {
 			continue
 		}
@@ -336,6 +340,33 @@ func (a *Account) SynthesizePrivateServiceZones(peerID string) []nbdns.CustomZon
 			peerID, a.Id, len(a.Services))
 	}
 	return out
+}
+
+// privateServiceDomainZone returns the DNS zone name for the given private service domain by
+// looking at the proxy cluster domain then the custom domains.
+func (a *Account) privateServiceDomainZone(svc *service.Service) string {
+	if domainFromSuffix(svc.Domain, svc.ProxyCluster) {
+		return svc.ProxyCluster
+	}
+
+	// Longest matching custom domain wins
+	zoneName := ""
+	for _, d := range a.Domains {
+		if d == nil || d.TargetCluster != svc.ProxyCluster {
+			continue
+		}
+		if domainFromSuffix(svc.Domain, d.Domain) && len(d.Domain) > len(zoneName) {
+			zoneName = d.Domain
+		}
+	}
+	return zoneName
+}
+
+func domainFromSuffix(domain, suffix string) bool {
+	if suffix == "" {
+		return false
+	}
+	return domain == suffix || strings.HasSuffix(domain, "."+suffix)
 }
 
 // peerInDistributionGroups reports whether any of the peer's groups
@@ -1101,6 +1132,47 @@ func (a *Account) connResourcesGenerator(ctx context.Context, targetPeer *nbpeer
 		}
 }
 
+// PeerSSHEnabledFromPolicies is the network-map-free equivalent of the sshEnabled
+// determination in GetPeerConnectionResources / CalculateNetworkMapFromComponents.
+func PeerSSHEnabledFromPolicies(policies []*Policy, peerID string, peerGroupIDs map[string]struct{}, peerSSHEnabled bool) bool {
+	for _, policy := range policies {
+		if !policy.Enabled {
+			continue
+		}
+
+		for _, rule := range policy.Rules {
+			if !rule.Enabled {
+				continue
+			}
+
+			isSSHRule := rule.Protocol == PolicyRuleProtocolNetbirdSSH ||
+				(PolicyRuleImpliesLegacySSH(rule) && peerSSHEnabled)
+			if !isSSHRule {
+				continue
+			}
+
+			if ruleHasDestination(rule, peerID, peerGroupIDs) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func ruleHasDestination(rule *PolicyRule, peerID string, peerGroupIDs map[string]struct{}) bool {
+	if rule.DestinationResource.Type == ResourceTypePeer && rule.DestinationResource.ID != "" {
+		return rule.DestinationResource.ID == peerID
+	}
+
+	for _, groupID := range rule.Destinations {
+		if _, ok := peerGroupIDs[groupID]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 // getAllPeersFromGroups for given peer ID and list of groups
 //
 // Returns a list of peers from specified groups that pass specified posture checks
@@ -1692,7 +1764,6 @@ func (a *Account) createProxyPolicy(svc *service.Service, target *service.Target
 		},
 	}
 }
-
 
 // filterZoneRecordsForPeers filters DNS records to only include peers to connect.
 // AAAA records are excluded when the requesting peer lacks IPv6 capability.

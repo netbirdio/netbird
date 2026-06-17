@@ -17,8 +17,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator/validator"
 	ephemeral_manager "github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
+	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator/validator"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
@@ -89,7 +89,7 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 			gomock.Any(),
 			gomock.Any(),
 		).
-		Return(true, nil).
+		Return(true, context.Background(), nil).
 		AnyTimes()
 
 	peersManger := peers.NewManager(store, permissionsManagerMock)
@@ -322,16 +322,22 @@ func TestClient_Sync(t *testing.T) {
 		if resp.GetNetbirdConfig() == nil {
 			t.Error("expecting non nil NetbirdConfig got nil")
 		}
+		// Top-level RemotePeers is deprecated and must stay empty for
+		// v0.29.3+ (and dev) clients — the field rides inside NetworkMap
+		// (legacy) or the NetworkMapEnvelope (components) instead.
+		if len(resp.GetRemotePeers()) != 0 {
+			t.Error("expecting top-level RemotePeers to be empty for v0.29.3+ clients")
+		}
 		// Component-capable clients receive a NetworkMapEnvelope; the
 		// remote-peers list is encoded inside it. Decode it and check the
-		// envelope's peers slice. Legacy peers populate the top-level
-		// RemotePeers; both shapes must surface exactly one remote peer.
+		// envelope's peers slice. Legacy peers populate NetworkMap.RemotePeers;
+		// both shapes must surface exactly one remote peer.
 		remotePeerKeys := remotePeerKeysFromSync(resp, testKey.PublicKey().String())
 		if len(remotePeerKeys) != 1 {
 			t.Errorf("expecting RemotePeers size %d got %d", 1, len(remotePeerKeys))
 			return
 		}
-		if resp.GetNetworkMap() != nil && resp.GetRemotePeersIsEmpty() {
+		if resp.GetNetworkMap() != nil && resp.GetNetworkMap().GetRemotePeersIsEmpty() {
 			t.Error("expecting RemotePeers property to be false, got true")
 		}
 		if remotePeerKeys[0] != remoteKey.PublicKey().String() {
@@ -349,6 +355,13 @@ func TestClient_Sync(t *testing.T) {
 // the local peer alongside remotes).
 func remotePeerKeysFromSync(resp *mgmtProto.SyncResponse, localKey string) []string {
 	if rp := resp.GetRemotePeers(); len(rp) > 0 {
+		out := make([]string, 0, len(rp))
+		for _, p := range rp {
+			out = append(out, p.GetWgPubKey())
+		}
+		return out
+	}
+	if rp := resp.GetNetworkMap().GetRemotePeers(); len(rp) > 0 {
 		out := make([]string, 0, len(rp))
 		for _, p := range rp {
 			out = append(out, p.GetWgPubKey())

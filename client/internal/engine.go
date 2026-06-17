@@ -22,7 +22,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/tun/netstack"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
-	"google.golang.org/protobuf/proto"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/firewall"
@@ -54,19 +53,19 @@ import (
 	"github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/client/internal/rosenpass"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
-	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
+	"github.com/netbirdio/netbird/client/internal/syncstore"
 	"github.com/netbirdio/netbird/client/internal/updater"
 	"github.com/netbirdio/netbird/client/jobexec"
 	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
-	types "github.com/netbirdio/netbird/shared/management/types"
 	"github.com/netbirdio/netbird/route"
 	mgm "github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	nbnetworkmap "github.com/netbirdio/netbird/shared/management/networkmap"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
+	types "github.com/netbirdio/netbird/shared/management/types"
 	"github.com/netbirdio/netbird/shared/netiputil"
 	auth "github.com/netbirdio/netbird/shared/relay/auth/hmac"
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
@@ -74,6 +73,7 @@ import (
 	sProto "github.com/netbirdio/netbird/shared/signal/proto"
 	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/util/capture"
+	"github.com/netbirdio/netbird/version"
 )
 
 // PeerConnectionTimeoutMax is a timeout of an initial connection attempt to a remote peer.
@@ -150,6 +150,10 @@ type EngineConfig struct {
 
 	LogPath string
 	TempDir string
+
+	// StateDir is the directory holding the state file. The sync response
+	// (network map) is serialized here on platforms that persist it to disk.
+	StateDir string
 }
 
 // EngineServices holds the external service dependencies required by the Engine.
@@ -235,11 +239,16 @@ type Engine struct {
 
 	afpacketCapture *capture.AFPacketCapture
 
-	// Sync response persistence (protected by syncRespMux)
-	syncRespMux         sync.RWMutex
-	persistSyncResponse bool
-	latestSyncResponse  *mgmProto.SyncResponse
-	flowManager         nftypes.FlowManager
+	// Sync response persistence (protected by syncRespMux).
+	// syncStore is nil unless persistence has been enabled; its presence is
+	// what marks persistence as active. The backend (disk or memory) is
+	// selected per-platform; see the syncstore package. syncStoreDir is where
+	// a disk-backed store serializes to.
+	syncRespMux  sync.RWMutex
+	syncStore    syncstore.Store
+	syncStoreDir string
+
+	flowManager nftypes.FlowManager
 
 	// auto-update
 	updateManager *updater.Manager
@@ -301,6 +310,7 @@ func NewEngine(
 		jobExecutor:        jobexec.NewExecutor(),
 		clientMetrics:      services.ClientMetrics,
 		updateManager:      services.UpdateManager,
+		syncStoreDir:       config.StateDir,
 	}
 
 	log.Infof("I am: %s", config.WgPrivateKey.PublicKey().String())
@@ -527,6 +537,10 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		log.Errorf("failed creating tunnel interface %s: [%s]", e.config.WgIfaceName, err.Error())
 		e.close()
 		return fmt.Errorf("create wg interface: %w", err)
+	}
+
+	if filteredDevice := e.wgInterface.GetDevice(); filteredDevice != nil {
+		filteredDevice.SetPanicHandler(e.triggerClientRestart)
 	}
 
 	if err := e.createFirewall(); err != nil {
@@ -882,44 +896,13 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		e.handleAutoUpdateVersion(nm.GetPeerConfig().GetAutoUpdate())
 	}
 
-	if update.GetNetbirdConfig() != nil {
-		wCfg := update.GetNetbirdConfig()
-		err := e.updateTURNs(wCfg.GetTurns())
-		if err != nil {
-			return fmt.Errorf("update TURNs: %w", err)
-		}
-
-		err = e.updateSTUNs(wCfg.GetStuns())
-		if err != nil {
-			return fmt.Errorf("update STUNs: %w", err)
-		}
-
-		var stunTurn []*stun.URI
-		stunTurn = append(stunTurn, e.STUNs...)
-		stunTurn = append(stunTurn, e.TURNs...)
-		e.stunTurn.Store(stunTurn)
-
-		err = e.handleRelayUpdate(wCfg.GetRelay())
-		if err != nil {
-			return err
-		}
-
-		err = e.handleFlowUpdate(wCfg.GetFlow())
-		if err != nil {
-			return fmt.Errorf("handle the flow configuration: %w", err)
-		}
-
-		if err := e.PopulateNetbirdConfig(wCfg, nil); err != nil {
-			log.Warnf("Failed to update DNS server config: %v", err)
-		}
-
-		// todo update signal
-	}
-
-	if err := e.updateChecksIfNew(update.Checks); err != nil {
+	if err := e.updateNetbirdConfig(update.GetNetbirdConfig()); err != nil {
 		return err
 	}
 
+	// Decode the network map from either the components envelope or the
+	// legacy proto.NetworkMap before the posture-check gating below, so the
+	// "is there a network map" decision covers both wire shapes.
 	var (
 		nm         *mgmProto.NetworkMap
 		components *types.NetworkMapComponents
@@ -947,8 +930,18 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	} else {
 		nm = update.GetNetworkMap()
 	}
+
+	// Posture checks are bound to the network map presence:
+	//   NetworkMap != nil, checks present -> apply the received checks
+	//   NetworkMap != nil, checks nil     -> posture checks were removed, clear them
+	//   NetworkMap == nil                 -> config-only update (e.g. relay token rotation),
+	//                                        leave the previously applied checks untouched
 	if nm == nil {
 		return nil
+	}
+
+	if err := e.updateChecksIfNew(update.Checks); err != nil {
+		return err
 	}
 
 	// Only retain the components view when the server sent the envelope
@@ -959,20 +952,7 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		e.latestComponents = components
 	}
 
-	// Persist sync response under the dedicated lock (syncRespMux), not under syncMsgMux.
-	// Read the storage-enabled flag under the syncRespMux too.
-	e.syncRespMux.RLock()
-	enabled := e.persistSyncResponse
-	e.syncRespMux.RUnlock()
-
-	// Store sync response if persistence is enabled
-	if enabled {
-		e.syncRespMux.Lock()
-		e.latestSyncResponse = update
-		e.syncRespMux.Unlock()
-
-		log.Debugf("sync response persisted with serial %d", nm.GetSerial())
-	}
+	e.persistSyncResponse(update)
 
 	// only apply new changes and ignore old ones
 	if err := e.updateNetworkMap(nm); err != nil {
@@ -995,6 +975,64 @@ func extractDNSDomainFromFQDN(fqdn string) string {
 		}
 	}
 	return ""
+}
+
+// updateNetbirdConfig applies the management-provided NetBird configuration:
+// STUN/TURN and relay servers, flow logging and DNS settings. A nil config is a no-op,
+// which is the case for sync updates carrying only a network map.
+func (e *Engine) updateNetbirdConfig(wCfg *mgmProto.NetbirdConfig) error {
+	if wCfg == nil {
+		return nil
+	}
+
+	if err := e.updateTURNs(wCfg.GetTurns()); err != nil {
+		return fmt.Errorf("update TURNs: %w", err)
+	}
+
+	if err := e.updateSTUNs(wCfg.GetStuns()); err != nil {
+		return fmt.Errorf("update STUNs: %w", err)
+	}
+
+	var stunTurn []*stun.URI
+	stunTurn = append(stunTurn, e.STUNs...)
+	stunTurn = append(stunTurn, e.TURNs...)
+	e.stunTurn.Store(stunTurn)
+
+	if err := e.handleRelayUpdate(wCfg.GetRelay()); err != nil {
+		return err
+	}
+
+	if err := e.handleFlowUpdate(wCfg.GetFlow()); err != nil {
+		return fmt.Errorf("handle the flow configuration: %w", err)
+	}
+
+	if err := e.PopulateNetbirdConfig(wCfg, nil); err != nil {
+		log.Warnf("Failed to update DNS server config: %v", err)
+	}
+
+	// todo update signal
+
+	return nil
+}
+
+// persistSyncResponse stores the full sync response so it can be restored on the next
+// startup. Persistence is enabled only when syncStore is set. The dedicated syncRespMux
+// (not syncMsgMux) is held for the whole Set so the store cannot be cleared (disabled /
+// engine close) mid-call and have this write resurrect a file that was just removed.
+func (e *Engine) persistSyncResponse(update *mgmProto.SyncResponse) {
+	e.syncRespMux.RLock()
+	defer e.syncRespMux.RUnlock()
+
+	if e.syncStore == nil {
+		return
+	}
+
+	if err := e.syncStore.Set(update); err != nil {
+		log.Errorf("failed to persist sync response: %v", err)
+		return
+	}
+
+	log.Debugf("sync response persisted with serial %d", update.GetNetworkMap().GetSerial())
 }
 
 func (e *Engine) handleRelayUpdate(update *mgmProto.RelayConfig) error {
@@ -1123,6 +1161,7 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 	state.PubKey = e.config.WgPrivateKey.PublicKey().String()
 	state.KernelInterface = !e.wgInterface.IsUserspaceBind()
 	state.FQDN = conf.GetFqdn()
+	state.WgPort = e.config.WgPort
 
 	e.statusRecorder.UpdateLocalPeerState(state)
 
@@ -1201,6 +1240,7 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobR
 		LogPath:        e.config.LogPath,
 		TempDir:        e.config.TempDir,
 		ClientMetrics:  e.clientMetrics,
+		DaemonVersion:  version.NetbirdVersion(),
 		RefreshStatus: func() {
 			e.RunHealthProbes(true)
 		},
@@ -1873,6 +1913,18 @@ func (e *Engine) close() {
 	if err := e.portForwardManager.GracefullyStop(ctx); err != nil {
 		log.Warnf("failed to gracefully stop port forwarding manager: %s", err)
 	}
+
+	// Drop any persisted sync response so its network map does not linger on
+	// disk after the engine stops (and cannot leak into a later run).
+	e.syncRespMux.Lock()
+	store := e.syncStore
+	e.syncStore = nil
+	e.syncRespMux.Unlock()
+	if store != nil {
+		if err := store.Clear(); err != nil {
+			log.Warnf("failed to clear persisted sync response on close: %v", err)
+		}
+	}
 }
 
 func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, bool, error) {
@@ -1924,7 +1976,6 @@ func (e *Engine) newWgIface() (*iface.WGIface, error) {
 		WGPrivKey:    e.config.WgPrivateKey.String(),
 		MTU:          e.config.MTU,
 		TransportNet: transportNet,
-		FilterFn:     e.addrViaRoutes,
 		DisableDNS:   e.config.DisableDNS,
 	}
 
@@ -2172,21 +2223,6 @@ func (e *Engine) startNetworkMonitor() {
 	}()
 }
 
-func (e *Engine) addrViaRoutes(addr netip.Addr) (bool, netip.Prefix, error) {
-	var vpnRoutes []netip.Prefix
-	for _, routes := range e.routeManager.GetClientRoutes() {
-		if len(routes) > 0 && routes[0] != nil {
-			vpnRoutes = append(vpnRoutes, routes[0].Network)
-		}
-	}
-
-	if isVpn, prefix := systemops.IsAddrRouted(addr, vpnRoutes); isVpn {
-		return true, prefix, nil
-	}
-
-	return false, netip.Prefix{}, nil
-}
-
 func (e *Engine) stopDNSServer() {
 	if e.dnsServer == nil {
 		return
@@ -2202,45 +2238,42 @@ func (e *Engine) stopDNSServer() {
 	e.statusRecorder.UpdateDNSStates(nsGroupStates)
 }
 
-// SetSyncResponsePersistence enables or disables sync response persistence
+// SetSyncResponsePersistence enables or disables sync response persistence.
+// The store is only instantiated while persistence is enabled; construction
+// itself drops any stale data left over from an earlier run (see syncstore).
 func (e *Engine) SetSyncResponsePersistence(enabled bool) {
 	e.syncRespMux.Lock()
 	defer e.syncRespMux.Unlock()
 
-	if enabled == e.persistSyncResponse {
+	if enabled == (e.syncStore != nil) {
 		return
 	}
-	e.persistSyncResponse = enabled
 	log.Debugf("Sync response persistence is set to %t", enabled)
 
 	if !enabled {
-		e.latestSyncResponse = nil
+		if err := e.syncStore.Clear(); err != nil {
+			log.Warnf("failed to clear persisted sync response: %v", err)
+		}
+		e.syncStore = nil
+		return
 	}
+
+	e.syncStore = syncstore.New(e.syncStoreDir)
 }
 
 // GetLatestSyncResponse returns the stored sync response if persistence is enabled
 func (e *Engine) GetLatestSyncResponse() (*mgmProto.SyncResponse, error) {
+	// Hold the lock for the whole Get so the store cannot be cleared
+	// (disabled / engine close) mid-call.
 	e.syncRespMux.RLock()
-	enabled := e.persistSyncResponse
-	latest := e.latestSyncResponse
-	e.syncRespMux.RUnlock()
+	defer e.syncRespMux.RUnlock()
 
-	if !enabled {
+	if e.syncStore == nil {
 		return nil, errors.New("sync response persistence is disabled")
 	}
 
-	if latest == nil {
-		//nolint:nilnil
-		return nil, nil
-	}
-
-	log.Debugf("Retrieving latest sync response with size %d bytes", proto.Size(latest))
-	sr, ok := proto.Clone(latest).(*mgmProto.SyncResponse)
-	if !ok {
-		return nil, fmt.Errorf("failed to clone sync response")
-	}
-
-	return sr, nil
+	//nolint:nilnil
+	return e.syncStore.Get()
 }
 
 // GetWgAddr returns the wireguard address
@@ -2276,7 +2309,7 @@ func (e *Engine) updateDNSForwarder(
 	enabled bool,
 	fwdEntries []*dnsfwd.ForwarderEntry,
 ) {
-	if e.config.DisableServerRoutes {
+	if e.config.DisableServerRoutes || e.config.BlockInbound {
 		return
 	}
 

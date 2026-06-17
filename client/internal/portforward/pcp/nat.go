@@ -179,8 +179,10 @@ func getDefaultGateway() (gateway net.IP, localIP net.IP, err error) {
 	}
 
 	dst := net.IPv4zero
-	if runtime.GOOS == "linux" {
-		// go-netroute v0.4.0 rejects unspecified destinations client-side on Linux.
+	if runtime.GOOS == "linux" || runtime.GOOS == "android" {
+		// go-netroute v0.4.0 rejects unspecified destinations client-side on Linux/Android.
+		// TODO: on android/ios, use platform APIs (ConnectivityManager.getLinkProperties /
+		// NWPathMonitor) when netlink-based lookup is restricted or unavailable.
 		dst = net.IPv4(0, 0, 0, 1)
 	}
 	_, gateway, localIP, err = router.Route(dst)
@@ -203,7 +205,7 @@ func getDefaultGateway6() (gateway net.IP, localIP net.IP, err error) {
 	}
 
 	dst := net.IPv6zero
-	if runtime.GOOS == "linux" {
+	if runtime.GOOS == "linux" || runtime.GOOS == "android" {
 		// ::2
 		dst = net.IP{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2}
 	}
