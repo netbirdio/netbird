@@ -42,6 +42,11 @@ func (c *Conn) RemoteAddr() net.Addr {
 	return c.session.RemoteAddr()
 }
 
+// Protocol returns the transport name for this connection.
+func (c *Conn) Protocol() string {
+	return "quic"
+}
+
 func (c *Conn) Close() error {
 	c.closedMu.Lock()
 	if c.closed {
