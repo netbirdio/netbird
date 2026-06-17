@@ -10,7 +10,9 @@ import {
 import { Events } from "@wailsio/runtime";
 import { DaemonFeed } from "@bindings/services";
 import { Status } from "@bindings/services/models.js";
+import { DaemonOutdatedOverlay } from "@/components/empty-state/DaemonOutdatedOverlay.tsx";
 import { DaemonUnavailableOverlay } from "@/components/empty-state/DaemonUnavailableOverlay.tsx";
+import { isDaemonCompatible } from "@/lib/compat";
 
 const EVENT_STATUS = "netbird:status";
 
@@ -21,6 +23,7 @@ type StatusContextValue = {
     isReady: boolean;
     isDaemonUnavailable: boolean;
     isDaemonAvailable: boolean;
+    isDaemonOutdated: boolean;
 };
 
 const StatusContext = createContext<StatusContextValue | null>(null);
@@ -36,6 +39,7 @@ export const useStatus = () => {
 export const StatusProvider = ({ children }: { children: ReactNode }) => {
     const [status, setStatus] = useState<Status | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [isDaemonOutdated, setIsDaemonOutdated] = useState(false);
 
     const refresh = useCallback(async () => {
         try {
@@ -64,6 +68,21 @@ export const StatusProvider = ({ children }: { children: ReactNode }) => {
     const isDaemonUnavailable = isReady && status.status === "DaemonUnavailable";
     const isDaemonAvailable = isReady && !isDaemonUnavailable;
 
+    useEffect(() => {
+        if (!isDaemonAvailable) return;
+        let cancelled = false;
+        isDaemonCompatible()
+            .then((ok) => {
+                if (!cancelled) setIsDaemonOutdated(!ok);
+            })
+            .catch((err) => {
+                console.error("[StatusContext] daemon compatible error", err);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [isDaemonAvailable]);
+
     const value = useMemo<StatusContextValue>(
         () => ({
             status,
@@ -72,14 +91,16 @@ export const StatusProvider = ({ children }: { children: ReactNode }) => {
             isReady,
             isDaemonUnavailable,
             isDaemonAvailable,
+            isDaemonOutdated,
         }),
-        [status, error, refresh, isReady, isDaemonUnavailable, isDaemonAvailable],
+        [status, error, refresh, isReady, isDaemonUnavailable, isDaemonAvailable, isDaemonOutdated],
     );
 
     return (
         <StatusContext.Provider value={value}>
-            {isDaemonAvailable && children}
+            {isDaemonAvailable && !isDaemonOutdated && children}
             <DaemonUnavailableOverlay />
+            <DaemonOutdatedOverlay />
         </StatusContext.Provider>
     );
 };

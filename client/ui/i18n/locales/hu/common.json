@@ -1250,6 +1250,12 @@
     "daemon.unavailable.docsLink": {
         "message": "Dokumentáció"
     },
+    "daemon.outdated.title": {
+        "message": "A NetBird szolgáltatás elavult"
+    },
+    "daemon.outdated.description": {
+        "message": "Frissítsd a NetBird szolgáltatást az alkalmazás használatához."
+    },
     "error.jwt_clock_skew": {
         "message": "A bejelentkezés sikertelen: az eszköz órája eltér a szerverétől. Kérjük, szinkronizálja a rendszer óráját, majd próbálja újra."
     },

@@ -1250,6 +1250,12 @@
     "daemon.unavailable.docsLink": {
         "message": "文档"
     },
+    "daemon.outdated.title": {
+        "message": "NetBird 服务版本过旧"
+    },
+    "daemon.outdated.description": {
+        "message": "请更新 NetBird 服务以使用此应用。"
+    },
     "error.jwt_clock_skew": {
         "message": "登录失败：此设备的时钟与服务器不同步。请同步您的系统时钟后重试。"
     },

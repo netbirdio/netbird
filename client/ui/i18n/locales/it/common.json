@@ -1250,6 +1250,12 @@
     "daemon.unavailable.docsLink": {
         "message": "Documentazione"
     },
+    "daemon.outdated.title": {
+        "message": "Il servizio NetBird è obsoleto"
+    },
+    "daemon.outdated.description": {
+        "message": "Aggiorna il servizio NetBird per usare questa app."
+    },
     "error.jwt_clock_skew": {
         "message": "Accesso non riuscito: l'orologio di questo dispositivo non è sincronizzato con il server. Sincronizzi l'orologio di sistema e riprovi."
     },

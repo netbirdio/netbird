@@ -1250,6 +1250,12 @@
     "daemon.unavailable.docsLink": {
         "message": "Documentação"
     },
+    "daemon.outdated.title": {
+        "message": "O serviço NetBird está desatualizado"
+    },
+    "daemon.outdated.description": {
+        "message": "Atualize o serviço NetBird para usar este aplicativo."
+    },
     "error.jwt_clock_skew": {
         "message": "Falha no login: o relógio deste dispositivo está fora de sincronia com o servidor. Sincronize o relógio do sistema e tente novamente."
     },

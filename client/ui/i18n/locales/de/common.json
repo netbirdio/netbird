@@ -1250,6 +1250,12 @@
     "daemon.unavailable.docsLink": {
         "message": "Dokumentation"
     },
+    "daemon.outdated.title": {
+        "message": "NetBird-Dienst ist veraltet"
+    },
+    "daemon.outdated.description": {
+        "message": "Aktualisieren Sie den NetBird-Dienst, um diese App zu verwenden."
+    },
     "error.jwt_clock_skew": {
         "message": "Anmeldung fehlgeschlagen: Die Uhr dieses Geräts ist nicht mit dem Server synchron. Bitte synchronisieren Sie die Systemuhr und versuchen Sie es erneut."
     },
