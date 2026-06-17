@@ -2,5 +2,6 @@
 
 package main
 
-// macOS-only; no-op on other operating systems
-func initDockObserver() {}
+func initDockObserver() {
+	// macOS-only; Linux and Windows taskbar entries already gate on window visibility natively.
+}
