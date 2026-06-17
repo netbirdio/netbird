@@ -107,6 +107,12 @@
     "tray.menu.quit": {
         "message": "退出 NetBird"
     },
+    "notify.daemonOutdated.title": {
+        "message": "NetBird 服务版本过旧"
+    },
+    "notify.daemonOutdated.body": {
+        "message": "请更新 NetBird 服务以使用此应用。"
+    },
     "notify.update.title": {
         "message": "NetBird 有可用更新"
     },

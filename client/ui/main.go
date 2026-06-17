@@ -64,6 +64,7 @@ type registeredServices struct {
 	update          *services.Update
 	daemonFeed      *services.DaemonFeed
 	notifier        *notifications.NotificationService
+	compat          *services.Compat
 	profileSwitcher *services.ProfileSwitcher
 	bundle          *i18n.Bundle
 	prefStore       *preferences.Store
@@ -103,6 +104,7 @@ func main() {
 	update := services.NewUpdate(conn, updaterHolder)
 	daemonFeed := services.NewDaemonFeed(conn, app.Event, updaterHolder, debugLog)
 	notifier := notifications.New()
+	compat := services.NewCompat(conn)
 	// macOS shows no toast until permission is requested. Run it after
 	// ApplicationStarted so the notifier's Startup has initialised the
 	// notification-center delegate. No-op on Linux/Windows (stubs report
@@ -132,6 +134,7 @@ func main() {
 		update:          update,
 		daemonFeed:      daemonFeed,
 		notifier:        notifier,
+		compat:          compat,
 		profileSwitcher: profileSwitcher,
 		bundle:          bundle,
 		prefStore:       prefStore,
@@ -190,6 +193,10 @@ func main() {
 	// Mint). ApplicationStarted fires after the startup loop, so the bus is up.
 	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
 		daemonFeed.Watch(context.Background())
+		// Probe daemon compatibility once the notifier bus is up; an outdated
+		// daemon may keep the main window from showing, so the OS toast is the
+		// only reliable signal the user gets.
+		go notifyIfDaemonOutdated(compat, notifier, localizer)
 	})
 
 	if err := app.Run(); err != nil {
@@ -322,6 +329,7 @@ func registerServices(app *application.App, conn *Conn, s registeredServices) {
 	app.RegisterService(application.NewService(services.NewAutostart(app.Autostart)))
 	app.RegisterService(application.NewService(services.NewVersion()))
 	app.RegisterService(application.NewService(services.NewUILog()))
+	app.RegisterService(application.NewService(s.compat))
 }
 
 // newMainWindow creates the hidden main window, sized to the user's last view

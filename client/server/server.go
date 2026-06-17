@@ -2121,6 +2121,12 @@ func (s *Server) GetFeatures(ctx context.Context, msg *proto.GetFeaturesRequest)
 	return features, nil
 }
 
+// WailsUIReady is a no-op the Wails UI probes at startup; merely answering it
+// (rather than returning Unimplemented) tells the UI this daemon is new enough.
+func (s *Server) WailsUIReady(context.Context, *proto.WailsUIReadyRequest) (*proto.WailsUIReadyResponse, error) {
+	return &proto.WailsUIReadyResponse{}, nil
+}
+
 // checkDisableAdvancedView reports the MDM-policy directive for the
 // upcoming UI's advanced-view section. Tristate: returns nil when no
 // MDM directive is set so the UI applies its own default; returns

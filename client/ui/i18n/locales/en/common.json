@@ -143,6 +143,14 @@
         "message": "Quit NetBird",
         "description": "Tray menu item that fully exits the app and removes the tray icon. Keep short."
     },
+    "notify.daemonOutdated.title": {
+        "message": "NetBird service is outdated",
+        "description": "Title of the OS desktop notification shown when the running daemon is too old for this UI."
+    },
+    "notify.daemonOutdated.body": {
+        "message": "Update the NetBird service to use this app.",
+        "description": "Body of the desktop notification telling the user to upgrade the daemon."
+    },
     "notify.update.title": {
         "message": "NetBird update available",
         "description": "Title of the OS desktop notification shown when an app update is available."

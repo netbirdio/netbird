@@ -107,6 +107,12 @@
     "tray.menu.quit": {
         "message": "Sair do NetBird"
     },
+    "notify.daemonOutdated.title": {
+        "message": "O serviço NetBird está desatualizado"
+    },
+    "notify.daemonOutdated.body": {
+        "message": "Atualize o serviço NetBird para usar este aplicativo."
+    },
     "notify.update.title": {
         "message": "Atualização do NetBird disponível"
     },

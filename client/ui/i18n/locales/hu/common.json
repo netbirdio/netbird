@@ -107,6 +107,12 @@
     "tray.menu.quit": {
         "message": "NetBird bezárása"
     },
+    "notify.daemonOutdated.title": {
+        "message": "A NetBird szolgáltatás elavult"
+    },
+    "notify.daemonOutdated.body": {
+        "message": "Frissítsd a NetBird szolgáltatást az alkalmazás használatához."
+    },
     "notify.update.title": {
         "message": "NetBird frissítés elérhető"
     },

@@ -107,6 +107,12 @@
     "tray.menu.quit": {
         "message": "NetBird beenden"
     },
+    "notify.daemonOutdated.title": {
+        "message": "NetBird-Dienst ist veraltet"
+    },
+    "notify.daemonOutdated.body": {
+        "message": "Aktualisieren Sie den NetBird-Dienst, um diese App zu verwenden."
+    },
     "notify.update.title": {
         "message": "NetBird-Update verfügbar"
     },

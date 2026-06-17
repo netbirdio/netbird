@@ -63,6 +63,7 @@ const (
 	DaemonService_StopCPUProfile_FullMethodName             = "/daemon.DaemonService/StopCPUProfile"
 	DaemonService_GetInstallerResult_FullMethodName         = "/daemon.DaemonService/GetInstallerResult"
 	DaemonService_ExposeService_FullMethodName              = "/daemon.DaemonService/ExposeService"
+	DaemonService_WailsUIReady_FullMethodName               = "/daemon.DaemonService/WailsUIReady"
 )
 
 // DaemonServiceClient is the client API for DaemonService service.
@@ -164,6 +165,10 @@ type DaemonServiceClient interface {
 	GetInstallerResult(ctx context.Context, in *InstallerResultRequest, opts ...grpc.CallOption) (*InstallerResultResponse, error)
 	// ExposeService exposes a local port via the NetBird reverse proxy
 	ExposeService(ctx context.Context, in *ExposeServiceRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ExposeServiceEvent], error)
+	// WailsUIReady is a no-op probe the Wails UI calls once at startup. The UI
+	// only cares whether the daemon implements it: an Unimplemented response
+	// means the daemon predates this UI and is too old to drive it.
+	WailsUIReady(ctx context.Context, in *WailsUIReadyRequest, opts ...grpc.CallOption) (*WailsUIReadyResponse, error)
 }
 
 type daemonServiceClient struct {
@@ -650,6 +655,16 @@ func (c *daemonServiceClient) ExposeService(ctx context.Context, in *ExposeServi
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type DaemonService_ExposeServiceClient = grpc.ServerStreamingClient[ExposeServiceEvent]
 
+func (c *daemonServiceClient) WailsUIReady(ctx context.Context, in *WailsUIReadyRequest, opts ...grpc.CallOption) (*WailsUIReadyResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(WailsUIReadyResponse)
+	err := c.cc.Invoke(ctx, DaemonService_WailsUIReady_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DaemonServiceServer is the server API for DaemonService service.
 // All implementations must embed UnimplementedDaemonServiceServer
 // for forward compatibility.
@@ -749,6 +764,10 @@ type DaemonServiceServer interface {
 	GetInstallerResult(context.Context, *InstallerResultRequest) (*InstallerResultResponse, error)
 	// ExposeService exposes a local port via the NetBird reverse proxy
 	ExposeService(*ExposeServiceRequest, grpc.ServerStreamingServer[ExposeServiceEvent]) error
+	// WailsUIReady is a no-op probe the Wails UI calls once at startup. The UI
+	// only cares whether the daemon implements it: an Unimplemented response
+	// means the daemon predates this UI and is too old to drive it.
+	WailsUIReady(context.Context, *WailsUIReadyRequest) (*WailsUIReadyResponse, error)
 	mustEmbedUnimplementedDaemonServiceServer()
 }
 
@@ -890,6 +909,9 @@ func (UnimplementedDaemonServiceServer) GetInstallerResult(context.Context, *Ins
 }
 func (UnimplementedDaemonServiceServer) ExposeService(*ExposeServiceRequest, grpc.ServerStreamingServer[ExposeServiceEvent]) error {
 	return status.Error(codes.Unimplemented, "method ExposeService not implemented")
+}
+func (UnimplementedDaemonServiceServer) WailsUIReady(context.Context, *WailsUIReadyRequest) (*WailsUIReadyResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method WailsUIReady not implemented")
 }
 func (UnimplementedDaemonServiceServer) mustEmbedUnimplementedDaemonServiceServer() {}
 func (UnimplementedDaemonServiceServer) testEmbeddedByValue()                       {}
@@ -1676,6 +1698,24 @@ func _DaemonService_ExposeService_Handler(srv interface{}, stream grpc.ServerStr
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type DaemonService_ExposeServiceServer = grpc.ServerStreamingServer[ExposeServiceEvent]
 
+func _DaemonService_WailsUIReady_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(WailsUIReadyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).WailsUIReady(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DaemonService_WailsUIReady_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).WailsUIReady(ctx, req.(*WailsUIReadyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // DaemonService_ServiceDesc is the grpc.ServiceDesc for DaemonService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1842,6 +1882,10 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetInstallerResult",
 			Handler:    _DaemonService_GetInstallerResult_Handler,
+		},
+		{
+			MethodName: "WailsUIReady",
+			Handler:    _DaemonService_WailsUIReady_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

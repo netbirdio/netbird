@@ -149,6 +149,11 @@ service DaemonService {
 
   // ExposeService exposes a local port via the NetBird reverse proxy
   rpc ExposeService(ExposeServiceRequest) returns (stream ExposeServiceEvent) {}
+
+  // WailsUIReady is a no-op probe the Wails UI calls once at startup. The UI
+  // only cares whether the daemon implements it: an Unimplemented response
+  // means the daemon predates this UI and is too old to drive it.
+  rpc WailsUIReady(WailsUIReadyRequest) returns (WailsUIReadyResponse) {}
 }
 
 
@@ -784,6 +789,10 @@ message LogoutRequest {
 }
 
 message LogoutResponse {}
+
+message WailsUIReadyRequest {}
+
+message WailsUIReadyResponse {}
 
 message GetFeaturesRequest{}
 
