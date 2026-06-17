@@ -120,3 +120,35 @@ func TestLookupIP_DNSErrorNotIsNotFound(t *testing.T) {
 
 	assert.Equal(t, dns.RcodeServerFailure, result.Rcode, "upstream failure should map to SERVFAIL")
 }
+
+func TestPtrQueryAddr(t *testing.T) {
+	tests := []struct {
+		name   string
+		qname  string
+		want   string
+		wantOK bool
+	}{
+		{name: "ipv4", qname: "4.3.2.1.in-addr.arpa.", want: "1.2.3.4", wantOK: true},
+		{name: "ipv4 no trailing dot", qname: "1.0.0.127.in-addr.arpa", want: "127.0.0.1", wantOK: true},
+		{
+			name:   "ipv6",
+			qname:  "1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa.",
+			want:   "2001:db8::1",
+			wantOK: true,
+		},
+		{name: "ipv4 wrong label count", qname: "2.1.in-addr.arpa.", wantOK: false},
+		{name: "ipv6 wrong nibble count", qname: "1.0.ip6.arpa.", wantOK: false},
+		{name: "not a reverse name", qname: "example.com.", wantOK: false},
+		{name: "ipv4 bad octet", qname: "4.3.2.999.in-addr.arpa.", wantOK: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := ptrQueryAddr(tt.qname)
+			assert.Equal(t, tt.wantOK, ok, "parse success mismatch")
+			if tt.wantOK {
+				assert.Equal(t, tt.want, got, "parsed address mismatch")
+			}
+		})
+	}
+}

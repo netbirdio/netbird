@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"slices"
 	"strings"
 
 	"github.com/miekg/dns"
@@ -167,7 +168,10 @@ func getRcodeForNotFound(ctx context.Context, r resolver, domain string, origina
 	case dns.TypeA:
 		alternativeNetwork = "ip6"
 	default:
-		return dns.RcodeNameError
+		// Non-address types reach LookupIP only unexpectedly; without an
+		// address pair to probe we cannot prove the name is absent, so answer
+		// NODATA rather than a poisoning NXDOMAIN.
+		return dns.RcodeSuccess
 	}
 
 	if _, err := r.LookupNetIP(ctx, alternativeNetwork, domain); err != nil {
@@ -182,6 +186,226 @@ func getRcodeForNotFound(ctx context.Context, r resolver, domain string, origina
 
 	// Alternative query succeeded - domain exists but has no records of this type
 	return dns.RcodeSuccess
+}
+
+// RecordResolver is the host resolver surface used to forward non-address
+// record queries. net.DefaultResolver satisfies it. The LookupNetIP method is
+// used only to probe name existence when distinguishing NXDOMAIN from NODATA.
+type RecordResolver interface {
+	LookupMX(ctx context.Context, name string) ([]*net.MX, error)
+	LookupTXT(ctx context.Context, name string) ([]string, error)
+	LookupNS(ctx context.Context, name string) ([]*net.NS, error)
+	LookupSRV(ctx context.Context, service, proto, name string) (string, []*net.SRV, error)
+	LookupCNAME(ctx context.Context, host string) (string, error)
+	LookupAddr(ctx context.Context, addr string) ([]string, error)
+	LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error)
+}
+
+// LookupRecords resolves a non-address DNS record type through the host
+// resolver and returns the resource records and the DNS rcode. Types the host
+// resolver cannot answer (anything not covered by the net.Resolver Lookup*
+// methods) yield NODATA so that a routed name is never poisoned with NXDOMAIN
+// for an unsupported type.
+func LookupRecords(ctx context.Context, r RecordResolver, name string, qtype uint16, ttl uint32) ([]dns.RR, int) {
+	fqdn := dns.Fqdn(name)
+
+	switch qtype {
+	case dns.TypeMX:
+		recs, err := r.LookupMX(ctx, name)
+		if err != nil {
+			return nil, rcodeForRecordError(ctx, r, name, err)
+		}
+		rrs := make([]dns.RR, 0, len(recs))
+		for _, mx := range recs {
+			rrs = append(rrs, &dns.MX{
+				Hdr:        dns.RR_Header{Name: fqdn, Rrtype: dns.TypeMX, Class: dns.ClassINET, Ttl: ttl},
+				Preference: mx.Pref,
+				Mx:         dns.Fqdn(mx.Host),
+			})
+		}
+		return rrs, dns.RcodeSuccess
+
+	case dns.TypeTXT:
+		recs, err := r.LookupTXT(ctx, name)
+		if err != nil {
+			return nil, rcodeForRecordError(ctx, r, name, err)
+		}
+		rrs := make([]dns.RR, 0, len(recs))
+		for _, txt := range recs {
+			rrs = append(rrs, &dns.TXT{
+				Hdr: dns.RR_Header{Name: fqdn, Rrtype: dns.TypeTXT, Class: dns.ClassINET, Ttl: ttl},
+				Txt: chunkTXT(txt),
+			})
+		}
+		return rrs, dns.RcodeSuccess
+
+	case dns.TypeNS:
+		recs, err := r.LookupNS(ctx, name)
+		if err != nil {
+			return nil, rcodeForRecordError(ctx, r, name, err)
+		}
+		rrs := make([]dns.RR, 0, len(recs))
+		for _, ns := range recs {
+			rrs = append(rrs, &dns.NS{
+				Hdr: dns.RR_Header{Name: fqdn, Rrtype: dns.TypeNS, Class: dns.ClassINET, Ttl: ttl},
+				Ns:  dns.Fqdn(ns.Host),
+			})
+		}
+		return rrs, dns.RcodeSuccess
+
+	case dns.TypeSRV:
+		_, recs, err := r.LookupSRV(ctx, "", "", name)
+		if err != nil {
+			return nil, rcodeForRecordError(ctx, r, name, err)
+		}
+		rrs := make([]dns.RR, 0, len(recs))
+		for _, srv := range recs {
+			rrs = append(rrs, &dns.SRV{
+				Hdr:      dns.RR_Header{Name: fqdn, Rrtype: dns.TypeSRV, Class: dns.ClassINET, Ttl: ttl},
+				Priority: srv.Priority,
+				Weight:   srv.Weight,
+				Port:     srv.Port,
+				Target:   dns.Fqdn(srv.Target),
+			})
+		}
+		return rrs, dns.RcodeSuccess
+
+	case dns.TypeCNAME:
+		cname, err := r.LookupCNAME(ctx, name)
+		if err != nil {
+			return nil, rcodeForRecordError(ctx, r, name, err)
+		}
+		// LookupCNAME returns the queried name itself when the name resolves
+		// but has no CNAME record; that is a NODATA result, not a CNAME.
+		if strings.EqualFold(dns.Fqdn(cname), fqdn) {
+			return nil, dns.RcodeSuccess
+		}
+		return []dns.RR{&dns.CNAME{
+			Hdr:    dns.RR_Header{Name: fqdn, Rrtype: dns.TypeCNAME, Class: dns.ClassINET, Ttl: ttl},
+			Target: dns.Fqdn(cname),
+		}}, dns.RcodeSuccess
+
+	case dns.TypePTR:
+		addr, ok := ptrQueryAddr(name)
+		if !ok {
+			return nil, dns.RcodeSuccess
+		}
+		names, err := r.LookupAddr(ctx, addr)
+		if err != nil {
+			return nil, rcodeForRecordError(ctx, r, name, err)
+		}
+		rrs := make([]dns.RR, 0, len(names))
+		for _, n := range names {
+			rrs = append(rrs, &dns.PTR{
+				Hdr: dns.RR_Header{Name: fqdn, Rrtype: dns.TypePTR, Class: dns.ClassINET, Ttl: ttl},
+				Ptr: dns.Fqdn(n),
+			})
+		}
+		return rrs, dns.RcodeSuccess
+
+	default:
+		return nil, dns.RcodeSuccess
+	}
+}
+
+// ptrQueryAddr converts a reverse-DNS query name (in-addr.arpa or ip6.arpa)
+// into the address string expected by net.Resolver.LookupAddr. It reports false
+// when the name is not a well-formed reverse name.
+func ptrQueryAddr(qname string) (string, bool) {
+	name := strings.TrimSuffix(strings.ToLower(dns.Fqdn(qname)), ".")
+
+	switch {
+	case strings.HasSuffix(name, ".in-addr.arpa"):
+		labels := strings.Split(strings.TrimSuffix(name, ".in-addr.arpa"), ".")
+		if len(labels) != 4 {
+			return "", false
+		}
+		slices.Reverse(labels)
+		addr, err := netip.ParseAddr(strings.Join(labels, "."))
+		if err != nil || !addr.Is4() {
+			return "", false
+		}
+		return addr.String(), true
+
+	case strings.HasSuffix(name, ".ip6.arpa"):
+		nibbles := strings.Split(strings.TrimSuffix(name, ".ip6.arpa"), ".")
+		if len(nibbles) != 32 {
+			return "", false
+		}
+		slices.Reverse(nibbles)
+		var sb strings.Builder
+		for i, n := range nibbles {
+			if i > 0 && i%4 == 0 {
+				sb.WriteByte(':')
+			}
+			sb.WriteString(n)
+		}
+		addr, err := netip.ParseAddr(sb.String())
+		if err != nil || !addr.Is6() {
+			return "", false
+		}
+		return addr.String(), true
+
+	default:
+		return "", false
+	}
+}
+
+// rcodeForRecordError maps a non-address lookup error to a DNS rcode. A
+// not-found result is disambiguated into NXDOMAIN or NODATA by probing whether
+// the name has any address record. An inconclusive probe (timeout, server
+// failure) is treated as existing so a transient failure cannot poison the name
+// with NXDOMAIN.
+func rcodeForRecordError(ctx context.Context, r RecordResolver, name string, err error) int {
+	var dnsErr *net.DNSError
+	if !errors.As(err, &dnsErr) || !dnsErr.IsNotFound {
+		return dns.RcodeServerFailure
+	}
+
+	if nameHasAddress(ctx, r, name) {
+		return dns.RcodeSuccess
+	}
+	return dns.RcodeNameError
+}
+
+// nameHasAddress reports whether the name resolves to any address record. It is
+// used to distinguish NXDOMAIN from NODATA; inconclusive lookups report true to
+// avoid emitting a poisoning NXDOMAIN.
+func nameHasAddress(ctx context.Context, r RecordResolver, name string) bool {
+	_, err := r.LookupNetIP(ctx, "ip", name)
+	if err == nil {
+		return true
+	}
+
+	var addrErr *net.AddrError
+	if errors.As(err, &addrErr) && addrErr.Err == errNoSuitableAddress {
+		return true
+	}
+
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) && dnsErr.IsNotFound {
+		return false
+	}
+	return true
+}
+
+// chunkTXT splits a TXT string into character-strings no longer than 255 bytes
+// so the record can be packed. The chunks form one TXT resource record.
+func chunkTXT(s string) []string {
+	const maxLen = 255
+	if len(s) <= maxLen {
+		return []string{s}
+	}
+
+	var chunks []string
+	for len(s) > maxLen {
+		chunks = append(chunks, s[:maxLen])
+		s = s[maxLen:]
+	}
+	if len(s) > 0 {
+		chunks = append(chunks, s)
+	}
+	return chunks
 }
 
 // FormatAnswers formats DNS resource records for logging.
