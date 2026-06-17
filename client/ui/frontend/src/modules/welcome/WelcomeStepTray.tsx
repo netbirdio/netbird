@@ -25,7 +25,7 @@ export function WelcomeStepTray({ onContinue }: Readonly<WelcomeStepTrayProps>) 
 
     return (
         <>
-            <div className={"px-1.5"}>
+            <div className={"px-1"}>
                 <img
                     src={trayScreenshot}
                     alt={""}
