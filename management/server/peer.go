@@ -940,7 +940,8 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 	if !addedByUser {
 		opEvent.Meta["setup_key_name"] = peerAddConfig.SetupKeyName
 	}
-	if newPeer.Status != nil && newPeer.Status.RequiresApproval {
+	requiresApproval := newPeer.Status != nil && newPeer.Status.RequiresApproval
+	if requiresApproval {
 		opEvent.Meta["pending_approval"] = true
 	}
 
@@ -948,7 +949,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 		am.StoreEvent(ctx, opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)
 	}
 
-	network, postureChecks, enableSSH, err := getPeerLoginInfo(ctx, am.Store, accountID, newPeer, true)
+	network, postureChecks, enableSSH, err := getPeerLoginInfo(ctx, am.Store, accountID, newPeer, !requiresApproval)
 	if err != nil {
 		return nil, nil, nil, false, err
 	}
