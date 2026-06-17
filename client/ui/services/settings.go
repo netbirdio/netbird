@@ -223,33 +223,38 @@ func (s *Settings) GetRestrictions(ctx context.Context) (Restrictions, error) {
 			DisableUpdateSettings: featResp.GetDisableUpdateSettings(),
 		},
 	}
-	managed := cfgResp.GetMDMManagedFields()
-	if len(managed) > 0 {
-		set := make(map[string]struct{}, len(managed))
-		for _, k := range managed {
-			set[k] = struct{}{}
-		}
-		v := reflect.ValueOf(&r.MDM).Elem()
-		t := v.Type()
-		for i := 0; i < t.NumField(); i++ {
-			if v.Field(i).Kind() != reflect.Bool {
-				continue
-			}
-			if t.Field(i).Name == "DisableAdvancedView" {
-				continue
-			}
-			if _, ok := set[t.Field(i).Tag.Get("json")]; ok {
-				v.Field(i).SetBool(true)
-			}
-		}
-		if _, ok := set["managementURL"]; ok {
-			r.MDM.ManagementURL = cfgResp.GetManagementUrl()
-		}
-		if _, ok := set["allowServerSSH"]; ok {
-			allowed := cfgResp.GetServerSSHAllowed()
-			r.MDM.AllowServerSSH = &allowed
-		}
-	}
+	applyMDMRestrictions(&r.MDM, cfgResp)
 	r.MDM.DisableAdvancedView = featResp.GetDisableAdvancedView()
 	return r, nil
+}
+
+func applyMDMRestrictions(mdm *MDMFields, cfgResp *proto.GetConfigResponse) {
+	managed := cfgResp.GetMDMManagedFields()
+	if len(managed) == 0 {
+		return
+	}
+	set := make(map[string]struct{}, len(managed))
+	for _, k := range managed {
+		set[k] = struct{}{}
+	}
+	v := reflect.ValueOf(mdm).Elem()
+	t := v.Type()
+	for i := 0; i < t.NumField(); i++ {
+		if v.Field(i).Kind() != reflect.Bool {
+			continue
+		}
+		if t.Field(i).Name == "DisableAdvancedView" {
+			continue
+		}
+		if _, ok := set[t.Field(i).Tag.Get("json")]; ok {
+			v.Field(i).SetBool(true)
+		}
+	}
+	if _, ok := set["managementURL"]; ok {
+		mdm.ManagementURL = cfgResp.GetManagementUrl()
+	}
+	if _, ok := set["allowServerSSH"]; ok {
+		allowed := cfgResp.GetServerSSHAllowed()
+		mdm.AllowServerSSH = &allowed
+	}
 }
