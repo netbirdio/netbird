@@ -23,6 +23,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
+	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/formatter"
@@ -75,6 +76,13 @@ type Client struct {
 	connectClient *internal.ConnectClient
 	config        *profilemanager.Config
 	cacheDir      string
+
+	// mdmLoader holds the per-Client MDM policy source. Set by
+	// SetMDMPolicyFetcher (called from the Kotlin side). Each Run
+	// passes this loader to the resolved Config so applyMDMPolicy
+	// picks up the active overlay. Nil means "MDM enforcement off
+	// for this Client".
+	mdmLoader *mdm.Loader
 }
 
 func (c *Client) setState(cfg *profilemanager.Config, cacheDir string, cc *internal.ConnectClient) {
@@ -129,6 +137,7 @@ func (c *Client) Run(platformFiles PlatformFiles, urlOpener URLOpener, isAndroid
 	if err != nil {
 		return err
 	}
+	c.applyMDMOverlay(cfg)
 	c.recorder.UpdateManagementAddress(cfg.ManagementURL.String())
 	c.recorder.UpdateRosenpass(cfg.RosenpassEnabled, cfg.RosenpassPermissive)
 
@@ -173,6 +182,7 @@ func (c *Client) RunWithoutLogin(platformFiles PlatformFiles, dns *DNSList, dnsR
 	if err != nil {
 		return err
 	}
+	c.applyMDMOverlay(cfg)
 	c.recorder.UpdateManagementAddress(cfg.ManagementURL.String())
 	c.recorder.UpdateRosenpass(cfg.RosenpassEnabled, cfg.RosenpassPermissive)
 
@@ -230,6 +240,7 @@ func (c *Client) DebugBundle(platformFiles PlatformFiles, anonymize bool) (strin
 		if err != nil {
 			return "", fmt.Errorf("load config: %w", err)
 		}
+		c.applyMDMOverlay(cfg)
 		cacheDir = platformFiles.CacheDir()
 	}
 

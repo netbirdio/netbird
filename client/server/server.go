@@ -110,6 +110,15 @@ type Server struct {
 	// stopped by the rootCtx cancellation.
 	mdmTicker *mdm.Ticker
 
+	// mdmLoader is the daemon-owned source of the active MDM policy.
+	// Constructed once during Server.Start (with a nil PolicyFetcher on
+	// desktop — the build-tagged Loader.loadPlatform reads the OS
+	// registry / plist directly) and injected into every consumer:
+	// mdmTicker for its periodic reload, the SetConfig / Login MDM
+	// gates for conflict detection, and every Config produced via
+	// getConfig() so its apply() picks up the same overlay.
+	mdmLoader *mdm.Loader
+
 	updateManager *updater.Manager
 
 	jwtCache *jwtCache
@@ -173,8 +182,14 @@ func (s *Server) Start() error {
 	// Runs re-resolves Config (re-running profilemanager.Config.apply which
 	// applies the freshly-read MDM policy as the last layer) and brings
 	// the engine back with the new values.
+	if s.mdmLoader == nil {
+		// Desktop builds pass a nil PolicyFetcher: the Loader's
+		// build-tagged loadPlatform reads the OS source directly
+		// (registry on Windows, plist on macOS, no-op elsewhere).
+		s.mdmLoader = mdm.NewLoader(nil)
+	}
 	if s.mdmTicker == nil {
-		s.mdmTicker = mdm.NewTicker(mdm.DefaultReloadInterval)
+		s.mdmTicker = mdm.NewTicker(mdm.DefaultReloadInterval, s.mdmLoader)
 		go s.mdmTicker.Run(s.rootCtx, s.onMDMPolicyChange)
 	}
 
@@ -370,7 +385,7 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 	// by the active MDM policy. The error carries an MDMManagedFields-
 	// Violation detail listing the offending key names. Non-conflicting
 	// fields in the same request are not applied either.
-	policy := loadMDMPolicy()
+	policy := s.mdmLoader.Load()
 	if err := rejectMDMManagedFieldConflicts(mdmManagedFieldConflicts(msg, policy)); err != nil {
 		return nil, err
 	}
@@ -496,7 +511,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		if s.checkUpdateSettingsDisabled() {
 			return nil, gstatus.Errorf(codes.Unavailable, errUpdateSettingsDisabled)
 		}
-		policy := loadMDMPolicy()
+		policy := s.mdmLoader.Load()
 		if err := rejectMDMManagedFieldConflicts(loginRequestMDMConflicts(msg, policy)); err != nil {
 			return nil, err
 		}
@@ -1088,6 +1103,12 @@ func (s *Server) getConfig(activeProf *profilemanager.ActiveProfileState) (*prof
 		return nil, false, fmt.Errorf("failed to get config: %w", err)
 	}
 
+	// Apply the daemon-owned MDM policy on top of the just-resolved
+	// Config. profilemanager's apply() initialises the policy to
+	// empty — the Loader lives outside Config, so this overlay step
+	// is driven externally here.
+	config.ApplyMDMPolicy(s.mdmLoader.Load())
+
 	return config, configExisted, nil
 }
 
@@ -1142,6 +1163,9 @@ func (s *Server) logoutFromProfile(ctx context.Context, profileName, username st
 	if err != nil {
 		return fmt.Errorf("profile '%s' not found", profileName)
 	}
+	// Honour any MDM-enforced ManagementURL when issuing the logout
+	// RPC: the user-stored value may have been overridden by policy.
+	config.ApplyMDMPolicy(s.mdmLoader.Load())
 
 	return s.sendLogoutRequestWithConfig(ctx, config)
 }
@@ -1574,6 +1598,11 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 		log.Errorf("failed to get active profile config: %v", err)
 		return nil, fmt.Errorf("failed to get active profile config: %w", err)
 	}
+	// Overlay the active MDM policy so the response's MDMManagedFields
+	// list reflects what the GUI / CLI must render as read-only.
+	// profilemanager.GetConfig itself returns a Config without the
+	// overlay (Loader lives outside profilemanager).
+	cfg.ApplyMDMPolicy(s.mdmLoader.Load())
 	managementURL := cfg.ManagementURL
 	adminURL := cfg.AdminURL
 

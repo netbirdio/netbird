@@ -10,24 +10,58 @@ import (
 	"github.com/netbirdio/netbird/client/mdm"
 )
 
-// withMDMPolicy temporarily overrides the package-level loadMDMPolicy hook so
-// apply() observes the supplied Policy. The original loader is restored at
-// test cleanup.
-func withMDMPolicy(t *testing.T, policy *mdm.Policy) {
+// fakeFetcher implements mdm.PolicyFetcher returning a pre-set policy
+// map. Test helper used to construct a Loader without touching the OS
+// or any package-level state.
+type fakeFetcher struct{ values map[string]any }
+
+func (f *fakeFetcher) Fetch() map[string]any { return f.values }
+
+// loaderFor builds an mdm.Loader whose loadPlatform returns the
+// supplied Policy's underlying values.
+func loaderFor(policy *mdm.Policy) *mdm.Loader {
+	if policy == nil || policy.IsEmpty() {
+		return mdm.NewLoader(&fakeFetcher{values: nil})
+	}
+	values := make(map[string]any)
+	for _, k := range policy.ManagedKeys() {
+		if v, ok := policy.GetString(k); ok {
+			values[k] = v
+			continue
+		}
+		if v, ok := policy.GetBool(k); ok {
+			values[k] = v
+			continue
+		}
+		if v, ok := policy.GetInt(k); ok {
+			values[k] = v
+			continue
+		}
+		if v, ok := policy.GetStringSlice(k); ok {
+			values[k] = v
+		}
+	}
+	return mdm.NewLoader(&fakeFetcher{values: values})
+}
+
+// configWithMDM is the test convenience that builds a Config via
+// UpdateOrCreateConfig and overlays the supplied MDM policy on top —
+// mirrors the production pattern (Server.getConfig / Client.applyMDMOverlay)
+// where the Loader lives outside Config and the apply step is driven
+// by the lifecycle owner.
+func configWithMDM(t *testing.T, input ConfigInput, policy *mdm.Policy) *Config {
 	t.Helper()
-	prev := loadMDMPolicy
-	loadMDMPolicy = func() *mdm.Policy { return policy }
-	t.Cleanup(func() { loadMDMPolicy = prev })
+	cfg, err := UpdateOrCreateConfig(input)
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+	cfg.ApplyMDMPolicy(loaderFor(policy).Load())
+	return cfg
 }
 
 func TestApply_MDMEmpty_NoEnforcement(t *testing.T) {
-	withMDMPolicy(t, mdm.NewPolicy(nil))
-
-	cfg, err := UpdateOrCreateConfig(ConfigInput{
+	cfg := configWithMDM(t, ConfigInput{
 		ConfigPath: filepath.Join(t.TempDir(), "config.json"),
-	})
-	require.NoError(t, err)
-	require.NotNil(t, cfg)
+	}, mdm.NewPolicy(nil))
 
 	assert.True(t, cfg.Policy().IsEmpty(), "no MDM source ⇒ empty Policy")
 	assert.False(t, cfg.Policy().HasKey(mdm.KeyManagementURL))
@@ -39,17 +73,14 @@ func TestApply_MDMEmpty_NoEnforcement(t *testing.T) {
 
 func TestApply_MDMOnly_OverridesDefaults(t *testing.T) {
 	const mdmURL = "https://corp.mdm.example.com:443"
-	withMDMPolicy(t, mdm.NewPolicy(map[string]any{
+
+	cfg := configWithMDM(t, ConfigInput{
+		ConfigPath: filepath.Join(t.TempDir(), "config.json"),
+	}, mdm.NewPolicy(map[string]any{
 		mdm.KeyManagementURL:       mdmURL,
 		mdm.KeyDisableClientRoutes: true,
 		mdm.KeyBlockInbound:        true,
 	}))
-
-	cfg, err := UpdateOrCreateConfig(ConfigInput{
-		ConfigPath: filepath.Join(t.TempDir(), "config.json"),
-	})
-	require.NoError(t, err)
-	require.NotNil(t, cfg)
 
 	assert.Equal(t, mdmURL, cfg.ManagementURL.String())
 	assert.True(t, cfg.DisableClientRoutes)
@@ -65,16 +96,12 @@ func TestApply_MDMBeatsCLIInput(t *testing.T) {
 	const mdmURL = "https://mdm.example.com:443"
 	const cliURL = "https://cli.example.com:443"
 
-	withMDMPolicy(t, mdm.NewPolicy(map[string]any{
-		mdm.KeyManagementURL: mdmURL,
-	}))
-
-	cfg, err := UpdateOrCreateConfig(ConfigInput{
+	cfg := configWithMDM(t, ConfigInput{
 		ConfigPath:    filepath.Join(t.TempDir(), "config.json"),
 		ManagementURL: cliURL,
-	})
-	require.NoError(t, err)
-	require.NotNil(t, cfg)
+	}, mdm.NewPolicy(map[string]any{
+		mdm.KeyManagementURL: mdmURL,
+	}))
 
 	// MDM wins over CLI-supplied management URL.
 	assert.Equal(t, mdmURL, cfg.ManagementURL.String())
@@ -82,15 +109,11 @@ func TestApply_MDMBeatsCLIInput(t *testing.T) {
 }
 
 func TestApply_MDMInvalidURL_KeepsPreviousValue(t *testing.T) {
-	withMDMPolicy(t, mdm.NewPolicy(map[string]any{
+	cfg := configWithMDM(t, ConfigInput{
+		ConfigPath: filepath.Join(t.TempDir(), "config.json"),
+	}, mdm.NewPolicy(map[string]any{
 		mdm.KeyManagementURL: "not-a-url",
 	}))
-
-	cfg, err := UpdateOrCreateConfig(ConfigInput{
-		ConfigPath: filepath.Join(t.TempDir(), "config.json"),
-	})
-	require.NoError(t, err)
-	require.NotNil(t, cfg)
 
 	// Invalid MDM URL is logged and skipped: default URL stays in place
 	// to keep the client functional.
@@ -106,23 +129,19 @@ func TestApply_MDMBoolKeysOverrideOnDiskValue(t *testing.T) {
 	tmp := filepath.Join(t.TempDir(), "config.json")
 
 	// Seed without MDM.
-	withMDMPolicy(t, mdm.NewPolicy(nil))
-	_, err := UpdateOrCreateConfig(ConfigInput{
+	configWithMDM(t, ConfigInput{
 		ConfigPath:          tmp,
 		DisableClientRoutes: boolPtr(false),
 		RosenpassEnabled:    boolPtr(false),
-	})
-	require.NoError(t, err)
+	}, mdm.NewPolicy(nil))
 
 	// Now enable MDM enforcement for these keys.
-	withMDMPolicy(t, mdm.NewPolicy(map[string]any{
+	cfg := configWithMDM(t, ConfigInput{
+		ConfigPath: tmp,
+	}, mdm.NewPolicy(map[string]any{
 		mdm.KeyDisableClientRoutes: true,
 		mdm.KeyRosenpassEnabled:    true,
 	}))
-
-	cfg, err := UpdateOrCreateConfig(ConfigInput{ConfigPath: tmp})
-	require.NoError(t, err)
-	require.NotNil(t, cfg)
 
 	assert.True(t, cfg.DisableClientRoutes, "MDM override should flip on-disk false to true")
 	assert.True(t, cfg.RosenpassEnabled)
@@ -133,15 +152,11 @@ func TestApply_MDMBoolKeysOverrideOnDiskValue(t *testing.T) {
 func TestApply_MDMPreSharedKeyRedactionSentinelRejected(t *testing.T) {
 	const maskSentinel = "**********"
 
-	withMDMPolicy(t, mdm.NewPolicy(map[string]any{
+	cfg := configWithMDM(t, ConfigInput{
+		ConfigPath: filepath.Join(t.TempDir(), "config.json"),
+	}, mdm.NewPolicy(map[string]any{
 		mdm.KeyPreSharedKey: maskSentinel,
 	}))
-
-	cfg, err := UpdateOrCreateConfig(ConfigInput{
-		ConfigPath: filepath.Join(t.TempDir(), "config.json"),
-	})
-	require.NoError(t, err)
-	require.NotNil(t, cfg)
 
 	// Mask sentinel must not be persisted as the actual PSK.
 	assert.NotEqual(t, maskSentinel, cfg.PreSharedKey)

@@ -16,14 +16,40 @@ import (
 	"github.com/netbirdio/netbird/client/proto"
 )
 
-// withMDMPolicy temporarily overrides the server-package loadMDMPolicy hook
-// so SetConfig observes the supplied Policy. Restores the original loader
-// at test cleanup.
-func withMDMPolicy(t *testing.T, policy *mdm.Policy) {
+// fakeMDMFetcher implements mdm.PolicyFetcher returning a pre-set
+// policy map. Tests build one per Server instance to inject a
+// scripted MDM overlay via a Loader rather than via package-level state.
+type fakeMDMFetcher struct{ values map[string]any }
+
+func (f *fakeMDMFetcher) Fetch() map[string]any { return f.values }
+
+// withMDMPolicy installs an mdm.Loader on the given Server whose
+// loadPlatform returns the supplied Policy's underlying values. Use
+// after setupServerWithProfile to inject the scripted policy the
+// SetConfig / Login MDM gates will observe.
+func withMDMPolicy(t *testing.T, s *Server, policy *mdm.Policy) {
 	t.Helper()
-	prev := loadMDMPolicy
-	loadMDMPolicy = func() *mdm.Policy { return policy }
-	t.Cleanup(func() { loadMDMPolicy = prev })
+	values := map[string]any{}
+	if policy != nil {
+		for _, k := range policy.ManagedKeys() {
+			if v, ok := policy.GetString(k); ok {
+				values[k] = v
+				continue
+			}
+			if v, ok := policy.GetBool(k); ok {
+				values[k] = v
+				continue
+			}
+			if v, ok := policy.GetInt(k); ok {
+				values[k] = v
+				continue
+			}
+			if v, ok := policy.GetStringSlice(k); ok {
+				values[k] = v
+			}
+		}
+	}
+	s.mdmLoader = mdm.NewLoader(&fakeMDMFetcher{values: values})
 }
 
 // setupServerWithProfile mirrors the boilerplate of TestSetConfig_AllFieldsSaved:
@@ -89,11 +115,10 @@ func extractViolation(t *testing.T, err error) *proto.MDMManagedFieldsViolation 
 }
 
 func TestSetConfig_MDMReject_SingleField(t *testing.T) {
-	withMDMPolicy(t, mdm.NewPolicy(map[string]any{
+	s, ctx, profName, username, _ := setupServerWithProfile(t)
+	withMDMPolicy(t, s, mdm.NewPolicy(map[string]any{
 		mdm.KeyManagementURL: "https://mdm.example.com:443",
 	}))
-
-	s, ctx, profName, username, _ := setupServerWithProfile(t)
 
 	_, err := s.SetConfig(ctx, &proto.SetConfigRequest{
 		ProfileName:   profName,
@@ -106,13 +131,12 @@ func TestSetConfig_MDMReject_SingleField(t *testing.T) {
 }
 
 func TestSetConfig_MDMReject_MultipleFields(t *testing.T) {
-	withMDMPolicy(t, mdm.NewPolicy(map[string]any{
-		mdm.KeyManagementURL:     "https://mdm.example.com:443",
-		mdm.KeyBlockInbound:      true,
-		mdm.KeyRosenpassEnabled:  true,
-	}))
-
 	s, ctx, profName, username, _ := setupServerWithProfile(t)
+	withMDMPolicy(t, s, mdm.NewPolicy(map[string]any{
+		mdm.KeyManagementURL:    "https://mdm.example.com:443",
+		mdm.KeyBlockInbound:     true,
+		mdm.KeyRosenpassEnabled: true,
+	}))
 
 	blockInbound := false
 	rosenpassEnabled := false
@@ -137,11 +161,10 @@ func TestSetConfig_MDMReject_AllOrNothing(t *testing.T) {
 	// enforced field AND a non-enforced field (RosenpassEnabled).
 	// The whole request must be rejected — non-conflicting fields are not
 	// applied either.
-	withMDMPolicy(t, mdm.NewPolicy(map[string]any{
+	s, ctx, profName, username, cfgPath := setupServerWithProfile(t)
+	withMDMPolicy(t, s, mdm.NewPolicy(map[string]any{
 		mdm.KeyManagementURL: "https://mdm.example.com:443",
 	}))
-
-	s, ctx, profName, username, cfgPath := setupServerWithProfile(t)
 
 	rosenpassEnabled := true
 	_, err := s.SetConfig(ctx, &proto.SetConfigRequest{
@@ -164,11 +187,10 @@ func TestSetConfig_MDMReject_AllOrNothing(t *testing.T) {
 func TestSetConfig_MDMAllow_NonManagedFields(t *testing.T) {
 	// MDM enforces ManagementURL but the user only writes RosenpassEnabled.
 	// Request must succeed.
-	withMDMPolicy(t, mdm.NewPolicy(map[string]any{
+	s, ctx, profName, username, _ := setupServerWithProfile(t)
+	withMDMPolicy(t, s, mdm.NewPolicy(map[string]any{
 		mdm.KeyManagementURL: "https://mdm.example.com:443",
 	}))
-
-	s, ctx, profName, username, _ := setupServerWithProfile(t)
 
 	rosenpassEnabled := true
 	resp, err := s.SetConfig(ctx, &proto.SetConfigRequest{
@@ -183,9 +205,8 @@ func TestSetConfig_MDMAllow_NonManagedFields(t *testing.T) {
 
 func TestSetConfig_MDMEmpty_NoEnforcement(t *testing.T) {
 	// No MDM policy active: any field can be written.
-	withMDMPolicy(t, mdm.NewPolicy(nil))
-
 	s, ctx, profName, username, _ := setupServerWithProfile(t)
+	withMDMPolicy(t, s, mdm.NewPolicy(nil))
 
 	resp, err := s.SetConfig(ctx, &proto.SetConfigRequest{
 		ProfileName:   profName,
