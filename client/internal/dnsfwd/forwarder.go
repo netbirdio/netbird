@@ -220,9 +220,9 @@ func (f *DNSForwarder) handleDNSQuery(logger *log.Entry, w dns.ResponseWriter, q
 
 	switch question.Qtype {
 	case dns.TypeA, dns.TypeAAAA:
-		f.handleAddressQuery(ctx, logger, w, question, resp, qname, mostSpecificResId, matchingEntries, startTime)
+		f.handleAddressQuery(ctx, logger, w, resp, mostSpecificResId, matchingEntries, startTime)
 	case dns.TypeMX, dns.TypeTXT, dns.TypeNS, dns.TypeSRV, dns.TypeCNAME, dns.TypePTR:
-		f.handleRecordQuery(ctx, logger, w, question, resp, qname, startTime)
+		f.handleRecordQuery(ctx, logger, w, resp, startTime)
 	default:
 		// The domain is routed here, so any other type is answered NODATA
 		// (NOERROR, empty answer) rather than falling back to a resolver that
@@ -237,30 +237,20 @@ func (f *DNSForwarder) handleDNSQuery(logger *log.Entry, w dns.ResponseWriter, q
 	}
 }
 
-// attachEDE adds an Extended DNS Error (RFC 8914) option to the response,
-// creating the OPT pseudo-record if the response does not already carry one.
-func attachEDE(resp *dns.Msg, code uint16, text string) {
-	opt := resp.IsEdns0()
-	if opt == nil {
-		resp.SetEdns0(dns.DefaultMsgSize, false)
-		opt = resp.IsEdns0()
-	}
-	opt.Option = append(opt.Option, &dns.EDNS0_EDE{InfoCode: code, ExtraText: text})
-}
-
 // handleAddressQuery resolves A/AAAA queries, programs the firewall sets and
 // resolved-IP state, and caches the answer for resilience on upstream failure.
 func (f *DNSForwarder) handleAddressQuery(
 	ctx context.Context,
 	logger *log.Entry,
 	w dns.ResponseWriter,
-	question dns.Question,
 	resp *dns.Msg,
-	qname string,
 	mostSpecificResId route.ResID,
 	matchingEntries []*ForwarderEntry,
 	startTime time.Time,
 ) {
+	question := resp.Question[0]
+	qname := strings.ToLower(question.Name)
+
 	network := resutil.NetworkForQtype(question.Qtype)
 	result := resutil.LookupIP(ctx, f.resolver, network, qname, question.Qtype)
 	if result.Err != nil {
@@ -282,11 +272,12 @@ func (f *DNSForwarder) handleRecordQuery(
 	ctx context.Context,
 	logger *log.Entry,
 	w dns.ResponseWriter,
-	question dns.Question,
 	resp *dns.Msg,
-	qname string,
 	startTime time.Time,
 ) {
+	question := resp.Question[0]
+	qname := strings.ToLower(question.Name)
+
 	records, rcode := resutil.LookupRecords(ctx, f.resolver, qname, question.Qtype, f.ttl)
 	resp.Rcode = rcode
 	resp.Answer = append(resp.Answer, records...)
@@ -475,4 +466,15 @@ func (f *DNSForwarder) getMatchingEntries(domain string) (route.ResID, []*Forwar
 	}
 
 	return selectedResId, matches
+}
+
+// attachEDE adds an Extended DNS Error (RFC 8914) option to the response,
+// creating the OPT pseudo-record if the response does not already carry one.
+func attachEDE(resp *dns.Msg, code uint16, text string) {
+	opt := resp.IsEdns0()
+	if opt == nil {
+		resp.SetEdns0(dns.DefaultMsgSize, false)
+		opt = resp.IsEdns0()
+	}
+	opt.Option = append(opt.Option, &dns.EDNS0_EDE{InfoCode: code, ExtraText: text})
 }

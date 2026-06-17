@@ -211,101 +211,123 @@ func LookupRecords(ctx context.Context, r RecordResolver, name string, qtype uin
 
 	switch qtype {
 	case dns.TypeMX:
-		recs, err := r.LookupMX(ctx, name)
-		if err != nil {
-			return nil, rcodeForRecordError(ctx, r, name, err)
-		}
-		rrs := make([]dns.RR, 0, len(recs))
-		for _, mx := range recs {
-			rrs = append(rrs, &dns.MX{
-				Hdr:        dns.RR_Header{Name: fqdn, Rrtype: dns.TypeMX, Class: dns.ClassINET, Ttl: ttl},
-				Preference: mx.Pref,
-				Mx:         dns.Fqdn(mx.Host),
-			})
-		}
-		return rrs, dns.RcodeSuccess
-
+		return lookupMX(ctx, r, name, fqdn, ttl)
 	case dns.TypeTXT:
-		recs, err := r.LookupTXT(ctx, name)
-		if err != nil {
-			return nil, rcodeForRecordError(ctx, r, name, err)
-		}
-		rrs := make([]dns.RR, 0, len(recs))
-		for _, txt := range recs {
-			rrs = append(rrs, &dns.TXT{
-				Hdr: dns.RR_Header{Name: fqdn, Rrtype: dns.TypeTXT, Class: dns.ClassINET, Ttl: ttl},
-				Txt: chunkTXT(txt),
-			})
-		}
-		return rrs, dns.RcodeSuccess
-
+		return lookupTXT(ctx, r, name, fqdn, ttl)
 	case dns.TypeNS:
-		recs, err := r.LookupNS(ctx, name)
-		if err != nil {
-			return nil, rcodeForRecordError(ctx, r, name, err)
-		}
-		rrs := make([]dns.RR, 0, len(recs))
-		for _, ns := range recs {
-			rrs = append(rrs, &dns.NS{
-				Hdr: dns.RR_Header{Name: fqdn, Rrtype: dns.TypeNS, Class: dns.ClassINET, Ttl: ttl},
-				Ns:  dns.Fqdn(ns.Host),
-			})
-		}
-		return rrs, dns.RcodeSuccess
-
+		return lookupNS(ctx, r, name, fqdn, ttl)
 	case dns.TypeSRV:
-		_, recs, err := r.LookupSRV(ctx, "", "", name)
-		if err != nil {
-			return nil, rcodeForRecordError(ctx, r, name, err)
-		}
-		rrs := make([]dns.RR, 0, len(recs))
-		for _, srv := range recs {
-			rrs = append(rrs, &dns.SRV{
-				Hdr:      dns.RR_Header{Name: fqdn, Rrtype: dns.TypeSRV, Class: dns.ClassINET, Ttl: ttl},
-				Priority: srv.Priority,
-				Weight:   srv.Weight,
-				Port:     srv.Port,
-				Target:   dns.Fqdn(srv.Target),
-			})
-		}
-		return rrs, dns.RcodeSuccess
-
+		return lookupSRV(ctx, r, name, fqdn, ttl)
 	case dns.TypeCNAME:
-		cname, err := r.LookupCNAME(ctx, name)
-		if err != nil {
-			return nil, rcodeForRecordError(ctx, r, name, err)
-		}
-		// LookupCNAME returns the queried name itself when the name resolves
-		// but has no CNAME record; that is a NODATA result, not a CNAME.
-		if strings.EqualFold(dns.Fqdn(cname), fqdn) {
-			return nil, dns.RcodeSuccess
-		}
-		return []dns.RR{&dns.CNAME{
-			Hdr:    dns.RR_Header{Name: fqdn, Rrtype: dns.TypeCNAME, Class: dns.ClassINET, Ttl: ttl},
-			Target: dns.Fqdn(cname),
-		}}, dns.RcodeSuccess
-
+		return lookupCNAME(ctx, r, name, fqdn, ttl)
 	case dns.TypePTR:
-		addr, ok := ptrQueryAddr(name)
-		if !ok {
-			return nil, dns.RcodeSuccess
-		}
-		names, err := r.LookupAddr(ctx, addr)
-		if err != nil {
-			return nil, rcodeForRecordError(ctx, r, name, err)
-		}
-		rrs := make([]dns.RR, 0, len(names))
-		for _, n := range names {
-			rrs = append(rrs, &dns.PTR{
-				Hdr: dns.RR_Header{Name: fqdn, Rrtype: dns.TypePTR, Class: dns.ClassINET, Ttl: ttl},
-				Ptr: dns.Fqdn(n),
-			})
-		}
-		return rrs, dns.RcodeSuccess
-
+		return lookupPTR(ctx, r, name, fqdn, ttl)
 	default:
 		return nil, dns.RcodeSuccess
 	}
+}
+
+func recordHeader(fqdn string, rrtype uint16, ttl uint32) dns.RR_Header {
+	return dns.RR_Header{Name: fqdn, Rrtype: rrtype, Class: dns.ClassINET, Ttl: ttl}
+}
+
+func lookupMX(ctx context.Context, r RecordResolver, name, fqdn string, ttl uint32) ([]dns.RR, int) {
+	recs, err := r.LookupMX(ctx, name)
+	if err != nil {
+		return nil, rcodeForRecordError(ctx, r, name, err)
+	}
+	rrs := make([]dns.RR, 0, len(recs))
+	for _, mx := range recs {
+		rrs = append(rrs, &dns.MX{
+			Hdr:        recordHeader(fqdn, dns.TypeMX, ttl),
+			Preference: mx.Pref,
+			Mx:         dns.Fqdn(mx.Host),
+		})
+	}
+	return rrs, dns.RcodeSuccess
+}
+
+func lookupTXT(ctx context.Context, r RecordResolver, name, fqdn string, ttl uint32) ([]dns.RR, int) {
+	recs, err := r.LookupTXT(ctx, name)
+	if err != nil {
+		return nil, rcodeForRecordError(ctx, r, name, err)
+	}
+	rrs := make([]dns.RR, 0, len(recs))
+	for _, txt := range recs {
+		rrs = append(rrs, &dns.TXT{
+			Hdr: recordHeader(fqdn, dns.TypeTXT, ttl),
+			Txt: chunkTXT(txt),
+		})
+	}
+	return rrs, dns.RcodeSuccess
+}
+
+func lookupNS(ctx context.Context, r RecordResolver, name, fqdn string, ttl uint32) ([]dns.RR, int) {
+	recs, err := r.LookupNS(ctx, name)
+	if err != nil {
+		return nil, rcodeForRecordError(ctx, r, name, err)
+	}
+	rrs := make([]dns.RR, 0, len(recs))
+	for _, ns := range recs {
+		rrs = append(rrs, &dns.NS{
+			Hdr: recordHeader(fqdn, dns.TypeNS, ttl),
+			Ns:  dns.Fqdn(ns.Host),
+		})
+	}
+	return rrs, dns.RcodeSuccess
+}
+
+func lookupSRV(ctx context.Context, r RecordResolver, name, fqdn string, ttl uint32) ([]dns.RR, int) {
+	_, recs, err := r.LookupSRV(ctx, "", "", name)
+	if err != nil {
+		return nil, rcodeForRecordError(ctx, r, name, err)
+	}
+	rrs := make([]dns.RR, 0, len(recs))
+	for _, srv := range recs {
+		rrs = append(rrs, &dns.SRV{
+			Hdr:      recordHeader(fqdn, dns.TypeSRV, ttl),
+			Priority: srv.Priority,
+			Weight:   srv.Weight,
+			Port:     srv.Port,
+			Target:   dns.Fqdn(srv.Target),
+		})
+	}
+	return rrs, dns.RcodeSuccess
+}
+
+func lookupCNAME(ctx context.Context, r RecordResolver, name, fqdn string, ttl uint32) ([]dns.RR, int) {
+	cname, err := r.LookupCNAME(ctx, name)
+	if err != nil {
+		return nil, rcodeForRecordError(ctx, r, name, err)
+	}
+	// LookupCNAME returns the queried name itself when the name resolves but
+	// has no CNAME record; that is a NODATA result, not a CNAME.
+	if strings.EqualFold(dns.Fqdn(cname), fqdn) {
+		return nil, dns.RcodeSuccess
+	}
+	return []dns.RR{&dns.CNAME{
+		Hdr:    recordHeader(fqdn, dns.TypeCNAME, ttl),
+		Target: dns.Fqdn(cname),
+	}}, dns.RcodeSuccess
+}
+
+func lookupPTR(ctx context.Context, r RecordResolver, name, fqdn string, ttl uint32) ([]dns.RR, int) {
+	addr, ok := ptrQueryAddr(name)
+	if !ok {
+		return nil, dns.RcodeSuccess
+	}
+	names, err := r.LookupAddr(ctx, addr)
+	if err != nil {
+		return nil, rcodeForRecordError(ctx, r, name, err)
+	}
+	rrs := make([]dns.RR, 0, len(names))
+	for _, n := range names {
+		rrs = append(rrs, &dns.PTR{
+			Hdr: recordHeader(fqdn, dns.TypePTR, ttl),
+			Ptr: dns.Fqdn(n),
+		})
+	}
+	return rrs, dns.RcodeSuccess
 }
 
 // ptrQueryAddr converts a reverse-DNS query name (in-addr.arpa or ip6.arpa)
