@@ -154,7 +154,7 @@ func (s *Server) restartEngineForMDMLocked() error {
 	log.Info("MDM restart: starting a fresh run with re-resolved config")
 	// MDM restart has no incoming RPC metadata; fire and forget (the supervisor
 	// reconnects internally and we don't block on the run).
-	s.ensureConnectClient().RunAsync(config, nil, s.clientRunningChan, s.clientDoneChan)
+	s.connectClient.RunAsync(config, nil, s.clientRunningChan, s.clientDoneChan)
 	s.publishConfigChangedEvent("mdm")
 	return nil
 }

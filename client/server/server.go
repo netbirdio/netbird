@@ -123,6 +123,13 @@ func New(ctx context.Context, logFile string, configFile string, profilesDisable
 		networksDisabled:       networksDisabled,
 		jwtCache:               newJWTCache(),
 	}
+	// The ConnectClient is daemon-lifetime: build it exactly once, here. Its
+	// supervisor lives as long as the daemon; Up/Down/MDM and reconnects all
+	// drive this same instance. updateManager isn't ready yet (created in
+	// Start) and is injected there via SetUpdateManager.
+	s.connectClient = internal.NewConnectClient(ctx, s.statusRecorder)
+	s.connectClient.SetSyncResponsePersistence(s.persistSyncResponse)
+
 	agent := &serverAgent{s}
 	s.sleepHandler = sleephandler.New(agent)
 	s.startSleepDetector()
@@ -152,6 +159,7 @@ func (s *Server) Start() error {
 		stateMgr := statemanager.New(s.profileManager.GetStatePath())
 		s.updateManager = updater.NewManager(s.statusRecorder, stateMgr)
 		s.updateManager.CheckUpdateSuccess(s.rootCtx)
+		s.connectClient.SetUpdateManager(s.updateManager)
 	}
 
 	// MDM policy reload ticker: every minute the desktop daemon re-reads
@@ -226,7 +234,7 @@ func (s *Server) Start() error {
 	s.clientDoneChan = make(chan error, 1)
 	// Boot autoconnect: no incoming RPC metadata. The supervisor runs the
 	// client and reconnects internally; we just fire and forget.
-	s.ensureConnectClient().RunAsync(config, nil, s.clientRunningChan, s.clientDoneChan)
+	s.connectClient.RunAsync(config, nil, s.clientRunningChan, s.clientDoneChan)
 	s.publishConfigChangedEvent("startup")
 	return nil
 }
@@ -647,11 +655,19 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 // Up starts engine work in the daemon.
 func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpResponse, error) {
 	s.mutex.Lock()
+
+	// The client is built once in New(); a nil here means the service was never
+	// started. Fail loud rather than lazily creating it.
+	if s.connectClient == nil {
+		s.mutex.Unlock()
+		return nil, fmt.Errorf("service is not running, start the netbird service for 'up' to take effect")
+	}
+
 	// clientRunning is the daemon-intent flag (set by previous Up/Start, cleared
 	// by Down). IsRunning() reports whether a run is actually in flight. When
 	// intent is up AND a run is in flight, the existing engine is on the job —
 	// just wait for it. Otherwise fall through to start a fresh run.
-	if s.clientRunning && s.connectClient != nil && s.connectClient.IsRunning() {
+	if s.clientRunning && s.connectClient.IsRunning() {
 		state := internal.CtxGetState(s.rootCtx)
 		status, err := state.Status()
 		if err != nil {
@@ -741,7 +757,7 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	s.clientRunningChan = make(chan struct{})
 	s.clientDoneChan = make(chan error, 1)
 
-	s.ensureConnectClient().RunAsync(s.config, md, s.clientRunningChan, s.clientDoneChan)
+	s.connectClient.RunAsync(s.config, md, s.clientRunningChan, s.clientDoneChan)
 	s.publishConfigChangedEvent("up_rpc")
 
 	s.mutex.Unlock()
@@ -1608,21 +1624,6 @@ func (s *Server) GetFeatures(ctx context.Context, msg *proto.GetFeaturesRequest)
 	}
 
 	return features, nil
-}
-
-// ensureConnectClient lazily builds the single, daemon-lifetime ConnectClient
-// and returns it. The client is bound to s.rootCtx (so its supervisor lives as
-// long as the daemon) and is never torn down on Down — Up/Down/MDM just drive
-// its supervisor via Run/Stop. Config is supplied per Run (see connect), not at
-// construction, so the same client is reused across reconnects and restarts.
-// Callers must hold s.mutex.
-func (s *Server) ensureConnectClient() *internal.ConnectClient {
-	if s.connectClient == nil {
-		s.connectClient = internal.NewConnectClient(s.rootCtx, s.statusRecorder)
-		s.connectClient.SetUpdateManager(s.updateManager)
-		s.connectClient.SetSyncResponsePersistence(s.persistSyncResponse)
-	}
-	return s.connectClient
 }
 
 // MDM authority: when the platform-native MDM source sets a kill switch
