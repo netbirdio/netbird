@@ -132,6 +132,17 @@ func addProfileFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	if managementURL != "" || adminURL != "" {
+		if _, err = daemonClient.SetConfig(cmd.Context(), &proto.SetConfigRequest{
+			ProfileName:   profileName,
+			Username:      currUser.Username,
+			ManagementUrl: managementURL,
+			AdminURL:      adminURL,
+		}); err != nil {
+			return fmt.Errorf("profile created but failed to set URLs: %w", err)
+		}
+	}
+
 	cmd.Println("Profile added successfully:", profileName)
 	return nil
 }
