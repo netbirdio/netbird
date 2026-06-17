@@ -362,7 +362,7 @@ jobs:
           node-version: '22'
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v3
+        uses: pnpm/action-setup@a3252b78c470c02df07e9d59298aecedc3ccdd6d # v3.0.0
         with:
           version: 11
 
@@ -468,7 +468,7 @@ jobs:
         with:
           node-version: '22'
       - name: Set up pnpm
-        uses: pnpm/action-setup@v3
+        uses: pnpm/action-setup@a3252b78c470c02df07e9d59298aecedc3ccdd6d # v3.0.0
         with:
           version: 11
       - name: Install wails3 CLI
