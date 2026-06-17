@@ -336,39 +336,49 @@ func ptrQueryAddr(qname string) (string, bool) {
 
 	switch {
 	case strings.HasSuffix(name, ".in-addr.arpa"):
-		labels := strings.Split(strings.TrimSuffix(name, ".in-addr.arpa"), ".")
-		if len(labels) != 4 {
-			return "", false
-		}
-		slices.Reverse(labels)
-		addr, err := netip.ParseAddr(strings.Join(labels, "."))
-		if err != nil || !addr.Is4() {
-			return "", false
-		}
-		return addr.String(), true
-
+		return parseInAddrArpa(strings.TrimSuffix(name, ".in-addr.arpa"))
 	case strings.HasSuffix(name, ".ip6.arpa"):
-		nibbles := strings.Split(strings.TrimSuffix(name, ".ip6.arpa"), ".")
-		if len(nibbles) != 32 {
-			return "", false
-		}
-		slices.Reverse(nibbles)
-		var sb strings.Builder
-		for i, n := range nibbles {
-			if i > 0 && i%4 == 0 {
-				sb.WriteByte(':')
-			}
-			sb.WriteString(n)
-		}
-		addr, err := netip.ParseAddr(sb.String())
-		if err != nil || !addr.Is6() {
-			return "", false
-		}
-		return addr.String(), true
-
+		return parseIP6Arpa(strings.TrimSuffix(name, ".ip6.arpa"))
 	default:
 		return "", false
 	}
+}
+
+// parseInAddrArpa turns the label portion of an in-addr.arpa name into an IPv4
+// address string, reporting false when it is not a well-formed reverse name.
+func parseInAddrArpa(labelPart string) (string, bool) {
+	labels := strings.Split(labelPart, ".")
+	if len(labels) != 4 {
+		return "", false
+	}
+	slices.Reverse(labels)
+	addr, err := netip.ParseAddr(strings.Join(labels, "."))
+	if err != nil || !addr.Is4() {
+		return "", false
+	}
+	return addr.String(), true
+}
+
+// parseIP6Arpa turns the nibble portion of an ip6.arpa name into an IPv6
+// address string, reporting false when it is not a well-formed reverse name.
+func parseIP6Arpa(nibblePart string) (string, bool) {
+	nibbles := strings.Split(nibblePart, ".")
+	if len(nibbles) != 32 {
+		return "", false
+	}
+	slices.Reverse(nibbles)
+	var sb strings.Builder
+	for i, n := range nibbles {
+		if i > 0 && i%4 == 0 {
+			sb.WriteByte(':')
+		}
+		sb.WriteString(n)
+	}
+	addr, err := netip.ParseAddr(sb.String())
+	if err != nil || !addr.Is6() {
+		return "", false
+	}
+	return addr.String(), true
 }
 
 // rcodeForRecordError maps a non-address lookup error to a DNS rcode. A
