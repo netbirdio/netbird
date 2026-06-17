@@ -8,12 +8,10 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
@@ -39,15 +37,7 @@ import (
 )
 
 const (
-	probeThreshold          = time.Second * 5
-	retryInitialIntervalVar = "NB_CONN_RETRY_INTERVAL_TIME"
-	maxRetryIntervalVar     = "NB_CONN_MAX_RETRY_INTERVAL_TIME"
-	maxRetryTimeVar         = "NB_CONN_MAX_RETRY_TIME_TIME"
-	retryMultiplierVar      = "NB_CONN_RETRY_MULTIPLIER"
-	defaultInitialRetryTime = 30 * time.Minute
-	defaultMaxRetryInterval = 60 * time.Minute
-	defaultMaxRetryTime     = 14 * 24 * time.Hour
-	defaultRetryMultiplier  = 1.7
+	probeThreshold = time.Second * 5
 
 	// JWT token cache TTL for the client daemon (disabled by default)
 	defaultJWTCacheTTL = 0
@@ -73,14 +63,11 @@ type Server struct {
 	config *profilemanager.Config
 	proto.UnimplementedDaemonServiceServer
 	// clientRunning tracks "the daemon wants to be connected" — set true by
-	// Start / Up, cleared by Down / Logout. Persists across retry
-	// loops, signal disconnects, and ErrResetConnection cycles. NOT
-	// changed by connectWithRetryRuns goroutine exit — for that
-	// (goroutine-still-alive) check, see connectionGoroutineRunning() which
-	// derives from clientGiveUpChan close state. Protected by s.mutex.
-	clientRunning          bool
-	clientRunningChan chan struct{}
-	clientGiveUpChan  chan struct{} // closed when connectWithRetryRuns goroutine exits
+	// Start / Up, cleared by Down / Logout. Protected by s.mutex. Whether a run
+	// is actually in flight is owned by the supervisor (connectClient.IsRunning).
+	clientRunning     bool
+	clientRunningChan chan struct{} // closed by the run when the engine is ready
+	clientDoneChan    chan error    // receives the run's end result
 
 	connectClient *internal.ConnectClient
 
@@ -190,7 +177,9 @@ func (s *Server) Start() error {
 		return nil
 	}
 
-	ctx, cancel := context.WithCancel(s.rootCtx)
+	// actCancel cancels in-flight foreground operations (login/status); the run
+	// itself is owned by the supervisor and stopped via Stop, not this cancel.
+	_, cancel := context.WithCancel(s.rootCtx)
 	s.actCancel = cancel
 
 	// copy old default config
@@ -234,96 +223,12 @@ func (s *Server) Start() error {
 
 	s.clientRunning = true
 	s.clientRunningChan = make(chan struct{})
-	s.clientGiveUpChan = make(chan struct{})
-	client := s.ensureConnectClient()
-	go s.connectWithRetryRuns(ctx, client, config, s.statusRecorder, s.clientRunningChan, s.clientGiveUpChan)
+	s.clientDoneChan = make(chan error, 1)
+	// Boot autoconnect: no incoming RPC metadata. The supervisor runs the
+	// client and reconnects internally; we just fire and forget.
+	s.ensureConnectClient().RunAsync(config, nil, s.clientRunningChan, s.clientDoneChan)
 	s.publishConfigChangedEvent("startup")
 	return nil
-}
-
-// connectWithRetryRuns runs the client connection with a backoff strategy where we retry the operation as additional
-// mechanism to keep the client connected even when the connection is lost.
-// we cancel retry if the client receive a stop or down command.
-//
-// DisableAutoConnect governs ONLY the service-Start auto-connect decision
-// (handled in Start). Once this goroutine is spawned — by Start, Up or an
-// MDM restart — the flag is never consulted again: the retry loop keeps
-// trying until ctx is cancelled by Down / Stop / Logout.
-//
-// The goroutine's exit is signalled to the daemon via close(giveUpChan)
-// — placed in the function-scope defer so every return path (panic,
-// backoff exhausted, ctx cancel) closes it. Callers that need to observe
-// "is the goroutine still alive?" use Server.connectionGoroutineRunning()
-// which non-blockingly checks the close state of clientGiveUpChan. The defer
-// does NOT touch s.mutex; the daemon's "intent" (clientRunning) is maintained
-// by the RPC handlers, not by this goroutine.
-func (s *Server) connectWithRetryRuns(ctx context.Context, client *internal.ConnectClient, profileConfig *profilemanager.Config, statusRecorder *peer.Status, runningChan chan struct{}, giveUpChan chan struct{}) {
-	defer func() {
-		if giveUpChan != nil {
-			close(giveUpChan)
-		}
-	}()
-
-	backOff := getConnectWithBackoff(ctx)
-	go func() {
-		t := time.NewTicker(24 * time.Hour)
-		for {
-			select {
-			case <-ctx.Done():
-				t.Stop()
-				return
-			case <-t.C:
-				mgmtState := statusRecorder.GetManagementState()
-				signalState := statusRecorder.GetSignalState()
-				if mgmtState.Connected && signalState.Connected {
-					log.Tracef("resetting status")
-					backOff.Reset()
-				} else {
-					log.Tracef("not resetting status: mgmt: %v, signal: %v", mgmtState.Connected, signalState.Connected)
-				}
-			}
-		}
-	}()
-
-	// Forward any gRPC metadata the RPC caller attached (e.g. the UI
-	// user-agent in Up); nil for boot/MDM paths that have no incoming call.
-	md, _ := metadata.FromOutgoingContext(ctx)
-
-	runOperation := func() error {
-		err := s.connectOnce(client, profileConfig, md, runningChan)
-		if err != nil {
-			log.Debugf("will retry the connection in the background")
-			return err
-		}
-
-		log.Tracef("client connection exited gracefully, do not need to retry")
-		return nil
-	}
-
-	if err := backoff.Retry(runOperation, backOff); err != nil {
-		log.Errorf("operation failed: %v", err)
-	}
-	// giveUpChan is closed by the function-scope defer.
-}
-
-// connectionGoroutineRunning reports whether the connectWithRetryRuns goroutine is
-// still running. Returns false when no goroutine has ever been started
-// AND when the most recent one has already closed clientGiveUpChan on
-// exit (whether due to ctx cancel, DisableAutoConnect single-shot
-// completion, or backoff retry exhaustion).
-//
-// MUST be called with s.mutex held — accesses s.clientGiveUpChan which
-// is written by Start/Up under the same lock.
-func (s *Server) connectionGoroutineRunning() bool {
-	if s.clientGiveUpChan == nil {
-		return false
-	}
-	select {
-	case <-s.clientGiveUpChan:
-		return false
-	default:
-		return true
-	}
 }
 
 // loginAttempt attempts to login using the provided information. it returns a status in case something fails
@@ -743,12 +648,10 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpResponse, error) {
 	s.mutex.Lock()
 	// clientRunning is the daemon-intent flag (set by previous Up/Start, cleared
-	// by Down). connectionGoroutineRunning() reports whether the previous retry-loop
-	// goroutine is still trying. When intent is up AND goroutine is alive,
-	// the existing engine is on the job — just wait for it. When intent
-	// is up but the goroutine has given up (backoff exhausted) OR when
-	// intent is down, fall through to spawn a fresh retry loop.
-	if s.clientRunning && s.connectionGoroutineRunning() {
+	// by Down). IsRunning() reports whether a run is actually in flight. When
+	// intent is up AND a run is in flight, the existing engine is on the job —
+	// just wait for it. Otherwise fall through to start a fresh run.
+	if s.clientRunning && s.connectClient != nil && s.connectClient.IsRunning() {
 		state := internal.CtxGetState(s.rootCtx)
 		status, err := state.Status()
 		if err != nil {
@@ -786,13 +689,13 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	if s.actCancel != nil {
 		s.actCancel()
 	}
-	ctx, cancel := context.WithCancel(s.rootCtx)
-	md, ok := metadata.FromIncomingContext(callerCtx)
-	if ok {
-		ctx = metadata.NewOutgoingContext(ctx, md)
-	}
-
+	// actCancel cancels in-flight foreground ops (login/status); the run is
+	// owned by the supervisor and stopped via Stop, not this cancel.
+	_, cancel := context.WithCancel(s.rootCtx)
 	s.actCancel = cancel
+
+	// Forward the caller's gRPC metadata (e.g. UI user-agent) into the run.
+	md, _ := metadata.FromIncomingContext(callerCtx)
 
 	if s.config == nil {
 		s.mutex.Unlock()
@@ -836,25 +739,34 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 
 	s.clientRunning = true
 	s.clientRunningChan = make(chan struct{})
-	s.clientGiveUpChan = make(chan struct{})
+	s.clientDoneChan = make(chan error, 1)
 
-	client := s.ensureConnectClient()
-	go s.connectWithRetryRuns(ctx, client, s.config, s.statusRecorder, s.clientRunningChan, s.clientGiveUpChan)
+	s.ensureConnectClient().RunAsync(s.config, md, s.clientRunningChan, s.clientDoneChan)
 	s.publishConfigChangedEvent("up_rpc")
 
 	s.mutex.Unlock()
 	return s.waitForUp(callerCtx)
 }
 
-// todo: handle potential race conditions
 func (s *Server) waitForUp(callerCtx context.Context) (*proto.UpResponse, error) {
 	timeoutCtx, cancel := context.WithTimeout(callerCtx, 50*time.Second)
 	defer cancel()
 
+	// Snapshot the per-run channels under the lock so a concurrent Up that
+	// replaces them cannot race the select below.
+	s.mutex.Lock()
+	runningChan := s.clientRunningChan
+	doneChan := s.clientDoneChan
+	s.mutex.Unlock()
+
 	select {
-	case <-s.clientGiveUpChan:
-		return nil, fmt.Errorf("client gave up to connect")
-	case <-s.clientRunningChan:
+	case err := <-doneChan:
+		// The run ended before signalling ready: it failed or was stopped.
+		if err != nil {
+			return nil, fmt.Errorf("client failed to connect: %w", err)
+		}
+		return nil, fmt.Errorf("client stopped before becoming ready")
+	case <-runningChan:
 		s.isSessionActive.Store(true)
 		return &proto.UpResponse{}, nil
 	case <-callerCtx.Done():
@@ -932,11 +844,11 @@ func (s *Server) SwitchProfile(callerCtx context.Context, msg *proto.SwitchProfi
 // Down engine work in the daemon.
 func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownResponse, error) {
 	s.mutex.Lock()
+	defer s.mutex.Unlock()
 
-	giveUpChan := s.clientGiveUpChan
-
+	// cleanupConnection stops the run through the supervisor, which blocks until
+	// the run has fully unwound — no separate goroutine-quiescence wait needed.
 	if err := s.cleanupConnection(); err != nil {
-		s.mutex.Unlock()
 		// todo review to update the status in case any type of error
 		log.Errorf("failed to shut down properly: %v", err)
 		return nil, err
@@ -944,20 +856,6 @@ func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownRes
 
 	state := internal.CtxGetState(s.rootCtx)
 	state.Set(internal.StatusIdle)
-
-	s.mutex.Unlock()
-
-	// Wait for the connectWithRetryRuns goroutine to finish with a short timeout.
-	// This prevents the goroutine from setting ErrResetConnection after Down() returns.
-	// The giveUpChan is closed at the end of connectWithRetryRuns.
-	if giveUpChan != nil {
-		select {
-		case <-giveUpChan:
-			log.Debugf("client goroutine finished successfully")
-		case <-time.After(5 * time.Second):
-			log.Warnf("timeout waiting for client goroutine to finish, proceeding anyway")
-		}
-	}
 
 	return &proto.DownResponse{}, nil
 }
@@ -1170,48 +1068,22 @@ func (s *Server) Status(
 	ctx context.Context,
 	msg *proto.StatusRequest,
 ) (*proto.StatusResponse, error) {
+	// Snapshot the run state under the lock. A run that hits a terminal auth
+	// failure now exits on its own (engine marks NeedsLogin), so we no longer
+	// poll-and-cancel: we just wait for the run to become ready or to end.
 	s.mutex.Lock()
-	// Only wait if the retry-loop goroutine is alive and making
-	// progress. clientRunning=true with connectionGoroutineRunning=false means the
-	// backoff has given up — there is nothing to wait for; let the
-	// caller observe the failed status directly.
-	alive := s.connectionGoroutineRunning()
+	client := s.connectClient
+	runningChan := s.clientRunningChan
+	doneChan := s.clientDoneChan
 	s.mutex.Unlock()
+	alive := client != nil && client.IsRunning()
 
 	if msg.WaitForReady != nil && *msg.WaitForReady && alive {
-		state := internal.CtxGetState(s.rootCtx)
-		status, err := state.Status()
-		if err != nil {
-			return nil, err
-		}
-
-		if status != internal.StatusIdle && status != internal.StatusConnected && status != internal.StatusConnecting {
-			s.actCancel()
-		}
-
-		ticker := time.NewTicker(1 * time.Second)
-		defer ticker.Stop()
-	loop:
-		for {
-			select {
-			case <-s.clientGiveUpChan:
-				ticker.Stop()
-				break loop
-			case <-s.clientRunningChan:
-				ticker.Stop()
-				break loop
-			case <-ticker.C:
-				status, err := state.Status()
-				if err != nil {
-					continue
-				}
-				if status != internal.StatusIdle && status != internal.StatusConnected && status != internal.StatusConnecting {
-					s.actCancel()
-				}
-				continue
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			}
+		select {
+		case <-runningChan:
+		case <-doneChan:
+		case <-ctx.Done():
+			return nil, ctx.Err()
 		}
 	}
 
@@ -1738,18 +1610,6 @@ func (s *Server) GetFeatures(ctx context.Context, msg *proto.GetFeaturesRequest)
 	return features, nil
 }
 
-// connectOnce performs a single client run (Run blocks, retrying its own
-// internal backoff, until the run ends). The outer connectWithRetryRuns
-// backoff re-invokes it only when a run returns an error.
-func (s *Server) connectOnce(client *internal.ConnectClient, config *profilemanager.Config, md metadata.MD, runningChan chan struct{}) error {
-	log.Tracef("running client connection")
-	if err := client.Run(config, md, runningChan, s.logFile); err != nil {
-		log.Debugf("run client connection exited with error: %v", err)
-		return err
-	}
-	return nil
-}
-
 // ensureConnectClient lazily builds the single, daemon-lifetime ConnectClient
 // and returns it. The client is bound to s.rootCtx (so its supervisor lives as
 // long as the daemon) and is never torn down on Down — Up/Down/MDM just drive
@@ -1826,44 +1686,6 @@ func (s *Server) onSessionExpire() {
 	}
 }
 
-// getConnectWithBackoff returns a backoff with exponential backoff strategy for connection retries
-func getConnectWithBackoff(ctx context.Context) backoff.BackOff {
-	initialInterval := parseEnvDuration(retryInitialIntervalVar, defaultInitialRetryTime)
-	maxInterval := parseEnvDuration(maxRetryIntervalVar, defaultMaxRetryInterval)
-	maxElapsedTime := parseEnvDuration(maxRetryTimeVar, defaultMaxRetryTime)
-	multiplier := defaultRetryMultiplier
-
-	if envValue := os.Getenv(retryMultiplierVar); envValue != "" {
-		// parse the multiplier from the environment variable string value to float64
-		value, err := strconv.ParseFloat(envValue, 64)
-		if err != nil {
-			log.Warnf("unable to parse environment variable %s: %s. using default: %f", retryMultiplierVar, envValue, multiplier)
-		} else {
-			multiplier = value
-		}
-	}
-
-	return backoff.WithContext(&backoff.ExponentialBackOff{
-		InitialInterval:     initialInterval,
-		RandomizationFactor: 1,
-		Multiplier:          multiplier,
-		MaxInterval:         maxInterval,
-		MaxElapsedTime:      maxElapsedTime, // 14 days
-		Stop:                backoff.Stop,
-		Clock:               backoff.SystemClock,
-	}, ctx)
-}
-
-// parseEnvDuration parses the environment variable and returns the duration
-func parseEnvDuration(envVar string, defaultDuration time.Duration) time.Duration {
-	if envValue := os.Getenv(envVar); envValue != "" {
-		if duration, err := time.ParseDuration(envValue); err == nil {
-			return duration
-		}
-		log.Warnf("unable to parse environment variable %s: %s. using default: %s", envVar, envValue, defaultDuration)
-	}
-	return defaultDuration
-}
 
 // sendTerminalNotification sends a terminal notification message
 // to inform the user that the NetBird connection session has expired.

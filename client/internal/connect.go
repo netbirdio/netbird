@@ -95,6 +95,13 @@ func (c *ConnectClient) Run(config *profilemanager.Config, md metadata.MD, runni
 	return c.sup.start(config, md, MobileDependency{}, runningChan, logPath)
 }
 
+// RunAsync starts a client run without blocking. done (if non-nil, buffered)
+// receives the run's end result. Used by the daemon, which drives the lifecycle
+// through the supervisor (Run/Stop/IsRunning) rather than blocking on Run.
+func (c *ConnectClient) RunAsync(config *profilemanager.Config, md metadata.MD, runningChan chan struct{}, done chan error) {
+	c.sup.startAsync(config, md, MobileDependency{}, runningChan, "", done)
+}
+
 // RunOnAndroid with main logic on mobile system
 func (c *ConnectClient) RunOnAndroid(
 	config *profilemanager.Config,

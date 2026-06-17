@@ -61,66 +61,6 @@ var (
 	}
 )
 
-// TestConnectWithRetryRuns checks that the connectWithRetry function runs and runs the retries according to the times specified via environment variables
-// we will use a management server started via to simulate the server and capture the number of retries
-func TestConnectWithRetryRuns(t *testing.T) {
-	// start the signal server
-	_, signalAddr, err := startSignal(t)
-	if err != nil {
-		t.Fatalf("failed to start signal server: %v", err)
-	}
-
-	counter := 0
-	// start the management server
-	_, mgmtAddr, err := startManagement(t, signalAddr, &counter)
-	if err != nil {
-		t.Fatalf("failed to start management server: %v", err)
-	}
-
-	ctx := internal.CtxInitState(context.Background())
-
-	ctx, cancel := context.WithDeadline(ctx, time.Now().Add(30*time.Second))
-	defer cancel()
-	// create new server
-	ic := profilemanager.ConfigInput{
-		ManagementURL: "http://" + mgmtAddr,
-		ConfigPath:    t.TempDir() + "/test-profile.json",
-	}
-
-	config, err := profilemanager.UpdateOrCreateConfig(ic)
-	if err != nil {
-		t.Fatalf("failed to create config: %v", err)
-	}
-
-	currUser, err := user.Current()
-	require.NoError(t, err)
-
-	pm := profilemanager.ServiceManager{}
-	err = pm.SetActiveProfileState(&profilemanager.ActiveProfileState{
-		Name:     "test-profile",
-		Username: currUser.Username,
-	})
-	if err != nil {
-		t.Fatalf("failed to set active profile state: %v", err)
-	}
-
-	s := New(ctx, "debug", "", false, false, false, false)
-
-	s.config = config
-
-	s.statusRecorder = peer.NewRecorder(config.ManagementURL.String())
-	t.Setenv(retryInitialIntervalVar, "1s")
-	t.Setenv(maxRetryIntervalVar, "2s")
-	t.Setenv(maxRetryTimeVar, "5s")
-	t.Setenv(retryMultiplierVar, "1")
-
-	client := s.ensureConnectClient()
-	s.connectWithRetryRuns(ctx, client, config, s.statusRecorder, nil, nil)
-	if counter < 3 {
-		t.Fatalf("expected counter > 2, got %d", counter)
-	}
-}
-
 func TestServer_Up(t *testing.T) {
 	tempDir := t.TempDir()
 	origDefaultProfileDir := profilemanager.DefaultConfigPathDir

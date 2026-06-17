@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
@@ -67,30 +66,15 @@ func (s *Server) onMDMPolicyChange(_, _ *mdm.Policy) error {
 		return nil
 	}
 
-	// End the in-flight run through the supervisor. With a daemon-lifetime
-	// client, cancelling actCtx alone no longer tears the run down (the run is
-	// bound to rootCtx), so Stop is what releases connectWithRetryRuns from
-	// client.Run and lets giveUpChan close below.
+	// End the in-flight run through the supervisor. Stop blocks until the run
+	// has fully unwound (the supervisor is the single place a run is stopped),
+	// so by the time it returns we can safely start a fresh run with the new
+	// config — no separate quiescence wait needed.
 	if err := s.connectClient.Stop(); err != nil {
 		log.Warnf("MDM restart: failed to stop current run: %v", err)
 	}
 	if s.actCancel != nil {
 		s.actCancel()
-	}
-
-	// Wait for previous connectWithRetryRuns to exit so we don't end up
-	// with two goroutines fighting over the same status recorder + engine.
-	// The teardown engages a fan-out of engine goroutines (peer workers,
-	// signal handler, route manager, ...). close(clientGiveUpChan)
-	// happens in the function-scope defer of connectWithRetryRuns, on
-	// every exit path (ctx cancel, backoff exhausted, panic) — see the
-	// defer in server.go.
-	if s.clientGiveUpChan != nil {
-		select {
-		case <-s.clientGiveUpChan:
-		case <-time.After(10 * time.Second):
-			return fmt.Errorf("failed to restart the engine due to timeout")
-		}
 	}
 
 	if err := s.restartEngineForMDMLocked(); err != nil {
@@ -162,14 +146,15 @@ func (s *Server) restartEngineForMDMLocked() error {
 	s.statusRecorder.UpdateRosenpass(config.RosenpassEnabled, config.RosenpassPermissive)
 	s.statusRecorder.UpdateLazyConnection(config.LazyConnectionEnabled)
 
-	ctx, cancel := context.WithCancel(s.rootCtx)
+	_, cancel := context.WithCancel(s.rootCtx)
 	s.actCancel = cancel
 	s.clientRunning = true
 	s.clientRunningChan = make(chan struct{})
-	s.clientGiveUpChan = make(chan struct{})
-	client := s.ensureConnectClient()
-	log.Info("MDM restart: spawning connectWithRetryRuns with re-resolved config")
-	go s.connectWithRetryRuns(ctx, client, config, s.statusRecorder, s.clientRunningChan, s.clientGiveUpChan)
+	s.clientDoneChan = make(chan error, 1)
+	log.Info("MDM restart: starting a fresh run with re-resolved config")
+	// MDM restart has no incoming RPC metadata; fire and forget (the supervisor
+	// reconnects internally and we don't block on the run).
+	s.ensureConnectClient().RunAsync(config, nil, s.clientRunningChan, s.clientDoneChan)
 	s.publishConfigChangedEvent("mdm")
 	return nil
 }
