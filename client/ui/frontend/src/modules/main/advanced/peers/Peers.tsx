@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
+import { Virtuoso } from "react-virtuoso";
 import { ChevronRightIcon, MonitorSmartphoneIcon } from "lucide-react";
 import type { PeerStatus } from "@bindings/services/models.js";
 import { cn } from "@/lib/cn";
@@ -45,6 +46,7 @@ export const Peers = () => {
     const { status } = useStatus();
     const [search, setSearch] = useState("");
     const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+    const [scrollParent, setScrollParent] = useState<HTMLDivElement | null>(null);
     const searchRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
@@ -130,41 +132,61 @@ export const Peers = () => {
                 </div>
                 <PeerFilters value={statusFilter} onChange={setStatusFilter} counts={counts} />
             </div>
-            <ScrollArea.Root type={"auto"} className={"flex-1 min-h-0 overflow-hidden"}>
-                <ScrollArea.Viewport className={"h-full w-full"}>
-                    {filtered.length === 0 ? <NoResults /> : <PeersList data={filtered} />}
-                </ScrollArea.Viewport>
-                <ScrollArea.Scrollbar
-                    orientation={"vertical"}
-                    className={cn(
-                        "flex select-none touch-none transition-colors",
-                        "w-1.5 bg-transparent py-1",
-                    )}
-                >
-                    <ScrollArea.Thumb
-                        className={
-                            "flex-1 rounded-full bg-nb-gray-800 hover:bg-nb-gray-700 relative"
-                        }
-                    />
-                </ScrollArea.Scrollbar>
-            </ScrollArea.Root>
+            {filtered.length === 0 ? (
+                <NoResults />
+            ) : (
+                <ScrollArea.Root type={"auto"} className={"flex-1 min-h-0 overflow-hidden"}>
+                    <ScrollArea.Viewport
+                        ref={setScrollParent}
+                        className={"h-full w-full"}
+                    >
+                        {scrollParent && (
+                            <PeersList data={filtered} scrollParent={scrollParent} />
+                        )}
+                    </ScrollArea.Viewport>
+                    <ScrollArea.Scrollbar
+                        orientation={"vertical"}
+                        className={cn(
+                            "flex select-none touch-none transition-colors",
+                            "w-1.5 bg-transparent py-1",
+                        )}
+                    >
+                        <ScrollArea.Thumb
+                            className={
+                                "flex-1 rounded-full bg-nb-gray-800 hover:bg-nb-gray-700 relative"
+                            }
+                        />
+                    </ScrollArea.Scrollbar>
+                </ScrollArea.Root>
+            )}
         </div>
     );
 };
 
-const PeersList = ({ data }: { data: PeerStatus[] }) => {
+const ListTopSpacer = () => <div className={"h-2"} />;
+
+type PeersListProps = {
+    data: PeerStatus[];
+    scrollParent: HTMLElement;
+};
+
+const PeersList = ({ data, scrollParent }: PeersListProps) => {
     const { t } = useTranslation();
     const { setSelected } = usePeerDetail();
 
     return (
-        <ul className={"flex flex-col"}>
-            {data.map((peer) => {
+        <Virtuoso
+            data={data}
+            customScrollParent={scrollParent}
+            increaseViewportBy={400}
+            computeItemKey={(_, peer) => peer.pubKey}
+            components={{ Header: ListTopSpacer }}
+            itemContent={(_, peer) => {
                 const isConnected = peer.connStatus === "Connected";
                 return (
-                    <li
-                        key={peer.pubKey}
+                    <div
                         className={cn(
-                            "group relative flex items-start gap-2.5 pl-6 pr-4 py-3 min-w-0 first:mt-2",
+                            "group relative flex items-start gap-2.5 pl-6 pr-4 py-3 min-w-0",
                             "hover:bg-nb-gray-900/40 transition-colors",
                             "wails-no-draggable",
                         )}
@@ -229,9 +251,9 @@ const PeersList = ({ data }: { data: PeerStatus[] }) => {
                                 "opacity-0 group-hover:opacity-100 transition-opacity",
                             )}
                         />
-                    </li>
+                    </div>
                 );
-            })}
-        </ul>
+            }}
+        />
     );
 };

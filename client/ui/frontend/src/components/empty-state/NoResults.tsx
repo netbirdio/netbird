@@ -16,7 +16,7 @@ export const NoResults = ({ icon = FunnelXIcon, title, description }: Props) => 
             icon={icon}
             title={title ?? t("common.noResults.title")}
             description={description ?? t("common.noResults.description")}
-            className={"relative -top-[3.8rem]"}
+            className={"relative -top-[3.8rem] pointer-events-none"}
         />
     );
 };

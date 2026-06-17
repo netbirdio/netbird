@@ -1,6 +1,13 @@
-import { useEffect, useMemo, useRef, useState, type ComponentType } from "react";
+import {
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+    type ComponentType,
+} from "react";
 import { useTranslation } from "react-i18next";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
+import { Virtuoso } from "react-virtuoso";
 import { GlobeIcon, Layers3Icon, type LucideProps, NetworkIcon, WorkflowIcon } from "lucide-react";
 import type { Network } from "@bindings/services/models.js";
 import { cn } from "@/lib/cn";
@@ -67,6 +74,7 @@ export const Networks = () => {
     const { networkRoutes, toggleNetwork, setNetworksSelected } = useNetworks();
     const [search, setSearch] = useState("");
     const [filter, setFilter] = useState<NetworkFilter>("all");
+    const [scrollParent, setScrollParent] = useState<HTMLDivElement | null>(null);
     const searchRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
@@ -162,28 +170,37 @@ export const Networks = () => {
                 </div>
                 <NetworkFilters value={filter} onChange={setFilter} counts={counts} />
             </div>
-            <ScrollArea.Root type={"auto"} className={"flex-1 min-h-0 overflow-hidden"}>
-                <ScrollArea.Viewport className={"h-full w-full"}>
-                    {filtered.length === 0 ? (
-                        <NoResults />
-                    ) : (
-                        <NetworksList data={filtered} onToggle={toggleNetwork} />
-                    )}
-                </ScrollArea.Viewport>
-                <ScrollArea.Scrollbar
-                    orientation={"vertical"}
-                    className={cn(
-                        "flex select-none touch-none transition-colors",
-                        "w-1.5 bg-transparent py-1",
-                    )}
-                >
-                    <ScrollArea.Thumb
-                        className={
-                            "flex-1 rounded-full bg-nb-gray-800 hover:bg-nb-gray-700 relative"
-                        }
-                    />
-                </ScrollArea.Scrollbar>
-            </ScrollArea.Root>
+            {filtered.length === 0 ? (
+                <NoResults />
+            ) : (
+                <ScrollArea.Root type={"auto"} className={"flex-1 min-h-0 overflow-hidden"}>
+                    <ScrollArea.Viewport
+                        ref={setScrollParent}
+                        className={"h-full w-full"}
+                    >
+                        {scrollParent && (
+                            <NetworksList
+                                data={filtered}
+                                onToggle={toggleNetwork}
+                                scrollParent={scrollParent}
+                            />
+                        )}
+                    </ScrollArea.Viewport>
+                    <ScrollArea.Scrollbar
+                        orientation={"vertical"}
+                        className={cn(
+                            "flex select-none touch-none transition-colors",
+                            "w-1.5 bg-transparent py-1",
+                        )}
+                    >
+                        <ScrollArea.Thumb
+                            className={
+                                "flex-1 rounded-full bg-nb-gray-800 hover:bg-nb-gray-700 relative"
+                            }
+                        />
+                    </ScrollArea.Scrollbar>
+                </ScrollArea.Root>
+            )}
             {filtered.length > 0 && (
                 <div
                     className={cn(
@@ -218,18 +235,25 @@ export const Networks = () => {
 type NetworksListProps = {
     data: Network[];
     onToggle: (id: string, selected: boolean) => void;
+    scrollParent: HTMLElement;
 };
 
-const NetworksList = ({ data, onToggle }: NetworksListProps) => {
+const NetworksHeader = () => <div className={"h-2"} />;
+
+const NetworksList = ({ data, onToggle, scrollParent }: NetworksListProps) => {
     const { t } = useTranslation();
 
     return (
-        <ul className={"flex flex-col"}>
-            {data.map((n) => (
-                <li
-                    key={n.id}
+        <Virtuoso
+            data={data}
+            customScrollParent={scrollParent}
+            increaseViewportBy={400}
+            computeItemKey={(_, n) => n.id}
+            components={{ Header: NetworksHeader }}
+            itemContent={(_, n) => (
+                <div
                     className={cn(
-                        "group relative flex items-start gap-2.5 pl-6 pr-9 py-3 min-w-0 first:mt-2",
+                        "group relative flex items-start gap-2.5 pl-6 pr-9 py-3 min-w-0",
                         "hover:bg-nb-gray-900/40 transition-colors",
                         "wails-no-draggable",
                     )}
@@ -265,9 +289,9 @@ const NetworksList = ({ data, onToggle }: NetworksListProps) => {
                             label={n.selected ? t("networks.selected") : t("networks.unselected")}
                         />
                     </div>
-                </li>
-            ))}
-        </ul>
+                </div>
+            )}
+        />
     );
 };
 
