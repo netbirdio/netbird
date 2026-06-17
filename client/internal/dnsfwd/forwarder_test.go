@@ -134,22 +134,26 @@ func (m *MockResolver) LookupNetIP(ctx context.Context, network, host string) ([
 
 func (m *MockResolver) LookupMX(ctx context.Context, name string) ([]*net.MX, error) {
 	args := m.Called(ctx, name)
-	return args.Get(0).([]*net.MX), args.Error(1)
+	recs, _ := args.Get(0).([]*net.MX)
+	return recs, args.Error(1)
 }
 
 func (m *MockResolver) LookupTXT(ctx context.Context, name string) ([]string, error) {
 	args := m.Called(ctx, name)
-	return args.Get(0).([]string), args.Error(1)
+	recs, _ := args.Get(0).([]string)
+	return recs, args.Error(1)
 }
 
 func (m *MockResolver) LookupNS(ctx context.Context, name string) ([]*net.NS, error) {
 	args := m.Called(ctx, name)
-	return args.Get(0).([]*net.NS), args.Error(1)
+	recs, _ := args.Get(0).([]*net.NS)
+	return recs, args.Error(1)
 }
 
 func (m *MockResolver) LookupSRV(ctx context.Context, service, proto, name string) (string, []*net.SRV, error) {
 	args := m.Called(ctx, service, proto, name)
-	return args.String(0), args.Get(1).([]*net.SRV), args.Error(2)
+	recs, _ := args.Get(1).([]*net.SRV)
+	return args.String(0), recs, args.Error(2)
 }
 
 func (m *MockResolver) LookupCNAME(ctx context.Context, host string) (string, error) {
@@ -159,7 +163,8 @@ func (m *MockResolver) LookupCNAME(ctx context.Context, host string) (string, er
 
 func (m *MockResolver) LookupAddr(ctx context.Context, addr string) ([]string, error) {
 	args := m.Called(ctx, addr)
-	return args.Get(0).([]string), args.Error(1)
+	recs, _ := args.Get(0).([]string)
+	return recs, args.Error(1)
 }
 
 func TestDNSForwarder_SubdomainAccessLogic(t *testing.T) {
@@ -676,34 +681,78 @@ func TestDNSForwarder_RecordQueries(t *testing.T) {
 		mockResolver.AssertExpectations(t)
 	})
 
-	t.Run("missing MX on existing name is NODATA", func(t *testing.T) {
+	t.Run("missing MX is NODATA not NXDOMAIN", func(t *testing.T) {
 		mockResolver := &MockResolver{}
 		forwarder := newRecordTestForwarder(t, mockResolver, "example.com")
 
+		// A not-found cannot prove the name is absent (it may exist with only
+		// other record types), so it must answer NODATA, never NXDOMAIN.
 		mockResolver.On("LookupMX", mock.Anything, "example.com.").
-			Return([]*net.MX{}, notFound).Once()
-		// Existence probe: the name resolves to an address, so the name exists.
-		mockResolver.On("LookupNetIP", mock.Anything, "ip", "example.com.").
-			Return([]netip.Addr{netip.MustParseAddr("1.2.3.4")}, nil).Once()
+			Return(nil, notFound).Once()
 
 		resp := runRecordQuery(t, forwarder, "example.com", dns.TypeMX)
-		assert.Equal(t, dns.RcodeSuccess, resp.Rcode, "existing name with no MX must be NODATA")
+		assert.Equal(t, dns.RcodeSuccess, resp.Rcode, "missing record must be NODATA")
 		assert.Empty(t, resp.Answer)
 		mockResolver.AssertExpectations(t)
 	})
 
-	t.Run("missing MX on nonexistent name is NXDOMAIN", func(t *testing.T) {
+	t.Run("NS records are forwarded", func(t *testing.T) {
 		mockResolver := &MockResolver{}
 		forwarder := newRecordTestForwarder(t, mockResolver, "example.com")
 
-		mockResolver.On("LookupMX", mock.Anything, "example.com.").
-			Return([]*net.MX{}, notFound).Once()
-		// Existence probe: the name has no address either, so it truly doesn't exist.
-		mockResolver.On("LookupNetIP", mock.Anything, "ip", "example.com.").
-			Return([]netip.Addr{}, notFound).Once()
+		mockResolver.On("LookupNS", mock.Anything, "example.com.").
+			Return([]*net.NS{{Host: "ns1.example.com."}}, nil).Once()
 
-		resp := runRecordQuery(t, forwarder, "example.com", dns.TypeMX)
-		assert.Equal(t, dns.RcodeNameError, resp.Rcode, "nonexistent name may be NXDOMAIN")
+		resp := runRecordQuery(t, forwarder, "example.com", dns.TypeNS)
+		require.Equal(t, dns.RcodeSuccess, resp.Rcode)
+		require.Len(t, resp.Answer, 1)
+		ns, ok := resp.Answer[0].(*dns.NS)
+		require.True(t, ok, "answer should be an NS record")
+		assert.Equal(t, "ns1.example.com.", ns.Ns)
+		mockResolver.AssertExpectations(t)
+	})
+
+	t.Run("missing NS is NODATA", func(t *testing.T) {
+		mockResolver := &MockResolver{}
+		forwarder := newRecordTestForwarder(t, mockResolver, "example.com")
+
+		mockResolver.On("LookupNS", mock.Anything, "example.com.").
+			Return(nil, notFound).Once()
+
+		resp := runRecordQuery(t, forwarder, "example.com", dns.TypeNS)
+		assert.Equal(t, dns.RcodeSuccess, resp.Rcode)
+		assert.Empty(t, resp.Answer)
+		mockResolver.AssertExpectations(t)
+	})
+
+	t.Run("SRV records are forwarded", func(t *testing.T) {
+		mockResolver := &MockResolver{}
+		forwarder := newRecordTestForwarder(t, mockResolver, "_sip._tcp.example.com")
+
+		mockResolver.On("LookupSRV", mock.Anything, "", "", "_sip._tcp.example.com.").
+			Return("", []*net.SRV{{Target: "sip.example.com.", Port: 5060, Priority: 10, Weight: 5}}, nil).Once()
+
+		resp := runRecordQuery(t, forwarder, "_sip._tcp.example.com", dns.TypeSRV)
+		require.Equal(t, dns.RcodeSuccess, resp.Rcode)
+		require.Len(t, resp.Answer, 1)
+		srv, ok := resp.Answer[0].(*dns.SRV)
+		require.True(t, ok, "answer should be an SRV record")
+		assert.Equal(t, "sip.example.com.", srv.Target)
+		assert.Equal(t, uint16(5060), srv.Port)
+		assert.Equal(t, uint16(10), srv.Priority)
+		mockResolver.AssertExpectations(t)
+	})
+
+	t.Run("missing SRV is NODATA", func(t *testing.T) {
+		mockResolver := &MockResolver{}
+		forwarder := newRecordTestForwarder(t, mockResolver, "_sip._tcp.example.com")
+
+		mockResolver.On("LookupSRV", mock.Anything, "", "", "_sip._tcp.example.com.").
+			Return("", nil, notFound).Once()
+
+		resp := runRecordQuery(t, forwarder, "_sip._tcp.example.com", dns.TypeSRV)
+		assert.Equal(t, dns.RcodeSuccess, resp.Rcode)
+		assert.Empty(t, resp.Answer)
 		mockResolver.AssertExpectations(t)
 	})
 
