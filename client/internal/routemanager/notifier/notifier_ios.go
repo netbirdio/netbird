@@ -3,6 +3,7 @@
 package notifier
 
 import (
+	"container/list"
 	"net/netip"
 	"slices"
 	"sort"
@@ -15,45 +16,20 @@ import (
 
 type Notifier struct {
 	mu              sync.Mutex
+	cond            *sync.Cond
 	currentPrefixes []string
 	listener        listener.NetworkChangeListener
-
-	// updates carries route snapshots to the single delivery goroutine. A
-	// dedicated worker (rather than a fresh goroutine per notify) guarantees
-	// the listener observes updates in the exact order they were produced.
-	//
-	// Without this ordering guarantee a stale snapshot can be delivered last
-	// and clobber the correct one. On exit-node disable the ::/0 removal
-	// arrives as a separate prefix update right after the 0.0.0.0/0 removal;
-	// with a goroutine-per-notify the two could be reordered, leaving the
-	// synthesized ::/0 default route installed on the tunnel and black-holing
-	// all IPv6 traffic while IPv4 worked.
-	updates chan string
+	queue           *list.List
+	closed          bool
 }
 
 func NewNotifier() *Notifier {
 	n := &Notifier{
-		// Buffered so producers (route updates run under the route manager
-		// lock) don't block on the listener callback. A small buffer absorbs
-		// the bursts seen during exit-node toggles.
-		updates: make(chan string, 16),
+		queue: list.New(),
 	}
+	n.cond = sync.NewCond(&n.mu)
 	go n.deliverLoop()
 	return n
-}
-
-// deliverLoop is the single consumer of n.updates. Serializing delivery here
-// is what preserves ordering: snapshots reach the listener one at a time, in
-// production order.
-func (n *Notifier) deliverLoop() {
-	for routes := range n.updates {
-		n.mu.Lock()
-		l := n.listener
-		n.mu.Unlock()
-		if l != nil {
-			l.OnNetworkChanged(routes)
-		}
-	}
 }
 
 func (n *Notifier) SetListener(listener listener.NetworkChangeListener) {
@@ -88,14 +64,39 @@ func (n *Notifier) OnNewPrefixes(prefixes []netip.Prefix) {
 		return
 	}
 	n.currentPrefixes = newNets
-	// Snapshot the delivered string under the lock so it is consistent and
-	// can't race with the next update mutating currentPrefixes.
 	routes := strings.Join(n.currentPrefixes, ",")
+	n.queue.PushBack(routes)
+	n.cond.Signal()
 	n.mu.Unlock()
+}
 
-	n.updates <- routes
+func (n *Notifier) Close() {
+	n.mu.Lock()
+	n.closed = true
+	n.cond.Signal()
+	n.mu.Unlock()
 }
 
 func (n *Notifier) GetInitialRouteRanges() []string {
 	return nil
+}
+
+func (n *Notifier) deliverLoop() {
+	for {
+		n.mu.Lock()
+		for n.queue.Len() == 0 && !n.closed {
+			n.cond.Wait()
+		}
+		if n.closed && n.queue.Len() == 0 {
+			n.mu.Unlock()
+			return
+		}
+		routes := n.queue.Remove(n.queue.Front()).(string)
+		l := n.listener
+		n.mu.Unlock()
+
+		if l != nil {
+			l.OnNetworkChanged(routes)
+		}
+	}
 }

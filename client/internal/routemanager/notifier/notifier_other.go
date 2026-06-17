@@ -38,3 +38,7 @@ func (n *Notifier) OnNewPrefixes(prefixes []netip.Prefix) {
 func (n *Notifier) GetInitialRouteRanges() []string {
 	return []string{}
 }
+
+func (n *Notifier) Close() {
+	// unused
+}
