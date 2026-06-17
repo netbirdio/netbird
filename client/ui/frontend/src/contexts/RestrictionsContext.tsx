@@ -10,6 +10,7 @@ import {
 import { Events } from "@wailsio/runtime";
 import { Settings as SettingsSvc } from "@bindings/services";
 import { Restrictions } from "@bindings/services/models.js";
+import { useStatus } from "@/contexts/StatusContext.tsx";
 
 const EVENT_SYSTEM = "netbird:event";
 const EMPTY = new Restrictions();
@@ -21,6 +22,7 @@ export const useRestrictions = () => useContext(RestrictionsContext);
 export const RestrictionsProvider = ({ children }: { children: ReactNode }) => {
     const [restrictions, setRestrictions] = useState<Restrictions>(EMPTY);
     const mounted = useRef(true);
+    const { status } = useStatus();
 
     const refresh = useCallback(async () => {
         try {
@@ -33,7 +35,6 @@ export const RestrictionsProvider = ({ children }: { children: ReactNode }) => {
 
     useEffect(() => {
         mounted.current = true;
-        refresh();
 
         const off = Events.On(
             EVENT_SYSTEM,
@@ -53,6 +54,10 @@ export const RestrictionsProvider = ({ children }: { children: ReactNode }) => {
             document.removeEventListener("visibilitychange", onVisible);
         };
     }, [refresh]);
+
+    useEffect(() => {
+        if (status?.status) refresh();
+    }, [status?.status, refresh]);
 
     return (
         <RestrictionsContext.Provider value={restrictions}>{children}</RestrictionsContext.Provider>
