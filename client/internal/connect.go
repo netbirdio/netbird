@@ -101,8 +101,7 @@ func (c *ConnectClient) Run(config *profilemanager.Config, md metadata.MD, runni
 // channels are created and owned by the supervisor — callers never hold them.
 func (c *ConnectClient) RunAsync(config *profilemanager.Config, md metadata.MD) {
 	est := make(chan struct{})
-	d := make(chan error, 1)
-	c.sup.startAsync(config, md, MobileDependency{}, est, "", d)
+	c.sup.startAsync(config, md, MobileDependency{}, est, "", nil)
 }
 
 // WaitEstablishedOrDone blocks until the in-flight run becomes established (nil),

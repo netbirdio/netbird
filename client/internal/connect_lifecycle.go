@@ -27,19 +27,20 @@ const (
 	opStart lifecycleOp = iota
 	opStop
 	opStatus
-	opSignals
+	opWaitEstablished
 )
 
-// lifecycleCmd is a single start/stop/status request handed to the supervisor
-// goroutine. All three flow through the same cmdCh so they are strictly
-// ordered (FIFO) with respect to each other.
+// lifecycleCmd is a single lifecycle request handed to the supervisor goroutine.
+// They all flow through the same cmdCh so they are strictly ordered (FIFO) with
+// respect to each other.
 //
 // done is the caller-supplied notification channel (nil for fire-and-forget):
 //   - for opStart it receives the run's end result when the run terminates, or
 //     errAlreadyRunning immediately if a run is already in flight.
 //   - for opStop it receives nil once the in-flight run has fully unwound.
+//   - for opWaitEstablished it receives the wait outcome (see waitEstablishedOrDone).
 //
-// reply is used only by opStatus; sigReply only by opSignals.
+// reply is used only by opStatus. waitCtx is used only by opWaitEstablished.
 type lifecycleCmd struct {
 	op          lifecycleOp
 	config      *profilemanager.Config
@@ -49,14 +50,20 @@ type lifecycleCmd struct {
 	logPath     string
 	done        chan error
 	reply       chan bool
-	sigReply    chan runSignals
+	waitCtx     context.Context
 }
 
-// runSignals exposes the in-flight run's lifecycle channels to external waiters
-// (the daemon's waitForUp/Status). Both are nil when no run is in flight.
-type runSignals struct {
-	established <-chan struct{} // closed by the run once the connection is established
-	done        <-chan error    // receives the run's end result
+// runState holds the per-run termination signal owned by the loop goroutine. It
+// never escapes the supervisor as an API; the only readers are the per-wait
+// goroutines the loop spawns for opWaitEstablished.
+//
+// ended is closed (broadcast) when the run terminates, so any number of waiters
+// can observe it; err is the run's end result, valid only after ended is closed.
+// The "established" signal is not duplicated here — it is the start command's
+// runningChan, snapshotted directly from curStart when a waiter needs it.
+type runState struct {
+	ended chan struct{} // closed by finishRun when the run terminates
+	err   error         // run end result, valid after ended is closed
 }
 
 // runEndResult is sent by the run goroutine to the supervisor when a run ends,
@@ -82,8 +89,9 @@ type supervisor struct {
 
 	// owned exclusively by the loop goroutine. curStart is the in-flight start
 	// command (nil = idle); its done channel is notified when the run ends.
-	// runCancel cancels that run.
+	// curRun holds that run's lifecycle channels; runCancel cancels it.
 	curStart  *lifecycleCmd
+	curRun    *runState
 	runCancel context.CancelFunc
 }
 
@@ -112,12 +120,8 @@ func (s *supervisor) loop() {
 				s.handleStop(cmd)
 			case opStatus:
 				cmd.reply <- (s.isRunningInternal())
-			case opSignals:
-				var sig runSignals
-				if s.curStart != nil {
-					sig = runSignals{established: s.curStart.runningChan, done: s.curStart.done}
-				}
-				cmd.sigReply <- sig
+			case opWaitEstablished:
+				s.handleWaitEstablished(cmd)
 			}
 		case res := <-s.runEnded:
 			// Run ended on its own, without an explicit Stop.
@@ -141,6 +145,7 @@ func (s *supervisor) handleStart(cmd lifecycleCmd) {
 	}
 	s.runCancel = cancel
 	s.curStart = &cmd
+	s.curRun = &runState{ended: make(chan struct{})}
 
 	go func(ctx context.Context, cfg *profilemanager.Config, m MobileDependency, rc chan struct{}, lp string) {
 		err := s.run(ctx, cfg, m, rc, lp)
@@ -168,9 +173,43 @@ func (s *supervisor) handleStop(cmd lifecycleCmd) {
 func (s *supervisor) finishRun(err error) {
 	s.runCancel = nil
 	if s.isRunningInternal() {
+		// Publish the result to the broadcast channel before nil-ing curRun, so
+		// any opWaitEstablished goroutines blocked on ended observe err.
+		s.curRun.err = err
+		close(s.curRun.ended)
+		s.curRun = nil
+
 		notify(s.curStart.done, err)
 		s.curStart = nil
 	}
+}
+
+// handleWaitEstablished answers an opWaitEstablished request. The select itself
+// runs in a spawned goroutine on the run's channels so it never blocks the loop;
+// the loop only snapshots the in-flight run's channels (which it owns) here.
+func (s *supervisor) handleWaitEstablished(cmd lifecycleCmd) {
+	caller := cmd.done
+	if !s.isRunningInternal() {
+		notify(caller, errNoRunInFlight)
+		return
+	}
+	rs := s.curRun
+	established := s.curStart.runningChan
+	ctx := cmd.waitCtx
+	go func() {
+		select {
+		case <-established:
+			notify(caller, nil)
+		case <-rs.ended:
+			if rs.err != nil {
+				notify(caller, rs.err)
+				return
+			}
+			notify(caller, errStoppedBeforeEstablished)
+		case <-ctx.Done():
+			notify(caller, ctx.Err())
+		}
+	}()
 }
 
 // shutdown tears down the in-flight run when the parent context is cancelled,
@@ -241,40 +280,23 @@ func (s *supervisor) isRunningInternal() bool {
 // waitEstablishedOrDone blocks until the in-flight run becomes established
 // (returns nil) or ends before that (returns the run error, or
 // errStoppedBeforeEstablished on a clean stop), or ctx is cancelled. Returns
-// errNoRunInFlight if no run is in flight. The select runs in the caller's
-// goroutine on the run's channels — it does not block the supervisor loop.
+// errNoRunInFlight if no run is in flight. The wait is performed by a goroutine
+// spawned inside the loop (see handleWaitEstablished); the run's channels never
+// leave the supervisor.
 func (s *supervisor) waitEstablishedOrDone(ctx context.Context) error {
-	sig := s.signals()
-	if sig.established == nil {
-		return errNoRunInFlight
-	}
+	reply := make(chan error, 1)
 	select {
-	case <-sig.established:
-		return nil
-	case err := <-sig.done:
-		if err != nil {
-			return err
-		}
-		return errStoppedBeforeEstablished
+	case s.cmdCh <- lifecycleCmd{op: opWaitEstablished, waitCtx: ctx, done: reply}:
 	case <-ctx.Done():
 		return ctx.Err()
-	}
-}
-
-// signals asks the loop for the in-flight run's lifecycle channels, serialized
-// with start/stop so the returned pair is consistent. Both nil when idle.
-func (s *supervisor) signals() runSignals {
-	reply := make(chan runSignals, 1)
-	select {
-	case s.cmdCh <- lifecycleCmd{op: opSignals, sigReply: reply}:
 	case <-s.ctx.Done():
-		return runSignals{}
+		return s.ctx.Err()
 	}
 	select {
-	case sig := <-reply:
-		return sig
+	case err := <-reply:
+		return err
 	case <-s.ctx.Done():
-		return runSignals{}
+		return s.ctx.Err()
 	}
 }
 
