@@ -71,11 +71,11 @@ export const ProfileCreationModal = ({ open, onOpenChange, onSubmit, initial }: 
     useEffect(() => {
         if (!open) return;
         initialModeRef.current = mode;
-        const id = window.setTimeout(() => {
+        const id = globalThis.setTimeout(() => {
             nameRef.current?.focus();
             nameRef.current?.select();
         }, 0);
-        return () => window.clearTimeout(id);
+        return () => globalThis.clearTimeout(id);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [open]);
 
@@ -108,7 +108,7 @@ export const ProfileCreationModal = ({ open, onOpenChange, onSubmit, initial }: 
         }
         const target = normalizeManagementUrl(trimmed);
 
-        const unchanged = initial && target === initial.managementUrl;
+        const unchanged = target === initial?.managementUrl;
         return { url: target, needsReachCheck: !unchanged };
     };
 

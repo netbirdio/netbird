@@ -504,11 +504,9 @@ const RowActions = ({
 }: RowActionsProps) => {
     const { t } = useTranslation();
     const deleteDisabled = isDefault || isActive;
-    const deleteDisabledReason = isDefault
-        ? t("profile.delete.disabledDefault")
-        : isActive
-          ? t("profile.delete.disabledActive")
-          : null;
+    let deleteDisabledReason: string | null = null;
+    if (isDefault) deleteDisabledReason = t("profile.delete.disabledDefault");
+    else if (isActive) deleteDisabledReason = t("profile.delete.disabledActive");
     return (
         <div className={"inline-flex items-center gap-1"}>
             <ActionIconButton

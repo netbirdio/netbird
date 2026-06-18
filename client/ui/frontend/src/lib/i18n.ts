@@ -77,6 +77,9 @@ export async function initI18n(): Promise<void> {
         returnNull: false,
     });
 
+    syncDocumentLang();
+    i18next.on("languageChanged", syncDocumentLang);
+
     Events.On("netbird:preferences:changed", (e) => {
         const next = e.data?.language;
         if (next && next !== i18next.language) {
@@ -85,6 +88,12 @@ export async function initI18n(): Promise<void> {
             });
         }
     });
+}
+
+function syncDocumentLang() {
+    if (typeof document !== "undefined") {
+        document.documentElement.lang = i18next.language;
+    }
 }
 
 export async function loadLanguages() {

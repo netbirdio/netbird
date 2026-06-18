@@ -77,6 +77,7 @@ export const MainHeader = () => {
                         className={"select-none"}
                         aria-label={t("header.menu.open")}
                         aria-haspopup={"menu"}
+                        aria-expanded={menuOpen}
                     />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
@@ -150,7 +151,7 @@ export const MainHeader = () => {
     );
 
     return (
-        <div
+        <header
             className={cn(
                 "wails-draggable relative z-10 shrink-0 cursor-default",
                 "top-3 flex h-12 items-center",
@@ -169,7 +170,7 @@ export const MainHeader = () => {
                 <div />
             </div>
             <div className={"absolute right-[1.3rem] top-1/2 -translate-y-1/2"}>{settingsSlot}</div>
-        </div>
+        </header>
     );
 };
 

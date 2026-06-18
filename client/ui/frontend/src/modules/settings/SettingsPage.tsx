@@ -87,43 +87,45 @@ export const SettingsPage = () => {
             ) : (
                 <div className={"h-px shrink-0 bg-nb-gray-920/0"} />
             )}
-            <VerticalTabs value={active} onValueChange={setActive}>
-                <SettingsNavigation />
-                <AppRightPanel>
-                    <AutostartSettingsProvider>
-                        <SettingsProvider>
-                            <ScrollArea.Root
-                                key={active}
-                                type={"auto"}
-                                className={"min-h-0 flex-1 overflow-hidden"}
-                            >
-                                <ScrollArea.Viewport className={"h-full w-full"}>
-                                    <div className={"px-7 py-6"}>
-                                        {visibleTabs.map((tab) => (
-                                            <VerticalTabs.Content key={tab} value={tab}>
-                                                {TAB_CONTENT[tab]}
-                                            </VerticalTabs.Content>
-                                        ))}
-                                    </div>
-                                </ScrollArea.Viewport>
-                                <ScrollArea.Scrollbar
-                                    orientation={"vertical"}
-                                    className={cn(
-                                        "flex touch-none select-none transition-colors",
-                                        "w-1.5 bg-transparent py-1",
-                                    )}
+            <main className={"flex min-h-0 flex-1"}>
+                <VerticalTabs value={active} onValueChange={setActive}>
+                    <SettingsNavigation />
+                    <AppRightPanel>
+                        <AutostartSettingsProvider>
+                            <SettingsProvider>
+                                <ScrollArea.Root
+                                    key={active}
+                                    type={"auto"}
+                                    className={"min-h-0 flex-1 overflow-hidden"}
                                 >
-                                    <ScrollArea.Thumb
-                                        className={
-                                            "relative flex-1 rounded-full bg-nb-gray-800 hover:bg-nb-gray-700"
-                                        }
-                                    />
-                                </ScrollArea.Scrollbar>
-                            </ScrollArea.Root>
-                        </SettingsProvider>
-                    </AutostartSettingsProvider>
-                </AppRightPanel>
-            </VerticalTabs>
+                                    <ScrollArea.Viewport className={"h-full w-full"}>
+                                        <div className={"px-7 py-6"}>
+                                            {visibleTabs.map((tab) => (
+                                                <VerticalTabs.Content key={tab} value={tab}>
+                                                    {TAB_CONTENT[tab]}
+                                                </VerticalTabs.Content>
+                                            ))}
+                                        </div>
+                                    </ScrollArea.Viewport>
+                                    <ScrollArea.Scrollbar
+                                        orientation={"vertical"}
+                                        className={cn(
+                                            "flex touch-none select-none transition-colors",
+                                            "w-1.5 bg-transparent py-1",
+                                        )}
+                                    >
+                                        <ScrollArea.Thumb
+                                            className={
+                                                "relative flex-1 rounded-full bg-nb-gray-800 hover:bg-nb-gray-700"
+                                            }
+                                        />
+                                    </ScrollArea.Scrollbar>
+                                </ScrollArea.Root>
+                            </SettingsProvider>
+                        </AutostartSettingsProvider>
+                    </AppRightPanel>
+                </VerticalTabs>
+            </main>
         </>
     );
 };

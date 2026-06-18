@@ -34,7 +34,7 @@ export const Badge = forwardRef<HTMLSpanElement, Props>(function Badge(
             )}
             {...rest}
         >
-            {Icon && <Icon size={iconSize} />}
+            {Icon && <Icon size={iconSize} aria-hidden={"true"} />}
             {children}
         </span>
     );

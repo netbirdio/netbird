@@ -44,7 +44,7 @@ const MainBody = () => {
     const isAdvanced = viewMode === "advanced";
 
     return (
-        <div className={"wails-draggable flex min-h-0 flex-1"}>
+        <main className={"wails-draggable flex min-h-0 flex-1"}>
             {/* Windows narrower width compensates for the OS frame Wails counts differently than macOS.
                 See https://github.com/wailsapp/wails/issues/3260 */}
             <div
@@ -65,7 +65,7 @@ const MainBody = () => {
                     <AdvancedAppRightPanel />
                 </NavSectionProvider>
             )}
-        </div>
+        </main>
     );
 };
 

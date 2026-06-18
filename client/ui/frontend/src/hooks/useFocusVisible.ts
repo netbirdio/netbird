@@ -24,15 +24,15 @@ const isKeyboardEvent = (e: KeyboardEvent) => {
     return e.key === "Tab" || e.key === "Escape" || e.key.startsWith("Arrow");
 };
 
-if (typeof window !== "undefined") {
-    window.addEventListener(
+if (globalThis.window !== undefined) {
+    globalThis.addEventListener(
         "keydown",
         (e) => {
             if (isKeyboardEvent(e)) setModality("keyboard");
         },
         true,
     );
-    window.addEventListener("pointerdown", () => setModality("pointer"), true);
+    globalThis.addEventListener("pointerdown", () => setModality("pointer"), true);
 }
 
 export const useFocusVisible = (): boolean => {

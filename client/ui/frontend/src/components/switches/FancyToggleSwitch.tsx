@@ -90,6 +90,7 @@ export default function FancyToggleSwitch({
                         id={switchId}
                         checked={value}
                         onCheckedChange={onChange}
+                        disabled={disabled}
                         dataCy={dataCy}
                         aria-describedby={helpText ? descriptionId : undefined}
                     />

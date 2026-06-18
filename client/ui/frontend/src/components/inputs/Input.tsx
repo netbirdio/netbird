@@ -172,7 +172,7 @@ function NumberStepper({
                     "flex w-9 flex-1 cursor-default items-center justify-center text-nb-gray-300 transition-colors hover:bg-nb-gray-800"
                 }
             >
-                <ChevronUp size={12} />
+                <ChevronUp size={12} aria-hidden={"true"} />
             </button>
             <button
                 type={"button"}
@@ -184,16 +184,22 @@ function NumberStepper({
                     "border-t border-neutral-200 dark:border-nb-gray-700",
                 )}
             >
-                <ChevronDown size={12} />
+                <ChevronDown size={12} aria-hidden={"true"} />
             </button>
         </div>
     );
 }
 
-function FieldMessage({ error, warning }: Readonly<{ error?: string; warning?: string }>) {
+function FieldMessage({
+    id,
+    error,
+    warning,
+}: Readonly<{ id?: string; error?: string; warning?: string }>) {
     if (!error && !warning) return null;
     return (
         <span
+            id={id}
+            role={error ? "alert" : "status"}
             className={cn(
                 "mt-2 inline-flex items-center gap-1 text-xs",
                 error ? "text-red-500" : "text-orange-400",
@@ -232,7 +238,9 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
     const isNumber = type === "number";
 
     const reactId = useId();
-    const inputId = id ?? (label ? `input-${reactId}` : undefined);
+    const fallbackId = `input-${reactId}`;
+    const inputId = id ?? (label ? fallbackId : undefined);
+    const messageId = error || warning ? `${inputId ?? fallbackId}-message` : undefined;
 
     const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     useEffect(
@@ -268,8 +276,13 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
                 onClick={() => setShowPassword((s) => !s)}
                 className={"pointer-events-auto transition-all hover:text-white"}
                 aria-label={t("common.togglePasswordVisibility")}
+                aria-pressed={showPassword}
             >
-                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                {showPassword ? (
+                    <EyeOff size={18} aria-hidden={"true"} />
+                ) : (
+                    <Eye size={18} aria-hidden={"true"} />
+                )}
             </button>
         ) : null;
 
@@ -293,7 +306,11 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
             className={"pointer-events-auto transition-all hover:text-white"}
             aria-label={t("common.copy")}
         >
-            {copied ? <Check size={16} /> : <Copy size={16} />}
+            {copied ? (
+                <Check size={16} aria-hidden={"true"} />
+            ) : (
+                <Copy size={16} aria-hidden={"true"} />
+            )}
         </button>
     ) : null;
 
@@ -332,6 +349,12 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
                         id={inputId}
                         type={inputType}
                         ref={setRefs}
+                        aria-invalid={error ? true : undefined}
+                        aria-describedby={
+                            messageId
+                                ? [props["aria-describedby"], messageId].filter(Boolean).join(" ")
+                                : props["aria-describedby"]
+                        }
                         {...props}
                         className={inputClassName}
                     />
@@ -343,7 +366,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
                     <NumberStepper error={error} disabled={props.disabled} onStep={stepBy} />
                 )}
             </div>
-            <FieldMessage error={error} warning={warning} />
+            <FieldMessage id={messageId} error={error} warning={warning} />
         </div>
     );
 });
