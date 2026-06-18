@@ -64,7 +64,6 @@ import (
 	mgm "github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
-	"github.com/netbirdio/netbird/shared/netiputil"
 	auth "github.com/netbirdio/netbird/shared/relay/auth/hmac"
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	signal "github.com/netbirdio/netbird/shared/signal/client"
@@ -1078,11 +1077,17 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 		return ErrResetConnection
 	}
 
-	if !e.config.DisableIPv6 && e.hasIPv6Changed(conf) {
-		log.Infof("peer IPv6 address changed, restarting client")
-		_ = CtxGetState(e.ctx).Wrap(ErrResetConnection)
-		e.clientCancel()
-		return ErrResetConnection
+	if !e.config.DisableIPv6 {
+		reset, err := e.reconcileIPv6(conf)
+		if err != nil {
+			log.Warnf("reconcile IPv6 from PeerConfig: %v", err)
+		}
+		if reset {
+			log.Infof("peer IPv6 address changed value, restarting client")
+			_ = CtxGetState(e.ctx).Wrap(ErrResetConnection)
+			e.clientCancel()
+			return ErrResetConnection
+		}
 	}
 
 	if conf.GetSshConfig() != nil {
@@ -1104,25 +1109,58 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 	return nil
 }
 
-// hasIPv6Changed reports whether the IPv6 overlay address in the peer config
-// differs from the configured address (added, removed, or changed).
-// Compares against e.config.WgAddr (not the interface address, which may have
-// been cleared by ClearIPv6 if OS assignment failed).
-func (e *Engine) hasIPv6Changed(conf *mgmProto.PeerConfig) bool {
-	current := e.config.WgAddr
+// reconcileIPv6 applies the management-supplied IPv6 overlay address to the
+// engine's WireGuard interface in place when possible. Three transitions:
+//
+//   - First v6 assignment (current had no v6, conf carries one): apply via
+//     WGIface.UpdateAddr, no reset. Critical for embedded clients whose
+//     boot config has no v6 — without this we reset on every fresh start
+//     once management has v6 enabled, orphaning any netstack listeners
+//     held outside the engine.
+//   - v6 removed (current had v6, conf carries none): clear in place, no
+//     reset.
+//   - v6 swapped to a different non-empty value: returns reset=true so the
+//     caller falls back to the engine-recreate path — the underlying
+//     interface address can't be safely swapped in place across all
+//     backends (gVisor netstack in particular fixes its address at
+//     CreateNetTUN time).
+//
+// Mutates e.config.WgAddr to match the applied state so subsequent
+// PeerConfig comparisons are stable.
+func (e *Engine) reconcileIPv6(conf *mgmProto.PeerConfig) (reset bool, err error) {
 	raw := conf.GetAddressV6()
+	current := e.config.WgAddr
 
 	if len(raw) == 0 {
-		return current.HasIPv6()
+		if !current.HasIPv6() {
+			return false, nil
+		}
+		current.ClearIPv6()
+		e.config.WgAddr = current
+		if err := e.wgInterface.UpdateAddr(current); err != nil {
+			return false, fmt.Errorf("clear ipv6 on wg interface: %w", err)
+		}
+		return false, nil
 	}
 
-	prefix, err := netiputil.DecodePrefix(raw)
-	if err != nil {
-		log.Errorf("decode v6 overlay address: %v", err)
-		return false
+	incoming := current
+	if err := incoming.SetIPv6FromCompact(raw); err != nil {
+		return false, fmt.Errorf("decode v6 overlay address: %w", err)
 	}
 
-	return !current.HasIPv6() || current.IPv6 != prefix.Addr() || current.IPv6Net != prefix.Masked()
+	if !current.HasIPv6() {
+		e.config.WgAddr = incoming
+		if err := e.wgInterface.UpdateAddr(incoming); err != nil {
+			return false, fmt.Errorf("apply ipv6 on wg interface: %w", err)
+		}
+		return false, nil
+	}
+
+	if current.IPv6 == incoming.IPv6 && current.IPv6Net == incoming.IPv6Net {
+		return false, nil
+	}
+
+	return true, nil
 }
 
 func (e *Engine) receiveJobEvents() {

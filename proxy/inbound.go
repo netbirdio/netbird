@@ -466,15 +466,20 @@ func feedRouterFromListener(ctx context.Context, ln net.Listener, router *nbtcp.
 		_ = ln.Close()
 	}()
 
+	var backoff nbtcp.AcceptBackoff
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
-			if ctx.Err() != nil || errors.Is(err, net.ErrClosed) {
+			if ctx.Err() != nil || nbtcp.IsClosedListenerErr(err) {
 				return
 			}
-			logger.WithField("account_id", accountID).Debugf("plain inbound accept: %v", err)
+			logger.WithField("account_id", accountID).Debugf("plain inbound accept: %v; backing off", err)
+			if !backoff.Backoff(ctx) {
+				return
+			}
 			continue
 		}
+		backoff.Reset()
 		router.HandleConn(ctx, conn)
 	}
 }

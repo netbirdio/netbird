@@ -66,7 +66,6 @@ import (
 	"github.com/netbirdio/netbird/route"
 	mgmt "github.com/netbirdio/netbird/shared/management/client"
 	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
-	"github.com/netbirdio/netbird/shared/netiputil"
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	signal "github.com/netbirdio/netbird/shared/signal/client"
 	"github.com/netbirdio/netbird/shared/signal/proto"
@@ -1707,82 +1706,12 @@ func getPeers(e *Engine) int {
 	return len(e.peerStore.PeersPubKey())
 }
 
-func mustEncodePrefix(t *testing.T, p netip.Prefix) []byte {
-	t.Helper()
-	b, err := netiputil.EncodePrefix(p)
-	require.NoError(t, err)
-	return b
-}
-
-func TestEngine_hasIPv6Changed(t *testing.T) {
-	v4Only := wgaddr.MustParseWGAddress("100.64.0.1/16")
-
-	v4v6 := wgaddr.MustParseWGAddress("100.64.0.1/16")
-	v4v6.IPv6 = netip.MustParseAddr("fd00::1")
-	v4v6.IPv6Net = netip.MustParsePrefix("fd00::1/64").Masked()
-
-	tests := []struct {
-		name     string
-		current  wgaddr.Address
-		confV6   []byte
-		expected bool
-	}{
-		{
-			name:     "no v6 before, no v6 now",
-			current:  v4Only,
-			confV6:   nil,
-			expected: false,
-		},
-		{
-			name:     "no v6 before, v6 added",
-			current:  v4Only,
-			confV6:   mustEncodePrefix(t, netip.MustParsePrefix("fd00::1/64")),
-			expected: true,
-		},
-		{
-			name:     "had v6, now removed",
-			current:  v4v6,
-			confV6:   nil,
-			expected: true,
-		},
-		{
-			name:     "had v6, same v6",
-			current:  v4v6,
-			confV6:   mustEncodePrefix(t, netip.MustParsePrefix("fd00::1/64")),
-			expected: false,
-		},
-		{
-			name:     "had v6, different v6",
-			current:  v4v6,
-			confV6:   mustEncodePrefix(t, netip.MustParsePrefix("fd00::2/64")),
-			expected: true,
-		},
-		{
-			name:     "same v6 addr, different prefix length",
-			current:  v4v6,
-			confV6:   mustEncodePrefix(t, netip.MustParsePrefix("fd00::1/80")),
-			expected: true,
-		},
-		{
-			name:     "decode error keeps status quo",
-			current:  v4Only,
-			confV6:   []byte{1, 2, 3},
-			expected: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			engine := &Engine{
-				config: &EngineConfig{WgAddr: tt.current},
-			}
-			conf := &mgmtProto.PeerConfig{
-				AddressV6: tt.confV6,
-			}
-			assert.Equal(t, tt.expected, engine.hasIPv6Changed(conf))
-		})
-	}
-}
+// The former TestEngine_hasIPv6Changed has been superseded by
+// engine_reconcileipv6_test.go — the underlying function (hasIPv6Changed)
+// was replaced by reconcileIPv6, which applies "v6 added" / "v6 removed"
+// in place instead of demanding a full engine reset. The behavioral
+// matrix the old test enforced is now covered, with corrected expectations,
+// by TestReconcileIPv6_* in that sibling file.
 
 func TestFilterAllowedIPs(t *testing.T) {
 	v4v6Addr := wgaddr.MustParseWGAddress("100.64.0.1/16")
