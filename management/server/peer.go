@@ -1169,6 +1169,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 		}
 
 		if shouldStorePeer {
+			log.Infof("Save Peer on Login")
 			if err = transaction.SavePeer(ctx, accountID, peer); err != nil {
 				return err
 			}
@@ -1195,6 +1196,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 	}
 
 	if isStatusChanged || shouldStorePeer {
+		log.Info("Sending nmap update on Login")
 		changedPeerIDs := []string{peer.ID}
 		affectedPeerIDs := am.resolveAffectedPeersForPeerChanges(ctx, am.Store, accountID, changedPeerIDs)
 		if err = am.networkMapController.OnPeersUpdated(ctx, accountID, changedPeerIDs, affectedPeerIDs); err != nil {
