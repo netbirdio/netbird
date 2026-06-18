@@ -982,6 +982,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 	var peer *nbpeer.Peer
 	var updated, versionChanged, ipv6CapabilityChanged bool
 	var err error
+	var postureChecks []*posture.Checks
 	var peerGroupIDs []string
 
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
@@ -1024,6 +1025,11 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 			if err = transaction.SavePeer(ctx, accountID, peer); err != nil {
 				return err
 			}
+
+			postureChecks, err = getPeerPostureChecks(ctx, transaction, accountID, peer.ID)
+			if err != nil {
+				return err
+			}
 		}
 		return nil
 	})
@@ -1043,7 +1049,8 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 
 	if isStatusChanged || sync.UpdateAccountPeers || ipv6CapabilityChanged || updated || versionChanged {
 		changedPeerIDs := []string{peer.ID}
-		affectedPeerIDs := am.resolveAffectedPeersForPeerChanges(ctx, am.Store, accountID, changedPeerIDs)
+		affectedPeerIDs := am.syncPeerAffectedPeers(ctx, accountID, peer.ID, nmap, peerNotValid, updated)
+		log.Infof("Sync: peer %s affected peers %s", peer.ID, affectedPeerIDs)
 		if err = am.networkMapController.OnPeersUpdated(ctx, accountID, changedPeerIDs, affectedPeerIDs); err != nil {
 			return nil, nil, nil, 0, fmt.Errorf("notify network map controller of peer update: %w", err)
 		}
@@ -1060,8 +1067,8 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 // metadata change that flips a posture result removes this peer from others'
 // maps asymmetrically; that case (and an invalid peer, whose map is empty) falls
 // back to the resolver.
-func (am *DefaultAccountManager) syncPeerAffectedPeers(ctx context.Context, accountID, peerID string, nmap *types.NetworkMap, peerNotValid, metaUpdated, hasPostureChecks bool) []string {
-	if peerNotValid || (metaUpdated && hasPostureChecks) {
+func (am *DefaultAccountManager) syncPeerAffectedPeers(ctx context.Context, accountID, peerID string, nmap *types.NetworkMap, peerNotValid, metaUpdated bool) []string {
+	if peerNotValid || metaUpdated {
 		return am.resolveAffectedPeersForPeerChanges(ctx, am.Store, accountID, []string{peerID})
 	}
 	return affectedPeerIDsFromNetworkMap(nmap, peerID)
@@ -1183,6 +1190,10 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 	if err != nil {
 		return nil, nil, nil, false, err
 	}
+
+	changedPeerIDs := []string{peer.ID}
+	affectedPeerIDs := am.resolveAffectedPeersForPeerChanges(ctx, am.Store, accountID, changedPeerIDs)
+	log.Infof("Login: peer %s affected peers %s", peer.ID, affectedPeerIDs)
 
 	if isStatusChanged || shouldStorePeer {
 		changedPeerIDs := []string{peer.ID}
