@@ -1730,6 +1730,13 @@ func (e *Engine) receiveSignalEvents() {
 				return e.ctx.Err()
 			}
 
+			// Self-addressed heartbeat: the signal client's receive watchdog
+			// round-trips this through the server to confirm the receive stream
+			// is delivering. Liveness is already recorded before this handler.
+			if msg.GetBody().GetType() == sProto.Body_HEARTBEAT {
+				return nil
+			}
+
 			conn, ok := e.peerStore.PeerConn(msg.Key)
 			if !ok {
 				return fmt.Errorf("wrongly addressed message %s", msg.Key)

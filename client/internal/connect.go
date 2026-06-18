@@ -142,6 +142,8 @@ func (c *ConnectClient) RunOniOS(
 	networkChangeListener listener.NetworkChangeListener,
 	dnsManager dns.IosDnsManager,
 	stateFilePath string,
+	cacheDir string,
+	logFilePath string,
 ) error {
 	// Set GC percent to 5% to reduce memory usage as iOS only allows 50MB of memory for the extension.
 	debug.SetGCPercent(5)
@@ -151,8 +153,9 @@ func (c *ConnectClient) RunOniOS(
 		NetworkChangeListener: networkChangeListener,
 		DnsManager:            dnsManager,
 		StateFilePath:         stateFilePath,
+		TempDir:               cacheDir,
 	}
-	return c.sup.start(config, nil, mobileDependency, nil, "")
+	return c.sup.start(config, nil, mobileDependency, nil, logFilePath)
 }
 
 // run executes a single client run. runCtx is owned by the supervisor: cancelling

@@ -191,6 +191,7 @@ func init() {
 	// profile commands
 	profileCmd.AddCommand(profileListCmd)
 	profileCmd.AddCommand(profileAddCmd)
+	profileCmd.AddCommand(profileRenameCmd)
 	profileCmd.AddCommand(profileRemoveCmd)
 	profileCmd.AddCommand(profileSelectCmd)
 
