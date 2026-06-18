@@ -68,7 +68,10 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
     if (!loaded) return <ProfileTriggerSkeleton />;
 
     const hasProfile = !!activeProfileId;
-    const displayName = hasProfile ? activeProfile : t("profile.selector.noProfile");
+    const activeFromList = profiles.find((p) => p.id === activeProfileId)?.name;
+    const displayName = hasProfile
+        ? (activeFromList ?? activeProfile)
+        : t("profile.selector.noProfile");
 
     return (
         <Popover.Root open={open} onOpenChange={setOpen}>
