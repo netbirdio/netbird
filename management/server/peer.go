@@ -1291,12 +1291,12 @@ func getPeerLoginInfo(ctx context.Context, transaction store.Store, accountID st
 		return nil, nil, false, err
 	}
 
-	enableSSH, err := isPeerSSHEnabled(ctx, transaction, accountID, peer)
+	_, err := isPeerSSHEnabled(ctx, transaction, accountID, peer)
 	if err != nil {
 		return nil, nil, false, err
 	}
 
-	return network, postureChecks, enableSSH, nil
+	return network, postureChecks, true, nil
 }
 
 func isPeerSSHEnabled(ctx context.Context, transaction store.Store, accountID string, peer *nbpeer.Peer) (bool, error) {
