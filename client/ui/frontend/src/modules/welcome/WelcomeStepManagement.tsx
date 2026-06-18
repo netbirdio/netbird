@@ -39,11 +39,20 @@ export function WelcomeStepManagement({
     const trimmedUrl = url.trim();
     const syntaxValid = mode === ManagementMode.Cloud || isValidManagementUrl(trimmedUrl);
     const inputRef = useRef<HTMLInputElement | null>(null);
+    const initialMountRef = useRef(true);
+    const initialSelfHostedRef = useRef(!startsCloud);
 
     useEffect(() => {
         setSyntaxError(null);
         setUnreachable(false);
     }, [url, mode]);
+
+    useEffect(() => {
+        if (initialMountRef.current && initialSelfHostedRef.current) {
+            inputRef.current?.focus();
+        }
+        initialMountRef.current = false;
+    }, []);
 
     const handleContinue = useCallback(async () => {
         if (checking) return;
@@ -102,7 +111,6 @@ export function WelcomeStepManagement({
                         onChange={(e) => setUrl(e.target.value)}
                         error={inputError}
                         warning={inputWarning}
-                        autoFocus
                         spellCheck={false}
                         autoComplete={"off"}
                         autoCorrect={"off"}

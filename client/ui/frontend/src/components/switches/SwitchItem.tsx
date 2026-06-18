@@ -19,7 +19,8 @@ export const SwitchItem = ({ value, children, className }: Props) => {
             value={value}
             className={cn(
                 "relative inline-flex items-center justify-center gap-1 rounded-md px-3.5 py-2 text-xs font-semibold",
-                "outline-none cursor-default",
+                "cursor-default outline-none",
+                "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                 active
                     ? "text-nb-gray-100"
                     : "text-nb-gray-400 hover:text-nb-gray-200 active:text-nb-gray-100",
