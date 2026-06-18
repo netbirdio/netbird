@@ -1291,7 +1291,7 @@ func getPeerLoginInfo(ctx context.Context, transaction store.Store, accountID st
 		return nil, nil, false, err
 	}
 
-	_, err := isPeerSSHEnabled(ctx, transaction, accountID, peer)
+	_, err = isPeerSSHEnabled(ctx, transaction, accountID, peer)
 	if err != nil {
 		return nil, nil, false, err
 	}
