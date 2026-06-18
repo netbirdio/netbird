@@ -982,7 +982,6 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 	var peer *nbpeer.Peer
 	var updated, versionChanged, ipv6CapabilityChanged bool
 	var err error
-	var postureChecks []*posture.Checks
 	var peerGroupIDs []string
 
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
@@ -1023,11 +1022,6 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 			am.metrics.AccountManagerMetrics().CountPeerMetUpdate()
 			log.WithContext(ctx).Tracef("peer %s metadata updated", peer.ID)
 			if err = transaction.SavePeer(ctx, accountID, peer); err != nil {
-				return err
-			}
-
-			postureChecks, err = getPeerPostureChecks(ctx, transaction, accountID, peer.ID)
-			if err != nil {
 				return err
 			}
 		}
