@@ -1124,7 +1124,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 	}
 
 	var peer *nbpeer.Peer
-	var shouldStorePeer bool
+	var shouldStorePeer, shouldUpdatePeers bool
 	var peerGroupIDs []string
 
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
@@ -1151,6 +1151,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 
 			if changed {
 				shouldStorePeer = true
+				shouldUpdatePeers = true
 			}
 		}
 
@@ -1174,13 +1175,16 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 			}
 		}
 
+		// This is needed to keep in memory for the peer config. Otherwise browser client will end in a retry loop
+		peer.UpdateMetaIfNew(login.Meta)
+
 		return nil
 	})
 	if err != nil {
 		return nil, nil, nil, false, err
 	}
 
-	isRequiresApproval, isStatusChanged, err := am.integratedPeerValidator.IsNotValidPeer(ctx, accountID, peer, peerGroupIDs, settings.Extra)
+	isRequiresApproval, _, err := am.integratedPeerValidator.IsNotValidPeer(ctx, accountID, peer, peerGroupIDs, settings.Extra)
 	if err != nil {
 		return nil, nil, nil, false, err
 	}
@@ -1190,7 +1194,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 		return nil, nil, nil, false, err
 	}
 
-	if isStatusChanged || shouldStorePeer {
+	if shouldUpdatePeers {
 		changedPeerIDs := []string{peer.ID}
 		affectedPeerIDs := am.resolveAffectedPeersForPeerChanges(ctx, am.Store, accountID, changedPeerIDs)
 		if err = am.networkMapController.OnPeersUpdated(ctx, accountID, changedPeerIDs, affectedPeerIDs); err != nil {
