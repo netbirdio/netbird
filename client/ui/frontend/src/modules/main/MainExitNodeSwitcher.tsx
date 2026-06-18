@@ -8,6 +8,7 @@ import { cn } from "@/lib/cn";
 import { TruncatedText } from "@/components/TruncatedText";
 import { useNetworks } from "@/contexts/NetworksContext";
 import { useStatus } from "@/contexts/StatusContext";
+import { useFocusVisible } from "@/hooks/useFocusVisible";
 
 const NONE_VALUE = "__none__";
 
@@ -146,6 +147,7 @@ const ExitNodeTriggerCard = forwardRef<HTMLButtonElement, TriggerProps>(
         { title, description, disabled, active = false, className, ...props },
         ref,
     ) {
+        const isFocusVisible = useFocusVisible();
         return (
             <button
                 ref={ref}
@@ -157,7 +159,8 @@ const ExitNodeTriggerCard = forwardRef<HTMLButtonElement, TriggerProps>(
                     "border border-nb-gray-920 bg-nb-gray-940",
                     "transition-colors duration-150",
                     "wails-no-draggable",
-                    "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
+                    isFocusVisible &&
+                        "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                     disabled
                         ? "cursor-not-allowed opacity-60"
                         : "cursor-default hover:border-nb-gray-900 hover:bg-nb-gray-935 data-[state=open]:border-nb-gray-900 data-[state=open]:bg-nb-gray-935",

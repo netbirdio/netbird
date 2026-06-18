@@ -2,6 +2,7 @@ import { type ComponentType, type ReactNode, forwardRef } from "react";
 import * as Tabs from "@radix-ui/react-tabs";
 import { type LucideProps } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { useFocusVisible } from "@/hooks/useFocusVisible";
 
 const Root = forwardRef<HTMLDivElement, Omit<Tabs.TabsProps, "orientation">>(
     function VerticalTabsRoot({ className, ...props }, ref) {
@@ -40,6 +41,7 @@ const Trigger = forwardRef<HTMLButtonElement, TriggerProps>(function VerticalTab
     { icon: Icon, title, iconSize = 16, adornment, className, ...props },
     ref,
 ) {
+    const isFocusVisible = useFocusVisible();
     return (
         <Tabs.Trigger
             ref={ref}
@@ -48,7 +50,8 @@ const Trigger = forwardRef<HTMLButtonElement, TriggerProps>(function VerticalTab
                 "transition-colors duration-150",
                 "data-[state=active]:bg-nb-gray-930",
                 "data-[state=inactive]:hover:bg-nb-gray-935",
-                "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
+                isFocusVisible &&
+                    "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                 className,
             )}
             {...props}

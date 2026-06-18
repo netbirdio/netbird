@@ -8,6 +8,7 @@ import { pickProfileIcon } from "@/modules/profiles/ProfileAvatar";
 import type { Profile } from "@bindings/services/models.js";
 import { Tooltip } from "@/components/Tooltip";
 import { useProfile } from "@/contexts/ProfileContext";
+import { useFocusVisible } from "@/hooks/useFocusVisible";
 import { cn } from "@/lib/cn";
 import { errorDialog, formatErrorMessage } from "@/lib/errors";
 
@@ -195,6 +196,7 @@ type ProfileTriggerButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> &
 const ProfileTriggerButton = forwardRef<HTMLButtonElement, ProfileTriggerButtonProps>(
     function ProfileTriggerButton({ name, className, disabled, ...props }, ref) {
         const { t } = useTranslation();
+        const isFocusVisible = useFocusVisible();
         const Icon = pickProfileIcon(name) ?? UserCircle;
         return (
             <button
@@ -209,7 +211,8 @@ const ProfileTriggerButton = forwardRef<HTMLButtonElement, ProfileTriggerButtonP
                     "text-nb-gray-200 hover:bg-nb-gray-900",
                     "data-[state=open]:bg-nb-gray-900",
                     "disabled:opacity-50 disabled:hover:bg-transparent",
-                    "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
+                    isFocusVisible &&
+                        "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                     "wails-no-draggable transition-colors duration-150",
                     className,
                 )}

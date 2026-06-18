@@ -16,6 +16,7 @@ import { CopyToClipboard } from "@/components/CopyToClipboard";
 import { TruncatedText } from "@/components/TruncatedText";
 import { shortenDns } from "@/lib/formatters";
 import { contentTop } from "@/components/empty-state/EmptyState";
+import { useFocusVisible } from "@/hooks/useFocusVisible";
 import { Check as CheckIcon, ChevronDownIcon, Copy as CopyIcon } from "lucide-react";
 import * as Popover from "@radix-ui/react-popover";
 import netbirdFullLogo from "@/assets/logos/netbird-full.svg";
@@ -279,6 +280,7 @@ export const MainConnectionStatusSwitch = () => {
 const LocalIpLine = ({ ip, ipv6, show }: { ip: string; ipv6: string; show: boolean }) => {
     const { t } = useTranslation();
     const [open, setOpen] = useState(false);
+    const isFocusVisible = useFocusVisible();
     const hasV6 = !!ipv6;
 
     if (!hasV6) {
@@ -318,7 +320,8 @@ const LocalIpLine = ({ ip, ipv6, show }: { ip: string; ipv6: string; show: boole
                         aria-expanded={open}
                         className={cn(
                             "group relative inline-flex cursor-default items-center rounded-sm outline-none",
-                            "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
+                            isFocusVisible &&
+                                "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                             "transition-colors",
                         )}
                     >
@@ -369,6 +372,7 @@ const LocalIpLine = ({ ip, ipv6, show }: { ip: string; ipv6: string; show: boole
 const IpRow = ({ value }: { value: string }) => {
     const { t } = useTranslation();
     const [copied, setCopied] = useState(false);
+    const isFocusVisible = useFocusVisible();
     const handleClick = async () => {
         if (!value) return;
         try {
@@ -390,7 +394,8 @@ const IpRow = ({ value }: { value: string }) => {
                 "rounded-md px-2 py-1.5 text-left",
                 "text-nb-gray-200 hover:bg-nb-gray-900 hover:text-nb-gray-50",
                 "cursor-default outline-none transition-colors",
-                "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/60",
+                isFocusVisible &&
+                    "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/60",
             )}
         >
             <span className={"min-w-0 truncate font-mono text-[0.75rem]"}>{value}</span>

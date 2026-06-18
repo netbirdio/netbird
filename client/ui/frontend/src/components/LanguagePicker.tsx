@@ -8,6 +8,7 @@ import { Preferences } from "@bindings/services";
 import { type LanguageCode, type Language } from "@bindings/i18n/models.js";
 import { HelpText } from "@/components/typography/HelpText";
 import { Label } from "@/components/typography/Label";
+import { useFocusVisible } from "@/hooks/useFocusVisible";
 import { loadLanguages } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { errorDialog, formatErrorMessage } from "@/lib/errors";
@@ -24,6 +25,7 @@ export function LanguagePicker() {
     const [languages, setLanguages] = useState<Language[]>([]);
     const [open, setOpen] = useState(false);
     const [busy, setBusy] = useState(false);
+    const isFocusVisible = useFocusVisible();
 
     useEffect(() => {
         let cancelled = false;
@@ -96,7 +98,8 @@ export function LanguagePicker() {
                                 "border-neutral-200 dark:border-nb-gray-700",
                                 "cursor-default text-xs font-semibold text-nb-gray-100 outline-none",
                                 "hover:border-nb-gray-600 data-[state=open]:border-nb-gray-600",
-                                "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
+                                isFocusVisible &&
+                                    "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                                 "disabled:opacity-50",
                             )}
                         >
