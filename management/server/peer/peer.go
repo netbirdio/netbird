@@ -284,7 +284,7 @@ func (p *Peer) UpdateMetaIfNew(meta PeerSystemMeta) (updated, versionChanged boo
 	}
 
 	log.WithFields(log.Fields{"peer": p.ID, "key": p.Key}).
-		Debugf("peer meta updated, %s%d field(s) changed: %s", versionInfo, len(diff), strings.Join(diff, ", "))
+		Infof("peer meta updated, %s%d field(s) changed: %s", versionInfo, len(diff), strings.Join(diff, ", "))
 	return updated, versionChanged
 }
 
