@@ -95,11 +95,22 @@ func (c *ConnectClient) Run(config *profilemanager.Config, md metadata.MD, runni
 	return c.sup.start(config, md, MobileDependency{}, runningChan, logPath)
 }
 
-// RunAsync starts a client run without blocking. done (if non-nil, buffered)
-// receives the run's end result. Used by the daemon, which drives the lifecycle
-// through the supervisor (Run/Stop/IsRunning) rather than blocking on Run.
-func (c *ConnectClient) RunAsync(config *profilemanager.Config, md metadata.MD, runningChan chan struct{}, done chan error) {
-	c.sup.startAsync(config, md, MobileDependency{}, runningChan, "", done)
+// RunAsync starts a client run without blocking. Used by the daemon, which
+// drives the lifecycle through the supervisor rather than blocking on Run; it
+// then waits for the outcome via WaitEstablishedOrDone. The run's lifecycle
+// channels are created and owned by the supervisor — callers never hold them.
+func (c *ConnectClient) RunAsync(config *profilemanager.Config, md metadata.MD) {
+	est := make(chan struct{})
+	d := make(chan error, 1)
+	c.sup.startAsync(config, md, MobileDependency{}, est, "", d)
+}
+
+// WaitEstablishedOrDone blocks until the in-flight run becomes established (nil),
+// ends before that (the run error, or a sentinel on a clean stop), or ctx is
+// cancelled. Returns errNoRunInFlight if no run is in flight. Wraps the wait on
+// the supervisor-owned channels so callers never touch them directly.
+func (c *ConnectClient) WaitEstablishedOrDone(ctx context.Context) error {
+	return c.sup.waitEstablishedOrDone(ctx)
 }
 
 // RunOnAndroid with main logic on mobile system

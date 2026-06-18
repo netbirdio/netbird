@@ -13,6 +13,13 @@ import (
 // in flight.
 var errAlreadyRunning = errors.New("client is already running")
 
+// errNoRunInFlight is returned by waitEstablishedOrDone when no run is active.
+var errNoRunInFlight = errors.New("no connection run in flight")
+
+// errStoppedBeforeEstablished is returned when a run ended (cleanly) before the
+// connection was established.
+var errStoppedBeforeEstablished = errors.New("run stopped before the connection was established")
+
 // lifecycleOp is a serialized lifecycle operation processed by the supervisor.
 type lifecycleOp int
 
@@ -20,6 +27,7 @@ const (
 	opStart lifecycleOp = iota
 	opStop
 	opStatus
+	opSignals
 )
 
 // lifecycleCmd is a single start/stop/status request handed to the supervisor
@@ -31,7 +39,7 @@ const (
 //     errAlreadyRunning immediately if a run is already in flight.
 //   - for opStop it receives nil once the in-flight run has fully unwound.
 //
-// reply is used only by opStatus: it receives whether a run is in flight.
+// reply is used only by opStatus; sigReply only by opSignals.
 type lifecycleCmd struct {
 	op          lifecycleOp
 	config      *profilemanager.Config
@@ -41,6 +49,14 @@ type lifecycleCmd struct {
 	logPath     string
 	done        chan error
 	reply       chan bool
+	sigReply    chan runSignals
+}
+
+// runSignals exposes the in-flight run's lifecycle channels to external waiters
+// (the daemon's waitForUp/Status). Both are nil when no run is in flight.
+type runSignals struct {
+	established <-chan struct{} // closed by the run once the connection is established
+	done        <-chan error    // receives the run's end result
 }
 
 // runEndResult is sent by the run goroutine to the supervisor when a run ends,
@@ -96,6 +112,12 @@ func (s *supervisor) loop() {
 				s.handleStop(cmd)
 			case opStatus:
 				cmd.reply <- (s.isRunningInternal())
+			case opSignals:
+				var sig runSignals
+				if s.curStart != nil {
+					sig = runSignals{established: s.curStart.runningChan, done: s.curStart.done}
+				}
+				cmd.sigReply <- sig
 			}
 		case res := <-s.runEnded:
 			// Run ended on its own, without an explicit Stop.
@@ -214,6 +236,46 @@ func (s *supervisor) isRunning() bool {
 
 func (s *supervisor) isRunningInternal() bool {
 	return s.curStart != nil
+}
+
+// waitEstablishedOrDone blocks until the in-flight run becomes established
+// (returns nil) or ends before that (returns the run error, or
+// errStoppedBeforeEstablished on a clean stop), or ctx is cancelled. Returns
+// errNoRunInFlight if no run is in flight. The select runs in the caller's
+// goroutine on the run's channels — it does not block the supervisor loop.
+func (s *supervisor) waitEstablishedOrDone(ctx context.Context) error {
+	sig := s.signals()
+	if sig.established == nil {
+		return errNoRunInFlight
+	}
+	select {
+	case <-sig.established:
+		return nil
+	case err := <-sig.done:
+		if err != nil {
+			return err
+		}
+		return errStoppedBeforeEstablished
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// signals asks the loop for the in-flight run's lifecycle channels, serialized
+// with start/stop so the returned pair is consistent. Both nil when idle.
+func (s *supervisor) signals() runSignals {
+	reply := make(chan runSignals, 1)
+	select {
+	case s.cmdCh <- lifecycleCmd{op: opSignals, sigReply: reply}:
+	case <-s.ctx.Done():
+		return runSignals{}
+	}
+	select {
+	case sig := <-reply:
+		return sig
+	case <-s.ctx.Done():
+		return runSignals{}
+	}
 }
 
 // stop enqueues a stop and blocks until the in-flight run is fully torn down.

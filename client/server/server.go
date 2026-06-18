@@ -62,10 +62,8 @@ type Server struct {
 	mutex  sync.Mutex
 	config *profilemanager.Config
 	proto.UnimplementedDaemonServiceServer
-	// Whether a run is in flight is owned by the supervisor
-	// (connectClient.ConnectionRunning); the daemon keeps no separate flag.
-	connectionEstablishedChan chan struct{} // closed by the run once the connection is established (StatusConnected)
-	connectionDoneChan        chan error    // receives the run's end result
+	// Run state (in-flight? established/done channels?) is owned entirely by the
+	// supervisor inside connectClient — the daemon keeps no per-run fields.
 
 	connectClient *internal.ConnectClient
 
@@ -227,11 +225,10 @@ func (s *Server) Start() error {
 		return nil
 	}
 
-	s.connectionEstablishedChan = make(chan struct{})
-	s.connectionDoneChan = make(chan error, 1)
 	// Boot autoconnect: no incoming RPC metadata. The supervisor runs the
-	// client and reconnects internally; we just fire and forget.
-	s.connectClient.RunAsync(config, nil, s.connectionEstablishedChan, s.connectionDoneChan)
+	// client and reconnects internally; we just fire and forget (the run owns
+	// its established/done channels).
+	s.connectClient.RunAsync(config, nil)
 	s.publishConfigChangedEvent("startup")
 	return nil
 }
@@ -753,47 +750,26 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)
 
-	s.connectionEstablishedChan = make(chan struct{})
-	s.connectionDoneChan = make(chan error, 1)
-
-	s.connectClient.RunAsync(s.config, md, s.connectionEstablishedChan, s.connectionDoneChan)
+	s.connectClient.RunAsync(s.config, md)
 	s.publishConfigChangedEvent("up_rpc")
 
 	s.mutex.Unlock()
 	return s.waitForUp(callerCtx)
 }
 
+// waitForUp blocks until the in-flight run becomes established (success) or ends
+// before that (failure). The wait is owned by the supervisor (via the client) —
+// the daemon holds no per-run state here.
 func (s *Server) waitForUp(callerCtx context.Context) (*proto.UpResponse, error) {
 	timeoutCtx, cancel := context.WithTimeout(callerCtx, 50*time.Second)
 	defer cancel()
 
-	// Read the per-run channels under the lock. They are written under s.mutex
-	// by Up/Start and by the MDM restart (restartEngineForMDMLocked, which runs
-	// on the ticker goroutine), so reading them here — where the Up caller has
-	// already released the lock — must be synchronized both to avoid a data race
-	// and to capture a consistent (established, done) pair from the same run.
-	s.mutex.Lock()
-	establishedChan := s.connectionEstablishedChan
-	doneChan := s.connectionDoneChan
-	s.mutex.Unlock()
-
-	select {
-	case err := <-doneChan:
-		// The run ended before signalling ready: it failed or was stopped.
-		if err != nil {
-			return nil, fmt.Errorf("client failed to connect: %w", err)
-		}
-		return nil, fmt.Errorf("client stopped before becoming ready")
-	case <-establishedChan:
-		s.isSessionActive.Store(true)
-		return &proto.UpResponse{}, nil
-	case <-callerCtx.Done():
-		log.Debug("context done, stopping the wait for engine to become ready")
-		return nil, callerCtx.Err()
-	case <-timeoutCtx.Done():
-		log.Debug("up is timed out, stopping the wait for engine to become ready")
-		return nil, timeoutCtx.Err()
+	if err := s.connectClient.WaitEstablishedOrDone(timeoutCtx); err != nil {
+		log.Debugf("waiting for the connection to be established failed: %v", err)
+		return nil, fmt.Errorf("connection not established: %w", err)
 	}
+	s.isSessionActive.Store(true)
+	return &proto.UpResponse{}, nil
 }
 
 func (s *Server) switchProfileIfNeeded(profileName string, userName *string, activeProf *profilemanager.ActiveProfileState) error {
@@ -1078,21 +1054,12 @@ func (s *Server) Status(
 	ctx context.Context,
 	msg *proto.StatusRequest,
 ) (*proto.StatusResponse, error) {
-	// Snapshot the run state under the lock. A run that hits a terminal auth
-	// failure now exits on its own (engine marks NeedsLogin), so we no longer
-	// poll-and-cancel: we just wait for the run to become ready or to end.
-	s.mutex.Lock()
-	client := s.connectClient
-	establishedChan := s.connectionEstablishedChan
-	doneChan := s.connectionDoneChan
-	s.mutex.Unlock()
-	alive := client.ConnectionRunning()
-
-	if msg.WaitForReady != nil && *msg.WaitForReady && alive {
-		select {
-		case <-establishedChan:
-		case <-doneChan:
-		case <-ctx.Done():
+	// A run that hits a terminal auth failure now exits on its own (engine marks
+	// NeedsLogin), so we no longer poll-and-cancel: we wait for the in-flight run
+	// to become established or to end. With no run in flight this returns
+	// immediately (errNoRunInFlight); either way we then report the status below.
+	if msg.WaitForReady != nil && *msg.WaitForReady {
+		if err := s.connectClient.WaitEstablishedOrDone(ctx); err != nil && ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
 	}

@@ -142,12 +142,10 @@ func (s *Server) restartEngineForMDMLocked() error {
 
 	_, cancel := context.WithCancel(s.rootCtx)
 	s.actCancel = cancel
-	s.connectionEstablishedChan = make(chan struct{})
-	s.connectionDoneChan = make(chan error, 1)
 	log.Info("MDM restart: starting a fresh run with re-resolved config")
-	// MDM restart has no incoming RPC metadata; fire and forget (the supervisor
-	// reconnects internally and we don't block on the run).
-	s.connectClient.RunAsync(config, nil, s.connectionEstablishedChan, s.connectionDoneChan)
+	// MDM restart has no incoming RPC metadata; fire and forget (the run owns
+	// its established/done channels, the supervisor reconnects internally).
+	s.connectClient.RunAsync(config, nil)
 	s.publishConfigChangedEvent("mdm")
 	return nil
 }
