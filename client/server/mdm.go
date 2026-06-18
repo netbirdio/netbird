@@ -61,8 +61,8 @@ func (s *Server) onMDMPolicyChange(_, _ *mdm.Policy) error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	if !s.clientRunning {
-		// The client is not running, so there's no engine to restart.
+	if !s.connectClient.IsRunning() {
+		// No run in flight, so there's no engine to restart.
 		return nil
 	}
 
@@ -148,7 +148,6 @@ func (s *Server) restartEngineForMDMLocked() error {
 
 	_, cancel := context.WithCancel(s.rootCtx)
 	s.actCancel = cancel
-	s.clientRunning = true
 	s.clientRunningChan = make(chan struct{})
 	s.clientDoneChan = make(chan error, 1)
 	log.Info("MDM restart: starting a fresh run with re-resolved config")

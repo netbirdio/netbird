@@ -62,10 +62,8 @@ type Server struct {
 	mutex  sync.Mutex
 	config *profilemanager.Config
 	proto.UnimplementedDaemonServiceServer
-	// clientRunning tracks "the daemon wants to be connected" — set true by
-	// Start / Up, cleared by Down / Logout. Protected by s.mutex. Whether a run
-	// is actually in flight is owned by the supervisor (connectClient.IsRunning).
-	clientRunning     bool
+	// Whether a run is in flight is owned by the supervisor
+	// (connectClient.IsRunning); the daemon keeps no separate "running" flag.
 	clientRunningChan chan struct{} // closed by the run when the engine is ready
 	clientDoneChan    chan error    // receives the run's end result
 
@@ -141,7 +139,7 @@ func (s *Server) Start() error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	if s.clientRunning {
+	if s.connectClient.IsRunning() {
 		return nil
 	}
 
@@ -229,7 +227,6 @@ func (s *Server) Start() error {
 		return nil
 	}
 
-	s.clientRunning = true
 	s.clientRunningChan = make(chan struct{})
 	s.clientDoneChan = make(chan error, 1)
 	// Boot autoconnect: no incoming RPC metadata. The supervisor runs the
@@ -672,7 +669,7 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	// by Down). IsRunning() reports whether a run is actually in flight. When
 	// intent is up AND a run is in flight, the existing engine is on the job —
 	// just wait for it. Otherwise fall through to start a fresh run.
-	if s.clientRunning && s.connectClient.IsRunning() {
+	if s.connectClient.IsRunning() {
 		state := internal.CtxGetState(s.rootCtx)
 		status, err := state.Status()
 		if err != nil {
@@ -758,7 +755,6 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)
 
-	s.clientRunning = true
 	s.clientRunningChan = make(chan struct{})
 	s.clientDoneChan = make(chan error, 1)
 
@@ -887,12 +883,6 @@ func (s *Server) cleanupConnection() error {
 	if s.actCancel == nil {
 		return ErrServiceNotUp
 	}
-
-	// Daemon intent flips to "down" — all callers (Down RPC,
-	// Logout RPC handlers) tear down the connection because the user
-	// explicitly asked for it. MDM restart does NOT go through this
-	// path, so its clientRunning stays true.
-	s.clientRunning = false
 
 	// Tear the client down through the lifecycle supervisor BEFORE cancelling
 	// the retry context. Stop serializes on the supervisor queue and blocks
@@ -1039,7 +1029,7 @@ func (s *Server) validateProfileOperation(profileName string, allowActiveProfile
 // logoutFromProfile logs out from a specific profile by loading its config and sending logout request
 func (s *Server) logoutFromProfile(ctx context.Context, profileName, username string) error {
 	activeProf, err := s.profileManager.GetActiveProfileState()
-	if err == nil && activeProf.Name == profileName && s.clientRunning {
+	if err == nil && activeProf.Name == profileName && s.connectClient.IsRunning() {
 		return s.sendLogoutRequest(ctx)
 	}
 
@@ -1345,7 +1335,7 @@ func (s *Server) WaitJWTToken(
 // ExposeService exposes a local port via the NetBird reverse proxy.
 func (s *Server) ExposeService(req *proto.ExposeServiceRequest, srv proto.DaemonService_ExposeServiceServer) error {
 	s.mutex.Lock()
-	if !s.clientRunning {
+	if !s.connectClient.IsRunning() {
 		s.mutex.Unlock()
 		return gstatus.Errorf(codes.FailedPrecondition, "client is not running, run 'netbird up' first")
 	}
