@@ -1168,15 +1168,15 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 			return status.Errorf(status.PreconditionFailed, "couldn't login peer: setup key doesn't allow extra DNS labels")
 		}
 
-		// This is needed so that toPeerConfig will run the IPv6 capability check and assign the capability to the peer if needed.
-		// Otherwise temporary peers or browser clients will end up in a restart loop
-		peer.UpdateMetaIfNew(login.Meta)
-
 		if shouldStorePeer {
 			if err = transaction.SavePeer(ctx, accountID, peer); err != nil {
 				return err
 			}
 		}
+
+		// This is needed so that toPeerConfig will run the IPv6 capability check and assign the capability to the peer if needed.
+		// Otherwise temporary peers or browser clients will end up in a restart loop
+		peer.UpdateMetaIfNew(login.Meta)
 
 		return nil
 	})
