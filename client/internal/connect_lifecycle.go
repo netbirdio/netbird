@@ -33,23 +33,23 @@ const (
 // lifecycleCmd is a single lifecycle request handed to the supervisor goroutine.
 // They all flow through the same cmdCh so they are strictly ordered (FIFO) with
 // respect to each other.
-//
-// done is the caller-supplied notification channel (nil for fire-and-forget):
-//   - for opStart it receives the run's end result when the run terminates, or
-//     errAlreadyRunning immediately if a run is already in flight.
-//   - for opStop it receives nil once the in-flight run has fully unwound.
-//   - for opWaitEstablished it receives the wait outcome (see waitEstablishedOrDone).
-//
-// reply is used only by opStatus. waitCtx is used only by opWaitEstablished.
 type lifecycleCmd struct {
 	op        lifecycleOp
 	config    *profilemanager.Config
 	md        metadata.MD
 	mobileDep MobileDependency
 	logPath   string
-	done      chan error
-	reply     chan bool
-	waitCtx   context.Context
+
+	// done is the caller's notification channel (nil for fire-and-forget). Its
+	// meaning depends on op:
+	//   - opStart: receives the run's end result when the run terminates, or
+	//     errAlreadyRunning immediately if a run is already in flight.
+	//   - opStop: receives nil once the in-flight run has fully unwound.
+	//   - opWaitEstablished: receives the wait outcome (see waitEstablishedOrDone).
+	done chan error
+
+	reply   chan bool       // opStatus only: receives whether a run is in flight
+	waitCtx context.Context // opWaitEstablished only: the waiter's cancellation context
 }
 
 // runState holds the lifecycle channels of a single in-flight run, owned by the
