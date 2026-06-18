@@ -1124,7 +1124,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 	}
 
 	var peer *nbpeer.Peer
-	var shouldStorePeer bool
+	var shouldStorePeer, shouldUpdatePeers bool
 	var peerGroupIDs []string
 
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
@@ -1151,6 +1151,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 
 			if changed {
 				shouldStorePeer = true
+				shouldUpdatePeers = true
 			}
 		}
 
@@ -1169,15 +1170,10 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 		}
 
 		if shouldStorePeer {
-			log.Infof("Save Peer on Login")
 			if err = transaction.SavePeer(ctx, accountID, peer); err != nil {
 				return err
 			}
 		}
-
-		// This is needed so that toPeerConfig will run the IPv6 capability check and assign the capability to the peer if needed.
-		// Otherwise temporary peers or browser clients will end up in a restart loop
-		peer.UpdateMetaIfNew(login.Meta)
 
 		return nil
 	})
@@ -1195,14 +1191,13 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 		return nil, nil, nil, false, err
 	}
 
-	// if isStatusChanged || shouldStorePeer {
-	// 	log.Info("Sending nmap update on Login")
-	// 	changedPeerIDs := []string{peer.ID}
-	// 	affectedPeerIDs := am.resolveAffectedPeersForPeerChanges(ctx, am.Store, accountID, changedPeerIDs)
-	// 	if err = am.networkMapController.OnPeersUpdated(ctx, accountID, changedPeerIDs, affectedPeerIDs); err != nil {
-	// 		return nil, nil, nil, false, fmt.Errorf("notify network map controller of peer update: %w", err)
-	// 	}
-	// }
+	if shouldUpdatePeers {
+		changedPeerIDs := []string{peer.ID}
+		affectedPeerIDs := am.resolveAffectedPeersForPeerChanges(ctx, am.Store, accountID, changedPeerIDs)
+		if err = am.networkMapController.OnPeersUpdated(ctx, accountID, changedPeerIDs, affectedPeerIDs); err != nil {
+			return nil, nil, nil, false, fmt.Errorf("notify network map controller of peer update: %w", err)
+		}
+	}
 
 	return peer, network, postureChecks, enableSSH, nil
 }
