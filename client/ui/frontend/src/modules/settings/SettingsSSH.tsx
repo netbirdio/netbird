@@ -93,11 +93,11 @@ export function SettingsSSH() {
                 />
                 <div
                     className={cn(
-                        "flex items-center gap-6 justify-between",
-                        config.disableSshAuth && "opacity-50 pointer-events-none",
+                        "flex items-center justify-between gap-6",
+                        config.disableSshAuth && "pointer-events-none opacity-50",
                     )}
                 >
-                    <div className={"flex-1 max-w-md"}>
+                    <div className={"max-w-md flex-1"}>
                         <Label htmlFor={jwtTtlId}>{t("settings.ssh.jwtTtl.label")}</Label>
                         <HelpText margin={false}>{t("settings.ssh.jwtTtl.help")}</HelpText>
                     </div>

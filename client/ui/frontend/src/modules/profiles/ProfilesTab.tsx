@@ -125,7 +125,7 @@ export function ProfilesTab() {
 
                 <div
                     className={cn(
-                        "bg-nb-gray-930/60 border border-nb-gray-900 rounded-xl overflow-hidden",
+                        "overflow-hidden rounded-xl border border-nb-gray-900 bg-nb-gray-930/60",
                     )}
                 >
                     <ProfilesTable
@@ -138,17 +138,19 @@ export function ProfilesTab() {
 
                     {loaded && ordered.length === 0 && (
                         <div
-                            className={"flex flex-col items-center justify-center py-10 text-center"}
+                            className={
+                                "flex flex-col items-center justify-center py-10 text-center"
+                            }
                         >
                             <UserCircle
                                 size={28}
                                 aria-hidden={"true"}
-                                className={"text-nb-gray-500 mb-2"}
+                                className={"mb-2 text-nb-gray-500"}
                             />
                             <p className={"text-sm font-semibold text-nb-gray-200"}>
                                 {t("settings.profiles.emptyTitle")}
                             </p>
-                            <p className={"mt-1 text-xs text-nb-gray-400 max-w-sm text-balance"}>
+                            <p className={"mt-1 max-w-sm text-balance text-xs text-nb-gray-400"}>
                                 {t("settings.profiles.emptyDescription")}
                             </p>
                         </div>
@@ -271,7 +273,7 @@ const ProfilesTable = ({
     return (
         <table
             aria-label={t("settings.profiles.section.profiles")}
-            className={"w-full text-sm border-separate border-spacing-0"}
+            className={"w-full border-separate border-spacing-0 text-sm"}
         >
             <tbody className={"flex flex-col"}>
                 {ordered.map((profile, index) => (
@@ -347,19 +349,21 @@ const ProfileRow = ({
         >
             <td
                 className={cn(
-                    "flex gap-2 min-w-0 leading-tight flex-1",
+                    "flex min-w-0 flex-1 gap-2 leading-tight",
                     showEmail ? "items-start" : "items-center",
                 )}
             >
                 <Icon
                     size={15}
                     aria-hidden={"true"}
-                    className={cn("text-nb-gray-200 shrink-0", showEmail ? "mt-0.5" : "")}
+                    className={cn("shrink-0 text-nb-gray-200", showEmail ? "mt-0.5" : "")}
                 />
-                <div className={"flex flex-col min-w-0 flex-1 leading-tight"}>
-                    <div className={"flex items-center gap-2 min-w-0"}>
+                <div className={"flex min-w-0 flex-1 flex-col leading-tight"}>
+                    <div className={"flex min-w-0 items-center gap-2"}>
                         <span
-                            className={"truncate font-medium text-nb-gray-100 select-text cursor-text"}
+                            className={
+                                "cursor-text select-text truncate font-medium text-nb-gray-100"
+                            }
                         >
                             {profile.name}
                         </span>
@@ -397,7 +401,7 @@ const TruncatedEmail = ({ email }: { email: string }) => {
     const span = (
         <span
             ref={ref}
-            className={"text-xs text-nb-gray-300 truncate mt-0.5 select-text cursor-text"}
+            className={"mt-0.5 cursor-text select-text truncate text-xs text-nb-gray-300"}
         >
             {email}
         </span>
@@ -490,15 +494,15 @@ const ActionIconButton = ({
             aria-disabled={disabled || undefined}
             tabIndex={hidden || !tabbable ? -1 : 0}
             className={cn(
-                "h-9 w-9 inline-flex items-center justify-center rounded-md cursor-default outline-none",
+                "inline-flex h-9 w-9 cursor-default items-center justify-center rounded-md outline-none",
                 "transition-colors duration-150",
                 "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                 variant === "danger"
-                    ? "text-nb-gray-400 hover:text-red-500 hover:bg-red-500/10"
-                    : "text-nb-gray-400 hover:text-nb-gray-100 hover:bg-nb-gray-900",
-                hidden && "opacity-0 pointer-events-none",
+                    ? "text-nb-gray-400 hover:bg-red-500/10 hover:text-red-500"
+                    : "text-nb-gray-400 hover:bg-nb-gray-900 hover:text-nb-gray-100",
+                hidden && "pointer-events-none opacity-0",
                 disabled &&
-                    "opacity-40 cursor-not-allowed hover:!text-nb-gray-400 hover:!bg-transparent",
+                    "cursor-not-allowed opacity-40 hover:!bg-transparent hover:!text-nb-gray-400",
             )}
         >
             <Icon size={16} aria-hidden={"true"} />

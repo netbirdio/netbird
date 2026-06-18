@@ -2,7 +2,7 @@ import Skeleton from "react-loading-skeleton";
 
 export const SettingsSkeleton = () => {
     return (
-        <div className={"gap-6 flex flex-col"}>
+        <div className={"flex flex-col gap-6"}>
             <div>
                 <Skeleton width={100} height={16} className={"mb-4"} />
                 <div>

@@ -63,7 +63,7 @@ export function SettingsGeneral() {
                 <SectionGroup title={t("settings.general.section.connection")}>
                     <div>
                         <div className={"flex items-start gap-3"}>
-                            <div className={"flex-1 min-w-0"}>
+                            <div className={"min-w-0 flex-1"}>
                                 <Label htmlFor={managementUrlId}>
                                     {t("settings.general.management.label")}
                                 </Label>
@@ -72,7 +72,7 @@ export function SettingsGeneral() {
                             <ManagementServerSwitch value={mode} onChange={setMode} />
                         </div>
                         {mode === ManagementMode.SelfHosted && (
-                            <div className={"flex items-start gap-3 mt-2"}>
+                            <div className={"mt-2 flex items-start gap-3"}>
                                 <Input
                                     id={managementUrlId}
                                     ref={inputRef}

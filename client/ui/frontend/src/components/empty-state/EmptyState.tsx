@@ -19,11 +19,11 @@ export const EmptyState = ({ icon, title, description, className }: Props) => {
     return (
         <div className={cn("py-12 text-center", className)}>
             <div
-                className={"flex flex-col items-center justify-start max-w-sm mx-auto relative"}
+                className={"relative mx-auto flex max-w-sm flex-col items-center justify-start"}
                 style={{ top: contentTop("7.8rem") }}
             >
                 <SquareIcon icon={icon} className={"mb-3"} />
-                <p className={"text-[0.95rem] font-medium text-nb-gray-200 mb-1"}>{title}</p>
+                <p className={"mb-1 text-[0.95rem] font-medium text-nb-gray-200"}>{title}</p>
                 {description && <p className={"text-sm text-nb-gray-350"}>{description}</p>}
             </div>
         </div>

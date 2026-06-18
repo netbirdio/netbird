@@ -32,7 +32,7 @@ const DropdownMenuSubTrigger = React.forwardRef<
     <DropdownMenuPrimitive.SubTrigger
         ref={ref}
         className={cn(
-            "relative flex select-none items-center rounded-md pl-3 pr-2 py-1.5 text-sm outline-none cursor-default",
+            "relative flex cursor-default select-none items-center rounded-md py-1.5 pl-3 pr-2 text-sm outline-none",
             "transition-colors data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
             inset && "pl-8",
             menuItemVariants({ variant }),
@@ -102,7 +102,7 @@ const DropdownMenuItem = React.forwardRef<
     <DropdownMenuPrimitive.Item
         ref={ref}
         className={cn(
-            "relative flex select-none items-center rounded-md pl-2 pr-2 py-1.5 text-sm outline-none cursor-default",
+            "relative flex cursor-default select-none items-center rounded-md py-1.5 pl-2 pr-2 text-sm outline-none",
             "transition-colors data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
             inset && "pl-8",
             menuItemVariants({ variant }),
@@ -135,7 +135,7 @@ const DropdownMenuCheckboxItem = React.forwardRef<
         ref={ref}
         className={cn(
             "relative flex cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none",
-            "transition-colors text-nb-gray-200 focus:bg-nb-gray-900 focus:text-nb-gray-50",
+            "text-nb-gray-200 transition-colors focus:bg-nb-gray-900 focus:text-nb-gray-50",
             "data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
             className,
         )}
@@ -160,7 +160,7 @@ const DropdownMenuRadioItem = React.forwardRef<
         ref={ref}
         className={cn(
             "relative flex cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none",
-            "transition-colors text-nb-gray-200 focus:bg-nb-gray-900 focus:text-nb-gray-50",
+            "text-nb-gray-200 transition-colors focus:bg-nb-gray-900 focus:text-nb-gray-50",
             "data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
             className,
         )}

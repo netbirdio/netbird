@@ -216,7 +216,7 @@ export const SettingsProvider = ({ children }: { children: ReactNode }) => {
 
     if (!value) {
         return (
-            <div className={"flex-1 min-h-0 overflow-y-auto py-8 px-7"}>
+            <div className={"min-h-0 flex-1 overflow-y-auto px-7 py-8"}>
                 <SettingsSkeleton />
             </div>
         );

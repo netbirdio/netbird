@@ -48,8 +48,8 @@ export const SwitchItemGroup = ({
                 aria-label={ariaLabel}
                 aria-labelledby={ariaLabelledBy}
                 className={cn(
-                    "flex shrink-0 rounded-lg border border-nb-gray-850 bg-nb-gray-910 p-1 overflow-hidden",
-                    disabled && "opacity-50 pointer-events-none",
+                    "flex shrink-0 overflow-hidden rounded-lg border border-nb-gray-850 bg-nb-gray-910 p-1",
+                    disabled && "pointer-events-none opacity-50",
                     className,
                 )}
             >

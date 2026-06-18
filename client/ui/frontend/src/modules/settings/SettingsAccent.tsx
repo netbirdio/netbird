@@ -108,7 +108,7 @@ function Accent({ onDone }: Readonly<{ onDone: () => void }>) {
 
     return (
         <div
-            className={`fixed inset-0 z-50 bg-black/5 transition-opacity duration-500 pointer-events-none ${visible ? "opacity-100" : "opacity-0"}`}
+            className={`pointer-events-none fixed inset-0 z-50 bg-black/5 transition-opacity duration-500 ${visible ? "opacity-100" : "opacity-0"}`}
         >
             <canvas ref={canvasRef} className={"block"} />
         </div>

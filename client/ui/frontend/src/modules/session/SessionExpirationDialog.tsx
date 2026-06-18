@@ -167,7 +167,9 @@ export default function SessionExpirationDialog() {
 
             {!expired && (
                 <div
-                    className={"font-mono font-semibold text-2xl tabular-nums text-nb-gray-50 tracking-wider"}
+                    className={
+                        "font-mono text-2xl font-semibold tabular-nums tracking-wider text-nb-gray-50"
+                    }
                     aria-live={"polite"}
                 >
                     {formatRemaining(remaining)}

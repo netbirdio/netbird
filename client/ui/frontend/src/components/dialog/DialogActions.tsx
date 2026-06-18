@@ -7,7 +7,7 @@ type DialogActionsProps = {
 };
 
 export const DialogActions = ({ children, className }: DialogActionsProps) => (
-    <div className={cn("wails-no-draggable flex flex-col gap-3 w-full mx-auto", className)}>
+    <div className={cn("wails-no-draggable mx-auto flex w-full flex-col gap-3", className)}>
         {children}
     </div>
 );

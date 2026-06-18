@@ -18,11 +18,15 @@ export const DaemonUnavailableOverlay = () => {
 
     return (
         <div
-            className={"fixed inset-0 z-[100] flex items-center justify-center bg-nb-gray-950 backdrop-blur-sm cursor-default select-none wails-draggable"}
+            className={
+                "wails-draggable fixed inset-0 z-[100] flex cursor-default select-none items-center justify-center bg-nb-gray-950 backdrop-blur-sm"
+            }
         >
-            <div className={"flex flex-col items-center gap-5 px-8 max-w-lg text-center"}>
+            <div className={"flex max-w-lg flex-col items-center gap-5 px-8 text-center"}>
                 <div
-                    className={"h-11 w-11 rounded-xl flex items-center justify-center bg-nb-gray-920 border border-nb-gray-900 text-red-500"}
+                    className={
+                        "flex h-11 w-11 items-center justify-center rounded-xl border border-nb-gray-900 bg-nb-gray-920 text-red-500"
+                    }
                 >
                     <AlertCircleIcon size={20} />
                 </div>

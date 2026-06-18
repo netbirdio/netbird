@@ -25,7 +25,7 @@ export const DialogHeading = ({
     <h2
         id={id}
         className={cn(
-            "w-full text-base font-semibold text-nb-gray-50 select-none",
+            "w-full select-none text-base font-semibold text-nb-gray-50",
             alignClass[align],
             className,
         )}

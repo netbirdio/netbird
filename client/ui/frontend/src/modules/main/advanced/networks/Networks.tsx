@@ -160,9 +160,9 @@ export const Networks = () => {
     };
 
     return (
-        <div className={"flex flex-col w-full h-full min-h-0"}>
-            <div className={"flex items-center gap-2 px-6 py-2.5 border-b border-nb-gray-910"}>
-                <div className={"flex-1 min-w-0"}>
+        <div className={"flex h-full min-h-0 w-full flex-col"}>
+            <div className={"flex items-center gap-2 border-b border-nb-gray-910 px-6 py-2.5"}>
+                <div className={"min-w-0 flex-1"}>
                     <SearchInput
                         ref={searchRef}
                         placeholder={t("networks.search.placeholder")}
@@ -175,7 +175,7 @@ export const Networks = () => {
             {filtered.length === 0 ? (
                 <NoResults />
             ) : (
-                <ScrollArea.Root type={"auto"} className={"flex-1 min-h-0 overflow-hidden"}>
+                <ScrollArea.Root type={"auto"} className={"min-h-0 flex-1 overflow-hidden"}>
                     <ScrollArea.Viewport ref={setScrollParent} className={"h-full w-full"}>
                         {scrollParent && (
                             <NetworksList
@@ -188,12 +188,14 @@ export const Networks = () => {
                     <ScrollArea.Scrollbar
                         orientation={"vertical"}
                         className={cn(
-                            "flex select-none touch-none transition-colors",
+                            "flex touch-none select-none transition-colors",
                             "w-1.5 bg-transparent py-1",
                         )}
                     >
                         <ScrollArea.Thumb
-                            className={"flex-1 rounded-full bg-nb-gray-800 hover:bg-nb-gray-700 relative"}
+                            className={
+                                "relative flex-1 rounded-full bg-nb-gray-800 hover:bg-nb-gray-700"
+                            }
                         />
                     </ScrollArea.Scrollbar>
                 </ScrollArea.Root>
@@ -205,7 +207,7 @@ export const Networks = () => {
                         "border-t border-nb-gray-910",
                     )}
                 >
-                    <span className={"flex-1 text-xs font-medium text-nb-gray-300 tabular-nums"}>
+                    <span className={"flex-1 text-xs font-medium tabular-nums text-nb-gray-300"}>
                         {t("networks.bulk.selectionCount", {
                             selected: selectedInView,
                             total: filtered.length,
@@ -217,10 +219,10 @@ export const Networks = () => {
                         onClick={onBulkClick}
                         aria-label={t("networks.bulk.label")}
                         className={cn(
-                            "inline-flex items-center h-8 px-3 rounded-md",
+                            "inline-flex h-8 items-center rounded-md px-3",
                             "text-xs font-medium text-nb-gray-100",
-                            "bg-nb-gray-920 hover:bg-nb-gray-910 border border-nb-gray-900 hover:border-nb-gray-850",
-                            "transition-colors outline-none wails-no-draggable cursor-pointer",
+                            "border border-nb-gray-900 bg-nb-gray-920 hover:border-nb-gray-850 hover:bg-nb-gray-910",
+                            "wails-no-draggable cursor-pointer outline-none transition-colors",
                             "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                         )}
                     >
@@ -341,8 +343,8 @@ const NetworkRow = ({ network: n, index, onKeyDown, onToggle, setRowRef }: Netwo
     return (
         <div
             className={cn(
-                "group relative flex items-start gap-2.5 pl-6 pr-9 py-3 min-w-0",
-                "hover:bg-nb-gray-900/40 transition-colors",
+                "group relative flex min-w-0 items-start gap-2.5 py-3 pl-6 pr-9",
+                "transition-colors hover:bg-nb-gray-900/40",
                 "wails-no-draggable",
             )}
         >
@@ -361,19 +363,26 @@ const NetworkRow = ({ network: n, index, onKeyDown, onToggle, setRowRef }: Netwo
             />
             <ResourceIconBadge type={resourceTypeOf(n)} />
             <div
-                className={"min-w-0 flex-1 flex flex-col leading-tight relative pointer-events-none"}
+                className={
+                    "pointer-events-none relative flex min-w-0 flex-1 flex-col leading-tight"
+                }
             >
                 <div>
                     <CopyToClipboard message={n.id} onKeyDown={handleKey}>
                         <TruncatedText
                             text={n.id}
-                            className={"block text-[0.81rem] font-medium text-nb-gray-100 truncate max-w-[300px]"}
+                            className={
+                                "block max-w-[300px] truncate text-[0.81rem] font-medium text-nb-gray-100"
+                            }
                         />
                     </CopyToClipboard>
                 </div>
                 <Subtitle network={n} onKeyDown={handleKey} />
             </div>
-            <div aria-hidden={"true"} className={"shrink-0 self-center relative pointer-events-none"}>
+            <div
+                aria-hidden={"true"}
+                className={"pointer-events-none relative shrink-0 self-center"}
+            >
                 <NetworkToggle checked={n.selected} />
             </div>
         </div>
@@ -386,8 +395,8 @@ const ResourceIconBadge = ({ type }: { type: ResourceType }) => {
         <div
             aria-hidden={"true"}
             className={cn(
-                "h-9 w-9 shrink-0 rounded-md flex items-center justify-center mt-[0.25rem]",
-                "bg-nb-gray-920 border border-nb-gray-900 text-nb-gray-300",
+                "mt-[0.25rem] flex h-9 w-9 shrink-0 items-center justify-center rounded-md",
+                "border border-nb-gray-900 bg-nb-gray-920 text-nb-gray-300",
             )}
         >
             <Icon size={14} />
@@ -413,7 +422,9 @@ const Subtitle = ({ network, onKeyDown }: SubtitleProps) => {
                 <CopyToClipboard message={network.range} onKeyDown={onKeyDown}>
                     <TruncatedText
                         text={network.range}
-                        className={"block text-xs font-mono text-nb-gray-400 truncate max-w-[300px]"}
+                        className={
+                            "block max-w-[300px] truncate font-mono text-xs text-nb-gray-400"
+                        }
                     />
                 </CopyToClipboard>
             </div>
@@ -431,7 +442,7 @@ type DomainSubtitleProps = {
 
 const DomainSubtitle = ({ domain, ips, onKeyDown }: DomainSubtitleProps) => {
     const span = (
-        <span className={"block text-xs font-mono text-nb-gray-400 truncate max-w-[300px]"}>
+        <span className={"block max-w-[300px] truncate font-mono text-xs text-nb-gray-400"}>
             {domain}
         </span>
     );
@@ -449,7 +460,7 @@ const DomainSubtitle = ({ domain, ips, onKeyDown }: DomainSubtitleProps) => {
                         interactive
                         keepOpenOnClick
                         contentClassName={cn(
-                            "max-w-[18rem] max-h-72 overflow-auto",
+                            "max-h-72 max-w-[18rem] overflow-auto",
                             "rounded-lg border border-nb-gray-900 bg-nb-gray-935",
                             "p-2 pr-4",
                         )}
@@ -476,7 +487,9 @@ const ResolvedIpsTooltip = ({ ips }: { ips: string[] }) => {
                     <li key={ip}>
                         <CopyToClipboard message={ip} className={"px-1 py-0.5"}>
                             <span
-                                className={"font-mono text-[0.72rem] text-nb-gray-100 whitespace-nowrap"}
+                                className={
+                                    "whitespace-nowrap font-mono text-[0.72rem] text-nb-gray-100"
+                                }
                             >
                                 {ip}
                             </span>
@@ -498,8 +511,8 @@ const NetworkToggle = ({ checked, mixed }: ToggleProps) => {
     return (
         <span
             className={cn(
-                "shrink-0 inline-flex h-5 w-9 items-center rounded-full",
-                "transition-colors wails-no-draggable",
+                "inline-flex h-5 w-9 shrink-0 items-center rounded-full",
+                "wails-no-draggable transition-colors",
                 checked || mixed ? "bg-netbird" : "bg-nb-gray-700",
                 mixed && "opacity-60",
             )}

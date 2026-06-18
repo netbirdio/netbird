@@ -1,4 +1,9 @@
-import { forwardRef, type ComponentPropsWithoutRef, type ElementRef, type HTMLAttributes } from "react";
+import {
+    forwardRef,
+    type ComponentPropsWithoutRef,
+    type ElementRef,
+    type HTMLAttributes,
+} from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { X } from "lucide-react";
@@ -60,9 +65,9 @@ export const Content = forwardRef<ElementRef<typeof DialogPrimitive.Content>, Co
                     <DialogPrimitive.Content
                         ref={ref}
                         className={cn(
-                            "mx-auto relative z-[52] w-full outline-none ring-0",
-                            "focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0",
-                            "border border-nb-gray-900 bg-nb-gray py-7 shadow-2xl rounded-lg",
+                            "relative z-[52] mx-auto w-full outline-none ring-0",
+                            "focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0",
+                            "rounded-lg border border-nb-gray-900 bg-nb-gray py-7 shadow-2xl",
                             "data-[state=open]:animate-in data-[state=open]:fade-in-0",
                             "data-[state=open]:zoom-in-95 data-[state=open]:slide-in-from-left-1",
                             exitAnimation &&
@@ -129,7 +134,7 @@ export const Description = forwardRef<
     return (
         <DialogPrimitive.Description
             ref={ref}
-            className={cn("text-sm text-nb-gray-400 mt-2 leading-snug", className)}
+            className={cn("mt-2 text-sm leading-snug text-nb-gray-400", className)}
             {...props}
         />
     );
@@ -140,7 +145,7 @@ type FooterProps = HTMLAttributes<HTMLDivElement> & {
 };
 
 export const Footer = ({ className, separator = true, ...props }: FooterProps) => (
-    <div className={cn(separator && "border-t border-nb-gray-900 mt-6")}>
+    <div className={cn(separator && "mt-6 border-t border-nb-gray-900")}>
         <div
             className={cn(
                 "flex flex-col-reverse gap-3 sm:flex-row sm:justify-end",

@@ -68,7 +68,7 @@ function Card({ children, className }: Readonly<{ children: ReactNode; className
     return (
         <div
             className={cn(
-                "w-full flex items-center justify-between gap-4 rounded-md border border-nb-gray-800 bg-nb-gray-910 px-4 py-3",
+                "flex w-full items-center justify-between gap-4 rounded-md border border-nb-gray-800 bg-nb-gray-910 px-4 py-3",
                 className,
             )}
         >
@@ -86,7 +86,9 @@ function Link({ url, children }: Readonly<{ url: string; children: ReactNode }>)
         <button
             type={"button"}
             onClick={() => openUrl(url)}
-            className={"text-sm text-netbird hover:underline hover:underline-offset-4 hover:decoration-[0.5px] font-medium"}
+            className={
+                "text-sm font-medium text-netbird hover:underline hover:decoration-[0.5px] hover:underline-offset-4"
+            }
         >
             {children}
         </button>

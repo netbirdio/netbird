@@ -74,8 +74,8 @@ export function LanguagePicker() {
     };
 
     return (
-        <div className={"flex items-center gap-6 justify-between"}>
-            <div className={"flex-1 max-w-md"}>
+        <div className={"flex items-center justify-between gap-6"}>
+            <div className={"max-w-md flex-1"}>
                 <Label as={"div"}>{t("settings.general.language.label")}</Label>
                 <HelpText margin={false}>{t("settings.general.language.help")}</HelpText>
             </div>
@@ -91,10 +91,10 @@ export function LanguagePicker() {
                             aria-haspopup={"listbox"}
                             aria-expanded={open}
                             className={cn(
-                                "inline-flex items-center gap-2 h-[40px] px-3 min-w-[240px]",
+                                "inline-flex h-[40px] min-w-[240px] items-center gap-2 px-3",
                                 "rounded-md border bg-white dark:bg-nb-gray-900",
                                 "border-neutral-200 dark:border-nb-gray-700",
-                                "text-xs font-semibold text-nb-gray-100 cursor-default outline-none",
+                                "cursor-default text-xs font-semibold text-nb-gray-100 outline-none",
                                 "hover:border-nb-gray-600 data-[state=open]:border-nb-gray-600",
                                 "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                                 "disabled:opacity-50",
@@ -103,15 +103,15 @@ export function LanguagePicker() {
                             <LanguagesIcon
                                 size={16}
                                 aria-hidden={"true"}
-                                className={"text-nb-gray-200 shrink-0"}
+                                className={"shrink-0 text-nb-gray-200"}
                             />
-                            <span className={"truncate flex-1 text-left"}>
+                            <span className={"flex-1 truncate text-left"}>
                                 {current ? labelFor(current) : "—"}
                             </span>
                             <ChevronDown
                                 size={12}
                                 aria-hidden={"true"}
-                                className={"text-nb-gray-400 shrink-0"}
+                                className={"shrink-0 text-nb-gray-400"}
                             />
                         </button>
                     </Popover.Trigger>
@@ -122,7 +122,7 @@ export function LanguagePicker() {
                             sideOffset={6}
                             className={cn(
                                 "w-[var(--radix-popover-trigger-width)]",
-                                "rounded-lg border border-nb-gray-850 bg-nb-gray-920 shadow-lg p-1 z-50",
+                                "z-50 rounded-lg border border-nb-gray-850 bg-nb-gray-920 p-1 shadow-lg",
                                 "data-[side=bottom]:origin-top data-[side=top]:origin-bottom",
                                 "data-[state=open]:animate-in",
                                 "data-[state=open]:fade-in-0",
@@ -142,12 +142,12 @@ export function LanguagePicker() {
                                 <div className={"px-1 pb-1"}>
                                     <div
                                         role={"search"}
-                                        className={"group flex items-center gap-2 px-1 h-8"}
+                                        className={"group flex h-8 items-center gap-2 px-1"}
                                     >
                                         <Search
                                             size={14}
                                             aria-hidden={"true"}
-                                            className={"text-nb-gray-200 shrink-0"}
+                                            className={"shrink-0 text-nb-gray-200"}
                                         />
                                         <Command.Input
                                             autoFocus
@@ -155,18 +155,20 @@ export function LanguagePicker() {
                                             aria-label={t("settings.general.language.search")}
                                             className={cn(
                                                 "w-full bg-transparent text-xs text-nb-gray-100 placeholder:text-nb-gray-300",
-                                                "outline-none border-none",
+                                                "border-none outline-none",
                                             )}
                                         />
                                     </div>
                                 </div>
 
-                                <ScrollArea.Root type={"auto"} className={"overflow-hidden -mx-1"}>
+                                <ScrollArea.Root type={"auto"} className={"-mx-1 overflow-hidden"}>
                                     <ScrollArea.Viewport className={"max-h-64 px-1"}>
                                         <Command.List>
                                             <Command.Empty>
                                                 <div
-                                                    className={"px-3 py-4 text-center text-[0.7rem] text-nb-gray-400"}
+                                                    className={
+                                                        "px-3 py-4 text-center text-[0.7rem] text-nb-gray-400"
+                                                    }
                                                 >
                                                     {t("settings.general.language.empty")}
                                                 </div>
@@ -180,17 +182,19 @@ export function LanguagePicker() {
                                                         value={`${lang.displayName} ${lang.englishName} ${lang.code}`}
                                                         onSelect={() => void select(lang.code)}
                                                         className={cn(
-                                                            "flex items-center gap-2 px-2 py-2 rounded-md cursor-default outline-none my-0.5",
+                                                            "my-0.5 flex cursor-default items-center gap-2 rounded-md px-2 py-2 outline-none",
                                                             "text-xs font-semibold text-nb-gray-200",
                                                             "data-[selected=true]:bg-nb-gray-850 data-[selected=true]:text-nb-gray-50",
                                                         )}
                                                     >
-                                                        <span className={"flex-1 min-w-0 truncate"}>
+                                                        <span className={"min-w-0 flex-1 truncate"}>
                                                             {labelFor(lang)}
                                                         </span>
                                                         <span
                                                             aria-hidden={"true"}
-                                                            className={"w-4 shrink-0 flex items-center justify-center"}
+                                                            className={
+                                                                "flex w-4 shrink-0 items-center justify-center"
+                                                            }
                                                         >
                                                             {checked && (
                                                                 <CheckIcon
@@ -207,12 +211,14 @@ export function LanguagePicker() {
                                     <ScrollArea.Scrollbar
                                         orientation={"vertical"}
                                         className={cn(
-                                            "flex select-none touch-none transition-colors",
+                                            "flex touch-none select-none transition-colors",
                                             "w-1.5 bg-transparent py-1",
                                         )}
                                     >
                                         <ScrollArea.Thumb
-                                            className={"flex-1 rounded-full bg-nb-gray-800 hover:bg-nb-gray-700 relative"}
+                                            className={
+                                                "relative flex-1 rounded-full bg-nb-gray-800 hover:bg-nb-gray-700"
+                                            }
                                         />
                                     </ScrollArea.Scrollbar>
                                 </ScrollArea.Root>

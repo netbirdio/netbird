@@ -4,7 +4,7 @@ import { type ComponentPropsWithoutRef, forwardRef, type Ref } from "react";
 import { cn } from "@/lib/cn";
 
 const labelVariants = cva(
-    "text-sm font-medium tracking-wider leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 mb-1.5 inline-block dark:text-nb-gray-100 flex items-center gap-2",
+    "mb-1.5 inline-block flex items-center gap-2 text-sm font-medium leading-none tracking-wider peer-disabled:cursor-not-allowed peer-disabled:opacity-70 dark:text-nb-gray-100",
 );
 
 type LabelProps = ComponentPropsWithoutRef<typeof LabelPrimitive.Root> &
@@ -21,7 +21,7 @@ export const Label = forwardRef<HTMLElement, LabelProps>(function Label(
         labelVariants(),
         className,
         "select-none transition-all duration-300",
-        disabled && "opacity-30 pointer-events-none",
+        disabled && "pointer-events-none opacity-30",
     );
 
     if (as === "div") {

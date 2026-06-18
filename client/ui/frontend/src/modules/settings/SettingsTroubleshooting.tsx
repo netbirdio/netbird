@@ -94,10 +94,10 @@ export function SettingsTroubleshooting() {
                     disabled={!capture}
                 />
                 <div
-                    className={"flex items-center gap-6 justify-between"}
+                    className={"flex items-center justify-between gap-6"}
                     {...(capture ? {} : { inert: "" })}
                 >
-                    <div className={"flex-1 max-w-md"}>
+                    <div className={"max-w-md flex-1"}>
                         <Label htmlFor={durationId} disabled={!capture}>
                             {t("settings.troubleshooting.duration.label")}
                         </Label>
@@ -136,7 +136,9 @@ export function SettingsTroubleshooting() {
 function CenteredPanel({ children }: Readonly<{ children: ReactNode }>) {
     return (
         <div
-            className={"absolute inset-0 flex flex-col items-center justify-center gap-5 p-8 text-center"}
+            className={
+                "absolute inset-0 flex flex-col items-center justify-center gap-5 p-8 text-center"
+            }
         >
             {children}
         </div>
@@ -153,7 +155,7 @@ function ProgressSection({
         <CenteredPanel>
             <SquareIcon icon={Loader2} className={"[&_svg]:animate-spin"} />
 
-            <div className={"flex flex-col items-center gap-2 max-w-sm"}>
+            <div className={"flex max-w-sm flex-col items-center gap-2"}>
                 <DialogHeading className={"text-balance"}>{stageLabel(stage, t)}</DialogHeading>
                 <DialogDescription>
                     {t("settings.troubleshooting.progress.description")}
@@ -162,7 +164,9 @@ function ProgressSection({
 
             {stage.kind === "capturing" && (
                 <div
-                    className={"font-mono font-semibold text-2xl tabular-nums text-nb-gray-50 tracking-wider"}
+                    className={
+                        "font-mono text-2xl font-semibold tabular-nums tracking-wider text-nb-gray-50"
+                    }
                     aria-live={"polite"}
                 >
                     {formatRemaining(stage.remainingSec)}
@@ -207,7 +211,7 @@ function DoneResult({
         <CenteredPanel>
             <SquareIcon icon={CircleCheckBig} className={"[&_svg]:text-green-500"} />
 
-            <div className={"flex flex-col items-center gap-2 max-w-sm"}>
+            <div className={"flex max-w-sm flex-col items-center gap-2"}>
                 <DialogHeading className={"text-balance"}>
                     {showKey
                         ? t("settings.troubleshooting.done.uploadedTitle")
@@ -221,9 +225,7 @@ function DoneResult({
                                 docs: (
                                     <a
                                         href={SUPPORT_DOCS_URL}
-                                        aria-label={t(
-                                            "settings.about.community.documentation",
-                                        )}
+                                        aria-label={t("settings.about.community.documentation")}
                                         onClick={(e) => {
                                             e.preventDefault();
                                             Browser.OpenURL(SUPPORT_DOCS_URL).catch(() =>
@@ -244,7 +246,7 @@ function DoneResult({
                 </DialogDescription>
             </div>
 
-            <div className={"w-full max-w-sm flex flex-col gap-3"}>
+            <div className={"flex w-full max-w-sm flex-col gap-3"}>
                 {showKey && <Input value={result.uploadedKey} readOnly copy />}
 
                 {result.path && !showKey && (
@@ -256,7 +258,7 @@ function DoneResult({
                             <button
                                 type={"button"}
                                 onClick={onRevealPath}
-                                className={"pointer-events-auto hover:text-white transition-all"}
+                                className={"pointer-events-auto transition-all hover:text-white"}
                                 aria-label={t("settings.troubleshooting.done.openFileLocation")}
                             >
                                 <FolderOpen size={16} aria-hidden={"true"} />
@@ -268,7 +270,9 @@ function DoneResult({
                 {uploadFailed && (
                     <div
                         role={"alert"}
-                        className={"rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300"}
+                        className={
+                            "rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300"
+                        }
                     >
                         {result.uploadFailureReason
                             ? t("settings.troubleshooting.uploadFailedWithReason", {

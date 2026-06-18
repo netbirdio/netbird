@@ -78,7 +78,7 @@ export const MainExitNodeSwitcher = () => {
                     }}
                     style={{ width: "var(--radix-popover-trigger-width)" }}
                     className={cn(
-                        "z-50 overflow-hidden rounded-lg border border-nb-gray-900 bg-nb-gray-935 p-1 text-nb-gray-200 shadow-lg select-none wails-no-draggable",
+                        "wails-no-draggable z-50 select-none overflow-hidden rounded-lg border border-nb-gray-900 bg-nb-gray-935 p-1 text-nb-gray-200 shadow-lg",
                         "data-[state=open]:animate-in data-[state=closed]:animate-out",
                         "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
                         "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
@@ -100,7 +100,7 @@ export const MainExitNodeSwitcher = () => {
                             <NoneRow isActive={!active} onSelect={() => handleSelect(NONE_VALUE)} />
                             {hasAny && <div className={"-mx-1 my-1 h-px bg-nb-gray-910"} />}
                             {hasAny && (
-                                <ScrollArea.Root type={"auto"} className={"overflow-hidden -mx-1"}>
+                                <ScrollArea.Root type={"auto"} className={"-mx-1 overflow-hidden"}>
                                     <ScrollArea.Viewport className={"max-h-72 px-1"}>
                                         {exitNodes.map((n) => (
                                             <ExitNodeRow
@@ -115,12 +115,14 @@ export const MainExitNodeSwitcher = () => {
                                     <ScrollArea.Scrollbar
                                         orientation={"vertical"}
                                         className={cn(
-                                            "flex select-none touch-none transition-colors",
+                                            "flex touch-none select-none transition-colors",
                                             "w-1.5 bg-transparent",
                                         )}
                                     >
                                         <ScrollArea.Thumb
-                                            className={"flex-1 rounded-full bg-nb-gray-800 hover:bg-nb-gray-700 relative"}
+                                            className={
+                                                "relative flex-1 rounded-full bg-nb-gray-800 hover:bg-nb-gray-700"
+                                            }
                                         />
                                     </ScrollArea.Scrollbar>
                                 </ScrollArea.Root>
@@ -151,14 +153,14 @@ const ExitNodeTriggerCard = forwardRef<HTMLButtonElement, TriggerProps>(
                 tabIndex={0}
                 disabled={disabled}
                 className={cn(
-                    "w-full flex items-center gap-3 p-2.5 pr-5 rounded-xl outline-none text-left",
+                    "flex w-full items-center gap-3 rounded-xl p-2.5 pr-5 text-left outline-none",
                     "border border-nb-gray-920 bg-nb-gray-940",
                     "transition-colors duration-150",
                     "wails-no-draggable",
                     "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                     disabled
-                        ? "opacity-60 cursor-not-allowed"
-                        : "cursor-default hover:bg-nb-gray-935 hover:border-nb-gray-900 data-[state=open]:bg-nb-gray-935 data-[state=open]:border-nb-gray-900",
+                        ? "cursor-not-allowed opacity-60"
+                        : "cursor-default hover:border-nb-gray-900 hover:bg-nb-gray-935 data-[state=open]:border-nb-gray-900 data-[state=open]:bg-nb-gray-935",
                     className,
                 )}
                 {...props}
@@ -166,7 +168,7 @@ const ExitNodeTriggerCard = forwardRef<HTMLButtonElement, TriggerProps>(
                 <div
                     aria-hidden={"true"}
                     className={cn(
-                        "h-9 w-9 rounded-md flex items-center justify-center shrink-0",
+                        "flex h-9 w-9 shrink-0 items-center justify-center rounded-md",
                         active
                             ? "bg-green-500/25 text-green-400"
                             : "bg-nb-gray-900 text-nb-gray-300",
@@ -175,18 +177,20 @@ const ExitNodeTriggerCard = forwardRef<HTMLButtonElement, TriggerProps>(
                     <ExitNodeIcon size={14} />
                 </div>
                 <div className={"min-w-0 flex-1"}>
-                    <span className={"block font-medium text-sm text-nb-gray-100 truncate"}>
+                    <span className={"block truncate text-sm font-medium text-nb-gray-100"}>
                         {title}
                     </span>
                     <TruncatedText
                         text={description}
-                        className={"block text-[0.85rem] font-medium text-nb-gray-400 truncate max-w-full"}
+                        className={
+                            "block max-w-full truncate text-[0.85rem] font-medium text-nb-gray-400"
+                        }
                     />
                 </div>
                 <ChevronsUpDown
                     size={16}
                     aria-hidden={"true"}
-                    className={"text-nb-gray-400 shrink-0"}
+                    className={"shrink-0 text-nb-gray-400"}
                 />
             </button>
         );
@@ -205,13 +209,15 @@ const NoneRow = ({ isActive, onSelect }: NoneRowProps) => {
             value={NONE_VALUE}
             onSelect={onSelect}
             className={cn(
-                "flex gap-2 items-center px-2 py-2 pr-3",
-                "rounded-md outline-none cursor-default text-sm",
+                "flex items-center gap-2 px-2 py-2 pr-3",
+                "cursor-default rounded-md text-sm outline-none",
                 "data-[selected=true]:bg-nb-gray-900",
             )}
         >
             <span className={"min-w-0 flex-1 truncate"}>{t("exitNodes.dropdown.noneTitle")}</span>
-            {isActive && <Check size={16} aria-hidden={"true"} className={"shrink-0 text-netbird"} />}
+            {isActive && (
+                <Check size={16} aria-hidden={"true"} className={"shrink-0 text-netbird"} />
+            )}
         </Command.Item>
     );
 };
@@ -228,8 +234,8 @@ const ExitNodeRow = ({ id, label, isActive, onSelect }: ExitNodeRowProps) => (
         value={id}
         onSelect={onSelect}
         className={cn(
-            "flex gap-2 items-center px-2 py-2 pr-3",
-            "rounded-md outline-none cursor-default text-sm",
+            "flex items-center gap-2 px-2 py-2 pr-3",
+            "cursor-default rounded-md text-sm outline-none",
             "data-[selected=true]:bg-nb-gray-900",
         )}
     >

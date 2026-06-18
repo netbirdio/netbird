@@ -17,12 +17,14 @@ export const ConfirmDialog = forwardRef<HTMLDivElement, ConfirmDialogProps>(func
             open
             aria-label={ariaLabel}
             aria-labelledby={ariaLabelledBy}
-            className={"wails-draggable select-none flex flex-col items-center static bg-transparent text-inherit p-0 m-0 max-w-none max-h-none border-0 w-full"}
+            className={
+                "wails-draggable static m-0 flex max-h-none w-full max-w-none select-none flex-col items-center border-0 bg-transparent p-0 text-inherit"
+            }
         >
             <div
                 ref={ref}
                 className={cn(
-                    "flex flex-col items-center gap-5 text-center px-8 pt-6 pb-7",
+                    "flex flex-col items-center gap-5 px-8 pb-7 pt-6 text-center",
                     isMacOS() && "pt-10",
                 )}
             >

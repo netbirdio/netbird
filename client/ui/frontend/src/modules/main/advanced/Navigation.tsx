@@ -79,7 +79,7 @@ export const Navigation = () => {
             role={"tablist"}
             aria-orientation={"horizontal"}
             aria-label={t("nav.peers.title")}
-            className={"wails-no-draggable shrink-0 flex items-stretch "}
+            className={"wails-no-draggable flex shrink-0 items-stretch"}
         >
             {tabs.map((tab, index) => {
                 const isActive = tab.value === section;
@@ -110,7 +110,7 @@ export const Navigation = () => {
                             isLast && "rounded-tr-xl",
                             "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/60",
                             isActive ? "text-netbird" : "text-nb-gray-400 hover:text-nb-gray-300",
-                            isDisabled ? "opacity-50 cursor-not-allowed" : "cursor-default",
+                            isDisabled ? "cursor-not-allowed opacity-50" : "cursor-default",
                         )}
                     >
                         <Icon size={14} aria-hidden={"true"} />

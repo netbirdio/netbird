@@ -83,7 +83,7 @@ export const SettingsPage = () => {
     return (
         <>
             {isMacOS() ? (
-                <div className={"wails-draggable cursor-default select-none h-12 shrink-0"} />
+                <div className={"wails-draggable h-12 shrink-0 cursor-default select-none"} />
             ) : (
                 <div className={"h-px shrink-0 bg-nb-gray-920/0"} />
             )}
@@ -95,10 +95,10 @@ export const SettingsPage = () => {
                             <ScrollArea.Root
                                 key={active}
                                 type={"auto"}
-                                className={"flex-1 min-h-0 overflow-hidden"}
+                                className={"min-h-0 flex-1 overflow-hidden"}
                             >
                                 <ScrollArea.Viewport className={"h-full w-full"}>
-                                    <div className={"py-6 px-7"}>
+                                    <div className={"px-7 py-6"}>
                                         {visibleTabs.map((tab) => (
                                             <VerticalTabs.Content key={tab} value={tab}>
                                                 {TAB_CONTENT[tab]}
@@ -109,12 +109,14 @@ export const SettingsPage = () => {
                                 <ScrollArea.Scrollbar
                                     orientation={"vertical"}
                                     className={cn(
-                                        "flex select-none touch-none transition-colors",
+                                        "flex touch-none select-none transition-colors",
                                         "w-1.5 bg-transparent py-1",
                                     )}
                                 >
                                     <ScrollArea.Thumb
-                                        className={"flex-1 rounded-full bg-nb-gray-800 hover:bg-nb-gray-700 relative"}
+                                        className={
+                                            "relative flex-1 rounded-full bg-nb-gray-800 hover:bg-nb-gray-700"
+                                        }
                                     />
                                 </ScrollArea.Scrollbar>
                             </ScrollArea.Root>

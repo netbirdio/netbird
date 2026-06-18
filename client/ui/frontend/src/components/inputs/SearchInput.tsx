@@ -16,12 +16,12 @@ export const SearchInput = forwardRef<HTMLInputElement, Props>(function SearchIn
     return (
         <div
             role={"search"}
-            className={cn("flex items-center gap-2 px-1 h-10", disabled && "opacity-50")}
+            className={cn("flex h-10 items-center gap-2 px-1", disabled && "opacity-50")}
         >
             <SearchIcon
                 size={iconSize}
                 aria-hidden={"true"}
-                className={"text-nb-gray-300 shrink-0"}
+                className={"shrink-0 text-nb-gray-300"}
             />
             <input
                 ref={ref}
@@ -31,7 +31,7 @@ export const SearchInput = forwardRef<HTMLInputElement, Props>(function SearchIn
                 {...props}
                 className={cn(
                     "w-full bg-transparent text-sm text-nb-gray-200 placeholder:text-nb-gray-400",
-                    "outline-none border-none",
+                    "border-none outline-none",
                     disabled && "cursor-not-allowed",
                     className,
                 )}
@@ -42,7 +42,7 @@ export const SearchInput = forwardRef<HTMLInputElement, Props>(function SearchIn
                     className={cn(
                         "shrink-0 select-none",
                         "inline-flex items-center justify-center",
-                        "h-5 min-w-[20px] px-1.5 rounded",
+                        "h-5 min-w-[20px] rounded px-1.5",
                         "border border-nb-gray-850 bg-nb-gray-920",
                         "text-[10px] font-medium text-nb-gray-400",
                         "wails-no-draggable",

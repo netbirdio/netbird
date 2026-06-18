@@ -5,7 +5,7 @@ import { EmptyState } from "./EmptyState";
 export const NotConnectedState = () => {
     const { t } = useTranslation();
     return (
-        <div className={"relative w-full top-[3rem]"}>
+        <div className={"relative top-[3rem] w-full"}>
             <EmptyState
                 icon={GlobeOffIcon}
                 title={t("notConnected.title")}

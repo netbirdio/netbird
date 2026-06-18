@@ -36,9 +36,9 @@ const switchVariants = cva("", {
         },
         "thumb-size": {
             default:
-                "h-5 w-5 data-[state=unchecked]:translate-x-0 data-[state=checked]:translate-x-5",
-            small: "h-[14px] w-[14px] data-[state=unchecked]:translate-x-0 data-[state=checked]:translate-x-[17px]",
-            large: "h-[30px] w-[30px] data-[state=unchecked]:translate-x-[1px] data-[state=checked]:translate-x-[31px]",
+                "h-5 w-5 data-[state=checked]:translate-x-5 data-[state=unchecked]:translate-x-0",
+            small: "h-[14px] w-[14px] data-[state=checked]:translate-x-[17px] data-[state=unchecked]:translate-x-0",
+            large: "h-[30px] w-[30px] data-[state=checked]:translate-x-[31px] data-[state=unchecked]:translate-x-[1px]",
         },
     },
 });

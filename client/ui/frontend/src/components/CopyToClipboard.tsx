@@ -76,14 +76,14 @@ export const CopyToClipboard = ({
             aria-label={resolvedLabel}
             aria-live={"polite"}
             className={cn(
-                "inline-flex gap-2 items-center group/copy cursor-default wails-no-draggable text-left pointer-events-auto rounded-sm outline-none",
+                "group/copy wails-no-draggable pointer-events-auto inline-flex cursor-default items-center gap-2 rounded-sm text-left outline-none",
                 "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                 className,
             )}
         >
             <span
                 className={cn(
-                    "relative truncate min-w-0",
+                    "relative min-w-0 truncate",
                     "[&_*]:transition-colors",
                     VARIANT_HOVER[variant],
                 )}
@@ -91,13 +91,15 @@ export const CopyToClipboard = ({
                 {children}
                 <span
                     aria-hidden={"true"}
-                    className={"absolute bottom-0 left-0 right-0 border-b border-dashed border-transparent group-hover/copy:border-nb-gray-500 pointer-events-none"}
+                    className={
+                        "pointer-events-none absolute bottom-0 left-0 right-0 border-b border-dashed border-transparent group-hover/copy:border-nb-gray-500"
+                    }
                 />
             </span>
             <span
                 aria-hidden={"true"}
                 className={cn(
-                    "shrink-0 inline-flex relative top-[2px] right-[1px]",
+                    "relative right-[1px] top-[2px] inline-flex shrink-0",
                     iconAlignment === "left" ? "order-first" : "order-last",
                     iconClassName,
                 )}
