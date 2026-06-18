@@ -15,10 +15,15 @@ import (
 )
 
 func newTestServer() *Server {
-	return &Server{
-		rootCtx:        context.Background(),
+	ctx := context.Background()
+	s := &Server{
+		rootCtx:        ctx,
 		statusRecorder: peer.NewRecorder(""),
 	}
+	// Honor the production invariant: the daemon-lifetime client always exists
+	// (built in New). Server methods rely on s.connectClient being non-nil.
+	s.connectClient = internal.NewConnectClient(ctx, s.statusRecorder)
+	return s
 }
 
 func newDummyConnectClient(ctx context.Context) *internal.ConnectClient {
@@ -95,35 +100,28 @@ func TestCleanupConnection_KeepsClientStopsRunning(t *testing.T) {
 	_, cancel := context.WithCancel(context.Background())
 	s.actCancel = cancel
 
-	s.connectClient = newDummyConnectClient(context.Background())
-	s.clientRunning = true
-
 	err := s.cleanupConnection()
 	require.NoError(t, err)
 
 	assert.NotNil(t, s.connectClient, "connectClient is daemon-lifetime and must persist after cleanup")
-	assert.False(t, s.connectClient.IsRunning(), "no run should be in flight after cleanup")
-	assert.False(t, s.clientRunning, "clientRunning should be cleared after cleanup (intent = down)")
+	assert.False(t, s.connectClient.ConnectionRunning(), "no run should be in flight after cleanup")
 }
 
-// TestCleanState_NilConnectClient validates that CleanState doesn't panic
-// when connectClient is nil.
-func TestCleanState_NilConnectClient(t *testing.T) {
+// TestCleanState_NotConnected validates that CleanState doesn't panic when no
+// connection run is in flight.
+func TestCleanState_NotConnected(t *testing.T) {
 	s := newTestServer()
-	s.connectClient = nil
-	s.profileManager = nil // will cause error if it tries to proceed past the nil check
+	s.profileManager = nil // will cause error if it tries to proceed
 
-	// Should not panic — the nil check should prevent calling Status() on nil
 	assert.NotPanics(t, func() {
 		_, _ = s.CleanState(context.Background(), &proto.CleanStateRequest{All: true})
 	})
 }
 
-// TestDeleteState_NilConnectClient validates that DeleteState doesn't panic
-// when connectClient is nil.
-func TestDeleteState_NilConnectClient(t *testing.T) {
+// TestDeleteState_NotConnected validates that DeleteState doesn't panic when no
+// connection run is in flight.
+func TestDeleteState_NotConnected(t *testing.T) {
 	s := newTestServer()
-	s.connectClient = nil
 	s.profileManager = nil
 
 	assert.NotPanics(t, func() {
