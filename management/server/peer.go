@@ -1049,7 +1049,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 
 	if isStatusChanged || sync.UpdateAccountPeers || ipv6CapabilityChanged || updated || versionChanged {
 		changedPeerIDs := []string{peer.ID}
-		affectedPeerIDs := am.syncPeerAffectedPeers(ctx, accountID, peer.ID, nmap, peerNotValid, updated, len(postureChecks) > 0)
+		affectedPeerIDs := am.resolveAffectedPeersForPeerChanges(ctx, am.Store, accountID, changedPeerIDs)
 		if err = am.networkMapController.OnPeersUpdated(ctx, accountID, changedPeerIDs, affectedPeerIDs); err != nil {
 			return nil, nil, nil, 0, fmt.Errorf("notify network map controller of peer update: %w", err)
 		}

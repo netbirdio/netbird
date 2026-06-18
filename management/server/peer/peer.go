@@ -283,8 +283,11 @@ func (p *Peer) UpdateMetaIfNew(meta PeerSystemMeta) (updated, versionChanged boo
 		versionInfo = fmt.Sprintf("version changed: %s -> %s, ", oldVersion, meta.WtVersion)
 	}
 
-	log.WithFields(log.Fields{"peer": p.ID, "key": p.Key}).
-		Infof("peer meta updated, %s%d field(s) changed: %s", versionInfo, len(diff), strings.Join(diff, ", "))
+	if versionChanged || updated {
+		log.WithFields(log.Fields{"peer": p.ID, "key": p.Key}).
+			Infof("peer meta updated, %s%d field(s) changed: %s", versionInfo, len(diff), strings.Join(diff, ", "))
+	}
+
 	return updated, versionChanged
 }
 
