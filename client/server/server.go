@@ -1771,7 +1771,14 @@ func (s *Server) WaitExtendAuthSession(
 
 	deadline, err := engine.ExtendAuthSession(ctx, tokenInfo.GetTokenToUse())
 	if err != nil {
-		return nil, gstatus.Errorf(codes.Internal, "management ExtendAuthSession failed: %v", err)
+		// Log the full wrapped chain, but return only the innermost gRPC
+		// status (code + clean desc) so the UI shows the root cause, not
+		// the daemon's wrapping layers.
+		log.Errorf("management ExtendAuthSession failed: %v", err)
+		if st := innermostStatus(err); st != nil {
+			return nil, gstatus.Error(st.Code(), st.Message())
+		}
+		return nil, gstatus.Errorf(codes.Internal, "%v", err)
 	}
 
 	resp := &proto.WaitExtendAuthSessionResponse{}
@@ -2391,4 +2398,17 @@ func logoutPeerGone(err error) bool {
 		}
 	}
 	return false
+}
+
+// innermostStatus walks the wrap chain and returns the deepest gRPC status,
+// or nil when none is present. gstatus.FromError does not unwrap, so a status
+// wrapped with fmt.Errorf %w would otherwise be missed.
+func innermostStatus(err error) *gstatus.Status {
+	var found *gstatus.Status
+	for e := err; e != nil; e = errors.Unwrap(e) {
+		if s, ok := gstatus.FromError(e); ok {
+			found = s
+		}
+	}
+	return found
 }
