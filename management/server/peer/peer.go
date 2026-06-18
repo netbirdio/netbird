@@ -297,66 +297,66 @@ func (p *Peer) UpdateMetaIfNew(ctx context.Context, meta PeerSystemMeta) (update
 // source of truth for meta comparison: isEqual reports equality as an empty
 // diff, so the log line can never disagree with the change decision. Slices are
 // cloned before sorting, so callers' meta is not mutated.
-func metaDiff(old, new PeerSystemMeta) []string {
+func metaDiff(oldMeta, newMeta PeerSystemMeta) []string {
 	var diff []string
 	add := func(field string, oldVal, newVal any) {
 		diff = append(diff, fmt.Sprintf("%s: %v -> %v", field, oldVal, newVal))
 	}
 
-	if old.Hostname != new.Hostname {
-		add("hostname", old.Hostname, new.Hostname)
+	if oldMeta.Hostname != newMeta.Hostname {
+		add("hostname", oldMeta.Hostname, newMeta.Hostname)
 	}
-	if old.GoOS != new.GoOS {
-		add("goos", old.GoOS, new.GoOS)
+	if oldMeta.GoOS != newMeta.GoOS {
+		add("goos", oldMeta.GoOS, newMeta.GoOS)
 	}
-	if old.Kernel != new.Kernel {
-		add("kernel", old.Kernel, new.Kernel)
+	if oldMeta.Kernel != newMeta.Kernel {
+		add("kernel", oldMeta.Kernel, newMeta.Kernel)
 	}
-	if old.KernelVersion != new.KernelVersion {
-		add("kernel_version", old.KernelVersion, new.KernelVersion)
+	if oldMeta.KernelVersion != newMeta.KernelVersion {
+		add("kernel_version", oldMeta.KernelVersion, newMeta.KernelVersion)
 	}
-	if old.Core != new.Core {
-		add("core", old.Core, new.Core)
+	if oldMeta.Core != newMeta.Core {
+		add("core", oldMeta.Core, newMeta.Core)
 	}
-	if old.Platform != new.Platform {
-		add("platform", old.Platform, new.Platform)
+	if oldMeta.Platform != newMeta.Platform {
+		add("platform", oldMeta.Platform, newMeta.Platform)
 	}
-	if old.OS != new.OS {
-		add("os", old.OS, new.OS)
+	if oldMeta.OS != newMeta.OS {
+		add("os", oldMeta.OS, newMeta.OS)
 	}
-	if old.OSVersion != new.OSVersion {
-		add("os_version", old.OSVersion, new.OSVersion)
+	if oldMeta.OSVersion != newMeta.OSVersion {
+		add("os_version", oldMeta.OSVersion, newMeta.OSVersion)
 	}
-	if old.WtVersion != new.WtVersion {
-		add("wt_version", old.WtVersion, new.WtVersion)
+	if oldMeta.WtVersion != newMeta.WtVersion {
+		add("wt_version", oldMeta.WtVersion, newMeta.WtVersion)
 	}
-	if old.UIVersion != new.UIVersion {
-		add("ui_version", old.UIVersion, new.UIVersion)
+	if oldMeta.UIVersion != newMeta.UIVersion {
+		add("ui_version", oldMeta.UIVersion, newMeta.UIVersion)
 	}
-	if old.SystemSerialNumber != new.SystemSerialNumber {
-		add("system_serial_number", old.SystemSerialNumber, new.SystemSerialNumber)
+	if oldMeta.SystemSerialNumber != newMeta.SystemSerialNumber {
+		add("system_serial_number", oldMeta.SystemSerialNumber, newMeta.SystemSerialNumber)
 	}
-	if old.SystemProductName != new.SystemProductName {
-		add("system_product_name", old.SystemProductName, new.SystemProductName)
+	if oldMeta.SystemProductName != newMeta.SystemProductName {
+		add("system_product_name", oldMeta.SystemProductName, newMeta.SystemProductName)
 	}
-	if old.SystemManufacturer != new.SystemManufacturer {
-		add("system_manufacturer", old.SystemManufacturer, new.SystemManufacturer)
+	if oldMeta.SystemManufacturer != newMeta.SystemManufacturer {
+		add("system_manufacturer", oldMeta.SystemManufacturer, newMeta.SystemManufacturer)
 	}
-	if old.Environment.Cloud != new.Environment.Cloud {
-		add("environment_cloud", old.Environment.Cloud, new.Environment.Cloud)
+	if oldMeta.Environment.Cloud != newMeta.Environment.Cloud {
+		add("environment_cloud", oldMeta.Environment.Cloud, newMeta.Environment.Cloud)
 	}
-	if old.Environment.Platform != new.Environment.Platform {
-		add("environment_platform", old.Environment.Platform, new.Environment.Platform)
+	if oldMeta.Environment.Platform != newMeta.Environment.Platform {
+		add("environment_platform", oldMeta.Environment.Platform, newMeta.Environment.Platform)
 	}
-	if !old.Flags.isEqual(new.Flags) {
-		add("flags", fmt.Sprintf("%+v", old.Flags), fmt.Sprintf("%+v", new.Flags))
+	if !oldMeta.Flags.isEqual(newMeta.Flags) {
+		add("flags", fmt.Sprintf("%+v", oldMeta.Flags), fmt.Sprintf("%+v", newMeta.Flags))
 	}
-	if !capabilitiesEqual(old.Capabilities, new.Capabilities) {
-		add("capabilities", old.Capabilities, new.Capabilities)
+	if !capabilitiesEqual(oldMeta.Capabilities, newMeta.Capabilities) {
+		add("capabilities", oldMeta.Capabilities, newMeta.Capabilities)
 	}
 
-	oldAddrs := slices.Clone(old.NetworkAddresses)
-	newAddrs := slices.Clone(new.NetworkAddresses)
+	oldAddrs := slices.Clone(oldMeta.NetworkAddresses)
+	newAddrs := slices.Clone(newMeta.NetworkAddresses)
 	sort.Slice(oldAddrs, func(i, j int) bool { return oldAddrs[i].Mac < oldAddrs[j].Mac })
 	sort.Slice(newAddrs, func(i, j int) bool { return newAddrs[i].Mac < newAddrs[j].Mac })
 	if !slices.EqualFunc(oldAddrs, newAddrs, func(a, b NetworkAddress) bool {
@@ -365,8 +365,8 @@ func metaDiff(old, new PeerSystemMeta) []string {
 		add("network_addresses", fmt.Sprintf("%v", oldAddrs), fmt.Sprintf("%v", newAddrs))
 	}
 
-	oldFiles := slices.Clone(old.Files)
-	newFiles := slices.Clone(new.Files)
+	oldFiles := slices.Clone(oldMeta.Files)
+	newFiles := slices.Clone(newMeta.Files)
 	sort.Slice(oldFiles, func(i, j int) bool { return oldFiles[i].Path < oldFiles[j].Path })
 	sort.Slice(newFiles, func(i, j int) bool { return newFiles[i].Path < newFiles[j].Path })
 	if !slices.EqualFunc(oldFiles, newFiles, func(a, b File) bool {
