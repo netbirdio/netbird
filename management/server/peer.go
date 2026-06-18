@@ -1175,6 +1175,8 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 			}
 		}
 
+		peer.UpdateMetaIfNew(login.Meta)
+
 		return nil
 	})
 	if err != nil {
@@ -1192,8 +1194,9 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 	}
 
 	if shouldUpdatePeers {
+		log.Infof("sending peer update form Login")
 		changedPeerIDs := []string{peer.ID}
-		affectedPeerIDs := am.resolveAffectedPeersForPeerChanges(ctx, am.Store, accountID, changedPeerIDs)
+		affectedPeerIDs := excludePeer(am.resolveAffectedPeersForPeerChanges(ctx, am.Store, accountID, changedPeerIDs), peer.ID)
 		if err = am.networkMapController.OnPeersUpdated(ctx, accountID, changedPeerIDs, affectedPeerIDs); err != nil {
 			return nil, nil, nil, false, fmt.Errorf("notify network map controller of peer update: %w", err)
 		}
@@ -1593,6 +1596,21 @@ func (am *DefaultAccountManager) resolveAffectedPeersForPeerChanges(ctx context.
 		return nil
 	}
 	return snap.Expand(ctx, accountID, change)
+}
+
+// excludePeer returns peerIDs without excludeID.
+func excludePeer(peerIDs []string, excludeID string) []string {
+	if len(peerIDs) == 0 {
+		return peerIDs
+	}
+	filtered := make([]string, 0, len(peerIDs))
+	for _, id := range peerIDs {
+		if id == excludeID {
+			continue
+		}
+		filtered = append(filtered, id)
+	}
+	return filtered
 }
 
 func (am *DefaultAccountManager) BufferUpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) {
