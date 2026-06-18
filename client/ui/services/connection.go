@@ -4,59 +4,17 @@ package services
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"os/user"
 	"runtime"
-	"strings"
 
 	log "github.com/sirupsen/logrus"
-	gstatus "google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
-	"github.com/netbirdio/netbird/client/ui/i18n"
-	"github.com/netbirdio/netbird/client/ui/preferences"
 )
-
-// ErrorTranslator localises daemon errors; runtime impl is *i18n.Bundle.
-type ErrorTranslator interface {
-	Translate(lang i18n.LanguageCode, key string, args ...string) string
-}
-
-// LanguagePreference reports the current UI language; runtime impl is *preferences.Store.
-type LanguagePreference interface {
-	Get() preferences.UIPreferences
-}
-
-// ClientError is a structured error returned to the frontend. The frontend
-// translates Code via i18n; Short is an English fallback; Long carries the
-// unwrapped daemon message.
-type ClientError struct {
-	Code  string `json:"code"`
-	Short string `json:"short"`
-	Long  string `json:"long"`
-}
-
-// Error returns the short message for plain Go callers.
-func (e *ClientError) Error() string {
-	if e == nil {
-		return ""
-	}
-	return e.Short
-}
-
-// MarshalJSON emits the struct so the Wails binding sends an object, not the
-// default "error: ..." string.
-func (e *ClientError) MarshalJSON() ([]byte, error) {
-	if e == nil {
-		return []byte("null"), nil
-	}
-	type alias ClientError
-	return json.Marshal((*alias)(e))
-}
 
 // LoginParams are the inputs to Login.
 type LoginParams struct {
@@ -98,14 +56,13 @@ type LogoutParams struct {
 // Connection groups the daemon RPCs that drive login / connect / disconnect.
 type Connection struct {
 	conn       DaemonConn
-	translator ErrorTranslator
-	prefs      LanguagePreference
+	classifier errorClassifier
 }
 
 // NewConnection wires up a Connection. translator or prefs may be nil, in which
 // case classifyDaemonError falls back to the bare error key.
 func NewConnection(conn DaemonConn, translator ErrorTranslator, prefs LanguagePreference) *Connection {
-	return &Connection{conn: conn, translator: translator, prefs: prefs}
+	return &Connection{conn: conn, classifier: errorClassifier{translator: translator, prefs: prefs}}
 }
 
 func (s *Connection) Login(ctx context.Context, p LoginParams) (LoginResult, error) {
@@ -260,62 +217,7 @@ func (s *Connection) Logout(ctx context.Context, p LogoutParams) error {
 	return nil
 }
 
-// classifyDaemonError maps a gRPC error to a ClientError by matching known
-// substrings to a stable code. A missing locale entry surfaces as a visible
-// "error.<code>" string — a deliberate fail-loud signal to update the bundle.
+// classifyDaemonError maps a gRPC error to a localised ClientError.
 func (s *Connection) classifyDaemonError(err error) *ClientError {
-	if err == nil {
-		return nil
-	}
-
-	msg := err.Error()
-	if st, ok := gstatus.FromError(err); ok {
-		msg = st.Message()
-	}
-	lower := strings.ToLower(msg)
-
-	code := "unknown"
-	switch {
-	case strings.Contains(lower, "token used before issued"),
-		strings.Contains(lower, "token is not valid yet"):
-		code = "jwt_clock_skew"
-	case strings.Contains(lower, "token is expired"),
-		strings.Contains(lower, "token has expired"):
-		code = "jwt_expired"
-	case strings.Contains(lower, "token signature is invalid"):
-		code = "jwt_signature_invalid"
-	case strings.Contains(lower, "peer login has expired"):
-		code = "session_expired"
-	case strings.Contains(lower, "invalid setup-key"),
-		strings.Contains(lower, "invalid setup key"):
-		code = "invalid_setup_key"
-	case strings.Contains(lower, "permission denied"):
-		code = "permission_denied"
-	case strings.Contains(lower, "no connection could be made"),
-		strings.Contains(lower, "connection refused"),
-		strings.Contains(lower, "context deadline exceeded"):
-		code = "daemon_unreachable"
-	}
-
-	return &ClientError{
-		Code:  code,
-		Short: s.translateShort(code),
-		Long:  msg,
-	}
-}
-
-// translateShort resolves the localised short message for code, returning the
-// bare "error.<code>" key when no translation is available so the gap stays visible.
-func (s *Connection) translateShort(code string) string {
-	key := "error." + code
-	if s.translator == nil {
-		return key
-	}
-	lang := i18n.DefaultLanguage
-	if s.prefs != nil {
-		if pref := s.prefs.Get().Language; pref != "" {
-			lang = pref
-		}
-	}
-	return s.translator.Translate(lang, key)
+	return s.classifier.classify(err)
 }

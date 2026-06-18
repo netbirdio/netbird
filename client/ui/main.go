@@ -314,7 +314,7 @@ func buildI18n(app *application.App) (*i18n.Bundle, *preferences.Store, *Localiz
 // already built so the tray and feed loops share the same instances.
 func registerServices(app *application.App, conn *Conn, s registeredServices) {
 	app.RegisterService(application.NewService(s.connection))
-	app.RegisterService(application.NewService(services.NewSession(s.authSession)))
+	app.RegisterService(application.NewService(services.NewSession(s.authSession, s.bundle, s.prefStore)))
 	app.RegisterService(application.NewService(s.settings))
 	app.RegisterService(application.NewService(s.networks))
 	app.RegisterService(application.NewService(services.NewForwarding(conn)))
