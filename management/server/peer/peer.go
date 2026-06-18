@@ -270,15 +270,21 @@ func (p *Peer) UpdateMetaIfNew(meta PeerSystemMeta) (updated, versionChanged boo
 		meta.UIVersion = p.Meta.UIVersion
 	}
 
+	oldVersion := p.Meta.WtVersion
+
 	diff := metaDiff(p.Meta, meta)
-	if len(diff) == 0 {
-		return updated, versionChanged
+	if len(diff) != 0 {
+		p.Meta = meta
+		updated = true
 	}
 
-	p.Meta = meta
-	updated = true
+	versionInfo := ""
+	if versionChanged {
+		versionInfo = fmt.Sprintf("version changed: %s -> %s, ", oldVersion, meta.WtVersion)
+	}
+
 	log.WithFields(log.Fields{"peer": p.ID, "key": p.Key}).
-		Debugf("peer meta updated, %d field(s) changed: %s", len(diff), strings.Join(diff, ", "))
+		Debugf("peer meta updated, %s%d field(s) changed: %s", versionInfo, len(diff), strings.Join(diff, ", "))
 	return updated, versionChanged
 }
 
