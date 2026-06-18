@@ -111,6 +111,14 @@ func (c *ConnectClient) RunAsync(config *profilemanager.Config, md metadata.MD) 
 	c.sup.startAsync(config, md, c.mobileDependency(config), "", nil)
 }
 
+// Restart atomically stops any in-flight run and starts a fresh one with the
+// given config. The stop+start happens as a single supervisor operation, so no
+// other lifecycle request can interleave between them — used for explicit
+// restarts (e.g. an MDM policy change) that must not expose a "stopped" window.
+func (c *ConnectClient) Restart(config *profilemanager.Config, md metadata.MD) {
+	c.sup.restartAsync(config, md, c.mobileDependency(config), "")
+}
+
 // WaitEstablishedOrDone blocks until the in-flight run becomes established (nil),
 // ends before that (the run error, or a sentinel on a clean stop), or ctx is
 // cancelled. Returns errNoRunInFlight if no run is in flight. Wraps the wait on

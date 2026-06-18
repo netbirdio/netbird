@@ -26,6 +26,7 @@ type lifecycleOp int
 const (
 	opStart lifecycleOp = iota
 	opStop
+	opRestart
 	opStatus
 	opWaitEstablished
 )
@@ -119,6 +120,8 @@ func (s *supervisor) loop() {
 				s.handleStart(cmd)
 			case opStop:
 				s.handleStop(cmd)
+			case opRestart:
+				s.handleRestart(cmd)
 			case opStatus:
 				cmd.reply <- (s.isRunningInternal())
 			case opWaitEstablished:
@@ -159,14 +162,30 @@ func (s *supervisor) handleStop(cmd lifecycleCmd) {
 		notify(cmd.done, nil)
 		return
 	}
+	s.stopCurrentRun()
+	notify(cmd.done, nil)
+}
 
-	// Cancel the in-flight run and block the supervisor until it has fully
-	// unwound, so the next queued command (e.g. a fresh start) starts from a
-	// clean slate. The run goroutine reports completion via runEnded.
+// handleRestart tears down any in-flight run and starts a fresh one in a single
+// loop turn. No other command can interleave between the stop and the start
+// (the loop is single-threaded), so the swap is atomic without relying on any
+// daemon-side lock — that is what an explicit restart (e.g. MDM config change)
+// needs to avoid a window where the client is observably stopped.
+func (s *supervisor) handleRestart(cmd lifecycleCmd) {
+	if s.curStart != nil {
+		s.stopCurrentRun()
+	}
+	s.handleStart(cmd)
+}
+
+// stopCurrentRun cancels the in-flight run and blocks the supervisor until it
+// has fully unwound, so the next action starts from a clean slate. The run
+// goroutine reports completion via runEnded. Caller must hold an in-flight run
+// (curStart != nil).
+func (s *supervisor) stopCurrentRun() {
 	s.runCancel()
 	res := <-s.runEnded
 	s.finishRun(res.err)
-	notify(cmd.done, nil)
 }
 
 // finishRun resets lifecycle state after a run terminates and hands the run
@@ -240,6 +259,18 @@ func (s *supervisor) startAsync(config *profilemanager.Config, md metadata.MD, m
 	case s.cmdCh <- cmd:
 	case <-s.ctx.Done():
 		notify(done, s.ctx.Err())
+	}
+}
+
+// restartAsync enqueues an atomic stop+start without blocking. The supervisor
+// tears down any in-flight run and starts a fresh one with the supplied config
+// in a single loop turn (see handleRestart). Fire-and-forget: the new run owns
+// its lifecycle channels, observed via waitEstablishedOrDone.
+func (s *supervisor) restartAsync(config *profilemanager.Config, md metadata.MD, mobileDep MobileDependency, logPath string) {
+	cmd := lifecycleCmd{op: opRestart, config: config, md: md, mobileDep: mobileDep, logPath: logPath}
+	select {
+	case s.cmdCh <- cmd:
+	case <-s.ctx.Done():
 	}
 }
 

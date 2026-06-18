@@ -61,13 +61,9 @@ func (s *Server) onMDMPolicyChange(_, _ *mdm.Policy) error {
 		return nil
 	}
 
-	// End the in-flight run through the supervisor. Stop blocks until the run
-	// has fully unwound (the supervisor is the single place a run is stopped),
-	// so by the time it returns we can safely start a fresh run with the new
-	// config — no separate quiescence wait needed.
-	if err := s.connectClient.Stop(); err != nil {
-		log.Warnf("MDM restart: failed to stop current run: %v", err)
-	}
+	// Cancel daemon-side login/status activities tied to the old run; the run
+	// itself is torn down atomically by the supervisor inside Restart (see
+	// restartEngineForMDMLocked), which stops and re-starts in one operation.
 	if s.actCancel != nil {
 		s.actCancel()
 	}
@@ -142,10 +138,11 @@ func (s *Server) restartEngineForMDMLocked() error {
 
 	_, cancel := context.WithCancel(s.rootCtx)
 	s.actCancel = cancel
-	log.Info("MDM restart: starting a fresh run with re-resolved config")
-	// MDM restart has no incoming RPC metadata; fire and forget (the run owns
-	// its established/done channels, the supervisor reconnects internally).
-	s.connectClient.RunAsync(config, nil)
+	log.Info("MDM restart: atomically restarting the run with re-resolved config")
+	// MDM restart has no incoming RPC metadata; fire and forget. Restart is a
+	// single supervisor op (atomic stop+start), so there is no observable
+	// "stopped" window between tearing down the old run and starting the new.
+	s.connectClient.Restart(config, nil)
 	s.publishConfigChangedEvent("mdm")
 	return nil
 }
