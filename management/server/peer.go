@@ -949,7 +949,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 		am.StoreEvent(ctx, opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)
 	}
 
-	network, postureChecks, enableSSH, err := getPeerLoginInfo(ctx, am.Store, accountID, newPeer, !requiresApproval)
+	network, postureChecks, _, err := getPeerLoginInfo(ctx, am.Store, accountID, newPeer, !requiresApproval)
 	if err != nil {
 		return nil, nil, nil, false, err
 	}
@@ -960,7 +960,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 		log.WithContext(ctx).Errorf("failed to update network map cache for peer %s: %v", newPeer.ID, err)
 	}
 
-	return newPeer, network, postureChecks, enableSSH, nil
+	return newPeer, network, postureChecks, true, nil
 }
 
 func getPeerIPDNSLabel(ip netip.Addr, peerHostName string) (string, error) {
