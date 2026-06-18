@@ -159,5 +159,12 @@ export default function WelcomeDialog() {
         }
     }, [initial, step, handleTrayContinue, handleManagementContinue]);
 
-    return <ConfirmDialog ref={contentRef}>{content}</ConfirmDialog>;
+    return (
+        <ConfirmDialog
+            ref={contentRef}
+            aria-labelledby={step === "tray" ? "nb-welcome-title" : "nb-welcome-management-title"}
+        >
+            {content}
+        </ConfirmDialog>
+    );
 }

@@ -479,6 +479,50 @@
         "message": "Update Available",
         "description": "'More' menu item / badge shown when an update is available."
     },
+    "header.menu.open": {
+        "message": "Open menu",
+        "description": "Accessibility label for the header's more (⋮) button that opens the menu."
+    },
+    "header.profile.switch": {
+        "message": "Switch profile",
+        "description": "Accessibility label for the header's profile selector button."
+    },
+    "connect.toggle.label": {
+        "message": "Toggle NetBird connection",
+        "description": "Accessibility label for the large connect/disconnect toggle on the main page."
+    },
+    "connect.localIp.label": {
+        "message": "Local IP addresses",
+        "description": "Accessibility label for the local IP selector that toggles between IPv4 and IPv6 on the main page."
+    },
+    "common.search": {
+        "message": "Search",
+        "description": "Accessibility label for a generic search input."
+    },
+    "common.filter": {
+        "message": "Filter",
+        "description": "Accessibility label for a generic filter control."
+    },
+    "exitNodes.dropdown.trigger": {
+        "message": "Select exit node",
+        "description": "Accessibility label for the exit-node picker button at the bottom of the main page."
+    },
+    "peers.row.label": {
+        "message": "Open details for {name}, {status}",
+        "description": "Accessibility label for a peer row in the list. {name} is the peer name and {status} is the connection status; keep both placeholders."
+    },
+    "peers.dialog.title": {
+        "message": "Peer details",
+        "description": "Accessibility title (announced to screen readers) for the peer details dialog/panel."
+    },
+    "networks.row.toggle": {
+        "message": "Toggle {name}",
+        "description": "Accessibility label for the row-wide toggle on a network/resource. {name} is the resource id; keep the placeholder."
+    },
+    "networks.bulk.label": {
+        "message": "Toggle all visible resources",
+        "description": "Accessibility label for the bulk enable/disable button at the bottom of the resources list."
+    },
     "profile.switch.title": {
         "message": "Switch Profile to \"{name}\"?",
         "description": "Confirmation-dialog title for switching profiles. {name} is the target profile name, shown in quotes; keep {name} and the surrounding quotes."
@@ -598,6 +642,10 @@
     "settings.error.debugBundleTitle": {
         "message": "Debug Bundle Failed",
         "description": "Error-dialog title when creating the debug bundle fails."
+    },
+    "settings.nav.label": {
+        "message": "Settings sections",
+        "description": "Accessibility label for the Settings page's side navigation (list of section tabs)."
     },
     "settings.tabs.general": {
         "message": "General",

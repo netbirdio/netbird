@@ -35,9 +35,7 @@ export const DaemonOutdatedOverlay = () => {
                     <p className={"text-base font-medium text-nb-gray-50"}>
                         {t("daemon.outdated.title")}
                     </p>
-                    <p className={"text-sm text-nb-gray-300"}>
-                        {t("daemon.outdated.description")}
-                    </p>
+                    <p className={"text-sm text-nb-gray-300"}>{t("daemon.outdated.description")}</p>
                 </div>
 
                 <div className={"wails-no-draggable"}>

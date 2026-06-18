@@ -136,13 +136,8 @@ export const Peers = () => {
                 <NoResults />
             ) : (
                 <ScrollArea.Root type={"auto"} className={"flex-1 min-h-0 overflow-hidden"}>
-                    <ScrollArea.Viewport
-                        ref={setScrollParent}
-                        className={"h-full w-full"}
-                    >
-                        {scrollParent && (
-                            <PeersList data={filtered} scrollParent={scrollParent} />
-                        )}
+                    <ScrollArea.Viewport ref={setScrollParent} className={"h-full w-full"}>
+                        {scrollParent && <PeersList data={filtered} scrollParent={scrollParent} />}
                     </ScrollArea.Viewport>
                     <ScrollArea.Scrollbar
                         orientation={"vertical"}
@@ -183,8 +178,11 @@ const PeersList = ({ data, scrollParent }: PeersListProps) => {
             components={{ Header: ListTopSpacer }}
             itemContent={(_, peer) => {
                 const isConnected = peer.connStatus === "Connected";
+                const peerName = shortenDns(peer.fqdn) || peer.ip;
+                const statusLabel = t(peerStatusLabelKey(peer.connStatus));
                 return (
                     <div
+                        role="listitem"
                         className={cn(
                             "group relative flex items-start gap-2.5 pl-6 pr-4 py-3 min-w-0",
                             "hover:bg-nb-gray-900/40 transition-colors",
@@ -193,12 +191,17 @@ const PeersList = ({ data, scrollParent }: PeersListProps) => {
                     >
                         <button
                             type={"button"}
-                            aria-label={shortenDns(peer.fqdn)}
+                            aria-label={t("peers.row.label", {
+                                name: peerName,
+                                status: statusLabel,
+                            })}
                             onClick={() => setSelected(peer)}
                             className={"absolute inset-0 cursor-default"}
                         />
-                        <Tooltip content={t(peerStatusLabelKey(peer.connStatus))} side={"left"}>
+                        <Tooltip content={statusLabel} side={"left"}>
                             <span
+                                role="img"
+                                aria-label={statusLabel}
                                 className={cn(
                                     "h-2 w-2 rounded-full shrink-0 mt-2 relative",
                                     dotClass(peer.connStatus),
@@ -246,6 +249,7 @@ const PeersList = ({ data, scrollParent }: PeersListProps) => {
                         )}
                         <ChevronRightIcon
                             size={16}
+                            aria-hidden="true"
                             className={cn(
                                 "shrink-0 self-center text-nb-gray-300 relative pointer-events-none",
                                 "opacity-0 group-hover:opacity-100 transition-opacity",

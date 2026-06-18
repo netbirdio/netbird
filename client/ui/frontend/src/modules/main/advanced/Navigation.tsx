@@ -43,7 +43,12 @@ export const Navigation = () => {
     }
 
     return (
-        <div className={"wails-no-draggable shrink-0 flex items-stretch "}>
+        <div
+            role={"tablist"}
+            aria-orientation={"horizontal"}
+            aria-label={t("nav.peers.title")}
+            className={"wails-no-draggable shrink-0 flex items-stretch "}
+        >
             {tabs.map((tab) => {
                 const isActive = tab.value === section;
                 const isDisabled = !isConnected && !isActive;
@@ -52,6 +57,11 @@ export const Navigation = () => {
                     <button
                         key={tab.value}
                         type={"button"}
+                        role={"tab"}
+                        aria-selected={isActive}
+                        aria-controls={`nb-tabpanel-${tab.value}`}
+                        id={`nb-tab-${tab.value}`}
+                        tabIndex={isActive ? 0 : -1}
                         onClick={() => setSection(tab.value)}
                         disabled={isDisabled}
                         className={cn(
@@ -62,9 +72,10 @@ export const Navigation = () => {
                             isDisabled ? "opacity-50 cursor-not-allowed" : "cursor-default",
                         )}
                     >
-                        <Icon size={14} />
+                        <Icon size={14} aria-hidden="true" />
                         <span className={"text-sm font-normal"}>{tab.label}</span>
                         <span
+                            aria-hidden="true"
                             className={cn(
                                 "absolute inset-x-0 bottom-0 h-px transition-all",
                                 isActive

@@ -20,7 +20,8 @@ const Overlay = forwardRef<ElementRef<typeof DialogPrimitive.Overlay>, OverlayPr
                     "fixed inset-0 z-50 grid items-center justify-items-center overflow-y-auto px-10 py-16",
                     "bg-black/60",
                     "data-[state=open]:animate-in data-[state=open]:fade-in-0",
-                    exitAnimation && "data-[state=closed]:animate-out data-[state=closed]:fade-out-0",
+                    exitAnimation &&
+                        "data-[state=closed]:animate-out data-[state=closed]:fade-out-0",
                     "duration-150 ease-out",
                     className,
                 )}
@@ -34,6 +35,8 @@ type ContentProps = ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
     showClose?: boolean;
     maxWidthClass?: string;
     exitAnimation?: boolean;
+    srTitle?: string;
+    srDescription?: string;
 };
 
 export const Content = forwardRef<ElementRef<typeof DialogPrimitive.Content>, ContentProps>(
@@ -44,6 +47,8 @@ export const Content = forwardRef<ElementRef<typeof DialogPrimitive.Content>, Co
             showClose = true,
             maxWidthClass = "max-w-md",
             exitAnimation = false,
+            srTitle,
+            srDescription,
             ...props
         },
         ref,
@@ -70,8 +75,17 @@ export const Content = forwardRef<ElementRef<typeof DialogPrimitive.Content>, Co
                         {...props}
                     >
                         <VisuallyHidden asChild>
-                            <DialogPrimitive.Title>Dialog</DialogPrimitive.Title>
+                            <DialogPrimitive.Title>
+                                {srTitle ?? t("common.netbird")}
+                            </DialogPrimitive.Title>
                         </VisuallyHidden>
+                        {srDescription && (
+                            <VisuallyHidden asChild>
+                                <DialogPrimitive.Description>
+                                    {srDescription}
+                                </DialogPrimitive.Description>
+                            </VisuallyHidden>
+                        )}
                         {children}
                         {showClose && (
                             <DialogPrimitive.Close
@@ -82,7 +96,7 @@ export const Content = forwardRef<ElementRef<typeof DialogPrimitive.Content>, Co
                                 )}
                                 aria-label={t("common.close")}
                             >
-                                <X className="h-4 w-4" />
+                                <X className="h-4 w-4" aria-hidden="true" />
                             </DialogPrimitive.Close>
                         )}
                     </DialogPrimitive.Content>

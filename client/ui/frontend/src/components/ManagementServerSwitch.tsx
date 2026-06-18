@@ -18,10 +18,16 @@ export const ManagementServerSwitch = ({ value, onChange, fullWidth = false }: P
             key={i18n.language}
             value={value}
             onChange={(v) => onChange(v as ManagementMode)}
+            aria-label={t("settings.general.management.label")}
             className={fullWidth ? "w-full" : undefined}
         >
             <SwitchItem value={ManagementMode.Cloud} className={itemClass}>
-                <img src={netbirdLogo} alt={""} className={"h-[0.8rem] aspect-[31/23] shrink-0"} />
+                <img
+                    src={netbirdLogo}
+                    alt={""}
+                    aria-hidden="true"
+                    className={"h-[0.8rem] aspect-[31/23] shrink-0"}
+                />
                 {t("settings.general.management.cloud")}
             </SwitchItem>
             <SwitchItem value={ManagementMode.SelfHosted} className={itemClass}>

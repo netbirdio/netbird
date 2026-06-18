@@ -144,6 +144,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
             ref={ref}
             type={type}
             disabled={disabled || loading}
+            aria-busy={loading || undefined}
             className={cn(
                 buttonVariants({
                     variant,
@@ -170,13 +171,20 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
             {...props}
         >
             {loading && (
-                <span className={"absolute inset-0 flex items-center justify-center"}>
+                <span
+                    aria-hidden="true"
+                    className={"absolute inset-0 flex items-center justify-center"}
+                >
                     <Loader2 size={iconSize} className={"animate-spin"} />
                 </span>
             )}
             <span className={cn("contents", loading && "invisible")}>
                 {copy !== undefined &&
-                    (copied ? <Check size={iconSize} /> : <Copy size={iconSize} />)}
+                    (copied ? (
+                        <Check size={iconSize} aria-hidden="true" />
+                    ) : (
+                        <Copy size={iconSize} aria-hidden="true" />
+                    ))}
                 {children}
             </span>
         </button>

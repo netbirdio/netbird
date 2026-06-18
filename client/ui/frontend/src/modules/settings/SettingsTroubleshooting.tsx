@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { CircleCheckBig, FolderOpen, Loader2 } from "lucide-react";
 import { Browser } from "@wailsio/runtime";
@@ -22,6 +22,7 @@ const SUPPORT_DOCS_URL = "https://docs.netbird.io/help/report-bug-issues";
 
 export function SettingsTroubleshooting() {
     const { t } = useTranslation();
+    const durationId = useId();
     const {
         anonymize,
         setAnonymize,
@@ -94,7 +95,7 @@ export function SettingsTroubleshooting() {
                 />
                 <div className={"flex items-center gap-6 justify-between"}>
                     <div className={"flex-1 max-w-md"}>
-                        <Label as={"div"} disabled={!capture}>
+                        <Label htmlFor={durationId} disabled={!capture}>
                             {t("settings.troubleshooting.duration.label")}
                         </Label>
                         <HelpText margin={false} disabled={!capture}>
@@ -103,6 +104,7 @@ export function SettingsTroubleshooting() {
                     </div>
                     <div className={"w-40 shrink-0"}>
                         <Input
+                            id={durationId}
                             type={"number"}
                             min={1}
                             max={30}
@@ -244,6 +246,7 @@ function DoneResult({
                     <Input
                         value={result.path}
                         readOnly
+                        aria-label={t("settings.troubleshooting.done.savedTitle")}
                         customSuffix={
                             <button
                                 type={"button"}
@@ -251,7 +254,7 @@ function DoneResult({
                                 className={"pointer-events-auto hover:text-white transition-all"}
                                 aria-label={t("settings.troubleshooting.done.openFileLocation")}
                             >
-                                <FolderOpen size={16} />
+                                <FolderOpen size={16} aria-hidden="true" />
                             </button>
                         }
                     />
@@ -259,6 +262,7 @@ function DoneResult({
 
                 {uploadFailed && (
                     <div
+                        role="alert"
                         className={
                             "rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300"
                         }
@@ -292,7 +296,7 @@ function DoneResult({
                             className={"w-full"}
                             onClick={onRevealPath}
                         >
-                            <FolderOpen size={14} />
+                            <FolderOpen size={14} aria-hidden="true" />
                             {t("settings.troubleshooting.done.openFolder")}
                         </Button>
                     )

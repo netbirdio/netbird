@@ -13,10 +13,17 @@ type DialogHeadingProps = {
     children: ReactNode;
     className?: string;
     align?: DialogAlign;
+    id?: string;
 };
 
-export const DialogHeading = ({ children, className, align = "center" }: DialogHeadingProps) => (
-    <p
+export const DialogHeading = ({
+    children,
+    className,
+    align = "center",
+    id,
+}: DialogHeadingProps) => (
+    <h2
+        id={id}
         className={cn(
             "w-full text-base font-semibold text-nb-gray-50 select-none",
             alignClass[align],
@@ -24,5 +31,5 @@ export const DialogHeading = ({ children, className, align = "center" }: DialogH
         )}
     >
         {children}
-    </p>
+    </h2>
 );

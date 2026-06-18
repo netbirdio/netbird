@@ -235,17 +235,23 @@ export const MainConnectionStatusSwitch = () => {
                 checked={isOn}
                 onCheckedChange={handleSwitch}
                 disabled={(isTransitioning && !canForceCancel) || unreachable}
+                aria-label={t("connect.toggle.label")}
+                aria-describedby={"nb-connection-status"}
+                aria-busy={isTransitioning}
                 className={cn(unreachable && "opacity-80", isTransitioning && "animate-pulse")}
             />
 
             <div className={"flex flex-col items-center"}>
-                <h1
+                <p
+                    id={"nb-connection-status"}
+                    role={"status"}
+                    aria-live={"polite"}
                     className={
                         "text-sm font-medium text-nb-gray-200 tracking-wide transition-colors duration-300 select-none wails-no-draggable mb-1"
                     }
                 >
                     {t(STATUS_KEY[connState])}
-                </h1>
+                </p>
                 <CopyToClipboard
                     message={fqdn}
                     variant={"bright"}
@@ -270,6 +276,7 @@ export const MainConnectionStatusSwitch = () => {
 };
 
 const LocalIpLine = ({ ip, ipv6, show }: { ip: string; ipv6: string; show: boolean }) => {
+    const { t } = useTranslation();
     const [open, setOpen] = useState(false);
     const hasV6 = !!ipv6;
 
@@ -303,6 +310,9 @@ const LocalIpLine = ({ ip, ipv6, show }: { ip: string; ipv6: string; show: boole
                 <Popover.Trigger asChild>
                     <button
                         type={"button"}
+                        aria-label={t("connect.localIp.label")}
+                        aria-haspopup="dialog"
+                        aria-expanded={open}
                         className={cn(
                             "group relative inline-flex items-center outline-none cursor-default",
                             "transition-colors",
@@ -319,6 +329,7 @@ const LocalIpLine = ({ ip, ipv6, show }: { ip: string; ipv6: string; show: boole
                         </span>
                         <ChevronDownIcon
                             size={14}
+                            aria-hidden="true"
                             className={cn(
                                 "absolute -right-5 top-1/2 -translate-y-1/2",
                                 "shrink-0 text-nb-gray-300 transition-colors",
@@ -352,6 +363,7 @@ const LocalIpLine = ({ ip, ipv6, show }: { ip: string; ipv6: string; show: boole
 };
 
 const IpRow = ({ value }: { value: string }) => {
+    const { t } = useTranslation();
     const [copied, setCopied] = useState(false);
     const handleClick = async () => {
         if (!value) return;
@@ -367,6 +379,7 @@ const IpRow = ({ value }: { value: string }) => {
         <button
             type={"button"}
             onClick={handleClick}
+            aria-label={`${t("common.copy")} ${value}`}
             className={cn(
                 "group/iprow relative flex items-center justify-between gap-3",
                 "rounded-md px-2 py-1.5 text-left",
@@ -375,7 +388,10 @@ const IpRow = ({ value }: { value: string }) => {
             )}
         >
             <span className={"font-mono text-[0.75rem] truncate min-w-0"}>{value}</span>
-            <span className={"shrink-0 inline-flex items-center text-nb-gray-200"}>
+            <span
+                aria-hidden="true"
+                className={"shrink-0 inline-flex items-center text-nb-gray-200"}
+            >
                 {copied ? <CheckIcon size={11} /> : <CopyIcon size={11} />}
             </span>
         </button>

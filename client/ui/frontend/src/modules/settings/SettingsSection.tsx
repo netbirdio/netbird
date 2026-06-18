@@ -10,7 +10,11 @@ export const SectionGroup = ({
     children: ReactNode;
     disabled?: boolean;
 }) => (
-    <section className={cn("mb-8 last:mb-1 px-1", disabled && "opacity-30 pointer-events-none")}>
+    <section
+        aria-label={title}
+        aria-disabled={disabled || undefined}
+        className={cn("mb-8 last:mb-1 px-1", disabled && "opacity-30 pointer-events-none")}
+    >
         <h2 className={"text-xs uppercase tracking-wider text-nb-gray-400 mb-4 font-semibold"}>
             {title}
         </h2>
@@ -20,7 +24,7 @@ export const SectionGroup = ({
 
 export const SettingsBottomBar = ({ children }: { children: ReactNode }) => (
     <>
-        <div className={"h-[3.2rem] shrink-0"} aria-hidden />
+        <div className={"h-[3.2rem] shrink-0"} aria-hidden="true" />
         <div className={"absolute bottom-0 left-0 w-full"}>
             <div
                 className={

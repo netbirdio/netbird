@@ -82,6 +82,11 @@ const AdvancedAppRightPanel = () => {
             className={"m-5 ml-0"}
         >
             <div
+                ref={(el) => {
+                    if (!el) return;
+                    if (isConnected) el.removeAttribute("inert");
+                    else el.setAttribute("inert", "");
+                }}
                 className={cn(
                     "flex-1 min-h-0 min-w-0 flex flex-col",
                     !isConnected && "pointer-events-none select-none",
@@ -89,7 +94,12 @@ const AdvancedAppRightPanel = () => {
                 aria-hidden={!isConnected}
             >
                 <Navigation />
-                <div className={"flex-1 min-h-0 flex flex-col"}>
+                <div
+                    role={"tabpanel"}
+                    id={`nb-tabpanel-${section}`}
+                    aria-labelledby={`nb-tab-${section}`}
+                    className={"flex-1 min-h-0 flex flex-col"}
+                >
                     {section === "peers" && <Peers />}
                     {section === "networks" && <Networks />}
                 </div>

@@ -359,6 +359,42 @@
     "header.menu.updateAvailable": {
         "message": "Доступно обновление"
     },
+    "header.menu.open": {
+        "message": "Открыть меню"
+    },
+    "header.profile.switch": {
+        "message": "Сменить профиль"
+    },
+    "connect.toggle.label": {
+        "message": "Переключить подключение NetBird"
+    },
+    "connect.localIp.label": {
+        "message": "Локальные IP-адреса"
+    },
+    "common.search": {
+        "message": "Поиск"
+    },
+    "common.filter": {
+        "message": "Фильтр"
+    },
+    "exitNodes.dropdown.trigger": {
+        "message": "Выбрать выходной узел"
+    },
+    "peers.row.label": {
+        "message": "Открыть подробности для {name}, {status}"
+    },
+    "peers.dialog.title": {
+        "message": "Сведения об узле"
+    },
+    "networks.row.toggle": {
+        "message": "Переключить {name}"
+    },
+    "networks.bulk.label": {
+        "message": "Переключить все видимые ресурсы"
+    },
+    "settings.nav.label": {
+        "message": "Разделы настроек"
+    },
     "profile.switch.title": {
         "message": "Переключиться на профиль «{name}»?"
     },

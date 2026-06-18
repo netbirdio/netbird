@@ -359,6 +359,42 @@
     "header.menu.updateAvailable": {
         "message": "Atualização disponível"
     },
+    "header.menu.open": {
+        "message": "Abrir menu"
+    },
+    "header.profile.switch": {
+        "message": "Trocar perfil"
+    },
+    "connect.toggle.label": {
+        "message": "Alternar conexão NetBird"
+    },
+    "connect.localIp.label": {
+        "message": "Endereços IP locais"
+    },
+    "common.search": {
+        "message": "Pesquisar"
+    },
+    "common.filter": {
+        "message": "Filtrar"
+    },
+    "exitNodes.dropdown.trigger": {
+        "message": "Selecionar nó de saída"
+    },
+    "peers.row.label": {
+        "message": "Abrir detalhes de {name}, {status}"
+    },
+    "peers.dialog.title": {
+        "message": "Detalhes do par"
+    },
+    "networks.row.toggle": {
+        "message": "Alternar {name}"
+    },
+    "networks.bulk.label": {
+        "message": "Alternar todos os recursos visíveis"
+    },
+    "settings.nav.label": {
+        "message": "Seções das configurações"
+    },
     "profile.switch.title": {
         "message": "Alternar perfil para \"{name}\"?"
     },

@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import * as Dialog from "@/components/dialog/Dialog";
 import { Input } from "@/components/inputs/Input";
@@ -33,6 +33,8 @@ export const ProfileCreationModal = ({ open, onOpenChange, onCreate }: Props) =>
     const { t } = useTranslation();
     const { mdm } = useRestrictions();
     const managedManagementUrl = mdm.managementURL;
+    const nameId = useId();
+    const urlId = useId();
     const [name, setName] = useState("");
     const [nameError, setNameError] = useState<string | null>(null);
     const nameRef = useRef<HTMLInputElement>(null);
@@ -126,13 +128,15 @@ export const ProfileCreationModal = ({ open, onOpenChange, onCreate }: Props) =>
                 maxWidthClass="max-w-md"
                 showClose={false}
                 className="py-7"
+                srTitle={t("profile.dialog.title")}
+                srDescription={t("profile.dialog.description")}
                 onOpenAutoFocus={(e) => e.preventDefault()}
             >
                 <form onSubmit={handleSubmit}>
                     <div className="flex flex-col gap-6 px-7">
                         <div className="flex flex-col gap-2">
                             <div className={"pl-1"}>
-                                <Label as={"div"} className={"mb-0.5"}>
+                                <Label htmlFor={nameId} className={"mb-0.5"}>
                                     {t("profile.dialog.nameLabel")}
                                 </Label>
                                 <HelpText margin={false}>
@@ -140,6 +144,7 @@ export const ProfileCreationModal = ({ open, onOpenChange, onCreate }: Props) =>
                                 </HelpText>
                             </div>
                             <Input
+                                id={nameId}
                                 ref={nameRef}
                                 autoFocus
                                 placeholder={t("profile.dialog.placeholder")}
@@ -171,8 +176,10 @@ export const ProfileCreationModal = ({ open, onOpenChange, onCreate }: Props) =>
                                     />
                                     {mode === ManagementMode.SelfHosted && (
                                         <Input
+                                            id={urlId}
                                             ref={urlRef}
                                             autoFocus
+                                            aria-label={t("settings.general.management.label")}
                                             placeholder={t(
                                                 "settings.general.management.urlPlaceholder",
                                             )}

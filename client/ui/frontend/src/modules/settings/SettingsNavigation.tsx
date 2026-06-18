@@ -29,7 +29,7 @@ export const SettingsNavigation = () => {
 
     return (
         <div className={"flex flex-col w-52 shrink-0 items-center select-none"}>
-            <VerticalTabs.List>
+            <VerticalTabs.List aria-label={t("settings.nav.label")}>
                 <VerticalTabs.Trigger
                     value={"general"}
                     icon={SlidersHorizontalIcon}

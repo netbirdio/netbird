@@ -35,7 +35,9 @@ export function WelcomeStepTray({ onContinue }: Readonly<WelcomeStepTrayProps>) 
             </div>
 
             <div className={"flex flex-col w-full gap-1"}>
-                <DialogHeading align={"left"}>{t("welcome.title")}</DialogHeading>
+                <DialogHeading id={"nb-welcome-title"} align={"left"}>
+                    {t("welcome.title")}
+                </DialogHeading>
                 <DialogDescription align={"left"}>{t("welcome.description")}</DialogDescription>
             </div>
 

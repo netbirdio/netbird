@@ -105,6 +105,9 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
         <AnimatePresence>
             {selected && (
                 <motion.div
+                    role={"dialog"}
+                    aria-modal={"true"}
+                    aria-labelledby={"nb-peer-detail-title"}
                     initial={{ x: "100%" }}
                     animate={{ x: 0 }}
                     exit={{ x: "100%" }}
@@ -128,10 +131,12 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
                                 "wails-no-draggable",
                             )}
                         >
-                            <ArrowLeftIcon size={16} />
+                            <ArrowLeftIcon size={16} aria-hidden="true" />
                         </button>
                         <Tooltip content={t(peerStatusLabelKey(selected.connStatus))} side={"top"}>
                             <span
+                                role="img"
+                                aria-label={t(peerStatusLabelKey(selected.connStatus))}
                                 className={cn(
                                     "h-2 w-2 rounded-full shrink-0",
                                     dotClass(selected.connStatus),
@@ -144,7 +149,10 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
                             className={"flex-1 min-w-0"}
                             iconClassName={"top-[2px]"}
                         >
-                            <span className={"text-sm font-medium text-nb-gray-100 truncate"}>
+                            <span
+                                id={"nb-peer-detail-title"}
+                                className={"text-sm font-medium text-nb-gray-100 truncate"}
+                            >
                                 {shortenDns(selected.fqdn) || selected.ip}
                             </span>
                         </CopyToClipboard>
@@ -154,6 +162,7 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
                                 onClick={onRefresh}
                                 disabled={refreshing}
                                 aria-label={t("peers.details.refresh")}
+                                aria-busy={refreshing}
                                 className={cn(
                                     "shrink-0 h-8 w-8 rounded-md flex items-center justify-center",
                                     "text-nb-gray-300 hover:bg-nb-gray-910 hover:text-nb-gray-100",
@@ -164,6 +173,7 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
                             >
                                 <RefreshCwIcon
                                     size={14}
+                                    aria-hidden="true"
                                     className={refreshing ? "animate-spin" : undefined}
                                 />
                             </button>
@@ -270,12 +280,16 @@ const PeerDetails = ({ peer, now }: { peer: PeerStatus; now: number }) => {
                         }
                     >
                         <div className={"flex gap-1.5 items-center whitespace-nowrap"}>
-                            <ArrowDownIcon size={13} className={"text-sky-400"} />
+                            <ArrowDownIcon
+                                size={13}
+                                aria-hidden="true"
+                                className={"text-sky-400"}
+                            />
                             <span className={"sr-only"}>{t("peers.details.bytesReceived")}:</span>
                             <span className={"tabular-nums"}>{formatBytes(peer.bytesRx)}</span>
                         </div>
                         <div className={"flex gap-1.5 items-center whitespace-nowrap"}>
-                            <ArrowUpIcon size={13} className={"text-netbird"} />
+                            <ArrowUpIcon size={13} aria-hidden="true" className={"text-netbird"} />
                             <span className={"sr-only"}>{t("peers.details.bytesSent")}:</span>
                             <span className={"tabular-nums"}>{formatBytes(peer.bytesTx)}</span>
                         </div>
@@ -372,6 +386,8 @@ const ResourcesPopover = ({ networks }: { networks: string[] }) => {
             <Popover.Trigger asChild>
                 <button
                     type={"button"}
+                    aria-haspopup="dialog"
+                    aria-expanded={open}
                     className={cn(
                         "shrink-0 inline-flex items-center gap-1 rounded",
                         "bg-nb-gray-930 hover:bg-nb-gray-910/80 data-[state=open]:bg-nb-gray-910",
@@ -383,6 +399,7 @@ const ResourcesPopover = ({ networks }: { networks: string[] }) => {
                     {networks.length}
                     <ChevronDownIcon
                         size={12}
+                        aria-hidden="true"
                         className={cn("transition-transform duration-150", open && "rotate-180")}
                     />
                 </button>
@@ -432,7 +449,11 @@ const TruncatedRowValue = ({ value, mono }: { value: string; mono?: boolean }) =
 
 const Row = ({ icon: Icon, iconClassName, label, children }: RowProps) => (
     <li className={"flex items-center gap-2 px-5 py-4 text-xs text-nb-gray-100 min-w-0"}>
-        <Icon size={14} className={cn("text-nb-gray-100 shrink-0", iconClassName)} />
+        <Icon
+            size={14}
+            aria-hidden="true"
+            className={cn("text-nb-gray-100 shrink-0", iconClassName)}
+        />
         <span className={"text-nb-gray-200 shrink-0 font-semibold"}>{label}</span>
         <span
             className={cn(

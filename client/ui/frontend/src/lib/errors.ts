@@ -35,8 +35,7 @@ export const formatErrorMessage = (e: unknown): string => {
     const envelope = toWailsEnvelope(e);
 
     // Prefer the structured { short, long } the daemon classifier produced.
-    const classified =
-        toClassifiedError(envelope?.cause) ?? toClassifiedError(envelope);
+    const classified = toClassifiedError(envelope?.cause) ?? toClassifiedError(envelope);
     if (classified) {
         const { short, long } = classified;
         if (short && long && long !== short) return `${short} Details: ${long}`;

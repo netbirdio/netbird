@@ -77,6 +77,9 @@ export function LanguagePicker() {
                         <button
                             type={"button"}
                             disabled={busy || languages.length === 0}
+                            aria-label={t("settings.general.language.label")}
+                            aria-haspopup="listbox"
+                            aria-expanded={open}
                             className={cn(
                                 "inline-flex items-center gap-2 h-[40px] px-3 min-w-[240px]",
                                 "rounded-md border bg-white dark:bg-nb-gray-900",
@@ -86,11 +89,19 @@ export function LanguagePicker() {
                                 "disabled:opacity-50",
                             )}
                         >
-                            <LanguagesIcon size={16} className={"text-nb-gray-200 shrink-0"} />
+                            <LanguagesIcon
+                                size={16}
+                                aria-hidden="true"
+                                className={"text-nb-gray-200 shrink-0"}
+                            />
                             <span className={"truncate flex-1 text-left"}>
                                 {current ? labelFor(current) : "—"}
                             </span>
-                            <ChevronDown size={12} className={"text-nb-gray-400 shrink-0"} />
+                            <ChevronDown
+                                size={12}
+                                aria-hidden="true"
+                                className={"text-nb-gray-400 shrink-0"}
+                            />
                         </button>
                     </Popover.Trigger>
 
@@ -119,11 +130,19 @@ export function LanguagePicker() {
                                 )}
                             >
                                 <div className={"px-1 pb-1"}>
-                                    <div className={"group flex items-center gap-2 px-1 h-8"}>
-                                        <Search size={14} className={"text-nb-gray-200 shrink-0"} />
+                                    <div
+                                        role="search"
+                                        className={"group flex items-center gap-2 px-1 h-8"}
+                                    >
+                                        <Search
+                                            size={14}
+                                            aria-hidden="true"
+                                            className={"text-nb-gray-200 shrink-0"}
+                                        />
                                         <Command.Input
                                             autoFocus
                                             placeholder={t("settings.general.language.search")}
+                                            aria-label={t("settings.general.language.search")}
                                             className={cn(
                                                 "w-full bg-transparent text-xs text-nb-gray-100 placeholder:text-nb-gray-300",
                                                 "outline-none border-none",
@@ -162,6 +181,7 @@ export function LanguagePicker() {
                                                             {labelFor(lang)}
                                                         </span>
                                                         <span
+                                                            aria-hidden="true"
                                                             className={
                                                                 "w-4 shrink-0 flex items-center justify-center"
                                                             }

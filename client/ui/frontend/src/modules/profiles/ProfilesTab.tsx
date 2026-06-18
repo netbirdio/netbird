@@ -128,7 +128,10 @@ export function ProfilesTab() {
                         "bg-nb-gray-930/60 border border-nb-gray-900 rounded-xl overflow-hidden",
                     )}
                 >
-                    <table className={"w-full text-sm"}>
+                    <table
+                        className={"w-full text-sm"}
+                        aria-label={t("settings.profiles.section.profiles")}
+                    >
                         <tbody>
                             {ordered.map((profile) => (
                                 <ProfileRow
@@ -149,7 +152,11 @@ export function ProfilesTab() {
                                 "flex flex-col items-center justify-center py-10 text-center"
                             }
                         >
-                            <UserCircle size={28} className={"text-nb-gray-500 mb-2"} />
+                            <UserCircle
+                                size={28}
+                                aria-hidden="true"
+                                className={"text-nb-gray-500 mb-2"}
+                            />
                             <p className={"text-sm font-semibold text-nb-gray-200"}>
                                 {t("settings.profiles.emptyTitle")}
                             </p>
@@ -162,7 +169,7 @@ export function ProfilesTab() {
 
                 <SettingsBottomBar>
                     <Button variant={"primary"} size={"md"} onClick={() => setNewOpen(true)}>
-                        <PlusCircle size={14} />
+                        <PlusCircle size={14} aria-hidden="true" />
                         {t("settings.profiles.addProfile")}
                     </Button>
                 </SettingsBottomBar>
@@ -201,6 +208,7 @@ const ProfileRow = ({ profile, isActive, onSwitch, onDeregister, onDelete }: Pro
                 >
                     <Icon
                         size={15}
+                        aria-hidden="true"
                         className={cn(
                             "text-nb-gray-200 shrink-0",
 
@@ -346,7 +354,7 @@ const ActionIconButton = ({
                     "opacity-40 cursor-not-allowed hover:!text-nb-gray-400 hover:!bg-transparent",
             )}
         >
-            <Icon size={16} />
+            <Icon size={16} aria-hidden="true" />
         </button>
     );
     if (hidden) return button;

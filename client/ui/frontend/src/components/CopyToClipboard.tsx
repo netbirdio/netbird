@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { Check, Copy } from "lucide-react";
 import { cn } from "@/lib/cn";
 
@@ -18,6 +19,7 @@ type CopyToClipboardProps = {
     iconClassName?: string;
     alwaysShowIcon?: boolean;
     variant?: CopyToClipboardVariant;
+    "aria-label"?: string;
 };
 
 export const CopyToClipboard = ({
@@ -29,7 +31,9 @@ export const CopyToClipboard = ({
     iconClassName,
     alwaysShowIcon = false,
     variant = "default",
+    "aria-label": ariaLabel,
 }: CopyToClipboardProps) => {
+    const { t } = useTranslation();
     const wrapperRef = useRef<HTMLButtonElement>(null);
     const [copied, setCopied] = useState(false);
     const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -55,11 +59,16 @@ export const CopyToClipboard = ({
         }
     };
 
+    const resolvedLabel =
+        ariaLabel ?? (message ? `${t("common.copy")} ${message}` : t("common.copy"));
+
     return (
         <button
             type="button"
             ref={wrapperRef}
             onClick={handleClick}
+            aria-label={resolvedLabel}
+            aria-live="polite"
             className={cn(
                 "inline-flex gap-2 items-center group/copy cursor-default wails-no-draggable text-left pointer-events-auto",
                 className,
@@ -74,12 +83,14 @@ export const CopyToClipboard = ({
             >
                 {children}
                 <span
+                    aria-hidden="true"
                     className={
                         "absolute bottom-0 left-0 right-0 border-b border-dashed border-transparent group-hover/copy:border-nb-gray-500 pointer-events-none"
                     }
                 />
             </span>
             <span
+                aria-hidden="true"
                 className={cn(
                     "shrink-0 inline-flex relative top-[2px] right-[1px]",
                     iconAlignment === "left" ? "order-first" : "order-last",

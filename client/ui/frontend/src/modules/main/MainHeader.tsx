@@ -75,6 +75,8 @@ export const MainHeader = () => {
                         icon={MoreVertical}
                         iconClassName={"text-nb-gray-200 wails-no-draggable"}
                         className={"select-none"}
+                        aria-label={t("header.menu.open")}
+                        aria-haspopup="menu"
                     />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
@@ -86,7 +88,11 @@ export const MainHeader = () => {
                         <>
                             <DropdownMenuItem onClick={openAbout}>
                                 <div className="flex items-center gap-2">
-                                    <ArrowUpCircleIcon size={14} className={"text-netbird"} />
+                                    <ArrowUpCircleIcon
+                                        size={14}
+                                        className={"text-netbird"}
+                                        aria-hidden="true"
+                                    />
                                     <span className={"text-netbird"}>
                                         {t("header.menu.updateAvailable")}
                                     </span>
@@ -97,7 +103,7 @@ export const MainHeader = () => {
                     )}
                     <DropdownMenuItem onClick={openSettings}>
                         <div className="flex items-center gap-2 w-full">
-                            <Settings size={14} />
+                            <Settings size={14} aria-hidden="true" />
                             <span className="flex-1">{t("header.menu.settings")}</span>
                             <DropdownMenuShortcut>
                                 {formatShortcut(SETTINGS_SHORTCUT)}
@@ -125,6 +131,7 @@ export const MainHeader = () => {
             </DropdownMenu>
             {updateAvailable && (
                 <span
+                    aria-hidden="true"
                     className={
                         "pointer-events-none absolute top-1.5 right-1.5 flex h-2.5 w-2.5 items-center justify-center"
                     }
@@ -172,11 +179,11 @@ type ViewModeItemProps = {
 };
 
 const ViewModeItem = ({ icon: Icon, label, selected, onSelect }: ViewModeItemProps) => (
-    <DropdownMenuItem onClick={onSelect}>
+    <DropdownMenuItem onClick={onSelect} role="menuitemradio" aria-checked={selected}>
         <div className="flex items-center gap-2 w-full">
-            <Icon size={14} />
+            <Icon size={14} aria-hidden="true" />
             <span className="flex-1">{label}</span>
-            {selected && <Check size={14} className="text-netbird" />}
+            {selected && <Check size={14} className="text-netbird" aria-hidden="true" />}
         </div>
     </DropdownMenuItem>
 );

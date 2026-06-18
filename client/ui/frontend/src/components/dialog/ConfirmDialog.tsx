@@ -4,14 +4,22 @@ import { isMacOS } from "@/lib/platform.ts";
 
 type ConfirmDialogProps = {
     children: ReactNode;
+    "aria-label"?: string;
+    "aria-labelledby"?: string;
 };
 
 export const ConfirmDialog = forwardRef<HTMLDivElement, ConfirmDialogProps>(function ConfirmDialog(
-    { children },
+    { children, "aria-label": ariaLabel, "aria-labelledby": ariaLabelledBy },
     ref,
 ) {
     return (
-        <div className={"wails-draggable select-none flex flex-col items-center"}>
+        <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={ariaLabel}
+            aria-labelledby={ariaLabelledBy}
+            className={"wails-draggable select-none flex flex-col items-center"}
+        >
             <div
                 ref={ref}
                 className={cn(

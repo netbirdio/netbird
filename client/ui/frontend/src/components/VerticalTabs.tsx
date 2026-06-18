@@ -54,20 +54,25 @@ const Trigger = forwardRef<HTMLButtonElement, TriggerProps>(function VerticalTab
         >
             <Icon
                 size={iconSize}
+                aria-hidden="true"
                 className={cn(
                     "shrink-0 ml-2 transition-colors duration-150",
                     "text-nb-gray-400 group-data-[state=active]:text-nb-gray-100",
                 )}
             />
-            <h2
+            <span
                 className={cn(
                     "font-medium text-sm truncate min-w-0 transition-colors duration-150",
                     "text-nb-gray-400 group-data-[state=active]:text-nb-gray-100",
                 )}
             >
                 {title}
-            </h2>
-            {adornment && <div className={"ml-auto mr-2 shrink-0"}>{adornment}</div>}
+            </span>
+            {adornment && (
+                <div aria-hidden="true" className={"ml-auto mr-2 shrink-0"}>
+                    {adornment}
+                </div>
+            )}
         </Tabs.Trigger>
     );
 });

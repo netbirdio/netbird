@@ -51,6 +51,8 @@ export const MainExitNodeSwitcher = () => {
                     description={description}
                     disabled={disabled}
                     active={!!active}
+                    aria-label={t("exitNodes.dropdown.trigger")}
+                    aria-haspopup="listbox"
                 />
             </Popover.Trigger>
             <Popover.Portal>
@@ -139,6 +141,7 @@ const ExitNodeTriggerCard = forwardRef<HTMLButtonElement, TriggerProps>(
                 {...props}
             >
                 <div
+                    aria-hidden="true"
                     className={cn(
                         "h-9 w-9 rounded-md flex items-center justify-center shrink-0",
                         active
@@ -149,7 +152,9 @@ const ExitNodeTriggerCard = forwardRef<HTMLButtonElement, TriggerProps>(
                     <ExitNodeIcon size={14} />
                 </div>
                 <div className={"min-w-0 flex-1"}>
-                    <h2 className={"font-medium text-sm text-nb-gray-100 truncate"}>{title}</h2>
+                    <span className={"block font-medium text-sm text-nb-gray-100 truncate"}>
+                        {title}
+                    </span>
                     <TruncatedText
                         text={description}
                         className={
@@ -157,7 +162,11 @@ const ExitNodeTriggerCard = forwardRef<HTMLButtonElement, TriggerProps>(
                         }
                     />
                 </div>
-                <ChevronsUpDown size={16} className={"text-nb-gray-400 shrink-0"} />
+                <ChevronsUpDown
+                    size={16}
+                    aria-hidden="true"
+                    className={"text-nb-gray-400 shrink-0"}
+                />
             </button>
         );
     },
@@ -181,7 +190,7 @@ const NoneRow = ({ isActive, onSelect }: NoneRowProps) => {
             )}
         >
             <span className={"min-w-0 flex-1 truncate"}>{t("exitNodes.dropdown.noneTitle")}</span>
-            {isActive && <Check size={16} className={"shrink-0 text-netbird"} />}
+            {isActive && <Check size={16} aria-hidden="true" className={"shrink-0 text-netbird"} />}
         </Command.Item>
     );
 };
@@ -204,7 +213,7 @@ const ExitNodeRow = ({ id, label, isActive, onSelect }: ExitNodeRowProps) => (
         )}
     >
         <span className={"min-w-0 flex-1 truncate"}>{label}</span>
-        {isActive && <Check size={16} className={"shrink-0 text-netbird"} />}
+        {isActive && <Check size={16} aria-hidden="true" className={"shrink-0 text-netbird"} />}
     </Command.Item>
 );
 

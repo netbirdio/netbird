@@ -124,7 +124,7 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
                                     "data-[disabled=true]:opacity-50 data-[disabled=true]:pointer-events-none",
                                 )}
                             >
-                                <Settings2 size={14} className="shrink-0" />
+                                <Settings2 size={14} aria-hidden="true" className="shrink-0" />
                                 <span className="truncate flex-1">
                                     {t("profile.dropdown.manageProfiles")}
                                 </span>
@@ -138,9 +138,17 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
 };
 
 const ProfileTriggerSkeleton = () => (
-    <div className="h-10 flex items-center gap-2 px-3 rounded-lg select-none wails-no-draggable">
-        <div className="size-4 rounded-full bg-nb-gray-900 animate-pulse shrink-0" />
-        <div className="h-4 w-24 rounded bg-nb-gray-900 animate-pulse" />
+    <div
+        role="status"
+        aria-busy="true"
+        aria-live="polite"
+        className="h-10 flex items-center gap-2 px-3 rounded-lg select-none wails-no-draggable"
+    >
+        <div
+            aria-hidden="true"
+            className="size-4 rounded-full bg-nb-gray-900 animate-pulse shrink-0"
+        />
+        <div aria-hidden="true" className="h-4 w-24 rounded bg-nb-gray-900 animate-pulse" />
     </div>
 );
 
@@ -150,11 +158,14 @@ type ProfileTriggerButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> &
 
 const ProfileTriggerButton = forwardRef<HTMLButtonElement, ProfileTriggerButtonProps>(
     function ProfileTriggerButton({ name, className, ...props }, ref) {
+        const { t } = useTranslation();
         const Icon = pickProfileIcon(name) ?? UserCircle;
         return (
             <button
                 ref={ref}
                 type="button"
+                aria-label={t("header.profile.switch")}
+                aria-haspopup="listbox"
                 className={cn(
                     "h-10 flex items-center gap-2 px-3 rounded-lg outline-none cursor-default select-none wails-no-draggable",
                     "text-nb-gray-200 hover:bg-nb-gray-900",
@@ -165,11 +176,19 @@ const ProfileTriggerButton = forwardRef<HTMLButtonElement, ProfileTriggerButtonP
                 )}
                 {...props}
             >
-                <Icon size={16} className={"text-nb-gray-200 shrink-0 wails-no-draggable"} />
+                <Icon
+                    size={16}
+                    aria-hidden="true"
+                    className={"text-nb-gray-200 shrink-0 wails-no-draggable"}
+                />
                 <span className={"text-sm font-medium truncate max-w-[140px] wails-no-draggable"}>
                     {name}
                 </span>
-                <ChevronDown size={14} className={"text-nb-gray-200 shrink-0 wails-no-draggable"} />
+                <ChevronDown
+                    size={14}
+                    aria-hidden="true"
+                    className={"text-nb-gray-200 shrink-0 wails-no-draggable"}
+                />
             </button>
         );
     },
@@ -199,7 +218,11 @@ const ProfileRow = ({ profile, isActive, onSelect }: ProfileRowProps) => {
                 {showEmail && <TruncatedEmail email={profile.email} />}
             </div>
             {isActive && (
-                <Check size={16} className={cn("shrink-0 text-netbird", showEmail && "mt-0.5")} />
+                <Check
+                    size={16}
+                    aria-hidden="true"
+                    className={cn("shrink-0 text-netbird", showEmail && "mt-0.5")}
+                />
             )}
         </Command.Item>
     );

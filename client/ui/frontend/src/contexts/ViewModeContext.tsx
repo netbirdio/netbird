@@ -43,7 +43,9 @@ export const ViewModeProvider = ({ children }: { children: ReactNode }) => {
                     setMode(saved);
                 }
             })
-            .catch((err: unknown) => console.warn("[ViewModeContext] load preferences failed", err));
+            .catch((err: unknown) =>
+                console.warn("[ViewModeContext] load preferences failed", err),
+            );
         return () => {
             cancelled = true;
         };

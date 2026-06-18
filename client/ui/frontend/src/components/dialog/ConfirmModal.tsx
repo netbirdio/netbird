@@ -32,6 +32,9 @@ export const ConfirmModal = ({
     const { t } = useTranslation();
     const resolvedCancel = cancelLabel ?? t("common.cancel");
 
+    const srTitle = typeof title === "string" ? title : undefined;
+    const srDescription = typeof description === "string" ? description : undefined;
+
     return (
         <Dialog.Root
             open={open}
@@ -43,6 +46,8 @@ export const ConfirmModal = ({
                 maxWidthClass="max-w-sm"
                 showClose={false}
                 className="py-5"
+                srTitle={srTitle}
+                srDescription={srDescription}
                 onOpenAutoFocus={(e) => e.preventDefault()}
             >
                 <div className="flex flex-col gap-5 px-5">
@@ -54,7 +59,12 @@ export const ConfirmModal = ({
                     </div>
 
                     <DialogActions className={"flex-row justify-end gap-2.5"}>
-                        <Button variant={"secondary"} size={"xs2"} disabled={busy} onClick={onCancel}>
+                        <Button
+                            variant={"secondary"}
+                            size={"xs2"}
+                            disabled={busy}
+                            onClick={onCancel}
+                        >
                             {resolvedCancel}
                         </Button>
                         <Button

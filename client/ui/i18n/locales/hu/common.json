@@ -359,6 +359,42 @@
     "header.menu.updateAvailable": {
         "message": "Frissítés elérhető"
     },
+    "header.menu.open": {
+        "message": "Menü megnyitása"
+    },
+    "header.profile.switch": {
+        "message": "Profilváltás"
+    },
+    "connect.toggle.label": {
+        "message": "NetBird-kapcsolat be/ki"
+    },
+    "connect.localIp.label": {
+        "message": "Helyi IP-címek"
+    },
+    "common.search": {
+        "message": "Keresés"
+    },
+    "common.filter": {
+        "message": "Szűrés"
+    },
+    "exitNodes.dropdown.trigger": {
+        "message": "Kilépőcsomópont kiválasztása"
+    },
+    "peers.row.label": {
+        "message": "Részletek megnyitása: {name}, {status}"
+    },
+    "peers.dialog.title": {
+        "message": "Társ részletei"
+    },
+    "networks.row.toggle": {
+        "message": "{name} be/ki"
+    },
+    "networks.bulk.label": {
+        "message": "Összes látható erőforrás be/ki"
+    },
+    "settings.nav.label": {
+        "message": "Beállítások szakaszai"
+    },
     "profile.switch.title": {
         "message": "Váltás a(z) \"{name}\" profilra?"
     },

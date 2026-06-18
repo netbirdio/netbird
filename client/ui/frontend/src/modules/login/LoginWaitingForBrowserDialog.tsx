@@ -52,11 +52,13 @@ export default function LoginWaitingForBrowserDialog() {
     }, []);
 
     return (
-        <ConfirmDialog ref={contentRef}>
+        <ConfirmDialog ref={contentRef} aria-labelledby={"nb-browser-login-title"}>
             <SquareIcon icon={Loader2} className={"[&_svg]:animate-spin"} />
 
             <div className={"flex flex-col items-center gap-2"}>
-                <DialogHeading className={"text-balance"}>{t("browserLogin.title")}</DialogHeading>
+                <DialogHeading id={"nb-browser-login-title"} className={"text-balance"}>
+                    {t("browserLogin.title")}
+                </DialogHeading>
                 <DialogDescription>
                     {t("browserLogin.notSeeing")}{" "}
                     <button

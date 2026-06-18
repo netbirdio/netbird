@@ -23,6 +23,8 @@ type Props = {
     children: ReactNode;
     className?: string;
     disabled?: boolean;
+    "aria-label"?: string;
+    "aria-labelledby"?: string;
 };
 
 export const SwitchItemGroup = ({
@@ -31,6 +33,8 @@ export const SwitchItemGroup = ({
     children,
     className,
     disabled = false,
+    "aria-label": ariaLabel,
+    "aria-labelledby": ariaLabelledBy,
 }: Props) => {
     const layoutId = useId();
     const contextValue = useMemo(() => ({ value, layoutId }), [value, layoutId]);
@@ -41,6 +45,8 @@ export const SwitchItemGroup = ({
                 value={value}
                 onValueChange={onChange}
                 disabled={disabled}
+                aria-label={ariaLabel}
+                aria-labelledby={ariaLabelledBy}
                 className={cn(
                     "flex shrink-0 rounded-lg border border-nb-gray-850 bg-nb-gray-910 p-1 overflow-hidden",
                     disabled && "opacity-50 pointer-events-none",

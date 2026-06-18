@@ -359,6 +359,42 @@
     "header.menu.updateAvailable": {
         "message": "有可用更新"
     },
+    "header.menu.open": {
+        "message": "打开菜单"
+    },
+    "header.profile.switch": {
+        "message": "切换配置文件"
+    },
+    "connect.toggle.label": {
+        "message": "切换 NetBird 连接"
+    },
+    "connect.localIp.label": {
+        "message": "本地 IP 地址"
+    },
+    "common.search": {
+        "message": "搜索"
+    },
+    "common.filter": {
+        "message": "筛选"
+    },
+    "exitNodes.dropdown.trigger": {
+        "message": "选择出口节点"
+    },
+    "peers.row.label": {
+        "message": "打开 {name} 的详情，{status}"
+    },
+    "peers.dialog.title": {
+        "message": "对等节点详情"
+    },
+    "networks.row.toggle": {
+        "message": "切换 {name}"
+    },
+    "networks.bulk.label": {
+        "message": "切换所有可见资源"
+    },
+    "settings.nav.label": {
+        "message": "设置部分"
+    },
     "profile.switch.title": {
         "message": "切换到配置文件“{name}”？"
     },

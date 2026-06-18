@@ -1,10 +1,4 @@
-import {
-    useEffect,
-    useMemo,
-    useRef,
-    useState,
-    type ComponentType,
-} from "react";
+import { useEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { useTranslation } from "react-i18next";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { Virtuoso } from "react-virtuoso";
@@ -174,10 +168,7 @@ export const Networks = () => {
                 <NoResults />
             ) : (
                 <ScrollArea.Root type={"auto"} className={"flex-1 min-h-0 overflow-hidden"}>
-                    <ScrollArea.Viewport
-                        ref={setScrollParent}
-                        className={"h-full w-full"}
-                    >
+                    <ScrollArea.Viewport ref={setScrollParent} className={"h-full w-full"}>
                         {scrollParent && (
                             <NetworksList
                                 data={filtered}
@@ -217,6 +208,7 @@ export const Networks = () => {
                     <button
                         type={"button"}
                         onClick={onBulkClick}
+                        aria-label={t("networks.bulk.label")}
                         className={cn(
                             "inline-flex items-center h-8 px-3 rounded-md",
                             "text-xs font-medium text-nb-gray-100",
@@ -252,6 +244,7 @@ const NetworksList = ({ data, onToggle, scrollParent }: NetworksListProps) => {
             components={{ Header: NetworksHeader }}
             itemContent={(_, n) => (
                 <div
+                    role="listitem"
                     className={cn(
                         "group relative flex items-start gap-2.5 pl-6 pr-9 py-3 min-w-0",
                         "hover:bg-nb-gray-900/40 transition-colors",
@@ -260,7 +253,8 @@ const NetworksList = ({ data, onToggle, scrollParent }: NetworksListProps) => {
                 >
                     <button
                         type={"button"}
-                        aria-label={n.id}
+                        aria-label={t("networks.row.toggle", { name: n.id })}
+                        aria-pressed={n.selected}
                         onClick={() => onToggle(n.id, n.selected)}
                         className={"absolute inset-0 cursor-pointer"}
                     />
@@ -282,12 +276,11 @@ const NetworksList = ({ data, onToggle, scrollParent }: NetworksListProps) => {
                         </div>
                         <Subtitle network={n} />
                     </div>
-                    <div className={"shrink-0 self-center relative"}>
-                        <NetworkToggle
-                            checked={n.selected}
-                            onChange={() => onToggle(n.id, n.selected)}
-                            label={n.selected ? t("networks.selected") : t("networks.unselected")}
-                        />
+                    <div
+                        aria-hidden="true"
+                        className={"shrink-0 self-center relative pointer-events-none"}
+                    >
+                        <NetworkToggle checked={n.selected} />
                     </div>
                 </div>
             )}
@@ -299,6 +292,7 @@ const ResourceIconBadge = ({ type }: { type: ResourceType }) => {
     const Icon = resourceIconFor(type);
     return (
         <div
+            aria-hidden="true"
             className={cn(
                 "h-9 w-9 shrink-0 rounded-md flex items-center justify-center mt-[0.25rem]",
                 "bg-nb-gray-920 border border-nb-gray-900 text-nb-gray-300",
@@ -397,23 +391,16 @@ const ResolvedIpsTooltip = ({ ips }: { ips: string[] }) => {
 
 type ToggleProps = {
     checked: boolean;
-    onChange: () => void;
-    label: string;
     mixed?: boolean;
 };
 
-const NetworkToggle = ({ checked, onChange, label, mixed }: ToggleProps) => {
+const NetworkToggle = ({ checked, mixed }: ToggleProps) => {
     const checkedTranslate = checked ? "translate-x-[1.125rem]" : "translate-x-0.5";
     return (
-        <button
-            type={"button"}
-            role={"switch"}
-            aria-checked={mixed ? "mixed" : checked}
-            aria-label={label}
-            onClick={onChange}
+        <span
             className={cn(
                 "shrink-0 inline-flex h-5 w-9 items-center rounded-full",
-                "transition-colors cursor-pointer wails-no-draggable",
+                "transition-colors wails-no-draggable",
                 checked || mixed ? "bg-netbird" : "bg-nb-gray-700",
                 mixed && "opacity-60",
             )}
@@ -424,6 +411,6 @@ const NetworkToggle = ({ checked, onChange, label, mixed }: ToggleProps) => {
                     mixed ? "translate-x-2.5" : checkedTranslate,
                 )}
             />
-        </button>
+        </span>
     );
 };

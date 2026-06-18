@@ -359,6 +359,42 @@
     "header.menu.updateAvailable": {
         "message": "Update verfügbar"
     },
+    "header.menu.open": {
+        "message": "Menü öffnen"
+    },
+    "header.profile.switch": {
+        "message": "Profil wechseln"
+    },
+    "connect.toggle.label": {
+        "message": "NetBird-Verbindung umschalten"
+    },
+    "connect.localIp.label": {
+        "message": "Lokale IP-Adressen"
+    },
+    "common.search": {
+        "message": "Suchen"
+    },
+    "common.filter": {
+        "message": "Filtern"
+    },
+    "exitNodes.dropdown.trigger": {
+        "message": "Exit-Node auswählen"
+    },
+    "peers.row.label": {
+        "message": "Details öffnen für {name}, {status}"
+    },
+    "peers.dialog.title": {
+        "message": "Peer-Details"
+    },
+    "networks.row.toggle": {
+        "message": "{name} umschalten"
+    },
+    "networks.bulk.label": {
+        "message": "Alle sichtbaren Ressourcen umschalten"
+    },
+    "settings.nav.label": {
+        "message": "Einstellungsbereiche"
+    },
     "profile.switch.title": {
         "message": "Zu Profil \"{name}\" wechseln?"
     },

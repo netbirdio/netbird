@@ -359,6 +359,42 @@
     "header.menu.updateAvailable": {
         "message": "Mise à jour disponible"
     },
+    "header.menu.open": {
+        "message": "Ouvrir le menu"
+    },
+    "header.profile.switch": {
+        "message": "Changer de profil"
+    },
+    "connect.toggle.label": {
+        "message": "Activer/désactiver la connexion NetBird"
+    },
+    "connect.localIp.label": {
+        "message": "Adresses IP locales"
+    },
+    "common.search": {
+        "message": "Rechercher"
+    },
+    "common.filter": {
+        "message": "Filtrer"
+    },
+    "exitNodes.dropdown.trigger": {
+        "message": "Sélectionner un nœud de sortie"
+    },
+    "peers.row.label": {
+        "message": "Ouvrir les détails pour {name}, {status}"
+    },
+    "peers.dialog.title": {
+        "message": "Détails du pair"
+    },
+    "networks.row.toggle": {
+        "message": "Activer/désactiver {name}"
+    },
+    "networks.bulk.label": {
+        "message": "Activer/désactiver toutes les ressources visibles"
+    },
+    "settings.nav.label": {
+        "message": "Sections des paramètres"
+    },
     "profile.switch.title": {
         "message": "Basculer vers le profil « {name} » ?"
     },

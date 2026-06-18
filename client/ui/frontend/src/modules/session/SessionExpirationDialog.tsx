@@ -153,11 +153,11 @@ export default function SessionExpirationDialog() {
     }, []);
 
     return (
-        <ConfirmDialog ref={contentRef}>
+        <ConfirmDialog ref={contentRef} aria-labelledby={"nb-session-expiration-title"}>
             <SquareIcon icon={expired ? AlertCircleIcon : ClockIcon} />
 
             <div className={"flex flex-col items-center gap-1"}>
-                <DialogHeading>
+                <DialogHeading id={"nb-session-expiration-title"}>
                     {expired ? t("sessionExpiration.expired") : activeTitle}
                 </DialogHeading>
                 <DialogDescription>

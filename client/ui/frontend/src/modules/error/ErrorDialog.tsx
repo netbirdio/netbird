@@ -34,11 +34,13 @@ export default function ErrorDialog() {
     }, [close]);
 
     return (
-        <ConfirmDialog ref={contentRef}>
+        <ConfirmDialog ref={contentRef} aria-labelledby={"nb-error-dialog-title"}>
             <SquareIcon icon={AlertCircleIcon} variant={"danger"} />
 
             <div className={"flex flex-col items-center gap-1"}>
-                <DialogHeading className={"text-balance"}>{title}</DialogHeading>
+                <DialogHeading id={"nb-error-dialog-title"} className={"text-balance"}>
+                    {title}
+                </DialogHeading>
                 {message && (
                     <DialogDescription className={"text-balance"}>
                         <span className={"whitespace-pre-wrap break-words"}>{message}</span>

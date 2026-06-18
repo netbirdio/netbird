@@ -81,7 +81,9 @@ export function WelcomeStepManagement({
     return (
         <>
             <div className={cn("flex flex-col items-center gap-1", isMacOS() && "mt-4")}>
-                <DialogHeading align={"left"}>{t("welcome.management.title")}</DialogHeading>
+                <DialogHeading id={"nb-welcome-management-title"} align={"left"}>
+                    {t("welcome.management.title")}
+                </DialogHeading>
                 <DialogDescription align={"left"}>
                     {t("welcome.management.description")}
                 </DialogDescription>
