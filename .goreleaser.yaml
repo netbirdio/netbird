@@ -247,7 +247,7 @@ dockers_v2:
        - netbirdio/netbird
        - ghcr.io/netbirdio/netbird
      tags:
-       - "v{{ .Version }}"
+       - "{{ .Version }}"
        - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}latest{{ end }}"
      dockerfile: client/Dockerfile
      extra_files:
@@ -295,7 +295,7 @@ dockers_v2:
        - netbirdio/relay
        - ghcr.io/netbirdio/relay
      tags:
-       - "v{{ .Version }}"
+       - "{{ .Version }}"
        - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}latest{{ end }}"
      dockerfile: relay/Dockerfile
      platforms:
@@ -317,7 +317,7 @@ dockers_v2:
        - netbirdio/signal
        - ghcr.io/netbirdio/signal
      tags:
-       - "v{{ .Version }}"
+       - "{{ .Version }}"
        - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}latest{{ end }}"
      dockerfile: signal/Dockerfile
      platforms:
@@ -339,7 +339,7 @@ dockers_v2:
        - netbirdio/management
        - ghcr.io/netbirdio/management
      tags:
-       - "v{{ .Version }}"
+       - "{{ .Version }}"
        - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}latest{{ end }}"
      dockerfile: management/Dockerfile
      platforms:
@@ -361,7 +361,7 @@ dockers_v2:
        - netbirdio/upload
        - ghcr.io/netbirdio/upload
      tags:
-       - "v{{ .Version }}"
+       - "{{ .Version }}"
        - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}latest{{ end }}"
      dockerfile: upload-server/Dockerfile
      platforms:
@@ -383,7 +383,7 @@ dockers_v2:
        - netbirdio/netbird-server
        - ghcr.io/netbirdio/netbird-server
      tags:
-       - "v{{ .Version }}"
+       - "{{ .Version }}"
        - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}latest{{ end }}"
      dockerfile: combined/Dockerfile
      platforms:
@@ -405,7 +405,7 @@ dockers_v2:
        - netbirdio/reverse-proxy
        - ghcr.io/netbirdio/reverse-proxy
      tags:
-       - "v{{ .Version }}"
+       - "{{ .Version }}"
        - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}latest{{ end }}"
      dockerfile: proxy/Dockerfile
      platforms:
