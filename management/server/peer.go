@@ -1185,7 +1185,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 		return nil, nil, nil, false, err
 	}
 
-	isRequiresApproval, isStatusChanged, err := am.integratedPeerValidator.IsNotValidPeer(ctx, accountID, peer, peerGroupIDs, settings.Extra)
+	isRequiresApproval, _, err := am.integratedPeerValidator.IsNotValidPeer(ctx, accountID, peer, peerGroupIDs, settings.Extra)
 	if err != nil {
 		return nil, nil, nil, false, err
 	}
@@ -1195,14 +1195,14 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 		return nil, nil, nil, false, err
 	}
 
-	if isStatusChanged || shouldStorePeer {
-		log.Info("Sending nmap update on Login")
-		changedPeerIDs := []string{peer.ID}
-		affectedPeerIDs := am.resolveAffectedPeersForPeerChanges(ctx, am.Store, accountID, changedPeerIDs)
-		if err = am.networkMapController.OnPeersUpdated(ctx, accountID, changedPeerIDs, affectedPeerIDs); err != nil {
-			return nil, nil, nil, false, fmt.Errorf("notify network map controller of peer update: %w", err)
-		}
-	}
+	// if isStatusChanged || shouldStorePeer {
+	// 	log.Info("Sending nmap update on Login")
+	// 	changedPeerIDs := []string{peer.ID}
+	// 	affectedPeerIDs := am.resolveAffectedPeersForPeerChanges(ctx, am.Store, accountID, changedPeerIDs)
+	// 	if err = am.networkMapController.OnPeersUpdated(ctx, accountID, changedPeerIDs, affectedPeerIDs); err != nil {
+	// 		return nil, nil, nil, false, fmt.Errorf("notify network map controller of peer update: %w", err)
+	// 	}
+	// }
 
 	return peer, network, postureChecks, enableSSH, nil
 }
