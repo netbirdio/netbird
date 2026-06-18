@@ -64,8 +64,8 @@ type Server struct {
 	proto.UnimplementedDaemonServiceServer
 	// Whether a run is in flight is owned by the supervisor
 	// (connectClient.ConnectionRunning); the daemon keeps no separate flag.
-	clientRunningChan chan struct{} // closed by the run when the engine is ready
-	clientDoneChan    chan error    // receives the run's end result
+	connectionEstablishedChan chan struct{} // closed by the run once the connection is established (StatusConnected)
+	connectionDoneChan        chan error    // receives the run's end result
 
 	connectClient *internal.ConnectClient
 
@@ -227,11 +227,11 @@ func (s *Server) Start() error {
 		return nil
 	}
 
-	s.clientRunningChan = make(chan struct{})
-	s.clientDoneChan = make(chan error, 1)
+	s.connectionEstablishedChan = make(chan struct{})
+	s.connectionDoneChan = make(chan error, 1)
 	// Boot autoconnect: no incoming RPC metadata. The supervisor runs the
 	// client and reconnects internally; we just fire and forget.
-	s.connectClient.RunAsync(config, nil, s.clientRunningChan, s.clientDoneChan)
+	s.connectClient.RunAsync(config, nil, s.connectionEstablishedChan, s.connectionDoneChan)
 	s.publishConfigChangedEvent("startup")
 	return nil
 }
@@ -753,10 +753,10 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)
 
-	s.clientRunningChan = make(chan struct{})
-	s.clientDoneChan = make(chan error, 1)
+	s.connectionEstablishedChan = make(chan struct{})
+	s.connectionDoneChan = make(chan error, 1)
 
-	s.connectClient.RunAsync(s.config, md, s.clientRunningChan, s.clientDoneChan)
+	s.connectClient.RunAsync(s.config, md, s.connectionEstablishedChan, s.connectionDoneChan)
 	s.publishConfigChangedEvent("up_rpc")
 
 	s.mutex.Unlock()
@@ -767,11 +767,14 @@ func (s *Server) waitForUp(callerCtx context.Context) (*proto.UpResponse, error)
 	timeoutCtx, cancel := context.WithTimeout(callerCtx, 50*time.Second)
 	defer cancel()
 
-	// Snapshot the per-run channels under the lock so a concurrent Up that
-	// replaces them cannot race the select below.
+	// Read the per-run channels under the lock. They are written under s.mutex
+	// by Up/Start and by the MDM restart (restartEngineForMDMLocked, which runs
+	// on the ticker goroutine), so reading them here — where the Up caller has
+	// already released the lock — must be synchronized both to avoid a data race
+	// and to capture a consistent (established, done) pair from the same run.
 	s.mutex.Lock()
-	runningChan := s.clientRunningChan
-	doneChan := s.clientDoneChan
+	establishedChan := s.connectionEstablishedChan
+	doneChan := s.connectionDoneChan
 	s.mutex.Unlock()
 
 	select {
@@ -781,7 +784,7 @@ func (s *Server) waitForUp(callerCtx context.Context) (*proto.UpResponse, error)
 			return nil, fmt.Errorf("client failed to connect: %w", err)
 		}
 		return nil, fmt.Errorf("client stopped before becoming ready")
-	case <-runningChan:
+	case <-establishedChan:
 		s.isSessionActive.Store(true)
 		return &proto.UpResponse{}, nil
 	case <-callerCtx.Done():
@@ -1080,14 +1083,14 @@ func (s *Server) Status(
 	// poll-and-cancel: we just wait for the run to become ready or to end.
 	s.mutex.Lock()
 	client := s.connectClient
-	runningChan := s.clientRunningChan
-	doneChan := s.clientDoneChan
+	establishedChan := s.connectionEstablishedChan
+	doneChan := s.connectionDoneChan
 	s.mutex.Unlock()
 	alive := client.ConnectionRunning()
 
 	if msg.WaitForReady != nil && *msg.WaitForReady && alive {
 		select {
-		case <-runningChan:
+		case <-establishedChan:
 		case <-doneChan:
 		case <-ctx.Done():
 			return nil, ctx.Err()
@@ -1677,7 +1680,6 @@ func (s *Server) onSessionExpire() {
 		}
 	}
 }
-
 
 // sendTerminalNotification sends a terminal notification message
 // to inform the user that the NetBird connection session has expired.
