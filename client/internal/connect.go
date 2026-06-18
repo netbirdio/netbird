@@ -51,7 +51,7 @@ import (
 
 // androidRunOverride is set on Android to inject mobile dependencies
 // when using embed.Client (which calls Run() with empty MobileDependency).
-var androidRunOverride func(c *ConnectClient, config *profilemanager.Config, runningChan chan struct{}, logPath string) error
+var androidRunOverride func(c *ConnectClient, config *profilemanager.Config, connEstablishedChan chan struct{}, logPath string) error
 
 type ConnectClient struct {
 	ctx            context.Context
@@ -88,11 +88,11 @@ func (c *ConnectClient) SetUpdateManager(um *updater.Manager) {
 
 // Run with main logic. md carries optional gRPC metadata (e.g. the UI
 // user-agent) to forward to the management/signal services; nil when none.
-func (c *ConnectClient) Run(config *profilemanager.Config, md metadata.MD, runningChan chan struct{}, logPath string) error {
+func (c *ConnectClient) Run(config *profilemanager.Config, md metadata.MD, connEstablishedChan chan struct{}, logPath string) error {
 	if androidRunOverride != nil {
-		return androidRunOverride(c, config, runningChan, logPath)
+		return androidRunOverride(c, config, connEstablishedChan, logPath)
 	}
-	return c.sup.start(config, md, MobileDependency{}, runningChan, logPath)
+	return c.sup.start(config, md, MobileDependency{}, connEstablishedChan, logPath)
 }
 
 // RunAsync starts a client run without blocking. Used by the daemon, which
@@ -160,7 +160,7 @@ func (c *ConnectClient) RunOniOS(
 
 // run executes a single client run. runCtx is owned by the supervisor: cancelling
 // it tears the run down (it is the parent of the per-attempt engine context).
-func (c *ConnectClient) run(runCtx context.Context, config *profilemanager.Config, mobileDependency MobileDependency, runningChan chan struct{}, logPath string) error {
+func (c *ConnectClient) run(runCtx context.Context, config *profilemanager.Config, mobileDependency MobileDependency, connEstablishedChan chan struct{}, logPath string) error {
 	defer func() {
 		if r := recover(); r != nil {
 			rec := c.statusRecorder
@@ -423,11 +423,11 @@ func (c *ConnectClient) run(runCtx context.Context, config *profilemanager.Confi
 		log.Infof("Netbird engine started, the IP is: %s", peerConfig.GetAddress())
 		state.Set(StatusConnected)
 
-		if runningChan != nil {
+		if connEstablishedChan != nil {
 			select {
-			case <-runningChan:
+			case <-connEstablishedChan:
 			default:
-				close(runningChan)
+				close(connEstablishedChan)
 			}
 		}
 

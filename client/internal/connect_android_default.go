@@ -65,14 +65,14 @@ func init() {
 	// dependencies so the engine's existing Android code paths work unchanged.
 	// Applications that need P2P ICE or real DNS should replace this by
 	// setting androidRunOverride before calling Start().
-	androidRunOverride = func(c *ConnectClient, config *profilemanager.Config, runningChan chan struct{}, logPath string) error {
+	androidRunOverride = func(c *ConnectClient, config *profilemanager.Config, connEstablishedChan chan struct{}, logPath string) error {
 		return c.runOnAndroidEmbed(
 			config,
 			noopIFaceDiscover{},
 			noopNetworkChangeListener{},
 			[]netip.AddrPort{},
 			noopDnsReadyListener{},
-			runningChan,
+			connEstablishedChan,
 			logPath,
 		)
 	}

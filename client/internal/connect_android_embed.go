@@ -11,7 +11,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 )
 
-// runOnAndroidEmbed is like RunOnAndroid but accepts a runningChan
+// runOnAndroidEmbed is like RunOnAndroid but accepts a connEstablishedChan
 // so embed.Client.Start() can detect when the engine is ready.
 // It provides complete MobileDependency so the engine's existing
 // Android code paths work unchanged.
@@ -21,7 +21,7 @@ func (c *ConnectClient) runOnAndroidEmbed(
 	networkChangeListener listener.NetworkChangeListener,
 	dnsAddresses []netip.AddrPort,
 	dnsReadyListener dns.ReadyListener,
-	runningChan chan struct{},
+	connEstablishedChan chan struct{},
 	logPath string,
 ) error {
 	mobileDependency := MobileDependency{
@@ -30,5 +30,5 @@ func (c *ConnectClient) runOnAndroidEmbed(
 		HostDNSAddresses:      dnsAddresses,
 		DnsReadyListener:      dnsReadyListener,
 	}
-	return c.sup.start(config, nil, mobileDependency, runningChan, logPath)
+	return c.sup.start(config, nil, mobileDependency, connEstablishedChan, logPath)
 }
