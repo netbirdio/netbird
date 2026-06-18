@@ -982,8 +982,6 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 	var peer *nbpeer.Peer
 	var updated, versionChanged, ipv6CapabilityChanged bool
 	var err error
-	var postureChecks []*posture.Checks
-	var peerGroupIDs []string
 
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
@@ -1011,11 +1009,6 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 			return status.NewPeerLoginExpiredError()
 		}
 
-		peerGroupIDs, err = getPeerGroupIDs(ctx, transaction, accountID, peer.ID)
-		if err != nil {
-			return err
-		}
-
 		oldHasIPv6Cap := peer.HasCapability(nbpeer.PeerCapabilityIPv6Overlay)
 		updated, versionChanged = peer.UpdateMetaIfNew(sync.Meta)
 		ipv6CapabilityChanged = oldHasIPv6Cap != peer.HasCapability(nbpeer.PeerCapabilityIPv6Overlay)
@@ -1025,19 +1018,14 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 			if err = transaction.SavePeer(ctx, accountID, peer); err != nil {
 				return err
 			}
-
-			policies, err := transaction.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
-			if err != nil {
-				return err
-			}
-
-			postureChecks, err = getPeerPostureChecks(ctx, transaction, accountID, peerGroupIDs, policies)
-			if err != nil {
-				return err
-			}
 		}
 		return nil
 	})
+	if err != nil {
+		return nil, nil, nil, 0, err
+	}
+
+	peerGroupIDs, err := getPeerGroupIDs(ctx, am.Store, accountID, peer.ID)
 	if err != nil {
 		return nil, nil, nil, 0, err
 	}
@@ -1052,9 +1040,9 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 		return nil, nil, nil, 0, err
 	}
 
-	if isStatusChanged || sync.UpdateAccountPeers || ipv6CapabilityChanged || (updated && (len(postureChecks) > 0 || versionChanged)) {
+	if isStatusChanged || sync.UpdateAccountPeers || ipv6CapabilityChanged || (updated && (len(resPostureChecks) > 0 || versionChanged)) {
 		changedPeerIDs := []string{peer.ID}
-		affectedPeerIDs := am.syncPeerAffectedPeers(ctx, accountID, peer.ID, nmap, peerNotValid, updated, len(postureChecks) > 0)
+		affectedPeerIDs := am.syncPeerAffectedPeers(ctx, accountID, peer.ID, nmap, peerNotValid, updated, len(resPostureChecks) > 0)
 		if err = am.networkMapController.OnPeersUpdated(ctx, accountID, changedPeerIDs, affectedPeerIDs); err != nil {
 			return nil, nil, nil, 0, fmt.Errorf("notify network map controller of peer update: %w", err)
 		}
@@ -1160,11 +1148,6 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 			}
 		}
 
-		peerGroupIDs, err = getPeerGroupIDs(ctx, transaction, accountID, peer.ID)
-		if err != nil {
-			return err
-		}
-
 		if peer.SSHKey != login.SSHKey {
 			peer.SSHKey = login.SSHKey
 			shouldStorePeer = true
@@ -1180,11 +1163,16 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 			}
 		}
 
-		// This is needed to keep in memory for the peer config. Otherwise browser client will end in a retry loop
-		peer.UpdateMetaIfNew(login.Meta)
-
 		return nil
 	})
+	if err != nil {
+		return nil, nil, nil, false, err
+	}
+
+	// This is needed to keep in memory for the peer config. Otherwise browser client will end in a retry loop
+	peer.UpdateMetaIfNew(login.Meta)
+
+	peerGroupIDs, err = getPeerGroupIDs(ctx, am.Store, accountID, peer.ID)
 	if err != nil {
 		return nil, nil, nil, false, err
 	}
