@@ -949,7 +949,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 		am.StoreEvent(ctx, opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)
 	}
 
-	network, postureChecks, _, err := getPeerLoginInfo(ctx, am.Store, accountID, newPeer, !requiresApproval)
+	network, postureChecks, enableSSH, err := getPeerLoginInfo(ctx, am.Store, accountID, newPeer, !requiresApproval)
 	if err != nil {
 		return nil, nil, nil, false, err
 	}
@@ -960,7 +960,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 		log.WithContext(ctx).Errorf("failed to update network map cache for peer %s: %v", newPeer.ID, err)
 	}
 
-	return newPeer, network, postureChecks, true, nil
+	return newPeer, network, postureChecks, enableSSH, nil
 }
 
 func getPeerIPDNSLabel(ip netip.Addr, peerHostName string) (string, error) {
@@ -1181,7 +1181,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 		return nil, nil, nil, false, err
 	}
 
-	network, postureChecks, _, err := getPeerLoginInfo(ctx, am.Store, accountID, peer, !isRequiresApproval)
+	network, postureChecks, enableSSH, err := getPeerLoginInfo(ctx, am.Store, accountID, peer, !isRequiresApproval)
 	if err != nil {
 		return nil, nil, nil, false, err
 	}
@@ -1198,7 +1198,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 		}
 	}
 
-	return peer, network, postureChecks, true, nil
+	return peer, network, postureChecks, enableSSH, nil
 }
 
 // ExtendPeerSession refreshes the peer's SSO session deadline by updating
