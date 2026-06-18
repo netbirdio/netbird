@@ -55,6 +55,16 @@ jobs:
           go-version-file: "go.mod"
           cache: false
 
+      # wails3 CLI links against GTK4 / WebKitGTK 6.0 via its internal/operatingsystem
+      # package, so the dev libraries must be present before `go install`.
+      - name: Install Wails Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config \
+            libgtk-4-dev \
+            libwebkitgtk-6.0-dev
+
       - name: Install wails3 CLI
         # Version derived from go.mod so the binding generator always matches
         # the wails runtime the daemon links against.
