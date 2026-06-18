@@ -209,12 +209,12 @@ func (p *Peer) SupportsSourcePrefixes() bool {
 	return p.HasCapability(PeerCapabilitySourcePrefixes)
 }
 
-func capabilitiesEqual(a, b []int32) bool {
-	if len(a) != len(b) {
+func (a PeerSystemMeta) CapabilitiesEqual(b []int32) bool {
+	if len(a.Capabilities) != len(b) {
 		return false
 	}
-	set := make(map[int32]struct{}, len(a))
-	for _, c := range a {
+	set := make(map[int32]struct{}, len(a.Capabilities))
+	for _, c := range a.Capabilities {
 		set[c] = struct{}{}
 	}
 	for _, c := range b {
@@ -350,7 +350,7 @@ func metaDiff(old, new PeerSystemMeta) []string {
 	if !old.Flags.isEqual(new.Flags) {
 		add("flags", fmt.Sprintf("%+v", old.Flags), fmt.Sprintf("%+v", new.Flags))
 	}
-	if !capabilitiesEqual(old.Capabilities, new.Capabilities) {
+	if !old.CapabilitiesEqual(new.Capabilities) {
 		add("capabilities", old.Capabilities, new.Capabilities)
 	}
 

@@ -1154,8 +1154,9 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 			return err
 		}
 
-		if peer.SSHKey != login.SSHKey {
+		if peer.SSHKey != login.SSHKey || peer.Meta.CapabilitiesEqual(login.Meta.Capabilities) {
 			peer.SSHKey = login.SSHKey
+			peer.Meta.Capabilities = login.Meta.Capabilities
 			shouldStorePeer = true
 		}
 
