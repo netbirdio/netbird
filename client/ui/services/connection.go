@@ -122,7 +122,9 @@ func (s *Connection) Login(ctx context.Context, p LoginParams) (LoginResult, err
 	username := p.Username
 	if profileName == "" {
 		if active, aerr := cli.GetActiveProfile(ctx, &proto.GetActiveProfileRequest{}); aerr == nil {
-			profileName = active.GetProfileName()
+			// Address the active profile by ID (the daemon resolves it as a
+			// handle); names can collide, the ID cannot.
+			profileName = active.GetId()
 			if username == "" {
 				username = active.GetUsername()
 			}

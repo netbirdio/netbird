@@ -25,7 +25,7 @@ export function ProfilesTab() {
     const { t } = useTranslation();
     const {
         profiles,
-        activeProfile,
+        activeProfileId,
         loaded,
         username,
         switchProfile,
@@ -45,16 +45,16 @@ export function ProfilesTab() {
         const { order, items } = reconcileOrder(
             orderRef.current,
             profiles,
-            (p) => p.name,
+            (p) => p.id,
             (a, b) => {
-                if (a.name === activeProfile) return -1;
-                if (b.name === activeProfile) return 1;
+                if (a.id === activeProfileId) return -1;
+                if (b.id === activeProfileId) return 1;
                 return a.name.localeCompare(b.name);
             },
         );
         orderRef.current = order;
         return items;
-    }, [profiles, activeProfile]);
+    }, [profiles, activeProfileId]);
 
     const guarded = async (title: string, fn: () => Promise<void>) => {
         if (busy) return;
@@ -71,27 +71,27 @@ export function ProfilesTab() {
         }
     };
 
-    const handleSwitch = async (name: string) => {
+    const handleSwitch = async (id: string, name: string) => {
         const ok = await confirm({
             title: t("profile.switch.title", { name }),
             description: t("profile.switch.message", { name }),
             confirmLabel: t("profile.switch.confirm"),
         });
         if (!ok) return;
-        await guarded(i18next.t("profile.error.switchTitle"), () => switchProfile(name));
+        await guarded(i18next.t("profile.error.switchTitle"), () => switchProfile(id));
     };
 
-    const handleDeregister = async (name: string) => {
+    const handleDeregister = async (id: string, name: string) => {
         const ok = await confirm({
             title: t("profile.deregister.title", { name }),
             description: t("profile.deregister.message", { name }),
             confirmLabel: t("profile.deregister.confirm"),
         });
         if (!ok) return;
-        void guarded(i18next.t("profile.error.deregisterTitle"), () => logoutProfile(name));
+        void guarded(i18next.t("profile.error.deregisterTitle"), () => logoutProfile(id));
     };
 
-    const handleDelete = async (name: string) => {
+    const handleDelete = async (id: string, name: string) => {
         if (name === DEFAULT_PROFILE) return;
         const ok = await confirm({
             title: t("profile.delete.title", { name }),
@@ -100,20 +100,21 @@ export function ProfilesTab() {
             danger: true,
         });
         if (!ok) return;
-        void guarded(i18next.t("profile.error.deleteTitle"), () => removeProfile(name));
+        void guarded(i18next.t("profile.error.deleteTitle"), () => removeProfile(id));
     };
 
     const handleCreate = async (name: string, managementUrl: string) => {
         await guarded(i18next.t("profile.error.createTitle"), async () => {
-            await addProfile(name);
-            // SetConfig is keyed by profile name, so it writes the not-yet-active
-            // profile. Write before switching so any reconnect targets the right deployment.
+            const id = await addProfile(name);
+            // SetConfig is keyed by the new profile's ID, so it writes the
+            // not-yet-active profile. Write before switching so any reconnect
+            // targets the right deployment.
             if (!isNetbirdCloud(managementUrl)) {
                 await SettingsSvc.SetConfig(
-                    new SetConfigParams({ profileName: name, username, managementUrl }),
+                    new SetConfigParams({ profileName: id, username, managementUrl }),
                 );
             }
-            await switchProfile(name);
+            await switchProfile(id);
         });
     };
 
@@ -131,12 +132,12 @@ export function ProfilesTab() {
                         <tbody>
                             {ordered.map((profile) => (
                                 <ProfileRow
-                                    key={profile.name}
+                                    key={profile.id}
                                     profile={profile}
-                                    isActive={profile.name === activeProfile}
-                                    onSwitch={() => handleSwitch(profile.name)}
-                                    onDeregister={() => handleDeregister(profile.name)}
-                                    onDelete={() => handleDelete(profile.name)}
+                                    isActive={profile.id === activeProfileId}
+                                    onSwitch={() => handleSwitch(profile.id, profile.name)}
+                                    onDeregister={() => handleDeregister(profile.id, profile.name)}
+                                    onDelete={() => handleDelete(profile.id, profile.name)}
                                 />
                             ))}
                         </tbody>

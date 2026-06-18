@@ -113,7 +113,7 @@ func TestConnectStopsRetryOnPermissionDenied(t *testing.T) {
 
 	pm := profilemanager.ServiceManager{}
 	err = pm.SetActiveProfileState(&profilemanager.ActiveProfileState{
-		Name:     "test-profile",
+		ID:       "test-profile",
 		Username: currUser.Username,
 	})
 	if err != nil {
@@ -174,7 +174,7 @@ func TestServer_Up(t *testing.T) {
 
 	pm := profilemanager.ServiceManager{}
 	err = pm.SetActiveProfileState(&profilemanager.ActiveProfileState{
-		Name:     profName,
+		ID:       profilemanager.ID(profName),
 		Username: currUser.Username,
 	})
 	if err != nil {
@@ -244,7 +244,7 @@ func TestServer_SubcribeEvents(t *testing.T) {
 
 	pm := profilemanager.ServiceManager{}
 	err = pm.SetActiveProfileState(&profilemanager.ActiveProfileState{
-		Name:     "default",
+		ID:       "default",
 		Username: currUser.Username,
 	})
 	if err != nil {

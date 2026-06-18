@@ -19,13 +19,15 @@ const WINDOW_WIDTH = 360;
 type WelcomeStep = "tray" | "management";
 
 function shouldShowManagementStep(
-    activeProfile: string,
+    activeProfileId: string,
     email: string,
     managementUrl: string,
     managedManagementUrl: string,
 ): boolean {
     if (managedManagementUrl) return false;
-    if (activeProfile !== "default") return false;
+    // The default profile's ID equals the literal "default", so this check
+    // holds whether we pass an ID or the legacy name.
+    if (activeProfileId !== "default") return false;
     if (email.trim() !== "") return false;
     return isNetbirdCloud(managementUrl);
 }
@@ -51,21 +53,21 @@ export default function WelcomeDialog() {
                     ProfilesSvc.Username(),
                     ProfilesSvc.GetActive(),
                 ]);
-                const profileName = active.profileName || "default";
+                const profileId = active.id || "default";
                 const [config, list, restrictions] = await Promise.all([
-                    SettingsSvc.GetConfig({ profileName, username }),
+                    SettingsSvc.GetConfig({ profileName: profileId, username }),
                     ProfilesSvc.List(username),
                     SettingsSvc.GetRestrictions().catch(() => new Restrictions()),
                 ]);
-                const profile = list.find((p) => p.name === profileName);
+                const profile = list.find((p) => p.id === profileId);
                 const email = profile?.email ?? "";
                 if (cancelled) return;
                 setInitial({
-                    profileName,
+                    profileName: profileId,
                     username,
                     managementUrl: config.managementUrl,
                     needsManagementStep: shouldShowManagementStep(
-                        profileName,
+                        profileId,
                         email,
                         config.managementUrl,
                         restrictions.mdm.managementURL,

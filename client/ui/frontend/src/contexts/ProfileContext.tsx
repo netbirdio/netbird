@@ -18,14 +18,19 @@ const EVENT_PROFILE_CHANGED = "netbird:profile:changed";
 
 type ProfileContextValue = {
     username: string;
+    // activeProfile is the display NAME of the active profile (for rendering
+    // and the "default" check). activeProfileId is its stable on-disk ID, used
+    // as the handle for daemon requests and for active-profile comparisons,
+    // since display names can collide.
     activeProfile: string;
+    activeProfileId: string;
     profiles: Profile[];
     loaded: boolean;
     refresh: () => Promise<void>;
-    switchProfile: (name: string) => Promise<void>;
-    addProfile: (name: string) => Promise<void>;
-    removeProfile: (name: string) => Promise<void>;
-    logoutProfile: (name: string) => Promise<void>;
+    switchProfile: (id: string) => Promise<void>;
+    addProfile: (name: string) => Promise<string>;
+    removeProfile: (id: string) => Promise<void>;
+    logoutProfile: (id: string) => Promise<void>;
 };
 
 const ProfileContext = createContext<ProfileContextValue | null>(null);
@@ -41,6 +46,7 @@ export const useProfile = () => {
 export const ProfileProvider = ({ children }: { children: ReactNode }) => {
     const [username, setUsername] = useState("");
     const [activeProfile, setActiveProfile] = useState("");
+    const [activeProfileId, setActiveProfileId] = useState("");
     const [profiles, setProfiles] = useState<Profile[]>([]);
     const [loaded, setLoaded] = useState(false);
     const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -58,6 +64,7 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
             ]);
             setUsername(u);
             setActiveProfile(active.profileName || "default");
+            setActiveProfileId(active.id || "default");
             setProfiles(list);
             setLoaded(true);
         } catch (e) {
@@ -94,33 +101,38 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
         };
     }, [refresh]);
 
+    // id is a handle: the daemon resolves an exact ID, ID prefix, or unique
+    // display name. The UI passes the profile's ID for precision.
     const switchProfile = useCallback(
-        async (name: string) => {
-            await ProfileSwitcher.SwitchActive({ profileName: name, username });
+        async (id: string) => {
+            await ProfileSwitcher.SwitchActive({ profileName: id, username });
             await refresh();
         },
         [username, refresh],
     );
 
+    // addProfile creates a profile by display name and returns the
+    // daemon-generated ID, so the caller can immediately address it by ID.
     const addProfile = useCallback(
         async (name: string) => {
-            await ProfilesSvc.Add({ profileName: name, username });
+            const id = await ProfilesSvc.Add({ profileName: name, username });
             await refresh();
+            return id;
         },
         [username, refresh],
     );
 
     const removeProfile = useCallback(
-        async (name: string) => {
-            await ProfilesSvc.Remove({ profileName: name, username });
+        async (id: string) => {
+            await ProfilesSvc.Remove({ profileName: id, username });
             await refresh();
         },
         [username, refresh],
     );
 
     const logoutProfile = useCallback(
-        async (name: string) => {
-            await Connection.Logout({ profileName: name, username });
+        async (id: string) => {
+            await Connection.Logout({ profileName: id, username });
             await refresh();
         },
         [username, refresh],
@@ -130,6 +142,7 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
         () => ({
             username,
             activeProfile,
+            activeProfileId,
             profiles,
             loaded,
             refresh,
@@ -141,6 +154,7 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
         [
             username,
             activeProfile,
+            activeProfileId,
             profiles,
             loaded,
             refresh,

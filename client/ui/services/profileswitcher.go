@@ -55,15 +55,18 @@ func (s *ProfileSwitcher) SwitchActive(ctx context.Context, p ProfileRef) error 
 		s.feed.BeginProfileSwitch()
 	}
 
-	if err := s.profiles.Switch(ctx, p); err != nil {
+	resolvedID, err := s.profiles.Switch(ctx, p)
+	if err != nil {
 		return fmt.Errorf("switch profile %q: %w", p.ProfileName, err)
 	}
 
 	// Mirror into the user-side ProfileManager state: the CLI's `netbird up`
-	// reads this file and sends the name back in the Up RPC, so if it diverges
+	// reads this file and sends the ID back in the Up RPC, so if it diverges
 	// the daemon reverts the UI switch on the next CLI `up`. Best-effort — the
 	// daemon is authoritative; a failure only leaves the CLI's view stale.
-	if err := profilemanager.NewProfileManager().SwitchProfile(p.ProfileName); err != nil {
+	// Use the daemon-resolved ID rather than the handle we sent, since the
+	// on-disk state is keyed by ID, not display name.
+	if err := profilemanager.NewProfileManager().SwitchProfile(profilemanager.ID(resolvedID)); err != nil {
 		log.Warnf("profileswitcher: mirror to user-side ProfileManager failed: %v", err)
 	}
 

@@ -22,13 +22,12 @@ type Props = {
     onCreate: (name: string, managementUrl: string) => void;
 };
 
-// Must match the daemon's silent profilemanager.sanitizeProfileName, else the in-flight
-// raw name diverges from what's stored, spawning a ghost row and breaking delete.
-const sanitizeProfileInput = (value: string): string =>
-    value
-        .toLowerCase()
-        .replace(/\s+/g, "-")
-        .replace(/[^a-z0-9_-]/g, "");
+// The daemon (profilemanager.sanitizeDisplayName) accepts free-form display
+// names — spaces, emoji, punctuation, any valid UTF-8 — stripping only control
+// characters and capping the length. Since #6367 the on-disk ID is separate
+// from the display name, so the raw input no longer needs to be coerced into a
+// filename-safe slug client-side; just trim and let the daemon canonicalize.
+const MAX_PROFILE_NAME_LEN = 128;
 
 export const ProfileCreationModal = ({ open, onOpenChange, onCreate }: Props) => {
     const { t } = useTranslation();
@@ -66,7 +65,7 @@ export const ProfileCreationModal = ({ open, onOpenChange, onCreate }: Props) =>
         e.preventDefault();
         if (checking) return;
 
-        const sanitized = sanitizeProfileInput(name);
+        const sanitized = name.trim();
         if (sanitized.length === 0) {
             setNameError(t("profile.dialog.required"));
             nameRef.current?.focus();
@@ -106,7 +105,7 @@ export const ProfileCreationModal = ({ open, onOpenChange, onCreate }: Props) =>
     };
 
     const handleNameChange = (value: string) => {
-        setName(sanitizeProfileInput(value));
+        setName(value);
         if (nameError) setNameError(null);
     };
 
@@ -147,7 +146,7 @@ export const ProfileCreationModal = ({ open, onOpenChange, onCreate }: Props) =>
                                 value={name}
                                 onChange={(e) => handleNameChange(e.target.value)}
                                 error={nameError ?? undefined}
-                                maxLength={64}
+                                maxLength={MAX_PROFILE_NAME_LEN}
                                 spellCheck={false}
                                 autoComplete="off"
                                 autoCapitalize="off"

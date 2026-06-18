@@ -206,7 +206,7 @@ func (s *Settings) GetRestrictions(ctx context.Context) (Restrictions, error) {
 		return Restrictions{}, fmt.Errorf("get active profile: %w", err)
 	}
 	cfgResp, err := cli.GetConfig(ctx, &proto.GetConfigRequest{
-		ProfileName: active.GetProfileName(),
+		ProfileName: active.GetId(),
 		Username:    active.GetUsername(),
 	})
 	if err != nil {

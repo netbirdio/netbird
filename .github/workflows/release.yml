@@ -9,10 +9,13 @@ on:
   pull_request:
 
 env:
-  SIGN_PIPE_VER: "v0.1.5"
-  GORELEASER_VER: "v2.14.3"
+  SIGN_PIPE_VER: "v0.1.6"
+  GORELEASER_VER: "v2.16.0"
   PRODUCT_NAME: "NetBird"
   COPYRIGHT: "NetBird GmbH"
+  flags: ""
+  SKIP_PUBLISH: "true"
+  SKIP_DOCKER_PUSH: "false"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || github.actor_id }}
@@ -130,8 +133,6 @@ jobs:
       windows_packages_artifact_url: ${{ steps.upload_windows_packages.outputs.artifact-url }}
       macos_packages_artifact_url: ${{ steps.upload_macos_packages.outputs.artifact-url }}
       ghcr_images: ${{ steps.tag_and_push_images.outputs.images_markdown }}
-    env:
-      flags: ""
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -143,8 +144,27 @@ jobs:
         id: semver_parser
         uses: netbirdio/shared-actions/actions/parse-semver@be5df6047383da2236e02243cceb857d8567c27e # v0.0.2
 
-      - if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
-        run: echo "flags=--snapshot" >> $GITHUB_ENV
+      - name: Set snapshot flag
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: | 
+          echo "flags=--snapshot" >> $GITHUB_ENV
+
+      - name: Set build vars
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        run: |
+          if [[ "x-${{ steps.semver_parser.outputs.prerelease }}" == "x-" && "x-${{ github.repository }}" == "x-netbirdio/netbird" ]]; then
+            echo "x-${{ github.repository }}" 
+            echo "x-${{ steps.semver_parser.outputs.prerelease }}"
+            echo "SKIP_PUBLISH=false" >> $GITHUB_ENV
+          else
+            echo "x-${{ github.repository }}" 
+            echo "x-${{ steps.semver_parser.outputs.prerelease }}"
+          fi
+          
+          if [[ "x-${{ github.repository }}" != "x-netbirdio/netbird" ]]; then
+            echo "SKIP_DOCKER_PUSH=true" >> $GITHUB_ENV
+          fi
+
       - name: Set up Go
         uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
         with:
@@ -212,6 +232,8 @@ jobs:
           UPLOAD_YUM_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
           GPG_RPM_KEY_FILE: ${{ env.GPG_RPM_KEY_FILE }}
           NFPM_NETBIRD_RPM_PASSPHRASE: ${{ secrets.GPG_RPM_PASSPHRASE }}
+          SKIP_PUBLISH: ${{ env.SKIP_PUBLISH }}
+          SKIP_DOCKER_PUSH: ${{ env.SKIP_DOCKER_PUSH }}
       - name: Verify RPM signatures
         run: |
           docker run --rm -v $(pwd)/dist:/dist fedora:41 bash -c '
@@ -334,8 +356,22 @@ jobs:
         id: semver_parser
         uses: netbirdio/shared-actions/actions/parse-semver@be5df6047383da2236e02243cceb857d8567c27e # v0.0.2
 
-      - if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
-        run: echo "flags=--snapshot" >> $GITHUB_ENV
+      - name: Set snapshot flag
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: |
+          echo "flags=--snapshot" >> $GITHUB_ENV
+
+      - name: Set build vars
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        run: |
+          if [[ "x-${{ steps.semver_parser.outputs.prerelease }}" == "x-" && "x-${{ github.repository }}" == "x-netbirdio/netbird" ]]; then
+            echo "x-${{ github.repository }}" 
+            echo "x-${{ steps.semver_parser.outputs.prerelease }}"
+            echo "SKIP_PUBLISH=false" >> $GITHUB_ENV
+          else
+            echo "x-${{ github.repository }}" 
+            echo "x-${{ steps.semver_parser.outputs.prerelease }}"
+          fi
 
       - name: Set up Go
         uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
@@ -411,6 +447,7 @@ jobs:
           UPLOAD_YUM_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
           GPG_RPM_KEY_FILE: ${{ env.GPG_RPM_KEY_FILE }}
           NFPM_NETBIRD_UI_RPM_PASSPHRASE: ${{ secrets.GPG_RPM_PASSPHRASE }}
+          SKIP_PUBLISH: ${{ env.SKIP_PUBLISH }}
       - name: Verify RPM signatures
         run: |
           docker run --rm -v $(pwd)/dist:/dist fedora:41 bash -c '

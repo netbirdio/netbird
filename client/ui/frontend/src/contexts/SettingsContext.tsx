@@ -58,7 +58,7 @@ export const useAutostartSetting = () => {
 type LoadedConfig = { profileName: string; data: Config };
 
 const useSettingsState = () => {
-    const { username, activeProfile, loaded: profileLoaded } = useProfile();
+    const { username, activeProfileId, loaded: profileLoaded } = useProfile();
     const [loaded, setLoaded] = useState<LoadedConfig | null>(null);
     const [guiVersion, setGuiVersion] = useState<string>("—");
     const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -69,18 +69,18 @@ const useSettingsState = () => {
     }, [loaded]);
 
     useEffect(() => {
-        if (!profileLoaded || !activeProfile) return;
+        if (!profileLoaded || !activeProfileId) return;
         let cancelled = false;
 
         const load = async (showError: boolean) => {
             try {
                 const data = await SettingsSvc.GetConfig({
-                    profileName: activeProfile,
+                    profileName: activeProfileId,
                     username,
                 });
                 if (cancelled) return;
                 if (saveTimer.current) return;
-                setLoaded({ profileName: activeProfile, data });
+                setLoaded({ profileName: activeProfileId, data });
             } catch (e) {
                 if (cancelled || !showError) return;
                 await errorDialog({
@@ -103,7 +103,7 @@ const useSettingsState = () => {
             cancelled = true;
             off();
         };
-    }, [profileLoaded, activeProfile, username]);
+    }, [profileLoaded, activeProfileId, username]);
 
     useEffect(() => {
         let cancelled = false;

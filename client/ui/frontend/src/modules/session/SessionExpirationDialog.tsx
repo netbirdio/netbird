@@ -134,7 +134,7 @@ export default function SessionExpirationDialog() {
             const username = await ProfilesSvc.Username();
             const active = await ProfilesSvc.GetActive();
             await Connection.Logout({
-                profileName: active.profileName || "default",
+                profileName: active.id || "default",
                 username,
             });
             WindowManager.CloseSessionExpiration().catch(console.error);

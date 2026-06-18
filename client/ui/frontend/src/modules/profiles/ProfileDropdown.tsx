@@ -19,13 +19,13 @@ const MANAGE_VALUE = "__manage_profiles__";
 
 export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
     const { t } = useTranslation();
-    const { activeProfile, profiles, switchProfile, loaded } = useProfile();
+    const { activeProfile, activeProfileId, profiles, switchProfile, loaded } = useProfile();
     const [open, setOpen] = useState(false);
     const [busy, setBusy] = useState(false);
 
     const sortedProfiles = [...profiles].sort((a, b) => {
-        if (a.name === activeProfile) return -1;
-        if (b.name === activeProfile) return 1;
+        if (a.id === activeProfileId) return -1;
+        if (b.id === activeProfileId) return 1;
         return a.name.localeCompare(b.name);
     });
 
@@ -44,10 +44,10 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
         }
     };
 
-    const handleSelect = (name: string) => {
+    const handleSelect = (id: string) => {
         setOpen(false);
-        if (name === activeProfile) return;
-        void guarded(t("profile.error.switchTitle"), () => switchProfile(name));
+        if (id === activeProfileId) return;
+        void guarded(t("profile.error.switchTitle"), () => switchProfile(id));
     };
 
     const handleManage = () => {
@@ -57,7 +57,7 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
 
     if (!loaded) return <ProfileTriggerSkeleton />;
 
-    const hasProfile = !!activeProfile;
+    const hasProfile = !!activeProfileId;
     const displayName = hasProfile ? activeProfile : t("profile.selector.noProfile");
 
     return (
@@ -90,9 +90,9 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
                                         <Command.List>
                                             {sortedProfiles.map((profile) => (
                                                 <ProfileRow
-                                                    key={profile.name}
+                                                    key={profile.id}
                                                     profile={profile}
-                                                    isActive={profile.name === activeProfile}
+                                                    isActive={profile.id === activeProfileId}
                                                     onSelect={handleSelect}
                                                 />
                                             ))}
@@ -178,15 +178,15 @@ const ProfileTriggerButton = forwardRef<HTMLButtonElement, ProfileTriggerButtonP
 type ProfileRowProps = {
     profile: Profile;
     isActive: boolean;
-    onSelect: (name: string) => void;
+    onSelect: (id: string) => void;
 };
 
 const ProfileRow = ({ profile, isActive, onSelect }: ProfileRowProps) => {
     const showEmail = !!profile.email;
     return (
         <Command.Item
-            value={profile.name}
-            onSelect={() => onSelect(profile.name)}
+            value={profile.id}
+            onSelect={() => onSelect(profile.id)}
             className={cn(
                 "flex gap-2 px-2 py-2 pr-3 w-auto last:mb-1",
                 "rounded-md outline-none cursor-default text-sm",

@@ -11,6 +11,10 @@ import (
 )
 
 type Profile struct {
+	// ID is the daemon-generated on-disk identity of the profile. Display
+	// names can collide and be renamed, so the ID is the stable handle the
+	// daemon resolves switch/remove/logout requests against.
+	ID       string `json:"id"`
 	Name     string `json:"name"`
 	IsActive bool   `json:"isActive"`
 	// Email is read from the user-owned per-profile state file (CLI writes it
@@ -25,8 +29,26 @@ type ProfileRef struct {
 }
 
 type ActiveProfile struct {
+	// ID is the active profile's stable on-disk identity. Use it (not the
+	// display name) as the handle for daemon requests and active-profile
+	// comparisons, since names can collide.
+	ID          string `json:"id"`
 	ProfileName string `json:"profileName"`
 	Username    string `json:"username"`
+}
+
+// RenameProfileParams selects a profile by handle and carries its new display
+// name.
+type RenameProfileParams struct {
+	// Handle selects the profile to rename: an exact ID, a unique ID prefix,
+	// or a unique display name. The daemon resolves it server-side.
+	Handle string `json:"handle"`
+	// NewName is the new free-form display name. The daemon sanitizes it
+	// (strips control characters, trims, caps length) but keeps spaces, emoji,
+	// punctuation, and non-ASCII letters.
+	NewName string `json:"newName"`
+
+	Username string `json:"username"`
 }
 
 type Profiles struct {
@@ -58,8 +80,8 @@ func (s *Profiles) List(ctx context.Context, username string) ([]Profile, error)
 	pm := profilemanager.NewProfileManager()
 	out := make([]Profile, 0, len(resp.GetProfiles()))
 	for _, p := range resp.GetProfiles() {
-		prof := Profile{Name: p.GetName(), IsActive: p.GetIsActive()}
-		if state, err := pm.GetProfileState(p.GetName()); err == nil {
+		prof := Profile{ID: p.GetId(), Name: p.GetName(), IsActive: p.GetIsActive()}
+		if state, err := pm.GetProfileState(profilemanager.ID(p.GetId())); err == nil {
 			prof.Email = state.Email
 		}
 		out = append(out, prof)
@@ -77,15 +99,20 @@ func (s *Profiles) GetActive(ctx context.Context) (ActiveProfile, error) {
 		return ActiveProfile{}, err
 	}
 	return ActiveProfile{
+		ID:          resp.GetId(),
 		ProfileName: resp.GetProfileName(),
 		Username:    resp.GetUsername(),
 	}, nil
 }
 
-func (s *Profiles) Switch(ctx context.Context, p ProfileRef) error {
+// Switch sends a profile switch to the daemon and returns the resolved
+// on-disk ID of the now-active profile. ProfileName is treated as a handle
+// (exact ID, unique ID prefix, or unique display name); the daemon resolves
+// it server-side and echoes back the canonical ID.
+func (s *Profiles) Switch(ctx context.Context, p ProfileRef) (string, error) {
 	cli, err := s.conn.Client()
 	if err != nil {
-		return err
+		return "", err
 	}
 	req := &proto.SwitchProfileRequest{}
 	if p.ProfileName != "" {
@@ -94,20 +121,29 @@ func (s *Profiles) Switch(ctx context.Context, p ProfileRef) error {
 	if p.Username != "" {
 		req.Username = ptrStr(p.Username)
 	}
-	_, err = cli.SwitchProfile(ctx, req)
-	return err
+	resp, err := cli.SwitchProfile(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	return resp.GetId(), nil
 }
 
-func (s *Profiles) Add(ctx context.Context, p ProfileRef) error {
+// Add creates a profile with the given display name and returns its
+// daemon-generated on-disk ID, so callers can address the new profile by ID
+// (e.g. to write config or switch to it) without re-resolving the name.
+func (s *Profiles) Add(ctx context.Context, p ProfileRef) (string, error) {
 	cli, err := s.conn.Client()
 	if err != nil {
-		return err
+		return "", err
 	}
-	_, err = cli.AddProfile(ctx, &proto.AddProfileRequest{
+	resp, err := cli.AddProfile(ctx, &proto.AddProfileRequest{
 		ProfileName: p.ProfileName,
 		Username:    p.Username,
 	})
-	return err
+	if err != nil {
+		return "", err
+	}
+	return resp.GetId(), nil
 }
 
 func (s *Profiles) Remove(ctx context.Context, p ProfileRef) error {
@@ -120,4 +156,24 @@ func (s *Profiles) Remove(ctx context.Context, p ProfileRef) error {
 		Username:    p.Username,
 	})
 	return err
+}
+
+// Rename changes a profile's display name. The on-disk ID is unaffected, so
+// the active profile and any ID-based references stay valid (the default
+// profile can be renamed too — only its display name changes). Returns the
+// profile's previous display name as confirmation.
+func (s *Profiles) Rename(ctx context.Context, p RenameProfileParams) (string, error) {
+	cli, err := s.conn.Client()
+	if err != nil {
+		return "", err
+	}
+	resp, err := cli.RenameProfile(ctx, &proto.RenameProfileRequest{
+		Username:       p.Username,
+		Handle:         p.Handle,
+		NewProfileName: p.NewName,
+	})
+	if err != nil {
+		return "", err
+	}
+	return resp.GetOldProfileName(), nil
 }

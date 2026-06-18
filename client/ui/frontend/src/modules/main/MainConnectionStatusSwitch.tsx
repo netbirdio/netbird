@@ -43,7 +43,7 @@ const errorMessage = formatErrorMessage;
 export const MainConnectionStatusSwitch = () => {
     const { t } = useTranslation();
     const { status, refresh } = useStatus();
-    const { activeProfile, username } = useProfile();
+    const { activeProfileId, username } = useProfile();
 
     const daemonState = status?.status ?? "Idle";
     const needsLogin = NEEDS_LOGIN_STATES.has(daemonState);
@@ -91,7 +91,7 @@ export const MainConnectionStatusSwitch = () => {
         setAction("connect");
         try {
             await Connection.Up({
-                profileName: activeProfile,
+                profileName: activeProfileId,
                 username,
             });
             await refresh();
