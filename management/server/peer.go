@@ -1159,7 +1159,6 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 			return err
 		}
 
-		updated, versionChanged := peer.UpdateMetaIfNew(login.Meta)
 		if peer.SSHKey != login.SSHKey {
 			peer.SSHKey = login.SSHKey
 			shouldStorePeer = true
@@ -1169,7 +1168,9 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 			return status.Errorf(status.PreconditionFailed, "couldn't login peer: setup key doesn't allow extra DNS labels")
 		}
 
-		if shouldStorePeer || updated || versionChanged {
+		peer.UpdateMetaIfNew(login.Meta)
+
+		if shouldStorePeer {
 			if err = transaction.SavePeer(ctx, accountID, peer); err != nil {
 				return err
 			}
