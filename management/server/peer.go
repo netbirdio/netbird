@@ -1164,11 +1164,11 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 		// The stored version drives firewall feature selection (e.g. native SSH) and a
 		// metadata change must refresh remote peers.
 		oldHasIPv6Cap := peer.HasCapability(nbpeer.PeerCapabilityIPv6Overlay)
-		isPeerUpdated, _ := peer.UpdateMetaIfNew(login.Meta)
-		if isPeerUpdated {
-			am.metrics.AccountManagerMetrics().CountPeerMetUpdate()
-			shouldStorePeer = true
-		}
+		// isPeerUpdated, _ := peer.UpdateMetaIfNew(login.Meta)
+		// if isPeerUpdated {
+		// 	am.metrics.AccountManagerMetrics().CountPeerMetUpdate()
+		// 	shouldStorePeer = true
+		// }
 		ipv6CapabilityChanged = oldHasIPv6Cap != peer.HasCapability(nbpeer.PeerCapabilityIPv6Overlay)
 
 		if peer.SSHKey != login.SSHKey {
