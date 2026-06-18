@@ -1125,7 +1125,6 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 
 	var peer *nbpeer.Peer
 	var shouldStorePeer bool
-	var ipv6CapabilityChanged bool
 	var peerGroupIDs []string
 
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
@@ -1163,13 +1162,11 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 		// Persist updated peer metadata (WireGuard version, OS, capabilities) on login.
 		// The stored version drives firewall feature selection (e.g. native SSH) and a
 		// metadata change must refresh remote peers.
-		oldHasIPv6Cap := peer.HasCapability(nbpeer.PeerCapabilityIPv6Overlay)
-		// isPeerUpdated, _ := peer.UpdateMetaIfNew(login.Meta)
-		// if isPeerUpdated {
-		// 	am.metrics.AccountManagerMetrics().CountPeerMetUpdate()
-		// 	shouldStorePeer = true
-		// }
-		ipv6CapabilityChanged = oldHasIPv6Cap != peer.HasCapability(nbpeer.PeerCapabilityIPv6Overlay)
+		isPeerUpdated, _ := peer.UpdateMetaIfNew(login.Meta)
+		if isPeerUpdated {
+			am.metrics.AccountManagerMetrics().CountPeerMetUpdate()
+			shouldStorePeer = true
+		}
 
 		if peer.SSHKey != login.SSHKey {
 			peer.SSHKey = login.SSHKey
@@ -1202,7 +1199,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 		return nil, nil, nil, false, err
 	}
 
-	if isStatusChanged || shouldStorePeer || ipv6CapabilityChanged {
+	if isStatusChanged || shouldStorePeer {
 		changedPeerIDs := []string{peer.ID}
 		affectedPeerIDs := am.resolveAffectedPeersForPeerChanges(ctx, am.Store, accountID, changedPeerIDs)
 		if err = am.networkMapController.OnPeersUpdated(ctx, accountID, changedPeerIDs, affectedPeerIDs); err != nil {
