@@ -158,7 +158,7 @@ func (s *supervisor) handleStart(cmd lifecycleCmd) {
 }
 
 func (s *supervisor) handleStop(cmd lifecycleCmd) {
-	if s.curStart == nil {
+	if !s.isRunningInternal() {
 		notify(cmd.done, nil)
 		return
 	}
@@ -172,7 +172,7 @@ func (s *supervisor) handleStop(cmd lifecycleCmd) {
 // daemon-side lock — that is what an explicit restart (e.g. MDM config change)
 // needs to avoid a window where the client is observably stopped.
 func (s *supervisor) handleRestart(cmd lifecycleCmd) {
-	if s.curStart != nil {
+	if s.isRunningInternal() {
 		s.stopCurrentRun()
 	}
 	s.handleStart(cmd)
