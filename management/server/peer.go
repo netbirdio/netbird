@@ -1180,7 +1180,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 		return nil, nil, nil, false, err
 	}
 
-	network, postureChecks, enableSSH, err := getPeerLoginInfo(ctx, am.Store, accountID, peer, !isRequiresApproval)
+	network, postureChecks, _, err := getPeerLoginInfo(ctx, am.Store, accountID, peer, !isRequiresApproval)
 	if err != nil {
 		return nil, nil, nil, false, err
 	}
@@ -1197,7 +1197,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 		}
 	}
 
-	return peer, network, postureChecks, enableSSH, nil
+	return peer, network, postureChecks, true, nil
 }
 
 // ExtendPeerSession refreshes the peer's SSO session deadline by updating
