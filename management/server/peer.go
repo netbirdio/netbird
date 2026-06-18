@@ -1159,15 +1159,6 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 			return err
 		}
 
-		// Persist updated peer metadata (WireGuard version, OS, capabilities) on login.
-		// The stored version drives firewall feature selection (e.g. native SSH) and a
-		// metadata change must refresh remote peers.
-		isPeerUpdated, _ := peer.UpdateMetaIfNew(login.Meta)
-		if isPeerUpdated {
-			am.metrics.AccountManagerMetrics().CountPeerMetUpdate()
-			shouldStorePeer = true
-		}
-
 		if peer.SSHKey != login.SSHKey {
 			peer.SSHKey = login.SSHKey
 			shouldStorePeer = true
