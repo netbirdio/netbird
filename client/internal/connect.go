@@ -472,26 +472,19 @@ func parseRelayInfo(loginResp *mgmProto.LoginResponse) ([]string, *hmac.Token) {
 	return relayCfg.GetUrls(), token
 }
 
-// IsRunning reports whether a client run is currently in flight. It is the
-// single source of truth for "is the client running", answered by the
-// supervisor via a serialized query (so it settles behind an in-flight stop).
-// Intended for the external status surface (CLI/UI), not internal pre-checks.
-func (c *ConnectClient) IsRunning() bool {
-	if c == nil || c.sup == nil {
-		return false
-	}
+// ConnectionRunning reports whether a connection run is currently in flight
+// (connecting, connected, or reconnecting). Answered by the supervisor via a
+// serialized query, so it settles behind an in-flight stop. Distinct from
+// ServiceRunning, which reports whether the service itself is alive.
+func (c *ConnectClient) ConnectionRunning() bool {
 	return c.sup.isRunning()
 }
 
 // ServiceRunning reports whether the client's lifecycle supervisor is alive and
-// able to accept start/stop commands — i.e. the daemon-lifetime client exists
-// and its context has not been cancelled. It is independent of whether a run is
-// currently up (that is IsRunning). Nil-safe, so callers can ask it on a
-// not-yet-constructed client and treat false as "service not running".
+// able to accept start/stop commands — i.e. its context has not been cancelled
+// (the daemon is not shutting down). Independent of whether a connection run is
+// up (that is ConnectionRunning).
 func (c *ConnectClient) ServiceRunning() bool {
-	if c == nil || c.sup == nil {
-		return false
-	}
 	return c.sup.ctx.Err() == nil
 }
 

@@ -63,7 +63,7 @@ type Server struct {
 	config *profilemanager.Config
 	proto.UnimplementedDaemonServiceServer
 	// Whether a run is in flight is owned by the supervisor
-	// (connectClient.IsRunning); the daemon keeps no separate "running" flag.
+	// (connectClient.ConnectionRunning); the daemon keeps no separate flag.
 	clientRunningChan chan struct{} // closed by the run when the engine is ready
 	clientDoneChan    chan error    // receives the run's end result
 
@@ -139,7 +139,7 @@ func (s *Server) Start() error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	if s.connectClient.IsRunning() {
+	if s.connectClient.ConnectionRunning() {
 		return nil
 	}
 
@@ -665,11 +665,9 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 		return nil, fmt.Errorf("service is not running, start the netbird service for 'up' to take effect")
 	}
 
-	// clientRunning is the daemon-intent flag (set by previous Up/Start, cleared
-	// by Down). IsRunning() reports whether a run is actually in flight. When
-	// intent is up AND a run is in flight, the existing engine is on the job —
-	// just wait for it. Otherwise fall through to start a fresh run.
-	if s.connectClient.IsRunning() {
+	// If a connection run is already in flight, the existing engine is on the
+	// job — just wait for it. Otherwise fall through to start a fresh run.
+	if s.connectClient.ConnectionRunning() {
 		state := internal.CtxGetState(s.rootCtx)
 		status, err := state.Status()
 		if err != nil {
@@ -1029,7 +1027,7 @@ func (s *Server) validateProfileOperation(profileName string, allowActiveProfile
 // logoutFromProfile logs out from a specific profile by loading its config and sending logout request
 func (s *Server) logoutFromProfile(ctx context.Context, profileName, username string) error {
 	activeProf, err := s.profileManager.GetActiveProfileState()
-	if err == nil && activeProf.Name == profileName && s.connectClient.IsRunning() {
+	if err == nil && activeProf.Name == profileName && s.connectClient.ConnectionRunning() {
 		return s.sendLogoutRequest(ctx)
 	}
 
@@ -1087,7 +1085,7 @@ func (s *Server) Status(
 	runningChan := s.clientRunningChan
 	doneChan := s.clientDoneChan
 	s.mutex.Unlock()
-	alive := client != nil && client.IsRunning()
+	alive := client.ConnectionRunning()
 
 	if msg.WaitForReady != nil && *msg.WaitForReady && alive {
 		select {
@@ -1335,7 +1333,7 @@ func (s *Server) WaitJWTToken(
 // ExposeService exposes a local port via the NetBird reverse proxy.
 func (s *Server) ExposeService(req *proto.ExposeServiceRequest, srv proto.DaemonService_ExposeServiceServer) error {
 	s.mutex.Lock()
-	if !s.connectClient.IsRunning() {
+	if !s.connectClient.ConnectionRunning() {
 		s.mutex.Unlock()
 		return gstatus.Errorf(codes.FailedPrecondition, "client is not running, run 'netbird up' first")
 	}

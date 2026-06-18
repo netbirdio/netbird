@@ -38,12 +38,11 @@ type conflictCheck struct {
 // OS-native managed-config store reports a diff vs the last observation.
 //
 // Restart sequence:
-//  1. Cancel the active engine context (terminates connectWithRetryRuns).
-//  2. Wait briefly for that goroutine to exit (giveUpChan is closed on exit).
-//  3. Re-resolve Config from disk + MDM policy (Config.apply re-runs
+//  1. Stop the in-flight run via the supervisor (blocks until fully torn down).
+//  2. Re-resolve Config from disk + MDM policy (Config.apply re-runs
 //     applyMDMPolicy with the freshly loaded Policy).
-//  4. Spawn a fresh connectWithRetryRuns with the new context and config.
-//  5. Broadcast a SystemEvent so any GUI / CLI subscriber (SubscribeEvents
+//  3. Start a fresh run with the new config.
+//  4. Broadcast a SystemEvent so any GUI / CLI subscriber (SubscribeEvents
 //     RPC) can refresh its cached config view without polling.
 //
 // The callback runs in the ticker's own goroutine. Ticker has already
@@ -51,17 +50,13 @@ type conflictCheck struct {
 func (s *Server) onMDMPolicyChange(_, _ *mdm.Policy) error {
 	log.Warn("MDM policy changed; restarting engine to apply new configuration")
 
-	// Hold s.mutex for the entire restart sequence (cancel + quiescence
-	// wait + re-spawn). Any concurrent Up/Down/Status arriving while
-	// MDM is restarting blocks on the Lock until we are done — they
-	// then observe the post-restart state coherently. This is safe
-	// because the connectWithRetryRuns goroutine no longer acquires
-	// s.mutex in its defer (intent vs. goroutine-alive concerns are
-	// fully separated; see the connectionGoroutineRunning helper).
+	// Hold s.mutex for the entire restart sequence (stop + re-start). Any
+	// concurrent Up/Down/Status arriving while MDM is restarting blocks on the
+	// Lock until we are done — they then observe the post-restart state coherently.
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	if !s.connectClient.IsRunning() {
+	if !s.connectClient.ConnectionRunning() {
 		// No run in flight, so there's no engine to restart.
 		return nil
 	}
@@ -123,14 +118,13 @@ func (s *Server) publishConfigChangedEvent(source string) {
 }
 
 // restartEngineForMDMLocked re-resolves the active profile config
-// (re-running applyMDMPolicy via Config.apply) and re-spawns
-// connectWithRetryRuns. Mirrors the tail of Server.Start so a runtime
-// MDM change behaves identically to a fresh boot under the new policy.
+// (re-running applyMDMPolicy via Config.apply) and starts a fresh run.
+// Mirrors the tail of Server.Start so a runtime MDM change behaves
+// identically to a fresh boot under the new policy.
 //
 // MUST be called with s.mutex held — onMDMPolicyChange holds the lock
-// for the entire restart sequence (cancel + quiescence wait + re-spawn)
-// so concurrent Up/Down/Status RPCs observe a coherent post-restart
-// state.
+// for the entire restart sequence so concurrent Up/Down/Status RPCs
+// observe a coherent post-restart state.
 func (s *Server) restartEngineForMDMLocked() error {
 	activeProf, err := s.profileManager.GetActiveProfileState()
 	if err != nil {
