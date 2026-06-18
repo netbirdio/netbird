@@ -95,7 +95,7 @@ func (s *supervisor) loop() {
 			case opStop:
 				s.handleStop(cmd)
 			case opStatus:
-				cmd.reply <- (s.curStart != nil)
+				cmd.reply <- (s.isRunningInternal())
 			}
 		case res := <-s.runEnded:
 			// Run ended on its own, without an explicit Stop.
@@ -105,7 +105,7 @@ func (s *supervisor) loop() {
 }
 
 func (s *supervisor) handleStart(cmd lifecycleCmd) {
-	if s.curStart != nil {
+	if s.isRunningInternal() {
 		notify(cmd.done, errAlreadyRunning)
 		return
 	}
@@ -145,7 +145,7 @@ func (s *supervisor) handleStop(cmd lifecycleCmd) {
 // error back to whoever asked to be notified of the start.
 func (s *supervisor) finishRun(err error) {
 	s.runCancel = nil
-	if s.curStart != nil {
+	if s.isRunningInternal() {
 		notify(s.curStart.done, err)
 		s.curStart = nil
 	}
@@ -210,6 +210,10 @@ func (s *supervisor) isRunning() bool {
 	case <-s.ctx.Done():
 		return false
 	}
+}
+
+func (s *supervisor) isRunningInternal() bool {
+	return s.curStart != nil
 }
 
 // stop enqueues a stop and blocks until the in-flight run is fully torn down.
