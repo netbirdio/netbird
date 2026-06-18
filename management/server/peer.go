@@ -1017,7 +1017,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 		}
 
 		oldHasIPv6Cap := peer.HasCapability(nbpeer.PeerCapabilityIPv6Overlay)
-		updated, versionChanged = peer.UpdateMetaIfNew(sync.Meta)
+		updated, versionChanged = peer.UpdateMetaIfNew(ctx, sync.Meta)
 		ipv6CapabilityChanged = oldHasIPv6Cap != peer.HasCapability(nbpeer.PeerCapabilityIPv6Overlay)
 		if updated {
 			am.metrics.AccountManagerMetrics().CountPeerMetUpdate()
@@ -1176,7 +1176,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 		}
 
 		// This is needed to keep in memory for the peer config. Otherwise browser client will end in a retry loop
-		peer.UpdateMetaIfNew(login.Meta)
+		peer.UpdateMetaIfNew(ctx, login.Meta)
 
 		return nil
 	})

@@ -1,6 +1,7 @@
 package peer
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/netip"
@@ -258,7 +259,7 @@ func (p *Peer) Copy() *Peer {
 
 // UpdateMetaIfNew updates peer's system metadata if new information is provided
 // returns true if meta was updated, false otherwise
-func (p *Peer) UpdateMetaIfNew(meta PeerSystemMeta) (updated, versionChanged bool) {
+func (p *Peer) UpdateMetaIfNew(ctx context.Context, meta PeerSystemMeta) (updated, versionChanged bool) {
 	if meta.isEmpty() {
 		return updated, versionChanged
 	}
@@ -283,8 +284,11 @@ func (p *Peer) UpdateMetaIfNew(meta PeerSystemMeta) (updated, versionChanged boo
 		versionInfo = fmt.Sprintf("version changed: %s -> %s, ", oldVersion, meta.WtVersion)
 	}
 
-	log.WithFields(log.Fields{"peer": p.ID, "key": p.Key}).
-		Infof("peer meta updated, %s%d field(s) changed: %s", versionInfo, len(diff), strings.Join(diff, ", "))
+	if len(diff) > 0 || versionChanged {
+		log.WithContext(ctx).
+			Debugf("peer meta updated, %s%d field(s) changed: %s", versionInfo, len(diff), strings.Join(diff, ", "))
+	}
+
 	return updated, versionChanged
 }
 
