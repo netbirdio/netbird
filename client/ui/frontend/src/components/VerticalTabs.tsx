@@ -48,6 +48,7 @@ const Trigger = forwardRef<HTMLButtonElement, TriggerProps>(function VerticalTab
                 "transition-colors duration-150",
                 "data-[state=active]:bg-nb-gray-930",
                 "data-[state=inactive]:hover:bg-nb-gray-935",
+                "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                 className,
             )}
             {...props}
@@ -81,7 +82,14 @@ const Content = forwardRef<HTMLDivElement, Tabs.TabsContentProps>(function Verti
     { className, ...props },
     ref,
 ) {
-    return <Tabs.Content ref={ref} className={cn("outline-none", className)} {...props} />;
+    return (
+        <Tabs.Content
+            ref={ref}
+            tabIndex={-1}
+            className={cn("outline-none", className)}
+            {...props}
+        />
+    );
 });
 
 export const VerticalTabs = Object.assign(Root, { List, Trigger, Content });

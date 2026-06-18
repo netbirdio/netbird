@@ -83,6 +83,7 @@ export default function FancyToggleSwitch({
     return (
         <div
             onClick={handleClick}
+            {...(disabled ? { inert: "" } : {})}
             className={cn(
                 "cursor-default transition-all duration-300 relative z-[1]",
                 "inline-block text-left w-full",

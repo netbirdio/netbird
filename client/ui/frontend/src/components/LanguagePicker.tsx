@@ -49,6 +49,14 @@ export function LanguagePicker() {
         [languages, i18n.language],
     );
 
+    const handleTriggerKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+        if (open) return;
+        if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+            e.preventDefault();
+            setOpen(true);
+        }
+    };
+
     const select = async (code: string) => {
         setOpen(false);
         if (busy || code === i18n.language) return;
@@ -76,7 +84,9 @@ export function LanguagePicker() {
                     <Popover.Trigger asChild>
                         <button
                             type={"button"}
+                            tabIndex={0}
                             disabled={busy || languages.length === 0}
+                            onKeyDown={handleTriggerKeyDown}
                             aria-label={t("settings.general.language.label")}
                             aria-haspopup="listbox"
                             aria-expanded={open}
@@ -86,6 +96,7 @@ export function LanguagePicker() {
                                 "border-neutral-200 dark:border-nb-gray-700",
                                 "text-xs font-semibold text-nb-gray-100 cursor-default outline-none",
                                 "hover:border-nb-gray-600 data-[state=open]:border-nb-gray-600",
+                                "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                                 "disabled:opacity-50",
                             )}
                         >
@@ -109,7 +120,6 @@ export function LanguagePicker() {
                         <Popover.Content
                             align={"start"}
                             sideOffset={6}
-                            onCloseAutoFocus={(e) => e.preventDefault()}
                             className={cn(
                                 "w-[var(--radix-popover-trigger-width)]",
                                 "rounded-lg border border-nb-gray-850 bg-nb-gray-920 shadow-lg p-1 z-50",

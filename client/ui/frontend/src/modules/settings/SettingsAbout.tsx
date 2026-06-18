@@ -133,9 +133,10 @@ export function SettingsAbout() {
                     <button
                         key={url}
                         type={"button"}
+                        tabIndex={0}
                         onClick={() => openUrl(url)}
                         className={
-                            "inline-flex items-center gap-1.5 decoration-[0.5px] underline-offset-4 hover:text-nb-gray-100 hover:underline transition"
+                            "inline-flex items-center gap-1.5 rounded-sm outline-none decoration-[0.5px] underline-offset-4 hover:text-nb-gray-100 hover:underline transition focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940"
                         }
                     >
                         <Icon aria-hidden="true" className={iconClassName ?? "h-3.5 w-3.5"} />
@@ -150,9 +151,10 @@ export function SettingsAbout() {
                     <button
                         key={link.url}
                         type={"button"}
+                        tabIndex={0}
                         onClick={() => openUrl(link.url)}
                         className={
-                            "decoration-[0.5px] underline-offset-4 hover:text-nb-gray-100 hover:underline transition"
+                            "rounded-sm outline-none decoration-[0.5px] underline-offset-4 hover:text-nb-gray-100 hover:underline transition focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940"
                         }
                     >
                         {link.label}

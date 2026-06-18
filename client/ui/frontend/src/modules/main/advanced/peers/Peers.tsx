@@ -191,7 +191,7 @@ const PeersList = ({ data, scrollParent }: PeersListProps) => {
         }
     };
 
-    const handleRowKeyDown = (e: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    const handleRowKeyDown = (e: KeyboardEvent<HTMLDivElement>, index: number) => {
         switch (e.key) {
             case "ArrowDown":
                 e.preventDefault();
@@ -231,6 +231,7 @@ const PeersList = ({ data, scrollParent }: PeersListProps) => {
                 return (
                     <div
                         role="listitem"
+                        onKeyDown={(e) => handleRowKeyDown(e, index)}
                         className={cn(
                             "group relative flex items-start gap-2.5 pl-6 pr-4 py-3 min-w-0",
                             "hover:bg-nb-gray-900/40 transition-colors",
@@ -249,7 +250,6 @@ const PeersList = ({ data, scrollParent }: PeersListProps) => {
                                 status: statusLabel,
                             })}
                             onClick={() => setSelected(peer)}
-                            onKeyDown={(e) => handleRowKeyDown(e, index)}
                             className={cn(
                                 "absolute inset-0 cursor-default outline-none",
                                 "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/60",

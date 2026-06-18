@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { KeyboardEvent, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { CircleMinus, LogIn, PlusCircle, Trash2, UserCircle } from "lucide-react";
 import type { Profile } from "@bindings/services/models.js";
@@ -128,23 +128,13 @@ export function ProfilesTab() {
                         "bg-nb-gray-930/60 border border-nb-gray-900 rounded-xl overflow-hidden",
                     )}
                 >
-                    <table
-                        className={"w-full text-sm"}
-                        aria-label={t("settings.profiles.section.profiles")}
-                    >
-                        <tbody>
-                            {ordered.map((profile) => (
-                                <ProfileRow
-                                    key={profile.id}
-                                    profile={profile}
-                                    isActive={profile.id === activeProfileId}
-                                    onSwitch={() => handleSwitch(profile.id, profile.name)}
-                                    onDeregister={() => handleDeregister(profile.id, profile.name)}
-                                    onDelete={() => handleDelete(profile.id, profile.name)}
-                                />
-                            ))}
-                        </tbody>
-                    </table>
+                    <ProfilesTable
+                        ordered={ordered}
+                        activeProfileId={activeProfileId}
+                        onSwitch={handleSwitch}
+                        onDeregister={handleDeregister}
+                        onDelete={handleDelete}
+                    />
 
                     {loaded && ordered.length === 0 && (
                         <div
@@ -184,64 +174,169 @@ export function ProfilesTab() {
     );
 }
 
+type ProfilesTableProps = {
+    ordered: Profile[];
+    activeProfileId: string | undefined;
+    onSwitch: (id: string, name: string) => void;
+    onDeregister: (id: string, name: string) => void;
+    onDelete: (id: string, name: string) => void;
+};
+
+const ProfilesTable = ({
+    ordered,
+    activeProfileId,
+    onSwitch,
+    onDeregister,
+    onDelete,
+}: ProfilesTableProps) => {
+    const { t } = useTranslation();
+    const [focusedIndex, setFocusedIndex] = useState(0);
+    const rowRefs = useRef<Map<string, HTMLLIElement>>(new Map());
+
+    const focusRow = (index: number) => {
+        if (index < 0 || index >= ordered.length) return;
+        setFocusedIndex(index);
+        const el = rowRefs.current.get(ordered[index].id);
+        el?.focus();
+    };
+
+    const handleRowKeyDown = (e: KeyboardEvent<HTMLLIElement>, index: number) => {
+        switch (e.key) {
+            case "ArrowDown":
+                e.preventDefault();
+                focusRow(Math.min(index + 1, ordered.length - 1));
+                break;
+            case "ArrowUp":
+                e.preventDefault();
+                focusRow(Math.max(index - 1, 0));
+                break;
+            case "Home":
+                e.preventDefault();
+                focusRow(0);
+                break;
+            case "End":
+                e.preventDefault();
+                focusRow(ordered.length - 1);
+                break;
+        }
+    };
+
+    const safeFocusedIndex = Math.min(focusedIndex, Math.max(0, ordered.length - 1));
+
+    return (
+        <ul
+            role={"list"}
+            className={"w-full text-sm flex flex-col"}
+            aria-label={t("settings.profiles.section.profiles")}
+        >
+            {ordered.map((profile, index) => (
+                <ProfileRow
+                    key={profile.id}
+                    profile={profile}
+                    isActive={profile.id === activeProfileId}
+                    isFocused={index === safeFocusedIndex}
+                    isFirst={index === 0}
+                    isLast={index === ordered.length - 1}
+                    rowRef={(el) => {
+                        if (el) rowRefs.current.set(profile.id, el);
+                        else rowRefs.current.delete(profile.id);
+                    }}
+                    onKeyDown={(e) => handleRowKeyDown(e, index)}
+                    onFocus={() => setFocusedIndex(index)}
+                    onSwitch={() => onSwitch(profile.id, profile.name)}
+                    onDeregister={() => onDeregister(profile.id, profile.name)}
+                    onDelete={() => onDelete(profile.id, profile.name)}
+                />
+            ))}
+        </ul>
+    );
+};
+
 type ProfileRowProps = {
     profile: Profile;
     isActive: boolean;
+    isFocused: boolean;
+    isFirst: boolean;
+    isLast: boolean;
+    rowRef: (el: HTMLLIElement | null) => void;
+    onKeyDown: (e: KeyboardEvent<HTMLLIElement>) => void;
+    onFocus: () => void;
     onSwitch: () => void;
     onDeregister: () => void;
     onDelete: () => void;
 };
 
-const ProfileRow = ({ profile, isActive, onSwitch, onDeregister, onDelete }: ProfileRowProps) => {
+const ProfileRow = ({
+    profile,
+    isActive,
+    isFocused,
+    isFirst,
+    isLast,
+    rowRef,
+    onKeyDown,
+    onFocus,
+    onSwitch,
+    onDeregister,
+    onDelete,
+}: ProfileRowProps) => {
     const { t } = useTranslation();
     const Icon = pickProfileIcon(profile.name) ?? UserCircle;
     const showEmail = !!profile.email;
 
     return (
-        <tr className={"border-b border-nb-gray-910 last:border-b-0"}>
-            <td className={"px-4 py-2.5 align-middle"}>
-                <div
-                    className={cn(
-                        "flex gap-2 min-w-0 leading-tight",
-                        showEmail ? "items-start" : "items-center",
-                    )}
-                >
-                    <Icon
-                        size={15}
-                        aria-hidden="true"
-                        className={cn(
-                            "text-nb-gray-200 shrink-0",
-
-                            showEmail ? "mt-0.5" : "",
-                        )}
-                    />
-                    <div className={"flex flex-col min-w-0 flex-1 leading-tight"}>
-                        <div className={"flex items-center gap-2 min-w-0"}>
-                            <span
-                                className={
-                                    "truncate font-medium text-nb-gray-100 select-text cursor-text"
-                                }
-                            >
-                                {profile.name}
-                            </span>
-                            {isActive && <Badge>{t("settings.profiles.active")}</Badge>}
-                        </div>
-                        {showEmail && <TruncatedEmail email={profile.email} />}
+        <li
+            ref={rowRef}
+            tabIndex={isFocused ? 0 : -1}
+            onKeyDown={onKeyDown}
+            onFocus={onFocus}
+            aria-label={profile.name}
+            className={cn(
+                "flex items-center gap-4 px-4 py-2.5",
+                "border-b border-nb-gray-910 last:border-b-0",
+                "outline-none",
+                isFirst && "rounded-t-xl",
+                isLast && "rounded-b-xl",
+                "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/60",
+            )}
+        >
+            <div
+                className={cn(
+                    "flex gap-2 min-w-0 leading-tight flex-1",
+                    showEmail ? "items-start" : "items-center",
+                )}
+            >
+                <Icon
+                    size={15}
+                    aria-hidden="true"
+                    className={cn("text-nb-gray-200 shrink-0", showEmail ? "mt-0.5" : "")}
+                />
+                <div className={"flex flex-col min-w-0 flex-1 leading-tight"}>
+                    <div className={"flex items-center gap-2 min-w-0"}>
+                        <span
+                            className={
+                                "truncate font-medium text-nb-gray-100 select-text cursor-text"
+                            }
+                        >
+                            {profile.name}
+                        </span>
+                        {isActive && <Badge>{t("settings.profiles.active")}</Badge>}
                     </div>
+                    {showEmail && <TruncatedEmail email={profile.email} />}
                 </div>
-            </td>
-            <td className={"px-4 py-2.5 text-right align-middle"}>
+            </div>
+            <div className={"shrink-0 text-right"}>
                 <RowActions
                     canSwitch={!isActive}
                     canDeregister={!!profile.email}
                     isDefault={profile.name === DEFAULT_PROFILE}
                     isActive={isActive}
+                    rowFocused={isFocused}
                     onSwitch={onSwitch}
                     onDeregister={onDeregister}
                     onDelete={onDelete}
                 />
-            </td>
-        </tr>
+            </div>
+        </li>
     );
 };
 
@@ -272,6 +367,7 @@ type RowActionsProps = {
     canDeregister: boolean;
     isDefault: boolean;
     isActive: boolean;
+    rowFocused: boolean;
     onSwitch: () => void;
     onDeregister: () => void;
     onDelete: () => void;
@@ -282,6 +378,7 @@ const RowActions = ({
     canDeregister,
     isDefault,
     isActive,
+    rowFocused,
     onSwitch,
     onDeregister,
     onDelete,
@@ -299,6 +396,7 @@ const RowActions = ({
                 icon={CircleMinus}
                 onClick={onDeregister}
                 hidden={!canDeregister}
+                tabbable={rowFocused}
             />
             <ActionIconButton
                 label={deleteLabel}
@@ -306,12 +404,14 @@ const RowActions = ({
                 onClick={onDelete}
                 variant={"danger"}
                 disabled={deleteDisabled}
+                tabbable={rowFocused}
             />
             <ActionIconButton
                 label={t("profile.selector.switchTo")}
                 icon={LogIn}
                 onClick={onSwitch}
                 hidden={!canSwitch}
+                tabbable={rowFocused}
             />
         </div>
     );
@@ -325,6 +425,7 @@ type ActionIconButtonProps = {
     /** Occupies space but invisible and non-interactive (preserves row layout). */
     hidden?: boolean;
     disabled?: boolean;
+    tabbable?: boolean;
 };
 
 const ActionIconButton = ({
@@ -334,6 +435,7 @@ const ActionIconButton = ({
     variant = "default",
     hidden = false,
     disabled = false,
+    tabbable = true,
 }: ActionIconButtonProps) => {
     const button = (
         <button
@@ -342,10 +444,11 @@ const ActionIconButton = ({
             aria-label={label}
             aria-hidden={hidden || undefined}
             aria-disabled={disabled || undefined}
-            tabIndex={hidden ? -1 : undefined}
+            tabIndex={hidden || !tabbable ? -1 : 0}
             className={cn(
                 "h-9 w-9 inline-flex items-center justify-center rounded-md cursor-default outline-none",
                 "transition-colors duration-150",
+                "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                 variant === "danger"
                     ? "text-nb-gray-400 hover:text-red-500 hover:bg-red-500/10"
                     : "text-nb-gray-400 hover:text-nb-gray-100 hover:bg-nb-gray-900",

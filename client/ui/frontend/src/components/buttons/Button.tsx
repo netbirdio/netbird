@@ -143,6 +143,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
         <button
             ref={ref}
             type={type}
+            tabIndex={0}
             disabled={disabled || loading}
             aria-busy={loading || undefined}
             className={cn(

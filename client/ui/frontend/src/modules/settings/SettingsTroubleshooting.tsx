@@ -93,7 +93,10 @@ export function SettingsTroubleshooting() {
                     helpText={t("settings.troubleshooting.packets.help")}
                     disabled={!capture}
                 />
-                <div className={"flex items-center gap-6 justify-between"}>
+                <div
+                    className={"flex items-center gap-6 justify-between"}
+                    {...(!capture ? { inert: "" } : {})}
+                >
                     <div className={"flex-1 max-w-md"}>
                         <Label htmlFor={durationId} disabled={!capture}>
                             {t("settings.troubleshooting.duration.label")}
