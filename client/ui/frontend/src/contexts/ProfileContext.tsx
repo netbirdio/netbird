@@ -30,6 +30,7 @@ type ProfileContextValue = {
     switchProfile: (id: string) => Promise<void>;
     addProfile: (name: string) => Promise<string>;
     removeProfile: (id: string) => Promise<void>;
+    renameProfile: (id: string, newName: string) => Promise<void>;
     logoutProfile: (id: string) => Promise<void>;
 };
 
@@ -130,6 +131,16 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
         [username, refresh],
     );
 
+    // The daemon resolves the handle (exact ID, ID prefix, or unique display
+    // name) — passing the ID is precise and avoids collisions on rename.
+    const renameProfile = useCallback(
+        async (id: string, newName: string) => {
+            await ProfilesSvc.Rename({ handle: id, newName, username });
+            await refresh();
+        },
+        [username, refresh],
+    );
+
     const logoutProfile = useCallback(
         async (id: string) => {
             await Connection.Logout({ profileName: id, username });
@@ -149,6 +160,7 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
             switchProfile,
             addProfile,
             removeProfile,
+            renameProfile,
             logoutProfile,
         }),
         [
@@ -161,6 +173,7 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
             switchProfile,
             addProfile,
             removeProfile,
+            renameProfile,
             logoutProfile,
         ],
     );

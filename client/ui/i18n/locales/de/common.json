@@ -323,6 +323,15 @@
     "profile.selector.switchTo": {
         "message": "Zu diesem Profil wechseln"
     },
+    "profile.selector.edit": {
+        "message": "Bearbeiten"
+    },
+    "profile.edit.title": {
+        "message": "Profil bearbeiten"
+    },
+    "profile.edit.submit": {
+        "message": "Änderungen speichern"
+    },
     "profile.dialog.title": {
         "message": "Neues Profil"
     },
@@ -436,6 +445,9 @@
     },
     "profile.error.createTitle": {
         "message": "Erstellen des Profils fehlgeschlagen"
+    },
+    "profile.error.editTitle": {
+        "message": "Bearbeiten des Profils fehlgeschlagen"
     },
     "profile.error.loadTitle": {
         "message": "Laden der Profile fehlgeschlagen"

@@ -81,14 +81,8 @@ jobs:
       - name: Generate Wails bindings
         run: pnpm run bindings
 
-      - name: ESLint
-        run: pnpm lint
-
-      - name: Type-check
-        run: pnpm typecheck
-
-      - name: Prettier check
-        run: pnpm format:check
+      - name: Lint, typecheck, format
+        run: pnpm check
 
       - name: Build
         run: pnpm build

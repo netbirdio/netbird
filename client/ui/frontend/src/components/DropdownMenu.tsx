@@ -15,8 +15,8 @@ const menuItemVariants = cva("", {
     variants: {
         variant: {
             default:
-                "text-nb-gray-200 focus:bg-nb-gray-900 focus:text-nb-gray-50 data-[state=open]:bg-nb-gray-900 data-[state=open]:text-nb-gray-50",
-            danger: "text-red-500 focus:bg-red-900/20 focus:text-red-500",
+                "text-nb-gray-200 hover:bg-nb-gray-900 hover:text-nb-gray-50 focus-visible:bg-nb-gray-900 focus-visible:text-nb-gray-50 data-[state=open]:bg-nb-gray-900 data-[state=open]:text-nb-gray-50",
+            danger: "text-red-500 hover:bg-red-900/20 hover:text-red-500 focus-visible:bg-red-900/20 focus-visible:text-red-500",
         },
     },
     defaultVariants: { variant: "default" },
@@ -135,7 +135,7 @@ const DropdownMenuCheckboxItem = React.forwardRef<
         ref={ref}
         className={cn(
             "relative flex cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none",
-            "text-nb-gray-200 transition-colors focus:bg-nb-gray-900 focus:text-nb-gray-50",
+            "text-nb-gray-200 transition-colors hover:bg-nb-gray-900 hover:text-nb-gray-50 focus-visible:bg-nb-gray-900 focus-visible:text-nb-gray-50",
             "data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
             className,
         )}
@@ -160,7 +160,7 @@ const DropdownMenuRadioItem = React.forwardRef<
         ref={ref}
         className={cn(
             "relative flex cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none",
-            "text-nb-gray-200 transition-colors focus:bg-nb-gray-900 focus:text-nb-gray-50",
+            "text-nb-gray-200 transition-colors hover:bg-nb-gray-900 hover:text-nb-gray-50 focus-visible:bg-nb-gray-900 focus-visible:text-nb-gray-50",
             "data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
             className,
         )}

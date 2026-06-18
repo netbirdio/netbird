@@ -323,6 +323,15 @@
     "profile.selector.switchTo": {
         "message": "Basculer vers ce profil"
     },
+    "profile.selector.edit": {
+        "message": "Modifier"
+    },
+    "profile.edit.title": {
+        "message": "Modifier le profil"
+    },
+    "profile.edit.submit": {
+        "message": "Enregistrer les modifications"
+    },
     "profile.dialog.title": {
         "message": "Saisir le nom du profil"
     },
@@ -436,6 +445,9 @@
     },
     "profile.error.createTitle": {
         "message": "Échec de la création du profil"
+    },
+    "profile.error.editTitle": {
+        "message": "Échec de la modification du profil"
     },
     "profile.error.loadTitle": {
         "message": "Échec du chargement des profils"

@@ -16,52 +16,101 @@ import {
 } from "@/hooks/useManagementUrl";
 import { useRestrictions } from "@/contexts/RestrictionsContext.tsx";
 
+export type ProfileFormInitial = {
+    name: string;
+    managementUrl: string;
+};
+
 type Props = {
     open: boolean;
     onOpenChange: (open: boolean) => void;
-    onCreate: (name: string, managementUrl: string) => void;
+    onSubmit: (name: string, managementUrl: string) => void | Promise<void>;
+    initial?: ProfileFormInitial;
 };
 
-// The daemon (profilemanager.sanitizeDisplayName) accepts free-form display
-// names — spaces, emoji, punctuation, any valid UTF-8 — stripping only control
-// characters and capping the length. Since #6367 the on-disk ID is separate
-// from the display name, so the raw input no longer needs to be coerced into a
-// filename-safe slug client-side; just trim and let the daemon canonicalize.
 const MAX_PROFILE_NAME_LEN = 128;
 
-export const ProfileCreationModal = ({ open, onOpenChange, onCreate }: Props) => {
+export const ProfileCreationModal = ({ open, onOpenChange, onSubmit, initial }: Props) => {
     const { t } = useTranslation();
     const { mdm } = useRestrictions();
     const managedManagementUrl = mdm.managementURL;
     const nameId = useId();
     const urlId = useId();
-    const [name, setName] = useState("");
+    const isEdit = !!initial;
+    const initialModeFromUrl = (u: string): ManagementMode =>
+        u && u !== CLOUD_MANAGEMENT_URL ? ManagementMode.SelfHosted : ManagementMode.Cloud;
+    const initialSelfHostedUrl = (u: string): string => (u && u !== CLOUD_MANAGEMENT_URL ? u : "");
+
+    const [name, setName] = useState(initial?.name ?? "");
     const [nameError, setNameError] = useState<string | null>(null);
     const nameRef = useRef<HTMLInputElement>(null);
 
-    const [mode, setMode] = useState<ManagementMode>(ManagementMode.Cloud);
-    const [url, setUrl] = useState("");
+    const [mode, setMode] = useState<ManagementMode>(
+        initial ? initialModeFromUrl(initial.managementUrl) : ManagementMode.Cloud,
+    );
+    const [url, setUrl] = useState(initial ? initialSelfHostedUrl(initial.managementUrl) : "");
     const [urlError, setUrlError] = useState<string | null>(null);
     const [unreachable, setUnreachable] = useState(false);
     const [checking, setChecking] = useState(false);
     const urlRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
-        if (!open) {
-            setName("");
+        if (open) {
+            setName(initial?.name ?? "");
+            setMode(initial ? initialModeFromUrl(initial.managementUrl) : ManagementMode.Cloud);
+            setUrl(initial ? initialSelfHostedUrl(initial.managementUrl) : "");
             setNameError(null);
-            setMode(ManagementMode.Cloud);
-            setUrl("");
             setUrlError(null);
             setUnreachable(false);
             setChecking(false);
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [open, initial?.name, initial?.managementUrl]);
+
+    const initialModeRef = useRef<ManagementMode>(ManagementMode.Cloud);
+    useEffect(() => {
+        if (!open) return;
+        initialModeRef.current = mode;
+        const id = window.setTimeout(() => {
+            nameRef.current?.focus();
+            nameRef.current?.select();
+        }, 0);
+        return () => window.clearTimeout(id);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [open]);
+
+    // When the user toggles to Self-hosted inside the dialog (not on initial
+    // open), move focus to the URL input so they can start typing immediately.
+    useEffect(() => {
+        if (!open) return;
+        if (mode === initialModeRef.current) return;
+        if (mode !== ManagementMode.SelfHosted) return;
+        urlRef.current?.focus();
+    }, [open, mode]);
 
     useEffect(() => {
         setUrlError(null);
         setUnreachable(false);
     }, [url, mode]);
+
+    const resolveTargetUrl = (): { url: string; needsReachCheck: boolean } | null => {
+        if (managedManagementUrl) {
+            return { url: managedManagementUrl, needsReachCheck: false };
+        }
+        if (mode === ManagementMode.Cloud) {
+            return { url: CLOUD_MANAGEMENT_URL, needsReachCheck: false };
+        }
+        const trimmed = url.trim();
+        if (!trimmed || !isValidManagementUrl(trimmed)) {
+            setUrlError(t("settings.general.management.urlError"));
+            urlRef.current?.focus();
+            return null;
+        }
+        const target = normalizeManagementUrl(trimmed);
+
+        const unchanged = initial && target === initial.managementUrl;
+        return { url: target, needsReachCheck: !unchanged };
+    };
 
     const handleSubmit = async (e: FormEvent) => {
         e.preventDefault();
@@ -74,35 +123,20 @@ export const ProfileCreationModal = ({ open, onOpenChange, onCreate }: Props) =>
             return;
         }
 
-        if (managedManagementUrl) {
-            onCreate(sanitized, managedManagementUrl);
-            onOpenChange(false);
-            return;
+        const target = resolveTargetUrl();
+        if (!target) return;
+
+        if (target.needsReachCheck) {
+            setChecking(true);
+            const reachable = await checkManagementUrlReachable(target.url);
+            setChecking(false);
+            if (!reachable && !unreachable) {
+                setUnreachable(true);
+                return;
+            }
         }
 
-        if (mode === ManagementMode.Cloud) {
-            onCreate(sanitized, CLOUD_MANAGEMENT_URL);
-            onOpenChange(false);
-            return;
-        }
-
-        const trimmed = url.trim();
-        if (!trimmed || !isValidManagementUrl(trimmed)) {
-            setUrlError(t("settings.general.management.urlError"));
-            urlRef.current?.focus();
-            return;
-        }
-
-        const target = normalizeManagementUrl(trimmed);
-        setChecking(true);
-        const reachable = await checkManagementUrlReachable(target);
-        setChecking(false);
-        if (!reachable && !unreachable) {
-            setUnreachable(true);
-            return;
-        }
-
-        onCreate(sanitized, target);
+        await onSubmit(sanitized, target.url);
         onOpenChange(false);
     };
 
@@ -128,9 +162,15 @@ export const ProfileCreationModal = ({ open, onOpenChange, onCreate }: Props) =>
                 maxWidthClass={"max-w-md"}
                 showClose={false}
                 className={"py-7"}
-                srTitle={t("profile.dialog.title")}
+                srTitle={isEdit ? t("profile.edit.title") : t("profile.dialog.title")}
                 srDescription={t("profile.dialog.description")}
-                onOpenAutoFocus={(e) => e.preventDefault()}
+                onOpenAutoFocus={(e) => {
+                    e.preventDefault();
+                    // Focus + select-all so editing an existing name is one
+                    // keystroke away from overwriting it.
+                    nameRef.current?.focus();
+                    nameRef.current?.select();
+                }}
             >
                 <form onSubmit={handleSubmit}>
                     <div className={"flex flex-col gap-6 px-7"}>
@@ -178,7 +218,6 @@ export const ProfileCreationModal = ({ open, onOpenChange, onCreate }: Props) =>
                                         <Input
                                             id={urlId}
                                             ref={urlRef}
-                                            autoFocus
                                             aria-label={t("settings.general.management.label")}
                                             placeholder={t(
                                                 "settings.general.management.urlPlaceholder",
@@ -201,7 +240,7 @@ export const ProfileCreationModal = ({ open, onOpenChange, onCreate }: Props) =>
                             <Button
                                 type={"button"}
                                 variant={"secondary"}
-                                size={"xs2"}
+                                size={"sm"}
                                 disabled={checking}
                                 onClick={() => onOpenChange(false)}
                             >
@@ -210,10 +249,10 @@ export const ProfileCreationModal = ({ open, onOpenChange, onCreate }: Props) =>
                             <Button
                                 type={"submit"}
                                 variant={"primary"}
-                                size={"xs2"}
+                                size={"sm"}
                                 loading={checking}
                             >
-                                {t("profile.dialog.submit")}
+                                {isEdit ? t("profile.edit.submit") : t("profile.dialog.submit")}
                             </Button>
                         </DialogActions>
                     </div>

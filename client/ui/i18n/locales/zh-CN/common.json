@@ -323,6 +323,15 @@
     "profile.selector.switchTo": {
         "message": "切换到此配置文件"
     },
+    "profile.selector.edit": {
+        "message": "编辑"
+    },
+    "profile.edit.title": {
+        "message": "编辑配置文件"
+    },
+    "profile.edit.submit": {
+        "message": "保存更改"
+    },
     "profile.dialog.title": {
         "message": "输入配置文件名称"
     },
@@ -436,6 +445,9 @@
     },
     "profile.error.createTitle": {
         "message": "创建配置文件失败"
+    },
+    "profile.error.editTitle": {
+        "message": "编辑配置文件失败"
     },
     "profile.error.loadTitle": {
         "message": "加载配置文件失败"

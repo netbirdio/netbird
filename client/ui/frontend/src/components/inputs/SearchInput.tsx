@@ -28,6 +28,9 @@ export const SearchInput = forwardRef<HTMLInputElement, Props>(function SearchIn
                 type={"search"}
                 disabled={disabled}
                 aria-label={ariaLabel ?? props.placeholder ?? t("common.search")}
+                autoCorrect={"off"}
+                autoCapitalize={"off"}
+                spellCheck={false}
                 {...props}
                 className={cn(
                     "w-full bg-transparent text-sm text-nb-gray-200 placeholder:text-nb-gray-400",

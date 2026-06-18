@@ -1,13 +1,30 @@
 import { type KeyboardEvent, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { CircleMinus, LogIn, PlusCircle, Trash2, UserCircle } from "lucide-react";
+import {
+    CircleMinus,
+    LogIn,
+    MoreVertical,
+    PencilLine,
+    PlusCircle,
+    Trash2,
+    UserCircle,
+} from "lucide-react";
 import type { Profile } from "@bindings/services/models.js";
 import { Badge } from "@/components/Badge";
 import { Button } from "@/components/buttons/Button";
 import HelpText from "@/components/typography/HelpText";
-import { ProfileCreationModal } from "@/modules/profiles/ProfileCreationModal";
+import {
+    ProfileCreationModal,
+    type ProfileFormInitial,
+} from "@/modules/profiles/ProfileCreationModal";
 import { pickProfileIcon } from "@/modules/profiles/ProfileAvatar";
 import { Tooltip } from "@/components/Tooltip";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "@/components/DropdownMenu";
 import i18next from "@/lib/i18n";
 import { useProfile } from "@/contexts/ProfileContext";
 import { useConfirm } from "@/contexts/DialogContext";
@@ -31,11 +48,16 @@ export function ProfilesTab() {
         switchProfile,
         addProfile,
         removeProfile,
+        renameProfile,
         logoutProfile,
     } = useProfile();
 
     const confirm = useConfirm();
     const [newOpen, setNewOpen] = useState(false);
+    const [editTarget, setEditTarget] = useState<{
+        profile: Profile;
+        initial: ProfileFormInitial;
+    } | null>(null);
     const [busy, setBusy] = useState(false);
 
     // Order is held stable so switching only flips the badge, never reorders rows
@@ -118,6 +140,37 @@ export function ProfilesTab() {
         });
     };
 
+    const handleEdit = async (id: string, name: string) => {
+        await guarded(i18next.t("profile.error.editTitle"), async () => {
+            const config = await SettingsSvc.GetConfig({ profileName: id, username });
+            const profile = profiles.find((p) => p.id === id);
+            if (!profile) return;
+            setEditTarget({
+                profile,
+                initial: { name, managementUrl: config.managementUrl },
+            });
+        });
+    };
+
+    const handleSave = async (name: string, managementUrl: string) => {
+        if (!editTarget) return;
+        const { profile, initial } = editTarget;
+        await guarded(i18next.t("profile.error.editTitle"), async () => {
+            if (name !== initial.name) {
+                await renameProfile(profile.id, name);
+            }
+            if (managementUrl !== initial.managementUrl) {
+                await SettingsSvc.SetConfig(
+                    new SetConfigParams({
+                        profileName: profile.id,
+                        username,
+                        managementUrl,
+                    }),
+                );
+            }
+        });
+    };
+
     return (
         <div>
             <SectionGroup title={t("settings.profiles.section.profiles")}>
@@ -132,6 +185,7 @@ export function ProfilesTab() {
                         ordered={ordered}
                         activeProfileId={activeProfileId}
                         onSwitch={handleSwitch}
+                        onEdit={handleEdit}
                         onDeregister={handleDeregister}
                         onDelete={handleDelete}
                     />
@@ -168,7 +222,16 @@ export function ProfilesTab() {
             <ProfileCreationModal
                 open={newOpen}
                 onOpenChange={setNewOpen}
-                onCreate={handleCreate}
+                onSubmit={handleCreate}
+            />
+
+            <ProfileCreationModal
+                open={editTarget !== null}
+                onOpenChange={(o) => {
+                    if (!o) setEditTarget(null);
+                }}
+                initial={editTarget?.initial}
+                onSubmit={handleSave}
             />
         </div>
     );
@@ -178,6 +241,7 @@ type ProfilesTableProps = {
     ordered: Profile[];
     activeProfileId: string | undefined;
     onSwitch: (id: string, name: string) => void;
+    onEdit: (id: string, name: string) => void;
     onDeregister: (id: string, name: string) => void;
     onDelete: (id: string, name: string) => void;
 };
@@ -186,6 +250,7 @@ const ProfilesTable = ({
     ordered,
     activeProfileId,
     onSwitch,
+    onEdit,
     onDeregister,
     onDelete,
 }: ProfilesTableProps) => {
@@ -291,6 +356,7 @@ const ProfilesTable = ({
                         onKeyDown={(e) => handleRowKeyDown(e, index)}
                         onFocus={() => setFocusedIndex(index)}
                         onSwitch={() => onSwitch(profile.id, profile.name)}
+                        onEdit={() => onEdit(profile.id, profile.name)}
                         onDeregister={() => onDeregister(profile.id, profile.name)}
                         onDelete={() => onDelete(profile.id, profile.name)}
                     />
@@ -310,6 +376,7 @@ type ProfileRowProps = {
     onKeyDown: (e: KeyboardEvent<HTMLTableRowElement>) => void;
     onFocus: () => void;
     onSwitch: () => void;
+    onEdit: () => void;
     onDeregister: () => void;
     onDelete: () => void;
 };
@@ -324,6 +391,7 @@ const ProfileRow = ({
     onKeyDown,
     onFocus,
     onSwitch,
+    onEdit,
     onDeregister,
     onDelete,
 }: ProfileRowProps) => {
@@ -380,6 +448,7 @@ const ProfileRow = ({
                     isActive={isActive}
                     rowFocused={isFocused}
                     onSwitch={onSwitch}
+                    onEdit={onEdit}
                     onDeregister={onDeregister}
                     onDelete={onDelete}
                 />
@@ -417,6 +486,7 @@ type RowActionsProps = {
     isActive: boolean;
     rowFocused: boolean;
     onSwitch: () => void;
+    onEdit: () => void;
     onDeregister: () => void;
     onDelete: () => void;
 };
@@ -428,32 +498,19 @@ const RowActions = ({
     isActive,
     rowFocused,
     onSwitch,
+    onEdit,
     onDeregister,
     onDelete,
 }: RowActionsProps) => {
     const { t } = useTranslation();
     const deleteDisabled = isDefault || isActive;
-    const nonDefaultDeleteLabel = isActive
-        ? t("profile.delete.disabledActive")
-        : t("profile.selector.delete");
-    const deleteLabel = isDefault ? t("profile.delete.disabledDefault") : nonDefaultDeleteLabel;
+    const deleteDisabledReason = isDefault
+        ? t("profile.delete.disabledDefault")
+        : isActive
+          ? t("profile.delete.disabledActive")
+          : null;
     return (
         <div className={"inline-flex items-center gap-1"}>
-            <ActionIconButton
-                label={t("profile.selector.deregister")}
-                icon={CircleMinus}
-                onClick={onDeregister}
-                hidden={!canDeregister}
-                tabbable={rowFocused}
-            />
-            <ActionIconButton
-                label={deleteLabel}
-                icon={Trash2}
-                onClick={onDelete}
-                variant={"danger"}
-                disabled={deleteDisabled}
-                tabbable={rowFocused}
-            />
             <ActionIconButton
                 label={t("profile.selector.switchTo")}
                 icon={LogIn}
@@ -461,7 +518,111 @@ const RowActions = ({
                 hidden={!canSwitch}
                 tabbable={rowFocused}
             />
+            <RowMoreMenu
+                canDeregister={canDeregister}
+                deleteDisabled={deleteDisabled}
+                deleteDisabledReason={deleteDisabledReason}
+                rowFocused={rowFocused}
+                onEdit={onEdit}
+                onDeregister={onDeregister}
+                onDelete={onDelete}
+            />
         </div>
+    );
+};
+
+type RowMoreMenuProps = {
+    canDeregister: boolean;
+    deleteDisabled: boolean;
+    deleteDisabledReason: string | null;
+    rowFocused: boolean;
+    onEdit: () => void;
+    onDeregister: () => void;
+    onDelete: () => void;
+};
+
+const RowMoreMenu = ({
+    canDeregister,
+    deleteDisabled,
+    deleteDisabledReason,
+    rowFocused,
+    onEdit,
+    onDeregister,
+    onDelete,
+}: RowMoreMenuProps) => {
+    const { t } = useTranslation();
+    const moreLabel = t("profile.selector.moreOptions");
+    return (
+        <DropdownMenu modal={false}>
+            <DropdownMenuTrigger asChild>
+                <button
+                    type={"button"}
+                    aria-label={moreLabel}
+                    tabIndex={rowFocused ? 0 : -1}
+                    className={cn(
+                        "inline-flex h-9 w-9 cursor-default items-center justify-center rounded-md outline-none",
+                        "text-nb-gray-400 hover:bg-nb-gray-900 hover:text-nb-gray-100",
+                        "transition-colors duration-150",
+                        "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
+                        "data-[state=open]:bg-nb-gray-900 data-[state=open]:text-nb-gray-100",
+                    )}
+                >
+                    <MoreVertical size={16} aria-hidden={"true"} />
+                </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align={"end"} sideOffset={4} className={"min-w-36 select-none"}>
+                <DropdownMenuItem onClick={onEdit}>
+                    <div className={"flex w-full items-center gap-2"}>
+                        <PencilLine size={14} aria-hidden={"true"} />
+                        <span className={"flex-1"}>{t("profile.selector.edit")}</span>
+                    </div>
+                </DropdownMenuItem>
+                {canDeregister && (
+                    <DropdownMenuItem onClick={onDeregister}>
+                        <div className={"flex w-full items-center gap-2"}>
+                            <CircleMinus size={14} aria-hidden={"true"} />
+                            <span className={"flex-1"}>{t("profile.selector.deregister")}</span>
+                        </div>
+                    </DropdownMenuItem>
+                )}
+                <DeleteMenuItem
+                    disabled={deleteDisabled}
+                    disabledReason={deleteDisabledReason}
+                    onDelete={onDelete}
+                />
+            </DropdownMenuContent>
+        </DropdownMenu>
+    );
+};
+
+type DeleteMenuItemProps = {
+    disabled: boolean;
+    disabledReason: string | null;
+    onDelete: () => void;
+};
+
+const DeleteMenuItem = ({ disabled, disabledReason, onDelete }: DeleteMenuItemProps) => {
+    const { t } = useTranslation();
+    const item = (
+        <DropdownMenuItem
+            disabled={disabled}
+            onClick={disabled ? undefined : onDelete}
+            className={cn(!disabled && "text-red-500 hover:!text-red-500 focus:text-red-500")}
+        >
+            <div className={"flex w-full items-center gap-2"}>
+                <Trash2 size={14} aria-hidden={"true"} />
+                <span className={"flex-1"}>{t("profile.selector.delete")}</span>
+            </div>
+        </DropdownMenuItem>
+    );
+    if (!disabled || !disabledReason) return item;
+    return (
+        <Tooltip
+            content={<span className={"block max-w-[260px] leading-snug"}>{disabledReason}</span>}
+            side={"left"}
+        >
+            <span className={"block"}>{item}</span>
+        </Tooltip>
     );
 };
 

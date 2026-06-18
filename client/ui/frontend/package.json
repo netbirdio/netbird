@@ -14,7 +14,8 @@
     "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx,css,json,md}\"",
     "lint": "eslint \"src/**/*.{ts,tsx}\"",
     "lint:fix": "eslint \"src/**/*.{ts,tsx}\" --fix",
-    "lint:report": "eslint \"src/**/*.{ts,tsx}\" --format json --output-file eslint-report.json || true"
+    "check": "pnpm lint && pnpm typecheck && pnpm format:check",
+    "check:fix": "pnpm lint:fix && pnpm format && pnpm typecheck"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",

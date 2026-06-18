@@ -61,7 +61,7 @@ export const ConfirmModal = ({
                     <DialogActions className={"flex-row justify-end gap-2.5"}>
                         <Button
                             variant={"secondary"}
-                            size={"xs2"}
+                            size={"sm"}
                             disabled={busy}
                             onClick={onCancel}
                         >
@@ -70,7 +70,7 @@ export const ConfirmModal = ({
                         <Button
                             autoFocus
                             variant={danger ? "danger" : "primary"}
-                            size={"xs2"}
+                            size={"sm"}
                             disabled={busy}
                             onClick={onConfirm}
                         >

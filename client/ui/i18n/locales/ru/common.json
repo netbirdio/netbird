@@ -323,6 +323,15 @@
     "profile.selector.switchTo": {
         "message": "Переключиться на этот профиль"
     },
+    "profile.selector.edit": {
+        "message": "Изменить"
+    },
+    "profile.edit.title": {
+        "message": "Изменить профиль"
+    },
+    "profile.edit.submit": {
+        "message": "Сохранить изменения"
+    },
     "profile.dialog.title": {
         "message": "Введите имя профиля"
     },
@@ -436,6 +445,9 @@
     },
     "profile.error.createTitle": {
         "message": "Не удалось создать профиль"
+    },
+    "profile.error.editTitle": {
+        "message": "Не удалось изменить профиль"
     },
     "profile.error.loadTitle": {
         "message": "Не удалось загрузить профили"

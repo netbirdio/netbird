@@ -431,6 +431,18 @@
         "message": "Switch to this profile",
         "description": "Tooltip / label for the action that switches to a profile."
     },
+    "profile.selector.edit": {
+        "message": "Edit",
+        "description": "Per-profile menu action: open the edit dialog to rename or change the management server."
+    },
+    "profile.edit.title": {
+        "message": "Edit Profile",
+        "description": "Title of the dialog for editing an existing profile."
+    },
+    "profile.edit.submit": {
+        "message": "Save Changes",
+        "description": "Submit button on the edit-profile dialog. Keep short."
+    },
     "profile.dialog.title": {
         "message": "Enter Profile Name",
         "description": "Title of the dialog for naming a new profile."
@@ -444,8 +456,8 @@
         "description": "Helper text under the profile-name field."
     },
     "profile.dialog.placeholder": {
-        "message": "e.g. work",
-        "description": "Example placeholder shown in the profile-name field. 'work' is a sample value; translate it to a natural example."
+        "message": "e.g. Work",
+        "description": "Example placeholder shown in the profile-name field. 'Work' is a sample value; translate it to a natural example."
     },
     "profile.dialog.submit": {
         "message": "Add Profile",
@@ -578,6 +590,10 @@
     "profile.error.createTitle": {
         "message": "Create Profile Failed",
         "description": "Error-dialog title when creating a profile fails."
+    },
+    "profile.error.editTitle": {
+        "message": "Edit Profile Failed",
+        "description": "Error-dialog title when editing a profile (rename or management URL change) fails."
     },
     "profile.error.loadTitle": {
         "message": "Load Profiles Failed",
