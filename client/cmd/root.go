@@ -20,6 +20,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
 
 	daddr "github.com/netbirdio/netbird/client/internal/daemonaddr"
@@ -260,17 +261,46 @@ func FlagNameToEnvVar(cmdFlag string, prefix string) string {
 	return prefix + upper
 }
 
-// DialClientGRPCServer returns client connection to the daemon server.
+// DialClientGRPCServer returns client connection to the daemon server. It waits
+// (up to the timeout) for the daemon to become reachable so an `up` issued right
+// after `service start` tolerates the startup race. Instead of grpc's blocking
+// dial — whose raw "transport failed" retry warnings are silenced by the logger
+// config — we drive the wait ourselves and emit one clean line per failed attempt.
 func DialClientGRPCServer(ctx context.Context, addr string) (*grpc.ClientConn, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Second*10)
 	defer cancel()
 
-	return grpc.DialContext(
+	conn, err := grpc.DialContext(
 		ctx,
 		strings.TrimPrefix(addr, "tcp://"),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock(),
 	)
+	if err != nil {
+		return nil, err
+	}
+
+	conn.Connect()
+	for {
+		state := conn.GetState()
+		if state == connectivity.Ready {
+			return conn, nil
+		}
+		// Log only once the connection has actually failed — not during the
+		// brief Idle/Connecting phase on a healthy daemon (avoids a spurious
+		// line + wait when the daemon is already up).
+		if state == connectivity.TransientFailure {
+			log.Infof("waiting for the netbird daemon to become available at %s...", addr)
+		}
+		// Wake on the next state change, but at least every second so a stuck
+		// TransientFailure re-logs at a steady cadence until the timeout.
+		waitCtx, waitCancel := context.WithTimeout(ctx, time.Second)
+		conn.WaitForStateChange(waitCtx, state)
+		waitCancel()
+		if ctx.Err() != nil {
+			_ = conn.Close()
+			return nil, fmt.Errorf("daemon not reachable at %s: %w", addr, ctx.Err())
+		}
+	}
 }
 
 // WithBackOff execute function in backoff cycle.

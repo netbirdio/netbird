@@ -140,7 +140,12 @@ func newRotatedOutput(logPath string) io.Writer {
 func setGRPCLibLogger(logger *log.Logger) {
 	logOut := logger.Writer()
 	if os.Getenv("GRPC_GO_LOG_SEVERITY_LEVEL") != "info" {
-		grpclog.SetLoggerV2(grpclog.NewLoggerV2(io.Discard, logOut, logOut))
+		// Discard grpc info AND warning logs by default — the warning stream is
+		// dominated by benign connection-retry noise ("addrConn.createTransport
+		// failed", "transport is closing") that surfaces e.g. when the CLI dials
+		// a daemon that is still starting or already gone. Errors are kept. Set
+		// GRPC_GO_LOG_SEVERITY_LEVEL=info to get the full verbose grpc logging.
+		grpclog.SetLoggerV2(grpclog.NewLoggerV2(io.Discard, io.Discard, logOut))
 		return
 	}
 
