@@ -124,7 +124,9 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
     useEffect(() => {
         if (!selected) return;
         // Defer focus until the slide-in animation has started rendering.
-        requestAnimationFrame(() => backButtonRef.current?.focus());
+        // preventScroll avoids the browser scrolling the parent to chase the
+        // still-offscreen button, which lands as a stutter at the end of the slide.
+        requestAnimationFrame(() => backButtonRef.current?.focus({ preventScroll: true }));
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selected?.pubKey]);
 
@@ -170,6 +172,7 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
                     animate={{ x: 0 }}
                     exit={{ x: "100%" }}
                     transition={transition}
+                    style={{ willChange: "transform" }}
                     className={cn("absolute inset-0 z-20 flex flex-col", "bg-nb-gray-940")}
                 >
                     <div
