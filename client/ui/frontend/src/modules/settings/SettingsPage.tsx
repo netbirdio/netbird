@@ -114,9 +114,7 @@ export const SettingsPage = () => {
                                     )}
                                 >
                                     <ScrollArea.Thumb
-                                        className={
-                                            "flex-1 rounded-full bg-nb-gray-800 hover:bg-nb-gray-700 relative"
-                                        }
+                                        className={"flex-1 rounded-full bg-nb-gray-800 hover:bg-nb-gray-700 relative"}
                                     />
                                 </ScrollArea.Scrollbar>
                             </ScrollArea.Root>

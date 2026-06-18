@@ -1,5 +1,5 @@
-import { ComponentType } from "react";
-import { LucideProps } from "lucide-react";
+import { type ComponentType } from "react";
+import { type LucideProps } from "lucide-react";
 import { cn } from "@/lib/cn";
 
 export type SquareIconVariant = "default" | "info" | "warning" | "danger";
@@ -25,7 +25,7 @@ export const SquareIcon = ({
     className,
 }: SquareIconProps) => (
     <div
-        aria-hidden="true"
+        aria-hidden={"true"}
         className={cn(
             "h-11 w-11 rounded-lg flex items-center justify-center border bg-nb-gray-920 border-nb-gray-900",
             variantClass[variant],

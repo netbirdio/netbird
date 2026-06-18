@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useId, useRef, useState } from "react";
+import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import * as Dialog from "@/components/dialog/Dialog";
 import { Input } from "@/components/inputs/Input";
@@ -125,16 +125,16 @@ export const ProfileCreationModal = ({ open, onOpenChange, onCreate }: Props) =>
     return (
         <Dialog.Root open={open} onOpenChange={onOpenChange}>
             <Dialog.Content
-                maxWidthClass="max-w-md"
+                maxWidthClass={"max-w-md"}
                 showClose={false}
-                className="py-7"
+                className={"py-7"}
                 srTitle={t("profile.dialog.title")}
                 srDescription={t("profile.dialog.description")}
                 onOpenAutoFocus={(e) => e.preventDefault()}
             >
                 <form onSubmit={handleSubmit}>
-                    <div className="flex flex-col gap-6 px-7">
-                        <div className="flex flex-col gap-2">
+                    <div className={"flex flex-col gap-6 px-7"}>
+                        <div className={"flex flex-col gap-2"}>
                             <div className={"pl-1"}>
                                 <Label htmlFor={nameId} className={"mb-0.5"}>
                                     {t("profile.dialog.nameLabel")}
@@ -153,13 +153,13 @@ export const ProfileCreationModal = ({ open, onOpenChange, onCreate }: Props) =>
                                 error={nameError ?? undefined}
                                 maxLength={MAX_PROFILE_NAME_LEN}
                                 spellCheck={false}
-                                autoComplete="off"
-                                autoCapitalize="off"
+                                autoComplete={"off"}
+                                autoCapitalize={"off"}
                             />
                         </div>
 
                         {!managedManagementUrl && (
-                            <div className="flex flex-col gap-2">
+                            <div className={"flex flex-col gap-2"}>
                                 <div className={"pl-1"}>
                                     <Label as={"div"} className={"mb-0.5"}>
                                         {t("settings.general.management.label")}
@@ -168,7 +168,7 @@ export const ProfileCreationModal = ({ open, onOpenChange, onCreate }: Props) =>
                                         {t("profile.dialog.managementHelp")}
                                     </HelpText>
                                 </div>
-                                <div className="flex flex-col gap-3">
+                                <div className={"flex flex-col gap-3"}>
                                     <ManagementServerSwitch
                                         value={mode}
                                         onChange={setMode}
@@ -188,9 +188,9 @@ export const ProfileCreationModal = ({ open, onOpenChange, onCreate }: Props) =>
                                             error={urlInputError}
                                             warning={urlInputWarning}
                                             spellCheck={false}
-                                            autoComplete="off"
-                                            autoCorrect="off"
-                                            autoCapitalize="off"
+                                            autoComplete={"off"}
+                                            autoCorrect={"off"}
+                                            autoCapitalize={"off"}
                                         />
                                     )}
                                 </div>
@@ -199,7 +199,7 @@ export const ProfileCreationModal = ({ open, onOpenChange, onCreate }: Props) =>
 
                         <DialogActions className={"flex-row items-center justify-end gap-2.5 pt-2"}>
                             <Button
-                                type="button"
+                                type={"button"}
                                 variant={"secondary"}
                                 size={"xs2"}
                                 disabled={checking}
@@ -208,7 +208,7 @@ export const ProfileCreationModal = ({ open, onOpenChange, onCreate }: Props) =>
                                 {t("common.cancel")}
                             </Button>
                             <Button
-                                type="submit"
+                                type={"submit"}
                                 variant={"primary"}
                                 size={"xs2"}
                                 loading={checking}

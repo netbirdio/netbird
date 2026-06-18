@@ -76,22 +76,22 @@ export const MainHeader = () => {
                         iconClassName={"text-nb-gray-200 wails-no-draggable"}
                         className={"select-none"}
                         aria-label={t("header.menu.open")}
-                        aria-haspopup="menu"
+                        aria-haspopup={"menu"}
                     />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
-                    align="end"
+                    align={"end"}
                     sideOffset={8}
-                    className="min-w-52 select-none data-[state=closed]:!animate-none data-[state=closed]:!duration-0"
+                    className={"min-w-52 select-none data-[state=closed]:!animate-none data-[state=closed]:!duration-0"}
                 >
                     {updateAvailable && (
                         <>
                             <DropdownMenuItem onClick={openAbout}>
-                                <div className="flex items-center gap-2">
+                                <div className={"flex items-center gap-2"}>
                                     <ArrowUpCircleIcon
                                         size={14}
                                         className={"text-netbird"}
-                                        aria-hidden="true"
+                                        aria-hidden={"true"}
                                     />
                                     <span className={"text-netbird"}>
                                         {t("header.menu.updateAvailable")}
@@ -102,9 +102,9 @@ export const MainHeader = () => {
                         </>
                     )}
                     <DropdownMenuItem onClick={openSettings}>
-                        <div className="flex items-center gap-2 w-full">
-                            <Settings size={14} aria-hidden="true" />
-                            <span className="flex-1">{t("header.menu.settings")}</span>
+                        <div className={"flex items-center gap-2 w-full"}>
+                            <Settings size={14} aria-hidden={"true"} />
+                            <span className={"flex-1"}>{t("header.menu.settings")}</span>
                             <DropdownMenuShortcut>
                                 {formatShortcut(SETTINGS_SHORTCUT)}
                             </DropdownMenuShortcut>
@@ -131,15 +131,11 @@ export const MainHeader = () => {
             </DropdownMenu>
             {updateAvailable && (
                 <span
-                    aria-hidden="true"
-                    className={
-                        "pointer-events-none absolute top-1.5 right-1.5 flex h-2.5 w-2.5 items-center justify-center"
-                    }
+                    aria-hidden={"true"}
+                    className={"pointer-events-none absolute top-1.5 right-1.5 flex h-2.5 w-2.5 items-center justify-center"}
                 >
                     <span
-                        className={
-                            "absolute inset-0 rounded-full bg-netbird opacity-60 animate-ping"
-                        }
+                        className={"absolute inset-0 rounded-full bg-netbird opacity-60 animate-ping"}
                     />
                     <span className={"relative h-1.5 w-1.5 rounded-full bg-netbird"} />
                 </span>
@@ -179,11 +175,11 @@ type ViewModeItemProps = {
 };
 
 const ViewModeItem = ({ icon: Icon, label, selected, onSelect }: ViewModeItemProps) => (
-    <DropdownMenuItem onClick={onSelect} role="menuitemradio" aria-checked={selected}>
-        <div className="flex items-center gap-2 w-full">
-            <Icon size={14} aria-hidden="true" />
-            <span className="flex-1">{label}</span>
-            {selected && <Check size={14} className="text-netbird" aria-hidden="true" />}
+    <DropdownMenuItem onClick={onSelect} role={"menuitemradio"} aria-checked={selected}>
+        <div className={"flex items-center gap-2 w-full"}>
+            <Icon size={14} aria-hidden={"true"} />
+            <span className={"flex-1"}>{label}</span>
+            {selected && <Check size={14} className={"text-netbird"} aria-hidden={"true"} />}
         </div>
     </DropdownMenuItem>
 );

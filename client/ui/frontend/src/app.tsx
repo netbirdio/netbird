@@ -35,23 +35,23 @@ Promise.all([
             <SkeletonTheme baseColor={"#25282d"} highlightColor={"#33373e"}>
                 <HashRouter>
                     <Routes>
-                        <Route path="dialog">
+                        <Route path={"dialog"}>
                             <Route
-                                path="browser-login"
+                                path={"browser-login"}
                                 element={<LoginWaitingForBrowserDialog />}
                             />
-                            <Route path="install-progress" element={<UpdateInProgressDialog />} />
+                            <Route path={"install-progress"} element={<UpdateInProgressDialog />} />
                             <Route
-                                path="session-expiration"
+                                path={"session-expiration"}
                                 element={<SessionExpirationDialog />}
                             />
-                            <Route path="welcome" element={<WelcomeDialog />} />
-                            <Route path="error" element={<ErrorDialog />} />
+                            <Route path={"welcome"} element={<WelcomeDialog />} />
+                            <Route path={"error"} element={<ErrorDialog />} />
                         </Route>
                         <Route element={<AppLayout />}>
                             <Route index element={<MainPage />} />
-                            <Route path="settings" element={<SettingsPage />} />
-                            <Route path="*" element={<Navigate to={"/"} replace />} />
+                            <Route path={"settings"} element={<SettingsPage />} />
+                            <Route path={"*"} element={<Navigate to={"/"} replace />} />
                         </Route>
                     </Routes>
                 </HashRouter>

@@ -111,6 +111,7 @@ function forward(level: Level, args: unknown[]) {
         // Don't touch console here — it would recurse back into forward().
         UILog.Log(level, source, format(args)).catch(() => {});
     } catch {
+        // Swallow — log forwarding must never throw back into the caller.
     } finally {
         inForward = false;
     }

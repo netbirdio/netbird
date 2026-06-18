@@ -1,7 +1,7 @@
-import { KeyboardEvent, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { type KeyboardEvent, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
-import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
+import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { ChevronRightIcon, MonitorSmartphoneIcon } from "lucide-react";
 import type { PeerStatus } from "@bindings/services/models.js";
 import { cn } from "@/lib/cn";
@@ -15,7 +15,7 @@ import { useStatus } from "@/contexts/StatusContext";
 import { usePeerDetail } from "@/contexts/PeerDetailContext";
 import { Tooltip } from "@/components/Tooltip";
 import { TruncatedText } from "@/components/TruncatedText";
-import { PeerFilters, StatusFilter } from "./PeerFilters";
+import { PeerFilters, type StatusFilter } from "./PeerFilters";
 
 const isOnline = (connStatus: string) => connStatus === "Connected";
 
@@ -54,7 +54,7 @@ export const Peers = () => {
     }, []);
 
     const isConnected = status?.status === "Connected";
-    const peers = status?.peers ?? [];
+    const peers = useMemo(() => status?.peers ?? [], [status?.peers]);
 
     const counts = useMemo<Record<StatusFilter, number>>(() => {
         const online = peers.filter((p) => isOnline(p.connStatus)).length;
@@ -120,9 +120,9 @@ export const Peers = () => {
     }
 
     return (
-        <div className={"flex flex-col w-full h-full min-h-0"}>
-            <div className={"flex items-center gap-2 px-6 py-2.5 border-b border-nb-gray-910"}>
-                <div className={"flex-1 min-w-0"}>
+        <div className={"flex h-full min-h-0 w-full flex-col"}>
+            <div className={"flex items-center gap-2 border-b border-nb-gray-910 px-6 py-2.5"}>
+                <div className={"min-w-0 flex-1"}>
                     <SearchInput
                         ref={searchRef}
                         placeholder={t("peers.search.placeholder")}
@@ -135,20 +135,20 @@ export const Peers = () => {
             {filtered.length === 0 ? (
                 <NoResults />
             ) : (
-                <ScrollArea.Root type={"auto"} className={"flex-1 min-h-0 overflow-hidden"}>
+                <ScrollArea.Root type={"auto"} className={"min-h-0 flex-1 overflow-hidden"}>
                     <ScrollArea.Viewport ref={setScrollParent} className={"h-full w-full"}>
                         {scrollParent && <PeersList data={filtered} scrollParent={scrollParent} />}
                     </ScrollArea.Viewport>
                     <ScrollArea.Scrollbar
                         orientation={"vertical"}
                         className={cn(
-                            "flex select-none touch-none transition-colors",
+                            "flex touch-none select-none transition-colors",
                             "w-1.5 bg-transparent py-1",
                         )}
                     >
                         <ScrollArea.Thumb
                             className={
-                                "flex-1 rounded-full bg-nb-gray-800 hover:bg-nb-gray-700 relative"
+                                "relative flex-1 rounded-full bg-nb-gray-800 hover:bg-nb-gray-700"
                             }
                         />
                     </ScrollArea.Scrollbar>
@@ -273,8 +273,8 @@ const PeerRow = ({ peer, index, onKeyDown, onSelect, setRowRef }: PeerRowProps) 
     return (
         <div
             className={cn(
-                "group relative flex items-start gap-2.5 pl-6 pr-4 py-3 min-w-0",
-                "hover:bg-nb-gray-900/40 transition-colors",
+                "group relative flex min-w-0 items-start gap-2.5 py-3 pl-6 pr-4",
+                "transition-colors hover:bg-nb-gray-900/40",
                 "wails-no-draggable",
             )}
         >
@@ -292,16 +292,16 @@ const PeerRow = ({ peer, index, onKeyDown, onSelect, setRowRef }: PeerRowProps) 
             />
             <Tooltip content={statusLabel} side={"left"}>
                 <span
-                    aria-hidden="true"
+                    aria-hidden={"true"}
                     className={cn(
-                        "h-2 w-2 rounded-full shrink-0 mt-2 relative",
+                        "relative mt-2 h-2 w-2 shrink-0 rounded-full",
                         dotClass(peer.connStatus),
                     )}
                 />
             </Tooltip>
             <div
                 className={
-                    "min-w-0 flex-1 flex flex-col leading-tight relative pointer-events-none"
+                    "pointer-events-none relative flex min-w-0 flex-1 flex-col leading-tight"
                 }
             >
                 <div>
@@ -313,7 +313,7 @@ const PeerRow = ({ peer, index, onKeyDown, onSelect, setRowRef }: PeerRowProps) 
                         <TruncatedText
                             text={shortenDns(peer.fqdn)}
                             className={
-                                "block text-[0.81rem] font-medium text-nb-gray-100 truncate max-w-[300px]"
+                                "block max-w-[300px] truncate text-[0.81rem] font-medium text-nb-gray-100"
                             }
                         />
                     </CopyToClipboard>
@@ -324,7 +324,7 @@ const PeerRow = ({ peer, index, onKeyDown, onSelect, setRowRef }: PeerRowProps) 
                         className={"pointer-events-auto"}
                         onKeyDown={handleKey}
                     >
-                        <span className={"text-xs font-mono text-nb-gray-400 truncate"}>
+                        <span className={"truncate font-mono text-xs text-nb-gray-400"}>
                             {peer.ip}
                         </span>
                     </CopyToClipboard>
@@ -333,7 +333,7 @@ const PeerRow = ({ peer, index, onKeyDown, onSelect, setRowRef }: PeerRowProps) 
             {isConnected && peer.latencyMs > 0 && (
                 <span
                     className={cn(
-                        "shrink-0 self-center text-xs tabular-nums relative pointer-events-none",
+                        "pointer-events-none relative shrink-0 self-center text-xs tabular-nums",
                         latencyColor(peer.latencyMs),
                     )}
                 >
@@ -342,10 +342,10 @@ const PeerRow = ({ peer, index, onKeyDown, onSelect, setRowRef }: PeerRowProps) 
             )}
             <ChevronRightIcon
                 size={16}
-                aria-hidden="true"
+                aria-hidden={"true"}
                 className={cn(
-                    "shrink-0 self-center text-nb-gray-300 relative pointer-events-none",
-                    "opacity-0 group-hover:opacity-100 transition-opacity",
+                    "pointer-events-none relative shrink-0 self-center text-nb-gray-300",
+                    "opacity-0 transition-opacity group-hover:opacity-100",
                 )}
             />
         </div>

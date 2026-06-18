@@ -246,9 +246,7 @@ export const MainConnectionStatusSwitch = () => {
                     id={"nb-connection-status"}
                     role={"status"}
                     aria-live={"polite"}
-                    className={
-                        "text-sm font-medium text-nb-gray-200 tracking-wide transition-colors duration-300 select-none wails-no-draggable mb-1"
-                    }
+                    className={"text-sm font-medium text-nb-gray-200 tracking-wide transition-colors duration-300 select-none wails-no-draggable mb-1"}
                 >
                     {t(STATUS_KEY[connState])}
                 </p>
@@ -265,9 +263,7 @@ export const MainConnectionStatusSwitch = () => {
                 >
                     <TruncatedText
                         text={shortenDns(fqdn) || " "}
-                        className={
-                            "block font-mono text-[0.8rem] leading-tight text-nb-gray-300 truncate max-w-[310px] h-[18px]"
-                        }
+                        className={"block font-mono text-[0.8rem] leading-tight text-nb-gray-300 truncate max-w-[310px] h-[18px]"}
                     />
                 </CopyToClipboard>
                 <LocalIpLine ip={ip} ipv6={ipv6} show={show} />
@@ -314,7 +310,7 @@ const LocalIpLine = ({ ip, ipv6, show }: { ip: string; ipv6: string; show: boole
                         type={"button"}
                         tabIndex={show && ip ? 0 : -1}
                         aria-label={t("connect.localIp.label")}
-                        aria-haspopup="dialog"
+                        aria-haspopup={"dialog"}
                         aria-expanded={open}
                         className={cn(
                             "group relative inline-flex items-center outline-none cursor-default rounded-sm",
@@ -333,7 +329,7 @@ const LocalIpLine = ({ ip, ipv6, show }: { ip: string; ipv6: string; show: boole
                         </span>
                         <ChevronDownIcon
                             size={14}
-                            aria-hidden="true"
+                            aria-hidden={"true"}
                             className={cn(
                                 "absolute -right-5 top-1/2 -translate-y-1/2",
                                 "shrink-0 text-nb-gray-300 transition-colors",
@@ -395,7 +391,7 @@ const IpRow = ({ value }: { value: string }) => {
         >
             <span className={"font-mono text-[0.75rem] truncate min-w-0"}>{value}</span>
             <span
-                aria-hidden="true"
+                aria-hidden={"true"}
                 className={"shrink-0 inline-flex items-center text-nb-gray-200"}
             >
                 {copied ? <CheckIcon size={11} /> : <CopyIcon size={11} />}

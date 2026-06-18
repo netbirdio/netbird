@@ -1,6 +1,6 @@
-import { ComponentType, ReactNode, forwardRef } from "react";
+import { type ComponentType, type ReactNode, forwardRef } from "react";
 import * as Tabs from "@radix-ui/react-tabs";
-import { LucideProps } from "lucide-react";
+import { type LucideProps } from "lucide-react";
 import { cn } from "@/lib/cn";
 
 const Root = forwardRef<HTMLDivElement, Omit<Tabs.TabsProps, "orientation">>(
@@ -55,7 +55,7 @@ const Trigger = forwardRef<HTMLButtonElement, TriggerProps>(function VerticalTab
         >
             <Icon
                 size={iconSize}
-                aria-hidden="true"
+                aria-hidden={"true"}
                 className={cn(
                     "shrink-0 ml-2 transition-colors duration-150",
                     "text-nb-gray-400 group-data-[state=active]:text-nb-gray-100",
@@ -70,7 +70,7 @@ const Trigger = forwardRef<HTMLButtonElement, TriggerProps>(function VerticalTab
                 {title}
             </span>
             {adornment && (
-                <div aria-hidden="true" className={"ml-auto mr-2 shrink-0"}>
+                <div aria-hidden={"true"} className={"ml-auto mr-2 shrink-0"}>
                     {adornment}
                 </div>
             )}

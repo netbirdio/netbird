@@ -5,7 +5,7 @@ import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { Command } from "cmdk";
 import { CheckIcon, ChevronDown, LanguagesIcon, Search } from "lucide-react";
 import { Preferences } from "@bindings/services";
-import { LanguageCode, type Language } from "@bindings/i18n/models.js";
+import { type LanguageCode, type Language } from "@bindings/i18n/models.js";
 import { HelpText } from "@/components/typography/HelpText";
 import { Label } from "@/components/typography/Label";
 import { loadLanguages } from "@/lib/i18n";
@@ -88,7 +88,7 @@ export function LanguagePicker() {
                             disabled={busy || languages.length === 0}
                             onKeyDown={handleTriggerKeyDown}
                             aria-label={t("settings.general.language.label")}
-                            aria-haspopup="listbox"
+                            aria-haspopup={"listbox"}
                             aria-expanded={open}
                             className={cn(
                                 "inline-flex items-center gap-2 h-[40px] px-3 min-w-[240px]",
@@ -102,7 +102,7 @@ export function LanguagePicker() {
                         >
                             <LanguagesIcon
                                 size={16}
-                                aria-hidden="true"
+                                aria-hidden={"true"}
                                 className={"text-nb-gray-200 shrink-0"}
                             />
                             <span className={"truncate flex-1 text-left"}>
@@ -110,7 +110,7 @@ export function LanguagePicker() {
                             </span>
                             <ChevronDown
                                 size={12}
-                                aria-hidden="true"
+                                aria-hidden={"true"}
                                 className={"text-nb-gray-400 shrink-0"}
                             />
                         </button>
@@ -141,12 +141,12 @@ export function LanguagePicker() {
                             >
                                 <div className={"px-1 pb-1"}>
                                     <div
-                                        role="search"
+                                        role={"search"}
                                         className={"group flex items-center gap-2 px-1 h-8"}
                                     >
                                         <Search
                                             size={14}
-                                            aria-hidden="true"
+                                            aria-hidden={"true"}
                                             className={"text-nb-gray-200 shrink-0"}
                                         />
                                         <Command.Input
@@ -166,9 +166,7 @@ export function LanguagePicker() {
                                         <Command.List>
                                             <Command.Empty>
                                                 <div
-                                                    className={
-                                                        "px-3 py-4 text-center text-[0.7rem] text-nb-gray-400"
-                                                    }
+                                                    className={"px-3 py-4 text-center text-[0.7rem] text-nb-gray-400"}
                                                 >
                                                     {t("settings.general.language.empty")}
                                                 </div>
@@ -191,10 +189,8 @@ export function LanguagePicker() {
                                                             {labelFor(lang)}
                                                         </span>
                                                         <span
-                                                            aria-hidden="true"
-                                                            className={
-                                                                "w-4 shrink-0 flex items-center justify-center"
-                                                            }
+                                                            aria-hidden={"true"}
+                                                            className={"w-4 shrink-0 flex items-center justify-center"}
                                                         >
                                                             {checked && (
                                                                 <CheckIcon
@@ -216,9 +212,7 @@ export function LanguagePicker() {
                                         )}
                                     >
                                         <ScrollArea.Thumb
-                                            className={
-                                                "flex-1 rounded-full bg-nb-gray-800 hover:bg-nb-gray-700 relative"
-                                            }
+                                            className={"flex-1 rounded-full bg-nb-gray-800 hover:bg-nb-gray-700 relative"}
                                         />
                                     </ScrollArea.Scrollbar>
                                 </ScrollArea.Root>

@@ -1,6 +1,6 @@
-import { ComponentType, KeyboardEvent, useEffect, useRef } from "react";
+import { type ComponentType, type KeyboardEvent, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { Layers3Icon, LucideProps, MonitorSmartphoneIcon } from "lucide-react";
+import { Layers3Icon, type LucideProps, MonitorSmartphoneIcon } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useNavSection, type NavSection } from "@/contexts/NavSectionContext";
 import { useStatus } from "@/contexts/StatusContext";
@@ -53,7 +53,7 @@ export const Navigation = () => {
         if (enabled.length < 2) return;
         const currentIndex = enabled.findIndex((t) => t.value === section);
         if (currentIndex === -1) return;
-        let nextIndex: number | null = null;
+        let nextIndex: number;
         switch (e.key) {
             case "ArrowRight":
                 nextIndex = (currentIndex + 1) % enabled.length;
@@ -71,7 +71,7 @@ export const Navigation = () => {
                 return;
         }
         e.preventDefault();
-        if (nextIndex !== null) focusTab(enabled[nextIndex].value);
+        focusTab(enabled[nextIndex].value);
     };
 
     return (
@@ -113,10 +113,10 @@ export const Navigation = () => {
                             isDisabled ? "opacity-50 cursor-not-allowed" : "cursor-default",
                         )}
                     >
-                        <Icon size={14} aria-hidden="true" />
+                        <Icon size={14} aria-hidden={"true"} />
                         <span className={"text-sm font-normal"}>{tab.label}</span>
                         <span
-                            aria-hidden="true"
+                            aria-hidden={"true"}
                             className={cn(
                                 "absolute inset-x-0 bottom-0 h-px transition-all",
                                 isActive

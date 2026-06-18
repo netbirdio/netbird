@@ -1,5 +1,5 @@
 import * as RadioGroup from "@radix-ui/react-radio-group";
-import { createContext, ReactNode, useContext, useId, useMemo } from "react";
+import { createContext, type ReactNode, useContext, useId, useMemo } from "react";
 import { cn } from "@/lib/cn";
 
 type SwitchItemGroupContextValue = {

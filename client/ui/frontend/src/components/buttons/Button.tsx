@@ -1,6 +1,6 @@
-import { cva, VariantProps } from "class-variance-authority";
+import { cva, type VariantProps } from "class-variance-authority";
 import { Check, Copy, Loader2 } from "lucide-react";
-import { ButtonHTMLAttributes, forwardRef, useEffect, useRef, useState } from "react";
+import { type ButtonHTMLAttributes, forwardRef, useEffect, useRef, useState } from "react";
 
 import { cn } from "@/lib/cn";
 
@@ -173,7 +173,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
         >
             {loading && (
                 <span
-                    aria-hidden="true"
+                    aria-hidden={"true"}
                     className={"absolute inset-0 flex items-center justify-center"}
                 >
                     <Loader2 size={iconSize} className={"animate-spin"} />
@@ -182,9 +182,9 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
             <span className={cn("contents", loading && "invisible")}>
                 {copy !== undefined &&
                     (copied ? (
-                        <Check size={iconSize} aria-hidden="true" />
+                        <Check size={iconSize} aria-hidden={"true"} />
                     ) : (
-                        <Copy size={iconSize} aria-hidden="true" />
+                        <Copy size={iconSize} aria-hidden={"true"} />
                     ))}
                 {children}
             </span>

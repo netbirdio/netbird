@@ -25,7 +25,7 @@ export const ManagementServerSwitch = ({ value, onChange, fullWidth = false }: P
                 <img
                     src={netbirdLogo}
                     alt={""}
-                    aria-hidden="true"
+                    aria-hidden={"true"}
                     className={"h-[0.8rem] aspect-[31/23] shrink-0"}
                 />
                 {t("settings.general.management.cloud")}

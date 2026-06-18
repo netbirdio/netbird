@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import * as Popover from "@radix-ui/react-popover";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { Command } from "cmdk";
-import { Check, ChevronsUpDown, LucideProps, SquareArrowUpRight } from "lucide-react";
+import { Check, ChevronsUpDown, type LucideProps, SquareArrowUpRight } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { TruncatedText } from "@/components/TruncatedText";
 import { useNetworks } from "@/contexts/NetworksContext";
@@ -61,7 +61,7 @@ export const MainExitNodeSwitcher = () => {
                     disabled={disabled}
                     active={!!active}
                     aria-label={t("exitNodes.dropdown.trigger")}
-                    aria-haspopup="listbox"
+                    aria-haspopup={"listbox"}
                     aria-expanded={open}
                     onKeyDown={handleTriggerKeyDown}
                 />
@@ -120,9 +120,7 @@ export const MainExitNodeSwitcher = () => {
                                         )}
                                     >
                                         <ScrollArea.Thumb
-                                            className={
-                                                "flex-1 rounded-full bg-nb-gray-800 hover:bg-nb-gray-700 relative"
-                                            }
+                                            className={"flex-1 rounded-full bg-nb-gray-800 hover:bg-nb-gray-700 relative"}
                                         />
                                     </ScrollArea.Scrollbar>
                                 </ScrollArea.Root>
@@ -166,7 +164,7 @@ const ExitNodeTriggerCard = forwardRef<HTMLButtonElement, TriggerProps>(
                 {...props}
             >
                 <div
-                    aria-hidden="true"
+                    aria-hidden={"true"}
                     className={cn(
                         "h-9 w-9 rounded-md flex items-center justify-center shrink-0",
                         active
@@ -182,14 +180,12 @@ const ExitNodeTriggerCard = forwardRef<HTMLButtonElement, TriggerProps>(
                     </span>
                     <TruncatedText
                         text={description}
-                        className={
-                            "block text-[0.85rem] font-medium text-nb-gray-400 truncate max-w-full"
-                        }
+                        className={"block text-[0.85rem] font-medium text-nb-gray-400 truncate max-w-full"}
                     />
                 </div>
                 <ChevronsUpDown
                     size={16}
-                    aria-hidden="true"
+                    aria-hidden={"true"}
                     className={"text-nb-gray-400 shrink-0"}
                 />
             </button>
@@ -215,7 +211,7 @@ const NoneRow = ({ isActive, onSelect }: NoneRowProps) => {
             )}
         >
             <span className={"min-w-0 flex-1 truncate"}>{t("exitNodes.dropdown.noneTitle")}</span>
-            {isActive && <Check size={16} aria-hidden="true" className={"shrink-0 text-netbird"} />}
+            {isActive && <Check size={16} aria-hidden={"true"} className={"shrink-0 text-netbird"} />}
         </Command.Item>
     );
 };
@@ -238,7 +234,7 @@ const ExitNodeRow = ({ id, label, isActive, onSelect }: ExitNodeRowProps) => (
         )}
     >
         <span className={"min-w-0 flex-1 truncate"}>{label}</span>
-        {isActive && <Check size={16} aria-hidden="true" className={"shrink-0 text-netbird"} />}
+        {isActive && <Check size={16} aria-hidden={"true"} className={"shrink-0 text-netbird"} />}
     </Command.Item>
 );
 

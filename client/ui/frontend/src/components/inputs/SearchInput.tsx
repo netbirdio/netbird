@@ -1,4 +1,4 @@
-import { forwardRef, InputHTMLAttributes, ReactNode } from "react";
+import { forwardRef, type InputHTMLAttributes, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { SearchIcon } from "lucide-react";
 import { cn } from "@/lib/cn";
@@ -15,12 +15,12 @@ export const SearchInput = forwardRef<HTMLInputElement, Props>(function SearchIn
     const { t } = useTranslation();
     return (
         <div
-            role="search"
+            role={"search"}
             className={cn("flex items-center gap-2 px-1 h-10", disabled && "opacity-50")}
         >
             <SearchIcon
                 size={iconSize}
-                aria-hidden="true"
+                aria-hidden={"true"}
                 className={"text-nb-gray-300 shrink-0"}
             />
             <input
@@ -38,7 +38,7 @@ export const SearchInput = forwardRef<HTMLInputElement, Props>(function SearchIn
             />
             {shortcut && (
                 <span
-                    aria-hidden="true"
+                    aria-hidden={"true"}
                     className={cn(
                         "shrink-0 select-none",
                         "inline-flex items-center justify-center",

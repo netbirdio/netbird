@@ -1,4 +1,4 @@
-import { KeyboardEvent, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type KeyboardEvent, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { CircleMinus, LogIn, PlusCircle, Trash2, UserCircle } from "lucide-react";
 import type { Profile } from "@bindings/services/models.js";
@@ -138,13 +138,11 @@ export function ProfilesTab() {
 
                     {loaded && ordered.length === 0 && (
                         <div
-                            className={
-                                "flex flex-col items-center justify-center py-10 text-center"
-                            }
+                            className={"flex flex-col items-center justify-center py-10 text-center"}
                         >
                             <UserCircle
                                 size={28}
-                                aria-hidden="true"
+                                aria-hidden={"true"}
                                 className={"text-nb-gray-500 mb-2"}
                             />
                             <p className={"text-sm font-semibold text-nb-gray-200"}>
@@ -159,7 +157,7 @@ export function ProfilesTab() {
 
                 <SettingsBottomBar>
                     <Button variant={"primary"} size={"md"} onClick={() => setNewOpen(true)}>
-                        <PlusCircle size={14} aria-hidden="true" />
+                        <PlusCircle size={14} aria-hidden={"true"} />
                         {t("settings.profiles.addProfile")}
                     </Button>
                 </SettingsBottomBar>
@@ -355,15 +353,13 @@ const ProfileRow = ({
             >
                 <Icon
                     size={15}
-                    aria-hidden="true"
+                    aria-hidden={"true"}
                     className={cn("text-nb-gray-200 shrink-0", showEmail ? "mt-0.5" : "")}
                 />
                 <div className={"flex flex-col min-w-0 flex-1 leading-tight"}>
                     <div className={"flex items-center gap-2 min-w-0"}>
                         <span
-                            className={
-                                "truncate font-medium text-nb-gray-100 select-text cursor-text"
-                            }
+                            className={"truncate font-medium text-nb-gray-100 select-text cursor-text"}
                         >
                             {profile.name}
                         </span>
@@ -505,7 +501,7 @@ const ActionIconButton = ({
                     "opacity-40 cursor-not-allowed hover:!text-nb-gray-400 hover:!bg-transparent",
             )}
         >
-            <Icon size={16} aria-hidden="true" />
+            <Icon size={16} aria-hidden={"true"} />
         </button>
     );
     if (hidden) return button;

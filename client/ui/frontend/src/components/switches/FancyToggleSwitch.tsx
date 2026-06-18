@@ -39,9 +39,9 @@ export default function FancyToggleSwitch({
             "text-transparent select-none rounded bg-[#25282d] box-decoration-clone animate-pulse";
         return (
             <div
-                role="status"
-                aria-busy="true"
-                aria-live="polite"
+                role={"status"}
+                aria-busy={"true"}
+                aria-live={"polite"}
                 className={cn("inline-block text-left w-full", className)}
             >
                 <div className={"flex justify-between gap-10"}>
@@ -57,7 +57,7 @@ export default function FancyToggleSwitch({
                     </div>
                     <div className={"mt-2 pr-1"}>
                         <div
-                            aria-hidden="true"
+                            aria-hidden={"true"}
                             className={"h-[24px] w-[44px] rounded-full bg-[#25282d] animate-pulse"}
                         />
                     </div>
@@ -95,7 +95,7 @@ export default function FancyToggleSwitch({
                     />
                 </div>
             </div>
-            {children && value ? <div className="mt-4">{children}</div> : null}
+            {children && value ? <div className={"mt-4"}>{children}</div> : null}
         </div>
     );
 }

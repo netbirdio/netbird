@@ -1,4 +1,4 @@
-import { ReactNode } from "react";
+import { type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import * as Dialog from "@/components/dialog/Dialog";
 import { Button } from "@/components/buttons/Button";
@@ -43,15 +43,15 @@ export const ConfirmModal = ({
             }}
         >
             <Dialog.Content
-                maxWidthClass="max-w-sm"
+                maxWidthClass={"max-w-sm"}
                 showClose={false}
-                className="py-5"
+                className={"py-5"}
                 srTitle={srTitle}
                 srDescription={srDescription}
                 onOpenAutoFocus={(e) => e.preventDefault()}
             >
-                <div className="flex flex-col gap-5 px-5">
-                    <div className="flex flex-col gap-1 pl-1">
+                <div className={"flex flex-col gap-5 px-5"}>
+                    <div className={"flex flex-col gap-1 pl-1"}>
                         <DialogHeading align={"left"}>{title}</DialogHeading>
                         <DialogDescription align={"left"} className={"whitespace-pre-line"}>
                             {description}

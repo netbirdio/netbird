@@ -1,5 +1,5 @@
-import { ComponentType } from "react";
-import { LucideProps } from "lucide-react";
+import { type ComponentType } from "react";
+import { type LucideProps } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { SquareIcon } from "@/components/SquareIcon";
 import { isMacOS } from "@/lib/platform";

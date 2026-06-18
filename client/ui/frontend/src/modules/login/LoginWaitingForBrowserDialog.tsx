@@ -65,9 +65,7 @@ export default function LoginWaitingForBrowserDialog() {
                         type={"button"}
                         onClick={tryAgain}
                         disabled={!uri}
-                        className={
-                            "wails-no-draggable text-netbird hover:underline disabled:opacity-40 disabled:cursor-not-allowed"
-                        }
+                        className={"wails-no-draggable text-netbird hover:underline disabled:opacity-40 disabled:cursor-not-allowed"}
                     >
                         {t("browserLogin.tryAgain")}
                     </button>

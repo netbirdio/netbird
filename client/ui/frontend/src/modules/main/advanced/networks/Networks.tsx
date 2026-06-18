@@ -1,5 +1,5 @@
 import {
-    KeyboardEvent,
+    type KeyboardEvent,
     useEffect,
     useMemo,
     useRef,
@@ -9,7 +9,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
-import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
+import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { GlobeIcon, Layers3Icon, type LucideProps, NetworkIcon, WorkflowIcon } from "lucide-react";
 import type { Network } from "@bindings/services/models.js";
 import { cn } from "@/lib/cn";
@@ -22,7 +22,7 @@ import { EmptyState } from "@/components/empty-state/EmptyState";
 import { NoResults } from "@/components/empty-state/NoResults";
 import { useStatus } from "@/contexts/StatusContext";
 import { useNetworks } from "@/contexts/NetworksContext";
-import { NetworkFilter, NetworkFilters } from "./NetworkFilters";
+import { type NetworkFilter, NetworkFilters } from "./NetworkFilters";
 
 // Daemon renders DNS-route prefixes (zero netip.Prefix) as "invalid Prefix".
 const INVALID_PREFIX = "invalid Prefix";
@@ -193,9 +193,7 @@ export const Networks = () => {
                         )}
                     >
                         <ScrollArea.Thumb
-                            className={
-                                "flex-1 rounded-full bg-nb-gray-800 hover:bg-nb-gray-700 relative"
-                            }
+                            className={"flex-1 rounded-full bg-nb-gray-800 hover:bg-nb-gray-700 relative"}
                         />
                     </ScrollArea.Scrollbar>
                 </ScrollArea.Root>
@@ -363,23 +361,19 @@ const NetworkRow = ({ network: n, index, onKeyDown, onToggle, setRowRef }: Netwo
             />
             <ResourceIconBadge type={resourceTypeOf(n)} />
             <div
-                className={
-                    "min-w-0 flex-1 flex flex-col leading-tight relative pointer-events-none"
-                }
+                className={"min-w-0 flex-1 flex flex-col leading-tight relative pointer-events-none"}
             >
                 <div>
                     <CopyToClipboard message={n.id} onKeyDown={handleKey}>
                         <TruncatedText
                             text={n.id}
-                            className={
-                                "block text-[0.81rem] font-medium text-nb-gray-100 truncate max-w-[300px]"
-                            }
+                            className={"block text-[0.81rem] font-medium text-nb-gray-100 truncate max-w-[300px]"}
                         />
                     </CopyToClipboard>
                 </div>
                 <Subtitle network={n} onKeyDown={handleKey} />
             </div>
-            <div aria-hidden="true" className={"shrink-0 self-center relative pointer-events-none"}>
+            <div aria-hidden={"true"} className={"shrink-0 self-center relative pointer-events-none"}>
                 <NetworkToggle checked={n.selected} />
             </div>
         </div>
@@ -390,7 +384,7 @@ const ResourceIconBadge = ({ type }: { type: ResourceType }) => {
     const Icon = resourceIconFor(type);
     return (
         <div
-            aria-hidden="true"
+            aria-hidden={"true"}
             className={cn(
                 "h-9 w-9 shrink-0 rounded-md flex items-center justify-center mt-[0.25rem]",
                 "bg-nb-gray-920 border border-nb-gray-900 text-nb-gray-300",
@@ -419,9 +413,7 @@ const Subtitle = ({ network, onKeyDown }: SubtitleProps) => {
                 <CopyToClipboard message={network.range} onKeyDown={onKeyDown}>
                     <TruncatedText
                         text={network.range}
-                        className={
-                            "block text-xs font-mono text-nb-gray-400 truncate max-w-[300px]"
-                        }
+                        className={"block text-xs font-mono text-nb-gray-400 truncate max-w-[300px]"}
                     />
                 </CopyToClipboard>
             </div>
@@ -484,9 +476,7 @@ const ResolvedIpsTooltip = ({ ips }: { ips: string[] }) => {
                     <li key={ip}>
                         <CopyToClipboard message={ip} className={"px-1 py-0.5"}>
                             <span
-                                className={
-                                    "font-mono text-[0.72rem] text-nb-gray-100 whitespace-nowrap"
-                                }
+                                className={"font-mono text-[0.72rem] text-nb-gray-100 whitespace-nowrap"}
                             >
                                 {ip}
                             </span>

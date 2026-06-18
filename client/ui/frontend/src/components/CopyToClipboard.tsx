@@ -68,13 +68,13 @@ export const CopyToClipboard = ({
 
     return (
         <button
-            type="button"
+            type={"button"}
             ref={wrapperRef}
             onClick={handleClick}
             onKeyDown={onKeyDown}
             tabIndex={tabIndex}
             aria-label={resolvedLabel}
-            aria-live="polite"
+            aria-live={"polite"}
             className={cn(
                 "inline-flex gap-2 items-center group/copy cursor-default wails-no-draggable text-left pointer-events-auto rounded-sm outline-none",
                 "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
@@ -90,14 +90,12 @@ export const CopyToClipboard = ({
             >
                 {children}
                 <span
-                    aria-hidden="true"
-                    className={
-                        "absolute bottom-0 left-0 right-0 border-b border-dashed border-transparent group-hover/copy:border-nb-gray-500 pointer-events-none"
-                    }
+                    aria-hidden={"true"}
+                    className={"absolute bottom-0 left-0 right-0 border-b border-dashed border-transparent group-hover/copy:border-nb-gray-500 pointer-events-none"}
                 />
             </span>
             <span
-                aria-hidden="true"
+                aria-hidden={"true"}
                 className={cn(
                     "shrink-0 inline-flex relative top-[2px] right-[1px]",
                     iconAlignment === "left" ? "order-first" : "order-last",

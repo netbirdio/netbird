@@ -1,4 +1,4 @@
-import { forwardRef, ComponentPropsWithoutRef, ElementRef, HTMLAttributes } from "react";
+import { forwardRef, type ComponentPropsWithoutRef, type ElementRef, type HTMLAttributes } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { X } from "lucide-react";
@@ -96,7 +96,7 @@ export const Content = forwardRef<ElementRef<typeof DialogPrimitive.Content>, Co
                                 )}
                                 aria-label={t("common.close")}
                             >
-                                <X className="h-4 w-4" aria-hidden="true" />
+                                <X className={"h-4 w-4"} aria-hidden={"true"} />
                             </DialogPrimitive.Close>
                         )}
                     </DialogPrimitive.Content>

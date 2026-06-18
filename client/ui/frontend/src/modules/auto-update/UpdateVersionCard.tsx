@@ -1,4 +1,4 @@
-import { ReactNode } from "react";
+import { type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Browser } from "@wailsio/runtime";
 import { DownloadIcon, NotepadText } from "lucide-react";
@@ -86,9 +86,7 @@ function Link({ url, children }: Readonly<{ url: string; children: ReactNode }>)
         <button
             type={"button"}
             onClick={() => openUrl(url)}
-            className={
-                "text-sm text-netbird hover:underline hover:underline-offset-4 hover:decoration-[0.5px] font-medium"
-            }
+            className={"text-sm text-netbird hover:underline hover:underline-offset-4 hover:decoration-[0.5px] font-medium"}
         >
             {children}
         </button>

@@ -1,6 +1,6 @@
 import * as RadioGroup from "@radix-ui/react-radio-group";
 import { motion } from "framer-motion";
-import { ReactNode } from "react";
+import { type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { useSwitchItemGroup } from "@/components/switches/SwitchItemGroup";
 

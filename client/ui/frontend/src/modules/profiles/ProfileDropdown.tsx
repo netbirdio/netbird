@@ -80,7 +80,7 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
             </Popover.Trigger>
             <Popover.Portal>
                 <Popover.Content
-                    align="center"
+                    align={"center"}
                     sideOffset={8}
                     collisionPadding={12}
                     onOpenAutoFocus={(e) => {
@@ -111,8 +111,8 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
                         >
                             {sortedProfiles.length > 0 && (
                                 <>
-                                    <ScrollArea.Root type="auto" className="overflow-hidden -mx-1">
-                                        <ScrollArea.Viewport className="max-h-60 px-1">
+                                    <ScrollArea.Root type={"auto"} className={"overflow-hidden -mx-1"}>
+                                        <ScrollArea.Viewport className={"max-h-60 px-1"}>
                                             {sortedProfiles.map((profile) => (
                                                 <ProfileRow
                                                     key={profile.id}
@@ -123,16 +123,16 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
                                             ))}
                                         </ScrollArea.Viewport>
                                         <ScrollArea.Scrollbar
-                                            orientation="vertical"
+                                            orientation={"vertical"}
                                             className={cn(
                                                 "flex select-none touch-none transition-colors",
                                                 "w-1.5 bg-transparent",
                                             )}
                                         >
-                                            <ScrollArea.Thumb className="flex-1 rounded-full bg-nb-gray-800 hover:bg-nb-gray-700 relative" />
+                                            <ScrollArea.Thumb className={"flex-1 rounded-full bg-nb-gray-800 hover:bg-nb-gray-700 relative"} />
                                         </ScrollArea.Scrollbar>
                                     </ScrollArea.Root>
-                                    <div className="-mx-1 h-px bg-nb-gray-910" />
+                                    <div className={"-mx-1 h-px bg-nb-gray-910"} />
                                 </>
                             )}
 
@@ -148,8 +148,8 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
                                         "data-[disabled=true]:opacity-50 data-[disabled=true]:pointer-events-none",
                                     )}
                                 >
-                                    <Settings2 size={14} aria-hidden="true" className="shrink-0" />
-                                    <span className="truncate flex-1">
+                                    <Settings2 size={14} aria-hidden={"true"} className={"shrink-0"} />
+                                    <span className={"truncate flex-1"}>
                                         {t("profile.dropdown.manageProfiles")}
                                     </span>
                                 </Command.Item>
@@ -164,16 +164,16 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
 
 const ProfileTriggerSkeleton = () => (
     <div
-        role="status"
-        aria-busy="true"
-        aria-live="polite"
-        className="h-10 flex items-center gap-2 px-3 rounded-lg select-none wails-no-draggable"
+        role={"status"}
+        aria-busy={"true"}
+        aria-live={"polite"}
+        className={"h-10 flex items-center gap-2 px-3 rounded-lg select-none wails-no-draggable"}
     >
         <div
-            aria-hidden="true"
-            className="size-4 rounded-full bg-nb-gray-900 animate-pulse shrink-0"
+            aria-hidden={"true"}
+            className={"size-4 rounded-full bg-nb-gray-900 animate-pulse shrink-0"}
         />
-        <div aria-hidden="true" className="h-4 w-24 rounded bg-nb-gray-900 animate-pulse" />
+        <div aria-hidden={"true"} className={"h-4 w-24 rounded bg-nb-gray-900 animate-pulse"} />
     </div>
 );
 
@@ -188,11 +188,11 @@ const ProfileTriggerButton = forwardRef<HTMLButtonElement, ProfileTriggerButtonP
         return (
             <button
                 ref={ref}
-                type="button"
+                type={"button"}
                 disabled={disabled}
                 tabIndex={disabled ? -1 : 0}
                 aria-label={t("header.profile.switch")}
-                aria-haspopup="listbox"
+                aria-haspopup={"listbox"}
                 className={cn(
                     "h-10 flex items-center gap-2 px-3 rounded-lg outline-none cursor-default select-none wails-no-draggable",
                     "text-nb-gray-200 hover:bg-nb-gray-900",
@@ -206,7 +206,7 @@ const ProfileTriggerButton = forwardRef<HTMLButtonElement, ProfileTriggerButtonP
             >
                 <Icon
                     size={16}
-                    aria-hidden="true"
+                    aria-hidden={"true"}
                     className={"text-nb-gray-200 shrink-0 wails-no-draggable"}
                 />
                 <span className={"text-sm font-medium truncate max-w-[140px] wails-no-draggable"}>
@@ -214,7 +214,7 @@ const ProfileTriggerButton = forwardRef<HTMLButtonElement, ProfileTriggerButtonP
                 </span>
                 <ChevronDown
                     size={14}
-                    aria-hidden="true"
+                    aria-hidden={"true"}
                     className={"text-nb-gray-200 shrink-0 wails-no-draggable"}
                 />
             </button>
@@ -241,14 +241,14 @@ const ProfileRow = ({ profile, isActive, onSelect }: ProfileRowProps) => {
                 showEmail ? "items-start" : "items-center",
             )}
         >
-            <div className="flex flex-col min-w-0 flex-1 leading-tight">
-                <span className="truncate">{profile.name}</span>
+            <div className={"flex flex-col min-w-0 flex-1 leading-tight"}>
+                <span className={"truncate"}>{profile.name}</span>
                 {showEmail && <TruncatedEmail email={profile.email} />}
             </div>
             {isActive && (
                 <Check
                     size={16}
-                    aria-hidden="true"
+                    aria-hidden={"true"}
                     className={cn("shrink-0 text-netbird", showEmail && "mt-0.5")}
                 />
             )}
@@ -267,7 +267,7 @@ const TruncatedEmail = ({ email }: { email: string }) => {
     }, [email]);
 
     const span = (
-        <span ref={ref} className="text-xs mt-0.5 text-nb-gray-300 truncate max-w-[180px]">
+        <span ref={ref} className={"text-xs mt-0.5 text-nb-gray-300 truncate max-w-[180px]"}>
             {email}
         </span>
     );

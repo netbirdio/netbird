@@ -90,9 +90,9 @@ export function SettingsGeneral() {
                                             : undefined
                                     }
                                     spellCheck={false}
-                                    autoComplete="off"
-                                    autoCorrect="off"
-                                    autoCapitalize="off"
+                                    autoComplete={"off"}
+                                    autoCorrect={"off"}
+                                    autoCapitalize={"off"}
                                 />
                                 <Button
                                     variant={"primary"}

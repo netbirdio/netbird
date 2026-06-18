@@ -1,5 +1,5 @@
-import { ButtonHTMLAttributes, ComponentType, forwardRef } from "react";
-import { LucideProps } from "lucide-react";
+import { type ButtonHTMLAttributes, type ComponentType, forwardRef } from "react";
+import { type LucideProps } from "lucide-react";
 import { cn } from "@/lib/cn";
 
 type Props = ButtonHTMLAttributes<HTMLButtonElement> & {

@@ -1,5 +1,5 @@
-import { ComponentType } from "react";
-import { FunnelXIcon, LucideProps } from "lucide-react";
+import { type ComponentType } from "react";
+import { FunnelXIcon, type LucideProps } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { EmptyState } from "./EmptyState";
 

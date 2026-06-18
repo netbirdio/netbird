@@ -11,7 +11,10 @@
     "typecheck": "tsc --noEmit",
     "bindings": "cd .. && wails3 generate bindings -clean=true -ts",
     "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,css,json,md}\"",
-    "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx,css,json,md}\""
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx,css,json,md}\"",
+    "lint": "eslint \"src/**/*.{ts,tsx}\"",
+    "lint:fix": "eslint \"src/**/*.{ts,tsx}\" --fix",
+    "lint:report": "eslint \"src/**/*.{ts,tsx}\" --format json --output-file eslint-report.json || true"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",
@@ -40,16 +43,25 @@
     "tailwind-merge": "^2.6.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^25.6.0",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
+    "eslint": "^9.39.4",
+    "eslint-plugin-jsx-a11y": "^6.10.2",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.3",
+    "globals": "^17.6.0",
     "postcss": "^8.5.1",
     "prettier": "^3.8.3",
+    "prettier-plugin-tailwindcss": "^0.8.0",
     "tailwindcss": "^3.4.17",
     "tailwindcss-animate": "^1.0.7",
     "typescript": "^5.7.3",
+    "typescript-eslint": "^8.61.1",
     "vite": "^6.0.7"
   },
   "packageManager": "pnpm@11.4.0+sha512.f0febc7e37552ab485494a914241b338e0b3580b93d54ce31f00933015880863129038a1b4ae4e414a0ee63ac35bf21197e990172c4a68256450b5636310968f"

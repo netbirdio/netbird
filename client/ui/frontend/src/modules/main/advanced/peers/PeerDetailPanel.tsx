@@ -1,7 +1,7 @@
 import {
-    ComponentType,
-    KeyboardEvent as ReactKeyboardEvent,
-    ReactNode,
+    type ComponentType,
+    type KeyboardEvent as ReactKeyboardEvent,
+    type ReactNode,
     useCallback,
     useEffect,
     useRef,
@@ -23,7 +23,7 @@ import {
     HandshakeIcon,
     KeyRoundIcon,
     Layers3Icon,
-    LucideProps,
+    type LucideProps,
     MapPinIcon,
     MonitorIcon,
     Radio,
@@ -125,13 +125,14 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
         if (!selected) return;
         // Defer focus until the slide-in animation has started rendering.
         requestAnimationFrame(() => backButtonRef.current?.focus());
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selected?.pubKey]);
 
     const getFocusable = (): HTMLElement[] => {
         const root = dialogRef.current;
         if (!root) return [];
         const sel =
-            'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]),' +
+            "button:not([disabled]), [href], input:not([disabled]), select:not([disabled])," +
             ' textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
         return Array.from(root.querySelectorAll<HTMLElement>(sel)).filter(
             (el) => el.offsetParent !== null || el === document.activeElement,
@@ -173,8 +174,8 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
                 >
                     <div
                         className={cn(
-                            "shrink-0 flex items-center gap-3",
-                            "px-3 h-12 border-b border-nb-gray-910",
+                            "flex shrink-0 items-center gap-3",
+                            "h-12 border-b border-nb-gray-910 px-3",
                         )}
                     >
                         <button
@@ -184,20 +185,20 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
                             onClick={() => setSelected(null)}
                             aria-label={t("common.close")}
                             className={cn(
-                                "shrink-0 h-8 w-8 rounded-md flex items-center justify-center",
+                                "flex h-8 w-8 shrink-0 items-center justify-center rounded-md",
                                 "text-nb-gray-300 hover:bg-nb-gray-910 hover:text-nb-gray-100",
-                                "transition-colors outline-none cursor-default",
+                                "cursor-default outline-none transition-colors",
                                 "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                                 "wails-no-draggable",
                             )}
                         >
-                            <ArrowLeftIcon size={16} aria-hidden="true" />
+                            <ArrowLeftIcon size={16} aria-hidden={"true"} />
                         </button>
                         <Tooltip content={t(peerStatusLabelKey(selected.connStatus))} side={"top"}>
                             <span
-                                aria-hidden="true"
+                                aria-hidden={"true"}
                                 className={cn(
-                                    "h-2 w-2 rounded-full shrink-0",
+                                    "h-2 w-2 shrink-0 rounded-full",
                                     dotClass(selected.connStatus),
                                 )}
                             />
@@ -205,12 +206,12 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
                         <CopyToClipboard
                             message={selected.fqdn || selected.ip}
                             size={11}
-                            className={"flex-1 min-w-0"}
+                            className={"min-w-0 flex-1"}
                             iconClassName={"top-[2px]"}
                         >
                             <span
                                 id={"nb-peer-detail-title"}
-                                className={"text-sm font-medium text-nb-gray-100 truncate"}
+                                className={"truncate text-sm font-medium text-nb-gray-100"}
                             >
                                 {shortenDns(selected.fqdn) || selected.ip}
                             </span>
@@ -224,9 +225,9 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
                                 aria-label={t("peers.details.refresh")}
                                 aria-busy={refreshing}
                                 className={cn(
-                                    "shrink-0 h-8 w-8 rounded-md flex items-center justify-center",
+                                    "flex h-8 w-8 shrink-0 items-center justify-center rounded-md",
                                     "text-nb-gray-300 hover:bg-nb-gray-910 hover:text-nb-gray-100",
-                                    "transition-colors outline-none cursor-default",
+                                    "cursor-default outline-none transition-colors",
                                     "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                                     "wails-no-draggable",
                                     "disabled:opacity-50 disabled:hover:bg-transparent",
@@ -234,26 +235,26 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
                             >
                                 <RefreshCwIcon
                                     size={14}
-                                    aria-hidden="true"
+                                    aria-hidden={"true"}
                                     className={refreshing ? "animate-spin" : undefined}
                                 />
                             </button>
                         </Tooltip>
                     </div>
-                    <ScrollArea.Root type={"auto"} className={"flex-1 min-h-0 overflow-hidden"}>
+                    <ScrollArea.Root type={"auto"} className={"min-h-0 flex-1 overflow-hidden"}>
                         <ScrollArea.Viewport className={"h-full w-full"}>
                             <PeerDetails peer={selected} now={now} />
                         </ScrollArea.Viewport>
                         <ScrollArea.Scrollbar
                             orientation={"vertical"}
                             className={cn(
-                                "flex select-none touch-none transition-colors",
+                                "flex touch-none select-none transition-colors",
                                 "w-1.5 bg-transparent py-1",
                             )}
                         >
                             <ScrollArea.Thumb
                                 className={
-                                    "flex-1 rounded-full bg-nb-gray-800 hover:bg-nb-gray-700 relative"
+                                    "relative flex-1 rounded-full bg-nb-gray-800 hover:bg-nb-gray-700"
                                 }
                             />
                         </ScrollArea.Scrollbar>
@@ -298,7 +299,7 @@ const PeerDetails = ({ peer, now }: { peer: PeerStatus; now: number }) => {
                     <CopyToClipboard
                         message={peer.ipv6}
                         alwaysShowIcon
-                        className={"max-w-full min-w-0"}
+                        className={"min-w-0 max-w-full"}
                         iconClassName={"top-0"}
                     >
                         <TruncatedRowValue value={peer.ipv6} mono />
@@ -316,7 +317,7 @@ const PeerDetails = ({ peer, now }: { peer: PeerStatus; now: number }) => {
                         <CopyToClipboard
                             message={peer.relayAddress}
                             alwaysShowIcon
-                            className={"max-w-full min-w-0"}
+                            className={"min-w-0 max-w-full"}
                             iconClassName={"top-0"}
                         >
                             <TruncatedRowValue value={peer.relayAddress} mono />
@@ -337,20 +338,24 @@ const PeerDetails = ({ peer, now }: { peer: PeerStatus; now: number }) => {
                 <Row icon={ArrowUpDownIcon} label={t("peers.details.bytes")}>
                     <div
                         className={
-                            "flex items-center gap-3 justify-end text-nb-gray-300 font-medium"
+                            "flex items-center justify-end gap-3 font-medium text-nb-gray-300"
                         }
                     >
-                        <div className={"flex gap-1.5 items-center whitespace-nowrap"}>
+                        <div className={"flex items-center gap-1.5 whitespace-nowrap"}>
                             <ArrowDownIcon
                                 size={13}
-                                aria-hidden="true"
+                                aria-hidden={"true"}
                                 className={"text-sky-400"}
                             />
                             <span className={"sr-only"}>{t("peers.details.bytesReceived")}:</span>
                             <span className={"tabular-nums"}>{formatBytes(peer.bytesRx)}</span>
                         </div>
-                        <div className={"flex gap-1.5 items-center whitespace-nowrap"}>
-                            <ArrowUpIcon size={13} aria-hidden="true" className={"text-netbird"} />
+                        <div className={"flex items-center gap-1.5 whitespace-nowrap"}>
+                            <ArrowUpIcon
+                                size={13}
+                                aria-hidden={"true"}
+                                className={"text-netbird"}
+                            />
                             <span className={"sr-only"}>{t("peers.details.bytesSent")}:</span>
                             <span className={"tabular-nums"}>{formatBytes(peer.bytesTx)}</span>
                         </div>
@@ -385,7 +390,7 @@ const PeerDetails = ({ peer, now }: { peer: PeerStatus; now: number }) => {
                     <CopyToClipboard
                         message={peer.pubKey}
                         alwaysShowIcon
-                        className={"max-w-full min-w-0"}
+                        className={"min-w-0 max-w-full"}
                         iconClassName={"top-0"}
                     >
                         <TruncatedRowValue value={peer.pubKey} mono />
@@ -423,7 +428,7 @@ const IceRow = ({ icon, baseLabel, type, endpoint }: IceRowProps) => {
                 <CopyToClipboard
                     message={endpoint}
                     alwaysShowIcon
-                    className={"max-w-full min-w-0"}
+                    className={"min-w-0 max-w-full"}
                     iconClassName={"top-0"}
                 >
                     <TruncatedRowValue value={endpoint} mono />
@@ -448,10 +453,10 @@ const ResourcesPopover = ({ networks }: { networks: string[] }) => {
                 <button
                     type={"button"}
                     tabIndex={0}
-                    aria-haspopup="dialog"
+                    aria-haspopup={"dialog"}
                     aria-expanded={open}
                     className={cn(
-                        "shrink-0 inline-flex items-center gap-1 rounded",
+                        "inline-flex shrink-0 items-center gap-1 rounded",
                         "bg-nb-gray-930 hover:bg-nb-gray-910/80 data-[state=open]:bg-nb-gray-910",
                         "border border-nb-gray-900",
                         "px-2 py-1 text-xs font-medium text-nb-gray-300",
@@ -462,7 +467,7 @@ const ResourcesPopover = ({ networks }: { networks: string[] }) => {
                     {networks.length}
                     <ChevronDownIcon
                         size={12}
-                        aria-hidden="true"
+                        aria-hidden={"true"}
                         className={cn("transition-transform duration-150", open && "rotate-180")}
                     />
                 </button>
@@ -474,7 +479,7 @@ const ResourcesPopover = ({ networks }: { networks: string[] }) => {
                     sideOffset={6}
                     onOpenAutoFocus={(e) => e.preventDefault()}
                     className={cn(
-                        "z-50 max-w-[18rem] max-h-72 overflow-auto",
+                        "z-50 max-h-72 max-w-[18rem] overflow-auto",
                         "rounded-lg border border-nb-gray-900 bg-nb-gray-935",
                         "p-2 pr-4 shadow-lg outline-none",
                     )}
@@ -485,7 +490,7 @@ const ResourcesPopover = ({ networks }: { networks: string[] }) => {
                                 <CopyToClipboard message={n} className={"px-1 py-0.5"}>
                                     <span
                                         className={
-                                            "font-mono text-[0.72rem] text-nb-gray-200 whitespace-nowrap"
+                                            "whitespace-nowrap font-mono text-[0.72rem] text-nb-gray-200"
                                         }
                                     >
                                         {n}
@@ -504,25 +509,25 @@ const TruncatedRowValue = ({ value, mono }: { value: string; mono?: boolean }) =
     <TruncatedText
         text={value}
         className={cn(
-            "inline-block truncate align-middle min-w-0 max-w-[260px]",
+            "inline-block min-w-0 max-w-[260px] truncate align-middle",
             mono && "font-mono",
         )}
     />
 );
 
 const Row = ({ icon: Icon, iconClassName, label, children }: RowProps) => (
-    <li className={"flex items-center gap-2 px-5 py-4 text-xs text-nb-gray-100 min-w-0"}>
+    <li className={"flex min-w-0 items-center gap-2 px-5 py-4 text-xs text-nb-gray-100"}>
         <Icon
             size={14}
-            aria-hidden="true"
-            className={cn("text-nb-gray-100 shrink-0", iconClassName)}
+            aria-hidden={"true"}
+            className={cn("shrink-0 text-nb-gray-100", iconClassName)}
         />
-        <span className={"text-nb-gray-200 shrink-0 font-semibold"}>{label}</span>
+        <span className={"shrink-0 font-semibold text-nb-gray-200"}>{label}</span>
         <span
             className={cn(
-                "min-w-0 flex-1 text-right pl-8",
-                "text-nb-gray-350 font-medium",
-                "flex justify-end items-center",
+                "min-w-0 flex-1 pl-8 text-right",
+                "font-medium text-nb-gray-350",
+                "flex items-center justify-end",
             )}
         >
             {children}

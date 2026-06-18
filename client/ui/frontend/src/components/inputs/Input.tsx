@@ -1,9 +1,9 @@
-import { cva, VariantProps } from "class-variance-authority";
+import { cva, type VariantProps } from "class-variance-authority";
 import { Check, ChevronDown, ChevronUp, Copy, Eye, EyeOff } from "lucide-react";
 import {
     forwardRef,
-    InputHTMLAttributes,
-    ReactNode,
+    type InputHTMLAttributes,
+    type ReactNode,
     useEffect,
     useId,
     useRef,
@@ -164,16 +164,16 @@ function NumberStepper({
             )}
         >
             <button
-                type="button"
+                type={"button"}
                 tabIndex={-1}
                 aria-label={t("common.increase")}
                 onClick={() => onStep(1)}
-                className="flex-1 flex items-center justify-center w-9 hover:bg-nb-gray-800 transition-colors text-nb-gray-300 cursor-default"
+                className={"flex-1 flex items-center justify-center w-9 hover:bg-nb-gray-800 transition-colors text-nb-gray-300 cursor-default"}
             >
                 <ChevronUp size={12} />
             </button>
             <button
-                type="button"
+                type={"button"}
                 tabIndex={-1}
                 aria-label={t("common.decrease")}
                 onClick={() => onStep(-1)}
@@ -262,9 +262,9 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
     const passwordToggle =
         isPasswordType && showPasswordToggle ? (
             <button
-                type="button"
+                type={"button"}
                 onClick={() => setShowPassword((s) => !s)}
-                className="hover:text-white transition-all pointer-events-auto"
+                className={"hover:text-white transition-all pointer-events-auto"}
                 aria-label={t("common.togglePasswordVisibility")}
             >
                 {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
@@ -286,9 +286,9 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
 
     const copyToggle = copy ? (
         <button
-            type="button"
+            type={"button"}
             onClick={onCopy}
-            className="hover:text-white transition-all pointer-events-auto"
+            className={"hover:text-white transition-all pointer-events-auto"}
             aria-label={t("common.copy")}
         >
             {copied ? <Check size={16} /> : <Copy size={16} />}
@@ -311,7 +311,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
     });
 
     return (
-        <div className="flex flex-col w-full min-w-0">
+        <div className={"flex flex-col w-full min-w-0"}>
             {label && <Label htmlFor={inputId}>{label}</Label>}
             <div className={cn("flex relative h-[40px] w-full", maxWidthClass)}>
                 {customPrefix && (
@@ -325,7 +325,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
 
                 {icon && <InputIconSlot icon={icon} disabled={props.disabled} />}
 
-                <div className="relative flex flex-grow min-w-0">
+                <div className={"relative flex flex-grow min-w-0"}>
                     <input
                         id={inputId}
                         type={inputType}

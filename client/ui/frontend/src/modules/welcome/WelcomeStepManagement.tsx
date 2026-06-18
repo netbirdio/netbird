@@ -104,9 +104,9 @@ export function WelcomeStepManagement({
                         warning={inputWarning}
                         autoFocus
                         spellCheck={false}
-                        autoComplete="off"
-                        autoCorrect="off"
-                        autoCapitalize="off"
+                        autoComplete={"off"}
+                        autoCorrect={"off"}
+                        autoCapitalize={"off"}
                     />
                 </div>
             )}

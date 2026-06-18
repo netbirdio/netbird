@@ -48,11 +48,11 @@ export const PeerFilters = ({ value, onChange, counts, disabled }: Props) => {
                     "wails-no-draggable cursor-default",
                 )}
             >
-                <ListFilter size={14} aria-hidden="true" className={"shrink-0"} />
+                <ListFilter size={14} aria-hidden={"true"} className={"shrink-0"} />
                 <span>
                     {active.label} <span className={"tabular-nums"}>({counts[active.value]})</span>
                 </span>
-                <ChevronDown size={14} aria-hidden="true" className={"ml-0.5 shrink-0"} />
+                <ChevronDown size={14} aria-hidden={"true"} className={"ml-0.5 shrink-0"} />
             </DropdownMenuTrigger>
             <DropdownMenuContent align={"end"} className={"min-w-[10rem]"}>
                 {filters.map((f) => {
@@ -61,7 +61,7 @@ export const PeerFilters = ({ value, onChange, counts, disabled }: Props) => {
                         <DropdownMenuItem
                             key={f.value}
                             onClick={() => handleSelect(f.value)}
-                            role="menuitemradio"
+                            role={"menuitemradio"}
                             aria-checked={checked}
                             className={"gap-2"}
                         >
@@ -70,7 +70,7 @@ export const PeerFilters = ({ value, onChange, counts, disabled }: Props) => {
                                 <span className={"tabular-nums"}>({counts[f.value]})</span>
                             </span>
                             <span
-                                aria-hidden="true"
+                                aria-hidden={"true"}
                                 className={"w-4 shrink-0 flex items-center justify-center"}
                             >
                                 {checked && <CheckIcon size={14} className={"text-netbird"} />}
