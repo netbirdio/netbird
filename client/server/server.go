@@ -887,10 +887,8 @@ func (s *Server) cleanupConnection() error {
 	// until the in-flight run has fully unwound (a clean, synchronous teardown).
 	// It must run before actCancel: cancelling the context first would make
 	// Stop observe a dead context and return early without waiting.
-	if s.connectClient != nil {
-		if err := s.connectClient.Stop(); err != nil {
-			return err
-		}
+	if err := s.connectClient.Stop(); err != nil {
+		return err
 	}
 
 	// Stop the retry goroutine so it does not start a fresh run. The client

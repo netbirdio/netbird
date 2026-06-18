@@ -5,7 +5,6 @@ package server
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"runtime/pprof"
 
@@ -28,11 +27,9 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 	}
 
 	var clientMetrics debug.MetricsExporter
-	if s.connectClient != nil {
-		if engine := s.connectClient.Engine(); engine != nil {
-			if cm := engine.GetClientMetrics(); cm != nil {
-				clientMetrics = cm
-			}
+	if engine := s.connectClient.Engine(); engine != nil {
+		if cm := engine.GetClientMetrics(); cm != nil {
+			clientMetrics = cm
 		}
 	}
 
@@ -48,13 +45,10 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 	defer s.cleanupBundleCapture()
 
 	var refreshStatus func()
-	if s.connectClient != nil {
-		engine := s.connectClient.Engine()
-		if engine != nil {
-			refreshStatus = func() {
-				log.Debug("refreshing system health status for debug bundle")
-				engine.RunHealthProbes(true)
-			}
+	if engine := s.connectClient.Engine(); engine != nil {
+		refreshStatus = func() {
+			log.Debug("refreshing system health status for debug bundle")
+			engine.RunHealthProbes(true)
 		}
 	}
 
@@ -118,9 +112,7 @@ func (s *Server) SetLogLevel(_ context.Context, req *proto.SetLogLevelRequest) (
 
 	log.SetLevel(level)
 
-	if s.connectClient != nil {
-		s.connectClient.SetLogLevel(level)
-	}
+	s.connectClient.SetLogLevel(level)
 
 	log.Infof("Log level set to %s", level.String())
 
@@ -134,20 +126,13 @@ func (s *Server) SetSyncResponsePersistence(_ context.Context, req *proto.SetSyn
 
 	enabled := req.GetEnabled()
 	s.persistSyncResponse = enabled
-	if s.connectClient != nil {
-		s.connectClient.SetSyncResponsePersistence(enabled)
-	}
+	s.connectClient.SetSyncResponsePersistence(enabled)
 
 	return &proto.SetSyncResponsePersistenceResponse{}, nil
 }
 
 func (s *Server) getLatestSyncResponse() (*mgmProto.SyncResponse, error) {
-	cClient := s.connectClient
-	if cClient == nil {
-		return nil, errors.New("connect client is not initialized")
-	}
-
-	return cClient.GetLatestSyncResponse()
+	return s.connectClient.GetLatestSyncResponse()
 }
 
 // StartCPUProfile starts CPU profiling in the daemon.

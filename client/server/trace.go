@@ -62,10 +62,6 @@ func (s *Server) TracePacket(_ context.Context, req *proto.TracePacketRequest) (
 }
 
 func (s *Server) getPacketTracer() (packetTracer, *internal.Engine, error) {
-	if s.connectClient == nil {
-		return nil, nil, fmt.Errorf("connect client not initialized")
-	}
-
 	engine := s.connectClient.Engine()
 	if engine == nil {
 		return nil, nil, fmt.Errorf("engine not initialized")

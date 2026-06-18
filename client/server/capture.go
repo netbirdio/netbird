@@ -344,9 +344,6 @@ func (s *Server) clearCaptureIfOwner(sess *capture.Session, engine *internal.Eng
 }
 
 func (s *Server) getCaptureEngineLocked() (*internal.Engine, error) {
-	if s.connectClient == nil {
-		return nil, status.Error(codes.FailedPrecondition, "client not connected")
-	}
 	engine := s.connectClient.Engine()
 	if engine == nil {
 		return nil, status.Error(codes.FailedPrecondition, "engine not initialized")
