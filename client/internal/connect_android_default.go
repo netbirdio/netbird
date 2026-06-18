@@ -60,20 +60,17 @@ var _ listener.NetworkChangeListener = noopNetworkChangeListener{}
 var _ dns.ReadyListener = noopDnsReadyListener{}
 
 func init() {
-	// Wire up the default override so embed.Client.Start() works on Android
-	// with netstack mode. Provides complete no-op stubs for all mobile
+	// Wire up the default MobileDependency provider so embed.Client.Start() works
+	// on Android with netstack mode. Provides complete no-op stubs for all mobile
 	// dependencies so the engine's existing Android code paths work unchanged.
-	// Applications that need P2P ICE or real DNS should replace this by
-	// setting androidRunOverride before calling Start().
-	androidRunOverride = func(c *ConnectClient, config *profilemanager.Config, connEstablishedChan chan struct{}, logPath string) error {
-		return c.runOnAndroidEmbed(
-			config,
+	// Applications that need P2P ICE or real DNS should replace this by setting
+	// androidMobileDep before calling Start().
+	androidMobileDep = func(config *profilemanager.Config) MobileDependency {
+		return mobileDependencyForEmbed(
 			noopIFaceDiscover{},
 			noopNetworkChangeListener{},
 			[]netip.AddrPort{},
 			noopDnsReadyListener{},
-			connEstablishedChan,
-			logPath,
 		)
 	}
 }

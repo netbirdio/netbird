@@ -49,9 +49,20 @@ import (
 	"github.com/netbirdio/netbird/version"
 )
 
-// androidRunOverride is set on Android to inject mobile dependencies
-// when using embed.Client (which calls Run() with empty MobileDependency).
-var androidRunOverride func(c *ConnectClient, config *profilemanager.Config, connEstablishedChan chan struct{}, logPath string) error
+// androidMobileDep is set on Android to inject the MobileDependency for runs
+// started through the generic entry points (Run/RunAsync, e.g. embed.Client).
+// nil on other platforms, where the dependency is empty.
+var androidMobileDep func(config *profilemanager.Config) MobileDependency
+
+// mobileDependency returns the MobileDependency for a run started via the
+// generic entry points. On Android the androidMobileDep provider supplies
+// platform stubs (or real implementations); elsewhere it is empty.
+func (c *ConnectClient) mobileDependency(config *profilemanager.Config) MobileDependency {
+	if androidMobileDep != nil {
+		return androidMobileDep(config)
+	}
+	return MobileDependency{}
+}
 
 type ConnectClient struct {
 	ctx            context.Context
@@ -88,20 +99,16 @@ func (c *ConnectClient) SetUpdateManager(um *updater.Manager) {
 
 // Run with main logic. md carries optional gRPC metadata (e.g. the UI
 // user-agent) to forward to the management/signal services; nil when none.
-func (c *ConnectClient) Run(config *profilemanager.Config, md metadata.MD, connEstablishedChan chan struct{}, logPath string) error {
-	if androidRunOverride != nil {
-		return androidRunOverride(c, config, connEstablishedChan, logPath)
-	}
-	return c.sup.start(config, md, MobileDependency{}, connEstablishedChan, logPath)
+func (c *ConnectClient) Run(config *profilemanager.Config, md metadata.MD, logPath string) error {
+	return c.sup.start(config, md, c.mobileDependency(config), logPath)
 }
 
-// RunAsync starts a client run without blocking. Used by the daemon, which
-// drives the lifecycle through the supervisor rather than blocking on Run; it
-// then waits for the outcome via WaitEstablishedOrDone. The run's lifecycle
+// RunAsync starts a client run without blocking. Used by the daemon and embed,
+// which drive the lifecycle through the supervisor rather than blocking on Run;
+// they then wait for the outcome via WaitEstablishedOrDone. The run's lifecycle
 // channels are created and owned by the supervisor — callers never hold them.
 func (c *ConnectClient) RunAsync(config *profilemanager.Config, md metadata.MD) {
-	est := make(chan struct{})
-	c.sup.startAsync(config, md, MobileDependency{}, est, "", nil)
+	c.sup.startAsync(config, md, c.mobileDependency(config), "", nil)
 }
 
 // WaitEstablishedOrDone blocks until the in-flight run becomes established (nil),
@@ -133,7 +140,7 @@ func (c *ConnectClient) RunOnAndroid(
 		StateFilePath:         stateFilePath,
 		TempDir:               cacheDir,
 	}
-	return c.sup.start(config, nil, mobileDependency, nil, "")
+	return c.sup.start(config, nil, mobileDependency, "")
 }
 
 func (c *ConnectClient) RunOniOS(
@@ -155,7 +162,7 @@ func (c *ConnectClient) RunOniOS(
 		StateFilePath:         stateFilePath,
 		TempDir:               cacheDir,
 	}
-	return c.sup.start(config, nil, mobileDependency, nil, logFilePath)
+	return c.sup.start(config, nil, mobileDependency, logFilePath)
 }
 
 // run executes a single client run. runCtx is owned by the supervisor: cancelling
@@ -423,12 +430,13 @@ func (c *ConnectClient) run(runCtx context.Context, config *profilemanager.Confi
 		log.Infof("Netbird engine started, the IP is: %s", peerConfig.GetAddress())
 		state.Set(StatusConnected)
 
-		if connEstablishedChan != nil {
-			select {
-			case <-connEstablishedChan:
-			default:
-				close(connEstablishedChan)
-			}
+		// The supervisor owns connEstablishedChan and it is always present. Guard
+		// against a double close: operation re-runs on ErrResetConnection retries
+		// within the same run, and the channel is closed only on the first connect.
+		select {
+		case <-connEstablishedChan:
+		default:
+			close(connEstablishedChan)
 		}
 
 		<-engineCtx.Done()

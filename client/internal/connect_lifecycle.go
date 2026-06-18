@@ -42,28 +42,29 @@ const (
 //
 // reply is used only by opStatus. waitCtx is used only by opWaitEstablished.
 type lifecycleCmd struct {
-	op          lifecycleOp
-	config      *profilemanager.Config
-	md          metadata.MD
-	mobileDep   MobileDependency
-	connEstablishedChan chan struct{}
-	logPath     string
-	done        chan error
-	reply       chan bool
-	waitCtx     context.Context
+	op        lifecycleOp
+	config    *profilemanager.Config
+	md        metadata.MD
+	mobileDep MobileDependency
+	logPath   string
+	done      chan error
+	reply     chan bool
+	waitCtx   context.Context
 }
 
-// runState holds the per-run termination signal owned by the loop goroutine. It
-// never escapes the supervisor as an API; the only readers are the per-wait
-// goroutines the loop spawns for opWaitEstablished.
+// runState holds the lifecycle channels of a single in-flight run, owned by the
+// loop goroutine. It never escapes the supervisor as an API; the only readers
+// are the per-wait goroutines the loop spawns for opWaitEstablished.
 //
-// ended is closed (broadcast) when the run terminates, so any number of waiters
-// can observe it; err is the run's end result, valid only after ended is closed.
-// The "established" signal is not duplicated here — it is the start command's
-// connEstablishedChan, snapshotted directly from curStart when a waiter needs it.
+// connEstablishedChan is closed by the run once the connection is established.
+// The supervisor creates and owns it — callers no longer supply it; they observe
+// it through waitEstablishedOrDone. ended is closed (broadcast) when the run
+// terminates, so any number of waiters can observe it; err is the run's end
+// result, valid only after ended is closed.
 type runState struct {
-	ended chan struct{} // closed by finishRun when the run terminates
-	err   error         // run end result, valid after ended is closed
+	connEstablishedChan chan struct{} // closed by the run on established
+	ended               chan struct{} // closed by finishRun when the run terminates
+	err                 error         // run end result, valid after ended is closed
 }
 
 // runEndResult is sent by the run goroutine to the supervisor when a run ends,
@@ -145,12 +146,12 @@ func (s *supervisor) handleStart(cmd lifecycleCmd) {
 	}
 	s.runCancel = cancel
 	s.curStart = &cmd
-	s.curRun = &runState{ended: make(chan struct{})}
+	s.curRun = &runState{connEstablishedChan: make(chan struct{}), ended: make(chan struct{})}
 
-	go func(ctx context.Context, cfg *profilemanager.Config, m MobileDependency, rc chan struct{}, lp string) {
-		err := s.run(ctx, cfg, m, rc, lp)
+	go func(ctx context.Context, cfg *profilemanager.Config, m MobileDependency, established chan struct{}, lp string) {
+		err := s.run(ctx, cfg, m, established, lp)
 		s.runEnded <- runEndResult{err: err}
-	}(runCtx, cmd.config, cmd.mobileDep, cmd.connEstablishedChan, cmd.logPath)
+	}(runCtx, cmd.config, cmd.mobileDep, s.curRun.connEstablishedChan, cmd.logPath)
 }
 
 func (s *supervisor) handleStop(cmd lifecycleCmd) {
@@ -194,7 +195,7 @@ func (s *supervisor) handleWaitEstablished(cmd lifecycleCmd) {
 		return
 	}
 	rs := s.curRun
-	established := s.curStart.connEstablishedChan
+	established := rs.connEstablishedChan
 	ctx := cmd.waitCtx
 	go func() {
 		select {
@@ -233,8 +234,8 @@ func (s *supervisor) shutdown() {
 // startAsync enqueues a start without blocking. If done is non-nil it receives
 // the run's end result (or errAlreadyRunning on rejection, or the context error
 // on shutdown).
-func (s *supervisor) startAsync(config *profilemanager.Config, md metadata.MD, mobileDep MobileDependency, connEstablishedChan chan struct{}, logPath string, done chan error) {
-	cmd := lifecycleCmd{op: opStart, config: config, md: md, mobileDep: mobileDep, connEstablishedChan: connEstablishedChan, logPath: logPath, done: done}
+func (s *supervisor) startAsync(config *profilemanager.Config, md metadata.MD, mobileDep MobileDependency, logPath string, done chan error) {
+	cmd := lifecycleCmd{op: opStart, config: config, md: md, mobileDep: mobileDep, logPath: logPath, done: done}
 	select {
 	case s.cmdCh <- cmd:
 	case <-s.ctx.Done():
@@ -244,9 +245,9 @@ func (s *supervisor) startAsync(config *profilemanager.Config, md metadata.MD, m
 
 // start enqueues a start and blocks until the run terminates, preserving the
 // blocking contract of the legacy Run entry points.
-func (s *supervisor) start(config *profilemanager.Config, md metadata.MD, mobileDep MobileDependency, connEstablishedChan chan struct{}, logPath string) error {
+func (s *supervisor) start(config *profilemanager.Config, md metadata.MD, mobileDep MobileDependency, logPath string) error {
 	done := make(chan error, 1)
-	s.startAsync(config, md, mobileDep, connEstablishedChan, logPath, done)
+	s.startAsync(config, md, mobileDep, logPath, done)
 	select {
 	case err := <-done:
 		return err

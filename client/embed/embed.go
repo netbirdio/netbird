@@ -267,29 +267,21 @@ func (c *Client) Start(startCtx context.Context) error {
 	client := internal.NewConnectClient(ctx, c.recorder)
 	client.SetSyncResponsePersistence(true)
 
-	// either startup error (permanent backoff err) or nil err (successful engine up)
+	// The supervisor owns the run; we wait until it is established, ends with a
+	// startup error (permanent backoff err), or startCtx expires.
 	// TODO: make after-startup backoff err available
-	run := make(chan struct{})
-	clientErr := make(chan error, 1)
-	go func() {
-		if err := client.Run(c.config, nil, run, ""); err != nil {
-			clientErr <- err
-		}
-	}()
+	client.RunAsync(c.config, nil)
 
-	select {
-	case <-startCtx.Done():
-		// Cancel the client context before stopping: Engine.Start blocks on the
-		// signal stream while holding the engine mutex and only unblocks on
-		// cancellation. Stopping first would deadlock on that mutex.
+	if err := client.WaitEstablishedOrDone(startCtx); err != nil {
+		// Either startCtx expired while connecting, or the run ended before it
+		// established. Cancel the client context before stopping: Engine.Start
+		// blocks on the signal stream while holding the engine mutex and only
+		// unblocks on cancellation. Stopping first would deadlock on that mutex.
 		cancel()
 		if stopErr := client.Stop(); stopErr != nil {
-			return fmt.Errorf("stop error after context done. Stop error: %w. Context done: %w", stopErr, startCtx.Err())
+			return fmt.Errorf("stop error after startup failure. Stop error: %w. Startup: %w", stopErr, err)
 		}
-		return startCtx.Err()
-	case err := <-clientErr:
 		return fmt.Errorf("startup: %w", err)
-	case <-run:
 	}
 
 	c.connect = client
