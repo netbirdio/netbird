@@ -1,11 +1,10 @@
-import { ComponentType, KeyboardEvent, useRef } from "react";
+import { ComponentType, KeyboardEvent, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Layers3Icon, LucideProps, MonitorSmartphoneIcon } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useNavSection, type NavSection } from "@/contexts/NavSectionContext";
 import { useStatus } from "@/contexts/StatusContext";
 import { useRestrictions } from "@/contexts/RestrictionsContext";
-import { useEffect } from "react";
 
 type TabEntry = {
     value: NavSection;

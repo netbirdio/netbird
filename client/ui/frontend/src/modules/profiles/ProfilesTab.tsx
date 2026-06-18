@@ -191,7 +191,7 @@ const ProfilesTable = ({
 }: ProfilesTableProps) => {
     const { t } = useTranslation();
     const [focusedIndex, setFocusedIndex] = useState(0);
-    const rowRefs = useRef<Map<string, HTMLLIElement>>(new Map());
+    const rowRefs = useRef<Map<string, HTMLTableRowElement>>(new Map());
 
     const focusRow = (index: number) => {
         if (index < 0 || index >= ordered.length) return;
@@ -200,55 +200,103 @@ const ProfilesTable = ({
         el?.focus();
     };
 
-    const handleRowKeyDown = (e: KeyboardEvent<HTMLLIElement>, index: number) => {
+    const actionButtonsIn = (row: HTMLTableRowElement | undefined) =>
+        Array.from(
+            row?.querySelectorAll<HTMLButtonElement>(
+                "button:not([aria-hidden='true']):not([aria-disabled='true'])",
+            ) ?? [],
+        );
+
+    const handleRowKey = (e: KeyboardEvent<HTMLTableRowElement>, index: number): boolean => {
         switch (e.key) {
             case "ArrowDown":
-                e.preventDefault();
                 focusRow(Math.min(index + 1, ordered.length - 1));
-                break;
+                return true;
             case "ArrowUp":
-                e.preventDefault();
                 focusRow(Math.max(index - 1, 0));
-                break;
+                return true;
             case "Home":
-                e.preventDefault();
                 focusRow(0);
-                break;
+                return true;
             case "End":
-                e.preventDefault();
                 focusRow(ordered.length - 1);
-                break;
+                return true;
         }
+        return false;
+    };
+
+    const handleButtonKey = (
+        e: KeyboardEvent<HTMLTableRowElement>,
+        index: number,
+        row: HTMLTableRowElement,
+    ): boolean => {
+        const buttons = actionButtonsIn(row);
+        const current = buttons.indexOf(e.target as HTMLButtonElement);
+        if (current === -1) return false;
+
+        switch (e.key) {
+            case "ArrowDown":
+                focusRow(Math.min(index + 1, ordered.length - 1));
+                return true;
+            case "ArrowUp":
+                focusRow(Math.max(index - 1, 0));
+                return true;
+            case "Escape":
+                row.focus();
+                return true;
+            case "Tab":
+                // At the last button: jump to the next row instead of exiting the table.
+                // At the first button with Shift+Tab: jump back to the row.
+                if (!e.shiftKey && current === buttons.length - 1 && index < ordered.length - 1) {
+                    focusRow(index + 1);
+                    return true;
+                }
+                if (e.shiftKey && current === 0) {
+                    row.focus();
+                    return true;
+                }
+                return false;
+        }
+        return false;
+    };
+
+    const handleRowKeyDown = (e: KeyboardEvent<HTMLTableRowElement>, index: number) => {
+        const row = rowRefs.current.get(ordered[index].id);
+        if (!row) return;
+        const onRow = e.target === row;
+        const handled = onRow ? handleRowKey(e, index) : handleButtonKey(e, index, row);
+        if (handled) e.preventDefault();
     };
 
     const safeFocusedIndex = Math.min(focusedIndex, Math.max(0, ordered.length - 1));
 
     return (
-        <ul
-            role={"list"}
-            className={"w-full text-sm flex flex-col"}
+        <table
             aria-label={t("settings.profiles.section.profiles")}
+            className={"w-full text-sm border-separate border-spacing-0"}
         >
-            {ordered.map((profile, index) => (
-                <ProfileRow
-                    key={profile.id}
-                    profile={profile}
-                    isActive={profile.id === activeProfileId}
-                    isFocused={index === safeFocusedIndex}
-                    isFirst={index === 0}
-                    isLast={index === ordered.length - 1}
-                    rowRef={(el) => {
-                        if (el) rowRefs.current.set(profile.id, el);
-                        else rowRefs.current.delete(profile.id);
-                    }}
-                    onKeyDown={(e) => handleRowKeyDown(e, index)}
-                    onFocus={() => setFocusedIndex(index)}
-                    onSwitch={() => onSwitch(profile.id, profile.name)}
-                    onDeregister={() => onDeregister(profile.id, profile.name)}
-                    onDelete={() => onDelete(profile.id, profile.name)}
-                />
-            ))}
-        </ul>
+            <tbody className={"flex flex-col"}>
+                {ordered.map((profile, index) => (
+                    <ProfileRow
+                        key={profile.id}
+                        profile={profile}
+                        isActive={profile.id === activeProfileId}
+                        isFocused={index === safeFocusedIndex}
+                        isFirst={index === 0}
+                        isLast={index === ordered.length - 1}
+                        rowRef={(el) => {
+                            if (el) rowRefs.current.set(profile.id, el);
+                            else rowRefs.current.delete(profile.id);
+                        }}
+                        onKeyDown={(e) => handleRowKeyDown(e, index)}
+                        onFocus={() => setFocusedIndex(index)}
+                        onSwitch={() => onSwitch(profile.id, profile.name)}
+                        onDeregister={() => onDeregister(profile.id, profile.name)}
+                        onDelete={() => onDelete(profile.id, profile.name)}
+                    />
+                ))}
+            </tbody>
+        </table>
     );
 };
 
@@ -258,8 +306,8 @@ type ProfileRowProps = {
     isFocused: boolean;
     isFirst: boolean;
     isLast: boolean;
-    rowRef: (el: HTMLLIElement | null) => void;
-    onKeyDown: (e: KeyboardEvent<HTMLLIElement>) => void;
+    rowRef: (el: HTMLTableRowElement | null) => void;
+    onKeyDown: (e: KeyboardEvent<HTMLTableRowElement>) => void;
     onFocus: () => void;
     onSwitch: () => void;
     onDeregister: () => void;
@@ -284,7 +332,7 @@ const ProfileRow = ({
     const showEmail = !!profile.email;
 
     return (
-        <li
+        <tr
             ref={rowRef}
             tabIndex={isFocused ? 0 : -1}
             onKeyDown={onKeyDown}
@@ -299,7 +347,7 @@ const ProfileRow = ({
                 "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/60",
             )}
         >
-            <div
+            <td
                 className={cn(
                     "flex gap-2 min-w-0 leading-tight flex-1",
                     showEmail ? "items-start" : "items-center",
@@ -323,8 +371,8 @@ const ProfileRow = ({
                     </div>
                     {showEmail && <TruncatedEmail email={profile.email} />}
                 </div>
-            </div>
-            <div className={"shrink-0 text-right"}>
+            </td>
+            <td className={"shrink-0 text-right"}>
                 <RowActions
                     canSwitch={!isActive}
                     canDeregister={!!profile.email}
@@ -335,8 +383,8 @@ const ProfileRow = ({
                     onDeregister={onDeregister}
                     onDelete={onDelete}
                 />
-            </div>
-        </li>
+            </td>
+        </tr>
     );
 };
 

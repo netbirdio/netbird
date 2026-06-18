@@ -1,4 +1,4 @@
-import { KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { KeyboardEvent, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
@@ -166,7 +166,6 @@ type PeersListProps = {
 };
 
 const PeersList = ({ data, scrollParent }: PeersListProps) => {
-    const { t } = useTranslation();
     const { setSelected } = usePeerDetail();
     const virtuosoRef = useRef<VirtuosoHandle>(null);
     const rowRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
@@ -191,7 +190,7 @@ const PeersList = ({ data, scrollParent }: PeersListProps) => {
         }
     };
 
-    const handleRowKeyDown = (e: KeyboardEvent<HTMLDivElement>, index: number) => {
+    const handleRowKeyDown = (e: KeyboardEvent<Element>, index: number) => {
         switch (e.key) {
             case "ArrowDown":
                 e.preventDefault();
@@ -216,105 +215,139 @@ const PeersList = ({ data, scrollParent }: PeersListProps) => {
         }
     };
 
+    const setRowRef = (pubKey: string, el: HTMLButtonElement | null) => {
+        if (el) rowRefs.current.set(pubKey, el);
+        else rowRefs.current.delete(pubKey);
+    };
+
+    const ctx = useMemo<PeerRowContext>(
+        () => ({ onKeyDown: handleRowKeyDown, onSelect: setSelected, setRowRef }),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [data, setSelected],
+    );
+
     return (
-        <Virtuoso
+        <Virtuoso<PeerStatus, PeerRowContext>
             ref={virtuosoRef}
             data={data}
             customScrollParent={scrollParent}
             increaseViewportBy={400}
             computeItemKey={(_, peer) => peer.pubKey}
             components={{ Header: ListTopSpacer }}
-            itemContent={(index, peer) => {
-                const isConnected = peer.connStatus === "Connected";
-                const peerName = shortenDns(peer.fqdn) || peer.ip;
-                const statusLabel = t(peerStatusLabelKey(peer.connStatus));
-                return (
-                    <div
-                        role="listitem"
-                        onKeyDown={(e) => handleRowKeyDown(e, index)}
-                        className={cn(
-                            "group relative flex items-start gap-2.5 pl-6 pr-4 py-3 min-w-0",
-                            "hover:bg-nb-gray-900/40 transition-colors",
-                            "wails-no-draggable",
-                        )}
-                    >
-                        <button
-                            type={"button"}
-                            tabIndex={0}
-                            ref={(el) => {
-                                if (el) rowRefs.current.set(peer.pubKey, el);
-                                else rowRefs.current.delete(peer.pubKey);
-                            }}
-                            aria-label={t("peers.row.label", {
-                                name: peerName,
-                                status: statusLabel,
-                            })}
-                            onClick={() => setSelected(peer)}
-                            className={cn(
-                                "absolute inset-0 cursor-default outline-none",
-                                "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/60",
-                            )}
-                        />
-                        <Tooltip content={statusLabel} side={"left"}>
-                            <span
-                                role="img"
-                                aria-label={statusLabel}
-                                className={cn(
-                                    "h-2 w-2 rounded-full shrink-0 mt-2 relative",
-                                    dotClass(peer.connStatus),
-                                )}
-                            />
-                        </Tooltip>
-                        <div
-                            className={
-                                "min-w-0 flex-1 flex flex-col leading-tight relative pointer-events-none"
-                            }
-                        >
-                            <div>
-                                <CopyToClipboard
-                                    message={peer.fqdn}
-                                    className={"pointer-events-auto"}
-                                >
-                                    <TruncatedText
-                                        text={shortenDns(peer.fqdn)}
-                                        className={
-                                            "block text-[0.81rem] font-medium text-nb-gray-100 truncate max-w-[300px]"
-                                        }
-                                    />
-                                </CopyToClipboard>
-                            </div>
-                            <div>
-                                <CopyToClipboard
-                                    message={peer.ip}
-                                    className={"pointer-events-auto"}
-                                >
-                                    <span className={"text-xs font-mono text-nb-gray-400 truncate"}>
-                                        {peer.ip}
-                                    </span>
-                                </CopyToClipboard>
-                            </div>
-                        </div>
-                        {isConnected && peer.latencyMs > 0 && (
-                            <span
-                                className={cn(
-                                    "shrink-0 self-center text-xs tabular-nums relative pointer-events-none",
-                                    latencyColor(peer.latencyMs),
-                                )}
-                            >
-                                {peer.latencyMs} ms
-                            </span>
-                        )}
-                        <ChevronRightIcon
-                            size={16}
-                            aria-hidden="true"
-                            className={cn(
-                                "shrink-0 self-center text-nb-gray-300 relative pointer-events-none",
-                                "opacity-0 group-hover:opacity-100 transition-opacity",
-                            )}
-                        />
-                    </div>
-                );
-            }}
+            context={ctx}
+            itemContent={renderPeerRow}
         />
+    );
+};
+
+type PeerRowContext = {
+    onKeyDown: (e: KeyboardEvent<Element>, index: number) => void;
+    onSelect: (peer: PeerStatus) => void;
+    setRowRef: (pubKey: string, el: HTMLButtonElement | null) => void;
+};
+
+const renderPeerRow = (index: number, peer: PeerStatus, ctx: PeerRowContext): ReactNode => (
+    <PeerRow
+        peer={peer}
+        index={index}
+        onKeyDown={ctx.onKeyDown}
+        onSelect={ctx.onSelect}
+        setRowRef={ctx.setRowRef}
+    />
+);
+
+type PeerRowProps = {
+    peer: PeerStatus;
+    index: number;
+    onKeyDown: (e: KeyboardEvent<Element>, index: number) => void;
+    onSelect: (peer: PeerStatus) => void;
+    setRowRef: (pubKey: string, el: HTMLButtonElement | null) => void;
+};
+
+const PeerRow = ({ peer, index, onKeyDown, onSelect, setRowRef }: PeerRowProps) => {
+    const { t } = useTranslation();
+    const isConnected = peer.connStatus === "Connected";
+    const peerName = shortenDns(peer.fqdn) || peer.ip;
+    const statusLabel = t(peerStatusLabelKey(peer.connStatus));
+    const handleKey = (e: KeyboardEvent<Element>) => onKeyDown(e, index);
+    return (
+        <div
+            className={cn(
+                "group relative flex items-start gap-2.5 pl-6 pr-4 py-3 min-w-0",
+                "hover:bg-nb-gray-900/40 transition-colors",
+                "wails-no-draggable",
+            )}
+        >
+            <button
+                type={"button"}
+                tabIndex={0}
+                ref={(el) => setRowRef(peer.pubKey, el)}
+                aria-label={t("peers.row.label", { name: peerName, status: statusLabel })}
+                onClick={() => onSelect(peer)}
+                onKeyDown={handleKey}
+                className={cn(
+                    "absolute inset-0 cursor-default outline-none",
+                    "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/60",
+                )}
+            />
+            <Tooltip content={statusLabel} side={"left"}>
+                <span
+                    aria-hidden="true"
+                    className={cn(
+                        "h-2 w-2 rounded-full shrink-0 mt-2 relative",
+                        dotClass(peer.connStatus),
+                    )}
+                />
+            </Tooltip>
+            <div
+                className={
+                    "min-w-0 flex-1 flex flex-col leading-tight relative pointer-events-none"
+                }
+            >
+                <div>
+                    <CopyToClipboard
+                        message={peer.fqdn}
+                        className={"pointer-events-auto"}
+                        onKeyDown={handleKey}
+                    >
+                        <TruncatedText
+                            text={shortenDns(peer.fqdn)}
+                            className={
+                                "block text-[0.81rem] font-medium text-nb-gray-100 truncate max-w-[300px]"
+                            }
+                        />
+                    </CopyToClipboard>
+                </div>
+                <div>
+                    <CopyToClipboard
+                        message={peer.ip}
+                        className={"pointer-events-auto"}
+                        onKeyDown={handleKey}
+                    >
+                        <span className={"text-xs font-mono text-nb-gray-400 truncate"}>
+                            {peer.ip}
+                        </span>
+                    </CopyToClipboard>
+                </div>
+            </div>
+            {isConnected && peer.latencyMs > 0 && (
+                <span
+                    className={cn(
+                        "shrink-0 self-center text-xs tabular-nums relative pointer-events-none",
+                        latencyColor(peer.latencyMs),
+                    )}
+                >
+                    {peer.latencyMs} ms
+                </span>
+            )}
+            <ChevronRightIcon
+                size={16}
+                aria-hidden="true"
+                className={cn(
+                    "shrink-0 self-center text-nb-gray-300 relative pointer-events-none",
+                    "opacity-0 group-hover:opacity-100 transition-opacity",
+                )}
+            />
+        </div>
     );
 };

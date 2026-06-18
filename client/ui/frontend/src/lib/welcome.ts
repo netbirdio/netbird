@@ -11,7 +11,7 @@ export function welcome() {
 NetBird — The Only Secure Access Platform You'll Ever Need.
 
 WEBSITE:      https://netbird.io/
-WE'RE HIRING: https://careers.netbird.io/
+WE'RE HIRING: https://netbird.io/careers
 OPEN SOURCE:  https://github.com/netbirdio/netbird
 `;
 

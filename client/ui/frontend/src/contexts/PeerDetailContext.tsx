@@ -25,26 +25,26 @@ export const usePeerDetail = (): PeerDetailContextValue => {
 };
 
 export const PeerDetailProvider = ({ children }: { children: ReactNode }) => {
-    const [selected, setSelectedState] = useState<PeerStatus | null>(null);
+    const [selected, setSelected] = useState<PeerStatus | null>(null);
     const openerRef = useRef<HTMLElement | null>(null);
 
-    const setSelected = useCallback((p: PeerStatus | null) => {
+    const select = useCallback((p: PeerStatus | null) => {
         if (p) {
             const active = document.activeElement;
             openerRef.current = active instanceof HTMLElement ? active : null;
         } else {
             const opener = openerRef.current;
             openerRef.current = null;
-            if (opener && opener.isConnected) {
+            if (opener?.isConnected) {
                 queueMicrotask(() => opener.focus());
             }
         }
-        setSelectedState(p);
+        setSelected(p);
     }, []);
 
     const value = useMemo<PeerDetailContextValue>(
-        () => ({ selected, setSelected }),
-        [selected, setSelected],
+        () => ({ selected, setSelected: select }),
+        [selected, select],
     );
     return <PeerDetailContext.Provider value={value}>{children}</PeerDetailContext.Provider>;
 };

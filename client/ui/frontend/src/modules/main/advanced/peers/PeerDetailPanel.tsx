@@ -195,8 +195,7 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
                         </button>
                         <Tooltip content={t(peerStatusLabelKey(selected.connStatus))} side={"top"}>
                             <span
-                                role="img"
-                                aria-label={t(peerStatusLabelKey(selected.connStatus))}
+                                aria-hidden="true"
                                 className={cn(
                                     "h-2 w-2 rounded-full shrink-0",
                                     dotClass(selected.connStatus),

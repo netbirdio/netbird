@@ -13,12 +13,13 @@ export const ConfirmDialog = forwardRef<HTMLDivElement, ConfirmDialogProps>(func
     ref,
 ) {
     return (
-        <div
-            role="dialog"
-            aria-modal="true"
+        <dialog
+            open
             aria-label={ariaLabel}
             aria-labelledby={ariaLabelledBy}
-            className={"wails-draggable select-none flex flex-col items-center"}
+            className={
+                "wails-draggable select-none flex flex-col items-center static bg-transparent text-inherit p-0 m-0 max-w-none max-h-none border-0 w-full"
+            }
         >
             <div
                 ref={ref}
@@ -29,6 +30,6 @@ export const ConfirmDialog = forwardRef<HTMLDivElement, ConfirmDialogProps>(func
             >
                 {children}
             </div>
-        </div>
+        </dialog>
     );
 });

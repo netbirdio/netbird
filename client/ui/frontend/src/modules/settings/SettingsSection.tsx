@@ -12,7 +12,6 @@ export const SectionGroup = ({
 }) => (
     <section
         aria-label={title}
-        aria-disabled={disabled || undefined}
         tabIndex={disabled ? -1 : 0}
         {...(disabled ? { inert: "" } : {})}
         className={cn(

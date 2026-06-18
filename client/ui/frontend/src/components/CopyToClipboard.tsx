@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Check, Copy } from "lucide-react";
 import { cn } from "@/lib/cn";
@@ -21,6 +21,7 @@ type CopyToClipboardProps = {
     variant?: CopyToClipboardVariant;
     "aria-label"?: string;
     tabIndex?: number;
+    onKeyDown?: (e: KeyboardEvent<HTMLButtonElement>) => void;
 };
 
 export const CopyToClipboard = ({
@@ -34,6 +35,7 @@ export const CopyToClipboard = ({
     variant = "default",
     "aria-label": ariaLabel,
     tabIndex = 0,
+    onKeyDown,
 }: CopyToClipboardProps) => {
     const { t } = useTranslation();
     const wrapperRef = useRef<HTMLButtonElement>(null);
@@ -69,6 +71,7 @@ export const CopyToClipboard = ({
             type="button"
             ref={wrapperRef}
             onClick={handleClick}
+            onKeyDown={onKeyDown}
             tabIndex={tabIndex}
             aria-label={resolvedLabel}
             aria-live="polite"

@@ -95,7 +95,7 @@ export function SettingsTroubleshooting() {
                 />
                 <div
                     className={"flex items-center gap-6 justify-between"}
-                    {...(!capture ? { inert: "" } : {})}
+                    {...(capture ? {} : { inert: "" })}
                 >
                     <div className={"flex-1 max-w-md"}>
                         <Label htmlFor={durationId} disabled={!capture}>
@@ -225,6 +225,9 @@ function DoneResult({
                                 docs: (
                                     <a
                                         href={SUPPORT_DOCS_URL}
+                                        aria-label={t(
+                                            "settings.about.community.documentation",
+                                        )}
                                         onClick={(e) => {
                                             e.preventDefault();
                                             Browser.OpenURL(SUPPORT_DOCS_URL).catch(() =>
@@ -232,7 +235,10 @@ function DoneResult({
                                             );
                                         }}
                                         className={"text-netbird hover:underline"}
-                                    />
+                                    >
+                                        {/* content is provided by <Trans> */}
+                                        <span />
+                                    </a>
                                 ),
                             }}
                         />

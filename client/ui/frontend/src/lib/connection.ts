@@ -8,20 +8,71 @@ export const EVENT_TRIGGER_LOGIN = "trigger-login";
 
 let connectionInFlight = false;
 
-export async function startConnection(onSettled?: () => void, signal?: AbortSignal): Promise<void> {
-    if (connectionInFlight) {
-        onSettled?.();
-        return;
+type SsoState = {
+    cancelled: boolean;
+    offCancel?: () => void;
+    offSignal?: () => void;
+};
+
+async function openBrowserLoginUri(uri: string): Promise<void> {
+    try {
+        await WindowManager.OpenBrowserLogin(uri);
+    } catch (e) {
+        console.error(e);
     }
-    if (signal?.aborted) {
+}
+
+function buildSsoCancelPromise(state: SsoState, signal?: AbortSignal): Promise<void> {
+    return new Promise<void>((resolve) => {
+        state.offCancel = Events.On(EVENT_BROWSER_LOGIN_CANCEL, () => {
+            state.cancelled = true;
+            resolve();
+        });
+        if (!signal) return;
+        const onAbort = () => {
+            state.cancelled = true;
+            resolve();
+        };
+        if (signal.aborted) {
+            onAbort();
+            return;
+        }
+        signal.addEventListener("abort", onAbort);
+        state.offSignal = () => signal.removeEventListener("abort", onAbort);
+    });
+}
+
+async function runSsoLogin(
+    result: { verificationUri: string; verificationUriComplete: string; userCode: string },
+    state: SsoState,
+    signal?: AbortSignal,
+): Promise<void> {
+    const uri = result.verificationUriComplete || result.verificationUri;
+    if (uri) await openBrowserLoginUri(uri);
+
+    const cancelPromise = buildSsoCancelPromise(state, signal);
+    const waitPromise = Connection.WaitSSOLogin({ userCode: result.userCode, hostname: "" });
+
+    try {
+        await Promise.race([waitPromise, cancelPromise]);
+    } finally {
+        WindowManager.CloseBrowserLogin().catch(console.error);
+    }
+
+    if (state.cancelled) {
+        waitPromise.cancel?.();
+        waitPromise.catch(() => {});
+    }
+}
+
+export async function startConnection(onSettled?: () => void, signal?: AbortSignal): Promise<void> {
+    if (connectionInFlight || signal?.aborted) {
         onSettled?.();
         return;
     }
     connectionInFlight = true;
 
-    let cancelled = false;
-    let offCancel: (() => void) | undefined;
-    let offSignal: (() => void) | undefined;
+    const state: SsoState = { cancelled: false };
     let connectError: unknown;
 
     try {
@@ -35,65 +86,23 @@ export async function startConnection(onSettled?: () => void, signal?: AbortSign
             hint: "",
         });
 
-        if (signal?.aborted) cancelled = true;
+        if (signal?.aborted) state.cancelled = true;
 
-        if (!cancelled && result.needsSsoLogin) {
-            const uri = result.verificationUriComplete || result.verificationUri;
-            if (uri) {
-                try {
-                    await WindowManager.OpenBrowserLogin(uri);
-                } catch (e) {
-                    console.error(e);
-                }
-            }
-
-            const cancelPromise = new Promise<void>((resolve) => {
-                offCancel = Events.On(EVENT_BROWSER_LOGIN_CANCEL, () => {
-                    cancelled = true;
-                    resolve();
-                });
-                if (signal) {
-                    const onAbort = () => {
-                        cancelled = true;
-                        resolve();
-                    };
-                    if (signal.aborted) {
-                        onAbort();
-                    } else {
-                        signal.addEventListener("abort", onAbort);
-                        offSignal = () => signal.removeEventListener("abort", onAbort);
-                    }
-                }
-            });
-
-            const waitPromise = Connection.WaitSSOLogin({
-                userCode: result.userCode,
-                hostname: "",
-            });
-
-            try {
-                await Promise.race([waitPromise, cancelPromise]);
-            } finally {
-                WindowManager.CloseBrowserLogin().catch(console.error);
-            }
-
-            if (cancelled) {
-                waitPromise.cancel?.();
-                waitPromise.catch(() => {});
-            }
+        if (!state.cancelled && result.needsSsoLogin) {
+            await runSsoLogin(result, state, signal);
         }
 
-        if (!cancelled && signal?.aborted) cancelled = true;
+        if (!state.cancelled && signal?.aborted) state.cancelled = true;
 
-        if (!cancelled) {
+        if (!state.cancelled) {
             await Connection.Up({ profileName: "", username: "" });
         }
     } catch (e) {
         WindowManager.CloseBrowserLogin().catch(console.error);
-        if (!cancelled) connectError = e;
+        if (!state.cancelled) connectError = e;
     } finally {
-        offCancel?.();
-        offSignal?.();
+        state.offCancel?.();
+        state.offSignal?.();
         connectionInFlight = false;
         onSettled?.();
     }
@@ -106,7 +115,7 @@ export async function startConnection(onSettled?: () => void, signal?: AbortSign
         return;
     }
 
-    if (cancelled && signal) {
+    if (state.cancelled && signal) {
         throw new DOMException("aborted", "AbortError");
     }
 }

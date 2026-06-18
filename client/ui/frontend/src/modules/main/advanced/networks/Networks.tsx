@@ -5,6 +5,7 @@ import {
     useRef,
     useState,
     type ComponentType,
+    type ReactNode,
 } from "react";
 import { useTranslation } from "react-i18next";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
@@ -242,7 +243,6 @@ type NetworksListProps = {
 const NetworksHeader = () => <div className={"h-2"} />;
 
 const NetworksList = ({ data, onToggle, scrollParent }: NetworksListProps) => {
-    const { t } = useTranslation();
     const virtuosoRef = useRef<VirtuosoHandle>(null);
     const rowRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
 
@@ -265,7 +265,7 @@ const NetworksList = ({ data, onToggle, scrollParent }: NetworksListProps) => {
         }
     };
 
-    const handleRowKeyDown = (e: KeyboardEvent<HTMLDivElement>, index: number) => {
+    const handleRowKeyDown = (e: KeyboardEvent<Element>, index: number) => {
         switch (e.key) {
             case "ArrowDown":
                 e.preventDefault();
@@ -286,66 +286,103 @@ const NetworksList = ({ data, onToggle, scrollParent }: NetworksListProps) => {
         }
     };
 
+    const setRowRef = (id: string, el: HTMLButtonElement | null) => {
+        if (el) rowRefs.current.set(id, el);
+        else rowRefs.current.delete(id);
+    };
+
+    const ctx = useMemo<NetworkRowContext>(
+        () => ({ onKeyDown: handleRowKeyDown, onToggle, setRowRef }),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [data, onToggle],
+    );
+
     return (
-        <Virtuoso
+        <Virtuoso<Network, NetworkRowContext>
             ref={virtuosoRef}
             data={data}
             customScrollParent={scrollParent}
             increaseViewportBy={400}
             computeItemKey={(_, n) => n.id}
             components={{ Header: NetworksHeader }}
-            itemContent={(index, n) => (
-                <div
-                    role="listitem"
-                    onKeyDown={(e) => handleRowKeyDown(e, index)}
-                    className={cn(
-                        "group relative flex items-start gap-2.5 pl-6 pr-9 py-3 min-w-0",
-                        "hover:bg-nb-gray-900/40 transition-colors",
-                        "wails-no-draggable",
-                    )}
-                >
-                    <button
-                        type={"button"}
-                        tabIndex={0}
-                        ref={(el) => {
-                            if (el) rowRefs.current.set(n.id, el);
-                            else rowRefs.current.delete(n.id);
-                        }}
-                        aria-label={t("networks.row.toggle", { name: n.id })}
-                        aria-pressed={n.selected}
-                        onClick={() => onToggle(n.id, n.selected)}
-                        className={cn(
-                            "absolute inset-0 cursor-pointer outline-none",
-                            "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/60",
-                        )}
-                    />
-                    <ResourceIconBadge type={resourceTypeOf(n)} />
-                    <div
-                        className={
-                            "min-w-0 flex-1 flex flex-col leading-tight relative pointer-events-none"
-                        }
-                    >
-                        <div>
-                            <CopyToClipboard message={n.id}>
-                                <TruncatedText
-                                    text={n.id}
-                                    className={
-                                        "block text-[0.81rem] font-medium text-nb-gray-100 truncate max-w-[300px]"
-                                    }
-                                />
-                            </CopyToClipboard>
-                        </div>
-                        <Subtitle network={n} />
-                    </div>
-                    <div
-                        aria-hidden="true"
-                        className={"shrink-0 self-center relative pointer-events-none"}
-                    >
-                        <NetworkToggle checked={n.selected} />
-                    </div>
-                </div>
-            )}
+            context={ctx}
+            itemContent={renderNetworkRow}
         />
+    );
+};
+
+type NetworkRowContext = {
+    onKeyDown: (e: KeyboardEvent<Element>, index: number) => void;
+    onToggle: (id: string, selected: boolean) => void;
+    setRowRef: (id: string, el: HTMLButtonElement | null) => void;
+};
+
+const renderNetworkRow = (index: number, n: Network, ctx: NetworkRowContext): ReactNode => (
+    <NetworkRow
+        network={n}
+        index={index}
+        onKeyDown={ctx.onKeyDown}
+        onToggle={ctx.onToggle}
+        setRowRef={ctx.setRowRef}
+    />
+);
+
+type NetworkRowProps = {
+    network: Network;
+    index: number;
+    onKeyDown: (e: KeyboardEvent<Element>, index: number) => void;
+    onToggle: (id: string, selected: boolean) => void;
+    setRowRef: (id: string, el: HTMLButtonElement | null) => void;
+};
+
+const NetworkRow = ({ network: n, index, onKeyDown, onToggle, setRowRef }: NetworkRowProps) => {
+    const { t } = useTranslation();
+    // Same handler is attached to the overlay button and to the network-id copy
+    // button so arrow nav works wherever focus sits inside the row.
+    const handleKey = (e: KeyboardEvent<Element>) => onKeyDown(e, index);
+    return (
+        <div
+            className={cn(
+                "group relative flex items-start gap-2.5 pl-6 pr-9 py-3 min-w-0",
+                "hover:bg-nb-gray-900/40 transition-colors",
+                "wails-no-draggable",
+            )}
+        >
+            <button
+                type={"button"}
+                tabIndex={0}
+                ref={(el) => setRowRef(n.id, el)}
+                aria-label={t("networks.row.toggle", { name: n.id })}
+                aria-pressed={n.selected}
+                onClick={() => onToggle(n.id, n.selected)}
+                onKeyDown={handleKey}
+                className={cn(
+                    "absolute inset-0 cursor-pointer outline-none",
+                    "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/60",
+                )}
+            />
+            <ResourceIconBadge type={resourceTypeOf(n)} />
+            <div
+                className={
+                    "min-w-0 flex-1 flex flex-col leading-tight relative pointer-events-none"
+                }
+            >
+                <div>
+                    <CopyToClipboard message={n.id} onKeyDown={handleKey}>
+                        <TruncatedText
+                            text={n.id}
+                            className={
+                                "block text-[0.81rem] font-medium text-nb-gray-100 truncate max-w-[300px]"
+                            }
+                        />
+                    </CopyToClipboard>
+                </div>
+                <Subtitle network={n} onKeyDown={handleKey} />
+            </div>
+            <div aria-hidden="true" className={"shrink-0 self-center relative pointer-events-none"}>
+                <NetworkToggle checked={n.selected} />
+            </div>
+        </div>
     );
 };
 
@@ -364,17 +401,22 @@ const ResourceIconBadge = ({ type }: { type: ResourceType }) => {
     );
 };
 
-const Subtitle = ({ network }: { network: Network }) => {
+type SubtitleProps = {
+    network: Network;
+    onKeyDown: (e: KeyboardEvent<Element>) => void;
+};
+
+const Subtitle = ({ network, onKeyDown }: SubtitleProps) => {
     if (isDnsRoute(network)) {
         const domain = network.domains[0];
         const ips = network.resolvedIps[domain] ?? [];
-        return <DomainSubtitle domain={domain} ips={ips} />;
+        return <DomainSubtitle domain={domain} ips={ips} onKeyDown={onKeyDown} />;
     }
 
     if (network.range && network.range !== INVALID_PREFIX) {
         return (
             <div>
-                <CopyToClipboard message={network.range}>
+                <CopyToClipboard message={network.range} onKeyDown={onKeyDown}>
                     <TruncatedText
                         text={network.range}
                         className={
@@ -389,7 +431,13 @@ const Subtitle = ({ network }: { network: Network }) => {
     return null;
 };
 
-const DomainSubtitle = ({ domain, ips }: { domain: string; ips: string[] }) => {
+type DomainSubtitleProps = {
+    domain: string;
+    ips: string[];
+    onKeyDown: (e: KeyboardEvent<Element>) => void;
+};
+
+const DomainSubtitle = ({ domain, ips, onKeyDown }: DomainSubtitleProps) => {
     const span = (
         <span className={"block text-xs font-mono text-nb-gray-400 truncate max-w-[300px]"}>
             {domain}
@@ -397,7 +445,7 @@ const DomainSubtitle = ({ domain, ips }: { domain: string; ips: string[] }) => {
     );
     return (
         <div>
-            <CopyToClipboard message={domain}>
+            <CopyToClipboard message={domain} onKeyDown={onKeyDown}>
                 {ips.length > 0 ? (
                     <Tooltip
                         content={<ResolvedIpsTooltip ips={ips} />}

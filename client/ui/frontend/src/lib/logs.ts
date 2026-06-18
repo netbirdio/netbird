@@ -21,18 +21,32 @@ let inForward = false;
 let windowStart = 0;
 let windowCount = 0;
 
+function describeCause(rawCause: unknown): string {
+    if (rawCause instanceof Error) return `${rawCause.name}: ${rawCause.message}`;
+    if (typeof rawCause === "object" && rawCause !== null) {
+        try {
+            return JSON.stringify(rawCause);
+        } catch {
+            // Circular ref — fall through to a tag instead of "[object Object]".
+            return `<${rawCause.constructor?.name ?? "object"}>`;
+        }
+    }
+    return String(rawCause);
+}
+
+function formatCause(rawCause: unknown): string {
+    if (rawCause === undefined) return "";
+    return `\ncaused by ${describeCause(rawCause)}`;
+}
+
 // WebKit (macOS WKWebView) omits the "Name: message" header from Error.stack,
 // so a bare stack hides the real cause. Prepend name+message, then the stack.
 function formatError(e: Error): string {
     const head = `${e.name}: ${e.message}`;
-    const rawCause = (e as { cause?: unknown }).cause;
-    const cause =
-        rawCause instanceof Error
-            ? `\ncaused by ${rawCause.name}: ${rawCause.message}`
-            : rawCause !== undefined
-              ? `\ncaused by ${String(rawCause)}`
-              : "";
-    return e.stack && !e.stack.startsWith(head) ? `${head}${cause}\n${e.stack}` : `${head}${cause}`;
+    const cause = formatCause((e as { cause?: unknown }).cause);
+    if (!e.stack) return `${head}${cause}`;
+    if (e.stack.startsWith(head)) return `${head}${cause}`;
+    return `${head}${cause}\n${e.stack}`;
 }
 
 function format(args: unknown[]): string {
@@ -49,13 +63,34 @@ function format(args: unknown[]): string {
         .join(" ");
 }
 
+function parseStackLine(line: string): string {
+    // Find the file:line:col tail at the end of the path.
+    const colonCol = line.lastIndexOf(":");
+    if (colonCol <= 0) return "";
+    const colonLine = line.lastIndexOf(":", colonCol - 1);
+    if (colonLine <= 0) return "";
+    const col = line.slice(colonCol + 1);
+    const lineNo = line.slice(colonLine + 1, colonCol);
+    if (!/^\d+$/.test(col) || !/^\d+$/.test(lineNo)) return "";
+    const before = line.slice(0, colonLine);
+    const sep = Math.max(
+        before.lastIndexOf("/"),
+        before.lastIndexOf("\\"),
+        before.lastIndexOf("("),
+        before.lastIndexOf(" "),
+    );
+    const file = before.slice(sep + 1);
+    if (!file.includes(".")) return "";
+    return `${file}:${lineNo}`;
+}
+
 function callerSource(): string {
     const stack = new Error().stack;
     if (!stack) return "";
     for (const line of stack.split("\n").slice(1)) {
         if (line.includes("/logs.ts")) continue;
-        const m = /([^/\\() ]+\.[a-z]+):(\d+):\d+/i.exec(line);
-        if (m) return `${m[1]}:${m[2]}`;
+        const parsed = parseStackLine(line);
+        if (parsed) return parsed;
     }
     return "";
 }

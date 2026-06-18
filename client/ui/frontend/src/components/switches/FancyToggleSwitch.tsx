@@ -33,8 +33,6 @@ export default function FancyToggleSwitch({
 }: Readonly<Props>) {
     const switchId = React.useId();
     const descriptionId = React.useId();
-    const childrenRef = React.useRef<HTMLDivElement>(null);
-    const switchRef = React.useRef<HTMLButtonElement>(null);
 
     if (loading) {
         const shimmer =
@@ -68,21 +66,8 @@ export default function FancyToggleSwitch({
         );
     }
 
-    const fromChildren = (target: EventTarget | null) =>
-        target instanceof Node && childrenRef.current?.contains(target);
-
-    const handleClick = (event: React.MouseEvent) => {
-        if (disabled || fromChildren(event.target)) return;
-        const target = event.target as HTMLElement;
-        // Let the switch own its own click so focus + state stay together.
-        if (target.closest("button,input,a,[role=switch]")) return;
-        switchRef.current?.click();
-        switchRef.current?.focus();
-    };
-
     return (
         <div
-            onClick={handleClick}
             {...(disabled ? { inert: "" } : {})}
             className={cn(
                 "cursor-default transition-all duration-300 relative z-[1]",
@@ -93,10 +78,8 @@ export default function FancyToggleSwitch({
         >
             <div className={"flex justify-between gap-10"}>
                 <div className={cn(textWrapperClassName)}>
-                    <Label as="div" className={labelClassName}>
-                        <label htmlFor={switchId} className={"cursor-default"}>
-                            {label}
-                        </label>
+                    <Label htmlFor={switchId} className={labelClassName}>
+                        {label}
                     </Label>
                     <HelpText margin={false}>
                         <span id={descriptionId}>{helpText}</span>
@@ -104,7 +87,6 @@ export default function FancyToggleSwitch({
                 </div>
                 <div className={"mt-2 pr-1"}>
                     <ToggleSwitch
-                        ref={switchRef}
                         id={switchId}
                         checked={value}
                         onCheckedChange={onChange}
@@ -113,11 +95,7 @@ export default function FancyToggleSwitch({
                     />
                 </div>
             </div>
-            {children && value ? (
-                <div className="mt-4" ref={childrenRef}>
-                    {children}
-                </div>
-            ) : null}
+            {children && value ? <div className="mt-4">{children}</div> : null}
         </div>
     );
 }

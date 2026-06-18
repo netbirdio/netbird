@@ -92,9 +92,12 @@ export function SettingsAbout() {
         >
             <img src={netbirdFull} alt={t("common.netbird")} className={"h-7 w-auto"} />
             <div className={"flex flex-col items-center gap-0.5 text-center"}>
-                <p
-                    className={"text-sm font-semibold text-nb-gray-100 cursor-text select-text"}
+                <button
+                    type={"button"}
                     onClick={handleVersionClick}
+                    className={
+                        "text-sm font-semibold text-nb-gray-100 cursor-text select-text bg-transparent outline-none"
+                    }
                 >
                     {daemonVersion === "development" ? (
                         <span>
@@ -106,7 +109,7 @@ export function SettingsAbout() {
                     ) : (
                         t("settings.about.client", { version: daemonVersion })
                     )}
-                </p>
+                </button>
                 <p className={"text-sm text-nb-gray-250 cursor-text select-text font-medium"}>
                     {guiVersion === "development" ? (
                         <span>
