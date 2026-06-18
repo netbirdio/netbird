@@ -1,4 +1,12 @@
-import { ComponentType, ReactNode, useCallback, useEffect, useState } from "react";
+import {
+    ComponentType,
+    KeyboardEvent as ReactKeyboardEvent,
+    ReactNode,
+    useCallback,
+    useEffect,
+    useRef,
+    useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { AnimatePresence, motion, type Transition } from "framer-motion";
 import * as Popover from "@radix-ui/react-popover";
@@ -95,19 +103,68 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
     useEffect(() => {
         if (!selected) return;
         const onKey = (e: KeyboardEvent) => {
-            if (e.key === "Escape") setSelected(null);
+            if (e.key === "Escape") {
+                setSelected(null);
+                return;
+            }
+            if (e.key === "ArrowLeft") {
+                const target = e.target as HTMLElement | null;
+                const tag = target?.tagName;
+                if (tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable) return;
+                setSelected(null);
+            }
         };
         globalThis.addEventListener("keydown", onKey);
         return () => globalThis.removeEventListener("keydown", onKey);
     }, [selected, setSelected]);
 
+    const dialogRef = useRef<HTMLDivElement>(null);
+    const backButtonRef = useRef<HTMLButtonElement>(null);
+
+    useEffect(() => {
+        if (!selected) return;
+        // Defer focus until the slide-in animation has started rendering.
+        requestAnimationFrame(() => backButtonRef.current?.focus());
+    }, [selected?.pubKey]);
+
+    const getFocusable = (): HTMLElement[] => {
+        const root = dialogRef.current;
+        if (!root) return [];
+        const sel =
+            'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]),' +
+            ' textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+        return Array.from(root.querySelectorAll<HTMLElement>(sel)).filter(
+            (el) => el.offsetParent !== null || el === document.activeElement,
+        );
+    };
+
+    const onDialogKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+        if (e.key !== "Tab") return;
+        const focusables = getFocusable();
+        if (focusables.length === 0) return;
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        const active = document.activeElement as HTMLElement | null;
+        if (e.shiftKey) {
+            if (active === first || !active || !dialogRef.current?.contains(active)) {
+                e.preventDefault();
+                last.focus();
+            }
+        } else if (active === last) {
+            e.preventDefault();
+            first.focus();
+        }
+    };
+
     return (
         <AnimatePresence>
             {selected && (
                 <motion.div
+                    ref={dialogRef}
                     role={"dialog"}
                     aria-modal={"true"}
                     aria-labelledby={"nb-peer-detail-title"}
+                    onKeyDown={onDialogKeyDown}
                     initial={{ x: "100%" }}
                     animate={{ x: 0 }}
                     exit={{ x: "100%" }}
@@ -121,13 +178,16 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
                         )}
                     >
                         <button
+                            ref={backButtonRef}
                             type={"button"}
+                            tabIndex={0}
                             onClick={() => setSelected(null)}
                             aria-label={t("common.close")}
                             className={cn(
                                 "shrink-0 h-8 w-8 rounded-md flex items-center justify-center",
                                 "text-nb-gray-300 hover:bg-nb-gray-910 hover:text-nb-gray-100",
                                 "transition-colors outline-none cursor-default",
+                                "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                                 "wails-no-draggable",
                             )}
                         >
@@ -159,6 +219,7 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
                         <Tooltip content={t("peers.details.refresh")}>
                             <button
                                 type={"button"}
+                                tabIndex={0}
                                 onClick={onRefresh}
                                 disabled={refreshing}
                                 aria-label={t("peers.details.refresh")}
@@ -167,6 +228,7 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
                                     "shrink-0 h-8 w-8 rounded-md flex items-center justify-center",
                                     "text-nb-gray-300 hover:bg-nb-gray-910 hover:text-nb-gray-100",
                                     "transition-colors outline-none cursor-default",
+                                    "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                                     "wails-no-draggable",
                                     "disabled:opacity-50 disabled:hover:bg-transparent",
                                 )}
@@ -386,6 +448,7 @@ const ResourcesPopover = ({ networks }: { networks: string[] }) => {
             <Popover.Trigger asChild>
                 <button
                     type={"button"}
+                    tabIndex={0}
                     aria-haspopup="dialog"
                     aria-expanded={open}
                     className={cn(
@@ -394,6 +457,7 @@ const ResourcesPopover = ({ networks }: { networks: string[] }) => {
                         "border border-nb-gray-900",
                         "px-2 py-1 text-xs font-medium text-nb-gray-300",
                         "wails-no-draggable cursor-default outline-none transition-all",
+                        "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                     )}
                 >
                     {networks.length}

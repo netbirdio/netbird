@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
-import { Virtuoso } from "react-virtuoso";
+import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
 import { ChevronRightIcon, MonitorSmartphoneIcon } from "lucide-react";
 import type { PeerStatus } from "@bindings/services/models.js";
 import { cn } from "@/lib/cn";
@@ -168,15 +168,63 @@ type PeersListProps = {
 const PeersList = ({ data, scrollParent }: PeersListProps) => {
     const { t } = useTranslation();
     const { setSelected } = usePeerDetail();
+    const virtuosoRef = useRef<VirtuosoHandle>(null);
+    const rowRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+
+    const focusRow = (index: number) => {
+        if (index < 0 || index >= data.length) return;
+        const peer = data[index];
+        const tryFocus = () => {
+            const el = rowRefs.current.get(peer.pubKey);
+            if (el) {
+                el.focus();
+                return true;
+            }
+            return false;
+        };
+        if (!tryFocus()) {
+            virtuosoRef.current?.scrollToIndex({ index, behavior: "auto" });
+            // Row may not be mounted yet — retry after Virtuoso renders it.
+            requestAnimationFrame(() => {
+                if (!tryFocus()) requestAnimationFrame(tryFocus);
+            });
+        }
+    };
+
+    const handleRowKeyDown = (e: KeyboardEvent<HTMLButtonElement>, index: number) => {
+        switch (e.key) {
+            case "ArrowDown":
+                e.preventDefault();
+                focusRow(Math.min(index + 1, data.length - 1));
+                break;
+            case "ArrowUp":
+                e.preventDefault();
+                focusRow(Math.max(index - 1, 0));
+                break;
+            case "ArrowRight":
+                e.preventDefault();
+                setSelected(data[index]);
+                break;
+            case "Home":
+                e.preventDefault();
+                focusRow(0);
+                break;
+            case "End":
+                e.preventDefault();
+                focusRow(data.length - 1);
+                break;
+        }
+    };
 
     return (
         <Virtuoso
+            ref={virtuosoRef}
             data={data}
             customScrollParent={scrollParent}
             increaseViewportBy={400}
             computeItemKey={(_, peer) => peer.pubKey}
             components={{ Header: ListTopSpacer }}
-            itemContent={(_, peer) => {
+            itemContent={(index, peer) => {
                 const isConnected = peer.connStatus === "Connected";
                 const peerName = shortenDns(peer.fqdn) || peer.ip;
                 const statusLabel = t(peerStatusLabelKey(peer.connStatus));
@@ -191,12 +239,21 @@ const PeersList = ({ data, scrollParent }: PeersListProps) => {
                     >
                         <button
                             type={"button"}
+                            tabIndex={0}
+                            ref={(el) => {
+                                if (el) rowRefs.current.set(peer.pubKey, el);
+                                else rowRefs.current.delete(peer.pubKey);
+                            }}
                             aria-label={t("peers.row.label", {
                                 name: peerName,
                                 status: statusLabel,
                             })}
                             onClick={() => setSelected(peer)}
-                            className={"absolute inset-0 cursor-default"}
+                            onKeyDown={(e) => handleRowKeyDown(e, index)}
+                            className={cn(
+                                "absolute inset-0 cursor-default outline-none",
+                                "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/60",
+                            )}
                         />
                         <Tooltip content={statusLabel} side={"left"}>
                             <span

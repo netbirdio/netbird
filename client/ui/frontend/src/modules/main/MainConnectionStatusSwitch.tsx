@@ -256,8 +256,9 @@ export const MainConnectionStatusSwitch = () => {
                     message={fqdn}
                     variant={"bright"}
                     iconClassName={"-top-px"}
+                    tabIndex={show && fqdn ? 0 : -1}
                     className={cn(
-                        "min-h-[1em] transition-opacity duration-300 max-w-full",
+                        "min-h-[1em] max-h-[1em] mt-1 transition-opacity duration-300 max-w-full",
                         "relative left-[0.55rem]",
                         show && fqdn ? "opacity-100" : "opacity-0 pointer-events-none",
                     )}
@@ -265,7 +266,7 @@ export const MainConnectionStatusSwitch = () => {
                     <TruncatedText
                         text={shortenDns(fqdn) || " "}
                         className={
-                            "block font-mono text-[0.8rem] leading-tight text-nb-gray-300 truncate max-w-[310px]"
+                            "block font-mono text-[0.8rem] leading-tight text-nb-gray-300 truncate max-w-[310px] h-[18px]"
                         }
                     />
                 </CopyToClipboard>
@@ -285,8 +286,9 @@ const LocalIpLine = ({ ip, ipv6, show }: { ip: string; ipv6: string; show: boole
             <CopyToClipboard
                 message={ip}
                 variant={"bright"}
+                tabIndex={show && ip ? 0 : -1}
                 className={cn(
-                    "min-h-[1em] transition-opacity duration-300",
+                    "min-h-[1em] max-h-[1em] mt-1 transition-opacity duration-300",
                     "relative left-[0.55rem]",
                     show && ip ? "opacity-100" : "opacity-0 pointer-events-none",
                 )}
@@ -310,11 +312,13 @@ const LocalIpLine = ({ ip, ipv6, show }: { ip: string; ipv6: string; show: boole
                 <Popover.Trigger asChild>
                     <button
                         type={"button"}
+                        tabIndex={show && ip ? 0 : -1}
                         aria-label={t("connect.localIp.label")}
                         aria-haspopup="dialog"
                         aria-expanded={open}
                         className={cn(
-                            "group relative inline-flex items-center outline-none cursor-default",
+                            "group relative inline-flex items-center outline-none cursor-default rounded-sm",
+                            "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                             "transition-colors",
                         )}
                     >
@@ -379,12 +383,14 @@ const IpRow = ({ value }: { value: string }) => {
         <button
             type={"button"}
             onClick={handleClick}
+            tabIndex={0}
             aria-label={`${t("common.copy")} ${value}`}
             className={cn(
                 "group/iprow relative flex items-center justify-between gap-3",
                 "rounded-md px-2 py-1.5 text-left",
                 "text-nb-gray-200 hover:bg-nb-gray-900 hover:text-nb-gray-50",
                 "transition-colors outline-none cursor-default",
+                "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/60",
             )}
         >
             <span className={"font-mono text-[0.75rem] truncate min-w-0"}>{value}</span>

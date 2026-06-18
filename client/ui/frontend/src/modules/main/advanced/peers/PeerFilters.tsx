@@ -37,11 +37,13 @@ export const PeerFilters = ({ value, onChange, counts, disabled }: Props) => {
         <DropdownMenu open={open} onOpenChange={setOpen}>
             <DropdownMenuTrigger
                 disabled={disabled}
+                tabIndex={0}
                 aria-label={t("common.filter")}
                 className={cn(
                     "inline-flex items-center gap-1.5 h-9 px-2 rounded-md",
                     "text-sm text-nb-gray-200",
                     "outline-none hover:bg-nb-gray-900 data-[state=open]:bg-nb-gray-900 transition-colors duration-150",
+                    "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                     "disabled:opacity-50 disabled:pointer-events-none",
                     "wails-no-draggable cursor-default",
                 )}

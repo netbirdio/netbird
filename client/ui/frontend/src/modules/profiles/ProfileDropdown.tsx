@@ -22,6 +22,15 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
     const { activeProfile, activeProfileId, profiles, switchProfile, loaded } = useProfile();
     const [open, setOpen] = useState(false);
     const [busy, setBusy] = useState(false);
+    const listRef = useRef<HTMLDivElement>(null);
+
+    const handleTriggerKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+        if (open) return;
+        if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+            e.preventDefault();
+            setOpen(true);
+        }
+    };
 
     const sortedProfiles = [...profiles].sort((a, b) => {
         if (a.id === activeProfileId) return -1;
@@ -63,14 +72,21 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
     return (
         <Popover.Root open={open} onOpenChange={setOpen}>
             <Popover.Trigger asChild className={"wails-no-draggable"} disabled={!hasProfile}>
-                <ProfileTriggerButton name={displayName} disabled={!hasProfile} />
+                <ProfileTriggerButton
+                    name={displayName}
+                    disabled={!hasProfile}
+                    onKeyDown={handleTriggerKeyDown}
+                />
             </Popover.Trigger>
             <Popover.Portal>
                 <Popover.Content
                     align="center"
                     sideOffset={8}
                     collisionPadding={12}
-                    onOpenAutoFocus={(e) => e.preventDefault()}
+                    onOpenAutoFocus={(e) => {
+                        e.preventDefault();
+                        listRef.current?.focus();
+                    }}
                     className={cn(
                         "z-50 min-w-64 overflow-hidden rounded-lg border border-nb-gray-900 bg-nb-gray-935 p-1 text-nb-gray-200 shadow-lg select-none wails-no-draggable",
                         "data-[state=open]:animate-in data-[state=closed]:animate-out",
@@ -82,12 +98,21 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
                         "data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
                     )}
                 >
-                    <Command loop shouldFilter={false} onKeyDown={(e) => e.stopPropagation()}>
-                        {sortedProfiles.length > 0 && (
-                            <>
-                                <ScrollArea.Root type="auto" className="overflow-hidden -mx-1">
-                                    <ScrollArea.Viewport className="max-h-60 px-1">
-                                        <Command.List>
+                    <Command
+                        loop
+                        shouldFilter={false}
+                        onKeyDown={(e) => e.stopPropagation()}
+                        className={"outline-none focus:outline-none focus-visible:outline-none"}
+                    >
+                        <Command.List
+                            ref={listRef}
+                            aria-label={t("header.profile.switch")}
+                            className={"outline-none focus:outline-none focus-visible:outline-none"}
+                        >
+                            {sortedProfiles.length > 0 && (
+                                <>
+                                    <ScrollArea.Root type="auto" className="overflow-hidden -mx-1">
+                                        <ScrollArea.Viewport className="max-h-60 px-1">
                                             {sortedProfiles.map((profile) => (
                                                 <ProfileRow
                                                     key={profile.id}
@@ -96,40 +121,40 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
                                                     onSelect={handleSelect}
                                                 />
                                             ))}
-                                        </Command.List>
-                                    </ScrollArea.Viewport>
-                                    <ScrollArea.Scrollbar
-                                        orientation="vertical"
-                                        className={cn(
-                                            "flex select-none touch-none transition-colors",
-                                            "w-1.5 bg-transparent",
-                                        )}
-                                    >
-                                        <ScrollArea.Thumb className="flex-1 rounded-full bg-nb-gray-800 hover:bg-nb-gray-700 relative" />
-                                    </ScrollArea.Scrollbar>
-                                </ScrollArea.Root>
-                                <div className="-mx-1 h-px bg-nb-gray-910" />
-                            </>
-                        )}
+                                        </ScrollArea.Viewport>
+                                        <ScrollArea.Scrollbar
+                                            orientation="vertical"
+                                            className={cn(
+                                                "flex select-none touch-none transition-colors",
+                                                "w-1.5 bg-transparent",
+                                            )}
+                                        >
+                                            <ScrollArea.Thumb className="flex-1 rounded-full bg-nb-gray-800 hover:bg-nb-gray-700 relative" />
+                                        </ScrollArea.Scrollbar>
+                                    </ScrollArea.Root>
+                                    <div className="-mx-1 h-px bg-nb-gray-910" />
+                                </>
+                            )}
 
-                        <div className={"pt-1"}>
-                            <Command.Item
-                                value={MANAGE_VALUE}
-                                onSelect={handleManage}
-                                disabled={!onManageProfiles}
-                                className={cn(
-                                    "flex items-center gap-2 px-2 py-1.5",
-                                    "rounded-md outline-none cursor-default text-sm",
-                                    "data-[selected=true]:bg-nb-gray-900",
-                                    "data-[disabled=true]:opacity-50 data-[disabled=true]:pointer-events-none",
-                                )}
-                            >
-                                <Settings2 size={14} aria-hidden="true" className="shrink-0" />
-                                <span className="truncate flex-1">
-                                    {t("profile.dropdown.manageProfiles")}
-                                </span>
-                            </Command.Item>
-                        </div>
+                            <div className={"pt-1"}>
+                                <Command.Item
+                                    value={MANAGE_VALUE}
+                                    onSelect={handleManage}
+                                    disabled={!onManageProfiles}
+                                    className={cn(
+                                        "flex items-center gap-2 px-2 py-1.5",
+                                        "rounded-md outline-none cursor-default text-sm",
+                                        "data-[selected=true]:bg-nb-gray-900",
+                                        "data-[disabled=true]:opacity-50 data-[disabled=true]:pointer-events-none",
+                                    )}
+                                >
+                                    <Settings2 size={14} aria-hidden="true" className="shrink-0" />
+                                    <span className="truncate flex-1">
+                                        {t("profile.dropdown.manageProfiles")}
+                                    </span>
+                                </Command.Item>
+                            </div>
+                        </Command.List>
                     </Command>
                 </Popover.Content>
             </Popover.Portal>
@@ -157,13 +182,15 @@ type ProfileTriggerButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> &
 };
 
 const ProfileTriggerButton = forwardRef<HTMLButtonElement, ProfileTriggerButtonProps>(
-    function ProfileTriggerButton({ name, className, ...props }, ref) {
+    function ProfileTriggerButton({ name, className, disabled, ...props }, ref) {
         const { t } = useTranslation();
         const Icon = pickProfileIcon(name) ?? UserCircle;
         return (
             <button
                 ref={ref}
                 type="button"
+                disabled={disabled}
+                tabIndex={disabled ? -1 : 0}
                 aria-label={t("header.profile.switch")}
                 aria-haspopup="listbox"
                 className={cn(
@@ -171,6 +198,7 @@ const ProfileTriggerButton = forwardRef<HTMLButtonElement, ProfileTriggerButtonP
                     "text-nb-gray-200 hover:bg-nb-gray-900",
                     "data-[state=open]:bg-nb-gray-900",
                     "disabled:opacity-50 disabled:hover:bg-transparent",
+                    "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                     "transition-colors duration-150 wails-no-draggable",
                     className,
                 )}

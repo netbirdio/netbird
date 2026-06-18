@@ -1,7 +1,14 @@
-import { useEffect, useMemo, useRef, useState, type ComponentType } from "react";
+import {
+    KeyboardEvent,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+    type ComponentType,
+} from "react";
 import { useTranslation } from "react-i18next";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
-import { Virtuoso } from "react-virtuoso";
+import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
 import { GlobeIcon, Layers3Icon, type LucideProps, NetworkIcon, WorkflowIcon } from "lucide-react";
 import type { Network } from "@bindings/services/models.js";
 import { cn } from "@/lib/cn";
@@ -207,6 +214,7 @@ export const Networks = () => {
                     </span>
                     <button
                         type={"button"}
+                        tabIndex={0}
                         onClick={onBulkClick}
                         aria-label={t("networks.bulk.label")}
                         className={cn(
@@ -214,6 +222,7 @@ export const Networks = () => {
                             "text-xs font-medium text-nb-gray-100",
                             "bg-nb-gray-920 hover:bg-nb-gray-910 border border-nb-gray-900 hover:border-nb-gray-850",
                             "transition-colors outline-none wails-no-draggable cursor-pointer",
+                            "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                         )}
                     >
                         {bulkLabel}
@@ -234,15 +243,58 @@ const NetworksHeader = () => <div className={"h-2"} />;
 
 const NetworksList = ({ data, onToggle, scrollParent }: NetworksListProps) => {
     const { t } = useTranslation();
+    const virtuosoRef = useRef<VirtuosoHandle>(null);
+    const rowRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+
+    const focusRow = (index: number) => {
+        if (index < 0 || index >= data.length) return;
+        const row = data[index];
+        const tryFocus = () => {
+            const el = rowRefs.current.get(row.id);
+            if (el) {
+                el.focus();
+                return true;
+            }
+            return false;
+        };
+        if (!tryFocus()) {
+            virtuosoRef.current?.scrollToIndex({ index, behavior: "auto" });
+            requestAnimationFrame(() => {
+                if (!tryFocus()) requestAnimationFrame(tryFocus);
+            });
+        }
+    };
+
+    const handleRowKeyDown = (e: KeyboardEvent<HTMLButtonElement>, index: number) => {
+        switch (e.key) {
+            case "ArrowDown":
+                e.preventDefault();
+                focusRow(Math.min(index + 1, data.length - 1));
+                break;
+            case "ArrowUp":
+                e.preventDefault();
+                focusRow(Math.max(index - 1, 0));
+                break;
+            case "Home":
+                e.preventDefault();
+                focusRow(0);
+                break;
+            case "End":
+                e.preventDefault();
+                focusRow(data.length - 1);
+                break;
+        }
+    };
 
     return (
         <Virtuoso
+            ref={virtuosoRef}
             data={data}
             customScrollParent={scrollParent}
             increaseViewportBy={400}
             computeItemKey={(_, n) => n.id}
             components={{ Header: NetworksHeader }}
-            itemContent={(_, n) => (
+            itemContent={(index, n) => (
                 <div
                     role="listitem"
                     className={cn(
@@ -253,10 +305,19 @@ const NetworksList = ({ data, onToggle, scrollParent }: NetworksListProps) => {
                 >
                     <button
                         type={"button"}
+                        tabIndex={0}
+                        ref={(el) => {
+                            if (el) rowRefs.current.set(n.id, el);
+                            else rowRefs.current.delete(n.id);
+                        }}
                         aria-label={t("networks.row.toggle", { name: n.id })}
                         aria-pressed={n.selected}
                         onClick={() => onToggle(n.id, n.selected)}
-                        className={"absolute inset-0 cursor-pointer"}
+                        onKeyDown={(e) => handleRowKeyDown(e, index)}
+                        className={cn(
+                            "absolute inset-0 cursor-pointer outline-none",
+                            "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/60",
+                        )}
                     />
                     <ResourceIconBadge type={resourceTypeOf(n)} />
                     <div

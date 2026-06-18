@@ -47,10 +47,12 @@ const ToggleSwitch = React.forwardRef<
     React.ElementRef<typeof SwitchPrimitives.Root>,
     React.ComponentPropsWithoutRef<typeof SwitchPrimitives.Root> &
         SwitchVariants & { dataCy?: string }
->(({ className, size = "default", variant = "default", dataCy, ...props }, ref) => (
+>(({ className, size = "default", variant = "default", dataCy, disabled, ...props }, ref) => (
     <SwitchPrimitives.Root
+        disabled={disabled}
+        tabIndex={disabled ? -1 : 0}
         className={cn(
-            "wails-no-draggable peer inline-flex shrink-0 cursor-default items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-950 focus-visible:ring-offset-2 focus-visible:ring-offset-white disabled:cursor-not-allowed disabled:opacity-50 dark:focus-visible:ring-neutral-300 dark:focus-visible:ring-offset-neutral-950",
+            "wails-no-draggable peer inline-flex shrink-0 cursor-default items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940 disabled:cursor-not-allowed disabled:opacity-50",
             className,
             switchVariants({ size, variant }),
         )}

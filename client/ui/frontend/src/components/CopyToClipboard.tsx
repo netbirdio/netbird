@@ -20,6 +20,7 @@ type CopyToClipboardProps = {
     alwaysShowIcon?: boolean;
     variant?: CopyToClipboardVariant;
     "aria-label"?: string;
+    tabIndex?: number;
 };
 
 export const CopyToClipboard = ({
@@ -32,6 +33,7 @@ export const CopyToClipboard = ({
     alwaysShowIcon = false,
     variant = "default",
     "aria-label": ariaLabel,
+    tabIndex = 0,
 }: CopyToClipboardProps) => {
     const { t } = useTranslation();
     const wrapperRef = useRef<HTMLButtonElement>(null);
@@ -67,10 +69,12 @@ export const CopyToClipboard = ({
             type="button"
             ref={wrapperRef}
             onClick={handleClick}
+            tabIndex={tabIndex}
             aria-label={resolvedLabel}
             aria-live="polite"
             className={cn(
-                "inline-flex gap-2 items-center group/copy cursor-default wails-no-draggable text-left pointer-events-auto",
+                "inline-flex gap-2 items-center group/copy cursor-default wails-no-draggable text-left pointer-events-auto rounded-sm outline-none",
+                "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                 className,
             )}
         >

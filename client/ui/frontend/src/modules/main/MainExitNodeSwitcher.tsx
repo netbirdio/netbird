@@ -1,4 +1,4 @@
-import { forwardRef, useState } from "react";
+import { forwardRef, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import * as Popover from "@radix-ui/react-popover";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
@@ -21,6 +21,15 @@ export const MainExitNodeSwitcher = () => {
     const disabled = !isConnected || !hasAny;
 
     const [open, setOpen] = useState(false);
+    const listRef = useRef<HTMLDivElement>(null);
+
+    const handleTriggerKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+        if (open || disabled) return;
+        if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+            e.preventDefault();
+            setOpen(true);
+        }
+    };
 
     const handleSelect = (next: string) => {
         setOpen(false);
@@ -53,6 +62,8 @@ export const MainExitNodeSwitcher = () => {
                     active={!!active}
                     aria-label={t("exitNodes.dropdown.trigger")}
                     aria-haspopup="listbox"
+                    aria-expanded={open}
+                    onKeyDown={handleTriggerKeyDown}
                 />
             </Popover.Trigger>
             <Popover.Portal>
@@ -61,7 +72,10 @@ export const MainExitNodeSwitcher = () => {
                     side={"top"}
                     sideOffset={8}
                     collisionPadding={12}
-                    onOpenAutoFocus={(e) => e.preventDefault()}
+                    onOpenAutoFocus={(e) => {
+                        e.preventDefault();
+                        listRef.current?.focus();
+                    }}
                     style={{ width: "var(--radix-popover-trigger-width)" }}
                     className={cn(
                         "z-50 overflow-hidden rounded-lg border border-nb-gray-900 bg-nb-gray-935 p-1 text-nb-gray-200 shadow-lg select-none wails-no-draggable",
@@ -72,8 +86,17 @@ export const MainExitNodeSwitcher = () => {
                         "data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
                     )}
                 >
-                    <Command loop shouldFilter={false} onKeyDown={(e) => e.stopPropagation()}>
-                        <Command.List>
+                    <Command
+                        loop
+                        shouldFilter={false}
+                        onKeyDown={(e) => e.stopPropagation()}
+                        className={"outline-none focus:outline-none focus-visible:outline-none"}
+                    >
+                        <Command.List
+                            ref={listRef}
+                            aria-label={t("exitNodes.dropdown.trigger")}
+                            className={"outline-none focus:outline-none focus-visible:outline-none"}
+                        >
                             <NoneRow isActive={!active} onSelect={() => handleSelect(NONE_VALUE)} />
                             {hasAny && <div className={"-mx-1 my-1 h-px bg-nb-gray-910"} />}
                             {hasAny && (
@@ -127,12 +150,14 @@ const ExitNodeTriggerCard = forwardRef<HTMLButtonElement, TriggerProps>(
             <button
                 ref={ref}
                 type={"button"}
+                tabIndex={0}
                 disabled={disabled}
                 className={cn(
                     "w-full flex items-center gap-3 p-2.5 pr-5 rounded-xl outline-none text-left",
                     "border border-nb-gray-920 bg-nb-gray-940",
                     "transition-colors duration-150",
                     "wails-no-draggable",
+                    "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                     disabled
                         ? "opacity-60 cursor-not-allowed"
                         : "cursor-default hover:bg-nb-gray-935 hover:border-nb-gray-900 data-[state=open]:bg-nb-gray-935 data-[state=open]:border-nb-gray-900",
