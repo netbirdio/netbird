@@ -138,26 +138,23 @@ func addProfileFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	currUser, err := user.Current()
+	if err != nil {
+		return fmt.Errorf("get current user: %w", err)
+	}
+
 	conn, err := DialClientGRPCServer(cmd.Context(), daemonAddr)
 	if err != nil {
 		return fmt.Errorf("connect to service CLI interface: %w", err)
 	}
 	defer conn.Close()
 
-	currUser, err := user.Current()
-	if err != nil {
-		return fmt.Errorf("get current user: %w", err)
-	}
-
 	daemonClient := proto.NewDaemonServiceClient(conn)
 	profileName := args[0]
 
-	resp, err := daemonClient.AddProfile(cmd.Context(), &proto.AddProfileRequest{
-		ProfileName: profileName,
-		Username:    currUser.Username,
-	})
+	id, err := addProfileOnDaemon(cmd.Context(), daemonClient, profileName, currUser.Username)
 	if err != nil {
-		return fmt.Errorf("add profile request: %w", err)
+		return err
 	}
 
 	dupCount, _ := countProfilesWithName(cmd.Context(), daemonClient, currUser.Username, profileName)
@@ -166,7 +163,6 @@ func addProfileFunc(cmd *cobra.Command, args []string) error {
 		cmd.Println("Use `netbird profile list --show-id` to disambiguate later.")
 	}
 
-	id := profilemanager.ID(resp.Id)
 	cmd.Printf("Profile added: %s  %s\n", id.ShortID(), profilemanager.StripCtrlChars(profileName))
 	return nil
 
@@ -329,4 +325,20 @@ func wrapAmbiguityError(err error, handle string) error {
 		return fmt.Errorf("profile %q not found", handle)
 	}
 	return err
+}
+
+// addProfileOnDaemon issues the AddProfile RPC on an existing daemon client
+// and returns the new profile's ID. It is the single entry point for profile
+// creation, shared by `netbird profile add` and the `netbird up --profile
+// <name>` auto-create path.
+func addProfileOnDaemon(ctx context.Context, client proto.DaemonServiceClient, profileName, username string) (profilemanager.ID, error) {
+	resp, err := client.AddProfile(ctx, &proto.AddProfileRequest{
+		ProfileName: profileName,
+		Username:    username,
+	})
+	if err != nil {
+		return "", fmt.Errorf("add profile failed: %w", err)
+	}
+
+	return profilemanager.ID(resp.Id), nil
 }
