@@ -982,8 +982,6 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 	var peer *nbpeer.Peer
 	var updated, versionChanged, ipv6CapabilityChanged bool
 	var err error
-	var postureChecks []*posture.Checks
-	var peerGroupIDs []string
 
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
@@ -1011,11 +1009,6 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 			return status.NewPeerLoginExpiredError()
 		}
 
-		peerGroupIDs, err = getPeerGroupIDs(ctx, transaction, accountID, peer.ID)
-		if err != nil {
-			return err
-		}
-
 		oldHasIPv6Cap := peer.HasCapability(nbpeer.PeerCapabilityIPv6Overlay)
 		updated, versionChanged = peer.UpdateMetaIfNew(ctx, sync.Meta)
 		ipv6CapabilityChanged = oldHasIPv6Cap != peer.HasCapability(nbpeer.PeerCapabilityIPv6Overlay)
@@ -1025,14 +1018,14 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 			if err = transaction.SavePeer(ctx, accountID, peer); err != nil {
 				return err
 			}
-
-			postureChecks, err = getPeerPostureChecks(ctx, transaction, accountID, peer.ID)
-			if err != nil {
-				return err
-			}
 		}
 		return nil
 	})
+	if err != nil {
+		return nil, nil, nil, 0, err
+	}
+
+	peerGroupIDs, err := getPeerGroupIDs(ctx, am.Store, accountID, peer.ID)
 	if err != nil {
 		return nil, nil, nil, 0, err
 	}
@@ -1047,9 +1040,9 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 		return nil, nil, nil, 0, err
 	}
 
-	if isStatusChanged || sync.UpdateAccountPeers || ipv6CapabilityChanged || (updated && (len(postureChecks) > 0 || versionChanged)) {
+	if isStatusChanged || sync.UpdateAccountPeers || ipv6CapabilityChanged || (updated && (len(resPostureChecks) > 0 || versionChanged)) {
 		changedPeerIDs := []string{peer.ID}
-		affectedPeerIDs := am.syncPeerAffectedPeers(ctx, accountID, peer.ID, nmap, peerNotValid, updated, len(postureChecks) > 0)
+		affectedPeerIDs := am.syncPeerAffectedPeers(ctx, accountID, peer.ID, nmap, peerNotValid, updated, len(resPostureChecks) > 0)
 		if err = am.networkMapController.OnPeersUpdated(ctx, accountID, changedPeerIDs, affectedPeerIDs); err != nil {
 			return nil, nil, nil, 0, fmt.Errorf("notify network map controller of peer update: %w", err)
 		}
@@ -1155,11 +1148,6 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 			}
 		}
 
-		peerGroupIDs, err = getPeerGroupIDs(ctx, transaction, accountID, peer.ID)
-		if err != nil {
-			return err
-		}
-
 		if peer.SSHKey != login.SSHKey {
 			peer.SSHKey = login.SSHKey
 			shouldStorePeer = true
@@ -1175,11 +1163,16 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 			}
 		}
 
-		// This is needed to keep in memory for the peer config. Otherwise browser client will end in a retry loop
-		peer.UpdateMetaIfNew(ctx, login.Meta)
-
 		return nil
 	})
+	if err != nil {
+		return nil, nil, nil, false, err
+	}
+
+	// This is needed to keep in memory for the peer config. Otherwise browser client will end in a retry loop
+	peer.UpdateMetaIfNew(ctx, login.Meta)
+
+	peerGroupIDs, err = getPeerGroupIDs(ctx, am.Store, accountID, peer.ID)
 	if err != nil {
 		return nil, nil, nil, false, err
 	}
@@ -1290,12 +1283,22 @@ func getPeerLoginInfo(ctx context.Context, transaction store.Store, accountID st
 		return network, nil, false, nil
 	}
 
-	postureChecks, err := getPeerPostureChecks(ctx, transaction, accountID, peer.ID)
+	policies, err := transaction.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, nil, false, err
 	}
 
-	enableSSH, err := isPeerSSHEnabled(ctx, transaction, accountID, peer)
+	peerGroupIDs, err := transaction.GetPeerGroupIDs(ctx, store.LockingStrengthNone, accountID, peer.ID)
+	if err != nil {
+		return nil, nil, false, err
+	}
+
+	postureChecks, err := getPeerPostureChecks(ctx, transaction, accountID, peerGroupIDs, policies)
+	if err != nil {
+		return nil, nil, false, err
+	}
+
+	enableSSH, err := isPeerSSHEnabled(ctx, peer, policies, peerGroupIDs)
 	if err != nil {
 		return nil, nil, false, err
 	}
@@ -1303,32 +1306,16 @@ func getPeerLoginInfo(ctx context.Context, transaction store.Store, accountID st
 	return network, postureChecks, enableSSH, nil
 }
 
-func isPeerSSHEnabled(ctx context.Context, transaction store.Store, accountID string, peer *nbpeer.Peer) (bool, error) {
-	policies, err := transaction.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
-	if err != nil {
-		return false, err
+func isPeerSSHEnabled(ctx context.Context, peer *nbpeer.Peer, policies []*types.Policy, peerGroupIDs []string) (bool, error) {
+	groupIDsMap := make(map[string]struct{}, len(peerGroupIDs))
+	for _, peerID := range peerGroupIDs {
+		groupIDsMap[peerID] = struct{}{}
 	}
-
-	peerGroups, err := transaction.GetPeerGroups(ctx, store.LockingStrengthNone, accountID, peer.ID)
-	if err != nil {
-		return false, err
-	}
-
-	peerGroupIDs := make(map[string]struct{}, len(peerGroups))
-	for _, g := range peerGroups {
-		peerGroupIDs[g.ID] = struct{}{}
-	}
-
-	return types.PeerSSHEnabledFromPolicies(policies, peer.ID, peerGroupIDs, peer.SSHEnabled), nil
+	return types.PeerSSHEnabledFromPolicies(policies, peer.ID, groupIDsMap, peer.SSHEnabled), nil
 }
 
 // getPeerPostureChecks returns the posture checks for the peer.
-func getPeerPostureChecks(ctx context.Context, transaction store.Store, accountID, peerID string) ([]*posture.Checks, error) {
-	policies, err := transaction.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
-	if err != nil {
-		return nil, err
-	}
-
+func getPeerPostureChecks(ctx context.Context, transaction store.Store, accountID string, peerGroupIDs []string, policies []*types.Policy) ([]*posture.Checks, error) {
 	if len(policies) == 0 {
 		return nil, nil
 	}
@@ -1340,11 +1327,7 @@ func getPeerPostureChecks(ctx context.Context, transaction store.Store, accountI
 			continue
 		}
 
-		postureChecksIDs, err := processPeerPostureChecks(ctx, transaction, policy, accountID, peerID)
-		if err != nil {
-			return nil, err
-		}
-
+		postureChecksIDs := processPeerPostureChecks(policy, peerGroupIDs)
 		peerPostureChecksIDs = append(peerPostureChecksIDs, postureChecksIDs...)
 	}
 
@@ -1357,29 +1340,19 @@ func getPeerPostureChecks(ctx context.Context, transaction store.Store, accountI
 }
 
 // processPeerPostureChecks checks if the peer is in the source group of the policy and returns the posture checks.
-func processPeerPostureChecks(ctx context.Context, transaction store.Store, policy *types.Policy, accountID, peerID string) ([]string, error) {
+func processPeerPostureChecks(policy *types.Policy, peerGroupIDs []string) []string {
 	for _, rule := range policy.Rules {
 		if !rule.Enabled {
 			continue
 		}
 
-		sourceGroups, err := transaction.GetGroupsByIDs(ctx, store.LockingStrengthNone, accountID, rule.Sources)
-		if err != nil {
-			return nil, err
-		}
-
 		for _, sourceGroup := range rule.Sources {
-			group, ok := sourceGroups[sourceGroup]
-			if !ok {
-				return nil, fmt.Errorf("failed to check peer in policy source group")
-			}
-
-			if slices.Contains(group.Peers, peerID) {
-				return policy.SourcePostureChecks, nil
+			if slices.Contains(peerGroupIDs, sourceGroup) {
+				return policy.SourcePostureChecks
 			}
 		}
 	}
-	return nil, nil
+	return nil
 }
 
 // checkIFPeerNeedsLoginWithoutLock checks if the peer needs login without acquiring the account lock. The check validate if the peer was not added via SSO
