@@ -248,7 +248,7 @@ func switchOrCreateProfile(ctx context.Context, pm *profilemanager.ProfileManage
 		// have created the profile between the NotFound above and this
 		// call, in which case the retried switch still succeeds. Only
 		// surface the create error if the switch also fails.
-		createErr := createProfile(ctx, handle, username)
+		_, createErr := createProfile(ctx, handle, username)
 		if resolvedID, err = switchProfile(ctx, handle, username); err != nil {
 			if createErr != nil {
 				return fmt.Errorf("create profile: %w", createErr)
@@ -264,13 +264,14 @@ func switchOrCreateProfile(ctx context.Context, pm *profilemanager.ProfileManage
 }
 
 // createProfile asks the daemon to create a new profile with the given
-// display name. Helpful for `netbird up --profile <name>` which
-// auto-creates a missing profile.
-func createProfile(ctx context.Context, profileName, username string) error {
+// display name and returns its generated ID. It is the single entry point
+// for profile creation, shared by `netbird profile add` and the
+// `netbird up --profile <name>` auto-create path.
+func createProfile(ctx context.Context, profileName, username string) (profilemanager.ID, error) {
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
 		//nolint
-		return fmt.Errorf("failed to connect to daemon error: %v\n"+
+		return "", fmt.Errorf("failed to connect to daemon error: %v\n"+
 			"If the daemon is not running please run: "+
 			"\nnetbird service install \nnetbird service start\n", err)
 	}
@@ -278,14 +279,15 @@ func createProfile(ctx context.Context, profileName, username string) error {
 
 	client := proto.NewDaemonServiceClient(conn)
 
-	if _, err := client.AddProfile(ctx, &proto.AddProfileRequest{
+	resp, err := client.AddProfile(ctx, &proto.AddProfileRequest{
 		ProfileName: profileName,
 		Username:    username,
-	}); err != nil {
-		return fmt.Errorf("add profile failed: %w", err)
+	})
+	if err != nil {
+		return "", fmt.Errorf("add profile failed: %w", err)
 	}
 
-	return nil
+	return profilemanager.ID(resp.Id), nil
 }
 
 func doForegroundLogin(ctx context.Context, cmd *cobra.Command, setupKey string, activeProf *profilemanager.Profile) error {

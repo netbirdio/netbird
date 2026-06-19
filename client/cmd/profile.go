@@ -138,35 +138,31 @@ func addProfileFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	currUser, err := user.Current()
+	if err != nil {
+		return fmt.Errorf("get current user: %w", err)
+	}
+
+	profileName := args[0]
+
+	id, err := createProfile(cmd.Context(), profileName, currUser.Username)
+	if err != nil {
+		return err
+	}
+
 	conn, err := DialClientGRPCServer(cmd.Context(), daemonAddr)
 	if err != nil {
 		return fmt.Errorf("connect to service CLI interface: %w", err)
 	}
 	defer conn.Close()
 
-	currUser, err := user.Current()
-	if err != nil {
-		return fmt.Errorf("get current user: %w", err)
-	}
-
 	daemonClient := proto.NewDaemonServiceClient(conn)
-	profileName := args[0]
-
-	resp, err := daemonClient.AddProfile(cmd.Context(), &proto.AddProfileRequest{
-		ProfileName: profileName,
-		Username:    currUser.Username,
-	})
-	if err != nil {
-		return fmt.Errorf("add profile request: %w", err)
-	}
-
 	dupCount, _ := countProfilesWithName(cmd.Context(), daemonClient, currUser.Username, profileName)
 	if dupCount > 1 {
 		cmd.Printf("Warning: %d other profile(s) already use the name %q.\n", dupCount-1, profileName)
 		cmd.Println("Use `netbird profile list --show-id` to disambiguate later.")
 	}
 
-	id := profilemanager.ID(resp.Id)
 	cmd.Printf("Profile added: %s  %s\n", id.ShortID(), profilemanager.StripCtrlChars(profileName))
 	return nil
 
