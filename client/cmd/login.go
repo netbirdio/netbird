@@ -233,68 +233,6 @@ func switchProfile(ctx context.Context, handle string, username string) (profile
 	return profilemanager.ID(resp.Id), nil
 }
 
-// switchOrCreateProfile switches the active profile to the one identified by
-// handle, creating it first when it does not exist yet. This restores the
-// pre-0.73 behaviour where `netbird up --profile <name>` auto-creates a
-// missing profile instead of failing.
-func switchOrCreateProfile(ctx context.Context, pm *profilemanager.ProfileManager, handle, username string) error {
-	resolvedID, err := switchProfile(ctx, handle, username)
-	if err != nil {
-		st, ok := gstatus.FromError(err)
-		if !ok || st.Code() != codes.NotFound {
-			return err
-		}
-		// Don't fail immediately on a create error: a concurrent run may
-		// have created the profile between the NotFound above and this
-		// call, in which case the retried switch still succeeds. Only
-		// surface the create error if the switch also fails.
-		_, createErr := createProfile(ctx, handle, username)
-		if resolvedID, err = switchProfile(ctx, handle, username); err != nil {
-			if createErr != nil {
-				return fmt.Errorf("create profile: %w", createErr)
-			}
-			return err
-		}
-	}
-
-	if err := pm.SwitchProfile(resolvedID); err != nil {
-		return err
-	}
-	return nil
-}
-
-// createProfile dials the daemon and creates a new profile with the given
-// display name, returning its generated ID. Use addProfileOnDaemon directly
-// when a daemon client is already available to reuse the connection.
-func createProfile(ctx context.Context, profileName, username string) (profilemanager.ID, error) {
-	conn, err := DialClientGRPCServer(ctx, daemonAddr)
-	if err != nil {
-		//nolint
-		return "", fmt.Errorf("failed to connect to daemon error: %v\n"+
-			"If the daemon is not running please run: "+
-			"\nnetbird service install \nnetbird service start\n", err)
-	}
-	defer conn.Close()
-
-	return addProfileOnDaemon(ctx, proto.NewDaemonServiceClient(conn), profileName, username)
-}
-
-// addProfileOnDaemon issues the AddProfile RPC on an existing daemon client
-// and returns the new profile's ID. It is the single entry point for profile
-// creation, shared by `netbird profile add` and the `netbird up --profile
-// <name>` auto-create path.
-func addProfileOnDaemon(ctx context.Context, client proto.DaemonServiceClient, profileName, username string) (profilemanager.ID, error) {
-	resp, err := client.AddProfile(ctx, &proto.AddProfileRequest{
-		ProfileName: profileName,
-		Username:    username,
-	})
-	if err != nil {
-		return "", fmt.Errorf("add profile failed: %w", err)
-	}
-
-	return profilemanager.ID(resp.Id), nil
-}
-
 func doForegroundLogin(ctx context.Context, cmd *cobra.Command, setupKey string, activeProf *profilemanager.Profile) error {
 
 	err := handleRebrand(cmd)

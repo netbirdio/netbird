@@ -145,6 +145,52 @@ func upFunc(cmd *cobra.Command, args []string) error {
 	return runInDaemonMode(ctx, cmd, pm, activeProf, profileSwitched)
 }
 
+// switchOrCreateProfile switches the active profile to the one identified by
+// handle, creating it first when it does not exist yet. This restores the
+// pre-0.73 behaviour where `netbird up --profile <name>` auto-creates a
+// missing profile instead of failing.
+func switchOrCreateProfile(ctx context.Context, pm *profilemanager.ProfileManager, handle, username string) error {
+	resolvedID, err := switchProfile(ctx, handle, username)
+	if err != nil {
+		st, ok := gstatus.FromError(err)
+		if !ok || st.Code() != codes.NotFound {
+			return err
+		}
+		// Don't fail immediately on a create error: a concurrent run may
+		// have created the profile between the NotFound above and this
+		// call, in which case the retried switch still succeeds. Only
+		// surface the create error if the switch also fails.
+		_, createErr := createProfile(ctx, handle, username)
+		if resolvedID, err = switchProfile(ctx, handle, username); err != nil {
+			if createErr != nil {
+				return fmt.Errorf("create profile: %w", createErr)
+			}
+			return err
+		}
+	}
+
+	if err := pm.SwitchProfile(resolvedID); err != nil {
+		return err
+	}
+	return nil
+}
+
+// createProfile dials the daemon and creates a new profile with the given
+// display name, returning its generated ID. Use addProfileOnDaemon directly
+// when a daemon client is already available to reuse the connection.
+func createProfile(ctx context.Context, profileName, username string) (profilemanager.ID, error) {
+	conn, err := DialClientGRPCServer(ctx, daemonAddr)
+	if err != nil {
+		//nolint
+		return "", fmt.Errorf("failed to connect to daemon error: %v\n"+
+			"If the daemon is not running please run: "+
+			"\nnetbird service install \nnetbird service start\n", err)
+	}
+	defer conn.Close()
+
+	return addProfileOnDaemon(ctx, proto.NewDaemonServiceClient(conn), profileName, username)
+}
+
 func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *profilemanager.Profile) error {
 	// override the default profile filepath if provided
 	if configPath != "" {

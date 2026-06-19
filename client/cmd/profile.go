@@ -326,3 +326,19 @@ func wrapAmbiguityError(err error, handle string) error {
 	}
 	return err
 }
+
+// addProfileOnDaemon issues the AddProfile RPC on an existing daemon client
+// and returns the new profile's ID. It is the single entry point for profile
+// creation, shared by `netbird profile add` and the `netbird up --profile
+// <name>` auto-create path.
+func addProfileOnDaemon(ctx context.Context, client proto.DaemonServiceClient, profileName, username string) (profilemanager.ID, error) {
+	resp, err := client.AddProfile(ctx, &proto.AddProfileRequest{
+		ProfileName: profileName,
+		Username:    username,
+	})
+	if err != nil {
+		return "", fmt.Errorf("add profile failed: %w", err)
+	}
+
+	return profilemanager.ID(resp.Id), nil
+}
