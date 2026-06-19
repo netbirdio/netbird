@@ -111,8 +111,11 @@ nfpms:
         dst: /usr/share/pixmaps/netbird.png
     dependencies:
       - netbird
-      - gtk4
-      - webkitgtk6.0
+      # Depend on auto-generated soname capabilities, not distro package names:
+      # Fedora gtk4/webkitgtk6.0, OpenSUSE libgtk-4-1/libwebkitgtk-6_0-4 and
+      # RHEL 10 (EPEL) all Provide these, so one RPM resolves everywhere they exist.
+      - libgtk-4.so.1()(64bit)
+      - libwebkitgtk-6.0.so.4()(64bit)
     rpm:
       signature:
         key_file: '{{ if index .Env "GPG_RPM_KEY_FILE" }}{{ .Env.GPG_RPM_KEY_FILE }}{{ end }}'
