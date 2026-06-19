@@ -391,14 +391,14 @@ func (c *CombinedConfig) autoConfigureClientSettings(exposedProto, exposedHost, 
 		// Use external STUN servers from server config
 		c.Management.Stuns = c.Server.Stuns
 		// If force-enabling local STUN, append local STUN addresses
-		if c.Server.EnableLocalSTUN && len(c.Server.StunPorts) > 0 {
+		if c.Server.EnableLocalSTUN && c.Relay.Stun.Enabled && len(c.Server.StunPorts) > 0 {
 			for _, port := range c.Server.StunPorts {
 				c.Management.Stuns = append(c.Management.Stuns, HostConfig{
 					URI: "stun:" + net.JoinHostPort(strings.Trim(exposedHost, "[]"), fmt.Sprintf("%d", port)),
 				})
 			}
 		}
-	} else if len(c.Server.StunPorts) > 0 && len(c.Management.Stuns) == 0 {
+	} else if c.Relay.Stun.Enabled && len(c.Server.StunPorts) > 0 && len(c.Management.Stuns) == 0 {
 		// Auto-configure local STUN servers for all ports
 		for _, port := range c.Server.StunPorts {
 			c.Management.Stuns = append(c.Management.Stuns, HostConfig{
