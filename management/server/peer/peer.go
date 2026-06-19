@@ -6,7 +6,6 @@ import (
 	"net"
 	"net/netip"
 	"slices"
-	"sort"
 	"strings"
 	"time"
 
@@ -355,27 +354,35 @@ func metaDiff(oldMeta, newMeta PeerSystemMeta) []string {
 		add("capabilities", oldMeta.Capabilities, newMeta.Capabilities)
 	}
 
-	oldAddrs := slices.Clone(oldMeta.NetworkAddresses)
-	newAddrs := slices.Clone(newMeta.NetworkAddresses)
-	sort.Slice(oldAddrs, func(i, j int) bool { return oldAddrs[i].Mac < oldAddrs[j].Mac })
-	sort.Slice(newAddrs, func(i, j int) bool { return newAddrs[i].Mac < newAddrs[j].Mac })
-	if !slices.EqualFunc(oldAddrs, newAddrs, func(a, b NetworkAddress) bool {
-		return a.Mac == b.Mac && a.NetIP == b.NetIP
-	}) {
-		add("network_addresses", fmt.Sprintf("%v", oldAddrs), fmt.Sprintf("%v", newAddrs))
+	if !sameMultiset(oldMeta.NetworkAddresses, newMeta.NetworkAddresses) {
+		add("network_addresses", fmt.Sprintf("%v", oldMeta.NetworkAddresses), fmt.Sprintf("%v", newMeta.NetworkAddresses))
 	}
 
-	oldFiles := slices.Clone(oldMeta.Files)
-	newFiles := slices.Clone(newMeta.Files)
-	sort.Slice(oldFiles, func(i, j int) bool { return oldFiles[i].Path < oldFiles[j].Path })
-	sort.Slice(newFiles, func(i, j int) bool { return newFiles[i].Path < newFiles[j].Path })
-	if !slices.EqualFunc(oldFiles, newFiles, func(a, b File) bool {
-		return a.Path == b.Path && a.Exist == b.Exist && a.ProcessIsRunning == b.ProcessIsRunning
-	}) {
-		add("files", fmt.Sprintf("%v", oldFiles), fmt.Sprintf("%v", newFiles))
+	if !sameMultiset(oldMeta.Files, newMeta.Files) {
+		add("files", fmt.Sprintf("%v", oldMeta.Files), fmt.Sprintf("%v", newMeta.Files))
 	}
 
 	return diff
+}
+
+// sameMultiset reports whether two slices contain the same elements with the
+// same multiplicity, ignoring order. The element type is the comparison key, so
+// every field participates in equality.
+func sameMultiset[T comparable](a, b []T) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	counts := make(map[T]int, len(a))
+	for _, v := range a {
+		counts[v]++
+	}
+	for _, v := range b {
+		counts[v]--
+		if counts[v] == 0 {
+			delete(counts, v)
+		}
+	}
+	return len(counts) == 0
 }
 
 // GetLastLogin returns the last login time of the peer.
