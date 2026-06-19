@@ -140,6 +140,7 @@ func setupIntegrationTest(t *testing.T) *integrationTestSetup {
 		oidcConfig,
 		nil,
 		usersManager,
+		nil,
 		proxyManager,
 		nil,
 	)
