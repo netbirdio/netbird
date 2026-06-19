@@ -128,25 +128,9 @@ func upFunc(cmd *cobra.Command, args []string) error {
 	var profileSwitched bool
 	// switch profile if provided
 	if profileName != "" {
-		resolvedID, err := switchProfile(cmd.Context(), profileName, username.Username)
-		if err != nil {
-			//`netbird up --profile <name>`
-			// auto-creates the profile when it does not exist yet.
-			if st, ok := gstatus.FromError(err); ok && st.Code() == codes.NotFound {
-				if cerr := createProfile(cmd.Context(), profileName, username.Username); cerr != nil {
-					return fmt.Errorf("create profile: %v", cerr)
-				}
-				resolvedID, err = switchProfile(cmd.Context(), profileName, username.Username)
-			}
-			if err != nil {
-				return fmt.Errorf("switch profile: %v", err)
-			}
-		}
-
-		if err := pm.SwitchProfile(resolvedID); err != nil {
+		if err := switchOrCreateProfile(cmd.Context(), pm, profileName, username.Username); err != nil {
 			return fmt.Errorf("switch profile: %v", err)
 		}
-
 		profileSwitched = true
 	}
 

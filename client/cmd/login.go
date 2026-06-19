@@ -233,6 +233,31 @@ func switchProfile(ctx context.Context, handle string, username string) (profile
 	return profilemanager.ID(resp.Id), nil
 }
 
+// switchOrCreateProfile switches the active profile to the one identified by
+// handle, creating it first when it does not exist yet. This restores the
+// pre-0.73 behaviour where `netbird up --profile <name>` auto-creates a
+// missing profile instead of failing.
+func switchOrCreateProfile(ctx context.Context, pm *profilemanager.ProfileManager, handle, username string) error {
+	resolvedID, err := switchProfile(ctx, handle, username)
+	if err != nil {
+		st, ok := gstatus.FromError(err)
+		if !ok || st.Code() != codes.NotFound {
+			return err
+		}
+		if cerr := createProfile(ctx, handle, username); cerr != nil {
+			return fmt.Errorf("create profile: %v", cerr)
+		}
+		if resolvedID, err = switchProfile(ctx, handle, username); err != nil {
+			return err
+		}
+	}
+
+	if err := pm.SwitchProfile(resolvedID); err != nil {
+		return err
+	}
+	return nil
+}
+
 // createProfile asks the daemon to create a new profile with the given
 // display name. Helpful for `netbird up --profile <name>` which
 // auto-creates a missing profile.
