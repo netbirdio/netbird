@@ -304,7 +304,7 @@ func switchProfile(ctx context.Context, handle string, username string) (profile
 		Username:    &username,
 	})
 	if err != nil {
-		return "", fmt.Errorf("switch profile failed: %v", err)
+		return "", fmt.Errorf("switch profile failed: %w", err)
 	}
 
 	return profilemanager.ID(resp.Id), nil
