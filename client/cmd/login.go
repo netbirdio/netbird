@@ -244,10 +244,15 @@ func switchOrCreateProfile(ctx context.Context, pm *profilemanager.ProfileManage
 		if !ok || st.Code() != codes.NotFound {
 			return err
 		}
-		if cerr := createProfile(ctx, handle, username); cerr != nil {
-			return fmt.Errorf("create profile: %v", cerr)
-		}
+		// Don't fail immediately on a create error: a concurrent run may
+		// have created the profile between the NotFound above and this
+		// call, in which case the retried switch still succeeds. Only
+		// surface the create error if the switch also fails.
+		createErr := createProfile(ctx, handle, username)
 		if resolvedID, err = switchProfile(ctx, handle, username); err != nil {
+			if createErr != nil {
+				return fmt.Errorf("create profile: %w", createErr)
+			}
 			return err
 		}
 	}
