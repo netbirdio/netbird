@@ -263,10 +263,9 @@ func switchOrCreateProfile(ctx context.Context, pm *profilemanager.ProfileManage
 	return nil
 }
 
-// createProfile asks the daemon to create a new profile with the given
-// display name and returns its generated ID. It is the single entry point
-// for profile creation, shared by `netbird profile add` and the
-// `netbird up --profile <name>` auto-create path.
+// createProfile dials the daemon and creates a new profile with the given
+// display name, returning its generated ID. Use addProfileOnDaemon directly
+// when a daemon client is already available to reuse the connection.
 func createProfile(ctx context.Context, profileName, username string) (profilemanager.ID, error) {
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
@@ -277,8 +276,14 @@ func createProfile(ctx context.Context, profileName, username string) (profilema
 	}
 	defer conn.Close()
 
-	client := proto.NewDaemonServiceClient(conn)
+	return addProfileOnDaemon(ctx, proto.NewDaemonServiceClient(conn), profileName, username)
+}
 
+// addProfileOnDaemon issues the AddProfile RPC on an existing daemon client
+// and returns the new profile's ID. It is the single entry point for profile
+// creation, shared by `netbird profile add` and the `netbird up --profile
+// <name>` auto-create path.
+func addProfileOnDaemon(ctx context.Context, client proto.DaemonServiceClient, profileName, username string) (profilemanager.ID, error) {
 	resp, err := client.AddProfile(ctx, &proto.AddProfileRequest{
 		ProfileName: profileName,
 		Username:    username,

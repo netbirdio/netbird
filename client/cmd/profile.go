@@ -143,13 +143,6 @@ func addProfileFunc(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("get current user: %w", err)
 	}
 
-	profileName := args[0]
-
-	id, err := createProfile(cmd.Context(), profileName, currUser.Username)
-	if err != nil {
-		return err
-	}
-
 	conn, err := DialClientGRPCServer(cmd.Context(), daemonAddr)
 	if err != nil {
 		return fmt.Errorf("connect to service CLI interface: %w", err)
@@ -157,6 +150,13 @@ func addProfileFunc(cmd *cobra.Command, args []string) error {
 	defer conn.Close()
 
 	daemonClient := proto.NewDaemonServiceClient(conn)
+	profileName := args[0]
+
+	id, err := addProfileOnDaemon(cmd.Context(), daemonClient, profileName, currUser.Username)
+	if err != nil {
+		return err
+	}
+
 	dupCount, _ := countProfilesWithName(cmd.Context(), daemonClient, currUser.Username, profileName)
 	if dupCount > 1 {
 		cmd.Printf("Warning: %d other profile(s) already use the name %q.\n", dupCount-1, profileName)
