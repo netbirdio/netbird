@@ -443,21 +443,25 @@ func (u *upstreamResolverBase) queryUpstream(parentCtx context.Context, r *dns.M
 		return raceResult{}, &upstreamFailure{upstream: upstream, reason: "no response"}
 	}
 
+	// A valid response means the upstream is reachable, whatever the Rcode.
+	u.markUpstreamOk(upstream)
+
 	proto := ""
 	if upstreamProto != nil {
 		proto = upstreamProto.protocol
 	}
 
 	if rm.Rcode == dns.RcodeServerFailure || rm.Rcode == dns.RcodeRefused {
+		// SERVFAIL and REFUSED are per-question outcomes (DNSSEC-bogus names,
+		// refused zones, transient recursion errors), not reachability
+		// problems: fail over for a better answer but keep the upstream healthy.
 		if code, ok := nonRetryableEDE(rm); ok {
 			if !hadEdns {
 				stripOPT(rm)
 			}
-			u.markUpstreamOk(upstream)
 			return raceResult{msg: rm, upstream: upstream, protocol: proto, ede: edeName(code)}, nil
 		}
 		reason := dns.RcodeToString[rm.Rcode]
-		u.markUpstreamFail(upstream, reason)
 		return raceResult{}, &upstreamFailure{upstream: upstream, reason: reason}
 	}
 
@@ -465,7 +469,6 @@ func (u *upstreamResolverBase) queryUpstream(parentCtx context.Context, r *dns.M
 		stripOPT(rm)
 	}
 
-	u.markUpstreamOk(upstream)
 	return raceResult{msg: rm, upstream: upstream, protocol: proto}, nil
 }
 
