@@ -1,5 +1,6 @@
 import {
     type ComponentType,
+    Fragment,
     type KeyboardEvent as ReactKeyboardEvent,
     type ReactNode,
     useCallback,
@@ -16,9 +17,11 @@ import {
     ArrowLeftIcon,
     ArrowUpDownIcon,
     ArrowUpIcon,
+    Check as CheckIcon,
     ChevronDownIcon,
     ChevronsLeftRightEllipsisIcon,
     ClockIcon,
+    Copy as CopyIcon,
     GaugeIcon,
     HandshakeIcon,
     KeyRoundIcon,
@@ -38,6 +41,7 @@ import { TruncatedText } from "@/components/TruncatedText";
 import { formatBytes, formatRelative, latencyColor, shortenDns } from "@/lib/formatters";
 import { useStatus } from "@/contexts/StatusContext";
 import { usePeerDetail } from "@/contexts/PeerDetailContext";
+import { useFocusVisible } from "@/hooks/useFocusVisible";
 import { peerStatusLabelKey } from "./Peers";
 
 const DEFAULT_TRANSITION: Transition = {
@@ -462,7 +466,7 @@ const ResourcesPopover = ({ networks }: { networks: string[] }) => {
                         "inline-flex shrink-0 items-center gap-1 rounded",
                         "bg-nb-gray-930 hover:bg-nb-gray-910/80 data-[state=open]:bg-nb-gray-910",
                         "border border-nb-gray-900",
-                        "px-2 py-1 text-xs font-medium text-nb-gray-300",
+                        "py-1 pl-2.5 pr-2 text-xs font-medium text-nb-gray-300",
                         "wails-no-draggable cursor-default outline-none transition-all",
                         "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                     )}
@@ -482,29 +486,61 @@ const ResourcesPopover = ({ networks }: { networks: string[] }) => {
                     sideOffset={6}
                     onOpenAutoFocus={(e) => e.preventDefault()}
                     className={cn(
-                        "z-50 max-h-72 max-w-[18rem] overflow-auto",
+                        "z-50 max-h-72 min-w-64 max-w-[280px] overflow-auto",
                         "rounded-lg border border-nb-gray-900 bg-nb-gray-935",
-                        "p-2 pr-4 shadow-lg outline-none",
+                        "p-1 text-nb-gray-200 shadow-lg outline-none",
+                        "flex flex-col",
                     )}
                 >
-                    <ul className={"flex flex-col"}>
-                        {networks.map((n) => (
-                            <li key={n}>
-                                <CopyToClipboard message={n} className={"px-1 py-0.5"}>
-                                    <span
-                                        className={
-                                            "whitespace-nowrap font-mono text-[0.72rem] text-nb-gray-200"
-                                        }
-                                    >
-                                        {n}
-                                    </span>
-                                </CopyToClipboard>
-                            </li>
-                        ))}
-                    </ul>
+                    {networks.map((n, i) => (
+                        <Fragment key={n}>
+                            {i > 0 && <div className={"-mx-1 my-1 h-px bg-nb-gray-910"} />}
+                            <ResourceRow value={n} />
+                        </Fragment>
+                    ))}
                 </Popover.Content>
             </Popover.Portal>
         </Popover.Root>
+    );
+};
+
+const ResourceRow = ({ value }: { value: string }) => {
+    const { t } = useTranslation();
+    const [copied, setCopied] = useState(false);
+    const isFocusVisible = useFocusVisible();
+    const handleClick = async () => {
+        if (!value) return;
+        try {
+            await navigator.clipboard.writeText(value);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 500);
+        } catch (e) {
+            console.warn("copy resource to clipboard failed", e);
+        }
+    };
+    return (
+        <button
+            type={"button"}
+            onClick={handleClick}
+            tabIndex={0}
+            aria-label={`${t("common.copy")} ${value}`}
+            className={cn(
+                "group/resourcerow relative flex items-center justify-between gap-3",
+                "rounded-md px-2 py-1.5 text-left",
+                "text-nb-gray-200 hover:bg-nb-gray-900 hover:text-nb-gray-50",
+                "cursor-default outline-none transition-colors",
+                isFocusVisible &&
+                    "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/60",
+            )}
+        >
+            <span className={"min-w-0 truncate font-mono text-[0.75rem]"}>{value}</span>
+            <span
+                aria-hidden={"true"}
+                className={"inline-flex shrink-0 items-center text-nb-gray-200"}
+            >
+                {copied ? <CheckIcon size={11} /> : <CopyIcon size={11} />}
+            </span>
+        </button>
     );
 };
 
