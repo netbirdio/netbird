@@ -227,10 +227,35 @@ func switchProfile(ctx context.Context, handle string, username string) (profile
 		Username:    &username,
 	})
 	if err != nil {
-		return "", fmt.Errorf("switch profile failed: %v", err)
+		return "", fmt.Errorf("switch profile failed: %w", err)
 	}
 
 	return profilemanager.ID(resp.Id), nil
+}
+
+// createProfile asks the daemon to create a new profile with the given
+// display name. Helpful for `netbird up --profile <name>` which
+// auto-creates a missing profile.
+func createProfile(ctx context.Context, profileName, username string) error {
+	conn, err := DialClientGRPCServer(ctx, daemonAddr)
+	if err != nil {
+		//nolint
+		return fmt.Errorf("failed to connect to daemon error: %v\n"+
+			"If the daemon is not running please run: "+
+			"\nnetbird service install \nnetbird service start\n", err)
+	}
+	defer conn.Close()
+
+	client := proto.NewDaemonServiceClient(conn)
+
+	if _, err := client.AddProfile(ctx, &proto.AddProfileRequest{
+		ProfileName: profileName,
+		Username:    username,
+	}); err != nil {
+		return fmt.Errorf("add profile failed: %w", err)
+	}
+
+	return nil
 }
 
 func doForegroundLogin(ctx context.Context, cmd *cobra.Command, setupKey string, activeProf *profilemanager.Profile) error {
