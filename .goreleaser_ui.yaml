@@ -90,6 +90,8 @@ nfpms:
       - netbird
       - libgtk-4-1
       - libwebkitgtk-6.0-4
+      # xdg-open is invoked at runtime to open links and reveal files.
+      - xdg-utils
 
   - maintainer: Netbird <dev@netbird.io>
     description: Netbird client UI.
@@ -116,6 +118,8 @@ nfpms:
       # RHEL 10 (EPEL) all Provide these, so one RPM resolves everywhere they exist.
       - libgtk-4.so.1()(64bit)
       - libwebkitgtk-6.0.so.4()(64bit)
+      # xdg-open is invoked at runtime to open links and reveal files.
+      - xdg-utils
     rpm:
       signature:
         key_file: '{{ if index .Env "GPG_RPM_KEY_FILE" }}{{ .Env.GPG_RPM_KEY_FILE }}{{ end }}'
