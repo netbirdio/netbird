@@ -36,7 +36,7 @@ import { cn } from "@/lib/cn";
 import { reconcileOrder } from "@/lib/sorting";
 import { errorDialog, formatErrorMessage } from "@/lib/errors";
 
-const DEFAULT_PROFILE = "default";
+const DEFAULT_PROFILE_ID = "default";
 
 export function ProfilesTab() {
     const { t } = useTranslation();
@@ -114,7 +114,7 @@ export function ProfilesTab() {
     };
 
     const handleDelete = async (id: string, name: string) => {
-        if (name === DEFAULT_PROFILE) return;
+        if (id === DEFAULT_PROFILE_ID) return;
         const ok = await confirm({
             title: t("profile.delete.title", { name }),
             description: t("profile.delete.message", { name }),
@@ -444,7 +444,7 @@ const ProfileRow = ({
                 <RowActions
                     canSwitch={!isActive}
                     canDeregister={!!profile.email}
-                    isDefault={profile.name === DEFAULT_PROFILE}
+                    isDefault={profile.id === DEFAULT_PROFILE_ID}
                     isActive={isActive}
                     rowFocused={isFocused}
                     onSwitch={onSwitch}
