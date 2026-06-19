@@ -21,7 +21,8 @@ AWK_FIRST_FIELD='{print $1}'
 
 fetch_all_tags() {
     curl -sL "https://github.com/${GITHUB_REPO}/tags" 2>/dev/null | \
-        grep -oE '/releases/tag/v[0-9]+\.[0-9]+\.[0-9]+' | \
+        grep -oE '/releases/tag/v[0-9]+\.[0-9]+\.[0-9]+([^"]+)?' | \
+        grep -iv 'rc' | \
         sed 's/.*\/v//' | \
         sort -u -V
     return 0
