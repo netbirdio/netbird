@@ -33,7 +33,6 @@ fetch_all_tags() {
     # Fetch tags from GitHub tags page (no rate limiting, no auth needed)
     curl -sL "https://github.com/${GITHUB_REPO}/tags" 2>/dev/null | \
         grep -oE '/releases/tag/v[0-9]+\.[0-9]+\.[0-9]+([^"]+)?' | \
-        grep -v 'rc' | \
         sed 's/.*\/v//' | \
         sort -u -V
     return 0
