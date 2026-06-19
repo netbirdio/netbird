@@ -62,9 +62,11 @@ type ServerConfig struct {
 	// External service overrides (simplified mode)
 	// When these are set, the corresponding local service is NOT started
 	// and these values are used for client configuration instead
-	Stuns     []HostConfig `yaml:"stuns"`     // External STUN servers (disables local STUN)
-	Relays    RelaysConfig `yaml:"relays"`    // External relay servers (disables local relay)
-	SignalURI string       `yaml:"signalUri"` // External signal server (disables local signal)
+	Stuns             []HostConfig `yaml:"stuns"`             // External STUN servers (disables local STUN)
+	Relays            RelaysConfig `yaml:"relays"`            // External relay servers (disables local relay)
+	SignalURI         string       `yaml:"signalUri"`         // External signal server (disables local signal)
+	EnableLocalSTUN   bool         `yaml:"enableLocalSTUN"`   // Force enable local STUN alongside external STUN
+	EnableLocalRelay  bool         `yaml:"enableLocalRelay"`  // Force enable local relay alongside external relay
 
 	// Management settings (simplified mode)
 	DisableAnonymousMetrics bool               `yaml:"disableAnonymousMetrics"`
@@ -301,7 +303,7 @@ func (c *CombinedConfig) ApplySimplifiedDefaults() {
 
 // applyRelayDefaults configures the relay service if no external relay is configured.
 func (c *CombinedConfig) applyRelayDefaults(exposedProto, exposedHostPort string, hasExternalRelay, hasExternalStuns bool) {
-	if hasExternalRelay {
+	if hasExternalRelay && !c.Server.EnableLocalRelay {
 		return
 	}
 
@@ -316,8 +318,9 @@ func (c *CombinedConfig) applyRelayDefaults(exposedProto, exposedHostPort string
 		c.Relay.LogLevel = c.Server.LogLevel
 	}
 
-	// Enable local STUN only if no external STUN servers and stunPorts are configured
-	if !hasExternalStuns && len(c.Server.StunPorts) > 0 {
+	// Enable local STUN if no external STUN servers and stunPorts are configured,
+	// or if force-enabled via EnableLocalSTUN
+	if (c.Server.EnableLocalSTUN || !hasExternalStuns) && len(c.Server.StunPorts) > 0 {
 		c.Relay.Stun.Enabled = true
 		c.Relay.Stun.Ports = c.Server.StunPorts
 		if c.Relay.Stun.LogLevel == "" {
@@ -381,6 +384,14 @@ func (c *CombinedConfig) autoConfigureClientSettings(exposedProto, exposedHost, 
 	if hasExternalStuns {
 		// Use external STUN servers from server config
 		c.Management.Stuns = c.Server.Stuns
+		// If force-enabling local STUN, append local STUN addresses
+		if c.Server.EnableLocalSTUN && len(c.Server.StunPorts) > 0 {
+			for _, port := range c.Server.StunPorts {
+				c.Management.Stuns = append(c.Management.Stuns, HostConfig{
+					URI: "stun:" + net.JoinHostPort(strings.Trim(exposedHost, "[]"), fmt.Sprintf("%d", port)),
+				})
+			}
+		}
 	} else if len(c.Server.StunPorts) > 0 && len(c.Management.Stuns) == 0 {
 		// Auto-configure local STUN servers for all ports
 		for _, port := range c.Server.StunPorts {
@@ -394,6 +405,10 @@ func (c *CombinedConfig) autoConfigureClientSettings(exposedProto, exposedHost, 
 	if hasExternalRelay {
 		// Use external relay config from server
 		c.Management.Relays = c.Server.Relays
+		// If force-enabling local relay, append local relay address
+		if c.Server.EnableLocalRelay {
+			c.Management.Relays.Addresses = append(c.Management.Relays.Addresses, fmt.Sprintf("%s://%s", relayProto, exposedHostPort))
+		}
 	} else if len(c.Management.Relays.Addresses) == 0 {
 		// Auto-configure local relay
 		c.Management.Relays.Addresses = []string{
@@ -462,8 +477,9 @@ func (c *CombinedConfig) Validate() error {
 	}
 
 	// authSecret is required only if running local relay (no external relay configured)
+	// or if force-enabling local relay via EnableLocalRelay
 	hasExternalRelay := len(c.Server.Relays.Addresses) > 0
-	if !hasExternalRelay && c.Server.AuthSecret == "" {
+	if (!hasExternalRelay || c.Server.EnableLocalRelay) && c.Server.AuthSecret == "" {
 		return fmt.Errorf("server.authSecret is required when running local relay")
 	}
 

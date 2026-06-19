@@ -61,6 +61,9 @@ server:
   # stuns:
   #   - uri: "stun:stun.example.com:3478"
   #   - uri: "stun:stun.example.com:3479"
+  #
+  # Force-enable local STUN alongside external STUN (only takes effect when 'stuns' is set)
+  # enableLocalSTUN: false
 
   # External relay servers - disables local relay server
   # relays:
@@ -68,6 +71,9 @@ server:
   #     - "rels://relay.example.com:443"
   #   credentialsTTL: "12h"
   #   secret: "relay-shared-secret"
+  #
+  # Force-enable local relay alongside external relay (only takes effect when 'relays' is set)
+  # enableLocalRelay: false
 
   # External signal server - disables local signal server
   # signalUri: "https://signal.example.com:443"
