@@ -140,7 +140,7 @@ type DefaultServer struct {
 	disableSys         bool
 	mux                sync.Mutex
 	service            service
-	dnsMuxMap          registeredHandlerMap
+	dnsMuxHandlers     []handlerWrapper
 	localResolver      *local.Resolver
 	wgInterface        WGIface
 	hostManager        hostManager
@@ -203,8 +203,6 @@ type handlerWrapper struct {
 	handler  handlerWithStop
 	priority int
 }
-
-type registeredHandlerMap map[types.HandlerID]handlerWrapper
 
 // DefaultServerConfig holds configuration parameters for NewDefaultServer
 type DefaultServerConfig struct {
@@ -294,7 +292,6 @@ func newDefaultServer(
 		service:           dnsService,
 		handlerChain:      handlerChain,
 		extraDomains:      make(map[domain.Domain]int),
-		dnsMuxMap:         make(registeredHandlerMap),
 		localResolver:     local.NewResolver(),
 		wgInterface:       wgInterface,
 		statusRecorder:    statusRecorder,
@@ -333,7 +330,7 @@ func (s *DefaultServer) SetRouteSources(selected, active func() route.HAMap) {
 	type routeSettable interface {
 		setSelectedRoutes(func() route.HAMap)
 	}
-	for _, entry := range s.dnsMuxMap {
+	for _, entry := range s.dnsMuxHandlers {
 		if h, ok := entry.handler.(routeSettable); ok {
 			h.setSelectedRoutes(selected)
 		}
@@ -983,19 +980,23 @@ func (s *DefaultServer) usableNameServers(nameServers []nbdns.NameServer) []neti
 
 func (s *DefaultServer) updateMux(muxUpdates []handlerWrapper) {
 	// this will introduce a short period of time when the server is not able to handle DNS requests
-	for _, existing := range s.dnsMuxMap {
+	for _, existing := range s.dnsMuxHandlers {
 		s.deregisterHandler([]string{existing.domain}, existing.priority)
-		existing.handler.Stop()
+		// The local resolver is a persistent singleton shared by every custom
+		// zone and reused across config updates. Its chain registrations are
+		// per-config and must be deregistered, but Stop() cancels its lookup
+		// context (breaking external CNAME-target resolution) and clears its
+		// records, so it must not be torn down here.
+		if existing.handler != s.localResolver {
+			existing.handler.Stop()
+		}
 	}
-
-	muxUpdateMap := make(registeredHandlerMap)
 
 	for _, update := range muxUpdates {
 		s.registerHandler([]string{update.domain}, update.handler, update.priority)
-		muxUpdateMap[update.handler.ID()] = update
 	}
 
-	s.dnsMuxMap = muxUpdateMap
+	s.dnsMuxHandlers = muxUpdates
 }
 
 // updateNSGroupStates records the new group set and pokes the refresher.
@@ -1229,7 +1230,7 @@ func (s *DefaultServer) groupHasImmediateUpstream(servers []netip.AddrPort, snap
 // in more than one handler.
 func (s *DefaultServer) collectUpstreamHealth() map[netip.AddrPort]UpstreamHealth {
 	merged := make(map[netip.AddrPort]UpstreamHealth)
-	for _, entry := range s.dnsMuxMap {
+	for _, entry := range s.dnsMuxHandlers {
 		reporter, ok := entry.handler.(upstreamHealthReporter)
 		if !ok {
 			continue
