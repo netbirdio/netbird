@@ -299,6 +299,12 @@ func (c *CombinedConfig) ApplySimplifiedDefaults() {
 
 	// Auto-configure client settings (stuns, relays, signalUri)
 	c.autoConfigureClientSettings(exposedProto, exposedHost, exposedHostPort, hasExternalStuns, hasExternalRelay, hasExternalSignal)
+
+	// When both internal and external relay are running, sync the internal relay's
+	// auth secret with the management-facing secret so credentials are consistent.
+	if c.Server.EnableLocalRelay && hasExternalRelay {
+		c.Relay.AuthSecret = c.Management.Relays.Secret
+	}
 }
 
 // applyRelayDefaults configures the relay service if no external relay is configured.

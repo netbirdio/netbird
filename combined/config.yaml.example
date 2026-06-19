@@ -45,7 +45,9 @@ server:
       email: ""
       awsRoute53: false
 
-  # Shared secret for relay authentication (required when running local relay)
+  # Shared secret for relay authentication
+  # Required when running local relay (no external relay, or enableLocalRelay: true)
+  # Can be removed when using external relay without enableLocalRelay
   authSecret: "your-secret-key-here"
 
   # Data directory for all services
@@ -54,7 +56,8 @@ server:
   # ============================================================================
   # External Service Overrides (optional)
   # Use these to point to external Signal, Relay, or STUN servers instead of
-  # running them locally. When set, the corresponding local service is disabled.
+  # running them locally. When set, the corresponding local service is disabled
+  # unless the matching enableLocal* flag is set to true.
   # ============================================================================
 
   # External STUN servers - disables local STUN server
@@ -73,6 +76,7 @@ server:
   #   secret: "relay-shared-secret"
   #
   # Force-enable local relay alongside external relay (only takes effect when 'relays' is set)
+  # Note: authSecret is required when this is true
   # enableLocalRelay: false
 
   # External signal server - disables local signal server
