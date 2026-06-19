@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -191,22 +192,29 @@ func (s *StatusChangeSubscription) Events() chan map[string]RouterState {
 // every private-service request) don't contend against each other.
 // Pure read methods take RLock; anything that mutates state takes Lock.
 type Status struct {
-	mux                   sync.RWMutex
-	peers                 map[string]State
-	ipToKey               map[string]string
-	changeNotify          map[string]map[string]*StatusChangeSubscription // map[peerID]map[subscriptionID]*StatusChangeSubscription
-	signalState           bool
-	signalError           error
-	managementState       bool
-	managementError       error
-	relayStates           []relay.ProbeResult
-	localPeer             LocalPeerState
-	offlinePeers          []State
-	mgmAddress            string
-	signalAddress         string
-	notifier              *notifier
-	rosenpassEnabled      bool
-	rosenpassPermissive   bool
+	mux                 sync.RWMutex
+	peers               map[string]State
+	ipToKey             map[string]string
+	changeNotify        map[string]map[string]*StatusChangeSubscription // map[peerID]map[subscriptionID]*StatusChangeSubscription
+	signalState         bool
+	signalError         error
+	managementState     bool
+	managementError     error
+	relayStates         []relay.ProbeResult
+	localPeer           LocalPeerState
+	offlinePeers        []State
+	mgmAddress          string
+	signalAddress       string
+	notifier            *notifier
+	rosenpassEnabled    bool
+	rosenpassPermissive bool
+	// sessionExpiresAt is the absolute UTC instant at which the peer's SSO
+	// session expires. Zero when the peer is not SSO-tracked or login
+	// expiration is disabled. Populated from management LoginResponse /
+	// SyncResponse and exposed via the daemon's Status / SubscribeStatus RPC
+	// so the UI can show remaining time without itself talking to mgm.
+	sessionExpiresAt time.Time
+
 	nsGroupStates         []NSGroupState
 	resolvedDomainsStates map[domain.Domain]ResolvedDomainInfo
 	lazyConnectionEnabled bool
@@ -222,6 +230,21 @@ type Status struct {
 	eventStreams map[string]chan *proto.SystemEvent
 	eventQueue   *EventQueue
 
+	// stateChangeStreams fan-out connection-state changes (connected /
+	// disconnected / connecting / address change / peers list change) to
+	// every active SubscribeStatus gRPC stream. Each subscriber gets a
+	// buffered chan; the notifier non-blockingly pings them so a slow
+	// consumer can never stall the daemon.
+	stateChangeMux     sync.Mutex
+	stateChangeStreams map[string]chan struct{}
+
+	// networksRevision bumps whenever the routed-networks set or their
+	// selected state changes (driven by the route manager). Surfaced in the
+	// status snapshot so the UI can fingerprint on it and re-fetch
+	// ListNetworks only on a real change. Atomic so the snapshot builder can
+	// read it without taking mux.
+	networksRevision atomic.Uint64
+
 	ingressGwMgr *ingressgw.Manager
 
 	routeIDLookup routeIDLookup
@@ -236,6 +259,7 @@ func NewRecorder(mgmAddress string) *Status {
 		changeNotify:          make(map[string]map[string]*StatusChangeSubscription),
 		eventStreams:          make(map[string]chan *proto.SystemEvent),
 		eventQueue:            NewEventQueue(eventQueueSize),
+		stateChangeStreams:    make(map[string]chan struct{}),
 		offlinePeers:          make([]State, 0),
 		notifier:              newNotifier(),
 		mgmAddress:            mgmAddress,
@@ -400,6 +424,7 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 	if notifyRouter {
 		d.dispatchRouterPeers(receivedState.PubKey, routerSnapshot)
 	}
+	d.notifyStateChange()
 	return nil
 }
 
@@ -425,6 +450,7 @@ func (d *Status) AddPeerStateRoute(peer string, route string, resourceId route.R
 
 	// todo: consider to make sense of this notification or not
 	d.notifier.peerListChanged(numPeers)
+	d.notifyStateChange()
 	return nil
 }
 
@@ -450,6 +476,7 @@ func (d *Status) RemovePeerStateRoute(peer string, route string) error {
 
 	// todo: consider to make sense of this notification or not
 	d.notifier.peerListChanged(numPeers)
+	d.notifyStateChange()
 	return nil
 }
 
@@ -499,6 +526,7 @@ func (d *Status) UpdatePeerICEState(receivedState State) error {
 	if notifyRouter {
 		d.dispatchRouterPeers(receivedState.PubKey, routerSnapshot)
 	}
+	d.notifyStateChange()
 	return nil
 }
 
@@ -535,6 +563,7 @@ func (d *Status) UpdatePeerRelayedState(receivedState State) error {
 	if notifyRouter {
 		d.dispatchRouterPeers(receivedState.PubKey, routerSnapshot)
 	}
+	d.notifyStateChange()
 	return nil
 }
 
@@ -570,6 +599,7 @@ func (d *Status) UpdatePeerRelayedStateToDisconnected(receivedState State) error
 	if notifyRouter {
 		d.dispatchRouterPeers(receivedState.PubKey, routerSnapshot)
 	}
+	d.notifyStateChange()
 	return nil
 }
 
@@ -608,6 +638,7 @@ func (d *Status) UpdatePeerICEStateToDisconnected(receivedState State) error {
 	if notifyRouter {
 		d.dispatchRouterPeers(receivedState.PubKey, routerSnapshot)
 	}
+	d.notifyStateChange()
 	return nil
 }
 
@@ -701,6 +732,7 @@ func (d *Status) FinishPeerListModifications() {
 	for _, rd := range dispatches {
 		d.dispatchRouterPeers(rd.peerID, rd.snapshot)
 	}
+	d.notifyStateChange()
 }
 
 func (d *Status) SubscribeToPeerStateChanges(ctx context.Context, peerID string) *StatusChangeSubscription {
@@ -759,6 +791,41 @@ func (d *Status) UpdateLocalPeerState(localPeerState LocalPeerState) {
 	d.mux.Unlock()
 
 	d.notifier.localAddressChanged(fqdn, ip)
+	d.notifyStateChange()
+}
+
+// SetSessionExpiresAt records the absolute UTC instant at which the peer's
+// SSO session is set to expire. Pass the zero value to clear (e.g. when the
+// management server stops publishing a deadline because login expiration was
+// disabled or the peer is not SSO-tracked). Same-value updates are no-ops;
+// real changes fan out via notifyStateChange so SubscribeStatus consumers
+// pick up the new deadline on their next read.
+func (d *Status) SetSessionExpiresAt(deadline time.Time) {
+	d.mux.Lock()
+	if d.sessionExpiresAt.Equal(deadline) {
+		d.mux.Unlock()
+		return
+	}
+	d.sessionExpiresAt = deadline
+	d.mux.Unlock()
+	d.notifyStateChange()
+}
+
+// GetSessionExpiresAt returns the most recently recorded SSO session deadline,
+// or the zero value when no deadline is tracked. A deadline that has already
+// slipped into the past reports as "none": once the session has expired it is
+// no longer a meaningful countdown, and the sessionwatch.Watcher does not
+// arm a timer at the deadline itself to clear it (only the two pre-expiry
+// warnings). Without this guard the UI would keep painting a stale
+// "expires in …" against a moment that has passed until the next login,
+// extend, or teardown rewrote the value.
+func (d *Status) GetSessionExpiresAt() time.Time {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	if !d.sessionExpiresAt.IsZero() && d.sessionExpiresAt.Before(time.Now()) {
+		return time.Time{}
+	}
+	return d.sessionExpiresAt
 }
 
 // AddLocalPeerStateRoute adds a route to the local peer state
@@ -827,11 +894,19 @@ func (d *Status) CleanLocalPeerState() {
 	d.mux.Unlock()
 
 	d.notifier.localAddressChanged(fqdn, ip)
+	d.notifyStateChange()
 }
 
 // MarkManagementDisconnected sets ManagementState to disconnected
 func (d *Status) MarkManagementDisconnected(err error) {
 	d.mux.Lock()
+	// Health checks re-mark the same state on every probe; skip the fan-out
+	// when nothing actually changed so we don't flood SubscribeStatus
+	// consumers with identical snapshots.
+	if !d.managementState && errors.Is(d.managementError, err) {
+		d.mux.Unlock()
+		return
+	}
 	d.managementState = false
 	d.managementError = err
 	mgm := d.managementState
@@ -839,11 +914,16 @@ func (d *Status) MarkManagementDisconnected(err error) {
 	d.mux.Unlock()
 
 	d.notifier.updateServerStates(mgm, sig)
+	d.notifyStateChange()
 }
 
 // MarkManagementConnected sets ManagementState to connected
 func (d *Status) MarkManagementConnected() {
 	d.mux.Lock()
+	if d.managementState && d.managementError == nil {
+		d.mux.Unlock()
+		return
+	}
 	d.managementState = true
 	d.managementError = nil
 	mgm := d.managementState
@@ -851,6 +931,7 @@ func (d *Status) MarkManagementConnected() {
 	d.mux.Unlock()
 
 	d.notifier.updateServerStates(mgm, sig)
+	d.notifyStateChange()
 }
 
 // UpdateSignalAddress update the address of the signal server
@@ -884,6 +965,10 @@ func (d *Status) UpdateLazyConnection(enabled bool) {
 // MarkSignalDisconnected sets SignalState to disconnected
 func (d *Status) MarkSignalDisconnected(err error) {
 	d.mux.Lock()
+	if !d.signalState && errors.Is(d.signalError, err) {
+		d.mux.Unlock()
+		return
+	}
 	d.signalState = false
 	d.signalError = err
 	mgm := d.managementState
@@ -891,11 +976,16 @@ func (d *Status) MarkSignalDisconnected(err error) {
 	d.mux.Unlock()
 
 	d.notifier.updateServerStates(mgm, sig)
+	d.notifyStateChange()
 }
 
 // MarkSignalConnected sets SignalState to connected
 func (d *Status) MarkSignalConnected() {
 	d.mux.Lock()
+	if d.signalState && d.signalError == nil {
+		d.mux.Unlock()
+		return
+	}
 	d.signalState = true
 	d.signalError = nil
 	mgm := d.managementState
@@ -903,6 +993,7 @@ func (d *Status) MarkSignalConnected() {
 	d.mux.Unlock()
 
 	d.notifier.updateServerStates(mgm, sig)
+	d.notifyStateChange()
 }
 
 func (d *Status) UpdateRelayStates(relayResults []relay.ProbeResult) {
@@ -1107,16 +1198,19 @@ func (d *Status) GetFullStatus() FullStatus {
 // ClientStart will notify all listeners about the new service state
 func (d *Status) ClientStart() {
 	d.notifier.clientStart()
+	d.notifyStateChange()
 }
 
 // ClientStop will notify all listeners about the new service state
 func (d *Status) ClientStop() {
 	d.notifier.clientStop()
+	d.notifyStateChange()
 }
 
 // ClientTeardown will notify all listeners about the service is under teardown
 func (d *Status) ClientTeardown() {
 	d.notifier.clientTearDown()
+	d.notifyStateChange()
 }
 
 // SetConnectionListener set a listener to the notifier
@@ -1256,6 +1350,79 @@ func (d *Status) UnsubscribeFromEvents(sub *EventSubscription) {
 // GetEventHistory returns all events in the queue
 func (d *Status) GetEventHistory() []*proto.SystemEvent {
 	return d.eventQueue.GetAll()
+}
+
+// SubscribeToStateChanges hands back a channel that receives a tick on
+// every connection-state change (connected / disconnected / connecting /
+// address change / peers-list change). The channel is buffered to one
+// pending tick so a coalesced burst still wakes the consumer exactly
+// once. Pass the returned id to UnsubscribeFromStateChanges to detach.
+func (d *Status) SubscribeToStateChanges() (string, <-chan struct{}) {
+	d.stateChangeMux.Lock()
+	defer d.stateChangeMux.Unlock()
+
+	id := uuid.New().String()
+	ch := make(chan struct{}, 1)
+	d.stateChangeStreams[id] = ch
+	return id, ch
+}
+
+// UnsubscribeFromStateChanges releases a SubscribeToStateChanges channel
+// and closes it so any consumer goroutine selecting on the channel
+// unblocks cleanly.
+func (d *Status) UnsubscribeFromStateChanges(id string) {
+	d.stateChangeMux.Lock()
+	defer d.stateChangeMux.Unlock()
+
+	if ch, ok := d.stateChangeStreams[id]; ok {
+		close(ch)
+		delete(d.stateChangeStreams, id)
+	}
+}
+
+// notifyStateChange wakes every SubscribeToStateChanges subscriber. Drops
+// the tick if a subscriber's buffer is full — by definition the consumer
+// is already going to fetch the latest snapshot, so multiple pending ticks
+// would be redundant.
+func (d *Status) notifyStateChange() {
+	d.stateChangeMux.Lock()
+	defer d.stateChangeMux.Unlock()
+
+	for _, ch := range d.stateChangeStreams {
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
+	}
+}
+
+// NotifyStateChange is the public wake-the-subscribers entry point used by
+// callers that mutate state outside the peer recorder — most importantly
+// the connect-state machine, which writes StatusNeedsLogin into the
+// shared contextState (client/internal/state.go) without touching any
+// recorder field. Without this push the SubscribeStatus stream stays on
+// the previous snapshot until an unrelated peer/management/signal
+// change happens to fire notifyStateChange, leaving the UI's status
+// out of sync with the daemon.
+func (d *Status) NotifyStateChange() {
+	d.notifyStateChange()
+}
+
+// BumpNetworksRevision increments the routed-networks revision and wakes every
+// SubscribeStatus subscriber. The route manager calls it when a network map
+// changes the available routes or when a selection is applied — the peer
+// status itself only records actively-routed (chosen) networks, so without
+// this bump a candidate route appearing/disappearing would never reach the UI.
+func (d *Status) BumpNetworksRevision() {
+	d.networksRevision.Add(1)
+	d.notifyStateChange()
+}
+
+// GetNetworksRevision returns the current routed-networks revision, surfaced in
+// the status snapshot so the UI can detect route/selection changes (see
+// BumpNetworksRevision).
+func (d *Status) GetNetworksRevision() uint64 {
+	return d.networksRevision.Load()
 }
 
 func (d *Status) SetWgIface(wgInterface WGIfaceStatus) {

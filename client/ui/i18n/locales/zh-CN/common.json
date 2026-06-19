@@ -1,0 +1,1331 @@
+{
+    "tray.tooltip": {
+        "message": "NetBird"
+    },
+    "tray.status.disconnected": {
+        "message": "已断开连接"
+    },
+    "tray.status.daemonUnavailable": {
+        "message": "未运行"
+    },
+    "tray.status.error": {
+        "message": "错误"
+    },
+    "tray.status.connected": {
+        "message": "已连接"
+    },
+    "tray.status.connecting": {
+        "message": "正在连接"
+    },
+    "tray.status.needsLogin": {
+        "message": "需要登录"
+    },
+    "tray.status.loginFailed": {
+        "message": "登录失败"
+    },
+    "tray.status.sessionExpired": {
+        "message": "会话已过期"
+    },
+    "tray.session.expiresIn": {
+        "message": "会话将在 {remaining} 后过期"
+    },
+    "tray.session.unit.lessThanMinute": {
+        "message": "不到一分钟"
+    },
+    "tray.session.unit.minute": {
+        "message": "1 分钟"
+    },
+    "tray.session.unit.minutes": {
+        "message": "{count} 分钟"
+    },
+    "tray.session.unit.hour": {
+        "message": "1 小时"
+    },
+    "tray.session.unit.hours": {
+        "message": "{count} 小时"
+    },
+    "tray.session.unit.day": {
+        "message": "1 天"
+    },
+    "tray.session.unit.days": {
+        "message": "{count} 天"
+    },
+    "tray.menu.open": {
+        "message": "打开 NetBird"
+    },
+    "tray.menu.connect": {
+        "message": "连接"
+    },
+    "tray.menu.disconnect": {
+        "message": "断开连接"
+    },
+    "tray.menu.exitNode": {
+        "message": "出口节点"
+    },
+    "tray.menu.networks": {
+        "message": "资源"
+    },
+    "tray.menu.profiles": {
+        "message": "配置文件"
+    },
+    "tray.menu.manageProfiles": {
+        "message": "管理配置文件"
+    },
+    "tray.menu.settings": {
+        "message": "设置…"
+    },
+    "tray.menu.debugBundle": {
+        "message": "创建调试包"
+    },
+    "tray.menu.about": {
+        "message": "帮助与支持"
+    },
+    "tray.menu.github": {
+        "message": "GitHub"
+    },
+    "tray.menu.documentation": {
+        "message": "文档"
+    },
+    "tray.menu.troubleshoot": {
+        "message": "故障排除"
+    },
+    "tray.menu.downloadLatest": {
+        "message": "下载最新版本"
+    },
+    "tray.menu.installVersion": {
+        "message": "安装 {version} 版本"
+    },
+    "tray.menu.guiVersion": {
+        "message": "GUI：{version}"
+    },
+    "tray.menu.daemonVersion": {
+        "message": "守护进程：{version}"
+    },
+    "tray.menu.versionUnknown": {
+        "message": "—"
+    },
+    "tray.menu.quit": {
+        "message": "退出 NetBird"
+    },
+    "notify.daemonOutdated.title": {
+        "message": "NetBird 服务版本过旧"
+    },
+    "notify.daemonOutdated.body": {
+        "message": "请更新 NetBird 服务以使用此应用。"
+    },
+    "notify.update.title": {
+        "message": "NetBird 有可用更新"
+    },
+    "notify.update.body": {
+        "message": "NetBird {version} 已可用。"
+    },
+    "notify.update.enforcedSuffix": {
+        "message": " 您的管理员要求进行此次更新。"
+    },
+    "notify.error.title": {
+        "message": "错误"
+    },
+    "notify.error.connect": {
+        "message": "连接失败"
+    },
+    "notify.error.disconnect": {
+        "message": "断开连接失败"
+    },
+    "notify.error.switchProfile": {
+        "message": "切换到 {profile} 失败"
+    },
+    "notify.error.exitNode": {
+        "message": "更新出口节点 {name} 失败"
+    },
+    "notify.sessionExpired.title": {
+        "message": "NetBird 会话已过期"
+    },
+    "notify.sessionExpired.body": {
+        "message": "您的 NetBird 会话已过期。请重新登录。"
+    },
+    "notify.sessionWarning.title": {
+        "message": "会话即将过期"
+    },
+    "notify.sessionWarning.body": {
+        "message": "您的 NetBird 会话将在 {remaining} 后过期。点击“立即延长”以续期。"
+    },
+    "notify.sessionWarning.bodyGeneric": {
+        "message": "您的 NetBird 会话即将过期。点击“立即延长”以续期。"
+    },
+    "notify.sessionWarning.extend": {
+        "message": "立即延长"
+    },
+    "notify.sessionWarning.dismiss": {
+        "message": "忽略"
+    },
+    "notify.sessionWarning.failed": {
+        "message": "延长 NetBird 会话失败"
+    },
+    "notify.sessionWarning.successTitle": {
+        "message": "NetBird 会话已延长"
+    },
+    "notify.sessionWarning.successBody": {
+        "message": "您的会话已刷新。"
+    },
+    "notify.sessionDeadlineRejected.title": {
+        "message": "会话截止时间被拒绝"
+    },
+    "notify.sessionDeadlineRejected.body": {
+        "message": "服务器发送了无效的会话截止时间。请重新登录。"
+    },
+    "notify.mdm.policyApplied.title": {
+        "message": "NetBird 设置已更新"
+    },
+    "notify.mdm.policyApplied.body": {
+        "message": "您的 NetBird 配置已根据 IT 策略更新。"
+    },
+    "common.cancel": {
+        "message": "取消"
+    },
+    "common.save": {
+        "message": "保存"
+    },
+    "common.saveChanges": {
+        "message": "保存更改"
+    },
+    "common.saving": {
+        "message": "正在保存…"
+    },
+    "common.close": {
+        "message": "关闭"
+    },
+    "common.copy": {
+        "message": "复制"
+    },
+    "common.togglePasswordVisibility": {
+        "message": "切换密码可见性"
+    },
+    "common.increase": {
+        "message": "增加"
+    },
+    "common.decrease": {
+        "message": "减少"
+    },
+    "common.delete": {
+        "message": "删除"
+    },
+    "common.create": {
+        "message": "创建"
+    },
+    "common.add": {
+        "message": "添加"
+    },
+    "common.remove": {
+        "message": "移除"
+    },
+    "common.refresh": {
+        "message": "刷新"
+    },
+    "common.loading": {
+        "message": "正在加载…"
+    },
+    "common.netbird": {
+        "message": "NetBird"
+    },
+    "common.noResults.title": {
+        "message": "未找到任何结果"
+    },
+    "common.noResults.description": {
+        "message": "我们未能找到任何结果。请尝试其他搜索词或更改筛选条件。"
+    },
+    "notConnected.title": {
+        "message": "已断开连接"
+    },
+    "notConnected.description": {
+        "message": "请先连接到 NetBird，以查看有关对等节点、网络资源和出口节点的详细信息。"
+    },
+    "connect.status.disconnected": {
+        "message": "已断开连接"
+    },
+    "connect.status.connecting": {
+        "message": "正在连接…"
+    },
+    "connect.status.connected": {
+        "message": "已连接"
+    },
+    "connect.status.disconnecting": {
+        "message": "正在断开连接…"
+    },
+    "connect.status.daemonUnavailable": {
+        "message": "守护进程不可用"
+    },
+    "connect.status.loginRequired": {
+        "message": "需要登录"
+    },
+    "connect.error.loginTitle": {
+        "message": "登录失败"
+    },
+    "connect.error.connectTitle": {
+        "message": "连接失败"
+    },
+    "connect.error.disconnectTitle": {
+        "message": "断开连接失败"
+    },
+    "nav.peers.title": {
+        "message": "对等节点"
+    },
+    "nav.peers.description": {
+        "message": "{total} 个中已连接 {connected} 个"
+    },
+    "nav.resources.title": {
+        "message": "资源"
+    },
+    "nav.resources.description": {
+        "message": "{total} 个中已激活 {active} 个"
+    },
+    "nav.exitNode.title": {
+        "message": "出口节点"
+    },
+    "nav.exitNode.none": {
+        "message": "未激活"
+    },
+    "nav.exitNode.using": {
+        "message": "经由 {name}"
+    },
+    "header.openSettings": {
+        "message": "打开设置"
+    },
+    "header.togglePanel": {
+        "message": "切换侧边栏"
+    },
+    "profile.selector.loading": {
+        "message": "正在加载…"
+    },
+    "profile.selector.noProfile": {
+        "message": "无配置文件"
+    },
+    "profile.selector.searchPlaceholder": {
+        "message": "按名称搜索配置文件…"
+    },
+    "profile.selector.emptyTitle": {
+        "message": "未找到配置文件"
+    },
+    "profile.selector.emptyDescription": {
+        "message": "请尝试其他搜索词或创建新的配置文件。"
+    },
+    "profile.selector.newProfile": {
+        "message": "新建配置文件"
+    },
+    "profile.selector.moreOptions": {
+        "message": "更多选项"
+    },
+    "profile.selector.deregister": {
+        "message": "注销"
+    },
+    "profile.selector.delete": {
+        "message": "删除"
+    },
+    "profile.selector.switchTo": {
+        "message": "切换到此配置文件"
+    },
+    "profile.selector.edit": {
+        "message": "编辑"
+    },
+    "profile.edit.title": {
+        "message": "编辑配置文件"
+    },
+    "profile.edit.submit": {
+        "message": "保存更改"
+    },
+    "profile.dialog.title": {
+        "message": "输入配置文件名称"
+    },
+    "profile.dialog.nameLabel": {
+        "message": "配置文件名称"
+    },
+    "profile.dialog.description": {
+        "message": "为您的配置文件设置一个易于识别的名称。"
+    },
+    "profile.dialog.placeholder": {
+        "message": "例如：工作"
+    },
+    "profile.dialog.submit": {
+        "message": "添加配置文件"
+    },
+    "profile.dialog.required": {
+        "message": "请输入配置文件名称，例如：工作、家庭"
+    },
+    "profile.dialog.managementHelp": {
+        "message": "使用 NetBird Cloud 或您自己的服务器。"
+    },
+    "profile.dialog.urlUnreachable": {
+        "message": "无法连接到此服务器。请检查 URL，如果确认无误，也可以照常添加该配置文件。"
+    },
+    "header.menu.settings": {
+        "message": "设置…"
+    },
+    "header.menu.defaultView": {
+        "message": "默认视图"
+    },
+    "header.menu.advancedView": {
+        "message": "高级视图"
+    },
+    "header.menu.updateAvailable": {
+        "message": "有可用更新"
+    },
+    "header.menu.open": {
+        "message": "打开菜单"
+    },
+    "header.profile.switch": {
+        "message": "切换配置文件"
+    },
+    "connect.toggle.label": {
+        "message": "切换 NetBird 连接"
+    },
+    "connect.localIp.label": {
+        "message": "本地 IP 地址"
+    },
+    "common.search": {
+        "message": "搜索"
+    },
+    "common.filter": {
+        "message": "筛选"
+    },
+    "exitNodes.dropdown.trigger": {
+        "message": "选择出口节点"
+    },
+    "peers.row.label": {
+        "message": "打开 {name} 的详情，{status}"
+    },
+    "peers.dialog.title": {
+        "message": "对等节点详情"
+    },
+    "networks.row.toggle": {
+        "message": "切换 {name}"
+    },
+    "networks.bulk.label": {
+        "message": "切换所有可见资源"
+    },
+    "settings.nav.label": {
+        "message": "设置部分"
+    },
+    "profile.switch.title": {
+        "message": "切换到配置文件“{name}”？"
+    },
+    "profile.switch.message": {
+        "message": "您确定要切换配置文件吗？\n您当前的配置文件将被断开连接。"
+    },
+    "profile.switch.confirm": {
+        "message": "确认"
+    },
+    "profile.deregister.title": {
+        "message": "注销配置文件“{name}”？"
+    },
+    "profile.deregister.message": {
+        "message": "您确定要注销此配置文件吗？\n您将需要重新登录才能使用它。"
+    },
+    "profile.deregister.confirm": {
+        "message": "注销"
+    },
+    "profile.delete.title": {
+        "message": "删除配置文件“{name}”？"
+    },
+    "profile.delete.message": {
+        "message": "您确定要删除此配置文件吗？\n此操作无法撤销。"
+    },
+    "profile.delete.disabledActive": {
+        "message": "无法删除处于活动状态的配置文件。请先切换到其他配置文件，再删除此配置文件。"
+    },
+    "profile.delete.disabledDefault": {
+        "message": "无法删除默认配置文件。"
+    },
+    "profile.error.switchTitle": {
+        "message": "切换配置文件失败"
+    },
+    "profile.error.deregisterTitle": {
+        "message": "注销配置文件失败"
+    },
+    "profile.error.deleteTitle": {
+        "message": "删除配置文件失败"
+    },
+    "profile.error.createTitle": {
+        "message": "创建配置文件失败"
+    },
+    "profile.error.editTitle": {
+        "message": "编辑配置文件失败"
+    },
+    "profile.error.loadTitle": {
+        "message": "加载配置文件失败"
+    },
+    "profile.dropdown.activeProfile": {
+        "message": "当前配置文件"
+    },
+    "profile.dropdown.switchProfile": {
+        "message": "切换配置文件"
+    },
+    "profile.dropdown.noEmail": {
+        "message": "其他"
+    },
+    "profile.dropdown.addProfile": {
+        "message": "添加配置文件"
+    },
+    "profile.dropdown.manageProfiles": {
+        "message": "管理配置文件"
+    },
+    "profile.dropdown.settings": {
+        "message": "设置"
+    },
+    "settings.profiles.section.profiles": {
+        "message": "配置文件"
+    },
+    "settings.profiles.intro": {
+        "message": "并行保留多个独立的 NetBird 身份，例如工作和个人账户，或不同的管理服务器。可在下方添加、注销或删除配置文件。"
+    },
+    "settings.profiles.addProfile": {
+        "message": "添加配置文件"
+    },
+    "settings.profiles.active": {
+        "message": "活动"
+    },
+    "settings.profiles.emptyTitle": {
+        "message": "无配置文件"
+    },
+    "settings.profiles.emptyDescription": {
+        "message": "创建一个配置文件以连接到 NetBird 管理服务器。"
+    },
+    "settings.error.loadTitle": {
+        "message": "加载设置失败"
+    },
+    "settings.error.saveTitle": {
+        "message": "保存设置失败"
+    },
+    "settings.error.debugBundleTitle": {
+        "message": "创建调试包失败"
+    },
+    "settings.tabs.general": {
+        "message": "常规"
+    },
+    "settings.tabs.network": {
+        "message": "网络"
+    },
+    "settings.tabs.security": {
+        "message": "安全"
+    },
+    "settings.tabs.profiles": {
+        "message": "配置文件"
+    },
+    "settings.tabs.ssh": {
+        "message": "SSH"
+    },
+    "settings.tabs.advanced": {
+        "message": "高级"
+    },
+    "settings.tabs.troubleshooting": {
+        "message": "故障排除"
+    },
+    "settings.tabs.about": {
+        "message": "关于"
+    },
+    "settings.tabs.updateAvailable": {
+        "message": "有可用更新"
+    },
+    "settings.general.section.general": {
+        "message": "常规"
+    },
+    "settings.general.section.connection": {
+        "message": "连接"
+    },
+    "settings.general.connectOnStartup.label": {
+        "message": "启动时连接"
+    },
+    "settings.general.connectOnStartup.help": {
+        "message": "在服务启动时自动建立连接。"
+    },
+    "settings.general.notifications.label": {
+        "message": "桌面通知"
+    },
+    "settings.general.notifications.help": {
+        "message": "显示有关新更新和连接事件的桌面通知。"
+    },
+    "settings.general.autostart.label": {
+        "message": "登录时启动 NetBird 界面"
+    },
+    "settings.general.autostart.help": {
+        "message": "在您登录时自动启动 NetBird 界面。此设置仅影响图形界面，不影响后台服务。"
+    },
+    "settings.general.autostart.errorTitle": {
+        "message": "更改自启动设置失败"
+    },
+    "settings.general.language.label": {
+        "message": "显示语言"
+    },
+    "settings.general.language.help": {
+        "message": "选择 NetBird 界面的语言。"
+    },
+    "settings.general.language.search": {
+        "message": "搜索语言…"
+    },
+    "settings.general.language.empty": {
+        "message": "没有匹配的语言。"
+    },
+    "settings.general.management.label": {
+        "message": "管理服务器"
+    },
+    "settings.general.management.help": {
+        "message": "连接到 NetBird Cloud 或您自己的自托管管理服务器。更改将使客户端重新连接。"
+    },
+    "settings.general.management.cloud": {
+        "message": "Cloud"
+    },
+    "settings.general.management.selfHosted": {
+        "message": "自托管"
+    },
+    "settings.general.management.urlPlaceholder": {
+        "message": "https://netbird.selfhosted.com:443"
+    },
+    "settings.general.management.urlError": {
+        "message": "请输入有效的 URL，例如：https://netbird.selfhosted.com:443"
+    },
+    "settings.general.management.urlUnreachable": {
+        "message": "无法连接到此服务器。请检查 URL，如果确认无误，也可以照常保存。"
+    },
+    "settings.general.management.switchCloudTitle": {
+        "message": "切换到 NetBird Cloud？"
+    },
+    "settings.general.management.switchCloudMessage": {
+        "message": "这将断开您的自托管服务器。\n您可能需要重新登录。"
+    },
+    "settings.general.management.switchCloudConfirm": {
+        "message": "切换到 Cloud"
+    },
+    "settings.network.section.connectivity": {
+        "message": "连接性"
+    },
+    "settings.network.section.routingDns": {
+        "message": "路由与 DNS"
+    },
+    "settings.network.lazy.label": {
+        "message": "懒连接"
+    },
+    "settings.network.lazy.help": {
+        "message": "NetBird 不会维持始终在线的连接，而是根据活动或信令按需激活连接。"
+    },
+    "settings.network.monitor.label": {
+        "message": "网络变化时重新连接"
+    },
+    "settings.network.monitor.help": {
+        "message": "监测网络，并在发生变化时自动重新连接，例如切换 Wi-Fi、以太网变化或从睡眠中恢复。"
+    },
+    "settings.network.dns.label": {
+        "message": "启用 DNS"
+    },
+    "settings.network.dns.help": {
+        "message": "将 NetBird 管理的 DNS 设置应用到主机解析器。"
+    },
+    "settings.network.clientRoutes.label": {
+        "message": "启用客户端路由"
+    },
+    "settings.network.clientRoutes.help": {
+        "message": "接受来自其他对等节点的路由，以访问它们的网络。"
+    },
+    "settings.network.serverRoutes.label": {
+        "message": "启用服务器路由"
+    },
+    "settings.network.serverRoutes.help": {
+        "message": "向其他对等节点通告此主机的本地路由。"
+    },
+    "settings.network.ipv6.label": {
+        "message": "启用 IPv6"
+    },
+    "settings.network.ipv6.help": {
+        "message": "为 NetBird 叠加网络使用 IPv6 寻址。"
+    },
+    "settings.security.section.firewall": {
+        "message": "防火墙"
+    },
+    "settings.security.section.encryption": {
+        "message": "加密"
+    },
+    "settings.security.blockInbound.label": {
+        "message": "阻止入站流量"
+    },
+    "settings.security.blockInbound.help": {
+        "message": "拒绝对等节点向本设备及其路由的任何网络发起的未经请求的连接。出站流量不受影响。"
+    },
+    "settings.security.blockLan.label": {
+        "message": "阻止 LAN 访问"
+    },
+    "settings.security.blockLan.help": {
+        "message": "当本设备为对等节点路由流量时，阻止它们访问您的本地网络或其设备。"
+    },
+    "settings.security.rosenpass.label": {
+        "message": "启用抗量子加密"
+    },
+    "settings.security.rosenpass.help": {
+        "message": "在 WireGuard® 之上通过 Rosenpass 添加后量子密钥交换。"
+    },
+    "settings.security.rosenpassPermissive.label": {
+        "message": "启用宽松模式"
+    },
+    "settings.security.rosenpassPermissive.help": {
+        "message": "允许连接到不支持抗量子加密的对等节点。"
+    },
+    "settings.ssh.section.server": {
+        "message": "服务器"
+    },
+    "settings.ssh.section.capabilities": {
+        "message": "功能"
+    },
+    "settings.ssh.section.authentication": {
+        "message": "身份验证"
+    },
+    "settings.ssh.server.label": {
+        "message": "启用 SSH 服务器"
+    },
+    "settings.ssh.server.help": {
+        "message": "在此主机上运行 NetBird SSH 服务器，以便其他对等节点可以连接到它。"
+    },
+    "settings.ssh.root.label": {
+        "message": "允许 root 登录"
+    },
+    "settings.ssh.root.help": {
+        "message": "允许对等节点以 root 用户身份登录。禁用后将要求使用非特权账户。"
+    },
+    "settings.ssh.sftp.label": {
+        "message": "允许 SFTP"
+    },
+    "settings.ssh.sftp.help": {
+        "message": "使用原生 SFTP 或 SCP 客户端安全地传输文件。"
+    },
+    "settings.ssh.localForward.label": {
+        "message": "本地端口转发"
+    },
+    "settings.ssh.localForward.help": {
+        "message": "允许连接的对等节点将本地端口隧道转发到此主机可访问的服务。"
+    },
+    "settings.ssh.remoteForward.label": {
+        "message": "远程端口转发"
+    },
+    "settings.ssh.remoteForward.help": {
+        "message": "允许连接的对等节点将此主机上的端口反向暴露到它们自己的机器。"
+    },
+    "settings.ssh.jwt.label": {
+        "message": "启用 JWT 身份验证"
+    },
+    "settings.ssh.jwt.help": {
+        "message": "针对您的 IdP 验证每个 SSH 会话，以确认用户身份并进行审计。禁用后将仅依赖网络 ACL 策略，在没有可用 IdP 时很有用。"
+    },
+    "settings.ssh.jwtTtl.label": {
+        "message": "JWT 缓存 TTL"
+    },
+    "settings.ssh.jwtTtl.help": {
+        "message": "在出站 SSH 连接再次提示前，此客户端缓存 JWT 的时长。设为 0 可禁用缓存，每次连接都进行身份验证。"
+    },
+    "settings.ssh.jwtTtl.suffix": {
+        "message": "秒"
+    },
+    "settings.advanced.section.interface": {
+        "message": "接口"
+    },
+    "settings.advanced.section.security": {
+        "message": "安全"
+    },
+    "settings.advanced.interfaceName.label": {
+        "message": "名称"
+    },
+    "settings.advanced.interfaceName.error": {
+        "message": "请使用 1-15 个字母、数字、点、连字符或下划线。"
+    },
+    "settings.advanced.interfaceName.errorMac": {
+        "message": "必须以“utun”开头，后跟一个数字（例如 utun100）。"
+    },
+    "settings.advanced.port.label": {
+        "message": "端口"
+    },
+    "settings.advanced.port.error": {
+        "message": "请输入介于 {min} 和 {max} 之间的端口。"
+    },
+    "settings.advanced.port.help": {
+        "message": "如果设为 0，将使用一个随机的空闲端口。"
+    },
+    "settings.advanced.mtu.label": {
+        "message": "MTU"
+    },
+    "settings.advanced.mtu.error": {
+        "message": "请输入介于 {min} 和 {max} 之间的 MTU 值。"
+    },
+    "settings.advanced.psk.label": {
+        "message": "预共享密钥"
+    },
+    "settings.advanced.psk.help": {
+        "message": "可选的 WireGuard PSK，用于额外的对称加密。它与 NetBird 设置密钥不同。您将只能与使用相同预共享密钥的对等节点通信。"
+    },
+    "settings.troubleshooting.section.title": {
+        "message": "调试包"
+    },
+    "settings.troubleshooting.anonymize.label": {
+        "message": "匿名化敏感信息"
+    },
+    "settings.troubleshooting.anonymize.help": {
+        "message": "从日志中隐藏公共 IP 地址和非 NetBird 域名。"
+    },
+    "settings.troubleshooting.systemInfo.label": {
+        "message": "包含系统信息"
+    },
+    "settings.troubleshooting.systemInfo.help": {
+        "message": "包含操作系统、内核、网络接口和路由表。"
+    },
+    "settings.troubleshooting.upload.label": {
+        "message": "将调试包上传到 NetBird 服务器"
+    },
+    "settings.troubleshooting.upload.help": {
+        "message": "返回一个上传密钥，供您分享给 NetBird 支持团队。"
+    },
+    "settings.troubleshooting.trace.label": {
+        "message": "启用跟踪日志"
+    },
+    "settings.troubleshooting.trace.help": {
+        "message": "将日志级别提升到 TRACE，之后再恢复原级别。"
+    },
+    "settings.troubleshooting.capture.label": {
+        "message": "捕获会话"
+    },
+    "settings.troubleshooting.capture.help": {
+        "message": "重新连接并等待，以便您复现问题。"
+    },
+    "settings.troubleshooting.packets.label": {
+        "message": "捕获网络数据包"
+    },
+    "settings.troubleshooting.packets.help": {
+        "message": "在捕获期间将网络流量保存为 .pcap 文件。"
+    },
+    "settings.troubleshooting.duration.label": {
+        "message": "捕获时长"
+    },
+    "settings.troubleshooting.duration.help": {
+        "message": "捕获会话运行的时长。"
+    },
+    "settings.troubleshooting.duration.suffix": {
+        "message": "分钟"
+    },
+    "settings.troubleshooting.create": {
+        "message": "创建调试包"
+    },
+    "settings.troubleshooting.progress.description": {
+        "message": "正在收集日志、系统详情和连接状态。这通常只需片刻——请保持此窗口打开，直到完成。"
+    },
+    "settings.troubleshooting.cancelling": {
+        "message": "正在取消…"
+    },
+    "settings.troubleshooting.done.uploadedTitle": {
+        "message": "调试包已成功上传！"
+    },
+    "settings.troubleshooting.done.savedTitle": {
+        "message": "调试包已保存"
+    },
+    "settings.troubleshooting.done.uploadedDescription": {
+        "message": "请将下方的上传密钥分享给 <docs>NetBird 支持团队</docs>。本地也已保存了一份副本。"
+    },
+    "settings.troubleshooting.done.savedDescription": {
+        "message": "您的调试包已保存在本地。"
+    },
+    "settings.troubleshooting.done.copyKey": {
+        "message": "复制密钥"
+    },
+    "settings.troubleshooting.done.openFolder": {
+        "message": "打开文件夹"
+    },
+    "settings.troubleshooting.done.openFileLocation": {
+        "message": "打开文件位置"
+    },
+    "settings.troubleshooting.uploadFailedWithReason": {
+        "message": "上传失败：{reason} 调试包仍已保存在本地。"
+    },
+    "settings.troubleshooting.uploadFailed": {
+        "message": "上传失败。调试包仍已保存在本地。"
+    },
+    "settings.troubleshooting.stage.reconnecting": {
+        "message": "正在重新连接 NetBird…"
+    },
+    "settings.troubleshooting.stage.capturing": {
+        "message": "正在捕获调试日志"
+    },
+    "settings.troubleshooting.stage.bundling": {
+        "message": "正在生成调试包…"
+    },
+    "settings.troubleshooting.stage.uploading": {
+        "message": "正在上传到 NetBird…"
+    },
+    "settings.troubleshooting.stage.cancelling": {
+        "message": "正在取消…"
+    },
+    "settings.about.client": {
+        "message": "NetBird 客户端 v{version}"
+    },
+    "settings.about.clientName": {
+        "message": "NetBird 客户端"
+    },
+    "settings.about.development": {
+        "message": "[开发版]"
+    },
+    "settings.about.gui": {
+        "message": "GUI v{version}"
+    },
+    "settings.about.guiName": {
+        "message": "GUI"
+    },
+    "settings.about.copyright": {
+        "message": "© {year} NetBird。保留所有权利。"
+    },
+    "settings.about.links.imprint": {
+        "message": "法律声明"
+    },
+    "settings.about.links.privacy": {
+        "message": "隐私"
+    },
+    "settings.about.links.cla": {
+        "message": "CLA"
+    },
+    "settings.about.links.terms": {
+        "message": "服务条款"
+    },
+    "settings.about.community.github": {
+        "message": "GitHub"
+    },
+    "settings.about.community.slack": {
+        "message": "Slack"
+    },
+    "settings.about.community.forum": {
+        "message": "论坛"
+    },
+    "settings.about.community.documentation": {
+        "message": "文档"
+    },
+    "settings.about.community.feedback": {
+        "message": "反馈"
+    },
+    "update.banner.message": {
+        "message": "NetBird {version} 已准备好安装。"
+    },
+    "update.banner.later": {
+        "message": "稍后"
+    },
+    "update.banner.installNow": {
+        "message": "立即安装"
+    },
+    "update.card.versionAvailableDownload": {
+        "message": "{version} 版本可供下载。"
+    },
+    "update.card.versionAvailableInstall": {
+        "message": "{version} 版本可供安装。"
+    },
+    "update.card.whatsNew": {
+        "message": "更新内容？"
+    },
+    "update.card.installNow": {
+        "message": "立即安装"
+    },
+    "update.card.getInstaller": {
+        "message": "下载"
+    },
+    "update.card.autoCheckInterval": {
+        "message": "NetBird 会在后台检查更新。"
+    },
+    "update.card.changelog": {
+        "message": "更新日志"
+    },
+    "update.card.onLatestVersion": {
+        "message": "您已是最新版本"
+    },
+    "update.header.tooltip": {
+        "message": "有可用更新"
+    },
+    "update.overlay.updatingVersion": {
+        "message": "正在将 NetBird 更新到 v{version}"
+    },
+    "update.overlay.updating": {
+        "message": "正在更新 NetBird"
+    },
+    "update.overlay.description": {
+        "message": "有更新的版本可用，正在安装。更新完成后，NetBird 将自动重启。"
+    },
+    "update.overlay.error.timeoutTitle": {
+        "message": "更新耗时过长"
+    },
+    "update.overlay.error.timeoutDescription": {
+        "message": "安装 {target} 耗时过长，未能完成。"
+    },
+    "update.overlay.error.canceledTitle": {
+        "message": "更新已停止"
+    },
+    "update.overlay.error.canceledDescription": {
+        "message": "对 {target} 的更新在完成前已被取消。"
+    },
+    "update.overlay.error.failTitle": {
+        "message": "无法安装更新"
+    },
+    "update.overlay.error.failDescription": {
+        "message": "无法安装 {target}。"
+    },
+    "update.overlay.error.unknownMessage": {
+        "message": "未知错误"
+    },
+    "update.overlay.error.targetVersion": {
+        "message": "v{version}"
+    },
+    "update.overlay.error.targetFallback": {
+        "message": "新版本"
+    },
+    "update.error.loadStateTitle": {
+        "message": "加载更新状态失败"
+    },
+    "update.error.triggerTitle": {
+        "message": "启动更新失败"
+    },
+    "update.page.versionLine": {
+        "message": "正在将客户端更新到：{version}。"
+    },
+    "update.page.versionLineGeneric": {
+        "message": "正在更新客户端。"
+    },
+    "update.page.outdated": {
+        "message": "您的客户端版本早于管理服务器中设置的自动更新版本。"
+    },
+    "update.page.status.running": {
+        "message": "正在更新"
+    },
+    "update.page.status.timeout": {
+        "message": "更新超时。请重试。"
+    },
+    "update.page.status.canceled": {
+        "message": "更新已取消。"
+    },
+    "update.page.status.failed": {
+        "message": "更新失败：{message}"
+    },
+    "update.page.status.unknownError": {
+        "message": "未知的更新错误"
+    },
+    "update.page.failedTitle": {
+        "message": "更新失败"
+    },
+    "update.page.timeoutMessage": {
+        "message": "更新超时。"
+    },
+    "update.page.dontClose": {
+        "message": "请勿关闭此窗口。"
+    },
+    "update.page.updating": {
+        "message": "正在更新…"
+    },
+    "update.page.complete": {
+        "message": "更新完成"
+    },
+    "update.page.failed": {
+        "message": "更新失败"
+    },
+    "window.title.settings": {
+        "message": "设置"
+    },
+    "window.title.signIn": {
+        "message": "登录"
+    },
+    "window.title.sessionExpiration": {
+        "message": "会话即将过期"
+    },
+    "window.title.updating": {
+        "message": "正在更新"
+    },
+    "window.title.welcome": {
+        "message": "欢迎使用 NetBird"
+    },
+    "window.title.error": {
+        "message": "错误"
+    },
+    "welcome.title": {
+        "message": "在托盘中查找 NetBird"
+    },
+    "welcome.description": {
+        "message": "NetBird 驻留在您的托盘中。点击图标即可连接、切换配置文件或打开设置。"
+    },
+    "welcome.continue": {
+        "message": "继续"
+    },
+    "welcome.back": {
+        "message": "返回"
+    },
+    "welcome.management.title": {
+        "message": "设置 NetBird"
+    },
+    "welcome.management.description": {
+        "message": "点击“继续”即可开始；如果您有自己的 NetBird 服务器，请选择“自托管”。"
+    },
+    "welcome.management.cloud.title": {
+        "message": "NetBird Cloud"
+    },
+    "welcome.management.cloud.description": {
+        "message": "使用我们的托管服务。无需任何设置。"
+    },
+    "welcome.management.selfHosted.title": {
+        "message": "自托管"
+    },
+    "welcome.management.selfHosted.description": {
+        "message": "连接到您自己的管理服务器。"
+    },
+    "welcome.management.urlLabel": {
+        "message": "管理服务器 URL"
+    },
+    "welcome.management.urlPlaceholder": {
+        "message": "https://netbird.selfhosted.com:443"
+    },
+    "welcome.management.urlInvalid": {
+        "message": "请输入有效的 URL，例如：https://netbird.selfhosted.com:443"
+    },
+    "welcome.management.urlUnreachable": {
+        "message": "无法连接到此服务器。请检查 URL 或您的网络，如果确认无误，再继续。"
+    },
+    "welcome.management.checking": {
+        "message": "正在检查…"
+    },
+    "browserLogin.title": {
+        "message": "请在浏览器中继续以完成登录"
+    },
+    "browserLogin.notSeeing": {
+        "message": "没看到浏览器标签页？"
+    },
+    "browserLogin.tryAgain": {
+        "message": "重试"
+    },
+    "browserLogin.openFailedTitle": {
+        "message": "打开浏览器失败"
+    },
+    "sessionExpiration.title": {
+        "message": "会话即将过期"
+    },
+    "sessionExpiration.titleLater": {
+        "message": "您的会话即将过期"
+    },
+    "sessionExpiration.description": {
+        "message": "此设备即将断开连接。通过浏览器登录进行续期。"
+    },
+    "sessionExpiration.descriptionLater": {
+        "message": "通过浏览器登录可让此设备保持连接到您的网络。"
+    },
+    "sessionExpiration.stay": {
+        "message": "续期会话"
+    },
+    "sessionExpiration.authenticate": {
+        "message": "进行身份验证"
+    },
+    "sessionExpiration.logout": {
+        "message": "退出登录"
+    },
+    "sessionExpiration.expired": {
+        "message": "会话已过期"
+    },
+    "sessionExpiration.expiredDescription": {
+        "message": "设备已断开连接。通过浏览器登录进行身份验证以重新连接。"
+    },
+    "sessionExpiration.close": {
+        "message": "关闭"
+    },
+    "sessionExpiration.extendFailedTitle": {
+        "message": "延长会话失败"
+    },
+    "sessionExpiration.logoutFailedTitle": {
+        "message": "退出登录失败"
+    },
+    "peers.search.placeholder": {
+        "message": "按名称或 IP 搜索"
+    },
+    "peers.filter.all": {
+        "message": "全部"
+    },
+    "peers.filter.online": {
+        "message": "在线"
+    },
+    "peers.filter.offline": {
+        "message": "离线"
+    },
+    "peers.empty.title": {
+        "message": "无可用的对等节点"
+    },
+    "peers.empty.description": {
+        "message": "您可能没有任何可用的对等节点，或者无权访问其中任何一个。"
+    },
+    "peers.details.domain": {
+        "message": "域名"
+    },
+    "peers.details.netbirdIp": {
+        "message": "NetBird IP"
+    },
+    "peers.details.netbirdIpv6": {
+        "message": "NetBird IPv6"
+    },
+    "peers.details.publicKey": {
+        "message": "公钥"
+    },
+    "peers.details.connection": {
+        "message": "连接"
+    },
+    "peers.details.latency": {
+        "message": "延迟"
+    },
+    "peers.details.lastHandshake": {
+        "message": "上次握手"
+    },
+    "peers.details.statusSince": {
+        "message": "上次连接更新"
+    },
+    "peers.details.bytes": {
+        "message": "字节"
+    },
+    "peers.details.bytesSent": {
+        "message": "已发送"
+    },
+    "peers.details.bytesReceived": {
+        "message": "已接收"
+    },
+    "peers.details.localIce": {
+        "message": "本地 ICE"
+    },
+    "peers.details.remoteIce": {
+        "message": "远程 ICE"
+    },
+    "peers.details.never": {
+        "message": "从不"
+    },
+    "peers.details.justNow": {
+        "message": "刚刚"
+    },
+    "peers.details.refresh": {
+        "message": "刷新"
+    },
+    "peers.status.connected": {
+        "message": "已连接"
+    },
+    "peers.status.connecting": {
+        "message": "正在连接"
+    },
+    "peers.status.disconnected": {
+        "message": "已断开连接"
+    },
+    "peers.details.relayAddress": {
+        "message": "中继"
+    },
+    "peers.details.networks": {
+        "message": "资源"
+    },
+    "peers.details.relayed": {
+        "message": "经中继"
+    },
+    "peers.details.p2p": {
+        "message": "P2P"
+    },
+    "peers.details.rosenpass": {
+        "message": "已启用 Rosenpass"
+    },
+    "networks.search.placeholder": {
+        "message": "按网络或域名搜索"
+    },
+    "networks.filter.all": {
+        "message": "全部"
+    },
+    "networks.filter.active": {
+        "message": "活动"
+    },
+    "networks.filter.overlapping": {
+        "message": "重叠"
+    },
+    "networks.empty.title": {
+        "message": "无可用资源"
+    },
+    "networks.empty.description": {
+        "message": "您可能没有任何可用的网络资源，或者无权访问其中任何一个。"
+    },
+    "networks.selected": {
+        "message": "已选择"
+    },
+    "networks.unselected": {
+        "message": "未选择"
+    },
+    "networks.ips.heading": {
+        "message": "已解析的 IP"
+    },
+    "networks.bulk.selectionCount": {
+        "message": "{total} 个中已激活 {selected} 个"
+    },
+    "networks.bulk.enableAll": {
+        "message": "全部启用"
+    },
+    "networks.bulk.disableAll": {
+        "message": "全部禁用"
+    },
+    "exitNodes.search.placeholder": {
+        "message": "搜索出口节点"
+    },
+    "exitNodes.none": {
+        "message": "无"
+    },
+    "exitNodes.empty.title": {
+        "message": "无可用的出口节点"
+    },
+    "exitNodes.empty.description": {
+        "message": "尚未向此对等节点共享任何出口节点。"
+    },
+    "exitNodes.card.title": {
+        "message": "出口节点"
+    },
+    "exitNodes.card.statusActive": {
+        "message": "活动"
+    },
+    "exitNodes.card.statusInactive": {
+        "message": "非活动"
+    },
+    "exitNodes.dropdown.noneTitle": {
+        "message": "无"
+    },
+    "exitNodes.dropdown.noneDescription": {
+        "message": "不使用出口节点的直接连接"
+    },
+    "quickActions.connect": {
+        "message": "连接"
+    },
+    "quickActions.disconnect": {
+        "message": "断开连接"
+    },
+    "daemon.unavailable.title": {
+        "message": "NetBird 服务未运行"
+    },
+    "daemon.unavailable.description": {
+        "message": "服务运行后，应用将自动重新连接。"
+    },
+    "daemon.unavailable.docsLink": {
+        "message": "文档"
+    },
+    "daemon.outdated.title": {
+        "message": "NetBird 服务版本过旧"
+    },
+    "daemon.outdated.description": {
+        "message": "请更新 NetBird 服务以使用此应用。"
+    },
+    "error.jwt_clock_skew": {
+        "message": "登录失败：此设备的时钟与服务器不同步。请同步您的系统时钟后重试。"
+    },
+    "error.jwt_expired": {
+        "message": "您的登录令牌已过期。请重新登录。"
+    },
+    "error.jwt_signature_invalid": {
+        "message": "登录失败：令牌签名无效。请联系您的管理员。"
+    },
+    "error.session_expired": {
+        "message": "您的会话已过期。请重新登录。"
+    },
+    "error.invalid_setup_key": {
+        "message": "设置密钥缺失或无效。"
+    },
+    "error.permission_denied": {
+        "message": "登录被服务器拒绝。"
+    },
+    "error.daemon_unreachable": {
+        "message": "NetBird 守护进程无响应。请检查服务是否正在运行。"
+    },
+    "error.unknown": {
+        "message": "操作失败。"
+    }
+}

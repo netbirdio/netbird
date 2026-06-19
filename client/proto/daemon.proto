@@ -24,6 +24,12 @@ service DaemonService {
   // Status of the service.
   rpc Status(StatusRequest) returns (StatusResponse) {}
 
+  // SubscribeStatus pushes a fresh StatusResponse on connection state
+  // changes (Connected / Disconnected / Connecting / address change /
+  // peers list change). The first message on the stream is the current
+  // snapshot, so a freshly-subscribed UI doesn't need to also call Status.
+  rpc SubscribeStatus(StatusRequest) returns (stream StatusResponse) {}
+
   // Down stops engine work in the daemon.
   rpc Down(DownRequest) returns (DownResponse) {}
 
@@ -79,6 +85,11 @@ service DaemonService {
 
   rpc GetEvents(GetEventsRequest) returns (GetEventsResponse) {}
 
+  // RegisterUILog records the desktop UI's absolute log path so the daemon's
+  // debug bundle can collect it (the daemon runs as root and can't resolve the
+  // user's config dir).
+  rpc RegisterUILog(RegisterUILogRequest) returns (RegisterUILogResponse) {}
+
   rpc SwitchProfile(SwitchProfileRequest) returns (SwitchProfileResponse) {}
 
   rpc SetConfig(SetConfigRequest) returns (SetConfigResponse) {}
@@ -111,6 +122,25 @@ service DaemonService {
   // WaitJWTToken waits for JWT authentication completion
   rpc WaitJWTToken(WaitJWTTokenRequest) returns (WaitJWTTokenResponse) {}
 
+  // RequestExtendAuthSession initiates an SSO session-extension flow.
+  // The daemon prepares a PKCE/device-code request against the IdP and
+  // returns the verification URI; the UI is expected to open it. The flow
+  // state is kept in the daemon until WaitExtendAuthSession completes it.
+  rpc RequestExtendAuthSession(RequestExtendAuthSessionRequest) returns (RequestExtendAuthSessionResponse) {}
+
+  // WaitExtendAuthSession blocks until the user finishes the SSO step
+  // started by RequestExtendAuthSession, then forwards the resulting JWT
+  // to the management server's ExtendAuthSession RPC. Returns the new
+  // session expiry deadline. The tunnel stays up the entire time.
+  rpc WaitExtendAuthSession(WaitExtendAuthSessionRequest) returns (WaitExtendAuthSessionResponse) {}
+
+  // DismissSessionWarning records that the user clicked "Dismiss" on the
+  // T-WarningLead interactive notification, suppressing the auto-opened
+  // SessionAboutToExpire dialog that would otherwise fire at
+  // T-FinalWarningLead for the current deadline. Idempotent and best-effort:
+  // a missed call only means the fallback dialog will still appear.
+  rpc DismissSessionWarning(DismissSessionWarningRequest) returns (DismissSessionWarningResponse) {}
+
 // StartCPUProfile starts CPU profiling in the daemon
   rpc StartCPUProfile(StartCPUProfileRequest) returns (StartCPUProfileResponse) {}
 
@@ -121,6 +151,11 @@ service DaemonService {
 
   // ExposeService exposes a local port via the NetBird reverse proxy
   rpc ExposeService(ExposeServiceRequest) returns (stream ExposeServiceEvent) {}
+
+  // WailsUIReady is a no-op probe the Wails UI calls once at startup. The UI
+  // only cares whether the daemon implements it: an Unimplemented response
+  // means the daemon predates this UI and is too old to drive it.
+  rpc WailsUIReady(WailsUIReadyRequest) returns (WailsUIReadyResponse) {}
 }
 
 
@@ -229,6 +264,12 @@ message UpRequest {
   optional string profileName = 1;
   optional string username = 2;
   reserved 3;
+  // async instructs the daemon to start the connection attempt and return
+  // immediately without waiting for the engine to become ready. Status updates
+  // are delivered via the SubscribeStatus stream. When false (the default) the
+  // RPC blocks until the engine is running or gives up, which is the behaviour
+  // needed by the CLI.
+  bool async = 4;
 }
 
 message UpResponse {}
@@ -246,6 +287,10 @@ message StatusResponse{
   FullStatus fullStatus = 2;
   // NetBird daemon version
   string daemonVersion = 3;
+  // Absolute UTC instant at which the peer's SSO session expires.
+  // Unset when the peer is not SSO-registered or login expiration is disabled.
+  // The UI derives "warning active" from this value and its own clock.
+  google.protobuf.Timestamp sessionExpiresAt = 4;
 }
 
 message DownRequest {}
@@ -421,6 +466,12 @@ message FullStatus {
 
   bool lazyConnectionEnabled = 9;
   SSHServerState sshServerState = 10;
+
+  // networksRevision bumps whenever the set of routed networks (route and
+  // exit-node candidates) or their selected state changes. The UI fingerprints
+  // on it to know when to re-fetch ListNetworks via the push stream, instead
+  // of polling on every status snapshot.
+  uint64 networksRevision = 11;
 }
 
 // Networks
@@ -516,6 +567,13 @@ message SetLogLevelRequest {
 }
 
 message SetLogLevelResponse {
+}
+
+message RegisterUILogRequest {
+  string path = 1;
+}
+
+message RegisterUILogResponse {
 }
 
 // State represents a daemon state entry
@@ -771,12 +829,22 @@ message LogoutRequest {
 
 message LogoutResponse {}
 
+message WailsUIReadyRequest {}
+
+message WailsUIReadyResponse {}
+
 message GetFeaturesRequest{}
 
 message GetFeaturesResponse{
   bool disable_profiles = 1;
   bool disable_update_settings = 2;
   bool disable_networks = 3;
+  // disableAdvancedView gates the upcoming UI revision's advanced
+  // section. Tristate: unset = no MDM directive, the UI applies its
+  // own default; true = MDM enforces disable; false = MDM enforces
+  // enable. Sourced exclusively from the MDM policy — no CLI /
+  // config flag backs this value.
+  optional bool disable_advanced_view = 4;
 }
 
 // MDMManagedFieldsViolation is attached as a gRPC error detail on a
@@ -854,6 +922,55 @@ message WaitJWTTokenResponse {
   // expiration time in seconds
   int64 expiresIn = 3;
 }
+
+// RequestExtendAuthSessionRequest kicks off the session-extension SSO flow.
+message RequestExtendAuthSessionRequest {
+  // Optional OIDC login_hint (typically the user's email) to pre-fill the
+  // IdP login form.
+  optional string hint = 1;
+}
+
+// RequestExtendAuthSessionResponse carries the verification URI the UI
+// should open in a browser. The daemon retains the flow state and resolves
+// it via WaitExtendAuthSession.
+message RequestExtendAuthSessionResponse {
+  // verification URI for the user to open in the browser
+  string verificationURI = 1;
+  // complete verification URI (with embedded user code)
+  string verificationURIComplete = 2;
+  // user code to enter on verification URI (for device-code flows)
+  string userCode = 3;
+  // device code for matching the WaitExtendAuthSession call to this flow
+  string deviceCode = 4;
+  // expiration time in seconds for the device code / PKCE flow
+  int64 expiresIn = 5;
+}
+
+// WaitExtendAuthSessionRequest is sent by the UI after it opens the
+// verification URI. The daemon blocks on this call until the user
+// completes (or aborts) the SSO step.
+message WaitExtendAuthSessionRequest {
+  // device code returned by RequestExtendAuthSession
+  string deviceCode = 1;
+  // user code for verification
+  string userCode = 2;
+}
+
+// WaitExtendAuthSessionResponse carries the refreshed deadline returned
+// by the management server. Unset when the management server reports the
+// peer is not eligible for session extension.
+message WaitExtendAuthSessionResponse {
+  google.protobuf.Timestamp sessionExpiresAt = 1;
+}
+
+// DismissSessionWarningRequest is sent by the UI when the user clicks
+// "Dismiss" on the T-WarningLead notification.
+message DismissSessionWarningRequest {}
+
+// DismissSessionWarningResponse acknowledges the dismissal. Carries no
+// payload — the daemon's only obligation is to silence the upcoming
+// T-FinalWarningLead fallback for the current deadline.
+message DismissSessionWarningResponse {}
 
 // StartCPUProfileRequest for starting CPU profiling
 message StartCPUProfileRequest {}

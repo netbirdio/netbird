@@ -22,11 +22,19 @@ import (
 	"github.com/netbirdio/netbird/util"
 )
 
+// extendSessionFlag drives the `netbird login --extend` flow: refresh the
+// SSO session expiry on the management server without tearing down the
+// tunnel. Mutually exclusive with setup-key login (a setup-key cannot
+// refresh an SSO-tracked peer — see auth.errSetupKeyOnSSOExpiredPeer).
+var extendSessionFlag bool
+
 func init() {
 	loginCmd.PersistentFlags().BoolVar(&noBrowser, noBrowserFlag, false, noBrowserDesc)
 	loginCmd.PersistentFlags().BoolVar(&showQR, showQRFlag, false, showQRDesc)
 	loginCmd.PersistentFlags().StringVar(&profileName, profileNameFlag, "", profileNameDesc)
 	loginCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "(DEPRECATED) Netbird config file location")
+	loginCmd.PersistentFlags().BoolVar(&extendSessionFlag, "extend", false,
+		"refresh the SSO session expiry without tearing down the tunnel (requires an active connection)")
 }
 
 var loginCmd = &cobra.Command{
@@ -59,6 +67,16 @@ var loginCmd = &cobra.Command{
 		providedSetupKey, err := getSetupKey()
 		if err != nil {
 			return err
+		}
+
+		if extendSessionFlag {
+			if providedSetupKey != "" {
+				return fmt.Errorf("--extend cannot be combined with a setup key; setup keys can only enrol new peers")
+			}
+			if err := doExtendSession(ctx, cmd); err != nil {
+				return fmt.Errorf("extend session failed: %v", err)
+			}
+			return nil
 		}
 
 		// workaround to run without service
@@ -149,6 +167,65 @@ func doDaemonLogin(ctx context.Context, cmd *cobra.Command, providedSetupKey str
 		}
 	}
 
+	return nil
+}
+
+// doExtendSession drives the daemon's RequestExtendAuthSession /
+// WaitExtendAuthSession pair. The user is sent through a regular SSO flow
+// (browser + verification URL) and the resulting JWT is forwarded to the
+// management server's ExtendAuthSession RPC. The tunnel stays up
+// throughout — no Down/Up, no network-map resync.
+func doExtendSession(ctx context.Context, cmd *cobra.Command) error {
+	conn, err := DialClientGRPCServer(ctx, daemonAddr)
+	if err != nil {
+		//nolint
+		return fmt.Errorf("failed to connect to daemon error: %v\n"+
+			"If the daemon is not running please run: "+
+			"\nnetbird service install \nnetbird service start\n", err)
+	}
+	defer conn.Close()
+
+	client := proto.NewDaemonServiceClient(conn)
+
+	req := &proto.RequestExtendAuthSessionRequest{}
+	// Pre-fill the IdP login hint from the active profile so the user
+	// doesn't have to retype their email. Best-effort: we still proceed
+	// without a hint if the lookup fails.
+	pm := profilemanager.NewProfileManager()
+	if active, perr := pm.GetActiveProfile(); perr == nil {
+		if profState, sperr := pm.GetProfileState(active.ID); sperr == nil && profState.Email != "" {
+			req.Hint = &profState.Email
+		}
+	}
+
+	startResp, err := client.RequestExtendAuthSession(ctx, req)
+	if err != nil {
+		return fmt.Errorf("start extend session: %v", err)
+	}
+
+	uri := startResp.GetVerificationURIComplete()
+	if uri == "" {
+		uri = startResp.GetVerificationURI()
+	}
+	openURL(cmd, uri, startResp.GetUserCode(), noBrowser, showQR)
+
+	waitResp, err := client.WaitExtendAuthSession(ctx, &proto.WaitExtendAuthSessionRequest{
+		DeviceCode: startResp.GetDeviceCode(),
+		UserCode:   startResp.GetUserCode(),
+	})
+	if err != nil {
+		return fmt.Errorf("wait for extend session: %v", err)
+	}
+
+	if ts := waitResp.GetSessionExpiresAt(); ts.IsValid() && !ts.AsTime().IsZero() {
+		deadline := ts.AsTime().Local()
+		cmd.Printf("Session extended. New expiry: %s\n", deadline.Format("2006-01-02 15:04:05 MST"))
+	} else {
+		// Management reported the peer is not eligible (e.g. login
+		// expiration disabled on the account). Surface that fact
+		// instead of pretending the call succeeded.
+		cmd.Println("Session extension call completed, but the management server did not return a new deadline (peer may not be SSO-tracked or login expiration is disabled).")
+	}
 	return nil
 }
 

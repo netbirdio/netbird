@@ -79,13 +79,21 @@ dependencies are installed. Here is a short guide on how that can be done.
 
 ### Requirements
 
-#### Go 1.21
+#### Go 1.25
 
 Follow the installation guide from https://go.dev/
 
-#### UI client - Fyne toolkit 
+#### UI client - Wails v3 + React
 
-We use the fyne toolkit in our UI client. You can follow its requirement guide to have all its dependencies installed: https://developer.fyne.io/started/#prerequisites
+The desktop UI client (`client/ui`) is built with [Wails v3](https://v3.wails.io/) and a React frontend rendered in a WebView. To build it you need:
+
+- Go ≥ 1.25
+- Node ≥ 20 and **pnpm** (`corepack enable && corepack prepare pnpm@latest --activate`)
+- The `wails3` CLI: `go install github.com/wailsapp/wails/v3/cmd/wails3@latest`
+- The `task` runner: `go install github.com/go-task/task/v3/cmd/task@latest`
+- Linux only: `libwebkitgtk-6.0-dev`, `libgtk-4-dev`, `libsoup-3.0-dev`
+
+All UI build, dev-loop, and cross-compile commands are described in the [UI client](#ui-client) section below.
 
 #### gRPC
 You can follow the instructions from the quickstarter guide https://grpc.io/docs/languages/go/quickstart/#prerequisites and then run the `generate.sh` files located in each `proto` directory to generate changes.
@@ -214,6 +222,39 @@ To start NetBird the client in the foreground:
 sudo ./client up --log-level debug --log-file console
 ```
 > On Windows use a powershell with administrator privileges
+
+#### UI client
+
+The desktop UI lives in `client/ui` and is built with Wails v3 (see [Requirements](#ui-client---wails-v3--react)). All commands run from `client/ui`.
+
+Live-reload development (Vite + Go binary + `*.go` watcher):
+
+```
+cd client/ui
+task dev
+```
+
+Pass daemon flags after `--`:
+
+```
+task dev -- --daemon-addr=tcp://127.0.0.1:41731
+```
+
+Production build (frontend assets embedded into the binary, output in `client/ui/bin/`):
+
+```
+cd client/ui
+task build
+```
+
+Cross-compile the Windows binary from Linux (requires the mingw-w64 toolchain, e.g. `sudo apt install gcc-mingw-w64-x86-64`):
+
+```
+CGO_ENABLED=1 task windows:build
+```
+
+> macOS cross-compile from Linux is not supported (signing and notarization need a real Mac).
+
 #### Signal service
 
 To start NetBird's signal, execute:
@@ -251,10 +292,10 @@ Create dist directory
 mkdir -p dist/netbird_windows_amd64
 ```
 
-UI client
+UI client (built with Wails v3 — see the [UI client](#ui-client) section above)
 ```shell
-CC=x86_64-w64-mingw32-gcc CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -o netbird-ui.exe -ldflags "-s -w -H windowsgui" ./client/ui
-mv netbird-ui.exe ./dist/netbird_windows_amd64/
+(cd client/ui && CGO_ENABLED=1 task windows:build)
+mv client/ui/bin/netbird-ui.exe ./dist/netbird_windows_amd64/
 ```
 
 Client
@@ -290,8 +331,6 @@ cd netbird
 go test -exec sudo ./...
 ```
 > On Windows use a powershell with administrator privileges
-
-> Non-GTK environments will need the `libayatana-appindicator3-dev` (debian/ubuntu) package installed
 
 ## Checklist before submitting a PR
 As a critical network service and open-source project, we must enforce a few things before submitting the pull-requests:
