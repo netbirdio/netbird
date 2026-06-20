@@ -121,7 +121,7 @@ export function ErrorPage({ code, title, message, proxy = true, destination = tr
 
       <div className="text-center text-xs text-nb-gray-300 uppercase z-10 relative font-mono flex flex-col sm:flex-row gap-2 sm:gap-10 mt-4 mb-3">
         <div>
-          <span className="text-nb-gray-400">REQUEST-ID:</span> {requestId}
+          <span className="text-nb-gray-400">REQUEST-ID:</span> {requestId || "Unavailable"}
         </div>
         <div>
           <span className="text-nb-gray-400">TIMESTAMP:</span> {timestamp}
