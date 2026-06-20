@@ -72,11 +72,11 @@ export function ErrorPage({ code, title, message, proxy = true, destination = tr
     document.title = `${title} - NetBird Service`;
   }, [title]);
 
+  const [timestamp] = useState(() => new Date().toISOString());
+
   if (variant === "forbidden") {
     return <ForbiddenPage code={code} message={message} requestId={requestId} retryUrl={retryUrl} />;
   }
-
-  const [timestamp] = useState(() => new Date().toISOString());
 
   return (
     <main className="flex flex-col items-center mt-24 px-4 max-w-3xl mx-auto">
