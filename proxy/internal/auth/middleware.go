@@ -128,7 +128,7 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 			if mw.forwardWithTunnelPeer(w, r, host, config, next) {
 				return
 			}
-			http.Error(w, "Forbidden", http.StatusForbidden)
+			mw.serveForbiddenPage(w, r, "This private service can only be reached from an authorized NetBird peer.")
 			return
 		}
 
@@ -223,7 +223,7 @@ func (mw *Middleware) checkIPRestrictions(w http.ResponseWriter, r *http.Request
 	clientIP := mw.resolveClientIP(r)
 	if !clientIP.IsValid() {
 		mw.logger.Debugf("IP restriction: cannot resolve client address for %q, denying", r.RemoteAddr)
-		http.Error(w, "Forbidden", http.StatusForbidden)
+		mw.serveForbiddenPage(w, r, "We could not validate your client address for this protected service.")
 		return false
 	}
 
@@ -258,8 +258,16 @@ func (mw *Middleware) checkIPRestrictions(w http.ResponseWriter, r *http.Request
 
 	reason := verdict.String()
 	mw.blockIPRestriction(r, reason)
-	http.Error(w, "Forbidden", http.StatusForbidden)
+	mw.serveForbiddenPage(w, r, "Your current network or location does not satisfy the access policy for this service.")
 	return false
+}
+
+func (mw *Middleware) serveForbiddenPage(w http.ResponseWriter, r *http.Request, message string) {
+	var requestID string
+	if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
+		requestID = cd.GetRequestID()
+	}
+	web.ServeAccessDeniedPage(w, r, http.StatusForbidden, "Forbidden", message, requestID)
 }
 
 // resolveClientIP extracts the real client IP from CapturedData, falling back to r.RemoteAddr.

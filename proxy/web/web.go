@@ -172,6 +172,7 @@ func ServeAccessDeniedPage(w http.ResponseWriter, r *http.Request, code int, tit
 			"message":   message,
 			"requestId": requestID,
 			"simple":    true,
+			"variant":   "forbidden",
 			"retryUrl":  stripAuthParams(r.URL),
 		},
 	}, code)
