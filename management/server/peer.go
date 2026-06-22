@@ -1170,7 +1170,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 	}
 
 	// This is needed to keep in memory for the peer config. Otherwise browser client will end in a retry loop
-	peer.UpdateMetaIfNew(ctx, login.Meta)
+	peer.Meta = login.Meta
 
 	peerGroupIDs, err = getPeerGroupIDs(ctx, am.Store, accountID, peer.ID)
 	if err != nil {

@@ -246,15 +246,6 @@ func (c *GrpcClient) notifyStreamConnected() {
 	}
 }
 
-func (c *GrpcClient) getStreamStatusChan() <-chan struct{} {
-	c.mux.Lock()
-	defer c.mux.Unlock()
-	if c.connectedCh == nil {
-		c.connectedCh = make(chan struct{})
-	}
-	return c.connectedCh
-}
-
 func (c *GrpcClient) connect(ctx context.Context, key string) (proto.SignalExchange_ConnectStreamClient, error) {
 	c.stream = nil
 
@@ -310,14 +301,24 @@ func (c *GrpcClient) IsHealthy() bool {
 }
 
 // WaitStreamConnected waits until the client is connected to the Signal stream
-func (c *GrpcClient) WaitStreamConnected() {
-
+func (c *GrpcClient) WaitStreamConnected(ctx context.Context) {
+	// Check the status and obtain the wait channel atomically: otherwise
+	// notifyStreamConnected could flip the status and close/clear the channel
+	// between the check and the channel creation, leaving us waiting forever on
+	// a stale channel.
+	c.mux.Lock()
 	if c.status == StreamConnected {
+		c.mux.Unlock()
 		return
 	}
+	if c.connectedCh == nil {
+		c.connectedCh = make(chan struct{})
+	}
+	ch := c.connectedCh
+	c.mux.Unlock()
 
-	ch := c.getStreamStatusChan()
 	select {
+	case <-ctx.Done():
 	case <-c.ctx.Done():
 	case <-ch:
 	}
