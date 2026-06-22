@@ -80,14 +80,15 @@ func (mr *MockManagerMockRecorder) AccountExists(ctx, accountID interface{}) *go
 }
 
 // AddPeer mocks base method.
-func (m *MockManager) AddPeer(ctx context.Context, accountID, setupKey, userID string, p *peer.Peer, temporary bool) (*peer.Peer, *types.NetworkMap, []*posture.Checks, error) {
+func (m *MockManager) AddPeer(ctx context.Context, accountID, setupKey, userID string, p *peer.Peer, temporary bool) (*peer.Peer, *types.Network, []*posture.Checks, bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "AddPeer", ctx, accountID, setupKey, userID, p, temporary)
 	ret0, _ := ret[0].(*peer.Peer)
-	ret1, _ := ret[1].(*types.NetworkMap)
+	ret1, _ := ret[1].(*types.Network)
 	ret2, _ := ret[2].([]*posture.Checks)
-	ret3, _ := ret[3].(error)
-	return ret0, ret1, ret2, ret3
+	ret3, _ := ret[3].(bool)
+	ret4, _ := ret[4].(error)
+	return ret0, ret1, ret2, ret3, ret4
 }
 
 // AddPeer indicates an expected call of AddPeer.
@@ -1289,14 +1290,15 @@ func (mr *MockManagerMockRecorder) ListUsers(ctx, accountID interface{}) *gomock
 }
 
 // LoginPeer mocks base method.
-func (m *MockManager) LoginPeer(ctx context.Context, login types.PeerLogin) (*peer.Peer, *types.NetworkMap, []*posture.Checks, error) {
+func (m *MockManager) LoginPeer(ctx context.Context, login types.PeerLogin) (*peer.Peer, *types.Network, []*posture.Checks, bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "LoginPeer", ctx, login)
 	ret0, _ := ret[0].(*peer.Peer)
-	ret1, _ := ret[1].(*types.NetworkMap)
+	ret1, _ := ret[1].(*types.Network)
 	ret2, _ := ret[2].([]*posture.Checks)
-	ret3, _ := ret[3].(error)
-	return ret0, ret1, ret2, ret3
+	ret3, _ := ret[3].(bool)
+	ret4, _ := ret[4].(error)
+	return ret0, ret1, ret2, ret3, ret4
 }
 
 // LoginPeer indicates an expected call of LoginPeer.

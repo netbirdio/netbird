@@ -98,6 +98,7 @@ type RelayStateOutputDetail struct {
 	URI       string `json:"uri" yaml:"uri"`
 	Available bool   `json:"available" yaml:"available"`
 	Error     string `json:"error" yaml:"error"`
+	Transport string `json:"transport,omitempty" yaml:"transport,omitempty"`
 }
 
 type RelayStateOutput struct {
@@ -219,7 +220,8 @@ func mapRelays(relays []*proto.RelayState) RelayStateOutput {
 			RelayStateOutputDetail{
 				URI:       relay.URI,
 				Available: available,
-				Error:     relay.GetError(),
+				Error:     relayErrorString(relay.GetError()),
+				Transport: relay.GetTransport(),
 			},
 		)
 
@@ -233,6 +235,12 @@ func mapRelays(relays []*proto.RelayState) RelayStateOutput {
 		Available: relaysAvailable,
 		Details:   relayStateDetail,
 	}
+}
+
+// relayErrorString flattens a newline-joined aggregated relay error onto a
+// single line for status output.
+func relayErrorString(s string) string {
+	return strings.ReplaceAll(s, "\n", "; ")
 }
 
 func mapNSGroups(servers []*proto.NSGroupState) []NsServerGroupStateOutput {
@@ -441,6 +449,8 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 					available = "Unavailable"
 					reason = fmt.Sprintf(", reason: %s", relay.Error)
 				}
+			} else if relay.Transport != "" {
+				available = fmt.Sprintf("%s via %s", available, relay.Transport)
 			}
 
 			relaysString += fmt.Sprintf("\n  [%s] is %s%s", relay.URI, available, reason)
