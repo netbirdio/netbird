@@ -3,6 +3,7 @@ package system
 import (
 	"context"
 	"net/netip"
+	"slices"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
@@ -121,6 +122,23 @@ func (i *Info) SetFlags(
 	}
 }
 
+// removeAddresses drops network addresses whose IP matches any of the given
+// addresses, regardless of prefix length. Used to exclude the NetBird overlay
+// address, which otherwise churns the meta as the interface comes and goes.
+func (i *Info) removeAddresses(ips ...netip.Addr) {
+	if len(ips) == 0 {
+		return
+	}
+	filtered := i.NetworkAddresses[:0]
+	for _, addr := range i.NetworkAddresses {
+		if slices.Contains(ips, addr.NetIP.Addr()) {
+			continue
+		}
+		filtered = append(filtered, addr)
+	}
+	i.NetworkAddresses = filtered
+}
+
 // extractUserAgent extracts Netbird's agent (client) name and version from the outgoing context
 func extractUserAgent(ctx context.Context) string {
 	md, hasMeta := metadata.FromOutgoingContext(ctx)
@@ -147,7 +165,9 @@ func extractDeviceName(ctx context.Context, defaultName string) string {
 }
 
 // GetInfoWithChecks retrieves and parses the system information with applied checks.
-func GetInfoWithChecks(ctx context.Context, checks []*proto.Checks) (*Info, error) {
+// excludeIPs are dropped from the reported network addresses (e.g. our own
+// WireGuard overlay address, which otherwise churns the peer meta).
+func GetInfoWithChecks(ctx context.Context, checks []*proto.Checks, excludeIPs ...netip.Addr) (*Info, error) {
 	log.Debugf("gathering system information with checks: %d", len(checks))
 	processCheckPaths := make([]string, 0)
 	for _, check := range checks {
@@ -162,6 +182,7 @@ func GetInfoWithChecks(ctx context.Context, checks []*proto.Checks) (*Info, erro
 
 	info := GetInfo(ctx)
 	info.Files = files
+	info.removeAddresses(excludeIPs...)
 
 	log.Debugf("all system information gathered successfully")
 	return info, nil
