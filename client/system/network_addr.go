@@ -46,7 +46,9 @@ func toNetworkAddress(address net.Addr, mac string) (NetworkAddress, bool) {
 	if !ok {
 		return NetworkAddress{}, false
 	}
-	if ipNet.IP.IsLoopback() {
+	// Skip link-local and multicast: they carry no routable peer info and the
+	// IPv6 link-local of a flapping NIC churns the meta on every up/down.
+	if ipNet.IP.IsLoopback() || ipNet.IP.IsLinkLocalUnicast() || ipNet.IP.IsMulticast() {
 		return NetworkAddress{}, false
 	}
 	prefix, err := netip.ParsePrefix(ipNet.String())
