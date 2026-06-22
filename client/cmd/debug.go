@@ -130,7 +130,7 @@ func debugConfigDump(cmd *cobra.Command, _ []string) error {
 
 	client := proto.NewDaemonServiceClient(conn)
 	resp, err := client.GetConfig(cmd.Context(), &proto.GetConfigRequest{
-		ProfileName: activeProf.Name,
+		ProfileName: string(activeProf.ID),
 		Username:    currUser.Username,
 	})
 	if err != nil {
