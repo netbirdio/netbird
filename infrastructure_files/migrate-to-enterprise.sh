@@ -1,6 +1,7 @@
 #!/bin/bash
 
 set -e
+set -o pipefail
 
 # NetBird — community combined → Enterprise combined migration
 #
@@ -140,7 +141,13 @@ detect_exposed_address() {
 }
 
 detect_compose_network() {
-  yq eval ".services[\"$COMBINED_SERVICE\"].networks // [\"default\"] | .[0]" "$COMPOSE_FILE"
+  yq eval "
+    .services[\"$COMBINED_SERVICE\"].networks as \$networks |
+    if \$networks == null then \"default\"
+    elif (\$networks | type) == \"!!seq\" then \$networks[0]
+    elif (\$networks | type) == \"!!map\" then (\$networks | keys | .[0])
+    else \"default\" end
+  " "$COMPOSE_FILE"
 }
 
 # ---------------------------------------------------------------------------
@@ -318,7 +325,21 @@ resolve_data_volume() {
     echo "$actual"
     return
   fi
-  # Not a named volume (e.g. a bind-mount path) — use it as-is.
+  # Relative bind mount: docker-compose resolves it against the compose
+  # file's directory, but `docker run -v` resolves it against the current
+  # working directory. Normalize to an absolute path so both interpretations
+  # agree (and the printed revert command works from any CWD).
+  if [[ "$short" == ./* || "$short" == ../* ]]; then
+    local compose_dir
+    compose_dir="$(cd "$(dirname "$COMPOSE_FILE")" && pwd)"
+    (
+      cd "$compose_dir"
+      cd "$(dirname "$short")"
+      printf '%s/%s\n' "$(pwd)" "$(basename "$short")"
+    )
+    return
+  fi
+  # Not a named volume (e.g. an absolute bind-mount path) — use it as-is.
   echo "$short"
 }
 
@@ -589,10 +610,7 @@ print_summary() {
   if [[ "$MIGRATE_POSTGRES" == "yes" ]]; then
     # Resolve project-prefixed volume names now (before override is removed).
     local pg_volume data_volume_actual
-    pg_volume=$(docker volume ls --format '{{.Name}}' | grep "netbird_postgres" | head -1)
-    if [[ -z "$pg_volume" ]]; then
-      pg_volume="netbird_postgres"
-    fi
+    pg_volume=$(resolve_data_volume "netbird_postgres")
     data_volume_actual=$(resolve_data_volume "$DATA_VOLUME")
     echo "  # Remove the Postgres volume FIRST, before deleting the override file:"
     echo "  docker volume rm $pg_volume"

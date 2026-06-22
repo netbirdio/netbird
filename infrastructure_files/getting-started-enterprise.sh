@@ -1,6 +1,7 @@
 #!/bin/bash
 
 set -e
+set -o pipefail
 
 # NetBird Enterprise — Getting Started
 # Single-node bootstrap for a self-hosted NetBird Enterprise stack with the
@@ -21,23 +22,9 @@ check_docker_compose() {
   exit 1
 }
 
-check_jq() {
-  if ! command -v jq &> /dev/null; then
-    echo "jq is not installed or not in PATH. e.g. sudo apt install jq" > /dev/stderr
-    exit 1
-  fi
-}
-
 check_openssl() {
   if ! command -v openssl &> /dev/null; then
     echo "openssl is not installed or not in PATH." > /dev/stderr
-    exit 1
-  fi
-}
-
-check_curl() {
-  if ! command -v curl &> /dev/null; then
-    echo "curl is not installed or not in PATH." > /dev/stderr
     exit 1
   fi
 }
@@ -175,9 +162,7 @@ wait_postgres() {
 }
 
 init_environment() {
-  check_jq
   check_openssl
-  check_curl
   DOCKER_COMPOSE_COMMAND=$(check_docker_compose)
 
   if [[ -f .env ]] || [[ -f docker-compose.yml ]] || [[ -f config.yaml ]] || [[ -f Caddyfile ]]; then
@@ -205,7 +190,7 @@ init_environment() {
 
   echo ""
 
-  NETBIRD_LICENSE_KEY=$(read_required "Enter license key")
+  NETBIRD_LICENSE_KEY=$(read_secret "Enter license key (input hidden)")
 
   GHCR_USERNAME="netbirdExtAccess1"
   GHCR_TOKEN=$(read_secret "Enter GHCR token (input hidden)")
