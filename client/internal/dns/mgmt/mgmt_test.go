@@ -329,7 +329,7 @@ func TestResolver_ManagementDomainProtection(t *testing.T) {
 	if err != nil {
 		t.Logf("Server domains update failed: %v", err)
 	}
-	resolver.WaitForPendingResolves(10 * time.Second)
+	resolver.waitForPendingResolves(10 * time.Second)
 
 	finalDomains := resolver.GetCachedDomains()
 
@@ -367,7 +367,7 @@ func TestResolver_EmptyUpdateDoesNotRemoveDomains(t *testing.T) {
 	if err != nil {
 		t.Skipf("Skipping test due to DNS resolution failure: %v", err)
 	}
-	resolver.WaitForPendingResolves(10 * time.Second)
+	resolver.waitForPendingResolves(10 * time.Second)
 
 	// Verify domains were added
 	cachedDomains := resolver.GetCachedDomains()
@@ -402,7 +402,7 @@ func TestResolver_PartialUpdateReplacesOnlyUpdatedTypes(t *testing.T) {
 	if err != nil {
 		t.Skipf("Skipping test due to DNS resolution failure: %v", err)
 	}
-	resolver.WaitForPendingResolves(10 * time.Second)
+	resolver.waitForPendingResolves(10 * time.Second)
 	assert.Len(t, resolver.GetCachedDomains(), 3)
 
 	// Update with partial ServerDomains (only signal domain - this should replace signal but preserve stun/turn)
@@ -413,7 +413,7 @@ func TestResolver_PartialUpdateReplacesOnlyUpdatedTypes(t *testing.T) {
 	if err != nil {
 		t.Skipf("Skipping test due to DNS resolution failure: %v", err)
 	}
-	resolver.WaitForPendingResolves(10 * time.Second)
+	resolver.waitForPendingResolves(10 * time.Second)
 
 	// Should remove only the old signal domain
 	assert.Len(t, removedDomains, 1, "Should remove only the old signal domain")
@@ -448,7 +448,7 @@ func TestResolver_PartialUpdateAddsNewTypePreservesExisting(t *testing.T) {
 	if err != nil {
 		t.Skipf("Skipping test due to DNS resolution failure: %v", err)
 	}
-	resolver.WaitForPendingResolves(10 * time.Second)
+	resolver.waitForPendingResolves(10 * time.Second)
 	assert.Len(t, resolver.GetCachedDomains(), 3)
 
 	// Update with partial ServerDomains (only flow domain - flow is intentionally excluded from
@@ -460,7 +460,7 @@ func TestResolver_PartialUpdateAddsNewTypePreservesExisting(t *testing.T) {
 	if err != nil {
 		t.Skipf("Skipping test due to DNS resolution failure: %v", err)
 	}
-	resolver.WaitForPendingResolves(10 * time.Second)
+	resolver.waitForPendingResolves(10 * time.Second)
 
 	assert.Len(t, removedDomains, 0, "Should not remove any domains when only flow domain is provided")
 

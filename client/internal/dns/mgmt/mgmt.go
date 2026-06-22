@@ -619,30 +619,6 @@ func (m *Resolver) clearPending(dnsName string) {
 	m.mutex.Unlock()
 }
 
-// pendingCount returns the number of domains whose initial resolve is still in
-// flight. Primarily useful for tests that need to wait for background resolves
-// kicked off by UpdateFromServerDomains.
-func (m *Resolver) pendingCount() int {
-	m.mutex.RLock()
-	defer m.mutex.RUnlock()
-	return len(m.pending)
-}
-
-// WaitForPendingResolves blocks until all background initial resolves kicked
-// off by UpdateFromServerDomains have settled, or the timeout elapses. It
-// returns true if all settled. Intended for tests and shutdown paths that need
-// the cache populated synchronously.
-func (m *Resolver) WaitForPendingResolves(timeout time.Duration) bool {
-	deadline := time.Now().Add(timeout)
-	for m.pendingCount() > 0 {
-		if time.Now().After(deadline) {
-			return false
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	return true
-}
-
 // awaitPendingResolve waits for an in-flight initial resolve of dnsName to
 // finish, bounded by dnsTimeout. It joins the existing resolveGroup flight so
 // concurrent ServeDNS waiters share one resolution. Returns true if a record
