@@ -665,8 +665,8 @@ github.com/vmihailenco/msgpack/v5 v5.4.1 h1:cQriyiUvjTwOHg8QZaPihLWeRAAVoCpE00IU
 github.com/vmihailenco/msgpack/v5 v5.4.1/go.mod h1:GaZTsDaehaPpQVyxrf5mtQlH+pc21PIudVV/E3rRQok=
 github.com/vmihailenco/tagparser/v2 v2.0.0 h1:y09buUbR+b5aycVFQs/g70pqKVZNBmxwAhO7/IwNM9g=
 github.com/vmihailenco/tagparser/v2 v2.0.0/go.mod h1:Wri+At7QHww0WTrCBeu4J6bNtoV6mEfg5OIWRZA9qds=
-github.com/wailsapp/wails/v3 v3.0.0-alpha.102 h1:kkgrP4wQ5v79L77mGfaq0RD1zfsRzzJ5sWBATdwzIKc=
-github.com/wailsapp/wails/v3 v3.0.0-alpha.102/go.mod h1:GRW1qYl54Zi/w1mjCzDrMiy76g2BLfNlpqF640hgMf0=
+github.com/wailsapp/wails/v3 v3.0.0-alpha2.105 h1:KV2zqL9fOnX7o8goTwBAwBSfyT6MoZCTWofe3jSbOHM=
+github.com/wailsapp/wails/v3 v3.0.0-alpha2.105/go.mod h1:GRW1qYl54Zi/w1mjCzDrMiy76g2BLfNlpqF640hgMf0=
 github.com/wailsapp/wails/webview2 v1.0.24 h1:uULnjCSaRfMlU84mS3kjLgPsRosEOIusVK1nFOHZHzs=
 github.com/wailsapp/wails/webview2 v1.0.24/go.mod h1:sdf+s0nAdxlzVWf9SCxC15XaxnQPJeY+uU1Ucn3jHQM=
 github.com/wlynxg/anet v0.0.5 h1:J3VJGi1gvo0JwZ/P1/Yc/8p63SoW98B5dHkYDmpgvvU=

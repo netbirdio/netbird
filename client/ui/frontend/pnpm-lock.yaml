@@ -39,8 +39,8 @@ importers:
         specifier: ^1.2.4
         version: 1.2.4(@types/react-dom@18.3.7(@types/react@18.3.29))(@types/react@18.3.29)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@wailsio/runtime':
-        specifier: latest
-        version: 3.0.0-alpha.79
+        specifier: 3.0.0-alpha.94
+        version: 3.0.0-alpha.94
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -1169,8 +1169,8 @@ packages:
     peerDependencies:
       vite: ^4.2.0 || ^5.0.0 || ^6.0.0 || ^7.0.0
 
-  '@wailsio/runtime@3.0.0-alpha.79':
-    resolution: {integrity: sha512-NITzxKmJsMEruc39L166lbPJVECxzcbdqpHVqOOF7Cu/7Zqk/e3B/gNpkUjhNyo5rVb3V1wpS8oEgLUmpu1cwA==}
+  '@wailsio/runtime@3.0.0-alpha.94':
+    resolution: {integrity: sha512-jtOtyWLDLop9NfU373sA43NjyGntxDFUIHY6kzmArz5HGn66Ok3vl9N2nIyVs7cArvADxk/mBBZ9wXOX7R0NFA==}
 
   acorn-jsx@5.3.2:
     resolution: {integrity: sha512-rq9s+JNhf0IChjtDXxllJ7g41oZk5SlXtp0LHwyA5cejwn7vKmKp4pPri6YEePv2PU65sAsegbXtIinmDFDXgQ==}
@@ -3590,7 +3590,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@wailsio/runtime@3.0.0-alpha.79': {}
+  '@wailsio/runtime@3.0.0-alpha.94': {}
 
   acorn-jsx@5.3.2(acorn@8.17.0):
     dependencies:
