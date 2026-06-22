@@ -85,6 +85,8 @@ service DaemonService {
 
   rpc AddProfile(AddProfileRequest) returns (AddProfileResponse) {}
 
+  rpc RenameProfile(RenameProfileRequest) returns (RenameProfileResponse) {}
+
   rpc RemoveProfile(RemoveProfileRequest) returns (RemoveProfileResponse) {}
 
   rpc ListProfiles(ListProfilesRequest) returns (ListProfilesResponse) {}
@@ -625,11 +627,18 @@ message GetEventsResponse {
 }
 
 message SwitchProfileRequest {
+  // profileName is treated as a handle: exact ID, unique ID prefix, or
+  // unique display name. The daemon resolves it server-side.
   optional string profileName = 1;
   optional string username = 2;
 }
 
-message SwitchProfileResponse {}
+message SwitchProfileResponse {
+  // id is the resolved on-disk ID of the profile that became active.
+  // Lets CLI clients update their local active-profile state without
+  // duplicating the resolution logic.
+  string id = 1;
+}
 
 message SetConfigRequest {
   string username = 1;
@@ -696,17 +705,42 @@ message SetConfigResponse{}
 
 message AddProfileRequest {
   string username = 1;
+  // profileName carries the human-readable display name for the new
+  // profile. The on-disk filename is a separately-generated ID.
   string profileName = 2;
 }
 
-message AddProfileResponse {}
+message AddProfileResponse {
+  // id is the generated on-disk ID of the new profile. CLI clients
+  // display a truncated form, UI clients can ignore it.
+  string id = 1;
+}
+
+message RenameProfileRequest {
+  string username = 1;
+  // handle: an exact ID, a unique ID prefix, or a unique display name.
+  string handle = 2;
+  // newProfileName is the new human-readable display name for the profile.
+  string newProfileName = 3;
+}
+
+message RenameProfileResponse {
+  // confirm the old profile name after resolving handle.
+  string oldProfileName = 1;
+}
 
 message RemoveProfileRequest {
   string username = 1;
+  // profileName is treated as a handle: an exact ID, a unique ID
+  // prefix, or a unique display name. Resolution happens server-side.
   string profileName = 2;
 }
 
-message RemoveProfileResponse {}
+message RemoveProfileResponse {
+  // id is the full resolved ID of the removed profile, so callers can
+  // confirm exactly which profile a name/prefix handle resolved to.
+  string id = 1;
+}
 
 message ListProfilesRequest {
   string username = 1;
@@ -719,6 +753,7 @@ message ListProfilesResponse {
 message Profile {
   string name = 1;
   bool is_active = 2;
+  string id = 3;
 }
 
 message GetActiveProfileRequest {}
@@ -726,6 +761,7 @@ message GetActiveProfileRequest {}
 message GetActiveProfileResponse {
   string profileName = 1;
   string username = 2;
+  string id = 3;
 }
 
 message LogoutRequest {

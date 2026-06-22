@@ -65,7 +65,7 @@ func TestReceiveProbeRoundTrips(t *testing.T) {
 
 	streamReady := make(chan struct{})
 	go func() {
-		client.WaitStreamConnected()
+		client.WaitStreamConnected(ctx)
 		close(streamReady)
 	}()
 	select {
