@@ -7,6 +7,7 @@ import (
 	"regexp"
 
 	"github.com/hashicorp/go-version"
+
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -63,7 +64,7 @@ func AffectsPosture(diff *nbpeer.MetaDiff, checks []*Checks) bool {
 		if c.Checks.ProcessCheck != nil && diff.Files {
 			return true
 		}
-		if c.Checks.OSVersionCheck != nil && (diff.OSVersion || diff.OS) {
+		if c.Checks.OSVersionCheck != nil && (diff.OSVersion || diff.OS || diff.KernelVersion) {
 			return true
 		}
 		if c.Checks.NBVersionCheck != nil && diff.WtVersion {
