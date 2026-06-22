@@ -1,6 +1,7 @@
 package system
 
 import (
+	"context"
 	"testing"
 
 	"github.com/shirou/gopsutil/v3/process"
@@ -9,7 +10,7 @@ import (
 func Benchmark_getRunningProcesses(b *testing.B) {
 	b.Run("getRunningProcesses new", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			ps, err := getRunningProcesses()
+			ps, err := getRunningProcesses(context.Background())
 			if err != nil {
 				b.Fatalf("unexpected error: %v", err)
 			}
@@ -29,7 +30,7 @@ func Benchmark_getRunningProcesses(b *testing.B) {
 			}
 		}
 	})
-	s, _ := getRunningProcesses()
+	s, _ := getRunningProcesses(context.Background())
 	b.Logf("getRunningProcesses returned %d processes", len(s))
 	s, _ = getRunningProcessesOld()
 	b.Logf("getRunningProcessesOld returned %d processes", len(s))

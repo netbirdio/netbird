@@ -155,7 +155,7 @@ func GetInfoWithChecks(ctx context.Context, checks []*proto.Checks) (*Info, erro
 		processCheckPaths = append(processCheckPaths, check.GetFiles()...)
 	}
 
-	files, err := checkFileAndProcess(processCheckPaths)
+	files, err := checkFileAndProcess(ctx, processCheckPaths)
 	if err != nil {
 		return nil, err
 	}
