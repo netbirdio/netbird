@@ -2,17 +2,15 @@ package mgmt
 
 import "time"
 
-// pendingCount returns the number of domains whose initial resolve is still in
-// flight. Test-only: lets tests wait for background resolves kicked off by
-// UpdateFromServerDomains.
+// pendingCount returns how many initial resolves are still in flight. Test-only.
 func (m *Resolver) pendingCount() int {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 	return len(m.pending)
 }
 
-// waitForPendingResolves blocks until all background initial resolves have
-// settled, or the timeout elapses. Returns true if all settled. Test-only.
+// waitForPendingResolves blocks until all pending resolves settle or the
+// timeout elapses, returning true if all settled. Test-only.
 func (m *Resolver) waitForPendingResolves(timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for m.pendingCount() > 0 {
