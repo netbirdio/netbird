@@ -141,13 +141,19 @@ detect_exposed_address() {
 }
 
 detect_compose_network() {
-  yq eval "
-    .services[\"$COMBINED_SERVICE\"].networks as \$networks |
-    if \$networks == null then \"default\"
-    elif (\$networks | type) == \"!!seq\" then \$networks[0]
-    elif (\$networks | type) == \"!!map\" then (\$networks | keys | .[0])
-    else \"default\" end
-  " "$COMPOSE_FILE"
+  local tag
+  tag=$(yq eval ".services[\"$COMBINED_SERVICE\"].networks | tag" "$COMPOSE_FILE" 2>/dev/null)
+  case "$tag" in
+    "!!seq")
+      yq eval ".services[\"$COMBINED_SERVICE\"].networks[0]" "$COMPOSE_FILE"
+      ;;
+    "!!map")
+      yq eval ".services[\"$COMBINED_SERVICE\"].networks | keys | .[0]" "$COMPOSE_FILE"
+      ;;
+    *)
+      echo "default"
+      ;;
+  esac
 }
 
 # ---------------------------------------------------------------------------
