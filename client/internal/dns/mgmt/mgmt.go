@@ -57,6 +57,9 @@ type pendingEntry struct{}
 // Resolver caches critical NetBird infrastructure domains.
 // records, refreshing, pending, mgmtDomain and serverDomains are all guarded by mutex.
 type Resolver struct {
+	// ctx is the server-lifetime context for background resolves.
+	ctx context.Context
+
 	records       map[dns.Question]*cachedRecord
 	mgmtDomain    *domain.Domain
 	serverDomains *dnsconfig.ServerDomains
@@ -85,8 +88,9 @@ type Resolver struct {
 }
 
 // NewResolver creates a new management domains cache resolver.
-func NewResolver() *Resolver {
+func NewResolver(ctx context.Context) *Resolver {
 	return &Resolver{
+		ctx:        ctx,
 		records:    make(map[dns.Question]*cachedRecord),
 		refreshing: make(map[dns.Question]*atomic.Bool),
 		pending:    make(map[string]pendingEntry),
@@ -613,7 +617,7 @@ func (m *Resolver) awaitPendingResolve(dnsName string) bool {
 
 	ch := m.resolveGroup.DoChan(key, func() (any, error) {
 		defer m.clearPending(dnsName)
-		if err := m.AddDomain(context.Background(), d); err != nil {
+		if err := m.AddDomain(m.ctx, d); err != nil {
 			return struct{}{}, err
 		}
 		return struct{}{}, nil

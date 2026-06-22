@@ -17,7 +17,7 @@ import (
 )
 
 func TestResolver_NewResolver(t *testing.T) {
-	resolver := NewResolver()
+	resolver := NewResolver(context.Background())
 
 	assert.NotNil(t, resolver)
 	assert.NotNil(t, resolver.records)
@@ -49,7 +49,7 @@ func TestResolveCacheTTL(t *testing.T) {
 
 func TestNewResolver_CacheTTLFromEnv(t *testing.T) {
 	t.Setenv(envMgmtCacheTTL, "7s")
-	r := NewResolver()
+	r := NewResolver(context.Background())
 	assert.Equal(t, 7*time.Second, r.cacheTTL, "NewResolver should evaluate cacheTTL once from env")
 }
 
@@ -169,7 +169,7 @@ func TestResolver_PopulateFromConfig(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	resolver := NewResolver()
+	resolver := NewResolver(context.Background())
 
 	// Test with IP address - should return error since IP addresses are rejected
 	mgmtURL, _ := url.Parse("https://127.0.0.1")
@@ -184,7 +184,7 @@ func TestResolver_PopulateFromConfig(t *testing.T) {
 }
 
 func TestResolver_ServeDNS(t *testing.T) {
-	resolver := NewResolver()
+	resolver := NewResolver(context.Background())
 	ctx := context.Background()
 
 	// Add a test domain to the cache - use example.org which is reserved for testing
@@ -284,7 +284,7 @@ func TestResolver_ServeDNS(t *testing.T) {
 }
 
 func TestResolver_GetCachedDomains(t *testing.T) {
-	resolver := NewResolver()
+	resolver := NewResolver(context.Background())
 	ctx := context.Background()
 
 	testDomain, err := domain.FromString("example.org")
@@ -304,7 +304,7 @@ func TestResolver_GetCachedDomains(t *testing.T) {
 }
 
 func TestResolver_ManagementDomainProtection(t *testing.T) {
-	resolver := NewResolver()
+	resolver := NewResolver(context.Background())
 	ctx := context.Background()
 
 	mgmtURL, _ := url.Parse("https://example.org")
@@ -352,7 +352,7 @@ func extractDomainFromURL(u *url.URL) (domain.Domain, error) {
 }
 
 func TestResolver_EmptyUpdateDoesNotRemoveDomains(t *testing.T) {
-	resolver := NewResolver()
+	resolver := NewResolver(context.Background())
 	ctx := context.Background()
 
 	// Set up initial domains using resolvable domains
@@ -387,7 +387,7 @@ func TestResolver_EmptyUpdateDoesNotRemoveDomains(t *testing.T) {
 }
 
 func TestResolver_PartialUpdateReplacesOnlyUpdatedTypes(t *testing.T) {
-	resolver := NewResolver()
+	resolver := NewResolver(context.Background())
 	ctx := context.Background()
 
 	// Set up initial complete domains using resolvable domains
@@ -433,7 +433,7 @@ func TestResolver_PartialUpdateReplacesOnlyUpdatedTypes(t *testing.T) {
 }
 
 func TestResolver_PartialUpdateAddsNewTypePreservesExisting(t *testing.T) {
-	resolver := NewResolver()
+	resolver := NewResolver(context.Background())
 	ctx := context.Background()
 
 	// Set up initial complete domains using resolvable domains
