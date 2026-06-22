@@ -2,6 +2,8 @@ package store
 
 import (
 	"maps"
+	"math/rand"
+	v2 "math/rand/v2"
 	"net/netip"
 	"slices"
 	"sync"
@@ -26,6 +28,7 @@ type AggregatingMemory struct {
 	Memory
 	WindowStart time.Time
 	WindowEnd   time.Time
+	rnd         *v2.PCG
 }
 
 func (m *Memory) StoreEvent(event *types.Event) {
@@ -59,17 +62,18 @@ func (m *Memory) DeleteEvents(ids []uuid.UUID) {
 }
 
 func NewAggregatingMemoryStore() *AggregatingMemory {
-	return &AggregatingMemory{WindowStart: time.Now(), Memory: Memory{events: make(map[uuid.UUID]*types.Event)}}
+	return &AggregatingMemory{WindowStart: time.Now(), Memory: Memory{events: make(map[uuid.UUID]*types.Event)}, rnd: v2.NewPCG(rand.Uint64(), rand.Uint64())}
 }
 
 func (am *AggregatingMemory) ResetAggregationWindow() types.FlowEventAggregator {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	toret := AggregatingMemory{WindowStart: am.WindowStart, WindowEnd: time.Now(), Memory: Memory{events: am.events}}
+	now := time.Now()
+	toret := AggregatingMemory{WindowStart: am.WindowStart, WindowEnd: now, Memory: Memory{events: am.events}}
 
 	am.events = make(map[uuid.UUID]*types.Event)
-	am.WindowStart = time.Now()
+	am.WindowStart = now
 
 	return &toret
 }
@@ -81,7 +85,7 @@ type aggregationKey struct {
 	direction int
 	protocol  uint8
 	icmpType  uint8
-	unique    int64 // used to prevent aggregation on non icmp/udp/tcp events
+	unique    uint64 // used to prevent aggregation on non icmp/udp/tcp events
 }
 
 func (am *AggregatingMemory) GetAggregatedEvents() []*types.Event {
@@ -111,7 +115,7 @@ func (am *AggregatingMemory) GetAggregatedEvents() []*types.Event {
 			event.WindowEnd = am.WindowEnd
 
 			if event.Protocol != types.ICMP && event.Protocol != types.ICMPv6 && event.Protocol != types.UDP && event.Protocol != types.TCP {
-				lookupKey.unique = time.Now().UnixNano() // to make the lookup key unique so we don't aggregate on it
+				lookupKey.unique = am.rnd.Uint64() // to make the lookup key unique so we don't aggregate on it
 			}
 
 			aggregated[lookupKey] = event

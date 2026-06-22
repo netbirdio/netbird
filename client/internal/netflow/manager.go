@@ -72,6 +72,7 @@ func (m *Manager) needsNewClient(previous *nftypes.FlowConfig) bool {
 }
 
 // enableFlow starts components for flow tracking
+// must be called under m.mux lock
 func (m *Manager) enableFlow(previous *nftypes.FlowConfig) error {
 	// first make sender ready so events don't pile up
 	if m.needsNewClient(previous) {
@@ -91,6 +92,7 @@ func (m *Manager) enableFlow(previous *nftypes.FlowConfig) error {
 	return nil
 }
 
+// must be called under m.mux lock
 func (m *Manager) resetClient() error {
 	if m.receiverClient != nil {
 		if err := m.receiverClient.Close(); err != nil {
@@ -114,17 +116,18 @@ func (m *Manager) resetClient() error {
 	m.cancel = cancel
 
 	m.shutdownWg.Add(3)
+	flowConfigInterval := m.flowConfig.Interval
 	go func() {
 		defer m.shutdownWg.Done()
-		m.receiveACKs(ctx, flowClient)
+		m.receiveACKs(ctx, flowClient, flowConfigInterval)
 	}()
 	go func() {
 		defer m.shutdownWg.Done()
-		m.startSender(ctx)
+		m.startSender(ctx, flowConfigInterval)
 	}()
 	go func() {
 		defer m.shutdownWg.Done()
-		m.startRetries(ctx)
+		m.startRetries(ctx, flowConfigInterval)
 	}()
 
 	return nil
@@ -208,8 +211,8 @@ func (m *Manager) GetLogger() nftypes.FlowLogger {
 	return m.logger
 }
 
-func (m *Manager) startSender(ctx context.Context) {
-	ticker := time.NewTicker(m.flowConfig.Interval)
+func (m *Manager) startSender(ctx context.Context, flowConfigInterval time.Duration) {
+	ticker := time.NewTicker(flowConfigInterval)
 	defer ticker.Stop()
 
 	for {
@@ -231,8 +234,8 @@ func (m *Manager) startSender(ctx context.Context) {
 	}
 }
 
-func (m *Manager) receiveACKs(ctx context.Context, client *client.GRPCClient) {
-	err := client.Receive(ctx, m.flowConfig.Interval, func(ack *proto.FlowEventAck) error {
+func (m *Manager) receiveACKs(ctx context.Context, client *client.GRPCClient, flowConfigInterval time.Duration) {
+	err := client.Receive(ctx, flowConfigInterval, func(ack *proto.FlowEventAck) error {
 		id, err := uuid.FromBytes(ack.EventId)
 		if err != nil {
 			log.Warnf("failed to convert ack event id to uuid: %v", err)
@@ -250,13 +253,13 @@ func (m *Manager) receiveACKs(ctx context.Context, client *client.GRPCClient) {
 
 // We effectively never drop events (see MaxInterval), which makes eventsWithoutAcks unbounded.
 // We may want to limit the max size of the store, and start dropping oldest events when the threshold is reached.
-func (m *Manager) startRetries(ctx context.Context) {
+func (m *Manager) startRetries(ctx context.Context, flowConfigInterval time.Duration) {
 	timer := time.NewTimer(m.retryInterval)
 	retryBackoff := backoff.WithContext(&backoff.ExponentialBackOff{
 		InitialInterval:     1 * time.Second,
 		RandomizationFactor: 0.5,
 		Multiplier:          1.7,
-		MaxInterval:         m.flowConfig.Interval / 2,
+		MaxInterval:         flowConfigInterval / 2,
 		MaxElapsedTime:      3 * 30 * 24 * time.Hour, // 3 months
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
@@ -280,7 +283,7 @@ func (m *Manager) startRetries(ctx context.Context) {
 				}
 			}
 			retryBackoff.Reset()
-			timer = time.NewTimer(time.Second)
+			timer = time.NewTimer(m.retryInterval)
 		}
 	}
 }
