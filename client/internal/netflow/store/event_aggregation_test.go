@@ -154,7 +154,7 @@ func TestFlowAggregationOfUnknownProtocols(t *testing.T) {
 		}}
 
 	for _, tt := range tests {
-		t.Run(tt.description+" "+string(types.ProtocolUnknown), func(t *testing.T) {
+		t.Run(tt.description+" "+types.ProtocolUnknown.String(), func(t *testing.T) {
 			store := NewAggregatingMemoryStore()
 			store.WindowEnd = time.Now().Add(5 * time.Second)
 
