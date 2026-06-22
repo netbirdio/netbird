@@ -520,9 +520,10 @@ func (m *Resolver) GetCachedDomains() domain.List {
 // Empty updates are ignored to prevent clearing infrastructure domains during partial updates.
 // UpdateFromServerDomains records the requested domains and kicks off their
 // resolution in the background, returning without blocking on DNS so it stays
-// off the engine sync lock held by the caller. ctx is unused: background
-// resolves use context.Background() so a fast-returning sync can't cancel them.
-func (m *Resolver) UpdateFromServerDomains(_ context.Context, serverDomains dnsconfig.ServerDomains) (domain.List, error) {
+// off the engine sync lock held by the caller. ctx scopes the background
+// resolves to the server lifetime: it is not per-sync, so a fast-returning
+// sync won't cancel them, but a server Stop will.
+func (m *Resolver) UpdateFromServerDomains(ctx context.Context, serverDomains dnsconfig.ServerDomains) (domain.List, error) {
 	newDomains := m.extractDomainsFromServerDomains(serverDomains)
 	var removedDomains domain.List
 
@@ -540,14 +541,14 @@ func (m *Resolver) UpdateFromServerDomains(_ context.Context, serverDomains dnsc
 		removedDomains = m.removeStaleDomains(currentDomains, allDomains)
 	}
 
-	m.kickoffResolve(newDomains)
+	m.kickoffResolve(ctx, newDomains)
 
 	return removedDomains, nil
 }
 
 // kickoffResolve marks each domain pending and starts a background resolve,
 // skipping ones already fresh or in flight. Returns immediately.
-func (m *Resolver) kickoffResolve(domains domain.List) {
+func (m *Resolver) kickoffResolve(ctx context.Context, domains domain.List) {
 	for _, d := range domains {
 		dnsName := strings.ToLower(dns.Fqdn(d.PunycodeString()))
 
@@ -563,17 +564,18 @@ func (m *Resolver) kickoffResolve(domains domain.List) {
 			continue
 		}
 
-		m.scheduleInitialResolve(d, dnsName)
+		m.scheduleInitialResolve(ctx, d, dnsName)
 	}
 }
 
 // scheduleInitialResolve runs AddDomain in the background, deduped per domain
-// by resolveGroup, clearing the pending marker when it finishes.
-func (m *Resolver) scheduleInitialResolve(d domain.Domain, dnsName string) {
+// by resolveGroup, clearing the pending marker when it finishes. ctx is the
+// server-lifetime context so a Stop cancels in-flight resolves.
+func (m *Resolver) scheduleInitialResolve(ctx context.Context, d domain.Domain, dnsName string) {
 	key := "initial|" + dnsName
 	_ = m.resolveGroup.DoChan(key, func() (any, error) {
 		defer m.clearPending(dnsName)
-		if err := m.AddDomain(context.Background(), d); err != nil {
+		if err := m.AddDomain(ctx, d); err != nil {
 			log.Warnf("failed to add/update domain=%s: %v", d.SafeString(), err)
 			return struct{}{}, err
 		}
