@@ -14,6 +14,10 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+// errNoSuitableAddress mirrors the unexported error string the net package
+// uses when a resolved host has no addresses of the requested family.
+const errNoSuitableAddress = "no suitable address found"
+
 // GenerateRequestID creates a random 8-character hex string for request tracing.
 func GenerateRequestID() string {
 	bytes := make([]byte, 4)
@@ -126,6 +130,14 @@ func LookupIP(ctx context.Context, r resolver, network, host string, qtype uint1
 }
 
 func getRcodeForError(ctx context.Context, r resolver, host string, qtype uint16, err error) int {
+	// The net package returns this AddrError when the host resolves but has
+	// no addresses of the requested family. The domain exists, so answer
+	// NODATA instead of SERVFAIL.
+	var addrErr *net.AddrError
+	if errors.As(err, &addrErr) && addrErr.Err == errNoSuitableAddress {
+		return dns.RcodeSuccess
+	}
+
 	var dnsErr *net.DNSError
 	if !errors.As(err, &dnsErr) {
 		return dns.RcodeServerFailure
@@ -194,4 +206,36 @@ func FormatAnswers(answers []dns.RR) string {
 		}
 	}
 	return "[" + strings.Join(parts, ", ") + "]"
+}
+
+// StripOPT removes any OPT pseudo-RRs from the message's Extra section. Per
+// RFC 6891 a responder must not include an OPT RR toward a client that did not
+// advertise EDNS0.
+func StripOPT(msg *dns.Msg) {
+	if len(msg.Extra) == 0 {
+		return
+	}
+	out := msg.Extra[:0]
+	for _, rr := range msg.Extra {
+		if _, ok := rr.(*dns.OPT); ok {
+			continue
+		}
+		out = append(out, rr)
+	}
+	msg.Extra = out
+}
+
+// ExtractEDE returns the first Extended DNS Error (RFC 8914) option carried in
+// the message, if present.
+func ExtractEDE(msg *dns.Msg) (*dns.EDNS0_EDE, bool) {
+	opt := msg.IsEdns0()
+	if opt == nil {
+		return nil, false
+	}
+	for _, o := range opt.Option {
+		if ede, ok := o.(*dns.EDNS0_EDE); ok {
+			return ede, true
+		}
+	}
+	return nil, false
 }

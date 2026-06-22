@@ -6,7 +6,6 @@ import (
 	b64 "encoding/base64"
 	"encoding/binary"
 	"fmt"
-	"math/rand"
 	"net"
 	"net/netip"
 	"os"
@@ -92,7 +91,7 @@ func runLargeTest(t *testing.T, store Store) {
 	account.SetupKeys[setupKey.Key] = setupKey
 	const numPerAccount = 6000
 	for n := 0; n < numPerAccount; n++ {
-		netIP := randomIPv4()
+		netIP := sequentialIPv4(n)
 		peerID := fmt.Sprintf("%s-peer-%d", account.Id, n)
 		addr, _ := netip.AddrFromSlice(netIP)
 
@@ -216,12 +215,12 @@ func runLargeTest(t *testing.T, store Store) {
 	}
 }
 
-func randomIPv4() net.IP {
-	rand.New(rand.NewSource(time.Now().UnixNano()))
+// sequentialIPv4 returns a unique IPv4 address for the given index, avoiding
+// the random collisions that would otherwise violate the unique (account_id, ip)
+// index when generating a large number of peers.
+func sequentialIPv4(n int) net.IP {
 	b := make([]byte, 4)
-	for i := range b {
-		b[i] = byte(rand.Intn(256))
-	}
+	binary.BigEndian.PutUint32(b, 0x0A000000+uint32(n))
 	return net.IP(b)
 }
 

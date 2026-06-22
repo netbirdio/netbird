@@ -55,7 +55,7 @@ func TestGroupIPv6Assignment(t *testing.T) {
 	key, err := wgtypes.GeneratePrivateKey()
 	require.NoError(t, err)
 
-	peer, _, _, err := am.AddPeer(ctx, "", setupKey.Key, "", &nbpeer.Peer{
+	peer, _, _, _, err := am.AddPeer(ctx, "", setupKey.Key, "", &nbpeer.Peer{
 		Key:  key.PublicKey().String(),
 		Meta: nbpeer.PeerSystemMeta{Hostname: "ipv6-test-host"},
 	}, false)

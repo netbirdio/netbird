@@ -19,17 +19,19 @@ const (
 
 type Controller interface {
 	UpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) error
+	UpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string) error
+	BufferUpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string, reason types.UpdateReason) error
 	UpdateAccountPeer(ctx context.Context, accountId string, peerId string) error
 	BufferUpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) error
-	GetValidatedPeerWithMap(ctx context.Context, isRequiresApproval bool, accountID string, p *nbpeer.Peer) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, int64, error)
+	GetValidatedPeerWithMap(ctx context.Context, isRequiresApproval bool, accountID string, peerID string) (*types.NetworkMap, []*posture.Checks, int64, error)
 	GetDNSDomain(settings *types.Settings) string
 	StartWarmup(context.Context)
 	GetNetworkMap(ctx context.Context, peerID string) (*types.NetworkMap, error)
 	CountStreams() int
 
-	OnPeersUpdated(ctx context.Context, accountId string, peerIDs []string) error
-	OnPeersAdded(ctx context.Context, accountID string, peerIDs []string) error
-	OnPeersDeleted(ctx context.Context, accountID string, peerIDs []string) error
+	OnPeersUpdated(ctx context.Context, accountId string, peerIDs []string, affectedPeerIDs []string) error
+	OnPeersAdded(ctx context.Context, accountID string, peerIDs []string, affectedPeerIDs []string) error
+	OnPeersDeleted(ctx context.Context, accountID string, peerIDs []string, affectedPeerIDs []string) error
 	DisconnectPeers(ctx context.Context, accountId string, peerIDs []string)
 	OnPeerConnected(ctx context.Context, accountID string, peerID string) (chan *UpdateMessage, error)
 	OnPeerDisconnected(ctx context.Context, accountID string, peerID string)

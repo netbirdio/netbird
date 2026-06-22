@@ -3,12 +3,14 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os/user"
 	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/netbirdio/netbird/client/internal"
@@ -19,6 +21,7 @@ import (
 	"github.com/netbirdio/netbird/client/server"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/upload-server/types"
+	"github.com/netbirdio/netbird/version"
 )
 
 const errCloseConnection = "Failed to close connection: %v"
@@ -84,6 +87,73 @@ var persistenceCmd = &cobra.Command{
 	RunE:    setSyncResponsePersistence,
 }
 
+var debugConfigCmd = &cobra.Command{
+	Use:     "config",
+	Example: "  netbird debug config",
+	Short:   "Dump the effective configuration",
+	Long:    "Prints the daemon's resolved configuration (after applying defaults, file, env, CLI input, and MDM policy overrides) as JSON. Includes the list of MDM-managed fields.",
+	RunE:    debugConfigDump,
+}
+
+// debugConfigDump implements `netbird debug config`. It resolves the
+// active profile, queries the daemon for the effective configuration
+// via GetConfig, and prints the resulting GetConfigResponse as JSON
+// (via protojson with EmitUnpopulated=true so the output is stable
+// across runs and includes zero-valued fields).
+//
+// Useful for verifying MDM enforcement end-to-end: the response's
+// mDMManagedFields array is the single source of truth for "which
+// fields is the daemon currently enforcing from the MDM source", and
+// every config field side-by-side with that list confirms the merge
+// result. Secrets in the response (e.g. PreSharedKey) are already
+// redacted by the daemon-side handler.
+func debugConfigDump(cmd *cobra.Command, _ []string) error {
+	pm := profilemanager.NewProfileManager()
+	activeProf, err := pm.GetActiveProfile()
+	if err != nil {
+		return fmt.Errorf("get active profile: %v", err)
+	}
+	currUser, err := user.Current()
+	if err != nil {
+		return fmt.Errorf("get current user: %v", err)
+	}
+
+	conn, err := getClient(cmd)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := conn.Close(); err != nil {
+			log.Errorf(errCloseConnection, err)
+		}
+	}()
+
+	client := proto.NewDaemonServiceClient(conn)
+	resp, err := client.GetConfig(cmd.Context(), &proto.GetConfigRequest{
+		ProfileName: activeProf.Name,
+		Username:    currUser.Username,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to get config: %v", status.Convert(err).Message())
+	}
+
+	// Use protojson so well-known fields render correctly; emit defaults so
+	// the operator sees every field even when zero/empty.
+	m := protojson.MarshalOptions{Multiline: true, Indent: "  ", EmitUnpopulated: true}
+	out, err := m.Marshal(resp)
+	if err != nil {
+		return fmt.Errorf("marshal config: %w", err)
+	}
+	cmd.Println(string(out))
+	return nil
+}
+
+// debugBundle requests the daemon to create a debug bundle and prints
+// the resulting local file path and, if uploaded, the uploaded file
+// key. It uses the package flags (anonymize, system info, log file
+// count, CLI version, optional upload URL) to configure the bundle
+// request. Returns an error if the RPC fails or if the daemon reports
+// an upload failure reason.
 func debugBundle(cmd *cobra.Command, _ []string) error {
 	conn, err := getClient(cmd)
 	if err != nil {
@@ -100,6 +170,7 @@ func debugBundle(cmd *cobra.Command, _ []string) error {
 		Anonymize:    anonymizeFlag,
 		SystemInfo:   systemInfoFlag,
 		LogFileCount: logFileCount,
+		CliVersion:   version.NetbirdVersion(),
 	}
 	if uploadBundleFlag {
 		request.UploadURL = uploadBundleURLFlag
@@ -298,6 +369,7 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 		Anonymize:    anonymizeFlag,
 		SystemInfo:   systemInfoFlag,
 		LogFileCount: logFileCount,
+		CliVersion:   version.NetbirdVersion(),
 	}
 	if uploadBundleFlag {
 		request.UploadURL = uploadBundleURLFlag
@@ -432,6 +504,7 @@ func generateDebugBundle(config *profilemanager.Config, recorder *peer.Status, c
 			SyncResponse:   syncResponse,
 			LogPath:        logFilePath,
 			CPUProfile:     nil,
+			DaemonVersion:  version.NetbirdVersion(), // acting as daemon
 		},
 		debug.BundleConfig{
 			IncludeSystemInfo: true,

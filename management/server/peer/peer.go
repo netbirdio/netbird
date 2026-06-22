@@ -1,11 +1,15 @@
 package peer
 
 import (
+	"context"
+	"fmt"
 	"net"
 	"net/netip"
 	"slices"
-	"sort"
+	"strings"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/shared/management/http/api"
@@ -162,49 +166,7 @@ type PeerSystemMeta struct { //nolint:revive
 }
 
 func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
-	sort.Slice(p.NetworkAddresses, func(i, j int) bool {
-		return p.NetworkAddresses[i].Mac < p.NetworkAddresses[j].Mac
-	})
-	sort.Slice(other.NetworkAddresses, func(i, j int) bool {
-		return other.NetworkAddresses[i].Mac < other.NetworkAddresses[j].Mac
-	})
-	equalNetworkAddresses := slices.EqualFunc(p.NetworkAddresses, other.NetworkAddresses, func(addr NetworkAddress, oAddr NetworkAddress) bool {
-		return addr.Mac == oAddr.Mac && addr.NetIP == oAddr.NetIP
-	})
-	if !equalNetworkAddresses {
-		return false
-	}
-
-	sort.Slice(p.Files, func(i, j int) bool {
-		return p.Files[i].Path < p.Files[j].Path
-	})
-	sort.Slice(other.Files, func(i, j int) bool {
-		return other.Files[i].Path < other.Files[j].Path
-	})
-	equalFiles := slices.EqualFunc(p.Files, other.Files, func(file File, oFile File) bool {
-		return file.Path == oFile.Path && file.Exist == oFile.Exist && file.ProcessIsRunning == oFile.ProcessIsRunning
-	})
-	if !equalFiles {
-		return false
-	}
-
-	return p.Hostname == other.Hostname &&
-		p.GoOS == other.GoOS &&
-		p.Kernel == other.Kernel &&
-		p.KernelVersion == other.KernelVersion &&
-		p.Core == other.Core &&
-		p.Platform == other.Platform &&
-		p.OS == other.OS &&
-		p.OSVersion == other.OSVersion &&
-		p.WtVersion == other.WtVersion &&
-		p.UIVersion == other.UIVersion &&
-		p.SystemSerialNumber == other.SystemSerialNumber &&
-		p.SystemProductName == other.SystemProductName &&
-		p.SystemManufacturer == other.SystemManufacturer &&
-		p.Environment.Cloud == other.Environment.Cloud &&
-		p.Environment.Platform == other.Environment.Platform &&
-		p.Flags.isEqual(other.Flags) &&
-		capabilitiesEqual(p.Capabilities, other.Capabilities)
+	return len(metaDiff(p, other)) == 0
 }
 
 func (p PeerSystemMeta) isEmpty() bool {
@@ -296,7 +258,7 @@ func (p *Peer) Copy() *Peer {
 
 // UpdateMetaIfNew updates peer's system metadata if new information is provided
 // returns true if meta was updated, false otherwise
-func (p *Peer) UpdateMetaIfNew(meta PeerSystemMeta) (updated, versionChanged bool) {
+func (p *Peer) UpdateMetaIfNew(ctx context.Context, meta PeerSystemMeta) (updated, versionChanged bool) {
 	if meta.isEmpty() {
 		return updated, versionChanged
 	}
@@ -308,12 +270,119 @@ func (p *Peer) UpdateMetaIfNew(meta PeerSystemMeta) (updated, versionChanged boo
 		meta.UIVersion = p.Meta.UIVersion
 	}
 
-	if p.Meta.isEqual(meta) {
-		return updated, versionChanged
+	oldVersion := p.Meta.WtVersion
+
+	diff := metaDiff(p.Meta, meta)
+	if len(diff) != 0 {
+		p.Meta = meta
+		updated = true
 	}
-	p.Meta = meta
-	updated = true
+
+	versionInfo := ""
+	if versionChanged {
+		versionInfo = fmt.Sprintf("version changed: %s -> %s, ", oldVersion, meta.WtVersion)
+	}
+
+	if len(diff) > 0 || versionChanged {
+		log.WithContext(ctx).
+			Debugf("peer meta updated, %s%d field(s) changed: %s", versionInfo, len(diff), strings.Join(diff, ", "))
+	}
+
 	return updated, versionChanged
+}
+
+// metaDiff returns a human-readable list of the fields that differ between the
+// old and new meta, each formatted as `field: <old> -> <new>`. It is the single
+// source of truth for meta comparison: isEqual reports equality as an empty
+// diff, so the log line can never disagree with the change decision. Slices are
+// cloned before sorting, so callers' meta is not mutated.
+func metaDiff(oldMeta, newMeta PeerSystemMeta) []string {
+	var diff []string
+	add := func(field string, oldVal, newVal any) {
+		diff = append(diff, fmt.Sprintf("%s: %v -> %v", field, oldVal, newVal))
+	}
+
+	if oldMeta.Hostname != newMeta.Hostname {
+		add("hostname", oldMeta.Hostname, newMeta.Hostname)
+	}
+	if oldMeta.GoOS != newMeta.GoOS {
+		add("goos", oldMeta.GoOS, newMeta.GoOS)
+	}
+	if oldMeta.Kernel != newMeta.Kernel {
+		add("kernel", oldMeta.Kernel, newMeta.Kernel)
+	}
+	if oldMeta.KernelVersion != newMeta.KernelVersion {
+		add("kernel_version", oldMeta.KernelVersion, newMeta.KernelVersion)
+	}
+	if oldMeta.Core != newMeta.Core {
+		add("core", oldMeta.Core, newMeta.Core)
+	}
+	if oldMeta.Platform != newMeta.Platform {
+		add("platform", oldMeta.Platform, newMeta.Platform)
+	}
+	if oldMeta.OS != newMeta.OS {
+		add("os", oldMeta.OS, newMeta.OS)
+	}
+	if oldMeta.OSVersion != newMeta.OSVersion {
+		add("os_version", oldMeta.OSVersion, newMeta.OSVersion)
+	}
+	if oldMeta.WtVersion != newMeta.WtVersion {
+		add("wt_version", oldMeta.WtVersion, newMeta.WtVersion)
+	}
+	if oldMeta.UIVersion != newMeta.UIVersion {
+		add("ui_version", oldMeta.UIVersion, newMeta.UIVersion)
+	}
+	if oldMeta.SystemSerialNumber != newMeta.SystemSerialNumber {
+		add("system_serial_number", oldMeta.SystemSerialNumber, newMeta.SystemSerialNumber)
+	}
+	if oldMeta.SystemProductName != newMeta.SystemProductName {
+		add("system_product_name", oldMeta.SystemProductName, newMeta.SystemProductName)
+	}
+	if oldMeta.SystemManufacturer != newMeta.SystemManufacturer {
+		add("system_manufacturer", oldMeta.SystemManufacturer, newMeta.SystemManufacturer)
+	}
+	if oldMeta.Environment.Cloud != newMeta.Environment.Cloud {
+		add("environment_cloud", oldMeta.Environment.Cloud, newMeta.Environment.Cloud)
+	}
+	if oldMeta.Environment.Platform != newMeta.Environment.Platform {
+		add("environment_platform", oldMeta.Environment.Platform, newMeta.Environment.Platform)
+	}
+	if !oldMeta.Flags.isEqual(newMeta.Flags) {
+		add("flags", fmt.Sprintf("%+v", oldMeta.Flags), fmt.Sprintf("%+v", newMeta.Flags))
+	}
+	if !capabilitiesEqual(oldMeta.Capabilities, newMeta.Capabilities) {
+		add("capabilities", oldMeta.Capabilities, newMeta.Capabilities)
+	}
+
+	if !sameMultiset(oldMeta.NetworkAddresses, newMeta.NetworkAddresses) {
+		add("network_addresses", fmt.Sprintf("%v", oldMeta.NetworkAddresses), fmt.Sprintf("%v", newMeta.NetworkAddresses))
+	}
+
+	if !sameMultiset(oldMeta.Files, newMeta.Files) {
+		add("files", fmt.Sprintf("%v", oldMeta.Files), fmt.Sprintf("%v", newMeta.Files))
+	}
+
+	return diff
+}
+
+// sameMultiset reports whether two slices contain the same elements with the
+// same multiplicity, ignoring order. The element type is the comparison key, so
+// every field participates in equality.
+func sameMultiset[T comparable](a, b []T) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	counts := make(map[T]int, len(a))
+	for _, v := range a {
+		counts[v]++
+	}
+	for _, v := range b {
+		counts[v]--
+		if counts[v] == 0 {
+			delete(counts, v)
+		}
+	}
+	return len(counts) == 0
 }
 
 // GetLastLogin returns the last login time of the peer.

@@ -98,6 +98,7 @@ type RelayStateOutputDetail struct {
 	URI       string `json:"uri" yaml:"uri"`
 	Available bool   `json:"available" yaml:"available"`
 	Error     string `json:"error" yaml:"error"`
+	Transport string `json:"transport,omitempty" yaml:"transport,omitempty"`
 }
 
 type RelayStateOutput struct {
@@ -143,6 +144,7 @@ type OutputOverview struct {
 	IPv6                    string                     `json:"netbirdIpv6,omitempty" yaml:"netbirdIpv6,omitempty"`
 	PubKey                  string                     `json:"publicKey" yaml:"publicKey"`
 	KernelInterface         bool                       `json:"usesKernelInterface" yaml:"usesKernelInterface"`
+	WgPort                  int                        `json:"wireguardPort" yaml:"wireguardPort"`
 	FQDN                    string                     `json:"fqdn" yaml:"fqdn"`
 	RosenpassEnabled        bool                       `json:"quantumResistance" yaml:"quantumResistance"`
 	RosenpassPermissive     bool                       `json:"quantumResistancePermissive" yaml:"quantumResistancePermissive"`
@@ -187,6 +189,7 @@ func ConvertToStatusOutputOverview(pbFullStatus *proto.FullStatus, opts ConvertO
 		IPv6:                    pbFullStatus.GetLocalPeerState().GetIpv6(),
 		PubKey:                  pbFullStatus.GetLocalPeerState().GetPubKey(),
 		KernelInterface:         pbFullStatus.GetLocalPeerState().GetKernelInterface(),
+		WgPort:                  int(pbFullStatus.GetLocalPeerState().GetWgPort()),
 		FQDN:                    pbFullStatus.GetLocalPeerState().GetFqdn(),
 		RosenpassEnabled:        pbFullStatus.GetLocalPeerState().GetRosenpassEnabled(),
 		RosenpassPermissive:     pbFullStatus.GetLocalPeerState().GetRosenpassPermissive(),
@@ -217,7 +220,8 @@ func mapRelays(relays []*proto.RelayState) RelayStateOutput {
 			RelayStateOutputDetail{
 				URI:       relay.URI,
 				Available: available,
-				Error:     relay.GetError(),
+				Error:     relayErrorString(relay.GetError()),
+				Transport: relay.GetTransport(),
 			},
 		)
 
@@ -231,6 +235,12 @@ func mapRelays(relays []*proto.RelayState) RelayStateOutput {
 		Available: relaysAvailable,
 		Details:   relayStateDetail,
 	}
+}
+
+// relayErrorString flattens a newline-joined aggregated relay error onto a
+// single line for status output.
+func relayErrorString(s string) string {
+	return strings.ReplaceAll(s, "\n", "; ")
 }
 
 func mapNSGroups(servers []*proto.NSGroupState) []NsServerGroupStateOutput {
@@ -439,6 +449,8 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 					available = "Unavailable"
 					reason = fmt.Sprintf(", reason: %s", relay.Error)
 				}
+			} else if relay.Transport != "" {
+				available = fmt.Sprintf("%s via %s", available, relay.Transport)
 			}
 
 			relaysString += fmt.Sprintf("\n  [%s] is %s%s", relay.URI, available, reason)
@@ -547,6 +559,21 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 		goarm = fmt.Sprintf(" (ARMv%s)", os.Getenv("GOARM"))
 	}
 
+	daemonVersion := "N/A"
+	if o.DaemonVersion != "" {
+		daemonVersion = o.DaemonVersion
+	}
+
+	cliVersion := version.NetbirdVersion()
+	if o.CliVersion != "" {
+		cliVersion = o.CliVersion
+	}
+
+	wgPortString := "N/A"
+	if o.WgPort > 0 {
+		wgPortString = fmt.Sprintf("%d", o.WgPort)
+	}
+
 	summary := fmt.Sprintf(
 		"OS: %s\n"+
 			"Daemon version: %s\n"+
@@ -560,6 +587,7 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 			"NetBird IP: %s\n"+
 			"%s"+
 			"Interface type: %s\n"+
+			"Wireguard port: %s\n"+
 			"Quantum resistance: %s\n"+
 			"Lazy connection: %s\n"+
 			"SSH Server: %s\n"+
@@ -567,8 +595,8 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 			"%s"+
 			"Peers count: %s\n",
 		fmt.Sprintf("%s/%s%s", goos, goarch, goarm),
-		o.DaemonVersion,
-		version.NetbirdVersion(),
+		daemonVersion,
+		cliVersion,
 		o.ProfileName,
 		managementConnString,
 		signalConnString,
@@ -578,6 +606,7 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 		interfaceIP,
 		ipv6Line,
 		interfaceTypeString,
+		wgPortString,
 		rosenpassEnabledStatus,
 		lazyConnectionEnabledStatus,
 		sshServerStatus,

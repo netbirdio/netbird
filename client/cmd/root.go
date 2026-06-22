@@ -95,7 +95,9 @@ var (
 	}
 )
 
-// Execute executes the root command.
+// Execute runs the appropriate Cobra command for the CLI.
+// If the process is the update binary it delegates to updateCmd; otherwise it runs the root command.
+// It returns any error produced during command execution.
 func Execute() error {
 	if isUpdateBinary() {
 		return updateCmd.Execute()
@@ -103,6 +105,16 @@ func Execute() error {
 	return rootCmd.Execute()
 }
 
+// init initialises package-level defaults and configures the root
+// Cobra command tree. Sets platform-specific config / log directory
+// paths (including legacy Wiretrustee fallbacks) and a default daemon
+// address; registers persistent CLI flags (daemon address,
+// management / admin URLs, logging, setup key (file and inline,
+// mutually exclusive), preshared key, hostname, anonymise, config
+// path); attaches top-level and nested subcommands to the root
+// command; and registers `up`-specific persistent flags (external IP
+// maps, custom DNS resolver address, Rosenpass options, auto-connect
+// disabling, lazy connection).
 func init() {
 	defaultConfigPathDir = "/etc/netbird/"
 	defaultLogFileDir = "/var/log/netbird/"
@@ -168,10 +180,17 @@ func init() {
 	logCmd.AddCommand(logLevelCmd)
 	debugCmd.AddCommand(forCmd)
 	debugCmd.AddCommand(persistenceCmd)
+	debugCmd.AddCommand(debugConfigCmd)
+
+	// kubernetes commands
+	rootCmd.AddCommand(kubernetesCmd)
+	kubernetesCmd.AddCommand(kubernetesListCmd)
+	kubernetesCmd.AddCommand(kubernetesWriteKubeconfigCmd)
 
 	// profile commands
 	profileCmd.AddCommand(profileListCmd)
 	profileCmd.AddCommand(profileAddCmd)
+	profileCmd.AddCommand(profileRenameCmd)
 	profileCmd.AddCommand(profileRemoveCmd)
 	profileCmd.AddCommand(profileSelectCmd)
 

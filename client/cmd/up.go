@@ -128,16 +128,9 @@ func upFunc(cmd *cobra.Command, args []string) error {
 	var profileSwitched bool
 	// switch profile if provided
 	if profileName != "" {
-		err = switchProfile(cmd.Context(), profileName, username.Username)
-		if err != nil {
+		if err := switchOrCreateProfile(cmd.Context(), pm, profileName, username.Username); err != nil {
 			return fmt.Errorf("switch profile: %v", err)
 		}
-
-		err = pm.SwitchProfile(profileName)
-		if err != nil {
-			return fmt.Errorf("switch profile: %v", err)
-		}
-
 		profileSwitched = true
 	}
 
@@ -150,6 +143,52 @@ func upFunc(cmd *cobra.Command, args []string) error {
 		return runInForegroundMode(ctx, cmd, activeProf)
 	}
 	return runInDaemonMode(ctx, cmd, pm, activeProf, profileSwitched)
+}
+
+// switchOrCreateProfile switches the active profile to the one identified by
+// handle, creating it first when it does not exist yet. This restores the
+// pre-0.73 behaviour where `netbird up --profile <name>` auto-creates a
+// missing profile instead of failing.
+func switchOrCreateProfile(ctx context.Context, pm *profilemanager.ProfileManager, handle, username string) error {
+	resolvedID, err := switchProfile(ctx, handle, username)
+	if err != nil {
+		st, ok := gstatus.FromError(err)
+		if !ok || st.Code() != codes.NotFound {
+			return err
+		}
+		// Don't fail immediately on a create error: a concurrent run may
+		// have created the profile between the NotFound above and this
+		// call, in which case the retried switch still succeeds. Only
+		// surface the create error if the switch also fails.
+		_, createErr := createProfile(ctx, handle, username)
+		if resolvedID, err = switchProfile(ctx, handle, username); err != nil {
+			if createErr != nil {
+				return fmt.Errorf("create profile: %w", createErr)
+			}
+			return err
+		}
+	}
+
+	if err := pm.SwitchProfile(resolvedID); err != nil {
+		return err
+	}
+	return nil
+}
+
+// createProfile dials the daemon and creates a new profile with the given
+// display name, returning its generated ID. Use addProfileOnDaemon directly
+// when a daemon client is already available to reuse the connection.
+func createProfile(ctx context.Context, profileName, username string) (profilemanager.ID, error) {
+	conn, err := DialClientGRPCServer(ctx, daemonAddr)
+	if err != nil {
+		//nolint
+		return "", fmt.Errorf("failed to connect to daemon error: %v\n"+
+			"If the daemon is not running please run: "+
+			"\nnetbird service install \nnetbird service start\n", err)
+	}
+	defer conn.Close()
+
+	return addProfileOnDaemon(ctx, proto.NewDaemonServiceClient(conn), profileName, username)
 }
 
 func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *profilemanager.Profile) error {
@@ -190,7 +229,7 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *pr
 
 	_, _ = profilemanager.UpdateOldManagementURL(ctx, config, configFilePath)
 
-	err = foregroundLogin(ctx, cmd, config, providedSetupKey, activeProf.Name)
+	err = foregroundLogin(ctx, cmd, config, providedSetupKey, activeProf.ID)
 	if err != nil {
 		return fmt.Errorf("foreground login failed: %v", err)
 	}
@@ -261,10 +300,10 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 	}
 
 	// set the new config
-	req := setupSetConfigReq(customDNSAddressConverted, cmd, activeProf.Name, username.Username)
+	req := setupSetConfigReq(customDNSAddressConverted, cmd, activeProf.ID.String(), username.Username)
 	if _, err := client.SetConfig(ctx, req); err != nil {
 		if st, ok := gstatus.FromError(err); ok && st.Code() == codes.Unavailable {
-			log.Warnf("setConfig method is not available in the daemon")
+			log.Warnf("setConfig method is not available in the daemon: %s", st.Message())
 		} else {
 			return fmt.Errorf("call service setConfig method: %v", err)
 		}
@@ -289,10 +328,11 @@ func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServ
 		return fmt.Errorf("setup login request: %v", err)
 	}
 
-	loginRequest.ProfileName = &activeProf.Name
+	profileID := activeProf.ID.String()
+	loginRequest.ProfileName = &profileID
 	loginRequest.Username = &username
 
-	profileState, err := pm.GetProfileState(activeProf.Name)
+	profileState, err := pm.GetProfileState(activeProf.ID)
 	if err != nil {
 		log.Debugf("failed to get profile state for login hint: %v", err)
 	} else if profileState.Email != "" {
@@ -329,7 +369,7 @@ func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServ
 	}
 
 	if _, err := client.Up(ctx, &proto.UpRequest{
-		ProfileName: &activeProf.Name,
+		ProfileName: &profileID,
 		Username:    &username,
 	}); err != nil {
 		return fmt.Errorf("call service up method: %v", err)
