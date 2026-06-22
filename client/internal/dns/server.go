@@ -622,7 +622,12 @@ func (s *DefaultServer) UpdateServerConfig(domains dnsconfig.ServerDomains) erro
 			s.deregisterHandler(removedDomains.ToPunycodeList(), PriorityMgmtCache)
 		}
 
-		newDomains := s.mgmtCacheResolver.GetCachedDomains()
+		// Register the handler for the requested domains, not just the already
+		// resolved ones: UpdateFromServerDomains now resolves in the background,
+		// so the cache may still be empty here. Claiming the names up front lets
+		// the resolver's ServeDNS wait on the pending resolve instead of the
+		// lookup falling through to (possibly dead) upstream.
+		newDomains := s.mgmtCacheResolver.RequestedDomains(domains)
 		if len(newDomains) > 0 {
 			s.registerHandler(newDomains.ToPunycodeList(), s.mgmtCacheResolver, PriorityMgmtCache)
 		}
