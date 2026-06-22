@@ -94,13 +94,6 @@ func (am *AggregatingMemory) GetAggregatedEvents() []*types.Event {
 		if _, ok := aggregated[lookupKey]; !ok {
 			event := v.Clone()
 
-			if event.Protocol != types.ICMP && event.Protocol != types.ICMPv6 && event.Protocol != types.UDP && event.Protocol != types.TCP {
-				lookupKey.unique = time.Now().UnixNano() // to make the lookup key unique so we don't aggregate on it
-				aggregated[lookupKey] = event
-				continue
-			}
-			aggregated[lookupKey] = event
-
 			switch event.Type {
 			case types.TypeStart:
 				event.NumOfStarts += 1
@@ -116,6 +109,12 @@ func (am *AggregatingMemory) GetAggregatedEvents() []*types.Event {
 
 			event.WindowStart = am.WindowStart
 			event.WindowEnd = am.WindowEnd
+
+			if event.Protocol != types.ICMP && event.Protocol != types.ICMPv6 && event.Protocol != types.UDP && event.Protocol != types.TCP {
+				lookupKey.unique = time.Now().UnixNano() // to make the lookup key unique so we don't aggregate on it
+			}
+
+			aggregated[lookupKey] = event
 			continue
 		}
 
