@@ -2,6 +2,7 @@ package system
 
 import (
 	"context"
+	"errors"
 	"net/netip"
 	"strings"
 	"time"
@@ -194,7 +195,12 @@ func GetInfoWithChecksTimeout(ctx context.Context, timeout time.Duration, checks
 	case info := <-infoCh:
 		return info, true
 	case <-ctx.Done():
-		log.Warnf("gathering system info with checks timed out after %s", timeout)
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			log.Warnf("gathering system info with checks timed out after %s", timeout)
+		} else {
+			// Parent context canceled (e.g. shutdown), not a timeout.
+			log.Warnf("gathering system info with checks canceled: %v", ctx.Err())
+		}
 		return nil, false
 	}
 }
