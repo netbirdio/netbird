@@ -28,11 +28,16 @@ type NetworkMonitor struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 	mu     sync.Mutex
+
+	// nexthopChanged reports whether the default next hop changed; overridable in tests.
+	nexthopChanged func(oldv4, oldv6 systemops.Nexthop) bool
 }
 
 // New creates a new network monitor.
 func New() *NetworkMonitor {
-	return &NetworkMonitor{}
+	return &NetworkMonitor{
+		nexthopChanged: nexthopChanged,
+	}
 }
 
 // Listen begins monitoring network changes. When a change is detected, this function will return without error.
@@ -99,7 +104,7 @@ func (nw *NetworkMonitor) Listen(ctx context.Context) (err error) {
 		case <-timer.C:
 			// A flapping NIC may return to the same default route after the
 			// debounce window; only restart if the next hop actually changed.
-			if nexthopChanged(nexthop4, nexthop6) {
+			if nw.nexthopChanged(nexthop4, nexthop6) {
 				return nil
 			}
 			log.Debug("Network monitor: default route unchanged after debounce, ignoring")

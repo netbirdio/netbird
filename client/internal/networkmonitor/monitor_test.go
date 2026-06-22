@@ -61,6 +61,7 @@ func TestNetworkMonitor_Event(t *testing.T) {
 		}
 	}
 	nw := New()
+	nw.nexthopChanged = func(_, _ systemops.Nexthop) bool { return true }
 	defer nw.Stop()
 
 	var resErr error
@@ -82,6 +83,7 @@ func TestNetworkMonitor_MultiEvent(t *testing.T) {
 	checkChangeFn = me.checkChange
 
 	nw := New()
+	nw.nexthopChanged = func(_, _ systemops.Nexthop) bool { return true }
 	defer nw.Stop()
 
 	done := make(chan struct{})
