@@ -80,24 +80,50 @@ func TestChangeIsEmpty(t *testing.T) {
 	assert.False(t, Change{PostureCheckIDs: []string{"pc"}}.isEmpty())
 }
 
-func TestPolicyReferencesGroups(t *testing.T) {
-	policy := &types.Policy{Rules: []*types.PolicyRule{{Sources: []string{"g1", "g2"}, Destinations: []string{"g3"}}}}
+func TestGroupsFromPolicyDirectionally(t *testing.T) {
+	policy := &types.Policy{Rules: []*types.PolicyRule{
+		{Sources: []string{"g1", "g2"}, Destinations: []string{"g3"}},
+		{Sources: []string{"g4"}, Destinations: []string{"g5", "g6"}},
+	}}
 
-	assert.True(t, policyReferencesGroups(policy, map[string]struct{}{"g1": {}}))
-	assert.True(t, policyReferencesGroups(policy, map[string]struct{}{"g3": {}}))
-	assert.False(t, policyReferencesGroups(policy, map[string]struct{}{"g4": {}}))
-	assert.False(t, policyReferencesGroups(policy, map[string]struct{}{}))
+	assert.Equal(t, groupsFromPolicyDirectionally(policy, map[string]struct{}{"g1": {}, "g4": {}}), []string{"g3", "g5", "g6"})
+	assert.Equal(t, groupsFromPolicyDirectionally(policy, map[string]struct{}{"g3": {}, "g6": {}}), []string{"g1", "g2", "g4"})
+	assert.Equal(t, groupsFromPolicyDirectionally(policy, map[string]struct{}{"g33": {}}), []string{})
+	assert.Equal(t, groupsFromPolicyDirectionally(policy, map[string]struct{}{}), []string{})
 }
 
 func TestPolicyReferencesDirectPeers(t *testing.T) {
-	policy := &types.Policy{Rules: []*types.PolicyRule{{
-		SourceResource:      types.Resource{Type: types.ResourceTypePeer, ID: "p1"},
-		DestinationResource: types.Resource{Type: types.ResourceTypeHost, ID: "r1"},
-	}}}
+	policy := &types.Policy{Rules: []*types.PolicyRule{
+		{
+			SourceResource:      types.Resource{Type: types.ResourceTypePeer, ID: "p1"},
+			DestinationResource: types.Resource{Type: types.ResourceTypePeer, ID: "r1"},
+		},
+		{
+			SourceResource:      types.Resource{Type: types.ResourceTypePeer, ID: "p2"},
+			DestinationResource: types.Resource{Type: types.ResourceTypePeer, ID: "r2"},
+		},
+		{
+			SourceResource:      types.Resource{Type: types.ResourceTypePeer, ID: "p3"},
+			DestinationResource: types.Resource{Type: types.ResourceTypeHost, ID: "r3"},
+		},
+		{
+			SourceResource:      types.Resource{Type: types.ResourceTypeHost, ID: "p4"},
+			DestinationResource: types.Resource{Type: types.ResourceTypePeer, ID: "r4"},
+		},
+		{
+			SourceResource:      types.Resource{Type: types.ResourceTypeHost, ID: "p5"},
+			DestinationResource: types.Resource{Type: types.ResourceTypePeer, ID: "r5"},
+		},
+		{
+			SourceResource:      types.Resource{Type: types.ResourceTypePeer, ID: "p6"},
+			DestinationResource: types.Resource{Type: types.ResourceTypeHost, ID: "r6"},
+		},
+	}}
 
-	assert.True(t, policyReferencesDirectPeers(policy, map[string]struct{}{"p1": {}}))
-	assert.False(t, policyReferencesDirectPeers(policy, map[string]struct{}{"r1": {}}))
-	assert.False(t, policyReferencesDirectPeers(policy, map[string]struct{}{"p2": {}}))
+	assert.Equal(t, []string{"r1", "r2"}, peersFromPolicyDirectionally(policy, map[string]struct{}{"p1": {}, "p2": {}}))
+	assert.Equal(t, []string{"p1", "p2"}, peersFromPolicyDirectionally(policy, map[string]struct{}{"r1": {}, "r2": {}}))
+	assert.Empty(t, peersFromPolicyDirectionally(policy, map[string]struct{}{"p3": {}, "r4": {}}))
+	assert.Empty(t, peersFromPolicyDirectionally(policy, map[string]struct{}{"p5": {}, "r6": {}}))
 }
 
 func TestPolicyReferencesPostureChecks(t *testing.T) {
