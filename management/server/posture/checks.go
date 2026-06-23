@@ -89,7 +89,6 @@ func AffectsPosture(ctx context.Context, diff *nbpeer.MetaDiff, checks []*Checks
 					return true
 				}
 			}
-			return false
 		}
 	}
 	return false
