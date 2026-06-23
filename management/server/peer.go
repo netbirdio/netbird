@@ -188,6 +188,15 @@ func (am *DefaultAccountManager) MarkPeerDisconnected(ctx context.Context, peerP
 		}
 	}
 
+	if peer.AddedWithSSOLogin() && peer.InactivityExpirationEnabled {
+		settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+		if err != nil {
+			log.WithContext(ctx).Warnf("failed getting account settings to schedule inactivity expiration for peer %s: %v", peer.ID, err)
+		} else if settings.PeerInactivityExpirationEnabled {
+			am.checkAndSchedulePeerInactivityExpiration(ctx, accountID)
+		}
+	}
+
 	return nil
 }
 
