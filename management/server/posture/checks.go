@@ -74,7 +74,15 @@ func AffectsPosture(diff *nbpeer.MetaDiff, checks []*Checks) bool {
 			return true
 		}
 		if c.Checks.PeerNetworkRangeCheck != nil && diff.NetworkAddresses {
-			return true
+			if diff.LocationChanged {
+				return true
+			}
+			for _, r := range c.Checks.PeerNetworkRangeCheck.Ranges {
+				if r.Addr().IsPrivate() {
+					return true
+				}
+			}
+			return false
 		}
 	}
 	return false

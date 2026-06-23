@@ -201,12 +201,12 @@ func (am *DefaultAccountManager) resolvePeerLocation(ctx context.Context, peer *
 	if am.geo == nil || realIP == nil {
 		return nil
 	}
-	if peer.Location.ConnectionIP != nil && peer.Location.ConnectionIP.Equal(realIP) {
-		return nil
-	}
 	location, err := am.geo.Lookup(realIP)
 	if err != nil {
 		log.WithContext(ctx).Warnf("failed to get location for peer %s realip: [%s]: %v", peer.ID, realIP.String(), err)
+		return nil
+	}
+	if peer.Location.ConnectionIP != nil && peer.Location.ConnectionIP.Equal(realIP) && peer.Location.GeoNameID == location.City.GeonameID {
 		return nil
 	}
 	return &nbpeer.Location{
