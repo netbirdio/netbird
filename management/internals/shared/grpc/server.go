@@ -1205,7 +1205,7 @@ func (s *Server) SyncMeta(ctx context.Context, req *proto.EncryptedMessage) (*pr
 		return nil, msg
 	}
 
-	err = s.accountManager.SyncPeerMeta(ctx, peerKey.String(), extractPeerMeta(ctx, syncMetaReq.GetMeta()))
+	err = s.accountManager.SyncPeerMeta(ctx, peerKey.String(), extractPeerMeta(ctx, syncMetaReq.GetMeta()), realIP)
 	if err != nil {
 		return nil, mapError(ctx, err)
 	}
@@ -1254,7 +1254,10 @@ func (s *Server) Logout(ctx context.Context, req *proto.EncryptedMessage) (*prot
 func toProtocolChecks(ctx context.Context, postureChecks []*posture.Checks) []*proto.Checks {
 	protoChecks := make([]*proto.Checks, 0, len(postureChecks))
 	for _, postureCheck := range postureChecks {
-		protoChecks = append(protoChecks, toProtocolCheck(postureCheck))
+		check := toProtocolCheck(postureCheck)
+		if check != nil {
+			protoChecks = append(protoChecks, check)
+		}
 	}
 
 	return protoChecks
@@ -1276,6 +1279,10 @@ func toProtocolCheck(postureCheck *posture.Checks) *proto.Checks {
 				protoCheck.Files = append(protoCheck.Files, process.WindowsPath)
 			}
 		}
+	}
+
+	if len(protoCheck.Files) == 0 {
+		return nil
 	}
 
 	return protoCheck
