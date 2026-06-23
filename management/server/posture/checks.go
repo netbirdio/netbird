@@ -7,6 +7,7 @@ import (
 	"regexp"
 
 	"github.com/hashicorp/go-version"
+	log "github.com/sirupsen/logrus"
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/shared/management/http/api"
@@ -56,29 +57,35 @@ type Checks struct {
 // alter the outcome of any of the given posture checks. It maps each check kind to
 // the metadata fields it inspects, so an unrelated change (e.g. a hostname update)
 // does not force a posture re-evaluation.
-func AffectsPosture(diff *nbpeer.MetaDiff, checks []*Checks) bool {
+func AffectsPosture(ctx context.Context, diff *nbpeer.MetaDiff, checks []*Checks) bool {
 	if diff == nil {
 		return false
 	}
 	for _, c := range checks {
 		if c.Checks.ProcessCheck != nil && diff.Files {
+			log.WithContext(ctx).Tracef("posture check %s is affected by files change", c.Name)
 			return true
 		}
 		if c.Checks.OSVersionCheck != nil && (diff.OSVersion || diff.OS || diff.KernelVersion) {
+			log.WithContext(ctx).Tracef("posture check %s is affected by OS version check", c.Name)
 			return true
 		}
 		if c.Checks.NBVersionCheck != nil && diff.WtVersion {
+			log.WithContext(ctx).Tracef("posture check %s is affected by NB version change", c.Name)
 			return true
 		}
 		if c.Checks.GeoLocationCheck != nil && diff.LocationChanged {
+			log.WithContext(ctx).Tracef("posture check %s is affected by location change", c.Name)
 			return true
 		}
 		if c.Checks.PeerNetworkRangeCheck != nil && diff.NetworkAddresses {
 			if diff.LocationChanged {
+				log.WithContext(ctx).Tracef("posture check %s is affected by location change", c.Name)
 				return true
 			}
 			for _, r := range c.Checks.PeerNetworkRangeCheck.Ranges {
 				if r.Addr().IsPrivate() {
+					log.WithContext(ctx).Tracef("posture check %s is affected by network address change", c.Name)
 					return true
 				}
 			}

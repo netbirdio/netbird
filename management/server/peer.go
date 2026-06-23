@@ -1043,8 +1043,8 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 		return nil, nil, nil, 0, err
 	}
 
-	metaDiffAffectsPosture := posture.AffectsPosture(&metaDiff, resPostureChecks)
-	if isStatusChanged || sync.UpdateAccountPeers || ipv6CapabilityChanged || metaDiffAffectsPosture || metaDiff.VersionChanged || metaDiff.Hostname {
+	metaDiffAffectsPosture := posture.AffectsPosture(ctx, &metaDiff, resPostureChecks)
+	if requiresPeerUpdate(ctx, isStatusChanged, sync.UpdateAccountPeers, ipv6CapabilityChanged, metaDiffAffectsPosture, metaDiff.VersionChanged, metaDiff.Hostname) {
 		changedPeerIDs := []string{peer.ID}
 		affectedPeerIDs := am.syncPeerAffectedPeers(ctx, accountID, peer.ID, nmap, peerNotValid, metaDiffAffectsPosture)
 		if err = am.networkMapController.OnPeersUpdated(ctx, accountID, changedPeerIDs, affectedPeerIDs); err != nil {
@@ -1053,6 +1053,29 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 	}
 
 	return peer, nmap, resPostureChecks, dnsFwdPort, nil
+}
+
+func requiresPeerUpdate(ctx context.Context, isStatusChanged, updateAccountPeers, ipv6CapabilityChanged, metaDiffAffectsPosture, versionChanged, hostname bool) bool {
+	reason := ""
+	switch {
+	case isStatusChanged:
+		reason = "status changed"
+	case updateAccountPeers:
+		reason = "update account peers"
+	case ipv6CapabilityChanged:
+		reason = "ipv6 capability changed"
+	case metaDiffAffectsPosture:
+		reason = "meta diff affects posture"
+	case versionChanged:
+		reason = "version changed"
+	case hostname:
+		reason = "hostname changed"
+	default:
+		return false
+	}
+
+	log.WithContext(ctx).Tracef("peer update required: %s", reason)
+	return true
 }
 
 // syncPeerAffectedPeers resolves the peers affected by a SyncPeer change. The
