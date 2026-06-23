@@ -519,15 +519,12 @@ func (m *Resolver) GetCachedDomains() domain.List {
 	return domains
 }
 
-// UpdateFromServerDomains updates the cache with server domains from network configuration.
-// It merges new domains with existing ones, replacing entire domain types when updated.
-// Empty updates are ignored to prevent clearing infrastructure domains during partial updates.
-// UpdateFromServerDomains records the requested domains and kicks off their
-// resolution in the background, returning without blocking on DNS so it stays
-// off the engine sync lock held by the caller. ctx scopes the background
-// resolves to the server lifetime: it is not per-sync, so a fast-returning
-// sync won't cancel them, but a server Stop will.
-func (m *Resolver) UpdateFromServerDomains(ctx context.Context, serverDomains dnsconfig.ServerDomains) (domain.List, error) {
+// UpdateFromServerDomains merges server domains into the cache and resolves
+// them. New types replace whole types; empty updates are ignored. Resolution is
+// async (off the caller's sync lock) except for cold domains when dnsWillBeServed
+// and takeover is pending, which kickoffResolve primes synchronously. ctx is the
+// server lifetime, so a fast sync won't cancel resolves but Stop will.
+func (m *Resolver) UpdateFromServerDomains(ctx context.Context, serverDomains dnsconfig.ServerDomains, dnsWillBeServed bool) (domain.List, error) {
 	newDomains := m.extractDomainsFromServerDomains(serverDomains)
 	var removedDomains domain.List
 
@@ -545,31 +542,60 @@ func (m *Resolver) UpdateFromServerDomains(ctx context.Context, serverDomains dn
 		removedDomains = m.removeStaleDomains(currentDomains, allDomains)
 	}
 
-	m.kickoffResolve(ctx, newDomains)
+	m.kickoffResolve(ctx, newDomains, dnsWillBeServed)
 
 	return removedDomains, nil
 }
 
-// kickoffResolve marks each domain pending and starts a background resolve,
-// skipping ones already fresh or in flight. Returns immediately.
-func (m *Resolver) kickoffResolve(ctx context.Context, domains domain.List) {
+// kickoffResolve resolves each unresolved domain, skipping fresh/in-flight ones.
+// Cold domains resolve synchronously only before takeover (no upstream root
+// handler) and when dnsWillBeServed, to prime the cache via the working OS
+// resolver before OS DNS routes through the tunnel; otherwise async.
+func (m *Resolver) kickoffResolve(ctx context.Context, domains domain.List, dnsWillBeServed bool) {
+	m.mutex.RLock()
+	chain := m.chain
+	maxPriority := m.chainMaxPriority
+	m.mutex.RUnlock()
+	preTakeover := chain == nil || !chain.HasRootHandlerAtOrBelow(maxPriority)
+
 	for _, d := range domains {
 		dnsName := strings.ToLower(dns.Fqdn(d.PunycodeString()))
 
 		m.mutex.Lock()
 		_, hasPending := m.pending[dnsName]
-		cached := m.hasFreshRecordLocked(dnsName)
-		if !hasPending && !cached {
+		fresh := m.hasFreshRecordLocked(dnsName)
+		cold := !m.hasAnyRecordLocked(dnsName)
+		if !hasPending && !fresh {
 			m.pending[dnsName] = pendingEntry{}
 		}
 		m.mutex.Unlock()
 
-		if hasPending || cached {
+		if hasPending || fresh {
+			continue
+		}
+
+		if cold && preTakeover && dnsWillBeServed {
+			m.resolveInitial(ctx, d, dnsName)
 			continue
 		}
 
 		m.scheduleInitialResolve(ctx, d, dnsName)
 	}
+}
+
+// resolveInitial resolves a cold domain synchronously, deduped via resolveGroup
+// so a concurrent ServeDNS await joins the same flight. Clears pending when done.
+func (m *Resolver) resolveInitial(ctx context.Context, d domain.Domain, dnsName string) {
+	key := "initial|" + dnsName
+	_, _, _ = m.resolveGroup.Do(key, func() (any, error) {
+		defer m.clearPending(dnsName)
+		if err := m.AddDomain(ctx, d); err != nil {
+			log.Warnf("initial resolve mgmt domain=%s: %v", d.SafeString(), err)
+			return struct{}{}, err
+		}
+		log.Debugf("added/updated management cache domain=%s", d.SafeString())
+		return struct{}{}, nil
+	})
 }
 
 // scheduleInitialResolve runs AddDomain in the background, deduped per domain
@@ -594,6 +620,18 @@ func (m *Resolver) hasFreshRecordLocked(dnsName string) bool {
 	for _, qtype := range []uint16{dns.TypeA, dns.TypeAAAA} {
 		q := dns.Question{Name: dnsName, Qtype: qtype, Qclass: dns.ClassINET}
 		if c, ok := m.records[q]; ok && time.Since(c.cachedAt) <= m.cacheTTL {
+			return true
+		}
+	}
+	return false
+}
+
+// hasAnyRecordLocked reports whether any A or AAAA record exists for the name,
+// fresh or stale. Caller holds m.mutex.
+func (m *Resolver) hasAnyRecordLocked(dnsName string) bool {
+	for _, qtype := range []uint16{dns.TypeA, dns.TypeAAAA} {
+		q := dns.Question{Name: dnsName, Qtype: qtype, Qclass: dns.ClassINET}
+		if _, ok := m.records[q]; ok {
 			return true
 		}
 	}

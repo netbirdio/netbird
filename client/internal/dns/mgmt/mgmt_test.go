@@ -325,7 +325,7 @@ func TestResolver_ManagementDomainProtection(t *testing.T) {
 		Relay:  []domain.Domain{"cloudflare.com"},
 	}
 
-	_, err = resolver.UpdateFromServerDomains(ctx, serverDomains)
+	_, err = resolver.UpdateFromServerDomains(ctx, serverDomains, true)
 	if err != nil {
 		t.Logf("Server domains update failed: %v", err)
 	}
@@ -363,7 +363,7 @@ func TestResolver_EmptyUpdateDoesNotRemoveDomains(t *testing.T) {
 	}
 
 	// Add initial domains
-	_, err := resolver.UpdateFromServerDomains(ctx, initialDomains)
+	_, err := resolver.UpdateFromServerDomains(ctx, initialDomains, true)
 	if err != nil {
 		t.Skipf("Skipping test due to DNS resolution failure: %v", err)
 	}
@@ -375,7 +375,7 @@ func TestResolver_EmptyUpdateDoesNotRemoveDomains(t *testing.T) {
 
 	// Update with empty ServerDomains (simulating partial network map update)
 	emptyDomains := dnsconfig.ServerDomains{}
-	removedDomains, err := resolver.UpdateFromServerDomains(ctx, emptyDomains)
+	removedDomains, err := resolver.UpdateFromServerDomains(ctx, emptyDomains, true)
 	assert.NoError(t, err)
 
 	// Verify no domains were removed
@@ -398,7 +398,7 @@ func TestResolver_PartialUpdateReplacesOnlyUpdatedTypes(t *testing.T) {
 	}
 
 	// Add initial domains
-	_, err := resolver.UpdateFromServerDomains(ctx, initialDomains)
+	_, err := resolver.UpdateFromServerDomains(ctx, initialDomains, true)
 	if err != nil {
 		t.Skipf("Skipping test due to DNS resolution failure: %v", err)
 	}
@@ -409,7 +409,7 @@ func TestResolver_PartialUpdateReplacesOnlyUpdatedTypes(t *testing.T) {
 	partialDomains := dnsconfig.ServerDomains{
 		Signal: "github.com",
 	}
-	removedDomains, err := resolver.UpdateFromServerDomains(ctx, partialDomains)
+	removedDomains, err := resolver.UpdateFromServerDomains(ctx, partialDomains, true)
 	if err != nil {
 		t.Skipf("Skipping test due to DNS resolution failure: %v", err)
 	}
@@ -444,7 +444,7 @@ func TestResolver_PartialUpdateAddsNewTypePreservesExisting(t *testing.T) {
 	}
 
 	// Add initial domains
-	_, err := resolver.UpdateFromServerDomains(ctx, initialDomains)
+	_, err := resolver.UpdateFromServerDomains(ctx, initialDomains, true)
 	if err != nil {
 		t.Skipf("Skipping test due to DNS resolution failure: %v", err)
 	}
@@ -456,7 +456,7 @@ func TestResolver_PartialUpdateAddsNewTypePreservesExisting(t *testing.T) {
 	partialDomains := dnsconfig.ServerDomains{
 		Flow: "github.com",
 	}
-	removedDomains, err := resolver.UpdateFromServerDomains(ctx, partialDomains)
+	removedDomains, err := resolver.UpdateFromServerDomains(ctx, partialDomains, true)
 	if err != nil {
 		t.Skipf("Skipping test due to DNS resolution failure: %v", err)
 	}

@@ -613,7 +613,11 @@ func (s *DefaultServer) UpdateServerConfig(domains dnsconfig.ServerDomains) erro
 	defer s.mux.Unlock()
 
 	if s.mgmtCacheResolver != nil {
-		removedDomains, err := s.mgmtCacheResolver.UpdateFromServerDomains(s.ctx, domains)
+		// Mirrors the Initialize guard: without it NetBird never becomes the
+		// system resolver, so the mgmt cache is never queried and need not be
+		// primed synchronously.
+		dnsWillBeServed := !s.disableSys && !netstack.IsEnabled()
+		removedDomains, err := s.mgmtCacheResolver.UpdateFromServerDomains(s.ctx, domains, dnsWillBeServed)
 		if err != nil {
 			return fmt.Errorf("update management cache resolver: %w", err)
 		}
