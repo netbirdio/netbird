@@ -249,6 +249,7 @@ func (c *Controller) UpdateAccountPeers(ctx context.Context, accountID string, r
 
 // UpdateAffectedPeers updates only the specified peers that belong to an account.
 func (c *Controller) UpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string) error {
+	log.WithContext(ctx).Tracef("UpdateAccountPeers: account %s, %d affected peers (caller: %s)", accountID, len(peerIDs), util.GetCallerName())
 	if len(peerIDs) == 0 {
 		return nil
 	}
