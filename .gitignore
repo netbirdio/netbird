@@ -34,3 +34,10 @@ vendor/
 /netbird
 client/netbird-electron/
 management/server/types/testdata/
+
+signal/netbird-signal
+*/netbird-relay
+management/netbird-mgmt
+*/netbird
+**/netbird.wasm
+**/wasm_exec.js

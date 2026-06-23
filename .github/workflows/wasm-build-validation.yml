@@ -17,6 +17,7 @@ jobs:
     env:
       GOOS: js
       GOARCH: wasm
+      GOFLAGS: -tags=wglneto
     steps:
       - name: Checkout repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -52,7 +53,7 @@ jobs:
         with:
           go-version-file: "go.mod"
       - name: Build Wasm client
-        run: GOOS=js GOARCH=wasm go build -o netbird.wasm ./client/wasm/cmd
+        run: GOOS=js GOARCH=wasm go build -tags wglneto -o netbird.wasm ./client/wasm/cmd
         env:
           CGO_ENABLED: 0
       - name: Check Wasm build size
@@ -65,7 +66,7 @@ jobs:
 
           echo "Size: ${SIZE} bytes (${SIZE_MB} MB)"
 
-          if [ ${SIZE} -gt 62914560 ]; then
-            echo "Wasm binary size (${SIZE_MB}MB) exceeds 60MB limit!"
+          if [ ${SIZE} -gt 67108864 ]; then
+            echo "Wasm binary size (${SIZE_MB}MB) exceeds 64MB limit!"
             exit 1
           fi
