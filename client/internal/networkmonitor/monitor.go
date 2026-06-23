@@ -141,12 +141,14 @@ func (nw *NetworkMonitor) checkChanges(ctx context.Context, event chan struct{},
 }
 
 // nexthopChanged reports whether the current default next hop differs from the
-// given baseline, per protocol. A failed lookup is treated as an absent route
-// (zero Nexthop), so a protocol that had no default route to begin with (e.g.
-// IPv6 in a single-stack network) does not by itself count as a change.
+// given baseline. A lookup error is treated as a change so we fail safe and
+// restart rather than miss a real network change.
 func nexthopChanged(oldv4, oldv6 systemops.Nexthop) bool {
-	newv4, _ := systemops.GetNextHop(netip.IPv4Unspecified())
-	newv6, _ := systemops.GetNextHop(netip.IPv6Unspecified())
+	newv4, errv4 := systemops.GetNextHop(netip.IPv4Unspecified())
+	newv6, errv6 := systemops.GetNextHop(netip.IPv6Unspecified())
+	if errv4 != nil || errv6 != nil {
+		return true
+	}
 	return !sameNexthop(oldv4, newv4) || !sameNexthop(oldv6, newv6)
 }
 
