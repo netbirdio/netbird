@@ -51,12 +51,19 @@ type cachedRecord struct {
 }
 
 // Resolver caches critical NetBird infrastructure domains.
-// records, refreshing, mgmtDomain and serverDomains are all guarded by mutex.
+// records, refreshing, failedResolves, mgmtDomain and serverDomains are all
+// guarded by mutex.
 type Resolver struct {
 	records       map[dns.Question]*cachedRecord
 	mgmtDomain    *domain.Domain
 	serverDomains *dnsconfig.ServerDomains
 	mutex         sync.RWMutex
+
+	// failedResolves records the last failed initial resolve per domain so a
+	// domain that never resolves isn't retried on every server-domains update
+	// until refreshBackoff elapses. Entries are cleared on success and pruned
+	// to the current server-domains set.
+	failedResolves map[domain.Domain]time.Time
 
 	chain            ChainResolver
 	chainMaxPriority int
@@ -76,9 +83,10 @@ type Resolver struct {
 // NewResolver creates a new management domains cache resolver.
 func NewResolver() *Resolver {
 	return &Resolver{
-		records:    make(map[dns.Question]*cachedRecord),
-		refreshing: make(map[dns.Question]*atomic.Bool),
-		cacheTTL:   resolveCacheTTL(),
+		records:        make(map[dns.Question]*cachedRecord),
+		refreshing:     make(map[dns.Question]*atomic.Bool),
+		failedResolves: make(map[domain.Domain]time.Time),
+		cacheTTL:       resolveCacheTTL(),
 	}
 }
 
@@ -462,6 +470,7 @@ func (m *Resolver) RemoveDomain(d domain.Domain) error {
 	delete(m.records, qAAAA)
 	delete(m.refreshing, qA)
 	delete(m.refreshing, qAAAA)
+	delete(m.failedResolves, d)
 
 	log.Debugf("removed domain=%s from cache", d.SafeString())
 	return nil
@@ -505,6 +514,7 @@ func (m *Resolver) UpdateFromServerDomains(ctx context.Context, serverDomains dn
 		allDomains := m.extractDomainsFromServerDomains(updatedServerDomains)
 		currentDomains := m.GetCachedDomains()
 		removedDomains = m.removeStaleDomains(currentDomains, allDomains)
+		m.pruneFailedResolves(allDomains)
 	}
 
 	m.addNewDomains(ctx, newDomains)
@@ -577,13 +587,84 @@ func (m *Resolver) isManagementDomain(domain domain.Domain) bool {
 	return m.mgmtDomain != nil && domain == *m.mgmtDomain
 }
 
-// addNewDomains resolves and caches all domains from the update
+// addNewDomains resolves and caches domains that are not yet in the cache,
+// running the lookups concurrently. Domains already cached are skipped and left
+// to the stale-while-revalidate refresh path, so a sync never re-resolves them
+// synchronously: once NetBird owns the OS resolver the resolve runs through the
+// handler chain and would otherwise dial the managed upstreams under the engine
+// sync lock on every update.
 func (m *Resolver) addNewDomains(ctx context.Context, newDomains domain.List) {
+	var wg sync.WaitGroup
+	seen := make(map[domain.Domain]struct{}, len(newDomains))
 	for _, newDomain := range newDomains {
-		if err := m.AddDomain(ctx, newDomain); err != nil {
-			log.Warnf("failed to add/update domain=%s: %v", newDomain.SafeString(), err)
-		} else {
-			log.Debugf("added/updated management cache domain=%s", newDomain.SafeString())
+		if _, dup := seen[newDomain]; dup {
+			continue
+		}
+		seen[newDomain] = struct{}{}
+
+		if !m.needsResolve(newDomain) {
+			continue
+		}
+
+		wg.Add(1)
+		go func(d domain.Domain) {
+			defer wg.Done()
+			if err := m.AddDomain(ctx, d); err != nil {
+				m.markResolveFailed(d)
+				log.Warnf("failed to add/update domain=%s: %v", d.SafeString(), err)
+				return
+			}
+			m.clearResolveFailed(d)
+			log.Debugf("added/updated management cache domain=%s", d.SafeString())
+		}(newDomain)
+	}
+	wg.Wait()
+}
+
+// needsResolve reports whether d should be resolved now: it has no cached A or
+// AAAA record and is not within the failure backoff from a recent failed
+// resolve. Domains already cached are left to the stale-while-revalidate
+// refresh path.
+func (m *Resolver) needsResolve(d domain.Domain) bool {
+	dnsName := strings.ToLower(dns.Fqdn(d.PunycodeString()))
+
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+
+	for _, qtype := range []uint16{dns.TypeA, dns.TypeAAAA} {
+		q := dns.Question{Name: dnsName, Qtype: qtype, Qclass: dns.ClassINET}
+		if _, ok := m.records[q]; ok {
+			return false
+		}
+	}
+
+	if failedAt, ok := m.failedResolves[d]; ok && time.Since(failedAt) < refreshBackoff {
+		return false
+	}
+	return true
+}
+
+func (m *Resolver) markResolveFailed(d domain.Domain) {
+	m.mutex.Lock()
+	m.failedResolves[d] = time.Now()
+	m.mutex.Unlock()
+}
+
+func (m *Resolver) clearResolveFailed(d domain.Domain) {
+	m.mutex.Lock()
+	delete(m.failedResolves, d)
+	m.mutex.Unlock()
+}
+
+// pruneFailedResolves drops failure markers for domains no longer present in
+// the server-domains set, keeping the map bounded to the current set (a
+// failed-only domain has no cached record, so RemoveDomain never sees it).
+func (m *Resolver) pruneFailedResolves(domains domain.List) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	for d := range m.failedResolves {
+		if !slices.Contains(domains, d) {
+			delete(m.failedResolves, d)
 		}
 	}
 }
