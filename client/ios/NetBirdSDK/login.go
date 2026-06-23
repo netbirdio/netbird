@@ -51,6 +51,12 @@ func NewAuth(cfgPath string, mgmURL string) (*Auth, error) {
 		return nil, err
 	}
 
+	// Preserve the existing profile config (name, keys) and override only the management URL.
+	if existing, err := profilemanager.GetConfig(cfgPath); err == nil {
+		existing.ManagementURL = cfg.ManagementURL
+		cfg = existing
+	}
+
 	return &Auth{
 		ctx:     context.Background(),
 		config:  cfg,
