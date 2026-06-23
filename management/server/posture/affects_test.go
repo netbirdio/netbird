@@ -1,6 +1,7 @@
 package posture
 
 import (
+	"context"
 	"net/netip"
 	"testing"
 
@@ -122,7 +123,7 @@ func TestAffectsPosture(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := AffectsPosture(tt.diff, tt.checks)
+			got := AffectsPosture(context.Background(), tt.diff, tt.checks)
 			assert.Equal(t, tt.want, got, "AffectsPosture result should match expectation")
 		})
 	}
