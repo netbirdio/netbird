@@ -181,7 +181,9 @@ func (m *Resolver) continueToNext(w dns.ResponseWriter, r *dns.Msg) {
 
 // AddDomain resolves a domain and stores its A/AAAA records in the cache.
 // A family that resolves NODATA (nil err, zero records) evicts any stale
-// entry for that qtype.
+// entry for that qtype. When one family hard-errors while the other succeeds,
+// the resolved family is still cached but AddDomain returns an error so the
+// caller retries the incomplete resolve rather than treating it as complete.
 func (m *Resolver) AddDomain(ctx context.Context, d domain.Domain) error {
 	dnsName := strings.ToLower(dns.Fqdn(d.PunycodeString()))
 
@@ -210,6 +212,10 @@ func (m *Resolver) AddDomain(ctx context.Context, d domain.Domain) error {
 
 	log.Debugf("added/updated domain=%s with %d A records and %d AAAA records",
 		d.SafeString(), len(aRecords), len(aaaaRecords))
+
+	if errA != nil || errAAAA != nil {
+		return fmt.Errorf("resolve %s: incomplete, a family failed: %w", d.SafeString(), errors.Join(errA, errAAAA))
+	}
 
 	return nil
 }
@@ -621,25 +627,26 @@ func (m *Resolver) addNewDomains(ctx context.Context, newDomains domain.List) {
 	wg.Wait()
 }
 
-// needsResolve reports whether d should be resolved now: it has no cached A or
-// AAAA record and is not within the failure backoff from a recent failed
-// resolve. Domains already cached are left to the stale-while-revalidate
-// refresh path.
+// needsResolve reports whether d should be resolved now. A recent failed or
+// incomplete resolve gates retries on the backoff even when one family is
+// already cached, so a transiently-failed family is retried instead of being
+// treated as fully resolved. Otherwise a domain with any cached record is left
+// to the stale-while-revalidate refresh path.
 func (m *Resolver) needsResolve(d domain.Domain) bool {
 	dnsName := strings.ToLower(dns.Fqdn(d.PunycodeString()))
 
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
+	if failedAt, ok := m.failedResolves[d]; ok {
+		return time.Since(failedAt) >= refreshBackoff
+	}
+
 	for _, qtype := range []uint16{dns.TypeA, dns.TypeAAAA} {
 		q := dns.Question{Name: dnsName, Qtype: qtype, Qclass: dns.ClassINET}
 		if _, ok := m.records[q]; ok {
 			return false
 		}
-	}
-
-	if failedAt, ok := m.failedResolves[d]; ok && time.Since(failedAt) < refreshBackoff {
-		return false
 	}
 	return true
 }

@@ -132,3 +132,52 @@ func TestResolver_UpdateFromServerDomains_PrunesFailedResolves(t *testing.T) {
 	r.mutex.RUnlock()
 	assert.False(t, stillMarked, "failure marker for a domain no longer in the set must be pruned")
 }
+
+// When one family hard-errors while the other resolves, the domain is cached
+// for the working family but recorded as incomplete so the failed family is
+// retried under backoff instead of being treated as fully resolved forever.
+func TestResolver_AddNewDomains_RetriesPartialFamilyFailure(t *testing.T) {
+	d := domain.Domain("relay.example.com")
+	r := NewResolver()
+	chain := newFakeChain()
+	chain.setAnswer("relay.example.com.", dns.TypeA, "10.0.0.2")
+	chain.setErr("relay.example.com.", dns.TypeAAAA, errors.New("servfail"))
+	r.SetChainResolver(chain, 50)
+
+	_, err := r.UpdateFromServerDomains(context.Background(), dnsconfig.ServerDomains{Relay: []domain.Domain{d}})
+	require.NoError(t, err)
+
+	r.mutex.RLock()
+	_, aCached := r.records[dns.Question{Name: "relay.example.com.", Qtype: dns.TypeA, Qclass: dns.ClassINET}]
+	_, marked := r.failedResolves[d]
+	r.mutex.RUnlock()
+	require.True(t, aCached, "the working family must still be cached")
+	require.True(t, marked, "a partial failure must be recorded so the failed family is retried")
+
+	assert.False(t, r.needsResolve(d), "within the backoff window the domain is not retried")
+
+	r.mutex.Lock()
+	r.failedResolves[d] = time.Now().Add(-2 * refreshBackoff)
+	r.mutex.Unlock()
+	assert.True(t, r.needsResolve(d), "after the backoff elapses the domain is retried to pick up the missing family")
+}
+
+// A family that returns NODATA (legitimately absent, e.g. an IPv4-only host) is
+// not a failure: the domain must not be marked for retry, otherwise it would be
+// re-resolved on every sync.
+func TestResolver_AddNewDomains_NodataIsNotFailure(t *testing.T) {
+	d := domain.Domain("v4only.example.com")
+	r := NewResolver()
+	chain := newFakeChain()
+	chain.setAnswer("v4only.example.com.", dns.TypeA, "10.0.0.2")
+	r.SetChainResolver(chain, 50)
+
+	_, err := r.UpdateFromServerDomains(context.Background(), dnsconfig.ServerDomains{Relay: []domain.Domain{d}})
+	require.NoError(t, err)
+
+	r.mutex.RLock()
+	_, marked := r.failedResolves[d]
+	r.mutex.RUnlock()
+	assert.False(t, marked, "a NODATA family must not be recorded as a failure")
+	assert.False(t, r.needsResolve(d), "an IPv4-only host must not be re-resolved on later syncs")
+}
