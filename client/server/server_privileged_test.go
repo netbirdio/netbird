@@ -95,7 +95,7 @@ func TestConnectWithRetryRuns(t *testing.T) {
 
 	pm := profilemanager.ServiceManager{}
 	err = pm.SetActiveProfileState(&profilemanager.ActiveProfileState{
-		Name:     "test-profile",
+		ID:       "test-profile",
 		Username: currUser.Username,
 	})
 	if err != nil {

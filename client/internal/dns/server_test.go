@@ -552,15 +552,15 @@ func (m *mockService) RegisterMux(string, dns.Handler) {}
 func (m *mockService) DeregisterMux(string)            {}
 
 func TestDefaultServer_UpdateMux(t *testing.T) {
-	baseMatchHandlers := registeredHandlerMap{
-		"upstream-group1": {
+	baseMatchHandlers := []handlerWrapper{
+		{
 			domain: "example.com",
 			handler: &mockHandler{
 				Id: "upstream-group1",
 			},
 			priority: PriorityUpstream,
 		},
-		"upstream-group2": {
+		{
 			domain: "example.com",
 			handler: &mockHandler{
 				Id: "upstream-group2",
@@ -569,15 +569,15 @@ func TestDefaultServer_UpdateMux(t *testing.T) {
 		},
 	}
 
-	baseRootHandlers := registeredHandlerMap{
-		"upstream-root1": {
+	baseRootHandlers := []handlerWrapper{
+		{
 			domain: ".",
 			handler: &mockHandler{
 				Id: "upstream-root1",
 			},
 			priority: PriorityDefault,
 		},
-		"upstream-root2": {
+		{
 			domain: ".",
 			handler: &mockHandler{
 				Id: "upstream-root2",
@@ -586,22 +586,22 @@ func TestDefaultServer_UpdateMux(t *testing.T) {
 		},
 	}
 
-	baseMixedHandlers := registeredHandlerMap{
-		"upstream-group1": {
+	baseMixedHandlers := []handlerWrapper{
+		{
 			domain: "example.com",
 			handler: &mockHandler{
 				Id: "upstream-group1",
 			},
 			priority: PriorityUpstream,
 		},
-		"upstream-group2": {
+		{
 			domain: "example.com",
 			handler: &mockHandler{
 				Id: "upstream-group2",
 			},
 			priority: PriorityUpstream - 1,
 		},
-		"upstream-other": {
+		{
 			domain: "other.com",
 			handler: &mockHandler{
 				Id: "upstream-other",
@@ -612,7 +612,7 @@ func TestDefaultServer_UpdateMux(t *testing.T) {
 
 	tests := []struct {
 		name             string
-		initialHandlers  registeredHandlerMap
+		initialHandlers  []handlerWrapper
 		updates          []handlerWrapper
 		expectedHandlers map[string]string // map[HandlerID]domain
 		description      string
@@ -896,32 +896,38 @@ func TestDefaultServer_UpdateMux(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			server := &DefaultServer{
-				dnsMuxMap:    tt.initialHandlers,
-				handlerChain: NewHandlerChain(),
-				service:      &mockService{},
+				dnsMuxHandlers: tt.initialHandlers,
+				handlerChain:   NewHandlerChain(),
+				service:        &mockService{},
 			}
 
 			// Perform the update
 			server.updateMux(tt.updates)
 
 			// Verify the results
-			assert.Equal(t, len(tt.expectedHandlers), len(server.dnsMuxMap),
+			assert.Equal(t, len(tt.expectedHandlers), len(server.dnsMuxHandlers),
 				"Number of handlers after update doesn't match expected")
 
 			// Check each expected handler
 			for id, expectedDomain := range tt.expectedHandlers {
-				handler, exists := server.dnsMuxMap[types.HandlerID(id)]
-				assert.True(t, exists, "Expected handler %s not found", id)
-				if exists {
-					assert.Equal(t, expectedDomain, handler.domain,
+				var found *handlerWrapper
+				for i := range server.dnsMuxHandlers {
+					if server.dnsMuxHandlers[i].handler.ID() == types.HandlerID(id) {
+						found = &server.dnsMuxHandlers[i]
+						break
+					}
+				}
+				assert.NotNil(t, found, "Expected handler %s not found", id)
+				if found != nil {
+					assert.Equal(t, expectedDomain, found.domain,
 						"Domain mismatch for handler %s", id)
 				}
 			}
 
 			// Verify no unexpected handlers exist
-			for HandlerID := range server.dnsMuxMap {
-				_, expected := tt.expectedHandlers[string(HandlerID)]
-				assert.True(t, expected, "Unexpected handler found: %s", HandlerID)
+			for _, entry := range server.dnsMuxHandlers {
+				_, expected := tt.expectedHandlers[string(entry.handler.ID())]
+				assert.True(t, expected, "Unexpected handler found: %s", entry.handler.ID())
 			}
 
 			// Verify the handlerChain state and order
@@ -936,7 +942,7 @@ func TestDefaultServer_UpdateMux(t *testing.T) {
 
 				// Verify handler exists in mux
 				foundInMux := false
-				for _, muxEntry := range server.dnsMuxMap {
+				for _, muxEntry := range server.dnsMuxHandlers {
 					if chainEntry.Handler == muxEntry.handler &&
 						chainEntry.Priority == muxEntry.priority &&
 						chainEntry.Pattern == dns.Fqdn(muxEntry.domain) {
@@ -945,10 +951,106 @@ func TestDefaultServer_UpdateMux(t *testing.T) {
 					}
 				}
 				assert.True(t, foundInMux,
-					"Handler in chain not found in dnsMuxMap")
+					"Handler in chain not found in dnsMuxHandlers")
 			}
 		})
 	}
+}
+
+// chainHasPattern reports whether the handler chain holds an entry registered
+// for the given fqdn pattern at the given priority.
+func chainHasPattern(s *DefaultServer, pattern string, priority int) bool {
+	for _, h := range s.handlerChain.handlers {
+		if h.OrigPattern == pattern && h.Priority == priority {
+			return true
+		}
+	}
+	return false
+}
+
+// TestDefaultServer_UpdateMux_SharedHandlerZoneRemoval verifies that updateMux
+// tracks each (handler, domain) registration independently when one handler
+// serves multiple zones. Every custom zone is served by the same handler
+// instance (the local resolver, whose ID is the constant "local-resolver"), so
+// removing one zone must deregister exactly that zone's chain entry and leave
+// the others in place. Tracking registrations by handler ID alone collapses all
+// zones onto one entry, leaving removed zones in the chain to answer
+// authoritatively with no records.
+func TestDefaultServer_UpdateMux_SharedHandlerZoneRemoval(t *testing.T) {
+	// One handler serves every custom zone, mirroring s.localResolver.
+	shared := &mockHandler{Id: "local-resolver"}
+
+	server := &DefaultServer{
+		handlerChain: NewHandlerChain(),
+		service:      &mockService{},
+	}
+
+	// Two custom zones under the same handler. The surviving zone is registered
+	// last, mirroring the management emission order.
+	server.updateMux([]handlerWrapper{
+		{domain: "userzone.test", handler: shared, priority: PriorityLocal},
+		{domain: "peerzone.test", handler: shared, priority: PriorityLocal},
+	})
+
+	require.True(t, chainHasPattern(server, "userzone.test.", PriorityLocal),
+		"userzone.test should be registered after the first update")
+	require.True(t, chainHasPattern(server, "peerzone.test.", PriorityLocal),
+		"peerzone.test should be registered after the first update")
+
+	// Remove one zone, keep the other.
+	server.updateMux([]handlerWrapper{
+		{domain: "peerzone.test", handler: shared, priority: PriorityLocal},
+	})
+
+	assert.True(t, chainHasPattern(server, "peerzone.test.", PriorityLocal),
+		"peerzone.test should remain after removing userzone.test")
+	assert.False(t, chainHasPattern(server, "userzone.test.", PriorityLocal),
+		"userzone.test handler must be deregistered, not leaked in the chain")
+}
+
+// TestDefaultServer_UpdateMux_PreservesLocalResolver verifies that updateMux
+// does not tear down the shared local resolver during reconfiguration. The
+// resolver is a process-lifetime singleton reused across config updates;
+// Stop() cancels its lookup context (breaking external CNAME-target
+// resolution) and clears its records. updateMux must deregister its chain
+// entries without stopping it. Records surviving a teardown update is the
+// observable proxy: Stop() would have cleared them.
+func TestDefaultServer_UpdateMux_PreservesLocalResolver(t *testing.T) {
+	resolver := local.NewResolver()
+	require.NoError(t, resolver.RegisterRecord(nbdns.SimpleRecord{
+		Name:  "peer.netbird.cloud.",
+		Type:  int(dns.TypeA),
+		Class: nbdns.DefaultClass,
+		TTL:   300,
+		RData: "10.0.0.1",
+	}))
+
+	server := &DefaultServer{
+		handlerChain:  NewHandlerChain(),
+		service:       &mockService{},
+		localResolver: resolver,
+	}
+
+	server.updateMux([]handlerWrapper{
+		{domain: "netbird.cloud", handler: resolver, priority: PriorityLocal},
+	})
+
+	// Remove the zone. The resolver must survive so its records and lookup
+	// context stay intact for the next registration.
+	server.updateMux(nil)
+
+	var response *dns.Msg
+	resolver.ServeDNS(&test.MockResponseWriter{
+		WriteMsgFunc: func(m *dns.Msg) error {
+			response = m
+			return nil
+		},
+	}, &dns.Msg{Question: []dns.Question{{Name: "peer.netbird.cloud.", Qtype: dns.TypeA, Qclass: dns.ClassINET}}})
+
+	require.NotNil(t, response, "local resolver should answer after teardown")
+	assert.Equal(t, dns.RcodeSuccess, response.Rcode,
+		"local resolver records must survive teardown; updateMux must not Stop() the shared resolver")
+	assert.NotEmpty(t, response.Answer, "answer should contain the surviving record")
 }
 
 func TestExtraDomains(t *testing.T) {
@@ -1572,7 +1674,6 @@ func TestBuildUpstreamHandler_MergesGroupsPerDomain(t *testing.T) {
 		localResolver: local.NewResolver(),
 		handlerChain:  NewHandlerChain(),
 		hostManager:   &noopHostConfigurator{},
-		dnsMuxMap:     make(registeredHandlerMap),
 	}
 
 	groups := []*nbdns.NameServerGroup{
@@ -1730,7 +1831,7 @@ func TestEvaluateNSGroupHealth(t *testing.T) {
 	}
 }
 
-// healthStubHandler is a minimal dnsMuxMap entry that exposes a fixed
+// healthStubHandler is a minimal dnsMuxHandlers entry that exposes a fixed
 // UpstreamHealth snapshot, letting tests drive recomputeNSGroupStates
 // without spinning up real handlers.
 type healthStubHandler struct {
@@ -1806,12 +1907,11 @@ func newProjTestFixture(t *testing.T) *projTestFixture {
 		ctx:              context.Background(),
 		wgInterface:      &mocWGIface{},
 		statusRecorder:   recorder,
-		dnsMuxMap:        make(registeredHandlerMap),
 		selectedRoutes:   func() route.HAMap { return fx.selected },
 		activeRoutes:     func() route.HAMap { return fx.active },
 		warningDelayBase: defaultWarningDelayBase,
 	}
-	fx.server.dnsMuxMap["example.com"] = handlerWrapper{domain: "example.com", handler: fx.stub, priority: PriorityUpstream}
+	fx.server.dnsMuxHandlers = []handlerWrapper{{domain: "example.com", handler: fx.stub, priority: PriorityUpstream}}
 
 	fx.server.mux.Lock()
 	fx.server.updateNSGroupStates([]*nbdns.NameServerGroup{fx.group})
@@ -1918,7 +2018,6 @@ func TestProjection_OverlayAddrNoRouteDelaysWarning(t *testing.T) {
 		ctx:              context.Background(),
 		wgInterface:      &mocWGIface{},
 		statusRecorder:   recorder,
-		dnsMuxMap:        make(registeredHandlerMap),
 		selectedRoutes:   func() route.HAMap { return nil },
 		activeRoutes:     func() route.HAMap { return nil },
 		warningDelayBase: 50 * time.Millisecond,
@@ -1930,7 +2029,7 @@ func TestProjection_OverlayAddrNoRouteDelaysWarning(t *testing.T) {
 	stub := &healthStubHandler{health: map[netip.AddrPort]UpstreamHealth{
 		overlayPeer: {LastFail: time.Now(), LastErr: "timeout"},
 	}}
-	server.dnsMuxMap["example.com"] = handlerWrapper{domain: "example.com", handler: stub, priority: PriorityUpstream}
+	server.dnsMuxHandlers = []handlerWrapper{{domain: "example.com", handler: stub, priority: PriorityUpstream}}
 
 	server.mux.Lock()
 	server.updateNSGroupStates([]*nbdns.NameServerGroup{group})
@@ -1967,7 +2066,6 @@ func TestProjection_StopClearsHealthState(t *testing.T) {
 		service:           NewServiceViaMemory(wgIface),
 		hostManager:       &noopHostConfigurator{},
 		extraDomains:      map[domain.Domain]int{},
-		dnsMuxMap:         make(registeredHandlerMap),
 		statusRecorder:    peer.NewRecorder("mgm"),
 		selectedRoutes:    func() route.HAMap { return nil },
 		activeRoutes:      func() route.HAMap { return nil },
@@ -1982,7 +2080,7 @@ func TestProjection_StopClearsHealthState(t *testing.T) {
 		NameServers: []nbdns.NameServer{{IP: srv.Addr(), NSType: nbdns.UDPNameServerType, Port: int(srv.Port())}},
 	}
 	stub := &healthStubHandler{health: map[netip.AddrPort]UpstreamHealth{srv: {LastOk: time.Now()}}}
-	server.dnsMuxMap["example.com"] = handlerWrapper{domain: "example.com", handler: stub, priority: PriorityUpstream}
+	server.dnsMuxHandlers = []handlerWrapper{{domain: "example.com", handler: stub, priority: PriorityUpstream}}
 
 	server.mux.Lock()
 	server.updateNSGroupStates([]*nbdns.NameServerGroup{group})
@@ -2007,6 +2105,32 @@ func TestProjection_StopClearsHealthState(t *testing.T) {
 // rule 3: startup failures while the peer is handshaking, then the peer
 // comes up and a query succeeds before the grace window elapses. No
 // warning should ever have fired, and no recovery either.
+func TestWarningDelayBaseFromEnv(t *testing.T) {
+	tests := []struct {
+		name string
+		set  bool
+		val  string
+		want time.Duration
+	}{
+		{name: "unset uses default", set: false, want: defaultWarningDelayBase},
+		{name: "valid override", set: true, val: "90s", want: 90 * time.Second},
+		{name: "valid minutes", set: true, val: "2m", want: 2 * time.Minute},
+		{name: "invalid falls back", set: true, val: "notaduration", want: defaultWarningDelayBase},
+		{name: "zero falls back", set: true, val: "0s", want: defaultWarningDelayBase},
+		{name: "negative falls back", set: true, val: "-30s", want: defaultWarningDelayBase},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(envWarningDelay, tc.val)
+			if !tc.set {
+				os.Unsetenv(envWarningDelay)
+			}
+			assert.Equal(t, tc.want, warningDelayBaseFromEnv(), "grace window base")
+		})
+	}
+}
+
 func TestProjection_OverlayRecoversDuringGrace(t *testing.T) {
 	fx := newProjTestFixture(t)
 	fx.server.warningDelayBase = 200 * time.Millisecond
@@ -2118,7 +2242,6 @@ func TestProjection_MixedGroupEmitsImmediately(t *testing.T) {
 	server := &DefaultServer{
 		ctx:              context.Background(),
 		statusRecorder:   recorder,
-		dnsMuxMap:        make(registeredHandlerMap),
 		selectedRoutes:   func() route.HAMap { return overlayMap },
 		activeRoutes:     func() route.HAMap { return nil },
 		warningDelayBase: time.Hour,
@@ -2136,7 +2259,7 @@ func TestProjection_MixedGroupEmitsImmediately(t *testing.T) {
 			overlay: {LastFail: time.Now(), LastErr: "timeout"},
 		},
 	}
-	server.dnsMuxMap["example.com"] = handlerWrapper{domain: "example.com", handler: stub, priority: PriorityUpstream}
+	server.dnsMuxHandlers = []handlerWrapper{{domain: "example.com", handler: stub, priority: PriorityUpstream}}
 
 	server.mux.Lock()
 	server.updateNSGroupStates([]*nbdns.NameServerGroup{group})
@@ -2163,7 +2286,6 @@ func TestDNSLoopPrevention(t *testing.T) {
 		localResolver: local.NewResolver(),
 		handlerChain:  NewHandlerChain(),
 		hostManager:   &noopHostConfigurator{},
-		dnsMuxMap:     make(registeredHandlerMap),
 	}
 
 	tests := []struct {

@@ -121,9 +121,12 @@ func (r *SysOps) addRouteToNonVPNIntf(prefix netip.Prefix, vpnIntf wgIface, init
 		return Nexthop{}, vars.ErrRouteNotAllowed
 	}
 
-	// Check if the prefix is part of any local subnets
-	if isLocal, subnet := r.isPrefixInLocalSubnets(prefix); isLocal {
-		return Nexthop{}, fmt.Errorf("prefix %s is part of local subnet %s: %w", prefix, subnet, vars.ErrRouteNotAllowed)
+	// BSDs blackhole a /32 added inside a directly-connected subnet; Linux/Windows need it to beat the wt0 route.
+	switch runtime.GOOS {
+	case "darwin", "freebsd", "netbsd", "openbsd", "dragonfly":
+		if isLocal, subnet := r.isPrefixInLocalSubnets(prefix); isLocal {
+			return Nexthop{}, fmt.Errorf("prefix %s is part of local subnet %s: %w", prefix, subnet, vars.ErrRouteNotAllowed)
+		}
 	}
 
 	// Determine the exit interface and next hop for the prefix, so we can add a specific route

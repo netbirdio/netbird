@@ -57,6 +57,20 @@ func (mr *MockControllerMockRecorder) BufferUpdateAccountPeers(ctx, accountID, r
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BufferUpdateAccountPeers", reflect.TypeOf((*MockController)(nil).BufferUpdateAccountPeers), ctx, accountID, reason)
 }
 
+// BufferUpdateAffectedPeers mocks base method.
+func (m *MockController) BufferUpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string, reason types.UpdateReason) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "BufferUpdateAffectedPeers", ctx, accountID, peerIDs, reason)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// BufferUpdateAffectedPeers indicates an expected call of BufferUpdateAffectedPeers.
+func (mr *MockControllerMockRecorder) BufferUpdateAffectedPeers(ctx, accountID, peerIDs, reason any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BufferUpdateAffectedPeers", reflect.TypeOf((*MockController)(nil).BufferUpdateAffectedPeers), ctx, accountID, peerIDs, reason)
+}
+
 // CountStreams mocks base method.
 func (m *MockController) CountStreams() int {
 	m.ctrl.T.Helper()
@@ -113,21 +127,20 @@ func (mr *MockControllerMockRecorder) GetNetworkMap(ctx, peerID any) *gomock.Cal
 }
 
 // GetValidatedPeerWithMap mocks base method.
-func (m *MockController) GetValidatedPeerWithMap(ctx context.Context, isRequiresApproval bool, accountID string, p *peer.Peer) (*peer.Peer, *types.NetworkMap, []*posture.Checks, int64, error) {
+func (m *MockController) GetValidatedPeerWithMap(ctx context.Context, isRequiresApproval bool, accountID string, peerID string) (*types.NetworkMap, []*posture.Checks, int64, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetValidatedPeerWithMap", ctx, isRequiresApproval, accountID, p)
-	ret0, _ := ret[0].(*peer.Peer)
-	ret1, _ := ret[1].(*types.NetworkMap)
-	ret2, _ := ret[2].([]*posture.Checks)
-	ret3, _ := ret[3].(int64)
-	ret4, _ := ret[4].(error)
-	return ret0, ret1, ret2, ret3, ret4
+	ret := m.ctrl.Call(m, "GetValidatedPeerWithMap", ctx, isRequiresApproval, accountID, peerID)
+	ret0, _ := ret[0].(*types.NetworkMap)
+	ret1, _ := ret[1].([]*posture.Checks)
+	ret2, _ := ret[2].(int64)
+	ret3, _ := ret[3].(error)
+	return ret0, ret1, ret2, ret3
 }
 
 // GetValidatedPeerWithMap indicates an expected call of GetValidatedPeerWithMap.
-func (mr *MockControllerMockRecorder) GetValidatedPeerWithMap(ctx, isRequiresApproval, accountID, p any) *gomock.Call {
+func (mr *MockControllerMockRecorder) GetValidatedPeerWithMap(ctx, isRequiresApproval, accountID, peerID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetValidatedPeerWithMap", reflect.TypeOf((*MockController)(nil).GetValidatedPeerWithMap), ctx, isRequiresApproval, accountID, p)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetValidatedPeerWithMap", reflect.TypeOf((*MockController)(nil).GetValidatedPeerWithMap), ctx, isRequiresApproval, accountID, peerID)
 }
 
 // OnPeerConnected mocks base method.
@@ -158,45 +171,45 @@ func (mr *MockControllerMockRecorder) OnPeerDisconnected(ctx, accountID, peerID 
 }
 
 // OnPeersAdded mocks base method.
-func (m *MockController) OnPeersAdded(ctx context.Context, accountID string, peerIDs []string) error {
+func (m *MockController) OnPeersAdded(ctx context.Context, accountID string, peerIDs []string, affectedPeerIDs []string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "OnPeersAdded", ctx, accountID, peerIDs)
+	ret := m.ctrl.Call(m, "OnPeersAdded", ctx, accountID, peerIDs, affectedPeerIDs)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // OnPeersAdded indicates an expected call of OnPeersAdded.
-func (mr *MockControllerMockRecorder) OnPeersAdded(ctx, accountID, peerIDs any) *gomock.Call {
+func (mr *MockControllerMockRecorder) OnPeersAdded(ctx, accountID, peerIDs, affectedPeerIDs any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OnPeersAdded", reflect.TypeOf((*MockController)(nil).OnPeersAdded), ctx, accountID, peerIDs)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OnPeersAdded", reflect.TypeOf((*MockController)(nil).OnPeersAdded), ctx, accountID, peerIDs, affectedPeerIDs)
 }
 
 // OnPeersDeleted mocks base method.
-func (m *MockController) OnPeersDeleted(ctx context.Context, accountID string, peerIDs []string) error {
+func (m *MockController) OnPeersDeleted(ctx context.Context, accountID string, peerIDs []string, affectedPeerIDs []string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "OnPeersDeleted", ctx, accountID, peerIDs)
+	ret := m.ctrl.Call(m, "OnPeersDeleted", ctx, accountID, peerIDs, affectedPeerIDs)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // OnPeersDeleted indicates an expected call of OnPeersDeleted.
-func (mr *MockControllerMockRecorder) OnPeersDeleted(ctx, accountID, peerIDs any) *gomock.Call {
+func (mr *MockControllerMockRecorder) OnPeersDeleted(ctx, accountID, peerIDs, affectedPeerIDs any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OnPeersDeleted", reflect.TypeOf((*MockController)(nil).OnPeersDeleted), ctx, accountID, peerIDs)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OnPeersDeleted", reflect.TypeOf((*MockController)(nil).OnPeersDeleted), ctx, accountID, peerIDs, affectedPeerIDs)
 }
 
 // OnPeersUpdated mocks base method.
-func (m *MockController) OnPeersUpdated(ctx context.Context, accountId string, peerIDs []string) error {
+func (m *MockController) OnPeersUpdated(ctx context.Context, accountId string, peerIDs []string, affectedPeerIDs []string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "OnPeersUpdated", ctx, accountId, peerIDs)
+	ret := m.ctrl.Call(m, "OnPeersUpdated", ctx, accountId, peerIDs, affectedPeerIDs)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // OnPeersUpdated indicates an expected call of OnPeersUpdated.
-func (mr *MockControllerMockRecorder) OnPeersUpdated(ctx, accountId, peerIDs any) *gomock.Call {
+func (mr *MockControllerMockRecorder) OnPeersUpdated(ctx, accountId, peerIDs, affectedPeerIDs any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OnPeersUpdated", reflect.TypeOf((*MockController)(nil).OnPeersUpdated), ctx, accountId, peerIDs)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OnPeersUpdated", reflect.TypeOf((*MockController)(nil).OnPeersUpdated), ctx, accountId, peerIDs, affectedPeerIDs)
 }
 
 // StartWarmup mocks base method.
@@ -249,4 +262,18 @@ func (m *MockController) UpdateAccountPeers(ctx context.Context, accountID strin
 func (mr *MockControllerMockRecorder) UpdateAccountPeers(ctx, accountID, reason any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateAccountPeers", reflect.TypeOf((*MockController)(nil).UpdateAccountPeers), ctx, accountID, reason)
+}
+
+// UpdateAffectedPeers mocks base method.
+func (m *MockController) UpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateAffectedPeers", ctx, accountID, peerIDs)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateAffectedPeers indicates an expected call of UpdateAffectedPeers.
+func (mr *MockControllerMockRecorder) UpdateAffectedPeers(ctx, accountID, peerIDs any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateAffectedPeers", reflect.TypeOf((*MockController)(nil).UpdateAffectedPeers), ctx, accountID, peerIDs)
 }

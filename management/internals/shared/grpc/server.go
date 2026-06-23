@@ -778,7 +778,7 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 		sshKey = loginReq.GetPeerKeys().GetSshPubKey()
 	}
 
-	peer, netMap, postureChecks, err := s.accountManager.LoginPeer(ctx, types.PeerLogin{
+	peer, network, postureChecks, enableSSH, err := s.accountManager.LoginPeer(ctx, types.PeerLogin{
 		WireGuardPubKey: peerKey.String(),
 		SSHKey:          string(sshKey),
 		Meta:            peerMeta,
@@ -792,7 +792,7 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 		return nil, mapError(ctx, err)
 	}
 
-	loginResp, err := s.prepareLoginResponse(ctx, peer, netMap, postureChecks)
+	loginResp, err := s.prepareLoginResponse(ctx, peer, network, postureChecks, enableSSH)
 	if err != nil {
 		log.WithContext(ctx).Warnf("failed preparing login response for peer %s: %s", peerKey, err)
 		return nil, status.Errorf(codes.Internal, "failed logging in peer")
@@ -895,7 +895,7 @@ func (s *Server) ExtendAuthSession(ctx context.Context, req *proto.EncryptedMess
 	}, nil
 }
 
-func (s *Server) prepareLoginResponse(ctx context.Context, peer *nbpeer.Peer, netMap *types.NetworkMap, postureChecks []*posture.Checks) (*proto.LoginResponse, error) {
+func (s *Server) prepareLoginResponse(ctx context.Context, peer *nbpeer.Peer, network *types.Network, postureChecks []*posture.Checks, enableSSH bool) (*proto.LoginResponse, error) {
 	var relayToken *Token
 	var err error
 	if s.config.Relay != nil && len(s.config.Relay.Addresses) > 0 {
@@ -914,7 +914,7 @@ func (s *Server) prepareLoginResponse(ctx context.Context, peer *nbpeer.Peer, ne
 	// if peer has reached this point then it has logged in
 	loginResp := &proto.LoginResponse{
 		NetbirdConfig: toNetbirdConfig(s.config, nil, relayToken, nil),
-		PeerConfig:    toPeerConfig(peer, netMap.Network, s.networkMapController.GetDNSDomain(settings), settings, s.config.HttpConfig, s.config.DeviceAuthorizationFlow, netMap.EnableSSH),
+		PeerConfig:    toPeerConfig(peer, network, s.networkMapController.GetDNSDomain(settings), settings, s.config.HttpConfig, s.config.DeviceAuthorizationFlow, enableSSH),
 		Checks:        toProtocolChecks(ctx, postureChecks),
 	}
 
@@ -1205,7 +1205,7 @@ func (s *Server) SyncMeta(ctx context.Context, req *proto.EncryptedMessage) (*pr
 		return nil, msg
 	}
 
-	err = s.accountManager.SyncPeerMeta(ctx, peerKey.String(), extractPeerMeta(ctx, syncMetaReq.GetMeta()))
+	err = s.accountManager.SyncPeerMeta(ctx, peerKey.String(), extractPeerMeta(ctx, syncMetaReq.GetMeta()), realIP)
 	if err != nil {
 		return nil, mapError(ctx, err)
 	}
@@ -1254,7 +1254,10 @@ func (s *Server) Logout(ctx context.Context, req *proto.EncryptedMessage) (*prot
 func toProtocolChecks(ctx context.Context, postureChecks []*posture.Checks) []*proto.Checks {
 	protoChecks := make([]*proto.Checks, 0, len(postureChecks))
 	for _, postureCheck := range postureChecks {
-		protoChecks = append(protoChecks, toProtocolCheck(postureCheck))
+		check := toProtocolCheck(postureCheck)
+		if check != nil {
+			protoChecks = append(protoChecks, check)
+		}
 	}
 
 	return protoChecks
@@ -1276,6 +1279,10 @@ func toProtocolCheck(postureCheck *posture.Checks) *proto.Checks {
 				protoCheck.Files = append(protoCheck.Files, process.WindowsPath)
 			}
 		}
+	}
+
+	if len(protoCheck.Files) == 0 {
+		return nil
 	}
 
 	return protoCheck

@@ -22,21 +22,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/shared/management/domain"
 )
-
-func generateDummyHandler(d string, servers []nbdns.NameServer) *upstreamResolverBase {
-	var srvs []netip.AddrPort
-	for _, srv := range servers {
-		srvs = append(srvs, srv.AddrPort())
-	}
-	u := &upstreamResolverBase{
-		domain: domain.Domain(d),
-		cancel: func() {},
-	}
-	u.addRace(srvs)
-	return u
-}
 
 func TestUpdateDNSServer(t *testing.T) {
 
@@ -53,22 +39,20 @@ func TestUpdateDNSServer(t *testing.T) {
 		},
 	}
 
-	dummyHandler := local.NewResolver()
-
 	testCases := []struct {
 		name                string
-		initUpstreamMap     registeredHandlerMap
+		initUpstreamMap     []handlerWrapper
 		initLocalZones      []nbdns.CustomZone
 		initSerial          uint64
 		inputSerial         uint64
 		inputUpdate         nbdns.Config
 		shouldFail          bool
-		expectedUpstreamMap registeredHandlerMap
+		expectedUpstreamMap []handlerWrapper
 		expectedLocalQs     []dns.Question
 	}{
 		{
 			name:            "Initial Config Should Succeed",
-			initUpstreamMap: make(registeredHandlerMap),
+			initUpstreamMap: nil,
 			initSerial:      0,
 			inputSerial:     1,
 			inputUpdate: nbdns.Config{
@@ -90,20 +74,17 @@ func TestUpdateDNSServer(t *testing.T) {
 					},
 				},
 			},
-			expectedUpstreamMap: registeredHandlerMap{
-				generateDummyHandler("netbird.io", nameServers).ID(): handlerWrapper{
+			expectedUpstreamMap: []handlerWrapper{
+				{
 					domain:   "netbird.io",
-					handler:  dummyHandler,
 					priority: PriorityUpstream,
 				},
-				dummyHandler.ID(): handlerWrapper{
+				{
 					domain:   "netbird.cloud",
-					handler:  dummyHandler,
 					priority: PriorityLocal,
 				},
-				generateDummyHandler(".", nameServers).ID(): handlerWrapper{
+				{
 					domain:   nbdns.RootZone,
-					handler:  dummyHandler,
 					priority: PriorityDefault,
 				},
 			},
@@ -112,10 +93,10 @@ func TestUpdateDNSServer(t *testing.T) {
 		{
 			name:           "New Config Should Succeed",
 			initLocalZones: []nbdns.CustomZone{{Domain: "netbird.cloud", Records: []nbdns.SimpleRecord{{Name: "netbird.cloud", Type: 1, Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"}}}},
-			initUpstreamMap: registeredHandlerMap{
-				generateDummyHandler(zoneRecords[0].Name, nameServers).ID(): handlerWrapper{
+			initUpstreamMap: []handlerWrapper{
+				{
 					domain:   "netbird.cloud",
-					handler:  dummyHandler,
+					handler:  &mockHandler{},
 					priority: PriorityUpstream,
 				},
 			},
@@ -136,15 +117,13 @@ func TestUpdateDNSServer(t *testing.T) {
 					},
 				},
 			},
-			expectedUpstreamMap: registeredHandlerMap{
-				generateDummyHandler("netbird.io", nameServers).ID(): handlerWrapper{
+			expectedUpstreamMap: []handlerWrapper{
+				{
 					domain:   "netbird.io",
-					handler:  dummyHandler,
 					priority: PriorityUpstream,
 				},
-				"local-resolver": handlerWrapper{
+				{
 					domain:   "netbird.cloud",
-					handler:  dummyHandler,
 					priority: PriorityLocal,
 				},
 			},
@@ -153,7 +132,7 @@ func TestUpdateDNSServer(t *testing.T) {
 		{
 			name:            "Smaller Config Serial Should Be Skipped",
 			initLocalZones:  []nbdns.CustomZone{},
-			initUpstreamMap: make(registeredHandlerMap),
+			initUpstreamMap: nil,
 			initSerial:      2,
 			inputSerial:     1,
 			shouldFail:      true,
@@ -161,7 +140,7 @@ func TestUpdateDNSServer(t *testing.T) {
 		{
 			name:            "Empty NS Group Domain Or Not Primary Element Should Fail",
 			initLocalZones:  []nbdns.CustomZone{},
-			initUpstreamMap: make(registeredHandlerMap),
+			initUpstreamMap: nil,
 			initSerial:      0,
 			inputSerial:     1,
 			inputUpdate: nbdns.Config{
@@ -183,7 +162,7 @@ func TestUpdateDNSServer(t *testing.T) {
 		{
 			name:            "Invalid NS Group Nameservers list Should Fail",
 			initLocalZones:  []nbdns.CustomZone{},
-			initUpstreamMap: make(registeredHandlerMap),
+			initUpstreamMap: nil,
 			initSerial:      0,
 			inputSerial:     1,
 			inputUpdate: nbdns.Config{
@@ -205,7 +184,7 @@ func TestUpdateDNSServer(t *testing.T) {
 		{
 			name:            "Invalid Custom Zone Records list Should Skip",
 			initLocalZones:  []nbdns.CustomZone{},
-			initUpstreamMap: make(registeredHandlerMap),
+			initUpstreamMap: nil,
 			initSerial:      0,
 			inputSerial:     1,
 			inputUpdate: nbdns.Config{
@@ -222,42 +201,41 @@ func TestUpdateDNSServer(t *testing.T) {
 					},
 				},
 			},
-			expectedUpstreamMap: registeredHandlerMap{generateDummyHandler(".", nameServers).ID(): handlerWrapper{
+			expectedUpstreamMap: []handlerWrapper{{
 				domain:   ".",
-				handler:  dummyHandler,
 				priority: PriorityDefault,
 			}},
 		},
 		{
 			name:           "Empty Config Should Succeed and Clean Maps",
 			initLocalZones: []nbdns.CustomZone{{Domain: "netbird.cloud", Records: []nbdns.SimpleRecord{{Name: "netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"}}}},
-			initUpstreamMap: registeredHandlerMap{
-				generateDummyHandler(zoneRecords[0].Name, nameServers).ID(): handlerWrapper{
+			initUpstreamMap: []handlerWrapper{
+				{
 					domain:   zoneRecords[0].Name,
-					handler:  dummyHandler,
+					handler:  &mockHandler{},
 					priority: PriorityUpstream,
 				},
 			},
 			initSerial:          0,
 			inputSerial:         1,
 			inputUpdate:         nbdns.Config{ServiceEnable: true},
-			expectedUpstreamMap: make(registeredHandlerMap),
+			expectedUpstreamMap: nil,
 			expectedLocalQs:     []dns.Question{},
 		},
 		{
 			name:           "Disabled Service Should clean map",
 			initLocalZones: []nbdns.CustomZone{{Domain: "netbird.cloud", Records: []nbdns.SimpleRecord{{Name: "netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"}}}},
-			initUpstreamMap: registeredHandlerMap{
-				generateDummyHandler(zoneRecords[0].Name, nameServers).ID(): handlerWrapper{
+			initUpstreamMap: []handlerWrapper{
+				{
 					domain:   zoneRecords[0].Name,
-					handler:  dummyHandler,
+					handler:  &mockHandler{},
 					priority: PriorityUpstream,
 				},
 			},
 			initSerial:          0,
 			inputSerial:         1,
 			inputUpdate:         nbdns.Config{ServiceEnable: false},
-			expectedUpstreamMap: make(registeredHandlerMap),
+			expectedUpstreamMap: nil,
 			expectedLocalQs:     []dns.Question{},
 		},
 	}
@@ -314,7 +292,7 @@ func TestUpdateDNSServer(t *testing.T) {
 				}
 			}()
 
-			dnsServer.dnsMuxMap = testCase.initUpstreamMap
+			dnsServer.dnsMuxHandlers = testCase.initUpstreamMap
 			dnsServer.localResolver.Update(testCase.initLocalZones)
 			dnsServer.updateSerial = testCase.initSerial
 
@@ -326,14 +304,20 @@ func TestUpdateDNSServer(t *testing.T) {
 				t.Fatalf("update dns server should not fail, got error: %v", err)
 			}
 
-			if len(dnsServer.dnsMuxMap) != len(testCase.expectedUpstreamMap) {
-				t.Fatalf("update upstream failed, map size is different than expected, want %d, got %d", len(testCase.expectedUpstreamMap), len(dnsServer.dnsMuxMap))
+			if len(dnsServer.dnsMuxHandlers) != len(testCase.expectedUpstreamMap) {
+				t.Fatalf("update upstream failed, map size is different than expected, want %d, got %d", len(testCase.expectedUpstreamMap), len(dnsServer.dnsMuxHandlers))
 			}
 
-			for key := range testCase.expectedUpstreamMap {
-				_, found := dnsServer.dnsMuxMap[key]
+			for _, expected := range testCase.expectedUpstreamMap {
+				found := false
+				for _, got := range dnsServer.dnsMuxHandlers {
+					if got.domain == expected.domain && got.priority == expected.priority {
+						found = true
+						break
+					}
+				}
 				if !found {
-					t.Fatalf("update upstream failed, key %s was not found in the dnsMuxMap: %#v", key, dnsServer.dnsMuxMap)
+					t.Fatalf("update upstream failed, handler for domain=%s priority=%d not found in dnsMuxHandlers: %#v", expected.domain, expected.priority, dnsServer.dnsMuxHandlers)
 				}
 			}
 
@@ -433,8 +417,8 @@ func TestDNSFakeResolverHandleUpdates(t *testing.T) {
 		}
 	}()
 
-	dnsServer.dnsMuxMap = registeredHandlerMap{
-		"id1": handlerWrapper{
+	dnsServer.dnsMuxHandlers = []handlerWrapper{
+		{
 			domain:   zoneRecords[0].Name,
 			handler:  &local.Resolver{},
 			priority: PriorityUpstream,

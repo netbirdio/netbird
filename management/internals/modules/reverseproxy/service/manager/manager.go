@@ -918,6 +918,10 @@ func (m *Manager) DeleteAllServices(ctx context.Context, accountID, userID strin
 		}
 
 		for _, svc := range services {
+			if err = transaction.DeleteServiceTargets(ctx, accountID, svc.ID); err != nil {
+				return fmt.Errorf("failed to delete service targets: %w", err)
+			}
+
 			if err = transaction.DeleteService(ctx, accountID, svc.ID); err != nil {
 				return fmt.Errorf("failed to delete service: %w", err)
 			}
@@ -1270,6 +1274,10 @@ func (m *Manager) deletePeerService(ctx context.Context, accountID, peerID, serv
 			return status.Errorf(status.PermissionDenied, "cannot delete service exposed by another peer")
 		}
 
+		if err = transaction.DeleteServiceTargets(ctx, accountID, serviceID); err != nil {
+			return fmt.Errorf("delete service targets: %w", err)
+		}
+
 		if err = transaction.DeleteService(ctx, accountID, serviceID); err != nil {
 			return fmt.Errorf("delete service: %w", err)
 		}
@@ -1317,6 +1325,10 @@ func (m *Manager) deleteExpiredPeerService(ctx context.Context, accountID, peerI
 
 		if svc.Meta.LastRenewedAt != nil && time.Since(*svc.Meta.LastRenewedAt) <= exposeTTL {
 			return nil
+		}
+
+		if err = transaction.DeleteServiceTargets(ctx, accountID, serviceID); err != nil {
+			return fmt.Errorf("delete service targets: %w", err)
 		}
 
 		if err = transaction.DeleteService(ctx, accountID, serviceID); err != nil {

@@ -11,6 +11,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -54,6 +55,10 @@ var androidRunOverride func(c *ConnectClient, runningChan chan struct{}, logPath
 
 type ConnectClient struct {
 	ctx            context.Context
+	runCancel      context.CancelFunc
+	runExited      chan struct{}
+	runOnce        sync.Once
+	runStarted     atomic.Bool
 	config         *profilemanager.Config
 	statusRecorder *peer.Status
 
@@ -70,8 +75,14 @@ func NewConnectClient(
 	config *profilemanager.Config,
 	statusRecorder *peer.Status,
 ) *ConnectClient {
+	// Derive the run context here so Stop owns the cancel that unblocks the run
+	// loop. runCancel is set once at construction, so Stop can call it without
+	// racing the run loop's startup. Callers therefore need not cancel before Stop.
+	runCtx, runCancel := context.WithCancel(ctx)
 	return &ConnectClient{
-		ctx:            ctx,
+		ctx:            runCtx,
+		runCancel:      runCancel,
+		runExited:      make(chan struct{}),
 		config:         config,
 		statusRecorder: statusRecorder,
 		engineMutex:    sync.Mutex{},
@@ -118,6 +129,8 @@ func (c *ConnectClient) RunOniOS(
 	networkChangeListener listener.NetworkChangeListener,
 	dnsManager dns.IosDnsManager,
 	stateFilePath string,
+	cacheDir string,
+	logFilePath string,
 ) error {
 	// Set GC percent to 5% to reduce memory usage as iOS only allows 50MB of memory for the extension.
 	debug.SetGCPercent(5)
@@ -127,11 +140,17 @@ func (c *ConnectClient) RunOniOS(
 		NetworkChangeListener: networkChangeListener,
 		DnsManager:            dnsManager,
 		StateFilePath:         stateFilePath,
+		TempDir:               cacheDir,
 	}
-	return c.run(mobileDependency, nil, "")
+	return c.run(mobileDependency, nil, logFilePath)
 }
 
 func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan struct{}, logPath string) error {
+	// Mark the loop as started and signal exit on return so Stop can wait for
+	// the loop to finish (and skip the wait if the loop never ran).
+	c.runStarted.Store(true)
+	defer c.runOnce.Do(func() { close(c.runExited) })
+
 	defer func() {
 		if r := recover(); r != nil {
 			rec := c.statusRecorder
@@ -287,7 +306,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			log.Debug(err)
 			if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.PermissionDenied) {
 				state.Set(StatusNeedsLogin)
-				_ = c.Stop()
+				c.runCancel()
 				return backoff.Permanent(wrapErr(err)) // unrecoverable error
 			}
 			return wrapErr(err)
@@ -407,14 +426,10 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		c.engine = nil
 		c.engineMutex.Unlock()
 
-		// todo: consider to remove this condition. Is not thread safe.
-		// We should always call Stop(), but we need to verify that it is idempotent
-		if engine.wgInterface != nil {
-			log.Infof("ensuring %s is removed, Netbird engine context cancelled", engine.wgInterface.Name())
+		log.Infof("ensuring wg interface is removed, Netbird engine context cancelled")
 
-			if err := engine.Stop(); err != nil {
-				log.Errorf("Failed to stop engine: %v", err)
-			}
+		if err := engine.Stop(); err != nil {
+			log.Errorf("Failed to stop engine: %v", err)
 		}
 		c.statusRecorder.ClientTeardown()
 
@@ -430,12 +445,12 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 	}
 
 	c.statusRecorder.ClientStart()
-	err = backoff.Retry(operation, backOff)
+	err = backoff.Retry(operation, backoff.WithContext(backOff, c.ctx))
 	if err != nil {
 		log.Debugf("exiting client retry loop due to unrecoverable error: %s", err)
 		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.PermissionDenied) {
 			state.Set(StatusNeedsLogin)
-			_ = c.Stop()
+			c.runCancel()
 		}
 		return err
 	}
@@ -513,11 +528,9 @@ func (c *ConnectClient) Status() StatusType {
 }
 
 func (c *ConnectClient) Stop() error {
-	engine := c.Engine()
-	if engine != nil {
-		if err := engine.Stop(); err != nil {
-			return fmt.Errorf("stop engine: %w", err)
-		}
+	c.runCancel()
+	if c.runStarted.Load() {
+		<-c.runExited
 	}
 	return nil
 }

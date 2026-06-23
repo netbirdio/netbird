@@ -55,7 +55,7 @@ func (sm *MockClient) Ready() bool {
 	return sm.ReadyFunc()
 }
 
-func (sm *MockClient) WaitStreamConnected() {
+func (sm *MockClient) WaitStreamConnected(context.Context) {
 	if sm.WaitStreamConnectedFunc == nil {
 		return
 	}
