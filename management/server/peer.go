@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/netbirdio/netbird/util"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
@@ -1477,6 +1478,7 @@ func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID,
 // UpdateAccountPeers updates all peers that belong to an account.
 // Should be called when changes have to be synced to peers.
 func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) {
+	log.WithContext(ctx).Tracef("update account peers for account %s from caller: %s with reason %s/%s", accountID, util.GetCallerName(), reason.Operation, reason.Resource)
 	_ = am.networkMapController.UpdateAccountPeers(ctx, accountID, reason)
 }
 
@@ -1575,6 +1577,7 @@ func (am *DefaultAccountManager) resolveAffectedPeersForPeerChanges(ctx context.
 }
 
 func (am *DefaultAccountManager) BufferUpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) {
+	log.WithContext(ctx).Tracef("buffering update account peers for account %s from caller: %s with reason %s/%s", accountID, util.GetCallerName(), reason.Operation, reason.Resource)
 	_ = am.networkMapController.BufferUpdateAccountPeers(ctx, accountID, reason)
 }
 
