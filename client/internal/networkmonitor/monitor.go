@@ -97,12 +97,7 @@ func (nw *NetworkMonitor) Listen(ctx context.Context) (err error) {
 		case <-event:
 			timer.Reset(debounceTime)
 		case <-timer.C:
-			// A flapping NIC may return to the same default route after the
-			// debounce window; only restart if the next hop actually changed.
-			if nexthopChanged(nexthop4, nexthop6) {
-				return nil
-			}
-			log.Debug("Network monitor: default route unchanged after debounce, ignoring")
+			return nil
 		case <-ctx.Done():
 			timer.Stop()
 			return ctx.Err()
@@ -138,29 +133,4 @@ func (nw *NetworkMonitor) checkChanges(ctx context.Context, event chan struct{},
 		default:
 		}
 	}
-}
-
-// nexthopChanged reports whether the current default next hop differs from the
-// given baseline. A lookup error is treated as a change so we fail safe and
-// restart rather than miss a real network change.
-func nexthopChanged(oldv4, oldv6 systemops.Nexthop) bool {
-	newv4, errv4 := systemops.GetNextHop(netip.IPv4Unspecified())
-	newv6, errv6 := systemops.GetNextHop(netip.IPv6Unspecified())
-	if errv4 != nil || errv6 != nil {
-		return true
-	}
-	return !sameNexthop(oldv4, newv4) || !sameNexthop(oldv6, newv6)
-}
-
-func sameNexthop(a, b systemops.Nexthop) bool {
-	if a.IP != b.IP {
-		return false
-	}
-	if (a.Intf == nil) != (b.Intf == nil) {
-		return false
-	}
-	if a.Intf != nil && a.Intf.Index != b.Intf.Index {
-		return false
-	}
-	return true
 }

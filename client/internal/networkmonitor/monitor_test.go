@@ -3,8 +3,6 @@ package networkmonitor
 import (
 	"context"
 	"errors"
-	"net"
-	"net/netip"
 	"testing"
 	"time"
 
@@ -97,33 +95,5 @@ func TestNetworkMonitor_MultiEvent(t *testing.T) {
 	expectedResponseTime := time.Duration(eventsRepeated)*time.Second + debounceTime
 	if time.Since(started) < expectedResponseTime {
 		t.Errorf("unexpected duration: %v", time.Since(started))
-	}
-}
-
-func TestSameNexthop(t *testing.T) {
-	eth0 := &net.Interface{Index: 1, Name: "eth0"}
-	eth1 := &net.Interface{Index: 2, Name: "eth1"}
-	ip1 := netip.MustParseAddr("192.168.1.1")
-	ip2 := netip.MustParseAddr("192.168.2.1")
-
-	tests := []struct {
-		name string
-		a, b systemops.Nexthop
-		want bool
-	}{
-		{"identical", systemops.Nexthop{IP: ip1, Intf: eth0}, systemops.Nexthop{IP: ip1, Intf: eth0}, true},
-		{"same index different pointer", systemops.Nexthop{IP: ip1, Intf: eth0}, systemops.Nexthop{IP: ip1, Intf: &net.Interface{Index: 1, Name: "eth0"}}, true},
-		{"different ip", systemops.Nexthop{IP: ip1, Intf: eth0}, systemops.Nexthop{IP: ip2, Intf: eth0}, false},
-		{"different interface", systemops.Nexthop{IP: ip1, Intf: eth0}, systemops.Nexthop{IP: ip1, Intf: eth1}, false},
-		{"both nil interface", systemops.Nexthop{IP: ip1}, systemops.Nexthop{IP: ip1}, true},
-		{"one nil interface", systemops.Nexthop{IP: ip1, Intf: eth0}, systemops.Nexthop{IP: ip1}, false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := sameNexthop(tt.a, tt.b); got != tt.want {
-				t.Errorf("sameNexthop() = %v, want %v", got, tt.want)
-			}
-		})
 	}
 }
