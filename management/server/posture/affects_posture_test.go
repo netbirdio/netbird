@@ -43,8 +43,8 @@ func TestAffectsPosture_NBVersion(t *testing.T) {
 		{"both below min, no flip", "1.0.0", "1.1.0", false},
 		{"crosses up below->above", "1.1.0", "1.3.0", true},
 		{"crosses down above->below", "1.3.0", "1.1.0", true},
-		{"unparseable old only -> flip", "garbage", "1.3.0", true},
-		{"unparseable both -> no flip", "garbage", "junk", false},
+		{"unparsable old only -> flip", "garbage", "1.3.0", true},
+		{"unparsable both -> no flip", "garbage", "junk", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
