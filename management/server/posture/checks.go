@@ -73,7 +73,7 @@ func AffectsPosture(diff *nbpeer.MetaDiff, checks []*Checks) bool {
 		if c.Checks.GeoLocationCheck != nil && diff.LocationChanged {
 			return true
 		}
-		if c.Checks.PeerNetworkRangeCheck != nil && diff.NetworkAddresses {
+		if c.Checks.PeerNetworkRangeCheck != nil && (diff.NetworkAddresses || diff.LocationChanged) {
 			if diff.LocationChanged {
 				return true
 			}
