@@ -17,7 +17,7 @@ import (
 )
 
 func TestResolver_NewResolver(t *testing.T) {
-	resolver := NewResolver()
+	resolver := NewResolver(context.Background())
 
 	assert.NotNil(t, resolver)
 	assert.NotNil(t, resolver.records)
@@ -49,7 +49,7 @@ func TestResolveCacheTTL(t *testing.T) {
 
 func TestNewResolver_CacheTTLFromEnv(t *testing.T) {
 	t.Setenv(envMgmtCacheTTL, "7s")
-	r := NewResolver()
+	r := NewResolver(context.Background())
 	assert.Equal(t, 7*time.Second, r.cacheTTL, "NewResolver should evaluate cacheTTL once from env")
 }
 
@@ -169,7 +169,7 @@ func TestResolver_PopulateFromConfig(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	resolver := NewResolver()
+	resolver := NewResolver(context.Background())
 
 	// Test with IP address - should return error since IP addresses are rejected
 	mgmtURL, _ := url.Parse("https://127.0.0.1")
@@ -184,7 +184,7 @@ func TestResolver_PopulateFromConfig(t *testing.T) {
 }
 
 func TestResolver_ServeDNS(t *testing.T) {
-	resolver := NewResolver()
+	resolver := NewResolver(context.Background())
 	ctx := context.Background()
 
 	// Add a test domain to the cache - use example.org which is reserved for testing
@@ -284,7 +284,7 @@ func TestResolver_ServeDNS(t *testing.T) {
 }
 
 func TestResolver_GetCachedDomains(t *testing.T) {
-	resolver := NewResolver()
+	resolver := NewResolver(context.Background())
 	ctx := context.Background()
 
 	testDomain, err := domain.FromString("example.org")
@@ -304,7 +304,7 @@ func TestResolver_GetCachedDomains(t *testing.T) {
 }
 
 func TestResolver_ManagementDomainProtection(t *testing.T) {
-	resolver := NewResolver()
+	resolver := NewResolver(context.Background())
 	ctx := context.Background()
 
 	mgmtURL, _ := url.Parse("https://example.org")
@@ -325,10 +325,11 @@ func TestResolver_ManagementDomainProtection(t *testing.T) {
 		Relay:  []domain.Domain{"cloudflare.com"},
 	}
 
-	_, err = resolver.UpdateFromServerDomains(ctx, serverDomains)
+	_, err = resolver.UpdateFromServerDomains(ctx, serverDomains, true)
 	if err != nil {
 		t.Logf("Server domains update failed: %v", err)
 	}
+	resolver.waitForPendingResolves(10 * time.Second)
 
 	finalDomains := resolver.GetCachedDomains()
 
@@ -351,7 +352,7 @@ func extractDomainFromURL(u *url.URL) (domain.Domain, error) {
 }
 
 func TestResolver_EmptyUpdateDoesNotRemoveDomains(t *testing.T) {
-	resolver := NewResolver()
+	resolver := NewResolver(context.Background())
 	ctx := context.Background()
 
 	// Set up initial domains using resolvable domains
@@ -362,10 +363,11 @@ func TestResolver_EmptyUpdateDoesNotRemoveDomains(t *testing.T) {
 	}
 
 	// Add initial domains
-	_, err := resolver.UpdateFromServerDomains(ctx, initialDomains)
+	_, err := resolver.UpdateFromServerDomains(ctx, initialDomains, true)
 	if err != nil {
 		t.Skipf("Skipping test due to DNS resolution failure: %v", err)
 	}
+	resolver.waitForPendingResolves(10 * time.Second)
 
 	// Verify domains were added
 	cachedDomains := resolver.GetCachedDomains()
@@ -373,7 +375,7 @@ func TestResolver_EmptyUpdateDoesNotRemoveDomains(t *testing.T) {
 
 	// Update with empty ServerDomains (simulating partial network map update)
 	emptyDomains := dnsconfig.ServerDomains{}
-	removedDomains, err := resolver.UpdateFromServerDomains(ctx, emptyDomains)
+	removedDomains, err := resolver.UpdateFromServerDomains(ctx, emptyDomains, true)
 	assert.NoError(t, err)
 
 	// Verify no domains were removed
@@ -385,7 +387,7 @@ func TestResolver_EmptyUpdateDoesNotRemoveDomains(t *testing.T) {
 }
 
 func TestResolver_PartialUpdateReplacesOnlyUpdatedTypes(t *testing.T) {
-	resolver := NewResolver()
+	resolver := NewResolver(context.Background())
 	ctx := context.Background()
 
 	// Set up initial complete domains using resolvable domains
@@ -396,20 +398,22 @@ func TestResolver_PartialUpdateReplacesOnlyUpdatedTypes(t *testing.T) {
 	}
 
 	// Add initial domains
-	_, err := resolver.UpdateFromServerDomains(ctx, initialDomains)
+	_, err := resolver.UpdateFromServerDomains(ctx, initialDomains, true)
 	if err != nil {
 		t.Skipf("Skipping test due to DNS resolution failure: %v", err)
 	}
+	resolver.waitForPendingResolves(10 * time.Second)
 	assert.Len(t, resolver.GetCachedDomains(), 3)
 
 	// Update with partial ServerDomains (only signal domain - this should replace signal but preserve stun/turn)
 	partialDomains := dnsconfig.ServerDomains{
 		Signal: "github.com",
 	}
-	removedDomains, err := resolver.UpdateFromServerDomains(ctx, partialDomains)
+	removedDomains, err := resolver.UpdateFromServerDomains(ctx, partialDomains, true)
 	if err != nil {
 		t.Skipf("Skipping test due to DNS resolution failure: %v", err)
 	}
+	resolver.waitForPendingResolves(10 * time.Second)
 
 	// Should remove only the old signal domain
 	assert.Len(t, removedDomains, 1, "Should remove only the old signal domain")
@@ -429,7 +433,7 @@ func TestResolver_PartialUpdateReplacesOnlyUpdatedTypes(t *testing.T) {
 }
 
 func TestResolver_PartialUpdateAddsNewTypePreservesExisting(t *testing.T) {
-	resolver := NewResolver()
+	resolver := NewResolver(context.Background())
 	ctx := context.Background()
 
 	// Set up initial complete domains using resolvable domains
@@ -440,10 +444,11 @@ func TestResolver_PartialUpdateAddsNewTypePreservesExisting(t *testing.T) {
 	}
 
 	// Add initial domains
-	_, err := resolver.UpdateFromServerDomains(ctx, initialDomains)
+	_, err := resolver.UpdateFromServerDomains(ctx, initialDomains, true)
 	if err != nil {
 		t.Skipf("Skipping test due to DNS resolution failure: %v", err)
 	}
+	resolver.waitForPendingResolves(10 * time.Second)
 	assert.Len(t, resolver.GetCachedDomains(), 3)
 
 	// Update with partial ServerDomains (only flow domain - flow is intentionally excluded from
@@ -451,10 +456,11 @@ func TestResolver_PartialUpdateAddsNewTypePreservesExisting(t *testing.T) {
 	partialDomains := dnsconfig.ServerDomains{
 		Flow: "github.com",
 	}
-	removedDomains, err := resolver.UpdateFromServerDomains(ctx, partialDomains)
+	removedDomains, err := resolver.UpdateFromServerDomains(ctx, partialDomains, true)
 	if err != nil {
 		t.Skipf("Skipping test due to DNS resolution failure: %v", err)
 	}
+	resolver.waitForPendingResolves(10 * time.Second)
 
 	assert.Len(t, removedDomains, 0, "Should not remove any domains when only flow domain is provided")
 

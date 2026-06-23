@@ -130,7 +130,7 @@ func TestResolver_CacheTTLGatesRefresh(t *testing.T) {
 	q := dns.Question{Name: "mgmt.example.com.", Qtype: dns.TypeA, Qclass: dns.ClassINET}
 
 	t.Run("short TTL treats entry as stale and refreshes", func(t *testing.T) {
-		r := NewResolver()
+		r := NewResolver(context.Background())
 		r.cacheTTL = 10 * time.Millisecond
 		chain := newFakeChain()
 		chain.setAnswer(q.Name, dns.TypeA, "10.0.0.2")
@@ -146,7 +146,7 @@ func TestResolver_CacheTTLGatesRefresh(t *testing.T) {
 	})
 
 	t.Run("long TTL keeps entry fresh and skips refresh", func(t *testing.T) {
-		r := NewResolver()
+		r := NewResolver(context.Background())
 		r.cacheTTL = time.Hour
 		chain := newFakeChain()
 		chain.setAnswer(q.Name, dns.TypeA, "10.0.0.2")
@@ -162,7 +162,7 @@ func TestResolver_CacheTTLGatesRefresh(t *testing.T) {
 }
 
 func TestResolver_ServeFresh_NoRefresh(t *testing.T) {
-	r := NewResolver()
+	r := NewResolver(context.Background())
 	chain := newFakeChain()
 	chain.setAnswer("mgmt.example.com.", dns.TypeA, "10.0.0.2")
 	r.SetChainResolver(chain, 50)
@@ -183,7 +183,7 @@ func TestResolver_ServeFresh_NoRefresh(t *testing.T) {
 }
 
 func TestResolver_StaleTriggersAsyncRefresh(t *testing.T) {
-	r := NewResolver()
+	r := NewResolver(context.Background())
 	chain := newFakeChain()
 	chain.setAnswer("mgmt.example.com.", dns.TypeA, "10.0.0.2")
 	r.SetChainResolver(chain, 50)
@@ -213,7 +213,7 @@ func TestResolver_StaleTriggersAsyncRefresh(t *testing.T) {
 }
 
 func TestResolver_ConcurrentStaleHitsCollapseRefresh(t *testing.T) {
-	r := NewResolver()
+	r := NewResolver(context.Background())
 	chain := newFakeChain()
 	chain.setAnswer("mgmt.example.com.", dns.TypeA, "10.0.0.2")
 
@@ -262,7 +262,7 @@ func TestResolver_ConcurrentStaleHitsCollapseRefresh(t *testing.T) {
 }
 
 func TestResolver_RefreshFailureArmsBackoff(t *testing.T) {
-	r := NewResolver()
+	r := NewResolver(context.Background())
 	chain := newFakeChain()
 	chain.err = errors.New("boom")
 	r.SetChainResolver(chain, 50)
@@ -299,7 +299,7 @@ func TestResolver_RefreshFailureArmsBackoff(t *testing.T) {
 }
 
 func TestResolver_NoRootHandler_SkipsChain(t *testing.T) {
-	r := NewResolver()
+	r := NewResolver(context.Background())
 	chain := newFakeChain()
 	chain.hasRoot = false
 	chain.setAnswer("mgmt.example.com.", dns.TypeA, "10.0.0.2")
@@ -320,7 +320,7 @@ func TestResolver_ServeDuringRefreshSetsLoopFlag(t *testing.T) {
 	// ServeDNS being invoked for a question while a refresh for that question
 	// is inflight indicates a resolver loop (OS resolver sent the recursive
 	// query back to us). The inflightRefresh.loopLoggedOnce flag must be set.
-	r := NewResolver()
+	r := NewResolver(context.Background())
 
 	q := dns.Question{Name: "mgmt.example.com.", Qtype: dns.TypeA, Qclass: dns.ClassINET}
 	r.records[q] = &cachedRecord{
@@ -346,7 +346,7 @@ func TestResolver_ServeDuringRefreshSetsLoopFlag(t *testing.T) {
 }
 
 func TestResolver_LoopFlagOnlyTrippedOncePerRefresh(t *testing.T) {
-	r := NewResolver()
+	r := NewResolver(context.Background())
 
 	q := dns.Question{Name: "mgmt.example.com.", Qtype: dns.TypeA, Qclass: dns.ClassINET}
 	r.records[q] = &cachedRecord{
@@ -373,7 +373,7 @@ func TestResolver_LoopFlagOnlyTrippedOncePerRefresh(t *testing.T) {
 }
 
 func TestResolver_NoLoopFlagWhenNotRefreshing(t *testing.T) {
-	r := NewResolver()
+	r := NewResolver(context.Background())
 
 	q := dns.Question{Name: "mgmt.example.com.", Qtype: dns.TypeA, Qclass: dns.ClassINET}
 	r.records[q] = &cachedRecord{
@@ -393,7 +393,7 @@ func TestResolver_NoLoopFlagWhenNotRefreshing(t *testing.T) {
 }
 
 func TestResolver_AddDomain_UsesChainWhenRootRegistered(t *testing.T) {
-	r := NewResolver()
+	r := NewResolver(context.Background())
 	chain := newFakeChain()
 	chain.setAnswer("mgmt.example.com.", dns.TypeA, "10.0.0.2")
 	chain.setAnswer("mgmt.example.com.", dns.TypeAAAA, "fd00::2")

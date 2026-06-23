@@ -50,17 +50,31 @@ type cachedRecord struct {
 	consecFailures    int
 }
 
+// pendingEntry marks a domain whose initial resolve is in flight, so ServeDNS
+// can wait on it instead of falling through to upstream.
+type pendingEntry struct{}
+
 // Resolver caches critical NetBird infrastructure domains.
-// records, refreshing, mgmtDomain and serverDomains are all guarded by mutex.
+// records, refreshing, pending, mgmtDomain and serverDomains are all guarded by mutex.
 type Resolver struct {
+	// ctx is the server-lifetime context for background resolves.
+	ctx context.Context
+
 	records       map[dns.Question]*cachedRecord
 	mgmtDomain    *domain.Domain
 	serverDomains *dnsconfig.ServerDomains
 	mutex         sync.RWMutex
 
+	// pending holds domains whose initial resolve is in flight, keyed by
+	// punycode FQDN (trailing dot).
+	pending map[string]pendingEntry
+
 	chain            ChainResolver
 	chainMaxPriority int
 	refreshGroup     singleflight.Group
+	// resolveGroup dedups initial (cold-cache) resolves; kept separate from
+	// refreshGroup so initial and stale-refresh flights don't collapse.
+	resolveGroup singleflight.Group
 
 	// refreshing tracks questions whose refresh is running via the OS
 	// fallback path. A ServeDNS hit for a question in this map indicates
@@ -74,10 +88,12 @@ type Resolver struct {
 }
 
 // NewResolver creates a new management domains cache resolver.
-func NewResolver() *Resolver {
+func NewResolver(ctx context.Context) *Resolver {
 	return &Resolver{
+		ctx:        ctx,
 		records:    make(map[dns.Question]*cachedRecord),
 		refreshing: make(map[dns.Question]*atomic.Bool),
+		pending:    make(map[string]pendingEntry),
 		cacheTTL:   resolveCacheTTL(),
 	}
 }
@@ -117,6 +133,7 @@ func (m *Resolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	m.mutex.RLock()
 	cached, found := m.records[question]
 	inflight := m.refreshing[question]
+	_, isPending := m.pending[question.Name]
 	var shouldRefresh bool
 	if found {
 		stale := time.Since(cached.cachedAt) > m.cacheTTL
@@ -126,8 +143,17 @@ func (m *Resolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	m.mutex.RUnlock()
 
 	if !found {
-		m.continueToNext(w, r)
-		return
+		// Registered but not resolved yet: wait on the in-flight resolve
+		// rather than falling through to (possibly dead) upstream.
+		if isPending && m.awaitPendingResolve(question.Name) {
+			m.mutex.RLock()
+			cached, found = m.records[question]
+			m.mutex.RUnlock()
+		}
+		if !found {
+			m.continueToNext(w, r)
+			return
+		}
 	}
 
 	if inflight != nil && inflight.CompareAndSwap(false, true) {
@@ -467,6 +493,13 @@ func (m *Resolver) RemoveDomain(d domain.Domain) error {
 	return nil
 }
 
+// RequestedDomains returns the cacheable infrastructure domains (signal, relay,
+// STUN, TURN; flow excluded) so the cache handler can be registered for them
+// before resolution completes.
+func (m *Resolver) RequestedDomains(serverDomains dnsconfig.ServerDomains) domain.List {
+	return m.extractDomainsFromServerDomains(serverDomains)
+}
+
 // GetCachedDomains returns a list of all cached domains.
 func (m *Resolver) GetCachedDomains() domain.List {
 	m.mutex.RLock()
@@ -486,10 +519,12 @@ func (m *Resolver) GetCachedDomains() domain.List {
 	return domains
 }
 
-// UpdateFromServerDomains updates the cache with server domains from network configuration.
-// It merges new domains with existing ones, replacing entire domain types when updated.
-// Empty updates are ignored to prevent clearing infrastructure domains during partial updates.
-func (m *Resolver) UpdateFromServerDomains(ctx context.Context, serverDomains dnsconfig.ServerDomains) (domain.List, error) {
+// UpdateFromServerDomains merges server domains into the cache and resolves
+// them. New types replace whole types; empty updates are ignored. Resolution is
+// async (off the caller's sync lock) except for cold domains when dnsWillBeServed
+// and takeover is pending, which kickoffResolve primes synchronously. ctx is the
+// server lifetime, so a fast sync won't cancel resolves but Stop will.
+func (m *Resolver) UpdateFromServerDomains(ctx context.Context, serverDomains dnsconfig.ServerDomains, dnsWillBeServed bool) (domain.List, error) {
 	newDomains := m.extractDomainsFromServerDomains(serverDomains)
 	var removedDomains domain.List
 
@@ -507,9 +542,134 @@ func (m *Resolver) UpdateFromServerDomains(ctx context.Context, serverDomains dn
 		removedDomains = m.removeStaleDomains(currentDomains, allDomains)
 	}
 
-	m.addNewDomains(ctx, newDomains)
+	m.kickoffResolve(ctx, newDomains, dnsWillBeServed)
 
 	return removedDomains, nil
+}
+
+// kickoffResolve resolves each unresolved domain, skipping fresh/in-flight ones.
+// Cold domains resolve synchronously only before takeover (no upstream root
+// handler) and when dnsWillBeServed, to prime the cache via the working OS
+// resolver before OS DNS routes through the tunnel; otherwise async.
+func (m *Resolver) kickoffResolve(ctx context.Context, domains domain.List, dnsWillBeServed bool) {
+	m.mutex.RLock()
+	chain := m.chain
+	maxPriority := m.chainMaxPriority
+	m.mutex.RUnlock()
+	preTakeover := chain == nil || !chain.HasRootHandlerAtOrBelow(maxPriority)
+
+	for _, d := range domains {
+		dnsName := strings.ToLower(dns.Fqdn(d.PunycodeString()))
+
+		m.mutex.Lock()
+		_, hasPending := m.pending[dnsName]
+		fresh := m.hasFreshRecordLocked(dnsName)
+		cold := !m.hasAnyRecordLocked(dnsName)
+		if !hasPending && !fresh {
+			m.pending[dnsName] = pendingEntry{}
+		}
+		m.mutex.Unlock()
+
+		if hasPending || fresh {
+			continue
+		}
+
+		if cold && preTakeover && dnsWillBeServed {
+			m.resolveInitial(ctx, d, dnsName)
+			continue
+		}
+
+		m.scheduleInitialResolve(ctx, d, dnsName)
+	}
+}
+
+// resolveInitial resolves a cold domain synchronously, deduped via resolveGroup
+// so a concurrent ServeDNS await joins the same flight. Clears pending when done.
+func (m *Resolver) resolveInitial(ctx context.Context, d domain.Domain, dnsName string) {
+	key := "initial|" + dnsName
+	_, _, _ = m.resolveGroup.Do(key, func() (any, error) {
+		defer m.clearPending(dnsName)
+		if err := m.AddDomain(ctx, d); err != nil {
+			log.Warnf("initial resolve mgmt domain=%s: %v", d.SafeString(), err)
+			return struct{}{}, err
+		}
+		log.Debugf("added/updated management cache domain=%s", d.SafeString())
+		return struct{}{}, nil
+	})
+}
+
+// scheduleInitialResolve runs AddDomain in the background, deduped per domain
+// by resolveGroup, clearing the pending marker when it finishes. ctx is the
+// server-lifetime context so a Stop cancels in-flight resolves.
+func (m *Resolver) scheduleInitialResolve(ctx context.Context, d domain.Domain, dnsName string) {
+	key := "initial|" + dnsName
+	_ = m.resolveGroup.DoChan(key, func() (any, error) {
+		defer m.clearPending(dnsName)
+		if err := m.AddDomain(ctx, d); err != nil {
+			log.Warnf("failed to add/update domain=%s: %v", d.SafeString(), err)
+			return struct{}{}, err
+		}
+		log.Debugf("added/updated management cache domain=%s", d.SafeString())
+		return struct{}{}, nil
+	})
+}
+
+// hasFreshRecordLocked reports whether a non-stale A or AAAA record exists for
+// the name. Caller holds m.mutex.
+func (m *Resolver) hasFreshRecordLocked(dnsName string) bool {
+	for _, qtype := range []uint16{dns.TypeA, dns.TypeAAAA} {
+		q := dns.Question{Name: dnsName, Qtype: qtype, Qclass: dns.ClassINET}
+		if c, ok := m.records[q]; ok && time.Since(c.cachedAt) <= m.cacheTTL {
+			return true
+		}
+	}
+	return false
+}
+
+// hasAnyRecordLocked reports whether any A or AAAA record exists for the name,
+// fresh or stale. Caller holds m.mutex.
+func (m *Resolver) hasAnyRecordLocked(dnsName string) bool {
+	for _, qtype := range []uint16{dns.TypeA, dns.TypeAAAA} {
+		q := dns.Question{Name: dnsName, Qtype: qtype, Qclass: dns.ClassINET}
+		if _, ok := m.records[q]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *Resolver) clearPending(dnsName string) {
+	m.mutex.Lock()
+	delete(m.pending, dnsName)
+	m.mutex.Unlock()
+}
+
+// awaitPendingResolve joins the in-flight resolve for dnsName (bounded by
+// dnsTimeout) and reports whether a record became available.
+func (m *Resolver) awaitPendingResolve(dnsName string) bool {
+	key := "initial|" + dnsName
+	d, err := domain.FromString(strings.TrimSuffix(dnsName, "."))
+	if err != nil {
+		return false
+	}
+
+	ch := m.resolveGroup.DoChan(key, func() (any, error) {
+		defer m.clearPending(dnsName)
+		if err := m.AddDomain(m.ctx, d); err != nil {
+			return struct{}{}, err
+		}
+		return struct{}{}, nil
+	})
+
+	select {
+	case <-ch:
+	case <-time.After(dnsTimeout):
+		return false
+	}
+
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+	return m.hasFreshRecordLocked(dnsName)
 }
 
 // removeStaleDomains removes cached domains not present in the target domain list.
@@ -575,17 +735,6 @@ func (m *Resolver) isManagementDomain(domain domain.Domain) bool {
 	defer m.mutex.RUnlock()
 
 	return m.mgmtDomain != nil && domain == *m.mgmtDomain
-}
-
-// addNewDomains resolves and caches all domains from the update
-func (m *Resolver) addNewDomains(ctx context.Context, newDomains domain.List) {
-	for _, newDomain := range newDomains {
-		if err := m.AddDomain(ctx, newDomain); err != nil {
-			log.Warnf("failed to add/update domain=%s: %v", newDomain.SafeString(), err)
-		} else {
-			log.Debugf("added/updated management cache domain=%s", newDomain.SafeString())
-		}
-	}
 }
 
 func (m *Resolver) extractDomainsFromServerDomains(serverDomains dnsconfig.ServerDomains) domain.List {

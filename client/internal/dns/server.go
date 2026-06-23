@@ -282,7 +282,7 @@ func newDefaultServer(
 	handlerChain := NewHandlerChain()
 	ctx, stop := context.WithCancel(ctx)
 
-	mgmtCacheResolver := mgmt.NewResolver()
+	mgmtCacheResolver := mgmt.NewResolver(ctx)
 	mgmtCacheResolver.SetChainResolver(handlerChain, PriorityUpstream)
 
 	defaultServer := &DefaultServer{
@@ -613,7 +613,11 @@ func (s *DefaultServer) UpdateServerConfig(domains dnsconfig.ServerDomains) erro
 	defer s.mux.Unlock()
 
 	if s.mgmtCacheResolver != nil {
-		removedDomains, err := s.mgmtCacheResolver.UpdateFromServerDomains(s.ctx, domains)
+		// Mirrors the Initialize guard: without it NetBird never becomes the
+		// system resolver, so the mgmt cache is never queried and need not be
+		// primed synchronously.
+		dnsWillBeServed := !s.disableSys && !netstack.IsEnabled()
+		removedDomains, err := s.mgmtCacheResolver.UpdateFromServerDomains(s.ctx, domains, dnsWillBeServed)
 		if err != nil {
 			return fmt.Errorf("update management cache resolver: %w", err)
 		}
@@ -622,7 +626,9 @@ func (s *DefaultServer) UpdateServerConfig(domains dnsconfig.ServerDomains) erro
 			s.deregisterHandler(removedDomains.ToPunycodeList(), PriorityMgmtCache)
 		}
 
-		newDomains := s.mgmtCacheResolver.GetCachedDomains()
+		// Register for the requested domains, not just resolved ones: resolution
+		// now runs in the background, so the cache may still be empty here.
+		newDomains := s.mgmtCacheResolver.RequestedDomains(domains)
 		if len(newDomains) > 0 {
 			s.registerHandler(newDomains.ToPunycodeList(), s.mgmtCacheResolver, PriorityMgmtCache)
 		}
