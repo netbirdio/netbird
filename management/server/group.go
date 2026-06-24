@@ -520,7 +520,12 @@ func collectDeletableGroups(ctx context.Context, transaction store.Store, accoun
 // GroupAddPeer appends peer to the group
 func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, groupID, peerID string) error {
 	var snap *affectedpeers.Snapshot
-	change := affectedpeers.Change{ChangedGroupIDs: []string{groupID}}
+	// A membership change affects only the peer itself and the opposite side of THIS
+	// group's policies — not the group's other members, and not the peer's other
+	// groups. LinkGroups walks only this group (matched, not expanded); OutputPeerIDs
+	// refreshes the peer without seeding its other group memberships. For an
+	// intra-group policy the opposite side is the group, so its members still refresh.
+	change := affectedpeers.Change{OutputPeerIDs: []string{peerID}, LinkGroups: []string{groupID}}
 
 	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		if err := transaction.AddPeerToGroup(ctx, accountID, peerID, groupID); err != nil {
@@ -586,10 +591,11 @@ func (am *DefaultAccountManager) GroupAddResource(ctx context.Context, accountID
 // GroupDeletePeer removes peer from the group
 func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID, groupID, peerID string) error {
 	var snap *affectedpeers.Snapshot
-	change := affectedpeers.Change{
-		ChangedGroupIDs:     []string{groupID},
-		RemovedPeersByGroup: map[string][]string{groupID: {peerID}},
-	}
+	// Same as GroupAddPeer: the removed peer and the opposite side of THIS group's
+	// policies refresh, not the group's other members or the peer's other groups. The
+	// peer is no longer in the group's index, but LinkGroups still drives the
+	// opposite-side walk, and OutputPeerIDs refreshes the removed peer itself.
+	change := affectedpeers.Change{OutputPeerIDs: []string{peerID}, LinkGroups: []string{groupID}}
 
 	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		if err := transaction.RemovePeerFromGroup(ctx, peerID, groupID); err != nil {
@@ -600,8 +606,6 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 			return err
 		}
 
-		// The removed peer is carried in change.RemovedPeersByGroup and folded in
-		// only when the group is linked, so loading post-removal is correct.
 		var err error
 		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
 			return err

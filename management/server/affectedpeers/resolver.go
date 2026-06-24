@@ -61,7 +61,8 @@ func Load(ctx context.Context, s store.Store, accountID string, c Change) (*Snap
 // loadCollections reads the policy/route/nameserver/dns/router/resource/proxy
 // collections a Change can touch, gated to what the walk needs.
 func (snap *Snapshot) loadCollections(ctx context.Context, s store.Store, accountID string, c Change) error {
-	hasGroupOrPeerChange := len(c.ChangedGroupIDs) > 0 || len(c.ChangedPeerIDs) > 0 || len(c.Resources) > 0
+	// LinkGroups drive the same policy/route/dns walk as a changed group or peer.
+	hasGroupOrPeerChange := len(c.ChangedGroupIDs) > 0 || len(c.ChangedPeerIDs) > 0 || len(c.LinkGroups) > 0 || len(c.Resources) > 0
 	hasNetworkObject := len(c.Routers) > 0 || len(c.Resources) > 0 || len(c.Networks) > 0
 	// the resource<->router bridge can fire for any of these
 	needsRoutersResources := hasGroupOrPeerChange || len(c.PostureCheckIDs) > 0 || len(c.Policies) > 0 || hasNetworkObject
@@ -76,7 +77,7 @@ func (snap *Snapshot) loadCollections(ctx context.Context, s store.Store, accoun
 			return err
 		}
 	}
-	if len(c.ChangedGroupIDs) > 0 || len(c.ChangedPeerIDs) > 0 {
+	if len(c.ChangedGroupIDs) > 0 || len(c.ChangedPeerIDs) > 0 || len(c.LinkGroups) > 0 {
 		if err := snap.loadDNS(ctx, s, accountID); err != nil {
 			return err
 		}
@@ -174,6 +175,24 @@ type Change struct {
 	// folded in — but only when the group is linked (an unlinked group has no map
 	// impact), matching how current members are handled.
 	RemovedPeersByGroup map[string][]string
+
+	// OutputPeerIDs are peers folded straight into the result without seeding their
+	// group memberships into the walk. Use for the peer whose group membership changed:
+	// the peer itself must refresh, but its OTHER groups did not change, so they must
+	// not be walked. Contrast ChangedPeerIDs, which seeds ALL of the peer's groups
+	// (correct when the peer's own attributes changed, e.g. IP/status).
+	OutputPeerIDs []string
+
+	// LinkGroups are groups used ONLY to match policies/routes/routers and walk to the
+	// OPPOSITE side — they are never expanded to their own members. Use this when a
+	// peer's group membership changed: pass the peer in ChangedPeerIDs and its
+	// group(s) here. The opposite side of the policies the group participates in
+	// refreshes, but the group's other members (siblings) do not — nothing changed for
+	// them. For an intra-group policy (A→A) the opposite side IS the group, so its
+	// members still refresh via the opposite-side fold, exactly when they genuinely
+	// gain/lose the changed peer. Unlike ChangedGroupIDs, a LinkGroup is not added to
+	// the output, so a one-sided membership change never wakes the whole group.
+	LinkGroups []string
 }
 
 func (c Change) isEmpty() bool {
@@ -186,7 +205,9 @@ func (c Change) isEmpty() bool {
 		len(c.Networks) == 0 &&
 		len(c.PostureCheckIDs) == 0 &&
 		len(c.DistributionGroupIDs) == 0 &&
-		len(c.RemovedPeersByGroup) == 0
+		len(c.RemovedPeersByGroup) == 0 &&
+		len(c.LinkGroups) == 0 &&
+		len(c.OutputPeerIDs) == 0
 }
 
 // Expand returns the deduplicated affected peer IDs from the preloaded Snapshot,
@@ -197,8 +218,8 @@ func (snap *Snapshot) Expand(ctx context.Context, accountID string, c Change) []
 		return nil
 	}
 	r := newResolver(ctx, snap, accountID, c)
-	log.WithContext(ctx).Tracef("affectedpeers expand start: account=%s changedGroups=%v changedPeers=%v policies=%d routes=%d routers=%d resources=%d networks=%d postureChecks=%v distributionGroups=%v",
-		accountID, c.ChangedGroupIDs, c.ChangedPeerIDs, len(c.Policies), len(c.Routes), len(c.Routers), len(c.Resources), len(c.Networks), c.PostureCheckIDs, c.DistributionGroupIDs)
+	log.WithContext(ctx).Tracef("affectedpeers expand start: account=%s changedGroups=%v changedPeers=%v linkGroups=%v policies=%d routes=%d routers=%d resources=%d networks=%d postureChecks=%v distributionGroups=%v",
+		accountID, c.ChangedGroupIDs, c.ChangedPeerIDs, c.LinkGroups, len(c.Policies), len(c.Routes), len(c.Routers), len(c.Resources), len(c.Networks), c.PostureCheckIDs, c.DistributionGroupIDs)
 	r.walk()
 	return r.expand()
 }
@@ -231,6 +252,9 @@ func newResolver(ctx context.Context, snap *Snapshot, accountID string, c Change
 		affectedGroups: make(map[string]struct{}),
 		affectedPeers:  make(map[string]struct{}),
 	}
+	// LinkGroups match policies/routes to find the opposite side but are NOT output:
+	// they go into linkGroups only, never outputGroups, so their members never fold in.
+	addAll(r.linkGroups, c.LinkGroups)
 	// Resolve each changed peer to its groups here so callers pass only ChangedPeerIDs.
 	r.seedChangedGroupsFromPeers()
 	return r
@@ -303,6 +327,15 @@ func (r *resolver) walk() {
 	r.collectFromChangedRouters(r.change.Routers)
 	r.collectFromChangedResources(r.change.Resources)
 	r.collectFromChangedNetworks(r.change.Networks)
+
+	// The explicitly changed peers always refresh their own maps. OnPeersUpdated only
+	// refreshes the resolver's output (it ignores the separately-passed changed peers),
+	// so the changed peer reaches its own new map only via here. An offline/deleted
+	// peer in the set is filtered downstream (filterConnectedAffectedPeers).
+	addAll(r.affectedPeers, setToSlice(r.changedPeers))
+	// OutputPeerIDs refresh themselves too, but unlike changedPeers their group
+	// memberships were not seeded into the walk (only the changed group was).
+	addAll(r.affectedPeers, r.change.OutputPeerIDs)
 
 	// Distribution groups (nameserver/DNS) affect only their member peers: fold them
 	// straight into affectedGroups so expand() maps them to members, without the
@@ -488,16 +521,14 @@ func (r *resolver) foldRuleSideIfChanged(policy *types.Policy, rule *types.Polic
 	// Opposite side, fully down to peers (a destination opposite also folds routers).
 	r.foldPolicySideForRule(policy, rule, side.opposite())
 
-	// Own side: the changed group's members (only if the group itself changed), and
-	// the changed direct peer / changed peers in a matched group — never siblings.
+	// Own side: fold the whole changed group's members only when the group itself
+	// changed (outputGroups). A peer-seeded or link-only group is not folded here —
+	// its siblings never refresh. The changed peers themselves are folded once, after
+	// the walk (see walk()).
 	for _, gID := range nearGroups {
 		if _, ok := r.outputGroups[gID]; ok {
 			r.affectedGroups[gID] = struct{}{}
 		}
-		r.foldChangedPeersInGroup(gID)
-	}
-	if matchedByPeer {
-		r.affectedPeers[nearResource.ID] = struct{}{}
 	}
 
 	// When the changed side IS a destination, the resources it targets are reached
@@ -518,20 +549,6 @@ func (r *resolver) foldPolicySideForRule(policy *types.Policy, rule *types.Polic
 	}
 	if side == sideDestination {
 		r.foldRoutersForResources(r.ruleDestinationResourceIDs(rule))
-	}
-}
-
-// foldChangedPeersInGroup folds changed peers that belong to groupID directly into
-// affectedPeers (the peer only, never its co-members).
-func (r *resolver) foldChangedPeersInGroup(groupID string) {
-	if len(r.changedPeers) == 0 {
-		return
-	}
-	members := r.snap.groupPeers[groupID]
-	for pID := range r.changedPeers {
-		if _, ok := members[pID]; ok {
-			r.affectedPeers[pID] = struct{}{}
-		}
 	}
 }
 

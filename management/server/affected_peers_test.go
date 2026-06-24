@@ -490,8 +490,9 @@ func TestResolveAffectedPeers_PolicyBetweenTwoGroups(t *testing.T) {
 	result = manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[1]})
 	assert.ElementsMatch(t, []string{peerIDs[0], peerIDs[1]}, result)
 
+	// peerIDs[2] is unrelated to the route; only its own map can change.
 	result = manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[2]})
-	assert.Empty(t, result)
+	assert.ElementsMatch(t, []string{peerIDs[2]}, result)
 }
 
 func TestResolveAffectedPeers_PolicyThreeGroups(t *testing.T) {
@@ -544,8 +545,9 @@ func TestResolveAffectedPeers_RoutePeerGroups(t *testing.T) {
 	result = manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[1]})
 	assert.ElementsMatch(t, []string{peerIDs[0], peerIDs[1]}, result)
 
+	// peerIDs[2] is in no policy; only its own map can change, so it refreshes itself.
 	result = manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[2]})
-	assert.Empty(t, result)
+	assert.ElementsMatch(t, []string{peerIDs[2]}, result)
 }
 
 func TestResolveAffectedPeers_RouteWithDirectPeer(t *testing.T) {
@@ -602,9 +604,9 @@ func TestResolveAffectedPeers_RouteWithAccessControlGroups(t *testing.T) {
 	result := manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[2]})
 	assert.ElementsMatch(t, []string{peerIDs[0], peerIDs[1], peerIDs[2]}, result)
 
-	// peer3 is unrelated
+	// peer3 is unrelated to the route; only its own map can change.
 	result = manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[3]})
-	assert.Empty(t, result)
+	assert.ElementsMatch(t, []string{peerIDs[3]}, result)
 }
 
 func TestResolveAffectedPeers_NetworkRouter(t *testing.T) {
@@ -896,8 +898,9 @@ func TestAffectedPeers_IsolatedPolicies(t *testing.T) {
 	assert.NotContains(t, result, peerIDs[0])
 	assert.NotContains(t, result, peerIDs[1])
 
+	// peerIDs[4] is in neither isolated policy; only its own map can change.
 	result = manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[4]})
-	assert.Empty(t, result)
+	assert.ElementsMatch(t, []string{peerIDs[4]}, result)
 }
 
 func TestAffectedPeers_IsolatedRouteAndPolicy(t *testing.T) {
@@ -1019,12 +1022,13 @@ func TestAffectedPeers_GroupUpdateOnlyAffectsLinkedPeers(t *testing.T) {
 	})
 }
 
-func TestAffectedPeers_UnlinkedGroupChange_NoUpdates(t *testing.T) {
+// A peer in no policy/route refreshes only itself — no other peer is affected.
+func TestAffectedPeers_UnlinkedPeerChange_RefreshesSelfOnly(t *testing.T) {
 	manager, s, accountID, peerIDs, _ := setupAffectedPeersTest(t)
 	ctx := context.Background()
 
 	result := manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[0]})
-	assert.Empty(t, result)
+	assert.ElementsMatch(t, []string{peerIDs[0]}, result)
 }
 
 // TestAffectedPeers_PolicyChange_UnrelatedPeerNoUpdate verifies that creating/deleting a
