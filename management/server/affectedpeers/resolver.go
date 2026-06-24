@@ -449,20 +449,22 @@ func (r *resolver) collectFromPolicies() {
 	for _, policy := range r.policies() {
 		// changed peer IDs have been mapped to changedGroupSet on resolver creation (see seedChangedGroupsFromPeers)
 		// there's no change to the groupSet if the same policies have been changed directly
-		peerIds, groupIds := getGroupsAndPeersFromPolicyViaGroups(policy, r.changedGroupSet)
-		addAll(r.groupSet, groupIds)
-		addAll(r.peerSet, peerIds)
+		peerIdsViaGroups, groupIdsViaGroups := getGroupsAndPeersFromPolicyViaGroups(policy, r.changedGroupSet)
+		addAll(r.groupSet, groupIdsViaGroups)
+		addAll(r.peerSet, peerIdsViaGroups)
 
-		peerIds, groupIds = getGroupsAndPeersFromPolicyViaPeers(policy, r.changedPeerSet)
-		addAll(r.groupSet, groupIds)
-		addAll(r.peerSet, peerIds)
+		peerIdsViaPeers, groupIdsViaPeers := getGroupsAndPeersFromPolicyViaPeers(policy, r.changedPeerSet)
+		addAll(r.groupSet, groupIdsViaPeers)
+		addAll(r.peerSet, peerIdsViaPeers)
 
-		if len(groupIds) == 0 && len(peerIds) == 0 {
+		hasGroupChanges := len(groupIdsViaPeers) > 0 || len(groupIdsViaGroups) > 0
+		hasPeerChanges := len(peerIdsViaPeers) > 0 || len(peerIdsViaGroups) > 0
+		if !hasGroupChanges && !hasPeerChanges {
 			continue
 		}
 
 		log.WithContext(r.ctx).Tracef("collectFromPolicies: policy %s (%s) matched (byGroup=%t byPeer=%t) -> folding rule groups %v + direct peers",
-			policy.ID, policy.Name, len(groupIds) > 0, len(peerIds) > 0, policy.RuleGroups())
+			policy.ID, policy.Name, hasGroupChanges, hasPeerChanges, policy.RuleGroups())
 		r.matchedPolicies = append(r.matchedPolicies, policy)
 	}
 }
