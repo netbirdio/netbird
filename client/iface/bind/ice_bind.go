@@ -41,6 +41,7 @@ type ICEBind struct {
 	*wgConn.StdNetBind
 
 	transportNet transport.Net
+	filterFn     udpmux.FilterFn
 	address      wgaddr.Address
 	mtu          uint16
 
@@ -60,11 +61,12 @@ type ICEBind struct {
 	ipv6Conn *net.UDPConn
 }
 
-func NewICEBind(transportNet transport.Net, address wgaddr.Address, mtu uint16) *ICEBind {
+func NewICEBind(transportNet transport.Net, filterFn udpmux.FilterFn, address wgaddr.Address, mtu uint16) *ICEBind {
 	b, _ := wgConn.NewStdNetBind().(*wgConn.StdNetBind)
 	ib := &ICEBind{
 		StdNetBind:       b,
 		transportNet:     transportNet,
+		filterFn:         filterFn,
 		address:          address,
 		mtu:              mtu,
 		endpoints:        make(map[netip.Addr]net.Conn),
@@ -263,6 +265,7 @@ func (s *ICEBind) createOrUpdateMux() {
 		udpmux.UniversalUDPMuxParams{
 			UDPConn:   muxConn,
 			Net:       s.transportNet,
+			FilterFn:  s.filterFn,
 			WGAddress: s.address,
 			MTU:       s.mtu,
 		},
