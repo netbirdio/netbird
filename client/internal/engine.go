@@ -917,7 +917,7 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	if e.ctx.Err() != nil {
 		return e.ctx.Err()
 	}
-
+	serial := update.GetNetworkMap().GetSerial()
 	if nm := update.GetNetworkMap(); nm != nil {
 		log.Infof("sync update: serial=%d remotePeers=%d offlinePeers=%d routes=%d firewallRules=%d checks=%d configPresent=%v remotePeersEmpty=%v",
 			nm.GetSerial(), len(nm.GetRemotePeers()), len(nm.GetOfflinePeers()), len(nm.GetRoutes()),
@@ -929,10 +929,11 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	if update.NetworkMap != nil && update.NetworkMap.PeerConfig != nil {
 		e.handleAutoUpdateVersion(update.NetworkMap.PeerConfig.AutoUpdate)
 	}
-
+	startTime := time.Now()
 	if err := e.updateNetbirdConfig(update.GetNetbirdConfig()); err != nil {
 		return err
 	}
+	log.Infof("netbird config updated in %s, serial=%d", time.Since(startTime), serial)
 
 	// Posture checks are bound to the network map presence:
 	//   NetworkMap != nil, checks present -> apply the received checks
@@ -943,17 +944,21 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	if nm == nil {
 		return nil
 	}
-
+	startTime = time.Now()
 	if err := e.updateChecksIfNew(update.Checks); err != nil {
 		return err
 	}
+	log.Infof("checks updated in %s, serial=%d", time.Since(startTime), serial)
 
+	startTime = time.Now()
 	e.persistSyncResponse(update)
-
+	log.Infof("sync response persisted in %s, serial=%d", time.Since(startTime), serial)
 	// only apply new changes and ignore old ones
+	startTime = time.Now()
 	if err := e.updateNetworkMap(nm); err != nil {
 		return err
 	}
+	log.Infof("network map updated in %s, serial=%d", time.Since(startTime), serial)
 
 	e.statusRecorder.PublishEvent(cProto.SystemEvent_INFO, cProto.SystemEvent_SYSTEM, "Network map updated", "", nil)
 
@@ -1373,44 +1378,56 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 
 	dnsConfig := toDNSConfig(protoDNSConfig, e.wgInterface.Address())
 
+	startTime := time.Now()
 	if err := e.dnsServer.UpdateDNSServer(serial, dnsConfig); err != nil {
 		log.Errorf("failed to update dns server, err: %v", err)
 	}
+	log.Infof("updated dns server in %v, serial=%d", time.Since(startTime), serial)
 
 	e.routeManager.SetDNSForwarderPort(dnsConfig.ForwarderPort)
 
 	// apply routes first, route related actions might depend on routing being enabled
+	startTime = time.Now()
 	routes := toRoutes(networkMap.GetRoutes())
 	serverRoutes, clientRoutes := e.routeManager.ClassifyRoutes(routes)
-
+	log.Infof("updated routes in %v, serial=%d", time.Since(startTime), serial)
 	// lazy mgr needs to be aware of which routes are available before they are applied
 	if e.connMgr != nil {
 		e.connMgr.UpdateRouteHAMap(clientRoutes)
 		log.Debugf("updated lazy connection manager with %d HA groups", len(clientRoutes))
 	}
 
+	startTime = time.Now()
 	dnsRouteFeatureFlag := toDNSFeatureFlag(networkMap)
 	if err := e.routeManager.UpdateRoutes(serial, serverRoutes, clientRoutes, dnsRouteFeatureFlag); err != nil {
 		log.Errorf("failed to update routes: %v", err)
 	}
+	log.Infof("updated routes in %v, serial=%d", time.Since(startTime), serial)
 
+	startTime = time.Now()
 	if e.acl != nil {
 		e.acl.ApplyFiltering(networkMap, dnsRouteFeatureFlag)
 	}
+	log.Infof("updated filtering in %v, serial=%d", time.Since(startTime), serial)
 
+	startTime = time.Now()
 	fwdEntries := toRouteDomains(e.config.WgPrivateKey.PublicKey().String(), routes)
 	e.updateDNSForwarder(dnsRouteFeatureFlag, fwdEntries)
+	log.Infof("updated DNS forwarder in %v, serial=%d", time.Since(startTime), serial)
 
+	startTime = time.Now()
 	// Ingress forward rules
 	forwardingRules, err := e.updateForwardRules(networkMap.GetForwardingRules())
 	if err != nil {
 		log.Errorf("failed to update forward rules, err: %v", err)
 	}
+	log.Infof("updated forward rules in %v, serial=%d", time.Since(startTime), serial)
 
 	log.Debugf("got peers update from Management Service, total peers to connect to = %d", len(networkMap.GetRemotePeers()))
 
+	startTime = time.Now()
 	e.updateOfflinePeers(networkMap.GetOfflinePeers())
-
+	log.Infof("updated offline peers in %v, serial=%d", time.Since(startTime), serial)
 	// Filter out own peer from the remote peers list
 	localPubKey := e.config.WgPrivateKey.PublicKey().String()
 	remotePeers := make([]*mgmProto.RemotePeerConfig, 0, len(networkMap.GetRemotePeers()))
@@ -1428,20 +1445,24 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 			return err
 		}
 	} else {
+		startTime = time.Now()
 		err := e.removePeers(remotePeers)
 		if err != nil {
 			return err
 		}
-
+		log.Infof("removed peers in %v, serial=%d", time.Since(startTime), serial)
+		startTime = time.Now()
 		err = e.modifyPeers(remotePeers)
 		if err != nil {
 			return err
 		}
-
+		log.Infof("modified peers in %v, serial=%d", time.Since(startTime), serial)
+		startTime = time.Now()
 		err = e.addNewPeers(remotePeers)
 		if err != nil {
 			return err
 		}
+		log.Infof("added peers in %v, serial=%d", time.Since(startTime), serial)
 
 		e.statusRecorder.FinishPeerListModifications()
 
@@ -1454,9 +1475,11 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		e.updateSSHServerAuth(networkMap.GetSshAuth())
 	}
 
+	startTime = time.Now()
 	// must set the exclude list after the peers are added. Without it the manager can not figure out the peers parameters from the store
 	excludedLazyPeers := e.toExcludedLazyPeers(forwardingRules, remotePeers)
 	e.connMgr.SetExcludeList(e.ctx, excludedLazyPeers)
+	log.Infof("updated lazy connection manager exclude list in %v, serial=%d", time.Since(startTime), serial)
 
 	e.networkSerial = serial
 
