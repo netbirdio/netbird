@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/quic-go/quic-go"
+	"github.com/quic-go/quic-go/logging"
 	log "github.com/sirupsen/logrus"
 
 	nbnet "github.com/netbirdio/netbird/client/net"
@@ -21,6 +22,12 @@ type Dialer struct {
 
 func (d Dialer) Protocol() string {
 	return Network
+}
+
+// DatagramSized marks QUIC as a datagram-sized transport: relay traffic is
+// carried in QUIC DATAGRAM frames, which must fit a single packet.
+func (d Dialer) DatagramSized() {
+	// Intentional marker method; presence is the capability signal.
 }
 
 func (d Dialer) Dial(ctx context.Context, address, serverName string) (net.Conn, error) {
@@ -47,18 +54,17 @@ func (d Dialer) Dial(ctx context.Context, address, serverName string) (net.Conn,
 		MaxIdleTimeout:    4 * time.Minute,
 		EnableDatagrams:   true,
 		InitialPacketSize: nbRelay.QUICInitialPacketSize,
+		Tracer:            connectionTracer(quicURL),
 	}
 
 	udpConn, err := nbnet.ListenUDP("udp", &net.UDPAddr{Port: 0})
 	if err != nil {
-		log.Errorf("failed to listen on UDP: %s", err)
-		return nil, err
+		return nil, fmt.Errorf("listen udp: %w", err)
 	}
 
 	udpAddr, err := net.ResolveUDPAddr("udp", quicURL)
 	if err != nil {
-		log.Errorf("failed to resolve UDP address: %s", err)
-		return nil, err
+		return nil, fmt.Errorf("resolve %s: %w", quicURL, err)
 	}
 
 	session, err := quic.Dial(ctx, udpConn, udpAddr, tlsClientConfig, quicConfig)
@@ -66,12 +72,34 @@ func (d Dialer) Dial(ctx context.Context, address, serverName string) (net.Conn,
 		if errors.Is(err, context.Canceled) {
 			return nil, err
 		}
-		log.Errorf("failed to dial to Relay server via QUIC '%s': %s", quicURL, err)
+		log.Debugf("failed to dial to Relay server via QUIC '%s': %s", quicURL, err)
 		return nil, err
 	}
 
 	conn := NewConn(session)
 	return conn, nil
+}
+
+// connectionTracer returns a QUIC tracer that logs the DPLPMTUD result and the
+// reason a relay connection closed, so the path MTU settled on and teardown
+// cause are visible in logs. Lines carry the relay address as a structured
+// field, matching the rest of the relay client logging.
+func connectionTracer(addr string) func(context.Context, logging.Perspective, quic.ConnectionID) *logging.ConnectionTracer {
+	relayLog := log.WithField("relay", addr)
+	return func(context.Context, logging.Perspective, quic.ConnectionID) *logging.ConnectionTracer {
+		return &logging.ConnectionTracer{
+			UpdatedMTU: func(mtu logging.ByteCount, done bool) {
+				if done {
+					relayLog.Infof("QUIC path MTU settled at %d", mtu)
+					return
+				}
+				relayLog.Debugf("QUIC path MTU probing at %d", mtu)
+			},
+			ClosedConnection: func(err error) {
+				relayLog.Debugf("QUIC connection closed: %v", err)
+			},
+		}
+	}
 }
 
 func prepareURL(address string) (string, error) {

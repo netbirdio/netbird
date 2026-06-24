@@ -6,9 +6,13 @@ import (
 	"net/netip"
 	"net/url"
 	"strings"
+	"time"
 
+	"github.com/hashicorp/go-version"
+	nbversion "github.com/netbirdio/netbird/version"
 	log "github.com/sirupsen/logrus"
 	goproto "google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	integrationsConfig "github.com/netbirdio/management-integrations/integrations/config"
 
@@ -25,6 +29,23 @@ import (
 	"github.com/netbirdio/netbird/shared/netiputil"
 	"github.com/netbirdio/netbird/shared/sshauth"
 )
+
+const (
+	// deprecatedRemotePeersVersion is the version of Netbird that introduced the NetworkMap.RemotePeers field, deprecated in favor of RemotePeers.
+	deprecatedRemotePeersVersion = "0.29.3"
+)
+
+// precomputedDeprecatedRemotePeersConstraint is the parsed ">= 0.29.3" constraint,
+// built once at init since the bound is a compile-time constant.
+var precomputedDeprecatedRemotePeersConstraint version.Constraints
+
+func init() {
+	constraint, err := version.NewConstraint(">= " + deprecatedRemotePeersVersion)
+	if err != nil {
+		panic("parse deprecated remote peers version constraint: " + err.Error())
+	}
+	precomputedDeprecatedRemotePeersConstraint = constraint
+}
 
 func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken *Token, extraSettings *types.ExtraSettings) *proto.NetbirdConfig {
 	if config == nil {
@@ -153,7 +174,11 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 
 	remotePeers := make([]*proto.RemotePeerConfig, 0, len(networkMap.Peers)+len(networkMap.OfflinePeers))
 	remotePeers = appendRemotePeerConfig(remotePeers, networkMap.Peers, dnsName, includeIPv6)
-	response.RemotePeers = remotePeers
+
+	if !shouldSkipSendingDeprecatedRemotePeers(peer.Meta.WtVersion) {
+		response.RemotePeers = remotePeers
+	}
+
 	response.NetworkMap.RemotePeers = remotePeers
 	response.RemotePeersIsEmpty = len(remotePeers) == 0
 	response.NetworkMap.RemotePeersIsEmpty = response.RemotePeersIsEmpty
@@ -185,7 +210,36 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 		response.NetworkMap.SshAuth = &proto.SSHAuth{AuthorizedUsers: hashedUsers, MachineUsers: machineUsers, UserIDClaim: userIDClaim}
 	}
 
+	// settings == nil → field stays nil → "no info in this snapshot", client
+	// preserves the deadline it already had. settings non-nil → emit either a
+	// valid deadline or the explicit-zero "disabled" sentinel via
+	// encodeSessionExpiresAt.
+	if settings != nil {
+		response.SessionExpiresAt = encodeSessionExpiresAt(
+			peer.SessionExpiresAt(settings.PeerLoginExpirationEnabled, settings.PeerLoginExpiration),
+		)
+	}
+
 	return response
+}
+
+// encodeSessionExpiresAt encodes a server-side deadline into the 3-state wire
+// representation used on LoginResponse, SyncResponse and
+// ExtendAuthSessionResponse. See the proto comments on those messages.
+//
+//   - deadline.IsZero() → returns &Timestamp{} (seconds=0, nanos=0): the
+//     "expiry disabled or peer is not SSO-tracked" sentinel; the client clears
+//     its anchor.
+//   - deadline non-zero → returns timestamppb.New(deadline): the new absolute
+//     UTC deadline.
+//
+// Returning nil ("no info, preserve client's anchor") is the caller's job —
+// only meaningful on Sync builds where settings were not resolved.
+func encodeSessionExpiresAt(deadline time.Time) *timestamppb.Timestamp {
+	if deadline.IsZero() {
+		return &timestamppb.Timestamp{}
+	}
+	return timestamppb.New(deadline)
 }
 
 func buildAuthorizedUsersProto(ctx context.Context, authorizedUsers map[string]map[string]struct{}) ([][]byte, map[string]*proto.MachineUserIndexes) {
@@ -213,6 +267,19 @@ func buildAuthorizedUsersProto(ctx context.Context, authorizedUsers map[string]m
 	}
 
 	return hashedUsers, machineUsers
+}
+
+func shouldSkipSendingDeprecatedRemotePeers(peerVersion string) bool {
+	if nbversion.IsDevelopmentVersion(peerVersion) {
+		return true
+	}
+
+	peerNBVersion, err := version.NewVersion(peerVersion)
+	if err != nil {
+		return false
+	}
+
+	return precomputedDeprecatedRemotePeersConstraint.Check(peerNBVersion)
 }
 
 func appendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*nbpeer.Peer, dnsName string, includeIPv6 bool) []*proto.RemotePeerConfig {
@@ -331,7 +398,6 @@ func toProtocolFirewallRules(rules []*types.FirewallRule, includeIPv6, useSource
 	}
 	return result
 }
-
 
 // populateSourcePrefixes sets SourcePrefixes on fwRule and returns any
 // additional rules needed (e.g. a v6 wildcard clone when the peer IP is unspecified).

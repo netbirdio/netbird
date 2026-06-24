@@ -17,6 +17,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/auth"
+	"github.com/netbirdio/netbird/client/internal/debug"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -25,6 +26,7 @@ import (
 	"github.com/netbirdio/netbird/formatter"
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
+	types "github.com/netbirdio/netbird/upload-server/types"
 )
 
 // ConnectionListener export internal Listener for mobile
@@ -54,6 +56,7 @@ type selectRoute struct {
 	Network       netip.Prefix
 	Domains       domain.List
 	Selected      bool
+	Status        string
 	extraNetworks []netip.Prefix
 }
 
@@ -65,6 +68,8 @@ func init() {
 type Client struct {
 	cfgFile               string
 	stateFile             string
+	cacheDir              string
+	logFilePath           string
 	recorder              *peer.Status
 	ctxCancel             context.CancelFunc
 	ctxCancelLock         *sync.Mutex
@@ -75,16 +80,21 @@ type Client struct {
 	onHostDnsFn           func([]string)
 	dnsManager            dns.IosDnsManager
 	loginComplete         bool
-	connectClient         *internal.ConnectClient
 	// preloadedConfig holds config loaded from JSON (used on tvOS where file writes are blocked)
 	preloadedConfig *profilemanager.Config
+
+	stateMu       sync.RWMutex
+	connectClient *internal.ConnectClient
+	config        *profilemanager.Config
 }
 
 // NewClient instantiate a new Client
-func NewClient(cfgFile, stateFile, deviceName string, osVersion string, osName string, networkChangeListener NetworkChangeListener, dnsManager DnsManager) *Client {
+func NewClient(cfgFile, stateFile, cacheDir, logFilePath, deviceName string, osVersion string, osName string, networkChangeListener NetworkChangeListener, dnsManager DnsManager) *Client {
 	return &Client{
 		cfgFile:               cfgFile,
 		stateFile:             stateFile,
+		cacheDir:              cacheDir,
+		logFilePath:           logFilePath,
 		deviceName:            deviceName,
 		osName:                osName,
 		osVersion:             osVersion,
@@ -161,8 +171,13 @@ func (c *Client) Run(fd int32, interfaceName string, envList *EnvList) error {
 	c.onHostDnsFn = func([]string) {}
 	cfg.WgIface = interfaceName
 
-	c.connectClient = internal.NewConnectClient(ctx, cfg, c.recorder)
-	return c.connectClient.RunOniOS(fd, c.networkChangeListener, c.dnsManager, c.stateFile)
+	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder)
+	c.setState(cfg, connectClient)
+	// Persist the latest sync response so DebugBundle can include the network
+	// map. On iOS this is backed by disk to keep it out of the constrained
+	// process memory (see the syncstore package).
+	connectClient.SetSyncResponsePersistence(true)
+	return connectClient.RunOniOS(fd, c.networkChangeListener, c.dnsManager, c.stateFile, c.cacheDir, c.logFilePath)
 }
 
 // Stop the internal client and free the resources
@@ -174,6 +189,84 @@ func (c *Client) Stop() {
 	}
 
 	c.ctxCancel()
+	c.setState(nil, nil)
+}
+
+// DebugBundle generates a debug bundle, uploads it and returns the upload key.
+// It works with or without a running engine: when the engine is up it reuses
+// the live config, sync response and client metrics; otherwise it loads the
+// config from disk (or the preloaded tvOS config).
+func (c *Client) DebugBundle(anonymize bool) (string, error) {
+	cfg, cc := c.stateSnapshot()
+
+	// If the engine hasn't been started, load config so we can reach management.
+	if cfg == nil {
+		if c.preloadedConfig != nil {
+			cfg = c.preloadedConfig
+		} else {
+			var err error
+			// Use DirectUpdateOrCreateConfig to avoid atomic file operations
+			// (temp file + rename) blocked by the tvOS sandbox.
+			cfg, err = profilemanager.DirectUpdateOrCreateConfig(profilemanager.ConfigInput{
+				ConfigPath:    c.cfgFile,
+				StateFilePath: c.stateFile,
+			})
+			if err != nil {
+				return "", fmt.Errorf("load config: %w", err)
+			}
+		}
+	}
+
+	deps := debug.GeneratorDependencies{
+		InternalConfig: cfg,
+		StatusRecorder: c.recorder,
+		TempDir:        c.cacheDir,
+		StatePath:      c.stateFile,
+		LogPath:        c.logFilePath,
+	}
+
+	if cc != nil {
+		resp, err := cc.GetLatestSyncResponse()
+		if err != nil {
+			log.Warnf("get latest sync response: %v", err)
+		}
+		deps.SyncResponse = resp
+
+		if e := cc.Engine(); e != nil {
+			if cm := e.GetClientMetrics(); cm != nil {
+				deps.ClientMetrics = cm
+			}
+		}
+	}
+
+	bundleGenerator := debug.NewBundleGenerator(
+		deps,
+		debug.BundleConfig{
+			Anonymize:         anonymize,
+			IncludeSystemInfo: true,
+		},
+	)
+
+	path, err := bundleGenerator.Generate()
+	if err != nil {
+		return "", fmt.Errorf("generate debug bundle: %w", err)
+	}
+	defer func() {
+		if err := os.Remove(path); err != nil {
+			log.Errorf("failed to remove debug bundle file: %v", err)
+		}
+	}()
+
+	uploadCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	key, err := debug.UploadDebugBundle(uploadCtx, types.DefaultBundleURL, cfg.ManagementURL.String(), path)
+	if err != nil {
+		return "", fmt.Errorf("upload debug bundle: %w", err)
+	}
+
+	log.Infof("debug bundle uploaded with key %s", key)
+	return key, nil
 }
 
 // SetTraceLogLevel configure the logger to trace level
@@ -225,6 +318,16 @@ func (c *Client) SetConnectionListener(listener ConnectionListener) {
 // RemoveConnectionListener remove connection listener
 func (c *Client) RemoveConnectionListener() {
 	c.recorder.RemoveConnectionListener()
+}
+
+// IsLoginRequiredCached reports whether the LAST observed management error was an
+// auth failure (PermissionDenied/InvalidArgument), using the in-memory status
+// recorder. Unlike IsLoginRequired() it performs NO network call, so it is safe to
+// call from the connection listener during teardown (e.g. onDisconnected) without
+// blocking on a slow or unavailable network. Returns false while connected to
+// management or when the last error was not auth-related.
+func (c *Client) IsLoginRequiredCached() bool {
+	return c.recorder.IsLoginRequired()
 }
 
 func (c *Client) IsLoginRequired() bool {
@@ -354,11 +457,12 @@ func (c *Client) ClearLoginComplete() {
 }
 
 func (c *Client) GetRoutesSelectionDetails() (*RoutesSelectionDetails, error) {
-	if c.connectClient == nil {
+	_, connectClient := c.stateSnapshot()
+	if connectClient == nil {
 		return nil, fmt.Errorf("not connected")
 	}
 
-	engine := c.connectClient.Engine()
+	engine := connectClient.Engine()
 	if engine == nil {
 		return nil, fmt.Errorf("not connected")
 	}
@@ -377,7 +481,55 @@ func (c *Client) GetRoutesSelectionDetails() (*RoutesSelectionDetails, error) {
 	routes := buildSelectRoutes(routesMap, routeSelector.IsSelected, v6ExitMerged)
 	resolvedDomains := c.recorder.GetResolvedDomainsStates()
 
+	// Compute each route's connection status in the core (mirroring the Android
+	// bridge), so the UI doesn't have to infer it by string-matching the joined
+	// Network value against peer routes. For a merged exit node the status reflects
+	// whichever of the v4/v6 prefixes is served by a connected peer; for dynamic
+	// (DNS) routes the peer route key is the domain pattern (see dynamic.Route.String).
+	connectedRoutes := c.connectedRouteSet()
+	for _, r := range routes {
+		r.Status = routeStatus(r, connectedRoutes)
+	}
+
 	return prepareRouteSelectionDetails(routes, resolvedDomains), nil
+}
+
+// connectedRouteSet returns the set of route keys (as strings) currently served by a
+// connected peer, gathered across all connected peers' route tables. The keys match
+// what the route manager records: a prefix string for static routes (e.g. "0.0.0.0/0")
+// and the domain pattern for dynamic routes (e.g. "*.example.com").
+func (c *Client) connectedRouteSet() map[string]struct{} {
+	connected := map[string]struct{}{}
+	for _, p := range c.recorder.GetFullStatus().Peers {
+		if p.ConnStatus != peer.StatusConnected {
+			continue
+		}
+		for r := range p.GetRoutes() {
+			connected[r] = struct{}{}
+		}
+	}
+	return connected
+}
+
+// routeStatus reports "Connected" if any of the route's keys is served by a connected
+// peer: the primary Network prefix, an extra v6 network of a merged exit node, or the
+// domain pattern for a dynamic DNS route. Otherwise "Idle".
+func routeStatus(r *selectRoute, connectedRoutes map[string]struct{}) string {
+	keys := make([]string, 0, 1+len(r.extraNetworks))
+	if len(r.Domains) > 0 {
+		keys = append(keys, r.Domains.SafeString())
+	} else {
+		keys = append(keys, r.Network.String())
+	}
+	for _, extra := range r.extraNetworks {
+		keys = append(keys, extra.String())
+	}
+	for _, k := range keys {
+		if _, ok := connectedRoutes[k]; ok {
+			return peer.StatusConnected.String()
+		}
+	}
+	return peer.StatusIdle.String()
 }
 
 func buildSelectRoutes(routesMap map[route.NetID][]*route.Route, isSelected func(route.NetID) bool, v6Merged map[route.NetID]struct{}) []*selectRoute {
@@ -462,6 +614,7 @@ func prepareRouteSelectionDetails(routes []*selectRoute, resolvedDomains map[dom
 			Network:  netStr,
 			Domains:  &domainDetails,
 			Selected: r.Selected,
+			Status:   r.Status,
 		})
 	}
 
@@ -470,11 +623,12 @@ func prepareRouteSelectionDetails(routes []*selectRoute, resolvedDomains map[dom
 }
 
 func (c *Client) SelectRoute(id string) error {
-	if c.connectClient == nil {
+	_, connectClient := c.stateSnapshot()
+	if connectClient == nil {
 		return fmt.Errorf("not connected")
 	}
 
-	engine := c.connectClient.Engine()
+	engine := connectClient.Engine()
 	if engine == nil {
 		return fmt.Errorf("not connected")
 	}
@@ -500,10 +654,11 @@ func (c *Client) SelectRoute(id string) error {
 }
 
 func (c *Client) DeselectRoute(id string) error {
-	if c.connectClient == nil {
+	_, connectClient := c.stateSnapshot()
+	if connectClient == nil {
 		return fmt.Errorf("not connected")
 	}
-	engine := c.connectClient.Engine()
+	engine := connectClient.Engine()
 	if engine == nil {
 		return fmt.Errorf("not connected")
 	}
@@ -525,6 +680,22 @@ func (c *Client) DeselectRoute(id string) error {
 	}
 	routeManager.TriggerSelection(routeManager.GetClientRoutes())
 	return nil
+}
+
+// setState stores the running engine state so DebugBundle can reuse the live
+// config and ConnectClient. It is cleared on Stop.
+func (c *Client) setState(cfg *profilemanager.Config, cc *internal.ConnectClient) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	c.config = cfg
+	c.connectClient = cc
+}
+
+// stateSnapshot returns the current config and ConnectClient under the lock.
+func (c *Client) stateSnapshot() (*profilemanager.Config, *internal.ConnectClient) {
+	c.stateMu.RLock()
+	defer c.stateMu.RUnlock()
+	return c.config, c.connectClient
 }
 
 func formatDuration(d time.Duration) string {

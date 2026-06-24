@@ -23,6 +23,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer/id"
 	"github.com/netbirdio/netbird/client/internal/peer/worker"
 	"github.com/netbirdio/netbird/client/internal/portforward"
+	"github.com/netbirdio/netbird/client/internal/rosenpass"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/route"
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
@@ -899,33 +900,13 @@ func (conn *Conn) presharedKey(remoteRosenpassKey []byte) *wgtypes.Key {
 	}
 
 	// Fallback to deterministic key if no NetBird PSK is configured
-	determKey, err := conn.rosenpassDetermKey()
+	determKey, err := rosenpass.DeterministicSeedKey(conn.config.LocalKey, conn.config.Key)
 	if err != nil {
 		conn.Log.Errorf("failed to generate Rosenpass initial key: %v", err)
 		return nil
 	}
 
 	return determKey
-}
-
-// todo: move this logic into Rosenpass package
-func (conn *Conn) rosenpassDetermKey() (*wgtypes.Key, error) {
-	lk := []byte(conn.config.LocalKey)
-	rk := []byte(conn.config.Key) // remote key
-	var keyInput []byte
-	if string(lk) > string(rk) {
-		//nolint:gocritic
-		keyInput = append(lk[:16], rk[:16]...)
-	} else {
-		//nolint:gocritic
-		keyInput = append(rk[:16], lk[:16]...)
-	}
-
-	key, err := wgtypes.NewKey(keyInput)
-	if err != nil {
-		return nil, err
-	}
-	return &key, nil
 }
 
 func isController(config ConnConfig) bool {

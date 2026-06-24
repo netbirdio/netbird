@@ -42,7 +42,7 @@ func setupValidateSessionTest(t *testing.T) *validateSessionTestSetup {
 	tokenStore := NewOneTimeTokenStore(ctx, testCacheStore(t))
 	pkceStore := NewPKCEVerifierStore(ctx, testCacheStore(t))
 
-	proxyService := NewProxyServiceServer(nil, tokenStore, pkceStore, ProxyOIDCConfig{}, nil, usersManager, proxyManager, nil)
+	proxyService := NewProxyServiceServer(nil, tokenStore, pkceStore, ProxyOIDCConfig{}, nil, usersManager, nil, proxyManager, nil)
 	proxyService.SetServiceManager(serviceManager)
 
 	createTestProxies(t, ctx, testStore)
@@ -102,7 +102,7 @@ func generateSessionKeyPair(t *testing.T) (string, string) {
 
 func createSessionToken(t *testing.T, privKeyB64, userID, domain string) string {
 	t.Helper()
-	token, err := sessionkey.SignToken(privKeyB64, userID, domain, auth.MethodOIDC, nil, time.Hour)
+	token, err := sessionkey.SignToken(privKeyB64, userID, "", domain, auth.MethodOIDC, nil, nil, time.Hour)
 	require.NoError(t, err)
 	return token
 }
@@ -394,10 +394,35 @@ func (m *testValidateSessionProxyManager) ClusterSupportsCrowdSec(_ context.Cont
 	return nil
 }
 
+func (m *testValidateSessionProxyManager) ClusterSupportsPrivate(_ context.Context, _ string) *bool {
+	return nil
+}
+
 type testValidateSessionUsersManager struct {
 	store store.Store
 }
 
 func (m *testValidateSessionUsersManager) GetUser(ctx context.Context, userID string) (*types.User, error) {
 	return m.store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
+}
+
+func (m *testValidateSessionUsersManager) GetUserWithGroups(ctx context.Context, userID string) (*types.User, []*types.Group, error) {
+	user, err := m.store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(user.AutoGroups) == 0 {
+		return user, nil, nil
+	}
+	groupsMap, err := m.store.GetGroupsByIDs(ctx, store.LockingStrengthNone, user.AccountID, user.AutoGroups)
+	if err != nil {
+		return nil, nil, err
+	}
+	groups := make([]*types.Group, 0, len(user.AutoGroups))
+	for _, id := range user.AutoGroups {
+		if g, ok := groupsMap[id]; ok && g != nil {
+			groups = append(groups, g)
+		}
+	}
+	return user, groups, nil
 }

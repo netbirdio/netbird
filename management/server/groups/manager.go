@@ -42,7 +42,7 @@ func NewManager(store store.Store, permissionsManager permissions.Manager, accou
 }
 
 func (m *managerImpl) GetAllGroups(ctx context.Context, accountID, userID string) ([]*types.Group, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Read)
+	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Read)
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +73,7 @@ func (m *managerImpl) GetAllGroupsMap(ctx context.Context, accountID, userID str
 }
 
 func (m *managerImpl) AddResourceToGroup(ctx context.Context, accountID, userID, groupID string, resource *types.Resource) error {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Update)
+	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Update)
 	if err != nil {
 		return err
 	}

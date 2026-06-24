@@ -15,20 +15,31 @@ jobs:
     name: "Client / Unit"
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Read Go version from go.mod
+        id: goversion
+        run: echo "version=$(awk '/^go / {print $2}' go.mod)" >> "$GITHUB_OUTPUT"
+
       - name: Test in FreeBSD
         id: test
-        uses: vmactions/freebsd-vm@v1
+        env:
+          GO_VERSION: ${{ steps.goversion.outputs.version }}
+        uses: vmactions/freebsd-vm@b84ab5559b5a1bb4b8ee2737d2506a16e1737636 # v1.4.8
         with:
           usesh: true
           copyback: false
-          release: "14.2"
+          release: "15.0"
+          envs: "GO_VERSION"
           prepare: |
             pkg install -y curl pkgconf xorg
-            GO_TARBALL="go1.25.3.freebsd-amd64.tar.gz"
+            GO_TARBALL="go${GO_VERSION}.freebsd-amd64.tar.gz"
             GO_URL="https://go.dev/dl/$GO_TARBALL"
             curl -vLO "$GO_URL"
-            tar -C /usr/local -vxzf "$GO_TARBALL"            
+            tar -C /usr/local -vxzf "$GO_TARBALL"
 
           # -x - to print all executed commands
           # -e - to faile on first error

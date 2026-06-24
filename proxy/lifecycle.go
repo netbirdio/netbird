@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"net/netip"
 	"time"
 
@@ -20,14 +21,17 @@ import (
 type Config struct {
 	// ListenAddr is the TCP address the main listener binds. Required.
 	ListenAddr string
-	// ID identifies this proxy instance to management. Empty value lets
-	// New generate a timestamped default.
+	// ID identifies this proxy instance to management. Empty values are
+	// replaced with a timestamped default at Server.Start time (see
+	// initDefaults), not in New.
 	ID string
-	// Logger is the logrus logger used everywhere. Empty value falls back
-	// to log.StandardLogger().
+	// Logger is the logrus logger used everywhere. Empty values fall
+	// back to log.StandardLogger() at Server.Start time (see
+	// initDefaults), not in New.
 	Logger *log.Logger
 	// Version is the build version string reported to management. Empty
-	// becomes "dev".
+	// values are replaced with "dev" at Server.Start time (see
+	// initDefaults), not in New.
 	Version string
 	// ProxyURL is the public address operators use to reach this proxy.
 	ProxyURL string
@@ -110,6 +114,10 @@ type Config struct {
 	MaxDialTimeout time.Duration
 	// MaxSessionIdleTimeout caps the per-service session idle timeout.
 	MaxSessionIdleTimeout time.Duration
+	// MappingBatchWatchdog bounds how long a single mapping batch may spend
+	// being applied before the receive loop reconnects to resync. Zero falls
+	// back to the internal default.
+	MappingBatchWatchdog time.Duration
 
 	// GeoDataDir is the directory containing GeoLite2 MMDB files.
 	GeoDataDir string
@@ -125,8 +133,9 @@ type Config struct {
 // bound — call Start to bring the proxy up. Returning a fully-formed
 // Server keeps the standalone code path (which still constructs Server
 // directly) byte-for-byte equivalent.
-func New(cfg Config) *Server {
+func New(ctx context.Context, cfg Config) *Server {
 	return &Server{
+		ctx:                      ctx,
 		ListenAddr:               cfg.ListenAddr,
 		ID:                       cfg.ID,
 		Logger:                   cfg.Logger,
@@ -159,6 +168,7 @@ func New(cfg Config) *Server {
 		Private:                  cfg.Private,
 		MaxDialTimeout:           cfg.MaxDialTimeout,
 		MaxSessionIdleTimeout:    cfg.MaxSessionIdleTimeout,
+		MappingBatchWatchdog:     cfg.MappingBatchWatchdog,
 		GeoDataDir:               cfg.GeoDataDir,
 		CrowdSecAPIURL:           cfg.CrowdSecAPIURL,
 		CrowdSecAPIKey:           cfg.CrowdSecAPIKey,

@@ -214,7 +214,10 @@ func runServer(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid --trusted-proxies: %w", err)
 	}
 
-	srv := proxy.New(proxy.Config{
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+
+	srv := proxy.New(ctx, proxy.Config{
 		ListenAddr:               addr,
 		Logger:                   logger,
 		Version:                  Version,
@@ -246,13 +249,11 @@ func runServer(cmd *cobra.Command, args []string) error {
 		Private:                  private,
 		MaxDialTimeout:           maxDialTimeout,
 		MaxSessionIdleTimeout:    maxSessionIdleTimeout,
+		MappingBatchWatchdog:     envDurationOrDefault("NB_PROXY_MAPPING_BATCH_WATCHDOG", 0),
 		GeoDataDir:               geoDataDir,
 		CrowdSecAPIURL:           crowdsecAPIURL,
 		CrowdSecAPIKey:           crowdsecAPIKey,
 	})
-
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
-	defer stop()
 
 	return srv.ListenAndServe(ctx, addr)
 }

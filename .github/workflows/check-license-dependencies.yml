@@ -2,16 +2,16 @@ name: Check License Dependencies
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
     paths:
-      - 'go.mod'
-      - 'go.sum'
-      - '.github/workflows/check-license-dependencies.yml'
+      - "go.mod"
+      - "go.sum"
+      - ".github/workflows/check-license-dependencies.yml"
   pull_request:
     paths:
-      - 'go.mod'
-      - 'go.sum'
-      - '.github/workflows/check-license-dependencies.yml'
+      - "go.mod"
+      - "go.sum"
+      - ".github/workflows/check-license-dependencies.yml"
 
 jobs:
   check-internal-dependencies:
@@ -19,7 +19,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       - name: Check for problematic license dependencies
         run: |
@@ -56,55 +59,57 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version-file: 'go.mod'
-        cache: true
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: "go.mod"
+          cache: true
 
-    - name: Install go-licenses
-      run: go install github.com/google/go-licenses@v1.6.0
+      - name: Install go-licenses
+        run: go install github.com/google/go-licenses@v1.6.0
 
-    - name: Check for GPL/AGPL licensed dependencies
-      run: |
-        echo "Checking for GPL/AGPL/LGPL licensed dependencies..."
-        echo ""
-
-        # Check all Go packages for copyleft licenses, excluding internal netbird packages
-        COPYLEFT_DEPS=$(go-licenses report ./... 2>/dev/null | grep -E 'GPL|AGPL|LGPL' | grep -v 'github.com/netbirdio/netbird/' || true)
-
-        if [ -n "$COPYLEFT_DEPS" ]; then
-          echo "Found copyleft licensed dependencies:"
-          echo "$COPYLEFT_DEPS"
+      - name: Check for GPL/AGPL licensed dependencies
+        run: |
+          echo "Checking for GPL/AGPL/LGPL licensed dependencies..."
           echo ""
 
-          # Filter out dependencies that are only pulled in by internal AGPL packages
-          INCOMPATIBLE=""
-          while IFS=',' read -r package url license; do
-            if echo "$license" | grep -qE 'GPL-[0-9]|AGPL-[0-9]|LGPL-[0-9]'; then
-              # Find ALL packages that import this GPL package using go list
-              IMPORTERS=$(go list -json -deps ./... 2>/dev/null | jq -r "select(.Imports[]? == \"$package\") | .ImportPath")
+          # Check all Go packages for copyleft licenses, excluding internal netbird packages
+          COPYLEFT_DEPS=$(go-licenses report ./... 2>/dev/null | grep -E 'GPL|AGPL|LGPL' | grep -v 'github.com/netbirdio/netbird/' || true)
 
-              # Check if any importer is NOT in management/signal/relay
-              BSD_IMPORTER=$(echo "$IMPORTERS" | grep -v "github.com/netbirdio/netbird/\(management\|signal\|relay\|proxy\|combined\|tools/idp-migrate\)" | head -1)
-
-              if [ -n "$BSD_IMPORTER" ]; then
-                echo "❌ $package ($license) is imported by BSD-licensed code: $BSD_IMPORTER"
-                INCOMPATIBLE="${INCOMPATIBLE}${package},${url},${license}\n"
-              else
-                echo "✓ $package ($license) is only used by internal AGPL packages - OK"
-              fi
-            fi
-          done <<< "$COPYLEFT_DEPS"
-
-          if [ -n "$INCOMPATIBLE" ]; then
+          if [ -n "$COPYLEFT_DEPS" ]; then
+            echo "Found copyleft licensed dependencies:"
+            echo "$COPYLEFT_DEPS"
             echo ""
-            echo "❌ INCOMPATIBLE licenses found that are used by BSD-licensed code:"
-            echo -e "$INCOMPATIBLE"
-            exit 1
-          fi
-        fi
 
-        echo "✅ All external license dependencies are compatible with BSD-3-Clause"
+            # Filter out dependencies that are only pulled in by internal AGPL packages
+            INCOMPATIBLE=""
+            while IFS=',' read -r package url license; do
+              if echo "$license" | grep -qE 'GPL-[0-9]|AGPL-[0-9]|LGPL-[0-9]'; then
+                # Find ALL packages that import this GPL package using go list
+                IMPORTERS=$(go list -json -deps ./... 2>/dev/null | jq -r "select(.Imports[]? == \"$package\") | .ImportPath")
+
+                # Check if any importer is NOT in management/signal/relay
+                BSD_IMPORTER=$(echo "$IMPORTERS" | grep -v "github.com/netbirdio/netbird/\(management\|signal\|relay\|proxy\|combined\|tools/idp-migrate\)" | head -1)
+
+                if [ -n "$BSD_IMPORTER" ]; then
+                  echo "❌ $package ($license) is imported by BSD-licensed code: $BSD_IMPORTER"
+                  INCOMPATIBLE="${INCOMPATIBLE}${package},${url},${license}\n"
+                else
+                  echo "✓ $package ($license) is only used by internal AGPL packages - OK"
+                fi
+              fi
+            done <<< "$COPYLEFT_DEPS"
+
+            if [ -n "$INCOMPATIBLE" ]; then
+              echo ""
+              echo "❌ INCOMPATIBLE licenses found that are used by BSD-licensed code:"
+              echo -e "$INCOMPATIBLE"
+              exit 1
+            fi
+          fi
+
+          echo "✅ All external license dependencies are compatible with BSD-3-Clause"

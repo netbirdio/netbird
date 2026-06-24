@@ -16,7 +16,7 @@ import (
 type Notifier struct {
 	initialRoutes []*route.Route
 	currentRoutes []*route.Route
-	fakeIPRoutes []*route.Route
+	fakeIPRoutes  []*route.Route
 
 	listener    listener.NetworkChangeListener
 	listenerMux sync.Mutex
@@ -118,4 +118,8 @@ func (n *Notifier) GetInitialRouteRanges() []string {
 	initialStrings := n.routesToStrings(n.initialRoutes)
 	sort.Strings(initialStrings)
 	return initialStrings
+}
+
+func (n *Notifier) Close() {
+	// unused
 }

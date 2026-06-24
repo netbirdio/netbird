@@ -250,10 +250,13 @@ type BundleGenerator struct {
 	syncResponse   *mgmProto.SyncResponse
 	logPath        string
 	tempDir        string
+	statePath      string
 	cpuProfile     []byte
 	capturePath    string
 	refreshStatus  func() // Optional callback to refresh status before bundle generation
 	clientMetrics  MetricsExporter
+	daemonVersion  string
+	cliVersion     string
 
 	anonymize         bool
 	includeSystemInfo bool
@@ -274,10 +277,13 @@ type GeneratorDependencies struct {
 	SyncResponse   *mgmProto.SyncResponse
 	LogPath        string
 	TempDir        string // Directory for temporary bundle zip files. If empty, os.TempDir() is used.
+	StatePath      string // Path to the state file. If empty, the ServiceManager default path is used.
 	CPUProfile     []byte
 	CapturePath    string
 	RefreshStatus  func()
 	ClientMetrics  MetricsExporter
+	DaemonVersion  string
+	CliVersion     string
 }
 
 func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGenerator {
@@ -295,10 +301,13 @@ func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGen
 		syncResponse:   deps.SyncResponse,
 		logPath:        deps.LogPath,
 		tempDir:        deps.TempDir,
+		statePath:      deps.StatePath,
 		cpuProfile:     deps.CPUProfile,
 		capturePath:    deps.CapturePath,
 		refreshStatus:  deps.RefreshStatus,
 		clientMetrics:  deps.ClientMetrics,
+		daemonVersion:  deps.DaemonVersion,
+		cliVersion:     deps.CliVersion,
 
 		anonymize:         cfg.Anonymize,
 		includeSystemInfo: cfg.IncludeSystemInfo,
@@ -459,9 +468,11 @@ func (g *BundleGenerator) addStatus() error {
 		protoFullStatus := nbstatus.ToProtoFullStatus(fullStatus)
 		protoFullStatus.Events = g.statusRecorder.GetEventHistory()
 		overview := nbstatus.ConvertToStatusOutputOverview(protoFullStatus, nbstatus.ConvertOptions{
-			Anonymize:   g.anonymize,
-			ProfileName: profName,
+			Anonymize:     g.anonymize,
+			ProfileName:   profName,
+			DaemonVersion: g.daemonVersion,
 		})
+		overview.CliVersion = g.cliVersion
 		statusOutput := overview.FullDetailSummary()
 
 		statusReader := strings.NewReader(statusOutput)
@@ -506,6 +517,14 @@ func (g *BundleGenerator) addConfig() error {
 		if g.internalConfig.CustomDNSAddress != "" {
 			configContent.WriteString(fmt.Sprintf("CustomDNSAddress: %s\n", g.internalConfig.CustomDNSAddress))
 		}
+	}
+
+	// Surface the set of MDM-enforced keys so a support engineer reading
+	// the bundle can tell which field values are user-set vs MDM-overridden.
+	// Same semantics as the mDMManagedFields list returned by the
+	// GetConfig RPC consumed by `netbird debug config`.
+	if managed := g.internalConfig.Policy().ManagedKeys(); len(managed) > 0 {
+		configContent.WriteString(fmt.Sprintf("MDMManagedFields: %v\n", managed))
 	}
 
 	configReader := strings.NewReader(configContent.String())
@@ -798,6 +817,8 @@ func (g *BundleGenerator) addSyncResponse() error {
 		AllowPartial:    true,
 	}
 
+	g.maskSecrets()
+
 	jsonBytes, err := options.Marshal(g.syncResponse)
 	if err != nil {
 		return fmt.Errorf("generate json: %w", err)
@@ -810,9 +831,33 @@ func (g *BundleGenerator) addSyncResponse() error {
 	return nil
 }
 
+func (g *BundleGenerator) maskSecrets() {
+	if g.syncResponse == nil || g.syncResponse.NetbirdConfig == nil {
+		return
+	}
+
+	if g.syncResponse.NetbirdConfig.Flow != nil {
+		g.syncResponse.NetbirdConfig.Flow.TokenPayload = maskedValue
+
+	}
+
+	if g.syncResponse.NetbirdConfig.Relay != nil {
+		g.syncResponse.NetbirdConfig.Relay.TokenPayload = maskedValue
+	}
+
+	for i := range g.syncResponse.NetbirdConfig.Turns {
+		if g.syncResponse.NetbirdConfig.Turns[i] != nil {
+			g.syncResponse.NetbirdConfig.Turns[i].Password = maskedValue
+		}
+	}
+}
+
 func (g *BundleGenerator) addStateFile() error {
-	sm := profilemanager.NewServiceManager("")
-	path := sm.GetStatePath()
+	path := g.statePath
+	if path == "" {
+		sm := profilemanager.NewServiceManager("")
+		path = sm.GetStatePath()
+	}
 	if path == "" {
 		return nil
 	}
@@ -1039,7 +1084,8 @@ func (g *BundleGenerator) addRotatedLogFiles(logDir string) {
 		return
 	}
 
-	pattern := filepath.Join(logDir, "client-*.log.gz")
+	// This regex will match both logs rotated by us and logrotate on linux
+	pattern := filepath.Join(logDir, "client*.log.*")
 	files, err := filepath.Glob(pattern)
 	if err != nil {
 		log.Warnf("failed to glob rotated logs: %v", err)
@@ -1072,7 +1118,12 @@ func (g *BundleGenerator) addRotatedLogFiles(logDir string) {
 
 	for i := 0; i < maxFiles; i++ {
 		name := filepath.Base(files[i])
-		if err := g.addSingleLogFileGz(files[i], name); err != nil {
+		if strings.HasSuffix(name, ".gz") {
+			err = g.addSingleLogFileGz(files[i], name)
+		} else {
+			err = g.addSingleLogfile(files[i], name)
+		}
+		if err != nil {
 			log.Warnf("failed to add rotated log %s: %v", name, err)
 		}
 	}

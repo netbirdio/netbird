@@ -125,7 +125,7 @@ func (p *program) Stop(srv service.Service) error {
 }
 
 // Common setup for service control commands
-func setupServiceControlCommand(cmd *cobra.Command, ctx context.Context, cancel context.CancelFunc) (service.Service, error) {
+func setupServiceControlCommand(cmd *cobra.Command, ctx context.Context, cancel context.CancelFunc, consoleLog bool) (service.Service, error) {
 	// rootCmd env vars are already applied by PersistentPreRunE.
 	SetFlagsFromEnvVars(serviceCmd)
 
@@ -135,8 +135,14 @@ func setupServiceControlCommand(cmd *cobra.Command, ctx context.Context, cancel 
 		return nil, err
 	}
 
-	if err := util.InitLog(logLevel, logFiles...); err != nil {
-		return nil, fmt.Errorf("init log: %w", err)
+	if consoleLog {
+		if err := util.InitLog(logLevel, util.LogConsole); err != nil {
+			return nil, fmt.Errorf("init log: %w", err)
+		}
+	} else {
+		if err := util.InitLog(logLevel, logFiles...); err != nil {
+			return nil, fmt.Errorf("init log: %w", err)
+		}
 	}
 
 	cfg, err := newSVCConfig()
@@ -161,7 +167,7 @@ var runCmd = &cobra.Command{
 		SetupCloseHandler(ctx, cancel)
 		SetupDebugHandler(ctx, nil, nil, nil, util.FindFirstLogPath(logFiles))
 
-		s, err := setupServiceControlCommand(cmd, ctx, cancel)
+		s, err := setupServiceControlCommand(cmd, ctx, cancel, false)
 		if err != nil {
 			return err
 		}
@@ -175,7 +181,7 @@ var startCmd = &cobra.Command{
 	Short: "starts NetBird service",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithCancel(cmd.Context())
-		s, err := setupServiceControlCommand(cmd, ctx, cancel)
+		s, err := setupServiceControlCommand(cmd, ctx, cancel, false)
 		if err != nil {
 			return err
 		}
@@ -193,7 +199,7 @@ var stopCmd = &cobra.Command{
 	Short: "stops NetBird service",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithCancel(cmd.Context())
-		s, err := setupServiceControlCommand(cmd, ctx, cancel)
+		s, err := setupServiceControlCommand(cmd, ctx, cancel, false)
 		if err != nil {
 			return err
 		}
@@ -211,7 +217,7 @@ var restartCmd = &cobra.Command{
 	Short: "restarts NetBird service",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithCancel(cmd.Context())
-		s, err := setupServiceControlCommand(cmd, ctx, cancel)
+		s, err := setupServiceControlCommand(cmd, ctx, cancel, false)
 		if err != nil {
 			return err
 		}
@@ -229,7 +235,7 @@ var svcStatusCmd = &cobra.Command{
 	Short: "shows NetBird service status",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithCancel(cmd.Context())
-		s, err := setupServiceControlCommand(cmd, ctx, cancel)
+		s, err := setupServiceControlCommand(cmd, ctx, cancel, true)
 		if err != nil {
 			return err
 		}

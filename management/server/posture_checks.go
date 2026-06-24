@@ -7,16 +7,16 @@ import (
 	"github.com/rs/xid"
 
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/affectedpeers"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/store"
-	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 func (am *DefaultAccountManager) GetPostureChecks(ctx context.Context, accountID, postureChecksID, userID string) (*posture.Checks, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operations.Read)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -33,7 +33,7 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 	if !create {
 		operation = operations.Update
 	}
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operation)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operation)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -41,9 +41,10 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	var updateAccountPeers bool
 	var isUpdate = postureChecks.ID != ""
 	var action = activity.PostureCheckCreated
+	var snap *affectedpeers.Snapshot
+	change := affectedpeers.Change{PostureCheckIDs: []string{postureChecks.ID}}
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		if err = validatePostureChecks(ctx, transaction, accountID, postureChecks); err != nil {
@@ -51,11 +52,6 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 		}
 
 		if isUpdate {
-			updateAccountPeers, err = arePostureCheckChangesAffectPeers(ctx, transaction, accountID, postureChecks.ID)
-			if err != nil {
-				return err
-			}
-
 			action = activity.PostureCheckUpdated
 		}
 
@@ -65,6 +61,11 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 		}
 
 		if isUpdate {
+			// Editing a posture check does not change which policies reference it,
+			// so loading after the save is fine.
+			if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
+				return err
+			}
 			return transaction.IncrementNetworkSerial(ctx, accountID)
 		}
 
@@ -76,20 +77,14 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 
 	am.StoreEvent(ctx, userID, postureChecks.ID, accountID, action, postureChecks.EventMeta())
 
-	if updateAccountPeers {
-		postureOp := types.UpdateOperationCreate
-		if isUpdate {
-			postureOp = types.UpdateOperationUpdate
-		}
-		am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourcePostureCheck, Operation: postureOp})
-	}
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return postureChecks, nil
 }
 
 // DeletePostureChecks deletes a posture check by ID.
 func (am *DefaultAccountManager) DeletePostureChecks(ctx context.Context, accountID, postureChecksID, userID string) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operations.Delete)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operations.Delete)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}
@@ -126,7 +121,7 @@ func (am *DefaultAccountManager) DeletePostureChecks(ctx context.Context, accoun
 
 // ListPostureChecks returns a list of posture checks.
 func (am *DefaultAccountManager) ListPostureChecks(ctx context.Context, accountID, userID string) ([]*posture.Checks, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operations.Read)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -135,29 +130,6 @@ func (am *DefaultAccountManager) ListPostureChecks(ctx context.Context, accountI
 	}
 
 	return am.Store.GetAccountPostureChecks(ctx, store.LockingStrengthNone, accountID)
-}
-
-// arePostureCheckChangesAffectPeers checks if the changes in posture checks are affecting peers.
-func arePostureCheckChangesAffectPeers(ctx context.Context, transaction store.Store, accountID, postureCheckID string) (bool, error) {
-	policies, err := transaction.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
-	if err != nil {
-		return false, err
-	}
-
-	for _, policy := range policies {
-		if slices.Contains(policy.SourcePostureChecks, postureCheckID) {
-			hasPeers, err := anyGroupHasPeersOrResources(ctx, transaction, accountID, policy.RuleGroups())
-			if err != nil {
-				return false, err
-			}
-
-			if hasPeers {
-				return true, nil
-			}
-		}
-	}
-
-	return false, nil
 }
 
 // validatePostureChecks validates the posture checks.

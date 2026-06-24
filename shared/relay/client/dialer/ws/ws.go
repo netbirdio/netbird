@@ -22,7 +22,7 @@ type Dialer struct {
 }
 
 func (d Dialer) Protocol() string {
-	return "WS"
+	return Network
 }
 
 func (d Dialer) Dial(ctx context.Context, address, serverName string) (net.Conn, error) {
@@ -39,7 +39,12 @@ func (d Dialer) Dial(ctx context.Context, address, serverName string) (net.Conn,
 		if errors.Is(err, context.Canceled) {
 			return nil, err
 		}
-		log.Errorf("failed to dial to Relay server '%s': %s", wsURL, err)
+		// websocket.Dial wraps the cause in verbose layers; surface the
+		// underlying network error when present.
+		var opErr *net.OpError
+		if errors.As(err, &opErr) {
+			return nil, opErr
+		}
 		return nil, err
 	}
 	if resp.Body != nil {
