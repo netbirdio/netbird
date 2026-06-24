@@ -216,62 +216,81 @@ func Collect(ctx context.Context, s store.Store, accountID string, c Change) (gr
 	}
 	r := newResolver(ctx, snap, accountID, c)
 	r.walk()
-	return setToSlice(r.groupSet), setToSlice(r.peerSet)
+	return setToSlice(r.affectedGroups), setToSlice(r.affectedPeers)
 }
 
 func newResolver(ctx context.Context, snap *Snapshot, accountID string, c Change) *resolver {
 	r := &resolver{
-		ctx:                        ctx,
-		snap:                       snap,
-		accountID:                  accountID,
-		change:                     c,
-		changedGroupSet:            toSet(c.ChangedGroupIDs),
-		changedPeerSet:             toSet(c.ChangedPeerIDs),
-		groupSet:                   make(map[string]struct{}),
-		peerSet:                    make(map[string]struct{}),
-		networkIDs:                 make(map[string]struct{}),
-		sourceOriginatedNetworkIDs: make(map[string]struct{}),
-		changedGroupIDs:            toSet(c.ChangedGroupIDs),
+		ctx:            ctx,
+		snap:           snap,
+		accountID:      accountID,
+		change:         c,
+		linkGroups:     toSet(c.ChangedGroupIDs),
+		outputGroups:   toSet(c.ChangedGroupIDs),
+		changedPeers:   toSet(c.ChangedPeerIDs),
+		affectedGroups: make(map[string]struct{}),
+		affectedPeers:  make(map[string]struct{}),
 	}
 	// Resolve each changed peer to its groups here so callers pass only ChangedPeerIDs.
 	r.seedChangedGroupsFromPeers()
-	r.matchedPolicies = append(r.matchedPolicies, c.Policies...)
 	return r
 }
 
-// seedChangedGroupsFromPeers adds each changed peer's groups to changedGroupSet so
+// seedChangedGroupsFromPeers adds each changed peer's groups to linkGroups so
 // the group-driven walkers fire for memberships, not just direct peer references.
 // These seeded groups are for MATCHING only — folding the changed entity's own
-// side is gated on changedGroupIDs (the caller-reported groups), so a seeded group
+// side is gated on outputGroups (the caller-reported groups), so a seeded group
 // never folds its whole membership; only the changed peer itself folds in.
 func (r *resolver) seedChangedGroupsFromPeers() {
-	if len(r.changedPeerSet) == 0 {
+	if len(r.changedPeers) == 0 {
 		return
 	}
 	for groupID, members := range r.snap.groupPeers {
-		for pID := range r.changedPeerSet {
+		for pID := range r.changedPeers {
 			if _, ok := members[pID]; ok {
-				r.changedGroupSet[groupID] = struct{}{}
+				r.linkGroups[groupID] = struct{}{}
 				break
 			}
 		}
 	}
 }
 
+// policySide selects which side of a policy rule to walk.
+type policySide int
+
+const (
+	sideSource policySide = iota
+	sideDestination
+)
+
+func (s policySide) opposite() policySide {
+	if s == sideSource {
+		return sideDestination
+	}
+	return sideSource
+}
+
+// walk resolves affected peers in two buckets, by how far each change propagates.
+//
+// BOTH-SIDES — the rule itself changed (an explicit policy edit, or a policy whose
+// posture check changed). Source AND destination refresh, so each such policy is
+// walked on both sides.
+//
+// OPPOSITE-SIDE — an endpoint moved but no rule changed. For each policy the change
+// touches we fold only the side AWAY from the change:
+//   - a changed peer/group sits ON a policy side -> fold the opposite side;
+//   - a changed router/resource/network sits on a NETWORK -> fold the SOURCE side of
+//     the policies whose destination reaches it (and the routers it implies).
+//
+// Routes, nameserver groups, DNS and embedded-proxy services distribute to their own
+// member peers, outside the policy graph, and are folded here too.
 func (r *resolver) walk() {
-	r.collectFromExplicitPolicies()
-	r.collectFromExplicitRoutes(r.change.Routes)
-	r.collectFromExplicitRouters(r.change.Routers)
-	r.collectFromExplicitResources(r.change.Resources)
-	r.collectFromExplicitNetworks(r.change.Networks)
-	r.collectFromPostureChecks(r.change.PostureCheckIDs)
+	for _, policy := range r.bothSidesPolicies() {
+		r.foldPolicySide(policy, sideSource)
+		r.foldPolicySide(policy, sideDestination)
+	}
 
-	// Distribution groups (nameserver/DNS) affect only their member peers: fold them
-	// straight into groupSet so expand() maps them to members, without the policy/
-	// route walk that changedGroupSet would trigger.
-	addAll(r.groupSet, r.change.DistributionGroupIDs)
-
-	if len(r.changedGroupSet) > 0 || len(r.changedPeerSet) > 0 {
+	if len(r.linkGroups) > 0 || len(r.changedPeers) > 0 {
 		r.collectFromPolicies()
 		r.collectFromRoutes()
 		r.collectFromNameServers()
@@ -280,7 +299,22 @@ func (r *resolver) walk() {
 		r.collectFromProxyServices()
 	}
 
-	r.collectResourceRouterBridge()
+	r.collectFromChangedRoutes(r.change.Routes)
+	r.collectFromChangedRouters(r.change.Routers)
+	r.collectFromChangedResources(r.change.Resources)
+	r.collectFromChangedNetworks(r.change.Networks)
+
+	// Distribution groups (nameserver/DNS) affect only their member peers: fold them
+	// straight into affectedGroups so expand() maps them to members, without the
+	// policy/route walk that linkGroups would trigger.
+	addAll(r.affectedGroups, r.change.DistributionGroupIDs)
+}
+
+// bothSidesPolicies are the policies whose rule changed: the explicitly edited ones
+// plus those gated by a changed posture check. walk folds both their sides.
+func (r *resolver) bothSidesPolicies() []*types.Policy {
+	policies := append([]*types.Policy(nil), r.change.Policies...)
+	return r.appendPoliciesForPostureChecks(policies, r.change.PostureCheckIDs)
 }
 
 type resolver struct {
@@ -289,26 +323,25 @@ type resolver struct {
 	accountID string
 	change    Change
 
-	changedGroupSet map[string]struct{}
-	changedPeerSet  map[string]struct{}
+	// Inputs — what changed. Set once at construction, read-only during the walk
+	// (except linkGroups, which collectFromExplicitResources also seeds).
+	//
+	// linkGroups is the MATCH set: caller-changed groups ∪ the groups of changed
+	// peers ∪ changed-resource groups. A rule/route/router matches the change when
+	// one of its groups is here — used only to find the opposite side to fold.
+	//
+	// outputGroups is the FOLD-WHOLE-GROUP set: ONLY Change.ChangedGroupIDs. When a
+	// matched group is here, its whole membership is affected. A peer-seeded group
+	// is in linkGroups but NOT outputGroups, so it folds only the changed peer
+	// (changedPeers), never its siblings.
+	linkGroups   map[string]struct{}
+	outputGroups map[string]struct{}
+	changedPeers map[string]struct{}
 
-	groupSet map[string]struct{}
-	peerSet  map[string]struct{}
-
-	matchedPolicies []*types.Policy
-	networkIDs      map[string]struct{}
-	// sourceOriginatedNetworkIDs are networks marked affected only because a
-	// source-side change targets a resource on them (bridgeSourceToRouters). Their
-	// routers must refresh, but the policy sources must not be folded back: a
-	// changed source propagates only to the opposite (router) side, never to its
-	// co-sources. Networks marked by a router/resource/network change are absent
-	// here and do fold sources, since the destination side itself changed.
-	sourceOriginatedNetworkIDs map[string]struct{}
-
-	// changedGroupIDs are the groups the caller reported as changed via
-	// Change.ChangedGroupIDs (NOT the peer-seeded ones in changedGroupSet). Only
-	// these fold their whole membership; a peer-seeded group folds the peer alone.
-	changedGroupIDs map[string]struct{}
+	// Outputs — the answer. The only sets the walk accumulates into. affectedGroups
+	// is expanded to its member peers in expand().
+	affectedGroups map[string]struct{}
+	affectedPeers  map[string]struct{}
 }
 
 func (r *resolver) policies() []*types.Policy { return r.snap.policies }
@@ -318,10 +351,10 @@ func (r *resolver) networkResources() []*resourceTypes.NetworkResource { return 
 func (r *resolver) networkRouters() []*routerTypes.NetworkRouter { return r.snap.routers }
 
 // peerIDsForGroups maps a group set to its member peer IDs via the preloaded index.
-func (r *resolver) peerIDsForGroups(groupSet map[string]struct{}) []string {
+func (r *resolver) peerIDsForGroups(groups map[string]struct{}) []string {
 	seen := make(map[string]struct{})
 	var ids []string
-	for gID := range groupSet {
+	for gID := range groups {
 		for pID := range r.snap.groupPeers[gID] {
 			if _, ok := seen[pID]; ok {
 				continue
@@ -334,25 +367,25 @@ func (r *resolver) peerIDsForGroups(groupSet map[string]struct{}) []string {
 }
 
 func (r *resolver) expand() []string {
-	peerIDs := r.peerIDsForGroups(r.groupSet)
+	peerIDs := r.peerIDsForGroups(r.affectedGroups)
 
 	log.WithContext(r.ctx).Tracef("affectedpeers expand: account=%s affectedGroups=%v -> %d group-member peers; direct peers=%v",
-		r.accountID, setToSlice(r.groupSet), len(peerIDs), setToSlice(r.peerSet))
+		r.accountID, setToSlice(r.affectedGroups), len(peerIDs), setToSlice(r.affectedPeers))
 
 	seen := make(map[string]struct{}, len(peerIDs))
 	for _, id := range peerIDs {
 		seen[id] = struct{}{}
 	}
-	for id := range r.peerSet {
+	for id := range r.affectedPeers {
 		if _, ok := seen[id]; !ok {
 			peerIDs = append(peerIDs, id)
 			seen[id] = struct{}{}
 		}
 	}
 
-	// Fold in removed peers only when their group is linked (in groupSet).
+	// Fold in removed peers only when their group is linked (in affectedGroups).
 	for groupID, removed := range r.change.RemovedPeersByGroup {
-		if _, linked := r.groupSet[groupID]; !linked {
+		if _, linked := r.affectedGroups[groupID]; !linked {
 			continue
 		}
 		for _, id := range removed {
@@ -368,236 +401,316 @@ func (r *resolver) expand() []string {
 	return peerIDs
 }
 
-func (r *resolver) collectFromExplicitPolicies() {
-	for _, policy := range r.matchedPolicies {
-		if policy == nil {
-			continue
-		}
-		log.WithContext(r.ctx).Tracef("collectFromExplicitPolicies: changed policy %s (%s) -> folding rule groups %v + direct peers",
-			policy.ID, policy.Name, policy.RuleGroups())
-		addAll(r.groupSet, policy.RuleGroups())
-		collectPolicyDirectPeers(policy, r.peerSet)
+// ruleSideGroups / ruleSideResource return the groups and the resource on the given
+// side of a rule.
+func ruleSideGroups(rule *types.PolicyRule, side policySide) []string {
+	if side == sideDestination {
+		return rule.Destinations
 	}
+	return rule.Sources
 }
 
-func (r *resolver) collectFromExplicitRoutes(routes []*route.Route) {
-	for _, rt := range routes {
-		if rt == nil {
-			continue
-		}
-		log.WithContext(r.ctx).Tracef("collectFromExplicitRoutes: changed route %s -> folding groups=%v peerGroups=%v accessControlGroups=%v peer=%q",
-			rt.ID, rt.Groups, rt.PeerGroups, rt.AccessControlGroups, rt.Peer)
-		addAll(r.groupSet, rt.Groups, rt.PeerGroups, rt.AccessControlGroups)
-		if rt.Peer != "" {
-			r.peerSet[rt.Peer] = struct{}{}
-		}
+func ruleSideResource(rule *types.PolicyRule, side policySide) types.Resource {
+	if side == sideDestination {
+		return rule.DestinationResource
 	}
+	return rule.SourceResource
 }
 
-// collectFromExplicitRouters folds changed routers' peers and marks their networks
-// for the bridge. Passing the old router keeps a repointed router's previous peers
-// affected without a post-commit read.
-func (r *resolver) collectFromExplicitRouters(routers []*routerTypes.NetworkRouter) {
-	for _, router := range routers {
-		if router == nil {
-			continue
-		}
-		log.WithContext(r.ctx).Tracef("collectFromExplicitRouters: changed router %s on network %s -> folding peerGroups=%v peer=%q and marking network for source bridge",
-			router.ID, router.NetworkID, router.PeerGroups, router.Peer)
-		addAll(r.groupSet, router.PeerGroups)
-		if router.Peer != "" {
-			r.peerSet[router.Peer] = struct{}{}
-		}
-		if router.NetworkID != "" {
-			r.networkIDs[router.NetworkID] = struct{}{}
-		}
-	}
-}
-
-// collectFromExplicitResources marks changed resources' networks for the bridge and
-// treats their group IDs as changed, so policies targeting the resource via a
-// now-detached (old) group still refresh.
-func (r *resolver) collectFromExplicitResources(resources []*resourceTypes.NetworkResource) {
-	for _, resource := range resources {
-		if resource == nil {
-			continue
-		}
-		log.WithContext(r.ctx).Tracef("collectFromExplicitResources: changed resource %s on network %s -> marking network for bridge and treating groups %v as changed",
-			resource.ID, resource.NetworkID, resource.GroupIDs)
-		addAll(r.changedGroupSet, resource.GroupIDs)
-		if resource.NetworkID != "" {
-			r.networkIDs[resource.NetworkID] = struct{}{}
-		}
-	}
-}
-
-// collectFromExplicitNetworks marks changed networks for the bridge. A network has
-// no groups/peers of its own.
-func (r *resolver) collectFromExplicitNetworks(networks []*networkTypes.Network) {
-	for _, network := range networks {
-		if network == nil {
-			continue
-		}
-		log.WithContext(r.ctx).Tracef("collectFromExplicitNetworks: changed network %s -> marking for bridge", network.ID)
-		if network.ID != "" {
-			r.networkIDs[network.ID] = struct{}{}
-		}
-	}
-}
-
-func (r *resolver) collectFromPostureChecks(postureCheckIDs []string) {
-	if len(postureCheckIDs) == 0 {
+// foldPolicySide folds one side of a policy down to affected peers: its groups
+// (resolved to members in expand) and its direct peer. When the side is the
+// DESTINATION and references a network resource (directly or via a destination
+// group's resources), it also folds the routers that serve that resource's network
+// — a destination resource is reached through its routers. A resource on the SOURCE
+// side routes to nobody (GetPoliciesForNetworkResource matches destinations only),
+// so the router hop is destination-only.
+func (r *resolver) foldPolicySide(policy *types.Policy, side policySide) {
+	if policy == nil {
 		return
+	}
+	for _, rule := range policy.Rules {
+		addAll(r.affectedGroups, ruleSideGroups(rule, side))
+		res := ruleSideResource(rule, side)
+		if res.Type == types.ResourceTypePeer && res.ID != "" {
+			r.affectedPeers[res.ID] = struct{}{}
+		}
+	}
+	if side == sideDestination {
+		r.foldRoutersForResources(r.policyDestinationResourceIDs(policy))
+	}
+}
+
+// appendPoliciesForPostureChecks appends every policy that references a changed
+// posture check (a rule change, so walk both sides).
+func (r *resolver) appendPoliciesForPostureChecks(policies []*types.Policy, postureCheckIDs []string) []*types.Policy {
+	if len(postureCheckIDs) == 0 {
+		return policies
 	}
 	ids := toSet(postureCheckIDs)
 	for _, policy := range r.policies() {
 		if !policyReferencesPostureChecks(policy, ids) {
 			continue
 		}
-		log.WithContext(r.ctx).Tracef("collectFromPostureChecks: policy %s (%s) references changed posture checks %v -> folding rule groups %v + direct peers",
-			policy.ID, policy.Name, postureCheckIDs, policy.RuleGroups())
-		addAll(r.groupSet, policy.RuleGroups())
-		collectPolicyDirectPeers(policy, r.peerSet)
-		r.matchedPolicies = append(r.matchedPolicies, policy)
+		log.WithContext(r.ctx).Tracef("appendPoliciesForPostureChecks: policy %s (%s) references changed posture checks %v -> both-sides policy",
+			policy.ID, policy.Name, postureCheckIDs)
+		policies = append(policies, policy)
 	}
+	return policies
 }
 
-// collectFromPolicies folds, for every policy a changed group or peer touches:
-// the opposite side of the matching rule, the changed entity's own side (the
-// changed group itself, or the changed peer alone — never the changed side's
-// sibling groups or co-members), and records the policy for the resource<->router
-// bridge. A changed peer is mapped to its groups in changedGroupSet up front (see
-// seedChangedGroupsFromPeers); changedGroupIDs holds only the caller-reported
-// groups, so a peer-seeded group does not fold its whole membership.
+// collectFromPolicies folds, for every policy whose rule a changed group or peer
+// touches, only the OPPOSITE side (down to peers, incl. destination routers), plus
+// the changed entity's own side: the changed group's whole membership when the
+// group itself changed (outputGroups), or the changed peer alone when matched via a
+// peer-seeded group (never its co-members).
 func (r *resolver) collectFromPolicies() {
 	for _, policy := range r.policies() {
-		if !r.collectPolicyDirectional(policy) {
-			continue
+		for _, rule := range policy.Rules {
+			r.foldRuleSideIfChanged(policy, rule, sideSource)
+			r.foldRuleSideIfChanged(policy, rule, sideDestination)
 		}
-		log.WithContext(r.ctx).Tracef("collectFromPolicies: policy %s (%s) matched directionally", policy.ID, policy.Name)
-		r.matchedPolicies = append(r.matchedPolicies, policy)
 	}
 }
 
-// collectPolicyDirectional folds one policy's affected groups/peers and reports
-// whether it matched a changed group or peer at all (so the caller can record it
-// for the bridge even when the opposite side is a resource, not a group).
-func (r *resolver) collectPolicyDirectional(policy *types.Policy) bool {
-	matched := false
-	for _, rule := range policy.Rules {
-		matched = r.foldRuleSide(rule.Sources, rule.Destinations, rule.DestinationResource) || matched
-		matched = r.foldRuleSide(rule.Destinations, rule.Sources, rule.SourceResource) || matched
+// foldRuleSideIfChanged: when a changed group or direct peer sits on `side` of the
+// rule, fold the opposite side fully (groups/peers + destination routers) and fold
+// the changed entity's own side (the whole changed group, or the changed peer alone).
+func (r *resolver) foldRuleSideIfChanged(policy *types.Policy, rule *types.PolicyRule, side policySide) {
+	nearGroups := ruleSideGroups(rule, side)
+	nearResource := ruleSideResource(rule, side)
 
-		if isDirectPeerInSet(rule.SourceResource, r.changedPeerSet) {
-			r.peerSet[rule.SourceResource.ID] = struct{}{}
-			addAll(r.groupSet, rule.Destinations)
-			if rule.DestinationResource.Type == types.ResourceTypePeer && rule.DestinationResource.ID != "" {
-				r.peerSet[rule.DestinationResource.ID] = struct{}{}
-			}
-			matched = true
-		}
-		if isDirectPeerInSet(rule.DestinationResource, r.changedPeerSet) {
-			r.peerSet[rule.DestinationResource.ID] = struct{}{}
-			addAll(r.groupSet, rule.Sources)
-			if rule.SourceResource.Type == types.ResourceTypePeer && rule.SourceResource.ID != "" {
-				r.peerSet[rule.SourceResource.ID] = struct{}{}
-			}
-			matched = true
-		}
+	matchedByGroup := anyInSet(nearGroups, r.linkGroups)
+	matchedByPeer := isDirectPeerInSet(nearResource, r.changedPeers)
+	if !matchedByGroup && !matchedByPeer {
+		return
 	}
-	return matched
+
+	// Opposite side, fully down to peers (a destination opposite also folds routers).
+	r.foldPolicySideForRule(policy, rule, side.opposite())
+
+	// Own side: the changed group's members (only if the group itself changed), and
+	// the changed direct peer / changed peers in a matched group — never siblings.
+	for _, gID := range nearGroups {
+		if _, ok := r.outputGroups[gID]; ok {
+			r.affectedGroups[gID] = struct{}{}
+		}
+		r.foldChangedPeersInGroup(gID)
+	}
+	if matchedByPeer {
+		r.affectedPeers[nearResource.ID] = struct{}{}
+	}
+
+	// When the changed side IS a destination, the resources it targets are reached
+	// through their network's routers, so those routers refresh too (e.g. attaching a
+	// resource to a destination group, or a changed destination group/resource).
+	if side == sideDestination {
+		r.foldRoutersForResources(r.ruleDestinationResourceIDs(rule))
+	}
 }
 
-// foldRuleSide handles a changed group on `near` (Sources or Destinations): it
-// folds the `far` (opposite) groups and far resource peer, the changed group(s)
-// themselves (caller-reported groups only — not seeded ones, so a changed peer's
-// group does not pull in its members), and the changed peers seeded from those
-// groups (the peer alone). Returns whether the side matched.
-func (r *resolver) foldRuleSide(near, far []string, farResource types.Resource) bool {
-	if !anyInSet(near, r.changedGroupSet) {
-		return false
+// foldPolicySideForRule folds one side of a single rule (groups + direct peer), and
+// for a destination side the routers of that rule's destination resources.
+func (r *resolver) foldPolicySideForRule(policy *types.Policy, rule *types.PolicyRule, side policySide) {
+	addAll(r.affectedGroups, ruleSideGroups(rule, side))
+	res := ruleSideResource(rule, side)
+	if res.Type == types.ResourceTypePeer && res.ID != "" {
+		r.affectedPeers[res.ID] = struct{}{}
 	}
-	addAll(r.groupSet, far)
-	if farResource.Type == types.ResourceTypePeer && farResource.ID != "" {
-		r.peerSet[farResource.ID] = struct{}{}
+	if side == sideDestination {
+		r.foldRoutersForResources(r.ruleDestinationResourceIDs(rule))
 	}
-	for _, gID := range near {
-		if _, ok := r.changedGroupIDs[gID]; ok {
-			r.groupSet[gID] = struct{}{} // changed group itself -> its members
-		}
-		r.foldChangedPeersInGroup(gID) // a changed peer in this group -> the peer alone
-	}
-	return true
 }
 
 // foldChangedPeersInGroup folds changed peers that belong to groupID directly into
-// peerSet (the peer only, never its co-members).
+// affectedPeers (the peer only, never its co-members).
 func (r *resolver) foldChangedPeersInGroup(groupID string) {
-	if len(r.changedPeerSet) == 0 {
+	if len(r.changedPeers) == 0 {
 		return
 	}
 	members := r.snap.groupPeers[groupID]
-	for pID := range r.changedPeerSet {
+	for pID := range r.changedPeers {
 		if _, ok := members[pID]; ok {
-			r.peerSet[pID] = struct{}{}
+			r.affectedPeers[pID] = struct{}{}
+		}
+	}
+}
+
+// collectFromChangedRoutes folds an explicitly changed route's own groups and peer.
+func (r *resolver) collectFromChangedRoutes(routes []*route.Route) {
+	for _, rt := range routes {
+		if rt == nil {
+			continue
+		}
+		log.WithContext(r.ctx).Tracef("collectFromChangedRoutes: changed route %s -> folding groups=%v peerGroups=%v accessControlGroups=%v peer=%q",
+			rt.ID, rt.Groups, rt.PeerGroups, rt.AccessControlGroups, rt.Peer)
+		addAll(r.affectedGroups, rt.Groups, rt.PeerGroups, rt.AccessControlGroups)
+		if rt.Peer != "" {
+			r.affectedPeers[rt.Peer] = struct{}{}
+		}
+	}
+}
+
+// collectFromChangedRouters: a changed router refreshes its OWN backing peer/groups
+// (the changed entity) and the SOURCE side of every policy reaching a resource on
+// its network (the router serves the whole network). Sibling routers on the network
+// are independent and are NOT folded. Passing the old router state keeps a repointed
+// router's previous backing affected without a post-commit read.
+func (r *resolver) collectFromChangedRouters(routers []*routerTypes.NetworkRouter) {
+	for _, router := range routers {
+		if router == nil {
+			continue
+		}
+		log.WithContext(r.ctx).Tracef("collectFromChangedRouters: changed router %s on network %s -> folding its own peerGroups=%v peer=%q + sources reaching network resources",
+			router.ID, router.NetworkID, router.PeerGroups, router.Peer)
+		addAll(r.affectedGroups, router.PeerGroups)
+		if router.Peer != "" {
+			r.affectedPeers[router.Peer] = struct{}{}
+		}
+		if router.NetworkID != "" {
+			r.foldPolicySourcesForResources(r.networkResourceIDs(router.NetworkID))
+		}
+	}
+}
+
+// collectFromChangedResources: a changed resource refreshes the SOURCE side of the
+// policies targeting EXACTLY that resource — directly, or via one of the resource's
+// own groups (old∪new across the change, so a now-detached group's sources still
+// refresh) — plus the routers serving its network (the resource is reached through
+// them). It does not touch sibling resources on the same network.
+func (r *resolver) collectFromChangedResources(resources []*resourceTypes.NetworkResource) {
+	for _, resource := range resources {
+		if resource == nil {
+			continue
+		}
+		log.WithContext(r.ctx).Tracef("collectFromChangedResources: changed resource %s on network %s (groups %v) -> folding sources of policies targeting it + its network's routers",
+			resource.ID, resource.NetworkID, resource.GroupIDs)
+		r.foldPolicySourcesForResource(resource.ID, resource.GroupIDs)
+		if resource.NetworkID != "" {
+			r.foldRoutersOnNetworks(map[string]struct{}{resource.NetworkID: {}})
+		}
+	}
+}
+
+// foldPolicySourcesForResource folds the source side of every policy whose
+// destination is the given resource — referenced directly, or via any of the given
+// groups (the resource's own old∪new groups, which captures a detached group).
+func (r *resolver) foldPolicySourcesForResource(resourceID string, groupIDs []string) {
+	groups := toSet(groupIDs)
+	for _, policy := range r.policies() {
+		if !policyTargetsResourceOrGroups(policy, resourceID, groups) {
+			continue
+		}
+		log.WithContext(r.ctx).Tracef("foldPolicySourcesForResource: policy %s (%s) targets changed resource %s -> folding its source groups/peers", policy.ID, policy.Name, resourceID)
+		collectPolicySources(policy, r.affectedGroups, r.affectedPeers)
+	}
+}
+
+// policyTargetsResourceOrGroups reports whether a policy's destination is the given
+// resource directly, or one of the given destination groups.
+func policyTargetsResourceOrGroups(policy *types.Policy, resourceID string, groups map[string]struct{}) bool {
+	if policy == nil {
+		return false
+	}
+	for _, rule := range policy.Rules {
+		if rule.DestinationResource.Type != types.ResourceTypePeer && rule.DestinationResource.ID == resourceID && resourceID != "" {
+			return true
+		}
+		if anyInSet(rule.Destinations, groups) {
+			return true
+		}
+	}
+	return false
+}
+
+// collectFromChangedNetworks: a changed network refreshes the SOURCE side of the
+// policies reaching any of its resources, plus its routers. A network has no
+// groups/peers of its own.
+func (r *resolver) collectFromChangedNetworks(networks []*networkTypes.Network) {
+	for _, network := range networks {
+		if network == nil || network.ID == "" {
+			continue
+		}
+		log.WithContext(r.ctx).Tracef("collectFromChangedNetworks: changed network %s -> folding sources reaching its resources + its routers", network.ID)
+		resourceIDs := r.networkResourceIDs(network.ID)
+		r.foldPolicySourcesForResources(resourceIDs)
+		r.foldRoutersOnNetworks(map[string]struct{}{network.ID: {}})
+	}
+}
+
+// foldPolicySourcesForResources folds the source groups/peers of every policy whose
+// destination targets one of resourceIDs (directly or via a destination group).
+func (r *resolver) foldPolicySourcesForResources(resourceIDs map[string]struct{}) {
+	if len(resourceIDs) == 0 {
+		return
+	}
+	for _, policy := range r.policies() {
+		if r.policyTargetsResources(policy, resourceIDs) {
+			log.WithContext(r.ctx).Tracef("foldPolicySourcesForResources: policy %s (%s) targets a changed resource -> folding its source groups/peers", policy.ID, policy.Name)
+			collectPolicySources(policy, r.affectedGroups, r.affectedPeers)
 		}
 	}
 }
 
 func (r *resolver) collectFromRoutes() {
 	for _, rt := range r.snap.routes {
-		matchedByGroup := anyInSet(rt.Groups, r.changedGroupSet) || anyInSet(rt.PeerGroups, r.changedGroupSet) || anyInSet(rt.AccessControlGroups, r.changedGroupSet)
-		matchedByPeer := rt.Peer != "" && len(r.changedPeerSet) > 0 && isInSet(rt.Peer, r.changedPeerSet)
+		matchedByGroup := anyInSet(rt.Groups, r.linkGroups) || anyInSet(rt.PeerGroups, r.linkGroups) || anyInSet(rt.AccessControlGroups, r.linkGroups)
+		matchedByPeer := rt.Peer != "" && len(r.changedPeers) > 0 && isInSet(rt.Peer, r.changedPeers)
 		if !matchedByGroup && !matchedByPeer {
 			continue
 		}
 		log.WithContext(r.ctx).Tracef("collectFromRoutes: route %s matched (byGroup=%t byPeer=%t) -> folding groups=%v peerGroups=%v accessControlGroups=%v peer=%q",
 			rt.ID, matchedByGroup, matchedByPeer, rt.Groups, rt.PeerGroups, rt.AccessControlGroups, rt.Peer)
-		addAll(r.groupSet, rt.Groups, rt.PeerGroups, rt.AccessControlGroups)
+		addAll(r.affectedGroups, rt.Groups, rt.PeerGroups, rt.AccessControlGroups)
 		if rt.Peer != "" {
-			r.peerSet[rt.Peer] = struct{}{}
+			r.affectedPeers[rt.Peer] = struct{}{}
 		}
 	}
 }
 
 func (r *resolver) collectFromNameServers() {
-	if len(r.changedGroupSet) == 0 {
+	if len(r.linkGroups) == 0 {
 		return
 	}
 	for _, ns := range r.snap.nsGroups {
-		if anyInSet(ns.Groups, r.changedGroupSet) {
+		if anyInSet(ns.Groups, r.linkGroups) {
 			log.WithContext(r.ctx).Tracef("collectFromNameServers: nameserver group %s references a changed group -> folding its groups %v", ns.ID, ns.Groups)
-			addAll(r.groupSet, ns.Groups)
+			addAll(r.affectedGroups, ns.Groups)
 		}
 	}
 }
 
 func (r *resolver) collectFromDNSSettings() {
-	if len(r.changedGroupSet) == 0 || r.snap.dnsSettings == nil {
+	if len(r.linkGroups) == 0 || r.snap.dnsSettings == nil {
 		return
 	}
 	for _, gID := range r.snap.dnsSettings.DisabledManagementGroups {
-		if _, ok := r.changedGroupSet[gID]; ok {
+		if _, ok := r.linkGroups[gID]; ok {
 			log.WithContext(r.ctx).Tracef("collectFromDNSSettings: changed group %s is in DisabledManagementGroups -> folding it", gID)
-			r.groupSet[gID] = struct{}{}
+			r.affectedGroups[gID] = struct{}{}
 		}
 	}
 }
 
+// collectFromNetworkRouters handles a changed group/peer that BACKS a router (the
+// routing peer set moved): the router's own peers refresh and so do the sources of
+// the policies reaching its network's resources. Sibling routers on the network are
+// independent and are not folded.
 func (r *resolver) collectFromNetworkRouters() {
 	for _, router := range r.networkRouters() {
-		matchedByGroup := anyInSet(router.PeerGroups, r.changedGroupSet)
-		matchedByPeer := router.Peer != "" && len(r.changedPeerSet) > 0 && isInSet(router.Peer, r.changedPeerSet)
+		matchedByGroup := anyInSet(router.PeerGroups, r.linkGroups)
+		matchedByPeer := router.Peer != "" && len(r.changedPeers) > 0 && isInSet(router.Peer, r.changedPeers)
 		if !matchedByGroup && !matchedByPeer {
 			continue
 		}
-		log.WithContext(r.ctx).Tracef("collectFromNetworkRouters: router %s on network %s matched (byGroup=%t byPeer=%t) -> folding peerGroups=%v peer=%q and marking network for source bridge",
+		log.WithContext(r.ctx).Tracef("collectFromNetworkRouters: router %s on network %s matched (byGroup=%t byPeer=%t) -> folding its peerGroups=%v peer=%q + sources reaching network resources",
 			router.ID, router.NetworkID, matchedByGroup, matchedByPeer, router.PeerGroups, router.Peer)
-		addAll(r.groupSet, router.PeerGroups)
+		addAll(r.affectedGroups, router.PeerGroups)
 		if router.Peer != "" {
-			r.peerSet[router.Peer] = struct{}{}
+			r.affectedPeers[router.Peer] = struct{}{}
 		}
-		r.networkIDs[router.NetworkID] = struct{}{}
+		if router.NetworkID != "" {
+			r.foldPolicySourcesForResources(r.networkResourceIDs(router.NetworkID))
+		}
 	}
 }
 
@@ -618,34 +731,34 @@ func (r *resolver) collectFromProxyServices() {
 			continue
 		}
 		matchedByPeer := serviceMatchesChangedPeers(svc, proxyPeers, expanded)
-		matchedByAccessGroup := anyInSet(svc.AccessGroups, r.changedGroupSet)
+		matchedByAccessGroup := anyInSet(svc.AccessGroups, r.linkGroups)
 		if !matchedByPeer && !matchedByAccessGroup {
 			continue
 		}
 		log.WithContext(r.ctx).Tracef("collectFromProxyServices: service %s (cluster=%s) matched (byProxyOrTargetPeer=%t byAccessGroup=%t) -> folding %d proxy peers, peer targets and access groups %v",
 			svc.ID, svc.ProxyCluster, matchedByPeer, matchedByAccessGroup, len(proxyPeers), svc.AccessGroups)
 		for _, pid := range proxyPeers {
-			r.peerSet[pid] = struct{}{}
+			r.affectedPeers[pid] = struct{}{}
 		}
 		for _, target := range svc.Targets {
 			if target.TargetType == rpservice.TargetTypePeer && target.TargetId != "" {
-				r.peerSet[target.TargetId] = struct{}{}
+				r.affectedPeers[target.TargetId] = struct{}{}
 			}
 		}
-		addAll(r.groupSet, svc.AccessGroups)
+		addAll(r.affectedGroups, svc.AccessGroups)
 	}
 }
 
 func (r *resolver) expandChangedPeersWithGroups() map[string]struct{} {
-	if len(r.changedGroupSet) == 0 {
-		return r.changedPeerSet
+	if len(r.linkGroups) == 0 {
+		return r.changedPeers
 	}
-	ids := r.peerIDsForGroups(r.changedGroupSet)
+	ids := r.peerIDsForGroups(r.linkGroups)
 	if len(ids) == 0 {
-		return r.changedPeerSet
+		return r.changedPeers
 	}
-	merged := make(map[string]struct{}, len(r.changedPeerSet)+len(ids))
-	for id := range r.changedPeerSet {
+	merged := make(map[string]struct{}, len(r.changedPeers)+len(ids))
+	for id := range r.changedPeers {
 		merged[id] = struct{}{}
 	}
 	for _, id := range ids {
@@ -654,67 +767,36 @@ func (r *resolver) expandChangedPeersWithGroups() map[string]struct{} {
 	return merged
 }
 
-// collectResourceRouterBridge crosses between source peers and routing peers, which
-// are reachable only via resource -> network -> router, not through the policy's own
-// groups: source -> router (targeted resources' networks), then router -> source.
-func (r *resolver) collectResourceRouterBridge() {
-	r.bridgeSourceToRouters()
-	r.bridgeRoutersToSources()
-}
-
-func (r *resolver) bridgeSourceToRouters() {
-	resourceIDs := r.policyDestinationResourceIDs(r.matchedPolicies...)
+// foldRoutersForResources folds the routers serving the networks of the given
+// resources (a destination resource is reached through its network's routers). It is
+// the resource -> network -> router hop used by foldPolicySide for a destination.
+func (r *resolver) foldRoutersForResources(resourceIDs map[string]struct{}) {
 	if len(resourceIDs) == 0 {
 		return
 	}
-
-	networkIDs := r.resourceNetworkIDs(resourceIDs)
-	log.WithContext(r.ctx).Tracef("bridgeSourceToRouters: targeted resources %v -> networks %v (their routers become affected via the router->source pass)",
-		setToSlice(resourceIDs), setToSlice(networkIDs))
-	for id := range networkIDs {
-		// Mark source-originated unless a router/resource/network change already
-		// marked this network directly (then it folds sources back).
-		if _, ok := r.networkIDs[id]; !ok {
-			r.sourceOriginatedNetworkIDs[id] = struct{}{}
-		}
-		r.networkIDs[id] = struct{}{}
-	}
+	r.foldRoutersOnNetworks(r.resourceNetworkIDs(resourceIDs))
 }
 
-func (r *resolver) bridgeRoutersToSources() {
-	if len(r.networkIDs) == 0 {
-		return
+// ruleDestinationResourceIDs returns the destination resource IDs of a single rule:
+// the direct DestinationResource plus the resources of its destination groups.
+func (r *resolver) ruleDestinationResourceIDs(rule *types.PolicyRule) map[string]struct{} {
+	resourceIDs := make(map[string]struct{})
+	if rule.DestinationResource.Type != types.ResourceTypePeer && rule.DestinationResource.ID != "" {
+		resourceIDs[rule.DestinationResource.ID] = struct{}{}
 	}
+	r.addGroupResourceIDs(toSet(rule.Destinations), resourceIDs)
+	return resourceIDs
+}
 
-	log.WithContext(r.ctx).Tracef("bridgeRoutersToSources: affected networks %v -> folding their routing peers and the source peers of policies targeting their resources",
-		setToSlice(r.networkIDs))
-
-	r.foldRoutersOnNetworks(r.networkIDs)
-
-	// Sources are folded back only for networks the destination side itself changed
-	// (router/resource/network change). Networks reached only because a source-side
-	// change targets their resource must not refresh the policy's sources — the
-	// changed source propagates to the router side, not back to its co-sources.
+// networkResourceIDs returns the IDs of all resources on the given network.
+func (r *resolver) networkResourceIDs(networkID string) map[string]struct{} {
 	resourceIDs := make(map[string]struct{})
 	for _, resource := range r.networkResources() {
-		if _, ok := r.networkIDs[resource.NetworkID]; !ok {
-			continue
-		}
-		if _, sourceOriginated := r.sourceOriginatedNetworkIDs[resource.NetworkID]; sourceOriginated {
-			continue
-		}
-		resourceIDs[resource.ID] = struct{}{}
-	}
-	if len(resourceIDs) == 0 {
-		return
-	}
-
-	for _, policy := range r.policies() {
-		if r.policyTargetsResources(policy, resourceIDs) {
-			log.WithContext(r.ctx).Tracef("bridgeRoutersToSources: policy %s (%s) targets an affected-network resource -> folding its source groups/peers", policy.ID, policy.Name)
-			collectPolicySources(policy, r.groupSet, r.peerSet)
+		if resource.NetworkID == networkID {
+			resourceIDs[resource.ID] = struct{}{}
 		}
 	}
+	return resourceIDs
 }
 
 func (r *resolver) foldRoutersOnNetworks(networkIDs map[string]struct{}) {
@@ -724,9 +806,9 @@ func (r *resolver) foldRoutersOnNetworks(networkIDs map[string]struct{}) {
 		}
 		log.WithContext(r.ctx).Tracef("bridgeRoutersToSources: router %s serves affected network %s -> folding peerGroups=%v peer=%q",
 			router.ID, router.NetworkID, router.PeerGroups, router.Peer)
-		addAll(r.groupSet, router.PeerGroups)
+		addAll(r.affectedGroups, router.PeerGroups)
 		if router.Peer != "" {
-			r.peerSet[router.Peer] = struct{}{}
+			r.affectedPeers[router.Peer] = struct{}{}
 		}
 	}
 }
@@ -811,22 +893,22 @@ func (r *resolver) addGroupResourceIDs(groupIDs map[string]struct{}, resourceIDs
 	}
 }
 
-func collectPolicyDirectPeers(policy *types.Policy, peerSet map[string]struct{}) {
+func collectPolicyDirectPeers(policy *types.Policy, peers map[string]struct{}) {
 	for _, rule := range policy.Rules {
 		if rule.SourceResource.Type == types.ResourceTypePeer && rule.SourceResource.ID != "" {
-			peerSet[rule.SourceResource.ID] = struct{}{}
+			peers[rule.SourceResource.ID] = struct{}{}
 		}
 		if rule.DestinationResource.Type == types.ResourceTypePeer && rule.DestinationResource.ID != "" {
-			peerSet[rule.DestinationResource.ID] = struct{}{}
+			peers[rule.DestinationResource.ID] = struct{}{}
 		}
 	}
 }
 
-func collectPolicySources(policy *types.Policy, groupSet, peerSet map[string]struct{}) {
+func collectPolicySources(policy *types.Policy, groups, peers map[string]struct{}) {
 	for _, rule := range policy.Rules {
-		addAll(groupSet, rule.Sources)
+		addAll(groups, rule.Sources)
 		if rule.SourceResource.Type == types.ResourceTypePeer && rule.SourceResource.ID != "" {
-			peerSet[rule.SourceResource.ID] = struct{}{}
+			peers[rule.SourceResource.ID] = struct{}{}
 		}
 	}
 }
