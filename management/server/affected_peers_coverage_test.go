@@ -107,7 +107,7 @@ func TestAffectedPeers_DependencyCoverageMatrix(t *testing.T) {
 			affected := resolveAffected(t, s.manager.Store, s.accountID, change)
 
 			assert.ElementsMatch(t, affected, mustContain, "expected peer to be affected")
-			assert.NotElementsMatch(t, affected, mustExclude, "peer must not be affected")
+			assert.NotContains(t, affected, mustExclude, "peer must not be affected")
 		})
 	}
 }

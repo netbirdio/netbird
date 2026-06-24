@@ -210,43 +210,55 @@ func TestPolicyReferencesDirectPeers(t *testing.T) {
 			Sources:             []string{"sg6"},
 			Destinations:        []string{"dg6"},
 		},
+		{
+			SourceResource:      types.Resource{Type: types.ResourceTypePeer, ID: "p7"},
+			DestinationResource: types.Resource{Type: types.ResourceTypePeer, ID: "r7"},
+			Sources:             []string{"sg7"},
+			Destinations:        []string{"dg7"},
+		},
 	}}
 
 	var tests = []struct {
 		name             string
-		inGroups         map[string]struct{}
+		changedPeerIds   map[string]struct{}
 		expectedPeerIds  []string
 		expectedGroupIds []string
 	}{
 		{
 			name:             "match sources",
-			inGroups:         map[string]struct{}{"p1": {}, "p2": {}},
+			changedPeerIds:   map[string]struct{}{"p1": {}, "p2": {}},
 			expectedPeerIds:  []string{"p1", "p2", "r1", "r2"},
 			expectedGroupIds: []string{"dg1", "dg2"},
 		},
 		{
 			name:             "match destinations",
-			inGroups:         map[string]struct{}{"r1": {}, "r2": {}},
+			changedPeerIds:   map[string]struct{}{"r1": {}, "r2": {}},
 			expectedPeerIds:  []string{"r1", "r2", "p1", "p2"},
 			expectedGroupIds: []string{"sg1", "sg2"},
 		},
 		{
 			name:             "wrong opposing peer types, only changed peer ids and groups on the opposing end of the rule",
-			inGroups:         map[string]struct{}{"p3": {}, "r4": {}},
+			changedPeerIds:   map[string]struct{}{"p3": {}, "r4": {}},
 			expectedPeerIds:  []string{"p3", "r4"},
 			expectedGroupIds: []string{"dg3", "sg4"},
 		},
 		{
 			name:             "wrong peer type, no matching peer ids",
-			inGroups:         map[string]struct{}{"p5": {}, "r6": {}},
+			changedPeerIds:   map[string]struct{}{"p5": {}, "r6": {}},
 			expectedPeerIds:  []string{},
 			expectedGroupIds: []string{},
+		},
+		{
+			name:             "changed peers on both sides of the policy",
+			changedPeerIds:   map[string]struct{}{"p7": {}, "r7": {}},
+			expectedPeerIds:  []string{"p7", "r7"},
+			expectedGroupIds: []string{"sg7", "dg7"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			peerIds, groupIds := getGroupsAndPeersFromPolicyViaPeers(policy, tt.inGroups)
+			peerIds, groupIds := getGroupsAndPeersFromPolicyViaPeers(policy, tt.changedPeerIds)
 			assert.ElementsMatch(t, peerIds, tt.expectedPeerIds)
 			assert.ElementsMatch(t, groupIds, tt.expectedGroupIds)
 		})
