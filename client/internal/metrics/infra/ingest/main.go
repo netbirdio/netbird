@@ -59,6 +59,19 @@ var allowedMeasurements = map[string]measurementSpec{
 			"peer_id":         true,
 		},
 	},
+	"netbird_sync_phase": {
+		allowedFields: map[string]bool{
+			"duration_seconds": true,
+		},
+		allowedTags: map[string]bool{
+			"deployment_type": true,
+			"version":         true,
+			"os":              true,
+			"arch":            true,
+			"peer_id":         true,
+			"phase":           true,
+		},
+	},
 	"netbird_login": {
 		allowedFields: map[string]bool{
 			"duration_seconds": true,

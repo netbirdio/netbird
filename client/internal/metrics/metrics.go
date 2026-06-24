@@ -56,6 +56,9 @@ type metricsImplementation interface {
 	// RecordSyncDuration records how long it took to process a sync message
 	RecordSyncDuration(ctx context.Context, agentInfo AgentInfo, duration time.Duration)
 
+	// RecordSyncPhase records how long a single sub-phase of sync processing took
+	RecordSyncPhase(ctx context.Context, agentInfo AgentInfo, phase string, duration time.Duration)
+
 	// RecordLoginDuration records how long the login to management took
 	RecordLoginDuration(ctx context.Context, agentInfo AgentInfo, duration time.Duration, success bool)
 
@@ -125,6 +128,18 @@ func (c *ClientMetrics) RecordSyncDuration(ctx context.Context, duration time.Du
 	c.mu.RUnlock()
 
 	c.impl.RecordSyncDuration(ctx, agentInfo, duration)
+}
+
+// RecordSyncPhase records the duration of a single sub-phase of sync processing
+func (c *ClientMetrics) RecordSyncPhase(ctx context.Context, phase string, duration time.Duration) {
+	if c == nil {
+		return
+	}
+	c.mu.RLock()
+	agentInfo := c.agentInfo
+	c.mu.RUnlock()
+
+	c.impl.RecordSyncPhase(ctx, agentInfo, phase, duration)
 }
 
 // RecordLoginDuration records how long the login to management server took

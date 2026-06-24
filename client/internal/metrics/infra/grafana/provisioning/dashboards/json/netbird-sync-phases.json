@@ -1,0 +1,259 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "refresh": "",
+  "schemaVersion": 39,
+  "tags": [
+    "netbird",
+    "sync"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "influxdb",
+          "uid": "influxdb"
+        },
+        "definition": "import \"influxdata/influxdb/schema\"\nschema.tagValues(bucket: \"metrics\", tag: \"version\")",
+        "includeAll": true,
+        "label": "version",
+        "multi": true,
+        "name": "version",
+        "query": "import \"influxdata/influxdb/schema\"\nschema.tagValues(bucket: \"metrics\", tag: \"version\")",
+        "refresh": 2,
+        "type": "query",
+        "allValue": ".*"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-2d",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "",
+  "title": "NetBird Sync Phases (where time goes)",
+  "uid": "netbird-sync-phases",
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Time per phase over time (stacked, ms)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": {
+            "drawStyle": "bars",
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "fillOpacity": 80,
+            "lineWidth": 0
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "max",
+            "mean"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"netbird_sync_phase\" and r._field == \"duration_seconds\")\n  |> filter(fn: (r) => r.version =~ /${version:regex}/)\n  |> map(fn: (r) => ({ r with _value: r._value * 1000.0 }))\n  |> keep(columns: [\"_time\", \"_value\", \"phase\"])\n  |> group(columns: [\"phase\"])"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "p95 per phase (ms)",
+      "type": "bargauge",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 11,
+        "w": 12,
+        "x": 0,
+        "y": 10
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "color": {
+            "mode": "continuous-GrYlRd"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"netbird_sync_phase\" and r._field == \"duration_seconds\")\n  |> filter(fn: (r) => r.version =~ /${version:regex}/)\n  |> map(fn: (r) => ({ r with _value: r._value * 1000.0 }))\n  |> group(columns: [\"phase\"])\n  |> quantile(q: 0.95)\n  |> group()\n  |> sort(columns: [\"_value\"], desc: true)"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Per-phase stats (ms): mean / p95 / max",
+      "type": "table",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 11,
+        "w": 12,
+        "x": 12,
+        "y": 10
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "max",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        }
+      ],
+      "targets": [
+        {
+          "refId": "mean",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"netbird_sync_phase\" and r._field == \"duration_seconds\")\n  |> filter(fn: (r) => r.version =~ /${version:regex}/)\n  |> map(fn: (r) => ({ r with _value: r._value * 1000.0 }))\n  |> group(columns: [\"phase\"])\n  |> mean()\n  |> group()\n  |> keep(columns: [\"phase\", \"_value\"])\n  |> rename(columns: {_value: \"mean\"})"
+        },
+        {
+          "refId": "p95",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"netbird_sync_phase\" and r._field == \"duration_seconds\")\n  |> filter(fn: (r) => r.version =~ /${version:regex}/)\n  |> map(fn: (r) => ({ r with _value: r._value * 1000.0 }))\n  |> group(columns: [\"phase\"])\n  |> quantile(q: 0.95)\n  |> group()\n  |> keep(columns: [\"phase\", \"_value\"])\n  |> rename(columns: {_value: \"p95\"})"
+        },
+        {
+          "refId": "max",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"netbird_sync_phase\" and r._field == \"duration_seconds\")\n  |> filter(fn: (r) => r.version =~ /${version:regex}/)\n  |> map(fn: (r) => ({ r with _value: r._value * 1000.0 }))\n  |> group(columns: [\"phase\"])\n  |> max()\n  |> group()\n  |> keep(columns: [\"phase\", \"_value\"])\n  |> rename(columns: {_value: \"max\"})"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Total sync duration (netbird_sync, ms) \u2014 reference",
+      "type": "timeseries",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 21
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": {
+            "drawStyle": "points",
+            "pointSize": 5
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "max",
+            "mean"
+          ]
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"netbird_sync\" and r._field == \"duration_seconds\")\n  |> filter(fn: (r) => r.version =~ /${version:regex}/)\n  |> map(fn: (r) => ({ r with _value: r._value * 1000.0 }))\n  |> keep(columns: [\"_time\", \"_value\", \"version\"])\n  |> group(columns: [\"version\"])"
+        }
+      ]
+    }
+  ]
+}
