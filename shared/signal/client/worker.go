@@ -32,6 +32,13 @@ func (w *Worker) AddMsg(ctx context.Context, msg *proto.EncryptedMessage) error 
 	return nil
 }
 
+// QueueLen returns the number of messages buffered for decryption. Diagnostic
+// only: a non-empty queue while the receive stream is silent indicates the
+// receive loop is parked on the handoff rather than the stream being dead.
+func (w *Worker) QueueLen() int {
+	return len(w.encryptedMsgPool)
+}
+
 func (w *Worker) Work(ctx context.Context) {
 	for {
 		select {

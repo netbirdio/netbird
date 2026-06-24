@@ -85,6 +85,16 @@ type GrpcClient struct {
 	// receive backpressure as a dead stream: reconnecting cannot help, since the
 	// new stream feeds the same worker, and only triggers a reconnect storm.
 	receiveHandoffBlocked atomic.Bool
+	// lastDecrypt holds the Unix-nano timestamp of the last message the decryption
+	// worker pulled off its queue. Diagnostic only: it lets a stall log show
+	// whether the worker was draining (busy) or idle when the stream went silent.
+	lastDecrypt atomic.Int64
+	// handoffWaitTotal, handoffWaitMax (nanos) and handoffWaitCount accumulate the
+	// time the receive loop spent blocked handing messages to the worker. This is
+	// time not spent reading the stream, so it quantifies receive backpressure.
+	handoffWaitTotal atomic.Int64
+	handoffWaitMax   atomic.Int64
+	handoffWaitCount atomic.Int64
 }
 
 // NewClient creates a new Signal client
@@ -360,6 +370,8 @@ func (c *GrpcClient) SendToStream(msg *proto.EncryptedMessage) error {
 
 // decryptMessage decrypts the body of the msg using Wireguard private key and Remote peer's public key
 func (c *GrpcClient) decryptMessage(msg *proto.EncryptedMessage) (*proto.Message, error) {
+	c.lastDecrypt.Store(time.Now().UnixNano())
+
 	remoteKey, err := wgtypes.ParseKey(msg.GetKey())
 	if err != nil {
 		return nil, err
@@ -446,6 +458,12 @@ func (c *GrpcClient) idleSinceReceive() time.Duration {
 	return time.Since(time.Unix(0, c.lastReceived.Load()))
 }
 
+// idleSinceDecrypt returns how long since the worker last pulled a message.
+// Diagnostic only: distinguishes a busy/wedged worker from an idle one.
+func (c *GrpcClient) idleSinceDecrypt() time.Duration {
+	return time.Since(time.Unix(0, c.lastDecrypt.Load()))
+}
+
 // receiveAlive reports whether the receive stream shows liveness: it delivered a
 // frame within the inactivity threshold, or the receive loop is currently parked
 // handing a message to a busy decryption worker. In the latter case the loop has
@@ -467,18 +485,55 @@ func (c *GrpcClient) watchReceiveStream(ctx context.Context, cancelStream contex
 	defer ticker.Stop()
 
 	var probeSentAt time.Time
+	var holdLogged bool
+	var statTicks int
+	var lastStatTotal int64
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			// Periodic backpressure summary so time lost to the worker handoff is
+			// visible even when no stall fires. Emitted ~once a minute and only
+			// when the wait grew, to stay quiet on a healthy stream.
+			if statTicks++; statTicks >= int(time.Minute/receiveWatchdogInterval) {
+				statTicks = 0
+				if total, max, count := c.handoffWaitStats(); int64(total) > lastStatTotal {
+					log.Infof("signal receive backpressure: handoffWaitTotal=%s (+%s last min) handoffWaitMax=%s handoffMsgs=%d",
+						total.Round(time.Second), (total - time.Duration(lastStatTotal)).Round(time.Millisecond),
+						max.Round(time.Millisecond), count)
+					lastStatTotal = int64(total)
+				}
+			}
+
 			if c.receiveAlive() {
+				// Attribute the case that matters in the field: silent past the
+				// threshold but held because the receive loop is parked on the
+				// worker handoff (backpressure), not a dead stream. Log once per
+				// hold episode so a persistent worker stall is visible at info.
+				if c.idleSinceReceive() >= receiveInactivityThreshold && c.receiveHandoffBlocked.Load() {
+					if !holdLogged {
+						total, max, count := c.handoffWaitStats()
+						log.Infof("signal receive idle %s, loop blocked on worker handoff (idleDecrypt=%s queueDepth=%d connState=%s handoffWaitTotal=%s handoffWaitMax=%s handoffMsgs=%d); holding stream",
+							c.idleSinceReceive().Round(time.Second), c.idleSinceDecrypt().Round(time.Second),
+							c.decryptionWorker.QueueLen(), c.signalConn.GetState(),
+							total.Round(time.Second), max.Round(time.Millisecond), count)
+						holdLogged = true
+					}
+				} else {
+					holdLogged = false
+				}
 				probeSentAt = time.Time{}
 				continue
 			}
+			holdLogged = false
 
 			if !probeSentAt.IsZero() && time.Since(probeSentAt) >= receiveProbeTimeout {
-				log.Warnf("signal receive stream stalled: no messages for %s and probe did not return, reconnecting", c.idleSinceReceive().Round(time.Second))
+				total, max, count := c.handoffWaitStats()
+				log.Warnf("signal receive stream stalled, reconnecting: idleRecv=%s idleDecrypt=%s handoffBlocked=%v queueDepth=%d connState=%s handoffWaitTotal=%s handoffWaitMax=%s handoffMsgs=%d probe did not return",
+					c.idleSinceReceive().Round(time.Second), c.idleSinceDecrypt().Round(time.Second),
+					c.receiveHandoffBlocked.Load(), c.decryptionWorker.QueueLen(), c.signalConn.GetState(),
+					total.Round(time.Second), max.Round(time.Millisecond), count)
 				c.receiveStalled.Store(true)
 				c.notifyDisconnected(errReceiveStreamStalled)
 				cancelStream()
@@ -536,13 +591,33 @@ func (c *GrpcClient) receive(stream proto.SignalExchange_ConnectStreamClient) er
 
 		// The handoff blocks while the worker is busy, which parks this loop and
 		// stops Recv. Flag it so the watchdog does not read the resulting silence
-		// as a dead stream.
+		// as a dead stream, and account the wait as receive backpressure.
+		handoffStart := time.Now()
 		c.receiveHandoffBlocked.Store(true)
 		if err := c.decryptionWorker.AddMsg(c.ctx, msg); err != nil {
 			log.Errorf("failed to add message to decryption worker: %v", err)
 		}
 		c.receiveHandoffBlocked.Store(false)
+		c.recordHandoffWait(time.Since(handoffStart))
 	}
+}
+
+// recordHandoffWait accumulates the time the receive loop was blocked handing a
+// message to the worker.
+func (c *GrpcClient) recordHandoffWait(d time.Duration) {
+	c.handoffWaitTotal.Add(int64(d))
+	c.handoffWaitCount.Add(1)
+	for {
+		cur := c.handoffWaitMax.Load()
+		if int64(d) <= cur || c.handoffWaitMax.CompareAndSwap(cur, int64(d)) {
+			break
+		}
+	}
+}
+
+// handoffWaitStats returns cumulative receive-loop handoff backpressure.
+func (c *GrpcClient) handoffWaitStats() (total, max time.Duration, count int64) {
+	return time.Duration(c.handoffWaitTotal.Load()), time.Duration(c.handoffWaitMax.Load()), c.handoffWaitCount.Load()
 }
 
 func (c *GrpcClient) startEncryptionWorker(handler func(msg *proto.Message) error) {

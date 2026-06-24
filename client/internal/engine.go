@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
@@ -87,6 +88,13 @@ const (
 var ErrResetConnection = fmt.Errorf("reset connection")
 
 var ErrEngineAlreadyStarted = errors.New("engine already started")
+
+// engineRestartCount and engineLastRestart track client-restart cadence across
+// engine recreations so a restart loop is distinguishable from rare restarts.
+var (
+	engineRestartCount atomic.Int64
+	engineLastRestart  atomic.Int64
+)
 
 type EngineConfig struct {
 	WgPort      int
@@ -908,6 +916,14 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	// Check context INSIDE lock to ensure atomicity with shutdown
 	if e.ctx.Err() != nil {
 		return e.ctx.Err()
+	}
+
+	if nm := update.GetNetworkMap(); nm != nil {
+		log.Infof("sync update: serial=%d remotePeers=%d offlinePeers=%d routes=%d firewallRules=%d checks=%d configPresent=%v remotePeersEmpty=%v",
+			nm.GetSerial(), len(nm.GetRemotePeers()), len(nm.GetOfflinePeers()), len(nm.GetRoutes()),
+			len(nm.GetFirewallRules()), len(update.GetChecks()), update.GetNetbirdConfig() != nil, nm.GetRemotePeersIsEmpty())
+	} else {
+		log.Infof("sync update: config-only (no network map), configPresent=%v", update.GetNetbirdConfig() != nil)
 	}
 
 	if update.NetworkMap != nil && update.NetworkMap.PeerConfig != nil {
@@ -2171,7 +2187,14 @@ func (e *Engine) triggerClientRestart() {
 		return
 	}
 
-	log.Info("restarting engine")
+	// Cadence survives engine recreation (package-level), so a restart loop shows
+	// as a fast-climbing count with a short gap, distinct from rare intentional restarts.
+	n := engineRestartCount.Add(1)
+	var sinceLast time.Duration
+	if prev := engineLastRestart.Swap(time.Now().UnixNano()); prev != 0 {
+		sinceLast = time.Since(time.Unix(0, prev))
+	}
+	log.Infof("restarting engine (restart #%d, %s since previous)", n, sinceLast.Round(time.Second))
 	CtxGetState(e.ctx).Set(StatusConnecting)
 	_ = CtxGetState(e.ctx).Wrap(ErrResetConnection)
 	log.Infof("cancelling client context, engine will be recreated")
