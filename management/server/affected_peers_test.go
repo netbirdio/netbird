@@ -697,9 +697,13 @@ func TestResolveAffectedPeers_PeerInMultipleGroups(t *testing.T) {
 	}, true)
 	require.NoError(t, err)
 
-	// peer0 is in group0 AND group1, so both policies apply
+	// peer0 is in group0 AND group1, so both policies apply. A peer change folds
+	// only the changed peer plus the opposite side of each rule: group2 (peer2) via
+	// the group0 policy and group3 (peer3) via the group1 policy. peer1, a co-member
+	// of group1, is a sibling of the changed peer and must NOT refresh.
 	result := manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[0]})
-	assert.ElementsMatch(t, []string{peerIDs[0], peerIDs[1], peerIDs[2], peerIDs[3]}, result)
+	assert.ElementsMatch(t, []string{peerIDs[0], peerIDs[2], peerIDs[3]}, result)
+	assert.NotContains(t, result, peerIDs[1], "co-member of the changed peer's group must not refresh")
 }
 
 func TestResolveAffectedPeers_MultipleChangedPeers(t *testing.T) {
