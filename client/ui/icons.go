@@ -18,8 +18,14 @@ var iconDisconnected []byte
 //go:embed assets/netbird-systemtray-connecting.png
 var iconConnecting []byte
 
+//go:embed assets/netbird-systemtray-connecting-dark.png
+var iconConnectingDark []byte
+
 //go:embed assets/netbird-systemtray-error.png
 var iconError []byte
+
+//go:embed assets/netbird-systemtray-error-dark.png
+var iconErrorDark []byte
 
 //go:embed assets/netbird-systemtray-needs-login.png
 var iconNeedsLogin []byte
@@ -27,8 +33,14 @@ var iconNeedsLogin []byte
 //go:embed assets/netbird-systemtray-update-connected.png
 var iconUpdateConnected []byte
 
+//go:embed assets/netbird-systemtray-update-connected-dark.png
+var iconUpdateConnectedDark []byte
+
 //go:embed assets/netbird-systemtray-update-disconnected.png
 var iconUpdateDisconnected []byte
+
+//go:embed assets/netbird-systemtray-update-disconnected-dark.png
+var iconUpdateDisconnectedDark []byte
 
 //go:embed assets/netbird-systemtray-connected-macos.png
 var iconConnectedMacOS []byte

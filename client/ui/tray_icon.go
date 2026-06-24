@@ -119,18 +119,18 @@ func (t *Tray) iconForState() (icon, dark []byte) {
 	// Windows: colored PNGs.
 	switch {
 	case connecting:
-		return iconConnecting, nil
+		return iconConnecting, iconConnectingDark
 	case errored:
-		return iconError, nil
+		return iconError, iconErrorDark
 	case needsLogin:
-		return iconNeedsLogin, nil
+		return iconNeedsLogin, iconNeedsLogin
 	case connected && hasUpdate:
-		return iconUpdateConnected, nil
+		return iconUpdateConnected, iconUpdateConnectedDark
 	case connected:
 		return iconConnected, iconConnectedDark
 	case hasUpdate:
-		return iconUpdateDisconnected, nil
+		return iconUpdateDisconnected, iconUpdateDisconnectedDark
 	default:
-		return iconDisconnected, nil
+		return iconDisconnected, iconDisconnected
 	}
 }
