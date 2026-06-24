@@ -187,11 +187,18 @@ func (s *StatusChangeSubscription) Events() chan map[string]RouterState {
 }
 
 // Status holds a state of peers, signal, management connections and relays.
-// mux is an RWMutex so hot read paths (notably PeerStateByIP, called for
-// every private-service request) don't contend against each other.
-// Pure read methods take RLock; anything that mutates state takes Lock.
+// mux is a plain Mutex. It guards both the connect-side write storm
+// (UpdatePeerState and friends, while ~1000 peers come up) and the data-path
+// reads (PeerStateByIP, one per private-service request / DNS answer). An
+// RWMutex was tried here but, under a steady read flood plus a slow lock holder
+// (a relay handshake via GetRelayStates, a 1000-peer FullStats dump via
+// RefreshWireGuardStats, or a GetFullStatus poll), readers starved the writers:
+// peer state transitions stalled for tens to hundreds of ms and peers failed to
+// connect. sync.Mutex's starvation-prevention handoff keeps writes fair; the
+// lost read parallelism is not a bottleneck at this scale. See
+// status_contention_test.go.
 type Status struct {
-	mux                   sync.RWMutex
+	mux                   sync.Mutex
 	peers                 map[string]State
 	ipToKey               map[string]string
 	changeNotify          map[string]map[string]*StatusChangeSubscription // map[peerID]map[subscriptionID]*StatusChangeSubscription
@@ -295,8 +302,8 @@ func (d *Status) AddPeer(peerPubKey string, fqdn string, ip string, ipv6 string)
 
 // GetPeer adds peer to Daemon status map
 func (d *Status) GetPeer(peerPubKey string) (State, error) {
-	d.mux.RLock()
-	defer d.mux.RUnlock()
+	d.mux.Lock()
+	defer d.mux.Unlock()
 
 	state, ok := d.peers[peerPubKey]
 	if !ok {
@@ -306,8 +313,8 @@ func (d *Status) GetPeer(peerPubKey string) (State, error) {
 }
 
 func (d *Status) PeerByIP(ip string) (string, bool) {
-	d.mux.RLock()
-	defer d.mux.RUnlock()
+	d.mux.Lock()
+	defer d.mux.Unlock()
 
 	for _, state := range d.peers {
 		if state.IP == ip {
@@ -326,8 +333,8 @@ func (d *Status) PeerStateByIP(ip string) (State, bool) {
 	if ip == "" {
 		return State{}, false
 	}
-	d.mux.RLock()
-	defer d.mux.RUnlock()
+	d.mux.Lock()
+	defer d.mux.Unlock()
 	key, ok := d.ipToKey[ip]
 	if !ok {
 		return State{}, false
@@ -742,8 +749,8 @@ func (d *Status) UnsubscribePeerStateChanges(subscription *StatusChangeSubscript
 
 // GetLocalPeerState returns the local peer state
 func (d *Status) GetLocalPeerState() LocalPeerState {
-	d.mux.RLock()
-	defer d.mux.RUnlock()
+	d.mux.Lock()
+	defer d.mux.Unlock()
 	return d.localPeer.Clone()
 }
 
@@ -949,8 +956,8 @@ func (d *Status) DeleteResolvedDomainsStates(domain domain.Domain) {
 }
 
 func (d *Status) GetRosenpassState() RosenpassState {
-	d.mux.RLock()
-	defer d.mux.RUnlock()
+	d.mux.Lock()
+	defer d.mux.Unlock()
 	return RosenpassState{
 		d.rosenpassEnabled,
 		d.rosenpassPermissive,
@@ -958,14 +965,14 @@ func (d *Status) GetRosenpassState() RosenpassState {
 }
 
 func (d *Status) GetLazyConnection() bool {
-	d.mux.RLock()
-	defer d.mux.RUnlock()
+	d.mux.Lock()
+	defer d.mux.Unlock()
 	return d.lazyConnectionEnabled
 }
 
 func (d *Status) GetManagementState() ManagementState {
-	d.mux.RLock()
-	defer d.mux.RUnlock()
+	d.mux.Lock()
+	defer d.mux.Unlock()
 	return ManagementState{
 		d.mgmAddress,
 		d.managementState,
@@ -991,8 +998,8 @@ func (d *Status) UpdateLatency(pubKey string, latency time.Duration) error {
 
 // IsLoginRequired determines if a peer's login has expired.
 func (d *Status) IsLoginRequired() bool {
-	d.mux.RLock()
-	defer d.mux.RUnlock()
+	d.mux.Lock()
+	defer d.mux.Unlock()
 
 	// if peer is connected to the management then login is not expired
 	if d.managementState {
@@ -1007,8 +1014,8 @@ func (d *Status) IsLoginRequired() bool {
 }
 
 func (d *Status) GetSignalState() SignalState {
-	d.mux.RLock()
-	defer d.mux.RUnlock()
+	d.mux.Lock()
+	defer d.mux.Unlock()
 	return SignalState{
 		d.signalAddress,
 		d.signalState,
@@ -1018,8 +1025,8 @@ func (d *Status) GetSignalState() SignalState {
 
 // GetRelayStates returns the stun/turn/permanent relay states
 func (d *Status) GetRelayStates() []relay.ProbeResult {
-	d.mux.RLock()
-	defer d.mux.RUnlock()
+	d.mux.Lock()
+	defer d.mux.Unlock()
 	if d.relayMgr == nil {
 		return d.relayStates
 	}
@@ -1055,8 +1062,8 @@ func (d *Status) GetRelayStates() []relay.ProbeResult {
 }
 
 func (d *Status) ForwardingRules() []firewall.ForwardRule {
-	d.mux.RLock()
-	defer d.mux.RUnlock()
+	d.mux.Lock()
+	defer d.mux.Unlock()
 	if d.ingressGwMgr == nil {
 		return nil
 	}
@@ -1065,16 +1072,16 @@ func (d *Status) ForwardingRules() []firewall.ForwardRule {
 }
 
 func (d *Status) GetDNSStates() []NSGroupState {
-	d.mux.RLock()
-	defer d.mux.RUnlock()
+	d.mux.Lock()
+	defer d.mux.Unlock()
 
 	// shallow copy is good enough, as slices fields are currently not updated
 	return slices.Clone(d.nsGroupStates)
 }
 
 func (d *Status) GetResolvedDomainsStates() map[domain.Domain]ResolvedDomainInfo {
-	d.mux.RLock()
-	defer d.mux.RUnlock()
+	d.mux.Lock()
+	defer d.mux.Unlock()
 	return maps.Clone(d.resolvedDomainsStates)
 }
 
@@ -1090,8 +1097,8 @@ func (d *Status) GetFullStatus() FullStatus {
 		LazyConnectionEnabled: d.GetLazyConnection(),
 	}
 
-	d.mux.RLock()
-	defer d.mux.RUnlock()
+	d.mux.Lock()
+	defer d.mux.Unlock()
 
 	fullStatus.LocalPeerState = d.localPeer
 
@@ -1266,8 +1273,8 @@ func (d *Status) SetWgIface(wgInterface WGIfaceStatus) {
 }
 
 func (d *Status) PeersStatus() (*configurer.Stats, error) {
-	d.mux.RLock()
-	defer d.mux.RUnlock()
+	d.mux.Lock()
+	defer d.mux.Unlock()
 	if d.wgIface == nil {
 		return nil, fmt.Errorf("wgInterface is nil, cannot retrieve peers status")
 	}
