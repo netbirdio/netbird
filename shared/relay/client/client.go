@@ -196,6 +196,11 @@ type Client struct {
 // Transport returns the negotiated relay transport of the current connection,
 // or an empty string when not connected.
 func (c *Client) Transport() string {
+	c.log.Warnf("start to call Transport")
+	defer func() {
+		c.log.Warnf("end of call Transport")
+	}()
+	c.log.Warnf("query Transport:")
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.transport
@@ -244,6 +249,7 @@ func NewClientWithServerIP(serverURL string, serverIP netip.Addr, authTokenStore
 // Connect establishes a connection to the relay server. It blocks until the connection is established or an error occurs.
 func (c *Client) Connect(ctx context.Context) error {
 	c.log.Infof("connecting to relay server")
+	defer c.log.Warnf("end of call Connect to relay server")
 	c.readLoopMutex.Lock()
 	defer c.readLoopMutex.Unlock()
 
@@ -286,6 +292,8 @@ func (c *Client) Connect(ctx context.Context) error {
 // todo: what should happen if call with the same peerID with multiple times?
 func (c *Client) OpenConn(ctx context.Context, dstPeerID string) (net.Conn, error) {
 	peerID := messages.HashID(dstPeerID)
+	c.log.Infof("open conn to peer: %v", dstPeerID)
+	defer c.log.Warnf("end of OpenConn to peer: %v", dstPeerID)
 
 	c.mu.Lock()
 	if !c.serviceIsRunning {
@@ -354,6 +362,9 @@ func (c *Client) ServerInstanceURL() (string, error) {
 // extracted from the underlying socket's RemoteAddr. Zero value if not
 // connected or if the address is not an IP literal.
 func (c *Client) ConnectedIP() netip.Addr {
+	c.log.Infof("run ConnectedIP")
+	defer c.log.Warnf("end of Connected IP")
+
 	c.mu.Lock()
 	conn := c.relayConn
 	c.mu.Unlock()
@@ -376,6 +387,8 @@ func (c *Client) SetOnDisconnectListener(fn func(string)) {
 
 // HasConns returns true if there are connections.
 func (c *Client) HasConns() bool {
+	c.log.Infof("run HasConns")
+	defer c.log.Warnf("end of HasConns")
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return len(c.conns) > 0
