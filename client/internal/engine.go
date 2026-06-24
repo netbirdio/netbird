@@ -1081,8 +1081,7 @@ func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 	e.applyInfoFlags(info)
 
 	if err := e.mgmClient.SyncMeta(info); err != nil {
-		log.Errorf("could not sync meta: error %s", err)
-		return err
+		return fmt.Errorf("could not sync meta: error %s", err)
 	}
 	return nil
 }
