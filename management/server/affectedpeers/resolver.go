@@ -6,7 +6,12 @@
 //     and before a delete/removal severs the old state).
 //   - Snapshot.Expand: in-memory walk, no store access. Run AFTER the tx commits.
 //
-// Enabled is never consulted: toggling it is itself an observable change.
+// Enabled handling differs by source. Disabled objects in the SNAPSHOT (existing
+// account policies/resources/routers/routes/proxy services and their rules/targets)
+// route to nobody and are skipped — they cannot affect any peer's map. Objects in
+// the CHANGE itself are processed regardless of Enabled, so disabling one still
+// refreshes the peers that lose access (the toggle is the observable change, and the
+// update carries the old∪new state).
 package affectedpeers
 
 import (
@@ -344,11 +349,44 @@ type resolver struct {
 	affectedPeers  map[string]struct{}
 }
 
-func (r *resolver) policies() []*types.Policy { return r.snap.policies }
+// policies returns the account's ENABLED policies from the snapshot. Disabled
+// policies grant no access, so the walk skips them when scanning existing account
+// data. Explicitly changed policies (Change.Policies, via bothSidesPolicies) are
+// processed regardless of Enabled, so disabling one still refreshes its peers.
+func (r *resolver) policies() []*types.Policy {
+	enabled := make([]*types.Policy, 0, len(r.snap.policies))
+	for _, policy := range r.snap.policies {
+		if policy != nil && policy.Enabled {
+			enabled = append(enabled, policy)
+		}
+	}
+	return enabled
+}
 
-func (r *resolver) networkResources() []*resourceTypes.NetworkResource { return r.snap.resources }
+// networkResources / networkRouters return the account's ENABLED resources/routers
+// from the snapshot. Disabled objects route to nobody, so the walk skips them when
+// it scans existing account data. The explicitly changed objects in the Change are
+// processed regardless of Enabled (collectFromChanged*), so disabling one still
+// refreshes the peers that lose access.
+func (r *resolver) networkResources() []*resourceTypes.NetworkResource {
+	enabled := make([]*resourceTypes.NetworkResource, 0, len(r.snap.resources))
+	for _, resource := range r.snap.resources {
+		if resource.Enabled {
+			enabled = append(enabled, resource)
+		}
+	}
+	return enabled
+}
 
-func (r *resolver) networkRouters() []*routerTypes.NetworkRouter { return r.snap.routers }
+func (r *resolver) networkRouters() []*routerTypes.NetworkRouter {
+	enabled := make([]*routerTypes.NetworkRouter, 0, len(r.snap.routers))
+	for _, router := range r.snap.routers {
+		if router.Enabled {
+			enabled = append(enabled, router)
+		}
+	}
+	return enabled
+}
 
 // peerIDsForGroups maps a group set to its member peer IDs via the preloaded index.
 func (r *resolver) peerIDsForGroups(groups map[string]struct{}) []string {
@@ -466,6 +504,9 @@ func (r *resolver) appendPoliciesForPostureChecks(policies []*types.Policy, post
 func (r *resolver) collectFromPolicies() {
 	for _, policy := range r.policies() {
 		for _, rule := range policy.Rules {
+			if !rule.Enabled {
+				continue // a disabled rule grants no access
+			}
 			r.foldRuleSideIfChanged(policy, rule, sideSource)
 			r.foldRuleSideIfChanged(policy, rule, sideDestination)
 		}
@@ -612,6 +653,9 @@ func policyTargetsResourceOrGroups(policy *types.Policy, resourceID string, grou
 		return false
 	}
 	for _, rule := range policy.Rules {
+		if !rule.Enabled {
+			continue
+		}
 		if rule.DestinationResource.Type != types.ResourceTypePeer && rule.DestinationResource.ID == resourceID && resourceID != "" {
 			return true
 		}
@@ -653,6 +697,9 @@ func (r *resolver) foldPolicySourcesForResources(resourceIDs map[string]struct{}
 
 func (r *resolver) collectFromRoutes() {
 	for _, rt := range r.snap.routes {
+		if !rt.Enabled {
+			continue // disabled routes route to nobody; skip existing account data
+		}
 		matchedByGroup := anyInSet(rt.Groups, r.linkGroups) || anyInSet(rt.PeerGroups, r.linkGroups) || anyInSet(rt.AccessControlGroups, r.linkGroups)
 		matchedByPeer := rt.Peer != "" && len(r.changedPeers) > 0 && isInSet(rt.Peer, r.changedPeers)
 		if !matchedByGroup && !matchedByPeer {
@@ -723,8 +770,8 @@ func (r *resolver) collectFromProxyServices() {
 	expanded := r.expandChangedPeersWithGroups()
 
 	for _, svc := range services {
-		if svc == nil {
-			continue
+		if svc == nil || !svc.Enabled {
+			continue // a disabled service proxies nothing; skip existing account data
 		}
 		proxyPeers := proxyByCluster[svc.ProxyCluster]
 		if len(proxyPeers) == 0 {
@@ -741,6 +788,9 @@ func (r *resolver) collectFromProxyServices() {
 			r.affectedPeers[pid] = struct{}{}
 		}
 		for _, target := range svc.Targets {
+			if !target.Enabled {
+				continue // a disabled target forwards nothing
+			}
 			if target.TargetType == rpservice.TargetTypePeer && target.TargetId != "" {
 				r.affectedPeers[target.TargetId] = struct{}{}
 			}
@@ -829,6 +879,9 @@ func (r *resolver) policyTargetsResources(policy *types.Policy, resourceIDs map[
 	}
 	destGroupSet := make(map[string]struct{})
 	for _, rule := range policy.Rules {
+		if !rule.Enabled {
+			continue
+		}
 		if rule.DestinationResource.Type != types.ResourceTypePeer && isInSet(rule.DestinationResource.ID, resourceIDs) {
 			return true
 		}
@@ -893,19 +946,13 @@ func (r *resolver) addGroupResourceIDs(groupIDs map[string]struct{}, resourceIDs
 	}
 }
 
-func collectPolicyDirectPeers(policy *types.Policy, peers map[string]struct{}) {
-	for _, rule := range policy.Rules {
-		if rule.SourceResource.Type == types.ResourceTypePeer && rule.SourceResource.ID != "" {
-			peers[rule.SourceResource.ID] = struct{}{}
-		}
-		if rule.DestinationResource.Type == types.ResourceTypePeer && rule.DestinationResource.ID != "" {
-			peers[rule.DestinationResource.ID] = struct{}{}
-		}
-	}
-}
-
+// collectPolicySources folds the source groups/peers of a snapshot policy's enabled
+// rules (a disabled rule grants no access).
 func collectPolicySources(policy *types.Policy, groups, peers map[string]struct{}) {
 	for _, rule := range policy.Rules {
+		if !rule.Enabled {
+			continue
+		}
 		addAll(groups, rule.Sources)
 		if rule.SourceResource.Type == types.ResourceTypePeer && rule.SourceResource.ID != "" {
 			peers[rule.SourceResource.ID] = struct{}{}
@@ -937,7 +984,7 @@ func serviceMatchesChangedPeers(svc *rpservice.Service, proxyPeers []string, cha
 		}
 	}
 	for _, target := range svc.Targets {
-		if target.TargetType != rpservice.TargetTypePeer || target.TargetId == "" {
+		if !target.Enabled || target.TargetType != rpservice.TargetTypePeer || target.TargetId == "" {
 			continue
 		}
 		if _, ok := changedPeers[target.TargetId]; ok {

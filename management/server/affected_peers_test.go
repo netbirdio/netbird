@@ -338,6 +338,7 @@ func TestCollectGroupChange_NetworkRouterLinked(t *testing.T) {
 		AccountID:  accountID,
 		PeerGroups: []string{groupIDs[0]},
 		Peer:       peerIDs[3],
+		Enabled:    true,
 	})
 	require.NoError(t, err)
 
@@ -368,6 +369,7 @@ func TestCollectGroupChange_NetworkRouterPeerOnlyNoGroups(t *testing.T) {
 		NetworkID: net1.ID,
 		AccountID: accountID,
 		Peer:      peerIDs[4],
+		Enabled:   true,
 	})
 	require.NoError(t, err)
 
@@ -625,6 +627,7 @@ func TestResolveAffectedPeers_NetworkRouter(t *testing.T) {
 		AccountID:  accountID,
 		PeerGroups: []string{groupIDs[0]},
 		Peer:       peerIDs[3],
+		Enabled:    true,
 	})
 	require.NoError(t, err)
 
@@ -1374,6 +1377,7 @@ func TestAffectedPeers_NetworkRouterUnlinkedPeerNoUpdate(t *testing.T) {
 		NetworkID:  net1.ID,
 		AccountID:  accountID,
 		PeerGroups: []string{"nr-grpA"},
+		Enabled:    true,
 	})
 	require.NoError(t, err)
 
@@ -1797,7 +1801,9 @@ func TestCollectAffectedFromProxyServices_GroupContainingTargetPeerChanged(t *te
 	assert.Contains(t, directPeers, peerIDs[1], "target peer must be refreshed")
 }
 
-func TestCollectAffectedFromProxyServices_DisabledServiceStillMatches(t *testing.T) {
+// A disabled service in the snapshot proxies nothing, so it is skipped: a changed
+// target peer does not pull in the service's proxy peer.
+func TestCollectAffectedFromProxyServices_DisabledServiceSkipped(t *testing.T) {
 	manager, s, accountID, peerIDs, _ := setupAffectedPeersTest(t)
 	ctx := context.Background()
 
@@ -1823,8 +1829,7 @@ func TestCollectAffectedFromProxyServices_DisabledServiceStillMatches(t *testing
 	require.NoError(t, s.CreateService(ctx, svc))
 
 	_, directPeers := collectPeerChangeAffectedGroups(ctx, manager.Store, accountID, nil, []string{peerIDs[1]})
-	assert.Contains(t, directPeers, peerIDs[0], "disabled service should still trigger a refresh so peers are ready when re-enabled")
-	assert.Contains(t, directPeers, peerIDs[1], "disabled target should still trigger a refresh")
+	assert.NotContains(t, directPeers, peerIDs[0], "a disabled service proxies nothing, so its proxy peer must not be folded")
 }
 
 func TestCollectAffectedFromProxyServices_NonPeerTargetType(t *testing.T) {
