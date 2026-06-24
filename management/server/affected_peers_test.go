@@ -96,31 +96,54 @@ func affectedGroupID(i int) string   { return fmt.Sprintf("affected-grp-%d", i) 
 func affectedGroupName(i int) string { return fmt.Sprintf("AffectedGroup%d", i) }
 
 func TestCollectGroupChange_PolicyLinked(t *testing.T) {
-	manager, s, accountID, _, groupIDs := setupAffectedPeersTest(t)
+	manager, s, accountID, peerIDs, groupIDs := setupAffectedPeersTest(t)
 	ctx := context.Background()
 
 	_, err := manager.SavePolicy(ctx, accountID, userID, &types.Policy{
 		Enabled: true,
 		Rules: []*types.PolicyRule{
 			{
-				Enabled:       true,
-				Sources:       []string{groupIDs[0]},
-				Destinations:  []string{groupIDs[1]},
-				Bidirectional: true,
-				Action:        types.PolicyTrafficActionAccept,
+				Enabled:             true,
+				Sources:             []string{groupIDs[0]},
+				Destinations:        []string{groupIDs[1]},
+				SourceResource:      types.Resource{ID: peerIDs[0], Type: types.ResourceTypePeer},
+				DestinationResource: types.Resource{ID: peerIDs[1], Type: types.ResourceTypePeer},
+				Bidirectional:       true,
+				Action:              types.PolicyTrafficActionAccept,
+			},
+			{
+				Enabled:             true,
+				Sources:             []string{groupIDs[0]},
+				Destinations:        []string{groupIDs[1]},
+				SourceResource:      types.Resource{ID: peerIDs[2], Type: types.ResourceTypeHost},
+				DestinationResource: types.Resource{ID: peerIDs[3], Type: types.ResourceTypeHost},
+				Bidirectional:       true,
+				Action:              types.PolicyTrafficActionAccept,
+			},
+			{
+				Enabled:             true,
+				Sources:             []string{groupIDs[0]},
+				Destinations:        []string{groupIDs[1]},
+				SourceResource:      types.Resource{ID: "", Type: types.ResourceTypePeer},
+				DestinationResource: types.Resource{ID: "", Type: types.ResourceTypePeer},
+				Bidirectional:       true,
+				Action:              types.PolicyTrafficActionAccept,
 			},
 		},
 	}, true)
 	require.NoError(t, err)
 
-	groups, _ := collectGroupChangeAffectedGroups(ctx, s, accountID, []string{groupIDs[0]})
-	assert.ElementsMatch(t, groups, []string{groupIDs[1]})
+	groups, directPeers := collectGroupChangeAffectedGroups(ctx, s, accountID, []string{groupIDs[0]})
+	assert.ElementsMatch(t, groups, []string{groupIDs[0], groupIDs[1]})
+	assert.ElementsMatch(t, directPeers, []string{peerIDs[1]})
 
-	groups, _ = collectGroupChangeAffectedGroups(ctx, s, accountID, []string{groupIDs[1]})
-	assert.ElementsMatch(t, groups, []string{groupIDs[0]})
+	groups, directPeers = collectGroupChangeAffectedGroups(ctx, s, accountID, []string{groupIDs[1]})
+	assert.ElementsMatch(t, groups, []string{groupIDs[0], groupIDs[1]})
+	assert.ElementsMatch(t, directPeers, []string{peerIDs[0]})
 
-	groups, _ = collectGroupChangeAffectedGroups(ctx, s, accountID, []string{groupIDs[2]})
+	groups, directPeers = collectGroupChangeAffectedGroups(ctx, s, accountID, []string{groupIDs[2]})
 	assert.Empty(t, groups)
+	assert.Empty(t, directPeers)
 }
 
 func TestCollectGroupChange_PolicyWithDirectPeerResource(t *testing.T) {
@@ -138,13 +161,37 @@ func TestCollectGroupChange_PolicyWithDirectPeerResource(t *testing.T) {
 				Destinations:        []string{groupIDs[1]},
 				Action:              types.PolicyTrafficActionAccept,
 			},
+			{
+				Enabled:             true,
+				Sources:             []string{groupIDs[0]},
+				SourceResource:      types.Resource{ID: peerIDs[1], Type: types.ResourceTypeHost},
+				DestinationResource: types.Resource{ID: peerIDs[2], Type: types.ResourceTypeHost},
+				Destinations:        []string{groupIDs[1]},
+				Action:              types.PolicyTrafficActionAccept,
+			},
+			{
+				Enabled:             true,
+				Sources:             []string{groupIDs[0]},
+				SourceResource:      types.Resource{ID: "", Type: types.ResourceTypePeer},
+				DestinationResource: types.Resource{ID: "", Type: types.ResourceTypePeer},
+				Destinations:        []string{groupIDs[1]},
+				Action:              types.PolicyTrafficActionAccept,
+			},
 		},
 	}, true)
 	require.NoError(t, err)
 
 	groups, directPeers := collectGroupChangeAffectedGroups(ctx, s, accountID, []string{groupIDs[0]})
-	assert.ElementsMatch(t, groups, []string{groupIDs[1]})
+	assert.ElementsMatch(t, groups, []string{groupIDs[0], groupIDs[1]})
 	assert.ElementsMatch(t, directPeers, []string{peerIDs[4]})
+
+	groups, directPeers = collectGroupChangeAffectedGroups(ctx, s, accountID, []string{groupIDs[1]})
+	assert.ElementsMatch(t, groups, []string{groupIDs[0], groupIDs[1]})
+	assert.ElementsMatch(t, directPeers, []string{peerIDs[3]})
+
+	groups, directPeers = collectGroupChangeAffectedGroups(ctx, s, accountID, []string{groupIDs[2]})
+	assert.Empty(t, groups)
+	assert.Empty(t, directPeers)
 }
 
 func TestCollectGroupChange_PolicyWithNonPeerResource_NoDirectPeers(t *testing.T) {
@@ -166,7 +213,7 @@ func TestCollectGroupChange_PolicyWithNonPeerResource_NoDirectPeers(t *testing.T
 	require.NoError(t, err)
 
 	groups, directPeers := collectGroupChangeAffectedGroups(ctx, s, accountID, []string{groupIDs[0]})
-	assert.ElementsMatch(t, groups, []string{groupIDs[1]})
+	assert.ElementsMatch(t, groups, []string{groupIDs[0], groupIDs[1]})
 	assert.Empty(t, directPeers, "non-peer resources should not produce direct peer IDs")
 }
 
@@ -370,17 +417,11 @@ func TestCollectGroupChange_MultipleEntities(t *testing.T) {
 	require.NoError(t, err)
 
 	groups, directPeers := collectGroupChangeAffectedGroups(ctx, s, accountID, []string{groupIDs[0]})
-	assert.NotContains(t, groups, groupIDs[0])
-	assert.Contains(t, groups, groupIDs[1])
-	assert.NotContains(t, groups, groupIDs[2])
-	assert.NotContains(t, groups, groupIDs[3])
+	assert.ElementsMatch(t, groups, []string{groupIDs[0], groupIDs[1]})
 	assert.Empty(t, directPeers)
 
 	groups, directPeers = collectGroupChangeAffectedGroups(ctx, s, accountID, []string{groupIDs[3]})
-	assert.Contains(t, groups, groupIDs[2])
-	assert.Contains(t, groups, groupIDs[3])
-	assert.NotContains(t, groups, groupIDs[0])
-	assert.NotContains(t, groups, groupIDs[1])
+	assert.ElementsMatch(t, groups, []string{groupIDs[2], groupIDs[3]})
 	assert.Empty(t, directPeers)
 }
 
@@ -444,10 +485,10 @@ func TestResolveAffectedPeers_PolicyBetweenTwoGroups(t *testing.T) {
 	require.NoError(t, err)
 
 	result := manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[0]})
-	assert.ElementsMatch(t, []string{peerIDs[1]}, result)
+	assert.ElementsMatch(t, []string{peerIDs[0], peerIDs[1]}, result)
 
 	result = manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[1]})
-	assert.ElementsMatch(t, []string{peerIDs[0]}, result)
+	assert.ElementsMatch(t, []string{peerIDs[0], peerIDs[1]}, result)
 
 	result = manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[2]})
 	assert.Empty(t, result)
@@ -471,7 +512,7 @@ func TestResolveAffectedPeers_PolicyThreeGroups(t *testing.T) {
 	require.NoError(t, err)
 
 	result := manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[0]})
-	assert.ElementsMatch(t, []string{peerIDs[2]}, result)
+	assert.ElementsMatch(t, []string{peerIDs[0], peerIDs[2]}, result)
 }
 
 func TestResolveAffectedPeers_RoutePeerGroups(t *testing.T) {
@@ -658,7 +699,7 @@ func TestResolveAffectedPeers_PeerInMultipleGroups(t *testing.T) {
 
 	// peer0 is in group0 AND group1, so both policies apply
 	result := manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[0]})
-	assert.ElementsMatch(t, []string{peerIDs[2], peerIDs[3]}, result)
+	assert.ElementsMatch(t, []string{peerIDs[0], peerIDs[1], peerIDs[2], peerIDs[3]}, result)
 }
 
 func TestResolveAffectedPeers_MultipleChangedPeers(t *testing.T) {
@@ -694,7 +735,7 @@ func TestResolveAffectedPeers_MultipleChangedPeers(t *testing.T) {
 	require.NoError(t, err)
 
 	result := manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[0], peerIDs[2]})
-	assert.ElementsMatch(t, []string{peerIDs[1], peerIDs[3]}, result)
+	assert.ElementsMatch(t, []string{peerIDs[0], peerIDs[2], peerIDs[1], peerIDs[3]}, result)
 }
 
 func TestResolveAffectedPeers_SharedGroupAcrossPolicyAndRoute(t *testing.T) {
@@ -842,12 +883,12 @@ func TestAffectedPeers_IsolatedPolicies(t *testing.T) {
 	require.NoError(t, err)
 
 	result := manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[0]})
-	assert.ElementsMatch(t, []string{peerIDs[1]}, result)
+	assert.ElementsMatch(t, []string{peerIDs[0], peerIDs[1]}, result)
 	assert.NotContains(t, result, peerIDs[2])
 	assert.NotContains(t, result, peerIDs[3])
 
 	result = manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[2]})
-	assert.ElementsMatch(t, []string{peerIDs[3]}, result)
+	assert.ElementsMatch(t, []string{peerIDs[2], peerIDs[3]}, result)
 	assert.NotContains(t, result, peerIDs[0])
 	assert.NotContains(t, result, peerIDs[1])
 
@@ -893,7 +934,7 @@ func TestAffectedPeers_IsolatedRouteAndPolicy(t *testing.T) {
 	require.NoError(t, err)
 
 	result := manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[0]})
-	assert.ElementsMatch(t, []string{peerIDs[1]}, result)
+	assert.ElementsMatch(t, []string{peerIDs[0], peerIDs[1]}, result)
 	assert.NotContains(t, result, peerIDs[2])
 	assert.NotContains(t, result, peerIDs[3])
 
@@ -948,14 +989,13 @@ func TestAffectedPeers_GroupUpdateOnlyAffectsLinkedPeers(t *testing.T) {
 	})
 
 	result := manager.resolveAffectedPeersForPeerChanges(ctx, manager.Store, accountID, []string{peer1.ID})
-	assert.ElementsMatch(t, []string{peer2.ID}, result)
+	assert.ElementsMatch(t, []string{peer1.ID, peer2.ID}, result)
 
 	t.Run("group change updates all peers in policy groups", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg1)
+			peerShouldReceiveUpdate(t, updMsg1)
 			peerShouldReceiveUpdate(t, updMsg2)
-			// TODO (dmitri) what's going on here?
 			peerShouldReceiveUpdate(t, updMsg3)
 			close(done)
 		}()

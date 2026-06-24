@@ -449,14 +449,13 @@ func (r *resolver) collectFromPolicies() {
 	for _, policy := range r.policies() {
 		// changed peer IDs have been mapped to changedGroupSet on resolver creation (see seedChangedGroupsFromPeers)
 		// there's no change to the groupSet if the same policies have been changed directly
-		groupIds := groupsFromPolicyDirectionally(policy, r.changedGroupSet)
+		peerIds, groupIds := getGroupsAndPeersFromPolicyViaGroups(policy, r.changedGroupSet)
 		addAll(r.groupSet, groupIds)
+		addAll(r.peerSet, peerIds)
 
-		var peerIds []string
-		if len(r.changedPeerSet) > 0 {
-			peerIds = peersFromPolicyDirectionally(policy, r.changedPeerSet)
-			addAll(r.peerSet, peerIds)
-		}
+		peerIds, groupIds = getGroupsAndPeersFromPolicyViaPeers(policy, r.changedPeerSet)
+		addAll(r.groupSet, groupIds)
+		addAll(r.peerSet, peerIds)
 
 		if len(groupIds) == 0 && len(peerIds) == 0 {
 			continue
@@ -742,40 +741,57 @@ func collectPolicySources(policy *types.Policy, groupSet, peerSet map[string]str
 	}
 }
 
-// returns group IDs of groups on the opposite side of the policy:
-// i.e. if a group is present in the policy rule sources, use group IDs from the rule's destinations
+// returns group and peer IDs on the opposite side of the policy:
+// i.e. if a group is present in the policy rule sources, return destination group IDs and the destinationResource from the rule
 // and vice-versa
-func groupsFromPolicyDirectionally(policy *types.Policy, groupSet map[string]struct{}) []string {
-	groupIds := make([]string, 0)
-	for _, rule := range policy.Rules {
-		// TODO (dmitri) can a group to be present on both sides of a policy?
-		if anyInSet(rule.Sources, groupSet) {
-			groupIds = append(groupIds, rule.Destinations...)
-		} else if anyInSet(rule.Destinations, groupSet) {
-			groupIds = append(groupIds, rule.Sources...)
-		}
+func getGroupsAndPeersFromPolicyViaGroups(policy *types.Policy, groupSet map[string]struct{}) ([]string, []string) {
+	var groupIds, peerIds []string
+	if len(groupSet) == 0 {
+		return peerIds, groupIds
 	}
-	return groupIds
-}
-
-// returns peer IDs of peers on the opposite side of the policy:
-// i.e. if a peer is present in the policy rule sourceResources, use destinationResources of the policy
-// and vice-versa
-func peersFromPolicyDirectionally(policy *types.Policy, changedSet map[string]struct{}) []string {
-	peerIds := make([]string, 0)
 	for _, rule := range policy.Rules {
-		// TODO (dmitri) can a peer to be present on both sides of a policy?
-		if isDirectPeerInSet(rule.SourceResource, changedSet) {
+		if matchedIds, ok := allInSet(rule.Sources, groupSet); ok {
+			groupIds = append(groupIds, matchedIds...)
+			groupIds = append(groupIds, rule.Destinations...)
 			if rule.DestinationResource.Type == types.ResourceTypePeer && rule.DestinationResource.ID != "" {
 				peerIds = append(peerIds, rule.DestinationResource.ID)
 			}
-		} else if isDirectPeerInSet(rule.DestinationResource, changedSet) {
+		}
+		if matchedIds, ok := allInSet(rule.Destinations, groupSet); ok {
+			groupIds = append(groupIds, matchedIds...)
+			groupIds = append(groupIds, rule.Sources...)
 			if rule.SourceResource.Type == types.ResourceTypePeer && rule.SourceResource.ID != "" {
 				peerIds = append(peerIds, rule.SourceResource.ID)
 			}
 		}
 	}
-	return peerIds
+	return peerIds, groupIds
+}
+
+// returns group and peer IDs on the opposite side of the policy:
+// i.e. if a peer is present in the policy rule sourceResources, return destination group IDs and the destinationResource from the rule
+// and vice-versa
+func getGroupsAndPeersFromPolicyViaPeers(policy *types.Policy, changedSet map[string]struct{}) ([]string, []string) {
+	var groupIds, peerIds []string
+	if len(changedSet) == 0 {
+		return peerIds, groupIds
+	}
+	for _, rule := range policy.Rules {
+		if isDirectPeerInSet(rule.SourceResource, changedSet) {
+			groupIds = append(groupIds, rule.Destinations...)
+			peerIds = append(peerIds, rule.SourceResource.ID)
+			if rule.DestinationResource.Type == types.ResourceTypePeer && rule.DestinationResource.ID != "" {
+				peerIds = append(peerIds, rule.DestinationResource.ID)
+			}
+		} else if isDirectPeerInSet(rule.DestinationResource, changedSet) {
+			groupIds = append(groupIds, rule.Sources...)
+			peerIds = append(peerIds, rule.DestinationResource.ID)
+			if rule.SourceResource.Type == types.ResourceTypePeer && rule.SourceResource.ID != "" {
+				peerIds = append(peerIds, rule.SourceResource.ID)
+			}
+		}
+	}
+	return peerIds, groupIds
 }
 
 func policyReferencesPostureChecks(policy *types.Policy, ids map[string]struct{}) bool {
@@ -819,6 +835,16 @@ func anyInSet(ids []string, set map[string]struct{}) bool {
 		}
 	}
 	return false
+}
+
+func allInSet(ids []string, set map[string]struct{}) ([]string, bool) {
+	var matchedIds []string
+	for _, id := range ids {
+		if _, ok := set[id]; ok {
+			matchedIds = append(matchedIds, id)
+		}
+	}
+	return matchedIds, len(matchedIds) > 0
 }
 
 func isInSet(id string, set map[string]struct{}) bool {
