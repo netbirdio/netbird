@@ -200,6 +200,15 @@ func (h *Handler) updatePeer(ctx context.Context, accountID, userID, peerID stri
 		InactivityExpirationEnabled: req.InactivityExpirationEnabled,
 	}
 
+	if req.Kind != nil {
+		kind := nbpeer.Kind(*req.Kind)
+		if !kind.IsValid() {
+			util.WriteError(ctx, status.Errorf(status.InvalidArgument, "invalid peer kind %q", kind), w)
+			return
+		}
+		update.Kind = kind
+	}
+
 	if req.ApprovalRequired != nil {
 		// todo: looks like that we reset all status property, is it right?
 		update.Status = &nbpeer.PeerStatus{
@@ -587,6 +596,7 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 		SshEnabled:                  peer.SSHEnabled,
 		Hostname:                    peer.Meta.Hostname,
 		UserId:                      peer.UserID,
+		Kind:                        api.PeerKind(peer.Kind.Normalize()),
 		UiVersion:                   peer.Meta.UIVersion,
 		DnsLabel:                    fqdn(peer, dnsDomain),
 		ExtraDnsLabels:              fqdnList(peer.ExtraDNSLabels, dnsDomain),
@@ -642,6 +652,7 @@ func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dn
 		SshEnabled:                  peer.SSHEnabled,
 		Hostname:                    peer.Meta.Hostname,
 		UserId:                      peer.UserID,
+		Kind:                        api.PeerKind(peer.Kind.Normalize()),
 		UiVersion:                   peer.Meta.UIVersion,
 		DnsLabel:                    fqdn(peer, dnsDomain),
 		ExtraDnsLabels:              fqdnList(peer.ExtraDNSLabels, dnsDomain),

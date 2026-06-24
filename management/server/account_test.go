@@ -1654,7 +1654,8 @@ func TestAccount_Copy(t *testing.T) {
 		},
 		Peers: map[string]*nbpeer.Peer{
 			"peer1": {
-				Key: "key1",
+				Key:  "key1",
+				Kind: nbpeer.KindAuto,
 				Status: &nbpeer.PeerStatus{
 					LastSeen:     time.Now(),
 					Connected:    true,

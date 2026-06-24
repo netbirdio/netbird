@@ -795,11 +795,21 @@ components:
           type: string
           format: ipv6
           example: "fd00:4e42:ab12::1"
+        kind:
+          $ref: '#/components/schemas/PeerKind'
       required:
         - name
         - ssh_enabled
         - login_expiration_enabled
         - inactivity_expiration_enabled
+    PeerKind:
+      type: string
+      description: Peer classification. Automatic uses the default server-side inference.
+      enum:
+        - auto
+        - device
+        - server
+      example: auto
     Peer:
       allOf:
         - $ref: '#/components/schemas/PeerMinimum'
@@ -861,6 +871,8 @@ components:
               description: User ID of the user that enrolled this peer
               type: string
               example: google-oauth2|277474792786460067937
+            kind:
+              $ref: '#/components/schemas/PeerKind'
             hostname:
               description: Hostname of the machine
               type: string
@@ -937,6 +949,7 @@ components:
             - os
             - ssh_enabled
             - user_id
+            - kind
             - version
             - ui_version
             - approval_required

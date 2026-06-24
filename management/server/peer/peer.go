@@ -21,6 +21,30 @@ const (
 	PeerCapabilityIPv6Overlay    int32 = 2
 )
 
+type Kind string
+
+const (
+	KindAuto   Kind = "auto"
+	KindDevice Kind = "device"
+	KindServer Kind = "server"
+)
+
+func (k Kind) IsValid() bool {
+	switch k {
+	case KindAuto, KindDevice, KindServer:
+		return true
+	default:
+		return false
+	}
+}
+
+func (k Kind) Normalize() Kind {
+	if k.IsValid() {
+		return k
+	}
+	return KindAuto
+}
+
 // Peer represents a machine connected to the network.
 // The Peer is a WireGuard peer identified by a public key
 type Peer struct {
@@ -47,6 +71,8 @@ type Peer struct {
 	Status *PeerStatus `gorm:"embedded;embeddedPrefix:peer_status_"`
 	// The user ID that registered the peer
 	UserID string
+	// Kind is the dashboard classification override for this peer.
+	Kind Kind `gorm:"type:varchar(16);default:auto"`
 	// SSHKey is a public SSH key of the peer
 	SSHKey string
 	// SSHEnabled indicates whether SSH server is enabled on the peer
@@ -242,6 +268,7 @@ func (p *Peer) Copy() *Peer {
 		DNSLabel:                    p.DNSLabel,
 		Status:                      peerStatus,
 		UserID:                      p.UserID,
+		Kind:                        p.Kind.Normalize(),
 		SSHKey:                      p.SSHKey,
 		SSHEnabled:                  p.SSHEnabled,
 		LoginExpirationEnabled:      p.LoginExpirationEnabled,

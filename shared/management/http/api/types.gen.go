@@ -725,6 +725,27 @@ func (e NotificationChannelType) Valid() bool {
 	}
 }
 
+// Defines values for PeerKind.
+const (
+	PeerKindAuto   PeerKind = "auto"
+	PeerKindDevice PeerKind = "device"
+	PeerKindServer PeerKind = "server"
+)
+
+// Valid indicates whether the value is a known member of the PeerKind enum.
+func (e PeerKind) Valid() bool {
+	switch e {
+	case PeerKindAuto:
+		return true
+	case PeerKindDevice:
+		return true
+	case PeerKindServer:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PeerNetworkRangeCheckAction.
 const (
 	PeerNetworkRangeCheckActionAllow PeerNetworkRangeCheckAction = "allow"
@@ -3182,6 +3203,9 @@ type Peer struct {
 	// KernelVersion Peer's operating system kernel version
 	KernelVersion string `json:"kernel_version"`
 
+	// Kind Peer classification. Automatic uses the default server-side inference.
+	Kind PeerKind `json:"kind"`
+
 	// LastLogin Last time this peer performed log in (authentication). E.g., user authenticated.
 	LastLogin time.Time `json:"last_login"`
 
@@ -3276,6 +3300,9 @@ type PeerBatch struct {
 	// KernelVersion Peer's operating system kernel version
 	KernelVersion string `json:"kernel_version"`
 
+	// Kind Peer classification. Automatic uses the default server-side inference.
+	Kind PeerKind `json:"kind"`
+
 	// LastLogin Last time this peer performed log in (authentication). E.g., user authenticated.
 	LastLogin time.Time `json:"last_login"`
 
@@ -3310,6 +3337,9 @@ type PeerBatch struct {
 	// Version Peer's daemon or cli version
 	Version string `json:"version"`
 }
+
+// PeerKind Peer classification. Automatic uses the default server-side inference.
+type PeerKind string
 
 // PeerLocalFlags defines model for PeerLocalFlags.
 type PeerLocalFlags struct {
@@ -3377,10 +3407,13 @@ type PeerRequest struct {
 	Ip *string `json:"ip,omitempty"`
 
 	// Ipv6 Peer's IPv6 overlay address. Omitted if IPv6 is not enabled for the account.
-	Ipv6                   *string `json:"ipv6,omitempty"`
-	LoginExpirationEnabled bool    `json:"login_expiration_enabled"`
-	Name                   string  `json:"name"`
-	SshEnabled             bool    `json:"ssh_enabled"`
+	Ipv6 *string `json:"ipv6,omitempty"`
+
+	// Kind Peer classification. Automatic uses the default server-side inference.
+	Kind                   *PeerKind `json:"kind,omitempty"`
+	LoginExpirationEnabled bool      `json:"login_expiration_enabled"`
+	Name                   string    `json:"name"`
+	SshEnabled             bool      `json:"ssh_enabled"`
 }
 
 // PeerTemporaryAccessRequest defines model for PeerTemporaryAccessRequest.

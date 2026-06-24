@@ -225,7 +225,7 @@ func (am *DefaultAccountManager) resolvePeerLocation(ctx context.Context, peer *
 	}
 }
 
-// UpdatePeer updates peer. Only Peer.Name, Peer.SSHEnabled, Peer.LoginExpirationEnabled and Peer.InactivityExpirationEnabled can be updated.
+// UpdatePeer updates peer. Only Peer.Name, Peer.Kind, Peer.SSHEnabled, Peer.LoginExpirationEnabled and Peer.InactivityExpirationEnabled can be updated.
 func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, userID string, update *nbpeer.Peer) (*nbpeer.Peer, error) {
 	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Update)
 	if err != nil {
@@ -298,6 +298,13 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 		if peer.SSHEnabled != update.SSHEnabled {
 			peer.SSHEnabled = update.SSHEnabled
 			sshChanged = true
+		}
+
+		if update.Kind != "" {
+			if !update.Kind.IsValid() {
+				return status.Errorf(status.InvalidArgument, "invalid peer kind %q", update.Kind)
+			}
+			peer.Kind = update.Kind.Normalize()
 		}
 
 		if peer.LoginExpirationEnabled != update.LoginExpirationEnabled {

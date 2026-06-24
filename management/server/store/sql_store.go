@@ -1806,7 +1806,7 @@ func (s *SqlStore) getSetupKeys(ctx context.Context, accountID string) ([]types.
 }
 
 func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Peer, error) {
-	const query = `SELECT id, account_id, key, ip, name, dns_label, user_id, ssh_key, ssh_enabled, login_expiration_enabled,
+	const query = `SELECT id, account_id, key, ip, name, dns_label, user_id, kind, ssh_key, ssh_enabled, login_expiration_enabled,
 	inactivity_expiration_enabled, last_login, created_at, ephemeral, extra_dns_labels, allow_extra_dns_labels, meta_hostname,
 	meta_go_os, meta_kernel, meta_core, meta_platform, meta_os, meta_os_version, meta_wt_version, meta_ui_version,
 	meta_kernel_version, meta_network_addresses, meta_system_serial_number, meta_system_product_name, meta_system_manufacturer,
@@ -1832,11 +1832,11 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			metaHostname, metaGoOS, metaKernel, metaCore, metaPlatform                                      sql.NullString
 			metaOS, metaOSVersion, metaWtVersion, metaUIVersion, metaKernelVersion                          sql.NullString
 			metaSystemSerialNumber, metaSystemProductName, metaSystemManufacturer                           sql.NullString
-			locationCountryCode, locationCityName, proxyCluster                                             sql.NullString
+			locationCountryCode, locationCityName, proxyCluster, peerKind                                   sql.NullString
 			locationGeoNameID                                                                               sql.NullInt64
 		)
 
-		err := row.Scan(&p.ID, &p.AccountID, &p.Key, &ip, &p.Name, &p.DNSLabel, &p.UserID, &p.SSHKey, &sshEnabled,
+		err := row.Scan(&p.ID, &p.AccountID, &p.Key, &ip, &p.Name, &p.DNSLabel, &p.UserID, &peerKind, &p.SSHKey, &sshEnabled,
 			&loginExpirationEnabled, &inactivityExpirationEnabled, &lastLogin, &createdAt, &ephemeral, &extraDNS,
 			&allowExtraDNSLabels, &metaHostname, &metaGoOS, &metaKernel, &metaCore, &metaPlatform,
 			&metaOS, &metaOSVersion, &metaWtVersion, &metaUIVersion, &metaKernelVersion, &netAddr,
@@ -1846,6 +1846,7 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			&proxyEmbedded, &proxyCluster, &ipv6)
 
 		if err == nil {
+			p.Kind = nbpeer.Kind(peerKind.String).Normalize()
 			if lastLogin.Valid {
 				p.LastLogin = &lastLogin.Time
 			}
