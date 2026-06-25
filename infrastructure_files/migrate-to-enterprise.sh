@@ -25,6 +25,8 @@ set -o pipefail
 OVERRIDE_FILE="docker-compose.override.yml"
 ENTERPRISE_CONFIG_FILE="config.yaml.enterprise"
 
+NETBIRD_EULA_URL="https://trust.netbird.io/?tab=reports-and-documents"
+
 check_docker_compose() {
   if command -v docker-compose &> /dev/null; then
     echo "docker-compose"
@@ -113,6 +115,43 @@ read_yes_no() {
     [Yy] | [Yy][Ee][Ss]) echo "yes" ;;
     *) echo "no" ;;
   esac
+}
+
+# Gate the migration on explicit acceptance of the NetBird On-Premise EULA.
+require_eula_acceptance() {
+  cat > /dev/stderr <<EOF
+
+  ──────────────────────────────────────────────────────────────────────
+   NetBird On-Premise End User License Agreement
+  ──────────────────────────────────────────────────────────────────────
+  NetBird's on-premise software is commercial software, licensed and not
+  sold. Your installation, deployment and use are governed by the NetBird
+  On-Premise End User License Agreement (the "EULA"). Please read it in
+  full before continuing — open the "On-Premise EULA" document here:
+
+      ${NETBIRD_EULA_URL}
+
+  By typing "accept" and continuing the installation, you confirm that you
+  have read and agree to the EULA, that you are authorized to accept it on
+  behalf of your organization (the "Customer"), and that the Software is
+  used for business purposes only.
+  ──────────────────────────────────────────────────────────────────────
+EOF
+
+  if [[ "${NB_ACCEPT_EULA:-}" == "yes" ]]; then
+    echo "EULA accepted via NB_ACCEPT_EULA=yes." > /dev/stderr
+    return 0
+  fi
+
+  local ans=""
+  echo -n 'Type "accept" to agree, or anything else to abort: ' > /dev/stderr
+  read -r ans < /dev/tty
+  if [[ "$ans" != "accept" ]]; then
+    echo "" > /dev/stderr
+    echo "EULA not accepted. Aborting migration." > /dev/stderr
+    exit 1
+  fi
+  echo "" > /dev/stderr
 }
 
 # ---------------------------------------------------------------------------
@@ -384,6 +423,9 @@ init_migration() {
   check_yq
   check_openssl
 
+  require_eula_acceptance
+  NETBIRD_EULA_ACCEPTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
   COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.yml}"
 
   if [[ ! -f "$COMPOSE_FILE" ]]; then
@@ -529,6 +571,10 @@ apply_changes() {
   {
     echo ""
     echo "# Added by migrate-to-enterprise.sh on $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo "# NetBird On-Premise EULA accepted at install time"
+    echo "NETBIRD_EULA_ACCEPTED=yes"
+    echo "NETBIRD_EULA_ACCEPTED_AT=${NETBIRD_EULA_ACCEPTED_AT}"
+    echo "NETBIRD_EULA_URL=${NETBIRD_EULA_URL}"
     echo "NB_LICENSE_KEY=${NB_LICENSE_KEY}"
     if [[ -n "${NETBIRD_LICENSE_SERVER_BASE_URL:-}" ]]; then
       echo "NETBIRD_LICENSE_SERVER_BASE_URL=${NETBIRD_LICENSE_SERVER_BASE_URL}"
