@@ -79,8 +79,6 @@ ShowInstDetails Show
 
 !insertmacro MUI_PAGE_DIRECTORY
 
-Page custom AutostartPage AutostartPageLeave
-
 !insertmacro MUI_PAGE_INSTFILES
 
 !insertmacro MUI_PAGE_FINISH
@@ -97,39 +95,11 @@ UninstPage custom un.DeleteDataPage un.DeleteDataPageLeave
 
 !insertmacro MUI_LANGUAGE "English"
 
-; Variables for autostart option
-Var AutostartCheckbox
-Var AutostartEnabled
-
 ; Variables for uninstall data deletion option
 Var DeleteDataCheckbox
 Var DeleteDataEnabled
 
 ######################################################################
-
-; Function to create the autostart options page
-Function AutostartPage
-  !insertmacro MUI_HEADER_TEXT "Startup Options" "Configure how ${APP_NAME} launches with Windows."
-
-  nsDialogs::Create 1018
-  Pop $0
-
-  ${If} $0 == error
-    Abort
-  ${EndIf}
-
-  ${NSD_CreateCheckbox} 0 20u 100% 10u "Start ${APP_NAME} UI automatically when Windows starts"
-  Pop $AutostartCheckbox
-  ${NSD_Check} $AutostartCheckbox
-  StrCpy $AutostartEnabled "1"
-
-  nsDialogs::Show
-FunctionEnd
-
-; Function to handle leaving the autostart page
-Function AutostartPageLeave
-  ${NSD_GetState} $AutostartCheckbox $AutostartEnabled
-FunctionEnd
 
 ; Function to create the uninstall data deletion page
 Function un.DeleteDataPage
@@ -201,8 +171,6 @@ Pop $0
 
 Function .onInit
 StrCpy $INSTDIR "${INSTALL_DIR}"
-; Default autostart to enabled so silent installs (/S) match the interactive default
-StrCpy $AutostartEnabled "1"
 
 ; Pre-0.70.1 installers ran without SetRegView, so their uninstall keys live
 ; in the 32-bit view. Fall back to it so upgrades still find them.
@@ -260,17 +228,12 @@ WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "Publisher" "${COMP_NAME}"
 
 WriteRegStr ${REG_ROOT} "${UI_REG_APP_PATH}" "" "$INSTDIR\${UI_APP_EXE}"
 
-; Create autostart registry entry based on checkbox
-DetailPrint "Autostart enabled: $AutostartEnabled"
-${If} $AutostartEnabled == "1"
-    WriteRegStr HKLM "${AUTOSTART_REG_KEY}" "${APP_NAME}" '"$INSTDIR\${UI_APP_EXE}.exe"'
-    DetailPrint "Added autostart registry entry: $INSTDIR\${UI_APP_EXE}.exe"
-${Else}
-    DeleteRegValue HKLM "${AUTOSTART_REG_KEY}" "${APP_NAME}"
-    ; Legacy: pre-HKLM installs wrote to HKCU; clean that up too.
-    DeleteRegValue HKCU "${AUTOSTART_REG_KEY}" "${APP_NAME}"
-    DetailPrint "Autostart not enabled by user"
-${EndIf}
+; Autostart is owned by the UI's per-user setting (HKCU\...\Run via Wails),
+; not the installer. Drop the machine-wide entry older installers wrote so the
+; toggle is the single source of truth. HKCU is left untouched -- it may hold
+; the user's own toggle state, which must survive upgrades.
+DetailPrint "Removing installer-managed autostart registry entry if present..."
+DeleteRegValue HKLM "${AUTOSTART_REG_KEY}" "${APP_NAME}"
 
 EnVar::SetHKLM
 EnVar::AddValueEx "path" "$INSTDIR"
@@ -336,11 +299,14 @@ ExecWait '"$INSTDIR\${MAIN_APP_EXE}" service uninstall'
 DetailPrint "Terminating Netbird UI process..."
 ExecWait `taskkill /im ${UI_APP_EXE}.exe /f`
 
-; Remove autostart registry entry
-DetailPrint "Removing autostart registry entry if exists..."
+; Remove autostart registry entries
+DetailPrint "Removing autostart registry entries if they exist..."
+; Legacy machine-wide entry written by older installers.
 DeleteRegValue HKLM "${AUTOSTART_REG_KEY}" "${APP_NAME}"
-; Legacy: pre-HKLM installs wrote to HKCU; clean that up too.
+; Per-user entry the UI toggle writes via Wails (value name is the lowercase
+; app-name slug). Uninstall removes the app, so drop it too.
 DeleteRegValue HKCU "${AUTOSTART_REG_KEY}" "${APP_NAME}"
+DeleteRegValue HKCU "${AUTOSTART_REG_KEY}" "netbird"
 
 ; Handle data deletion based on checkbox
 DetailPrint "Checking if user requested data deletion..."
