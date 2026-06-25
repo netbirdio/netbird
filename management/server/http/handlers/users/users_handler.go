@@ -220,7 +220,7 @@ func (h *handler) getAllUsers(w http.ResponseWriter, r *http.Request) {
 		}
 
 		includeServiceUser, err := strconv.ParseBool(serviceUser)
-		log.WithContext(r.Context()).Debugf("Should include service user: %v", includeServiceUser)
+		log.WithContext(r.Context()).Tracef("Should include service user: %v", includeServiceUser)
 		if err != nil {
 			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid service_user query parameter"), w)
 			return
