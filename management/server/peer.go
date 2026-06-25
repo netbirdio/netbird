@@ -209,12 +209,12 @@ func (am *DefaultAccountManager) resolvePeerLocation(ctx context.Context, peer *
 	if am.geo == nil || realIP == nil {
 		return nil
 	}
-	if peer.Location.ConnectionIP != nil && peer.Location.ConnectionIP.Equal(realIP) {
-		return nil
-	}
 	location, err := am.geo.Lookup(realIP)
 	if err != nil {
 		log.WithContext(ctx).Warnf("failed to get location for peer %s realip: [%s]: %v", peer.ID, realIP.String(), err)
+		return nil
+	}
+	if peer.Location.ConnectionIP != nil && peer.Location.ConnectionIP.Equal(realIP) && peer.Location.GeoNameID == location.City.GeonameID {
 		return nil
 	}
 	return &nbpeer.Location{
@@ -1052,7 +1052,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 	}
 
 	metaDiffAffectsPosture := posture.AffectsPosture(ctx, &metaDiff, resPostureChecks)
-	if isStatusChanged || sync.UpdateAccountPeers || ipv6CapabilityChanged || metaDiffAffectsPosture || metaDiff.VersionChanged() || metaDiff.HostnameChanged() {
+	if requiresPeerUpdate(ctx, isStatusChanged, sync.UpdateAccountPeers, ipv6CapabilityChanged, metaDiffAffectsPosture, metaDiff.VersionChanged(), metaDiff.HostnameChanged()) {
 		changedPeerIDs := []string{peer.ID}
 		affectedPeerIDs := am.syncPeerAffectedPeers(ctx, accountID, peer.ID, nmap, peerNotValid, metaDiffAffectsPosture)
 		if err = am.networkMapController.OnPeersUpdated(ctx, accountID, changedPeerIDs, affectedPeerIDs); err != nil {
@@ -1061,6 +1061,29 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 	}
 
 	return peer, nmap, resPostureChecks, dnsFwdPort, nil
+}
+
+func requiresPeerUpdate(ctx context.Context, isStatusChanged, updateAccountPeers, ipv6CapabilityChanged, metaDiffAffectsPosture, versionChanged, hostname bool) bool {
+	var reason string
+	switch {
+	case isStatusChanged:
+		reason = "status changed"
+	case updateAccountPeers:
+		reason = "update account peers"
+	case ipv6CapabilityChanged:
+		reason = "ipv6 capability changed"
+	case metaDiffAffectsPosture:
+		reason = "meta diff affects posture"
+	case versionChanged:
+		reason = "version changed"
+	case hostname:
+		reason = "hostname changed"
+	default:
+		return false
+	}
+
+	log.WithContext(ctx).Tracef("peer update required: %s", reason)
+	return true
 }
 
 // syncPeerAffectedPeers resolves the peers affected by a SyncPeer change. The
