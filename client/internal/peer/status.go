@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"runtime/debug"
 	"slices"
 	"sync"
 	"time"
@@ -1476,5 +1477,6 @@ func (fs FullStatus) ToProto() *proto.FullStatus {
 func debugElapsed(msg string, startTime time.Time) {
 	if elapsed := time.Since(startTime); elapsed > 1*time.Second {
 		log.Infof("run %s took %s", msg, elapsed)
+		debug.PrintStack()
 	}
 }
