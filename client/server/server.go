@@ -136,6 +136,7 @@ func New(ctx context.Context, logFile string, configFile string, profilesDisable
 		networksDisabled:       networksDisabled,
 		jwtCache:               newJWTCache(),
 	}
+	go s.statusRecorder.StartProfile(ctx)
 	agent := &serverAgent{s}
 	s.sleepHandler = sleephandler.New(agent)
 	s.startSleepDetector()
