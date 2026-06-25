@@ -788,7 +788,11 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 		ExtraDNSLabels:  loginReq.GetDnsLabels(),
 	})
 	if err != nil {
-		log.WithContext(ctx).Warnf("failed logging in peer %s: %s", peerKey, err)
+		if errors.Is(err, internalStatus.ErrNoAuthMethodProvided) {
+			log.WithContext(ctx).Tracef("failed logging in peer %s: %s", peerKey, err)
+		} else {
+			log.WithContext(ctx).Warnf("failed logging in peer %s: %s", peerKey, err)
+		}
 		return nil, mapError(ctx, err)
 	}
 
