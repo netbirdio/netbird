@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel"
 
 	"github.com/netbirdio/netbird/client/iface"
@@ -252,7 +253,7 @@ func TestClient_ConnectedIPParsesRemoteAddr(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c := &Client{relayConn: stubConn{remote: staticAddr{s: tt.s}}}
+			c := &Client{log: log.WithField("relay", tt.name), relayConn: stubConn{remote: staticAddr{s: tt.s}}}
 			got := c.ConnectedIP()
 			var gotStr string
 			if got.IsValid() {
