@@ -1020,6 +1020,11 @@ func (d *Status) GetSignalState() SignalState {
 // GetRelayStates returns the stun/turn/permanent relay states
 func (d *Status) GetRelayStates() []relay.ProbeResult {
 	d.muxRelays.RLock()
+
+	// debug lines
+	started := time.Now()
+	defer debugElapsed("GetRelayStates", started)
+
 	if d.relayMgr == nil {
 		defer d.muxRelays.RUnlock()
 		return d.relayStates
@@ -1059,6 +1064,11 @@ func (d *Status) GetRelayStates() []relay.ProbeResult {
 
 func (d *Status) ForwardingRules() []firewall.ForwardRule {
 	d.mux.RLock()
+
+	// debug lines
+	started := time.Now()
+	defer debugElapsed("ForwardingRules", started)
+
 	defer d.mux.RUnlock()
 	if d.ingressGwMgr == nil {
 		return nil
@@ -1211,6 +1221,11 @@ func (d *Status) PublishEvent(
 	}
 
 	d.eventMux.Lock()
+
+	// debug lines
+	started := time.Now()
+	defer debugElapsed("PublishEvent", started)
+
 	defer d.eventMux.Unlock()
 
 	d.eventQueue.Add(event)
@@ -1270,6 +1285,11 @@ func (d *Status) SetWgIface(wgInterface WGIfaceStatus) {
 
 func (d *Status) PeersStatus() (*configurer.Stats, error) {
 	d.mux.RLock()
+
+	// debug lines
+	started := time.Now()
+	defer debugElapsed("PeersStatus", started)
+
 	defer d.mux.RUnlock()
 	if d.wgIface == nil {
 		return nil, fmt.Errorf("wgInterface is nil, cannot retrieve peers status")
@@ -1283,6 +1303,11 @@ func (d *Status) PeersStatus() (*configurer.Stats, error) {
 // transfer statistics in status reports without running full health probes.
 func (d *Status) RefreshWireGuardStats() error {
 	d.mux.Lock()
+
+	// debug lines
+	started := time.Now()
+	defer debugElapsed("RefreshWireGuardStats", started)
+
 	defer d.mux.Unlock()
 
 	if d.wgIface == nil {
@@ -1446,4 +1471,10 @@ func (fs FullStatus) ToProto() *proto.FullStatus {
 	pbFullStatus.Events = fs.Events
 
 	return &pbFullStatus
+}
+
+func debugElapsed(msg string, startTime time.Time) {
+	if elapsed := time.Since(startTime); elapsed > 1*time.Second {
+		log.Infof("run %s took %s", msg, elapsed)
+	}
 }
