@@ -19,9 +19,20 @@ import (
 	"github.com/netbirdio/netbird/util"
 )
 
+func validateJSONSocketFlags() error {
+	if serviceCmd.PersistentFlags().Changed("json-socket") && !enableJSONSocket {
+		return fmt.Errorf("--json-socket requires --enable-json-socket to configure the daemon JSON gateway")
+	}
+	return nil
+}
+
 func (p *program) Start(svc service.Service) error {
 	// Start should not block. Do the actual work async.
 	log.Info("starting NetBird service") //nolint
+
+	if err := validateJSONSocketFlags(); err != nil {
+		return err
+	}
 
 	// Collect static system and platform information
 	system.UpdateStaticInfoAsync()
@@ -35,7 +46,7 @@ func (p *program) Start(svc service.Service) error {
 	}
 
 	var jsonListener *socketListener
-	if !jsonSocketDisabled {
+	if enableJSONSocket {
 		jsonListener, err = listenOnAddress(jsonSocket)
 		if err != nil {
 			_ = daemonListener.Close()
@@ -171,6 +182,9 @@ var runCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		if err := validateJSONSocketFlags(); err != nil {
+			return err
+		}
 
 		return s.Run()
 	},
@@ -183,6 +197,9 @@ var startCmd = &cobra.Command{
 		ctx, cancel := context.WithCancel(cmd.Context())
 		s, err := setupServiceControlCommand(cmd, ctx, cancel, false)
 		if err != nil {
+			return err
+		}
+		if err := validateJSONSocketFlags(); err != nil {
 			return err
 		}
 
@@ -219,6 +236,9 @@ var restartCmd = &cobra.Command{
 		ctx, cancel := context.WithCancel(cmd.Context())
 		s, err := setupServiceControlCommand(cmd, ctx, cancel, false)
 		if err != nil {
+			return err
+		}
+		if err := validateJSONSocketFlags(); err != nil {
 			return err
 		}
 

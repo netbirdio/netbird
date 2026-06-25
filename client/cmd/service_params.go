@@ -31,7 +31,7 @@ type serviceParams struct {
 	DisableUpdateSettings bool              `json:"disable_update_settings,omitempty"`
 	EnableCapture         bool              `json:"enable_capture,omitempty"`
 	DisableNetworks       bool              `json:"disable_networks,omitempty"`
-	DisableJSONSocket     bool              `json:"disable_json_socket,omitempty"`
+	EnableJSONSocket      bool              `json:"enable_json_socket,omitempty"`
 	ServiceEnvVars        map[string]string `json:"service_env_vars,omitempty"`
 }
 
@@ -85,7 +85,7 @@ func currentServiceParams() *serviceParams {
 		DisableUpdateSettings: updateSettingsDisabled,
 		EnableCapture:         captureEnabled,
 		DisableNetworks:       networksDisabled,
-		DisableJSONSocket:     jsonSocketDisabled,
+		EnableJSONSocket:      enableJSONSocket,
 	}
 
 	if len(serviceEnvVars) > 0 {
@@ -127,18 +127,12 @@ func applyServiceParams(cmd *cobra.Command, params *serviceParams) {
 		daemonAddr = params.DaemonAddr
 	}
 
-	jsonSocketChanged := serviceCmd.PersistentFlags().Changed("json-socket")
-	if !jsonSocketChanged && params.JSONSocket != "" {
+	if !serviceCmd.PersistentFlags().Changed("json-socket") && params.JSONSocket != "" {
 		jsonSocket = params.JSONSocket
 	}
 
-	if !serviceCmd.PersistentFlags().Changed("disable-json-socket") {
-		jsonSocketDisabled = params.DisableJSONSocket
-		// Passing --json-socket should re-enable the JSON gateway unless
-		// --disable-json-socket was explicitly provided too.
-		if jsonSocketChanged {
-			jsonSocketDisabled = false
-		}
+	if !serviceCmd.PersistentFlags().Changed("enable-json-socket") {
+		enableJSONSocket = params.EnableJSONSocket
 	}
 
 	// For optional fields where empty means "use default", always apply so

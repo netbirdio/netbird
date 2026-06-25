@@ -3,10 +3,13 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"strings"
+	"syscall"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -50,17 +53,42 @@ func parseListenAddress(addr string) (string, string, error) {
 }
 
 func removeStaleUnixSocket(path string) {
-	stat, err := os.Stat(path)
-	if err == nil && !stat.IsDir() {
-		if err := os.Remove(path); err != nil {
-			log.Debugf("remove socket file: %v", err)
+	stat, err := os.Lstat(path)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			log.Debugf("stat socket file: %v", err)
 		}
 		return
 	}
 
-	if err != nil && !os.IsNotExist(err) {
-		log.Debugf("stat socket file: %v", err)
+	if stat.Mode()&os.ModeSocket == 0 {
+		return
 	}
+
+	if !isStaleUnixSocket(path) {
+		return
+	}
+
+	if err := os.Remove(path); err != nil {
+		log.Debugf("remove socket file: %v", err)
+	}
+}
+
+func isStaleUnixSocket(path string) bool {
+	conn, err := net.DialTimeout("unix", path, 100*time.Millisecond)
+	if err == nil {
+		if closeErr := conn.Close(); closeErr != nil {
+			log.Debugf("close unix socket probe: %v", closeErr)
+		}
+		return false
+	}
+
+	if os.IsNotExist(err) || os.IsPermission(err) || os.IsTimeout(err) {
+		log.Debugf("not removing unix socket %s after probe error: %v", path, err)
+		return false
+	}
+
+	return errors.Is(err, syscall.ECONNREFUSED)
 }
 
 func removeStaleUnixSocketForAddress(addr string) {
