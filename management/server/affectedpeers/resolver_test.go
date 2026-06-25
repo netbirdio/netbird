@@ -80,24 +80,189 @@ func TestChangeIsEmpty(t *testing.T) {
 	assert.False(t, Change{PostureCheckIDs: []string{"pc"}}.isEmpty())
 }
 
-func TestPolicyReferencesGroups(t *testing.T) {
-	policy := &types.Policy{Rules: []*types.PolicyRule{{Sources: []string{"g1", "g2"}, Destinations: []string{"g3"}}}}
+func TestGroupsFromPolicyDirectionally(t *testing.T) {
+	policy := &types.Policy{Rules: []*types.PolicyRule{
+		{Sources: []string{"g1", "g2"}, Destinations: []string{"g3"}},
+		{Sources: []string{"g4"}, Destinations: []string{"g5", "g6"}},
+		{Sources: []string{"g7"}, Destinations: []string{"g8"},
+			SourceResource:      types.Resource{ID: "r7", Type: types.ResourceTypePeer},
+			DestinationResource: types.Resource{ID: "r8", Type: types.ResourceTypePeer}},
+		{Sources: []string{"g9"}, Destinations: []string{"g10"},
+			SourceResource:      types.Resource{ID: "", Type: types.ResourceTypePeer},
+			DestinationResource: types.Resource{ID: "", Type: types.ResourceTypePeer}},
+		{Sources: []string{"g11"}, Destinations: []string{"g12"},
+			SourceResource:      types.Resource{ID: "r11", Type: types.ResourceTypeHost},
+			DestinationResource: types.Resource{ID: "r12", Type: types.ResourceTypeHost}},
+	}}
 
-	assert.True(t, policyReferencesGroups(policy, map[string]struct{}{"g1": {}}))
-	assert.True(t, policyReferencesGroups(policy, map[string]struct{}{"g3": {}}))
-	assert.False(t, policyReferencesGroups(policy, map[string]struct{}{"g4": {}}))
-	assert.False(t, policyReferencesGroups(policy, map[string]struct{}{}))
+	var tests = []struct {
+		name             string
+		inGroups         map[string]struct{}
+		expectedPeerIds  []string
+		expectedGroupIds []string
+	}{
+		{
+			name:             "match sources",
+			inGroups:         map[string]struct{}{"g1": {}, "g4": {}},
+			expectedPeerIds:  []string{},
+			expectedGroupIds: []string{"g1", "g4", "g3", "g5", "g6"},
+		},
+		{
+			name:             "match destinations",
+			inGroups:         map[string]struct{}{"g3": {}, "g6": {}},
+			expectedPeerIds:  []string{},
+			expectedGroupIds: []string{"g1", "g2", "g4", "g3", "g6"},
+		},
+		{
+			name:             "should return destinations and destination resource",
+			inGroups:         map[string]struct{}{"g7": {}},
+			expectedPeerIds:  []string{"r8"},
+			expectedGroupIds: []string{"g7", "g8"},
+		},
+		{
+			name:             "should return sources and source resource",
+			inGroups:         map[string]struct{}{"g8": {}},
+			expectedPeerIds:  []string{"r7"},
+			expectedGroupIds: []string{"g7", "g8"},
+		},
+		{
+			name:             "should not return source resource (empty id)",
+			inGroups:         map[string]struct{}{"g10": {}},
+			expectedPeerIds:  []string{},
+			expectedGroupIds: []string{"g9", "g10"},
+		},
+		{
+			name:             "should not return destination resource (empty id)",
+			inGroups:         map[string]struct{}{"g9": {}},
+			expectedPeerIds:  []string{},
+			expectedGroupIds: []string{"g9", "g10"},
+		},
+		{
+			name:             "should not return source resource (non-peer type)",
+			inGroups:         map[string]struct{}{"g12": {}},
+			expectedPeerIds:  []string{},
+			expectedGroupIds: []string{"g11", "g12"},
+		},
+		{
+			name:             "should not return destination resource (non-peer type)",
+			inGroups:         map[string]struct{}{"g12": {}},
+			expectedPeerIds:  []string{},
+			expectedGroupIds: []string{"g11", "g12"},
+		},
+		{
+			name:             "non-existing group",
+			inGroups:         map[string]struct{}{"g33": {}},
+			expectedPeerIds:  []string{},
+			expectedGroupIds: []string{},
+		},
+		{
+			name:             "empty groupset",
+			inGroups:         map[string]struct{}{},
+			expectedPeerIds:  []string{},
+			expectedGroupIds: []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			peerIds, groupIds := getGroupsAndPeersFromPolicyViaGroups(policy, tt.inGroups)
+			assert.ElementsMatch(t, peerIds, tt.expectedPeerIds)
+			assert.ElementsMatch(t, groupIds, tt.expectedGroupIds)
+		})
+	}
 }
 
 func TestPolicyReferencesDirectPeers(t *testing.T) {
-	policy := &types.Policy{Rules: []*types.PolicyRule{{
-		SourceResource:      types.Resource{Type: types.ResourceTypePeer, ID: "p1"},
-		DestinationResource: types.Resource{Type: types.ResourceTypeHost, ID: "r1"},
-	}}}
+	policy := &types.Policy{Rules: []*types.PolicyRule{
+		{
+			SourceResource:      types.Resource{Type: types.ResourceTypePeer, ID: "p1"},
+			DestinationResource: types.Resource{Type: types.ResourceTypePeer, ID: "r1"},
+			Sources:             []string{"sg1"},
+			Destinations:        []string{"dg1"},
+		},
+		{
+			SourceResource:      types.Resource{Type: types.ResourceTypePeer, ID: "p2"},
+			DestinationResource: types.Resource{Type: types.ResourceTypePeer, ID: "r2"},
+			Sources:             []string{"sg2"},
+			Destinations:        []string{"dg2"},
+		},
+		{
+			SourceResource:      types.Resource{Type: types.ResourceTypePeer, ID: "p3"},
+			DestinationResource: types.Resource{Type: types.ResourceTypeHost, ID: "r3"},
+			Sources:             []string{"sg3"},
+			Destinations:        []string{"dg3"},
+		},
+		{
+			SourceResource:      types.Resource{Type: types.ResourceTypeHost, ID: "p4"},
+			DestinationResource: types.Resource{Type: types.ResourceTypePeer, ID: "r4"},
+			Sources:             []string{"sg4"},
+			Destinations:        []string{"dg4"},
+		},
+		{
+			SourceResource:      types.Resource{Type: types.ResourceTypeHost, ID: "p5"},
+			DestinationResource: types.Resource{Type: types.ResourceTypePeer, ID: "r5"},
+			Sources:             []string{"sg5"},
+			Destinations:        []string{"dg5"},
+		},
+		{
+			SourceResource:      types.Resource{Type: types.ResourceTypePeer, ID: "p6"},
+			DestinationResource: types.Resource{Type: types.ResourceTypeHost, ID: "r6"},
+			Sources:             []string{"sg6"},
+			Destinations:        []string{"dg6"},
+		},
+		{
+			SourceResource:      types.Resource{Type: types.ResourceTypePeer, ID: "p7"},
+			DestinationResource: types.Resource{Type: types.ResourceTypePeer, ID: "r7"},
+			Sources:             []string{"sg7"},
+			Destinations:        []string{"dg7"},
+		},
+	}}
 
-	assert.True(t, policyReferencesDirectPeers(policy, map[string]struct{}{"p1": {}}))
-	assert.False(t, policyReferencesDirectPeers(policy, map[string]struct{}{"r1": {}}))
-	assert.False(t, policyReferencesDirectPeers(policy, map[string]struct{}{"p2": {}}))
+	var tests = []struct {
+		name             string
+		changedPeerIds   map[string]struct{}
+		expectedPeerIds  []string
+		expectedGroupIds []string
+	}{
+		{
+			name:             "match sources",
+			changedPeerIds:   map[string]struct{}{"p1": {}, "p2": {}},
+			expectedPeerIds:  []string{"p1", "p2", "r1", "r2"},
+			expectedGroupIds: []string{"dg1", "dg2"},
+		},
+		{
+			name:             "match destinations",
+			changedPeerIds:   map[string]struct{}{"r1": {}, "r2": {}},
+			expectedPeerIds:  []string{"r1", "r2", "p1", "p2"},
+			expectedGroupIds: []string{"sg1", "sg2"},
+		},
+		{
+			name:             "wrong opposing peer types, only changed peer ids and groups on the opposing end of the rule",
+			changedPeerIds:   map[string]struct{}{"p3": {}, "r4": {}},
+			expectedPeerIds:  []string{"p3", "r4"},
+			expectedGroupIds: []string{"dg3", "sg4"},
+		},
+		{
+			name:             "wrong peer type, no matching peer ids",
+			changedPeerIds:   map[string]struct{}{"p5": {}, "r6": {}},
+			expectedPeerIds:  []string{},
+			expectedGroupIds: []string{},
+		},
+		{
+			name:             "changed peers on both sides of the policy",
+			changedPeerIds:   map[string]struct{}{"p7": {}, "r7": {}},
+			expectedPeerIds:  []string{"p7", "r7"},
+			expectedGroupIds: []string{"sg7", "dg7"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			peerIds, groupIds := getGroupsAndPeersFromPolicyViaPeers(policy, tt.changedPeerIds)
+			assert.ElementsMatch(t, peerIds, tt.expectedPeerIds)
+			assert.ElementsMatch(t, groupIds, tt.expectedGroupIds)
+		})
+	}
 }
 
 func TestPolicyReferencesPostureChecks(t *testing.T) {
