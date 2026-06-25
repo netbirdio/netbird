@@ -519,7 +519,7 @@ func (r *resolver) appendPoliciesForPostureChecks(policies []*types.Policy, post
 	}
 	ids := toSet(postureCheckIDs)
 	for _, policy := range r.policies() {
-		if !policyReferencesPostureChecks(policy, ids) {
+		if !policyReferencesPostureChecks(policy, ids) || !policy.Enabled {
 			continue
 		}
 		log.WithContext(r.ctx).Tracef("appendPoliciesForPostureChecks: policy %s (%s) references changed posture checks %v -> both-sides policy",
@@ -712,21 +712,55 @@ func (r *resolver) foldPolicySourcesForResources(resourceIDs map[string]struct{}
 	}
 }
 
+// collectFromRoutes folds, per matched route, the OPPOSITE side(s) fully and the
+// matched side's own groups only on a whole-group change (outputGroups). A route has
+// three peer sides — routing (Peer/PeerGroups), consumer (Groups) and ACL
+// (AccessControlGroups) — that each refresh the others; the changed side's own group
+// folds its siblings only when the group itself changed, never on a one-peer move.
 func (r *resolver) collectFromRoutes() {
 	for _, rt := range r.snap.routes {
 		if !rt.Enabled {
 			continue // disabled routes route to nobody; skip existing account data
 		}
-		matchedByGroup := anyInSet(rt.Groups, r.linkGroups) || anyInSet(rt.PeerGroups, r.linkGroups) || anyInSet(rt.AccessControlGroups, r.linkGroups)
-		matchedByPeer := rt.Peer != "" && len(r.changedPeers) > 0 && isInSet(rt.Peer, r.changedPeers)
-		if !matchedByGroup && !matchedByPeer {
+		routing := anyInSet(rt.PeerGroups, r.linkGroups) || (rt.Peer != "" && isInSet(rt.Peer, r.changedPeers))
+		consumer := anyInSet(rt.Groups, r.linkGroups)
+		acl := anyInSet(rt.AccessControlGroups, r.linkGroups)
+		if !routing && !consumer && !acl {
 			continue
 		}
-		log.WithContext(r.ctx).Tracef("collectFromRoutes: route %s matched (byGroup=%t byPeer=%t) -> folding groups=%v peerGroups=%v accessControlGroups=%v peer=%q",
-			rt.ID, matchedByGroup, matchedByPeer, rt.Groups, rt.PeerGroups, rt.AccessControlGroups, rt.Peer)
-		addAll(r.affectedGroups, rt.Groups, rt.PeerGroups, rt.AccessControlGroups)
-		if rt.Peer != "" {
+		log.WithContext(r.ctx).Tracef("collectFromRoutes: route %s matched (routing=%t consumer=%t acl=%t) -> folding opposite sides; own side gated on outputGroups",
+			rt.ID, routing, consumer, acl)
+		r.foldRouteSide(rt.PeerGroups, routing)
+		r.foldRouteSide(rt.Groups, consumer)
+		r.foldRouteSide(rt.AccessControlGroups, acl)
+		// The single routing Peer folds when the routing side is the OPPOSITE of the
+		// match (consumer/acl need it), or when that very peer is the change.
+		if rt.Peer != "" && (consumer || acl || isInSet(rt.Peer, r.changedPeers)) {
 			r.affectedPeers[rt.Peer] = struct{}{}
+		}
+	}
+}
+
+// foldRouteSide folds a route side: when this side is the one that matched, fold its
+// groups only on a whole-group change (outputGroups) so siblings of a single moved
+// peer stay put; otherwise it is an opposite side and folds fully.
+func (r *resolver) foldRouteSide(groups []string, matchedHere bool) {
+	if matchedHere {
+		r.foldOutputGroups(groups)
+		return
+	}
+	addAll(r.affectedGroups, groups)
+}
+
+// foldOutputGroups folds only the groups that the caller reported as wholly changed
+// (outputGroups). Used for a matched object's OWN side, where a peer-seeded or
+// link-only group must not pull in its siblings.
+func (r *resolver) foldOutputGroups(groups ...[]string) {
+	for _, gs := range groups {
+		for _, gID := range gs {
+			if _, ok := r.outputGroups[gID]; ok {
+				r.affectedGroups[gID] = struct{}{}
+			}
 		}
 	}
 }
@@ -737,8 +771,11 @@ func (r *resolver) collectFromNameServers() {
 	}
 	for _, ns := range r.snap.nsGroups {
 		if anyInSet(ns.Groups, r.linkGroups) {
-			log.WithContext(r.ctx).Tracef("collectFromNameServers: nameserver group %s references a changed group -> folding its groups %v", ns.ID, ns.Groups)
-			addAll(r.affectedGroups, ns.Groups)
+			// A nameserver group has no opposite side: a peer's DNS config depends only
+			// on its own membership, so a one-peer move refreshes that peer alone (folded
+			// elsewhere). Fold the referenced groups only on a whole-group change.
+			log.WithContext(r.ctx).Tracef("collectFromNameServers: nameserver group %s references a linked group -> folding its groups %v (outputGroups only)", ns.ID, ns.Groups)
+			r.foldOutputGroups(ns.Groups)
 		}
 	}
 }
@@ -766,9 +803,12 @@ func (r *resolver) collectFromNetworkRouters() {
 		if !matchedByGroup && !matchedByPeer {
 			continue
 		}
-		log.WithContext(r.ctx).Tracef("collectFromNetworkRouters: router %s on network %s matched (byGroup=%t byPeer=%t) -> folding its peerGroups=%v peer=%q + sources reaching network resources",
+		log.WithContext(r.ctx).Tracef("collectFromNetworkRouters: router %s on network %s matched (byGroup=%t byPeer=%t) -> folding its peerGroups=%v peer=%q (own groups on outputGroups) + sources reaching network resources",
 			router.ID, router.NetworkID, matchedByGroup, matchedByPeer, router.PeerGroups, router.Peer)
-		addAll(r.affectedGroups, router.PeerGroups)
+		// The backing PeerGroups are the matched (own) side: fold them only on a
+		// whole-group change so a one-peer move does not wake sibling backing peers. The
+		// opposite side (policy sources reaching the network) is folded below.
+		r.foldOutputGroups(router.PeerGroups)
 		if router.Peer != "" {
 			r.affectedPeers[router.Peer] = struct{}{}
 		}
@@ -799,7 +839,7 @@ func (r *resolver) collectFromProxyServices() {
 		if !matchedByPeer && !matchedByAccessGroup {
 			continue
 		}
-		log.WithContext(r.ctx).Tracef("collectFromProxyServices: service %s (cluster=%s) matched (byProxyOrTargetPeer=%t byAccessGroup=%t) -> folding %d proxy peers, peer targets and access groups %v",
+		log.WithContext(r.ctx).Tracef("collectFromProxyServices: service %s (cluster=%s) matched (byProxyOrTargetPeer=%t byAccessGroup=%t) -> folding %d proxy peers, peer targets; access groups %v on outputGroups only",
 			svc.ID, svc.ProxyCluster, matchedByPeer, matchedByAccessGroup, len(proxyPeers), svc.AccessGroups)
 		for _, pid := range proxyPeers {
 			r.affectedPeers[pid] = struct{}{}
@@ -812,7 +852,10 @@ func (r *resolver) collectFromProxyServices() {
 				r.affectedPeers[target.TargetId] = struct{}{}
 			}
 		}
-		addAll(r.affectedGroups, svc.AccessGroups)
+		// AccessGroups are the matched (own) side with no opposite to fold: a member's
+		// proxy access is self-contained, so a one-peer move refreshes that peer alone.
+		// Fold the groups only on a whole-group change.
+		r.foldOutputGroups(svc.AccessGroups)
 	}
 }
 
