@@ -12,6 +12,9 @@ type PeerSync struct {
 	WireGuardPubKey string
 	// Meta is the system information passed by peer, must be always present
 	Meta nbpeer.PeerSystemMeta
+	// RealIP is the peer's connection IP, used to refresh its geo location.
+	// May be nil when the request has no associated connection IP.
+	RealIP net.IP
 	// UpdateAccountPeers indicate updating account peers,
 	// which occurs when the peer's metadata is updated
 	UpdateAccountPeers bool
