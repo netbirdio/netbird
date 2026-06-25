@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"runtime/debug"
 	"slices"
 	"strconv"
 	"sync"
@@ -178,10 +177,6 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 		return fmt.Errorf("failed to get account zones: %v", err)
 	}
 
-	if reason.Operation == types.UpdateOperationUpdate && reason.Resource == types.UpdateResourceUser {
-		log.WithContext(ctx).Tracef("got an user update, stack: %s", debug.Stack())
-	}
-
 	for _, peer := range account.Peers {
 		if !c.peersUpdateManager.HasChannel(peer.ID) {
 			log.WithContext(ctx).Tracef("peer %s doesn't have a channel, skipping network map update", peer.ID)
@@ -249,7 +244,6 @@ func (c *Controller) UpdateAccountPeers(ctx context.Context, accountID string, r
 
 // UpdateAffectedPeers updates only the specified peers that belong to an account.
 func (c *Controller) UpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string) error {
-	log.WithContext(ctx).Tracef("UpdateAccountPeers: account %s, %d affected peers (caller: %s)", accountID, len(peerIDs), util.GetCallerName())
 	if len(peerIDs) == 0 {
 		return nil
 	}
@@ -257,8 +251,6 @@ func (c *Controller) UpdateAffectedPeers(ctx context.Context, accountID string, 
 }
 
 func (c *Controller) sendUpdateForAffectedPeers(ctx context.Context, accountID string, peerIDs []string) error {
-	log.WithContext(ctx).Tracef("sendUpdateForAffectedPeers: account %s, %d affected peers (caller: %s)", accountID, len(peerIDs), util.GetCallerName())
-
 	if !c.hasConnectedPeers(peerIDs) {
 		log.WithContext(ctx).Tracef("sendUpdateForAffectedPeers: no connected peers among %v, skipping", peerIDs)
 		return nil
@@ -504,10 +496,6 @@ func (c *Controller) BufferUpdateAffectedPeers(ctx context.Context, accountID st
 	}
 
 	log.WithContext(ctx).Tracef("buffer updating %d affected peers for account %s from %s with reason %s/%s", len(peerIDs), accountID, util.GetCallerName(), reason.Operation, reason.Resource)
-
-	if reason.Operation == types.UpdateOperationUpdate && reason.Resource == types.UpdateResourceUser {
-		log.WithContext(ctx).Tracef("got an user update, stack: %s", debug.Stack())
-	}
 
 	bufUpd, _ := c.affectedPeerUpdateLocks.LoadOrStore(accountID, &bufferAffectedUpdate{
 		peerIDs: make(map[string]struct{}),
