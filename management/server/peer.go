@@ -189,6 +189,15 @@ func (am *DefaultAccountManager) MarkPeerDisconnected(ctx context.Context, peerP
 		}
 	}
 
+	if peer.AddedWithSSOLogin() && peer.InactivityExpirationEnabled {
+		settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+		if err != nil {
+			log.WithContext(ctx).Warnf("failed getting account settings to schedule inactivity expiration for peer %s: %v", peer.ID, err)
+		} else if settings.PeerInactivityExpirationEnabled {
+			am.checkAndSchedulePeerInactivityExpiration(ctx, accountID)
+		}
+	}
+
 	return nil
 }
 
@@ -722,7 +731,7 @@ func (am *DefaultAccountManager) handleSetupKeyAddedPeer(ctx context.Context, en
 func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKey, userID string, peer *nbpeer.Peer, temporary bool) (*nbpeer.Peer, *types.Network, []*posture.Checks, bool, error) {
 	if setupKey == "" && userID == "" && !peer.ProxyMeta.Embedded {
 		// no auth method provided => reject access
-		return nil, nil, nil, false, status.Errorf(status.Unauthenticated, "no peer auth method provided, please use a setup key or interactive SSO login")
+		return nil, nil, nil, false, status.ErrNoAuthMethodProvided
 	}
 
 	upperKey := strings.ToUpper(setupKey)
@@ -1044,7 +1053,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 	}
 
 	metaDiffAffectsPosture := posture.AffectsPosture(ctx, &metaDiff, resPostureChecks)
-	if requiresPeerUpdate(ctx, isStatusChanged, sync.UpdateAccountPeers, ipv6CapabilityChanged, metaDiffAffectsPosture, metaDiff.VersionChanged, metaDiff.Hostname) {
+	if requiresPeerUpdate(ctx, isStatusChanged, sync.UpdateAccountPeers, ipv6CapabilityChanged, metaDiffAffectsPosture, metaDiff.VersionChanged(), metaDiff.HostnameChanged()) {
 		changedPeerIDs := []string{peer.ID}
 		affectedPeerIDs := am.syncPeerAffectedPeers(ctx, accountID, peer.ID, nmap, peerNotValid, metaDiffAffectsPosture)
 		if err = am.networkMapController.OnPeersUpdated(ctx, accountID, changedPeerIDs, affectedPeerIDs); err != nil {

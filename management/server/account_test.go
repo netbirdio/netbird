@@ -1916,6 +1916,117 @@ func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.
 	}
 }
 
+func TestDefaultAccountManager_MarkPeerDisconnected_SchedulesInactivityExpiration(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
+	require.NoError(t, err, "unable to create an account")
+
+	key, err := wgtypes.GenerateKey()
+	require.NoError(t, err, "unable to generate WireGuard key")
+	peerPubKey := key.PublicKey().String()
+
+	_, _, _, _, err = manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
+		Key:                         peerPubKey,
+		Meta:                        nbpeer.PeerSystemMeta{Hostname: "test-peer"},
+		InactivityExpirationEnabled: true,
+	}, false)
+	require.NoError(t, err, "unable to add peer")
+
+	_, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &types.Settings{
+		PeerLoginExpiration:             time.Hour,
+		PeerLoginExpirationEnabled:      true,
+		PeerInactivityExpiration:        time.Hour,
+		PeerInactivityExpirationEnabled: true,
+		Extra:                           &types.ExtraSettings{},
+	})
+	require.NoError(t, err, "expecting to update account settings successfully but got error")
+
+	// Establish a session so the matching-token disconnect is actually applied.
+	streamStartTime := time.Now().UTC()
+	err = manager.MarkPeerConnected(context.Background(), peerPubKey, accountID, streamStartTime.UnixNano(), nil)
+	require.NoError(t, err, "unable to mark peer connected")
+
+	// Install the mock only now, so the assertion observes the disconnect, not
+	// the earlier connect.
+	scheduled := make(chan struct{}, 1)
+	manager.peerInactivityExpiry = &MockScheduler{
+		CancelFunc: func(ctx context.Context, IDs []string) {},
+		ScheduleFunc: func(ctx context.Context, in time.Duration, ID string, job func() (nextRunIn time.Duration, reschedule bool)) {
+			select {
+			case scheduled <- struct{}{}:
+			default:
+			}
+		},
+	}
+
+	err = manager.MarkPeerDisconnected(context.Background(), peerPubKey, accountID, streamStartTime.UnixNano())
+	require.NoError(t, err, "unable to mark peer disconnected")
+
+	select {
+	case <-scheduled:
+		// expected: disconnect re-armed the inactivity expiry timer
+	case <-time.After(time.Second):
+		t.Fatal("expected inactivity expiration to be rescheduled when an eligible peer disconnects")
+	}
+}
+
+func TestDefaultAccountManager_MarkPeerDisconnected_SkipsInactivityExpirationWhenDisabled(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
+	require.NoError(t, err, "unable to create an account")
+
+	key, err := wgtypes.GenerateKey()
+	require.NoError(t, err, "unable to generate WireGuard key")
+	peerPubKey := key.PublicKey().String()
+
+	_, _, _, _, err = manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
+		Key:                         peerPubKey,
+		Meta:                        nbpeer.PeerSystemMeta{Hostname: "test-peer"},
+		InactivityExpirationEnabled: true,
+	}, false)
+	require.NoError(t, err, "unable to add peer")
+
+	// Peer is eligible (SSO + inactivity enabled) but the account-level setting
+	// stays disabled, so disconnect must not schedule anything.
+	_, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &types.Settings{
+		PeerLoginExpiration:             time.Hour,
+		PeerLoginExpirationEnabled:      true,
+		PeerInactivityExpiration:        time.Hour,
+		PeerInactivityExpirationEnabled: false,
+		Extra:                           &types.ExtraSettings{},
+	})
+	require.NoError(t, err, "expecting to update account settings successfully but got error")
+
+	streamStartTime := time.Now().UTC()
+	err = manager.MarkPeerConnected(context.Background(), peerPubKey, accountID, streamStartTime.UnixNano(), nil)
+	require.NoError(t, err, "unable to mark peer connected")
+
+	scheduled := make(chan struct{}, 1)
+	manager.peerInactivityExpiry = &MockScheduler{
+		CancelFunc: func(ctx context.Context, IDs []string) {},
+		ScheduleFunc: func(ctx context.Context, in time.Duration, ID string, job func() (nextRunIn time.Duration, reschedule bool)) {
+			select {
+			case scheduled <- struct{}{}:
+			default:
+			}
+		},
+	}
+
+	err = manager.MarkPeerDisconnected(context.Background(), peerPubKey, accountID, streamStartTime.UnixNano())
+	require.NoError(t, err, "unable to mark peer disconnected")
+
+	select {
+	case <-scheduled:
+		t.Fatal("inactivity expiration must not be scheduled while the account-level setting is disabled")
+	case <-time.After(200 * time.Millisecond):
+		// expected: nothing scheduled
+	}
+}
+
 func TestDefaultAccountManager_OnPeerDisconnected_LastSeenCheck(t *testing.T) {
 	manager, _, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
