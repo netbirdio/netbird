@@ -251,6 +251,8 @@ func (c *Controller) UpdateAffectedPeers(ctx context.Context, accountID string, 
 }
 
 func (c *Controller) sendUpdateForAffectedPeers(ctx context.Context, accountID string, peerIDs []string) error {
+	log.WithContext(ctx).Tracef("sendUpdateForAffectedPeers: account %s, %d affected peers: %v (caller: %s)", accountID, len(peerIDs), peerIDs, util.GetCallerName())
+
 	if !c.hasConnectedPeers(peerIDs) {
 		log.WithContext(ctx).Tracef("sendUpdateForAffectedPeers: no connected peers among %v, skipping", peerIDs)
 		return nil
