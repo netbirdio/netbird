@@ -7,6 +7,7 @@ import (
 	"regexp"
 
 	"github.com/hashicorp/go-version"
+	log "github.com/sirupsen/logrus"
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/shared/management/http/api"
@@ -52,32 +53,44 @@ type Checks struct {
 	Checks ChecksDefinition `gorm:"serializer:json"`
 }
 
-// AffectsPosture reports whether the peer metadata changes described by diff can
-// alter the outcome of any of the given posture checks. It maps each check kind to
-// the metadata fields it inspects, so an unrelated change (e.g. a hostname update)
-// does not force a posture re-evaluation.
-func AffectsPosture(diff *nbpeer.MetaDiff, checks []*Checks) bool {
+// AffectsPosture reports whether the change in diff flips the verdict of any check. It
+// replays each check against the peer's old and new state and compares verdicts, so a
+// change that moves a field but stays the right side of a threshold (e.g. a kernel bump
+// still above the minimum) does not force a re-evaluation. See verdictChanged for how an
+// evaluation error counts.
+func AffectsPosture(ctx context.Context, diff *nbpeer.MetaDiff, checks []*Checks) bool {
 	if diff == nil {
 		return false
 	}
+
+	oldPeer := nbpeer.Peer{Meta: diff.OldMeta, Location: diff.OldLocation}
+	newPeer := nbpeer.Peer{Meta: diff.NewMeta, Location: diff.NewLocation}
+
 	for _, c := range checks {
-		if c.Checks.ProcessCheck != nil && diff.Files {
-			return true
-		}
-		if c.Checks.OSVersionCheck != nil && (diff.OSVersion || diff.OS || diff.KernelVersion) {
-			return true
-		}
-		if c.Checks.NBVersionCheck != nil && diff.WtVersion {
-			return true
-		}
-		if c.Checks.GeoLocationCheck != nil && diff.LocationChanged {
-			return true
-		}
-		if c.Checks.PeerNetworkRangeCheck != nil && diff.NetworkAddresses {
-			return true
+		for _, check := range c.GetChecks() {
+			if verdictChanged(ctx, check, oldPeer, newPeer) {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+// verdictChanged replays check against old and new state and reports whether the verdict
+// differs. Like callers, it treats an evaluation error as deny: two errors are the same
+// verdict (no change), an error on one side only is a flip.
+func verdictChanged(ctx context.Context, check Check, oldPeer, newPeer nbpeer.Peer) bool {
+	oldPass, oldErr := check.Check(ctx, oldPeer)
+	newPass, newErr := check.Check(ctx, newPeer)
+
+	oldVerdict := oldPass && (oldErr == nil)
+	newVerdict := newPass && (newErr == nil)
+	changed := oldVerdict != newVerdict
+
+	log.WithContext(ctx).Tracef("posture check %s replay: verdict %t -> %t (changed=%t), errs: %v -> %v",
+		check.Name(), oldVerdict, newVerdict, changed, oldErr, newErr)
+
+	return changed
 }
 
 // ChecksDefinition contains definition of actual check

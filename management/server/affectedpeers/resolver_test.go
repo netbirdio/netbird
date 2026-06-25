@@ -10,8 +10,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 )
 
-// policyGroupsAndPeers mirrors the explicit-policy extraction (RuleGroups +
-// direct peers) the resolver folds in, for asserting the pure logic.
+// policyGroupsAndPeers mirrors the both-sides extraction (RuleGroups + direct peers)
+// the resolver folds in for a changed policy, for asserting the pure logic.
 func policyGroupsAndPeers(policies ...*types.Policy) (groups []string, peers []string) {
 	peerSet := map[string]struct{}{}
 	for _, p := range policies {
@@ -19,7 +19,14 @@ func policyGroupsAndPeers(policies ...*types.Policy) (groups []string, peers []s
 			continue
 		}
 		groups = append(groups, p.RuleGroups()...)
-		collectPolicyDirectPeers(p, peerSet)
+		for _, rule := range p.Rules {
+			if rule.SourceResource.Type == types.ResourceTypePeer && rule.SourceResource.ID != "" {
+				peerSet[rule.SourceResource.ID] = struct{}{}
+			}
+			if rule.DestinationResource.Type == types.ResourceTypePeer && rule.DestinationResource.ID != "" {
+				peerSet[rule.DestinationResource.ID] = struct{}{}
+			}
+		}
 	}
 	for id := range peerSet {
 		peers = append(peers, id)
@@ -80,26 +87,6 @@ func TestChangeIsEmpty(t *testing.T) {
 	assert.False(t, Change{PostureCheckIDs: []string{"pc"}}.isEmpty())
 }
 
-func TestPolicyReferencesGroups(t *testing.T) {
-	policy := &types.Policy{Rules: []*types.PolicyRule{{Sources: []string{"g1", "g2"}, Destinations: []string{"g3"}}}}
-
-	assert.True(t, policyReferencesGroups(policy, map[string]struct{}{"g1": {}}))
-	assert.True(t, policyReferencesGroups(policy, map[string]struct{}{"g3": {}}))
-	assert.False(t, policyReferencesGroups(policy, map[string]struct{}{"g4": {}}))
-	assert.False(t, policyReferencesGroups(policy, map[string]struct{}{}))
-}
-
-func TestPolicyReferencesDirectPeers(t *testing.T) {
-	policy := &types.Policy{Rules: []*types.PolicyRule{{
-		SourceResource:      types.Resource{Type: types.ResourceTypePeer, ID: "p1"},
-		DestinationResource: types.Resource{Type: types.ResourceTypeHost, ID: "r1"},
-	}}}
-
-	assert.True(t, policyReferencesDirectPeers(policy, map[string]struct{}{"p1": {}}))
-	assert.False(t, policyReferencesDirectPeers(policy, map[string]struct{}{"r1": {}}))
-	assert.False(t, policyReferencesDirectPeers(policy, map[string]struct{}{"p2": {}}))
-}
-
 func TestPolicyReferencesPostureChecks(t *testing.T) {
 	policy := &types.Policy{SourcePostureChecks: []string{"pc1", "pc2"}}
 
@@ -107,24 +94,9 @@ func TestPolicyReferencesPostureChecks(t *testing.T) {
 	assert.False(t, policyReferencesPostureChecks(policy, map[string]struct{}{"pc3": {}}))
 }
 
-func TestCollectPolicyDirectPeers(t *testing.T) {
-	policy := &types.Policy{Rules: []*types.PolicyRule{{
-		SourceResource:      types.Resource{Type: types.ResourceTypePeer, ID: "p1"},
-		DestinationResource: types.Resource{Type: types.ResourceTypePeer, ID: "p2"},
-	}, {
-		DestinationResource: types.Resource{Type: types.ResourceTypeHost, ID: "r1"},
-	}}}
-
-	peerSet := map[string]struct{}{}
-	collectPolicyDirectPeers(policy, peerSet)
-
-	assert.Contains(t, peerSet, "p1")
-	assert.Contains(t, peerSet, "p2")
-	assert.NotContains(t, peerSet, "r1")
-}
-
 func TestCollectPolicySources(t *testing.T) {
 	policy := &types.Policy{Rules: []*types.PolicyRule{{
+		Enabled:        true,
 		Sources:        []string{"g1"},
 		SourceResource: types.Resource{Type: types.ResourceTypePeer, ID: "p1"},
 		Destinations:   []string{"g2"},

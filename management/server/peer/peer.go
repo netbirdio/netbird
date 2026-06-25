@@ -107,6 +107,15 @@ type Location struct {
 	GeoNameID    uint // city level geoname id
 }
 
+// equal reports whether two locations match. ConnectionIP is a net.IP slice, so it uses
+// IP.Equal, not ==.
+func (l Location) equal(other Location) bool {
+	return l.CountryCode == other.CountryCode &&
+		l.CityName == other.CityName &&
+		l.GeoNameID == other.GeoNameID &&
+		l.ConnectionIP.Equal(other.ConnectionIP)
+}
+
 // NetworkAddress is the IP address with network and MAC address of a network interface
 type NetworkAddress struct {
 	NetIP netip.Prefix `gorm:"serializer:json"`
@@ -267,183 +276,139 @@ func (p *Peer) UpdateMetaIfNew(ctx context.Context, meta PeerSystemMeta, newLoca
 		return MetaDiff{}
 	}
 
-	versionChanged := p.Meta.WtVersion != meta.WtVersion
-
 	// Avoid overwriting UIVersion if the update was triggered sole by the CLI client
 	if meta.UIVersion == "" {
 		meta.UIVersion = p.Meta.UIVersion
 	}
 
-	oldVersion := p.Meta.WtVersion
+	effectiveLocation := p.Location
+	if newLocation != nil {
+		effectiveLocation = *newLocation
+	}
 
-	diff := diffMeta(p.Meta, meta)
-	if diff.Any() {
+	diff := diffMeta(p.Meta, meta, p.Location, effectiveLocation)
+	if diff.Updated() {
 		p.Meta = meta
 	}
-	diff.VersionChanged = versionChanged
+	p.Location = effectiveLocation
 
-	locationInfo := ""
-	if newLocation != nil {
-		p.Location = *newLocation
-		diff.LocationChanged = true
-		locationInfo = fmt.Sprintf("location changed to %s, ", newLocation.ConnectionIP)
-	}
-
-	versionInfo := ""
-	if diff.VersionChanged {
-		versionInfo = fmt.Sprintf("version changed: %s -> %s, ", oldVersion, meta.WtVersion)
-	}
-
-	if diff.Any() || diff.VersionChanged || diff.LocationChanged {
-		log.WithContext(ctx).
-			Debugf("peer meta updated, %s%s%d field(s) changed: %s", versionInfo, locationInfo, len(diff.Changed), strings.Join(diff.Changed, ", "))
+	if diff.Updated() {
+		log.WithContext(ctx).Debug(diff.LogSummary())
 	}
 
 	return diff
 }
 
-// MetaDiff records which PeerSystemMeta fields differ between two metas. Each bool
-// maps to a single struct field, except Environment, which is split into Cloud and
-// Platform. Changed holds the human-readable `field: <old> -> <new>` entries so the
-// existing log line and isEqual can be derived from the same comparison.
-//
-// VersionChanged and LocationChanged sit outside the per-meta-field set:
-// VersionChanged tracks the WireGuard client version specifically (compared before
-// the UIVersion fixup, to signal client upgrades) and LocationChanged tracks the
-// peer's connection geo location, which lives on Peer rather than PeerSystemMeta.
-// Neither contributes an entry to Changed, so the field-coverage accounting stays
-// driven purely by the PeerSystemMeta comparison.
+// MetaDiff holds a peer's full before/after state across a sync: both metas and both
+// connection locations (the location lives on Peer, not PeerSystemMeta, but posture
+// checks read it). Changed lists what moved, for logging and the persistence decision;
+// the snapshots let a posture check be replayed against old and new. Everything is derived
+// from these fields, so there are no parallel per-field flags to keep in sync.
 type MetaDiff struct {
-	Hostname            bool
-	GoOS                bool
-	Kernel              bool
-	KernelVersion       bool
-	Core                bool
-	Platform            bool
-	OS                  bool
-	OSVersion           bool
-	WtVersion           bool
-	UIVersion           bool
-	SystemSerialNumber  bool
-	SystemProductName   bool
-	SystemManufacturer  bool
-	EnvironmentCloud    bool
-	EnvironmentPlatform bool
-	Flags               bool
-	Capabilities        bool
-	NetworkAddresses    bool
-	Files               bool
-
-	VersionChanged  bool
-	LocationChanged bool
+	OldMeta     PeerSystemMeta
+	NewMeta     PeerSystemMeta
+	OldLocation Location
+	NewLocation Location
 
 	Changed []string
 }
 
-// Any reports whether any PeerSystemMeta field changed.
-func (d MetaDiff) Any() bool {
+// Updated reports whether anything changed and the peer must be persisted. diffMeta fills
+// Changed in the pass that builds the diff, so this is a length check, not a re-comparison.
+// Pointer receiver: MetaDiff embeds two metas, so copying it per call is wasteful.
+func (d *MetaDiff) Updated() bool {
 	return len(d.Changed) != 0
 }
 
-// Updated reports whether the peer needs to be persisted: any meta field changed
-// or the geo location changed. The version flag alone does not imply a write,
-// since a version change is also reflected in the WtVersion meta field.
-func (d MetaDiff) Updated() bool {
-	return d.Any() || d.LocationChanged || d.VersionChanged
+// VersionChanged reports whether the WireGuard client version changed (a client upgrade).
+func (d *MetaDiff) VersionChanged() bool {
+	return d.OldMeta.WtVersion != d.NewMeta.WtVersion
+}
+
+// HostnameChanged reports whether the peer's hostname changed.
+func (d *MetaDiff) HostnameChanged() bool {
+	return d.OldMeta.Hostname != d.NewMeta.Hostname
+}
+
+// LogSummary renders the changed fields as a single human-readable line.
+func (d *MetaDiff) LogSummary() string {
+	return fmt.Sprintf("peer meta updated, %d field(s) changed: %s",
+		len(d.Changed), strings.Join(d.Changed, ", "))
 }
 
 func metaDiff(oldMeta, newMeta PeerSystemMeta) []string {
-	return diffMeta(oldMeta, newMeta).Changed
+	return diffMeta(oldMeta, newMeta, Location{}, Location{}).Changed
 }
 
-// diffMeta compares two metas field by field, returning both a per-field flag set
-// (for callers that need to know exactly what changed, e.g. matching against
-// posture checks) and the human-readable Changed list. It is the single source of
-// truth for meta comparison: isEqual reports equality as an empty diff, so the log
-// line, the change decision, and the flags can never disagree.
-func diffMeta(oldMeta, newMeta PeerSystemMeta) MetaDiff {
-	var d MetaDiff
+// diffMeta snapshots a peer's old and new state and records a Changed entry per field that
+// moved. It is the single source of truth for the comparison: isEqual is an empty Changed
+// list, so the log line and the persistence decision can never disagree.
+func diffMeta(oldMeta, newMeta PeerSystemMeta, oldLocation, newLocation Location) MetaDiff {
+	d := MetaDiff{OldMeta: oldMeta, NewMeta: newMeta, OldLocation: oldLocation, NewLocation: newLocation}
 	add := func(field string, oldVal, newVal any) {
 		d.Changed = append(d.Changed, fmt.Sprintf("%s: %v -> %v", field, oldVal, newVal))
 	}
 
 	if oldMeta.Hostname != newMeta.Hostname {
-		d.Hostname = true
 		add("hostname", oldMeta.Hostname, newMeta.Hostname)
 	}
 	if oldMeta.GoOS != newMeta.GoOS {
-		d.GoOS = true
 		add("goos", oldMeta.GoOS, newMeta.GoOS)
 	}
 	if oldMeta.Kernel != newMeta.Kernel {
-		d.Kernel = true
 		add("kernel", oldMeta.Kernel, newMeta.Kernel)
 	}
 	if oldMeta.KernelVersion != newMeta.KernelVersion {
-		d.KernelVersion = true
 		add("kernel_version", oldMeta.KernelVersion, newMeta.KernelVersion)
 	}
 	if oldMeta.Core != newMeta.Core {
-		d.Core = true
 		add("core", oldMeta.Core, newMeta.Core)
 	}
 	if oldMeta.Platform != newMeta.Platform {
-		d.Platform = true
 		add("platform", oldMeta.Platform, newMeta.Platform)
 	}
 	if oldMeta.OS != newMeta.OS {
-		d.OS = true
 		add("os", oldMeta.OS, newMeta.OS)
 	}
 	if oldMeta.OSVersion != newMeta.OSVersion {
-		d.OSVersion = true
 		add("os_version", oldMeta.OSVersion, newMeta.OSVersion)
 	}
 	if oldMeta.WtVersion != newMeta.WtVersion {
-		d.WtVersion = true
 		add("wt_version", oldMeta.WtVersion, newMeta.WtVersion)
 	}
 	if oldMeta.UIVersion != newMeta.UIVersion {
-		d.UIVersion = true
 		add("ui_version", oldMeta.UIVersion, newMeta.UIVersion)
 	}
 	if oldMeta.SystemSerialNumber != newMeta.SystemSerialNumber {
-		d.SystemSerialNumber = true
 		add("system_serial_number", oldMeta.SystemSerialNumber, newMeta.SystemSerialNumber)
 	}
 	if oldMeta.SystemProductName != newMeta.SystemProductName {
-		d.SystemProductName = true
 		add("system_product_name", oldMeta.SystemProductName, newMeta.SystemProductName)
 	}
 	if oldMeta.SystemManufacturer != newMeta.SystemManufacturer {
-		d.SystemManufacturer = true
 		add("system_manufacturer", oldMeta.SystemManufacturer, newMeta.SystemManufacturer)
 	}
 	if oldMeta.Environment.Cloud != newMeta.Environment.Cloud {
-		d.EnvironmentCloud = true
 		add("environment_cloud", oldMeta.Environment.Cloud, newMeta.Environment.Cloud)
 	}
 	if oldMeta.Environment.Platform != newMeta.Environment.Platform {
-		d.EnvironmentPlatform = true
 		add("environment_platform", oldMeta.Environment.Platform, newMeta.Environment.Platform)
 	}
 	if !oldMeta.Flags.isEqual(newMeta.Flags) {
-		d.Flags = true
 		add("flags", fmt.Sprintf("%+v", oldMeta.Flags), fmt.Sprintf("%+v", newMeta.Flags))
 	}
 	if !capabilitiesEqual(oldMeta.Capabilities, newMeta.Capabilities) {
-		d.Capabilities = true
 		add("capabilities", oldMeta.Capabilities, newMeta.Capabilities)
 	}
-
 	if !sameMultiset(oldMeta.NetworkAddresses, newMeta.NetworkAddresses) {
-		d.NetworkAddresses = true
 		add("network_addresses", fmt.Sprintf("%v", oldMeta.NetworkAddresses), fmt.Sprintf("%v", newMeta.NetworkAddresses))
 	}
-
 	if !sameMultiset(oldMeta.Files, newMeta.Files) {
-		d.Files = true
 		add("files", fmt.Sprintf("%v", oldMeta.Files), fmt.Sprintf("%v", newMeta.Files))
+	}
+
+	if !oldLocation.equal(newLocation) {
+		add("connection_ip", oldLocation.ConnectionIP, newLocation.ConnectionIP)
 	}
 
 	return d

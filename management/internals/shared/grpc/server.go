@@ -254,7 +254,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 		return mapError(ctx, err)
 	}
 
-	metahashed := metaHash(peerMeta, sRealIP)
+	metahashed := metaHash(peerMeta)
 	if userID == "" && !s.loginFilter.allowLogin(peerKey.String(), metahashed) {
 		if s.appMetrics != nil {
 			s.appMetrics.GRPCMetrics().CountSyncRequestBlocked()
@@ -306,7 +306,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 		log.WithContext(ctx).Tracef("peer system meta has to be provided on sync. Peer %s, remote addr %s", peerKey.String(), realIP)
 	}
 
-	metahash := metaHash(peerMeta, realIP.String())
+	metahash := metaHash(peerMeta)
 	s.loginFilter.addLogin(peerKey.String(), metahash)
 
 	peer, netMap, postureChecks, dnsFwdPort, err := s.accountManager.SyncAndMarkPeer(ctx, accountID, peerKey.String(), peerMeta, realIP, syncStart)
@@ -732,7 +732,7 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 	}
 
 	peerMeta := extractPeerMeta(ctx, loginReq.GetMeta())
-	metahashed := metaHash(peerMeta, sRealIP)
+	metahashed := metaHash(peerMeta)
 	if !s.loginFilter.allowLogin(peerKey.String(), metahashed) {
 		if s.logBlockedPeers {
 			log.WithContext(ctx).Tracef("peer %s with meta hash %d is blocked from login", peerKey.String(), metahashed)
@@ -788,7 +788,11 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 		ExtraDNSLabels:  loginReq.GetDnsLabels(),
 	})
 	if err != nil {
-		log.WithContext(ctx).Warnf("failed logging in peer %s: %s", peerKey, err)
+		if errors.Is(err, internalStatus.ErrNoAuthMethodProvided) {
+			log.WithContext(ctx).Tracef("failed logging in peer %s: %s", peerKey, err)
+		} else {
+			log.WithContext(ctx).Warnf("failed logging in peer %s: %s", peerKey, err)
+		}
 		return nil, mapError(ctx, err)
 	}
 
