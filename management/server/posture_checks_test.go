@@ -489,6 +489,7 @@ func TestArePostureCheckChangesAffectPeers(t *testing.T) {
 
 	policy := &types.Policy{
 		AccountID: account.Id,
+		Enabled:   true,
 		Rules: []*types.PolicyRule{
 			{
 				Enabled:      true,
