@@ -1065,7 +1065,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 }
 
 func requiresPeerUpdate(ctx context.Context, isStatusChanged, updateAccountPeers, ipv6CapabilityChanged, metaDiffAffectsPosture, versionChanged, hostname bool) bool {
-	reason := ""
+	var reason string
 	switch {
 	case isStatusChanged:
 		reason = "status changed"
