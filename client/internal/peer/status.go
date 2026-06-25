@@ -1080,7 +1080,9 @@ func (d *Status) GetRelayStates() []relay.ProbeResult {
 
 	// debug lines
 	started := time.Now()
-	defer debugElapsed("GetRelayStates", started)
+	defer func() {
+		debugElapsed("GetRelayStates", started)
+	}()
 
 	if d.relayMgr == nil {
 		defer d.muxRelays.RUnlock()
@@ -1125,7 +1127,9 @@ func (d *Status) ForwardingRules() []firewall.ForwardRule {
 
 	// debug lines
 	started := time.Now()
-	defer debugElapsed("ForwardingRules", started)
+	defer func() {
+		debugElapsed("ForwardingRules", started)
+	}()
 
 	defer d.mux.RUnlock()
 	if d.ingressGwMgr == nil {
@@ -1291,7 +1295,9 @@ func (d *Status) PublishEvent(
 
 	// debug lines
 	started := time.Now()
-	defer debugElapsed("PublishEvent", started)
+	defer func() {
+		debugElapsed("PublishEvent", started)
+	}()
 
 	defer d.eventMux.Unlock()
 
@@ -1360,7 +1366,9 @@ func (d *Status) PeersStatus() (*configurer.Stats, error) {
 
 	// debug lines
 	started := time.Now()
-	defer debugElapsed("PeersStatus", started)
+	defer func() {
+		debugElapsed("PeersStatus", started)
+	}()
 
 	defer d.mux.RUnlock()
 	if d.wgIface == nil {
@@ -1379,7 +1387,9 @@ func (d *Status) RefreshWireGuardStats() error {
 
 	// debug lines
 	started := time.Now()
-	defer debugElapsed("RefreshWireGuardStats", started)
+	defer func() {
+		debugElapsed("RefreshWireGuardStats", started)
+	}()
 
 	defer d.mux.Unlock()
 

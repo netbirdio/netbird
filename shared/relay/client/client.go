@@ -244,7 +244,9 @@ func NewClientWithServerIP(serverURL string, serverIP netip.Addr, authTokenStore
 // Connect establishes a connection to the relay server. It blocks until the connection is established or an error occurs.
 func (c *Client) Connect(ctx context.Context) error {
 	start := time.Now()
-	defer c.log.Infof("connect elapsed time: %v", time.Since(start))
+	defer func() {
+		c.log.Infof("connect elapsed time: %v", time.Since(start))
+	}()
 
 	c.readLoopMutex.Lock()
 	defer c.readLoopMutex.Unlock()
@@ -290,7 +292,9 @@ func (c *Client) OpenConn(ctx context.Context, dstPeerID string) (net.Conn, erro
 	peerID := messages.HashID(dstPeerID)
 
 	start := time.Now()
-	defer c.log.Infof("connect elapsed time: %v", time.Since(start))
+	defer func() {
+		c.log.Infof("connect elapsed time: %v", time.Since(start))
+	}()
 
 	c.mu.Lock()
 	if !c.serviceIsRunning {
