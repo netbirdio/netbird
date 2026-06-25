@@ -83,8 +83,8 @@ func verdictChanged(ctx context.Context, check Check, oldPeer, newPeer nbpeer.Pe
 	oldPass, oldErr := check.Check(ctx, oldPeer)
 	newPass, newErr := check.Check(ctx, newPeer)
 
-	oldVerdict := oldPass && oldErr == nil
-	newVerdict := newPass && newErr == nil
+	oldVerdict := oldPass && (oldErr == nil)
+	newVerdict := newPass && (newErr == nil)
 	changed := oldVerdict != newVerdict
 
 	log.WithContext(ctx).Tracef("posture check %s replay: verdict %t -> %t (changed=%t), errs: %v -> %v",
