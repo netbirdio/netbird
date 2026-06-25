@@ -925,10 +925,11 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	}
 
 	done := e.phase("netbird_config")
-	if err := e.updateNetbirdConfig(update.GetNetbirdConfig()); err != nil {
+	err := e.updateNetbirdConfig(update.GetNetbirdConfig())
+	done()
+	if err != nil {
 		return err
 	}
-	done()
 
 	// Posture checks are bound to the network map presence:
 	//   NetworkMap != nil, checks present -> apply the received checks
@@ -941,10 +942,11 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	}
 
 	done = e.phase("checks")
-	if err := e.updateChecksIfNew(update.Checks); err != nil {
+	err = e.updateChecksIfNew(update.Checks)
+	done()
+	if err != nil {
 		return err
 	}
-	done()
 
 	done = e.phase("persist")
 	e.persistSyncResponse(update)
@@ -1425,6 +1427,26 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	e.updateOfflinePeers(networkMap.GetOfflinePeers())
 	done()
 
+	remotePeers, err := e.reconcilePeers(networkMap)
+	if err != nil {
+		return err
+	}
+
+	// must set the exclude list after the peers are added. Without it the manager can not figure out the peers parameters from the store
+	done = e.phase("lazy_exclude")
+	excludedLazyPeers := e.toExcludedLazyPeers(forwardingRules, remotePeers)
+	e.connMgr.SetExcludeList(e.ctx, excludedLazyPeers)
+	done()
+
+	e.networkSerial = serial
+
+	return nil
+}
+
+// reconcilePeers applies the remote peer list from the network map (removing,
+// modifying and adding peers, then updating SSH config) and returns the remote
+// peers with our own peer filtered out, for use by later sync steps.
+func (e *Engine) reconcilePeers(networkMap *mgmProto.NetworkMap) ([]*mgmProto.RemotePeerConfig, error) {
 	// Filter out own peer from the remote peers list
 	localPubKey := e.config.WgPrivateKey.PublicKey().String()
 	remotePeers := make([]*mgmProto.RemotePeerConfig, 0, len(networkMap.GetRemotePeers()))
@@ -1439,50 +1461,43 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		err := e.removeAllPeers()
 		e.statusRecorder.FinishPeerListModifications()
 		if err != nil {
-			return err
+			return nil, err
 		}
-	} else {
-		done = e.phase("removed_peers")
-		err := e.removePeers(remotePeers)
-		if err != nil {
-			return err
-		}
-		done()
-
-		done = e.phase("modified_peers")
-		err = e.modifyPeers(remotePeers)
-		if err != nil {
-			return err
-		}
-		done()
-
-		done = e.phase("added_peers")
-		err = e.addNewPeers(remotePeers)
-		if err != nil {
-			return err
-		}
-		done()
-
-		e.statusRecorder.FinishPeerListModifications()
-
-		e.updatePeerSSHHostKeys(remotePeers)
-
-		if err := e.updateSSHClientConfig(remotePeers); err != nil {
-			log.Warnf("failed to update SSH client config: %v", err)
-		}
-
-		e.updateSSHServerAuth(networkMap.GetSshAuth())
+		return remotePeers, nil
 	}
 
-	// must set the exclude list after the peers are added. Without it the manager can not figure out the peers parameters from the store
-	done = e.phase("lazy_exclude")
-	excludedLazyPeers := e.toExcludedLazyPeers(forwardingRules, remotePeers)
-	e.connMgr.SetExcludeList(e.ctx, excludedLazyPeers)
+	done := e.phase("removed_peers")
+	err := e.removePeers(remotePeers)
 	done()
+	if err != nil {
+		return nil, err
+	}
 
-	e.networkSerial = serial
+	done = e.phase("modified_peers")
+	err = e.modifyPeers(remotePeers)
+	done()
+	if err != nil {
+		return nil, err
+	}
 
-	return nil
+	done = e.phase("added_peers")
+	err = e.addNewPeers(remotePeers)
+	done()
+	if err != nil {
+		return nil, err
+	}
+
+	e.statusRecorder.FinishPeerListModifications()
+
+	e.updatePeerSSHHostKeys(remotePeers)
+
+	if err := e.updateSSHClientConfig(remotePeers); err != nil {
+		log.Warnf("failed to update SSH client config: %v", err)
+	}
+
+	e.updateSSHServerAuth(networkMap.GetSshAuth())
+
+	return remotePeers, nil
 }
 
 func toDNSFeatureFlag(networkMap *mgmProto.NetworkMap) bool {
