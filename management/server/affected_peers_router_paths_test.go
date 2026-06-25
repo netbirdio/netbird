@@ -251,7 +251,9 @@ func TestAffectedPeers_E2E_UpdateResource_DestinationResourcePolicy_RefreshesSou
 	}
 }
 
-func TestAffectedPeers_E2E_UpdateResource_DisabledSiblingRouter_StillBridged(t *testing.T) {
+// A disabled sibling router routes to nobody, so updating a resource on its network
+// must NOT refresh its peer (the enabled router carries the bridge instead).
+func TestAffectedPeers_E2E_UpdateResource_DisabledSiblingRouterNotBridged(t *testing.T) {
 	s := setupRouterScenario(t, true)
 	ctx := context.Background()
 
@@ -274,13 +276,18 @@ func TestAffectedPeers_E2E_UpdateResource_DisabledSiblingRouter_StillBridged(t *
 	require.NoError(t, err)
 
 	disabledCh := s.updateManager.CreateChannel(ctx, disabledRouterPeer.ID)
-	t.Cleanup(func() { s.updateManager.CloseChannel(ctx, disabledRouterPeer.ID) })
+	enabledCh := s.updateManager.CreateChannel(ctx, s.routerPeerID)
+	t.Cleanup(func() {
+		s.updateManager.CloseChannel(ctx, disabledRouterPeer.ID)
+		s.updateManager.CloseChannel(ctx, s.routerPeerID)
+	})
 
-	settleAffectedUpdates(disabledCh)
+	settleAffectedUpdates(disabledCh, enabledCh)
 
 	done := make(chan struct{})
 	go func() {
-		peerShouldReceiveUpdate(t, disabledCh)
+		peerShouldReceiveUpdate(t, enabledCh)
+		peerShouldNotReceiveUpdate(t, disabledCh)
 		close(done)
 	}()
 
@@ -298,7 +305,7 @@ func TestAffectedPeers_E2E_UpdateResource_DisabledSiblingRouter_StillBridged(t *
 	select {
 	case <-done:
 	case <-time.After(peerUpdateTimeout):
-		t.Error("timeout: resource update did not refresh the disabled sibling router's peer")
+		t.Error("timeout")
 	}
 }
 
