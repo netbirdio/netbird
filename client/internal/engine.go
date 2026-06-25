@@ -908,7 +908,11 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	started := time.Now()
 	defer func() {
 		duration := time.Since(started)
-		log.Infof("sync finished in %s", duration)
+		if update.GetNetworkMap() != nil {
+			log.Infof("sync finished in %s, %d", duration, update.GetNetworkMap().GetSerial())
+		} else {
+			log.Infof("sync finished in %s", duration)
+		}
 		e.clientMetrics.RecordSyncDuration(e.ctx, duration)
 	}()
 	e.syncMsgMux.Lock()
