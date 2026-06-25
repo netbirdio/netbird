@@ -610,12 +610,10 @@ func (c *Controller) GetValidatedPeerWithMap(ctx context.Context, isRequiresAppr
 		return nil, nil, 0, err
 	}
 
-	startPosture := time.Now()
 	postureChecks, err := c.getPeerPostureChecks(account, peerID)
 	if err != nil {
 		return nil, nil, 0, err
 	}
-	log.WithContext(ctx).Debugf("getPeerPostureChecks took %s", time.Since(startPosture))
 
 	accountZones, err := c.repo.GetAccountZones(ctx, account.Id)
 	if err != nil {
