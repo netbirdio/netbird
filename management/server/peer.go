@@ -38,7 +38,7 @@ const remoteJobsMinVer = "0.64.0"
 
 // GetPeers returns peers visible to the user within an account.
 // Users with "peers:read" see all peers. Otherwise, users see only their own peers, or none if restricted by account settings.
-func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error) {
+func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID, nameFilter, ipFilter, macFilter string) ([]*nbpeer.Peer, error) {
 	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
 	if err != nil {
 		return nil, err
@@ -50,7 +50,7 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 	}
 
 	if allowed {
-		return am.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, nameFilter, ipFilter)
+		return am.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, nameFilter, ipFilter, macFilter)
 	}
 
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)

@@ -3342,7 +3342,7 @@ func (s *SqlStore) GetPeerGroupIDs(ctx context.Context, lockStrength LockingStre
 }
 
 // GetAccountPeers retrieves peers for an account.
-func (s *SqlStore) GetAccountPeers(ctx context.Context, lockStrength LockingStrength, accountID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error) {
+func (s *SqlStore) GetAccountPeers(ctx context.Context, lockStrength LockingStrength, accountID, nameFilter, ipFilter, macFilter string) ([]*nbpeer.Peer, error) {
 	var peers []*nbpeer.Peer
 	tx := s.db
 	if lockStrength != LockingStrengthNone {
@@ -3355,6 +3355,11 @@ func (s *SqlStore) GetAccountPeers(ctx context.Context, lockStrength LockingStre
 	}
 	if ipFilter != "" {
 		query = query.Where("ip LIKE ? OR ipv6 LIKE ?", "%"+ipFilter+"%", "%"+ipFilter+"%")
+	}
+	// MAC addresses live in the JSON-serialized meta_network_addresses column,
+	// so we match the raw JSON text rather than a dedicated column.
+	if macFilter != "" {
+		query = query.Where("meta_network_addresses LIKE ?", "%"+macFilter+"%")
 	}
 
 	if err := query.Find(&peers).Error; err != nil {

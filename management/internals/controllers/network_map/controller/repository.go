@@ -35,7 +35,7 @@ func (r *repository) GetAccountNetwork(ctx context.Context, accountID string) (*
 }
 
 func (r *repository) GetAccountPeers(ctx context.Context, accountID string) ([]*peer.Peer, error) {
-	return r.store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "")
+	return r.store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "", "")
 }
 
 func (r *repository) GetAccountByPeerID(ctx context.Context, peerID string) (*types.Account, error) {

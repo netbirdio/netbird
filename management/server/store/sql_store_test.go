@@ -2783,12 +2783,54 @@ func TestSqlStore_GetAccountPeers(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			peers, err := store.GetAccountPeers(context.Background(), LockingStrengthNone, tt.accountID, tt.nameFilter, tt.ipFilter)
+			peers, err := store.GetAccountPeers(context.Background(), LockingStrengthNone, tt.accountID, tt.nameFilter, tt.ipFilter, "")
 			require.NoError(t, err)
 			require.Len(t, peers, tt.expectedCount)
 		})
 	}
 
+}
+
+func TestSqlStore_GetAccountPeers_FilterByMac(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup, err := NewTestStoreFromSQL(ctx, "", t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(cleanup)
+
+	accountID := "test-account-mac"
+	userID := "test-user-mac"
+	account := newAccountWithId(ctx, accountID, userID, "example.com")
+	account.Peers["peer-mac-1"] = &nbpeer.Peer{
+		ID:        "peer-mac-1",
+		AccountID: accountID,
+		Key:       "peer-mac-key-1",
+		Name:      "macpeer",
+		IP:        netip.MustParseAddr("100.64.0.10"),
+		Meta: nbpeer.PeerSystemMeta{
+			NetworkAddresses: []nbpeer.NetworkAddress{
+				{NetIP: netip.MustParsePrefix("192.168.0.11/24"), Mac: "00:93:37:bd:83:0f"},
+			},
+		},
+	}
+	require.NoError(t, store.SaveAccount(ctx, account))
+
+	tests := []struct {
+		name          string
+		macFilter     string
+		expectedCount int
+	}{
+		{name: "full mac matches", macFilter: "00:93:37:bd:83:0f", expectedCount: 1},
+		{name: "mac prefix matches", macFilter: "00:93:37", expectedCount: 1},
+		{name: "unknown mac does not match", macFilter: "11:22:33:44:55:66", expectedCount: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			peers, err := store.GetAccountPeers(ctx, LockingStrengthNone, accountID, "", "", tt.macFilter)
+			require.NoError(t, err)
+			require.Len(t, peers, tt.expectedCount)
+		})
+	}
 }
 
 func TestSqlStore_GetAccountPeersWithExpiration(t *testing.T) {
@@ -4074,7 +4116,7 @@ func TestSqlStore_ApproveAccountPeers(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, 2, count)
 
-			allPeers, err := store.GetAccountPeers(ctx, LockingStrengthNone, accountID, "", "")
+			allPeers, err := store.GetAccountPeers(ctx, LockingStrengthNone, accountID, "", "", "")
 			require.NoError(t, err)
 
 			for _, peer := range allPeers {
