@@ -433,7 +433,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 
 	for _, c := range []testCase{case1, case2, case3, case4, case5, case6} {
 		t.Run(c.name, func(t *testing.T) {
-			err = engine.updateNetworkMap(c.networkMap)
+			_, err = engine.updateNetworkMap(c.networkMap)
 			if err != nil {
 				t.Fatal(err)
 				return
@@ -630,7 +630,7 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 				}
 			}()
 
-			err = engine.updateNetworkMap(testCase.networkMap)
+			_, err = engine.updateNetworkMap(testCase.networkMap)
 			assert.NoError(t, err, "shouldn't return error")
 			assert.Equal(t, testCase.expectedSerial, input.inputSerial, "serial should match")
 			assert.Len(t, input.clientRoutes, testCase.expectedLen, "clientRoutes len should match")
@@ -834,7 +834,7 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 				}
 			}()
 
-			err = engine.updateNetworkMap(testCase.networkMap)
+			_, err = engine.updateNetworkMap(testCase.networkMap)
 			assert.NoError(t, err, "shouldn't return error")
 			assert.Equal(t, testCase.expectedSerial, input.inputSerial, "serial should match")
 			assert.Len(t, input.inputNSGroups, testCase.expectedZonesLen, "zones len should match")
