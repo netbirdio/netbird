@@ -142,6 +142,7 @@ func (l *loginFilter) addLogin(wgPubKey string, metaHash uint64) {
 func metaHash(meta nbpeer.PeerSystemMeta) uint64 {
 	h := fnv.New64a()
 
+	h.Write([]byte(meta.WtVersion))
 	h.Write([]byte(meta.OSVersion))
 	h.Write([]byte(meta.KernelVersion))
 	h.Write([]byte(meta.Hostname))
