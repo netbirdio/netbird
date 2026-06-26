@@ -360,7 +360,13 @@ func isRedirectURLPortUsed(redirectURL string, excludedRanges []excludedPortRang
 		return true
 	}
 
-	addr := fmt.Sprintf(":%s", port)
+	// FreeBSD 15 disables connecting to INADDR_ANY (0.0.0.0) as a localhost
+	// alias by default, ensure explicit ip for localhost.
+	host := parsedURL.Hostname()
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	addr := net.JoinHostPort(host, port)
 	conn, err := net.DialTimeout("tcp", addr, 3*time.Second)
 	if err != nil {
 		return false

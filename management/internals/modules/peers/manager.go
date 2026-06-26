@@ -75,7 +75,7 @@ func (m *managerImpl) SetAccountManager(accountManager account.Manager) {
 }
 
 func (m *managerImpl) GetPeer(ctx context.Context, accountID, userID, peerID string) (*peer.Peer, error) {
-	allowed, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Read)
+	allowed, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Read)
 	if err != nil {
 		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
 	}
@@ -88,7 +88,7 @@ func (m *managerImpl) GetPeer(ctx context.Context, accountID, userID, peerID str
 }
 
 func (m *managerImpl) GetAllPeers(ctx context.Context, accountID, userID string) ([]*peer.Peer, error) {
-	allowed, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Read)
+	allowed, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Read)
 	if err != nil {
 		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
 	}
@@ -242,7 +242,7 @@ func (m *managerImpl) CreateProxyPeer(ctx context.Context, accountID string, pee
 		},
 	}
 
-	_, _, _, err = m.accountManager.AddPeer(ctx, accountID, "", "", peer, true)
+	_, _, _, _, err = m.accountManager.AddPeer(ctx, accountID, "", "", peer, true)
 	if err != nil {
 		return fmt.Errorf("failed to create proxy peer: %w", err)
 	}

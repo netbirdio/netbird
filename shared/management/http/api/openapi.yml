@@ -5072,31 +5072,63 @@ components:
   responses:
     not_found:
       description: Resource not found
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
       content: { }
     validation_failed_simple:
       description: Validation failed
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
       content: { }
     bad_request:
       description: Bad Request
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
       content: { }
     internal_error:
       description: Internal Server Error
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
       content: { }
     validation_failed:
       description: Validation failed
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
       content: { }
     forbidden:
       description: Forbidden
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
       content: { }
     requires_authentication:
       description: Requires authentication
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
       content: { }
     conflict:
       description: Conflict
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
+  headers:
+    X-Request-Id:
+      description: |
+        Unique identifier assigned to the request by the server and set on every
+        response. Useful for correlating client requests with server-side logs.
+      schema:
+        type: string
+        example: cot7r4n3l3vh3qj4qveg
   securitySchemes:
     BearerAuth:
       type: http

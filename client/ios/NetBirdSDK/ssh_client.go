@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strconv"
 	"sync"
 	"time"
 
@@ -15,6 +16,8 @@ import (
 	gossh "golang.org/x/crypto/ssh"
 
 	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/internal/auth"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/ssh/detection"
 )

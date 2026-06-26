@@ -18,10 +18,12 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       - name: Install Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         id: go
         with:
           go-version-file: "go.mod"
@@ -33,7 +35,7 @@ jobs:
           echo "modcache=$(go env GOMODCACHE)" >> $env:GITHUB_ENV
 
       - name: Cache Go modules
-        uses: actions/cache@v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: |
             ${{ env.cache }}
@@ -44,16 +46,15 @@ jobs:
             ${{ runner.os }}-go-
 
       - name: Download wintun
-        uses: carlosperate/download-file-action@v2
         id: download-wintun
+        uses: netbirdio/shared-actions/actions/win-download-and-verify@be5df6047383da2236e02243cceb857d8567c27e # v0.0.2
         with:
-          file-url: https://pkgs.netbird.io/wintun/wintun-0.14.1.zip
-          file-name: wintun.zip
-          location: ${{ env.downloadPath }}
-          sha256: '07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51'
+          url: https://pkgs.netbird.io/wintun/wintun-0.14.1.zip
+          destination: ${{ env.downloadPath }}\wintun.zip
+          sha256: 07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51
 
       - name: Decompressing wintun files
-        run: tar -zvxf "${{ steps.download-wintun.outputs.file-path }}" -C ${{ env.downloadPath }}
+        run: tar -xvf "${{ steps.download-wintun.outputs.file-path }}" -C ${{ env.downloadPath }}
 
       - run: mv ${{ env.downloadPath }}/wintun/bin/amd64/wintun.dll 'C:\Windows\System32\'
 

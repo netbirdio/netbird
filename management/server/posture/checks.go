@@ -7,6 +7,7 @@ import (
 	"regexp"
 
 	"github.com/hashicorp/go-version"
+
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -49,6 +50,34 @@ type Checks struct {
 
 	// Checks is a set of objects that perform the actual checks
 	Checks ChecksDefinition `gorm:"serializer:json"`
+}
+
+// AffectsPosture reports whether the peer metadata changes described by diff can
+// alter the outcome of any of the given posture checks. It maps each check kind to
+// the metadata fields it inspects, so an unrelated change (e.g. a hostname update)
+// does not force a posture re-evaluation.
+func AffectsPosture(diff *nbpeer.MetaDiff, checks []*Checks) bool {
+	if diff == nil {
+		return false
+	}
+	for _, c := range checks {
+		if c.Checks.ProcessCheck != nil && diff.Files {
+			return true
+		}
+		if c.Checks.OSVersionCheck != nil && (diff.OSVersion || diff.OS || diff.KernelVersion) {
+			return true
+		}
+		if c.Checks.NBVersionCheck != nil && diff.WtVersion {
+			return true
+		}
+		if c.Checks.GeoLocationCheck != nil && diff.LocationChanged {
+			return true
+		}
+		if c.Checks.PeerNetworkRangeCheck != nil && diff.NetworkAddresses {
+			return true
+		}
+	}
+	return false
 }
 
 // ChecksDefinition contains definition of actual check

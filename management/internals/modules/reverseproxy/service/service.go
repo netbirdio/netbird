@@ -932,7 +932,11 @@ func (s *Service) validateL4Target(target *Target) error {
 	if target.TargetId == "" {
 		return errors.New("target_id is required for L4 services")
 	}
-	if target.TargetType != TargetTypeCluster && target.Port == 0 {
+	// Cluster targets resolve their upstream host:port from the target's
+	// own Host/Port fields just like the other L4 types — buildPathMappings
+	// emits net.JoinHostPort(target.Host, target.Port) for every L4
+	// target, so allowing port=0 here would let ":0" reach the proxy.
+	if target.Port == 0 {
 		return errors.New("target port is required for L4 services")
 	}
 	switch target.TargetType {

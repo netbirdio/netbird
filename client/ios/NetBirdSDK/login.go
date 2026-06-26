@@ -36,6 +36,7 @@ type URLOpener interface {
 // Auth can register or login new client
 type Auth struct {
 	ctx     context.Context
+	cancel  context.CancelFunc
 	config  *profilemanager.Config
 	cfgPath string
 }
@@ -51,8 +52,19 @@ func NewAuth(cfgPath string, mgmURL string) (*Auth, error) {
 		return nil, err
 	}
 
+	// Use a cancellable context so Stop() can abort an in-progress interactive
+	// login. The PKCE flow's WaitToken blocks (and keeps its loopback HTTP server
+	// bound to a port) until the OAuth callback arrives or the flow expires;
+	// cancelling the context unblocks WaitToken, which then shuts that server down
+	// and frees the port for the next login attempt. iOS runs login in the main-app
+	// process (decoupled from the network extension), so without this the server
+	// lingers after the user dismisses the browser and the next connect stalls
+	// trying to bind the same port.
+	ctx, cancel := context.WithCancel(context.Background())
+
 	return &Auth{
-		ctx:     context.Background(),
+		ctx:     ctx,
+		cancel:  cancel,
 		config:  cfg,
 		cfgPath: cfgPath,
 	}, nil
@@ -60,9 +72,21 @@ func NewAuth(cfgPath string, mgmURL string) (*Auth, error) {
 
 // NewAuthWithConfig instantiate Auth based on existing config
 func NewAuthWithConfig(ctx context.Context, config *profilemanager.Config) *Auth {
+	ctx, cancel := context.WithCancel(ctx)
 	return &Auth{
 		ctx:    ctx,
+		cancel: cancel,
 		config: config,
+	}
+}
+
+// Stop aborts an in-progress interactive login started via Login/LoginWithDeviceName.
+// It cancels the auth context, which unblocks the PKCE WaitToken and shuts down its
+// loopback HTTP server, freeing the redirect port. Safe to call multiple times and
+// safe to call when no login is running.
+func (a *Auth) Stop() {
+	if a.cancel != nil {
+		a.cancel()
 	}
 }
 

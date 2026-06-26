@@ -5,6 +5,7 @@ import (
 	"net/netip"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 
@@ -199,4 +200,66 @@ func TestBuildJWTConfig_Audiences(t *testing.T) {
 			assert.Equal(t, tc.expectedAudience, result.Audience, "audience should match expected")
 		})
 	}
+}
+
+// TestShouldSkipSendingDeprecatedRemotePeers covers the version gate that
+// stops populating the deprecated top-level SyncResponse.RemotePeers field for
+// peers new enough to read RemotePeers off the NetworkMap. Development builds
+// are treated as latest and skip the field. The gate otherwise fails safe: a
+// release version older than the boundary, or one that can't be parsed (empty,
+// garbage, prereleases of the boundary) still receives the deprecated field so
+// older/unknown clients keep working.
+func TestShouldSkipSendingDeprecatedRemotePeers(t *testing.T) {
+	tests := []struct {
+		name        string
+		peerVersion string
+		wantSkip    bool
+	}{
+		{"exact boundary skips", "0.29.3", true},
+		{"newer patch skips", "0.29.4", true},
+		{"newer minor skips", "0.30.0", true},
+		{"newer major skips", "1.0.0", true},
+		{"v-prefixed newer skips", "v0.30.0", true},
+		{"development build skips", "development", true},
+		{"development build with commit skips", "development-abc123def456-dirty", true},
+		{"older patch keeps field", "0.29.2", false},
+		{"older minor keeps field", "0.28.0", false},
+		{"prerelease of boundary keeps field", "0.29.3-SNAPSHOT", false},
+		{"tagged dev prerelease keeps field", "v0.31.1-dev", false},
+		{"empty version keeps field", "", false},
+		{"garbage version keeps field", "not-a-version", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := shouldSkipSendingDeprecatedRemotePeers(tc.peerVersion)
+			assert.Equal(t, tc.wantSkip, got, "skip decision for peer version %q", tc.peerVersion)
+		})
+	}
+}
+
+// TestEncodeSessionExpiresAt pins the wire encoding the client's
+// applySessionDeadline depends on:
+//
+//   - zero deadline  → &Timestamp{} (seconds=0, nanos=0): the explicit
+//     "expiry disabled or peer is not SSO-tracked" sentinel.
+//   - non-zero       → timestamppb.New(deadline): the absolute UTC deadline.
+//
+// The third state (nil pointer = "no info in this snapshot") is the caller's
+// responsibility on the Sync path when settings could not be resolved; the
+// helper itself never returns nil.
+func TestEncodeSessionExpiresAt(t *testing.T) {
+	t.Run("zero deadline encodes as explicit-zero sentinel", func(t *testing.T) {
+		got := encodeSessionExpiresAt(time.Time{})
+		assert.NotNil(t, got, "must not return nil; nil means 'no info', not 'disabled'")
+		assert.Equal(t, int64(0), got.GetSeconds())
+		assert.Equal(t, int32(0), got.GetNanos())
+	})
+
+	t.Run("non-zero deadline round-trips", func(t *testing.T) {
+		deadline := time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC)
+		got := encodeSessionExpiresAt(deadline)
+		assert.NotNil(t, got)
+		assert.True(t, got.AsTime().Equal(deadline))
+	})
 }

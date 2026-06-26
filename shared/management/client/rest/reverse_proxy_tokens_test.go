@@ -129,3 +129,16 @@ func TestReverseProxyTokens_Delete_Err(t *testing.T) {
 		assert.Error(t, err)
 	})
 }
+
+// TestReverseProxyTokens_Delete_EmptyID guards against an empty tokenID
+// reaching the wire — url.PathEscape("") would collapse the URL onto
+// the collection endpoint.
+func TestReverseProxyTokens_Delete_EmptyID(t *testing.T) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
+		mux.HandleFunc("/api/reverse-proxies/proxy-tokens/", func(http.ResponseWriter, *http.Request) {
+			t.Fatal("empty tokenID must be rejected client-side; no request should reach the server")
+		})
+		err := c.ReverseProxyTokens.Delete(context.Background(), "")
+		assert.Error(t, err, "empty tokenID must surface as an error")
+	})
+}

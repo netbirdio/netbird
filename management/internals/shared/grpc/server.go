@@ -778,7 +778,7 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 		sshKey = loginReq.GetPeerKeys().GetSshPubKey()
 	}
 
-	peer, netMap, postureChecks, err := s.accountManager.LoginPeer(ctx, types.PeerLogin{
+	peer, network, postureChecks, enableSSH, err := s.accountManager.LoginPeer(ctx, types.PeerLogin{
 		WireGuardPubKey: peerKey.String(),
 		SSHKey:          string(sshKey),
 		Meta:            peerMeta,
@@ -792,7 +792,7 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 		return nil, mapError(ctx, err)
 	}
 
-	loginResp, err := s.prepareLoginResponse(ctx, peer, netMap, postureChecks)
+	loginResp, err := s.prepareLoginResponse(ctx, peer, network, postureChecks, enableSSH)
 	if err != nil {
 		log.WithContext(ctx).Warnf("failed preparing login response for peer %s: %s", peerKey, err)
 		return nil, status.Errorf(codes.Internal, "failed logging in peer")
@@ -821,7 +821,81 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 	}, nil
 }
 
-func (s *Server) prepareLoginResponse(ctx context.Context, peer *nbpeer.Peer, netMap *types.NetworkMap, postureChecks []*posture.Checks) (*proto.LoginResponse, error) {
+// ExtendAuthSession refreshes the peer's SSO session expiry deadline using a
+// fresh JWT. The same JWT validation pipeline as Login is used. The tunnel
+// stays up; no network map sync is performed. The new deadline is returned
+// in ExtendAuthSessionResponse.SessionExpiresAt.
+func (s *Server) ExtendAuthSession(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
+	extendReq := &proto.ExtendAuthSessionRequest{}
+	peerKey, err := s.parseRequest(ctx, req, extendReq)
+	if err != nil {
+		return nil, err
+	}
+
+	//nolint
+	ctx = context.WithValue(ctx, nbContext.PeerIDKey, peerKey.String())
+	if accountID, accErr := s.accountManager.GetAccountIDForPeerKey(ctx, peerKey.String()); accErr == nil {
+		//nolint
+		ctx = context.WithValue(ctx, nbContext.AccountIDKey, accountID)
+	}
+
+	jwt := extendReq.GetJwtToken()
+	if jwt == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "jwt token is required")
+	}
+
+	var userID string
+	const attempts = 3
+	for i := 0; i < attempts; i++ {
+		userID, err = s.validateToken(ctx, peerKey.String(), jwt)
+		if err == nil {
+			break
+		}
+		if i == attempts-1 {
+			break
+		}
+		log.WithContext(ctx).Warnf("failed validating JWT token while extending session for peer %s: %v. Retrying (idP cache).", peerKey.String(), err)
+		select {
+		case <-time.After(200 * time.Millisecond):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	if userID == "" {
+		return nil, status.Errorf(codes.Unauthenticated, "jwt token did not yield a user id")
+	}
+
+	deadline, err := s.accountManager.ExtendPeerSession(ctx, peerKey.String(), userID)
+	if err != nil {
+		log.WithContext(ctx).Warnf("failed extending session for peer %s: %v", peerKey.String(), err)
+		return nil, mapError(ctx, err)
+	}
+
+	// Success path normally returns a non-zero deadline. A defensive zero
+	// would still encode as the explicit "disabled" sentinel rather than nil,
+	// so the client clears any stale anchor instead of preserving it.
+	resp := &proto.ExtendAuthSessionResponse{
+		SessionExpiresAt: encodeSessionExpiresAt(deadline),
+	}
+
+	wgKey, err := s.secretsManager.GetWGKey()
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed processing request")
+	}
+	encrypted, err := encryption.EncryptMessage(peerKey, wgKey, resp)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed encrypting response")
+	}
+	return &proto.EncryptedMessage{
+		WgPubKey: wgKey.PublicKey().String(),
+		Body:     encrypted,
+	}, nil
+}
+
+func (s *Server) prepareLoginResponse(ctx context.Context, peer *nbpeer.Peer, network *types.Network, postureChecks []*posture.Checks, enableSSH bool) (*proto.LoginResponse, error) {
 	var relayToken *Token
 	var err error
 	if s.config.Relay != nil && len(s.config.Relay.Addresses) > 0 {
@@ -840,9 +914,15 @@ func (s *Server) prepareLoginResponse(ctx context.Context, peer *nbpeer.Peer, ne
 	// if peer has reached this point then it has logged in
 	loginResp := &proto.LoginResponse{
 		NetbirdConfig: toNetbirdConfig(s.config, nil, relayToken, nil),
-		PeerConfig:    toPeerConfig(peer, netMap.Network, s.networkMapController.GetDNSDomain(settings), settings, s.config.HttpConfig, s.config.DeviceAuthorizationFlow, netMap.EnableSSH),
+		PeerConfig:    toPeerConfig(peer, network, s.networkMapController.GetDNSDomain(settings), settings, s.config.HttpConfig, s.config.DeviceAuthorizationFlow, enableSSH),
 		Checks:        toProtocolChecks(ctx, postureChecks),
 	}
+
+	// settings is always non-nil here, so we never emit nil — encoder returns
+	// either a valid deadline or the explicit-zero "disabled" sentinel.
+	loginResp.SessionExpiresAt = encodeSessionExpiresAt(
+		peer.SessionExpiresAt(settings.PeerLoginExpirationEnabled, settings.PeerLoginExpiration),
+	)
 
 	return loginResp, nil
 }
@@ -1125,7 +1205,7 @@ func (s *Server) SyncMeta(ctx context.Context, req *proto.EncryptedMessage) (*pr
 		return nil, msg
 	}
 
-	err = s.accountManager.SyncPeerMeta(ctx, peerKey.String(), extractPeerMeta(ctx, syncMetaReq.GetMeta()))
+	err = s.accountManager.SyncPeerMeta(ctx, peerKey.String(), extractPeerMeta(ctx, syncMetaReq.GetMeta()), realIP)
 	if err != nil {
 		return nil, mapError(ctx, err)
 	}
@@ -1174,7 +1254,10 @@ func (s *Server) Logout(ctx context.Context, req *proto.EncryptedMessage) (*prot
 func toProtocolChecks(ctx context.Context, postureChecks []*posture.Checks) []*proto.Checks {
 	protoChecks := make([]*proto.Checks, 0, len(postureChecks))
 	for _, postureCheck := range postureChecks {
-		protoChecks = append(protoChecks, toProtocolCheck(postureCheck))
+		check := toProtocolCheck(postureCheck)
+		if check != nil {
+			protoChecks = append(protoChecks, check)
+		}
 	}
 
 	return protoChecks
@@ -1196,6 +1279,10 @@ func toProtocolCheck(postureCheck *posture.Checks) *proto.Checks {
 				protoCheck.Files = append(protoCheck.Files, process.WindowsPath)
 			}
 		}
+	}
+
+	if len(protoCheck.Files) == 0 {
+		return nil
 	}
 
 	return protoCheck

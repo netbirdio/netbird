@@ -116,15 +116,15 @@ func initTestMetaData(t *testing.T, peers ...*nbpeer.Peer) *Handler {
 
 	ctrl2 := gomock.NewController(t)
 	permissionsManager := permissions.NewMockManager(ctrl2)
-	permissionsManager.EXPECT().ValidateAccountAccess(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
+	permissionsManager.EXPECT().ValidateAccountAccess(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(context.Background(), nil).AnyTimes()
 	permissionsManager.EXPECT().
 		ValidateUserPermissions(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Eq(modules.Peers), gomock.Eq(operations.Read)).
-		DoAndReturn(func(ctx context.Context, accountID, userID string, module modules.Module, operation operations.Operation) (bool, error) {
+		DoAndReturn(func(ctx context.Context, accountID, userID string, module modules.Module, operation operations.Operation) (bool, context.Context, error) {
 			user, ok := account.Users[userID]
 			if !ok {
-				return false, fmt.Errorf("user not found")
+				return false, ctx, fmt.Errorf("user not found")
 			}
-			return user.HasAdminPower() || user.IsServiceUser, nil
+			return user.HasAdminPower() || user.IsServiceUser, ctx, nil
 		}).
 		AnyTimes()
 

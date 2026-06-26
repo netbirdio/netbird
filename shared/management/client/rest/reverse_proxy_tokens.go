@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/url"
 
 	"github.com/netbirdio/netbird/shared/management/http/api"
@@ -61,6 +62,12 @@ func (a *ReverseProxyTokensAPI) Create(ctx context.Context, request api.ProxyTok
 // credentials existed; the plain secret can no longer authenticate any
 // new proxy registration.
 func (a *ReverseProxyTokensAPI) Delete(ctx context.Context, tokenID string) error {
+	// Guard against the empty input: url.PathEscape("") returns "" which
+	// would collapse the request URL onto the collection endpoint and
+	// silently delete nothing (or 405 depending on routing).
+	if tokenID == "" {
+		return errors.New("tokenID is required")
+	}
 	resp, err := a.c.NewRequest(ctx, "DELETE", "/api/reverse-proxies/proxy-tokens/"+url.PathEscape(tokenID), nil, nil)
 	if err != nil {
 		return err

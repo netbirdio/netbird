@@ -20,6 +20,7 @@ import (
 
 	"github.com/netbirdio/netbird/proxy/auth"
 	"github.com/netbirdio/netbird/proxy/internal/roundtrip"
+	"github.com/netbirdio/netbird/proxy/internal/types"
 	"github.com/netbirdio/netbird/proxy/web"
 )
 
@@ -1283,6 +1284,103 @@ func TestStampNetBirdIdentity_OmitsGroupsHeaderWhenAllInvalid(t *testing.T) {
 	_, present := pr.Out.Header[http.CanonicalHeaderKey(headerNetBirdGroups)]
 	assert.False(t, present,
 		"X-NetBird-Groups must not be set when every group label is rejected")
+}
+
+// nopOKTransport returns 200 for every request without dialing — used
+// by the self-target-loop tests so the non-loop cases don't pay a real
+// TCP-dial timeout.
+type nopOKTransport struct{}
+
+func (nopOKTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Header: http.Header{}}, nil
+}
+
+// TestServeHTTP_SelfTargetLoopReturns421 covers the loop guard for
+// private services: when a peer dials a service whose only target is
+// the peer itself, the proxy must refuse with 421 (Misdirected
+// Request) rather than round-tripping the request back over WG to
+// the same peer.
+func TestServeHTTP_SelfTargetLoopReturns421(t *testing.T) {
+	rp := NewReverseProxy(nopOKTransport{}, "auto", nil, nil)
+	rp.AddMapping(Mapping{
+		ID:        "svc-1",
+		AccountID: "acct-1",
+		Host:      "private.svc",
+		Paths: map[string]*PathTarget{
+			"/": {
+				URL: &url.URL{Scheme: "http", Host: "100.64.0.5:8080"},
+			},
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "http://private.svc/", nil)
+	req.Host = "private.svc"
+	req.RemoteAddr = "100.64.0.5:55555"
+	req = req.WithContext(types.WithOverlayOrigin(req.Context()))
+	rec := httptest.NewRecorder()
+
+	rp.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusMisdirectedRequest, rec.Code,
+		"a peer dialing a service whose target is itself must get 421")
+}
+
+// TestServeHTTP_SelfTargetLoop_NonOverlayRequestPassesThrough verifies
+// the guard is scoped to overlay-origin requests. A public-listener
+// request that happens to share a source IP with the target host must
+// not be misinterpreted as a loop — the gating relies on the inbound
+// marker being attached only by the per-account overlay listener.
+func TestServeHTTP_SelfTargetLoop_NonOverlayRequestPassesThrough(t *testing.T) {
+	rp := NewReverseProxy(nopOKTransport{}, "auto", nil, nil)
+	rp.AddMapping(Mapping{
+		ID:        "svc-1",
+		AccountID: "acct-1",
+		Host:      "public.svc",
+		Paths: map[string]*PathTarget{
+			"/": {
+				URL: &url.URL{Scheme: "http", Host: "100.64.0.5:8080"},
+			},
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "http://public.svc/", nil)
+	req.Host = "public.svc"
+	req.RemoteAddr = "100.64.0.5:55555"
+	// No WithOverlayOrigin → the guard must not fire.
+	rec := httptest.NewRecorder()
+
+	rp.ServeHTTP(rec, req)
+
+	assert.NotEqual(t, http.StatusMisdirectedRequest, rec.Code,
+		"a non-overlay request with a colliding source IP must not be flagged as a loop")
+}
+
+// TestServeHTTP_SelfTargetLoop_OverlayDifferentIPPassesThrough confirms
+// that overlay-origin requests with a source IP that does *not* match
+// the target host are forwarded normally.
+func TestServeHTTP_SelfTargetLoop_OverlayDifferentIPPassesThrough(t *testing.T) {
+	rp := NewReverseProxy(nopOKTransport{}, "auto", nil, nil)
+	rp.AddMapping(Mapping{
+		ID:        "svc-1",
+		AccountID: "acct-1",
+		Host:      "private.svc",
+		Paths: map[string]*PathTarget{
+			"/": {
+				URL: &url.URL{Scheme: "http", Host: "100.64.0.5:8080"},
+			},
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "http://private.svc/", nil)
+	req.Host = "private.svc"
+	req.RemoteAddr = "100.64.0.99:55555" // different from the target
+	req = req.WithContext(types.WithOverlayOrigin(req.Context()))
+	rec := httptest.NewRecorder()
+
+	rp.ServeHTTP(rec, req)
+
+	assert.NotEqual(t, http.StatusMisdirectedRequest, rec.Code,
+		"overlay request with a non-matching source IP must not be flagged as a loop")
 }
 
 // TestStampNetBirdIdentity_CapturedDataPresentButEmpty covers requests

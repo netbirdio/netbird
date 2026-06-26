@@ -96,17 +96,19 @@ func (m *Manager) Stop(ctx context.Context) error {
 	}
 
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	cancel := m.cancel
+	done := m.done
+	m.mu.Unlock()
 
-	if m.cancel == nil {
+	if cancel == nil {
 		return nil
 	}
-	m.cancel()
+	cancel()
 
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-m.done:
+	case <-done:
 	}
 
 	return nil

@@ -557,7 +557,6 @@ func (c *NetworkMapComponents) getRoutingPeerRoutes(peerID string) (enabledRoute
 	return enabledRoutes, disabledRoutes
 }
 
-
 func (c *NetworkMapComponents) filterRoutesByGroups(routes []*route.Route, groupListMap LookupMap) []*route.Route {
 	var filteredRoutes []*route.Route
 	for _, r := range routes {
@@ -628,9 +627,14 @@ func (c *NetworkMapComponents) getDefaultPermit(r *route.Route, includeIPv6 bool
 
 	rules := []*RouteFirewallRule{&rule}
 
-	if includeIPv6 && r.IsDynamic() {
+	isDefaultV4 := r.Network.Addr().Is4() && r.Network.Bits() == 0
+	if includeIPv6 && (r.IsDynamic() || isDefaultV4) {
 		ruleV6 := rule
 		ruleV6.SourceRanges = []string{"::/0"}
+		if isDefaultV4 {
+			ruleV6.Destination = "::/0"
+			ruleV6.RouteID = r.ID + "-v6-default"
+		}
 		rules = append(rules, &ruleV6)
 	}
 

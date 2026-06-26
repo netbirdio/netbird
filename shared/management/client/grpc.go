@@ -607,6 +607,61 @@ func (c *GrpcClient) Login(sysInfo *system.Info, pubSSHKey []byte, dnsLabels dom
 	return c.login(&proto.LoginRequest{Meta: infoToMetaData(sysInfo), PeerKeys: keys, DnsLabels: dnsLabels.ToPunycodeList()})
 }
 
+// ExtendAuthSession refreshes the peer's SSO session deadline on the management
+// server using a freshly issued JWT. The tunnel is untouched: no network map
+// sync, no peer reconnect. Returns the new absolute UTC deadline (zero time
+// when the server reports the field empty).
+func (c *GrpcClient) ExtendAuthSession(sysInfo *system.Info, jwtToken string) (*proto.ExtendAuthSessionResponse, error) {
+	if !c.ready() {
+		return nil, errors.New(errMsgNoMgmtConnection)
+	}
+
+	serverKey, err := c.getServerPublicKey()
+	if err != nil {
+		return nil, err
+	}
+
+	reqBody, err := encryption.EncryptMessage(*serverKey, c.key, &proto.ExtendAuthSessionRequest{
+		JwtToken: jwtToken,
+		Meta:     infoToMetaData(sysInfo),
+	})
+	if err != nil {
+		log.Errorf("failed to encrypt extend auth session message: %s", err)
+		return nil, err
+	}
+
+	var resp *proto.EncryptedMessage
+	operation := func() error {
+		mgmCtx, cancel := context.WithTimeout(context.Background(), ConnectTimeout)
+		defer cancel()
+
+		var err error
+		resp, err = c.realClient.ExtendAuthSession(mgmCtx, &proto.EncryptedMessage{
+			WgPubKey: c.key.PublicKey().String(),
+			Body:     reqBody,
+		})
+		if err != nil {
+			if s, ok := gstatus.FromError(err); ok && s.Code() == codes.Canceled {
+				return err
+			}
+			return backoff.Permanent(err)
+		}
+		return nil
+	}
+
+	if err := backoff.Retry(operation, nbgrpc.Backoff(c.ctx)); err != nil {
+		log.Errorf("failed to extend auth session on Management Service: %v", err)
+		return nil, err
+	}
+
+	out := &proto.ExtendAuthSessionResponse{}
+	if err := encryption.DecryptMessage(*serverKey, c.key, resp.Body, out); err != nil {
+		log.Errorf("failed to decrypt extend auth session response: %s", err)
+		return nil, err
+	}
+	return out, nil
+}
+
 // GetDeviceAuthorizationFlow returns a device authorization flow information.
 // It also takes care of encrypting and decrypting messages.
 func (c *GrpcClient) GetDeviceAuthorizationFlow() (*proto.DeviceAuthorizationFlow, error) {

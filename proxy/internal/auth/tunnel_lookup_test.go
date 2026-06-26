@@ -101,7 +101,10 @@ func TestForwardWithTunnelPeer_GroupsPropagateToCapturedData(t *testing.T) {
 
 	w, r := newTunnelRequest("100.64.0.10:55555")
 	cd := proxy.NewCapturedData("")
-	r = r.WithContext(proxy.WithCapturedData(r.Context(), cd))
+	lookup := TunnelLookupFunc(func(_ netip.Addr) (PeerIdentity, bool) {
+		return PeerIdentity{}, true
+	})
+	r = r.WithContext(proxy.WithCapturedData(WithTunnelLookup(r.Context(), lookup), cd))
 
 	called := false
 	next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true })
@@ -148,9 +151,13 @@ func TestForwardWithTunnelPeer_LocalLookupKnownPeerStillRPCs(t *testing.T) {
 	assert.Equal(t, int32(1), validator.tunnelCalls.Load(), "RPC must run for the user-identity tail when local lookup confirms the peer")
 }
 
-// TestForwardWithTunnelPeer_NoLookupKeepsLegacyPath ensures the existing
-// behaviour stays intact on the host-level listener (no lookup attached).
-func TestForwardWithTunnelPeer_NoLookupKeepsLegacyPath(t *testing.T) {
+// TestForwardWithTunnelPeer_NoLookupRefusesFastPath guards the
+// anti-spoof gate: requests that didn't arrive on the per-account
+// inbound listener (no TunnelLookup attached) must never reach
+// management's ValidateTunnelPeer, even when the source IP looks like
+// a tunnel address. A colliding RFC1918 / CGNAT source on the public
+// listener would otherwise impersonate a mesh peer.
+func TestForwardWithTunnelPeer_NoLookupRefusesFastPath(t *testing.T) {
 	validator := &stubSessionValidator{
 		respFn: func(_ *proto.ValidateTunnelPeerRequest) *proto.ValidateTunnelPeerResponse {
 			return &proto.ValidateTunnelPeerResponse{Valid: true, SessionToken: "tok", UserId: "user-1"}
@@ -165,9 +172,9 @@ func TestForwardWithTunnelPeer_NoLookupKeepsLegacyPath(t *testing.T) {
 	config, _ := mw.getDomainConfig("svc.example")
 	handled := mw.forwardWithTunnelPeer(w, r, "svc.example", config, next)
 
-	assert.True(t, handled, "host-level path forwards on positive RPC result")
-	assert.True(t, called, "next handler runs on host-level success")
-	assert.Equal(t, int32(1), validator.tunnelCalls.Load(), "host-level path always RPCs (Phase 3 unchanged)")
+	assert.False(t, handled, "fast-path must refuse without the inbound marker")
+	assert.False(t, called, "next handler must not run")
+	assert.Equal(t, int32(0), validator.tunnelCalls.Load(), "ValidateTunnelPeer must not be invoked without the inbound marker")
 }
 
 // TestForwardWithTunnelPeer_RPCErrorFallsThrough validates that an RPC
@@ -201,8 +208,13 @@ func TestForwardWithTunnelPeer_CacheReusesPositiveResponse(t *testing.T) {
 	}
 	mw := newTunnelMiddleware(t, validator)
 
+	lookup := TunnelLookupFunc(func(_ netip.Addr) (PeerIdentity, bool) {
+		return PeerIdentity{}, true
+	})
+
 	for i := 0; i < 4; i++ {
 		w, r := newTunnelRequest("100.64.0.10:55555")
+		r = r.WithContext(WithTunnelLookup(r.Context(), lookup))
 		next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
 		config, _ := mw.getDomainConfig("svc.example")
 		handled := mw.forwardWithTunnelPeer(w, r, "svc.example", config, next)
@@ -226,11 +238,21 @@ func TestForwardWithTunnelPeer_RoutesAccountIDIntoCacheKey(t *testing.T) {
 	require.NoError(t, mw.AddDomain("svc-a.example", nil, "", 0, "acct-a", "svc-a", nil, false))
 	require.NoError(t, mw.AddDomain("svc-b.example", nil, "", 0, "acct-b", "svc-b", nil, false))
 
+	// The fast-path requires the inbound-listener marker on the context.
+	// The peerstore lookup itself is account-agnostic at this level
+	// (one TunnelLookupFunc per account is attached by inbound.go); a
+	// trivial "always hit" lookup is enough to exercise the cache-key
+	// branch this test covers.
+	lookup := TunnelLookupFunc(func(_ netip.Addr) (PeerIdentity, bool) {
+		return PeerIdentity{}, true
+	})
+
 	for _, host := range []string{"svc-a.example", "svc-b.example"} {
 		w := httptest.NewRecorder()
 		r := httptest.NewRequest(http.MethodGet, "https://"+host+"/", nil)
 		r.Host = host
 		r.RemoteAddr = "100.64.0.10:55555"
+		r = r.WithContext(WithTunnelLookup(r.Context(), lookup))
 		config, _ := mw.getDomainConfig(host)
 		handled := mw.forwardWithTunnelPeer(w, r, host, config, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 		require.True(t, handled, "host %s should forward", host)
@@ -314,9 +336,17 @@ func TestPrivateService_ForwardsOnTunnelPeerSuccess(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
+	// Per-account inbound listener attaches WithTunnelLookup; without it
+	// forwardWithTunnelPeer refuses to take the fast-path. Mirror the
+	// real flow so this test exercises the post-gating success branch.
+	lookup := TunnelLookupFunc(func(_ netip.Addr) (PeerIdentity, bool) {
+		return PeerIdentity{}, true
+	})
+
 	req := httptest.NewRequest(http.MethodGet, "https://private.svc/", nil)
 	req.Host = "private.svc"
 	req.RemoteAddr = "100.64.0.10:55555"
+	req = req.WithContext(WithTunnelLookup(req.Context(), lookup))
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 

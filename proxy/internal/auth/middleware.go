@@ -346,13 +346,15 @@ func (mw *Middleware) forwardWithSessionCookie(w http.ResponseWriter, r *http.Re
 // management unreachable, peer unknown, user not in group) returns false so
 // the caller falls back to the existing OIDC scheme dispatch.
 //
-// Phase 3 adds a local-first short-circuit: when the request arrived on a
-// per-account inbound listener the context carries a peerstore lookup
-// (TunnelLookupFromContext). If the lookup says the IP isn't in the account's
-// roster the proxy denies fast without calling management. If the lookup
-// confirms a known peer the RPC still runs for the user-identity tail
-// (UserID + group access), but its result is cached for tunnelCacheTTL so
-// repeat requests skip management entirely.
+// The fast-path is gated on TunnelLookupFromContext(r.Context()) being
+// present — that context value is attached only by the per-account
+// inbound (overlay) listener. The host listener never sets it, so a
+// public client whose source IP happens to fall inside an RFC1918 / ULA
+// / CGNAT range can't impersonate a mesh peer by colliding with a
+// tunnel-IP. Once we know the request arrived over WireGuard the
+// per-account peerstore lookup is consulted: a miss denies fast (no
+// management round-trip), a hit gates the cached ValidateTunnelPeer RPC
+// that mints the session JWT.
 func (mw *Middleware) forwardWithTunnelPeer(w http.ResponseWriter, r *http.Request, host string, config DomainConfig, next http.Handler) bool {
 	if mw.sessionValidator == nil {
 		return false
@@ -361,18 +363,24 @@ func (mw *Middleware) forwardWithTunnelPeer(w http.ResponseWriter, r *http.Reque
 	if !clientIP.IsValid() {
 		return false
 	}
+
+	// Anti-spoof: only honour the tunnel-peer fast-path on requests that
+	// were stamped by an overlay listener. Without that marker an
+	// attacker could send a request from a colliding RFC1918 / CGNAT
+	// source on the public listener and bypass operator auth.
+	lookup := TunnelLookupFromContext(r.Context())
+	if lookup == nil {
+		return false
+	}
 	if !isTunnelSourceIP(clientIP) {
 		return false
 	}
-
-	if lookup := TunnelLookupFromContext(r.Context()); lookup != nil {
-		if _, ok := lookup(clientIP); !ok {
-			mw.logger.WithFields(log.Fields{
-				"host":   host,
-				"remote": clientIP,
-			}).Debug("local peerstore: tunnel IP not in account roster; denying without RPC")
-			return false
-		}
+	if _, ok := lookup(clientIP); !ok {
+		mw.logger.WithFields(log.Fields{
+			"host":   host,
+			"remote": clientIP,
+		}).Debug("local peerstore: tunnel IP not in account roster; denying without RPC")
+		return false
 	}
 
 	resp, _, err := mw.tunnelCache.fetch(r.Context(), tunnelCacheKey{

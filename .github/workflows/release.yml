@@ -9,10 +9,13 @@ on:
   pull_request:
 
 env:
-  SIGN_PIPE_VER: "v0.1.4"
-  GORELEASER_VER: "v2.14.3"
+  SIGN_PIPE_VER: "v0.1.6"
+  GORELEASER_VER: "v2.16.0"
   PRODUCT_NAME: "NetBird"
   COPYRIGHT: "NetBird GmbH"
+  flags: ""
+  SKIP_PUBLISH: "true"
+  SKIP_DOCKER_PUSH: "false"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || github.actor_id }}
@@ -24,13 +27,15 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       - name: Generate FreeBSD port diff
-        run: bash release_files/freebsd-port-diff.sh
+        run: bash -x release_files/freebsd-port-diff.sh
 
       - name: Generate FreeBSD port issue body
-        run: bash release_files/freebsd-port-issue-body.sh
+        run: bash -x release_files/freebsd-port-issue-body.sh
 
       - name: Check if diff was generated
         id: check_diff
@@ -51,19 +56,26 @@ jobs:
           echo "Generated files for version: $VERSION"
           cat netbird-*.diff
 
+      - name: Read Go version from go.mod
+        id: goversion
+        run: echo "version=$(awk '/^go / {print $2}' go.mod)" >> "$GITHUB_OUTPUT"
+
       - name: Test FreeBSD port
         if: steps.check_diff.outputs.diff_exists == 'true'
-        uses: vmactions/freebsd-vm@v1
+        env:
+          GO_VERSION: ${{ steps.goversion.outputs.version }}
+        uses: vmactions/freebsd-vm@b84ab5559b5a1bb4b8ee2737d2506a16e1737636 # v1.4.8
         with:
           usesh: true
           copyback: false
           release: "15.0"
+          envs: "GO_VERSION"
           prepare: |
             # Install required packages
-            pkg install -y git curl portlint go
+            pkg install -y git curl portlint
 
             # Install Go for building
-            GO_TARBALL="go1.25.5.freebsd-amd64.tar.gz"
+            GO_TARBALL="go${GO_VERSION}.freebsd-amd64.tar.gz"
             GO_URL="https://go.dev/dl/$GO_TARBALL"
             curl -LO "$GO_URL"
             tar -C /usr/local -xzf "$GO_TARBALL"
@@ -93,19 +105,19 @@ jobs:
 
             # Show patched Makefile
             version=$(cat security/netbird/Makefile | grep -E '^DISTVERSION=' | awk '{print $NF}')
-            
+
             cd /usr/ports/security/netbird
             export BATCH=yes
             make package
             pkg add ./work/pkg/netbird-*.pkg
-            
+
             netbird version | grep "$version"
 
             echo "FreeBSD port test completed successfully!"
 
       - name: Upload FreeBSD port files
         if: steps.check_diff.outputs.diff_exists == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a #v7.0.1
         with:
           name: freebsd-port-files
           path: |
@@ -121,29 +133,45 @@ jobs:
       windows_packages_artifact_url: ${{ steps.upload_windows_packages.outputs.artifact-url }}
       macos_packages_artifact_url: ${{ steps.upload_macos_packages.outputs.artifact-url }}
       ghcr_images: ${{ steps.tag_and_push_images.outputs.images_markdown }}
-    env:
-      flags: ""
     steps:
-      - name: Parse semver string
-        id: semver_parser
-        uses: booxmedialtd/ws-action-parse-semver@v1
-        with:
-          input_string: ${{ (startsWith(github.ref, 'refs/tags/v') && github.ref) || 'refs/tags/v0.0.0' }}
-          version_extractor_regex: '\/v(.*)$'
-
-      - if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
-        run: echo "flags=--snapshot" >> $GITHUB_ENV
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0 # It is required for GoReleaser to work properly
+          persist-credentials: false
+
+      - name: Parse semver string
+        id: semver_parser
+        uses: netbirdio/shared-actions/actions/parse-semver@be5df6047383da2236e02243cceb857d8567c27e # v0.0.2
+
+      - name: Set snapshot flag
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: | 
+          echo "flags=--snapshot" >> $GITHUB_ENV
+
+      - name: Set build vars
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        run: |
+          if [[ "x-${{ steps.semver_parser.outputs.prerelease }}" == "x-" && "x-${{ github.repository }}" == "x-netbirdio/netbird" ]]; then
+            echo "x-${{ github.repository }}" 
+            echo "x-${{ steps.semver_parser.outputs.prerelease }}"
+            echo "SKIP_PUBLISH=false" >> $GITHUB_ENV
+          else
+            echo "x-${{ github.repository }}" 
+            echo "x-${{ steps.semver_parser.outputs.prerelease }}"
+          fi
+          
+          if [[ "x-${{ github.repository }}" != "x-netbirdio/netbird" ]]; then
+            echo "SKIP_DOCKER_PUSH=true" >> $GITHUB_ENV
+          fi
+
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version-file: "go.mod"
           cache: false
       - name: Cache Go modules
-        uses: actions/cache@v4
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: |
             ~/go/pkg/mod
@@ -153,21 +181,23 @@ jobs:
             ${{ runner.os }}-go-releaser-
       - name: Install modules
         run: go mod tidy
+      - name: run openapi generator
+        run: bash shared/management/http/api/generate.sh
       - name: check git status
         run: git --no-pager diff --exit-code
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
+        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 #v4.1.0
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 #v4.1.0
       - name: Login to Docker hub
         if: github.event_name != 'pull_request'
-        uses: docker/login-action@v1
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:
           username: ${{ secrets.DOCKER_USER }}
           password: ${{ secrets.DOCKER_TOKEN }}
       - name: Log in to the GitHub container registry
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-        uses: docker/login-action@v3
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -191,7 +221,7 @@ jobs:
         run: goversioninfo -arm -64 -icon client/ui/assets/netbird.ico -manifest client/manifest.xml -product-name ${{ env.PRODUCT_NAME }} -copyright "${{ env.COPYRIGHT }}" -ver-major ${{ steps.semver_parser.outputs.major }} -ver-minor ${{ steps.semver_parser.outputs.minor }} -ver-patch ${{ steps.semver_parser.outputs.patch }} -ver-build 0 -file-version ${{ steps.semver_parser.outputs.fullversion }}.0 -product-version ${{ steps.semver_parser.outputs.fullversion }}.0 -o client/resources_windows_arm64.syso
       - name: Run GoReleaser
         id: goreleaser
-        uses: goreleaser/goreleaser-action@v4
+        uses: goreleaser/goreleaser-action@5daf1e915a5f0af01ddbcd89a43b8061ff4f1a89 # v7.2.2
         with:
           version: ${{ env.GORELEASER_VER }}
           args: release --clean ${{ env.flags }}
@@ -202,6 +232,8 @@ jobs:
           UPLOAD_YUM_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
           GPG_RPM_KEY_FILE: ${{ env.GPG_RPM_KEY_FILE }}
           NFPM_NETBIRD_RPM_PASSPHRASE: ${{ secrets.GPG_RPM_PASSPHRASE }}
+          SKIP_PUBLISH: ${{ env.SKIP_PUBLISH }}
+          SKIP_DOCKER_PUSH: ${{ env.SKIP_DOCKER_PUSH }}
       - name: Verify RPM signatures
         run: |
           docker run --rm -v $(pwd)/dist:/dist fedora:41 bash -c '
@@ -282,28 +314,28 @@ jobs:
           } >> "$GITHUB_OUTPUT"
       - name: upload non tags for debug purposes
         id: upload_release
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a #v7.0.1
         with:
           name: release
           path: dist/
           retention-days: 7
       - name: upload linux packages
         id: upload_linux_packages
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a #v7.0.1
         with:
           name: linux-packages
           path: dist/netbird_linux**
           retention-days: 7
       - name: upload windows packages
         id: upload_windows_packages
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a #v7.0.1
         with:
           name: windows-packages
           path: dist/netbird_windows**
           retention-days: 7
       - name: upload macos packages
         id: upload_macos_packages
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a #v7.0.1
         with:
           name: macos-packages
           path: dist/netbird_darwin**
@@ -314,27 +346,40 @@ jobs:
     outputs:
       release_ui_artifact_url: ${{ steps.upload_release_ui.outputs.artifact-url }}
     steps:
-      - name: Parse semver string
-        id: semver_parser
-        uses: booxmedialtd/ws-action-parse-semver@v1
-        with:
-          input_string: ${{ (startsWith(github.ref, 'refs/tags/v') && github.ref) || 'refs/tags/v0.0.0' }}
-          version_extractor_regex: '\/v(.*)$'
-
-      - if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
-        run: echo "flags=--snapshot" >> $GITHUB_ENV
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0 # It is required for GoReleaser to work properly
+          persist-credentials: false
+
+      - name: Parse semver string
+        id: semver_parser
+        uses: netbirdio/shared-actions/actions/parse-semver@be5df6047383da2236e02243cceb857d8567c27e # v0.0.2
+
+      - name: Set snapshot flag
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: |
+          echo "flags=--snapshot" >> $GITHUB_ENV
+
+      - name: Set build vars
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        run: |
+          if [[ "x-${{ steps.semver_parser.outputs.prerelease }}" == "x-" && "x-${{ github.repository }}" == "x-netbirdio/netbird" ]]; then
+            echo "x-${{ github.repository }}" 
+            echo "x-${{ steps.semver_parser.outputs.prerelease }}"
+            echo "SKIP_PUBLISH=false" >> $GITHUB_ENV
+          else
+            echo "x-${{ github.repository }}" 
+            echo "x-${{ steps.semver_parser.outputs.prerelease }}"
+          fi
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version-file: "go.mod"
           cache: false
       - name: Cache Go modules
-        uses: actions/cache@v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: |
             ~/go/pkg/mod
@@ -375,7 +420,7 @@ jobs:
         run: goversioninfo -arm -64 -icon client/ui/assets/netbird.ico -manifest client/ui/manifest.xml -product-name ${{ env.PRODUCT_NAME }}-"UI" -copyright "${{ env.COPYRIGHT }}" -ver-major ${{ steps.semver_parser.outputs.major }} -ver-minor ${{ steps.semver_parser.outputs.minor }} -ver-patch ${{ steps.semver_parser.outputs.patch }} -ver-build 0 -file-version ${{ steps.semver_parser.outputs.fullversion }}.0 -product-version ${{ steps.semver_parser.outputs.fullversion }}.0 -o client/ui/resources_windows_arm64.syso
 
       - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v4
+        uses: goreleaser/goreleaser-action@5daf1e915a5f0af01ddbcd89a43b8061ff4f1a89 # v7.2.2
         with:
           version: ${{ env.GORELEASER_VER }}
           args: release --config .goreleaser_ui.yaml --clean ${{ env.flags }}
@@ -386,6 +431,7 @@ jobs:
           UPLOAD_YUM_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
           GPG_RPM_KEY_FILE: ${{ env.GPG_RPM_KEY_FILE }}
           NFPM_NETBIRD_UI_RPM_PASSPHRASE: ${{ secrets.GPG_RPM_PASSPHRASE }}
+          SKIP_PUBLISH: ${{ env.SKIP_PUBLISH }}
       - name: Verify RPM signatures
         run: |
           docker run --rm -v $(pwd)/dist:/dist fedora:41 bash -c '
@@ -404,7 +450,7 @@ jobs:
         run: rm -f /tmp/gpg-rpm-signing-key.asc
       - name: upload non tags for debug purposes
         id: upload_release_ui
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a #v7.0.1
         with:
           name: release-ui
           path: dist/
@@ -418,16 +464,17 @@ jobs:
       - if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         run: echo "flags=--snapshot" >> $GITHUB_ENV
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0 # It is required for GoReleaser to work properly
+          persist-credentials: false
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version-file: "go.mod"
           cache: false
       - name: Cache Go modules
-        uses: actions/cache@v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: |
             ~/go/pkg/mod
@@ -441,7 +488,7 @@ jobs:
         run: git --no-pager diff --exit-code
       - name: Run GoReleaser
         id: goreleaser
-        uses: goreleaser/goreleaser-action@v4
+        uses: goreleaser/goreleaser-action@5daf1e915a5f0af01ddbcd89a43b8061ff4f1a89 # v7.2.2
         with:
           version: ${{ env.GORELEASER_VER }}
           args: release --config .goreleaser_ui_darwin.yaml --clean ${{ env.flags }}
@@ -449,7 +496,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: upload non tags for debug purposes
         id: upload_release_ui_darwin
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a #v7.0.1
         with:
           name: release-ui-darwin
           path: dist/
@@ -474,27 +521,26 @@ jobs:
       PackageWorkdir: netbird_windows_${{ matrix.arch }}
       downloadPath: '${{ github.workspace }}\temp'
     steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
       - name: Parse semver string
         id: semver_parser
-        uses: booxmedialtd/ws-action-parse-semver@v1
-        with:
-          input_string: ${{ (startsWith(github.ref, 'refs/tags/v') && github.ref) || 'refs/tags/v0.0.0' }}
-          version_extractor_regex: '\/v(.*)$'
-
-      - name: Checkout
-        uses: actions/checkout@v4
+        uses: netbirdio/shared-actions/actions/parse-semver@be5df6047383da2236e02243cceb857d8567c27e # v0.0.2
 
       - name: Add 7-Zip to PATH
         run: echo "C:\Program Files\7-Zip" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Download release artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release
           path: release
 
       - name: Download UI release artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-ui
           path: release-ui
@@ -514,29 +560,27 @@ jobs:
           Get-ChildItem $workdir
 
       - name: Download wintun
-        uses: carlosperate/download-file-action@v2
         id: download-wintun
+        uses: netbirdio/shared-actions/actions/win-download-and-verify@be5df6047383da2236e02243cceb857d8567c27e # v0.0.2
         with:
-          file-url: https://pkgs.netbird.io/wintun/wintun-0.14.1.zip
-          file-name: wintun.zip
-          location: ${{ env.downloadPath }}
-          sha256: '07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51'
+          url: https://pkgs.netbird.io/wintun/wintun-0.14.1.zip
+          destination: ${{ env.downloadPath }}\wintun.zip
+          sha256: 07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51
 
       - name: Decompress wintun files
-        run: tar -zvxf "${{ steps.download-wintun.outputs.file-path }}" -C ${{ env.downloadPath }}
+        run: tar -xvf "${{ env.downloadPath }}\wintun.zip" -C ${{ env.downloadPath }}
 
       - name: Move wintun.dll into dist
         run: mv ${{ env.downloadPath }}\wintun\bin\${{ matrix.wintun_arch }}\wintun.dll ${{ github.workspace }}\dist\${{ env.PackageWorkdir }}\
 
       - name: Download Mesa3D (amd64 only)
-        uses: carlosperate/download-file-action@v2
         id: download-mesa3d
         if: matrix.arch == 'amd64'
+        uses: netbirdio/shared-actions/actions/win-download-and-verify@be5df6047383da2236e02243cceb857d8567c27e # v0.0.2
         with:
-          file-url: https://downloads.fdossena.com/Projects/Mesa3D/Builds/MesaForWindows-x64-20.1.8.7z
-          file-name: mesa3d.7z
-          location: ${{ env.downloadPath }}
-          sha256: '71c7cb64ec229a1d6b8d62fa08e1889ed2bd17c0eeede8689daf0f25cb31d6b9'
+          url: https://pkgs.netbird.io/mesa3d/MesaForWindows-x64-20.1.8.7z
+          destination: ${{ env.downloadPath }}\mesa3d.7z
+          sha256: 71c7cb64ec229a1d6b8d62fa08e1889ed2bd17c0eeede8689daf0f25cb31d6b9
 
       - name: Extract Mesa3D driver (amd64 only)
         if: matrix.arch == 'amd64'
@@ -547,35 +591,38 @@ jobs:
         run: mv ${{ env.downloadPath }}\opengl32.dll ${{ github.workspace }}\dist\${{ env.PackageWorkdir }}\
 
       - name: Download EnVar plugin for NSIS
-        uses: carlosperate/download-file-action@v2
+        uses: netbirdio/shared-actions/actions/win-download-and-verify@be5df6047383da2236e02243cceb857d8567c27e # v0.0.2
         with:
-          file-url: https://nsis.sourceforge.io/mediawiki/images/7/7f/EnVar_plugin.zip
-          file-name: envar_plugin.zip
-          location: ${{ github.workspace }}
+          url: https://pkgs.netbird.io/nsis/EnVar_plugin.zip
+          destination: ${{ github.workspace }}\envar_plugin.zip
+          sha256: e9aa92de351345ed82795251d838f1ae9041ba35af9d381a5780c7843b01f56a
 
       - name: Extract EnVar plugin
         run: 7z x -o"${{ github.workspace }}/NSIS_Plugins" "${{ github.workspace }}/envar_plugin.zip"
 
       - name: Download ShellExecAsUser plugin for NSIS (amd64 only)
-        uses: carlosperate/download-file-action@v2
         if: matrix.arch == 'amd64'
+        uses: netbirdio/shared-actions/actions/win-download-and-verify@be5df6047383da2236e02243cceb857d8567c27e # v0.0.2
         with:
-          file-url: https://nsis.sourceforge.io/mediawiki/images/6/68/ShellExecAsUser_amd64-Unicode.7z
-          file-name: ShellExecAsUser_amd64-Unicode.7z
-          location: ${{ github.workspace }}
+          url: https://pkgs.netbird.io/nsis/ShellExecAsUser_amd64-Unicode.7z
+          destination: ${{ github.workspace }}\ShellExecAsUser_amd64-Unicode.7z
+          sha256: 0a55ea25c7330a92cec028eda8afcaf1b1a7092e0dfb77c21c8f654564b4ff9d
 
       - name: Extract ShellExecAsUser plugin (amd64 only)
         if: matrix.arch == 'amd64'
         run: 7z x -o"${{ github.workspace }}/NSIS_Plugins" "${{ github.workspace }}/ShellExecAsUser_amd64-Unicode.7z"
 
       - name: Build NSIS installer
-        uses: joncloud/makensis-action@v3.3
-        with:
-          additional-plugin-paths: ${{ github.workspace }}/NSIS_Plugins/Plugins
-          script-file: client/installer.nsis
-          arguments: "/V4 /DARCH=${{ matrix.arch }}"
+        shell: pwsh
         env:
           APPVER: ${{ steps.semver_parser.outputs.major }}.${{ steps.semver_parser.outputs.minor }}.${{ steps.semver_parser.outputs.patch }}.${{ github.run_id }}
+        run: |
+          $nsisPluginDir = "C:\Program Files (x86)\NSIS\Plugins\x86-unicode"
+          $srcPlugins    = "${{ github.workspace }}\NSIS_Plugins\Plugins"
+          Get-ChildItem -Path $srcPlugins -Recurse -Filter *.dll |
+            Copy-Item -Destination $nsisPluginDir -Force
+          & "C:\Program Files (x86)\NSIS\makensis.exe" /V4 "/DARCH=${{ matrix.arch }}" client\installer.nsis
+          if ($LASTEXITCODE -ne 0) { throw "makensis failed with exit code $LASTEXITCODE" }
 
       - name: Rename NSIS installer
         run: mv netbird-installer.exe netbird_installer_test_windows_${{ matrix.arch }}.exe
@@ -592,7 +639,7 @@ jobs:
 
       - name: Upload installer artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a #v7.0.1
         with:
           name: windows-installer-test-${{ matrix.arch }}
           path: |
@@ -611,7 +658,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Create or update PR comment
-        uses: actions/github-script@v7
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           RELEASE_RESULT: ${{ needs.release.result }}
           RELEASE_UI_RESULT: ${{ needs.release_ui.result }}
@@ -703,7 +750,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     steps:
       - name: Trigger binaries sign pipelines
-        uses: benc-uk/workflow-dispatch@v1
+        uses: benc-uk/workflow-dispatch@31e2b3319479a63f0ab15bf800eff9e913504e26 # v1.3.2
         with:
           workflow: Sign bin and installer
           repo: netbirdio/sign-pipelines

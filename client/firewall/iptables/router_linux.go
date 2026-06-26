@@ -4,6 +4,7 @@ package iptables
 
 import (
 	"fmt"
+	"maps"
 	"net/netip"
 	"strconv"
 	"strings"
@@ -749,11 +750,17 @@ func (r *router) updateState() {
 	currentState.Lock()
 	defer currentState.Unlock()
 
+	// Clone the rule map so the persisted state holds a private snapshot. The
+	// live map keeps being mutated by subsequent rule operations while the
+	// state manager marshals the state from its periodic-save goroutine.
+	// Sharing it by reference races the two and aborts the process with a
+	// concurrent map iteration and write. The ipset counter guards itself
+	// during marshaling, so it can be shared directly.
 	if r.v6 {
-		currentState.RouteRules6 = r.rules
+		currentState.RouteRules6 = maps.Clone(r.rules)
 		currentState.RouteIPsetCounter6 = r.ipsetCounter
 	} else {
-		currentState.RouteRules = r.rules
+		currentState.RouteRules = maps.Clone(r.rules)
 		currentState.RouteIPsetCounter = r.ipsetCounter
 	}
 

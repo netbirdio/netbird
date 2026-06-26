@@ -17,8 +17,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator/validator"
 	ephemeral_manager "github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
+	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator/validator"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
@@ -89,7 +89,7 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 			gomock.Any(),
 			gomock.Any(),
 		).
-		Return(true, nil).
+		Return(true, context.Background(), nil).
 		AnyTimes()
 
 	peersManger := peers.NewManager(store, permissionsManagerMock)
@@ -322,15 +322,21 @@ func TestClient_Sync(t *testing.T) {
 		if resp.GetNetbirdConfig() == nil {
 			t.Error("expecting non nil NetbirdConfig got nil")
 		}
-		if len(resp.GetRemotePeers()) != 1 {
-			t.Errorf("expecting RemotePeers size %d got %d", 1, len(resp.GetRemotePeers()))
+		// we test network map peers from 0.29.3 and dev builds
+		if len(resp.GetRemotePeers()) != 0 {
+			t.Error("expecting top-level RemotePeers to be empty for v0.29.3+ clients")
+		}
+		networkMap := resp.GetNetworkMap()
+		if len(networkMap.GetRemotePeers()) != 1 {
+			t.Errorf("expecting RemotePeers size %d got %d", 1, len(networkMap.GetRemotePeers()))
 			return
 		}
-		if resp.GetRemotePeersIsEmpty() == true {
+
+		if networkMap.GetRemotePeersIsEmpty() {
 			t.Error("expecting RemotePeers property to be false, got true")
 		}
-		if resp.GetRemotePeers()[0].GetWgPubKey() != remoteKey.PublicKey().String() {
-			t.Errorf("expecting RemotePeer public key %s got %s", remoteKey.PublicKey().String(), resp.GetRemotePeers()[0].GetWgPubKey())
+		if networkMap.GetRemotePeers()[0].GetWgPubKey() != remoteKey.PublicKey().String() {
+			t.Errorf("expecting RemotePeer public key %s got %s", remoteKey.PublicKey().String(), networkMap.GetRemotePeers()[0].GetWgPubKey())
 		}
 	case <-time.After(3 * time.Second):
 		t.Error("timeout waiting for test to finish")

@@ -3,7 +3,7 @@ name: Git Town
 on:
   pull_request:
     branches:
-      - '**'
+      - "**"
 
 jobs:
   git-town:
@@ -15,7 +15,9 @@ jobs:
       pull-requests: write
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: git-town/action@v1.2.1
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: git-town/action@3d8b878379abb1ee393fb49865a28b4a6c2cd3b0 # v1.2.1
         with:
           skip-single-stacks: true

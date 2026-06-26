@@ -88,3 +88,17 @@ func TestReverseProxyClusters_Delete_Err(t *testing.T) {
 		assert.Error(t, err)
 	})
 }
+
+// TestReverseProxyClusters_Delete_EmptyAddress guards against an empty
+// clusterAddress reaching the wire — that would collapse the URL onto
+// the collection endpoint instead of a specific cluster. The client
+// must short-circuit with a typed error before any request is issued.
+func TestReverseProxyClusters_Delete_EmptyAddress(t *testing.T) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
+		mux.HandleFunc("/api/reverse-proxies/clusters/", func(http.ResponseWriter, *http.Request) {
+			t.Fatal("empty clusterAddress must be rejected client-side; no request should reach the server")
+		})
+		err := c.ReverseProxyClusters.Delete(context.Background(), "")
+		assert.Error(t, err, "empty clusterAddress must surface as an error")
+	})
+}

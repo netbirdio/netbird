@@ -73,7 +73,7 @@ func benchServerWithLatency(b *testing.B, createPeerDelay, statusDelay time.Dura
 		statusUpdateDelay: statusDelay,
 	}
 
-	nb := roundtrip.NewNetBird("bench-proxy", "bench.test",
+	nb := roundtrip.NewNetBird(b.Context(), "bench-proxy", "bench.test",
 		roundtrip.ClientConfig{MgmtAddr: "http://bench.test:9999"},
 		logger, nil, mgmtClient)
 

@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"io"
 	stdlog "log"
 	"net"
 	"net/http"
@@ -42,7 +43,7 @@ const privateInboundPortHTTPS = 443
 const privateInboundPortHTTP = 80
 
 // inboundManager wires per-account inbound listeners into the proxy
-// pipeline when --private-inbound is enabled. When disabled the manager
+// pipeline when --private is enabled. When disabled the manager
 // is nil and every method on *Server that touches it short-circuits.
 type inboundManager struct {
 	logger    *log.Logger
@@ -55,15 +56,18 @@ type inboundManager struct {
 }
 
 // inboundEntry owns the listeners, router and HTTP servers for a single
-// account's embedded netstack.
+// account's embedded netstack. errorLogWriters retain the logrus pipe
+// writers backing each http.Server's ErrorLog so tearDown can close
+// them — otherwise the pipe + its scanner goroutine leak per account.
 type inboundEntry struct {
-	router        *nbtcp.Router
-	tlsListener   net.Listener
-	plainListener net.Listener
-	httpsServer   *http.Server
-	httpServer    *http.Server
-	cancel        context.CancelFunc
-	wg            sync.WaitGroup
+	router          *nbtcp.Router
+	tlsListener     net.Listener
+	plainListener   net.Listener
+	httpsServer     *http.Server
+	httpServer      *http.Server
+	errorLogWriters []*io.PipeWriter
+	cancel          context.CancelFunc
+	wg              sync.WaitGroup
 }
 
 // pendingInboundRoute holds a route that arrived before the account's
@@ -147,30 +151,34 @@ func (m *inboundManager) bringUp(ctx context.Context, accountID types.AccountID,
 		return types.WithOverlayOrigin(ctx)
 	}
 
+	httpsErrLog, httpsErrW := newInboundErrorLog(m.logger, "https", accountID)
+	httpErrLog, httpErrW := newInboundErrorLog(m.logger, "http", accountID)
+
 	httpsServer := &http.Server{
 		Handler:           scopedHandler,
 		TLSConfig:         m.tlsConfig,
 		ReadHeaderTimeout: httpInboundReadHeaderTimeout,
 		IdleTimeout:       httpInboundIdleTimeout,
-		ErrorLog:          newInboundErrorLog(m.logger, "https", accountID),
+		ErrorLog:          httpsErrLog,
 		ConnContext:       markOverlayOrigin,
 	}
 	httpServer := &http.Server{
 		Handler:           scopedHandler,
 		ReadHeaderTimeout: httpInboundReadHeaderTimeout,
 		IdleTimeout:       httpInboundIdleTimeout,
-		ErrorLog:          newInboundErrorLog(m.logger, "http", accountID),
+		ErrorLog:          httpErrLog,
 		ConnContext:       markOverlayOrigin,
 	}
 
 	runCtx, cancel := context.WithCancel(ctx)
 	entry := &inboundEntry{
-		router:        router,
-		tlsListener:   tlsListener,
-		plainListener: plainListener,
-		httpsServer:   httpsServer,
-		httpServer:    httpServer,
-		cancel:        cancel,
+		router:          router,
+		tlsListener:     tlsListener,
+		plainListener:   plainListener,
+		httpsServer:     httpsServer,
+		httpServer:      httpServer,
+		errorLogWriters: []*io.PipeWriter{httpsErrW, httpErrW},
+		cancel:          cancel,
 	}
 
 	entry.wg.Add(1)
@@ -237,6 +245,14 @@ func (m *inboundManager) tearDown(accountID types.AccountID, entry *inboundEntry
 		m.logger.Debugf("close per-account plain listener: %v", err)
 	}
 	entry.wg.Wait()
+	// Close the ErrorLog pipes only after the http.Servers have fully
+	// stopped so any straggling stdlib write doesn't race with the
+	// close. Each writer also tears down the logrus scanner goroutine.
+	for _, w := range entry.errorLogWriters {
+		if err := w.Close(); err != nil {
+			m.logger.Debugf("close per-account inbound error log writer: %v", err)
+		}
+	}
 }
 
 // AddRoute records an SNI/host route on the account's per-account router.
@@ -374,7 +390,7 @@ func (m *inboundManager) ListenerInfo(accountID types.AccountID) (InboundListene
 }
 
 // Snapshot returns the inbound listener state for every account that has
-// a live listener at call time. Empty when --private-inbound is off or
+// a live listener at call time. Empty when --private is off or
 // no accounts have come up yet.
 func (m *inboundManager) Snapshot() map[types.AccountID]InboundListenerInfo {
 	if m == nil {
@@ -497,7 +513,7 @@ func accountTunnelLookup(client *embed.Client) auth.TunnelLookupFunc {
 // peerstore lookup to every request's context before delegating to next.
 // Calling on the host-level listener is a no-op because that path never
 // installs this wrapper, so the existing behaviour stays byte-for-byte
-// identical when --private-inbound is off or the request didn't arrive
+// identical when --private is off or the request didn't arrive
 // on a per-account listener.
 func withTunnelLookup(next http.Handler, lookup auth.TunnelLookupFunc) http.Handler {
 	if lookup == nil {
@@ -538,10 +554,14 @@ func (a inboundDebugAdapter) InboundListeners() map[types.AccountID]debug.Inboun
 }
 
 // newInboundErrorLog routes a per-account http.Server's stdlib error
-// stream through logrus at warn level.
-func newInboundErrorLog(logger *log.Logger, scheme string, accountID types.AccountID) *stdlog.Logger {
-	return stdlog.New(logger.WithFields(log.Fields{
+// stream through logrus at warn level. The returned PipeWriter must be
+// closed by the caller (tearDown) once the http.Server has shut down —
+// otherwise the pipe and its scanner goroutine leak per account, see
+// logrus.Entry.WriterLevel.
+func newInboundErrorLog(logger *log.Logger, scheme string, accountID types.AccountID) (*stdlog.Logger, *io.PipeWriter) {
+	w := logger.WithFields(log.Fields{
 		"inbound-http": scheme,
 		"account_id":   accountID,
-	}).WriterLevel(log.WarnLevel), "", 0)
+	}).WriterLevel(log.WarnLevel)
+	return stdlog.New(w, "", 0), w
 }

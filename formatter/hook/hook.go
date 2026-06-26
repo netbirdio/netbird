@@ -99,6 +99,9 @@ func addFields(entry *logrus.Entry) {
 	if ctxAccountID, ok := entry.Context.Value(context.AccountIDKey).(string); ok {
 		entry.Data[context.AccountIDKey] = ctxAccountID
 	}
+	if ctxUserAgent, ok := entry.Context.Value(context.UserAgentKey).(string); ok {
+		entry.Data[context.UserAgentKey] = ctxUserAgent
+	}
 	if ctxInitiatorID, ok := entry.Context.Value(context.UserIDKey).(string); ok {
 		entry.Data[context.UserIDKey] = ctxInitiatorID
 	}

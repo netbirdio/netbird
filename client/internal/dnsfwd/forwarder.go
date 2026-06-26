@@ -26,6 +26,15 @@ import (
 const errResolveFailed = "failed to resolve query for domain=%s: %v"
 const upstreamTimeout = 15 * time.Second
 
+// EDE info codes the forwarder emits on upstream failures so the querying
+// client can see the reason without inspecting this peer's logs. They live in
+// the RFC 8914 Private Use range (49152-65535); the Go resolver never exposes a
+// real upstream EDE here, so these cannot collide with a genuine code.
+const (
+	edeNetbirdUpstreamTimeout uint16 = 49152
+	edeNetbirdUpstreamFailure uint16 = 49153
+)
+
 type resolver interface {
 	LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error)
 }
@@ -220,7 +229,7 @@ func (f *DNSForwarder) handleDNSQuery(logger *log.Entry, w dns.ResponseWriter, q
 
 	result := resutil.LookupIP(ctx, f.resolver, network, qname, question.Qtype)
 	if result.Err != nil {
-		f.handleDNSError(ctx, logger, w, question, resp, qname, result, startTime)
+		f.handleDNSError(ctx, logger, w, question, resp, qname, result, query.IsEdns0() != nil, startTime)
 		return
 	}
 
@@ -333,6 +342,7 @@ func (f *DNSForwarder) handleDNSError(
 	resp *dns.Msg,
 	domain string,
 	result resutil.LookupResult,
+	reqHasEdns bool,
 	startTime time.Time,
 ) {
 	qType := question.Qtype
@@ -374,6 +384,10 @@ func (f *DNSForwarder) handleDNSError(
 		logger.Warnf(errResolveFailed, domain, result.Err)
 	}
 
+	if reqHasEdns {
+		attachEDE(resp, edeCodeFor(dnsErr), edeText(dnsErr))
+	}
+
 	f.writeResponse(logger, w, resp, domain, startTime)
 }
 
@@ -413,4 +427,34 @@ func (f *DNSForwarder) getMatchingEntries(domain string) (route.ResID, []*Forwar
 	}
 
 	return selectedResId, matches
+}
+
+// edeCodeFor maps an upstream lookup error to the NetBird EDE info code.
+func edeCodeFor(dnsErr *net.DNSError) uint16 {
+	if dnsErr != nil && dnsErr.IsTimeout {
+		return edeNetbirdUpstreamTimeout
+	}
+	return edeNetbirdUpstreamFailure
+}
+
+// edeText builds the EDE extra-text describing the class of upstream failure.
+// It deliberately omits the upstream server address, which may be an internal
+// resolver and is exposed to any client permitted to use the route; the full
+// detail stays in the forwarder's local log.
+func edeText(dnsErr *net.DNSError) string {
+	if dnsErr != nil && dnsErr.IsTimeout {
+		return "netbird forwarder: upstream timeout"
+	}
+	return "netbird forwarder: upstream failure"
+}
+
+// attachEDE adds an Extended DNS Error (RFC 8914) option to the response,
+// creating the OPT pseudo-record if the response does not already carry one.
+func attachEDE(resp *dns.Msg, code uint16, text string) {
+	opt := resp.IsEdns0()
+	if opt == nil {
+		resp.SetEdns0(dns.DefaultMsgSize, false)
+		opt = resp.IsEdns0()
+	}
+	opt.Option = append(opt.Option, &dns.EDNS0_EDE{InfoCode: code, ExtraText: text})
 }
