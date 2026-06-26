@@ -433,7 +433,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 
 	for _, c := range []testCase{case1, case2, case3, case4, case5, case6} {
 		t.Run(c.name, func(t *testing.T) {
-			_, err = engine.updateNetworkMap(c.networkMap)
+			_, err = engine.updateNetworkMap(c.networkMap, maxPeersPerSyncPass)
 			if err != nil {
 				t.Fatal(err)
 				return
@@ -460,6 +460,47 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 			}
 		})
 	}
+
+	// chunked apply: with a per-pass cap smaller than the number of peers, a
+	// single updateNetworkMap applies one batch and reports more==true; the
+	// caller re-runs until convergence. (engine currently holds 0 peers.)
+	t.Run("chunked add converges over multiple passes", func(t *testing.T) {
+		nm := &mgmtProto.NetworkMap{
+			Serial:      6,
+			RemotePeers: []*mgmtProto.RemotePeerConfig{peer1, peer2, peer3},
+		}
+
+		more, err := engine.updateNetworkMap(nm, 1)
+		require.NoError(t, err)
+		require.True(t, more, "pass 1 should signal more")
+		require.Len(t, engine.peerStore.PeersPubKey(), 1)
+
+		more, err = engine.updateNetworkMap(nm, 1)
+		require.NoError(t, err)
+		require.True(t, more, "pass 2 should signal more")
+		require.Len(t, engine.peerStore.PeersPubKey(), 2)
+
+		more, err = engine.updateNetworkMap(nm, 1)
+		require.NoError(t, err)
+		require.False(t, more, "pass 3 should converge")
+		require.Len(t, engine.peerStore.PeersPubKey(), 3)
+	})
+
+	t.Run("chunked remove converges over multiple passes", func(t *testing.T) {
+		nm := &mgmtProto.NetworkMap{
+			Serial:      7,
+			RemotePeers: []*mgmtProto.RemotePeerConfig{peer1}, // remove peer2, peer3
+		}
+
+		more, err := engine.updateNetworkMap(nm, 1)
+		require.NoError(t, err)
+		require.True(t, more, "pass 1 should signal more (2 to remove, cap 1)")
+
+		more, err = engine.updateNetworkMap(nm, 1)
+		require.NoError(t, err)
+		require.False(t, more, "pass 2 should converge")
+		require.Len(t, engine.peerStore.PeersPubKey(), 1)
+	})
 }
 
 func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
@@ -630,7 +671,7 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 				}
 			}()
 
-			_, err = engine.updateNetworkMap(testCase.networkMap)
+			_, err = engine.updateNetworkMap(testCase.networkMap, maxPeersPerSyncPass)
 			assert.NoError(t, err, "shouldn't return error")
 			assert.Equal(t, testCase.expectedSerial, input.inputSerial, "serial should match")
 			assert.Len(t, input.clientRoutes, testCase.expectedLen, "clientRoutes len should match")
@@ -834,7 +875,7 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 				}
 			}()
 
-			_, err = engine.updateNetworkMap(testCase.networkMap)
+			_, err = engine.updateNetworkMap(testCase.networkMap, maxPeersPerSyncPass)
 			assert.NoError(t, err, "shouldn't return error")
 			assert.Equal(t, testCase.expectedSerial, input.inputSerial, "serial should match")
 			assert.Len(t, input.inputNSGroups, testCase.expectedZonesLen, "zones len should match")

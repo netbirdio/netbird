@@ -762,14 +762,15 @@ func (e *Engine) blockLanAccess() {
 
 // modifyPeers updates peers that have been modified (e.g. IP address has been changed).
 // It closes the existing connection, removes it from the peerConns map, and creates a new one.
-// maxPeersPerSyncPass bounds how many peers each of removePeers/modifyPeers/
-// addNewPeers applies per sync pass, so syncMsgMux is held only for a batch at a
-// time and the signal handler can interleave between passes.
+// maxPeersPerSyncPass is the default per-pass cap on how many peers each of
+// removePeers/modifyPeers/addNewPeers applies, so syncMsgMux is held only for a
+// batch at a time and other subsystems can interleave between passes. It is
+// passed in (not read globally) so tests can exercise the multi-pass path.
 const maxPeersPerSyncPass = 300
 
-// modifyPeers re-applies up to maxPeersPerSyncPass changed peers per call. It
-// returns true when more changed peers remained than the cap, so the caller re-runs.
-func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig) (bool, error) {
+// modifyPeers re-applies up to maxBatch changed peers per call. It returns true
+// when more changed peers remained than the cap, so the caller re-runs.
+func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig, maxBatch int) (bool, error) {
 
 	// first, check if peers have been modified
 	var modified []*mgmProto.RemotePeerConfig
@@ -800,8 +801,8 @@ func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig) (bool, er
 	}
 
 	more := false
-	if len(modified) > maxPeersPerSyncPass {
-		modified = modified[:maxPeersPerSyncPass]
+	if len(modified) > maxBatch {
+		modified = modified[:maxBatch]
 		more = true
 	}
 
@@ -822,9 +823,9 @@ func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig) (bool, er
 
 // removePeers finds and removes peers that do not exist anymore in the network map received from the Management Service.
 // It also removes peers that have been modified (e.g. change of IP address). They will be added again in addPeers method.
-// removePeers removes up to maxPeersPerSyncPass peers per call. It returns true
-// when more peers remained to remove than the cap, so the caller re-runs.
-func (e *Engine) removePeers(peersUpdate []*mgmProto.RemotePeerConfig) (bool, error) {
+// removePeers removes up to maxBatch peers per call. It returns true when more
+// peers remained to remove than the cap, so the caller re-runs.
+func (e *Engine) removePeers(peersUpdate []*mgmProto.RemotePeerConfig, maxBatch int) (bool, error) {
 	newPeers := make([]string, 0, len(peersUpdate))
 	for _, p := range peersUpdate {
 		newPeers = append(newPeers, p.GetWgPubKey())
@@ -833,8 +834,8 @@ func (e *Engine) removePeers(peersUpdate []*mgmProto.RemotePeerConfig) (bool, er
 	toRemove := util.SliceDiff(e.peerStore.PeersPubKey(), newPeers)
 
 	more := false
-	if len(toRemove) > maxPeersPerSyncPass {
-		toRemove = toRemove[:maxPeersPerSyncPass]
+	if len(toRemove) > maxBatch {
+		toRemove = toRemove[:maxBatch]
 		more = true
 	}
 
@@ -973,7 +974,7 @@ func (e *Engine) applySyncPass(update *mgmProto.SyncResponse) (bool, error) {
 	e.persistSyncResponse(update)
 
 	// only apply new changes and ignore old ones
-	more, err := e.updateNetworkMap(nm)
+	more, err := e.updateNetworkMap(nm, maxPeersPerSyncPass)
 	if err != nil {
 		return false, err
 	}
@@ -1369,9 +1370,9 @@ func (e *Engine) updateTURNs(turns []*mgmProto.ProtectedHostConfig) error {
 }
 
 // updateNetworkMap applies the wholesale parts (config, routes, ACL, DNS) in full
-// and a bounded batch of peers. It returns true when more peers remained than the
-// per-pass cap, so the caller re-runs until convergence.
-func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) (bool, error) {
+// and up to maxBatch peers per phase. It returns true when more peers remained
+// than the cap, so the caller re-runs until convergence.
+func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap, maxBatch int) (bool, error) {
 	// intentionally leave it before checking serial because for now it can happen that peer IP changed but serial didn't
 	if networkMap.GetPeerConfig() != nil {
 		err := e.updateConfig(networkMap.GetPeerConfig())
@@ -1471,17 +1472,17 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) (bool, error)
 			return false, err
 		}
 	} else {
-		removeMore, err := e.removePeers(remotePeers)
+		removeMore, err := e.removePeers(remotePeers, maxBatch)
 		if err != nil {
 			return false, err
 		}
 
-		modifyMore, err := e.modifyPeers(remotePeers)
+		modifyMore, err := e.modifyPeers(remotePeers, maxBatch)
 		if err != nil {
 			return false, err
 		}
 
-		addMore, err := e.addNewPeers(remotePeers)
+		addMore, err := e.addNewPeers(remotePeers, maxBatch)
 		if err != nil {
 			return false, err
 		}
@@ -1689,15 +1690,15 @@ func addrToString(addr netip.Addr) string {
 }
 
 // addNewPeers adds peers that were not know before but arrived from the Management service with the update
-// addNewPeers adds up to maxPeersPerSyncPass not-yet-present peers per call. It
-// returns true when more new peers remained than the cap, so the caller re-runs.
-func (e *Engine) addNewPeers(peersUpdate []*mgmProto.RemotePeerConfig) (bool, error) {
+// addNewPeers adds up to maxBatch not-yet-present peers per call. It returns true
+// when more new peers remained than the cap, so the caller re-runs.
+func (e *Engine) addNewPeers(peersUpdate []*mgmProto.RemotePeerConfig, maxBatch int) (bool, error) {
 	added := 0
 	for _, p := range peersUpdate {
 		if _, ok := e.peerStore.PeerConn(p.GetWgPubKey()); ok {
 			continue // already present (cheap skip), does not count toward the cap
 		}
-		if added >= maxPeersPerSyncPass {
+		if added >= maxBatch {
 			return true, nil // at least one more new peer remains
 		}
 		if err := e.addNewPeer(p); err != nil {
