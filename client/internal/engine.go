@@ -914,32 +914,10 @@ func (e *Engine) handleAutoUpdateVersion(autoUpdateSettings *mgmProto.AutoUpdate
 	e.updateManager.SetVersion(autoUpdateSettings.Version, autoUpdateSettings.AlwaysUpdate)
 }
 
-// handleSync processes one sync update to convergence. The peer apply is bounded
-// per pass (see maxPeersPerSyncPass), so syncMsgMux is acquired and released once
-// per pass via applySyncPass — the signal handler interleaves between passes.
-// Returning with no error means the map was fully applied (converged).
-func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
-	started := time.Now()
-	defer func() {
-		duration := time.Since(started)
-		log.Infof("sync finished in %s", duration)
-		e.clientMetrics.RecordSyncDuration(e.ctx, duration)
-	}()
-
-	for {
-		more, err := e.applySyncPass(update)
-		if err != nil {
-			return err
-		}
-		if !more {
-			return nil
-		}
-		// lock released between passes -> signal handler can interleave
-	}
-}
-
 // applySyncPass applies one bounded pass of the sync update under syncMsgMux and
-// returns true if more peers remained than the per-pass cap.
+// returns true if more peers remained than the per-pass cap. It is driven by the
+// mapStateManager, which re-invokes it (releasing the lock between passes) until
+// the update is fully applied.
 func (e *Engine) applySyncPass(update *mgmProto.SyncResponse) (bool, error) {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
@@ -1318,7 +1296,19 @@ func (e *Engine) receiveManagementEvents() {
 			e.config.DisableSSHAuth,
 		)
 
-		err = e.mgmClient.Sync(e.ctx, info, e.handleSync)
+		// The map-state manager converges the latest update in the background in
+		// bounded passes; the stream callback only hands it the newest target.
+		manager := newMapStateManager(e.applySyncPass, func(d time.Duration) {
+			log.Infof("sync finished in %s", d)
+			e.clientMetrics.RecordSyncDuration(e.ctx, d)
+		})
+		e.shutdownWg.Add(1)
+		go func() {
+			defer e.shutdownWg.Done()
+			manager.run(e.ctx)
+		}()
+
+		err = e.mgmClient.Sync(e.ctx, info, manager.SetTarget)
 		if err != nil {
 			// happens if management is unavailable for a long time.
 			// We want to cancel the operation of the whole client
