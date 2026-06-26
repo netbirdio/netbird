@@ -69,7 +69,7 @@ func TestAgentNetwork_ProviderCRUD_FansOutToProxyAndClientPeers(t *testing.T) {
 		AccountID: accountID,
 		Key:       proxyPeerKey,
 		IP:        netip.MustParseAddr(proxyIP),
-		Status:    &nbpeer.PeerStatus{Connected: true},
+		Status:    &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 		ProxyMeta: nbpeer.ProxyMeta{Embedded: true, Cluster: clusterAddr},
 		DNSLabel:  "agent-net-proxy",
 	}
