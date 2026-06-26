@@ -586,28 +586,6 @@ func (s *SqlStore) MarkPeerDisconnectedIfSameSession(ctx context.Context, accoun
 	return result.RowsAffected > 0, nil
 }
 
-func (s *SqlStore) SavePeerLocation(ctx context.Context, accountID string, peerWithLocation *nbpeer.Peer) error {
-	// To maintain data integrity, we create a copy of the peer's location to prevent unintended updates to other fields.
-	var peerCopy nbpeer.Peer
-	// Since the location field has been migrated to JSON serialization,
-	// updating the struct ensures the correct data format is inserted into the database.
-	peerCopy.Location = peerWithLocation.Location
-
-	result := s.db.Model(&nbpeer.Peer{}).
-		Where(accountAndIDQueryCondition, accountID, peerWithLocation.ID).
-		Updates(peerCopy)
-
-	if result.Error != nil {
-		return status.Errorf(status.Internal, "failed to save peer locations to store: %v", result.Error)
-	}
-
-	if result.RowsAffected == 0 {
-		return status.Errorf(status.NotFound, peerNotFoundFMT, peerWithLocation.ID)
-	}
-
-	return nil
-}
-
 // ApproveAccountPeers marks all peers that currently require approval in the given account as approved.
 func (s *SqlStore) ApproveAccountPeers(ctx context.Context, accountID string) (int, error) {
 	result := s.db.Model(&nbpeer.Peer{}).

@@ -185,7 +185,6 @@ type Store interface {
 	// recorded by the database. Returns true when the update happened,
 	// false when a newer session has taken over.
 	MarkPeerDisconnectedIfSameSession(ctx context.Context, accountID, peerID string, sessionStartedAt int64) (bool, error)
-	SavePeerLocation(ctx context.Context, accountID string, peer *nbpeer.Peer) error
 	ApproveAccountPeers(ctx context.Context, accountID string) (int, error)
 	DeletePeer(ctx context.Context, accountID string, peerID string) error
 

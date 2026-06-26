@@ -47,7 +47,7 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 
 	pm := profilemanager.ServiceManager{}
 	err = pm.SetActiveProfileState(&profilemanager.ActiveProfileState{
-		Name:     profName,
+		ID:       profilemanager.ID(profName),
 		Username: currUser.Username,
 	})
 	require.NoError(t, err)
@@ -96,7 +96,7 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 		DisableNotifications:  &disableNotifications,
 		LazyConnectionEnabled: &lazyConnectionEnabled,
 		BlockInbound:          &blockInbound,
-		DisableIpv6:          &disableIPv6,
+		DisableIpv6:           &disableIPv6,
 		NatExternalIPs:        []string{"1.2.3.4", "5.6.7.8"},
 		CleanNATExternalIPs:   false,
 		CustomDNSAddress:      []byte("1.1.1.1:53"),
@@ -112,7 +112,7 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 	require.NoError(t, err)
 
 	profState := profilemanager.ActiveProfileState{
-		Name:     profName,
+		ID:       profilemanager.ID(profName),
 		Username: currUser.Username,
 	}
 	cfgPath, err := profState.FilePath()

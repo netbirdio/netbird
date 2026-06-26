@@ -62,7 +62,7 @@ func setupServerWithProfile(t *testing.T) (s *Server, ctx context.Context, profN
 
 	pm := profilemanager.ServiceManager{}
 	require.NoError(t, pm.SetActiveProfileState(&profilemanager.ActiveProfileState{
-		Name:     profName,
+		ID:       profilemanager.ID(profName),
 		Username: currUser.Username,
 	}))
 

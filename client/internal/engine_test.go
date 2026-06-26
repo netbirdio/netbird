@@ -247,7 +247,7 @@ func TestEngine_SSH(t *testing.T) {
 		return
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(CtxInitState(context.Background()))
 	defer cancel()
 
 	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
@@ -426,7 +426,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		return
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(CtxInitState(context.Background()))
 	defer cancel()
 
 	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
@@ -638,7 +638,7 @@ func TestEngine_Sync(t *testing.T) {
 		return
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(CtxInitState(context.Background()))
 	defer cancel()
 
 	// feed updates to Engine via mocked Management client
@@ -817,7 +817,7 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 				return
 			}
 
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(CtxInitState(context.Background()))
 			defer cancel()
 
 			wgIfaceName := fmt.Sprintf("utun%d", 104+n)
@@ -1024,7 +1024,7 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 				return
 			}
 
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(CtxInitState(context.Background()))
 			defer cancel()
 
 			wgIfaceName := fmt.Sprintf("utun%d", 104+n)

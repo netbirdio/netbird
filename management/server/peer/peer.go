@@ -1,11 +1,15 @@
 package peer
 
 import (
+	"context"
+	"fmt"
 	"net"
 	"net/netip"
 	"slices"
-	"sort"
+	"strings"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/shared/management/http/api"
@@ -104,6 +108,15 @@ type Location struct {
 	GeoNameID    uint // city level geoname id
 }
 
+// equal reports whether two locations match. ConnectionIP is a net.IP slice, so it uses
+// IP.Equal, not ==.
+func (l Location) equal(other Location) bool {
+	return l.CountryCode == other.CountryCode &&
+		l.CityName == other.CityName &&
+		l.GeoNameID == other.GeoNameID &&
+		l.ConnectionIP.Equal(other.ConnectionIP)
+}
+
 // NetworkAddress is the IP address with network and MAC address of a network interface
 type NetworkAddress struct {
 	NetIP netip.Prefix `gorm:"serializer:json"`
@@ -163,49 +176,7 @@ type PeerSystemMeta struct { //nolint:revive
 }
 
 func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
-	sort.Slice(p.NetworkAddresses, func(i, j int) bool {
-		return p.NetworkAddresses[i].Mac < p.NetworkAddresses[j].Mac
-	})
-	sort.Slice(other.NetworkAddresses, func(i, j int) bool {
-		return other.NetworkAddresses[i].Mac < other.NetworkAddresses[j].Mac
-	})
-	equalNetworkAddresses := slices.EqualFunc(p.NetworkAddresses, other.NetworkAddresses, func(addr NetworkAddress, oAddr NetworkAddress) bool {
-		return addr.Mac == oAddr.Mac && addr.NetIP == oAddr.NetIP
-	})
-	if !equalNetworkAddresses {
-		return false
-	}
-
-	sort.Slice(p.Files, func(i, j int) bool {
-		return p.Files[i].Path < p.Files[j].Path
-	})
-	sort.Slice(other.Files, func(i, j int) bool {
-		return other.Files[i].Path < other.Files[j].Path
-	})
-	equalFiles := slices.EqualFunc(p.Files, other.Files, func(file File, oFile File) bool {
-		return file.Path == oFile.Path && file.Exist == oFile.Exist && file.ProcessIsRunning == oFile.ProcessIsRunning
-	})
-	if !equalFiles {
-		return false
-	}
-
-	return p.Hostname == other.Hostname &&
-		p.GoOS == other.GoOS &&
-		p.Kernel == other.Kernel &&
-		p.KernelVersion == other.KernelVersion &&
-		p.Core == other.Core &&
-		p.Platform == other.Platform &&
-		p.OS == other.OS &&
-		p.OSVersion == other.OSVersion &&
-		p.WtVersion == other.WtVersion &&
-		p.UIVersion == other.UIVersion &&
-		p.SystemSerialNumber == other.SystemSerialNumber &&
-		p.SystemProductName == other.SystemProductName &&
-		p.SystemManufacturer == other.SystemManufacturer &&
-		p.Environment.Cloud == other.Environment.Cloud &&
-		p.Environment.Platform == other.Environment.Platform &&
-		p.Flags.isEqual(other.Flags) &&
-		capabilitiesEqual(p.Capabilities, other.Capabilities)
+	return len(metaDiff(p, other)) == 0
 }
 
 func (p PeerSystemMeta) isEmpty() bool {
@@ -303,26 +274,173 @@ func (p *Peer) Copy() *Peer {
 	}
 }
 
-// UpdateMetaIfNew updates peer's system metadata if new information is provided
-// returns true if meta was updated, false otherwise
-func (p *Peer) UpdateMetaIfNew(meta PeerSystemMeta) (updated, versionChanged bool) {
+// UpdateMetaIfNew updates peer's system metadata and connection geo location if
+// new information is provided. newLocation is the geo location resolved from the
+// peer's current connection IP, or nil when there is nothing to apply (geo
+// disabled, no real IP, or the IP is unchanged); the caller owns the expensive
+// lookup and the same-IP guard. It returns a MetaDiff describing what changed;
+// diff.Updated() reports whether the peer needs to be persisted.
+func (p *Peer) UpdateMetaIfNew(ctx context.Context, meta PeerSystemMeta, newLocation *Location) MetaDiff {
 	if meta.isEmpty() {
-		return updated, versionChanged
+		return MetaDiff{}
 	}
-
-	versionChanged = p.Meta.WtVersion != meta.WtVersion
 
 	// Avoid overwriting UIVersion if the update was triggered sole by the CLI client
 	if meta.UIVersion == "" {
 		meta.UIVersion = p.Meta.UIVersion
 	}
 
-	if p.Meta.isEqual(meta) {
-		return updated, versionChanged
+	effectiveLocation := p.Location
+	if newLocation != nil {
+		effectiveLocation = *newLocation
 	}
-	p.Meta = meta
-	updated = true
-	return updated, versionChanged
+
+	diff := diffMeta(p.Meta, meta, p.Location, effectiveLocation)
+	if diff.Updated() {
+		p.Meta = meta
+	}
+	p.Location = effectiveLocation
+
+	if diff.Updated() {
+		log.WithContext(ctx).Debug(diff.LogSummary())
+	}
+
+	return diff
+}
+
+// MetaDiff holds a peer's full before/after state across a sync: both metas and both
+// connection locations (the location lives on Peer, not PeerSystemMeta, but posture
+// checks read it). Changed lists what moved, for logging and the persistence decision;
+// the snapshots let a posture check be replayed against old and new. Everything is derived
+// from these fields, so there are no parallel per-field flags to keep in sync.
+type MetaDiff struct {
+	OldMeta     PeerSystemMeta
+	NewMeta     PeerSystemMeta
+	OldLocation Location
+	NewLocation Location
+
+	Changed []string
+}
+
+// Updated reports whether anything changed and the peer must be persisted. diffMeta fills
+// Changed in the pass that builds the diff, so this is a length check, not a re-comparison.
+// Pointer receiver: MetaDiff embeds two metas, so copying it per call is wasteful.
+func (d *MetaDiff) Updated() bool {
+	return len(d.Changed) != 0
+}
+
+// VersionChanged reports whether the WireGuard client version changed (a client upgrade).
+func (d *MetaDiff) VersionChanged() bool {
+	return d.OldMeta.WtVersion != d.NewMeta.WtVersion
+}
+
+// HostnameChanged reports whether the peer's hostname changed.
+func (d *MetaDiff) HostnameChanged() bool {
+	return d.OldMeta.Hostname != d.NewMeta.Hostname
+}
+
+// LogSummary renders the changed fields as a single human-readable line.
+func (d *MetaDiff) LogSummary() string {
+	return fmt.Sprintf("peer meta updated, %d field(s) changed: %s",
+		len(d.Changed), strings.Join(d.Changed, ", "))
+}
+
+func metaDiff(oldMeta, newMeta PeerSystemMeta) []string {
+	return diffMeta(oldMeta, newMeta, Location{}, Location{}).Changed
+}
+
+// diffMeta snapshots a peer's old and new state and records a Changed entry per field that
+// moved. It is the single source of truth for the comparison: isEqual is an empty Changed
+// list, so the log line and the persistence decision can never disagree.
+func diffMeta(oldMeta, newMeta PeerSystemMeta, oldLocation, newLocation Location) MetaDiff {
+	d := MetaDiff{OldMeta: oldMeta, NewMeta: newMeta, OldLocation: oldLocation, NewLocation: newLocation}
+	add := func(field string, oldVal, newVal any) {
+		d.Changed = append(d.Changed, fmt.Sprintf("%s: %v -> %v", field, oldVal, newVal))
+	}
+
+	if oldMeta.Hostname != newMeta.Hostname {
+		add("hostname", oldMeta.Hostname, newMeta.Hostname)
+	}
+	if oldMeta.GoOS != newMeta.GoOS {
+		add("goos", oldMeta.GoOS, newMeta.GoOS)
+	}
+	if oldMeta.Kernel != newMeta.Kernel {
+		add("kernel", oldMeta.Kernel, newMeta.Kernel)
+	}
+	if oldMeta.KernelVersion != newMeta.KernelVersion {
+		add("kernel_version", oldMeta.KernelVersion, newMeta.KernelVersion)
+	}
+	if oldMeta.Core != newMeta.Core {
+		add("core", oldMeta.Core, newMeta.Core)
+	}
+	if oldMeta.Platform != newMeta.Platform {
+		add("platform", oldMeta.Platform, newMeta.Platform)
+	}
+	if oldMeta.OS != newMeta.OS {
+		add("os", oldMeta.OS, newMeta.OS)
+	}
+	if oldMeta.OSVersion != newMeta.OSVersion {
+		add("os_version", oldMeta.OSVersion, newMeta.OSVersion)
+	}
+	if oldMeta.WtVersion != newMeta.WtVersion {
+		add("wt_version", oldMeta.WtVersion, newMeta.WtVersion)
+	}
+	if oldMeta.UIVersion != newMeta.UIVersion {
+		add("ui_version", oldMeta.UIVersion, newMeta.UIVersion)
+	}
+	if oldMeta.SystemSerialNumber != newMeta.SystemSerialNumber {
+		add("system_serial_number", oldMeta.SystemSerialNumber, newMeta.SystemSerialNumber)
+	}
+	if oldMeta.SystemProductName != newMeta.SystemProductName {
+		add("system_product_name", oldMeta.SystemProductName, newMeta.SystemProductName)
+	}
+	if oldMeta.SystemManufacturer != newMeta.SystemManufacturer {
+		add("system_manufacturer", oldMeta.SystemManufacturer, newMeta.SystemManufacturer)
+	}
+	if oldMeta.Environment.Cloud != newMeta.Environment.Cloud {
+		add("environment_cloud", oldMeta.Environment.Cloud, newMeta.Environment.Cloud)
+	}
+	if oldMeta.Environment.Platform != newMeta.Environment.Platform {
+		add("environment_platform", oldMeta.Environment.Platform, newMeta.Environment.Platform)
+	}
+	if !oldMeta.Flags.isEqual(newMeta.Flags) {
+		add("flags", fmt.Sprintf("%+v", oldMeta.Flags), fmt.Sprintf("%+v", newMeta.Flags))
+	}
+	if !capabilitiesEqual(oldMeta.Capabilities, newMeta.Capabilities) {
+		add("capabilities", oldMeta.Capabilities, newMeta.Capabilities)
+	}
+	if !sameMultiset(oldMeta.NetworkAddresses, newMeta.NetworkAddresses) {
+		add("network_addresses", fmt.Sprintf("%v", oldMeta.NetworkAddresses), fmt.Sprintf("%v", newMeta.NetworkAddresses))
+	}
+	if !sameMultiset(oldMeta.Files, newMeta.Files) {
+		add("files", fmt.Sprintf("%v", oldMeta.Files), fmt.Sprintf("%v", newMeta.Files))
+	}
+
+	if !oldLocation.equal(newLocation) {
+		add("connection_ip", oldLocation.ConnectionIP, newLocation.ConnectionIP)
+	}
+
+	return d
+}
+
+// sameMultiset reports whether two slices contain the same elements with the
+// same multiplicity, ignoring order. The element type is the comparison key, so
+// every field participates in equality.
+func sameMultiset[T comparable](a, b []T) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	counts := make(map[T]int, len(a))
+	for _, v := range a {
+		counts[v]++
+	}
+	for _, v := range b {
+		counts[v]--
+		if counts[v] == 0 {
+			delete(counts, v)
+		}
+	}
+	return len(counts) == 0
 }
 
 // GetLastLogin returns the last login time of the peer.
