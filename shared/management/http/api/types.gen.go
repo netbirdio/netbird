@@ -38,6 +38,45 @@ func (e AccessRestrictionsCrowdsecMode) Valid() bool {
 	}
 }
 
+// Defines values for AgentNetworkCatalogProviderKind.
+const (
+	AgentNetworkCatalogProviderKindCustom   AgentNetworkCatalogProviderKind = "custom"
+	AgentNetworkCatalogProviderKindGateway  AgentNetworkCatalogProviderKind = "gateway"
+	AgentNetworkCatalogProviderKindProvider AgentNetworkCatalogProviderKind = "provider"
+)
+
+// Valid indicates whether the value is a known member of the AgentNetworkCatalogProviderKind enum.
+func (e AgentNetworkCatalogProviderKind) Valid() bool {
+	switch e {
+	case AgentNetworkCatalogProviderKindCustom:
+		return true
+	case AgentNetworkCatalogProviderKindGateway:
+		return true
+	case AgentNetworkCatalogProviderKindProvider:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AgentNetworkConsumptionDimensionKind.
+const (
+	AgentNetworkConsumptionDimensionKindGroup AgentNetworkConsumptionDimensionKind = "group"
+	AgentNetworkConsumptionDimensionKindUser  AgentNetworkConsumptionDimensionKind = "user"
+)
+
+// Valid indicates whether the value is a known member of the AgentNetworkConsumptionDimensionKind enum.
+func (e AgentNetworkConsumptionDimensionKind) Valid() bool {
+	switch e {
+	case AgentNetworkConsumptionDimensionKindGroup:
+		return true
+	case AgentNetworkConsumptionDimensionKindUser:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CreateAzureIntegrationRequestHost.
 const (
 	CreateAzureIntegrationRequestHostMicrosoftCom CreateAzureIntegrationRequestHost = "microsoft.com"
@@ -1163,6 +1202,84 @@ func (e WorkloadType) Valid() bool {
 	}
 }
 
+// Defines values for GetApiAgentNetworkAccessLogsParamsSortBy.
+const (
+	GetApiAgentNetworkAccessLogsParamsSortByCostUsd     GetApiAgentNetworkAccessLogsParamsSortBy = "cost_usd"
+	GetApiAgentNetworkAccessLogsParamsSortByDecision    GetApiAgentNetworkAccessLogsParamsSortBy = "decision"
+	GetApiAgentNetworkAccessLogsParamsSortByDuration    GetApiAgentNetworkAccessLogsParamsSortBy = "duration"
+	GetApiAgentNetworkAccessLogsParamsSortByModel       GetApiAgentNetworkAccessLogsParamsSortBy = "model"
+	GetApiAgentNetworkAccessLogsParamsSortByProvider    GetApiAgentNetworkAccessLogsParamsSortBy = "provider"
+	GetApiAgentNetworkAccessLogsParamsSortByStatusCode  GetApiAgentNetworkAccessLogsParamsSortBy = "status_code"
+	GetApiAgentNetworkAccessLogsParamsSortByTimestamp   GetApiAgentNetworkAccessLogsParamsSortBy = "timestamp"
+	GetApiAgentNetworkAccessLogsParamsSortByTotalTokens GetApiAgentNetworkAccessLogsParamsSortBy = "total_tokens"
+	GetApiAgentNetworkAccessLogsParamsSortByUserId      GetApiAgentNetworkAccessLogsParamsSortBy = "user_id"
+)
+
+// Valid indicates whether the value is a known member of the GetApiAgentNetworkAccessLogsParamsSortBy enum.
+func (e GetApiAgentNetworkAccessLogsParamsSortBy) Valid() bool {
+	switch e {
+	case GetApiAgentNetworkAccessLogsParamsSortByCostUsd:
+		return true
+	case GetApiAgentNetworkAccessLogsParamsSortByDecision:
+		return true
+	case GetApiAgentNetworkAccessLogsParamsSortByDuration:
+		return true
+	case GetApiAgentNetworkAccessLogsParamsSortByModel:
+		return true
+	case GetApiAgentNetworkAccessLogsParamsSortByProvider:
+		return true
+	case GetApiAgentNetworkAccessLogsParamsSortByStatusCode:
+		return true
+	case GetApiAgentNetworkAccessLogsParamsSortByTimestamp:
+		return true
+	case GetApiAgentNetworkAccessLogsParamsSortByTotalTokens:
+		return true
+	case GetApiAgentNetworkAccessLogsParamsSortByUserId:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for GetApiAgentNetworkAccessLogsParamsSortOrder.
+const (
+	GetApiAgentNetworkAccessLogsParamsSortOrderAsc  GetApiAgentNetworkAccessLogsParamsSortOrder = "asc"
+	GetApiAgentNetworkAccessLogsParamsSortOrderDesc GetApiAgentNetworkAccessLogsParamsSortOrder = "desc"
+)
+
+// Valid indicates whether the value is a known member of the GetApiAgentNetworkAccessLogsParamsSortOrder enum.
+func (e GetApiAgentNetworkAccessLogsParamsSortOrder) Valid() bool {
+	switch e {
+	case GetApiAgentNetworkAccessLogsParamsSortOrderAsc:
+		return true
+	case GetApiAgentNetworkAccessLogsParamsSortOrderDesc:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for GetApiAgentNetworkUsageOverviewParamsGranularity.
+const (
+	GetApiAgentNetworkUsageOverviewParamsGranularityDay   GetApiAgentNetworkUsageOverviewParamsGranularity = "day"
+	GetApiAgentNetworkUsageOverviewParamsGranularityMonth GetApiAgentNetworkUsageOverviewParamsGranularity = "month"
+	GetApiAgentNetworkUsageOverviewParamsGranularityWeek  GetApiAgentNetworkUsageOverviewParamsGranularity = "week"
+)
+
+// Valid indicates whether the value is a known member of the GetApiAgentNetworkUsageOverviewParamsGranularity enum.
+func (e GetApiAgentNetworkUsageOverviewParamsGranularity) Valid() bool {
+	switch e {
+	case GetApiAgentNetworkUsageOverviewParamsGranularityDay:
+		return true
+	case GetApiAgentNetworkUsageOverviewParamsGranularityMonth:
+		return true
+	case GetApiAgentNetworkUsageOverviewParamsGranularityWeek:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for GetApiEventsNetworkTrafficParamsType.
 const (
 	GetApiEventsNetworkTrafficParamsTypeTYPEDROP    GetApiEventsNetworkTrafficParamsType = "TYPE_DROP"
@@ -1539,6 +1656,564 @@ type AccountSettings struct {
 
 	// RoutingPeerDnsResolutionEnabled Enables or disables DNS resolution on the routing peers
 	RoutingPeerDnsResolutionEnabled *bool `json:"routing_peer_dns_resolution_enabled,omitempty"`
+}
+
+// AgentNetworkAccessLog One per-request agent-network (LLM) access log entry with flattened, queryable LLM dimensions.
+type AgentNetworkAccessLog struct {
+	// CostUsd Estimated USD cost of the request.
+	CostUsd float64 `json:"cost_usd"`
+
+	// Decision Policy decision for the request (e.g. allow, deny).
+	Decision *string `json:"decision,omitempty"`
+
+	// DenyReason Raw deny reason code when the request was blocked (e.g. llm_policy.token_cap_exceeded).
+	DenyReason *string `json:"deny_reason,omitempty"`
+
+	// DurationMs Duration of the request in milliseconds.
+	DurationMs int `json:"duration_ms"`
+
+	// GroupIds NetBird group ids that authorised the request (the caller's groups intersected with the policy's source groups).
+	GroupIds *[]string `json:"group_ids,omitempty"`
+
+	// Host Upstream host the request was routed to. Empty when log collection is disabled.
+	Host *string `json:"host,omitempty"`
+
+	// Id Unique identifier for the access log entry.
+	Id string `json:"id"`
+
+	// InputTokens Input (prompt) tokens consumed.
+	InputTokens int64 `json:"input_tokens"`
+
+	// Method HTTP method of the request.
+	Method *string `json:"method,omitempty"`
+
+	// Model Requested LLM model.
+	Model *string `json:"model,omitempty"`
+
+	// OutputTokens Output (completion) tokens produced.
+	OutputTokens int64 `json:"output_tokens"`
+
+	// Path Request path. Empty when log collection is disabled.
+	Path *string `json:"path,omitempty"`
+
+	// Provider LLM provider vendor (e.g. openai, anthropic).
+	Provider *string `json:"provider,omitempty"`
+
+	// RequestPrompt Captured request prompt. Present only when prompt collection is enabled.
+	RequestPrompt *string `json:"request_prompt,omitempty"`
+
+	// ResolvedProviderId NetBird agent-network provider id that served the request.
+	ResolvedProviderId *string `json:"resolved_provider_id,omitempty"`
+
+	// ResponseCompletion Captured response completion. Present only when prompt collection is enabled.
+	ResponseCompletion *string `json:"response_completion,omitempty"`
+
+	// SelectedPolicyId Agent-network policy id that authorised (or denied) the request.
+	SelectedPolicyId *string `json:"selected_policy_id,omitempty"`
+
+	// ServiceId ID of the synthesised agent-network service that handled the request.
+	ServiceId string `json:"service_id"`
+
+	// SessionId Conversation / coding-session identifier that groups related requests. Sourced from the client's session marker (e.g. OpenAI Codex client_metadata.session_id, Claude Code metadata.user_id). Empty for clients that send none.
+	SessionId *string `json:"session_id,omitempty"`
+
+	// SourceIp Source IP of the request. Empty when log collection is disabled.
+	SourceIp *string `json:"source_ip,omitempty"`
+
+	// StatusCode HTTP status code returned upstream.
+	StatusCode int `json:"status_code"`
+
+	// Stream Whether the request was a streaming completion.
+	Stream *bool `json:"stream,omitempty"`
+
+	// Timestamp Timestamp when the request was made.
+	Timestamp time.Time `json:"timestamp"`
+
+	// TotalTokens Total tokens consumed.
+	TotalTokens int64 `json:"total_tokens"`
+
+	// UserId NetBird user id of the authenticated caller, if applicable.
+	UserId *string `json:"user_id,omitempty"`
+}
+
+// AgentNetworkAccessLogsResponse defines model for AgentNetworkAccessLogsResponse.
+type AgentNetworkAccessLogsResponse struct {
+	// Data List of agent-network access log entries.
+	Data []AgentNetworkAccessLog `json:"data"`
+
+	// Page Current page number.
+	Page int `json:"page"`
+
+	// PageSize Number of items per page.
+	PageSize int `json:"page_size"`
+
+	// TotalPages Total number of pages available.
+	TotalPages int `json:"total_pages"`
+
+	// TotalRecords Total number of log records matching the filter.
+	TotalRecords int `json:"total_records"`
+}
+
+// AgentNetworkBudgetRule Account-level budget rule. A limit-only rule bound to groups and/or users that applies across all policies as a min-wins ceiling. Empty targets means it applies to every caller.
+type AgentNetworkBudgetRule struct {
+	CreatedAt *time.Time `json:"created_at,omitempty"`
+
+	// Enabled Whether the rule is enforced.
+	Enabled bool `json:"enabled"`
+
+	// Id Budget rule ID.
+	Id string `json:"id"`
+
+	// Limits Token and budget caps attached directly to the policy. These compose with any guardrail-level checks.
+	Limits AgentNetworkPolicyLimits `json:"limits"`
+
+	// Name Display name for the budget rule.
+	Name string `json:"name"`
+
+	// TargetGroups NetBird group ids the rule binds. Empty plus empty target_users means account-wide.
+	TargetGroups []string `json:"target_groups"`
+
+	// TargetUsers NetBird user ids the rule binds directly.
+	TargetUsers []string   `json:"target_users"`
+	UpdatedAt   *time.Time `json:"updated_at,omitempty"`
+}
+
+// AgentNetworkBudgetRuleRequest defines model for AgentNetworkBudgetRuleRequest.
+type AgentNetworkBudgetRuleRequest struct {
+	// Enabled Whether the rule is enforced. Defaults to true on create.
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// Limits Token and budget caps attached directly to the policy. These compose with any guardrail-level checks.
+	Limits AgentNetworkPolicyLimits `json:"limits"`
+
+	// Name Display name for the budget rule.
+	Name string `json:"name"`
+
+	// TargetGroups NetBird group ids the rule binds. Empty plus empty target_users means account-wide.
+	TargetGroups *[]string `json:"target_groups,omitempty"`
+
+	// TargetUsers NetBird user ids the rule binds directly.
+	TargetUsers *[]string `json:"target_users,omitempty"`
+}
+
+// AgentNetworkCatalogExtraHeader One optional per-provider routing/config header surfaced on the dashboard. Operator-typed value lives on the provider record's `extra_values` map keyed by `name`. UI copy (input label, helper line, tooltip) is owned by the dashboard, keyed by `name`.
+type AgentNetworkCatalogExtraHeader struct {
+	// Name Wire header name the proxy stamps with the operator-typed value.
+	Name string `json:"name"`
+}
+
+// AgentNetworkCatalogHeaderPairInjection HeaderPair identity-injection shape — separate per-dimension headers (LiteLLM-style, Bifrost).
+type AgentNetworkCatalogHeaderPairInjection struct {
+	// Customizable When true, the wire header names are operator-overridable per provider record (Bifrost). When false, the catalog values are authoritative (LiteLLM and similar gateways with a fixed wire protocol).
+	Customizable bool `json:"customizable"`
+
+	// EndUserIdHeader Wire header name for the caller's display identity. Default placeholder when `customizable` is true.
+	EndUserIdHeader string `json:"end_user_id_header"`
+
+	// TagsHeader Wire header name for the caller's groups CSV. Default placeholder when `customizable` is true.
+	TagsHeader string `json:"tags_header"`
+}
+
+// AgentNetworkCatalogIdentityInjection Catalog-declared identity-injection shape. Present when this provider supports stamping the caller's NetBird identity onto upstream requests. Exactly one of `header_pair` or `json_metadata` is set per provider entry. The dashboard reads the `customizable` flag on whichever shape is present to decide whether to surface the labels as editable inputs (true → editable with the catalog values shown as placeholders; false → fixed and read-only).
+type AgentNetworkCatalogIdentityInjection struct {
+	// HeaderPair HeaderPair identity-injection shape — separate per-dimension headers (LiteLLM-style, Bifrost).
+	HeaderPair *AgentNetworkCatalogHeaderPairInjection `json:"header_pair,omitempty"`
+
+	// JsonMetadata JSONMetadata identity-injection shape — one wire header carrying a JSON object whose keys label each dimension (Portkey-style, Cloudflare AI Gateway).
+	JsonMetadata *AgentNetworkCatalogJSONMetadataInjection `json:"json_metadata,omitempty"`
+}
+
+// AgentNetworkCatalogJSONMetadataInjection JSONMetadata identity-injection shape — one wire header carrying a JSON object whose keys label each dimension (Portkey-style, Cloudflare AI Gateway).
+type AgentNetworkCatalogJSONMetadataInjection struct {
+	// Customizable When true, the JSON keys are operator-overridable per provider record (Cloudflare). The wire header itself stays catalog-owned. When false, the catalog values are authoritative (Portkey and similar gateways with a fixed JSON schema).
+	Customizable bool `json:"customizable"`
+
+	// GroupsKey JSON key for the caller's groups CSV. Default placeholder when `customizable` is true.
+	GroupsKey string `json:"groups_key"`
+
+	// Header Wire header name carrying the JSON metadata payload. Catalog-owned (not customizable per provider record).
+	Header string `json:"header"`
+
+	// UserKey JSON key for the caller's display identity. Default placeholder when `customizable` is true.
+	UserKey string `json:"user_key"`
+}
+
+// AgentNetworkCatalogModel defines model for AgentNetworkCatalogModel.
+type AgentNetworkCatalogModel struct {
+	// ContextWindow Maximum context window in tokens.
+	ContextWindow int `json:"context_window"`
+
+	// Id Catalog model identifier as exposed by the upstream provider.
+	Id string `json:"id"`
+
+	// InputPer1k Input token price per 1k tokens, in USD.
+	InputPer1k float64 `json:"input_per_1k"`
+
+	// Label Human-friendly model name for the dashboard.
+	Label string `json:"label"`
+
+	// OutputPer1k Output token price per 1k tokens, in USD.
+	OutputPer1k float64 `json:"output_per_1k"`
+}
+
+// AgentNetworkCatalogProvider defines model for AgentNetworkCatalogProvider.
+type AgentNetworkCatalogProvider struct {
+	// AuthHeaderTemplate Template the proxy uses to inject the API key (the literal string ${API_KEY} is replaced at request time).
+	AuthHeaderTemplate string `json:"auth_header_template"`
+
+	// BrandColor Hex brand color used to render the provider badge in the dashboard.
+	BrandColor string `json:"brand_color"`
+
+	// DefaultContentType Default Content-Type for upstream requests.
+	DefaultContentType string `json:"default_content_type"`
+
+	// DefaultHost Default upstream host suggested when adding a provider of this type.
+	DefaultHost string `json:"default_host"`
+
+	// Description Short description shown in the provider picker.
+	Description string `json:"description"`
+
+	// ExtraHeaders Catalog-declared list of optional per-provider routing/config headers the proxy stamps on every upstream request. Each entry surfaces an input on the dashboard's provider modal (one per item, labeled with `label`). Operators fill any subset; values land on the provider record's `extra_values` map keyed by `name`. Used by gateways like Portkey for `x-portkey-config: pc-...` (saved-config id resolving upstream provider + virtual key).
+	ExtraHeaders *[]AgentNetworkCatalogExtraHeader `json:"extra_headers,omitempty"`
+
+	// Id Catalog provider identifier (referenced by AgentNetworkProvider.provider_id).
+	Id string `json:"id"`
+
+	// IdentityInjection Catalog-declared identity-injection shape. Present when this provider supports stamping the caller's NetBird identity onto upstream requests. Exactly one of `header_pair` or `json_metadata` is set per provider entry. The dashboard reads the `customizable` flag on whichever shape is present to decide whether to surface the labels as editable inputs (true → editable with the catalog values shown as placeholders; false → fixed and read-only).
+	IdentityInjection *AgentNetworkCatalogIdentityInjection `json:"identity_injection,omitempty"`
+
+	// Kind Presentation grouping for the provider Select on the dashboard.
+	// "provider" — first-party vendor API (OpenAI, Anthropic, …); the upstream is the model itself.
+	// "gateway" — routing/aggregation layer in front of multiple providers (LiteLLM, Portkey, …); typically pairs with NetBird identity stamping.
+	// "custom" — generic OpenAI-compatible self-hosted endpoint catch-all.
+	Kind AgentNetworkCatalogProviderKind `json:"kind"`
+
+	// Models Catalog models available for this provider.
+	Models []AgentNetworkCatalogModel `json:"models"`
+
+	// Name Display name for the provider.
+	Name string `json:"name"`
+}
+
+// AgentNetworkCatalogProviderKind Presentation grouping for the provider Select on the dashboard.
+// "provider" — first-party vendor API (OpenAI, Anthropic, …); the upstream is the model itself.
+// "gateway" — routing/aggregation layer in front of multiple providers (LiteLLM, Portkey, …); typically pairs with NetBird identity stamping.
+// "custom" — generic OpenAI-compatible self-hosted endpoint catch-all.
+type AgentNetworkCatalogProviderKind string
+
+// AgentNetworkConsumption One per-(dimension, window) consumption counter row. The proxy ticks one row per dimension on every served LLM request; the dashboard reads this listing to surface live counter growth.
+type AgentNetworkConsumption struct {
+	// CostUsd Total USD spend booked against this dimension for the window.
+	CostUsd float64 `json:"cost_usd"`
+
+	// DimensionId NetBird user id (when `dimension_kind=user`) or NetBird group id (when `dimension_kind=group`).
+	DimensionId string `json:"dimension_id"`
+
+	// DimensionKind Whether this row counts a single end user or a single source group across every member.
+	DimensionKind AgentNetworkConsumptionDimensionKind `json:"dimension_kind"`
+
+	// TokensInput Total input tokens consumed within the window.
+	TokensInput int64 `json:"tokens_input"`
+
+	// TokensOutput Total output tokens consumed within the window.
+	TokensOutput int64 `json:"tokens_output"`
+
+	// UpdatedAt Timestamp of the last increment recorded for this row.
+	UpdatedAt *time.Time `json:"updated_at,omitempty"`
+
+	// WindowSeconds Length of the aligned window this counter covers, in seconds. Distinct window lengths produce independent counters even on the same dimension.
+	WindowSeconds int64 `json:"window_seconds"`
+
+	// WindowStartUtc UTC start of the aligned window this counter covers. Aligned to the unix epoch so every node computes the same boundary.
+	WindowStartUtc time.Time `json:"window_start_utc"`
+}
+
+// AgentNetworkConsumptionDimensionKind Whether this row counts a single end user or a single source group across every member.
+type AgentNetworkConsumptionDimensionKind string
+
+// AgentNetworkGuardrail defines model for AgentNetworkGuardrail.
+type AgentNetworkGuardrail struct {
+	// Checks Guardrail check parameters. Each entry has an `enabled` flag plus per-check configuration; disabled entries are inert.
+	Checks AgentNetworkGuardrailChecks `json:"checks"`
+
+	// CreatedAt Timestamp when the guardrail was created.
+	CreatedAt *time.Time `json:"created_at,omitempty"`
+
+	// Description Optional human-readable description.
+	Description string `json:"description"`
+
+	// Id Guardrail ID
+	Id string `json:"id"`
+
+	// Name Display name for the guardrail.
+	Name string `json:"name"`
+
+	// UpdatedAt Timestamp when the guardrail was last updated.
+	UpdatedAt *time.Time `json:"updated_at,omitempty"`
+}
+
+// AgentNetworkGuardrailChecks Guardrail check parameters. Each entry has an `enabled` flag plus per-check configuration; disabled entries are inert.
+type AgentNetworkGuardrailChecks struct {
+	ModelAllowlist struct {
+		Enabled bool `json:"enabled"`
+
+		// Models Allowed catalog model ids. Requests for any other model are denied.
+		Models []string `json:"models"`
+	} `json:"model_allowlist"`
+	PromptCapture struct {
+		Enabled   bool `json:"enabled"`
+		RedactPii bool `json:"redact_pii"`
+	} `json:"prompt_capture"`
+}
+
+// AgentNetworkGuardrailRequest defines model for AgentNetworkGuardrailRequest.
+type AgentNetworkGuardrailRequest struct {
+	// Checks Guardrail check parameters. Each entry has an `enabled` flag plus per-check configuration; disabled entries are inert.
+	Checks AgentNetworkGuardrailChecks `json:"checks"`
+
+	// Description Optional human-readable description.
+	Description *string `json:"description,omitempty"`
+
+	// Name Display name for the guardrail.
+	Name string `json:"name"`
+}
+
+// AgentNetworkPolicy defines model for AgentNetworkPolicy.
+type AgentNetworkPolicy struct {
+	// CreatedAt Timestamp when the policy was created.
+	CreatedAt *time.Time `json:"created_at,omitempty"`
+
+	// Description Optional human-readable description.
+	Description string `json:"description"`
+
+	// DestinationProviderIds Agent Network provider ids (returned by the providers API) the source groups can reach.
+	DestinationProviderIds []string `json:"destination_provider_ids"`
+
+	// Enabled Whether the policy is enabled.
+	Enabled bool `json:"enabled"`
+
+	// GuardrailIds Agent Network guardrail ids attached to this policy.
+	GuardrailIds []string `json:"guardrail_ids"`
+
+	// Id Policy ID
+	Id string `json:"id"`
+
+	// Limits Token and budget caps attached directly to the policy. These compose with any guardrail-level checks.
+	Limits AgentNetworkPolicyLimits `json:"limits"`
+
+	// Name Display name for the policy.
+	Name string `json:"name"`
+
+	// SourceGroups NetBird group ids whose members are allowed to call the destination providers.
+	SourceGroups []string `json:"source_groups"`
+
+	// UpdatedAt Timestamp when the policy was last updated.
+	UpdatedAt *time.Time `json:"updated_at,omitempty"`
+}
+
+// AgentNetworkPolicyBudgetLimit Per-policy USD spend cap. `group_cap_usd` is applied to each source group independently — every group in the policy's `source_groups` gets its own bucket of this size. `user_cap_usd` is applied independently to each individual user. Caps reset to zero at the start of each window.
+type AgentNetworkPolicyBudgetLimit struct {
+	Enabled bool `json:"enabled"`
+
+	// GroupCapUsd USD allowed per source group within the window (each group has its own bucket of this size). 0 means uncapped.
+	GroupCapUsd float64 `json:"group_cap_usd"`
+
+	// UserCapUsd USD allowed per individual user within the window. 0 means uncapped.
+	UserCapUsd float64 `json:"user_cap_usd"`
+
+	// WindowSeconds Reset frequency in seconds. Caps reset at the start of each window. Minimum 60 (one minute) when the limit is enabled.
+	WindowSeconds int64 `json:"window_seconds"`
+}
+
+// AgentNetworkPolicyLimits Token and budget caps attached directly to the policy. These compose with any guardrail-level checks.
+type AgentNetworkPolicyLimits struct {
+	// BudgetLimit Per-policy USD spend cap. `group_cap_usd` is applied to each source group independently — every group in the policy's `source_groups` gets its own bucket of this size. `user_cap_usd` is applied independently to each individual user. Caps reset to zero at the start of each window.
+	BudgetLimit AgentNetworkPolicyBudgetLimit `json:"budget_limit"`
+
+	// TokenLimit Per-policy token cap. `group_cap` is applied to each source group independently — every group in the policy's `source_groups` gets its own bucket of this size. `user_cap` is applied independently to each individual user. Caps reset to zero at the start of each window.
+	TokenLimit AgentNetworkPolicyTokenLimit `json:"token_limit"`
+}
+
+// AgentNetworkPolicyRequest defines model for AgentNetworkPolicyRequest.
+type AgentNetworkPolicyRequest struct {
+	// Description Optional human-readable description.
+	Description *string `json:"description,omitempty"`
+
+	// DestinationProviderIds Agent Network provider ids the source groups can reach.
+	DestinationProviderIds []string `json:"destination_provider_ids"`
+
+	// Enabled Whether the policy is enabled. Defaults to true on create.
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// GuardrailIds Agent Network guardrail ids to attach to this policy.
+	GuardrailIds *[]string `json:"guardrail_ids,omitempty"`
+
+	// Limits Token and budget caps attached directly to the policy. These compose with any guardrail-level checks.
+	Limits *AgentNetworkPolicyLimits `json:"limits,omitempty"`
+
+	// Name Display name for the policy.
+	Name string `json:"name"`
+
+	// SourceGroups NetBird group ids whose members are allowed to call the destination providers.
+	SourceGroups []string `json:"source_groups"`
+}
+
+// AgentNetworkPolicyTokenLimit Per-policy token cap. `group_cap` is applied to each source group independently — every group in the policy's `source_groups` gets its own bucket of this size. `user_cap` is applied independently to each individual user. Caps reset to zero at the start of each window.
+type AgentNetworkPolicyTokenLimit struct {
+	Enabled bool `json:"enabled"`
+
+	// GroupCap Tokens allowed per source group within the window (each group has its own bucket of this size). 0 means uncapped.
+	GroupCap int64 `json:"group_cap"`
+
+	// UserCap Tokens allowed per individual user within the window. 0 means uncapped.
+	UserCap int64 `json:"user_cap"`
+
+	// WindowSeconds Reset frequency in seconds. The cap counter resets to zero at the start of each window. Minimum 60 (one minute) when the limit is enabled.
+	WindowSeconds int64 `json:"window_seconds"`
+}
+
+// AgentNetworkProvider defines model for AgentNetworkProvider.
+type AgentNetworkProvider struct {
+	// CreatedAt Timestamp when the provider was created.
+	CreatedAt *time.Time `json:"created_at,omitempty"`
+
+	// Enabled Whether the provider is enabled.
+	Enabled bool `json:"enabled"`
+
+	// ExtraValues Operator-typed values for catalog-declared extra headers. Keys are wire header names (e.g. `x-portkey-config`); values are the strings the proxy stamps on every upstream request to this provider. Catalog (AgentNetworkCatalogProvider.extra_headers) declares which keys are accepted; values not declared by the catalog are ignored at synth time. Empty / missing values mean no header stamped.
+	ExtraValues *map[string]string `json:"extra_values,omitempty"`
+
+	// Id Provider ID
+	Id string `json:"id"`
+
+	// IdentityHeaderGroups Wire header name the proxy stamps with the caller's NetBird groups as a comma-separated list (sorted) when the catalog entry's HeaderPair is `customizable`. Empty disables stamping for this dimension. Same per-catalog semantics as `identity_header_user_id`.
+	IdentityHeaderGroups *string `json:"identity_header_groups,omitempty"`
+
+	// IdentityHeaderUserId Wire header name the proxy stamps with the caller's display identity (user email or peer name) when the catalog entry's HeaderPair is `customizable`. Empty disables stamping for this dimension. Ignored when the catalog entry has a fixed HeaderPair (e.g. LiteLLM, Portkey). Used today by Bifrost: typical values are `x-bf-lh-netbird_user_id` (always-on log metadata) or `x-bf-dim-netbird_user_id` (Prometheus / OTEL — requires the label to be pre-declared in the gateway's `client.prometheus_labels` config).
+	IdentityHeaderUserId *string `json:"identity_header_user_id,omitempty"`
+
+	// Models Models exposed through this endpoint, with the operator's per-1k input/output prices. Empty means all catalog models are allowed at catalog prices.
+	Models []AgentNetworkProviderModel `json:"models"`
+
+	// Name Display name shown in the dashboard.
+	Name string `json:"name"`
+
+	// ProviderId Catalog identifier for the upstream AI provider (e.g. openai_api, anthropic_api, azure_openai_api, bedrock_api, vertex_ai_api, mistral_api, custom).
+	ProviderId string `json:"provider_id"`
+
+	// UpdatedAt Timestamp when the provider was last updated.
+	UpdatedAt *time.Time `json:"updated_at,omitempty"`
+
+	// UpstreamUrl Full upstream URL (with scheme) that NetBird forwards traffic to.
+	UpstreamUrl string `json:"upstream_url"`
+}
+
+// AgentNetworkProviderModel A model exposed by the provider, with the operator's per-1k input/output prices in USD.
+type AgentNetworkProviderModel struct {
+	// Id Model identifier (e.g. "gpt-4o-mini").
+	Id string `json:"id"`
+
+	// InputPer1k Cost per 1k input tokens, in USD.
+	InputPer1k float64 `json:"input_per_1k"`
+
+	// OutputPer1k Cost per 1k output tokens, in USD.
+	OutputPer1k float64 `json:"output_per_1k"`
+}
+
+// AgentNetworkProviderRequest defines model for AgentNetworkProviderRequest.
+type AgentNetworkProviderRequest struct {
+	// ApiKey Upstream provider API key. Sealed at rest on the management server and never returned in responses. Required on create; optional on update (omit to keep the existing key).
+	ApiKey *string `json:"api_key,omitempty"`
+
+	// BootstrapCluster Proxy cluster used to bootstrap the per-account agent-network endpoint when the first provider is created. Ignored on subsequent creates and on updates because the cluster is pinned on the account-level Settings row.
+	BootstrapCluster *string `json:"bootstrap_cluster,omitempty"`
+
+	// Enabled Whether the provider is enabled. Defaults to true on create.
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// ExtraValues Operator-typed values for catalog-declared extra headers (see AgentNetworkProvider.extra_values). When present on a request, the whole map replaces the stored values. Empty strings drop the corresponding key.
+	ExtraValues *map[string]string `json:"extra_values,omitempty"`
+
+	// IdentityHeaderGroups Wire header name for the caller's groups CSV. See AgentNetworkProvider.identity_header_groups. Same omit / empty semantics as `identity_header_user_id`.
+	IdentityHeaderGroups *string `json:"identity_header_groups,omitempty"`
+
+	// IdentityHeaderUserId Wire header name for the caller's display identity. See AgentNetworkProvider.identity_header_user_id. When omitted on a request, the stored value is left unchanged; pass an empty string explicitly to clear it (which disables stamping for this dimension).
+	IdentityHeaderUserId *string `json:"identity_header_user_id,omitempty"`
+
+	// Models Models exposed through this endpoint, with the operator's per-1k input/output prices. Empty means all catalog models are allowed at catalog prices.
+	Models *[]AgentNetworkProviderModel `json:"models,omitempty"`
+
+	// Name Display name for the provider.
+	Name string `json:"name"`
+
+	// ProviderId Catalog identifier for the upstream AI provider (e.g. openai_api, anthropic_api, azure_openai_api, bedrock_api, vertex_ai_api, mistral_api, custom).
+	ProviderId string `json:"provider_id"`
+
+	// UpstreamUrl Full upstream URL (with scheme) that NetBird forwards traffic to.
+	UpstreamUrl string `json:"upstream_url"`
+}
+
+// AgentNetworkSettings Per-account Agent Network gateway settings. One row per account; cluster and subdomain are auto-assigned on first provider create and immutable thereafter.
+type AgentNetworkSettings struct {
+	// AccessLogRetentionDays Days to retain full access-log rows; older rows are swept. 0 or less means keep indefinitely. Usage records are retained independently.
+	AccessLogRetentionDays *int `json:"access_log_retention_days,omitempty"`
+
+	// Cluster Address of the NetBird proxy cluster fronting this account's agent-network endpoint.
+	Cluster string `json:"cluster"`
+
+	// CreatedAt Timestamp when the settings row was created.
+	CreatedAt *time.Time `json:"created_at,omitempty"`
+
+	// EnableLogCollection Whether per-request access-log entries are collected for this account's agent-network traffic.
+	EnableLogCollection bool `json:"enable_log_collection"`
+
+	// EnablePromptCollection Master switch for request/response prompt capture. Capture runs only when this is on AND a policy guardrail also enables it.
+	EnablePromptCollection bool `json:"enable_prompt_collection"`
+
+	// Endpoint Bare hostname agents call for this account, computed as `<subdomain>.<cluster>`.
+	Endpoint string `json:"endpoint"`
+
+	// RedactPii Whether captured prompts have PII redacted. Effective redaction is the OR of this and any policy guardrail's redact setting.
+	RedactPii bool `json:"redact_pii"`
+
+	// Subdomain Auto-generated DNS-safe label that prefixes the cluster to form the agent-network endpoint.
+	Subdomain string `json:"subdomain"`
+
+	// UpdatedAt Timestamp when the settings row was last updated.
+	UpdatedAt *time.Time `json:"updated_at,omitempty"`
+}
+
+// AgentNetworkSettingsRequest Mutable account-level Agent Network settings. Cluster and subdomain are immutable and not accepted here.
+type AgentNetworkSettingsRequest struct {
+	// AccessLogRetentionDays Days to retain full access-log rows; older rows are swept. 0 or less means keep indefinitely.
+	AccessLogRetentionDays *int `json:"access_log_retention_days,omitempty"`
+
+	// EnableLogCollection Whether per-request access-log entries are collected for this account's agent-network traffic.
+	EnableLogCollection bool `json:"enable_log_collection"`
+
+	// EnablePromptCollection Master switch for request/response prompt capture.
+	EnablePromptCollection bool `json:"enable_prompt_collection"`
+
+	// RedactPii Whether captured prompts have PII redacted.
+	RedactPii bool `json:"redact_pii"`
+}
+
+// AgentNetworkUsageBucket One aggregated agent-network usage time bucket (UTC). The bucket width is set by the request's granularity.
+type AgentNetworkUsageBucket struct {
+	// CostUsd Total estimated USD spend in the bucket.
+	CostUsd float64 `json:"cost_usd"`
+
+	// InputTokens Total input (prompt) tokens in the bucket.
+	InputTokens int64 `json:"input_tokens"`
+
+	// OutputTokens Total output (completion) tokens in the bucket.
+	OutputTokens int64 `json:"output_tokens"`
+
+	// PeriodStart Start of the bucket in YYYY-MM-DD (UTC) — the day, the week start (Monday), or the month start, depending on granularity.
+	PeriodStart string `json:"period_start"`
+
+	// TotalTokens Total tokens in the bucket.
+	TotalTokens int64 `json:"total_tokens"`
 }
 
 // AvailablePorts defines model for AvailablePorts.
@@ -4892,6 +5567,87 @@ type bearerAuthContextKey string
 // tokenAuthContextKey is the context key for TokenAuth security scheme
 type tokenAuthContextKey string
 
+// GetApiAgentNetworkAccessLogsParams defines parameters for GetApiAgentNetworkAccessLogs.
+type GetApiAgentNetworkAccessLogsParams struct {
+	// Page Page number for pagination (1-indexed).
+	Page *int `form:"page,omitempty" json:"page,omitempty"`
+
+	// PageSize Number of items per page (max 100).
+	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
+
+	// SortBy Field to sort by.
+	SortBy *GetApiAgentNetworkAccessLogsParamsSortBy `form:"sort_by,omitempty" json:"sort_by,omitempty"`
+
+	// SortOrder Sort order (ascending or descending).
+	SortOrder *GetApiAgentNetworkAccessLogsParamsSortOrder `form:"sort_order,omitempty" json:"sort_order,omitempty"`
+
+	// Search General search across log ID, host, path, model, and user email/name.
+	Search *string `form:"search,omitempty" json:"search,omitempty"`
+
+	// UserId Filter by authenticated user ID.
+	UserId *string `form:"user_id,omitempty" json:"user_id,omitempty"`
+
+	// SessionId Filter to a single conversation / coding session id (groups all requests of one session).
+	SessionId *string `form:"session_id,omitempty" json:"session_id,omitempty"`
+
+	// GroupId Filter by authorising group id. Repeat for multiple (matches any).
+	GroupId *[]string `form:"group_id,omitempty" json:"group_id,omitempty"`
+
+	// ProviderId Filter by resolved provider id. Repeat for multiple (matches any).
+	ProviderId *[]string `form:"provider_id,omitempty" json:"provider_id,omitempty"`
+
+	// Model Filter by model. Repeat for multiple (matches any).
+	Model *[]string `form:"model,omitempty" json:"model,omitempty"`
+
+	// Decision Filter by policy decision (e.g. allow, deny).
+	Decision *string `form:"decision,omitempty" json:"decision,omitempty"`
+
+	// Path Filter by request path prefix (matches entries whose path starts with this value).
+	Path *string `form:"path,omitempty" json:"path,omitempty"`
+
+	// StartDate Filter by timestamp >= start_date (RFC3339 format).
+	StartDate *time.Time `form:"start_date,omitempty" json:"start_date,omitempty"`
+
+	// EndDate Filter by timestamp <= end_date (RFC3339 format).
+	EndDate *time.Time `form:"end_date,omitempty" json:"end_date,omitempty"`
+}
+
+// GetApiAgentNetworkAccessLogsParamsSortBy defines parameters for GetApiAgentNetworkAccessLogs.
+type GetApiAgentNetworkAccessLogsParamsSortBy string
+
+// GetApiAgentNetworkAccessLogsParamsSortOrder defines parameters for GetApiAgentNetworkAccessLogs.
+type GetApiAgentNetworkAccessLogsParamsSortOrder string
+
+// GetApiAgentNetworkUsageOverviewParams defines parameters for GetApiAgentNetworkUsageOverview.
+type GetApiAgentNetworkUsageOverviewParams struct {
+	// Granularity Time bucket width. Defaults to day.
+	Granularity *GetApiAgentNetworkUsageOverviewParamsGranularity `form:"granularity,omitempty" json:"granularity,omitempty"`
+
+	// StartDate Filter by timestamp >= start_date (RFC3339 format).
+	StartDate *time.Time `form:"start_date,omitempty" json:"start_date,omitempty"`
+
+	// EndDate Filter by timestamp <= end_date (RFC3339 format).
+	EndDate *time.Time `form:"end_date,omitempty" json:"end_date,omitempty"`
+
+	// UserId Filter by user ID.
+	UserId *string `form:"user_id,omitempty" json:"user_id,omitempty"`
+
+	// SessionId Filter to a single conversation / coding session id.
+	SessionId *string `form:"session_id,omitempty" json:"session_id,omitempty"`
+
+	// GroupId Filter by authorising group id. Repeat for multiple (matches any).
+	GroupId *[]string `form:"group_id,omitempty" json:"group_id,omitempty"`
+
+	// ProviderId Filter by resolved provider id. Repeat for multiple (matches any).
+	ProviderId *[]string `form:"provider_id,omitempty" json:"provider_id,omitempty"`
+
+	// Model Filter by model. Repeat for multiple (matches any).
+	Model *[]string `form:"model,omitempty" json:"model,omitempty"`
+}
+
+// GetApiAgentNetworkUsageOverviewParamsGranularity defines parameters for GetApiAgentNetworkUsageOverview.
+type GetApiAgentNetworkUsageOverviewParamsGranularity string
+
 // GetApiEventsNetworkTrafficParams defines parameters for GetApiEventsNetworkTraffic.
 type GetApiEventsNetworkTrafficParams struct {
 	// Page Page number
@@ -5089,6 +5845,33 @@ type GetApiUsersParams struct {
 
 // PutApiAccountsAccountIdJSONRequestBody defines body for PutApiAccountsAccountId for application/json ContentType.
 type PutApiAccountsAccountIdJSONRequestBody = AccountRequest
+
+// PostApiAgentNetworkBudgetRulesJSONRequestBody defines body for PostApiAgentNetworkBudgetRules for application/json ContentType.
+type PostApiAgentNetworkBudgetRulesJSONRequestBody = AgentNetworkBudgetRuleRequest
+
+// PutApiAgentNetworkBudgetRulesRuleIdJSONRequestBody defines body for PutApiAgentNetworkBudgetRulesRuleId for application/json ContentType.
+type PutApiAgentNetworkBudgetRulesRuleIdJSONRequestBody = AgentNetworkBudgetRuleRequest
+
+// PostApiAgentNetworkGuardrailsJSONRequestBody defines body for PostApiAgentNetworkGuardrails for application/json ContentType.
+type PostApiAgentNetworkGuardrailsJSONRequestBody = AgentNetworkGuardrailRequest
+
+// PutApiAgentNetworkGuardrailsGuardrailIdJSONRequestBody defines body for PutApiAgentNetworkGuardrailsGuardrailId for application/json ContentType.
+type PutApiAgentNetworkGuardrailsGuardrailIdJSONRequestBody = AgentNetworkGuardrailRequest
+
+// PostApiAgentNetworkPoliciesJSONRequestBody defines body for PostApiAgentNetworkPolicies for application/json ContentType.
+type PostApiAgentNetworkPoliciesJSONRequestBody = AgentNetworkPolicyRequest
+
+// PutApiAgentNetworkPoliciesPolicyIdJSONRequestBody defines body for PutApiAgentNetworkPoliciesPolicyId for application/json ContentType.
+type PutApiAgentNetworkPoliciesPolicyIdJSONRequestBody = AgentNetworkPolicyRequest
+
+// PostApiAgentNetworkProvidersJSONRequestBody defines body for PostApiAgentNetworkProviders for application/json ContentType.
+type PostApiAgentNetworkProvidersJSONRequestBody = AgentNetworkProviderRequest
+
+// PutApiAgentNetworkProvidersProviderIdJSONRequestBody defines body for PutApiAgentNetworkProvidersProviderId for application/json ContentType.
+type PutApiAgentNetworkProvidersProviderIdJSONRequestBody = AgentNetworkProviderRequest
+
+// PutApiAgentNetworkSettingsJSONRequestBody defines body for PutApiAgentNetworkSettings for application/json ContentType.
+type PutApiAgentNetworkSettingsJSONRequestBody = AgentNetworkSettingsRequest
 
 // PostApiDnsNameserversJSONRequestBody defines body for PostApiDnsNameservers for application/json ContentType.
 type PostApiDnsNameserversJSONRequestBody = NameserverGroupRequest
