@@ -90,14 +90,16 @@ func (m *mapStateManager) run(ctx context.Context) {
 			if ctx.Err() != nil {
 				return
 			}
-			log.Errorf("apply sync pass: %v", err)
-			// avoid a tight error loop; retry on the next target or after a short delay
-			select {
-			case <-ctx.Done():
-				return
-			case <-m.wake:
-			case <-time.After(time.Second):
-			}
+			// Log and DROP this target — do not retry it. A deterministic failure
+			// (e.g. a malformed peer in the map) would otherwise spin every pass
+			// making no progress. Management is the source of truth and re-delivers
+			// the full map on the next sync, so dropping is safe; peers already
+			// applied this convergence stay (idempotent diffs) and the remainder is
+			// reconciled by the next target. Mirrors the legacy handleSync path,
+			// where the apply error was logged by the gRPC client and the update
+			// dropped. No onConverged: this target did not converge.
+			log.Errorf("apply sync pass, dropping update: %v", err)
+			m.markProcessed(tg)
 			continue
 		}
 
@@ -108,16 +110,24 @@ func (m *mapStateManager) run(ctx context.Context) {
 		}
 
 		// This pass converged. Mark applied only if no newer target arrived during it.
-		m.mu.Lock()
-		converged := m.targetGen == tg
-		if converged {
-			m.appliedGen = tg
-		}
-		m.mu.Unlock()
-
-		if converged && m.onConverged != nil {
+		if m.markProcessed(tg) && m.onConverged != nil {
 			m.onConverged(time.Since(setAt))
 		}
 		// if a newer target arrived mid-pass, ag<tg next iteration -> apply it
 	}
+}
+
+// markProcessed records that the loop has finished working generation tg (whether
+// it converged or the pass was dropped on error), so it goes idle instead of
+// re-applying the same target. It is a no-op when a newer target arrived during
+// the pass (targetGen != tg), leaving appliedGen behind so that target re-applies.
+// Returns true when tg was the latest target (i.e. this was a genuine settle).
+func (m *mapStateManager) markProcessed(tg uint64) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.targetGen != tg {
+		return false
+	}
+	m.appliedGen = tg
+	return true
 }

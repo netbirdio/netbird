@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -39,6 +40,52 @@ func TestMapStateManager_ConvergesThenStops(t *testing.T) {
 	// once converged the loop blocks: no further apply calls
 	time.Sleep(100 * time.Millisecond)
 	require.EqualValues(t, 3, atomic.LoadInt32(&passes), "apply must not run after convergence")
+}
+
+// an apply error drops the target: no retry of the same target, no onConverged,
+// the loop goes idle — and a fresh target is still applied afterwards.
+func TestMapStateManager_DropsTargetOnError(t *testing.T) {
+	applied := make(chan struct{}, 8)
+	var failNext atomic.Bool
+	failNext.Store(true)
+
+	apply := func(*mgmProto.SyncResponse) (bool, error) {
+		applied <- struct{}{}
+		if failNext.Load() {
+			return false, errors.New("boom")
+		}
+		return false, nil // converge in one pass
+	}
+	var converged atomic.Int32
+	m := newMapStateManager(apply, func(time.Duration) { converged.Add(1) })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go m.run(ctx)
+
+	// first target errors -> applied once, then dropped (no retry, no onConverged)
+	require.NoError(t, m.SetTarget(&mgmProto.SyncResponse{}))
+	select {
+	case <-applied:
+	case <-time.After(2 * time.Second):
+		t.Fatal("errored target not applied")
+	}
+	select {
+	case <-applied:
+		t.Fatal("errored target must not be retried")
+	case <-time.After(150 * time.Millisecond):
+	}
+	require.EqualValues(t, 0, converged.Load(), "onConverged must not fire on error")
+
+	// a new target is still processed normally and converges
+	failNext.Store(false)
+	require.NoError(t, m.SetTarget(&mgmProto.SyncResponse{}))
+	select {
+	case <-applied:
+	case <-time.After(2 * time.Second):
+		t.Fatal("new target after error not applied")
+	}
+	require.Eventually(t, func() bool { return converged.Load() == 1 }, 2*time.Second, 10*time.Millisecond)
 }
 
 // a new target after convergence triggers a fresh apply; an idle (converged)
