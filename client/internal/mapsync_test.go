@@ -42,6 +42,30 @@ func TestMapStateManager_ConvergesThenStops(t *testing.T) {
 	require.EqualValues(t, 3, atomic.LoadInt32(&passes), "apply must not run after convergence")
 }
 
+// every map management sends is reported via onConverged exactly once, in order
+// — mirroring the legacy per-message handleSync timing.
+func TestMapStateManager_SignalsEveryMap(t *testing.T) {
+	var converged atomic.Int32
+	apply := func(*mgmProto.SyncResponse) (bool, error) {
+		return false, nil // each map converges in one pass
+	}
+	m := newMapStateManager(apply, func(time.Duration) { converged.Add(1) })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go m.run(ctx)
+
+	const maps = 3
+	for i := 0; i < maps; i++ {
+		require.NoError(t, m.SetTarget(&mgmProto.SyncResponse{}))
+	}
+	require.Eventually(t, func() bool { return converged.Load() == maps }, 2*time.Second, 10*time.Millisecond)
+
+	// no extra signals once the stream goes quiet
+	time.Sleep(100 * time.Millisecond)
+	require.EqualValues(t, maps, converged.Load())
+}
+
 // an apply error drops the target: no retry of the same target, no onConverged,
 // the loop goes idle — and a fresh target is still applied afterwards.
 func TestMapStateManager_DropsTargetOnError(t *testing.T) {

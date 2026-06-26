@@ -17,23 +17,33 @@ import (
 // desired state. A single background goroutine (run) applies it to the engine in
 // bounded passes via apply() until converged, releasing syncMsgMux between passes
 // so other subsystems interleave. If a newer update arrives mid-flight, the loop
-// keeps converging toward the latest target.
+// coalesces: it keeps converging toward the latest target rather than replaying
+// the intermediate ones.
 //
-// State is a single comparison: appliedGen == targetGen means converged.
-// targetGen increments on every SetTarget (an internal generation counter, so it
-// also covers config-only updates that carry no network-map serial).
+// Convergence is a single comparison: appliedGen == targetGen. targetGen
+// increments on every SetTarget (an internal generation counter, so it also covers
+// config-only updates that carry no network-map serial).
+//
+// onConverged still fires once per MAP, not once per convergence: every update's
+// receive time is recorded in `pending` and the whole list is drained on each
+// settle. So a map that was superseded mid-flight (its apply coalesced into a newer
+// target) still gets its finish-sync signal when the client reaches a converged
+// state covering it — the signal is delayed at worst, never lost. That log/metric
+// is a strong problem indicator and must not silently disappear.
 type mapStateManager struct {
 	// apply performs one bounded apply pass and reports whether more passes are needed.
 	apply func(*mgmProto.SyncResponse) (bool, error)
-	// onConverged is called once per target when it is fully applied, with the
-	// elapsed time since that target was set (for the sync-duration metric).
+	// onConverged is called once per applied map, with the elapsed time since that
+	// map was received (for the sync-duration metric / "sync finished" log).
 	onConverged func(time.Duration)
 
-	mu          sync.Mutex
-	target      *mgmProto.SyncResponse
-	targetGen   uint64
-	appliedGen  uint64
-	targetSetAt time.Time
+	mu         sync.Mutex
+	target     *mgmProto.SyncResponse
+	targetGen  uint64
+	appliedGen uint64
+	// pending holds the receive time of every update accepted since the last settle,
+	// oldest first. Drained on convergence so onConverged fires once per map.
+	pending []time.Time
 
 	wake chan struct{}
 }
@@ -58,7 +68,7 @@ func (m *mapStateManager) SetTarget(update *mgmProto.SyncResponse) error {
 	// target regardless of payload. Map-serial staleness is enforced separately
 	// inside apply (updateNetworkMap).
 	m.targetGen++
-	m.targetSetAt = time.Now()
+	m.pending = append(m.pending, time.Now())
 	m.mu.Unlock()
 
 	select {
@@ -72,7 +82,7 @@ func (m *mapStateManager) SetTarget(update *mgmProto.SyncResponse) error {
 func (m *mapStateManager) run(ctx context.Context) {
 	for {
 		m.mu.Lock()
-		target, tg, ag, setAt := m.target, m.targetGen, m.appliedGen, m.targetSetAt
+		target, tg, ag := m.target, m.targetGen, m.appliedGen
 		m.mu.Unlock()
 
 		// Fully converged (or nothing yet): block until a new target arrives.
@@ -99,7 +109,7 @@ func (m *mapStateManager) run(ctx context.Context) {
 			// where the apply error was logged by the gRPC client and the update
 			// dropped. No onConverged: this target did not converge.
 			log.Errorf("apply sync pass, dropping update: %v", err)
-			m.markProcessed(tg)
+			m.settle(tg, false)
 			continue
 		}
 
@@ -109,25 +119,35 @@ func (m *mapStateManager) run(ctx context.Context) {
 			continue
 		}
 
-		// This pass converged. Mark applied only if no newer target arrived during it.
-		if m.markProcessed(tg) && m.onConverged != nil {
-			m.onConverged(time.Since(setAt))
-		}
-		// if a newer target arrived mid-pass, ag<tg next iteration -> apply it
+		// This pass converged. Mark applied + signal every pending map.
+		m.settle(tg, true)
+		// if a newer target arrived mid-pass, settle is a no-op (targetGen != tg) and
+		// ag<tg next iteration -> apply it; pending carries over until the next settle.
 	}
 }
 
-// markProcessed records that the loop has finished working generation tg (whether
-// it converged or the pass was dropped on error), so it goes idle instead of
-// re-applying the same target. It is a no-op when a newer target arrived during
-// the pass (targetGen != tg), leaving appliedGen behind so that target re-applies.
-// Returns true when tg was the latest target (i.e. this was a genuine settle).
-func (m *mapStateManager) markProcessed(tg uint64) bool {
+// settle marks generation tg as processed so the loop goes idle instead of
+// re-applying the same target. It is a no-op when a newer target arrived during the
+// pass (targetGen != tg), leaving appliedGen + pending behind so that target
+// re-applies and its maps are signaled at the next settle.
+//
+// When signal is true (the pass converged) it drains pending and fires onConverged
+// once per map. When false (the target was dropped on error) it discards pending
+// without signaling — those maps did not converge; management re-delivers them.
+func (m *mapStateManager) settle(tg uint64, signal bool) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if m.targetGen != tg {
-		return false
+		m.mu.Unlock()
+		return
 	}
 	m.appliedGen = tg
-	return true
+	toSignal := m.pending
+	m.pending = nil
+	m.mu.Unlock()
+
+	if signal && m.onConverged != nil {
+		for _, setAt := range toSignal {
+			m.onConverged(time.Since(setAt))
+		}
+	}
 }
