@@ -1810,7 +1810,7 @@ type SendStatusUpdateRequest struct {
 	CertificateIssued bool        `protobuf:"varint,4,opt,name=certificate_issued,json=certificateIssued,proto3" json:"certificate_issued,omitempty"`
 	ErrorMessage      *string     `protobuf:"bytes,5,opt,name=error_message,json=errorMessage,proto3,oneof" json:"error_message,omitempty"`
 	// Per-account inbound listener state for the account that owns
-	// service_id. Populated only when --private-inbound is enabled and the
+	// service_id. Populated only when --private is enabled and the
 	// embedded client for the account is up. Field numbers >=50 reserved
 	// for observability extensions.
 	InboundListener *ProxyInboundListener `protobuf:"bytes,50,opt,name=inbound_listener,json=inboundListener,proto3,oneof" json:"inbound_listener,omitempty"`

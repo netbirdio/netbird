@@ -843,10 +843,14 @@ type SyncResponse struct {
 	NetworkMap         *NetworkMap `protobuf:"bytes,5,opt,name=NetworkMap,proto3" json:"NetworkMap,omitempty"`
 	// Posture checks to be evaluated by client
 	Checks []*Checks `protobuf:"bytes,6,rep,name=Checks,proto3" json:"Checks,omitempty"`
-	// Absolute UTC instant at which the peer's SSO session expires.
-	// Unset when the peer is not SSO-registered or login expiration is disabled.
-	// Carried on every Sync snapshot so admin-side changes propagate live without
-	// a client reconnect.
+	// 3-state session deadline. Carried on every Sync snapshot so admin-side
+	// changes propagate live without a client reconnect.
+	//
+	//	field unset (nil)        → snapshot carries no info; client keeps the
+	//	                           deadline it already had
+	//	set, seconds=0 nanos=0   → explicit "expiry disabled" or peer is not
+	//	                           SSO-registered; client clears its anchor
+	//	set, valid timestamp     → new absolute UTC deadline
 	SessionExpiresAt *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=sessionExpiresAt,proto3" json:"sessionExpiresAt,omitempty"`
 }
 
@@ -1608,8 +1612,11 @@ type LoginResponse struct {
 	PeerConfig *PeerConfig `protobuf:"bytes,2,opt,name=peerConfig,proto3" json:"peerConfig,omitempty"`
 	// Posture checks to be evaluated by client
 	Checks []*Checks `protobuf:"bytes,3,rep,name=Checks,proto3" json:"Checks,omitempty"`
-	// Absolute UTC instant at which the peer's SSO session expires.
-	// Unset when the peer is not SSO-registered or login expiration is disabled.
+	// 3-state session deadline; same encoding as SyncResponse.sessionExpiresAt.
+	//
+	//	field unset (nil)        → no info; client keeps any deadline it had
+	//	set, seconds=0 nanos=0   → explicit "expiry disabled" / non-SSO peer
+	//	set, valid timestamp     → new absolute UTC deadline
 	SessionExpiresAt *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=sessionExpiresAt,proto3" json:"sessionExpiresAt,omitempty"`
 }
 
@@ -1739,7 +1746,10 @@ type ExtendAuthSessionResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// Absolute UTC instant at which the peer's SSO session now expires.
+	// 3-state session deadline; same encoding as SyncResponse.sessionExpiresAt.
+	// In practice ExtendAuthSession only succeeds for SSO peers with expiry
+	// enabled, so this carries a valid timestamp on the success path. The
+	// 3-state encoding is documented here for symmetry with Login/Sync.
 	SessionExpiresAt *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=sessionExpiresAt,proto3" json:"sessionExpiresAt,omitempty"`
 }
 
