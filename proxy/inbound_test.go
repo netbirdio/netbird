@@ -533,3 +533,125 @@ MHcCAQEEIIrYSSNQFaA2Hwf1duRSxKtLYX5CB04fSeQ6tF1aY/PuoAoGCCqGSM49
 AwEHoUQDQgAEPR3tU2Fta9ktY+6P9G0cWO+0kETA6SFs38GecTyudlHz6xvCdz8q
 EKTcWGekdmdDPsHloRNtsiCa697B2O9IFA==
 -----END EC PRIVATE KEY-----`)
+
+// scriptedAcceptListener returns pre-scripted errors from Accept(). Used
+// to drive the feedRouterFromListener tests without binding a real
+// socket — the production code path is a netstack-backed listener that
+// returns gVisor's "endpoint is in invalid state" forever after its
+// endpoint is destroyed.
+type scriptedAcceptListener struct {
+	errs   chan error
+	closed chan struct{}
+}
+
+func newScriptedAcceptListener(errs ...error) *scriptedAcceptListener {
+	s := &scriptedAcceptListener{
+		errs:   make(chan error, len(errs)+1),
+		closed: make(chan struct{}),
+	}
+	for _, e := range errs {
+		s.errs <- e
+	}
+	return s
+}
+
+func (s *scriptedAcceptListener) Accept() (net.Conn, error) {
+	select {
+	case <-s.closed:
+		return nil, net.ErrClosed
+	case err := <-s.errs:
+		return nil, err
+	}
+}
+
+func (s *scriptedAcceptListener) Close() error {
+	select {
+	case <-s.closed:
+	default:
+		close(s.closed)
+	}
+	return nil
+}
+
+func (s *scriptedAcceptListener) Addr() net.Addr {
+	return &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0}
+}
+
+// errSentinel carries a literal error message so tests can synthesise
+// the exact gVisor text without importing the netstack package.
+type errSentinel string
+
+func (e errSentinel) Error() string { return string(e) }
+
+// TestFeedRouterFromListener_ExitsOnGVisorInvalidEndpoint is the
+// regression guard for the inbound side of the tight-loop bug. The
+// per-account plain-HTTP feeder must recognise gVisor's "endpoint is in
+// invalid state" and exit, otherwise it pegs a CPU core and floods the
+// account-scoped log with the same accept error every iteration.
+func TestFeedRouterFromListener_ExitsOnGVisorInvalidEndpoint(t *testing.T) {
+	logger := log.StandardLogger()
+	addr := &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 80}
+	router := nbtcp.NewRouter(logger, nil, addr)
+
+	gvisorErr := &net.OpError{
+		Op:   "accept",
+		Net:  "tcp",
+		Addr: addr,
+		Err:  errSentinel("endpoint is in invalid state"),
+	}
+	ln := newScriptedAcceptListener(gvisorErr)
+	defer ln.Close()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		feedRouterFromListener(context.Background(), ln, router, logger, "acct-1")
+	}()
+
+	select {
+	case <-done:
+		// Expected: loop recognised the gVisor error and returned.
+	case <-time.After(2 * time.Second):
+		t.Fatal("feedRouterFromListener did not exit on gVisor 'endpoint is in invalid state' — accept loop is spinning")
+	}
+}
+
+// TestFeedRouterFromListener_BacksOffOnTransientError asserts the
+// defence-in-depth path: an unknown sticky Accept error must NOT cause
+// CPU spin. The loop backs off and exits cleanly when ctx is cancelled.
+func TestFeedRouterFromListener_BacksOffOnTransientError(t *testing.T) {
+	logger := log.StandardLogger()
+	addr := &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 80}
+	router := nbtcp.NewRouter(logger, nil, addr)
+
+	const transientCount = 5
+	errs := make([]error, transientCount)
+	for i := range errs {
+		errs[i] = errSentinel("transient: temporary network error")
+	}
+	ln := newScriptedAcceptListener(errs...)
+	defer ln.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	start := time.Now()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		feedRouterFromListener(ctx, ln, router, logger, "acct-1")
+	}()
+	time.AfterFunc(150*time.Millisecond, cancel)
+
+	select {
+	case <-done:
+		// Expected.
+	case <-time.After(2 * time.Second):
+		t.Fatal("feedRouterFromListener did not exit on ctx cancellation — backoff or exit path broken")
+	}
+
+	// Without backoff the 5 scripted errors would burn in microseconds.
+	// With backoff the first delay alone is 5ms, so the loop must take
+	// at least that long even though ctx fires at 150ms.
+	elapsed := time.Since(start)
+	assert.GreaterOrEqual(t, elapsed, 5*time.Millisecond,
+		"loop ran without backing off — would burn CPU in production")
+}
