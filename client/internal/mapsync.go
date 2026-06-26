@@ -52,6 +52,11 @@ func newMapStateManager(apply func(*mgmProto.SyncResponse) (bool, error), onConv
 func (m *mapStateManager) SetTarget(update *mgmProto.SyncResponse) error {
 	m.mu.Lock()
 	m.target = update
+	// Bump an internal generation counter, NOT the map serial: config-only updates
+	// (relay token rotation, STUN/TURN) arrive with NetworkMap == nil and carry no
+	// serial, yet must still be applied. Every SetTarget is therefore a distinct
+	// target regardless of payload. Map-serial staleness is enforced separately
+	// inside apply (updateNetworkMap).
 	m.targetGen++
 	m.targetSetAt = time.Now()
 	m.mu.Unlock()
