@@ -1,33 +1,23 @@
 # management/store — persistence for agent-network entities
 
-> **Reviewer profile:** Storage maintainer; gorm + sqlite/postgres/mysql + AutoMigrate semantics, field-level encryption, upsert/`ON CONFLICT` correctness across engines.
-> **Time to review:** 35-45 minutes
 > **Risk level:** Medium — six brand-new tables behind AutoMigrate, one upsert-counter table that runs on the request hot path, and one column carrying an encrypted secret.
 > **Backward-compat impact:** Additive (six new tables created by AutoMigrate; the `Store` interface gains 23 methods, but no existing column/index is touched).
 
 ## Module boundary
 
-This module is the persistence layer for the Agent Network feature. Everything the management server stores about LLM proxying — providers, policies, guardrails, the per-account settings row, a usage-counter table written on every proxied LLM request, and the GC-0 account-budget rules — flows through the methods added to `store.Store`. The module owns six tables, six entity types from `management/server/agentnetwork/types`, and a single hot-path upsert (`IncrementAgentNetworkConsumption`) consumed by the proxy fleet.
+This module is the persistence layer for the Agent Network feature. Everything the management server stores about LLM proxying — providers, policies, guardrails, the per-account settings row, a usage-counter table written on every proxied LLM request, and the account-budget rules — flows through the methods added to `store.Store`. The module owns six tables, six entity types from `management/server/agentnetwork/types`, and a single hot-path upsert (`IncrementAgentNetworkConsumption`) consumed by the proxy fleet.
 
 Out of scope here: the catalog of provider definitions (compiled-in, no DB), the synthesizer/manager built on top of these CRUDs (covered in [21-management-agentnetwork.md](21-management-agentnetwork.md)), and the HTTP handlers that translate API requests into Save/Delete calls.
 
-## Commits in scope
+## Files
 
-| SHA | Subject | LOC delta |
-| --- | ------- | --------- |
-| f810a4e35 | AN-1: store layer for providers/policies/guardrails/settings | +552 |
-| 77b407632 | AN-2: agentnetwork module — adds `GetAllAgentNetworkProviders` + consumption methods to the store interface | +161 |
-| a436b5fb3 | GC-0: account budget rule type + collection toggles + store CRUD | +241/-1 |
-
-## Files changed
-
-| Path | Status | LOC | Role |
-| ---- | ------ | --- | ---- |
-| `management/server/store/sql_store_agentnetwork.go` | new | 466 | gorm implementations of all 23 store methods |
-| `management/server/store/sql_store_agentnetwork_budgetrule_test.go` | new | 112 | round-trip + account-scoping coverage against a real sqlite store |
-| `management/server/store/sql_store.go` | additive | +3 | one import, six entities appended to the `AutoMigrate` slice (sql_store.go:40, sql_store.go:141-142) |
-| `management/server/store/store.go` | additive | +26 | 23 methods added to the `Store` interface (store.go:328-354) |
-| `management/server/store/store_mock_agentnetwork.go` | new | 346 | mockgen output for the new interface surface |
+| Path | Role |
+| ---- | ---- |
+| `management/server/store/sql_store_agentnetwork.go` | gorm implementations of all 23 store methods |
+| `management/server/store/sql_store_agentnetwork_budgetrule_test.go` | round-trip + account-scoping coverage against a real sqlite store |
+| `management/server/store/sql_store.go` | one import, six entities appended to the `AutoMigrate` slice (sql_store.go:40, sql_store.go:141-142) |
+| `management/server/store/store.go` | 23 methods added to the `Store` interface (store.go:328-354) |
+| `management/server/store/store_mock_agentnetwork.go` | mockgen output for the new interface surface |
 
 ## Tables added / migrations
 
@@ -73,7 +63,7 @@ Reads decrypt provider secrets in-place; writes do `provider.Copy().EncryptSensi
 ## Things to scrutinize
 
 ### Correctness
-- `SaveAgentNetworkProvider` saves the copy (sql_store_agentnetwork.go:95). The caller's in-memory pointer therefore keeps plaintext `api_key` and any `CreatedAt`/`UpdatedAt` gorm autofills land on the copy, not the original. Confirm with the AN-2 manager whether callers immediately re-fetch (they should, since timestamps don't sync back).
+- `SaveAgentNetworkProvider` saves the copy (sql_store_agentnetwork.go:95). The caller's in-memory pointer therefore keeps plaintext `api_key` and any `CreatedAt`/`UpdatedAt` gorm autofills land on the copy, not the original. Callers that need synced timestamps must re-fetch.
 - `IncrementAgentNetworkConsumption`'s `Create` provides initial counter values (`TokensInput: tokensIn`, etc.) in the row, and on conflict the assignments add the same deltas to the existing values. The insert-vs-update arithmetic is consistent. Cross-check that no engine in use (sqlite, postgres, mysql) silently rejects the `OnConflict` clause — GORM emits engine-specific SQL but `ON DUPLICATE KEY UPDATE` (mysql) vs `ON CONFLICT (...)` (sqlite/postgres) need their unique constraint to match the composite PK on `agent_network_consumption`; it does, by construction.
 - `IncrementAgentNetworkConsumption` writes `updated_at: time.Now().UTC()` literally inside the assignments map (sql_store_agentnetwork.go:333) — fine, but it's a Go-side timestamp captured at call time, not a DB-side `now()`. Acceptable for an audit field.
 - `GetAgentNetworkConsumption` returns a zero-valued non-nil row on `ErrRecordNotFound` (sql_store_agentnetwork.go:364-371). Document or rename — a typed sentinel error would be more orthodox; callers must know not to error-check.
@@ -84,7 +74,7 @@ Reads decrypt provider secrets in-place; writes do `provider.Copy().EncryptSensi
 - `Save*Provider` uses `db.Save` on a struct with a PK already set — GORM emits UPDATE or INSERT based on row existence. No upsert clause is attached, so a race between two creates with the same generated `xid` (vanishingly unlikely) would surface as a PK violation.
 
 ### Migration safety
-- All six tables ride `AutoMigrate` (sql_store.go:141-142). AutoMigrate is additive: new columns get added, but it never drops columns nor narrows types. The GC-0 commit appends three `bool` columns to `agent_network_settings` (`EnableLogCollection`, `EnablePromptCollection`, `RedactPii`) — for existing rows these default to false at the GORM/DDL layer; the test at sql_store_agentnetwork_budgetrule_test.go:83-112 locks that down on a fresh sqlite. Verify postgres/mysql produce the same default.
+- All six tables ride `AutoMigrate` (sql_store.go:141-142). AutoMigrate is additive: new columns get added, but it never drops columns nor narrows types. Three `bool` columns on `agent_network_settings` (`EnableLogCollection`, `EnablePromptCollection`, `RedactPii`) default to false at the GORM/DDL layer for existing rows; the test at sql_store_agentnetwork_budgetrule_test.go:83-112 locks that down on a fresh sqlite. Verify postgres/mysql produce the same default.
 - The named index `idx_agent_network_settings_cluster_subdomain` on settings.go:15 is declared on only `subdomain`. Either the cluster column also needs `gorm:"index:idx_agent_network_settings_cluster_subdomain"` to make it composite, or the name is misleading.
 - The named index `idx_agent_network_provider` on `Provider.ProviderID` (provider.go:30) is *not* unique and not scoped to account — two providers in the same account with the same `provider_id` are permitted at the DB layer; uniqueness, if any, must live above the store.
 
@@ -103,7 +93,7 @@ Reads decrypt provider secrets in-place; writes do `provider.Copy().EncryptSensi
 | --------- | ---------- |
 | `sql_store_agentnetwork_budgetrule_test.go::TestAgentNetworkBudgetRule_RealStore_RoundTrip` | full save → reload of `AccountBudgetRule` including the JSON-serialised `PolicyLimits`, target slices, double-delete returns NotFound (lines 18-59) |
 | `sql_store_agentnetwork_budgetrule_test.go::TestAgentNetworkBudgetRule_RealStore_ScopedByAccount` | cross-account isolation for budget rules (lines 63-78) |
-| `sql_store_agentnetwork_budgetrule_test.go::TestAgentNetworkSettings_RealStore_CollectionTogglesRoundTrip` | GC-0 toggles default off, survive save/reload at the set values (lines 83-112) |
+| `sql_store_agentnetwork_budgetrule_test.go::TestAgentNetworkSettings_RealStore_CollectionTogglesRoundTrip` | collection toggles default off, survive save/reload at the set values (lines 83-112) |
 
 Gap: there is no store-level test for providers (encryption round-trip), policies, guardrails, or `IncrementAgentNetworkConsumption` (concurrent upsert, window-key uniqueness). The consumption upsert is the most performance-sensitive method in this module and the only one without a real-sqlite test.
 

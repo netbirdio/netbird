@@ -1,8 +1,6 @@
 # management/handlers + wiring — HTTP API + gRPC delivery
 
-> **Reviewer profile:** Management infra maintainer; comfortable with gorilla/mux REST handlers, the existing permissions/operations RBAC, the network_map controller fan-out, gRPC server-side streaming, and the reverse-proxy snapshot/live-update path.
-> **Time to review:** 60 minutes.
-> **Risk level:** Medium — surface is mostly additive, but two changes are load-bearing: `injectAllProxyPolicies` runs on every per-peer compute, and `shallowCloneMapping` now must round-trip `Private` (a missed field silently breaks every MODIFIED).
+> **Risk level:** Medium — the surface is mostly additive, but two changes are load-bearing: `injectAllProxyPolicies` runs on every per-peer compute, and `shallowCloneMapping` must round-trip `Private` (a missed field silently breaks every MODIFIED).
 > **Backward-compat impact:** Additive on the wire (new routes, new RPCs, new proto fields, new gorm column on `AccessLogEntry`). One management-internal break: `nbhttp.NewAPIHandler` gains a trailing `agentNetworkManager` parameter; `nil` is tolerated and silently skips route registration.
 
 ## Module boundary
@@ -11,41 +9,29 @@ This module is the seam between the public Agent Network HTTP API and the proxy 
 
 South side: `ProxyServiceServer` (`proxy.go`) learns to (a) ship synth services to a proxy on initial snapshot, (b) resolve agent-network domains in `getServiceByDomain` for OIDC/session/tunnel-peer flows, (c) gate LLM requests via `CheckLLMPolicyLimits` + `RecordLLMUsage`, (d) preserve `Private` through `shallowCloneMapping` so per-proxy live updates don't silently flip services public. The network_map controller prepends synth services to `account.Services` on every per-peer compute; `accesslogentry.go` gains an indexed `AgentNetwork` column so the dashboard can filter cheaply.
 
-## Commits in scope
+## Files
 
-| SHA | Subject | LOC delta |
-| --- | ------- | --------- |
-| 09e8059b6 | AN-2b: wire synth into network map | controller.go +20 / repository.go +10 |
-| 9ecb6449d | AN-3: HTTP API handlers + routes | handlers/*, handler.go, module.go, codes.go |
-| 9a154714  | AN-6: access-log `agent_network` flag e2e | accesslogentry.go +5 |
-| 8cb9c187d | AN-7: enforcement + synth delivery | proxy.go +185, boot.go +24, service.go +109 |
-| 263dabd73 | preserve `Private` in clone | proxy.go +1, proxy_clone_test.go +59 |
-| 468875cb4 | wire `EnableLogCollection` suppression | service.go (DisableAccessLog plumbing) |
-| 23bdf6871 | GC-4: budget-rule + settings HTTP API | budget_handler.go +172, budget_handler_test.go +127 |
-
-## Files changed
-
-| Path | Status | LOC | Role |
-| ---- | ------ | --- | ---- |
-| `handlers/agentnetwork/providers_handler.go` | new | 216 | Catalog + provider CRUD + central `AddEndpoints` |
-| `handlers/agentnetwork/policies_handler.go` | new | 228 | Policy CRUD + shared `validatePolicy*` |
-| `handlers/agentnetwork/guardrails_handler.go` | new | 171 | Guardrail CRUD |
-| `handlers/agentnetwork/budget_handler.go` | new | 172 | Account-level budget rule CRUD |
-| `handlers/agentnetwork/settings_handler.go` | new | 74 | GET (200+`null` if unbootstrapped) + PUT toggles |
-| `handlers/agentnetwork/consumption_handler.go` | new | 53 | Read-only consumption rows |
-| `handlers/agentnetwork/handlers_test.go` | new | 239 | Real-store fixture; wire round-trip + validation |
-| `handlers/agentnetwork/budget_handler_test.go` | new | 127 | Budget-rule + settings toggles |
-| `server/http/handler.go` | edit | +7 | New `agentNetworkManager` arg; conditional `AddEndpoints` |
-| `server/permissions/modules/module.go` | edit | +2 | New `AgentNetwork` module key |
-| `internals/server/boot.go` | edit | +24 | Wires synthesiser adapter + limits service into proxy server |
-| `internals/server/modules.go` | edit | +12 | `AgentNetworkManager()` lazy-create node |
-| `internals/controllers/network_map/controller/controller.go` | edit | +20/-4 | `injectAllProxyPolicies` replaces 4 `InjectProxyPolicies` calls |
-| `internals/controllers/network_map/controller/repository.go` | edit | +10 | `SynthesizeAgentNetworkServices` repo method |
-| `internals/modules/reverseproxy/service/service.go` | edit | +109 | `MiddlewareConfig`, capture limits, `AgentNetwork`, `DisableAccessLog` + proto |
-| `internals/modules/reverseproxy/accesslogs/accesslogentry.go` | edit | +5 | Indexed `AgentNetwork bool` from proto |
-| `internals/shared/grpc/proxy.go` | edit | +185 | Synth wiring, 2 RPCs, domain fallback, `Private` in clone |
-| `internals/shared/grpc/proxy_clone_test.go` | new | 59 | Locks every `ProxyMapping` field minus `AuthToken` |
-| `server/activity/codes.go` | edit | +49 | 13 new activity codes (125-137) |
+| Path | Role |
+| ---- | ---- |
+| `handlers/agentnetwork/providers_handler.go` | Catalog + provider CRUD + central `AddEndpoints` |
+| `handlers/agentnetwork/policies_handler.go` | Policy CRUD + shared `validatePolicy*` |
+| `handlers/agentnetwork/guardrails_handler.go` | Guardrail CRUD |
+| `handlers/agentnetwork/budget_handler.go` | Account-level budget rule CRUD |
+| `handlers/agentnetwork/settings_handler.go` | GET (200+`null` if unbootstrapped) + PUT toggles |
+| `handlers/agentnetwork/consumption_handler.go` | Read-only consumption rows |
+| `handlers/agentnetwork/handlers_test.go` | Real-store fixture; wire round-trip + validation |
+| `handlers/agentnetwork/budget_handler_test.go` | Budget-rule + settings toggles |
+| `server/http/handler.go` | New `agentNetworkManager` arg; conditional `AddEndpoints` |
+| `server/permissions/modules/module.go` | New `AgentNetwork` module key |
+| `internals/server/boot.go` | Wires synthesiser adapter + limits service into proxy server |
+| `internals/server/modules.go` | `AgentNetworkManager()` lazy-create node |
+| `internals/controllers/network_map/controller/controller.go` | `injectAllProxyPolicies` replaces 4 `InjectProxyPolicies` calls |
+| `internals/controllers/network_map/controller/repository.go` | `SynthesizeAgentNetworkServices` repo method |
+| `internals/modules/reverseproxy/service/service.go` | `MiddlewareConfig`, capture limits, `AgentNetwork`, `DisableAccessLog` + proto |
+| `internals/modules/reverseproxy/accesslogs/accesslogentry.go` | Indexed `AgentNetwork bool` from proto |
+| `internals/shared/grpc/proxy.go` | Synth wiring, 2 RPCs, domain fallback, `Private` in clone |
+| `internals/shared/grpc/proxy_clone_test.go` | Locks every `ProxyMapping` field minus `AuthToken` |
+| `server/activity/codes.go` | 13 new activity codes (125-137) |
 
 ## HTTP routes added
 
@@ -153,7 +139,7 @@ End-to-end: HTTP write persists rows and emits an activity event; the manager th
 ## Invariants
 
 - **Synth services are never persisted.** Snapshot appends after `serviceManager.GetServicesForCluster` (`proxy.go:761-770`); network_map prepends before `InjectProxyPolicies` (`controller.go:117-126`).
-- **`shallowCloneMapping` must round-trip every `ProxyMapping` field except `AuthToken`** — `proxy_clone_test.go:50-58` enforces via `gproto.Equal`. The bug it guards (commit 263dabd73): missing `Private` made every MODIFIED arrive `private=false`, proxy skipped `ValidateTunnelPeer`, `UserGroups` stayed empty, llm_router denied `no_authorised_provider`; restart "fixed" because snapshot uses the original mapping.
+- **`shallowCloneMapping` must round-trip every `ProxyMapping` field except `AuthToken`** — `proxy_clone_test.go:50-58` enforces via `gproto.Equal`. The bug it guards: a missing `Private` made every MODIFIED arrive `private=false`, the proxy skipped `ValidateTunnelPeer`, `UserGroups` stayed empty, `llm_router` denied `no_authorised_provider`; a restart "fixed" it because the snapshot uses the original mapping.
 - **Limit-window floor is 60s** (`policies_handler.go:189-220`); enabled cap with both per-group and per-user at zero is rejected. Budget rules reuse the same validator (`budget_handler.go:170`).
 - **Manager is optional at boot.** `NewAPIHandler` registers routes only when non-nil (`handler.go:129`); `ProxyServiceServer` returns `Unimplemented` from both RPCs when limits service is unwired (`proxy.go:262-265, 306-309`).
 - **Settings GET on an unbootstrapped account returns 200 + `null`** (`settings_handler.go:65-72`) — not 404.

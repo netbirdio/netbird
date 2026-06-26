@@ -1,8 +1,6 @@
 # proxy/runtime — translate + serve + log
 
-> **Reviewer profile:** Proxy maintainer; familiar with the existing `proxy/internal/proxy/reverseproxy.go` request lifecycle, `proxy/internal/accesslog` emission, `proto.ProxyMapping` ingestion via `SyncMappings`/`GetMappingUpdate`, and the `proxy/internal/middleware` framework introduced in modules 30/31/32.
-> **Time to review:** 75 minutes
-> **Risk level:** High — every config push from management is translated here, and the chain runs on every HTTP request to a synth target
+> **Risk level:** High — every config push from management is translated here, and the chain runs on every HTTP request to a synth target.
 > **Backward-compat impact:** Additive at the wire (`PathTargetOptions.middlewares`, `agent_network`, `disable_access_log`, capture caps) and on the proxy `Server` struct (`MiddlewareDataDir`, `MiddlewareCaptureBudgetBytes`). Non-agent-network targets stay on the no-middleware fast path.
 
 ## Module boundary
@@ -11,39 +9,24 @@ Turns the synth-service wire format from `ProxyService.SyncMappings`/`GetMapping
 
 **Inert for non-agent-network targets**: nil or empty chain → existing fast path (reverseproxy.go:127-139); `SuppressAccessLog` defaults false so the access-log middleware emits unchanged.
 
-## Commits in scope
+## Files
 
-| SHA | Subject | LOC delta (this module) |
-| --- | ------- | --- |
-| 3ed29d855 | AN-4b: middleware plumbing in the proxy request path | +711 / −9 |
-| e64ea4b02 | AN-5: built-in middlewares + registry registration | +16 |
-| 0f9f56a58 | AN-5b: activate the middleware system in the proxy server | +136 / −1 |
-| 9a1547143 | AN-6: access-log `agent_network` flag end-to-end | +3 |
-| 9ebe219fd | test: lock the auth→middleware group-propagation wiring | +136 |
-| 468875cb4 | Wire `EnableLogCollection` to suppress access-log | +222 / −5 |
-| b438a7194 | Carry identity onto respInput (PII redaction commit; this module: respInput fix only) | +12 / −4 |
-| 2a0d4991b | Self-contained full-chain integration test | +314 |
-
-Total in scope: ~1545 added / 14 deleted across 14 files.
-
-## Files changed
-
-| Path | LOC | Role |
-| ---- | --- | ---- |
-| proxy/middleware_translate.go | +165 | proto→Spec translation; slot/failmode/timeout mapping; caps |
-| proxy/middleware_translate_test.go | +246 | translator unit tests |
-| proxy/middleware_register.go | +16 | blank-imports the eight builtins for `init()` registration |
-| proxy/server.go | +129 | `initMiddlewareManager`, `rebuildMiddlewareChains`, `isLiveService`, `buildMiddlewareBindings`, new Server fields, `protoToMapping` stamps AgentNetwork/DisableAccessLog/CaptureConfig/Middlewares |
-| proxy/internal/proxy/reverseproxy.go | +289 / −9 | `WithMiddlewareManager`, chain dispatch, body capture, `applyUpstreamRewrite`/`Headers`, `buildRequestInput`, response-leg respInput identity fields |
-| proxy/internal/proxy/reverseproxy_test.go | +44 | `TestBuildRequestInput_PropagatesIdentityAndGroups` |
-| proxy/internal/proxy/context.go | +43 | `agentNetwork`, `suppressAccessLog`, `userGroupNames` on `CapturedData` |
-| proxy/internal/proxy/servicemapping.go | +16 | new `PathTarget` fields |
-| proxy/internal/proxy/agent_network_chain_realstack_test.go | +314 | end-to-end self-contained chain test |
-| proxy/internal/accesslog/logger.go | +2 | `logEntry.AgentNetwork` → `proto.AccessLog` |
-| proxy/internal/accesslog/middleware.go | +9 / −1 | reads `GetAgentNetwork()`; gates `l.log` on `!GetSuppressAccessLog()` |
-| proxy/internal/accesslog/middleware_test.go | +185 | suppress/default/preserves-usage assertions |
-| proxy/internal/auth/middleware_test.go | +92 | tunnel-peer group propagation contract |
-| proxy/internal/metrics/metrics.go | +9 | `Meter()` getter for the middleware manager |
+| Path | Role |
+| ---- | ---- |
+| proxy/middleware_translate.go | proto→Spec translation; slot/failmode/timeout mapping; caps |
+| proxy/middleware_translate_test.go | translator unit tests |
+| proxy/middleware_register.go | blank-imports the eight builtins for `init()` registration |
+| proxy/server.go | `initMiddlewareManager`, `rebuildMiddlewareChains`, `isLiveService`, `buildMiddlewareBindings`, new Server fields, `protoToMapping` stamps AgentNetwork/DisableAccessLog/CaptureConfig/Middlewares |
+| proxy/internal/proxy/reverseproxy.go | `WithMiddlewareManager`, chain dispatch, body capture, `applyUpstreamRewrite`/`Headers`, `buildRequestInput`, response-leg respInput identity fields |
+| proxy/internal/proxy/reverseproxy_test.go | `TestBuildRequestInput_PropagatesIdentityAndGroups` |
+| proxy/internal/proxy/context.go | `agentNetwork`, `suppressAccessLog`, `userGroupNames` on `CapturedData` |
+| proxy/internal/proxy/servicemapping.go | new `PathTarget` fields |
+| proxy/internal/proxy/agent_network_chain_realstack_test.go | end-to-end self-contained chain test |
+| proxy/internal/accesslog/logger.go | `logEntry.AgentNetwork` → `proto.AccessLog` |
+| proxy/internal/accesslog/middleware.go | reads `GetAgentNetwork()`; gates `l.log` on `!GetSuppressAccessLog()` |
+| proxy/internal/accesslog/middleware_test.go | suppress/default/preserves-usage assertions |
+| proxy/internal/auth/middleware_test.go | tunnel-peer group propagation contract |
+| proxy/internal/metrics/metrics.go | `Meter()` getter for the middleware manager |
 
 ## Architecture & flow
 
@@ -99,7 +82,7 @@ sequenceDiagram
             RP->>RP: capturingWriter + applyUpstreamRewrite/Headers
             RP->>U: httputil.ReverseProxy.ServeHTTP(respWriter)
             U-->>RP: response
-            RP->>CH: RunResponse (respInput carries UserGroups, b438a7194)
+            RP->>CH: RunResponse (respInput carries UserGroups)
             RP->>CH: RunTerminal (merged request+response metadata)
         end
     end
@@ -141,10 +124,10 @@ At **request time** the access-log middleware stamps `CapturedData`; the auth ch
 
 ## Invariants
 
-- **Synth-service updates are live (no proxy restart).** Every `MODIFIED` flows through `modifyMapping → cleanupMappingRoutes` (invalidates chains) `→ setupHTTPMapping → updateMapping → rebuildMiddlewareChains`. **Note 263dabd73 (ProxyMapping.Private preservation):** the bug it fixed lives in `management/internals/shared/grpc/proxy.go:shallowCloneMapping`, not this module, but it surfaces here — without the fix, every `MODIFIED` synth service arrived `private=false`, auth skipped `ValidateTunnelPeer`, `CapturedData.UserGroups` stayed empty, `llm_router` denied with `llm_policy.no_authorised_provider`, and only a management restart worked around it. Review this module assuming `mapping.GetPrivate()` is correct on every batch — that assumption is what the cited fix established.
+- **Synth-service updates are live (no proxy restart).** Every `MODIFIED` flows through `modifyMapping → cleanupMappingRoutes` (invalidates chains) `→ setupHTTPMapping → updateMapping → rebuildMiddlewareChains`. **ProxyMapping.Private preservation:** the relevant logic lives in `management/internals/shared/grpc/proxy.go:shallowCloneMapping`, not this module, but it surfaces here — if a `MODIFIED` synth service arrives `private=false`, auth skips `ValidateTunnelPeer`, `CapturedData.UserGroups` stays empty, and `llm_router` denies with `llm_policy.no_authorised_provider` until a management restart re-pushes the snapshot. This module assumes `mapping.GetPrivate()` is correct on every batch.
 - **`EnableLogCollection=false` suppresses access-log writes but middleware still runs.** Gate is one `if !cd.GetSuppressAccessLog()` immediately around `l.log(entry)` (middleware.go:95); `trackUsage` runs below the gate. Locked by `TestMiddleware_SuppressAccessLog_PreservesUsageTracking` (middleware_test.go:139).
 - **`agent_network` flag on access-log entries is set when the chain processed the request.** Source `target.AgentNetwork`, stamped at reverseproxy.go:105, read at accesslog/middleware.go:86.
-- **auth → builtin group propagation (9ebe219fd locked this).** `Protect` writes `UserGroups`/`UserGroupNames`; `buildRequestInput` (reverseproxy.go:333) copies them into `middleware.Input`. After b438a7194 the response-leg `respInput` (reverseproxy.go:196-223) also carries `UserEmail`/`UserGroups`/`UserGroupNames` — `llm_limit_record` needs `UserGroups` to ship `group_ids` so management's group-targeted budget rules match (comment at reverseproxy.go:211-215).
+- **auth → builtin group propagation.** `Protect` writes `UserGroups`/`UserGroupNames`; `buildRequestInput` (reverseproxy.go:333) copies them into `middleware.Input`. The response-leg `respInput` (reverseproxy.go:196-223) also carries `UserEmail`/`UserGroups`/`UserGroupNames` — `llm_limit_record` needs `UserGroups` to ship `group_ids` so management's group-targeted budget rules match (comment at reverseproxy.go:211-215).
 - **Empty chains stay on the fast path.** `ServeHTTP` skips body capture and the run sequence when `chain == nil || chain.Empty()` (reverseproxy.go:127).
 - **Self-registration is the only way a builtin reaches the registry.** `middleware_register.go` blank-imports each builtin; `init()` adds the factory to `mwbuiltin.DefaultRegistry()`. Missing it → translator drops the entry with a warn (translate.go:97).
 
@@ -153,7 +136,7 @@ At **request time** the access-log middleware stamps `CapturedData`; the auth ch
 ### Correctness
 - **Translate edge cases** — drops on nil cfg, empty ID, unknown ID, UNSPECIFIED slot; each logs one warn; volume bounded by `MaxMiddlewaresPerChain`.
 - **Re-translate without dropping in-flight requests** — `Manager.Rebuild` is the only call from `rebuildMiddlewareChains`. Reverse proxy reads `ChainFor` once per request (reverseproxy.go:327) and runs the captured `*Chain` for the whole request. Verify in module 30 that `Rebuild` swaps atomically.
-- **ProxyMapping.Private preservation** — fixed in 263dabd73 (management). Proxy-side regression catches: `TestProtect_PrivateService_TunnelPeerGroupsPropagate` + the integration test.
+- **ProxyMapping.Private preservation** — enforced management-side in `shallowCloneMapping`. Proxy-side regression catches: `TestProtect_PrivateService_TunnelPeerGroupsPropagate` + the integration test.
 - **Body-capture cleanup** — `defer releaseBudget()` (reverseproxy.go:145) and `defer capturingWriter.Release()` (reverseproxy.go:180) must run on every return; confirm no future `return` lands between acquisition and defer.
 - **`applyUpstreamRewrite` clones the URL** — `cloned := *orig` value-copies `*url.URL`; safe because overwritten fields are strings, not slices/maps (reverseproxy.go:285-292).
 
@@ -190,11 +173,11 @@ At **request time** the access-log middleware stamps `CapturedData`; the auth ch
 | --------- | ---------- |
 | proxy/middleware_translate_test.go | Empty/nil → nil; field preservation; unknown ID skip; nil registry permissive; timeout clamping; fail-mode + slot incl. UNSPECIFIED-drop; empty-ID drop; truncation above + at `MaxMiddlewaresPerChain` |
 | proxy/internal/proxy/reverseproxy_test.go | Rewrite host/headers/cookies/query; trusted proxy; path forwarding; classifyProxyError; X-NetBird-User/Groups anti-spoof + CSV-join + control-char/comma rejection + fallback-to-ID; `TestBuildRequestInput_PropagatesIdentityAndGroups` (UserGroups/Email/GroupNames/AgentNetwork reach `middleware.Input`) |
-| proxy/internal/proxy/agent_network_chain_realstack_test.go | **THE end-to-end integration test added by 2a0d4991b.** Drives a real agent-network request through `ReverseProxy.ServeHTTP` with the chain the synthesizer produces, against an in-process management gRPC (bufconn) backed by a real sqlite store + real `agentnetwork.Manager`, plus an `httptest` upstream. No tilt/docker/real LLM. Guarantees: (1) response-leg `respInput` carries `UserGroups` so `llm_limit_record` ships non-empty `group_ids` and the admin-group consumption row increments — the exact regression class b438a7194 fixed; (2) `RedactPii=true` redacts both prompt and completion on captured metadata; (3) full chain runs against a real management stack. **Line 189-211 inlines the proto→Spec mapping** instead of calling the proxy's private `translateMiddlewareConfig` — keep that inline mirror in sync with `proxy/middleware_translate.go` or the test silently diverges from production. |
+| proxy/internal/proxy/agent_network_chain_realstack_test.go | **The end-to-end integration test.** Drives a real agent-network request through `ReverseProxy.ServeHTTP` with the chain the synthesizer produces, against an in-process management gRPC (bufconn) backed by a real sqlite store + real `agentnetwork.Manager`, plus an `httptest` upstream — no external infrastructure or real LLM. Guarantees: (1) response-leg `respInput` carries `UserGroups` so `llm_limit_record` ships non-empty `group_ids` and the admin-group consumption row increments; (2) `RedactPii=true` redacts both prompt and completion on captured metadata; (3) the full chain runs against a real management stack. **Line 189-211 inlines the proto→Spec mapping** instead of calling the proxy's private `translateMiddlewareConfig` — keep that inline mirror in sync with `proxy/middleware_translate.go` or the test silently diverges from production. |
 | proxy/internal/accesslog/middleware_test.go | `SuppressAccessLog=true` skips `SendAccessLog` (150ms negative wait); default emits one send (2s positive); usage tracking runs under suppression |
 | proxy/internal/auth/middleware_test.go | `TestProtect_PrivateService_TunnelPeerGroupsPropagate` proves `peer_group_ids` reach `CapturedData.UserGroups`; `TestProtect_PrivateService_TunnelPeerDenied` proves rejected peers 403 without reaching the handler |
 
-The integration test replaces the bash 50/51 e2e legs in ~5s, no docker/tilt — exercising the real synthesizer, `Manager.Rebuild`, `ServeHTTP` dispatch, and `llm_limit_record` writing a real consumption row through the real `agentnetwork.Manager` over real gRPC.
+The integration test runs in a few seconds with no external infrastructure — exercising the real synthesizer, `Manager.Rebuild`, `ServeHTTP` dispatch, and `llm_limit_record` writing a real consumption row through the real `agentnetwork.Manager` over real gRPC.
 
 ## Known limitations / explicit non-goals
 
@@ -202,7 +185,7 @@ The integration test replaces the bash 50/51 e2e legs in ~5s, no docker/tilt —
 - **No throttle on management push rate** — every `MODIFIED` triggers `Manager.Rebuild`. Mitigation upstream.
 - **Streaming responses (SSE)** — body capture is streaming-aware, but response-leg middleware runs only after the response completes; long SSE streams delay `llm_limit_record` until close.
 - **OIDC-only path doesn't carry tunnel-peer groups** — agent-network synth services rely on the Private tunnel-peer path; JWT groups claim is the only carrier for non-Private OIDC.
-- **`agent_network` flag on L4 entries** not added; HTTP-only in this PR.
+- **`agent_network` flag on L4 entries** not added; HTTP-only.
 - **`mw.capture.bypass_reason` metadata key** documented at reverseproxy.go:151,184; namespace this in module 30/31 to avoid collisions.
 
 ## Cross-references

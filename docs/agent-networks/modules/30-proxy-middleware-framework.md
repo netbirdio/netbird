@@ -1,9 +1,9 @@
 # proxy/middleware-framework — generic plugin system
 
-> **Reviewer profile:** Proxy maintainer. Comfort with `net/http` handler composition, request/response interception, Go context propagation, `atomic.Pointer` snapshot patterns, and `sync` primitives. No LLM/agent-network domain knowledge required — every example built into this commit is generic.
-> **Time to review:** 60–75 minutes.
 > **Risk level:** **High** — every proxied request transits this chain. Budget exhaustion, panic recovery, or chain-close bugs hit the hot path for all targets, not just agent-network ones.
 > **Backward-compat impact:** Additive at the proxy. The `middleware` and `bodytap` packages are new (`proxy/internal/middleware/middleware.go:1`, `proxy/internal/middleware/bodytap/request.go:13`); existing proxy targets keep working until a chain is bound to them via `Manager.Rebuild`.
+
+This module is the **framework only** — no LLM/agent-network domain knowledge is required, since every example built into it is generic.
 
 ## Module boundary
 
@@ -15,37 +15,27 @@ This module is the **framework only**: slots, chains, registry, dispatcher, accu
 
 Everything that crosses the framework boundary in either direction is value-typed and deep-copied — middlewares cannot mutate the live request directly, and the framework cannot inadvertently leak middleware-owned slices into the request hot path.
 
-## Commits in scope
+## Files
 
-| SHA | Subject | LOC delta |
-| --- | ------- | --------- |
-| `00bf0d328` | [agent-network] AN-4: proxy middleware framework | +2 740 (all 17 files in scope, this is the only commit that touches them) |
-
-`git -C /Users/maycon/projects/netbird log --oneline 14af17955..HEAD -- proxy/internal/middleware/{chain,registry,manager,dispatcher,decision,headerpolicy,bodypolicy,keys,metadata,metrics,middleware,redaction,spec,types}.go proxy/internal/middleware/bodytap` returns exactly one commit. Subsequent AN-5/AN-7/GC-2 commits only add files under `builtin/` or touch wire paths — none modify the framework files in this module's scope. Review can be a single sit-down.
-
-## Files changed
-
-| Path | Status | LOC | Role |
-| ---- | ------ | --- | ---- |
-| `proxy/internal/middleware/middleware.go` | A | 47 | `Middleware` + `Factory` interfaces. |
-| `proxy/internal/middleware/types.go` | A | 242 | `Slot`, `FailMode`, `Decision`, all limit constants, `Input`/`Output`/`Mutations`/`UpstreamRewrite`/`AuthHeader` value types. |
-| `proxy/internal/middleware/spec.go` | A | 44 | Apply-time `Spec` (validated wire shape + runtime-injected fields) and `Clone`. |
-| `proxy/internal/middleware/registry.go` | A | 121 | `Registry` (factory map, RWMutex) and `Resolver` (Spec → bound `Middleware`). |
-| `proxy/internal/middleware/manager.go` | A | 412 | `Manager`, `chainTable` reverse index, `Rebuild`/`Invalidate*`, async chain close. |
-| `proxy/internal/middleware/chain.go` | A | 317 | `Chain.RunRequest`/`RunResponse`/`RunTerminal`, mutation gating, `cloneInputFor`. |
-| `proxy/internal/middleware/chain_test.go` | A | 330 | Metadata threading, LIFO response order, rewrite gating, UserGroups propagation, terminal accumulation. |
-| `proxy/internal/middleware/dispatcher.go` | A | 185 | Timeout/panic recovery, fail-mode, error classification, `filterOutput`. |
-| `proxy/internal/middleware/decision.go` | A | 80 | `RenderDenyResponse`, deny-code regex, status clamp. |
-| `proxy/internal/middleware/headerpolicy.go` | A | 69 | Compile-in header denylist + `FilterHeaderMutations`. |
-| `proxy/internal/middleware/bodypolicy.go` | A | 62 | `ValidateBodyReplace` / `ApplyBodyReplace` smuggling guards. |
-| `proxy/internal/middleware/keys.go` | A | 82 | Metadata key namespace constants. |
-| `proxy/internal/middleware/metadata.go` | A | 99 | `Accumulator` — allowlist, per-mw/per-request byte caps, redaction. |
-| `proxy/internal/middleware/metrics.go` | A | 171 | OTel instrument bundle (`proxy.middleware.*`). |
-| `proxy/internal/middleware/redaction.go` | A | 79 | `Scan` — PEM/JWT/AWS/bearer/Luhn-validated CC patterns. |
-| `proxy/internal/middleware/bodytap/request.go` | A | 229 | Capture + replay reader, `Budget` semaphore, bypass reason codes. |
-| `proxy/internal/middleware/bodytap/response.go` | A | 171 | `CapturingResponseWriter` (tee with `PassthroughWriter` for Flusher/Hijacker preservation). |
-
-The 17 paths the scope listed all land in this single commit; no churn since.
+| Path | Role |
+| ---- | ---- |
+| `proxy/internal/middleware/middleware.go` | `Middleware` + `Factory` interfaces. |
+| `proxy/internal/middleware/types.go` | `Slot`, `FailMode`, `Decision`, all limit constants, `Input`/`Output`/`Mutations`/`UpstreamRewrite`/`AuthHeader` value types. |
+| `proxy/internal/middleware/spec.go` | Apply-time `Spec` (validated wire shape + runtime-injected fields) and `Clone`. |
+| `proxy/internal/middleware/registry.go` | `Registry` (factory map, RWMutex) and `Resolver` (Spec → bound `Middleware`). |
+| `proxy/internal/middleware/manager.go` | `Manager`, `chainTable` reverse index, `Rebuild`/`Invalidate*`, async chain close. |
+| `proxy/internal/middleware/chain.go` | `Chain.RunRequest`/`RunResponse`/`RunTerminal`, mutation gating, `cloneInputFor`. |
+| `proxy/internal/middleware/chain_test.go` | Metadata threading, LIFO response order, rewrite gating, UserGroups propagation, terminal accumulation. |
+| `proxy/internal/middleware/dispatcher.go` | Timeout/panic recovery, fail-mode, error classification, `filterOutput`. |
+| `proxy/internal/middleware/decision.go` | `RenderDenyResponse`, deny-code regex, status clamp. |
+| `proxy/internal/middleware/headerpolicy.go` | Compile-in header denylist + `FilterHeaderMutations`. |
+| `proxy/internal/middleware/bodypolicy.go` | `ValidateBodyReplace` / `ApplyBodyReplace` smuggling guards. |
+| `proxy/internal/middleware/keys.go` | Metadata key namespace constants. |
+| `proxy/internal/middleware/metadata.go` | `Accumulator` — allowlist, per-mw/per-request byte caps, redaction. |
+| `proxy/internal/middleware/metrics.go` | OTel instrument bundle (`proxy.middleware.*`). |
+| `proxy/internal/middleware/redaction.go` | `Scan` — PEM/JWT/AWS/bearer/Luhn-validated CC patterns. |
+| `proxy/internal/middleware/bodytap/request.go` | Capture + replay reader, `Budget` semaphore, bypass reason codes. |
+| `proxy/internal/middleware/bodytap/response.go` | `CapturingResponseWriter` (tee with `PassthroughWriter` for Flusher/Hijacker preservation). |
 
 ## Slot model
 
@@ -194,7 +184,7 @@ The framework explicitly aborts capture (and increments `proxy.middleware.captur
 | --------- | ---------- |
 | `proxy/internal/middleware/chain_test.go:77` | `RunRequest` threads metadata across on_request middlewares (regression for the "later mw can't see earlier mw's emissions" bug). |
 | `chain_test.go:110` | `RunResponse` reverse-order threading. |
-| `chain_test.go:142` | `cost_meter`-shaped scenario: response_parser registered after cost_meter still emits *before* cost_meter sees the bag (the exact `cost.skipped=missing_tokens` regression that prompted this commit). |
+| `chain_test.go:142` | `cost_meter`-shaped scenario: response_parser registered after cost_meter still emits *before* cost_meter sees the bag (guards the `cost.skipped=missing_tokens` regression). |
 | `chain_test.go:178` | `UpstreamRewrite` last-write-wins. |
 | `chain_test.go:206` | No middleware emits → nil rewrite. |
 | `chain_test.go:224` | Rewrite filtered when `CanMutate=false`. |

@@ -1,59 +1,35 @@
 # management/agentnetwork — domain layer + synth pipeline
 
-> **Reviewer profile:** Management server maintainer; familiar with the network-map controller, policy engine, gorm/SQLite store, Go concurrency (sync.Mutex + math/rand), and the reverse-proxy `service`/`proxy` packages + `ProxyMapping` proto shape.
-> **Time to review:** 180–240 minutes (largest module; budget for diagram cross-check + per-test triage).
 > **Risk level:** High — central business logic + budget enforcement + the source of every middleware-chain change the proxy executes.
-> **Backward-compat impact:** Additive within agent-network surface; one **behavioural break for opted-out accounts** in parser capture (capture flag now stamped explicitly false instead of being absent — see capture-pointer semantics below). Non-agent-network proxy services untouched (synth chain only ships on `agent-net-svc-*` targets).
+> **Backward-compat impact:** Additive within the agent-network surface; one **behavioural difference for opted-out accounts** in parser capture (the capture flag is stamped explicitly false instead of being absent — see capture-pointer semantics below). Non-agent-network proxy services are untouched (the synth chain only ships on `agent-net-svc-*` targets).
 
 ## Module boundary
 
 `management/server/agentnetwork` owns every agent-network entity (providers, policies, guardrails, account budget rules, per-account settings, consumption rows) and **translates them into the in-memory `*rpservice.Service` that the reverse-proxy controller turns into `proto.ProxyMapping`s and pushes to clusters**. It is the *only* writer of the agent-network middleware chain.
 
-Inside the package: `manager.go` is the CRUD + permissions-gated facade; `synthesizer.go` walks settings + providers + policies + guardrails and emits the per-account service plus every middleware's JSON config; `policyselect.go` runs per-request attribution (min-wins account ceiling, then "drain bigger pool first"); `reconcile.go` diffs successive synth outputs and emits precise Create/Update/Delete proxy-mapping updates plus a peer-map refresh. `labelgen/` mints DNS-safe subdomain labels; `catalog/` is the static provider catalogue; `types/` carries gorm entity structs. The `_realstack_test.go` files at the parent `management/server/` directory exercise the manager + network-map controller end-to-end with no mocks.
+Inside the package: `manager.go` is the CRUD + permissions-gated facade; `synthesizer.go` walks settings + providers + policies + guardrails and emits the per-account service plus every middleware's JSON config; `policyselect.go` runs per-request attribution (min-wins account ceiling, then "drain bigger pool first"); `reconcile.go` diffs successive synth outputs and emits precise Create/Update/Delete proxy-mapping updates plus a peer-map refresh. `labelgen/` mints DNS-safe subdomain labels; `catalog/` is the static provider catalogue; `types/` carries gorm entity structs. The `_realstack_test.go` files in the parent `management/server/` directory exercise the manager + network-map controller end-to-end with no mocks.
 
-## Commits in scope
+## Files
 
-| SHA | Subject | LOC delta |
-| --- | ------- | --------- |
-| `06ff17b38` | AN-0: additive base types | +804 |
-| `77b407632` | AN-2: agentnetwork module (manager, synth, catalog, policyselect) | +5049 |
-| `09e8059b6` | AN-2b: wire synth services into network map | +12/−13 |
-| `9ebe219fd` | test: lock auth→middleware group-propagation | +3 |
-| `665575932` | test: real-store coverage (no MockStore) | +174 |
-| `5adee2cb4` | no-mock provider-CRUD fan-out test | +212 |
-| `9ae476ea7` | no-mock baseline guards for enforcement + guardrail synth | +314 |
-| `a436b5fb3` | GC-0: budget rule type + collection toggles | +64 |
-| `5b408b0ef` | GC-1: budget-rule manager CRUD + settings update | +281 |
-| `b22d5a181` | GC-2: account budget rules as min-wins ceiling | +344/−32 |
-| `945f17f1a` | GC-3: account prompt-collection master switch | +108/−36 |
-| `23bdf6871` | GC-4: HTTP API surface (types-side delta) | +61/−5 |
-| `468875cb4` | EnableLogCollection → DisableAccessLog on synth target | +71 |
-| `7072f8125` | Account toggle = sole capture control + broader redact | +23/−17 |
-| `b438a7194` | Budget enforcement fix + extended PII redaction | +26/−13 |
-| `19e03d688` | Tests for redact-pii wiring across parsers | +97 |
-| `4836d5a19` | **Live-bug fix: gate `capture_prompt`/`capture_completion` on EnablePromptCollection** | +104/−14 |
-
-## Files changed
-
-| Path | Status | LOC | Role |
-| ---- | ------ | --- | ---- |
-| `agentnetwork/manager.go` | new | 788 | Manager interface + CRUD + permission gates + bootstrap-settings + reconcile trigger |
-| `agentnetwork/synthesizer.go` | new | 959 | Settings/policy → wire-format synthesis; sole writer of the proxy middleware chain |
-| `agentnetwork/policyselect.go` | new | 594 | Per-request policy attribution + account-budget ceiling (min-wins) |
-| `agentnetwork/reconcile.go` | new | 131 | Per-account synth diff vs in-memory cache → Create/Update/Delete |
-| `agentnetwork/catalog/catalog.go` | new | 685 | Static provider catalogue (auth headers, identity-injection shapes) |
-| `agentnetwork/labelgen/{labelgen,words}.go` | new | 202 | DNS-safe subdomain picker + curated wordlist |
-| `agentnetwork/types/provider.go` | new | 252 | Provider entity + APIKey + Models + ExtraValues + SessionKeys |
-| `agentnetwork/types/policy.go` | new | 192 | Policy entity + `PolicyLimits` (token + budget) |
-| `agentnetwork/types/guardrail.go` | new | 120 | Guardrail entity (`ModelAllowlist`, `PromptCapture`) |
-| `agentnetwork/types/budgetrule.go` | new | 106 | `AccountBudgetRule` (reuses `PolicyLimits`) |
-| `agentnetwork/types/settings.go` | new | 63 | Per-account `Settings` (Cluster, Subdomain, 3 toggles) |
-| `agentnetwork/types/consumption.go` | new | 58 | `Consumption` row + `WindowStart` aligner |
-| `agentnetwork/{synthesizer,policyselect,reconcile,wire_shape}_*test.go` | new | 2867 | See test coverage table |
-| `agentnetwork/types/consumption_test.go` | new | 141 | `WindowStart` alignment proofs |
-| `agentnetwork/labelgen/labelgen_test.go` | new | 101 | Deterministic picks + exhaustion + fallback |
-| `management/server/agentnetwork_realstack_test.go` | new | 212 | No-mock provider CRUD → network-map fan-out |
-| `management/server/agentnetwork_budgetrule_realstack_test.go` | new | 126 | No-mock budget-rule CRUD + settings preserve-immutable |
+| Path | Role |
+| ---- | ---- |
+| `agentnetwork/manager.go` | Manager interface + CRUD + permission gates + bootstrap-settings + reconcile trigger |
+| `agentnetwork/synthesizer.go` | Settings/policy → wire-format synthesis; sole writer of the proxy middleware chain |
+| `agentnetwork/policyselect.go` | Per-request policy attribution + account-budget ceiling (min-wins) |
+| `agentnetwork/reconcile.go` | Per-account synth diff vs in-memory cache → Create/Update/Delete |
+| `agentnetwork/catalog/catalog.go` | Static provider catalogue (auth headers, identity-injection shapes) |
+| `agentnetwork/labelgen/{labelgen,words}.go` | DNS-safe subdomain picker + curated wordlist |
+| `agentnetwork/types/provider.go` | Provider entity + APIKey + Models + ExtraValues + SessionKeys |
+| `agentnetwork/types/policy.go` | Policy entity + `PolicyLimits` (token + budget) |
+| `agentnetwork/types/guardrail.go` | Guardrail entity (`ModelAllowlist`, `PromptCapture`) |
+| `agentnetwork/types/budgetrule.go` | `AccountBudgetRule` (reuses `PolicyLimits`) |
+| `agentnetwork/types/settings.go` | Per-account `Settings` (Cluster, Subdomain, 3 toggles) |
+| `agentnetwork/types/consumption.go` | `Consumption` row + `WindowStart` aligner |
+| `agentnetwork/{synthesizer,policyselect,reconcile,wire_shape}_*test.go` | See test coverage table |
+| `agentnetwork/types/consumption_test.go` | `WindowStart` alignment proofs |
+| `agentnetwork/labelgen/labelgen_test.go` | Deterministic picks + exhaustion + fallback |
+| `management/server/agentnetwork_realstack_test.go` | No-mock provider CRUD → network-map fan-out |
+| `management/server/agentnetwork_budgetrule_realstack_test.go` | No-mock budget-rule CRUD + settings preserve-immutable |
 
 ## Architecture & flow
 
@@ -154,7 +130,7 @@ At request time the path is independent: the proxy calls `SelectPolicyForRequest
 
 ## Invariants
 
-- **Min-wins / all-must-pass for account budget rules** (`checkAccountBudget`, `policyselect.go:353`): every applicable enabled rule is checked; first exhausted cap denies. Untargeted rules bind every caller. GC-2 contract.
+- **Min-wins / all-must-pass for account budget rules** (`checkAccountBudget`, `policyselect.go:353`): every applicable enabled rule is checked; first exhausted cap denies. Untargeted rules bind every caller.
 - **Account toggle is the SOLE control for capture enablement.** `applyAccountCollectionControls` (`synthesizer.go:701`) sets `merged.PromptCapture.Enabled = settings.EnablePromptCollection` *unconditionally*.
 - **Capture-pointer semantics on parser configs** — see "Things to scrutinize" below.
 - **`EnableLogCollection` ↔ `DisableAccessLog` is the only access-log toggle** (`synthesizer.go:770`). Default off ⇒ access log suppressed.
@@ -168,11 +144,11 @@ At request time the path is independent: the proxy calls `SelectPolicyForRequest
 
 ### Correctness
 
-- **Capture-pointer semantics — `*bool` vs `bool` (the live-bug fix at `4836d5a19`).** Three states, owned by separate sides:
+- **Capture-pointer semantics — `*bool` vs `bool`.** Three states, owned by separate sides:
   - **Wire JSON this module emits:** `buildParserConfigJSON` (`synthesizer.go:678-693`) *always* stamps the capture field. Agent-network targets ship `"capture_prompt": false` or `"capture_prompt": true` — never absent. Same for `"capture_completion"`. The happy-path test pins `{"capture_prompt":false}` (`synthesizer_test.go:174`).
   - **Proxy-side parser config (consumer):** parsers decode into `*bool`. Matrix:
     - `nil` (field absent) → **legacy default = emit**. Preserved for non-agent-network callers and pre-existing tests (the backward-compat hook).
-    - `false` (field present, value false) → **suppress emission entirely**. New behaviour for opted-out agent-network accounts. Without this, `enable_log_collection=true` + `enable_prompt_collection=false` leaked raw user input AND raw model output to the access log (the live bug).
+    - `false` (field present, value false) → **suppress emission entirely**. The behaviour for opted-out agent-network accounts. Without this, `enable_log_collection=true` + `enable_prompt_collection=false` would leak raw user input AND raw model output to the access log.
     - `true` → emit normally.
   - **Why the synth always stamps a value:** an agent-network mapping omitting the field would hit legacy "always emit" and re-introduce the leak. The `json.Marshal` error fallback at `synthesizer.go:687` degrades to `{}` — comment-claimed unreachable, but if ever fired re-introduces the leak. Consider fail-closed (return literal `{"capture_prompt":false}`) instead.
 - **`scoreCandidates` non-cumulative deny code.** Only the *last* exhausted policy's deny code survives (`policyselect.go:188-190`). Iteration order is store's natural order. Auth signal is `len(scored)==0`, so this is informational only — verify no UI depends on "first exhausted policy" semantics.
@@ -182,7 +158,7 @@ At request time the path is independent: the proxy calls `SelectPolicyForRequest
 
 ### Security
 
-- **Redact OR-merge:** merged `RedactPii` = account OR guardrail (`synthesizer.go:706`). **Parser-side flag is `settings.RedactPii` only, NOT the OR** — a guardrail-only opt-in does not propagate to parsers. Correct because the account toggle gates capture, but flag for the proxy reviewer.
+- **Redact OR-merge:** merged `RedactPii` = account OR guardrail (`synthesizer.go:706`). **Parser-side flag is `settings.RedactPii` only, NOT the OR** — a guardrail-only opt-in does not propagate to parsers. Correct because the account toggle gates capture, but worth noting on the proxy side.
 - **Group resolution must not leak across accounts.** Every store call carries `accountID` (`policyselect.go:73, 286, 298, 322, 334, 354`); `lowestIntersect` uses caller's claimed groups only (`policyselect.go:494`). Risk surface is upstream (handler populates `in.GroupIDs`).
 - **`UpdateSettings` preserves immutable Cluster + Subdomain** (`manager.go:558`). A client can't rebind the cluster.
 - **Provider session keypair backfill writes through `SaveAgentNetworkProvider`** (`synthesizer.go:256`) from a read-shaped call. Idempotent → worst case is a wasted write under concurrent reconcile + snapshot.
@@ -218,19 +194,19 @@ At request time the path is independent: the proxy calls `SelectPolicyForRequest
 | Test file | Locks down |
 | --------- | ---------- |
 | `synthesizer_test.go` | Mock-store: `HappyPath` (8-mw chain ordering, `{"capture_prompt":false}` baseline); `No{Settings,Providers}`; `Disabled{Provider,Policy}_NoService`; `RouterConfigOrdering`; `PolicyCheckConfig_UnionsSourceGroups`; `OrphanProvider_HasEmptyAllowedGroups`; identity-inject for LiteLLM / Bifrost (overrides + partial disable) / Cloudflare / Portkey / Vercel / OpenRouter / generic non-customizable; `GuardrailMerge_AllowlistUnion_LimitsRestrictive`; `BackfillsMissingSessionKeys`; `HTTPUpstream_KeepsExplicitPort`; `UpstreamURLPath_FlowsToRouter`; `UnknownProviderID_FailsClosed`; `EmptyAPIKey_FailsClosed`. |
-| `synthesizer_realstore_test.go` | Real-sqlite: `SurvivesStatusToggle` reproduces the live 403 via disable/re-enable; `Reconcile_RealStore_PushesPrivateAfterStatusToggle` extends through reconcile push. |
-| `synthesizer_guardrail_realstore_test.go` | GC-3: `PromptCaptureAccountIsSoleControl`; `PromptCaptureFlowsWhenAccountOptsIn`; `AccountRedactWithoutGuardrailRedact`; `NoGuardrail_CaptureOff`. |
+| `synthesizer_realstore_test.go` | Real-sqlite: `SurvivesStatusToggle` reproduces the disable/re-enable 403 regression; `Reconcile_RealStore_PushesPrivateAfterStatusToggle` extends through reconcile push. |
+| `synthesizer_guardrail_realstore_test.go` | `PromptCaptureAccountIsSoleControl`; `PromptCaptureFlowsWhenAccountOptsIn`; `AccountRedactWithoutGuardrailRedact`; `NoGuardrail_CaptureOff`. |
 | `synthesizer_log_collection_realstore_test.go` | `LogCollection{Off_SuppressesAccessLog,On_PermitsAccessLog}` — verifies `DisableAccessLog` propagation through `ToProtoMapping`. |
-| `synthesizer_parser_redact_realstore_test.go` | **Live-bug regression suite (4836d5a19):** `ParserConfigsCarryRedactPii`; `ParserConfigsSuppressCaptureWhenLogCollectionOnly` (log=on/prompt=off ⇒ both capture flags false); `ParserConfigsOmitRedactPiiWhenOff`. |
+| `synthesizer_parser_redact_realstore_test.go` | **Capture-pointer regression suite:** `ParserConfigsCarryRedactPii`; `ParserConfigsSuppressCaptureWhenLogCollectionOnly` (log=on/prompt=off ⇒ both capture flags false); `ParserConfigsOmitRedactPiiWhenOff`. |
 | `policyselect_test.go` | Mock-store: `NoApplicablePolicies`; `AllowWithLowestGroupAttribution`; `LargerPoolWinsAcrossUsageLevels`; `StaysOnLargerPoolAfterPartialDrain`; `FallsThroughToSmallerPoolWhenLargerExhausted`; `TiebreakBy{LargerGroupPool,CreatedAt}`; `DeniesWhenAllExhausted`; `UncappedPolicyAlwaysWinsAgainstCapped`; `DisabledPolicyIgnored`; `StoreErrorPropagates`; `RejectsEmptyAccount`; `SharesGroupCounterAcrossPolicies`; `AntiFallThroughOnLowestGroup`; `BudgetOnlyExhaustionDenies`; `BudgetTighterThanTokenWins`. |
-| `policyselect_realstore_test.go` | Real-sqlite regression guard: `NoApplicablePolicies`; `AllowAndLowestGroupAttribution`; `LargerPoolWins_FallsThroughWhenExhausted`; `BudgetCapDenies`; `GroupCounterSharedAcrossPolicies`; `DisabledPolicyIgnored`. Must pass unchanged after GC-2. |
-| `policyselect_account_realstore_test.go` | GC-2: `AccountCeilingBindsEvenWithUncappedPolicy` (min-wins); `AccountGroupCeiling`; `AccountTargetUsersBindsOnlyThatUser`; `AccountRuleRecordsToOwnWindow`. |
+| `policyselect_realstore_test.go` | Real-sqlite regression guard: `NoApplicablePolicies`; `AllowAndLowestGroupAttribution`; `LargerPoolWins_FallsThroughWhenExhausted`; `BudgetCapDenies`; `GroupCounterSharedAcrossPolicies`; `DisabledPolicyIgnored`. |
+| `policyselect_account_realstore_test.go` | Account budget rules: `AccountCeilingBindsEvenWithUncappedPolicy` (min-wins); `AccountGroupCeiling`; `AccountTargetUsersBindsOnlyThatUser`; `AccountRuleRecordsToOwnWindow`. |
 | `reconcile_test.go` | `FirstSynth_EmitsCreate`; `NoChange_EmitsNothingExtra` (re-push as Modified — verify desired); `PolicyRemoved_EmitsDelete`; `NilProxyController_NoOp`; `EmptyAccountID_NoOp`; `ClusterFromMapping`. |
 | `wire_shape_test.go` | `TestSynthesizedService_WireShape` — proto-shape lockdown via `ToProtoMapping`. Catches "service not matching" (mapping reaches proxy but no SNI/HTTP route). Asserts ID, Domain, Mode, AuthToken, `Private`, `Auth.Oidc=false`, one path `/` + `https://noop.invalid/`, 8 middlewares with correct slot enums, router config `auth_header_value="Bearer sk-test-key"`. |
 | `labelgen/labelgen_test.go` | `PickUnique_{DeterministicWithSeededRng,AvoidsTakenWordsWhenMostAreReserved,FallsBackWhenAllReserved}`; `UniqueWords_DropsDuplicates`. |
 | `types/consumption_test.go` | `WindowStart_{AlignedToUnixEpoch,WithinWindowConverges,AcrossWindowsDiverges,DifferentWindowsHaveDifferentBuckets,SubMinuteAndMinuteAlignment,ZeroWindowReturnsInputUTC}`. Bucket alignment so multi-node reads converge. |
 | `agentnetwork_realstack_test.go` | `ProviderCRUD_FansOutToProxyAndClientPeers` — no-mock end-to-end through real account manager + network-map + agentnetwork: provider create propagates the updated map to both proxy peer and client peer with the synth DNS surface. |
-| `agentnetwork_budgetrule_realstack_test.go` | GC-1: `BudgetRuleCRUD_RealManager`; `UpdateSettings_PreservesImmutableAndTogglesCollection`. |
+| `agentnetwork_budgetrule_realstack_test.go` | `BudgetRuleCRUD_RealManager`; `UpdateSettings_PreservesImmutableAndTogglesCollection`. |
 
 ## Known limitations / explicit non-goals
 

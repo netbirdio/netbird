@@ -1,10 +1,8 @@
 # proxy/middleware-builtin — the LLM chain
 
-> Reviewer profile: proxy / LLM. You should be comfortable with Go HTTP middleware
-> composition, OpenAI Responses API + Anthropic Messages API request/response shapes,
-> SSE framing, and the NetBird management gRPC surface (`proto.ProxyServiceClient`).
-> Spend most of your time on the **capture-pointer semantics** and the **limit_check ⇒
-> limit_record** record-once invariant — those carry the highest blast radius.
+The registry-mounted middleware set the proxy executes on every agent-network
+LLM request. The two highest-blast-radius areas are the **capture-pointer
+semantics** and the **limit_check ⇒ limit_record** record-once invariant.
 
 Sibling module: [32-proxy-llm-parsers.md](./32-proxy-llm-parsers.md) — the SDK
 adapters + pricing catalog this chain delegates to.
@@ -16,9 +14,9 @@ adapters + pricing catalog this chain delegates to.
 This module is the registry-mounted middleware set the proxy executes on
 every agent-network LLM request. Each sub-package registers itself via
 `init()`
-([builtin.go:32–34](../../../../netbird/proxy/internal/middleware/builtin/builtin.go));
+([builtin.go:32–34](../../../proxy/internal/middleware/builtin/builtin.go));
 the proxy server anonymous-imports the set
-([all_test.go:11–19](../../../../netbird/proxy/internal/middleware/builtin/all_test.go))
+([all_test.go:11–19](../../../proxy/internal/middleware/builtin/all_test.go))
 so the registry is populated at boot. The chain is wired by the management
 synthesiser and executed by the framework
 (`proxy/internal/middleware/{chain,dispatcher,accumulator}.go` — both out
@@ -39,22 +37,10 @@ rewrites.
 | `cost_meter` | OnResponse | `llm.{provider,model}`, token buckets | `cost.usd_total` or `cost.skipped` | pricing lookup |
 | `llm_limit_record` | OnResponse | `llm.{attribution_group_id,attribution_window_seconds,input_tokens,output_tokens}`, `cost.usd_total` | none | gRPC `RecordLLMUsage` |
 
-[all_test.go:26–40](../../../../netbird/proxy/internal/middleware/builtin/all_test.go)
+[all_test.go:26–40](../../../proxy/internal/middleware/builtin/all_test.go)
 locks the ID set; adding or removing one is a conscious extension.
 
-## Commits in scope
-
-`e64ea4b02` AN-5 built-in middlewares + registry · `a67022ffa` stamp parser
-id from catalog · `19d12adc8` openai match bare `/chat/completions` for
-Cloudflare AI Gateway · `afefa38ce` cached + cache-creation tokens ·
-`8cb9c187d` AN-7 enforcement + synth-service delivery · `b22d5a181` GC-2
-account budget rules min-wins · `7072f8125` account toggle sole control for
-prompt capture · `b1e66bca2` broader phone redactor · `b438a7194` budget
-enforcement fix + PII redaction across channels · `19e03d688` redact-pii
-wiring tests · `2a0d4991b` full-chain integration test · **`4836d5a19` gate
-prompt + completion capture on EnablePromptCollection (capture-pointer fix)**.
-
-## Files changed
+## Files
 
 | File | LOC | Notes |
 |---|---:|---|
@@ -76,9 +62,9 @@ prompt + completion capture on EnablePromptCollection (capture-pointer fix)**.
 
 Detects the LLM provider via `llm.DetectParser` (URL sniff) or by name via
 `llm.ParserByName` when synthesiser stamps `provider_id`
-([middleware.go:96–99](../../../../netbird/proxy/internal/middleware/builtin/llm_request_parser/middleware.go)).
+([middleware.go:96–99](../../../proxy/internal/middleware/builtin/llm_request_parser/middleware.go)).
 **Path-routed providers short-circuit first:** `parseVertexPath` and
-`parseBedrockPath` ([middleware.go:85–94](../../../../netbird/proxy/internal/middleware/builtin/llm_request_parser/middleware.go))
+`parseBedrockPath` ([middleware.go:85–94](../../../proxy/internal/middleware/builtin/llm_request_parser/middleware.go))
 pull the model + vendor out of the URL before parser selection runs — Vertex
 from `/v1/projects/.../publishers/{pub}/models/{model}:{action}` (publisher →
 vendor via `vertexPublisherVendor`), Bedrock from `/model/{id}/{action}` with
@@ -89,27 +75,27 @@ grammar. For body-routed providers it decodes the body into `RequestFacts`
 `capture_prompt=true` (or absent — see capture-pointer semantics below) the
 prompt is run through `llm_guardrail.RedactPII` when `redact_pii=true` and
 truncated rune-safely to 3500 bytes
-([middleware.go:109–122](../../../../netbird/proxy/internal/middleware/builtin/llm_request_parser/middleware.go)).
+([middleware.go:109–122](../../../proxy/internal/middleware/builtin/llm_request_parser/middleware.go)).
 **Key invariant:** redaction is parser-side, not guardrail-side — access-log
 reads `llm.request_prompt_raw` directly.
 
 ### llm_router
 
 Three-pass route selection in `matchRoute`
-([middleware.go:241–300](../../../../netbird/proxy/internal/middleware/builtin/llm_router/middleware.go)):
+([middleware.go:241–300](../../../proxy/internal/middleware/builtin/llm_router/middleware.go)):
 filter by `Models` claim → vendor-pin (a vendor-tagged request never crosses to
 another vendor's route) → filter by `AllowedGroupIDs` intersection → model
 precedence over path → tie-break by longest `UpstreamPath` prefix match.
 Model-miss returns `llm_policy.model_not_routable`; known-but-unauthorised
 returns `llm_policy.no_authorised_provider`. **Key invariant:** auth-header
 strip+inject rides on `UpstreamRewrite.{StripHeaders,AuthHeader}`
-([middleware.go:606–646](../../../../netbird/proxy/internal/middleware/builtin/llm_router/middleware.go))
+([middleware.go:606–646](../../../proxy/internal/middleware/builtin/llm_router/middleware.go))
 — NOT `HeadersAdd/HeadersRemove` — because the framework's mutation gate
 blocks `Authorization` on the generic header path.
 
 **Path-routed providers route before the model table.** `Invoke` checks
 `isVertexPath` / `isBedrockPath`
-([middleware.go:138–216](../../../../netbird/proxy/internal/middleware/builtin/llm_router/middleware.go))
+([middleware.go:138–216](../../../proxy/internal/middleware/builtin/llm_router/middleware.go))
 ahead of the model lookup, so a path-carried model can't be claimed by a
 same-vendor body-routed provider. `matchPathRoute` enforces the route's `Models`
 allowlist (empty = catch-all) even though the model came from the URL.
@@ -132,19 +118,19 @@ Full treatment in [50-path-routed-providers.md](./50-path-routed-providers.md).
 
 Pre-flight gate. Reads `llm.resolved_provider_id`, calls
 `CheckLLMPolicyLimits` with a 2s context timeout
-([middleware.go:24, 97–106](../../../../netbird/proxy/internal/middleware/builtin/llm_limit_check/middleware.go)),
+([middleware.go:24, 97–106](../../../proxy/internal/middleware/builtin/llm_limit_check/middleware.go)),
 on allow stamps `llm.selected_policy_id`, `llm.attribution_group_id`,
 `llm.attribution_window_seconds`. **Key invariant:** fail-open. Nil
 `MgmtClient`, empty provider id, or RPC error returns `allowNoAttribution()`
 — management outage doesn't take down every LLM request. Operators audit via
-the access-log; PR3 may switch to fail-closed under a flag.
+the access-log; a future flag may switch this to fail-closed.
 
 ### llm_identity_inject
 
 Dispatches per-rule between LiteLLM-shaped `HeaderPair`
-([middleware.go:169](../../../../netbird/proxy/internal/middleware/builtin/llm_identity_inject/middleware.go))
+([middleware.go:169](../../../proxy/internal/middleware/builtin/llm_identity_inject/middleware.go))
 and Portkey-shaped `JSONMetadata`
-([middleware.go:292](../../../../netbird/proxy/internal/middleware/builtin/llm_identity_inject/middleware.go)).
+([middleware.go:292](../../../proxy/internal/middleware/builtin/llm_identity_inject/middleware.go)).
 Identity is the peer's email (or `UserID` fallback); tags are the
 **authorising-groups intersection** emitted by `llm_router`, not the full
 `UserGroups` — a peer in 5 groups authorised under 1 only tags as that 1.
@@ -160,20 +146,20 @@ Model allowlist deny + optional prompt-capture-with-redaction. Allowlist
 match is case-insensitive via `normaliseModel`; empty allowlist disables the
 check. Prompt capture reads `llm.request_prompt_raw` and emits
 `llm.request_prompt` only when `prompt_capture.enabled`
-([middleware.go:149–165](../../../../netbird/proxy/internal/middleware/builtin/llm_guardrail/middleware.go)).
+([middleware.go:149–165](../../../proxy/internal/middleware/builtin/llm_guardrail/middleware.go)).
 **Key invariant:** `RedactPII` is the exported function the parsers call —
 single PII contract across all three keys.
 
 ### llm_response_parser
 
 Buffered and SSE paths share one `Invoke`
-([middleware.go:102–127](../../../../netbird/proxy/internal/middleware/builtin/llm_response_parser/middleware.go)):
+([middleware.go:102–127](../../../proxy/internal/middleware/builtin/llm_response_parser/middleware.go)):
 content-type sniffing dispatches to `invokeBuffered` (JSON, status<400) or
 `invokeStreaming` (text/event-stream, partial bodies tolerated). Streaming
 delegates to `accumulateStream`
-([streaming.go:21–30](../../../../netbird/proxy/internal/middleware/builtin/llm_response_parser/streaming.go))
+([streaming.go:21–30](../../../proxy/internal/middleware/builtin/llm_response_parser/streaming.go))
 using `llm.NewScanner`. A third path, `accumulateBedrockStream`
-([streaming_bedrock.go](../../../../netbird/proxy/internal/middleware/builtin/llm_response_parser/streaming_bedrock.go)),
+([streaming_bedrock.go](../../../proxy/internal/middleware/builtin/llm_response_parser/streaming_bedrock.go)),
 decodes the AWS binary event-stream (`application/vnd.amazon.eventstream`)
 returned by Bedrock's `-stream` actions — InvokeModel `chunk` frames wrap a
 base64 Anthropic event, Converse frames carry text + a trailing usage block.
@@ -244,7 +230,7 @@ sequenceDiagram
 ```
 
 The integration test
-[agentnetwork_chain_integration_test.go](../../../../netbird/proxy/internal/middleware/builtin/agentnetwork_chain_integration_test.go)
+[agentnetwork_chain_integration_test.go](../../../proxy/internal/middleware/builtin/agentnetwork_chain_integration_test.go)
 exercises all three branches against a real sqlite store + bufconn gRPC —
 no mocks. Tests: `TestChain_AllowPath_StampsAttributionAndRecordsCounter`
 (line 130), `TestChain_DenyPath_GateRejectsAndNoConsumptionWritten` (line
@@ -254,7 +240,7 @@ no mocks. Tests: `TestChain_AllowPath_StampsAttributionAndRecordsCounter`
 
 | Middleware | Config shape |
 |---|---|
-| `llm_request_parser` | `{provider_id?, redact_pii?, capture_prompt?: *bool}` ([factory.go:19–37](../../../../netbird/proxy/internal/middleware/builtin/llm_request_parser/factory.go)) |
+| `llm_request_parser` | `{provider_id?, redact_pii?, capture_prompt?: *bool}` ([factory.go:19–37](../../../proxy/internal/middleware/builtin/llm_request_parser/factory.go)) |
 | `llm_router` | `{providers: [{id, models, upstream_scheme, upstream_host, upstream_path?, auth_header_name, auth_header_value, allowed_group_ids}]}` |
 | `llm_limit_check` | `{}` — pulls `MgmtClient` from `FactoryContext` |
 | `llm_identity_inject` | `{providers: [{provider_id, header_pair?|json_metadata?, extra_headers?}]}` |
@@ -273,7 +259,7 @@ build time.
    stamps attribution metadata on the request leg; recorder reads it on the
    response leg. If a chain contains only the recorder, the
    skip-on-missing-attribution guard at
-   [llm_limit_record/middleware.go:81–87, 98–103](../../../../netbird/proxy/internal/middleware/builtin/llm_limit_record/middleware.go)
+   [llm_limit_record/middleware.go:81–87, 98–103](../../../proxy/internal/middleware/builtin/llm_limit_record/middleware.go)
    keeps counters consistent but no enforcement runs. Only-gate means
    counters never tick and headroom appears infinite.
 
@@ -282,10 +268,11 @@ build time.
    non-agent-network callers and pre-toggle tests). `false` = suppress the
    key entirely (access-log row carries zero prompt / completion content).
    `true` = emit. The synthesiser sets the pointer explicitly to the
-   account's `EnablePromptCollection` toggle — see commit `4836d5a19` for
-   the bug where a missing pointer was incorrectly treated as `false`. Fix
-   in [llm_request_parser/factory.go:55–61](../../../../netbird/proxy/internal/middleware/builtin/llm_request_parser/factory.go)
-   and the symmetric [llm_response_parser/middleware.go:62–68](../../../../netbird/proxy/internal/middleware/builtin/llm_response_parser/middleware.go).
+   account's `EnablePromptCollection` toggle. The handling lives
+   in [llm_request_parser/factory.go:55–61](../../../proxy/internal/middleware/builtin/llm_request_parser/factory.go)
+   and the symmetric [llm_response_parser/middleware.go:62–68](../../../proxy/internal/middleware/builtin/llm_response_parser/middleware.go);
+   a missing pointer must not be treated as `false` (that would suppress
+   capture for legacy non-agent-network callers).
    `redact_pii` is an orthogonal `bool` controlling **form** of emitted
    content, not whether it's emitted.
 
@@ -314,22 +301,22 @@ build time.
 
 **Correctness.** `llm_router` model match treats an empty `Models` slice as
 "claim every model"
-([middleware.go:238–248](../../../../netbird/proxy/internal/middleware/builtin/llm_router/middleware.go))
+([middleware.go:238–248](../../../proxy/internal/middleware/builtin/llm_router/middleware.go))
 for gateway-style providers — confirm no real provider record ships with an
 empty `Models` by accident. Path-prefix tie-break falls back to declaration
 order when no candidate prefix-matches, so the synthesiser must emit a
 deterministic order. `llm_limit_record` discards `strconv.ParseInt` errors
-([middleware.go:78–80](../../../../netbird/proxy/internal/middleware/builtin/llm_limit_record/middleware.go))
+([middleware.go:78–80](../../../proxy/internal/middleware/builtin/llm_limit_record/middleware.go))
 — relies on `llm_response_parser` always emitting parseable values; spot-check
 the streaming partial path on truncated bodies.
 
 **Security.** Auth headers must NEVER appear on `Mutations.HeadersAdd/Remove`
-for the router — flag any PR that introduces a direct headers path. The
-capture-pointer regression (`4836d5a19`) is the kind of bug that ships PII to
-logs silently; walk every synthesiser config path and check the pointer is
-set explicitly. `llm_identity_inject` body inject silently skips on a
+for the router — a direct headers path would bypass the framework gate. The
+capture-pointer handling is the kind of place a bug ships PII to logs
+silently; every synthesiser config path must set the pointer explicitly.
+`llm_identity_inject` body inject silently skips on a
 non-object `metadata` field
-([middleware.go:262–270](../../../../netbird/proxy/internal/middleware/builtin/llm_identity_inject/middleware.go))
+([middleware.go:262–270](../../../proxy/internal/middleware/builtin/llm_identity_inject/middleware.go))
 — header path still attributes, but body-level tag-budget enforcement
 doesn't run for that request.
 
@@ -344,7 +331,7 @@ is O(1); SSE accumulation is single-pass. No map allocation per call.
 **Observability.** Every deny stamps `llm_policy.decision=deny` and a
 matching `llm_policy.reason` — access-log can pivot on either.
 `llm_limit_record` only logs at `Debugf` on RPC failure
-([middleware.go:125–130](../../../../netbird/proxy/internal/middleware/builtin/llm_limit_record/middleware.go));
+([middleware.go:125–130](../../../proxy/internal/middleware/builtin/llm_limit_record/middleware.go));
 operators need an alternate signal (metric on `RecordLLMUsage` failures) for
 counter accuracy.
 

@@ -1,13 +1,13 @@
 # path-routed providers — Vertex AI + Bedrock
 
-> Reviewer profile: proxy / LLM + management catalog. You should be comfortable
-> with the `llm_router` / `llm_request_parser` middlewares
-> ([31-proxy-middleware-builtin.md](31-proxy-middleware-builtin.md)), the
-> per-provider parser surface ([32-proxy-llm-parsers.md](32-proxy-llm-parsers.md)),
-> and the synthesiser's catalog → `ProviderRoute` mapping
-> ([21-management-agentnetwork.md](21-management-agentnetwork.md)). This guide
-> pulls the **path-routed** provider story together in one place because it
-> crosses the catalog, the synthesiser, the request parser, and the router.
+This guide pulls the **path-routed** provider story together in one place
+because it crosses the catalog, the synthesiser, the request parser, and the
+router. The relevant building blocks are the `llm_router` /
+`llm_request_parser` middlewares
+([31-proxy-middleware-builtin.md](31-proxy-middleware-builtin.md)), the
+per-provider parser surface ([32-proxy-llm-parsers.md](32-proxy-llm-parsers.md)),
+and the synthesiser's catalog → `ProviderRoute` mapping
+([21-management-agentnetwork.md](21-management-agentnetwork.md)).
 
 Sibling modules: [31-proxy-middleware-builtin.md](31-proxy-middleware-builtin.md)
 (router + request parser) and [32-proxy-llm-parsers.md](32-proxy-llm-parsers.md)

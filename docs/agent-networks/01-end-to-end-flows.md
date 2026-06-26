@@ -141,7 +141,7 @@ sequenceDiagram
 - Access-log emission is gated on `settings.EnableLogCollection`. With
   it OFF, neither the deny nor the allow leg writes an entry — the
   chain still runs (budget rules are still enforced) but no audit trail
-  is kept. See `468875cb4` and
+  is kept. See
   [`modules/33-proxy-runtime.md`](modules/33-proxy-runtime.md).
 
 ---
@@ -194,8 +194,7 @@ flowchart LR
   to (group set, user set) with a (window, ceiling). At check time,
   every rule that matches the caller is evaluated; if ANY rule has
   zero remaining quota the request is denied. This is the most
-  surprising semantic for operators — see GC-2 (`b22d5a181`) and the
-  invariants section of
+  surprising semantic for operators — see the invariants section of
   [`modules/21-management-agentnetwork.md`](modules/21-management-agentnetwork.md).
 - The proxy never makes its own budget decisions. It always asks
   management via `CheckLLMPolicyLimits` and reports back via
@@ -203,8 +202,7 @@ flowchart LR
   and avoids per-proxy drift.
 - `RecordLLMUsage` must carry `group_ids` and `user_id` so the
   decrement hits the right rule(s). The wire that carries those
-  fields onto the response leg is `respInput` in `reverseproxy.go`,
-  fixed at `b438a7194`. See
+  fields onto the response leg is `respInput` in `reverseproxy.go`. See
   [`modules/33-proxy-runtime.md`](modules/33-proxy-runtime.md).
 - The dashboard's Budget Dashboard tab polls
   `/api/agent-network/consumption` — not gRPC, not WebSocket. Poll
@@ -216,5 +214,4 @@ flowchart LR
 ## Cross-references
 
 - Per-module guides: [`modules/`](modules/)
-- Overview + ownership matrix: [`00-overview.md`](00-overview.md)
-- AI reviewer prompt: [`90-agent-review-prompt.md`](90-agent-review-prompt.md)
+- Overview + module map: [`00-overview.md`](00-overview.md)
