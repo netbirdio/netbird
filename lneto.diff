@@ -1,0 +1,95 @@
+diff --git a/.github/workflows/wasm-build-validation.yml b/.github/workflows/wasm-build-validation.yml
+index a5ae59720..b1beb2a56 100644
+--- a/.github/workflows/wasm-build-validation.yml
++++ b/.github/workflows/wasm-build-validation.yml
+@@ -17,6 +17,7 @@ jobs:
+     env:
+       GOOS: js
+       GOARCH: wasm
++      GOFLAGS: -tags=wglneto
+     steps:
+       - name: Checkout repository
+         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+@@ -52,7 +53,7 @@ jobs:
+         with:
+           go-version-file: "go.mod"
+       - name: Build Wasm client
+-        run: GOOS=js GOARCH=wasm go build -o netbird.wasm ./client/wasm/cmd
++        run: GOOS=js GOARCH=wasm go build -tags wglneto -o netbird.wasm ./client/wasm/cmd
+         env:
+           CGO_ENABLED: 0
+       - name: Check Wasm build size
+@@ -65,7 +66,7 @@ jobs:
+ 
+           echo "Size: ${SIZE} bytes (${SIZE_MB} MB)"
+ 
+-          if [ ${SIZE} -gt 62914560 ]; then
+-            echo "Wasm binary size (${SIZE_MB}MB) exceeds 60MB limit!"
++          if [ ${SIZE} -gt 67108864 ]; then
++            echo "Wasm binary size (${SIZE_MB}MB) exceeds 64MB limit!"
+             exit 1
+           fi
+diff --git a/.gitignore b/.gitignore
+index 783fe77f3..bb8f128d9 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -34,3 +34,10 @@ vendor/
+ /netbird
+ client/netbird-electron/
+ management/server/types/testdata/
++
++signal/netbird-signal
++*/netbird-relay
++management/netbird-mgmt
++*/netbird
++**/netbird.wasm
++**/wasm_exec.js
+diff --git a/.goreleaser.yaml b/.goreleaser.yaml
+index a2640dc8e..8a56899fc 100644
+--- a/.goreleaser.yaml
++++ b/.goreleaser.yaml
+@@ -15,6 +15,8 @@ builds:
+     ldflags:
+       - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
+     mod_timestamp: "{{ .CommitTimestamp }}"
++    tags:
++      - wglneto
+ 
+   - id: netbird
+     dir: client
+diff --git a/go.mod b/go.mod
+index 2858d2044..80d2ff78b 100644
+--- a/go.mod
++++ b/go.mod
+@@ -306,6 +306,7 @@ require (
+ 	github.com/shirou/gopsutil/v4 v4.25.8 // indirect
+ 	github.com/shoenig/go-m1cpu v0.2.1 // indirect
+ 	github.com/shopspring/decimal v1.4.0 // indirect
++	github.com/soypat/lneto v0.1.0 // indirect
+ 	github.com/spf13/cast v1.7.0 // indirect
+ 	github.com/srwiley/oksvg v0.0.0-20221011165216-be6e8873101c // indirect
+ 	github.com/srwiley/rasterx v0.0.0-20220730225603-2ab79fcdd4ef // indirect
+@@ -341,7 +342,9 @@ replace github.com/kardianos/service => github.com/netbirdio/service v0.0.0-2024
+ 
+ replace github.com/getlantern/systray => github.com/netbirdio/systray v0.0.0-20231030152038-ef1ed2a27949
+ 
+-replace golang.zx2c4.com/wireguard => github.com/netbirdio/wireguard-go v0.0.0-20260523085312-4b4a4e36017f
++replace github.com/soypat/lneto => ../lneto
++
++replace golang.zx2c4.com/wireguard => ../wg-nb2 // github.com/netbirdio/wireguard-go v0.0.0-20260523085312-4b4a4e36017f
+ 
+ replace github.com/cloudflare/circl => codeberg.org/cunicu/circl v0.0.0-20230801113412-fec58fc7b5f6
+ 
+diff --git a/go.sum b/go.sum
+index 1768ee069..216241061 100644
+--- a/go.sum
++++ b/go.sum
+@@ -510,8 +510,6 @@ github.com/netbirdio/service v0.0.0-20240911161631-f62744f42502 h1:3tHlFmhTdX9ax
+ github.com/netbirdio/service v0.0.0-20240911161631-f62744f42502/go.mod h1:CIMRFEJVL+0DS1a3Nx06NaMn4Dz63Ng6O7dl0qH0zVM=
+ github.com/netbirdio/signal-dispatcher/dispatcher v0.0.0-20250805121659-6b4ac470ca45 h1:ujgviVYmx243Ksy7NdSwrdGPSRNE3pb8kEDSpH0QuAQ=
+ github.com/netbirdio/signal-dispatcher/dispatcher v0.0.0-20250805121659-6b4ac470ca45/go.mod h1:5/sjFmLb8O96B5737VCqhHyGRzNFIaN/Bu7ZodXc3qQ=
+-github.com/netbirdio/wireguard-go v0.0.0-20260523085312-4b4a4e36017f h1:ff2D57RBjWtyQ2wVwJOxOgXAXOe/J2lJWtSX0Bz/BRk=
+-github.com/netbirdio/wireguard-go v0.0.0-20260523085312-4b4a4e36017f/go.mod h1:rpwXGsirqLqN2L0JDJQlwOboGHmptD5ZD6T2VmcqhTw=
+ github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646 h1:zYyBkD/k9seD2A7fsi6Oo2LfFZAehjjQMERAvZLEDnQ=
+ github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646/go.mod h1:jpp1/29i3P1S/RLdc7JQKbRpFeM1dOBd8T9ki5s+AY8=
+ github.com/nicksnyder/go-i18n/v2 v2.5.1 h1:IxtPxYsR9Gp60cGXjfuR/llTqV8aYMsC472zD0D1vHk=
