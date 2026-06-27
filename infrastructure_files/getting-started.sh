@@ -418,10 +418,10 @@ apply_agent_network_preset() {
   # Agent-network ships dedicated server/proxy images. Honor an explicit
   # env override; otherwise pin the agent-network builds.
   if [[ "${NETBIRD_SERVER_IMAGE_EXPLICIT}" != "true" ]]; then
-    NETBIRD_SERVER_IMAGE="netbirdio/netbird-server:0.74.0-rc.1"
+    NETBIRD_SERVER_IMAGE="netbirdio/netbird-server:0.74.0-rc.2"
   fi
   if [[ "${NETBIRD_PROXY_IMAGE_EXPLICIT}" != "true" ]]; then
-    NETBIRD_PROXY_IMAGE="netbirdio/reverse-proxy:0.74.0-rc.1"
+    NETBIRD_PROXY_IMAGE="netbirdio/reverse-proxy:0.74.0-rc.2"
   fi
 
   if [[ -n "${NETBIRD_LETSENCRYPT_EMAIL}" ]]; then
