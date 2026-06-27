@@ -17,6 +17,7 @@ import (
 // Metrics collects OpenTelemetry metrics for the proxy.
 type Metrics struct {
 	ctx                      context.Context
+	meter                    metric.Meter
 	requestsTotal            metric.Int64Counter
 	activeRequests           metric.Int64UpDownCounter
 	configuredDomains        metric.Int64UpDownCounter
@@ -49,10 +50,18 @@ type Metrics struct {
 	mappingPaths map[string]int
 }
 
+// Meter returns the OpenTelemetry meter the bundle was built with, so other
+// subsystems (e.g. the middleware manager) register instruments on the same
+// meter.
+func (m *Metrics) Meter() metric.Meter {
+	return m.meter
+}
+
 // New creates a Metrics instance using the given OpenTelemetry meter.
 func New(ctx context.Context, meter metric.Meter) (*Metrics, error) {
 	m := &Metrics{
 		ctx:          ctx,
+		meter:        meter,
 		mappingPaths: make(map[string]int),
 	}
 
