@@ -1402,7 +1402,7 @@ print_builtin_traefik_instructions() {
     echo "consider a commercial on-prem license:"
     echo ""
     echo "  Commercial license: https://netbird.ai/pricing"
-    echo "  Documentation: http://localhost:3001/agent-network"
+    echo "  Documentation: https://docs.netbird.io/:3001/agent-network"
   else
     echo "This setup is ideal for homelabs and smaller organization deployments."
     echo "For enterprise environments requiring high availability and advanced integrations,"
