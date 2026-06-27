@@ -13,9 +13,9 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"github.com/netbirdio/netbird/management/server/agentnetwork"
-	"github.com/netbirdio/netbird/management/server/agentnetwork/catalog"
-	"github.com/netbirdio/netbird/management/server/agentnetwork/types"
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/catalog"
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"

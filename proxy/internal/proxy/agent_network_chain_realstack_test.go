@@ -20,8 +20,8 @@ import (
 
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	mgmtgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
-	"github.com/netbirdio/netbird/management/server/agentnetwork"
-	agentNetworkTypes "github.com/netbirdio/netbird/management/server/agentnetwork/types"
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
+	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/proxy/internal/middleware"
 	"github.com/netbirdio/netbird/proxy/internal/middleware/bodytap"

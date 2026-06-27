@@ -15,8 +15,8 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 
 	mgmtgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
-	"github.com/netbirdio/netbird/management/server/agentnetwork"
-	agentNetworkTypes "github.com/netbirdio/netbird/management/server/agentnetwork/types"
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
+	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	"github.com/netbirdio/netbird/management/server/store"
 	nbtypes "github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/proxy/internal/middleware"

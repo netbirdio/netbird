@@ -7,7 +7,7 @@ import (
 
 	gomock "github.com/golang/mock/gomock"
 
-	agentNetworkTypes "github.com/netbirdio/netbird/management/server/agentnetwork/types"
+	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 )
 
 // GetAllAgentNetworkProviders mocks base method.

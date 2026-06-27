@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	agentNetworkTypes "github.com/netbirdio/netbird/management/server/agentnetwork/types"
+	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 )
 
 // TestAgentNetworkBudgetRule_RealStore_RoundTrip is the GC-0 no-mock guard: it

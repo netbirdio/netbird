@@ -28,7 +28,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	recordsManager "github.com/netbirdio/netbird/management/internals/modules/zones/records/manager"
 	"github.com/netbirdio/netbird/management/server/account"
-	"github.com/netbirdio/netbird/management/server/agentnetwork"
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	agentnetworkhandlers "github.com/netbirdio/netbird/management/server/http/handlers/agentnetwork"
 	"github.com/netbirdio/netbird/management/server/settings"
 

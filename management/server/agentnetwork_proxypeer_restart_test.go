@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
-	"github.com/netbirdio/netbird/management/server/agentnetwork"
-	agenttypes "github.com/netbirdio/netbird/management/server/agentnetwork/types"
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
+	agenttypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/store"
