@@ -2,6 +2,17 @@
 
 set -e
 
+echo "**********************************************************************************"
+echo "* DEPRECATION NOTICE                                                             *"
+echo "*                                                                                *"
+echo "* getting-started-with-zitadel.sh is deprecated and will be removed in a future  *"
+echo "* release. Use getting-started.sh instead: pick the built-in IdP for the         *"
+echo "* simplest setup, or choose 'your own OIDC provider' to connect a Zitadel        *"
+echo "* instance you manage (see                                                       *"
+echo "* https://docs.netbird.io/selfhosted/identity-providers/zitadel).                *"
+echo "**********************************************************************************"
+echo ""
+
 handle_request_command_status() {
   PARSED_RESPONSE=$1
   FUNCTION_NAME=$2

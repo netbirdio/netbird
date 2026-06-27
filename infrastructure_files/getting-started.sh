@@ -2,9 +2,17 @@
 
 set -e
 
-# NetBird Getting Started with Embedded IdP (Dex)
-# This script sets up NetBird with the embedded Dex identity provider
-# No separate Dex container or reverse proxy needed - IdP is built into management server
+# NetBird Getting Started
+# Sets up a self-hosted NetBird deployment. Two architectures are supported:
+#   - combined: a single netbird-server container (management + signal + relay + STUN)
+#     using the built-in identity provider
+#   - split: separate management, signal and relay containers, using either the
+#     built-in identity provider or your own OIDC provider
+#
+# All wizard answers are persisted to setup.env. Re-running with --non-interactive
+# renders the same deployment from that file (suitable for IaC/automation).
+#
+# Usage: getting-started.sh [--non-interactive] [--render-only] [--setup-env=FILE]
 
 # Sed pattern to strip base64 padding characters
 SED_STRIP_PADDING='s/=//g'
@@ -119,6 +127,151 @@ read_nb_domain() {
     read_nb_domain
   fi
   echo "$READ_NETBIRD_DOMAIN"
+  return 0
+}
+
+check_curl() {
+  if ! command -v curl &> /dev/null
+  then
+    echo "curl is not installed or not in PATH, please install with your package manager. e.g. sudo apt install curl" > /dev/stderr
+    exit 1
+  fi
+  return 0
+}
+
+require_interactive() {
+  # Guards prompts so --non-interactive runs fail loudly instead of hanging on /dev/tty
+  local var_hint="$1"
+  if [[ "$NON_INTERACTIVE" == "true" ]]; then
+    echo "Missing or invalid value for $var_hint in non-interactive mode. Set it in $SETUP_ENV_FILE or as an environment variable." > /dev/stderr
+    exit 1
+  fi
+  return 0
+}
+
+read_idp_mode() {
+  echo "" > /dev/stderr
+  echo "Which identity provider (IdP) do you want to use?" > /dev/stderr
+  echo "  [0] Built-in IdP (recommended - local users, external providers can be added for SSO later)" > /dev/stderr
+  echo "  [1] Your own OIDC provider as the sole authentication path (Keycloak, Zitadel, Okta, ...)" > /dev/stderr
+  echo "" > /dev/stderr
+  echo "Note: the built-in IdP supports connecting external identity providers for SSO" > /dev/stderr
+  echo "from the dashboard, but runs in single account mode. Choose [1] only if you" > /dev/stderr
+  echo "need multiple accounts or want no local user management at all." > /dev/stderr
+  echo "" > /dev/stderr
+  echo -n "Enter choice [0-1] (default: 0): " > /dev/stderr
+  read -r CHOICE < /dev/tty
+
+  case "$CHOICE" in
+    ""|0) echo "embedded" ;;
+    1) echo "external" ;;
+    *)
+      echo "Invalid choice. Please enter 0 or 1." > /dev/stderr
+      read_idp_mode
+      ;;
+  esac
+  return 0
+}
+
+read_architecture() {
+  echo "" > /dev/stderr
+  echo "How do you want to run the NetBird server components?" > /dev/stderr
+  echo "  [0] Single combined container (recommended - simplest to operate)" > /dev/stderr
+  echo "  [1] Separate containers per service (management, signal, relay - for scale-out)" > /dev/stderr
+  echo "" > /dev/stderr
+  echo -n "Enter choice [0-1] (default: 0): " > /dev/stderr
+  read -r CHOICE < /dev/tty
+
+  case "$CHOICE" in
+    ""|0) echo "combined" ;;
+    1) echo "split" ;;
+    *)
+      echo "Invalid choice. Please enter 0 or 1." > /dev/stderr
+      read_architecture
+      ;;
+  esac
+  return 0
+}
+
+read_oidc_endpoint() {
+  echo "" > /dev/stderr
+  echo "Enter your IdP's OpenID configuration endpoint." > /dev/stderr
+  echo "e.g. https://keycloak.example.com/realms/netbird/.well-known/openid-configuration" > /dev/stderr
+  echo "See https://docs.netbird.io/selfhosted/identity-providers for per-provider instructions." > /dev/stderr
+  echo -n "OIDC configuration endpoint: " > /dev/stderr
+  read -r ENDPOINT < /dev/tty
+  if [[ -z "$ENDPOINT" ]]; then
+    echo "The OIDC configuration endpoint is required." > /dev/stderr
+    read_oidc_endpoint
+    return
+  fi
+  echo "$ENDPOINT"
+  return 0
+}
+
+read_oidc_client_id() {
+  echo "" > /dev/stderr
+  echo "Enter the OAuth client ID you registered for NetBird in your IdP." > /dev/stderr
+  echo -n "Client ID (e.g. netbird): " > /dev/stderr
+  read -r CLIENT_ID < /dev/tty
+  if [[ -z "$CLIENT_ID" ]]; then
+    echo "The client ID is required." > /dev/stderr
+    read_oidc_client_id
+    return
+  fi
+  echo "$CLIENT_ID"
+  return 0
+}
+
+read_oidc_audience() {
+  local default_audience="$1"
+  echo "" > /dev/stderr
+  echo "Enter the JWT audience your IdP issues tokens with." > /dev/stderr
+  echo -n "Audience (default: ${default_audience}): " > /dev/stderr
+  read -r AUDIENCE < /dev/tty
+  if [[ -z "$AUDIENCE" ]]; then
+    AUDIENCE="$default_audience"
+  fi
+  echo "$AUDIENCE"
+  return 0
+}
+
+read_oidc_client_secret() {
+  echo "" > /dev/stderr
+  echo "Enter the OAuth client secret, if your IdP requires one." > /dev/stderr
+  echo -n "Client secret (leave empty for public clients/PKCE): " > /dev/stderr
+  read -r SECRET < /dev/tty
+  echo "$SECRET"
+  return 0
+}
+
+read_store_engine() {
+  echo "" > /dev/stderr
+  echo "Which database engine should the management service use?" > /dev/stderr
+  echo "  [0] SQLite (default - file-based, no extra container)" > /dev/stderr
+  echo "  [1] PostgreSQL (recommended for larger deployments)" > /dev/stderr
+  echo "" > /dev/stderr
+  echo -n "Enter choice [0-1] (default: 0): " > /dev/stderr
+  read -r CHOICE < /dev/tty
+
+  case "$CHOICE" in
+    ""|0) echo "sqlite" ;;
+    1) echo "postgres" ;;
+    *)
+      echo "Invalid choice. Please enter 0 or 1." > /dev/stderr
+      read_store_engine
+      ;;
+  esac
+  return 0
+}
+
+read_postgres_dsn() {
+  echo "" > /dev/stderr
+  echo "Enter the DSN of an existing PostgreSQL server, or leave empty to add" > /dev/stderr
+  echo "a PostgreSQL container to this deployment." > /dev/stderr
+  echo -n "DSN (e.g. host=db.example.com user=netbird password=... dbname=netbird port=5432): " > /dev/stderr
+  read -r DSN < /dev/tty
+  echo "$DSN"
   return 0
 }
 
@@ -269,6 +422,22 @@ get_upstream_host() {
   return 0
 }
 
+management_ready() {
+  # With the built-in IdP we can poll its discovery document for a strict 200.
+  # With an external IdP the management API is the only public endpoint; any
+  # HTTP response that is not a gateway error means the backend is up.
+  local base_url="$1"
+  if [[ "$IDP_MODE" == "embedded" ]]; then
+    curl -sk -f -o /dev/null "${base_url}/oauth2/.well-known/openid-configuration" 2>/dev/null
+    return $?
+  fi
+
+  local code
+  code=$(curl -sk -o /dev/null -w '%{http_code}' "${base_url}/api/accounts" 2>/dev/null)
+  [[ "$code" != "000" && "$code" != "502" && "$code" != "503" && "$code" != "504" ]]
+  return $?
+}
+
 wait_management_proxy() {
   local proxy_container="${1:-traefik}"
   local use_docker_logs=false
@@ -288,8 +457,7 @@ wait_management_proxy() {
   echo -n "Waiting for NetBird server to become ready"
   counter=1
   while true; do
-    # Check the embedded IdP endpoint through the reverse proxy
-    if curl -sk -f -o /dev/null "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/oauth2/.well-known/openid-configuration" 2>/dev/null; then
+    if management_ready "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN"; then
       break
     fi
     if [[ $counter -eq 60 ]]; then
@@ -302,7 +470,7 @@ wait_management_proxy() {
           $DOCKER_COMPOSE_COMMAND logs --tail=20 "$proxy_container"
         fi
       fi
-      $DOCKER_COMPOSE_COMMAND logs --tail=20 netbird-server
+      $DOCKER_COMPOSE_COMMAND logs --tail=20 "$SERVER_SERVICE"
     fi
     echo -n " ."
     sleep 2
@@ -319,14 +487,13 @@ wait_management_direct() {
   echo -n "Waiting for NetBird server to become ready"
   counter=1
   while true; do
-    # Check the embedded IdP endpoint directly (no reverse proxy)
-    if curl -sk -f -o /dev/null "http://${upstream_host}:${MANAGEMENT_HOST_PORT}/oauth2/.well-known/openid-configuration" 2>/dev/null; then
+    if management_ready "http://${upstream_host}:${MANAGEMENT_HOST_PORT}"; then
       break
     fi
     if [[ $counter -eq 60 ]]; then
       echo ""
       echo "Taking too long. Checking logs..."
-      $DOCKER_COMPOSE_COMMAND logs --tail=20 netbird-server
+      $DOCKER_COMPOSE_COMMAND logs --tail=20 "$SERVER_SERVICE"
     fi
     echo -n " ."
     sleep 2
@@ -345,15 +512,38 @@ initialize_default_values() {
   NETBIRD_PORT=80
   NETBIRD_HTTP_PROTOCOL="http"
   NETBIRD_RELAY_PROTO="rel"
-  NETBIRD_RELAY_AUTH_SECRET=$(openssl rand -base64 32 | sed "$SED_STRIP_PADDING")
-  # Note: DataStoreEncryptionKey must keep base64 padding (=) for Go's base64.StdEncoding
-  DATASTORE_ENCRYPTION_KEY=$(openssl rand -base64 32)
   NETBIRD_STUN_PORT=3478
+
+  # Deployment shape
+  IDP_MODE="embedded"        # embedded | external
+  ARCHITECTURE="combined"    # combined | split
+
+  # External OIDC provider (IDP_MODE=external)
+  AUTH_OIDC_ENDPOINT=""
+  AUTH_CLIENT_ID=""
+  AUTH_CLIENT_SECRET=""
+  AUTH_AUDIENCE=""
+  AUTH_SUPPORTED_SCOPES="openid profile email"
+  USE_AUTH0="false"
+  TOKEN_SOURCE="accessToken"
+  AUTH_REDIRECT_URI="/nb-auth"
+  AUTH_SILENT_REDIRECT_URI="/nb-silent-auth"
+
+  # Datastore (split architecture prompts for this; combined defaults to sqlite)
+  STORE_ENGINE="sqlite"      # sqlite | postgres
+  POSTGRES_DSN=""
+  POSTGRES_PASSWORD=""
+  DEPLOY_POSTGRES="false"
 
   # Docker images
   DASHBOARD_IMAGE=${DASHBOARD_IMAGE:-"netbirdio/dashboard:latest"}
   # Combined server replaces separate signal, relay, and management containers
   NETBIRD_SERVER_IMAGE=${NETBIRD_SERVER_IMAGE:-"netbirdio/netbird-server:latest"}
+  # Split architecture images
+  MANAGEMENT_IMAGE=${MANAGEMENT_IMAGE:-"netbirdio/management:latest"}
+  SIGNAL_IMAGE=${SIGNAL_IMAGE:-"netbirdio/signal:latest"}
+  RELAY_IMAGE=${RELAY_IMAGE:-"netbirdio/relay:latest"}
+  POSTGRES_IMAGE=${POSTGRES_IMAGE:-"postgres:16-alpine"}
   NETBIRD_PROXY_IMAGE=${NETBIRD_PROXY_IMAGE:-"netbirdio/reverse-proxy:latest"}
   TRAEFIK_IMAGE=${TRAEFIK_IMAGE:-"traefik:v3.6"}
   CROWDSEC_IMAGE=${CROWDSEC_IMAGE:-"crowdsecurity/crowdsec:v1.7.7"}
@@ -364,9 +554,14 @@ initialize_default_values() {
   TRAEFIK_CERTRESOLVER=""
   TRAEFIK_ACME_EMAIL=""
   DASHBOARD_HOST_PORT="8080"
-  MANAGEMENT_HOST_PORT="8081"  # Combined server port (management + signal + relay)
+  MANAGEMENT_HOST_PORT="8081"  # Combined server / split management host port
+  SIGNAL_HOST_PORT="10000"     # Split architecture only
+  RELAY_HOST_PORT="33080"      # Split architecture only
   BIND_LOCALHOST_ONLY="true"
   EXTERNAL_PROXY_NETWORK=""
+
+  # Service name used in compose logs hints (combined: netbird-server, split: management)
+  SERVER_SERVICE="netbird-server"
 
   # Traefik static IP within the internal bridge network
   TRAEFIK_IP="172.30.0.10"
@@ -381,8 +576,198 @@ initialize_default_values() {
   return 0
 }
 
+ensure_secrets() {
+  # Secrets are generated only when not provided (setup.env or environment),
+  # so re-rendering an existing deployment keeps peers and data intact
+  GENERATED_SECRETS=""
+  if [[ -z "$NETBIRD_RELAY_AUTH_SECRET" ]]; then
+    NETBIRD_RELAY_AUTH_SECRET=$(openssl rand -base64 32 | sed "$SED_STRIP_PADDING")
+    GENERATED_SECRETS="$GENERATED_SECRETS NETBIRD_RELAY_AUTH_SECRET"
+  fi
+  # Note: DataStoreEncryptionKey must keep base64 padding (=) for Go's base64.StdEncoding
+  if [[ -z "$DATASTORE_ENCRYPTION_KEY" ]]; then
+    DATASTORE_ENCRYPTION_KEY=$(openssl rand -base64 32)
+    GENERATED_SECRETS="$GENERATED_SECRETS NETBIRD_DATASTORE_ENC_KEY"
+  fi
+  if [[ "$DEPLOY_POSTGRES" == "true" && -z "$POSTGRES_PASSWORD" ]]; then
+    POSTGRES_PASSWORD=$(openssl rand -base64 24 | sed "$SED_STRIP_PADDING")
+    GENERATED_SECRETS="$GENERATED_SECRETS NETBIRD_POSTGRES_PASSWORD"
+  fi
+  return 0
+}
+
+load_setup_env() {
+  if [[ -f "$SETUP_ENV_FILE" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "$SETUP_ENV_FILE"
+    set +a
+  elif [[ -z "$NETBIRD_DOMAIN" ]]; then
+    echo "Non-interactive mode requires $SETUP_ENV_FILE or configuration via environment variables (at least NETBIRD_DOMAIN)." > /dev/stderr
+    exit 1
+  fi
+
+  IDP_MODE=${NETBIRD_IDP_MODE:-$IDP_MODE}
+  ARCHITECTURE=${NETBIRD_ARCHITECTURE:-$ARCHITECTURE}
+  AUTH_OIDC_ENDPOINT=${NETBIRD_AUTH_OIDC_CONFIGURATION_ENDPOINT:-$AUTH_OIDC_ENDPOINT}
+  AUTH_CLIENT_ID=${NETBIRD_AUTH_CLIENT_ID:-$AUTH_CLIENT_ID}
+  AUTH_CLIENT_SECRET=${NETBIRD_AUTH_CLIENT_SECRET:-$AUTH_CLIENT_SECRET}
+  AUTH_AUDIENCE=${NETBIRD_AUTH_AUDIENCE:-$AUTH_AUDIENCE}
+  AUTH_SUPPORTED_SCOPES=${NETBIRD_AUTH_SUPPORTED_SCOPES:-$AUTH_SUPPORTED_SCOPES}
+  USE_AUTH0=${NETBIRD_USE_AUTH0:-$USE_AUTH0}
+  TOKEN_SOURCE=${NETBIRD_TOKEN_SOURCE:-$TOKEN_SOURCE}
+  AUTH_REDIRECT_URI=${NETBIRD_AUTH_REDIRECT_URI:-$AUTH_REDIRECT_URI}
+  AUTH_SILENT_REDIRECT_URI=${NETBIRD_AUTH_SILENT_REDIRECT_URI:-$AUTH_SILENT_REDIRECT_URI}
+  STORE_ENGINE=${NETBIRD_STORE_CONFIG_ENGINE:-$STORE_ENGINE}
+  POSTGRES_DSN=${NETBIRD_STORE_ENGINE_POSTGRES_DSN:-$POSTGRES_DSN}
+  POSTGRES_PASSWORD=${NETBIRD_POSTGRES_PASSWORD:-$POSTGRES_PASSWORD}
+  REVERSE_PROXY_TYPE=${NETBIRD_REVERSE_PROXY_TYPE:-$REVERSE_PROXY_TYPE}
+  TRAEFIK_ACME_EMAIL=${NETBIRD_TRAEFIK_ACME_EMAIL:-$TRAEFIK_ACME_EMAIL}
+  TRAEFIK_EXTERNAL_NETWORK=${NETBIRD_TRAEFIK_EXTERNAL_NETWORK:-$TRAEFIK_EXTERNAL_NETWORK}
+  TRAEFIK_ENTRYPOINT=${NETBIRD_TRAEFIK_ENTRYPOINT:-$TRAEFIK_ENTRYPOINT}
+  TRAEFIK_CERTRESOLVER=${NETBIRD_TRAEFIK_CERTRESOLVER:-$TRAEFIK_CERTRESOLVER}
+  BIND_LOCALHOST_ONLY=${NETBIRD_BIND_LOCALHOST_ONLY:-$BIND_LOCALHOST_ONLY}
+  EXTERNAL_PROXY_NETWORK=${NETBIRD_EXTERNAL_PROXY_NETWORK:-$EXTERNAL_PROXY_NETWORK}
+  ENABLE_PROXY=${NETBIRD_ENABLE_PROXY:-$ENABLE_PROXY}
+  ENABLE_CROWDSEC=${NETBIRD_ENABLE_CROWDSEC:-$ENABLE_CROWDSEC}
+  DATASTORE_ENCRYPTION_KEY=${NETBIRD_DATASTORE_ENC_KEY:-$DATASTORE_ENCRYPTION_KEY}
+  # NETBIRD_RELAY_AUTH_SECRET is used directly
+  return 0
+}
+
+render_setup_env_idp_manager_vars() {
+  local var
+
+  [[ -n "${NETBIRD_MGMT_IDP:-}" ]] && printf '%s=%q\n' "NETBIRD_MGMT_IDP" "$NETBIRD_MGMT_IDP"
+  [[ -n "${NETBIRD_MGMT_IDP_SIGNKEY_REFRESH:-}" ]] && printf '%s=%q\n' "NETBIRD_MGMT_IDP_SIGNKEY_REFRESH" "$NETBIRD_MGMT_IDP_SIGNKEY_REFRESH"
+  [[ -n "${NETBIRD_IDP_MGMT_CLIENT_ID:-}" ]] && printf '%s=%q\n' "NETBIRD_IDP_MGMT_CLIENT_ID" "$NETBIRD_IDP_MGMT_CLIENT_ID"
+  [[ -n "${NETBIRD_IDP_MGMT_CLIENT_SECRET:-}" ]] && printf '%s=%q\n' "NETBIRD_IDP_MGMT_CLIENT_SECRET" "$NETBIRD_IDP_MGMT_CLIENT_SECRET"
+  for var in ${!NETBIRD_IDP_MGMT_EXTRA_*}; do
+    printf '%s=%q\n' "$var" "${!var}"
+  done
+  return 0
+}
+
+write_setup_env() {
+  if [[ "$NON_INTERACTIVE" == "true" ]]; then
+    persist_generated_secrets
+    return 0
+  fi
+
+  cat > "$SETUP_ENV_FILE" <<EOF
+# NetBird deployment configuration
+# Generated by getting-started.sh - edit and re-run with --non-interactive to apply changes:
+#   ./getting-started.sh --non-interactive
+
+NETBIRD_DOMAIN="$NETBIRD_DOMAIN"
+# Deployment architecture: combined (single netbird-server container) or split
+# (separate management, signal and relay containers)
+NETBIRD_ARCHITECTURE="$ARCHITECTURE"
+# Identity provider: embedded (built-in IdP) or external (your own OIDC provider).
+# The external option requires the split architecture.
+NETBIRD_IDP_MODE="$IDP_MODE"
+
+# External OIDC provider settings (only used when NETBIRD_IDP_MODE=external)
+NETBIRD_AUTH_OIDC_CONFIGURATION_ENDPOINT="$AUTH_OIDC_ENDPOINT"
+NETBIRD_AUTH_CLIENT_ID="$AUTH_CLIENT_ID"
+NETBIRD_AUTH_CLIENT_SECRET="$AUTH_CLIENT_SECRET"
+NETBIRD_AUTH_AUDIENCE="$AUTH_AUDIENCE"
+NETBIRD_AUTH_SUPPORTED_SCOPES="$AUTH_SUPPORTED_SCOPES"
+# Set to true only for Auth0
+NETBIRD_USE_AUTH0="$USE_AUTH0"
+# Token the dashboard sends to the management API: accessToken or idToken
+NETBIRD_TOKEN_SOURCE="$TOKEN_SOURCE"
+
+# Reverse proxy: 0=built-in Traefik, 1=existing Traefik, 2=Nginx,
+# 3=Nginx Proxy Manager, 4=external Caddy, 5=other/manual
+NETBIRD_REVERSE_PROXY_TYPE="$REVERSE_PROXY_TYPE"
+NETBIRD_TRAEFIK_ACME_EMAIL="$TRAEFIK_ACME_EMAIL"
+NETBIRD_TRAEFIK_EXTERNAL_NETWORK="$TRAEFIK_EXTERNAL_NETWORK"
+NETBIRD_TRAEFIK_ENTRYPOINT="$TRAEFIK_ENTRYPOINT"
+NETBIRD_TRAEFIK_CERTRESOLVER="$TRAEFIK_CERTRESOLVER"
+NETBIRD_BIND_LOCALHOST_ONLY="$BIND_LOCALHOST_ONLY"
+NETBIRD_EXTERNAL_PROXY_NETWORK="$EXTERNAL_PROXY_NETWORK"
+
+# NetBird Proxy and CrowdSec (combined architecture with built-in Traefik only)
+NETBIRD_ENABLE_PROXY="$ENABLE_PROXY"
+NETBIRD_ENABLE_CROWDSEC="$ENABLE_CROWDSEC"
+
+# Datastore: sqlite or postgres. With postgres and an empty DSN a PostgreSQL
+# container is added to the deployment.
+NETBIRD_STORE_CONFIG_ENGINE="$STORE_ENGINE"
+NETBIRD_STORE_ENGINE_POSTGRES_DSN="$POSTGRES_DSN"
+NETBIRD_POSTGRES_PASSWORD="$POSTGRES_PASSWORD"
+
+# Generated secrets - keep these stable across re-renders
+NETBIRD_RELAY_AUTH_SECRET="$NETBIRD_RELAY_AUTH_SECRET"
+NETBIRD_DATASTORE_ENC_KEY="$DATASTORE_ENCRYPTION_KEY"
+
+# Optional advanced settings (uncomment to use, then re-run with --non-interactive)
+# Device authorization flow for headless clients (external IdP only):
+#NETBIRD_AUTH_DEVICE_AUTH_CLIENT_ID=""
+# IdP management API for user/group sync (external IdP only), see
+# https://docs.netbird.io/selfhosted/identity-providers:
+#NETBIRD_MGMT_IDP=""
+#NETBIRD_MGMT_IDP_SIGNKEY_REFRESH="false"
+#NETBIRD_IDP_MGMT_CLIENT_ID=""
+#NETBIRD_IDP_MGMT_CLIENT_SECRET=""
+# Extra IdP-manager settings (provider-specific), for example:
+#NETBIRD_IDP_MGMT_EXTRA_ADMIN_ENDPOINT=""
+$(render_setup_env_idp_manager_vars)
+# Docker image overrides:
+#DASHBOARD_IMAGE=""
+#NETBIRD_SERVER_IMAGE=""
+#MANAGEMENT_IMAGE=""
+#SIGNAL_IMAGE=""
+#RELAY_IMAGE=""
+EOF
+  echo "Saved configuration to $SETUP_ENV_FILE"
+  return 0
+}
+
+persist_generated_secrets() {
+  # In non-interactive mode never rewrite the user's file, but secrets generated
+  # this run must be persisted or the next render would rotate them
+  [[ -z "$GENERATED_SECRETS" || ! -f "$SETUP_ENV_FILE" ]] && return 0
+
+  echo "" >> "$SETUP_ENV_FILE"
+  echo "# Secrets generated by getting-started.sh on $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$SETUP_ENV_FILE"
+  for secret in $GENERATED_SECRETS; do
+    case "$secret" in
+      NETBIRD_RELAY_AUTH_SECRET) echo "NETBIRD_RELAY_AUTH_SECRET=\"$NETBIRD_RELAY_AUTH_SECRET\"" >> "$SETUP_ENV_FILE" ;;
+      NETBIRD_DATASTORE_ENC_KEY) echo "NETBIRD_DATASTORE_ENC_KEY=\"$DATASTORE_ENCRYPTION_KEY\"" >> "$SETUP_ENV_FILE" ;;
+      NETBIRD_POSTGRES_PASSWORD) echo "NETBIRD_POSTGRES_PASSWORD=\"$POSTGRES_PASSWORD\"" >> "$SETUP_ENV_FILE" ;;
+    esac
+    echo "Generated $secret and appended it to $SETUP_ENV_FILE"
+  done
+  return 0
+}
+
+fetch_oidc_configuration() {
+  check_curl
+  echo "Loading OpenID configuration from $AUTH_OIDC_ENDPOINT"
+  if ! curl -fsSL "$AUTH_OIDC_ENDPOINT" -o openid-configuration.json; then
+    echo "Failed to fetch the OpenID configuration from $AUTH_OIDC_ENDPOINT" > /dev/stderr
+    echo "Check that the URL is reachable and points to a .well-known/openid-configuration document." > /dev/stderr
+    exit 1
+  fi
+
+  NETBIRD_AUTH_AUTHORITY=$(jq -r '.issuer // empty' openid-configuration.json)
+  NETBIRD_AUTH_JWT_CERTS=$(jq -r '.jwks_uri // empty' openid-configuration.json)
+  NETBIRD_AUTH_TOKEN_ENDPOINT=$(jq -r '.token_endpoint // empty' openid-configuration.json)
+  NETBIRD_AUTH_PKCE_AUTHORIZATION_ENDPOINT=$(jq -r '.authorization_endpoint // empty' openid-configuration.json)
+  NETBIRD_AUTH_DEVICE_AUTH_ENDPOINT=$(jq -r '.device_authorization_endpoint // empty' openid-configuration.json)
+
+  if [[ -z "$NETBIRD_AUTH_AUTHORITY" || -z "$NETBIRD_AUTH_JWT_CERTS" ]]; then
+    echo "The OpenID configuration at $AUTH_OIDC_ENDPOINT is missing the issuer or jwks_uri field." > /dev/stderr
+    exit 1
+  fi
+  return 0
+}
+
 configure_domain() {
   if ! check_nb_domain "$NETBIRD_DOMAIN"; then
+    require_interactive "NETBIRD_DOMAIN"
     NETBIRD_DOMAIN=$(read_nb_domain)
   fi
 
@@ -398,48 +783,159 @@ configure_domain() {
   return 0
 }
 
-configure_reverse_proxy() {
-  # Prompt for reverse proxy type
-  REVERSE_PROXY_TYPE=$(read_reverse_proxy_type)
-
-  # Handle built-in Traefik prompts (option 0)
-  if [[ "$REVERSE_PROXY_TYPE" == "0" ]]; then
-    TRAEFIK_ACME_EMAIL=$(read_traefik_acme_email)
-    ENABLE_PROXY=$(read_enable_proxy)
-    if [[ "$ENABLE_PROXY" == "true" ]]; then
-      ENABLE_CROWDSEC=$(read_enable_crowdsec)
+configure_idp() {
+  if [[ "$NON_INTERACTIVE" != "true" ]]; then
+    IDP_MODE=$(read_idp_mode)
+    if [[ "$IDP_MODE" == "external" ]]; then
+      AUTH_OIDC_ENDPOINT=$(read_oidc_endpoint)
+      AUTH_CLIENT_ID=$(read_oidc_client_id)
+      AUTH_AUDIENCE=$(read_oidc_audience "$AUTH_CLIENT_ID")
+      AUTH_CLIENT_SECRET=$(read_oidc_client_secret)
     fi
   fi
 
-  # Handle external Traefik-specific prompts (option 1)
-  if [[ "$REVERSE_PROXY_TYPE" == "1" ]]; then
-    TRAEFIK_EXTERNAL_NETWORK=$(read_traefik_network)
-    TRAEFIK_ENTRYPOINT=$(read_traefik_entrypoint)
-    TRAEFIK_CERTRESOLVER=$(read_traefik_certresolver)
-  fi
-
-  # Handle port binding for external proxy options (2-5)
-  if [[ "$REVERSE_PROXY_TYPE" -ge 2 ]]; then
-    BIND_LOCALHOST_ONLY=$(read_port_binding_preference)
-  fi
-
-  # Handle Docker network prompts for external proxies (options 2-4)
-  case "$REVERSE_PROXY_TYPE" in
-    2) EXTERNAL_PROXY_NETWORK=$(read_proxy_docker_network "Nginx") ;;
-    3) EXTERNAL_PROXY_NETWORK=$(read_proxy_docker_network "Nginx Proxy Manager") ;;
-    4) EXTERNAL_PROXY_NETWORK=$(read_proxy_docker_network "Caddy") ;;
-    *) ;; # No network prompt for other options
+  case "$IDP_MODE" in
+    embedded) ;;
+    external)
+      if [[ -z "$AUTH_OIDC_ENDPOINT" ]]; then
+        require_interactive "NETBIRD_AUTH_OIDC_CONFIGURATION_ENDPOINT"
+      fi
+      if [[ -z "$AUTH_CLIENT_ID" ]]; then
+        require_interactive "NETBIRD_AUTH_CLIENT_ID"
+      fi
+      AUTH_AUDIENCE=${AUTH_AUDIENCE:-$AUTH_CLIENT_ID}
+      ;;
+    *)
+      echo "Invalid NETBIRD_IDP_MODE: $IDP_MODE (expected embedded or external)" > /dev/stderr
+      exit 1
+      ;;
   esac
   return 0
 }
 
+configure_architecture() {
+  if [[ "$IDP_MODE" == "external" ]]; then
+    # The combined netbird-server only supports the built-in IdP, so an external
+    # provider requires the split architecture
+    if [[ "$NON_INTERACTIVE" == "true" && "$ARCHITECTURE" == "combined" && -n "$NETBIRD_ARCHITECTURE" ]]; then
+      echo "NETBIRD_ARCHITECTURE=combined is not supported with NETBIRD_IDP_MODE=external." > /dev/stderr
+      echo "The combined netbird-server only supports the built-in IdP; use NETBIRD_ARCHITECTURE=split." > /dev/stderr
+      exit 1
+    fi
+    if [[ "$NON_INTERACTIVE" != "true" ]]; then
+      echo "" > /dev/stderr
+      echo "Using your own OIDC provider requires the split architecture" > /dev/stderr
+      echo "(separate management, signal and relay containers)." > /dev/stderr
+    fi
+    ARCHITECTURE="split"
+  elif [[ "$NON_INTERACTIVE" != "true" ]]; then
+    ARCHITECTURE=$(read_architecture)
+  fi
+
+  case "$ARCHITECTURE" in
+    combined)
+      SERVER_SERVICE="netbird-server"
+      ;;
+    split)
+      SERVER_SERVICE="management"
+      ;;
+    *)
+      echo "Invalid NETBIRD_ARCHITECTURE: $ARCHITECTURE (expected combined or split)" > /dev/stderr
+      exit 1
+      ;;
+  esac
+  return 0
+}
+
+configure_datastore() {
+  if [[ "$ARCHITECTURE" == "split" && "$NON_INTERACTIVE" != "true" ]]; then
+    STORE_ENGINE=$(read_store_engine)
+    if [[ "$STORE_ENGINE" == "postgres" ]]; then
+      POSTGRES_DSN=$(read_postgres_dsn)
+    fi
+  fi
+
+  case "$STORE_ENGINE" in
+    sqlite) ;;
+    postgres)
+      if [[ -z "$POSTGRES_DSN" ]]; then
+        if [[ "$ARCHITECTURE" == "combined" ]]; then
+          echo "NETBIRD_STORE_CONFIG_ENGINE=postgres with the combined architecture requires NETBIRD_STORE_ENGINE_POSTGRES_DSN." > /dev/stderr
+          exit 1
+        fi
+        DEPLOY_POSTGRES="true"
+      fi
+      ;;
+    *)
+      echo "Invalid NETBIRD_STORE_CONFIG_ENGINE: $STORE_ENGINE (expected sqlite or postgres)" > /dev/stderr
+      exit 1
+      ;;
+  esac
+  return 0
+}
+
+configure_reverse_proxy() {
+  if [[ "$NON_INTERACTIVE" != "true" ]]; then
+    REVERSE_PROXY_TYPE=$(read_reverse_proxy_type)
+
+    # Handle built-in Traefik prompts (option 0)
+    if [[ "$REVERSE_PROXY_TYPE" == "0" ]]; then
+      TRAEFIK_ACME_EMAIL=$(read_traefik_acme_email)
+      # NetBird Proxy and CrowdSec are only wired up for the combined server
+      if [[ "$ARCHITECTURE" == "combined" ]]; then
+        ENABLE_PROXY=$(read_enable_proxy)
+        if [[ "$ENABLE_PROXY" == "true" ]]; then
+          ENABLE_CROWDSEC=$(read_enable_crowdsec)
+        fi
+      fi
+    fi
+
+    # Handle external Traefik-specific prompts (option 1)
+    if [[ "$REVERSE_PROXY_TYPE" == "1" ]]; then
+      TRAEFIK_EXTERNAL_NETWORK=$(read_traefik_network)
+      TRAEFIK_ENTRYPOINT=$(read_traefik_entrypoint)
+      TRAEFIK_CERTRESOLVER=$(read_traefik_certresolver)
+    fi
+
+    # Handle port binding for external proxy options (2-5)
+    if [[ "$REVERSE_PROXY_TYPE" -ge 2 ]]; then
+      BIND_LOCALHOST_ONLY=$(read_port_binding_preference)
+    fi
+
+    # Handle Docker network prompts for external proxies (options 2-4)
+    case "$REVERSE_PROXY_TYPE" in
+      2) EXTERNAL_PROXY_NETWORK=$(read_proxy_docker_network "Nginx") ;;
+      3) EXTERNAL_PROXY_NETWORK=$(read_proxy_docker_network "Nginx Proxy Manager") ;;
+      4) EXTERNAL_PROXY_NETWORK=$(read_proxy_docker_network "Caddy") ;;
+      *) ;; # No network prompt for other options
+    esac
+  fi
+
+  if [[ ! "$REVERSE_PROXY_TYPE" =~ ^[0-5]$ ]]; then
+    echo "Invalid NETBIRD_REVERSE_PROXY_TYPE: $REVERSE_PROXY_TYPE (expected 0-5)" > /dev/stderr
+    exit 1
+  fi
+  if [[ "$REVERSE_PROXY_TYPE" == "0" && -z "$TRAEFIK_ACME_EMAIL" ]]; then
+    require_interactive "NETBIRD_TRAEFIK_ACME_EMAIL"
+  fi
+  if [[ "$ARCHITECTURE" == "split" && "$ENABLE_PROXY" == "true" ]]; then
+    echo "The NetBird Proxy service is currently only supported with the combined architecture; disabling it." > /dev/stderr
+    ENABLE_PROXY="false"
+    ENABLE_CROWDSEC="false"
+  fi
+  return 0
+}
+
 check_existing_installation() {
-  if [[ -f config.yaml ]]; then
+  if [[ -f config.yaml || -f management.json ]]; then
     echo "Generated files already exist, if you want to reinitialize the environment, please remove them first."
     echo "You can use the following commands:"
     echo "  $DOCKER_COMPOSE_COMMAND down --volumes # to remove all containers and volumes"
-    echo "  rm -f docker-compose.yml dashboard.env config.yaml proxy.env traefik-dynamic.yaml nginx-netbird.conf caddyfile-netbird.txt npm-advanced-config.txt && rm -rf crowdsec/"
+    echo "  rm -f docker-compose.yml dashboard.env config.yaml management.json openid-configuration.json proxy.env traefik-dynamic.yaml nginx-netbird.conf caddyfile-netbird.txt npm-advanced-config.txt && rm -rf crowdsec/"
     echo "Be aware that this will remove all data from the database, and you will have to reconfigure the dashboard."
+    echo ""
+    echo "To re-render configuration for an existing deployment instead, run:"
+    echo "  ./getting-started.sh --non-interactive"
     exit 1
   fi
   return 0
@@ -451,7 +947,11 @@ generate_configuration_files() {
   # Render docker-compose and proxy config based on selection
   case "$REVERSE_PROXY_TYPE" in
     0)
-      render_docker_compose_traefik_builtin > docker-compose.yml
+      if [[ "$ARCHITECTURE" == "split" ]]; then
+        render_docker_compose_split_traefik_builtin > docker-compose.yml
+      else
+        render_docker_compose_traefik_builtin > docker-compose.yml
+      fi
       if [[ "$ENABLE_PROXY" == "true" ]]; then
         # Create placeholder proxy.env so docker-compose can validate
         # This will be overwritten with the actual token after netbird-server starts
@@ -465,22 +965,23 @@ generate_configuration_files() {
       fi
       ;;
     1)
-      render_docker_compose_traefik > docker-compose.yml
+      if [[ "$ARCHITECTURE" == "split" ]]; then
+        render_docker_compose_split_traefik > docker-compose.yml
+      else
+        render_docker_compose_traefik > docker-compose.yml
+      fi
       ;;
-    2)
-      render_docker_compose_exposed_ports > docker-compose.yml
-      render_nginx_conf > nginx-netbird.conf
-      ;;
-    3)
-      render_docker_compose_exposed_ports > docker-compose.yml
-      render_npm_advanced_config > npm-advanced-config.txt
-      ;;
-    4)
-      render_docker_compose_exposed_ports > docker-compose.yml
-      render_external_caddyfile > caddyfile-netbird.txt
-      ;;
-    5)
-      render_docker_compose_exposed_ports > docker-compose.yml
+    2|3|4|5)
+      if [[ "$ARCHITECTURE" == "split" ]]; then
+        render_docker_compose_split_exposed_ports > docker-compose.yml
+      else
+        render_docker_compose_exposed_ports > docker-compose.yml
+      fi
+      case "$REVERSE_PROXY_TYPE" in
+        2) render_nginx_conf > nginx-netbird.conf ;;
+        3) render_npm_advanced_config > npm-advanced-config.txt ;;
+        4) render_external_caddyfile > caddyfile-netbird.txt ;;
+      esac
       ;;
     *)
       echo "Invalid reverse proxy type: $REVERSE_PROXY_TYPE" > /dev/stderr
@@ -490,7 +991,29 @@ generate_configuration_files() {
 
   # Common files for all configurations
   render_dashboard_env > dashboard.env
-  render_combined_yaml > config.yaml
+  if [[ "$ARCHITECTURE" == "split" ]]; then
+    render_management_json | jq . > management.json
+  else
+    render_combined_yaml > config.yaml
+  fi
+  return 0
+}
+
+print_render_only_summary() {
+  echo ""
+  echo "$MSG_SEPARATOR"
+  echo "  CONFIGURATION RENDERED"
+  echo "$MSG_SEPARATOR"
+  echo ""
+  echo "Generated files (services were NOT started):"
+  for f in docker-compose.yml dashboard.env config.yaml management.json setup.env \
+           nginx-netbird.conf npm-advanced-config.txt caddyfile-netbird.txt traefik-dynamic.yaml; do
+    [[ -f "$f" ]] && echo "  - $f"
+  done
+  echo ""
+  echo "Start the deployment with:"
+  echo "  $DOCKER_COMPOSE_COMMAND up -d"
+  print_post_setup_instructions
   return 0
 }
 
@@ -603,9 +1126,11 @@ start_services_and_show_instructions() {
     # External proxies (nginx, external Caddy, other) - need manual config first
     print_post_setup_instructions
 
-    echo ""
-    echo -n "Press Enter when your reverse proxy is configured (or Ctrl+C to exit)... "
-    read -r < /dev/tty
+    if [[ "$NON_INTERACTIVE" != "true" ]]; then
+      echo ""
+      echo -n "Press Enter when your reverse proxy is configured (or Ctrl+C to exit)... "
+      read -r < /dev/tty
+    fi
 
     echo -e "$MSG_STARTING_SERVICES"
     $DOCKER_COMPOSE_COMMAND up -d
@@ -621,18 +1146,48 @@ start_services_and_show_instructions() {
 }
 
 init_environment() {
-  # Check if docker compose is installed using check_docker_compose function
-  DOCKER_COMPOSE_COMMAND=$(check_docker_compose)
-  check_docker_sock_perms
-
-  initialize_default_values
-  configure_domain
-  configure_reverse_proxy
+  if [[ "$RENDER_ONLY" == "true" ]]; then
+    # Rendering does not need a working Docker daemon; fall back for hint text
+    if command -v docker-compose &> /dev/null; then
+      DOCKER_COMPOSE_COMMAND="docker-compose"
+    else
+      DOCKER_COMPOSE_COMMAND="docker compose"
+    fi
+  else
+    DOCKER_COMPOSE_COMMAND=$(check_docker_compose)
+    check_docker_sock_perms
+  fi
 
   check_jq
 
-  check_existing_installation
+  initialize_default_values
+  if [[ "$NON_INTERACTIVE" == "true" ]]; then
+    load_setup_env
+  fi
+
+  configure_domain
+  configure_idp
+  configure_architecture
+  configure_datastore
+  configure_reverse_proxy
+  ensure_secrets
+
+  if [[ "$NON_INTERACTIVE" != "true" ]]; then
+    check_existing_installation
+  fi
+
+  if [[ "$IDP_MODE" == "external" ]]; then
+    fetch_oidc_configuration
+  fi
+
+  write_setup_env
   generate_configuration_files
+
+  if [[ "$RENDER_ONLY" == "true" ]]; then
+    print_render_only_summary
+    return 0
+  fi
+
   start_services_and_show_instructions
   return 0
 }
@@ -885,26 +1440,221 @@ server:
       - "$TRAEFIK_IP/32"
 
   store:
-    engine: "sqlite"
+    engine: "$STORE_ENGINE"
+$(if [[ "$STORE_ENGINE" == "postgres" ]]; then echo "    dsn: \"$POSTGRES_DSN\""; fi)
     encryptionKey: "$DATASTORE_ENCRYPTION_KEY"
 EOF
   return 0
 }
 
+render_management_json() {
+  local mgmt_issuer mgmt_audience mgmt_keys_location mgmt_oidc_endpoint mgmt_signkey_refresh
+  local signal_proto="http"
+  if [[ "$NETBIRD_HTTP_PROTOCOL" == "https" ]]; then
+    signal_proto="https"
+  fi
+
+  if [[ "$IDP_MODE" == "embedded" ]]; then
+    mgmt_issuer="$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/oauth2"
+    mgmt_audience="netbird-dashboard"
+    mgmt_keys_location="${mgmt_issuer}/keys"
+    mgmt_oidc_endpoint="${mgmt_issuer}/.well-known/openid-configuration"
+    mgmt_signkey_refresh="true"
+  else
+    mgmt_issuer="$NETBIRD_AUTH_AUTHORITY"
+    mgmt_audience="$AUTH_AUDIENCE"
+    mgmt_keys_location="$NETBIRD_AUTH_JWT_CERTS"
+    mgmt_oidc_endpoint="$AUTH_OIDC_ENDPOINT"
+    mgmt_signkey_refresh="false"
+  fi
+  mgmt_signkey_refresh="${NETBIRD_MGMT_IDP_SIGNKEY_REFRESH:-$mgmt_signkey_refresh}"
+
+  local trusted_proxies="[]"
+  if [[ "$REVERSE_PROXY_TYPE" == "0" ]]; then
+    trusted_proxies="[\"$TRAEFIK_IP/32\"]"
+  fi
+
+  cat <<EOF
+{
+    "Stuns": [
+        {
+            "Proto": "udp",
+            "URI": "stun:$NETBIRD_DOMAIN:$NETBIRD_STUN_PORT",
+            "Username": "",
+            "Password": null
+        }
+    ],
+    "Relay": {
+        "Addresses": ["$NETBIRD_RELAY_PROTO://$NETBIRD_DOMAIN:$NETBIRD_PORT"],
+        "CredentialsTTL": "24h",
+        "Secret": "$NETBIRD_RELAY_AUTH_SECRET"
+    },
+    "Signal": {
+        "Proto": "$signal_proto",
+        "URI": "$NETBIRD_DOMAIN:$NETBIRD_PORT",
+        "Username": "",
+        "Password": null
+    },
+    "ReverseProxy": {
+        "TrustedHTTPProxies": $trusted_proxies,
+        "TrustedHTTPProxiesCount": 0,
+        "TrustedPeers": ["0.0.0.0/0"]
+    },
+    "Datadir": "/var/lib/netbird",
+    "DataStoreEncryptionKey": "$DATASTORE_ENCRYPTION_KEY",
+    "StoreConfig": {
+        "Engine": "$STORE_ENGINE"
+    },
+    "HttpConfig": {
+        "Address": "0.0.0.0:80",
+        "AuthIssuer": "$mgmt_issuer",
+        "AuthAudience": "$mgmt_audience",
+        "AuthKeysLocation": "$mgmt_keys_location",
+        "OIDCConfigEndpoint": "$mgmt_oidc_endpoint",
+        "IdpSignKeyRefreshEnabled": $mgmt_signkey_refresh
+    }$(render_management_json_idp_section)
+}
+EOF
+  return 0
+}
+
+render_idp_manager_extra_config() {
+  local extra_config="{}"
+  local var key value
+
+  # Extract extra config from all env prefixed with NETBIRD_IDP_MGMT_EXTRA_.
+  # Preserve configure.sh's snake-case to CamelCase conversion so existing setup.env files keep working.
+  for var in ${!NETBIRD_IDP_MGMT_EXTRA_*}; do
+    key=$(
+      echo "${var#NETBIRD_IDP_MGMT_EXTRA_}" | awk -F "_" \
+        '{for (i=1; i<=NF; i++) {output=output substr($i,1,1) tolower(substr($i,2))} print output}'
+    )
+    value="${!var}"
+    extra_config=$(jq -c --arg k "$key" --arg v "$value" '.[$k] = $v' <<<"$extra_config")
+  done
+
+  printf '%s' "$extra_config"
+  return 0
+}
+
+render_management_json_idp_section() {
+  if [[ "$IDP_MODE" == "embedded" ]]; then
+    cat <<EOF
+,
+    "EmbeddedIdP": {
+        "Enabled": true,
+        "Issuer": "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/oauth2",
+        "LocalAddress": "localhost:80",
+        "Storage": {
+            "Type": "sqlite3",
+            "Config": {
+                "File": "/var/lib/netbird/idp.db"
+            }
+        },
+        "DashboardRedirectURIs": [
+            "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN$AUTH_REDIRECT_URI",
+            "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN$AUTH_SILENT_REDIRECT_URI"
+        ],
+        "CLIRedirectURIs": ["http://localhost:53000/"],
+        "SignKeyRefreshEnabled": true
+    }
+EOF
+    return 0
+  fi
+
+  local use_id_token="false"
+  if [[ "$TOKEN_SOURCE" == "idToken" ]]; then
+    use_id_token="true"
+  fi
+
+  cat <<EOF
+,
+    "PKCEAuthorizationFlow": {
+        "ProviderConfig": {
+            "Audience": "$AUTH_AUDIENCE",
+            "ClientID": "$AUTH_CLIENT_ID",
+            "ClientSecret": "$AUTH_CLIENT_SECRET",
+            "Domain": "",
+            "AuthorizationEndpoint": "$NETBIRD_AUTH_PKCE_AUTHORIZATION_ENDPOINT",
+            "TokenEndpoint": "$NETBIRD_AUTH_TOKEN_ENDPOINT",
+            "Scope": "$AUTH_SUPPORTED_SCOPES",
+            "RedirectURLs": ["http://localhost:53000"],
+            "UseIDToken": $use_id_token
+        }
+    }
+EOF
+
+  if [[ -n "$NETBIRD_AUTH_DEVICE_AUTH_CLIENT_ID" && -n "$NETBIRD_AUTH_DEVICE_AUTH_ENDPOINT" ]]; then
+    cat <<EOF
+,
+    "DeviceAuthorizationFlow": {
+        "Provider": "hosted",
+        "ProviderConfig": {
+            "Audience": "$AUTH_AUDIENCE",
+            "ClientID": "$NETBIRD_AUTH_DEVICE_AUTH_CLIENT_ID",
+            "TokenEndpoint": "$NETBIRD_AUTH_TOKEN_ENDPOINT",
+            "DeviceAuthEndpoint": "$NETBIRD_AUTH_DEVICE_AUTH_ENDPOINT",
+            "Scope": "openid",
+            "UseIDToken": $use_id_token
+        }
+    }
+EOF
+  fi
+
+  if [[ -n "$NETBIRD_MGMT_IDP" ]]; then
+    cat <<EOF
+,
+    "IdpManagerConfig": {
+        "ManagerType": "$NETBIRD_MGMT_IDP",
+        "ClientConfig": {
+            "Issuer": "$NETBIRD_AUTH_AUTHORITY",
+            "TokenEndpoint": "$NETBIRD_AUTH_TOKEN_ENDPOINT",
+            "ClientID": "$NETBIRD_IDP_MGMT_CLIENT_ID",
+            "ClientSecret": "$NETBIRD_IDP_MGMT_CLIENT_SECRET",
+            "GrantType": "client_credentials"
+        },
+        "ExtraConfig": $(render_idp_manager_extra_config)
+    }
+EOF
+  fi
+  return 0
+}
+
 render_dashboard_env() {
+  local auth_authority="$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/oauth2"
+  local auth_audience="netbird-dashboard"
+  local auth_client_id="netbird-dashboard"
+  local auth_client_secret=""
+  local auth_scopes="openid profile email groups"
+  local use_auth0="false"
+  local token_source="accessToken"
+  local oidc_comment="using built-in IdP"
+
+  if [[ "$IDP_MODE" == "external" ]]; then
+    auth_authority="$NETBIRD_AUTH_AUTHORITY"
+    auth_audience="$AUTH_AUDIENCE"
+    auth_client_id="$AUTH_CLIENT_ID"
+    auth_client_secret="$AUTH_CLIENT_SECRET"
+    auth_scopes="$AUTH_SUPPORTED_SCOPES"
+    use_auth0="$USE_AUTH0"
+    token_source="$TOKEN_SOURCE"
+    oidc_comment="using external OIDC provider"
+  fi
+
   cat <<EOF
 # Endpoints
 NETBIRD_MGMT_API_ENDPOINT=$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN
 NETBIRD_MGMT_GRPC_API_ENDPOINT=$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN
-# OIDC - using embedded IdP
-AUTH_AUDIENCE=netbird-dashboard
-AUTH_CLIENT_ID=netbird-dashboard
-AUTH_CLIENT_SECRET=
-AUTH_AUTHORITY=$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/oauth2
-USE_AUTH0=false
-AUTH_SUPPORTED_SCOPES=openid profile email groups
-AUTH_REDIRECT_URI=/nb-auth
-AUTH_SILENT_REDIRECT_URI=/nb-silent-auth
+# OIDC - $oidc_comment
+AUTH_AUDIENCE=$auth_audience
+AUTH_CLIENT_ID=$auth_client_id
+AUTH_CLIENT_SECRET=$auth_client_secret
+AUTH_AUTHORITY=$auth_authority
+USE_AUTH0=$use_auth0
+AUTH_SUPPORTED_SCOPES=$auth_scopes
+AUTH_REDIRECT_URI=$AUTH_REDIRECT_URI
+AUTH_SILENT_REDIRECT_URI=$AUTH_SILENT_REDIRECT_URI
+NETBIRD_TOKEN_SOURCE=$token_source
 # SSL
 NGINX_SSL_PORT=443
 # Letsencrypt
@@ -1099,7 +1849,525 @@ EOF
   return 0
 }
 
+get_postgres_dsn() {
+  if [[ "$DEPLOY_POSTGRES" == "true" ]]; then
+    echo "host=postgres user=netbird password=$POSTGRES_PASSWORD dbname=netbird port=5432 sslmode=disable"
+  else
+    echo "$POSTGRES_DSN"
+  fi
+  return 0
+}
+
+render_split_management_environment() {
+  if [[ "$STORE_ENGINE" == "postgres" ]]; then
+    cat <<EOF
+    environment:
+      - NETBIRD_STORE_ENGINE_POSTGRES_DSN=$(get_postgres_dsn)
+EOF
+  fi
+  return 0
+}
+
+render_split_management_depends() {
+  if [[ "$DEPLOY_POSTGRES" == "true" ]]; then
+    cat <<EOF
+    depends_on:
+      postgres:
+        condition: service_healthy
+EOF
+  fi
+  return 0
+}
+
+render_split_postgres_service() {
+  local networks="$1"
+  if [[ "$DEPLOY_POSTGRES" != "true" ]]; then
+    return 0
+  fi
+  cat <<EOF
+
+  # PostgreSQL datastore for the management service
+  postgres:
+    image: $POSTGRES_IMAGE
+    container_name: netbird-postgres
+    restart: unless-stopped
+    networks: $networks
+    environment:
+      POSTGRES_USER: netbird
+      POSTGRES_PASSWORD: $POSTGRES_PASSWORD
+      POSTGRES_DB: netbird
+    volumes:
+      - netbird_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U netbird -d netbird"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
+EOF
+  return 0
+}
+
+render_split_postgres_volume() {
+  if [[ "$DEPLOY_POSTGRES" == "true" ]]; then
+    echo "  netbird_postgres:"
+  fi
+  return 0
+}
+
+render_docker_compose_split_traefik_builtin() {
+  cat <<EOF
+services:
+  # Traefik reverse proxy (automatic TLS via Let's Encrypt)
+  traefik:
+    image: $TRAEFIK_IMAGE
+    container_name: netbird-traefik
+    restart: unless-stopped
+    networks:
+      netbird:
+        ipv4_address: $TRAEFIK_IP
+    command:
+      # Logging
+      - "--log.level=INFO"
+      - "--accesslog=true"
+      # Docker provider
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=netbird"
+      # Entrypoints
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.websecure.allowACMEByPass=true"
+      # Disable timeouts for long-lived gRPC streams
+      - "--entrypoints.websecure.transport.respondingTimeouts.readTimeout=0"
+      - "--entrypoints.websecure.transport.respondingTimeouts.writeTimeout=0"
+      - "--entrypoints.websecure.transport.respondingTimeouts.idleTimeout=0"
+      # HTTP to HTTPS redirect
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      # Let's Encrypt ACME
+      - "--certificatesresolvers.letsencrypt.acme.email=$TRAEFIK_ACME_EMAIL"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
+      # gRPC transport settings
+      - "--serverstransport.forwardingtimeouts.responseheadertimeout=0s"
+      - "--serverstransport.forwardingtimeouts.idleconntimeout=0s"
+    ports:
+      - '443:443'
+      - '80:80'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - netbird_traefik_letsencrypt:/letsencrypt
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
+
+  # UI dashboard
+  dashboard:
+    image: $DASHBOARD_IMAGE
+    container_name: netbird-dashboard
+    restart: unless-stopped
+    networks: [netbird]
+    env_file:
+      - ./dashboard.env
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.netbird-dashboard.rule=Host(\`$NETBIRD_DOMAIN\`)
+      - traefik.http.routers.netbird-dashboard.entrypoints=websecure
+      - traefik.http.routers.netbird-dashboard.tls=true
+      - traefik.http.routers.netbird-dashboard.tls.certresolver=letsencrypt
+      - traefik.http.routers.netbird-dashboard.service=dashboard
+      - traefik.http.routers.netbird-dashboard.priority=1
+      - traefik.http.services.dashboard.loadbalancer.server.port=80
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
+
+  # Management service (API, gRPC$(if [[ "$IDP_MODE" == "embedded" ]]; then echo ", built-in IdP"; fi))
+  management:
+    image: $MANAGEMENT_IMAGE
+    container_name: netbird-management
+    restart: unless-stopped
+    networks: [netbird]
+$(render_split_management_depends)
+    volumes:
+      - netbird_mgmt:/var/lib/netbird
+      - ./management.json:/etc/netbird/management.json
+    command: [
+      "--port", "80",
+      "--log-file", "console",
+      "--log-level", "info",
+      "--dns-domain", "netbird.selfhosted"
+    ]
+$(render_split_management_environment)
+    labels:
+      - traefik.enable=true
+      # gRPC router (needs h2c backend for HTTP/2 cleartext)
+      - traefik.http.routers.netbird-mgmt-grpc.rule=Host(\`$NETBIRD_DOMAIN\`) && PathPrefix(\`/management.ManagementService/\`)
+      - traefik.http.routers.netbird-mgmt-grpc.entrypoints=websecure
+      - traefik.http.routers.netbird-mgmt-grpc.tls=true
+      - traefik.http.routers.netbird-mgmt-grpc.tls.certresolver=letsencrypt
+      - traefik.http.routers.netbird-mgmt-grpc.service=netbird-mgmt-h2c
+      - traefik.http.routers.netbird-mgmt-grpc.priority=100
+      # HTTP router (API, OAuth2, WebSocket gRPC fallback)
+      - traefik.http.routers.netbird-mgmt-http.rule=Host(\`$NETBIRD_DOMAIN\`) && (PathPrefix(\`/api\`) || PathPrefix(\`/oauth2\`) || Path(\`/ws-proxy/management\`))
+      - traefik.http.routers.netbird-mgmt-http.entrypoints=websecure
+      - traefik.http.routers.netbird-mgmt-http.tls=true
+      - traefik.http.routers.netbird-mgmt-http.tls.certresolver=letsencrypt
+      - traefik.http.routers.netbird-mgmt-http.service=netbird-mgmt
+      - traefik.http.routers.netbird-mgmt-http.priority=100
+      # Services
+      - traefik.http.services.netbird-mgmt.loadbalancer.server.port=80
+      - traefik.http.services.netbird-mgmt-h2c.loadbalancer.server.port=80
+      - traefik.http.services.netbird-mgmt-h2c.loadbalancer.server.scheme=h2c
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
+
+  # Signal service (peer signaling)
+  signal:
+    image: $SIGNAL_IMAGE
+    container_name: netbird-signal
+    restart: unless-stopped
+    networks: [netbird]
+    command: ["--log-file", "console", "--port", "80"]
+    labels:
+      - traefik.enable=true
+      # gRPC router (needs h2c backend for HTTP/2 cleartext)
+      - traefik.http.routers.netbird-signal-grpc.rule=Host(\`$NETBIRD_DOMAIN\`) && PathPrefix(\`/signalexchange.SignalExchange/\`)
+      - traefik.http.routers.netbird-signal-grpc.entrypoints=websecure
+      - traefik.http.routers.netbird-signal-grpc.tls=true
+      - traefik.http.routers.netbird-signal-grpc.tls.certresolver=letsencrypt
+      - traefik.http.routers.netbird-signal-grpc.service=netbird-signal-h2c
+      - traefik.http.routers.netbird-signal-grpc.priority=100
+      # WebSocket gRPC fallback
+      - traefik.http.routers.netbird-signal-ws.rule=Host(\`$NETBIRD_DOMAIN\`) && Path(\`/ws-proxy/signal\`)
+      - traefik.http.routers.netbird-signal-ws.entrypoints=websecure
+      - traefik.http.routers.netbird-signal-ws.tls=true
+      - traefik.http.routers.netbird-signal-ws.tls.certresolver=letsencrypt
+      - traefik.http.routers.netbird-signal-ws.service=netbird-signal
+      - traefik.http.routers.netbird-signal-ws.priority=100
+      # Services
+      - traefik.http.services.netbird-signal.loadbalancer.server.port=80
+      - traefik.http.services.netbird-signal-h2c.loadbalancer.server.port=80
+      - traefik.http.services.netbird-signal-h2c.loadbalancer.server.scheme=h2c
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
+
+  # Relay service (TURN replacement) with embedded STUN
+  relay:
+    image: $RELAY_IMAGE
+    container_name: netbird-relay
+    restart: unless-stopped
+    networks: [netbird]
+    ports:
+      - '$NETBIRD_STUN_PORT:$NETBIRD_STUN_PORT/udp'
+    environment:
+      - NB_LOG_LEVEL=info
+      - NB_LISTEN_ADDRESS=:$RELAY_HOST_PORT
+      - NB_EXPOSED_ADDRESS=$NETBIRD_RELAY_PROTO://$NETBIRD_DOMAIN:$NETBIRD_PORT
+      - NB_AUTH_SECRET=$NETBIRD_RELAY_AUTH_SECRET
+      - NB_ENABLE_STUN=true
+      - NB_STUN_PORTS=$NETBIRD_STUN_PORT
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.netbird-relay.rule=Host(\`$NETBIRD_DOMAIN\`) && PathPrefix(\`/relay\`)
+      - traefik.http.routers.netbird-relay.entrypoints=websecure
+      - traefik.http.routers.netbird-relay.tls=true
+      - traefik.http.routers.netbird-relay.tls.certresolver=letsencrypt
+      - traefik.http.routers.netbird-relay.service=netbird-relay
+      - traefik.http.routers.netbird-relay.priority=100
+      - traefik.http.services.netbird-relay.loadbalancer.server.port=$RELAY_HOST_PORT
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
+$(render_split_postgres_service "[netbird]")
+volumes:
+  netbird_mgmt:
+  netbird_traefik_letsencrypt:
+$(render_split_postgres_volume)
+networks:
+  netbird:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+          gateway: 172.30.0.1
+EOF
+  return 0
+}
+
+render_docker_compose_split_traefik() {
+  local network_name="${TRAEFIK_EXTERNAL_NETWORK:-netbird}"
+  local network_config=""
+  if [[ -n "$TRAEFIK_EXTERNAL_NETWORK" ]]; then
+    network_config="    external: true"
+  fi
+
+  # Build TLS labels - certresolver is optional
+  local tls_labels=""
+  if [[ -n "$TRAEFIK_CERTRESOLVER" ]]; then
+    tls_labels="tls.certresolver=${TRAEFIK_CERTRESOLVER}"
+  fi
+
+  cat <<EOF
+services:
+  # UI dashboard
+  dashboard:
+    image: $DASHBOARD_IMAGE
+    container_name: netbird-dashboard
+    restart: unless-stopped
+    networks: [$network_name]
+    env_file:
+      - ./dashboard.env
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.netbird-dashboard.rule=Host(\`$NETBIRD_DOMAIN\`)
+      - traefik.http.routers.netbird-dashboard.entrypoints=$TRAEFIK_ENTRYPOINT
+      - traefik.http.routers.netbird-dashboard.tls=true
+$(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-dashboard.${tls_labels}"; fi)
+      - traefik.http.routers.netbird-dashboard.priority=1
+      - traefik.http.services.netbird-dashboard.loadbalancer.server.port=80
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
+
+  # Management service (API, gRPC$(if [[ "$IDP_MODE" == "embedded" ]]; then echo ", built-in IdP"; fi))
+  management:
+    image: $MANAGEMENT_IMAGE
+    container_name: netbird-management
+    restart: unless-stopped
+    networks: [$network_name]
+$(render_split_management_depends)
+    volumes:
+      - netbird_mgmt:/var/lib/netbird
+      - ./management.json:/etc/netbird/management.json
+    command: [
+      "--port", "80",
+      "--log-file", "console",
+      "--log-level", "info",
+      "--dns-domain", "netbird.selfhosted"
+    ]
+$(render_split_management_environment)
+    labels:
+      - traefik.enable=true
+      # gRPC router (needs h2c backend for HTTP/2 cleartext)
+      - traefik.http.routers.netbird-mgmt-grpc.rule=Host(\`$NETBIRD_DOMAIN\`) && PathPrefix(\`/management.ManagementService/\`)
+      - traefik.http.routers.netbird-mgmt-grpc.entrypoints=$TRAEFIK_ENTRYPOINT
+      - traefik.http.routers.netbird-mgmt-grpc.tls=true
+$(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-mgmt-grpc.${tls_labels}"; fi)
+      - traefik.http.routers.netbird-mgmt-grpc.service=netbird-mgmt-h2c
+      # HTTP router (API, OAuth2, WebSocket gRPC fallback)
+      - traefik.http.routers.netbird-mgmt-http.rule=Host(\`$NETBIRD_DOMAIN\`) && (PathPrefix(\`/api\`) || PathPrefix(\`/oauth2\`) || Path(\`/ws-proxy/management\`))
+      - traefik.http.routers.netbird-mgmt-http.entrypoints=$TRAEFIK_ENTRYPOINT
+      - traefik.http.routers.netbird-mgmt-http.tls=true
+$(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-mgmt-http.${tls_labels}"; fi)
+      - traefik.http.routers.netbird-mgmt-http.service=netbird-mgmt
+      # Services
+      - traefik.http.services.netbird-mgmt.loadbalancer.server.port=80
+      - traefik.http.services.netbird-mgmt-h2c.loadbalancer.server.port=80
+      - traefik.http.services.netbird-mgmt-h2c.loadbalancer.server.scheme=h2c
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
+
+  # Signal service (peer signaling)
+  signal:
+    image: $SIGNAL_IMAGE
+    container_name: netbird-signal
+    restart: unless-stopped
+    networks: [$network_name]
+    command: ["--log-file", "console", "--port", "80"]
+    labels:
+      - traefik.enable=true
+      # gRPC router (needs h2c backend for HTTP/2 cleartext)
+      - traefik.http.routers.netbird-signal-grpc.rule=Host(\`$NETBIRD_DOMAIN\`) && PathPrefix(\`/signalexchange.SignalExchange/\`)
+      - traefik.http.routers.netbird-signal-grpc.entrypoints=$TRAEFIK_ENTRYPOINT
+      - traefik.http.routers.netbird-signal-grpc.tls=true
+$(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-signal-grpc.${tls_labels}"; fi)
+      - traefik.http.routers.netbird-signal-grpc.service=netbird-signal-h2c
+      # WebSocket gRPC fallback
+      - traefik.http.routers.netbird-signal-ws.rule=Host(\`$NETBIRD_DOMAIN\`) && Path(\`/ws-proxy/signal\`)
+      - traefik.http.routers.netbird-signal-ws.entrypoints=$TRAEFIK_ENTRYPOINT
+      - traefik.http.routers.netbird-signal-ws.tls=true
+$(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-signal-ws.${tls_labels}"; fi)
+      - traefik.http.routers.netbird-signal-ws.service=netbird-signal
+      # Services
+      - traefik.http.services.netbird-signal.loadbalancer.server.port=80
+      - traefik.http.services.netbird-signal-h2c.loadbalancer.server.port=80
+      - traefik.http.services.netbird-signal-h2c.loadbalancer.server.scheme=h2c
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
+
+  # Relay service (TURN replacement) with embedded STUN
+  relay:
+    image: $RELAY_IMAGE
+    container_name: netbird-relay
+    restart: unless-stopped
+    networks: [$network_name]
+    ports:
+      - '$NETBIRD_STUN_PORT:$NETBIRD_STUN_PORT/udp'
+    environment:
+      - NB_LOG_LEVEL=info
+      - NB_LISTEN_ADDRESS=:$RELAY_HOST_PORT
+      - NB_EXPOSED_ADDRESS=$NETBIRD_RELAY_PROTO://$NETBIRD_DOMAIN:$NETBIRD_PORT
+      - NB_AUTH_SECRET=$NETBIRD_RELAY_AUTH_SECRET
+      - NB_ENABLE_STUN=true
+      - NB_STUN_PORTS=$NETBIRD_STUN_PORT
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.netbird-relay.rule=Host(\`$NETBIRD_DOMAIN\`) && PathPrefix(\`/relay\`)
+      - traefik.http.routers.netbird-relay.entrypoints=$TRAEFIK_ENTRYPOINT
+      - traefik.http.routers.netbird-relay.tls=true
+$(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-relay.${tls_labels}"; fi)
+      - traefik.http.routers.netbird-relay.service=netbird-relay
+      - traefik.http.services.netbird-relay.loadbalancer.server.port=$RELAY_HOST_PORT
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
+$(render_split_postgres_service "[$network_name]")
+volumes:
+  netbird_mgmt:
+$(render_split_postgres_volume)
+networks:
+  $network_name:
+$network_config
+EOF
+  return 0
+}
+
+render_docker_compose_split_exposed_ports() {
+  local bind_addr=$(get_bind_address)
+  local networks="[netbird]"
+  local networks_config="networks:
+  netbird:"
+
+  # If an external network is specified, add it and include in service networks
+  if [[ -n "$EXTERNAL_PROXY_NETWORK" ]]; then
+    networks="[netbird, $EXTERNAL_PROXY_NETWORK]"
+    networks_config="networks:
+  netbird:
+  $EXTERNAL_PROXY_NETWORK:
+    external: true"
+  fi
+
+  cat <<EOF
+services:
+  # UI dashboard
+  dashboard:
+    image: $DASHBOARD_IMAGE
+    container_name: netbird-dashboard
+    restart: unless-stopped
+    networks: ${networks}
+    ports:
+      - '${bind_addr}:${DASHBOARD_HOST_PORT}:80'
+    env_file:
+      - ./dashboard.env
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
+
+  # Management service (API, gRPC$(if [[ "$IDP_MODE" == "embedded" ]]; then echo ", built-in IdP"; fi))
+  management:
+    image: $MANAGEMENT_IMAGE
+    container_name: netbird-management
+    restart: unless-stopped
+    networks: ${networks}
+    ports:
+      - '${bind_addr}:${MANAGEMENT_HOST_PORT}:80'
+$(render_split_management_depends)
+    volumes:
+      - netbird_mgmt:/var/lib/netbird
+      - ./management.json:/etc/netbird/management.json
+    command: [
+      "--port", "80",
+      "--log-file", "console",
+      "--log-level", "info",
+      "--dns-domain", "netbird.selfhosted"
+    ]
+$(render_split_management_environment)
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
+
+  # Signal service (peer signaling)
+  signal:
+    image: $SIGNAL_IMAGE
+    container_name: netbird-signal
+    restart: unless-stopped
+    networks: ${networks}
+    ports:
+      - '${bind_addr}:${SIGNAL_HOST_PORT}:80'
+    command: ["--log-file", "console", "--port", "80"]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
+
+  # Relay service (TURN replacement) with embedded STUN
+  relay:
+    image: $RELAY_IMAGE
+    container_name: netbird-relay
+    restart: unless-stopped
+    networks: ${networks}
+    ports:
+      - '${bind_addr}:${RELAY_HOST_PORT}:${RELAY_HOST_PORT}'
+      - '$NETBIRD_STUN_PORT:$NETBIRD_STUN_PORT/udp'
+    environment:
+      - NB_LOG_LEVEL=info
+      - NB_LISTEN_ADDRESS=:$RELAY_HOST_PORT
+      - NB_EXPOSED_ADDRESS=$NETBIRD_RELAY_PROTO://$NETBIRD_DOMAIN:$NETBIRD_PORT
+      - NB_AUTH_SECRET=$NETBIRD_RELAY_AUTH_SECRET
+      - NB_ENABLE_STUN=true
+      - NB_STUN_PORTS=$NETBIRD_STUN_PORT
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
+$(render_split_postgres_service "${networks}")
+volumes:
+  netbird_mgmt:
+$(render_split_postgres_volume)
+${networks_config}
+EOF
+  return 0
+}
+
 render_nginx_conf() {
+  if [[ "$ARCHITECTURE" == "split" ]]; then
+    render_nginx_conf_split
+    return 0
+  fi
   local upstream_host=$(get_upstream_host)
   local dashboard_addr="${upstream_host}:${DASHBOARD_HOST_PORT}"
   local server_addr="${upstream_host}:${MANAGEMENT_HOST_PORT}"
@@ -1212,7 +2480,162 @@ EOF
   return 0
 }
 
+render_nginx_conf_split() {
+  local upstream_host=$(get_upstream_host)
+  local dashboard_addr="${upstream_host}:${DASHBOARD_HOST_PORT}"
+  local mgmt_addr="${upstream_host}:${MANAGEMENT_HOST_PORT}"
+  local signal_addr="${upstream_host}:${SIGNAL_HOST_PORT}"
+  local relay_addr="${upstream_host}:${RELAY_HOST_PORT}"
+  local install_note="# 1. Update SSL certificate paths below
+# 2. Copy to your nginx config directory:
+#    Debian/Ubuntu: /etc/nginx/sites-available/netbird (then symlink to sites-enabled)
+#    RHEL/CentOS:   /etc/nginx/conf.d/netbird.conf
+# 3. Test and reload: nginx -t && systemctl reload nginx"
+
+  # If running in Docker network, use container names
+  if [[ -n "$EXTERNAL_PROXY_NETWORK" ]]; then
+    dashboard_addr="netbird-dashboard:80"
+    mgmt_addr="netbird-management:80"
+    signal_addr="netbird-signal:80"
+    relay_addr="netbird-relay:${RELAY_HOST_PORT}"
+    install_note="# This config uses container names since Nginx is on the same Docker network.
+# Add this to your nginx.conf or include it from a separate file."
+  fi
+
+  cat <<EOF
+# NetBird Nginx Configuration (split architecture)
+# Generated by getting-started.sh
+#
+${install_note}
+
+upstream netbird_dashboard {
+    server ${dashboard_addr};
+    keepalive 10;
+}
+upstream netbird_management {
+    server ${mgmt_addr};
+}
+upstream netbird_signal {
+    server ${signal_addr};
+}
+upstream netbird_relay {
+    server ${relay_addr};
+}
+
+server {
+    listen 80;
+    server_name $NETBIRD_DOMAIN;
+
+    location / {
+        return 301 https://\$host\$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl http2;
+    server_name $NETBIRD_DOMAIN;
+
+    # SSL/TLS Configuration
+    # Update these paths based on your certificate source:
+    #
+    # Let's Encrypt (certbot):
+    #   ssl_certificate /etc/letsencrypt/live/$NETBIRD_DOMAIN/fullchain.pem;
+    #   ssl_certificate_key /etc/letsencrypt/live/$NETBIRD_DOMAIN/privkey.pem;
+    #
+    # Let's Encrypt (acme.sh):
+    #   ssl_certificate /root/.acme.sh/$NETBIRD_DOMAIN/fullchain.cer;
+    #   ssl_certificate_key /root/.acme.sh/$NETBIRD_DOMAIN/$NETBIRD_DOMAIN.key;
+    #
+    # Custom certificates:
+    #   ssl_certificate /etc/ssl/certs/$NETBIRD_DOMAIN.crt;
+    #   ssl_certificate_key /etc/ssl/private/$NETBIRD_DOMAIN.key;
+    #
+    ssl_certificate /path/to/your/fullchain.pem;
+    ssl_certificate_key /path/to/your/privkey.pem;
+
+    # Recommended SSL settings
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
+
+    # Required for long-lived gRPC connections
+    client_header_timeout 1d;
+    client_body_timeout 1d;
+
+    # Common proxy headers
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Scheme \$scheme;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header X-Forwarded-Host \$host;
+    grpc_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+
+    # Relay WebSocket
+    location /relay {
+        proxy_pass http://netbird_relay;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "Upgrade";
+        proxy_set_header Host \$host;
+        proxy_read_timeout 1d;
+    }
+
+    # Signal WebSocket gRPC fallback
+    location /ws-proxy/signal {
+        proxy_pass http://netbird_signal;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "Upgrade";
+        proxy_set_header Host \$host;
+        proxy_read_timeout 1d;
+    }
+
+    # Management WebSocket gRPC fallback
+    location /ws-proxy/management {
+        proxy_pass http://netbird_management;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "Upgrade";
+        proxy_set_header Host \$host;
+        proxy_read_timeout 1d;
+    }
+
+    # Native gRPC (signal)
+    location /signalexchange.SignalExchange/ {
+        grpc_pass grpc://netbird_signal;
+        grpc_read_timeout 1d;
+        grpc_send_timeout 1d;
+        grpc_socket_keepalive on;
+    }
+
+    # Native gRPC (management)
+    location /management.ManagementService/ {
+        grpc_pass grpc://netbird_management;
+        grpc_read_timeout 1d;
+        grpc_send_timeout 1d;
+        grpc_socket_keepalive on;
+    }
+
+    # HTTP routes (API + OAuth2)
+    location ~ ^/(api|oauth2)/ {
+        proxy_pass http://netbird_management;
+        proxy_set_header Host \$host;
+    }
+
+    # Dashboard (catch-all)
+    location / {
+        proxy_pass http://netbird_dashboard;
+    }
+}
+EOF
+  return 0
+}
+
 render_external_caddyfile() {
+  if [[ "$ARCHITECTURE" == "split" ]]; then
+    render_external_caddyfile_split
+    return 0
+  fi
   local upstream_host=$(get_upstream_host)
   local dashboard_addr="${upstream_host}:${DASHBOARD_HOST_PORT}"
   local server_addr="${upstream_host}:${MANAGEMENT_HOST_PORT}"
@@ -1248,7 +2671,62 @@ EOF
   return 0
 }
 
+render_external_caddyfile_split() {
+  local upstream_host=$(get_upstream_host)
+  local dashboard_addr="${upstream_host}:${DASHBOARD_HOST_PORT}"
+  local mgmt_addr="${upstream_host}:${MANAGEMENT_HOST_PORT}"
+  local signal_addr="${upstream_host}:${SIGNAL_HOST_PORT}"
+  local relay_addr="${upstream_host}:${RELAY_HOST_PORT}"
+  local install_note="# Add this block to your existing Caddyfile and reload Caddy"
+
+  # If running in Docker network, use container names
+  if [[ -n "$EXTERNAL_PROXY_NETWORK" ]]; then
+    dashboard_addr="netbird-dashboard:80"
+    mgmt_addr="netbird-management:80"
+    signal_addr="netbird-signal:80"
+    relay_addr="netbird-relay:${RELAY_HOST_PORT}"
+    install_note="# This config uses container names since Caddy is on the same Docker network.
+# Add this block to your Caddyfile and reload Caddy."
+  fi
+
+  cat <<EOF
+# NetBird Caddyfile Snippet (split architecture)
+# Generated by getting-started.sh
+#
+${install_note}
+
+$NETBIRD_DOMAIN {
+    # Native gRPC (needs HTTP/2 cleartext to backend)
+    @grpc-signal path /signalexchange.SignalExchange/*
+    reverse_proxy @grpc-signal h2c://${signal_addr}
+
+    @grpc-mgmt path /management.ManagementService/*
+    reverse_proxy @grpc-mgmt h2c://${mgmt_addr}
+
+    # Relay WebSocket
+    @relay path /relay*
+    reverse_proxy @relay ${relay_addr}
+
+    # Signal WebSocket gRPC fallback
+    @signal-ws path /ws-proxy/signal
+    reverse_proxy @signal-ws ${signal_addr}
+
+    # Management HTTP (API, OAuth2, WebSocket gRPC fallback)
+    @mgmt path /ws-proxy/management /api/* /oauth2/*
+    reverse_proxy @mgmt ${mgmt_addr}
+
+    # Dashboard (everything else)
+    reverse_proxy /* ${dashboard_addr}
+}
+EOF
+  return 0
+}
+
 render_npm_advanced_config() {
+  if [[ "$ARCHITECTURE" == "split" ]]; then
+    render_npm_advanced_config_split
+    return 0
+  fi
   local upstream_host=$(get_upstream_host)
   local server_addr="${upstream_host}:${MANAGEMENT_HOST_PORT}"
 
@@ -1300,9 +2778,113 @@ EOF
   return 0
 }
 
+render_npm_advanced_config_split() {
+  local upstream_host=$(get_upstream_host)
+  local mgmt_addr="${upstream_host}:${MANAGEMENT_HOST_PORT}"
+  local signal_addr="${upstream_host}:${SIGNAL_HOST_PORT}"
+  local relay_addr="${upstream_host}:${RELAY_HOST_PORT}"
+
+  # If external network is specified, use container names instead of host addresses
+  if [[ -n "$EXTERNAL_PROXY_NETWORK" ]]; then
+    mgmt_addr="netbird-management:80"
+    signal_addr="netbird-signal:80"
+    relay_addr="netbird-relay:${RELAY_HOST_PORT}"
+  fi
+
+  cat <<EOF
+# Advanced Configuration for Nginx Proxy Manager (split architecture)
+# Paste this into the "Advanced" tab of your Proxy Host configuration
+#
+# IMPORTANT: Enable "HTTP/2 Support" in the SSL tab for gRPC to work!
+
+# Required for long-lived connections (gRPC and WebSocket)
+client_header_timeout 1d;
+client_body_timeout 1d;
+
+# Relay WebSocket
+location /relay {
+    proxy_pass http://${relay_addr};
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_read_timeout 1d;
+}
+
+# Signal WebSocket gRPC fallback
+location /ws-proxy/signal {
+    proxy_pass http://${signal_addr};
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_read_timeout 1d;
+}
+
+# Management WebSocket gRPC fallback
+location /ws-proxy/management {
+    proxy_pass http://${mgmt_addr};
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_read_timeout 1d;
+}
+
+# Native gRPC (signal)
+location /signalexchange.SignalExchange/ {
+    grpc_pass grpc://${signal_addr};
+    grpc_read_timeout 1d;
+    grpc_send_timeout 1d;
+    grpc_socket_keepalive on;
+}
+
+# Native gRPC (management)
+location /management.ManagementService/ {
+    grpc_pass grpc://${mgmt_addr};
+    grpc_read_timeout 1d;
+    grpc_send_timeout 1d;
+    grpc_socket_keepalive on;
+}
+
+# HTTP routes (API + OAuth2)
+location ~ ^/(api|oauth2)/ {
+    proxy_pass http://${mgmt_addr};
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+}
+EOF
+  return 0
+}
+
 ############################################
 # Post-Setup Instructions per Proxy Type
 ############################################
+
+print_container_ports() {
+  local bind_addr="$1"
+  echo "Container ports (bound to ${bind_addr}):"
+  echo "  Dashboard:     ${DASHBOARD_HOST_PORT}"
+  if [[ "$ARCHITECTURE" == "split" ]]; then
+    echo "  Management:    ${MANAGEMENT_HOST_PORT} (API, gRPC, OAuth2)"
+    echo "  Signal:        ${SIGNAL_HOST_PORT} (gRPC, WebSocket)"
+    echo "  Relay:         ${RELAY_HOST_PORT} (WebSocket)"
+  else
+    echo "  NetBird Server: ${MANAGEMENT_HOST_PORT} (all services)"
+  fi
+  return 0
+}
 
 print_builtin_traefik_instructions() {
   echo ""
@@ -1425,9 +3007,7 @@ print_nginx_instructions() {
     echo "For detailed TLS setup instructions, see:"
     echo "https://docs.netbird.io/selfhosted/reverse-proxy#tls-certificate-setup-for-nginx"
     echo ""
-    echo "Container ports (bound to ${bind_addr}):"
-    echo "  Dashboard:     ${DASHBOARD_HOST_PORT}"
-    echo "  NetBird Server: ${MANAGEMENT_HOST_PORT} (all services)"
+    print_container_ports "${bind_addr}"
   fi
   return 0
 }
@@ -1458,9 +3038,7 @@ print_npm_instructions() {
     echo "  Advanced tab:"
     echo "    - Paste contents of npm-advanced-config.txt"
   else
-    echo "Container ports (bound to ${bind_addr}):"
-    echo "  Dashboard:     ${DASHBOARD_HOST_PORT}"
-    echo "  NetBird Server: ${MANAGEMENT_HOST_PORT} (all services)"
+    print_container_ports "${bind_addr}"
     echo ""
     echo "In NPM, create a Proxy Host:"
     echo "  Domain: $NETBIRD_DOMAIN"
@@ -1499,9 +3077,7 @@ print_external_caddy_instructions() {
     echo "  1. Add the contents of caddyfile-netbird.txt to your Caddyfile"
     echo "  2. Reload Caddy: caddy reload --config /path/to/Caddyfile"
     echo ""
-    echo "Container ports (bound to ${bind_addr}):"
-    echo "  Dashboard:     ${DASHBOARD_HOST_PORT}"
-    echo "  NetBird Server: ${MANAGEMENT_HOST_PORT} (all services)"
+    print_container_ports "${bind_addr}"
   fi
   return 0
 }
@@ -1514,26 +3090,45 @@ print_manual_instructions() {
   echo "  MANUAL REVERSE PROXY SETUP"
   echo "$MSG_SEPARATOR"
   echo ""
-  echo "Container ports (bound to ${bind_addr}):"
-  echo "  Dashboard:     ${DASHBOARD_HOST_PORT}"
-  echo "  NetBird Server: ${MANAGEMENT_HOST_PORT} (all services: management, signal, relay)"
+  print_container_ports "${bind_addr}"
   echo ""
-  echo "Configure your reverse proxy with these routes (all go to the same backend):"
-  echo ""
-  echo "  WebSocket (relay, signal, management WS proxy):"
-  echo "    /relay*, /ws-proxy/*           -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
-  echo "    (HTTP with WebSocket upgrade, extended timeout)"
-  echo ""
-  echo "  Native gRPC (signal + management):"
-  echo "    /signalexchange.SignalExchange/* -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
-  echo "    /management.ManagementService/* -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
-  echo "    (gRPC/h2c - plaintext HTTP/2)"
-  echo ""
-  echo "  HTTP (API + embedded IdP):"
-  echo "    /api/*, /oauth2/*              -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
-  echo ""
-  echo "  Dashboard (catch-all):"
-  echo "    /*                             -> ${upstream_host}:${DASHBOARD_HOST_PORT}"
+  if [[ "$ARCHITECTURE" == "split" ]]; then
+    echo "Configure your reverse proxy with these routes:"
+    echo ""
+    echo "  WebSocket (relay + gRPC fallbacks):"
+    echo "    /relay*                          -> ${upstream_host}:${RELAY_HOST_PORT}"
+    echo "    /ws-proxy/signal                 -> ${upstream_host}:${SIGNAL_HOST_PORT}"
+    echo "    /ws-proxy/management             -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
+    echo "    (HTTP with WebSocket upgrade, extended timeout)"
+    echo ""
+    echo "  Native gRPC:"
+    echo "    /signalexchange.SignalExchange/* -> ${upstream_host}:${SIGNAL_HOST_PORT}"
+    echo "    /management.ManagementService/*  -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
+    echo "    (gRPC/h2c - plaintext HTTP/2)"
+    echo ""
+    echo "  HTTP (API + IdP):"
+    echo "    /api/*, /oauth2/*                -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
+    echo ""
+    echo "  Dashboard (catch-all):"
+    echo "    /*                               -> ${upstream_host}:${DASHBOARD_HOST_PORT}"
+  else
+    echo "Configure your reverse proxy with these routes (all go to the same backend):"
+    echo ""
+    echo "  WebSocket (relay, signal, management WS proxy):"
+    echo "    /relay*, /ws-proxy/*           -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
+    echo "    (HTTP with WebSocket upgrade, extended timeout)"
+    echo ""
+    echo "  Native gRPC (signal + management):"
+    echo "    /signalexchange.SignalExchange/* -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
+    echo "    /management.ManagementService/* -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
+    echo "    (gRPC/h2c - plaintext HTTP/2)"
+    echo ""
+    echo "  HTTP (API + embedded IdP):"
+    echo "    /api/*, /oauth2/*              -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
+    echo ""
+    echo "  Dashboard (catch-all):"
+    echo "    /*                             -> ${upstream_host}:${DASHBOARD_HOST_PORT}"
+  fi
   echo ""
   echo "IMPORTANT: gRPC routes require HTTP/2 (h2c) upstream support."
   echo "WebSocket and gRPC connections need extended timeouts (recommend 1 day)."
@@ -1566,5 +3161,43 @@ print_post_setup_instructions() {
   esac
   return 0
 }
+
+print_usage() {
+  cat <<EOF
+Usage: getting-started.sh [OPTIONS]
+
+Sets up a self-hosted NetBird deployment. Without options an interactive wizard
+asks a few questions and saves the answers to setup.env.
+
+Options:
+  --non-interactive    Render and deploy from setup.env (or environment
+                       variables) without prompting. Suitable for IaC.
+  --render-only        Generate configuration files but do not start services.
+  --setup-env=FILE     Read/write configuration from FILE (default: setup.env).
+  -h, --help           Show this help.
+EOF
+  return 0
+}
+
+NON_INTERACTIVE="false"
+RENDER_ONLY="false"
+SETUP_ENV_FILE="setup.env"
+
+for arg in "$@"; do
+  case "$arg" in
+    --non-interactive|-n) NON_INTERACTIVE="true" ;;
+    --render-only) RENDER_ONLY="true" ;;
+    --setup-env=*) SETUP_ENV_FILE="${arg#*=}" ;;
+    -h|--help)
+      print_usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $arg" > /dev/stderr
+      print_usage > /dev/stderr
+      exit 1
+      ;;
+  esac
+done
 
 init_environment

@@ -1,6 +1,20 @@
 #!/bin/bash
 set -e
 
+echo "**********************************************************************************"
+echo "* DEPRECATION NOTICE                                                             *"
+echo "*                                                                                *"
+echo "* configure.sh and its templates are deprecated and will be removed in a future  *"
+echo "* release. Use getting-started.sh instead, which now covers multi-container      *"
+echo "* deployments with your own OIDC provider:                                       *"
+echo "*                                                                                *"
+echo "*   ./getting-started.sh                  # interactive wizard                   *"
+echo "*   ./getting-started.sh --non-interactive  # render from setup.env (IaC)        *"
+echo "*                                                                                *"
+echo "* Migration guide: https://docs.netbird.io/selfhosted/selfhosted-guide           *"
+echo "**********************************************************************************"
+echo ""
+
 if ! which curl >/dev/null 2>&1; then
   echo "This script uses curl fetch OpenID configuration from IDP."
   echo "Please install curl and re-run the script https://curl.se/"
