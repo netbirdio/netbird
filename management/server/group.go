@@ -683,7 +683,7 @@ func validateNewGroup(ctx context.Context, transaction store.Store, accountID st
 		newGroup.ID = xid.New().String()
 	}
 
-	return nil
+	return validateGroupResources(ctx, transaction, accountID, newGroup.Resources)
 }
 
 func validateDeleteGroup(ctx context.Context, transaction store.Store, group *types.Group, userID string, flowGroups []string) error {
