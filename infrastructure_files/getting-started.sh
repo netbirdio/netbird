@@ -1397,12 +1397,20 @@ print_builtin_traefik_instructions() {
     echo "  - 51820/udp (WIREGUARD - (optional) for P2P proxy connections)"
   fi
   echo ""
-  echo "This setup is ideal for homelabs and smaller organization deployments."
-  echo "For enterprise environments requiring high availability and advanced integrations,"
-  echo "consider a commercial on-prem license or scaling your open source deployment:"
-  echo ""
-  echo "  Commercial license: https://netbird.io/pricing#on-prem"
-  echo "  Scaling guide:      https://docs.netbird.io/scaling-your-self-hosted-deployment"
+  if [[ "${NETBIRD_AGENT_NETWORK}" == "true" ]]; then
+    echo "For enterprise environments requiring high availability and advanced integrations,"
+    echo "consider a commercial on-prem license:"
+    echo ""
+    echo "  Commercial license: https://netbird.ai/pricing"
+    echo "  Documentation: http://localhost:3001/agent-network"
+  else
+    echo "This setup is ideal for homelabs and smaller organization deployments."
+    echo "For enterprise environments requiring high availability and advanced integrations,"
+    echo "consider a commercial on-prem license or scaling your open source deployment:"
+    echo ""
+    echo "  Commercial license: https://netbird.io/pricing#on-prem"
+    echo "  Scaling guide:      https://docs.netbird.io/scaling-your-self-hosted-deployment"
+  fi
   echo ""
   if [[ "$ENABLE_PROXY" == "true" ]]; then
     echo "NetBird Proxy:"
