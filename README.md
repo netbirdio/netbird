@@ -43,6 +43,11 @@
 
 **Secure.** NetBird enables secure remote access by applying granular access policies while allowing you to manage them intuitively from a single place. Works universally on any infrastructure.
 
+> ### 🤖 NetBird Agent Network (Beta)
+> Identity-aware access control for AI agents — keyless access to LLM APIs and private
+> resources over the encrypted NetBird tunnel. See [`agent-network/`](agent-network/) or
+> read the docs at **[docs.netbird.io/agent-network](https://docs.netbird.io/agent-network)**.
+
 https://github.com/user-attachments/assets/10cec749-bb56-4ab3-97af-4e38850108d2
 
 ### Self-host NetBird (video)
