@@ -25,6 +25,21 @@ func (mr *MockStoreMockRecorder) GetAllAgentNetworkProviders(ctx, lockStrength i
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllAgentNetworkProviders", reflect.TypeOf((*MockStore)(nil).GetAllAgentNetworkProviders), ctx, lockStrength)
 }
 
+// GetAgentNetworkMetrics mocks base method.
+func (m *MockStore) GetAgentNetworkMetrics(ctx context.Context) (AgentNetworkMetrics, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAgentNetworkMetrics", ctx)
+	ret0, _ := ret[0].(AgentNetworkMetrics)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAgentNetworkMetrics indicates an expected call of GetAgentNetworkMetrics.
+func (mr *MockStoreMockRecorder) GetAgentNetworkMetrics(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAgentNetworkMetrics", reflect.TypeOf((*MockStore)(nil).GetAgentNetworkMetrics), ctx)
+}
+
 // GetAccountAgentNetworkProviders mocks base method.
 func (m *MockStore) GetAccountAgentNetworkProviders(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*agentNetworkTypes.Provider, error) {
 	m.ctrl.T.Helper()
