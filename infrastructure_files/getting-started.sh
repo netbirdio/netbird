@@ -1433,6 +1433,11 @@ print_builtin_traefik_instructions() {
       echo ""
     fi
   fi
+  if [[ "${NETBIRD_AGENT_NETWORK}" == "true" ]]; then
+    echo "Note: The public domain is only for setting up secure connections."
+    echo "Your APIs and agent services remain private and are never exposed publicly."
+    echo ""
+  fi
   return 0
 }
 
