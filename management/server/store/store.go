@@ -334,6 +334,11 @@ type Store interface {
 	// return a zero-valued struct.
 	GetProxyMetrics(ctx context.Context) (ProxyMetrics, error)
 
+	// GetAgentNetworkMetrics returns aggregated agent-network adoption + usage
+	// counts for the self-hosted metrics worker. Self-hosted only — file-based
+	// stores return a zero-valued struct.
+	GetAgentNetworkMetrics(ctx context.Context) (AgentNetworkMetrics, error)
+
 	GetRoutingPeerNetworks(ctx context.Context, accountID, peerID string) ([]string, error)
 
 	// Agent Network persistence (providers, policies, guardrails, settings).
@@ -387,6 +392,32 @@ type ProxyMetrics struct {
 	// (~2 * heartbeat interval). Proxies the controller hasn't pruned
 	// yet but that are visibly stale don't count.
 	ProxiesConnected int64
+}
+
+// AgentNetworkMetrics aggregates self-hosted agent-network adoption + usage
+// signals surfaced to the telemetry payload. Each field is best-effort: when a
+// store cannot answer (e.g. FileStore) all fields are zero.
+type AgentNetworkMetrics struct {
+	// Accounts is the number of distinct accounts with at least one provider
+	// configured (agent-network adoption).
+	Accounts int64
+	// Providers is the total number of configured providers across all accounts.
+	Providers int64
+	// Policies is the total number of agent-network policies across all accounts.
+	Policies int64
+	// BudgetRules is the total number of account-level budget rules ("budget
+	// limits") across all accounts.
+	BudgetRules int64
+	// LogCollectionEnabled is the number of accounts that have agent-network
+	// log collection turned on.
+	LogCollectionEnabled int64
+	// InputTokens / OutputTokens / CostUSD are summed over the always-collected
+	// per-request usage ledger (agent_network_request_usage), independent of the
+	// log-collection toggle. They reflect total metered LLM usage served through
+	// agent networks.
+	InputTokens  int64
+	OutputTokens int64
+	CostUSD      float64
 }
 
 const (

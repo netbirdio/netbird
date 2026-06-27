@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"time"
 
@@ -36,6 +37,46 @@ func (s *SqlStore) GetAllAgentNetworkProviders(ctx context.Context, lockStrength
 	}
 
 	return providers, nil
+}
+
+// GetAgentNetworkMetrics returns aggregated agent-network adoption + usage
+// counts for the self-hosted metrics worker. Each value is a single cheap
+// aggregate; token/cost are summed over the always-collected per-request usage
+// ledger (independent of the log-collection toggle) so they reflect real usage.
+func (s *SqlStore) GetAgentNetworkMetrics(ctx context.Context) (AgentNetworkMetrics, error) {
+	var m AgentNetworkMetrics
+	db := s.db.WithContext(ctx)
+
+	// Providers + distinct adopting accounts in one round-trip.
+	provRow := db.Model(&agentNetworkTypes.Provider{}).
+		Select("COUNT(*) AS providers, COUNT(DISTINCT account_id) AS accounts").Row()
+	if err := provRow.Scan(&m.Providers, &m.Accounts); err != nil {
+		return AgentNetworkMetrics{}, fmt.Errorf("scan agent network provider metrics: %w", err)
+	}
+
+	if err := db.Model(&agentNetworkTypes.Policy{}).Count(&m.Policies).Error; err != nil {
+		return AgentNetworkMetrics{}, fmt.Errorf("count agent network policies: %w", err)
+	}
+
+	if err := db.Model(&agentNetworkTypes.AccountBudgetRule{}).Count(&m.BudgetRules).Error; err != nil {
+		return AgentNetworkMetrics{}, fmt.Errorf("count agent network budget rules: %w", err)
+	}
+
+	if err := db.Model(&agentNetworkTypes.Settings{}).
+		Where("enable_log_collection = ?", true).Count(&m.LogCollectionEnabled).Error; err != nil {
+		return AgentNetworkMetrics{}, fmt.Errorf("count agent network log-collection accounts: %w", err)
+	}
+
+	// COALESCE so an empty ledger scans as 0 instead of NULL.
+	usageRow := db.Model(&agentNetworkTypes.AgentNetworkUsage{}).
+		Select("COALESCE(SUM(input_tokens), 0) AS input_tokens, " +
+			"COALESCE(SUM(output_tokens), 0) AS output_tokens, " +
+			"COALESCE(SUM(cost_usd), 0) AS cost_usd").Row()
+	if err := usageRow.Scan(&m.InputTokens, &m.OutputTokens, &m.CostUSD); err != nil {
+		return AgentNetworkMetrics{}, fmt.Errorf("scan agent network usage metrics: %w", err)
+	}
+
+	return m, nil
 }
 
 func (s *SqlStore) GetAccountAgentNetworkProviders(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*agentNetworkTypes.Provider, error) {
