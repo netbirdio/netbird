@@ -37,16 +37,16 @@
   </strong>
 </p>
 
+> ### 🤖 NetBird Agent Network (Beta)
+> Identity-aware access control for AI agents — keyless access to LLM APIs and private
+> resources over the encrypted NetBird tunnel. See [`agent-network/`](agent-network/) or
+> learn more at **[netbird.ai](https://netbird.ai)**.
+
 **NetBird combines a configuration-free peer-to-peer private network and a centralized access control system in a single platform, making it easy to create secure private networks for your organization or home.**
 
 **Connect.** NetBird creates a WireGuard-based overlay network that automatically connects your machines over an encrypted tunnel, leaving behind the hassle of opening ports, complex firewall rules, VPN gateways, and so forth.
 
 **Secure.** NetBird enables secure remote access by applying granular access policies while allowing you to manage them intuitively from a single place. Works universally on any infrastructure.
-
-> ### 🤖 NetBird Agent Network (Beta)
-> Identity-aware access control for AI agents — keyless access to LLM APIs and private
-> resources over the encrypted NetBird tunnel. See [`agent-network/`](agent-network/) or
-> read the docs at **[docs.netbird.io/agent-network](https://docs.netbird.io/agent-network)**.
 
 https://github.com/user-attachments/assets/10cec749-bb56-4ab3-97af-4e38850108d2
 
