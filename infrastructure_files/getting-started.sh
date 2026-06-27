@@ -351,6 +351,11 @@ initialize_default_values() {
   NETBIRD_STUN_PORT=3478
 
   # Docker images
+  # Record whether the operator explicitly pinned the server/proxy images via
+  # env vars, so the agent-network preset can pick its own defaults without
+  # clobbering an explicit override.
+  NETBIRD_SERVER_IMAGE_EXPLICIT=${NETBIRD_SERVER_IMAGE:+true}
+  NETBIRD_PROXY_IMAGE_EXPLICIT=${NETBIRD_PROXY_IMAGE:+true}
   DASHBOARD_IMAGE=${DASHBOARD_IMAGE:-"netbirdio/dashboard:latest"}
   # Combined server replaces separate signal, relay, and management containers
   NETBIRD_SERVER_IMAGE=${NETBIRD_SERVER_IMAGE:-"netbirdio/netbird-server:latest"}
@@ -410,6 +415,15 @@ apply_agent_network_preset() {
   ENABLE_PROXY="true"
   ENABLE_CROWDSEC="false"
 
+  # Agent-network ships dedicated server/proxy images. Honor an explicit
+  # env override; otherwise pin the agent-network builds.
+  if [[ "${NETBIRD_SERVER_IMAGE_EXPLICIT}" != "true" ]]; then
+    NETBIRD_SERVER_IMAGE="netbirdio/netbird-server:0.74.0-rc.1"
+  fi
+  if [[ "${NETBIRD_PROXY_IMAGE_EXPLICIT}" != "true" ]]; then
+    NETBIRD_PROXY_IMAGE="netbirdio/reverse-proxy:0.74.0-rc.1"
+  fi
+
   if [[ -n "${NETBIRD_LETSENCRYPT_EMAIL}" ]]; then
     TRAEFIK_ACME_EMAIL="${NETBIRD_LETSENCRYPT_EMAIL}"
   else
@@ -420,6 +434,8 @@ apply_agent_network_preset() {
   echo "Agent-network preset enabled (NETBIRD_AGENT_NETWORK=true):" > /dev/stderr
   echo "  - reverse proxy: built-in Traefik" > /dev/stderr
   echo "  - NetBird Proxy: enabled with NB_PROXY_PRIVATE=true" > /dev/stderr
+  echo "  - server image: ${NETBIRD_SERVER_IMAGE}" > /dev/stderr
+  echo "  - proxy image: ${NETBIRD_PROXY_IMAGE}" > /dev/stderr
   echo "  - dashboard: NETBIRD_AGENT_NETWORK_ONLY=true" > /dev/stderr
   echo "  - CrowdSec: disabled" > /dev/stderr
   echo "  - Let's Encrypt email: ${TRAEFIK_ACME_EMAIL}" > /dev/stderr
