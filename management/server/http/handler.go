@@ -23,13 +23,13 @@ import (
 	idpmanager "github.com/netbirdio/netbird/management/server/idp"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
+	agentnetworkhandlers "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/handlers"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	zonesManager "github.com/netbirdio/netbird/management/internals/modules/zones/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	recordsManager "github.com/netbirdio/netbird/management/internals/modules/zones/records/manager"
 	"github.com/netbirdio/netbird/management/server/account"
-	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
-	agentnetworkhandlers "github.com/netbirdio/netbird/management/server/http/handlers/agentnetwork"
 	"github.com/netbirdio/netbird/management/server/settings"
 
 	"github.com/netbirdio/netbird/management/server/permissions"
@@ -127,7 +127,7 @@ func NewAPIHandler(ctx context.Context, router *mux.Router, accountManager accou
 	recordsManager.RegisterEndpoints(router, rManager)
 	idp.AddEndpoints(accountManager, router)
 	if agentNetworkManager != nil {
-		agentnetworkhandlers.AddEndpoints(agentNetworkManager, router)
+		agentnetworkhandlers.RegisterEndpoints(agentNetworkManager, router)
 	}
 	instance.AddEndpoints(instanceManager, accountManager, router)
 	instance.AddVersionEndpoint(instanceManager, router)

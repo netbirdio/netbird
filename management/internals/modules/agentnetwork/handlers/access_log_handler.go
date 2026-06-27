@@ -1,4 +1,4 @@
-package agentnetwork
+package handlers
 
 import (
 	"net/http"

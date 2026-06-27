@@ -1,9 +1,9 @@
-// Package agentnetwork serves the Agent Network HTTP API.
+// Package handlers serves the Agent Network HTTP API.
 //
 // All persistence is delegated to agentnetwork.Manager so this layer only
 // translates between the wire format (api.AgentNetworkProvider*) and the
 // domain types.
-package agentnetwork
+package handlers
 
 import (
 	"encoding/json"
@@ -26,8 +26,8 @@ type handler struct {
 	manager agentnetwork.Manager
 }
 
-// AddEndpoints registers all Agent Network routes.
-func AddEndpoints(manager agentnetwork.Manager, router *mux.Router) {
+// RegisterEndpoints registers all Agent Network routes.
+func RegisterEndpoints(manager agentnetwork.Manager, router *mux.Router) {
 	h := &handler{manager: manager}
 	router.HandleFunc("/agent-network/catalog/providers", h.getCatalogProviders).Methods("GET", "OPTIONS")
 	router.HandleFunc("/agent-network/providers", h.getAllProviders).Methods("GET", "OPTIONS")
