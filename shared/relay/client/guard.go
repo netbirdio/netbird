@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -20,6 +21,10 @@ type Guard struct {
 	// maxBackoffInterval caps the exponential backoff between reconnect
 	// attempts.
 	maxBackoffInterval time.Duration
+
+	// lastErr is the error from the most recent failed reconnect attempt,
+	// surfaced as the home relay status while disconnected.
+	lastErr atomic.Pointer[error]
 }
 
 // NewGuard creates a new guard for the relay client. A non-positive
@@ -35,6 +40,15 @@ func NewGuard(sp *ServerPicker, maxBackoffInterval time.Duration) *Guard {
 		maxBackoffInterval: maxBackoffInterval,
 	}
 	return g
+}
+
+// LastError returns the error from the most recent failed reconnect attempt, or
+// nil if reconnection last succeeded.
+func (g *Guard) LastError() error {
+	if p := g.lastErr.Load(); p != nil {
+		return *p
+	}
+	return nil
 }
 
 // StartReconnectTrys is called when the relay client is disconnected from the relay server.
@@ -63,6 +77,7 @@ func (g *Guard) StartReconnectTrys(ctx context.Context, relayClient *Client) {
 		case <-ticker.C:
 			if err := g.retry(ctx); err != nil {
 				log.Errorf("failed to pick new Relay server: %s", err)
+				g.setLastError(err)
 				continue
 			}
 			return
@@ -70,6 +85,10 @@ func (g *Guard) StartReconnectTrys(ctx context.Context, relayClient *Client) {
 			return
 		}
 	}
+}
+
+func (g *Guard) setLastError(err error) {
+	g.lastErr.Store(&err)
 }
 
 func (g *Guard) tryToQuickReconnect(parentCtx context.Context, rc *Client) bool {
@@ -89,6 +108,7 @@ func (g *Guard) tryToQuickReconnect(parentCtx context.Context, rc *Client) bool 
 
 	if err := rc.Connect(parentCtx); err != nil {
 		log.Errorf("failed to reconnect to relay server: %s", err)
+		g.setLastError(err)
 		return false
 	}
 	return true
@@ -100,6 +120,7 @@ func (g *Guard) retry(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	g.setLastError(nil)
 
 	// prevent to work with a deprecated Relay client instance
 	g.drainRelayClientChan()
@@ -125,6 +146,7 @@ func (g *Guard) isServerURLStillValid(rc *Client) bool {
 }
 
 func (g *Guard) notifyReconnected() {
+	g.setLastError(nil)
 	select {
 	case g.OnReconnected <- struct{}{}:
 	default:

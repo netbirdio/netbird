@@ -33,7 +33,7 @@ type Client interface {
 	Receive(ctx context.Context, msgHandler func(msg *proto.Message) error) error
 	Ready() bool
 	IsHealthy() bool
-	WaitStreamConnected()
+	WaitStreamConnected(context.Context)
 	SendToStream(msg *proto.EncryptedMessage) error
 	Send(msg *proto.Message) error
 	SetOnReconnectedListener(func())

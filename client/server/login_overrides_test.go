@@ -79,7 +79,7 @@ func TestPersistLoginOverrides(t *testing.T) {
 			_, err := profilemanager.UpdateOrCreateConfig(seed)
 			require.NoError(t, err, "seed config")
 
-			activeProf := &profilemanager.ActiveProfileState{Name: "default"}
+			activeProf := &profilemanager.ActiveProfileState{ID: "default"}
 			err = persistLoginOverrides(activeProf, tt.newMgmtURL, tt.newPSK)
 			require.NoError(t, err, "persistLoginOverrides")
 

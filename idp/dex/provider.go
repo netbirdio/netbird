@@ -41,6 +41,8 @@ type Config struct {
 	GRPCAddr string
 }
 
+const localConnectorID = "local"
+
 // Provider wraps a Dex server
 type Provider struct {
 	config       *Config
@@ -544,7 +546,7 @@ func (p *Provider) CreateUser(ctx context.Context, email, username, password str
 
 	// Encode the user ID in Dex's format: base64(protobuf{user_id, connector_id})
 	// This matches the format Dex uses in JWT tokens
-	encodedID := EncodeDexUserID(userID, "local")
+	encodedID := EncodeDexUserID(userID, localConnectorID)
 	return encodedID, nil
 }
 
@@ -617,6 +619,13 @@ func DecodeDexUserID(encodedID string) (userID, connectorID string, err error) {
 	}
 
 	return userID, connectorID, nil
+}
+
+// IsLocalUserID reports whether encodedID is a Dex subject for the built-in
+// local password connector.
+func IsLocalUserID(encodedID string) bool {
+	_, connectorID, err := DecodeDexUserID(encodedID)
+	return err == nil && connectorID == localConnectorID
 }
 
 // GetUser returns a user by email

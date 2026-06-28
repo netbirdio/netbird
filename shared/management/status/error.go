@@ -48,6 +48,10 @@ type Type int32
 var (
 	ErrExtraSettingsNotFound = errors.New("extra settings not found")
 	ErrPeerAlreadyLoggedIn   = errors.New("peer with the same public key is already logged in")
+
+	// ErrNoAuthMethodProvided is returned when a peer login attempt carries neither a
+	// setup key nor an SSO token. Match it with errors.Is.
+	ErrNoAuthMethodProvided = Errorf(Unauthenticated, "no peer auth method provided, please use a setup key or interactive SSO login")
 )
 
 // Error is an internal error
@@ -64,6 +68,16 @@ func (e *Error) Type() Type {
 // Error is an error string
 func (e *Error) Error() string {
 	return e.Message
+}
+
+// Is reports whether target is an *Error with the same type and message,
+// enabling matching with errors.Is against sentinel errors.
+func (e *Error) Is(target error) bool {
+	var t *Error
+	if !errors.As(target, &t) {
+		return false
+	}
+	return e.ErrorType == t.ErrorType && e.Message == t.Message
 }
 
 // Errorf returns Error(ErrorType, fmt.Sprintf(format, a...)).

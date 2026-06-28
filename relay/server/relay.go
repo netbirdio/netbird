@@ -154,15 +154,16 @@ func (r *Relay) Accept(conn listener.Conn) {
 	}
 	r.notifier.PeerCameOnline(peer.ID())
 
+	transport := conn.Protocol()
 	r.metrics.RecordPeerStoreTime(time.Since(storeTime))
-	r.metrics.PeerConnected(peer.String())
+	r.metrics.PeerConnected(peer.String(), transport)
 	go func() {
 		peer.Work()
 		if deleted := r.store.DeletePeer(peer); deleted {
 			r.notifier.PeerWentOffline(peer.ID())
 		}
 		peer.log.Debugf("relay connection closed")
-		r.metrics.PeerDisconnected(peer.String())
+		r.metrics.PeerDisconnected(peer.String(), transport)
 	}()
 
 	if err := h.handshakeResponse(hsCtx); err != nil {

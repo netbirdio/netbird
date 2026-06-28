@@ -1,5 +1,7 @@
 version: 2
-
+env:
+  - SKIP_PUBLISH={{ if index .Env "SKIP_PUBLISH" }}{{ .Env.SKIP_PUBLISH }}{{ else }}true{{ end }}
+  - SKIP_DOCKER_PUSH={{ if index .Env "SKIP_DOCKER_PUSH" }}{{ .Env.SKIP_DOCKER_PUSH }}{{ else }}false{{ end }}
 project_name: netbird
 builds:
   - id: netbird-wasm
@@ -74,6 +76,8 @@ builds:
       - amd64
       - arm64
       - arm
+    goarm:
+      - 7
     ldflags:
       - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
     mod_timestamp: "{{ .CommitTimestamp }}"
@@ -88,6 +92,8 @@ builds:
       - amd64
       - arm64
       - arm
+    goarm:
+      - 7
     ldflags:
       - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
     mod_timestamp: "{{ .CommitTimestamp }}"
@@ -102,6 +108,8 @@ builds:
       - amd64
       - arm64
       - arm
+    goarm:
+      - 7
     ldflags:
       - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
     mod_timestamp: "{{ .CommitTimestamp }}"
@@ -122,6 +130,8 @@ builds:
       - amd64
       - arm64
       - arm
+    goarm:
+      - 7
     ldflags:
       - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
     mod_timestamp: "{{ .CommitTimestamp }}"
@@ -136,6 +146,8 @@ builds:
       - amd64
       - arm64
       - arm
+    goarm:
+      - 7
     ldflags:
       - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
     mod_timestamp: "{{ .CommitTimestamp }}"
@@ -150,6 +162,8 @@ builds:
       - amd64
       - arm64
       - arm
+    goarm:
+      - 7
     ldflags:
       - -s -w -X main.Version={{.Version}} -X main.Commit={{.Commit}} -X main.BuildDate={{.CommitDate}}
     mod_timestamp: "{{ .CommitTimestamp }}"
@@ -170,6 +184,8 @@ builds:
       - amd64
       - arm64
       - arm
+    goarm:
+      - 7
     ldflags:
       - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
     mod_timestamp: "{{ .CommitTimestamp }}"
@@ -222,670 +238,192 @@ nfpms:
     rpm:
       signature:
         key_file: '{{ if index .Env "GPG_RPM_KEY_FILE" }}{{ .Env.GPG_RPM_KEY_FILE }}{{ end }}'
-dockers:
-  - image_templates:
-      - netbirdio/netbird:{{ .Version }}-amd64
-      - ghcr.io/netbirdio/netbird:{{ .Version }}-amd64
-    ids:
-      - netbird
-    goarch: amd64
-    use: buildx
-    dockerfile: client/Dockerfile
-    extra_files:
-      - client/netbird-entrypoint.sh
-    build_flag_templates:
-      - "--platform=linux/amd64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.source=https://github.com/netbirdio/{{.ProjectName}}"
-      - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/netbird:{{ .Version }}-arm64v8
-      - ghcr.io/netbirdio/netbird:{{ .Version }}-arm64v8
-    ids:
-      - netbird
-    goarch: arm64
-    use: buildx
-    dockerfile: client/Dockerfile
-    extra_files:
-      - client/netbird-entrypoint.sh
-    build_flag_templates:
-      - "--platform=linux/arm64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.source=https://github.com/netbirdio/{{.ProjectName}}"
-      - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/netbird:{{ .Version }}-arm
-      - ghcr.io/netbirdio/netbird:{{ .Version }}-arm
-    ids:
-      - netbird
-    goarch: arm
-    goarm: 6
-    use: buildx
-    dockerfile: client/Dockerfile
-    extra_files:
-      - client/netbird-entrypoint.sh
-    build_flag_templates:
-      - "--platform=linux/arm"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.source=https://github.com/netbirdio/{{.ProjectName}}"
-      - "--label=maintainer=dev@netbird.io"
-
-  - image_templates:
-      - netbirdio/netbird:{{ .Version }}-rootless-amd64
-      - ghcr.io/netbirdio/netbird:{{ .Version }}-rootless-amd64
-    ids:
-      - netbird
-    goarch: amd64
-    use: buildx
-    dockerfile: client/Dockerfile-rootless
-    extra_files:
-      - client/netbird-entrypoint.sh
-    build_flag_templates:
-      - "--platform=linux/amd64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.source=https://github.com/netbirdio/{{.ProjectName}}"
-      - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/netbird:{{ .Version }}-rootless-arm64v8
-      - ghcr.io/netbirdio/netbird:{{ .Version }}-rootless-arm64v8
-    ids:
-      - netbird
-    goarch: arm64
-    use: buildx
-    dockerfile: client/Dockerfile-rootless
-    extra_files:
-      - client/netbird-entrypoint.sh
-    build_flag_templates:
-      - "--platform=linux/arm64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.source=https://github.com/netbirdio/{{.ProjectName}}"
-      - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/netbird:{{ .Version }}-rootless-arm
-      - ghcr.io/netbirdio/netbird:{{ .Version }}-rootless-arm
-    ids:
-      - netbird
-    goarch: arm
-    goarm: 6
-    use: buildx
-    dockerfile: client/Dockerfile-rootless
-    extra_files:
-      - client/netbird-entrypoint.sh
-    build_flag_templates:
-      - "--platform=linux/arm"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.source=https://github.com/netbirdio/{{.ProjectName}}"
-      - "--label=maintainer=dev@netbird.io"
-
-  - image_templates:
-      - netbirdio/relay:{{ .Version }}-amd64
-      - ghcr.io/netbirdio/relay:{{ .Version }}-amd64
-    ids:
-      - netbird-relay
-    goarch: amd64
-    use: buildx
-    dockerfile: relay/Dockerfile
-    build_flag_templates:
-      - "--platform=linux/amd64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.source=https://github.com/netbirdio/{{.ProjectName}}"
-      - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/relay:{{ .Version }}-arm64v8
-      - ghcr.io/netbirdio/relay:{{ .Version }}-arm64v8
-    ids:
-      - netbird-relay
-    goarch: arm64
-    use: buildx
-    dockerfile: relay/Dockerfile
-    build_flag_templates:
-      - "--platform=linux/arm64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.source=https://github.com/netbirdio/{{.ProjectName}}"
-      - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/relay:{{ .Version }}-arm
-      - ghcr.io/netbirdio/relay:{{ .Version }}-arm
-    ids:
-      - netbird-relay
-    goarch: arm
-    goarm: 6
-    use: buildx
-    dockerfile: relay/Dockerfile
-    build_flag_templates:
-      - "--platform=linux/arm"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.source=https://github.com/netbirdio/{{.ProjectName}}"
-      - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/signal:{{ .Version }}-amd64
-      - ghcr.io/netbirdio/signal:{{ .Version }}-amd64
-    ids:
-      - netbird-signal
-    goarch: amd64
-    use: buildx
-    dockerfile: signal/Dockerfile
-    build_flag_templates:
-      - "--platform=linux/amd64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.source=https://github.com/netbirdio/{{.ProjectName}}"
-      - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/signal:{{ .Version }}-arm64v8
-      - ghcr.io/netbirdio/signal:{{ .Version }}-arm64v8
-    ids:
-      - netbird-signal
-    goarch: arm64
-    use: buildx
-    dockerfile: signal/Dockerfile
-    build_flag_templates:
-      - "--platform=linux/arm64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.source=https://github.com/netbirdio/{{.ProjectName}}"
-      - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/signal:{{ .Version }}-arm
-      - ghcr.io/netbirdio/signal:{{ .Version }}-arm
-    ids:
-      - netbird-signal
-    goarch: arm
-    goarm: 6
-    use: buildx
-    dockerfile: signal/Dockerfile
-    build_flag_templates:
-      - "--platform=linux/arm"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.source=https://github.com/netbirdio/{{.ProjectName}}"
-      - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/management:{{ .Version }}-amd64
-      - ghcr.io/netbirdio/management:{{ .Version }}-amd64
-    ids:
-      - netbird-mgmt
-    goarch: amd64
-    use: buildx
-    dockerfile: management/Dockerfile
-    build_flag_templates:
-      - "--platform=linux/amd64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.source=https://github.com/netbirdio/{{.ProjectName}}"
-      - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/management:{{ .Version }}-arm64v8
-      - ghcr.io/netbirdio/management:{{ .Version }}-arm64v8
-    ids:
-      - netbird-mgmt
-    goarch: arm64
-    use: buildx
-    dockerfile: management/Dockerfile
-    build_flag_templates:
-      - "--platform=linux/arm64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.source=https://github.com/netbirdio/{{.ProjectName}}"
-      - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/management:{{ .Version }}-arm
-      - ghcr.io/netbirdio/management:{{ .Version }}-arm
-    ids:
-      - netbird-mgmt
-    goarch: arm
-    goarm: 6
-    use: buildx
-    dockerfile: management/Dockerfile
-    build_flag_templates:
-      - "--platform=linux/arm"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.source=https://github.com/netbirdio/{{.ProjectName}}"
-      - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/management:{{ .Version }}-debug-amd64
-      - ghcr.io/netbirdio/management:{{ .Version }}-debug-amd64
-    ids:
-      - netbird-mgmt
-    goarch: amd64
-    use: buildx
-    dockerfile: management/Dockerfile.debug
-    build_flag_templates:
-      - "--platform=linux/amd64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.source=https://github.com/netbirdio/{{.ProjectName}}"
-      - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/management:{{ .Version }}-debug-arm64v8
-      - ghcr.io/netbirdio/management:{{ .Version }}-debug-arm64v8
-    ids:
-      - netbird-mgmt
-    goarch: arm64
-    use: buildx
-    dockerfile: management/Dockerfile.debug
-    build_flag_templates:
-      - "--platform=linux/arm64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.source=https://github.com/netbirdio/{{.ProjectName}}"
-      - "--label=maintainer=dev@netbird.io"
-
-  - image_templates:
-      - netbirdio/management:{{ .Version }}-debug-arm
-      - ghcr.io/netbirdio/management:{{ .Version }}-debug-arm
-    ids:
-      - netbird-mgmt
-    goarch: arm
-    goarm: 6
-    use: buildx
-    dockerfile: management/Dockerfile.debug
-    build_flag_templates:
-      - "--platform=linux/arm"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.source=https://github.com/netbirdio/{{.ProjectName}}"
-      - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/upload:{{ .Version }}-amd64
-      - ghcr.io/netbirdio/upload:{{ .Version }}-amd64
-    ids:
-      - netbird-upload
-    goarch: amd64
-    use: buildx
-    dockerfile: upload-server/Dockerfile
-    build_flag_templates:
-      - "--platform=linux/amd64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.source=https://github.com/netbirdio/{{.ProjectName}}"
-      - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/upload:{{ .Version }}-arm64v8
-      - ghcr.io/netbirdio/upload:{{ .Version }}-arm64v8
-    ids:
-      - netbird-upload
-    goarch: arm64
-    use: buildx
-    dockerfile: upload-server/Dockerfile
-    build_flag_templates:
-      - "--platform=linux/arm64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.source=https://github.com/netbirdio/{{.ProjectName}}"
-      - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/upload:{{ .Version }}-arm
-      - ghcr.io/netbirdio/upload:{{ .Version }}-arm
-    ids:
-      - netbird-upload
-    goarch: arm
-    goarm: 6
-    use: buildx
-    dockerfile: upload-server/Dockerfile
-    build_flag_templates:
-      - "--platform=linux/arm"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.source=https://github.com/netbirdio/{{.ProjectName}}"
-      - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/netbird-server:{{ .Version }}-amd64
-      - ghcr.io/netbirdio/netbird-server:{{ .Version }}-amd64
-    ids:
-      - netbird-server
-    goarch: amd64
-    use: buildx
-    dockerfile: combined/Dockerfile
-    build_flag_templates:
-      - "--platform=linux/amd64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.source=https://github.com/netbirdio/{{.ProjectName}}"
-      - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/netbird-server:{{ .Version }}-arm64v8
-      - ghcr.io/netbirdio/netbird-server:{{ .Version }}-arm64v8
-    ids:
-      - netbird-server
-    goarch: arm64
-    use: buildx
-    dockerfile: combined/Dockerfile
-    build_flag_templates:
-      - "--platform=linux/arm64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.source=https://github.com/netbirdio/{{.ProjectName}}"
-      - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/netbird-server:{{ .Version }}-arm
-      - ghcr.io/netbirdio/netbird-server:{{ .Version }}-arm
-    ids:
-      - netbird-server
-    goarch: arm
-    goarm: 6
-    use: buildx
-    dockerfile: combined/Dockerfile
-    build_flag_templates:
-      - "--platform=linux/arm"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.source=https://github.com/netbirdio/{{.ProjectName}}"
-      - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/reverse-proxy:{{ .Version }}-amd64
-      - ghcr.io/netbirdio/reverse-proxy:{{ .Version }}-amd64
-    ids:
-      - netbird-proxy
-    goarch: amd64
-    use: buildx
-    dockerfile: proxy/Dockerfile
-    build_flag_templates:
-      - "--platform=linux/amd64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.source=https://github.com/netbirdio/{{.ProjectName}}"
-      - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/reverse-proxy:{{ .Version }}-arm64v8
-      - ghcr.io/netbirdio/reverse-proxy:{{ .Version }}-arm64v8
-    ids:
-      - netbird-proxy
-    goarch: arm64
-    use: buildx
-    dockerfile: proxy/Dockerfile
-    build_flag_templates:
-      - "--platform=linux/arm64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.source=https://github.com/netbirdio/{{.ProjectName}}"
-      - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/reverse-proxy:{{ .Version }}-arm
-      - ghcr.io/netbirdio/reverse-proxy:{{ .Version }}-arm
-    ids:
-      - netbird-proxy
-    goarch: arm
-    goarm: 6
-    use: buildx
-    dockerfile: proxy/Dockerfile
-    build_flag_templates:
-      - "--platform=linux/arm"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.source=https://github.com/netbirdio/{{.ProjectName}}"
-      - "--label=maintainer=dev@netbird.io"
-docker_manifests:
-  - name_template: netbirdio/netbird:{{ .Version }}
-    image_templates:
-      - netbirdio/netbird:{{ .Version }}-arm64v8
-      - netbirdio/netbird:{{ .Version }}-arm
-      - netbirdio/netbird:{{ .Version }}-amd64
-
-  - name_template: netbirdio/netbird:latest
-    image_templates:
-      - netbirdio/netbird:{{ .Version }}-arm64v8
-      - netbirdio/netbird:{{ .Version }}-arm
-      - netbirdio/netbird:{{ .Version }}-amd64
-
-  - name_template: netbirdio/netbird:{{ .Version }}-rootless
-    image_templates:
-      - netbirdio/netbird:{{ .Version }}-rootless-arm64v8
-      - netbirdio/netbird:{{ .Version }}-rootless-arm
-      - netbirdio/netbird:{{ .Version }}-rootless-amd64
-
-  - name_template: netbirdio/netbird:rootless-latest
-    image_templates:
-      - netbirdio/netbird:{{ .Version }}-rootless-arm64v8
-      - netbirdio/netbird:{{ .Version }}-rootless-arm
-      - netbirdio/netbird:{{ .Version }}-rootless-amd64
-
-  - name_template: netbirdio/relay:{{ .Version }}
-    image_templates:
-      - netbirdio/relay:{{ .Version }}-arm64v8
-      - netbirdio/relay:{{ .Version }}-arm
-      - netbirdio/relay:{{ .Version }}-amd64
-
-  - name_template: netbirdio/relay:latest
-    image_templates:
-      - netbirdio/relay:{{ .Version }}-arm64v8
-      - netbirdio/relay:{{ .Version }}-arm
-      - netbirdio/relay:{{ .Version }}-amd64
-
-  - name_template: netbirdio/signal:{{ .Version }}
-    image_templates:
-      - netbirdio/signal:{{ .Version }}-arm64v8
-      - netbirdio/signal:{{ .Version }}-arm
-      - netbirdio/signal:{{ .Version }}-amd64
-
-  - name_template: netbirdio/signal:latest
-    image_templates:
-      - netbirdio/signal:{{ .Version }}-arm64v8
-      - netbirdio/signal:{{ .Version }}-arm
-      - netbirdio/signal:{{ .Version }}-amd64
-
-  - name_template: netbirdio/management:{{ .Version }}
-    image_templates:
-      - netbirdio/management:{{ .Version }}-arm64v8
-      - netbirdio/management:{{ .Version }}-arm
-      - netbirdio/management:{{ .Version }}-amd64
-
-  - name_template: netbirdio/management:latest
-    image_templates:
-      - netbirdio/management:{{ .Version }}-arm64v8
-      - netbirdio/management:{{ .Version }}-arm
-      - netbirdio/management:{{ .Version }}-amd64
-
-  - name_template: netbirdio/management:debug-latest
-    image_templates:
-      - netbirdio/management:{{ .Version }}-debug-arm64v8
-      - netbirdio/management:{{ .Version }}-debug-arm
-      - netbirdio/management:{{ .Version }}-debug-amd64
-  - name_template: netbirdio/upload:{{ .Version }}
-    image_templates:
-      - netbirdio/upload:{{ .Version }}-arm64v8
-      - netbirdio/upload:{{ .Version }}-arm
-      - netbirdio/upload:{{ .Version }}-amd64
-
-  - name_template: netbirdio/upload:latest
-    image_templates:
-      - netbirdio/upload:{{ .Version }}-arm64v8
-      - netbirdio/upload:{{ .Version }}-arm
-      - netbirdio/upload:{{ .Version }}-amd64
-
-  - name_template: netbirdio/netbird-server:{{ .Version }}
-    image_templates:
-      - netbirdio/netbird-server:{{ .Version }}-arm64v8
-      - netbirdio/netbird-server:{{ .Version }}-arm
-      - netbirdio/netbird-server:{{ .Version }}-amd64
-
-  - name_template: netbirdio/netbird-server:latest
-    image_templates:
-      - netbirdio/netbird-server:{{ .Version }}-arm64v8
-      - netbirdio/netbird-server:{{ .Version }}-arm
-      - netbirdio/netbird-server:{{ .Version }}-amd64
-
-  - name_template: ghcr.io/netbirdio/netbird:{{ .Version }}
-    image_templates:
-      - ghcr.io/netbirdio/netbird:{{ .Version }}-arm64v8
-      - ghcr.io/netbirdio/netbird:{{ .Version }}-arm
-      - ghcr.io/netbirdio/netbird:{{ .Version }}-amd64
-
-  - name_template: ghcr.io/netbirdio/netbird:latest
-    image_templates:
-      - ghcr.io/netbirdio/netbird:{{ .Version }}-arm64v8
-      - ghcr.io/netbirdio/netbird:{{ .Version }}-arm
-      - ghcr.io/netbirdio/netbird:{{ .Version }}-amd64
-
-  - name_template: ghcr.io/netbirdio/netbird:{{ .Version }}-rootless
-    image_templates:
-      - ghcr.io/netbirdio/netbird:{{ .Version }}-rootless-arm64v8
-      - ghcr.io/netbirdio/netbird:{{ .Version }}-rootless-arm
-      - ghcr.io/netbirdio/netbird:{{ .Version }}-rootless-amd64
-
-  - name_template: ghcr.io/netbirdio/netbird:rootless-latest
-    image_templates:
-      - ghcr.io/netbirdio/netbird:{{ .Version }}-rootless-arm64v8
-      - ghcr.io/netbirdio/netbird:{{ .Version }}-rootless-arm
-      - ghcr.io/netbirdio/netbird:{{ .Version }}-rootless-amd64
-
-  - name_template: ghcr.io/netbirdio/relay:{{ .Version }}
-    image_templates:
-      - ghcr.io/netbirdio/relay:{{ .Version }}-arm64v8
-      - ghcr.io/netbirdio/relay:{{ .Version }}-arm
-      - ghcr.io/netbirdio/relay:{{ .Version }}-amd64
-
-  - name_template: ghcr.io/netbirdio/relay:latest
-    image_templates:
-      - ghcr.io/netbirdio/relay:{{ .Version }}-arm64v8
-      - ghcr.io/netbirdio/relay:{{ .Version }}-arm
-      - ghcr.io/netbirdio/relay:{{ .Version }}-amd64
-
-  - name_template: ghcr.io/netbirdio/signal:{{ .Version }}
-    image_templates:
-      - ghcr.io/netbirdio/signal:{{ .Version }}-arm64v8
-      - ghcr.io/netbirdio/signal:{{ .Version }}-arm
-      - ghcr.io/netbirdio/signal:{{ .Version }}-amd64
-
-  - name_template: ghcr.io/netbirdio/signal:latest
-    image_templates:
-      - ghcr.io/netbirdio/signal:{{ .Version }}-arm64v8
-      - ghcr.io/netbirdio/signal:{{ .Version }}-arm
-      - ghcr.io/netbirdio/signal:{{ .Version }}-amd64
-
-  - name_template: ghcr.io/netbirdio/management:{{ .Version }}
-    image_templates:
-      - ghcr.io/netbirdio/management:{{ .Version }}-arm64v8
-      - ghcr.io/netbirdio/management:{{ .Version }}-arm
-      - ghcr.io/netbirdio/management:{{ .Version }}-amd64
-
-  - name_template: ghcr.io/netbirdio/management:latest
-    image_templates:
-      - ghcr.io/netbirdio/management:{{ .Version }}-arm64v8
-      - ghcr.io/netbirdio/management:{{ .Version }}-arm
-      - ghcr.io/netbirdio/management:{{ .Version }}-amd64
-
-  - name_template: ghcr.io/netbirdio/management:debug-latest
-    image_templates:
-      - ghcr.io/netbirdio/management:{{ .Version }}-debug-arm64v8
-      - ghcr.io/netbirdio/management:{{ .Version }}-debug-arm
-      - ghcr.io/netbirdio/management:{{ .Version }}-debug-amd64
-
-  - name_template: ghcr.io/netbirdio/upload:{{ .Version }}
-    image_templates:
-      - ghcr.io/netbirdio/upload:{{ .Version }}-arm64v8
-      - ghcr.io/netbirdio/upload:{{ .Version }}-arm
-      - ghcr.io/netbirdio/upload:{{ .Version }}-amd64
-
-  - name_template: ghcr.io/netbirdio/upload:latest
-    image_templates:
-      - ghcr.io/netbirdio/upload:{{ .Version }}-arm64v8
-      - ghcr.io/netbirdio/upload:{{ .Version }}-arm
-      - ghcr.io/netbirdio/upload:{{ .Version }}-amd64
-
-  - name_template: ghcr.io/netbirdio/netbird-server:{{ .Version }}
-    image_templates:
-      - ghcr.io/netbirdio/netbird-server:{{ .Version }}-arm64v8
-      - ghcr.io/netbirdio/netbird-server:{{ .Version }}-arm
-      - ghcr.io/netbirdio/netbird-server:{{ .Version }}-amd64
-
-  - name_template: ghcr.io/netbirdio/netbird-server:latest
-    image_templates:
-      - ghcr.io/netbirdio/netbird-server:{{ .Version }}-arm64v8
-      - ghcr.io/netbirdio/netbird-server:{{ .Version }}-arm
-      - ghcr.io/netbirdio/netbird-server:{{ .Version }}-amd64
-
-  - name_template: netbirdio/reverse-proxy:{{ .Version }}
-    image_templates:
-      - netbirdio/reverse-proxy:{{ .Version }}-arm64v8
-      - netbirdio/reverse-proxy:{{ .Version }}-arm
-      - netbirdio/reverse-proxy:{{ .Version }}-amd64
-
-  - name_template: netbirdio/reverse-proxy:latest
-    image_templates:
-      - netbirdio/reverse-proxy:{{ .Version }}-arm64v8
-      - netbirdio/reverse-proxy:{{ .Version }}-arm
-      - netbirdio/reverse-proxy:{{ .Version }}-amd64
-
-  - name_template: ghcr.io/netbirdio/reverse-proxy:{{ .Version }}
-    image_templates:
-      - ghcr.io/netbirdio/reverse-proxy:{{ .Version }}-arm64v8
-      - ghcr.io/netbirdio/reverse-proxy:{{ .Version }}-arm
-      - ghcr.io/netbirdio/reverse-proxy:{{ .Version }}-amd64
-
-  - name_template: ghcr.io/netbirdio/reverse-proxy:latest
-    image_templates:
-      - ghcr.io/netbirdio/reverse-proxy:{{ .Version }}-arm64v8
-      - ghcr.io/netbirdio/reverse-proxy:{{ .Version }}-arm
-      - ghcr.io/netbirdio/reverse-proxy:{{ .Version }}-amd64
+dockers_v2:
+   - id: netbird
+     disable: "{{ .Env.SKIP_DOCKER_PUSH }}"
+     ids:
+       - netbird
+     images:
+       - netbirdio/netbird
+       - ghcr.io/netbirdio/netbird
+     tags:
+       - "{{ .Version }}"
+       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}latest{{ end }}"
+     dockerfile: client/Dockerfile
+     extra_files:
+       - client/netbird-entrypoint.sh
+     platforms:
+       - linux/amd64
+       - linux/arm64
+       - linux/arm/6
+     annotations:
+       "org.opencontainers.image.created": "{{.Date}}"
+       "org.opencontainers.image.title": "{{.ProjectName}}"
+       "org.opencontainers.image.version": "{{.Version}}"
+       "org.opencontainers.image.revision": "{{.FullCommit}}"
+       "org.opencontainers.image.source": "{{.GitURL}}"
+       "maintainer": "dev@netbird.io"
+   - id: netbird-rootless
+     disable: "{{ .Env.SKIP_DOCKER_PUSH }}"
+     ids:
+       - netbird
+     images:
+       - netbirdio/netbird
+       - ghcr.io/netbirdio/netbird
+     tags:
+       - "v{{ .Version }}-rootless"
+       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}latest{{ end }}"
+     dockerfile: client/Dockerfile-rootless
+     extra_files:
+       - client/netbird-entrypoint.sh
+     platforms:
+       - linux/amd64
+       - linux/arm64
+       - linux/arm/6
+     annotations:
+       "org.opencontainers.image.created": "{{.Date}}"
+       "org.opencontainers.image.title": "{{.ProjectName}}"
+       "org.opencontainers.image.version": "{{.Version}}"
+       "org.opencontainers.image.revision": "{{.FullCommit}}"
+       "org.opencontainers.image.source": "{{.GitURL}}"
+       "maintainer": "dev@netbird.io"
+   - id: relay
+     disable: "{{ .Env.SKIP_DOCKER_PUSH }}"
+     ids:
+       - netbird-relay
+     images:
+       - netbirdio/relay
+       - ghcr.io/netbirdio/relay
+     tags:
+       - "{{ .Version }}"
+       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}latest{{ end }}"
+     dockerfile: relay/Dockerfile
+     platforms:
+       - linux/amd64
+       - linux/arm64
+       - linux/arm
+     annotations:
+       "org.opencontainers.image.created": "{{.Date}}"
+       "org.opencontainers.image.title": "{{.ProjectName}}"
+       "org.opencontainers.image.version": "{{.Version}}"
+       "org.opencontainers.image.revision": "{{.FullCommit}}"
+       "org.opencontainers.image.source": "{{.GitURL}}"
+       "maintainer": "dev@netbird.io"
+   - id: signal
+     disable: "{{ .Env.SKIP_DOCKER_PUSH }}"
+     ids:
+       - netbird-signal
+     images:
+       - netbirdio/signal
+       - ghcr.io/netbirdio/signal
+     tags:
+       - "{{ .Version }}"
+       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}latest{{ end }}"
+     dockerfile: signal/Dockerfile
+     platforms:
+       - linux/amd64
+       - linux/arm64
+       - linux/arm
+     annotations:
+       "org.opencontainers.image.created": "{{.Date}}"
+       "org.opencontainers.image.title": "{{.ProjectName}}"
+       "org.opencontainers.image.version": "{{.Version}}"
+       "org.opencontainers.image.revision": "{{.FullCommit}}"
+       "org.opencontainers.image.source": "{{.GitURL}}"
+       "maintainer": "dev@netbird.io"
+   - id: management
+     disable: "{{ .Env.SKIP_DOCKER_PUSH }}"
+     ids:
+       - netbird-mgmt
+     images:
+       - netbirdio/management
+       - ghcr.io/netbirdio/management
+     tags:
+       - "{{ .Version }}"
+       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}latest{{ end }}"
+     dockerfile: management/Dockerfile
+     platforms:
+       - linux/amd64
+       - linux/arm64
+       - linux/arm
+     annotations:
+       "org.opencontainers.image.created": "{{.Date}}"
+       "org.opencontainers.image.title": "{{.ProjectName}}"
+       "org.opencontainers.image.version": "{{.Version}}"
+       "org.opencontainers.image.revision": "{{.FullCommit}}"
+       "org.opencontainers.image.source": "{{.GitURL}}"
+       "maintainer": "dev@netbird.io"
+   - id: upload
+     disable: "{{ .Env.SKIP_DOCKER_PUSH }}"
+     ids:
+       - netbird-upload
+     images:
+       - netbirdio/upload
+       - ghcr.io/netbirdio/upload
+     tags:
+       - "{{ .Version }}"
+       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}latest{{ end }}"
+     dockerfile: upload-server/Dockerfile
+     platforms:
+       - linux/amd64
+       - linux/arm64
+       - linux/arm
+     annotations:
+       "org.opencontainers.image.created": "{{.Date}}"
+       "org.opencontainers.image.title": "{{.ProjectName}}"
+       "org.opencontainers.image.version": "{{.Version}}"
+       "org.opencontainers.image.revision": "{{.FullCommit}}"
+       "org.opencontainers.image.source": "{{.GitURL}}"
+       "maintainer": "dev@netbird.io"
+   - id: netbird-server
+     disable: "{{ .Env.SKIP_DOCKER_PUSH }}"
+     ids:
+       - netbird-server
+     images:
+       - netbirdio/netbird-server
+       - ghcr.io/netbirdio/netbird-server
+     tags:
+       - "{{ .Version }}"
+       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}latest{{ end }}"
+     dockerfile: combined/Dockerfile
+     platforms:
+       - linux/amd64
+       - linux/arm64
+       - linux/arm
+     annotations:
+       "org.opencontainers.image.created": "{{.Date}}"
+       "org.opencontainers.image.title": "{{.ProjectName}}"
+       "org.opencontainers.image.version": "{{.Version}}"
+       "org.opencontainers.image.revision": "{{.FullCommit}}"
+       "org.opencontainers.image.source": "{{.GitURL}}"
+       "maintainer": "dev@netbird.io"
+   - id: netbird-proxy
+     disable: "{{ .Env.SKIP_DOCKER_PUSH }}"
+     ids:
+       - netbird-proxy
+     images:
+       - netbirdio/reverse-proxy
+       - ghcr.io/netbirdio/reverse-proxy
+     tags:
+       - "{{ .Version }}"
+       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}latest{{ end }}"
+     dockerfile: proxy/Dockerfile
+     platforms:
+       - linux/amd64
+       - linux/arm64
+       - linux/arm
+     annotations:
+       "org.opencontainers.image.created": "{{.Date}}"
+       "org.opencontainers.image.title": "{{.ProjectName}}"
+       "org.opencontainers.image.version": "{{.Version}}"
+       "org.opencontainers.image.revision": "{{.FullCommit}}"
+       "org.opencontainers.image.source": "{{.GitURL}}"
+       "maintainer": "dev@netbird.io"
 
 brews:
   - ids:
       - default
+    skip_upload: "{{ .Env.SKIP_PUBLISH }}"
     repository:
       owner: netbirdio
       name: homebrew-tap
@@ -902,6 +440,7 @@ brews:
 
 uploads:
   - name: debian
+    skip: "{{ .Env.SKIP_PUBLISH }}"
     ids:
       - netbird_deb
     mode: archive
@@ -910,6 +449,7 @@ uploads:
     method: PUT
 
   - name: yum
+    skip: "{{ .Env.SKIP_PUBLISH }}"
     ids:
       - netbird_rpm
     mode: archive
@@ -922,9 +462,13 @@ checksum:
     - glob: ./infrastructure_files/getting-started-with-zitadel.sh
     - glob: ./release_files/install.sh
     - glob: ./infrastructure_files/getting-started.sh
+    - glob: ./infrastructure_files/getting-started-enterprise.sh
+    - glob: ./infrastructure_files/migrate-to-enterprise.sh
 
 release:
   extra_files:
     - glob: ./infrastructure_files/getting-started-with-zitadel.sh
     - glob: ./release_files/install.sh
     - glob: ./infrastructure_files/getting-started.sh
+    - glob: ./infrastructure_files/getting-started-enterprise.sh
+    - glob: ./infrastructure_files/migrate-to-enterprise.sh

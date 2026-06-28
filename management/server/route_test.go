@@ -1962,8 +1962,10 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 
 	})
 
-	// Creating a route with no routing peer and having peers in groups should update account peers and send peer update
+	// Creating a route with no routing peer and having peers in groups that don't include peer1 should not send peer1 an update
 	t.Run("creating a route with peers in  PeerGroups and Groups", func(t *testing.T) {
+		drainPeerUpdates(updMsg)
+
 		route := route.Route{
 			ID:          "testingRoute2",
 			Network:     netip.MustParsePrefix("192.0.2.0/32"),
@@ -1979,7 +1981,7 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg)
 			close(done)
 		}()
 
@@ -1992,8 +1994,8 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(peerUpdateTimeout):
-			t.Error("timeout waiting for peerShouldReceiveUpdate")
+		case <-time.After(time.Second):
+			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
 		}
 
 	})

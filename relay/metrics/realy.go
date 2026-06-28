@@ -6,6 +6,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
 
@@ -119,8 +120,8 @@ func NewMetrics(ctx context.Context, meter metric.Meter) (*Metrics, error) {
 }
 
 // PeerConnected increments the number of connected peers and increments number of idle connections
-func (m *Metrics) PeerConnected(id string) {
-	m.peers.Add(m.ctx, 1)
+func (m *Metrics) PeerConnected(id, transport string) {
+	m.peers.Add(m.ctx, 1, metric.WithAttributes(attribute.String("transport", transport)))
 	m.mutexActivity.Lock()
 	defer m.mutexActivity.Unlock()
 
@@ -138,8 +139,8 @@ func (m *Metrics) RecordPeerStoreTime(duration time.Duration) {
 }
 
 // PeerDisconnected decrements the number of connected peers and decrements number of idle or active connections
-func (m *Metrics) PeerDisconnected(id string) {
-	m.peers.Add(m.ctx, -1)
+func (m *Metrics) PeerDisconnected(id, transport string) {
+	m.peers.Add(m.ctx, -1, metric.WithAttributes(attribute.String("transport", transport)))
 	m.mutexActivity.Lock()
 	defer m.mutexActivity.Unlock()
 

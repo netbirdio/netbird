@@ -1105,7 +1105,7 @@ func (s *Server) getOrCreatePortRouter(ctx context.Context, port uint16) (*nbtcp
 	router := nbtcp.NewPortRouter(s.Logger, s.resolveDialFunc)
 	router.SetObserver(s.meter)
 	router.SetAccessLogger(s.accessLog)
-	portCtx, cancel := context.WithCancel(ctx)
+	portCtx, cancel := context.WithCancel(s.portRouterContext(ctx))
 
 	s.portRouters[port] = &portRouter{
 		router:   router,
@@ -1121,8 +1121,24 @@ func (s *Server) getOrCreatePortRouter(ctx context.Context, port uint16) (*nbtcp
 		}
 	}()
 
-	s.Logger.Debugf("started per-port router on %s", listenAddr)
+	s.Logger.WithFields(log.Fields{
+		"port":           port,
+		"listen_addr":    listenAddr,
+		"bound_addr":     ln.Addr().String(),
+		"proxy_protocol": s.ProxyProtocol,
+	}).Info("custom TCP listener started")
 	return router, nil
+}
+
+// portRouterContext returns the server-lifetime context for custom TCP
+// listeners. Mapping-batch contexts are cancelled after a batch is applied; a
+// per-port listener must outlive that batch and only stop on service removal or
+// server shutdown.
+func (s *Server) portRouterContext(ctx context.Context) context.Context {
+	if s.ctx != nil {
+		return s.ctx
+	}
+	return ctx
 }
 
 // cleanupPortIfEmpty tears down a per-port router if it has no remaining
@@ -1718,6 +1734,13 @@ func (s *Server) setupTCPMapping(ctx context.Context, mapping *proto.ProxyMappin
 
 	s.meter.L4ServiceAdded(types.ServiceModeTCP)
 	s.sendStatusUpdate(ctx, accountID, svcID, proto.ProxyStatus_PROXY_STATUS_ACTIVE, nil)
+
+	s.Logger.WithFields(log.Fields{
+		"domain":  mapping.GetDomain(),
+		"target":  targetAddr,
+		"port":    port,
+		"service": svcID,
+	}).Info("TCP mapping added")
 	return nil
 }
 
@@ -1966,7 +1989,7 @@ func (s *Server) addUDPRelay(ctx context.Context, mapping *proto.ProxyMapping, t
 		"service_id":  svcID,
 	})
 
-	relay := udprelay.New(ctx, udprelay.RelayConfig{
+	relay := udprelay.New(s.portRouterContext(ctx), udprelay.RelayConfig{
 		Logger:      entry,
 		Listener:    listener,
 		Target:      targetAddress,

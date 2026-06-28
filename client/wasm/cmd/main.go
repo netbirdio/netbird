@@ -23,6 +23,7 @@ import (
 	"github.com/netbirdio/netbird/client/wasm/internal/rdp"
 	"github.com/netbirdio/netbird/client/wasm/internal/ssh"
 	"github.com/netbirdio/netbird/client/wasm/internal/vnc"
+	nbwebsocket "github.com/netbirdio/netbird/client/wasm/internal/websocket"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -32,6 +33,7 @@ const (
 	pingTimeout                = 10 * time.Second
 	defaultLogLevel            = "warn"
 	defaultSSHDetectionTimeout = 20 * time.Second
+	dialWebSocketTimeout       = 30 * time.Second
 
 	icmpEchoRequest = 8
 	icmpCodeEcho    = 0
@@ -832,6 +834,7 @@ func createClientObject(client *netbird.Client) js.Value {
 	obj["proxyRequest"] = createProxyRequestMethod(client)
 	obj["createRDPProxy"] = createRDPProxyMethod(client)
 	obj["createVNCProxy"] = createVNCProxyMethod(client)
+	obj["dialWebSocket"] = createDialWebSocketMethod(client)
 	obj["status"] = createStatusMethod(client)
 	obj["statusSummary"] = createStatusSummaryMethod(client)
 	obj["statusDetail"] = createStatusDetailMethod(client)
@@ -844,6 +847,74 @@ func createClientObject(client *netbird.Client) js.Value {
 	obj["stopCapture"] = capStop
 
 	return js.ValueOf(obj)
+}
+
+func createDialWebSocketMethod(client *netbird.Client) js.Func {
+	return js.FuncOf(func(_ js.Value, args []js.Value) any {
+		url, protocols, timeout, errVal := parseDialWebSocketArgs(args)
+		if !errVal.IsUndefined() {
+			return errVal
+		}
+
+		return createPromise(func(resolve, reject js.Value) {
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+
+			conn, err := nbwebsocket.Dial(ctx, client, url, protocols)
+			if err != nil {
+				reject.Invoke(js.ValueOf(fmt.Sprintf("dial websocket: %v", err)))
+				return
+			}
+
+			resolve.Invoke(nbwebsocket.NewJSInterface(conn))
+		})
+	})
+}
+
+func parseDialWebSocketArgs(args []js.Value) (url string, protocols []string, timeout time.Duration, errVal js.Value) {
+	if len(args) < 1 || args[0].Type() != js.TypeString {
+		return "", nil, 0, js.ValueOf("error: dialWebSocket requires a URL string argument")
+	}
+	url = args[0].String()
+
+	if len(args) >= 2 && !args[1].IsNull() && !args[1].IsUndefined() {
+		arr, err := jsStringArray(args[1])
+		if err != nil {
+			return "", nil, 0, js.ValueOf(fmt.Sprintf("error: protocols: %v", err))
+		}
+		protocols = arr
+	}
+
+	timeout = dialWebSocketTimeout
+	if len(args) >= 3 && !args[2].IsNull() && !args[2].IsUndefined() {
+		if args[2].Type() != js.TypeNumber {
+			return "", nil, 0, js.ValueOf("error: timeoutMs must be a number")
+		}
+		timeoutMs := args[2].Int()
+		if timeoutMs <= 0 {
+			return "", nil, 0, js.ValueOf("error: timeout must be positive")
+		}
+		timeout = time.Duration(timeoutMs) * time.Millisecond
+	}
+
+	return url, protocols, timeout, js.Undefined()
+}
+
+// jsStringArray converts a JS array of strings to a Go []string.
+func jsStringArray(v js.Value) ([]string, error) {
+	if !v.InstanceOf(js.Global().Get("Array")) {
+		return nil, fmt.Errorf("expected array")
+	}
+	n := v.Length()
+	out := make([]string, n)
+	for i := 0; i < n; i++ {
+		el := v.Index(i)
+		if el.Type() != js.TypeString {
+			return nil, fmt.Errorf("element %d is not a string", i)
+		}
+		out[i] = el.String()
+	}
+	return out, nil
 }
 
 // netBirdClientConstructor acts as a JavaScript constructor function

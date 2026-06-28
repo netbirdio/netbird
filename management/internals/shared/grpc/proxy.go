@@ -33,6 +33,8 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/sessionkey"
+	"github.com/netbirdio/netbird/management/server/idp"
+	"github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/users"
 	proxyauth "github.com/netbirdio/netbird/proxy/auth"
@@ -81,6 +83,9 @@ type ProxyServiceServer struct {
 
 	// Manager for users
 	usersManager users.Manager
+
+	// Manager for IdP-enriched user data (may be nil when no IdP is configured)
+	idpManager idp.Manager
 
 	// Store for one-time authentication tokens
 	tokenStore *OneTimeTokenStore
@@ -157,7 +162,7 @@ func enforceAccountScope(ctx context.Context, requestAccountID string) error {
 }
 
 // NewProxyServiceServer creates a new proxy service server.
-func NewProxyServiceServer(accessLogMgr accesslogs.Manager, tokenStore *OneTimeTokenStore, pkceStore *PKCEVerifierStore, oidcConfig ProxyOIDCConfig, peersManager peers.Manager, usersManager users.Manager, proxyMgr proxy.Manager, tokenChecker ProxyTokenChecker) *ProxyServiceServer {
+func NewProxyServiceServer(accessLogMgr accesslogs.Manager, tokenStore *OneTimeTokenStore, pkceStore *PKCEVerifierStore, oidcConfig ProxyOIDCConfig, peersManager peers.Manager, usersManager users.Manager, idpManager idp.Manager, proxyMgr proxy.Manager, tokenChecker ProxyTokenChecker) *ProxyServiceServer {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &ProxyServiceServer{
 		accessLogManager:  accessLogMgr,
@@ -166,6 +171,7 @@ func NewProxyServiceServer(accessLogMgr accesslogs.Manager, tokenStore *OneTimeT
 		pkceVerifierStore: pkceStore,
 		peersManager:      peersManager,
 		usersManager:      usersManager,
+		idpManager:        idpManager,
 		proxyManager:      proxyMgr,
 		tokenChecker:      tokenChecker,
 		snapshotBatchSize: snapshotBatchSizeFromEnv(),
@@ -1702,22 +1708,7 @@ func (s *ProxyServiceServer) ValidateTunnelPeer(ctx context.Context, req *proto.
 	}
 
 	groupIDs, groupNames := pairGroupIDsAndNames(peerGroups)
-
-	// Resolve the principal: when the peer is linked to a user, the human
-	// is the principal so multiple peers owned by the same user share a
-	// single identity. Unlinked peers (machine agents) are their own
-	// principal keyed on peer.ID. displayIdentity is what upstream gateways
-	// tag spend with — user.Email when linked, peer.Name when not.
-	principalID := peer.ID
-	displayIdentity := peer.Name
-	if peer.UserID != "" {
-		if user, uerr := s.usersManager.GetUser(ctx, peer.UserID); uerr == nil && user != nil {
-			principalID = user.Id
-			if user.Email != "" {
-				displayIdentity = user.Email
-			}
-		}
-	}
+	principalID, displayIdentity := s.getTunnelPeerInfo(ctx, domain, service, peer)
 
 	if err := checkPeerGroupAccess(service, groupIDs); err != nil {
 		log.WithFields(log.Fields{"domain": domain, "peer_id": peer.ID, "error": err.Error()}).Debug("ValidateTunnelPeer: access denied")
@@ -1752,6 +1743,45 @@ func (s *ProxyServiceServer) ValidateTunnelPeer(ctx context.Context, req *proto.
 		PeerGroupIds:   groupIDs,
 		PeerGroupNames: groupNames,
 	}, nil
+}
+
+// getTunnelPeerInfo returns the principal ID and display name for a peer, e.g. a
+// user or peer ID, and peer name or user email.
+func (s *ProxyServiceServer) getTunnelPeerInfo(ctx context.Context, domain string, service *rpservice.Service, peer *peer.Peer) (string, string) {
+	// Resolve the principal: when the peer is linked to a user, the human is the
+	// principal so multiple peers owned by the same user share a single
+	// identity. Unlinked peers (machine agents) are their own principal keyed on
+	// peer.ID. displayIdentity is what upstream gateways tag spend with —
+	// user.Email when linked, peer.Name when not.
+
+	// If the peer isn't associated with a user, return the peer info directly.
+	if peer.UserID == "" {
+		return peer.ID, peer.Name
+	}
+
+	// Otherwise, if the peer is linked to a user, the user is the principal and
+	// if an IdP is available, we gather details on the user from it.
+	principalID := peer.UserID
+	displayIdentity := peer.Name
+	// Stored column first (cheap, but often empty for OIDC-provisioned users).
+	if user, uerr := s.usersManager.GetUser(ctx, peer.UserID); uerr == nil && user != nil {
+		principalID = user.Id
+		if user.Email != "" {
+			displayIdentity = user.Email
+		}
+	}
+	// IdP enrichment wins when available — the stored email column is a
+	// best-effort cache and is frequently empty for OIDC users. Enrichment
+	// failures must never fail the RPC; we simply keep the stored/peer identity.
+	if s.idpManager != nil {
+		if ud, uerr := s.idpManager.GetUserDataByID(ctx, peer.UserID, idp.AppMetadata{WTAccountID: service.AccountID}); uerr == nil && ud != nil && ud.Email != "" {
+			displayIdentity = ud.Email
+		} else if uerr != nil {
+			log.WithFields(log.Fields{"domain": domain, "user_id": peer.UserID, "error": uerr.Error()}).Debug("ValidateTunnelPeer: IdP user enrichment failed; using stored/peer identity")
+		}
+	}
+
+	return principalID, displayIdentity
 }
 
 // checkPeerGroupAccess gates ValidateTunnelPeer by the service's required

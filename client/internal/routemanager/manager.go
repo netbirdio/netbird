@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"runtime"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -331,6 +332,8 @@ func (m *DefaultManager) Stop(stateManager *statemanager.Manager) {
 			nbnet.SetVPNInterfaceName("")
 		}
 	}
+
+	m.notifier.Close()
 
 	m.mux.Lock()
 	defer m.mux.Unlock()
@@ -700,6 +703,8 @@ func resolveURLsToIPs(urls []string) []net.IP {
 
 // updateRouteSelectorFromManagement updates the route selector based on the isSelected status from the management server
 func (m *DefaultManager) updateRouteSelectorFromManagement(clientRoutes route.HAMap) {
+	m.mirrorV6ExitPairSelections(clientRoutes)
+
 	// An explicit user "deselect all" must not be overridden by management auto-apply.
 	// Auto-applying an exit node here would call SelectRoutes, which clears the
 	// deselect-all flag and re-enables every route the user turned off.
@@ -714,6 +719,24 @@ func (m *DefaultManager) updateRouteSelectorFromManagement(clientRoutes route.HA
 
 	m.updateExitNodeSelections(exitNodeInfo)
 	m.logExitNodeUpdate(exitNodeInfo)
+}
+
+// mirrorV6ExitPairSelections keeps every synthesized "-v6" exit route's selection
+// consistent with its v4 base. The v4/v6 exit pair is a single toggle, so the v6
+// entry always follows the base: deselecting the v4 exit node also drops its ::/0
+// pair, and any stale (orphaned) explicit selection on the v6 entry is reset. This
+// runs before selection is read so both collectExitNodeInfo and FilterSelectedExitNodes
+// see consistent state, including pairs loaded from persisted selector state.
+func (m *DefaultManager) mirrorV6ExitPairSelections(clientRoutes route.HAMap) {
+	routesByNetID := make(map[route.NetID][]*route.Route, len(clientRoutes))
+	for haID, routes := range clientRoutes {
+		routesByNetID[haID.NetID()] = routes
+	}
+
+	for v6ID := range route.V6ExitMergeSet(routesByNetID) {
+		baseID := route.NetID(strings.TrimSuffix(string(v6ID), route.V6ExitSuffix))
+		m.routeSelector.SyncPairedSelection(baseID, v6ID)
+	}
 }
 
 type exitNodeInfo struct {

@@ -48,6 +48,7 @@ message Body {
     CANDIDATE = 2;
     MODE = 4;
     GO_IDLE = 5;
+    HEARTBEAT = 6;
   }
   Type type = 1;
   string payload = 2;

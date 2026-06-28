@@ -119,10 +119,6 @@ func (d *BindListener) ReadPackets() {
 	}
 
 	d.peerCfg.Log.Debugf("removing lazy endpoint for peer %s", d.peerCfg.PublicKey)
-	if err := d.wgIface.RemovePeer(d.peerCfg.PublicKey); err != nil {
-		d.peerCfg.Log.Errorf("failed to remove endpoint: %s", err)
-	}
-
 	_ = d.lazyConn.Close()
 	d.bind.RemoveEndpoint(d.fakeIP)
 	d.done.Done()

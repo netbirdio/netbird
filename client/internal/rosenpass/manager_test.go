@@ -22,14 +22,14 @@ type removePeerCall struct {
 }
 
 type mockServer struct {
-	mu         sync.Mutex
-	addCalls   []addPeerCall
-	removed    []removePeerCall
-	nextID     rp.PeerID
-	addErr     error
-	removeErr  error
-	closed     bool
-	ran        bool
+	mu        sync.Mutex
+	addCalls  []addPeerCall
+	removed   []removePeerCall
+	nextID    rp.PeerID
+	addErr    error
+	removeErr error
+	closed    bool
+	ran       bool
 }
 
 func (m *mockServer) AddPeer(cfg rp.PeerConfig) (rp.PeerID, error) {
@@ -51,7 +51,7 @@ func (m *mockServer) RemovePeer(id rp.PeerID) error {
 	return m.removeErr
 }
 
-func (m *mockServer) Run() error  { m.ran = true; return nil }
+func (m *mockServer) Run() error   { m.ran = true; return nil }
 func (m *mockServer) Close() error { m.closed = true; return nil }
 
 type setPSKCall struct {

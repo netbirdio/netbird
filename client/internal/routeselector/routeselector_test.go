@@ -330,39 +330,73 @@ func TestRouteSelector_FilterSelectedExitNodes(t *testing.T) {
 	assert.Len(t, filtered, 0) // No routes should be selected
 }
 
-// TestRouteSelector_V6ExitPairInherits covers the v4/v6 exit-node pair selection
-// mirror. The mirror is scoped to exit-node code paths: HasUserSelectionForRoute
-// and FilterSelectedExitNodes resolve a "-v6" entry without explicit state to its
-// v4 base, so legacy persisted selections that predate v6 pairing transparently
-// apply to the synthesized v6 entry. General lookups (IsSelected, FilterSelected)
-// stay literal so unrelated routes named "*-v6" don't inherit unrelated state.
-func TestRouteSelector_V6ExitPairInherits(t *testing.T) {
+// TestRouteSelector_V6ExitPairSync covers SyncPairedSelection, which keeps a v4
+// exit node and its synthesized "-v6" counterpart consistent. The selector itself
+// is literal and never infers a v6 entry's state from its v4 base; callers that know
+// the pairing (exit-node code paths) call SyncPairedSelection to force the v6 entry
+// to follow the base, treating the pair as a single toggle.
+func TestRouteSelector_V6ExitPairSync(t *testing.T) {
 	all := []route.NetID{"exit1", "exit1-v6", "exit2", "exit2-v6", "corp", "corp-v6"}
 
-	t.Run("HasUserSelectionForRoute mirrors deselected v4 base", func(t *testing.T) {
+	t.Run("selector lookups stay literal without sync", func(t *testing.T) {
 		rs := routeselector.NewRouteSelector()
 		require.NoError(t, rs.DeselectRoutes([]route.NetID{"exit1"}, all))
 
-		assert.True(t, rs.HasUserSelectionForRoute("exit1-v6"), "v6 pair sees v4 base's user selection")
+		// The selector does not pair-resolve: the v6 entry is independent until synced.
+		assert.False(t, rs.HasUserSelectionForRoute("exit1-v6"), "v6 entry has no state of its own")
+		assert.True(t, rs.IsSelected("exit1-v6"), "unsynced v6 entry stays selected by default")
 
-		// unrelated v6 with no v4 base touched is unaffected
-		assert.False(t, rs.HasUserSelectionForRoute("exit2-v6"))
+		// A route literally named "exit1-something" must never pair-resolve either.
+		assert.False(t, rs.HasUserSelectionForRoute("exit1-something"))
 	})
 
-	t.Run("IsSelected stays literal for non-exit lookups", func(t *testing.T) {
-		rs := routeselector.NewRouteSelector()
-		require.NoError(t, rs.DeselectRoutes([]route.NetID{"corp"}, all))
-
-		// A non-exit route literally named "corp-v6" must not inherit "corp"'s state
-		// via the mirror; the mirror only applies in exit-node code paths.
-		assert.False(t, rs.IsSelected("corp"))
-		assert.True(t, rs.IsSelected("corp-v6"), "non-exit *-v6 routes must not inherit unrelated v4 state")
-	})
-
-	t.Run("explicit v6 state overrides v4 base in filter", func(t *testing.T) {
+	t.Run("sync mirrors deselected v4 base onto v6", func(t *testing.T) {
 		rs := routeselector.NewRouteSelector()
 		require.NoError(t, rs.DeselectRoutes([]route.NetID{"exit1"}, all))
+
+		rs.SyncPairedSelection("exit1", "exit1-v6")
+
+		assert.False(t, rs.IsSelected("exit1"))
+		assert.False(t, rs.IsSelected("exit1-v6"), "v6 pair follows v4 base deselect")
+		assert.True(t, rs.HasUserSelectionForRoute("exit1-v6"), "v6 carries explicit deselect after sync")
+	})
+
+	t.Run("sync mirrors selected v4 base onto v6", func(t *testing.T) {
+		rs := routeselector.NewRouteSelector()
+		require.NoError(t, rs.SelectRoutes([]route.NetID{"exit1"}, false, all))
+
+		rs.SyncPairedSelection("exit1", "exit1-v6")
+
+		assert.True(t, rs.IsSelected("exit1"))
+		assert.True(t, rs.IsSelected("exit1-v6"), "v6 pair follows v4 base select")
+	})
+
+	t.Run("sync clears v6 state when base has no explicit selection", func(t *testing.T) {
+		rs := routeselector.NewRouteSelector()
 		require.NoError(t, rs.SelectRoutes([]route.NetID{"exit1-v6"}, true, all))
+		require.True(t, rs.HasUserSelectionForRoute("exit1-v6"))
+
+		rs.SyncPairedSelection("exit1", "exit1-v6")
+
+		assert.False(t, rs.HasUserSelectionForRoute("exit1-v6"),
+			"v6 explicit state is cleared so it follows management like its base")
+	})
+
+	// Regression for the observed bug (see netbird-engine.log): persisted state has
+	// the v4 base deselected but the v6 sibling explicitly selected (orphaned). The
+	// sync must reset the orphan so the ::/0 route does not leak onto the tunnel.
+	t.Run("sync clears orphaned explicit v6 selection on deselected base", func(t *testing.T) {
+		rs := routeselector.NewRouteSelector()
+
+		// Prior state: both explicitly selected, then only the v4 base deselected,
+		// leaving the v6 entry as a stale explicit selection.
+		require.NoError(t, rs.SelectRoutes([]route.NetID{"exit1", "exit1-v6"}, true, all))
+		require.NoError(t, rs.DeselectRoutes([]route.NetID{"exit1"}, all))
+		require.True(t, rs.IsSelected("exit1-v6"), "precondition: orphaned v6 selection")
+
+		rs.SyncPairedSelection("exit1", "exit1-v6")
+
+		assert.False(t, rs.IsSelected("exit1-v6"), "orphaned v6 selection reset to follow v4 deselect")
 
 		v4Route := &route.Route{NetID: "exit1", Network: netip.MustParsePrefix("0.0.0.0/0")}
 		v6Route := &route.Route{NetID: "exit1-v6", Network: netip.MustParsePrefix("::/0")}
@@ -370,23 +404,14 @@ func TestRouteSelector_V6ExitPairInherits(t *testing.T) {
 			"exit1|0.0.0.0/0": {v4Route},
 			"exit1-v6|::/0":   {v6Route},
 		}
-
 		filtered := rs.FilterSelectedExitNodes(routes)
-		assert.NotContains(t, filtered, route.HAUniqueID("exit1|0.0.0.0/0"))
-		assert.Contains(t, filtered, route.HAUniqueID("exit1-v6|::/0"), "explicit v6 select wins over v4 base")
+		assert.Empty(t, filtered, "deselecting v4 base must drop the v6 pair even if it was explicitly selected before")
 	})
 
-	t.Run("non-v6-suffix routes unaffected", func(t *testing.T) {
+	t.Run("filter drops synced v6 pair of deselected v4 base", func(t *testing.T) {
 		rs := routeselector.NewRouteSelector()
 		require.NoError(t, rs.DeselectRoutes([]route.NetID{"exit1"}, all))
-
-		// A route literally named "exit1-something" must not pair-resolve.
-		assert.False(t, rs.HasUserSelectionForRoute("exit1-something"))
-	})
-
-	t.Run("filter v6 paired with deselected v4 base", func(t *testing.T) {
-		rs := routeselector.NewRouteSelector()
-		require.NoError(t, rs.DeselectRoutes([]route.NetID{"exit1"}, all))
+		rs.SyncPairedSelection("exit1", "exit1-v6")
 
 		v4Route := &route.Route{NetID: "exit1", Network: netip.MustParsePrefix("0.0.0.0/0")}
 		v6Route := &route.Route{NetID: "exit1-v6", Network: netip.MustParsePrefix("::/0")}
@@ -397,6 +422,15 @@ func TestRouteSelector_V6ExitPairInherits(t *testing.T) {
 
 		filtered := rs.FilterSelectedExitNodes(routes)
 		assert.Empty(t, filtered, "deselecting v4 base must also drop the v6 pair")
+	})
+
+	t.Run("deselectAll makes sync a no-op", func(t *testing.T) {
+		rs := routeselector.NewRouteSelector()
+		rs.DeselectAllRoutes()
+
+		rs.SyncPairedSelection("exit1", "exit1-v6")
+
+		assert.False(t, rs.HasUserSelectionForRoute("exit1-v6"), "sync must not write explicit state under deselectAll")
 	})
 
 	t.Run("non-exit *-v6 routes pass through FilterSelectedExitNodes", func(t *testing.T) {

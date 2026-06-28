@@ -63,7 +63,6 @@ type WGIFaceOpts struct {
 	MTU          uint16
 	MobileArgs   *device.MobileIFaceArguments
 	TransportNet transport.Net
-	FilterFn     udpmux.FilterFn
 	DisableDNS   bool
 }
 
