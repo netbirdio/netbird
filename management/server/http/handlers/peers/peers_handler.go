@@ -465,31 +465,14 @@ func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Explicit defence-in-depth gate before any business logic: we already
-	// rely on AddPeer/SavePolicy to enforce the Peers.Create and
-	// Policies.Create permissions, but checking up-front means a future
-	// refactor that bypasses one of those calls can't silently widen the
-	// endpoint's authority.
-	allowed, ctx, err := h.permissionsManager.ValidateUserPermissions(r.Context(), userAuth.AccountId, userAuth.UserId, modules.Peers, operations.Create)
+	ctx, err := h.validateTemporaryAccessPermissions(r.Context(), userAuth.AccountId, userAuth.UserId)
 	if err != nil {
-		util.WriteError(ctx, status.NewPermissionValidationError(err), w)
-		return
-	} else if !allowed {
-		util.WriteError(ctx, status.NewPermissionDeniedError(), w)
-		return
-	}
-	allowed, ctx, err = h.permissionsManager.ValidateUserPermissions(ctx, userAuth.AccountId, userAuth.UserId, modules.Policies, operations.Create)
-	if err != nil {
-		util.WriteError(ctx, status.NewPermissionValidationError(err), w)
-		return
-	} else if !allowed {
-		util.WriteError(ctx, status.NewPermissionDeniedError(), w)
+		util.WriteError(ctx, err, w)
 		return
 	}
 
 	var req api.PeerTemporaryAccessRequest
-	err = json.NewDecoder(r.Body).Decode(&req)
-	if err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 		return
 	}
@@ -497,26 +480,10 @@ func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request) 
 	newPeer := &nbpeer.Peer{}
 	newPeer.FromAPITemporaryAccessRequest(&req)
 
-	parsedRules := make([]struct {
-		raw       string
-		protocol  types.PolicyRuleProtocolType
-		portRange types.RulePortRange
-	}, 0, len(req.Rules))
-	needsVNCKey := false
-	for _, rule := range req.Rules {
-		protocol, portRange, err := types.ParseRuleString(rule)
-		if err != nil {
-			util.WriteError(r.Context(), err, w)
-			return
-		}
-		if protocol == types.PolicyRuleProtocolNetbirdVNC {
-			needsVNCKey = true
-		}
-		parsedRules = append(parsedRules, struct {
-			raw       string
-			protocol  types.PolicyRuleProtocolType
-			portRange types.RulePortRange
-		}{rule, protocol, portRange})
+	parsedRules, needsVNCKey, err := parseTemporaryAccessRules(req.Rules)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
 	}
 
 	var vncSessionPubKey string
@@ -540,7 +507,72 @@ func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	for _, pr := range parsedRules {
+	if err := h.createTemporaryAccessPolicies(r.Context(), userAuth, peer, targetPeer, parsedRules, vncSessionPubKey); err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	resp := &api.PeerTemporaryAccessResponse{
+		Id:           peer.ID,
+		Name:         peer.Name,
+		Rules:        req.Rules,
+		TargetPubKey: targetPeer.Key,
+	}
+
+	util.WriteJSONObject(r.Context(), w, resp)
+}
+
+// temporaryAccessRule holds a parsed temporary-access rule string alongside
+// the protocol and port range it resolves to.
+type temporaryAccessRule struct {
+	raw       string
+	protocol  types.PolicyRuleProtocolType
+	portRange types.RulePortRange
+}
+
+// validateTemporaryAccessPermissions enforces the Peers.Create and
+// Policies.Create permissions up front. AddPeer/SavePolicy enforce them too,
+// but the explicit gate keeps a future refactor that bypasses one of those
+// calls from silently widening the endpoint's authority. It returns the
+// context updated by the permission checks.
+func (h *Handler) validateTemporaryAccessPermissions(ctx context.Context, accountID, userID string) (context.Context, error) {
+	allowed, ctx, err := h.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Create)
+	if err != nil {
+		return ctx, status.NewPermissionValidationError(err)
+	} else if !allowed {
+		return ctx, status.NewPermissionDeniedError()
+	}
+	allowed, ctx, err = h.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operations.Create)
+	if err != nil {
+		return ctx, status.NewPermissionValidationError(err)
+	} else if !allowed {
+		return ctx, status.NewPermissionDeniedError()
+	}
+	return ctx, nil
+}
+
+// parseTemporaryAccessRules parses the rule strings from the request and
+// reports whether any of them is a VNC rule, which requires a session key.
+func parseTemporaryAccessRules(rules []string) ([]temporaryAccessRule, bool, error) {
+	parsed := make([]temporaryAccessRule, 0, len(rules))
+	needsVNCKey := false
+	for _, rule := range rules {
+		protocol, portRange, err := types.ParseRuleString(rule)
+		if err != nil {
+			return nil, false, err
+		}
+		if protocol == types.PolicyRuleProtocolNetbirdVNC {
+			needsVNCKey = true
+		}
+		parsed = append(parsed, temporaryAccessRule{raw: rule, protocol: protocol, portRange: portRange})
+	}
+	return parsed, needsVNCKey, nil
+}
+
+// createTemporaryAccessPolicies creates one temporary-access policy per parsed
+// rule, allowing peer to reach targetPeer over the rule's protocol and ports.
+func (h *Handler) createTemporaryAccessPolicies(ctx context.Context, userAuth auth.UserAuth, peer, targetPeer *nbpeer.Peer, rules []temporaryAccessRule, vncSessionPubKey string) error {
+	for _, pr := range rules {
 		policy := &types.Policy{
 			AccountID:   userAuth.AccountId,
 			Description: "Temporary access policy for peer " + peer.Name,
@@ -569,23 +601,14 @@ func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request) 
 		}
 		if pr.protocol == types.PolicyRuleProtocolNetbirdVNC {
 			policy.Rules[0].SessionPubKey = vncSessionPubKey
-			policy.Rules[0].SessionDisplayName = h.displayNameForUser(r.Context(), userAuth)
+			policy.Rules[0].SessionDisplayName = h.displayNameForUser(ctx, userAuth)
 		}
 
-		if _, err = h.accountManager.SavePolicy(r.Context(), userAuth.AccountId, userAuth.UserId, policy, true); err != nil {
-			util.WriteError(r.Context(), err, w)
-			return
+		if _, err := h.accountManager.SavePolicy(ctx, userAuth.AccountId, userAuth.UserId, policy, true); err != nil {
+			return err
 		}
 	}
-
-	resp := &api.PeerTemporaryAccessResponse{
-		Id:           peer.ID,
-		Name:         peer.Name,
-		Rules:        req.Rules,
-		TargetPubKey: targetPeer.Key,
-	}
-
-	util.WriteJSONObject(r.Context(), w, resp)
+	return nil
 }
 
 // validateVNCSessionPubKey ensures the request carries a base64-encoded
