@@ -1022,7 +1022,7 @@ func (d *Status) GetRelayStates() []relay.ProbeResult {
 	d.muxRelays.RLock()
 	if d.relayMgr == nil {
 		defer d.muxRelays.RUnlock()
-		return d.relayStates
+		return slices.Clone(d.relayStates)
 	}
 
 	relayMgr := d.relayMgr
