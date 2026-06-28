@@ -84,15 +84,12 @@ func accumulateOpenAIStream(body []byte) (llm.Usage, string) {
 	for {
 		ev, err := scanner.Next()
 		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
 			break
 		}
-		if ev.Data == "" || ev.Data == openAIDoneSentinel {
-			if ev.Data == openAIDoneSentinel {
-				break
-			}
+		if ev.Data == openAIDoneSentinel {
+			break
+		}
+		if ev.Data == "" {
 			continue
 		}
 
@@ -113,24 +110,33 @@ func accumulateOpenAIStream(body []byte) (llm.Usage, string) {
 		if u == nil && chunk.Response != nil {
 			u = chunk.Response.Usage
 		}
-		if u != nil {
-			usage.InputTokens = pickInt64(u.InputTokens, u.PromptTokens)
-			usage.OutputTokens = pickInt64(u.OutputTokens, u.CompletionTokens)
-			usage.TotalTokens = derefInt64(u.TotalTokens)
-			if u.InputTokensDetails != nil {
-				if v := derefInt64(u.InputTokensDetails.CachedTokens); v > 0 {
-					usage.CachedInputTokens = v
-				}
-			}
-			if usage.CachedInputTokens == 0 && u.PromptTokensDetails != nil {
-				usage.CachedInputTokens = derefInt64(u.PromptTokensDetails.CachedTokens)
-			}
-			if usage.TotalTokens == 0 && (usage.InputTokens > 0 || usage.OutputTokens > 0) {
-				usage.TotalTokens = usage.InputTokens + usage.OutputTokens
-			}
-		}
+		applyOpenAIStreamUsage(u, &usage)
 	}
 	return usage, completion.String()
+}
+
+// applyOpenAIStreamUsage lifts the token counts off a final-frame usage
+// block into the running usage, normalising the chat.completions
+// (prompt_/completion_) and Responses-API (input_/output_) names and
+// backfilling total tokens when the provider omits them.
+func applyOpenAIStreamUsage(u *openAIStreamUsage, usage *llm.Usage) {
+	if u == nil {
+		return
+	}
+	usage.InputTokens = pickInt64(u.InputTokens, u.PromptTokens)
+	usage.OutputTokens = pickInt64(u.OutputTokens, u.CompletionTokens)
+	usage.TotalTokens = derefInt64(u.TotalTokens)
+	if u.InputTokensDetails != nil {
+		if v := derefInt64(u.InputTokensDetails.CachedTokens); v > 0 {
+			usage.CachedInputTokens = v
+		}
+	}
+	if usage.CachedInputTokens == 0 && u.PromptTokensDetails != nil {
+		usage.CachedInputTokens = derefInt64(u.PromptTokensDetails.CachedTokens)
+	}
+	if usage.TotalTokens == 0 && (usage.InputTokens > 0 || usage.OutputTokens > 0) {
+		usage.TotalTokens = usage.InputTokens + usage.OutputTokens
+	}
 }
 
 // decodeJSONString unmarshals a JSON-encoded string value, returning
@@ -149,26 +155,23 @@ func decodeJSONString(raw json.RawMessage) (string, bool) {
 // anthropicStreamEvent captures the union of Messages-API stream event
 // payloads we care about. Each named event on the wire fills only its
 // shape's fields; unknown keys are ignored.
+type anthropicStreamUsage struct {
+	InputTokens              *int64 `json:"input_tokens"`
+	OutputTokens             *int64 `json:"output_tokens"`
+	CacheReadInputTokens     *int64 `json:"cache_read_input_tokens"`
+	CacheCreationInputTokens *int64 `json:"cache_creation_input_tokens"`
+}
+
 type anthropicStreamEvent struct {
 	Type    string `json:"type"`
 	Message *struct {
-		Usage *struct {
-			InputTokens              *int64 `json:"input_tokens"`
-			OutputTokens             *int64 `json:"output_tokens"`
-			CacheReadInputTokens     *int64 `json:"cache_read_input_tokens"`
-			CacheCreationInputTokens *int64 `json:"cache_creation_input_tokens"`
-		} `json:"usage"`
+		Usage *anthropicStreamUsage `json:"usage"`
 	} `json:"message"`
 	Delta *struct {
 		Type string `json:"type"`
 		Text string `json:"text"`
 	} `json:"delta"`
-	Usage *struct {
-		InputTokens              *int64 `json:"input_tokens"`
-		OutputTokens             *int64 `json:"output_tokens"`
-		CacheReadInputTokens     *int64 `json:"cache_read_input_tokens"`
-		CacheCreationInputTokens *int64 `json:"cache_creation_input_tokens"`
-	} `json:"usage"`
+	Usage *anthropicStreamUsage `json:"usage"`
 }
 
 // accumulateAnthropicStream tracks input_tokens from message_start,
@@ -216,41 +219,39 @@ func accumulateAnthropicStream(body []byte) (llm.Usage, string) {
 func applyAnthropicStreamEvent(eventType string, payload anthropicStreamEvent, usage *llm.Usage, completion *strings.Builder) {
 	switch eventType {
 	case "message_start":
-		if payload.Message != nil && payload.Message.Usage != nil {
-			if v := derefInt64(payload.Message.Usage.InputTokens); v > 0 {
-				usage.InputTokens = v
-			}
-			if v := derefInt64(payload.Message.Usage.OutputTokens); v > 0 {
-				usage.OutputTokens = v
-			}
-			if v := derefInt64(payload.Message.Usage.CacheReadInputTokens); v > 0 {
-				usage.CachedInputTokens = v
-			}
-			if v := derefInt64(payload.Message.Usage.CacheCreationInputTokens); v > 0 {
-				usage.CacheCreationTokens = v
-			}
+		if payload.Message != nil {
+			applyAnthropicStreamUsage(payload.Message.Usage, usage)
 		}
 	case "content_block_delta":
 		if payload.Delta != nil && payload.Delta.Type == "text_delta" {
 			completion.WriteString(payload.Delta.Text)
 		}
 	case "message_delta":
-		if payload.Usage != nil {
-			if v := derefInt64(payload.Usage.InputTokens); v > 0 {
-				usage.InputTokens = v
-			}
-			if v := derefInt64(payload.Usage.OutputTokens); v > 0 {
-				usage.OutputTokens = v
-			}
-			if v := derefInt64(payload.Usage.CacheReadInputTokens); v > 0 {
-				usage.CachedInputTokens = v
-			}
-			if v := derefInt64(payload.Usage.CacheCreationInputTokens); v > 0 {
-				usage.CacheCreationTokens = v
-			}
-		}
+		applyAnthropicStreamUsage(payload.Usage, usage)
 	case "message_stop":
 		// No-op; Anthropic does not emit usage here.
+	}
+}
+
+// applyAnthropicStreamUsage folds a non-nil Anthropic usage block into the
+// running totals. Each field overwrites only when present and positive, so
+// message_delta's post-completion counts supersede the message_start seed
+// without zeroing dimensions a later event omits.
+func applyAnthropicStreamUsage(u *anthropicStreamUsage, usage *llm.Usage) {
+	if u == nil {
+		return
+	}
+	if v := derefInt64(u.InputTokens); v > 0 {
+		usage.InputTokens = v
+	}
+	if v := derefInt64(u.OutputTokens); v > 0 {
+		usage.OutputTokens = v
+	}
+	if v := derefInt64(u.CacheReadInputTokens); v > 0 {
+		usage.CachedInputTokens = v
+	}
+	if v := derefInt64(u.CacheCreationInputTokens); v > 0 {
+		usage.CacheCreationTokens = v
 	}
 }
 

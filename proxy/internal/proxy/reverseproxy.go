@@ -83,13 +83,8 @@ func NewReverseProxy(transport http.RoundTripper, forwardedProto string, trusted
 func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	result, exists := p.findTargetForRequest(r)
 	if !exists {
-		if cd := CapturedDataFromContext(r.Context()); cd != nil {
-			cd.SetOrigin(OriginNoRoute)
-		}
-		requestID := getRequestID(r)
-		web.ServeErrorPage(w, r, http.StatusNotFound, "Service Not Found",
-			"The requested service could not be found. Please check the URL, try refreshing, or check if the peer is running. If that doesn't work, see our documentation for help.",
-			requestID, web.ErrorStatus{Proxy: true, Destination: false})
+		p.serveRouteError(w, r, http.StatusNotFound, "Service Not Found",
+			"The requested service could not be found. Please check the URL, try refreshing, or check if the peer is running. If that doesn't work, see our documentation for help.")
 		return
 	}
 
@@ -99,19 +94,13 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// with 421 (Misdirected Request) so the caller sees an explicit
 	// error instead of silently doubling tunnel traffic.
 	if p.isSelfTargetLoop(r, result.target.URL) {
-		if cd := CapturedDataFromContext(r.Context()); cd != nil {
-			cd.SetOrigin(OriginNoRoute)
-		}
-		requestID := getRequestID(r)
-		web.ServeErrorPage(w, r, http.StatusMisdirectedRequest, "Loop Detected",
-			"This peer is the target of the requested service. Reach the backend directly instead of dialing the public service URL from the same machine.",
-			requestID, web.ErrorStatus{Proxy: true, Destination: false})
+		p.serveRouteError(w, r, http.StatusMisdirectedRequest, "Loop Detected",
+			"This peer is the target of the requested service. Reach the backend directly instead of dialing the public service URL from the same machine.")
 		return
 	}
 
-	ctx := r.Context()
-	// Set the account ID in the context for the roundtripper to use.
-	ctx = roundtrip.WithAccountID(ctx, result.accountID)
+	pt := result.target
+	ctx := p.buildTargetContext(r.Context(), result)
 
 	// Populate captured data if it exists (allows middleware to read after handler completes).
 	// This solves the problem of passing data UP the middleware chain: we put a mutable struct
@@ -124,8 +113,34 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		capturedData.SetSuppressAccessLog(result.target != nil && result.target.DisableAccessLog)
 	}
 
-	pt := result.target
+	rewriteMatchedPath := result.matchedPath
+	if pt.PathRewrite == PathRewritePreserve {
+		rewriteMatchedPath = ""
+	}
 
+	chain := p.resolveChain(result)
+	if chain == nil || chain.Empty() {
+		p.serveDirect(w, r, ctx, result, rewriteMatchedPath)
+		return
+	}
+	p.serveWithChain(w, r, ctx, result, chain, rewriteMatchedPath, capturedData)
+}
+
+// serveRouteError marks the request as un-routed on any captured-data
+// context and renders the proxy error page.
+func (p *ReverseProxy) serveRouteError(w http.ResponseWriter, r *http.Request, status int, title, message string) {
+	if cd := CapturedDataFromContext(r.Context()); cd != nil {
+		cd.SetOrigin(OriginNoRoute)
+	}
+	web.ServeErrorPage(w, r, status, title, message, getRequestID(r),
+		web.ErrorStatus{Proxy: true, Destination: false})
+}
+
+// buildTargetContext layers the per-target roundtrip flags (account id,
+// TLS-verify skip, direct upstream, dial timeout) onto the request context.
+func (p *ReverseProxy) buildTargetContext(ctx context.Context, result targetResult) context.Context {
+	pt := result.target
+	ctx = roundtrip.WithAccountID(ctx, result.accountID)
 	if pt.SkipTLSVerify {
 		ctx = roundtrip.WithSkipTLSVerify(ctx)
 	}
@@ -135,32 +150,66 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if pt.RequestTimeout > 0 {
 		ctx = types.WithDialTimeout(ctx, pt.RequestTimeout)
 	}
+	return ctx
+}
 
-	rewriteMatchedPath := result.matchedPath
-	if pt.PathRewrite == PathRewritePreserve {
-		rewriteMatchedPath = ""
+// serveDirect forwards the request without a middleware chain — the common
+// path for plain reverse-proxy targets.
+func (p *ReverseProxy) serveDirect(w http.ResponseWriter, r *http.Request, ctx context.Context, result targetResult, rewriteMatchedPath string) {
+	pt := result.target
+	rp := &httputil.ReverseProxy{
+		Rewrite:       p.rewriteFunc(pt.URL, rewriteMatchedPath, result.passHostHeader, pt.PathRewrite, pt.CustomHeaders, result.stripAuthHeaders),
+		Transport:     p.transport,
+		FlushInterval: -1,
+		ErrorHandler:  p.proxyErrorHandler,
 	}
-
-	chain := p.resolveChain(result)
-	if chain == nil || chain.Empty() {
-		rp := &httputil.ReverseProxy{
-			Rewrite:       p.rewriteFunc(pt.URL, rewriteMatchedPath, result.passHostHeader, pt.PathRewrite, pt.CustomHeaders, result.stripAuthHeaders),
-			Transport:     p.transport,
-			FlushInterval: -1,
-			ErrorHandler:  p.proxyErrorHandler,
-		}
-		if result.rewriteRedirects {
-			rp.ModifyResponse = p.rewriteLocationFunc(pt.URL, rewriteMatchedPath, r) //nolint:bodyclose
-		}
-		rp.ServeHTTP(w, r.WithContext(ctx))
-		return
+	if result.rewriteRedirects {
+		rp.ModifyResponse = p.rewriteLocationFunc(pt.URL, rewriteMatchedPath, r) //nolint:bodyclose
 	}
+	rp.ServeHTTP(w, r.WithContext(ctx))
+}
 
+// serveWithChain runs the per-target middleware chain around the upstream
+// request: request-leg capture and authorisation, then (on allow) the
+// upstream forward with response/terminal observation deferred so it reads
+// the captured response before the writer is released.
+func (p *ReverseProxy) serveWithChain(w http.ResponseWriter, r *http.Request, ctx context.Context, result targetResult, chain *middleware.Chain, rewriteMatchedPath string, capturedData *CapturedData) {
 	middlewareIDs := chain.IDs()
 	p.logger.Debugf("middleware chain matched: service=%s path=%s middlewares=%v", result.serviceID, result.matchedPath, middlewareIDs)
 
-	capturedBody, truncated, originalSize, bypass, releaseBudget, captureErr := bodytap.CaptureRequest(r, pt.CaptureConfig, p.middlewareManager.Budget())
+	capturedBody, truncated, originalSize, releaseBudget := p.captureRequestForChain(ctx, r, result, capturedData)
 	defer releaseBudget()
+
+	acc := middleware.NewAccumulator(middleware.MaxRequestMetadataBytes)
+	reqInput := buildRequestInput(r, result, capturedData, capturedBody, truncated, originalSize)
+
+	denyOutput, requestMeta, upstreamRewrite, _ := chain.RunRequest(ctx, r, reqInput, acc)
+	if capturedData != nil {
+		for _, kv := range requestMeta {
+			capturedData.SetMetadata(kv.Key, kv.Value)
+		}
+	}
+	if denyOutput != nil {
+		p.serveDeny(w, denyOutput, result, middlewareIDs)
+		return
+	}
+
+	respWriter, capturingWriter := p.newResponseWriter(ctx, w, result, capturedData)
+	if capturingWriter != nil {
+		defer capturingWriter.Release()
+		defer p.observeResponse(ctx, chain, acc, reqInput, requestMeta, capturingWriter, w, capturedData, result, middlewareIDs)
+	}
+
+	p.forwardUpstream(respWriter, r, ctx, result, rewriteMatchedPath, upstreamRewrite)
+}
+
+// captureRequestForChain copies the request body for inspection by the
+// chain, records any capture bypass, and applies agent-network routing
+// recovery for oversized bodies. The returned release frees the capture
+// budget and must be deferred by the caller.
+func (p *ReverseProxy) captureRequestForChain(ctx context.Context, r *http.Request, result targetResult, capturedData *CapturedData) ([]byte, bool, int64, func()) {
+	pt := result.target
+	capturedBody, truncated, originalSize, bypass, releaseBudget, captureErr := bodytap.CaptureRequest(r, pt.CaptureConfig, p.middlewareManager.Budget())
 	if captureErr != nil {
 		p.logger.Debugf("middleware request body capture error: %v", captureErr)
 	}
@@ -184,112 +233,114 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			p.logger.Debugf("agent-network routing recovery: extracted model=%s stream=%t from oversized request body (service=%s)", model, stream, result.serviceID)
 		}
 	}
+	return capturedBody, truncated, originalSize, releaseBudget
+}
 
-	acc := middleware.NewAccumulator(middleware.MaxRequestMetadataBytes)
-	reqInput := buildRequestInput(r, result, capturedData, capturedBody, truncated, originalSize)
+// serveDeny renders the chain's deny response. Policy/budget/routing/guardrail
+// denials are expected runtime outcomes and can be high-volume under
+// misconfigured or hostile clients; per-request detail stays at Debug and
+// metrics/access logs carry the signal at scale.
+func (p *ReverseProxy) serveDeny(w http.ResponseWriter, denyOutput *middleware.Output, result targetResult, middlewareIDs []string) {
+	middlewareID := "middleware"
+	if denyOutput.DenyReason != nil && denyOutput.DenyReason.Code != "" {
+		middlewareID = denyOutput.DenyReason.Code
+	}
+	p.logger.Debugf("middleware chain denied request: service=%s path=%s middlewares=%v reason=%s status=%d",
+		result.serviceID, result.matchedPath, middlewareIDs, middlewareID, denyOutput.DenyStatus)
+	middleware.RenderDenyResponse(w, middlewareID, denyOutput.DenyReason, denyOutput.DenyStatus)
+}
 
-	denyOutput, requestMeta, upstreamRewrite, _ := chain.RunRequest(ctx, r, reqInput, acc)
+// newResponseWriter returns the writer the upstream forward should use. When
+// response capture is enabled and not bypassed it wraps w in a capturing
+// writer (also returned so the caller can release it and feed the response
+// leg); otherwise the capturing writer is nil and w is used directly.
+func (p *ReverseProxy) newResponseWriter(ctx context.Context, w http.ResponseWriter, result targetResult, capturedData *CapturedData) (http.ResponseWriter, *bodytap.CapturingResponseWriter) {
+	pt := result.target
+	if pt.CaptureConfig == nil || pt.CaptureConfig.MaxResponseBytes <= 0 {
+		return w, nil
+	}
+	capturingWriter := bodytap.NewCapturingResponseWriter(w, pt.CaptureConfig.MaxResponseBytes, p.middlewareManager.Budget())
+	if capturingWriter.Bypassed() {
+		if capturedData != nil {
+			capturedData.SetMetadata("mw.capture.bypass_reason", capturingWriter.BypassReason())
+		}
+		p.middlewareManager.Metrics().IncCaptureBypass(ctx, string(result.serviceID), capturingWriter.BypassReason())
+		capturingWriter.Release()
+		return w, nil
+	}
+	return capturingWriter, capturingWriter
+}
+
+// observeResponse runs the response and terminal middleware slots after the
+// body has been forwarded. It is deferred by serveWithChain so it reads the
+// captured response before the writer is released.
+func (p *ReverseProxy) observeResponse(ctx context.Context, chain *middleware.Chain, acc *middleware.Accumulator, reqInput *middleware.Input, requestMeta []middleware.KV, capturingWriter *bodytap.CapturingResponseWriter, w http.ResponseWriter, capturedData *CapturedData, result targetResult, middlewareIDs []string) {
+	respInput := &middleware.Input{
+		Slot:              middleware.SlotOnResponse,
+		RequestID:         reqInput.RequestID,
+		TargetID:          reqInput.TargetID,
+		Method:            reqInput.Method,
+		URL:               reqInput.URL,
+		Headers:           reqInput.Headers,
+		Status:            capturingWriter.Status(),
+		RespHeaders:       headerToKV(w.Header()),
+		RespBody:          capturingWriter.Body(),
+		RespBodyTruncated: capturingWriter.Truncated(),
+		OriginalRespSize:  capturingWriter.BytesWritten(),
+		ServiceID:         reqInput.ServiceID,
+		AccountID:         reqInput.AccountID,
+		UserID:            reqInput.UserID,
+		// UserEmail / UserGroups / UserGroupNames must flow into the
+		// response leg too — llm_limit_record needs UserGroups to send
+		// group_ids on RecordLLMUsage so management's account-budget
+		// fan-out can match group-targeted rules; identity-stamping and
+		// any future response-side authorisation also depend on these.
+		UserEmail:      reqInput.UserEmail,
+		UserGroups:     reqInput.UserGroups,
+		UserGroupNames: reqInput.UserGroupNames,
+		AuthMethod:     reqInput.AuthMethod,
+		SourceIP:       reqInput.SourceIP,
+		Metadata:       requestMeta,
+		AgentNetwork:   reqInput.AgentNetwork,
+	}
+	// The response/terminal phase runs after the body is forwarded, so
+	// a streaming client (e.g. Codex) has usually disconnected by now,
+	// cancelling r.Context(). These middlewares only observe and record
+	// (token/cost metering, usage recording) and must still complete —
+	// otherwise the dispatcher short-circuits each to fail-mode and the
+	// usage is silently lost. Detach from client cancellation, keep ctx
+	// values, and bound the work.
+	obsCtx, obsCancel := context.WithTimeout(context.WithoutCancel(ctx), observabilityPhaseTimeout)
+	defer obsCancel()
+
+	respMeta := chain.RunResponse(obsCtx, respInput, acc)
 	if capturedData != nil {
-		for _, kv := range requestMeta {
+		for _, kv := range respMeta {
 			capturedData.SetMetadata(kv.Key, kv.Value)
 		}
 	}
-	if denyOutput != nil {
-		middlewareID := "middleware"
-		if denyOutput.DenyReason != nil && denyOutput.DenyReason.Code != "" {
-			middlewareID = denyOutput.DenyReason.Code
-		}
-		// Policy/budget/routing/guardrail denials are expected runtime outcomes
-		// and can be high-volume under misconfigured or hostile clients; keep
-		// per-request detail at Debug and rely on metrics/access logs at scale.
-		p.logger.Debugf("middleware chain denied request: service=%s path=%s middlewares=%v reason=%s status=%d",
-			result.serviceID, result.matchedPath, middlewareIDs, middlewareID, denyOutput.DenyStatus)
-		middleware.RenderDenyResponse(w, middlewareID, denyOutput.DenyReason, denyOutput.DenyStatus)
-		return
-	}
 
-	respWriter := http.ResponseWriter(w)
-	var capturingWriter *bodytap.CapturingResponseWriter
-	if pt.CaptureConfig != nil && pt.CaptureConfig.MaxResponseBytes > 0 {
-		capturingWriter = bodytap.NewCapturingResponseWriter(w, pt.CaptureConfig.MaxResponseBytes, p.middlewareManager.Budget())
-		defer capturingWriter.Release()
-		if capturingWriter.Bypassed() {
-			if capturedData != nil {
-				capturedData.SetMetadata("mw.capture.bypass_reason", capturingWriter.BypassReason())
-			}
-			p.middlewareManager.Metrics().IncCaptureBypass(ctx, string(result.serviceID), capturingWriter.BypassReason())
-			capturingWriter = nil
-		} else {
-			respWriter = capturingWriter
+	// Terminal slot sees the merged metadata bag from request and
+	// response phases.
+	mergedMeta := append(append([]middleware.KV(nil), requestMeta...), respMeta...)
+	termInput := *respInput
+	termInput.Slot = middleware.SlotTerminal
+	termInput.Metadata = mergedMeta
+	termMeta := chain.RunTerminal(obsCtx, &termInput, acc)
+	if capturedData != nil {
+		for _, kv := range termMeta {
+			capturedData.SetMetadata(kv.Key, kv.Value)
 		}
 	}
 
-	defer func() {
-		if capturingWriter == nil {
-			return
-		}
-		respInput := &middleware.Input{
-			Slot:              middleware.SlotOnResponse,
-			RequestID:         reqInput.RequestID,
-			TargetID:          reqInput.TargetID,
-			Method:            reqInput.Method,
-			URL:               reqInput.URL,
-			Headers:           reqInput.Headers,
-			Status:            capturingWriter.Status(),
-			RespHeaders:       headerToKV(w.Header()),
-			RespBody:          capturingWriter.Body(),
-			RespBodyTruncated: capturingWriter.Truncated(),
-			OriginalRespSize:  capturingWriter.BytesWritten(),
-			ServiceID:         reqInput.ServiceID,
-			AccountID:         reqInput.AccountID,
-			UserID:            reqInput.UserID,
-			// UserEmail / UserGroups / UserGroupNames must flow into the
-			// response leg too — llm_limit_record needs UserGroups to send
-			// group_ids on RecordLLMUsage so management's account-budget
-			// fan-out can match group-targeted rules; identity-stamping and
-			// any future response-side authorisation also depend on these.
-			UserEmail:      reqInput.UserEmail,
-			UserGroups:     reqInput.UserGroups,
-			UserGroupNames: reqInput.UserGroupNames,
-			AuthMethod:     reqInput.AuthMethod,
-			SourceIP:       reqInput.SourceIP,
-			Metadata:       requestMeta,
-			AgentNetwork:   reqInput.AgentNetwork,
-		}
-		// The response/terminal phase runs after the body is forwarded, so
-		// a streaming client (e.g. Codex) has usually disconnected by now,
-		// cancelling r.Context(). These middlewares only observe and record
-		// (token/cost metering, usage recording) and must still complete —
-		// otherwise the dispatcher short-circuits each to fail-mode and the
-		// usage is silently lost. Detach from client cancellation, keep ctx
-		// values, and bound the work.
-		obsCtx, obsCancel := context.WithTimeout(context.WithoutCancel(ctx), observabilityPhaseTimeout)
-		defer obsCancel()
+	p.logger.Debugf("middleware chain ran: service=%s path=%s middlewares=%v status=%d req_meta=%d resp_meta=%d term_meta=%d",
+		result.serviceID, result.matchedPath, middlewareIDs, capturingWriter.Status(), len(requestMeta), len(respMeta), len(termMeta))
+}
 
-		respMeta := chain.RunResponse(obsCtx, respInput, acc)
-		if capturedData != nil {
-			for _, kv := range respMeta {
-				capturedData.SetMetadata(kv.Key, kv.Value)
-			}
-		}
-
-		// Terminal slot sees the merged metadata bag from request and
-		// response phases.
-		mergedMeta := append(append([]middleware.KV(nil), requestMeta...), respMeta...)
-		termInput := *respInput
-		termInput.Slot = middleware.SlotTerminal
-		termInput.Metadata = mergedMeta
-		termMeta := chain.RunTerminal(obsCtx, &termInput, acc)
-		if capturedData != nil {
-			for _, kv := range termMeta {
-				capturedData.SetMetadata(kv.Key, kv.Value)
-			}
-		}
-
-		p.logger.Debugf("middleware chain ran: service=%s path=%s middlewares=%v status=%d req_meta=%d resp_meta=%d term_meta=%d",
-			result.serviceID, result.matchedPath, middlewareIDs, capturingWriter.Status(), len(requestMeta), len(respMeta), len(termMeta))
-	}()
-
+// forwardUpstream applies any middleware-emitted upstream rewrite and proxies
+// the request to the effective upstream URL.
+func (p *ReverseProxy) forwardUpstream(respWriter http.ResponseWriter, r *http.Request, ctx context.Context, result targetResult, rewriteMatchedPath string, upstreamRewrite *middleware.UpstreamRewrite) {
+	pt := result.target
 	effectiveURL := applyUpstreamRewrite(pt.URL, upstreamRewrite)
 	if upstreamRewrite != nil {
 		r.Host = effectiveURL.Host
