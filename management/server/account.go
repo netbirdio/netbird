@@ -357,6 +357,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 			oldSettings.DNSDomain != newSettings.DNSDomain ||
 			oldSettings.AutoUpdateVersion != newSettings.AutoUpdateVersion ||
 			oldSettings.AutoUpdateAlways != newSettings.AutoUpdateAlways ||
+			oldSettings.SSHJWTMaxTokenAge != newSettings.SSHJWTMaxTokenAge ||
 			oldSettings.PeerLoginExpirationEnabled != newSettings.PeerLoginExpirationEnabled ||
 			oldSettings.PeerLoginExpiration != newSettings.PeerLoginExpiration {
 			// Session deadline is derived from LastLogin + PeerLoginExpiration
@@ -494,7 +495,9 @@ func (am *DefaultAccountManager) validateSettingsUpdate(ctx context.Context, tra
 	if newSettings.PeerLoginExpiration < time.Hour {
 		return status.Errorf(status.InvalidArgument, "peer login expiration can't be smaller than one hour")
 	}
-
+	if newSettings.SSHJWTMaxTokenAge < 0 {
+		return status.Errorf(status.InvalidArgument, "ssh jwt max token age can't be negative")
+	}
 	if newSettings.DNSDomain != "" && !nbdomain.IsValidDomainNoWildcard(newSettings.DNSDomain) {
 		return status.Errorf(status.InvalidArgument, "invalid domain \"%s\" provided for DNS domain", newSettings.DNSDomain)
 	}
