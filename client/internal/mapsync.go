@@ -63,7 +63,7 @@ func (m *mapStateManager) SetTarget(update *mgmProto.SyncResponse) error {
 	if m.target != nil && m.targetGen > m.appliedGen {
 		log.Debugf("sync map (gen %d) superseded before convergence, skipping", m.targetGen)
 	}
-	m.target = update
+	m.target = m.mergeTarget(m.target, update)
 	// Bump an internal generation counter, NOT the map serial: config-only updates
 	// (relay token rotation, STUN/TURN) arrive with NetworkMap == nil and carry no
 	// serial, yet must still be applied. Every SetTarget is therefore a distinct
@@ -78,6 +78,19 @@ func (m *mapStateManager) SetTarget(update *mgmProto.SyncResponse) error {
 	default:
 	}
 	return nil
+}
+
+// mergeTarget combines the currently pending target with a freshly received update
+// and returns the new desired state. It is called under m.mu from SetTarget and is
+// the single seam where the replace-vs-squash decision lives.
+//
+// Today management always sends a FULL map (the complete desired state), so the
+// update simply replaces whatever was pending — prev is ignored. When management
+// starts sending incremental/delta updates, squash `update` onto `prev` here; the
+// rest of the manager (generation tracking, convergence, signaling) is unaffected
+// because it already treats target as "the complete desired state, whatever it is".
+func (m *mapStateManager) mergeTarget(prev, update *mgmProto.SyncResponse) *mgmProto.SyncResponse {
+	return update
 }
 
 // run drives convergence until ctx is done. It is meant to run in its own goroutine.
