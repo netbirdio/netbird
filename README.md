@@ -46,7 +46,7 @@
 > ### 🤖 NetBird Agent Network (Beta)
 > Identity-aware access control for AI agents — keyless access to LLM APIs and private
 > resources over the encrypted NetBird tunnel. See [`agent-network/`](agent-network/) or
-> read the docs at **[docs.netbird.io/agent-network](https://docs.netbird.io/agent-network)**.
+> read the docs at **[netbird.ai](https://netbird.ai)**.
 
 https://github.com/user-attachments/assets/10cec749-bb56-4ab3-97af-4e38850108d2
 
