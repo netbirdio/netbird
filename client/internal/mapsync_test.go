@@ -16,10 +16,14 @@ import (
 // fires onConverged exactly once, then blocks (no further apply) until a new target.
 func TestMapStateManager_ConvergesThenStops(t *testing.T) {
 	var passes int32
+	var firstPasses int32
 	converged := make(chan struct{}, 1)
 
-	apply := func(*mgmProto.SyncResponse) (bool, error) {
+	apply := func(_ *mgmProto.SyncResponse, firstPass bool) (bool, error) {
 		n := atomic.AddInt32(&passes, 1)
+		if firstPass {
+			atomic.AddInt32(&firstPasses, 1)
+		}
 		return n < 3, nil // more on pass 1 and 2, converge on pass 3
 	}
 	m := newMapStateManager(apply, func(time.Duration) { converged <- struct{}{} })
@@ -36,6 +40,7 @@ func TestMapStateManager_ConvergesThenStops(t *testing.T) {
 		t.Fatal("manager did not converge")
 	}
 	require.EqualValues(t, 3, atomic.LoadInt32(&passes))
+	require.EqualValues(t, 1, atomic.LoadInt32(&firstPasses), "firstPass true only on pass 1, false on re-runs of the same target")
 
 	// once converged the loop blocks: no further apply calls
 	time.Sleep(100 * time.Millisecond)
@@ -46,7 +51,7 @@ func TestMapStateManager_ConvergesThenStops(t *testing.T) {
 // onConverged exactly once — mirroring the legacy per-message handleSync timing.
 func TestMapStateManager_SignalsEachProcessedMap(t *testing.T) {
 	converged := make(chan struct{}, 8)
-	apply := func(*mgmProto.SyncResponse) (bool, error) {
+	apply := func(_ *mgmProto.SyncResponse, _ bool) (bool, error) {
 		return false, nil // converge in one pass
 	}
 	m := newMapStateManager(apply, func(time.Duration) { converged <- struct{}{} })
@@ -78,7 +83,7 @@ func TestMapStateManager_SignalsEachProcessedMap(t *testing.T) {
 func TestMapStateManager_SkippedMapNotSignaled(t *testing.T) {
 	release := make(chan struct{})
 	var applies, converged atomic.Int32
-	apply := func(*mgmProto.SyncResponse) (bool, error) {
+	apply := func(_ *mgmProto.SyncResponse, _ bool) (bool, error) {
 		applies.Add(1)
 		<-release // hold the first apply in-flight so we can queue a newer target
 		return false, nil
@@ -111,7 +116,7 @@ func TestMapStateManager_DropsTargetOnError(t *testing.T) {
 	var failNext atomic.Bool
 	failNext.Store(true)
 
-	apply := func(*mgmProto.SyncResponse) (bool, error) {
+	apply := func(_ *mgmProto.SyncResponse, _ bool) (bool, error) {
 		applied <- struct{}{}
 		if failNext.Load() {
 			return false, errors.New("boom")
@@ -154,7 +159,7 @@ func TestMapStateManager_DropsTargetOnError(t *testing.T) {
 // manager does not apply on its own.
 func TestMapStateManager_ReappliesOnNewTarget(t *testing.T) {
 	applied := make(chan struct{}, 8)
-	apply := func(*mgmProto.SyncResponse) (bool, error) {
+	apply := func(_ *mgmProto.SyncResponse, _ bool) (bool, error) {
 		applied <- struct{}{}
 		return false, nil // converge in one pass
 	}

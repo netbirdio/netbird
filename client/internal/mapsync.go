@@ -30,7 +30,11 @@ import (
 // to a real, completed alignment.
 type mapStateManager struct {
 	// apply performs one bounded apply pass and reports whether more passes are needed.
-	apply func(*mgmProto.SyncResponse) (bool, error)
+	// firstPass is true on the first pass of a given target, so the caller can run
+	// wholesale (firewall/routes/DNS/forward-rules) once per target and skip it on the
+	// re-runs that only drain the bounded peer batches. The manager owns this signal
+	// because it owns the convergence boundary; the engine need not track serials for it.
+	apply func(update *mgmProto.SyncResponse, firstPass bool) (bool, error)
 	// onConverged is called once per processed map, with the elapsed time since that
 	// map was received (for the sync-duration metric / "sync finished" log).
 	onConverged func(time.Duration)
@@ -44,7 +48,7 @@ type mapStateManager struct {
 	wake chan struct{}
 }
 
-func newMapStateManager(apply func(*mgmProto.SyncResponse) (bool, error), onConverged func(time.Duration)) *mapStateManager {
+func newMapStateManager(apply func(update *mgmProto.SyncResponse, firstPass bool) (bool, error), onConverged func(time.Duration)) *mapStateManager {
 	return &mapStateManager{
 		apply:       apply,
 		onConverged: onConverged,
@@ -95,6 +99,10 @@ func (m *mapStateManager) mergeTarget(prev, update *mgmProto.SyncResponse) *mgmP
 
 // run drives convergence until ctx is done. It is meant to run in its own goroutine.
 func (m *mapStateManager) run(ctx context.Context) {
+	// passGen is the generation of the most recent apply() call (0 = none). A pass is
+	// the first for its target when its generation differs from the previous one —
+	// true on a fresh target and on a coalesced switch to a newer target mid-flight.
+	var passGen uint64
 	for {
 		m.mu.Lock()
 		target, tg, ag := m.target, m.targetGen, m.appliedGen
@@ -110,7 +118,9 @@ func (m *mapStateManager) run(ctx context.Context) {
 			}
 		}
 
-		more, err := m.apply(target)
+		firstPass := tg != passGen
+		passGen = tg
+		more, err := m.apply(target, firstPass)
 		if err != nil {
 			if ctx.Err() != nil {
 				return

@@ -210,6 +210,12 @@ type Engine struct {
 	// networkSerial is the latest CurrentSerial (state ID) of the network sent by the Management service
 	networkSerial uint64
 
+	// forwardingRules holds the ingress forward rules applied for the current target.
+	// Wholesale sections (incl. forward rules) run only on the first pass of a target;
+	// it is stashed here so the final, peer-converged pass can build the lazy-connection
+	// exclude list without recomputing them on every bounded peer pass.
+	forwardingRules []firewallManager.ForwardRule
+
 	networkMonitor *networkmonitor.NetworkMonitor
 
 	sshServer sshServer
@@ -918,7 +924,7 @@ func (e *Engine) handleAutoUpdateVersion(autoUpdateSettings *mgmProto.AutoUpdate
 // returns true if more peers remained than the per-pass cap. It is driven by the
 // mapStateManager, which re-invokes it (releasing the lock between passes) until
 // the update is fully applied.
-func (e *Engine) applySyncPass(update *mgmProto.SyncResponse) (bool, error) {
+func (e *Engine) applySyncPass(update *mgmProto.SyncResponse, firstPass bool) (bool, error) {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
@@ -952,7 +958,7 @@ func (e *Engine) applySyncPass(update *mgmProto.SyncResponse) (bool, error) {
 	e.persistSyncResponse(update)
 
 	// only apply new changes and ignore old ones
-	more, err := e.updateNetworkMap(nm, maxPeersPerSyncPass)
+	more, err := e.updateNetworkMap(nm, maxPeersPerSyncPass, firstPass)
 	if err != nil {
 		return false, err
 	}
@@ -1362,7 +1368,7 @@ func (e *Engine) updateTURNs(turns []*mgmProto.ProtectedHostConfig) error {
 // updateNetworkMap applies the wholesale parts (config, routes, ACL, DNS) in full
 // and up to maxBatch peers per phase. It returns true when more peers remained
 // than the cap, so the caller re-runs until convergence.
-func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap, maxBatch int) (bool, error) {
+func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap, maxBatch int, firstPass bool) (bool, error) {
 	// intentionally leave it before checking serial because for now it can happen that peer IP changed but serial didn't
 	if networkMap.GetPeerConfig() != nil {
 		err := e.updateConfig(networkMap.GetPeerConfig())
@@ -1377,6 +1383,86 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap, maxBatch int)
 		return false, nil
 	}
 
+	// Wholesale sections (firewall/ACL, DNS, routes, forward rules) are applied
+	// up-front and only once per target: they are cheap, local, idempotent and must
+	// be in place before peers come up (fail-closed). On the bounded re-runs that only
+	// drain the remaining peer batches they are skipped — the applied forward rules are
+	// reused from e.forwardingRules for the lazy-exclude finalize.
+	if firstPass {
+		e.applyWholesale(networkMap, serial)
+	}
+
+	log.Debugf("got peers update from Management Service, total peers to connect to = %d", len(networkMap.GetRemotePeers()))
+
+	e.updateOfflinePeers(networkMap.GetOfflinePeers())
+
+	// Filter out own peer from the remote peers list
+	localPubKey := e.config.WgPrivateKey.PublicKey().String()
+	remotePeers := make([]*mgmProto.RemotePeerConfig, 0, len(networkMap.GetRemotePeers()))
+	for _, p := range networkMap.GetRemotePeers() {
+		if p.GetWgPubKey() != localPubKey {
+			remotePeers = append(remotePeers, p)
+		}
+	}
+
+	// needMore signals the caller to re-run when a peer phase hit its per-pass cap.
+	needMore := false
+
+	// cleanup request, most likely our peer has been deleted
+	if networkMap.GetRemotePeersIsEmpty() {
+		err := e.removeAllPeers()
+		e.statusRecorder.FinishPeerListModifications()
+		if err != nil {
+			return false, err
+		}
+	} else {
+		removeMore, err := e.removePeers(remotePeers, maxBatch)
+		if err != nil {
+			return false, err
+		}
+
+		modifyMore, err := e.modifyPeers(remotePeers, maxBatch)
+		if err != nil {
+			return false, err
+		}
+
+		addMore, err := e.addNewPeers(remotePeers, maxBatch)
+		if err != nil {
+			return false, err
+		}
+
+		needMore = removeMore || modifyMore || addMore
+
+		e.statusRecorder.FinishPeerListModifications()
+
+		e.updatePeerSSHHostKeys(remotePeers)
+
+		if err := e.updateSSHClientConfig(remotePeers); err != nil {
+			log.Warnf("failed to update SSH client config: %v", err)
+		}
+
+		e.updateSSHServerAuth(networkMap.GetSshAuth())
+	}
+
+	// Set the exclude list only once peers have fully converged (this pass added
+	// the last batch). It needs all target peers present in the store, and
+	// ExcludePeer has replace-semantics — a partial set mid-convergence would be wrong.
+	if !needMore {
+		excludedLazyPeers := e.toExcludedLazyPeers(e.forwardingRules, remotePeers)
+		e.connMgr.SetExcludeList(e.ctx, excludedLazyPeers)
+	}
+
+	e.networkSerial = serial
+
+	return needMore, nil
+}
+
+// applyWholesale applies the cheap, local, idempotent map sections — lazy feature
+// flag, firewall/legacy management, DNS, routes, ACL filtering, DNS forwarder and
+// ingress forward rules — that must be in place before peers come up. It runs once
+// per target (first pass only); the resulting forward rules are stashed in
+// e.forwardingRules for the lazy-exclude finalize on the peer-converged pass.
+func (e *Engine) applyWholesale(networkMap *mgmProto.NetworkMap, serial uint64) {
 	if err := e.connMgr.UpdatedRemoteFeatureFlag(e.ctx, networkMap.GetPeerConfig().GetLazyConnectionEnabled()); err != nil {
 		log.Errorf("failed to update lazy connection feature flag: %v", err)
 	}
@@ -1437,70 +1523,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap, maxBatch int)
 	if err != nil {
 		log.Errorf("failed to update forward rules, err: %v", err)
 	}
-
-	log.Debugf("got peers update from Management Service, total peers to connect to = %d", len(networkMap.GetRemotePeers()))
-
-	e.updateOfflinePeers(networkMap.GetOfflinePeers())
-
-	// Filter out own peer from the remote peers list
-	localPubKey := e.config.WgPrivateKey.PublicKey().String()
-	remotePeers := make([]*mgmProto.RemotePeerConfig, 0, len(networkMap.GetRemotePeers()))
-	for _, p := range networkMap.GetRemotePeers() {
-		if p.GetWgPubKey() != localPubKey {
-			remotePeers = append(remotePeers, p)
-		}
-	}
-
-	// needMore signals the caller to re-run when a peer phase hit its per-pass cap.
-	needMore := false
-
-	// cleanup request, most likely our peer has been deleted
-	if networkMap.GetRemotePeersIsEmpty() {
-		err := e.removeAllPeers()
-		e.statusRecorder.FinishPeerListModifications()
-		if err != nil {
-			return false, err
-		}
-	} else {
-		removeMore, err := e.removePeers(remotePeers, maxBatch)
-		if err != nil {
-			return false, err
-		}
-
-		modifyMore, err := e.modifyPeers(remotePeers, maxBatch)
-		if err != nil {
-			return false, err
-		}
-
-		addMore, err := e.addNewPeers(remotePeers, maxBatch)
-		if err != nil {
-			return false, err
-		}
-
-		needMore = removeMore || modifyMore || addMore
-
-		e.statusRecorder.FinishPeerListModifications()
-
-		e.updatePeerSSHHostKeys(remotePeers)
-
-		if err := e.updateSSHClientConfig(remotePeers); err != nil {
-			log.Warnf("failed to update SSH client config: %v", err)
-		}
-
-		e.updateSSHServerAuth(networkMap.GetSshAuth())
-	}
-
-	// Set the exclude list only once peers have fully converged (this pass added
-	// the last batch). It needs all target peers present in the store, and
-	// ExcludePeer has replace-semantics — a partial set mid-convergence would be wrong.
-	if !needMore {
-		excludedLazyPeers := e.toExcludedLazyPeers(forwardingRules, remotePeers)
-		e.connMgr.SetExcludeList(e.ctx, excludedLazyPeers)
-	}
-
-	e.networkSerial = serial
-
-	return needMore, nil
+	e.forwardingRules = forwardingRules
 }
 
 func toDNSFeatureFlag(networkMap *mgmProto.NetworkMap) bool {
