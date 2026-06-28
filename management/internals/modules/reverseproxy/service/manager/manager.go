@@ -338,7 +338,7 @@ func (m *Manager) persistNewService(ctx context.Context, accountID string, svc *
 			}
 		}
 
-		if err := m.ensureL4Port(ctx, transaction, svc, customPorts); err != nil {
+		if err := m.ensureL4Port(ctx, transaction, svc, customPorts, false); err != nil {
 			return err
 		}
 
@@ -367,11 +367,11 @@ func (m *Manager) clusterCustomPorts(ctx context.Context, svc *service.Service) 
 
 // ensureL4Port auto-assigns a listen port when needed and validates cluster support.
 // customPorts must be pre-computed via clusterCustomPorts before entering a transaction.
-func (m *Manager) ensureL4Port(ctx context.Context, tx store.Store, svc *service.Service, customPorts *bool) error {
+func (m *Manager) ensureL4Port(ctx context.Context, tx store.Store, svc *service.Service, customPorts *bool, serviceUpdate bool) error {
 	if !service.IsL4Protocol(svc.Mode) {
 		return nil
 	}
-	if service.IsPortBasedProtocol(svc.Mode) && svc.ListenPort > 0 && (customPorts == nil || !*customPorts) {
+	if service.IsPortBasedProtocol(svc.Mode) && svc.ListenPort > 0 && !serviceUpdate && (customPorts == nil || !*customPorts) {
 		if svc.Source != service.SourceEphemeral {
 			return status.Errorf(status.InvalidArgument, "custom ports not supported on cluster %s", svc.ProxyCluster)
 		}
@@ -465,7 +465,7 @@ func (m *Manager) persistNewEphemeralService(ctx context.Context, accountID, pee
 			return err
 		}
 
-		if err := m.ensureL4Port(ctx, transaction, svc, customPorts); err != nil {
+		if err := m.ensureL4Port(ctx, transaction, svc, customPorts, false); err != nil {
 			return err
 		}
 
@@ -651,14 +651,39 @@ func (m *Manager) executeServiceUpdate(ctx context.Context, transaction store.St
 	m.preserveListenPort(service, existingService)
 	updateInfo.serviceEnabledChanged = existingService.Enabled != service.Enabled
 
-	if err := m.ensureL4Port(ctx, transaction, service, customPorts); err != nil {
+	// if the service is being updated, and we decide in the future to allow mode update,
+	// we should reconsider the currently assigned port if not 0 for clusters that don't support custom ports
+	if err := validateL4PortDiffOnClusterDiff(customPorts, service, existingService); err != nil {
 		return err
 	}
+
+	if err := m.ensureL4Port(ctx, transaction, service, customPorts, true); err != nil {
+		return err
+	}
+
+	// we can try carrying the previous service port into a new cluster, if this becomes a problem for multiple users,
+	// we should reconsider adding another check
 	if err := m.checkPortConflict(ctx, transaction, service); err != nil {
 		return err
 	}
+
 	if err := transaction.UpdateService(ctx, service); err != nil {
 		return fmt.Errorf("update service: %w", err)
+	}
+
+	return nil
+}
+
+// validateL4PortDiffOnClusterDiff checks if custom L4 ports are configured and validates port changes across clusters.
+// It ensures no port changes if custom ports are unsupported for a given cluster and protocol mode.
+// Returns an error if validation fails, otherwise returns nil.
+func validateL4PortDiffOnClusterDiff(customPorts *bool, newSVC, oldSVC *service.Service) error {
+	if !service.IsPortBasedProtocol(newSVC.Mode) || (customPorts != nil && *customPorts) {
+		return nil
+	}
+
+	if newSVC.ListenPort != 0 && newSVC.ListenPort != oldSVC.ListenPort {
+		return status.Errorf(status.InvalidArgument, "custom ports not supported on target cluster %s", newSVC.ProxyCluster)
 	}
 
 	return nil
@@ -893,6 +918,10 @@ func (m *Manager) DeleteAllServices(ctx context.Context, accountID, userID strin
 		}
 
 		for _, svc := range services {
+			if err = transaction.DeleteServiceTargets(ctx, accountID, svc.ID); err != nil {
+				return fmt.Errorf("failed to delete service targets: %w", err)
+			}
+
 			if err = transaction.DeleteService(ctx, accountID, svc.ID); err != nil {
 				return fmt.Errorf("failed to delete service: %w", err)
 			}
@@ -1245,6 +1274,10 @@ func (m *Manager) deletePeerService(ctx context.Context, accountID, peerID, serv
 			return status.Errorf(status.PermissionDenied, "cannot delete service exposed by another peer")
 		}
 
+		if err = transaction.DeleteServiceTargets(ctx, accountID, serviceID); err != nil {
+			return fmt.Errorf("delete service targets: %w", err)
+		}
+
 		if err = transaction.DeleteService(ctx, accountID, serviceID); err != nil {
 			return fmt.Errorf("delete service: %w", err)
 		}
@@ -1292,6 +1325,10 @@ func (m *Manager) deleteExpiredPeerService(ctx context.Context, accountID, peerI
 
 		if svc.Meta.LastRenewedAt != nil && time.Since(*svc.Meta.LastRenewedAt) <= exposeTTL {
 			return nil
+		}
+
+		if err = transaction.DeleteServiceTargets(ctx, accountID, serviceID); err != nil {
+			return fmt.Errorf("delete service targets: %w", err)
 		}
 
 		if err = transaction.DeleteService(ctx, accountID, serviceID); err != nil {

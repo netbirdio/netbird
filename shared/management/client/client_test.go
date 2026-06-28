@@ -322,15 +322,21 @@ func TestClient_Sync(t *testing.T) {
 		if resp.GetNetbirdConfig() == nil {
 			t.Error("expecting non nil NetbirdConfig got nil")
 		}
-		if len(resp.GetRemotePeers()) != 1 {
-			t.Errorf("expecting RemotePeers size %d got %d", 1, len(resp.GetRemotePeers()))
+		// we test network map peers from 0.29.3 and dev builds
+		if len(resp.GetRemotePeers()) != 0 {
+			t.Error("expecting top-level RemotePeers to be empty for v0.29.3+ clients")
+		}
+		networkMap := resp.GetNetworkMap()
+		if len(networkMap.GetRemotePeers()) != 1 {
+			t.Errorf("expecting RemotePeers size %d got %d", 1, len(networkMap.GetRemotePeers()))
 			return
 		}
-		if resp.GetRemotePeersIsEmpty() == true {
+
+		if networkMap.GetRemotePeersIsEmpty() {
 			t.Error("expecting RemotePeers property to be false, got true")
 		}
-		if resp.GetRemotePeers()[0].GetWgPubKey() != remoteKey.PublicKey().String() {
-			t.Errorf("expecting RemotePeer public key %s got %s", remoteKey.PublicKey().String(), resp.GetRemotePeers()[0].GetWgPubKey())
+		if networkMap.GetRemotePeers()[0].GetWgPubKey() != remoteKey.PublicKey().String() {
+			t.Errorf("expecting RemotePeer public key %s got %s", remoteKey.PublicKey().String(), networkMap.GetRemotePeers()[0].GetWgPubKey())
 		}
 	case <-time.After(3 * time.Second):
 		t.Error("timeout waiting for test to finish")

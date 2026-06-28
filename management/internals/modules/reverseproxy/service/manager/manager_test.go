@@ -434,7 +434,7 @@ func TestDeletePeerService_SourcePeerValidation(t *testing.T) {
 		t.Helper()
 		tokenStore := nbgrpc.NewOneTimeTokenStore(context.Background(), testCacheStore(t))
 		pkceStore := nbgrpc.NewPKCEVerifierStore(context.Background(), testCacheStore(t))
-		srv := nbgrpc.NewProxyServiceServer(nil, tokenStore, pkceStore, nbgrpc.ProxyOIDCConfig{}, nil, nil, nil, nil)
+		srv := nbgrpc.NewProxyServiceServer(nil, tokenStore, pkceStore, nbgrpc.ProxyOIDCConfig{}, nil, nil, nil, nil, nil)
 		return srv
 	}
 
@@ -458,6 +458,9 @@ func TestDeletePeerService_SourcePeerValidation(t *testing.T) {
 				txMock.EXPECT().
 					GetServiceByID(ctx, store.LockingStrengthUpdate, accountID, serviceID).
 					Return(newEphemeralService(), nil)
+				txMock.EXPECT().
+					DeleteServiceTargets(ctx, accountID, serviceID).
+					Return(nil)
 				txMock.EXPECT().
 					DeleteService(ctx, accountID, serviceID).
 					Return(nil)
@@ -561,6 +564,9 @@ func TestDeletePeerService_SourcePeerValidation(t *testing.T) {
 					GetServiceByID(ctx, store.LockingStrengthUpdate, accountID, serviceID).
 					Return(newEphemeralService(), nil)
 				txMock.EXPECT().
+					DeleteServiceTargets(ctx, accountID, serviceID).
+					Return(nil)
+				txMock.EXPECT().
 					DeleteService(ctx, accountID, serviceID).
 					Return(nil)
 				return fn(txMock)
@@ -604,6 +610,9 @@ func TestDeletePeerService_SourcePeerValidation(t *testing.T) {
 				txMock.EXPECT().
 					GetServiceByID(ctx, store.LockingStrengthUpdate, accountID, serviceID).
 					Return(newEphemeralService(), nil)
+				txMock.EXPECT().
+					DeleteServiceTargets(ctx, accountID, serviceID).
+					Return(nil)
 				txMock.EXPECT().
 					DeleteService(ctx, accountID, serviceID).
 					Return(nil)
@@ -714,7 +723,7 @@ func setupIntegrationTest(t *testing.T) (*Manager, store.Store) {
 
 	tokenStore := nbgrpc.NewOneTimeTokenStore(ctx, testCacheStore(t))
 	pkceStore := nbgrpc.NewPKCEVerifierStore(ctx, testCacheStore(t))
-	proxySrv := nbgrpc.NewProxyServiceServer(nil, tokenStore, pkceStore, nbgrpc.ProxyOIDCConfig{}, nil, nil, nil, nil)
+	proxySrv := nbgrpc.NewProxyServiceServer(nil, tokenStore, pkceStore, nbgrpc.ProxyOIDCConfig{}, nil, nil, nil, nil, nil)
 
 	proxyController, err := proxymanager.NewGRPCController(proxySrv, noop.NewMeterProvider().Meter(""))
 	require.NoError(t, err)
@@ -1138,7 +1147,7 @@ func TestDeleteService_DeletesTargets(t *testing.T) {
 
 	tokenStore := nbgrpc.NewOneTimeTokenStore(ctx, testCacheStore(t))
 	pkceStore := nbgrpc.NewPKCEVerifierStore(ctx, testCacheStore(t))
-	proxySrv := nbgrpc.NewProxyServiceServer(nil, tokenStore, pkceStore, nbgrpc.ProxyOIDCConfig{}, nil, nil, nil, nil)
+	proxySrv := nbgrpc.NewProxyServiceServer(nil, tokenStore, pkceStore, nbgrpc.ProxyOIDCConfig{}, nil, nil, nil, nil, nil)
 
 	proxyController, err := proxymanager.NewGRPCController(proxySrv, noop.NewMeterProvider().Meter(""))
 	require.NoError(t, err)
@@ -1190,6 +1199,67 @@ func TestDeleteService_DeletesTargets(t *testing.T) {
 	targets, err := sqlStore.GetTargetsByServiceID(ctx, store.LockingStrengthNone, accountID, service.ID)
 	require.NoError(t, err)
 	assert.Len(t, targets, 0, "All targets should be deleted when service is deleted")
+}
+
+func TestDeleteExpiredPeerService_DeletesTargets(t *testing.T) {
+	ctx := context.Background()
+	mgr, testStore := setupIntegrationTest(t)
+
+	resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
+		Port: 8080,
+		Mode: "http",
+	})
+	require.NoError(t, err)
+
+	svcID := resolveServiceIDByDomain(t, testStore, resp.Domain)
+
+	targets, err := testStore.GetTargetsByServiceID(ctx, store.LockingStrengthNone, testAccountID, svcID)
+	require.NoError(t, err)
+	require.Len(t, targets, 1, "ephemeral peer-exposed service should have exactly one persisted target before reaping")
+
+	expireEphemeralService(t, testStore, testAccountID, resp.Domain)
+	err = mgr.deleteExpiredPeerService(ctx, testAccountID, testPeerID, svcID)
+	require.NoError(t, err)
+
+	_, err = testStore.GetServiceByDomain(ctx, resp.Domain)
+	require.Error(t, err, "expired peer-exposed service should be deleted")
+	s, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, status.NotFound, s.Type())
+
+	targets, err = testStore.GetTargetsByServiceID(ctx, store.LockingStrengthNone, testAccountID, svcID)
+	require.NoError(t, err)
+	assert.Len(t, targets, 0, "orphaned target rows must be deleted when an expired peer-exposed service is reaped")
+}
+
+func TestDeleteServiceFromPeer_DeletesTargets(t *testing.T) {
+	ctx := context.Background()
+	mgr, testStore := setupIntegrationTest(t)
+
+	resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
+		Port: 8080,
+		Mode: "http",
+	})
+	require.NoError(t, err)
+
+	svcID := resolveServiceIDByDomain(t, testStore, resp.Domain)
+
+	targets, err := testStore.GetTargetsByServiceID(ctx, store.LockingStrengthNone, testAccountID, svcID)
+	require.NoError(t, err)
+	require.Len(t, targets, 1, "ephemeral peer-exposed service should have exactly one persisted target before stopping")
+
+	err = mgr.StopServiceFromPeer(ctx, testAccountID, testPeerID, svcID)
+	require.NoError(t, err)
+
+	_, err = testStore.GetServiceByDomain(ctx, resp.Domain)
+	require.Error(t, err, "stopped peer-exposed service should be deleted")
+	s, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, status.NotFound, s.Type())
+
+	targets, err = testStore.GetTargetsByServiceID(ctx, store.LockingStrengthNone, testAccountID, svcID)
+	require.NoError(t, err)
+	assert.Len(t, targets, 0, "orphaned target rows must be deleted when a peer stops its exposed service")
 }
 
 func TestValidateProtocolChange(t *testing.T) {

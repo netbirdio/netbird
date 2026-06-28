@@ -250,6 +250,7 @@ type BundleGenerator struct {
 	syncResponse   *mgmProto.SyncResponse
 	logPath        string
 	tempDir        string
+	statePath      string
 	cpuProfile     []byte
 	capturePath    string
 	refreshStatus  func() // Optional callback to refresh status before bundle generation
@@ -276,6 +277,7 @@ type GeneratorDependencies struct {
 	SyncResponse   *mgmProto.SyncResponse
 	LogPath        string
 	TempDir        string // Directory for temporary bundle zip files. If empty, os.TempDir() is used.
+	StatePath      string // Path to the state file. If empty, the ServiceManager default path is used.
 	CPUProfile     []byte
 	CapturePath    string
 	RefreshStatus  func()
@@ -299,6 +301,7 @@ func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGen
 		syncResponse:   deps.SyncResponse,
 		logPath:        deps.LogPath,
 		tempDir:        deps.TempDir,
+		statePath:      deps.StatePath,
 		cpuProfile:     deps.CPUProfile,
 		capturePath:    deps.CapturePath,
 		refreshStatus:  deps.RefreshStatus,
@@ -514,6 +517,14 @@ func (g *BundleGenerator) addConfig() error {
 		if g.internalConfig.CustomDNSAddress != "" {
 			configContent.WriteString(fmt.Sprintf("CustomDNSAddress: %s\n", g.internalConfig.CustomDNSAddress))
 		}
+	}
+
+	// Surface the set of MDM-enforced keys so a support engineer reading
+	// the bundle can tell which field values are user-set vs MDM-overridden.
+	// Same semantics as the mDMManagedFields list returned by the
+	// GetConfig RPC consumed by `netbird debug config`.
+	if managed := g.internalConfig.Policy().ManagedKeys(); len(managed) > 0 {
+		configContent.WriteString(fmt.Sprintf("MDMManagedFields: %v\n", managed))
 	}
 
 	configReader := strings.NewReader(configContent.String())
@@ -842,8 +853,11 @@ func (g *BundleGenerator) maskSecrets() {
 }
 
 func (g *BundleGenerator) addStateFile() error {
-	sm := profilemanager.NewServiceManager("")
-	path := sm.GetStatePath()
+	path := g.statePath
+	if path == "" {
+		sm := profilemanager.NewServiceManager("")
+		path = sm.GetStatePath()
+	}
 	if path == "" {
 		return nil
 	}

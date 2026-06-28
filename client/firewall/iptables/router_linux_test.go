@@ -1,4 +1,4 @@
-//go:build integration && !android
+//go:build !android && privileged
 
 package iptables
 

@@ -192,7 +192,9 @@ func (s *StatusChangeSubscription) Events() chan map[string]RouterState {
 // Pure read methods take RLock; anything that mutates state takes Lock.
 type Status struct {
 	mux                   sync.RWMutex
+	muxRelays             sync.RWMutex
 	peers                 map[string]State
+	ipToKey               map[string]string
 	changeNotify          map[string]map[string]*StatusChangeSubscription // map[peerID]map[subscriptionID]*StatusChangeSubscription
 	signalState           bool
 	signalError           error
@@ -231,6 +233,7 @@ type Status struct {
 func NewRecorder(mgmAddress string) *Status {
 	return &Status{
 		peers:                 make(map[string]State),
+		ipToKey:               make(map[string]string),
 		changeNotify:          make(map[string]map[string]*StatusChangeSubscription),
 		eventStreams:          make(map[string]chan *proto.SystemEvent),
 		eventQueue:            NewEventQueue(eventQueueSize),
@@ -242,8 +245,8 @@ func NewRecorder(mgmAddress string) *Status {
 }
 
 func (d *Status) SetRelayMgr(manager *relayClient.Manager) {
-	d.mux.Lock()
-	defer d.mux.Unlock()
+	d.muxRelays.Lock()
+	defer d.muxRelays.Unlock()
 	d.relayMgr = manager
 }
 
@@ -282,6 +285,12 @@ func (d *Status) AddPeer(peerPubKey string, fqdn string, ip string, ipv6 string)
 		Mux:        new(sync.RWMutex),
 	}
 	d.peerListChangedForNotification = true
+	if ipv6 != "" {
+		d.ipToKey[ipv6] = peerPubKey
+	}
+	if ip != "" {
+		d.ipToKey[ip] = peerPubKey
+	}
 	return nil
 }
 
@@ -311,28 +320,22 @@ func (d *Status) PeerByIP(ip string) (string, bool) {
 
 // PeerStateByIP returns the full peer State for the given tunnel IP.
 // Matches against either the IPv4 (State.IP) or IPv6 (State.IPv6) tunnel
-// address so dual-stack peers are reachable on either family. Searches
-// both d.peers and d.offlinePeers — peers that have been moved into
-// the offline slice by ReplaceOfflinePeers are still part of the
-// account's roster and callers (DNS filter, embed.Client.IdentityForIP)
-// need to recognise them rather than treating them as unknown. Returns
-// the zero State and false when no peer matches or the input is empty.
+// address so dual-stack peers are reachable on either family. Only
+// active peers are matched; peers moved into the offline slice by
+// ReplaceOfflinePeers are intentionally treated as unknown.
 func (d *Status) PeerStateByIP(ip string) (State, bool) {
 	if ip == "" {
 		return State{}, false
 	}
 	d.mux.RLock()
 	defer d.mux.RUnlock()
-
-	for _, state := range d.peers {
-		if (state.IP != "" && state.IP == ip) || (state.IPv6 != "" && state.IPv6 == ip) {
-			return state, true
-		}
+	key, ok := d.ipToKey[ip]
+	if !ok {
+		return State{}, false
 	}
-	for _, state := range d.offlinePeers {
-		if (state.IP != "" && state.IP == ip) || (state.IPv6 != "" && state.IPv6 == ip) {
-			return state, true
-		}
+	state, ok := d.peers[key]
+	if ok {
+		return state, true
 	}
 	return State{}, false
 }
@@ -342,12 +345,18 @@ func (d *Status) RemovePeer(peerPubKey string) error {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
-	_, ok := d.peers[peerPubKey]
+	p, ok := d.peers[peerPubKey]
 	if !ok {
 		return errors.New("no peer with to remove")
 	}
 
 	delete(d.peers, peerPubKey)
+	if mappedKey, exists := d.ipToKey[p.IP]; exists && mappedKey == peerPubKey {
+		delete(d.ipToKey, p.IP)
+	}
+	if mappedKey, exists := d.ipToKey[p.IPv6]; exists && mappedKey == peerPubKey {
+		delete(d.ipToKey, p.IPv6)
+	}
 	d.peerListChangedForNotification = true
 	return nil
 }
@@ -898,8 +907,8 @@ func (d *Status) MarkSignalConnected() {
 }
 
 func (d *Status) UpdateRelayStates(relayResults []relay.ProbeResult) {
-	d.mux.Lock()
-	defer d.mux.Unlock()
+	d.muxRelays.Lock()
+	defer d.muxRelays.Unlock()
 	d.relayStates = relayResults
 }
 
@@ -1010,21 +1019,26 @@ func (d *Status) GetSignalState() SignalState {
 
 // GetRelayStates returns the stun/turn/permanent relay states
 func (d *Status) GetRelayStates() []relay.ProbeResult {
-	d.mux.RLock()
-	defer d.mux.RUnlock()
+	d.muxRelays.RLock()
 	if d.relayMgr == nil {
-		return d.relayStates
+		defer d.muxRelays.RUnlock()
+		return slices.Clone(d.relayStates)
 	}
 
-	// extend the list of stun, turn servers with relay address
+	relayMgr := d.relayMgr
+	// extend the list of stun, turn servers with the relay server connections
 	relayStates := slices.Clone(d.relayStates)
+	d.muxRelays.RUnlock()
 
-	// if the server connection is not established then we will use the general address
-	// in case of connection we will use the instance specific address
-	instanceAddr, _, err := d.relayMgr.RelayInstanceAddress()
-	if err != nil {
-		// TODO add their status
-		for _, r := range d.relayMgr.ServerURLs() {
+	states := relayMgr.RelayStates()
+	if len(states) == 0 {
+		// no relay connection tracked yet; surface configured servers as
+		// unavailable with the real reconnect error when known
+		err := relayClient.ErrRelayClientNotConnected
+		if connErr := relayMgr.RelayConnectError(); connErr != nil {
+			err = connErr
+		}
+		for _, r := range relayMgr.ServerURLs() {
 			relayStates = append(relayStates, relay.ProbeResult{
 				URI: r,
 				Err: err,
@@ -1033,10 +1047,14 @@ func (d *Status) GetRelayStates() []relay.ProbeResult {
 		return relayStates
 	}
 
-	relayState := relay.ProbeResult{
-		URI: instanceAddr,
+	for _, rs := range states {
+		relayStates = append(relayStates, relay.ProbeResult{
+			URI:       rs.URL,
+			Err:       rs.Err,
+			Transport: rs.Transport,
+		})
 	}
-	return append(relayStates, relayState)
+	return relayStates
 }
 
 func (d *Status) ForwardingRules() []firewall.ForwardRule {
@@ -1397,6 +1415,7 @@ func (fs FullStatus) ToProto() *proto.FullStatus {
 		pbRelayState := &proto.RelayState{
 			URI:       relayState.URI,
 			Available: relayState.Err == nil,
+			Transport: relayState.Transport,
 		}
 		if err := relayState.Err; err != nil {
 			pbRelayState.Error = err.Error()

@@ -38,6 +38,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/ui/desktop"
 	"github.com/netbirdio/netbird/client/ui/event"
@@ -56,8 +57,22 @@ const (
 const (
 	censoredPreSharedKey = "**********"
 	maxSSHJWTCacheTTL    = 86_400 // 24 hours in seconds
+	// mdmFieldSuffix is appended to plain-text Entry widgets in the
+	// advanced Settings window when the underlying field is enforced
+	// by MDM, so the user sees the lock indicator inline next to the
+	// value. Stripped before any read site that feeds the value back
+	// into a SetConfig request (saveSettings / parseNumericSettings).
+	mdmFieldSuffix = " (MDM)"
 )
 
+// main is the entry point for the UI tray/client binary. Parses CLI
+// flags, initialises logging, builds the Fyne application and tray
+// icons, and constructs the service client (which may open a
+// requested UI window). When a window-mode flag is set the Fyne event
+// loop runs and main returns; otherwise main enforces single-instance
+// behaviour (signalling an existing instance to show its window when
+// present), sets up signal handling + default fonts, and runs the
+// system tray loop.
 func main() {
 	flags := parseFlags()
 
@@ -315,9 +330,13 @@ type serviceClient struct {
 	isUpdateIconActive   bool
 	isEnforcedUpdate     bool
 	lastNotifiedVersion  string
-	settingsEnabled      bool
 	profilesEnabled      bool
 	networksEnabled      bool
+	// networksMenuEnabled caches the last applied enabled-state of the
+	// mNetworks + mExitNode submenu items. Combines features.DisableNetworks
+	// AND s.connected — both must be true for the menus to be active.
+	// Zero value (false) matches the Disable() call at AddMenuItem time.
+	networksMenuEnabled  bool
 	showNetworks         bool
 	wNetworks            fyne.Window
 	wProfiles            fyne.Window
@@ -336,6 +355,13 @@ type serviceClient struct {
 	updateContextCancel  context.CancelFunc
 
 	connectCancel context.CancelFunc
+
+	// mdmManagedFields caches the names of MDM-enforced policy keys
+	// surfaced by the daemon in GetConfigResponse. Each refresh of
+	// daemon config (loadSettings, getSrvConfig, config_changed event)
+	// updates this set and re-applies the lock/badge to the affected
+	// menu items and settings-form widgets.
+	mdmManagedFields map[string]bool
 }
 
 type menuHandler struct {
@@ -392,7 +418,14 @@ func newServiceClient(args *newServiceClientArgs) *serviceClient {
 	case args.showProfiles:
 		s.showProfilesUI()
 	case args.showQuickActions:
-		s.showQuickActionsUI()
+		// Suppress the on-boot Quick Actions popup when the daemon
+		// reports DisableAutoConnect=true — that flag carries both the
+		// user's "Connect on Startup = off" preference AND any MDM-
+		// enforced override (applyMDMPolicy writes the policy value
+		// into the same Config field). See netbirdio/netbird#5744.
+		if !s.disableAutoConnectFromDaemon() {
+			s.showQuickActionsUI()
+		}
 	case args.showUpdate:
 		s.showUpdateProgress(ctx, args.showUpdateVersion)
 	}
@@ -441,15 +474,12 @@ func (s *serviceClient) updateIcon() {
 }
 
 func (s *serviceClient) showSettingsUI() {
-	// Check if update settings are disabled by daemon
-	features, err := s.getFeatures()
-	if err != nil {
-		log.Errorf("failed to get features from daemon: %v", err)
-		// Continue with default behavior if features can't be retrieved
-	} else if features != nil && features.DisableUpdateSettings {
-		log.Warn("Update settings are disabled by daemon")
-		return
-	}
+	// DisableUpdateSettings no longer gates the window from opening:
+	// the daemon blocks every actual mutation at SetConfig / Login,
+	// so the window is safe to show as a read-only view. The previous
+	// early-return also blocked Advanced Settings whenever update
+	// editing was off, which conflated two distinct kill switches
+	// (see comment in checkAndUpdateFeatures).
 
 	// add settings window UI elements.
 	s.wSettings = s.app.NewWindow("NetBird Settings")
@@ -532,7 +562,7 @@ func (s *serviceClient) saveSettings() {
 		return
 	}
 
-	iMngURL := strings.TrimSpace(s.iMngURL.Text)
+	iMngURL := strings.TrimSpace(strings.TrimSuffix(s.iMngURL.Text, mdmFieldSuffix))
 
 	if s.hasSettingsChanged(iMngURL, port, mtu) {
 		if err := s.applySettingsChanges(iMngURL, port, mtu); err != nil {
@@ -554,7 +584,7 @@ func (s *serviceClient) validateSettings() error {
 }
 
 func (s *serviceClient) parseNumericSettings() (int64, int64, error) {
-	port, err := strconv.ParseInt(s.iInterfacePort.Text, 10, 64)
+	port, err := strconv.ParseInt(strings.TrimSpace(strings.TrimSuffix(s.iInterfacePort.Text, mdmFieldSuffix)), 10, 64)
 	if err != nil {
 		return 0, 0, errors.New("invalid interface port")
 	}
@@ -622,7 +652,7 @@ func (s *serviceClient) buildSetConfigRequest(iMngURL string, port, mtu int64) (
 	}
 
 	req := &proto.SetConfigRequest{
-		ProfileName: activeProf.Name,
+		ProfileName: activeProf.ID.String(),
 		Username:    currUser.Username,
 	}
 
@@ -663,7 +693,15 @@ func (s *serviceClient) buildSetConfigRequest(iMngURL string, port, mtu int64) (
 		req.SshJWTCacheTTL = &sshJWTCacheTTL32
 	}
 
-	if s.iPreSharedKey.Text != censoredPreSharedKey {
+	// Only attach the PSK when the user actually typed something:
+	// - "" means the field was left untouched (we deliberately render
+	//   an empty Text + placeholder hint to avoid leaking the daemon's
+	//   "**********" redaction through the password reveal toggle);
+	//   sending an empty pointer would tell the daemon to clear / overwrite
+	//   the on-disk or MDM-enforced PSK, which then trips the MDM
+	//   conflict gate when PSK is policy-managed.
+	// - "**********" is the redacted echo (legacy non-MDM path); also a no-op.
+	if s.iPreSharedKey.Text != "" && s.iPreSharedKey.Text != censoredPreSharedKey {
 		req.OptionalPreSharedKey = &s.iPreSharedKey.Text
 	}
 
@@ -787,13 +825,15 @@ func (s *serviceClient) login(ctx context.Context, openURL bool) (*proto.LoginRe
 		return nil, fmt.Errorf("get current user: %w", err)
 	}
 
+	handle := activeProf.ID.String()
+
 	loginReq := &proto.LoginRequest{
 		IsUnixDesktopClient: runtime.GOOS == "linux" || runtime.GOOS == "freebsd",
-		ProfileName:         &activeProf.Name,
+		ProfileName:         &handle,
 		Username:            &currUser.Username,
 	}
 
-	profileState, err := s.profileManager.GetProfileState(activeProf.Name)
+	profileState, err := s.profileManager.GetProfileState(activeProf.ID)
 	if err != nil {
 		log.Debugf("failed to get profile state for login hint: %v", err)
 	} else if profileState.Email != "" {
@@ -1036,6 +1076,13 @@ func (s *serviceClient) onTrayReady() {
 	}
 
 	s.mProfile = newProfileMenu(*newProfileMenuArgs)
+	// Seed the transition cache to match the actual default menu
+	// state (visible / enabled). Without this, the first
+	// checkAndUpdateFeatures tick that observes DisableProfiles=true
+	// is a no-op (cache zero-value == desired-false) and the menu
+	// never gets hidden — symptom: MDM enforces the kill switch but
+	// the profile menu stays clickable.
+	s.profilesEnabled = true
 
 	systray.AddSeparator()
 	s.mUp = systray.AddMenuItem("Connect", "Connect")
@@ -1055,18 +1102,18 @@ func (s *serviceClient) onTrayReady() {
 	s.mCreateDebugBundle = s.mSettings.AddSubMenuItem("Create Debug Bundle", debugBundleMenuDescr)
 	s.loadSettings()
 
-	// Disable settings menu if update settings are disabled by daemon
+	// Disable profile menu if profiles are disabled by daemon.
+	// DisableUpdateSettings is enforced at the daemon's SetConfig /
+	// Login gates, not by hiding the UI — so the Settings menu (and
+	// its Advanced Settings submenu, which has its own kill switch)
+	// stays visible and the user can still inspect current values.
 	features, err := s.getFeatures()
 	if err != nil {
 		log.Errorf("failed to get features from daemon: %v", err)
 		// Continue with default behavior if features can't be retrieved
-	} else {
-		if features != nil && features.DisableUpdateSettings {
-			s.setSettingsEnabled(false)
-		}
-		if features != nil && features.DisableProfiles {
-			s.mProfile.setEnabled(false)
-		}
+	} else if features != nil && features.DisableProfiles {
+		s.mProfile.setEnabled(false)
+		s.profilesEnabled = false
 	}
 
 	s.exitNodeMu.Lock()
@@ -1100,13 +1147,20 @@ func (s *serviceClient) onTrayReady() {
 	// update exit node menu in case service is already connected
 	go s.updateExitNodes()
 
+	// Features (DisableProfiles, DisableUpdateSettings, DisableNetworks,
+	// ...) only change in two ways: at service install time (CLI flag,
+	// static) and at MDM ticker diff time. The daemon already publishes
+	// a SystemEvent{type=config_changed} on every MDM-driven engine
+	// restart, so the UI no longer needs to poll GetFeatures every 2 s.
+	// A single fetch at startup covers the static CLI-flag case; the
+	// event handler below covers MDM transitions. updateStatus stays in
+	// the 2 s loop because connection / peer state genuinely change
+	// continuously and have no event yet.
+	s.checkAndUpdateFeatures()
 	go func() {
 		s.getSrvConfig()
 		time.Sleep(100 * time.Millisecond) // To prevent race condition caused by systray not being fully initialized and ignoring setIcon
 		for {
-			// Check features before status so menus respect disable flags before being enabled
-			s.checkAndUpdateFeatures()
-
 			err := s.updateStatus()
 			if err != nil {
 				log.Errorf("error while updating status: %v", err)
@@ -1148,6 +1202,23 @@ func (s *serviceClient) onTrayReady() {
 			_, enforced := event.Metadata["enforced"]
 			log.Infof("received new_version_available event: version=%s enforced=%v", newVersion, enforced)
 			s.onUpdateAvailable(newVersion, enforced)
+		}
+	})
+	s.eventManager.AddHandler(func(event *proto.SystemEvent) {
+		// Daemon emits a config_changed event after every engine spawn
+		// (Server.Start, Server.Up, MDM ticker restart). Re-sync the
+		// tray submenu checkboxes from the fresh daemon-side config so
+		// the user does not have to restart the tray to see CLI- or
+		// MDM-driven changes.
+		if event.Category == proto.SystemEvent_SYSTEM && event.Metadata["type"] == "config_changed" {
+			log.Infof("config_changed event received (source=%s); refreshing settings + features", event.Metadata["source"])
+			s.loadSettings()
+			// MDM-driven feature kill switches (DisableProfiles /
+			// DisableUpdateSettings / DisableNetworks) ride the same
+			// config_changed signal because the daemon re-applies its
+			// MDM policy on every engine spawn. Pull them in here so
+			// the UI is up to date without a periodic GetFeatures poll.
+			s.checkAndUpdateFeatures()
 		}
 	})
 
@@ -1213,18 +1284,6 @@ func (s *serviceClient) getSrvClient(timeout time.Duration) (proto.DaemonService
 	return s.conn, nil
 }
 
-// setSettingsEnabled enables or disables the settings menu based on the provided state
-func (s *serviceClient) setSettingsEnabled(enabled bool) {
-	if s.mSettings != nil {
-		if enabled {
-			s.mSettings.Enable()
-		} else {
-			s.mSettings.Hide()
-			s.mSettings.SetTooltip("Settings are disabled by daemon")
-		}
-	}
-}
-
 // checkAndUpdateFeatures checks the current features and updates the UI accordingly
 func (s *serviceClient) checkAndUpdateFeatures() {
 	features, err := s.getFeatures()
@@ -1236,12 +1295,11 @@ func (s *serviceClient) checkAndUpdateFeatures() {
 	s.updateIndicationLock.Lock()
 	defer s.updateIndicationLock.Unlock()
 
-	// Update settings menu based on current features
-	settingsEnabled := features == nil || !features.DisableUpdateSettings
-	if s.settingsEnabled != settingsEnabled {
-		s.settingsEnabled = settingsEnabled
-		s.setSettingsEnabled(settingsEnabled)
-	}
+	// DisableUpdateSettings is enforced server-side by the daemon gates
+	// on SetConfig + Login: any attempt to mutate config from UI or
+	// CLI is rejected at that layer. The UI deliberately keeps the
+	// Settings menu visible so the user can still inspect current
+	// values — read-only by virtue of the daemon refusing edits.
 
 	// Update profile menu based on current features
 	if s.mProfile != nil {
@@ -1252,14 +1310,23 @@ func (s *serviceClient) checkAndUpdateFeatures() {
 		}
 	}
 
-	// Update networks and exit node menus based on current features
+	// Update networks and exit node menus based on current features.
+	// `networksEnabled` is the bare feature flag (read elsewhere, e.g. at
+	// connection-status transitions). `networksMenuEnabled` is the
+	// transition-cached state actually applied to the menu items —
+	// it folds in the connection state so a Connected client with the
+	// kill switch off shows the menus active, and only flips on diff.
 	s.networksEnabled = features == nil || !features.DisableNetworks
-	if s.networksEnabled && s.connected {
-		s.mNetworks.Enable()
-		s.mExitNode.Enable()
-	} else {
-		s.mNetworks.Disable()
-		s.mExitNode.Disable()
+	desiredNetworksMenu := s.networksEnabled && s.connected
+	if desiredNetworksMenu != s.networksMenuEnabled {
+		s.networksMenuEnabled = desiredNetworksMenu
+		if desiredNetworksMenu {
+			s.mNetworks.Enable()
+			s.mExitNode.Enable()
+		} else {
+			s.mNetworks.Disable()
+			s.mExitNode.Disable()
+		}
 	}
 }
 
@@ -1276,6 +1343,40 @@ func (s *serviceClient) getFeatures() (*proto.GetFeaturesResponse, error) {
 	}
 
 	return features, nil
+}
+
+// disableAutoConnectFromDaemon returns true when the daemon reports
+// the active profile has DisableAutoConnect=true. Used by the
+// --quick-actions startup path to suppress the on-boot popup when the
+// user (or an MDM admin) opted out of auto-connecting; both cases
+// converge on the same Config field because applyMDMPolicy writes the
+// policy value into it. Returns false on any RPC / lookup failure so a
+// daemon hiccup does not silently swallow the popup.
+func (s *serviceClient) disableAutoConnectFromDaemon() bool {
+	activeProf, err := s.profileManager.GetActiveProfile()
+	if err != nil {
+		log.Warnf("disableAutoConnectFromDaemon: get active profile: %v", err)
+		return false
+	}
+	currUser, err := user.Current()
+	if err != nil {
+		log.Warnf("disableAutoConnectFromDaemon: get current user: %v", err)
+		return false
+	}
+	conn, err := s.getSrvClient(failFastTimeout)
+	if err != nil {
+		log.Warnf("disableAutoConnectFromDaemon: get daemon client: %v", err)
+		return false
+	}
+	srvCfg, err := conn.GetConfig(s.ctx, &proto.GetConfigRequest{
+		ProfileName: activeProf.ID.String(),
+		Username:    currUser.Username,
+	})
+	if err != nil {
+		log.Warnf("disableAutoConnectFromDaemon: GetConfig RPC: %v", err)
+		return false
+	}
+	return srvCfg.GetDisableAutoConnect()
 }
 
 // getSrvConfig from the service to show it in the settings window.
@@ -1309,7 +1410,7 @@ func (s *serviceClient) getSrvConfig() {
 	}
 
 	srvCfg, err := conn.GetConfig(s.ctx, &proto.GetConfigRequest{
-		ProfileName: activeProf.Name,
+		ProfileName: activeProf.ID.String(),
 		Username:    currUser.Username,
 	})
 	if err != nil {
@@ -1356,7 +1457,14 @@ func (s *serviceClient) getSrvConfig() {
 
 	if s.showAdvancedSettings {
 		s.iMngURL.SetText(s.managementURL)
-		s.iPreSharedKey.SetText(cfg.PreSharedKey)
+		// PSK is rendered with an empty Text and a hint via the
+		// placeholder so the eye toggle never reveals literal asterisks
+		// (the daemon returns the "**********" sentinel — writing that
+		// into a PasswordEntry would surface the literal sentinel when
+		// the user unmasks the field). The placeholder communicates the
+		// configured / MDM-managed state without exposing any value.
+		s.iPreSharedKey.SetText("")
+		s.iPreSharedKey.SetPlaceHolder(preSharedKeyPlaceholder(srvCfg))
 		s.iInterfaceName.SetText(cfg.WgIface)
 		s.iInterfacePort.SetText(strconv.Itoa(cfg.WgPort))
 		if cfg.MTU != 0 {
@@ -1366,7 +1474,15 @@ func (s *serviceClient) getSrvConfig() {
 			s.iMTU.SetPlaceHolder(strconv.Itoa(int(iface.DefaultMTU)))
 		}
 		s.sRosenpassPermissive.SetChecked(cfg.RosenpassPermissive)
-		if !cfg.RosenpassEnabled {
+		// Re-baseline the enabled state on every refresh: when Rosenpass
+		// is on the checkbox is editable, when it's off the field is
+		// inert. Without an explicit Enable() here the control stays
+		// stuck disabled after a previous refresh (or an MDM unlock) had
+		// turned it off — applyMDMLocksToSettingsForm below adds the
+		// MDM lock on top of this baseline.
+		if cfg.RosenpassEnabled {
+			s.sRosenpassPermissive.Enable()
+		} else {
 			s.sRosenpassPermissive.Disable()
 		}
 		s.sNetworkMonitor.SetChecked(*cfg.NetworkMonitor)
@@ -1394,6 +1510,13 @@ func (s *serviceClient) getSrvConfig() {
 			s.iSSHJWTCacheTTL.SetText(strconv.Itoa(*cfg.SSHJWTCacheTTL))
 		}
 	}
+
+	// MDM locks must run before the mNotifications-nil early return:
+	// the Settings window is rendered by a separate UI process launched
+	// with --settings (see handleAdvancedSettingsClick), and that child
+	// process does NOT run onReady — so its mNotifications is nil and
+	// the early return below skipped the lock pass entirely.
+	s.applyMDMLocks(srvCfg.MDMManagedFields)
 
 	if s.mNotifications == nil {
 		return
@@ -1533,7 +1656,7 @@ func (s *serviceClient) loadSettings() {
 	}
 
 	cfg, err := conn.GetConfig(s.ctx, &proto.GetConfigRequest{
-		ProfileName: activeProf.Name,
+		ProfileName: activeProf.ID.String(),
 		Username:    currUser.Username,
 	})
 	if err != nil {
@@ -1579,6 +1702,129 @@ func (s *serviceClient) loadSettings() {
 	if s.eventManager != nil {
 		s.eventManager.SetNotificationsEnabled(s.mNotifications.Checked())
 	}
+	s.applyMDMLocks(cfg.MDMManagedFields)
+}
+
+// applyMDMLocks disables and badges any tray submenu item or settings-
+// form widget whose underlying field is enforced by the active MDM
+// policy. Called from loadSettings (submenu refresh) and from
+// getSrvConfig (settings-window refresh). Locked items keep their value
+// already set by the surrounding refresh code — this routine only
+// flips the enabled state and the title suffix, never the value.
+func (s *serviceClient) applyMDMLocks(managed []string) {
+	set := make(map[string]bool, len(managed))
+	for _, k := range managed {
+		set[k] = true
+	}
+	s.mdmManagedFields = set
+	if len(managed) > 0 {
+		log.Infof("MDM-managed UI fields: %v", managed)
+	}
+
+	type submenuTarget struct {
+		item  *systray.MenuItem
+		title string
+		key   string
+	}
+	for _, t := range []submenuTarget{
+		{s.mAllowSSH, "Allow SSH", mdm.KeyAllowServerSSH},
+		{s.mAutoConnect, "Connect on Startup", mdm.KeyDisableAutoConnect},
+		{s.mEnableRosenpass, "Enable Quantum-Resistance", mdm.KeyRosenpassEnabled},
+		{s.mBlockInbound, "Block Inbound Connections", mdm.KeyBlockInbound},
+	} {
+		if t.item == nil {
+			continue
+		}
+		if set[t.key] {
+			t.item.SetTitle(t.title + " (MDM)")
+			t.item.Disable()
+		} else {
+			t.item.SetTitle(t.title)
+			t.item.Enable()
+		}
+	}
+
+	s.applyMDMLocksToSettingsForm(set)
+}
+
+// preSharedKeyPlaceholder returns the hint string shown in the PSK
+// Entry's placeholder slot. The placeholder is the only signal the
+// user gets that a PSK is configured, because the entry's Text is
+// forced to empty to keep the password reveal toggle from leaking
+// the daemon-returned "**********" redaction sentinel. Returns "" if
+// no PSK is present, "MDM-managed" if the key is enforced by MDM,
+// and "configured" otherwise.
+func preSharedKeyPlaceholder(cfg *proto.GetConfigResponse) string {
+	if cfg == nil || cfg.PreSharedKey == "" {
+		return ""
+	}
+	for _, k := range cfg.MDMManagedFields {
+		if k == mdm.KeyPreSharedKey {
+			return "MDM-managed"
+		}
+	}
+	return "configured"
+}
+
+// applyMDMLocksToSettingsForm disables the per-field input widgets in
+// the advanced Settings window when the corresponding MDM key is set.
+// For plain-text entries (Management URL, Interface Port) the visible
+// value is suffixed with " (MDM)" so the user sees the lock indicator
+// inline; for the password entry the suffix is skipped (a password
+// widget renders every char as a dot and the indicator would not be
+// readable). The widgets are created lazily by showSettingsUI, so
+// guard each ref against nil.
+func (s *serviceClient) applyMDMLocksToSettingsForm(set map[string]bool) {
+	type entryTarget struct {
+		entry     *widget.Entry
+		key       string
+		inlineTag bool
+	}
+	for _, t := range []entryTarget{
+		{s.iMngURL, mdm.KeyManagementURL, true},
+		{s.iPreSharedKey, mdm.KeyPreSharedKey, false},
+		{s.iInterfacePort, mdm.KeyWireguardPort, true},
+	} {
+		if t.entry == nil {
+			continue
+		}
+		if set[t.key] {
+			if t.inlineTag && t.entry.Text != "" && !strings.HasSuffix(t.entry.Text, mdmFieldSuffix) {
+				t.entry.SetText(t.entry.Text + mdmFieldSuffix)
+			}
+			t.entry.Disable()
+		} else {
+			if t.inlineTag {
+				t.entry.SetText(strings.TrimSuffix(t.entry.Text, mdmFieldSuffix))
+			}
+			t.entry.Enable()
+		}
+	}
+	type checkTarget struct {
+		check *widget.Check
+		key   string
+	}
+	for _, t := range []checkTarget{
+		{s.sDisableClientRoutes, mdm.KeyDisableClientRoutes},
+		{s.sDisableServerRoutes, mdm.KeyDisableServerRoutes},
+	} {
+		if t.check == nil {
+			continue
+		}
+		if set[t.key] {
+			t.check.Disable()
+		} else {
+			t.check.Enable()
+		}
+	}
+	if s.sRosenpassPermissive != nil && set[mdm.KeyRosenpassPermissive] {
+		// MDM lock layered on top of the Rosenpass-on/off baseline
+		// applied by getSrvConfig. No Enable() branch here: when the
+		// MDM key is removed, the next getSrvConfig refresh re-baselines
+		// the control on cfg.RosenpassEnabled and brings it back if
+		// Rosenpass is on.
+		s.sRosenpassPermissive.Disable()
+	}
 }
 
 // updateConfig updates the configuration parameters
@@ -1610,7 +1856,7 @@ func (s *serviceClient) updateConfig() error {
 	}
 
 	req := proto.SetConfigRequest{
-		ProfileName:           activeProf.Name,
+		ProfileName:           activeProf.ID.String(),
 		Username:              currUser.Username,
 		DisableAutoConnect:    &disableAutoStart,
 		ServerSSHAllowed:      &sshAllowed,

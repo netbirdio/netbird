@@ -443,29 +443,32 @@ func (u *upstreamResolverBase) queryUpstream(parentCtx context.Context, r *dns.M
 		return raceResult{}, &upstreamFailure{upstream: upstream, reason: "no response"}
 	}
 
+	// A valid response means the upstream is reachable, whatever the Rcode.
+	u.markUpstreamOk(upstream)
+
 	proto := ""
 	if upstreamProto != nil {
 		proto = upstreamProto.protocol
 	}
 
 	if rm.Rcode == dns.RcodeServerFailure || rm.Rcode == dns.RcodeRefused {
+		// SERVFAIL and REFUSED are per-question outcomes (DNSSEC-bogus names,
+		// refused zones, transient recursion errors), not reachability
+		// problems: fail over for a better answer but keep the upstream healthy.
 		if code, ok := nonRetryableEDE(rm); ok {
 			if !hadEdns {
-				stripOPT(rm)
+				resutil.StripOPT(rm)
 			}
-			u.markUpstreamOk(upstream)
 			return raceResult{msg: rm, upstream: upstream, protocol: proto, ede: edeName(code)}, nil
 		}
 		reason := dns.RcodeToString[rm.Rcode]
-		u.markUpstreamFail(upstream, reason)
 		return raceResult{}, &upstreamFailure{upstream: upstream, reason: reason}
 	}
 
 	if !hadEdns {
-		stripOPT(rm)
+		resutil.StripOPT(rm)
 	}
 
-	u.markUpstreamOk(upstream)
 	return raceResult{msg: rm, upstream: upstream, protocol: proto}, nil
 }
 
@@ -518,22 +521,6 @@ func upstreamUDPSize() uint16 {
 		return currentMTU - ipUDPHeaderSize
 	}
 	return dns.MinMsgSize
-}
-
-// stripOPT removes any OPT pseudo-RRs from the response's Extra section so
-// the response complies with RFC 6891 when the client did not advertise EDNS0.
-func stripOPT(rm *dns.Msg) {
-	if len(rm.Extra) == 0 {
-		return
-	}
-	out := rm.Extra[:0]
-	for _, rr := range rm.Extra {
-		if _, ok := rr.(*dns.OPT); ok {
-			continue
-		}
-		out = append(out, rr)
-	}
-	rm.Extra = out
 }
 
 func (u *upstreamResolverBase) handleUpstreamError(err error, upstream netip.AddrPort, startTime time.Time) *upstreamFailure {

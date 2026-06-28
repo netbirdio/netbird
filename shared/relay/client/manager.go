@@ -43,6 +43,17 @@ type OnServerCloseListener func()
 // ManagerOption configures a Manager at construction time.
 type ManagerOption func(*Manager)
 
+// RelayConnState is the connection state of a single relay server.
+type RelayConnState struct {
+	// URL is the server's instance address when connected, otherwise the
+	// configured server URL.
+	URL string
+	// Transport is the negotiated transport, empty if not connected.
+	Transport string
+	// Err is set when the relay is not connected.
+	Err error
+}
+
 // WithMaxBackoffInterval caps the exponential backoff between reconnect
 // attempts to the home relay. A non-positive value keeps the default.
 func WithMaxBackoffInterval(d time.Duration) ManagerOption {
@@ -130,6 +141,9 @@ func (m *Manager) Serve() error {
 
 	client, err := m.serverPicker.PickServer(m.ctx)
 	if err != nil {
+		// record the initial failure so status shows the real reason before
+		// the guard's first retry tick
+		m.reconnectGuard.setLastError(err)
 		go m.reconnectGuard.StartReconnectTrys(m.ctx, nil)
 	} else {
 		m.storeClient(client)
@@ -240,6 +254,56 @@ func (m *Manager) RelayInstanceAddress() (string, netip.Addr, error) {
 // ServerURLs returns the addresses of the relay servers.
 func (m *Manager) ServerURLs() []string {
 	return m.serverPicker.ServerURLs.Load().([]string)
+}
+
+// RelayConnectError returns the error from the most recent failed home relay
+// reconnect attempt, or nil if the relay last connected successfully.
+func (m *Manager) RelayConnectError() error {
+	return m.reconnectGuard.LastError()
+}
+
+// RelayStates returns the connection state of the home relay and every foreign
+// relay the manager currently tracks.
+func (m *Manager) RelayStates() []RelayConnState {
+	var states []RelayConnState
+
+	m.relayClientMu.RLock()
+	home := m.relayClient
+	m.relayClientMu.RUnlock()
+	if home != nil {
+		st := relayConnState(home)
+		// The home relay reconnects through the guard, so the real failure
+		// reason lives there rather than on the (stale) client.
+		if st.Err != nil {
+			if gErr := m.reconnectGuard.LastError(); gErr != nil {
+				st.Err = gErr
+			}
+		}
+		states = append(states, st)
+	}
+
+	// Snapshot the tracks, then query each outside the map lock: a track can be
+	// held by an in-progress Connect, and blocking on it must not stall other
+	// relay operations.
+	m.relayClientsMutex.RLock()
+	tracks := make([]*RelayTrack, 0, len(m.relayClients))
+	for _, rt := range m.relayClients {
+		tracks = append(tracks, rt)
+	}
+	m.relayClientsMutex.RUnlock()
+
+	// Only connected foreign relays carry state; a failed connect is evicted
+	// immediately (openConnVia), so there is no error state to surface.
+	for _, rt := range tracks {
+		rt.RLock()
+		rc := rt.relayClient
+		rt.RUnlock()
+		if rc != nil {
+			states = append(states, relayConnState(rc))
+		}
+	}
+
+	return states
 }
 
 // HasRelayAddress returns true if the manager is serving. With this method can check if the peer can communicate with
@@ -459,4 +523,12 @@ func (m *Manager) notifyOnDisconnectListeners(serverAddress string) {
 		go e.Value.(OnServerCloseListener)()
 	}
 	delete(m.onDisconnectedListeners, serverAddress)
+}
+
+func relayConnState(c *Client) RelayConnState {
+	addr, err := c.ServerInstanceURL()
+	if err != nil {
+		return RelayConnState{URL: c.connectionURL, Err: err}
+	}
+	return RelayConnState{URL: addr, Transport: c.Transport()}
 }

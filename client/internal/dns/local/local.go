@@ -482,7 +482,7 @@ func (d *Resolver) logDNSError(logger *log.Entry, hostname string, qtype uint16,
 // completely when every proxy peer is offline (the upstream may still
 // be reachable some other way, or the peerstore may be stale).
 func (d *Resolver) filterDisconnectedPeerAnswers(logger *log.Entry, question dns.Question, records []dns.RR) []dns.RR {
-	if len(records) == 0 {
+	if len(records) < 2 {
 		return records
 	}
 	d.mu.RLock()

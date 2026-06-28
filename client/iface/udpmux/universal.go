@@ -8,8 +8,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"net/netip"
-	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -21,10 +19,6 @@ import (
 	"github.com/netbirdio/netbird/client/iface/bufsize"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
-
-// FilterFn is a function that filters out candidates based on the address.
-// If it returns true, the address is to be filtered. It also returns the prefix of matching route.
-type FilterFn func(address netip.Addr) (bool, netip.Prefix, error)
 
 // UniversalUDPMuxDefault handles STUN and TURN servers packets by wrapping the original UDPConn
 // It then passes packets to the UDPMux that does the actual connection muxing.
@@ -43,7 +37,6 @@ type UniversalUDPMuxParams struct {
 	UDPConn               net.PacketConn
 	XORMappedAddrCacheTTL time.Duration
 	Net                   transport.Net
-	FilterFn              FilterFn
 	WGAddress             wgaddr.Address
 	MTU                   uint16
 }
@@ -68,7 +61,6 @@ func NewUniversalUDPMuxDefault(params UniversalUDPMuxParams) *UniversalUDPMuxDef
 		PacketConn: params.UDPConn,
 		mux:        m,
 		logger:     params.Logger,
-		filterFn:   params.FilterFn,
 		address:    params.WGAddress,
 	}
 
@@ -115,15 +107,12 @@ func (m *UniversalUDPMuxDefault) ReadFromConn(ctx context.Context) {
 	}
 }
 
-// UDPConn is a wrapper around UDPMux conn that overrides ReadFrom and handles STUN/TURN packets
+// UDPConn is a wrapper around UDPMux conn that overrides WriteTo to drop packets destined for the overlay subnet.
 type UDPConn struct {
 	net.PacketConn
-	mux      *UniversalUDPMuxDefault
-	logger   logging.LeveledLogger
-	filterFn FilterFn
-	// TODO: reset cache on route changes
-	addrCache sync.Map
-	address   wgaddr.Address
+	mux     *UniversalUDPMuxDefault
+	logger  logging.LeveledLogger
+	address wgaddr.Address
 }
 
 // GetPacketConn returns the underlying PacketConn
@@ -132,65 +121,16 @@ func (u *UDPConn) GetPacketConn() net.PacketConn {
 }
 
 func (u *UDPConn) WriteTo(b []byte, addr net.Addr) (int, error) {
-	if u.filterFn == nil {
+	udpAddr, ok := addr.(*net.UDPAddr)
+	if !ok {
 		return u.PacketConn.WriteTo(b, addr)
 	}
-
-	if isRouted, found := u.addrCache.Load(addr.String()); found {
-		return u.handleCachedAddress(isRouted.(bool), b, addr)
-	}
-
-	return u.handleUncachedAddress(b, addr)
-}
-
-func (u *UDPConn) handleCachedAddress(isRouted bool, b []byte, addr net.Addr) (int, error) {
-	if isRouted {
-		return 0, fmt.Errorf("address %s is part of a routed network, refusing to write", addr)
-	}
-	return u.PacketConn.WriteTo(b, addr)
-}
-
-func (u *UDPConn) handleUncachedAddress(b []byte, addr net.Addr) (int, error) {
-	if err := u.performFilterCheck(addr); err != nil {
-		return 0, err
-	}
-	return u.PacketConn.WriteTo(b, addr)
-}
-
-func (u *UDPConn) performFilterCheck(addr net.Addr) error {
-	host, err := getHostFromAddr(addr)
-	if err != nil {
-		log.Errorf("Failed to get host from address %s: %v", addr, err)
-		return nil
-	}
-
-	a, err := netip.ParseAddr(host)
-	if err != nil {
-		log.Errorf("Failed to parse address %s: %v", addr, err)
-		return nil
-	}
-
-	if u.address.Network.Contains(a) {
+	dst := udpAddr.AddrPort().Addr().Unmap()
+	if (u.address.Network.IsValid() && u.address.Network.Contains(dst)) || (u.address.IPv6Net.IsValid() && u.address.IPv6Net.Contains(dst)) {
 		log.Warnf("address %s is part of the NetBird network %s, refusing to write", addr, u.address)
-		return fmt.Errorf("address %s is part of the NetBird network %s, refusing to write", addr, u.address)
+		return 0, fmt.Errorf("address %s is part of the NetBird network %s, refusing to write", addr, u.address)
 	}
-
-	if isRouted, prefix, err := u.filterFn(a); err != nil {
-		log.Errorf("Failed to check if address %s is routed: %v", addr, err)
-	} else {
-		u.addrCache.Store(addr.String(), isRouted)
-		if isRouted {
-			// Extra log, as the error only shows up with ICE logging enabled
-			log.Infof("address %s is part of routed network %s, refusing to write", addr, prefix)
-			return fmt.Errorf("address %s is part of routed network %s, refusing to write", addr, prefix)
-		}
-	}
-	return nil
-}
-
-func getHostFromAddr(addr net.Addr) (string, error) {
-	host, _, err := net.SplitHostPort(addr.String())
-	return host, err
+	return u.PacketConn.WriteTo(b, addr)
 }
 
 // GetSharedConn returns the shared udp conn
@@ -222,6 +162,13 @@ func (m *UniversalUDPMuxDefault) HandleSTUNMessage(msg *stun.Message, addr net.A
 	udpAddr, ok := addr.(*net.UDPAddr)
 	if !ok {
 		// message about this err will be logged in the UDPMux
+		return nil
+	}
+
+	src := udpAddr.AddrPort().Addr().Unmap()
+	wg := m.params.WGAddress
+	if (wg.Network.IsValid() && wg.Network.Contains(src)) || (wg.IPv6Net.IsValid() && wg.IPv6Net.Contains(src)) {
+		log.Debugf("dropping STUN message from overlay source %s", udpAddr)
 		return nil
 	}
 

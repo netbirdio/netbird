@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
+	"github.com/google/uuid"
 	"github.com/pires/go-proxyproto"
 	prometheus2 "github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -75,29 +76,30 @@ type portRouter struct {
 }
 
 type Server struct {
-	ctx           context.Context
-	mgmtClient    proto.ProxyServiceClient
-	proxy         *proxy.ReverseProxy
-	netbird       *roundtrip.NetBird
-	acme          *acme.Manager
-	auth          *auth.Middleware
-	http          *http.Server
-	https         *http.Server
-	debug         *http.Server
-	healthServer  *health.Server
-	healthChecker *health.Checker
-	meter         *proxymetrics.Metrics
-	accessLog     *accesslog.Logger
-	mainRouter    *nbtcp.Router
-	mainPort      uint16
-	udpMu         sync.Mutex
-	udpRelays     map[types.ServiceID]*udprelay.Relay
-	udpRelayWg    sync.WaitGroup
-	portMu        sync.RWMutex
-	portRouters   map[uint16]*portRouter
-	svcPorts      map[types.ServiceID][]uint16
-	lastMappings  map[types.ServiceID]*proto.ProxyMapping
-	portRouterWg  sync.WaitGroup
+	ctx               context.Context
+	mgmtClient        proto.ProxyServiceClient
+	proxy             *proxy.ReverseProxy
+	netbird           *roundtrip.NetBird
+	acme              *acme.Manager
+	staticCertWatcher *certwatch.Watcher
+	auth              *auth.Middleware
+	http              *http.Server
+	https             *http.Server
+	debug             *http.Server
+	healthServer      *health.Server
+	healthChecker     *health.Checker
+	meter             *proxymetrics.Metrics
+	accessLog         *accesslog.Logger
+	mainRouter        *nbtcp.Router
+	mainPort          uint16
+	udpMu             sync.Mutex
+	udpRelays         map[types.ServiceID]*udprelay.Relay
+	udpRelayWg        sync.WaitGroup
+	portMu            sync.RWMutex
+	portRouters       map[uint16]*portRouter
+	svcPorts          map[types.ServiceID][]uint16
+	lastMappings      map[types.ServiceID]*proto.ProxyMapping
+	portRouterWg      sync.WaitGroup
 
 	// hijackTracker tracks hijacked connections (e.g. WebSocket upgrades)
 	// so they can be closed during graceful shutdown, since http.Server.Shutdown
@@ -614,7 +616,7 @@ func (s *Server) initDefaults() {
 
 	// If no ID is set then one can be generated.
 	if s.ID == "" {
-		s.ID = "netbird-proxy-" + s.startTime.Format("20060102150405")
+		s.ID = fmt.Sprintf("netbird-proxy-%s", uuid.NewString())
 	}
 	// Fallback version option in case it is not set.
 	if s.Version == "" {
@@ -792,6 +794,7 @@ func (s *Server) configureTLS(ctx context.Context) (*tls.Config, error) {
 			return nil, fmt.Errorf("initialize certificate watcher: %w", err)
 		}
 		go certWatcher.Watch(ctx)
+		s.staticCertWatcher = certWatcher
 		tlsConfig.GetCertificate = certWatcher.GetCertificate
 		return tlsConfig, nil
 	}
@@ -1102,7 +1105,7 @@ func (s *Server) getOrCreatePortRouter(ctx context.Context, port uint16) (*nbtcp
 	router := nbtcp.NewPortRouter(s.Logger, s.resolveDialFunc)
 	router.SetObserver(s.meter)
 	router.SetAccessLogger(s.accessLog)
-	portCtx, cancel := context.WithCancel(ctx)
+	portCtx, cancel := context.WithCancel(s.portRouterContext(ctx))
 
 	s.portRouters[port] = &portRouter{
 		router:   router,
@@ -1118,8 +1121,24 @@ func (s *Server) getOrCreatePortRouter(ctx context.Context, port uint16) (*nbtcp
 		}
 	}()
 
-	s.Logger.Debugf("started per-port router on %s", listenAddr)
+	s.Logger.WithFields(log.Fields{
+		"port":           port,
+		"listen_addr":    listenAddr,
+		"bound_addr":     ln.Addr().String(),
+		"proxy_protocol": s.ProxyProtocol,
+	}).Info("custom TCP listener started")
 	return router, nil
+}
+
+// portRouterContext returns the server-lifetime context for custom TCP
+// listeners. Mapping-batch contexts are cancelled after a batch is applied; a
+// per-port listener must outlive that batch and only stop on service removal or
+// server shutdown.
+func (s *Server) portRouterContext(ctx context.Context) context.Context {
+	if s.ctx != nil {
+		return s.ctx
+	}
+	return ctx
 }
 
 // cleanupPortIfEmpty tears down a per-port router if it has no remaining
@@ -1623,6 +1642,8 @@ func (s *Server) setupHTTPMapping(ctx context.Context, mapping *proto.ProxyMappi
 	var wildcardHit bool
 	if s.acme != nil {
 		wildcardHit = s.acme.AddDomain(d, accountID, svcID)
+	} else {
+		wildcardHit = s.staticCertCovers(d)
 	}
 	httpRoute := nbtcp.Route{
 		Type:      nbtcp.RouteHTTP,
@@ -1645,6 +1666,26 @@ func (s *Server) setupHTTPMapping(ctx context.Context, mapping *proto.ProxyMappi
 	}
 
 	return nil
+}
+
+// staticCertCovers reports whether the static certificate loaded when ACME is
+// disabled covers the given domain, making it certificate-ready immediately —
+// the equivalent of a wildcard hit in the ACME path. Domains the certificate
+// does not cover are logged: clients connecting to them will get TLS errors.
+func (s *Server) staticCertCovers(d domain.Domain) bool {
+	if s.staticCertWatcher == nil {
+		return false
+	}
+	leaf := s.staticCertWatcher.Leaf()
+	if leaf == nil {
+		return false
+	}
+	name := d.PunycodeString()
+	if err := leaf.VerifyHostname(name); err != nil {
+		s.Logger.Warnf("static certificate (SANs %v) does not cover domain %q: %v", leaf.DNSNames, name, err)
+		return false
+	}
+	return true
 }
 
 // setupTCPMapping sets up a TCP port-forwarding fallback route on the listen port.
@@ -1693,6 +1734,13 @@ func (s *Server) setupTCPMapping(ctx context.Context, mapping *proto.ProxyMappin
 
 	s.meter.L4ServiceAdded(types.ServiceModeTCP)
 	s.sendStatusUpdate(ctx, accountID, svcID, proto.ProxyStatus_PROXY_STATUS_ACTIVE, nil)
+
+	s.Logger.WithFields(log.Fields{
+		"domain":  mapping.GetDomain(),
+		"target":  targetAddr,
+		"port":    port,
+		"service": svcID,
+	}).Info("TCP mapping added")
 	return nil
 }
 
@@ -1941,7 +1989,7 @@ func (s *Server) addUDPRelay(ctx context.Context, mapping *proto.ProxyMapping, t
 		"service_id":  svcID,
 	})
 
-	relay := udprelay.New(ctx, udprelay.RelayConfig{
+	relay := udprelay.New(s.portRouterContext(ctx), udprelay.RelayConfig{
 		Logger:      entry,
 		Listener:    listener,
 		Target:      targetAddress,

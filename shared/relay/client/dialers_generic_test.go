@@ -41,14 +41,14 @@ func TestGetDialers(t *testing.T) {
 		preferWS bool
 		want     []string
 	}{
-		{name: "auto races quic and ws", mode: "auto", mtu: iface.DefaultMTU, want: []string{"quic", "WS"}},
-		{name: "ws pinned", mode: "ws", mtu: iface.DefaultMTU, want: []string{"WS"}},
+		{name: "auto races quic and ws", mode: "auto", mtu: iface.DefaultMTU, want: []string{"quic", "ws"}},
+		{name: "ws pinned", mode: "ws", mtu: iface.DefaultMTU, want: []string{"ws"}},
 		{name: "quic pinned", mode: "quic", mtu: iface.DefaultMTU, want: []string{"quic"}},
-		{name: "prefer-quic orders quic first", mode: "prefer-quic", mtu: iface.DefaultMTU, want: []string{"quic", "WS"}},
-		{name: "prefer-ws orders ws first", mode: "prefer-ws", mtu: iface.DefaultMTU, want: []string{"WS", "quic"}},
-		{name: "mtu above default forces ws", mode: "auto", mtu: iface.DefaultMTU + 100, want: []string{"WS"}},
-		{name: "sticky fallback forces ws in auto", mode: "auto", mtu: iface.DefaultMTU, preferWS: true, want: []string{"WS"}},
-		{name: "sticky fallback forces ws in prefer-quic", mode: "prefer-quic", mtu: iface.DefaultMTU, preferWS: true, want: []string{"WS"}},
+		{name: "prefer-quic orders quic first", mode: "prefer-quic", mtu: iface.DefaultMTU, want: []string{"quic", "ws"}},
+		{name: "prefer-ws orders ws first", mode: "prefer-ws", mtu: iface.DefaultMTU, want: []string{"ws", "quic"}},
+		{name: "mtu above default forces ws", mode: "auto", mtu: iface.DefaultMTU + 100, want: []string{"ws"}},
+		{name: "sticky fallback forces ws in auto", mode: "auto", mtu: iface.DefaultMTU, preferWS: true, want: []string{"ws"}},
+		{name: "sticky fallback forces ws in prefer-quic", mode: "prefer-quic", mtu: iface.DefaultMTU, preferWS: true, want: []string{"ws"}},
 		{name: "quic pin overrides sticky fallback", mode: "quic", mtu: iface.DefaultMTU, preferWS: true, want: []string{"quic"}},
 	}
 
@@ -91,11 +91,11 @@ func TestStickyFallbackAfterDatagramTooLarge(t *testing.T) {
 	}
 
 	// First dial races both transports.
-	assert.Equal(t, []string{"quic", "WS"}, protocols(c.getDialers(transportModeFromEnv())))
+	assert.Equal(t, []string{"quic", "ws"}, protocols(c.getDialers(transportModeFromEnv())))
 
 	// An oversized datagram records the fallback for this server.
 	c.onDatagramTooLarge(&closeTrackingConn{}, netErr.ErrDatagramTooLarge)
 
 	// The reconnect now sticks to WebSocket.
-	assert.Equal(t, []string{"WS"}, protocols(c.getDialers(transportModeFromEnv())))
+	assert.Equal(t, []string{"ws"}, protocols(c.getDialers(transportModeFromEnv())))
 }

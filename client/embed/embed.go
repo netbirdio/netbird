@@ -279,6 +279,12 @@ func (c *Client) Start(startCtx context.Context) error {
 
 	select {
 	case <-startCtx.Done():
+		// ConnectClient.Stop now cancels its own run context and waits for the
+		// run loop to tear the engine down, so this cancel() is no longer
+		// required to break the deadlock and could be removed. It is kept as a
+		// defensive belt-and-suspenders: cancelling the parent context first
+		// guarantees the run loop is unblocked even if Stop's contract regresses.
+		cancel()
 		if stopErr := client.Stop(); stopErr != nil {
 			return fmt.Errorf("stop error after context done. Stop error: %w. Context done: %w", stopErr, startCtx.Err())
 		}
@@ -442,8 +448,8 @@ func (c *Client) Expose(ctx context.Context, req ExposeRequest) (*ExposeSession,
 
 // IdentityForIP looks up a remote peer by its tunnel IP using the
 // embedded client's status recorder. Returns the peer's WireGuard public
-// key and FQDN. ok=false means the IP isn't in this client's peer
-// roster — callers should treat that as "unknown peer".
+// key and FQDN. ok=false means the IP doesn't belong to an active peer
+// — offline roster peers are treated as unknown, same as foreign IPs.
 func (c *Client) IdentityForIP(ip netip.Addr) (pubKey, fqdn string, ok bool) {
 	if !ip.IsValid() || c.recorder == nil {
 		return "", "", false

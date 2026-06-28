@@ -115,6 +115,26 @@ func TestDecodeDexUserID(t *testing.T) {
 	}
 }
 
+func TestIsLocalUserID(t *testing.T) {
+	tests := []struct {
+		name      string
+		encodedID string
+		want      bool
+	}{
+		{name: "local connector", encodedID: EncodeDexUserID("7aad8c05-3287-473f-b42a-365504bf25e7", "local"), want: true},
+		{name: "federated connector", encodedID: EncodeDexUserID("entra-user", "entra"), want: false},
+		{name: "non-dex external IdP id", encodedID: "google-oauth2|1234567890", want: false},
+		{name: "invalid base64", encodedID: "not-valid-base64!!!", want: false},
+		{name: "empty", encodedID: "", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, IsLocalUserID(tt.encodedID))
+		})
+	}
+}
+
 func TestEncodeDexUserID(t *testing.T) {
 	userID := "7aad8c05-3287-473f-b42a-365504bf25e7"
 	connectorID := "local"

@@ -351,6 +351,11 @@ initialize_default_values() {
   NETBIRD_STUN_PORT=3478
 
   # Docker images
+  # Record whether the operator explicitly pinned the server/proxy images via
+  # env vars, so the agent-network preset can pick its own defaults without
+  # clobbering an explicit override.
+  NETBIRD_SERVER_IMAGE_EXPLICIT=${NETBIRD_SERVER_IMAGE:+true}
+  NETBIRD_PROXY_IMAGE_EXPLICIT=${NETBIRD_PROXY_IMAGE:+true}
   DASHBOARD_IMAGE=${DASHBOARD_IMAGE:-"netbirdio/dashboard:latest"}
   # Combined server replaces separate signal, relay, and management containers
   NETBIRD_SERVER_IMAGE=${NETBIRD_SERVER_IMAGE:-"netbirdio/netbird-server:latest"}
@@ -398,7 +403,53 @@ configure_domain() {
   return 0
 }
 
+apply_agent_network_preset() {
+  # Agent-network turnkey install: built-in Traefik + NetBird Proxy with
+  # NB_PROXY_PRIVATE=true, dashboard locked to agent-network-only mode.
+  # Bypasses every reverse-proxy / proxy / CrowdSec prompt. The only
+  # inputs we still need from the operator are the domain (handled by
+  # configure_domain via NETBIRD_DOMAIN env var or interactive prompt)
+  # and the ACME email — both honor env vars first and fall back to a
+  # prompt only when unset. CrowdSec is intentionally off.
+  REVERSE_PROXY_TYPE="0"
+  ENABLE_PROXY="true"
+  ENABLE_CROWDSEC="false"
+
+  # Agent-network ships dedicated server/proxy images. Honor an explicit
+  # env override; otherwise pin the agent-network builds.
+  if [[ "${NETBIRD_SERVER_IMAGE_EXPLICIT}" != "true" ]]; then
+    NETBIRD_SERVER_IMAGE="netbirdio/netbird-server:0.74.0-rc.2"
+  fi
+  if [[ "${NETBIRD_PROXY_IMAGE_EXPLICIT}" != "true" ]]; then
+    NETBIRD_PROXY_IMAGE="netbirdio/reverse-proxy:0.74.0-rc.2"
+  fi
+
+  if [[ -n "${NETBIRD_LETSENCRYPT_EMAIL}" ]]; then
+    TRAEFIK_ACME_EMAIL="${NETBIRD_LETSENCRYPT_EMAIL}"
+  else
+    TRAEFIK_ACME_EMAIL=$(read_traefik_acme_email)
+  fi
+
+  echo "" > /dev/stderr
+  echo "Agent-network preset enabled (NETBIRD_AGENT_NETWORK=true):" > /dev/stderr
+  echo "  - reverse proxy: built-in Traefik" > /dev/stderr
+  echo "  - NetBird Proxy: enabled with NB_PROXY_PRIVATE=true" > /dev/stderr
+  echo "  - server image: ${NETBIRD_SERVER_IMAGE}" > /dev/stderr
+  echo "  - proxy image: ${NETBIRD_PROXY_IMAGE}" > /dev/stderr
+  echo "  - dashboard: NETBIRD_AGENT_NETWORK_ONLY=true" > /dev/stderr
+  echo "  - CrowdSec: disabled" > /dev/stderr
+  echo "  - Let's Encrypt email: ${TRAEFIK_ACME_EMAIL}" > /dev/stderr
+  echo "" > /dev/stderr
+}
+
 configure_reverse_proxy() {
+  # Short-circuit: agent-network preset locks every reverse-proxy /
+  # proxy / CrowdSec choice and bypasses the interactive prompts.
+  if [[ "${NETBIRD_AGENT_NETWORK}" == "true" ]]; then
+    apply_agent_network_preset
+    return 0
+  fi
+
   # Prompt for reverse proxy type
   REVERSE_PROXY_TYPE=$(read_reverse_proxy_type)
 
@@ -910,6 +961,15 @@ NGINX_SSL_PORT=443
 # Letsencrypt
 LETSENCRYPT_DOMAIN=none
 EOF
+
+  if [[ "${NETBIRD_AGENT_NETWORK}" == "true" ]]; then
+    cat <<EOF
+# Agent-network preset: dashboard hides the standard NetBird surfaces
+# and exposes only the AI Observability + agent-network configuration
+# pages. Paired with NB_PROXY_PRIVATE=true on the proxy side.
+NETBIRD_AGENT_NETWORK_ONLY=true
+EOF
+  fi
   return 0
 }
 
@@ -945,6 +1005,17 @@ NB_PROXY_PROXY_PROTOCOL=true
 # Trust Traefik's IP for PROXY protocol headers
 NB_PROXY_TRUSTED_PROXIES=$TRAEFIK_IP
 EOF
+
+  if [[ "${NETBIRD_AGENT_NETWORK}" == "true" ]]; then
+    cat <<EOF
+# Agent-network preset: turn the proxy into the private reverse-proxy
+# ingress for agent-network synth services. Disables the public-facing
+# surface so the proxy serves only synth-generated routes (the
+# llm_router-driven LLM endpoints) and the per-account inbound
+# listeners on the embedded netstack.
+NB_PROXY_PRIVATE=true
+EOF
+  fi
 
   if [[ "$ENABLE_CROWDSEC" == "true" && -n "$CROWDSEC_BOUNCER_KEY" ]]; then
     cat <<EOF
@@ -1326,12 +1397,20 @@ print_builtin_traefik_instructions() {
     echo "  - 51820/udp (WIREGUARD - (optional) for P2P proxy connections)"
   fi
   echo ""
-  echo "This setup is ideal for homelabs and smaller organization deployments."
-  echo "For enterprise environments requiring high availability and advanced integrations,"
-  echo "consider a commercial on-prem license or scaling your open source deployment:"
-  echo ""
-  echo "  Commercial license: https://netbird.io/pricing#on-prem"
-  echo "  Scaling guide:      https://docs.netbird.io/scaling-your-self-hosted-deployment"
+  if [[ "${NETBIRD_AGENT_NETWORK}" == "true" ]]; then
+    echo "For enterprise environments requiring high availability and advanced integrations,"
+    echo "consider a commercial on-prem license:"
+    echo ""
+    echo "  Commercial license: https://netbird.ai/pricing"
+    echo "  Documentation: https://docs.netbird.io/agent-network"
+  else
+    echo "This setup is ideal for homelabs and smaller organization deployments."
+    echo "For enterprise environments requiring high availability and advanced integrations,"
+    echo "consider a commercial on-prem license or scaling your open source deployment:"
+    echo ""
+    echo "  Commercial license: https://netbird.io/pricing#on-prem"
+    echo "  Scaling guide:      https://docs.netbird.io/scaling-your-self-hosted-deployment"
+  fi
   echo ""
   if [[ "$ENABLE_PROXY" == "true" ]]; then
     echo "NetBird Proxy:"
@@ -1353,6 +1432,11 @@ print_builtin_traefik_instructions() {
       echo "  Get your enrollment key at: https://app.crowdsec.net"
       echo ""
     fi
+  fi
+  if [[ "${NETBIRD_AGENT_NETWORK}" == "true" ]]; then
+    echo "Note: The public domain is only for setting up secure connections."
+    echo "Your APIs and agent services remain private and are never exposed publicly."
+    echo ""
   fi
   return 0
 }

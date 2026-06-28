@@ -1233,3 +1233,97 @@ func TestComponents_DisabledRuleInEnabledPolicy(t *testing.T) {
 	assert.True(t, has3000, "enabled rule should generate firewall rule for port 3000")
 	assert.False(t, has3001, "disabled rule should NOT generate firewall rule for port 3001")
 }
+
+func peerGroupIDSet(account *types.Account, peerID string) map[string]struct{} {
+	return account.GetPeerGroups(peerID)
+}
+
+func assertSSHEquivalence(t *testing.T, account *types.Account, peerID string, validatedPeers map[string]struct{}) {
+	t.Helper()
+	nm := componentsNetworkMap(account, peerID, validatedPeers)
+	require.NotNil(t, nm)
+
+	got := types.PeerSSHEnabledFromPolicies(account.Policies, peerID, peerGroupIDSet(account, peerID), account.Peers[peerID].SSHEnabled)
+	assert.Equalf(t, nm.EnableSSH, got, "PeerSSHEnabledFromPolicies mismatch for %s", peerID)
+}
+
+func TestPeerSSHEnabledFromPolicies_MatchesMap_NetbirdSSHProtocol(t *testing.T) {
+	account, validatedPeers := scalableTestAccount(20, 2)
+	account.Groups["ssh-users"] = &types.Group{ID: "ssh-users", Name: "SSH Users", Peers: []string{}}
+	account.Policies = append(account.Policies, &types.Policy{
+		ID: "policy-ssh", Name: "SSH Access", Enabled: true, AccountID: "test-account",
+		Rules: []*types.PolicyRule{{
+			ID: "rule-ssh", Name: "Allow SSH", Enabled: true,
+			Action: types.PolicyTrafficActionAccept, Protocol: types.PolicyRuleProtocolNetbirdSSH,
+			Bidirectional: false,
+			Sources:       []string{"group-0"}, Destinations: []string{"group-1"},
+			AuthorizedGroups: map[string][]string{"ssh-users": {"root"}},
+		}},
+	})
+
+	assertSSHEquivalence(t, account, "peer-10", validatedPeers)
+	assertSSHEquivalence(t, account, "peer-0", validatedPeers)
+}
+
+func TestPeerSSHEnabledFromPolicies_MatchesMap_NoSSHPolicy(t *testing.T) {
+	account, validatedPeers := scalableTestAccount(20, 2)
+	assertSSHEquivalence(t, account, "peer-0", validatedPeers)
+}
+
+func TestPeerSSHEnabledFromPolicies_MatchesMap_LegacyImpliedSSH(t *testing.T) {
+	account, validatedPeers := scalableTestAccount(20, 2)
+	account.Peers["peer-10"].SSHEnabled = true
+	assertSSHEquivalence(t, account, "peer-10", validatedPeers)
+	assertSSHEquivalence(t, account, "peer-11", validatedPeers)
+}
+
+func TestPeerSSHEnabledFromPolicies_MatchesMap_PeerAsDestinationResource(t *testing.T) {
+	account, validatedPeers := scalableTestAccountWithoutDefaultPolicy(20, 2)
+	account.Policies = append(account.Policies, &types.Policy{
+		ID: "policy-ssh-res", Name: "SSH to peer", Enabled: true, AccountID: "test-account",
+		Rules: []*types.PolicyRule{{
+			ID: "rule-ssh-res", Name: "SSH to peer-5", Enabled: true,
+			Action: types.PolicyTrafficActionAccept, Protocol: types.PolicyRuleProtocolNetbirdSSH,
+			Sources:             []string{"group-0"},
+			DestinationResource: types.Resource{ID: "peer-5", Type: types.ResourceTypePeer},
+		}},
+	})
+
+	assertSSHEquivalence(t, account, "peer-5", validatedPeers)
+	assertSSHEquivalence(t, account, "peer-6", validatedPeers)
+}
+
+func TestPeerSSHEnabledFromPolicies_MatchesMap_DisabledSSHPolicy(t *testing.T) {
+	account, validatedPeers := scalableTestAccountWithoutDefaultPolicy(20, 2)
+	account.Policies = append(account.Policies, &types.Policy{
+		ID: "policy-ssh-off", Name: "SSH disabled", Enabled: false, AccountID: "test-account",
+		Rules: []*types.PolicyRule{{
+			ID: "rule-ssh-off", Name: "Allow SSH", Enabled: true,
+			Action: types.PolicyTrafficActionAccept, Protocol: types.PolicyRuleProtocolNetbirdSSH,
+			Sources: []string{"group-0"}, Destinations: []string{"group-1"},
+		}},
+	})
+	assertSSHEquivalence(t, account, "peer-10", validatedPeers)
+}
+
+func TestPeerSSHEnabledFromPolicies_MatchesMap_Sweep(t *testing.T) {
+	account, validatedPeers := scalableTestAccount(60, 6)
+	account.Policies = append(account.Policies, &types.Policy{
+		ID: "policy-ssh-sweep", Name: "SSH sweep", Enabled: true, AccountID: "test-account",
+		Rules: []*types.PolicyRule{{
+			ID: "rule-ssh-sweep", Name: "Allow SSH", Enabled: true,
+			Action: types.PolicyTrafficActionAccept, Protocol: types.PolicyRuleProtocolNetbirdSSH,
+			Sources: []string{"group-0"}, Destinations: []string{"group-2"},
+		}},
+	})
+	for peerID := range account.Peers {
+		account.Peers[peerID].SSHEnabled = len(peerID)%2 == 0
+	}
+
+	for peerID := range account.Peers {
+		if _, ok := validatedPeers[peerID]; !ok {
+			continue
+		}
+		assertSSHEquivalence(t, account, peerID, validatedPeers)
+	}
+}
