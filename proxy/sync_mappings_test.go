@@ -81,6 +81,95 @@ func TestIntegration_SyncMappings_HappyPath(t *testing.T) {
 	assert.Equal(t, "app2.test.proxy.io", rp2.GetDomain())
 }
 
+func TestIntegration_SyncMappings_CustomTCPMappingDeliveredWithCapabilities(t *testing.T) {
+	setup := setupIntegrationTest(t)
+	defer setup.cleanup()
+
+	ctx := context.Background()
+	tcpSvc := &service.Service{
+		ID:           "tcp-custom",
+		AccountID:    "test-account-1",
+		Name:         "Custom TCP",
+		Domain:       "ssh.test.proxy.io",
+		ProxyCluster: "test.proxy.io",
+		Mode:         "tcp",
+		ListenPort:   10001,
+		Enabled:      true,
+		Targets: []*service.Target{{
+			Host:       "10.0.0.5",
+			Port:       22,
+			Protocol:   "tcp",
+			TargetId:   "peer-ssh",
+			TargetType: "peer",
+			Enabled:    true,
+		}},
+	}
+	require.NoError(t, setup.store.CreateService(ctx, tcpSvc))
+
+	conn, err := grpc.NewClient(setup.grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	defer conn.Close()
+
+	client := proto.NewProxyServiceClient(conn)
+	receiveSnapshot := func(proxyID string, caps *proto.ProxyCapabilities) map[string]*proto.ProxyMapping {
+		t.Helper()
+
+		streamCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		stream, err := client.SyncMappings(streamCtx)
+		require.NoError(t, err)
+
+		err = stream.Send(&proto.SyncMappingsRequest{
+			Msg: &proto.SyncMappingsRequest_Init{
+				Init: &proto.SyncMappingsInit{
+					ProxyId:      proxyID,
+					Version:      "test-v1",
+					Address:      "test.proxy.io",
+					Capabilities: caps,
+				},
+			},
+		})
+		require.NoError(t, err)
+
+		mappingsByID := make(map[string]*proto.ProxyMapping)
+		for {
+			msg, err := stream.Recv()
+			require.NoError(t, err)
+			for _, m := range msg.GetMapping() {
+				mappingsByID[m.GetId()] = m
+			}
+
+			err = stream.Send(&proto.SyncMappingsRequest{
+				Msg: &proto.SyncMappingsRequest_Ack{Ack: &proto.SyncMappingsAck{}},
+			})
+			require.NoError(t, err)
+
+			if msg.GetInitialSyncComplete() {
+				break
+			}
+		}
+		return mappingsByID
+	}
+
+	legacyMappings := receiveSnapshot("sync-proxy-no-capabilities", nil)
+	assert.NotContains(t, legacyMappings, "tcp-custom",
+		"legacy proxies that do not report capabilities must not receive TCP custom-port mappings")
+
+	supportsCustomPorts := true
+	modernMappings := receiveSnapshot("sync-proxy-custom-ports", &proto.ProxyCapabilities{
+		SupportsCustomPorts: &supportsCustomPorts,
+	})
+
+	tcpMapping := modernMappings["tcp-custom"]
+	require.NotNil(t, tcpMapping, "capability-aware proxy must receive TCP custom-port mapping")
+	assert.Equal(t, "tcp", tcpMapping.GetMode())
+	assert.Equal(t, int32(10001), tcpMapping.GetListenPort())
+	require.Len(t, tcpMapping.GetPath(), 1)
+	assert.Equal(t, "10.0.0.5:22", tcpMapping.GetPath()[0].GetTarget())
+	assert.NotEmpty(t, tcpMapping.GetAuthToken(), "snapshot mapping must include per-proxy auth token")
+}
+
 func TestIntegration_SyncMappings_BackPressure(t *testing.T) {
 	setup := setupIntegrationTest(t)
 	defer setup.cleanup()

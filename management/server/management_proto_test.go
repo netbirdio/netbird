@@ -729,7 +729,7 @@ func Test_LoginPerformance(t *testing.T) {
 						}
 
 						login := func() error {
-							_, _, _, err = am.LoginPeer(context.Background(), peerLogin)
+							_, _, _, _, err = am.LoginPeer(context.Background(), peerLogin)
 							if err != nil {
 								t.Logf("failed to login peer: %v", err)
 								return err
@@ -747,7 +747,7 @@ func Test_LoginPerformance(t *testing.T) {
 
 						go func(peerLogin types.PeerLogin, counterStart *int32) {
 							defer wgPeer.Done()
-							_, _, _, err = am.LoginPeer(context.Background(), peerLogin)
+							_, _, _, _, err = am.LoginPeer(context.Background(), peerLogin)
 							if err != nil {
 								t.Logf("failed to login peer: %v", err)
 								return

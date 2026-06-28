@@ -660,3 +660,13 @@ func TestTimeAgo(t *testing.T) {
 		})
 	}
 }
+
+func TestMapRelaysTransport(t *testing.T) {
+	out := mapRelays([]*proto.RelayState{
+		{URI: "rels://relay.example:443", Available: true, Transport: "quic"},
+		{URI: "rels://relay2.example:443", Available: true, Transport: "ws"},
+	})
+	require.Len(t, out.Details, 2)
+	assert.Equal(t, "quic", out.Details[0].Transport)
+	assert.Equal(t, "ws", out.Details[1].Transport)
+}

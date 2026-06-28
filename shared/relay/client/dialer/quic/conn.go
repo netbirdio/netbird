@@ -57,6 +57,11 @@ func (c *Conn) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 
+// Protocol returns the transport name for this connection.
+func (c *Conn) Protocol() string {
+	return Network
+}
+
 func (c *Conn) RemoteAddr() net.Addr {
 	return c.session.RemoteAddr()
 }

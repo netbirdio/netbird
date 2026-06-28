@@ -1,5 +1,6 @@
 version: 2
-
+env:
+  - SKIP_PUBLISH={{ if index .Env "SKIP_PUBLISH" }}{{ .Env.SKIP_PUBLISH }}{{ else }}true{{ end }}
 project_name: netbird-ui
 builds:
   - id: netbird-ui
@@ -101,6 +102,7 @@ nfpms:
 
 uploads:
   - name: debian
+    skip: "{{ .Env.SKIP_PUBLISH }}"
     ids:
       - netbird_ui_deb
     mode: archive
@@ -109,6 +111,7 @@ uploads:
     method: PUT
 
   - name: yum
+    skip: "{{ .Env.SKIP_PUBLISH }}"
     ids:
       - netbird_ui_rpm
     mode: archive

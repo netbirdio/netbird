@@ -446,7 +446,14 @@ func newServiceClient(args *newServiceClientArgs) *serviceClient {
 	case args.showProfiles:
 		s.showProfilesUI()
 	case args.showQuickActions:
-		s.showQuickActionsUI()
+		// Suppress the on-boot Quick Actions popup when the daemon
+		// reports DisableAutoConnect=true — that flag carries both the
+		// user's "Connect on Startup = off" preference AND any MDM-
+		// enforced override (applyMDMPolicy writes the policy value
+		// into the same Config field). See netbirdio/netbird#5744.
+		if !s.disableAutoConnectFromDaemon() {
+			s.showQuickActionsUI()
+		}
 	case args.showUpdate:
 		s.showUpdateProgress(ctx, args.showUpdateVersion)
 	case args.showApproval:
@@ -678,7 +685,7 @@ func (s *serviceClient) buildSetConfigRequest(iMngURL string, port, mtu int64) (
 	}
 
 	req := &proto.SetConfigRequest{
-		ProfileName: activeProf.Name,
+		ProfileName: activeProf.ID.String(),
 		Username:    currUser.Username,
 	}
 
@@ -869,13 +876,15 @@ func (s *serviceClient) login(ctx context.Context, openURL bool) (*proto.LoginRe
 		return nil, fmt.Errorf("get current user: %w", err)
 	}
 
+	handle := activeProf.ID.String()
+
 	loginReq := &proto.LoginRequest{
 		IsUnixDesktopClient: runtime.GOOS == "linux" || runtime.GOOS == "freebsd",
-		ProfileName:         &activeProf.Name,
+		ProfileName:         &handle,
 		Username:            &currUser.Username,
 	}
 
-	profileState, err := s.profileManager.GetProfileState(activeProf.Name)
+	profileState, err := s.profileManager.GetProfileState(activeProf.ID)
 	if err != nil {
 		log.Debugf("failed to get profile state for login hint: %v", err)
 	} else if profileState.Email != "" {
@@ -1389,6 +1398,40 @@ func (s *serviceClient) getFeatures() (*proto.GetFeaturesResponse, error) {
 	return features, nil
 }
 
+// disableAutoConnectFromDaemon returns true when the daemon reports
+// the active profile has DisableAutoConnect=true. Used by the
+// --quick-actions startup path to suppress the on-boot popup when the
+// user (or an MDM admin) opted out of auto-connecting; both cases
+// converge on the same Config field because applyMDMPolicy writes the
+// policy value into it. Returns false on any RPC / lookup failure so a
+// daemon hiccup does not silently swallow the popup.
+func (s *serviceClient) disableAutoConnectFromDaemon() bool {
+	activeProf, err := s.profileManager.GetActiveProfile()
+	if err != nil {
+		log.Warnf("disableAutoConnectFromDaemon: get active profile: %v", err)
+		return false
+	}
+	currUser, err := user.Current()
+	if err != nil {
+		log.Warnf("disableAutoConnectFromDaemon: get current user: %v", err)
+		return false
+	}
+	conn, err := s.getSrvClient(failFastTimeout)
+	if err != nil {
+		log.Warnf("disableAutoConnectFromDaemon: get daemon client: %v", err)
+		return false
+	}
+	srvCfg, err := conn.GetConfig(s.ctx, &proto.GetConfigRequest{
+		ProfileName: activeProf.ID.String(),
+		Username:    currUser.Username,
+	})
+	if err != nil {
+		log.Warnf("disableAutoConnectFromDaemon: GetConfig RPC: %v", err)
+		return false
+	}
+	return srvCfg.GetDisableAutoConnect()
+}
+
 // getSrvConfig from the service to show it in the settings window.
 func (s *serviceClient) getSrvConfig() {
 	s.managementURL = profilemanager.DefaultManagementURL
@@ -1420,7 +1463,7 @@ func (s *serviceClient) getSrvConfig() {
 	}
 
 	srvCfg, err := conn.GetConfig(s.ctx, &proto.GetConfigRequest{
-		ProfileName: activeProf.Name,
+		ProfileName: activeProf.ID.String(),
 		Username:    currUser.Username,
 	})
 	if err != nil {
@@ -1680,7 +1723,7 @@ func (s *serviceClient) loadSettings() {
 	}
 
 	cfg, err := conn.GetConfig(s.ctx, &proto.GetConfigRequest{
-		ProfileName: activeProf.Name,
+		ProfileName: activeProf.ID.String(),
 		Username:    currUser.Username,
 	})
 	if err != nil {
@@ -1887,7 +1930,7 @@ func (s *serviceClient) updateConfig() error {
 	}
 
 	req := proto.SetConfigRequest{
-		ProfileName:           activeProf.Name,
+		ProfileName:           activeProf.ID.String(),
 		Username:              currUser.Username,
 		DisableAutoConnect:    &disableAutoStart,
 		ServerSSHAllowed:      &sshAllowed,

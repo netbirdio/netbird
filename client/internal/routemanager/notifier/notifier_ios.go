@@ -3,6 +3,7 @@
 package notifier
 
 import (
+	"container/list"
 	"net/netip"
 	"slices"
 	"sort"
@@ -14,19 +15,26 @@ import (
 )
 
 type Notifier struct {
+	mu              sync.Mutex
+	cond            *sync.Cond
 	currentPrefixes []string
-
-	listener    listener.NetworkChangeListener
-	listenerMux sync.Mutex
+	listener        listener.NetworkChangeListener
+	queue           *list.List
+	closed          bool
 }
 
 func NewNotifier() *Notifier {
-	return &Notifier{}
+	n := &Notifier{
+		queue: list.New(),
+	}
+	n.cond = sync.NewCond(&n.mu)
+	go n.deliverLoop()
+	return n
 }
 
 func (n *Notifier) SetListener(listener listener.NetworkChangeListener) {
-	n.listenerMux.Lock()
-	defer n.listenerMux.Unlock()
+	n.mu.Lock()
+	defer n.mu.Unlock()
 	n.listener = listener
 }
 
@@ -43,32 +51,52 @@ func (n *Notifier) OnNewRoutes(route.HAMap) {
 }
 
 func (n *Notifier) OnNewPrefixes(prefixes []netip.Prefix) {
-	newNets := make([]string, 0)
+	newNets := make([]string, 0, len(prefixes))
 	for _, prefix := range prefixes {
 		newNets = append(newNets, prefix.String())
 	}
 
 	sort.Strings(newNets)
 
+	n.mu.Lock()
 	if slices.Equal(n.currentPrefixes, newNets) {
+		n.mu.Unlock()
 		return
 	}
-
 	n.currentPrefixes = newNets
-	n.notify()
+	routes := strings.Join(n.currentPrefixes, ",")
+	n.queue.PushBack(routes)
+	n.cond.Signal()
+	n.mu.Unlock()
 }
-func (n *Notifier) notify() {
-	n.listenerMux.Lock()
-	defer n.listenerMux.Unlock()
-	if n.listener == nil {
-		return
-	}
 
-	go func(l listener.NetworkChangeListener) {
-		l.OnNetworkChanged(strings.Join(n.currentPrefixes, ","))
-	}(n.listener)
+func (n *Notifier) Close() {
+	n.mu.Lock()
+	n.closed = true
+	n.cond.Signal()
+	n.mu.Unlock()
 }
 
 func (n *Notifier) GetInitialRouteRanges() []string {
 	return nil
+}
+
+func (n *Notifier) deliverLoop() {
+	for {
+		n.mu.Lock()
+		for n.queue.Len() == 0 && !n.closed {
+			n.cond.Wait()
+		}
+		if n.closed && n.queue.Len() == 0 {
+			n.mu.Unlock()
+			return
+		}
+		routes := n.queue.Remove(n.queue.Front()).(string)
+		l := n.listener
+		n.mu.Unlock()
+
+		if l != nil {
+			l.OnNetworkChanged(routes)
+		}
+	}
 }

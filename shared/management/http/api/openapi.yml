@@ -3099,24 +3099,6 @@ components:
         - enabled
         - auth
         - meta
-      allOf:
-        # When private=true, access_groups must be present and non-empty,
-        # and the service mode must be "http". The bearer-auth mutex is
-        # enforced at the service-validation layer
-        # (validatePrivateRequirements) because it sits in a nested
-        # ServiceAuthConfig and isn't cleanly expressible here.
-        - if:
-            required: [private]
-            properties:
-              private:
-                const: true
-          then:
-            required: [access_groups]
-            properties:
-              access_groups:
-                minItems: 1
-              mode:
-                const: http
     ServiceMeta:
       type: object
       properties:
@@ -3204,23 +3186,6 @@ components:
         - name
         - domain
         - enabled
-      allOf:
-        # Mirror of the Service conditional: when private=true the
-        # request must carry a non-empty access_groups list and the
-        # mode must be "http". The bearer-auth mutex is enforced at the
-        # service-validation layer (validatePrivateRequirements).
-        - if:
-            required: [private]
-            properties:
-              private:
-                const: true
-          then:
-            required: [access_groups]
-            properties:
-              access_groups:
-                minItems: 1
-              mode:
-                const: http
     ServiceTargetOptions:
       type: object
       properties:

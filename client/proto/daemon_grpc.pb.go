@@ -45,6 +45,7 @@ const (
 	DaemonService_SwitchProfile_FullMethodName              = "/daemon.DaemonService/SwitchProfile"
 	DaemonService_SetConfig_FullMethodName                  = "/daemon.DaemonService/SetConfig"
 	DaemonService_AddProfile_FullMethodName                 = "/daemon.DaemonService/AddProfile"
+	DaemonService_RenameProfile_FullMethodName              = "/daemon.DaemonService/RenameProfile"
 	DaemonService_RemoveProfile_FullMethodName              = "/daemon.DaemonService/RemoveProfile"
 	DaemonService_ListProfiles_FullMethodName               = "/daemon.DaemonService/ListProfiles"
 	DaemonService_GetActiveProfile_FullMethodName           = "/daemon.DaemonService/GetActiveProfile"
@@ -113,6 +114,7 @@ type DaemonServiceClient interface {
 	SwitchProfile(ctx context.Context, in *SwitchProfileRequest, opts ...grpc.CallOption) (*SwitchProfileResponse, error)
 	SetConfig(ctx context.Context, in *SetConfigRequest, opts ...grpc.CallOption) (*SetConfigResponse, error)
 	AddProfile(ctx context.Context, in *AddProfileRequest, opts ...grpc.CallOption) (*AddProfileResponse, error)
+	RenameProfile(ctx context.Context, in *RenameProfileRequest, opts ...grpc.CallOption) (*RenameProfileResponse, error)
 	RemoveProfile(ctx context.Context, in *RemoveProfileRequest, opts ...grpc.CallOption) (*RemoveProfileResponse, error)
 	ListProfiles(ctx context.Context, in *ListProfilesRequest, opts ...grpc.CallOption) (*ListProfilesResponse, error)
 	GetActiveProfile(ctx context.Context, in *GetActiveProfileRequest, opts ...grpc.CallOption) (*GetActiveProfileResponse, error)
@@ -430,6 +432,16 @@ func (c *daemonServiceClient) AddProfile(ctx context.Context, in *AddProfileRequ
 	return out, nil
 }
 
+func (c *daemonServiceClient) RenameProfile(ctx context.Context, in *RenameProfileRequest, opts ...grpc.CallOption) (*RenameProfileResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RenameProfileResponse)
+	err := c.cc.Invoke(ctx, DaemonService_RenameProfile_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *daemonServiceClient) RemoveProfile(ctx context.Context, in *RemoveProfileRequest, opts ...grpc.CallOption) (*RemoveProfileResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(RemoveProfileResponse)
@@ -631,6 +643,7 @@ type DaemonServiceServer interface {
 	SwitchProfile(context.Context, *SwitchProfileRequest) (*SwitchProfileResponse, error)
 	SetConfig(context.Context, *SetConfigRequest) (*SetConfigResponse, error)
 	AddProfile(context.Context, *AddProfileRequest) (*AddProfileResponse, error)
+	RenameProfile(context.Context, *RenameProfileRequest) (*RenameProfileResponse, error)
 	RemoveProfile(context.Context, *RemoveProfileRequest) (*RemoveProfileResponse, error)
 	ListProfiles(context.Context, *ListProfilesRequest) (*ListProfilesResponse, error)
 	GetActiveProfile(context.Context, *GetActiveProfileRequest) (*GetActiveProfileResponse, error)
@@ -747,6 +760,9 @@ func (UnimplementedDaemonServiceServer) SetConfig(context.Context, *SetConfigReq
 }
 func (UnimplementedDaemonServiceServer) AddProfile(context.Context, *AddProfileRequest) (*AddProfileResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method AddProfile not implemented")
+}
+func (UnimplementedDaemonServiceServer) RenameProfile(context.Context, *RenameProfileRequest) (*RenameProfileResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RenameProfile not implemented")
 }
 func (UnimplementedDaemonServiceServer) RemoveProfile(context.Context, *RemoveProfileRequest) (*RemoveProfileResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RemoveProfile not implemented")
@@ -1265,6 +1281,24 @@ func _DaemonService_AddProfile_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DaemonService_RenameProfile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RenameProfileRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).RenameProfile(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DaemonService_RenameProfile_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).RenameProfile(ctx, req.(*RenameProfileRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _DaemonService_RemoveProfile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(RemoveProfileRequest)
 	if err := dec(in); err != nil {
@@ -1612,6 +1646,10 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "AddProfile",
 			Handler:    _DaemonService_AddProfile_Handler,
+		},
+		{
+			MethodName: "RenameProfile",
+			Handler:    _DaemonService_RenameProfile_Handler,
 		},
 		{
 			MethodName: "RemoveProfile",

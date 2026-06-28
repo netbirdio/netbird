@@ -192,6 +192,7 @@ func (s *StatusChangeSubscription) Events() chan map[string]RouterState {
 // Pure read methods take RLock; anything that mutates state takes Lock.
 type Status struct {
 	mux                   sync.RWMutex
+	muxRelays             sync.RWMutex
 	peers                 map[string]State
 	ipToKey               map[string]string
 	changeNotify          map[string]map[string]*StatusChangeSubscription // map[peerID]map[subscriptionID]*StatusChangeSubscription
@@ -244,8 +245,8 @@ func NewRecorder(mgmAddress string) *Status {
 }
 
 func (d *Status) SetRelayMgr(manager *relayClient.Manager) {
-	d.mux.Lock()
-	defer d.mux.Unlock()
+	d.muxRelays.Lock()
+	defer d.muxRelays.Unlock()
 	d.relayMgr = manager
 }
 
@@ -906,8 +907,8 @@ func (d *Status) MarkSignalConnected() {
 }
 
 func (d *Status) UpdateRelayStates(relayResults []relay.ProbeResult) {
-	d.mux.Lock()
-	defer d.mux.Unlock()
+	d.muxRelays.Lock()
+	defer d.muxRelays.Unlock()
 	d.relayStates = relayResults
 }
 
@@ -1018,21 +1019,26 @@ func (d *Status) GetSignalState() SignalState {
 
 // GetRelayStates returns the stun/turn/permanent relay states
 func (d *Status) GetRelayStates() []relay.ProbeResult {
-	d.mux.RLock()
-	defer d.mux.RUnlock()
+	d.muxRelays.RLock()
 	if d.relayMgr == nil {
-		return d.relayStates
+		defer d.muxRelays.RUnlock()
+		return slices.Clone(d.relayStates)
 	}
 
-	// extend the list of stun, turn servers with relay address
+	relayMgr := d.relayMgr
+	// extend the list of stun, turn servers with the relay server connections
 	relayStates := slices.Clone(d.relayStates)
+	d.muxRelays.RUnlock()
 
-	// if the server connection is not established then we will use the general address
-	// in case of connection we will use the instance specific address
-	instanceAddr, _, err := d.relayMgr.RelayInstanceAddress()
-	if err != nil {
-		// TODO add their status
-		for _, r := range d.relayMgr.ServerURLs() {
+	states := relayMgr.RelayStates()
+	if len(states) == 0 {
+		// no relay connection tracked yet; surface configured servers as
+		// unavailable with the real reconnect error when known
+		err := relayClient.ErrRelayClientNotConnected
+		if connErr := relayMgr.RelayConnectError(); connErr != nil {
+			err = connErr
+		}
+		for _, r := range relayMgr.ServerURLs() {
 			relayStates = append(relayStates, relay.ProbeResult{
 				URI: r,
 				Err: err,
@@ -1041,10 +1047,14 @@ func (d *Status) GetRelayStates() []relay.ProbeResult {
 		return relayStates
 	}
 
-	relayState := relay.ProbeResult{
-		URI: instanceAddr,
+	for _, rs := range states {
+		relayStates = append(relayStates, relay.ProbeResult{
+			URI:       rs.URL,
+			Err:       rs.Err,
+			Transport: rs.Transport,
+		})
 	}
-	return append(relayStates, relayState)
+	return relayStates
 }
 
 func (d *Status) ForwardingRules() []firewall.ForwardRule {
@@ -1414,6 +1424,7 @@ func (fs FullStatus) ToProto() *proto.FullStatus {
 		pbRelayState := &proto.RelayState{
 			URI:       relayState.URI,
 			Available: relayState.Err == nil,
+			Transport: relayState.Transport,
 		}
 		if err := relayState.Err; err != nil {
 			pbRelayState.Error = err.Error()

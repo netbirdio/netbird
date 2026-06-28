@@ -1153,6 +1153,47 @@ func policyRuleImpliesLegacySSH(rule *PolicyRule) bool {
 	return rule.Protocol == PolicyRuleProtocolALL || (rule.Protocol == PolicyRuleProtocolTCP && (portsIncludesSSH(rule.Ports) || portRangeIncludesSSH(rule.PortRanges)))
 }
 
+// PeerSSHEnabledFromPolicies is the network-map-free equivalent of the sshEnabled
+// determination in GetPeerConnectionResources / CalculateNetworkMapFromComponents.
+func PeerSSHEnabledFromPolicies(policies []*Policy, peerID string, peerGroupIDs map[string]struct{}, peerSSHEnabled bool) bool {
+	for _, policy := range policies {
+		if !policy.Enabled {
+			continue
+		}
+
+		for _, rule := range policy.Rules {
+			if !rule.Enabled {
+				continue
+			}
+
+			isSSHRule := rule.Protocol == PolicyRuleProtocolNetbirdSSH ||
+				(policyRuleImpliesLegacySSH(rule) && peerSSHEnabled)
+			if !isSSHRule {
+				continue
+			}
+
+			if ruleHasDestination(rule, peerID, peerGroupIDs) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func ruleHasDestination(rule *PolicyRule, peerID string, peerGroupIDs map[string]struct{}) bool {
+	if rule.DestinationResource.Type == ResourceTypePeer && rule.DestinationResource.ID != "" {
+		return rule.DestinationResource.ID == peerID
+	}
+
+	for _, groupID := range rule.Destinations {
+		if _, ok := peerGroupIDs[groupID]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 func portRangeIncludesSSH(portRanges []RulePortRange) bool {
 	for _, pr := range portRanges {
 		if (pr.Start <= defaultSSHPortNumber && pr.End >= defaultSSHPortNumber) || (pr.Start <= nativeSSHPortNumber && pr.End >= nativeSSHPortNumber) {
