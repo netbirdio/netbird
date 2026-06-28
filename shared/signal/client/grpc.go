@@ -85,6 +85,7 @@ type GrpcClient struct {
 	// receive backpressure as a dead stream: reconnecting cannot help, since the
 	// new stream feeds the same worker, and only triggers a reconnect storm.
 	receiveHandoffBlocked atomic.Bool
+	watchdogWg            sync.WaitGroup
 }
 
 // NewClient creates a new Signal client
@@ -200,10 +201,18 @@ func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Mes
 		// Guard the receive direction: the transport can stay healthy while the
 		// server stops delivering messages. The watchdog reconnects via cancelStream.
 		c.markReceived()
-		go c.watchReceiveStream(streamCtx, cancelStream)
+		c.watchdogWg.Add(1)
+		go func() {
+			defer c.watchdogWg.Done()
+			c.watchReceiveStream(streamCtx, cancelStream)
+		}()
 
 		// start receiving messages from the Signal stream (from other peers through signal)
 		err = c.receive(stream)
+
+		cancelStream()
+		c.watchdogWg.Wait()
+
 		if err != nil {
 			// Check the parent context, not streamCtx: a watchdog-triggered
 			// cancelStream must reconnect, only a parent cancel is shutdown.
