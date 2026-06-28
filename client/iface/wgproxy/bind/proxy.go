@@ -136,14 +136,8 @@ func (p *ProxyBind) CloseConn() error {
 	return p.close()
 }
 
-// InjectPacket writes b to the remote peer over the underlying transport.
-func (p *ProxyBind) InjectPacket(b []byte) error {
-	if p.remoteConn == nil {
-		return errors.New("proxy not started")
-	}
-	if _, err := p.remoteConn.Write(b); err != nil {
-		return err
-	}
+// InjectPacket is a no-op for the userspace proxy: first-packet reinjection is kernel-only.
+func (p *ProxyBind) InjectPacket(_ []byte) error {
 	return nil
 }
 

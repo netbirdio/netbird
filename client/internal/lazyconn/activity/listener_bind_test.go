@@ -213,7 +213,7 @@ func TestManager_BindMode(t *testing.T) {
 	select {
 	case ev := <-mgr.OnActivityChan:
 		assert.Equal(t, cfg.PeerConnID, ev.PeerConnID, "Received peer connection ID should match")
-		assert.Equal(t, []byte{0x01, 0x02, 0x03}, ev.FirstPacket, "First packet should be captured for reinjection")
+		assert.Nil(t, ev.FirstPacket, "Bind mode does not capture packets: reinjection is kernel-only")
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for activity notification")
 	}
