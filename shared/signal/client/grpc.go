@@ -78,6 +78,13 @@ type GrpcClient struct {
 	// transport-alive but no longer delivering messages. It is the source of
 	// truth IsHealthy reads, and is cleared once any frame is received again.
 	receiveStalled atomic.Bool
+	// receiveHandoffBlocked is set while the receive loop is parked handing a
+	// message to a busy decryption worker. The loop stops calling Recv (and
+	// markReceived) in that window, so the stream looks silent though it is
+	// healthy. The watchdog reads this to avoid misreading self-inflicted
+	// receive backpressure as a dead stream: reconnecting cannot help, since the
+	// new stream feeds the same worker, and only triggers a reconnect storm.
+	receiveHandoffBlocked atomic.Bool
 }
 
 // NewClient creates a new Signal client
@@ -439,6 +446,16 @@ func (c *GrpcClient) idleSinceReceive() time.Duration {
 	return time.Since(time.Unix(0, c.lastReceived.Load()))
 }
 
+// receiveAlive reports whether the receive stream shows liveness: it delivered a
+// frame within the inactivity threshold, or the receive loop is currently parked
+// handing a message to a busy decryption worker. In the latter case the loop has
+// stopped calling Recv, so the stream looks silent while being healthy, and
+// reconnecting would not help, so the watchdog must treat it as alive.
+func (c *GrpcClient) receiveAlive() bool {
+	return c.idleSinceReceive() < receiveInactivityThreshold ||
+		c.receiveHandoffBlocked.Load()
+}
+
 // watchReceiveStream guards against a receive stream that is transport-alive but
 // no longer delivering messages. While the stream is idle past
 // receiveInactivityThreshold it sends a self-addressed probe that the Signal
@@ -455,7 +472,7 @@ func (c *GrpcClient) watchReceiveStream(ctx context.Context, cancelStream contex
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if c.idleSinceReceive() < receiveInactivityThreshold {
+			if c.receiveAlive() {
 				probeSentAt = time.Time{}
 				continue
 			}
@@ -517,9 +534,14 @@ func (c *GrpcClient) receive(stream proto.SignalExchange_ConnectStreamClient) er
 			continue
 		}
 
+		// The handoff blocks while the worker is busy, which parks this loop and
+		// stops Recv. Flag it so the watchdog does not read the resulting silence
+		// as a dead stream.
+		c.receiveHandoffBlocked.Store(true)
 		if err := c.decryptionWorker.AddMsg(c.ctx, msg); err != nil {
 			log.Errorf("failed to add message to decryption worker: %v", err)
 		}
+		c.receiveHandoffBlocked.Store(false)
 	}
 }
 

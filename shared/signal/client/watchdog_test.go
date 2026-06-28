@@ -82,3 +82,27 @@ func TestReceiveProbeRoundTrips(t *testing.T) {
 		t.Fatal("self-addressed heartbeat did not round-trip back through the signal server")
 	}
 }
+
+// TestReceiveAliveTreatsHandoffBlockAsLiveness reproduces the false positive
+// where a busy decryption worker parks the receive loop on the worker handoff,
+// so Recv (and markReceived) stops firing even though the stream is healthy.
+// With the receive stream silent past the inactivity threshold but the loop
+// blocked on handoff, the watchdog must consider the stream alive rather than
+// tear it down (reconnecting feeds the same worker and would not help).
+func TestReceiveAliveTreatsHandoffBlockAsLiveness(t *testing.T) {
+	c := &GrpcClient{}
+
+	// Receive stream silent and the loop not blocked on handoff: genuinely stalled.
+	c.lastReceived.Store(time.Now().Add(-2 * receiveInactivityThreshold).UnixNano())
+	require.False(t, c.receiveAlive(), "silent stream with the receive loop idle must be treated as stalled")
+
+	// Receive stream silent but the loop is parked handing a message to a busy
+	// worker: self-inflicted backpressure, not a dead stream, must not tear down.
+	c.receiveHandoffBlocked.Store(true)
+	require.True(t, c.receiveAlive(), "a receive loop blocked on worker handoff must keep the stream alive")
+
+	// Handoff drained, loop back to reading, a frame just arrived: alive via the receive path.
+	c.receiveHandoffBlocked.Store(false)
+	c.markReceived()
+	require.True(t, c.receiveAlive(), "a freshly received frame must keep the stream alive")
+}
