@@ -38,6 +38,11 @@ type mapStateManager struct {
 	// onConverged is called once per processed map, with the elapsed time since that
 	// map was received (for the sync-duration metric / "sync finished" log).
 	onConverged func(time.Duration)
+	// persist snapshots an update to disk for restore-on-restart. Called once per
+	// update received from management (in SetTarget), including ones later coalesced
+	// or skipped from apply, so the on-disk state mirrors what management last sent.
+	// The impl skips config-only updates (nil NetworkMap). May be nil.
+	persist func(*mgmProto.SyncResponse)
 
 	mu          sync.Mutex
 	target      *mgmProto.SyncResponse
@@ -48,9 +53,10 @@ type mapStateManager struct {
 	wake chan struct{}
 }
 
-func newMapStateManager(apply func(update *mgmProto.SyncResponse, firstPass bool) (bool, error), onConverged func(time.Duration)) *mapStateManager {
+func newMapStateManager(apply func(update *mgmProto.SyncResponse, firstPass bool) (bool, error), persist func(*mgmProto.SyncResponse), onConverged func(time.Duration)) *mapStateManager {
 	return &mapStateManager{
 		apply:       apply,
+		persist:     persist,
 		onConverged: onConverged,
 		wake:        make(chan struct{}, 1),
 	}
@@ -80,6 +86,15 @@ func (m *mapStateManager) SetTarget(update *mgmProto.SyncResponse) error {
 	select {
 	case m.wake <- struct{}{}:
 	default:
+	}
+
+	// Persist every update received from management — once per update (not per apply
+	// pass), and including ones that get coalesced/skipped from apply, so the on-disk
+	// state always reflects the latest map management sent. Done after waking the loop
+	// so convergence can start in parallel with the disk write. The persist impl skips
+	// config-only updates (nil NetworkMap).
+	if m.persist != nil {
+		m.persist(update)
 	}
 	return nil
 }

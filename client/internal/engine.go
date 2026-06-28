@@ -955,8 +955,6 @@ func (e *Engine) applySyncPass(update *mgmProto.SyncResponse, firstPass bool) (b
 		return false, err
 	}
 
-	e.persistSyncResponse(update)
-
 	// only apply new changes and ignore old ones
 	more, err := e.updateNetworkMap(nm, maxPeersPerSyncPass, firstPass)
 	if err != nil {
@@ -1011,6 +1009,13 @@ func (e *Engine) updateNetbirdConfig(wCfg *mgmProto.NetbirdConfig) error {
 // (not syncMsgMux) is held for the whole Set so the store cannot be cleared (disabled /
 // engine close) mid-call and have this write resurrect a file that was just removed.
 func (e *Engine) persistSyncResponse(update *mgmProto.SyncResponse) {
+	// Only persist updates that carry a network map. Config-only updates (e.g. relay
+	// token rotation, STUN/TURN) have a nil NetworkMap; persisting them would overwrite
+	// the last full map on disk and break restore-on-restart.
+	if update.GetNetworkMap() == nil {
+		return
+	}
+
 	e.syncRespMux.RLock()
 	defer e.syncRespMux.RUnlock()
 
@@ -1304,7 +1309,7 @@ func (e *Engine) receiveManagementEvents() {
 
 		// The map-state manager converges the latest update in the background in
 		// bounded passes; the stream callback only hands it the newest target.
-		manager := newMapStateManager(e.applySyncPass, func(d time.Duration) {
+		manager := newMapStateManager(e.applySyncPass, e.persistSyncResponse, func(d time.Duration) {
 			log.Infof("sync finished in %s", d)
 			e.clientMetrics.RecordSyncDuration(e.ctx, d)
 		})
