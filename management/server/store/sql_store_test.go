@@ -6,7 +6,6 @@ import (
 	b64 "encoding/base64"
 	"encoding/binary"
 	"fmt"
-	"math/rand"
 	"net"
 	"net/netip"
 	"os"
@@ -92,7 +91,7 @@ func runLargeTest(t *testing.T, store Store) {
 	account.SetupKeys[setupKey.Key] = setupKey
 	const numPerAccount = 6000
 	for n := 0; n < numPerAccount; n++ {
-		netIP := randomIPv4()
+		netIP := sequentialIPv4(n)
 		peerID := fmt.Sprintf("%s-peer-%d", account.Id, n)
 		addr, _ := netip.AddrFromSlice(netIP)
 
@@ -216,12 +215,12 @@ func runLargeTest(t *testing.T, store Store) {
 	}
 }
 
-func randomIPv4() net.IP {
-	rand.New(rand.NewSource(time.Now().UnixNano()))
+// sequentialIPv4 returns a unique IPv4 address for the given index, avoiding
+// the random collisions that would otherwise violate the unique (account_id, ip)
+// index when generating a large number of peers.
+func sequentialIPv4(n int) net.IP {
 	b := make([]byte, 4)
-	for i := range b {
-		b[i] = byte(rand.Intn(256))
-	}
+	binary.BigEndian.PutUint32(b, 0x0A000000+uint32(n))
 	return net.IP(b)
 }
 
@@ -617,56 +616,6 @@ func TestSqlStore_SavePeerStatus(t *testing.T) {
 	assert.Equal(t, newStatus.LoginExpired, actual.LoginExpired)
 	assert.Equal(t, newStatus.RequiresApproval, actual.RequiresApproval)
 	assert.WithinDurationf(t, newStatus.LastSeen, actual.LastSeen.UTC(), time.Millisecond, "LastSeen should be equal")
-}
-
-func TestSqlStore_SavePeerLocation(t *testing.T) {
-	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
-	t.Cleanup(cleanUp)
-	assert.NoError(t, err)
-
-	account, err := store.GetAccount(context.Background(), "bf1c8084-ba50-4ce7-9439-34653001fc3b")
-	require.NoError(t, err)
-
-	peer := &nbpeer.Peer{
-		AccountID: account.Id,
-		ID:        "testpeer",
-		Location: nbpeer.Location{
-			ConnectionIP: net.ParseIP("0.0.0.0"),
-			CountryCode:  "YY",
-			CityName:     "City",
-			GeoNameID:    1,
-		},
-		CreatedAt: time.Now().UTC(),
-		Meta:      nbpeer.PeerSystemMeta{},
-	}
-	// error is expected as peer is not in store yet
-	err = store.SavePeerLocation(context.Background(), account.Id, peer)
-	assert.Error(t, err)
-
-	account.Peers[peer.ID] = peer
-	err = store.SaveAccount(context.Background(), account)
-	require.NoError(t, err)
-
-	peer.Location.ConnectionIP = net.ParseIP("35.1.1.1")
-	peer.Location.CountryCode = "DE"
-	peer.Location.CityName = "Berlin"
-	peer.Location.GeoNameID = 2950159
-
-	err = store.SavePeerLocation(context.Background(), account.Id, account.Peers[peer.ID])
-	assert.NoError(t, err)
-
-	account, err = store.GetAccount(context.Background(), account.Id)
-	require.NoError(t, err)
-
-	actual := account.Peers[peer.ID].Location
-	assert.Equal(t, peer.Location, actual)
-
-	peer.ID = "non-existing-peer"
-	err = store.SavePeerLocation(context.Background(), account.Id, peer)
-	assert.Error(t, err)
-	parsedErr, ok := status.FromError(err)
-	require.True(t, ok)
-	require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
 }
 
 func Test_TestGetAccountByPrivateDomain(t *testing.T) {

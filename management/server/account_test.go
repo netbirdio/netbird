@@ -84,7 +84,7 @@ func verifyCanAddPeerToAccount(t *testing.T, manager nbAccount.Manager, account 
 		setupKey = key.Key
 	}
 
-	_, _, _, err := manager.AddPeer(context.Background(), "", setupKey, userID, peer, false)
+	_, _, _, _, err := manager.AddPeer(context.Background(), "", setupKey, userID, peer, false)
 	if err != nil {
 		t.Error("expected to add new peer successfully after creating new account, but failed", err)
 	}
@@ -1092,7 +1092,7 @@ func TestAccountManager_AddPeer(t *testing.T) {
 	}
 	expectedPeerKey := key.PublicKey().String()
 
-	peer, _, _, err := manager.AddPeer(context.Background(), "", setupKey.Key, "", &nbpeer.Peer{
+	peer, _, _, _, err := manager.AddPeer(context.Background(), "", setupKey.Key, "", &nbpeer.Peer{
 		Key:  expectedPeerKey,
 		Meta: nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
 	}, false)
@@ -1156,7 +1156,7 @@ func TestAccountManager_AddPeerWithUserID(t *testing.T) {
 	expectedPeerKey := key.PublicKey().String()
 	expectedUserID := userID
 
-	peer, _, _, err := manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
+	peer, _, _, _, err := manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
 		Key:  expectedPeerKey,
 		Meta: nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
 	}, false)
@@ -1504,7 +1504,7 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 
 	peerKey := key.PublicKey().String()
 
-	peer, _, _, err := manager.AddPeer(context.Background(), "", setupKey.Key, "", &nbpeer.Peer{
+	peer, _, _, _, err := manager.AddPeer(context.Background(), "", setupKey.Key, "", &nbpeer.Peer{
 		Key:  peerKey,
 		Meta: nbpeer.PeerSystemMeta{Hostname: peerKey},
 	}, false)
@@ -1826,7 +1826,7 @@ func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
 
 	key, err := wgtypes.GenerateKey()
 	require.NoError(t, err, "unable to generate WireGuard key")
-	peer, _, _, err := manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
+	peer, _, _, _, err := manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
 		Key:                    key.PublicKey().String(),
 		Meta:                   nbpeer.PeerSystemMeta{Hostname: "test-peer"},
 		LoginExpirationEnabled: true,
@@ -1836,7 +1836,7 @@ func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
 	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err, "unable to get the account")
 
-	err = manager.MarkPeerConnected(context.Background(), key.PublicKey().String(), nil, accountID, time.Now().UTC().UnixNano(), nil)
+	err = manager.MarkPeerConnected(context.Background(), key.PublicKey().String(), accountID, time.Now().UTC().UnixNano(), nil)
 	require.NoError(t, err, "unable to mark peer connected")
 
 	_, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &types.Settings{
@@ -1882,7 +1882,7 @@ func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.
 
 	key, err := wgtypes.GenerateKey()
 	require.NoError(t, err, "unable to generate WireGuard key")
-	_, _, _, err = manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
+	_, _, _, _, err = manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
 		Key:                    key.PublicKey().String(),
 		Meta:                   nbpeer.PeerSystemMeta{Hostname: "test-peer"},
 		LoginExpirationEnabled: true,
@@ -1907,12 +1907,123 @@ func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.
 	require.NoError(t, err, "unable to get the account")
 
 	// when we mark peer as connected, the peer login expiration routine should trigger
-	err = manager.MarkPeerConnected(context.Background(), key.PublicKey().String(), nil, accountID, time.Now().UTC().UnixNano(), nil)
+	err = manager.MarkPeerConnected(context.Background(), key.PublicKey().String(), accountID, time.Now().UTC().UnixNano(), nil)
 	require.NoError(t, err, "unable to mark peer connected")
 
 	failed := waitTimeout(wg, time.Second)
 	if failed {
 		t.Fatal("timeout while waiting for test to finish")
+	}
+}
+
+func TestDefaultAccountManager_MarkPeerDisconnected_SchedulesInactivityExpiration(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
+	require.NoError(t, err, "unable to create an account")
+
+	key, err := wgtypes.GenerateKey()
+	require.NoError(t, err, "unable to generate WireGuard key")
+	peerPubKey := key.PublicKey().String()
+
+	_, _, _, _, err = manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
+		Key:                         peerPubKey,
+		Meta:                        nbpeer.PeerSystemMeta{Hostname: "test-peer"},
+		InactivityExpirationEnabled: true,
+	}, false)
+	require.NoError(t, err, "unable to add peer")
+
+	_, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &types.Settings{
+		PeerLoginExpiration:             time.Hour,
+		PeerLoginExpirationEnabled:      true,
+		PeerInactivityExpiration:        time.Hour,
+		PeerInactivityExpirationEnabled: true,
+		Extra:                           &types.ExtraSettings{},
+	})
+	require.NoError(t, err, "expecting to update account settings successfully but got error")
+
+	// Establish a session so the matching-token disconnect is actually applied.
+	streamStartTime := time.Now().UTC()
+	err = manager.MarkPeerConnected(context.Background(), peerPubKey, accountID, streamStartTime.UnixNano(), nil)
+	require.NoError(t, err, "unable to mark peer connected")
+
+	// Install the mock only now, so the assertion observes the disconnect, not
+	// the earlier connect.
+	scheduled := make(chan struct{}, 1)
+	manager.peerInactivityExpiry = &MockScheduler{
+		CancelFunc: func(ctx context.Context, IDs []string) {},
+		ScheduleFunc: func(ctx context.Context, in time.Duration, ID string, job func() (nextRunIn time.Duration, reschedule bool)) {
+			select {
+			case scheduled <- struct{}{}:
+			default:
+			}
+		},
+	}
+
+	err = manager.MarkPeerDisconnected(context.Background(), peerPubKey, accountID, streamStartTime.UnixNano())
+	require.NoError(t, err, "unable to mark peer disconnected")
+
+	select {
+	case <-scheduled:
+		// expected: disconnect re-armed the inactivity expiry timer
+	case <-time.After(time.Second):
+		t.Fatal("expected inactivity expiration to be rescheduled when an eligible peer disconnects")
+	}
+}
+
+func TestDefaultAccountManager_MarkPeerDisconnected_SkipsInactivityExpirationWhenDisabled(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
+	require.NoError(t, err, "unable to create an account")
+
+	key, err := wgtypes.GenerateKey()
+	require.NoError(t, err, "unable to generate WireGuard key")
+	peerPubKey := key.PublicKey().String()
+
+	_, _, _, _, err = manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
+		Key:                         peerPubKey,
+		Meta:                        nbpeer.PeerSystemMeta{Hostname: "test-peer"},
+		InactivityExpirationEnabled: true,
+	}, false)
+	require.NoError(t, err, "unable to add peer")
+
+	// Peer is eligible (SSO + inactivity enabled) but the account-level setting
+	// stays disabled, so disconnect must not schedule anything.
+	_, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &types.Settings{
+		PeerLoginExpiration:             time.Hour,
+		PeerLoginExpirationEnabled:      true,
+		PeerInactivityExpiration:        time.Hour,
+		PeerInactivityExpirationEnabled: false,
+		Extra:                           &types.ExtraSettings{},
+	})
+	require.NoError(t, err, "expecting to update account settings successfully but got error")
+
+	streamStartTime := time.Now().UTC()
+	err = manager.MarkPeerConnected(context.Background(), peerPubKey, accountID, streamStartTime.UnixNano(), nil)
+	require.NoError(t, err, "unable to mark peer connected")
+
+	scheduled := make(chan struct{}, 1)
+	manager.peerInactivityExpiry = &MockScheduler{
+		CancelFunc: func(ctx context.Context, IDs []string) {},
+		ScheduleFunc: func(ctx context.Context, in time.Duration, ID string, job func() (nextRunIn time.Duration, reschedule bool)) {
+			select {
+			case scheduled <- struct{}{}:
+			default:
+			}
+		},
+	}
+
+	err = manager.MarkPeerDisconnected(context.Background(), peerPubKey, accountID, streamStartTime.UnixNano())
+	require.NoError(t, err, "unable to mark peer disconnected")
+
+	select {
+	case <-scheduled:
+		t.Fatal("inactivity expiration must not be scheduled while the account-level setting is disabled")
+	case <-time.After(200 * time.Millisecond):
+		// expected: nothing scheduled
 	}
 }
 
@@ -1927,7 +2038,7 @@ func TestDefaultAccountManager_OnPeerDisconnected_LastSeenCheck(t *testing.T) {
 	require.NoError(t, err, "unable to generate WireGuard key")
 	peerPubKey := key.PublicKey().String()
 
-	_, _, _, err = manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
+	_, _, _, _, err = manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
 		Key:  peerPubKey,
 		Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer"},
 	}, false)
@@ -1935,7 +2046,7 @@ func TestDefaultAccountManager_OnPeerDisconnected_LastSeenCheck(t *testing.T) {
 
 	t.Run("disconnect peer when session token matches", func(t *testing.T) {
 		streamStartTime := time.Now().UTC()
-		err = manager.MarkPeerConnected(context.Background(), peerPubKey, nil, accountID, streamStartTime.UnixNano(), nil)
+		err = manager.MarkPeerConnected(context.Background(), peerPubKey, accountID, streamStartTime.UnixNano(), nil)
 		require.NoError(t, err, "unable to mark peer connected")
 
 		peer, err := manager.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, peerPubKey)
@@ -1956,7 +2067,7 @@ func TestDefaultAccountManager_OnPeerDisconnected_LastSeenCheck(t *testing.T) {
 	t.Run("skip disconnect when stored session is newer (zombie stream protection)", func(t *testing.T) {
 		// Newer stream wins on connect (sets SessionStartedAt = now ns).
 		streamStartTime := time.Now().UTC()
-		err = manager.MarkPeerConnected(context.Background(), peerPubKey, nil, accountID, streamStartTime.UnixNano(), nil)
+		err = manager.MarkPeerConnected(context.Background(), peerPubKey, accountID, streamStartTime.UnixNano(), nil)
 		require.NoError(t, err, "unable to mark peer connected")
 
 		peer, err := manager.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, peerPubKey)
@@ -1980,7 +2091,7 @@ func TestDefaultAccountManager_OnPeerDisconnected_LastSeenCheck(t *testing.T) {
 
 	t.Run("skip stale connect when stored session is newer (blocked goroutine protection)", func(t *testing.T) {
 		node2SyncTime := time.Now().UTC()
-		err = manager.MarkPeerConnected(context.Background(), peerPubKey, nil, accountID, node2SyncTime.UnixNano(), nil)
+		err = manager.MarkPeerConnected(context.Background(), peerPubKey, accountID, node2SyncTime.UnixNano(), nil)
 		require.NoError(t, err, "node 2 should connect peer")
 
 		peer, err := manager.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, peerPubKey)
@@ -1990,7 +2101,7 @@ func TestDefaultAccountManager_OnPeerDisconnected_LastSeenCheck(t *testing.T) {
 			"SessionStartedAt should equal node2SyncTime token")
 
 		node1StaleSyncTime := node2SyncTime.Add(-1 * time.Minute)
-		err = manager.MarkPeerConnected(context.Background(), peerPubKey, nil, accountID, node1StaleSyncTime.UnixNano(), nil)
+		err = manager.MarkPeerConnected(context.Background(), peerPubKey, accountID, node1StaleSyncTime.UnixNano(), nil)
 		require.NoError(t, err, "stale connect should not return error")
 
 		peer, err = manager.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, peerPubKey)
@@ -2017,7 +2128,7 @@ func TestDefaultAccountManager_MarkPeerConnected_ConcurrentRace(t *testing.T) {
 	require.NoError(t, err, "unable to generate WireGuard key")
 	peerPubKey := key.PublicKey().String()
 
-	_, _, _, err = manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
+	_, _, _, _, err = manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
 		Key:  peerPubKey,
 		Meta: nbpeer.PeerSystemMeta{Hostname: "race-peer"},
 	}, false)
@@ -2052,7 +2163,7 @@ func TestDefaultAccountManager_MarkPeerConnected_ConcurrentRace(t *testing.T) {
 			defer done.Done()
 			ready.Done()
 			start.Wait()
-			errs <- manager.MarkPeerConnected(context.Background(), peerPubKey, nil, accountID, token, nil)
+			errs <- manager.MarkPeerConnected(context.Background(), peerPubKey, accountID, token, nil)
 		}()
 	}
 
@@ -2080,7 +2191,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *test
 
 	key, err := wgtypes.GenerateKey()
 	require.NoError(t, err, "unable to generate WireGuard key")
-	_, _, _, err = manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
+	_, _, _, _, err = manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
 		Key:                    key.PublicKey().String(),
 		Meta:                   nbpeer.PeerSystemMeta{Hostname: "test-peer"},
 		LoginExpirationEnabled: true,
@@ -2093,7 +2204,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *test
 	account, err := manager.Store.GetAccount(context.Background(), accountID)
 	require.NoError(t, err, "unable to get the account")
 
-	err = manager.MarkPeerConnected(context.Background(), key.PublicKey().String(), nil, accountID, time.Now().UTC().UnixNano(), nil)
+	err = manager.MarkPeerConnected(context.Background(), key.PublicKey().String(), accountID, time.Now().UTC().UnixNano(), nil)
 	require.NoError(t, err, "unable to mark peer connected")
 
 	wg := &sync.WaitGroup{}
@@ -3215,7 +3326,7 @@ func createManager(t testing.TB) (*DefaultAccountManager, *update_channel.PeersU
 		return nil, nil, err
 	}
 
-	proxyGrpcServer := nbgrpc.NewProxyServiceServer(nil, nil, nil, nbgrpc.ProxyOIDCConfig{}, peersManager, nil, proxyManager, nil)
+	proxyGrpcServer := nbgrpc.NewProxyServiceServer(nil, nil, nil, nbgrpc.ProxyOIDCConfig{}, peersManager, nil, nil, proxyManager, nil)
 	proxyController, err := proxymanager.NewGRPCController(proxyGrpcServer, noop.Meter{})
 	if err != nil {
 		return nil, nil, err
@@ -3276,7 +3387,7 @@ func setupNetworkMapTest(t *testing.T) (*DefaultAccountManager, *update_channel.
 		}
 		expectedPeerKey := key.PublicKey().String()
 
-		peer, _, _, err := manager.AddPeer(context.Background(), "", setupKey.Key, "", &nbpeer.Peer{
+		peer, _, _, _, err := manager.AddPeer(context.Background(), "", setupKey.Key, "", &nbpeer.Peer{
 			Key:  expectedPeerKey,
 			Meta: nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
 			Status: &nbpeer.PeerStatus{
@@ -3444,7 +3555,7 @@ func BenchmarkLoginPeer_ExistingPeer(b *testing.B) {
 			b.ResetTimer()
 			start := time.Now()
 			for i := 0; i < b.N; i++ {
-				_, _, _, err := manager.LoginPeer(context.Background(), types.PeerLogin{
+				_, _, _, _, err := manager.LoginPeer(context.Background(), types.PeerLogin{
 					WireGuardPubKey: account.Peers["peer-1"].Key,
 					SSHKey:          "someKey",
 					Meta:            nbpeer.PeerSystemMeta{Hostname: strconv.Itoa(i)},
@@ -3513,7 +3624,7 @@ func BenchmarkLoginPeer_NewPeer(b *testing.B) {
 			b.ResetTimer()
 			start := time.Now()
 			for i := 0; i < b.N; i++ {
-				_, _, _, err := manager.LoginPeer(context.Background(), types.PeerLogin{
+				_, _, _, _, err := manager.LoginPeer(context.Background(), types.PeerLogin{
 					WireGuardPubKey: "some-new-key" + strconv.Itoa(i),
 					SSHKey:          "someKey",
 					Meta:            nbpeer.PeerSystemMeta{Hostname: strconv.Itoa(i)},
@@ -3908,13 +4019,13 @@ func TestDefaultAccountManager_UpdatePeerIP(t *testing.T) {
 	key2, err := wgtypes.GenerateKey()
 	require.NoError(t, err, "unable to generate WireGuard key")
 
-	peer1, _, _, err := manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
+	peer1, _, _, _, err := manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
 		Key:  key1.PublicKey().String(),
 		Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-1"},
 	}, false)
 	require.NoError(t, err, "unable to add peer1")
 
-	peer2, _, _, err := manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
+	peer2, _, _, _, err := manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
 		Key:  key2.PublicKey().String(),
 		Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-2"},
 	}, false)

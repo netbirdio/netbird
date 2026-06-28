@@ -9,10 +9,13 @@ on:
   pull_request:
 
 env:
-  SIGN_PIPE_VER: "v0.1.5"
-  GORELEASER_VER: "v2.14.3"
+  SIGN_PIPE_VER: "v0.1.6"
+  GORELEASER_VER: "v2.16.0"
   PRODUCT_NAME: "NetBird"
   COPYRIGHT: "NetBird GmbH"
+  flags: ""
+  SKIP_PUBLISH: "true"
+  SKIP_DOCKER_PUSH: "false"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || github.actor_id }}
@@ -24,7 +27,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
 
@@ -61,7 +64,7 @@ jobs:
         if: steps.check_diff.outputs.diff_exists == 'true'
         env:
           GO_VERSION: ${{ steps.goversion.outputs.version }}
-        uses: vmactions/freebsd-vm@d1e65811565151536c0c894fff74f06351ed26e6 # v1.4.5
+        uses: vmactions/freebsd-vm@b84ab5559b5a1bb4b8ee2737d2506a16e1737636 # v1.4.8
         with:
           usesh: true
           copyback: false
@@ -130,11 +133,9 @@ jobs:
       windows_packages_artifact_url: ${{ steps.upload_windows_packages.outputs.artifact-url }}
       macos_packages_artifact_url: ${{ steps.upload_macos_packages.outputs.artifact-url }}
       ghcr_images: ${{ steps.tag_and_push_images.outputs.images_markdown }}
-    env:
-      flags: ""
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0 # It is required for GoReleaser to work properly
           persist-credentials: false
@@ -143,15 +144,34 @@ jobs:
         id: semver_parser
         uses: netbirdio/shared-actions/actions/parse-semver@be5df6047383da2236e02243cceb857d8567c27e # v0.0.2
 
-      - if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
-        run: echo "flags=--snapshot" >> $GITHUB_ENV
+      - name: Set snapshot flag
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: | 
+          echo "flags=--snapshot" >> $GITHUB_ENV
+
+      - name: Set build vars
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        run: |
+          if [[ "x-${{ steps.semver_parser.outputs.prerelease }}" == "x-" && "x-${{ github.repository }}" == "x-netbirdio/netbird" ]]; then
+            echo "x-${{ github.repository }}" 
+            echo "x-${{ steps.semver_parser.outputs.prerelease }}"
+            echo "SKIP_PUBLISH=false" >> $GITHUB_ENV
+          else
+            echo "x-${{ github.repository }}" 
+            echo "x-${{ steps.semver_parser.outputs.prerelease }}"
+          fi
+          
+          if [[ "x-${{ github.repository }}" != "x-netbirdio/netbird" ]]; then
+            echo "SKIP_DOCKER_PUSH=true" >> $GITHUB_ENV
+          fi
+
       - name: Set up Go
-        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: "go.mod"
           cache: false
       - name: Cache Go modules
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/restore@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
         with:
           path: |
             ~/go/pkg/mod
@@ -166,9 +186,9 @@ jobs:
       - name: check git status
         run: git --no-pager diff --exit-code
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a #v4.0.0
+        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 #v4.1.0
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd #v4.0.0
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 #v4.1.0
       - name: Login to Docker hub
         if: github.event_name != 'pull_request'
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
@@ -201,7 +221,7 @@ jobs:
         run: goversioninfo -arm -64 -icon client/ui/assets/netbird.ico -manifest client/manifest.xml -product-name ${{ env.PRODUCT_NAME }} -copyright "${{ env.COPYRIGHT }}" -ver-major ${{ steps.semver_parser.outputs.major }} -ver-minor ${{ steps.semver_parser.outputs.minor }} -ver-patch ${{ steps.semver_parser.outputs.patch }} -ver-build 0 -file-version ${{ steps.semver_parser.outputs.fullversion }}.0 -product-version ${{ steps.semver_parser.outputs.fullversion }}.0 -o client/resources_windows_arm64.syso
       - name: Run GoReleaser
         id: goreleaser
-        uses: goreleaser/goreleaser-action@4c6ab561adb47e50c45ef534e2155934e91c40c1 # v7.2.0
+        uses: goreleaser/goreleaser-action@5daf1e915a5f0af01ddbcd89a43b8061ff4f1a89 # v7.2.2
         with:
           version: ${{ env.GORELEASER_VER }}
           args: release --clean ${{ env.flags }}
@@ -212,6 +232,8 @@ jobs:
           UPLOAD_YUM_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
           GPG_RPM_KEY_FILE: ${{ env.GPG_RPM_KEY_FILE }}
           NFPM_NETBIRD_RPM_PASSPHRASE: ${{ secrets.GPG_RPM_PASSPHRASE }}
+          SKIP_PUBLISH: ${{ env.SKIP_PUBLISH }}
+          SKIP_DOCKER_PUSH: ${{ env.SKIP_DOCKER_PUSH }}
       - name: Verify RPM signatures
         run: |
           docker run --rm -v $(pwd)/dist:/dist fedora:41 bash -c '
@@ -325,7 +347,7 @@ jobs:
       release_ui_artifact_url: ${{ steps.upload_release_ui.outputs.artifact-url }}
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0 # It is required for GoReleaser to work properly
           persist-credentials: false
@@ -334,16 +356,30 @@ jobs:
         id: semver_parser
         uses: netbirdio/shared-actions/actions/parse-semver@be5df6047383da2236e02243cceb857d8567c27e # v0.0.2
 
-      - if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
-        run: echo "flags=--snapshot" >> $GITHUB_ENV
+      - name: Set snapshot flag
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: |
+          echo "flags=--snapshot" >> $GITHUB_ENV
+
+      - name: Set build vars
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        run: |
+          if [[ "x-${{ steps.semver_parser.outputs.prerelease }}" == "x-" && "x-${{ github.repository }}" == "x-netbirdio/netbird" ]]; then
+            echo "x-${{ github.repository }}" 
+            echo "x-${{ steps.semver_parser.outputs.prerelease }}"
+            echo "SKIP_PUBLISH=false" >> $GITHUB_ENV
+          else
+            echo "x-${{ github.repository }}" 
+            echo "x-${{ steps.semver_parser.outputs.prerelease }}"
+          fi
 
       - name: Set up Go
-        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: "go.mod"
           cache: false
       - name: Cache Go modules
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
         with:
           path: |
             ~/go/pkg/mod
@@ -384,7 +420,7 @@ jobs:
         run: goversioninfo -arm -64 -icon client/ui/assets/netbird.ico -manifest client/ui/manifest.xml -product-name ${{ env.PRODUCT_NAME }}-"UI" -copyright "${{ env.COPYRIGHT }}" -ver-major ${{ steps.semver_parser.outputs.major }} -ver-minor ${{ steps.semver_parser.outputs.minor }} -ver-patch ${{ steps.semver_parser.outputs.patch }} -ver-build 0 -file-version ${{ steps.semver_parser.outputs.fullversion }}.0 -product-version ${{ steps.semver_parser.outputs.fullversion }}.0 -o client/ui/resources_windows_arm64.syso
 
       - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@4c6ab561adb47e50c45ef534e2155934e91c40c1 # v7.2.0
+        uses: goreleaser/goreleaser-action@5daf1e915a5f0af01ddbcd89a43b8061ff4f1a89 # v7.2.2
         with:
           version: ${{ env.GORELEASER_VER }}
           args: release --config .goreleaser_ui.yaml --clean ${{ env.flags }}
@@ -395,6 +431,7 @@ jobs:
           UPLOAD_YUM_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
           GPG_RPM_KEY_FILE: ${{ env.GPG_RPM_KEY_FILE }}
           NFPM_NETBIRD_UI_RPM_PASSPHRASE: ${{ secrets.GPG_RPM_PASSPHRASE }}
+          SKIP_PUBLISH: ${{ env.SKIP_PUBLISH }}
       - name: Verify RPM signatures
         run: |
           docker run --rm -v $(pwd)/dist:/dist fedora:41 bash -c '
@@ -427,17 +464,17 @@ jobs:
       - if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         run: echo "flags=--snapshot" >> $GITHUB_ENV
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0 # It is required for GoReleaser to work properly
           persist-credentials: false
       - name: Set up Go
-        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: "go.mod"
           cache: false
       - name: Cache Go modules
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
         with:
           path: |
             ~/go/pkg/mod
@@ -451,7 +488,7 @@ jobs:
         run: git --no-pager diff --exit-code
       - name: Run GoReleaser
         id: goreleaser
-        uses: goreleaser/goreleaser-action@4c6ab561adb47e50c45ef534e2155934e91c40c1 # v7.2.0
+        uses: goreleaser/goreleaser-action@5daf1e915a5f0af01ddbcd89a43b8061ff4f1a89 # v7.2.2
         with:
           version: ${{ env.GORELEASER_VER }}
           args: release --config .goreleaser_ui_darwin.yaml --clean ${{ env.flags }}
@@ -485,7 +522,7 @@ jobs:
       downloadPath: '${{ github.workspace }}\temp'
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
 
@@ -497,13 +534,13 @@ jobs:
         run: echo "C:\Program Files\7-Zip" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Download release artifacts
-        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.1
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release
           path: release
 
       - name: Download UI release artifacts
-        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.1
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-ui
           path: release-ui

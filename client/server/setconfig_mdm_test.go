@@ -62,7 +62,7 @@ func setupServerWithProfile(t *testing.T) (s *Server, ctx context.Context, profN
 
 	pm := profilemanager.ServiceManager{}
 	require.NoError(t, pm.SetActiveProfileState(&profilemanager.ActiveProfileState{
-		Name:     profName,
+		ID:       profilemanager.ID(profName),
 		Username: currUser.Username,
 	}))
 
@@ -107,9 +107,9 @@ func TestSetConfig_MDMReject_SingleField(t *testing.T) {
 
 func TestSetConfig_MDMReject_MultipleFields(t *testing.T) {
 	withMDMPolicy(t, mdm.NewPolicy(map[string]any{
-		mdm.KeyManagementURL:     "https://mdm.example.com:443",
-		mdm.KeyBlockInbound:      true,
-		mdm.KeyRosenpassEnabled:  true,
+		mdm.KeyManagementURL:    "https://mdm.example.com:443",
+		mdm.KeyBlockInbound:     true,
+		mdm.KeyRosenpassEnabled: true,
 	}))
 
 	s, ctx, profName, username, _ := setupServerWithProfile(t)

@@ -279,3 +279,42 @@ func TestLookupRecords(t *testing.T) {
 		assert.Empty(t, rrs)
 	})
 }
+
+func TestStripOPT(t *testing.T) {
+	rm := &dns.Msg{
+		Extra: []dns.RR{
+			&dns.OPT{Hdr: dns.RR_Header{Name: ".", Rrtype: dns.TypeOPT}},
+			&dns.A{Hdr: dns.RR_Header{Name: "x.", Rrtype: dns.TypeA}, A: net.IPv4(1, 2, 3, 4)},
+		},
+	}
+	StripOPT(rm)
+	assert.Len(t, rm.Extra, 1, "OPT should be removed, A kept")
+	_, isOPT := rm.Extra[0].(*dns.OPT)
+	assert.False(t, isOPT, "remaining record must not be OPT")
+}
+
+func TestExtractEDE(t *testing.T) {
+	t.Run("no edns", func(t *testing.T) {
+		_, ok := ExtractEDE(&dns.Msg{})
+		assert.False(t, ok, "message without OPT has no EDE")
+	})
+
+	t.Run("edns without ede", func(t *testing.T) {
+		rm := &dns.Msg{}
+		rm.SetEdns0(4096, false)
+		_, ok := ExtractEDE(rm)
+		assert.False(t, ok, "OPT without EDE option returns false")
+	})
+
+	t.Run("with ede", func(t *testing.T) {
+		rm := &dns.Msg{}
+		opt := &dns.OPT{Hdr: dns.RR_Header{Name: ".", Rrtype: dns.TypeOPT}}
+		opt.Option = append(opt.Option, &dns.EDNS0_EDE{InfoCode: 49152, ExtraText: "upstream timeout"})
+		rm.Extra = append(rm.Extra, opt)
+
+		ede, ok := ExtractEDE(rm)
+		assert.True(t, ok, "EDE option should be found")
+		assert.Equal(t, uint16(49152), ede.InfoCode)
+		assert.Equal(t, "upstream timeout", ede.ExtraText)
+	})
+}

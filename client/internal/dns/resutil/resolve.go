@@ -435,3 +435,35 @@ func FormatAnswers(answers []dns.RR) string {
 	}
 	return "[" + strings.Join(parts, ", ") + "]"
 }
+
+// StripOPT removes any OPT pseudo-RRs from the message's Extra section. Per
+// RFC 6891 a responder must not include an OPT RR toward a client that did not
+// advertise EDNS0.
+func StripOPT(msg *dns.Msg) {
+	if len(msg.Extra) == 0 {
+		return
+	}
+	out := msg.Extra[:0]
+	for _, rr := range msg.Extra {
+		if _, ok := rr.(*dns.OPT); ok {
+			continue
+		}
+		out = append(out, rr)
+	}
+	msg.Extra = out
+}
+
+// ExtractEDE returns the first Extended DNS Error (RFC 8914) option carried in
+// the message, if present.
+func ExtractEDE(msg *dns.Msg) (*dns.EDNS0_EDE, bool) {
+	opt := msg.IsEdns0()
+	if opt == nil {
+		return nil, false
+	}
+	for _, o := range opt.Option {
+		if ede, ok := o.(*dns.EDNS0_EDE); ok {
+			return ede, true
+		}
+	}
+	return nil, false
+}

@@ -68,17 +68,17 @@ jobs:
         run: sudo apt-get install -y curl
 
       - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
 
       - name: Install Go
-        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: "go.mod"
 
       - name: Cache Go modules
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
         with:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
@@ -207,7 +207,7 @@ jobs:
       - name: Build management docker image
         working-directory: management
         run: |
-          docker build -t netbirdio/management:latest .
+          docker build -t netbirdio/management:latest --build-arg TARGETPLATFORM=. .
 
       - name: Build signal binary
         working-directory: signal
@@ -216,7 +216,7 @@ jobs:
       - name: Build signal docker image
         working-directory: signal
         run: |
-          docker build -t netbirdio/signal:latest .
+          docker build -t netbirdio/signal:latest --build-arg TARGETPLATFORM=. .
 
       - name: Build relay binary
         working-directory: relay
@@ -225,7 +225,7 @@ jobs:
       - name: Build relay docker image
         working-directory: relay
         run: |
-          docker build -t netbirdio/relay:latest .
+          docker build -t netbirdio/relay:latest --build-arg TARGETPLATFORM=. .
 
       - name: run docker compose up
         working-directory: infrastructure_files/artifacts
@@ -256,7 +256,7 @@ jobs:
         run: sudo apt-get install -y jq
 
       - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
 

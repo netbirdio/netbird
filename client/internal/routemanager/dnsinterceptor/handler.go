@@ -250,6 +250,14 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		r.MsgHdr.AuthenticatedData = true
 	}
 
+	// Advertise EDNS0 to the forwarder so it may return an Extended DNS Error
+	// describing why a lookup failed. The OPT is stripped from the reply when
+	// the original client did not request EDNS0.
+	hadEdns := r.IsEdns0() != nil
+	if !hadEdns {
+		r.SetEdns0(dns.DefaultMsgSize, false)
+	}
+
 	upstream := net.JoinHostPort(upstreamIP.String(), strconv.FormatUint(uint64(d.forwarderPort.Load()), 10))
 	ctx, cancel := context.WithTimeout(context.Background(), dnsTimeout)
 	defer cancel()
@@ -257,6 +265,13 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	reply := d.queryUpstreamDNS(ctx, w, r, upstream, upstreamIP, peerKey, logger)
 	if reply == nil {
 		return
+	}
+
+	if ede, ok := resutil.ExtractEDE(reply); ok {
+		resutil.SetMeta(w, "ede", fmt.Sprintf("%d %s", ede.InfoCode, ede.ExtraText))
+	}
+	if !hadEdns {
+		resutil.StripOPT(reply)
 	}
 
 	resutil.SetMeta(w, "peer", peerKey)

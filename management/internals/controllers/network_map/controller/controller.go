@@ -497,7 +497,7 @@ func (c *Controller) BufferUpdateAffectedPeers(ctx context.Context, accountID st
 		c.accountManagerMetrics.CountUpdateAccountPeersTriggered(string(reason.Resource), string(reason.Operation))
 	}
 
-	log.WithContext(ctx).Tracef("buffer updating %d affected peers for account %s from %s", len(peerIDs), accountID, util.GetCallerName())
+	log.WithContext(ctx).Tracef("buffer updating %d affected peers for account %s from %s with reason %s/%s", len(peerIDs), accountID, util.GetCallerName(), reason.Operation, reason.Resource)
 
 	bufUpd, _ := c.affectedPeerUpdateLocks.LoadOrStore(accountID, &bufferAffectedUpdate{
 		peerIDs: make(map[string]struct{}),
@@ -585,66 +585,64 @@ func (b *bufferAffectedUpdate) setTimer(d time.Duration, f func()) {
 	b.next.Reset(d)
 }
 
-func (c *Controller) GetValidatedPeerWithMap(ctx context.Context, isRequiresApproval bool, accountID string, peer *nbpeer.Peer) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, int64, error) {
+func (c *Controller) GetValidatedPeerWithMap(ctx context.Context, isRequiresApproval bool, accountID string, peerID string) (*types.NetworkMap, []*posture.Checks, int64, error) {
 	if isRequiresApproval {
 		network, err := c.repo.GetAccountNetwork(ctx, accountID)
 		if err != nil {
-			return nil, nil, nil, 0, err
+			return nil, nil, 0, err
 		}
 
 		emptyMap := &types.NetworkMap{
 			Network: network.Copy(),
 		}
-		return peer, emptyMap, nil, 0, nil
+		return emptyMap, nil, 0, nil
 	}
 
 	account, err := c.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
 	if err != nil {
-		return nil, nil, nil, 0, err
+		return nil, nil, 0, err
 	}
 
 	account.InjectProxyPolicies(ctx)
 
 	approvedPeersMap, err := c.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
 	if err != nil {
-		return nil, nil, nil, 0, err
+		return nil, nil, 0, err
 	}
 
-	startPosture := time.Now()
-	postureChecks, err := c.getPeerPostureChecks(account, peer.ID)
+	postureChecks, err := c.getPeerPostureChecks(account, peerID)
 	if err != nil {
-		return nil, nil, nil, 0, err
+		return nil, nil, 0, err
 	}
-	log.WithContext(ctx).Debugf("getPeerPostureChecks took %s", time.Since(startPosture))
 
 	accountZones, err := c.repo.GetAccountZones(ctx, account.Id)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get account zones: %v", err)
-		return nil, nil, nil, 0, err
+		return nil, nil, 0, err
 	}
 
 	dnsDomain := c.GetDNSDomain(account.Settings)
 	peersCustomZone := account.GetPeersCustomZone(ctx, dnsDomain)
 
-	proxyNetworkMaps, err := c.proxyController.GetProxyNetworkMaps(ctx, account.Id, peer.ID, account.Peers)
+	proxyNetworkMaps, err := c.proxyController.GetProxyNetworkMaps(ctx, account.Id, peerID, account.Peers)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get proxy network maps: %v", err)
-		return nil, nil, nil, 0, err
+		return nil, nil, 0, err
 	}
 
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
 	groupIDToUserIDs := account.GetActiveGroupUsers()
-	networkMap := account.GetPeerNetworkMapFromComponents(ctx, peer.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics, groupIDToUserIDs)
+	networkMap := account.GetPeerNetworkMapFromComponents(ctx, peerID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics, groupIDToUserIDs)
 
-	proxyNetworkMap, ok := proxyNetworkMaps[peer.ID]
+	proxyNetworkMap, ok := proxyNetworkMaps[peerID]
 	if ok {
 		networkMap.Merge(proxyNetworkMap)
 	}
 
 	dnsFwdPort := computeForwarderPort(maps.Values(account.Peers), network_map.DnsForwarderPortMinVersion)
 
-	return peer, networkMap, postureChecks, dnsFwdPort, nil
+	return networkMap, postureChecks, dnsFwdPort, nil
 }
 
 // GetDNSDomain returns the configured dnsDomain

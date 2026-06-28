@@ -50,14 +50,14 @@ func TestServiceManager_CreateAndGetDefaultProfile(t *testing.T) {
 
 			state, err := sm.GetActiveProfileState()
 			assert.NoError(t, err)
-			assert.Equal(t, state.Name, defaultProfileName) // No active profile state yet
+			assert.Equal(t, defaultProfileName, state.ID.String()) // No active profile state yet
 
 			err = sm.SetActiveProfileStateToDefault()
 			assert.NoError(t, err)
 
 			active, err := sm.GetActiveProfileState()
 			assert.NoError(t, err)
-			assert.Equal(t, "default", active.Name)
+			assert.Equal(t, "default", active.ID.String())
 		})
 	})
 }
@@ -92,14 +92,14 @@ func TestServiceManager_SetActiveProfileState(t *testing.T) {
 			currUser, err := user.Current()
 			assert.NoError(t, err)
 			sm := &ServiceManager{}
-			state := &ActiveProfileState{Name: "foo", Username: currUser.Username}
+			state := &ActiveProfileState{ID: "foo", Username: currUser.Username}
 			err = sm.SetActiveProfileState(state)
 			assert.NoError(t, err)
 
 			// Should error on nil or incomplete state
 			err = sm.SetActiveProfileState(nil)
 			assert.Error(t, err)
-			err = sm.SetActiveProfileState(&ActiveProfileState{Name: "", Username: ""})
+			err = sm.SetActiveProfileState(&ActiveProfileState{ID: "", Username: ""})
 			assert.Error(t, err)
 		})
 	})

@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/internal/dns/resutil"
 	"github.com/netbirdio/netbird/client/internal/dns/test"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/route"
@@ -842,6 +843,85 @@ func runRecordQuery(t *testing.T, forwarder *DNSForwarder, qname string, qtype u
 	resp := mockWriter.GetLastResponse()
 	require.NotNil(t, resp, "expected response to be written")
 	return resp
+}
+
+func TestDNSForwarder_UpstreamFailureEDE(t *testing.T) {
+	tests := []struct {
+		name        string
+		lookupErr   error
+		reqEdns     bool
+		wantEDE     bool
+		wantCode    uint16
+		wantTextHas string
+	}{
+		{
+			name:        "timeout with edns0",
+			lookupErr:   &net.DNSError{Err: "i/o timeout", Server: "10.0.0.53:53", IsTimeout: true},
+			reqEdns:     true,
+			wantEDE:     true,
+			wantCode:    edeNetbirdUpstreamTimeout,
+			wantTextHas: "netbird forwarder: upstream timeout",
+		},
+		{
+			name:        "server failure with edns0",
+			lookupErr:   &net.DNSError{Err: "server misbehaving", Server: "10.0.0.53:53"},
+			reqEdns:     true,
+			wantEDE:     true,
+			wantCode:    edeNetbirdUpstreamFailure,
+			wantTextHas: "netbird forwarder: upstream failure",
+		},
+		{
+			name:      "no edns0 in request omits ede",
+			lookupErr: &net.DNSError{Err: "server misbehaving", Server: "10.0.0.53:53"},
+			reqEdns:   false,
+			wantEDE:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockResolver := &MockResolver{}
+			forwarder := NewDNSForwarder(netip.MustParseAddrPort("127.0.0.1:0"), 300, nil, &peer.Status{}, nil)
+			forwarder.resolver = mockResolver
+
+			d, err := domain.FromString("example.com")
+			require.NoError(t, err)
+			forwarder.UpdateDomains([]*ForwarderEntry{{Domain: d, ResID: "test-res"}})
+
+			mockResolver.On("LookupNetIP", mock.Anything, "ip4", "example.com.").
+				Return([]netip.Addr(nil), tt.lookupErr).Once()
+
+			query := &dns.Msg{}
+			query.SetQuestion("example.com.", dns.TypeA)
+			if tt.reqEdns {
+				query.SetEdns0(dns.DefaultMsgSize, false)
+			}
+
+			var writtenResp *dns.Msg
+			mockWriter := &test.MockResponseWriter{
+				WriteMsgFunc: func(m *dns.Msg) error {
+					writtenResp = m
+					return nil
+				},
+			}
+
+			forwarder.handleDNSQuery(log.NewEntry(log.StandardLogger()), mockWriter, query, time.Now())
+			mockResolver.AssertExpectations(t)
+
+			require.NotNil(t, writtenResp, "expected a response")
+			assert.Equal(t, dns.RcodeServerFailure, writtenResp.Rcode, "upstream failure must be SERVFAIL")
+
+			ede, ok := resutil.ExtractEDE(writtenResp)
+			if !tt.wantEDE {
+				assert.False(t, ok, "response must not carry EDE")
+				return
+			}
+			require.True(t, ok, "response must carry EDE")
+			assert.Equal(t, tt.wantCode, ede.InfoCode, "EDE info code")
+			assert.Contains(t, ede.ExtraText, tt.wantTextHas, "EDE extra-text")
+			assert.NotContains(t, ede.ExtraText, "10.0.0.53", "must not leak upstream server address")
+		})
+	}
 }
 
 func TestDNSForwarder_TCPTruncation(t *testing.T) {
