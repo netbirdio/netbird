@@ -36,4 +36,4 @@ components:
 ## Documentation
 
 Full documentation, architecture, and quickstart:
-**https://docs.netbird.io/agent-network**
+**https://netbird.ai**
