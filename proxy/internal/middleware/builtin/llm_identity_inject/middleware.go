@@ -40,8 +40,8 @@ const Version = "1.0.0"
 // Middleware stamps NetBird identity onto upstream requests for the
 // configured set of resolved providers.
 type Middleware struct {
-	cfg   Config
-	byID  map[string]ProviderInjection
+	cfg  Config
+	byID map[string]ProviderInjection
 }
 
 // New constructs a Middleware from the supplied configuration. A nil
@@ -49,43 +49,42 @@ type Middleware struct {
 func New(cfg Config) *Middleware {
 	byID := make(map[string]ProviderInjection, len(cfg.Providers))
 	for _, p := range cfg.Providers {
-		if p.ProviderID == "" {
+		if p.ProviderID == "" || !injectionEmitsAnything(p) {
 			continue
-		}
-		// Drop entries that wouldn't inject anything — keeps the
-		// runtime check tight. Also drop entries that set both
-		// shapes (configuration error; refuse to guess which wins).
-		// Extras alone are enough to keep the rule alive even if
-		// neither identity shape is set.
-		hasExtras := false
-		for _, e := range p.ExtraHeaders {
-			if e.Name != "" && e.Value != "" {
-				hasExtras = true
-				break
-			}
-		}
-		switch {
-		case p.HeaderPair != nil && p.JSONMetadata != nil:
-			continue
-		case p.HeaderPair != nil:
-			if p.HeaderPair.EndUserIDHeader == "" && p.HeaderPair.TagsHeader == "" && !p.HeaderPair.TagsInBody && !p.HeaderPair.EndUserIDInBody && !hasExtras {
-				continue
-			}
-		case p.JSONMetadata != nil:
-			if p.JSONMetadata.Header == "" {
-				continue
-			}
-			if p.JSONMetadata.UserKey == "" && p.JSONMetadata.GroupsKey == "" && !hasExtras {
-				continue
-			}
-		default:
-			if !hasExtras {
-				continue
-			}
 		}
 		byID[p.ProviderID] = p
 	}
 	return &Middleware{cfg: cfg, byID: byID}
+}
+
+// injectionEmitsAnything reports whether a provider injection rule would
+// stamp anything at runtime. Rules that set both identity shapes are a
+// configuration error (we refuse to guess which wins), and rules that
+// resolve to no headers are dropped to keep the runtime check tight.
+// Non-empty extras alone keep a rule alive even when neither identity
+// shape is set.
+func injectionEmitsAnything(p ProviderInjection) bool {
+	hasExtras := false
+	for _, e := range p.ExtraHeaders {
+		if e.Name != "" && e.Value != "" {
+			hasExtras = true
+			break
+		}
+	}
+	switch {
+	case p.HeaderPair != nil && p.JSONMetadata != nil:
+		return false
+	case p.HeaderPair != nil:
+		return p.HeaderPair.EndUserIDHeader != "" || p.HeaderPair.TagsHeader != "" ||
+			p.HeaderPair.TagsInBody || p.HeaderPair.EndUserIDInBody || hasExtras
+	case p.JSONMetadata != nil:
+		if p.JSONMetadata.Header == "" {
+			return false
+		}
+		return p.JSONMetadata.UserKey != "" || p.JSONMetadata.GroupsKey != "" || hasExtras
+	default:
+		return hasExtras
+	}
 }
 
 // ID returns the registry identifier.

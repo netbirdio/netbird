@@ -558,84 +558,8 @@ func buildIdentityInjectConfigJSON(providers []*types.Provider, groupIndex map[s
 		if !ok {
 			continue
 		}
-		rule := identityInjectProvider{ProviderID: p.ID}
-		// Identity-stamping shape (one of HeaderPair / JSONMetadata).
-		// Skip the shape silently when the catalog entry doesn't
-		// declare one — extras can still apply, see below.
-		if entry.IdentityInjection != nil {
-			switch {
-			case entry.IdentityInjection.HeaderPair != nil:
-				hp := entry.IdentityInjection.HeaderPair
-				// For Customizable shapes (Bifrost today) the wire
-				// header names come from the provider record verbatim;
-				// the catalog values are placeholder defaults shown by
-				// the dashboard, not authoritative. Empty operator
-				// value disables stamping for that dimension —
-				// applyHeaderPair already no-ops on empty header
-				// names. The body-inject flags stay catalog-owned
-				// because Customizable=true today only applies to
-				// gateways that read identity from headers (the
-				// flags would be no-ops anyway).
-				userHeader := hp.EndUserIDHeader
-				tagsHeader := hp.TagsHeader
-				if hp.Customizable {
-					userHeader = p.IdentityHeaderUserID
-					tagsHeader = p.IdentityHeaderGroups
-				}
-				if userHeader != "" || tagsHeader != "" || hp.TagsInBody || hp.EndUserIDInBody {
-					rule.HeaderPair = &identityInjectHeaderPair{
-						EndUserIDHeader: userHeader,
-						TagsHeader:      tagsHeader,
-						TagsInBody:      hp.TagsInBody,
-						EndUserIDInBody: hp.EndUserIDInBody,
-					}
-				}
-			case entry.IdentityInjection.JSONMetadata != nil:
-				jm := entry.IdentityInjection.JSONMetadata
-				// Customizable JSONMetadata reuses the same provider-
-				// record fields HeaderPair uses — IdentityHeaderUserID
-				// becomes the JSON key for the user dimension, and
-				// IdentityHeaderGroups becomes the JSON key for groups.
-				// Empty operator value is honored as "skip this key";
-				// applyJSONMetadata already drops keys with empty
-				// names. Header itself is catalog-owned (e.g.
-				// cf-aig-metadata) — operators only override the keys
-				// inside the JSON, not the wire header that carries it.
-				userKey := jm.UserKey
-				groupsKey := jm.GroupsKey
-				if jm.Customizable {
-					userKey = p.IdentityHeaderUserID
-					groupsKey = p.IdentityHeaderGroups
-				}
-				if jm.Header != "" {
-					rule.JSONMetadata = &identityInjectJSONMetadata{
-						Header:         jm.Header,
-						UserKey:        userKey,
-						GroupsKey:      groupsKey,
-						MaxValueLength: jm.MaxValueLength,
-					}
-				}
-			}
-		}
-		// Extra catalog-declared static headers (e.g. Portkey config
-		// id). Only emit entries whose value the operator has filled
-		// in on the provider record; missing/empty values are no-ops.
-		for _, h := range entry.ExtraHeaders {
-			if h.Name == "" {
-				continue
-			}
-			v := strings.TrimSpace(p.ExtraValues[h.Name])
-			if v == "" {
-				continue
-			}
-			rule.ExtraHeaders = append(rule.ExtraHeaders, identityInjectExtraHeader{
-				Name:  h.Name,
-				Value: v,
-			})
-		}
-		// If this provider would emit nothing, skip it entirely so
-		// the middleware doesn't carry an inert rule for it.
-		if rule.HeaderPair == nil && rule.JSONMetadata == nil && len(rule.ExtraHeaders) == 0 {
+		rule, ok := buildIdentityInjectRule(p, entry)
+		if !ok {
 			continue
 		}
 		cfg.Providers = append(cfg.Providers, rule)
@@ -645,6 +569,102 @@ func buildIdentityInjectConfigJSON(providers []*types.Provider, groupIndex map[s
 		return nil, fmt.Errorf("marshal llm_identity_inject middleware config: %w", err)
 	}
 	return out, nil
+}
+
+// buildIdentityInjectRule assembles the injection rule for one provider
+// from its record and catalog entry. The second return is false when the
+// provider would emit nothing, so the caller can skip it entirely rather
+// than carry an inert rule for it.
+func buildIdentityInjectRule(p *types.Provider, entry catalog.Provider) (identityInjectProvider, bool) {
+	rule := identityInjectProvider{ProviderID: p.ID}
+	// Identity-stamping shape (one of HeaderPair / JSONMetadata). Skip the
+	// shape silently when the catalog entry doesn't declare one — extras
+	// can still apply, see below.
+	if entry.IdentityInjection != nil {
+		switch {
+		case entry.IdentityInjection.HeaderPair != nil:
+			rule.HeaderPair = buildIdentityHeaderPair(p, entry.IdentityInjection.HeaderPair)
+		case entry.IdentityInjection.JSONMetadata != nil:
+			rule.JSONMetadata = buildIdentityJSONMetadata(p, entry.IdentityInjection.JSONMetadata)
+		}
+	}
+	rule.ExtraHeaders = buildIdentityExtraHeaders(p, entry.ExtraHeaders)
+	if rule.HeaderPair == nil && rule.JSONMetadata == nil && len(rule.ExtraHeaders) == 0 {
+		return identityInjectProvider{}, false
+	}
+	return rule, true
+}
+
+// buildIdentityHeaderPair resolves the header-pair injection shape,
+// returning nil when nothing would be stamped. For Customizable shapes
+// (Bifrost today) the wire header names come from the provider record
+// verbatim; the catalog values are placeholder defaults shown by the
+// dashboard, not authoritative. Empty operator value disables stamping
+// for that dimension — applyHeaderPair already no-ops on empty header
+// names. The body-inject flags stay catalog-owned because Customizable
+// today only applies to gateways that read identity from headers (the
+// flags would be no-ops anyway).
+func buildIdentityHeaderPair(p *types.Provider, hp *catalog.HeaderPairInjection) *identityInjectHeaderPair {
+	userHeader := hp.EndUserIDHeader
+	tagsHeader := hp.TagsHeader
+	if hp.Customizable {
+		userHeader = p.IdentityHeaderUserID
+		tagsHeader = p.IdentityHeaderGroups
+	}
+	if userHeader == "" && tagsHeader == "" && !hp.TagsInBody && !hp.EndUserIDInBody {
+		return nil
+	}
+	return &identityInjectHeaderPair{
+		EndUserIDHeader: userHeader,
+		TagsHeader:      tagsHeader,
+		TagsInBody:      hp.TagsInBody,
+		EndUserIDInBody: hp.EndUserIDInBody,
+	}
+}
+
+// buildIdentityJSONMetadata resolves the JSON-metadata injection shape,
+// returning nil when the catalog entry carries no header. Customizable
+// JSONMetadata reuses the same provider-record fields HeaderPair uses —
+// IdentityHeaderUserID becomes the JSON key for the user dimension, and
+// IdentityHeaderGroups becomes the JSON key for groups. Empty operator
+// value is honored as "skip this key"; applyJSONMetadata already drops
+// keys with empty names. Header itself is catalog-owned (e.g.
+// cf-aig-metadata) — operators only override the keys inside the JSON,
+// not the wire header that carries it.
+func buildIdentityJSONMetadata(p *types.Provider, jm *catalog.JSONMetadataInjection) *identityInjectJSONMetadata {
+	if jm.Header == "" {
+		return nil
+	}
+	userKey := jm.UserKey
+	groupsKey := jm.GroupsKey
+	if jm.Customizable {
+		userKey = p.IdentityHeaderUserID
+		groupsKey = p.IdentityHeaderGroups
+	}
+	return &identityInjectJSONMetadata{
+		Header:         jm.Header,
+		UserKey:        userKey,
+		GroupsKey:      groupsKey,
+		MaxValueLength: jm.MaxValueLength,
+	}
+}
+
+// buildIdentityExtraHeaders collects catalog-declared static headers (e.g.
+// Portkey config id), emitting only entries whose value the operator has
+// filled in on the provider record; missing/empty values are no-ops.
+func buildIdentityExtraHeaders(p *types.Provider, extras []catalog.ExtraHeader) []identityInjectExtraHeader {
+	var out []identityInjectExtraHeader
+	for _, h := range extras {
+		if h.Name == "" {
+			continue
+		}
+		v := strings.TrimSpace(p.ExtraValues[h.Name])
+		if v == "" {
+			continue
+		}
+		out = append(out, identityInjectExtraHeader{Name: h.Name, Value: v})
+	}
+	return out
 }
 
 // buildMiddlewareChain assembles the per-target middleware chain that
@@ -1023,28 +1043,7 @@ func mergeGuardrails(policies []*types.Policy, byID map[string]*types.Guardrail)
 			if !ok || g == nil {
 				continue
 			}
-			if g.Checks.ModelAllowlist.Enabled {
-				allowlistEnabled = true
-				for _, m := range g.Checks.ModelAllowlist.Models {
-					if m != "" {
-						allowlist[m] = struct{}{}
-					}
-				}
-			}
-			if g.Checks.PromptCapture.Enabled {
-				merged.PromptCapture.Enabled = true
-				if g.Checks.PromptCapture.RedactPii {
-					merged.PromptCapture.RedactPii = true
-				}
-			}
-			// TokenLimits, Budget, and Retention have moved off
-			// guardrails. Token and budget caps now live on the
-			// Policy itself (Policy.Limits); retention will move to
-			// account-level Settings. The proxy still consumes
-			// MergedTokenLimits/MergedBudget/MergedRetention from
-			// this struct for backwards compatibility, but they
-			// remain at zero/disabled until the new Policy.Limits
-			// merge is wired in by the enforcement track.
+			mergeGuardrail(g, &merged, allowlist, &allowlistEnabled)
 		}
 	}
 
@@ -1056,4 +1055,29 @@ func mergeGuardrails(policies []*types.Policy, byID map[string]*types.Guardrail)
 		sort.Strings(merged.ModelAllowlist)
 	}
 	return merged
+}
+
+// mergeGuardrail folds a single guardrail's enabled checks into the
+// running merge: model-allowlist models join the shared set (and flip
+// allowlistEnabled), and prompt-capture / redact-pii stick once any
+// enabling guardrail turns them on.
+//
+// TokenLimits, Budget, and Retention have moved off guardrails — token
+// and budget caps now live on the Policy itself (Policy.Limits) and
+// retention moves to account-level Settings — so they are not merged here.
+func mergeGuardrail(g *types.Guardrail, merged *MergedGuardrails, allowlist map[string]struct{}, allowlistEnabled *bool) {
+	if g.Checks.ModelAllowlist.Enabled {
+		*allowlistEnabled = true
+		for _, m := range g.Checks.ModelAllowlist.Models {
+			if m != "" {
+				allowlist[m] = struct{}{}
+			}
+		}
+	}
+	if g.Checks.PromptCapture.Enabled {
+		merged.PromptCapture.Enabled = true
+		if g.Checks.PromptCapture.RedactPii {
+			merged.PromptCapture.RedactPii = true
+		}
+	}
 }
