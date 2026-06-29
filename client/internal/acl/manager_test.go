@@ -1,6 +1,7 @@
 package acl
 
 import (
+	"fmt"
 	"net/netip"
 	"testing"
 
@@ -551,6 +552,58 @@ func TestApplyFilteringSkipsUnchangedConfig(t *testing.T) {
 	acl.ApplyFiltering(networkMap, true)
 	assert.NotEqual(t, changedHash, acl.previousConfigHash,
 		"flipping dnsRouteFeatureFlag must force a re-apply (hash changed)")
+}
+
+func buildNetworkMap(peerRules, routeRules int) *mgmProto.NetworkMap {
+	nm := &mgmProto.NetworkMap{
+		FirewallRulesIsEmpty:      peerRules == 0,
+		RoutesFirewallRulesIsEmpty: routeRules == 0,
+	}
+	for i := range peerRules {
+		nm.FirewallRules = append(nm.FirewallRules, &mgmProto.FirewallRule{
+			PeerIP:    fmt.Sprintf("10.%d.%d.%d", i>>16&0xff, i>>8&0xff, i&0xff),
+			Direction: mgmProto.RuleDirection_IN,
+			Action:    mgmProto.RuleAction_ACCEPT,
+			Protocol:  mgmProto.RuleProtocol_TCP,
+			Port:      fmt.Sprintf("%d", 1024+i%64511),
+		})
+	}
+	for i := range routeRules {
+		nm.RoutesFirewallRules = append(nm.RoutesFirewallRules, &mgmProto.RouteFirewallRule{
+			Destination:  fmt.Sprintf("192.168.%d.0/24", i%256),
+			SourceRanges: []string{fmt.Sprintf("10.0.%d.0/24", i%256)},
+			Action:       mgmProto.RuleAction_ACCEPT,
+			Protocol:     mgmProto.RuleProtocol_ALL,
+		})
+	}
+	return nm
+}
+
+func BenchmarkFirewallConfigHash_Small(b *testing.B) {
+	d := &DefaultManager{}
+	nm := buildNetworkMap(10, 5)
+	b.ResetTimer()
+	for b.Loop() {
+		_, _ = d.firewallConfigHash(nm, false)
+	}
+}
+
+func BenchmarkFirewallConfigHash_Medium(b *testing.B) {
+	d := &DefaultManager{}
+	nm := buildNetworkMap(100, 50)
+	b.ResetTimer()
+	for b.Loop() {
+		_, _ = d.firewallConfigHash(nm, false)
+	}
+}
+
+func BenchmarkFirewallConfigHash_Large(b *testing.B) {
+	d := &DefaultManager{}
+	nm := buildNetworkMap(1000, 200)
+	b.ResetTimer()
+	for b.Loop() {
+		_, _ = d.firewallConfigHash(nm, false)
+	}
 }
 
 // TestFirewallConfigHashDeterministic verifies the hash is stable for equal
