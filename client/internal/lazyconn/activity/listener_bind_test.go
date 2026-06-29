@@ -45,10 +45,6 @@ type MockWGIfaceBind struct {
 	endpointMgr *mockEndpointManager
 }
 
-func (m *MockWGIfaceBind) RemovePeer(string) error {
-	return nil
-}
-
 func (m *MockWGIfaceBind) UpdatePeer(string, []netip.Prefix, time.Duration, *net.UDPAddr, *wgtypes.Key) error {
 	return nil
 }

@@ -26,10 +26,6 @@ func (m *MocPeer) ConnID() peerid.ConnID {
 type MocWGIface struct {
 }
 
-func (m MocWGIface) RemovePeer(string) error {
-	return nil
-}
-
 func (m MocWGIface) UpdatePeer(string, []netip.Prefix, time.Duration, *net.UDPAddr, *wgtypes.Key) error {
 	return nil
 }
