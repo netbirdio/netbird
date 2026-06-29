@@ -34,7 +34,16 @@ import (
 	"github.com/netbirdio/netbird/version"
 )
 
-const remoteJobsMinVer = "0.64.0"
+type peerExpirationReason string
+
+const (
+	remoteJobsMinVer = "0.64.0"
+
+	peerExpirationLoginExpired     peerExpirationReason = "Login session expired"
+	peerExpirationInactivity       peerExpirationReason = "Disconnected beyond the inactivity timeout"
+	peerExpirationValidationFailed peerExpirationReason = "Failed integration validation"
+	peerExpirationUserBlocked      peerExpirationReason = "Owning user was blocked"
+)
 
 // GetPeers returns peers visible to the user within an account.
 // Users with "peers:read" see all peers. Otherwise, users see only their own peers, or none if restricted by account settings.
