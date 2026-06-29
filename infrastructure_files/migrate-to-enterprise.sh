@@ -423,9 +423,6 @@ init_migration() {
   check_yq
   check_openssl
 
-  require_eula_acceptance
-  NETBIRD_EULA_ACCEPTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-
   COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.yml}"
 
   if [[ ! -f "$COMPOSE_FILE" ]]; then
@@ -477,6 +474,9 @@ init_migration() {
   echo "  Data volume:      $DATA_VOLUME"
   echo "  Network:          $COMPOSE_NETWORK"
   echo ""
+
+  require_eula_acceptance
+  NETBIRD_EULA_ACCEPTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
   local proceed
   proceed=$(read_yes_no "Proceed with migration?" "y")
