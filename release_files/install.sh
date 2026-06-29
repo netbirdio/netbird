@@ -54,7 +54,7 @@ get_release() {
 
 download_release_binary() {
     VERSION=$(get_release "$NETBIRD_RELEASE")
-    APP_TYPE=$1
+    APP_TYPE="$1"
 	echo "Using the following tag name for binary installation: ${TAG_NAME}"
     BASE_URL="https://github.com/${OWNER}/${REPO}/releases/download"
     BINARY_BASE_NAME="${VERSION#v}_${OS_TYPE}_${ARCH}.tar.gz"
