@@ -32,7 +32,7 @@ require (
 	fyne.io/fyne/v2 v2.7.0
 	fyne.io/systray v1.12.1-0.20260116214250-81f8e1a496f9
 	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3
-	github.com/DeRuina/timberjack v1.4.2
+	github.com/DeRuina/timberjack v1.4.5
 	github.com/awnumar/memguard v0.23.0
 	github.com/aws/aws-sdk-go-v2 v1.38.3
 	github.com/aws/aws-sdk-go-v2/config v1.31.6
