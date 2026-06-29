@@ -409,7 +409,12 @@ func (c *GrpcClient) encryptMessage(msg *proto.Message) (*proto.EncryptedMessage
 
 // Send sends a message to the remote Peer through the Signal Exchange.
 func (c *GrpcClient) Send(msg *proto.Message) error {
+	return c.send(c.ctx, msg)
+}
 
+// send delivers a message deriving per-attempt timeouts from parentCtx, so a
+// caller can abort an in-flight send by cancelling that context.
+func (c *GrpcClient) send(parentCtx context.Context, msg *proto.Message) error {
 	if !c.Ready() {
 		return fmt.Errorf("no connection to signal")
 	}
@@ -425,7 +430,7 @@ func (c *GrpcClient) Send(msg *proto.Message) error {
 		if attempt > 1 {
 			attemptTimeout = time.Duration(attempt) * 5 * time.Second
 		}
-		ctx, cancel := context.WithTimeout(c.ctx, attemptTimeout)
+		ctx, cancel := context.WithTimeout(parentCtx, attemptTimeout)
 
 		_, err = c.realClient.Send(ctx, encryptedMessage)
 
@@ -495,7 +500,7 @@ func (c *GrpcClient) watchReceiveStream(ctx context.Context, cancelStream contex
 			}
 
 			if probeSentAt.IsZero() {
-				if err := c.sendReceiveProbe(); err != nil {
+				if err := c.sendReceiveProbe(ctx); err != nil {
 					log.Debugf("failed to send signal receive probe: %v", err)
 				}
 				probeSentAt = time.Now()
@@ -504,11 +509,13 @@ func (c *GrpcClient) watchReceiveStream(ctx context.Context, cancelStream contex
 	}
 }
 
-// sendReceiveProbe sends a self-addressed heartbeat. The Signal server routes it
-// back to this client, exercising the exact receive path the watchdog guards.
-func (c *GrpcClient) sendReceiveProbe() error {
+// sendReceiveProbe sends a self-addressed heartbeat bound to ctx, so cancelStream
+// aborts an in-flight probe instead of leaving the watchdog blocked on send timeouts.
+// The Signal server routes it back to this client, exercising the exact receive
+// path the watchdog guards.
+func (c *GrpcClient) sendReceiveProbe(ctx context.Context) error {
 	self := c.key.PublicKey().String()
-	return c.Send(&proto.Message{
+	return c.send(ctx, &proto.Message{
 		Key:       self,
 		RemoteKey: self,
 		Body:      &proto.Body{Type: proto.Body_HEARTBEAT},
