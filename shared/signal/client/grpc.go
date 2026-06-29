@@ -541,6 +541,9 @@ func (c *GrpcClient) receive(stream proto.SignalExchange_ConnectStreamClient) er
 		if err := c.decryptionWorker.AddMsg(c.ctx, msg); err != nil {
 			log.Errorf("failed to add message to decryption worker: %v", err)
 		}
+		// Refresh liveness before clearing the flag so the window between here and
+		// the next Recv does not read a stale timestamp as a dead stream.
+		c.markReceived()
 		c.receiveHandoffBlocked.Store(false)
 	}
 }
