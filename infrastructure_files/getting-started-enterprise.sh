@@ -9,7 +9,7 @@ set -o pipefail
 
 SED_STRIP_PADDING='s/=//g'
 
-NETBIRD_EULA_URL="https://trust.netbird.io/?tab=reports-and-documents"
+NETBIRD_EULA_URL="https://netbird.io/self-hosted-EULA"
 
 check_docker_compose() {
   if command -v docker-compose &> /dev/null; then
@@ -150,8 +150,8 @@ require_eula_acceptance() {
   ──────────────────────────────────────────────────────────────────────
   NetBird's on-premise software is commercial software, licensed and not
   sold. Your installation, deployment and use are governed by the NetBird
-  On-Premise End User License Agreement (the "EULA"). Please read it in
-  full before continuing — open the "On-Premise EULA" document here:
+  On-Premise End User License Agreement (the "EULA"). Please read the EULA
+  in full before continuing:
 
       ${NETBIRD_EULA_URL}
 
