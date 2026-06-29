@@ -143,13 +143,6 @@ type Conn struct {
 	pendingFirstPacket []byte
 }
 
-// SetPendingFirstPacket stashes a packet to be replayed once the connection is established.
-func (conn *Conn) SetPendingFirstPacket(b []byte) {
-	conn.mu.Lock()
-	conn.pendingFirstPacket = slices.Clone(b)
-	conn.mu.Unlock()
-}
-
 // injectPendingFirstPacket replays the captured handshake through the proxy if present, else
 // directly through the ICE conn. The packet is cleared only after a successful write, so a failed
 // or transport-less attempt leaves it available for a later reinjection. Caller must hold conn.mu.
@@ -213,6 +206,16 @@ func NewConn(config ConnConfig, services ServiceDependencies) (*Conn, error) {
 // It will try to establish a connection using ICE and in parallel with relay. The higher priority connection type will
 // be used.
 func (conn *Conn) Open(engineCtx context.Context) error {
+	return conn.open(engineCtx, nil)
+}
+
+// OpenWithFirstPacket opens the connection like Open and stashes firstPacket to be replayed once
+// the real transport is established. The packet is retained only on a successful open.
+func (conn *Conn) OpenWithFirstPacket(engineCtx context.Context, firstPacket []byte) error {
+	return conn.open(engineCtx, firstPacket)
+}
+
+func (conn *Conn) open(engineCtx context.Context, firstPacket []byte) error {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
@@ -268,6 +271,9 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 		defer conn.wg.Done()
 		conn.guard.Start(conn.ctx, conn.onGuardEvent)
 	}()
+	if len(firstPacket) > 0 {
+		conn.pendingFirstPacket = slices.Clone(firstPacket)
+	}
 	conn.opened = true
 	return nil
 }

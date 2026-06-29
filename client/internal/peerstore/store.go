@@ -94,14 +94,9 @@ func (s *Store) PeerConnOpenWithFirstPacket(ctx context.Context, pubKey string, 
 	if !ok {
 		return
 	}
-	if len(firstPacket) > 0 {
-		p.SetPendingFirstPacket(firstPacket)
-	}
 	// this can be blocked because of the connect open limiter semaphore
-	if err := p.Open(ctx); err != nil {
+	if err := p.OpenWithFirstPacket(ctx, firstPacket); err != nil {
 		p.Log.Errorf("failed to open peer connection: %v", err)
-		// Drop the stashed packet so a later open does not replay a stale handshake.
-		p.SetPendingFirstPacket(nil)
 	}
 }
 
