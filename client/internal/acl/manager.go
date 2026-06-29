@@ -73,7 +73,7 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap, dnsRout
 	if err != nil {
 		log.Errorf("unable to hash firewall configuration, applying unconditionally: %v", err)
 	} else if d.hasAppliedConfig && d.previousConfigHash == hash {
-		log.Debugf("not applying the firewall configuration update as there is nothing new")
+		log.Debugf("not applying the firewall configuration update as there is nothing new (hash: %d)", hash)
 		return
 	}
 
