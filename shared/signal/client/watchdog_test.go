@@ -74,7 +74,7 @@ func TestReceiveProbeRoundTrips(t *testing.T) {
 		t.Fatal("signal stream did not connect within timeout")
 	}
 
-	require.NoError(t, client.sendReceiveProbe())
+	require.NoError(t, client.sendReceiveProbe(ctx))
 
 	select {
 	case <-received:
