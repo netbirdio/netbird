@@ -17,6 +17,8 @@ const combinedConfigYAML = `server:
   logFile: "console"
   authSecret: "e2e-relay-secret"
   dataDir: "/nb/data"
+  disableAnonymousMetrics: true
+  disableGeoliteUpdate: true
   auth:
     issuer: "%s"
   store:

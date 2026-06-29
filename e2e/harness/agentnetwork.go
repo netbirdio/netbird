@@ -79,6 +79,11 @@ func (c *Combined) CreatePolicy(ctx context.Context, req api.AgentNetworkPolicyR
 	return anRequest[api.AgentNetworkPolicy](ctx, c, http.MethodPost, "/api/agent-network/policies", req)
 }
 
+// UpdatePolicy replaces a policy by id.
+func (c *Combined) UpdatePolicy(ctx context.Context, id string, req api.AgentNetworkPolicyRequest) (api.AgentNetworkPolicy, error) {
+	return anRequest[api.AgentNetworkPolicy](ctx, c, http.MethodPut, "/api/agent-network/policies/"+id, req)
+}
+
 // DeletePolicy removes a policy by id.
 func (c *Combined) DeletePolicy(ctx context.Context, id string) error {
 	return anDelete(ctx, c, "/api/agent-network/policies/"+id)
@@ -98,4 +103,10 @@ func (c *Combined) UpdateSettings(ctx context.Context, req api.AgentNetworkSetti
 // ListConsumption returns the account's consumption rows (possibly empty).
 func (c *Combined) ListConsumption(ctx context.Context) ([]api.AgentNetworkConsumption, error) {
 	return anRequest[[]api.AgentNetworkConsumption](ctx, c, http.MethodGet, "/api/agent-network/consumption", nil)
+}
+
+// ListAccessLogs returns the account's agent-network access-log page (the
+// flattened per-request rows the proxy ships and management ingests).
+func (c *Combined) ListAccessLogs(ctx context.Context) (api.AgentNetworkAccessLogsResponse, error) {
+	return anRequest[api.AgentNetworkAccessLogsResponse](ctx, c, http.MethodGet, "/api/agent-network/access-logs", nil)
 }

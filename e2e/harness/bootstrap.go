@@ -21,7 +21,7 @@ func (c *Combined) Bootstrap(ctx context.Context) (string, error) {
 
 	createPAT := true
 	expireDays := 1
-	resp, err := setupClient.Instance.Setup(ctx, api.PostApiSetupJSONRequestBody{
+	resp, err := setupClient.Instance.Setup(ctx, api.PostApiSetupJSONRequestBody{ //nolint:gosec // static throwaway test credentials
 		Email:       "admin@netbird.test",
 		Password:    "Netbird-e2e-Passw0rd!",
 		Name:        "E2E Admin",
