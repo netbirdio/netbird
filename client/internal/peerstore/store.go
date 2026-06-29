@@ -81,7 +81,16 @@ func (s *Store) PeerConn(pubKey string) (*peer.Conn, bool) {
 }
 
 func (s *Store) PeerConnOpen(ctx context.Context, pubKey string) {
-	s.PeerConnOpenWithFirstPacket(ctx, pubKey, nil)
+	s.peerConnsMu.RLock()
+	defer s.peerConnsMu.RUnlock()
+
+	p, ok := s.peerConns[pubKey]
+	if !ok {
+		return
+	}
+	if err := p.Open(ctx); err != nil {
+		p.Log.Errorf("failed to open peer connection: %v", err)
+	}
 }
 
 // PeerConnOpenWithFirstPacket opens the peer connection and stashes a first packet to be
@@ -94,7 +103,6 @@ func (s *Store) PeerConnOpenWithFirstPacket(ctx context.Context, pubKey string, 
 	if !ok {
 		return
 	}
-	// this can be blocked because of the connect open limiter semaphore
 	if err := p.OpenWithFirstPacket(ctx, firstPacket); err != nil {
 		p.Log.Errorf("failed to open peer connection: %v", err)
 	}
