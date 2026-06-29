@@ -116,14 +116,16 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap, dnsRout
 // firewall state, so an identical hash means an identical resulting ruleset.
 func (d *DefaultManager) firewallConfigHash(networkMap *mgmProto.NetworkMap, dnsRouteFeatureFlag bool) (uint64, error) {
 	return hashstructure.Hash(struct {
-		PeerRules           []*mgmProto.FirewallRule
-		PeerRulesIsEmpty    bool
-		RouteRules          []*mgmProto.RouteFirewallRule
-		DNSRouteFeatureFlag bool
+		PeerRules            []*mgmProto.FirewallRule
+		PeerRulesIsEmpty     bool
+		RouteRules           []*mgmProto.RouteFirewallRule
+		RouteRulesIsEmpty    bool
+		DNSRouteFeatureFlag  bool
 	}{
 		PeerRules:           networkMap.GetFirewallRules(),
 		PeerRulesIsEmpty:    networkMap.GetFirewallRulesIsEmpty(),
 		RouteRules:          networkMap.GetRoutesFirewallRules(),
+		RouteRulesIsEmpty:   networkMap.GetRoutesFirewallRulesIsEmpty(),
 		DNSRouteFeatureFlag: dnsRouteFeatureFlag,
 	}, hashstructure.FormatV2, &hashstructure.HashOptions{
 		ZeroNil:         true,
