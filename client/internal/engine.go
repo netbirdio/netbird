@@ -1343,21 +1343,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		log.Errorf("failed to update lazy connection feature flag: %v", err)
 	}
 
-	if e.firewall != nil {
-		if localipfw, ok := e.firewall.(localIpUpdater); ok {
-			if err := localipfw.UpdateLocalIPs(); err != nil {
-				log.Errorf("failed to update local IPs: %v", err)
-			}
-		}
-
-		// If we got empty rules list but management did not set the networkMap.FirewallRulesIsEmpty flag,
-		// then the mgmt server is older than the client, and we need to allow all traffic for routes.
-		// This needs to be toggled before applying routes.
-		isLegacy := len(networkMap.RoutesFirewallRules) == 0 && !networkMap.RoutesFirewallRulesIsEmpty
-		if err := e.firewall.SetLegacyManagement(isLegacy); err != nil {
-			log.Errorf("failed to set legacy management flag: %v", err)
-		}
-	}
+	e.updateFirewall(networkMap)
 
 	protoDNSConfig := networkMap.GetDNSConfig()
 	if protoDNSConfig == nil {
@@ -1400,6 +1386,46 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		log.Errorf("failed to update forward rules, err: %v", err)
 	}
 
+	remotePeers, err := e.updateNetworkPeers(networkMap)
+	if err != nil {
+		return err
+	}
+
+	// must set the exclude list after the peers are added. Without it the manager can not figure out the peers parameters from the store
+	excludedLazyPeers := e.toExcludedLazyPeers(forwardingRules, remotePeers)
+	e.connMgr.SetExcludeList(e.ctx, excludedLazyPeers)
+
+	e.networkSerial = serial
+
+	return nil
+}
+
+// updateFirewall applies firewall-related state from the network map: refreshing
+// local IPs and toggling legacy management mode before routes are applied.
+func (e *Engine) updateFirewall(networkMap *mgmProto.NetworkMap) {
+	if e.firewall == nil {
+		return
+	}
+
+	if localipfw, ok := e.firewall.(localIpUpdater); ok {
+		if err := localipfw.UpdateLocalIPs(); err != nil {
+			log.Errorf("failed to update local IPs: %v", err)
+		}
+	}
+
+	// If we got empty rules list but management did not set the networkMap.FirewallRulesIsEmpty flag,
+	// then the mgmt server is older than the client, and we need to allow all traffic for routes.
+	// This needs to be toggled before applying routes.
+	isLegacy := len(networkMap.RoutesFirewallRules) == 0 && !networkMap.RoutesFirewallRulesIsEmpty
+	if err := e.firewall.SetLegacyManagement(isLegacy); err != nil {
+		log.Errorf("failed to set legacy management flag: %v", err)
+	}
+}
+
+// updateNetworkPeers reconciles the remote peer set from the network map (removing,
+// modifying and adding peers, and refreshing SSH state) and returns the remote peers
+// with our own peer filtered out.
+func (e *Engine) updateNetworkPeers(networkMap *mgmProto.NetworkMap) ([]*mgmProto.RemotePeerConfig, error) {
 	log.Debugf("got peers update from Management Service, total peers to connect to = %d", len(networkMap.GetRemotePeers()))
 
 	e.updateOfflinePeers(networkMap.GetOfflinePeers())
@@ -1417,43 +1443,32 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	if networkMap.GetRemotePeersIsEmpty() {
 		err := e.removeAllPeers()
 		e.statusRecorder.FinishPeerListModifications()
-		if err != nil {
-			return err
-		}
-	} else {
-		err := e.removePeers(remotePeers)
-		if err != nil {
-			return err
-		}
-
-		err = e.modifyPeers(remotePeers)
-		if err != nil {
-			return err
-		}
-
-		err = e.addNewPeers(remotePeers)
-		if err != nil {
-			return err
-		}
-
-		e.statusRecorder.FinishPeerListModifications()
-
-		e.updatePeerSSHHostKeys(remotePeers)
-
-		if err := e.updateSSHClientConfig(remotePeers); err != nil {
-			log.Warnf("failed to update SSH client config: %v", err)
-		}
-
-		e.updateSSHServerAuth(networkMap.GetSshAuth())
+		return remotePeers, err
 	}
 
-	// must set the exclude list after the peers are added. Without it the manager can not figure out the peers parameters from the store
-	excludedLazyPeers := e.toExcludedLazyPeers(forwardingRules, remotePeers)
-	e.connMgr.SetExcludeList(e.ctx, excludedLazyPeers)
+	if err := e.removePeers(remotePeers); err != nil {
+		return remotePeers, err
+	}
 
-	e.networkSerial = serial
+	if err := e.modifyPeers(remotePeers); err != nil {
+		return remotePeers, err
+	}
 
-	return nil
+	if err := e.addNewPeers(remotePeers); err != nil {
+		return remotePeers, err
+	}
+
+	e.statusRecorder.FinishPeerListModifications()
+
+	e.updatePeerSSHHostKeys(remotePeers)
+
+	if err := e.updateSSHClientConfig(remotePeers); err != nil {
+		log.Warnf("failed to update SSH client config: %v", err)
+	}
+
+	e.updateSSHServerAuth(networkMap.GetSshAuth())
+
+	return remotePeers, nil
 }
 
 func toDNSFeatureFlag(networkMap *mgmProto.NetworkMap) bool {
