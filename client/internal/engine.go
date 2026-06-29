@@ -895,6 +895,16 @@ func (e *Engine) handleAutoUpdateVersion(autoUpdateSettings *mgmProto.AutoUpdate
 	e.updateManager.SetVersion(autoUpdateSettings.Version, autoUpdateSettings.AlwaysUpdate)
 }
 
+// phase times a sync sub-phase: it returns a function that records the elapsed
+// duration when called. Starting the timer at the call site keeps inter-phase
+// glue code out of the measurement.
+func (e *Engine) phase(name string) func() {
+	start := time.Now()
+	return func() {
+		e.clientMetrics.RecordSyncPhase(e.ctx, name, time.Since(start))
+	}
+}
+
 func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	started := time.Now()
 	defer func() {
@@ -914,7 +924,10 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		e.handleAutoUpdateVersion(update.NetworkMap.PeerConfig.AutoUpdate)
 	}
 
-	if err := e.updateNetbirdConfig(update.GetNetbirdConfig()); err != nil {
+	done := e.phase("netbird_config")
+	err := e.updateNetbirdConfig(update.GetNetbirdConfig())
+	done()
+	if err != nil {
 		return err
 	}
 
@@ -928,11 +941,16 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		return nil
 	}
 
-	if err := e.updateChecksIfNew(update.Checks); err != nil {
+	done = e.phase("checks")
+	err = e.updateChecksIfNew(update.Checks)
+	done()
+	if err != nil {
 		return err
 	}
 
+	done = e.phase("persist")
 	e.persistSyncResponse(update)
+	done()
 
 	// only apply new changes and ignore old ones
 	if err := e.updateNetworkMap(nm); err != nil {
@@ -1066,7 +1084,7 @@ func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 	}
 	e.checks = checks
 
-	info, err := system.GetInfoWithChecks(e.ctx, checks)
+	info, err := system.GetInfoWithChecks(e.ctx, checks, e.overlayAddresses()...)
 	if err != nil {
 		log.Warnf("failed to get system info with checks: %v", err)
 		info = system.GetInfo(e.ctx)
@@ -1095,6 +1113,20 @@ func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 		return err
 	}
 	return nil
+}
+
+// overlayAddresses returns our own WireGuard overlay address (v4 and v6) so it
+// can be excluded from the reported network addresses; the interface coming and
+// going otherwise churns the peer meta on the management server.
+func (e *Engine) overlayAddresses() []netip.Addr {
+	var ips []netip.Addr
+	if e.config.WgAddr.IP.IsValid() {
+		ips = append(ips, e.config.WgAddr.IP)
+	}
+	if e.config.WgAddr.HasIPv6() {
+		ips = append(ips, e.config.WgAddr.IPv6)
+	}
+	return ips
 }
 
 func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
@@ -1240,7 +1272,7 @@ func (e *Engine) receiveManagementEvents() {
 	e.shutdownWg.Add(1)
 	go func() {
 		defer e.shutdownWg.Done()
-		info, err := system.GetInfoWithChecks(e.ctx, e.checks)
+		info, err := system.GetInfoWithChecks(e.ctx, e.checks, e.overlayAddresses()...)
 		if err != nil {
 			log.Warnf("failed to get system info with checks: %v", err)
 			info = system.GetInfo(e.ctx)
@@ -1357,13 +1389,16 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 
 	dnsConfig := toDNSConfig(protoDNSConfig, e.wgInterface.Address())
 
+	done := e.phase("dns_server")
 	if err := e.dnsServer.UpdateDNSServer(serial, dnsConfig); err != nil {
 		log.Errorf("failed to update dns server, err: %v", err)
 	}
+	done()
 
 	e.routeManager.SetDNSForwarderPort(dnsConfig.ForwarderPort)
 
 	// apply routes first, route related actions might depend on routing being enabled
+	done = e.phase("routes_classify")
 	routes := toRoutes(networkMap.GetRoutes())
 	serverRoutes, clientRoutes := e.routeManager.ClassifyRoutes(routes)
 
@@ -1372,29 +1407,60 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		e.connMgr.UpdateRouteHAMap(clientRoutes)
 		log.Debugf("updated lazy connection manager with %d HA groups", len(clientRoutes))
 	}
+	done()
 
+	done = e.phase("routes_apply")
 	dnsRouteFeatureFlag := toDNSFeatureFlag(networkMap)
 	if err := e.routeManager.UpdateRoutes(serial, serverRoutes, clientRoutes, dnsRouteFeatureFlag); err != nil {
 		log.Errorf("failed to update routes: %v", err)
 	}
+	done()
 
+	done = e.phase("filtering")
 	if e.acl != nil {
 		e.acl.ApplyFiltering(networkMap, dnsRouteFeatureFlag)
 	}
+	done()
 
+	done = e.phase("dns_forwarder")
 	fwdEntries := toRouteDomains(e.config.WgPrivateKey.PublicKey().String(), routes)
 	e.updateDNSForwarder(dnsRouteFeatureFlag, fwdEntries)
+	done()
 
 	// Ingress forward rules
+	done = e.phase("forward_rules")
 	forwardingRules, err := e.updateForwardRules(networkMap.GetForwardingRules())
 	if err != nil {
 		log.Errorf("failed to update forward rules, err: %v", err)
 	}
+	done()
 
 	log.Debugf("got peers update from Management Service, total peers to connect to = %d", len(networkMap.GetRemotePeers()))
 
+	done = e.phase("offline_peers")
 	e.updateOfflinePeers(networkMap.GetOfflinePeers())
+	done()
 
+	remotePeers, err := e.reconcilePeers(networkMap)
+	if err != nil {
+		return err
+	}
+
+	// must set the exclude list after the peers are added. Without it the manager can not figure out the peers parameters from the store
+	done = e.phase("lazy_exclude")
+	excludedLazyPeers := e.toExcludedLazyPeers(forwardingRules, remotePeers)
+	e.connMgr.SetExcludeList(e.ctx, excludedLazyPeers)
+	done()
+
+	e.networkSerial = serial
+
+	return nil
+}
+
+// reconcilePeers applies the remote peer list from the network map (removing,
+// modifying and adding peers, then updating SSH config) and returns the remote
+// peers with our own peer filtered out, for use by later sync steps.
+func (e *Engine) reconcilePeers(networkMap *mgmProto.NetworkMap) ([]*mgmProto.RemotePeerConfig, error) {
 	// Filter out own peer from the remote peers list
 	localPubKey := e.config.WgPrivateKey.PublicKey().String()
 	remotePeers := make([]*mgmProto.RemotePeerConfig, 0, len(networkMap.GetRemotePeers()))
@@ -1409,42 +1475,43 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		err := e.removeAllPeers()
 		e.statusRecorder.FinishPeerListModifications()
 		if err != nil {
-			return err
+			return nil, err
 		}
-	} else {
-		err := e.removePeers(remotePeers)
-		if err != nil {
-			return err
-		}
-
-		err = e.modifyPeers(remotePeers)
-		if err != nil {
-			return err
-		}
-
-		err = e.addNewPeers(remotePeers)
-		if err != nil {
-			return err
-		}
-
-		e.statusRecorder.FinishPeerListModifications()
-
-		e.updatePeerSSHHostKeys(remotePeers)
-
-		if err := e.updateSSHClientConfig(remotePeers); err != nil {
-			log.Warnf("failed to update SSH client config: %v", err)
-		}
-
-		e.updateSSHServerAuth(networkMap.GetSshAuth())
+		return remotePeers, nil
 	}
 
-	// must set the exclude list after the peers are added. Without it the manager can not figure out the peers parameters from the store
-	excludedLazyPeers := e.toExcludedLazyPeers(forwardingRules, remotePeers)
-	e.connMgr.SetExcludeList(e.ctx, excludedLazyPeers)
+	done := e.phase("removed_peers")
+	err := e.removePeers(remotePeers)
+	done()
+	if err != nil {
+		return nil, err
+	}
 
-	e.networkSerial = serial
+	done = e.phase("modified_peers")
+	err = e.modifyPeers(remotePeers)
+	done()
+	if err != nil {
+		return nil, err
+	}
 
-	return nil
+	done = e.phase("added_peers")
+	err = e.addNewPeers(remotePeers)
+	done()
+	if err != nil {
+		return nil, err
+	}
+
+	e.statusRecorder.FinishPeerListModifications()
+
+	e.updatePeerSSHHostKeys(remotePeers)
+
+	if err := e.updateSSHClientConfig(remotePeers); err != nil {
+		log.Warnf("failed to update SSH client config: %v", err)
+	}
+
+	e.updateSSHServerAuth(networkMap.GetSshAuth())
+
+	return remotePeers, nil
 }
 
 func toDNSFeatureFlag(networkMap *mgmProto.NetworkMap) bool {

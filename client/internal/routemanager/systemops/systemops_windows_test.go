@@ -1,3 +1,5 @@
+//go:build windows && privileged
+
 package systemops
 
 import (
