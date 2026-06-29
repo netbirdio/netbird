@@ -29,7 +29,7 @@ func TestAddRouteFilteringReturnsExistingRule(t *testing.T) {
 	destination := fw.Network{Prefix: netip.MustParsePrefix("192.168.1.0/24")}
 
 	// Add rule first time
-	rule1, err := manager.AddRouteFiltering(
+	rule1, err := manager.AddFilterRule(
 		[]byte("policy-1"),
 		sources,
 		destination,
@@ -42,7 +42,7 @@ func TestAddRouteFilteringReturnsExistingRule(t *testing.T) {
 	require.NotNil(t, rule1)
 
 	// Add the same rule again
-	rule2, err := manager.AddRouteFiltering(
+	rule2, err := manager.AddFilterRule(
 		[]byte("policy-1"),
 		sources,
 		destination,
@@ -74,7 +74,7 @@ func TestAddRouteFilteringDifferentRulesGetDifferentIDs(t *testing.T) {
 	sources := []netip.Prefix{netip.MustParsePrefix("100.64.1.0/24")}
 
 	// Add first rule
-	rule1, err := manager.AddRouteFiltering(
+	rule1, err := manager.AddFilterRule(
 		[]byte("policy-1"),
 		sources,
 		fw.Network{Prefix: netip.MustParsePrefix("192.168.1.0/24")},
@@ -86,7 +86,7 @@ func TestAddRouteFilteringDifferentRulesGetDifferentIDs(t *testing.T) {
 	require.NoError(t, err)
 
 	// Add different rule (different destination)
-	rule2, err := manager.AddRouteFiltering(
+	rule2, err := manager.AddFilterRule(
 		[]byte("policy-2"),
 		sources,
 		fw.Network{Prefix: netip.MustParsePrefix("192.168.2.0/24")}, // Different!
@@ -115,7 +115,7 @@ func TestRouteRuleUpdateDoesNotCauseGap(t *testing.T) {
 	sources := []netip.Prefix{netip.MustParsePrefix("100.64.1.0/24")}
 	destination := fw.Network{Prefix: netip.MustParsePrefix("192.168.1.0/24")}
 
-	rule1, err := manager.AddRouteFiltering(
+	rule1, err := manager.AddFilterRule(
 		[]byte("policy-1"),
 		sources,
 		destination,
@@ -132,7 +132,7 @@ func TestRouteRuleUpdateDoesNotCauseGap(t *testing.T) {
 	require.True(t, pass, "Traffic should pass with rule in place")
 
 	// Re-add same rule (simulates network map update)
-	rule2, err := manager.AddRouteFiltering(
+	rule2, err := manager.AddFilterRule(
 		[]byte("policy-1"),
 		sources,
 		destination,
@@ -147,13 +147,66 @@ func TestRouteRuleUpdateDoesNotCauseGap(t *testing.T) {
 	// won't delete rule1 during cleanup. If IDs differed, deleting rule1
 	// would remove the only matching rule and cause a traffic gap.
 	if rule1.ID() != rule2.ID() {
-		err = manager.DeleteRouteRule(rule1)
+		err = manager.DeleteFilterRule(rule1)
 		require.NoError(t, err)
 	}
 
 	_, passAfter := manager.routeACLsPass(srcIP, dstIP, layers.LayerTypeTCP, 12345, 443)
 	assert.True(t, passAfter,
 		"Traffic should still pass after rule update - no gap should occur")
+}
+
+// TestBlockInvalidRoutedDualStack verifies that when the interface has an
+// IPv6 overlay address, blockInvalidRouted installs a block rule for both
+// the v4 and v6 WG prefixes and that routed traffic to the v6 prefix is
+// denied. The v4-only soft-skip path is covered by
+// TestBlockInvalidRoutedIdempotent, whose mock leaves IPv6Net invalid.
+func TestBlockInvalidRoutedDualStack(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	dev := mocks.NewMockDevice(ctrl)
+	dev.EXPECT().MTU().Return(1500, nil).AnyTimes()
+
+	wgNet := netip.MustParsePrefix("100.64.0.1/16")
+	wgNet6 := netip.MustParsePrefix("fd00:1234::1/64")
+
+	ifaceMock := &IFaceMock{
+		SetFilterFunc: func(device.PacketFilter) error { return nil },
+		AddressFunc: func() wgaddr.Address {
+			return wgaddr.Address{
+				IP:      wgNet.Addr(),
+				Network: wgNet,
+				IPv6:    wgNet6.Addr(),
+				IPv6Net: wgNet6,
+			}
+		},
+		GetDeviceFunc: func() *device.FilteredDevice {
+			return &device.FilteredDevice{Device: dev}
+		},
+		GetWGDeviceFunc: func() *wgdevice.Device {
+			return &wgdevice.Device{}
+		},
+	}
+
+	manager, err := Create(Config{IFace: ifaceMock, FlowLogger: flowLogger, MTU: iface.DefaultMTU})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, manager.Close(nil))
+	})
+
+	rules, err := manager.blockInvalidRouted(ifaceMock)
+	require.NoError(t, err)
+	require.Len(t, rules, 2, "dual-stack interface must produce a v4 and a v6 block rule")
+
+	manager.mutex.RLock()
+	ruleCount := len(manager.routeRules)
+	manager.mutex.RUnlock()
+	assert.Equal(t, 2, ruleCount, "should have one block rule per family")
+
+	// v6 routed traffic to the WG prefix must be denied.
+	srcIP := netip.MustParseAddr("2001:db8::1")
+	dstIP := netip.MustParseAddr("fd00:1234::50")
+	_, pass := manager.routeACLsPass(srcIP, dstIP, layers.LayerTypeTCP, 12345, 80)
+	assert.False(t, pass, "block rule should deny routed traffic to the v6 WG prefix")
 }
 
 // TestBlockInvalidRoutedIdempotent verifies that blockInvalidRouted creates
@@ -182,7 +235,7 @@ func TestBlockInvalidRoutedIdempotent(t *testing.T) {
 		},
 	}
 
-	manager, err := Create(ifaceMock, false, flowLogger, iface.DefaultMTU)
+	manager, err := Create(Config{IFace: ifaceMock, FlowLogger: flowLogger, MTU: iface.DefaultMTU})
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		require.NoError(t, manager.Close(nil))
@@ -245,7 +298,7 @@ func TestBlockRuleNotAccumulatedOnRepeatedEnableRouting(t *testing.T) {
 		},
 	}
 
-	manager, err := Create(ifaceMock, false, flowLogger, iface.DefaultMTU)
+	manager, err := Create(Config{IFace: ifaceMock, FlowLogger: flowLogger, MTU: iface.DefaultMTU})
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		require.NoError(t, manager.Close(nil))
@@ -274,7 +327,7 @@ func TestRouteRuleCountStableAcrossUpdates(t *testing.T) {
 
 	// Simulate 5 network map updates with the same route rule
 	for i := 0; i < 5; i++ {
-		rule, err := manager.AddRouteFiltering(
+		rule, err := manager.AddFilterRule(
 			[]byte("policy-1"),
 			sources,
 			destination,
@@ -304,7 +357,7 @@ func TestDeleteRouteRuleAfterIdempotentAdd(t *testing.T) {
 	destination := fw.Network{Prefix: netip.MustParsePrefix("192.168.1.0/24")}
 
 	// Add same rule twice
-	rule1, err := manager.AddRouteFiltering(
+	rule1, err := manager.AddFilterRule(
 		[]byte("policy-1"),
 		sources,
 		destination,
@@ -315,7 +368,7 @@ func TestDeleteRouteRuleAfterIdempotentAdd(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	rule2, err := manager.AddRouteFiltering(
+	rule2, err := manager.AddFilterRule(
 		[]byte("policy-1"),
 		sources,
 		destination,
@@ -329,7 +382,7 @@ func TestDeleteRouteRuleAfterIdempotentAdd(t *testing.T) {
 	require.Equal(t, rule1.ID(), rule2.ID(), "Should return same rule ID")
 
 	// Delete using first reference
-	err = manager.DeleteRouteRule(rule1)
+	err = manager.DeleteFilterRule(rule1)
 	require.NoError(t, err)
 
 	// Verify traffic no longer passes
@@ -364,7 +417,7 @@ func setupTestManager(t *testing.T) *Manager {
 		},
 	}
 
-	manager, err := Create(ifaceMock, false, flowLogger, iface.DefaultMTU)
+	manager, err := Create(Config{IFace: ifaceMock, FlowLogger: flowLogger, MTU: iface.DefaultMTU})
 	require.NoError(t, err)
 	require.NoError(t, manager.EnableRouting())
 

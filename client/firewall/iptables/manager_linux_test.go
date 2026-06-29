@@ -67,46 +67,39 @@ func TestIptablesManager(t *testing.T) {
 		time.Sleep(time.Second)
 	}()
 
-	var rule2 []fw.Rule
+	var rule2 fw.Rule
 	t.Run("add second rule", func(t *testing.T) {
 		ip := netip.MustParseAddr("10.20.0.3")
 		port := &fw.Port{
 			IsRange: true,
 			Values:  []uint16{8043, 8046},
 		}
-		rule2, err = manager.AddPeerFiltering(nil, ip.AsSlice(), "tcp", port, nil, fw.ActionAccept, "")
+		rule2, err = manager.AddFilterRule(nil, pfx(ip.AsSlice()), fw.Network{}, "tcp", port, nil, fw.ActionAccept)
 		require.NoError(t, err, "failed to add rule")
 
-		for _, r := range rule2 {
-			rr := r.(*Rule)
-			checkRuleSpecs(t, ipv4Client, rr.chain, true, rr.specs...)
-		}
+		rr := rule2.(*Rule)
+		checkRuleSpecs(t, ipv4Client, rr.chain, true, rr.specs...)
 	})
 
 	t.Run("delete second rule", func(t *testing.T) {
-		for _, r := range rule2 {
-			err := manager.DeletePeerRule(r)
-			require.NoError(t, err, "failed to delete rule")
-		}
-
-		require.Empty(t, manager.aclMgr.ipsetStore.ipsets, "rulesets index after removed second rule must be empty")
+		require.NoError(t, manager.DeleteFilterRule(rule2), "failed to delete rule")
 	})
 
 	t.Run("reset check", func(t *testing.T) {
 		// add second rule
 		ip := netip.MustParseAddr("10.20.0.3")
 		port := &fw.Port{Values: []uint16{5353}}
-		_, err = manager.AddPeerFiltering(nil, ip.AsSlice(), "udp", nil, port, fw.ActionAccept, "")
+		_, err = manager.AddFilterRule(nil, pfx(ip.AsSlice()), fw.Network{}, "udp", nil, port, fw.ActionAccept)
 		require.NoError(t, err, "failed to add rule")
 
 		err = manager.Close(nil)
 		require.NoError(t, err, "failed to reset")
 
-		ok, err := ipv4Client.ChainExists("filter", chainNameInputRules)
+		ok, err := ipv4Client.ChainExists("filter", chainACLInput)
 		require.NoError(t, err, "failed check chain exists")
 
 		if ok {
-			require.NoErrorf(t, err, "chain '%v' still exists after Close", chainNameInputRules)
+			require.NoErrorf(t, err, "chain '%v' still exists after Close", chainACLInput)
 		}
 	})
 }
@@ -128,15 +121,13 @@ func TestIptablesManagerDenyRules(t *testing.T) {
 		ip := netip.MustParseAddr("10.20.0.3")
 		port := &fw.Port{Values: []uint16{22}}
 
-		rule, err := manager.AddPeerFiltering(nil, ip.AsSlice(), "tcp", nil, port, fw.ActionDrop, "deny-ssh")
+		rule, err := manager.AddFilterRule(nil, pfx(ip.AsSlice()), fw.Network{}, "tcp", nil, port, fw.ActionDrop)
 		require.NoError(t, err, "failed to add deny rule")
-		require.NotEmpty(t, rule, "deny rule should not be empty")
+		require.NotNil(t, rule, "deny rule should not be nil")
 
 		// Verify the rule was added by checking iptables
-		for _, r := range rule {
-			rr := r.(*Rule)
-			checkRuleSpecs(t, ipv4Client, rr.chain, true, rr.specs...)
-		}
+		rr := rule.(*Rule)
+		checkRuleSpecs(t, ipv4Client, rr.chain, true, rr.specs...)
 	})
 
 	t.Run("deny rule precedence test", func(t *testing.T) {
@@ -144,36 +135,40 @@ func TestIptablesManagerDenyRules(t *testing.T) {
 		port := &fw.Port{Values: []uint16{80}}
 
 		// Add accept rule first
-		_, err := manager.AddPeerFiltering(nil, ip.AsSlice(), "tcp", nil, port, fw.ActionAccept, "accept-http")
+		_, err := manager.AddFilterRule(nil, pfx(ip.AsSlice()), fw.Network{}, "tcp", nil, port, fw.ActionAccept)
 		require.NoError(t, err, "failed to add accept rule")
 
 		// Add deny rule second for same IP/port - this should take precedence
-		_, err = manager.AddPeerFiltering(nil, ip.AsSlice(), "tcp", nil, port, fw.ActionDrop, "deny-http")
+		_, err = manager.AddFilterRule(nil, pfx(ip.AsSlice()), fw.Network{}, "tcp", nil, port, fw.ActionDrop)
 		require.NoError(t, err, "failed to add deny rule")
 
 		// Inspect the actual iptables rules to verify deny rule comes before accept rule
-		rules, err := ipv4Client.List("filter", chainNameInputRules)
+		rules, err := ipv4Client.List("filter", chainACLInput)
 		require.NoError(t, err, "failed to list iptables rules")
 
 		// Debug: print all rules
-		t.Logf("All iptables rules in chain %s:", chainNameInputRules)
+		t.Logf("All iptables rules in chain %s:", chainACLInput)
 		for i, rule := range rules {
 			t.Logf("  [%d] %s", i, rule)
 		}
 
+		// Single-source rules emit a direct `-s <ip>/32 ... --dport 80`
+		// match. Match on that shape instead of the legacy
+		// per-(action,port) ipset names ("deny-http"/"accept-http")
+		// that this test predates.
+		srcMatch := fmt.Sprintf("-s %s/32", ip)
 		var denyRuleIndex, acceptRuleIndex = -1, -1
 		for i, rule := range rules {
-			if strings.Contains(rule, "DROP") {
-				t.Logf("Found DROP rule at index %d: %s", i, rule)
-				if strings.Contains(rule, "deny-http") && strings.Contains(rule, "80") {
-					denyRuleIndex = i
-				}
+			if !strings.Contains(rule, srcMatch) || !strings.Contains(rule, "--dport 80") {
+				continue
 			}
-			if strings.Contains(rule, "ACCEPT") {
+			if strings.Contains(rule, "-j DROP") {
+				t.Logf("Found DROP rule at index %d: %s", i, rule)
+				denyRuleIndex = i
+			}
+			if strings.Contains(rule, "-j ACCEPT") {
 				t.Logf("Found ACCEPT rule at index %d: %s", i, rule)
-				if strings.Contains(rule, "accept-http") && strings.Contains(rule, "80") {
-					acceptRuleIndex = i
-				}
+				acceptRuleIndex = i
 			}
 		}
 
@@ -198,7 +193,6 @@ func TestIptablesManagerIPSet(t *testing.T) {
 		},
 	}
 
-	// just check on the local interface
 	manager, err := Create(mock, iface.DefaultMTU)
 	require.NoError(t, err)
 	require.NoError(t, manager.Init(nil))
@@ -212,27 +206,39 @@ func TestIptablesManagerIPSet(t *testing.T) {
 		time.Sleep(time.Second)
 	}()
 
-	var rule2 []fw.Rule
-	t.Run("add second rule", func(t *testing.T) {
+	var rule2 fw.Rule
+	t.Run("single source uses direct -s match (no ipset)", func(t *testing.T) {
 		ip := netip.MustParseAddr("10.20.0.3")
 		port := &fw.Port{
 			Values: []uint16{443},
 		}
-		rule2, err = manager.AddPeerFiltering(nil, ip.AsSlice(), "tcp", port, nil, fw.ActionAccept, "default")
-		for _, r := range rule2 {
-			require.NoError(t, err, "failed to add rule")
-			require.Equal(t, r.(*Rule).ipsetName, "default-sport", "ipset name must be set")
-			require.Equal(t, r.(*Rule).ip, "10.20.0.3", "ipset IP must be set")
-		}
+		rule2, err = manager.AddFilterRule(nil, pfx(ip.AsSlice()), fw.Network{}, "tcp", port, nil, fw.ActionAccept)
+		require.NoError(t, err, "failed to add rule")
+		require.NotNil(t, rule2)
+		require.Contains(t, rule2.(*Rule).specs, "-s",
+			"single-source rule should use direct -s match, not an ipset")
+		require.Empty(t, findSets(rule2.(*Rule).specs),
+			"single-source rule should not allocate a shared ipset")
 	})
 
-	t.Run("delete second rule", func(t *testing.T) {
-		for _, r := range rule2 {
-			err := manager.DeletePeerRule(r)
-			require.NoError(t, err, "failed to delete rule")
+	t.Run("delete single-source rule", func(t *testing.T) {
+		require.NoError(t, manager.DeleteFilterRule(rule2), "failed to delete rule")
+	})
 
-			require.Empty(t, manager.aclMgr.ipsetStore.ipsets, "rulesets index after removed second rule must be empty")
+	t.Run("multi-source uses shared ipset", func(t *testing.T) {
+		sources := []netip.Prefix{
+			netip.PrefixFrom(netip.MustParseAddr("10.20.0.3"), 32),
+			netip.PrefixFrom(netip.MustParseAddr("10.20.0.4"), 32),
+			netip.PrefixFrom(netip.MustParseAddr("10.20.0.5"), 32),
 		}
+		port := &fw.Port{Values: []uint16{8080}}
+		multi, err := manager.AddFilterRule(nil, sources, fw.Network{}, "tcp", nil, port, fw.ActionAccept)
+		require.NoError(t, err, "failed to add multi-source rule")
+		require.NotNil(t, multi, "multi-source rule must produce one iptables rule")
+		sets := findSets(multi.(*Rule).specs)
+		require.Len(t, sets, 1, "multi-source rule must reference exactly one ipset")
+
+		require.NoError(t, manager.DeleteFilterRule(multi))
 	})
 
 	t.Run("reset check", func(t *testing.T) {
@@ -283,7 +289,7 @@ func TestIptablesCreatePerformance(t *testing.T) {
 			start := time.Now()
 			for i := 0; i < testMax; i++ {
 				port := &fw.Port{Values: []uint16{uint16(1000 + i)}}
-				_, err = manager.AddPeerFiltering(nil, ip.AsSlice(), "tcp", nil, port, fw.ActionAccept, "")
+				_, err = manager.AddFilterRule(nil, pfx(ip.AsSlice()), fw.Network{}, "tcp", nil, port, fw.ActionAccept)
 
 				require.NoError(t, err, "failed to add rule")
 			}

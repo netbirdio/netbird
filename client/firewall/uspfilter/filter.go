@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"net"
 	"net/netip"
 	"os"
 	"slices"
@@ -20,14 +19,18 @@ import (
 	"github.com/google/uuid"
 	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
+	wgdevice "golang.zx2c4.com/wireguard/device"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
+	"github.com/netbirdio/netbird/client/firewall/firewalld"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/common"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/conntrack"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/forwarder"
 	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
+	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/netstack"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	nbid "github.com/netbirdio/netbird/client/internal/acl/id"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
@@ -58,7 +61,10 @@ const (
 	// EnvDisableMSSClamping disables TCP MSS clamping for forwarded traffic.
 	EnvDisableMSSClamping = "NB_DISABLE_MSS_CLAMPING"
 
-	// EnvForceUserspaceRouter forces userspace routing even if native routing is available.
+	// EnvForceUserspaceRouter is a deprecated alias for
+	// NB_FORCE_USERSPACE_FIREWALL: the userspace firewall always routes in
+	// userspace, so forcing one forces the other. Kept for backward
+	// compatibility.
 	EnvForceUserspaceRouter = "NB_FORCE_USERSPACE_ROUTER"
 
 	// EnvEnableLocalForwarding enables forwarding of local traffic to the native stack for internal (non-NetBird) interfaces.
@@ -70,14 +76,20 @@ const (
 	EnvEnableNetstackLocalForwarding = "NB_ENABLE_NETSTACK_LOCAL_FORWARDING"
 )
 
-var errNatNotSupported = errors.New("nat not supported with userspace firewall")
+// errNotSupported is returned by firewall operations that only make sense with
+// a kernel firewall (kernel NAT/DNAT, eBPF) and are not implemented in
+// userspace mode, where they should not be called.
+var errNotSupported = errors.New("not supported with userspace firewall")
 
-// RuleSet is a set of rules grouped by a string key
-type RuleSet map[string]PeerRule
+// peerRules is the canonical list-based storage for peer ACL rules.
+// Drop and accept rules live in separate slices; drop-before-accept
+// ordering comes from consulting the deny slice (and its index) before
+// the accept one.
+type peerRules []*PeerRule
 
-type RouteRules []*RouteRule
+type routeRules []*RouteRule
 
-func (r RouteRules) Sort() {
+func (r routeRules) Sort() {
 	slices.SortStableFunc(r, func(a, b *RouteRule) int {
 		// Deny rules come first
 		if a.action == firewall.ActionDrop && b.action != firewall.ActionDrop {
@@ -86,22 +98,74 @@ func (r RouteRules) Sort() {
 		if a.action != firewall.ActionDrop && b.action == firewall.ActionDrop {
 			return 1
 		}
-		return strings.Compare(a.id, b.id)
+		return strings.Compare(string(a.id), string(b.id))
 	})
+}
+
+// peerRuleSpec carries the parameters that define a peer filter rule,
+// threaded together through the build path so the builders take a single
+// argument instead of a long parameter list.
+type peerRuleSpec struct {
+	mgmtID  []byte
+	sources []netip.Prefix
+	ipLayer gopacket.LayerType
+	proto   firewall.Protocol
+	sPort   *firewall.Port
+	dPort   *firewall.Port
+	action  firewall.Action
+}
+
+// Iface is the network interface the userspace firewall attaches to: the
+// methods of the WireGuard device it actually uses.
+type Iface interface {
+	Name() string
+	Address() wgaddr.Address
+	SetFilter(device.PacketFilter) error
+	GetWGDevice() *wgdevice.Device
+}
+
+// InterfaceAllower opens the NetBird interface in the host firewall so it
+// doesn't drop traffic the userspace firewall handles, without taking over
+// packet filtering. Implementations (nftables, iptables, firewalld, the windows
+// netsh rule) are selected per platform and injected into Create; Apply runs at
+// creation and Close on teardown.
+type InterfaceAllower interface {
+	Apply() error
+	Close() error
+}
+
+// Config holds the dependencies and options for the userspace firewall.
+type Config struct {
+	// IFace is the overlay interface the filter attaches to.
+	IFace Iface
+	// InterfaceAllower opens the NetBird interface in foreign kernel filter
+	// chains so the kernel doesn't drop traffic the userspace firewall handles.
+	// Nil in netstack mode, on non-Linux platforms without a backend, or when
+	// neither nftables nor iptables is available. firewalld trust is applied by
+	// the manager regardless, since firewalld owns its own chains and we cannot
+	// insert into them.
+	InterfaceAllower InterfaceAllower
+	// DisableServerRoutes indicates whether server routes are disabled.
+	DisableServerRoutes bool
+	FlowLogger          nftypes.FlowLogger
+	MTU                 uint16
 }
 
 // Manager userspace firewall manager
 type Manager struct {
-	outgoingRules     map[netip.Addr]RuleSet
-	incomingDenyRules map[netip.Addr]RuleSet
-	incomingRules     map[netip.Addr]RuleSet
-	routeRules        RouteRules
-	routeRulesMap     map[nbid.RuleID]*RouteRule
-	decoders          sync.Pool
-	wgIface           common.IFaceMapper
-	nativeFirewall    firewall.Manager
+	decoders     sync.Pool
+	wgIface      Iface
+	ifaceAllower InterfaceAllower
+	mutex        sync.RWMutex
 
-	mutex sync.RWMutex
+	incomingDenyRules   peerRules
+	incomingAcceptRules peerRules
+	incomingDenyIndex   peerRuleIndex
+	incomingAcceptIndex peerRuleIndex
+	peerRulesMap        map[nbid.RuleID]*PeerRule
+
+	routeRules    routeRules
+	routeRulesMap map[nbid.RuleID]*RouteRule
 
 	// indicates whether server routes are disabled
 	disableServerRoutes bool
@@ -183,24 +247,6 @@ func (d *decoder) decodePacket(data []byte) error {
 	}
 }
 
-// Create userspace firewall manager constructor
-func Create(iface common.IFaceMapper, disableServerRoutes bool, flowLogger nftypes.FlowLogger, mtu uint16) (*Manager, error) {
-	return create(iface, nil, disableServerRoutes, flowLogger, mtu)
-}
-
-func CreateWithNativeFirewall(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableServerRoutes bool, flowLogger nftypes.FlowLogger, mtu uint16) (*Manager, error) {
-	if nativeFirewall == nil {
-		return nil, errors.New("native firewall is nil")
-	}
-
-	mgr, err := create(iface, nativeFirewall, disableServerRoutes, flowLogger, mtu)
-	if err != nil {
-		return nil, err
-	}
-
-	return mgr, nil
-}
-
 func parseCreateEnv() (bool, bool, bool) {
 	var disableConntrack, enableLocalForwarding, disableMSSClamping bool
 	var err error
@@ -231,7 +277,7 @@ func parseCreateEnv() (bool, bool, bool) {
 	return disableConntrack, enableLocalForwarding, disableMSSClamping
 }
 
-func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableServerRoutes bool, flowLogger nftypes.FlowLogger, mtu uint16) (*Manager, error) {
+func Create(cfg Config) (_ *Manager, err error) {
 	disableConntrack, enableLocalForwarding, disableMSSClamping := parseCreateEnv()
 
 	m := &Manager{
@@ -254,54 +300,123 @@ func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableSe
 				return d
 			},
 		},
-		nativeFirewall:      nativeFirewall,
-		outgoingRules:       make(map[netip.Addr]RuleSet),
-		incomingDenyRules:   make(map[netip.Addr]RuleSet),
-		incomingRules:       make(map[netip.Addr]RuleSet),
-		wgIface:             iface,
+		wgIface:             cfg.IFace,
+		ifaceAllower:        cfg.InterfaceAllower,
 		localipmanager:      newLocalIPManager(),
-		disableServerRoutes: disableServerRoutes,
+		disableServerRoutes: cfg.DisableServerRoutes,
 		stateful:            !disableConntrack,
 		logger:              nblog.NewFromLogrus(log.StandardLogger()),
-		flowLogger:          flowLogger,
+		flowLogger:          cfg.FlowLogger,
 		netstack:            netstack.IsEnabled(),
 		localForwarding:     enableLocalForwarding,
+		peerRulesMap:        make(map[nbid.RuleID]*PeerRule),
 		routeRulesMap:       make(map[nbid.RuleID]*RouteRule),
 		dnatMappings:        make(map[netip.Addr]netip.Addr),
 		portDNATRules:       []portDNATRule{},
 		netstackServices:    make(map[serviceKey]struct{}),
-		mtu:                 mtu,
+		mtu:                 cfg.MTU,
 	}
 	m.routingEnabled.Store(false)
 
+	// Release the allower (and its monitor) if setup fails after it was wired in.
+	defer func() {
+		if err != nil {
+			m.closeAllowerOnError()
+		}
+	}()
+
 	if !disableMSSClamping {
-		m.mssClampEnabled = true
-		if mtu > ipv4TCPHeaderMinSize {
-			m.mssClampValueIPv4 = mtu - ipv4TCPHeaderMinSize
-		}
-		if mtu > ipv6TCPHeaderMinSize {
-			m.mssClampValueIPv6 = mtu - ipv6TCPHeaderMinSize
-		}
+		m.enableMSSClamping(cfg.MTU)
 	}
-	if err := m.localipmanager.UpdateLocalIPs(iface); err != nil {
+	if err := m.localipmanager.UpdateLocalIPs(cfg.IFace); err != nil {
 		return nil, fmt.Errorf("update local IPs: %w", err)
 	}
-	if disableConntrack {
-		log.Info("conntrack is disabled")
-	} else {
-		m.udpTracker = conntrack.NewUDPTracker(conntrack.DefaultUDPTimeout, m.logger, flowLogger)
-		m.icmpTracker = conntrack.NewICMPTracker(conntrack.DefaultICMPTimeout, m.logger, flowLogger)
-		m.tcpTracker = conntrack.NewTCPTracker(conntrack.DefaultTCPTimeout, m.logger, flowLogger)
-	}
+	m.setupConntrack(disableConntrack)
 	if m.netstack && m.localForwarding {
 		if err := m.initForwarder(); err != nil {
 			log.Errorf("failed to initialize forwarder: %v", err)
 		}
 	}
-	if err := iface.SetFilter(m); err != nil {
+	if err := cfg.IFace.SetFilter(m); err != nil {
 		return nil, fmt.Errorf("set filter: %w", err)
 	}
+
+	m.openHostFirewall(cfg.IFace.Name())
+
 	return m, nil
+}
+
+// closeAllowerOnError releases the allower (and its monitor) when Create fails
+// after the allower was wired in.
+func (m *Manager) closeAllowerOnError() {
+	if m.ifaceAllower == nil {
+		return
+	}
+	if err := m.ifaceAllower.Close(); err != nil {
+		log.Warnf("close interface allower after failed firewall setup: %v", err)
+	}
+}
+
+// enableMSSClamping enables MSS clamping and computes the per-family clamp values.
+func (m *Manager) enableMSSClamping(mtu uint16) {
+	m.mssClampEnabled = true
+	if mtu > ipv4TCPHeaderMinSize {
+		m.mssClampValueIPv4 = mtu - ipv4TCPHeaderMinSize
+	}
+	if mtu > ipv6TCPHeaderMinSize {
+		m.mssClampValueIPv6 = mtu - ipv6TCPHeaderMinSize
+	}
+}
+
+// setupConntrack initializes the stateful trackers unless conntrack is disabled.
+func (m *Manager) setupConntrack(disabled bool) {
+	if disabled {
+		log.Info("conntrack is disabled")
+		return
+	}
+	m.udpTracker = conntrack.NewUDPTracker(conntrack.DefaultUDPTimeout, m.logger, m.flowLogger)
+	m.icmpTracker = conntrack.NewICMPTracker(conntrack.DefaultICMPTimeout, m.logger, m.flowLogger)
+	m.tcpTracker = conntrack.NewTCPTracker(conntrack.DefaultTCPTimeout, m.logger, m.flowLogger)
+}
+
+// openHostFirewall opens the NetBird interface in the kernel firewall so it
+// doesn't drop traffic the userspace firewall handles. Best-effort: failures
+// here shouldn't prevent the firewall from coming up.
+func (m *Manager) openHostFirewall(ifaceName string) {
+	if m.ifaceAllower != nil {
+		if err := m.ifaceAllower.Apply(); err != nil {
+			log.Errorf("failed to allow netbird interface traffic: %v", err)
+		}
+	}
+	// firewalld owns its own chains we can't insert into, so trust the interface
+	// there in addition to the allower. Netstack has no kernel interface.
+	if !m.netstack {
+		if err := firewalld.TrustInterface(ifaceName); err != nil {
+			log.Warnf("failed to trust interface in firewalld: %v", err)
+		}
+	}
+}
+
+// Close cleans up the firewall manager: removes rules, closes trackers, and
+// closes the interface allower.
+func (m *Manager) Close(*statemanager.Manager) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	m.resetState()
+
+	var merr *multierror.Error
+	if m.ifaceAllower != nil {
+		if err := m.ifaceAllower.Close(); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("close interface allower: %w", err))
+		}
+	}
+	if !m.netstack {
+		if err := firewalld.UntrustInterface(m.wgIface.Name()); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("untrust interface in firewalld: %w", err))
+		}
+	}
+	return nberrors.FormatErrorOrNil(merr)
 }
 
 // blockInvalidRouted installs drop rules for traffic to the wg overlay that
@@ -309,7 +424,7 @@ func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableSe
 // failure leaves v4 protection in place (and vice versa) so the returned
 // slice always contains whatever was successfully installed, even on error.
 // Callers must persist the slice so DisableRouting can clean partial state.
-func (m *Manager) blockInvalidRouted(iface common.IFaceMapper) ([]firewall.Rule, error) {
+func (m *Manager) blockInvalidRouted(iface Iface) ([]firewall.Rule, error) {
 	wgPrefix := iface.Address().Network
 	log.Debugf("blocking invalid routed traffic for %s", wgPrefix)
 
@@ -320,7 +435,7 @@ func (m *Manager) blockInvalidRouted(iface common.IFaceMapper) ([]firewall.Rule,
 	}
 
 	var rules []firewall.Rule
-	v4Rule, err := m.addRouteFiltering(
+	v4Rule, err := m.addRouteRule(
 		nil,
 		sources,
 		firewall.Network{Prefix: wgPrefix},
@@ -336,7 +451,7 @@ func (m *Manager) blockInvalidRouted(iface common.IFaceMapper) ([]firewall.Rule,
 
 	if v6Net.IsValid() {
 		log.Debugf("blocking invalid routed traffic for %s", v6Net)
-		v6Rule, err := m.addRouteFiltering(
+		v6Rule, err := m.addRouteRule(
 			nil,
 			sources,
 			firewall.Network{Prefix: v6Net},
@@ -357,18 +472,12 @@ func (m *Manager) blockInvalidRouted(iface common.IFaceMapper) ([]firewall.Rule,
 }
 
 func (m *Manager) determineRouting() error {
-	var disableUspRouting, forceUserspaceRouter bool
-	var err error
+	var disableUspRouting bool
 	if val := os.Getenv(EnvDisableUserspaceRouting); val != "" {
+		var err error
 		disableUspRouting, err = strconv.ParseBool(val)
 		if err != nil {
 			log.Warnf("failed to parse %s: %v", EnvDisableUserspaceRouting, err)
-		}
-	}
-	if val := os.Getenv(EnvForceUserspaceRouter); val != "" {
-		forceUserspaceRouter, err = strconv.ParseBool(val)
-		if err != nil {
-			log.Warnf("failed to parse %s: %v", EnvForceUserspaceRouter, err)
 		}
 	}
 
@@ -385,26 +494,11 @@ func (m *Manager) determineRouting() error {
 
 		log.Info("server routes are disabled")
 
-	case forceUserspaceRouter:
-		m.routingEnabled.Store(true)
-		m.nativeRouter.Store(false)
-
-		log.Info("userspace routing is forced")
-
-	case !m.netstack && m.nativeFirewall != nil:
-		// if the OS supports routing natively, then we don't need to filter/route ourselves
-		// netstack mode won't support native routing as there is no interface
-
-		m.routingEnabled.Store(true)
-		m.nativeRouter.Store(true)
-
-		log.Info("native routing is enabled")
-
 	default:
 		m.routingEnabled.Store(true)
 		m.nativeRouter.Store(false)
 
-		log.Info("userspace routing enabled by default")
+		log.Info("userspace routing enabled")
 	}
 
 	if m.routingEnabled.Load() && !m.nativeRouter.Load() {
@@ -470,96 +564,118 @@ func (m *Manager) IsStateful() bool {
 	return m.stateful
 }
 
-func (m *Manager) AddNatRule(pair firewall.RouterPair) error {
-	if m.nativeRouter.Load() && m.nativeFirewall != nil {
-		return m.nativeFirewall.AddNatRule(pair)
-	}
-
+func (m *Manager) AddNatRule(firewall.RouterPair) error {
 	// userspace routed packets are always SNATed to the inbound direction
 	// TODO: implement outbound SNAT
 	return nil
 }
 
 // RemoveNatRule removes a routing firewall rule
-func (m *Manager) RemoveNatRule(pair firewall.RouterPair) error {
-	if m.nativeRouter.Load() && m.nativeFirewall != nil {
-		return m.nativeFirewall.RemoveNatRule(pair)
-	}
+func (m *Manager) RemoveNatRule(firewall.RouterPair) error {
 	return nil
 }
 
-// AddPeerFiltering rule to the firewall
-//
-// If comment argument is empty firewall manager should set
-// rule ID as comment for the rule
-func (m *Manager) AddPeerFiltering(
+// addPeerRule installs an input-chain rule that matches packets
+// by source only. Called from AddFilterRule when the caller doesn't
+// specify a destination. Sources are expected to share one address
+// family; the family selects the ipLayer so the ICMP variant matches
+// what the decoder produces.
+func (m *Manager) addPeerRule(
 	id []byte,
-	ip net.IP,
+	sources []netip.Prefix,
 	proto firewall.Protocol,
 	sPort *firewall.Port,
 	dPort *firewall.Port,
-	action firewall.Action,
-	_ string,
-) ([]firewall.Rule, error) {
-	// TODO: fix in upper layers
-	i, ok := netip.AddrFromSlice(ip)
-	if !ok {
-		return nil, fmt.Errorf("invalid IP: %s", ip)
-	}
-
-	i = i.Unmap()
-	r := PeerRule{
-		id:        uuid.New().String(),
-		mgmtId:    id,
-		ip:        i,
-		ipLayer:   layers.LayerTypeIPv6,
-		matchByIP: true,
-		drop:      action == firewall.ActionDrop,
-	}
-	if i.Is4() {
-		r.ipLayer = layers.LayerTypeIPv4
-	}
-
-	if s := r.ip.String(); s == "0.0.0.0" || s == "::" {
-		r.matchByIP = false
-	}
-
-	r.sPort = sPort
-	r.dPort = dPort
-
-	r.protoLayer = protoToLayer(proto, r.ipLayer)
-
-	m.mutex.Lock()
-	var targetMap map[netip.Addr]RuleSet
-	if r.drop {
-		targetMap = m.incomingDenyRules
-	} else {
-		targetMap = m.incomingRules
-	}
-
-	if _, ok := targetMap[r.ip]; !ok {
-		targetMap[r.ip] = make(RuleSet)
-	}
-	targetMap[r.ip][r.id] = r
-	m.mutex.Unlock()
-	return []firewall.Rule{&r}, nil
-}
-
-func (m *Manager) AddRouteFiltering(
-	id []byte,
-	sources []netip.Prefix,
-	destination firewall.Network,
-	proto firewall.Protocol,
-	sPort, dPort *firewall.Port,
 	action firewall.Action,
 ) (firewall.Rule, error) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	return m.addRouteFiltering(id, sources, destination, proto, sPort, dPort, action)
+	// Sources are a single family; normalize v4-mapped prefixes to plain
+	// v4 and pick the matching IP layer. A /0 source matches any address
+	// of its own family only, mirroring the kernel backends.
+	normalized := make([]netip.Prefix, len(sources))
+	ipLayer := layers.LayerTypeIPv4
+	for i, p := range sources {
+		normalized[i] = firewall.UnmapPrefix(p)
+		if normalized[i].Addr().Is6() {
+			ipLayer = layers.LayerTypeIPv6
+		}
+	}
+	spec := peerRuleSpec{
+		mgmtID:  id,
+		sources: normalized,
+		ipLayer: ipLayer,
+		proto:   proto,
+		sPort:   sPort,
+		dPort:   dPort,
+		action:  action,
+	}
+	return m.addOnePeerRule(spec), nil
 }
 
-func (m *Manager) addRouteFiltering(
+// addOnePeerRule builds and registers a single-family peer rule, or
+// returns the existing rule when one with the same content key is
+// already installed. The caller must hold m.mutex. The content key is
+// the shared GenerateRuleID with an empty destination, so peer rules
+// dedup the same way route rules and the kernel backends do; it is
+// order-independent, so callers passing the same sources in any order
+// dedup to one rule.
+//
+// There is no refcount: a content key is installed once and deleted on
+// the first DeleteFilterRule for that key. The caller must therefore
+// key its own tracking by the returned rule id so add and delete stay
+// balanced per content key; the acl manager does this via
+// peerRulesPairs.
+func (m *Manager) addOnePeerRule(spec peerRuleSpec) *PeerRule {
+	ruleID := nbid.GenerateRuleID(spec.sources, firewall.Network{}, spec.proto, spec.sPort, spec.dPort, spec.action)
+	if existing, ok := m.peerRulesMap[ruleID]; ok {
+		return existing
+	}
+
+	rule := m.buildPeerRule(ruleID, spec)
+	m.registerPeerRule(rule)
+	return rule
+}
+
+func (m *Manager) buildPeerRule(ruleID nbid.RuleID, spec peerRuleSpec) *PeerRule {
+	r := &PeerRule{
+		id:      ruleID,
+		mgmtId:  spec.mgmtID,
+		sources: spec.sources,
+		action:  spec.action,
+		srcPort: spec.sPort,
+		dstPort: spec.dPort,
+	}
+	r.sourceAddrs = make(map[netip.Addr]struct{}, len(spec.sources))
+	for _, p := range spec.sources {
+		if p.Bits() == p.Addr().BitLen() {
+			r.sourceAddrs[p.Addr()] = struct{}{}
+		}
+	}
+	r.protoLayer = protoToLayer(spec.proto, spec.ipLayer)
+	return r
+}
+
+// registerPeerRule records a freshly built peer rule in the matching
+// slice, index, and dedup map. The caller must hold m.mutex.
+func (m *Manager) registerPeerRule(r *PeerRule) {
+	if r.action == firewall.ActionDrop {
+		m.incomingDenyRules = append(m.incomingDenyRules, r)
+		m.incomingDenyIndex.add(r)
+	} else {
+		m.incomingAcceptRules = append(m.incomingAcceptRules, r)
+		m.incomingAcceptIndex.add(r)
+	}
+	m.peerRulesMap[r.id] = r
+}
+
+// AddFilterRule is the unified entry point for both peer (input chain)
+// and route (forward chain) filtering rules. The destination
+// distinguishes the two semantics: a zero Network installs an
+// input-side rule that matches by source only; a set Network installs
+// a forward-side rule that also matches the destination.
+func (m *Manager) AddFilterRule(
 	id []byte,
 	sources []netip.Prefix,
 	destination firewall.Network,
@@ -567,19 +683,49 @@ func (m *Manager) addRouteFiltering(
 	sPort, dPort *firewall.Port,
 	action firewall.Action,
 ) (firewall.Rule, error) {
-	if m.nativeRouter.Load() && m.nativeFirewall != nil {
-		return m.nativeFirewall.AddRouteFiltering(id, sources, destination, proto, sPort, dPort, action)
+	if len(sources) == 0 {
+		return nil, firewall.ErrNoSources
 	}
 
-	ruleKey := nbid.GenerateRouteRuleKey(sources, destination, proto, sPort, dPort, action)
+	if destination.IsZero() {
+		return m.addPeerRule(id, sources, proto, sPort, dPort, action)
+	}
 
-	if existingRule, ok := m.routeRulesMap[ruleKey]; ok {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	return m.addRouteRule(id, sources, destination, proto, sPort, dPort, action)
+}
+
+// DeleteFilterRule deletes a filtering rule. The rule's underlying type
+// is used to route to the correct internal path.
+func (m *Manager) DeleteFilterRule(rule firewall.Rule) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	if r, ok := rule.(*PeerRule); ok {
+		return m.deletePeerRuleLocked(r)
+	}
+
+	// Anything else is a route rule (matched on the forward path).
+	return m.deleteRouteRule(rule)
+}
+
+func (m *Manager) addRouteRule(
+	id []byte,
+	sources []netip.Prefix,
+	destination firewall.Network,
+	proto firewall.Protocol,
+	sPort, dPort *firewall.Port,
+	action firewall.Action,
+) (firewall.Rule, error) {
+	ruleID := nbid.GenerateRuleID(sources, destination, proto, sPort, dPort, action)
+
+	if existingRule, ok := m.routeRulesMap[ruleID]; ok {
 		return existingRule, nil
 	}
 
 	rule := RouteRule{
-		// TODO: consolidate these IDs
-		id:         string(ruleKey),
+		id:         ruleID,
 		mgmtId:     id,
 		sources:    sources,
 		dstSet:     destination.Set,
@@ -594,78 +740,58 @@ func (m *Manager) addRouteFiltering(
 
 	m.routeRules = append(m.routeRules, &rule)
 	m.routeRules.Sort()
-	m.routeRulesMap[ruleKey] = &rule
+	m.routeRulesMap[ruleID] = &rule
 
 	return &rule, nil
 }
 
-func (m *Manager) DeleteRouteRule(rule firewall.Rule) error {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-
-	return m.deleteRouteRule(rule)
-}
-
 func (m *Manager) deleteRouteRule(rule firewall.Rule) error {
-	if m.nativeRouter.Load() && m.nativeFirewall != nil {
-		return m.nativeFirewall.DeleteRouteRule(rule)
+	ruleID := rule.ID()
+	trimmed, _, ok := removeRuleByID(m.routeRules, ruleID)
+	if !ok {
+		return fmt.Errorf("route rule not found: %s", ruleID)
 	}
-
-	ruleKey := nbid.RuleID(rule.ID())
-	if _, ok := m.routeRulesMap[ruleKey]; !ok {
-		return fmt.Errorf("route rule not found: %s", ruleKey)
-	}
-
-	idx := slices.IndexFunc(m.routeRules, func(r *RouteRule) bool {
-		return r.id == string(ruleKey)
-	})
-	if idx < 0 {
-		return fmt.Errorf("route rule not found in slice: %s", ruleKey)
-	}
-
-	m.routeRules = slices.Delete(m.routeRules, idx, idx+1)
-	delete(m.routeRulesMap, ruleKey)
+	m.routeRules = trimmed
+	delete(m.routeRulesMap, ruleID)
 	return nil
 }
 
-// DeletePeerRule from the firewall by rule definition
-func (m *Manager) DeletePeerRule(rule firewall.Rule) error {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
+// deletePeerRuleLocked removes a peer rule from the matching slice,
+// index, and dedup map. The caller must hold m.mutex.
+func (m *Manager) deletePeerRuleLocked(r *PeerRule) error {
+	target, index := &m.incomingAcceptRules, &m.incomingAcceptIndex
+	if r.action == firewall.ActionDrop {
+		target, index = &m.incomingDenyRules, &m.incomingDenyIndex
+	}
 
-	r, ok := rule.(*PeerRule)
+	trimmed, stored, ok := removeRuleByID(*target, r.id)
 	if !ok {
-		return fmt.Errorf("delete rule: invalid rule type: %T", rule)
-	}
-
-	var sourceMap map[netip.Addr]RuleSet
-	if r.drop {
-		sourceMap = m.incomingDenyRules
-	} else {
-		sourceMap = m.incomingRules
-	}
-
-	if ruleset, ok := sourceMap[r.ip]; ok {
-		if _, exists := ruleset[r.id]; !exists {
-			return fmt.Errorf("delete rule: no rule with such id: %v", r.id)
-		}
-		delete(ruleset, r.id)
-		if len(ruleset) == 0 {
-			delete(sourceMap, r.ip)
-		}
-	} else {
 		return fmt.Errorf("delete rule: no rule with such id: %v", r.id)
 	}
-
+	*target = trimmed
+	index.remove(stored)
+	delete(m.peerRulesMap, r.id)
 	return nil
 }
 
-// SetLegacyManagement doesn't need to be implemented for this manager
-func (m *Manager) SetLegacyManagement(isLegacy bool) error {
-	if m.nativeFirewall == nil {
-		return nil
+// removeRuleByID removes the first rule whose id matches ruleID from
+// rules, preserving order. It returns the trimmed slice, the removed
+// rule, and whether a match was found.
+func removeRuleByID[S ~[]T, T firewall.Rule](rules S, ruleID firewall.RuleID) (S, T, bool) {
+	idx := slices.IndexFunc(rules, func(r T) bool { return r.ID() == ruleID })
+	var removed T
+	if idx < 0 {
+		return rules, removed, false
 	}
-	return m.nativeFirewall.SetLegacyManagement(isLegacy)
+	removed = rules[idx]
+	return slices.Delete(rules, idx, idx+1), removed, true
+}
+
+// SetLegacyManagement is a no-op for the userspace firewall: it only matters
+// when an old management server can't send route firewall rules, which the
+// userspace router doesn't rely on.
+func (m *Manager) SetLegacyManagement(bool) error {
+	return nil
 }
 
 // Flush doesn't need to be implemented for this manager
@@ -674,11 +800,14 @@ func (m *Manager) Flush() error { return nil }
 // resetState clears all firewall rules and closes connection trackers.
 // Must be called with m.mutex held.
 func (m *Manager) resetState() {
-	clear(m.outgoingRules)
-	clear(m.incomingDenyRules)
-	clear(m.incomingRules)
+	m.incomingDenyRules = m.incomingDenyRules[:0]
+	m.incomingAcceptRules = m.incomingAcceptRules[:0]
+	m.incomingDenyIndex.reset()
+	m.incomingAcceptIndex.reset()
+	clear(m.peerRulesMap)
 	clear(m.routeRulesMap)
 	m.routeRules = m.routeRules[:0]
+	m.blockRules = nil
 	m.udpHookOut.Store(nil)
 	m.tcpHookOut.Store(nil)
 
@@ -708,21 +837,15 @@ func (m *Manager) resetState() {
 	}
 }
 
-// SetupEBPFProxyNoTrack creates notrack rules for eBPF proxy loopback traffic.
-func (m *Manager) SetupEBPFProxyNoTrack(proxyPort, wgPort uint16) error {
-	if m.nativeFirewall == nil {
-		return nil
-	}
-	return m.nativeFirewall.SetupEBPFProxyNoTrack(proxyPort, wgPort)
+// SetupEBPFProxyNoTrack is not supported by the userspace firewall: eBPF isn't
+// used in userspace mode, so this should never be called.
+func (m *Manager) SetupEBPFProxyNoTrack(uint16, uint16) error {
+	return errNotSupported
 }
 
 // UpdateSet updates the rule destinations associated with the given set
 // by merging the existing prefixes with the new ones, then deduplicating.
 func (m *Manager) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
-	if m.nativeRouter.Load() && m.nativeFirewall != nil {
-		return m.nativeFirewall.UpdateSet(set, prefixes)
-	}
-
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -820,11 +943,11 @@ func (m *Manager) extractIPs(d *decoder) (srcIP, dstIP netip.Addr) {
 	case layers.LayerTypeIPv4:
 		src, _ := netip.AddrFromSlice(d.ip4.SrcIP)
 		dst, _ := netip.AddrFromSlice(d.ip4.DstIP)
-		return src, dst
+		return src.Unmap(), dst.Unmap()
 	case layers.LayerTypeIPv6:
 		src, _ := netip.AddrFromSlice(d.ip6.SrcIP)
 		dst, _ := netip.AddrFromSlice(d.ip6.DstIP)
-		return src, dst
+		return src.Unmap(), dst.Unmap()
 	default:
 		return netip.Addr{}, netip.Addr{}
 	}
@@ -1404,20 +1527,12 @@ func (m *Manager) peerACLsBlock(srcIP netip.Addr, d *decoder, packetData []byte)
 		return nil, false
 	}
 
-	if mgmtId, filter, ok := validateRule(srcIP, packetData, m.incomingDenyRules[srcIP], d); ok {
+	if mgmtId, filter, ok := m.incomingDenyIndex.match(srcIP, d); ok {
 		return mgmtId, filter
 	}
-
-	if mgmtId, filter, ok := validateRule(srcIP, packetData, m.incomingRules[srcIP], d); ok {
+	if mgmtId, filter, ok := m.incomingAcceptIndex.match(srcIP, d); ok {
 		return mgmtId, filter
 	}
-	if mgmtId, filter, ok := validateRule(srcIP, packetData, m.incomingRules[netip.IPv4Unspecified()], d); ok {
-		return mgmtId, filter
-	}
-	if mgmtId, filter, ok := validateRule(srcIP, packetData, m.incomingRules[netip.IPv6Unspecified()], d); ok {
-		return mgmtId, filter
-	}
-
 	return nil, true
 }
 
@@ -1436,39 +1551,6 @@ func portsMatch(rulePort *firewall.Port, packetPort uint16) bool {
 		}
 	}
 	return false
-}
-
-func validateRule(ip netip.Addr, packetData []byte, rules map[string]PeerRule, d *decoder) ([]byte, bool, bool) {
-	payloadLayer := d.decoded[1]
-
-	for _, rule := range rules {
-		if rule.matchByIP && ip.Compare(rule.ip) != 0 {
-			continue
-		}
-
-		if rule.protoLayer == layerTypeAll {
-			return rule.mgmtId, rule.drop, true
-		}
-
-		if !protoLayerMatches(rule.protoLayer, payloadLayer) {
-			continue
-		}
-
-		switch payloadLayer {
-		case layers.LayerTypeTCP:
-			if portsMatch(rule.sPort, uint16(d.tcp.SrcPort)) && portsMatch(rule.dPort, uint16(d.tcp.DstPort)) {
-				return rule.mgmtId, rule.drop, true
-			}
-		case layers.LayerTypeUDP:
-			if portsMatch(rule.sPort, uint16(d.udp.SrcPort)) && portsMatch(rule.dPort, uint16(d.udp.DstPort)) {
-				return rule.mgmtId, rule.drop, true
-			}
-		case layers.LayerTypeICMPv4, layers.LayerTypeICMPv6:
-			return rule.mgmtId, rule.drop, true
-		}
-	}
-
-	return nil, false, false
 }
 
 // routeACLsPass returns true if the packet is allowed by the route ACLs
@@ -1547,10 +1629,13 @@ func (m *Manager) EnableRouting() error {
 	}
 
 	rules, err := m.blockInvalidRouted(m.wgIface)
-	// Persist whatever was installed even on partial failure, so DisableRouting
-	// can clean it up later.
 	m.blockRules = rules
 	if err != nil {
+		// Roll back so forwarding can't stay active without the full set of
+		// block rules.
+		if derr := m.disableRouting(); derr != nil {
+			log.Warnf("roll back routing after block rule failure: %v", derr)
+		}
 		return fmt.Errorf("block invalid routed: %w", err)
 	}
 
@@ -1561,6 +1646,10 @@ func (m *Manager) DisableRouting() error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
+	return m.disableRouting()
+}
+
+func (m *Manager) disableRouting() error {
 	fwder := m.forwarder.Load()
 	if fwder == nil {
 		return nil

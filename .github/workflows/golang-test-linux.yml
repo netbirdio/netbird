@@ -168,7 +168,6 @@ jobs:
           slug: netbirdio/netbird
           flags: unit,client
 
-
   test_client_on_docker:
     name: "Client (Docker) / Unit"
     needs: [build-cache]

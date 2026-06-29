@@ -24,14 +24,14 @@ type RulePair struct {
 type Manager struct {
 	dnatFirewall DNATFirewall
 
-	rules   map[string]RulePair // keys is the ID of the ForwardRule
+	rules   map[firewall.RuleID]RulePair
 	rulesMu sync.Mutex
 }
 
 func NewManager(dnatFirewall DNATFirewall) *Manager {
 	return &Manager{
 		dnatFirewall: dnatFirewall,
-		rules:        make(map[string]RulePair),
+		rules:        make(map[firewall.RuleID]RulePair),
 	}
 }
 
@@ -41,7 +41,7 @@ func (h *Manager) Update(forwardRules []firewall.ForwardRule) error {
 
 	var mErr *multierror.Error
 
-	toDelete := make(map[string]RulePair, len(h.rules))
+	toDelete := make(map[firewall.RuleID]RulePair, len(h.rules))
 	for id, r := range h.rules {
 		toDelete[id] = r
 	}
@@ -57,6 +57,10 @@ func (h *Manager) Update(forwardRules []firewall.ForwardRule) error {
 		rule, err := h.dnatFirewall.AddDNATRule(fwdRule)
 		if err != nil {
 			mErr = multierror.Append(mErr, fmt.Errorf("add forward rule '%s': %v", fwdRule.String(), err))
+			continue
+		}
+		if rule == nil {
+			mErr = multierror.Append(mErr, fmt.Errorf("add forward rule '%s': backend returned no rule", fwdRule.String()))
 			continue
 		}
 		log.Infof("forward rule has been added '%s'", fwdRule)
@@ -90,7 +94,7 @@ func (h *Manager) Close() error {
 		}
 	}
 
-	h.rules = make(map[string]RulePair)
+	h.rules = make(map[firewall.RuleID]RulePair)
 	return nberrors.FormatErrorOrNil(mErr)
 }
 
