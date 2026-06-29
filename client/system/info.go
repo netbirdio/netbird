@@ -206,8 +206,12 @@ func GetInfoWithChecksTimeout(ctx context.Context, timeout time.Duration, checks
 	go func() {
 		info, err := GetInfoWithChecks(ctx, checks, excludeIPs...)
 		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
 			log.Warnf("failed to get system info with checks: %v", err)
 			info = GetInfo(ctx)
+			info.removeAddresses(excludeIPs...)
 		}
 		infoCh <- info
 	}()
