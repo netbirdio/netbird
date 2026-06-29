@@ -59,6 +59,11 @@ type metricsImplementation interface {
 	// RecordLoginDuration records how long the login to management took
 	RecordLoginDuration(ctx context.Context, agentInfo AgentInfo, duration time.Duration, success bool)
 
+	// RecordVNCSessionTick records a periodic snapshot of one VNC
+	// session's wire activity. Called once per metricsConn tick interval
+	// (and once at session close), only when the tick saw activity.
+	RecordVNCSessionTick(ctx context.Context, agentInfo AgentInfo, tick VNCSessionTick)
+
 	// Export exports metrics in InfluxDB line protocol format
 	Export(w io.Writer) error
 
@@ -76,6 +81,21 @@ type ClientMetrics struct {
 	pushMu     sync.Mutex
 	wg         sync.WaitGroup
 	pushCancel context.CancelFunc
+}
+
+// VNCSessionTick is one sampling slice of a VNC session's wire activity.
+// BytesOut / Writes / FBUs / WriteNanos are deltas observed during this
+// tick; Max* fields are the high-water marks observed during the tick.
+// Period is the wall-clock duration the deltas cover.
+type VNCSessionTick struct {
+	Period        time.Duration
+	BytesOut      uint64
+	Writes        uint64
+	FBUs          uint64
+	MaxFBUBytes   uint64
+	MaxFBURects   uint64
+	MaxWriteBytes uint64
+	WriteNanos    uint64
 }
 
 // ConnectionStageTimestamps holds timestamps for each connection stage
@@ -125,6 +145,17 @@ func (c *ClientMetrics) RecordSyncDuration(ctx context.Context, duration time.Du
 	c.mu.RUnlock()
 
 	c.impl.RecordSyncDuration(ctx, agentInfo, duration)
+}
+
+// RecordVNCSessionTick records a periodic snapshot of one VNC session.
+func (c *ClientMetrics) RecordVNCSessionTick(ctx context.Context, tick VNCSessionTick) {
+	if c == nil {
+		return
+	}
+	c.mu.RLock()
+	agentInfo := c.agentInfo
+	c.mu.RUnlock()
+	c.impl.RecordVNCSessionTick(ctx, agentInfo, tick)
 }
 
 // RecordLoginDuration records how long the login to management server took

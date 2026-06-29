@@ -219,6 +219,8 @@ message Flags {
   bool disableSSHAuth = 15;
 
   bool disableIPv6 = 16;
+
+  bool serverVNCAllowed = 18;
 }
 
 // PeerCapability represents a feature the client binary supports.
@@ -446,6 +448,9 @@ message NetworkMap {
 
   // SSHAuth represents SSH authorization configuration
   SSHAuth sshAuth = 13;
+
+  // VNCAuth represents VNC authorization configuration
+  VNCAuth vncAuth = 14;
 }
 
 message SSHAuth {
@@ -461,6 +466,42 @@ message SSHAuth {
 
 message MachineUserIndexes {
   repeated uint32 indexes = 1;
+}
+
+// VNCAuth represents VNC authorization configuration for a peer.
+message VNCAuth {
+  // AuthorizedUsers is a list of hashed user IDs authorized to access this peer via VNC
+  repeated bytes AuthorizedUsers = 2;
+
+  // MachineUsers maps OS user names to their corresponding indexes in the AuthorizedUsers list.
+  // Used in session mode to determine which OS user to create the virtual session as.
+  // The wildcard "*" allows any OS user.
+  map<string, MachineUserIndexes> machine_users = 3;
+
+  // SessionPubKeys are short-lived X25519 static keypairs the dashboard
+  // (or other temporary-access clients) registers per session. The
+  // daemon runs a Noise_IK handshake against the matching pubkey to
+  // authenticate the connection and resolve the pubkey back to a user.
+  repeated SessionPubKey session_pub_keys = 4;
+}
+
+// SessionPubKey binds an ephemeral X25519 static public key to a hashed
+// user identity so the daemon can authorize VNC connections that
+// complete a Noise_IK handshake with the matching private key.
+message SessionPubKey {
+  // PubKey is the 32-byte X25519 static public key.
+  bytes pub_key = 1;
+
+  // UserIDHash is the BLAKE2b-128 hash of the user ID this session
+  // belongs to, matching the entries in VNCAuth.AuthorizedUsers.
+  bytes user_id_hash = 2;
+
+  // DisplayName is a human-readable label for the user this session was
+  // issued to (typically the IDP display name, falling back to email).
+  // Used by the host peer's UI in the per-connection approval prompt so
+  // the user being asked can recognise the requester. May be empty when
+  // the management server has no user record for the session.
+  string display_name = 3;
 }
 
 // RemotePeerConfig represents a configuration of a remote peer.

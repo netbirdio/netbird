@@ -59,6 +59,7 @@ const (
 	DaemonService_StopCPUProfile_FullMethodName             = "/daemon.DaemonService/StopCPUProfile"
 	DaemonService_GetInstallerResult_FullMethodName         = "/daemon.DaemonService/GetInstallerResult"
 	DaemonService_ExposeService_FullMethodName              = "/daemon.DaemonService/ExposeService"
+	DaemonService_RespondApproval_FullMethodName            = "/daemon.DaemonService/RespondApproval"
 )
 
 // DaemonServiceClient is the client API for DaemonService service.
@@ -136,6 +137,13 @@ type DaemonServiceClient interface {
 	GetInstallerResult(ctx context.Context, in *InstallerResultRequest, opts ...grpc.CallOption) (*InstallerResultResponse, error)
 	// ExposeService exposes a local port via the NetBird reverse proxy
 	ExposeService(ctx context.Context, in *ExposeServiceRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ExposeServiceEvent], error)
+	// RespondApproval delivers the user's accept/deny decision for a
+	// pending user-approval prompt. The daemon pushes the prompt as a
+	// SystemEvent with category APPROVAL and metadata key "request_id";
+	// the UI calls this RPC with the same request_id to unblock whichever
+	// subsystem (VNC, SSH, ...) is waiting. The "kind" metadata key tells
+	// the UI which subsystem the prompt belongs to.
+	RespondApproval(ctx context.Context, in *RespondApprovalRequest, opts ...grpc.CallOption) (*RespondApprovalResponse, error)
 }
 
 type daemonServiceClient struct {
@@ -573,6 +581,16 @@ func (c *daemonServiceClient) ExposeService(ctx context.Context, in *ExposeServi
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type DaemonService_ExposeServiceClient = grpc.ServerStreamingClient[ExposeServiceEvent]
 
+func (c *daemonServiceClient) RespondApproval(ctx context.Context, in *RespondApprovalRequest, opts ...grpc.CallOption) (*RespondApprovalResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RespondApprovalResponse)
+	err := c.cc.Invoke(ctx, DaemonService_RespondApproval_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DaemonServiceServer is the server API for DaemonService service.
 // All implementations must embed UnimplementedDaemonServiceServer
 // for forward compatibility.
@@ -648,6 +666,13 @@ type DaemonServiceServer interface {
 	GetInstallerResult(context.Context, *InstallerResultRequest) (*InstallerResultResponse, error)
 	// ExposeService exposes a local port via the NetBird reverse proxy
 	ExposeService(*ExposeServiceRequest, grpc.ServerStreamingServer[ExposeServiceEvent]) error
+	// RespondApproval delivers the user's accept/deny decision for a
+	// pending user-approval prompt. The daemon pushes the prompt as a
+	// SystemEvent with category APPROVAL and metadata key "request_id";
+	// the UI calls this RPC with the same request_id to unblock whichever
+	// subsystem (VNC, SSH, ...) is waiting. The "kind" metadata key tells
+	// the UI which subsystem the prompt belongs to.
+	RespondApproval(context.Context, *RespondApprovalRequest) (*RespondApprovalResponse, error)
 	mustEmbedUnimplementedDaemonServiceServer()
 }
 
@@ -777,6 +802,9 @@ func (UnimplementedDaemonServiceServer) GetInstallerResult(context.Context, *Ins
 }
 func (UnimplementedDaemonServiceServer) ExposeService(*ExposeServiceRequest, grpc.ServerStreamingServer[ExposeServiceEvent]) error {
 	return status.Error(codes.Unimplemented, "method ExposeService not implemented")
+}
+func (UnimplementedDaemonServiceServer) RespondApproval(context.Context, *RespondApprovalRequest) (*RespondApprovalResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RespondApproval not implemented")
 }
 func (UnimplementedDaemonServiceServer) mustEmbedUnimplementedDaemonServiceServer() {}
 func (UnimplementedDaemonServiceServer) testEmbeddedByValue()                       {}
@@ -1498,6 +1526,24 @@ func _DaemonService_ExposeService_Handler(srv interface{}, stream grpc.ServerStr
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type DaemonService_ExposeServiceServer = grpc.ServerStreamingServer[ExposeServiceEvent]
 
+func _DaemonService_RespondApproval_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RespondApprovalRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).RespondApproval(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DaemonService_RespondApproval_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).RespondApproval(ctx, req.(*RespondApprovalRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // DaemonService_ServiceDesc is the grpc.ServiceDesc for DaemonService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1652,6 +1698,10 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetInstallerResult",
 			Handler:    _DaemonService_GetInstallerResult_Handler,
+		},
+		{
+			MethodName: "RespondApproval",
+			Handler:    _DaemonService_RespondApproval_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

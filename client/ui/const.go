@@ -2,6 +2,7 @@ package main
 
 const (
 	allowSSHMenuDescr          = "Allow SSH connections"
+	allowVNCMenuDescr          = "Allow embedded VNC server"
 	autoConnectMenuDescr       = "Connect automatically when the service starts"
 	quantumResistanceMenuDescr = "Enable post-quantum security via Rosenpass"
 	lazyConnMenuDescr          = "[Experimental] Enable lazy connections"

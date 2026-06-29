@@ -121,6 +121,14 @@ service DaemonService {
 
   // ExposeService exposes a local port via the NetBird reverse proxy
   rpc ExposeService(ExposeServiceRequest) returns (stream ExposeServiceEvent) {}
+
+  // RespondApproval delivers the user's accept/deny decision for a
+  // pending user-approval prompt. The daemon pushes the prompt as a
+  // SystemEvent with category APPROVAL and metadata key "request_id";
+  // the UI calls this RPC with the same request_id to unblock whichever
+  // subsystem (VNC, SSH, ...) is waiting. The "kind" metadata key tells
+  // the UI which subsystem the prompt belongs to.
+  rpc RespondApproval(RespondApprovalRequest) returns (RespondApprovalResponse) {}
 }
 
 
@@ -207,6 +215,10 @@ message LoginRequest {
   optional bool disableSSHAuth = 38;
   optional int32 sshJWTCacheTTL = 39;
   optional bool disable_ipv6 = 40;
+
+  optional bool serverVNCAllowed = 41;
+
+  optional bool disableVNCApproval = 42;
 }
 
 message LoginResponse {
@@ -317,12 +329,16 @@ message GetConfigResponse {
 
   bool disable_ipv6 = 27;
 
+  bool serverVNCAllowed = 28;
+
+  bool disableVNCApproval = 29;
+
   // mDMManagedFields lists the names of configuration keys whose value is
   // currently enforced by an MDM policy. Names match mdm.Key* constants
   // (e.g. "managementURL", "disableClientRoutes"). UI/CLI clients should
   // render the corresponding inputs as read-only and display a "managed
   // by MDM" indicator.
-  repeated string mDMManagedFields = 28;
+  repeated string mDMManagedFields = 30;
 }
 
 // PeerState contains the latest state of a peer
@@ -407,6 +423,25 @@ message SSHServerState {
   repeated SSHSessionInfo sessions = 2;
 }
 
+// VNCSessionInfo contains information about an active VNC session
+message VNCSessionInfo {
+  string remoteAddress = 1;
+  string mode = 2;
+  string username = 3;
+  // userID is the Noise-verified session identity (hashed user ID from
+  // the ACL session-key entry), empty when auth is disabled.
+  string userID = 4;
+  // initiator is the human-readable display name of the dashboard user
+  // who minted the SessionPubKey, when known.
+  string initiator = 5;
+}
+
+// VNCServerState contains the latest state of the VNC server
+message VNCServerState {
+  bool enabled = 1;
+  repeated VNCSessionInfo sessions = 2;
+}
+
 // FullStatus contains the full state held by the Status instance
 message FullStatus {
   ManagementState managementState = 1;
@@ -421,6 +456,7 @@ message FullStatus {
 
   bool lazyConnectionEnabled = 9;
   SSHServerState sshServerState = 10;
+  VNCServerState vncServerState = 11;
 }
 
 // Networks
@@ -609,6 +645,7 @@ message SystemEvent {
     AUTHENTICATION = 2;
     CONNECTIVITY = 3;
     SYSTEM = 4;
+    APPROVAL = 5;
   }
 
   string id = 1;
@@ -699,6 +736,10 @@ message SetConfigRequest {
   optional bool disableSSHAuth = 33;
   optional int32 sshJWTCacheTTL = 34;
   optional bool disable_ipv6 = 35;
+
+  optional bool serverVNCAllowed = 36;
+
+  optional bool disableVNCApproval = 37;
 }
 
 message SetConfigResponse{}
@@ -929,3 +970,18 @@ message StartBundleCaptureRequest {
 message StartBundleCaptureResponse {}
 message StopBundleCaptureRequest {}
 message StopBundleCaptureResponse {}
+
+message RespondApprovalRequest {
+  // request_id matches the SystemEvent metadata key emitted by the daemon
+  // when a subsystem awaits user approval for an inbound connection.
+  string request_id = 1;
+  // accept is true if the user approved the request, false if they
+  // denied it. A missing or unknown request_id is treated as a no-op.
+  bool accept = 2;
+  // view_only signals that the user granted the connection but withheld
+  // input control. Only meaningful when accept is true; ignored when
+  // accept is false.
+  bool view_only = 3;
+}
+
+message RespondApprovalResponse {}

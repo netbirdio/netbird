@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"net"
 	"strconv"
@@ -21,6 +22,7 @@ import (
 	"github.com/netbirdio/netbird/client/wasm/internal/http"
 	"github.com/netbirdio/netbird/client/wasm/internal/rdp"
 	"github.com/netbirdio/netbird/client/wasm/internal/ssh"
+	"github.com/netbirdio/netbird/client/wasm/internal/vnc"
 	nbwebsocket "github.com/netbirdio/netbird/client/wasm/internal/websocket"
 	"github.com/netbirdio/netbird/util"
 )
@@ -40,6 +42,7 @@ const (
 
 func main() {
 	js.Global().Set("NetBirdClient", js.FuncOf(netBirdClientConstructor))
+	js.Global().Set("netbirdGenerateVNCSessionKey", createGenerateVNCSessionKeyMethod())
 
 	select {}
 }
@@ -389,6 +392,157 @@ func createRDPProxyMethod(client *netbird.Client) js.Func {
 	})
 }
 
+// createGenerateVNCSessionKeyMethod returns a JS func that mints a fresh
+// X25519 keypair, stashes the private half inside wasm under a random
+// session id, and returns { publicKey, sessionId } to JS. The private
+// key never leaves the wasm heap.
+func createGenerateVNCSessionKeyMethod() js.Func {
+	return js.FuncOf(func(_ js.Value, _ []js.Value) any {
+		id, pub, err := vnc.NewSessionKey()
+		if err != nil {
+			return js.ValueOf(err.Error())
+		}
+		out := js.Global().Get("Object").New()
+		out.Set("sessionId", id)
+		out.Set("publicKey", base64.StdEncoding.EncodeToString(pub))
+		return out
+	})
+}
+
+// createVNCProxyMethod creates the VNC proxy method for raw TCP-over-WebSocket bridging.
+// JS signature: createVNCProxy(hostname, port, mode?, username?, keySessionID?, sessionID?, width?, height?, peerPublicKey?)
+//
+//	mode:           "attach" (default) or "session"
+//	username:       required when mode is "session"
+//	keySessionID:   handle for the wasm-resident session keypair minted by netbirdGenerateVNCSessionKey
+//	sessionID:      Windows session ID (0 = console/auto)
+//	width/height:   requested viewport size for session mode (0 = server default)
+//	peerPublicKey:  base64 X25519 static pubkey of the destination peer (required for auth)
+func createVNCProxyMethod(client *netbird.Client) js.Func {
+	return js.FuncOf(func(_ js.Value, args []js.Value) any {
+		params, err := parseVNCProxyArgs(args)
+		if err != nil {
+			if params.rejectViaPromise {
+				return createPromise(func(resolve, reject js.Value) {
+					reject.Invoke(js.ValueOf(err.Error()))
+				})
+			}
+			return js.ValueOf(err.Error())
+		}
+		proxy := vnc.NewVNCProxy(client)
+		return proxy.CreateProxy(vnc.ProxyRequest{
+			Hostname:      params.hostname,
+			Port:          params.port,
+			Mode:          params.mode,
+			Username:      params.username,
+			SessionID:     params.sessionID,
+			Width:         params.width,
+			Height:        params.height,
+			PeerPublicKey: params.peerPublicKey,
+			KeySessionID:  params.keySessionID,
+		})
+	})
+}
+
+type vncProxyParams struct {
+	hostname         string
+	port             string
+	mode             string
+	username         string
+	keySessionID     string
+	sessionID        uint32
+	width            uint16
+	height           uint16
+	peerPublicKey    string
+	rejectViaPromise bool
+}
+
+// parseVNCProxyArgs validates JS args for createVNCProxyMethod and returns
+// the parsed params plus the first validation error (nil on success).
+// vncProxyParams.rejectViaPromise tells the caller which JS-side response
+// path to use for the returned error.
+func parseVNCProxyArgs(args []js.Value) (vncProxyParams, error) {
+	var p vncProxyParams
+	if err := parseVNCProxyRequiredArgs(args, &p); err != nil {
+		return p, err
+	}
+	if err := parseVNCProxyOptionalStrings(args, &p); err != nil {
+		return p, err
+	}
+	if err := parseVNCProxyOptionalNumbers(args, &p); err != nil {
+		return p, err
+	}
+	return p, nil
+}
+
+func parseVNCProxyRequiredArgs(args []js.Value, p *vncProxyParams) error {
+	if len(args) < 2 {
+		return fmt.Errorf("hostname and port required")
+	}
+	if args[0].Type() != js.TypeString {
+		p.rejectViaPromise = true
+		return fmt.Errorf("hostname parameter must be a string")
+	}
+	if args[1].Type() != js.TypeString {
+		p.rejectViaPromise = true
+		return fmt.Errorf("port parameter must be a string")
+	}
+	p.hostname = args[0].String()
+	p.port = args[1].String()
+	p.mode = "attach"
+	return nil
+}
+
+func parseVNCProxyOptionalStrings(args []js.Value, p *vncProxyParams) error {
+	if len(args) > 2 && args[2].Type() == js.TypeString {
+		p.mode = args[2].String()
+	}
+	if p.mode != "attach" && p.mode != "session" {
+		p.rejectViaPromise = true
+		return fmt.Errorf("invalid mode %q: expected \"attach\" or \"session\"", p.mode)
+	}
+	if len(args) > 3 && args[3].Type() == js.TypeString {
+		p.username = args[3].String()
+	}
+	if len(args) > 4 && args[4].Type() == js.TypeString {
+		p.keySessionID = args[4].String()
+	}
+	return nil
+}
+
+func parseVNCProxyOptionalNumbers(args []js.Value, p *vncProxyParams) error {
+	if len(args) > 5 && args[5].Type() == js.TypeNumber {
+		v := args[5].Int()
+		if v < 0 || v > 0xFFFFFFFF {
+			p.rejectViaPromise = true
+			return fmt.Errorf("invalid sessionID %d: must be 0..0xFFFFFFFF", v)
+		}
+		p.sessionID = uint32(v)
+	}
+	// width=0 / height=0 mean "use server default"; reject only out-of-range
+	// non-zero values so attach mode (which omits width/height) still works.
+	if len(args) > 6 && args[6].Type() == js.TypeNumber {
+		v := args[6].Int()
+		if v < 0 || v > 0xFFFF {
+			p.rejectViaPromise = true
+			return fmt.Errorf("invalid width %d: must be 0..65535", v)
+		}
+		p.width = uint16(v)
+	}
+	if len(args) > 7 && args[7].Type() == js.TypeNumber {
+		v := args[7].Int()
+		if v < 0 || v > 0xFFFF {
+			p.rejectViaPromise = true
+			return fmt.Errorf("invalid height %d: must be 0..65535", v)
+		}
+		p.height = uint16(v)
+	}
+	if len(args) > 8 && args[8].Type() == js.TypeString {
+		p.peerPublicKey = args[8].String()
+	}
+	return nil
+}
+
 // getStatusOverview is a helper to get the status overview
 func getStatusOverview(client *netbird.Client) (nbstatus.OutputOverview, error) {
 	fullStatus, err := client.Status()
@@ -565,10 +719,10 @@ func createStartCaptureMethod(client *netbird.Client) js.Func {
 //
 // Usage from browser devtools console:
 //
-//	await client.capture()              // capture all packets
-//	await client.capture("tcp")         // capture with filter
-//	await client.capture({filter: "host 10.0.0.1", verbose: true})
-//	client.stopCapture()                // stop and print stats
+//	await netbird.capture()              // capture all packets
+//	await netbird.capture("tcp")         // capture with filter
+//	await netbird.capture({filter: "host 10.0.0.1", verbose: true})
+//	netbird.stopCapture()                // stop and print stats
 func captureMethods(client *netbird.Client) (startFn, stopFn js.Func) {
 	var mu sync.Mutex
 	var active *wasmcapture.Handle
@@ -596,7 +750,7 @@ func captureMethods(client *netbird.Client) (startFn, stopFn js.Func) {
 			active = h
 
 			console := js.Global().Get("console")
-			console.Call("log", "[capture] started, call client.stopCapture() to stop")
+			console.Call("log", "[capture] started, call netbird.stopCapture() to stop")
 			resolve.Invoke(js.Undefined())
 		})
 	})
@@ -679,6 +833,7 @@ func createClientObject(client *netbird.Client) js.Value {
 	obj["createSSHConnection"] = createSSHMethod(client)
 	obj["proxyRequest"] = createProxyRequestMethod(client)
 	obj["createRDPProxy"] = createRDPProxyMethod(client)
+	obj["createVNCProxy"] = createVNCProxyMethod(client)
 	obj["dialWebSocket"] = createDialWebSocketMethod(client)
 	obj["status"] = createStatusMethod(client)
 	obj["statusSummary"] = createStatusSummaryMethod(client)

@@ -112,13 +112,25 @@ func main() {
 		showQuickActions:  flags.showQuickActions,
 		showUpdate:        flags.showUpdate,
 		showUpdateVersion: flags.showUpdateVersion,
+		showApproval:      flags.showApproval,
+		approvalRequest: approvalRequest{
+			requestID:      flags.approvalRequestID,
+			kind:           flags.approvalKind,
+			initiator:      os.Getenv(envApprovalInitiator),
+			peerName:       os.Getenv(envApprovalPeerName),
+			sourceIP:       os.Getenv(envApprovalSourceIP),
+			username:       os.Getenv(envApprovalUsername),
+			subject:        os.Getenv(envApprovalSubject),
+			expiresAt:      flags.approvalExpiresAt,
+			keyFingerprint: os.Getenv(envApprovalKeyFingerprint),
+		},
 	})
 
 	// Watch for theme/settings changes to update the icon.
 	go watchSettingsChanges(a, client)
 
 	// Run in window mode if any UI flag was set.
-	if flags.showSettings || flags.showNetworks || flags.showDebug || flags.showLoginURL || flags.showProfiles || flags.showQuickActions || flags.showUpdate {
+	if flags.showSettings || flags.showNetworks || flags.showDebug || flags.showLoginURL || flags.showProfiles || flags.showQuickActions || flags.showUpdate || flags.showApproval {
 		a.Run()
 		return
 	}
@@ -155,6 +167,11 @@ type cliFlags struct {
 	saveLogsInFile    bool
 	showUpdate        bool
 	showUpdateVersion string
+	showApproval      bool
+
+	approvalRequestID string
+	approvalKind      string
+	approvalExpiresAt string
 }
 
 // parseFlags reads and returns all needed command-line flags.
@@ -176,6 +193,10 @@ func parseFlags() *cliFlags {
 	flag.BoolVar(&flags.showLoginURL, "login-url", false, "show login URL in a popup window")
 	flag.BoolVar(&flags.showUpdate, "update", false, "show update progress window")
 	flag.StringVar(&flags.showUpdateVersion, "update-version", "", "version to update to")
+	flag.BoolVar(&flags.showApproval, "approval", false, "show inbound-connection approval prompt window")
+	flag.StringVar(&flags.approvalRequestID, "approval-request-id", "", "approval prompt: daemon-issued request id")
+	flag.StringVar(&flags.approvalKind, "approval-kind", "", "approval prompt: subsystem kind (vnc, ssh, ...)")
+	flag.StringVar(&flags.approvalExpiresAt, "approval-expires-at", "", "approval prompt: RFC3339 deadline at which the daemon auto-denies")
 	flag.Parse()
 	return &flags
 }
@@ -264,6 +285,7 @@ type serviceClient struct {
 	mQuit              *systray.MenuItem
 	mNetworks          *systray.MenuItem
 	mAllowSSH          *systray.MenuItem
+	mAllowVNC          *systray.MenuItem
 	mAutoConnect       *systray.MenuItem
 	mEnableRosenpass   *systray.MenuItem
 	mLazyConnEnabled   *systray.MenuItem
@@ -302,6 +324,8 @@ type serviceClient struct {
 	sEnableSSHRemotePortForward *widget.Check
 	sDisableSSHAuth             *widget.Check
 	iSSHJWTCacheTTL             *widget.Entry
+	sServerVNCAllowed           *widget.Check
+	sDisableVNCApproval         *widget.Check
 
 	// observable settings over corresponding iMngURL and iPreSharedKey values.
 	managementURL string
@@ -323,6 +347,8 @@ type serviceClient struct {
 	enableSSHRemotePortForward bool
 	disableSSHAuth             bool
 	sshJWTCacheTTL             int
+	serverVNCAllowed           bool
+	disableVNCApproval         bool
 
 	connected            bool
 	daemonVersion        string
@@ -381,6 +407,8 @@ type newServiceClientArgs struct {
 	showQuickActions  bool
 	showUpdate        bool
 	showUpdateVersion string
+	showApproval      bool
+	approvalRequest   approvalRequest
 }
 
 // newServiceClient instance constructor
@@ -428,6 +456,8 @@ func newServiceClient(args *newServiceClientArgs) *serviceClient {
 		}
 	case args.showUpdate:
 		s.showUpdateProgress(ctx, args.showUpdateVersion)
+	case args.showApproval:
+		s.showApprovalUI(args.approvalRequest)
 	}
 
 	return s
@@ -508,6 +538,8 @@ func (s *serviceClient) showSettingsUI() {
 	s.sEnableSSHRemotePortForward = widget.NewCheck("Enable SSH Remote Port Forwarding", nil)
 	s.sDisableSSHAuth = widget.NewCheck("Disable SSH Authentication", nil)
 	s.iSSHJWTCacheTTL = widget.NewEntry()
+	s.sServerVNCAllowed = widget.NewCheck("Allow embedded VNC server on this peer", nil)
+	s.sDisableVNCApproval = widget.NewCheck("Skip per-connection approval prompt for VNC", nil)
 
 	s.wSettings.SetContent(s.getSettingsForm())
 	s.wSettings.Resize(fyne.NewSize(600, 400))
@@ -620,7 +652,8 @@ func (s *serviceClient) hasSettingsChanged(iMngURL string, port, mtu int64) bool
 		s.disableServerRoutes != s.sDisableServerRoutes.Checked ||
 		s.disableIPv6 != s.sDisableIPv6.Checked ||
 		s.blockLANAccess != s.sBlockLANAccess.Checked ||
-		s.hasSSHChanges()
+		s.hasSSHChanges() ||
+		s.hasVNCChanges()
 }
 
 func (s *serviceClient) applySettingsChanges(iMngURL string, port, mtu int64) error {
@@ -679,6 +712,8 @@ func (s *serviceClient) buildSetConfigRequest(iMngURL string, port, mtu int64) (
 	req.EnableSSHLocalPortForwarding = &s.sEnableSSHLocalPortForward.Checked
 	req.EnableSSHRemotePortForwarding = &s.sEnableSSHRemotePortForward.Checked
 	req.DisableSSHAuth = &s.sDisableSSHAuth.Checked
+	req.ServerVNCAllowed = &s.sServerVNCAllowed.Checked
+	req.DisableVNCApproval = &s.sDisableVNCApproval.Checked
 
 	sshJWTCacheTTLText := strings.TrimSpace(s.iSSHJWTCacheTTL.Text)
 	if sshJWTCacheTTLText != "" {
@@ -747,10 +782,12 @@ func (s *serviceClient) getSettingsForm() fyne.CanvasObject {
 	connectionForm := s.getConnectionForm()
 	networkForm := s.getNetworkForm()
 	sshForm := s.getSSHForm()
+	vncForm := s.getVNCForm()
 	tabs := container.NewAppTabs(
 		container.NewTabItem("Connection", connectionForm),
 		container.NewTabItem("Network", networkForm),
 		container.NewTabItem("SSH", sshForm),
+		container.NewTabItem("VNC", vncForm),
 	)
 	saveButton := widget.NewButtonWithIcon("Save", theme.ConfirmIcon(), s.saveSettings)
 	saveButton.Importance = widget.HighImportance
@@ -791,6 +828,15 @@ func (s *serviceClient) getSSHForm() *widget.Form {
 	}
 }
 
+func (s *serviceClient) getVNCForm() *widget.Form {
+	return &widget.Form{
+		Items: []*widget.FormItem{
+			{Text: "Allow VNC Server", Widget: s.sServerVNCAllowed},
+			{Text: "Disable Connection Approval Prompt", Widget: s.sDisableVNCApproval},
+		},
+	}
+}
+
 func (s *serviceClient) hasSSHChanges() bool {
 	currentSSHJWTCacheTTL := s.sshJWTCacheTTL
 	if text := strings.TrimSpace(s.iSSHJWTCacheTTL.Text); text != "" {
@@ -807,6 +853,11 @@ func (s *serviceClient) hasSSHChanges() bool {
 		s.enableSSHRemotePortForward != s.sEnableSSHRemotePortForward.Checked ||
 		s.disableSSHAuth != s.sDisableSSHAuth.Checked ||
 		s.sshJWTCacheTTL != currentSSHJWTCacheTTL
+}
+
+func (s *serviceClient) hasVNCChanges() bool {
+	return s.serverVNCAllowed != s.sServerVNCAllowed.Checked ||
+		s.disableVNCApproval != s.sDisableVNCApproval.Checked
 }
 
 func (s *serviceClient) login(ctx context.Context, openURL bool) (*proto.LoginResponse, error) {
@@ -1092,6 +1143,7 @@ func (s *serviceClient) onTrayReady() {
 
 	s.mSettings = systray.AddMenuItem("Settings", disabledMenuDescr)
 	s.mAllowSSH = s.mSettings.AddSubMenuItemCheckbox("Allow SSH", allowSSHMenuDescr, false)
+	s.mAllowVNC = s.mSettings.AddSubMenuItemCheckbox("Allow VNC", allowVNCMenuDescr, false)
 	s.mAutoConnect = s.mSettings.AddSubMenuItemCheckbox("Connect on Startup", autoConnectMenuDescr, false)
 	s.mEnableRosenpass = s.mSettings.AddSubMenuItemCheckbox("Enable Quantum-Resistance", quantumResistanceMenuDescr, false)
 	s.mLazyConnEnabled = s.mSettings.AddSubMenuItemCheckbox("Enable Lazy Connections", lazyConnMenuDescr, false)
@@ -1172,6 +1224,7 @@ func (s *serviceClient) onTrayReady() {
 
 	s.eventManager = event.NewManager(s.notifier, s.addr)
 	s.eventManager.SetNotificationsEnabled(s.mNotifications.Checked())
+	s.eventManager.AddHandler(s.handleApprovalEvent)
 	s.eventManager.AddHandler(func(event *proto.SystemEvent) {
 		if event.Category == proto.SystemEvent_SYSTEM {
 			s.updateExitNodes()
@@ -1454,6 +1507,12 @@ func (s *serviceClient) getSrvConfig() {
 	if cfg.SSHJWTCacheTTL != nil {
 		s.sshJWTCacheTTL = *cfg.SSHJWTCacheTTL
 	}
+	if cfg.ServerVNCAllowed != nil {
+		s.serverVNCAllowed = *cfg.ServerVNCAllowed
+	}
+	if cfg.DisableVNCApproval != nil {
+		s.disableVNCApproval = *cfg.DisableVNCApproval
+	}
 
 	if s.showAdvancedSettings {
 		s.iMngURL.SetText(s.managementURL)
@@ -1508,6 +1567,12 @@ func (s *serviceClient) getSrvConfig() {
 		}
 		if cfg.SSHJWTCacheTTL != nil {
 			s.iSSHJWTCacheTTL.SetText(strconv.Itoa(*cfg.SSHJWTCacheTTL))
+		}
+		if cfg.ServerVNCAllowed != nil {
+			s.sServerVNCAllowed.SetChecked(*cfg.ServerVNCAllowed)
+		}
+		if cfg.DisableVNCApproval != nil {
+			s.sDisableVNCApproval.SetChecked(*cfg.DisableVNCApproval)
 		}
 	}
 
@@ -1575,6 +1640,8 @@ func protoConfigToConfig(cfg *proto.GetConfigResponse) *profilemanager.Config {
 
 	config.DisableAutoConnect = cfg.DisableAutoConnect
 	config.ServerSSHAllowed = &cfg.ServerSSHAllowed
+	config.ServerVNCAllowed = &cfg.ServerVNCAllowed
+	config.DisableVNCApproval = &cfg.DisableVNCApproval
 	config.RosenpassEnabled = cfg.RosenpassEnabled
 	config.RosenpassPermissive = cfg.RosenpassPermissive
 	config.DisableNotifications = &cfg.DisableNotifications
@@ -1668,6 +1735,12 @@ func (s *serviceClient) loadSettings() {
 		s.mAllowSSH.Check()
 	} else {
 		s.mAllowSSH.Uncheck()
+	}
+
+	if cfg.ServerVNCAllowed {
+		s.mAllowVNC.Check()
+	} else {
+		s.mAllowVNC.Uncheck()
 	}
 
 	if cfg.DisableAutoConnect {
@@ -1832,6 +1905,7 @@ func (s *serviceClient) applyMDMLocksToSettingsForm(set map[string]bool) {
 func (s *serviceClient) updateConfig() error {
 	disableAutoStart := !s.mAutoConnect.Checked()
 	sshAllowed := s.mAllowSSH.Checked()
+	vncAllowed := s.mAllowVNC.Checked()
 	rosenpassEnabled := s.mEnableRosenpass.Checked()
 	lazyConnectionEnabled := s.mLazyConnEnabled.Checked()
 	blockInbound := s.mBlockInbound.Checked()
@@ -1860,6 +1934,7 @@ func (s *serviceClient) updateConfig() error {
 		Username:              currUser.Username,
 		DisableAutoConnect:    &disableAutoStart,
 		ServerSSHAllowed:      &sshAllowed,
+		ServerVNCAllowed:      &vncAllowed,
 		RosenpassEnabled:      &rosenpassEnabled,
 		LazyConnectionEnabled: &lazyConnectionEnabled,
 		BlockInbound:          &blockInbound,

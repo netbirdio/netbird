@@ -2,6 +2,7 @@ package peers
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -21,6 +22,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -463,15 +465,35 @@ func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var req api.PeerTemporaryAccessRequest
-	err = json.NewDecoder(r.Body).Decode(&req)
+	ctx, err := h.validateTemporaryAccessPermissions(r.Context(), userAuth.AccountId, userAuth.UserId)
 	if err != nil {
+		util.WriteError(ctx, err, w)
+		return
+	}
+
+	var req api.PeerTemporaryAccessRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 		return
 	}
 
 	newPeer := &nbpeer.Peer{}
 	newPeer.FromAPITemporaryAccessRequest(&req)
+
+	parsedRules, needsVNCKey, err := parseTemporaryAccessRules(req.Rules)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	var vncSessionPubKey string
+	if needsVNCKey {
+		vncSessionPubKey, err = validateVNCSessionPubKey(req.SessionPubKey)
+		if err != nil {
+			util.WriteError(r.Context(), err, w)
+			return
+		}
+	}
 
 	targetPeer, err := h.accountManager.GetPeer(r.Context(), userAuth.AccountId, peerID, userAuth.UserId)
 	if err != nil {
@@ -485,12 +507,72 @@ func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	for _, rule := range req.Rules {
+	if err := h.createTemporaryAccessPolicies(r.Context(), userAuth, peer, targetPeer, parsedRules, vncSessionPubKey); err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	resp := &api.PeerTemporaryAccessResponse{
+		Id:           peer.ID,
+		Name:         peer.Name,
+		Rules:        req.Rules,
+		TargetPubKey: targetPeer.Key,
+	}
+
+	util.WriteJSONObject(r.Context(), w, resp)
+}
+
+// temporaryAccessRule holds a parsed temporary-access rule string alongside
+// the protocol and port range it resolves to.
+type temporaryAccessRule struct {
+	raw       string
+	protocol  types.PolicyRuleProtocolType
+	portRange types.RulePortRange
+}
+
+// validateTemporaryAccessPermissions enforces the Peers.Create and
+// Policies.Create permissions up front. AddPeer/SavePolicy enforce them too,
+// but the explicit gate keeps a future refactor that bypasses one of those
+// calls from silently widening the endpoint's authority. It returns the
+// context updated by the permission checks.
+func (h *Handler) validateTemporaryAccessPermissions(ctx context.Context, accountID, userID string) (context.Context, error) {
+	allowed, ctx, err := h.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Create)
+	if err != nil {
+		return ctx, status.NewPermissionValidationError(err)
+	} else if !allowed {
+		return ctx, status.NewPermissionDeniedError()
+	}
+	allowed, ctx, err = h.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operations.Create)
+	if err != nil {
+		return ctx, status.NewPermissionValidationError(err)
+	} else if !allowed {
+		return ctx, status.NewPermissionDeniedError()
+	}
+	return ctx, nil
+}
+
+// parseTemporaryAccessRules parses the rule strings from the request and
+// reports whether any of them is a VNC rule, which requires a session key.
+func parseTemporaryAccessRules(rules []string) ([]temporaryAccessRule, bool, error) {
+	parsed := make([]temporaryAccessRule, 0, len(rules))
+	needsVNCKey := false
+	for _, rule := range rules {
 		protocol, portRange, err := types.ParseRuleString(rule)
 		if err != nil {
-			util.WriteError(r.Context(), err, w)
-			return
+			return nil, false, err
 		}
+		if protocol == types.PolicyRuleProtocolNetbirdVNC {
+			needsVNCKey = true
+		}
+		parsed = append(parsed, temporaryAccessRule{raw: rule, protocol: protocol, portRange: portRange})
+	}
+	return parsed, needsVNCKey, nil
+}
+
+// createTemporaryAccessPolicies creates one temporary-access policy per parsed
+// rule, allowing peer to reach targetPeer over the rule's protocol and ports.
+func (h *Handler) createTemporaryAccessPolicies(ctx context.Context, userAuth auth.UserAuth, peer, targetPeer *nbpeer.Peer, rules []temporaryAccessRule, vncSessionPubKey string) error {
+	for _, pr := range rules {
 		policy := &types.Policy{
 			AccountID:   userAuth.AccountId,
 			Description: "Temporary access policy for peer " + peer.Name,
@@ -510,28 +592,40 @@ func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request) 
 					ID:   targetPeer.ID,
 				},
 				Bidirectional: false,
-				Protocol:      protocol,
-				PortRanges:    []types.RulePortRange{portRange},
+				Protocol:      pr.protocol,
+				PortRanges:    []types.RulePortRange{pr.portRange},
 			}},
 		}
-		if protocol == types.PolicyRuleProtocolNetbirdSSH {
+		if pr.protocol == types.PolicyRuleProtocolNetbirdSSH || pr.protocol == types.PolicyRuleProtocolNetbirdVNC {
 			policy.Rules[0].AuthorizedUser = userAuth.UserId
 		}
+		if pr.protocol == types.PolicyRuleProtocolNetbirdVNC {
+			policy.Rules[0].SessionPubKey = vncSessionPubKey
+			policy.Rules[0].SessionDisplayName = h.displayNameForUser(ctx, userAuth)
+		}
 
-		_, err = h.accountManager.SavePolicy(r.Context(), userAuth.AccountId, userAuth.UserId, policy, true)
-		if err != nil {
-			util.WriteError(r.Context(), err, w)
-			return
+		if _, err := h.accountManager.SavePolicy(ctx, userAuth.AccountId, userAuth.UserId, policy, true); err != nil {
+			return err
 		}
 	}
+	return nil
+}
 
-	resp := &api.PeerTemporaryAccessResponse{
-		Id:    peer.ID,
-		Name:  peer.Name,
-		Rules: req.Rules,
+// validateVNCSessionPubKey ensures the request carries a base64-encoded
+// 32-byte X25519 public key for VNC temporary access. Returns the original
+// base64 string on success.
+func validateVNCSessionPubKey(raw *string) (string, error) {
+	if raw == nil || *raw == "" {
+		return "", status.Errorf(status.InvalidArgument, "session_pub_key is required for VNC temporary access")
 	}
-
-	util.WriteJSONObject(r.Context(), w, resp)
+	pub, err := base64.StdEncoding.DecodeString(*raw)
+	if err != nil {
+		return "", status.Errorf(status.InvalidArgument, "session_pub_key is not valid base64: %v", err)
+	}
+	if len(pub) != 32 {
+		return "", status.Errorf(status.InvalidArgument, "session_pub_key must decode to 32 bytes, got %d", len(pub))
+	}
+	return *raw, nil
 }
 
 func toAccessiblePeers(netMap *types.NetworkMap, dnsDomain string) []api.AccessiblePeer {
@@ -610,6 +704,7 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 			RosenpassEnabled:      &peer.Meta.Flags.RosenpassEnabled,
 			RosenpassPermissive:   &peer.Meta.Flags.RosenpassPermissive,
 			ServerSshAllowed:      &peer.Meta.Flags.ServerSSHAllowed,
+			ServerVncAllowed:      &peer.Meta.Flags.ServerVNCAllowed,
 		},
 	}
 
@@ -665,6 +760,7 @@ func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dn
 			RosenpassEnabled:      &peer.Meta.Flags.RosenpassEnabled,
 			RosenpassPermissive:   &peer.Meta.Flags.RosenpassPermissive,
 			ServerSshAllowed:      &peer.Meta.Flags.ServerSSHAllowed,
+			ServerVncAllowed:      &peer.Meta.Flags.ServerVNCAllowed,
 		},
 	}
 }
@@ -714,4 +810,31 @@ func peerIPv6String(peer *nbpeer.Peer) *string {
 	}
 	s := peer.IPv6.String()
 	return &s
+}
+
+// displayNameForUser returns a human-readable label for the requesting
+// user suitable for a VNC approval prompt. Tries the IdP-resolved
+// UserInfo first (carries name / email management caches from the
+// identity provider) and falls through to JWT claims, then user id.
+// Errors from the lookup don't fail the request; we just degrade.
+func (h *Handler) displayNameForUser(ctx context.Context, u auth.UserAuth) string {
+	if info, err := h.accountManager.GetCurrentUserInfo(ctx, u); err == nil && info != nil {
+		switch {
+		case info.UserInfo != nil && info.UserInfo.Name != "":
+			return info.UserInfo.Name
+		case info.UserInfo != nil && info.UserInfo.Email != "":
+			return info.UserInfo.Email
+		}
+	} else if err != nil {
+		log.WithContext(ctx).Debugf("display name: GetCurrentUserInfo: %v", err)
+	}
+	switch {
+	case u.PreferredName != "":
+		return u.PreferredName
+	case u.Name != "":
+		return u.Name
+	case u.Email != "":
+		return u.Email
+	}
+	return u.UserId
 }
