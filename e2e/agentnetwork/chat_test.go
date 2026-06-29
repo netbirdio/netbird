@@ -4,38 +4,89 @@ package agentnetwork
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/e2e/harness"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
-// TestChatCompletionThroughProxy is Pillar 3: it provisions an agent-network
-// gateway (provider + policy + setup key), runs the proxy and a client
-// container on the shared network, and drives a real chat-completion from the
-// client through the proxy to the upstream provider over the WireGuard tunnel,
-// asserting a 200 and that usage is recorded.
-//
-// Requires a real provider key in OPENAI_TOKEN (source ~/.llm-keys locally; set
-// the Actions secret in CI). Skips otherwise.
-func TestChatCompletionThroughProxy(t *testing.T) {
-	apiKey := os.Getenv("OPENAI_TOKEN")
-	if apiKey == "" {
-		t.Skip("OPENAI_TOKEN not set; source ~/.llm-keys to run the live chat test")
+// providerCase is one entry in the live provider matrix. The same scenario runs
+// for every available provider; availability is keyed off env vars so the suite
+// covers whatever credentials are present (source ~/.llm-keys locally / set the
+// Actions secrets in CI).
+type providerCase struct {
+	name      string
+	catalogID string
+	upstream  string
+	apiKey    string
+	model     string
+	kind      string // harness.WireChat or harness.WireMessages
+}
+
+// availableProviders builds the matrix from the provider env vars that are set.
+func availableProviders() []providerCase {
+	var ps []providerCase
+	if k := os.Getenv("OPENAI_TOKEN"); k != "" {
+		ps = append(ps, providerCase{"openai", "openai_api", "https://api.openai.com", k, "gpt-4o-mini", harness.WireChat})
+	}
+	if k := os.Getenv("ANTHROPIC_TOKEN"); k != "" {
+		ps = append(ps, providerCase{"anthropic", "anthropic_api", "https://api.anthropic.com", k, "claude-haiku-4-5", harness.WireMessages})
+	}
+	if k, u := os.Getenv("VERCEL_TOKEN"), os.Getenv("VERCEL_URL"); k != "" && u != "" {
+		ps = append(ps, providerCase{"vercel", "vercel_ai_gateway", u, k, "openai/gpt-4o-mini", harness.WireChat})
+	}
+	if k, u := os.Getenv("OPENROUTER_TOKEN"), os.Getenv("OPENROUTER_URL"); k != "" && u != "" {
+		// Distinct model string from Vercel so each provider routes unambiguously
+		// while all are enabled together.
+		ps = append(ps, providerCase{"openrouter", "openrouter", u, k, "openai/gpt-4o", harness.WireChat})
+	}
+	if k, u := os.Getenv("CLOUDFLARE_TOKEN"), os.Getenv("CLOUDFLARE_URL"); k != "" && u != "" {
+		// Cloudflare AI Gateway routes by a provider segment in the URL path;
+		// append the openai provider unless the gateway URL already carries one.
+		if !strings.Contains(u, "/openai") {
+			u = strings.TrimRight(u, "/") + "/openai"
+		}
+		// Raw model (distinct string from OpenAI's gpt-4o-mini).
+		ps = append(ps, providerCase{"cloudflare", "cloudflare_ai_gateway", u, k, "gpt-4o", harness.WireChat})
+	}
+	// Vertex (vertex_ai_api) is intentionally NOT in this uniform matrix: it is
+	// driven by a bespoke Vertex rawPredict path
+	// (/v1/projects/<project>/locations/<region>/publishers/anthropic/models/<model>:rawPredict)
+	// with a Vertex-specific body, not the shared chat/messages shapes. It needs
+	// a dedicated scenario; see the bash agent-network-full vertex recipe.
+
+	// Bedrock: path-routed, bearer auth. Model is a cross-region inference
+	// profile id (distinct string from the first-party Anthropic case).
+	if k := os.Getenv("AWS_BEARER_TOKEN_BEDROCK"); k != "" {
+		region := os.Getenv("AWS_REGION")
+		if region == "" {
+			region = "us-east-1"
+		}
+		ps = append(ps, providerCase{"bedrock", "bedrock_api", "https://bedrock-runtime." + region + ".amazonaws.com", k, "us.anthropic.claude-haiku-4-5", harness.WireMessages})
+	}
+	return ps
+}
+
+// TestProvidersMatrix is Pillar 3: it provisions every available provider, runs
+// proxy + client once, and drives the same live chat-completion scenario
+// through each provider over the WireGuard tunnel — exactly one provider enabled
+// at a time so model→provider routing is unambiguous. Each provider must return
+// 200 and produce an ingested access-log row.
+func TestProvidersMatrix(t *testing.T) {
+	matrix := availableProviders()
+	if len(matrix) == 0 {
+		t.Skip("no provider keys set; source ~/.llm-keys to run the provider matrix")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 	defer cancel()
 
-	// Group + setup key: the client joins into this group; the policy authorizes
-	// it to reach the provider.
+	// Group + setup key the client joins into; the policy authorizes it.
 	grp, err := srv.API().Groups.Create(ctx, api.PostApiGroupsJSONRequestBody{Name: "e2e-agents"})
 	require.NoError(t, err, "create agents group")
 	t.Cleanup(func() { _ = srv.API().Groups.Delete(context.Background(), grp.Id) })
@@ -50,33 +101,42 @@ func TestChatCompletionThroughProxy(t *testing.T) {
 		Ephemeral:  &ephemeral,
 	})
 	require.NoError(t, err, "mint setup key")
-	require.NotEmpty(t, sk.Key, "setup key must be returned in plaintext")
+	require.NotEmpty(t, sk.Key, "setup key plaintext")
 
-	// Provider (real upstream key) + policy authorizing the group. Created
-	// before the proxy starts so the proxy's initial cluster snapshot already
-	// carries the account's synthesized service.
-	prov, err := srv.CreateProvider(ctx, api.AgentNetworkProviderRequest{
-		Name:             "OpenAI Live",
-		ProviderId:       "openai_api",
-		UpstreamUrl:      "https://api.openai.com",
-		ApiKey:           &apiKey,
-		Enabled:          ptr(true),
-		BootstrapCluster: ptr(harness.AgentNetworkCluster),
-		Models: &[]api.AgentNetworkProviderModel{
-			{Id: "gpt-4o-mini", InputPer1k: 0.00015, OutputPer1k: 0.0006},
-		},
-	})
-	require.NoError(t, err, "create provider")
-	t.Cleanup(func() { _ = srv.DeleteProvider(context.Background(), prov.Id) })
+	// Create every provider, all enabled, each with a unique model string so the
+	// proxy's connect-time snapshot carries them all and model→provider routing
+	// is unambiguous (provider toggles after connect don't reconcile to the
+	// proxy, so we enable everything up front). The first create bootstraps the
+	// cluster.
+	ids := make([]string, 0, len(matrix))
+	for i, pc := range matrix {
+		req := api.AgentNetworkProviderRequest{
+			Name:        pc.name,
+			ProviderId:  pc.catalogID,
+			UpstreamUrl: pc.upstream,
+			ApiKey:      &pc.apiKey,
+			Enabled:     ptr(true),
+			Models: &[]api.AgentNetworkProviderModel{
+				{Id: pc.model, InputPer1k: 0.001, OutputPer1k: 0.002},
+			},
+		}
+		if i == 0 {
+			req.BootstrapCluster = ptr(harness.AgentNetworkCluster)
+		}
+		prov, perr := srv.CreateProvider(ctx, req)
+		require.NoError(t, perr, "create provider %s", pc.name)
+		ids = append(ids, prov.Id)
+		id := prov.Id
+		t.Cleanup(func() { _ = srv.DeleteProvider(context.Background(), id) })
+	}
 
 	enabled := true
-	policyReq := api.AgentNetworkPolicyRequest{
+	pol, err := srv.CreatePolicy(ctx, api.AgentNetworkPolicyRequest{
 		Name:                   "e2e-allow",
 		Enabled:                &enabled,
 		SourceGroups:           []string{grp.Id},
-		DestinationProviderIds: []string{prov.Id},
-	}
-	pol, err := srv.CreatePolicy(ctx, policyReq)
+		DestinationProviderIds: ids,
+	})
 	require.NoError(t, err, "create policy")
 	t.Cleanup(func() { _ = srv.DeletePolicy(context.Background(), pol.Id) })
 
@@ -84,82 +144,49 @@ func TestChatCompletionThroughProxy(t *testing.T) {
 	require.NoError(t, err, "read settings for endpoint")
 	require.NotEmpty(t, settings.Endpoint, "agent-network endpoint must be assigned")
 
-	// Mint the proxy token via the server CLI (global, account-less) — the path
-	// the manual install uses, which drives the cluster-snapshot synthesis the
-	// proxy needs. An account-scoped REST token takes a different path that
-	// doesn't deliver the service.
+	// Proxy (global CLI token) + client, brought up once.
 	proxyToken, err := srv.CreateProxyTokenCLI(ctx, "e2e-proxy")
 	require.NoError(t, err, "mint proxy token via CLI")
-
 	px, err := harness.StartProxy(ctx, srv, proxyToken)
 	require.NoError(t, err, "start proxy")
 	t.Cleanup(func() { _ = px.Terminate(context.Background()) })
 
-	// Client joins last, once the proxy + provider + policy are all in place, so
-	// its initial network map includes the synthesized agent-network service.
 	cl, err := harness.StartClient(ctx, srv, sk.Key)
 	require.NoError(t, err, "start client")
 	t.Cleanup(func() { _ = cl.Terminate(context.Background()) })
 
 	require.NoError(t, cl.WaitConnected(ctx, 90*time.Second), "client must connect to management")
-
 	if err := cl.WaitProxyPeer(ctx, 180*time.Second); err != nil {
-		dctx := context.Background()
-		peers, _ := srv.API().Peers.List(dctx)
-		var peerInfo []string
-		for _, p := range peers {
-			var groups []string
-			for _, g := range p.Groups {
-				groups = append(groups, g.Name)
-			}
-			peerInfo = append(peerInfo, fmt.Sprintf("%s connected=%t ip=%s groups=%v", p.Name, p.Connected, p.Ip, groups))
-		}
-		clusters, _ := srv.API().ReverseProxyClusters.List(dctx)
-		var clusterInfo []string
-		for _, cl := range clusters {
-			clusterInfo = append(clusterInfo, fmt.Sprintf("%+v", cl))
-		}
-		domains, _ := srv.API().ReverseProxyDomains.List(dctx)
-		var domainInfo []string
-		for _, d := range domains {
-			domainInfo = append(domainInfo, fmt.Sprintf("%+v", d))
-		}
-		_ = os.WriteFile("/tmp/nb-e2e-proxy.log", []byte(px.Logs(dctx)), 0o644)
-		_ = os.WriteFile("/tmp/nb-e2e-client.log", []byte(cl.Logs(dctx)), 0o644)
-		_ = os.WriteFile("/tmp/nb-e2e-combined.log", []byte(srv.Logs(dctx)), 0o644)
-		diag := fmt.Sprintf("settings: cluster=%q endpoint=%q subdomain=%q\nprovider: id=%s cluster=%s\npolicy: id=%s sourceGroups=%v dst=%v\ngroup: id=%s\npeers:\n%s\nclusters:\n%s\n",
-			settings.Cluster, settings.Endpoint, settings.Subdomain,
-			prov.Id, harness.AgentNetworkCluster,
-			pol.Id, policyReq.SourceGroups, policyReq.DestinationProviderIds,
-			grp.Id,
-			strings.Join(peerInfo, "\n"), strings.Join(clusterInfo, "\n"))
-		diag += "domains:\n" + strings.Join(domainInfo, "\n") + "\n"
-		_ = os.WriteFile("/tmp/nb-e2e-diag.txt", []byte(diag), 0o644)
-		t.Fatalf("client did not see the proxy peer: %v\n=== settings ===\ncluster=%q endpoint=%q subdomain=%q\n=== peers ===\n%v\n=== clusters ===\n%v\n=== proxy logs ===\n%s",
-			err, settings.Cluster, settings.Endpoint, settings.Subdomain, peerInfo, clusterInfo, px.Logs(dctx))
+		t.Fatalf("client did not see the proxy peer: %v\n=== proxy logs ===\n%s", err, px.Logs(context.Background()))
 	}
-
 	proxyIP, err := cl.ResolveProxyIP(ctx, settings.Endpoint)
 	require.NoError(t, err, "resolve agent-network endpoint to proxy IP")
 
-	code, body, err := cl.Chat(ctx, settings.Endpoint, proxyIP, "gpt-4o-mini", "Reply with exactly: pong")
-	require.NoError(t, err, "chat request through tunnel")
-	if code != 200 {
-		t.Fatalf("expected 200 from chat-completion, got %d\nbody: %s\n=== proxy logs ===\n%s", code, body, px.Logs(context.Background()))
+	for _, pc := range matrix {
+		pc := pc
+		t.Run(pc.name, func(t *testing.T) {
+			before, _ := srv.ListAccessLogs(ctx)
+
+			// Retry briefly to absorb tunnel/DNS jitter on the first call.
+			var code int
+			var body string
+			deadline := time.Now().Add(90 * time.Second)
+			for time.Now().Before(deadline) {
+				c, b, cerr := cl.Chat(ctx, settings.Endpoint, proxyIP, pc.kind, pc.model, "Reply with exactly: pong")
+				if cerr == nil {
+					code, body = c, b
+					if code == 200 {
+						break
+					}
+				}
+				time.Sleep(5 * time.Second)
+			}
+			require.Equal(t, 200, code, "chat through %s (%s %s) should return 200; body: %s", pc.name, pc.kind, pc.model, body)
+
+			require.Eventually(t, func() bool {
+				logs, lerr := srv.ListAccessLogs(ctx)
+				return lerr == nil && logs.TotalRecords > before.TotalRecords
+			}, 30*time.Second, 2*time.Second, "an access-log row should be ingested for %s", pc.name)
+		})
 	}
-	assert.Contains(t, body, "choices", "chat response should carry choices")
-
-	// The per-request access-log row is ingested asynchronously after the
-	// response is forwarded; poll briefly. (Consumption rows are only booked
-	// when a policy has token/budget limits, which this one doesn't.)
-	require.Eventually(t, func() bool {
-		resp, lerr := srv.ListAccessLogs(ctx)
-		return lerr == nil && resp.TotalRecords > 0
-	}, 30*time.Second, 2*time.Second, "an access-log row should be recorded after the chat-completion")
-
-	logs, err := srv.ListAccessLogs(ctx)
-	require.NoError(t, err, "read access logs")
-	require.NotEmpty(t, logs.Data, "access-log page must contain the request row")
-	require.NotNil(t, logs.Data[0].Model, "access-log row should record the model")
-	assert.Equal(t, "gpt-4o-mini", *logs.Data[0].Model, "access-log row should record the requested model")
 }

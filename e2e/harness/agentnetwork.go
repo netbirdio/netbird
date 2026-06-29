@@ -74,6 +74,24 @@ func (c *Combined) DeleteProvider(ctx context.Context, id string) error {
 	return anDelete(ctx, c, "/api/agent-network/providers/"+id)
 }
 
+// SetProviderEnabled toggles a provider's enabled flag, preserving its other
+// fields (the API key is omitted, which keeps the stored one). Used to run one
+// provider at a time so model→provider routing is unambiguous.
+func (c *Combined) SetProviderEnabled(ctx context.Context, id string, enabled bool) error {
+	p, err := c.GetProvider(ctx, id)
+	if err != nil {
+		return err
+	}
+	_, err = anRequest[api.AgentNetworkProvider](ctx, c, http.MethodPut, "/api/agent-network/providers/"+id, api.AgentNetworkProviderRequest{
+		Name:        p.Name,
+		ProviderId:  p.ProviderId,
+		UpstreamUrl: p.UpstreamUrl,
+		Enabled:     &enabled,
+		Models:      &p.Models,
+	})
+	return err
+}
+
 // CreatePolicy creates an agent-network policy.
 func (c *Combined) CreatePolicy(ctx context.Context, req api.AgentNetworkPolicyRequest) (api.AgentNetworkPolicy, error) {
 	return anRequest[api.AgentNetworkPolicy](ctx, c, http.MethodPost, "/api/agent-network/policies", req)

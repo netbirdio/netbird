@@ -145,13 +145,32 @@ func (cl *Client) ResolveProxyIP(ctx context.Context, endpoint string) (string, 
 	return fields[0], nil
 }
 
+// Wire shapes for Chat.
+const (
+	// WireChat is the OpenAI-compatible /v1/chat/completions shape.
+	WireChat = "chat"
+	// WireMessages is the Anthropic /v1/messages shape.
+	WireMessages = "messages"
+)
+
 // Chat issues a chat-completion POST to the agent-network endpoint over the
-// client's tunnel, returning the HTTP status and response body. It runs curl in
-// a throwaway container sharing the client's network namespace so the request
-// traverses the WireGuard tunnel, pinning the endpoint to the proxy peer IP.
-func (cl *Client) Chat(ctx context.Context, endpoint, proxyIP, model, prompt string) (int, string, error) {
-	body := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":%q}]}`, model, prompt)
-	url := "https://" + endpoint + "/v1/chat/completions"
+// client's tunnel, returning the HTTP status and response body. kind selects
+// the wire shape: WireChat (OpenAI) or WireMessages (Anthropic). It runs curl
+// in a throwaway container sharing the client's network namespace so the
+// request traverses the WireGuard tunnel, pinning the endpoint to the proxy IP.
+func (cl *Client) Chat(ctx context.Context, endpoint, proxyIP, kind, model, prompt string) (int, string, error) {
+	var path, body string
+	headers := []string{"-H", "Content-Type: application/json"}
+	switch kind {
+	case WireMessages:
+		path = "/v1/messages"
+		headers = append(headers, "-H", "anthropic-version: 2023-06-01")
+		body = fmt.Sprintf(`{"model":%q,"max_tokens":64,"messages":[{"role":"user","content":%q}]}`, model, prompt)
+	default:
+		path = "/v1/chat/completions"
+		body = fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":%q}]}`, model, prompt)
+	}
+	url := "https://" + endpoint + path
 
 	args := []string{
 		"run", "--rm",
@@ -161,9 +180,9 @@ func (cl *Client) Chat(ctx context.Context, endpoint, proxyIP, model, prompt str
 		"--resolve", endpoint + ":443:" + proxyIP,
 		"-o", "/dev/stderr", "-w", "%{http_code}",
 		"-X", "POST", url,
-		"-H", "Content-Type: application/json",
-		"--data", body,
 	}
+	args = append(args, headers...)
+	args = append(args, "--data", body)
 	cmd := exec.CommandContext(ctx, "docker", args...)
 	// -w writes the status code to stdout; -o /dev/stderr writes the body to
 	// stderr so we can capture both separately.
