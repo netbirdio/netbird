@@ -55,6 +55,14 @@ type GrpcClient struct {
 	connStateCallback     ConnStateNotifier
 	connStateCallbackLock sync.RWMutex
 	serverURL             string
+
+	// syncStreamErr holds the last Sync stream error, or nil while the stream
+	// is established and healthy. GetServerKey succeeds even when the peer
+	// cannot sync (e.g. the server returns "settings not found"), so the
+	// health probe must consult this to avoid reporting a healthy management
+	// connection while the Sync stream keeps failing.
+	syncStreamMu  sync.RWMutex
+	syncStreamErr error
 }
 
 type ExposeRequest struct {
@@ -364,6 +372,8 @@ func (c *GrpcClient) handleSyncStream(ctx context.Context, serverPubKey wgtypes.
 	stream, err := c.connectToSyncStream(ctx, serverPubKey, sysInfo)
 	if err != nil {
 		log.Debugf("failed to open Management Service stream: %s", err)
+		c.notifyDisconnected(err)
+		c.setSyncStreamDisconnected(err)
 		if s, ok := gstatus.FromError(err); ok && s.Code() == codes.PermissionDenied {
 			return backoff.Permanent(err) // unrecoverable error, propagate to the upper layer
 		}
@@ -372,11 +382,13 @@ func (c *GrpcClient) handleSyncStream(ctx context.Context, serverPubKey wgtypes.
 
 	log.Infof("connected to the Management Service stream")
 	c.notifyConnected()
+	c.setSyncStreamConnected()
 
 	// blocking until error
 	err = c.receiveUpdatesEvents(stream, serverPubKey, msgHandler)
 	if err != nil {
 		c.notifyDisconnected(err)
+		c.setSyncStreamDisconnected(err)
 		if ctx.Err() != nil {
 			log.Debugf("management connection context has been canceled, this usually indicates shutdown")
 			return nil
@@ -530,6 +542,13 @@ func (c *GrpcClient) IsHealthy() bool {
 		log.Warnf("health check returned: %s", err)
 		return false
 	}
+
+	if syncErr := c.syncStreamError(); syncErr != nil {
+		c.notifyDisconnected(syncErr)
+		log.Warnf("management transport is up but the Sync stream is unhealthy: %s", syncErr)
+		return false
+	}
+
 	c.notifyConnected()
 	return true
 }
@@ -769,6 +788,24 @@ func (c *GrpcClient) SyncMeta(sysInfo *system.Info) error {
 		Body:     syncMetaReq,
 	})
 	return err
+}
+
+func (c *GrpcClient) setSyncStreamConnected() {
+	c.syncStreamMu.Lock()
+	defer c.syncStreamMu.Unlock()
+	c.syncStreamErr = nil
+}
+
+func (c *GrpcClient) setSyncStreamDisconnected(err error) {
+	c.syncStreamMu.Lock()
+	defer c.syncStreamMu.Unlock()
+	c.syncStreamErr = err
+}
+
+func (c *GrpcClient) syncStreamError() error {
+	c.syncStreamMu.RLock()
+	defer c.syncStreamMu.RUnlock()
+	return c.syncStreamErr
 }
 
 func (c *GrpcClient) notifyDisconnected(err error) {
