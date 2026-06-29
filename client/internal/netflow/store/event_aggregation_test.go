@@ -23,25 +23,25 @@ func TestFlowAggregation(t *testing.T) {
 	}{
 		{
 			description: "start and stop",
-			addresses:   [][]netip.Addr{{ipAddr("1.1.1.1"), ipAddr("2.2.2.2")}, {ipAddr("3.3.3.3"), ipAddr("2.2.2.2")}},
+			addresses:   [][]netip.Addr{{netip.MustParseAddr("1.1.1.1"), netip.MustParseAddr("2.2.2.2")}, {netip.MustParseAddr("3.3.3.3"), netip.MustParseAddr("2.2.2.2")}},
 			dstPort:     uint16(random.Uint32() >> 16),
 			eventTypes:  []types.Type{types.TypeStart, types.TypeEnd},
 		},
 		{
 			description: "start and drop",
-			addresses:   [][]netip.Addr{{ipAddr("1.1.1.1"), ipAddr("2.2.2.2")}, {ipAddr("3.3.3.3"), ipAddr("2.2.2.2")}},
+			addresses:   [][]netip.Addr{{netip.MustParseAddr("1.1.1.1"), netip.MustParseAddr("2.2.2.2")}, {netip.MustParseAddr("3.3.3.3"), netip.MustParseAddr("2.2.2.2")}},
 			dstPort:     uint16(random.Uint32() >> 16),
 			eventTypes:  []types.Type{types.TypeStart, types.TypeDrop},
 		},
 		{
 			description: "start only",
-			addresses:   [][]netip.Addr{{ipAddr("1.1.1.1"), ipAddr("2.2.2.2")}, {ipAddr("3.3.3.3"), ipAddr("2.2.2.2")}},
+			addresses:   [][]netip.Addr{{netip.MustParseAddr("1.1.1.1"), netip.MustParseAddr("2.2.2.2")}, {netip.MustParseAddr("3.3.3.3"), netip.MustParseAddr("2.2.2.2")}},
 			dstPort:     uint16(random.Uint32() >> 16),
 			eventTypes:  []types.Type{types.TypeStart},
 		},
 		{
 			description: "drop only",
-			addresses:   [][]netip.Addr{{ipAddr("1.1.1.1"), ipAddr("2.2.2.2")}, {ipAddr("3.3.3.3"), ipAddr("2.2.2.2")}},
+			addresses:   [][]netip.Addr{{netip.MustParseAddr("1.1.1.1"), netip.MustParseAddr("2.2.2.2")}, {netip.MustParseAddr("3.3.3.3"), netip.MustParseAddr("2.2.2.2")}},
 			dstPort:     uint16(random.Uint32() >> 16),
 			eventTypes:  []types.Type{types.TypeDrop},
 		}}
@@ -80,22 +80,22 @@ func TestIcmpEventAggregation(t *testing.T) {
 	}{
 		{
 			description: "start and stop",
-			addresses:   [][]netip.Addr{{ipAddr("1.1.1.1"), ipAddr("2.2.2.2")}},
+			addresses:   [][]netip.Addr{{netip.MustParseAddr("1.1.1.1"), netip.MustParseAddr("2.2.2.2")}},
 			eventTypes:  []types.Type{types.TypeStart, types.TypeEnd},
 		},
 		{
 			description: "start and drop",
-			addresses:   [][]netip.Addr{{ipAddr("1.1.1.1"), ipAddr("2.2.2.2")}},
+			addresses:   [][]netip.Addr{{netip.MustParseAddr("1.1.1.1"), netip.MustParseAddr("2.2.2.2")}},
 			eventTypes:  []types.Type{types.TypeStart, types.TypeDrop},
 		},
 		{
 			description: "start only",
-			addresses:   [][]netip.Addr{{ipAddr("1.1.1.1"), ipAddr("2.2.2.2")}},
+			addresses:   [][]netip.Addr{{netip.MustParseAddr("1.1.1.1"), netip.MustParseAddr("2.2.2.2")}},
 			eventTypes:  []types.Type{types.TypeStart},
 		},
 		{
 			description: "drop only",
-			addresses:   [][]netip.Addr{{ipAddr("1.1.1.1"), ipAddr("2.2.2.2")}},
+			addresses:   [][]netip.Addr{{netip.MustParseAddr("1.1.1.1"), netip.MustParseAddr("2.2.2.2")}},
 			eventTypes:  []types.Type{types.TypeDrop},
 		}}
 
@@ -130,25 +130,25 @@ func TestFlowAggregationOfUnknownProtocols(t *testing.T) {
 	}{
 		{
 			description: "start and stop",
-			addresses:   [][]netip.Addr{{ipAddr("1.1.1.1"), ipAddr("2.2.2.2")}, {ipAddr("3.3.3.3"), ipAddr("2.2.2.2")}},
+			addresses:   [][]netip.Addr{{netip.MustParseAddr("1.1.1.1"), netip.MustParseAddr("2.2.2.2")}, {netip.MustParseAddr("3.3.3.3"), netip.MustParseAddr("2.2.2.2")}},
 			dstPort:     uint16(random.Uint32() >> 16),
 			eventTypes:  []types.Type{types.TypeStart, types.TypeEnd},
 		},
 		{
 			description: "start and drop",
-			addresses:   [][]netip.Addr{{ipAddr("1.1.1.1"), ipAddr("2.2.2.2")}, {ipAddr("3.3.3.3"), ipAddr("2.2.2.2")}},
+			addresses:   [][]netip.Addr{{netip.MustParseAddr("1.1.1.1"), netip.MustParseAddr("2.2.2.2")}, {netip.MustParseAddr("3.3.3.3"), netip.MustParseAddr("2.2.2.2")}},
 			dstPort:     uint16(random.Uint32() >> 16),
 			eventTypes:  []types.Type{types.TypeStart, types.TypeDrop},
 		},
 		{
 			description: "start only",
-			addresses:   [][]netip.Addr{{ipAddr("1.1.1.1"), ipAddr("2.2.2.2")}, {ipAddr("3.3.3.3"), ipAddr("2.2.2.2")}},
+			addresses:   [][]netip.Addr{{netip.MustParseAddr("1.1.1.1"), netip.MustParseAddr("2.2.2.2")}, {netip.MustParseAddr("3.3.3.3"), netip.MustParseAddr("2.2.2.2")}},
 			dstPort:     uint16(random.Uint32() >> 16),
 			eventTypes:  []types.Type{types.TypeStart},
 		},
 		{
 			description: "drop only",
-			addresses:   [][]netip.Addr{{ipAddr("1.1.1.1"), ipAddr("2.2.2.2")}, {ipAddr("3.3.3.3"), ipAddr("2.2.2.2")}},
+			addresses:   [][]netip.Addr{{netip.MustParseAddr("1.1.1.1"), netip.MustParseAddr("2.2.2.2")}, {netip.MustParseAddr("3.3.3.3"), netip.MustParseAddr("2.2.2.2")}},
 			dstPort:     uint16(random.Uint32() >> 16),
 			eventTypes:  []types.Type{types.TypeDrop},
 		}}
@@ -174,9 +174,37 @@ func TestFlowAggregationOfUnknownProtocols(t *testing.T) {
 	}
 }
 
-func ipAddr(a string) netip.Addr {
-	addr, _ := netip.ParseAddr(a)
-	return addr
+func TestResetAggregationWindow(t *testing.T) {
+	store := NewAggregatingMemoryStore()
+	store.StoreEvent(&types.Event{
+		ID:        uuid.New(),
+		Timestamp: time.Now(),
+		EventFields: types.EventFields{
+			FlowID:           uuid.New(),
+			Type:             types.TypeStart,
+			Protocol:         types.TCP,
+			RuleID:           []byte("rule-id-1"),
+			Direction:        types.Ingress,
+			SourceIP:         netip.MustParseAddr("1.1.1.1"),
+			SourcePort:       1234,
+			DestIP:           netip.MustParseAddr("2.2.2.2"),
+			DestPort:         5678,
+			SourceResourceID: []byte("source-resource-id"),
+			DestResourceID:   []byte("dest-resource-id"),
+			RxPackets:        random.Uint64(),
+			TxPackets:        random.Uint64(),
+			RxBytes:          random.Uint64(),
+			TxBytes:          random.Uint64(),
+		},
+	})
+
+	reset := store.ResetAggregationWindow()
+	previousEvents, ok := reset.(*AggregatingMemory)
+	assert.True(t, ok)
+	assert.NotEqual(t, previousEvents.WindowStart, store.WindowStart)
+	assert.Equal(t, previousEvents.WindowEnd, store.WindowStart)
+	assert.NotEmpty(t, previousEvents.events)
+	assert.Empty(t, store.events)
 }
 
 func generateEvents(srcIp, dstIp netip.Addr, dstPort uint16, eventTypes []types.Type, protocol types.Protocol,
