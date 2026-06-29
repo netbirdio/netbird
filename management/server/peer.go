@@ -74,7 +74,7 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 //
 // Disconnects use MarkPeerDisconnected and require the session to match
 // exactly; see PeerStatus.SessionStartedAt for the protocol.
-func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubKey string, realIP net.IP, accountID string, sessionStartedAt int64, nmap *types.NetworkMap) error {
+func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubKey string, accountID string, sessionStartedAt int64, nmap *types.NetworkMap) error {
 	start := time.Now()
 	defer func() {
 		am.metrics.AccountManagerMetrics().RecordPeerStatusUpdateDuration(telemetry.PeerStatusConnect, time.Since(start))
@@ -101,10 +101,6 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 		return nil
 	}
 	am.metrics.AccountManagerMetrics().CountPeerStatusUpdate(telemetry.PeerStatusConnect, telemetry.PeerStatusApplied)
-
-	if am.geo != nil && realIP != nil {
-		am.updatePeerLocationIfChanged(ctx, accountID, peer, realIP)
-	}
 
 	if err = am.schedulePeerExpirations(ctx, accountID, peer); err != nil {
 		return err
@@ -192,27 +188,40 @@ func (am *DefaultAccountManager) MarkPeerDisconnected(ctx context.Context, peerP
 		}
 	}
 
+	if peer.AddedWithSSOLogin() && peer.InactivityExpirationEnabled {
+		settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+		if err != nil {
+			log.WithContext(ctx).Warnf("failed getting account settings to schedule inactivity expiration for peer %s: %v", peer.ID, err)
+		} else if settings.PeerInactivityExpirationEnabled {
+			am.checkAndSchedulePeerInactivityExpiration(ctx, accountID)
+		}
+	}
+
 	return nil
 }
 
-// updatePeerLocationIfChanged refreshes the geolocation on a separate
-// row update, only when the connection IP actually changed. Geo lookups
-// are expensive so we skip same-IP reconnects.
-func (am *DefaultAccountManager) updatePeerLocationIfChanged(ctx context.Context, accountID string, peer *nbpeer.Peer, realIP net.IP) {
-	if peer.Location.ConnectionIP != nil && peer.Location.ConnectionIP.Equal(realIP) {
-		return
+// resolvePeerLocation looks up the geo location for realIP, returning nil when
+// there is nothing to apply: geo disabled, no real IP, the IP is unchanged from
+// what the peer already has, or the lookup failed. Geo lookups are skipped on
+// same-IP reconnects since they are comparatively expensive. The returned value
+// is applied by Peer.UpdateMetaIfNew so the change is persisted by its peer save.
+func (am *DefaultAccountManager) resolvePeerLocation(ctx context.Context, peer *nbpeer.Peer, realIP net.IP) *nbpeer.Location {
+	if am.geo == nil || realIP == nil {
+		return nil
 	}
 	location, err := am.geo.Lookup(realIP)
 	if err != nil {
 		log.WithContext(ctx).Warnf("failed to get location for peer %s realip: [%s]: %v", peer.ID, realIP.String(), err)
-		return
+		return nil
 	}
-	peer.Location.ConnectionIP = realIP
-	peer.Location.CountryCode = location.Country.ISOCode
-	peer.Location.CityName = location.City.Names.En
-	peer.Location.GeoNameID = location.City.GeonameID
-	if err := am.Store.SavePeerLocation(ctx, accountID, peer); err != nil {
-		log.WithContext(ctx).Warnf("could not store location for peer %s: %s", peer.ID, err)
+	if peer.Location.ConnectionIP != nil && peer.Location.ConnectionIP.Equal(realIP) && peer.Location.GeoNameID == location.City.GeonameID {
+		return nil
+	}
+	return &nbpeer.Location{
+		ConnectionIP: realIP,
+		CountryCode:  location.Country.ISOCode,
+		CityName:     location.City.Names.En,
+		GeoNameID:    location.City.GeonameID,
 	}
 }
 
@@ -721,7 +730,7 @@ func (am *DefaultAccountManager) handleSetupKeyAddedPeer(ctx context.Context, en
 func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKey, userID string, peer *nbpeer.Peer, temporary bool) (*nbpeer.Peer, *types.Network, []*posture.Checks, bool, error) {
 	if setupKey == "" && userID == "" && !peer.ProxyMeta.Embedded {
 		// no auth method provided => reject access
-		return nil, nil, nil, false, status.Errorf(status.Unauthenticated, "no peer auth method provided, please use a setup key or interactive SSO login")
+		return nil, nil, nil, false, status.ErrNoAuthMethodProvided
 	}
 
 	upperKey := strings.ToUpper(setupKey)
@@ -980,7 +989,8 @@ func getPeerIPDNSLabel(ip netip.Addr, peerHostName string) (string, error) {
 // SyncPeer checks whether peer is eligible for receiving NetworkMap (authenticated) and returns its NetworkMap if eligible
 func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSync, accountID string) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, int64, error) {
 	var peer *nbpeer.Peer
-	var updated, versionChanged, ipv6CapabilityChanged bool
+	var ipv6CapabilityChanged bool
+	var metaDiff nbpeer.MetaDiff
 	var err error
 
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
@@ -1010,9 +1020,10 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 		}
 
 		oldHasIPv6Cap := peer.HasCapability(nbpeer.PeerCapabilityIPv6Overlay)
-		updated, versionChanged = peer.UpdateMetaIfNew(ctx, sync.Meta)
+		newLocation := am.resolvePeerLocation(ctx, peer, sync.RealIP)
+		metaDiff = peer.UpdateMetaIfNew(ctx, sync.Meta, newLocation)
 		ipv6CapabilityChanged = oldHasIPv6Cap != peer.HasCapability(nbpeer.PeerCapabilityIPv6Overlay)
-		if updated {
+		if metaDiff.Updated() {
 			am.metrics.AccountManagerMetrics().CountPeerMetUpdate()
 			log.WithContext(ctx).Tracef("peer %s metadata updated", peer.ID)
 			if err = transaction.SavePeer(ctx, accountID, peer); err != nil {
@@ -1040,15 +1051,39 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 		return nil, nil, nil, 0, err
 	}
 
-	if isStatusChanged || sync.UpdateAccountPeers || ipv6CapabilityChanged || (updated && (len(resPostureChecks) > 0 || versionChanged)) {
+	metaDiffAffectsPosture := posture.AffectsPosture(ctx, &metaDiff, resPostureChecks)
+	if requiresPeerUpdate(ctx, isStatusChanged, sync.UpdateAccountPeers, ipv6CapabilityChanged, metaDiffAffectsPosture, metaDiff.VersionChanged(), metaDiff.HostnameChanged()) {
 		changedPeerIDs := []string{peer.ID}
-		affectedPeerIDs := am.syncPeerAffectedPeers(ctx, accountID, peer.ID, nmap, peerNotValid, updated, len(resPostureChecks) > 0)
+		affectedPeerIDs := am.syncPeerAffectedPeers(ctx, accountID, peer.ID, nmap, peerNotValid, metaDiffAffectsPosture)
 		if err = am.networkMapController.OnPeersUpdated(ctx, accountID, changedPeerIDs, affectedPeerIDs); err != nil {
 			return nil, nil, nil, 0, fmt.Errorf("notify network map controller of peer update: %w", err)
 		}
 	}
 
 	return peer, nmap, resPostureChecks, dnsFwdPort, nil
+}
+
+func requiresPeerUpdate(ctx context.Context, isStatusChanged, updateAccountPeers, ipv6CapabilityChanged, metaDiffAffectsPosture, versionChanged, hostname bool) bool {
+	var reason string
+	switch {
+	case isStatusChanged:
+		reason = "status changed"
+	case updateAccountPeers:
+		reason = "update account peers"
+	case ipv6CapabilityChanged:
+		reason = "ipv6 capability changed"
+	case metaDiffAffectsPosture:
+		reason = "meta diff affects posture"
+	case versionChanged:
+		reason = "version changed"
+	case hostname:
+		reason = "hostname changed"
+	default:
+		return false
+	}
+
+	log.WithContext(ctx).Tracef("peer update required: %s", reason)
+	return true
 }
 
 // syncPeerAffectedPeers resolves the peers affected by a SyncPeer change. The
@@ -1059,8 +1094,8 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 // metadata change that flips a posture result removes this peer from others'
 // maps asymmetrically; that case (and an invalid peer, whose map is empty) falls
 // back to the resolver.
-func (am *DefaultAccountManager) syncPeerAffectedPeers(ctx context.Context, accountID, peerID string, nmap *types.NetworkMap, peerNotValid, metaUpdated, hasPostureChecks bool) []string {
-	if peerNotValid || (metaUpdated && hasPostureChecks) {
+func (am *DefaultAccountManager) syncPeerAffectedPeers(ctx context.Context, accountID, peerID string, nmap *types.NetworkMap, peerNotValid, metaChangeAffectedPosture bool) []string {
+	if peerNotValid || metaChangeAffectedPosture {
 		return am.resolveAffectedPeersForPeerChanges(ctx, am.Store, accountID, []string{peerID})
 	}
 	return affectedPeerIDsFromNetworkMap(nmap, peerID)

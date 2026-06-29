@@ -497,7 +497,7 @@ func (c *Controller) BufferUpdateAffectedPeers(ctx context.Context, accountID st
 		c.accountManagerMetrics.CountUpdateAccountPeersTriggered(string(reason.Resource), string(reason.Operation))
 	}
 
-	log.WithContext(ctx).Tracef("buffer updating %d affected peers for account %s from %s", len(peerIDs), accountID, util.GetCallerName())
+	log.WithContext(ctx).Tracef("buffer updating %d affected peers for account %s from %s with reason %s/%s", len(peerIDs), accountID, util.GetCallerName(), reason.Operation, reason.Resource)
 
 	bufUpd, _ := c.affectedPeerUpdateLocks.LoadOrStore(accountID, &bufferAffectedUpdate{
 		peerIDs: make(map[string]struct{}),
@@ -610,12 +610,10 @@ func (c *Controller) GetValidatedPeerWithMap(ctx context.Context, isRequiresAppr
 		return nil, nil, 0, err
 	}
 
-	startPosture := time.Now()
 	postureChecks, err := c.getPeerPostureChecks(account, peerID)
 	if err != nil {
 		return nil, nil, 0, err
 	}
-	log.WithContext(ctx).Debugf("getPeerPostureChecks took %s", time.Since(startPosture))
 
 	accountZones, err := c.repo.GetAccountZones(ctx, account.Id)
 	if err != nil {

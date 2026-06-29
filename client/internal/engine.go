@@ -1072,7 +1072,7 @@ func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 	}
 	e.checks = checks
 
-	info, ok := system.GetInfoWithChecksTimeout(e.ctx, systemInfoTimeout, checks)
+	info, ok := system.GetInfoWithChecksTimeout(e.ctx, systemInfoTimeout, checks, e.overlayAddresses()...)
 	if !ok {
 		// Gathering timed out; skip the meta sync this cycle rather than blocking the
 		// sync loop (and syncMsgMux) on a stuck system call. A later sync will retry.
@@ -1106,6 +1106,20 @@ func (e *Engine) applyInfoFlags(info *system.Info) {
 		e.config.EnableSSHRemotePortForwarding,
 		e.config.DisableSSHAuth,
 	)
+}
+
+// overlayAddresses returns our own WireGuard overlay address (v4 and v6) so it
+// can be excluded from the reported network addresses; the interface coming and
+// going otherwise churns the peer meta on the management server.
+func (e *Engine) overlayAddresses() []netip.Addr {
+	var ips []netip.Addr
+	if e.config.WgAddr.IP.IsValid() {
+		ips = append(ips, e.config.WgAddr.IP)
+	}
+	if e.config.WgAddr.HasIPv6() {
+		ips = append(ips, e.config.WgAddr.IPv6)
+	}
+	return ips
 }
 
 func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
@@ -1251,7 +1265,7 @@ func (e *Engine) receiveManagementEvents() {
 	e.shutdownWg.Add(1)
 	go func() {
 		defer e.shutdownWg.Done()
-		info, ok := system.GetInfoWithChecksTimeout(e.ctx, systemInfoTimeout, e.checks)
+		info, ok := system.GetInfoWithChecksTimeout(e.ctx, systemInfoTimeout, e.checks, e.overlayAddresses()...)
 		if !ok {
 			// Gathering timed out; connect the stream with base info so management
 			// connectivity still comes up rather than blocking here.
