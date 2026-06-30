@@ -12,6 +12,34 @@ import (
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 )
 
+// a config-only update arriving while a full map is still converging must keep the
+// pending map (so its remaining peer batches still apply); once converged or when the
+// pending target has no map, it replaces as usual.
+func TestMapStateManager_MergeTargetPreservesPendingMap(t *testing.T) {
+	m := newMapStateManager(nil, nil, nil)
+
+	fullMap := &mgmProto.SyncResponse{NetworkMap: &mgmProto.NetworkMap{Serial: 5}}
+	configOnly := &mgmProto.SyncResponse{NetbirdConfig: &mgmProto.NetbirdConfig{}}
+
+	// still converging the full map (targetGen > appliedGen): graft the map onto the
+	// incoming config-only update instead of dropping it
+	m.targetGen, m.appliedGen = 5, 4
+	merged := m.mergeTarget(fullMap, configOnly)
+	require.NotNil(t, merged.GetNetworkMap(), "pending map must be preserved")
+	require.EqualValues(t, 5, merged.GetNetworkMap().GetSerial())
+	require.NotNil(t, merged.GetNetbirdConfig(), "new config must be carried")
+	require.NotSame(t, configOnly, merged, "must not mutate the received update in place")
+
+	// already converged (targetGen == appliedGen): nothing pending -> plain replace
+	m.targetGen, m.appliedGen = 5, 5
+	require.Same(t, configOnly, m.mergeTarget(fullMap, configOnly))
+
+	// a full map always replaces
+	newFull := &mgmProto.SyncResponse{NetworkMap: &mgmProto.NetworkMap{Serial: 6}}
+	m.targetGen, m.appliedGen = 5, 4
+	require.Same(t, newFull, m.mergeTarget(fullMap, newFull))
+}
+
 // converges over the bounded passes (apply returns more until the 3rd pass),
 // fires onConverged exactly once, then blocks (no further apply) until a new target.
 func TestMapStateManager_ConvergesThenStops(t *testing.T) {

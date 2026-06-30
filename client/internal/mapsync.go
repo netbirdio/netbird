@@ -6,6 +6,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"google.golang.org/protobuf/proto"
 
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 )
@@ -109,7 +110,22 @@ func (m *mapStateManager) SetTarget(update *mgmProto.SyncResponse) error {
 // rest of the manager (generation tracking, convergence, signaling) is unaffected
 // because it already treats target as "the complete desired state, whatever it is".
 func (m *mapStateManager) mergeTarget(prev, update *mgmProto.SyncResponse) *mgmProto.SyncResponse {
-	return update
+	// Plain replace unless a config-only update (no map) arrives while the pending
+	// target still has an unconverged map (targetGen > appliedGen). In that case graft
+	// the pending map (and its checks) onto the incoming config update, so the next pass
+	// keeps converging the map instead of settling on a nil-map target and stranding the
+	// remaining peer batches until another full map arrives.
+	if update == nil || update.GetNetworkMap() != nil || prev == nil || prev.GetNetworkMap() == nil || m.targetGen == m.appliedGen {
+		return update
+	}
+
+	merged, ok := proto.Clone(update).(*mgmProto.SyncResponse)
+	if !ok {
+		return update
+	}
+	merged.NetworkMap = prev.GetNetworkMap()
+	merged.Checks = prev.Checks
+	return merged
 }
 
 // run drives convergence until ctx is done. It is meant to run in its own goroutine.
