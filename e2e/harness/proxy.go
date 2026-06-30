@@ -51,6 +51,11 @@ func StartProxy(ctx context.Context, c *Combined, proxyToken string) (*Proxy, er
 	if err != nil {
 		return nil, fmt.Errorf("create proxy work dir: %w", err)
 	}
+	// MkdirTemp creates the dir 0700; widen it so the non-root proxy container
+	// can traverse the bind-mounted cert dir on Linux CI runners.
+	if err := os.Chmod(workDir, 0o755); err != nil { //nolint:gosec // throwaway e2e cert dir, must be traversable by the proxy container uid
+		return nil, fmt.Errorf("chmod proxy cert dir: %w", err)
+	}
 	if err := writeSelfSignedCert(workDir, []string{"*." + AgentNetworkCluster, AgentNetworkCluster}); err != nil {
 		return nil, err
 	}

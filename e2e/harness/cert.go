@@ -57,7 +57,9 @@ func writeSelfSignedCert(dir string, dnsNames []string) error {
 		return fmt.Errorf("marshal key: %w", err)
 	}
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
-	if err := os.WriteFile(filepath.Join(dir, "tls.key"), keyPEM, 0o600); err != nil {
+	// World-readable so the (non-root) proxy container can read the bind-mounted
+	// key on Linux CI runners; this is a throwaway self-signed e2e key.
+	if err := os.WriteFile(filepath.Join(dir, "tls.key"), keyPEM, 0o644); err != nil { //nolint:gosec // throwaway self-signed e2e key, must be readable by the proxy container uid
 		return fmt.Errorf("write key: %w", err)
 	}
 	return nil
