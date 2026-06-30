@@ -1030,8 +1030,6 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 			BlockLANAccess:      info.BlockLANAccess,
 			BlockInbound:        info.BlockInbound,
 			DisableIPv6:         info.DisableIPv6,
-
-			LazyConnectionEnabled: info.LazyConnectionEnabled,
 		},
 
 		Capabilities: peerCapabilities(*info),

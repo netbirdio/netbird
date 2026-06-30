@@ -101,8 +101,6 @@ type ConfigInput struct {
 
 	DNSLabels domain.List
 
-	LazyConnectionEnabled *bool
-
 	MTU *uint16
 }
 
@@ -180,7 +178,9 @@ type Config struct {
 
 	ClientCertKeyPair *tls.Certificate `json:"-"`
 
-	LazyConnectionEnabled bool
+	// LazyConnection is the MDM-managed lazy-connection override ("on"/"off"/"").
+	// Runtime-only: re-derived from MDM policy on each load, never persisted.
+	LazyConnection string `json:"-"`
 
 	MTU uint16
 
@@ -632,12 +632,6 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if input.LazyConnectionEnabled != nil && *input.LazyConnectionEnabled != config.LazyConnectionEnabled {
-		log.Infof("switching lazy connection to %t", *input.LazyConnectionEnabled)
-		config.LazyConnectionEnabled = *input.LazyConnectionEnabled
-		updated = true
-	}
-
 	if input.MTU != nil && *input.MTU != config.MTU {
 		log.Infof("updating MTU to %d (old value %d)", *input.MTU, config.MTU)
 		config.MTU = *input.MTU
@@ -727,6 +721,11 @@ func (config *Config) applyMDMPolicy(policy *mdm.Policy) {
 		} else {
 			log.Warnf("MDM wireguard port %d out of range [1,65535]; keeping previous value", v)
 		}
+	}
+
+	if v, ok := policy.GetString(mdm.KeyLazyConnection); ok {
+		config.LazyConnection = v
+		logApplied(mdm.KeyLazyConnection, v)
 	}
 }
 

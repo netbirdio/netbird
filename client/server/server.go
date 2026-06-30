@@ -214,7 +214,6 @@ func (s *Server) Start() error {
 
 	s.statusRecorder.UpdateManagementAddress(config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(config.RosenpassEnabled, config.RosenpassPermissive)
-	s.statusRecorder.UpdateLazyConnection(config.LazyConnectionEnabled)
 
 	if s.sessionWatcher == nil {
 		s.sessionWatcher = internal.NewSessionWatcher(s.rootCtx, s.statusRecorder)
@@ -463,7 +462,6 @@ func (s *Server) setConfigInputFromRequest(msg *proto.SetConfigRequest) (profile
 	config.DisableFirewall = msg.DisableFirewall
 	config.BlockLANAccess = msg.BlockLanAccess
 	config.DisableNotifications = msg.DisableNotifications
-	config.LazyConnectionEnabled = msg.LazyConnectionEnabled
 	config.BlockInbound = msg.BlockInbound
 	config.DisableIPv6 = msg.DisableIpv6
 	config.EnableSSHRoot = msg.EnableSSHRoot
@@ -1647,7 +1645,6 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 		ServerSSHAllowed:              *cfg.ServerSSHAllowed,
 		RosenpassEnabled:              cfg.RosenpassEnabled,
 		RosenpassPermissive:           cfg.RosenpassPermissive,
-		LazyConnectionEnabled:         cfg.LazyConnectionEnabled,
 		BlockInbound:                  cfg.BlockInbound,
 		DisableNotifications:          disableNotifications,
 		NetworkMonitor:                networkMonitor,

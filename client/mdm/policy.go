@@ -41,6 +41,10 @@ const (
 	// construction — only one mode can be set at a time.
 	KeySplitTunnelMode = "splitTunnelMode"
 	KeySplitTunnelApps = "splitTunnelApps"
+
+	// KeyLazyConnection forces the lazy-connection feature on or off, overriding
+	// the management feature flag. Values: "on" / "off" (absent = defer to management).
+	KeyLazyConnection = "lazyConnection"
 )
 
 // Split-tunnel mode literals (KeySplitTunnelMode values).
@@ -66,7 +70,6 @@ var boolStringLiterals = map[string]bool{
 	"0":     false,
 	"no":    false,
 }
-
 
 // Policy holds MDM-managed settings read from the platform source. A nil or
 // empty Policy means no enforcement is active.
