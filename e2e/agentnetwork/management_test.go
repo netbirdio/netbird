@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/e2e/harness"
 	"github.com/netbirdio/netbird/shared/management/client/rest"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 )
@@ -40,32 +41,67 @@ func requireClientError(t *testing.T, err error) {
 	assert.Less(t, apiErr.StatusCode, 500, "expected a 4xx status")
 }
 
-// TestProviderLifecycle covers create → get → list → delete → 404.
+// TestProviderLifecycle covers create → get → list → delete → 404 for every
+// available real provider catalog (and a synthetic OpenAI provider when no
+// provider keys are set), so each catalog's create and field round-trip is
+// exercised. Create is offline — no upstream call — so this stays fast and
+// burns no provider quota.
 func TestProviderLifecycle(t *testing.T) {
 	ctx := context.Background()
 
-	prov := newProvider(t, ctx, "Provider Lifecycle")
-	assert.NotEmpty(t, prov.Id, "created provider must have an id")
-	assert.Equal(t, "openai_api", prov.ProviderId)
-
-	got, err := srv.GetProvider(ctx, prov.Id)
-	require.NoError(t, err, "get provider")
-	assert.Equal(t, prov.Id, got.Id)
-
-	list, err := srv.ListProviders(ctx)
-	require.NoError(t, err, "list providers")
-	var ids []string
-	for _, p := range list {
-		ids = append(ids, p.Id)
+	cases := availableProviders()
+	if len(cases) == 0 {
+		cases = []providerCase{{
+			name: "openai", catalogID: "openai_api", upstream: "https://api.openai.com",
+			apiKey: "sk-dummy-e2e-key", model: "gpt-4o-mini", kind: harness.WireChat,
+		}}
 	}
-	assert.Contains(t, ids, prov.Id, "created provider must appear in the list")
 
-	require.NoError(t, srv.DeleteProvider(ctx, prov.Id), "delete provider")
-	_, err = srv.GetProvider(ctx, prov.Id)
-	requireClientError(t, err)
+	for i, pc := range cases {
+		i, pc := i, pc
+		t.Run(pc.name, func(t *testing.T) {
+			req := providerRequest(pc)
+			req.Name = "lc-" + pc.name
+			// Bootstrap the cluster on the first create in case the matrix has
+			// not run (e.g. no provider keys → settings not yet bootstrapped).
+			if i == 0 {
+				req.BootstrapCluster = ptr(harness.AgentNetworkCluster)
+			}
+
+			prov, err := srv.CreateProvider(ctx, req)
+			require.NoError(t, err, "create %s provider", pc.name)
+			t.Cleanup(func() { _ = srv.DeleteProvider(context.Background(), prov.Id) })
+
+			assert.NotEmpty(t, prov.Id, "created provider must have an id")
+			assert.Equal(t, pc.catalogID, prov.ProviderId, "catalog id must round-trip")
+			assert.Equal(t, req.Name, prov.Name, "name must round-trip")
+			assert.Equal(t, pc.upstream, prov.UpstreamUrl, "upstream must round-trip")
+
+			got, err := srv.GetProvider(ctx, prov.Id)
+			require.NoError(t, err, "get provider")
+			assert.Equal(t, prov.Id, got.Id)
+
+			list, err := srv.ListProviders(ctx)
+			require.NoError(t, err, "list providers")
+			var ids []string
+			for _, p := range list {
+				ids = append(ids, p.Id)
+			}
+			assert.Contains(t, ids, prov.Id, "created provider must appear in the list")
+
+			require.NoError(t, srv.DeleteProvider(ctx, prov.Id), "delete provider")
+			_, err = srv.GetProvider(ctx, prov.Id)
+			requireClientError(t, err)
+		})
+	}
 }
 
-// TestProviderValidation rejects a missing API key and an unknown catalog id.
+// TestProviderValidation exercises the create-time validation rules. These are
+// uniform across catalogs (no per-provider required-field rules exist: a
+// catalog-specific malformed value such as a Vertex key without the keyfile::
+// prefix is accepted at create and only fails at the proxy), so the cases here
+// are catalog-agnostic: missing API key, unknown catalog id, an invalid upstream
+// URL, and a blank name.
 func TestProviderValidation(t *testing.T) {
 	ctx := context.Background()
 
@@ -80,6 +116,22 @@ func TestProviderValidation(t *testing.T) {
 		Name:        "Unknown Catalog",
 		ProviderId:  "totally_unknown_provider",
 		UpstreamUrl: "https://example.com",
+		ApiKey:      ptr("sk-dummy"),
+	})
+	requireClientError(t, err)
+
+	_, err = srv.CreateProvider(ctx, api.AgentNetworkProviderRequest{
+		Name:        "Bad Upstream",
+		ProviderId:  "openai_api",
+		UpstreamUrl: "not-a-url",
+		ApiKey:      ptr("sk-dummy"),
+	})
+	requireClientError(t, err)
+
+	_, err = srv.CreateProvider(ctx, api.AgentNetworkProviderRequest{
+		Name:        "   ",
+		ProviderId:  "openai_api",
+		UpstreamUrl: "https://api.openai.com",
 		ApiKey:      ptr("sk-dummy"),
 	})
 	requireClientError(t, err)

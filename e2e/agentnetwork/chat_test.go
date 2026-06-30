@@ -96,6 +96,25 @@ func availableProviders() []providerCase {
 	return ps
 }
 
+// providerRequest builds a create request for a matrix provider: enabled, with
+// a uniquely-priced model for body-routed providers and none for the
+// path-routed Vertex (whose model lives in the request path).
+func providerRequest(pc providerCase) api.AgentNetworkProviderRequest {
+	req := api.AgentNetworkProviderRequest{
+		Name:        pc.name,
+		ProviderId:  pc.catalogID,
+		UpstreamUrl: pc.upstream,
+		ApiKey:      &pc.apiKey,
+		Enabled:     ptr(true),
+	}
+	if pc.kind != harness.WireVertex {
+		req.Models = &[]api.AgentNetworkProviderModel{
+			{Id: pc.model, InputPer1k: 0.001, OutputPer1k: 0.002},
+		}
+	}
+	return req
+}
+
 // TestProvidersMatrix is Pillar 3: it provisions every available provider (all
 // enabled, each with a unique model so routing stays unambiguous), runs proxy +
 // client once, and drives the same live chat-completion scenario through each
@@ -134,20 +153,7 @@ func TestProvidersMatrix(t *testing.T) {
 	// cluster.
 	ids := make([]string, 0, len(matrix))
 	for i, pc := range matrix {
-		req := api.AgentNetworkProviderRequest{
-			Name:        pc.name,
-			ProviderId:  pc.catalogID,
-			UpstreamUrl: pc.upstream,
-			ApiKey:      &pc.apiKey,
-			Enabled:     ptr(true),
-		}
-		// Vertex is path-routed (model lives in the rawPredict path), so it carries
-		// no models array; body-model providers list a unique model for routing.
-		if pc.kind != harness.WireVertex {
-			req.Models = &[]api.AgentNetworkProviderModel{
-				{Id: pc.model, InputPer1k: 0.001, OutputPer1k: 0.002},
-			}
-		}
+		req := providerRequest(pc)
 		if i == 0 {
 			req.BootstrapCluster = ptr(harness.AgentNetworkCluster)
 		}
@@ -164,6 +170,17 @@ func TestProvidersMatrix(t *testing.T) {
 		Enabled:                &enabled,
 		SourceGroups:           []string{grp.Id},
 		DestinationProviderIds: ids,
+		// Token limit at the 60s window floor with caps far above the few hundred
+		// tokens this suite drives, so it never blocks traffic but switches on
+		// usage metering, which is what makes consumption rows get recorded.
+		Limits: &api.AgentNetworkPolicyLimits{
+			TokenLimit: api.AgentNetworkPolicyTokenLimit{
+				Enabled:       true,
+				GroupCap:      10_000_000,
+				UserCap:       10_000_000,
+				WindowSeconds: 60,
+			},
+		},
 	})
 	require.NoError(t, err, "create policy")
 	t.Cleanup(func() { _ = srv.DeletePolicy(context.Background(), pol.Id) })
@@ -224,4 +241,22 @@ func TestProvidersMatrix(t *testing.T) {
 			}, 30*time.Second, 2*time.Second, "an access-log row should be ingested for %s", pc.name)
 		})
 	}
+
+	// Metering: the policy's uncapped token limit switches on usage recording,
+	// so the live traffic just driven must surface as consumption rows with
+	// positive token counts. Consumption is account-scoped (keyed by source
+	// group / user and time window, not per provider), and ingest is async, so
+	// poll for any row that has booked tokens.
+	require.Eventually(t, func() bool {
+		rows, lerr := srv.ListConsumption(ctx)
+		if lerr != nil {
+			return false
+		}
+		for _, r := range rows {
+			if r.TokensInput > 0 && r.TokensOutput > 0 {
+				return true
+			}
+		}
+		return false
+	}, 60*time.Second, 3*time.Second, "consumption must be recorded with positive token counts after live traffic")
 }
