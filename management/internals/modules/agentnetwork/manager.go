@@ -75,6 +75,7 @@ type Manager interface {
 
 	ListConsumption(ctx context.Context, accountID, userID string) ([]*types.Consumption, error)
 	ListAccessLogs(ctx context.Context, accountID, userID string, filter types.AgentNetworkAccessLogFilter) ([]*types.AgentNetworkAccessLog, int64, error)
+	ListAccessLogSessions(ctx context.Context, accountID, userID string, filter types.AgentNetworkAccessLogFilter) ([]*types.AgentNetworkAccessLogSession, int64, error)
 	GetUsageOverview(ctx context.Context, accountID, userID string, filter types.AgentNetworkAccessLogFilter, granularity types.UsageGranularity) ([]*types.AgentNetworkUsageBucket, error)
 	StartAccessLogCleanup(ctx context.Context, cleanupIntervalHours int)
 	RecordConsumption(ctx context.Context, accountID string, kind types.ConsumptionDimension, dimID string, windowSeconds, tokensIn, tokensOut int64, costUSD float64) error
@@ -694,6 +695,16 @@ func (m *managerImpl) ListAccessLogs(ctx context.Context, accountID, userID stri
 	return m.store.GetAgentNetworkAccessLogs(ctx, store.LockingStrengthNone, accountID, filter)
 }
 
+// ListAccessLogSessions returns a paginated, server-side-filtered page of
+// agent-network access logs grouped by session, plus the total number of
+// sessions matching the filter.
+func (m *managerImpl) ListAccessLogSessions(ctx context.Context, accountID, userID string, filter types.AgentNetworkAccessLogFilter) ([]*types.AgentNetworkAccessLogSession, int64, error) {
+	if err := m.requirePermission(ctx, accountID, userID, operations.Read); err != nil {
+		return nil, 0, err
+	}
+	return m.store.GetAgentNetworkAccessLogSessions(ctx, store.LockingStrengthNone, accountID, filter)
+}
+
 // GetUsageOverview returns the filtered usage rows aggregated into time buckets
 // at the requested granularity, oldest-first.
 func (m *managerImpl) GetUsageOverview(ctx context.Context, accountID, userID string, filter types.AgentNetworkAccessLogFilter, granularity types.UsageGranularity) ([]*types.AgentNetworkUsageBucket, error) {
@@ -874,6 +885,10 @@ func (*mockManager) ListConsumption(_ context.Context, _, _ string) ([]*types.Co
 }
 
 func (*mockManager) ListAccessLogs(_ context.Context, _, _ string, _ types.AgentNetworkAccessLogFilter) ([]*types.AgentNetworkAccessLog, int64, error) {
+	return nil, 0, nil
+}
+
+func (*mockManager) ListAccessLogSessions(_ context.Context, _, _ string, _ types.AgentNetworkAccessLogFilter) ([]*types.AgentNetworkAccessLogSession, int64, error) {
 	return nil, 0, nil
 }
 

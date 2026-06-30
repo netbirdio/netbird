@@ -60,6 +60,25 @@ var accessLogSortFields = map[string]string{
 	"decision":     "decision",
 }
 
+// sessionSortExprs maps the API sort_by values to the aggregate expression a
+// session-grouped query sorts on. A session has no single row, so per-row
+// columns become aggregates: "timestamp" (the default) is the session's last
+// activity, "started_at" its first. Every expression is a plain SQL aggregate
+// over the GROUP BY, so the ordering stays portable across SQLite and Postgres.
+// Keys absent here (e.g. "model", "provider") fall back to the default — the
+// grouped UI only offers the session-level sorts below.
+var sessionSortExprs = map[string]string{
+	"timestamp":     "MAX(timestamp)",
+	"started_at":    "MIN(timestamp)",
+	"cost_usd":      "SUM(cost_usd)",
+	"total_tokens":  "SUM(total_tokens)",
+	"duration":      "SUM(duration)",
+	"request_count": "COUNT(*)",
+	"status_code":   "MAX(status_code)",
+	"user_id":       "MIN(user_id)",
+	"decision":      "MAX(decision)", // "deny" > "allow": DESC surfaces denied sessions first
+}
+
 // AgentNetworkAccessLogFilter holds pagination, filtering and sorting
 // parameters for the agent-network access-log listing. Group / provider /
 // model are multi-valued (the UI uses multi-select; an entry matches when it
@@ -126,6 +145,16 @@ func (f *AgentNetworkAccessLogFilter) GetSortColumn() string {
 	return accessLogSortFields[accessLogDefaultSortBy]
 }
 
+// GetSessionSortExpr returns the aggregate ORDER BY expression for the active
+// sort field when listing session-grouped logs. Unknown / non-session sort
+// fields fall back to the default (last activity).
+func (f *AgentNetworkAccessLogFilter) GetSessionSortExpr() string {
+	if expr, ok := sessionSortExprs[f.SortBy]; ok {
+		return expr
+	}
+	return sessionSortExprs[accessLogDefaultSortBy]
+}
+
 // GetSortOrder returns the normalised sort order ("ASC"/"DESC").
 func (f *AgentNetworkAccessLogFilter) GetSortOrder() string {
 	if strings.EqualFold(f.SortOrder, "asc") {
@@ -164,6 +193,13 @@ func parseAccessLogPositiveInt(s string, def int) int {
 
 func parseAccessLogSortField(s string) string {
 	if _, ok := accessLogSortFields[s]; ok {
+		return s
+	}
+	// Session-grouped listings sort on aggregates (e.g. request_count,
+	// started_at) that aren't flat-row columns; accept those too. The flat
+	// listing maps any unknown field back to the default, so this stays safe
+	// for the non-grouped endpoint.
+	if _, ok := sessionSortExprs[s]; ok {
 		return s
 	}
 	return accessLogDefaultSortBy

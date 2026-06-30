@@ -1202,6 +1202,63 @@ func (e WorkloadType) Valid() bool {
 	}
 }
 
+// Defines values for GetApiAgentNetworkAccessLogSessionsParamsSortBy.
+const (
+	GetApiAgentNetworkAccessLogSessionsParamsSortByCostUsd      GetApiAgentNetworkAccessLogSessionsParamsSortBy = "cost_usd"
+	GetApiAgentNetworkAccessLogSessionsParamsSortByDecision     GetApiAgentNetworkAccessLogSessionsParamsSortBy = "decision"
+	GetApiAgentNetworkAccessLogSessionsParamsSortByDuration     GetApiAgentNetworkAccessLogSessionsParamsSortBy = "duration"
+	GetApiAgentNetworkAccessLogSessionsParamsSortByRequestCount GetApiAgentNetworkAccessLogSessionsParamsSortBy = "request_count"
+	GetApiAgentNetworkAccessLogSessionsParamsSortByStartedAt    GetApiAgentNetworkAccessLogSessionsParamsSortBy = "started_at"
+	GetApiAgentNetworkAccessLogSessionsParamsSortByStatusCode   GetApiAgentNetworkAccessLogSessionsParamsSortBy = "status_code"
+	GetApiAgentNetworkAccessLogSessionsParamsSortByTimestamp    GetApiAgentNetworkAccessLogSessionsParamsSortBy = "timestamp"
+	GetApiAgentNetworkAccessLogSessionsParamsSortByTotalTokens  GetApiAgentNetworkAccessLogSessionsParamsSortBy = "total_tokens"
+	GetApiAgentNetworkAccessLogSessionsParamsSortByUserId       GetApiAgentNetworkAccessLogSessionsParamsSortBy = "user_id"
+)
+
+// Valid indicates whether the value is a known member of the GetApiAgentNetworkAccessLogSessionsParamsSortBy enum.
+func (e GetApiAgentNetworkAccessLogSessionsParamsSortBy) Valid() bool {
+	switch e {
+	case GetApiAgentNetworkAccessLogSessionsParamsSortByCostUsd:
+		return true
+	case GetApiAgentNetworkAccessLogSessionsParamsSortByDecision:
+		return true
+	case GetApiAgentNetworkAccessLogSessionsParamsSortByDuration:
+		return true
+	case GetApiAgentNetworkAccessLogSessionsParamsSortByRequestCount:
+		return true
+	case GetApiAgentNetworkAccessLogSessionsParamsSortByStartedAt:
+		return true
+	case GetApiAgentNetworkAccessLogSessionsParamsSortByStatusCode:
+		return true
+	case GetApiAgentNetworkAccessLogSessionsParamsSortByTimestamp:
+		return true
+	case GetApiAgentNetworkAccessLogSessionsParamsSortByTotalTokens:
+		return true
+	case GetApiAgentNetworkAccessLogSessionsParamsSortByUserId:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for GetApiAgentNetworkAccessLogSessionsParamsSortOrder.
+const (
+	GetApiAgentNetworkAccessLogSessionsParamsSortOrderAsc  GetApiAgentNetworkAccessLogSessionsParamsSortOrder = "asc"
+	GetApiAgentNetworkAccessLogSessionsParamsSortOrderDesc GetApiAgentNetworkAccessLogSessionsParamsSortOrder = "desc"
+)
+
+// Valid indicates whether the value is a known member of the GetApiAgentNetworkAccessLogSessionsParamsSortOrder enum.
+func (e GetApiAgentNetworkAccessLogSessionsParamsSortOrder) Valid() bool {
+	switch e {
+	case GetApiAgentNetworkAccessLogSessionsParamsSortOrderAsc:
+		return true
+	case GetApiAgentNetworkAccessLogSessionsParamsSortOrderDesc:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for GetApiAgentNetworkAccessLogsParamsSortBy.
 const (
 	GetApiAgentNetworkAccessLogsParamsSortByCostUsd     GetApiAgentNetworkAccessLogsParamsSortBy = "cost_usd"
@@ -1734,6 +1791,69 @@ type AgentNetworkAccessLog struct {
 
 	// UserId NetBird user id of the authenticated caller, if applicable.
 	UserId *string `json:"user_id,omitempty"`
+}
+
+// AgentNetworkAccessLogSession A session-grouped view of agent-network access logs — all requests sharing a session id (or a single session-less request) folded into one summary plus its ordered entries.
+type AgentNetworkAccessLogSession struct {
+	// CostUsd Total estimated USD cost across the session.
+	CostUsd float64 `json:"cost_usd"`
+
+	// Decision Session decision — "deny" if any request was denied, otherwise "allow".
+	Decision string `json:"decision"`
+
+	// EndedAt Timestamp of the session's latest request.
+	EndedAt time.Time `json:"ended_at"`
+
+	// Entries The session's access-log entries, oldest first.
+	Entries []AgentNetworkAccessLog `json:"entries"`
+
+	// GroupIds Union of the authorising group ids across the session's entries.
+	GroupIds *[]string `json:"group_ids,omitempty"`
+
+	// InputTokens Total input (prompt) tokens across the session.
+	InputTokens int64 `json:"input_tokens"`
+
+	// Models Distinct models seen in the session.
+	Models *[]string `json:"models,omitempty"`
+
+	// OutputTokens Total output (completion) tokens across the session.
+	OutputTokens int64 `json:"output_tokens"`
+
+	// Providers Distinct LLM provider vendors seen in the session.
+	Providers *[]string `json:"providers,omitempty"`
+
+	// RequestCount Number of requests in the session.
+	RequestCount int `json:"request_count"`
+
+	// SessionId Conversation / coding-session identifier shared by the entries. Empty for a session-less (singleton) request grouped on its own id.
+	SessionId *string `json:"session_id,omitempty"`
+
+	// StartedAt Timestamp of the session's earliest request.
+	StartedAt time.Time `json:"started_at"`
+
+	// TotalTokens Total tokens across the session.
+	TotalTokens int64 `json:"total_tokens"`
+
+	// UserId NetBird user id of the session's caller.
+	UserId *string `json:"user_id,omitempty"`
+}
+
+// AgentNetworkAccessLogSessionsResponse defines model for AgentNetworkAccessLogSessionsResponse.
+type AgentNetworkAccessLogSessionsResponse struct {
+	// Data List of session-grouped agent-network access logs.
+	Data []AgentNetworkAccessLogSession `json:"data"`
+
+	// Page Current page number.
+	Page int `json:"page"`
+
+	// PageSize Number of sessions per page.
+	PageSize int `json:"page_size"`
+
+	// TotalPages Total number of pages available.
+	TotalPages int `json:"total_pages"`
+
+	// TotalRecords Total number of sessions matching the filter.
+	TotalRecords int `json:"total_records"`
 }
 
 // AgentNetworkAccessLogsResponse defines model for AgentNetworkAccessLogsResponse.
@@ -5566,6 +5686,57 @@ type bearerAuthContextKey string
 
 // tokenAuthContextKey is the context key for TokenAuth security scheme
 type tokenAuthContextKey string
+
+// GetApiAgentNetworkAccessLogSessionsParams defines parameters for GetApiAgentNetworkAccessLogSessions.
+type GetApiAgentNetworkAccessLogSessionsParams struct {
+	// Page Page number for pagination (1-indexed).
+	Page *int `form:"page,omitempty" json:"page,omitempty"`
+
+	// PageSize Number of sessions per page (max 100).
+	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
+
+	// SortBy Session-level field to sort by. "timestamp" is the session's last activity, "started_at" its first.
+	SortBy *GetApiAgentNetworkAccessLogSessionsParamsSortBy `form:"sort_by,omitempty" json:"sort_by,omitempty"`
+
+	// SortOrder Sort order (ascending or descending).
+	SortOrder *GetApiAgentNetworkAccessLogSessionsParamsSortOrder `form:"sort_order,omitempty" json:"sort_order,omitempty"`
+
+	// Search General search across log ID, host, path, model, and user email/name.
+	Search *string `form:"search,omitempty" json:"search,omitempty"`
+
+	// UserId Filter by authenticated user ID.
+	UserId *string `form:"user_id,omitempty" json:"user_id,omitempty"`
+
+	// SessionId Filter to a single conversation / coding session id.
+	SessionId *string `form:"session_id,omitempty" json:"session_id,omitempty"`
+
+	// GroupId Filter by authorising group id. Repeat for multiple (matches any).
+	GroupId *[]string `form:"group_id,omitempty" json:"group_id,omitempty"`
+
+	// ProviderId Filter by resolved provider id. Repeat for multiple (matches any).
+	ProviderId *[]string `form:"provider_id,omitempty" json:"provider_id,omitempty"`
+
+	// Model Filter by model. Repeat for multiple (matches any).
+	Model *[]string `form:"model,omitempty" json:"model,omitempty"`
+
+	// Decision Filter by policy decision (e.g. allow, deny).
+	Decision *string `form:"decision,omitempty" json:"decision,omitempty"`
+
+	// Path Filter by request path prefix (matches entries whose path starts with this value).
+	Path *string `form:"path,omitempty" json:"path,omitempty"`
+
+	// StartDate Filter by timestamp >= start_date (RFC3339 format).
+	StartDate *time.Time `form:"start_date,omitempty" json:"start_date,omitempty"`
+
+	// EndDate Filter by timestamp <= end_date (RFC3339 format).
+	EndDate *time.Time `form:"end_date,omitempty" json:"end_date,omitempty"`
+}
+
+// GetApiAgentNetworkAccessLogSessionsParamsSortBy defines parameters for GetApiAgentNetworkAccessLogSessions.
+type GetApiAgentNetworkAccessLogSessionsParamsSortBy string
+
+// GetApiAgentNetworkAccessLogSessionsParamsSortOrder defines parameters for GetApiAgentNetworkAccessLogSessions.
+type GetApiAgentNetworkAccessLogSessionsParamsSortOrder string
 
 // GetApiAgentNetworkAccessLogsParams defines parameters for GetApiAgentNetworkAccessLogs.
 type GetApiAgentNetworkAccessLogsParams struct {

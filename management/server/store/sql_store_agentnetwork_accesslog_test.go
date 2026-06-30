@@ -155,6 +155,104 @@ func TestAgentNetworkUsageOverview_DailyAggregation(t *testing.T) {
 	assert.Equal(t, "u3", filtered[0].ID)
 }
 
+// TestAgentNetworkAccessLogSessions_RealStore drives GetAgentNetworkAccessLogSessions
+// against a real sqlite store: session grouping + aggregation, recency ordering,
+// singleton groups for session-less requests, session pagination, the model
+// filter narrowing sessions, and aggregate sorting.
+func TestAgentNetworkAccessLogSessions_RealStore(t *testing.T) {
+	ctx := context.Background()
+	s, cleanup, err := NewTestStoreFromSQL(ctx, "", t.TempDir())
+	require.NoError(t, err, "real sqlite test store must come up")
+	defer cleanup()
+
+	const accountID = "acc-anet-sessions-1"
+	base := time.Date(2026, 5, 5, 10, 0, 0, 0, time.UTC)
+	at := func(h int) time.Time { return base.Add(time.Duration(h) * time.Hour) }
+
+	mk := func(id, session, user, provider, model, decision string, ts time.Time, cost float64) *agentNetworkTypes.AgentNetworkAccessLog {
+		return &agentNetworkTypes.AgentNetworkAccessLog{
+			ID: id, AccountID: accountID, ServiceID: "svc", Timestamp: ts,
+			UserID: user, StatusCode: 200, Provider: provider, Model: model,
+			SessionID: session, Decision: decision,
+			InputTokens: 100, OutputTokens: 50, TotalTokens: 150, CostUSD: cost,
+		}
+	}
+
+	// Two-request session s1 (alice), a one-request denied session s2 (bob), and
+	// two session-less requests (empty session id) that must each form their own
+	// singleton group.
+	require.NoError(t, s.CreateAgentNetworkAccessLog(ctx, mk("s1-a", "s1", "alice", "openai", "gpt-4o", "allow", at(1), 0.10),
+		[]agentNetworkTypes.AgentNetworkAccessLogGroup{{LogID: "s1-a", GroupID: "grp-eng", AccountID: accountID}}))
+	require.NoError(t, s.CreateAgentNetworkAccessLog(ctx, mk("s1-b", "s1", "alice", "openai", "gpt-4o", "allow", at(2), 0.20),
+		[]agentNetworkTypes.AgentNetworkAccessLogGroup{{LogID: "s1-b", GroupID: "grp-oncall", AccountID: accountID}}))
+	require.NoError(t, s.CreateAgentNetworkAccessLog(ctx, mk("s2-a", "s2", "bob", "anthropic", "claude-3", "deny", at(3), 0.05), nil))
+	require.NoError(t, s.CreateAgentNetworkAccessLog(ctx, mk("se-old", "", "carol", "openai", "o1", "allow", at(0), 0.01), nil))
+	require.NoError(t, s.CreateAgentNetworkAccessLog(ctx, mk("se-new", "", "dave", "mistral", "mistral-large", "allow", at(4), 0.02), nil))
+
+	// Default sort: last activity (MAX timestamp) descending.
+	sessions, total, err := s.GetAgentNetworkAccessLogSessions(ctx, LockingStrengthNone, accountID,
+		agentNetworkTypes.AgentNetworkAccessLogFilter{Page: 1, PageSize: 50})
+	require.NoError(t, err)
+	assert.Equal(t, int64(4), total, "four sessions: s1, s2, and two singletons")
+	require.Len(t, sessions, 4)
+
+	// se-new(t4) > s2(t3) > s1(t2) > se-old(t0)
+	assert.Equal(t, "", sessions[0].SessionID, "newest is a session-less singleton")
+	assert.Equal(t, "se-new", sessions[0].Entries[0].ID)
+	assert.Equal(t, "s2", sessions[1].SessionID)
+	assert.Equal(t, "s1", sessions[2].SessionID)
+	assert.Equal(t, "se-old", sessions[3].Entries[0].ID)
+
+	// s1 aggregation.
+	s1 := sessions[2]
+	assert.Equal(t, 2, s1.RequestCount, "s1 has two requests")
+	assert.Equal(t, int64(300), s1.TotalTokens, "tokens summed across the session")
+	assert.InDelta(t, 0.30, s1.CostUSD, 1e-9, "cost summed across the session")
+	assert.Equal(t, "alice", s1.UserID)
+	assert.Equal(t, "allow", s1.Decision)
+	assert.Equal(t, at(1), s1.StartedAt, "started = earliest entry")
+	assert.Equal(t, at(2), s1.EndedAt, "ended = latest entry")
+	assert.ElementsMatch(t, []string{"openai"}, s1.Providers)
+	assert.ElementsMatch(t, []string{"gpt-4o"}, s1.Models)
+	assert.ElementsMatch(t, []string{"grp-eng", "grp-oncall"}, s1.GroupIDs, "union of the entries' authorising groups")
+
+	// Denied session rolls up to deny.
+	assert.Equal(t, "deny", sessions[1].Decision, "any denied request makes the session deny")
+
+	// Pagination over sessions: 2 per page.
+	page1, total, err := s.GetAgentNetworkAccessLogSessions(ctx, LockingStrengthNone, accountID,
+		agentNetworkTypes.AgentNetworkAccessLogFilter{Page: 1, PageSize: 2})
+	require.NoError(t, err)
+	assert.Equal(t, int64(4), total, "total still counts all sessions")
+	require.Len(t, page1, 2)
+	assert.Equal(t, "se-new", page1[0].Entries[0].ID)
+	assert.Equal(t, "s2", page1[1].SessionID)
+
+	page2, _, err := s.GetAgentNetworkAccessLogSessions(ctx, LockingStrengthNone, accountID,
+		agentNetworkTypes.AgentNetworkAccessLogFilter{Page: 2, PageSize: 2})
+	require.NoError(t, err)
+	require.Len(t, page2, 2)
+	assert.Equal(t, "s1", page2[0].SessionID)
+	assert.Equal(t, "se-old", page2[1].Entries[0].ID)
+
+	// Model filter narrows to the session(s) with matching entries.
+	model := "claude-3"
+	filtered, fTotal, err := s.GetAgentNetworkAccessLogSessions(ctx, LockingStrengthNone, accountID,
+		agentNetworkTypes.AgentNetworkAccessLogFilter{Page: 1, PageSize: 50, Models: []string{model}})
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), fTotal, "only s2 has a claude-3 request")
+	require.Len(t, filtered, 1)
+	assert.Equal(t, "s2", filtered[0].SessionID)
+
+	// Sort by total session cost, descending: s1 (0.30) leads despite not being
+	// the most recent.
+	byCost, _, err := s.GetAgentNetworkAccessLogSessions(ctx, LockingStrengthNone, accountID,
+		agentNetworkTypes.AgentNetworkAccessLogFilter{Page: 1, PageSize: 50, SortBy: "cost_usd", SortOrder: "desc"})
+	require.NoError(t, err)
+	require.Len(t, byCost, 4)
+	assert.Equal(t, "s1", byCost[0].SessionID, "highest-cost session sorts first")
+}
+
 // TestDeleteOldAgentNetworkAccessLogs verifies the retention sweep removes only
 // access-log rows (and their group children) older than the cutoff, leaving
 // recent rows — and never touching usage records.

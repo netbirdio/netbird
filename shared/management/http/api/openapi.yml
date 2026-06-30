@@ -5820,6 +5820,115 @@ components:
         - page_size
         - total_records
         - total_pages
+    AgentNetworkAccessLogSession:
+      type: object
+      description: A session-grouped view of agent-network access logs — all requests sharing a session id (or a single session-less request) folded into one summary plus its ordered entries.
+      properties:
+        session_id:
+          type: string
+          description: Conversation / coding-session identifier shared by the entries. Empty for a session-less (singleton) request grouped on its own id.
+          example: "019eeb72-ab7c-7cd2-aa05-6e8eb834afcb"
+        user_id:
+          type: string
+          description: NetBird user id of the session's caller.
+        group_ids:
+          type: array
+          items:
+            type: string
+          description: Union of the authorising group ids across the session's entries.
+        started_at:
+          type: string
+          format: date-time
+          description: Timestamp of the session's earliest request.
+          example: "2026-05-05T12:30:00Z"
+        ended_at:
+          type: string
+          format: date-time
+          description: Timestamp of the session's latest request.
+          example: "2026-05-05T12:34:56Z"
+        request_count:
+          type: integer
+          description: Number of requests in the session.
+          example: 7
+        input_tokens:
+          type: integer
+          format: int64
+          description: Total input (prompt) tokens across the session.
+          example: 8400
+        output_tokens:
+          type: integer
+          format: int64
+          description: Total output (completion) tokens across the session.
+          example: 4480
+        total_tokens:
+          type: integer
+          format: int64
+          description: Total tokens across the session.
+          example: 12880
+        cost_usd:
+          type: number
+          format: double
+          description: Total estimated USD cost across the session.
+          example: 0.1617
+        providers:
+          type: array
+          items:
+            type: string
+          description: Distinct LLM provider vendors seen in the session.
+        models:
+          type: array
+          items:
+            type: string
+          description: Distinct models seen in the session.
+        decision:
+          type: string
+          description: Session decision — "deny" if any request was denied, otherwise "allow".
+          example: "allow"
+        entries:
+          type: array
+          description: The session's access-log entries, oldest first.
+          items:
+            $ref: "#/components/schemas/AgentNetworkAccessLog"
+      required:
+        - started_at
+        - ended_at
+        - request_count
+        - input_tokens
+        - output_tokens
+        - total_tokens
+        - cost_usd
+        - decision
+        - entries
+    AgentNetworkAccessLogSessionsResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          description: List of session-grouped agent-network access logs.
+          items:
+            $ref: "#/components/schemas/AgentNetworkAccessLogSession"
+        page:
+          type: integer
+          description: Current page number.
+          example: 1
+        page_size:
+          type: integer
+          description: Number of sessions per page.
+          example: 50
+        total_records:
+          type: integer
+          description: Total number of sessions matching the filter.
+          example: 124
+        total_pages:
+          type: integer
+          description: Total number of pages available.
+          example: 3
+      required:
+        - data
+        - page
+        - page_size
+        - total_records
+        - total_pages
     AgentNetworkUsageBucket:
       type: object
       description: One aggregated agent-network usage time bucket (UTC). The bucket width is set by the request's granularity.
@@ -13116,6 +13225,121 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AgentNetworkAccessLogsResponse"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/agent-network/access-log-sessions:
+    get:
+      summary: List Agent Network access logs grouped by session
+      description: Returns a paginated, server-side-filtered list of agent-network (LLM) access logs grouped by session. The page unit is a session (total_records counts sessions); each session carries an aggregate summary and its ordered entries. Requests the client sent no session id for each form their own singleton group. Accepts the same filters as the flat access-logs endpoint. Available only when the account has log collection enabled.
+      tags: [ Agent Network ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+          description: Page number for pagination (1-indexed).
+        - in: query
+          name: page_size
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 100
+          description: Number of sessions per page (max 100).
+        - in: query
+          name: sort_by
+          schema:
+            type: string
+            enum: [timestamp, started_at, cost_usd, total_tokens, duration, request_count, status_code, user_id, decision]
+            default: timestamp
+          description: Session-level field to sort by. "timestamp" is the session's last activity, "started_at" its first.
+        - in: query
+          name: sort_order
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+          description: Sort order (ascending or descending).
+        - in: query
+          name: search
+          schema:
+            type: string
+          description: General search across log ID, host, path, model, and user email/name.
+        - in: query
+          name: user_id
+          schema:
+            type: string
+          description: Filter by authenticated user ID.
+        - in: query
+          name: session_id
+          schema:
+            type: string
+          description: Filter to a single conversation / coding session id.
+        - in: query
+          name: group_id
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
+          description: Filter by authorising group id. Repeat for multiple (matches any).
+        - in: query
+          name: provider_id
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
+          description: Filter by resolved provider id. Repeat for multiple (matches any).
+        - in: query
+          name: model
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
+          description: Filter by model. Repeat for multiple (matches any).
+        - in: query
+          name: decision
+          schema:
+            type: string
+          description: Filter by policy decision (e.g. allow, deny).
+        - in: query
+          name: path
+          schema:
+            type: string
+          description: Filter by request path prefix (matches entries whose path starts with this value).
+        - in: query
+          name: start_date
+          schema:
+            type: string
+            format: date-time
+          description: Filter by timestamp >= start_date (RFC3339 format).
+        - in: query
+          name: end_date
+          schema:
+            type: string
+            format: date-time
+          description: Filter by timestamp <= end_date (RFC3339 format).
+      responses:
+        '200':
+          description: Paginated list of session-grouped agent-network access logs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentNetworkAccessLogSessionsResponse"
         '401':
           "$ref": "#/components/responses/requires_authentication"
         '403':

@@ -16,6 +16,7 @@ import (
 // agent-network access-log listing and the aggregated usage overview.
 func (h *handler) addAccessLogEndpoints(router *mux.Router) {
 	router.HandleFunc("/agent-network/access-logs", h.listAccessLogs).Methods("GET", "OPTIONS")
+	router.HandleFunc("/agent-network/access-log-sessions", h.listAccessLogSessions).Methods("GET", "OPTIONS")
 	router.HandleFunc("/agent-network/usage/overview", h.getUsageOverview).Methods("GET", "OPTIONS")
 }
 
@@ -82,6 +83,48 @@ func (h *handler) listAccessLogs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	util.WriteJSONObject(r.Context(), w, api.AgentNetworkAccessLogsResponse{
+		Data:         data,
+		Page:         filter.Page,
+		PageSize:     pageSize,
+		TotalRecords: int(total),
+		TotalPages:   totalPages,
+	})
+}
+
+// listAccessLogSessions returns the access logs grouped by session: the page
+// unit is a session (total counts sessions), each carrying an aggregate summary
+// and its ordered entries. Accepts the same filters as listAccessLogs.
+func (h *handler) listAccessLogSessions(w http.ResponseWriter, r *http.Request) {
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	var filter types.AgentNetworkAccessLogFilter
+	if err := filter.ParseFromRequest(r); err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	sessions, total, err := h.manager.ListAccessLogSessions(r.Context(), userAuth.AccountId, userAuth.UserId, filter)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	data := make([]api.AgentNetworkAccessLogSession, 0, len(sessions))
+	for _, sess := range sessions {
+		data = append(data, sess.ToAPIResponse())
+	}
+
+	pageSize := filter.GetLimit()
+	totalPages := 0
+	if pageSize > 0 {
+		totalPages = int((total + int64(pageSize) - 1) / int64(pageSize))
+	}
+
+	util.WriteJSONObject(r.Context(), w, api.AgentNetworkAccessLogSessionsResponse{
 		Data:         data,
 		Page:         filter.Page,
 		PageSize:     pageSize,

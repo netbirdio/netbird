@@ -33,11 +33,11 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
 
+	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
-	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
@@ -5825,6 +5825,91 @@ func (s *SqlStore) hydrateAgentNetworkAccessLogGroups(ctx context.Context, accou
 		l.GroupIDs = byLog[l.ID]
 	}
 	return nil
+}
+
+// agentNetworkSessionKeyExpr is the SQL group key for session-grouped access
+// logs: the row's session id, or — when the client sent none — the row id, so
+// session-less requests each form their own singleton group. COALESCE/NULLIF
+// are standard SQL, so this stays portable across SQLite and Postgres.
+const agentNetworkSessionKeyExpr = "COALESCE(NULLIF(session_id, ''), id)"
+
+// GetAgentNetworkAccessLogSessions retrieves agent-network access logs grouped
+// by session, with server-side pagination, filtering and sorting at the session
+// level. It paginates over the distinct session keys (ordered by the requested
+// session-level aggregate), fetches every entry for the page's sessions, and
+// folds them into per-session summaries. The returned count is the number of
+// matching sessions. Filters apply to the entries, so a session's summary
+// reflects only its filter-matching requests.
+func (s *SqlStore) GetAgentNetworkAccessLogSessions(ctx context.Context, lockStrength LockingStrength, accountID string, filter agentNetworkTypes.AgentNetworkAccessLogFilter) ([]*agentNetworkTypes.AgentNetworkAccessLogSession, int64, error) {
+	// Count distinct sessions via a grouped subquery — portable and avoids
+	// relying on COUNT(DISTINCT <expr>) quoting quirks.
+	sessionsSubquery := s.applyAgentNetworkAccessLogFilters(
+		s.db.Model(&agentNetworkTypes.AgentNetworkAccessLog{}).Where(accountIDCondition, accountID),
+		filter,
+	).
+		Select(agentNetworkSessionKeyExpr + " AS session_key").
+		Group(agentNetworkSessionKeyExpr)
+
+	var totalCount int64
+	if err := s.db.Table("(?) AS sessions", sessionsSubquery).Count(&totalCount).Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to count agent-network access-log sessions: %v", err)
+		return nil, 0, status.Errorf(status.Internal, "failed to count agent-network access-log sessions")
+	}
+
+	// The page of session keys, ordered by the session-level aggregate. The
+	// session-key tiebreaker keeps pagination deterministic when the primary
+	// aggregate ties.
+	type sessionKeyRow struct {
+		SessionKey string
+	}
+	var keyRows []sessionKeyRow
+	keyQuery := s.applyAgentNetworkAccessLogFilters(
+		s.db.Model(&agentNetworkTypes.AgentNetworkAccessLog{}).Where(accountIDCondition, accountID),
+		filter,
+	).
+		Select(agentNetworkSessionKeyExpr + " AS session_key").
+		Group(agentNetworkSessionKeyExpr).
+		Order(filter.GetSessionSortExpr() + " " + filter.GetSortOrder()).
+		Order("session_key ASC").
+		Limit(filter.GetLimit()).
+		Offset(filter.GetOffset())
+	if err := keyQuery.Scan(&keyRows).Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to list agent-network access-log session keys: %v", err)
+		return nil, 0, status.Errorf(status.Internal, "failed to list agent-network access-log session keys")
+	}
+	if len(keyRows) == 0 {
+		return nil, totalCount, nil
+	}
+
+	keys := make([]string, 0, len(keyRows))
+	for _, r := range keyRows {
+		keys = append(keys, r.SessionKey)
+	}
+
+	// All entries for the page's sessions, contiguous per session and oldest
+	// first within each — the fold relies on that ordering.
+	var entries []*agentNetworkTypes.AgentNetworkAccessLog
+	entriesQuery := s.applyAgentNetworkAccessLogFilters(
+		s.db.Where(accountIDCondition, accountID),
+		filter,
+	).
+		Where(agentNetworkSessionKeyExpr+" IN ?", keys).
+		Order(agentNetworkSessionKeyExpr + ", timestamp ASC")
+
+	if lockStrength != LockingStrengthNone {
+		entriesQuery = entriesQuery.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	if err := entriesQuery.Find(&entries).Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to get agent-network access-log session entries: %v", err)
+		return nil, 0, status.Errorf(status.Internal, "failed to get agent-network access-log session entries")
+	}
+
+	if err := s.hydrateAgentNetworkAccessLogGroups(ctx, accountID, entries); err != nil {
+		return nil, 0, err
+	}
+
+	return agentNetworkTypes.FoldAccessLogSessions(keys, entries), totalCount, nil
 }
 
 // GetAccountAccessLogs retrieves access logs for a given account with pagination and filtering
