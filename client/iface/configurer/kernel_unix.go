@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -15,13 +16,37 @@ import (
 	"github.com/netbirdio/netbird/monotime"
 )
 
+// activityByteThreshold is the minimum growth in a peer's combined Tx+Rx byte
+// counters between two polls for the peer to be considered active.
+//
+// Kernel WireGuard only exposes aggregate transfer counters, with no way to
+// distinguish data from protocol overhead. An idle tunnel still accrues a steady
+// noise floor: the 25s persistent keepalive NetBird sets for NAT traversal, plus
+// a rekey handshake (~every 2 min, kept alive by the keepalive itself) that also
+// lands in the counters. Measured on idle kernel-WireGuard peers this floor
+// peaks around ~400 bytes per 60s poll (≈64 B keepalive-only, ≈400 B on a poll
+// containing a rekey). The threshold sits above that with margin so
+// keepalive/rekey-only tunnels read as idle, while real traffic (orders of
+// magnitude larger) reads as active. The baseline advances every poll so the
+// floor cannot accumulate across intervals into a false positive.
+const activityByteThreshold = 1024
+
+type peerActivity struct {
+	lastBytes  int64         // Tx+Rx total observed at the previous poll
+	lastActive monotime.Time // last poll where the byte delta exceeded the threshold
+}
+
 type KernelConfigurer struct {
 	deviceName string
+
+	mu       sync.Mutex
+	activity map[string]peerActivity // peer public key -> activity tracker
 }
 
 func NewKernelConfigurer(deviceName string) *KernelConfigurer {
 	return &KernelConfigurer{
 		deviceName: deviceName,
+		activity:   make(map[string]peerActivity),
 	}
 }
 
@@ -327,6 +352,66 @@ func (c *KernelConfigurer) GetStats() (map[string]WGStats, error) {
 	return stats, nil
 }
 
+// LastActivities returns the last time genuine data activity was observed for
+// each peer, derived from the kernel's aggregate Tx/Rx byte counters. It is
+// consumed by the lazy-connection inactivity monitor to tear down idle peers.
+//
+// Unlike userspace mode, where the bind sees every packet and can filter
+// keepalives directly, kernel mode only exposes aggregate counters via wgctrl,
+// so activity is inferred from byte-counter deltas across polls.
 func (c *KernelConfigurer) LastActivities() map[string]monotime.Time {
-	return nil
+	stats, err := c.GetStats()
+	if err != nil {
+		log.Errorf("failed to get wg stats for activity tracking: %v", err)
+		return nil
+	}
+	return c.updateActivity(stats, monotime.Now())
+}
+
+// updateActivity folds a fresh stats snapshot into the per-peer activity tracker
+// and returns the last-active timestamp for every peer currently present.
+//
+// A peer is considered active for this poll when its combined Tx+Rx counter
+// grows by more than activityByteThreshold since the previous poll, or when the
+// counter resets (peer re-added). The baseline is advanced on every poll so
+// keepalive bytes cannot accumulate across intervals into a false positive.
+// Newly seen peers are seeded as active, mirroring the userspace recorder which
+// seeds LastActivity on UpsertAddress.
+func (c *KernelConfigurer) updateActivity(stats map[string]WGStats, now monotime.Time) map[string]monotime.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	activities := make(map[string]monotime.Time, len(stats))
+	for key, s := range stats {
+		total := s.TxBytes + s.RxBytes
+
+		entry, ok := c.activity[key]
+		switch {
+		case !ok:
+			// First time we see this peer: treat as just-activated.
+			entry = peerActivity{lastBytes: total, lastActive: now}
+		case total < entry.lastBytes:
+			// Counter reset (peer suspended/re-added): treat as activity.
+			entry.lastBytes = total
+			entry.lastActive = now
+		case total-entry.lastBytes > activityByteThreshold:
+			entry.lastBytes = total
+			entry.lastActive = now
+		default:
+			// Idle / keepalive-only: keep lastActive, advance the baseline.
+			entry.lastBytes = total
+		}
+
+		c.activity[key] = entry
+		activities[key] = entry.lastActive
+	}
+
+	// Prune peers that are no longer present in the device.
+	for key := range c.activity {
+		if _, ok := stats[key]; !ok {
+			delete(c.activity, key)
+		}
+	}
+
+	return activities
 }
