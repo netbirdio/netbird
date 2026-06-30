@@ -39,10 +39,10 @@ type peerExpirationReason string
 const (
 	remoteJobsMinVer = "0.64.0"
 
-	peerExpirationLoginExpired     peerExpirationReason = "Login session expired"
-	peerExpirationInactivity       peerExpirationReason = "Inactive beyond the inactivity timeout"
-	peerExpirationValidationFailed peerExpirationReason = "Failed integration validation"
-	peerExpirationUserBlocked      peerExpirationReason = "Owner's user account was blocked"
+	peerExpirationSessionExpired   peerExpirationReason = "session expiration"
+	peerExpirationInactivity       peerExpirationReason = "inactivity timeout"
+	peerExpirationValidationFailed peerExpirationReason = "failed integration validation"
+	peerExpirationUserBlocked      peerExpirationReason = "blocked owner account"
 )
 
 // GetPeers returns peers visible to the user within an account.
