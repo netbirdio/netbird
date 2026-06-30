@@ -1428,50 +1428,43 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap, maxBatch int,
 		}
 	}
 
-	// needMore signals the caller to re-run when a peer phase hit its per-pass cap.
-	needMore := false
-
-	// cleanup request, most likely our peer has been deleted
-	if networkMap.GetRemotePeersIsEmpty() {
-		err := e.removeAllPeers()
-		e.statusRecorder.FinishPeerListModifications()
-		if err != nil {
-			return false, err
-		}
-	} else {
-		doneRemoved := e.phase("removed_peers")
-		removeMore, err := e.removePeers(remotePeers, maxBatch)
-		doneRemoved()
-		if err != nil {
-			return false, err
-		}
-
-		doneModified := e.phase("modified_peers")
-		modifyMore, err := e.modifyPeers(remotePeers, maxBatch)
-		doneModified()
-		if err != nil {
-			return false, err
-		}
-
-		doneAdded := e.phase("added_peers")
-		addMore, err := e.addNewPeers(remotePeers, maxBatch)
-		doneAdded()
-		if err != nil {
-			return false, err
-		}
-
-		needMore = removeMore || modifyMore || addMore
-
-		e.statusRecorder.FinishPeerListModifications()
-
-		e.updatePeerSSHHostKeys(remotePeers)
-
-		if err := e.updateSSHClientConfig(remotePeers); err != nil {
-			log.Warnf("failed to update SSH client config: %v", err)
-		}
-
-		e.updateSSHServerAuth(networkMap.GetSshAuth())
+	// No special case for cleanup: when management signals RemotePeersIsEmpty (e.g. our
+	// peer was deleted), remotePeers is already empty, so the bounded diff below removes
+	// every peer in batches — same path as a normal update, no unbounded removeAllPeers
+	// held under syncMsgMux in one shot.
+	doneRemoved := e.phase("removed_peers")
+	removeMore, err := e.removePeers(remotePeers, maxBatch)
+	doneRemoved()
+	if err != nil {
+		return false, err
 	}
+
+	doneModified := e.phase("modified_peers")
+	modifyMore, err := e.modifyPeers(remotePeers, maxBatch)
+	doneModified()
+	if err != nil {
+		return false, err
+	}
+
+	doneAdded := e.phase("added_peers")
+	addMore, err := e.addNewPeers(remotePeers, maxBatch)
+	doneAdded()
+	if err != nil {
+		return false, err
+	}
+
+	// needMore signals the caller to re-run when a peer phase hit its per-pass cap.
+	needMore := removeMore || modifyMore || addMore
+
+	e.statusRecorder.FinishPeerListModifications()
+
+	e.updatePeerSSHHostKeys(remotePeers)
+
+	if err := e.updateSSHClientConfig(remotePeers); err != nil {
+		log.Warnf("failed to update SSH client config: %v", err)
+	}
+
+	e.updateSSHServerAuth(networkMap.GetSshAuth())
 
 	// Set the exclude list only once peers have fully converged (this pass added
 	// the last batch). It needs all target peers present in the store, and
