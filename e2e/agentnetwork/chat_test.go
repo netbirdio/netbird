@@ -212,6 +212,10 @@ func TestProvidersMatrix(t *testing.T) {
 		t.Run(pc.name, func(t *testing.T) {
 			before, _ := srv.ListAccessLogs(ctx)
 
+			// Unique per provider so we can find this provider's row by its
+			// session id and confirm the marker propagated end-to-end.
+			sessionID := "e2e-session-" + pc.name
+
 			// Retry briefly to absorb tunnel/DNS jitter on the first call.
 			var code int
 			var body string
@@ -221,9 +225,9 @@ func TestProvidersMatrix(t *testing.T) {
 				var b string
 				var cerr error
 				if pc.kind == harness.WireVertex {
-					c, b, cerr = cl.Vertex(ctx, settings.Endpoint, proxyIP, pc.project, pc.region, pc.model, "Reply with exactly: pong")
+					c, b, cerr = cl.Vertex(ctx, settings.Endpoint, proxyIP, pc.project, pc.region, pc.model, "Reply with exactly: pong", sessionID)
 				} else {
-					c, b, cerr = cl.Chat(ctx, settings.Endpoint, proxyIP, pc.kind, pc.model, "Reply with exactly: pong")
+					c, b, cerr = cl.Chat(ctx, settings.Endpoint, proxyIP, pc.kind, pc.model, "Reply with exactly: pong", sessionID)
 				}
 				if cerr == nil {
 					code, body = c, b
@@ -239,6 +243,21 @@ func TestProvidersMatrix(t *testing.T) {
 				logs, lerr := srv.ListAccessLogs(ctx)
 				return lerr == nil && logs.TotalRecords > before.TotalRecords
 			}, 30*time.Second, 2*time.Second, "an access-log row should be ingested for %s", pc.name)
+
+			// The session id sent as x-session-id must round-trip into the
+			// access-log row for this provider.
+			require.Eventually(t, func() bool {
+				logs, lerr := srv.ListAccessLogs(ctx)
+				if lerr != nil {
+					return false
+				}
+				for _, r := range logs.Data {
+					if r.SessionId != nil && *r.SessionId == sessionID {
+						return true
+					}
+				}
+				return false
+			}, 30*time.Second, 2*time.Second, "session id %q must be recorded in an access-log row for %s", sessionID, pc.name)
 		})
 	}
 

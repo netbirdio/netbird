@@ -158,8 +158,9 @@ const (
 
 // Chat issues a chat-completion POST to the agent-network endpoint over the
 // client's tunnel, returning the HTTP status and response body. kind selects
-// the wire shape: WireChat (OpenAI) or WireMessages (Anthropic).
-func (cl *Client) Chat(ctx context.Context, endpoint, proxyIP, kind, model, prompt string) (int, string, error) {
+// the wire shape: WireChat (OpenAI) or WireMessages (Anthropic). A non-empty
+// sessionID is sent as the universal x-session-id header the proxy records.
+func (cl *Client) Chat(ctx context.Context, endpoint, proxyIP, kind, model, prompt, sessionID string) (int, string, error) {
 	var path, body string
 	var headers []string
 	switch kind {
@@ -171,17 +172,26 @@ func (cl *Client) Chat(ctx context.Context, endpoint, proxyIP, kind, model, prom
 		path = "/v1/chat/completions"
 		body = fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":%q}]}`, model, prompt)
 	}
-	return cl.post(ctx, endpoint, proxyIP, path, body, headers)
+	return cl.post(ctx, endpoint, proxyIP, path, body, withSessionID(headers, sessionID))
 }
 
 // Vertex issues an Anthropic-on-Vertex rawPredict POST over the tunnel. Unlike
 // Chat, the model is carried in the request path (project/region/model), so the
 // proxy routes by path and mints the service-account OAuth token; the body uses
-// the Vertex anthropic_version rather than a model field.
-func (cl *Client) Vertex(ctx context.Context, endpoint, proxyIP, project, region, model, prompt string) (int, string, error) {
+// the Vertex anthropic_version rather than a model field. A non-empty sessionID
+// is sent as the universal x-session-id header the proxy records.
+func (cl *Client) Vertex(ctx context.Context, endpoint, proxyIP, project, region, model, prompt, sessionID string) (int, string, error) {
 	path := fmt.Sprintf("/v1/projects/%s/locations/%s/publishers/anthropic/models/%s:rawPredict", project, region, model)
 	body := fmt.Sprintf(`{"anthropic_version":"vertex-2023-10-16","max_tokens":64,"messages":[{"role":"user","content":%q}]}`, prompt)
-	return cl.post(ctx, endpoint, proxyIP, path, body, nil)
+	return cl.post(ctx, endpoint, proxyIP, path, body, withSessionID(nil, sessionID))
+}
+
+// withSessionID appends the x-session-id header when sessionID is non-empty.
+func withSessionID(headers []string, sessionID string) []string {
+	if sessionID == "" {
+		return headers
+	}
+	return append(headers, "x-session-id: "+sessionID)
 }
 
 // post runs curl in a throwaway container sharing the client's network
