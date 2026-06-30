@@ -1,14 +1,10 @@
 name: Agent Network E2E
 
-# Container-based agent-network end-to-end suite (build tag `e2e`). It stands up
-# the combined server + proxy + a NetBird client in Docker and drives live
-# chat-completions through the gateway, so it is slow, needs Docker, and needs
-# provider credentials. It is therefore NOT part of the normal CI; run it
-# manually via the Actions tab. Provider scenarios skip when their secret is
-# absent, so the suite still runs (management-side scenarios) without keys.
-
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -17,6 +13,7 @@ concurrency:
 jobs:
   e2e:
     name: Agent Network E2E
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
