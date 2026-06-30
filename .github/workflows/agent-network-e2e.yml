@@ -17,7 +17,7 @@ concurrency:
 jobs:
   e2e:
     name: Agent Network E2E
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - name: Checkout code
@@ -44,4 +44,10 @@ jobs:
           CLOUDFLARE_TOKEN: ${{ secrets.E2E_CLOUDFLARE_TOKEN }}
           AWS_BEARER_TOKEN_BEDROCK: ${{ secrets.E2E_AWS_BEARER_TOKEN_BEDROCK }}
           AWS_REGION: ${{ secrets.E2E_AWS_REGION }}
+          # Vertex (Anthropic-on-Vertex): SA + project required; region defaults
+          # to "global", model to a pinned claude snapshot.
+          GOOGLE_VERTEX_SA_BASE64: ${{ secrets.E2E_GOOGLE_VERTEX_SA_BASE64 }}
+          GOOGLE_VERTEX_PROJECT: ${{ secrets.E2E_GOOGLE_VERTEX_PROJECT }}
+          GOOGLE_VERTEX_REGION: ${{ secrets.E2E_GOOGLE_VERTEX_REGION }}
+          GOOGLE_VERTEX_MODEL: ${{ secrets.E2E_GOOGLE_VERTEX_MODEL }}
         run: go test -tags e2e -timeout 40m -v ./e2e/...

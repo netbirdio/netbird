@@ -24,26 +24,28 @@ type providerCase struct {
 	catalogID string
 	upstream  string
 	apiKey    string
-	model     string
-	kind      string // harness.WireChat or harness.WireMessages
+	model     string // body model (chat/messages) or path model@version (vertex)
+	kind      string // harness.WireChat, harness.WireMessages, or harness.WireVertex
+	project   string // vertex only: GCP project for the rawPredict path
+	region    string // vertex only: GCP region for the rawPredict path
 }
 
 // availableProviders builds the matrix from the provider env vars that are set.
 func availableProviders() []providerCase {
 	var ps []providerCase
 	if k := os.Getenv("OPENAI_TOKEN"); k != "" {
-		ps = append(ps, providerCase{"openai", "openai_api", "https://api.openai.com", k, "gpt-4o-mini", harness.WireChat})
+		ps = append(ps, providerCase{name: "openai", catalogID: "openai_api", upstream: "https://api.openai.com", apiKey: k, model: "gpt-4o-mini", kind: harness.WireChat})
 	}
 	if k := os.Getenv("ANTHROPIC_TOKEN"); k != "" {
-		ps = append(ps, providerCase{"anthropic", "anthropic_api", "https://api.anthropic.com", k, "claude-haiku-4-5", harness.WireMessages})
+		ps = append(ps, providerCase{name: "anthropic", catalogID: "anthropic_api", upstream: "https://api.anthropic.com", apiKey: k, model: "claude-haiku-4-5", kind: harness.WireMessages})
 	}
 	if k, u := os.Getenv("VERCEL_TOKEN"), os.Getenv("VERCEL_URL"); k != "" && u != "" {
-		ps = append(ps, providerCase{"vercel", "vercel_ai_gateway", u, k, "openai/gpt-4o-mini", harness.WireChat})
+		ps = append(ps, providerCase{name: "vercel", catalogID: "vercel_ai_gateway", upstream: u, apiKey: k, model: "openai/gpt-4o-mini", kind: harness.WireChat})
 	}
 	if k, u := os.Getenv("OPENROUTER_TOKEN"), os.Getenv("OPENROUTER_URL"); k != "" && u != "" {
 		// Distinct model string from Vercel so each provider routes unambiguously
 		// while all are enabled together.
-		ps = append(ps, providerCase{"openrouter", "openrouter", u, k, "openai/gpt-4o", harness.WireChat})
+		ps = append(ps, providerCase{name: "openrouter", catalogID: "openrouter", upstream: u, apiKey: k, model: "openai/gpt-4o", kind: harness.WireChat})
 	}
 	if k, u := os.Getenv("CLOUDFLARE_TOKEN"), os.Getenv("CLOUDFLARE_URL"); k != "" && u != "" {
 		// Cloudflare AI Gateway routes by a provider segment in the URL path;
@@ -52,13 +54,35 @@ func availableProviders() []providerCase {
 			u = strings.TrimRight(u, "/") + "/openai"
 		}
 		// Raw model (distinct string from OpenAI's gpt-4o-mini).
-		ps = append(ps, providerCase{"cloudflare", "cloudflare_ai_gateway", u, k, "gpt-4o", harness.WireChat})
+		ps = append(ps, providerCase{name: "cloudflare", catalogID: "cloudflare_ai_gateway", upstream: u, apiKey: k, model: "gpt-4o", kind: harness.WireChat})
 	}
-	// Vertex (vertex_ai_api) is intentionally NOT in this uniform matrix: it is
-	// driven by a bespoke Vertex rawPredict path
-	// (/v1/projects/<project>/locations/<region>/publishers/anthropic/models/<model>:rawPredict)
-	// with a Vertex-specific body, not the shared chat/messages shapes. It needs
-	// a dedicated scenario; see the bash agent-network-full vertex recipe.
+	// Vertex (vertex_ai_api): Anthropic-on-Vertex, path-routed, SA-OAuth
+	// (api_key = keyfile::<SA>). The model travels in the rawPredict path rather
+	// than the body, so the provider is created without a models array. Region
+	// defaults to "global" (host aiplatform.googleapis.com); a real region uses
+	// <region>-aiplatform.googleapis.com.
+	if sa := os.Getenv("GOOGLE_VERTEX_SA_BASE64"); sa != "" {
+		project := os.Getenv("GOOGLE_VERTEX_PROJECT")
+		if project != "" {
+			region := os.Getenv("GOOGLE_VERTEX_REGION")
+			if region == "" {
+				region = "global"
+			}
+			host := "aiplatform.googleapis.com"
+			if region != "global" {
+				host = region + "-aiplatform.googleapis.com"
+			}
+			model := os.Getenv("GOOGLE_VERTEX_MODEL")
+			if model == "" {
+				model = "claude-sonnet-4-5@20250929"
+			}
+			ps = append(ps, providerCase{
+				name: "vertex", catalogID: "vertex_ai_api", upstream: "https://" + host,
+				apiKey: "keyfile::" + sa, model: model, kind: harness.WireVertex,
+				project: project, region: region,
+			})
+		}
+	}
 
 	// Bedrock: path-routed, bearer auth. Model is a cross-region inference
 	// profile id (distinct string from the first-party Anthropic case).
@@ -67,16 +91,16 @@ func availableProviders() []providerCase {
 		if region == "" {
 			region = "us-east-1"
 		}
-		ps = append(ps, providerCase{"bedrock", "bedrock_api", "https://bedrock-runtime." + region + ".amazonaws.com", k, "us.anthropic.claude-haiku-4-5", harness.WireMessages})
+		ps = append(ps, providerCase{name: "bedrock", catalogID: "bedrock_api", upstream: "https://bedrock-runtime." + region + ".amazonaws.com", apiKey: k, model: "us.anthropic.claude-haiku-4-5", kind: harness.WireMessages})
 	}
 	return ps
 }
 
-// TestProvidersMatrix is Pillar 3: it provisions every available provider, runs
-// proxy + client once, and drives the same live chat-completion scenario
-// through each provider over the WireGuard tunnel — exactly one provider enabled
-// at a time so model→provider routing is unambiguous. Each provider must return
-// 200 and produce an ingested access-log row.
+// TestProvidersMatrix is Pillar 3: it provisions every available provider (all
+// enabled, each with a unique model so routing stays unambiguous), runs proxy +
+// client once, and drives the same live chat-completion scenario through each
+// provider over the WireGuard tunnel. Each provider must return 200 and produce
+// an ingested access-log row.
 func TestProvidersMatrix(t *testing.T) {
 	matrix := availableProviders()
 	if len(matrix) == 0 {
@@ -116,9 +140,13 @@ func TestProvidersMatrix(t *testing.T) {
 			UpstreamUrl: pc.upstream,
 			ApiKey:      &pc.apiKey,
 			Enabled:     ptr(true),
-			Models: &[]api.AgentNetworkProviderModel{
+		}
+		// Vertex is path-routed (model lives in the rawPredict path), so it carries
+		// no models array; body-model providers list a unique model for routing.
+		if pc.kind != harness.WireVertex {
+			req.Models = &[]api.AgentNetworkProviderModel{
 				{Id: pc.model, InputPer1k: 0.001, OutputPer1k: 0.002},
-			},
+			}
 		}
 		if i == 0 {
 			req.BootstrapCluster = ptr(harness.AgentNetworkCluster)
@@ -172,7 +200,14 @@ func TestProvidersMatrix(t *testing.T) {
 			var body string
 			deadline := time.Now().Add(90 * time.Second)
 			for time.Now().Before(deadline) {
-				c, b, cerr := cl.Chat(ctx, settings.Endpoint, proxyIP, pc.kind, pc.model, "Reply with exactly: pong")
+				var c int
+				var b string
+				var cerr error
+				if pc.kind == harness.WireVertex {
+					c, b, cerr = cl.Vertex(ctx, settings.Endpoint, proxyIP, pc.project, pc.region, pc.model, "Reply with exactly: pong")
+				} else {
+					c, b, cerr = cl.Chat(ctx, settings.Endpoint, proxyIP, pc.kind, pc.model, "Reply with exactly: pong")
+				}
 				if cerr == nil {
 					code, body = c, b
 					if code == 200 {

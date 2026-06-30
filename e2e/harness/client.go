@@ -151,27 +151,44 @@ const (
 	WireChat = "chat"
 	// WireMessages is the Anthropic /v1/messages shape.
 	WireMessages = "messages"
+	// WireVertex is the Anthropic-on-Vertex rawPredict shape: the client posts
+	// the full Vertex model path and the proxy mints the SA OAuth token.
+	WireVertex = "vertex"
 )
 
 // Chat issues a chat-completion POST to the agent-network endpoint over the
 // client's tunnel, returning the HTTP status and response body. kind selects
-// the wire shape: WireChat (OpenAI) or WireMessages (Anthropic). It runs curl
-// in a throwaway container sharing the client's network namespace so the
-// request traverses the WireGuard tunnel, pinning the endpoint to the proxy IP.
+// the wire shape: WireChat (OpenAI) or WireMessages (Anthropic).
 func (cl *Client) Chat(ctx context.Context, endpoint, proxyIP, kind, model, prompt string) (int, string, error) {
 	var path, body string
-	headers := []string{"-H", "Content-Type: application/json"}
+	var headers []string
 	switch kind {
 	case WireMessages:
 		path = "/v1/messages"
-		headers = append(headers, "-H", "anthropic-version: 2023-06-01")
+		headers = []string{"anthropic-version: 2023-06-01"}
 		body = fmt.Sprintf(`{"model":%q,"max_tokens":64,"messages":[{"role":"user","content":%q}]}`, model, prompt)
 	default:
 		path = "/v1/chat/completions"
 		body = fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":%q}]}`, model, prompt)
 	}
-	url := "https://" + endpoint + path
+	return cl.post(ctx, endpoint, proxyIP, path, body, headers)
+}
 
+// Vertex issues an Anthropic-on-Vertex rawPredict POST over the tunnel. Unlike
+// Chat, the model is carried in the request path (project/region/model), so the
+// proxy routes by path and mints the service-account OAuth token; the body uses
+// the Vertex anthropic_version rather than a model field.
+func (cl *Client) Vertex(ctx context.Context, endpoint, proxyIP, project, region, model, prompt string) (int, string, error) {
+	path := fmt.Sprintf("/v1/projects/%s/locations/%s/publishers/anthropic/models/%s:rawPredict", project, region, model)
+	body := fmt.Sprintf(`{"anthropic_version":"vertex-2023-10-16","max_tokens":64,"messages":[{"role":"user","content":%q}]}`, prompt)
+	return cl.post(ctx, endpoint, proxyIP, path, body, nil)
+}
+
+// post runs curl in a throwaway container sharing the client's network
+// namespace so the request traverses the WireGuard tunnel, pinning the endpoint
+// to the proxy IP. It returns the HTTP status and response body.
+func (cl *Client) post(ctx context.Context, endpoint, proxyIP, path, body string, extraHeaders []string) (int, string, error) {
+	url := "https://" + endpoint + path
 	args := []string{
 		"run", "--rm",
 		"--network", "container:" + cl.container.GetContainerID(),
@@ -180,8 +197,11 @@ func (cl *Client) Chat(ctx context.Context, endpoint, proxyIP, kind, model, prom
 		"--resolve", endpoint + ":443:" + proxyIP,
 		"-o", "/dev/stderr", "-w", "%{http_code}",
 		"-X", "POST", url,
+		"-H", "Content-Type: application/json",
 	}
-	args = append(args, headers...)
+	for _, h := range extraHeaders {
+		args = append(args, "-H", h)
+	}
 	args = append(args, "--data", body)
 	cmd := exec.CommandContext(ctx, "docker", args...)
 	// -w writes the status code to stdout; -o /dev/stderr writes the body to
