@@ -43,7 +43,7 @@ require (
 	github.com/cilium/ebpf v0.19.0
 	github.com/coder/websocket v1.8.14
 	github.com/coreos/go-iptables v0.7.0
-	github.com/coreos/go-oidc/v3 v3.18.0
+	github.com/coreos/go-oidc/v3 v3.19.0
 	github.com/creack/pty v1.1.24
 	github.com/crowdsecurity/crowdsec v1.7.7
 	github.com/crowdsecurity/go-cs-bouncer v0.0.21
