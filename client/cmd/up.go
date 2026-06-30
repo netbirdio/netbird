@@ -39,6 +39,9 @@ const (
 	noBrowserFlag = "no-browser"
 	noBrowserDesc = "do not open the browser for SSO login"
 
+	useDeviceAuthFlag = "use-device-auth"
+	useDeviceAuthDesc = "force the OAuth 2.0 Device Authorization Grant instead of the PKCE/browser flow"
+
 	showQRFlag = "qr"
 	showQRDesc = "show QR code for the SSO login URL (useful for headless machines without browser access)"
 
@@ -51,6 +54,7 @@ var (
 	dnsLabels          []string
 	dnsLabelsValidated domain.List
 	noBrowser          bool
+	useDeviceAuth      bool
 	showQR             bool
 	profileName        string
 	configPath         string
@@ -84,6 +88,7 @@ func init() {
 	)
 
 	upCmd.PersistentFlags().BoolVar(&noBrowser, noBrowserFlag, false, noBrowserDesc)
+	upCmd.PersistentFlags().BoolVar(&useDeviceAuth, useDeviceAuthFlag, false, useDeviceAuthDesc)
 	upCmd.PersistentFlags().BoolVar(&showQR, showQRFlag, false, showQRDesc)
 	upCmd.PersistentFlags().StringVar(&profileName, profileNameFlag, "", profileNameDesc)
 	upCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "(DEPRECATED) NetBird config file location. ")
@@ -622,6 +627,10 @@ func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte
 
 	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
 		loginRequest.OptionalPreSharedKey = &preSharedKey
+	}
+
+	if cmd.Flags().Changed(useDeviceAuthFlag) {
+		loginRequest.UseDeviceAuth = &useDeviceAuth
 	}
 
 	if cmd.Flag(enableRosenpassFlag).Changed {

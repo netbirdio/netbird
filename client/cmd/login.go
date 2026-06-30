@@ -24,6 +24,7 @@ import (
 
 func init() {
 	loginCmd.PersistentFlags().BoolVar(&noBrowser, noBrowserFlag, false, noBrowserDesc)
+	loginCmd.PersistentFlags().BoolVar(&useDeviceAuth, useDeviceAuthFlag, false, useDeviceAuthDesc)
 	loginCmd.PersistentFlags().BoolVar(&showQR, showQRFlag, false, showQRDesc)
 	loginCmd.PersistentFlags().StringVar(&profileName, profileNameFlag, "", profileNameDesc)
 	loginCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "(DEPRECATED) Netbird config file location")
@@ -117,6 +118,10 @@ func doDaemonLogin(ctx context.Context, cmd *cobra.Command, providedSetupKey str
 
 	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
 		loginRequest.OptionalPreSharedKey = &preSharedKey
+	}
+
+	if cmd.Flags().Changed(useDeviceAuthFlag) {
+		loginRequest.UseDeviceAuth = &useDeviceAuth
 	}
 
 	var loginErr error
@@ -321,7 +326,7 @@ func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *pro
 		hint = profileState.Email
 	}
 
-	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, isUnixRunningDesktop(), false, hint)
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, isUnixRunningDesktop(), useDeviceAuth, hint)
 	if err != nil {
 		return nil, err
 	}

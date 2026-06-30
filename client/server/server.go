@@ -584,7 +584,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		if msg.Hint != nil {
 			hint = *msg.Hint
 		}
-		oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.IsUnixDesktopClient, false, hint)
+		oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.IsUnixDesktopClient, msg.GetUseDeviceAuth(), hint)
 		if err != nil {
 			state.Set(internal.StatusLoginFailed)
 			return nil, err
