@@ -64,7 +64,7 @@ require (
 	github.com/google/go-cmp v0.7.0
 	github.com/google/gopacket v1.1.19
 	github.com/google/nftables v0.3.0
-	github.com/gopacket/gopacket v1.4.0
+	github.com/gopacket/gopacket v1.6.1
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.0.2-0.20240212192251-757544f21357
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/hashicorp/go-secure-stdlib/base62 v0.1.2
