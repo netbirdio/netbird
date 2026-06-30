@@ -82,6 +82,12 @@ const (
 	PeerConnectionTimeoutMax = 45000 // ms
 	PeerConnectionTimeoutMin = 30000 // ms
 	disableAutoUpdate        = "disabled"
+
+	// systemInfoTimeout bounds how long the sync loop waits for system info / posture
+	// check gathering. The gathering runs uncancellable system calls (process scan,
+	// exec, os.Stat); without this bound a single stuck call freezes handleSync, and
+	// thus syncMsgMux, for as long as the call hangs (observed multi-minute freezes).
+	systemInfoTimeout = 15 * time.Second
 )
 
 var ErrResetConnection = fmt.Errorf("reset connection")
@@ -920,6 +926,16 @@ func (e *Engine) handleAutoUpdateVersion(autoUpdateSettings *mgmProto.AutoUpdate
 	e.updateManager.SetVersion(autoUpdateSettings.Version, autoUpdateSettings.AlwaysUpdate)
 }
 
+// phase times a sync sub-phase: it returns a function that records the elapsed
+// duration when called. Starting the timer at the call site keeps inter-phase
+// glue code out of the measurement.
+func (e *Engine) phase(name string) func() {
+	start := time.Now()
+	return func() {
+		e.clientMetrics.RecordSyncPhase(e.ctx, name, time.Since(start))
+	}
+}
+
 // applySyncPass applies one bounded pass of the sync update under syncMsgMux and
 // returns true if more peers remained than the per-pass cap. It is driven by the
 // mapStateManager, which re-invokes it (releasing the lock between passes) until
@@ -937,7 +953,10 @@ func (e *Engine) applySyncPass(update *mgmProto.SyncResponse, firstPass bool) (b
 		e.handleAutoUpdateVersion(update.NetworkMap.PeerConfig.AutoUpdate)
 	}
 
-	if err := e.updateNetbirdConfig(update.GetNetbirdConfig()); err != nil {
+	done := e.phase("netbird_config")
+	err := e.updateNetbirdConfig(update.GetNetbirdConfig())
+	done()
+	if err != nil {
 		return false, err
 	}
 
@@ -951,7 +970,10 @@ func (e *Engine) applySyncPass(update *mgmProto.SyncResponse, firstPass bool) (b
 		return false, nil
 	}
 
-	if err := e.updateChecksIfNew(update.Checks); err != nil {
+	done = e.phase("checks")
+	err = e.updateChecksIfNew(update.Checks)
+	done()
+	if err != nil {
 		return false, err
 	}
 
@@ -1095,11 +1117,22 @@ func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 	}
 	e.checks = checks
 
-	info, err := system.GetInfoWithChecks(e.ctx, checks, e.overlayAddresses()...)
-	if err != nil {
-		log.Warnf("failed to get system info with checks: %v", err)
-		info = system.GetInfo(e.ctx)
+	info, ok := system.GetInfoWithChecksTimeout(e.ctx, systemInfoTimeout, checks, e.overlayAddresses()...)
+	if !ok {
+		// Gathering timed out; skip the meta sync this cycle rather than blocking the
+		// sync loop (and syncMsgMux) on a stuck system call. A later sync will retry.
+		return nil
 	}
+	e.applyInfoFlags(info)
+
+	if err := e.mgmClient.SyncMeta(info); err != nil {
+		return fmt.Errorf("could not sync meta: error %s", err)
+	}
+	return nil
+}
+
+// applyInfoFlags sets the engine's config-derived feature flags on the gathered system info.
+func (e *Engine) applyInfoFlags(info *system.Info) {
 	info.SetFlags(
 		e.config.RosenpassEnabled,
 		e.config.RosenpassPermissive,
@@ -1118,12 +1151,6 @@ func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 		e.config.EnableSSHRemotePortForwarding,
 		e.config.DisableSSHAuth,
 	)
-
-	if err := e.mgmClient.SyncMeta(info); err != nil {
-		log.Errorf("could not sync meta: error %s", err)
-		return err
-	}
-	return nil
 }
 
 // overlayAddresses returns our own WireGuard overlay address (v4 and v6) so it
@@ -1283,33 +1310,22 @@ func (e *Engine) receiveManagementEvents() {
 	e.shutdownWg.Add(1)
 	go func() {
 		defer e.shutdownWg.Done()
-		info, err := system.GetInfoWithChecks(e.ctx, e.checks, e.overlayAddresses()...)
-		if err != nil {
-			log.Warnf("failed to get system info with checks: %v", err)
+		info, ok := system.GetInfoWithChecksTimeout(e.ctx, systemInfoTimeout, e.checks, e.overlayAddresses()...)
+		if !ok {
+			// Gathering timed out; connect the stream with base info so management
+			// connectivity still comes up rather than blocking here.
 			info = system.GetInfo(e.ctx)
 		}
-		info.SetFlags(
-			e.config.RosenpassEnabled,
-			e.config.RosenpassPermissive,
-			&e.config.ServerSSHAllowed,
-			e.config.DisableClientRoutes,
-			e.config.DisableServerRoutes,
-			e.config.DisableDNS,
-			e.config.DisableFirewall,
-			e.config.BlockLANAccess,
-			e.config.BlockInbound,
-			e.config.DisableIPv6,
-			e.config.LazyConnectionEnabled,
-			e.config.EnableSSHRoot,
-			e.config.EnableSSHSFTP,
-			e.config.EnableSSHLocalPortForwarding,
-			e.config.EnableSSHRemotePortForwarding,
-			e.config.DisableSSHAuth,
-		)
+		e.applyInfoFlags(info)
 
 		// The map-state manager converges the latest update in the background in
 		// bounded passes; the stream callback only hands it the newest target.
-		manager := newMapStateManager(e.applySyncPass, e.persistSyncResponse, func(d time.Duration) {
+		persist := func(u *mgmProto.SyncResponse) {
+			done := e.phase("persist")
+			e.persistSyncResponse(u)
+			done()
+		}
+		manager := newMapStateManager(e.applySyncPass, persist, func(d time.Duration) {
 			log.Infof("sync finished in %s", d)
 			e.clientMetrics.RecordSyncDuration(e.ctx, d)
 		})
@@ -1319,7 +1335,7 @@ func (e *Engine) receiveManagementEvents() {
 			manager.run(e.ctx)
 		}()
 
-		err = e.mgmClient.Sync(e.ctx, info, manager.SetTarget)
+		err := e.mgmClient.Sync(e.ctx, info, manager.SetTarget)
 		if err != nil {
 			// happens if management is unavailable for a long time.
 			// We want to cancel the operation of the whole client
@@ -1399,7 +1415,9 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap, maxBatch int,
 
 	log.Debugf("got peers update from Management Service, total peers to connect to = %d", len(networkMap.GetRemotePeers()))
 
+	doneOffline := e.phase("offline_peers")
 	e.updateOfflinePeers(networkMap.GetOfflinePeers())
+	doneOffline()
 
 	// Filter out own peer from the remote peers list
 	localPubKey := e.config.WgPrivateKey.PublicKey().String()
@@ -1421,17 +1439,23 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap, maxBatch int,
 			return false, err
 		}
 	} else {
+		doneRemoved := e.phase("removed_peers")
 		removeMore, err := e.removePeers(remotePeers, maxBatch)
+		doneRemoved()
 		if err != nil {
 			return false, err
 		}
 
+		doneModified := e.phase("modified_peers")
 		modifyMore, err := e.modifyPeers(remotePeers, maxBatch)
+		doneModified()
 		if err != nil {
 			return false, err
 		}
 
+		doneAdded := e.phase("added_peers")
 		addMore, err := e.addNewPeers(remotePeers, maxBatch)
+		doneAdded()
 		if err != nil {
 			return false, err
 		}
@@ -1453,8 +1477,10 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap, maxBatch int,
 	// the last batch). It needs all target peers present in the store, and
 	// ExcludePeer has replace-semantics — a partial set mid-convergence would be wrong.
 	if !needMore {
+		doneLazy := e.phase("lazy_exclude")
 		excludedLazyPeers := e.toExcludedLazyPeers(e.forwardingRules, remotePeers)
 		e.connMgr.SetExcludeList(e.ctx, excludedLazyPeers)
+		doneLazy()
 	}
 
 	e.networkSerial = serial
@@ -1495,13 +1521,16 @@ func (e *Engine) applyWholesale(networkMap *mgmProto.NetworkMap, serial uint64) 
 
 	dnsConfig := toDNSConfig(protoDNSConfig, e.wgInterface.Address())
 
+	done := e.phase("dns_server")
 	if err := e.dnsServer.UpdateDNSServer(serial, dnsConfig); err != nil {
 		log.Errorf("failed to update dns server, err: %v", err)
 	}
+	done()
 
 	e.routeManager.SetDNSForwarderPort(dnsConfig.ForwarderPort)
 
 	// apply routes first, route related actions might depend on routing being enabled
+	done = e.phase("routes_classify")
 	routes := toRoutes(networkMap.GetRoutes())
 	serverRoutes, clientRoutes := e.routeManager.ClassifyRoutes(routes)
 
@@ -1510,24 +1539,33 @@ func (e *Engine) applyWholesale(networkMap *mgmProto.NetworkMap, serial uint64) 
 		e.connMgr.UpdateRouteHAMap(clientRoutes)
 		log.Debugf("updated lazy connection manager with %d HA groups", len(clientRoutes))
 	}
+	done()
 
+	done = e.phase("routes_apply")
 	dnsRouteFeatureFlag := toDNSFeatureFlag(networkMap)
 	if err := e.routeManager.UpdateRoutes(serial, serverRoutes, clientRoutes, dnsRouteFeatureFlag); err != nil {
 		log.Errorf("failed to update routes: %v", err)
 	}
+	done()
 
+	done = e.phase("filtering")
 	if e.acl != nil {
 		e.acl.ApplyFiltering(networkMap, dnsRouteFeatureFlag)
 	}
+	done()
 
+	done = e.phase("dns_forwarder")
 	fwdEntries := toRouteDomains(e.config.WgPrivateKey.PublicKey().String(), routes)
 	e.updateDNSForwarder(dnsRouteFeatureFlag, fwdEntries)
+	done()
 
 	// Ingress forward rules
+	done = e.phase("forward_rules")
 	forwardingRules, err := e.updateForwardRules(networkMap.GetForwardingRules())
 	if err != nil {
 		log.Errorf("failed to update forward rules, err: %v", err)
 	}
+	done()
 	e.forwardingRules = forwardingRules
 }
 
