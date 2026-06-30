@@ -2,9 +2,11 @@ package system
 
 import (
 	"context"
+	"errors"
 	"net/netip"
 	"slices"
 	"strings"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/metadata"
@@ -174,7 +176,7 @@ func GetInfoWithChecks(ctx context.Context, checks []*proto.Checks, excludeIPs .
 		processCheckPaths = append(processCheckPaths, check.GetFiles()...)
 	}
 
-	files, err := checkFileAndProcess(processCheckPaths)
+	files, err := checkFileAndProcess(ctx, processCheckPaths)
 	if err != nil {
 		return nil, err
 	}
@@ -186,4 +188,44 @@ func GetInfoWithChecks(ctx context.Context, checks []*proto.Checks, excludeIPs .
 
 	log.Debugf("all system information gathered successfully")
 	return info, nil
+}
+
+// GetInfoWithChecksTimeout is GetInfoWithChecks bounded by timeout. Posture-check gathering
+// runs uncancellable system calls (process enumeration, os.Stat), so calling it inline can
+// block the caller for as long as such a call hangs. It runs in a goroutine instead: if it
+// does not return within timeout the caller gets (nil, false) and should proceed with
+// degraded behavior rather than block. On a gathering error it falls back to base GetInfo.
+//
+// The buffered channel lets the abandoned goroutine finish and exit once its blocking call
+// returns, so it does not leak beyond the duration of that call.
+func GetInfoWithChecksTimeout(ctx context.Context, timeout time.Duration, checks []*proto.Checks, excludeIPs ...netip.Addr) (*Info, bool) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	infoCh := make(chan *Info, 1)
+	go func() {
+		info, err := GetInfoWithChecks(ctx, checks, excludeIPs...)
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			log.Warnf("failed to get system info with checks: %v", err)
+			info = GetInfo(ctx)
+			info.removeAddresses(excludeIPs...)
+		}
+		infoCh <- info
+	}()
+
+	select {
+	case info := <-infoCh:
+		return info, true
+	case <-ctx.Done():
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			log.Warnf("gathering system info with checks timed out after %s", timeout)
+		} else {
+			// Parent context canceled (e.g. shutdown), not a timeout.
+			log.Warnf("gathering system info with checks canceled: %v", ctx.Err())
+		}
+		return nil, false
+	}
 }

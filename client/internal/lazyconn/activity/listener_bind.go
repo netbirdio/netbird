@@ -124,6 +124,11 @@ func (d *BindListener) ReadPackets() {
 	d.done.Done()
 }
 
+// CapturedPacket is unused in userspace bind mode: first-packet reinjection is kernel-only.
+func (d *BindListener) CapturedPacket() []byte {
+	return nil
+}
+
 // Close stops the listener and cleans up resources.
 func (d *BindListener) Close() {
 	d.peerCfg.Log.Infof("closing activity listener (LazyConn)")
