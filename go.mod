@@ -344,7 +344,7 @@ replace github.com/getlantern/systray => github.com/netbirdio/systray v0.0.0-202
 
 replace github.com/soypat/lneto => ../lneto
 
-replace golang.zx2c4.com/wireguard => ../wg-nb2 // github.com/netbirdio/wireguard-go v0.0.0-20260523085312-4b4a4e36017f
+replace golang.zx2c4.com/wireguard => ../wireguard-go-netbird // github.com/netbirdio/wireguard-go v0.0.0-20260523085312-4b4a4e36017f
 
 replace github.com/cloudflare/circl => codeberg.org/cunicu/circl v0.0.0-20230801113412-fec58fc7b5f6
 
