@@ -75,11 +75,10 @@ func NewManager(config Config, engineCtx context.Context, peerStore *peerstore.S
 		haGroupToPeers:       make(map[route.HAUniqueID][]string),
 	}
 
-	if wgIface.IsUserspaceBind() {
-		m.inactivityManager = inactivity.NewManager(wgIface, config.InactivityThreshold)
-	} else {
-		log.Warnf("inactivity manager not supported for kernel mode, wait for remote peer to close the connection")
-	}
+	// Both userspace and kernel modes expose a per-peer activity signal via
+	// WGIface.LastActivities (kernel mode infers it from wgctrl byte counters),
+	// so the inactivity monitor runs in either mode.
+	m.inactivityManager = inactivity.NewManager(wgIface, config.InactivityThreshold)
 
 	return m
 }
