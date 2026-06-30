@@ -17,10 +17,10 @@ import (
 
 const (
 	clientDockerfile = "e2e/harness/Dockerfile.client"
-	// defaultClientImage is the published NetBird client release used by
-	// default. Override with NB_E2E_CLIENT_IMAGE; a value without a "/" is built
-	// locally from clientDockerfile.
-	defaultClientImage = "netbirdio/netbird:0.74.0-rc.2"
+	// defaultClientImage is the local tag the client is built under from
+	// clientDockerfile. Override with NB_E2E_CLIENT_IMAGE: a value with a "/" is
+	// pulled as a published image; a bare tag is built under that name.
+	defaultClientImage = "netbird-client:e2e"
 	clientAlias        = "client"
 	curlImage          = "curlimages/curl:latest"
 )

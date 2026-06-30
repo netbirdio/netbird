@@ -27,8 +27,27 @@ jobs:
         with:
           go-version-file: "go.mod"
 
+      # Container-driver builder so the harness can build the combined/proxy/
+      # client images from source with a local layer cache.
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+
+      # Persist the Docker layer cache across runs. This caches the base, apt,
+      # and go-mod-download layers; the Go compile still re-runs, as BuildKit
+      # mount caches cannot be exported to the GitHub cache.
+      - name: Cache Docker layers
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-anet-e2e-buildx-${{ hashFiles('go.sum', 'combined/Dockerfile.multistage', 'proxy/Dockerfile.multistage', 'e2e/harness/Dockerfile.client') }}
+          restore-keys: |
+            ${{ runner.os }}-anet-e2e-buildx-
+
       - name: Run agent-network e2e
         env:
+          # Build the images from source (this branch's code) with the shared
+          # local layer cache.
+          NB_E2E_BUILDX_CACHE: /tmp/.buildx-cache
           # Provider credentials. Each provider scenario skips if its
           # token (and URL, for gateways) is unset, so partial coverage is fine.
           OPENAI_TOKEN: ${{ secrets.E2E_OPENAI_TOKEN }}

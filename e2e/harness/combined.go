@@ -24,11 +24,11 @@ import (
 
 const (
 	combinedDockerfile = "combined/Dockerfile.multistage"
-	// defaultCombinedImage is the published combined-server release used by
-	// default (the artifact operators run manually). Override with
-	// NB_E2E_COMBINED_IMAGE; a value without a "/" is built locally from
-	// combinedDockerfile instead of pulled.
-	defaultCombinedImage = "netbirdio/netbird-server:0.74.0-rc.2"
+	// defaultCombinedImage is the local tag the combined server is built under
+	// from combinedDockerfile, so the e2e exercises this branch's code. Override
+	// with NB_E2E_COMBINED_IMAGE: a value containing a "/" is pulled as a
+	// published image; a bare tag is built under that name instead.
+	defaultCombinedImage = "netbird-combined:e2e"
 	combinedHTTPPort     = "8080/tcp"
 
 	// combinedAlias is the combined server's network alias AND the deployment
@@ -149,33 +149,42 @@ func StartCombined(ctx context.Context) (*Combined, error) {
 	}, nil
 }
 
-// resolveImage returns the image to run for a component. The env override (or
-// the default) is used as-is when it looks like a registry reference (contains
-// "/") — testcontainers pulls it. A bare local tag is built from the repo
-// Dockerfile instead, so developers can still test source builds.
-func resolveImage(ctx context.Context, root, envKey, defaultImage, dockerfile string) (string, error) {
-	img := defaultImage
+// resolveImage returns the image to run for a component. By default it builds
+// the image from the repo Dockerfile under localTag, so the e2e exercises the
+// branch's code. The env override changes this: a value containing a "/" is a
+// registry reference that testcontainers pulls (e.g. to test a published
+// release); a bare tag is built under that name instead.
+func resolveImage(ctx context.Context, root, envKey, localTag, dockerfile string) (string, error) {
 	if v := os.Getenv(envKey); v != "" {
-		img = v
+		if strings.Contains(v, "/") {
+			return v, nil
+		}
+		localTag = v
 	}
-	if strings.Contains(img, "/") {
-		return img, nil
-	}
-	if err := buildImage(ctx, root, dockerfile, img); err != nil {
+	if err := buildImage(ctx, root, dockerfile, localTag); err != nil {
 		return "", err
 	}
-	return img, nil
+	return localTag, nil
 }
 
-// buildImage builds an image from a repo Dockerfile via the docker CLI with
-// BuildKit enabled, so cache mounts work and unchanged sources reuse the layer
-// + go caches. Tags are stable so reruns are cheap.
+// buildImage builds an image from a repo Dockerfile via buildx with BuildKit, so
+// the Dockerfile cache mounts are honored and unchanged layers are reused. The
+// result is loaded into the docker image store so testcontainers runs it by tag.
+// When NB_E2E_BUILDX_CACHE names a directory (CI, with a container-driver
+// builder from docker/setup-buildx-action), layer cache is read from and written
+// to it as a local cache so actions/cache can persist it across runs; the Go
+// compile itself still re-runs, as BuildKit mount caches can't be exported.
 func buildImage(ctx context.Context, root, dockerfile, tag string) error {
-	cmd := exec.CommandContext(ctx, "docker", "build",
-		"-f", dockerfile,
-		"-t", tag,
-		".",
-	)
+	args := []string{"buildx", "build", "-f", dockerfile, "-t", tag, "--load"}
+	if dir := os.Getenv("NB_E2E_BUILDX_CACHE"); dir != "" {
+		args = append(args,
+			"--cache-from", "type=local,src="+dir,
+			"--cache-to", "type=local,dest="+dir+",mode=max",
+		)
+	}
+	args = append(args, ".")
+
+	cmd := exec.CommandContext(ctx, "docker", args...)
 	cmd.Dir = root
 	cmd.Env = append(os.Environ(), "DOCKER_BUILDKIT=1")
 	if out, err := cmd.CombinedOutput(); err != nil {

@@ -15,9 +15,10 @@ import (
 
 const (
 	proxyDockerfile = "proxy/Dockerfile.multistage"
-	// defaultProxyImage is the published reverse-proxy release used by default.
-	// Override with NB_E2E_PROXY_IMAGE; a value without a "/" is built locally.
-	defaultProxyImage = "netbirdio/reverse-proxy:0.74.0-rc.2"
+	// defaultProxyImage is the local tag the reverse proxy is built under from
+	// proxyDockerfile. Override with NB_E2E_PROXY_IMAGE: a value with a "/" is
+	// pulled as a published image; a bare tag is built under that name.
+	defaultProxyImage = "netbird-reverse-proxy:e2e"
 	proxyAlias        = "proxy"
 
 	// AgentNetworkCluster is the proxy cluster the e2e provider bootstraps and
