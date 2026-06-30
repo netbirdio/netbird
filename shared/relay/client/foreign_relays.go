@@ -3,7 +3,6 @@ package client
 import (
 	"context"
 	"net"
-	"net/netip"
 	"sync"
 	"time"
 
@@ -19,7 +18,7 @@ type foreignRelay struct {
 	inUse   int
 }
 
-type foreignRelays struct {
+type ForeignRelaysStore struct {
 	mu      sync.RWMutex
 	clients map[string]*foreignRelay
 
@@ -34,8 +33,8 @@ type foreignRelays struct {
 	keepUnusedServerTime time.Duration
 }
 
-func newForeignRelays(ctx context.Context, tokenStore *relayAuth.TokenStore, peerID string, mtu uint16, transportFallback *transportFallback, onDisconnect func(string), keepUnusedServerTime time.Duration) *foreignRelays {
-	return &foreignRelays{
+func NewForeignRelaysStore(ctx context.Context, tokenStore *relayAuth.TokenStore, peerID string, mtu uint16, transportFallback *transportFallback, onDisconnect func(string), keepUnusedServerTime time.Duration) *ForeignRelaysStore {
+	return &ForeignRelaysStore{
 		clients:              make(map[string]*foreignRelay),
 		ctx:                  ctx,
 		tokenStore:           tokenStore,
@@ -47,8 +46,8 @@ func newForeignRelays(ctx context.Context, tokenStore *relayAuth.TokenStore, pee
 	}
 }
 
-func (f *foreignRelays) openConn(ctx context.Context, serverAddress, peerKey string, serverIP netip.Addr) (net.Conn, error) {
-	fr, err := f.acquire(serverAddress, serverIP)
+func (f *ForeignRelaysStore) OpenConn(ctx context.Context, peerKey string, remoteRelayServer RelayServer) (net.Conn, error) {
+	fr, err := f.acquire(remoteRelayServer)
 	if err != nil {
 		return nil, err
 	}
@@ -57,24 +56,24 @@ func (f *foreignRelays) openConn(ctx context.Context, serverAddress, peerKey str
 	return fr.client.OpenConn(ctx, peerKey)
 }
 
-func (f *foreignRelays) acquire(serverAddress string, serverIP netip.Addr) (*foreignRelay, error) {
+func (f *ForeignRelaysStore) acquire(remoteRelayServer RelayServer) (*foreignRelay, error) {
 	f.mu.Lock()
-	if fr, ok := f.clients[serverAddress]; ok {
+	if fr, ok := f.clients[remoteRelayServer.Addr]; ok {
 		fr.inUse++
 		f.mu.Unlock()
 		return fr, nil
 	}
 	f.mu.Unlock()
 
-	v, err, _ := f.group.Do(serverAddress, func() (any, error) {
+	v, err, _ := f.group.Do(remoteRelayServer.Addr, func() (any, error) {
 		f.mu.RLock()
-		fr, ok := f.clients[serverAddress]
+		fr, ok := f.clients[remoteRelayServer.Addr]
 		f.mu.RUnlock()
 		if ok {
 			return fr, nil
 		}
 
-		relayClient := NewClientWithServerIP(serverAddress, serverIP, f.tokenStore, f.peerID, f.mtu)
+		relayClient := NewClientWithServerIP(remoteRelayServer.Addr, remoteRelayServer.IP, f.tokenStore, f.peerID, f.mtu)
 		relayClient.SetTransportFallback(f.transportFallback)
 		if err := relayClient.Connect(f.ctx); err != nil {
 			return nil, err
@@ -83,7 +82,7 @@ func (f *foreignRelays) acquire(serverAddress string, serverIP netip.Addr) (*for
 
 		f.mu.Lock()
 		fr = &foreignRelay{client: relayClient, created: time.Now()}
-		f.clients[serverAddress] = fr
+		f.clients[remoteRelayServer.Addr] = fr
 		f.mu.Unlock()
 		return fr, nil
 	})
@@ -93,22 +92,22 @@ func (f *foreignRelays) acquire(serverAddress string, serverIP netip.Addr) (*for
 
 	fr := v.(*foreignRelay)
 	f.mu.Lock()
-	if cur, ok := f.clients[serverAddress]; !ok || cur != fr {
+	if cur, ok := f.clients[remoteRelayServer.Addr]; !ok || cur != fr {
 		f.mu.Unlock()
-		return f.acquire(serverAddress, serverIP)
+		return f.acquire(remoteRelayServer)
 	}
 	fr.inUse++
 	f.mu.Unlock()
 	return fr, nil
 }
 
-func (f *foreignRelays) release(fr *foreignRelay) {
+func (f *ForeignRelaysStore) release(fr *foreignRelay) {
 	f.mu.Lock()
 	fr.inUse--
 	f.mu.Unlock()
 }
 
-func (f *foreignRelays) evict(serverAddress string) {
+func (f *ForeignRelaysStore) evict(serverAddress string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if _, ok := f.clients[serverAddress]; ok {
@@ -117,7 +116,7 @@ func (f *foreignRelays) evict(serverAddress string) {
 	}
 }
 
-func (f *foreignRelays) cleanupUnused() {
+func (f *ForeignRelaysStore) cleanupUnused() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -140,7 +139,7 @@ func (f *foreignRelays) cleanupUnused() {
 	}
 }
 
-func (f *foreignRelays) states() []RelayConnState {
+func (f *ForeignRelaysStore) states() []RelayConnState {
 	f.mu.RLock()
 	clients := make([]*Client, 0, len(f.clients))
 	for _, fr := range f.clients {

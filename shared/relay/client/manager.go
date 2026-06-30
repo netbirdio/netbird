@@ -38,6 +38,11 @@ type RelayConnState struct {
 	Err error
 }
 
+type RelayServer struct {
+	Addr string
+	IP   netip.Addr
+}
+
 // WithMaxBackoffInterval caps the exponential backoff between reconnect
 // attempts to the home relay. A non-positive value keeps the default.
 func WithMaxBackoffInterval(d time.Duration) ManagerOption {
@@ -62,7 +67,7 @@ type Manager struct {
 	relayClientMu  sync.RWMutex
 	reconnectGuard *Guard
 
-	foreign *foreignRelays
+	foreign *ForeignRelaysStore
 
 	onDisconnectedListeners map[string]*list.List
 	onReconnectedListenerFn func()
@@ -105,7 +110,7 @@ func NewManager(ctx context.Context, serverURLs []string, peerID string, mtu uin
 	for _, opt := range opts {
 		opt(m)
 	}
-	m.foreign = newForeignRelays(ctx, tokenStore, peerID, mtu, tf, m.onServerDisconnected, m.keepUnusedServerTime)
+	m.foreign = NewForeignRelaysStore(ctx, tokenStore, peerID, mtu, tf, m.onServerDisconnected, m.keepUnusedServerTime)
 	m.serverPicker.ServerURLs.Store(serverURLs)
 	m.reconnectGuard = NewGuard(m.serverPicker, m.maxBackoffInterval)
 	return m
@@ -137,13 +142,7 @@ func (m *Manager) Serve() error {
 	return err
 }
 
-// OpenConn opens a connection to the given peer key. If the peer is on the same relay server, the connection will be
-// established via the relay server. If the peer is on a different relay server, the manager will establish a new
-// connection to the relay server. It returns back with a net.Conn what represent the remote peer connection.
-//
-// serverIP, when valid and serverAddress is foreign, is used as a dial target if the FQDN-based dial fails.
-// Ignored for the local home-server path. TLS verification still uses the FQDN via SNI.
-func (m *Manager) OpenConn(ctx context.Context, serverAddress, peerKey string, serverIP netip.Addr) (net.Conn, error) {
+func (m *Manager) OpenConn(ctx context.Context, remoteRelayServer RelayServer, peerKey string, preferForeign bool) (net.Conn, error) {
 	m.relayClientMu.RLock()
 	defer m.relayClientMu.RUnlock()
 
@@ -151,26 +150,17 @@ func (m *Manager) OpenConn(ctx context.Context, serverAddress, peerKey string, s
 		return nil, ErrRelayClientNotConnected
 	}
 
-	foreign, err := m.isForeignServer(serverAddress)
+	foreign, err := m.isForeignServer(remoteRelayServer.Addr)
 	if err != nil {
 		return nil, err
 	}
 
-	var (
-		netConn net.Conn
-	)
 	if !foreign {
-		log.Debugf("open peer connection via permanent server: %s", peerKey)
-		netConn, err = m.relayClient.OpenConn(ctx, peerKey)
-	} else {
-		log.Debugf("open peer connection via foreign server: %s", serverAddress)
-		netConn, err = m.foreign.openConn(ctx, serverAddress, peerKey, serverIP)
-	}
-	if err != nil {
-		return nil, err
+		return m.relayClient.OpenConn(ctx, peerKey)
 	}
 
-	return netConn, err
+	racer := NewConnRacer(m.relayClient, m.foreign)
+	return racer.Run(ctx, peerKey, remoteRelayServer, preferForeign)
 }
 
 // Ready returns true if the home Relay client is connected to the relay server.
