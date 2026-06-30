@@ -82,6 +82,12 @@ const (
 	PeerConnectionTimeoutMax = 45000 // ms
 	PeerConnectionTimeoutMin = 30000 // ms
 	disableAutoUpdate        = "disabled"
+
+	// systemInfoTimeout bounds how long the sync loop waits for system info / posture
+	// check gathering. The gathering runs uncancellable system calls (process scan,
+	// exec, os.Stat); without this bound a single stuck call freezes handleSync, and
+	// thus syncMsgMux, for as long as the call hangs (observed multi-minute freezes).
+	systemInfoTimeout = 15 * time.Second
 )
 
 var ErrResetConnection = fmt.Errorf("reset connection")
@@ -1084,11 +1090,22 @@ func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 	}
 	e.checks = checks
 
-	info, err := system.GetInfoWithChecks(e.ctx, checks, e.overlayAddresses()...)
-	if err != nil {
-		log.Warnf("failed to get system info with checks: %v", err)
-		info = system.GetInfo(e.ctx)
+	info, ok := system.GetInfoWithChecksTimeout(e.ctx, systemInfoTimeout, checks, e.overlayAddresses()...)
+	if !ok {
+		// Gathering timed out; skip the meta sync this cycle rather than blocking the
+		// sync loop (and syncMsgMux) on a stuck system call. A later sync will retry.
+		return nil
 	}
+	e.applyInfoFlags(info)
+
+	if err := e.mgmClient.SyncMeta(info); err != nil {
+		return fmt.Errorf("could not sync meta: error %s", err)
+	}
+	return nil
+}
+
+// applyInfoFlags sets the engine's config-derived feature flags on the gathered system info.
+func (e *Engine) applyInfoFlags(info *system.Info) {
 	info.SetFlags(
 		e.config.RosenpassEnabled,
 		e.config.RosenpassPermissive,
@@ -1107,12 +1124,6 @@ func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 		e.config.EnableSSHRemotePortForwarding,
 		e.config.DisableSSHAuth,
 	)
-
-	if err := e.mgmClient.SyncMeta(info); err != nil {
-		log.Errorf("could not sync meta: error %s", err)
-		return err
-	}
-	return nil
 }
 
 // overlayAddresses returns our own WireGuard overlay address (v4 and v6) so it
@@ -1272,31 +1283,15 @@ func (e *Engine) receiveManagementEvents() {
 	e.shutdownWg.Add(1)
 	go func() {
 		defer e.shutdownWg.Done()
-		info, err := system.GetInfoWithChecks(e.ctx, e.checks, e.overlayAddresses()...)
-		if err != nil {
-			log.Warnf("failed to get system info with checks: %v", err)
+		info, ok := system.GetInfoWithChecksTimeout(e.ctx, systemInfoTimeout, e.checks, e.overlayAddresses()...)
+		if !ok {
+			// Gathering timed out; connect the stream with base info so management
+			// connectivity still comes up rather than blocking here.
 			info = system.GetInfo(e.ctx)
 		}
-		info.SetFlags(
-			e.config.RosenpassEnabled,
-			e.config.RosenpassPermissive,
-			&e.config.ServerSSHAllowed,
-			e.config.DisableClientRoutes,
-			e.config.DisableServerRoutes,
-			e.config.DisableDNS,
-			e.config.DisableFirewall,
-			e.config.BlockLANAccess,
-			e.config.BlockInbound,
-			e.config.DisableIPv6,
-			e.config.LazyConnectionEnabled,
-			e.config.EnableSSHRoot,
-			e.config.EnableSSHSFTP,
-			e.config.EnableSSHLocalPortForwarding,
-			e.config.EnableSSHRemotePortForwarding,
-			e.config.DisableSSHAuth,
-		)
+		e.applyInfoFlags(info)
 
-		err = e.mgmClient.Sync(e.ctx, info, e.handleSync)
+		err := e.mgmClient.Sync(e.ctx, info, e.handleSync)
 		if err != nil {
 			// happens if management is unavailable for a long time.
 			// We want to cancel the operation of the whole client
