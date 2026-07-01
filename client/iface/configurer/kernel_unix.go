@@ -246,12 +246,6 @@ func (c *KernelConfigurer) configure(config wgtypes.Config) error {
 		}
 	}()
 
-	// validate if device with name exists
-	_, err = wg.Device(c.deviceName)
-	if err != nil {
-		return err
-	}
-
 	return wg.ConfigureDevice(c.deviceName, config)
 }
 
