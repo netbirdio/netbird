@@ -145,6 +145,9 @@ func (am *AggregatingMemory) GetAggregatedEvents() []*types.Event {
 			aggregatedEvent.ID = v.ID
 			aggregatedEvent.SourcePort = v.SourcePort
 		}
+		if len(aggregatedEvent.RuleID) == 0 && len(v.RuleID) != 0 {
+			aggregatedEvent.RuleID = slices.Clone(v.RuleID)
+		}
 	}
 
 	return slices.Collect(maps.Values(aggregated)) // could return an iterator instead here
