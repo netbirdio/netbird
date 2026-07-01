@@ -152,7 +152,11 @@ func (m *AuthMiddleware) checkJWTFromRequest(r *http.Request, authHeaderParts []
 		return err
 	}
 
-	err = m.syncUserJWTGroups(ctx, userAuth)
+	// Detach the group-sync write from the request's cancellation: the dashboard
+	// SPA aborts in-flight requests on re-render, which would otherwise cancel the
+	// DB transaction mid-write and silently drop the synced groups. Context values
+	// (request id, logger) are preserved; the store bounds the tx with its own timeout.
+	err = m.syncUserJWTGroups(context.WithoutCancel(ctx), userAuth)
 	if err != nil {
 		log.WithContext(ctx).Errorf("HTTP server failed to sync user JWT groups: %s", err)
 	}

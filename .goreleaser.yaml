@@ -464,9 +464,13 @@ checksum:
     - glob: ./infrastructure_files/getting-started-with-zitadel.sh
     - glob: ./release_files/install.sh
     - glob: ./infrastructure_files/getting-started.sh
+    - glob: ./infrastructure_files/getting-started-enterprise.sh
+    - glob: ./infrastructure_files/migrate-to-enterprise.sh
 
 release:
   extra_files:
     - glob: ./infrastructure_files/getting-started-with-zitadel.sh
     - glob: ./release_files/install.sh
     - glob: ./infrastructure_files/getting-started.sh
+    - glob: ./infrastructure_files/getting-started-enterprise.sh
+    - glob: ./infrastructure_files/migrate-to-enterprise.sh

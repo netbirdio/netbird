@@ -371,6 +371,10 @@ components:
           description: When true, updates are installed automatically in the background. When false, updates require user interaction from the UI.
           type: boolean
           example: false
+        metrics_push_enabled:
+          description: Enables or disables client metrics push for all peers in the account
+          type: boolean
+          example: false
         embedded_idp_enabled:
           description: Indicates whether the embedded identity provider (Dex) is enabled for this account. This is a read-only field.
           type: boolean
@@ -5069,6 +5073,1063 @@ components:
           type: string
           description: A human-readable error message.
           example: "couldn't parse JSON request"
+    AgentNetworkProvider:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Provider ID
+          example: "ainp_d1m3kebd9pcs0c1pnu7g"
+        provider_id:
+          type: string
+          description: Catalog identifier for the upstream AI provider (e.g. openai_api, anthropic_api, azure_openai_api, bedrock_api, vertex_ai_api, mistral_api, custom).
+          example: "openai_api"
+        name:
+          type: string
+          description: Display name shown in the dashboard.
+          example: "OpenAI API"
+        upstream_url:
+          type: string
+          description: Full upstream URL (with scheme) that NetBird forwards traffic to.
+          example: "https://api.openai.com"
+        models:
+          type: array
+          description: Models exposed through this endpoint, with the operator's per-1k input/output prices. Empty means all catalog models are allowed at catalog prices.
+          items:
+            $ref: '#/components/schemas/AgentNetworkProviderModel'
+        extra_values:
+          type: object
+          description: |
+            Operator-typed values for catalog-declared extra headers. Keys are wire header names (e.g. `x-portkey-config`); values are the strings the proxy stamps on every upstream request to this provider. Catalog (AgentNetworkCatalogProvider.extra_headers) declares which keys are accepted; values not declared by the catalog are ignored at synth time. Empty / missing values mean no header stamped.
+          additionalProperties:
+            type: string
+          example:
+            x-portkey-config: "pc-prod-3f2a"
+        identity_header_user_id:
+          type: string
+          description: |
+            Wire header name the proxy stamps with the caller's display identity (user email or peer name) when the catalog entry's HeaderPair is `customizable`. Empty disables stamping for this dimension. Ignored when the catalog entry has a fixed HeaderPair (e.g. LiteLLM, Portkey). Used today by Bifrost: typical values are `x-bf-lh-netbird_user_id` (always-on log metadata) or `x-bf-dim-netbird_user_id` (Prometheus / OTEL — requires the label to be pre-declared in the gateway's `client.prometheus_labels` config).
+          example: "x-bf-dim-netbird_user_id"
+        identity_header_groups:
+          type: string
+          description: |
+            Wire header name the proxy stamps with the caller's NetBird groups as a comma-separated list (sorted) when the catalog entry's HeaderPair is `customizable`. Empty disables stamping for this dimension. Same per-catalog semantics as `identity_header_user_id`.
+          example: "x-bf-dim-netbird_groups"
+        enabled:
+          type: boolean
+          description: Whether the provider is enabled.
+          example: true
+        skip_tls_verification:
+          type: boolean
+          description: Whether upstream TLS certificate verification is skipped when the proxy dials this provider's URL. Intended for self-hosted / internal gateways behind a private or self-signed certificate.
+          example: false
+        created_at:
+          type: string
+          format: date-time
+          description: Timestamp when the provider was created.
+          readOnly: true
+          example: "2026-04-26T10:30:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: Timestamp when the provider was last updated.
+          readOnly: true
+          example: "2026-04-26T10:30:00Z"
+      required:
+        - id
+        - provider_id
+        - name
+        - upstream_url
+        - models
+        - enabled
+        - skip_tls_verification
+        - created_at
+        - updated_at
+    AgentNetworkProviderRequest:
+      type: object
+      properties:
+        provider_id:
+          type: string
+          description: Catalog identifier for the upstream AI provider (e.g. openai_api, anthropic_api, azure_openai_api, bedrock_api, vertex_ai_api, mistral_api, custom).
+          example: "openai_api"
+        name:
+          type: string
+          description: Display name for the provider.
+          example: "OpenAI API"
+        upstream_url:
+          type: string
+          description: Full upstream URL (with scheme) that NetBird forwards traffic to.
+          example: "https://api.openai.com"
+        bootstrap_cluster:
+          type: string
+          description: Proxy cluster used to bootstrap the per-account agent-network endpoint when the first provider is created. Ignored on subsequent creates and on updates because the cluster is pinned on the account-level Settings row.
+          example: "eu.proxy.netbird.io"
+        api_key:
+          type: string
+          description: Upstream provider API key. Sealed at rest on the management server and never returned in responses. Required on create; optional on update (omit to keep the existing key).
+          example: "sk-..."
+        models:
+          type: array
+          description: Models exposed through this endpoint, with the operator's per-1k input/output prices. Empty means all catalog models are allowed at catalog prices.
+          items:
+            $ref: '#/components/schemas/AgentNetworkProviderModel'
+        extra_values:
+          type: object
+          description: |
+            Operator-typed values for catalog-declared extra headers (see AgentNetworkProvider.extra_values). When present on a request, the whole map replaces the stored values. Empty strings drop the corresponding key.
+          additionalProperties:
+            type: string
+          example:
+            x-portkey-config: "pc-prod-3f2a"
+        identity_header_user_id:
+          type: string
+          description: |
+            Wire header name for the caller's display identity. See AgentNetworkProvider.identity_header_user_id. When omitted on a request, the stored value is left unchanged; pass an empty string explicitly to clear it (which disables stamping for this dimension).
+          example: "x-bf-dim-netbird_user_id"
+        identity_header_groups:
+          type: string
+          description: |
+            Wire header name for the caller's groups CSV. See AgentNetworkProvider.identity_header_groups. Same omit / empty semantics as `identity_header_user_id`.
+          example: "x-bf-dim-netbird_groups"
+        enabled:
+          type: boolean
+          description: Whether the provider is enabled. Defaults to true on create.
+          example: true
+        skip_tls_verification:
+          type: boolean
+          description: Skip upstream TLS certificate verification when the proxy dials this provider's URL. For self-hosted / internal gateways behind a private or self-signed certificate. Defaults to false. When omitted on update, the stored value is left unchanged.
+          example: false
+      required:
+        - provider_id
+        - name
+        - upstream_url
+    AgentNetworkProviderModel:
+      type: object
+      description: A model exposed by the provider, with the operator's per-1k input/output prices in USD.
+      properties:
+        id:
+          type: string
+          description: Model identifier (e.g. "gpt-4o-mini").
+          example: "gpt-4o-mini"
+        input_per_1k:
+          type: number
+          format: double
+          description: Cost per 1k input tokens, in USD.
+          example: 0.00015
+        output_per_1k:
+          type: number
+          format: double
+          description: Cost per 1k output tokens, in USD.
+          example: 0.0006
+      required:
+        - id
+        - input_per_1k
+        - output_per_1k
+    AgentNetworkCatalogModel:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Catalog model identifier as exposed by the upstream provider.
+          example: "gpt-4o"
+        label:
+          type: string
+          description: Human-friendly model name for the dashboard.
+          example: "GPT-4o"
+        input_per_1k:
+          type: number
+          format: double
+          description: Input token price per 1k tokens, in USD.
+          example: 0.005
+        output_per_1k:
+          type: number
+          format: double
+          description: Output token price per 1k tokens, in USD.
+          example: 0.015
+        context_window:
+          type: integer
+          description: Maximum context window in tokens.
+          example: 128000
+      required:
+        - id
+        - label
+        - input_per_1k
+        - output_per_1k
+        - context_window
+    AgentNetworkCatalogProvider:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Catalog provider identifier (referenced by AgentNetworkProvider.provider_id).
+          example: "openai_api"
+        name:
+          type: string
+          description: Display name for the provider.
+          example: "OpenAI API"
+        description:
+          type: string
+          description: Short description shown in the provider picker.
+          example: "GPT, Responses API, and Embeddings"
+        default_host:
+          type: string
+          description: Default upstream host suggested when adding a provider of this type.
+          example: "api.openai.com"
+        auth_header_template:
+          type: string
+          description: Template the proxy uses to inject the API key (the literal string ${API_KEY} is replaced at request time).
+          example: "Bearer ${API_KEY}"
+        default_content_type:
+          type: string
+          description: Default Content-Type for upstream requests.
+          example: "application/json"
+        brand_color:
+          type: string
+          description: Hex brand color used to render the provider badge in the dashboard.
+          example: "#10A37F"
+        kind:
+          type: string
+          description: |
+            Presentation grouping for the provider Select on the dashboard.
+            "provider" — first-party vendor API (OpenAI, Anthropic, …); the upstream is the model itself.
+            "gateway" — routing/aggregation layer in front of multiple providers (LiteLLM, Portkey, …); typically pairs with NetBird identity stamping.
+            "custom" — generic OpenAI-compatible self-hosted endpoint catch-all.
+          enum: [provider, gateway, custom]
+          example: "provider"
+        extra_headers:
+          type: array
+          description: |
+            Catalog-declared list of optional per-provider routing/config headers the proxy stamps on every upstream request. Each entry surfaces an input on the dashboard's provider modal (one per item, labeled with `label`). Operators fill any subset; values land on the provider record's `extra_values` map keyed by `name`. Used by gateways like Portkey for `x-portkey-config: pc-...` (saved-config id resolving upstream provider + virtual key).
+          items:
+            $ref: '#/components/schemas/AgentNetworkCatalogExtraHeader'
+        identity_injection:
+          $ref: '#/components/schemas/AgentNetworkCatalogIdentityInjection'
+        models:
+          type: array
+          description: Catalog models available for this provider.
+          items:
+            $ref: '#/components/schemas/AgentNetworkCatalogModel'
+      required:
+        - id
+        - name
+        - description
+        - default_host
+        - auth_header_template
+        - default_content_type
+        - brand_color
+        - kind
+        - models
+    AgentNetworkCatalogIdentityInjection:
+      type: object
+      description: |
+        Catalog-declared identity-injection shape. Present when this provider supports stamping the caller's NetBird identity onto upstream requests. Exactly one of `header_pair` or `json_metadata` is set per provider entry. The dashboard reads the `customizable` flag on whichever shape is present to decide whether to surface the labels as editable inputs (true → editable with the catalog values shown as placeholders; false → fixed and read-only).
+      properties:
+        header_pair:
+          $ref: '#/components/schemas/AgentNetworkCatalogHeaderPairInjection'
+        json_metadata:
+          $ref: '#/components/schemas/AgentNetworkCatalogJSONMetadataInjection'
+    AgentNetworkCatalogHeaderPairInjection:
+      type: object
+      description: HeaderPair identity-injection shape — separate per-dimension headers (LiteLLM-style, Bifrost).
+      properties:
+        customizable:
+          type: boolean
+          description: When true, the wire header names are operator-overridable per provider record (Bifrost). When false, the catalog values are authoritative (LiteLLM and similar gateways with a fixed wire protocol).
+          example: true
+        end_user_id_header:
+          type: string
+          description: Wire header name for the caller's display identity. Default placeholder when `customizable` is true.
+          example: "x-bf-dim-netbird_user_id"
+        tags_header:
+          type: string
+          description: Wire header name for the caller's groups CSV. Default placeholder when `customizable` is true.
+          example: "x-bf-dim-netbird_groups"
+      required:
+        - customizable
+        - end_user_id_header
+        - tags_header
+    AgentNetworkCatalogJSONMetadataInjection:
+      type: object
+      description: JSONMetadata identity-injection shape — one wire header carrying a JSON object whose keys label each dimension (Portkey-style, Cloudflare AI Gateway).
+      properties:
+        customizable:
+          type: boolean
+          description: When true, the JSON keys are operator-overridable per provider record (Cloudflare). The wire header itself stays catalog-owned. When false, the catalog values are authoritative (Portkey and similar gateways with a fixed JSON schema).
+          example: true
+        header:
+          type: string
+          description: Wire header name carrying the JSON metadata payload. Catalog-owned (not customizable per provider record).
+          example: "cf-aig-metadata"
+        user_key:
+          type: string
+          description: JSON key for the caller's display identity. Default placeholder when `customizable` is true.
+          example: "netbird_user_id"
+        groups_key:
+          type: string
+          description: JSON key for the caller's groups CSV. Default placeholder when `customizable` is true.
+          example: "netbird_groups"
+      required:
+        - customizable
+        - header
+        - user_key
+        - groups_key
+    AgentNetworkCatalogExtraHeader:
+      type: object
+      description: One optional per-provider routing/config header surfaced on the dashboard. Operator-typed value lives on the provider record's `extra_values` map keyed by `name`. UI copy (input label, helper line, tooltip) is owned by the dashboard, keyed by `name`.
+      properties:
+        name:
+          type: string
+          description: Wire header name the proxy stamps with the operator-typed value.
+          example: "x-portkey-config"
+      required:
+        - name
+    AgentNetworkPolicy:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Policy ID
+          example: "ainpol_d1m3kebd9pcs0c1pnu7g"
+        name:
+          type: string
+          description: Display name for the policy.
+          example: "Engineering → OpenAI"
+        description:
+          type: string
+          description: Optional human-readable description.
+          example: "Engineers can call OpenAI under production guardrails."
+        enabled:
+          type: boolean
+          description: Whether the policy is enabled.
+          example: true
+        source_groups:
+          type: array
+          description: NetBird group ids whose members are allowed to call the destination providers.
+          items:
+            type: string
+          example: ["ch8vp3o6lnna9hg0sd8g"]
+        destination_provider_ids:
+          type: array
+          description: Agent Network provider ids (returned by the providers API) the source groups can reach.
+          items:
+            type: string
+          example: ["ainp_d1m3kebd9pcs0c1pnu7g"]
+        guardrail_ids:
+          type: array
+          description: Agent Network guardrail ids attached to this policy.
+          items:
+            type: string
+          example: []
+        limits:
+          $ref: '#/components/schemas/AgentNetworkPolicyLimits'
+        created_at:
+          type: string
+          format: date-time
+          description: Timestamp when the policy was created.
+          readOnly: true
+          example: "2026-04-26T10:30:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: Timestamp when the policy was last updated.
+          readOnly: true
+          example: "2026-04-26T10:30:00Z"
+      required:
+        - id
+        - name
+        - description
+        - enabled
+        - source_groups
+        - destination_provider_ids
+        - guardrail_ids
+        - limits
+        - created_at
+        - updated_at
+    AgentNetworkPolicyRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Display name for the policy.
+          example: "Engineering → OpenAI"
+        description:
+          type: string
+          description: Optional human-readable description.
+          example: "Engineers can call OpenAI under production guardrails."
+        enabled:
+          type: boolean
+          description: Whether the policy is enabled. Defaults to true on create.
+          example: true
+        source_groups:
+          type: array
+          description: NetBird group ids whose members are allowed to call the destination providers.
+          items:
+            type: string
+          minItems: 1
+          example: ["ch8vp3o6lnna9hg0sd8g"]
+        destination_provider_ids:
+          type: array
+          description: Agent Network provider ids the source groups can reach.
+          items:
+            type: string
+          minItems: 1
+          example: ["ainp_d1m3kebd9pcs0c1pnu7g"]
+        guardrail_ids:
+          type: array
+          description: Agent Network guardrail ids to attach to this policy.
+          items:
+            type: string
+          example: []
+        limits:
+          $ref: '#/components/schemas/AgentNetworkPolicyLimits'
+      required:
+        - name
+        - source_groups
+        - destination_provider_ids
+    AgentNetworkPolicyTokenLimit:
+      type: object
+      description: Per-policy token cap. `group_cap` is applied to each source group independently — every group in the policy's `source_groups` gets its own bucket of this size. `user_cap` is applied independently to each individual user. Caps reset to zero at the start of each window.
+      properties:
+        enabled:
+          type: boolean
+          example: true
+        group_cap:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Tokens allowed per source group within the window (each group has its own bucket of this size). 0 means uncapped.
+          example: 10000000
+        user_cap:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Tokens allowed per individual user within the window. 0 means uncapped.
+          example: 1000000
+        window_seconds:
+          type: integer
+          format: int64
+          minimum: 60
+          description: Reset frequency in seconds. The cap counter resets to zero at the start of each window. Minimum 60 (one minute) when the limit is enabled.
+          example: 2592000
+      required:
+        - enabled
+        - group_cap
+        - user_cap
+        - window_seconds
+    AgentNetworkPolicyBudgetLimit:
+      type: object
+      description: Per-policy USD spend cap. `group_cap_usd` is applied to each source group independently — every group in the policy's `source_groups` gets its own bucket of this size. `user_cap_usd` is applied independently to each individual user. Caps reset to zero at the start of each window.
+      properties:
+        enabled:
+          type: boolean
+          example: true
+        group_cap_usd:
+          type: number
+          format: double
+          minimum: 0
+          description: USD allowed per source group within the window (each group has its own bucket of this size). 0 means uncapped.
+          example: 1000
+        user_cap_usd:
+          type: number
+          format: double
+          minimum: 0
+          description: USD allowed per individual user within the window. 0 means uncapped.
+          example: 100
+        window_seconds:
+          type: integer
+          format: int64
+          minimum: 60
+          description: Reset frequency in seconds. Caps reset at the start of each window. Minimum 60 (one minute) when the limit is enabled.
+          example: 2592000
+      required:
+        - enabled
+        - group_cap_usd
+        - user_cap_usd
+        - window_seconds
+    AgentNetworkPolicyLimits:
+      type: object
+      description: Token and budget caps attached directly to the policy. These compose with any guardrail-level checks.
+      properties:
+        token_limit:
+          $ref: '#/components/schemas/AgentNetworkPolicyTokenLimit'
+        budget_limit:
+          $ref: '#/components/schemas/AgentNetworkPolicyBudgetLimit'
+      required:
+        - token_limit
+        - budget_limit
+    AgentNetworkGuardrailChecks:
+      type: object
+      description: Guardrail check parameters. Each entry has an `enabled` flag plus per-check configuration; disabled entries are inert.
+      properties:
+        model_allowlist:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+              example: true
+            models:
+              type: array
+              description: Allowed catalog model ids. Requests for any other model are denied.
+              items:
+                type: string
+              example: ["gpt-4o-mini", "claude-haiku-4-5"]
+          required:
+            - enabled
+            - models
+        prompt_capture:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+              example: true
+            redact_pii:
+              type: boolean
+              example: true
+          required:
+            - enabled
+            - redact_pii
+      required:
+        - model_allowlist
+        - prompt_capture
+    AgentNetworkGuardrail:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Guardrail ID
+          example: "ainguard_d1m3kebd9pcs0c1pnu7g"
+        name:
+          type: string
+          description: Display name for the guardrail.
+          example: "Strict — Production"
+        description:
+          type: string
+          description: Optional human-readable description.
+          example: "Tight model allowlist, PII redaction, hard monthly budget."
+        checks:
+          $ref: '#/components/schemas/AgentNetworkGuardrailChecks'
+        created_at:
+          type: string
+          format: date-time
+          description: Timestamp when the guardrail was created.
+          readOnly: true
+          example: "2026-04-26T10:30:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: Timestamp when the guardrail was last updated.
+          readOnly: true
+          example: "2026-04-26T10:30:00Z"
+      required:
+        - id
+        - name
+        - description
+        - checks
+        - created_at
+        - updated_at
+    AgentNetworkGuardrailRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Display name for the guardrail.
+          example: "Strict — Production"
+        description:
+          type: string
+          description: Optional human-readable description.
+          example: "Tight model allowlist, PII redaction, hard monthly budget."
+        checks:
+          $ref: '#/components/schemas/AgentNetworkGuardrailChecks'
+      required:
+        - name
+        - checks
+    AgentNetworkConsumption:
+      type: object
+      description: One per-(dimension, window) consumption counter row. The proxy ticks one row per dimension on every served LLM request; the dashboard reads this listing to surface live counter growth.
+      properties:
+        dimension_kind:
+          type: string
+          enum: [user, group]
+          description: Whether this row counts a single end user or a single source group across every member.
+        dimension_id:
+          type: string
+          description: NetBird user id (when `dimension_kind=user`) or NetBird group id (when `dimension_kind=group`).
+          example: "grp-engineers"
+        window_seconds:
+          type: integer
+          format: int64
+          description: Length of the aligned window this counter covers, in seconds. Distinct window lengths produce independent counters even on the same dimension.
+          example: 86400
+        window_start_utc:
+          type: string
+          format: date-time
+          description: UTC start of the aligned window this counter covers. Aligned to the unix epoch so every node computes the same boundary.
+          example: "2026-05-05T12:00:00Z"
+        tokens_input:
+          type: integer
+          format: int64
+          description: Total input tokens consumed within the window.
+          example: 12000
+        tokens_output:
+          type: integer
+          format: int64
+          description: Total output tokens consumed within the window.
+          example: 6500
+        cost_usd:
+          type: number
+          format: double
+          description: Total USD spend booked against this dimension for the window.
+          example: 0.4231
+        updated_at:
+          type: string
+          format: date-time
+          description: Timestamp of the last increment recorded for this row.
+          readOnly: true
+          example: "2026-05-05T12:34:56Z"
+      required:
+        - dimension_kind
+        - dimension_id
+        - window_seconds
+        - window_start_utc
+        - tokens_input
+        - tokens_output
+        - cost_usd
+    AgentNetworkAccessLog:
+      type: object
+      description: One per-request agent-network (LLM) access log entry with flattened, queryable LLM dimensions.
+      properties:
+        id:
+          type: string
+          description: Unique identifier for the access log entry.
+          example: "ch8i4ug6lnn4g9hqv7m0"
+        service_id:
+          type: string
+          description: ID of the synthesised agent-network service that handled the request.
+        timestamp:
+          type: string
+          format: date-time
+          description: Timestamp when the request was made.
+          example: "2026-05-05T12:34:56Z"
+        status_code:
+          type: integer
+          description: HTTP status code returned upstream.
+          example: 200
+        duration_ms:
+          type: integer
+          description: Duration of the request in milliseconds.
+          example: 850
+        user_id:
+          type: string
+          description: NetBird user id of the authenticated caller, if applicable.
+        source_ip:
+          type: string
+          description: Source IP of the request. Empty when log collection is disabled.
+        method:
+          type: string
+          description: HTTP method of the request.
+          example: "POST"
+        host:
+          type: string
+          description: Upstream host the request was routed to. Empty when log collection is disabled.
+        path:
+          type: string
+          description: Request path. Empty when log collection is disabled.
+        provider:
+          type: string
+          description: LLM provider vendor (e.g. openai, anthropic).
+          example: "openai"
+        model:
+          type: string
+          description: Requested LLM model.
+          example: "gpt-4o"
+        session_id:
+          type: string
+          description: Conversation / coding-session identifier that groups related requests. Sourced from the client's session marker (e.g. OpenAI Codex client_metadata.session_id, Claude Code metadata.user_id). Empty for clients that send none.
+          example: "019eeb72-ab7c-7cd2-aa05-6e8eb834afcb"
+        resolved_provider_id:
+          type: string
+          description: NetBird agent-network provider id that served the request.
+        selected_policy_id:
+          type: string
+          description: Agent-network policy id that authorised (or denied) the request.
+        decision:
+          type: string
+          description: Policy decision for the request (e.g. allow, deny).
+          example: "allow"
+        deny_reason:
+          type: string
+          description: Raw deny reason code when the request was blocked (e.g. llm_policy.token_cap_exceeded).
+        input_tokens:
+          type: integer
+          format: int64
+          description: Input (prompt) tokens consumed.
+          example: 1200
+        output_tokens:
+          type: integer
+          format: int64
+          description: Output (completion) tokens produced.
+          example: 640
+        total_tokens:
+          type: integer
+          format: int64
+          description: Total tokens consumed.
+          example: 1840
+        cost_usd:
+          type: number
+          format: double
+          description: Estimated USD cost of the request.
+          example: 0.0231
+        stream:
+          type: boolean
+          description: Whether the request was a streaming completion.
+        group_ids:
+          type: array
+          items:
+            type: string
+          description: NetBird group ids that authorised the request (the caller's groups intersected with the policy's source groups).
+        request_prompt:
+          type: string
+          description: Captured request prompt. Present only when prompt collection is enabled.
+        response_completion:
+          type: string
+          description: Captured response completion. Present only when prompt collection is enabled.
+      required:
+        - id
+        - service_id
+        - timestamp
+        - status_code
+        - duration_ms
+        - input_tokens
+        - output_tokens
+        - total_tokens
+        - cost_usd
+    AgentNetworkAccessLogsResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          description: List of agent-network access log entries.
+          items:
+            $ref: "#/components/schemas/AgentNetworkAccessLog"
+        page:
+          type: integer
+          description: Current page number.
+          example: 1
+        page_size:
+          type: integer
+          description: Number of items per page.
+          example: 50
+        total_records:
+          type: integer
+          description: Total number of log records matching the filter.
+          example: 523
+        total_pages:
+          type: integer
+          description: Total number of pages available.
+          example: 11
+      required:
+        - data
+        - page
+        - page_size
+        - total_records
+        - total_pages
+    AgentNetworkAccessLogSession:
+      type: object
+      description: A session-grouped view of agent-network access logs — all requests sharing a session id (or a single session-less request) folded into one summary plus its ordered entries.
+      properties:
+        session_id:
+          type: string
+          description: Conversation / coding-session identifier shared by the entries. Empty for a session-less (singleton) request grouped on its own id.
+          example: "019eeb72-ab7c-7cd2-aa05-6e8eb834afcb"
+        user_id:
+          type: string
+          description: NetBird user id of the session's caller.
+        group_ids:
+          type: array
+          items:
+            type: string
+          description: Union of the authorising group ids across the session's entries.
+        started_at:
+          type: string
+          format: date-time
+          description: Timestamp of the session's earliest request.
+          example: "2026-05-05T12:30:00Z"
+        ended_at:
+          type: string
+          format: date-time
+          description: Timestamp of the session's latest request.
+          example: "2026-05-05T12:34:56Z"
+        request_count:
+          type: integer
+          description: Number of requests in the session.
+          example: 7
+        input_tokens:
+          type: integer
+          format: int64
+          description: Total input (prompt) tokens across the session.
+          example: 8400
+        output_tokens:
+          type: integer
+          format: int64
+          description: Total output (completion) tokens across the session.
+          example: 4480
+        total_tokens:
+          type: integer
+          format: int64
+          description: Total tokens across the session.
+          example: 12880
+        cost_usd:
+          type: number
+          format: double
+          description: Total estimated USD cost across the session.
+          example: 0.1617
+        providers:
+          type: array
+          items:
+            type: string
+          description: Distinct LLM provider vendors seen in the session.
+        models:
+          type: array
+          items:
+            type: string
+          description: Distinct models seen in the session.
+        decision:
+          type: string
+          description: Session decision — "deny" if any request was denied, otherwise "allow".
+          example: "allow"
+        entries:
+          type: array
+          description: The session's access-log entries, oldest first.
+          items:
+            $ref: "#/components/schemas/AgentNetworkAccessLog"
+      required:
+        - started_at
+        - ended_at
+        - request_count
+        - input_tokens
+        - output_tokens
+        - total_tokens
+        - cost_usd
+        - decision
+        - entries
+    AgentNetworkAccessLogSessionsResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          description: List of session-grouped agent-network access logs.
+          items:
+            $ref: "#/components/schemas/AgentNetworkAccessLogSession"
+        page:
+          type: integer
+          description: Current page number.
+          example: 1
+        page_size:
+          type: integer
+          description: Number of sessions per page.
+          example: 50
+        total_records:
+          type: integer
+          description: Total number of sessions matching the filter.
+          example: 124
+        total_pages:
+          type: integer
+          description: Total number of pages available.
+          example: 3
+      required:
+        - data
+        - page
+        - page_size
+        - total_records
+        - total_pages
+    AgentNetworkUsageBucket:
+      type: object
+      description: One aggregated agent-network usage time bucket (UTC). The bucket width is set by the request's granularity.
+      properties:
+        period_start:
+          type: string
+          description: Start of the bucket in YYYY-MM-DD (UTC) — the day, the week start (Monday), or the month start, depending on granularity.
+          example: "2026-05-05"
+        input_tokens:
+          type: integer
+          format: int64
+          description: Total input (prompt) tokens in the bucket.
+          example: 120000
+        output_tokens:
+          type: integer
+          format: int64
+          description: Total output (completion) tokens in the bucket.
+          example: 64000
+        total_tokens:
+          type: integer
+          format: int64
+          description: Total tokens in the bucket.
+          example: 184000
+        cost_usd:
+          type: number
+          format: double
+          description: Total estimated USD spend in the bucket.
+          example: 2.31
+      required:
+        - period_start
+        - input_tokens
+        - output_tokens
+        - total_tokens
+        - cost_usd
+    AgentNetworkSettings:
+      type: object
+      description: Per-account Agent Network gateway settings. One row per account; cluster and subdomain are auto-assigned on first provider create and immutable thereafter.
+      properties:
+        cluster:
+          type: string
+          description: Address of the NetBird proxy cluster fronting this account's agent-network endpoint.
+          example: "eu.proxy.netbird.io"
+        subdomain:
+          type: string
+          description: Auto-generated DNS-safe label that prefixes the cluster to form the agent-network endpoint.
+          example: "violet"
+        endpoint:
+          type: string
+          description: Bare hostname agents call for this account, computed as `<subdomain>.<cluster>`.
+          example: "violet.eu.proxy.netbird.io"
+        enable_log_collection:
+          type: boolean
+          description: Whether per-request access-log entries are collected for this account's agent-network traffic.
+          example: false
+        enable_prompt_collection:
+          type: boolean
+          description: Master switch for request/response prompt capture. Capture runs only when this is on AND a policy guardrail also enables it.
+          example: false
+        redact_pii:
+          type: boolean
+          description: Whether captured prompts have PII redacted. Effective redaction is the OR of this and any policy guardrail's redact setting.
+          example: false
+        access_log_retention_days:
+          type: integer
+          description: Days to retain full access-log rows; older rows are swept. 0 or less means keep indefinitely. Usage records are retained independently.
+          example: 30
+        created_at:
+          type: string
+          format: date-time
+          description: Timestamp when the settings row was created.
+          readOnly: true
+          example: "2026-04-26T10:30:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: Timestamp when the settings row was last updated.
+          readOnly: true
+          example: "2026-04-26T10:30:00Z"
+      required:
+        - cluster
+        - subdomain
+        - endpoint
+        - enable_log_collection
+        - enable_prompt_collection
+        - redact_pii
+        - created_at
+        - updated_at
+    AgentNetworkSettingsRequest:
+      type: object
+      description: Mutable account-level Agent Network settings. Cluster and subdomain are immutable and not accepted here.
+      properties:
+        enable_log_collection:
+          type: boolean
+          description: Whether per-request access-log entries are collected for this account's agent-network traffic.
+          example: true
+        enable_prompt_collection:
+          type: boolean
+          description: Master switch for request/response prompt capture.
+          example: true
+        redact_pii:
+          type: boolean
+          description: Whether captured prompts have PII redacted.
+          example: true
+        access_log_retention_days:
+          type: integer
+          description: Days to retain full access-log rows; older rows are swept. 0 or less means keep indefinitely.
+          example: 30
+      required:
+        - enable_log_collection
+        - enable_prompt_collection
+        - redact_pii
+    AgentNetworkBudgetRule:
+      type: object
+      description: Account-level budget rule. A limit-only rule bound to groups and/or users that applies across all policies as a min-wins ceiling. Empty targets means it applies to every caller.
+      properties:
+        id:
+          type: string
+          description: Budget rule ID.
+          example: "ainbud_d1m3kebd9pcs0c1pnu7g"
+        name:
+          type: string
+          description: Display name for the budget rule.
+          example: "Org monthly ceiling"
+        enabled:
+          type: boolean
+          description: Whether the rule is enforced.
+          example: true
+        target_groups:
+          type: array
+          description: NetBird group ids the rule binds. Empty plus empty target_users means account-wide.
+          items:
+            type: string
+          example: ["ch8vp3o6lnna9hg0sd8g"]
+        target_users:
+          type: array
+          description: NetBird user ids the rule binds directly.
+          items:
+            type: string
+          example: []
+        limits:
+          $ref: '#/components/schemas/AgentNetworkPolicyLimits'
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+          example: "2026-04-26T10:30:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+          example: "2026-04-26T10:30:00Z"
+      required:
+        - id
+        - name
+        - enabled
+        - target_groups
+        - target_users
+        - limits
+        - created_at
+        - updated_at
+    AgentNetworkBudgetRuleRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Display name for the budget rule.
+          example: "Org monthly ceiling"
+        enabled:
+          type: boolean
+          description: Whether the rule is enforced. Defaults to true on create.
+          example: true
+        target_groups:
+          type: array
+          description: NetBird group ids the rule binds. Empty plus empty target_users means account-wide.
+          items:
+            type: string
+          example: ["ch8vp3o6lnna9hg0sd8g"]
+        target_users:
+          type: array
+          description: NetBird user ids the rule binds directly.
+          items:
+            type: string
+          example: []
+        limits:
+          $ref: '#/components/schemas/AgentNetworkPolicyLimits'
+      required:
+        - name
+        - limits
   responses:
     not_found:
       description: Resource not found
@@ -12058,6 +13119,1019 @@ paths:
               schema:
                 type: object
                 example: { }
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/agent-network/access-logs:
+    get:
+      summary: List Agent Network access logs
+      description: Returns a paginated, server-side-filtered list of agent-network (LLM) access log entries. Available only when the account has log collection enabled; otherwise entries are not retained.
+      tags: [ Agent Network ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+          description: Page number for pagination (1-indexed).
+        - in: query
+          name: page_size
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 100
+          description: Number of items per page (max 100).
+        - in: query
+          name: sort_by
+          schema:
+            type: string
+            enum: [timestamp, model, provider, status_code, duration, cost_usd, total_tokens, user_id, decision]
+            default: timestamp
+          description: Field to sort by.
+        - in: query
+          name: sort_order
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+          description: Sort order (ascending or descending).
+        - in: query
+          name: search
+          schema:
+            type: string
+          description: General search across log ID, host, path, model, and user email/name.
+        - in: query
+          name: user_id
+          schema:
+            type: string
+          description: Filter by authenticated user ID.
+        - in: query
+          name: session_id
+          schema:
+            type: string
+          description: Filter to a single conversation / coding session id (groups all requests of one session).
+        - in: query
+          name: group_id
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
+          description: Filter by authorising group id. Repeat for multiple (matches any).
+        - in: query
+          name: provider_id
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
+          description: Filter by resolved provider id. Repeat for multiple (matches any).
+        - in: query
+          name: model
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
+          description: Filter by model. Repeat for multiple (matches any).
+        - in: query
+          name: decision
+          schema:
+            type: string
+          description: Filter by policy decision (e.g. allow, deny).
+        - in: query
+          name: path
+          schema:
+            type: string
+          description: Filter by request path prefix (matches entries whose path starts with this value).
+        - in: query
+          name: start_date
+          schema:
+            type: string
+            format: date-time
+          description: Filter by timestamp >= start_date (RFC3339 format).
+        - in: query
+          name: end_date
+          schema:
+            type: string
+            format: date-time
+          description: Filter by timestamp <= end_date (RFC3339 format).
+      responses:
+        '200':
+          description: Paginated list of agent-network access logs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentNetworkAccessLogsResponse"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/agent-network/access-log-sessions:
+    get:
+      summary: List Agent Network access logs grouped by session
+      description: Returns a paginated, server-side-filtered list of agent-network (LLM) access logs grouped by session. The page unit is a session (total_records counts sessions); each session carries an aggregate summary and its ordered entries. Requests the client sent no session id for each form their own singleton group. Accepts the same filters as the flat access-logs endpoint. Available only when the account has log collection enabled.
+      tags: [ Agent Network ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+          description: Page number for pagination (1-indexed).
+        - in: query
+          name: page_size
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 100
+          description: Number of sessions per page (max 100).
+        - in: query
+          name: sort_by
+          schema:
+            type: string
+            enum: [timestamp, started_at, cost_usd, total_tokens, duration, request_count, status_code, user_id, decision]
+            default: timestamp
+          description: Session-level field to sort by. "timestamp" is the session's last activity, "started_at" its first.
+        - in: query
+          name: sort_order
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+          description: Sort order (ascending or descending).
+        - in: query
+          name: search
+          schema:
+            type: string
+          description: General search across log ID, host, path, model, and user email/name.
+        - in: query
+          name: user_id
+          schema:
+            type: string
+          description: Filter by authenticated user ID.
+        - in: query
+          name: session_id
+          schema:
+            type: string
+          description: Filter to a single conversation / coding session id.
+        - in: query
+          name: group_id
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
+          description: Filter by authorising group id. Repeat for multiple (matches any).
+        - in: query
+          name: provider_id
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
+          description: Filter by resolved provider id. Repeat for multiple (matches any).
+        - in: query
+          name: model
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
+          description: Filter by model. Repeat for multiple (matches any).
+        - in: query
+          name: decision
+          schema:
+            type: string
+          description: Filter by policy decision (e.g. allow, deny).
+        - in: query
+          name: path
+          schema:
+            type: string
+          description: Filter by request path prefix (matches entries whose path starts with this value).
+        - in: query
+          name: start_date
+          schema:
+            type: string
+            format: date-time
+          description: Filter by timestamp >= start_date (RFC3339 format).
+        - in: query
+          name: end_date
+          schema:
+            type: string
+            format: date-time
+          description: Filter by timestamp <= end_date (RFC3339 format).
+      responses:
+        '200':
+          description: Paginated list of session-grouped agent-network access logs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentNetworkAccessLogSessionsResponse"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/agent-network/usage/overview:
+    get:
+      summary: Agent Network usage overview
+      description: Returns agent-network token and cost usage aggregated into time buckets, server-side filtered. Usage is always collected (independent of log collection).
+      tags: [ Agent Network ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: query
+          name: granularity
+          schema:
+            type: string
+            enum: [day, week, month]
+            default: day
+          description: Time bucket width. Defaults to day.
+        - in: query
+          name: start_date
+          schema:
+            type: string
+            format: date-time
+          description: Filter by timestamp >= start_date (RFC3339 format).
+        - in: query
+          name: end_date
+          schema:
+            type: string
+            format: date-time
+          description: Filter by timestamp <= end_date (RFC3339 format).
+        - in: query
+          name: user_id
+          schema:
+            type: string
+          description: Filter by user ID.
+        - in: query
+          name: session_id
+          schema:
+            type: string
+          description: Filter to a single conversation / coding session id.
+        - in: query
+          name: group_id
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
+          description: Filter by authorising group id. Repeat for multiple (matches any).
+        - in: query
+          name: provider_id
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
+          description: Filter by resolved provider id. Repeat for multiple (matches any).
+        - in: query
+          name: model
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
+          description: Filter by model. Repeat for multiple (matches any).
+      responses:
+        '200':
+          description: A JSON array of aggregated usage buckets, ordered oldest-first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AgentNetworkUsageBucket'
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/agent-network/consumption:
+    get:
+      summary: List Agent Network consumption counters
+      description: Returns every per-(dimension, window) consumption counter recorded for the account, ordered window-newest-first. Empty list when nothing has been consumed yet.
+      tags: [ Agent Network ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: A JSON Array of consumption counter rows
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AgentNetworkConsumption'
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/agent-network/settings:
+    get:
+      summary: Retrieve Agent Network settings
+      description: Returns the per-account Agent Network gateway settings (cluster, subdomain, endpoint). Returns 404 when no provider has been created yet — settings are lazily bootstrapped on first provider create.
+      tags: [ Agent Network ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: Agent Network settings for the account
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentNetworkSettings'
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    put:
+      summary: Update Agent Network settings
+      description: Updates the mutable account-level Agent Network settings (collection toggles). Cluster and subdomain are immutable and ignored if sent. Returns 404 when settings have not been bootstrapped (no provider created yet).
+      tags: [ Agent Network ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      requestBody:
+        description: Settings update request
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentNetworkSettingsRequest'
+      responses:
+        '200':
+          description: Updated Agent Network settings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentNetworkSettings'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/agent-network/budget-rules:
+    get:
+      summary: List all Agent Network budget rules
+      description: Returns all account-level budget rules.
+      tags: [ Agent Network ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: A JSON Array of Agent Network budget rules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AgentNetworkBudgetRule'
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    post:
+      summary: Create an Agent Network budget rule
+      description: Creates a new account-level budget rule.
+      tags: [ Agent Network ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      requestBody:
+        description: New budget rule request
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentNetworkBudgetRuleRequest'
+      responses:
+        '200':
+          description: Budget rule created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentNetworkBudgetRule'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/agent-network/budget-rules/{ruleId}:
+    get:
+      summary: Retrieve an Agent Network budget rule
+      description: Get a specific account-level budget rule.
+      tags: [ Agent Network ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: ruleId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a budget rule
+      responses:
+        '200':
+          description: An Agent Network budget rule object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentNetworkBudgetRule'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    put:
+      summary: Update an Agent Network budget rule
+      description: Updates an existing account-level budget rule.
+      tags: [ Agent Network ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: ruleId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a budget rule
+      requestBody:
+        description: Budget rule update request
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentNetworkBudgetRuleRequest'
+      responses:
+        '200':
+          description: Budget rule updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentNetworkBudgetRule'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    delete:
+      summary: Delete an Agent Network budget rule
+      description: Deletes an account-level budget rule.
+      tags: [ Agent Network ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: ruleId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a budget rule
+      responses:
+        '200':
+          description: Budget rule deleted
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/agent-network/catalog/providers:
+    get:
+      summary: List Agent Network catalog providers
+      description: Returns the static catalog of supported Agent Network providers (OpenAI, Anthropic, …) along with their default upstream host, auth header template, brand color, and known models.
+      tags: [ Agent Network ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: A JSON Array of catalog providers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AgentNetworkCatalogProvider'
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/agent-network/providers:
+    get:
+      summary: List all Agent Network Providers
+      description: Returns a list of all Agent Network AI providers configured for the account.
+      tags: [ Agent Network ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: A JSON Array of Agent Network providers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AgentNetworkProvider'
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    post:
+      summary: Create an Agent Network Provider
+      description: Connects a new Agent Network AI provider for the account.
+      tags: [ Agent Network ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      requestBody:
+        description: New provider request
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentNetworkProviderRequest'
+      responses:
+        '200':
+          description: Provider created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentNetworkProvider'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '409':
+          "$ref": "#/components/responses/conflict"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/agent-network/providers/{providerId}:
+    get:
+      summary: Retrieve an Agent Network Provider
+      description: Get information about a specific Agent Network AI provider.
+      tags: [ Agent Network ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: providerId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of an Agent Network provider
+      responses:
+        '200':
+          description: An Agent Network provider object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentNetworkProvider'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    put:
+      summary: Update an Agent Network Provider
+      description: Update an existing Agent Network AI provider.
+      tags: [ Agent Network ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: providerId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of an Agent Network provider
+      requestBody:
+        description: Provider update request
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentNetworkProviderRequest'
+      responses:
+        '200':
+          description: Provider updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentNetworkProvider'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '409':
+          "$ref": "#/components/responses/conflict"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    delete:
+      summary: Delete an Agent Network Provider
+      description: Delete an existing Agent Network AI provider.
+      tags: [ Agent Network ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: providerId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of an Agent Network provider
+      responses:
+        '200':
+          description: Provider deleted
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/agent-network/policies:
+    get:
+      summary: List all Agent Network Policies
+      description: Returns a list of all Agent Network policies for the account.
+      tags: [ Agent Network ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: A JSON Array of Agent Network policies
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AgentNetworkPolicy'
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    post:
+      summary: Create an Agent Network Policy
+      description: Creates a new Agent Network policy binding source groups to destination providers, optionally enforced by guardrails.
+      tags: [ Agent Network ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      requestBody:
+        description: New policy request
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentNetworkPolicyRequest'
+      responses:
+        '200':
+          description: Policy created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentNetworkPolicy'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '409':
+          "$ref": "#/components/responses/conflict"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/agent-network/policies/{policyId}:
+    get:
+      summary: Retrieve an Agent Network Policy
+      description: Get information about a specific Agent Network policy.
+      tags: [ Agent Network ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: policyId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of an Agent Network policy
+      responses:
+        '200':
+          description: An Agent Network policy object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentNetworkPolicy'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    put:
+      summary: Update an Agent Network Policy
+      description: Update an existing Agent Network policy.
+      tags: [ Agent Network ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: policyId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of an Agent Network policy
+      requestBody:
+        description: Policy update request
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentNetworkPolicyRequest'
+      responses:
+        '200':
+          description: Policy updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentNetworkPolicy'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '409':
+          "$ref": "#/components/responses/conflict"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    delete:
+      summary: Delete an Agent Network Policy
+      description: Delete an existing Agent Network policy.
+      tags: [ Agent Network ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: policyId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of an Agent Network policy
+      responses:
+        '200':
+          description: Policy deleted
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/agent-network/guardrails:
+    get:
+      summary: List all Agent Network Guardrails
+      description: Returns a list of all Agent Network guardrails for the account.
+      tags: [ Agent Network ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: A JSON Array of Agent Network guardrails
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AgentNetworkGuardrail'
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    post:
+      summary: Create an Agent Network Guardrail
+      description: Creates a new Agent Network guardrail that can be attached to one or more policies.
+      tags: [ Agent Network ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      requestBody:
+        description: New guardrail request
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentNetworkGuardrailRequest'
+      responses:
+        '200':
+          description: Guardrail created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentNetworkGuardrail'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '409':
+          "$ref": "#/components/responses/conflict"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/agent-network/guardrails/{guardrailId}:
+    get:
+      summary: Retrieve an Agent Network Guardrail
+      description: Get information about a specific Agent Network guardrail.
+      tags: [ Agent Network ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: guardrailId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of an Agent Network guardrail
+      responses:
+        '200':
+          description: An Agent Network guardrail object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentNetworkGuardrail'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    put:
+      summary: Update an Agent Network Guardrail
+      description: Update an existing Agent Network guardrail.
+      tags: [ Agent Network ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: guardrailId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of an Agent Network guardrail
+      requestBody:
+        description: Guardrail update request
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentNetworkGuardrailRequest'
+      responses:
+        '200':
+          description: Guardrail updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentNetworkGuardrail'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '409':
+          "$ref": "#/components/responses/conflict"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    delete:
+      summary: Delete an Agent Network Guardrail
+      description: Delete an existing Agent Network guardrail.
+      tags: [ Agent Network ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: guardrailId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of an Agent Network guardrail
+      responses:
+        '200':
+          description: Guardrail deleted
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':

@@ -5,12 +5,16 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y gcc libc6-dev git && rm -rf /var/lib/apt/lists/*
 
 COPY go.mod go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
 COPY . .
 
-# Build with version info from git (matching goreleaser ldflags)
-RUN CGO_ENABLED=1 GOOS=linux go build \
+# Build with version info from git (matching goreleaser ldflags).
+# BuildKit cache mounts persist the module + build caches across image builds,
+# so a source change recompiles incrementally instead of from scratch.
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=1 GOOS=linux go build \
     -ldflags="-s -w \
     -X github.com/netbirdio/netbird/version.version=$(git describe --tags --always --dirty 2>/dev/null || echo 'dev') \
     -X main.commit=$(git rev-parse --short HEAD 2>/dev/null || echo 'unknown') \

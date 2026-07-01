@@ -49,6 +49,7 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/geolocation"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -1047,7 +1048,11 @@ func testUpdateAccountPeers(t *testing.T) {
 
 			for _, channel := range peerChannels {
 				update := <-channel
-				assert.Nil(t, update.Update.NetbirdConfig)
+				assert.NotNil(t, update.Update.NetbirdConfig)
+				assert.Nil(t, update.Update.NetbirdConfig.Stuns)
+				assert.Nil(t, update.Update.NetbirdConfig.Turns)
+				assert.Nil(t, update.Update.NetbirdConfig.Signal)
+				assert.Nil(t, update.Update.NetbirdConfig.Relay)
 				assert.Equal(t, tc.peers, len(update.Update.NetworkMap.RemotePeers))
 				assert.Equal(t, tc.peers*2, len(update.Update.NetworkMap.FirewallRules))
 			}
@@ -2892,4 +2897,142 @@ func TestUpdatePeer_DnsLabelUniqueName(t *testing.T) {
 	updated, err := manager.UpdatePeer(context.Background(), accountID, userID, update)
 	require.NoError(t, err, "renaming to unique FQDN should succeed")
 	assert.Equal(t, "api-server", updated.DNSLabel, "DNS label should be first label of FQDN")
+}
+
+// fakeGeo is a configurable geolocation.Geolocation implementation for tests. It
+// returns a record built from the configured city geoname id, or an error when set.
+type fakeGeo struct {
+	geoNameID uint
+	isoCode   string
+	cityName  string
+	err       error
+}
+
+func (g *fakeGeo) Lookup(net.IP) (*geolocation.Record, error) {
+	if g.err != nil {
+		return nil, g.err
+	}
+	record := &geolocation.Record{}
+	record.City.GeonameID = g.geoNameID
+	record.City.Names.En = g.cityName
+	record.Country.ISOCode = g.isoCode
+	return record, nil
+}
+
+func (g *fakeGeo) GetAllCountries() ([]geolocation.Country, error) { return nil, nil }
+
+func (g *fakeGeo) GetCitiesByCountry(string) ([]geolocation.City, error) { return nil, nil }
+
+func (g *fakeGeo) Stop() error { return nil }
+
+func TestResolvePeerLocation(t *testing.T) {
+	realIP := net.ParseIP("203.0.113.10")
+
+	tests := []struct {
+		name    string
+		geo     geolocation.Geolocation
+		peer    *nbpeer.Peer
+		realIP  net.IP
+		want    *nbpeer.Location
+		wantNil bool
+	}{
+		{
+			name:    "no geo configured returns nil",
+			geo:     nil,
+			peer:    &nbpeer.Peer{ID: "p1"},
+			realIP:  realIP,
+			wantNil: true,
+		},
+		{
+			name:    "nil real IP returns nil",
+			geo:     &fakeGeo{geoNameID: 100},
+			peer:    &nbpeer.Peer{ID: "p1"},
+			realIP:  nil,
+			wantNil: true,
+		},
+		{
+			name:    "lookup error returns nil",
+			geo:     &fakeGeo{err: fmt.Errorf("lookup boom")},
+			peer:    &nbpeer.Peer{ID: "p1"},
+			realIP:  realIP,
+			wantNil: true,
+		},
+		{
+			name: "same IP and same geoname returns nil",
+			geo:  &fakeGeo{geoNameID: 100, isoCode: "US", cityName: "City A"},
+			peer: &nbpeer.Peer{
+				ID: "p1",
+				Location: nbpeer.Location{
+					ConnectionIP: realIP,
+					GeoNameID:    100,
+				},
+			},
+			realIP:  realIP,
+			wantNil: true,
+		},
+		{
+			name: "same IP but changed geoname returns location",
+			geo:  &fakeGeo{geoNameID: 200, isoCode: "US", cityName: "City B"},
+			peer: &nbpeer.Peer{
+				ID: "p1",
+				Location: nbpeer.Location{
+					ConnectionIP: realIP,
+					GeoNameID:    100,
+				},
+			},
+			realIP: realIP,
+			want: &nbpeer.Location{
+				ConnectionIP: realIP,
+				CountryCode:  "US",
+				CityName:     "City B",
+				GeoNameID:    200,
+			},
+		},
+		{
+			name: "different IP returns location",
+			geo:  &fakeGeo{geoNameID: 100, isoCode: "US", cityName: "City A"},
+			peer: &nbpeer.Peer{
+				ID: "p1",
+				Location: nbpeer.Location{
+					ConnectionIP: net.ParseIP("198.51.100.7"),
+					GeoNameID:    100,
+				},
+			},
+			realIP: realIP,
+			want: &nbpeer.Location{
+				ConnectionIP: realIP,
+				CountryCode:  "US",
+				CityName:     "City A",
+				GeoNameID:    100,
+			},
+		},
+		{
+			name:   "no prior location returns location",
+			geo:    &fakeGeo{geoNameID: 100, isoCode: "US", cityName: "City A"},
+			peer:   &nbpeer.Peer{ID: "p1"},
+			realIP: realIP,
+			want: &nbpeer.Location{
+				ConnectionIP: realIP,
+				CountryCode:  "US",
+				CityName:     "City A",
+				GeoNameID:    100,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			am := &DefaultAccountManager{geo: tt.geo}
+			got := am.resolvePeerLocation(context.Background(), tt.peer, tt.realIP)
+			if tt.wantNil {
+				assert.Nil(t, got, "resolved location should be nil")
+				return
+			}
+			require.NotNil(t, got, "resolved location should not be nil")
+			assert.True(t, tt.want.ConnectionIP.Equal(got.ConnectionIP), "connection IP should match")
+			assert.Equal(t, tt.want.CountryCode, got.CountryCode, "country code should match")
+			assert.Equal(t, tt.want.CityName, got.CityName, "city name should match")
+			assert.Equal(t, tt.want.GeoNameID, got.GeoNameID, "geoname id should match")
+		})
+	}
 }

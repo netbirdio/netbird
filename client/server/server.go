@@ -1158,6 +1158,10 @@ func (s *Server) cleanupConnection() error {
 		return nil
 	}
 
+	// TODO: consider calling s.connectClient.Stop() instead of engine.Stop().
+	// actCancel() lets the run loop stop the engine too, so both stop it
+	// concurrently; ConnectClient.Stop cancels and waits for the run loop,
+	// making the run loop the sole owner of engine shutdown.
 	if engine != nil {
 		if err := engine.Stop(); err != nil {
 			return err

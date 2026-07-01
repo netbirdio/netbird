@@ -682,6 +682,9 @@ func TestAffectedPeers_AllRoutingPeers_Network(t *testing.T) {
 	assert.Contains(t, affected, secondRouterPeer.ID, "second routing peer on the same network must also be affected")
 }
 
+// A disabled router in the snapshot routes to nobody, so it is skipped when the
+// walk scans existing account data: a policy edit still folds the literal source
+// group, but not the disabled router's peer.
 func TestAffectedPeers_DisabledRouter(t *testing.T) {
 	s := setupRouterScenario(t, true)
 	ctx := context.Background()
@@ -694,11 +697,13 @@ func TestAffectedPeers_DisabledRouter(t *testing.T) {
 
 	affected := s.resolvePolicyAffected(ctx, peerToResourcePolicyByGroup(s.sourceGroupID, s.resourceGroupID))
 
-	assert.Contains(t, affected, s.sourcePeerID, "source peer must be affected")
-	assert.Contains(t, affected, s.routerPeerID,
-		"disabled router's peer must still be affected: Enabled must not gate affected-peers")
+	assert.Contains(t, affected, s.sourcePeerID, "source peer (literal policy source group) must be affected")
+	assert.NotContains(t, affected, s.routerPeerID,
+		"a disabled router routes to nobody, so its peer must not be folded from snapshot data")
 }
 
+// A disabled resource in the snapshot is skipped: the policy edit still folds the
+// literal source group, but the resource no longer bridges to its network's router.
 func TestAffectedPeers_DisabledResource(t *testing.T) {
 	s := setupRouterScenario(t, true)
 	ctx := context.Background()
@@ -710,9 +715,9 @@ func TestAffectedPeers_DisabledResource(t *testing.T) {
 
 	affected := s.resolvePolicyAffected(ctx, peerToResourcePolicyByGroup(s.sourceGroupID, s.resourceGroupID))
 
-	assert.Contains(t, affected, s.sourcePeerID, "source peer must be affected")
-	assert.Contains(t, affected, s.routerPeerID,
-		"disabled resource must still resolve the routing peer: Enabled must not gate affected-peers")
+	assert.Contains(t, affected, s.sourcePeerID, "source peer (literal policy source group) must be affected")
+	assert.NotContains(t, affected, s.routerPeerID,
+		"a disabled resource routes to nobody, so its network's router must not be folded from snapshot data")
 }
 
 func TestAffectedPeers_DisabledRule(t *testing.T) {
