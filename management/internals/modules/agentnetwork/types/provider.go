@@ -46,6 +46,11 @@ type Provider struct {
 	// Empty means all catalog models are allowed at catalog prices.
 	Models  []ProviderModel `gorm:"serializer:json"`
 	Enabled bool
+	// SkipTLSVerification disables upstream TLS certificate verification for
+	// this provider's URL. For self-hosted / internal gateways fronted by a
+	// private or self-signed certificate. The synthesiser propagates it into
+	// the router route so the proxy dials that provider's upstream insecurely.
+	SkipTLSVerification bool `gorm:"column:skip_tls_verification"`
 	// SessionPrivateKey + SessionPublicKey are the ed25519 keypair the
 	// synthesised reverse-proxy service uses to sign / verify session
 	// JWTs after a successful OIDC handshake. Generated once on
@@ -129,6 +134,9 @@ func (p *Provider) FromAPIRequest(req *api.AgentNetworkProviderRequest) {
 	if req.Enabled != nil {
 		p.Enabled = *req.Enabled
 	}
+	if req.SkipTlsVerification != nil {
+		p.SkipTLSVerification = *req.SkipTlsVerification
+	}
 	// Identity-header overrides for catalogs flagged Customizable.
 	// nil pointer = "field omitted on the wire" → leave the stored
 	// value untouched (per the openapi description). Empty string is
@@ -155,14 +163,15 @@ func (p *Provider) ToAPIResponse() *api.AgentNetworkProvider {
 	created := p.CreatedAt
 	updated := p.UpdatedAt
 	resp := &api.AgentNetworkProvider{
-		Id:          p.ID,
-		ProviderId:  p.ProviderID,
-		Name:        p.Name,
-		UpstreamUrl: p.UpstreamURL,
-		Models:      models,
-		Enabled:     p.Enabled,
-		CreatedAt:   &created,
-		UpdatedAt:   &updated,
+		Id:                  p.ID,
+		ProviderId:          p.ProviderID,
+		Name:                p.Name,
+		UpstreamUrl:         p.UpstreamURL,
+		Models:              models,
+		Enabled:             p.Enabled,
+		SkipTlsVerification: p.SkipTLSVerification,
+		CreatedAt:           &created,
+		UpdatedAt:           &updated,
 	}
 	if len(p.ExtraValues) > 0 {
 		out := make(map[string]string, len(p.ExtraValues))

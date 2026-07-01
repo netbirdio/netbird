@@ -59,6 +59,10 @@ type ProviderRoute struct {
 	// (instead of the static AuthHeaderValue) — so the gateway holds a durable
 	// Vertex credential rather than a 1-hour token.
 	GCPServiceAccountKeyB64 string `json:"gcp_sa_key_b64,omitempty"`
+	// SkipTLSVerify disables upstream TLS certificate verification when dialing
+	// this route's upstream. For self-hosted / internal gateways behind a
+	// private or self-signed certificate.
+	SkipTLSVerify bool `json:"skip_tls_verify,omitempty"`
 }
 
 // Config is the on-wire configuration accepted by the factory. An

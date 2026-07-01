@@ -366,6 +366,10 @@ type routerProviderRoute struct {
 	// + refreshes the OAuth token at request time instead of injecting a static
 	// AuthHeaderValue.
 	GCPServiceAccountKeyB64 string `json:"gcp_sa_key_b64,omitempty"`
+	// SkipTLSVerify disables upstream TLS certificate verification when the
+	// proxy dials this provider's upstream. For self-hosted / internal gateways
+	// behind a private or self-signed certificate.
+	SkipTLSVerify bool `json:"skip_tls_verify,omitempty"`
 }
 
 // indexProviderGroups walks the enabled policies and returns, per
@@ -450,6 +454,7 @@ func buildRouterConfigJSON(providers []*types.Provider, groupIndex map[string][]
 			Vertex:                  catalog.IsVertexPathStyle(p.ProviderID),
 			Bedrock:                 catalog.IsBedrockPathStyle(p.ProviderID),
 			GCPServiceAccountKeyB64: gcpSAKeyB64,
+			SkipTLSVerify:           p.SkipTLSVerification,
 		})
 	}
 	out, err := json.Marshal(cfg)

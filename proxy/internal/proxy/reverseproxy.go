@@ -346,6 +346,11 @@ func (p *ReverseProxy) forwardUpstream(respWriter http.ResponseWriter, r *http.R
 		r.Host = effectiveURL.Host
 		applyUpstreamHeaders(r, upstreamRewrite)
 		stripUpstreamPathPrefix(r, upstreamRewrite.StripPathPrefix)
+		// A router-selected route (e.g. agent-network provider) can opt into
+		// skipping upstream TLS verification per its provider config.
+		if upstreamRewrite.SkipTLSVerify {
+			ctx = roundtrip.WithSkipTLSVerify(ctx)
+		}
 	}
 
 	rp := &httputil.ReverseProxy{
