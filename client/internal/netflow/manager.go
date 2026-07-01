@@ -284,7 +284,7 @@ func (m *Manager) startRetries(ctx context.Context, flowConfigInterval time.Dura
 					break
 				}
 			}
-			if resetBackoff { // use regular retry interval in absense of network errors
+			if resetBackoff { // use regular retry interval in absence of network errors
 				retryBackoff.Reset()
 				timer = time.NewTimer(m.retryInterval)
 			}
