@@ -20,7 +20,7 @@ type raceAttempt struct {
 }
 
 type connRace struct {
-	racer             *ConnRacer
+	opener            *FallbackOpener
 	peerKey           string
 	remoteRelayServer RelayServer
 	preferForeign     bool
@@ -37,19 +37,19 @@ type connRace struct {
 	lastErr      error
 }
 
-type ConnRacer struct {
+type FallbackOpener struct {
 	home         *Client
 	foreignStore *ForeignRelaysStore
 }
 
-func NewConnRacer(home *Client, foreignStore *ForeignRelaysStore) *ConnRacer {
-	return &ConnRacer{
+func NewFallbackOpener(home *Client, foreignStore *ForeignRelaysStore) *FallbackOpener {
+	return &FallbackOpener{
 		home:         home,
 		foreignStore: foreignStore,
 	}
 }
 
-func (r *ConnRacer) Run(ctx context.Context, peerKey string, remoteRelayServer RelayServer, preferForeign bool) (net.Conn, error) {
+func (r *FallbackOpener) Run(ctx context.Context, peerKey string, remoteRelayServer RelayServer, preferForeign bool) (net.Conn, error) {
 	raceCtx, cancel := context.WithTimeout(ctx, raceTotalTimeout)
 	defer cancel()
 
@@ -57,7 +57,7 @@ func (r *ConnRacer) Run(ctx context.Context, peerKey string, remoteRelayServer R
 	otherCtx, cancelOther := context.WithCancel(raceCtx)
 
 	race := &connRace{
-		racer:             r,
+		opener:            r,
 		peerKey:           peerKey,
 		remoteRelayServer: remoteRelayServer,
 		preferForeign:     preferForeign,
@@ -95,7 +95,7 @@ func (c *connRace) startOther() {
 	c.otherStarted = true
 	c.fallbackTimer.Stop()
 	go func() {
-		c.results <- c.racer.open(c.otherCtx, c.peerKey, c.remoteRelayServer, !c.preferForeign)
+		c.results <- c.opener.open(c.otherCtx, c.peerKey, c.remoteRelayServer, !c.preferForeign)
 	}()
 }
 
@@ -130,10 +130,10 @@ func (c *connRace) onTimeout() (net.Conn, error) {
 func (c *connRace) stop() {
 	c.cancelPreferred()
 	c.cancelOther()
-	go c.racer.drainLoser(c.results, c.settled, c.otherStarted)
+	go c.opener.drainLoser(c.results, c.settled, c.otherStarted)
 }
 
-func (r *ConnRacer) open(ctx context.Context, peerKey string, remoteRelayServer RelayServer, foreign bool) raceAttempt {
+func (r *FallbackOpener) open(ctx context.Context, peerKey string, remoteRelayServer RelayServer, foreign bool) raceAttempt {
 	if foreign {
 		conn, err := r.foreignStore.OpenConn(ctx, peerKey, remoteRelayServer)
 		return raceAttempt{conn: conn, err: err}
@@ -142,7 +142,7 @@ func (r *ConnRacer) open(ctx context.Context, peerKey string, remoteRelayServer 
 	return raceAttempt{conn: conn, err: err}
 }
 
-func (r *ConnRacer) drainLoser(results chan raceAttempt, settled int, otherStarted bool) {
+func (r *FallbackOpener) drainLoser(results chan raceAttempt, settled int, otherStarted bool) {
 	started := 1
 	if otherStarted {
 		started = 2

@@ -159,8 +159,8 @@ func (m *Manager) OpenConn(ctx context.Context, remoteRelayServer RelayServer, p
 		return m.relayClient.OpenConn(ctx, peerKey)
 	}
 
-	racer := NewConnRacer(m.relayClient, m.foreign)
-	return racer.Run(ctx, peerKey, remoteRelayServer, preferForeign)
+	opener := NewFallbackOpener(m.relayClient, m.foreign)
+	return opener.Run(ctx, peerKey, remoteRelayServer, preferForeign)
 }
 
 // Ready returns true if the home Relay client is connected to the relay server.
