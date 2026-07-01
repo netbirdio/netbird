@@ -144,22 +144,23 @@ func (m *Manager) Serve() error {
 
 func (m *Manager) OpenConn(ctx context.Context, remoteRelayServer RelayServer, peerKey string, preferForeign bool) (net.Conn, error) {
 	m.relayClientMu.RLock()
-	defer m.relayClientMu.RUnlock()
+	relayClient := m.relayClient
+	m.relayClientMu.RUnlock()
 
-	if m.relayClient == nil {
+	if relayClient == nil {
 		return nil, ErrRelayClientNotConnected
 	}
 
-	foreign, err := m.isForeignServer(remoteRelayServer.Addr)
+	foreign, err := m.isForeignServer(relayClient, remoteRelayServer.Addr)
 	if err != nil {
 		return nil, err
 	}
 
 	if !foreign {
-		return m.relayClient.OpenConn(ctx, peerKey)
+		return relayClient.OpenConn(ctx, peerKey)
 	}
 
-	opener := NewFallbackOpener(m.relayClient, m.foreign)
+	opener := NewFallbackOpener(relayClient, m.foreign)
 	return opener.Run(ctx, peerKey, remoteRelayServer, preferForeign)
 }
 
@@ -191,7 +192,7 @@ func (m *Manager) AddCloseListener(serverAddress string, onClosedListener OnServ
 		return ErrRelayClientNotConnected
 	}
 
-	foreign, err := m.isForeignServer(serverAddress)
+	foreign, err := m.isForeignServer(m.relayClient, serverAddress)
 	if err != nil {
 		return err
 	}
@@ -329,8 +330,8 @@ func (m *Manager) storeClient(client *Client) {
 	m.relayClient.SetOnDisconnectListener(m.onServerDisconnected)
 }
 
-func (m *Manager) isForeignServer(address string) (bool, error) {
-	rAddr, err := m.relayClient.ServerInstanceURL()
+func (m *Manager) isForeignServer(relayClient *Client, address string) (bool, error) {
+	rAddr, err := relayClient.ServerInstanceURL()
 	if err != nil {
 		return false, fmt.Errorf("relay client not connected")
 	}
