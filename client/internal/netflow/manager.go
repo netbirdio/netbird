@@ -223,12 +223,12 @@ func (m *Manager) startSender(ctx context.Context, flowConfigInterval time.Durat
 			collectedEvents := m.logger.ResetAggregationWindow()
 			events := collectedEvents.GetAggregatedEvents()
 			for _, event := range events {
+				m.eventsWithoutAcks.StoreEvent(event)
 				if err := m.send(event); err != nil {
 					log.Errorf("failed to send flow event to server: %v", err)
 				} else {
 					log.Tracef("sent flow event: %s", event.ID)
 				}
-				m.eventsWithoutAcks.StoreEvent(event)
 			}
 		}
 	}
@@ -271,6 +271,7 @@ func (m *Manager) startRetries(ctx context.Context, flowConfigInterval time.Dura
 		case <-ctx.Done():
 			return
 		case <-timer.C:
+			resetBackoff := true
 			for _, e := range m.eventsWithoutAcks.GetEvents() {
 				if e.Timestamp.Add(time.Second).After(time.Now()) {
 					// grace period on retries to avoid early retries
@@ -278,12 +279,15 @@ func (m *Manager) startRetries(ctx context.Context, flowConfigInterval time.Dura
 					continue
 				}
 				if err := m.send(e); err != nil {
-					timer = time.NewTimer(retryBackoff.NextBackOff()) //nolint:staticcheck,wastedassign
+					timer = time.NewTimer(retryBackoff.NextBackOff())
+					resetBackoff = false
 					break
 				}
 			}
-			retryBackoff.Reset()
-			timer = time.NewTimer(m.retryInterval)
+			if resetBackoff { // use regular retry interval in absense of network errors
+				retryBackoff.Reset()
+				timer = time.NewTimer(m.retryInterval)
+			}
 		}
 	}
 }

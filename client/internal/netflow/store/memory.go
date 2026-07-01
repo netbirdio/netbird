@@ -70,7 +70,7 @@ func (am *AggregatingMemory) ResetAggregationWindow() types.FlowEventAggregator 
 	defer am.mux.Unlock()
 
 	now := time.Now()
-	toret := AggregatingMemory{WindowStart: am.WindowStart, WindowEnd: now, Memory: Memory{events: am.events}}
+	toret := AggregatingMemory{WindowStart: am.WindowStart, WindowEnd: now, Memory: Memory{events: am.events}, rnd: v2.NewPCG(rand.Uint64(), rand.Uint64())}
 
 	am.events = make(map[uuid.UUID]*types.Event)
 	am.WindowStart = now
