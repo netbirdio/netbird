@@ -19,6 +19,12 @@ type raceAttempt struct {
 	err  error
 }
 
+type raceOutcome struct {
+	conn net.Conn
+	err  error
+	done bool
+}
+
 type connRace struct {
 	opener            *FallbackOpener
 	peerKey           string
@@ -79,8 +85,8 @@ func (r *FallbackOpener) Run(ctx context.Context, peerKey string, remoteRelaySer
 		case <-race.fallbackTimer.C:
 			race.startOther()
 		case res := <-race.results:
-			if conn, err, done := race.handleResult(res); done {
-				return conn, err
+			if o := race.handleResult(res); o.done {
+				return o.conn, o.err
 			}
 		case <-raceCtx.Done():
 			return race.onTimeout()
@@ -99,24 +105,24 @@ func (c *connRace) startOther() {
 	}()
 }
 
-func (c *connRace) handleResult(res raceAttempt) (net.Conn, error, bool) {
+func (c *connRace) handleResult(res raceAttempt) raceOutcome {
 	if (res.err == nil && res.conn != nil) || errors.Is(res.err, ErrConnAlreadyExists) {
 		c.stop()
-		return res.conn, res.err, true
+		return raceOutcome{conn: res.conn, err: res.err, done: true}
 	}
 
 	c.lastErr = res.err
 	c.settled++
 	if !c.otherStarted {
 		c.startOther()
-		return nil, nil, false
+		return raceOutcome{}
 	}
 	if c.settled == 2 {
 		c.cancelPreferred()
 		c.cancelOther()
-		return nil, c.lastErr, true
+		return raceOutcome{err: c.lastErr, done: true}
 	}
-	return nil, nil, false
+	return raceOutcome{}
 }
 
 func (c *connRace) onTimeout() (net.Conn, error) {
