@@ -210,8 +210,10 @@ func TestAgentNetworkAccessLogSessions_RealStore(t *testing.T) {
 	assert.InDelta(t, 0.30, s1.CostUSD, 1e-9, "cost summed across the session")
 	assert.Equal(t, "alice", s1.UserID)
 	assert.Equal(t, "allow", s1.Decision)
-	assert.Equal(t, at(1), s1.StartedAt, "started = earliest entry")
-	assert.Equal(t, at(2), s1.EndedAt, "ended = latest entry")
+	// SQLite hands times back in time.Local; normalise to UTC so the instant is
+	// compared, not the (differing) *Location pointer.
+	assert.Equal(t, at(1), s1.StartedAt.UTC(), "started = earliest entry")
+	assert.Equal(t, at(2), s1.EndedAt.UTC(), "ended = latest entry")
 	assert.ElementsMatch(t, []string{"openai"}, s1.Providers)
 	assert.ElementsMatch(t, []string{"gpt-4o"}, s1.Models)
 	assert.ElementsMatch(t, []string{"grp-eng", "grp-oncall"}, s1.GroupIDs, "union of the entries' authorising groups")
