@@ -536,7 +536,7 @@ func (c *GrpcClient) IsHealthy() bool {
 	ctx, cancel := context.WithTimeout(c.ctx, healthCheckTimeout)
 	defer cancel()
 
-	_, err := c.realClient.GetServerKey(ctx, &proto.Empty{})
+	_, err := c.realClient.IsHealthy(ctx, &proto.Empty{})
 	if err != nil {
 		c.notifyDisconnected(err)
 		log.Warnf("health check returned: %s", err)
