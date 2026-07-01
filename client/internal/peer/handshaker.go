@@ -195,14 +195,14 @@ func (h *Handshaker) sendOffer() error {
 	}
 
 	offer := h.buildOfferAnswer()
-	h.log.Infof("sending offer with serial: %s", offer.SessionIDString())
+	h.log.Debugf("sending offer with serial: %s", offer.SessionIDString())
 
 	return h.signaler.SignalOffer(offer, h.config.Key)
 }
 
 func (h *Handshaker) sendAnswer() error {
 	answer := h.buildOfferAnswer()
-	h.log.Infof("sending answer with serial: %s", answer.SessionIDString())
+	h.log.Debugf("sending answer with serial: %s", answer.SessionIDString())
 
 	return h.signaler.SignalAnswer(answer, h.config.Key)
 }

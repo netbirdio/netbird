@@ -675,7 +675,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 	}
 
 	if len(peersToExpire) > 0 {
-		if err := am.expireAndUpdatePeers(ctx, accountID, peersToExpire); err != nil {
+		if err := am.expireAndUpdatePeers(ctx, accountID, peersToExpire, peerExpirationUserBlocked); err != nil {
 			log.WithContext(ctx).Errorf("failed update expired peers: %s", err)
 			return nil, err
 		}
@@ -1118,7 +1118,7 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 }
 
 // expireAndUpdatePeers expires all peers of the given user and updates them in the account
-func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accountID string, peers []*nbpeer.Peer) error {
+func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accountID string, peers []*nbpeer.Peer, reason peerExpirationReason) error {
 	log.WithContext(ctx).Debugf("Expiring %d peers for account %s", len(peers), accountID)
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
@@ -1145,10 +1145,12 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 		if err := am.Store.SavePeerStatus(ctx, accountID, peer.ID, *peer.Status); err != nil {
 			return err
 		}
+		meta := peer.EventMeta(dnsDomain)
+		meta["reason"] = string(reason)
 		am.StoreEvent(
 			ctx,
 			peer.UserID, peer.ID, accountID,
-			activity.PeerLoginExpired, peer.EventMeta(dnsDomain),
+			activity.PeerLoginExpired, meta,
 		)
 	}
 

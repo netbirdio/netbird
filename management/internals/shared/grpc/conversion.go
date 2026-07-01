@@ -43,9 +43,16 @@ func init() {
 	precomputedDeprecatedRemotePeersConstraint = constraint
 }
 
-func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken *Token, extraSettings *types.ExtraSettings) *proto.NetbirdConfig {
+func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken *Token, extraSettings *types.ExtraSettings, settings *types.Settings) *proto.NetbirdConfig {
 	if config == nil {
-		return nil
+		if settings == nil {
+			return nil
+		}
+		return &proto.NetbirdConfig{
+			Metrics: &proto.MetricsConfig{
+				Enabled: settings.MetricsPushEnabled,
+			},
+		}
 	}
 
 	var stuns []*proto.HostConfig
@@ -106,6 +113,12 @@ func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken
 		Relay:  relayCfg,
 	}
 
+	if settings != nil {
+		nbConfig.Metrics = &proto.MetricsConfig{
+			Enabled: settings.MetricsPushEnabled,
+		}
+	}
+
 	return nbConfig
 }
 
@@ -162,7 +175,7 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 		Checks: toProtocolChecks(ctx, checks),
 	}
 
-	nbConfig := toNetbirdConfig(config, turnCredentials, relayCredentials, extraSettings)
+	nbConfig := toNetbirdConfig(config, turnCredentials, relayCredentials, extraSettings, settings)
 	extendedConfig := integrationsConfig.ExtendNetBirdConfig(peer.ID, peerGroups, nbConfig, extraSettings)
 	response.NetbirdConfig = extendedConfig
 

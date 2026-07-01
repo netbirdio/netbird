@@ -2,8 +2,11 @@ package system
 
 import (
 	"context"
+	"errors"
 	"net/netip"
+	"slices"
 	"strings"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/metadata"
@@ -121,6 +124,23 @@ func (i *Info) SetFlags(
 	}
 }
 
+// removeAddresses drops network addresses whose IP matches any of the given
+// addresses, regardless of prefix length. Used to exclude the NetBird overlay
+// address, which otherwise churns the meta as the interface comes and goes.
+func (i *Info) removeAddresses(ips ...netip.Addr) {
+	if len(ips) == 0 {
+		return
+	}
+	filtered := i.NetworkAddresses[:0]
+	for _, addr := range i.NetworkAddresses {
+		if slices.Contains(ips, addr.NetIP.Addr()) {
+			continue
+		}
+		filtered = append(filtered, addr)
+	}
+	i.NetworkAddresses = filtered
+}
+
 // extractUserAgent extracts Netbird's agent (client) name and version from the outgoing context
 func extractUserAgent(ctx context.Context) string {
 	md, hasMeta := metadata.FromOutgoingContext(ctx)
@@ -147,14 +167,16 @@ func extractDeviceName(ctx context.Context, defaultName string) string {
 }
 
 // GetInfoWithChecks retrieves and parses the system information with applied checks.
-func GetInfoWithChecks(ctx context.Context, checks []*proto.Checks) (*Info, error) {
+// excludeIPs are dropped from the reported network addresses (e.g. our own
+// WireGuard overlay address, which otherwise churns the peer meta).
+func GetInfoWithChecks(ctx context.Context, checks []*proto.Checks, excludeIPs ...netip.Addr) (*Info, error) {
 	log.Debugf("gathering system information with checks: %d", len(checks))
 	processCheckPaths := make([]string, 0)
 	for _, check := range checks {
 		processCheckPaths = append(processCheckPaths, check.GetFiles()...)
 	}
 
-	files, err := checkFileAndProcess(processCheckPaths)
+	files, err := checkFileAndProcess(ctx, processCheckPaths)
 	if err != nil {
 		return nil, err
 	}
@@ -162,7 +184,48 @@ func GetInfoWithChecks(ctx context.Context, checks []*proto.Checks) (*Info, erro
 
 	info := GetInfo(ctx)
 	info.Files = files
+	info.removeAddresses(excludeIPs...)
 
 	log.Debugf("all system information gathered successfully")
 	return info, nil
+}
+
+// GetInfoWithChecksTimeout is GetInfoWithChecks bounded by timeout. Posture-check gathering
+// runs uncancellable system calls (process enumeration, os.Stat), so calling it inline can
+// block the caller for as long as such a call hangs. It runs in a goroutine instead: if it
+// does not return within timeout the caller gets (nil, false) and should proceed with
+// degraded behavior rather than block. On a gathering error it falls back to base GetInfo.
+//
+// The buffered channel lets the abandoned goroutine finish and exit once its blocking call
+// returns, so it does not leak beyond the duration of that call.
+func GetInfoWithChecksTimeout(ctx context.Context, timeout time.Duration, checks []*proto.Checks, excludeIPs ...netip.Addr) (*Info, bool) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	infoCh := make(chan *Info, 1)
+	go func() {
+		info, err := GetInfoWithChecks(ctx, checks, excludeIPs...)
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			log.Warnf("failed to get system info with checks: %v", err)
+			info = GetInfo(ctx)
+			info.removeAddresses(excludeIPs...)
+		}
+		infoCh <- info
+	}()
+
+	select {
+	case info := <-infoCh:
+		return info, true
+	case <-ctx.Done():
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			log.Warnf("gathering system info with checks timed out after %s", timeout)
+		} else {
+			// Parent context canceled (e.g. shutdown), not a timeout.
+			log.Warnf("gathering system info with checks canceled: %v", ctx.Err())
+		}
+		return nil, false
+	}
 }

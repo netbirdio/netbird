@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -56,6 +57,9 @@ type metricsImplementation interface {
 	// RecordSyncDuration records how long it took to process a sync message
 	RecordSyncDuration(ctx context.Context, agentInfo AgentInfo, duration time.Duration)
 
+	// RecordSyncPhase records how long a single sub-phase of sync processing took
+	RecordSyncPhase(ctx context.Context, agentInfo AgentInfo, phase string, duration time.Duration)
+
 	// RecordLoginDuration records how long the login to management took
 	RecordLoginDuration(ctx context.Context, agentInfo AgentInfo, duration time.Duration, success bool)
 
@@ -72,7 +76,7 @@ type ClientMetrics struct {
 	agentInfo AgentInfo
 	mu        sync.RWMutex
 
-	push       *Push
+	push       atomic.Pointer[Push]
 	pushMu     sync.Mutex
 	wg         sync.WaitGroup
 	pushCancel context.CancelFunc
@@ -127,6 +131,18 @@ func (c *ClientMetrics) RecordSyncDuration(ctx context.Context, duration time.Du
 	c.impl.RecordSyncDuration(ctx, agentInfo, duration)
 }
 
+// RecordSyncPhase records the duration of a single sub-phase of sync processing
+func (c *ClientMetrics) RecordSyncPhase(ctx context.Context, phase string, duration time.Duration) {
+	if c == nil {
+		return
+	}
+	c.mu.RLock()
+	agentInfo := c.agentInfo
+	c.mu.RUnlock()
+
+	c.impl.RecordSyncPhase(ctx, agentInfo, phase, duration)
+}
+
 // RecordLoginDuration records how long the login to management server took
 func (c *ClientMetrics) RecordLoginDuration(ctx context.Context, duration time.Duration, success bool) {
 	if c == nil {
@@ -152,10 +168,7 @@ func (c *ClientMetrics) UpdateAgentInfo(agentInfo AgentInfo, publicKey string) {
 	c.agentInfo = agentInfo
 	c.mu.Unlock()
 
-	c.pushMu.Lock()
-	push := c.push
-	c.pushMu.Unlock()
-	if push != nil {
+	if push := c.push.Load(); push != nil {
 		push.SetPeerID(agentInfo.peerID)
 	}
 }
@@ -169,7 +182,7 @@ func (c *ClientMetrics) Export(w io.Writer) error {
 	return c.impl.Export(w)
 }
 
-// StartPush starts periodic pushing of metrics with the given configuration
+// StartPush starts periodic pushing of metrics with the given configuration.
 // Precedence: PushConfig.ServerAddress > remote config server_url
 func (c *ClientMetrics) StartPush(ctx context.Context, config PushConfig) {
 	if c == nil {
@@ -179,11 +192,58 @@ func (c *ClientMetrics) StartPush(ctx context.Context, config PushConfig) {
 	c.pushMu.Lock()
 	defer c.pushMu.Unlock()
 
-	if c.push != nil {
+	if c.push.Load() != nil {
 		log.Warnf("metrics push already running")
 		return
 	}
 
+	c.startPushLocked(ctx, config)
+}
+
+// StopPush stops the periodic metrics push.
+func (c *ClientMetrics) StopPush() {
+	if c == nil {
+		return
+	}
+	c.pushMu.Lock()
+	defer c.pushMu.Unlock()
+
+	c.stopPushLocked()
+}
+
+// UpdatePushFromMgm updates metrics push based on management server configuration.
+// If NB_METRICS_PUSH_ENABLED is explicitly set (true or false), management config is ignored.
+// When unset, management controls whether push is enabled.
+func (c *ClientMetrics) UpdatePushFromMgm(ctx context.Context, enabled bool) {
+	if c == nil {
+		return
+	}
+
+	if isMetricsPushEnvSet() {
+		log.Debugf("ignoring management config, env var is explicitly set: %s", EnvMetricsPushEnabled)
+		return
+	}
+
+	c.pushMu.Lock()
+	defer c.pushMu.Unlock()
+
+	if enabled {
+		if c.push.Load() != nil {
+			return
+		}
+		log.Infof("enabled metrics push by management")
+		c.startPushLocked(ctx, PushConfigFromEnv())
+	} else {
+		if c.push.Load() == nil {
+			return
+		}
+		log.Infof("disabled metrics push by management")
+		c.stopPushLocked()
+	}
+}
+
+// startPushLocked starts push. Caller must hold pushMu.
+func (c *ClientMetrics) startPushLocked(ctx context.Context, config PushConfig) {
 	c.mu.RLock()
 	agentVersion := c.agentInfo.Version
 	peerID := c.agentInfo.peerID
@@ -199,26 +259,23 @@ func (c *ClientMetrics) StartPush(ctx context.Context, config PushConfig) {
 
 	ctx, cancel := context.WithCancel(ctx)
 	c.pushCancel = cancel
+	c.push.Store(push)
 
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
 		push.Start(ctx)
+		c.push.CompareAndSwap(push, nil)
 	}()
-	c.push = push
 }
 
-func (c *ClientMetrics) StopPush() {
-	if c == nil {
-		return
-	}
-	c.pushMu.Lock()
-	defer c.pushMu.Unlock()
-	if c.push == nil {
+// stopPushLocked stops push. Caller must hold pushMu.
+func (c *ClientMetrics) stopPushLocked() {
+	if c.push.Load() == nil {
 		return
 	}
 
 	c.pushCancel()
 	c.wg.Wait()
-	c.push = nil
+	c.push.Store(nil)
 }
