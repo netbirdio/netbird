@@ -156,8 +156,7 @@ func FoldAccessLogSessions(orderedKeys []string, entries []*AgentNetworkAccessLo
 		order = append(order, sess)
 	}
 
-	type seen struct{ providers, models, groups map[string]struct{} }
-	seenBy := make(map[string]*seen, len(orderedKeys))
+	seenBy := make(map[string]*sessionSeen, len(orderedKeys))
 
 	for _, e := range entries {
 		k := sessionKey(e)
@@ -167,53 +166,14 @@ func FoldAccessLogSessions(orderedKeys []string, entries []*AgentNetworkAccessLo
 		}
 		sk := seenBy[k]
 		if sk == nil {
-			sk = &seen{providers: map[string]struct{}{}, models: map[string]struct{}{}, groups: map[string]struct{}{}}
+			sk = newSessionSeen()
 			seenBy[k] = sk
 			sess.SessionID = e.SessionID
 			sess.UserID = e.UserID
 			sess.StartedAt = e.Timestamp
 			sess.EndedAt = e.Timestamp
 		}
-
-		sess.RequestCount++
-		sess.InputTokens += e.InputTokens
-		sess.OutputTokens += e.OutputTokens
-		sess.TotalTokens += e.TotalTokens
-		sess.CostUSD += e.CostUSD
-		if e.Timestamp.Before(sess.StartedAt) {
-			sess.StartedAt = e.Timestamp
-		}
-		if e.Timestamp.After(sess.EndedAt) {
-			sess.EndedAt = e.Timestamp
-		}
-		if sess.UserID == "" {
-			sess.UserID = e.UserID
-		}
-		if e.Decision == "deny" {
-			sess.Decision = "deny"
-		}
-		if e.Provider != "" {
-			if _, dup := sk.providers[e.Provider]; !dup {
-				sk.providers[e.Provider] = struct{}{}
-				sess.Providers = append(sess.Providers, e.Provider)
-			}
-		}
-		if e.Model != "" {
-			if _, dup := sk.models[e.Model]; !dup {
-				sk.models[e.Model] = struct{}{}
-				sess.Models = append(sess.Models, e.Model)
-			}
-		}
-		for _, g := range e.GroupIDs {
-			if g == "" {
-				continue
-			}
-			if _, dup := sk.groups[g]; !dup {
-				sk.groups[g] = struct{}{}
-				sess.GroupIDs = append(sess.GroupIDs, g)
-			}
-		}
-		sess.Entries = append(sess.Entries, e)
+		sess.foldEntry(sk, e)
 	}
 
 	out := make([]*AgentNetworkAccessLogSession, 0, len(order))
@@ -223,6 +183,60 @@ func FoldAccessLogSessions(orderedKeys []string, entries []*AgentNetworkAccessLo
 		}
 	}
 	return out
+}
+
+// sessionSeen tracks the distinct provider / model / group values already
+// recorded for a session so foldEntry can dedupe as it accumulates.
+type sessionSeen struct{ providers, models, groups map[string]struct{} }
+
+func newSessionSeen() *sessionSeen {
+	return &sessionSeen{
+		providers: map[string]struct{}{},
+		models:    map[string]struct{}{},
+		groups:    map[string]struct{}{},
+	}
+}
+
+// foldEntry accumulates a single entry into the session summary: sums, time
+// bounds, first-seen user, deny rollup, distinct provider / model / group
+// lists, and the entry itself.
+func (sess *AgentNetworkAccessLogSession) foldEntry(sk *sessionSeen, e *AgentNetworkAccessLog) {
+	sess.RequestCount++
+	sess.InputTokens += e.InputTokens
+	sess.OutputTokens += e.OutputTokens
+	sess.TotalTokens += e.TotalTokens
+	sess.CostUSD += e.CostUSD
+	if e.Timestamp.Before(sess.StartedAt) {
+		sess.StartedAt = e.Timestamp
+	}
+	if e.Timestamp.After(sess.EndedAt) {
+		sess.EndedAt = e.Timestamp
+	}
+	if sess.UserID == "" {
+		sess.UserID = e.UserID
+	}
+	if e.Decision == "deny" {
+		sess.Decision = "deny"
+	}
+	sess.Providers = appendDistinct(sk.providers, sess.Providers, e.Provider)
+	sess.Models = appendDistinct(sk.models, sess.Models, e.Model)
+	for _, g := range e.GroupIDs {
+		sess.GroupIDs = appendDistinct(sk.groups, sess.GroupIDs, g)
+	}
+	sess.Entries = append(sess.Entries, e)
+}
+
+// appendDistinct appends v to list when v is non-empty and not already recorded
+// in seen, returning the possibly-extended list.
+func appendDistinct(seen map[string]struct{}, list []string, v string) []string {
+	if v == "" {
+		return list
+	}
+	if _, dup := seen[v]; dup {
+		return list
+	}
+	seen[v] = struct{}{}
+	return append(list, v)
 }
 
 // ToAPIResponse renders the session summary (and its entries) as the API
