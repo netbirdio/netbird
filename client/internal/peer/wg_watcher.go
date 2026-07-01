@@ -103,13 +103,16 @@ func (w *WGWatcher) periodicHandshakeCheck(ctx context.Context, onDisconnectedFn
 		case <-timer.C:
 			handshake, ok := w.handshakeCheck(lastHandshake)
 			if !ok {
+				if ctx.Err() != nil {
+					return
+				}
 				onDisconnectedFn()
 				return
 			}
 			if lastHandshake.IsZero() {
 				elapsed := calcElapsed(enabledTime, *handshake)
 				w.log.Infof("first wg handshake detected within: %.2fsec, (%s)", elapsed, handshake)
-				if onHandshakeSuccessFn != nil {
+				if onHandshakeSuccessFn != nil && ctx.Err() == nil {
 					onHandshakeSuccessFn(*handshake)
 				}
 			}
