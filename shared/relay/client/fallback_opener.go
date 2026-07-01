@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	raceTotalTimeout  = 60 * time.Second
+	raceTotalTimeout  = 40 * time.Second
 	raceFallbackDelay = 10 * time.Second
 )
 
