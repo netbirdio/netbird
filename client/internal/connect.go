@@ -403,6 +403,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			StateManager:   stateManager,
 			UpdateManager:  c.updateManager,
 			ClientMetrics:  c.clientMetrics,
+			MetricsCtx:     c.ctx,
 		}, mobileDependency)
 		engine.SetSyncResponsePersistence(c.persistSyncResponse)
 		c.engine = engine

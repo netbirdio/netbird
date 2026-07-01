@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -75,7 +76,7 @@ type ClientMetrics struct {
 	agentInfo AgentInfo
 	mu        sync.RWMutex
 
-	push       *Push
+	push       atomic.Pointer[Push]
 	pushMu     sync.Mutex
 	wg         sync.WaitGroup
 	pushCancel context.CancelFunc
@@ -167,10 +168,7 @@ func (c *ClientMetrics) UpdateAgentInfo(agentInfo AgentInfo, publicKey string) {
 	c.agentInfo = agentInfo
 	c.mu.Unlock()
 
-	c.pushMu.Lock()
-	push := c.push
-	c.pushMu.Unlock()
-	if push != nil {
+	if push := c.push.Load(); push != nil {
 		push.SetPeerID(agentInfo.peerID)
 	}
 }
@@ -194,7 +192,7 @@ func (c *ClientMetrics) StartPush(ctx context.Context, config PushConfig) {
 	c.pushMu.Lock()
 	defer c.pushMu.Unlock()
 
-	if c.push != nil {
+	if c.push.Load() != nil {
 		log.Warnf("metrics push already running")
 		return
 	}
@@ -230,13 +228,13 @@ func (c *ClientMetrics) UpdatePushFromMgm(ctx context.Context, enabled bool) {
 	defer c.pushMu.Unlock()
 
 	if enabled {
-		if c.push != nil {
+		if c.push.Load() != nil {
 			return
 		}
 		log.Infof("enabled metrics push by management")
 		c.startPushLocked(ctx, PushConfigFromEnv())
 	} else {
-		if c.push == nil {
+		if c.push.Load() == nil {
 			return
 		}
 		log.Infof("disabled metrics push by management")
@@ -261,22 +259,23 @@ func (c *ClientMetrics) startPushLocked(ctx context.Context, config PushConfig) 
 
 	ctx, cancel := context.WithCancel(ctx)
 	c.pushCancel = cancel
+	c.push.Store(push)
 
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
 		push.Start(ctx)
+		c.push.CompareAndSwap(push, nil)
 	}()
-	c.push = push
 }
 
 // stopPushLocked stops push. Caller must hold pushMu.
 func (c *ClientMetrics) stopPushLocked() {
-	if c.push == nil {
+	if c.push.Load() == nil {
 		return
 	}
 
 	c.pushCancel()
 	c.wg.Wait()
-	c.push = nil
+	c.push.Store(nil)
 }
