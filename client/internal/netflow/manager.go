@@ -279,8 +279,12 @@ func (m *Manager) startRetries(ctx context.Context, flowConfigInterval time.Dura
 					continue
 				}
 				if err := m.send(e); err != nil {
-					timer = time.NewTimer(retryBackoff.NextBackOff())
-					resetBackoff = false
+					if nextBackoff := retryBackoff.NextBackOff(); nextBackoff != backoff.Stop {
+						timer = time.NewTimer(nextBackoff)
+						resetBackoff = false
+					} else {
+						resetBackoff = true // we exhausted retries, reset retry loop
+					}
 					break
 				}
 			}
