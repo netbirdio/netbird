@@ -2057,6 +2057,7 @@ func newAccountWithId(ctx context.Context, accountID, userID, domain, email, nam
 			Extra: &types.ExtraSettings{
 				UserApprovalRequired: true,
 			},
+			LazyConnectionEnabled: true,
 		},
 		Onboarding: types.AccountOnboarding{
 			OnboardingFlowPending: true,
