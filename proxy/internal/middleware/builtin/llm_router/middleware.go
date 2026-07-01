@@ -615,8 +615,9 @@ func (m *Middleware) allowWithRoute(route ProviderRoute, userGroups []string) *m
 		// path is silently dropped and the gateway returns a 4xx for
 		// the malformed URL. Empty value leaves the original
 		// target's path untouched.
-		Path:         route.UpstreamPath,
-		StripHeaders: append([]string(nil), strippedAuthHeaders...),
+		Path:          route.UpstreamPath,
+		StripHeaders:  append([]string(nil), strippedAuthHeaders...),
+		SkipTLSVerify: route.SkipTLSVerify,
 	}
 	authValue := route.AuthHeaderValue
 	if route.GCPServiceAccountKeyB64 != "" {

@@ -243,6 +243,10 @@ type UpstreamRewrite struct {
 	StripPathPrefix string
 	AuthHeader      *AuthHeader
 	StripHeaders    []string
+	// SkipTLSVerify, when true, makes the proxy dial the rewritten upstream
+	// without verifying its TLS certificate. Set by llm_router from the
+	// provider's skip_tls_verification for self-hosted / internal gateways.
+	SkipTLSVerify bool
 }
 
 // AuthHeader is a single name/value pair the proxy injects on the
