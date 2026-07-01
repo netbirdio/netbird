@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -108,9 +109,48 @@ func (cl *Client) WaitConnected(ctx context.Context, timeout time.Duration) erro
 	return cl.pollStatus(ctx, timeout, "Management: Connected")
 }
 
-// WaitProxyPeer polls until the client sees the proxy peer connected (1/1).
+// WaitProxyPeer polls until the client sees at least one connected peer — the
+// proxy serving the agent-network endpoint. It requires ">=1 connected" rather
+// than an exact "1/1" because proxy peers from earlier tests linger in the
+// account as disconnected (each proxy container registers a fresh WireGuard key
+// and the peer is not removed on teardown), so the count is e.g. "1/2". Only the
+// live proxy can be connected, and the caller's subsequent chat is the real
+// end-to-end assertion.
 func (cl *Client) WaitProxyPeer(ctx context.Context, timeout time.Duration) error {
-	return cl.pollStatus(ctx, timeout, "1/1 Connected")
+	deadline := time.Now().Add(timeout)
+	var last string
+	for time.Now().Before(deadline) {
+		out, _ := cl.Status(ctx)
+		last = out
+		if connectedPeers(out) >= 1 {
+			return nil
+		}
+		time.Sleep(3 * time.Second)
+	}
+	return fmt.Errorf("timed out waiting for a connected proxy peer; last status:\n%s", last)
+}
+
+// connectedPeers parses the "Peers count: X/Y Connected" line from `netbird
+// status` and returns X (the connected count), or 0 when absent/unparseable.
+func connectedPeers(status string) int {
+	for _, line := range strings.Split(status, "\n") {
+		line = strings.TrimSpace(line)
+		rest, ok := strings.CutPrefix(line, "Peers count:")
+		if !ok {
+			continue
+		}
+		rest = strings.TrimSpace(rest)
+		slash := strings.IndexByte(rest, '/')
+		if slash <= 0 {
+			return 0
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(rest[:slash]))
+		if err != nil {
+			return 0
+		}
+		return n
+	}
+	return 0
 }
 
 func (cl *Client) pollStatus(ctx context.Context, timeout time.Duration, want string) error {
