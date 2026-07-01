@@ -1684,6 +1684,9 @@ type AccountSettings struct {
 	// LocalMfaEnabled Enables or disables TOTP multi-factor authentication for local users. Only applicable when the embedded identity provider is enabled.
 	LocalMfaEnabled *bool `json:"local_mfa_enabled,omitempty"`
 
+	// MetricsPushEnabled Enables or disables client metrics push for all peers in the account
+	MetricsPushEnabled *bool `json:"metrics_push_enabled,omitempty"`
+
 	// NetworkRange Allows to define a custom network range for the account in CIDR format
 	NetworkRange *string `json:"network_range,omitempty"`
 

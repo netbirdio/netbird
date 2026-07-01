@@ -172,6 +172,7 @@ type EngineServices struct {
 	StateManager   *statemanager.Manager
 	UpdateManager  *updater.Manager
 	ClientMetrics  *metrics.ClientMetrics
+	MetricsCtx     context.Context
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -264,6 +265,7 @@ type Engine struct {
 
 	// clientMetrics collects and pushes metrics
 	clientMetrics *metrics.ClientMetrics
+	metricsCtx    context.Context
 
 	jobExecutor   *jobexec.Executor
 	jobExecutorWG sync.WaitGroup
@@ -316,6 +318,7 @@ func NewEngine(
 		probeStunTurn:      relay.NewStunTurnProbe(relay.DefaultCacheTTL),
 		jobExecutor:        jobexec.NewExecutor(),
 		clientMetrics:      services.ClientMetrics,
+		metricsCtx:         services.MetricsCtx,
 		updateManager:      services.UpdateManager,
 		syncStoreDir:       config.StateDir,
 	}
@@ -997,6 +1000,8 @@ func (e *Engine) updateNetbirdConfig(wCfg *mgmProto.NetbirdConfig) error {
 		return fmt.Errorf("handle the flow configuration: %w", err)
 	}
 
+	e.handleMetricsUpdate(wCfg.GetMetrics())
+
 	if err := e.PopulateNetbirdConfig(wCfg, nil); err != nil {
 		log.Warnf("Failed to update DNS server config: %v", err)
 	}
@@ -1064,6 +1069,14 @@ func (e *Engine) handleFlowUpdate(config *mgmProto.FlowConfig) error {
 		return err
 	}
 	return e.flowManager.Update(flowConfig)
+}
+
+func (e *Engine) handleMetricsUpdate(config *mgmProto.MetricsConfig) {
+	if config == nil {
+		return
+	}
+	log.Infof("received metrics configuration from management: enabled=%v", config.GetEnabled())
+	e.clientMetrics.UpdatePushFromMgm(e.metricsCtx, config.GetEnabled())
 }
 
 func toFlowLoggerConfig(config *mgmProto.FlowConfig) (*nftypes.FlowConfig, error) {

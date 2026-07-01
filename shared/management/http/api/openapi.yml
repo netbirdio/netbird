@@ -371,6 +371,10 @@ components:
           description: When true, updates are installed automatically in the background. When false, updates require user interaction from the UI.
           type: boolean
           example: false
+        metrics_push_enabled:
+          description: Enables or disables client metrics push for all peers in the account
+          type: boolean
+          example: false
         embedded_idp_enabled:
           description: Indicates whether the embedded identity provider (Dex) is enabled for this account. This is a read-only field.
           type: boolean
