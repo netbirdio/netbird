@@ -99,7 +99,10 @@ func (s *Server) onMDMPolicyChange(_, _ *mdm.Policy) error {
 		proto.SystemEvent_SYSTEM,
 		"MDM policy applied",
 		"NetBird configuration was updated by your IT policy.",
-		map[string]string{"source": "mdm", "type": "policy_applied"},
+		map[string]string{
+			proto.MetadataSourceKey: proto.MetadataSourceMDM,
+			proto.MetadataTypeKey:   proto.MetadataTypePolicyApplied,
+		},
 	)
 	return nil
 }
@@ -124,8 +127,8 @@ func (s *Server) publishConfigChangedEvent(source string) {
 		fmt.Sprintf("daemon config changed (source=%s)", source),
 		"",
 		map[string]string{
-			"source": source,
-			"type":   "config_changed",
+			proto.MetadataSourceKey: source,
+			proto.MetadataTypeKey:   proto.MetadataTypeConfigChanged,
 		},
 	)
 }
@@ -161,7 +164,7 @@ func (s *Server) restartEngineForMDMLocked() error {
 	s.clientGiveUpChan = make(chan struct{})
 	log.Info("MDM restart: spawning connectWithRetryRuns with re-resolved config")
 	go s.connectWithRetryRuns(ctx, config, s.statusRecorder, s.clientRunningChan, s.clientGiveUpChan)
-	s.publishConfigChangedEvent("mdm")
+	s.publishConfigChangedEvent(proto.MetadataSourceMDM)
 	return nil
 }
 
