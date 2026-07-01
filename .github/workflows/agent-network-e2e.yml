@@ -1,10 +1,10 @@
 name: Agent Network E2E
 
 on:
-  push:
-    branches:
-      - main
-  pull_request:
+  # Nightly at 03:00 UTC, plus on demand from the Actions tab.
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -13,7 +13,6 @@ concurrency:
 jobs:
   e2e:
     name: Agent Network E2E
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
