@@ -67,7 +67,7 @@ var accessLogSortFields = map[string]string{
 // over the GROUP BY, so the ordering stays portable across SQLite and Postgres.
 // Keys absent here (e.g. "model", "provider") fall back to the default — the
 // grouped UI only offers the session-level sorts below.
-var sessionSortExprs = map[string]string{
+var sessionSortExprs = map[string]string{ //nolint:gosec // G101 false positive: "total_tokens" sort key, not a credential
 	"timestamp":     "MAX(timestamp)",
 	"started_at":    "MIN(timestamp)",
 	"cost_usd":      "SUM(cost_usd)",
