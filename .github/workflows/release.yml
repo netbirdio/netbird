@@ -293,8 +293,11 @@ jobs:
           ${{ steps.goreleaser.outputs.artifacts }}
           JSON
 
+          # dockers_v2 artifacts have no top-level goarch field, so match the
+          # per-platform -amd64 tag suffix instead; it works for both the old
+          # dockers and the new dockers_v2 image naming.
           mapfile -t src_images < <(
-            jq -r '.[] | select(.type == "Docker Image") | select(.goarch == "amd64") | .name | select(startswith("ghcr.io/"))' /tmp/goreleaser-artifacts.json
+            jq -r '.[] | select(.type == "Docker Image") | .name | select(startswith("ghcr.io/") and endswith("-amd64"))' /tmp/goreleaser-artifacts.json
           )
 
           for src in "${src_images[@]}"; do
