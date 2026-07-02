@@ -3,7 +3,6 @@ package peer
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -24,14 +23,15 @@ type WGInterfaceStater interface {
 	GetStats() (map[string]configurer.WGStats, error)
 }
 
+// WGWatcher is single-shot: create one instance per connection attempt, run it once via
+// EnableWgWatcher, then discard it. Lifecycle (start/stop) is owned by Conn under conn.mu,
+// so the watcher itself keeps no "enabled" state to go stale on a fast disconnect/reconnect.
 type WGWatcher struct {
 	log           *log.Entry
 	wgIfaceStater WGInterfaceStater
 	peerKey       string
 	stateDump     *stateDump
 
-	enabled   bool
-	muEnabled sync.Mutex
 	// initialHandshake is not thread-safe; never call PrepareInitialHandshake and EnableWgWatcher concurrently.
 	initialHandshake time.Time
 
@@ -48,25 +48,14 @@ func NewWGWatcher(log *log.Entry, wgIfaceStater WGInterfaceStater, peerKey strin
 	}
 }
 
-// PrepareInitialHandshake reserves the watcher and reads the peer's current WireGuard
-// handshake time. It must be called before the peer is (re)configured on the WireGuard
-// interface, so the captured baseline reflects the state prior to this connection attempt
-// instead of racing with that configuration. Returns ok=false if the watcher is already
-// running, in which case EnableWgWatcher must not be called.
-func (w *WGWatcher) PrepareInitialHandshake() (ok bool) {
-	w.muEnabled.Lock()
-	if w.enabled {
-		w.muEnabled.Unlock()
-		return false
-	}
-
+// PrepareInitialHandshake reads the peer's current WireGuard handshake time. It must be
+// called before the peer is (re)configured on the WireGuard interface, so the captured
+// baseline reflects the state prior to this connection attempt instead of racing with
+// that configuration.
+func (w *WGWatcher) PrepareInitialHandshake() {
 	w.log.Debugf("enable WireGuard watcher")
-	w.enabled = true
-	w.muEnabled.Unlock()
-
 	handshake, _ := w.wgState()
 	w.initialHandshake = handshake
-	return true
 }
 
 // EnableWgWatcher runs the WireGuard watcher loop using the handshake baseline captured by
@@ -74,10 +63,6 @@ func (w *WGWatcher) PrepareInitialHandshake() (ok bool) {
 // for context lifecycle management.
 func (w *WGWatcher) EnableWgWatcher(ctx context.Context, enabledTime time.Time, onDisconnectedFn func(), onHandshakeSuccessFn func(when time.Time)) {
 	w.periodicHandshakeCheck(ctx, onDisconnectedFn, onHandshakeSuccessFn, enabledTime, w.initialHandshake)
-
-	w.muEnabled.Lock()
-	w.enabled = false
-	w.muEnabled.Unlock()
 }
 
 // Reset signals the watcher that the WireGuard peer has been reset and a new
