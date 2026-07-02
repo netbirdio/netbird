@@ -115,7 +115,9 @@ func (rs *RouteSelector) DeselectAllRoutes() {
 	clear(rs.selectedRoutes)
 }
 
-// IsDeselectAll reports whether the user has explicitly deselected all routes.
+// IsDeselectAll reports whether the global "deselect all" flag is set, i.e. the
+// user explicitly disabled every route. Callers enforcing per-route invariants
+// (e.g. single exit node) should leave the selection untouched when it is.
 func (rs *RouteSelector) IsDeselectAll() bool {
 	rs.mu.RLock()
 	defer rs.mu.RUnlock()
