@@ -800,6 +800,27 @@ func (c *Client) closeConn(containerRef *connContainer, id messages.PeerID) erro
 	return nil
 }
 
+// CloseConnByPeerKey closes an existing relay connection for the given peer key,
+// removing it from the internal connection map so a new one can be opened.
+func (c *Client) CloseConnByPeerKey(peerKey string) {
+	peerID := messages.HashID(peerKey)
+	c.mu.Lock()
+	container, ok := c.conns[peerID]
+	if !ok {
+		c.mu.Unlock()
+		return
+	}
+
+	c.log.Infof("force closing stale relay connection for peer: %s", peerID)
+	delete(c.conns, peerID)
+	c.mu.Unlock()
+
+	if err := c.stateSubscription.UnsubscribeStateChange([]messages.PeerID{peerID}); err != nil {
+		c.log.Errorf("failed to unsubscribe from peer state change: %s", err)
+	}
+	container.close()
+}
+
 func (c *Client) close(gracefullyExit bool) error {
 	c.readLoopMutex.Lock()
 	defer c.readLoopMutex.Unlock()

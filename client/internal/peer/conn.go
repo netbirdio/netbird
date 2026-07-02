@@ -676,9 +676,31 @@ func (conn *Conn) onWGDisconnected() {
 	// Close the active connection based on current priority
 	switch conn.currentConnPriority {
 	case conntype.Relay:
+		// Mark the relay conn entry as stale so the next OnNewOffer closes
+		// and reopens it instead of reusing a dead pipe. MarkStale covers
+		// the case where CloseConn is a no-op (e.g. relayedConn already nil).
+		conn.workerRelay.MarkStale()
 		conn.workerRelay.CloseConn()
 		conn.handleRelayDisconnectedLocked()
+		// When running over relay, workerICE is not closed so its session ID is
+		// never rotated. The next offer would carry the same session ID, causing
+		// the remote peer to skip ICE agent recreation (it already has an agent
+		// for that session) and reuse stale candidates — preventing recovery
+		// after a NAT IP change (e.g. PPPoE reconnect). Force a new session ID
+		// so the remote peer creates a fresh ICE agent with current candidates.
+		if conn.workerICE != nil {
+			conn.workerICE.ResetSessionID()
+		}
 	case conntype.ICEP2P, conntype.ICETurn:
+		// WorkerICE.Close() sets agent=nil before pion's ICE library fires
+		// ConnectionStateClosed. By the time onConnectionStateChange runs
+		// closeAgent(), the w.agent==agent guard fails and the session ID
+		// is not rotated. Without rotation, the next offer carries the same
+		// session ID and the remote peer skips ICE agent recreation in
+		// OnNewOffer (sessionID match), reusing stale candidates from the
+		// previous network state. Rotate explicitly here so the remote peer
+		// always recreates its agent after a WG timeout on ICE.
+		conn.workerICE.ResetSessionID()
 		conn.workerICE.Close()
 	default:
 		conn.Log.Debugf("No active connection to close on WG timeout")
