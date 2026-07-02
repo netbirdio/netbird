@@ -233,12 +233,12 @@ if [ "$NETBIRD_DASH_AUTH_USE_AUDIENCE" = "false" ]; then
     export NETBIRD_AUTH_PKCE_AUDIENCE=
 fi
 
+export NETBIRD_DATASTORE_ENC_KEY=$NETBIRD_DATASTORE_ENC_KEY
 # Read the encryption key
 if test -f 'management.json'; then
-    encKey=$(jq -r  ".DataStoreEncryptionKey" management.json)
+    encKey=$(jq -r ".DataStoreEncryptionKey" management.json)
     if [[ "$encKey" != "null" ]]; then
         export NETBIRD_DATASTORE_ENC_KEY=$encKey
-
     fi
 fi
 
