@@ -31,8 +31,8 @@ func TestPolicy_Empty(t *testing.T) {
 
 func TestPolicy_HasKey(t *testing.T) {
 	p := NewPolicy(map[string]any{
-		KeyManagementURL:    "https://corp.example.com",
-		KeyDisableProfiles:  true,
+		KeyManagementURL:   "https://corp.example.com",
+		KeyDisableProfiles: true,
 	})
 	assert.False(t, p.IsEmpty())
 	assert.True(t, p.HasKey(KeyManagementURL))
@@ -53,8 +53,8 @@ func TestPolicy_ManagedKeysSorted(t *testing.T) {
 func TestPolicy_GetString(t *testing.T) {
 	p := NewPolicy(map[string]any{
 		KeyManagementURL:   "https://corp.example.com",
-		KeyDisableProfiles: true,            // wrong type for GetString
-		KeyPreSharedKey:        "",              // empty rejected
+		KeyDisableProfiles: true, // wrong type for GetString
+		KeyPreSharedKey:    "",   // empty rejected
 	})
 	v, ok := p.GetString(KeyManagementURL)
 	assert.True(t, ok)
@@ -87,6 +87,9 @@ func TestPolicy_GetBool(t *testing.T) {
 		{"string no", "no", false, true},
 		{"string on", "on", true, true},
 		{"string off", "off", false, true},
+		{"mixed case On", "On", true, true},
+		{"upper TRUE", "TRUE", true, true},
+		{"padded yes", "  yes  ", true, true},
 		{"int nonzero", 1, true, true},
 		{"int zero", 0, false, true},
 		{"int64 nonzero", int64(2), true, true},

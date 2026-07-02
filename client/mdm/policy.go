@@ -11,6 +11,7 @@ package mdm
 import (
 	"sort"
 	"strconv"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -156,7 +157,8 @@ func (p *Policy) GetString(key string) (string, bool) {
 }
 
 // GetBool returns the managed value for key coerced to bool, and whether the
-// key was set. Accepts native bool and string literals "true"/"false"/"1"/"0".
+// key was set. Accepts native bool and string literals (true/false, 1/0,
+// yes/no, on/off), case-insensitively and trimmed of surrounding whitespace.
 func (p *Policy) GetBool(key string) (bool, bool) {
 	if p == nil {
 		return false, false
@@ -169,7 +171,7 @@ func (p *Policy) GetBool(key string) (bool, bool) {
 	case bool:
 		return t, true
 	case string:
-		b, known := boolStringLiterals[t]
+		b, known := boolStringLiterals[strings.ToLower(strings.TrimSpace(t))]
 		return b, known
 	case int:
 		return t != 0, true
