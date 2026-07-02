@@ -1245,6 +1245,7 @@ components:
         usage_limit:
           description: A number of times this key can be used. The value of 0 indicates the unlimited usage.
           type: integer
+          minimum: 0
           example: 0
         ephemeral:
           description: Indicate that the peer will be ephemeral or not
