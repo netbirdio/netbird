@@ -42,6 +42,7 @@ type aclManager struct {
 	optionalEntries map[string][]entry
 	ipsetStore      *ipsetStore
 	v6              bool
+	ipsetSupported  bool
 
 	stateManager *statemanager.Manager
 }
@@ -54,6 +55,7 @@ func newAclManager(iptablesClient *iptables.IPTables, wgIface iFaceMapper) (*acl
 		optionalEntries: make(map[string][]entry),
 		ipsetStore:      newIpsetStore(),
 		v6:              iptablesClient.Proto() == iptables.ProtocolIPv6,
+		ipsetSupported:  true,
 	}, nil
 }
 
@@ -86,6 +88,12 @@ func (m *aclManager) AddPeerFiltering(
 	ipsetName string,
 ) ([]firewall.Rule, error) {
 	chain := chainNameInputRules
+
+	// If ipset is not supported on this system (e.g. missing ip_set kernel module),
+	// clear the ipset name so rules fall back to individual IP matching (-s ip).
+	if !m.ipsetSupported {
+		ipsetName = ""
+	}
 
 	ipsetName = transformIPsetName(ipsetName, sPort, dPort, action)
 	if m.v6 && ipsetName != "" {
@@ -128,14 +136,27 @@ func (m *aclManager) AddPeerFiltering(
 			}
 		}
 		if err := m.createIPSet(ipsetName); err != nil {
-			return nil, fmt.Errorf("create ipset: %w", err)
-		}
-		if err := m.addToIPSet(ipsetName, ip); err != nil {
-			return nil, fmt.Errorf("add IP to ipset: %w", err)
-		}
+			log.Warnf("ipset not supported, falling back to individual IP rules: %v", err)
+			m.ipsetSupported = false
+			ipsetName = ""
 
-		ipList := newIpList(ip.String())
-		m.ipsetStore.addIpList(ipsetName, ipList)
+			// Regenerate specs without ipset
+			specs = filterRuleSpecs(ip, proto, sPort, dPort, action, "")
+			mangleSpecs = slices.Clone(specs)
+			mangleSpecs = append(mangleSpecs,
+				"-i", m.wgIface.Name(),
+				"-m", "addrtype", "--dst-type", "LOCAL",
+				"-j", "MARK", "--set-xmark", fmt.Sprintf("%#x", nbnet.PreroutingFwmarkRedirected),
+			)
+			specs = append(specs, "-j", actionToStr(action))
+		} else {
+			if err := m.addToIPSet(ipsetName, ip); err != nil {
+				return nil, fmt.Errorf("add IP to ipset: %w", err)
+			}
+
+			ipList := newIpList(ip.String())
+			m.ipsetStore.addIpList(ipsetName, ipList)
+		}
 	}
 
 	ok, err := m.iptablesClient.Exists(tableFilter, chain, specs...)
