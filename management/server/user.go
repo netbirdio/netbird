@@ -1849,12 +1849,17 @@ func (am *DefaultAccountManager) DeleteUserInvite(ctx context.Context, accountID
 
 const minPasswordLength = 8
 
-// validatePassword checks password strength requirements:
+// validatePassword checks password strength requirements.
+func validatePassword(password string) error {
+	return ValidatePassword(password)
+}
+
+// ValidatePassword checks password strength requirements:
 // - Minimum 8 characters
 // - At least 1 digit
 // - At least 1 uppercase letter
 // - At least 1 special character
-func validatePassword(password string) error {
+func ValidatePassword(password string) error {
 	if len(password) < minPasswordLength {
 		return errors.New("password must be at least 8 characters long")
 	}

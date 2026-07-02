@@ -64,7 +64,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "path to YAML configuration file (required)")
 	_ = rootCmd.MarkPersistentFlagRequired("config")
 
-	rootCmd.AddCommand(newTokenCommands())
+	rootCmd.AddCommand(newAdminCommands())
 }
 
 func RootCmd() *cobra.Command {
