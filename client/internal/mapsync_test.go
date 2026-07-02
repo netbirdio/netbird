@@ -12,32 +12,43 @@ import (
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 )
 
-// a config-only update arriving while a full map is still converging must keep the
-// pending map (so its remaining peer batches still apply); once converged or when the
-// pending target has no map, it replaces as usual.
-func TestMapStateManager_MergeTargetPreservesPendingMap(t *testing.T) {
+// mergeTarget fills components missing from the incoming update with the pending
+// (not-yet-applied) prev's, in place, so a coalesced/superseded update does not drop
+// the map or config it uniquely carried.
+func TestMapStateManager_MergeTargetPreservesPendingState(t *testing.T) {
 	m := newMapStateManager(nil, nil, nil)
 
-	fullMap := &mgmProto.SyncResponse{NetworkMap: &mgmProto.NetworkMap{Serial: 5}}
-	configOnly := &mgmProto.SyncResponse{NetbirdConfig: &mgmProto.NetbirdConfig{}}
-
-	// still converging the full map (targetGen > appliedGen): graft the map onto the
-	// incoming config-only update instead of dropping it
+	// config-only update while a full map is still converging (targetGen > appliedGen):
+	// the pending map (+ checks) is filled into the update in place
 	m.targetGen, m.appliedGen = 5, 4
-	merged := m.mergeTarget(fullMap, configOnly)
-	require.NotNil(t, merged.GetNetworkMap(), "pending map must be preserved")
-	require.EqualValues(t, 5, merged.GetNetworkMap().GetSerial())
-	require.NotNil(t, merged.GetNetbirdConfig(), "new config must be carried")
-	require.NotSame(t, configOnly, merged, "must not mutate the received update in place")
+	prev := &mgmProto.SyncResponse{NetworkMap: &mgmProto.NetworkMap{Serial: 5}}
+	update := &mgmProto.SyncResponse{NetbirdConfig: &mgmProto.NetbirdConfig{}}
+	merged := m.mergeTarget(prev, update)
+	require.Same(t, update, merged, "merges in place, returns the update")
+	require.EqualValues(t, 5, merged.GetNetworkMap().GetSerial(), "pending map preserved")
+	require.NotNil(t, merged.GetNetbirdConfig(), "new config kept")
 
-	// already converged (targetGen == appliedGen): nothing pending -> plain replace
+	// symmetric: map-only update while a config-only update is pending -> keep the config
+	m.targetGen, m.appliedGen = 5, 4
+	prev = &mgmProto.SyncResponse{NetbirdConfig: &mgmProto.NetbirdConfig{}}
+	update = &mgmProto.SyncResponse{NetworkMap: &mgmProto.NetworkMap{Serial: 7}}
+	merged = m.mergeTarget(prev, update)
+	require.EqualValues(t, 7, merged.GetNetworkMap().GetSerial(), "new map kept")
+	require.NotNil(t, merged.GetNetbirdConfig(), "pending config preserved")
+
+	// prev already applied (targetGen == appliedGen): plain replace, no fill-in
 	m.targetGen, m.appliedGen = 5, 5
-	require.Same(t, configOnly, m.mergeTarget(fullMap, configOnly))
+	prev = &mgmProto.SyncResponse{NetworkMap: &mgmProto.NetworkMap{Serial: 5}}
+	update = &mgmProto.SyncResponse{NetbirdConfig: &mgmProto.NetbirdConfig{}}
+	merged = m.mergeTarget(prev, update)
+	require.Same(t, update, merged)
+	require.Nil(t, merged.GetNetworkMap(), "no map grafted when prev already applied")
 
-	// a full map always replaces
-	newFull := &mgmProto.SyncResponse{NetworkMap: &mgmProto.NetworkMap{Serial: 6}}
+	// nothing to carry (update has a map, prev has no config): plain replace
 	m.targetGen, m.appliedGen = 5, 4
-	require.Same(t, newFull, m.mergeTarget(fullMap, newFull))
+	prev = &mgmProto.SyncResponse{NetworkMap: &mgmProto.NetworkMap{Serial: 5}}
+	update = &mgmProto.SyncResponse{NetworkMap: &mgmProto.NetworkMap{Serial: 6}}
+	require.Same(t, update, m.mergeTarget(prev, update))
 }
 
 // converges over the bounded passes (apply returns more until the 3rd pass),

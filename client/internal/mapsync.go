@@ -6,7 +6,6 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
-	"google.golang.org/protobuf/proto"
 
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 )
@@ -110,22 +109,31 @@ func (m *mapStateManager) SetTarget(update *mgmProto.SyncResponse) error {
 // rest of the manager (generation tracking, convergence, signaling) is unaffected
 // because it already treats target as "the complete desired state, whatever it is".
 func (m *mapStateManager) mergeTarget(prev, update *mgmProto.SyncResponse) *mgmProto.SyncResponse {
-	// Plain replace unless a config-only update (no map) arrives while the pending
-	// target still has an unconverged map (targetGen > appliedGen). In that case graft
-	// the pending map (and its checks) onto the incoming config update, so the next pass
-	// keeps converging the map instead of settling on a nil-map target and stranding the
-	// remaining peer batches until another full map arrives.
-	if update == nil || update.GetNetworkMap() != nil || prev == nil || prev.GetNetworkMap() == nil || m.targetGen == m.appliedGen {
+	// Nothing pending to preserve (no prev, or prev already fully applied): plain replace.
+	if prev == nil || update == nil || m.targetGen == m.appliedGen {
 		return update
 	}
 
-	merged, ok := proto.Clone(update).(*mgmProto.SyncResponse)
-	if !ok {
-		return update
+	// prev still has unapplied state (targetGen > appliedGen). In the sync protocol a
+	// nil component means "no change", so if `update` omits a component that prev
+	// carried, carry prev's forward — otherwise coalescing an update that superseded a
+	// not-yet-applied one would silently drop the map or config it uniquely brought.
+	// A present component in `update` is newer and wins. Management may send map-only
+	// updates (nil config) and config-only updates (nil map); both are handled here.
+	// A nil component in `update` means "no change", so fill it in from prev — otherwise
+	// coalescing an update that superseded a not-yet-applied one would drop the map or
+	// config it uniquely carried. A present component in `update` is newer and wins.
+	// We mutate `update` in place: it is a fresh per-message allocation from the sync
+	// stream (see receiveUpdatesEvents — not reused), and persisting this squashed target
+	// is correct, since it is the current full (superset) desired state.
+	if update.GetNetworkMap() == nil && prev.GetNetworkMap() != nil {
+		update.NetworkMap = prev.GetNetworkMap()
+		update.Checks = prev.Checks // checks travel with the map
 	}
-	merged.NetworkMap = prev.GetNetworkMap()
-	merged.Checks = prev.Checks
-	return merged
+	if update.GetNetbirdConfig() == nil && prev.GetNetbirdConfig() != nil {
+		update.NetbirdConfig = prev.GetNetbirdConfig()
+	}
+	return update
 }
 
 // run drives convergence until ctx is done. It is meant to run in its own goroutine.
