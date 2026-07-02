@@ -1057,6 +1057,41 @@ func TestSynthesizeServices_UpstreamURLPath_FlowsToRouter(t *testing.T) {
 		"upstream path must be carried so the router can disambiguate same-model providers; trailing slash trimmed for stable string-prefix matching")
 }
 
+func TestSynthesizeServices_SkipTLSVerification_FlowsToRouter(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockStore := store.NewMockStore(ctrl)
+
+	// A provider fronting a self-hosted / internal gateway opts into skipping
+	// upstream TLS verification; the synthesiser must carry it into the router
+	// route so the proxy dials that upstream insecurely.
+	provider := newSynthTestProvider()
+	provider.SkipTLSVerification = true
+	policy := newSynthTestPolicy(provider.ID, "grp-eng", "")
+
+	expectSynthBaseInputs(mockStore, ctx, newSynthTestSettings(),
+		[]*types.Provider{provider},
+		[]*types.Policy{policy},
+		[]*types.Guardrail{})
+
+	services, err := SynthesizeServices(ctx, mockStore, testAccountID)
+	require.NoError(t, err)
+	require.Len(t, services, 1)
+
+	mws := services[0].Targets[0].Options.Middlewares
+	var routerCfg routerConfig
+	for _, m := range mws {
+		if m.ID == middlewareIDLLMRouter {
+			require.NoError(t, json.Unmarshal(m.ConfigJSON, &routerCfg))
+			break
+		}
+	}
+	require.Len(t, routerCfg.Providers, 1)
+	assert.True(t, routerCfg.Providers[0].SkipTLSVerify,
+		"provider skip_tls_verification must flow into the router route")
+}
+
 func TestSynthesizeServices_UnknownProviderID_FailsClosed(t *testing.T) {
 	ctx := context.Background()
 	ctrl := gomock.NewController(t)

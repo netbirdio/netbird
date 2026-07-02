@@ -130,6 +130,37 @@ func TestApply_MDMBoolKeysOverrideOnDiskValue(t *testing.T) {
 	assert.True(t, cfg.Policy().HasKey(mdm.KeyRosenpassEnabled))
 }
 
+func TestApply_MDMLazyConnection(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  any
+		want string
+	}{
+		{"native true", true, "on"},
+		{"native false", false, "off"},
+		{"string on", "on", "on"},
+		{"string off", "off", "off"},
+		{"string yes", "yes", "on"},
+		{"string no", "no", "off"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			withMDMPolicy(t, mdm.NewPolicy(map[string]any{
+				mdm.KeyLazyConnection: c.raw,
+			}))
+
+			cfg, err := UpdateOrCreateConfig(ConfigInput{
+				ConfigPath: filepath.Join(t.TempDir(), "config.json"),
+			})
+			require.NoError(t, err)
+			require.NotNil(t, cfg)
+
+			assert.Equal(t, c.want, cfg.LazyConnection)
+			assert.True(t, cfg.Policy().HasKey(mdm.KeyLazyConnection))
+		})
+	}
+}
+
 func TestApply_MDMPreSharedKeyRedactionSentinelRejected(t *testing.T) {
 	const maskSentinel = "**********"
 
