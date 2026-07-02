@@ -28,13 +28,15 @@ const (
 	DataPlaneMarkOut = 0x1BD11
 
 	// PreroutingFwmarkRedirected is applied to packets that are were redirected (input -> forward, e.g. by Docker or Podman) for special handling.
-	PreroutingFwmarkRedirected = 0x1BD20
+	// Note: values 0x1BD20-0x1BD3F are avoided because their lower byte has bit 0x20 set, which conflicts with OVH OKS
+	// iptables rules that match on that bit in mangle POSTROUTING and strip the kube-proxy MASQUERADE bit (0x4000).
+	PreroutingFwmarkRedirected = 0x1BD40
 
 	// PreroutingFwmarkMasquerade is applied to packets that arrive from the NetBird interface and should be masqueraded.
-	PreroutingFwmarkMasquerade = 0x1BD21
+	PreroutingFwmarkMasquerade = 0x1BD41
 
 	// PreroutingFwmarkMasqueradeReturn is applied to packets that will leave through the NetBird interface and should be masqueraded.
-	PreroutingFwmarkMasqueradeReturn = 0x1BD22
+	PreroutingFwmarkMasqueradeReturn = 0x1BD42
 )
 
 // IsDataPlaneMark determines if a fwmark is in the data plane range (0x1BD10-0x1BDFF)
