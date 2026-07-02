@@ -165,6 +165,12 @@ func (a *Auth) loginWithSetupKeyAndSaveConfig(setupKey string, deviceName string
 	return profilemanager.DirectWriteOutConfig(a.cfgPath, a.config)
 }
 
+// LoginWithSetupKeySync performs a synchronous setup key login and saves the config.
+// This is used by the MDM managed configuration flow where the native app controls threading.
+func (a *Auth) LoginWithSetupKeySync(setupKey string, deviceName string) error {
+	return a.loginWithSetupKeyAndSaveConfig(setupKey, deviceName)
+}
+
 // LoginSync performs a synchronous login check without UI interaction
 // Used for background VPN connection where user should already be authenticated
 func (a *Auth) LoginSync() error {
