@@ -827,29 +827,12 @@ func pickPreferredExitNode(info exitNodeInfo) route.NetID {
 
 // enforceSingleExitNode makes preferred the only selected exit node: every other
 // available exit node is deselected and preferred (if any) is selected, without
-// disturbing non-exit route selections. A global deselect-all is left untouched
-// so the user's "all off" stays in effect.
+// disturbing non-exit route selections. The whole reconciliation runs under a
+// single RouteSelector lock (SetExclusiveExitNode) so a concurrent deselect-all
+// cannot interleave and get undone; a global deselect-all is left untouched so
+// the user's "all off" stays in effect.
 func (m *DefaultManager) enforceSingleExitNode(preferred route.NetID, allIDs []route.NetID) {
-	if m.routeSelector.IsDeselectAll() {
-		return
-	}
-
-	others := make([]route.NetID, 0, len(allIDs))
-	for _, id := range allIDs {
-		if id != preferred {
-			others = append(others, id)
-		}
-	}
-	if len(others) > 0 {
-		if err := m.routeSelector.DeselectRoutes(others, allIDs); err != nil {
-			log.Warnf("deselect other exit nodes: %v", err)
-		}
-	}
-	if preferred != "" {
-		if err := m.routeSelector.SelectRoutes([]route.NetID{preferred}, true, allIDs); err != nil {
-			log.Warnf("select preferred exit node %q: %v", preferred, err)
-		}
-	}
+	m.routeSelector.SetExclusiveExitNode(preferred, allIDs)
 }
 
 func (m *DefaultManager) logExitNodeUpdate(info exitNodeInfo, preferred route.NetID) {
