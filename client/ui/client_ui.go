@@ -40,6 +40,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/client/proto"
+	daddr "github.com/netbirdio/netbird/client/internal/daemonaddr"
 	"github.com/netbirdio/netbird/client/ui/desktop"
 	"github.com/netbirdio/netbird/client/ui/event"
 	"github.com/netbirdio/netbird/client/ui/notifier"
@@ -177,6 +178,9 @@ func parseFlags() *cliFlags {
 	flag.BoolVar(&flags.showUpdate, "update", false, "show update progress window")
 	flag.StringVar(&flags.showUpdateVersion, "update-version", "", "version to update to")
 	flag.Parse()
+
+
+	flags.daemonAddr = daddr.ResolveUnixDaemonAddr(flags.daemonAddr)
 	return &flags
 }
 
