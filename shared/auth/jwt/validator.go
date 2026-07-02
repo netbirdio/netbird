@@ -5,7 +5,9 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rsa"
+	"crypto/x509"
 	"encoding/base64"
+	"encoding/pem"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -73,6 +75,7 @@ var (
 	errTokenEmpty   = errors.New("required authorization token not found")
 	errTokenInvalid = errors.New("token is invalid")
 	errTokenParsing = errors.New("token could not be parsed")
+	errUnsupportedKeyType = errors.New("unsupported key type")
 )
 
 func NewValidator(issuer string, audienceList []string, keysLocation string, idpSignkeyRefreshEnabled bool) *Validator {
@@ -266,27 +269,85 @@ func getPemKeys(keysLocation string) (*Jwks, error) {
 	return jwks, nil
 }
 
+func isSupportedECCurve(crv string) bool {
+	switch crv {
+	case "P-256", "P-384", "P-521":
+		return true
+	default:
+		return false
+	}
+}
+
+ func getPublicKeyForEC(jwk JSONWebKey) (interface{}, error) {
+	// For EC, prefer x, y, crv fields if present and curve is supported
+	if jwk.X != "" && jwk.Y != "" && jwk.Crv != "" {
+		// Validate curve is supported before calling getPublicKeyFromECDSA
+		if !isSupportedECCurve(jwk.Crv) {
+			return nil, fmt.Errorf("unsupported EC curve: %s (kid: %s)", jwk.Crv, jwk.Kid)
+		}
+		return getPublicKeyFromECDSA(jwk)
+	}
+ 
+	// Fallback to x5c if x/y/crv are missing
+	if len(jwk.X5c) != 0 {
+		return parseECKeyFromCertificate(jwk)
+	}
+ 
+	// Neither x/y/crv nor x5c available
+	return nil, fmt.Errorf("EC key incomplete: missing both x/y/crv fields and x5c certificate (kid: %s)", jwk.Kid)
+}
+
 func getPublicKey(token *jwt.Token, jwks *Jwks) (interface{}, error) {
 	// todo as we load the jkws when the server is starting, we should build a JKS map with the pem cert at the boot time
 	for k := range jwks.Keys {
 		if token.Header["kid"] != jwks.Keys[k].Kid {
 			continue
 		}
-
-		if len(jwks.Keys[k].X5c) != 0 {
-			cert := "-----BEGIN CERTIFICATE-----\n" + jwks.Keys[k].X5c[0] + "\n-----END CERTIFICATE-----"
-			return jwt.ParseRSAPublicKeyFromPEM([]byte(cert))
-		}
-
-		if jwks.Keys[k].Kty == "RSA" {
+ 
+		// Key with matching kid found - check type
+		switch jwks.Keys[k].Kty {
+		case "RSA":
+			// For RSA, prefer x5c certificate if available
+			if len(jwks.Keys[k].X5c) != 0 {
+				cert := "-----BEGIN CERTIFICATE-----\n" + jwks.Keys[k].X5c[0] + "\n-----END CERTIFICATE-----"
+				return jwt.ParseRSAPublicKeyFromPEM([]byte(cert))
+			}
 			return getPublicKeyFromRSA(jwks.Keys[k])
-		}
-		if jwks.Keys[k].Kty == "EC" {
-			return getPublicKeyFromECDSA(jwks.Keys[k])
+ 
+		case "EC":
+			return getPublicKeyForEC(jwks.Keys[k])
+ 
+		default:
+			// Key type not supported
+			return nil, fmt.Errorf("%w: %s (kid: %s)", errUnsupportedKeyType, jwks.Keys[k].Kty, jwks.Keys[k].Kid)
 		}
 	}
-
+ 
+	// No key with matching kid found
 	return nil, errKeyNotFound
+}
+
+
+// parseECKeyFromCertificate extracts EC public key from x5c certificate
+func parseECKeyFromCertificate(jwk JSONWebKey) (*ecdsa.PublicKey, error) {
+	cert := "-----BEGIN CERTIFICATE-----\n" + jwk.X5c[0] + "\n-----END CERTIFICATE-----"
+ 
+	block, _ := pem.Decode([]byte(cert))
+	if block == nil {
+		return nil, fmt.Errorf("failed to decode PEM certificate for EC key (kid: %s)", jwk.Kid)
+	}
+ 
+	certificate, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse x5c certificate for EC key (kid: %s): %w", jwk.Kid, err)
+	}
+ 
+	ecKey, ok := certificate.PublicKey.(*ecdsa.PublicKey)
+	if !ok {
+		return nil, fmt.Errorf("x5c certificate does not contain EC public key (kid: %s)", jwk.Kid)
+	}
+ 
+	return ecKey, nil
 }
 
 func getPublicKeyFromECDSA(jwk JSONWebKey) (publicKey *ecdsa.PublicKey, err error) {
