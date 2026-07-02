@@ -804,6 +804,20 @@ components:
         - ssh_enabled
         - login_expiration_enabled
         - inactivity_expiration_enabled
+    NetworkAddress:
+      type: object
+      properties:
+        net_ip:
+          description: IP address with CIDR of the interface
+          type: string
+          example: 192.168.0.11/24
+        mac:
+          description: MAC address of the interface
+          type: string
+          example: "00:93:37:bd:83:0f"
+      required:
+        - net_ip
+        - mac
     Peer:
       allOf:
         - $ref: '#/components/schemas/PeerMinimum'
@@ -823,6 +837,11 @@ components:
               type: string
               format: ipv6
               example: "fd00:4e42:ab12::1"
+            network_addresses:
+              description: Network interfaces (IP + MAC) reported by the peer
+              type: array
+              items:
+                $ref: '#/components/schemas/NetworkAddress'
             connection_ip:
               description: Peer's public connection IP address
               type: string
@@ -7088,6 +7107,11 @@ paths:
           schema:
             type: string
           description: Filter peers by IP address
+        - in: query
+          name: mac
+          schema:
+            type: string
+          description: Filter peers by MAC address of a network interface
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]

@@ -317,10 +317,11 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 
 	nameFilter := r.URL.Query().Get("name")
 	ipFilter := r.URL.Query().Get("ip")
+	macFilter := r.URL.Query().Get("mac")
 
 	accountID, userID := userAuth.AccountId, userAuth.UserId
 
-	peers, err := h.accountManager.GetPeers(r.Context(), accountID, userID, nameFilter, ipFilter)
+	peers, err := h.accountManager.GetPeers(r.Context(), accountID, userID, nameFilter, ipFilter, macFilter)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -564,6 +565,17 @@ func peerToAccessiblePeer(peer *nbpeer.Peer, dnsDomain string) api.AccessiblePee
 	}
 }
 
+func toNetworkAddresses(addrs []nbpeer.NetworkAddress) *[]api.NetworkAddress {
+	if len(addrs) == 0 {
+		return nil
+	}
+	out := make([]api.NetworkAddress, 0, len(addrs))
+	for _, a := range addrs {
+		out = append(out, api.NetworkAddress{NetIp: a.NetIP.String(), Mac: a.Mac})
+	}
+	return &out
+}
+
 func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsDomain string, approved bool, reason string) *api.Peer {
 	osVersion := peer.Meta.OSVersion
 	if osVersion == "" {
@@ -576,6 +588,7 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 		Name:                        peer.Name,
 		Ip:                          peer.IP.String(),
 		Ipv6:                        peerIPv6String(peer),
+		NetworkAddresses:            toNetworkAddresses(peer.Meta.NetworkAddresses),
 		ConnectionIp:                peer.Location.ConnectionIP.String(),
 		Connected:                   peer.Status.Connected,
 		LastSeen:                    peer.Status.LastSeen,
@@ -631,6 +644,7 @@ func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dn
 		Name:                        peer.Name,
 		Ip:                          peer.IP.String(),
 		Ipv6:                        peerIPv6String(peer),
+		NetworkAddresses:            toNetworkAddresses(peer.Meta.NetworkAddresses),
 		ConnectionIp:                peer.Location.ConnectionIP.String(),
 		Connected:                   peer.Status.Connected,
 		LastSeen:                    peer.Status.LastSeen,
