@@ -220,6 +220,12 @@ type Engine struct {
 	// networkSerial is the latest CurrentSerial (state ID) of the network sent by the Management service
 	networkSerial uint64
 
+	// forwardingRules holds the ingress forward rules applied for the current target.
+	// Wholesale sections (incl. forward rules) run only on the first pass of a target;
+	// it is stashed here so the final, peer-converged pass can build the lazy-connection
+	// exclude list without recomputing them on every bounded peer pass.
+	forwardingRules []firewallManager.ForwardRule
+
 	networkMonitor *networkmonitor.NetworkMonitor
 
 	sshServer sshServer
@@ -774,7 +780,15 @@ func (e *Engine) blockLanAccess() {
 
 // modifyPeers updates peers that have been modified (e.g. IP address has been changed).
 // It closes the existing connection, removes it from the peerConns map, and creates a new one.
-func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
+// maxPeersPerSyncPass is the default per-pass cap on how many peers each of
+// removePeers/modifyPeers/addNewPeers applies, so syncMsgMux is held only for a
+// batch at a time and other subsystems can interleave between passes. It is
+// passed in (not read globally) so tests can exercise the multi-pass path.
+const maxPeersPerSyncPass = 300
+
+// modifyPeers re-applies up to maxBatch changed peers per call. It returns true
+// when more changed peers remained than the cap, so the caller re-runs.
+func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig, maxBatch int) (bool, error) {
 
 	// first, check if peers have been modified
 	var modified []*mgmProto.RemotePeerConfig
@@ -804,26 +818,32 @@ func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 		}
 	}
 
+	more := false
+	if len(modified) > maxBatch {
+		modified = modified[:maxBatch]
+		more = true
+	}
+
 	// second, close all modified connections and remove them from the state map
 	for _, p := range modified {
-		err := e.removePeer(p.GetWgPubKey())
-		if err != nil {
-			return err
+		if err := e.removePeer(p.GetWgPubKey()); err != nil {
+			return false, err
 		}
 	}
 	// third, add the peer connections again
 	for _, p := range modified {
-		err := e.addNewPeer(p)
-		if err != nil {
-			return err
+		if err := e.addNewPeer(p); err != nil {
+			return false, err
 		}
 	}
-	return nil
+	return more, nil
 }
 
 // removePeers finds and removes peers that do not exist anymore in the network map received from the Management Service.
 // It also removes peers that have been modified (e.g. change of IP address). They will be added again in addPeers method.
-func (e *Engine) removePeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
+// removePeers removes up to maxBatch peers per call. It returns true when more
+// peers remained to remove than the cap, so the caller re-runs.
+func (e *Engine) removePeers(peersUpdate []*mgmProto.RemotePeerConfig, maxBatch int) (bool, error) {
 	newPeers := make([]string, 0, len(peersUpdate))
 	for _, p := range peersUpdate {
 		newPeers = append(newPeers, p.GetWgPubKey())
@@ -831,14 +851,19 @@ func (e *Engine) removePeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 
 	toRemove := util.SliceDiff(e.peerStore.PeersPubKey(), newPeers)
 
+	more := false
+	if len(toRemove) > maxBatch {
+		toRemove = toRemove[:maxBatch]
+		more = true
+	}
+
 	for _, p := range toRemove {
-		err := e.removePeer(p)
-		if err != nil {
-			return err
+		if err := e.removePeer(p); err != nil {
+			return false, err
 		}
 		log.Infof("removed peer %s", p)
 	}
-	return nil
+	return more, nil
 }
 
 func (e *Engine) removeAllPeers() error {
@@ -917,19 +942,17 @@ func (e *Engine) phase(name string) func() {
 	}
 }
 
-func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
-	started := time.Now()
-	defer func() {
-		duration := time.Since(started)
-		log.Infof("sync finished in %s", duration)
-		e.clientMetrics.RecordSyncDuration(e.ctx, duration)
-	}()
+// applySyncPass applies one bounded pass of the sync update under syncMsgMux and
+// returns true if more peers remained than the per-pass cap. It is driven by the
+// mapStateManager, which re-invokes it (releasing the lock between passes) until
+// the update is fully applied.
+func (e *Engine) applySyncPass(update *mgmProto.SyncResponse, firstPass bool) (bool, error) {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
 	// Check context INSIDE lock to ensure atomicity with shutdown
 	if e.ctx.Err() != nil {
-		return e.ctx.Err()
+		return false, e.ctx.Err()
 	}
 
 	if update.NetworkMap != nil && update.NetworkMap.PeerConfig != nil {
@@ -940,7 +963,7 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	err := e.updateNetbirdConfig(update.GetNetbirdConfig())
 	done()
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	// Posture checks are bound to the network map presence:
@@ -950,28 +973,25 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	//                                        leave the previously applied checks untouched
 	nm := update.GetNetworkMap()
 	if nm == nil {
-		return nil
+		return false, nil
 	}
 
 	done = e.phase("checks")
 	err = e.updateChecksIfNew(update.Checks)
 	done()
 	if err != nil {
-		return err
+		return false, err
 	}
 
-	done = e.phase("persist")
-	e.persistSyncResponse(update)
-	done()
-
 	// only apply new changes and ignore old ones
-	if err := e.updateNetworkMap(nm); err != nil {
-		return err
+	more, err := e.updateNetworkMap(nm, maxPeersPerSyncPass, firstPass)
+	if err != nil {
+		return false, err
 	}
 
 	e.statusRecorder.PublishEvent(cProto.SystemEvent_INFO, cProto.SystemEvent_SYSTEM, "Network map updated", "", nil)
 
-	return nil
+	return more, nil
 }
 
 // updateNetbirdConfig applies the management-provided NetBird configuration:
@@ -1019,6 +1039,13 @@ func (e *Engine) updateNetbirdConfig(wCfg *mgmProto.NetbirdConfig) error {
 // (not syncMsgMux) is held for the whole Set so the store cannot be cleared (disabled /
 // engine close) mid-call and have this write resurrect a file that was just removed.
 func (e *Engine) persistSyncResponse(update *mgmProto.SyncResponse) {
+	// Only persist updates that carry a network map. Config-only updates (e.g. relay
+	// token rotation, STUN/TURN) have a nil NetworkMap; persisting them would overwrite
+	// the last full map on disk and break restore-on-restart.
+	if update.GetNetworkMap() == nil {
+		return
+	}
+
 	e.syncRespMux.RLock()
 	defer e.syncRespMux.RUnlock()
 
@@ -1306,7 +1333,24 @@ func (e *Engine) receiveManagementEvents() {
 		}
 		e.applyInfoFlags(info)
 
-		err := e.mgmClient.Sync(e.ctx, info, e.handleSync)
+		// The map-state manager converges the latest update in the background in
+		// bounded passes; the stream callback only hands it the newest target.
+		persist := func(u *mgmProto.SyncResponse) {
+			done := e.phase("persist")
+			e.persistSyncResponse(u)
+			done()
+		}
+		manager := newMapStateManager(e.applySyncPass, persist, func(d time.Duration) {
+			log.Infof("sync finished in %s", d)
+			e.clientMetrics.RecordSyncDuration(e.ctx, d)
+		})
+		e.shutdownWg.Add(1)
+		go func() {
+			defer e.shutdownWg.Done()
+			manager.run(e.ctx)
+		}()
+
+		err := e.mgmClient.Sync(e.ctx, info, manager.SetTarget)
 		if err != nil {
 			// happens if management is unavailable for a long time.
 			// We want to cancel the operation of the whole client
@@ -1357,21 +1401,107 @@ func (e *Engine) updateTURNs(turns []*mgmProto.ProtectedHostConfig) error {
 	return nil
 }
 
-func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
+// updateNetworkMap applies the wholesale parts (config, routes, ACL, DNS) in full
+// and up to maxBatch peers per phase. It returns true when more peers remained
+// than the cap, so the caller re-runs until convergence.
+func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap, maxBatch int, firstPass bool) (bool, error) {
 	// intentionally leave it before checking serial because for now it can happen that peer IP changed but serial didn't
 	if networkMap.GetPeerConfig() != nil {
 		err := e.updateConfig(networkMap.GetPeerConfig())
 		if err != nil {
-			return err
+			return false, err
 		}
 	}
 
 	serial := networkMap.GetSerial()
 	if e.networkSerial > serial {
 		log.Debugf("received outdated NetworkMap with serial %d, ignoring", serial)
-		return nil
+		return false, nil
 	}
 
+	// Wholesale sections (firewall/ACL, DNS, routes, forward rules) are applied
+	// up-front and only once per target: they are cheap, local, idempotent and must
+	// be in place before peers come up (fail-closed). On the bounded re-runs that only
+	// drain the remaining peer batches they are skipped — the applied forward rules are
+	// reused from e.forwardingRules for the lazy-exclude finalize.
+	if firstPass {
+		e.applyWholesale(networkMap, serial)
+	}
+
+	log.Debugf("got peers update from Management Service, total peers to connect to = %d", len(networkMap.GetRemotePeers()))
+
+	doneOffline := e.phase("offline_peers")
+	e.updateOfflinePeers(networkMap.GetOfflinePeers())
+	doneOffline()
+
+	// Filter out own peer from the remote peers list
+	localPubKey := e.config.WgPrivateKey.PublicKey().String()
+	remotePeers := make([]*mgmProto.RemotePeerConfig, 0, len(networkMap.GetRemotePeers()))
+	for _, p := range networkMap.GetRemotePeers() {
+		if p.GetWgPubKey() != localPubKey {
+			remotePeers = append(remotePeers, p)
+		}
+	}
+
+	// No special case for cleanup: when management signals RemotePeersIsEmpty (e.g. our
+	// peer was deleted), remotePeers is already empty, so the bounded diff below removes
+	// every peer in batches — same path as a normal update, no unbounded removeAllPeers
+	// held under syncMsgMux in one shot.
+	doneRemoved := e.phase("removed_peers")
+	removeMore, err := e.removePeers(remotePeers, maxBatch)
+	doneRemoved()
+	if err != nil {
+		return false, err
+	}
+
+	doneModified := e.phase("modified_peers")
+	modifyMore, err := e.modifyPeers(remotePeers, maxBatch)
+	doneModified()
+	if err != nil {
+		return false, err
+	}
+
+	doneAdded := e.phase("added_peers")
+	addMore, err := e.addNewPeers(remotePeers, maxBatch)
+	doneAdded()
+	if err != nil {
+		return false, err
+	}
+
+	// needMore signals the caller to re-run when a peer phase hit its per-pass cap.
+	needMore := removeMore || modifyMore || addMore
+
+	e.statusRecorder.FinishPeerListModifications()
+
+	e.updatePeerSSHHostKeys(remotePeers)
+
+	if err := e.updateSSHClientConfig(remotePeers); err != nil {
+		log.Warnf("failed to update SSH client config: %v", err)
+	}
+
+	e.updateSSHServerAuth(networkMap.GetSshAuth())
+
+	// Set the exclude list only once peers have fully converged (this pass added
+	// the last batch). It needs all target peers present in the store, and
+	// ExcludePeer has replace-semantics — a partial set mid-convergence would be wrong.
+	if !needMore {
+		doneLazy := e.phase("lazy_exclude")
+		excludedLazyPeers := e.toExcludedLazyPeers(e.forwardingRules, remotePeers)
+		e.connMgr.SetExcludeList(e.ctx, excludedLazyPeers)
+		doneLazy()
+	}
+
+	e.networkSerial = serial
+
+	return needMore, nil
+}
+
+// applyWholesale applies the cheap, local, idempotent map sections — lazy feature
+// flag, firewall/legacy management, DNS, routes, ACL filtering, DNS forwarder and
+// ingress forward rules — that must be in place before peers come up. It runs once
+// per target (first pass only); the resulting forward rules are stashed in
+// e.forwardingRules for the lazy-exclude finalize on the peer-converged pass.
+func (e *Engine) applyWholesale(networkMap *mgmProto.NetworkMap, serial uint64) {
 	if err := e.connMgr.UpdatedRemoteFeatureFlag(e.ctx, networkMap.GetPeerConfig().GetLazyConnectionEnabled()); err != nil {
 		log.Errorf("failed to update lazy connection feature flag: %v", err)
 	}
@@ -1444,84 +1574,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		log.Errorf("failed to update forward rules, err: %v", err)
 	}
 	done()
-
-	log.Debugf("got peers update from Management Service, total peers to connect to = %d", len(networkMap.GetRemotePeers()))
-
-	done = e.phase("offline_peers")
-	e.updateOfflinePeers(networkMap.GetOfflinePeers())
-	done()
-
-	remotePeers, err := e.reconcilePeers(networkMap)
-	if err != nil {
-		return err
-	}
-
-	// must set the exclude list after the peers are added. Without it the manager can not figure out the peers parameters from the store
-	done = e.phase("lazy_exclude")
-	excludedLazyPeers := e.toExcludedLazyPeers(forwardingRules, remotePeers)
-	e.connMgr.SetExcludeList(e.ctx, excludedLazyPeers)
-	done()
-
-	e.networkSerial = serial
-
-	return nil
-}
-
-// reconcilePeers applies the remote peer list from the network map (removing,
-// modifying and adding peers, then updating SSH config) and returns the remote
-// peers with our own peer filtered out, for use by later sync steps.
-func (e *Engine) reconcilePeers(networkMap *mgmProto.NetworkMap) ([]*mgmProto.RemotePeerConfig, error) {
-	// Filter out own peer from the remote peers list
-	localPubKey := e.config.WgPrivateKey.PublicKey().String()
-	remotePeers := make([]*mgmProto.RemotePeerConfig, 0, len(networkMap.GetRemotePeers()))
-	for _, p := range networkMap.GetRemotePeers() {
-		if p.GetWgPubKey() != localPubKey {
-			remotePeers = append(remotePeers, p)
-		}
-	}
-
-	// cleanup request, most likely our peer has been deleted
-	if networkMap.GetRemotePeersIsEmpty() {
-		err := e.removeAllPeers()
-		e.statusRecorder.FinishPeerListModifications()
-		if err != nil {
-			return nil, err
-		}
-		return remotePeers, nil
-	}
-
-	done := e.phase("removed_peers")
-	err := e.removePeers(remotePeers)
-	done()
-	if err != nil {
-		return nil, err
-	}
-
-	done = e.phase("modified_peers")
-	err = e.modifyPeers(remotePeers)
-	done()
-	if err != nil {
-		return nil, err
-	}
-
-	done = e.phase("added_peers")
-	err = e.addNewPeers(remotePeers)
-	done()
-	if err != nil {
-		return nil, err
-	}
-
-	e.statusRecorder.FinishPeerListModifications()
-
-	e.updatePeerSSHHostKeys(remotePeers)
-
-	if err := e.updateSSHClientConfig(remotePeers); err != nil {
-		log.Warnf("failed to update SSH client config: %v", err)
-	}
-
-	e.updateSSHServerAuth(networkMap.GetSshAuth())
-
-	return remotePeers, nil
+	e.forwardingRules = forwardingRules
 }
 
 func toDNSFeatureFlag(networkMap *mgmProto.NetworkMap) bool {
@@ -1701,14 +1754,23 @@ func addrToString(addr netip.Addr) string {
 }
 
 // addNewPeers adds peers that were not know before but arrived from the Management service with the update
-func (e *Engine) addNewPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
+// addNewPeers adds up to maxBatch not-yet-present peers per call. It returns true
+// when more new peers remained than the cap, so the caller re-runs.
+func (e *Engine) addNewPeers(peersUpdate []*mgmProto.RemotePeerConfig, maxBatch int) (bool, error) {
+	added := 0
 	for _, p := range peersUpdate {
-		err := e.addNewPeer(p)
-		if err != nil {
-			return err
+		if _, ok := e.peerStore.PeerConn(p.GetWgPubKey()); ok {
+			continue // already present (cheap skip), does not count toward the cap
 		}
+		if added >= maxBatch {
+			return true, nil // at least one more new peer remains
+		}
+		if err := e.addNewPeer(p); err != nil {
+			return false, err
+		}
+		added++
 	}
-	return nil
+	return false, nil
 }
 
 // addNewPeer add peer if connection doesn't exist
