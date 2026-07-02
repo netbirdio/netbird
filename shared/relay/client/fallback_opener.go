@@ -107,6 +107,7 @@ func (c *connRace) startOther() {
 
 func (c *connRace) handleResult(res raceAttempt) raceOutcome {
 	if (res.err == nil && res.conn != nil) || errors.Is(res.err, ErrConnAlreadyExists) {
+		c.settled++
 		c.stop()
 		return raceOutcome{conn: res.conn, err: res.err, done: true}
 	}
