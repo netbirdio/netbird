@@ -921,3 +921,7 @@ func (c *Controller) DisconnectPeers(ctx context.Context, accountId string, peer
 func (c *Controller) TrackEphemeralPeer(ctx context.Context, peer *nbpeer.Peer) {
 	c.EphemeralPeersManager.OnPeerDisconnected(ctx, peer)
 }
+
+func (c *Controller) HasChannel(ctx context.Context, peerID string) bool {
+	return c.peersUpdateManager.HasChannel(peerID)
+}
