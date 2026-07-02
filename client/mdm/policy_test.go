@@ -85,6 +85,8 @@ func TestPolicy_GetBool(t *testing.T) {
 		{"string 0", "0", false, true},
 		{"string yes", "yes", true, true},
 		{"string no", "no", false, true},
+		{"string on", "on", true, true},
+		{"string off", "off", false, true},
 		{"int nonzero", 1, true, true},
 		{"int zero", 0, false, true},
 		{"int64 nonzero", int64(2), true, true},

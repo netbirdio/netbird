@@ -49,7 +49,7 @@ func ParseState(raw string) State {
 
 	enabled, err := strconv.ParseBool(normalized)
 	if err != nil {
-		log.Warnf("failed to parse %s value %q: %v", EnvLazyConn, raw, err)
+		log.Warnf("failed to parse lazy connection value %q (from %s env or MDM policy): %v", raw, EnvLazyConn, err)
 		return StateUnset
 	}
 	if enabled {

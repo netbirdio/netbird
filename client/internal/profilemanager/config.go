@@ -723,9 +723,13 @@ func (config *Config) applyMDMPolicy(policy *mdm.Policy) {
 		}
 	}
 
-	if v, ok := policy.GetString(mdm.KeyLazyConnection); ok {
-		config.LazyConnection = v
-		logApplied(mdm.KeyLazyConnection, v)
+	if v, ok := policy.GetBool(mdm.KeyLazyConnection); ok {
+		state := "off"
+		if v {
+			state = "on"
+		}
+		config.LazyConnection = state
+		logApplied(mdm.KeyLazyConnection, state)
 	}
 }
 

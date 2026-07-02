@@ -43,7 +43,8 @@ const (
 	KeySplitTunnelApps = "splitTunnelApps"
 
 	// KeyLazyConnection forces the lazy-connection feature on or off, overriding
-	// the management feature flag. Values: "on" / "off" (absent = defer to management).
+	// the management feature flag. Read as a bool (native bool, or on/off,
+	// true/false, 1/0, yes/no); absent = defer to management.
 	KeyLazyConnection = "lazyConnection"
 )
 
@@ -66,9 +67,11 @@ var boolStringLiterals = map[string]bool{
 	"true":  true,
 	"1":     true,
 	"yes":   true,
+	"on":    true,
 	"false": false,
 	"0":     false,
 	"no":    false,
+	"off":   false,
 }
 
 // Policy holds MDM-managed settings read from the platform source. A nil or
