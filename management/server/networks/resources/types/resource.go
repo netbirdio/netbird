@@ -32,6 +32,9 @@ type NetworkResource struct {
 	ID          string `gorm:"primaryKey"`
 	NetworkID   string `gorm:"index"`
 	AccountID   string `gorm:"index"`
+	// AccountSeqID is a per-account monotonically increasing identifier used as the
+	// compact wire id when sending NetworkMap components to capable peers.
+	AccountSeqID uint32 `json:"-" gorm:"index:idx_network_resources_account_seq_id;not null;default:0"`
 	Name        string
 	Description string
 	Type        NetworkResourceType
@@ -93,17 +96,18 @@ func (n *NetworkResource) FromAPIRequest(req *api.NetworkResourceRequest) {
 
 func (n *NetworkResource) Copy() *NetworkResource {
 	return &NetworkResource{
-		ID:          n.ID,
-		AccountID:   n.AccountID,
-		NetworkID:   n.NetworkID,
-		Name:        n.Name,
-		Description: n.Description,
-		Type:        n.Type,
-		Address:     n.Address,
-		Domain:      n.Domain,
-		Prefix:      n.Prefix,
-		GroupIDs:    n.GroupIDs,
-		Enabled:     n.Enabled,
+		ID:           n.ID,
+		AccountID:    n.AccountID,
+		NetworkID:    n.NetworkID,
+		AccountSeqID: n.AccountSeqID,
+		Name:         n.Name,
+		Description:  n.Description,
+		Type:         n.Type,
+		Address:      n.Address,
+		Domain:       n.Domain,
+		Prefix:       n.Prefix,
+		GroupIDs:     n.GroupIDs,
+		Enabled:      n.Enabled,
 	}
 }
 

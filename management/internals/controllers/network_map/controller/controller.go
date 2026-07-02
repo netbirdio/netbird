@@ -56,6 +56,12 @@ type Controller struct {
 	proxyController port_forwarding.Controller
 
 	integratedPeerValidator integrated_validator.IntegratedValidator
+
+	// componentsDisabled, when true, forces the controller to emit legacy
+	// proto.NetworkMap to every peer regardless of capability. Set once at
+	// construction and never written after — readers race-free without a
+	// mutex.
+	componentsDisabled bool
 }
 
 type bufferUpdate struct {
@@ -89,10 +95,25 @@ func NewController(ctx context.Context, store store.Store, metrics telemetry.App
 		settingsManager:         settingsManager,
 		dnsDomain:               dnsDomain,
 		config:                  config,
+		componentsDisabled:      parseBoolEnv("NB_NETWORK_MAP_COMPONENTS_DISABLE"),
 
 		proxyController:       proxyController,
 		EphemeralPeersManager: ephemeralPeersManager,
 	}
+}
+
+// PeerNeedsComponents reports whether the gRPC layer should emit the
+// component-based wire format for this peer.
+func (c *Controller) PeerNeedsComponents(p *nbpeer.Peer) bool {
+	return p != nil && p.SupportsComponentNetworkMap() && !c.componentsDisabled
+}
+
+// parseBoolEnv reads an env var via strconv.ParseBool so callers accept the
+// usual "1/t/T/TRUE/true/True" set instead of being strict about a single
+// literal.
+func parseBoolEnv(key string) bool {
+	v, _ := strconv.ParseBool(os.Getenv(key))
+	return v
 }
 
 func (c *Controller) OnPeerConnected(ctx context.Context, accountID string, peerID string) (chan *network_map.UpdateMessage, error) {
@@ -222,18 +243,26 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 			c.metrics.CountCalcPostureChecksDuration(time.Since(start))
 			start = time.Now()
 
-			remotePeerNetworkMap := account.GetPeerNetworkMapFromComponents(ctx, p.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics, groupIDToUserIDs)
+			result := account.GetPeerNetworkMapResult(ctx, p.ID, c.componentsDisabled, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics, groupIDToUserIDs)
 
 			c.metrics.CountCalcPeerNetworkMapDuration(time.Since(start))
 
-			proxyNetworkMap, ok := proxyNetworkMaps[p.ID]
-			if ok {
-				remotePeerNetworkMap.Merge(proxyNetworkMap)
+			proxyNetworkMap := proxyNetworkMaps[p.ID]
+			if result.NetworkMap != nil && proxyNetworkMap != nil {
+				result.NetworkMap.Merge(proxyNetworkMap)
 			}
 
 			peerGroups := account.GetPeerGroups(p.ID)
 			start = time.Now()
-			update := grpc.ToSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, p, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSetting, maps.Keys(peerGroups), dnsFwdPort)
+			var update *proto.SyncResponse
+			if result.IsComponents() {
+				// proxyNetworkMap rides the envelope as a ProxyPatch sidecar;
+				// the client merges it into Calculate()'s output the same
+				// way the legacy server did via NetworkMap.Merge.
+				update = grpc.ToComponentSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, p, nil, nil, result.Components, proxyNetworkMap, dnsDomain, postureChecks, account.Settings, extraSetting, maps.Keys(peerGroups), dnsFwdPort)
+			} else {
+				update = grpc.ToSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, p, nil, nil, result.NetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSetting, maps.Keys(peerGroups), dnsFwdPort)
+			}
 			c.metrics.CountToSyncResponseDuration(time.Since(start))
 
 			c.peersUpdateManager.SendUpdate(ctx, p.ID, &network_map.UpdateMessage{
@@ -451,11 +480,11 @@ func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, pe
 		return err
 	}
 
-	remotePeerNetworkMap := account.GetPeerNetworkMapFromComponents(ctx, peerId, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics, groupIDToUserIDs)
+	result := account.GetPeerNetworkMapResult(ctx, peerId, c.componentsDisabled, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics, groupIDToUserIDs)
 
-	proxyNetworkMap, ok := proxyNetworkMaps[peer.ID]
-	if ok {
-		remotePeerNetworkMap.Merge(proxyNetworkMap)
+	proxyNetworkMap := proxyNetworkMaps[peer.ID]
+	if result.NetworkMap != nil && proxyNetworkMap != nil {
+		result.NetworkMap.Merge(proxyNetworkMap)
 	}
 
 	extraSettings, err := c.settingsManager.GetExtraSettings(ctx, peer.AccountID)
@@ -466,7 +495,12 @@ func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, pe
 	peerGroups := account.GetPeerGroups(peerId)
 	dnsFwdPort := computeForwarderPort(maps.Values(account.Peers), network_map.DnsForwarderPortMinVersion)
 
-	update := grpc.ToSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, peer, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSettings, maps.Keys(peerGroups), dnsFwdPort)
+	var update *proto.SyncResponse
+	if result.IsComponents() {
+		update = grpc.ToComponentSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, peer, nil, nil, result.Components, proxyNetworkMap, dnsDomain, postureChecks, account.Settings, extraSettings, maps.Keys(peerGroups), dnsFwdPort)
+	} else {
+		update = grpc.ToSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, peer, nil, nil, result.NetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSettings, maps.Keys(peerGroups), dnsFwdPort)
+	}
 	c.peersUpdateManager.SendUpdate(ctx, peer.ID, &network_map.UpdateMessage{
 		Update:      update,
 		MessageType: network_map.MessageTypeNetworkMap,
@@ -511,6 +545,66 @@ func (c *Controller) BufferUpdateAccountPeers(ctx context.Context, accountID str
 	}()
 
 	return nil
+}
+
+// GetValidatedPeerWithComponents is the components-format counterpart of
+// GetValidatedPeerWithMap. It returns raw NetworkMapComponents for capable
+// peers along with the proxy NetworkMap fragment (BYOP / port-forwarding
+// data the legacy server folds in via NetworkMap.Merge). The gRPC layer
+// encodes both into the wire envelope. Callers must gate on capability
+// themselves before dispatching here — this method does NOT branch on it.
+func (c *Controller) GetValidatedPeerWithComponents(ctx context.Context, isRequiresApproval bool, accountID string, peer *nbpeer.Peer) (*nbpeer.Peer, *types.NetworkMapComponents, *types.NetworkMap, []*posture.Checks, int64, error) {
+	if isRequiresApproval {
+		network, err := c.repo.GetAccountNetwork(ctx, accountID)
+		if err != nil {
+			return nil, nil, nil, nil, 0, err
+		}
+		return peer, &types.NetworkMapComponents{Network: network.Copy()}, nil, nil, 0, nil
+	}
+
+	account, err := c.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+	if err != nil {
+		return nil, nil, nil, nil, 0, err
+	}
+
+	account.InjectProxyPolicies(ctx)
+
+	approvedPeersMap, err := c.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
+	if err != nil {
+		return nil, nil, nil, nil, 0, err
+	}
+
+	postureChecks, err := c.getPeerPostureChecks(account, peer.ID)
+	if err != nil {
+		return nil, nil, nil, nil, 0, err
+	}
+
+	accountZones, err := c.repo.GetAccountZones(ctx, account.Id)
+	if err != nil {
+		return nil, nil, nil, nil, 0, err
+	}
+
+	// Fetch the proxy network map fragment for this peer alongside the
+	// components — same single-account-load path the streaming controller
+	// uses, so initial-sync delivers BYOP/forwarding patches synchronously
+	// instead of waiting for the next streaming push.
+	proxyNetworkMaps, err := c.proxyController.GetProxyNetworkMaps(ctx, account.Id, peer.ID, account.Peers)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get proxy network maps: %v", err)
+		return nil, nil, nil, nil, 0, err
+	}
+
+	dnsDomain := c.GetDNSDomain(account.Settings)
+	peersCustomZone := account.GetPeersCustomZone(ctx, dnsDomain)
+
+	resourcePolicies := account.GetResourcePoliciesMap()
+	routers := account.GetResourceRoutersMap()
+	groupIDToUserIDs := account.GetActiveGroupUsers()
+	components := account.GetPeerNetworkMapComponents(ctx, peer.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, groupIDToUserIDs)
+
+	dnsFwdPort := computeForwarderPort(maps.Values(account.Peers), network_map.DnsForwarderPortMinVersion)
+
+	return peer, components, proxyNetworkMaps[peer.ID], postureChecks, dnsFwdPort, nil
 }
 
 // BufferUpdateAffectedPeers accumulates peer IDs and flushes them after the buffer interval.

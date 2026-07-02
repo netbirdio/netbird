@@ -150,6 +150,12 @@ message SyncResponse {
   //                              SSO-registered; client clears its anchor
   //   set, valid timestamp     → new absolute UTC deadline
   google.protobuf.Timestamp sessionExpiresAt = 7;
+
+  // NetworkMapEnvelope carries the component-based wire format for peers that
+  // advertise PeerCapabilityComponentNetworkMap. When set, NetworkMap (field 5)
+  // is left empty: management ships components and the client runs Calculate()
+  // locally instead of receiving an expanded NetworkMap.
+  NetworkMapEnvelope NetworkMapEnvelope = 8;
 }
 
 message  SyncMetaRequest {
@@ -229,6 +235,8 @@ enum PeerCapability {
   PeerCapabilitySourcePrefixes = 1;
   // Client handles IPv6 overlay addresses and firewall rules.
   PeerCapabilityIPv6Overlay = 2;
+  // Client receives NetworkMap as components and assembles it locally.
+  PeerCapabilityComponentNetworkMap = 3;
 }
 
 // PeerSystemMeta is machine meta data like OS and version.
@@ -617,6 +625,13 @@ enum RuleProtocol {
   UDP = 3;
   ICMP = 4;
   CUSTOM = 5;
+  // NETBIRD_SSH (types.PolicyRuleProtocolType "netbird-ssh") is the marker
+  // policy rule that drives SSH-server activation in Calculate(). The legacy
+  // proto.FirewallRule path doesn't ship this value (Calculate already
+  // expands SSH rules into TCP/22 before encoding), but the components path
+  // ships RAW policies — the client must see this protocol to derive
+  // AuthorizedUsers locally.
+  NETBIRD_SSH = 6;
 }
 
 enum RuleDirection {
@@ -757,3 +772,462 @@ message StopExposeRequest {
 }
 
 message StopExposeResponse {}
+
+// =====================================================================
+// Component-based NetworkMap wire format (PeerCapabilityComponentNetworkMap).
+//
+// Peers that advertise this capability receive NetworkMap building blocks
+// (peers + groups + policies + routes + dns + ssh + forwarding) and run the
+// expansion (Calculate) locally instead of receiving a fully-expanded
+// NetworkMap from the server.
+// =====================================================================
+
+// NetworkMapEnvelope wraps either a full snapshot or a delta. Only Full is
+// emitted today; Delta is reserved for the incremental-update work.
+message NetworkMapEnvelope {
+  oneof payload {
+    NetworkMapComponentsFull full = 1;
+    NetworkMapComponentsDelta delta = 2;
+  }
+}
+
+// NetworkMapComponentsFull is the full per-peer component snapshot. The
+// client decodes it into a types.NetworkMapComponents and runs Calculate()
+// locally to produce the same NetworkMap the legacy server path would have
+// produced. Every field carries RAW component data — no server-side
+// expansion (firewall rules, DNS config, SSH auth, route firewall rules,
+// forwarding rules) is shipped; the client computes those itself.
+message NetworkMapComponentsFull {
+  uint64 serial = 1;
+
+  // Peer config for the receiving peer (legacy proto.PeerConfig kept as-is —
+  // it carries the receiving peer's own overlay address, FQDN, SSH config).
+  PeerConfig peer_config = 2;
+
+  // Account-level network metadata (id, IPv4/IPv6 overlay subnets, DNS,
+  // serial). Mirrors types.Network.
+  AccountNetwork network = 3;
+
+  // Account-level settings the client needs for its local Calculate().
+  AccountSettingsCompact account_settings = 4;
+
+  // Account DNS settings (mirrors types.DNSSettings).
+  DNSSettingsCompact dns_settings = 5;
+
+  // Domain shared across all peers in this account, e.g. "netbird.cloud".
+  // Each peer's FQDN is dns_label + "." + dns_domain.
+  string dns_domain = 6;
+
+  // Custom-zone domain for this peer's view (c.CustomZoneDomain). Empty when
+  // the peer has no custom zone records.
+  string custom_zone_domain = 7;
+
+  // Deduplicated agent versions; PeerCompact.agent_version_idx indexes here.
+  // Empty string at index 0 if any peer has no version.
+  repeated string agent_versions = 8;
+
+  // All peers (deduplicated). The client splits peers into online / offline
+  // locally using account_settings.peer_login_expiration on receive.
+  repeated PeerCompact peers = 9;
+
+  // Indexes into peers for the subset that may act as routers.
+  repeated uint32 router_peer_indexes = 10;
+
+  // Policies that affect the receiving peer.
+  repeated PolicyCompact policies = 11;
+
+  // Groups in unspecified order — clients key off id (account_seq_id).
+  repeated GroupCompact groups = 12;
+
+  // Routes relevant to this peer, raw shape (mirrors []*route.Route).
+  repeated RouteRaw routes = 13;
+
+  // Nameserver groups (mirrors []*nbdns.NameServerGroup).
+  repeated NameServerGroupRaw nameserver_groups = 14;
+
+  // All DNS records the client needs to assemble its custom zone. Reuses
+  // the existing SimpleRecord wire shape.
+  repeated SimpleRecord all_dns_records = 15;
+
+  // Custom zones (typically the peer's own zone). Reuses the existing
+  // CustomZone wire shape.
+  repeated CustomZone account_zones = 16;
+
+  // Network resources (mirrors []*resourceTypes.NetworkResource).
+  repeated NetworkResourceRaw network_resources = 17;
+
+  // Routers per network. Outer key: network account_seq_id. Each entry is
+  // the set of routers backing that network for this peer's view.
+  //
+  // INCOMPATIBLE WIRE CHANGE: the map key changed from string (network xid)
+  // to uint32 (account_seq_id). Field 18 was reused without a `reserved`
+  // entry because capability=3 has never been released — every cap=3
+  // producer and consumer carries the same regenerated descriptor. Do NOT
+  // reuse this pattern for any further wire change once cap=3 ships.
+  map<uint32, NetworkRouterList> routers_map = 18;
+
+  // For each NetworkResource account_seq_id, the indexes into policies[]
+  // that apply to it.
+  //
+  // INCOMPATIBLE WIRE CHANGE: see routers_map note above.
+  map<uint32, PolicyIndexes> resource_policies_map = 19;
+
+  // Group-id (account_seq_id) → user ids authorized for SSH on members.
+  map<uint32, UserIDList> group_id_to_user_ids = 20;
+
+  // Account-level allowed user ids (used by Calculate() when assembling SSH
+  // authorized users for the receiving peer).
+  repeated string allowed_user_ids = 21;
+
+  // Per posture-check account_seq_id, the set of peer indexes that failed
+  // the check. Server-side evaluation result; clients do not re-evaluate.
+  //
+  // INCOMPATIBLE WIRE CHANGE: see routers_map note above.
+  map<uint32, PeerIndexSet> posture_failed_peers = 22;
+
+  // Account-level DNS forwarder port (mirrors the legacy
+  // proto.DNSConfig.ForwarderPort). Computed by the controller from peer
+  // versions; clients fold it into their Calculate() DNS output.
+  int64 dns_forwarder_port = 23;
+
+  // Pre-expanded NetworkMap fragments injected post-Calculate by external
+  // controllers (BYOP / port-forwarding proxies). The receiving client
+  // merges these into its locally-computed NetworkMap the same way the
+  // legacy server does via NetworkMap.Merge — so downstream consumers see
+  // a unified merged result regardless of source.
+  ProxyPatch proxy_patch = 24;
+
+  // SSH UserIDClaim — server-side HttpServerConfig.AuthUserIDClaim, or
+  // "sub" by default. Populated in proto.SSHAuth.UserIDClaim when the
+  // client rebuilds the NetworkMap from this envelope. Empty when the
+  // account has no AuthorizedUsers (and thus no SshAuth to populate).
+  string user_id_claim = 25;
+
+  // Reserved for future component additions (incremental_serial, parent_seq,
+  // etc.) without forcing a renumber.
+  reserved 26 to 50;
+}
+
+// ProxyPatch carries NetworkMap fragments that don't fit the component-graph
+// model — they're pre-expanded by external controllers (BYOP /
+// port-forwarding proxies) and injected post-Calculate. Fields use the
+// legacy wire types because the proxy delivers them pre-formed; there is
+// no raw component shape to convert from. Empty when no proxy is active.
+message ProxyPatch {
+  repeated RemotePeerConfig peers = 1;
+  repeated RemotePeerConfig offline_peers = 2;
+  repeated FirewallRule firewall_rules = 3;
+  repeated Route routes = 4;
+  repeated RouteFirewallRule route_firewall_rules = 5;
+  repeated ForwardingRule forwarding_rules = 6;
+}
+
+// AccountSettingsCompact carries the account-level settings the client needs
+// to evaluate locally. Mirrors the subset of types.AccountSettingsInfo that
+// Calculate() actually reads — login-expiration (used to filter expired
+// peers). Inactivity expiration is purely server-side bookkeeping and is not
+// shipped.
+message AccountSettingsCompact {
+  bool peer_login_expiration_enabled = 1;
+  // Login expiration window. Unit is nanoseconds (matches time.Duration).
+  int64 peer_login_expiration_ns = 2;
+}
+
+// AccountNetwork is the account-level overlay metadata. Mirrors types.Network
+// so the client can populate NetworkMap.Network without a server round-trip.
+message AccountNetwork {
+  string identifier = 1;
+  // IPv4 overlay subnet in CIDR form (e.g. "100.64.0.0/16").
+  string net_cidr = 2;
+  // IPv6 ULA overlay subnet in CIDR form (e.g. "fd00:4e42::/64"). Empty when
+  // the account has no IPv6 overlay yet.
+  string net_v6_cidr = 3;
+  string dns = 4;
+  uint64 serial = 5;
+}
+
+// NetworkMapComponentsDelta is reserved for the incremental update
+// protocol. Field numbers 1–100 are pre-allocated to keep room for the
+// planned event types without needing a renumber.
+message NetworkMapComponentsDelta {
+  reserved 1 to 100;
+}
+
+// PeerCompact is the wire-shape of a remote peer used by the component
+// format. It carries every field of types.Peer that the client's local
+// Calculate() reads — including the trio needed to evaluate
+// LoginExpired() (added_with_sso_login + login_expiration_enabled +
+// last_login_unix_nano). Fields the client does not consume (Status,
+// CreatedAt, etc.) are not shipped.
+message PeerCompact {
+  // Raw 32-byte WireGuard public key (no base64 wrapping).
+  bytes wg_pub_key = 1;
+
+  // Raw 4-byte IPv4 overlay address. Always a /32 host route, so no prefix
+  // byte is needed.
+  bytes ip = 2;
+
+  // Raw 16-byte IPv6 overlay address; always a /128 host route. Empty when
+  // the peer has no IPv6 overlay address.
+  bytes ipv6 = 3;
+
+  // Raw SSH public key bytes (or empty).
+  bytes ssh_pub_key = 4;
+
+  // DNS label without the account's domain suffix. Full FQDN is
+  // dns_label + "." + NetworkMapComponentsFull.dns_domain.
+  string dns_label = 5;
+
+  // Index into NetworkMapComponentsFull.agent_versions.
+  uint32 agent_version_idx = 6;
+
+  // True iff the peer was added via SSO login (i.e., types.Peer.UserID is
+  // non-empty). Combined with login_expiration_enabled and
+  // last_login_unix_nano this lets the client reproduce
+  // (*Peer).LoginExpired() locally.
+  bool added_with_sso_login = 7;
+
+  // True when the peer's login can expire — mirrors
+  // types.Peer.LoginExpirationEnabled.
+  bool login_expiration_enabled = 8;
+
+  // Unix-nanosecond timestamp of the peer's last login. 0 when the peer has
+  // never logged in (server stores nil; client treats 0 as "epoch", which
+  // makes a fresh peer immediately expired iff login_expiration_enabled is
+  // true — the same semantics as types.Peer.GetLastLogin).
+  int64 last_login_unix_nano = 9;
+
+  // True when the peer has an SSH server enabled locally. Used by the
+  // legacy SSH path in Calculate() (`policyRuleImpliesLegacySSH`): a rule
+  // with protocol ALL/TCP-with-SSH-ports activates SSH for the receiving
+  // peer when this bit is set, even without an explicit NetbirdSSH rule.
+  bool ssh_enabled = 10;
+
+  reserved 11; // was: id (string xid)
+
+  // Mirror of types.Peer.SupportsIPv6() — !Meta.Flags.DisableIPv6 &&
+  // HasCapability(PeerCapabilityIPv6Overlay). Used by the local peer's
+  // Calculate() when deciding whether to emit IPv6 firewall rules
+  // (appendIPv6FirewallRule) against this peer's IPv6 address.
+  bool supports_ipv6 = 12;
+
+  // Mirror of types.Peer.SupportsSourcePrefixes() —
+  // HasCapability(PeerCapabilitySourcePrefixes). Determines whether the
+  // local peer's Calculate() emits SourcePrefixes alongside legacy PeerIP
+  // fields in proto.FirewallRule.
+  bool supports_source_prefixes = 13;
+
+  // Mirror of types.Peer.Meta.Flags.ServerSSHAllowed. Read by Calculate()
+  // when expanding TCP port-22 firewall rules — the native SSH companion
+  // (port 22022) is only added when this flag is set and the peer agent
+  // version supports it.
+  bool server_ssh_allowed = 14;
+}
+
+// PolicyCompact is the compact form of a policy rule. Group references use
+// the per-account integer ids from account_seq_counters; the client resolves
+// them against NetworkMapComponentsFull.groups. Direction is derived per-peer
+// on the client (ingress when the peer is in destination_group_ids, egress
+// when in source_group_ids; both when bidirectional).
+message PolicyCompact {
+  // Per-account integer id (matches policies.account_seq_id). Used as a
+  // stable reference for ResourcePoliciesMap.indexes and future delta
+  // updates.
+  uint32 id = 1;
+
+  RuleAction action = 2;
+  RuleProtocol protocol = 3;
+  bool bidirectional = 4;
+
+  // Single ports referenced by the rule.
+  repeated uint32 ports = 5;
+
+  // Port ranges (start..end) referenced by the rule.
+  repeated PortInfo.Range port_ranges = 6;
+
+  // Group ids (account_seq_id) of source / destination groups.
+  repeated uint32 source_group_ids = 7;
+  repeated uint32 destination_group_ids = 8;
+
+  reserved 9; // was: xid (string)
+
+  // SSH authorization fields. PolicyRule.AuthorizedGroups maps the rule's
+  // applicable group ids (account_seq_id) to a list of local-user names —
+  // when a peer in one of those groups is the SSH destination, the named
+  // local users gain access. AuthorizedUser is the single-user form
+  // (legacy: rule scopes SSH to one specific user id).
+  //
+  // Both fields are only consumed by Calculate() when the rule's protocol
+  // is NetbirdSSH (or the legacy implicit-SSH heuristic).
+  map<uint32, UserNameList> authorized_groups = 10;
+  string authorized_user = 11;
+
+  // Resource-typed rule sources/destinations. When a rule targets a specific
+  // peer (rather than groups), Calculate() reads SourceResource /
+  // DestinationResource — without these the rule's connection resources
+  // can't be produced on the client. ResourceCompact's peer_index refers to
+  // NetworkMapComponentsFull.peers; type is the raw ResourceType string
+  // ("peer", "host", "subnet", "domain"). Only "peer" is meaningful for
+  // Calculate's resource-typed rule path today.
+  ResourceCompact source_resource = 12;
+  ResourceCompact destination_resource = 13;
+
+  // Posture-check seq ids gating this policy's source peers. Calculate()
+  // reads them when filtering rule peers (peers that fail any listed check
+  // are dropped from sourcePeers). Match keys in
+  // NetworkMapComponentsFull.posture_failed_peers.
+  repeated uint32 source_posture_check_seq_ids = 15;
+
+  reserved 14; // was: source_posture_check_ids (repeated string xid)
+}
+
+// ResourceCompact mirrors types.Resource. Used by PolicyCompact to carry
+// rule.SourceResource / rule.DestinationResource when the rule targets a
+// specific resource (typically a peer) rather than groups.
+// peer_index_set tells whether peer_index is valid (proto3 uint32 cannot
+// disambiguate "0" from "unset"); set only when type == "peer".
+message ResourceCompact {
+  string type = 1;
+  bool peer_index_set = 2;
+  uint32 peer_index = 3;
+  reserved 4; // future: host/subnet/domain references when needed
+}
+
+// UserNameList is a list of local-user names — used as the value type in
+// PolicyCompact.authorized_groups.
+message UserNameList {
+  repeated string names = 1;
+}
+
+// GroupCompact is the wire-shape of a group: per-account integer id, optional
+// name, and indexes into NetworkMapComponentsFull.peers identifying members.
+message GroupCompact {
+  // Per-account integer id (matches groups.account_seq_id). Used by
+  // PolicyCompact.source_group_ids / destination_group_ids.
+  uint32 id = 1;
+
+  // Group name; only sent when non-empty (clients use it for diagnostics).
+  string name = 2;
+
+  // Indexes into NetworkMapComponentsFull.peers.
+  repeated uint32 peer_indexes = 3;
+}
+
+// DNSSettingsCompact mirrors types.DNSSettings.
+message DNSSettingsCompact {
+  // Group ids (account_seq_id) whose DNS management is disabled.
+  repeated uint32 disabled_management_group_ids = 1;
+}
+
+// RouteRaw mirrors *route.Route (the domain type), trimmed to fields that
+// types.NetworkMapComponents.Calculate() reads. Group references are
+// account_seq_ids; the routing peer (when set) is referenced by index into
+// NetworkMapComponentsFull.peers.
+message RouteRaw {
+  // Per-account integer id (matches routes.account_seq_id).
+  uint32 id = 1;
+  string net_id = 2;
+  string description = 3;
+
+  // Either network_cidr (e.g. "10.0.0.0/16") or domains is set, not both.
+  string network_cidr = 4;
+  repeated string domains = 5;
+  bool keep_route = 6;
+
+  // Routing peer reference: peer_index_set tells whether peer_index is valid
+  // (proto3 uint32 cannot disambiguate "0" from "unset"). Mutually exclusive
+  // with peer_group_ids.
+  //
+  // peer_index decodes back to types.Peer.ID (the peer's xid string), NOT
+  // to its WireGuard public key. This matches the server-side data flow:
+  // c.Routes carry route.Peer = peer.ID, and getRoutingPeerRoutes mutates
+  // it to peer.Key only after the route has been admitted to the network
+  // map. Decoders MUST set Route.Peer = peer.ID; the legacy Calculate()
+  // path will substitute the WG key downstream.
+  bool peer_index_set = 7;
+  uint32 peer_index = 8;
+  repeated uint32 peer_group_ids = 9;
+
+  int32 network_type = 10;
+  bool masquerade = 11;
+  int32 metric = 12;
+  bool enabled = 13;
+  repeated uint32 group_ids = 14;
+  repeated uint32 access_control_group_ids = 15;
+  bool skip_auto_apply = 16;
+
+  reserved 17; // was: xid (string)
+}
+
+// NameServerGroupRaw mirrors *nbdns.NameServerGroup. Distinct from the
+// legacy NameServerGroup (which is the wire-trimmed shape consumed by
+// proto.DNSConfig and lacks the Name/Description/Groups/Enabled fields).
+message NameServerGroupRaw {
+  uint32 id = 1;            // nameserver_groups.account_seq_id
+  string name = 2;
+  string description = 3;
+  // Reuses the legacy NameServer wire shape (IP as string).
+  repeated NameServer nameservers = 4;
+  // Group ids (account_seq_id) the NSG distributes nameservers to.
+  repeated uint32 group_ids = 5;
+  bool primary = 6;
+  repeated string domains = 7;
+  bool enabled = 8;
+  bool search_domains_enabled = 9;
+}
+
+// NetworkResourceRaw mirrors *resourceTypes.NetworkResource.
+//
+// INCOMPATIBLE WIRE CHANGE: field 2 changed from `string network_id` (xid)
+// to `uint32 network_seq` without a `reserved` entry. Safe only because
+// capability=3 has never been released — every cap=3 producer and consumer
+// carries the same regenerated descriptor. Do NOT reuse this pattern once
+// cap=3 ships.
+message NetworkResourceRaw {
+  uint32 id = 1;            // network_resources.account_seq_id
+  uint32 network_seq = 2;   // networks.account_seq_id (replaces xid)
+  string name = 3;
+  string description = 4;
+  // Resource type: "host" / "subnet" / "domain".
+  string type = 5;
+  string address = 6;
+  string domain_value = 7;  // resource.Domain
+  string prefix_cidr = 8;
+  bool enabled = 9;
+  reserved 10; // was: xid (string)
+}
+
+// NetworkRouterList carries the routers backing one network.
+message NetworkRouterList {
+  // Routers in this network, keyed by peer_index (the routing peer).
+  repeated NetworkRouterEntry entries = 1;
+}
+
+// NetworkRouterEntry mirrors a single *routerTypes.NetworkRouter; the routing
+// peer is referenced by index into NetworkMapComponentsFull.peers.
+message NetworkRouterEntry {
+  uint32 id = 1;            // network_routers.account_seq_id
+  uint32 peer_index = 2;
+  bool peer_index_set = 3;
+  repeated uint32 peer_group_ids = 4;
+  bool masquerade = 5;
+  int32 metric = 6;
+  bool enabled = 7;
+}
+
+// PolicyIndexes is a list of indexes into NetworkMapComponentsFull.policies.
+message PolicyIndexes {
+  repeated uint32 indexes = 1;
+}
+
+// UserIDList is a list of user ids — used as the value type in
+// NetworkMapComponentsFull.group_id_to_user_ids.
+message UserIDList {
+  repeated string user_ids = 1;
+}
+
+// PeerIndexSet is a set of peer indexes — used as the value type in
+// NetworkMapComponentsFull.posture_failed_peers.
+message PeerIndexSet {
+  repeated uint32 peer_indexes = 1;
+}

@@ -143,6 +143,39 @@ func (mr *MockControllerMockRecorder) GetValidatedPeerWithMap(ctx, isRequiresApp
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetValidatedPeerWithMap", reflect.TypeOf((*MockController)(nil).GetValidatedPeerWithMap), ctx, isRequiresApproval, accountID, peerID)
 }
 
+// GetValidatedPeerWithComponents mocks base method.
+func (m *MockController) GetValidatedPeerWithComponents(ctx context.Context, isRequiresApproval bool, accountID string, p *peer.Peer) (*peer.Peer, *types.NetworkMapComponents, *types.NetworkMap, []*posture.Checks, int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetValidatedPeerWithComponents", ctx, isRequiresApproval, accountID, p)
+	ret0, _ := ret[0].(*peer.Peer)
+	ret1, _ := ret[1].(*types.NetworkMapComponents)
+	ret2, _ := ret[2].(*types.NetworkMap)
+	ret3, _ := ret[3].([]*posture.Checks)
+	ret4, _ := ret[4].(int64)
+	ret5, _ := ret[5].(error)
+	return ret0, ret1, ret2, ret3, ret4, ret5
+}
+
+// GetValidatedPeerWithComponents indicates an expected call of GetValidatedPeerWithComponents.
+func (mr *MockControllerMockRecorder) GetValidatedPeerWithComponents(ctx, isRequiresApproval, accountID, p any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetValidatedPeerWithComponents", reflect.TypeOf((*MockController)(nil).GetValidatedPeerWithComponents), ctx, isRequiresApproval, accountID, p)
+}
+
+// PeerNeedsComponents mocks base method.
+func (m *MockController) PeerNeedsComponents(p *peer.Peer) bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PeerNeedsComponents", p)
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// PeerNeedsComponents indicates an expected call of PeerNeedsComponents.
+func (mr *MockControllerMockRecorder) PeerNeedsComponents(p any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PeerNeedsComponents", reflect.TypeOf((*MockController)(nil).PeerNeedsComponents), p)
+}
+
 // OnPeerConnected mocks base method.
 func (m *MockController) OnPeerConnected(ctx context.Context, accountID, peerID string) (chan *UpdateMessage, error) {
 	m.ctrl.T.Helper()

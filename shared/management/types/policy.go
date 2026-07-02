@@ -59,6 +59,10 @@ type Policy struct {
 	// AccountID is a reference to Account that this object belongs
 	AccountID string `json:"-" gorm:"index"`
 
+	// AccountSeqID is a per-account monotonically increasing identifier used as the
+	// compact wire id when sending NetworkMap components to capable peers.
+	AccountSeqID uint32 `json:"-" gorm:"index:idx_policies_account_seq_id;not null;default:0"`
+
 	// Name of the Policy
 	Name string
 
@@ -75,11 +79,19 @@ type Policy struct {
 	SourcePostureChecks []string `gorm:"serializer:json"`
 }
 
+// HasSeqID reports whether the policy has been persisted long enough to have
+// a per-account sequence id allocated. Wire encoders that key off
+// AccountSeqID must skip policies that return false here.
+func (p *Policy) HasSeqID() bool {
+	return p != nil && p.AccountSeqID != 0
+}
+
 // Copy returns a copy of the policy.
 func (p *Policy) Copy() *Policy {
 	c := &Policy{
 		ID:                  p.ID,
 		AccountID:           p.AccountID,
+		AccountSeqID:        p.AccountSeqID,
 		Name:                p.Name,
 		Description:         p.Description,
 		Enabled:             p.Enabled,

@@ -95,6 +95,9 @@ type Route struct {
 	ID ID `gorm:"primaryKey"`
 	// AccountID is a reference to Account that this object belongs
 	AccountID string `gorm:"index"`
+	// AccountSeqID is a per-account monotonically increasing identifier used as the
+	// compact wire id when sending NetworkMap components to capable peers.
+	AccountSeqID uint32 `json:"-" gorm:"index:idx_routes_account_seq_id;not null;default:0"`
 	// Network and Domains are mutually exclusive
 	Network             netip.Prefix `gorm:"serializer:json"`
 	Domains             domain.List  `gorm:"serializer:json"`
@@ -128,6 +131,7 @@ func (r *Route) Copy() *Route {
 	route := &Route{
 		ID:                  r.ID,
 		AccountID:           r.AccountID,
+		AccountSeqID:        r.AccountSeqID,
 		Description:         r.Description,
 		NetID:               r.NetID,
 		Network:             r.Network,

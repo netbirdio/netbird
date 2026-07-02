@@ -175,6 +175,12 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 			return err
 		}
 
+		seq, err := transaction.AllocateAccountSeqID(ctx, accountID, types.AccountSeqEntityRoute)
+		if err != nil {
+			return err
+		}
+		newRoute.AccountSeqID = seq
+
 		if err = transaction.SaveRoute(ctx, newRoute); err != nil {
 			return err
 		}
@@ -222,6 +228,7 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 		}
 
 		routeToSave.AccountID = accountID
+		routeToSave.AccountSeqID = oldRoute.AccountSeqID
 
 		if err = transaction.SaveRoute(ctx, routeToSave); err != nil {
 			return err

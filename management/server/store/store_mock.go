@@ -774,6 +774,21 @@ func (mr *MockStoreMockRecorder) EphemeralServiceExists(ctx, lockStrength, accou
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EphemeralServiceExists", reflect.TypeOf((*MockStore)(nil).EphemeralServiceExists), ctx, lockStrength, accountID, peerID, domain)
 }
 
+// AllocateAccountSeqID mocks base method.
+func (m *MockStore) AllocateAccountSeqID(ctx context.Context, accountID string, entity types2.AccountSeqEntity) (uint32, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AllocateAccountSeqID", ctx, accountID, entity)
+	ret0, _ := ret[0].(uint32)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AllocateAccountSeqID indicates an expected call of AllocateAccountSeqID.
+func (mr *MockStoreMockRecorder) AllocateAccountSeqID(ctx, accountID, entity interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AllocateAccountSeqID", reflect.TypeOf((*MockStore)(nil).AllocateAccountSeqID), ctx, accountID, entity)
+}
+
 // ExecuteInTransaction mocks base method.
 func (m *MockStore) ExecuteInTransaction(ctx context.Context, f func(Store) error) error {
 	m.ctrl.T.Helper()

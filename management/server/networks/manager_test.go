@@ -255,3 +255,73 @@ func Test_UpdateNetworkFailsWithPermissionDenied(t *testing.T) {
 	require.Error(t, err)
 	require.Nil(t, updatedNetwork)
 }
+
+// Test_CreateNetworkAllocatesSeqID verifies that CreateNetwork sets a
+// non-zero AccountSeqID on the persisted network (allocated through the
+// account_seq_counters table).
+func Test_CreateNetworkAllocatesSeqID(t *testing.T) {
+	ctx := context.Background()
+	const accountID = "testAccountId"
+	const userID = "testAdminId"
+
+	s, cleanUp, err := store.NewTestStoreFromSQL(ctx, "../testdata/networks.sql", t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(cleanUp)
+
+	am := mock_server.MockAccountManager{}
+	permissionsManager := permissions.NewManager(s)
+	groupsManager := groups.NewManagerMock()
+	routerManager := routers.NewManagerMock()
+	resourcesManager := resources.NewManager(s, permissionsManager, groupsManager, &am, nil)
+	manager := NewManager(s, permissionsManager, resourcesManager, routerManager, &am)
+
+	created, err := manager.CreateNetwork(ctx, userID, &types.Network{
+		AccountID: accountID,
+		Name:      "seq-allocation-test",
+	})
+	require.NoError(t, err)
+	require.NotZero(t, created.AccountSeqID, "CreateNetwork must allocate a non-zero AccountSeqID")
+}
+
+// Test_UpdateNetworkPreservesSeqID verifies UpdateNetwork does not reset
+// AccountSeqID even when the caller passes a zero value (the shape REST
+// handlers produce because the field is `json:"-"`).
+func Test_UpdateNetworkPreservesSeqID(t *testing.T) {
+	ctx := context.Background()
+	const accountID = "testAccountId"
+	const userID = "testAdminId"
+
+	s, cleanUp, err := store.NewTestStoreFromSQL(ctx, "../testdata/networks.sql", t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(cleanUp)
+
+	am := mock_server.MockAccountManager{}
+	permissionsManager := permissions.NewManager(s)
+	groupsManager := groups.NewManagerMock()
+	routerManager := routers.NewManagerMock()
+	resourcesManager := resources.NewManager(s, permissionsManager, groupsManager, &am, nil)
+	manager := NewManager(s, permissionsManager, resourcesManager, routerManager, &am)
+
+	created, err := manager.CreateNetwork(ctx, userID, &types.Network{
+		AccountID: accountID,
+		Name:      "seq-preserve-original",
+	})
+	require.NoError(t, err)
+	originalSeq := created.AccountSeqID
+	require.NotZero(t, originalSeq)
+
+	update := &types.Network{
+		AccountID: accountID,
+		ID:        created.ID,
+		Name:      "seq-preserve-renamed",
+	}
+	require.Zero(t, update.AccountSeqID, "incoming struct must mirror an HTTP handler shape")
+
+	_, err = manager.UpdateNetwork(ctx, userID, update)
+	require.NoError(t, err)
+
+	got, err := manager.GetNetwork(ctx, accountID, userID, created.ID)
+	require.NoError(t, err)
+	require.Equal(t, originalSeq, got.AccountSeqID, "AccountSeqID must survive UpdateNetwork")
+	require.Equal(t, "seq-preserve-renamed", got.Name)
+}

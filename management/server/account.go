@@ -1648,6 +1648,14 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 			return nil
 		}
 
+		for _, g := range newGroupsToCreate {
+			seq, err := transaction.AllocateAccountSeqID(ctx, userAuth.AccountId, types.AccountSeqEntityGroup)
+			if err != nil {
+				return fmt.Errorf("error allocating group seq id: %w", err)
+			}
+			g.AccountSeqID = seq
+		}
+
 		if err = transaction.CreateGroups(ctx, userAuth.AccountId, newGroupsToCreate); err != nil {
 			return fmt.Errorf("error saving groups: %w", err)
 		}

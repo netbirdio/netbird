@@ -42,6 +42,17 @@ type NetworkMapComponents struct {
 	PostureFailedPeers map[string]map[string]struct{}
 
 	RouterPeers map[string]*nbpeer.Peer
+
+	// NetworkXIDToSeq maps Network.ID (xid) → AccountSeqID. Populated by the
+	// account-side component builder; consumed by the envelope encoder to
+	// translate RoutersMap keys and NetworkResource.NetworkID references
+	// to compact uint32 ids. Legacy Calculate() doesn't consult it.
+	NetworkXIDToSeq map[string]uint32
+
+	// PostureCheckXIDToSeq maps posture.Checks.ID (xid) → AccountSeqID.
+	// Same role as NetworkXIDToSeq, used for PostureFailedPeers keys and
+	// policy SourcePostureChecks references.
+	PostureCheckXIDToSeq map[string]uint32
 }
 
 type AccountSettingsInfo struct {
@@ -252,7 +263,7 @@ func (c *NetworkMapComponents) getPeerConnectionResources(targetPeerID string) (
 				default:
 					authorizedUsers[auth.Wildcard] = c.getAllowedUserIDs()
 				}
-			} else if peerInDestinations && policyRuleImpliesLegacySSH(rule) && targetPeer.SSHEnabled {
+			} else if peerInDestinations && PolicyRuleImpliesLegacySSH(rule) && targetPeer.SSHEnabled {
 				sshEnabled = true
 				authorizedUsers[auth.Wildcard] = c.getAllowedUserIDs()
 			}
@@ -319,15 +330,15 @@ func (c *NetworkMapComponents) connResourcesGenerator(targetPeer *nbpeer.Peer) (
 				if len(rule.Ports) == 0 && len(rule.PortRanges) == 0 {
 					rules = append(rules, &fr)
 				} else {
-					rules = append(rules, expandPortsAndRanges(fr, rule, targetPeer)...)
+					rules = append(rules, ExpandPortsAndRanges(fr, rule, targetPeer)...)
 				}
 
-				rules = appendIPv6FirewallRule(rules, rulesExists, peer, targetPeer, rule, firewallRuleContext{
-					direction:   direction,
-					dirStr:      dirStr,
-					protocolStr: protocolStr,
-					actionStr:   actionStr,
-					portsJoined: portsJoined,
+				rules = AppendIPv6FirewallRule(rules, rulesExists, peer, targetPeer, rule, FirewallRuleContext{
+					Direction:   direction,
+					DirStr:      dirStr,
+					ProtocolStr: protocolStr,
+					ActionStr:   actionStr,
+					PortsJoined: portsJoined,
 				})
 			}
 		}, func() ([]*nbpeer.Peer, []*FirewallRule) {
@@ -684,7 +695,7 @@ func (c *NetworkMapComponents) getRouteFirewallRules(ctx context.Context, peerID
 			}
 
 			rulePeers := c.getRulePeers(rule, policy.SourcePostureChecks, peerID, distributionPeers)
-			rules := generateRouteFirewallRules(ctx, route, rule, rulePeers, FirewallRuleDirectionIN, includeIPv6)
+			rules := GenerateRouteFirewallRules(ctx, route, rule, rulePeers, FirewallRuleDirectionIN, includeIPv6)
 			fwRules = append(fwRules, rules...)
 		}
 	}
@@ -953,21 +964,21 @@ func (c *NetworkMapComponents) addNetworksRoutingPeers(
 	return peersToConnect
 }
 
-type firewallRuleContext struct {
-	direction   int
-	dirStr      string
-	protocolStr string
-	actionStr   string
-	portsJoined string
+type FirewallRuleContext struct {
+	Direction   int
+	DirStr      string
+	ProtocolStr string
+	ActionStr   string
+	PortsJoined string
 }
 
-func appendIPv6FirewallRule(rules []*FirewallRule, rulesExists map[string]struct{}, peer, targetPeer *nbpeer.Peer, rule *PolicyRule, rc firewallRuleContext) []*FirewallRule {
+func AppendIPv6FirewallRule(rules []*FirewallRule, rulesExists map[string]struct{}, peer, targetPeer *nbpeer.Peer, rule *PolicyRule, rc FirewallRuleContext) []*FirewallRule {
 	if !peer.IPv6.IsValid() || !targetPeer.SupportsIPv6() || !targetPeer.IPv6.IsValid() {
 		return rules
 	}
 
 	v6IP := peer.IPv6.String()
-	v6RuleID := rule.ID + v6IP + rc.dirStr + rc.protocolStr + rc.actionStr + rc.portsJoined
+	v6RuleID := rule.ID + v6IP + rc.DirStr + rc.ProtocolStr + rc.ActionStr + rc.PortsJoined
 	if _, ok := rulesExists[v6RuleID]; ok {
 		return rules
 	}
@@ -976,12 +987,12 @@ func appendIPv6FirewallRule(rules []*FirewallRule, rulesExists map[string]struct
 	v6fr := FirewallRule{
 		PolicyID:  rule.ID,
 		PeerIP:    v6IP,
-		Direction: rc.direction,
-		Action:    rc.actionStr,
-		Protocol:  rc.protocolStr,
+		Direction: rc.Direction,
+		Action:    rc.ActionStr,
+		Protocol:  rc.ProtocolStr,
 	}
 	if len(rule.Ports) == 0 && len(rule.PortRanges) == 0 {
 		return append(rules, &v6fr)
 	}
-	return append(rules, expandPortsAndRanges(v6fr, rule, targetPeer)...)
+	return append(rules, ExpandPortsAndRanges(v6fr, rule, targetPeer)...)
 }

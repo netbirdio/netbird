@@ -17,8 +17,9 @@ import (
 
 // Peer capability constants mirror the proto enum values.
 const (
-	PeerCapabilitySourcePrefixes int32 = 1
-	PeerCapabilityIPv6Overlay    int32 = 2
+	PeerCapabilitySourcePrefixes      int32 = 1
+	PeerCapabilityIPv6Overlay         int32 = 2
+	PeerCapabilityComponentNetworkMap int32 = 3
 )
 
 // Peer represents a machine connected to the network.
@@ -216,6 +217,14 @@ func (p *Peer) SupportsIPv6() bool {
 // SupportsSourcePrefixes reports whether the peer reads SourcePrefixes.
 func (p *Peer) SupportsSourcePrefixes() bool {
 	return p.HasCapability(PeerCapabilitySourcePrefixes)
+}
+
+// SupportsComponentNetworkMap reports whether the peer assembles its
+// NetworkMap from server-shipped components instead of consuming a fully
+// expanded NetworkMap. Determines whether the network_map controller skips
+// Calculate() server-side and emits the components envelope.
+func (p *Peer) SupportsComponentNetworkMap() bool {
+	return p.HasCapability(PeerCapabilityComponentNetworkMap)
 }
 
 func capabilitiesEqual(a, b []int32) bool {

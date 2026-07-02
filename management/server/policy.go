@@ -67,10 +67,18 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 
 			action = activity.PolicyUpdated
 
+			policy.AccountSeqID = existingPolicy.AccountSeqID
+
 			if err = transaction.SavePolicy(ctx, policy); err != nil {
 				return err
 			}
 		} else {
+			seq, err := transaction.AllocateAccountSeqID(ctx, accountID, types.AccountSeqEntityPolicy)
+			if err != nil {
+				return err
+			}
+			policy.AccountSeqID = seq
+
 			if err = transaction.CreatePolicy(ctx, policy); err != nil {
 				return err
 			}

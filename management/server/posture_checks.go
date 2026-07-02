@@ -12,6 +12,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -52,7 +53,19 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 		}
 
 		if isUpdate {
+			existing, err := transaction.GetPostureChecksByID(ctx, store.LockingStrengthNone, accountID, postureChecks.ID)
+			if err != nil {
+				return err
+			}
+			postureChecks.AccountSeqID = existing.AccountSeqID
+
 			action = activity.PostureCheckUpdated
+		} else {
+			seq, err := transaction.AllocateAccountSeqID(ctx, accountID, types.AccountSeqEntityPostureCheck)
+			if err != nil {
+				return err
+			}
+			postureChecks.AccountSeqID = seq
 		}
 
 		postureChecks.AccountID = accountID

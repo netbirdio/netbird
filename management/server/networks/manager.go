@@ -16,6 +16,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
+	serverTypes "github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -71,9 +72,20 @@ func (m *managerImpl) CreateNetwork(ctx context.Context, userID string, network 
 
 	network.ID = xid.New().String()
 
-	err = m.store.SaveNetwork(ctx, network)
+	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		seq, err := transaction.AllocateAccountSeqID(ctx, network.AccountID, serverTypes.AccountSeqEntityNetwork)
+		if err != nil {
+			return fmt.Errorf("failed to allocate network seq id: %w", err)
+		}
+		network.AccountSeqID = seq
+
+		if err := transaction.SaveNetwork(ctx, network); err != nil {
+			return fmt.Errorf("failed to save network: %w", err)
+		}
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to save network: %w", err)
+		return nil, err
 	}
 
 	m.accountManager.StoreEvent(ctx, userID, network.ID, network.AccountID, activity.NetworkCreated, network.EventMeta())
@@ -102,14 +114,25 @@ func (m *managerImpl) UpdateNetwork(ctx context.Context, userID string, network 
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	_, err = m.store.GetNetworkByID(ctx, store.LockingStrengthUpdate, network.AccountID, network.ID)
+	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		existing, err := transaction.GetNetworkByID(ctx, store.LockingStrengthUpdate, network.AccountID, network.ID)
+		if err != nil {
+			return fmt.Errorf("failed to get network: %w", err)
+		}
+		network.AccountSeqID = existing.AccountSeqID
+
+		if err := transaction.SaveNetwork(ctx, network); err != nil {
+			return fmt.Errorf("failed to save network: %w", err)
+		}
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get network: %w", err)
+		return nil, err
 	}
 
 	m.accountManager.StoreEvent(ctx, userID, network.ID, network.AccountID, activity.NetworkUpdated, network.EventMeta())
 
-	return network, m.store.SaveNetwork(ctx, network)
+	return network, nil
 }
 
 func (m *managerImpl) DeleteNetwork(ctx context.Context, accountID, userID, networkID string) error {

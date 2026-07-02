@@ -64,7 +64,9 @@ import (
 	"github.com/netbirdio/netbird/route"
 	mgm "github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/management/domain"
+	nbnetworkmap "github.com/netbirdio/netbird/shared/management/networkmap"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
+	types "github.com/netbirdio/netbird/shared/management/types"
 	"github.com/netbirdio/netbird/shared/netiputil"
 	auth "github.com/netbirdio/netbird/shared/relay/auth/hmac"
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
@@ -219,6 +221,13 @@ type Engine struct {
 
 	// networkSerial is the latest CurrentSerial (state ID) of the network sent by the Management service
 	networkSerial uint64
+
+	// latestComponents is the most-recent NetworkMapComponents decoded from
+	// a NetworkMapEnvelope (capability=3 peers only). Held alongside the
+	// NetworkMap that Calculate() produced from it so future incremental
+	// updates have a base to apply changes against. nil for legacy-format
+	// peers. Guarded by syncMsgMux.
+	latestComponents *types.NetworkMapComponents
 
 	networkMonitor *networkmonitor.NetworkMonitor
 
@@ -932,8 +941,12 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		return e.ctx.Err()
 	}
 
-	if update.NetworkMap != nil && update.NetworkMap.PeerConfig != nil {
-		e.handleAutoUpdateVersion(update.NetworkMap.PeerConfig.AutoUpdate)
+	// Envelope sync responses carry PeerConfig at the top level; legacy
+	// NetworkMap syncs carry it under NetworkMap.PeerConfig.
+	if pc := update.GetPeerConfig(); pc != nil {
+		e.handleAutoUpdateVersion(pc.GetAutoUpdate())
+	} else if nm := update.GetNetworkMap(); nm != nil && nm.GetPeerConfig() != nil {
+		e.handleAutoUpdateVersion(nm.GetPeerConfig().GetAutoUpdate())
 	}
 
 	done := e.phase("netbird_config")
@@ -943,12 +956,42 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		return err
 	}
 
+	// Decode the network map from either the components envelope or the
+	// legacy proto.NetworkMap before the posture-check gating below, so the
+	// "is there a network map" decision covers both wire shapes.
+	var (
+		nm         *mgmProto.NetworkMap
+		components *types.NetworkMapComponents
+	)
+	if envelope := update.GetNetworkMapEnvelope(); envelope != nil {
+		// Components-format peer: decode the envelope back to typed
+		// components, run Calculate() locally, and convert to the wire
+		// NetworkMap shape the rest of the engine consumes. Components are
+		// retained so future incremental updates can apply deltas instead
+		// of doing a full reconstruction.
+		localKey := e.config.WgPrivateKey.PublicKey().String()
+		dnsName := ""
+		if pc := update.GetPeerConfig(); pc != nil {
+			// PeerConfig.Fqdn = "<dns_label>.<dns_domain>" — extract the
+			// shared domain by stripping the peer's own label prefix. Falls
+			// back to empty if the FQDN doesn't have the expected shape.
+			dnsName = extractDNSDomainFromFQDN(pc.GetFqdn())
+		}
+		result, err := nbnetworkmap.EnvelopeToNetworkMap(e.ctx, envelope, localKey, dnsName)
+		if err != nil {
+			return fmt.Errorf("decode network map envelope: %w", err)
+		}
+		nm = result.NetworkMap
+		components = result.Components
+	} else {
+		nm = update.GetNetworkMap()
+	}
+
 	// Posture checks are bound to the network map presence:
 	//   NetworkMap != nil, checks present -> apply the received checks
 	//   NetworkMap != nil, checks nil     -> posture checks were removed, clear them
 	//   NetworkMap == nil                 -> config-only update (e.g. relay token rotation),
 	//                                        leave the previously applied checks untouched
-	nm := update.GetNetworkMap()
 	if nm == nil {
 		return nil
 	}
@@ -961,6 +1004,14 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	}
 
 	done = e.phase("persist")
+	// Only retain the components view when the server sent the envelope
+	// path. A legacy proto.NetworkMap means components == nil; writing it
+	// here would clobber a previously-cached snapshot, breaking the
+	// incremental-delta base on a future envelope sync.
+	if components != nil {
+		e.latestComponents = components
+	}
+
 	e.persistSyncResponse(update)
 	done()
 
@@ -972,6 +1023,19 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	e.statusRecorder.PublishEvent(cProto.SystemEvent_INFO, cProto.SystemEvent_SYSTEM, "Network map updated", "", nil)
 
 	return nil
+}
+
+// extractDNSDomainFromFQDN returns the trailing dotted domain part of the
+// receiving peer's FQDN — the same value the management server fills as
+// dnsName when it builds the legacy NetworkMap. "peer42.netbird.cloud" →
+// "netbird.cloud". An empty string is returned for unrecognized formats.
+func extractDNSDomainFromFQDN(fqdn string) string {
+	for i := 0; i < len(fqdn); i++ {
+		if fqdn[i] == '.' && i+1 < len(fqdn) {
+			return fqdn[i+1:]
+		}
+	}
+	return ""
 }
 
 // updateNetbirdConfig applies the management-provided NetBird configuration:

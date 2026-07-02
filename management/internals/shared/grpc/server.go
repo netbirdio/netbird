@@ -1016,7 +1016,31 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 		return status.Errorf(codes.Internal, "failed to get peer groups %s", err)
 	}
 
-	plainResp := ToSyncResponse(ctx, s.config, s.config.HttpConfig, s.config.DeviceAuthorizationFlow, peer, turnToken, relayToken, networkMap, s.networkMapController.GetDNSDomain(settings), postureChecks, nil, settings, settings.Extra, peerGroups, dnsFwdPort)
+	dnsName := s.networkMapController.GetDNSDomain(settings)
+
+	var plainResp *proto.SyncResponse
+	if s.networkMapController.PeerNeedsComponents(peer) {
+		// Capable peer: discard the legacy NetworkMap that SyncAndMarkPeer
+		// computed and recompute the raw components instead. This wastes one
+		// Calculate() call per initial-sync — the component-based wire
+		// format is what the peer actually consumes. The streaming path
+		// (network_map.Controller.UpdateAccountPeers) skips this duplication
+		// because it dispatches by capability before computing.
+		//
+		// TODO: refactor SyncPeer / SyncAndMarkPeer / their mocks + manager
+		// interfaces to return PeerNetworkMapResult so the initial-sync path
+		// stops doing duplicate work. Deferred until the client-side
+		// decoder lands and there's a real deployment of capability=3 peers
+		// worth optimizing for.
+		_, components, proxyPatch, _, _, err := s.networkMapController.GetValidatedPeerWithComponents(ctx, false, peer.AccountID, peer)
+		if err != nil {
+			log.WithContext(ctx).Errorf("failed to build components for peer %s on initial sync: %v", peer.ID, err)
+			return status.Errorf(codes.Internal, "failed to build initial sync envelope")
+		}
+		plainResp = ToComponentSyncResponse(ctx, s.config, s.config.HttpConfig, s.config.DeviceAuthorizationFlow, peer, turnToken, relayToken, components, proxyPatch, dnsName, postureChecks, settings, settings.Extra, peerGroups, dnsFwdPort)
+	} else {
+		plainResp = ToSyncResponse(ctx, s.config, s.config.HttpConfig, s.config.DeviceAuthorizationFlow, peer, turnToken, relayToken, networkMap, dnsName, postureChecks, nil, settings, settings.Extra, peerGroups, dnsFwdPort)
+	}
 
 	key, err := s.secretsManager.GetWGKey()
 	if err != nil {

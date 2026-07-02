@@ -13,6 +13,9 @@ type NetworkRouter struct {
 	ID         string `gorm:"primaryKey"`
 	NetworkID  string `gorm:"index"`
 	AccountID  string `gorm:"index"`
+	// AccountSeqID is a per-account monotonically increasing identifier used as the
+	// compact wire id when sending NetworkMap components to capable peers.
+	AccountSeqID uint32 `json:"-" gorm:"index:idx_network_routers_account_seq_id;not null;default:0"`
 	Peer       string
 	PeerGroups []string `gorm:"serializer:json"`
 	Masquerade bool
@@ -78,14 +81,15 @@ func (n *NetworkRouter) FromAPIRequest(req *api.NetworkRouterRequest) {
 
 func (n *NetworkRouter) Copy() *NetworkRouter {
 	return &NetworkRouter{
-		ID:         n.ID,
-		NetworkID:  n.NetworkID,
-		AccountID:  n.AccountID,
-		Peer:       n.Peer,
-		PeerGroups: n.PeerGroups,
-		Masquerade: n.Masquerade,
-		Metric:     n.Metric,
-		Enabled:    n.Enabled,
+		ID:           n.ID,
+		NetworkID:    n.NetworkID,
+		AccountID:    n.AccountID,
+		AccountSeqID: n.AccountSeqID,
+		Peer:         n.Peer,
+		PeerGroups:   n.PeerGroups,
+		Masquerade:   n.Masquerade,
+		Metric:       n.Metric,
+		Enabled:      n.Enabled,
 	}
 }
 

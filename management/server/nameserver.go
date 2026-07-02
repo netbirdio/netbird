@@ -67,6 +67,12 @@ func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, acco
 			return err
 		}
 
+		seq, err := transaction.AllocateAccountSeqID(ctx, accountID, types.AccountSeqEntityNameserverGroup)
+		if err != nil {
+			return err
+		}
+		newNSGroup.AccountSeqID = seq
+
 		if err = transaction.SaveNameServerGroup(ctx, newNSGroup); err != nil {
 			return err
 		}
@@ -115,6 +121,8 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 		if err = validateNameServerGroup(ctx, transaction, accountID, nsGroupToSave); err != nil {
 			return err
 		}
+
+		nsGroupToSave.AccountSeqID = oldNSGroup.AccountSeqID
 
 		if err = transaction.SaveNameServerGroup(ctx, nsGroupToSave); err != nil {
 			return err

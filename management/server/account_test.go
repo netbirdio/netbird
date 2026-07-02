@@ -3170,6 +3170,16 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthNone, "user2")
 		assert.NoError(t, err, "unable to get user")
 		assert.Len(t, user.AutoGroups, 1, "new group should be added")
+
+		var newJWTGroup *types.Group
+		for _, g := range groups {
+			if g.Name == "group3" {
+				newJWTGroup = g
+				break
+			}
+		}
+		require.NotNil(t, newJWTGroup, "JIT-created JWT group not found")
+		assert.NotZero(t, newJWTGroup.AccountSeqID, "JIT-created JWT group must have a non-zero AccountSeqID")
 	})
 
 	t.Run("remove all JWT groups when list is empty", func(t *testing.T) {

@@ -37,7 +37,7 @@ jobs:
             display_name: Linux
     name: ${{ matrix.display_name }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - name: Checkout code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -62,4 +62,4 @@ jobs:
           skip-cache: true
           skip-save-cache: true
           cache-invalidation-interval: 0
-          args: --timeout=12m
+          args: --timeout=20m

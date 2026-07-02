@@ -146,6 +146,12 @@ func (m *managerImpl) createResourceInTransaction(ctx context.Context, transacti
 		return nil, nil, fmt.Errorf("failed to get network: %w", err)
 	}
 
+	seq, err := transaction.AllocateAccountSeqID(ctx, resource.AccountID, nbtypes.AccountSeqEntityNetworkResource)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to allocate network resource seq id: %w", err)
+	}
+	resource.AccountSeqID = seq
+
 	if err = transaction.SaveNetworkResource(ctx, resource); err != nil {
 		return nil, nil, fmt.Errorf("failed to save network resource: %w", err)
 	}
@@ -245,6 +251,7 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 		if err != nil {
 			return fmt.Errorf("failed to get network resource: %w", err)
 		}
+		resource.AccountSeqID = oldResource.AccountSeqID
 
 		oldGroups, err := m.groupsManager.GetResourceGroupsInTransaction(ctx, transaction, store.LockingStrengthNone, resource.AccountID, resource.ID)
 		if err != nil {
