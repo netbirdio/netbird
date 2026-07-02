@@ -43,8 +43,6 @@ func (h *eventHandler) listen(ctx context.Context) {
 			h.handleAutoConnectClick()
 		case <-h.client.mEnableRosenpass.ClickedCh:
 			h.handleRosenpassClick()
-		case <-h.client.mLazyConnEnabled.ClickedCh:
-			h.handleLazyConnectionClick()
 		case <-h.client.mBlockInbound.ClickedCh:
 			h.handleBlockInboundClick()
 		case <-h.client.mAdvancedSettings.ClickedCh:
@@ -149,15 +147,6 @@ func (h *eventHandler) handleRosenpassClick() {
 		h.toggleCheckbox(h.client.mEnableRosenpass) // revert checkbox state on error
 		log.Errorf("failed to update config: %v", err)
 		h.client.notifier.Send("Error", "Failed to update Rosenpass settings")
-	}
-}
-
-func (h *eventHandler) handleLazyConnectionClick() {
-	h.toggleCheckbox(h.client.mLazyConnEnabled)
-	if err := h.updateConfigWithErr(); err != nil {
-		h.toggleCheckbox(h.client.mLazyConnEnabled) // revert checkbox state on error
-		log.Errorf("failed to update config: %v", err)
-		h.client.notifier.Send("Error", "Failed to update lazy connection settings")
 	}
 }
 
