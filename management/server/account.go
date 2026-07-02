@@ -358,7 +358,8 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 			oldSettings.AutoUpdateVersion != newSettings.AutoUpdateVersion ||
 			oldSettings.AutoUpdateAlways != newSettings.AutoUpdateAlways ||
 			oldSettings.PeerLoginExpirationEnabled != newSettings.PeerLoginExpirationEnabled ||
-			oldSettings.PeerLoginExpiration != newSettings.PeerLoginExpiration {
+			oldSettings.PeerLoginExpiration != newSettings.PeerLoginExpiration ||
+			oldSettings.MetricsPushEnabled != newSettings.MetricsPushEnabled {
 			// Session deadline is derived from LastLogin + PeerLoginExpiration
 			// on every Login/Sync response. Without a fan-out push, connected
 			// peers keep the deadline they received at login time and only see
@@ -409,6 +410,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	am.handleAutoUpdateVersionSettings(ctx, oldSettings, newSettings, userID, accountID)
 	am.handleAutoUpdateAlwaysSettings(ctx, oldSettings, newSettings, userID, accountID)
 	am.handlePeerExposeSettings(ctx, oldSettings, newSettings, userID, accountID)
+	am.handleMetricsPushSettings(ctx, oldSettings, newSettings, userID, accountID)
 	if err = am.handleInactivityExpirationSettings(ctx, oldSettings, newSettings, userID, accountID); err != nil {
 		return nil, err
 	}
@@ -563,6 +565,16 @@ func (am *DefaultAccountManager) handleLazyConnectionSettings(ctx context.Contex
 	}
 }
 
+func (am *DefaultAccountManager) handleMetricsPushSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) {
+	if oldSettings.MetricsPushEnabled != newSettings.MetricsPushEnabled {
+		if newSettings.MetricsPushEnabled {
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountMetricsPushEnabled, nil)
+		} else {
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountMetricsPushDisabled, nil)
+		}
+	}
+}
+
 func (am *DefaultAccountManager) handlePeerLoginExpirationSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) {
 	if oldSettings.PeerLoginExpirationEnabled != newSettings.PeerLoginExpirationEnabled {
 		event := activity.AccountPeerLoginExpirationEnabled
@@ -689,7 +701,7 @@ func (am *DefaultAccountManager) peerLoginExpirationJob(ctx context.Context, acc
 
 		log.WithContext(ctx).Debugf("discovered %d peers to expire for account %s", len(peerIDs), accountID)
 
-		if err := am.expireAndUpdatePeers(ctx, accountID, expiredPeers); err != nil {
+		if err := am.expireAndUpdatePeers(ctx, accountID, expiredPeers, peerExpirationSessionExpired); err != nil {
 			log.WithContext(ctx).Errorf("failed updating account peers while expiring peers for account %s", accountID)
 			return peerSchedulerRetryInterval, true
 		}
@@ -724,7 +736,7 @@ func (am *DefaultAccountManager) peerInactivityExpirationJob(ctx context.Context
 
 		log.Debugf("discovered %d peers to expire for account %s", len(peerIDs), accountID)
 
-		if err := am.expireAndUpdatePeers(ctx, accountID, inactivePeers); err != nil {
+		if err := am.expireAndUpdatePeers(ctx, accountID, inactivePeers, peerExpirationInactivity); err != nil {
 			log.Errorf("failed updating account peers while expiring peers for account %s", accountID)
 			return peerSchedulerRetryInterval, true
 		}
@@ -1889,12 +1901,12 @@ func domainIsUpToDate(domain string, domainCategory string, userAuth auth.UserAu
 // concurrent stream that started earlier loses the optimistic-lock race
 // in MarkPeerConnected and bails without writing.
 func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP, syncTime time.Time) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, int64, error) {
-	peer, netMap, postureChecks, dnsfwdPort, err := am.SyncPeer(ctx, types.PeerSync{WireGuardPubKey: peerPubKey, Meta: meta}, accountID)
+	peer, netMap, postureChecks, dnsfwdPort, err := am.SyncPeer(ctx, types.PeerSync{WireGuardPubKey: peerPubKey, Meta: meta, RealIP: realIP}, accountID)
 	if err != nil {
 		return nil, nil, nil, 0, fmt.Errorf("error syncing peer: %w", err)
 	}
 
-	if err := am.MarkPeerConnected(ctx, peerPubKey, realIP, accountID, syncTime.UnixNano(), netMap); err != nil {
+	if err := am.MarkPeerConnected(ctx, peerPubKey, accountID, syncTime.UnixNano(), netMap); err != nil {
 		log.WithContext(ctx).Warnf("failed marking peer as connected %s %v", peerPubKey, err)
 	}
 
@@ -1914,13 +1926,13 @@ func (am *DefaultAccountManager) OnPeerDisconnected(ctx context.Context, account
 	return nil
 }
 
-func (am *DefaultAccountManager) SyncPeerMeta(ctx context.Context, peerPubKey string, meta nbpeer.PeerSystemMeta) error {
+func (am *DefaultAccountManager) SyncPeerMeta(ctx context.Context, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) error {
 	accountID, err := am.Store.GetAccountIDByPeerPubKey(ctx, peerPubKey)
 	if err != nil {
 		return err
 	}
 
-	_, _, _, _, err = am.SyncPeer(ctx, types.PeerSync{WireGuardPubKey: peerPubKey, Meta: meta, UpdateAccountPeers: true}, accountID)
+	_, _, _, _, err = am.SyncPeer(ctx, types.PeerSync{WireGuardPubKey: peerPubKey, Meta: meta, RealIP: realIP, UpdateAccountPeers: true}, accountID)
 	if err != nil {
 		return err
 	}
@@ -1949,7 +1961,7 @@ func (am *DefaultAccountManager) onPeersInvalidated(ctx context.Context, account
 		}
 	}
 	if len(peers) > 0 {
-		err := am.expireAndUpdatePeers(ctx, accountID, peers)
+		err := am.expireAndUpdatePeers(ctx, accountID, peers, peerExpirationValidationFailed)
 		if err != nil {
 			log.WithContext(ctx).Errorf("failed to expire and update invalidated peers for account %s: %v", accountID, err)
 			return
@@ -2045,6 +2057,7 @@ func newAccountWithId(ctx context.Context, accountID, userID, domain, email, nam
 			Extra: &types.ExtraSettings{
 				UserApprovalRequired: true,
 			},
+			LazyConnectionEnabled: true,
 		},
 		Onboarding: types.AccountOnboarding{
 			OnboardingFlowPending: true,

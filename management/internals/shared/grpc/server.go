@@ -254,7 +254,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 		return mapError(ctx, err)
 	}
 
-	metahashed := metaHash(peerMeta, sRealIP)
+	metahashed := metaHash(peerMeta)
 	if userID == "" && !s.loginFilter.allowLogin(peerKey.String(), metahashed) {
 		if s.appMetrics != nil {
 			s.appMetrics.GRPCMetrics().CountSyncRequestBlocked()
@@ -306,7 +306,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 		log.WithContext(ctx).Tracef("peer system meta has to be provided on sync. Peer %s, remote addr %s", peerKey.String(), realIP)
 	}
 
-	metahash := metaHash(peerMeta, realIP.String())
+	metahash := metaHash(peerMeta)
 	s.loginFilter.addLogin(peerKey.String(), metahash)
 
 	peer, netMap, postureChecks, dnsFwdPort, err := s.accountManager.SyncAndMarkPeer(ctx, accountID, peerKey.String(), peerMeta, realIP, syncStart)
@@ -732,7 +732,7 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 	}
 
 	peerMeta := extractPeerMeta(ctx, loginReq.GetMeta())
-	metahashed := metaHash(peerMeta, sRealIP)
+	metahashed := metaHash(peerMeta)
 	if !s.loginFilter.allowLogin(peerKey.String(), metahashed) {
 		if s.logBlockedPeers {
 			log.WithContext(ctx).Tracef("peer %s with meta hash %d is blocked from login", peerKey.String(), metahashed)
@@ -788,7 +788,11 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 		ExtraDNSLabels:  loginReq.GetDnsLabels(),
 	})
 	if err != nil {
-		log.WithContext(ctx).Warnf("failed logging in peer %s: %s", peerKey, err)
+		if errors.Is(err, internalStatus.ErrNoAuthMethodProvided) {
+			log.WithContext(ctx).Tracef("failed logging in peer %s: %s", peerKey, err)
+		} else {
+			log.WithContext(ctx).Warnf("failed logging in peer %s: %s", peerKey, err)
+		}
 		return nil, mapError(ctx, err)
 	}
 
@@ -913,7 +917,7 @@ func (s *Server) prepareLoginResponse(ctx context.Context, peer *nbpeer.Peer, ne
 
 	// if peer has reached this point then it has logged in
 	loginResp := &proto.LoginResponse{
-		NetbirdConfig: toNetbirdConfig(s.config, nil, relayToken, nil),
+		NetbirdConfig: toNetbirdConfig(s.config, nil, relayToken, nil, settings),
 		PeerConfig:    toPeerConfig(peer, network, s.networkMapController.GetDNSDomain(settings), settings, s.config.HttpConfig, s.config.DeviceAuthorizationFlow, enableSSH),
 		Checks:        toProtocolChecks(ctx, postureChecks),
 	}
@@ -1205,7 +1209,7 @@ func (s *Server) SyncMeta(ctx context.Context, req *proto.EncryptedMessage) (*pr
 		return nil, msg
 	}
 
-	err = s.accountManager.SyncPeerMeta(ctx, peerKey.String(), extractPeerMeta(ctx, syncMetaReq.GetMeta()))
+	err = s.accountManager.SyncPeerMeta(ctx, peerKey.String(), extractPeerMeta(ctx, syncMetaReq.GetMeta()), realIP)
 	if err != nil {
 		return nil, mapError(ctx, err)
 	}
@@ -1254,7 +1258,10 @@ func (s *Server) Logout(ctx context.Context, req *proto.EncryptedMessage) (*prot
 func toProtocolChecks(ctx context.Context, postureChecks []*posture.Checks) []*proto.Checks {
 	protoChecks := make([]*proto.Checks, 0, len(postureChecks))
 	for _, postureCheck := range postureChecks {
-		protoChecks = append(protoChecks, toProtocolCheck(postureCheck))
+		check := toProtocolCheck(postureCheck)
+		if check != nil {
+			protoChecks = append(protoChecks, check)
+		}
 	}
 
 	return protoChecks
@@ -1276,6 +1283,10 @@ func toProtocolCheck(postureCheck *posture.Checks) *proto.Checks {
 				protoCheck.Files = append(protoCheck.Files, process.WindowsPath)
 			}
 		}
+	}
+
+	if len(protoCheck.Files) == 0 {
+		return nil
 	}
 
 	return protoCheck

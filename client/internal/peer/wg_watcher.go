@@ -31,7 +31,9 @@ type WGWatcher struct {
 	stateDump     *stateDump
 
 	enabled   bool
-	muEnabled sync.RWMutex
+	muEnabled sync.Mutex
+	// initialHandshake is not thread-safe; never call PrepareInitialHandshake and EnableWgWatcher concurrently.
+	initialHandshake time.Time
 
 	resetCh chan struct{}
 }
@@ -46,36 +48,36 @@ func NewWGWatcher(log *log.Entry, wgIfaceStater WGInterfaceStater, peerKey strin
 	}
 }
 
-// EnableWgWatcher starts the WireGuard watcher. If it is already enabled, it will return immediately and do nothing.
-// The watcher runs until ctx is cancelled. Caller is responsible for context lifecycle management.
-func (w *WGWatcher) EnableWgWatcher(ctx context.Context, enabledTime time.Time, onDisconnectedFn func(), onHandshakeSuccessFn func(when time.Time)) {
+// PrepareInitialHandshake reserves the watcher and reads the peer's current WireGuard
+// handshake time. It must be called before the peer is (re)configured on the WireGuard
+// interface, so the captured baseline reflects the state prior to this connection attempt
+// instead of racing with that configuration. Returns ok=false if the watcher is already
+// running, in which case EnableWgWatcher must not be called.
+func (w *WGWatcher) PrepareInitialHandshake() (ok bool) {
 	w.muEnabled.Lock()
 	if w.enabled {
 		w.muEnabled.Unlock()
-		return
+		return false
 	}
 
 	w.log.Debugf("enable WireGuard watcher")
 	w.enabled = true
 	w.muEnabled.Unlock()
 
-	initialHandshake, err := w.wgState()
-	if err != nil {
-		w.log.Warnf("failed to read initial wg stats: %v", err)
-	}
+	handshake, _ := w.wgState()
+	w.initialHandshake = handshake
+	return true
+}
 
-	w.periodicHandshakeCheck(ctx, onDisconnectedFn, onHandshakeSuccessFn, enabledTime, initialHandshake)
+// EnableWgWatcher runs the WireGuard watcher loop using the handshake baseline captured by
+// PrepareInitialHandshake. The watcher runs until ctx is cancelled. Caller is responsible
+// for context lifecycle management.
+func (w *WGWatcher) EnableWgWatcher(ctx context.Context, enabledTime time.Time, onDisconnectedFn func(), onHandshakeSuccessFn func(when time.Time)) {
+	w.periodicHandshakeCheck(ctx, onDisconnectedFn, onHandshakeSuccessFn, enabledTime, w.initialHandshake)
 
 	w.muEnabled.Lock()
 	w.enabled = false
 	w.muEnabled.Unlock()
-}
-
-// IsEnabled returns true if the WireGuard watcher is currently enabled
-func (w *WGWatcher) IsEnabled() bool {
-	w.muEnabled.RLock()
-	defer w.muEnabled.RUnlock()
-	return w.enabled
 }
 
 // Reset signals the watcher that the WireGuard peer has been reset and a new
@@ -101,13 +103,16 @@ func (w *WGWatcher) periodicHandshakeCheck(ctx context.Context, onDisconnectedFn
 		case <-timer.C:
 			handshake, ok := w.handshakeCheck(lastHandshake)
 			if !ok {
+				if ctx.Err() != nil {
+					return
+				}
 				onDisconnectedFn()
 				return
 			}
 			if lastHandshake.IsZero() {
 				elapsed := calcElapsed(enabledTime, *handshake)
 				w.log.Infof("first wg handshake detected within: %.2fsec, (%s)", elapsed, handshake)
-				if onHandshakeSuccessFn != nil {
+				if onHandshakeSuccessFn != nil && ctx.Err() == nil {
 					onHandshakeSuccessFn(*handshake)
 				}
 			}
