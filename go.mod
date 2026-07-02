@@ -20,7 +20,7 @@ require (
 	github.com/spf13/pflag v1.0.9
 	github.com/vishvananda/netlink v1.3.1
 	golang.org/x/crypto v0.50.0
-	golang.org/x/sys v0.43.0
+	golang.org/x/sys v0.46.0
 	golang.zx2c4.com/wireguard v0.0.0-20231211153847-12269c276173
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20241231184526-a9ab2273dd10
 	golang.zx2c4.com/wireguard/windows v0.5.3
