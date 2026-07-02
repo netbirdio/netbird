@@ -49,14 +49,7 @@ func init() {
 
 func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken *Token, extraSettings *types.ExtraSettings, settings *types.Settings) *proto.NetbirdConfig {
 	if config == nil {
-		if settings == nil {
-			return nil
-		}
-		return &proto.NetbirdConfig{
-			Metrics: &proto.MetricsConfig{
-				Enabled: settings.MetricsPushEnabled,
-			},
-		}
+		return nil
 	}
 
 	var stuns []*proto.HostConfig
