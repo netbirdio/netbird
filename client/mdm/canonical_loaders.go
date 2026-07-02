@@ -27,6 +27,7 @@ var allKeys = []string{
 	KeyWireguardPort,
 	KeySplitTunnelMode,
 	KeySplitTunnelApps,
+	KeyLazyConnection,
 }
 
 // canonicalKey maps the lowercase form of a managed-config value name to

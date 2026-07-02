@@ -107,6 +107,41 @@ func TestRouter_HappyPath(t *testing.T) {
 	assert.Equal(t, "allow", dec, "decision metadata must be allow on a match")
 }
 
+func TestRouter_SkipTLSVerifyPropagates(t *testing.T) {
+	base := ProviderRoute{
+		ID:              "internal-gw",
+		Models:          []string{"gpt-4o"},
+		AllowedGroupIDs: []string{defaultTestGroup},
+		UpstreamScheme:  "https",
+		UpstreamHost:    "gateway.internal",
+		AuthHeaderName:  "Authorization",
+		AuthHeaderValue: "Bearer sk-test-123",
+	}
+
+	t.Run("enabled", func(t *testing.T) {
+		route := base
+		route.SkipTLSVerify = true
+		mw := New(Config{Providers: []ProviderRoute{route}})
+
+		out, err := mw.Invoke(context.Background(), newInputWithModel("gpt-4o"))
+		require.NoError(t, err)
+		require.NotNil(t, out.Mutations, "matched route must emit mutations")
+		require.NotNil(t, out.Mutations.RewriteUpstream, "matched route must emit upstream rewrite")
+		assert.True(t, out.Mutations.RewriteUpstream.SkipTLSVerify,
+			"skip_tls_verify on the route must ride on the upstream rewrite")
+	})
+
+	t.Run("default off", func(t *testing.T) {
+		mw := New(Config{Providers: []ProviderRoute{base}})
+
+		out, err := mw.Invoke(context.Background(), newInputWithModel("gpt-4o"))
+		require.NoError(t, err)
+		require.NotNil(t, out.Mutations.RewriteUpstream, "matched route must emit upstream rewrite")
+		assert.False(t, out.Mutations.RewriteUpstream.SkipTLSVerify,
+			"skip_tls_verify must default to false when the route does not set it")
+	})
+}
+
 func TestRouter_MissingModel(t *testing.T) {
 	mw := New(Config{Providers: []ProviderRoute{{
 		ID:              "openai-prod",

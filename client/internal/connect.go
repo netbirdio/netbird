@@ -27,6 +27,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/internal/dns"
+	"github.com/netbirdio/netbird/client/internal/lazyconn"
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/metrics"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -601,7 +602,7 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 		BlockInbound:        config.BlockInbound,
 		DisableIPv6:         config.DisableIPv6,
 
-		LazyConnectionEnabled: config.LazyConnectionEnabled,
+		LazyConnection: lazyconn.ParseState(config.LazyConnection),
 
 		MTU:     selectMTU(config.MTU, peerConfig.Mtu),
 		LogPath: logPath,
@@ -675,7 +676,6 @@ func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte,
 		config.BlockLANAccess,
 		config.BlockInbound,
 		config.DisableIPv6,
-		config.LazyConnectionEnabled,
 		config.EnableSSHRoot,
 		config.EnableSSHSFTP,
 		config.EnableSSHLocalPortForwarding,

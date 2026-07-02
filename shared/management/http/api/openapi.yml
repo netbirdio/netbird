@@ -5119,6 +5119,10 @@ components:
           type: boolean
           description: Whether the provider is enabled.
           example: true
+        skip_tls_verification:
+          type: boolean
+          description: Whether upstream TLS certificate verification is skipped when the proxy dials this provider's URL. Intended for self-hosted / internal gateways behind a private or self-signed certificate.
+          example: false
         created_at:
           type: string
           format: date-time
@@ -5138,6 +5142,7 @@ components:
         - upstream_url
         - models
         - enabled
+        - skip_tls_verification
         - created_at
         - updated_at
     AgentNetworkProviderRequest:
@@ -5190,6 +5195,10 @@ components:
           type: boolean
           description: Whether the provider is enabled. Defaults to true on create.
           example: true
+        skip_tls_verification:
+          type: boolean
+          description: Skip upstream TLS certificate verification when the proxy dials this provider's URL. For self-hosted / internal gateways behind a private or self-signed certificate. Defaults to false. When omitted on update, the stored value is left unchanged.
+          example: false
       required:
         - provider_id
         - name

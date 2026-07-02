@@ -11,6 +11,7 @@ package mdm
 import (
 	"sort"
 	"strconv"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -41,6 +42,11 @@ const (
 	// construction — only one mode can be set at a time.
 	KeySplitTunnelMode = "splitTunnelMode"
 	KeySplitTunnelApps = "splitTunnelApps"
+
+	// KeyLazyConnection forces the lazy-connection feature on or off, overriding
+	// the management feature flag. Read as a bool (native bool, or on/off,
+	// true/false, 1/0, yes/no); absent = defer to management.
+	KeyLazyConnection = "lazyConnection"
 )
 
 // Split-tunnel mode literals (KeySplitTunnelMode values).
@@ -62,11 +68,12 @@ var boolStringLiterals = map[string]bool{
 	"true":  true,
 	"1":     true,
 	"yes":   true,
+	"on":    true,
 	"false": false,
 	"0":     false,
 	"no":    false,
+	"off":   false,
 }
-
 
 // Policy holds MDM-managed settings read from the platform source. A nil or
 // empty Policy means no enforcement is active.
@@ -150,7 +157,8 @@ func (p *Policy) GetString(key string) (string, bool) {
 }
 
 // GetBool returns the managed value for key coerced to bool, and whether the
-// key was set. Accepts native bool and string literals "true"/"false"/"1"/"0".
+// key was set. Accepts native bool and string literals (true/false, 1/0,
+// yes/no, on/off), case-insensitively and trimmed of surrounding whitespace.
 func (p *Policy) GetBool(key string) (bool, bool) {
 	if p == nil {
 		return false, false
@@ -163,7 +171,7 @@ func (p *Policy) GetBool(key string) (bool, bool) {
 	case bool:
 		return t, true
 	case string:
-		b, known := boolStringLiterals[t]
+		b, known := boolStringLiterals[strings.ToLower(strings.TrimSpace(t))]
 		return b, known
 	case int:
 		return t != 0, true
