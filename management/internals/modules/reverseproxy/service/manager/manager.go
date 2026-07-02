@@ -13,6 +13,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 
 	resourcetypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
@@ -86,24 +87,26 @@ type CapabilityProvider interface {
 }
 
 type Manager struct {
-	store              store.Store
-	accountManager     account.Manager
-	permissionsManager permissions.Manager
-	proxyController    proxy.Controller
-	capabilities       CapabilityProvider
-	clusterDeriver     ClusterDeriver
-	exposeReaper       *exposeReaper
+	store                store.Store
+	accountManager       account.Manager
+	permissionsManager   permissions.Manager
+	proxyController      proxy.Controller
+	networkMapController network_map.Controller
+	capabilities         CapabilityProvider
+	clusterDeriver       ClusterDeriver
+	exposeReaper         *exposeReaper
 }
 
 // NewManager creates a new service manager.
-func NewManager(store store.Store, accountManager account.Manager, permissionsManager permissions.Manager, proxyController proxy.Controller, capabilities CapabilityProvider, clusterDeriver ClusterDeriver) *Manager {
+func NewManager(store store.Store, accountManager account.Manager, permissionsManager permissions.Manager, proxyController proxy.Controller, capabilities CapabilityProvider, clusterDeriver ClusterDeriver, networkMapController network_map.Controller) *Manager {
 	mgr := &Manager{
-		store:              store,
-		accountManager:     accountManager,
-		permissionsManager: permissionsManager,
-		proxyController:    proxyController,
-		capabilities:       capabilities,
-		clusterDeriver:     clusterDeriver,
+		store:                store,
+		accountManager:       accountManager,
+		permissionsManager:   permissionsManager,
+		proxyController:      proxyController,
+		networkMapController: networkMapController,
+		capabilities:         capabilities,
+		clusterDeriver:       clusterDeriver,
 	}
 	mgr.exposeReaper = &exposeReaper{manager: mgr}
 	return mgr
@@ -185,13 +188,7 @@ func (m *Manager) replaceHostByLookup(ctx context.Context, accountID string, s *
 	for _, target := range s.Targets {
 		switch target.TargetType {
 		case service.TargetTypePeer:
-			peer, err := m.store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, target.TargetId)
-			if err != nil {
-				log.WithContext(ctx).Warnf("failed to get peer by id %s for service %s: %v", target.TargetId, s.ID, err)
-				target.Host = unknownHostPlaceholder
-				continue
-			}
-			target.Host = peer.IP.String()
+			target.Host = m.getPeerTargetHost(ctx, accountID, target)
 		case service.TargetTypeHost:
 			resource, err := m.store.GetNetworkResourceByID(ctx, store.LockingStrengthNone, accountID, target.TargetId)
 			if err != nil {
@@ -219,6 +216,26 @@ func (m *Manager) replaceHostByLookup(ctx context.Context, accountID string, s *
 	}
 
 	return nil
+}
+
+func (m *Manager) getPeerTargetHost(ctx context.Context, accountID string, target *service.Target) string {
+	peer, err := m.store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, target.TargetId)
+	if err != nil {
+		log.WithContext(ctx).Warnf("failed to get peer by id %s for service %s: %v", target.TargetId, target.ServiceID, err)
+		return unknownHostPlaceholder
+	}
+
+	if target.Protocol == "https" {
+		settings, err := m.accountManager.GetAccountSettings(ctx, accountID, activity.SystemInitiator)
+		if err != nil {
+			log.WithContext(ctx).Warnf("failed to get account settings for service %s: %v", target.ServiceID, err)
+			return unknownHostPlaceholder
+		}
+		dnsDomain := m.networkMapController.GetDNSDomain(settings)
+		return peer.FQDN(dnsDomain)
+	}
+
+	return peer.IP.String()
 }
 
 func (m *Manager) GetService(ctx context.Context, accountID, userID, serviceID string) (*service.Service, error) {
