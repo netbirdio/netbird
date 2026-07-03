@@ -112,7 +112,7 @@ require (
 	github.com/ti-mo/conntrack v0.5.1
 	github.com/ti-mo/netfilter v0.5.2
 	github.com/vmihailenco/msgpack/v5 v5.4.1
-	github.com/wailsapp/wails/v3 v3.0.0-alpha2.106
+	github.com/wailsapp/wails/v3 v3.0.0-alpha2.111
 	github.com/yusufpapurcu/wmi v1.2.4
 	github.com/zcalusic/sysinfo v1.1.3
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.67.0
