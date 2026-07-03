@@ -88,6 +88,7 @@ func (w *WGWatcher) periodicHandshakeCheck(ctx context.Context, onDisconnectedFn
 		case <-timer.C:
 			handshake, ok := w.handshakeCheck(lastHandshake)
 			if !ok {
+				// early ctx cancel check return
 				if ctx.Err() != nil {
 					return
 				}
@@ -132,9 +133,9 @@ func (w *WGWatcher) handshakeCheck(lastHandshake time.Time) (*time.Time, bool) {
 
 	w.log.Tracef("previous handshake, handshake: %v, %v", lastHandshake, handshake)
 
-	// the current know handshake did not change
+	// the current known handshake did not change
 	if handshake.Equal(lastHandshake) {
-		w.log.Warnf("WireGuard handshake timed out: %v", handshake)
+		w.log.Warnf("WireGuard handshake not updated: %v", handshake)
 		return nil, false
 	}
 
