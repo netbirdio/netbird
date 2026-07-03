@@ -27,6 +27,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/internal/dns"
+	"github.com/netbirdio/netbird/client/internal/lazyconn"
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/metrics"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -314,6 +315,10 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		c.clientMetrics.RecordLoginDuration(engineCtx, time.Since(loginStarted), true)
 		c.statusRecorder.MarkManagementConnected()
 
+		if metricsConfig := loginResp.GetNetbirdConfig().GetMetrics(); metricsConfig != nil {
+			c.clientMetrics.UpdatePushFromMgm(c.ctx, metricsConfig.GetEnabled())
+		}
+
 		localPeerState := peer.LocalPeerState{
 			IP:              loginResp.GetPeerConfig().GetAddress(),
 			PubKey:          myPrivateKey.PublicKey().String(),
@@ -399,6 +404,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			StateManager:   stateManager,
 			UpdateManager:  c.updateManager,
 			ClientMetrics:  c.clientMetrics,
+			MetricsCtx:     c.ctx,
 		}, mobileDependency)
 		engine.SetSyncResponsePersistence(c.persistSyncResponse)
 		c.engine = engine
@@ -596,7 +602,7 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 		BlockInbound:        config.BlockInbound,
 		DisableIPv6:         config.DisableIPv6,
 
-		LazyConnectionEnabled: config.LazyConnectionEnabled,
+		LazyConnection: lazyconn.ParseState(config.LazyConnection),
 
 		MTU:     selectMTU(config.MTU, peerConfig.Mtu),
 		LogPath: logPath,
@@ -670,7 +676,6 @@ func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte,
 		config.BlockLANAccess,
 		config.BlockInbound,
 		config.DisableIPv6,
-		config.LazyConnectionEnabled,
 		config.EnableSSHRoot,
 		config.EnableSSHSFTP,
 		config.EnableSSHLocalPortForwarding,
