@@ -662,15 +662,11 @@ func (conn *Conn) onGuardEvent() {
 	}
 }
 
-// onWGDisconnected is invoked by the watcher goroutine when a handshake timeout is detected.
-// watcherCtx is the context of the watcher that fired: the timeout check runs lock-free, so by
-// the time we acquire conn.mu the watcher may have been cancelled (disabled) and a new connection
-// (and watcher) may already be in place. Re-checking watcherCtx under the lock prevents a stale
-// watcher from tearing down the connection that superseded it.
 func (conn *Conn) onWGDisconnected(watcherCtx context.Context) {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
+	// watcherCtx guards against a stale watcher tearing down a connection that already superseded it.
 	if conn.ctx.Err() != nil || watcherCtx.Err() != nil {
 		return
 	}
@@ -806,14 +802,11 @@ func (conn *Conn) isConnectedOnAllWay() (status guard.ConnStatus) {
 	})
 }
 
-// enableWgWatcherIfNeeded starts a fresh watcher for the current connection. A new WGWatcher
-// instance is created per attempt (rather than reusing one) so its lifecycle is bound entirely
-// to conn.mu: enable/disable can never race against an old watcher goroutine's shutdown, which
-// was the source of the "watcher silently fails to restart on a fast reconnect" bug. Caller must
-// hold conn.mu.
+// enableWgWatcherIfNeeded starts a fresh watcher instance per connection attempt, so its
+// lifecycle stays bound to conn.mu and enable/disable can't race an old goroutine's shutdown.
+// Caller must hold conn.mu.
 func (conn *Conn) enableWgWatcherIfNeeded(enabledTime time.Time) {
 	if conn.wgWatcher != nil {
-		// a watcher is already running for the current connection
 		return
 	}
 
@@ -832,11 +825,9 @@ func (conn *Conn) enableWgWatcherIfNeeded(enabledTime time.Time) {
 	}()
 }
 
-// disableWgWatcherIfNeeded stops and drops the current watcher once no transport is active. It
-// only signals the watcher goroutine (cancel) and clears the reference; it never waits for the
-// goroutine to exit, because the watcher's own timeout path reentrantly calls back here under
-// conn.mu (via onWGDisconnected), so blocking would deadlock. The cancelled goroutine drains
-// harmlessly. Caller must hold conn.mu.
+// disableWgWatcherIfNeeded cancels and drops the watcher once no transport is active. It never
+// waits for the goroutine: the timeout path reentrantly calls back here under conn.mu, so
+// blocking would deadlock. Caller must hold conn.mu.
 func (conn *Conn) disableWgWatcherIfNeeded() {
 	if conn.currentConnPriority != conntype.None || conn.wgWatcher == nil {
 		return

@@ -23,9 +23,8 @@ type WGInterfaceStater interface {
 	GetStats() (map[string]configurer.WGStats, error)
 }
 
-// WGWatcher is single-shot: create one instance per connection attempt, run it once via
-// EnableWgWatcher, then discard it. Lifecycle (start/stop) is owned by Conn under conn.mu,
-// so the watcher itself keeps no "enabled" state to go stale on a fast disconnect/reconnect.
+// WGWatcher is single-shot: one instance per connection attempt, run once, then discarded.
+// Lifecycle is owned by Conn under conn.mu, so it keeps no "enabled" state to go stale.
 type WGWatcher struct {
 	log           *log.Entry
 	wgIfaceStater WGInterfaceStater
