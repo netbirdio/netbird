@@ -599,12 +599,6 @@
     "settings.network.section.routingDns": {
         "message": "Routing & DNS"
     },
-    "settings.network.lazy.label": {
-        "message": "Lazy-Verbindungen"
-    },
-    "settings.network.lazy.help": {
-        "message": "Statt durchgehend aktive Verbindungen zu halten, aktiviert NetBird sie bei Bedarf anhand von Aktivität oder Signalisierung."
-    },
     "settings.network.monitor.label": {
         "message": "Bei Netzwerkwechsel neu verbinden"
     },

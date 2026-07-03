@@ -599,12 +599,6 @@
     "settings.network.section.routingDns": {
         "message": "Routage et DNS"
     },
-    "settings.network.lazy.label": {
-        "message": "Connexions à la demande"
-    },
-    "settings.network.lazy.help": {
-        "message": "Au lieu de maintenir des connexions permanentes, NetBird les active à la demande en fonction de l’activité ou de la signalisation."
-    },
     "settings.network.monitor.label": {
         "message": "Reconnecter en cas de changement de réseau"
     },

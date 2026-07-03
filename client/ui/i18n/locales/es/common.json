@@ -599,12 +599,6 @@
     "settings.network.section.routingDns": {
         "message": "Enrutamiento y DNS"
     },
-    "settings.network.lazy.label": {
-        "message": "Conexiones bajo demanda"
-    },
-    "settings.network.lazy.help": {
-        "message": "En lugar de mantener conexiones permanentes, NetBird las activa bajo demanda según la actividad o la señalización."
-    },
     "settings.network.monitor.label": {
         "message": "Reconectar al cambiar de red"
     },

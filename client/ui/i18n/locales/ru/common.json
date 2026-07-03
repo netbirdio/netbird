@@ -599,12 +599,6 @@
     "settings.network.section.routingDns": {
         "message": "Маршрутизация и DNS"
     },
-    "settings.network.lazy.label": {
-        "message": "Подключения по требованию"
-    },
-    "settings.network.lazy.help": {
-        "message": "Вместо постоянно активных подключений NetBird активирует их по требованию — на основе активности или сигналинга."
-    },
     "settings.network.monitor.label": {
         "message": "Переподключаться при смене сети"
     },

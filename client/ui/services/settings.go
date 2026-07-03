@@ -57,7 +57,6 @@ type Config struct {
 	RosenpassEnabled              bool   `json:"rosenpassEnabled"`
 	RosenpassPermissive           bool   `json:"rosenpassPermissive"`
 	DisableNotifications          bool   `json:"disableNotifications"`
-	LazyConnectionEnabled         bool   `json:"lazyConnectionEnabled"`
 	BlockInbound                  bool   `json:"blockInbound"`
 	NetworkMonitor                bool   `json:"networkMonitor"`
 	DisableClientRoutes           bool   `json:"disableClientRoutes"`
@@ -89,7 +88,6 @@ type SetConfigParams struct {
 	RosenpassEnabled              *bool   `json:"rosenpassEnabled,omitempty"`
 	RosenpassPermissive           *bool   `json:"rosenpassPermissive,omitempty"`
 	DisableNotifications          *bool   `json:"disableNotifications,omitempty"`
-	LazyConnectionEnabled         *bool   `json:"lazyConnectionEnabled,omitempty"`
 	BlockInbound                  *bool   `json:"blockInbound,omitempty"`
 	NetworkMonitor                *bool   `json:"networkMonitor,omitempty"`
 	DisableClientRoutes           *bool   `json:"disableClientRoutes,omitempty"`
@@ -140,7 +138,6 @@ func (s *Settings) GetConfig(ctx context.Context, p ConfigParams) (Config, error
 		RosenpassEnabled:              resp.GetRosenpassEnabled(),
 		RosenpassPermissive:           resp.GetRosenpassPermissive(),
 		DisableNotifications:          resp.GetDisableNotifications(),
-		LazyConnectionEnabled:         resp.GetLazyConnectionEnabled(),
 		BlockInbound:                  resp.GetBlockInbound(),
 		NetworkMonitor:                resp.GetNetworkMonitor(),
 		DisableClientRoutes:           resp.GetDisableClientRoutes(),
@@ -176,7 +173,6 @@ func (s *Settings) SetConfig(ctx context.Context, p SetConfigParams) error {
 		RosenpassEnabled:              p.RosenpassEnabled,
 		RosenpassPermissive:           p.RosenpassPermissive,
 		DisableNotifications:          p.DisableNotifications,
-		LazyConnectionEnabled:         p.LazyConnectionEnabled,
 		BlockInbound:                  p.BlockInbound,
 		NetworkMonitor:                p.NetworkMonitor,
 		DisableClientRoutes:           p.DisableClientRoutes,

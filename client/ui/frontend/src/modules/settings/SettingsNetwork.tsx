@@ -13,12 +13,6 @@ export function SettingsNetwork() {
         <>
             <SectionGroup title={t("settings.network.section.connectivity")}>
                 <FancyToggleSwitch
-                    value={config.lazyConnectionEnabled}
-                    onChange={(v) => setField("lazyConnectionEnabled", v)}
-                    label={t("settings.network.lazy.label")}
-                    helpText={t("settings.network.lazy.help")}
-                />
-                <FancyToggleSwitch
                     value={config.networkMonitor}
                     onChange={(v) => setField("networkMonitor", v)}
                     label={t("settings.network.monitor.label")}

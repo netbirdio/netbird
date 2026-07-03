@@ -125,42 +125,6 @@ func (e *ConnMgr) UpdatedRemoteFeatureFlag(ctx context.Context, enabled bool) er
 	}
 }
 
-// SetLocalLazyConn applies a local lazy connection override (UI / CLI / env).
-// While the local override pins the setting (force != lazyForceNone),
-// UpdatedRemoteFeatureFlag (management sync) is a no-op, so the local setting
-// wins until it is turned off again, which returns control to management.
-func (e *ConnMgr) SetLocalLazyConn(ctx context.Context, enabled bool) error {
-	if enabled {
-		e.force = lazyForceOn
-	} else {
-		e.force = lazyForceNone
-	}
-
-	if enabled {
-		if e.lazyConnMgr != nil {
-			return nil
-		}
-
-		if e.rosenpassEnabled {
-			log.Warnf("rosenpass connection manager is enabled, lazy connection manager will not be started")
-			return nil
-		}
-
-		log.Infof("lazy connection manager is enabled locally")
-		e.initLazyManager(ctx)
-		e.statusRecorder.UpdateLazyConnection(true)
-		return e.addPeersToLazyConnManager()
-	}
-
-	if e.lazyConnMgr == nil {
-		return nil
-	}
-	log.Infof("lazy connection manager is disabled locally")
-	e.closeManager(ctx)
-	e.statusRecorder.UpdateLazyConnection(false)
-	return nil
-}
-
 // UpdateRouteHAMap updates the route HA mappings in the lazy connection manager
 func (e *ConnMgr) UpdateRouteHAMap(haMap route.HAMap) {
 	if !e.isStartedWithLazyMgr() {

@@ -799,14 +799,6 @@
         "message": "Routing & DNS",
         "description": "Section heading for routing and DNS options. 'DNS' is an acronym — keep it."
     },
-    "settings.network.lazy.label": {
-        "message": "Lazy Connections",
-        "description": "Toggle label: Lazy Connections (on-demand connections)."
-    },
-    "settings.network.lazy.help": {
-        "message": "Instead of maintaining always-on connections, NetBird activates them on-demand based on activity or signaling.",
-        "description": "Helper text for lazy connections."
-    },
     "settings.network.monitor.label": {
         "message": "Reconnect on Network Change",
         "description": "Toggle label: reconnect automatically on network change."
