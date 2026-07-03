@@ -40,6 +40,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/dnsfwd"
 	"github.com/netbirdio/netbird/client/internal/expose"
 	"github.com/netbirdio/netbird/client/internal/ingressgw"
+	"github.com/netbirdio/netbird/client/internal/lazyconn"
 	"github.com/netbirdio/netbird/client/internal/metrics"
 	"github.com/netbirdio/netbird/client/internal/netflow"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
@@ -147,7 +148,9 @@ type EngineConfig struct {
 	BlockInbound        bool
 	DisableIPv6         bool
 
-	LazyConnectionEnabled bool
+	// LazyConnection is the MDM-sourced lazy-connection override; StateUnset defers to
+	// the env var and management feature flag.
+	LazyConnection lazyconn.State
 
 	MTU uint16
 
@@ -1161,7 +1164,6 @@ func (e *Engine) applyInfoFlags(info *system.Info) {
 		e.config.BlockLANAccess,
 		e.config.BlockInbound,
 		e.config.DisableIPv6,
-		e.config.LazyConnectionEnabled,
 		e.config.EnableSSHRoot,
 		e.config.EnableSSHSFTP,
 		e.config.EnableSSHLocalPortForwarding,
@@ -2030,7 +2032,6 @@ func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, bool, err
 		e.config.BlockLANAccess,
 		e.config.BlockInbound,
 		e.config.DisableIPv6,
-		e.config.LazyConnectionEnabled,
 		e.config.EnableSSHRoot,
 		e.config.EnableSSHSFTP,
 		e.config.EnableSSHLocalPortForwarding,

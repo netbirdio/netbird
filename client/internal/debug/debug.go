@@ -695,7 +695,7 @@ func (g *BundleGenerator) addCommonConfigFields(configContent *strings.Builder) 
 		configContent.WriteString(fmt.Sprintf("ClientCertKeyPath: %s\n", g.internalConfig.ClientCertKeyPath))
 	}
 
-	configContent.WriteString(fmt.Sprintf("LazyConnectionEnabled: %v\n", g.internalConfig.LazyConnectionEnabled))
+	configContent.WriteString(fmt.Sprintf("LazyConnection: %q\n", g.internalConfig.LazyConnection))
 	configContent.WriteString(fmt.Sprintf("MTU: %d\n", g.internalConfig.MTU))
 }
 

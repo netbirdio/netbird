@@ -155,7 +155,6 @@ func (s *Server) restartEngineForMDMLocked() error {
 	s.config = config
 	s.statusRecorder.UpdateManagementAddress(config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(config.RosenpassEnabled, config.RosenpassPermissive)
-	s.statusRecorder.UpdateLazyConnection(config.LazyConnectionEnabled)
 
 	ctx, cancel := context.WithCancel(s.rootCtx)
 	s.actCancel = cancel
@@ -308,7 +307,6 @@ func setConfigRequestHasConfigOverrides(msg *proto.SetConfigRequest) bool {
 		msg.DisableFirewall != nil ||
 		msg.BlockLanAccess != nil ||
 		msg.DisableNotifications != nil ||
-		msg.LazyConnectionEnabled != nil ||
 		msg.BlockInbound != nil ||
 		msg.DisableIpv6 != nil ||
 		msg.EnableSSHRoot != nil ||
@@ -351,7 +349,6 @@ func loginRequestHasConfigOverrides(msg *proto.LoginRequest) bool {
 		msg.BlockLanAccess != nil ||
 		msg.DisableNotifications != nil ||
 		len(msg.DnsLabels) > 0 || msg.CleanDNSLabels ||
-		msg.LazyConnectionEnabled != nil ||
 		msg.BlockInbound != nil
 }
 

@@ -16,6 +16,16 @@ import (
 	"github.com/netbirdio/netbird/route"
 )
 
+// lazyForce is the resolved local decision for lazy connections, layered above the
+// management feature flag. lazyForceNone defers to management.
+type lazyForce int
+
+const (
+	lazyForceNone lazyForce = iota
+	lazyForceOn
+	lazyForceOff
+)
+
 // ConnMgr coordinates both lazy connections (established on-demand) and permanent peer connections.
 //
 // The connection manager is responsible for:
@@ -28,7 +38,7 @@ type ConnMgr struct {
 	peerStore        *peerstore.Store
 	statusRecorder   *peer.Status
 	iface            lazyconn.WGIface
-	enabledLocally   bool
+	force            lazyForce
 	rosenpassEnabled bool
 
 	lazyConnMgr *manager.Manager
@@ -43,28 +53,34 @@ func NewConnMgr(engineConfig *EngineConfig, statusRecorder *peer.Status, peerSto
 		peerStore:        peerStore,
 		statusRecorder:   statusRecorder,
 		iface:            iface,
+		force:            resolveLazyForce(engineConfig.LazyConnection),
 		rosenpassEnabled: engineConfig.RosenpassEnabled,
-	}
-	if engineConfig.LazyConnectionEnabled || lazyconn.IsLazyConnEnabledByEnv() {
-		e.enabledLocally = true
 	}
 	return e
 }
 
-// Start initializes the connection manager and starts the lazy connection manager if enabled by env var or cmd line option.
+// Start initializes the connection manager. It starts the lazy connection manager when a
+// local override forces it on; with no local override it waits for the management feature flag.
 func (e *ConnMgr) Start(ctx context.Context) {
 	if e.lazyConnMgr != nil {
 		log.Errorf("lazy connection manager is already started")
 		return
 	}
 
-	if !e.enabledLocally {
-		log.Infof("lazy connection manager is disabled")
+	switch e.force {
+	case lazyForceOff:
+		log.Infof("lazy connection manager is disabled by local override (%s or MDM policy)", lazyconn.EnvLazyConn)
+		e.statusRecorder.UpdateLazyConnection(false)
+		return
+	case lazyForceNone:
+		log.Infof("lazy connection manager is managed by the management feature flag")
+		e.statusRecorder.UpdateLazyConnection(false)
 		return
 	}
 
 	if e.rosenpassEnabled {
 		log.Warnf("rosenpass connection manager is enabled, lazy connection manager will not be started")
+		e.statusRecorder.UpdateLazyConnection(false)
 		return
 	}
 
@@ -76,8 +92,8 @@ func (e *ConnMgr) Start(ctx context.Context) {
 // If enabled, it initializes the lazy connection manager and start it. Do not need to call Start() again.
 // If disabled, then it closes the lazy connection manager and open the connections to all peers.
 func (e *ConnMgr) UpdatedRemoteFeatureFlag(ctx context.Context, enabled bool) error {
-	// do not disable lazy connection manager if it was enabled by env var
-	if e.enabledLocally {
+	// a local override (NB_LAZY_CONN or local config) takes precedence over management
+	if e.force != lazyForceNone {
 		return nil
 	}
 
@@ -89,6 +105,7 @@ func (e *ConnMgr) UpdatedRemoteFeatureFlag(ctx context.Context, enabled bool) er
 
 		if e.rosenpassEnabled {
 			log.Infof("rosenpass connection manager is enabled, lazy connection manager will not be started")
+			e.statusRecorder.UpdateLazyConnection(false)
 			return nil
 		}
 
@@ -98,6 +115,7 @@ func (e *ConnMgr) UpdatedRemoteFeatureFlag(ctx context.Context, enabled bool) er
 		return e.addPeersToLazyConnManager()
 	} else {
 		if e.lazyConnMgr == nil {
+			e.statusRecorder.UpdateLazyConnection(false)
 			return nil
 		}
 		log.Infof("lazy connection manager is disabled by management feature flag")
@@ -108,10 +126,15 @@ func (e *ConnMgr) UpdatedRemoteFeatureFlag(ctx context.Context, enabled bool) er
 }
 
 // SetLocalLazyConn applies a local lazy connection override (UI / CLI / env).
-// While enabledLocally is true, UpdatedRemoteFeatureFlag (management sync) is a
-// no-op, so the local setting wins until it is turned off again.
+// While the local override pins the setting (force != lazyForceNone),
+// UpdatedRemoteFeatureFlag (management sync) is a no-op, so the local setting
+// wins until it is turned off again, which returns control to management.
 func (e *ConnMgr) SetLocalLazyConn(ctx context.Context, enabled bool) error {
-	e.enabledLocally = enabled
+	if enabled {
+		e.force = lazyForceOn
+	} else {
+		e.force = lazyForceNone
+	}
 
 	if enabled {
 		if e.lazyConnMgr != nil {
@@ -338,6 +361,25 @@ func (e *ConnMgr) closeManager(ctx context.Context) {
 
 func (e *ConnMgr) isStartedWithLazyMgr() bool {
 	return e.lazyConnMgr != nil && e.lazyCtxCancel != nil
+}
+
+// resolveLazyForce determines the local override. NB_LAZY_CONN takes precedence; when it
+// is unset the MDM policy override (mdmState) applies. Either wins in both directions over
+// the management feature flag; StateUnset for both defers to management.
+func resolveLazyForce(mdmState lazyconn.State) lazyForce {
+	state := lazyconn.EnvState()
+	if state == lazyconn.StateUnset {
+		state = mdmState
+	}
+
+	switch state {
+	case lazyconn.StateOn:
+		return lazyForceOn
+	case lazyconn.StateOff:
+		return lazyForceOff
+	default:
+		return lazyForceNone
+	}
 }
 
 func inactivityThresholdEnv() *time.Duration {

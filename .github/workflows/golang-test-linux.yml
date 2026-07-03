@@ -166,7 +166,7 @@ jobs:
         # resolve; the grep then drops the broken package by path. Without -e,
         # go list aborts with empty stdout and `go test` falls back to the repo
         # root, which has no Go files.
-        run: CGO_ENABLED=1 GOARCH=${{ matrix.arch }} CI=true go test -coverprofile=coverage.txt -tags devcert -timeout 10m -p 1 $(go list -e ./... | grep -v -e /management -e /signal -e /relay -e /proxy -e /combined -e /client/ui)
+        run: CGO_ENABLED=1 GOARCH=${{ matrix.arch }} CI=true go test -coverprofile=coverage.txt -tags 'devcert privileged' -exec 'sudo --preserve-env=CI,CGO_ENABLED' -timeout 10m -p 1 $(go list -e ./... | grep -v -e /management -e /signal -e /relay -e /proxy -e /combined -e /client/ui -e /client/testutil/privileged)
 
       - name: Upload coverage reports to Codecov
         if: matrix.arch == 'amd64'
