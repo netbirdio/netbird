@@ -599,12 +599,6 @@
     "settings.network.section.routingDns": {
         "message": "路由与 DNS"
     },
-    "settings.network.lazy.label": {
-        "message": "懒连接"
-    },
-    "settings.network.lazy.help": {
-        "message": "NetBird 不会维持始终在线的连接，而是根据活动或信令按需激活连接。"
-    },
     "settings.network.monitor.label": {
         "message": "网络变化时重新连接"
     },

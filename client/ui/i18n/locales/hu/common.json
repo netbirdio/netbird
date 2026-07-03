@@ -599,12 +599,6 @@
     "settings.network.section.routingDns": {
         "message": "Útválasztás és DNS"
     },
-    "settings.network.lazy.label": {
-        "message": "Igény szerinti kapcsolatok"
-    },
-    "settings.network.lazy.help": {
-        "message": "Állandó kapcsolatok fenntartása helyett a NetBird igény szerint, aktivitás vagy jelzés alapján aktiválja azokat."
-    },
     "settings.network.monitor.label": {
         "message": "Újracsatlakozás hálózatváltáskor"
     },
