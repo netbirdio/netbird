@@ -2998,20 +2998,6 @@ func (mr *MockStoreMockRecorder) SavePeer(ctx, accountID, peer interface{}) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SavePeer", reflect.TypeOf((*MockStore)(nil).SavePeer), ctx, accountID, peer)
 }
 
-// SavePeerLocation mocks base method.
-func (m *MockStore) SavePeerLocation(ctx context.Context, accountID string, peer *peer.Peer) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SavePeerLocation", ctx, accountID, peer)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// SavePeerLocation indicates an expected call of SavePeerLocation.
-func (mr *MockStoreMockRecorder) SavePeerLocation(ctx, accountID, peer interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SavePeerLocation", reflect.TypeOf((*MockStore)(nil).SavePeerLocation), ctx, accountID, peer)
-}
-
 // SavePeerStatus mocks base method.
 func (m *MockStore) SavePeerStatus(ctx context.Context, accountID, peerID string, status peer.PeerStatus) error {
 	m.ctrl.T.Helper()

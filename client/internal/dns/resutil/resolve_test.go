@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"strings"
 	"testing"
 
 	"github.com/miekg/dns"
@@ -119,6 +120,164 @@ func TestLookupIP_DNSErrorNotIsNotFound(t *testing.T) {
 	result := LookupIP(context.Background(), r, "ip4", "example.com.", dns.TypeA)
 
 	assert.Equal(t, dns.RcodeServerFailure, result.Rcode, "upstream failure should map to SERVFAIL")
+}
+
+func TestPtrQueryAddr(t *testing.T) {
+	tests := []struct {
+		name   string
+		qname  string
+		want   string
+		wantOK bool
+	}{
+		{name: "ipv4", qname: "4.3.2.1.in-addr.arpa.", want: "1.2.3.4", wantOK: true},
+		{name: "ipv4 no trailing dot", qname: "1.0.0.127.in-addr.arpa", want: "127.0.0.1", wantOK: true},
+		{
+			name:   "ipv6",
+			qname:  "1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa.",
+			want:   "2001:db8::1",
+			wantOK: true,
+		},
+		{name: "ipv4 wrong label count", qname: "2.1.in-addr.arpa.", wantOK: false},
+		{name: "ipv6 wrong nibble count", qname: "1.0.ip6.arpa.", wantOK: false},
+		{name: "not a reverse name", qname: "example.com.", wantOK: false},
+		{name: "ipv4 bad octet", qname: "4.3.2.999.in-addr.arpa.", wantOK: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := ptrQueryAddr(tt.qname)
+			assert.Equal(t, tt.wantOK, ok, "parse success mismatch")
+			if tt.wantOK {
+				assert.Equal(t, tt.want, got, "parsed address mismatch")
+			}
+		})
+	}
+}
+
+type mockRecordResolver struct {
+	mx    []*net.MX
+	txt   []string
+	ns    []*net.NS
+	srv   []*net.SRV
+	cname string
+	ptr   []string
+	err   error
+}
+
+func (m *mockRecordResolver) LookupMX(context.Context, string) ([]*net.MX, error) {
+	return m.mx, m.err
+}
+func (m *mockRecordResolver) LookupTXT(context.Context, string) ([]string, error) {
+	return m.txt, m.err
+}
+func (m *mockRecordResolver) LookupNS(context.Context, string) ([]*net.NS, error) {
+	return m.ns, m.err
+}
+func (m *mockRecordResolver) LookupSRV(context.Context, string, string, string) (string, []*net.SRV, error) {
+	return "", m.srv, m.err
+}
+func (m *mockRecordResolver) LookupCNAME(context.Context, string) (string, error) {
+	return m.cname, m.err
+}
+func (m *mockRecordResolver) LookupAddr(context.Context, string) ([]string, error) {
+	return m.ptr, m.err
+}
+
+func TestLookupRecords(t *testing.T) {
+	notFound := &net.DNSError{IsNotFound: true, Name: "example.com."}
+
+	t.Run("MX success", func(t *testing.T) {
+		r := &mockRecordResolver{mx: []*net.MX{{Host: "mail.example.com.", Pref: 10}}}
+		rrs, rcode := LookupRecords(context.Background(), r, "example.com.", dns.TypeMX, 300)
+		assert.Equal(t, dns.RcodeSuccess, rcode)
+		require.Len(t, rrs, 1)
+		assert.Equal(t, "mail.example.com.", rrs[0].(*dns.MX).Mx)
+	})
+
+	t.Run("TXT short string is one character-string", func(t *testing.T) {
+		r := &mockRecordResolver{txt: []string{"v=spf1 -all"}}
+		rrs, rcode := LookupRecords(context.Background(), r, "example.com.", dns.TypeTXT, 300)
+		assert.Equal(t, dns.RcodeSuccess, rcode)
+		require.Len(t, rrs, 1)
+		assert.Equal(t, []string{"v=spf1 -all"}, rrs[0].(*dns.TXT).Txt)
+	})
+
+	t.Run("TXT chunks long strings", func(t *testing.T) {
+		long := strings.Repeat("a", 300)
+		r := &mockRecordResolver{txt: []string{long}}
+		rrs, rcode := LookupRecords(context.Background(), r, "example.com.", dns.TypeTXT, 300)
+		assert.Equal(t, dns.RcodeSuccess, rcode)
+		require.Len(t, rrs, 1)
+		txt := rrs[0].(*dns.TXT).Txt
+		require.Len(t, txt, 2, "300-byte string should split into two character-strings")
+		assert.Equal(t, 255, len(txt[0]))
+		assert.Equal(t, 45, len(txt[1]))
+	})
+
+	t.Run("NS success", func(t *testing.T) {
+		r := &mockRecordResolver{ns: []*net.NS{{Host: "ns1.example.com."}}}
+		rrs, rcode := LookupRecords(context.Background(), r, "example.com.", dns.TypeNS, 300)
+		assert.Equal(t, dns.RcodeSuccess, rcode)
+		require.Len(t, rrs, 1)
+		assert.Equal(t, "ns1.example.com.", rrs[0].(*dns.NS).Ns)
+	})
+
+	t.Run("SRV success", func(t *testing.T) {
+		r := &mockRecordResolver{srv: []*net.SRV{{Target: "sip.example.com.", Port: 5060}}}
+		rrs, rcode := LookupRecords(context.Background(), r, "_sip._tcp.example.com.", dns.TypeSRV, 300)
+		assert.Equal(t, dns.RcodeSuccess, rcode)
+		require.Len(t, rrs, 1)
+		assert.Equal(t, uint16(5060), rrs[0].(*dns.SRV).Port)
+	})
+
+	t.Run("CNAME success", func(t *testing.T) {
+		r := &mockRecordResolver{cname: "target.example.com."}
+		rrs, rcode := LookupRecords(context.Background(), r, "www.example.com.", dns.TypeCNAME, 300)
+		assert.Equal(t, dns.RcodeSuccess, rcode)
+		require.Len(t, rrs, 1)
+		assert.Equal(t, "target.example.com.", rrs[0].(*dns.CNAME).Target)
+	})
+
+	t.Run("CNAME equal to name is NODATA", func(t *testing.T) {
+		r := &mockRecordResolver{cname: "example.com."}
+		rrs, rcode := LookupRecords(context.Background(), r, "example.com.", dns.TypeCNAME, 300)
+		assert.Equal(t, dns.RcodeSuccess, rcode)
+		assert.Empty(t, rrs, "self-referential CNAME is NODATA")
+	})
+
+	t.Run("PTR success", func(t *testing.T) {
+		r := &mockRecordResolver{ptr: []string{"host.example.com."}}
+		rrs, rcode := LookupRecords(context.Background(), r, "4.3.2.1.in-addr.arpa.", dns.TypePTR, 300)
+		assert.Equal(t, dns.RcodeSuccess, rcode)
+		require.Len(t, rrs, 1)
+		assert.Equal(t, "host.example.com.", rrs[0].(*dns.PTR).Ptr)
+	})
+
+	t.Run("PTR malformed name is NODATA", func(t *testing.T) {
+		r := &mockRecordResolver{}
+		rrs, rcode := LookupRecords(context.Background(), r, "example.com.", dns.TypePTR, 300)
+		assert.Equal(t, dns.RcodeSuccess, rcode)
+		assert.Empty(t, rrs)
+	})
+
+	t.Run("not found is NODATA never NXDOMAIN", func(t *testing.T) {
+		r := &mockRecordResolver{err: notFound}
+		_, rcode := LookupRecords(context.Background(), r, "example.com.", dns.TypeMX, 300)
+		assert.Equal(t, dns.RcodeSuccess, rcode, "missing record must not poison the name")
+	})
+
+	t.Run("server failure maps to SERVFAIL", func(t *testing.T) {
+		r := &mockRecordResolver{err: &net.DNSError{Err: "server misbehaving", IsTemporary: true}}
+		_, rcode := LookupRecords(context.Background(), r, "example.com.", dns.TypeMX, 300)
+		assert.Equal(t, dns.RcodeServerFailure, rcode)
+	})
+
+	t.Run("unsupported type is NODATA", func(t *testing.T) {
+		r := &mockRecordResolver{}
+		rrs, rcode := LookupRecords(context.Background(), r, "example.com.", dns.TypeCAA, 300)
+		assert.Equal(t, dns.RcodeSuccess, rcode)
+		assert.Empty(t, rrs)
+	})
 }
 
 func TestStripOPT(t *testing.T) {

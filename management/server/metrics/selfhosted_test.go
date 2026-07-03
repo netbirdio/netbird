@@ -277,6 +277,21 @@ func (mockDatasource) GetProxyMetrics(_ context.Context) (store.ProxyMetrics, er
 	}, nil
 }
 
+// GetAgentNetworkMetrics returns canned agent-network counts so the
+// generateProperties test can assert the adoption/usage signals end-to-end.
+func (mockDatasource) GetAgentNetworkMetrics(_ context.Context) (store.AgentNetworkMetrics, error) {
+	return store.AgentNetworkMetrics{
+		Accounts:             2,
+		Providers:            5,
+		Policies:             3,
+		BudgetRules:          1,
+		LogCollectionEnabled: 2,
+		InputTokens:          1000,
+		OutputTokens:         500,
+		CostUSD:              1.25,
+	}, nil
+}
+
 // TestGenerateProperties tests and validate the properties generation by using the mockDatasource for the Worker.generateProperties
 func TestGenerateProperties(t *testing.T) {
 	ds := mockDatasource{}

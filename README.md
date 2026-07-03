@@ -33,9 +33,14 @@
   <br/>
   <br/>
   <strong>
-    🚀 <a href="https://careers.netbird.io">We are hiring! Join us at careers.netbird.io</a>
+    🚀 <a href="https://netbird.io/careers">We are hiring! Join us at https://netbird.io/careers</a>
   </strong>
 </p>
+
+> ### 🤖 NetBird Agent Network (Beta)
+> Identity-aware access control for AI agents — keyless access to LLM APIs and private
+> resources over the encrypted NetBird tunnel. See [`agent-network/`](agent-network/) or
+> read the docs at **[netbird.ai](https://netbird.ai)**.
 
 **NetBird combines a configuration-free peer-to-peer private network and a centralized access control system in a single platform, making it easy to create secure private networks for your organization or home.**
 

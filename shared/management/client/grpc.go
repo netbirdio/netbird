@@ -33,9 +33,14 @@ const ConnectTimeout = 10 * time.Second
 const healthCheckTimeout = 5 * time.Second
 
 const (
-	// EnvMaxRecvMsgSize overrides the default gRPC max receive message size (4 MB)
+	// EnvMaxRecvMsgSize overrides the default gRPC max receive message size
 	// for the management client connection. Value is in bytes.
 	EnvMaxRecvMsgSize = "NB_MANAGEMENT_GRPC_MAX_MSG_SIZE"
+
+	// defaultMaxRecvMsgSize is the max gRPC receive message size used for the
+	// management client connection when EnvMaxRecvMsgSize is unset or invalid.
+	// It overrides the gRPC library default of 4 MB.
+	defaultMaxRecvMsgSize = 1024 * 1024 * 16
 
 	errMsgMgmtPublicKey    = "failed getting Management Service public key: %s"
 	errMsgNoMgmtConnection = "no connection to management"
@@ -55,6 +60,14 @@ type GrpcClient struct {
 	connStateCallback     ConnStateNotifier
 	connStateCallbackLock sync.RWMutex
 	serverURL             string
+
+	// syncStreamErr holds the last Sync stream error, or nil while the stream
+	// is established and healthy. GetServerKey succeeds even when the peer
+	// cannot sync (e.g. the server returns "settings not found"), so the
+	// health probe must consult this to avoid reporting a healthy management
+	// connection while the Sync stream keeps failing.
+	syncStreamMu  sync.RWMutex
+	syncStreamErr error
 }
 
 type ExposeRequest struct {
@@ -76,22 +89,22 @@ type ExposeResponse struct {
 }
 
 // MaxRecvMsgSize returns the configured max gRPC receive message size from
-// the environment, or 0 if unset (which uses the gRPC default of 4 MB).
+// the environment, or defaultMaxRecvMsgSize (16 MB) if unset or invalid.
 func MaxRecvMsgSize() int {
 	val := os.Getenv(EnvMaxRecvMsgSize)
 	if val == "" {
-		return 0
+		return defaultMaxRecvMsgSize
 	}
 
 	size, err := strconv.Atoi(val)
 	if err != nil {
 		log.Warnf("invalid %s value %q, using default: %v", EnvMaxRecvMsgSize, val, err)
-		return 0
+		return defaultMaxRecvMsgSize
 	}
 
 	if size <= 0 {
 		log.Warnf("invalid %s value %d, must be positive, using default", EnvMaxRecvMsgSize, size)
-		return 0
+		return defaultMaxRecvMsgSize
 	}
 
 	return size
@@ -364,6 +377,8 @@ func (c *GrpcClient) handleSyncStream(ctx context.Context, serverPubKey wgtypes.
 	stream, err := c.connectToSyncStream(ctx, serverPubKey, sysInfo)
 	if err != nil {
 		log.Debugf("failed to open Management Service stream: %s", err)
+		c.notifyDisconnected(err)
+		c.setSyncStreamDisconnected(err)
 		if s, ok := gstatus.FromError(err); ok && s.Code() == codes.PermissionDenied {
 			return backoff.Permanent(err) // unrecoverable error, propagate to the upper layer
 		}
@@ -372,11 +387,13 @@ func (c *GrpcClient) handleSyncStream(ctx context.Context, serverPubKey wgtypes.
 
 	log.Infof("connected to the Management Service stream")
 	c.notifyConnected()
+	c.setSyncStreamConnected()
 
 	// blocking until error
 	err = c.receiveUpdatesEvents(stream, serverPubKey, msgHandler)
 	if err != nil {
 		c.notifyDisconnected(err)
+		c.setSyncStreamDisconnected(err)
 		if ctx.Err() != nil {
 			log.Debugf("management connection context has been canceled, this usually indicates shutdown")
 			return nil
@@ -524,12 +541,19 @@ func (c *GrpcClient) IsHealthy() bool {
 	ctx, cancel := context.WithTimeout(c.ctx, healthCheckTimeout)
 	defer cancel()
 
-	_, err := c.realClient.GetServerKey(ctx, &proto.Empty{})
+	_, err := c.realClient.IsHealthy(ctx, &proto.Empty{})
 	if err != nil {
 		c.notifyDisconnected(err)
 		log.Warnf("health check returned: %s", err)
 		return false
 	}
+
+	if syncErr := c.syncStreamError(); syncErr != nil {
+		c.notifyDisconnected(syncErr)
+		log.Warnf("management transport is up but the Sync stream is unhealthy: %s", syncErr)
+		return false
+	}
+
 	c.notifyConnected()
 	return true
 }
@@ -771,6 +795,24 @@ func (c *GrpcClient) SyncMeta(sysInfo *system.Info) error {
 	return err
 }
 
+func (c *GrpcClient) setSyncStreamConnected() {
+	c.syncStreamMu.Lock()
+	defer c.syncStreamMu.Unlock()
+	c.syncStreamErr = nil
+}
+
+func (c *GrpcClient) setSyncStreamDisconnected(err error) {
+	c.syncStreamMu.Lock()
+	defer c.syncStreamMu.Unlock()
+	c.syncStreamErr = err
+}
+
+func (c *GrpcClient) syncStreamError() error {
+	c.syncStreamMu.RLock()
+	defer c.syncStreamMu.RUnlock()
+	return c.syncStreamErr
+}
+
 func (c *GrpcClient) notifyDisconnected(err error) {
 	c.connStateCallbackLock.RLock()
 	defer c.connStateCallbackLock.RUnlock()
@@ -993,8 +1035,6 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 			BlockLANAccess:      info.BlockLANAccess,
 			BlockInbound:        info.BlockInbound,
 			DisableIPv6:         info.DisableIPv6,
-
-			LazyConnectionEnabled: info.LazyConnectionEnabled,
 		},
 
 		Capabilities: peerCapabilities(*info),

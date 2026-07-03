@@ -266,7 +266,6 @@ type serviceClient struct {
 	mAllowSSH          *systray.MenuItem
 	mAutoConnect       *systray.MenuItem
 	mEnableRosenpass   *systray.MenuItem
-	mLazyConnEnabled   *systray.MenuItem
 	mBlockInbound      *systray.MenuItem
 	mNotifications     *systray.MenuItem
 	mAdvancedSettings  *systray.MenuItem
@@ -336,11 +335,11 @@ type serviceClient struct {
 	// mNetworks + mExitNode submenu items. Combines features.DisableNetworks
 	// AND s.connected — both must be true for the menus to be active.
 	// Zero value (false) matches the Disable() call at AddMenuItem time.
-	networksMenuEnabled  bool
-	showNetworks         bool
-	wNetworks            fyne.Window
-	wProfiles            fyne.Window
-	wQuickActions        fyne.Window
+	networksMenuEnabled bool
+	showNetworks        bool
+	wNetworks           fyne.Window
+	wProfiles           fyne.Window
+	wQuickActions       fyne.Window
 
 	eventManager *event.Manager
 
@@ -418,7 +417,14 @@ func newServiceClient(args *newServiceClientArgs) *serviceClient {
 	case args.showProfiles:
 		s.showProfilesUI()
 	case args.showQuickActions:
-		s.showQuickActionsUI()
+		// Suppress the on-boot Quick Actions popup when the daemon
+		// reports DisableAutoConnect=true — that flag carries both the
+		// user's "Connect on Startup = off" preference AND any MDM-
+		// enforced override (applyMDMPolicy writes the policy value
+		// into the same Config field). See netbirdio/netbird#5744.
+		if !s.disableAutoConnectFromDaemon() {
+			s.showQuickActionsUI()
+		}
 	case args.showUpdate:
 		s.showUpdateProgress(ctx, args.showUpdateVersion)
 	}
@@ -1087,7 +1093,6 @@ func (s *serviceClient) onTrayReady() {
 	s.mAllowSSH = s.mSettings.AddSubMenuItemCheckbox("Allow SSH", allowSSHMenuDescr, false)
 	s.mAutoConnect = s.mSettings.AddSubMenuItemCheckbox("Connect on Startup", autoConnectMenuDescr, false)
 	s.mEnableRosenpass = s.mSettings.AddSubMenuItemCheckbox("Enable Quantum-Resistance", quantumResistanceMenuDescr, false)
-	s.mLazyConnEnabled = s.mSettings.AddSubMenuItemCheckbox("Enable Lazy Connections", lazyConnMenuDescr, false)
 	s.mBlockInbound = s.mSettings.AddSubMenuItemCheckbox("Block Inbound Connections", blockInboundMenuDescr, false)
 	s.mNotifications = s.mSettings.AddSubMenuItemCheckbox("Notifications", notificationsMenuDescr, false)
 	s.mSettings.AddSeparator()
@@ -1338,6 +1343,40 @@ func (s *serviceClient) getFeatures() (*proto.GetFeaturesResponse, error) {
 	return features, nil
 }
 
+// disableAutoConnectFromDaemon returns true when the daemon reports
+// the active profile has DisableAutoConnect=true. Used by the
+// --quick-actions startup path to suppress the on-boot popup when the
+// user (or an MDM admin) opted out of auto-connecting; both cases
+// converge on the same Config field because applyMDMPolicy writes the
+// policy value into it. Returns false on any RPC / lookup failure so a
+// daemon hiccup does not silently swallow the popup.
+func (s *serviceClient) disableAutoConnectFromDaemon() bool {
+	activeProf, err := s.profileManager.GetActiveProfile()
+	if err != nil {
+		log.Warnf("disableAutoConnectFromDaemon: get active profile: %v", err)
+		return false
+	}
+	currUser, err := user.Current()
+	if err != nil {
+		log.Warnf("disableAutoConnectFromDaemon: get current user: %v", err)
+		return false
+	}
+	conn, err := s.getSrvClient(failFastTimeout)
+	if err != nil {
+		log.Warnf("disableAutoConnectFromDaemon: get daemon client: %v", err)
+		return false
+	}
+	srvCfg, err := conn.GetConfig(s.ctx, &proto.GetConfigRequest{
+		ProfileName: activeProf.ID.String(),
+		Username:    currUser.Username,
+	})
+	if err != nil {
+		log.Warnf("disableAutoConnectFromDaemon: GetConfig RPC: %v", err)
+		return false
+	}
+	return srvCfg.GetDisableAutoConnect()
+}
+
 // getSrvConfig from the service to show it in the settings window.
 func (s *serviceClient) getSrvConfig() {
 	s.managementURL = profilemanager.DefaultManagementURL
@@ -1537,7 +1576,6 @@ func protoConfigToConfig(cfg *proto.GetConfigResponse) *profilemanager.Config {
 	config.RosenpassEnabled = cfg.RosenpassEnabled
 	config.RosenpassPermissive = cfg.RosenpassPermissive
 	config.DisableNotifications = &cfg.DisableNotifications
-	config.LazyConnectionEnabled = cfg.LazyConnectionEnabled
 	config.BlockInbound = cfg.BlockInbound
 	config.NetworkMonitor = &cfg.NetworkMonitor
 	config.DisableDNS = cfg.DisableDns
@@ -1639,12 +1677,6 @@ func (s *serviceClient) loadSettings() {
 		s.mEnableRosenpass.Check()
 	} else {
 		s.mEnableRosenpass.Uncheck()
-	}
-
-	if cfg.LazyConnectionEnabled {
-		s.mLazyConnEnabled.Check()
-	} else {
-		s.mLazyConnEnabled.Uncheck()
 	}
 
 	if cfg.BlockInbound {
@@ -1792,7 +1824,6 @@ func (s *serviceClient) updateConfig() error {
 	disableAutoStart := !s.mAutoConnect.Checked()
 	sshAllowed := s.mAllowSSH.Checked()
 	rosenpassEnabled := s.mEnableRosenpass.Checked()
-	lazyConnectionEnabled := s.mLazyConnEnabled.Checked()
 	blockInbound := s.mBlockInbound.Checked()
 	notificationsDisabled := !s.mNotifications.Checked()
 
@@ -1815,14 +1846,13 @@ func (s *serviceClient) updateConfig() error {
 	}
 
 	req := proto.SetConfigRequest{
-		ProfileName:           activeProf.ID.String(),
-		Username:              currUser.Username,
-		DisableAutoConnect:    &disableAutoStart,
-		ServerSSHAllowed:      &sshAllowed,
-		RosenpassEnabled:      &rosenpassEnabled,
-		LazyConnectionEnabled: &lazyConnectionEnabled,
-		BlockInbound:          &blockInbound,
-		DisableNotifications:  &notificationsDisabled,
+		ProfileName:          activeProf.ID.String(),
+		Username:             currUser.Username,
+		DisableAutoConnect:   &disableAutoStart,
+		ServerSSHAllowed:     &sshAllowed,
+		RosenpassEnabled:     &rosenpassEnabled,
+		BlockInbound:         &blockInbound,
+		DisableNotifications: &notificationsDisabled,
 	}
 
 	if _, err := conn.SetConfig(s.ctx, &req); err != nil {

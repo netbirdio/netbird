@@ -280,3 +280,9 @@ func (s *FileStore) GetCustomDomainsCounts(_ context.Context) (int64, int64, err
 func (s *FileStore) GetProxyMetrics(_ context.Context) (ProxyMetrics, error) {
 	return ProxyMetrics{}, nil
 }
+
+// GetAgentNetworkMetrics is a no-op for FileStore — agent-network state isn't
+// persisted in the JSON file format.
+func (s *FileStore) GetAgentNetworkMetrics(_ context.Context) (AgentNetworkMetrics, error) {
+	return AgentNetworkMetrics{}, nil
+}
