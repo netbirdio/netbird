@@ -3,15 +3,17 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
-	"strings"
 
+	"github.com/dexidp/dex/storage"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
 	"github.com/netbirdio/netbird/formatter/hook"
 	admincmd "github.com/netbirdio/netbird/management/cmd/admin"
 	tokencmd "github.com/netbirdio/netbird/management/cmd/token"
+	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/server/activity"
+	activitystore "github.com/netbirdio/netbird/management/server/activity/store"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/util"
@@ -19,41 +21,86 @@ import (
 
 // newAdminCommands creates the admin command tree with combined-specific resource openers.
 func newAdminCommands() *cobra.Command {
-	cmd := admincmd.NewCommands(withAdminResources)
-	cmd.AddCommand(tokencmd.NewCommands(withAdminTokenStore))
+	return admincmd.NewCommands(admincmd.Openers{
+		Resources: withAdminResources,
+		Store:     withAdminStoreOnly,
+		IDP:       withAdminIDPOnly,
+	})
+}
+
+func newLegacyTokenCommand() *cobra.Command {
+	cmd := tokencmd.NewCommands(tokencmd.StoreOpener(withAdminStoreOnly))
+	cmd.Deprecated = "use 'admin token' instead"
 	return cmd
 }
 
 // withAdminResources loads the combined YAML config, initializes stores, and calls fn.
 func withAdminResources(cmd *cobra.Command, fn func(ctx context.Context, resources admincmd.Resources) error) error {
-	return withAdminStore(cmd, func(ctx context.Context, managementStore store.Store, cfg *CombinedConfig) error {
-		mgmtConfig, err := cfg.ToManagementConfig()
-		if err != nil {
-			return fmt.Errorf("create management config: %w", err)
-		}
-
-		idpStorage, err := admincmd.OpenEmbeddedIDPStorage(mgmtConfig.EmbeddedIdP)
+	return withAdminConfig(cmd, func(ctx context.Context, cfg *CombinedConfig) error {
+		mgmtConfig, err := adminManagementConfig(cfg)
 		if err != nil {
 			return err
 		}
-		defer func() {
-			if err := idpStorage.Close(); err != nil {
-				log.Debugf("close embedded IdP storage: %v", err)
-			}
-		}()
 
-		return fn(ctx, admincmd.Resources{Store: managementStore, IDPStorage: idpStorage})
+		managementStore, err := openAdminStore(ctx, cfg)
+		if err != nil {
+			return err
+		}
+		defer admincmd.CloseStore(ctx, managementStore)
+
+		idpStorage, idpStorageFile, err := admincmd.OpenIDPStorage(mgmtConfig)
+		if err != nil {
+			return err
+		}
+		defer admincmd.CloseIDPStorage(idpStorage)
+
+		eventStore, esErr := openAdminEventStore(ctx, cfg, mgmtConfig)
+		if esErr != nil {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: audit events will not be recorded: %v\n", esErr)
+		}
+		if eventStore != nil {
+			defer func() {
+				if err := eventStore.Close(ctx); err != nil {
+					log.Debugf("close activity event store: %v", err)
+				}
+			}()
+		}
+
+		return fn(ctx, admincmd.Resources{Store: managementStore, IDPStorage: idpStorage, IDPStorageFile: idpStorageFile, EventStore: eventStore})
 	})
 }
 
-// withAdminTokenStore opens only the management store for admin token commands.
-func withAdminTokenStore(cmd *cobra.Command, fn func(ctx context.Context, s store.Store) error) error {
-	return withAdminStore(cmd, func(ctx context.Context, managementStore store.Store, _ *CombinedConfig) error {
+// withAdminStoreOnly opens only the management store for admin subcommands that do not
+// need embedded IdP storage.
+func withAdminStoreOnly(cmd *cobra.Command, fn func(ctx context.Context, s store.Store) error) error {
+	return withAdminConfig(cmd, func(ctx context.Context, cfg *CombinedConfig) error {
+		managementStore, err := openAdminStore(ctx, cfg)
+		if err != nil {
+			return err
+		}
+		defer admincmd.CloseStore(ctx, managementStore)
+
 		return fn(ctx, managementStore)
 	})
 }
 
-func withAdminStore(cmd *cobra.Command, fn func(ctx context.Context, s store.Store, cfg *CombinedConfig) error) error {
+func withAdminIDPOnly(cmd *cobra.Command, fn func(ctx context.Context, idpStorage storage.Storage, storageFile string) error) error {
+	return withAdminConfig(cmd, func(ctx context.Context, cfg *CombinedConfig) error {
+		mgmtConfig, err := adminManagementConfig(cfg)
+		if err != nil {
+			return err
+		}
+		idpStorage, idpStorageFile, err := admincmd.OpenIDPStorage(mgmtConfig)
+		if err != nil {
+			return err
+		}
+		defer admincmd.CloseIDPStorage(idpStorage)
+
+		return fn(ctx, idpStorage, idpStorageFile)
+	})
+}
+
+func withAdminConfig(cmd *cobra.Command, fn func(ctx context.Context, cfg *CombinedConfig) error) error {
 	if err := util.InitLog("error", "console"); err != nil {
 		return fmt.Errorf("init log: %w", err)
 	}
@@ -64,28 +111,41 @@ func withAdminStore(cmd *cobra.Command, fn func(ctx context.Context, s store.Sto
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
+	cfg.ApplyAdminDefaults()
+	applyServerStoreEnv(cfg.Server.Store)
 
-	if dsn := cfg.Server.Store.DSN; dsn != "" {
-		switch strings.ToLower(cfg.Server.Store.Engine) {
-		case "postgres":
-			os.Setenv("NB_STORE_ENGINE_POSTGRES_DSN", dsn)
-		case "mysql":
-			os.Setenv("NB_STORE_ENGINE_MYSQL_DSN", dsn)
-		}
-	}
-	if file := cfg.Server.Store.File; file != "" {
-		os.Setenv("NB_STORE_ENGINE_SQLITE_FILE", file)
-	}
+	return fn(ctx, cfg)
+}
 
+func adminManagementConfig(cfg *CombinedConfig) (*nbconfig.Config, error) {
+	mgmtConfig, err := cfg.ToManagementConfig()
+	if err != nil {
+		return nil, fmt.Errorf("create management config: %w", err)
+	}
+	return mgmtConfig, nil
+}
+
+func openAdminStore(ctx context.Context, cfg *CombinedConfig) (store.Store, error) {
 	managementStore, err := store.NewStore(ctx, types.Engine(cfg.Management.Store.Engine), cfg.Management.DataDir, nil, true)
 	if err != nil {
-		return fmt.Errorf("create store: %w", err)
+		return nil, fmt.Errorf("create store: %w", err)
 	}
-	defer func() {
-		if err := managementStore.Close(ctx); err != nil {
-			log.Debugf("close store: %v", err)
-		}
-	}()
+	return managementStore, nil
+}
 
-	return fn(ctx, managementStore, cfg)
+func openAdminEventStore(ctx context.Context, cfg *CombinedConfig, config *nbconfig.Config) (activity.Store, error) {
+	if config.DataStoreEncryptionKey == "" {
+		return nil, fmt.Errorf("data store encryption key is not configured")
+	}
+	if err := applyActivityStoreEnv(cfg.Server.ActivityStore); err != nil {
+		return nil, fmt.Errorf("configure activity event store: %w", err)
+	}
+	eventStore, err := activitystore.NewSqlStore(ctx, config.Datadir, config.DataStoreEncryptionKey)
+	if err != nil {
+		return nil, fmt.Errorf("open activity event store: %w", err)
+	}
+	if eventStore == nil {
+		return nil, fmt.Errorf("open activity event store: returned nil store")
+	}
+	return eventStore, nil
 }

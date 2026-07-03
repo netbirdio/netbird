@@ -86,4 +86,5 @@ func init() {
 	ac := newAdminCommands()
 	ac.PersistentFlags().StringVar(&nbconfig.MgmtConfigPath, "config", defaultMgmtConfig, "Netbird config file location")
 	rootCmd.AddCommand(ac)
+	rootCmd.AddCommand(newLegacyTokenCommand())
 }

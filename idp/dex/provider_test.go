@@ -3,6 +3,8 @@ package dex
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -11,10 +13,43 @@ import (
 	"testing"
 
 	"github.com/dexidp/dex/storage"
+	"github.com/dexidp/dex/storage/memory"
 	sqllib "github.com/dexidp/dex/storage/sql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type updateFailingStorage struct {
+	storage.Storage
+	failClientID string
+}
+
+func (s *updateFailingStorage) UpdateClient(ctx context.Context, id string, updater func(storage.Client) (storage.Client, error)) error {
+	if id == s.failClientID {
+		return errors.New("forced update failure")
+	}
+	return s.Storage.UpdateClient(ctx, id, updater)
+}
+
+func TestSetClientsMFAChainRollsBackUpdatedClients(t *testing.T) {
+	ctx := context.Background()
+	st := memory.New(slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	require.NoError(t, st.CreateClient(ctx, storage.Client{ID: "client-1", MFAChain: []string{"old-1"}}))
+	require.NoError(t, st.CreateClient(ctx, storage.Client{ID: "client-2", MFAChain: []string{"old-2"}}))
+
+	err := SetClientsMFAChain(ctx, &updateFailingStorage{Storage: st, failClientID: "client-2"}, []string{"client-1", "client-2"}, []string{"new"})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "failed to update MFA chain on client client-2")
+
+	client1, err := st.GetClient(ctx, "client-1")
+	require.NoError(t, err)
+	require.Equal(t, []string{"old-1"}, client1.MFAChain)
+
+	client2, err := st.GetClient(ctx, "client-2")
+	require.NoError(t, err)
+	require.Equal(t, []string{"old-2"}, client2.MFAChain)
+}
 
 func TestUserCreationFlow(t *testing.T) {
 	ctx := context.Background()

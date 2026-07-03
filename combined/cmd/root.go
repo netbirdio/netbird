@@ -65,6 +65,7 @@ func init() {
 	_ = rootCmd.MarkPersistentFlagRequired("config")
 
 	rootCmd.AddCommand(newAdminCommands())
+	rootCmd.AddCommand(newLegacyTokenCommand())
 }
 
 func RootCmd() *cobra.Command {
@@ -122,6 +123,37 @@ func execute(cmd *cobra.Command, _ []string) error {
 }
 
 // initializeConfig loads and validates the configuration, then initializes logging.
+func applyServerStoreEnv(storeConfig StoreConfig) {
+	if dsn := storeConfig.DSN; dsn != "" {
+		switch strings.ToLower(storeConfig.Engine) {
+		case "postgres":
+			os.Setenv("NB_STORE_ENGINE_POSTGRES_DSN", dsn)
+		case "mysql":
+			os.Setenv("NB_STORE_ENGINE_MYSQL_DSN", dsn)
+		}
+	}
+	if file := storeConfig.File; file != "" {
+		os.Setenv("NB_STORE_ENGINE_SQLITE_FILE", file)
+	}
+}
+
+func applyActivityStoreEnv(storeConfig StoreConfig) error {
+	if engine := storeConfig.Engine; engine != "" {
+		engineLower := strings.ToLower(engine)
+		if engineLower == "postgres" && storeConfig.DSN == "" {
+			return fmt.Errorf("activityStore.dsn is required when activityStore.engine is postgres")
+		}
+		os.Setenv("NB_ACTIVITY_EVENT_STORE_ENGINE", engineLower)
+		if dsn := storeConfig.DSN; dsn != "" {
+			os.Setenv("NB_ACTIVITY_EVENT_POSTGRES_DSN", dsn)
+		}
+	}
+	if file := storeConfig.File; file != "" {
+		os.Setenv("NB_ACTIVITY_EVENT_SQLITE_FILE", file)
+	}
+	return nil
+}
+
 func initializeConfig() error {
 	var err error
 	config, err = LoadConfig(configPath)
@@ -137,30 +169,10 @@ func initializeConfig() error {
 		return fmt.Errorf("failed to initialize log: %w", err)
 	}
 
-	if dsn := config.Server.Store.DSN; dsn != "" {
-		switch strings.ToLower(config.Server.Store.Engine) {
-		case "postgres":
-			os.Setenv("NB_STORE_ENGINE_POSTGRES_DSN", dsn)
-		case "mysql":
-			os.Setenv("NB_STORE_ENGINE_MYSQL_DSN", dsn)
-		}
-	}
-	if file := config.Server.Store.File; file != "" {
-		os.Setenv("NB_STORE_ENGINE_SQLITE_FILE", file)
-	}
+	applyServerStoreEnv(config.Server.Store)
 
-	if engine := config.Server.ActivityStore.Engine; engine != "" {
-		engineLower := strings.ToLower(engine)
-		if engineLower == "postgres" && config.Server.ActivityStore.DSN == "" {
-			return fmt.Errorf("activityStore.dsn is required when activityStore.engine is postgres")
-		}
-		os.Setenv("NB_ACTIVITY_EVENT_STORE_ENGINE", engineLower)
-		if dsn := config.Server.ActivityStore.DSN; dsn != "" {
-			os.Setenv("NB_ACTIVITY_EVENT_POSTGRES_DSN", dsn)
-		}
-	}
-	if file := config.Server.ActivityStore.File; file != "" {
-		os.Setenv("NB_ACTIVITY_EVENT_SQLITE_FILE", file)
+	if err := applyActivityStoreEnv(config.Server.ActivityStore); err != nil {
+		return err
 	}
 
 	log.Infof("Starting combined NetBird server")

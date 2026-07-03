@@ -519,7 +519,7 @@ start_services_and_show_instructions() {
       echo "Creating proxy access token..."
       # Use docker exec with bash to run the token command directly
       PROXY_TOKEN=$($DOCKER_COMPOSE_COMMAND exec -T netbird-server \
-        /go/bin/netbird-server token create --name "default-proxy" --config /etc/netbird/config.yaml 2>/dev/null | grep "^Token:" | awk '{print $2}')
+        /go/bin/netbird-server admin token create --name "default-proxy" --config /etc/netbird/config.yaml 2>/dev/null | grep "^Token:" | awk '{print $2}')
 
       if [[ -z "$PROXY_TOKEN" ]]; then
         echo "ERROR: Failed to create proxy token. Check netbird-server logs." > /dev/stderr
