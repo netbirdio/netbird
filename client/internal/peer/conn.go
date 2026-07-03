@@ -662,11 +662,16 @@ func (conn *Conn) onGuardEvent() {
 	}
 }
 
-func (conn *Conn) onWGDisconnected() {
+// onWGDisconnected is invoked by the watcher goroutine when a handshake timeout is detected.
+// watcherCtx is the context of the watcher that fired: the timeout check runs lock-free, so by
+// the time we acquire conn.mu the watcher may have been cancelled (disabled) and a new connection
+// (and watcher) may already be in place. Re-checking watcherCtx under the lock prevents a stale
+// watcher from tearing down the connection that superseded it.
+func (conn *Conn) onWGDisconnected(watcherCtx context.Context) {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
-	if conn.ctx.Err() != nil {
+	if conn.ctx.Err() != nil || watcherCtx.Err() != nil {
 		return
 	}
 
@@ -822,7 +827,8 @@ func (conn *Conn) enableWgWatcherIfNeeded(enabledTime time.Time) {
 	conn.wgWatcherWg.Add(1)
 	go func() {
 		defer conn.wgWatcherWg.Done()
-		watcher.EnableWgWatcher(wgWatcherCtx, enabledTime, conn.onWGDisconnected, conn.onWGHandshakeSuccess)
+		onDisconnected := func() { conn.onWGDisconnected(wgWatcherCtx) }
+		watcher.EnableWgWatcher(wgWatcherCtx, enabledTime, onDisconnected, conn.onWGHandshakeSuccess)
 	}()
 }
 
