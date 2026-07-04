@@ -70,6 +70,9 @@ server:
 	configPath = cfgFile
 
 	t.Run("env var unset", func(t *testing.T) {
+		if orig, wasSet := os.LookupEnv("NB_ACTIVITY_EVENT_POSTGRES_DSN"); wasSet {
+			t.Cleanup(func() { os.Setenv("NB_ACTIVITY_EVENT_POSTGRES_DSN", orig) })
+		}
 		os.Unsetenv("NB_ACTIVITY_EVENT_POSTGRES_DSN")
 		err := initializeConfig()
 		require.Error(t, err, "initializeConfig should reject missing activityStore DSN when no env var is set")
