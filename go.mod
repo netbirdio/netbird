@@ -127,7 +127,7 @@ require (
 	goauthentik.io/api/v3 v3.2023051.3
 	golang.org/x/exp v0.0.0-20250620022241-b7579e27df2b
 	golang.org/x/mobile v0.0.0-20251113184115-a159579294ab
-	golang.org/x/mod v0.34.0
+	golang.org/x/mod v0.35.0
 	golang.org/x/net v0.53.0
 	golang.org/x/oauth2 v0.36.0
 	golang.org/x/sync v0.20.0
@@ -331,9 +331,9 @@ require (
 	go.opentelemetry.io/otel/trace v1.43.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
-	golang.org/x/image v0.33.0 // indirect
-	golang.org/x/text v0.36.0 // indirect
-	golang.org/x/tools v0.43.0 // indirect
+	golang.org/x/image v0.41.0 // indirect
+	golang.org/x/text v0.37.0 // indirect
+	golang.org/x/tools v0.44.0 // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260401024825-9d38bb4040a9 // indirect
 	gopkg.in/square/go-jose.v2 v2.6.0 // indirect
