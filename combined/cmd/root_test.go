@@ -42,3 +42,42 @@ server:
 	err := initializeConfig()
 	require.NoError(t, err, "initializeConfig should accept activityStore DSN supplied via NB_ACTIVITY_EVENT_POSTGRES_DSN env var")
 }
+
+// TestInitializeConfig_ActivityStorePostgresMissingDSN is the companion regression test:
+// with activityStore.engine=postgres and no DSN in config.yaml, initializeConfig() must
+// still reject the config when NB_ACTIVITY_EVENT_POSTGRES_DSN is either unset or set to
+// an empty string - an empty env var must not be treated as "provided".
+func TestInitializeConfig_ActivityStorePostgresMissingDSN(t *testing.T) {
+	dir := t.TempDir()
+	cfgFile := filepath.Join(dir, "config.yaml")
+
+	yamlContent := `
+server:
+  exposedAddress: "https://netbird.example.com:443"
+  dataDir: "` + dir + `"
+  authSecret: "test-secret"
+  activityStore:
+    engine: postgres
+`
+	require.NoError(t, os.WriteFile(cfgFile, []byte(yamlContent), 0o600))
+
+	oldConfigPath := configPath
+	oldConfig := config
+	t.Cleanup(func() {
+		configPath = oldConfigPath
+		config = oldConfig
+	})
+	configPath = cfgFile
+
+	t.Run("env var unset", func(t *testing.T) {
+		os.Unsetenv("NB_ACTIVITY_EVENT_POSTGRES_DSN")
+		err := initializeConfig()
+		require.Error(t, err, "initializeConfig should reject missing activityStore DSN when no env var is set")
+	})
+
+	t.Run("env var empty string", func(t *testing.T) {
+		t.Setenv("NB_ACTIVITY_EVENT_POSTGRES_DSN", "")
+		err := initializeConfig()
+		require.Error(t, err, "initializeConfig should reject an empty activityStore DSN env var, not treat it as provided")
+	})
+}
