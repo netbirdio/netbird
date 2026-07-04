@@ -144,7 +144,7 @@ func applyActivityStoreEnv(storeConfig StoreConfig) error {
 	if engine := storeConfig.Engine; engine != "" {
 		engineLower := strings.ToLower(engine)
 		if engineLower == "postgres" && storeConfig.DSN == "" {
-			if _, ok := os.LookupEnv("NB_ACTIVITY_EVENT_POSTGRES_DSN"); !ok {
+			if os.Getenv("NB_ACTIVITY_EVENT_POSTGRES_DSN") == "" {
 				return fmt.Errorf("activityStore.dsn is required when activityStore.engine is postgres (or set NB_ACTIVITY_EVENT_POSTGRES_DSN)")
 			}
 		}
