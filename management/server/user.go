@@ -234,6 +234,19 @@ func (am *DefaultAccountManager) GetUserFromUserAuth(ctx context.Context, userAu
 		return nil, err
 	}
 
+	// Refresh name/email from ID-token claims on each login (parity with JWT group sync)
+	if (userAuth.Name != "" && user.Name != userAuth.Name) || (userAuth.Email != "" && user.Email != userAuth.Email) {
+		if userAuth.Name != "" {
+			user.Name = userAuth.Name
+		}
+		if userAuth.Email != "" {
+			user.Email = userAuth.Email
+		}
+		if err := am.Store.SaveUser(ctx, user); err != nil {
+			log.WithContext(ctx).Debugf("failed to update user name/email: %v", err)
+		}
+	}
+
 	// this code should be outside of the am.GetAccountIDFromToken(claims) because this method is called also by the gRPC
 	// server when user authenticates a device. And we need to separate the Dashboard login event from the Device login event.
 	newLogin := user.LastDashboardLoginChanged(userAuth.LastLogin)
