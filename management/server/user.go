@@ -235,6 +235,7 @@ func (am *DefaultAccountManager) GetUserFromUserAuth(ctx context.Context, userAu
 	}
 
 	// Refresh name/email from ID-token claims on each login (parity with JWT group sync)
+	origName, origEmail := user.Name, user.Email
 	if (userAuth.Name != "" && user.Name != userAuth.Name) || (userAuth.Email != "" && user.Email != userAuth.Email) {
 		if userAuth.Name != "" {
 			user.Name = userAuth.Name
@@ -243,6 +244,7 @@ func (am *DefaultAccountManager) GetUserFromUserAuth(ctx context.Context, userAu
 			user.Email = userAuth.Email
 		}
 		if err := am.Store.SaveUser(ctx, user); err != nil {
+			user.Name, user.Email = origName, origEmail
 			log.WithContext(ctx).Debugf("failed to update user name/email: %v", err)
 		}
 	}
