@@ -2624,7 +2624,11 @@ func (e *Engine) toExcludedLazyPeers(rules []firewallManager.ForwardRule, peers 
 // peerRoutesAddr verifies if the peer is a router for a given address.
 func peerRoutesAddr(p *mgmProto.RemotePeerConfig, addr netip.Addr) bool {
 	for _, allowedIP := range p.GetAllowedIps() {
-		if allowedIP == addr.String() {
+		prefix, err := netip.ParsePrefix(allowedIP)
+		if err != nil {
+			continue
+		}
+		if prefix.Contains(addr) {
 			return true
 		}
 	}
