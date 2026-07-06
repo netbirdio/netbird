@@ -85,6 +85,7 @@ func exposeAccessRestrictionsFromProto(r *proto.AccessRestrictions) rpservice.Ac
 		BlockedCIDRs:     append([]string(nil), r.BlockedCidrs...),
 		AllowedCountries: append([]string(nil), r.AllowedCountries...),
 		BlockedCountries: append([]string(nil), r.BlockedCountries...),
+		CrowdSecMode:     r.CrowdsecMode,
 	}
 }
 

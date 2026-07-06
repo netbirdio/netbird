@@ -35,6 +35,10 @@ func TestNormalizeExposeCountryCodes(t *testing.T) {
 	_, err = normalizeExposeCountryCodes("block-country", []string{"USA"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "2-letter")
+
+	_, err = normalizeExposeCountryCodes("allow-country", []string{"12"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "2-letter")
 }
 
 func TestBuildExposeAccessRestrictions(t *testing.T) {

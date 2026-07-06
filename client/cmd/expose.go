@@ -216,7 +216,7 @@ func normalizeExposeCountryCodes(flag string, codes []string) ([]string, error) 
 	normalized := make([]string, 0, len(codes))
 	for _, raw := range codes {
 		code := strings.ToUpper(strings.TrimSpace(raw))
-		if len(code) != 2 {
+		if len(code) != 2 || code[0] < 'A' || code[0] > 'Z' || code[1] < 'A' || code[1] > 'Z' {
 			return nil, fmt.Errorf("--%s %q must be a 2-letter ISO 3166-1 alpha-2 country code", flag, raw)
 		}
 		normalized = append(normalized, code)
