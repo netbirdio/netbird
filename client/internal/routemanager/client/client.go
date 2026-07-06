@@ -231,11 +231,15 @@ func (w *Watcher) getBestRouteFromStatuses(routePeerStatuses map[route.ID]router
 	switch {
 	case chosen == "":
 		var peers []string
-		for _, r := range w.routes {
-			peers = append(peers, r.Peer)
+		for id, r := range w.routes {
+			st := "unknown(no status)"
+			if ps, ok := routePeerStatuses[id]; ok {
+				st = fmt.Sprintf("%s relayed=%v lat=%v", ps.status, ps.relayed, ps.latency)
+			}
+			peers = append(peers, fmt.Sprintf("%s{%s}", r.Peer, st))
 		}
 
-		log.Infof("network [%v] has not been assigned a routing peer as no peers from the list %s are currently available", w.handler, peers)
+		log.Warnf("ROUTE-DIAG: network [%v] no routing peer available yet (all candidates connecting/absent); candidates: %s", w.handler, peers)
 	case chosen != currID:
 		// we compare the current score + 10ms to the chosen score to avoid flapping between routes
 		if currScore != 0 && currScore+0.01 > chosenScore {
@@ -247,7 +251,7 @@ func (w *Watcher) getBestRouteFromStatuses(routePeerStatuses map[route.ID]router
 		if rt := w.routes[chosen]; rt != nil {
 			p = rt.Peer
 		}
-		log.Infof("New chosen route is %s with peer %s with score %f for network [%v]", chosen, p, chosenScore, w.handler)
+		log.Warnf("ROUTE-DIAG: new chosen route %s peer %s score %f for network [%v] (routing peer now usable)", chosen, p, chosenScore, w.handler)
 	}
 
 	return chosen, chosenStatus
