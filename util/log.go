@@ -4,11 +4,9 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 
-	"github.com/DeRuina/timberjack"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/grpclog"
 
@@ -122,19 +120,6 @@ func setupLogFile(logPath string, disableRotation bool) (io.Writer, error) {
 		return file, nil
 	}
 	return newRotatedOutput(logPath), nil
-}
-
-func newRotatedOutput(logPath string) io.Writer {
-	maxLogSize := getLogMaxSize()
-	timberjackLogger := &timberjack.Logger{
-		// Log file absolute path, os agnostic
-		Filename:    filepath.ToSlash(logPath),
-		MaxSize:     maxLogSize, // MB
-		MaxBackups:  10,
-		MaxAge:      30, // days
-		Compression: "gzip",
-	}
-	return timberjackLogger
 }
 
 func setGRPCLibLogger(logger *log.Logger) {
