@@ -1,0 +1,45 @@
+@font-face {
+    font-family: "Inter Variable";
+    font-style: normal;
+    font-weight: 100 900;
+    src: url("./assets/fonts/inter-variable.ttf") format("truetype");
+}
+
+@font-face {
+    font-family: "JetBrains Mono Variable";
+    font-style: normal;
+    font-weight: 100 800;
+    src: url("./assets/fonts/jetbrains-mono-variable.ttf") format("truetype");
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+    height: 100%;
+    overflow: hidden;
+}
+
+/*
+ * Body bg is fully opaque on purpose. The main window uses
+ * MacBackdropTranslucent (main.go) and TitleBarHiddenInset, which on macOS
+ * lets the desktop wallpaper bleed through any non-opaque pixel. A 90%
+ * body alpha meant two machines with different wallpapers saw different
+ * effective backgrounds. Matching Wails' BackgroundColour (#181A1D / nb-gray
+ * DEFAULT) here keeps things consistent regardless of the OS backdrop.
+ */
+body {
+    @apply bg-nb-gray font-sans text-nb-gray-200 antialiased;
+}
+
+.wails-draggable {
+    --wails-draggable: drag;
+    cursor: default;
+}
+
+.wails-no-draggable {
+    --wails-draggable: no-drag;
+}

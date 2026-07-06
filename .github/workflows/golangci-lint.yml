@@ -22,7 +22,15 @@ jobs:
         uses: codespell-project/actions-codespell@8f01853be192eb0f849a5c7d721450e7a467c579 # v2.2
         with:
           ignore_words_list: erro,clienta,hastable,iif,groupd,testin,groupe,cros,ans,deriver,te,userA,ede,additionals,flate,recordin,unparseable
-          skip: go.mod,go.sum,**/proxy/web/**
+          # Non-English UI translations trip codespell on real foreign words
+          # (de: "Sie", "oder", "ist"). Only en/common.json is the source of
+          # truth that should be spell-checked. List each translated locale
+          # dir below and add new ones as languages are added under
+          # client/ui/i18n/locales/. Single-star globs are matched per path
+          # segment by codespell and behave the same across versions; the
+          # recursive "**" form did not take effect with the codespell shipped
+          # by this action.
+          skip: go.mod,go.sum,*/proxy/web/*,*pnpm-lock.yaml,*package-lock.json,*/locales/de/*,*/locales/es/*,*/locales/fr/*,*/locales/hu/*,*/locales/it/*,*/locales/pt/*,*/locales/ru/*,*/locales/zh-CN/*,*/i18n/TRANSLATING.md
   golangci:
     strategy:
       fail-fast: false
@@ -54,7 +62,16 @@ jobs:
           cache: false
       - name: Install dependencies
         if: matrix.os == 'ubuntu-latest'
-        run: sudo apt update && sudo apt install -y -q libgtk-3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev libpcap-dev
+        run: sudo apt update && sudo apt install -y -q libgtk-4-dev libwebkitgtk-6.0-dev libsoup-3.0-dev libgl1-mesa-dev xorg-dev libpcap-dev
+      - name: Stub Wails frontend bundle
+        # client/ui/main.go has //go:embed all:frontend/dist. The
+        # directory is produced by `pnpm run build` and is gitignored, so
+        # lint-only runs (no frontend toolchain) need a placeholder file
+        # for the embed pattern to match.
+        shell: bash
+        run: |
+          mkdir -p client/ui/frontend/dist
+          touch client/ui/frontend/dist/.embed-placeholder
       - name: golangci-lint
         uses: golangci/golangci-lint-action@82606bf257cbaff209d206a39f5134f0cfbfd2ee #v9.2.1
         with:

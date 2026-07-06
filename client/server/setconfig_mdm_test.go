@@ -181,6 +181,43 @@ func TestSetConfig_MDMAllow_NonManagedFields(t *testing.T) {
 	require.NotNil(t, resp)
 }
 
+// TestSetConfig_MDMAllow_ManagementURLPortNormalized covers the
+// regression from discussion #6483: MDM URL without explicit port vs
+// UI echo with the parseURL-appended default port must be treated as
+// a no-op echo, not a conflict.
+func TestSetConfig_MDMAllow_ManagementURLPortNormalized(t *testing.T) {
+	tests := []struct {
+		name      string
+		mdmURL    string
+		submitURL string
+	}{
+		{"policy_no_port_submit_with_443", "https://netbird.corp.example", "https://netbird.corp.example:443"},
+		{"policy_with_443_submit_no_port", "https://netbird.corp.example:443", "https://netbird.corp.example"},
+		{"http_policy_no_port_submit_with_80", "http://netbird.corp.example", "http://netbird.corp.example:80"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			withMDMPolicy(t, mdm.NewPolicy(map[string]any{
+				mdm.KeyManagementURL: tc.mdmURL,
+			}))
+
+			s, ctx, profName, username, _ := setupServerWithProfile(t)
+
+			rosenpassEnabled := true
+			resp, err := s.SetConfig(ctx, &proto.SetConfigRequest{
+				ProfileName:      profName,
+				Username:         username,
+				ManagementUrl:    tc.submitURL,
+				RosenpassEnabled: &rosenpassEnabled,
+			})
+
+			require.NoError(t, err, "port-normalized URL echo must not trip MDM conflict gate")
+			require.NotNil(t, resp)
+		})
+	}
+}
+
 func TestSetConfig_MDMEmpty_NoEnforcement(t *testing.T) {
 	// No MDM policy active: any field can be written.
 	withMDMPolicy(t, mdm.NewPolicy(nil))

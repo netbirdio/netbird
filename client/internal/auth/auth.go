@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,6 +20,25 @@ import (
 	mgm "github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/management/client/common"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
+)
+
+// peerLoginExpiredMsg is the exact phrase the management server returns
+// when a previously SSO-enrolled peer's login has expired. Sourced from
+// shared/management/status/error.go (NewPeerLoginExpiredError). Matched
+// by substring so a future server-side rewording that keeps the phrase
+// still triggers the friendly fallback in Login().
+const peerLoginExpiredMsg = "peer login has expired"
+
+// errSetupKeyOnSSOExpiredPeer replaces the raw management error when the
+// user runs `netbird login -k <setup-key>` against a peer that was
+// originally enrolled via SSO. Wrapped in a PermissionDenied gRPC status
+// so callers' existing isPermissionDenied / isAuthError checks still
+// classify it correctly (early-exit from retry backoff, StatusNeedsLogin
+// in the server state machine).
+var errSetupKeyOnSSOExpiredPeer = status.Error(
+	codes.PermissionDenied,
+	"this peer was originally enrolled via SSO and its session has expired. "+
+		"Setup keys can only enrol new peers — run `netbird up` (interactive SSO) to re-login.",
 )
 
 // Auth manages authentication operations with the management server
@@ -184,6 +204,15 @@ func (a *Auth) Login(ctx context.Context, setupKey string, jwtToken string) (err
 			log.Debugf("peer registration required")
 			_, err = a.registerPeer(client, ctx, setupKey, jwtToken, pubSSHKey)
 			if err != nil {
+				// The peer pub-key is already on file with the management
+				// server (originally enrolled via SSO) and the session has
+				// expired. The setup-key path can only enrol new peers, so
+				// retrying with -k will keep failing. Replace the raw mgm
+				// message with an actionable hint that tells the user to
+				// re-authenticate via SSO instead.
+				if setupKey != "" && jwtToken == "" && isPeerLoginExpired(err) {
+					err = errSetupKeyOnSSOExpiredPeer
+				}
 				isAuthError = isPermissionDenied(err)
 				return err
 			}
@@ -472,4 +501,17 @@ func isLoginNeeded(err error) bool {
 
 func isRegistrationNeeded(err error) bool {
 	return isPermissionDenied(err)
+}
+
+// isPeerLoginExpired reports whether err is the management server's
+// "peer login has expired" PermissionDenied response. Used by Login to
+// detect the case where the caller passed a setup-key but the peer is
+// actually an SSO-enrolled record whose session needs refreshing — the
+// setup-key path cannot help there.
+func isPeerLoginExpired(err error) bool {
+	if !isPermissionDenied(err) {
+		return false
+	}
+	s, _ := status.FromError(err)
+	return strings.Contains(s.Message(), peerLoginExpiredMsg)
 }
