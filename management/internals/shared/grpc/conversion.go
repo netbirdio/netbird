@@ -47,16 +47,13 @@ func init() {
 	precomputedDeprecatedRemotePeersConstraint = constraint
 }
 
+// toNetbirdConfig converts the server configuration to the wire representation. It returns
+// nil when no server config is set (the fan-out network-map path) because clients treat any
+// non-nil config as authoritative: a config without a relay section is interpreted as relay
+// disabled and wipes the clients' relay URLs.
 func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken *Token, extraSettings *types.ExtraSettings, settings *types.Settings) *proto.NetbirdConfig {
 	if config == nil {
-		if settings == nil {
-			return nil
-		}
-		return &proto.NetbirdConfig{
-			Metrics: &proto.MetricsConfig{
-				Enabled: settings.MetricsPushEnabled,
-			},
-		}
+		return nil
 	}
 
 	var stuns []*proto.HostConfig
