@@ -2608,10 +2608,11 @@ func (e *Engine) toExcludedLazyPeers(rules []firewallManager.ForwardRule, peers 
 
 	// Ingress forward targets: inbound forwarded traffic is initiated remotely and
 	// cannot wake a lazy connection, so the peer routing the target must stay
-	// permanently connected.
+	// permanently connected. AllowedIPs are already parsed on the peer conn, so
+	// reuse those typed prefixes instead of re-parsing the network map strings.
 	for _, r := range rules {
 		for _, p := range peers {
-			if peerRoutesAddr(p, r.TranslatedAddress) {
+			if e.peerRoutesAddr(p, r.TranslatedAddress) {
 				log.Infof("exclude forwarder peer from lazy connection: %s", p.GetWgPubKey())
 				excludedPeers[p.GetWgPubKey()] = true
 			}
@@ -2621,13 +2622,20 @@ func (e *Engine) toExcludedLazyPeers(rules []firewallManager.ForwardRule, peers 
 	return excludedPeers
 }
 
-// peerRoutesAddr verifies if the peer is a router for a given address.
-func peerRoutesAddr(p *mgmProto.RemotePeerConfig, addr netip.Addr) bool {
-	for _, allowedIP := range p.GetAllowedIps() {
-		prefix, err := netip.ParsePrefix(allowedIP)
-		if err != nil {
-			continue
-		}
+// peerRoutesAddr reports whether the peer is a router for addr, matched against
+// the peer's already-parsed AllowedIPs from the store (the same typed value the
+// lazy manager consumes) rather than re-parsing the network map strings.
+func (e *Engine) peerRoutesAddr(p *mgmProto.RemotePeerConfig, addr netip.Addr) bool {
+	prefixes, ok := e.peerStore.AllowedIPs(p.GetWgPubKey())
+	if !ok {
+		return false
+	}
+	return prefixesContain(prefixes, addr)
+}
+
+// prefixesContain reports whether addr falls within any of the prefixes.
+func prefixesContain(prefixes []netip.Prefix, addr netip.Addr) bool {
+	for _, prefix := range prefixes {
 		if prefix.Contains(addr) {
 			return true
 		}
