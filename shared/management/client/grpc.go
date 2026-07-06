@@ -71,14 +71,22 @@ type GrpcClient struct {
 }
 
 type ExposeRequest struct {
-	NamePrefix string
-	Domain     string
-	Port       uint16
-	Protocol   int
-	Pin        string
-	Password   string
-	UserGroups []string
-	ListenPort uint16
+	NamePrefix         string
+	Domain             string
+	Port               uint16
+	Protocol           int
+	Pin                string
+	Password           string
+	UserGroups         []string
+	ListenPort         uint16
+	AccessRestrictions *ExposeAccessRestrictions
+}
+
+type ExposeAccessRestrictions struct {
+	AllowedCIDRs     []string
+	BlockedCIDRs     []string
+	AllowedCountries []string
+	BlockedCountries []string
 }
 
 type ExposeResponse struct {
@@ -969,15 +977,28 @@ func toProtoExposeServiceRequest(req ExposeRequest) (*proto.ExposeServiceRequest
 	}
 
 	return &proto.ExposeServiceRequest{
-		NamePrefix: req.NamePrefix,
-		Domain:     req.Domain,
-		Port:       uint32(req.Port),
-		Protocol:   protocol,
-		Pin:        req.Pin,
-		Password:   req.Password,
-		UserGroups: req.UserGroups,
-		ListenPort: uint32(req.ListenPort),
+		NamePrefix:         req.NamePrefix,
+		Domain:             req.Domain,
+		Port:               uint32(req.Port),
+		Protocol:           protocol,
+		Pin:                req.Pin,
+		Password:           req.Password,
+		UserGroups:         req.UserGroups,
+		ListenPort:         uint32(req.ListenPort),
+		AccessRestrictions: toProtoExposeAccessRestrictions(req.AccessRestrictions),
 	}, nil
+}
+
+func toProtoExposeAccessRestrictions(r *ExposeAccessRestrictions) *proto.AccessRestrictions {
+	if r == nil {
+		return nil
+	}
+	return &proto.AccessRestrictions{
+		AllowedCidrs:     append([]string(nil), r.AllowedCIDRs...),
+		BlockedCidrs:     append([]string(nil), r.BlockedCIDRs...),
+		AllowedCountries: append([]string(nil), r.AllowedCountries...),
+		BlockedCountries: append([]string(nil), r.BlockedCountries...),
+	}
 }
 
 func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {

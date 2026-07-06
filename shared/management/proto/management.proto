@@ -2,6 +2,7 @@ syntax = "proto3";
 
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/duration.proto";
+import "proxy_service.proto";
 
 option go_package = "/proto";
 
@@ -737,6 +738,7 @@ message ExposeServiceRequest {
   string domain = 6;
   string name_prefix = 7;
   uint32 listen_port = 8;
+  AccessRestrictions access_restrictions = 9;
 }
 
 message ExposeServiceResponse {

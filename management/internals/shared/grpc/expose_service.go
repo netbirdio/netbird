@@ -62,6 +62,7 @@ func (s *Server) CreateExpose(ctx context.Context, req *proto.EncryptedMessage) 
 		Password:       exposeReq.Password,
 		UserGroups:     exposeReq.UserGroups,
 		ListenPort:     uint16(exposeReq.ListenPort), //nolint:gosec // validated above
+		Restrictions:   exposeAccessRestrictionsFromProto(exposeReq.AccessRestrictions),
 	})
 	if err != nil {
 		return nil, mapExposeError(ctx, err)
@@ -73,6 +74,19 @@ func (s *Server) CreateExpose(ctx context.Context, req *proto.EncryptedMessage) 
 		Domain:           created.Domain,
 		PortAutoAssigned: created.PortAutoAssigned,
 	})
+}
+
+func exposeAccessRestrictionsFromProto(r *proto.AccessRestrictions) rpservice.AccessRestrictions {
+	if r == nil {
+		return rpservice.AccessRestrictions{}
+	}
+	return rpservice.AccessRestrictions{
+		AllowedCIDRs:     append([]string(nil), r.AllowedCidrs...),
+		BlockedCIDRs:     append([]string(nil), r.BlockedCidrs...),
+		AllowedCountries: append([]string(nil), r.AllowedCountries...),
+		BlockedCountries: append([]string(nil), r.BlockedCountries...),
+		CrowdSecMode:     r.CrowdsecMode,
+	}
 }
 
 // RenewExpose extends the TTL of an active expose session.

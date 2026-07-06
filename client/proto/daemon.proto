@@ -892,6 +892,14 @@ message ExposeServiceRequest {
   string domain = 6;
   string name_prefix = 7;
   uint32 listen_port = 8;
+  ExposeAccessRestrictions access_restrictions = 9;
+}
+
+message ExposeAccessRestrictions {
+  repeated string allowed_cidrs = 1;
+  repeated string blocked_cidrs = 2;
+  repeated string allowed_countries = 3;
+  repeated string blocked_countries = 4;
 }
 
 message ExposeServiceEvent {
