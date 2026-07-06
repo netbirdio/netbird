@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/netip"
 	"os"
 	"os/signal"
 	"regexp"
@@ -31,6 +32,12 @@ var (
 	exposeNamePrefix   string
 	exposeProtocol     string
 	exposeExternalPort uint16
+	exposeAllowedIPs   []string
+	exposeBlockedIPs   []string
+	exposeAllowedCIDRs []string
+	exposeBlockedCIDRs []string
+	exposeAllowedCodes []string
+	exposeBlockedCodes []string
 )
 
 var exposeCmd = &cobra.Command{
@@ -40,6 +47,7 @@ var exposeCmd = &cobra.Command{
 	Example: `  netbird expose --with-password safe-pass 8080
   netbird expose --protocol tcp 5432
   netbird expose --protocol tcp --with-external-port 5433 5432
+  netbird expose --allow-ip 35.231.147.226 --allow-cidr 203.0.113.0/24 8080
   netbird expose --protocol tls --with-custom-domain tls.example.com 4443`,
 	RunE: exposeFn,
 }
@@ -52,6 +60,12 @@ func init() {
 	exposeCmd.Flags().StringVar(&exposeNamePrefix, "with-name-prefix", "", "Prefix for the generated service name (e.g. --with-name-prefix my-app)")
 	exposeCmd.Flags().StringVar(&exposeProtocol, "protocol", "http", "Protocol to use: http, https, tcp, udp, or tls (e.g. --protocol tcp)")
 	exposeCmd.Flags().Uint16Var(&exposeExternalPort, "with-external-port", 0, "Public-facing external port on the proxy cluster (defaults to the target port for L4)")
+	exposeCmd.Flags().StringSliceVar(&exposeAllowedIPs, "allow-ip", nil, "Allow only traffic from IP addresses (e.g. --allow-ip 203.0.113.10)")
+	exposeCmd.Flags().StringSliceVar(&exposeBlockedIPs, "block-ip", nil, "Block traffic from IP addresses (e.g. --block-ip 203.0.113.10)")
+	exposeCmd.Flags().StringSliceVar(&exposeAllowedCIDRs, "allow-cidr", nil, "Allow only traffic from CIDR blocks (e.g. --allow-cidr 203.0.113.0/24)")
+	exposeCmd.Flags().StringSliceVar(&exposeBlockedCIDRs, "block-cidr", nil, "Block traffic from CIDR blocks (e.g. --block-cidr 203.0.113.0/24)")
+	exposeCmd.Flags().StringSliceVar(&exposeAllowedCodes, "allow-country", nil, "Allow only traffic from ISO 3166-1 alpha-2 country codes (e.g. --allow-country US)")
+	exposeCmd.Flags().StringSliceVar(&exposeBlockedCodes, "block-country", nil, "Block traffic from ISO 3166-1 alpha-2 country codes (e.g. --block-country RU)")
 }
 
 // isClusterProtocol returns true for L4/TLS protocols that reject HTTP-style auth flags.
@@ -134,6 +148,82 @@ func validateExposeFlags(cmd *cobra.Command, portStr string) (uint64, error) {
 	return port, nil
 }
 
+func buildExposeAccessRestrictions() (*proto.ExposeAccessRestrictions, error) {
+	allowedCIDRs, err := mergeIPAndCIDRFlags("allow", exposeAllowedIPs, exposeAllowedCIDRs)
+	if err != nil {
+		return nil, err
+	}
+	blockedCIDRs, err := mergeIPAndCIDRFlags("block", exposeBlockedIPs, exposeBlockedCIDRs)
+	if err != nil {
+		return nil, err
+	}
+	allowedCountries, err := normalizeExposeCountryCodes("allow-country", exposeAllowedCodes)
+	if err != nil {
+		return nil, err
+	}
+	blockedCountries, err := normalizeExposeCountryCodes("block-country", exposeBlockedCodes)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(allowedCIDRs) == 0 && len(blockedCIDRs) == 0 &&
+		len(allowedCountries) == 0 && len(blockedCountries) == 0 {
+		return nil, nil
+	}
+
+	return &proto.ExposeAccessRestrictions{
+		AllowedCidrs:     allowedCIDRs,
+		BlockedCidrs:     blockedCIDRs,
+		AllowedCountries: allowedCountries,
+		BlockedCountries: blockedCountries,
+	}, nil
+}
+
+func mergeIPAndCIDRFlags(name string, ips, cidrs []string) ([]string, error) {
+	out := make([]string, 0, len(ips)+len(cidrs))
+
+	for _, raw := range ips {
+		ip := strings.TrimSpace(raw)
+		if ip == "" {
+			return nil, fmt.Errorf("--%s-ip cannot contain an empty value", name)
+		}
+		addr, err := netip.ParseAddr(ip)
+		if err != nil {
+			return nil, fmt.Errorf("--%s-ip %q is not a valid IP address: %w", name, ip, err)
+		}
+		out = append(out, netip.PrefixFrom(addr, addr.BitLen()).String())
+	}
+
+	for _, raw := range cidrs {
+		cidr := strings.TrimSpace(raw)
+		if cidr == "" {
+			return nil, fmt.Errorf("--%s-cidr cannot contain an empty value", name)
+		}
+		prefix, err := netip.ParsePrefix(cidr)
+		if err != nil {
+			return nil, fmt.Errorf("--%s-cidr %q is not a valid CIDR block: %w", name, cidr, err)
+		}
+		if prefix != prefix.Masked() {
+			return nil, fmt.Errorf("--%s-cidr %q has host bits set, use %s instead", name, cidr, prefix.Masked())
+		}
+		out = append(out, prefix.String())
+	}
+
+	return out, nil
+}
+
+func normalizeExposeCountryCodes(flag string, codes []string) ([]string, error) {
+	normalized := make([]string, 0, len(codes))
+	for _, raw := range codes {
+		code := strings.ToUpper(strings.TrimSpace(raw))
+		if len(code) != 2 {
+			return nil, fmt.Errorf("--%s %q must be a 2-letter ISO 3166-1 alpha-2 country code", flag, raw)
+		}
+		normalized = append(normalized, code)
+	}
+	return normalized, nil
+}
+
 func isProtocolValid(exposeProtocol string) bool {
 	switch strings.ToLower(exposeProtocol) {
 	case "http", "https", "tcp", "udp", "tls":
@@ -154,6 +244,11 @@ func exposeFn(cmd *cobra.Command, args []string) error {
 	cmd.Root().SilenceUsage = false
 
 	port, err := validateExposeFlags(cmd, args[0])
+	if err != nil {
+		return err
+	}
+
+	accessRestrictions, err := buildExposeAccessRestrictions()
 	if err != nil {
 		return err
 	}
@@ -188,13 +283,14 @@ func exposeFn(cmd *cobra.Command, args []string) error {
 	}
 
 	req := &proto.ExposeServiceRequest{
-		Port:       uint32(port),
-		Protocol:   protocol,
-		Pin:        exposePin,
-		Password:   exposePassword,
-		UserGroups: exposeUserGroups,
-		Domain:     exposeDomain,
-		NamePrefix: exposeNamePrefix,
+		Port:               uint32(port),
+		Protocol:           protocol,
+		Pin:                exposePin,
+		Password:           exposePassword,
+		UserGroups:         exposeUserGroups,
+		Domain:             exposeDomain,
+		NamePrefix:         exposeNamePrefix,
+		AccessRestrictions: accessRestrictions,
 	}
 	if isClusterProtocol(exposeProtocol) {
 		req.ListenPort = uint32(resolveExternalPort(port))

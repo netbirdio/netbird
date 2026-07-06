@@ -72,6 +72,26 @@ func TestManager_Renew_Timeout(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestToClientExposeRequestCopiesAccessRestrictions(t *testing.T) {
+	req := Request{
+		Port:     8080,
+		Protocol: ProtocolHTTPS,
+		AccessRestrictions: &mgm.ExposeAccessRestrictions{
+			AllowedCIDRs:     []string{"35.231.147.226/32"},
+			BlockedCIDRs:     []string{"198.51.100.0/24"},
+			AllowedCountries: []string{"US"},
+			BlockedCountries: []string{"RU"},
+		},
+	}
+
+	got := toClientExposeRequest(req)
+	require.NotNil(t, got.AccessRestrictions)
+	assert.Equal(t, []string{"35.231.147.226/32"}, got.AccessRestrictions.AllowedCIDRs)
+	assert.Equal(t, []string{"198.51.100.0/24"}, got.AccessRestrictions.BlockedCIDRs)
+	assert.Equal(t, []string{"US"}, got.AccessRestrictions.AllowedCountries)
+	assert.Equal(t, []string{"RU"}, got.AccessRestrictions.BlockedCountries)
+}
+
 func TestNewRequest(t *testing.T) {
 	req := &daemonProto.ExposeServiceRequest{
 		Port:       8080,
@@ -81,6 +101,12 @@ func TestNewRequest(t *testing.T) {
 		UserGroups: []string{"group1", "group2"},
 		Domain:     "custom.example.com",
 		NamePrefix: "my-prefix",
+		AccessRestrictions: &daemonProto.ExposeAccessRestrictions{
+			AllowedCidrs:     []string{"35.231.147.226/32"},
+			BlockedCidrs:     []string{"198.51.100.0/24"},
+			AllowedCountries: []string{"US"},
+			BlockedCountries: []string{"RU"},
+		},
 	}
 
 	exposeReq := NewRequest(req)
@@ -92,4 +118,9 @@ func TestNewRequest(t *testing.T) {
 	assert.Equal(t, []string{"group1", "group2"}, exposeReq.UserGroups, "user groups should match")
 	assert.Equal(t, "custom.example.com", exposeReq.Domain, "domain should match")
 	assert.Equal(t, "my-prefix", exposeReq.NamePrefix, "name prefix should match")
+	require.NotNil(t, exposeReq.AccessRestrictions)
+	assert.Equal(t, []string{"35.231.147.226/32"}, exposeReq.AccessRestrictions.AllowedCIDRs)
+	assert.Equal(t, []string{"198.51.100.0/24"}, exposeReq.AccessRestrictions.BlockedCIDRs)
+	assert.Equal(t, []string{"US"}, exposeReq.AccessRestrictions.AllowedCountries)
+	assert.Equal(t, []string{"RU"}, exposeReq.AccessRestrictions.BlockedCountries)
 }

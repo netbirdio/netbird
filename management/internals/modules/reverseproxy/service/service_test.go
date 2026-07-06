@@ -807,6 +807,25 @@ func TestExposeServiceRequest_ToService(t *testing.T) {
 		require.NotNil(t, service.Auth.PasswordAuth)
 		require.NotNil(t, service.Auth.BearerAuth)
 	})
+
+	t.Run("with access restrictions", func(t *testing.T) {
+		req := &ExposeServiceRequest{
+			Port: 8080,
+			Mode: "http",
+			Restrictions: AccessRestrictions{
+				AllowedCIDRs:     []string{"35.231.147.226/32"},
+				BlockedCIDRs:     []string{"198.51.100.0/24"},
+				AllowedCountries: []string{"US"},
+				BlockedCountries: []string{"RU"},
+			},
+		}
+
+		service := req.ToService("acc", "peer", "restricted")
+		assert.Equal(t, []string{"35.231.147.226/32"}, service.Restrictions.AllowedCIDRs)
+		assert.Equal(t, []string{"198.51.100.0/24"}, service.Restrictions.BlockedCIDRs)
+		assert.Equal(t, []string{"US"}, service.Restrictions.AllowedCountries)
+		assert.Equal(t, []string{"RU"}, service.Restrictions.BlockedCountries)
+	})
 }
 
 func TestValidate_TLSOnly(t *testing.T) {
@@ -1012,6 +1031,27 @@ func TestExposeServiceRequest_Validate_L4RejectsAuth(t *testing.T) {
 func TestExposeServiceRequest_Validate_HTTPAllowsAuth(t *testing.T) {
 	req := ExposeServiceRequest{Port: 8080, Mode: "http", Pin: "123456"}
 	require.NoError(t, req.Validate())
+}
+
+func TestExposeServiceRequest_ValidateAccessRestrictions(t *testing.T) {
+	req := ExposeServiceRequest{
+		Port: 8080,
+		Mode: "tcp",
+		Restrictions: AccessRestrictions{
+			AllowedCIDRs:     []string{"203.0.113.0/24"},
+			BlockedCIDRs:     []string{"198.51.100.0/24"},
+			AllowedCountries: []string{"us"},
+			BlockedCountries: []string{"de"},
+		},
+	}
+	require.NoError(t, req.Validate())
+	assert.Equal(t, []string{"US"}, req.Restrictions.AllowedCountries)
+	assert.Equal(t, []string{"DE"}, req.Restrictions.BlockedCountries)
+
+	req.Restrictions.AllowedCIDRs = []string{"203.0.113.1/24"}
+	err := req.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "has host bits set")
 }
 
 func TestValidate_HeaderAuths(t *testing.T) {

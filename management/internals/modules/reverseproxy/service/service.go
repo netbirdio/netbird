@@ -1466,6 +1466,7 @@ type ExposeServiceRequest struct {
 	Password       string
 	UserGroups     []string
 	ListenPort     uint16
+	Restrictions   AccessRestrictions
 }
 
 // Validate checks all fields of the expose request.
@@ -1504,7 +1505,7 @@ func (r *ExposeServiceRequest) Validate() error {
 		return fmt.Errorf("invalid name prefix %q: must be lowercase alphanumeric with optional hyphens, 1-32 characters", r.NamePrefix)
 	}
 
-	return nil
+	return validateAccessRestrictions(&r.Restrictions)
 }
 
 // ToService builds a Service from the expose request.
@@ -1515,6 +1516,7 @@ func (r *ExposeServiceRequest) ToService(accountID, peerID, serviceName string) 
 		Mode:      r.Mode,
 		Enabled:   true,
 	}
+	svc.Restrictions = r.Restrictions.Copy()
 
 	// If domain is empty, CreateServiceFromPeer generates a unique subdomain.
 	// When explicitly provided, the service name is prepended as a subdomain.

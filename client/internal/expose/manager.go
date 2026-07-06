@@ -24,14 +24,15 @@ type Response struct {
 // Request holds the parameters for exposing a local service via the management server.
 // It is part of the embed API surface and exposed via a type alias.
 type Request struct {
-	NamePrefix string
-	Domain     string
-	Port       uint16
-	Protocol   ProtocolType
-	Pin        string
-	Password   string
-	UserGroups []string
-	ListenPort uint16
+	NamePrefix         string
+	Domain             string
+	Port               uint16
+	Protocol           ProtocolType
+	Pin                string
+	Password           string
+	UserGroups         []string
+	ListenPort         uint16
+	AccessRestrictions *mgm.ExposeAccessRestrictions
 }
 
 type ManagementClient interface {
