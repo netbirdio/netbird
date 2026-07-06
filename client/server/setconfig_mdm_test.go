@@ -181,6 +181,53 @@ func TestSetConfig_MDMAllow_NonManagedFields(t *testing.T) {
 	require.NotNil(t, resp)
 }
 
+// TestSetConfig_MDMAllow_ManagementURLPortNormalized reproduces the
+// regression reported in discussion #6483: an Intune-pushed
+// ManagementURL without an explicit port trips the MDM conflict gate
+// when the UI echoes the parsed URL back — profilemanager.parseURL
+// auto-appends ":443" for https (and ":80" for http), so the config
+// on disk (and thus the GetConfig response the UI echoes) always
+// carries the default port even when the MDM registry / plist value
+// did not. A no-port MDM URL and a default-port UI echo of the same
+// host are semantically identical; the conflict check must normalize
+// both sides before comparing or every settings save from an
+// MDM-enrolled host is falsely rejected as "managementURL managed by MDM".
+func TestSetConfig_MDMAllow_ManagementURLPortNormalized(t *testing.T) {
+	tests := []struct {
+		name      string
+		mdmURL    string
+		submitURL string
+	}{
+		{"policy_no_port_submit_with_443", "https://netbird.corp.example", "https://netbird.corp.example:443"},
+		{"policy_with_443_submit_no_port", "https://netbird.corp.example:443", "https://netbird.corp.example"},
+		{"http_policy_no_port_submit_with_80", "http://netbird.corp.example", "http://netbird.corp.example:80"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			withMDMPolicy(t, mdm.NewPolicy(map[string]any{
+				mdm.KeyManagementURL: tc.mdmURL,
+			}))
+
+			s, ctx, profName, username, _ := setupServerWithProfile(t)
+
+			// Toggle an unrelated non-MDM-managed field so the request
+			// exercises the "user saved settings in the UI" flow. The
+			// ManagementUrl echo must not trip the conflict gate.
+			rosenpassEnabled := true
+			resp, err := s.SetConfig(ctx, &proto.SetConfigRequest{
+				ProfileName:      profName,
+				Username:         username,
+				ManagementUrl:    tc.submitURL,
+				RosenpassEnabled: &rosenpassEnabled,
+			})
+
+			require.NoError(t, err, "port-normalized URL echo must not trip MDM conflict gate")
+			require.NotNil(t, resp)
+		})
+	}
+}
+
 func TestSetConfig_MDMEmpty_NoEnforcement(t *testing.T) {
 	// No MDM policy active: any field can be written.
 	withMDMPolicy(t, mdm.NewPolicy(nil))
