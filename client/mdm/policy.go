@@ -24,6 +24,13 @@ const (
 	KeyDisableUpdateSettings    = "disableUpdateSettings"
 	KeyDisableProfiles          = "disableProfiles"
 	KeyDisableNetworks          = "disableNetworks"
+	// KeyDisableAdvancedView gates the advanced-view section in the
+	// upcoming UI revision. UI-only: NOT stored on Config, not
+	// applied by applyMDMPolicy, not rejectable via SetConfig. The
+	// daemon surfaces it through GetFeatures (tristate: present
+	// true / present false / absent) and the same key appears in
+	// GetConfigResponse.mDMManagedFields when set.
+	KeyDisableAdvancedView      = "disableAdvancedView"
 	KeyDisableClientRoutes      = "disableClientRoutes"
 	KeyDisableServerRoutes      = "disableServerRoutes"
 	KeyBlockInbound             = "blockInbound"
