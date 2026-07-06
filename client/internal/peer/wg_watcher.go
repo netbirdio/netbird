@@ -93,6 +93,7 @@ func (w *WGWatcher) Reset() {
 // wgStateCheck help to check the state of the WireGuard handshake and relay connection
 func (w *WGWatcher) periodicHandshakeCheck(ctx context.Context, onDisconnectedFn func(), onHandshakeSuccessFn func(when time.Time), enabledTime time.Time, initialHandshake time.Time) {
 	w.log.Infof("WireGuard watcher started")
+	w.log.Warnf("WGW-DIAG: watcher started id=%d baseline=%v (zero=%v) firstCheckIn=%v", enabledTime.UnixNano(), initialHandshake, initialHandshake.IsZero(), wgHandshakeOvertime)
 
 	timer := time.NewTimer(wgHandshakeOvertime)
 	defer timer.Stop()
@@ -102,11 +103,17 @@ func (w *WGWatcher) periodicHandshakeCheck(ctx context.Context, onDisconnectedFn
 	for {
 		select {
 		case <-timer.C:
+			w.log.Warnf("WGW-DIAG: check fire id=%d lastHandshake=%v", enabledTime.UnixNano(), lastHandshake)
 			handshake, ok := w.handshakeCheck(lastHandshake)
 			if !ok {
+				// #6626 race check: a superseded/cancelled watcher must not tear
+				// down a now-healthy connection. Log which branch we take so a
+				// bundle shows whether teardowns fire on live vs cancelled ctx.
 				if ctx.Err() != nil {
+					w.log.Warnf("WGW-DIAG: check failed but ctx cancelled -> standing down, NO teardown id=%d", enabledTime.UnixNano())
 					return
 				}
+				w.log.Warnf("WGW-DIAG: check failed, ctx live -> firing onDisconnected (TEARDOWN) id=%d", enabledTime.UnixNano())
 				onDisconnectedFn()
 				return
 			}
@@ -124,15 +131,15 @@ func (w *WGWatcher) periodicHandshakeCheck(ctx context.Context, onDisconnectedFn
 			timer.Reset(resetTime)
 			w.stateDump.WGcheckSuccess()
 
-			w.log.Debugf("WireGuard watcher reset timer: %v", resetTime)
+			w.log.Warnf("WGW-DIAG: check ok id=%d handshake=%v nextCheckIn=%v", enabledTime.UnixNano(), handshake, resetTime)
 		case <-w.resetCh:
-			w.log.Infof("WireGuard watcher received peer reset, restarting handshake timeout")
+			w.log.Warnf("WGW-DIAG: peer reset received, restarting timeout id=%d", enabledTime.UnixNano())
 			lastHandshake = time.Time{}
 			enabledTime = time.Now()
 			timer.Stop()
 			timer.Reset(wgHandshakeOvertime)
 		case <-ctx.Done():
-			w.log.Infof("WireGuard watcher stopped")
+			w.log.Warnf("WGW-DIAG: watcher stopped (ctx done) id=%d", enabledTime.UnixNano())
 			return
 		}
 	}
