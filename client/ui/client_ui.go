@@ -266,7 +266,6 @@ type serviceClient struct {
 	mAllowSSH          *systray.MenuItem
 	mAutoConnect       *systray.MenuItem
 	mEnableRosenpass   *systray.MenuItem
-	mLazyConnEnabled   *systray.MenuItem
 	mBlockInbound      *systray.MenuItem
 	mNotifications     *systray.MenuItem
 	mAdvancedSettings  *systray.MenuItem
@@ -336,11 +335,11 @@ type serviceClient struct {
 	// mNetworks + mExitNode submenu items. Combines features.DisableNetworks
 	// AND s.connected — both must be true for the menus to be active.
 	// Zero value (false) matches the Disable() call at AddMenuItem time.
-	networksMenuEnabled  bool
-	showNetworks         bool
-	wNetworks            fyne.Window
-	wProfiles            fyne.Window
-	wQuickActions        fyne.Window
+	networksMenuEnabled bool
+	showNetworks        bool
+	wNetworks           fyne.Window
+	wProfiles           fyne.Window
+	wQuickActions       fyne.Window
 
 	eventManager *event.Manager
 
@@ -1094,7 +1093,6 @@ func (s *serviceClient) onTrayReady() {
 	s.mAllowSSH = s.mSettings.AddSubMenuItemCheckbox("Allow SSH", allowSSHMenuDescr, false)
 	s.mAutoConnect = s.mSettings.AddSubMenuItemCheckbox("Connect on Startup", autoConnectMenuDescr, false)
 	s.mEnableRosenpass = s.mSettings.AddSubMenuItemCheckbox("Enable Quantum-Resistance", quantumResistanceMenuDescr, false)
-	s.mLazyConnEnabled = s.mSettings.AddSubMenuItemCheckbox("Enable Lazy Connections", lazyConnMenuDescr, false)
 	s.mBlockInbound = s.mSettings.AddSubMenuItemCheckbox("Block Inbound Connections", blockInboundMenuDescr, false)
 	s.mNotifications = s.mSettings.AddSubMenuItemCheckbox("Notifications", notificationsMenuDescr, false)
 	s.mSettings.AddSeparator()
@@ -1578,7 +1576,6 @@ func protoConfigToConfig(cfg *proto.GetConfigResponse) *profilemanager.Config {
 	config.RosenpassEnabled = cfg.RosenpassEnabled
 	config.RosenpassPermissive = cfg.RosenpassPermissive
 	config.DisableNotifications = &cfg.DisableNotifications
-	config.LazyConnectionEnabled = cfg.LazyConnectionEnabled
 	config.BlockInbound = cfg.BlockInbound
 	config.NetworkMonitor = &cfg.NetworkMonitor
 	config.DisableDNS = cfg.DisableDns
@@ -1680,12 +1677,6 @@ func (s *serviceClient) loadSettings() {
 		s.mEnableRosenpass.Check()
 	} else {
 		s.mEnableRosenpass.Uncheck()
-	}
-
-	if cfg.LazyConnectionEnabled {
-		s.mLazyConnEnabled.Check()
-	} else {
-		s.mLazyConnEnabled.Uncheck()
 	}
 
 	if cfg.BlockInbound {
@@ -1833,7 +1824,6 @@ func (s *serviceClient) updateConfig() error {
 	disableAutoStart := !s.mAutoConnect.Checked()
 	sshAllowed := s.mAllowSSH.Checked()
 	rosenpassEnabled := s.mEnableRosenpass.Checked()
-	lazyConnectionEnabled := s.mLazyConnEnabled.Checked()
 	blockInbound := s.mBlockInbound.Checked()
 	notificationsDisabled := !s.mNotifications.Checked()
 
@@ -1856,14 +1846,13 @@ func (s *serviceClient) updateConfig() error {
 	}
 
 	req := proto.SetConfigRequest{
-		ProfileName:           activeProf.ID.String(),
-		Username:              currUser.Username,
-		DisableAutoConnect:    &disableAutoStart,
-		ServerSSHAllowed:      &sshAllowed,
-		RosenpassEnabled:      &rosenpassEnabled,
-		LazyConnectionEnabled: &lazyConnectionEnabled,
-		BlockInbound:          &blockInbound,
-		DisableNotifications:  &notificationsDisabled,
+		ProfileName:          activeProf.ID.String(),
+		Username:             currUser.Username,
+		DisableAutoConnect:   &disableAutoStart,
+		ServerSSHAllowed:     &sshAllowed,
+		RosenpassEnabled:     &rosenpassEnabled,
+		BlockInbound:         &blockInbound,
+		DisableNotifications: &notificationsDisabled,
 	}
 
 	if _, err := conn.SetConfig(s.ctx, &req); err != nil {

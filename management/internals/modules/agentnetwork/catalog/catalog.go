@@ -628,6 +628,21 @@ var providers = []Provider{
 		Models: []Model{},
 	},
 	{
+		// vLLM is an OpenAI-compatible self-hosted server. It behaves like
+		// the generic custom entry; it gets its own catalog id purely so it
+		// surfaces as a named "vLLM" choice in the provider picker.
+		ID:                 "vllm",
+		Kind:               KindCustom,
+		Name:               "vLLM",
+		Description:        "Self-hosted vLLM (OpenAI-compatible)",
+		DefaultHost:        "",
+		AuthHeaderName:     "Authorization",
+		AuthHeaderTemplate: "Bearer ${API_KEY}",
+		DefaultContentType: "application/json",
+		BrandColor:         "#30A2FF",
+		Models:             []Model{},
+	},
+	{
 		ID:                 "custom",
 		Kind:               KindCustom,
 		Name:               "Custom / Self-hosted",

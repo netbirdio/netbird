@@ -2224,6 +2224,9 @@ type AgentNetworkProvider struct {
 	// ProviderId Catalog identifier for the upstream AI provider (e.g. openai_api, anthropic_api, azure_openai_api, bedrock_api, vertex_ai_api, mistral_api, custom).
 	ProviderId string `json:"provider_id"`
 
+	// SkipTlsVerification Whether upstream TLS certificate verification is skipped when the proxy dials this provider's URL. Intended for self-hosted / internal gateways behind a private or self-signed certificate.
+	SkipTlsVerification bool `json:"skip_tls_verification"`
+
 	// UpdatedAt Timestamp when the provider was last updated.
 	UpdatedAt *time.Time `json:"updated_at,omitempty"`
 
@@ -2271,6 +2274,9 @@ type AgentNetworkProviderRequest struct {
 
 	// ProviderId Catalog identifier for the upstream AI provider (e.g. openai_api, anthropic_api, azure_openai_api, bedrock_api, vertex_ai_api, mistral_api, custom).
 	ProviderId string `json:"provider_id"`
+
+	// SkipTlsVerification Skip upstream TLS certificate verification when the proxy dials this provider's URL. For self-hosted / internal gateways behind a private or self-signed certificate. Defaults to false. When omitted on update, the stored value is left unchanged.
+	SkipTlsVerification *bool `json:"skip_tls_verification,omitempty"`
 
 	// UpstreamUrl Full upstream URL (with scheme) that NetBird forwards traffic to.
 	UpstreamUrl string `json:"upstream_url"`
