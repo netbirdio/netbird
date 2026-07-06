@@ -2605,13 +2605,13 @@ func (e *Engine) updateForwardRules(rules []*mgmProto.ForwardingRule) ([]firewal
 
 func (e *Engine) toExcludedLazyPeers(rules []firewallManager.ForwardRule, peers []*mgmProto.RemotePeerConfig) map[string]bool {
 	excludedPeers := make(map[string]bool)
+
+	// Ingress forward targets: inbound forwarded traffic is initiated remotely and
+	// cannot wake a lazy connection, so the peer routing the target must stay
+	// permanently connected.
 	for _, r := range rules {
-		ip := r.TranslatedAddress
 		for _, p := range peers {
-			for _, allowedIP := range p.GetAllowedIps() {
-				if allowedIP != ip.String() {
-					continue
-				}
+			if peerRoutesAddr(p, r.TranslatedAddress) {
 				log.Infof("exclude forwarder peer from lazy connection: %s", p.GetWgPubKey())
 				excludedPeers[p.GetWgPubKey()] = true
 			}
@@ -2619,6 +2619,16 @@ func (e *Engine) toExcludedLazyPeers(rules []firewallManager.ForwardRule, peers 
 	}
 
 	return excludedPeers
+}
+
+// peerRoutesAddr verifies if the peer is a router for a given address.
+func peerRoutesAddr(p *mgmProto.RemotePeerConfig, addr netip.Addr) bool {
+	for _, allowedIP := range p.GetAllowedIps() {
+		if allowedIP == addr.String() {
+			return true
+		}
+	}
+	return false
 }
 
 // isChecksEqual checks if two slices of checks are equal.
