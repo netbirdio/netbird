@@ -124,13 +124,18 @@ func search(client *httpu.HTTPUClient, gatewayAddr, searchTarget string) ([]stri
 		},
 	}
 
-	responses, err := client.Do(req, searchTimeout, searchRepeats)
+	responses, err := client.Do(req, searchTimeout, searchRepeats) //nolint:bodyclose // httpu.Do returns a slice; bodies are closed in the loop below.
 	if err != nil {
 		return nil, err
 	}
 
 	var locations []string
 	for _, resp := range responses {
+		if resp.Body != nil {
+			if err := resp.Body.Close(); err != nil {
+				log.Debugf("close SSDP response body: %v", err)
+			}
+		}
 		if resp.StatusCode != http.StatusOK {
 			continue
 		}
