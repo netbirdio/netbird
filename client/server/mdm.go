@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -181,6 +182,37 @@ func conflictBool(key string, p *bool) conflictCheck {
 	}
 }
 
+func canonicalURL(s string) string {
+	u, err := url.ParseRequestURI(s)
+	if err != nil {
+		return s
+	}
+	if u.Port() == "" {
+		switch u.Scheme {
+		case "https":
+			u.Host += ":443"
+		case "http":
+			u.Host += ":80"
+		}
+	}
+	return u.String()
+}
+
+// conflictURL is conflictString for URL-typed keys: both sides are
+// normalized via canonicalURL before comparison.
+func conflictURL(key, got string) conflictCheck {
+	return conflictCheck{
+		key: key,
+		check: func(pol *mdm.Policy) bool {
+			if got == "" {
+				return true
+			}
+			want, ok := pol.GetString(key)
+			return ok && canonicalURL(want) == canonicalURL(got)
+		},
+	}
+}
+
 // conflictString builds a conflictCheck for a string MDM key. An empty
 // `got` is treated as "field not set" (no override requested); otherwise
 // the check returns true only when the policy contains the key and its
@@ -256,7 +288,7 @@ func mdmManagedFieldConflicts(msg *proto.SetConfigRequest, policy *mdm.Policy) [
 	}
 
 	return resolveConflicts(policy, []conflictCheck{
-		conflictString(mdm.KeyManagementURL, msg.ManagementUrl),
+		conflictURL(mdm.KeyManagementURL, msg.ManagementUrl),
 		conflictString(mdm.KeyPreSharedKey, pskGot),
 		conflictBool(mdm.KeyRosenpassEnabled, msg.RosenpassEnabled),
 		conflictBool(mdm.KeyRosenpassPermissive, msg.RosenpassPermissive),
@@ -377,7 +409,7 @@ func loginRequestMDMConflicts(msg *proto.LoginRequest, policy *mdm.Policy) []str
 	}
 
 	return resolveConflicts(policy, []conflictCheck{
-		conflictString(mdm.KeyManagementURL, msg.ManagementUrl),
+		conflictURL(mdm.KeyManagementURL, msg.ManagementUrl),
 		conflictString(mdm.KeyPreSharedKey, pskGot),
 		conflictBool(mdm.KeyRosenpassEnabled, msg.RosenpassEnabled),
 		conflictBool(mdm.KeyRosenpassPermissive, msg.RosenpassPermissive),
