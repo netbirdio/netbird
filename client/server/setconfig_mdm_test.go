@@ -181,17 +181,10 @@ func TestSetConfig_MDMAllow_NonManagedFields(t *testing.T) {
 	require.NotNil(t, resp)
 }
 
-// TestSetConfig_MDMAllow_ManagementURLPortNormalized reproduces the
-// regression reported in discussion #6483: an Intune-pushed
-// ManagementURL without an explicit port trips the MDM conflict gate
-// when the UI echoes the parsed URL back — profilemanager.parseURL
-// auto-appends ":443" for https (and ":80" for http), so the config
-// on disk (and thus the GetConfig response the UI echoes) always
-// carries the default port even when the MDM registry / plist value
-// did not. A no-port MDM URL and a default-port UI echo of the same
-// host are semantically identical; the conflict check must normalize
-// both sides before comparing or every settings save from an
-// MDM-enrolled host is falsely rejected as "managementURL managed by MDM".
+// TestSetConfig_MDMAllow_ManagementURLPortNormalized covers the
+// regression from discussion #6483: MDM URL without explicit port vs
+// UI echo with the parseURL-appended default port must be treated as
+// a no-op echo, not a conflict.
 func TestSetConfig_MDMAllow_ManagementURLPortNormalized(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -211,9 +204,6 @@ func TestSetConfig_MDMAllow_ManagementURLPortNormalized(t *testing.T) {
 
 			s, ctx, profName, username, _ := setupServerWithProfile(t)
 
-			// Toggle an unrelated non-MDM-managed field so the request
-			// exercises the "user saved settings in the UI" flow. The
-			// ManagementUrl echo must not trip the conflict gate.
 			rosenpassEnabled := true
 			resp, err := s.SetConfig(ctx, &proto.SetConfigRequest{
 				ProfileName:      profName,
