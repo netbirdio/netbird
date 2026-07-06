@@ -100,6 +100,7 @@ func (h *NetbirdHandler) outputKey(_ rp.KeyOutputReason, pid rp.PeerID, psk rp.K
 		log.Errorf("Failed to apply rosenpass key: %v", err)
 		return
 	}
+	log.Warnf("PSK-DIAG: rosenpass set PSK on WG for peer %s (updateOnly=%v)", peerKey, isInitialized)
 
 	// Mark peer as isInitialized after the successful first rotation
 	if !isInitialized {

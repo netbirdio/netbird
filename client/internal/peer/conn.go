@@ -932,18 +932,22 @@ func (conn *Conn) AgentVersionString() string {
 
 func (conn *Conn) presharedKey(remoteRosenpassKey []byte) *wgtypes.Key {
 	if conn.config.RosenpassConfig.PubKey == nil {
+		conn.Log.Warnf("PSK-DIAG: rosenpass off -> static PSK (present=%v)", conn.config.WgConfig.PreSharedKey != nil)
 		return conn.config.WgConfig.PreSharedKey
 	}
 
 	if remoteRosenpassKey == nil && conn.config.RosenpassConfig.PermissiveMode {
+		conn.Log.Warnf("PSK-DIAG: rosenpass permissive + no remote RP key -> static PSK bridge (present=%v)", conn.config.WgConfig.PreSharedKey != nil)
 		return conn.config.WgConfig.PreSharedKey
 	}
 
 	// If Rosenpass has already set a PSK for this peer, return nil to prevent
 	// UpdatePeer from overwriting the Rosenpass-managed key.
 	if conn.rosenpassInitializedPresharedKeyValidator != nil && conn.rosenpassInitializedPresharedKeyValidator(conn.config.Key) {
+		conn.Log.Warnf("PSK-DIAG: rosenpass initialized -> returning nil (keep existing on-wire PSK; NOT re-set)")
 		return nil
 	}
+	conn.Log.Warnf("PSK-DIAG: rosenpass strict, not yet initialized -> seeding PSK (staticPresent=%v)", conn.config.WgConfig.PreSharedKey != nil)
 
 	// Use NetBird PSK as the seed for Rosenpass. This same PSK is passed to
 	// Rosenpass as PeerConfig.PresharedKey, ensuring the derived post-quantum

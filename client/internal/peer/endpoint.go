@@ -38,6 +38,8 @@ func (e *EndpointUpdater) ConfigureWGEndpoint(addr *net.UDPAddr, presharedKey *w
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
+	e.log.Warnf("PSK-DIAG: ConfigureWGEndpoint endpoint=%s psk_present=%v", addr, presharedKey != nil)
+
 	if e.initiator {
 		e.log.Debugf("configure up WireGuard as initiator")
 		return e.configureAsInitiator(addr, presharedKey)
@@ -50,6 +52,8 @@ func (e *EndpointUpdater) ConfigureWGEndpoint(addr *net.UDPAddr, presharedKey *w
 func (e *EndpointUpdater) SwitchWGEndpoint(addr *net.UDPAddr, presharedKey *wgtypes.Key) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+
+	e.log.Warnf("PSK-DIAG: SwitchWGEndpoint endpoint=%s psk_present=%v", addr, presharedKey != nil)
 
 	// prevent to run new update while cancel the previous update
 	e.waitForCloseTheDelayedUpdate()
@@ -68,6 +72,8 @@ func (e *EndpointUpdater) RemoveWgPeer() error {
 func (e *EndpointUpdater) RemoveEndpointAddress() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+
+	e.log.Warnf("PSK-DIAG: RemoveEndpointAddress -> peer re-added with only PublicKey+AllowedIPs; on-wire PSK is dropped")
 
 	e.waitForCloseTheDelayedUpdate()
 	return e.wgConfig.WgInterface.RemoveEndpointAddress(e.wgConfig.RemoteKey)

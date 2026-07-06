@@ -66,6 +66,7 @@ func (w *WGWatcher) PrepareInitialHandshake() (ok bool) {
 
 	handshake, _ := w.wgState()
 	w.initialHandshake = handshake
+	w.log.Warnf("PSK-DIAG: watcher baseline handshake=%v (zero=%v)", handshake, handshake.IsZero())
 	return true
 }
 
