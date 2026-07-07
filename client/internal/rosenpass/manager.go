@@ -82,9 +82,15 @@ func (m *Manager) GetPubKey() []byte {
 	return m.spk
 }
 
-// GetAddress returns the address of the Rosenpass server
+// GetAddress returns the address of the Rosenpass server.
+//
+// The server binds v4-only (0.0.0.0). Rosenpass reaches peers over their
+// WireGuard overlay IP, which is always IPv4, so a v4 socket suffices. This
+// avoids the AF_INET6 -> IPv4 send rejection (EDESTADDRREQ) that a [::]
+// (dual-stack) socket hits on macOS/BSD when sending to a 4-byte IPv4
+// destination.
 func (m *Manager) GetAddress() *net.UDPAddr {
-	return &net.UDPAddr{Port: m.port}
+	return &net.UDPAddr{IP: net.IPv4zero, Port: m.port}
 }
 
 // addPeer adds a new peer to the Rosenpass server
@@ -109,19 +115,13 @@ func (m *Manager) addPeer(rosenpassPubKey []byte, rosenpassAddr string, wireGuar
 		if err != nil {
 			return fmt.Errorf("failed to parse rosenpass address: %w", err)
 		}
+		// Resolve as udp4: our Rosenpass server binds v4-only (see GetAddress)
+		// and the peer WireGuard overlay IP is always IPv4. This keeps the
+		// destination a 4-byte IPv4 address that matches our v4 listening
+		// socket, avoiding the AF_INET6 -> IPv4 send rejection on macOS/BSD.
 		peerAddr := net.JoinHostPort(wireGuardIP, strPort)
-		if pcfg.Endpoint, err = net.ResolveUDPAddr("udp", peerAddr); err != nil {
+		if pcfg.Endpoint, err = net.ResolveUDPAddr("udp4", peerAddr); err != nil {
 			return fmt.Errorf("failed to resolve peer endpoint address: %w", err)
-		}
-		// Our local Rosenpass UDP server binds on the IPv6 wildcard ([::]) — see
-		// GetAddress(). The remote peer's endpoint (pcfg.Endpoint) is the destination
-		// our server will sendto when initiating handshakes. ResolveUDPAddr returns a
-		// 4-byte IPv4 for IPv4 hosts, which the kernel rejects (EDESTADDRREQ) when
-		// sent from an AF_INET6 socket. Normalize the remote endpoint to IPv4-mapped
-		// IPv6 so its address family matches our listening socket.
-		// TODO: maybe bind the Rosenpass UDP server to the peer wg IP addr
-		if v4 := pcfg.Endpoint.IP.To4(); v4 != nil {
-			pcfg.Endpoint.IP = v4.To16()
 		}
 	}
 	peerID, err := m.server.AddPeer(pcfg)
