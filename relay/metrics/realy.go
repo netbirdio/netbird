@@ -182,12 +182,18 @@ func (m *Metrics) PeerActivity(peerID string) {
 }
 
 // calculateActiveIdleConnections returns the number of active and idle peers grouped by transport.
+// Every transport with at least one connected peer appears in both maps (0 where a bucket is empty)
+// so per-transport gauge series report 0 instead of disappearing when a bucket empties.
 func (m *Metrics) calculateActiveIdleConnections() (active, idle map[string]int64) {
 	active, idle = make(map[string]int64), make(map[string]int64)
 	m.mutexActivity.Lock()
 	defer m.mutexActivity.Unlock()
 
 	for _, peer := range m.peerLastActive {
+		if _, ok := active[peer.transport]; !ok {
+			active[peer.transport] = 0
+			idle[peer.transport] = 0
+		}
 		if time.Since(peer.lastActive) > idleTimeout {
 			idle[peer.transport]++
 		} else {
