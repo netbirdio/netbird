@@ -88,7 +88,7 @@ const (
 	// check gathering. The gathering runs uncancellable system calls (process scan,
 	// exec, os.Stat); without this bound a single stuck call freezes handleSync, and
 	// thus syncMsgMux, for as long as the call hangs (observed multi-minute freezes).
-	systemInfoTimeout = 15 * time.Second
+	systemInfoTimeout = 60 * time.Second
 )
 
 var ErrResetConnection = fmt.Errorf("reset connection")
