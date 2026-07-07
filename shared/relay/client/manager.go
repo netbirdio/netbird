@@ -294,8 +294,17 @@ func (m *Manager) RelayStates() []RelayConnState {
 
 	// Only connected foreign relays carry state; a failed connect is evicted
 	// immediately (openConnVia), so there is no error state to surface.
+	//
+	// Query each track without blocking: openConnVia holds a track's write-lock
+	// for the whole of relayClient.Connect() (the network dial). A blocking
+	// RLock here would stall the status path (GetFullStatus -> GetRelayStates)
+	// for the full dial timeout. A track mid-Connect has no relayClient set yet
+	// and would be skipped. TryRLock + skip preserves the result while keeping
+	// status responsive.
 	for _, rt := range tracks {
-		rt.RLock()
+		if !rt.TryRLock() {
+			continue
+		}
 		rc := rt.relayClient
 		rt.RUnlock()
 		if rc != nil {
