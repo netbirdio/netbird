@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -264,7 +265,11 @@ func (m *DefaultManager) initSelector() *routeselector.RouteSelector {
 
 	// restore selector state if it exists
 	if err := m.stateManager.LoadState(state); err != nil {
-		log.Warnf("failed to load state: %v", err)
+		if errors.Is(err, syscall.ENOSYS) {
+			log.Debugf("route selector state unavailable on this platform: %v", err)
+		} else {
+			log.Warnf("failed to load state: %v", err)
+		}
 		return routeselector.NewRouteSelector()
 	}
 
