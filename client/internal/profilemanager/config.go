@@ -730,6 +730,12 @@ func (config *Config) applyMDMPolicy(policy *mdm.Policy) {
 	applyBool(mdm.KeyDisableAutoConnect, func(v bool) { config.DisableAutoConnect = v })
 	applyBool(mdm.KeyRosenpassEnabled, func(v bool) { config.RosenpassEnabled = v })
 	applyBool(mdm.KeyRosenpassPermissive, func(v bool) { config.RosenpassPermissive = v })
+	applyBool(mdm.KeyEnableLocalMetrics, func(v bool) { config.LocalMetricsEnabled = v })
+
+	if v, ok := policy.GetString(mdm.KeyLocalMetricsAddress); ok {
+		config.LocalMetricsAddress = v
+		logApplied(mdm.KeyLocalMetricsAddress, v)
+	}
 
 	if v, ok := policy.GetInt(mdm.KeyWireguardPort); ok {
 		// REG_DWORD is 32-bit; UDP port range is 1-65535. Clamp at the
