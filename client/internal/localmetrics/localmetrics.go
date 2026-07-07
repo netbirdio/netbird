@@ -5,7 +5,9 @@ package localmetrics
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -20,7 +22,13 @@ import (
 // DefaultListenAddress is used when local metrics are enabled without an explicit address.
 const DefaultListenAddress = "127.0.0.1:9191"
 
-const shutdownTimeout = 3 * time.Second
+const (
+	shutdownTimeout   = 3 * time.Second
+	readHeaderTimeout = 5 * time.Second
+	readTimeout       = 10 * time.Second
+	writeTimeout      = 30 * time.Second
+	idleTimeout       = time.Minute
+)
 
 // statusSource provides the connection state snapshots the collector reads on scrape.
 type statusSource interface {
@@ -61,6 +69,7 @@ func (m *Manager) Reconcile(enabled bool, addr string) {
 	if addr == "" {
 		addr = DefaultListenAddress
 	}
+	warnIfNotLoopback(addr)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -91,7 +100,14 @@ func (m *Manager) Reconcile(enabled bool, addr string) {
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.HandlerFor(gatherers, promhttp.HandlerOpts{}))
 
-	srv := &http.Server{Addr: addr, Handler: mux}
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           mux,
+		ReadHeaderTimeout: readHeaderTimeout,
+		ReadTimeout:       readTimeout,
+		WriteTimeout:      writeTimeout,
+		IdleTimeout:       idleTimeout,
+	}
 	m.srv = srv
 	m.addr = addr
 
@@ -207,4 +223,21 @@ func boolToFloat(b bool) float64 {
 		return 1
 	}
 	return 0
+}
+
+// warnIfNotLoopback logs a warning when the listen address cannot be
+// confirmed to be local-only, since the endpoint exposes peer and
+// connectivity details without authentication.
+func warnIfNotLoopback(addr string) {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return
+	}
+	if host == "localhost" {
+		return
+	}
+	if ip, err := netip.ParseAddr(host); err == nil && ip.Unmap().IsLoopback() {
+		return
+	}
+	log.Warnf("local metrics endpoint listens on non-loopback address %s and is reachable from the network without authentication", addr)
 }
