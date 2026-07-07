@@ -803,17 +803,15 @@ func (conn *Conn) isConnectedOnAllWay() (status guard.ConnStatus) {
 }
 
 func (conn *Conn) enableWgWatcherIfNeeded(enabledTime time.Time) {
-	if !conn.wgWatcher.PrepareInitialHandshake() {
-		return
+	if !conn.wgWatcher.IsEnabled() {
+		wgWatcherCtx, wgWatcherCancel := context.WithCancel(conn.ctx)
+		conn.wgWatcherCancel = wgWatcherCancel
+		conn.wgWatcherWg.Add(1)
+		go func() {
+			defer conn.wgWatcherWg.Done()
+			conn.wgWatcher.EnableWgWatcher(wgWatcherCtx, enabledTime, conn.onWGDisconnected, conn.onWGHandshakeSuccess)
+		}()
 	}
-
-	wgWatcherCtx, wgWatcherCancel := context.WithCancel(conn.ctx)
-	conn.wgWatcherCancel = wgWatcherCancel
-	conn.wgWatcherWg.Add(1)
-	go func() {
-		defer conn.wgWatcherWg.Done()
-		conn.wgWatcher.EnableWgWatcher(wgWatcherCtx, enabledTime, conn.onWGDisconnected, conn.onWGHandshakeSuccess)
-	}()
 }
 
 func (conn *Conn) disableWgWatcherIfNeeded() {

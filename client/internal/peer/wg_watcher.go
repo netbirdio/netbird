@@ -31,9 +31,7 @@ type WGWatcher struct {
 	stateDump     *stateDump
 
 	enabled   bool
-	muEnabled sync.Mutex
-	// initialHandshake is not thread-safe; never call PrepareInitialHandshake and EnableWgWatcher concurrently.
-	initialHandshake time.Time
+	muEnabled sync.RWMutex
 
 	resetCh chan struct{}
 }
@@ -48,37 +46,38 @@ func NewWGWatcher(log *log.Entry, wgIfaceStater WGInterfaceStater, peerKey strin
 	}
 }
 
-// PrepareInitialHandshake reserves the watcher and reads the peer's current WireGuard
-// handshake time. It must be called before the peer is (re)configured on the WireGuard
-// interface, so the captured baseline reflects the state prior to this connection attempt
-// instead of racing with that configuration. Returns ok=false if the watcher is already
-// running, in which case EnableWgWatcher must not be called.
-func (w *WGWatcher) PrepareInitialHandshake() (ok bool) {
+// EnableWgWatcher starts the WireGuard watcher. If it is already enabled, it will return immediately and do nothing.
+// The watcher runs until ctx is cancelled. Caller is responsible for context lifecycle management.
+// NOTE: reverted to the pre-#6626 shape for bisecting the NHN issue.
+func (w *WGWatcher) EnableWgWatcher(ctx context.Context, enabledTime time.Time, onDisconnectedFn func(), onHandshakeSuccessFn func(when time.Time)) {
 	w.muEnabled.Lock()
 	if w.enabled {
 		w.muEnabled.Unlock()
-		return false
+		return
 	}
 
 	w.log.Debugf("enable WireGuard watcher")
 	w.enabled = true
 	w.muEnabled.Unlock()
 
-	handshake, _ := w.wgState()
-	w.initialHandshake = handshake
-	w.log.Warnf("PSK-DIAG: watcher baseline handshake=%v (zero=%v)", handshake, handshake.IsZero())
-	return true
-}
+	initialHandshake, err := w.wgState()
+	if err != nil {
+		w.log.Warnf("failed to read initial wg stats: %v", err)
+	}
+	w.log.Warnf("PSK-DIAG: watcher baseline handshake=%v (zero=%v) [pre-6626 revert]", initialHandshake, initialHandshake.IsZero())
 
-// EnableWgWatcher runs the WireGuard watcher loop using the handshake baseline captured by
-// PrepareInitialHandshake. The watcher runs until ctx is cancelled. Caller is responsible
-// for context lifecycle management.
-func (w *WGWatcher) EnableWgWatcher(ctx context.Context, enabledTime time.Time, onDisconnectedFn func(), onHandshakeSuccessFn func(when time.Time)) {
-	w.periodicHandshakeCheck(ctx, onDisconnectedFn, onHandshakeSuccessFn, enabledTime, w.initialHandshake)
+	w.periodicHandshakeCheck(ctx, onDisconnectedFn, onHandshakeSuccessFn, enabledTime, initialHandshake)
 
 	w.muEnabled.Lock()
 	w.enabled = false
 	w.muEnabled.Unlock()
+}
+
+// IsEnabled returns true if the WireGuard watcher is currently enabled
+func (w *WGWatcher) IsEnabled() bool {
+	w.muEnabled.RLock()
+	defer w.muEnabled.RUnlock()
+	return w.enabled
 }
 
 // Reset signals the watcher that the WireGuard peer has been reset and a new
@@ -106,21 +105,14 @@ func (w *WGWatcher) periodicHandshakeCheck(ctx context.Context, onDisconnectedFn
 			w.log.Warnf("WGW-DIAG: check fire id=%d lastHandshake=%v", enabledTime.UnixNano(), lastHandshake)
 			handshake, ok := w.handshakeCheck(lastHandshake)
 			if !ok {
-				// #6626 race check: a superseded/cancelled watcher must not tear
-				// down a now-healthy connection. Log which branch we take so a
-				// bundle shows whether teardowns fire on live vs cancelled ctx.
-				if ctx.Err() != nil {
-					w.log.Warnf("WGW-DIAG: check failed but ctx cancelled -> standing down, NO teardown id=%d", enabledTime.UnixNano())
-					return
-				}
-				w.log.Warnf("WGW-DIAG: check failed, ctx live -> firing onDisconnected (TEARDOWN) id=%d", enabledTime.UnixNano())
+				w.log.Warnf("WGW-DIAG: check failed -> firing onDisconnected (TEARDOWN, pre-6626 no ctx-recheck) id=%d", enabledTime.UnixNano())
 				onDisconnectedFn()
 				return
 			}
 			if lastHandshake.IsZero() {
 				elapsed := calcElapsed(enabledTime, *handshake)
 				w.log.Infof("first wg handshake detected within: %.2fsec, (%s)", elapsed, handshake)
-				if onHandshakeSuccessFn != nil && ctx.Err() == nil {
+				if onHandshakeSuccessFn != nil {
 					onHandshakeSuccessFn(*handshake)
 				}
 			}
