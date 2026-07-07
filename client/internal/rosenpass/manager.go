@@ -280,13 +280,15 @@ func (m *Manager) OnConnected(remoteWireGuardKey string, remoteRosenpassPubKey [
 	}
 
 	rpKeyHash := hashRosenpassKey(remoteRosenpassPubKey)
-	log.Debugf("received remote rosenpass key %s, my key %s", rpKeyHash, m.rpKeyHash)
+	initiator := bytes.Compare(m.spk, remoteRosenpassPubKey) == 1
+	log.Warnf("PSK-DIAG: remote peer %s advertises rosenpass (key %s, addr %s); starting RP negotiation as initiator=%v", remoteWireGuardKey, rpKeyHash, remoteRosenpassAddr, initiator)
 
 	err := m.addPeer(remoteRosenpassPubKey, remoteRosenpassAddr, wireGuardIP, remoteWireGuardKey)
 	if err != nil {
 		log.Errorf("failed to add rosenpass peer: %s", err)
 		return
 	}
+	log.Warnf("PSK-DIAG: rosenpass peer added for %s (RP negotiation started; watch for 'set PSK on WG' to confirm completion)", remoteWireGuardKey)
 }
 
 // IsPresharedKeyInitialized returns true if Rosenpass has completed a handshake
