@@ -23,6 +23,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	daddr "github.com/netbirdio/netbird/client/internal/daemonaddr"
+	"github.com/netbirdio/netbird/client/internal/localmetrics"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 )
 
@@ -31,6 +32,8 @@ const (
 	dnsResolverAddress       = "dns-resolver-address"
 	enableRosenpassFlag      = "enable-rosenpass"
 	rosenpassPermissiveFlag  = "rosenpass-permissive"
+	enableLocalMetricsFlag   = "enable-local-metrics"
+	localMetricsAddressFlag  = "local-metrics-address"
 	preSharedKeyFlag         = "preshared-key"
 	interfaceNameFlag        = "interface-name"
 	wireguardPortFlag        = "wireguard-port"
@@ -79,6 +82,8 @@ var (
 	updateSettingsDisabled bool
 	captureEnabled         bool
 	networksDisabled       bool
+	localMetricsEnabled    bool
+	localMetricsAddr       string
 
 	rootCmd = &cobra.Command{
 		Use:          "netbird",
@@ -212,6 +217,8 @@ func init() {
 	upCmd.PersistentFlags().BoolVar(&rosenpassEnabled, enableRosenpassFlag, false, "[Experimental] Enable Rosenpass feature. If enabled, the connection will be post-quantum secured via Rosenpass.")
 	upCmd.PersistentFlags().BoolVar(&rosenpassPermissive, rosenpassPermissiveFlag, false, "[Experimental] Enable Rosenpass in permissive mode to allow this peer to accept WireGuard connections without requiring Rosenpass functionality from peers that do not have Rosenpass enabled.")
 	upCmd.PersistentFlags().BoolVar(&autoConnectDisabled, disableAutoConnectFlag, false, "Disables auto-connect feature. If enabled, then the client won't connect automatically when the service starts.")
+	upCmd.PersistentFlags().BoolVar(&localMetricsEnabled, enableLocalMetricsFlag, false, "Enables a local Prometheus /metrics endpoint exposing connection state (peers, latency, P2P vs relay).")
+	upCmd.PersistentFlags().StringVar(&localMetricsAddr, localMetricsAddressFlag, localmetrics.DefaultListenAddress, "Listen address of the local Prometheus /metrics endpoint.")
 	upCmd.PersistentFlags().BoolVar(&lazyConnEnabled, enableLazyConnectionFlag, false, "Deprecated: no longer used. Lazy connections are controlled by the server and the NB_LAZY_CONN environment variable.")
 	_ = upCmd.PersistentFlags().MarkDeprecated(enableLazyConnectionFlag, "no longer used; lazy connections are controlled by the server and the NB_LAZY_CONN environment variable")
 
