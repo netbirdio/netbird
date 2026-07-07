@@ -30,11 +30,17 @@ type RelayTrack struct {
 	relayClient *Client
 	err         error
 	created     time.Time
+	// ready is closed once the dial started by openConnVia finishes, at which
+	// point exactly one of relayClient/err is set. Callers that find an existing
+	// track wait on this channel instead of the track lock, so the network dial
+	// is never performed while holding rt.Lock(). See openConnVia.
+	ready chan struct{}
 }
 
 func NewRelayTrack() *RelayTrack {
 	return &RelayTrack{
 		created: time.Now(),
+		ready:   make(chan struct{}),
 	}
 }
 
@@ -335,34 +341,27 @@ func (m *Manager) openConnVia(ctx context.Context, serverAddress, peerKey string
 	// check if already has a connection to the desired relay server
 	m.relayClientsMutex.RLock()
 	rt, ok := m.relayClients[serverAddress]
-	if ok {
-		rt.RLock()
-		m.relayClientsMutex.RUnlock()
-		defer rt.RUnlock()
-		if rt.err != nil {
-			return nil, rt.err
-		}
-		return rt.relayClient.OpenConn(ctx, peerKey)
-	}
 	m.relayClientsMutex.RUnlock()
+	if ok {
+		return m.openConnOnTrack(ctx, rt, peerKey)
+	}
 
 	// if not, establish a new connection but check it again (because changed the lock type) before starting the
 	// connection
 	m.relayClientsMutex.Lock()
 	rt, ok = m.relayClients[serverAddress]
 	if ok {
-		rt.RLock()
 		m.relayClientsMutex.Unlock()
-		defer rt.RUnlock()
-		if rt.err != nil {
-			return nil, rt.err
-		}
-		return rt.relayClient.OpenConn(ctx, peerKey)
+		return m.openConnOnTrack(ctx, rt, peerKey)
 	}
 
-	// create a new relay client and store it in the relayClients map
+	// Create the track, publish it, and release the map lock BEFORE dialing. The
+	// dial must not run while holding any track lock: RelayStates() and the
+	// cleanup loop take the track lock, and blocking them for the whole dial
+	// timeout is what stalls `netbird status -d`. Concurrent callers find this
+	// track in the map and wait on rt.ready (see openConnOnTrack), so only this
+	// goroutine performs the dial and the others reuse its result.
 	rt = NewRelayTrack()
-	rt.Lock()
 	m.relayClients[serverAddress] = rt
 	m.relayClientsMutex.Unlock()
 
@@ -370,8 +369,10 @@ func (m *Manager) openConnVia(ctx context.Context, serverAddress, peerKey string
 	relayClient.SetTransportFallback(m.transportFallback)
 	err := relayClient.Connect(m.ctx)
 	if err != nil {
+		rt.Lock()
 		rt.err = err
 		rt.Unlock()
+		close(rt.ready)
 		m.relayClientsMutex.Lock()
 		delete(m.relayClients, serverAddress)
 		m.relayClientsMutex.Unlock()
@@ -379,14 +380,41 @@ func (m *Manager) openConnVia(ctx context.Context, serverAddress, peerKey string
 	}
 	// if connection closed then delete the relay client from the list
 	relayClient.SetOnDisconnectListener(m.onServerDisconnected)
+	rt.Lock()
 	rt.relayClient = relayClient
 	rt.Unlock()
+	close(rt.ready)
 
 	conn, err := relayClient.OpenConn(ctx, peerKey)
 	if err != nil {
 		return nil, err
 	}
 	return conn, nil
+}
+
+// openConnOnTrack opens a peer connection through an existing relay track,
+// waiting for the dial started by another openConnVia call (if still running)
+// to finish. It waits on rt.ready rather than the track lock, so it neither
+// holds nor contends the track lock across the dial; the RLock it takes
+// afterwards only guards the brief relayClient read + OpenConn, matching the
+// previous behaviour of protecting the client against a concurrent cleanup
+// close.
+func (m *Manager) openConnOnTrack(ctx context.Context, rt *RelayTrack, peerKey string) (net.Conn, error) {
+	select {
+	case <-rt.ready:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+
+	rt.RLock()
+	defer rt.RUnlock()
+	if rt.err != nil {
+		return nil, rt.err
+	}
+	if rt.relayClient == nil {
+		return nil, ErrRelayClientNotConnected
+	}
+	return rt.relayClient.OpenConn(ctx, peerKey)
 }
 
 func (m *Manager) onServerConnected() {
@@ -481,6 +509,15 @@ func (m *Manager) cleanUpUnusedRelays() {
 		// if the connection failed to the server the relay client will be nil
 		// but the instance will be kept in the relayClients until the next locking
 		if rt.err != nil {
+			rt.Unlock()
+			continue
+		}
+
+		// The dial started by openConnVia is still in progress: the track is
+		// published before Connect() completes and no longer runs under rt.Lock,
+		// so relayClient is not set yet. Nothing to clean up, and it must not be
+		// evicted out from under the in-flight dial.
+		if rt.relayClient == nil {
 			rt.Unlock()
 			continue
 		}
