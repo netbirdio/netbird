@@ -46,11 +46,8 @@ func stallingRelayListener(t *testing.T) string {
 }
 
 // TestRelayStates_DoesNotBlockOnRealHangingDial is a regression test for
-// status calls hanging behind an in-progress relay dial.
-//
-// While a relay is being dialed, its RelayTrack write-lock is held for the whole
-// dial (up to serverResponseTimeout per transport attempt, times the transport
-// fallback chain, times however many relays are being dialed at once) in openConnVia.
+// RelayStates() called by a "status -d command" hanging behind an in-progress
+// relay dial.
 func TestRelayStates_DoesNotBlockOnRealHangingDial(t *testing.T) {
 	serverAddr := stallingRelayListener(t)
 
