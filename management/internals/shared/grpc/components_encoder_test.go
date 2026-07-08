@@ -41,48 +41,6 @@ func canonicalize(full *proto.NetworkMapComponentsFull) {
 		return
 	}
 
-	// Canonicalize agent_versions first: sort the slice and rewrite each
-	// peer's AgentVersionIdx accordingly. The empty placeholder stays at
-	// index 0 by convention.
-	avRemap := make(map[uint32]uint32, len(full.AgentVersions))
-	if len(full.AgentVersions) > 0 {
-		// Pair version → original index, sort, rebuild.
-		type avEntry struct {
-			version string
-			oldIdx  uint32
-		}
-		entries := make([]avEntry, len(full.AgentVersions))
-		for i, v := range full.AgentVersions {
-			entries[i] = avEntry{version: v, oldIdx: uint32(i)}
-		}
-		// Empty stays at 0; sort the rest by string. Tiebreaker on oldIdx
-		// keeps the canonicalize output stable when two entries compare
-		// equal (the encoder dedups, but defending against future inputs).
-		slices.SortFunc(entries, func(a, b avEntry) int {
-			if a.version == "" && b.version != "" {
-				return -1
-			}
-			if b.version == "" && a.version != "" {
-				return 1
-			}
-			if c := cmp.Compare(a.version, b.version); c != 0 {
-				return c
-			}
-			return cmp.Compare(a.oldIdx, b.oldIdx)
-		})
-		newVersions := make([]string, len(entries))
-		for newIdx, e := range entries {
-			avRemap[e.oldIdx] = uint32(newIdx)
-			newVersions[newIdx] = e.version
-		}
-		full.AgentVersions = newVersions
-	}
-	for _, p := range full.Peers {
-		if newIdx, ok := avRemap[p.AgentVersionIdx]; ok {
-			p.AgentVersionIdx = newIdx
-		}
-	}
-
 	type peerEntry struct {
 		peer   *proto.PeerCompact
 		oldIdx uint32
@@ -168,7 +126,7 @@ func canonicalize(full *proto.NetworkMapComponentsFull) {
 		policyRemap[policyOldOrder[p]] = uint32(newIdx)
 	}
 	for _, idxs := range full.ResourcePoliciesMap {
-		idxs.Indexes = remapAndSort(idxs.Indexes, policyRemap)
+		slices.Sort(idxs.Ids)
 	}
 	for _, list := range full.GroupIdToUserIds {
 		slices.Sort(list.UserIds)
@@ -340,12 +298,12 @@ func TestEncodeNetworkMapEnvelope_GroupsByAccountSeqID(t *testing.T) {
 
 	require.Len(t, full.Groups, 2)
 
-	groupByID := map[uint32]*proto.GroupCompact{}
+	groupByID := map[int32]*proto.GroupCompact{}
 	for _, g := range full.Groups {
 		groupByID[g.Id] = g
 	}
-	require.Contains(t, groupByID, uint32(1))
-	require.Contains(t, groupByID, uint32(2))
+	require.Contains(t, groupByID, int32(1))
+	require.Contains(t, groupByID, int32(2))
 	assert.Equal(t, "Src", groupByID[1].Name)
 	assert.Equal(t, "Dst", groupByID[2].Name)
 	assert.Len(t, groupByID[1].PeerIndexes, 1)
@@ -367,8 +325,8 @@ func TestEncodeNetworkMapEnvelope_PolicyExpansion(t *testing.T) {
 	require.Len(t, pc.PortRanges, 1)
 	assert.EqualValues(t, 8000, pc.PortRanges[0].Start)
 	assert.EqualValues(t, 8100, pc.PortRanges[0].End)
-	assert.Equal(t, []uint32{1}, pc.SourceGroupIds)
-	assert.Equal(t, []uint32{2}, pc.DestinationGroupIds)
+	assert.Equal(t, []int32{1}, pc.SourceGroupIds)
+	assert.Equal(t, []int32{2}, pc.DestinationGroupIds)
 }
 
 func TestEncodeNetworkMapEnvelope_RouterIndexes(t *testing.T) {
@@ -380,24 +338,6 @@ func TestEncodeNetworkMapEnvelope_RouterIndexes(t *testing.T) {
 	idx := full.RouterPeerIndexes[0]
 	require.Less(t, int(idx), len(full.Peers))
 	assert.Equal(t, "peerc", full.Peers[idx].DnsLabel)
-}
-
-func TestEncodeNetworkMapEnvelope_AgentVersionDedup(t *testing.T) {
-	c := newTestComponents()
-
-	full := EncodeNetworkMapEnvelope(ComponentsEnvelopeInput{Components: c}).GetFull()
-
-	require.Len(t, full.AgentVersions, 3, "empty placeholder + 2 distinct versions")
-	assert.Equal(t, "", full.AgentVersions[0], "index 0 reserved for empty version")
-	assert.ElementsMatch(t, []string{"0.40.0", "0.25.0"}, full.AgentVersions[1:],
-		"two distinct versions, order depends on map iteration")
-
-	idxByLabel := map[string]uint32{}
-	for _, p := range full.Peers {
-		idxByLabel[p.DnsLabel] = p.AgentVersionIdx
-	}
-	assert.Equal(t, idxByLabel["peera"], idxByLabel["peerc"], "peers with the same agent version share an index")
-	assert.NotEqual(t, idxByLabel["peera"], idxByLabel["peerb"])
 }
 
 func TestEncodeNetworkMapEnvelope_DisabledPolicySkipped(t *testing.T) {
@@ -421,7 +361,7 @@ func TestEncodeNetworkMapEnvelope_GroupZeroSeqIDSkipped(t *testing.T) {
 	require.Len(t, full.Policies, 1)
 	pc := full.Policies[0]
 	assert.Empty(t, pc.SourceGroupIds, "rule references a group that was filtered out → no group id on wire")
-	assert.Equal(t, []uint32{2}, pc.DestinationGroupIds)
+	assert.Equal(t, []int32{2}, pc.DestinationGroupIds)
 }
 
 func TestEncodeNetworkMapEnvelope_TwoPeersSameMalformedKey(t *testing.T) {
@@ -594,14 +534,14 @@ func TestEncodeNetworkMapEnvelope_RoutesRoundTrip(t *testing.T) {
 	assert.True(t, r1.PeerIndexSet, "route with peer must set peer_index_set")
 	require.Less(t, int(r1.PeerIndex), len(full.Peers))
 	assert.Equal(t, "peerc", full.Peers[r1.PeerIndex].DnsLabel)
-	assert.Equal(t, []uint32{1}, r1.GroupIds, "group-src has AccountSeqID 1")
-	assert.Equal(t, []uint32{2}, r1.AccessControlGroupIds, "group-dst has AccountSeqID 2")
+	assert.Equal(t, []int32{1}, r1.GroupIds, "group-src has AccountSeqID 1")
+	assert.Equal(t, []int32{2}, r1.AccessControlGroupIds, "group-dst has AccountSeqID 2")
 	assert.Empty(t, r1.PeerGroupIds)
 
 	r2 := byNetID["net-B"]
 	require.NotNil(t, r2)
 	assert.False(t, r2.PeerIndexSet, "route with peer_groups must NOT set peer_index_set")
-	assert.ElementsMatch(t, []uint32{1, 2}, r2.PeerGroupIds)
+	assert.ElementsMatch(t, []int32{1, 2}, r2.PeerGroupIds)
 }
 
 func TestEncodeNetworkMapEnvelope_RouteWithMissingPeerLeavesIndexUnset(t *testing.T) {
@@ -648,19 +588,19 @@ func TestEncodeNetworkMapEnvelope_ResourceOnlyPolicyShippedAndIndexed(t *testing
 
 	require.Len(t, full.Policies, 2, "encoded policies must include both peer-traffic and resource-only")
 
-	policyByID := map[uint32]*proto.PolicyCompact{}
-	policyIdxByID := map[uint32]uint32{}
-	for i, p := range full.Policies {
+	policyByID := map[int32]*proto.PolicyCompact{}
+	policyIds := make([]int32, 0)
+	for _, p := range full.Policies {
 		policyByID[p.Id] = p
-		policyIdxByID[p.Id] = uint32(i)
+		policyIds = append(policyIds, p.Id)
 	}
-	require.Contains(t, policyByID, uint32(10), "original peer-traffic policy id 10")
-	require.Contains(t, policyByID, uint32(99), "resource-only policy id 99")
+	require.Contains(t, policyByID, int32(10), "original peer-traffic policy id 10")
+	require.Contains(t, policyByID, int32(99), "resource-only policy id 99")
 
-	require.Contains(t, full.ResourcePoliciesMap, uint32(77))
-	idxs := full.ResourcePoliciesMap[77].Indexes
-	require.Len(t, idxs, 2)
-	assert.ElementsMatch(t, []uint32{policyIdxByID[10], policyIdxByID[99]}, idxs,
+	require.Contains(t, full.ResourcePoliciesMap, int32(77))
+	ids := full.ResourcePoliciesMap[77].Ids
+	require.Len(t, ids, 2)
+	assert.ElementsMatch(t, policyIds, ids,
 		"resource policies map must reference both wire policy indexes")
 }
 
@@ -686,12 +626,12 @@ func TestEncodeNetworkMapEnvelope_NameServerGroups(t *testing.T) {
 	assert.True(t, nsg.Primary)
 	require.Len(t, nsg.Nameservers, 1)
 	assert.Equal(t, "8.8.8.8", nsg.Nameservers[0].IP)
-	assert.Equal(t, []uint32{1}, nsg.GroupIds, "group-not-persisted is filtered out (AccountSeqID=0)")
+	assert.Equal(t, []int32{1}, nsg.GroupIds, "group-not-persisted is filtered out (AccountSeqID=0)")
 }
 
 func TestEncodeNetworkMapEnvelope_PostureFailedPeers(t *testing.T) {
 	c := newTestComponents()
-	c.PostureCheckXIDToSeq = map[string]uint32{"check-1": 33}
+	c.PostureCheckXIDToSeq = map[string]int32{"check-1": 33}
 	c.PostureFailedPeers = map[string]map[string]struct{}{
 		"check-1": {
 			"peer-a":              {},
@@ -702,14 +642,14 @@ func TestEncodeNetworkMapEnvelope_PostureFailedPeers(t *testing.T) {
 
 	full := EncodeNetworkMapEnvelope(ComponentsEnvelopeInput{Components: c}).GetFull()
 
-	require.Contains(t, full.PostureFailedPeers, uint32(33))
+	require.Contains(t, full.PostureFailedPeers, int32(33))
 	idxs := full.PostureFailedPeers[33].PeerIndexes
 	assert.Len(t, idxs, 2, "missing peer is silently dropped (filterPostureFailedPeers guarantees presence in real data)")
 }
 
 func TestEncodeNetworkMapEnvelope_RoutersMap(t *testing.T) {
 	c := newTestComponents()
-	c.NetworkXIDToSeq = map[string]uint32{"net-1": 5}
+	c.NetworkXIDToSeq = map[string]int32{"net-1": 5}
 	c.RoutersMap = map[string]map[string]*routerTypes.NetworkRouter{
 		"net-1": {
 			"peer-c": {
@@ -721,7 +661,7 @@ func TestEncodeNetworkMapEnvelope_RoutersMap(t *testing.T) {
 
 	full := EncodeNetworkMapEnvelope(ComponentsEnvelopeInput{Components: c}).GetFull()
 
-	require.Contains(t, full.RoutersMap, uint32(5))
+	require.Contains(t, full.RoutersMap, int32(5))
 	entries := full.RoutersMap[5].Entries
 	require.Len(t, entries, 1)
 	e := entries[0]
@@ -745,14 +685,14 @@ func TestEncodeNetworkMapEnvelope_RouterPeerNotInComponentsPeers(t *testing.T) {
 		DNSLabel: "peerc", Meta: nbpeer.PeerSystemMeta{WtVersion: "0.40.0"},
 	}
 	c.RouterPeers = map[string]*nbpeer.Peer{"peer-c": routerPeer}
-	c.NetworkXIDToSeq = map[string]uint32{"net-1": 5}
+	c.NetworkXIDToSeq = map[string]int32{"net-1": 5}
 	c.RoutersMap = map[string]map[string]*routerTypes.NetworkRouter{
 		"net-1": {"peer-c": {ID: "r-1", AccountSeqID: 1, Peer: "peer-c", Enabled: true}},
 	}
 
 	full := EncodeNetworkMapEnvelope(ComponentsEnvelopeInput{Components: c}).GetFull()
 
-	require.Contains(t, full.RoutersMap, uint32(5))
+	require.Contains(t, full.RoutersMap, int32(5))
 	require.Len(t, full.RoutersMap[5].Entries, 1)
 	e := full.RoutersMap[5].Entries[0]
 	assert.True(t, e.PeerIndexSet, "router peer must be indexed even when not in c.Peers")
@@ -768,7 +708,7 @@ func TestEncodeNetworkMapEnvelope_DNSSettingsFiltersUnpersistedGroups(t *testing
 	full := EncodeNetworkMapEnvelope(ComponentsEnvelopeInput{Components: c}).GetFull()
 
 	require.NotNil(t, full.DnsSettings)
-	assert.Equal(t, []uint32{1}, full.DnsSettings.DisabledManagementGroupIds,
+	assert.Equal(t, []int32{1}, full.DnsSettings.DisabledManagementGroupIds,
 		"only group-src (AccountSeqID=1) survives — missing and unpersisted are dropped")
 }
 
@@ -784,7 +724,7 @@ func TestEncodeNetworkMapEnvelope_GroupIDToUserIDs(t *testing.T) {
 	full := EncodeNetworkMapEnvelope(ComponentsEnvelopeInput{Components: c}).GetFull()
 
 	require.Len(t, full.GroupIdToUserIds, 1, "only persisted+present groups survive")
-	require.Contains(t, full.GroupIdToUserIds, uint32(1))
+	require.Contains(t, full.GroupIdToUserIds, int32(1))
 	assert.ElementsMatch(t, []string{"user-1", "user-2"}, full.GroupIdToUserIds[1].UserIds)
 }
 

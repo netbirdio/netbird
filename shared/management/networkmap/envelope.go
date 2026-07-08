@@ -5,8 +5,8 @@ import (
 	"encoding/base64"
 	"fmt"
 
-	"github.com/netbirdio/netbird/shared/management/types"
 	"github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/shared/management/types"
 )
 
 // EnvelopeResult is what the client engine consumes after receiving a
@@ -187,4 +187,3 @@ func canonicalizeWgKey(s string) string {
 	}
 	return base64.StdEncoding.EncodeToString(raw)
 }
-
