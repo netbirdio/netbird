@@ -21,7 +21,7 @@ type Group struct {
 
 	// AccountSeqID is a per-account monotonically increasing identifier used as the
 	// compact wire id when sending NetworkMap components to capable peers.
-	AccountSeqID uint32 `json:"-" gorm:"index:idx_groups_account_seq_id;not null;default:0"`
+	AccountSeqID int32 `json:"-" gorm:"not null;default:0"`
 
 	// Name visible in the UI
 	Name string

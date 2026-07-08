@@ -226,7 +226,7 @@ type Store interface {
 	// AllocateAccountSeqID returns the next per-account integer id for the given
 	// component kind. Must run inside a transaction so the increment is serialized
 	// with the component insert.
-	AllocateAccountSeqID(ctx context.Context, accountID string, entity types.AccountSeqEntity) (uint32, error)
+	AllocateAccountSeqID(ctx context.Context, accountID string, entity types.AccountSeqEntity) (int32, error)
 
 	GetAccountNetworks(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*networkTypes.Network, error)
 	GetNetworkByID(ctx context.Context, lockStrength LockingStrength, accountID, networkID string) (*networkTypes.Network, error)

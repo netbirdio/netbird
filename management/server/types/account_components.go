@@ -134,8 +134,8 @@ func (a *Account) GetPeerNetworkMapComponents(
 		NetworkResources:     make([]*resourceTypes.NetworkResource, 0),
 		PostureFailedPeers:   make(map[string]map[string]struct{}, len(a.PostureChecks)),
 		RouterPeers:          make(map[string]*nbpeer.Peer),
-		NetworkXIDToSeq:      make(map[string]uint32, len(a.Networks)),
-		PostureCheckXIDToSeq: make(map[string]uint32, len(a.PostureChecks)),
+		NetworkXIDToSeq:      make(map[string]int32, len(a.Networks)),
+		PostureCheckXIDToSeq: make(map[string]int32, len(a.PostureChecks)),
 	}
 	for _, n := range a.Networks {
 		if n != nil && n.HasSeqID() {

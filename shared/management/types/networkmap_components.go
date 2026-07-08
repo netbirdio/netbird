@@ -47,12 +47,12 @@ type NetworkMapComponents struct {
 	// account-side component builder; consumed by the envelope encoder to
 	// translate RoutersMap keys and NetworkResource.NetworkID references
 	// to compact uint32 ids. Legacy Calculate() doesn't consult it.
-	NetworkXIDToSeq map[string]uint32
+	NetworkXIDToSeq map[string]int32
 
 	// PostureCheckXIDToSeq maps posture.Checks.ID (xid) → AccountSeqID.
 	// Same role as NetworkXIDToSeq, used for PostureFailedPeers keys and
 	// policy SourcePostureChecks references.
-	PostureCheckXIDToSeq map[string]uint32
+	PostureCheckXIDToSeq map[string]int32
 }
 
 type AccountSettingsInfo struct {

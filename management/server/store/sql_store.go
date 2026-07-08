@@ -3637,11 +3637,11 @@ func (s *SqlStore) withTx(tx *gorm.DB) Store {
 // AllocateAccountSeqID returns the next per-account integer id for the given
 // component kind. Must be called inside ExecuteInTransaction so the increment
 // is serialized with the component insert.
-func (s *SqlStore) AllocateAccountSeqID(ctx context.Context, accountID string, entity types.AccountSeqEntity) (uint32, error) {
+func (s *SqlStore) AllocateAccountSeqID(ctx context.Context, accountID string, entity types.AccountSeqEntity) (int32, error) {
 	return allocateAccountSeqID(ctx, s.db, s.storeEngine, accountID, entity)
 }
 
-func allocateAccountSeqID(_ context.Context, db *gorm.DB, engine types.Engine, accountID string, entity types.AccountSeqEntity) (uint32, error) {
+func allocateAccountSeqID(_ context.Context, db *gorm.DB, engine types.Engine, accountID string, entity types.AccountSeqEntity) (int32, error) {
 	switch engine {
 	case types.PostgresStoreEngine, types.SqliteStoreEngine:
 		return allocateAccountSeqIDReturning(db, accountID, entity)
@@ -3657,7 +3657,7 @@ func allocateAccountSeqID(_ context.Context, db *gorm.DB, engine types.Engine, a
 // SELECT FOR UPDATE. Two concurrent allocations for the same (account, entity)
 // produce two distinct ids: one wins the INSERT, the other wins the UPDATE
 // branch and returns next_id+1.
-func allocateAccountSeqIDReturning(db *gorm.DB, accountID string, entity types.AccountSeqEntity) (uint32, error) {
+func allocateAccountSeqIDReturning(db *gorm.DB, accountID string, entity types.AccountSeqEntity) (int32, error) {
 	const sqlStr = `
 		INSERT INTO account_seq_counters (account_id, entity, next_id)
 		VALUES (?, ?, 2)
@@ -3665,7 +3665,7 @@ func allocateAccountSeqIDReturning(db *gorm.DB, accountID string, entity types.A
 			SET next_id = account_seq_counters.next_id + 1
 		RETURNING (next_id - 1)
 	`
-	var allocated uint32
+	var allocated int32
 	if err := db.Raw(sqlStr, accountID, string(entity)).Scan(&allocated).Error; err != nil {
 		return 0, fmt.Errorf("upsert account seq counter: %w", err)
 	}
@@ -3682,7 +3682,7 @@ func allocateAccountSeqIDReturning(db *gorm.DB, accountID string, entity types.A
 // no-conflict path also surfaces the new next_id, keeping the read-back uniform.
 // LAST_INSERT_ID is per-connection; GORM transactions pin a single connection,
 // so the follow-up SELECT sees the same value.
-func allocateAccountSeqIDMysql(db *gorm.DB, accountID string, entity types.AccountSeqEntity) (uint32, error) {
+func allocateAccountSeqIDMysql(db *gorm.DB, accountID string, entity types.AccountSeqEntity) (int32, error) {
 	const upsertSQL = `
 		INSERT INTO account_seq_counters (account_id, entity, next_id)
 		VALUES (?, ?, LAST_INSERT_ID(2))
@@ -3698,7 +3698,7 @@ func allocateAccountSeqIDMysql(db *gorm.DB, accountID string, entity types.Accou
 	if newNext == 0 {
 		return 0, fmt.Errorf("LAST_INSERT_ID returned 0; account_seq_counters misconfigured")
 	}
-	return uint32(newNext - 1), nil
+	return int32(newNext - 1), nil
 }
 
 // assignAccountSeqIDs allocates a per-account integer id for any component on
@@ -3709,8 +3709,8 @@ func allocateAccountSeqIDMysql(db *gorm.DB, accountID string, entity types.Accou
 // per-entity counter is bumped so subsequent AllocateAccountSeqID calls don't
 // hand out a colliding id.
 func (s *SqlStore) assignAccountSeqIDs(ctx context.Context, tx *gorm.DB, account *types.Account) error {
-	maxByEntity := make(map[types.AccountSeqEntity]uint32, 8)
-	bump := func(entity types.AccountSeqEntity, seq uint32) {
+	maxByEntity := make(map[types.AccountSeqEntity]int32, 8)
+	bump := func(entity types.AccountSeqEntity, seq int32) {
 		if seq > maxByEntity[entity] {
 			maxByEntity[entity] = seq
 		}
@@ -3856,7 +3856,7 @@ func (s *SqlStore) assignAccountSeqIDs(ctx context.Context, tx *gorm.DB, account
 // AccountSeqIDs (e.g. test bulk-load from sqlite to postgres, or migrations
 // running before component data lands) so that the next AllocateAccountSeqID
 // call returns a fresh id beyond what was just written.
-func ensureAccountSeqCounter(db *gorm.DB, engine types.Engine, accountID string, entity types.AccountSeqEntity, target uint32) error {
+func ensureAccountSeqCounter(db *gorm.DB, engine types.Engine, accountID string, entity types.AccountSeqEntity, target int32) error {
 	switch engine {
 	case types.PostgresStoreEngine, types.SqliteStoreEngine:
 		const sqlStr = `

@@ -10,17 +10,17 @@ import (
 )
 
 type NetworkRouter struct {
-	ID         string `gorm:"primaryKey"`
-	NetworkID  string `gorm:"index"`
-	AccountID  string `gorm:"index"`
+	ID        string `gorm:"primaryKey"`
+	NetworkID string `gorm:"index"`
+	AccountID string `gorm:"index"`
 	// AccountSeqID is a per-account monotonically increasing identifier used as the
 	// compact wire id when sending NetworkMap components to capable peers.
-	AccountSeqID uint32 `json:"-" gorm:"index:idx_network_routers_account_seq_id;not null;default:0"`
-	Peer       string
-	PeerGroups []string `gorm:"serializer:json"`
-	Masquerade bool
-	Metric     int
-	Enabled    bool
+	AccountSeqID int32 `json:"-" gorm:"not null;default:0"`
+	Peer         string
+	PeerGroups   []string `gorm:"serializer:json"`
+	Masquerade   bool
+	Metric       int
+	Enabled      bool
 }
 
 func NewNetworkRouter(accountID string, networkID string, peer string, peerGroups []string, masquerade bool, metric int, enabled bool) (*NetworkRouter, error) {

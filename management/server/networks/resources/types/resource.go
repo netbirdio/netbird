@@ -29,20 +29,20 @@ func (p NetworkResourceType) String() string {
 }
 
 type NetworkResource struct {
-	ID          string `gorm:"primaryKey"`
-	NetworkID   string `gorm:"index"`
-	AccountID   string `gorm:"index"`
+	ID        string `gorm:"primaryKey"`
+	NetworkID string `gorm:"index"`
+	AccountID string `gorm:"index"`
 	// AccountSeqID is a per-account monotonically increasing identifier used as the
 	// compact wire id when sending NetworkMap components to capable peers.
-	AccountSeqID uint32 `json:"-" gorm:"index:idx_network_resources_account_seq_id;not null;default:0"`
-	Name        string
-	Description string
-	Type        NetworkResourceType
-	Address     string   `gorm:"-"`
-	GroupIDs    []string `gorm:"-"`
-	Domain      string
-	Prefix      netip.Prefix `gorm:"serializer:json"`
-	Enabled     bool
+	AccountSeqID int32 `json:"-" gorm:"not null;default:0"`
+	Name         string
+	Description  string
+	Type         NetworkResourceType
+	Address      string   `gorm:"-"`
+	GroupIDs     []string `gorm:"-"`
+	Domain       string
+	Prefix       netip.Prefix `gorm:"serializer:json"`
+	Enabled      bool
 }
 
 func NewNetworkResource(accountID, networkID, name, description, address string, groupIDs []string, enabled bool) (*NetworkResource, error) {

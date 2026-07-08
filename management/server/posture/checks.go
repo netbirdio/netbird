@@ -51,7 +51,7 @@ type Checks struct {
 
 	// AccountSeqID is a per-account monotonically increasing identifier used as the
 	// compact wire id when sending NetworkMap components to capable peers.
-	AccountSeqID uint32 `json:"-" gorm:"index:idx_posture_checks_account_seq_id;not null;default:0"`
+	AccountSeqID int32 `json:"-" gorm:"not null;default:0"`
 
 	// Checks is a set of objects that perform the actual checks
 	Checks ChecksDefinition `gorm:"serializer:json"`
