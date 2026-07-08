@@ -477,7 +477,10 @@ func (m *Manager) cleanUpUnusedRelays() {
 	defer m.relayClientsMutex.Unlock()
 
 	for addr, rt := range m.relayClients {
-		rt.Lock()
+		if !rt.TryRLock() {
+			// Skip while in-progress relay dial.
+			continue
+		}
 		// if the connection failed to the server the relay client will be nil
 		// but the instance will be kept in the relayClients until the next locking
 		if rt.err != nil {
