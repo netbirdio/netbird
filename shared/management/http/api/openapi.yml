@@ -9327,6 +9327,18 @@ paths:
           required: false
           schema:
             type: string
+        - name: source_id
+          in: query
+          description: Filter by source endpoint ID
+          required: false
+          schema:
+            type: string
+        - name: destination_id
+          in: query
+          description: Filter by destination endpoint ID
+          required: false
+          schema:
+            type: string
         - name: protocol
           in: query
           description: Filter by protocol
