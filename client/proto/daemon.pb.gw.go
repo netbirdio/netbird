@@ -131,6 +131,26 @@ func local_request_DaemonService_Status_0(ctx context.Context, marshaler runtime
 	return msg, metadata, err
 }
 
+func request_DaemonService_SubscribeStatus_0(ctx context.Context, marshaler runtime.Marshaler, client DaemonServiceClient, req *http.Request, pathParams map[string]string) (DaemonService_SubscribeStatusClient, runtime.ServerMetadata, error) {
+	var (
+		protoReq StatusRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	stream, err := client.SubscribeStatus(ctx, &protoReq)
+	if err != nil {
+		return nil, metadata, err
+	}
+	header, err := stream.Header()
+	if err != nil {
+		return nil, metadata, err
+	}
+	metadata.HeaderMD = header
+	return stream, metadata, nil
+}
+
 func request_DaemonService_Down_0(ctx context.Context, marshaler runtime.Marshaler, client DaemonServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq DownRequest
@@ -579,6 +599,30 @@ func local_request_DaemonService_GetEvents_0(ctx context.Context, marshaler runt
 	return msg, metadata, err
 }
 
+func request_DaemonService_RegisterUILog_0(ctx context.Context, marshaler runtime.Marshaler, client DaemonServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq RegisterUILogRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	msg, err := client.RegisterUILog(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+}
+
+func local_request_DaemonService_RegisterUILog_0(ctx context.Context, marshaler runtime.Marshaler, server DaemonServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq RegisterUILogRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	msg, err := server.RegisterUILog(ctx, &protoReq)
+	return msg, metadata, err
+}
+
 func request_DaemonService_SwitchProfile_0(ctx context.Context, marshaler runtime.Marshaler, client DaemonServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq SwitchProfileRequest
@@ -891,6 +935,78 @@ func local_request_DaemonService_WaitJWTToken_0(ctx context.Context, marshaler r
 	return msg, metadata, err
 }
 
+func request_DaemonService_RequestExtendAuthSession_0(ctx context.Context, marshaler runtime.Marshaler, client DaemonServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq RequestExtendAuthSessionRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	msg, err := client.RequestExtendAuthSession(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+}
+
+func local_request_DaemonService_RequestExtendAuthSession_0(ctx context.Context, marshaler runtime.Marshaler, server DaemonServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq RequestExtendAuthSessionRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	msg, err := server.RequestExtendAuthSession(ctx, &protoReq)
+	return msg, metadata, err
+}
+
+func request_DaemonService_WaitExtendAuthSession_0(ctx context.Context, marshaler runtime.Marshaler, client DaemonServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq WaitExtendAuthSessionRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	msg, err := client.WaitExtendAuthSession(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+}
+
+func local_request_DaemonService_WaitExtendAuthSession_0(ctx context.Context, marshaler runtime.Marshaler, server DaemonServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq WaitExtendAuthSessionRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	msg, err := server.WaitExtendAuthSession(ctx, &protoReq)
+	return msg, metadata, err
+}
+
+func request_DaemonService_DismissSessionWarning_0(ctx context.Context, marshaler runtime.Marshaler, client DaemonServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq DismissSessionWarningRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	msg, err := client.DismissSessionWarning(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+}
+
+func local_request_DaemonService_DismissSessionWarning_0(ctx context.Context, marshaler runtime.Marshaler, server DaemonServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq DismissSessionWarningRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	msg, err := server.DismissSessionWarning(ctx, &protoReq)
+	return msg, metadata, err
+}
+
 func request_DaemonService_StartCPUProfile_0(ctx context.Context, marshaler runtime.Marshaler, client DaemonServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq StartCPUProfileRequest
@@ -983,6 +1099,30 @@ func request_DaemonService_ExposeService_0(ctx context.Context, marshaler runtim
 	return stream, metadata, nil
 }
 
+func request_DaemonService_WailsUIReady_0(ctx context.Context, marshaler runtime.Marshaler, client DaemonServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq WailsUIReadyRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	msg, err := client.WailsUIReady(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+}
+
+func local_request_DaemonService_WailsUIReady_0(ctx context.Context, marshaler runtime.Marshaler, server DaemonServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq WailsUIReadyRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	msg, err := server.WailsUIReady(ctx, &protoReq)
+	return msg, metadata, err
+}
+
 // RegisterDaemonServiceHandlerServer registers the http handlers for service DaemonService to "mux".
 // UnaryRPC     :call DaemonServiceServer directly.
 // StreamingRPC :currently unsupported pending https://github.com/grpc/grpc-go/issues/906.
@@ -1068,6 +1208,13 @@ func RegisterDaemonServiceHandlerServer(ctx context.Context, mux *runtime.ServeM
 			return
 		}
 		forward_DaemonService_Status_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
+
+	mux.Handle(http.MethodPost, pattern_DaemonService_SubscribeStatus_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		err := status.Error(codes.Unimplemented, "streaming calls are not yet supported in the in-process transport")
+		_, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+		return
 	})
 	mux.Handle(http.MethodPost, pattern_DaemonService_Down_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
@@ -1423,6 +1570,26 @@ func RegisterDaemonServiceHandlerServer(ctx context.Context, mux *runtime.ServeM
 		}
 		forward_DaemonService_GetEvents_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
+	mux.Handle(http.MethodPost, pattern_DaemonService_RegisterUILog_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/daemon.DaemonService/RegisterUILog", runtime.WithHTTPPathPattern("/daemon.DaemonService/RegisterUILog"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_DaemonService_RegisterUILog_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_DaemonService_RegisterUILog_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
 	mux.Handle(http.MethodPost, pattern_DaemonService_SwitchProfile_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
@@ -1683,6 +1850,66 @@ func RegisterDaemonServiceHandlerServer(ctx context.Context, mux *runtime.ServeM
 		}
 		forward_DaemonService_WaitJWTToken_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
+	mux.Handle(http.MethodPost, pattern_DaemonService_RequestExtendAuthSession_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/daemon.DaemonService/RequestExtendAuthSession", runtime.WithHTTPPathPattern("/daemon.DaemonService/RequestExtendAuthSession"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_DaemonService_RequestExtendAuthSession_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_DaemonService_RequestExtendAuthSession_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
+	mux.Handle(http.MethodPost, pattern_DaemonService_WaitExtendAuthSession_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/daemon.DaemonService/WaitExtendAuthSession", runtime.WithHTTPPathPattern("/daemon.DaemonService/WaitExtendAuthSession"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_DaemonService_WaitExtendAuthSession_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_DaemonService_WaitExtendAuthSession_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
+	mux.Handle(http.MethodPost, pattern_DaemonService_DismissSessionWarning_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/daemon.DaemonService/DismissSessionWarning", runtime.WithHTTPPathPattern("/daemon.DaemonService/DismissSessionWarning"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_DaemonService_DismissSessionWarning_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_DaemonService_DismissSessionWarning_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
 	mux.Handle(http.MethodPost, pattern_DaemonService_StartCPUProfile_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
@@ -1749,6 +1976,26 @@ func RegisterDaemonServiceHandlerServer(ctx context.Context, mux *runtime.ServeM
 		_, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 		return
+	})
+	mux.Handle(http.MethodPost, pattern_DaemonService_WailsUIReady_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/daemon.DaemonService/WailsUIReady", runtime.WithHTTPPathPattern("/daemon.DaemonService/WailsUIReady"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_DaemonService_WailsUIReady_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_DaemonService_WailsUIReady_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
 
 	return nil
@@ -1857,6 +2104,23 @@ func RegisterDaemonServiceHandlerClient(ctx context.Context, mux *runtime.ServeM
 			return
 		}
 		forward_DaemonService_Status_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
+	mux.Handle(http.MethodPost, pattern_DaemonService_SubscribeStatus_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/daemon.DaemonService/SubscribeStatus", runtime.WithHTTPPathPattern("/daemon.DaemonService/SubscribeStatus"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_DaemonService_SubscribeStatus_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_DaemonService_SubscribeStatus_0(annotatedContext, mux, outboundMarshaler, w, req, func() (proto.Message, error) { return resp.Recv() }, mux.GetForwardResponseOptions()...)
 	})
 	mux.Handle(http.MethodPost, pattern_DaemonService_Down_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
@@ -2181,6 +2445,23 @@ func RegisterDaemonServiceHandlerClient(ctx context.Context, mux *runtime.ServeM
 		}
 		forward_DaemonService_GetEvents_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
+	mux.Handle(http.MethodPost, pattern_DaemonService_RegisterUILog_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/daemon.DaemonService/RegisterUILog", runtime.WithHTTPPathPattern("/daemon.DaemonService/RegisterUILog"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_DaemonService_RegisterUILog_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_DaemonService_RegisterUILog_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
 	mux.Handle(http.MethodPost, pattern_DaemonService_SwitchProfile_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
@@ -2402,6 +2683,57 @@ func RegisterDaemonServiceHandlerClient(ctx context.Context, mux *runtime.ServeM
 		}
 		forward_DaemonService_WaitJWTToken_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
+	mux.Handle(http.MethodPost, pattern_DaemonService_RequestExtendAuthSession_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/daemon.DaemonService/RequestExtendAuthSession", runtime.WithHTTPPathPattern("/daemon.DaemonService/RequestExtendAuthSession"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_DaemonService_RequestExtendAuthSession_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_DaemonService_RequestExtendAuthSession_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
+	mux.Handle(http.MethodPost, pattern_DaemonService_WaitExtendAuthSession_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/daemon.DaemonService/WaitExtendAuthSession", runtime.WithHTTPPathPattern("/daemon.DaemonService/WaitExtendAuthSession"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_DaemonService_WaitExtendAuthSession_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_DaemonService_WaitExtendAuthSession_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
+	mux.Handle(http.MethodPost, pattern_DaemonService_DismissSessionWarning_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/daemon.DaemonService/DismissSessionWarning", runtime.WithHTTPPathPattern("/daemon.DaemonService/DismissSessionWarning"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_DaemonService_DismissSessionWarning_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_DaemonService_DismissSessionWarning_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
 	mux.Handle(http.MethodPost, pattern_DaemonService_StartCPUProfile_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
@@ -2470,6 +2802,23 @@ func RegisterDaemonServiceHandlerClient(ctx context.Context, mux *runtime.ServeM
 		}
 		forward_DaemonService_ExposeService_0(annotatedContext, mux, outboundMarshaler, w, req, func() (proto.Message, error) { return resp.Recv() }, mux.GetForwardResponseOptions()...)
 	})
+	mux.Handle(http.MethodPost, pattern_DaemonService_WailsUIReady_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/daemon.DaemonService/WailsUIReady", runtime.WithHTTPPathPattern("/daemon.DaemonService/WailsUIReady"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_DaemonService_WailsUIReady_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_DaemonService_WailsUIReady_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
 	return nil
 }
 
@@ -2478,6 +2827,7 @@ var (
 	pattern_DaemonService_WaitSSOLogin_0               = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"daemon.DaemonService", "WaitSSOLogin"}, ""))
 	pattern_DaemonService_Up_0                         = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"daemon.DaemonService", "Up"}, ""))
 	pattern_DaemonService_Status_0                     = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"daemon.DaemonService", "Status"}, ""))
+	pattern_DaemonService_SubscribeStatus_0            = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"daemon.DaemonService", "SubscribeStatus"}, ""))
 	pattern_DaemonService_Down_0                       = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"daemon.DaemonService", "Down"}, ""))
 	pattern_DaemonService_GetConfig_0                  = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"daemon.DaemonService", "GetConfig"}, ""))
 	pattern_DaemonService_ListNetworks_0               = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"daemon.DaemonService", "ListNetworks"}, ""))
@@ -2497,6 +2847,7 @@ var (
 	pattern_DaemonService_StopBundleCapture_0          = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"daemon.DaemonService", "StopBundleCapture"}, ""))
 	pattern_DaemonService_SubscribeEvents_0            = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"daemon.DaemonService", "SubscribeEvents"}, ""))
 	pattern_DaemonService_GetEvents_0                  = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"daemon.DaemonService", "GetEvents"}, ""))
+	pattern_DaemonService_RegisterUILog_0              = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"daemon.DaemonService", "RegisterUILog"}, ""))
 	pattern_DaemonService_SwitchProfile_0              = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"daemon.DaemonService", "SwitchProfile"}, ""))
 	pattern_DaemonService_SetConfig_0                  = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"daemon.DaemonService", "SetConfig"}, ""))
 	pattern_DaemonService_AddProfile_0                 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"daemon.DaemonService", "AddProfile"}, ""))
@@ -2510,10 +2861,14 @@ var (
 	pattern_DaemonService_GetPeerSSHHostKey_0          = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"daemon.DaemonService", "GetPeerSSHHostKey"}, ""))
 	pattern_DaemonService_RequestJWTAuth_0             = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"daemon.DaemonService", "RequestJWTAuth"}, ""))
 	pattern_DaemonService_WaitJWTToken_0               = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"daemon.DaemonService", "WaitJWTToken"}, ""))
+	pattern_DaemonService_RequestExtendAuthSession_0   = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"daemon.DaemonService", "RequestExtendAuthSession"}, ""))
+	pattern_DaemonService_WaitExtendAuthSession_0      = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"daemon.DaemonService", "WaitExtendAuthSession"}, ""))
+	pattern_DaemonService_DismissSessionWarning_0      = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"daemon.DaemonService", "DismissSessionWarning"}, ""))
 	pattern_DaemonService_StartCPUProfile_0            = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"daemon.DaemonService", "StartCPUProfile"}, ""))
 	pattern_DaemonService_StopCPUProfile_0             = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"daemon.DaemonService", "StopCPUProfile"}, ""))
 	pattern_DaemonService_GetInstallerResult_0         = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"daemon.DaemonService", "GetInstallerResult"}, ""))
 	pattern_DaemonService_ExposeService_0              = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"daemon.DaemonService", "ExposeService"}, ""))
+	pattern_DaemonService_WailsUIReady_0               = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"daemon.DaemonService", "WailsUIReady"}, ""))
 )
 
 var (
@@ -2521,6 +2876,7 @@ var (
 	forward_DaemonService_WaitSSOLogin_0               = runtime.ForwardResponseMessage
 	forward_DaemonService_Up_0                         = runtime.ForwardResponseMessage
 	forward_DaemonService_Status_0                     = runtime.ForwardResponseMessage
+	forward_DaemonService_SubscribeStatus_0            = runtime.ForwardResponseStream
 	forward_DaemonService_Down_0                       = runtime.ForwardResponseMessage
 	forward_DaemonService_GetConfig_0                  = runtime.ForwardResponseMessage
 	forward_DaemonService_ListNetworks_0               = runtime.ForwardResponseMessage
@@ -2540,6 +2896,7 @@ var (
 	forward_DaemonService_StopBundleCapture_0          = runtime.ForwardResponseMessage
 	forward_DaemonService_SubscribeEvents_0            = runtime.ForwardResponseStream
 	forward_DaemonService_GetEvents_0                  = runtime.ForwardResponseMessage
+	forward_DaemonService_RegisterUILog_0              = runtime.ForwardResponseMessage
 	forward_DaemonService_SwitchProfile_0              = runtime.ForwardResponseMessage
 	forward_DaemonService_SetConfig_0                  = runtime.ForwardResponseMessage
 	forward_DaemonService_AddProfile_0                 = runtime.ForwardResponseMessage
@@ -2553,8 +2910,12 @@ var (
 	forward_DaemonService_GetPeerSSHHostKey_0          = runtime.ForwardResponseMessage
 	forward_DaemonService_RequestJWTAuth_0             = runtime.ForwardResponseMessage
 	forward_DaemonService_WaitJWTToken_0               = runtime.ForwardResponseMessage
+	forward_DaemonService_RequestExtendAuthSession_0   = runtime.ForwardResponseMessage
+	forward_DaemonService_WaitExtendAuthSession_0      = runtime.ForwardResponseMessage
+	forward_DaemonService_DismissSessionWarning_0      = runtime.ForwardResponseMessage
 	forward_DaemonService_StartCPUProfile_0            = runtime.ForwardResponseMessage
 	forward_DaemonService_StopCPUProfile_0             = runtime.ForwardResponseMessage
 	forward_DaemonService_GetInstallerResult_0         = runtime.ForwardResponseMessage
 	forward_DaemonService_ExposeService_0              = runtime.ForwardResponseStream
+	forward_DaemonService_WailsUIReady_0               = runtime.ForwardResponseMessage
 )
