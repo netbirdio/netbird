@@ -1,33 +1,76 @@
 package client
 
 import (
+	"context"
+	"net"
+	"net/netip"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
-// TestRelayStates_DoesNotBlockWhileForeignRelayConnecting is a regression test for
+// stallingRelayListener accepts TCP connections and holds them open without ever
+// responding, so a relay handshake dialed against it blocks until its context is
+// cancelled. It returns the "rel://host:port" URL to dial.
+func stallingRelayListener(t *testing.T) string {
+	t.Helper()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	var mu sync.Mutex
+	var conns []net.Conn
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			conns = append(conns, c)
+			mu.Unlock()
+		}
+	}()
+	t.Cleanup(func() {
+		_ = ln.Close()
+		mu.Lock()
+		for _, c := range conns {
+			_ = c.Close()
+		}
+		mu.Unlock()
+	})
+
+	return "rel://" + ln.Addr().String()
+}
+
+// TestRelayStates_DoesNotBlockOnRealHangingDial is a regression test for
 // status calls hanging behind an in-progress relay dial.
 //
 // While a relay is being dialed, its RelayTrack write-lock is held for the whole
 // dial (up to serverResponseTimeout per transport attempt, times the transport
 // fallback chain, times however many relays are being dialed at once) in openConnVia.
-//
-// RelayStates() is reached from the daemon status path via
-// peer.Status.GetFullStatus() -> GetRelayStates() -> Manager.RelayStates().
-// It takes rt.RLock() on every tracked relay. A reader lock blocks while a
-// writer holds the  lock, so a single foreign relay mid-Connect in openConnVia
-// stalls RelayStates(), and therefore `netbird status -d` hangs for the full dial timeout.
-func TestRelayStates_DoesNotBlockWhileForeignRelayConnecting(t *testing.T) {
-	m := &Manager{
-		relayClients: make(map[string]*RelayTrack),
-	}
+func TestRelayStates_DoesNotBlockOnRealHangingDial(t *testing.T) {
+	serverAddr := stallingRelayListener(t)
 
-	// Mirror openConnVia's state during a live dial: a track in the map whose
-	// write-lock is held for the duration of relayClient.Connect().
-	rt := NewRelayTrack()
-	rt.Lock()
-	m.relayClients["relay.example.com:443"] = rt
-	t.Cleanup(rt.Unlock)
+	mCtx, mCancel := context.WithCancel(context.Background())
+	t.Cleanup(mCancel)
+
+	m := NewManager(mCtx, nil, "alice", 1280)
+
+	dialDone := make(chan struct{})
+	go func() {
+		defer close(dialDone)
+		_, _ = m.openConnVia(mCtx, serverAddr, "peerKey", netip.Addr{})
+	}()
+
+	require.Eventually(t, func() bool {
+		m.relayClientsMutex.RLock()
+		defer m.relayClientsMutex.RUnlock()
+		_, ok := m.relayClients[serverAddr]
+		return ok
+	}, 5*time.Second, 5*time.Millisecond, "relay dial did not start")
 
 	done := make(chan []RelayConnState, 1)
 	go func() {
@@ -35,8 +78,17 @@ func TestRelayStates_DoesNotBlockWhileForeignRelayConnecting(t *testing.T) {
 	}()
 
 	select {
-	case <-done:
+	case states := <-done:
+		require.Empty(t, states, "a relay still being dialed carries no state and must be omitted")
 	case <-time.After(2 * time.Second):
-		t.Fatal("RelayStates() blocked on a relay track whose Connect() is in progress")
+		t.Fatal("RelayStates blocked on a foreign relay whose Connect() is in progress")
+	}
+
+	// Release the hanging dial so the goroutine can exit cleanly.
+	mCancel()
+	select {
+	case <-dialDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("openConnVia did not return after context cancellation")
 	}
 }
