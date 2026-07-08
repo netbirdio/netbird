@@ -35,6 +35,11 @@ Teams configure their agents to point to that endpoint instead of using individu
 This endpoint is only reachable when users are connected to your NetBird network and authenticated through your IdP. Otherwise, it is not accessible from the public internet.
 You can then use this private endpoint to configure your AI agents, whether that is Claude Code, Codex, or another tool.
 
+## Quickstart
+
+Full step-by-step setup:
+**https://docs.netbird.io/agent-network/quickstart**
+
 ## Architecture 
 
 Agent Network is built on two existing NetBird capabilities:
