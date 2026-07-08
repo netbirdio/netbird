@@ -41,3 +41,4 @@ management/netbird-mgmt
 */netbird
 **/netbird.wasm
 **/wasm_exec.js
+**/size-report.html
