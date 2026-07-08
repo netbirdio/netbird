@@ -15,6 +15,10 @@ identity-aware proxy, you can:
 - **Attribute usage** by tracking token consumption and cost per identity, so every
   request is tied back to the agent and person responsible.
 
+
+https://github.com/user-attachments/assets/f76d549f-6ea8-45a2-b069-380037aff36a
+
+
 > **Beta.** Agent Network is open source and can be self-hosted on your own
 > infrastructure.
 
