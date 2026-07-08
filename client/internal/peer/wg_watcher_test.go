@@ -7,6 +7,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/client/iface/configurer"
 )
@@ -33,6 +34,9 @@ func TestWGWatcher_EnableWgWatcher(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	ok := watcher.PrepareInitialHandshake()
+	require.True(t, ok, "watcher should not be enabled yet")
 
 	onDisconnected := make(chan struct{}, 1)
 	go watcher.EnableWgWatcher(ctx, time.Now(), func() {
@@ -62,6 +66,9 @@ func TestWGWatcher_ReEnable(t *testing.T) {
 	watcher := NewWGWatcher(mlog, mocWgIface, "", newStateDump("peer", mlog, &Status{}))
 
 	ctx, cancel := context.WithCancel(context.Background())
+	ok := watcher.PrepareInitialHandshake()
+	require.True(t, ok, "watcher should not be enabled yet")
+
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
 	go func() {
@@ -75,6 +82,9 @@ func TestWGWatcher_ReEnable(t *testing.T) {
 	// Re-enable with a new context
 	ctx, cancel = context.WithCancel(context.Background())
 	defer cancel()
+
+	ok = watcher.PrepareInitialHandshake()
+	require.True(t, ok, "watcher should be re-enabled after the previous run stopped")
 
 	onDisconnected := make(chan struct{}, 1)
 	go watcher.EnableWgWatcher(ctx, time.Now(), func() {

@@ -470,7 +470,7 @@ func (c *Client) Status() (peer.FullStatus, error) {
 	if connect != nil {
 		engine := connect.Engine()
 		if engine != nil {
-			_ = engine.RunHealthProbes(false)
+			_ = engine.RunHealthProbes(context.Background(), false)
 		}
 	}
 

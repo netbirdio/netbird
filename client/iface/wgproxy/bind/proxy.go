@@ -136,6 +136,11 @@ func (p *ProxyBind) CloseConn() error {
 	return p.close()
 }
 
+// InjectPacket is a no-op for the userspace proxy: first-packet reinjection is kernel-only.
+func (p *ProxyBind) InjectPacket(_ []byte) error {
+	return nil
+}
+
 func (p *ProxyBind) close() error {
 	if p.remoteConn == nil {
 		return nil

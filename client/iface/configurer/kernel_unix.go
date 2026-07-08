@@ -17,12 +17,15 @@ import (
 
 type KernelConfigurer struct {
 	deviceName string
+	statsCache *statsCache
 }
 
 func NewKernelConfigurer(deviceName string) *KernelConfigurer {
-	return &KernelConfigurer{
+	c := &KernelConfigurer{
 		deviceName: deviceName,
 	}
+	c.statsCache = newStatsCache(statsCacheTTL, c.fetchStats)
+	return c
 }
 
 func (c *KernelConfigurer) ConfigureInterface(privateKey string, port int) error {
@@ -246,12 +249,6 @@ func (c *KernelConfigurer) configure(config wgtypes.Config) error {
 		}
 	}()
 
-	// validate if device with name exists
-	_, err = wg.Device(c.deviceName)
-	if err != nil {
-		return err
-	}
-
 	return wg.ConfigureDevice(c.deviceName, config)
 }
 
@@ -300,6 +297,14 @@ func (c *KernelConfigurer) FullStats() (*Stats, error) {
 }
 
 func (c *KernelConfigurer) GetStats() (map[string]WGStats, error) {
+	return c.statsCache.get()
+}
+
+func (c *KernelConfigurer) LastActivities() map[string]monotime.Time {
+	return nil
+}
+
+func (c *KernelConfigurer) fetchStats() (map[string]WGStats, error) {
 	stats := make(map[string]WGStats)
 	wg, err := wgctrl.New()
 	if err != nil {
@@ -325,8 +330,4 @@ func (c *KernelConfigurer) GetStats() (map[string]WGStats, error) {
 		}
 	}
 	return stats, nil
-}
-
-func (c *KernelConfigurer) LastActivities() map[string]monotime.Time {
-	return nil
 }

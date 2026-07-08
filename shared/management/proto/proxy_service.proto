@@ -43,6 +43,18 @@ service ProxyService {
   // issue a session cookie without redirecting through the OIDC flow.
   // Mirrors ValidateSession's response shape.
   rpc ValidateTunnelPeer(ValidateTunnelPeerRequest) returns (ValidateTunnelPeerResponse);
+
+  // CheckLLMPolicyLimits is the pre-flight RPC the proxy calls before each
+  // LLM request. Management runs the per-policy headroom selection across
+  // every policy authorising the caller's user / groups for the resolved
+  // provider and returns the chosen attribution policy + group, or a deny
+  // when no applicable policy has headroom > 0.
+  rpc CheckLLMPolicyLimits(CheckLLMPolicyLimitsRequest) returns (CheckLLMPolicyLimitsResponse);
+
+  // RecordLLMUsage is the post-flight RPC the proxy calls after the upstream
+  // returns. Increments the per-(dimension, window) counters for the
+  // attribution policy chosen by CheckLLMPolicyLimits.
+  rpc RecordLLMUsage(RecordLLMUsageRequest) returns (RecordLLMUsageResponse);
 }
 
 // ProxyCapabilities describes what a proxy can handle.
@@ -107,6 +119,59 @@ message PathTargetOptions {
   // reachable without WireGuard (public APIs, LAN services, localhost
   // sidecars). Defaults to false — embedded client is the standard path.
   bool direct_upstream = 7;
+  // Proxy clamps to [0, proxy-wide max (1 MiB)] at apply time. Agent-network
+  // synthesized targets only; private services leave these zero.
+  int64 capture_max_request_bytes = 8;
+  // Proxy clamps to [0, proxy-wide max (1 MiB)] at apply time.
+  int64 capture_max_response_bytes = 9;
+  // Content types eligible for body capture (e.g. "application/json").
+  repeated string capture_content_types = 10;
+  // Per-target middleware configurations populated by the agent-network
+  // synthesizer. Validated and clamped by the proxy at apply time.
+  repeated MiddlewareConfig middlewares = 11;
+  // When true, the proxy stamps agent_network=true on access-log entries
+  // for this target so management routes them to the agent-network log
+  // surface.
+  bool agent_network = 12;
+  // When true, the proxy suppresses the per-request access-log emission for
+  // this target. Defaults false to preserve existing access-log behavior for
+  // every non-agent-network target. The agent-network synth target sets this
+  // true only when the account's EnableLogCollection toggle is off.
+  bool disable_access_log = 13;
+}
+
+// MiddlewareSlot identifies where in the request lifecycle a middleware
+// runs. Mirrors proxy/internal/middleware.Slot.
+enum MiddlewareSlot {
+  MIDDLEWARE_SLOT_UNSPECIFIED = 0;
+  MIDDLEWARE_SLOT_ON_REQUEST = 1;
+  MIDDLEWARE_SLOT_ON_RESPONSE = 2;
+  MIDDLEWARE_SLOT_TERMINAL = 3;
+}
+
+// MiddlewareConfig is the per-target configuration for a single middleware.
+// The proxy validates every incoming MiddlewareConfig at apply time:
+// unknown ids are rejected, timeout is clamped to [10ms, 5s], and the
+// declared slot must match the registered middleware's slot.
+message MiddlewareConfig {
+  // Middleware id; must match the proxy-local compiled-in registry.
+  string id = 1;
+  bool enabled = 2;
+  MiddlewareSlot slot = 3;
+  // Free-form JSON unmarshalled by the middleware factory into its own typed
+  // config struct. Empty / null / {} are valid (zero-value config).
+  bytes config_json = 4;
+  enum FailMode {
+    FAIL_OPEN = 0;
+    FAIL_CLOSED = 1;
+  }
+  FailMode fail_mode = 5;
+  // Clamped to [10ms, 5s] at apply time; zero → 500ms default.
+  google.protobuf.Duration timeout = 6;
+  // When true, the middleware may mutate request headers or body (subject to
+  // policy). Honoured only when the implementation also declares
+  // MutationsSupported.
+  bool can_mutate = 7;
 }
 
 message PathMapping {
@@ -190,6 +255,10 @@ message AccessLog {
   string protocol = 16;
   // Extra key-value metadata for the access log entry (e.g. crowdsec_verdict, scenario).
   map<string, string> metadata = 17;
+  // When true, the entry was emitted by an agent-network synth service.
+  // Management routes these to the agent-network access-log surface instead
+  // of the standard service log.
+  bool agent_network = 18;
 }
 
 message AuthenticateRequest {
@@ -374,5 +443,61 @@ message SyncMappingsResponse {
   repeated ProxyMapping mapping = 1;
   // initial_sync_complete is set on the last message of the initial snapshot.
   bool initial_sync_complete = 2;
+}
+
+// CheckLLMPolicyLimitsRequest carries the resolved caller identity and the
+// upstream provider already chosen by llm_router. Management computes which
+// policies authorise the request, picks the one with the most remaining
+// headroom, and returns the attribution decision.
+message CheckLLMPolicyLimitsRequest {
+  // account_id is the netbird account the request belongs to.
+  string account_id = 1;
+  // user_id is the netbird user id of the caller. May be empty when the
+  // principal is a tunnel-peer that isn't bound to a user; group membership
+  // still gates the request in that case.
+  string user_id = 2;
+  // group_ids is the caller's full group membership at request time.
+  repeated string group_ids = 3;
+  // provider_id is the agent-network provider record id chosen by llm_router.
+  string provider_id = 4;
+  // model is the upstream model identifier extracted from the request body.
+  string model = 5;
+}
+
+// CheckLLMPolicyLimitsResponse is management's allow-or-deny decision for a
+// pre-flight check.
+message CheckLLMPolicyLimitsResponse {
+  // decision is "allow" or "deny".
+  string decision = 1;
+  // selected_policy_id names the policy that paid for this request.
+  string selected_policy_id = 2;
+  // attribution_group_id is the source group the request booked against.
+  string attribution_group_id = 3;
+  // window_seconds is the cap window length the selected policy uses.
+  int64 window_seconds = 4;
+  // deny_code is set on decision="deny" with a stable label.
+  string deny_code = 5;
+  // deny_reason is a short human-readable explanation paired with deny_code.
+  string deny_reason = 6;
+}
+
+// RecordLLMUsageRequest is the post-flight increment the proxy posts after
+// the upstream call. Counters are keyed on (account, dimension, window).
+message RecordLLMUsageRequest {
+  string account_id = 1;
+  string user_id = 2;
+  // group_id is the selected policy's attribution group, recorded against the
+  // policy window (window_seconds).
+  string group_id = 3;
+  int64 window_seconds = 4;
+  int64 tokens_input = 5;
+  int64 tokens_output = 6;
+  double cost_usd = 7;
+  // group_ids is the caller's full group membership, used to fan the same
+  // usage out to every applicable account-level budget rule's own window.
+  repeated string group_ids = 8;
+}
+
+message RecordLLMUsageResponse {
 }
 

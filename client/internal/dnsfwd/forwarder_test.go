@@ -133,6 +133,41 @@ func (m *MockResolver) LookupNetIP(ctx context.Context, network, host string) ([
 	return args.Get(0).([]netip.Addr), args.Error(1)
 }
 
+func (m *MockResolver) LookupMX(ctx context.Context, name string) ([]*net.MX, error) {
+	args := m.Called(ctx, name)
+	recs, _ := args.Get(0).([]*net.MX)
+	return recs, args.Error(1)
+}
+
+func (m *MockResolver) LookupTXT(ctx context.Context, name string) ([]string, error) {
+	args := m.Called(ctx, name)
+	recs, _ := args.Get(0).([]string)
+	return recs, args.Error(1)
+}
+
+func (m *MockResolver) LookupNS(ctx context.Context, name string) ([]*net.NS, error) {
+	args := m.Called(ctx, name)
+	recs, _ := args.Get(0).([]*net.NS)
+	return recs, args.Error(1)
+}
+
+func (m *MockResolver) LookupSRV(ctx context.Context, service, proto, name string) (string, []*net.SRV, error) {
+	args := m.Called(ctx, service, proto, name)
+	recs, _ := args.Get(1).([]*net.SRV)
+	return args.String(0), recs, args.Error(2)
+}
+
+func (m *MockResolver) LookupCNAME(ctx context.Context, host string) (string, error) {
+	args := m.Called(ctx, host)
+	return args.String(0), args.Error(1)
+}
+
+func (m *MockResolver) LookupAddr(ctx context.Context, addr string) ([]string, error) {
+	args := m.Called(ctx, addr)
+	recs, _ := args.Get(0).([]string)
+	return recs, args.Error(1)
+}
+
 func TestDNSForwarder_SubdomainAccessLogic(t *testing.T) {
 	tests := []struct {
 		name             string
@@ -545,12 +580,15 @@ func TestDNSForwarder_MultipleIPsInSingleUpdate(t *testing.T) {
 }
 
 func TestDNSForwarder_ResponseCodes(t *testing.T) {
+	// A type with no net.Resolver Lookup method (CAA) must answer NODATA
+	// (NOERROR, empty) rather than NXDOMAIN/NOTIMP to avoid poisoning the name.
 	tests := []struct {
 		name         string
 		queryType    uint16
 		queryDomain  string
 		configured   string
 		expectedCode int
+		expectEDE    bool
 		description  string
 	}{
 		{
@@ -562,28 +600,13 @@ func TestDNSForwarder_ResponseCodes(t *testing.T) {
 			description:  "RFC compliant REFUSED for unauthorized queries",
 		},
 		{
-			name:         "unsupported query type returns NOTIMP",
-			queryType:    dns.TypeMX,
+			name:         "unsupported query type returns NODATA",
+			queryType:    dns.TypeCAA,
 			queryDomain:  "example.com",
 			configured:   "example.com",
-			expectedCode: dns.RcodeNotImplemented,
-			description:  "RFC compliant NOTIMP for unsupported types",
-		},
-		{
-			name:         "CNAME query returns NOTIMP",
-			queryType:    dns.TypeCNAME,
-			queryDomain:  "example.com",
-			configured:   "example.com",
-			expectedCode: dns.RcodeNotImplemented,
-			description:  "CNAME queries not supported",
-		},
-		{
-			name:         "TXT query returns NOTIMP",
-			queryType:    dns.TypeTXT,
-			queryDomain:  "example.com",
-			configured:   "example.com",
-			expectedCode: dns.RcodeNotImplemented,
-			description:  "TXT queries not supported",
+			expectedCode: dns.RcodeSuccess,
+			expectEDE:    true,
+			description:  "Unsupported types answer NODATA, not NXDOMAIN/NOTIMP",
 		},
 	}
 
@@ -599,6 +622,7 @@ func TestDNSForwarder_ResponseCodes(t *testing.T) {
 
 			query := &dns.Msg{}
 			query.SetQuestion(dns.Fqdn(tt.queryDomain), tt.queryType)
+			query.SetEdns0(dns.DefaultMsgSize, false)
 
 			// Capture the written response
 			var writtenResp *dns.Msg
@@ -614,8 +638,211 @@ func TestDNSForwarder_ResponseCodes(t *testing.T) {
 			// Check the response written to the writer
 			require.NotNil(t, writtenResp, "Expected response to be written")
 			assert.Equal(t, tt.expectedCode, writtenResp.Rcode, tt.description)
+			assert.Empty(t, writtenResp.Answer, "Non-address response should carry no answers")
+
+			if tt.expectEDE {
+				require.NotNil(t, writtenResp.IsEdns0(), "EDNS0 client should get an OPT in the reply")
+				assert.True(t, hasEDE(writtenResp, dns.ExtendedErrorCodeNotSupported),
+					"unsupported type NODATA should carry EDE Not Supported")
+			}
 		})
 	}
+}
+
+func hasEDE(m *dns.Msg, code uint16) bool {
+	opt := m.IsEdns0()
+	if opt == nil {
+		return false
+	}
+	for _, o := range opt.Option {
+		if ede, ok := o.(*dns.EDNS0_EDE); ok && ede.InfoCode == code {
+			return true
+		}
+	}
+	return false
+}
+
+func TestDNSForwarder_RecordQueries(t *testing.T) {
+	notFound := &net.DNSError{IsNotFound: true, Name: "example.com"}
+
+	t.Run("MX records are forwarded", func(t *testing.T) {
+		mockResolver := &MockResolver{}
+		forwarder := newRecordTestForwarder(t, mockResolver, "example.com")
+
+		mockResolver.On("LookupMX", mock.Anything, "example.com.").
+			Return([]*net.MX{{Host: "mail.example.com.", Pref: 10}}, nil).Once()
+
+		resp := runRecordQuery(t, forwarder, "example.com", dns.TypeMX)
+		require.Equal(t, dns.RcodeSuccess, resp.Rcode)
+		require.Len(t, resp.Answer, 1)
+		mx, ok := resp.Answer[0].(*dns.MX)
+		require.True(t, ok, "answer should be an MX record")
+		assert.Equal(t, uint16(10), mx.Preference)
+		assert.Equal(t, "mail.example.com.", mx.Mx)
+		mockResolver.AssertExpectations(t)
+	})
+
+	t.Run("missing MX is NODATA not NXDOMAIN", func(t *testing.T) {
+		mockResolver := &MockResolver{}
+		forwarder := newRecordTestForwarder(t, mockResolver, "example.com")
+
+		// A not-found cannot prove the name is absent (it may exist with only
+		// other record types), so it must answer NODATA, never NXDOMAIN.
+		mockResolver.On("LookupMX", mock.Anything, "example.com.").
+			Return(nil, notFound).Once()
+
+		resp := runRecordQuery(t, forwarder, "example.com", dns.TypeMX)
+		assert.Equal(t, dns.RcodeSuccess, resp.Rcode, "missing record must be NODATA")
+		assert.Empty(t, resp.Answer)
+		mockResolver.AssertExpectations(t)
+	})
+
+	t.Run("NS records are forwarded", func(t *testing.T) {
+		mockResolver := &MockResolver{}
+		forwarder := newRecordTestForwarder(t, mockResolver, "example.com")
+
+		mockResolver.On("LookupNS", mock.Anything, "example.com.").
+			Return([]*net.NS{{Host: "ns1.example.com."}}, nil).Once()
+
+		resp := runRecordQuery(t, forwarder, "example.com", dns.TypeNS)
+		require.Equal(t, dns.RcodeSuccess, resp.Rcode)
+		require.Len(t, resp.Answer, 1)
+		ns, ok := resp.Answer[0].(*dns.NS)
+		require.True(t, ok, "answer should be an NS record")
+		assert.Equal(t, "ns1.example.com.", ns.Ns)
+		mockResolver.AssertExpectations(t)
+	})
+
+	t.Run("missing NS is NODATA", func(t *testing.T) {
+		mockResolver := &MockResolver{}
+		forwarder := newRecordTestForwarder(t, mockResolver, "example.com")
+
+		mockResolver.On("LookupNS", mock.Anything, "example.com.").
+			Return(nil, notFound).Once()
+
+		resp := runRecordQuery(t, forwarder, "example.com", dns.TypeNS)
+		assert.Equal(t, dns.RcodeSuccess, resp.Rcode)
+		assert.Empty(t, resp.Answer)
+		mockResolver.AssertExpectations(t)
+	})
+
+	t.Run("SRV records are forwarded", func(t *testing.T) {
+		mockResolver := &MockResolver{}
+		forwarder := newRecordTestForwarder(t, mockResolver, "_sip._tcp.example.com")
+
+		mockResolver.On("LookupSRV", mock.Anything, "", "", "_sip._tcp.example.com.").
+			Return("", []*net.SRV{{Target: "sip.example.com.", Port: 5060, Priority: 10, Weight: 5}}, nil).Once()
+
+		resp := runRecordQuery(t, forwarder, "_sip._tcp.example.com", dns.TypeSRV)
+		require.Equal(t, dns.RcodeSuccess, resp.Rcode)
+		require.Len(t, resp.Answer, 1)
+		srv, ok := resp.Answer[0].(*dns.SRV)
+		require.True(t, ok, "answer should be an SRV record")
+		assert.Equal(t, "sip.example.com.", srv.Target)
+		assert.Equal(t, uint16(5060), srv.Port)
+		assert.Equal(t, uint16(10), srv.Priority)
+		mockResolver.AssertExpectations(t)
+	})
+
+	t.Run("missing SRV is NODATA", func(t *testing.T) {
+		mockResolver := &MockResolver{}
+		forwarder := newRecordTestForwarder(t, mockResolver, "_sip._tcp.example.com")
+
+		mockResolver.On("LookupSRV", mock.Anything, "", "", "_sip._tcp.example.com.").
+			Return("", nil, notFound).Once()
+
+		resp := runRecordQuery(t, forwarder, "_sip._tcp.example.com", dns.TypeSRV)
+		assert.Equal(t, dns.RcodeSuccess, resp.Rcode)
+		assert.Empty(t, resp.Answer)
+		mockResolver.AssertExpectations(t)
+	})
+
+	t.Run("TXT records are forwarded", func(t *testing.T) {
+		mockResolver := &MockResolver{}
+		forwarder := newRecordTestForwarder(t, mockResolver, "example.com")
+
+		mockResolver.On("LookupTXT", mock.Anything, "example.com.").
+			Return([]string{"v=spf1 -all"}, nil).Once()
+
+		resp := runRecordQuery(t, forwarder, "example.com", dns.TypeTXT)
+		require.Equal(t, dns.RcodeSuccess, resp.Rcode)
+		require.Len(t, resp.Answer, 1)
+		txt, ok := resp.Answer[0].(*dns.TXT)
+		require.True(t, ok, "answer should be a TXT record")
+		assert.Equal(t, []string{"v=spf1 -all"}, txt.Txt)
+		mockResolver.AssertExpectations(t)
+	})
+
+	t.Run("CNAME record is forwarded", func(t *testing.T) {
+		mockResolver := &MockResolver{}
+		forwarder := newRecordTestForwarder(t, mockResolver, "www.example.com")
+
+		mockResolver.On("LookupCNAME", mock.Anything, "www.example.com.").
+			Return("target.example.com.", nil).Once()
+
+		resp := runRecordQuery(t, forwarder, "www.example.com", dns.TypeCNAME)
+		require.Equal(t, dns.RcodeSuccess, resp.Rcode)
+		require.Len(t, resp.Answer, 1)
+		cname, ok := resp.Answer[0].(*dns.CNAME)
+		require.True(t, ok, "answer should be a CNAME record")
+		assert.Equal(t, "target.example.com.", cname.Target)
+		mockResolver.AssertExpectations(t)
+	})
+
+	t.Run("CNAME equal to the name is NODATA", func(t *testing.T) {
+		mockResolver := &MockResolver{}
+		forwarder := newRecordTestForwarder(t, mockResolver, "example.com")
+
+		// No CNAME exists: LookupCNAME echoes the queried name back.
+		mockResolver.On("LookupCNAME", mock.Anything, "example.com.").
+			Return("example.com.", nil).Once()
+
+		resp := runRecordQuery(t, forwarder, "example.com", dns.TypeCNAME)
+		assert.Equal(t, dns.RcodeSuccess, resp.Rcode)
+		assert.Empty(t, resp.Answer, "self-referential CNAME means no CNAME record")
+		mockResolver.AssertExpectations(t)
+	})
+
+	t.Run("PTR record is forwarded", func(t *testing.T) {
+		mockResolver := &MockResolver{}
+		forwarder := newRecordTestForwarder(t, mockResolver, "*.in-addr.arpa")
+
+		// The reverse name is parsed back to the address LookupAddr expects.
+		mockResolver.On("LookupAddr", mock.Anything, "1.2.3.4").
+			Return([]string{"host.example.com."}, nil).Once()
+
+		resp := runRecordQuery(t, forwarder, "4.3.2.1.in-addr.arpa", dns.TypePTR)
+		require.Equal(t, dns.RcodeSuccess, resp.Rcode)
+		require.Len(t, resp.Answer, 1)
+		ptr, ok := resp.Answer[0].(*dns.PTR)
+		require.True(t, ok, "answer should be a PTR record")
+		assert.Equal(t, "host.example.com.", ptr.Ptr)
+		mockResolver.AssertExpectations(t)
+	})
+}
+
+func newRecordTestForwarder(t *testing.T, r resolver, configured string) *DNSForwarder {
+	t.Helper()
+	forwarder := NewDNSForwarder(netip.MustParseAddrPort("127.0.0.1:0"), 300, nil, &peer.Status{}, nil)
+	forwarder.resolver = r
+
+	d, err := domain.FromString(configured)
+	require.NoError(t, err)
+	forwarder.UpdateDomains([]*ForwarderEntry{{Domain: d, ResID: "test-res"}})
+	return forwarder
+}
+
+func runRecordQuery(t *testing.T, forwarder *DNSForwarder, qname string, qtype uint16) *dns.Msg {
+	t.Helper()
+	query := &dns.Msg{}
+	query.SetQuestion(dns.Fqdn(qname), qtype)
+
+	mockWriter := &test.MockResponseWriter{}
+	forwarder.handleDNSQuery(log.NewEntry(log.StandardLogger()), mockWriter, query, time.Now())
+
+	resp := mockWriter.GetLastResponse()
+	require.NotNil(t, resp, "expected response to be written")
+	return resp
 }
 
 func TestDNSForwarder_UpstreamFailureEDE(t *testing.T) {

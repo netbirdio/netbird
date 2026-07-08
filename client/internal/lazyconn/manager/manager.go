@@ -130,8 +130,8 @@ func (m *Manager) Start(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case peerConnID := <-m.activityManager.OnActivityChan:
-			m.onPeerActivity(peerConnID)
+		case ev := <-m.activityManager.OnActivityChan:
+			m.onPeerActivity(ev)
 		case peerIDs := <-m.inactivityManager.InactivePeersChan():
 			m.onPeerInactivityTimedOut(peerIDs)
 		}
@@ -513,13 +513,13 @@ func (m *Manager) checkHaGroupActivity(haGroup route.HAUniqueID, peerID string, 
 	return false
 }
 
-func (m *Manager) onPeerActivity(peerConnID peerid.ConnID) {
+func (m *Manager) onPeerActivity(ev activity.Event) {
 	m.managedPeersMu.Lock()
 	defer m.managedPeersMu.Unlock()
 
-	mp, ok := m.managedPeersByConnID[peerConnID]
+	mp, ok := m.managedPeersByConnID[ev.PeerConnID]
 	if !ok {
-		log.Errorf("peer not found by conn id: %v", peerConnID)
+		log.Errorf("peer not found by conn id: %v", ev.PeerConnID)
 		return
 	}
 
@@ -536,7 +536,7 @@ func (m *Manager) onPeerActivity(peerConnID peerid.ConnID) {
 
 	m.activateHAGroupPeers(mp.peerCfg)
 
-	m.peerStore.PeerConnOpen(m.engineCtx, mp.peerCfg.PublicKey)
+	m.peerStore.PeerConnOpenWithFirstPacket(m.engineCtx, mp.peerCfg.PublicKey, ev.FirstPacket)
 }
 
 func (m *Manager) onPeerInactivityTimedOut(peerIDs map[string]struct{}) {

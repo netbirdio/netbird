@@ -27,7 +27,7 @@ type Logger struct {
 	wgIfaceNetV6       netip.Prefix
 	dnsCollection      atomic.Bool
 	exitNodeCollection atomic.Bool
-	Store              types.Store
+	Store              types.AggregatingStore
 }
 
 func New(statusRecorder *peer.Status, wgIfaceIPNet, wgIfaceIPNetV6 netip.Prefix) *Logger {
@@ -35,7 +35,7 @@ func New(statusRecorder *peer.Status, wgIfaceIPNet, wgIfaceIPNetV6 netip.Prefix)
 		statusRecorder: statusRecorder,
 		wgIfaceNet:     wgIfaceIPNet,
 		wgIfaceNetV6:   wgIfaceIPNetV6,
-		Store:          store.NewMemoryStore(),
+		Store:          store.NewAggregatingMemoryStore(),
 	}
 }
 
@@ -123,6 +123,10 @@ func (l *Logger) stop() {
 	}
 	l.rcvChan.Store(nil)
 	l.mux.Unlock()
+}
+
+func (l *Logger) ResetAggregationWindow() types.FlowEventAggregator {
+	return l.Store.ResetAggregationWindow()
 }
 
 func (l *Logger) GetEvents() []*types.Event {
