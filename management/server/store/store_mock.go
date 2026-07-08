@@ -13,18 +13,19 @@ import (
 
 	gomock "github.com/golang/mock/gomock"
 	dns "github.com/netbirdio/netbird/dns"
+	types "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	accesslogs "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	domain "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
 	proxy "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	service "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	zones "github.com/netbirdio/netbird/management/internals/modules/zones"
 	records "github.com/netbirdio/netbird/management/internals/modules/zones/records"
-	types "github.com/netbirdio/netbird/management/server/networks/resources/types"
-	types0 "github.com/netbirdio/netbird/management/server/networks/routers/types"
-	types1 "github.com/netbirdio/netbird/management/server/networks/types"
+	types0 "github.com/netbirdio/netbird/management/server/networks/resources/types"
+	types1 "github.com/netbirdio/netbird/management/server/networks/routers/types"
+	types2 "github.com/netbirdio/netbird/management/server/networks/types"
 	peer "github.com/netbirdio/netbird/management/server/peer"
 	posture "github.com/netbirdio/netbird/management/server/posture"
-	types2 "github.com/netbirdio/netbird/management/server/types"
+	types3 "github.com/netbirdio/netbird/management/server/types"
 	route "github.com/netbirdio/netbird/route"
 	crypt "github.com/netbirdio/netbird/util/crypt"
 )
@@ -124,7 +125,7 @@ func (mr *MockStoreMockRecorder) AddPeerToGroup(ctx, accountID, peerId, groupID 
 }
 
 // AddResourceToGroup mocks base method.
-func (m *MockStore) AddResourceToGroup(ctx context.Context, accountId, groupID string, resource *types2.Resource) error {
+func (m *MockStore) AddResourceToGroup(ctx context.Context, accountId, groupID string, resource *types3.Resource) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "AddResourceToGroup", ctx, accountId, groupID, resource)
 	ret0, _ := ret[0].(error)
@@ -135,6 +136,21 @@ func (m *MockStore) AddResourceToGroup(ctx context.Context, accountId, groupID s
 func (mr *MockStoreMockRecorder) AddResourceToGroup(ctx, accountId, groupID, resource interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddResourceToGroup", reflect.TypeOf((*MockStore)(nil).AddResourceToGroup), ctx, accountId, groupID, resource)
+}
+
+// AllocateAccountSeqID mocks base method.
+func (m *MockStore) AllocateAccountSeqID(ctx context.Context, accountID string, entity types3.AccountSeqEntity) (int32, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AllocateAccountSeqID", ctx, accountID, entity)
+	ret0, _ := ret[0].(int32)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AllocateAccountSeqID indicates an expected call of AllocateAccountSeqID.
+func (mr *MockStoreMockRecorder) AllocateAccountSeqID(ctx, accountID, entity interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AllocateAccountSeqID", reflect.TypeOf((*MockStore)(nil).AllocateAccountSeqID), ctx, accountID, entity)
 }
 
 // ApproveAccountPeers mocks base method.
@@ -181,7 +197,7 @@ func (mr *MockStoreMockRecorder) Close(ctx interface{}) *gomock.Call {
 }
 
 // CompletePeerJob mocks base method.
-func (m *MockStore) CompletePeerJob(ctx context.Context, job *types2.Job) error {
+func (m *MockStore) CompletePeerJob(ctx context.Context, job *types3.Job) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CompletePeerJob", ctx, job)
 	ret0, _ := ret[0].(error)
@@ -253,6 +269,34 @@ func (mr *MockStoreMockRecorder) CreateAccessLog(ctx, log interface{}) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateAccessLog", reflect.TypeOf((*MockStore)(nil).CreateAccessLog), ctx, log)
 }
 
+// CreateAgentNetworkAccessLog mocks base method.
+func (m *MockStore) CreateAgentNetworkAccessLog(ctx context.Context, entry *types.AgentNetworkAccessLog, groups []types.AgentNetworkAccessLogGroup) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateAgentNetworkAccessLog", ctx, entry, groups)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateAgentNetworkAccessLog indicates an expected call of CreateAgentNetworkAccessLog.
+func (mr *MockStoreMockRecorder) CreateAgentNetworkAccessLog(ctx, entry, groups interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateAgentNetworkAccessLog", reflect.TypeOf((*MockStore)(nil).CreateAgentNetworkAccessLog), ctx, entry, groups)
+}
+
+// CreateAgentNetworkUsage mocks base method.
+func (m *MockStore) CreateAgentNetworkUsage(ctx context.Context, usage *types.AgentNetworkUsage, groups []types.AgentNetworkUsageGroup) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateAgentNetworkUsage", ctx, usage, groups)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateAgentNetworkUsage indicates an expected call of CreateAgentNetworkUsage.
+func (mr *MockStoreMockRecorder) CreateAgentNetworkUsage(ctx, usage, groups interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateAgentNetworkUsage", reflect.TypeOf((*MockStore)(nil).CreateAgentNetworkUsage), ctx, usage, groups)
+}
+
 // CreateCustomDomain mocks base method.
 func (m *MockStore) CreateCustomDomain(ctx context.Context, accountID, domainName, targetCluster string, validated bool) (*domain.Domain, error) {
 	m.ctrl.T.Helper()
@@ -283,7 +327,7 @@ func (mr *MockStoreMockRecorder) CreateDNSRecord(ctx, record interface{}) *gomoc
 }
 
 // CreateGroup mocks base method.
-func (m *MockStore) CreateGroup(ctx context.Context, group *types2.Group) error {
+func (m *MockStore) CreateGroup(ctx context.Context, group *types3.Group) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateGroup", ctx, group)
 	ret0, _ := ret[0].(error)
@@ -297,7 +341,7 @@ func (mr *MockStoreMockRecorder) CreateGroup(ctx, group interface{}) *gomock.Cal
 }
 
 // CreateGroups mocks base method.
-func (m *MockStore) CreateGroups(ctx context.Context, accountID string, groups []*types2.Group) error {
+func (m *MockStore) CreateGroups(ctx context.Context, accountID string, groups []*types3.Group) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateGroups", ctx, accountID, groups)
 	ret0, _ := ret[0].(error)
@@ -311,7 +355,7 @@ func (mr *MockStoreMockRecorder) CreateGroups(ctx, accountID, groups interface{}
 }
 
 // CreateNetworkRouter mocks base method.
-func (m *MockStore) CreateNetworkRouter(ctx context.Context, router *types0.NetworkRouter) error {
+func (m *MockStore) CreateNetworkRouter(ctx context.Context, router *types1.NetworkRouter) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateNetworkRouter", ctx, router)
 	ret0, _ := ret[0].(error)
@@ -325,7 +369,7 @@ func (mr *MockStoreMockRecorder) CreateNetworkRouter(ctx, router interface{}) *g
 }
 
 // CreatePeerJob mocks base method.
-func (m *MockStore) CreatePeerJob(ctx context.Context, job *types2.Job) error {
+func (m *MockStore) CreatePeerJob(ctx context.Context, job *types3.Job) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreatePeerJob", ctx, job)
 	ret0, _ := ret[0].(error)
@@ -339,7 +383,7 @@ func (mr *MockStoreMockRecorder) CreatePeerJob(ctx, job interface{}) *gomock.Cal
 }
 
 // CreatePolicy mocks base method.
-func (m *MockStore) CreatePolicy(ctx context.Context, policy *types2.Policy) error {
+func (m *MockStore) CreatePolicy(ctx context.Context, policy *types3.Policy) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreatePolicy", ctx, policy)
 	ret0, _ := ret[0].(error)
@@ -381,7 +425,7 @@ func (mr *MockStoreMockRecorder) CreateZone(ctx, zone interface{}) *gomock.Call 
 }
 
 // DeleteAccount mocks base method.
-func (m *MockStore) DeleteAccount(ctx context.Context, account *types2.Account) error {
+func (m *MockStore) DeleteAccount(ctx context.Context, account *types3.Account) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DeleteAccount", ctx, account)
 	ret0, _ := ret[0].(error)
@@ -406,6 +450,62 @@ func (m *MockStore) DeleteAccountCluster(ctx context.Context, clusterAddress, ac
 func (mr *MockStoreMockRecorder) DeleteAccountCluster(ctx, clusterAddress, accountID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAccountCluster", reflect.TypeOf((*MockStore)(nil).DeleteAccountCluster), ctx, clusterAddress, accountID)
+}
+
+// DeleteAgentNetworkBudgetRule mocks base method.
+func (m *MockStore) DeleteAgentNetworkBudgetRule(ctx context.Context, accountID, ruleID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteAgentNetworkBudgetRule", ctx, accountID, ruleID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteAgentNetworkBudgetRule indicates an expected call of DeleteAgentNetworkBudgetRule.
+func (mr *MockStoreMockRecorder) DeleteAgentNetworkBudgetRule(ctx, accountID, ruleID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAgentNetworkBudgetRule", reflect.TypeOf((*MockStore)(nil).DeleteAgentNetworkBudgetRule), ctx, accountID, ruleID)
+}
+
+// DeleteAgentNetworkGuardrail mocks base method.
+func (m *MockStore) DeleteAgentNetworkGuardrail(ctx context.Context, accountID, guardrailID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteAgentNetworkGuardrail", ctx, accountID, guardrailID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteAgentNetworkGuardrail indicates an expected call of DeleteAgentNetworkGuardrail.
+func (mr *MockStoreMockRecorder) DeleteAgentNetworkGuardrail(ctx, accountID, guardrailID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAgentNetworkGuardrail", reflect.TypeOf((*MockStore)(nil).DeleteAgentNetworkGuardrail), ctx, accountID, guardrailID)
+}
+
+// DeleteAgentNetworkPolicy mocks base method.
+func (m *MockStore) DeleteAgentNetworkPolicy(ctx context.Context, accountID, policyID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteAgentNetworkPolicy", ctx, accountID, policyID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteAgentNetworkPolicy indicates an expected call of DeleteAgentNetworkPolicy.
+func (mr *MockStoreMockRecorder) DeleteAgentNetworkPolicy(ctx, accountID, policyID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAgentNetworkPolicy", reflect.TypeOf((*MockStore)(nil).DeleteAgentNetworkPolicy), ctx, accountID, policyID)
+}
+
+// DeleteAgentNetworkProvider mocks base method.
+func (m *MockStore) DeleteAgentNetworkProvider(ctx context.Context, accountID, providerID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteAgentNetworkProvider", ctx, accountID, providerID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteAgentNetworkProvider indicates an expected call of DeleteAgentNetworkProvider.
+func (mr *MockStoreMockRecorder) DeleteAgentNetworkProvider(ctx, accountID, providerID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAgentNetworkProvider", reflect.TypeOf((*MockStore)(nil).DeleteAgentNetworkProvider), ctx, accountID, providerID)
 }
 
 // DeleteCustomDomain mocks base method.
@@ -547,6 +647,21 @@ func (m *MockStore) DeleteOldAccessLogs(ctx context.Context, olderThan time.Time
 func (mr *MockStoreMockRecorder) DeleteOldAccessLogs(ctx, olderThan interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteOldAccessLogs", reflect.TypeOf((*MockStore)(nil).DeleteOldAccessLogs), ctx, olderThan)
+}
+
+// DeleteOldAgentNetworkAccessLogs mocks base method.
+func (m *MockStore) DeleteOldAgentNetworkAccessLogs(ctx context.Context, accountID string, olderThan time.Time) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteOldAgentNetworkAccessLogs", ctx, accountID, olderThan)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DeleteOldAgentNetworkAccessLogs indicates an expected call of DeleteOldAgentNetworkAccessLogs.
+func (mr *MockStoreMockRecorder) DeleteOldAgentNetworkAccessLogs(ctx, accountID, olderThan interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteOldAgentNetworkAccessLogs", reflect.TypeOf((*MockStore)(nil).DeleteOldAgentNetworkAccessLogs), ctx, accountID, olderThan)
 }
 
 // DeletePAT mocks base method.
@@ -774,21 +889,6 @@ func (mr *MockStoreMockRecorder) EphemeralServiceExists(ctx, lockStrength, accou
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EphemeralServiceExists", reflect.TypeOf((*MockStore)(nil).EphemeralServiceExists), ctx, lockStrength, accountID, peerID, domain)
 }
 
-// AllocateAccountSeqID mocks base method.
-func (m *MockStore) AllocateAccountSeqID(ctx context.Context, accountID string, entity types2.AccountSeqEntity) (uint32, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AllocateAccountSeqID", ctx, accountID, entity)
-	ret0, _ := ret[0].(uint32)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// AllocateAccountSeqID indicates an expected call of AllocateAccountSeqID.
-func (mr *MockStoreMockRecorder) AllocateAccountSeqID(ctx, accountID, entity interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AllocateAccountSeqID", reflect.TypeOf((*MockStore)(nil).AllocateAccountSeqID), ctx, accountID, entity)
-}
-
 // ExecuteInTransaction mocks base method.
 func (m *MockStore) ExecuteInTransaction(ctx context.Context, f func(Store) error) error {
 	m.ctrl.T.Helper()
@@ -804,10 +904,10 @@ func (mr *MockStoreMockRecorder) ExecuteInTransaction(ctx, f interface{}) *gomoc
 }
 
 // GetAccount mocks base method.
-func (m *MockStore) GetAccount(ctx context.Context, accountID string) (*types2.Account, error) {
+func (m *MockStore) GetAccount(ctx context.Context, accountID string) (*types3.Account, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetAccount", ctx, accountID)
-	ret0, _ := ret[0].(*types2.Account)
+	ret0, _ := ret[0].(*types3.Account)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -834,11 +934,71 @@ func (mr *MockStoreMockRecorder) GetAccountAccessLogs(ctx, lockStrength, account
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAccountAccessLogs", reflect.TypeOf((*MockStore)(nil).GetAccountAccessLogs), ctx, lockStrength, accountID, filter)
 }
 
+// GetAccountAgentNetworkBudgetRules mocks base method.
+func (m *MockStore) GetAccountAgentNetworkBudgetRules(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.AccountBudgetRule, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAccountAgentNetworkBudgetRules", ctx, lockStrength, accountID)
+	ret0, _ := ret[0].([]*types.AccountBudgetRule)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAccountAgentNetworkBudgetRules indicates an expected call of GetAccountAgentNetworkBudgetRules.
+func (mr *MockStoreMockRecorder) GetAccountAgentNetworkBudgetRules(ctx, lockStrength, accountID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAccountAgentNetworkBudgetRules", reflect.TypeOf((*MockStore)(nil).GetAccountAgentNetworkBudgetRules), ctx, lockStrength, accountID)
+}
+
+// GetAccountAgentNetworkGuardrails mocks base method.
+func (m *MockStore) GetAccountAgentNetworkGuardrails(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.Guardrail, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAccountAgentNetworkGuardrails", ctx, lockStrength, accountID)
+	ret0, _ := ret[0].([]*types.Guardrail)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAccountAgentNetworkGuardrails indicates an expected call of GetAccountAgentNetworkGuardrails.
+func (mr *MockStoreMockRecorder) GetAccountAgentNetworkGuardrails(ctx, lockStrength, accountID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAccountAgentNetworkGuardrails", reflect.TypeOf((*MockStore)(nil).GetAccountAgentNetworkGuardrails), ctx, lockStrength, accountID)
+}
+
+// GetAccountAgentNetworkPolicies mocks base method.
+func (m *MockStore) GetAccountAgentNetworkPolicies(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.Policy, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAccountAgentNetworkPolicies", ctx, lockStrength, accountID)
+	ret0, _ := ret[0].([]*types.Policy)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAccountAgentNetworkPolicies indicates an expected call of GetAccountAgentNetworkPolicies.
+func (mr *MockStoreMockRecorder) GetAccountAgentNetworkPolicies(ctx, lockStrength, accountID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAccountAgentNetworkPolicies", reflect.TypeOf((*MockStore)(nil).GetAccountAgentNetworkPolicies), ctx, lockStrength, accountID)
+}
+
+// GetAccountAgentNetworkProviders mocks base method.
+func (m *MockStore) GetAccountAgentNetworkProviders(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.Provider, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAccountAgentNetworkProviders", ctx, lockStrength, accountID)
+	ret0, _ := ret[0].([]*types.Provider)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAccountAgentNetworkProviders indicates an expected call of GetAccountAgentNetworkProviders.
+func (mr *MockStoreMockRecorder) GetAccountAgentNetworkProviders(ctx, lockStrength, accountID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAccountAgentNetworkProviders", reflect.TypeOf((*MockStore)(nil).GetAccountAgentNetworkProviders), ctx, lockStrength, accountID)
+}
+
 // GetAccountByPeerID mocks base method.
-func (m *MockStore) GetAccountByPeerID(ctx context.Context, peerID string) (*types2.Account, error) {
+func (m *MockStore) GetAccountByPeerID(ctx context.Context, peerID string) (*types3.Account, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetAccountByPeerID", ctx, peerID)
-	ret0, _ := ret[0].(*types2.Account)
+	ret0, _ := ret[0].(*types3.Account)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -850,10 +1010,10 @@ func (mr *MockStoreMockRecorder) GetAccountByPeerID(ctx, peerID interface{}) *go
 }
 
 // GetAccountByPeerPubKey mocks base method.
-func (m *MockStore) GetAccountByPeerPubKey(ctx context.Context, peerKey string) (*types2.Account, error) {
+func (m *MockStore) GetAccountByPeerPubKey(ctx context.Context, peerKey string) (*types3.Account, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetAccountByPeerPubKey", ctx, peerKey)
-	ret0, _ := ret[0].(*types2.Account)
+	ret0, _ := ret[0].(*types3.Account)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -865,10 +1025,10 @@ func (mr *MockStoreMockRecorder) GetAccountByPeerPubKey(ctx, peerKey interface{}
 }
 
 // GetAccountByPrivateDomain mocks base method.
-func (m *MockStore) GetAccountByPrivateDomain(ctx context.Context, domain string) (*types2.Account, error) {
+func (m *MockStore) GetAccountByPrivateDomain(ctx context.Context, domain string) (*types3.Account, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetAccountByPrivateDomain", ctx, domain)
-	ret0, _ := ret[0].(*types2.Account)
+	ret0, _ := ret[0].(*types3.Account)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -880,10 +1040,10 @@ func (mr *MockStoreMockRecorder) GetAccountByPrivateDomain(ctx, domain interface
 }
 
 // GetAccountBySetupKey mocks base method.
-func (m *MockStore) GetAccountBySetupKey(ctx context.Context, setupKey string) (*types2.Account, error) {
+func (m *MockStore) GetAccountBySetupKey(ctx context.Context, setupKey string) (*types3.Account, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetAccountBySetupKey", ctx, setupKey)
-	ret0, _ := ret[0].(*types2.Account)
+	ret0, _ := ret[0].(*types3.Account)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -895,10 +1055,10 @@ func (mr *MockStoreMockRecorder) GetAccountBySetupKey(ctx, setupKey interface{})
 }
 
 // GetAccountByUser mocks base method.
-func (m *MockStore) GetAccountByUser(ctx context.Context, userID string) (*types2.Account, error) {
+func (m *MockStore) GetAccountByUser(ctx context.Context, userID string) (*types3.Account, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetAccountByUser", ctx, userID)
-	ret0, _ := ret[0].(*types2.Account)
+	ret0, _ := ret[0].(*types3.Account)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -925,10 +1085,10 @@ func (mr *MockStoreMockRecorder) GetAccountCreatedBy(ctx, lockStrength, accountI
 }
 
 // GetAccountDNSSettings mocks base method.
-func (m *MockStore) GetAccountDNSSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*types2.DNSSettings, error) {
+func (m *MockStore) GetAccountDNSSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*types3.DNSSettings, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetAccountDNSSettings", ctx, lockStrength, accountID)
-	ret0, _ := ret[0].(*types2.DNSSettings)
+	ret0, _ := ret[0].(*types3.DNSSettings)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -971,10 +1131,10 @@ func (mr *MockStoreMockRecorder) GetAccountGroupPeers(ctx, lockStrength, account
 }
 
 // GetAccountGroups mocks base method.
-func (m *MockStore) GetAccountGroups(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types2.Group, error) {
+func (m *MockStore) GetAccountGroups(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types3.Group, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetAccountGroups", ctx, lockStrength, accountID)
-	ret0, _ := ret[0].([]*types2.Group)
+	ret0, _ := ret[0].([]*types3.Group)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1061,10 +1221,10 @@ func (mr *MockStoreMockRecorder) GetAccountIDByUserID(ctx, lockStrength, userID 
 }
 
 // GetAccountMeta mocks base method.
-func (m *MockStore) GetAccountMeta(ctx context.Context, lockStrength LockingStrength, accountID string) (*types2.AccountMeta, error) {
+func (m *MockStore) GetAccountMeta(ctx context.Context, lockStrength LockingStrength, accountID string) (*types3.AccountMeta, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetAccountMeta", ctx, lockStrength, accountID)
-	ret0, _ := ret[0].(*types2.AccountMeta)
+	ret0, _ := ret[0].(*types3.AccountMeta)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1091,10 +1251,10 @@ func (mr *MockStoreMockRecorder) GetAccountNameServerGroups(ctx, lockStrength, a
 }
 
 // GetAccountNetwork mocks base method.
-func (m *MockStore) GetAccountNetwork(ctx context.Context, lockStrength LockingStrength, accountId string) (*types2.Network, error) {
+func (m *MockStore) GetAccountNetwork(ctx context.Context, lockStrength LockingStrength, accountId string) (*types3.Network, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetAccountNetwork", ctx, lockStrength, accountId)
-	ret0, _ := ret[0].(*types2.Network)
+	ret0, _ := ret[0].(*types3.Network)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1106,10 +1266,10 @@ func (mr *MockStoreMockRecorder) GetAccountNetwork(ctx, lockStrength, accountId 
 }
 
 // GetAccountNetworks mocks base method.
-func (m *MockStore) GetAccountNetworks(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types1.Network, error) {
+func (m *MockStore) GetAccountNetworks(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types2.Network, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetAccountNetworks", ctx, lockStrength, accountID)
-	ret0, _ := ret[0].([]*types1.Network)
+	ret0, _ := ret[0].([]*types2.Network)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1121,10 +1281,10 @@ func (mr *MockStoreMockRecorder) GetAccountNetworks(ctx, lockStrength, accountID
 }
 
 // GetAccountOnboarding mocks base method.
-func (m *MockStore) GetAccountOnboarding(ctx context.Context, accountID string) (*types2.AccountOnboarding, error) {
+func (m *MockStore) GetAccountOnboarding(ctx context.Context, accountID string) (*types3.AccountOnboarding, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetAccountOnboarding", ctx, accountID)
-	ret0, _ := ret[0].(*types2.AccountOnboarding)
+	ret0, _ := ret[0].(*types3.AccountOnboarding)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1136,10 +1296,10 @@ func (mr *MockStoreMockRecorder) GetAccountOnboarding(ctx, accountID interface{}
 }
 
 // GetAccountOwner mocks base method.
-func (m *MockStore) GetAccountOwner(ctx context.Context, lockStrength LockingStrength, accountID string) (*types2.User, error) {
+func (m *MockStore) GetAccountOwner(ctx context.Context, lockStrength LockingStrength, accountID string) (*types3.User, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetAccountOwner", ctx, lockStrength, accountID)
-	ret0, _ := ret[0].(*types2.User)
+	ret0, _ := ret[0].(*types3.User)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1196,10 +1356,10 @@ func (mr *MockStoreMockRecorder) GetAccountPeersWithInactivity(ctx, lockStrength
 }
 
 // GetAccountPolicies mocks base method.
-func (m *MockStore) GetAccountPolicies(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types2.Policy, error) {
+func (m *MockStore) GetAccountPolicies(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types3.Policy, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetAccountPolicies", ctx, lockStrength, accountID)
-	ret0, _ := ret[0].([]*types2.Policy)
+	ret0, _ := ret[0].([]*types3.Policy)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1256,10 +1416,10 @@ func (mr *MockStoreMockRecorder) GetAccountServices(ctx, lockStrength, accountID
 }
 
 // GetAccountSettings mocks base method.
-func (m *MockStore) GetAccountSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*types2.Settings, error) {
+func (m *MockStore) GetAccountSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*types3.Settings, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetAccountSettings", ctx, lockStrength, accountID)
-	ret0, _ := ret[0].(*types2.Settings)
+	ret0, _ := ret[0].(*types3.Settings)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1271,10 +1431,10 @@ func (mr *MockStoreMockRecorder) GetAccountSettings(ctx, lockStrength, accountID
 }
 
 // GetAccountSetupKeys mocks base method.
-func (m *MockStore) GetAccountSetupKeys(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types2.SetupKey, error) {
+func (m *MockStore) GetAccountSetupKeys(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types3.SetupKey, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetAccountSetupKeys", ctx, lockStrength, accountID)
-	ret0, _ := ret[0].([]*types2.SetupKey)
+	ret0, _ := ret[0].([]*types3.SetupKey)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1286,10 +1446,10 @@ func (mr *MockStoreMockRecorder) GetAccountSetupKeys(ctx, lockStrength, accountI
 }
 
 // GetAccountUserInvites mocks base method.
-func (m *MockStore) GetAccountUserInvites(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types2.UserInviteRecord, error) {
+func (m *MockStore) GetAccountUserInvites(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types3.UserInviteRecord, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetAccountUserInvites", ctx, lockStrength, accountID)
-	ret0, _ := ret[0].([]*types2.UserInviteRecord)
+	ret0, _ := ret[0].([]*types3.UserInviteRecord)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1301,10 +1461,10 @@ func (mr *MockStoreMockRecorder) GetAccountUserInvites(ctx, lockStrength, accoun
 }
 
 // GetAccountUsers mocks base method.
-func (m *MockStore) GetAccountUsers(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types2.User, error) {
+func (m *MockStore) GetAccountUsers(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types3.User, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetAccountUsers", ctx, lockStrength, accountID)
-	ret0, _ := ret[0].([]*types2.User)
+	ret0, _ := ret[0].([]*types3.User)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1375,11 +1535,193 @@ func (mr *MockStoreMockRecorder) GetActiveProxyClusterAddressesForAccount(ctx, a
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetActiveProxyClusterAddressesForAccount", reflect.TypeOf((*MockStore)(nil).GetActiveProxyClusterAddressesForAccount), ctx, accountID)
 }
 
+// GetAgentNetworkAccessLogSessions mocks base method.
+func (m *MockStore) GetAgentNetworkAccessLogSessions(ctx context.Context, lockStrength LockingStrength, accountID string, filter types.AgentNetworkAccessLogFilter) ([]*types.AgentNetworkAccessLogSession, int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAgentNetworkAccessLogSessions", ctx, lockStrength, accountID, filter)
+	ret0, _ := ret[0].([]*types.AgentNetworkAccessLogSession)
+	ret1, _ := ret[1].(int64)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// GetAgentNetworkAccessLogSessions indicates an expected call of GetAgentNetworkAccessLogSessions.
+func (mr *MockStoreMockRecorder) GetAgentNetworkAccessLogSessions(ctx, lockStrength, accountID, filter interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAgentNetworkAccessLogSessions", reflect.TypeOf((*MockStore)(nil).GetAgentNetworkAccessLogSessions), ctx, lockStrength, accountID, filter)
+}
+
+// GetAgentNetworkAccessLogs mocks base method.
+func (m *MockStore) GetAgentNetworkAccessLogs(ctx context.Context, lockStrength LockingStrength, accountID string, filter types.AgentNetworkAccessLogFilter) ([]*types.AgentNetworkAccessLog, int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAgentNetworkAccessLogs", ctx, lockStrength, accountID, filter)
+	ret0, _ := ret[0].([]*types.AgentNetworkAccessLog)
+	ret1, _ := ret[1].(int64)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// GetAgentNetworkAccessLogs indicates an expected call of GetAgentNetworkAccessLogs.
+func (mr *MockStoreMockRecorder) GetAgentNetworkAccessLogs(ctx, lockStrength, accountID, filter interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAgentNetworkAccessLogs", reflect.TypeOf((*MockStore)(nil).GetAgentNetworkAccessLogs), ctx, lockStrength, accountID, filter)
+}
+
+// GetAgentNetworkBudgetRuleByID mocks base method.
+func (m *MockStore) GetAgentNetworkBudgetRuleByID(ctx context.Context, lockStrength LockingStrength, accountID, ruleID string) (*types.AccountBudgetRule, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAgentNetworkBudgetRuleByID", ctx, lockStrength, accountID, ruleID)
+	ret0, _ := ret[0].(*types.AccountBudgetRule)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAgentNetworkBudgetRuleByID indicates an expected call of GetAgentNetworkBudgetRuleByID.
+func (mr *MockStoreMockRecorder) GetAgentNetworkBudgetRuleByID(ctx, lockStrength, accountID, ruleID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAgentNetworkBudgetRuleByID", reflect.TypeOf((*MockStore)(nil).GetAgentNetworkBudgetRuleByID), ctx, lockStrength, accountID, ruleID)
+}
+
+// GetAgentNetworkConsumption mocks base method.
+func (m *MockStore) GetAgentNetworkConsumption(ctx context.Context, lockStrength LockingStrength, accountID string, kind types.ConsumptionDimension, dimID string, windowSeconds int64, windowStart time.Time) (*types.Consumption, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAgentNetworkConsumption", ctx, lockStrength, accountID, kind, dimID, windowSeconds, windowStart)
+	ret0, _ := ret[0].(*types.Consumption)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAgentNetworkConsumption indicates an expected call of GetAgentNetworkConsumption.
+func (mr *MockStoreMockRecorder) GetAgentNetworkConsumption(ctx, lockStrength, accountID, kind, dimID, windowSeconds, windowStart interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAgentNetworkConsumption", reflect.TypeOf((*MockStore)(nil).GetAgentNetworkConsumption), ctx, lockStrength, accountID, kind, dimID, windowSeconds, windowStart)
+}
+
+// GetAgentNetworkConsumptionBatch mocks base method.
+func (m *MockStore) GetAgentNetworkConsumptionBatch(ctx context.Context, lockStrength LockingStrength, accountID string, keys []types.ConsumptionKey) (map[types.ConsumptionKey]*types.Consumption, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAgentNetworkConsumptionBatch", ctx, lockStrength, accountID, keys)
+	ret0, _ := ret[0].(map[types.ConsumptionKey]*types.Consumption)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAgentNetworkConsumptionBatch indicates an expected call of GetAgentNetworkConsumptionBatch.
+func (mr *MockStoreMockRecorder) GetAgentNetworkConsumptionBatch(ctx, lockStrength, accountID, keys interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAgentNetworkConsumptionBatch", reflect.TypeOf((*MockStore)(nil).GetAgentNetworkConsumptionBatch), ctx, lockStrength, accountID, keys)
+}
+
+// GetAgentNetworkGuardrailByID mocks base method.
+func (m *MockStore) GetAgentNetworkGuardrailByID(ctx context.Context, lockStrength LockingStrength, accountID, guardrailID string) (*types.Guardrail, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAgentNetworkGuardrailByID", ctx, lockStrength, accountID, guardrailID)
+	ret0, _ := ret[0].(*types.Guardrail)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAgentNetworkGuardrailByID indicates an expected call of GetAgentNetworkGuardrailByID.
+func (mr *MockStoreMockRecorder) GetAgentNetworkGuardrailByID(ctx, lockStrength, accountID, guardrailID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAgentNetworkGuardrailByID", reflect.TypeOf((*MockStore)(nil).GetAgentNetworkGuardrailByID), ctx, lockStrength, accountID, guardrailID)
+}
+
+// GetAgentNetworkMetrics mocks base method.
+func (m *MockStore) GetAgentNetworkMetrics(ctx context.Context) (AgentNetworkMetrics, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAgentNetworkMetrics", ctx)
+	ret0, _ := ret[0].(AgentNetworkMetrics)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAgentNetworkMetrics indicates an expected call of GetAgentNetworkMetrics.
+func (mr *MockStoreMockRecorder) GetAgentNetworkMetrics(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAgentNetworkMetrics", reflect.TypeOf((*MockStore)(nil).GetAgentNetworkMetrics), ctx)
+}
+
+// GetAgentNetworkPolicyByID mocks base method.
+func (m *MockStore) GetAgentNetworkPolicyByID(ctx context.Context, lockStrength LockingStrength, accountID, policyID string) (*types.Policy, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAgentNetworkPolicyByID", ctx, lockStrength, accountID, policyID)
+	ret0, _ := ret[0].(*types.Policy)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAgentNetworkPolicyByID indicates an expected call of GetAgentNetworkPolicyByID.
+func (mr *MockStoreMockRecorder) GetAgentNetworkPolicyByID(ctx, lockStrength, accountID, policyID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAgentNetworkPolicyByID", reflect.TypeOf((*MockStore)(nil).GetAgentNetworkPolicyByID), ctx, lockStrength, accountID, policyID)
+}
+
+// GetAgentNetworkProviderByID mocks base method.
+func (m *MockStore) GetAgentNetworkProviderByID(ctx context.Context, lockStrength LockingStrength, accountID, providerID string) (*types.Provider, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAgentNetworkProviderByID", ctx, lockStrength, accountID, providerID)
+	ret0, _ := ret[0].(*types.Provider)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAgentNetworkProviderByID indicates an expected call of GetAgentNetworkProviderByID.
+func (mr *MockStoreMockRecorder) GetAgentNetworkProviderByID(ctx, lockStrength, accountID, providerID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAgentNetworkProviderByID", reflect.TypeOf((*MockStore)(nil).GetAgentNetworkProviderByID), ctx, lockStrength, accountID, providerID)
+}
+
+// GetAgentNetworkSettings mocks base method.
+func (m *MockStore) GetAgentNetworkSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*types.Settings, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAgentNetworkSettings", ctx, lockStrength, accountID)
+	ret0, _ := ret[0].(*types.Settings)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAgentNetworkSettings indicates an expected call of GetAgentNetworkSettings.
+func (mr *MockStoreMockRecorder) GetAgentNetworkSettings(ctx, lockStrength, accountID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAgentNetworkSettings", reflect.TypeOf((*MockStore)(nil).GetAgentNetworkSettings), ctx, lockStrength, accountID)
+}
+
+// GetAgentNetworkSettingsByCluster mocks base method.
+func (m *MockStore) GetAgentNetworkSettingsByCluster(ctx context.Context, lockStrength LockingStrength, cluster string) ([]*types.Settings, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAgentNetworkSettingsByCluster", ctx, lockStrength, cluster)
+	ret0, _ := ret[0].([]*types.Settings)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAgentNetworkSettingsByCluster indicates an expected call of GetAgentNetworkSettingsByCluster.
+func (mr *MockStoreMockRecorder) GetAgentNetworkSettingsByCluster(ctx, lockStrength, cluster interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAgentNetworkSettingsByCluster", reflect.TypeOf((*MockStore)(nil).GetAgentNetworkSettingsByCluster), ctx, lockStrength, cluster)
+}
+
+// GetAgentNetworkUsageRows mocks base method.
+func (m *MockStore) GetAgentNetworkUsageRows(ctx context.Context, lockStrength LockingStrength, accountID string, filter types.AgentNetworkAccessLogFilter) ([]*types.AgentNetworkUsage, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAgentNetworkUsageRows", ctx, lockStrength, accountID, filter)
+	ret0, _ := ret[0].([]*types.AgentNetworkUsage)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAgentNetworkUsageRows indicates an expected call of GetAgentNetworkUsageRows.
+func (mr *MockStoreMockRecorder) GetAgentNetworkUsageRows(ctx, lockStrength, accountID, filter interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAgentNetworkUsageRows", reflect.TypeOf((*MockStore)(nil).GetAgentNetworkUsageRows), ctx, lockStrength, accountID, filter)
+}
+
 // GetAllAccounts mocks base method.
-func (m *MockStore) GetAllAccounts(ctx context.Context) []*types2.Account {
+func (m *MockStore) GetAllAccounts(ctx context.Context) []*types3.Account {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetAllAccounts", ctx)
-	ret0, _ := ret[0].([]*types2.Account)
+	ret0, _ := ret[0].([]*types3.Account)
 	return ret0
 }
 
@@ -1387,6 +1729,36 @@ func (m *MockStore) GetAllAccounts(ctx context.Context) []*types2.Account {
 func (mr *MockStoreMockRecorder) GetAllAccounts(ctx interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllAccounts", reflect.TypeOf((*MockStore)(nil).GetAllAccounts), ctx)
+}
+
+// GetAllAgentNetworkProviders mocks base method.
+func (m *MockStore) GetAllAgentNetworkProviders(ctx context.Context, lockStrength LockingStrength) ([]*types.Provider, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAllAgentNetworkProviders", ctx, lockStrength)
+	ret0, _ := ret[0].([]*types.Provider)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAllAgentNetworkProviders indicates an expected call of GetAllAgentNetworkProviders.
+func (mr *MockStoreMockRecorder) GetAllAgentNetworkProviders(ctx, lockStrength interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllAgentNetworkProviders", reflect.TypeOf((*MockStore)(nil).GetAllAgentNetworkProviders), ctx, lockStrength)
+}
+
+// GetAllAgentNetworkSettings mocks base method.
+func (m *MockStore) GetAllAgentNetworkSettings(ctx context.Context, lockStrength LockingStrength) ([]*types.Settings, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAllAgentNetworkSettings", ctx, lockStrength)
+	ret0, _ := ret[0].([]*types.Settings)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAllAgentNetworkSettings indicates an expected call of GetAllAgentNetworkSettings.
+func (mr *MockStoreMockRecorder) GetAllAgentNetworkSettings(ctx, lockStrength interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllAgentNetworkSettings", reflect.TypeOf((*MockStore)(nil).GetAllAgentNetworkSettings), ctx, lockStrength)
 }
 
 // GetAllEphemeralPeers mocks base method.
@@ -1405,10 +1777,10 @@ func (mr *MockStoreMockRecorder) GetAllEphemeralPeers(ctx, lockStrength interfac
 }
 
 // GetAllProxyAccessTokens mocks base method.
-func (m *MockStore) GetAllProxyAccessTokens(ctx context.Context, lockStrength LockingStrength) ([]*types2.ProxyAccessToken, error) {
+func (m *MockStore) GetAllProxyAccessTokens(ctx context.Context, lockStrength LockingStrength) ([]*types3.ProxyAccessToken, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetAllProxyAccessTokens", ctx, lockStrength)
-	ret0, _ := ret[0].([]*types2.ProxyAccessToken)
+	ret0, _ := ret[0].([]*types3.ProxyAccessToken)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1536,6 +1908,21 @@ func (mr *MockStoreMockRecorder) GetDNSRecordByID(ctx, lockStrength, accountID, 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDNSRecordByID", reflect.TypeOf((*MockStore)(nil).GetDNSRecordByID), ctx, lockStrength, accountID, zoneID, recordID)
 }
 
+// GetEmbeddedProxyPeerIDsByCluster mocks base method.
+func (m *MockStore) GetEmbeddedProxyPeerIDsByCluster(ctx context.Context, accountID string) (map[string][]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetEmbeddedProxyPeerIDsByCluster", ctx, accountID)
+	ret0, _ := ret[0].(map[string][]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetEmbeddedProxyPeerIDsByCluster indicates an expected call of GetEmbeddedProxyPeerIDsByCluster.
+func (mr *MockStoreMockRecorder) GetEmbeddedProxyPeerIDsByCluster(ctx, accountID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEmbeddedProxyPeerIDsByCluster", reflect.TypeOf((*MockStore)(nil).GetEmbeddedProxyPeerIDsByCluster), ctx, accountID)
+}
+
 // GetExpiredEphemeralServices mocks base method.
 func (m *MockStore) GetExpiredEphemeralServices(ctx context.Context, ttl time.Duration, limit int) ([]*service.Service, error) {
 	m.ctrl.T.Helper()
@@ -1552,10 +1939,10 @@ func (mr *MockStoreMockRecorder) GetExpiredEphemeralServices(ctx, ttl, limit int
 }
 
 // GetGroupByID mocks base method.
-func (m *MockStore) GetGroupByID(ctx context.Context, lockStrength LockingStrength, accountID, groupID string) (*types2.Group, error) {
+func (m *MockStore) GetGroupByID(ctx context.Context, lockStrength LockingStrength, accountID, groupID string) (*types3.Group, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetGroupByID", ctx, lockStrength, accountID, groupID)
-	ret0, _ := ret[0].(*types2.Group)
+	ret0, _ := ret[0].(*types3.Group)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1567,10 +1954,10 @@ func (mr *MockStoreMockRecorder) GetGroupByID(ctx, lockStrength, accountID, grou
 }
 
 // GetGroupByName mocks base method.
-func (m *MockStore) GetGroupByName(ctx context.Context, lockStrength LockingStrength, accountID, groupName string) (*types2.Group, error) {
+func (m *MockStore) GetGroupByName(ctx context.Context, lockStrength LockingStrength, accountID, groupName string) (*types3.Group, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetGroupByName", ctx, lockStrength, accountID, groupName)
-	ret0, _ := ret[0].(*types2.Group)
+	ret0, _ := ret[0].(*types3.Group)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1581,11 +1968,26 @@ func (mr *MockStoreMockRecorder) GetGroupByName(ctx, lockStrength, accountID, gr
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGroupByName", reflect.TypeOf((*MockStore)(nil).GetGroupByName), ctx, lockStrength, accountID, groupName)
 }
 
+// GetGroupIDsByPeerIDs mocks base method.
+func (m *MockStore) GetGroupIDsByPeerIDs(ctx context.Context, accountID string, peerIDs []string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetGroupIDsByPeerIDs", ctx, accountID, peerIDs)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetGroupIDsByPeerIDs indicates an expected call of GetGroupIDsByPeerIDs.
+func (mr *MockStoreMockRecorder) GetGroupIDsByPeerIDs(ctx, accountID, peerIDs interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGroupIDsByPeerIDs", reflect.TypeOf((*MockStore)(nil).GetGroupIDsByPeerIDs), ctx, accountID, peerIDs)
+}
+
 // GetGroupsByIDs mocks base method.
-func (m *MockStore) GetGroupsByIDs(ctx context.Context, lockStrength LockingStrength, accountID string, groupIDs []string) (map[string]*types2.Group, error) {
+func (m *MockStore) GetGroupsByIDs(ctx context.Context, lockStrength LockingStrength, accountID string, groupIDs []string) (map[string]*types3.Group, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetGroupsByIDs", ctx, lockStrength, accountID, groupIDs)
-	ret0, _ := ret[0].(map[string]*types2.Group)
+	ret0, _ := ret[0].(map[string]*types3.Group)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1626,10 +2028,10 @@ func (mr *MockStoreMockRecorder) GetNameServerGroupByID(ctx, lockStrength, nameS
 }
 
 // GetNetworkByID mocks base method.
-func (m *MockStore) GetNetworkByID(ctx context.Context, lockStrength LockingStrength, accountID, networkID string) (*types1.Network, error) {
+func (m *MockStore) GetNetworkByID(ctx context.Context, lockStrength LockingStrength, accountID, networkID string) (*types2.Network, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetNetworkByID", ctx, lockStrength, accountID, networkID)
-	ret0, _ := ret[0].(*types1.Network)
+	ret0, _ := ret[0].(*types2.Network)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1641,10 +2043,10 @@ func (mr *MockStoreMockRecorder) GetNetworkByID(ctx, lockStrength, accountID, ne
 }
 
 // GetNetworkResourceByID mocks base method.
-func (m *MockStore) GetNetworkResourceByID(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) (*types.NetworkResource, error) {
+func (m *MockStore) GetNetworkResourceByID(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) (*types0.NetworkResource, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetNetworkResourceByID", ctx, lockStrength, accountID, resourceID)
-	ret0, _ := ret[0].(*types.NetworkResource)
+	ret0, _ := ret[0].(*types0.NetworkResource)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1656,10 +2058,10 @@ func (mr *MockStoreMockRecorder) GetNetworkResourceByID(ctx, lockStrength, accou
 }
 
 // GetNetworkResourceByName mocks base method.
-func (m *MockStore) GetNetworkResourceByName(ctx context.Context, lockStrength LockingStrength, accountID, resourceName string) (*types.NetworkResource, error) {
+func (m *MockStore) GetNetworkResourceByName(ctx context.Context, lockStrength LockingStrength, accountID, resourceName string) (*types0.NetworkResource, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetNetworkResourceByName", ctx, lockStrength, accountID, resourceName)
-	ret0, _ := ret[0].(*types.NetworkResource)
+	ret0, _ := ret[0].(*types0.NetworkResource)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1671,10 +2073,10 @@ func (mr *MockStoreMockRecorder) GetNetworkResourceByName(ctx, lockStrength, acc
 }
 
 // GetNetworkResourcesByAccountID mocks base method.
-func (m *MockStore) GetNetworkResourcesByAccountID(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.NetworkResource, error) {
+func (m *MockStore) GetNetworkResourcesByAccountID(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types0.NetworkResource, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetNetworkResourcesByAccountID", ctx, lockStrength, accountID)
-	ret0, _ := ret[0].([]*types.NetworkResource)
+	ret0, _ := ret[0].([]*types0.NetworkResource)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1686,10 +2088,10 @@ func (mr *MockStoreMockRecorder) GetNetworkResourcesByAccountID(ctx, lockStrengt
 }
 
 // GetNetworkResourcesByNetID mocks base method.
-func (m *MockStore) GetNetworkResourcesByNetID(ctx context.Context, lockStrength LockingStrength, accountID, netID string) ([]*types.NetworkResource, error) {
+func (m *MockStore) GetNetworkResourcesByNetID(ctx context.Context, lockStrength LockingStrength, accountID, netID string) ([]*types0.NetworkResource, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetNetworkResourcesByNetID", ctx, lockStrength, accountID, netID)
-	ret0, _ := ret[0].([]*types.NetworkResource)
+	ret0, _ := ret[0].([]*types0.NetworkResource)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1701,10 +2103,10 @@ func (mr *MockStoreMockRecorder) GetNetworkResourcesByNetID(ctx, lockStrength, a
 }
 
 // GetNetworkRouterByID mocks base method.
-func (m *MockStore) GetNetworkRouterByID(ctx context.Context, lockStrength LockingStrength, accountID, routerID string) (*types0.NetworkRouter, error) {
+func (m *MockStore) GetNetworkRouterByID(ctx context.Context, lockStrength LockingStrength, accountID, routerID string) (*types1.NetworkRouter, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetNetworkRouterByID", ctx, lockStrength, accountID, routerID)
-	ret0, _ := ret[0].(*types0.NetworkRouter)
+	ret0, _ := ret[0].(*types1.NetworkRouter)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1716,10 +2118,10 @@ func (mr *MockStoreMockRecorder) GetNetworkRouterByID(ctx, lockStrength, account
 }
 
 // GetNetworkRoutersByAccountID mocks base method.
-func (m *MockStore) GetNetworkRoutersByAccountID(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types0.NetworkRouter, error) {
+func (m *MockStore) GetNetworkRoutersByAccountID(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types1.NetworkRouter, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetNetworkRoutersByAccountID", ctx, lockStrength, accountID)
-	ret0, _ := ret[0].([]*types0.NetworkRouter)
+	ret0, _ := ret[0].([]*types1.NetworkRouter)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1731,10 +2133,10 @@ func (mr *MockStoreMockRecorder) GetNetworkRoutersByAccountID(ctx, lockStrength,
 }
 
 // GetNetworkRoutersByNetID mocks base method.
-func (m *MockStore) GetNetworkRoutersByNetID(ctx context.Context, lockStrength LockingStrength, accountID, netID string) ([]*types0.NetworkRouter, error) {
+func (m *MockStore) GetNetworkRoutersByNetID(ctx context.Context, lockStrength LockingStrength, accountID, netID string) ([]*types1.NetworkRouter, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetNetworkRoutersByNetID", ctx, lockStrength, accountID, netID)
-	ret0, _ := ret[0].([]*types0.NetworkRouter)
+	ret0, _ := ret[0].([]*types1.NetworkRouter)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1746,10 +2148,10 @@ func (mr *MockStoreMockRecorder) GetNetworkRoutersByNetID(ctx, lockStrength, acc
 }
 
 // GetPATByHashedToken mocks base method.
-func (m *MockStore) GetPATByHashedToken(ctx context.Context, lockStrength LockingStrength, hashedToken string) (*types2.PersonalAccessToken, error) {
+func (m *MockStore) GetPATByHashedToken(ctx context.Context, lockStrength LockingStrength, hashedToken string) (*types3.PersonalAccessToken, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetPATByHashedToken", ctx, lockStrength, hashedToken)
-	ret0, _ := ret[0].(*types2.PersonalAccessToken)
+	ret0, _ := ret[0].(*types3.PersonalAccessToken)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1761,10 +2163,10 @@ func (mr *MockStoreMockRecorder) GetPATByHashedToken(ctx, lockStrength, hashedTo
 }
 
 // GetPATByID mocks base method.
-func (m *MockStore) GetPATByID(ctx context.Context, lockStrength LockingStrength, userID, patID string) (*types2.PersonalAccessToken, error) {
+func (m *MockStore) GetPATByID(ctx context.Context, lockStrength LockingStrength, userID, patID string) (*types3.PersonalAccessToken, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetPATByID", ctx, lockStrength, userID, patID)
-	ret0, _ := ret[0].(*types2.PersonalAccessToken)
+	ret0, _ := ret[0].(*types3.PersonalAccessToken)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1836,10 +2238,10 @@ func (mr *MockStoreMockRecorder) GetPeerGroupIDs(ctx, lockStrength, accountId, p
 }
 
 // GetPeerGroups mocks base method.
-func (m *MockStore) GetPeerGroups(ctx context.Context, lockStrength LockingStrength, accountId, peerId string) ([]*types2.Group, error) {
+func (m *MockStore) GetPeerGroups(ctx context.Context, lockStrength LockingStrength, accountId, peerId string) ([]*types3.Group, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetPeerGroups", ctx, lockStrength, accountId, peerId)
-	ret0, _ := ret[0].([]*types2.Group)
+	ret0, _ := ret[0].([]*types3.Group)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1865,6 +2267,21 @@ func (mr *MockStoreMockRecorder) GetPeerIDByKey(ctx, lockStrength, key interface
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPeerIDByKey", reflect.TypeOf((*MockStore)(nil).GetPeerIDByKey), ctx, lockStrength, key)
 }
 
+// GetPeerIDsByGroups mocks base method.
+func (m *MockStore) GetPeerIDsByGroups(ctx context.Context, accountID string, groupIDs []string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPeerIDsByGroups", ctx, accountID, groupIDs)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPeerIDsByGroups indicates an expected call of GetPeerIDsByGroups.
+func (mr *MockStoreMockRecorder) GetPeerIDsByGroups(ctx, accountID, groupIDs interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPeerIDsByGroups", reflect.TypeOf((*MockStore)(nil).GetPeerIDsByGroups), ctx, accountID, groupIDs)
+}
+
 // GetPeerIdByLabel mocks base method.
 func (m *MockStore) GetPeerIdByLabel(ctx context.Context, lockStrength LockingStrength, accountID, hostname string) (string, error) {
 	m.ctrl.T.Helper()
@@ -1881,10 +2298,10 @@ func (mr *MockStoreMockRecorder) GetPeerIdByLabel(ctx, lockStrength, accountID, 
 }
 
 // GetPeerJobByID mocks base method.
-func (m *MockStore) GetPeerJobByID(ctx context.Context, accountID, jobID string) (*types2.Job, error) {
+func (m *MockStore) GetPeerJobByID(ctx context.Context, accountID, jobID string) (*types3.Job, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetPeerJobByID", ctx, accountID, jobID)
-	ret0, _ := ret[0].(*types2.Job)
+	ret0, _ := ret[0].(*types3.Job)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1896,10 +2313,10 @@ func (mr *MockStoreMockRecorder) GetPeerJobByID(ctx, accountID, jobID interface{
 }
 
 // GetPeerJobs mocks base method.
-func (m *MockStore) GetPeerJobs(ctx context.Context, accountID, peerID string) ([]*types2.Job, error) {
+func (m *MockStore) GetPeerJobs(ctx context.Context, accountID, peerID string) ([]*types3.Job, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetPeerJobs", ctx, accountID, peerID)
-	ret0, _ := ret[0].([]*types2.Job)
+	ret0, _ := ret[0].([]*types3.Job)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1940,51 +2357,6 @@ func (mr *MockStoreMockRecorder) GetPeersByGroupIDs(ctx, accountID, groupIDs int
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPeersByGroupIDs", reflect.TypeOf((*MockStore)(nil).GetPeersByGroupIDs), ctx, accountID, groupIDs)
 }
 
-// GetPeerIDsByGroups mocks base method.
-func (m *MockStore) GetPeerIDsByGroups(ctx context.Context, accountID string, groupIDs []string) ([]string, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetPeerIDsByGroups", ctx, accountID, groupIDs)
-	ret0, _ := ret[0].([]string)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetPeerIDsByGroups indicates an expected call of GetPeerIDsByGroups.
-func (mr *MockStoreMockRecorder) GetPeerIDsByGroups(ctx, accountID, groupIDs interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPeerIDsByGroups", reflect.TypeOf((*MockStore)(nil).GetPeerIDsByGroups), ctx, accountID, groupIDs)
-}
-
-// GetGroupIDsByPeerIDs mocks base method.
-func (m *MockStore) GetGroupIDsByPeerIDs(ctx context.Context, accountID string, peerIDs []string) ([]string, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetGroupIDsByPeerIDs", ctx, accountID, peerIDs)
-	ret0, _ := ret[0].([]string)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetGroupIDsByPeerIDs indicates an expected call of GetGroupIDsByPeerIDs.
-func (mr *MockStoreMockRecorder) GetGroupIDsByPeerIDs(ctx, accountID, peerIDs interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGroupIDsByPeerIDs", reflect.TypeOf((*MockStore)(nil).GetGroupIDsByPeerIDs), ctx, accountID, peerIDs)
-}
-
-// GetEmbeddedProxyPeerIDsByCluster mocks base method.
-func (m *MockStore) GetEmbeddedProxyPeerIDsByCluster(ctx context.Context, accountID string) (map[string][]string, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetEmbeddedProxyPeerIDsByCluster", ctx, accountID)
-	ret0, _ := ret[0].(map[string][]string)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetEmbeddedProxyPeerIDsByCluster indicates an expected call of GetEmbeddedProxyPeerIDsByCluster.
-func (mr *MockStoreMockRecorder) GetEmbeddedProxyPeerIDsByCluster(ctx, accountID interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEmbeddedProxyPeerIDsByCluster", reflect.TypeOf((*MockStore)(nil).GetEmbeddedProxyPeerIDsByCluster), ctx, accountID)
-}
-
 // GetPeersByIDs mocks base method.
 func (m *MockStore) GetPeersByIDs(ctx context.Context, lockStrength LockingStrength, accountID string, peerIDs []string) (map[string]*peer.Peer, error) {
 	m.ctrl.T.Helper()
@@ -2001,10 +2373,10 @@ func (mr *MockStoreMockRecorder) GetPeersByIDs(ctx, lockStrength, accountID, pee
 }
 
 // GetPolicyByID mocks base method.
-func (m *MockStore) GetPolicyByID(ctx context.Context, lockStrength LockingStrength, accountID, policyID string) (*types2.Policy, error) {
+func (m *MockStore) GetPolicyByID(ctx context.Context, lockStrength LockingStrength, accountID, policyID string) (*types3.Policy, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetPolicyByID", ctx, lockStrength, accountID, policyID)
-	ret0, _ := ret[0].(*types2.Policy)
+	ret0, _ := ret[0].(*types3.Policy)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -2016,10 +2388,10 @@ func (mr *MockStoreMockRecorder) GetPolicyByID(ctx, lockStrength, accountID, pol
 }
 
 // GetPolicyRulesByResourceID mocks base method.
-func (m *MockStore) GetPolicyRulesByResourceID(ctx context.Context, lockStrength LockingStrength, accountID, peerID string) ([]*types2.PolicyRule, error) {
+func (m *MockStore) GetPolicyRulesByResourceID(ctx context.Context, lockStrength LockingStrength, accountID, peerID string) ([]*types3.PolicyRule, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetPolicyRulesByResourceID", ctx, lockStrength, accountID, peerID)
-	ret0, _ := ret[0].([]*types2.PolicyRule)
+	ret0, _ := ret[0].([]*types3.PolicyRule)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -2076,10 +2448,10 @@ func (mr *MockStoreMockRecorder) GetPostureChecksByIDs(ctx, lockStrength, accoun
 }
 
 // GetProxyAccessTokenByHashedToken mocks base method.
-func (m *MockStore) GetProxyAccessTokenByHashedToken(ctx context.Context, lockStrength LockingStrength, hashedToken types2.HashedProxyToken) (*types2.ProxyAccessToken, error) {
+func (m *MockStore) GetProxyAccessTokenByHashedToken(ctx context.Context, lockStrength LockingStrength, hashedToken types3.HashedProxyToken) (*types3.ProxyAccessToken, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetProxyAccessTokenByHashedToken", ctx, lockStrength, hashedToken)
-	ret0, _ := ret[0].(*types2.ProxyAccessToken)
+	ret0, _ := ret[0].(*types3.ProxyAccessToken)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -2091,10 +2463,10 @@ func (mr *MockStoreMockRecorder) GetProxyAccessTokenByHashedToken(ctx, lockStren
 }
 
 // GetProxyAccessTokenByID mocks base method.
-func (m *MockStore) GetProxyAccessTokenByID(ctx context.Context, lockStrength LockingStrength, tokenID string) (*types2.ProxyAccessToken, error) {
+func (m *MockStore) GetProxyAccessTokenByID(ctx context.Context, lockStrength LockingStrength, tokenID string) (*types3.ProxyAccessToken, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetProxyAccessTokenByID", ctx, lockStrength, tokenID)
-	ret0, _ := ret[0].(*types2.ProxyAccessToken)
+	ret0, _ := ret[0].(*types3.ProxyAccessToken)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -2106,10 +2478,10 @@ func (mr *MockStoreMockRecorder) GetProxyAccessTokenByID(ctx, lockStrength, toke
 }
 
 // GetProxyAccessTokensByAccountID mocks base method.
-func (m *MockStore) GetProxyAccessTokensByAccountID(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types2.ProxyAccessToken, error) {
+func (m *MockStore) GetProxyAccessTokensByAccountID(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types3.ProxyAccessToken, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetProxyAccessTokensByAccountID", ctx, lockStrength, accountID)
-	ret0, _ := ret[0].([]*types2.ProxyAccessToken)
+	ret0, _ := ret[0].([]*types3.ProxyAccessToken)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -2166,10 +2538,10 @@ func (mr *MockStoreMockRecorder) GetProxyMetrics(ctx interface{}) *gomock.Call {
 }
 
 // GetResourceGroups mocks base method.
-func (m *MockStore) GetResourceGroups(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) ([]*types2.Group, error) {
+func (m *MockStore) GetResourceGroups(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) ([]*types3.Group, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetResourceGroups", ctx, lockStrength, accountID, resourceID)
-	ret0, _ := ret[0].([]*types2.Group)
+	ret0, _ := ret[0].([]*types3.Group)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -2301,10 +2673,10 @@ func (mr *MockStoreMockRecorder) GetServicesByClusterAndPort(ctx, lockStrength, 
 }
 
 // GetSetupKeyByID mocks base method.
-func (m *MockStore) GetSetupKeyByID(ctx context.Context, lockStrength LockingStrength, accountID, setupKeyID string) (*types2.SetupKey, error) {
+func (m *MockStore) GetSetupKeyByID(ctx context.Context, lockStrength LockingStrength, accountID, setupKeyID string) (*types3.SetupKey, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetSetupKeyByID", ctx, lockStrength, accountID, setupKeyID)
-	ret0, _ := ret[0].(*types2.SetupKey)
+	ret0, _ := ret[0].(*types3.SetupKey)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -2316,10 +2688,10 @@ func (mr *MockStoreMockRecorder) GetSetupKeyByID(ctx, lockStrength, accountID, s
 }
 
 // GetSetupKeyBySecret mocks base method.
-func (m *MockStore) GetSetupKeyBySecret(ctx context.Context, lockStrength LockingStrength, key string) (*types2.SetupKey, error) {
+func (m *MockStore) GetSetupKeyBySecret(ctx context.Context, lockStrength LockingStrength, key string) (*types3.SetupKey, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetSetupKeyBySecret", ctx, lockStrength, key)
-	ret0, _ := ret[0].(*types2.SetupKey)
+	ret0, _ := ret[0].(*types3.SetupKey)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -2331,10 +2703,10 @@ func (mr *MockStoreMockRecorder) GetSetupKeyBySecret(ctx, lockStrength, key inte
 }
 
 // GetStoreEngine mocks base method.
-func (m *MockStore) GetStoreEngine() types2.Engine {
+func (m *MockStore) GetStoreEngine() types3.Engine {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetStoreEngine")
-	ret0, _ := ret[0].(types2.Engine)
+	ret0, _ := ret[0].(types3.Engine)
 	return ret0
 }
 
@@ -2390,10 +2762,10 @@ func (mr *MockStoreMockRecorder) GetTokenIDByHashedToken(ctx, secret interface{}
 }
 
 // GetUserByPATID mocks base method.
-func (m *MockStore) GetUserByPATID(ctx context.Context, lockStrength LockingStrength, patID string) (*types2.User, error) {
+func (m *MockStore) GetUserByPATID(ctx context.Context, lockStrength LockingStrength, patID string) (*types3.User, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetUserByPATID", ctx, lockStrength, patID)
-	ret0, _ := ret[0].(*types2.User)
+	ret0, _ := ret[0].(*types3.User)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -2405,10 +2777,10 @@ func (mr *MockStoreMockRecorder) GetUserByPATID(ctx, lockStrength, patID interfa
 }
 
 // GetUserByUserID mocks base method.
-func (m *MockStore) GetUserByUserID(ctx context.Context, lockStrength LockingStrength, userID string) (*types2.User, error) {
+func (m *MockStore) GetUserByUserID(ctx context.Context, lockStrength LockingStrength, userID string) (*types3.User, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetUserByUserID", ctx, lockStrength, userID)
-	ret0, _ := ret[0].(*types2.User)
+	ret0, _ := ret[0].(*types3.User)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -2435,10 +2807,10 @@ func (mr *MockStoreMockRecorder) GetUserIDByPeerKey(ctx, lockStrength, peerKey i
 }
 
 // GetUserInviteByEmail mocks base method.
-func (m *MockStore) GetUserInviteByEmail(ctx context.Context, lockStrength LockingStrength, accountID, email string) (*types2.UserInviteRecord, error) {
+func (m *MockStore) GetUserInviteByEmail(ctx context.Context, lockStrength LockingStrength, accountID, email string) (*types3.UserInviteRecord, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetUserInviteByEmail", ctx, lockStrength, accountID, email)
-	ret0, _ := ret[0].(*types2.UserInviteRecord)
+	ret0, _ := ret[0].(*types3.UserInviteRecord)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -2450,10 +2822,10 @@ func (mr *MockStoreMockRecorder) GetUserInviteByEmail(ctx, lockStrength, account
 }
 
 // GetUserInviteByHashedToken mocks base method.
-func (m *MockStore) GetUserInviteByHashedToken(ctx context.Context, lockStrength LockingStrength, hashedToken string) (*types2.UserInviteRecord, error) {
+func (m *MockStore) GetUserInviteByHashedToken(ctx context.Context, lockStrength LockingStrength, hashedToken string) (*types3.UserInviteRecord, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetUserInviteByHashedToken", ctx, lockStrength, hashedToken)
-	ret0, _ := ret[0].(*types2.UserInviteRecord)
+	ret0, _ := ret[0].(*types3.UserInviteRecord)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -2465,10 +2837,10 @@ func (mr *MockStoreMockRecorder) GetUserInviteByHashedToken(ctx, lockStrength, h
 }
 
 // GetUserInviteByID mocks base method.
-func (m *MockStore) GetUserInviteByID(ctx context.Context, lockStrength LockingStrength, accountID, inviteID string) (*types2.UserInviteRecord, error) {
+func (m *MockStore) GetUserInviteByID(ctx context.Context, lockStrength LockingStrength, accountID, inviteID string) (*types3.UserInviteRecord, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetUserInviteByID", ctx, lockStrength, accountID, inviteID)
-	ret0, _ := ret[0].(*types2.UserInviteRecord)
+	ret0, _ := ret[0].(*types3.UserInviteRecord)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -2480,10 +2852,10 @@ func (mr *MockStoreMockRecorder) GetUserInviteByID(ctx, lockStrength, accountID,
 }
 
 // GetUserPATs mocks base method.
-func (m *MockStore) GetUserPATs(ctx context.Context, lockStrength LockingStrength, userID string) ([]*types2.PersonalAccessToken, error) {
+func (m *MockStore) GetUserPATs(ctx context.Context, lockStrength LockingStrength, userID string) ([]*types3.PersonalAccessToken, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetUserPATs", ctx, lockStrength, userID)
-	ret0, _ := ret[0].([]*types2.PersonalAccessToken)
+	ret0, _ := ret[0].([]*types3.PersonalAccessToken)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -2569,6 +2941,34 @@ func (mr *MockStoreMockRecorder) GetZoneDNSRecordsByName(ctx, lockStrength, acco
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetZoneDNSRecordsByName", reflect.TypeOf((*MockStore)(nil).GetZoneDNSRecordsByName), ctx, lockStrength, accountID, zoneID, name)
 }
 
+// IncrementAgentNetworkConsumption mocks base method.
+func (m *MockStore) IncrementAgentNetworkConsumption(ctx context.Context, accountID string, kind types.ConsumptionDimension, dimID string, windowSeconds int64, windowStart time.Time, tokensIn, tokensOut int64, costUSD float64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IncrementAgentNetworkConsumption", ctx, accountID, kind, dimID, windowSeconds, windowStart, tokensIn, tokensOut, costUSD)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// IncrementAgentNetworkConsumption indicates an expected call of IncrementAgentNetworkConsumption.
+func (mr *MockStoreMockRecorder) IncrementAgentNetworkConsumption(ctx, accountID, kind, dimID, windowSeconds, windowStart, tokensIn, tokensOut, costUSD interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IncrementAgentNetworkConsumption", reflect.TypeOf((*MockStore)(nil).IncrementAgentNetworkConsumption), ctx, accountID, kind, dimID, windowSeconds, windowStart, tokensIn, tokensOut, costUSD)
+}
+
+// IncrementAgentNetworkConsumptionBatch mocks base method.
+func (m *MockStore) IncrementAgentNetworkConsumptionBatch(ctx context.Context, accountID string, keys []types.ConsumptionKey, tokensIn, tokensOut int64, costUSD float64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IncrementAgentNetworkConsumptionBatch", ctx, accountID, keys, tokensIn, tokensOut, costUSD)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// IncrementAgentNetworkConsumptionBatch indicates an expected call of IncrementAgentNetworkConsumptionBatch.
+func (mr *MockStoreMockRecorder) IncrementAgentNetworkConsumptionBatch(ctx, accountID, keys, tokensIn, tokensOut, costUSD interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IncrementAgentNetworkConsumptionBatch", reflect.TypeOf((*MockStore)(nil).IncrementAgentNetworkConsumptionBatch), ctx, accountID, keys, tokensIn, tokensOut, costUSD)
+}
+
 // IncrementNetworkSerial mocks base method.
 func (m *MockStore) IncrementNetworkSerial(ctx context.Context, accountId string) error {
 	m.ctrl.T.Helper()
@@ -2641,6 +3041,21 @@ func (m *MockStore) IsProxyAccessTokenValid(ctx context.Context, tokenID string)
 func (mr *MockStoreMockRecorder) IsProxyAccessTokenValid(ctx, tokenID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsProxyAccessTokenValid", reflect.TypeOf((*MockStore)(nil).IsProxyAccessTokenValid), ctx, tokenID)
+}
+
+// ListAgentNetworkConsumption mocks base method.
+func (m *MockStore) ListAgentNetworkConsumption(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.Consumption, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListAgentNetworkConsumption", ctx, lockStrength, accountID)
+	ret0, _ := ret[0].([]*types.Consumption)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListAgentNetworkConsumption indicates an expected call of ListAgentNetworkConsumption.
+func (mr *MockStoreMockRecorder) ListAgentNetworkConsumption(ctx, lockStrength, accountID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAgentNetworkConsumption", reflect.TypeOf((*MockStore)(nil).ListAgentNetworkConsumption), ctx, lockStrength, accountID)
 }
 
 // ListCustomDomains mocks base method.
@@ -2844,7 +3259,7 @@ func (mr *MockStoreMockRecorder) RevokeProxyAccessToken(ctx, tokenID interface{}
 }
 
 // SaveAccount mocks base method.
-func (m *MockStore) SaveAccount(ctx context.Context, account *types2.Account) error {
+func (m *MockStore) SaveAccount(ctx context.Context, account *types3.Account) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SaveAccount", ctx, account)
 	ret0, _ := ret[0].(error)
@@ -2858,7 +3273,7 @@ func (mr *MockStoreMockRecorder) SaveAccount(ctx, account interface{}) *gomock.C
 }
 
 // SaveAccountOnboarding mocks base method.
-func (m *MockStore) SaveAccountOnboarding(ctx context.Context, onboarding *types2.AccountOnboarding) error {
+func (m *MockStore) SaveAccountOnboarding(ctx context.Context, onboarding *types3.AccountOnboarding) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SaveAccountOnboarding", ctx, onboarding)
 	ret0, _ := ret[0].(error)
@@ -2872,7 +3287,7 @@ func (mr *MockStoreMockRecorder) SaveAccountOnboarding(ctx, onboarding interface
 }
 
 // SaveAccountSettings mocks base method.
-func (m *MockStore) SaveAccountSettings(ctx context.Context, accountID string, settings *types2.Settings) error {
+func (m *MockStore) SaveAccountSettings(ctx context.Context, accountID string, settings *types3.Settings) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SaveAccountSettings", ctx, accountID, settings)
 	ret0, _ := ret[0].(error)
@@ -2885,8 +3300,78 @@ func (mr *MockStoreMockRecorder) SaveAccountSettings(ctx, accountID, settings in
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveAccountSettings", reflect.TypeOf((*MockStore)(nil).SaveAccountSettings), ctx, accountID, settings)
 }
 
+// SaveAgentNetworkBudgetRule mocks base method.
+func (m *MockStore) SaveAgentNetworkBudgetRule(ctx context.Context, rule *types.AccountBudgetRule) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SaveAgentNetworkBudgetRule", ctx, rule)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SaveAgentNetworkBudgetRule indicates an expected call of SaveAgentNetworkBudgetRule.
+func (mr *MockStoreMockRecorder) SaveAgentNetworkBudgetRule(ctx, rule interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveAgentNetworkBudgetRule", reflect.TypeOf((*MockStore)(nil).SaveAgentNetworkBudgetRule), ctx, rule)
+}
+
+// SaveAgentNetworkGuardrail mocks base method.
+func (m *MockStore) SaveAgentNetworkGuardrail(ctx context.Context, guardrail *types.Guardrail) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SaveAgentNetworkGuardrail", ctx, guardrail)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SaveAgentNetworkGuardrail indicates an expected call of SaveAgentNetworkGuardrail.
+func (mr *MockStoreMockRecorder) SaveAgentNetworkGuardrail(ctx, guardrail interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveAgentNetworkGuardrail", reflect.TypeOf((*MockStore)(nil).SaveAgentNetworkGuardrail), ctx, guardrail)
+}
+
+// SaveAgentNetworkPolicy mocks base method.
+func (m *MockStore) SaveAgentNetworkPolicy(ctx context.Context, policy *types.Policy) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SaveAgentNetworkPolicy", ctx, policy)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SaveAgentNetworkPolicy indicates an expected call of SaveAgentNetworkPolicy.
+func (mr *MockStoreMockRecorder) SaveAgentNetworkPolicy(ctx, policy interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveAgentNetworkPolicy", reflect.TypeOf((*MockStore)(nil).SaveAgentNetworkPolicy), ctx, policy)
+}
+
+// SaveAgentNetworkProvider mocks base method.
+func (m *MockStore) SaveAgentNetworkProvider(ctx context.Context, provider *types.Provider) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SaveAgentNetworkProvider", ctx, provider)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SaveAgentNetworkProvider indicates an expected call of SaveAgentNetworkProvider.
+func (mr *MockStoreMockRecorder) SaveAgentNetworkProvider(ctx, provider interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveAgentNetworkProvider", reflect.TypeOf((*MockStore)(nil).SaveAgentNetworkProvider), ctx, provider)
+}
+
+// SaveAgentNetworkSettings mocks base method.
+func (m *MockStore) SaveAgentNetworkSettings(ctx context.Context, settings *types.Settings) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SaveAgentNetworkSettings", ctx, settings)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SaveAgentNetworkSettings indicates an expected call of SaveAgentNetworkSettings.
+func (mr *MockStoreMockRecorder) SaveAgentNetworkSettings(ctx, settings interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveAgentNetworkSettings", reflect.TypeOf((*MockStore)(nil).SaveAgentNetworkSettings), ctx, settings)
+}
+
 // SaveDNSSettings mocks base method.
-func (m *MockStore) SaveDNSSettings(ctx context.Context, accountID string, settings *types2.DNSSettings) error {
+func (m *MockStore) SaveDNSSettings(ctx context.Context, accountID string, settings *types3.DNSSettings) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SaveDNSSettings", ctx, accountID, settings)
 	ret0, _ := ret[0].(error)
@@ -2928,7 +3413,7 @@ func (mr *MockStoreMockRecorder) SaveNameServerGroup(ctx, nameServerGroup interf
 }
 
 // SaveNetwork mocks base method.
-func (m *MockStore) SaveNetwork(ctx context.Context, network *types1.Network) error {
+func (m *MockStore) SaveNetwork(ctx context.Context, network *types2.Network) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SaveNetwork", ctx, network)
 	ret0, _ := ret[0].(error)
@@ -2942,7 +3427,7 @@ func (mr *MockStoreMockRecorder) SaveNetwork(ctx, network interface{}) *gomock.C
 }
 
 // SaveNetworkResource mocks base method.
-func (m *MockStore) SaveNetworkResource(ctx context.Context, resource *types.NetworkResource) error {
+func (m *MockStore) SaveNetworkResource(ctx context.Context, resource *types0.NetworkResource) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SaveNetworkResource", ctx, resource)
 	ret0, _ := ret[0].(error)
@@ -2956,7 +3441,7 @@ func (mr *MockStoreMockRecorder) SaveNetworkResource(ctx, resource interface{}) 
 }
 
 // SavePAT mocks base method.
-func (m *MockStore) SavePAT(ctx context.Context, pat *types2.PersonalAccessToken) error {
+func (m *MockStore) SavePAT(ctx context.Context, pat *types3.PersonalAccessToken) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SavePAT", ctx, pat)
 	ret0, _ := ret[0].(error)
@@ -2998,7 +3483,7 @@ func (mr *MockStoreMockRecorder) SavePeerStatus(ctx, accountID, peerID, status i
 }
 
 // SavePolicy mocks base method.
-func (m *MockStore) SavePolicy(ctx context.Context, policy *types2.Policy) error {
+func (m *MockStore) SavePolicy(ctx context.Context, policy *types3.Policy) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SavePolicy", ctx, policy)
 	ret0, _ := ret[0].(error)
@@ -3040,7 +3525,7 @@ func (mr *MockStoreMockRecorder) SaveProxy(ctx, proxy interface{}) *gomock.Call 
 }
 
 // SaveProxyAccessToken mocks base method.
-func (m *MockStore) SaveProxyAccessToken(ctx context.Context, token *types2.ProxyAccessToken) error {
+func (m *MockStore) SaveProxyAccessToken(ctx context.Context, token *types3.ProxyAccessToken) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SaveProxyAccessToken", ctx, token)
 	ret0, _ := ret[0].(error)
@@ -3068,7 +3553,7 @@ func (mr *MockStoreMockRecorder) SaveRoute(ctx, route interface{}) *gomock.Call 
 }
 
 // SaveSetupKey mocks base method.
-func (m *MockStore) SaveSetupKey(ctx context.Context, setupKey *types2.SetupKey) error {
+func (m *MockStore) SaveSetupKey(ctx context.Context, setupKey *types3.SetupKey) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SaveSetupKey", ctx, setupKey)
 	ret0, _ := ret[0].(error)
@@ -3082,7 +3567,7 @@ func (mr *MockStoreMockRecorder) SaveSetupKey(ctx, setupKey interface{}) *gomock
 }
 
 // SaveUser mocks base method.
-func (m *MockStore) SaveUser(ctx context.Context, user *types2.User) error {
+func (m *MockStore) SaveUser(ctx context.Context, user *types3.User) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SaveUser", ctx, user)
 	ret0, _ := ret[0].(error)
@@ -3096,7 +3581,7 @@ func (mr *MockStoreMockRecorder) SaveUser(ctx, user interface{}) *gomock.Call {
 }
 
 // SaveUserInvite mocks base method.
-func (m *MockStore) SaveUserInvite(ctx context.Context, invite *types2.UserInviteRecord) error {
+func (m *MockStore) SaveUserInvite(ctx context.Context, invite *types3.UserInviteRecord) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SaveUserInvite", ctx, invite)
 	ret0, _ := ret[0].(error)
@@ -3124,7 +3609,7 @@ func (mr *MockStoreMockRecorder) SaveUserLastLogin(ctx, accountID, userID, lastL
 }
 
 // SaveUsers mocks base method.
-func (m *MockStore) SaveUsers(ctx context.Context, users []*types2.User) error {
+func (m *MockStore) SaveUsers(ctx context.Context, users []*types3.User) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SaveUsers", ctx, users)
 	ret0, _ := ret[0].(error)
@@ -3221,7 +3706,7 @@ func (mr *MockStoreMockRecorder) UpdateDNSRecord(ctx, record interface{}) *gomoc
 }
 
 // UpdateGroup mocks base method.
-func (m *MockStore) UpdateGroup(ctx context.Context, group *types2.Group) error {
+func (m *MockStore) UpdateGroup(ctx context.Context, group *types3.Group) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateGroup", ctx, group)
 	ret0, _ := ret[0].(error)
@@ -3235,7 +3720,7 @@ func (mr *MockStoreMockRecorder) UpdateGroup(ctx, group interface{}) *gomock.Cal
 }
 
 // UpdateGroups mocks base method.
-func (m *MockStore) UpdateGroups(ctx context.Context, accountID string, groups []*types2.Group) error {
+func (m *MockStore) UpdateGroups(ctx context.Context, accountID string, groups []*types3.Group) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateGroups", ctx, accountID, groups)
 	ret0, _ := ret[0].(error)
@@ -3249,7 +3734,7 @@ func (mr *MockStoreMockRecorder) UpdateGroups(ctx, accountID, groups interface{}
 }
 
 // UpdateNetworkRouter mocks base method.
-func (m *MockStore) UpdateNetworkRouter(ctx context.Context, router *types0.NetworkRouter) error {
+func (m *MockStore) UpdateNetworkRouter(ctx context.Context, router *types1.NetworkRouter) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateNetworkRouter", ctx, router)
 	ret0, _ := ret[0].(error)
