@@ -174,31 +174,6 @@ func (e *componentEncoder) appendPeer(p *nbpeer.Peer) uint32 {
 	return idx
 }
 
-func (e *componentEncoder) agentVersionIndex(v string) uint32 {
-	if idx, ok := e.agentVersionOrder[v]; ok {
-		return idx
-	}
-	// Lazy-initialise the table with "" at index 0 so the empty string
-	// stays interchangeable with proto3's default uint32=0 — peers without
-	// a WtVersion don't force the table to materialise.
-	if v == "" {
-		idx := uint32(len(e.agentVersions))
-		if idx == 0 {
-			e.agentVersions = append(e.agentVersions, "")
-		}
-		e.agentVersionOrder[""] = idx
-		return idx
-	}
-	if len(e.agentVersions) == 0 {
-		e.agentVersions = append(e.agentVersions, "")
-		e.agentVersionOrder[""] = 0
-	}
-	idx := uint32(len(e.agentVersions))
-	e.agentVersionOrder[v] = idx
-	e.agentVersions = append(e.agentVersions, v)
-	return idx
-}
-
 // indexRouterPeers ensures every router peer is in the peer dedup table
 // (c.RouterPeers may contain peers not in c.Peers when validation rules drop
 // them) and returns their wire indexes for the RouterPeerIndexes field. Must
