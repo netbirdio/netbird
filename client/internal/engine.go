@@ -522,7 +522,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		} else {
 			log.Infof("running rosenpass in strict mode")
 		}
-		e.rpManager, err = rosenpass.NewManager(e.config.PreSharedKey, e.config.WgIfaceName)
+		e.rpManager, err = rosenpass.NewManager(e.config.PreSharedKey, e.config.WgIfaceName, publicKey)
 		if err != nil {
 			return fmt.Errorf("create rosenpass manager: %w", err)
 		}
