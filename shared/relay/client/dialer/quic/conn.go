@@ -62,6 +62,10 @@ func (c *Conn) Protocol() string {
 	return Network
 }
 
+// DatagramSized marks this connection as carrying each write in a single
+// unreliable datagram. See dialer.DatagramSized.
+func (c *Conn) DatagramSized() {}
+
 func (c *Conn) RemoteAddr() net.Addr {
 	return c.session.RemoteAddr()
 }
