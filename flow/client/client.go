@@ -109,7 +109,7 @@ func (c *GRPCClient) Close() error {
 func (c *GRPCClient) Send(event *proto.FlowEvent) error {
 	c.mu.Lock()
 	stream := c.stream
-	c.mu.Unlock()
+	defer c.mu.Unlock() // stream.Send() is not safe to call concurrently from multiple goroutines
 
 	if stream == nil {
 		return errors.New("stream not initialized")

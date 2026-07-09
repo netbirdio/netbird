@@ -33,9 +33,14 @@ const ConnectTimeout = 10 * time.Second
 const healthCheckTimeout = 5 * time.Second
 
 const (
-	// EnvMaxRecvMsgSize overrides the default gRPC max receive message size (4 MB)
+	// EnvMaxRecvMsgSize overrides the default gRPC max receive message size
 	// for the management client connection. Value is in bytes.
 	EnvMaxRecvMsgSize = "NB_MANAGEMENT_GRPC_MAX_MSG_SIZE"
+
+	// defaultMaxRecvMsgSize is the max gRPC receive message size used for the
+	// management client connection when EnvMaxRecvMsgSize is unset or invalid.
+	// It overrides the gRPC library default of 4 MB.
+	defaultMaxRecvMsgSize = 1024 * 1024 * 16
 
 	errMsgMgmtPublicKey    = "failed getting Management Service public key: %s"
 	errMsgNoMgmtConnection = "no connection to management"
@@ -84,22 +89,22 @@ type ExposeResponse struct {
 }
 
 // MaxRecvMsgSize returns the configured max gRPC receive message size from
-// the environment, or 0 if unset (which uses the gRPC default of 4 MB).
+// the environment, or defaultMaxRecvMsgSize (16 MB) if unset or invalid.
 func MaxRecvMsgSize() int {
 	val := os.Getenv(EnvMaxRecvMsgSize)
 	if val == "" {
-		return 0
+		return defaultMaxRecvMsgSize
 	}
 
 	size, err := strconv.Atoi(val)
 	if err != nil {
 		log.Warnf("invalid %s value %q, using default: %v", EnvMaxRecvMsgSize, val, err)
-		return 0
+		return defaultMaxRecvMsgSize
 	}
 
 	if size <= 0 {
 		log.Warnf("invalid %s value %d, must be positive, using default", EnvMaxRecvMsgSize, size)
-		return 0
+		return defaultMaxRecvMsgSize
 	}
 
 	return size
@@ -649,26 +654,14 @@ func (c *GrpcClient) ExtendAuthSession(sysInfo *system.Info, jwtToken string) (*
 		return nil, err
 	}
 
-	var resp *proto.EncryptedMessage
-	operation := func() error {
-		mgmCtx, cancel := context.WithTimeout(context.Background(), ConnectTimeout)
-		defer cancel()
+	mgmCtx, cancel := context.WithTimeout(c.ctx, ConnectTimeout)
+	defer cancel()
 
-		var err error
-		resp, err = c.realClient.ExtendAuthSession(mgmCtx, &proto.EncryptedMessage{
-			WgPubKey: c.key.PublicKey().String(),
-			Body:     reqBody,
-		})
-		if err != nil {
-			if s, ok := gstatus.FromError(err); ok && s.Code() == codes.Canceled {
-				return err
-			}
-			return backoff.Permanent(err)
-		}
-		return nil
-	}
-
-	if err := backoff.Retry(operation, nbgrpc.Backoff(c.ctx)); err != nil {
+	resp, err := c.realClient.ExtendAuthSession(mgmCtx, &proto.EncryptedMessage{
+		WgPubKey: c.key.PublicKey().String(),
+		Body:     reqBody,
+	})
+	if err != nil {
 		log.Errorf("failed to extend auth session on Management Service: %v", err)
 		return nil, err
 	}

@@ -8,11 +8,13 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller/cache"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/networkmap"
 )
 
@@ -262,5 +264,41 @@ func TestEncodeSessionExpiresAt(t *testing.T) {
 		got := encodeSessionExpiresAt(deadline)
 		assert.NotNil(t, got)
 		assert.True(t, got.AsTime().Equal(deadline))
+	})
+}
+
+// TestToNetbirdConfig_RelayInvariant guards against the v0.74.0 relay-wipe regression.
+// Clients treat any non-nil NetbirdConfig as authoritative and interpret a missing relay
+// section as relay disabled, wiping their relay URLs. toNetbirdConfig must therefore
+// return nil when no server config is set (the fan-out network-map path) instead of a
+// partial config, and a result built from a relay-enabled config must carry the relay
+// section.
+func TestToNetbirdConfig_RelayInvariant(t *testing.T) {
+	settings := &types.Settings{MetricsPushEnabled: true}
+
+	t.Run("nil server config returns nil config", func(t *testing.T) {
+		nbCfg := toNetbirdConfig(nil, nil, nil, nil, settings)
+		assert.Nil(t, nbCfg, "fan-out updates must not carry a partial NetbirdConfig even when settings are present")
+	})
+
+	t.Run("relay-enabled config carries relay section", func(t *testing.T) {
+		cfg := &nbconfig.Config{
+			Stuns: []*nbconfig.Host{{Proto: nbconfig.UDP, URI: "stun:stun.example.com:3478"}},
+			TURNConfig: &nbconfig.TURNConfig{
+				Turns: []*nbconfig.Host{{Proto: nbconfig.UDP, URI: "turn:turn.example.com:3478", Username: "user", Password: "pass"}},
+			},
+			Relay:  &nbconfig.Relay{Addresses: []string{"rels://relay.example.com:443"}},
+			Signal: &nbconfig.Host{Proto: nbconfig.HTTP, URI: "signal.example.com:10000"},
+		}
+		relayToken := &Token{Payload: "token-payload", Signature: "token-signature"}
+
+		nbCfg := toNetbirdConfig(cfg, nil, relayToken, nil, settings)
+		require.NotNil(t, nbCfg)
+		require.NotNil(t, nbCfg.Relay, "non-nil NetbirdConfig must include the relay section")
+		assert.Equal(t, cfg.Relay.Addresses, nbCfg.Relay.Urls, "relay URLs should match the server config")
+		assert.Equal(t, relayToken.Payload, nbCfg.Relay.TokenPayload, "relay token payload should be set")
+		assert.Equal(t, relayToken.Signature, nbCfg.Relay.TokenSignature, "relay token signature should be set")
+		require.NotNil(t, nbCfg.Metrics)
+		assert.True(t, nbCfg.Metrics.Enabled, "metrics flag should carry the settings value")
 	})
 }
