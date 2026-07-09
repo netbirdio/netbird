@@ -22,6 +22,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
+	"github.com/netbirdio/netbird/client/server"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/util"
@@ -228,6 +229,17 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *pr
 	}
 
 	_, _ = profilemanager.UpdateOldManagementURL(ctx, config, configFilePath)
+
+	// Restore residual state left by a previous run that did not shut down
+	// cleanly, mirroring what the daemon does before connecting. Without this,
+	// leftover routing rules can shunt the management connection into a stale
+	// routing table and every subsequent login times out. Foreground mode is
+	// particularly exposed in containers: a crashed container restarts inside
+	// the same (pod) network namespace, so the stale rules survive while the
+	// process state does not.
+	if err := server.RestoreResidualState(ctx, profilemanager.NewServiceManager(configPath).GetStatePath()); err != nil {
+		log.Warnf("failed to restore residual state: %v", err)
+	}
 
 	err = foregroundLogin(ctx, cmd, config, providedSetupKey, activeProf.ID)
 	if err != nil {
