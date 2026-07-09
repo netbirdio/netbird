@@ -288,16 +288,16 @@ func unionPolicies(policies []*types.Policy, resourcePolicies map[string][]*type
 	if len(resourcePolicies) == 0 {
 		return policies
 	}
-	seen := make(map[*types.Policy]struct{}, len(policies))
+	seen := make(map[string]struct{}, len(policies))
 	out := make([]*types.Policy, 0, len(policies))
 	for _, p := range policies {
 		if p == nil {
 			continue
 		}
-		if _, ok := seen[p]; ok {
+		if _, ok := seen[p.ID]; ok {
 			continue
 		}
-		seen[p] = struct{}{}
+		seen[p.ID] = struct{}{}
 		out = append(out, p)
 	}
 	for _, list := range resourcePolicies {
@@ -305,10 +305,10 @@ func unionPolicies(policies []*types.Policy, resourcePolicies map[string][]*type
 			if p == nil {
 				continue
 			}
-			if _, ok := seen[p]; ok {
+			if _, ok := seen[p.ID]; ok {
 				continue
 			}
-			seen[p] = struct{}{}
+			seen[p.ID] = struct{}{}
 			out = append(out, p)
 		}
 	}
