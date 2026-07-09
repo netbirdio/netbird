@@ -24,7 +24,12 @@ import (
 const (
 	bufferSize            = 8820
 	serverResponseTimeout = 8 * time.Second
-	connChannelSize       = 100
+	// connChannelSize is the buffered-message capacity per peer connection.
+	// It must cover the bandwidth-delay product of a fast relayed path so
+	// steady-state traffic never blocks the shared read loop: at 300 Mbit/s
+	// and 50 ms RTT the in-flight data is ~1.9 MB ≈ 213 messages. Buffers
+	// come from the client's pool, so idle connections hold none.
+	connChannelSize = 512
 
 	// msgChanSendTimeout bounds how long an inbound message may wait for a slot
 	// on a reliable transport before it is dropped. It must stay far below the
