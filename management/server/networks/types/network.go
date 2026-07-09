@@ -10,19 +10,10 @@ type Network struct {
 	ID        string `gorm:"primaryKey"`
 	AccountID string `gorm:"index"`
 
-	// AccountSeqID is a per-account monotonically increasing identifier used as the
-	// compact wire id when sending NetworkMap components to capable peers.
-	AccountSeqID int32 `json:"-" gorm:"not null;default:0"`
+	PublicID string `json:"-"`
 
 	Name        string
 	Description string
-}
-
-// HasSeqID reports whether the network has been persisted long enough to have
-// a per-account sequence id allocated. Wire encoders that key off AccountSeqID
-// must skip networks that return false here.
-func (n *Network) HasSeqID() bool {
-	return n != nil && n.AccountSeqID != 0
 }
 
 func NewNetwork(accountId, name, description string) *Network {
@@ -56,11 +47,11 @@ func (n *Network) FromAPIRequest(req *api.NetworkRequest) {
 // Copy returns a copy of a network.
 func (n *Network) Copy() *Network {
 	return &Network{
-		ID:           n.ID,
-		AccountID:    n.AccountID,
-		AccountSeqID: n.AccountSeqID,
-		Name:         n.Name,
-		Description:  n.Description,
+		ID:          n.ID,
+		AccountID:   n.AccountID,
+		PublicID:    n.PublicID,
+		Name:        n.Name,
+		Description: n.Description,
 	}
 }
 

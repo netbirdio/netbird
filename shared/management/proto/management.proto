@@ -858,22 +858,14 @@ message NetworkMapComponentsFull {
 
   // Routers per network. Outer key: network account_seq_id. Each entry is
   // the set of routers backing that network for this peer's view.
-  //
-  // INCOMPATIBLE WIRE CHANGE: the map key changed from string (network xid)
-  // to uint32 (account_seq_id). Field 18 was reused without a `reserved`
-  // entry because capability=3 has never been released — every cap=3
-  // producer and consumer carries the same regenerated descriptor. Do NOT
-  // reuse this pattern for any further wire change once cap=3 ships.
-  map<int32, NetworkRouterList> routers_map = 18;
+  map<string, NetworkRouterList> routers_map = 18;
 
   // For each NetworkResource account_seq_id, the indexes into policies[]
   // that apply to it.
-  //
-  // INCOMPATIBLE WIRE CHANGE: see routers_map note above.
-  map<int32, PolicyIds> resource_policies_map = 19;
+  map<string, PolicyIds> resource_policies_map = 19;
 
   // Group-id (account_seq_id) → user ids authorized for SSH on members.
-  map<int32, UserIDList> group_id_to_user_ids = 20;
+  map<string, UserIDList> group_id_to_user_ids = 20;
 
   // Account-level allowed user ids (used by Calculate() when assembling SSH
   // authorized users for the receiving peer).
@@ -881,9 +873,7 @@ message NetworkMapComponentsFull {
 
   // Per posture-check account_seq_id, the set of peer indexes that failed
   // the check. Server-side evaluation result; clients do not re-evaluate.
-  //
-  // INCOMPATIBLE WIRE CHANGE: see routers_map note above.
-  map<int32, PeerIndexSet> posture_failed_peers = 22;
+  map<string, PeerIndexSet> posture_failed_peers = 22;
 
   // Account-level DNS forwarder port (mirrors the legacy
   // proto.DNSConfig.ForwarderPort). Computed by the controller from peer
@@ -1030,7 +1020,7 @@ message PolicyCompact {
   // Per-account integer id (matches policies.account_seq_id). Used as a
   // stable reference for ResourcePoliciesMap.indexes and future delta
   // updates.
-  int32 id = 1;
+  string id = 1;
 
   RuleAction action = 2;
   RuleProtocol protocol = 3;
@@ -1043,8 +1033,8 @@ message PolicyCompact {
   repeated PortInfo.Range port_ranges = 6;
 
   // Group ids (account_seq_id) of source / destination groups.
-  repeated int32 source_group_ids = 7;
-  repeated int32 destination_group_ids = 8;
+  repeated string source_group_ids = 7;
+  repeated string destination_group_ids = 8;
 
   // SSH authorization fields. PolicyRule.AuthorizedGroups maps the rule's
   // applicable group ids (account_seq_id) to a list of local-user names —
@@ -1054,7 +1044,7 @@ message PolicyCompact {
   //
   // Both fields are only consumed by Calculate() when the rule's protocol
   // is NetbirdSSH (or the legacy implicit-SSH heuristic).
-  map<int32, UserNameList> authorized_groups = 9;
+  map<string, UserNameList> authorized_groups = 9;
   string authorized_user = 10;
 
   // Resource-typed rule sources/destinations. When a rule targets a specific
@@ -1071,7 +1061,7 @@ message PolicyCompact {
   // reads them when filtering rule peers (peers that fail any listed check
   // are dropped from sourcePeers). Match keys in
   // NetworkMapComponentsFull.posture_failed_peers.
-  repeated int32 source_posture_check_seq_ids = 13;
+  repeated string source_posture_check_seq_ids = 13;
 }
 
 // ResourceCompact mirrors types.Resource. Used by PolicyCompact to carry
@@ -1097,7 +1087,7 @@ message UserNameList {
 message GroupCompact {
   // Per-account integer id (matches groups.account_seq_id). Used by
   // PolicyCompact.source_group_ids / destination_group_ids.
-  int32 id = 1;
+  string id = 1;
 
   // Group name; only sent when non-empty (clients use it for diagnostics).
   string name = 2;
@@ -1109,7 +1099,7 @@ message GroupCompact {
 // DNSSettingsCompact mirrors types.DNSSettings.
 message DNSSettingsCompact {
   // Group ids (account_seq_id) whose DNS management is disabled.
-  repeated int32 disabled_management_group_ids = 1;
+  repeated string disabled_management_group_ids = 1;
 }
 
 // RouteRaw mirrors *route.Route (the domain type), trimmed to fields that
@@ -1118,7 +1108,7 @@ message DNSSettingsCompact {
 // NetworkMapComponentsFull.peers.
 message RouteRaw {
   // Per-account integer id (matches routes.account_seq_id).
-  int32 id = 1;
+  string id = 1;
   string net_id = 2;
   string description = 3;
 
@@ -1139,14 +1129,14 @@ message RouteRaw {
   // path will substitute the WG key downstream.
   bool peer_index_set = 7;
   uint32 peer_index = 8;
-  repeated int32 peer_group_ids = 9;
+  repeated string peer_group_ids = 9;
 
   int32 network_type = 10;
   bool masquerade = 11;
   int32 metric = 12;
   bool enabled = 13;
-  repeated int32 group_ids = 14;
-  repeated int32 access_control_group_ids = 15;
+  repeated string group_ids = 14;
+  repeated string access_control_group_ids = 15;
   bool skip_auto_apply = 16;
 }
 
@@ -1154,13 +1144,13 @@ message RouteRaw {
 // legacy NameServerGroup (which is the wire-trimmed shape consumed by
 // proto.DNSConfig and lacks the Name/Description/Groups/Enabled fields).
 message NameServerGroupRaw {
-  int32 id = 1;            // nameserver_groups.account_seq_id
+  string id = 1;
   string name = 2;
   string description = 3;
   // Reuses the legacy NameServer wire shape (IP as string).
   repeated NameServer nameservers = 4;
-  // Group ids (account_seq_id) the NSG distributes nameservers to.
-  repeated int32 group_ids = 5;
+  // Group ids the NSG distributes nameservers to.
+  repeated string group_ids = 5;
   bool primary = 6;
   repeated string domains = 7;
   bool enabled = 8;
@@ -1175,8 +1165,8 @@ message NameServerGroupRaw {
 // carries the same regenerated descriptor. Do NOT reuse this pattern once
 // cap=3 ships.
 message NetworkResourceRaw {
-  int32 id = 1;            // network_resources.account_seq_id
-  int32 network_seq = 2;   // networks.account_seq_id (replaces xid)
+  string id = 1;            // network_resources.account_seq_id
+  string network_seq = 2;   // networks.account_seq_id (replaces xid)
   string name = 3;
   string description = 4;
   // Resource type: "host" / "subnet" / "domain".
@@ -1196,17 +1186,17 @@ message NetworkRouterList {
 // NetworkRouterEntry mirrors a single *routerTypes.NetworkRouter; the routing
 // peer is referenced by index into NetworkMapComponentsFull.peers.
 message NetworkRouterEntry {
-  int32 id = 1;            // network_routers.account_seq_id
+  string id = 1;
   uint32 peer_index = 2;
   bool peer_index_set = 3;
-  repeated int32 peer_group_ids = 4;
+  repeated string peer_group_ids = 4;
   bool masquerade = 5;
   int32 metric = 6;
   bool enabled = 7;
 }
 
 message PolicyIds {
-  repeated int32 ids = 1;
+  repeated string ids = 1;
 }
 
 // UserIDList is a list of user ids — used as the value type in

@@ -259,7 +259,7 @@ func Test_UpdateNetworkFailsWithPermissionDenied(t *testing.T) {
 // Test_CreateNetworkAllocatesSeqID verifies that CreateNetwork sets a
 // non-zero AccountSeqID on the persisted network (allocated through the
 // account_seq_counters table).
-func Test_CreateNetworkAllocatesSeqID(t *testing.T) {
+func Test_CreateNetworkSetsPublicId(t *testing.T) {
 	ctx := context.Background()
 	const accountID = "testAccountId"
 	const userID = "testAdminId"
@@ -280,13 +280,13 @@ func Test_CreateNetworkAllocatesSeqID(t *testing.T) {
 		Name:      "seq-allocation-test",
 	})
 	require.NoError(t, err)
-	require.NotZero(t, created.AccountSeqID, "CreateNetwork must allocate a non-zero AccountSeqID")
+	require.NotEqual(t, "", created.PublicID, "CreateNetwork must allocate a non-zero AccountSeqID")
 }
 
 // Test_UpdateNetworkPreservesSeqID verifies UpdateNetwork does not reset
 // AccountSeqID even when the caller passes a zero value (the shape REST
 // handlers produce because the field is `json:"-"`).
-func Test_UpdateNetworkPreservesSeqID(t *testing.T) {
+func Test_UpdateNetworkPreservesPublicId(t *testing.T) {
 	ctx := context.Background()
 	const accountID = "testAccountId"
 	const userID = "testAdminId"
@@ -307,21 +307,21 @@ func Test_UpdateNetworkPreservesSeqID(t *testing.T) {
 		Name:      "seq-preserve-original",
 	})
 	require.NoError(t, err)
-	originalSeq := created.AccountSeqID
-	require.NotZero(t, originalSeq)
+	originalPublicId := created.PublicID
+	require.NotZero(t, originalPublicId)
 
 	update := &types.Network{
 		AccountID: accountID,
 		ID:        created.ID,
 		Name:      "seq-preserve-renamed",
 	}
-	require.Zero(t, update.AccountSeqID, "incoming struct must mirror an HTTP handler shape")
+	require.Equal(t, "", update.PublicID, "incoming struct must mirror an HTTP handler shape")
 
 	_, err = manager.UpdateNetwork(ctx, userID, update)
 	require.NoError(t, err)
 
 	got, err := manager.GetNetwork(ctx, accountID, userID, created.ID)
 	require.NoError(t, err)
-	require.Equal(t, originalSeq, got.AccountSeqID, "AccountSeqID must survive UpdateNetwork")
+	require.Equal(t, originalPublicId, got.PublicID, "PublicID must survive UpdateNetwork")
 	require.Equal(t, "seq-preserve-renamed", got.Name)
 }

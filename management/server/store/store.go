@@ -223,11 +223,6 @@ type Store interface {
 	GetStoreEngine() types.Engine
 	ExecuteInTransaction(ctx context.Context, f func(store Store) error) error
 
-	// AllocateAccountSeqID returns the next per-account integer id for the given
-	// component kind. Must run inside a transaction so the increment is serialized
-	// with the component insert.
-	AllocateAccountSeqID(ctx context.Context, accountID string, entity types.AccountSeqEntity) (int32, error)
-
 	GetAccountNetworks(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*networkTypes.Network, error)
 	GetNetworkByID(ctx context.Context, lockStrength LockingStrength, accountID, networkID string) (*networkTypes.Network, error)
 	SaveNetwork(ctx context.Context, network *networkTypes.Network) error
@@ -628,30 +623,6 @@ func getMigrationsPostAuto(ctx context.Context) []migrationFunc {
 		},
 		func(db *gorm.DB) error {
 			return migration.DropIndex[proxy.Proxy](ctx, db, "idx_proxy_account_id_unique")
-		},
-		func(db *gorm.DB) error {
-			return migration.BackfillAccountSeqIDs[types.Policy](ctx, db, types.AccountSeqEntityPolicy, "id")
-		},
-		func(db *gorm.DB) error {
-			return migration.BackfillAccountSeqIDs[types.Group](ctx, db, types.AccountSeqEntityGroup, "id")
-		},
-		func(db *gorm.DB) error {
-			return migration.BackfillAccountSeqIDs[route.Route](ctx, db, types.AccountSeqEntityRoute, "id")
-		},
-		func(db *gorm.DB) error {
-			return migration.BackfillAccountSeqIDs[resourceTypes.NetworkResource](ctx, db, types.AccountSeqEntityNetworkResource, "id")
-		},
-		func(db *gorm.DB) error {
-			return migration.BackfillAccountSeqIDs[routerTypes.NetworkRouter](ctx, db, types.AccountSeqEntityNetworkRouter, "id")
-		},
-		func(db *gorm.DB) error {
-			return migration.BackfillAccountSeqIDs[dns.NameServerGroup](ctx, db, types.AccountSeqEntityNameserverGroup, "id")
-		},
-		func(db *gorm.DB) error {
-			return migration.BackfillAccountSeqIDs[networkTypes.Network](ctx, db, types.AccountSeqEntityNetwork, "id")
-		},
-		func(db *gorm.DB) error {
-			return migration.BackfillAccountSeqIDs[posture.Checks](ctx, db, types.AccountSeqEntityPostureCheck, "id")
 		},
 	}
 }

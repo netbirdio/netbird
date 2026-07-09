@@ -29,20 +29,18 @@ func (p NetworkResourceType) String() string {
 }
 
 type NetworkResource struct {
-	ID        string `gorm:"primaryKey"`
-	NetworkID string `gorm:"index"`
-	AccountID string `gorm:"index"`
-	// AccountSeqID is a per-account monotonically increasing identifier used as the
-	// compact wire id when sending NetworkMap components to capable peers.
-	AccountSeqID int32 `json:"-" gorm:"not null;default:0"`
-	Name         string
-	Description  string
-	Type         NetworkResourceType
-	Address      string   `gorm:"-"`
-	GroupIDs     []string `gorm:"-"`
-	Domain       string
-	Prefix       netip.Prefix `gorm:"serializer:json"`
-	Enabled      bool
+	ID          string `gorm:"primaryKey"`
+	NetworkID   string `gorm:"index"`
+	AccountID   string `gorm:"index"`
+	PublicID    string `json:"-"`
+	Name        string
+	Description string
+	Type        NetworkResourceType
+	Address     string   `gorm:"-"`
+	GroupIDs    []string `gorm:"-"`
+	Domain      string
+	Prefix      netip.Prefix `gorm:"serializer:json"`
+	Enabled     bool
 }
 
 func NewNetworkResource(accountID, networkID, name, description, address string, groupIDs []string, enabled bool) (*NetworkResource, error) {
@@ -96,18 +94,18 @@ func (n *NetworkResource) FromAPIRequest(req *api.NetworkResourceRequest) {
 
 func (n *NetworkResource) Copy() *NetworkResource {
 	return &NetworkResource{
-		ID:           n.ID,
-		AccountID:    n.AccountID,
-		NetworkID:    n.NetworkID,
-		AccountSeqID: n.AccountSeqID,
-		Name:         n.Name,
-		Description:  n.Description,
-		Type:         n.Type,
-		Address:      n.Address,
-		Domain:       n.Domain,
-		Prefix:       n.Prefix,
-		GroupIDs:     n.GroupIDs,
-		Enabled:      n.Enabled,
+		ID:          n.ID,
+		AccountID:   n.AccountID,
+		NetworkID:   n.NetworkID,
+		PublicID:    n.PublicID,
+		Name:        n.Name,
+		Description: n.Description,
+		Type:        n.Type,
+		Address:     n.Address,
+		Domain:      n.Domain,
+		Prefix:      n.Prefix,
+		GroupIDs:    n.GroupIDs,
+		Enabled:     n.Enabled,
 	}
 }
 

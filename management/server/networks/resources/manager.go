@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
@@ -146,11 +147,7 @@ func (m *managerImpl) createResourceInTransaction(ctx context.Context, transacti
 		return nil, nil, fmt.Errorf("failed to get network: %w", err)
 	}
 
-	seq, err := transaction.AllocateAccountSeqID(ctx, resource.AccountID, nbtypes.AccountSeqEntityNetworkResource)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to allocate network resource seq id: %w", err)
-	}
-	resource.AccountSeqID = seq
+	resource.PublicID = xid.New().String()
 
 	if err = transaction.SaveNetworkResource(ctx, resource); err != nil {
 		return nil, nil, fmt.Errorf("failed to save network resource: %w", err)
@@ -251,7 +248,7 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 		if err != nil {
 			return fmt.Errorf("failed to get network resource: %w", err)
 		}
-		resource.AccountSeqID = oldResource.AccountSeqID
+		resource.PublicID = oldResource.PublicID
 
 		oldGroups, err := m.groupsManager.GetResourceGroupsInTransaction(ctx, transaction, store.LockingStrengthNone, resource.AccountID, resource.ID)
 		if err != nil {

@@ -56,7 +56,7 @@ func TestCalculate_FirewallRuleProtocol_NeverNetbirdSSH(t *testing.T) {
 	c, localPeerKey := buildSmokeComponents(t)
 	// Replace the smoke policy with a NetbirdSSH-protocol allow.
 	c.Policies = []*types.Policy{{
-		ID: "pol-ssh", AccountSeqID: 2, Enabled: true,
+		ID: "pol-ssh", PublicID: "2", Enabled: true,
 		Rules: []*types.PolicyRule{{
 			ID:            "rule-ssh",
 			Enabled:       true,
@@ -154,12 +154,12 @@ func buildSmokeComponents(t *testing.T) (*types.NetworkMapComponents, string) {
 	}
 
 	group := &types.Group{
-		ID: "group-all", AccountSeqID: 1, Name: "All",
+		ID: "group-all", PublicID: "1", Name: "All",
 		Peers: []string{"peer-A", "peer-B"},
 	}
 
 	policy := &types.Policy{
-		ID: "pol-allow", AccountSeqID: 1, Enabled: true,
+		ID: "pol-allow", PublicID: "1", Enabled: true,
 		Rules: []*types.PolicyRule{{
 			ID:            "rule-allow",
 			Enabled:       true,

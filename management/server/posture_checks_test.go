@@ -581,7 +581,7 @@ func TestSavePostureChecks_AllocatesSeqIDOnCreate(t *testing.T) {
 		},
 	}, true)
 	require.NoError(t, err)
-	require.NotZero(t, created.AccountSeqID, "SavePostureChecks on create must allocate a non-zero AccountSeqID")
+	require.NotEqual(t, "", created.PublicID, "SavePostureChecks on create must create PublicID")
 }
 
 // TestSavePostureChecks_PreservesSeqIDOnUpdate verifies the update path does
@@ -601,8 +601,8 @@ func TestSavePostureChecks_PreservesSeqIDOnUpdate(t *testing.T) {
 		},
 	}, true)
 	require.NoError(t, err)
-	originalSeq := created.AccountSeqID
-	require.NotZero(t, originalSeq)
+	originalPublicID := created.PublicID
+	require.NotEqual(t, "", originalPublicID)
 
 	update := &posture.Checks{
 		ID:   created.ID,
@@ -611,13 +611,13 @@ func TestSavePostureChecks_PreservesSeqIDOnUpdate(t *testing.T) {
 			NBVersionCheck: &posture.NBVersionCheck{MinVersion: "0.27.0"},
 		},
 	}
-	require.Zero(t, update.AccountSeqID, "incoming struct must mirror an HTTP handler shape")
+	require.Equal(t, "", update.PublicID, "incoming struct must mirror an HTTP handler shape")
 
 	_, err = am.SavePostureChecks(context.Background(), account.Id, adminUserID, update, false)
 	require.NoError(t, err)
 
 	got, err := am.GetPostureChecks(context.Background(), account.Id, created.ID, adminUserID)
 	require.NoError(t, err)
-	require.Equal(t, originalSeq, got.AccountSeqID, "AccountSeqID must survive SavePostureChecks update")
+	require.Equal(t, originalPublicID, got.PublicID, "PublicID must survive SavePostureChecks update")
 	require.Equal(t, "seq-preserve-renamed", got.Name)
 }

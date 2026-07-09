@@ -142,7 +142,6 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		&agentNetworkTypes.Consumption{}, &agentNetworkTypes.AccountBudgetRule{},
 		&agentNetworkTypes.AgentNetworkAccessLog{}, &agentNetworkTypes.AgentNetworkAccessLogGroup{},
 		&agentNetworkTypes.AgentNetworkUsage{}, &agentNetworkTypes.AgentNetworkUsageGroup{},
-		&types.AccountSeqCounter{},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("auto migratePreAuto: %w", err)
@@ -312,10 +311,6 @@ func (s *SqlStore) SaveAccount(ctx context.Context, account *types.Account) erro
 		result = tx.Select(clause.Associations).Delete(account)
 		if result.Error != nil {
 			return result.Error
-		}
-
-		if err := s.assignAccountSeqIDs(ctx, tx, account); err != nil {
-			return fmt.Errorf("assign seq ids: %w", err)
 		}
 
 		result = tx.
@@ -2060,7 +2055,7 @@ func (s *SqlStore) getGroups(ctx context.Context, accountID string) ([]*types.Gr
 		var resources []byte
 		var refID sql.NullInt64
 		var refType sql.NullString
-		err := row.Scan(&g.ID, &g.AccountID, &g.AccountSeqID, &g.Name, &g.Issued, &resources, &refID, &refType)
+		err := row.Scan(&g.ID, &g.AccountID, &g.PublicID, &g.Name, &g.Issued, &resources, &refID, &refType)
 		if err == nil {
 			if refID.Valid {
 				g.IntegrationReference.ID = int(refID.Int64)
@@ -2094,7 +2089,7 @@ func (s *SqlStore) getPolicies(ctx context.Context, accountID string) ([]*types.
 		var p types.Policy
 		var checks []byte
 		var enabled sql.NullBool
-		err := row.Scan(&p.ID, &p.AccountID, &p.AccountSeqID, &p.Name, &p.Description, &enabled, &checks)
+		err := row.Scan(&p.ID, &p.AccountID, &p.PublicID, &p.Name, &p.Description, &enabled, &checks)
 		if err == nil {
 			if enabled.Valid {
 				p.Enabled = enabled.Bool
@@ -2122,7 +2117,7 @@ func (s *SqlStore) getRoutes(ctx context.Context, accountID string) ([]route.Rou
 		var network, domains, peerGroups, groups, accessGroups []byte
 		var keepRoute, masquerade, enabled, skipAutoApply sql.NullBool
 		var metric sql.NullInt64
-		err := row.Scan(&r.ID, &r.AccountID, &r.AccountSeqID, &network, &domains, &keepRoute, &r.NetID, &r.Description, &r.Peer, &peerGroups, &r.NetworkType, &masquerade, &metric, &enabled, &groups, &accessGroups, &skipAutoApply)
+		err := row.Scan(&r.ID, &r.AccountID, &r.PublicID, &network, &domains, &keepRoute, &r.NetID, &r.Description, &r.Peer, &peerGroups, &r.NetworkType, &masquerade, &metric, &enabled, &groups, &accessGroups, &skipAutoApply)
 		if err == nil {
 			if keepRoute.Valid {
 				r.KeepRoute = keepRoute.Bool
@@ -2173,7 +2168,7 @@ func (s *SqlStore) getNameServerGroups(ctx context.Context, accountID string) ([
 		var n nbdns.NameServerGroup
 		var ns, groups, domains []byte
 		var primary, enabled, searchDomainsEnabled sql.NullBool
-		err := row.Scan(&n.ID, &n.AccountID, &n.AccountSeqID, &n.Name, &n.Description, &ns, &groups, &primary, &domains, &enabled, &searchDomainsEnabled)
+		err := row.Scan(&n.ID, &n.AccountID, &n.PublicID, &n.Name, &n.Description, &ns, &groups, &primary, &domains, &enabled, &searchDomainsEnabled)
 		if err == nil {
 			if primary.Valid {
 				n.Primary = primary.Bool
@@ -2217,7 +2212,7 @@ func (s *SqlStore) getPostureChecks(ctx context.Context, accountID string) ([]*p
 	checks, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*posture.Checks, error) {
 		var c posture.Checks
 		var checksDef []byte
-		err := row.Scan(&c.ID, &c.AccountID, &c.AccountSeqID, &c.Name, &c.Description, &checksDef)
+		err := row.Scan(&c.ID, &c.AccountID, &c.PublicID, &c.Name, &c.Description, &checksDef)
 		if err == nil && checksDef != nil {
 			_ = json.Unmarshal(checksDef, &c.Checks)
 		}
@@ -2424,7 +2419,7 @@ func (s *SqlStore) getNetworkRouters(ctx context.Context, accountID string) ([]*
 		var peerGroups []byte
 		var masquerade, enabled sql.NullBool
 		var metric sql.NullInt64
-		err := row.Scan(&r.ID, &r.NetworkID, &r.AccountID, &r.AccountSeqID, &r.Peer, &peerGroups, &masquerade, &metric, &enabled)
+		err := row.Scan(&r.ID, &r.NetworkID, &r.AccountID, &r.PublicID, &r.Peer, &peerGroups, &masquerade, &metric, &enabled)
 		if err == nil {
 			if masquerade.Valid {
 				r.Masquerade = masquerade.Bool
@@ -2461,7 +2456,7 @@ func (s *SqlStore) getNetworkResources(ctx context.Context, accountID string) ([
 		var r resourceTypes.NetworkResource
 		var prefix []byte
 		var enabled sql.NullBool
-		err := row.Scan(&r.ID, &r.NetworkID, &r.AccountID, &r.AccountSeqID, &r.Name, &r.Description, &r.Type, &r.Domain, &prefix, &enabled)
+		err := row.Scan(&r.ID, &r.NetworkID, &r.AccountID, &r.PublicID, &r.Name, &r.Description, &r.Type, &r.Domain, &prefix, &enabled)
 		if err == nil {
 			if enabled.Valid {
 				r.Enabled = enabled.Bool
@@ -3631,262 +3626,6 @@ func (s *SqlStore) withTx(tx *gorm.DB) Store {
 		db:           tx,
 		storeEngine:  s.storeEngine,
 		fieldEncrypt: s.fieldEncrypt,
-	}
-}
-
-// AllocateAccountSeqID returns the next per-account integer id for the given
-// component kind. Must be called inside ExecuteInTransaction so the increment
-// is serialized with the component insert.
-func (s *SqlStore) AllocateAccountSeqID(ctx context.Context, accountID string, entity types.AccountSeqEntity) (int32, error) {
-	return allocateAccountSeqID(ctx, s.db, s.storeEngine, accountID, entity)
-}
-
-func allocateAccountSeqID(_ context.Context, db *gorm.DB, engine types.Engine, accountID string, entity types.AccountSeqEntity) (int32, error) {
-	switch engine {
-	case types.PostgresStoreEngine, types.SqliteStoreEngine:
-		return allocateAccountSeqIDReturning(db, accountID, entity)
-	case types.MysqlStoreEngine:
-		return allocateAccountSeqIDMysql(db, accountID, entity)
-	default:
-		return 0, fmt.Errorf("unsupported store engine for account_seq allocator: %v", engine)
-	}
-}
-
-// allocateAccountSeqIDReturning runs a single atomic INSERT ... ON CONFLICT
-// DO UPDATE ... RETURNING that gives us the allocated id without a separate
-// SELECT FOR UPDATE. Two concurrent allocations for the same (account, entity)
-// produce two distinct ids: one wins the INSERT, the other wins the UPDATE
-// branch and returns next_id+1.
-func allocateAccountSeqIDReturning(db *gorm.DB, accountID string, entity types.AccountSeqEntity) (int32, error) {
-	const sqlStr = `
-		INSERT INTO account_seq_counters (account_id, entity, next_id)
-		VALUES (?, ?, 2)
-		ON CONFLICT (account_id, entity) DO UPDATE
-			SET next_id = account_seq_counters.next_id + 1
-		RETURNING (next_id - 1)
-	`
-	var allocated int32
-	if err := db.Raw(sqlStr, accountID, string(entity)).Scan(&allocated).Error; err != nil {
-		return 0, fmt.Errorf("upsert account seq counter: %w", err)
-	}
-	if allocated == 0 {
-		return 0, fmt.Errorf("upsert account seq counter returned 0")
-	}
-	return allocated, nil
-}
-
-// allocateAccountSeqIDMysql is the MySQL equivalent of allocateAccountSeqIDReturning.
-// MySQL has no RETURNING on ON DUPLICATE KEY UPDATE, so we use the LAST_INSERT_ID
-// trick: passing an expression to LAST_INSERT_ID(expr) both sets the session value
-// and returns it from the INSERT. The INSERT's value uses LAST_INSERT_ID(2) so the
-// no-conflict path also surfaces the new next_id, keeping the read-back uniform.
-// LAST_INSERT_ID is per-connection; GORM transactions pin a single connection,
-// so the follow-up SELECT sees the same value.
-func allocateAccountSeqIDMysql(db *gorm.DB, accountID string, entity types.AccountSeqEntity) (int32, error) {
-	const upsertSQL = `
-		INSERT INTO account_seq_counters (account_id, entity, next_id)
-		VALUES (?, ?, LAST_INSERT_ID(2))
-		ON DUPLICATE KEY UPDATE next_id = LAST_INSERT_ID(next_id + 1)
-	`
-	if err := db.Exec(upsertSQL, accountID, string(entity)).Error; err != nil {
-		return 0, fmt.Errorf("upsert account seq counter: %w", err)
-	}
-	var newNext uint64
-	if err := db.Raw("SELECT LAST_INSERT_ID()").Scan(&newNext).Error; err != nil {
-		return 0, fmt.Errorf("get last insert id: %w", err)
-	}
-	if newNext == 0 {
-		return 0, fmt.Errorf("LAST_INSERT_ID returned 0; account_seq_counters misconfigured")
-	}
-	return int32(newNext - 1), nil
-}
-
-// assignAccountSeqIDs allocates a per-account integer id for any component on
-// the in-memory account whose AccountSeqID is zero. Called from SaveAccount so
-// the canonical "save the whole account" path produces the same persisted seq
-// ids that the manager-level Create paths produce. Update flows that go
-// through SaveAccount preserve existing non-zero values; for those, the
-// per-entity counter is bumped so subsequent AllocateAccountSeqID calls don't
-// hand out a colliding id.
-func (s *SqlStore) assignAccountSeqIDs(ctx context.Context, tx *gorm.DB, account *types.Account) error {
-	maxByEntity := make(map[types.AccountSeqEntity]int32, 8)
-	bump := func(entity types.AccountSeqEntity, seq int32) {
-		if seq > maxByEntity[entity] {
-			maxByEntity[entity] = seq
-		}
-	}
-
-	for i := range account.GroupsG {
-		g := account.GroupsG[i]
-		if g == nil {
-			continue
-		}
-		if g.AccountSeqID != 0 {
-			bump(types.AccountSeqEntityGroup, g.AccountSeqID)
-			continue
-		}
-		seq, err := allocateAccountSeqID(ctx, tx, s.storeEngine, account.Id, types.AccountSeqEntityGroup)
-		if err != nil {
-			return err
-		}
-		g.AccountSeqID = seq
-		// Defensive: generateAccountSQLTypes currently aliases the same
-		// *Group pointer into GroupsG and Groups[id] (so this is a no-op
-		// today), but mirror the seq anyway so any future divergence in
-		// how the two collections are populated doesn't silently leave
-		// the canonical map view stale.
-		if original, ok := account.Groups[g.ID]; ok && original != nil && original != g {
-			original.AccountSeqID = seq
-		}
-	}
-	for _, p := range account.Policies {
-		if p == nil {
-			continue
-		}
-		if p.AccountSeqID != 0 {
-			bump(types.AccountSeqEntityPolicy, p.AccountSeqID)
-			continue
-		}
-		seq, err := allocateAccountSeqID(ctx, tx, s.storeEngine, account.Id, types.AccountSeqEntityPolicy)
-		if err != nil {
-			return err
-		}
-		p.AccountSeqID = seq
-	}
-	for i := range account.RoutesG {
-		r := &account.RoutesG[i]
-		if r.AccountSeqID != 0 {
-			bump(types.AccountSeqEntityRoute, r.AccountSeqID)
-			continue
-		}
-		seq, err := allocateAccountSeqID(ctx, tx, s.storeEngine, account.Id, types.AccountSeqEntityRoute)
-		if err != nil {
-			return err
-		}
-		r.AccountSeqID = seq
-		// Mirror the new seq onto the canonical map view so callers that
-		// hold the same in-memory account post-Save read a consistent
-		// AccountSeqID — without this, components/encoder code would see
-		// 0 for routes saved this transaction until the account is reloaded.
-		if original, ok := account.Routes[r.ID]; ok && original != nil {
-			original.AccountSeqID = seq
-		}
-	}
-	for i := range account.NameServerGroupsG {
-		ng := &account.NameServerGroupsG[i]
-		if ng.AccountSeqID != 0 {
-			bump(types.AccountSeqEntityNameserverGroup, ng.AccountSeqID)
-			continue
-		}
-		seq, err := allocateAccountSeqID(ctx, tx, s.storeEngine, account.Id, types.AccountSeqEntityNameserverGroup)
-		if err != nil {
-			return err
-		}
-		ng.AccountSeqID = seq
-		if original, ok := account.NameServerGroups[ng.ID]; ok && original != nil {
-			original.AccountSeqID = seq
-		}
-	}
-	for _, nr := range account.NetworkResources {
-		if nr == nil {
-			continue
-		}
-		if nr.AccountSeqID != 0 {
-			bump(types.AccountSeqEntityNetworkResource, nr.AccountSeqID)
-			continue
-		}
-		seq, err := allocateAccountSeqID(ctx, tx, s.storeEngine, account.Id, types.AccountSeqEntityNetworkResource)
-		if err != nil {
-			return err
-		}
-		nr.AccountSeqID = seq
-	}
-	for _, nr := range account.NetworkRouters {
-		if nr == nil {
-			continue
-		}
-		if nr.AccountSeqID != 0 {
-			bump(types.AccountSeqEntityNetworkRouter, nr.AccountSeqID)
-			continue
-		}
-		seq, err := allocateAccountSeqID(ctx, tx, s.storeEngine, account.Id, types.AccountSeqEntityNetworkRouter)
-		if err != nil {
-			return err
-		}
-		nr.AccountSeqID = seq
-	}
-	for _, n := range account.Networks {
-		if n == nil {
-			continue
-		}
-		if n.AccountSeqID != 0 {
-			bump(types.AccountSeqEntityNetwork, n.AccountSeqID)
-			continue
-		}
-		seq, err := allocateAccountSeqID(ctx, tx, s.storeEngine, account.Id, types.AccountSeqEntityNetwork)
-		if err != nil {
-			return err
-		}
-		n.AccountSeqID = seq
-	}
-	for _, pc := range account.PostureChecks {
-		if pc == nil {
-			continue
-		}
-		if pc.AccountSeqID != 0 {
-			bump(types.AccountSeqEntityPostureCheck, pc.AccountSeqID)
-			continue
-		}
-		seq, err := allocateAccountSeqID(ctx, tx, s.storeEngine, account.Id, types.AccountSeqEntityPostureCheck)
-		if err != nil {
-			return err
-		}
-		pc.AccountSeqID = seq
-	}
-	for entity, maxSeq := range maxByEntity {
-		if err := ensureAccountSeqCounter(tx, s.storeEngine, account.Id, entity, maxSeq+1); err != nil {
-			return fmt.Errorf("seed counter for %s: %w", entity, err)
-		}
-	}
-	return nil
-}
-
-// ensureAccountSeqCounter raises the per-account counter for entity to at
-// least target. Used when SaveAccount persists components that already carry
-// AccountSeqIDs (e.g. test bulk-load from sqlite to postgres, or migrations
-// running before component data lands) so that the next AllocateAccountSeqID
-// call returns a fresh id beyond what was just written.
-func ensureAccountSeqCounter(db *gorm.DB, engine types.Engine, accountID string, entity types.AccountSeqEntity, target int32) error {
-	switch engine {
-	case types.PostgresStoreEngine, types.SqliteStoreEngine:
-		const sqlStr = `
-			INSERT INTO account_seq_counters (account_id, entity, next_id)
-			VALUES (?, ?, ?)
-			ON CONFLICT (account_id, entity) DO UPDATE
-				SET next_id = GREATEST(account_seq_counters.next_id, EXCLUDED.next_id)
-		`
-		// sqlite's UPSERT understands max() but the migration uses GREATEST
-		// for postgres and max() for sqlite. We collapse to dialect-specific
-		// statements only when needed.
-		if engine == types.SqliteStoreEngine {
-			const sqliteSQL = `
-				INSERT INTO account_seq_counters (account_id, entity, next_id)
-				VALUES (?, ?, ?)
-				ON CONFLICT (account_id, entity) DO UPDATE
-					SET next_id = max(account_seq_counters.next_id, excluded.next_id)
-			`
-			return db.Exec(sqliteSQL, accountID, string(entity), target).Error
-		}
-		return db.Exec(sqlStr, accountID, string(entity), target).Error
-	case types.MysqlStoreEngine:
-		const sqlStr = `
-			INSERT INTO account_seq_counters (account_id, entity, next_id)
-			VALUES (?, ?, ?)
-			ON DUPLICATE KEY UPDATE next_id = GREATEST(next_id, VALUES(next_id))
-		`
-		return db.Exec(sqlStr, accountID, string(entity), target).Error
-	default:
-		return fmt.Errorf("unsupported store engine for account_seq counter: %v", engine)
 	}
 }
 

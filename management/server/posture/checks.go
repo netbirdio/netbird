@@ -49,9 +49,7 @@ type Checks struct {
 	// AccountID is a reference to the Account that this object belongs
 	AccountID string `json:"-" gorm:"index"`
 
-	// AccountSeqID is a per-account monotonically increasing identifier used as the
-	// compact wire id when sending NetworkMap components to capable peers.
-	AccountSeqID int32 `json:"-" gorm:"not null;default:0"`
+	PublicID string `json:"-"`
 
 	// Checks is a set of objects that perform the actual checks
 	Checks ChecksDefinition `gorm:"serializer:json"`
@@ -95,13 +93,6 @@ func verdictChanged(ctx context.Context, check Check, oldPeer, newPeer nbpeer.Pe
 		check.Name(), oldVerdict, newVerdict, changed, oldErr, newErr)
 
 	return changed
-}
-
-// HasSeqID reports whether the posture check has been persisted long enough
-// to have a per-account sequence id allocated. Wire encoders that key off
-// AccountSeqID must skip checks that return false here.
-func (pc *Checks) HasSeqID() bool {
-	return pc != nil && pc.AccountSeqID != 0
 }
 
 // ChecksDefinition contains definition of actual check
@@ -174,12 +165,12 @@ func (*Checks) TableName() string {
 // Copy returns a copy of a posture checks.
 func (pc *Checks) Copy() *Checks {
 	checks := &Checks{
-		ID:           pc.ID,
-		Name:         pc.Name,
-		Description:  pc.Description,
-		AccountID:    pc.AccountID,
-		AccountSeqID: pc.AccountSeqID,
-		Checks:       pc.Checks.Copy(),
+		ID:          pc.ID,
+		Name:        pc.Name,
+		Description: pc.Description,
+		AccountID:   pc.AccountID,
+		PublicID:    pc.PublicID,
+		Checks:      pc.Checks.Copy(),
 	}
 	return checks
 }

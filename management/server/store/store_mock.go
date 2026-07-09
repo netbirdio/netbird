@@ -138,21 +138,6 @@ func (mr *MockStoreMockRecorder) AddResourceToGroup(ctx, accountId, groupID, res
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddResourceToGroup", reflect.TypeOf((*MockStore)(nil).AddResourceToGroup), ctx, accountId, groupID, resource)
 }
 
-// AllocateAccountSeqID mocks base method.
-func (m *MockStore) AllocateAccountSeqID(ctx context.Context, accountID string, entity types3.AccountSeqEntity) (int32, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AllocateAccountSeqID", ctx, accountID, entity)
-	ret0, _ := ret[0].(int32)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// AllocateAccountSeqID indicates an expected call of AllocateAccountSeqID.
-func (mr *MockStoreMockRecorder) AllocateAccountSeqID(ctx, accountID, entity interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AllocateAccountSeqID", reflect.TypeOf((*MockStore)(nil).AllocateAccountSeqID), ctx, accountID, entity)
-}
-
 // ApproveAccountPeers mocks base method.
 func (m *MockStore) ApproveAccountPeers(ctx context.Context, accountID string) (int, error) {
 	m.ctrl.T.Helper()

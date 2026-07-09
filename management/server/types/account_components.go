@@ -125,26 +125,26 @@ func (a *Account) GetPeerNetworkMapComponents(
 	}
 
 	components := &NetworkMapComponents{
-		PeerID:               peerID,
-		Network:              a.Network.Copy(),
-		NameServerGroups:     make([]*nbdns.NameServerGroup, 0),
-		CustomZoneDomain:     peersCustomZone.Domain,
-		ResourcePoliciesMap:  make(map[string][]*Policy),
-		RoutersMap:           make(map[string]map[string]*routerTypes.NetworkRouter),
-		NetworkResources:     make([]*resourceTypes.NetworkResource, 0),
-		PostureFailedPeers:   make(map[string]map[string]struct{}, len(a.PostureChecks)),
-		RouterPeers:          make(map[string]*nbpeer.Peer),
-		NetworkXIDToSeq:      make(map[string]int32, len(a.Networks)),
-		PostureCheckXIDToSeq: make(map[string]int32, len(a.PostureChecks)),
+		PeerID:                    peerID,
+		Network:                   a.Network.Copy(),
+		NameServerGroups:          make([]*nbdns.NameServerGroup, 0),
+		CustomZoneDomain:          peersCustomZone.Domain,
+		ResourcePoliciesMap:       make(map[string][]*Policy),
+		RoutersMap:                make(map[string]map[string]*routerTypes.NetworkRouter),
+		NetworkResources:          make([]*resourceTypes.NetworkResource, 0),
+		PostureFailedPeers:        make(map[string]map[string]struct{}, len(a.PostureChecks)),
+		RouterPeers:               make(map[string]*nbpeer.Peer),
+		NetworkXIDToPublicID:      make(map[string]string, len(a.Networks)),
+		PostureCheckXIDToPublicID: make(map[string]string, len(a.PostureChecks)),
 	}
 	for _, n := range a.Networks {
-		if n != nil && n.HasSeqID() {
-			components.NetworkXIDToSeq[n.ID] = n.AccountSeqID
+		if n != nil {
+			components.NetworkXIDToPublicID[n.ID] = n.PublicID
 		}
 	}
 	for _, pc := range a.PostureChecks {
-		if pc != nil && pc.HasSeqID() {
-			components.PostureCheckXIDToSeq[pc.ID] = pc.AccountSeqID
+		if pc != nil {
+			components.PostureCheckXIDToPublicID[pc.ID] = pc.PublicID
 		}
 	}
 

@@ -24,23 +24,6 @@ var wireBenchScales = []benchmarkScale{
 	{"5000peers_100groups", 5000, 100},
 }
 
-// populateAccountSeqIDs assigns deterministic AccountSeqIDs to every group and
-// policy in the account so that the component encoder can reference them. The
-// scalableTestAccount fixture builds entities by struct literal and skips this
-// step, but production paths populate the IDs via the store layer.
-func populateAccountSeqIDs(account *types.Account) {
-	var nextGroupSeq uint32 = 1
-	for _, g := range account.Groups {
-		g.AccountSeqID = nextGroupSeq
-		nextGroupSeq++
-	}
-	var nextPolicySeq uint32 = 1
-	for _, p := range account.Policies {
-		p.AccountSeqID = nextPolicySeq
-		nextPolicySeq++
-	}
-}
-
 // assignValidWgKeys overwrites every peer's Key with a valid base64-encoded
 // 32-byte string. The default scalableTestAccount uses unparsable strings
 // like "key-peer-0", which makes the components encoder emit a nil WgPubKey
@@ -64,7 +47,7 @@ func BenchmarkNetworkMapWireEncode(b *testing.B) {
 
 	for _, scale := range wireBenchScales {
 		account, validatedPeers := scalableTestAccount(scale.peers, scale.groups)
-		populateAccountSeqIDs(account)
+		// populateAccountSeqIDs(account)
 		assignValidWgKeys(account)
 
 		ctx := context.Background()
@@ -135,7 +118,7 @@ func BenchmarkNetworkMapWireSize(b *testing.B) {
 
 	for _, scale := range wireBenchScales {
 		account, validatedPeers := scalableTestAccount(scale.peers, scale.groups)
-		populateAccountSeqIDs(account)
+		// populateAccountSeqIDs(account)
 		assignValidWgKeys(account)
 
 		ctx := context.Background()

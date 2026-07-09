@@ -3179,7 +3179,7 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 			}
 		}
 		require.NotNil(t, newJWTGroup, "JIT-created JWT group not found")
-		assert.NotZero(t, newJWTGroup.AccountSeqID, "JIT-created JWT group must have a non-zero AccountSeqID")
+		assert.NotEqual(t, "", newJWTGroup.PublicID, "JIT-created JWT group must have a non-empty PublicID")
 	})
 
 	t.Run("remove all JWT groups when list is empty", func(t *testing.T) {

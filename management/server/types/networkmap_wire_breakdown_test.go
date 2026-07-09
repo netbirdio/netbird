@@ -30,7 +30,6 @@ func TestNetworkMapWireBreakdown(t *testing.T) {
 
 	const peerCount, groupCount = 5000, 100
 	account, validatedPeers := scalableTestAccount(peerCount, groupCount)
-	populateAccountSeqIDs(account)
 	assignValidWgKeys(account)
 
 	ctx := context.Background()

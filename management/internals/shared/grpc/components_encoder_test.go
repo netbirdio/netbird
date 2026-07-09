@@ -197,14 +197,14 @@ func newTestComponents() *types.NetworkMapComponents {
 			"peer-c": peerC,
 		},
 		Groups: map[string]*types.Group{
-			"group-src": {ID: "group-src", AccountSeqID: 1, Name: "Src", Peers: []string{"peer-a"}},
-			"group-dst": {ID: "group-dst", AccountSeqID: 2, Name: "Dst", Peers: []string{"peer-b", "peer-c"}},
+			"group-src": {ID: "group-src", PublicID: "1", Name: "Src", Peers: []string{"peer-a"}},
+			"group-dst": {ID: "group-dst", PublicID: "2", Name: "Dst", Peers: []string{"peer-b", "peer-c"}},
 		},
 		Policies: []*types.Policy{
 			{
-				ID:           "pol-1",
-				AccountSeqID: 10,
-				Enabled:      true,
+				ID:       "pol-1",
+				PublicID: "10",
+				Enabled:  true,
 				Rules: []*types.PolicyRule{{
 					ID: "rule-1", Enabled: true, Action: types.PolicyTrafficActionAccept,
 					Protocol: types.PolicyRuleProtocolTCP, Bidirectional: true,
@@ -291,23 +291,23 @@ func TestEncodeNetworkMapEnvelope_ConcurrentEncodesEquivalent(t *testing.T) {
 	}
 }
 
-func TestEncodeNetworkMapEnvelope_GroupsByAccountSeqID(t *testing.T) {
+func TestEncodeNetworkMapEnvelope_GroupsByAccountPublicId(t *testing.T) {
 	c := newTestComponents()
 
 	full := EncodeNetworkMapEnvelope(ComponentsEnvelopeInput{Components: c}).GetFull()
 
 	require.Len(t, full.Groups, 2)
 
-	groupByID := map[int32]*proto.GroupCompact{}
+	groupByID := map[string]*proto.GroupCompact{}
 	for _, g := range full.Groups {
 		groupByID[g.Id] = g
 	}
-	require.Contains(t, groupByID, int32(1))
-	require.Contains(t, groupByID, int32(2))
-	assert.Equal(t, "Src", groupByID[1].Name)
-	assert.Equal(t, "Dst", groupByID[2].Name)
-	assert.Len(t, groupByID[1].PeerIndexes, 1)
-	assert.Len(t, groupByID[2].PeerIndexes, 2)
+	require.Contains(t, groupByID, "1")
+	require.Contains(t, groupByID, "2")
+	assert.Equal(t, "Src", groupByID["1"].Name)
+	assert.Equal(t, "Dst", groupByID["2"].Name)
+	assert.Len(t, groupByID["1"].PeerIndexes, 1)
+	assert.Len(t, groupByID["2"].PeerIndexes, 2)
 }
 
 func TestEncodeNetworkMapEnvelope_PolicyExpansion(t *testing.T) {
@@ -317,7 +317,7 @@ func TestEncodeNetworkMapEnvelope_PolicyExpansion(t *testing.T) {
 
 	require.Len(t, full.Policies, 1)
 	pc := full.Policies[0]
-	assert.EqualValues(t, 10, pc.Id)
+	assert.EqualValues(t, "10", pc.Id)
 	assert.Equal(t, proto.RuleAction_ACCEPT, pc.Action)
 	assert.Equal(t, proto.RuleProtocol_TCP, pc.Protocol)
 	assert.True(t, pc.Bidirectional)
@@ -325,8 +325,8 @@ func TestEncodeNetworkMapEnvelope_PolicyExpansion(t *testing.T) {
 	require.Len(t, pc.PortRanges, 1)
 	assert.EqualValues(t, 8000, pc.PortRanges[0].Start)
 	assert.EqualValues(t, 8100, pc.PortRanges[0].End)
-	assert.Equal(t, []int32{1}, pc.SourceGroupIds)
-	assert.Equal(t, []int32{2}, pc.DestinationGroupIds)
+	assert.Equal(t, []string{"1"}, pc.SourceGroupIds)
+	assert.Equal(t, []string{"2"}, pc.DestinationGroupIds)
 }
 
 func TestEncodeNetworkMapEnvelope_RouterIndexes(t *testing.T) {
@@ -347,21 +347,6 @@ func TestEncodeNetworkMapEnvelope_DisabledPolicySkipped(t *testing.T) {
 	full := EncodeNetworkMapEnvelope(ComponentsEnvelopeInput{Components: c}).GetFull()
 
 	assert.Empty(t, full.Policies)
-}
-
-func TestEncodeNetworkMapEnvelope_GroupZeroSeqIDSkipped(t *testing.T) {
-	c := newTestComponents()
-	c.Groups["group-src"].AccountSeqID = 0
-
-	full := EncodeNetworkMapEnvelope(ComponentsEnvelopeInput{Components: c}).GetFull()
-
-	require.Len(t, full.Groups, 1, "groups with AccountSeqID=0 are not yet persisted and must be skipped")
-	assert.EqualValues(t, 2, full.Groups[0].Id)
-
-	require.Len(t, full.Policies, 1)
-	pc := full.Policies[0]
-	assert.Empty(t, pc.SourceGroupIds, "rule references a group that was filtered out → no group id on wire")
-	assert.Equal(t, []int32{2}, pc.DestinationGroupIds)
 }
 
 func TestEncodeNetworkMapEnvelope_TwoPeersSameMalformedKey(t *testing.T) {
@@ -496,7 +481,7 @@ func TestEncodeNetworkMapEnvelope_RoutesRoundTrip(t *testing.T) {
 	c.Routes = []*nbroute.Route{
 		{
 			ID:                  "route-peer",
-			AccountSeqID:        100,
+			PublicID:            "100",
 			NetID:               "net-A",
 			Description:         "via peer-c",
 			Network:             netip.MustParsePrefix("10.0.0.0/16"),
@@ -506,24 +491,18 @@ func TestEncodeNetworkMapEnvelope_RoutesRoundTrip(t *testing.T) {
 			Enabled:             true,
 		},
 		{
-			ID:           "route-peergroup",
-			AccountSeqID: 101,
-			NetID:        "net-B",
-			Network:      netip.MustParsePrefix("10.1.0.0/16"),
-			PeerGroups:   []string{"group-src", "group-dst"},
-			Enabled:      true,
-		},
-		{
-			ID:           "route-no-seq",
-			AccountSeqID: 0, // unset — should still ship (no group seq filter on routes)
-			Network:      netip.MustParsePrefix("10.2.0.0/16"),
-			Enabled:      true,
+			ID:         "route-peergroup",
+			PublicID:   "101",
+			NetID:      "net-B",
+			Network:    netip.MustParsePrefix("10.1.0.0/16"),
+			PeerGroups: []string{"group-src", "group-dst"},
+			Enabled:    true,
 		},
 	}
 
 	full := EncodeNetworkMapEnvelope(ComponentsEnvelopeInput{Components: c}).GetFull()
 
-	require.Len(t, full.Routes, 3)
+	require.Len(t, full.Routes, 2)
 	byNetID := map[string]*proto.RouteRaw{}
 	for _, r := range full.Routes {
 		byNetID[r.NetId] = r
@@ -534,24 +513,24 @@ func TestEncodeNetworkMapEnvelope_RoutesRoundTrip(t *testing.T) {
 	assert.True(t, r1.PeerIndexSet, "route with peer must set peer_index_set")
 	require.Less(t, int(r1.PeerIndex), len(full.Peers))
 	assert.Equal(t, "peerc", full.Peers[r1.PeerIndex].DnsLabel)
-	assert.Equal(t, []int32{1}, r1.GroupIds, "group-src has AccountSeqID 1")
-	assert.Equal(t, []int32{2}, r1.AccessControlGroupIds, "group-dst has AccountSeqID 2")
+	assert.Equal(t, []string{"1"}, r1.GroupIds, "group-src has AccountSeqID 1")
+	assert.Equal(t, []string{"2"}, r1.AccessControlGroupIds, "group-dst has AccountSeqID 2")
 	assert.Empty(t, r1.PeerGroupIds)
 
 	r2 := byNetID["net-B"]
 	require.NotNil(t, r2)
 	assert.False(t, r2.PeerIndexSet, "route with peer_groups must NOT set peer_index_set")
-	assert.ElementsMatch(t, []int32{1, 2}, r2.PeerGroupIds)
+	assert.ElementsMatch(t, []string{"1", "2"}, r2.PeerGroupIds)
 }
 
 func TestEncodeNetworkMapEnvelope_RouteWithMissingPeerLeavesIndexUnset(t *testing.T) {
 	c := newTestComponents()
 	c.Routes = []*nbroute.Route{{
-		ID:           "route-x",
-		AccountSeqID: 100,
-		Peer:         "peer-not-in-components",
-		Network:      netip.MustParsePrefix("10.0.0.0/16"),
-		Enabled:      true,
+		ID:       "route-x",
+		PublicID: "100",
+		Peer:     "peer-not-in-components",
+		Network:  netip.MustParsePrefix("10.0.0.0/16"),
+		Enabled:  true,
 	}}
 
 	full := EncodeNetworkMapEnvelope(ComponentsEnvelopeInput{Components: c}).GetFull()
@@ -567,7 +546,7 @@ func TestEncodeNetworkMapEnvelope_ResourceOnlyPolicyShippedAndIndexed(t *testing
 	// is the I1 case — without unionPolicies the encoder would silently
 	// drop it from the wire.
 	resourceOnlyPolicy := &types.Policy{
-		ID: "pol-resource", AccountSeqID: 99, Enabled: true,
+		ID: "pol-resource", PublicID: "99", Enabled: true,
 		Rules: []*types.PolicyRule{{
 			ID: "rule-r", Enabled: true, Action: types.PolicyTrafficActionAccept,
 			Protocol:     types.PolicyRuleProtocolTCP,
@@ -581,24 +560,24 @@ func TestEncodeNetworkMapEnvelope_ResourceOnlyPolicyShippedAndIndexed(t *testing
 	// Resource must appear in components.NetworkResources with a seq id —
 	// encoder uses that to translate the xid map key to uint32.
 	c.NetworkResources = []*resourceTypes.NetworkResource{
-		{ID: "resource-x", AccountSeqID: 77, Name: "res-x", Enabled: true},
+		{ID: "resource-x", PublicID: "77", Name: "res-x", Enabled: true},
 	}
 
 	full := EncodeNetworkMapEnvelope(ComponentsEnvelopeInput{Components: c}).GetFull()
 
 	require.Len(t, full.Policies, 2, "encoded policies must include both peer-traffic and resource-only")
 
-	policyByID := map[int32]*proto.PolicyCompact{}
-	policyIds := make([]int32, 0)
+	policyByID := map[string]*proto.PolicyCompact{}
+	policyIds := make([]string, 0)
 	for _, p := range full.Policies {
 		policyByID[p.Id] = p
 		policyIds = append(policyIds, p.Id)
 	}
-	require.Contains(t, policyByID, int32(10), "original peer-traffic policy id 10")
-	require.Contains(t, policyByID, int32(99), "resource-only policy id 99")
+	require.Contains(t, policyByID, "10", "original peer-traffic policy id 10")
+	require.Contains(t, policyByID, "99", "resource-only policy id 99")
 
-	require.Contains(t, full.ResourcePoliciesMap, int32(77))
-	ids := full.ResourcePoliciesMap[77].Ids
+	require.Contains(t, full.ResourcePoliciesMap, "77")
+	ids := full.ResourcePoliciesMap["77"].Ids
 	require.Len(t, ids, 2)
 	assert.ElementsMatch(t, policyIds, ids,
 		"resource policies map must reference both wire policy indexes")
@@ -607,7 +586,7 @@ func TestEncodeNetworkMapEnvelope_ResourceOnlyPolicyShippedAndIndexed(t *testing
 func TestEncodeNetworkMapEnvelope_NameServerGroups(t *testing.T) {
 	c := newTestComponents()
 	c.NameServerGroups = []*nbdns.NameServerGroup{{
-		ID: "nsg-1", AccountSeqID: 50, Name: "Main", Description: "primary",
+		ID: "nsg-1", PublicID: "50", Name: "Main", Description: "primary",
 		NameServers: []nbdns.NameServer{{
 			IP: netip.MustParseAddr("8.8.8.8"), NSType: nbdns.UDPNameServerType, Port: 53,
 		}},
@@ -615,23 +594,22 @@ func TestEncodeNetworkMapEnvelope_NameServerGroups(t *testing.T) {
 		Primary: true, Enabled: true,
 		Domains: []string{"corp.example"},
 	}}
-	c.Groups["group-not-persisted"] = &types.Group{ID: "group-not-persisted", AccountSeqID: 0, Peers: []string{}}
 
 	full := EncodeNetworkMapEnvelope(ComponentsEnvelopeInput{Components: c}).GetFull()
 
 	require.Len(t, full.NameserverGroups, 1)
 	nsg := full.NameserverGroups[0]
-	assert.EqualValues(t, 50, nsg.Id)
+	assert.EqualValues(t, "50", nsg.Id)
 	assert.Equal(t, "Main", nsg.Name)
 	assert.True(t, nsg.Primary)
 	require.Len(t, nsg.Nameservers, 1)
 	assert.Equal(t, "8.8.8.8", nsg.Nameservers[0].IP)
-	assert.Equal(t, []int32{1}, nsg.GroupIds, "group-not-persisted is filtered out (AccountSeqID=0)")
+	assert.Equal(t, []string{"1"}, nsg.GroupIds)
 }
 
 func TestEncodeNetworkMapEnvelope_PostureFailedPeers(t *testing.T) {
 	c := newTestComponents()
-	c.PostureCheckXIDToSeq = map[string]int32{"check-1": 33}
+	c.PostureCheckXIDToPublicID = map[string]string{"check-1": "33"}
 	c.PostureFailedPeers = map[string]map[string]struct{}{
 		"check-1": {
 			"peer-a":              {},
@@ -642,18 +620,18 @@ func TestEncodeNetworkMapEnvelope_PostureFailedPeers(t *testing.T) {
 
 	full := EncodeNetworkMapEnvelope(ComponentsEnvelopeInput{Components: c}).GetFull()
 
-	require.Contains(t, full.PostureFailedPeers, int32(33))
-	idxs := full.PostureFailedPeers[33].PeerIndexes
+	require.Contains(t, full.PostureFailedPeers, "33")
+	idxs := full.PostureFailedPeers["33"].PeerIndexes
 	assert.Len(t, idxs, 2, "missing peer is silently dropped (filterPostureFailedPeers guarantees presence in real data)")
 }
 
 func TestEncodeNetworkMapEnvelope_RoutersMap(t *testing.T) {
 	c := newTestComponents()
-	c.NetworkXIDToSeq = map[string]int32{"net-1": 5}
+	c.NetworkXIDToPublicID = map[string]string{"net-1": "5"}
 	c.RoutersMap = map[string]map[string]*routerTypes.NetworkRouter{
 		"net-1": {
 			"peer-c": {
-				ID: "router-1", AccountSeqID: 200,
+				ID: "router-1", PublicID: "200",
 				Peer: "peer-c", Masquerade: true, Metric: 10, Enabled: true,
 			},
 		},
@@ -661,11 +639,11 @@ func TestEncodeNetworkMapEnvelope_RoutersMap(t *testing.T) {
 
 	full := EncodeNetworkMapEnvelope(ComponentsEnvelopeInput{Components: c}).GetFull()
 
-	require.Contains(t, full.RoutersMap, int32(5))
-	entries := full.RoutersMap[5].Entries
+	require.Contains(t, full.RoutersMap, "5")
+	entries := full.RoutersMap["5"].Entries
 	require.Len(t, entries, 1)
 	e := entries[0]
-	assert.EqualValues(t, 200, e.Id)
+	assert.EqualValues(t, "200", e.Id)
 	assert.True(t, e.PeerIndexSet)
 	require.Less(t, int(e.PeerIndex), len(full.Peers))
 	assert.Equal(t, "peerc", full.Peers[e.PeerIndex].DnsLabel)
@@ -685,47 +663,31 @@ func TestEncodeNetworkMapEnvelope_RouterPeerNotInComponentsPeers(t *testing.T) {
 		DNSLabel: "peerc", Meta: nbpeer.PeerSystemMeta{WtVersion: "0.40.0"},
 	}
 	c.RouterPeers = map[string]*nbpeer.Peer{"peer-c": routerPeer}
-	c.NetworkXIDToSeq = map[string]int32{"net-1": 5}
+	c.NetworkXIDToPublicID = map[string]string{"net-1": "5"}
 	c.RoutersMap = map[string]map[string]*routerTypes.NetworkRouter{
-		"net-1": {"peer-c": {ID: "r-1", AccountSeqID: 1, Peer: "peer-c", Enabled: true}},
+		"net-1": {"peer-c": {ID: "r-1", PublicID: "1", Peer: "peer-c", Enabled: true}},
 	}
 
 	full := EncodeNetworkMapEnvelope(ComponentsEnvelopeInput{Components: c}).GetFull()
 
-	require.Contains(t, full.RoutersMap, int32(5))
-	require.Len(t, full.RoutersMap[5].Entries, 1)
-	e := full.RoutersMap[5].Entries[0]
+	require.Contains(t, full.RoutersMap, "5")
+	require.Len(t, full.RoutersMap["5"].Entries, 1)
+	e := full.RoutersMap["5"].Entries[0]
 	assert.True(t, e.PeerIndexSet, "router peer must be indexed even when not in c.Peers")
-}
-
-func TestEncodeNetworkMapEnvelope_DNSSettingsFiltersUnpersistedGroups(t *testing.T) {
-	c := newTestComponents()
-	c.DNSSettings = &types.DNSSettings{
-		DisabledManagementGroups: []string{"group-src", "group-missing", "group-no-seq"},
-	}
-	c.Groups["group-no-seq"] = &types.Group{ID: "group-no-seq", AccountSeqID: 0}
-
-	full := EncodeNetworkMapEnvelope(ComponentsEnvelopeInput{Components: c}).GetFull()
-
-	require.NotNil(t, full.DnsSettings)
-	assert.Equal(t, []int32{1}, full.DnsSettings.DisabledManagementGroupIds,
-		"only group-src (AccountSeqID=1) survives — missing and unpersisted are dropped")
 }
 
 func TestEncodeNetworkMapEnvelope_GroupIDToUserIDs(t *testing.T) {
 	c := newTestComponents()
 	c.GroupIDToUserIDs = map[string][]string{
 		"group-src":     {"user-1", "user-2"},
-		"group-no-seq":  {"user-3"}, // group not persisted → drop
 		"group-missing": {"user-4"}, // group not in components → drop
 	}
-	c.Groups["group-no-seq"] = &types.Group{ID: "group-no-seq", AccountSeqID: 0}
 
 	full := EncodeNetworkMapEnvelope(ComponentsEnvelopeInput{Components: c}).GetFull()
 
-	require.Len(t, full.GroupIdToUserIds, 1, "only persisted+present groups survive")
-	require.Contains(t, full.GroupIdToUserIds, int32(1))
-	assert.ElementsMatch(t, []string{"user-1", "user-2"}, full.GroupIdToUserIds[1].UserIds)
+	require.Len(t, full.GroupIdToUserIds, 1, "only present groups survive")
+	require.Contains(t, full.GroupIdToUserIds, "1")
+	assert.ElementsMatch(t, []string{"user-1", "user-2"}, full.GroupIdToUserIds["1"].UserIds)
 }
 
 func TestToProxyPatch_EmptyInputReturnsNil(t *testing.T) {

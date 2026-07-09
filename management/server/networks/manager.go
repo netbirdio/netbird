@@ -16,7 +16,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
-	serverTypes "github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -73,11 +72,7 @@ func (m *managerImpl) CreateNetwork(ctx context.Context, userID string, network 
 	network.ID = xid.New().String()
 
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		seq, err := transaction.AllocateAccountSeqID(ctx, network.AccountID, serverTypes.AccountSeqEntityNetwork)
-		if err != nil {
-			return fmt.Errorf("failed to allocate network seq id: %w", err)
-		}
-		network.AccountSeqID = seq
+		network.PublicID = xid.New().String()
 
 		if err := transaction.SaveNetwork(ctx, network); err != nil {
 			return fmt.Errorf("failed to save network: %w", err)
@@ -119,7 +114,7 @@ func (m *managerImpl) UpdateNetwork(ctx context.Context, userID string, network 
 		if err != nil {
 			return fmt.Errorf("failed to get network: %w", err)
 		}
-		network.AccountSeqID = existing.AccountSeqID
+		network.PublicID = existing.PublicID
 
 		if err := transaction.SaveNetwork(ctx, network); err != nil {
 			return fmt.Errorf("failed to save network: %w", err)
