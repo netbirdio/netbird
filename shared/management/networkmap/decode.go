@@ -22,21 +22,11 @@ import (
 
 // DecodeEnvelope converts a NetworkMapEnvelope into a NetworkMapComponents
 // the client can run Calculate() over. Every ID-reference on the wire is a
-// uint32 (peer index or account_seq_id) — no xid strings travel. The decoder
-// synthesises consistent string IDs from the uint32s so the reconstructed
-// components struct round-trips through Calculate exactly the way the
-// server-side typed components would.
+// xid from corresponding public_id field.
 //
 // ID scheme on the client side:
 //
 //	Peers              base64(wg_pub_key)          // stable across snapshots
-//	Groups             "g_<account_seq_id>"
-//	Policies           "pol_<account_seq_id>"      // 1 rule per policy
-//	Routes             "r_<account_seq_id>"
-//	Network resources  "nres_<account_seq_id>"
-//	Posture checks     "pc_<account_seq_id>"
-//	Networks           "net_<account_seq_id>"
-//	Nameserver groups  "nsg_<account_seq_id>"
 func DecodeEnvelope(env *proto.NetworkMapEnvelope) (*types.NetworkMapComponents, error) {
 	if env == nil {
 		return nil, fmt.Errorf("nil envelope")

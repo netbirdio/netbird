@@ -643,9 +643,9 @@ func (s *SqlStore) SaveUser(ctx context.Context, user *types.User) error {
 
 // CreateGroups creates the given list of groups to the database.
 // groupUpsertColumns is the explicit allowlist of columns that get updated when
-// CreateGroups / UpdateGroups hit a PK conflict. account_seq_id is intentionally
+// CreateGroups / UpdateGroups hit a PK conflict. public_id is intentionally
 // omitted so a caller passing an entity with the zero value (e.g. an HTTP
-// handler-built struct) cannot reset the persisted seq id during an upsert.
+// handler-built struct) cannot reset the persisted public_id during an upsert.
 // Keep this in sync with the Group schema in management/server/types/group.go.
 func groupUpsertColumns() clause.Set {
 	return clause.AssignmentColumns([]string{
@@ -2045,7 +2045,7 @@ func (s *SqlStore) getUsers(ctx context.Context, accountID string) ([]types.User
 }
 
 func (s *SqlStore) getGroups(ctx context.Context, accountID string) ([]*types.Group, error) {
-	const query = `SELECT id, account_id, account_seq_id, name, issued, resources, integration_ref_id, integration_ref_integration_type FROM groups WHERE account_id = $1`
+	const query = `SELECT id, account_id, public_id, name, issued, resources, integration_ref_id, integration_ref_integration_type FROM groups WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
@@ -2080,7 +2080,7 @@ func (s *SqlStore) getGroups(ctx context.Context, accountID string) ([]*types.Gr
 }
 
 func (s *SqlStore) getPolicies(ctx context.Context, accountID string) ([]*types.Policy, error) {
-	const query = `SELECT id, account_id, account_seq_id, name, description, enabled, source_posture_checks FROM policies WHERE account_id = $1`
+	const query = `SELECT id, account_id, public_id, name, description, enabled, source_posture_checks FROM policies WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
@@ -2107,7 +2107,7 @@ func (s *SqlStore) getPolicies(ctx context.Context, accountID string) ([]*types.
 }
 
 func (s *SqlStore) getRoutes(ctx context.Context, accountID string) ([]route.Route, error) {
-	const query = `SELECT id, account_id, account_seq_id, network, domains, keep_route, net_id, description, peer, peer_groups, network_type, masquerade, metric, enabled, groups, access_control_groups, skip_auto_apply FROM routes WHERE account_id = $1`
+	const query = `SELECT id, account_id, public_id, network, domains, keep_route, net_id, description, peer, peer_groups, network_type, masquerade, metric, enabled, groups, access_control_groups, skip_auto_apply FROM routes WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
@@ -2159,7 +2159,7 @@ func (s *SqlStore) getRoutes(ctx context.Context, accountID string) ([]route.Rou
 }
 
 func (s *SqlStore) getNameServerGroups(ctx context.Context, accountID string) ([]nbdns.NameServerGroup, error) {
-	const query = `SELECT id, account_id, account_seq_id, name, description, name_servers, groups, "primary", domains, enabled, search_domains_enabled FROM name_server_groups WHERE account_id = $1`
+	const query = `SELECT id, account_id, public_id, name, description, name_servers, groups, "primary", domains, enabled, search_domains_enabled FROM name_server_groups WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
@@ -2204,7 +2204,7 @@ func (s *SqlStore) getNameServerGroups(ctx context.Context, accountID string) ([
 }
 
 func (s *SqlStore) getPostureChecks(ctx context.Context, accountID string) ([]*posture.Checks, error) {
-	const query = `SELECT id, account_id, account_seq_id, name, description, checks FROM posture_checks WHERE account_id = $1`
+	const query = `SELECT id, account_id, public_id, name, description, checks FROM posture_checks WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
@@ -2392,7 +2392,7 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpserv
 }
 
 func (s *SqlStore) getNetworks(ctx context.Context, accountID string) ([]*networkTypes.Network, error) {
-	const query = `SELECT id, account_id, account_seq_id, name, description FROM networks WHERE account_id = $1`
+	const query = `SELECT id, account_id, public_id, name, description FROM networks WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
@@ -2409,7 +2409,7 @@ func (s *SqlStore) getNetworks(ctx context.Context, accountID string) ([]*networ
 }
 
 func (s *SqlStore) getNetworkRouters(ctx context.Context, accountID string) ([]*routerTypes.NetworkRouter, error) {
-	const query = `SELECT id, network_id, account_id, account_seq_id, peer, peer_groups, masquerade, metric, enabled FROM network_routers WHERE account_id = $1`
+	const query = `SELECT id, network_id, account_id, public_id, peer, peer_groups, masquerade, metric, enabled FROM network_routers WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
@@ -2447,7 +2447,7 @@ func (s *SqlStore) getNetworkRouters(ctx context.Context, accountID string) ([]*
 }
 
 func (s *SqlStore) getNetworkResources(ctx context.Context, accountID string) ([]*resourceTypes.NetworkResource, error) {
-	const query = `SELECT id, network_id, account_id, account_seq_id, name, description, type, domain, prefix, enabled FROM network_resources WHERE account_id = $1`
+	const query = `SELECT id, network_id, account_id, public_id, name, description, type, domain, prefix, enabled FROM network_resources WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
@@ -3818,7 +3818,7 @@ func (s *SqlStore) UpdateGroup(ctx context.Context, group *types.Group) error {
 		return status.Errorf(status.InvalidArgument, "group is nil")
 	}
 
-	if err := s.db.Omit(clause.Associations, "account_seq_id").Save(group).Error; err != nil {
+	if err := s.db.Omit(clause.Associations, "public_id").Save(group).Error; err != nil {
 		log.WithContext(ctx).Errorf("failed to save group to store: %v", err)
 		return status.Errorf(status.Internal, "failed to save group to store")
 	}
@@ -3906,7 +3906,7 @@ func (s *SqlStore) CreatePolicy(ctx context.Context, policy *types.Policy) error
 
 // SavePolicy saves a policy to the database.
 func (s *SqlStore) SavePolicy(ctx context.Context, policy *types.Policy) error {
-	result := s.db.Session(&gorm.Session{FullSaveAssociations: true}).Omit("account_seq_id").Save(policy)
+	result := s.db.Session(&gorm.Session{FullSaveAssociations: true}).Omit("public_id").Save(policy)
 	if err := result.Error; err != nil {
 		log.WithContext(ctx).Errorf("failed to save policy to the store: %s", err)
 		return status.Errorf(status.Internal, "failed to save policy to store")
