@@ -483,18 +483,6 @@ func decodeCustomZones(zones []*proto.CustomZone) []nbdns.CustomZone {
 	return out
 }
 
-// Synthetic ID generators — deterministic given the same wire input.
-// Underscore-separated ("p_<n>", "pol_<n>", ...) so they're visually
-// distinct in operator logs. fmt.Sprintf would dominate the decode hot path
-// on large accounts (a 10k-peer envelope produces ~50k synth calls); the
-// strconv.AppendUint builder keeps it allocation-light.
-func synthID(prefix string, n uint32) string {
-	buf := make([]byte, 0, len(prefix)+10)
-	buf = append(buf, prefix...)
-	buf = strconv.AppendUint(buf, uint64(n), 10)
-	return string(buf)
-}
-
 func uint32SliceToStrings(ports []uint32) []string {
 	if len(ports) == 0 {
 		return nil
@@ -545,13 +533,6 @@ func protocolFromProto(p proto.RuleProtocol) types.PolicyRuleProtocolType {
 	default:
 		return types.PolicyRuleProtocolALL
 	}
-}
-
-func lookupAgentVersion(table []string, idx uint32) string {
-	if int(idx) < len(table) {
-		return table[idx]
-	}
-	return ""
 }
 
 func stringSliceToSet(s []string) map[string]struct{} {
