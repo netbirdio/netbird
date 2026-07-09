@@ -69,7 +69,7 @@ func DecodeEnvelope(env *proto.NetworkMapEnvelope) (*types.NetworkMapComponents,
 
 	if full.DnsSettings != nil {
 		c.DNSSettings = &types.DNSSettings{
-			DisabledManagementGroups: groupIDsFromSeqs(full.DnsSettings.DisabledManagementGroupIds),
+			DisabledManagementGroups: full.DnsSettings.DisabledManagementGroupIds,
 		}
 	} else {
 		c.DNSSettings = &types.DNSSettings{}
@@ -100,37 +100,38 @@ func DecodeEnvelope(env *proto.NetworkMapEnvelope) (*types.NetworkMapComponents,
 		peerIDByIndex[idx] = peerID
 	}
 
-	// Phase 2: groups. AccountSeqID becomes both the synthesized string ID
-	// and the GroupCompact.id wire value.
+	// Phase 2: groups.
 	for i, gc := range full.Groups {
 		if gc == nil {
 			return nil, fmt.Errorf("invalid envelope: groups[%d] is nil", i)
 		}
-		groupID := synthGroupID(gc.Id)
+		groupID := gc.Id
 		peerIDs := make([]string, 0, len(gc.PeerIndexes))
 		for _, idx := range gc.PeerIndexes {
 			if int(idx) < len(peerIDByIndex) {
 				peerIDs = append(peerIDs, peerIDByIndex[idx])
+			} else {
+				log.WithField("peer idx", idx).Error("unrecognized peer idx during decoding")
 			}
 		}
 		c.Groups[groupID] = &types.Group{
-			ID:           groupID,
-			AccountSeqID: gc.Id,
-			Name:         gc.Name,
-			Peers:        peerIDs,
+			ID:       groupID,
+			PublicID: gc.Id,
+			Name:     gc.Name,
+			Peers:    peerIDs,
 		}
 	}
 
 	// Phase 3: policies (PolicyCompact = one rule per entry; current data
-	// model is 1 rule per policy). Policy.ID is synthesized from the
-	// per-account seq id; proto.FirewallRule.PolicyID downstream carries
-	// the same synth string (no xid on the wire).
+	// model is 1 rule per policy).
+	policyByID := make(map[string]*types.Policy, len(full.Policies))
 	for i, pc := range full.Policies {
 		if pc == nil {
 			return nil, fmt.Errorf("invalid envelope: policies[%d] is nil", i)
 		}
-		policyID := synthPolicyID(pc.Id)
-		c.Policies = append(c.Policies, decodePolicyCompact(pc, policyID, peerIDByIndex))
+		policy := decodePolicyCompact(pc, pc.Id, peerIDByIndex)
+		c.Policies = append(c.Policies, policy)
+		policyByID[pc.Id] = policy
 	}
 
 	// Phase 4: routes.
@@ -159,26 +160,26 @@ func DecodeEnvelope(env *proto.NetworkMapEnvelope) (*types.NetworkMapComponents,
 
 	// Phase 7: routers_map (outer key = network seq id, inner key = peer-id
 	// reconstructed from peer_index). Synthesized network id is "net_<seq>".
-	for networkSeq, list := range full.RoutersMap {
-		networkID := synthNetworkID(networkSeq)
+	for networkID, list := range full.RoutersMap {
 		inner := make(map[string]*routerTypes.NetworkRouter, len(list.Entries))
 		for _, entry := range list.Entries {
 			if !entry.PeerIndexSet {
 				continue
 			}
 			if int(entry.PeerIndex) >= len(peerIDByIndex) {
+				log.WithField("peer idx", entry.PeerIndex).Error("unrecognized peer id when decoding router map")
 				continue
 			}
 			peerID := peerIDByIndex[entry.PeerIndex]
 			inner[peerID] = &routerTypes.NetworkRouter{
-				ID:           "",
-				NetworkID:    networkID,
-				AccountSeqID: entry.Id,
-				Peer:         peerID,
-				PeerGroups:   groupIDsFromSeqs(entry.PeerGroupIds),
-				Masquerade:   entry.Masquerade,
-				Metric:       int(entry.Metric),
-				Enabled:      entry.Enabled,
+				ID:         "",
+				NetworkID:  networkID,
+				PublicID:   entry.Id,
+				Peer:       peerID,
+				PeerGroups: entry.PeerGroupIds,
+				Masquerade: entry.Masquerade,
+				Metric:     int(entry.Metric),
+				Enabled:    entry.Enabled,
 			}
 		}
 		if len(inner) > 0 {
@@ -189,15 +190,16 @@ func DecodeEnvelope(env *proto.NetworkMapEnvelope) (*types.NetworkMapComponents,
 	// Phase 8: resource_policies_map (resource seq id → list of *types.Policy
 	// pointers from the decoded policies slice). Resource ID is synthesized
 	// the same way as in decodeNetworkResource.
-	for resourceSeq, idxs := range full.ResourcePoliciesMap {
-		if len(idxs.Indexes) == 0 {
+	for resourceID, ids := range full.ResourcePoliciesMap {
+		if len(ids.Ids) == 0 {
 			continue
 		}
-		resourceID := synthNetworkResourceID(resourceSeq)
-		policies := make([]*types.Policy, 0, len(idxs.Indexes))
-		for _, i := range idxs.Indexes {
-			if int(i) < len(c.Policies) {
-				policies = append(policies, c.Policies[i])
+		policies := make([]*types.Policy, 0, len(ids.Ids))
+		for _, id := range ids.Ids {
+			if p, ok := policyByID[id]; ok {
+				policies = append(policies, p)
+			} else {
+				log.WithField("policy id", id).Error("unrecognized policy when decoding resource policies")
 			}
 		}
 		if len(policies) > 0 {
@@ -206,19 +208,20 @@ func DecodeEnvelope(env *proto.NetworkMapEnvelope) (*types.NetworkMapComponents,
 	}
 
 	// Phase 9: group_id_to_user_ids — wire keys are seq ids, synth to strings.
-	for groupSeq, list := range full.GroupIdToUserIds {
-		c.GroupIDToUserIDs[synthGroupID(groupSeq)] = append([]string(nil), list.UserIds...)
+	for groupId, list := range full.GroupIdToUserIds {
+		c.GroupIDToUserIDs[groupId] = append([]string(nil), list.UserIds...)
 	}
 
 	// Phase 10: posture_failed_peers — wire keys are posture-check seq ids,
 	// values are peer indexes that need to be turned into peer ids. PolicyRule
 	// SourcePostureChecks (also synth ids) reference the same key space.
-	for checkSeq, set := range full.PostureFailedPeers {
-		checkID := synthPostureCheckID(checkSeq)
+	for checkID, set := range full.PostureFailedPeers {
 		failed := make(map[string]struct{}, len(set.PeerIndexes))
 		for _, idx := range set.PeerIndexes {
 			if int(idx) < len(peerIDByIndex) {
 				failed[peerIDByIndex[idx]] = struct{}{}
+			} else {
+				log.WithField("peer idx", idx).Error("unrecognized peer when decoding posture failed peers")
 			}
 		}
 		if len(failed) > 0 {
@@ -287,7 +290,7 @@ func decodePeerCompact(pc *proto.PeerCompact, peerID string, agentVersions []str
 		DNSLabel:               pc.DnsLabel,
 		LoginExpirationEnabled: pc.LoginExpirationEnabled,
 		Meta: nbpeer.PeerSystemMeta{
-			WtVersion:    lookupAgentVersion(agentVersions, pc.AgentVersionIdx),
+			WtVersion:    pc.AgentVersion,
 			Capabilities: caps,
 			Flags: nbpeer.Flags{
 				ServerSSHAllowed: pc.ServerSshAllowed,
@@ -332,8 +335,8 @@ func decodePolicyCompact(pc *proto.PolicyCompact, policyID string, peerIDByIndex
 		Bidirectional:       pc.Bidirectional,
 		Ports:               uint32SliceToStrings(pc.Ports),
 		PortRanges:          portRangesFromProto(pc.PortRanges),
-		Sources:             groupIDsFromSeqs(pc.SourceGroupIds),
-		Destinations:        groupIDsFromSeqs(pc.DestinationGroupIds),
+		Sources:             pc.SourceGroupIds,
+		Destinations:        pc.DestinationGroupIds,
 		AuthorizedUser:      pc.AuthorizedUser,
 		AuthorizedGroups:    authorizedGroupsFromProto(pc.AuthorizedGroups),
 		SourceResource:      resourceFromProto(pc.SourceResource, peerIDByIndex),
@@ -341,10 +344,10 @@ func decodePolicyCompact(pc *proto.PolicyCompact, policyID string, peerIDByIndex
 	}
 	return &types.Policy{
 		ID:                  policyID,
-		AccountSeqID:        pc.Id,
+		PublicID:            pc.Id,
 		Enabled:             true,
 		Rules:               []*types.PolicyRule{rule},
-		SourcePostureChecks: postureCheckIDsFromSeqs(pc.SourcePostureCheckSeqIds),
+		SourcePostureChecks: pc.SourcePostureCheckIds,
 	}
 }
 
@@ -362,41 +365,28 @@ func resourceFromProto(r *proto.ResourceCompact, peerIDByIndex []string) types.R
 	return out
 }
 
-// postureCheckIDsFromSeqs synths posture-check ids from per-account seq ids.
-// Mirrors groupIDsFromSeqs.
-func postureCheckIDsFromSeqs(seqs []uint32) []string {
-	if len(seqs) == 0 {
-		return nil
-	}
-	out := make([]string, len(seqs))
-	for i, s := range seqs {
-		out[i] = synthPostureCheckID(s)
-	}
-	return out
-}
-
 // authorizedGroupsFromProto inverts encodeAuthorizedGroups: the wire form
 // keys by group account_seq_id, the typed PolicyRule field keys by group
 // xid string. We rebuild using the same synthetic scheme the rest of the
 // decoder uses ("g<seq>").
-func authorizedGroupsFromProto(m map[uint32]*proto.UserNameList) map[string][]string {
+func authorizedGroupsFromProto(m map[string]*proto.UserNameList) map[string][]string {
 	if len(m) == 0 {
 		return nil
 	}
 	out := make(map[string][]string, len(m))
-	for seq, list := range m {
+	for id, list := range m {
 		if list == nil {
 			continue
 		}
-		out[synthGroupID(seq)] = append([]string(nil), list.Names...)
+		out[id] = append([]string(nil), list.Names...)
 	}
 	return out
 }
 
 func decodeRouteRaw(rr *proto.RouteRaw, peerIDByIndex []string) *nbroute.Route {
 	r := &nbroute.Route{
-		ID:                  nbroute.ID(synthRouteID(rr.Id)),
-		AccountSeqID:        rr.Id,
+		ID:                  nbroute.ID(rr.Id),
+		PublicID:            rr.Id,
 		NetID:               nbroute.NetID(rr.NetId),
 		Description:         rr.Description,
 		Domains:             domainsFromPunycode(rr.Domains),
@@ -405,9 +395,9 @@ func decodeRouteRaw(rr *proto.RouteRaw, peerIDByIndex []string) *nbroute.Route {
 		Masquerade:          rr.Masquerade,
 		Metric:              int(rr.Metric),
 		Enabled:             rr.Enabled,
-		Groups:              groupIDsFromSeqs(rr.GroupIds),
-		AccessControlGroups: groupIDsFromSeqs(rr.AccessControlGroupIds),
-		PeerGroups:          groupIDsFromSeqs(rr.PeerGroupIds),
+		Groups:              rr.GroupIds,
+		AccessControlGroups: rr.AccessControlGroupIds,
+		PeerGroups:          rr.PeerGroupIds,
 		SkipAutoApply:       rr.SkipAutoApply,
 	}
 	if rr.NetworkCidr != "" {
@@ -423,11 +413,11 @@ func decodeRouteRaw(rr *proto.RouteRaw, peerIDByIndex []string) *nbroute.Route {
 
 func decodeNameServerGroupRaw(nsg *proto.NameServerGroupRaw) *nbdns.NameServerGroup {
 	out := &nbdns.NameServerGroup{
-		ID:                   synthNameServerGroupID(nsg.Id),
-		AccountSeqID:         nsg.Id,
+		ID:                   nsg.Id,
+		PublicID:             nsg.Id,
 		Name:                 nsg.Name,
 		Description:          nsg.Description,
-		Groups:               groupIDsFromSeqs(nsg.GroupIds),
+		Groups:               nsg.GroupIds,
 		Primary:              nsg.Primary,
 		Domains:              nsg.Domains,
 		Enabled:              nsg.Enabled,
@@ -448,15 +438,15 @@ func decodeNameServerGroupRaw(nsg *proto.NameServerGroupRaw) *nbdns.NameServerGr
 
 func decodeNetworkResource(nr *proto.NetworkResourceRaw) *resourceTypes.NetworkResource {
 	out := &resourceTypes.NetworkResource{
-		ID:           synthNetworkResourceID(nr.Id),
-		AccountSeqID: nr.Id,
-		NetworkID:    synthNetworkID(nr.NetworkSeq),
-		Name:         nr.Name,
-		Description:  nr.Description,
-		Type:         resourceTypes.NetworkResourceType(nr.Type),
-		Address:      nr.Address,
-		Domain:       nr.DomainValue,
-		Enabled:      nr.Enabled,
+		ID:          nr.Id,
+		PublicID:    nr.Id,
+		NetworkID:   nr.NetworkSeq,
+		Name:        nr.Name,
+		Description: nr.Description,
+		Type:        resourceTypes.NetworkResourceType(nr.Type),
+		Address:     nr.Address,
+		Domain:      nr.DomainValue,
+		Enabled:     nr.Enabled,
 	}
 	if nr.PrefixCidr != "" {
 		if p, err := netip.ParsePrefix(nr.PrefixCidr); err == nil {
@@ -503,25 +493,6 @@ func synthID(prefix string, n uint32) string {
 	buf = append(buf, prefix...)
 	buf = strconv.AppendUint(buf, uint64(n), 10)
 	return string(buf)
-}
-
-func synthGroupID(seq uint32) string           { return synthID("g_", seq) }
-func synthPolicyID(seq uint32) string          { return synthID("pol_", seq) }
-func synthRouteID(seq uint32) string           { return synthID("r_", seq) }
-func synthNetworkResourceID(seq uint32) string { return synthID("nres_", seq) }
-func synthPostureCheckID(seq uint32) string    { return synthID("pc_", seq) }
-func synthNetworkID(seq uint32) string         { return synthID("net_", seq) }
-func synthNameServerGroupID(seq uint32) string { return synthID("nsg_", seq) }
-
-func groupIDsFromSeqs(seqs []uint32) []string {
-	if len(seqs) == 0 {
-		return nil
-	}
-	out := make([]string, len(seqs))
-	for i, s := range seqs {
-		out[i] = synthGroupID(s)
-	}
-	return out
 }
 
 func uint32SliceToStrings(ports []uint32) []string {

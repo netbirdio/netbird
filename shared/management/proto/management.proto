@@ -1061,7 +1061,7 @@ message PolicyCompact {
   // reads them when filtering rule peers (peers that fail any listed check
   // are dropped from sourcePeers). Match keys in
   // NetworkMapComponentsFull.posture_failed_peers.
-  repeated string source_posture_check_seq_ids = 13;
+  repeated string source_posture_check_ids = 13;
 }
 
 // ResourceCompact mirrors types.Resource. Used by PolicyCompact to carry

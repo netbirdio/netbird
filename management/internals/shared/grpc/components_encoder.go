@@ -242,19 +242,19 @@ func (e *componentEncoder) encodePolicies(policies []*types.Policy) []*proto.Pol
 // encodePolicyRule maps a single PolicyRule under pol to a PolicyCompact entry.
 func (e *componentEncoder) encodePolicyRule(pol *types.Policy, r *types.PolicyRule) *proto.PolicyCompact {
 	return &proto.PolicyCompact{
-		Id:                       pol.PublicID,
-		Action:                   networkmap.GetProtoAction(string(r.Action)),
-		Protocol:                 networkmap.GetProtoProtocol(string(r.Protocol)),
-		Bidirectional:            r.Bidirectional,
-		Ports:                    portsToUint32(r.Ports),
-		PortRanges:               portRangesToProto(r.PortRanges),
-		SourceGroupIds:           e.groupPublicXids(r.Sources),
-		DestinationGroupIds:      e.groupPublicXids(r.Destinations),
-		AuthorizedUser:           r.AuthorizedUser,
-		AuthorizedGroups:         e.encodeAuthorizedGroups(r.AuthorizedGroups),
-		SourceResource:           e.resourceToProto(r.SourceResource),
-		DestinationResource:      e.resourceToProto(r.DestinationResource),
-		SourcePostureCheckSeqIds: e.postureCheckSeqs(pol.SourcePostureChecks),
+		Id:                    pol.PublicID,
+		Action:                networkmap.GetProtoAction(string(r.Action)),
+		Protocol:              networkmap.GetProtoProtocol(string(r.Protocol)),
+		Bidirectional:         r.Bidirectional,
+		Ports:                 portsToUint32(r.Ports),
+		PortRanges:            portRangesToProto(r.PortRanges),
+		SourceGroupIds:        e.groupPublicXids(r.Sources),
+		DestinationGroupIds:   e.groupPublicXids(r.Destinations),
+		AuthorizedUser:        r.AuthorizedUser,
+		AuthorizedGroups:      e.encodeAuthorizedGroups(r.AuthorizedGroups),
+		SourceResource:        e.resourceToProto(r.SourceResource),
+		DestinationResource:   e.resourceToProto(r.DestinationResource),
+		SourcePostureCheckIds: e.postureCheckSeqs(pol.SourcePostureChecks),
 	}
 }
 
