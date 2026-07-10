@@ -110,8 +110,7 @@ func BenchmarkToProtocolDNSConfig(b *testing.B) {
 		b.Run(fmt.Sprintf("WithoutCache-Size%d", size), func(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				cache := &cache.DNSConfigCache{}
-				networkmap.ToProtocolDNSConfig(testData, cache, int64(network_map.DnsForwarderPort))
+				networkmap.ToProtocolDNSConfig(testData, nil, int64(network_map.DnsForwarderPort))
 			}
 		})
 	}
