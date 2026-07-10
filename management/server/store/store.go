@@ -169,6 +169,15 @@ type Store interface {
 	GetAccountPeersWithExpiration(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbpeer.Peer, error)
 	GetAccountPeersWithInactivity(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbpeer.Peer, error)
 	GetAllEphemeralPeers(ctx context.Context, lockStrength LockingStrength) ([]*nbpeer.Peer, error)
+	// GetStaleEphemeralPeerIDsForAccount returns the IDs of disconnected
+	// ephemeral peers whose last_seen is strictly older than olderThan,
+	// scoped to a single account. Used by the per-account cleanup sweep.
+	GetStaleEphemeralPeerIDsForAccount(ctx context.Context, accountID string, olderThan time.Time) ([]string, error)
+	// GetEphemeralAccountsLastDisconnect returns, for every account that
+	// has at least one disconnected ephemeral peer, the most recent
+	// last_seen across that account's disconnected ephemeral peers. Used
+	// to reconstruct the per-account cleanup tracker after a restart.
+	GetEphemeralAccountsLastDisconnect(ctx context.Context) (map[string]time.Time, error)
 	SavePeer(ctx context.Context, accountID string, peer *nbpeer.Peer) error
 	SavePeerStatus(ctx context.Context, accountID, peerID string, status nbpeer.PeerStatus) error
 	// MarkPeerConnectedIfNewerSession sets the peer to connected with the

@@ -2,6 +2,7 @@ package manager
 
 import (
 	"context"
+	"math/rand"
 	"sync"
 	"time"
 
@@ -11,43 +12,75 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/telemetry"
-
 	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/management/server/telemetry"
 )
 
 const (
-	// cleanupWindow is the time window to wait after nearest peer deadline to start the cleanup procedure.
+	// cleanupWindow is the small grace period added on top of the
+	// staleness horizon before a sweep fires. It absorbs minor clock
+	// skew between the management server and the database and avoids
+	// firing a sweep right at the boundary where last_seen could still
+	// be one tick under the threshold.
 	cleanupWindow = 1 * time.Minute
+
+	// initialLoadMinDelay and initialLoadMaxDelay bracket the random
+	// delay applied before the post-restart catch-up query runs. Spread
+	// across replicas this prevents a thundering herd of catch-up
+	// queries hitting the database simultaneously after a deploy.
+	initialLoadMinDelay = 8 * time.Minute
+	initialLoadMaxDelay = 10 * time.Minute
 )
 
 var (
 	timeNow = time.Now
 )
 
-type ephemeralPeer struct {
-	id        string
-	accountID string
-	deadline  time.Time
-	next      *ephemeralPeer
+// accountEntry is the per-account state held by the cleanup tracker.
+// We don't track which peers are pending — the sweep query gets the
+// authoritative list straight from the database every time. We only
+// need to know the latest disconnect we've observed for this account
+// (so we can decide when it's safe to drop the entry) and the timer
+// that will fire the next sweep.
+type accountEntry struct {
+	lastDisconnectedAt time.Time
+	timer              *time.Timer
 }
 
-// todo: consider to remove peer from ephemeral list when the peer has been deleted via API. If we do not do it
-// in worst case we will get invalid error message in this manager.
-
-// EphemeralManager keep a list of ephemeral peers. After EphemeralLifeTime inactivity the peer will be deleted
-// automatically. Inactivity means the peer disconnected from the Management server.
+// EphemeralManager tracks accounts that may have ephemeral peers in
+// need of cleanup and runs a per-account sweep at the appropriate
+// time. State is in-memory and account-scoped: a sweep deletes any
+// ephemeral peer in the account that has been disconnected for at
+// least lifeTime, then either drops the account from the tracker
+// (when no recent disconnects have arrived) or re-arms the timer.
 type EphemeralManager struct {
 	store        store.Store
 	peersManager peers.Manager
 
-	headPeer  *ephemeralPeer
-	tailPeer  *ephemeralPeer
-	peersLock sync.Mutex
-	timer     *time.Timer
+	accountsLock sync.Mutex
+	accounts     map[string]*accountEntry
+
+	// initialLoadTimer is the one-shot timer used to defer the
+	// post-restart catch-up query; held so Stop() can cancel it.
+	initialLoadTimer *time.Timer
+	// stopped is flipped by Stop() so any timer that fires after
+	// teardown becomes a no-op instead of touching a half-dismantled
+	// store.
+	stopped bool
 
 	lifeTime      time.Duration
 	cleanupWindow time.Duration
+
+	// initialLoadDelay returns the wall-clock delay to wait before
+	// running the post-restart catch-up query. Pluggable so tests can
+	// fire the load immediately.
+	initialLoadDelay func() time.Duration
+
+	// bgCtx is the long-lived context captured at LoadInitialPeers
+	// time. Timer-driven sweeps use it because they fire long after
+	// the original gRPC handler ctx that produced an OnPeerDisconnected
+	// call has been cancelled.
+	bgCtx context.Context
 
 	// metrics is nil-safe; methods on telemetry.EphemeralPeersMetrics
 	// no-op when the receiver is nil so deployments without an app
@@ -58,228 +91,265 @@ type EphemeralManager struct {
 // NewEphemeralManager instantiate new EphemeralManager
 func NewEphemeralManager(store store.Store, peersManager peers.Manager) *EphemeralManager {
 	return &EphemeralManager{
-		store:        store,
-		peersManager: peersManager,
-
-		lifeTime:      ephemeral.EphemeralLifeTime,
-		cleanupWindow: cleanupWindow,
+		store:            store,
+		peersManager:     peersManager,
+		accounts:         make(map[string]*accountEntry),
+		lifeTime:         ephemeral.EphemeralLifeTime,
+		cleanupWindow:    cleanupWindow,
+		initialLoadDelay: defaultInitialLoadDelay,
 	}
 }
 
-// SetMetrics attaches a metrics collector. Safe to call once before
-// LoadInitialPeers; later attachment is fine but earlier loads won't be
-// reflected in the gauge. Pass nil to detach.
+// SetMetrics attaches a metrics collector. Pass nil to detach.
 func (e *EphemeralManager) SetMetrics(m *telemetry.EphemeralPeersMetrics) {
-	e.peersLock.Lock()
+	e.accountsLock.Lock()
 	e.metrics = m
-	e.peersLock.Unlock()
+	e.accountsLock.Unlock()
 }
 
-// LoadInitialPeers load from the database the ephemeral type of peers and schedule a cleanup procedure to the head
-// of the linked list (to the most deprecated peer). At the end of cleanup it schedules the next cleanup to the new
-// head.
+// LoadInitialPeers schedules the post-restart catch-up query for a
+// random moment 8-10 minutes from now. Returns immediately. The
+// catch-up populates the per-account tracker from the database so any
+// peers that disconnected before the restart still get cleaned up.
+//
+// The random delay is critical: without it, every management replica
+// hitting the same Postgres instance after a deploy would issue the
+// catch-up query simultaneously.
 func (e *EphemeralManager) LoadInitialPeers(ctx context.Context) {
-	e.peersLock.Lock()
-	defer e.peersLock.Unlock()
-
-	e.loadEphemeralPeers(ctx)
-	if e.headPeer != nil {
-		e.timer = time.AfterFunc(e.lifeTime, func() {
-			e.cleanup(ctx)
-		})
-	}
-}
-
-// Stop timer
-func (e *EphemeralManager) Stop() {
-	e.peersLock.Lock()
-	defer e.peersLock.Unlock()
-
-	if e.timer != nil {
-		e.timer.Stop()
-	}
-}
-
-// OnPeerConnected remove the peer from the linked list of ephemeral peers. Because it has been called when the peer
-// is active the manager will not delete it while it is active.
-func (e *EphemeralManager) OnPeerConnected(ctx context.Context, peer *nbpeer.Peer) {
-	if !peer.Ephemeral {
+	e.accountsLock.Lock()
+	defer e.accountsLock.Unlock()
+	if e.stopped {
 		return
 	}
 
-	log.WithContext(ctx).Tracef("remove peer from ephemeral list: %s", peer.ID)
+	e.bgCtx = ctx
 
-	e.peersLock.Lock()
-	defer e.peersLock.Unlock()
-
-	if e.removePeer(peer.ID) {
-		e.metrics.DecPending(1)
-	}
-
-	// stop the unnecessary timer
-	if e.headPeer == nil && e.timer != nil {
-		e.timer.Stop()
-		e.timer = nil
-	}
+	delay := e.initialLoadDelay()
+	log.WithContext(ctx).Infof("ephemeral peer initial load scheduled in %s", delay)
+	e.initialLoadTimer = time.AfterFunc(delay, func() {
+		e.loadInitialAccounts(e.bgCtx)
+	})
 }
 
-// OnPeerDisconnected add the peer to the linked list of ephemeral peers. Because of the peer
-// is inactive it will be deleted after the EphemeralLifeTime period.
+// Stop cancels the deferred initial load and any per-account timers.
+func (e *EphemeralManager) Stop() {
+	e.accountsLock.Lock()
+	defer e.accountsLock.Unlock()
+
+	e.stopped = true
+	if e.initialLoadTimer != nil {
+		e.initialLoadTimer.Stop()
+		e.initialLoadTimer = nil
+	}
+	for _, entry := range e.accounts {
+		if entry.timer != nil {
+			entry.timer.Stop()
+		}
+	}
+	e.accounts = make(map[string]*accountEntry)
+}
+
+// OnPeerConnected is a no-op in the account-scoped design. The sweep
+// query filters out connected peers at the database level, so we don't
+// need an explicit "remove from list" signal when a peer reconnects.
+// Kept on the interface to preserve the existing call sites.
+func (e *EphemeralManager) OnPeerConnected(_ context.Context, _ *nbpeer.Peer) {
+}
+
+// OnPeerDisconnected registers a disconnect for the peer's account and
+// arms a sweep if one isn't already scheduled. Non-ephemeral peers are
+// ignored.
 func (e *EphemeralManager) OnPeerDisconnected(ctx context.Context, peer *nbpeer.Peer) {
 	if !peer.Ephemeral {
 		return
 	}
 
-	log.WithContext(ctx).Tracef("add peer to ephemeral list: %s", peer.ID)
-
-	e.peersLock.Lock()
-	defer e.peersLock.Unlock()
-
-	if e.isPeerOnList(peer.ID) {
-		return
-	}
-
-	e.addPeer(peer.AccountID, peer.ID, e.newDeadLine())
-	e.metrics.IncPending()
-	if e.timer == nil {
-		delay := e.headPeer.deadline.Sub(timeNow()) + e.cleanupWindow
-		if delay < 0 {
-			delay = 0
-		}
-		e.timer = time.AfterFunc(delay, func() {
-			e.cleanup(ctx)
-		})
-	}
-}
-
-func (e *EphemeralManager) loadEphemeralPeers(ctx context.Context) {
-	peers, err := e.store.GetAllEphemeralPeers(ctx, store.LockingStrengthNone)
-	if err != nil {
-		log.WithContext(ctx).Debugf("failed to load ephemeral peers: %s", err)
-		return
-	}
-
-	t := e.newDeadLine()
-	for _, p := range peers {
-		e.addPeer(p.AccountID, p.ID, t)
-	}
-	e.metrics.AddPending(int64(len(peers)))
-
-	log.WithContext(ctx).Debugf("loaded ephemeral peer(s): %d", len(peers))
-}
-
-func (e *EphemeralManager) cleanup(ctx context.Context) {
-	log.Tracef("on ephemeral cleanup")
-	deletePeers := make(map[string]*ephemeralPeer)
-
-	e.peersLock.Lock()
 	now := timeNow()
-	for p := e.headPeer; p != nil; p = p.next {
-		if now.Before(p.deadline) {
-			break
-		}
 
-		deletePeers[p.id] = p
-		e.headPeer = p.next
-		if p.next == nil {
-			e.tailPeer = nil
-		}
+	e.accountsLock.Lock()
+	defer e.accountsLock.Unlock()
+	if e.stopped {
+		return
 	}
 
-	if e.headPeer != nil {
-		delay := e.headPeer.deadline.Sub(timeNow()) + e.cleanupWindow
-		if delay < 0 {
-			delay = 0
-		}
-		e.timer = time.AfterFunc(delay, func() {
-			e.cleanup(ctx)
+	entry, existed := e.accounts[peer.AccountID]
+	if !existed {
+		entry = &accountEntry{}
+		e.accounts[peer.AccountID] = entry
+		e.metrics.IncPending()
+	}
+	entry.lastDisconnectedAt = now
+
+	if entry.timer == nil {
+		delay := e.lifeTime + e.cleanupWindow
+		log.WithContext(ctx).Tracef("ephemeral: scheduling sweep for account %s in %s", peer.AccountID, delay)
+		accountID := peer.AccountID
+		entry.timer = time.AfterFunc(delay, func() {
+			e.sweep(e.bgCtxOrFallback(ctx), accountID)
 		})
-	} else {
-		e.timer = nil
+	}
+}
+
+// bgCtxOrFallback returns the long-lived background context captured at
+// LoadInitialPeers time, falling back to the supplied ctx when the
+// manager hasn't been started through LoadInitialPeers (e.g. in tests
+// that drive the manager directly). Must be called with the lock held
+// or before the timer is armed.
+func (e *EphemeralManager) bgCtxOrFallback(ctx context.Context) context.Context {
+	if e.bgCtx != nil {
+		return e.bgCtx
+	}
+	return ctx
+}
+
+// loadInitialAccounts runs the post-restart catch-up query and seeds
+// the tracker with one entry per account that has at least one
+// disconnected ephemeral peer.
+func (e *EphemeralManager) loadInitialAccounts(ctx context.Context) {
+	accounts, err := e.store.GetEphemeralAccountsLastDisconnect(ctx)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to load ephemeral accounts on startup: %v", err)
+		return
 	}
 
-	e.peersLock.Unlock()
+	now := timeNow()
+	added := 0
 
-	// Drop the gauge by the number of entries we just took off the list,
-	// regardless of whether the subsequent DeletePeers call succeeds. The
-	// list invariant is what the gauge tracks; failed delete batches are
-	// counted separately via CountCleanupError so we can still see them.
-	if len(deletePeers) > 0 {
-		e.metrics.CountCleanupRun()
-		e.metrics.DecPending(int64(len(deletePeers)))
+	e.accountsLock.Lock()
+	defer e.accountsLock.Unlock()
+	if e.stopped {
+		return
 	}
 
-	peerIDsPerAccount := make(map[string][]string)
-	for id, p := range deletePeers {
-		peerIDsPerAccount[p.accountID] = append(peerIDsPerAccount[p.accountID], id)
-	}
-
-	for accountID, peerIDs := range peerIDsPerAccount {
-		log.WithContext(ctx).Tracef("cleanup: deleting %d ephemeral peers for account %s", len(peerIDs), accountID)
-		err := e.peersManager.DeletePeers(ctx, accountID, peerIDs, activity.SystemInitiator, true)
-		if err != nil {
-			log.WithContext(ctx).Errorf("failed to delete ephemeral peers: %s", err)
-			e.metrics.CountCleanupError()
+	for accountID, lastDisc := range accounts {
+		// If we already learned about this account via an
+		// OnPeerDisconnected that arrived during the random delay
+		// window, prefer the live timestamp.
+		if _, alreadyTracked := e.accounts[accountID]; alreadyTracked {
 			continue
 		}
-		e.metrics.CountPeersCleaned(int64(len(peerIDs)))
-	}
-}
 
-func (e *EphemeralManager) addPeer(accountID string, peerID string, deadline time.Time) {
-	ep := &ephemeralPeer{
-		id:        peerID,
-		accountID: accountID,
-		deadline:  deadline,
-	}
+		entry := &accountEntry{lastDisconnectedAt: lastDisc}
+		horizon := lastDisc.Add(e.lifeTime)
 
-	if e.headPeer == nil {
-		e.headPeer = ep
-	}
-	if e.tailPeer != nil {
-		e.tailPeer.next = ep
-	}
-	e.tailPeer = ep
-}
-
-// removePeer drops the entry from the linked list. Returns true if a
-// matching entry was found and removed so callers can keep the pending
-// metric gauge in sync.
-func (e *EphemeralManager) removePeer(id string) bool {
-	if e.headPeer == nil {
-		return false
-	}
-
-	if e.headPeer.id == id {
-		e.headPeer = e.headPeer.next
-		if e.tailPeer.id == id {
-			e.tailPeer = nil
+		var delay time.Duration
+		if horizon.After(now) {
+			delay = horizon.Sub(now) + e.cleanupWindow
+		} else {
+			// Already past the staleness window — sweep right away
+			// (one cleanupWindow later, to keep startup load smooth
+			// when many accounts qualify at once).
+			delay = e.cleanupWindow
 		}
-		return true
+		idForClosure := accountID
+		entry.timer = time.AfterFunc(delay, func() {
+			e.sweep(ctx, idForClosure)
+		})
+		e.accounts[accountID] = entry
+		added++
 	}
 
-	for p := e.headPeer; p.next != nil; p = p.next {
-		if p.next.id == id {
-			// if we remove the last element from the chain then set the last-1 as tail
-			if e.tailPeer.id == id {
-				e.tailPeer = p
-			}
-			p.next = p.next.next
-			return true
-		}
-	}
-	return false
+	e.metrics.AddPending(int64(added))
+	log.WithContext(ctx).Debugf("ephemeral: loaded %d account(s) for cleanup tracking", added)
 }
 
-func (e *EphemeralManager) isPeerOnList(id string) bool {
-	for p := e.headPeer; p != nil; p = p.next {
-		if p.id == id {
-			return true
-		}
+// sweep runs the cleanup pass for a single account. It queries the
+// database for disconnected ephemeral peers that have crossed the
+// staleness window, deletes them via peers.Manager, and then decides
+// whether to drop the account from the tracker or re-arm the timer.
+func (e *EphemeralManager) sweep(ctx context.Context, accountID string) {
+	now := timeNow()
+
+	e.accountsLock.Lock()
+	entry, ok := e.accounts[accountID]
+	if !ok || e.stopped {
+		e.accountsLock.Unlock()
+		return
 	}
-	return false
+	lastDisc := entry.lastDisconnectedAt
+	entry.timer = nil
+	e.accountsLock.Unlock()
+
+	threshold := now.Add(-e.lifeTime)
+	stalePeerIDs, err := e.store.GetStaleEphemeralPeerIDsForAccount(ctx, accountID, threshold)
+	if err != nil {
+		log.WithContext(ctx).Errorf("ephemeral: failed to query stale peers for account %s: %v", accountID, err)
+		e.metrics.CountCleanupError()
+		e.rearm(ctx, accountID, e.cleanupWindow)
+		return
+	}
+
+	if len(stalePeerIDs) > 0 {
+		log.WithContext(ctx).Tracef("ephemeral: deleting %d peer(s) for account %s", len(stalePeerIDs), accountID)
+		if err := e.peersManager.DeletePeers(ctx, accountID, stalePeerIDs, activity.SystemInitiator, true); err != nil {
+			log.WithContext(ctx).Errorf("ephemeral: failed to delete peers for account %s: %v", accountID, err)
+			e.metrics.CountCleanupError()
+			e.rearm(ctx, accountID, e.cleanupWindow)
+			return
+		}
+		e.metrics.CountCleanupRun()
+		e.metrics.CountPeersCleaned(int64(len(stalePeerIDs)))
+	}
+
+	e.accountsLock.Lock()
+	defer e.accountsLock.Unlock()
+	if e.stopped {
+		return
+	}
+	entry, ok = e.accounts[accountID]
+	if !ok {
+		return
+	}
+
+	// Drop rule: if every disconnect we've observed has now crossed
+	// the staleness window, the sweep we just ran saw everything that
+	// could possibly need cleaning. Dropping is safe — a future
+	// disconnect will recreate the entry. The check uses the latest
+	// lastDisc, which may have advanced (concurrently with the sweep
+	// itself) due to a new OnPeerDisconnected, in which case we
+	// correctly re-arm.
+	horizon := entry.lastDisconnectedAt.Add(e.lifeTime)
+	if !horizon.After(now) {
+		delete(e.accounts, accountID)
+		e.metrics.DecPending(1)
+		log.WithContext(ctx).Tracef("ephemeral: dropping account %s (lastDisc=%s, horizon=%s, now=%s)",
+			accountID, lastDisc, horizon, now)
+		return
+	}
+
+	delay := horizon.Sub(now) + e.cleanupWindow
+	idForClosure := accountID
+	entry.timer = time.AfterFunc(delay, func() {
+		e.sweep(ctx, idForClosure)
+	})
 }
 
-func (e *EphemeralManager) newDeadLine() time.Time {
-	return timeNow().Add(e.lifeTime)
+// rearm reschedules a sweep `delay` from now. Used after a recoverable
+// error in the sweep path so the account doesn't get stuck.
+func (e *EphemeralManager) rearm(ctx context.Context, accountID string, delay time.Duration) {
+	e.accountsLock.Lock()
+	defer e.accountsLock.Unlock()
+	if e.stopped {
+		return
+	}
+	entry, ok := e.accounts[accountID]
+	if !ok {
+		return
+	}
+	idForClosure := accountID
+	entry.timer = time.AfterFunc(delay, func() {
+		e.sweep(ctx, idForClosure)
+	})
+}
+
+// defaultInitialLoadDelay returns a random duration in
+// [initialLoadMinDelay, initialLoadMaxDelay). Process-wide
+// math/rand is acceptable here — the delay is purely a smoothing
+// jitter, not a security primitive.
+func defaultInitialLoadDelay() time.Duration {
+	span := int64(initialLoadMaxDelay - initialLoadMinDelay)
+	if span <= 0 {
+		return initialLoadMinDelay
+	}
+	return initialLoadMinDelay + time.Duration(rand.Int63n(span))
 }

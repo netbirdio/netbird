@@ -3509,6 +3509,49 @@ func (s *SqlStore) GetAllEphemeralPeers(ctx context.Context, lockStrength Lockin
 	return allEphemeralPeers, nil
 }
 
+// GetStaleEphemeralPeerIDsForAccount returns IDs of disconnected
+// ephemeral peers in the given account whose last_seen is strictly
+// older than olderThan.
+func (s *SqlStore) GetStaleEphemeralPeerIDsForAccount(ctx context.Context, accountID string, olderThan time.Time) ([]string, error) {
+	var ids []string
+	err := s.db.WithContext(ctx).
+		Model(&nbpeer.Peer{}).
+		Where("account_id = ? AND ephemeral = ? AND peer_status_connected = ? AND peer_status_last_seen < ?",
+			accountID, true, false, olderThan).
+		Pluck("id", &ids).Error
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to query stale ephemeral peers for account %s: %v", accountID, err)
+		return nil, status.Errorf(status.Internal, "query stale ephemeral peers")
+	}
+	return ids, nil
+}
+
+// GetEphemeralAccountsLastDisconnect returns the latest peer_status_last_seen
+// per account across disconnected ephemeral peers. Returns one entry per
+// account that has at least one such peer.
+func (s *SqlStore) GetEphemeralAccountsLastDisconnect(ctx context.Context) (map[string]time.Time, error) {
+	type row struct {
+		AccountID string
+		LastSeen  time.Time
+	}
+	var rows []row
+	err := s.db.WithContext(ctx).
+		Model(&nbpeer.Peer{}).
+		Select("account_id, MAX(peer_status_last_seen) AS last_seen").
+		Where("ephemeral = ? AND peer_status_connected = ?", true, false).
+		Group("account_id").
+		Scan(&rows).Error
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to load ephemeral-account last disconnect map: %v", err)
+		return nil, status.Errorf(status.Internal, "load ephemeral accounts")
+	}
+	out := make(map[string]time.Time, len(rows))
+	for _, r := range rows {
+		out[r.AccountID] = r.LastSeen
+	}
+	return out, nil
+}
+
 // DeletePeer removes a peer from the store.
 func (s *SqlStore) DeletePeer(ctx context.Context, accountID string, peerID string) error {
 	result := s.db.Delete(&nbpeer.Peer{}, accountAndIDQueryCondition, accountID, peerID)
