@@ -16,9 +16,12 @@ import LoginWaitingForBrowserDialog from "@/modules/login/LoginWaitingForBrowser
 import { initI18n } from "@/lib/i18n";
 import { initPlatform } from "@/lib/platform";
 import { initLogForwarding } from "@/lib/logs";
+import { initStallWatch } from "@/lib/stallwatch";
 
 // Must run first so even init-time logs reach the Go log pipeline.
 initLogForwarding();
+
+initStallWatch();
 
 welcome();
 

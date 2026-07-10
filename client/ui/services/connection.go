@@ -116,6 +116,7 @@ func (s *Connection) Login(ctx context.Context, p LoginParams) (LoginResult, err
 	if err != nil {
 		return LoginResult{}, s.classifyDaemonError(err)
 	}
+	log.Infof("daemon login response received, needs SSO login: %v", resp.GetNeedsSSOLogin())
 	return LoginResult{
 		NeedsSSOLogin:           resp.GetNeedsSSOLogin(),
 		UserCode:                resp.GetUserCode(),
@@ -129,6 +130,7 @@ func (s *Connection) WaitSSOLogin(ctx context.Context, p WaitSSOParams) (string,
 	if err != nil {
 		return "", err
 	}
+	log.Infof("waiting for SSO login to complete")
 	resp, err := cli.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{
 		UserCode: p.UserCode,
 		Hostname: p.Hostname,
@@ -136,6 +138,7 @@ func (s *Connection) WaitSSOLogin(ctx context.Context, p WaitSSOParams) (string,
 	if err != nil {
 		return "", s.classifyDaemonError(err)
 	}
+	log.Infof("SSO login completed, daemon reported success")
 	return resp.GetEmail(), nil
 }
 
@@ -144,6 +147,7 @@ func (s *Connection) Up(ctx context.Context, p UpParams) error {
 	if err != nil {
 		return err
 	}
+	log.Infof("sending up request to daemon")
 	// Always async: status updates flow via SubscribeStatus.
 	req := &proto.UpRequest{Async: true}
 	if p.ProfileName != "" {

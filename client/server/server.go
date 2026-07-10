@@ -828,6 +828,7 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 		return nil, err
 	}
 
+	log.Infof("SSO login flow finished, returning success to caller")
 	return &proto.WaitSSOLoginResponse{
 		Email: tokenInfo.Email,
 	}, nil
@@ -835,6 +836,7 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 
 // Up starts engine work in the daemon.
 func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpResponse, error) {
+	log.Infof("up request received")
 	s.mutex.Lock()
 	// clientRunning is the daemon-intent flag (set by previous Up/Start, cleared
 	// by Down). connectionGoroutineRunning() reports whether the previous retry-loop
