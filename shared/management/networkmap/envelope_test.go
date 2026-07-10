@@ -114,7 +114,11 @@ func TestDecodeEnvelope_MalformedWgKeyPeerSkipped(t *testing.T) {
 	require.Len(t, full.Peers, 2, "smoke fixture should have two peers")
 
 	// Truncate the second peer's wg_pub_key so it fails the length gate.
-	full.Peers[1].WgPubKey = full.Peers[1].WgPubKey[:31]
+	for _, p := range full.Peers {
+		if base64.StdEncoding.EncodeToString(p.WgPubKey) != localPeerKey {
+			p.WgPubKey = p.WgPubKey[:31]
+		}
+	}
 
 	wire, err := goproto.Marshal(envelope)
 	require.NoError(t, err, "marshal envelope")
