@@ -136,6 +136,17 @@ func isUniqueConstraintError(err error) bool {
 // Returns a bool indicating if there are changes in the JWT group membership, the updated user AutoGroups,
 // newly groups to create and an error if any occurred.
 func (am *DefaultAccountManager) getJWTGroupsChanges(user *types.User, groups []*types.Group, groupNames []string) (bool, []string, []*types.Group, error) {
+	uniqueGroupNames := make([]string, 0, len(groupNames))
+	seenGroupNames := make(map[string]struct{}, len(groupNames))
+	for _, name := range groupNames {
+		if _, seen := seenGroupNames[name]; seen {
+			continue
+		}
+		seenGroupNames[name] = struct{}{}
+		uniqueGroupNames = append(uniqueGroupNames, name)
+	}
+	groupNames = uniqueGroupNames
+
 	existedGroupsByName := make(map[string]*types.Group)
 	for _, group := range groups {
 		existedGroupsByName[group.Name] = group

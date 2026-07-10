@@ -680,7 +680,7 @@ func TestDefaultAccountManager_SyncUserJWTGroups(t *testing.T) {
 		Domain:         domain,
 		UserId:         userId,
 		DomainCategory: "test-category",
-		Groups:         []string{"group1", "group2"},
+		Groups:         []string{"group1", "group2", "group1", "group2"},
 	}
 	t.Run("JWT groups disabled", func(t *testing.T) {
 		err := manager.SyncUserJWTGroups(context.Background(), claims)
@@ -723,6 +723,7 @@ func TestDefaultAccountManager_SyncUserJWTGroups(t *testing.T) {
 		require.True(t, ok, "group2 should be added to the account")
 		require.Equal(t, g2.Name, "group2", "group2 name should match")
 		require.Equal(t, g2.Issued, types.GroupIssuedJWT, "group2 issued should match")
+		require.ElementsMatch(t, []string{g1.ID, g2.ID}, account.Users[userId].AutoGroups, "JWT groups should only be assigned once")
 	})
 	t.Run("local embedded-Dex user is skipped", func(t *testing.T) {
 		initAccount.Settings.JWTGroupsEnabled = true
