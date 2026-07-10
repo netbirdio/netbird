@@ -1293,10 +1293,13 @@
         "message": "Documentación"
     },
     "daemon.outdated.title": {
-        "message": "El servicio de NetBird está desactualizado"
+        "message": "NetBird Client está desactualizado"
     },
     "daemon.outdated.description": {
-        "message": "Actualice el servicio de NetBird para usar esta aplicación."
+        "message": "La nueva GUI no es compatible con su cliente anterior. Actualice su cliente para usar la nueva aplicación."
+    },
+    "daemon.outdated.download": {
+        "message": "Descargar la última versión"
     },
     "error.jwt_clock_skew": {
         "message": "Error al iniciar sesión: el reloj de este dispositivo no está sincronizado con el servidor. Sincronice el reloj del sistema e inténtelo de nuevo."
