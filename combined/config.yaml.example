@@ -8,8 +8,8 @@
 # Architecture:
 #   - Management: Always runs locally (this IS the management server)
 #   - Signal: Local by default; set 'signalUri' to use external (disables local)
-#   - Relay: Local by default; set 'relays' to use external (disables local)
-#   - STUN: Local on port 3478 by default; set 'stuns' to use external instead
+#   - Relay: Local by default; set 'relays' to add external (local stays on if authSecret matches relays.secret)
+#   - STUN: Local on port 3478 by default; set 'stuns' to add external (local STUN stays on)
 
 server:
   # Main HTTP/gRPC port for all services (Management, Signal, Relay)
@@ -46,6 +46,8 @@ server:
       awsRoute53: false
 
   # Shared secret for relay authentication (required when running local relay)
+  # When set, the local relay starts automatically. If external relays are also
+  # configured, the local relay remains active only if authSecret matches relays.secret.
   authSecret: "your-secret-key-here"
 
   # Data directory for all services
@@ -53,16 +55,17 @@ server:
 
   # ============================================================================
   # External Service Overrides (optional)
-  # Use these to point to external Signal, Relay, or STUN servers instead of
-  # running them locally. When set, the corresponding local service is disabled.
+  # Use these to add external Signal, Relay, or STUN servers alongside local
+  # services. Local relay stays active if authSecret matches relays.secret.
+  # Local STUN stays active if stunPorts is configured.
   # ============================================================================
 
-  # External STUN servers - disables local STUN server
+  # External STUN servers (local STUN server stays on if stunPorts is configured)
   # stuns:
   #   - uri: "stun:stun.example.com:3478"
   #   - uri: "stun:stun.example.com:3479"
 
-  # External relay servers - disables local relay server
+  # External relay servers (local relay stays on if authSecret matches relays.secret)
   # relays:
   #   addresses:
   #     - "rels://relay.example.com:443"

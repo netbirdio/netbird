@@ -291,7 +291,7 @@ func (c *CombinedConfig) ApplySimplifiedDefaults() {
 		c.Server.StunPorts = []int{3478}
 	}
 
-	c.applyRelayDefaults(exposedProto, exposedHostPort, hasExternalRelay, hasExternalStuns)
+	c.applyRelayDefaults(exposedProto, exposedHostPort, hasExternalRelay)
 	c.applySignalDefaults(hasExternalSignal)
 	c.applyManagementDefaults(exposedHost)
 
@@ -299,9 +299,25 @@ func (c *CombinedConfig) ApplySimplifiedDefaults() {
 	c.autoConfigureClientSettings(exposedProto, exposedHost, exposedHostPort, hasExternalStuns, hasExternalRelay, hasExternalSignal)
 }
 
-// applyRelayDefaults configures the relay service if no external relay is configured.
-func (c *CombinedConfig) applyRelayDefaults(exposedProto, exposedHostPort string, hasExternalRelay, hasExternalStuns bool) {
-	if hasExternalRelay {
+// shouldStartEmbeddedRelay determines whether the embedded relay should start.
+// It requires authSecret to be set. If external relays are configured,
+// authSecret must match relays.secret for the embedded relay to remain active.
+func (c *CombinedConfig) shouldStartEmbeddedRelay(hasExternalRelay bool) bool {
+	if c.Server.AuthSecret == "" {
+		return false
+	}
+	if hasExternalRelay && c.Server.AuthSecret != c.Server.Relays.Secret {
+		return false
+	}
+	return true
+}
+
+// applyRelayDefaults configures the embedded relay service when shouldStartEmbeddedRelay returns true.
+func (c *CombinedConfig) applyRelayDefaults(exposedProto, exposedHostPort string, hasExternalRelay bool) {
+	if !c.shouldStartEmbeddedRelay(hasExternalRelay) {
+		if hasExternalRelay && c.Server.AuthSecret != "" && c.Server.AuthSecret != c.Server.Relays.Secret {
+			log.Warnf("authSecret mismatch with relays.secret — embedded relay disabled")
+		}
 		return
 	}
 
@@ -316,8 +332,7 @@ func (c *CombinedConfig) applyRelayDefaults(exposedProto, exposedHostPort string
 		c.Relay.LogLevel = c.Server.LogLevel
 	}
 
-	// Enable local STUN only if no external STUN servers and stunPorts are configured
-	if !hasExternalStuns && len(c.Server.StunPorts) > 0 {
+	if len(c.Server.StunPorts) > 0 {
 		c.Relay.Stun.Enabled = true
 		c.Relay.Stun.Ports = c.Server.StunPorts
 		if c.Relay.Stun.LogLevel == "" {
@@ -381,7 +396,8 @@ func (c *CombinedConfig) autoConfigureClientSettings(exposedProto, exposedHost, 
 	if hasExternalStuns {
 		// Use external STUN servers from server config
 		c.Management.Stuns = c.Server.Stuns
-	} else if len(c.Server.StunPorts) > 0 && len(c.Management.Stuns) == 0 {
+	}
+	if len(c.Server.StunPorts) > 0 && c.shouldStartEmbeddedRelay(hasExternalRelay) {
 		// Auto-configure local STUN servers for all ports
 		for _, port := range c.Server.StunPorts {
 			c.Management.Stuns = append(c.Management.Stuns, HostConfig{
@@ -394,10 +410,14 @@ func (c *CombinedConfig) autoConfigureClientSettings(exposedProto, exposedHost, 
 	if hasExternalRelay {
 		// Use external relay config from server
 		c.Management.Relays = c.Server.Relays
-	} else if len(c.Management.Relays.Addresses) == 0 {
-		// Auto-configure local relay
-		c.Management.Relays.Addresses = []string{
-			fmt.Sprintf("%s://%s", relayProto, exposedHostPort),
+	}
+	if c.shouldStartEmbeddedRelay(hasExternalRelay) {
+		embeddedAddr := fmt.Sprintf("%s://%s", relayProto, exposedHostPort)
+		if hasExternalRelay {
+			// Prepend embedded relay address so it's preferred
+			c.Management.Relays.Addresses = append([]string{embeddedAddr}, c.Management.Relays.Addresses...)
+		} else {
+			c.Management.Relays.Addresses = []string{embeddedAddr}
 		}
 	}
 	if c.Management.Relays.Secret == "" {
