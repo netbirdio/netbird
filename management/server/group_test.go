@@ -18,6 +18,7 @@ import (
 	"golang.org/x/exp/maps"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/networks"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
@@ -124,6 +125,11 @@ func TestDefaultAccountManager_DeleteGroup(t *testing.T) {
 			"integration",
 			"grp-for-integration",
 			"only service users with admin power can delete integration group",
+		},
+		{
+			"service",
+			"grp-for-service",
+			"service",
 		},
 	}
 
@@ -406,6 +412,14 @@ func initTestGroupAccount(am *DefaultAccountManager) (*DefaultAccountManager, *t
 		Peers:     make([]string, 0),
 	}
 
+	groupForService := &types.Group{
+		ID:        "grp-for-service",
+		AccountID: "account-id",
+		Name:      "Group for service",
+		Issued:    types.GroupIssuedAPI,
+		Peers:     make([]string, 0),
+	}
+
 	routeResource := &route.Route{
 		ID:     "example route",
 		Groups: []string{groupForRoute.ID},
@@ -441,6 +455,14 @@ func initTestGroupAccount(am *DefaultAccountManager) (*DefaultAccountManager, *t
 		Id:         "example user",
 		AutoGroups: []string{groupForUsers.ID},
 	}
+
+	svc := &service.Service{
+		ID:           "example service",
+		AccountID:    "account-id",
+		Name:         "example service",
+		AccessGroups: []string{groupForService.ID},
+	}
+
 	account := newAccountWithId(context.Background(), accountID, groupAdminUserID, domain, "", "", false)
 	account.Routes[routeResource.ID] = routeResource
 	account.Routes[routePeerGroupResource.ID] = routePeerGroupResource
@@ -448,6 +470,7 @@ func initTestGroupAccount(am *DefaultAccountManager) (*DefaultAccountManager, *t
 	account.Policies = append(account.Policies, policy)
 	account.SetupKeys[setupKey.Id] = setupKey
 	account.Users[user.Id] = user
+	account.Services = append(account.Services, svc)
 
 	err := am.Store.SaveAccount(context.Background(), account)
 	if err != nil {
@@ -461,6 +484,7 @@ func initTestGroupAccount(am *DefaultAccountManager) (*DefaultAccountManager, *t
 	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForSetupKeys)
 	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForUsers)
 	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForIntegration)
+	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForService)
 
 	acc, err := am.Store.GetAccount(context.Background(), account.Id)
 	if err != nil {
