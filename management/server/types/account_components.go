@@ -327,7 +327,7 @@ func (a *Account) getPeersGroupsPoliciesRoutes(
 		if r == nil {
 			continue
 		}
-		relevant := r.Peer == peerID
+		relevant := r.PeerID == peerID
 		if !relevant {
 			for _, groupID := range r.PeerGroups {
 				if _, ok := peerGroupSet[groupID]; ok {
@@ -375,9 +375,9 @@ func (a *Account) getPeersGroupsPoliciesRoutes(
 		// this loop, and the legacy invariant that only validated peers
 		// reach a client's view).
 		if r.Peer != "" {
-			if _, ok := validatedPeersMap[r.Peer]; ok {
-				if p := a.GetPeer(r.Peer); p != nil {
-					relevantPeerIDs[r.Peer] = p
+			if _, ok := validatedPeersMap[r.PeerID]; ok {
+				if p := a.GetPeer(r.PeerID); p != nil {
+					relevantPeerIDs[r.PeerID] = p
 				}
 			}
 		}
