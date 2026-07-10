@@ -567,7 +567,7 @@ func (c *Controller) GetValidatedPeerWithComponents(ctx context.Context, isRequi
 		return nil, nil, nil, nil, 0, err
 	}
 
-	account.InjectProxyPolicies(ctx)
+	c.injectAllProxyPolicies(ctx, account)
 
 	approvedPeersMap, err := c.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
 	if err != nil {
