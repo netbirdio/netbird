@@ -72,6 +72,16 @@ func ToComponentSyncResponse(
 	nbConfig := toNetbirdConfig(config, turnCredentials, relayCredentials, extraSettings, settings)
 	resp.NetbirdConfig = integrationsConfig.ExtendNetBirdConfig(peer.ID, peerGroups, nbConfig, extraSettings)
 
+	// settings == nil → field stays nil → "no info in this snapshot", client
+	// preserves the deadline it already had. settings non-nil → emit either a
+	// valid deadline or the explicit-zero "disabled" sentinel via
+	// encodeSessionExpiresAt.
+	if settings != nil {
+		resp.SessionExpiresAt = encodeSessionExpiresAt(
+			peer.SessionExpiresAt(settings.PeerLoginExpirationEnabled, settings.PeerLoginExpiration),
+		)
+	}
+
 	return resp
 }
 
