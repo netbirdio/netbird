@@ -2,10 +2,10 @@ package types
 
 import (
 	"strconv"
-	"strings"
 
-	"github.com/netbirdio/netbird/management/server/posture"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/posture"
+	"github.com/netbirdio/netbird/version"
 )
 
 const (
@@ -111,7 +111,7 @@ func shouldCheckRulesForNativeSSH(supportsNative bool, rule *PolicyRule, peer *n
 }
 
 func peerSupportedFirewallFeatures(peerVer string) supportedFeatures {
-	if strings.Contains(peerVer, "dev") {
+	if version.IsDevelopmentVersion(peerVer) {
 		return supportedFeatures{true, true}
 	}
 
