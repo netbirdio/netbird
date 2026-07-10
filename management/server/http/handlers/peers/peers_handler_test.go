@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 
@@ -361,6 +362,128 @@ func TestGetPeers(t *testing.T) {
 			assert.Equal(t, tc.expectedPeer.SSHEnabled, got.SshEnabled)
 			assert.Equal(t, tc.expectedPeer.Status.Connected, got.Connected)
 			assert.Equal(t, tc.expectedPeer.Meta.SystemSerialNumber, got.SerialNumber)
+		})
+	}
+}
+
+func TestPeerLastSeenInResponse(t *testing.T) {
+	connectedLastSeen := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	disconnectedLastSeen := time.Date(2024, 6, 15, 12, 30, 0, 0, time.UTC)
+
+	connectedPeer := &nbpeer.Peer{
+		ID:     "connected-peer",
+		Key:    "key1",
+		IP:     netip.MustParseAddr("100.64.0.1"),
+		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: connectedLastSeen},
+		Name:   "connected",
+		Meta:   nbpeer.PeerSystemMeta{Hostname: "connected"},
+	}
+	disconnectedPeer := &nbpeer.Peer{
+		ID:     "disconnected-peer",
+		Key:    "key2",
+		IP:     netip.MustParseAddr("100.64.0.2"),
+		Status: &nbpeer.PeerStatus{Connected: false, LastSeen: disconnectedLastSeen},
+		Name:   "disconnected",
+		UserID: regularUser,
+		Meta:   nbpeer.PeerSystemMeta{Hostname: "disconnected"},
+	}
+
+	p := initTestMetaData(t, connectedPeer, disconnectedPeer)
+
+	router := mux.NewRouter()
+	router.HandleFunc("/api/peers", p.GetAllPeers).Methods("GET")
+	router.HandleFunc("/api/peers/{peerId}", p.HandlePeer).Methods("GET")
+	router.HandleFunc("/api/peers/{peerId}/accessible-peers", p.GetAccessiblePeers).Methods("GET")
+
+	tt := []struct {
+		name              string
+		path              string
+		userID            string
+		expectedID        string
+		expectedConnected bool
+		expectedLastSeen  time.Time
+	}{
+		{
+			name:              "list connected peer",
+			path:              "/api/peers",
+			userID:            adminUser,
+			expectedID:        connectedPeer.ID,
+			expectedConnected: true,
+			expectedLastSeen:  time.Now().UTC(),
+		},
+		{
+			name:              "list disconnected peer",
+			path:              "/api/peers",
+			userID:            adminUser,
+			expectedID:        disconnectedPeer.ID,
+			expectedConnected: false,
+			expectedLastSeen:  disconnectedLastSeen,
+		},
+		{
+			name:              "single connected peer",
+			path:              "/api/peers/" + connectedPeer.ID,
+			userID:            adminUser,
+			expectedID:        connectedPeer.ID,
+			expectedConnected: true,
+			expectedLastSeen:  time.Now().UTC(),
+		},
+		{
+			name:              "accessible connected peer",
+			path:              fmt.Sprintf("/api/peers/%s/accessible-peers", disconnectedPeer.ID),
+			userID:            regularUser,
+			expectedID:        connectedPeer.ID,
+			expectedConnected: true,
+			expectedLastSeen:  time.Now().UTC(),
+		},
+	}
+
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+			req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
+				UserId:    tc.userID,
+				Domain:    "hotmail.com",
+				AccountId: "test_id",
+			})
+			router.ServeHTTP(recorder, req)
+			require.Equal(t, http.StatusOK, recorder.Code)
+
+			var lastSeen time.Time
+			switch {
+			case tc.path == "/api/peers":
+				var resp []*api.PeerBatch
+				require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &resp))
+
+				var found bool
+				for _, peer := range resp {
+					if peer.Id == tc.expectedID {
+						found = true
+						assert.Equal(t, tc.expectedConnected, peer.Connected)
+						lastSeen = peer.LastSeen
+						break
+					}
+				}
+				require.True(t, found, "expected peer %s not found in list", tc.expectedID)
+			case strings.HasSuffix(tc.path, "/accessible-peers"):
+				var resp []api.AccessiblePeer
+				require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &resp))
+				require.Len(t, resp, 1)
+				assert.Equal(t, tc.expectedID, resp[0].Id)
+				lastSeen = resp[0].LastSeen
+			default:
+				var resp api.Peer
+				require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &resp))
+				assert.Equal(t, tc.expectedID, resp.Id)
+				assert.Equal(t, tc.expectedConnected, resp.Connected)
+				lastSeen = resp.LastSeen
+			}
+
+			if tc.expectedConnected {
+				assert.WithinDuration(t, time.Now().UTC(), lastSeen, time.Second)
+			} else {
+				assert.Equal(t, tc.expectedLastSeen, lastSeen)
+			}
 		})
 	}
 }
