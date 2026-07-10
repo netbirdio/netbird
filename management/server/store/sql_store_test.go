@@ -45,6 +45,7 @@ func runTestForAllEngines(t *testing.T, testDataFile string, f func(t *testing.T
 		}
 		t.Setenv("NETBIRD_STORE_ENGINE", string(engine))
 		store, cleanUp, err := NewTestStoreFromSQL(context.Background(), testDataFile, t.TempDir())
+		assert.NoError(t, err, "engine: ", string(engine))
 		t.Cleanup(cleanUp)
 		assert.NoError(t, err)
 		t.Run(string(engine), func(t *testing.T) {

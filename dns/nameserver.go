@@ -53,7 +53,7 @@ type NameServerGroup struct {
 	ID string `gorm:"primaryKey"`
 	// AccountID is a reference to Account that this object belongs
 	AccountID string `gorm:"index"`
-	PublicID  string `json:"-"`
+	PublicID  string `json:"-""`
 	// Name group name
 	Name string
 	// Description group description

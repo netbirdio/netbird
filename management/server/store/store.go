@@ -582,6 +582,30 @@ func getMigrationsPreAuto(ctx context.Context) []migrationFunc {
 		func(db *gorm.DB) error {
 			return migration.CleanupOrphanedResources[domain.Domain, types.Account](ctx, db, "account_id")
 		},
+		func(db *gorm.DB) error {
+			return migration.BackfillPublicIDs[types.Policy](ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.BackfillPublicIDs[types.Group](ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.BackfillPublicIDs[route.Route](ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.BackfillPublicIDs[resourceTypes.NetworkResource](ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.BackfillPublicIDs[routerTypes.NetworkRouter](ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.BackfillPublicIDs[dns.NameServerGroup](ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.BackfillPublicIDs[networkTypes.Network](ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.BackfillPublicIDs[posture.Checks](ctx, db)
+		},
 	}
 }
 
