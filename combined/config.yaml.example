@@ -8,7 +8,8 @@
 # Architecture:
 #   - Management: Always runs locally (this IS the management server)
 #   - Signal: Local by default; set 'signalUri' to use external (disables local)
-#   - Relay: Local by default; set 'relays' to use external (disables local)
+#   - Relay: Local by default; set 'additionalRelays' to advertise more relays,
+#     or set 'relays' to replace the local relay with external relays
 #   - STUN: Local on port 3478 by default; set 'stuns' to use external instead
 
 server:
@@ -50,6 +51,12 @@ server:
 
   # Data directory for all services
   dataDir: "/var/lib/netbird/"
+
+  # Additional relay servers - keeps the local relay and advertises these too.
+  # The additional relay servers must use the same authSecret as this server.
+  # additionalRelays:
+  #   - "rels://relay-eu.example.com:443"
+  #   - "rels://relay-us.example.com:443"
 
   # ============================================================================
   # External Service Overrides (optional)

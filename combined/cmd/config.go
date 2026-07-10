@@ -29,7 +29,8 @@ import (
 // Architecture:
 //   - Management: Always runs locally (this IS the management server)
 //   - Signal: Runs locally by default; disabled if server.signalUri is set
-//   - Relay: Runs locally by default; disabled if server.relays is set
+//   - Relay: Runs locally by default; server.additionalRelays adds more relay
+//     addresses, while server.relays disables the local relay and replaces them
 //   - STUN: Runs locally on port 3478 by default; disabled if server.stuns is set
 //
 // All user-facing settings are under "server". The relay/signal/management
@@ -58,6 +59,9 @@ type ServerConfig struct {
 	StunPorts      []int  `yaml:"stunPorts"`      // STUN ports (empty to disable local STUN)
 	AuthSecret     string `yaml:"authSecret"`     // Shared secret for relay authentication
 	DataDir        string `yaml:"dataDir"`        // Data directory for all services
+
+	// Additional relay addresses advertised alongside the local relay
+	AdditionalRelays []string `yaml:"additionalRelays"`
 
 	// External service overrides (simplified mode)
 	// When these are set, the corresponding local service is NOT started
@@ -273,6 +277,8 @@ func parseExposedAddress(exposedAddress string) (protocol, hostname, hostPort st
 // ApplySimplifiedDefaults populates internal relay/signal/management configs from server settings.
 // Management is always enabled. Signal, Relay, and STUN are enabled unless external
 // overrides are configured (server.signalUri, server.relays, server.stuns).
+// server.additionalRelays does not override the local relay; its addresses are
+// advertised to clients in addition to the auto-configured local relay address.
 func (c *CombinedConfig) ApplySimplifiedDefaults() {
 	if !c.hasRequiredSettings() {
 		return
@@ -395,10 +401,9 @@ func (c *CombinedConfig) autoConfigureClientSettings(exposedProto, exposedHost, 
 		// Use external relay config from server
 		c.Management.Relays = c.Server.Relays
 	} else if len(c.Management.Relays.Addresses) == 0 {
-		// Auto-configure local relay
-		c.Management.Relays.Addresses = []string{
-			fmt.Sprintf("%s://%s", relayProto, exposedHostPort),
-		}
+		// Auto-configure the local relay, then advertise any additional relays.
+		localRelay := fmt.Sprintf("%s://%s", relayProto, exposedHostPort)
+		c.Management.Relays.Addresses = append([]string{localRelay}, c.Server.AdditionalRelays...)
 	}
 	if c.Management.Relays.Secret == "" {
 		c.Management.Relays.Secret = c.Server.AuthSecret
