@@ -9,7 +9,7 @@
 #   - Management: Always runs locally (this IS the management server)
 #   - Signal: Local by default; set 'signalUri' to use external (disables local)
 #   - Relay: Local by default; set 'relays' to add external (local stays on if authSecret matches relays.secret)
-#   - STUN: Local on port 3478 by default; set 'stuns' to add external (local STUN stays on)
+#   - STUN: Local on port 3478 by default; set 'stuns' to add external (local STUN stays on if local relay is active)
 
 server:
   # Main HTTP/gRPC port for all services (Management, Signal, Relay)
@@ -20,7 +20,7 @@ server:
   # Format: protocol://hostname:port (e.g., https://server.mycompany.com:443)
   exposedAddress: "https://server.mycompany.com:443"
 
-  # STUN server ports (defaults to [3478] if not specified; set 'stuns' to use external)
+  # STUN server ports (defaults to [3478] if not specified; set 'stuns' to add external STUN servers)
   # stunPorts:
   #   - 3478
 
@@ -57,10 +57,12 @@ server:
   # External Service Overrides (optional)
   # Use these to add external Signal, Relay, or STUN servers alongside local
   # services. Local relay stays active if authSecret matches relays.secret.
-  # Local STUN stays active if stunPorts is configured.
+  # Local STUN stays active if stunPorts is configured and the local relay is 
+  # active (requires authSecret set, matching relays.secret when external
+  # relays are configured).
   # ============================================================================
 
-  # External STUN servers (local STUN server stays on if stunPorts is configured)
+  # External STUN servers (local STUN server stays on if stunPorts is configured and local relay is active)
   # stuns:
   #   - uri: "stun:stun.example.com:3478"
   #   - uri: "stun:stun.example.com:3479"
