@@ -53,6 +53,8 @@ type NetworkMapComponents struct {
 	// Same role as NetworkXIDToSeq, used for PostureFailedPeers keys and
 	// policy SourcePostureChecks references.
 	PostureCheckXIDToPublicID map[string]string
+	// true when returning an empty-like map (returned instead of nil)
+	empty bool
 }
 
 type AccountSettingsInfo struct {
@@ -60,6 +62,11 @@ type AccountSettingsInfo struct {
 	PeerLoginExpiration             time.Duration
 	PeerInactivityExpirationEnabled bool
 	PeerInactivityExpiration        time.Duration
+}
+
+func EmptyNetworkMapComponents(nm *NetworkMapComponents) *NetworkMapComponents {
+	nm.empty = true
+	return nm
 }
 
 func (c *NetworkMapComponents) GetPeerInfo(peerID string) *nbpeer.Peer {
@@ -178,6 +185,10 @@ func (c *NetworkMapComponents) Calculate(ctx context.Context) *NetworkMap {
 		AuthorizedUsers:     authorizedUsers,
 		EnableSSH:           sshEnabled,
 	}
+}
+
+func (c *NetworkMapComponents) IsEmpty() bool {
+	return c.empty
 }
 
 func (c *NetworkMapComponents) getPeerConnectionResources(targetPeerID string) ([]*nbpeer.Peer, []*FirewallRule, map[string]map[string]struct{}, bool) {

@@ -601,7 +601,6 @@ func (c *Controller) GetValidatedPeerWithComponents(ctx context.Context, isRequi
 	routers := account.GetResourceRoutersMap()
 	groupIDToUserIDs := account.GetActiveGroupUsers()
 	components := account.GetPeerNetworkMapComponents(ctx, peer.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, groupIDToUserIDs)
-
 	dnsFwdPort := computeForwarderPort(maps.Values(account.Peers), network_map.DnsForwarderPortMinVersion)
 
 	return peer, components, proxyNetworkMaps[peer.ID], postureChecks, dnsFwdPort, nil

@@ -41,6 +41,9 @@ type ResourceType = sharedtypes.ResourceType
 type RouteFirewallRule = sharedtypes.RouteFirewallRule
 
 type NetworkMapComponents = sharedtypes.NetworkMapComponents
+
+var EmptyNetworkMapComponents = sharedtypes.EmptyNetworkMapComponents
+
 type AccountSettingsInfo = sharedtypes.AccountSettingsInfo
 
 type GroupCompact = sharedtypes.GroupCompact

@@ -40,16 +40,6 @@ func (a *Account) GetPeerNetworkMapResult(
 		components := a.GetPeerNetworkMapComponents(
 			ctx, peerID, peersCustomZone, accountZones, validatedPeersMap, resourcePolicies, routers, groupIDToUserIDs,
 		)
-		// Mirror legacy graceful-degrade: GetPeerNetworkMapFromComponents
-		// returns &NetworkMap{Network: a.Network.Copy()} when components is
-		// nil. Match that floor so the receiving client always sees the
-		// account Network identifier, not a fully-empty envelope.
-		if components == nil {
-			components = &NetworkMapComponents{
-				PeerID:  peerID,
-				Network: a.Network.Copy(),
-			}
-		}
 		return PeerNetworkMapResult{Components: components}
 	}
 	return PeerNetworkMapResult{
@@ -83,8 +73,8 @@ func (a *Account) GetPeerNetworkMapFromComponents(
 		groupIDToUserIDs,
 	)
 
-	if components == nil {
-		return &NetworkMap{Network: a.Network.Copy()}
+	if components.IsEmpty() {
+		return &NetworkMap{Network: components.Network}
 	}
 
 	nm := CalculateNetworkMapFromComponents(ctx, components)
@@ -117,11 +107,21 @@ func (a *Account) GetPeerNetworkMapComponents(
 
 	peer := a.Peers[peerID]
 	if peer == nil {
-		return nil
+		// Mirror legacy graceful-degrade: GetPeerNetworkMapFromComponents
+		// returns &NetworkMap{Network: a.Network.Copy()} when components is
+		// nil. Match that floor so the receiving client always sees the
+		// account Network identifier, not a fully-empty envelope.
+		return EmptyNetworkMapComponents(&NetworkMapComponents{
+			PeerID:  peerID,
+			Network: a.Network.Copy(),
+		})
 	}
 
 	if _, ok := validatedPeersMap[peerID]; !ok {
-		return nil
+		return EmptyNetworkMapComponents(&NetworkMapComponents{
+			PeerID:  peerID,
+			Network: a.Network.Copy(),
+		})
 	}
 
 	components := &NetworkMapComponents{

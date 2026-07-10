@@ -25,6 +25,8 @@ import (
 // computed by the client from the envelope's GroupIDToUserIDs / AllowedUserIDs
 // inside Calculate(), so the SshConfig.SshEnabled bit may flip true on the
 // client even though the server-side PeerConfig reports false.
+//
+// components parameter is expected to be !nil
 func ToComponentSyncResponse(
 	ctx context.Context,
 	config *nbconfig.Config,
@@ -42,9 +44,8 @@ func ToComponentSyncResponse(
 	peerGroups []string,
 	dnsFwdPort int64,
 ) *proto.SyncResponse {
-	network := networkOrZero(components)
 	enableSSH := computeSSHEnabledForPeer(components, peer)
-	peerConfig := toPeerConfig(peer, network, dnsName, settings, httpConfig, deviceFlowConfig, enableSSH)
+	peerConfig := toPeerConfig(peer, components.Network, dnsName, settings, httpConfig, deviceFlowConfig, enableSSH)
 
 	includeIPv6 := peer.SupportsIPv6() && peer.IPv6.IsValid()
 	useSourcePrefixes := peer.SupportsSourcePrefixes()
@@ -83,15 +84,6 @@ func ToComponentSyncResponse(
 	}
 
 	return resp
-}
-
-// networkOrZero returns components.Network or a zero Network — toPeerConfig
-// dereferences network.Net which would panic on nil.
-func networkOrZero(c *types.NetworkMapComponents) *types.Network {
-	if c == nil || c.Network == nil {
-		return &types.Network{}
-	}
-	return c.Network
 }
 
 // toProxyPatch converts a proxy-injected *types.NetworkMap into the wire
