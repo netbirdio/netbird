@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 )
 
 func TestInitCommands(t *testing.T) {
@@ -36,6 +37,36 @@ func TestInitCommands(t *testing.T) {
 				return
 			}
 		})
+	}
+}
+
+func TestAdminURLFlagDeprecated(t *testing.T) {
+	flag := rootCmd.PersistentFlags().Lookup("admin-url")
+	if flag == nil {
+		t.Fatal("admin-url flag not found")
+	}
+
+	expectedUsage := fmt.Sprintf("(DEPRECATED) Admin Panel URL [http|https]://[host]:[port] (default \"%s\") - This flag is no longer functional", profilemanager.DefaultAdminURL)
+	if flag.Usage != expectedUsage {
+		t.Fatalf("expected admin-url usage %q, got %q", expectedUsage, flag.Usage)
+	}
+
+	expectedDeprecation := "the admin-url flag is no longer functional and will be removed in a future version"
+	if flag.Deprecated != expectedDeprecation {
+		t.Fatalf("expected admin-url deprecation message %q, got %q", expectedDeprecation, flag.Deprecated)
+	}
+}
+
+func TestSetupSetConfigReqIgnoresAdminURL(t *testing.T) {
+	previousAdminURL := adminURL
+	adminURL = "https://admin.example.com"
+	t.Cleanup(func() {
+		adminURL = previousAdminURL
+	})
+
+	req := setupSetConfigReq(nil, upCmd, "profile", "user")
+	if req.AdminURL != "" {
+		t.Fatalf("expected deprecated admin-url to be ignored, got %q", req.AdminURL)
 	}
 }
 
