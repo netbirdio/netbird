@@ -104,9 +104,20 @@ func (a *Account) GetPeerNetworkMapComponents(
 	routers map[string]map[string]*routerTypes.NetworkRouter,
 	groupIDToUserIDs map[string][]string,
 ) *NetworkMapComponents {
-
 	peer := a.Peers[peerID]
+	// this can never happen, things are very wrong if it did
+	// TODO (dmitri) maybe consider using invariants?
 	if peer == nil {
+		log.WithField("peer id", peerID).Error("NetworkMapComponents are computed for a peer missing from the account")
+		return EmptyNetworkMapComponents(&NetworkMapComponents{
+			PeerID:  peerID,
+			Network: a.Network.Copy(),
+			// must include the target peer as it's required on the client
+			Peers: map[string]*nbpeer.Peer{peerID: peer},
+		})
+	}
+
+	if _, ok := validatedPeersMap[peerID]; !ok {
 		// Mirror legacy graceful-degrade: GetPeerNetworkMapFromComponents
 		// returns &NetworkMap{Network: a.Network.Copy()} when components is
 		// nil. Match that floor so the receiving client always sees the
@@ -114,13 +125,8 @@ func (a *Account) GetPeerNetworkMapComponents(
 		return EmptyNetworkMapComponents(&NetworkMapComponents{
 			PeerID:  peerID,
 			Network: a.Network.Copy(),
-		})
-	}
-
-	if _, ok := validatedPeersMap[peerID]; !ok {
-		return EmptyNetworkMapComponents(&NetworkMapComponents{
-			PeerID:  peerID,
-			Network: a.Network.Copy(),
+			// must include the target peer as it's required on the client
+			Peers: map[string]*nbpeer.Peer{peerID: peer},
 		})
 	}
 
@@ -157,6 +163,7 @@ func (a *Account) GetPeerNetworkMapComponents(
 
 	components.DNSSettings = &a.DNSSettings
 
+	// relevantPeers always contains the target peer (peerID)
 	relevantPeers, relevantGroups, relevantPolicies, relevantRoutes, sshReqs := a.getPeersGroupsPoliciesRoutes(ctx, peerID, peer.SSHEnabled, validatedPeersMap, &components.PostureFailedPeers)
 
 	if len(sshReqs.neededGroupIDs) > 0 {

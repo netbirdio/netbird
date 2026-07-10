@@ -57,14 +57,16 @@ func EncodeNetworkMapEnvelope(in ComponentsEnvelopeInput) *proto.NetworkMapEnvel
 	// Network populated). The receiver gets an envelope it can decode
 	// without crashing; AccountSettings stays non-nil so client-side
 	// dereferences are safe.
-	if c == nil {
+	if c == nil || c.IsEmpty() {
 		// Match legacy missing-peer minimum: a NetworkMap with only Network
 		// populated. The receiver gets enough to bootstrap (Network
-		// identifier, dns_domain, account_settings) and nothing else.
+		// identifier, dns_domain, account_settings) and the peer itself.
 		return &proto.NetworkMapEnvelope{
 			Payload: &proto.NetworkMapEnvelope_Full{
 				Full: &proto.NetworkMapComponentsFull{
-					PeerConfig:       in.PeerConfig,
+					PeerConfig: in.PeerConfig,
+					// components.Peers always contains the target peer
+					Peers:            []*proto.PeerCompact{toPeerCompact(c.Peers[c.PeerID])},
 					DnsDomain:        in.DNSDomain,
 					DnsForwarderPort: in.DNSForwarderPort,
 					UserIdClaim:      in.UserIDClaim,

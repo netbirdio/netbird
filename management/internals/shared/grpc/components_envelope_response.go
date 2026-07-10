@@ -25,8 +25,6 @@ import (
 // computed by the client from the envelope's GroupIDToUserIDs / AllowedUserIDs
 // inside Calculate(), so the SshConfig.SshEnabled bit may flip true on the
 // client even though the server-side PeerConfig reports false.
-//
-// components parameter is expected to be !nil
 func ToComponentSyncResponse(
 	ctx context.Context,
 	config *nbconfig.Config,
@@ -44,6 +42,12 @@ func ToComponentSyncResponse(
 	peerGroups []string,
 	dnsFwdPort int64,
 ) *proto.SyncResponse {
+	//
+	// 'component' parameter is expected to never be nil
+	// 'peer' parameter is expected to never be nil
+	//
+	// TODO (dmitri) consider using invariants?
+	//
 	enableSSH := computeSSHEnabledForPeer(components, peer)
 	peerConfig := toPeerConfig(peer, components.Network, dnsName, settings, httpConfig, deviceFlowConfig, enableSSH)
 
