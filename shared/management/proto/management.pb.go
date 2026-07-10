@@ -4828,7 +4828,7 @@ type NetworkMapComponentsFull struct {
 	RouterPeerIndexes []uint32 `protobuf:"varint,10,rep,packed,name=router_peer_indexes,json=routerPeerIndexes,proto3" json:"router_peer_indexes,omitempty"`
 	// Policies that affect the receiving peer.
 	Policies []*PolicyCompact `protobuf:"bytes,11,rep,name=policies,proto3" json:"policies,omitempty"`
-	// Groups in unspecified order — clients key off id (account_seq_id).
+	// Groups in unspecified order — clients key off id (public_id).
 	Groups []*GroupCompact `protobuf:"bytes,12,rep,name=groups,proto3" json:"groups,omitempty"`
 	// Routes relevant to this peer, raw shape (mirrors []*route.Route).
 	Routes []*RouteRaw `protobuf:"bytes,13,rep,name=routes,proto3" json:"routes,omitempty"`
@@ -4842,18 +4842,18 @@ type NetworkMapComponentsFull struct {
 	AccountZones []*CustomZone `protobuf:"bytes,16,rep,name=account_zones,json=accountZones,proto3" json:"account_zones,omitempty"`
 	// Network resources (mirrors []*resourceTypes.NetworkResource).
 	NetworkResources []*NetworkResourceRaw `protobuf:"bytes,17,rep,name=network_resources,json=networkResources,proto3" json:"network_resources,omitempty"`
-	// Routers per network. Outer key: network account_seq_id. Each entry is
+	// Routers per network. Outer key: network public_id. Each entry is
 	// the set of routers backing that network for this peer's view.
 	RoutersMap map[string]*NetworkRouterList `protobuf:"bytes,18,rep,name=routers_map,json=routersMap,proto3" json:"routers_map,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
-	// For each NetworkResource account_seq_id, the indexes into policies[]
+	// For each NetworkResource public_id, the indexes into policies[]
 	// that apply to it.
 	ResourcePoliciesMap map[string]*PolicyIds `protobuf:"bytes,19,rep,name=resource_policies_map,json=resourcePoliciesMap,proto3" json:"resource_policies_map,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
-	// Group-id (account_seq_id) → user ids authorized for SSH on members.
+	// Group-id (public_id) → user ids authorized for SSH on members.
 	GroupIdToUserIds map[string]*UserIDList `protobuf:"bytes,20,rep,name=group_id_to_user_ids,json=groupIdToUserIds,proto3" json:"group_id_to_user_ids,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
 	// Account-level allowed user ids (used by Calculate() when assembling SSH
 	// authorized users for the receiving peer).
 	AllowedUserIds []string `protobuf:"bytes,21,rep,name=allowed_user_ids,json=allowedUserIds,proto3" json:"allowed_user_ids,omitempty"`
-	// Per posture-check account_seq_id, the set of peer indexes that failed
+	// Per posture-check public_id, the set of peer indexes that failed
 	// the check. Server-side evaluation result; clients do not re-evaluate.
 	PostureFailedPeers map[string]*PeerIndexSet `protobuf:"bytes,22,rep,name=posture_failed_peers,json=postureFailedPeers,proto3" json:"posture_failed_peers,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
 	// Account-level DNS forwarder port (mirrors the legacy
@@ -5542,7 +5542,7 @@ func (x *PeerCompact) GetServerSshAllowed() bool {
 }
 
 // PolicyCompact is the compact form of a policy rule. Group references use
-// the per-account integer ids from account_seq_counters; the client resolves
+// the public_ids; the client resolves
 // them against NetworkMapComponentsFull.groups. Direction is derived per-peer
 // on the client (ingress when the peer is in destination_group_ids, egress
 // when in source_group_ids; both when bidirectional).
@@ -5551,9 +5551,8 @@ type PolicyCompact struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// Per-account integer id (matches policies.account_seq_id). Used as a
-	// stable reference for ResourcePoliciesMap.indexes and future delta
-	// updates.
+	// public_id. Used as a stable reference for
+	// ResourcePoliciesMap.indexes and future delta updates.
 	Id            string       `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	Action        RuleAction   `protobuf:"varint,2,opt,name=action,proto3,enum=management.RuleAction" json:"action,omitempty"`
 	Protocol      RuleProtocol `protobuf:"varint,3,opt,name=protocol,proto3,enum=management.RuleProtocol" json:"protocol,omitempty"`
@@ -5562,11 +5561,11 @@ type PolicyCompact struct {
 	Ports []uint32 `protobuf:"varint,5,rep,packed,name=ports,proto3" json:"ports,omitempty"`
 	// Port ranges (start..end) referenced by the rule.
 	PortRanges []*PortInfo_Range `protobuf:"bytes,6,rep,name=port_ranges,json=portRanges,proto3" json:"port_ranges,omitempty"`
-	// Group ids (account_seq_id) of source / destination groups.
+	// Group ids (public_ids) of source / destination groups.
 	SourceGroupIds      []string `protobuf:"bytes,7,rep,name=source_group_ids,json=sourceGroupIds,proto3" json:"source_group_ids,omitempty"`
 	DestinationGroupIds []string `protobuf:"bytes,8,rep,name=destination_group_ids,json=destinationGroupIds,proto3" json:"destination_group_ids,omitempty"`
 	// SSH authorization fields. PolicyRule.AuthorizedGroups maps the rule's
-	// applicable group ids (account_seq_id) to a list of local-user names —
+	// applicable group ids (public_ids) to a list of local-user names —
 	// when a peer in one of those groups is the SSH destination, the named
 	// local users gain access. AuthorizedUser is the single-user form
 	// (legacy: rule scopes SSH to one specific user id).
@@ -5584,7 +5583,7 @@ type PolicyCompact struct {
 	// Calculate's resource-typed rule path today.
 	SourceResource      *ResourceCompact `protobuf:"bytes,11,opt,name=source_resource,json=sourceResource,proto3" json:"source_resource,omitempty"`
 	DestinationResource *ResourceCompact `protobuf:"bytes,12,opt,name=destination_resource,json=destinationResource,proto3" json:"destination_resource,omitempty"`
-	// Posture-check seq ids gating this policy's source peers. Calculate()
+	// Posture-check ids gating this policy's source peers. Calculate()
 	// reads them when filtering rule peers (peers that fail any listed check
 	// are dropped from sourcePeers). Match keys in
 	// NetworkMapComponentsFull.posture_failed_peers.
@@ -5831,15 +5830,14 @@ func (x *UserNameList) GetNames() []string {
 	return nil
 }
 
-// GroupCompact is the wire-shape of a group: per-account integer id, optional
+// GroupCompact is the wire-shape of a group: public id, optional
 // name, and indexes into NetworkMapComponentsFull.peers identifying members.
 type GroupCompact struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// Per-account integer id (matches groups.account_seq_id). Used by
-	// PolicyCompact.source_group_ids / destination_group_ids.
+	// id comes from PublicID. Used by PolicyCompact.source_group_ids / destination_group_ids.
 	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	// Group name; only sent when non-empty (clients use it for diagnostics).
 	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
@@ -5906,7 +5904,7 @@ type DNSSettingsCompact struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// Group ids (account_seq_id) whose DNS management is disabled.
+	// Group ids (public_id) whose DNS management is disabled.
 	DisabledManagementGroupIds []string `protobuf:"bytes,1,rep,name=disabled_management_group_ids,json=disabledManagementGroupIds,proto3" json:"disabled_management_group_ids,omitempty"`
 }
 
@@ -5951,15 +5949,14 @@ func (x *DNSSettingsCompact) GetDisabledManagementGroupIds() []string {
 
 // RouteRaw mirrors *route.Route (the domain type), trimmed to fields that
 // types.NetworkMapComponents.Calculate() reads. Group references are
-// account_seq_ids; the routing peer (when set) is referenced by index into
+// public_ids; the routing peer (when set) is referenced by index into
 // NetworkMapComponentsFull.peers.
 type RouteRaw struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// Per-account integer id (matches routes.account_seq_id).
-	Id          string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Id          string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"` // public_id
 	NetId       string `protobuf:"bytes,2,opt,name=net_id,json=netId,proto3" json:"net_id,omitempty"`
 	Description string `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
 	// Either network_cidr (e.g. "10.0.0.0/16") or domains is set, not both.
@@ -6249,19 +6246,13 @@ func (x *NameServerGroupRaw) GetSearchDomainsEnabled() bool {
 }
 
 // NetworkResourceRaw mirrors *resourceTypes.NetworkResource.
-//
-// INCOMPATIBLE WIRE CHANGE: field 2 changed from `string network_id` (xid)
-// to `uint32 network_seq` without a `reserved` entry. Safe only because
-// capability=3 has never been released — every cap=3 producer and consumer
-// carries the same regenerated descriptor. Do NOT reuse this pattern once
-// cap=3 ships.
 type NetworkResourceRaw struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Id          string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`                                   // network_resources.account_seq_id
-	NetworkSeq  string `protobuf:"bytes,2,opt,name=network_seq,json=networkSeq,proto3" json:"network_seq,omitempty"` // networks.account_seq_id (replaces xid)
+	Id          string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	NetworkSeq  string `protobuf:"bytes,2,opt,name=network_seq,json=networkSeq,proto3" json:"network_seq,omitempty"`
 	Name        string `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
 	Description string `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`
 	// Resource type: "host" / "subnet" / "domain".

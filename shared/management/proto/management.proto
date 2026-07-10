@@ -836,7 +836,7 @@ message NetworkMapComponentsFull {
   // Policies that affect the receiving peer.
   repeated PolicyCompact policies = 11;
 
-  // Groups in unspecified order — clients key off id (account_seq_id).
+  // Groups in unspecified order — clients key off id (public_id).
   repeated GroupCompact groups = 12;
 
   // Routes relevant to this peer, raw shape (mirrors []*route.Route).
@@ -856,22 +856,22 @@ message NetworkMapComponentsFull {
   // Network resources (mirrors []*resourceTypes.NetworkResource).
   repeated NetworkResourceRaw network_resources = 17;
 
-  // Routers per network. Outer key: network account_seq_id. Each entry is
+  // Routers per network. Outer key: network public_id. Each entry is
   // the set of routers backing that network for this peer's view.
   map<string, NetworkRouterList> routers_map = 18;
 
-  // For each NetworkResource account_seq_id, the indexes into policies[]
+  // For each NetworkResource public_id, the indexes into policies[]
   // that apply to it.
   map<string, PolicyIds> resource_policies_map = 19;
 
-  // Group-id (account_seq_id) → user ids authorized for SSH on members.
+  // Group-id (public_id) → user ids authorized for SSH on members.
   map<string, UserIDList> group_id_to_user_ids = 20;
 
   // Account-level allowed user ids (used by Calculate() when assembling SSH
   // authorized users for the receiving peer).
   repeated string allowed_user_ids = 21;
 
-  // Per posture-check account_seq_id, the set of peer indexes that failed
+  // Per posture-check public_id, the set of peer indexes that failed
   // the check. Server-side evaluation result; clients do not re-evaluate.
   map<string, PeerIndexSet> posture_failed_peers = 22;
 
@@ -1012,14 +1012,13 @@ message PeerCompact {
 }
 
 // PolicyCompact is the compact form of a policy rule. Group references use
-// the per-account integer ids from account_seq_counters; the client resolves
+// the public_ids; the client resolves
 // them against NetworkMapComponentsFull.groups. Direction is derived per-peer
 // on the client (ingress when the peer is in destination_group_ids, egress
 // when in source_group_ids; both when bidirectional).
 message PolicyCompact {
-  // Per-account integer id (matches policies.account_seq_id). Used as a
-  // stable reference for ResourcePoliciesMap.indexes and future delta
-  // updates.
+  // public_id. Used as a stable reference for
+  // ResourcePoliciesMap.indexes and future delta updates.
   string id = 1;
 
   RuleAction action = 2;
@@ -1032,12 +1031,12 @@ message PolicyCompact {
   // Port ranges (start..end) referenced by the rule.
   repeated PortInfo.Range port_ranges = 6;
 
-  // Group ids (account_seq_id) of source / destination groups.
+  // Group ids (public_ids) of source / destination groups.
   repeated string source_group_ids = 7;
   repeated string destination_group_ids = 8;
 
   // SSH authorization fields. PolicyRule.AuthorizedGroups maps the rule's
-  // applicable group ids (account_seq_id) to a list of local-user names —
+  // applicable group ids (public_ids) to a list of local-user names —
   // when a peer in one of those groups is the SSH destination, the named
   // local users gain access. AuthorizedUser is the single-user form
   // (legacy: rule scopes SSH to one specific user id).
@@ -1057,7 +1056,7 @@ message PolicyCompact {
   ResourceCompact source_resource = 11;
   ResourceCompact destination_resource = 12;
 
-  // Posture-check seq ids gating this policy's source peers. Calculate()
+  // Posture-check ids gating this policy's source peers. Calculate()
   // reads them when filtering rule peers (peers that fail any listed check
   // are dropped from sourcePeers). Match keys in
   // NetworkMapComponentsFull.posture_failed_peers.
@@ -1082,11 +1081,10 @@ message UserNameList {
   repeated string names = 1;
 }
 
-// GroupCompact is the wire-shape of a group: per-account integer id, optional
+// GroupCompact is the wire-shape of a group: public id, optional
 // name, and indexes into NetworkMapComponentsFull.peers identifying members.
 message GroupCompact {
-  // Per-account integer id (matches groups.account_seq_id). Used by
-  // PolicyCompact.source_group_ids / destination_group_ids.
+  // id comes from PublicID. Used by PolicyCompact.source_group_ids / destination_group_ids.
   string id = 1;
 
   // Group name; only sent when non-empty (clients use it for diagnostics).
@@ -1098,17 +1096,16 @@ message GroupCompact {
 
 // DNSSettingsCompact mirrors types.DNSSettings.
 message DNSSettingsCompact {
-  // Group ids (account_seq_id) whose DNS management is disabled.
+  // Group ids (public_id) whose DNS management is disabled.
   repeated string disabled_management_group_ids = 1;
 }
 
 // RouteRaw mirrors *route.Route (the domain type), trimmed to fields that
 // types.NetworkMapComponents.Calculate() reads. Group references are
-// account_seq_ids; the routing peer (when set) is referenced by index into
+// public_ids; the routing peer (when set) is referenced by index into
 // NetworkMapComponentsFull.peers.
 message RouteRaw {
-  // Per-account integer id (matches routes.account_seq_id).
-  string id = 1;
+  string id = 1; // public_id
   string net_id = 2;
   string description = 3;
 
@@ -1159,14 +1156,9 @@ message NameServerGroupRaw {
 
 // NetworkResourceRaw mirrors *resourceTypes.NetworkResource.
 //
-// INCOMPATIBLE WIRE CHANGE: field 2 changed from `string network_id` (xid)
-// to `uint32 network_seq` without a `reserved` entry. Safe only because
-// capability=3 has never been released — every cap=3 producer and consumer
-// carries the same regenerated descriptor. Do NOT reuse this pattern once
-// cap=3 ships.
 message NetworkResourceRaw {
-  string id = 1;            // network_resources.account_seq_id
-  string network_seq = 2;   // networks.account_seq_id (replaces xid)
+  string id = 1;
+  string network_seq = 2;
   string name = 3;
   string description = 4;
   // Resource type: "host" / "subnet" / "domain".
