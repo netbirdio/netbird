@@ -45,11 +45,18 @@ func (m *mockHandshakeStats) advance() {
 // handshake even when the watcher started with an existing handshake baseline,
 // the case where onHandshakeSuccessFn stays silent.
 func TestWGWatcher_CheckSuccessCallback(t *testing.T) {
-	checkPeriod = 5 * time.Second
+	// checkPeriod bounds how stale a handshake may be before the watcher treats it
+	// as a suspended-machine timeout. The first check fires after wgHandshakeOvertime,
+	// so keep checkPeriod well above any scheduling jitter to avoid a false timeout
+	// converting the expected success into a disconnect on a loaded runner.
+	checkPeriod = 1 * time.Minute
 	wgHandshakeOvertime = 1 * time.Second
 
 	mlog := log.WithField("peer", "tet")
-	stats := &mockHandshakeStats{handshake: time.Now()}
+	// Use an old baseline so advance() yields a strictly newer handshake even on
+	// platforms with coarse clock resolution (Windows), where two time.Now() calls
+	// microseconds apart can return the same instant and read as a timed-out handshake.
+	stats := &mockHandshakeStats{handshake: time.Now().Add(-time.Hour)}
 	watcher := NewWGWatcher(mlog, stats, "", newStateDump("peer", mlog, &Status{}))
 
 	ctx, cancel := context.WithCancel(context.Background())
