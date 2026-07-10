@@ -57,7 +57,7 @@ func EncodeNetworkMapEnvelope(in ComponentsEnvelopeInput) *proto.NetworkMapEnvel
 	// Network populated). The receiver gets an envelope it can decode
 	// without crashing; AccountSettings stays non-nil so client-side
 	// dereferences are safe.
-	if c == nil || c.IsEmpty() {
+	if c.IsEmpty() {
 		// Match legacy missing-peer minimum: a NetworkMap with only Network
 		// populated. The receiver gets enough to bootstrap (Network
 		// identifier, dns_domain, account_settings) and the peer itself.

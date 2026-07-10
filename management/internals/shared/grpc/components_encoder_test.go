@@ -739,9 +739,9 @@ func TestEncodeNetworkMapEnvelope_ProxyPatchPropagated(t *testing.T) {
 		assert.Len(t, full.ProxyPatch.ForwardingRules, 1)
 	})
 
-	t.Run("nil_components_graceful_degrade", func(t *testing.T) {
+	t.Run("empty_components_graceful_degrade", func(t *testing.T) {
 		full := EncodeNetworkMapEnvelope(ComponentsEnvelopeInput{
-			Components: nil,
+			Components: emptyNetworkMapComponents(),
 			ProxyPatch: patch,
 		}).GetFull()
 
@@ -754,7 +754,7 @@ func TestEncodeNetworkMapEnvelope_NilComponentsGracefulDegrade(t *testing.T) {
 	// nil Components → minimal envelope, no crash. Matches the legacy
 	// behaviour for missing/unvalidated peers.
 	env := EncodeNetworkMapEnvelope(ComponentsEnvelopeInput{
-		Components: nil,
+		Components: emptyNetworkMapComponents(),
 		DNSDomain:  "netbird.cloud",
 	})
 
@@ -763,7 +763,7 @@ func TestEncodeNetworkMapEnvelope_NilComponentsGracefulDegrade(t *testing.T) {
 	require.NotNil(t, full)
 	require.NotNil(t, full.AccountSettings, "AccountSettings must always be non-nil")
 	assert.Equal(t, "netbird.cloud", full.DnsDomain)
-	assert.Empty(t, full.Peers)
+	assert.Len(t, full.Peers, 1)
 	assert.Empty(t, full.Policies)
 }
 
@@ -778,4 +778,11 @@ func TestEncodeNetworkMapEnvelope_AccountSettingsAlwaysEmitted(t *testing.T) {
 	require.NotNil(t, full.AccountSettings, "client dereferences AccountSettings unconditionally during Calculate(); a nil here would crash the receiver")
 	assert.False(t, full.AccountSettings.PeerLoginExpirationEnabled)
 	assert.Zero(t, full.AccountSettings.PeerLoginExpirationNs)
+}
+
+func emptyNetworkMapComponents() *types.NetworkMapComponents {
+	return types.EmptyNetworkMapComponents(
+		&types.NetworkMapComponents{
+			PeerID: "peer-id", Peers: map[string]*nbpeer.Peer{"peer-id": {}}},
+	)
 }
