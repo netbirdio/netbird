@@ -6,6 +6,7 @@ import (
 	"github.com/pion/ice/v4"
 
 	"github.com/netbirdio/netbird/client/internal/peer/signaling"
+	"github.com/netbirdio/netbird/client/internal/peer/worker"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -35,8 +36,8 @@ type evRemoteCandidate struct {
 }
 
 type evICEReady struct {
-	priority ConnPriority
-	info     ICEConnInfo
+	priority worker.ConnPriority
+	info     worker.ICEConnInfo
 }
 
 type evICEDown struct {
@@ -44,7 +45,7 @@ type evICEDown struct {
 }
 
 type evRelayReady struct {
-	info RelayConnInfo
+	info worker.RelayConnInfo
 }
 
 type evRelayDown struct{}
