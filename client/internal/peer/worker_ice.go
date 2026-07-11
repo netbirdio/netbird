@@ -151,7 +151,7 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 		w.remoteSessionID = ""
 	}
 
-	go w.connect(dialerCtx, agent, remoteOfferAnswer)
+	go w.connect(dialerCtx, dialerCancel, agent, remoteOfferAnswer)
 }
 
 // OnRemoteCandidate Handles ICE connection Candidate provided by the remote peer.
@@ -247,11 +247,11 @@ func (w *WorkerICE) SessionID() ICESessionID {
 // will block until connection succeeded
 // but it won't release if ICE Agent went into Disconnected or Failed state,
 // so we have to cancel it with the provided context once agent detected a broken connection
-func (w *WorkerICE) connect(ctx context.Context, agent *icemaker.ThreadSafeAgent, remoteOfferAnswer *OfferAnswer) {
+func (w *WorkerICE) connect(ctx context.Context, dialerCancel context.CancelFunc, agent *icemaker.ThreadSafeAgent, remoteOfferAnswer *OfferAnswer) {
 	w.log.Debugf("gather candidates")
 	if err := agent.GatherCandidates(); err != nil {
 		w.log.Warnf("failed to gather candidates: %s", err)
-		w.closeAgent(agent, w.agentDialerCancel)
+		w.closeAgent(agent, dialerCancel)
 		return
 	}
 
@@ -259,19 +259,19 @@ func (w *WorkerICE) connect(ctx context.Context, agent *icemaker.ThreadSafeAgent
 	remoteConn, err := w.turnAgentDial(ctx, agent, remoteOfferAnswer)
 	if err != nil {
 		w.log.Debugf("failed to dial the remote peer: %s", err)
-		w.closeAgent(agent, w.agentDialerCancel)
+		w.closeAgent(agent, dialerCancel)
 		return
 	}
 	w.log.Debugf("agent dial succeeded")
 
 	pair, err := agent.GetSelectedCandidatePair()
 	if err != nil {
-		w.closeAgent(agent, w.agentDialerCancel)
+		w.closeAgent(agent, dialerCancel)
 		return
 	}
 	if pair == nil {
 		w.log.Warnf("selected candidate pair is nil, cannot proceed")
-		w.closeAgent(agent, w.agentDialerCancel)
+		w.closeAgent(agent, dialerCancel)
 		return
 	}
 
