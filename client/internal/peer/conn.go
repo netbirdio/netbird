@@ -22,6 +22,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/peer/id"
+	"github.com/netbirdio/netbird/client/internal/peer/state_dump"
 	"github.com/netbirdio/netbird/client/internal/peer/status"
 	"github.com/netbirdio/netbird/client/internal/peer/worker"
 	"github.com/netbirdio/netbird/client/internal/portforward"
@@ -155,7 +156,7 @@ type Conn struct {
 	wg    sync.WaitGroup
 
 	// debug purpose
-	dumpState *stateDump
+	dumpState *state_dump.StateDump
 
 	endpointUpdater *EndpointUpdater
 
@@ -177,7 +178,7 @@ func NewConn(config ConnConfig, services ServiceDependencies) (*Conn, error) {
 
 	connLog := log.WithField("peer", config.Key)
 
-	dumpState := newStateDump(config.Key, connLog, services.StatusRecorder)
+	dumpState := state_dump.NewStateDump(config.Key, connLog, services.StatusRecorder)
 	var conn = &Conn{
 		Log:                connLog,
 		config:             config,
