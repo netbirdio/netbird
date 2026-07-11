@@ -123,7 +123,7 @@ require (
 	go.opentelemetry.io/otel/sdk/metric v1.43.0
 	go.uber.org/mock v0.6.0
 	go.uber.org/zap v1.27.0
-	goauthentik.io/api/v3 v3.2023051.3
+	goauthentik.io/api/v3 v3.2026050.4
 	golang.org/x/exp v0.0.0-20260410095643-746e56fc9e2f
 	golang.org/x/mobile v0.0.0-20251113184115-a159579294ab
 	golang.org/x/mod v0.37.0
