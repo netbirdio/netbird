@@ -3709,9 +3709,18 @@ type NetworkTrafficEvent struct {
 	Events []NetworkTrafficSubEvent `json:"events"`
 
 	// FlowId FlowID is the ID of the connection flow. Not unique because it can be the same for multiple events (e.g., start and end of the connection).
-	FlowId string               `json:"flow_id"`
-	Icmp   NetworkTrafficICMP   `json:"icmp"`
-	Policy NetworkTrafficPolicy `json:"policy"`
+	FlowId string             `json:"flow_id"`
+	Icmp   NetworkTrafficICMP `json:"icmp"`
+
+	// NumOfDrops Number of drop events.
+	NumOfDrops int `json:"num_of_drops"`
+
+	// NumOfEnds Number of end events.
+	NumOfEnds int `json:"num_of_ends"`
+
+	// NumOfStarts Number of start events.
+	NumOfStarts int                  `json:"num_of_starts"`
+	Policy      NetworkTrafficPolicy `json:"policy"`
 
 	// Protocol Protocol is the protocol of the traffic (e.g. 1 = ICMP, 6 = TCP, 17 = UDP, etc.).
 	Protocol int `json:"protocol"`
@@ -3732,6 +3741,12 @@ type NetworkTrafficEvent struct {
 	// TxPackets Number of packets transmitted.
 	TxPackets int                `json:"tx_packets"`
 	User      NetworkTrafficUser `json:"user"`
+
+	// WindowEnd Timestamp of the end of the aggregation window.
+	WindowEnd time.Time `json:"window_end"`
+
+	// WindowStart Timestamp of the start of the aggregation window.
+	WindowStart time.Time `json:"window_start"`
 }
 
 // NetworkTrafficEventsResponse defines model for NetworkTrafficEventsResponse.
@@ -5841,6 +5856,12 @@ type GetApiEventsNetworkTrafficParams struct {
 
 	// ReporterId Filter by reporter ID
 	ReporterId *string `form:"reporter_id,omitempty" json:"reporter_id,omitempty"`
+
+	// SourceId Filter by source endpoint ID
+	SourceId *string `form:"source_id,omitempty" json:"source_id,omitempty"`
+
+	// DestinationId Filter by destination endpoint ID
+	DestinationId *string `form:"destination_id,omitempty" json:"destination_id,omitempty"`
 
 	// Protocol Filter by protocol
 	Protocol *int `form:"protocol,omitempty" json:"protocol,omitempty"`

@@ -2769,6 +2769,28 @@ components:
           type: integer
           description: "Number of packets transmitted."
           example: 5
+        num_of_starts:
+          type: integer
+          description: "Number of start events."
+          example: 3
+        num_of_ends:
+          type: integer
+          description: "Number of end events."
+          example: 4
+        num_of_drops:
+          type: integer
+          description: "Number of drop events."
+          example: 5
+        window_start:
+          type: string
+          format: date-time
+          description: Timestamp of the start of the aggregation window.
+          example: 2025-03-20T16:23:58.125397Z
+        window_end:
+          type: string
+          format: date-time
+          description: Timestamp of the end of the aggregation window.
+          example: 2025-03-20T16:23:58.125397Z
         events:
           type: array
           description: "List of events that are correlated to this flow (e.g., start, end)."
@@ -2790,6 +2812,11 @@ components:
         - rx_packets
         - tx_bytes
         - tx_packets
+        - num_of_starts
+        - num_of_ends
+        - num_of_drops
+        - window_start
+        - window_end
         - events
     NetworkTrafficEventsResponse:
       type: object
@@ -9297,6 +9324,18 @@ paths:
         - name: reporter_id
           in: query
           description: Filter by reporter ID
+          required: false
+          schema:
+            type: string
+        - name: source_id
+          in: query
+          description: Filter by source endpoint ID
+          required: false
+          schema:
+            type: string
+        - name: destination_id
+          in: query
+          description: Filter by destination endpoint ID
           required: false
           schema:
             type: string
