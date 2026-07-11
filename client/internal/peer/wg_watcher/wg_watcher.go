@@ -1,4 +1,4 @@
-package peer
+package wg_watcher
 
 import (
 	"context"
