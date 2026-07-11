@@ -13,7 +13,6 @@ import (
 
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/udpmux"
-	"github.com/netbirdio/netbird/client/internal/peer/conntype"
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/peer/status"
 	"github.com/netbirdio/netbird/client/internal/portforward"
@@ -611,10 +610,10 @@ func isRelayed(pair *ice.CandidatePair) bool {
 	return false
 }
 
-func selectedPriority(pair *ice.CandidatePair) conntype.ConnPriority {
+func selectedPriority(pair *ice.CandidatePair) ConnPriority {
 	if isRelayed(pair) {
-		return conntype.ICETurn
+		return ICETurn
 	} else {
-		return conntype.ICEP2P
+		return ICEP2P
 	}
 }

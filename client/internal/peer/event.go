@@ -5,7 +5,6 @@ import (
 
 	"github.com/pion/ice/v4"
 
-	"github.com/netbirdio/netbird/client/internal/peer/conntype"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -35,7 +34,7 @@ type evRemoteCandidate struct {
 }
 
 type evICEReady struct {
-	priority conntype.ConnPriority
+	priority ConnPriority
 	info     ICEConnInfo
 }
 
