@@ -19,12 +19,17 @@ type RelayConnInfo struct {
 	rosenpassAddr   string
 }
 
+type relayCallbacks interface {
+	onRelayConnectionIsReady(rci RelayConnInfo)
+	onRelayDisconnected()
+}
+
 type WorkerRelay struct {
 	peerCtx      context.Context
 	log          *log.Entry
 	isController bool
 	config       ConnConfig
-	conn         *Conn
+	conn         relayCallbacks
 	relayManager *relayClient.Manager
 
 	relayedConn net.Conn
@@ -33,7 +38,7 @@ type WorkerRelay struct {
 	relaySupportedOnRemotePeer atomic.Bool
 }
 
-func NewWorkerRelay(ctx context.Context, log *log.Entry, ctrl bool, config ConnConfig, conn *Conn, relayManager *relayClient.Manager) *WorkerRelay {
+func NewWorkerRelay(ctx context.Context, log *log.Entry, ctrl bool, config ConnConfig, conn relayCallbacks, relayManager *relayClient.Manager) *WorkerRelay {
 	r := &WorkerRelay{
 		peerCtx:      ctx,
 		log:          log,

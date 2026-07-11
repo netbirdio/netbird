@@ -20,6 +20,11 @@ import (
 	"github.com/netbirdio/netbird/route"
 )
 
+type iceCallbacks interface {
+	onICEConnectionIsReady(priority ConnPriority, iceConnInfo ICEConnInfo)
+	onICEStateDisconnected(sessionChanged bool)
+}
+
 type ICEConnInfo struct {
 	RemoteConn                 net.Conn
 	RosenpassPubKey            []byte
@@ -33,14 +38,15 @@ type ICEConnInfo struct {
 }
 
 type WorkerICE struct {
-	ctx               context.Context
-	log               *log.Entry
-	config            ConnConfig
-	conn              *Conn
-	signaler          *Signaler
-	iFaceDiscover     stdnet.ExternalIFaceDiscover
-	statusRecorder    *status.Recorder
-	hasRelayOnLocally bool
+	ctx                context.Context
+	log                *log.Entry
+	config             ConnConfig
+	conn               iceCallbacks
+	signaler           *Signaler
+	iFaceDiscover      stdnet.ExternalIFaceDiscover
+	statusRecorder     *status.Recorder
+	portForwardManager *portforward.Manager
+	hasRelayOnLocally  bool
 
 	agent             *icemaker.ThreadSafeAgent
 	agentDialerCancel context.CancelFunc
@@ -65,22 +71,23 @@ type WorkerICE struct {
 	portForwardAttempted bool
 }
 
-func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, conn *Conn, signaler *Signaler, ifaceDiscover stdnet.ExternalIFaceDiscover, statusRecorder *status.Recorder, hasRelayOnLocally bool) (*WorkerICE, error) {
+func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, conn iceCallbacks, signaler *Signaler, ifaceDiscover stdnet.ExternalIFaceDiscover, statusRecorder *status.Recorder, portForwardManager *portforward.Manager, hasRelayOnLocally bool) (*WorkerICE, error) {
 	sessionID, err := NewICESessionID()
 	if err != nil {
 		return nil, err
 	}
 
 	w := &WorkerICE{
-		ctx:               ctx,
-		log:               log,
-		config:            config,
-		conn:              conn,
-		signaler:          signaler,
-		iFaceDiscover:     ifaceDiscover,
-		statusRecorder:    statusRecorder,
-		hasRelayOnLocally: hasRelayOnLocally,
-		sessionID:         sessionID,
+		ctx:                ctx,
+		log:                log,
+		config:             config,
+		conn:               conn,
+		signaler:           signaler,
+		iFaceDiscover:      ifaceDiscover,
+		statusRecorder:     statusRecorder,
+		portForwardManager: portForwardManager,
+		hasRelayOnLocally:  hasRelayOnLocally,
+		sessionID:          sessionID,
 	}
 
 	localUfrag, localPwd, err := icemaker.GenerateICECredentials()
@@ -382,7 +389,7 @@ func (w *WorkerICE) onICECandidate(candidate ice.Candidate) {
 
 // injectPortForwardedCandidate signals an additional candidate using the pre-created port mapping.
 func (w *WorkerICE) injectPortForwardedCandidate(srflxCandidate ice.Candidate) {
-	pfManager := w.conn.portForwardManager
+	pfManager := w.portForwardManager
 	if pfManager == nil {
 		return
 	}
