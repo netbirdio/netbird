@@ -1,4 +1,4 @@
-package peer
+package status
 
 import (
 	"sync"
@@ -10,6 +10,16 @@ const (
 	stateConnecting
 	stateDisconnecting
 )
+
+// Listener is a callback type about the NetBird network connection state
+type Listener interface {
+	OnConnected()
+	OnDisconnected()
+	OnConnecting()
+	OnDisconnecting()
+	OnAddressChanged(string, string)
+	OnPeersListChanged(int)
+}
 
 type notifier struct {
 	serverStateLock    sync.Mutex

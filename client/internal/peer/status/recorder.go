@@ -1,4 +1,4 @@
-package peer
+package status
 
 import (
 	"context"
@@ -15,7 +15,6 @@ import (
 	"golang.org/x/exp/maps"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
@@ -50,61 +49,6 @@ type RouterState struct {
 	Status  ConnStatus
 	Relayed bool
 	Latency time.Duration
-}
-
-// State contains the latest state of a peer
-type State struct {
-	Mux                        *sync.RWMutex
-	IP                         string
-	IPv6                       string
-	PubKey                     string
-	FQDN                       string
-	ConnStatus                 ConnStatus
-	ConnStatusUpdate           time.Time
-	Relayed                    bool
-	LocalIceCandidateType      string
-	RemoteIceCandidateType     string
-	LocalIceCandidateEndpoint  string
-	RemoteIceCandidateEndpoint string
-	RelayServerAddress         string
-	LastWireguardHandshake     time.Time
-	BytesTx                    int64
-	BytesRx                    int64
-	Latency                    time.Duration
-	RosenpassEnabled           bool
-	SSHHostKey                 []byte
-	routes                     map[string]struct{}
-}
-
-// AddRoute add a single route to routes map
-func (s *State) AddRoute(network string) {
-	s.Mux.Lock()
-	defer s.Mux.Unlock()
-	if s.routes == nil {
-		s.routes = make(map[string]struct{})
-	}
-	s.routes[network] = struct{}{}
-}
-
-// SetRoutes set state routes
-func (s *State) SetRoutes(routes map[string]struct{}) {
-	s.Mux.Lock()
-	defer s.Mux.Unlock()
-	s.routes = routes
-}
-
-// DeleteRoute removes a route from the network amp
-func (s *State) DeleteRoute(network string) {
-	s.Mux.Lock()
-	defer s.Mux.Unlock()
-	delete(s.routes, network)
-}
-
-// GetRoutes return routes map
-func (s *State) GetRoutes() map[string]struct{} {
-	s.Mux.RLock()
-	defer s.Mux.RUnlock()
-	return maps.Clone(s.routes)
 }
 
 // LocalPeerState contains the latest state of the local peer
@@ -154,20 +98,6 @@ type NSGroupState struct {
 	Error   error
 }
 
-// FullStatus contains the full state held by the Status instance
-type FullStatus struct {
-	Peers                 []State
-	ManagementState       ManagementState
-	SignalState           SignalState
-	LocalPeerState        LocalPeerState
-	RosenpassState        RosenpassState
-	Relays                []relay.ProbeResult
-	NSGroupStates         []NSGroupState
-	NumOfForwardingRules  int
-	LazyConnectionEnabled bool
-	Events                []*proto.SystemEvent
-}
-
 type StatusChangeSubscription struct {
 	peerID     string
 	id         string
@@ -189,11 +119,11 @@ func (s *StatusChangeSubscription) Events() chan map[string]RouterState {
 	return s.eventsChan
 }
 
-// Status holds a state of peers, signal, management connections and relays.
+// Recorder holds a state of peers, signal, management connections and relays.
 // mux is an RWMutex so hot read paths (notably PeerStateByIP, called for
 // every private-service request) don't contend against each other.
 // Pure read methods take RLock; anything that mutates state takes Lock.
-type Status struct {
+type Recorder struct {
 	mux                 sync.RWMutex
 	muxRelays           sync.RWMutex
 	peers               map[string]State
@@ -254,9 +184,9 @@ type Status struct {
 	wgIface       WGIfaceStatus
 }
 
-// NewRecorder returns a new Status instance
-func NewRecorder(mgmAddress string) *Status {
-	return &Status{
+// NewRecorder returns a new Recorder instance
+func NewRecorder(mgmAddress string) *Recorder {
+	return &Recorder{
 		peers:                 make(map[string]State),
 		ipToKey:               make(map[string]string),
 		changeNotify:          make(map[string]map[string]*StatusChangeSubscription),
@@ -270,20 +200,20 @@ func NewRecorder(mgmAddress string) *Status {
 	}
 }
 
-func (d *Status) SetRelayMgr(manager *relayClient.Manager) {
+func (d *Recorder) SetRelayMgr(manager *relayClient.Manager) {
 	d.muxRelays.Lock()
 	defer d.muxRelays.Unlock()
 	d.relayMgr = manager
 }
 
-func (d *Status) SetIngressGwMgr(ingressGwMgr *ingressgw.Manager) {
+func (d *Recorder) SetIngressGwMgr(ingressGwMgr *ingressgw.Manager) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 	d.ingressGwMgr = ingressGwMgr
 }
 
 // ReplaceOfflinePeers replaces
-func (d *Status) ReplaceOfflinePeers(replacement []State) {
+func (d *Recorder) ReplaceOfflinePeers(replacement []State) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 	d.offlinePeers = make([]State, len(replacement))
@@ -294,7 +224,7 @@ func (d *Status) ReplaceOfflinePeers(replacement []State) {
 }
 
 // AddPeer adds peer to Daemon status map
-func (d *Status) AddPeer(peerPubKey string, fqdn string, ip string, ipv6 string) error {
+func (d *Recorder) AddPeer(peerPubKey string, fqdn string, ip string, ipv6 string) error {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
@@ -321,7 +251,7 @@ func (d *Status) AddPeer(peerPubKey string, fqdn string, ip string, ipv6 string)
 }
 
 // GetPeer adds peer to Daemon status map
-func (d *Status) GetPeer(peerPubKey string) (State, error) {
+func (d *Recorder) GetPeer(peerPubKey string) (State, error) {
 	d.mux.RLock()
 	defer d.mux.RUnlock()
 
@@ -332,7 +262,7 @@ func (d *Status) GetPeer(peerPubKey string) (State, error) {
 	return state, nil
 }
 
-func (d *Status) PeerByIP(ip string) (string, bool) {
+func (d *Recorder) PeerByIP(ip string) (string, bool) {
 	d.mux.RLock()
 	defer d.mux.RUnlock()
 
@@ -349,7 +279,7 @@ func (d *Status) PeerByIP(ip string) (string, bool) {
 // address so dual-stack peers are reachable on either family. Only
 // active peers are matched; peers moved into the offline slice by
 // ReplaceOfflinePeers are intentionally treated as unknown.
-func (d *Status) PeerStateByIP(ip string) (State, bool) {
+func (d *Recorder) PeerStateByIP(ip string) (State, bool) {
 	if ip == "" {
 		return State{}, false
 	}
@@ -367,7 +297,7 @@ func (d *Status) PeerStateByIP(ip string) (State, bool) {
 }
 
 // RemovePeer removes peer from Daemon status map
-func (d *Status) RemovePeer(peerPubKey string) error {
+func (d *Recorder) RemovePeer(peerPubKey string) error {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
@@ -388,7 +318,7 @@ func (d *Status) RemovePeer(peerPubKey string) error {
 }
 
 // UpdatePeerState updates peer status
-func (d *Status) UpdatePeerState(receivedState State) error {
+func (d *Recorder) UpdatePeerState(receivedState State) error {
 	return d.updatePeer(receivedState.PubKey,
 		func(_, updated State) bool { return updated.ConnStatus == StatusIdle },
 		func(peerState *State) {
@@ -407,7 +337,7 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 		})
 }
 
-func (d *Status) AddPeerStateRoute(peer string, route string, resourceId route.ResID) error {
+func (d *Recorder) AddPeerStateRoute(peer string, route string, resourceId route.ResID) error {
 	d.mux.Lock()
 
 	peerState, ok := d.peers[peer]
@@ -433,7 +363,7 @@ func (d *Status) AddPeerStateRoute(peer string, route string, resourceId route.R
 	return nil
 }
 
-func (d *Status) RemovePeerStateRoute(peer string, route string) error {
+func (d *Recorder) RemovePeerStateRoute(peer string, route string) error {
 	d.mux.Lock()
 
 	peerState, ok := d.peers[peer]
@@ -461,7 +391,7 @@ func (d *Status) RemovePeerStateRoute(peer string, route string) error {
 
 // CheckRoutes checks if the source and destination addresses are within the same route
 // and returns the resource ID of the route that contains the addresses
-func (d *Status) CheckRoutes(ip netip.Addr) ([]byte, bool) {
+func (d *Recorder) CheckRoutes(ip netip.Addr) ([]byte, bool) {
 	if d == nil {
 		return nil, false
 	}
@@ -469,7 +399,7 @@ func (d *Status) CheckRoutes(ip netip.Addr) ([]byte, bool) {
 	return []byte(resId), isExitNode
 }
 
-func (d *Status) UpdatePeerICEState(receivedState State) error {
+func (d *Recorder) UpdatePeerICEState(receivedState State) error {
 	return d.updatePeer(receivedState.PubKey, hasStatusOrRelayedChange, func(peerState *State) {
 		peerState.ConnStatus = receivedState.ConnStatus
 		peerState.ConnStatusUpdate = receivedState.ConnStatusUpdate
@@ -482,7 +412,7 @@ func (d *Status) UpdatePeerICEState(receivedState State) error {
 	})
 }
 
-func (d *Status) UpdatePeerRelayedState(receivedState State) error {
+func (d *Recorder) UpdatePeerRelayedState(receivedState State) error {
 	return d.updatePeer(receivedState.PubKey, hasStatusOrRelayedChange, func(peerState *State) {
 		peerState.ConnStatus = receivedState.ConnStatus
 		peerState.ConnStatusUpdate = receivedState.ConnStatusUpdate
@@ -492,7 +422,7 @@ func (d *Status) UpdatePeerRelayedState(receivedState State) error {
 	})
 }
 
-func (d *Status) UpdatePeerRelayedStateToDisconnected(receivedState State) error {
+func (d *Recorder) UpdatePeerRelayedStateToDisconnected(receivedState State) error {
 	return d.updatePeer(receivedState.PubKey, hasStatusOrRelayedChange, func(peerState *State) {
 		peerState.ConnStatus = receivedState.ConnStatus
 		peerState.Relayed = receivedState.Relayed
@@ -501,7 +431,7 @@ func (d *Status) UpdatePeerRelayedStateToDisconnected(receivedState State) error
 	})
 }
 
-func (d *Status) UpdatePeerICEStateToDisconnected(receivedState State) error {
+func (d *Recorder) UpdatePeerICEStateToDisconnected(receivedState State) error {
 	return d.updatePeer(receivedState.PubKey, hasStatusOrRelayedChange, func(peerState *State) {
 		peerState.ConnStatus = receivedState.ConnStatus
 		peerState.Relayed = receivedState.Relayed
@@ -514,7 +444,7 @@ func (d *Status) UpdatePeerICEStateToDisconnected(receivedState State) error {
 }
 
 // UpdateWireGuardPeerState updates the WireGuard bits of the peer state
-func (d *Status) UpdateWireGuardPeerState(pubKey string, wgStats configurer.WGStats) error {
+func (d *Recorder) UpdateWireGuardPeerState(pubKey string, wgStats configurer.WGStats) error {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
@@ -534,7 +464,7 @@ func (d *Status) UpdateWireGuardPeerState(pubKey string, wgStats configurer.WGSt
 
 // updatePeer applies mutate to the stored peer state and runs the list, router
 // and state-change notifications outside the lock
-func (d *Status) updatePeer(pubKey string, notifyRouter func(old, updated State) bool, mutate func(*State)) error {
+func (d *Recorder) updatePeer(pubKey string, notifyRouter func(old, updated State) bool, mutate func(*State)) error {
 	d.mux.Lock()
 
 	peerState, ok := d.peers[pubKey]
@@ -564,12 +494,8 @@ func (d *Status) updatePeer(pubKey string, notifyRouter func(old, updated State)
 	return nil
 }
 
-func hasStatusOrRelayedChange(old, updated State) bool {
-	return old.Relayed != updated.Relayed || old.ConnStatus != updated.ConnStatus
-}
-
 // UpdatePeerFQDN update peer's state fqdn only
-func (d *Status) UpdatePeerFQDN(peerPubKey, fqdn string) error {
+func (d *Recorder) UpdatePeerFQDN(peerPubKey, fqdn string) error {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
@@ -585,7 +511,7 @@ func (d *Status) UpdatePeerFQDN(peerPubKey, fqdn string) error {
 }
 
 // UpdatePeerSSHHostKey updates peer's SSH host key
-func (d *Status) UpdatePeerSSHHostKey(peerPubKey string, sshHostKey []byte) error {
+func (d *Recorder) UpdatePeerSSHHostKey(peerPubKey string, sshHostKey []byte) error {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
@@ -601,7 +527,7 @@ func (d *Status) UpdatePeerSSHHostKey(peerPubKey string, sshHostKey []byte) erro
 }
 
 // FinishPeerListModifications this event invoke the notification
-func (d *Status) FinishPeerListModifications() {
+func (d *Recorder) FinishPeerListModifications() {
 	d.mux.Lock()
 
 	if !d.peerListChangedForNotification {
@@ -634,7 +560,7 @@ func (d *Status) FinishPeerListModifications() {
 	d.notifyStateChange()
 }
 
-func (d *Status) SubscribeToPeerStateChanges(ctx context.Context, peerID string) *StatusChangeSubscription {
+func (d *Recorder) SubscribeToPeerStateChanges(ctx context.Context, peerID string) *StatusChangeSubscription {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
@@ -647,7 +573,7 @@ func (d *Status) SubscribeToPeerStateChanges(ctx context.Context, peerID string)
 	return sub
 }
 
-func (d *Status) UnsubscribePeerStateChanges(subscription *StatusChangeSubscription) {
+func (d *Recorder) UnsubscribePeerStateChanges(subscription *StatusChangeSubscription) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
@@ -672,14 +598,14 @@ func (d *Status) UnsubscribePeerStateChanges(subscription *StatusChangeSubscript
 }
 
 // GetLocalPeerState returns the local peer state
-func (d *Status) GetLocalPeerState() LocalPeerState {
+func (d *Recorder) GetLocalPeerState() LocalPeerState {
 	d.mux.RLock()
 	defer d.mux.RUnlock()
 	return d.localPeer.Clone()
 }
 
 // UpdateLocalPeerState updates local peer status
-func (d *Status) UpdateLocalPeerState(localPeerState LocalPeerState) {
+func (d *Recorder) UpdateLocalPeerState(localPeerState LocalPeerState) {
 	d.mux.Lock()
 	d.localPeer = localPeerState
 	fqdn := d.localPeer.FQDN
@@ -699,7 +625,7 @@ func (d *Status) UpdateLocalPeerState(localPeerState LocalPeerState) {
 // disabled or the peer is not SSO-tracked). Same-value updates are no-ops;
 // real changes fan out via notifyStateChange so SubscribeStatus consumers
 // pick up the new deadline on their next read.
-func (d *Status) SetSessionExpiresAt(deadline time.Time) {
+func (d *Recorder) SetSessionExpiresAt(deadline time.Time) {
 	d.mux.Lock()
 	if d.sessionExpiresAt.Equal(deadline) {
 		d.mux.Unlock()
@@ -718,7 +644,7 @@ func (d *Status) SetSessionExpiresAt(deadline time.Time) {
 // warnings). Without this guard the UI would keep painting a stale
 // "expires in …" against a moment that has passed until the next login,
 // extend, or teardown rewrote the value.
-func (d *Status) GetSessionExpiresAt() time.Time {
+func (d *Recorder) GetSessionExpiresAt() time.Time {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 	if !d.sessionExpiresAt.IsZero() && d.sessionExpiresAt.Before(time.Now()) {
@@ -728,7 +654,7 @@ func (d *Status) GetSessionExpiresAt() time.Time {
 }
 
 // AddLocalPeerStateRoute adds a route to the local peer state
-func (d *Status) AddLocalPeerStateRoute(route string, resourceId route.ResID) {
+func (d *Recorder) AddLocalPeerStateRoute(route string, resourceId route.ResID) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
@@ -745,7 +671,7 @@ func (d *Status) AddLocalPeerStateRoute(route string, resourceId route.ResID) {
 }
 
 // RemoveLocalPeerStateRoute removes a route from the local peer state
-func (d *Status) RemoveLocalPeerStateRoute(route string) {
+func (d *Recorder) RemoveLocalPeerStateRoute(route string) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
@@ -758,7 +684,7 @@ func (d *Status) RemoveLocalPeerStateRoute(route string) {
 }
 
 // AddResolvedIPLookupEntry adds a resolved IP lookup entry
-func (d *Status) AddResolvedIPLookupEntry(prefix netip.Prefix, resourceId route.ResID) {
+func (d *Recorder) AddResolvedIPLookupEntry(prefix netip.Prefix, resourceId route.ResID) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
@@ -766,7 +692,7 @@ func (d *Status) AddResolvedIPLookupEntry(prefix netip.Prefix, resourceId route.
 }
 
 // RemoveResolvedIPLookupEntry removes a resolved IP lookup entry
-func (d *Status) RemoveResolvedIPLookupEntry(route string) {
+func (d *Recorder) RemoveResolvedIPLookupEntry(route string) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
@@ -777,7 +703,7 @@ func (d *Status) RemoveResolvedIPLookupEntry(route string) {
 }
 
 // CleanLocalPeerStateRoutes cleans all routes from the local peer state
-func (d *Status) CleanLocalPeerStateRoutes() {
+func (d *Recorder) CleanLocalPeerStateRoutes() {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
@@ -785,7 +711,7 @@ func (d *Status) CleanLocalPeerStateRoutes() {
 }
 
 // CleanLocalPeerState cleans local peer status
-func (d *Status) CleanLocalPeerState() {
+func (d *Recorder) CleanLocalPeerState() {
 	d.mux.Lock()
 	d.localPeer = LocalPeerState{}
 	fqdn := d.localPeer.FQDN
@@ -797,7 +723,7 @@ func (d *Status) CleanLocalPeerState() {
 }
 
 // MarkManagementDisconnected sets ManagementState to disconnected
-func (d *Status) MarkManagementDisconnected(err error) {
+func (d *Recorder) MarkManagementDisconnected(err error) {
 	d.mux.Lock()
 	// Health checks re-mark the same state on every probe; skip the fan-out
 	// when nothing actually changed so we don't flood SubscribeStatus
@@ -817,7 +743,7 @@ func (d *Status) MarkManagementDisconnected(err error) {
 }
 
 // MarkManagementConnected sets ManagementState to connected
-func (d *Status) MarkManagementConnected() {
+func (d *Recorder) MarkManagementConnected() {
 	d.mux.Lock()
 	if d.managementState && d.managementError == nil {
 		d.mux.Unlock()
@@ -834,35 +760,35 @@ func (d *Status) MarkManagementConnected() {
 }
 
 // UpdateSignalAddress update the address of the signal server
-func (d *Status) UpdateSignalAddress(signalURL string) {
+func (d *Recorder) UpdateSignalAddress(signalURL string) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 	d.signalAddress = signalURL
 }
 
 // UpdateManagementAddress update the address of the management server
-func (d *Status) UpdateManagementAddress(mgmAddress string) {
+func (d *Recorder) UpdateManagementAddress(mgmAddress string) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 	d.mgmAddress = mgmAddress
 }
 
 // UpdateRosenpass update the Rosenpass configuration
-func (d *Status) UpdateRosenpass(rosenpassEnabled, rosenpassPermissive bool) {
+func (d *Recorder) UpdateRosenpass(rosenpassEnabled, rosenpassPermissive bool) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 	d.rosenpassPermissive = rosenpassPermissive
 	d.rosenpassEnabled = rosenpassEnabled
 }
 
-func (d *Status) UpdateLazyConnection(enabled bool) {
+func (d *Recorder) UpdateLazyConnection(enabled bool) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 	d.lazyConnectionEnabled = enabled
 }
 
 // MarkSignalDisconnected sets SignalState to disconnected
-func (d *Status) MarkSignalDisconnected(err error) {
+func (d *Recorder) MarkSignalDisconnected(err error) {
 	d.mux.Lock()
 	if !d.signalState && errors.Is(d.signalError, err) {
 		d.mux.Unlock()
@@ -879,7 +805,7 @@ func (d *Status) MarkSignalDisconnected(err error) {
 }
 
 // MarkSignalConnected sets SignalState to connected
-func (d *Status) MarkSignalConnected() {
+func (d *Recorder) MarkSignalConnected() {
 	d.mux.Lock()
 	if d.signalState && d.signalError == nil {
 		d.mux.Unlock()
@@ -895,19 +821,19 @@ func (d *Status) MarkSignalConnected() {
 	d.notifyStateChange()
 }
 
-func (d *Status) UpdateRelayStates(relayResults []relay.ProbeResult) {
+func (d *Recorder) UpdateRelayStates(relayResults []relay.ProbeResult) {
 	d.muxRelays.Lock()
 	defer d.muxRelays.Unlock()
 	d.relayStates = relayResults
 }
 
-func (d *Status) UpdateDNSStates(dnsStates []NSGroupState) {
+func (d *Recorder) UpdateDNSStates(dnsStates []NSGroupState) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 	d.nsGroupStates = dnsStates
 }
 
-func (d *Status) UpdateResolvedDomainsStates(originalDomain domain.Domain, resolvedDomain domain.Domain, prefixes []netip.Prefix, resourceId route.ResID) {
+func (d *Recorder) UpdateResolvedDomainsStates(originalDomain domain.Domain, resolvedDomain domain.Domain, prefixes []netip.Prefix, resourceId route.ResID) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
@@ -922,7 +848,7 @@ func (d *Status) UpdateResolvedDomainsStates(originalDomain domain.Domain, resol
 	}
 }
 
-func (d *Status) DeleteResolvedDomainsStates(domain domain.Domain) {
+func (d *Recorder) DeleteResolvedDomainsStates(domain domain.Domain) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
@@ -938,7 +864,7 @@ func (d *Status) DeleteResolvedDomainsStates(domain domain.Domain) {
 	}
 }
 
-func (d *Status) GetRosenpassState() RosenpassState {
+func (d *Recorder) GetRosenpassState() RosenpassState {
 	d.mux.RLock()
 	defer d.mux.RUnlock()
 	return RosenpassState{
@@ -947,13 +873,13 @@ func (d *Status) GetRosenpassState() RosenpassState {
 	}
 }
 
-func (d *Status) GetLazyConnection() bool {
+func (d *Recorder) GetLazyConnection() bool {
 	d.mux.RLock()
 	defer d.mux.RUnlock()
 	return d.lazyConnectionEnabled
 }
 
-func (d *Status) GetManagementState() ManagementState {
+func (d *Recorder) GetManagementState() ManagementState {
 	d.mux.RLock()
 	defer d.mux.RUnlock()
 	return ManagementState{
@@ -963,7 +889,7 @@ func (d *Status) GetManagementState() ManagementState {
 	}
 }
 
-func (d *Status) UpdateLatency(pubKey string, latency time.Duration) error {
+func (d *Recorder) UpdateLatency(pubKey string, latency time.Duration) error {
 	if latency <= 0 {
 		return nil
 	}
@@ -980,7 +906,7 @@ func (d *Status) UpdateLatency(pubKey string, latency time.Duration) error {
 }
 
 // IsLoginRequired determines if a peer's login has expired.
-func (d *Status) IsLoginRequired() bool {
+func (d *Recorder) IsLoginRequired() bool {
 	d.mux.RLock()
 	defer d.mux.RUnlock()
 
@@ -996,7 +922,7 @@ func (d *Status) IsLoginRequired() bool {
 	return false
 }
 
-func (d *Status) GetSignalState() SignalState {
+func (d *Recorder) GetSignalState() SignalState {
 	d.mux.RLock()
 	defer d.mux.RUnlock()
 	return SignalState{
@@ -1007,7 +933,7 @@ func (d *Status) GetSignalState() SignalState {
 }
 
 // GetRelayStates returns the stun/turn/permanent relay states
-func (d *Status) GetRelayStates() []relay.ProbeResult {
+func (d *Recorder) GetRelayStates() []relay.ProbeResult {
 	d.muxRelays.RLock()
 	if d.relayMgr == nil {
 		defer d.muxRelays.RUnlock()
@@ -1046,7 +972,7 @@ func (d *Status) GetRelayStates() []relay.ProbeResult {
 	return relayStates
 }
 
-func (d *Status) ForwardingRules() []firewall.ForwardRule {
+func (d *Recorder) ForwardingRules() []firewall.ForwardRule {
 	d.mux.RLock()
 	defer d.mux.RUnlock()
 	if d.ingressGwMgr == nil {
@@ -1056,7 +982,7 @@ func (d *Status) ForwardingRules() []firewall.ForwardRule {
 	return d.ingressGwMgr.Rules()
 }
 
-func (d *Status) GetDNSStates() []NSGroupState {
+func (d *Recorder) GetDNSStates() []NSGroupState {
 	d.mux.RLock()
 	defer d.mux.RUnlock()
 
@@ -1064,14 +990,14 @@ func (d *Status) GetDNSStates() []NSGroupState {
 	return slices.Clone(d.nsGroupStates)
 }
 
-func (d *Status) GetResolvedDomainsStates() map[domain.Domain]ResolvedDomainInfo {
+func (d *Recorder) GetResolvedDomainsStates() map[domain.Domain]ResolvedDomainInfo {
 	d.mux.RLock()
 	defer d.mux.RUnlock()
 	return maps.Clone(d.resolvedDomainsStates)
 }
 
 // GetFullStatus gets full status
-func (d *Status) GetFullStatus() FullStatus {
+func (d *Recorder) GetFullStatus() FullStatus {
 	fullStatus := FullStatus{
 		ManagementState:       d.GetManagementState(),
 		SignalState:           d.GetSignalState(),
@@ -1097,30 +1023,30 @@ func (d *Status) GetFullStatus() FullStatus {
 }
 
 // ClientStart will notify all listeners about the new service state
-func (d *Status) ClientStart() {
+func (d *Recorder) ClientStart() {
 	d.notifier.clientStart()
 	d.notifyStateChange()
 }
 
 // ClientStop will notify all listeners about the new service state
-func (d *Status) ClientStop() {
+func (d *Recorder) ClientStop() {
 	d.notifier.clientStop()
 	d.notifyStateChange()
 }
 
 // ClientTeardown will notify all listeners about the service is under teardown
-func (d *Status) ClientTeardown() {
+func (d *Recorder) ClientTeardown() {
 	d.notifier.clientTearDown()
 	d.notifyStateChange()
 }
 
 // SetConnectionListener set a listener to the notifier
-func (d *Status) SetConnectionListener(listener Listener) {
+func (d *Recorder) SetConnectionListener(listener Listener) {
 	d.notifier.setListener(listener)
 }
 
 // RemoveConnectionListener remove the listener from the notifier
-func (d *Status) RemoveConnectionListener() {
+func (d *Recorder) RemoveConnectionListener() {
 	d.notifier.removeListener()
 }
 
@@ -1128,7 +1054,7 @@ func (d *Status) RemoveConnectionListener() {
 // Caller MUST hold d.mux. Returns nil when there are no subscribers for peerID
 // or when notify is false. The snapshot is consumed later by dispatchRouterPeers
 // outside the lock so the channel send cannot stall any d.mux holder.
-func (d *Status) snapshotRouterPeersLocked(peerID string, notify bool) map[string]RouterState {
+func (d *Recorder) snapshotRouterPeersLocked(peerID string, notify bool) map[string]RouterState {
 	if !notify {
 		return nil
 	}
@@ -1157,7 +1083,7 @@ func (d *Status) snapshotRouterPeersLocked(peerID string, notify bool) map[strin
 // channels, then sends outside the lock so a slow consumer cannot block other
 // d.mux holders. The send itself stays blocking (only short-circuited by the
 // subscriber's context) so peer state transitions are not silently dropped.
-func (d *Status) dispatchRouterPeers(peerID string, routerPeers map[string]RouterState) {
+func (d *Recorder) dispatchRouterPeers(peerID string, routerPeers map[string]RouterState) {
 	if routerPeers == nil {
 		return
 	}
@@ -1180,12 +1106,12 @@ func (d *Status) dispatchRouterPeers(peerID string, routerPeers map[string]Route
 	}
 }
 
-func (d *Status) numOfPeers() int {
+func (d *Recorder) numOfPeers() int {
 	return len(d.peers) + len(d.offlinePeers)
 }
 
 // PublishEvent adds an event to the queue and distributes it to all subscribers
-func (d *Status) PublishEvent(
+func (d *Recorder) PublishEvent(
 	severity proto.SystemEvent_Severity,
 	category proto.SystemEvent_Category,
 	msg string,
@@ -1219,7 +1145,7 @@ func (d *Status) PublishEvent(
 }
 
 // SubscribeToEvents returns a new event subscription
-func (d *Status) SubscribeToEvents() *EventSubscription {
+func (d *Recorder) SubscribeToEvents() *EventSubscription {
 	d.eventMux.Lock()
 	defer d.eventMux.Unlock()
 
@@ -1234,7 +1160,7 @@ func (d *Status) SubscribeToEvents() *EventSubscription {
 }
 
 // UnsubscribeFromEvents removes an event subscription
-func (d *Status) UnsubscribeFromEvents(sub *EventSubscription) {
+func (d *Recorder) UnsubscribeFromEvents(sub *EventSubscription) {
 	if sub == nil {
 		return
 	}
@@ -1249,7 +1175,7 @@ func (d *Status) UnsubscribeFromEvents(sub *EventSubscription) {
 }
 
 // GetEventHistory returns all events in the queue
-func (d *Status) GetEventHistory() []*proto.SystemEvent {
+func (d *Recorder) GetEventHistory() []*proto.SystemEvent {
 	return d.eventQueue.GetAll()
 }
 
@@ -1258,7 +1184,7 @@ func (d *Status) GetEventHistory() []*proto.SystemEvent {
 // address change / peers-list change). The channel is buffered to one
 // pending tick so a coalesced burst still wakes the consumer exactly
 // once. Pass the returned id to UnsubscribeFromStateChanges to detach.
-func (d *Status) SubscribeToStateChanges() (string, <-chan struct{}) {
+func (d *Recorder) SubscribeToStateChanges() (string, <-chan struct{}) {
 	d.stateChangeMux.Lock()
 	defer d.stateChangeMux.Unlock()
 
@@ -1271,7 +1197,7 @@ func (d *Status) SubscribeToStateChanges() (string, <-chan struct{}) {
 // UnsubscribeFromStateChanges releases a SubscribeToStateChanges channel
 // and closes it so any consumer goroutine selecting on the channel
 // unblocks cleanly.
-func (d *Status) UnsubscribeFromStateChanges(id string) {
+func (d *Recorder) UnsubscribeFromStateChanges(id string) {
 	d.stateChangeMux.Lock()
 	defer d.stateChangeMux.Unlock()
 
@@ -1285,7 +1211,7 @@ func (d *Status) UnsubscribeFromStateChanges(id string) {
 // the tick if a subscriber's buffer is full — by definition the consumer
 // is already going to fetch the latest snapshot, so multiple pending ticks
 // would be redundant.
-func (d *Status) notifyStateChange() {
+func (d *Recorder) notifyStateChange() {
 	d.stateChangeMux.Lock()
 	defer d.stateChangeMux.Unlock()
 
@@ -1305,7 +1231,7 @@ func (d *Status) notifyStateChange() {
 // the previous snapshot until an unrelated peer/management/signal
 // change happens to fire notifyStateChange, leaving the UI's status
 // out of sync with the daemon.
-func (d *Status) NotifyStateChange() {
+func (d *Recorder) NotifyStateChange() {
 	d.notifyStateChange()
 }
 
@@ -1314,7 +1240,7 @@ func (d *Status) NotifyStateChange() {
 // changes the available routes or when a selection is applied — the peer
 // status itself only records actively-routed (chosen) networks, so without
 // this bump a candidate route appearing/disappearing would never reach the UI.
-func (d *Status) BumpNetworksRevision() {
+func (d *Recorder) BumpNetworksRevision() {
 	d.networksRevision.Add(1)
 	d.notifyStateChange()
 }
@@ -1322,18 +1248,18 @@ func (d *Status) BumpNetworksRevision() {
 // GetNetworksRevision returns the current routed-networks revision, surfaced in
 // the status snapshot so the UI can detect route/selection changes (see
 // BumpNetworksRevision).
-func (d *Status) GetNetworksRevision() uint64 {
+func (d *Recorder) GetNetworksRevision() uint64 {
 	return d.networksRevision.Load()
 }
 
-func (d *Status) SetWgIface(wgInterface WGIfaceStatus) {
+func (d *Recorder) SetWgIface(wgInterface WGIfaceStatus) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
 	d.wgIface = wgInterface
 }
 
-func (d *Status) PeersStatus() (*configurer.Stats, error) {
+func (d *Recorder) PeersStatus() (*configurer.Stats, error) {
 	d.mux.RLock()
 	defer d.mux.RUnlock()
 	if d.wgIface == nil {
@@ -1346,7 +1272,7 @@ func (d *Status) PeersStatus() (*configurer.Stats, error) {
 // RefreshWireGuardStats fetches fresh WireGuard statistics from the interface
 // and updates the cached peer states. This ensures accurate handshake times and
 // transfer statistics in status reports without running full health probes.
-func (d *Status) RefreshWireGuardStats() error {
+func (d *Recorder) RefreshWireGuardStats() error {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
@@ -1375,140 +1301,6 @@ func (d *Status) RefreshWireGuardStats() error {
 	return nil
 }
 
-type EventQueue struct {
-	maxSize int
-	events  []*proto.SystemEvent
-	mutex   sync.RWMutex
-}
-
-func NewEventQueue(size int) *EventQueue {
-	return &EventQueue{
-		maxSize: size,
-		events:  make([]*proto.SystemEvent, 0, size),
-	}
-}
-
-func (q *EventQueue) Add(event *proto.SystemEvent) {
-	q.mutex.Lock()
-	defer q.mutex.Unlock()
-
-	q.events = append(q.events, event)
-
-	if len(q.events) > q.maxSize {
-		q.events = q.events[len(q.events)-q.maxSize:]
-	}
-}
-
-func (q *EventQueue) GetAll() []*proto.SystemEvent {
-	q.mutex.RLock()
-	defer q.mutex.RUnlock()
-
-	return slices.Clone(q.events)
-}
-
-type EventSubscription struct {
-	id     string
-	events chan *proto.SystemEvent
-}
-
-func (s *EventSubscription) Events() <-chan *proto.SystemEvent {
-	return s.events
-}
-
-// ToProto converts FullStatus to proto.FullStatus.
-func (fs FullStatus) ToProto() *proto.FullStatus {
-	pbFullStatus := proto.FullStatus{
-		ManagementState: &proto.ManagementState{},
-		SignalState:     &proto.SignalState{},
-		LocalPeerState:  &proto.LocalPeerState{},
-		Peers:           []*proto.PeerState{},
-	}
-
-	pbFullStatus.ManagementState.URL = fs.ManagementState.URL
-	pbFullStatus.ManagementState.Connected = fs.ManagementState.Connected
-	if err := fs.ManagementState.Error; err != nil {
-		pbFullStatus.ManagementState.Error = err.Error()
-	}
-
-	pbFullStatus.SignalState.URL = fs.SignalState.URL
-	pbFullStatus.SignalState.Connected = fs.SignalState.Connected
-	if err := fs.SignalState.Error; err != nil {
-		pbFullStatus.SignalState.Error = err.Error()
-	}
-
-	pbFullStatus.LocalPeerState.IP = fs.LocalPeerState.IP
-	pbFullStatus.LocalPeerState.Ipv6 = fs.LocalPeerState.IPv6
-	pbFullStatus.LocalPeerState.PubKey = fs.LocalPeerState.PubKey
-	pbFullStatus.LocalPeerState.KernelInterface = fs.LocalPeerState.KernelInterface
-	pbFullStatus.LocalPeerState.Fqdn = fs.LocalPeerState.FQDN
-	pbFullStatus.LocalPeerState.WgPort = int32(fs.LocalPeerState.WgPort)
-	pbFullStatus.LocalPeerState.RosenpassPermissive = fs.RosenpassState.Permissive
-	pbFullStatus.LocalPeerState.RosenpassEnabled = fs.RosenpassState.Enabled
-	pbFullStatus.NumberOfForwardingRules = int32(fs.NumOfForwardingRules)
-	pbFullStatus.LazyConnectionEnabled = fs.LazyConnectionEnabled
-
-	pbFullStatus.LocalPeerState.Networks = maps.Keys(fs.LocalPeerState.Routes)
-
-	for _, peerState := range fs.Peers {
-		networks := maps.Keys(peerState.GetRoutes())
-
-		pbPeerState := &proto.PeerState{
-			IP:                         peerState.IP,
-			Ipv6:                       peerState.IPv6,
-			PubKey:                     peerState.PubKey,
-			ConnStatus:                 peerState.ConnStatus.String(),
-			ConnStatusUpdate:           timestamppb.New(peerState.ConnStatusUpdate),
-			Relayed:                    peerState.Relayed,
-			LocalIceCandidateType:      peerState.LocalIceCandidateType,
-			RemoteIceCandidateType:     peerState.RemoteIceCandidateType,
-			LocalIceCandidateEndpoint:  peerState.LocalIceCandidateEndpoint,
-			RemoteIceCandidateEndpoint: peerState.RemoteIceCandidateEndpoint,
-			RelayAddress:               peerState.RelayServerAddress,
-			Fqdn:                       peerState.FQDN,
-			LastWireguardHandshake:     timestamppb.New(peerState.LastWireguardHandshake),
-			BytesRx:                    peerState.BytesRx,
-			BytesTx:                    peerState.BytesTx,
-			RosenpassEnabled:           peerState.RosenpassEnabled,
-			Networks:                   networks,
-			Latency:                    durationpb.New(peerState.Latency),
-			SshHostKey:                 peerState.SSHHostKey,
-		}
-		pbFullStatus.Peers = append(pbFullStatus.Peers, pbPeerState)
-	}
-
-	for _, relayState := range fs.Relays {
-		pbRelayState := &proto.RelayState{
-			URI:       relayState.URI,
-			Available: relayState.Err == nil,
-			Transport: relayState.Transport,
-		}
-		if err := relayState.Err; err != nil {
-			pbRelayState.Error = err.Error()
-		}
-		pbFullStatus.Relays = append(pbFullStatus.Relays, pbRelayState)
-	}
-
-	for _, dnsState := range fs.NSGroupStates {
-		var err string
-		if dnsState.Error != nil {
-			err = dnsState.Error.Error()
-		}
-
-		var servers []string
-		for _, server := range dnsState.Servers {
-			servers = append(servers, server.String())
-		}
-
-		pbDnsState := &proto.NSGroupState{
-			Servers: servers,
-			Domains: dnsState.Domains,
-			Enabled: dnsState.Enabled,
-			Error:   err,
-		}
-		pbFullStatus.DnsServers = append(pbFullStatus.DnsServers, pbDnsState)
-	}
-
-	pbFullStatus.Events = fs.Events
-
-	return &pbFullStatus
+func hasStatusOrRelayedChange(old, updated State) bool {
+	return old.Relayed != updated.Relayed || old.ConnStatus != updated.ConnStatus
 }

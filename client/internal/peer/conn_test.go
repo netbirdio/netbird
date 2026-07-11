@@ -15,6 +15,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	"github.com/netbirdio/netbird/client/internal/peer/ice"
+	"github.com/netbirdio/netbird/client/internal/peer/status"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/util"
 )
@@ -69,7 +70,7 @@ func TestConn_GetKey(t *testing.T) {
 func TestConn_DiscardMessagesWhenNotOpened(t *testing.T) {
 	swWatcher := guard.NewSRWatcher(nil, nil, nil, connConf.ICEConfig)
 	sd := ServiceDependencies{
-		StatusRecorder: NewRecorder("https://mgm"),
+		StatusRecorder: status.NewRecorder("https://mgm"),
 		SrWatcher:      swWatcher,
 	}
 	conn, err := NewConn(connConf, sd)

@@ -6,11 +6,13 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/internal/peer/status"
 )
 
 type stateDump struct {
 	log    *log.Entry
-	status *Status
+	status *status.Recorder
 	key    string
 
 	sentOffer       int
@@ -26,7 +28,7 @@ type stateDump struct {
 	mu sync.Mutex
 }
 
-func newStateDump(key string, log *log.Entry, statusRecorder *Status) *stateDump {
+func newStateDump(key string, log *log.Entry, statusRecorder *status.Recorder) *stateDump {
 	return &stateDump{
 		log:    log,
 		status: statusRecorder,
