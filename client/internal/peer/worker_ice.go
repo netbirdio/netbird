@@ -46,6 +46,8 @@ type WorkerICE struct {
 	agentDialerCancel context.CancelFunc
 	agentConnecting   bool      // while it is true, drop all incoming offers
 	lastSuccess       time.Time // with this avoid the too frequent ICE agent recreation
+	// connectedAgent is the agent whose connection was last reported ready; guarded by muxAgent
+	connectedAgent *icemaker.ThreadSafeAgent
 	// remoteSessionID represents the peer's session identifier from the latest remote offer.
 	remoteSessionID ICESessionID
 	// sessionID is used to track the current session ID of the ICE agent
@@ -58,9 +60,6 @@ type WorkerICE struct {
 
 	localUfrag string
 	localPwd   string
-
-	// we record the last known state of the ICE agent to avoid duplicate on disconnected events
-	lastKnownState ice.ConnectionState
 
 	// portForwardAttempted tracks if we've already tried port forwarding this session
 	portForwardAttempted bool
@@ -81,7 +80,6 @@ func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, conn *
 		iFaceDiscover:     ifaceDiscover,
 		statusRecorder:    statusRecorder,
 		hasRelayOnLocally: hasRelayOnLocally,
-		lastKnownState:    ice.ConnectionStateDisconnected,
 		sessionID:         sessionID,
 	}
 
@@ -299,13 +297,18 @@ func (w *WorkerICE) connect(ctx context.Context, dialerCancel context.CancelFunc
 	}
 	w.log.Debugf("on ICE conn is ready to use")
 
-	w.log.Infof("connection succeeded with offer session: %s", remoteOfferAnswer.SessionIDString())
 	w.muxAgent.Lock()
+	if w.agent != agent {
+		w.muxAgent.Unlock()
+		w.log.Debugf("agent has been replaced during connect, dropping obsolete connection")
+		return
+	}
 	w.agentConnecting = false
 	w.lastSuccess = time.Now()
+	w.connectedAgent = agent
 	w.muxAgent.Unlock()
 
-	// todo: the potential problem is a race between the onConnectionStateChange
+	w.log.Infof("connection succeeded with offer session: %s", remoteOfferAnswer.SessionIDString())
 	w.conn.onICEConnectionIsReady(selectedPriority(pair), ci)
 }
 
@@ -509,25 +512,37 @@ func (w *WorkerICE) logSuccessfulPaths(agent *icemaker.ThreadSafeAgent) {
 }
 
 func (w *WorkerICE) onConnectionStateChange(agent *icemaker.ThreadSafeAgent, dialerCancel context.CancelFunc) func(ice.ConnectionState) {
+	// per-agent state; pion delivers callbacks of one agent sequentially
+	var connected bool
 	return func(state ice.ConnectionState) {
 		w.log.Debugf("ICE ConnectionState has changed to %s", state.String())
 		switch state {
 		case ice.ConnectionStateConnected:
-			w.lastKnownState = ice.ConnectionStateConnected
+			connected = true
 			w.logSuccessfulPaths(agent)
-			return
 		case ice.ConnectionStateFailed, ice.ConnectionStateDisconnected, ice.ConnectionStateClosed:
 			// ice.ConnectionStateClosed happens when we recreate the agent. For the P2P to TURN switch important to
 			// notify the conn.onICEStateDisconnected changes to update the current used priority
 
 			sessionChanged := w.closeAgent(agent, dialerCancel)
 
-			if w.lastKnownState == ice.ConnectionStateConnected {
-				w.lastKnownState = ice.ConnectionStateDisconnected
-				w.conn.onICEStateDisconnected(sessionChanged)
+			if !connected {
+				return
 			}
-		default:
-			return
+			connected = false
+
+			w.muxAgent.Lock()
+			stale := w.connectedAgent != agent
+			if !stale {
+				w.connectedAgent = nil
+			}
+			w.muxAgent.Unlock()
+
+			if stale {
+				w.log.Debugf("suppress disconnected event of replaced ICE agent")
+				return
+			}
+			w.conn.onICEStateDisconnected(sessionChanged)
 		}
 	}
 }
