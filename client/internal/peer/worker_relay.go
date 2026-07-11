@@ -88,7 +88,7 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	}
 
 	w.log.Debugf("peer conn opened via Relay: %s", srv)
-	go w.conn.onRelayConnectionIsReady(RelayConnInfo{
+	w.conn.onRelayConnectionIsReady(RelayConnInfo{
 		relayedConn:     relayedConn,
 		rosenpassPubKey: remoteOfferAnswer.RosenpassPubKey,
 		rosenpassAddr:   remoteOfferAnswer.RosenpassAddr,
@@ -134,5 +134,5 @@ func (w *WorkerRelay) preferredRelayServer(myRelayAddress, remoteRelayAddress st
 }
 
 func (w *WorkerRelay) onRelayClientDisconnected() {
-	go w.conn.onRelayDisconnected()
+	w.conn.onRelayDisconnected()
 }
