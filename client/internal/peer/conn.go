@@ -22,6 +22,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/peer/id"
+	"github.com/netbirdio/netbird/client/internal/peer/status"
 	"github.com/netbirdio/netbird/client/internal/peer/worker"
 	"github.com/netbirdio/netbird/client/internal/portforward"
 	"github.com/netbirdio/netbird/client/internal/rosenpass"
@@ -47,7 +48,7 @@ type MetricsRecorder interface {
 }
 
 type ServiceDependencies struct {
-	StatusRecorder     *Status
+	StatusRecorder     *status.Recorder
 	Signaler           *Signaler
 	IFaceDiscover      stdnet.ExternalIFaceDiscover
 	RelayManager       *relayClient.Manager
@@ -106,7 +107,7 @@ type Conn struct {
 	ctx                context.Context
 	ctxCancel          context.CancelFunc
 	config             ConnConfig
-	statusRecorder     *Status
+	statusRecorder     *status.Recorder
 	signaler           *Signaler
 	iFaceDiscover      stdnet.ExternalIFaceDiscover
 	relayManager       *relayClient.Manager
@@ -244,10 +245,10 @@ func (conn *Conn) open(engineCtx context.Context, firstPacket []byte) error {
 		conn.pendingFirstPacket = slices.Clone(firstPacket)
 	}
 
-	peerState := State{
+	peerState := status.State{
 		PubKey:           conn.config.Key,
 		ConnStatusUpdate: time.Now(),
-		ConnStatus:       StatusConnecting,
+		ConnStatus:       status.StatusConnecting,
 		Mux:              new(sync.RWMutex),
 	}
 	if err := conn.statusRecorder.UpdatePeerState(peerState); err != nil {
@@ -346,7 +347,7 @@ func (conn *Conn) WgConfig() WgConfig {
 
 // IsConnected returns true if the peer is connected
 func (conn *Conn) IsConnected() bool {
-	return conn.evalStatus() == StatusConnected
+	return conn.evalStatus() == status.StatusConnected
 }
 
 func (conn *Conn) GetKey() string {
@@ -473,7 +474,7 @@ func (conn *Conn) teardown(mb *mailbox, leftover []event, signalToRemote bool, d
 		conn.Log.Errorf("failed to remove wg endpoint: %v", err)
 	}
 
-	if conn.evalStatus() == StatusConnected && conn.onDisconnected != nil {
+	if conn.evalStatus() == status.StatusConnected && conn.onDisconnected != nil {
 		conn.onDisconnected(conn.config.WgConfig.RemoteKey)
 	}
 
@@ -716,7 +717,7 @@ func (conn *Conn) handleICEDisconnected(sessionChanged bool) {
 		conn.metricsStages.Disconnected()
 	}
 
-	peerState := State{
+	peerState := status.State{
 		PubKey:           conn.config.Key,
 		ConnStatus:       conn.evalStatus(),
 		Relayed:          conn.isRelayed(),
@@ -824,7 +825,7 @@ func (conn *Conn) handleRelayDisconnected() {
 		conn.metricsStages.Disconnected()
 	}
 
-	peerState := State{
+	peerState := status.State{
 		PubKey:           conn.config.Key,
 		ConnStatus:       conn.evalStatus(),
 		Relayed:          conn.isRelayed(),
@@ -957,7 +958,7 @@ func (conn *Conn) injectPendingFirstPacket(proxy wgproxy.Proxy, directConn net.C
 }
 
 func (conn *Conn) updateRelayStatus(relayServerAddr string, rosenpassPubKey []byte, updateTime time.Time) {
-	peerState := State{
+	peerState := status.State{
 		PubKey:             conn.config.Key,
 		ConnStatusUpdate:   updateTime,
 		ConnStatus:         conn.evalStatus(),
@@ -973,7 +974,7 @@ func (conn *Conn) updateRelayStatus(relayServerAddr string, rosenpassPubKey []by
 }
 
 func (conn *Conn) updateIceState(iceConnInfo ICEConnInfo, updateTime time.Time) {
-	peerState := State{
+	peerState := status.State{
 		PubKey:                     conn.config.Key,
 		ConnStatusUpdate:           updateTime,
 		ConnStatus:                 conn.evalStatus(),
@@ -996,9 +997,9 @@ func (conn *Conn) setStatusToDisconnected() {
 	conn.statusICE.SetDisconnected()
 	conn.currentConnPriority = conntype.None
 
-	peerState := State{
+	peerState := status.State{
 		PubKey:           conn.config.Key,
-		ConnStatus:       StatusIdle,
+		ConnStatus:       status.StatusIdle,
 		ConnStatusUpdate: time.Now(),
 		Mux:              new(sync.RWMutex),
 	}
@@ -1034,12 +1035,12 @@ func (conn *Conn) isRelayed() bool {
 	}
 }
 
-func (conn *Conn) evalStatus() ConnStatus {
+func (conn *Conn) evalStatus() status.ConnStatus {
 	if conn.statusRelay.Get() == worker.StatusConnected || conn.statusICE.Get() == worker.StatusConnected {
-		return StatusConnected
+		return status.StatusConnected
 	}
 
-	return StatusConnecting
+	return status.StatusConnecting
 }
 
 // isConnectedOnAllWay evaluates the overall connection status based on ICE and Relay transports.

@@ -15,6 +15,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/internal/peer/conntype"
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
+	"github.com/netbirdio/netbird/client/internal/peer/status"
 	"github.com/netbirdio/netbird/client/internal/portforward"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/route"
@@ -39,7 +40,7 @@ type WorkerICE struct {
 	conn              *Conn
 	signaler          *Signaler
 	iFaceDiscover     stdnet.ExternalIFaceDiscover
-	statusRecorder    *Status
+	statusRecorder    *status.Recorder
 	hasRelayOnLocally bool
 
 	agent             *icemaker.ThreadSafeAgent
@@ -65,7 +66,7 @@ type WorkerICE struct {
 	portForwardAttempted bool
 }
 
-func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, conn *Conn, signaler *Signaler, ifaceDiscover stdnet.ExternalIFaceDiscover, statusRecorder *Status, hasRelayOnLocally bool) (*WorkerICE, error) {
+func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, conn *Conn, signaler *Signaler, ifaceDiscover stdnet.ExternalIFaceDiscover, statusRecorder *status.Recorder, hasRelayOnLocally bool) (*WorkerICE, error) {
 	sessionID, err := NewICESessionID()
 	if err != nil {
 		return nil, err
