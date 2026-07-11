@@ -66,14 +66,18 @@ func TestWGWatcher_CheckSuccessCallback(t *testing.T) {
 
 	firstHandshake := make(chan struct{}, 1)
 	checkSuccess := make(chan struct{}, 1)
-	go watcher.EnableWgWatcher(ctx, time.Now(), func() {}, func(when time.Time) {
-		firstHandshake <- struct{}{}
-	}, func() {
-		select {
-		case checkSuccess <- struct{}{}:
-		default:
-		}
-	})
+	watcherDone := make(chan struct{})
+	go func() {
+		defer close(watcherDone)
+		watcher.EnableWgWatcher(ctx, time.Now(), func() {}, func(when time.Time) {
+			firstHandshake <- struct{}{}
+		}, func() {
+			select {
+			case checkSuccess <- struct{}{}:
+			default:
+			}
+		})
+	}()
 
 	stats.advance()
 
@@ -88,6 +92,11 @@ func TestWGWatcher_CheckSuccessCallback(t *testing.T) {
 		t.Errorf("first-handshake callback must not fire for a non-zero baseline")
 	default:
 	}
+
+	// Wait for the watcher goroutine to exit so it cannot race with other
+	// tests mutating the package-level check timing variables.
+	cancel()
+	<-watcherDone
 }
 
 func TestWGWatcher_EnableWgWatcher(t *testing.T) {

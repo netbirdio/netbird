@@ -3,28 +3,30 @@ package peer
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"os"
 	"testing"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/client/iface"
-	"github.com/netbirdio/netbird/client/internal/peer/dispatcher"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	"github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/util"
 )
 
-var testDispatcher = dispatcher.NewConnectionDispatcher()
-
 var connConf = ConnConfig{
 	Key:         "LLHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
 	LocalKey:    "RRHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
 	Timeout:     time.Second,
 	LocalWgPort: 51820,
+	WgConfig: WgConfig{
+		AllowedIps: []netip.Prefix{netip.MustParsePrefix("100.64.0.1/32")},
+	},
 	ICEConfig: ice.Config{
 		InterfaceBlackList: nil,
 	},
@@ -52,92 +54,37 @@ func TestConn_GetKey(t *testing.T) {
 	swWatcher := guard.NewSRWatcher(nil, nil, nil, connConf.ICEConfig)
 
 	sd := ServiceDependencies{
-		SrWatcher:          swWatcher,
-		PeerConnDispatcher: testDispatcher,
+		SrWatcher: swWatcher,
 	}
 	conn, err := NewConn(connConf, sd)
-	if err != nil {
-		return
-	}
+	require.NoError(t, err)
 
 	got := conn.GetKey()
 
 	assert.Equal(t, got, connConf.Key, "they should be equal")
 }
 
-func TestConn_OnRemoteOffer(t *testing.T) {
+// TestConn_DiscardMessagesWhenNotOpened: signal messages posted to a not yet
+// opened connection must be discarded without blocking or panicking.
+func TestConn_DiscardMessagesWhenNotOpened(t *testing.T) {
 	swWatcher := guard.NewSRWatcher(nil, nil, nil, connConf.ICEConfig)
 	sd := ServiceDependencies{
-		StatusRecorder:     NewRecorder("https://mgm"),
-		SrWatcher:          swWatcher,
-		PeerConnDispatcher: testDispatcher,
+		StatusRecorder: NewRecorder("https://mgm"),
+		SrWatcher:      swWatcher,
 	}
 	conn, err := NewConn(connConf, sd)
-	if err != nil {
-		return
-	}
+	require.NoError(t, err)
 
-	onNewOfferChan := make(chan struct{})
-
-	conn.handshaker.AddRelayListener(func(remoteOfferAnswer *OfferAnswer) {
-		onNewOfferChan <- struct{}{}
-	})
-
-	conn.OnRemoteOffer(OfferAnswer{
+	offerAnswer := OfferAnswer{
 		IceCredentials: IceCredentials{
 			UFrag: "test",
 			Pwd:   "test",
 		},
-		WgListenPort: 0,
-		Version:      "",
-	})
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	select {
-	case <-onNewOfferChan:
-		// success
-	case <-ctx.Done():
-		t.Error("expected to receive a new offer notification, but timed out")
 	}
-}
-
-func TestConn_OnRemoteAnswer(t *testing.T) {
-	swWatcher := guard.NewSRWatcher(nil, nil, nil, connConf.ICEConfig)
-	sd := ServiceDependencies{
-		StatusRecorder:     NewRecorder("https://mgm"),
-		SrWatcher:          swWatcher,
-		PeerConnDispatcher: testDispatcher,
-	}
-	conn, err := NewConn(connConf, sd)
-	if err != nil {
-		return
-	}
-
-	onNewOfferChan := make(chan struct{})
-
-	conn.handshaker.AddRelayListener(func(remoteOfferAnswer *OfferAnswer) {
-		onNewOfferChan <- struct{}{}
-	})
-
-	conn.OnRemoteAnswer(OfferAnswer{
-		IceCredentials: IceCredentials{
-			UFrag: "test",
-			Pwd:   "test",
-		},
-		WgListenPort: 0,
-		Version:      "",
-	})
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	select {
-	case <-onNewOfferChan:
-		// success
-	case <-ctx.Done():
-		t.Error("expected to receive a new offer notification, but timed out")
-	}
+	conn.OnRemoteOffer(offerAnswer)
+	conn.OnRemoteAnswer(offerAnswer)
+	conn.OnRemoteCandidate(nil, nil)
+	conn.Close(false)
 }
 
 func TestConn_presharedKey(t *testing.T) {
@@ -339,20 +286,20 @@ func TestConn_onWGDisconnected_EscalatesToRosenpassReset(t *testing.T) {
 	conn := newWGTimeoutTestConn(true, &disconnected)
 
 	for i := 0; i < wgTimeoutEscalationThreshold-1; i++ {
-		conn.onWGDisconnected()
+		conn.handleWGTimeout()
 	}
 	assert.Empty(t, disconnected, "escalation must not fire below the threshold")
 
-	conn.onWGDisconnected()
+	conn.handleWGTimeout()
 	assert.Equal(t, []string{conn.config.WgConfig.RemoteKey}, disconnected,
 		"reaching the threshold must report the peer disconnected once")
 
 	for i := 0; i < wgTimeoutEscalationThreshold-1; i++ {
-		conn.onWGDisconnected()
+		conn.handleWGTimeout()
 	}
 	assert.Len(t, disconnected, 1, "escalation must restart counting after firing")
 
-	conn.onWGDisconnected()
+	conn.handleWGTimeout()
 	assert.Len(t, disconnected, 2, "continued timeouts must escalate again")
 }
 
@@ -364,12 +311,12 @@ func TestConn_onWGDisconnected_CheckSuccessResetsEscalation(t *testing.T) {
 	conn := newWGTimeoutTestConn(true, &disconnected)
 
 	for i := 0; i < wgTimeoutEscalationThreshold-1; i++ {
-		conn.onWGDisconnected()
+		conn.handleWGTimeout()
 	}
-	conn.onWGCheckSuccess()
+	conn.handleWGCheckSuccess()
 
 	for i := 0; i < wgTimeoutEscalationThreshold-1; i++ {
-		conn.onWGDisconnected()
+		conn.handleWGTimeout()
 	}
 	assert.Empty(t, disconnected, "handshake success must reset the timeout count")
 }
@@ -382,7 +329,7 @@ func TestConn_onWGDisconnected_NoEscalationWithoutRosenpass(t *testing.T) {
 	conn := newWGTimeoutTestConn(false, &disconnected)
 
 	for i := 0; i < wgTimeoutEscalationThreshold*3; i++ {
-		conn.onWGDisconnected()
+		conn.handleWGTimeout()
 	}
 	assert.Empty(t, disconnected, "escalation must be limited to rosenpass connections")
 }

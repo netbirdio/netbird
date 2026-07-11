@@ -1,7 +1,6 @@
 package peer
 
 import (
-	"context"
 	"errors"
 	"net/netip"
 	"sync"
@@ -53,42 +52,36 @@ func (o *OfferAnswer) hasICECredentials() bool {
 	return o.IceCredentials.UFrag != "" && o.IceCredentials.Pwd != ""
 }
 
-type Handshaker struct {
-	mu            sync.Mutex
-	log           *log.Entry
-	config        ConnConfig
-	signaler      *Signaler
-	ice           *WorkerICE
-	relay         *WorkerRelay
-	metricsStages *MetricsStages
-	// relayListener is not blocking because the listener is using a goroutine to process the messages
-	// and it will only keep the latest message if multiple offers are received in a short time
-	// this is to avoid blocking the handshaker if the listener is doing some heavy processing
-	// and also to avoid processing old offers if multiple offers are received in a short time
-	// the listener will always process the latest offer
-	relayListener *AsyncOfferListener
-	iceListener   func(remoteOfferAnswer *OfferAnswer)
-
-	// remoteICESupported tracks whether the remote peer includes ICE credentials in its offers/answers.
-	// When false, the local side skips ICE listener dispatch and suppresses ICE credentials in responses.
-	remoteICESupported atomic.Bool
-
-	// remoteOffersCh is a channel used to wait for remote credentials to proceed with the connection
-	remoteOffersCh chan OfferAnswer
-	// remoteAnswerCh is a channel used to wait for remote credentials answer (confirmation of our offer) to proceed with the connection
-	remoteAnswerCh chan OfferAnswer
+func (o *OfferAnswer) SessionIDString() string {
+	if o.SessionID == nil {
+		return "unknown"
+	}
+	return o.SessionID.String()
 }
 
-func NewHandshaker(log *log.Entry, config ConnConfig, signaler *Signaler, ice *WorkerICE, relay *WorkerRelay, metricsStages *MetricsStages) *Handshaker {
+// Handshaker keeps the signaling protocol logic: building and sending offers
+// and answers and tracking whether the remote peer supports ICE. Incoming
+// message processing is driven by the Conn event loop.
+type Handshaker struct {
+	mu       sync.Mutex
+	log      *log.Entry
+	config   ConnConfig
+	signaler *Signaler
+	ice      *WorkerICE
+	relay    *WorkerRelay
+
+	// remoteICESupported tracks whether the remote peer includes ICE credentials in its offers/answers.
+	// When false, the local side skips ICE dispatch and suppresses ICE credentials in responses.
+	remoteICESupported atomic.Bool
+}
+
+func NewHandshaker(log *log.Entry, config ConnConfig, signaler *Signaler, ice *WorkerICE, relay *WorkerRelay) *Handshaker {
 	h := &Handshaker{
-		log:            log,
-		config:         config,
-		signaler:       signaler,
-		ice:            ice,
-		relay:          relay,
-		metricsStages:  metricsStages,
-		remoteOffersCh: make(chan OfferAnswer),
-		remoteAnswerCh: make(chan OfferAnswer),
+		log:      log,
+		config:   config,
+		signaler: signaler,
+		ice:      ice,
+		relay:    relay,
 	}
 	// assume remote supports ICE until we learn otherwise from received offers
 	h.remoteICESupported.Store(ice != nil)
@@ -99,93 +92,16 @@ func (h *Handshaker) RemoteICESupported() bool {
 	return h.remoteICESupported.Load()
 }
 
-func (h *Handshaker) AddRelayListener(offer func(remoteOfferAnswer *OfferAnswer)) {
-	h.relayListener = NewAsyncOfferListener(offer)
-}
-
-func (h *Handshaker) AddICEListener(offer func(remoteOfferAnswer *OfferAnswer)) {
-	h.iceListener = offer
-}
-
-func (h *Handshaker) Listen(ctx context.Context) {
-	for {
-		select {
-		case remoteOfferAnswer := <-h.remoteOffersCh:
-			h.log.Infof("received offer, running version %s, remote WireGuard listen port %d, session id: %s, remote ICE supported: %t", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort, remoteOfferAnswer.SessionIDString(), remoteOfferAnswer.hasICECredentials())
-
-			// Record signaling received for reconnection attempts
-			if h.metricsStages != nil {
-				h.metricsStages.RecordSignalingReceived()
-			}
-
-			h.updateRemoteICEState(&remoteOfferAnswer)
-
-			if h.relayListener != nil {
-				h.relayListener.Notify(&remoteOfferAnswer)
-			}
-
-			if h.iceListener != nil && h.RemoteICESupported() {
-				h.iceListener(&remoteOfferAnswer)
-			}
-
-			if err := h.sendAnswer(); err != nil {
-				h.log.Errorf("failed to send remote offer confirmation: %s", err)
-				continue
-			}
-		case remoteOfferAnswer := <-h.remoteAnswerCh:
-			h.log.Infof("received answer, running version %s, remote WireGuard listen port %d, session id: %s, remote ICE supported: %t", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort, remoteOfferAnswer.SessionIDString(), remoteOfferAnswer.hasICECredentials())
-
-			// Record signaling received for reconnection attempts
-			if h.metricsStages != nil {
-				h.metricsStages.RecordSignalingReceived()
-			}
-
-			h.updateRemoteICEState(&remoteOfferAnswer)
-
-			if h.relayListener != nil {
-				h.relayListener.Notify(&remoteOfferAnswer)
-			}
-
-			if h.iceListener != nil && h.RemoteICESupported() {
-				h.iceListener(&remoteOfferAnswer)
-			}
-		case <-ctx.Done():
-			h.log.Infof("stop listening for remote offers and answers")
-			return
-		}
-	}
-}
-
 func (h *Handshaker) SendOffer() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.sendOffer()
 }
 
-// OnRemoteOffer handles an offer from the remote peer and returns true if the message was accepted, false otherwise
-// doesn't block, discards the message if connection wasn't ready
-func (h *Handshaker) OnRemoteOffer(offer OfferAnswer) {
-	select {
-	case h.remoteOffersCh <- offer:
-		return
-	default:
-		h.log.Warnf("skipping remote offer message because receiver not ready")
-		// connection might not be ready yet to receive so we ignore the message
-		return
-	}
-}
-
-// OnRemoteAnswer handles an offer from the remote peer and returns true if the message was accepted, false otherwise
-// doesn't block, discards the message if connection wasn't ready
-func (h *Handshaker) OnRemoteAnswer(answer OfferAnswer) {
-	select {
-	case h.remoteAnswerCh <- answer:
-		return
-	default:
-		// connection might not be ready yet to receive so we ignore the message
-		h.log.Warnf("skipping remote answer message because receiver not ready")
-		return
-	}
+func (h *Handshaker) SendAnswer() error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.sendAnswer()
 }
 
 // sendOffer prepares local user credentials and signals them to the remote peer
@@ -230,6 +146,9 @@ func (h *Handshaker) buildOfferAnswer() OfferAnswer {
 	return answer
 }
 
+// updateRemoteICEState refreshes the remote ICE support flag from a received
+// offer or answer and closes the ICE worker when the remote peer stopped
+// sending ICE credentials. Runs on the Conn event loop.
 func (h *Handshaker) updateRemoteICEState(offer *OfferAnswer) {
 	hasICE := offer.hasICECredentials()
 	prev := h.remoteICESupported.Swap(hasICE)
