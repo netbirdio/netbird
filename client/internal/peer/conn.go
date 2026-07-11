@@ -18,7 +18,6 @@ import (
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
 	"github.com/netbirdio/netbird/client/internal/metrics"
-	"github.com/netbirdio/netbird/client/internal/peer/conntype"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/peer/id"
@@ -122,7 +121,7 @@ type Conn struct {
 
 	statusRelay         *worker.AtomicWorkerStatus
 	statusICE           *worker.AtomicWorkerStatus
-	currentConnPriority conntype.ConnPriority
+	currentConnPriority ConnPriority
 	opened              bool // this flag is used to prevent close in case of not opened connection
 
 	// mailbox delivers events to the event loop of the current open
@@ -589,7 +588,7 @@ func (conn *Conn) handleGuardTick() {
 
 // handleICEReady starts proxying traffic from/to local WireGuard and sets the
 // connection status to StatusConnected.
-func (conn *Conn) handleICEReady(priority conntype.ConnPriority, iceConnInfo ICEConnInfo) {
+func (conn *Conn) handleICEReady(priority ConnPriority, iceConnInfo ICEConnInfo) {
 	if conn.ctx.Err() != nil {
 		return
 	}
@@ -698,10 +697,10 @@ func (conn *Conn) handleICEDisconnected(sessionChanged bool) {
 			conn.Log.Errorf("failed to switch to relay conn: %v", err)
 		}
 
-		conn.currentConnPriority = conntype.Relay
+		conn.currentConnPriority = Relay
 	} else {
-		conn.Log.Infof("ICE disconnected, do not switch to Relay. Reset priority to: %s", conntype.None.String())
-		conn.currentConnPriority = conntype.None
+		conn.Log.Infof("ICE disconnected, do not switch to Relay. Reset priority to: %s", None.String())
+		conn.currentConnPriority = None
 		if err := conn.config.WgConfig.WgInterface.RemoveEndpointAddress(conn.config.WgConfig.RemoteKey); err != nil {
 			conn.Log.Errorf("failed to remove wg endpoint: %v", err)
 		}
@@ -715,7 +714,7 @@ func (conn *Conn) handleICEDisconnected(sessionChanged bool) {
 
 	conn.disableWgWatcherIfNeeded()
 
-	if conn.currentConnPriority == conntype.None {
+	if conn.currentConnPriority == None {
 		conn.metricsStages.Disconnected()
 	}
 
@@ -785,7 +784,7 @@ func (conn *Conn) handleRelayReady(rci RelayConnInfo) {
 	conn.injectPendingFirstPacket(wgProxy, nil)
 
 	conn.rosenpassRemoteKey = rci.rosenpassPubKey
-	conn.currentConnPriority = conntype.Relay
+	conn.currentConnPriority = Relay
 	conn.statusRelay.SetConnected()
 	conn.setRelayedProxy(wgProxy)
 	conn.updateRelayStatus(rci.relayedConn.RemoteAddr().String(), rci.rosenpassPubKey, updateTime)
@@ -802,9 +801,9 @@ func (conn *Conn) handleRelayDisconnected() {
 
 	conn.Log.Debugf("relay connection is disconnected")
 
-	if conn.currentConnPriority == conntype.Relay {
+	if conn.currentConnPriority == Relay {
 		conn.Log.Debugf("clean up WireGuard config")
-		conn.currentConnPriority = conntype.None
+		conn.currentConnPriority = None
 		if err := conn.config.WgConfig.WgInterface.RemoveEndpointAddress(conn.config.WgConfig.RemoteKey); err != nil {
 			conn.Log.Errorf("failed to remove wg endpoint: %v", err)
 		}
@@ -823,7 +822,7 @@ func (conn *Conn) handleRelayDisconnected() {
 
 	conn.disableWgWatcherIfNeeded()
 
-	if conn.currentConnPriority == conntype.None {
+	if conn.currentConnPriority == None {
 		conn.metricsStages.Disconnected()
 	}
 
@@ -849,10 +848,10 @@ func (conn *Conn) handleWGTimeout() {
 
 	// Close the active connection based on current priority
 	switch conn.currentConnPriority {
-	case conntype.Relay:
+	case Relay:
 		conn.workerRelay.CloseConn()
 		conn.handleRelayDisconnected()
-	case conntype.ICEP2P, conntype.ICETurn:
+	case ICEP2P, ICETurn:
 		conn.workerICE.Close()
 	default:
 		conn.Log.Debugf("No active connection to close on WG timeout")
@@ -891,7 +890,7 @@ func (conn *Conn) handleWGCheckSuccess() {
 	conn.wgTimeouts = 0
 }
 
-func (conn *Conn) onICEConnectionIsReady(priority conntype.ConnPriority, iceConnInfo ICEConnInfo) {
+func (conn *Conn) onICEConnectionIsReady(priority ConnPriority, iceConnInfo ICEConnInfo) {
 	conn.post(evICEReady{priority: priority, info: iceConnInfo})
 }
 
@@ -997,7 +996,7 @@ func (conn *Conn) updateIceState(iceConnInfo ICEConnInfo, updateTime time.Time) 
 func (conn *Conn) setStatusToDisconnected() {
 	conn.statusRelay.SetDisconnected()
 	conn.statusICE.SetDisconnected()
-	conn.currentConnPriority = conntype.None
+	conn.currentConnPriority = None
 
 	peerState := status.State{
 		PubKey:           conn.config.Key,
@@ -1030,7 +1029,7 @@ func (conn *Conn) doOnConnected(remoteRosenpassPubKey []byte, remoteRosenpassAdd
 
 func (conn *Conn) isRelayed() bool {
 	switch conn.currentConnPriority {
-	case conntype.Relay, conntype.ICETurn:
+	case Relay, ICETurn:
 		return true
 	default:
 		return false
@@ -1091,7 +1090,7 @@ func (conn *Conn) enableWgWatcherIfNeeded(enabledTime time.Time) {
 }
 
 func (conn *Conn) disableWgWatcherIfNeeded() {
-	if conn.currentConnPriority == conntype.None && conn.wgWatcherCancel != nil {
+	if conn.currentConnPriority == None && conn.wgWatcherCancel != nil {
 		conn.wgWatcherCancel()
 		conn.wgWatcherCancel = nil
 	}
@@ -1124,11 +1123,11 @@ func (conn *Conn) resetEndpoint() {
 }
 
 func (conn *Conn) isReadyToUpgrade() bool {
-	return conn.wgProxyRelay != nil && conn.currentConnPriority != conntype.Relay
+	return conn.wgProxyRelay != nil && conn.currentConnPriority != Relay
 }
 
 func (conn *Conn) isICEActive() bool {
-	return (conn.currentConnPriority == conntype.ICEP2P || conn.currentConnPriority == conntype.ICETurn) && conn.statusICE.Get() == worker.StatusConnected
+	return (conn.currentConnPriority == ICEP2P || conn.currentConnPriority == ICETurn) && conn.statusICE.Get() == worker.StatusConnected
 }
 
 func (conn *Conn) handleConfigurationFailure(err error, wgProxy wgproxy.Proxy) {
@@ -1168,7 +1167,7 @@ func (conn *Conn) recordConnectionMetrics() {
 
 	var connType metrics.ConnectionType
 	switch conn.currentConnPriority {
-	case conntype.Relay:
+	case Relay:
 		connType = metrics.ConnectionTypeRelay
 	default:
 		connType = metrics.ConnectionTypeICE
