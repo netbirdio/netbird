@@ -1,4 +1,4 @@
-package peer
+package signaling
 
 import (
 	"errors"
@@ -8,6 +8,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
+	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -45,10 +47,10 @@ type OfferAnswer struct {
 	// fails. Zero value if the peer did not advertise an IP.
 	RelaySrvIP netip.Addr
 	// SessionID is the unique identifier of the session, used to discard old messages
-	SessionID *ICESessionID
+	SessionID *icemaker.SessionID
 }
 
-func (o *OfferAnswer) hasICECredentials() bool {
+func (o *OfferAnswer) HasICECredentials() bool {
 	return o.IceCredentials.UFrag != "" && o.IceCredentials.Pwd != ""
 }
 
@@ -59,29 +61,51 @@ func (o *OfferAnswer) SessionIDString() string {
 	return o.SessionID.String()
 }
 
+// Config carries the peer-specific values the Handshaker embeds into offers
+// and answers.
+type Config struct {
+	Key             string
+	LocalWgPort     int
+	RosenpassPubKey []byte
+	RosenpassAddr   string
+}
+
+// Credentials are the local ICE credentials and session id the Handshaker embeds in offers.
+type Credentials struct {
+	UFrag     string
+	Pwd       string
+	SessionID icemaker.SessionID
+}
+
+// ICEWorker is the subset of the ICE worker the Handshaker needs to build offers.
+type ICEWorker interface {
+	Credentials() Credentials
+	Close()
+}
+
 // Handshaker keeps the signaling protocol logic: building and sending offers
 // and answers and tracking whether the remote peer supports ICE. Incoming
 // message processing is driven by the Conn event loop.
 type Handshaker struct {
-	mu       sync.Mutex
-	log      *log.Entry
-	config   ConnConfig
-	signaler *Signaler
-	ice      *WorkerICE
-	relay    *WorkerRelay
+	mu           sync.Mutex
+	log          *log.Entry
+	config       Config
+	signaler     *Signaler
+	ice          ICEWorker
+	relayManager *relayClient.Manager
 
 	// remoteICESupported tracks whether the remote peer includes ICE credentials in its offers/answers.
 	// When false, the local side skips ICE dispatch and suppresses ICE credentials in responses.
 	remoteICESupported atomic.Bool
 }
 
-func NewHandshaker(log *log.Entry, config ConnConfig, signaler *Signaler, ice *WorkerICE, relay *WorkerRelay) *Handshaker {
+func NewHandshaker(log *log.Entry, config Config, signaler *Signaler, ice ICEWorker, relayManager *relayClient.Manager) *Handshaker {
 	h := &Handshaker{
-		log:      log,
-		config:   config,
-		signaler: signaler,
-		ice:      ice,
-		relay:    relay,
+		log:          log,
+		config:       config,
+		signaler:     signaler,
+		ice:          ice,
+		relayManager: relayManager,
 	}
 	// assume remote supports ICE until we learn otherwise from received offers
 	h.remoteICESupported.Store(ice != nil)
@@ -127,18 +151,18 @@ func (h *Handshaker) buildOfferAnswer() OfferAnswer {
 	answer := OfferAnswer{
 		WgListenPort:    h.config.LocalWgPort,
 		Version:         version.NetbirdVersion(),
-		RosenpassPubKey: h.config.RosenpassConfig.PubKey,
-		RosenpassAddr:   h.config.RosenpassConfig.Addr,
+		RosenpassPubKey: h.config.RosenpassPubKey,
+		RosenpassAddr:   h.config.RosenpassAddr,
 	}
 
 	if h.ice != nil && h.RemoteICESupported() {
-		uFrag, pwd := h.ice.GetLocalUserCredentials()
-		sid := h.ice.SessionID()
-		answer.IceCredentials = IceCredentials{uFrag, pwd}
+		creds := h.ice.Credentials()
+		answer.IceCredentials = IceCredentials{creds.UFrag, creds.Pwd}
+		sid := creds.SessionID
 		answer.SessionID = &sid
 	}
 
-	if addr, ip, err := h.relay.RelayInstanceAddress(); err == nil {
+	if addr, ip, err := h.relayManager.RelayInstanceAddress(); err == nil {
 		answer.RelaySrvAddress = addr
 		answer.RelaySrvIP = ip
 	}
@@ -146,11 +170,11 @@ func (h *Handshaker) buildOfferAnswer() OfferAnswer {
 	return answer
 }
 
-// updateRemoteICEState refreshes the remote ICE support flag from a received
+// UpdateRemoteICEState refreshes the remote ICE support flag from a received
 // offer or answer and closes the ICE worker when the remote peer stopped
 // sending ICE credentials. Runs on the Conn event loop.
-func (h *Handshaker) updateRemoteICEState(offer *OfferAnswer) {
-	hasICE := offer.hasICECredentials()
+func (h *Handshaker) UpdateRemoteICEState(offer *OfferAnswer) {
+	hasICE := offer.HasICECredentials()
 	prev := h.remoteICESupported.Swap(hasICE)
 	if prev != hasICE {
 		if hasICE {

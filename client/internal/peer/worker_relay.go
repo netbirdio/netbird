@@ -10,6 +10,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/internal/peer/signaling"
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 )
 
@@ -50,7 +51,7 @@ func NewWorkerRelay(ctx context.Context, log *log.Entry, ctrl bool, config ConnC
 	return r
 }
 
-func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
+func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *signaling.OfferAnswer) {
 	if !w.isRelaySupported(remoteOfferAnswer) {
 		w.log.Infof("Relay is not supported by remote peer")
 		w.relaySupportedOnRemotePeer.Store(false)
@@ -124,7 +125,7 @@ func (w *WorkerRelay) CloseConn() {
 	}
 }
 
-func (w *WorkerRelay) isRelaySupported(answer *OfferAnswer) bool {
+func (w *WorkerRelay) isRelaySupported(answer *signaling.OfferAnswer) bool {
 	if !w.relayManager.HasRelayAddress() {
 		return false
 	}

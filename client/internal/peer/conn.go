@@ -21,6 +21,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/peer/id"
+	"github.com/netbirdio/netbird/client/internal/peer/signaling"
 	"github.com/netbirdio/netbird/client/internal/peer/state_dump"
 	"github.com/netbirdio/netbird/client/internal/peer/status"
 	"github.com/netbirdio/netbird/client/internal/peer/wg_watcher"
@@ -50,7 +51,7 @@ type MetricsRecorder interface {
 
 type ServiceDependencies struct {
 	StatusRecorder     *status.Recorder
-	Signaler           *Signaler
+	Signaler           *signaling.Signaler
 	IFaceDiscover      stdnet.ExternalIFaceDiscover
 	RelayManager       *relayClient.Manager
 	SrWatcher          *guard.SRWatcher
@@ -109,7 +110,7 @@ type Conn struct {
 	ctxCancel          context.CancelFunc
 	config             ConnConfig
 	statusRecorder     *status.Recorder
-	signaler           *Signaler
+	signaler           *signaling.Signaler
 	iFaceDiscover      stdnet.ExternalIFaceDiscover
 	relayManager       *relayClient.Manager
 	srWatcher          *guard.SRWatcher
@@ -136,7 +137,7 @@ type Conn struct {
 	// dials spawned by the event loop, keeping only the newest offer while a
 	// dial is running.
 	relayDialInFlight bool
-	pendingRelayOffer *OfferAnswer
+	pendingRelayOffer *signaling.OfferAnswer
 
 	wgWatcher       *wg_watcher.WGWatcher
 	wgWatcherWg     sync.WaitGroup
@@ -150,7 +151,7 @@ type Conn struct {
 
 	wgProxyICE   wgproxy.Proxy
 	wgProxyRelay wgproxy.Proxy
-	handshaker   *Handshaker
+	handshaker   *signaling.Handshaker
 
 	guard *guard.Guard
 	wg    sync.WaitGroup
@@ -236,7 +237,16 @@ func (conn *Conn) open(engineCtx context.Context, firstPacket []byte) error {
 		conn.workerICE = workerICE
 	}
 
-	conn.handshaker = NewHandshaker(conn.Log, conn.config, conn.signaler, conn.workerICE, conn.workerRelay)
+	var iceWorker signaling.ICEWorker
+	if conn.workerICE != nil {
+		iceWorker = conn.workerICE
+	}
+	conn.handshaker = signaling.NewHandshaker(conn.Log, signaling.Config{
+		Key:             conn.config.Key,
+		LocalWgPort:     conn.config.LocalWgPort,
+		RosenpassPubKey: conn.config.RosenpassConfig.PubKey,
+		RosenpassAddr:   conn.config.RosenpassConfig.Addr,
+	}, conn.signaler, iceWorker, conn.relayManager)
 
 	conn.guard = guard.NewGuard(conn.Log, conn.isConnectedOnAllWay, conn.config.Timeout, conn.srWatcher)
 
@@ -296,7 +306,7 @@ func (conn *Conn) Close(signalToRemote bool) {
 // OnRemoteOffer handles an offer from the remote peer. It never blocks; the
 // offer is coalesced in the mailbox and processed by the event loop, older
 // unprocessed offers are replaced by the newest one.
-func (conn *Conn) OnRemoteOffer(offer OfferAnswer) {
+func (conn *Conn) OnRemoteOffer(offer signaling.OfferAnswer) {
 	conn.dumpState.RemoteOffer()
 	conn.Log.Infof("OnRemoteOffer, on status ICE: %s, status Relay: %s", conn.statusICE, conn.statusRelay)
 	if !conn.post(evRemoteOffer{offer: offer}) {
@@ -306,7 +316,7 @@ func (conn *Conn) OnRemoteOffer(offer OfferAnswer) {
 
 // OnRemoteAnswer handles an answer from the remote peer. It never blocks; the
 // answer is coalesced in the mailbox and processed by the event loop.
-func (conn *Conn) OnRemoteAnswer(answer OfferAnswer) {
+func (conn *Conn) OnRemoteAnswer(answer signaling.OfferAnswer) {
 	conn.dumpState.RemoteAnswer()
 	conn.Log.Infof("OnRemoteAnswer, on status ICE: %s, status Relay: %s", conn.statusICE, conn.statusRelay)
 	if !conn.post(evRemoteAnswer{answer: answer}) {
@@ -511,11 +521,11 @@ func (conn *Conn) releaseEvents(evs []event) {
 // handleRemoteOffer applies a remote offer on the event loop: refreshes the
 // remote ICE support state, dispatches the offer to the relay and ICE workers
 // and answers it.
-func (conn *Conn) handleRemoteOffer(offer *OfferAnswer) {
-	conn.Log.Infof("received offer, running version %s, remote WireGuard listen port %d, session id: %s, remote ICE supported: %t", offer.Version, offer.WgListenPort, offer.SessionIDString(), offer.hasICECredentials())
+func (conn *Conn) handleRemoteOffer(offer *signaling.OfferAnswer) {
+	conn.Log.Infof("received offer, running version %s, remote WireGuard listen port %d, session id: %s, remote ICE supported: %t", offer.Version, offer.WgListenPort, offer.SessionIDString(), offer.HasICECredentials())
 
 	conn.metricsStages.RecordSignalingReceived()
-	conn.handshaker.updateRemoteICEState(offer)
+	conn.handshaker.UpdateRemoteICEState(offer)
 	conn.dispatchOfferToRelay(offer)
 	conn.dispatchOfferToICE(offer)
 
@@ -528,11 +538,11 @@ func (conn *Conn) handleRemoteOffer(offer *OfferAnswer) {
 
 // handleRemoteAnswer applies a remote answer on the event loop the same way
 // as an offer, without answering it.
-func (conn *Conn) handleRemoteAnswer(answer *OfferAnswer) {
-	conn.Log.Infof("received answer, running version %s, remote WireGuard listen port %d, session id: %s, remote ICE supported: %t", answer.Version, answer.WgListenPort, answer.SessionIDString(), answer.hasICECredentials())
+func (conn *Conn) handleRemoteAnswer(answer *signaling.OfferAnswer) {
+	conn.Log.Infof("received answer, running version %s, remote WireGuard listen port %d, session id: %s, remote ICE supported: %t", answer.Version, answer.WgListenPort, answer.SessionIDString(), answer.HasICECredentials())
 
 	conn.metricsStages.RecordSignalingReceived()
-	conn.handshaker.updateRemoteICEState(answer)
+	conn.handshaker.UpdateRemoteICEState(answer)
 	conn.dispatchOfferToRelay(answer)
 	conn.dispatchOfferToICE(answer)
 }
@@ -544,7 +554,7 @@ func (conn *Conn) handleRemoteCandidate(e evRemoteCandidate) {
 	conn.workerICE.OnRemoteCandidate(e.candidate, e.haRoutes)
 }
 
-func (conn *Conn) dispatchOfferToICE(offer *OfferAnswer) {
+func (conn *Conn) dispatchOfferToICE(offer *signaling.OfferAnswer) {
 	if conn.workerICE == nil || !conn.handshaker.RemoteICESupported() {
 		return
 	}
@@ -554,7 +564,7 @@ func (conn *Conn) dispatchOfferToICE(offer *OfferAnswer) {
 // dispatchOfferToRelay runs the blocking relay dial on a helper goroutine. A
 // single dial is kept in flight; newer offers replace the pending one and the
 // newest is dispatched once the running dial reports completion.
-func (conn *Conn) dispatchOfferToRelay(offer *OfferAnswer) {
+func (conn *Conn) dispatchOfferToRelay(offer *signaling.OfferAnswer) {
 	if conn.relayDialInFlight {
 		conn.pendingRelayOffer = offer
 		return

@@ -1,4 +1,4 @@
-package peer
+package signaling
 
 import (
 	"github.com/pion/ice/v4"
