@@ -229,7 +229,7 @@ func (conn *Conn) open(engineCtx context.Context, firstPacket []byte) error {
 
 	if !IsForceRelayed() {
 		relayIsSupportedLocally := conn.workerRelay.RelayIsSupportedLocally()
-		workerICE, err := NewWorkerICE(conn.ctx, conn.Log, conn.config, conn, conn.signaler, conn.iFaceDiscover, conn.statusRecorder, relayIsSupportedLocally)
+		workerICE, err := NewWorkerICE(conn.ctx, conn.Log, conn.config, conn, conn.signaler, conn.iFaceDiscover, conn.statusRecorder, conn.portForwardManager, relayIsSupportedLocally)
 		if err != nil {
 			return err
 		}
