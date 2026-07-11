@@ -60,6 +60,23 @@ func TestApplySimplifiedDefaultsWithRelayOverride(t *testing.T) {
 	}
 }
 
+func TestApplySimplifiedDefaultsWithRelayOverrideIgnoresAdditionalRelays(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Server.ExposedAddress = "https://netbird.example.com:443"
+	cfg.Server.Relays = RelaysConfig{
+		Addresses: []string{"rels://relay.example.com:443"},
+	}
+	cfg.Server.AdditionalRelays = []string{
+		"rels://additional-relay.example.com:443",
+	}
+
+	cfg.ApplySimplifiedDefaults()
+
+	if !reflect.DeepEqual(cfg.Management.Relays.Addresses, cfg.Server.Relays.Addresses) {
+		t.Fatalf("management relay addresses = %v, want %v", cfg.Management.Relays.Addresses, cfg.Server.Relays.Addresses)
+	}
+}
+
 func TestAdditionalRelaysStillRequireLocalRelaySecret(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Server.ExposedAddress = "https://netbird.example.com:443"
