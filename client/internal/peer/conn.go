@@ -38,6 +38,14 @@ import (
 // considered desynced and gets reset.
 const wgTimeoutEscalationThreshold = 3
 
+type WGIface interface {
+	UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error
+	RemovePeer(peerKey string) error
+	GetStats() (map[string]configurer.WGStats, error)
+	GetProxy() wgproxy.Proxy
+	RemoveEndpointAddress(key string) error
+}
+
 // MetricsRecorder is an interface for recording peer connection metrics
 type MetricsRecorder interface {
 	RecordConnectionStages(
