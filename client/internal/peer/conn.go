@@ -24,6 +24,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer/id"
 	"github.com/netbirdio/netbird/client/internal/peer/state_dump"
 	"github.com/netbirdio/netbird/client/internal/peer/status"
+	"github.com/netbirdio/netbird/client/internal/peer/wg_watcher"
 	"github.com/netbirdio/netbird/client/internal/peer/worker"
 	"github.com/netbirdio/netbird/client/internal/portforward"
 	"github.com/netbirdio/netbird/client/internal/rosenpass"
@@ -138,7 +139,7 @@ type Conn struct {
 	relayDialInFlight bool
 	pendingRelayOffer *OfferAnswer
 
-	wgWatcher       *WGWatcher
+	wgWatcher       *wg_watcher.WGWatcher
 	wgWatcherWg     sync.WaitGroup
 	wgWatcherCancel context.CancelFunc
 	// wgTimeouts counts consecutive WireGuard handshake timeouts without a
@@ -192,7 +193,7 @@ func NewConn(config ConnConfig, services ServiceDependencies) (*Conn, error) {
 		statusICE:          worker.NewAtomicStatus(),
 		dumpState:          dumpState,
 		endpointUpdater:    NewEndpointUpdater(connLog, config.WgConfig, isController(config)),
-		wgWatcher:          NewWGWatcher(connLog, config.WgConfig.WgInterface, config.Key, dumpState),
+		wgWatcher:          wg_watcher.NewWGWatcher(connLog, config.WgConfig.WgInterface, config.Key, dumpState),
 		metricsRecorder:    services.MetricsRecorder,
 	}
 
