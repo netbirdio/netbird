@@ -1,4 +1,4 @@
-package worker
+package peer
 
 import (
 	"sync/atomic"
@@ -7,17 +7,17 @@ import (
 )
 
 const (
-	StatusDisconnected Status = iota
-	StatusConnected
+	WorkerStatusDisconnected WorkerStatus = iota
+	WorkerStatusConnected
 )
 
-type Status int32
+type WorkerStatus int32
 
-func (s Status) String() string {
+func (s WorkerStatus) String() string {
 	switch s {
-	case StatusDisconnected:
+	case WorkerStatusDisconnected:
 		return "Disconnected"
-	case StatusConnected:
+	case WorkerStatusConnected:
 		return "Connected"
 	default:
 		log.Errorf("unknown status: %d", s)
@@ -37,16 +37,16 @@ func NewAtomicStatus() *AtomicWorkerStatus {
 }
 
 // Get returns the current connection status
-func (acs *AtomicWorkerStatus) Get() Status {
-	return Status(acs.status.Load())
+func (acs *AtomicWorkerStatus) Get() WorkerStatus {
+	return WorkerStatus(acs.status.Load())
 }
 
 func (acs *AtomicWorkerStatus) SetConnected() {
-	acs.status.Store(int32(StatusConnected))
+	acs.status.Store(int32(WorkerStatusConnected))
 }
 
 func (acs *AtomicWorkerStatus) SetDisconnected() {
-	acs.status.Store(int32(StatusDisconnected))
+	acs.status.Store(int32(WorkerStatusDisconnected))
 }
 
 // String returns the string representation of the current status

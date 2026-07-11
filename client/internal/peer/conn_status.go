@@ -8,7 +8,7 @@ type connStatusInputs struct {
 	peerUsesRelay       bool // remote peer advertises relay support AND local has relay
 	relayConnected      bool // statusRelay reports Connected (independent of whether peer uses relay)
 	remoteSupportsICE   bool // remote peer sent ICE credentials
-	iceWorkerCreated    bool // local WorkerICE exists (false in force-relay mode)
+	iceWorkerCreated    bool // local ICE worker exists (false in force-relay mode)
 	iceStatusConnecting bool // statusICE is anything other than Disconnected
 	iceInProgress       bool // a negotiation is currently in flight
 }

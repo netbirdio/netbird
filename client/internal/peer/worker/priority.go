@@ -1,4 +1,4 @@
-package peer
+package worker
 
 import (
 	"fmt"
