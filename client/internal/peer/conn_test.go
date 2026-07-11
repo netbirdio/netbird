@@ -15,6 +15,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	"github.com/netbirdio/netbird/client/internal/peer/ice"
+	"github.com/netbirdio/netbird/client/internal/peer/metricsstages"
 	"github.com/netbirdio/netbird/client/internal/peer/signaling"
 	"github.com/netbirdio/netbird/client/internal/peer/status"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
@@ -269,7 +270,7 @@ func newWGTimeoutTestConn(rosenpassEnabled bool, disconnected *[]string) *Conn {
 		ctx:           context.Background(),
 		config:        cfg,
 		Log:           log.WithField("peer", cfg.Key),
-		metricsStages: &MetricsStages{},
+		metricsStages: &metricsstages.MetricsStages{},
 	}
 	conn.SetOnDisconnected(func(remotePeer string) {
 		*disconnected = append(*disconnected, remotePeer)
