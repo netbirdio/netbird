@@ -5,6 +5,7 @@ import (
 
 	"github.com/pion/ice/v4"
 
+	"github.com/netbirdio/netbird/client/internal/peer/signaling"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -21,11 +22,11 @@ type evClose struct {
 }
 
 type evRemoteOffer struct {
-	offer OfferAnswer
+	offer signaling.OfferAnswer
 }
 
 type evRemoteAnswer struct {
-	answer OfferAnswer
+	answer signaling.OfferAnswer
 }
 
 type evRemoteCandidate struct {

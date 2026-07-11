@@ -3,6 +3,7 @@ package peer
 import (
 	"testing"
 
+	"github.com/netbirdio/netbird/client/internal/peer/signaling"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -10,9 +11,9 @@ import (
 func TestMailbox_OfferCoalescing(t *testing.T) {
 	mb := newMailbox()
 
-	require.True(t, mb.post(evRemoteOffer{offer: OfferAnswer{WgListenPort: 1}}))
-	require.True(t, mb.post(evRemoteOffer{offer: OfferAnswer{WgListenPort: 2}}))
-	require.True(t, mb.post(evRemoteOffer{offer: OfferAnswer{WgListenPort: 3}}))
+	require.True(t, mb.post(evRemoteOffer{offer: signaling.OfferAnswer{WgListenPort: 1}}))
+	require.True(t, mb.post(evRemoteOffer{offer: signaling.OfferAnswer{WgListenPort: 2}}))
+	require.True(t, mb.post(evRemoteOffer{offer: signaling.OfferAnswer{WgListenPort: 3}}))
 
 	evs := mb.drain()
 	require.Len(t, evs, 1, "consecutive offers must coalesce to a single event")
@@ -26,7 +27,7 @@ func TestMailbox_OfferFlushesCandidates(t *testing.T) {
 
 	require.True(t, mb.post(evRemoteCandidate{}))
 	require.True(t, mb.post(evRemoteCandidate{}))
-	require.True(t, mb.post(evRemoteOffer{offer: OfferAnswer{}}))
+	require.True(t, mb.post(evRemoteOffer{offer: signaling.OfferAnswer{}}))
 
 	evs := mb.drain()
 	require.Len(t, evs, 1, "candidates of the superseded session must be flushed")
@@ -37,7 +38,7 @@ func TestMailbox_OfferFlushesCandidates(t *testing.T) {
 func TestMailbox_CandidatesKeepOrderAfterOffer(t *testing.T) {
 	mb := newMailbox()
 
-	require.True(t, mb.post(evRemoteOffer{offer: OfferAnswer{}}))
+	require.True(t, mb.post(evRemoteOffer{offer: signaling.OfferAnswer{}}))
 	require.True(t, mb.post(evRemoteCandidate{haRoutes: nil}))
 	require.True(t, mb.post(evRemoteCandidate{haRoutes: nil}))
 
@@ -66,8 +67,8 @@ func TestMailbox_DrainOrder(t *testing.T) {
 	mb := newMailbox()
 
 	require.True(t, mb.post(evGuardTick{}))
-	require.True(t, mb.post(evRemoteAnswer{answer: OfferAnswer{}}))
-	require.True(t, mb.post(evRemoteOffer{offer: OfferAnswer{}}))
+	require.True(t, mb.post(evRemoteAnswer{answer: signaling.OfferAnswer{}}))
+	require.True(t, mb.post(evRemoteOffer{offer: signaling.OfferAnswer{}}))
 	require.True(t, mb.post(evRelayDown{}))
 	require.True(t, mb.post(evICEDown{sessionChanged: true}))
 	require.True(t, mb.post(evClose{}))

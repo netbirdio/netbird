@@ -14,6 +14,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
+	"github.com/netbirdio/netbird/client/internal/peer/signaling"
 	"github.com/netbirdio/netbird/client/internal/peer/status"
 	"github.com/netbirdio/netbird/client/internal/portforward"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
@@ -42,7 +43,7 @@ type WorkerICE struct {
 	log                *log.Entry
 	config             ConnConfig
 	conn               iceCallbacks
-	signaler           *Signaler
+	signaler           *signaling.Signaler
 	iFaceDiscover      stdnet.ExternalIFaceDiscover
 	statusRecorder     *status.Recorder
 	portForwardManager *portforward.Manager
@@ -55,12 +56,12 @@ type WorkerICE struct {
 	// connectedAgent is the agent whose connection was last reported ready; guarded by muxAgent
 	connectedAgent *icemaker.ThreadSafeAgent
 	// remoteSessionID represents the peer's session identifier from the latest remote offer.
-	remoteSessionID ICESessionID
+	remoteSessionID icemaker.SessionID
 	// sessionID is used to track the current session ID of the ICE agent
 	// increase by one when disconnecting the agent
 	// with it the remote peer can discard the already deprecated offer/answer
 	// Without it the remote peer may recreate a workable ICE connection
-	sessionID            ICESessionID
+	sessionID            icemaker.SessionID
 	remoteSessionChanged bool
 	muxAgent             sync.Mutex
 
@@ -71,8 +72,8 @@ type WorkerICE struct {
 	portForwardAttempted bool
 }
 
-func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, conn iceCallbacks, signaler *Signaler, ifaceDiscover stdnet.ExternalIFaceDiscover, statusRecorder *status.Recorder, portForwardManager *portforward.Manager, hasRelayOnLocally bool) (*WorkerICE, error) {
-	sessionID, err := NewICESessionID()
+func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, conn iceCallbacks, signaler *signaling.Signaler, ifaceDiscover stdnet.ExternalIFaceDiscover, statusRecorder *status.Recorder, portForwardManager *portforward.Manager, hasRelayOnLocally bool) (*WorkerICE, error) {
+	sessionID, err := icemaker.NewSessionID()
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +100,7 @@ func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, conn i
 	return w, nil
 }
 
-func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
+func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *signaling.OfferAnswer) {
 	w.log.Debugf("OnNewOffer for ICE, serial: %s", remoteOfferAnswer.SessionIDString())
 	w.muxAgent.Lock()
 	defer w.muxAgent.Unlock()
@@ -123,7 +124,7 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 			}
 		}
 
-		sessionID, err := NewICESessionID()
+		sessionID, err := icemaker.NewSessionID()
 		if err != nil {
 			w.log.Errorf("failed to create new session ID: %s", err)
 		}
@@ -190,8 +191,14 @@ func (w *WorkerICE) OnRemoteCandidate(candidate ice.Candidate, haRoutes route.HA
 	}
 }
 
-func (w *WorkerICE) GetLocalUserCredentials() (frag string, pwd string) {
-	return w.localUfrag, w.localPwd
+func (w *WorkerICE) Credentials() signaling.Credentials {
+	w.muxAgent.Lock()
+	defer w.muxAgent.Unlock()
+	return signaling.Credentials{
+		UFrag:     w.localUfrag,
+		Pwd:       w.localPwd,
+		SessionID: w.sessionID,
+	}
 }
 
 func (w *WorkerICE) InProgress() bool {
@@ -242,7 +249,7 @@ func (w *WorkerICE) reCreateAgent(dialerCancel context.CancelFunc, candidates []
 	return agent, nil
 }
 
-func (w *WorkerICE) SessionID() ICESessionID {
+func (w *WorkerICE) getSessionID() icemaker.SessionID {
 	w.muxAgent.Lock()
 	defer w.muxAgent.Unlock()
 
@@ -252,7 +259,7 @@ func (w *WorkerICE) SessionID() ICESessionID {
 // will block until connection succeeded
 // but it won't release if ICE Agent went into Disconnected or Failed state,
 // so we have to cancel it with the provided context once agent detected a broken connection
-func (w *WorkerICE) connect(ctx context.Context, dialerCancel context.CancelFunc, agent *icemaker.ThreadSafeAgent, remoteOfferAnswer *OfferAnswer) {
+func (w *WorkerICE) connect(ctx context.Context, dialerCancel context.CancelFunc, agent *icemaker.ThreadSafeAgent, remoteOfferAnswer *signaling.OfferAnswer) {
 	w.log.Debugf("gather candidates")
 	if err := agent.GatherCandidates(); err != nil {
 		w.log.Warnf("failed to gather candidates: %s", err)
@@ -333,7 +340,7 @@ func (w *WorkerICE) closeAgent(agent *icemaker.ThreadSafeAgent, cancel context.C
 
 	if w.agent == agent {
 		// consider to remove from here and move to the OnNewOffer
-		sessionID, err := NewICESessionID()
+		sessionID, err := icemaker.NewSessionID()
 		if err != nil {
 			w.log.Errorf("failed to create new session ID: %s", err)
 		}
@@ -488,7 +495,7 @@ func (w *WorkerICE) onICESelectedCandidatePair(agent *icemaker.ThreadSafeAgent, 
 }
 
 func (w *WorkerICE) logSuccessfulPaths(agent *icemaker.ThreadSafeAgent) {
-	sessionID := w.SessionID()
+	sessionID := w.getSessionID()
 	stats := agent.GetCandidatePairsStats()
 	localCandidates, _ := agent.GetLocalCandidates()
 	remoteCandidates, _ := agent.GetRemoteCandidates()
@@ -554,7 +561,7 @@ func (w *WorkerICE) onConnectionStateChange(agent *icemaker.ThreadSafeAgent, dia
 	}
 }
 
-func (w *WorkerICE) turnAgentDial(ctx context.Context, agent *icemaker.ThreadSafeAgent, remoteOfferAnswer *OfferAnswer) (*ice.Conn, error) {
+func (w *WorkerICE) turnAgentDial(ctx context.Context, agent *icemaker.ThreadSafeAgent, remoteOfferAnswer *signaling.OfferAnswer) (*ice.Conn, error) {
 	if isController(w.config) {
 		return agent.Dial(ctx, remoteOfferAnswer.IceCredentials.UFrag, remoteOfferAnswer.IceCredentials.Pwd)
 	} else {

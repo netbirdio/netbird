@@ -15,6 +15,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	"github.com/netbirdio/netbird/client/internal/peer/ice"
+	"github.com/netbirdio/netbird/client/internal/peer/signaling"
 	"github.com/netbirdio/netbird/client/internal/peer/status"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/util"
@@ -76,8 +77,8 @@ func TestConn_DiscardMessagesWhenNotOpened(t *testing.T) {
 	conn, err := NewConn(connConf, sd)
 	require.NoError(t, err)
 
-	offerAnswer := OfferAnswer{
-		IceCredentials: IceCredentials{
+	offerAnswer := signaling.OfferAnswer{
+		IceCredentials: signaling.IceCredentials{
 			UFrag: "test",
 			Pwd:   "test",
 		},

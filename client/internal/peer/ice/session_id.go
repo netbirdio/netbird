@@ -1,4 +1,4 @@
-package peer
+package ice
 
 import (
 	"crypto/rand"
@@ -9,26 +9,26 @@ import (
 
 const sessionIDSize = 5
 
-type ICESessionID string
+type SessionID string
 
-// NewICESessionID generates a new session ID for distinguishing sessions
-func NewICESessionID() (ICESessionID, error) {
+// NewSessionID generates a new session ID for distinguishing sessions
+func NewSessionID() (SessionID, error) {
 	b := make([]byte, sessionIDSize)
 	if _, err := io.ReadFull(rand.Reader, b); err != nil {
 		return "", fmt.Errorf("failed to generate session ID: %w", err)
 	}
-	return ICESessionID(hex.EncodeToString(b)), nil
+	return SessionID(hex.EncodeToString(b)), nil
 }
 
-func ICESessionIDFromBytes(b []byte) (ICESessionID, error) {
+func SessionIDFromBytes(b []byte) (SessionID, error) {
 	if len(b) != sessionIDSize {
 		return "", fmt.Errorf("invalid session ID length: %d", len(b))
 	}
-	return ICESessionID(hex.EncodeToString(b)), nil
+	return SessionID(hex.EncodeToString(b)), nil
 }
 
 // Bytes returns the raw bytes of the session ID for protobuf serialization
-func (id ICESessionID) Bytes() ([]byte, error) {
+func (id SessionID) Bytes() ([]byte, error) {
 	if len(id) == 0 {
 		return nil, fmt.Errorf("ICE session ID is empty")
 	}
@@ -42,6 +42,6 @@ func (id ICESessionID) Bytes() ([]byte, error) {
 	return b, nil
 }
 
-func (id ICESessionID) String() string {
+func (id SessionID) String() string {
 	return string(id)
 }
