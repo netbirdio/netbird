@@ -9,6 +9,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/iface/configurer"
+	"github.com/netbirdio/netbird/client/internal/peer/state_dump"
 	"github.com/netbirdio/netbird/client/internal/peer/status"
 )
 
@@ -57,7 +58,7 @@ func TestWGWatcher_CheckSuccessCallback(t *testing.T) {
 	// platforms with coarse clock resolution (Windows), where two time.Now() calls
 	// microseconds apart can return the same instant and read as a timed-out handshake.
 	stats := &mockHandshakeStats{handshake: time.Now().Add(-time.Hour)}
-	watcher := NewWGWatcher(mlog, stats, "", newStateDump("peer", mlog, &status.Recorder{}))
+	watcher := NewWGWatcher(mlog, stats, "", state_dump.NewStateDump("peer", mlog, &status.Recorder{}))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -105,7 +106,7 @@ func TestWGWatcher_EnableWgWatcher(t *testing.T) {
 
 	mlog := log.WithField("peer", "tet")
 	mocWgIface := &MocWgIface{}
-	watcher := NewWGWatcher(mlog, mocWgIface, "", newStateDump("peer", mlog, &status.Recorder{}))
+	watcher := NewWGWatcher(mlog, mocWgIface, "", state_dump.NewStateDump("peer", mlog, &status.Recorder{}))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -137,7 +138,7 @@ func TestWGWatcher_ReEnable(t *testing.T) {
 
 	mlog := log.WithField("peer", "tet")
 	mocWgIface := &MocWgIface{}
-	watcher := NewWGWatcher(mlog, mocWgIface, "", newStateDump("peer", mlog, &status.Recorder{}))
+	watcher := NewWGWatcher(mlog, mocWgIface, "", state_dump.NewStateDump("peer", mlog, &status.Recorder{}))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	watcher.PrepareInitialHandshake()

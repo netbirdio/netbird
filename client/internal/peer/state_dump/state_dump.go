@@ -1,4 +1,4 @@
-package peer
+package state_dump
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer/status"
 )
 
-type stateDump struct {
+type StateDump struct {
 	log    *log.Entry
 	status *status.Recorder
 	key    string
@@ -28,15 +28,15 @@ type stateDump struct {
 	mu sync.Mutex
 }
 
-func newStateDump(key string, log *log.Entry, statusRecorder *status.Recorder) *stateDump {
-	return &stateDump{
+func NewStateDump(key string, log *log.Entry, statusRecorder *status.Recorder) *StateDump {
+	return &StateDump{
 		log:    log,
 		status: statusRecorder,
 		key:    key,
 	}
 }
 
-func (s *stateDump) Start(ctx context.Context) {
+func (s *StateDump) Start(ctx context.Context) {
 	ticker := time.NewTicker(10 * time.Minute)
 	defer ticker.Stop()
 
@@ -50,25 +50,25 @@ func (s *stateDump) Start(ctx context.Context) {
 	}
 }
 
-func (s *stateDump) RemoteOffer() {
+func (s *StateDump) RemoteOffer() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.remoteOffer++
 }
 
-func (s *stateDump) RemoteCandidate() {
+func (s *StateDump) RemoteCandidate() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.remoteCandidate++
 }
 
-func (s *stateDump) SendOffer() {
+func (s *StateDump) SendOffer() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sentOffer++
 }
 
-func (s *stateDump) dumpState() {
+func (s *StateDump) dumpState() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -82,41 +82,41 @@ func (s *stateDump) dumpState() {
 		status, s.sentOffer, s.remoteOffer, s.remoteAnswer, s.remoteCandidate, s.p2pConnected, s.switchToRelay, s.wgCheckSuccess, s.relayConnected, s.localProxies)
 }
 
-func (s *stateDump) RemoteAnswer() {
+func (s *StateDump) RemoteAnswer() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.remoteAnswer++
 }
 
-func (s *stateDump) P2PConnected() {
+func (s *StateDump) P2PConnected() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.p2pConnected++
 }
 
-func (s *stateDump) SwitchToRelay() {
+func (s *StateDump) SwitchToRelay() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.switchToRelay++
 }
 
-func (s *stateDump) WGcheckSuccess() {
+func (s *StateDump) WGcheckSuccess() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.wgCheckSuccess++
 }
 
-func (s *stateDump) RelayConnected() {
+func (s *StateDump) RelayConnected() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.relayConnected++
 }
 
-func (s *stateDump) NewLocalProxy() {
+func (s *StateDump) NewLocalProxy() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
