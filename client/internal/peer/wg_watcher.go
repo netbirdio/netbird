@@ -71,9 +71,11 @@ func (w *WGWatcher) PrepareInitialHandshake() (ok bool) {
 
 // EnableWgWatcher runs the WireGuard watcher loop using the handshake baseline captured by
 // PrepareInitialHandshake. The watcher runs until ctx is cancelled. Caller is responsible
-// for context lifecycle management.
-func (w *WGWatcher) EnableWgWatcher(ctx context.Context, enabledTime time.Time, onDisconnectedFn func(), onHandshakeSuccessFn func(when time.Time)) {
-	w.periodicHandshakeCheck(ctx, onDisconnectedFn, onHandshakeSuccessFn, enabledTime, w.initialHandshake)
+// for context lifecycle management. onHandshakeSuccessFn is called only for the first
+// handshake observed by this run, onCheckSuccessFn for every check that observed a fresh
+// handshake, including the first.
+func (w *WGWatcher) EnableWgWatcher(ctx context.Context, enabledTime time.Time, onDisconnectedFn func(), onHandshakeSuccessFn func(when time.Time), onCheckSuccessFn func()) {
+	w.periodicHandshakeCheck(ctx, onDisconnectedFn, onHandshakeSuccessFn, onCheckSuccessFn, enabledTime, w.initialHandshake)
 
 	w.muEnabled.Lock()
 	w.enabled = false
@@ -90,7 +92,7 @@ func (w *WGWatcher) Reset() {
 }
 
 // wgStateCheck help to check the state of the WireGuard handshake and relay connection
-func (w *WGWatcher) periodicHandshakeCheck(ctx context.Context, onDisconnectedFn func(), onHandshakeSuccessFn func(when time.Time), enabledTime time.Time, initialHandshake time.Time) {
+func (w *WGWatcher) periodicHandshakeCheck(ctx context.Context, onDisconnectedFn func(), onHandshakeSuccessFn func(when time.Time), onCheckSuccessFn func(), enabledTime time.Time, initialHandshake time.Time) {
 	w.log.Infof("WireGuard watcher started")
 
 	timer := time.NewTimer(wgHandshakeOvertime)
@@ -115,6 +117,10 @@ func (w *WGWatcher) periodicHandshakeCheck(ctx context.Context, onDisconnectedFn
 				if onHandshakeSuccessFn != nil && ctx.Err() == nil {
 					onHandshakeSuccessFn(*handshake)
 				}
+			}
+
+			if onCheckSuccessFn != nil && ctx.Err() == nil {
+				onCheckSuccessFn()
 			}
 
 			lastHandshake = *handshake
