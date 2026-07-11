@@ -21,6 +21,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/peer/id"
+	"github.com/netbirdio/netbird/client/internal/peer/metricsstages"
 	"github.com/netbirdio/netbird/client/internal/peer/signaling"
 	"github.com/netbirdio/netbird/client/internal/peer/state_dump"
 	"github.com/netbirdio/netbird/client/internal/peer/status"
@@ -175,7 +176,7 @@ type Conn struct {
 
 	// Connection stage timestamps for metrics
 	metricsRecorder MetricsRecorder
-	metricsStages   *MetricsStages
+	metricsStages   *metricsstages.MetricsStages
 
 	// pendingFirstPacket is the lazyconn-captured handshake init, replayed once the real
 	// transport is up.
@@ -234,7 +235,7 @@ func (conn *Conn) open(engineCtx context.Context, firstPacket []byte) error {
 	}
 
 	// Allocate new metrics stages so old goroutines don't corrupt new state
-	conn.metricsStages = &MetricsStages{}
+	conn.metricsStages = &metricsstages.MetricsStages{}
 
 	conn.ctx, conn.ctxCancel = context.WithCancel(engineCtx)
 
