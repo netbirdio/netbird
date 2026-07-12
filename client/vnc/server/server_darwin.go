@@ -24,18 +24,16 @@ func (s *Server) platformSessionManager() virtualSessionManager {
 // to the per-user agent darwinAgentManager spawns via launchctl asuser
 // (the only spawn mode that lands a child in the user's Aqua session with
 // WindowServer + TCC access).
-func (s *Server) serviceAcceptLoop() {
+func (s *Server) serviceAcceptLoop(ln net.Listener) {
+	if ln == nil {
+		return
+	}
+
 	mgr := newDarwinAgentManager(s.ctx)
 	defer mgr.stop()
 
 	log.Info("service mode, proxying connections to per-user agent over Unix socket")
 
-	s.mu.Lock()
-	ln := s.listener
-	s.mu.Unlock()
-	if ln == nil {
-		return
-	}
 	for {
 		conn, err := ln.Accept()
 		if err != nil {

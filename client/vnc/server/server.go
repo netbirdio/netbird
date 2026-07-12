@@ -169,15 +169,22 @@ type Server struct {
 	localAddr netip.Addr
 	// network is the NetBird overlay network.
 	network netip.Prefix
-	log     *log.Entry
+	// localAddr6 and network6 are the v6 overlay address and network, set
+	// when a v6 listener is added; zero when the overlay has no v6.
+	localAddr6 netip.Addr
+	network6   netip.Prefix
+	log        *log.Entry
 
-	mu          sync.Mutex
-	listener    net.Listener
-	ctx         context.Context
-	cancel      context.CancelFunc
-	vmgr        virtualSessionManager
-	authorizer  *sshauth.Authorizer
-	netstackNet *netstack.Net
+	mu       sync.Mutex
+	listener net.Listener
+	// extraListeners holds additional listeners (e.g. the v6 overlay), closed
+	// alongside listener on Stop.
+	extraListeners []net.Listener
+	ctx            context.Context
+	cancel         context.CancelFunc
+	vmgr           virtualSessionManager
+	authorizer     *sshauth.Authorizer
+	netstackNet    *netstack.Net
 	// agentToken holds the raw token bytes for agent-mode auth.
 	agentToken []byte
 	// invalidAgentToken latches when AgentTokenHex was provided but failed
@@ -609,12 +616,40 @@ func (s *Server) Start(ctx context.Context, addr netip.AddrPort, network netip.P
 	}
 
 	if s.serviceMode {
-		go s.serviceAcceptLoop()
+		go s.serviceAcceptLoop(s.listener)
 	} else {
-		go s.acceptLoop()
+		go s.acceptLoop(s.listener)
 	}
 
 	s.log.Infof("started on %s (service_mode=%v)", listenDesc, s.serviceMode)
+	return nil
+}
+
+// AddListener opens an additional overlay listener (e.g. the v6 overlay
+// address) and serves it with the same accept path as the primary listener.
+// The server must already be running. Mirrors the primary listener's mode so
+// service-mode connections still route through the per-session agent proxy.
+func (s *Server) AddListener(_ context.Context, addr netip.AddrPort, network netip.Prefix) error {
+	s.mu.Lock()
+	if s.listener == nil {
+		s.mu.Unlock()
+		return fmt.Errorf("server not running")
+	}
+	ln, desc, err := s.openOverlayListener(addr, network)
+	if err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	s.extraListeners = append(s.extraListeners, ln)
+	serviceMode := s.serviceMode
+	s.mu.Unlock()
+
+	s.log.Infof("also listening on %s (service_mode=%v)", desc, serviceMode)
+	if serviceMode {
+		go s.serviceAcceptLoop(ln)
+	} else {
+		go s.acceptLoop(ln)
+	}
 	return nil
 }
 
@@ -622,8 +657,13 @@ func (s *Server) openOverlayListener(addr netip.AddrPort, network netip.Prefix) 
 	if !network.IsValid() {
 		return nil, "", fmt.Errorf("invalid overlay network prefix")
 	}
-	s.localAddr = addr.Addr()
-	s.network = network
+	if addr.Addr().Is6() {
+		s.localAddr6 = addr.Addr()
+		s.network6 = network
+	} else {
+		s.localAddr = addr.Addr()
+		s.network = network
+	}
 	if s.netstackNet != nil {
 		ln, err := s.netstackNet.ListenTCPAddrPort(addr)
 		if err != nil {
@@ -658,6 +698,12 @@ func (s *Server) Stop() error {
 		listenerErr = s.listener.Close()
 		s.listener = nil
 	}
+	for _, ln := range s.extraListeners {
+		if err := ln.Close(); err != nil && listenerErr == nil {
+			listenerErr = err
+		}
+	}
+	s.extraListeners = nil
 	s.closeActiveSessions()
 
 	if s.vmgr != nil {
@@ -681,10 +727,7 @@ func (s *Server) Stop() error {
 }
 
 // acceptLoop handles VNC connections directly (user session mode).
-func (s *Server) acceptLoop() {
-	s.mu.Lock()
-	ln := s.listener
-	s.mu.Unlock()
+func (s *Server) acceptLoop(ln net.Listener) {
 	if ln == nil {
 		return
 	}
@@ -790,16 +833,18 @@ func (s *Server) isAllowedSource(addr net.Addr) bool {
 		return true
 	}
 
-	if remoteIP == s.localAddr {
+	if remoteIP == s.localAddr || (s.localAddr6.IsValid() && remoteIP == s.localAddr6) {
 		s.log.Warnf("connection rejected from own IP %s", remoteIP)
 		return false
 	}
 
-	if !s.network.IsValid() {
+	if !s.network.IsValid() && !s.network6.IsValid() {
 		s.log.Warnf("connection rejected: overlay network not configured")
 		return false
 	}
-	if !s.network.Contains(remoteIP) {
+	inV4 := s.network.IsValid() && s.network.Contains(remoteIP)
+	inV6 := s.network6.IsValid() && s.network6.Contains(remoteIP)
+	if !inV4 && !inV6 {
 		s.log.Warnf("connection rejected from non-NetBird IP %s", remoteIP)
 		return false
 	}

@@ -17,6 +17,8 @@ import (
 
 	"github.com/flynn/noise"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/wasm/internal/netutil"
 )
 
 var cryptoRandRead = crand.Read
@@ -133,6 +135,7 @@ type VNCProxy struct {
 
 type vncDestination struct {
 	address     string
+	network     string
 	mode        byte
 	username    string
 	sessionPriv []byte
@@ -188,6 +191,10 @@ type ProxyRequest struct {
 	// matching private key is looked up inside wasm and never crosses
 	// the JS boundary.
 	KeySessionID string
+	// IPVersion selects the address family for the dial to the destination:
+	// 4, 6, or 0 for automatic selection. Mirrors the SSH proxy so the
+	// dashboard can resolve a peer label to a specific family.
+	IPVersion int
 }
 
 // CreateProxy creates a new proxy endpoint for the given VNC destination.
@@ -207,6 +214,7 @@ func (p *VNCProxy) CreateProxy(req ProxyRequest) js.Value {
 
 	dest := vncDestination{
 		address:   address,
+		network:   netutil.TCPNetwork(req.IPVersion),
 		mode:      m,
 		username:  username,
 		sessionID: sessionID,
@@ -394,7 +402,11 @@ func (p *VNCProxy) connectToVNC(conn *vncConnection) {
 	ctx, cancel := context.WithTimeout(conn.ctx, vncDialTimeout)
 	defer cancel()
 
-	vncConn, err := p.nbClient.Dial(ctx, "tcp", conn.destination.address)
+	network := conn.destination.network
+	if network == "" {
+		network = "tcp"
+	}
+	vncConn, err := p.nbClient.Dial(ctx, network, conn.destination.address)
 	if err != nil {
 		log.Errorf("VNC connect to %s: %v", conn.destination.address, err)
 		// Close the WebSocket so noVNC fires a disconnect event.
