@@ -10490,7 +10490,7 @@ paths:
         - EDR Intune Integrations
       summary: Delete EDR Intune Integration
       description: Deletes an EDR Intune Integration by its ID.
-      operationId: deleteIntegration
+      operationId: deleteEDRIntuneIntegration
       responses:
         '200':
           description: Integration deleted successfully. Returns an empty object.
@@ -12574,7 +12574,7 @@ paths:
         - Event Streaming Integrations
       summary: Delete Event Streaming Integration
       description: Deletes an event streaming integration by its ID.
-      operationId: deleteIntegration
+      operationId: deleteEventStreamingIntegration
       responses:
         '200':
           description: Integration deleted successfully. Returns an empty object.
