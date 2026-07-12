@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"runtime"
+	"slices"
 	"sync"
 	"time"
 
@@ -28,6 +29,11 @@ import (
 	"github.com/netbirdio/netbird/route"
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 )
+
+// wgTimeoutEscalationThreshold is the number of consecutive WireGuard
+// handshake timeouts after which the rosenpass state for the peer is
+// considered desynced and gets reset.
+const wgTimeoutEscalationThreshold = 3
 
 // MetricsRecorder is an interface for recording peer connection metrics
 type MetricsRecorder interface {
@@ -117,6 +123,9 @@ type Conn struct {
 	wgWatcher       *WGWatcher
 	wgWatcherWg     sync.WaitGroup
 	wgWatcherCancel context.CancelFunc
+	// wgTimeouts counts consecutive WireGuard handshake timeouts without a
+	// successful handshake in between. Guarded by mu.
+	wgTimeouts int
 
 	// used to store the remote Rosenpass key for Relayed connection in case of connection update from ice
 	rosenpassRemoteKey []byte
@@ -136,6 +145,39 @@ type Conn struct {
 	// Connection stage timestamps for metrics
 	metricsRecorder MetricsRecorder
 	metricsStages   *MetricsStages
+
+	// pendingFirstPacket is the lazyconn-captured handshake init, replayed once the real
+	// transport is up.
+	pendingFirstPacket []byte
+}
+
+// injectPendingFirstPacket replays the captured handshake through the proxy if present, else
+// directly through the ICE conn. The packet is cleared only after a successful write, so a failed
+// or transport-less attempt leaves it available for a later reinjection. Caller must hold conn.mu.
+func (conn *Conn) injectPendingFirstPacket(proxy wgproxy.Proxy, directConn net.Conn) {
+	pkt := conn.pendingFirstPacket
+	if len(pkt) == 0 {
+		return
+	}
+
+	switch {
+	case proxy != nil:
+		if err := proxy.InjectPacket(pkt); err != nil {
+			conn.Log.Debugf("failed to reinject captured first packet via proxy: %v", err)
+			return
+		}
+	case directConn != nil:
+		if _, err := directConn.Write(pkt); err != nil {
+			conn.Log.Debugf("failed to reinject captured first packet via direct conn: %v", err)
+			return
+		}
+	default:
+		conn.Log.Debugf("no transport available to reinject captured first packet")
+		return
+	}
+
+	conn.pendingFirstPacket = nil
+	conn.Log.Debugf("reinjected captured first packet (%d bytes)", len(pkt))
 }
 
 // NewConn creates a new not opened Conn to the remote peer.
@@ -172,6 +214,16 @@ func NewConn(config ConnConfig, services ServiceDependencies) (*Conn, error) {
 // It will try to establish a connection using ICE and in parallel with relay. The higher priority connection type will
 // be used.
 func (conn *Conn) Open(engineCtx context.Context) error {
+	return conn.open(engineCtx, nil)
+}
+
+// OpenWithFirstPacket opens the connection like Open and stashes firstPacket to be replayed once
+// the real transport is established. The packet is retained only on a successful open.
+func (conn *Conn) OpenWithFirstPacket(engineCtx context.Context, firstPacket []byte) error {
+	return conn.open(engineCtx, firstPacket)
+}
+
+func (conn *Conn) open(engineCtx context.Context, firstPacket []byte) error {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
@@ -227,6 +279,9 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 		defer conn.wg.Done()
 		conn.guard.Start(conn.ctx, conn.onGuardEvent)
 	}()
+	if len(firstPacket) > 0 {
+		conn.pendingFirstPacket = slices.Clone(firstPacket)
+	}
 	conn.opened = true
 	return nil
 }
@@ -423,6 +478,8 @@ func (conn *Conn) onICEConnectionIsReady(priority conntype.ConnPriority, iceConn
 		conn.wgProxyRelay.RedirectAs(ep)
 	}
 
+	conn.injectPendingFirstPacket(wgProxy, iceConnInfo.RemoteConn)
+
 	conn.currentConnPriority = priority
 	conn.statusICE.SetConnected()
 	conn.updateIceState(iceConnInfo, updateTime)
@@ -546,6 +603,8 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 
 	wgConfigWorkaround()
 
+	conn.injectPendingFirstPacket(wgProxy, nil)
+
 	conn.rosenpassRemoteKey = rci.rosenpassPubKey
 	conn.currentConnPriority = conntype.Relay
 	conn.statusRelay.SetConnected()
@@ -632,6 +691,29 @@ func (conn *Conn) onWGDisconnected() {
 	default:
 		conn.Log.Debugf("No active connection to close on WG timeout")
 	}
+
+	conn.escalateWGTimeoutLocked()
+}
+
+// escalateWGTimeoutLocked resets the peer's rosenpass state after repeated
+// handshake timeouts. With rosenpass enabled, persistent timeouts mean the
+// preshared keys have desynced; the renewal exchange runs over the dead
+// tunnel and cannot resync them. Reporting the peer disconnected drops its
+// rosenpass state, so the next connection configuration programs the
+// rendezvous key and the tunnel can bootstrap again. Callers must hold mu.
+func (conn *Conn) escalateWGTimeoutLocked() {
+	if conn.config.RosenpassConfig.PubKey == nil {
+		return
+	}
+
+	conn.wgTimeouts++
+	if conn.wgTimeouts < wgTimeoutEscalationThreshold || conn.onDisconnected == nil {
+		return
+	}
+	conn.wgTimeouts = 0
+
+	conn.Log.Warnf("%d consecutive WireGuard handshake timeouts, resetting rosenpass state for peer", wgTimeoutEscalationThreshold)
+	conn.onDisconnected(conn.config.WgConfig.RemoteKey)
 }
 
 func (conn *Conn) updateRelayStatus(relayServerAddr string, rosenpassPubKey []byte, updateTime time.Time) {
@@ -752,15 +834,17 @@ func (conn *Conn) isConnectedOnAllWay() (status guard.ConnStatus) {
 }
 
 func (conn *Conn) enableWgWatcherIfNeeded(enabledTime time.Time) {
-	if !conn.wgWatcher.IsEnabled() {
-		wgWatcherCtx, wgWatcherCancel := context.WithCancel(conn.ctx)
-		conn.wgWatcherCancel = wgWatcherCancel
-		conn.wgWatcherWg.Add(1)
-		go func() {
-			defer conn.wgWatcherWg.Done()
-			conn.wgWatcher.EnableWgWatcher(wgWatcherCtx, enabledTime, conn.onWGDisconnected, conn.onWGHandshakeSuccess)
-		}()
+	if !conn.wgWatcher.PrepareInitialHandshake() {
+		return
 	}
+
+	wgWatcherCtx, wgWatcherCancel := context.WithCancel(conn.ctx)
+	conn.wgWatcherCancel = wgWatcherCancel
+	conn.wgWatcherWg.Add(1)
+	go func() {
+		defer conn.wgWatcherWg.Done()
+		conn.wgWatcher.EnableWgWatcher(wgWatcherCtx, enabledTime, conn.onWGDisconnected, conn.onWGHandshakeSuccess, conn.onWGCheckSuccess)
+	}()
 }
 
 func (conn *Conn) disableWgWatcherIfNeeded() {
@@ -837,6 +921,15 @@ func (conn *Conn) setRelayedProxy(proxy wgproxy.Proxy) {
 func (conn *Conn) onWGHandshakeSuccess(when time.Time) {
 	conn.metricsStages.RecordWGHandshakeSuccess(when)
 	conn.recordConnectionMetrics()
+}
+
+// onWGCheckSuccess is called for every watcher check that observed a fresh
+// handshake, including handshakes of connections that were already up when
+// the watcher started.
+func (conn *Conn) onWGCheckSuccess() {
+	conn.mu.Lock()
+	conn.wgTimeouts = 0
+	conn.mu.Unlock()
 }
 
 // recordConnectionMetrics records connection stage timestamps as metrics

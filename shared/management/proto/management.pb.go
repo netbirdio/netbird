@@ -424,7 +424,7 @@ func (x DeviceAuthorizationFlowProvider) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use DeviceAuthorizationFlowProvider.Descriptor instead.
 func (DeviceAuthorizationFlowProvider) EnumDescriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{35, 0}
+	return file_management_proto_rawDescGZIP(), []int{36, 0}
 }
 
 type EncryptedMessage struct {
@@ -1915,9 +1915,10 @@ type NetbirdConfig struct {
 	// a list of TURN servers
 	Turns []*ProtectedHostConfig `protobuf:"bytes,2,rep,name=turns,proto3" json:"turns,omitempty"`
 	// a Signal server config
-	Signal *HostConfig  `protobuf:"bytes,3,opt,name=signal,proto3" json:"signal,omitempty"`
-	Relay  *RelayConfig `protobuf:"bytes,4,opt,name=relay,proto3" json:"relay,omitempty"`
-	Flow   *FlowConfig  `protobuf:"bytes,5,opt,name=flow,proto3" json:"flow,omitempty"`
+	Signal  *HostConfig    `protobuf:"bytes,3,opt,name=signal,proto3" json:"signal,omitempty"`
+	Relay   *RelayConfig   `protobuf:"bytes,4,opt,name=relay,proto3" json:"relay,omitempty"`
+	Flow    *FlowConfig    `protobuf:"bytes,5,opt,name=flow,proto3" json:"flow,omitempty"`
+	Metrics *MetricsConfig `protobuf:"bytes,6,opt,name=metrics,proto3" json:"metrics,omitempty"`
 }
 
 func (x *NetbirdConfig) Reset() {
@@ -1983,6 +1984,13 @@ func (x *NetbirdConfig) GetRelay() *RelayConfig {
 func (x *NetbirdConfig) GetFlow() *FlowConfig {
 	if x != nil {
 		return x.Flow
+	}
+	return nil
+}
+
+func (x *NetbirdConfig) GetMetrics() *MetricsConfig {
+	if x != nil {
+		return x.Metrics
 	}
 	return nil
 }
@@ -2213,6 +2221,53 @@ func (x *FlowConfig) GetDnsCollection() bool {
 	return false
 }
 
+type MetricsConfig struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Enabled bool `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
+}
+
+func (x *MetricsConfig) Reset() {
+	*x = MetricsConfig{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_management_proto_msgTypes[23]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *MetricsConfig) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MetricsConfig) ProtoMessage() {}
+
+func (x *MetricsConfig) ProtoReflect() protoreflect.Message {
+	mi := &file_management_proto_msgTypes[23]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MetricsConfig.ProtoReflect.Descriptor instead.
+func (*MetricsConfig) Descriptor() ([]byte, []int) {
+	return file_management_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *MetricsConfig) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
 // JWTConfig represents JWT authentication configuration for validating tokens.
 type JWTConfig struct {
 	state         protoimpl.MessageState
@@ -2232,7 +2287,7 @@ type JWTConfig struct {
 func (x *JWTConfig) Reset() {
 	*x = JWTConfig{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_management_proto_msgTypes[23]
+		mi := &file_management_proto_msgTypes[24]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2245,7 +2300,7 @@ func (x *JWTConfig) String() string {
 func (*JWTConfig) ProtoMessage() {}
 
 func (x *JWTConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[23]
+	mi := &file_management_proto_msgTypes[24]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2258,7 +2313,7 @@ func (x *JWTConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JWTConfig.ProtoReflect.Descriptor instead.
 func (*JWTConfig) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{23}
+	return file_management_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *JWTConfig) GetIssuer() string {
@@ -2311,7 +2366,7 @@ type ProtectedHostConfig struct {
 func (x *ProtectedHostConfig) Reset() {
 	*x = ProtectedHostConfig{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_management_proto_msgTypes[24]
+		mi := &file_management_proto_msgTypes[25]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2324,7 +2379,7 @@ func (x *ProtectedHostConfig) String() string {
 func (*ProtectedHostConfig) ProtoMessage() {}
 
 func (x *ProtectedHostConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[24]
+	mi := &file_management_proto_msgTypes[25]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2337,7 +2392,7 @@ func (x *ProtectedHostConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProtectedHostConfig.ProtoReflect.Descriptor instead.
 func (*ProtectedHostConfig) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{24}
+	return file_management_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *ProtectedHostConfig) GetHostConfig() *HostConfig {
@@ -2388,7 +2443,7 @@ type PeerConfig struct {
 func (x *PeerConfig) Reset() {
 	*x = PeerConfig{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_management_proto_msgTypes[25]
+		mi := &file_management_proto_msgTypes[26]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2401,7 +2456,7 @@ func (x *PeerConfig) String() string {
 func (*PeerConfig) ProtoMessage() {}
 
 func (x *PeerConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[25]
+	mi := &file_management_proto_msgTypes[26]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2414,7 +2469,7 @@ func (x *PeerConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerConfig.ProtoReflect.Descriptor instead.
 func (*PeerConfig) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{25}
+	return file_management_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *PeerConfig) GetAddress() string {
@@ -2494,7 +2549,7 @@ type AutoUpdateSettings struct {
 func (x *AutoUpdateSettings) Reset() {
 	*x = AutoUpdateSettings{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_management_proto_msgTypes[26]
+		mi := &file_management_proto_msgTypes[27]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2507,7 +2562,7 @@ func (x *AutoUpdateSettings) String() string {
 func (*AutoUpdateSettings) ProtoMessage() {}
 
 func (x *AutoUpdateSettings) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[26]
+	mi := &file_management_proto_msgTypes[27]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2520,7 +2575,7 @@ func (x *AutoUpdateSettings) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AutoUpdateSettings.ProtoReflect.Descriptor instead.
 func (*AutoUpdateSettings) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{26}
+	return file_management_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *AutoUpdateSettings) GetVersion() string {
@@ -2577,7 +2632,7 @@ type NetworkMap struct {
 func (x *NetworkMap) Reset() {
 	*x = NetworkMap{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_management_proto_msgTypes[27]
+		mi := &file_management_proto_msgTypes[28]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2590,7 +2645,7 @@ func (x *NetworkMap) String() string {
 func (*NetworkMap) ProtoMessage() {}
 
 func (x *NetworkMap) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[27]
+	mi := &file_management_proto_msgTypes[28]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2603,7 +2658,7 @@ func (x *NetworkMap) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NetworkMap.ProtoReflect.Descriptor instead.
 func (*NetworkMap) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{27}
+	return file_management_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *NetworkMap) GetSerial() uint64 {
@@ -2720,7 +2775,7 @@ type SSHAuth struct {
 func (x *SSHAuth) Reset() {
 	*x = SSHAuth{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_management_proto_msgTypes[28]
+		mi := &file_management_proto_msgTypes[29]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2733,7 +2788,7 @@ func (x *SSHAuth) String() string {
 func (*SSHAuth) ProtoMessage() {}
 
 func (x *SSHAuth) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[28]
+	mi := &file_management_proto_msgTypes[29]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2746,7 +2801,7 @@ func (x *SSHAuth) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SSHAuth.ProtoReflect.Descriptor instead.
 func (*SSHAuth) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{28}
+	return file_management_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *SSHAuth) GetUserIDClaim() string {
@@ -2781,7 +2836,7 @@ type MachineUserIndexes struct {
 func (x *MachineUserIndexes) Reset() {
 	*x = MachineUserIndexes{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_management_proto_msgTypes[29]
+		mi := &file_management_proto_msgTypes[30]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2794,7 +2849,7 @@ func (x *MachineUserIndexes) String() string {
 func (*MachineUserIndexes) ProtoMessage() {}
 
 func (x *MachineUserIndexes) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[29]
+	mi := &file_management_proto_msgTypes[30]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2807,7 +2862,7 @@ func (x *MachineUserIndexes) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MachineUserIndexes.ProtoReflect.Descriptor instead.
 func (*MachineUserIndexes) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{29}
+	return file_management_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *MachineUserIndexes) GetIndexes() []uint32 {
@@ -2839,7 +2894,7 @@ type VNCAuth struct {
 func (x *VNCAuth) Reset() {
 	*x = VNCAuth{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_management_proto_msgTypes[30]
+		mi := &file_management_proto_msgTypes[31]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2852,7 +2907,7 @@ func (x *VNCAuth) String() string {
 func (*VNCAuth) ProtoMessage() {}
 
 func (x *VNCAuth) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[30]
+	mi := &file_management_proto_msgTypes[31]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2865,7 +2920,7 @@ func (x *VNCAuth) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VNCAuth.ProtoReflect.Descriptor instead.
 func (*VNCAuth) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{30}
+	return file_management_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *VNCAuth) GetAuthorizedUsers() [][]byte {
@@ -2913,7 +2968,7 @@ type SessionPubKey struct {
 func (x *SessionPubKey) Reset() {
 	*x = SessionPubKey{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_management_proto_msgTypes[31]
+		mi := &file_management_proto_msgTypes[32]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2926,7 +2981,7 @@ func (x *SessionPubKey) String() string {
 func (*SessionPubKey) ProtoMessage() {}
 
 func (x *SessionPubKey) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[31]
+	mi := &file_management_proto_msgTypes[32]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2939,7 +2994,7 @@ func (x *SessionPubKey) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionPubKey.ProtoReflect.Descriptor instead.
 func (*SessionPubKey) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{31}
+	return file_management_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *SessionPubKey) GetPubKey() []byte {
@@ -2984,7 +3039,7 @@ type RemotePeerConfig struct {
 func (x *RemotePeerConfig) Reset() {
 	*x = RemotePeerConfig{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_management_proto_msgTypes[32]
+		mi := &file_management_proto_msgTypes[33]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2997,7 +3052,7 @@ func (x *RemotePeerConfig) String() string {
 func (*RemotePeerConfig) ProtoMessage() {}
 
 func (x *RemotePeerConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[32]
+	mi := &file_management_proto_msgTypes[33]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3010,7 +3065,7 @@ func (x *RemotePeerConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemotePeerConfig.ProtoReflect.Descriptor instead.
 func (*RemotePeerConfig) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{32}
+	return file_management_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *RemotePeerConfig) GetWgPubKey() string {
@@ -3065,7 +3120,7 @@ type SSHConfig struct {
 func (x *SSHConfig) Reset() {
 	*x = SSHConfig{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_management_proto_msgTypes[33]
+		mi := &file_management_proto_msgTypes[34]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3078,7 +3133,7 @@ func (x *SSHConfig) String() string {
 func (*SSHConfig) ProtoMessage() {}
 
 func (x *SSHConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[33]
+	mi := &file_management_proto_msgTypes[34]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3091,7 +3146,7 @@ func (x *SSHConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SSHConfig.ProtoReflect.Descriptor instead.
 func (*SSHConfig) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{33}
+	return file_management_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *SSHConfig) GetSshEnabled() bool {
@@ -3125,7 +3180,7 @@ type DeviceAuthorizationFlowRequest struct {
 func (x *DeviceAuthorizationFlowRequest) Reset() {
 	*x = DeviceAuthorizationFlowRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_management_proto_msgTypes[34]
+		mi := &file_management_proto_msgTypes[35]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3138,7 +3193,7 @@ func (x *DeviceAuthorizationFlowRequest) String() string {
 func (*DeviceAuthorizationFlowRequest) ProtoMessage() {}
 
 func (x *DeviceAuthorizationFlowRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[34]
+	mi := &file_management_proto_msgTypes[35]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3151,7 +3206,7 @@ func (x *DeviceAuthorizationFlowRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeviceAuthorizationFlowRequest.ProtoReflect.Descriptor instead.
 func (*DeviceAuthorizationFlowRequest) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{34}
+	return file_management_proto_rawDescGZIP(), []int{35}
 }
 
 // DeviceAuthorizationFlow represents Device Authorization Flow information
@@ -3170,7 +3225,7 @@ type DeviceAuthorizationFlow struct {
 func (x *DeviceAuthorizationFlow) Reset() {
 	*x = DeviceAuthorizationFlow{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_management_proto_msgTypes[35]
+		mi := &file_management_proto_msgTypes[36]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3183,7 +3238,7 @@ func (x *DeviceAuthorizationFlow) String() string {
 func (*DeviceAuthorizationFlow) ProtoMessage() {}
 
 func (x *DeviceAuthorizationFlow) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[35]
+	mi := &file_management_proto_msgTypes[36]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3196,7 +3251,7 @@ func (x *DeviceAuthorizationFlow) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeviceAuthorizationFlow.ProtoReflect.Descriptor instead.
 func (*DeviceAuthorizationFlow) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{35}
+	return file_management_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *DeviceAuthorizationFlow) GetProvider() DeviceAuthorizationFlowProvider {
@@ -3223,7 +3278,7 @@ type PKCEAuthorizationFlowRequest struct {
 func (x *PKCEAuthorizationFlowRequest) Reset() {
 	*x = PKCEAuthorizationFlowRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_management_proto_msgTypes[36]
+		mi := &file_management_proto_msgTypes[37]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3236,7 +3291,7 @@ func (x *PKCEAuthorizationFlowRequest) String() string {
 func (*PKCEAuthorizationFlowRequest) ProtoMessage() {}
 
 func (x *PKCEAuthorizationFlowRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[36]
+	mi := &file_management_proto_msgTypes[37]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3249,7 +3304,7 @@ func (x *PKCEAuthorizationFlowRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PKCEAuthorizationFlowRequest.ProtoReflect.Descriptor instead.
 func (*PKCEAuthorizationFlowRequest) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{36}
+	return file_management_proto_rawDescGZIP(), []int{37}
 }
 
 // PKCEAuthorizationFlow represents Authorization Code Flow information
@@ -3266,7 +3321,7 @@ type PKCEAuthorizationFlow struct {
 func (x *PKCEAuthorizationFlow) Reset() {
 	*x = PKCEAuthorizationFlow{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_management_proto_msgTypes[37]
+		mi := &file_management_proto_msgTypes[38]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3279,7 +3334,7 @@ func (x *PKCEAuthorizationFlow) String() string {
 func (*PKCEAuthorizationFlow) ProtoMessage() {}
 
 func (x *PKCEAuthorizationFlow) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[37]
+	mi := &file_management_proto_msgTypes[38]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3292,7 +3347,7 @@ func (x *PKCEAuthorizationFlow) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PKCEAuthorizationFlow.ProtoReflect.Descriptor instead.
 func (*PKCEAuthorizationFlow) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{37}
+	return file_management_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *PKCEAuthorizationFlow) GetProviderConfig() *ProviderConfig {
@@ -3340,7 +3395,7 @@ type ProviderConfig struct {
 func (x *ProviderConfig) Reset() {
 	*x = ProviderConfig{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_management_proto_msgTypes[38]
+		mi := &file_management_proto_msgTypes[39]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3353,7 +3408,7 @@ func (x *ProviderConfig) String() string {
 func (*ProviderConfig) ProtoMessage() {}
 
 func (x *ProviderConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[38]
+	mi := &file_management_proto_msgTypes[39]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3366,7 +3421,7 @@ func (x *ProviderConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProviderConfig.ProtoReflect.Descriptor instead.
 func (*ProviderConfig) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{38}
+	return file_management_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *ProviderConfig) GetClientID() string {
@@ -3475,7 +3530,7 @@ type Route struct {
 func (x *Route) Reset() {
 	*x = Route{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_management_proto_msgTypes[39]
+		mi := &file_management_proto_msgTypes[40]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3488,7 +3543,7 @@ func (x *Route) String() string {
 func (*Route) ProtoMessage() {}
 
 func (x *Route) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[39]
+	mi := &file_management_proto_msgTypes[40]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3501,7 +3556,7 @@ func (x *Route) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Route.ProtoReflect.Descriptor instead.
 func (*Route) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{39}
+	return file_management_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *Route) GetID() string {
@@ -3590,7 +3645,7 @@ type DNSConfig struct {
 func (x *DNSConfig) Reset() {
 	*x = DNSConfig{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_management_proto_msgTypes[40]
+		mi := &file_management_proto_msgTypes[41]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3603,7 +3658,7 @@ func (x *DNSConfig) String() string {
 func (*DNSConfig) ProtoMessage() {}
 
 func (x *DNSConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[40]
+	mi := &file_management_proto_msgTypes[41]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3616,7 +3671,7 @@ func (x *DNSConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DNSConfig.ProtoReflect.Descriptor instead.
 func (*DNSConfig) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{40}
+	return file_management_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *DNSConfig) GetServiceEnable() bool {
@@ -3665,7 +3720,7 @@ type CustomZone struct {
 func (x *CustomZone) Reset() {
 	*x = CustomZone{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_management_proto_msgTypes[41]
+		mi := &file_management_proto_msgTypes[42]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3678,7 +3733,7 @@ func (x *CustomZone) String() string {
 func (*CustomZone) ProtoMessage() {}
 
 func (x *CustomZone) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[41]
+	mi := &file_management_proto_msgTypes[42]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3691,7 +3746,7 @@ func (x *CustomZone) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CustomZone.ProtoReflect.Descriptor instead.
 func (*CustomZone) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{41}
+	return file_management_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *CustomZone) GetDomain() string {
@@ -3738,7 +3793,7 @@ type SimpleRecord struct {
 func (x *SimpleRecord) Reset() {
 	*x = SimpleRecord{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_management_proto_msgTypes[42]
+		mi := &file_management_proto_msgTypes[43]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3751,7 +3806,7 @@ func (x *SimpleRecord) String() string {
 func (*SimpleRecord) ProtoMessage() {}
 
 func (x *SimpleRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[42]
+	mi := &file_management_proto_msgTypes[43]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3764,7 +3819,7 @@ func (x *SimpleRecord) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SimpleRecord.ProtoReflect.Descriptor instead.
 func (*SimpleRecord) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{42}
+	return file_management_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *SimpleRecord) GetName() string {
@@ -3817,7 +3872,7 @@ type NameServerGroup struct {
 func (x *NameServerGroup) Reset() {
 	*x = NameServerGroup{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_management_proto_msgTypes[43]
+		mi := &file_management_proto_msgTypes[44]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3830,7 +3885,7 @@ func (x *NameServerGroup) String() string {
 func (*NameServerGroup) ProtoMessage() {}
 
 func (x *NameServerGroup) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[43]
+	mi := &file_management_proto_msgTypes[44]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3843,7 +3898,7 @@ func (x *NameServerGroup) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NameServerGroup.ProtoReflect.Descriptor instead.
 func (*NameServerGroup) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{43}
+	return file_management_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *NameServerGroup) GetNameServers() []*NameServer {
@@ -3888,7 +3943,7 @@ type NameServer struct {
 func (x *NameServer) Reset() {
 	*x = NameServer{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_management_proto_msgTypes[44]
+		mi := &file_management_proto_msgTypes[45]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3901,7 +3956,7 @@ func (x *NameServer) String() string {
 func (*NameServer) ProtoMessage() {}
 
 func (x *NameServer) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[44]
+	mi := &file_management_proto_msgTypes[45]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3914,7 +3969,7 @@ func (x *NameServer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NameServer.ProtoReflect.Descriptor instead.
 func (*NameServer) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{44}
+	return file_management_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *NameServer) GetIP() string {
@@ -3965,7 +4020,7 @@ type FirewallRule struct {
 func (x *FirewallRule) Reset() {
 	*x = FirewallRule{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_management_proto_msgTypes[45]
+		mi := &file_management_proto_msgTypes[46]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3978,7 +4033,7 @@ func (x *FirewallRule) String() string {
 func (*FirewallRule) ProtoMessage() {}
 
 func (x *FirewallRule) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[45]
+	mi := &file_management_proto_msgTypes[46]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3991,7 +4046,7 @@ func (x *FirewallRule) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FirewallRule.ProtoReflect.Descriptor instead.
 func (*FirewallRule) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{45}
+	return file_management_proto_rawDescGZIP(), []int{46}
 }
 
 // Deprecated: Do not use.
@@ -4070,7 +4125,7 @@ type NetworkAddress struct {
 func (x *NetworkAddress) Reset() {
 	*x = NetworkAddress{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_management_proto_msgTypes[46]
+		mi := &file_management_proto_msgTypes[47]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -4083,7 +4138,7 @@ func (x *NetworkAddress) String() string {
 func (*NetworkAddress) ProtoMessage() {}
 
 func (x *NetworkAddress) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[46]
+	mi := &file_management_proto_msgTypes[47]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4096,7 +4151,7 @@ func (x *NetworkAddress) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NetworkAddress.ProtoReflect.Descriptor instead.
 func (*NetworkAddress) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{46}
+	return file_management_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *NetworkAddress) GetNetIP() string {
@@ -4124,7 +4179,7 @@ type Checks struct {
 func (x *Checks) Reset() {
 	*x = Checks{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_management_proto_msgTypes[47]
+		mi := &file_management_proto_msgTypes[48]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -4137,7 +4192,7 @@ func (x *Checks) String() string {
 func (*Checks) ProtoMessage() {}
 
 func (x *Checks) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[47]
+	mi := &file_management_proto_msgTypes[48]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4150,7 +4205,7 @@ func (x *Checks) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Checks.ProtoReflect.Descriptor instead.
 func (*Checks) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{47}
+	return file_management_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *Checks) GetFiles() []string {
@@ -4175,7 +4230,7 @@ type PortInfo struct {
 func (x *PortInfo) Reset() {
 	*x = PortInfo{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_management_proto_msgTypes[48]
+		mi := &file_management_proto_msgTypes[49]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -4188,7 +4243,7 @@ func (x *PortInfo) String() string {
 func (*PortInfo) ProtoMessage() {}
 
 func (x *PortInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[48]
+	mi := &file_management_proto_msgTypes[49]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4201,7 +4256,7 @@ func (x *PortInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PortInfo.ProtoReflect.Descriptor instead.
 func (*PortInfo) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{48}
+	return file_management_proto_rawDescGZIP(), []int{49}
 }
 
 func (m *PortInfo) GetPortSelection() isPortInfo_PortSelection {
@@ -4272,7 +4327,7 @@ type RouteFirewallRule struct {
 func (x *RouteFirewallRule) Reset() {
 	*x = RouteFirewallRule{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_management_proto_msgTypes[49]
+		mi := &file_management_proto_msgTypes[50]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -4285,7 +4340,7 @@ func (x *RouteFirewallRule) String() string {
 func (*RouteFirewallRule) ProtoMessage() {}
 
 func (x *RouteFirewallRule) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[49]
+	mi := &file_management_proto_msgTypes[50]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4298,7 +4353,7 @@ func (x *RouteFirewallRule) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RouteFirewallRule.ProtoReflect.Descriptor instead.
 func (*RouteFirewallRule) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{49}
+	return file_management_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *RouteFirewallRule) GetSourceRanges() []string {
@@ -4389,7 +4444,7 @@ type ForwardingRule struct {
 func (x *ForwardingRule) Reset() {
 	*x = ForwardingRule{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_management_proto_msgTypes[50]
+		mi := &file_management_proto_msgTypes[51]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -4402,7 +4457,7 @@ func (x *ForwardingRule) String() string {
 func (*ForwardingRule) ProtoMessage() {}
 
 func (x *ForwardingRule) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[50]
+	mi := &file_management_proto_msgTypes[51]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4415,7 +4470,7 @@ func (x *ForwardingRule) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ForwardingRule.ProtoReflect.Descriptor instead.
 func (*ForwardingRule) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{50}
+	return file_management_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *ForwardingRule) GetProtocol() RuleProtocol {
@@ -4464,7 +4519,7 @@ type ExposeServiceRequest struct {
 func (x *ExposeServiceRequest) Reset() {
 	*x = ExposeServiceRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_management_proto_msgTypes[51]
+		mi := &file_management_proto_msgTypes[52]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -4477,7 +4532,7 @@ func (x *ExposeServiceRequest) String() string {
 func (*ExposeServiceRequest) ProtoMessage() {}
 
 func (x *ExposeServiceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[51]
+	mi := &file_management_proto_msgTypes[52]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4490,7 +4545,7 @@ func (x *ExposeServiceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExposeServiceRequest.ProtoReflect.Descriptor instead.
 func (*ExposeServiceRequest) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{51}
+	return file_management_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *ExposeServiceRequest) GetPort() uint32 {
@@ -4563,7 +4618,7 @@ type ExposeServiceResponse struct {
 func (x *ExposeServiceResponse) Reset() {
 	*x = ExposeServiceResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_management_proto_msgTypes[52]
+		mi := &file_management_proto_msgTypes[53]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -4576,7 +4631,7 @@ func (x *ExposeServiceResponse) String() string {
 func (*ExposeServiceResponse) ProtoMessage() {}
 
 func (x *ExposeServiceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[52]
+	mi := &file_management_proto_msgTypes[53]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4589,7 +4644,7 @@ func (x *ExposeServiceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExposeServiceResponse.ProtoReflect.Descriptor instead.
 func (*ExposeServiceResponse) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{52}
+	return file_management_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *ExposeServiceResponse) GetServiceName() string {
@@ -4631,7 +4686,7 @@ type RenewExposeRequest struct {
 func (x *RenewExposeRequest) Reset() {
 	*x = RenewExposeRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_management_proto_msgTypes[53]
+		mi := &file_management_proto_msgTypes[54]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -4644,7 +4699,7 @@ func (x *RenewExposeRequest) String() string {
 func (*RenewExposeRequest) ProtoMessage() {}
 
 func (x *RenewExposeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[53]
+	mi := &file_management_proto_msgTypes[54]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4657,7 +4712,7 @@ func (x *RenewExposeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RenewExposeRequest.ProtoReflect.Descriptor instead.
 func (*RenewExposeRequest) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{53}
+	return file_management_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *RenewExposeRequest) GetDomain() string {
@@ -4676,7 +4731,7 @@ type RenewExposeResponse struct {
 func (x *RenewExposeResponse) Reset() {
 	*x = RenewExposeResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_management_proto_msgTypes[54]
+		mi := &file_management_proto_msgTypes[55]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -4689,7 +4744,7 @@ func (x *RenewExposeResponse) String() string {
 func (*RenewExposeResponse) ProtoMessage() {}
 
 func (x *RenewExposeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[54]
+	mi := &file_management_proto_msgTypes[55]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4702,7 +4757,7 @@ func (x *RenewExposeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RenewExposeResponse.ProtoReflect.Descriptor instead.
 func (*RenewExposeResponse) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{54}
+	return file_management_proto_rawDescGZIP(), []int{55}
 }
 
 type StopExposeRequest struct {
@@ -4716,7 +4771,7 @@ type StopExposeRequest struct {
 func (x *StopExposeRequest) Reset() {
 	*x = StopExposeRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_management_proto_msgTypes[55]
+		mi := &file_management_proto_msgTypes[56]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -4729,7 +4784,7 @@ func (x *StopExposeRequest) String() string {
 func (*StopExposeRequest) ProtoMessage() {}
 
 func (x *StopExposeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[55]
+	mi := &file_management_proto_msgTypes[56]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4742,7 +4797,7 @@ func (x *StopExposeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopExposeRequest.ProtoReflect.Descriptor instead.
 func (*StopExposeRequest) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{55}
+	return file_management_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *StopExposeRequest) GetDomain() string {
@@ -4761,7 +4816,7 @@ type StopExposeResponse struct {
 func (x *StopExposeResponse) Reset() {
 	*x = StopExposeResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_management_proto_msgTypes[56]
+		mi := &file_management_proto_msgTypes[57]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -4774,7 +4829,7 @@ func (x *StopExposeResponse) String() string {
 func (*StopExposeResponse) ProtoMessage() {}
 
 func (x *StopExposeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[56]
+	mi := &file_management_proto_msgTypes[57]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4787,7 +4842,7 @@ func (x *StopExposeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopExposeResponse.ProtoReflect.Descriptor instead.
 func (*StopExposeResponse) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{56}
+	return file_management_proto_rawDescGZIP(), []int{57}
 }
 
 type PortInfo_Range struct {
@@ -4802,7 +4857,7 @@ type PortInfo_Range struct {
 func (x *PortInfo_Range) Reset() {
 	*x = PortInfo_Range{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_management_proto_msgTypes[59]
+		mi := &file_management_proto_msgTypes[60]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -4815,7 +4870,7 @@ func (x *PortInfo_Range) String() string {
 func (*PortInfo_Range) ProtoMessage() {}
 
 func (x *PortInfo_Range) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[59]
+	mi := &file_management_proto_msgTypes[60]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4828,7 +4883,7 @@ func (x *PortInfo_Range) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PortInfo_Range.ProtoReflect.Descriptor instead.
 func (*PortInfo_Range) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{48, 0}
+	return file_management_proto_rawDescGZIP(), []int{49, 0}
 }
 
 func (x *PortInfo_Range) GetStart() uint32 {
@@ -5081,7 +5136,7 @@ var file_management_proto_rawDesc = []byte{
 	0x73, 0x74, 0x61, 0x6d, 0x70, 0x52, 0x09, 0x65, 0x78, 0x70, 0x69, 0x72, 0x65, 0x73, 0x41, 0x74,
 	0x12, 0x18, 0x0a, 0x07, 0x76, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e, 0x18, 0x03, 0x20, 0x01, 0x28,
 	0x05, 0x52, 0x07, 0x76, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e, 0x22, 0x07, 0x0a, 0x05, 0x45, 0x6d,
-	0x70, 0x74, 0x79, 0x22, 0xff, 0x01, 0x0a, 0x0d, 0x4e, 0x65, 0x74, 0x62, 0x69, 0x72, 0x64, 0x43,
+	0x70, 0x74, 0x79, 0x22, 0xb4, 0x02, 0x0a, 0x0d, 0x4e, 0x65, 0x74, 0x62, 0x69, 0x72, 0x64, 0x43,
 	0x6f, 0x6e, 0x66, 0x69, 0x67, 0x12, 0x2c, 0x0a, 0x05, 0x73, 0x74, 0x75, 0x6e, 0x73, 0x18, 0x01,
 	0x20, 0x03, 0x28, 0x0b, 0x32, 0x16, 0x2e, 0x6d, 0x61, 0x6e, 0x61, 0x67, 0x65, 0x6d, 0x65, 0x6e,
 	0x74, 0x2e, 0x48, 0x6f, 0x73, 0x74, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x52, 0x05, 0x73, 0x74,
@@ -5097,42 +5152,48 @@ var file_management_proto_rawDesc = []byte{
 	0x69, 0x67, 0x52, 0x05, 0x72, 0x65, 0x6c, 0x61, 0x79, 0x12, 0x2a, 0x0a, 0x04, 0x66, 0x6c, 0x6f,
 	0x77, 0x18, 0x05, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x16, 0x2e, 0x6d, 0x61, 0x6e, 0x61, 0x67, 0x65,
 	0x6d, 0x65, 0x6e, 0x74, 0x2e, 0x46, 0x6c, 0x6f, 0x77, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x52,
-	0x04, 0x66, 0x6c, 0x6f, 0x77, 0x22, 0x98, 0x01, 0x0a, 0x0a, 0x48, 0x6f, 0x73, 0x74, 0x43, 0x6f,
-	0x6e, 0x66, 0x69, 0x67, 0x12, 0x10, 0x0a, 0x03, 0x75, 0x72, 0x69, 0x18, 0x01, 0x20, 0x01, 0x28,
-	0x09, 0x52, 0x03, 0x75, 0x72, 0x69, 0x12, 0x3b, 0x0a, 0x08, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x63,
-	0x6f, 0x6c, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0e, 0x32, 0x1f, 0x2e, 0x6d, 0x61, 0x6e, 0x61, 0x67,
-	0x65, 0x6d, 0x65, 0x6e, 0x74, 0x2e, 0x48, 0x6f, 0x73, 0x74, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67,
-	0x2e, 0x50, 0x72, 0x6f, 0x74, 0x6f, 0x63, 0x6f, 0x6c, 0x52, 0x08, 0x70, 0x72, 0x6f, 0x74, 0x6f,
-	0x63, 0x6f, 0x6c, 0x22, 0x3b, 0x0a, 0x08, 0x50, 0x72, 0x6f, 0x74, 0x6f, 0x63, 0x6f, 0x6c, 0x12,
-	0x07, 0x0a, 0x03, 0x55, 0x44, 0x50, 0x10, 0x00, 0x12, 0x07, 0x0a, 0x03, 0x54, 0x43, 0x50, 0x10,
-	0x01, 0x12, 0x08, 0x0a, 0x04, 0x48, 0x54, 0x54, 0x50, 0x10, 0x02, 0x12, 0x09, 0x0a, 0x05, 0x48,
-	0x54, 0x54, 0x50, 0x53, 0x10, 0x03, 0x12, 0x08, 0x0a, 0x04, 0x44, 0x54, 0x4c, 0x53, 0x10, 0x04,
-	0x22, 0x6d, 0x0a, 0x0b, 0x52, 0x65, 0x6c, 0x61, 0x79, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x12,
-	0x12, 0x0a, 0x04, 0x75, 0x72, 0x6c, 0x73, 0x18, 0x01, 0x20, 0x03, 0x28, 0x09, 0x52, 0x04, 0x75,
-	0x72, 0x6c, 0x73, 0x12, 0x22, 0x0a, 0x0c, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x50, 0x61, 0x79, 0x6c,
-	0x6f, 0x61, 0x64, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0c, 0x74, 0x6f, 0x6b, 0x65, 0x6e,
-	0x50, 0x61, 0x79, 0x6c, 0x6f, 0x61, 0x64, 0x12, 0x26, 0x0a, 0x0e, 0x74, 0x6f, 0x6b, 0x65, 0x6e,
-	0x53, 0x69, 0x67, 0x6e, 0x61, 0x74, 0x75, 0x72, 0x65, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x52,
-	0x0e, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x53, 0x69, 0x67, 0x6e, 0x61, 0x74, 0x75, 0x72, 0x65, 0x22,
-	0xad, 0x02, 0x0a, 0x0a, 0x46, 0x6c, 0x6f, 0x77, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x12, 0x10,
-	0x0a, 0x03, 0x75, 0x72, 0x6c, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x03, 0x75, 0x72, 0x6c,
-	0x12, 0x22, 0x0a, 0x0c, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x50, 0x61, 0x79, 0x6c, 0x6f, 0x61, 0x64,
-	0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0c, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x50, 0x61, 0x79,
-	0x6c, 0x6f, 0x61, 0x64, 0x12, 0x26, 0x0a, 0x0e, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x53, 0x69, 0x67,
-	0x6e, 0x61, 0x74, 0x75, 0x72, 0x65, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0e, 0x74, 0x6f,
-	0x6b, 0x65, 0x6e, 0x53, 0x69, 0x67, 0x6e, 0x61, 0x74, 0x75, 0x72, 0x65, 0x12, 0x35, 0x0a, 0x08,
-	0x69, 0x6e, 0x74, 0x65, 0x72, 0x76, 0x61, 0x6c, 0x18, 0x04, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x19,
-	0x2e, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x75, 0x66,
-	0x2e, 0x44, 0x75, 0x72, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x52, 0x08, 0x69, 0x6e, 0x74, 0x65, 0x72,
-	0x76, 0x61, 0x6c, 0x12, 0x18, 0x0a, 0x07, 0x65, 0x6e, 0x61, 0x62, 0x6c, 0x65, 0x64, 0x18, 0x05,
-	0x20, 0x01, 0x28, 0x08, 0x52, 0x07, 0x65, 0x6e, 0x61, 0x62, 0x6c, 0x65, 0x64, 0x12, 0x1a, 0x0a,
-	0x08, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x65, 0x72, 0x73, 0x18, 0x06, 0x20, 0x01, 0x28, 0x08, 0x52,
-	0x08, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x65, 0x72, 0x73, 0x12, 0x2e, 0x0a, 0x12, 0x65, 0x78, 0x69,
-	0x74, 0x4e, 0x6f, 0x64, 0x65, 0x43, 0x6f, 0x6c, 0x6c, 0x65, 0x63, 0x74, 0x69, 0x6f, 0x6e, 0x18,
-	0x07, 0x20, 0x01, 0x28, 0x08, 0x52, 0x12, 0x65, 0x78, 0x69, 0x74, 0x4e, 0x6f, 0x64, 0x65, 0x43,
-	0x6f, 0x6c, 0x6c, 0x65, 0x63, 0x74, 0x69, 0x6f, 0x6e, 0x12, 0x24, 0x0a, 0x0d, 0x64, 0x6e, 0x73,
-	0x43, 0x6f, 0x6c, 0x6c, 0x65, 0x63, 0x74, 0x69, 0x6f, 0x6e, 0x18, 0x08, 0x20, 0x01, 0x28, 0x08,
-	0x52, 0x0d, 0x64, 0x6e, 0x73, 0x43, 0x6f, 0x6c, 0x6c, 0x65, 0x63, 0x74, 0x69, 0x6f, 0x6e, 0x22,
+	0x04, 0x66, 0x6c, 0x6f, 0x77, 0x12, 0x33, 0x0a, 0x07, 0x6d, 0x65, 0x74, 0x72, 0x69, 0x63, 0x73,
+	0x18, 0x06, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x19, 0x2e, 0x6d, 0x61, 0x6e, 0x61, 0x67, 0x65, 0x6d,
+	0x65, 0x6e, 0x74, 0x2e, 0x4d, 0x65, 0x74, 0x72, 0x69, 0x63, 0x73, 0x43, 0x6f, 0x6e, 0x66, 0x69,
+	0x67, 0x52, 0x07, 0x6d, 0x65, 0x74, 0x72, 0x69, 0x63, 0x73, 0x22, 0x98, 0x01, 0x0a, 0x0a, 0x48,
+	0x6f, 0x73, 0x74, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x12, 0x10, 0x0a, 0x03, 0x75, 0x72, 0x69,
+	0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x03, 0x75, 0x72, 0x69, 0x12, 0x3b, 0x0a, 0x08, 0x70,
+	0x72, 0x6f, 0x74, 0x6f, 0x63, 0x6f, 0x6c, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0e, 0x32, 0x1f, 0x2e,
+	0x6d, 0x61, 0x6e, 0x61, 0x67, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x2e, 0x48, 0x6f, 0x73, 0x74, 0x43,
+	0x6f, 0x6e, 0x66, 0x69, 0x67, 0x2e, 0x50, 0x72, 0x6f, 0x74, 0x6f, 0x63, 0x6f, 0x6c, 0x52, 0x08,
+	0x70, 0x72, 0x6f, 0x74, 0x6f, 0x63, 0x6f, 0x6c, 0x22, 0x3b, 0x0a, 0x08, 0x50, 0x72, 0x6f, 0x74,
+	0x6f, 0x63, 0x6f, 0x6c, 0x12, 0x07, 0x0a, 0x03, 0x55, 0x44, 0x50, 0x10, 0x00, 0x12, 0x07, 0x0a,
+	0x03, 0x54, 0x43, 0x50, 0x10, 0x01, 0x12, 0x08, 0x0a, 0x04, 0x48, 0x54, 0x54, 0x50, 0x10, 0x02,
+	0x12, 0x09, 0x0a, 0x05, 0x48, 0x54, 0x54, 0x50, 0x53, 0x10, 0x03, 0x12, 0x08, 0x0a, 0x04, 0x44,
+	0x54, 0x4c, 0x53, 0x10, 0x04, 0x22, 0x6d, 0x0a, 0x0b, 0x52, 0x65, 0x6c, 0x61, 0x79, 0x43, 0x6f,
+	0x6e, 0x66, 0x69, 0x67, 0x12, 0x12, 0x0a, 0x04, 0x75, 0x72, 0x6c, 0x73, 0x18, 0x01, 0x20, 0x03,
+	0x28, 0x09, 0x52, 0x04, 0x75, 0x72, 0x6c, 0x73, 0x12, 0x22, 0x0a, 0x0c, 0x74, 0x6f, 0x6b, 0x65,
+	0x6e, 0x50, 0x61, 0x79, 0x6c, 0x6f, 0x61, 0x64, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0c,
+	0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x50, 0x61, 0x79, 0x6c, 0x6f, 0x61, 0x64, 0x12, 0x26, 0x0a, 0x0e,
+	0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x53, 0x69, 0x67, 0x6e, 0x61, 0x74, 0x75, 0x72, 0x65, 0x18, 0x03,
+	0x20, 0x01, 0x28, 0x09, 0x52, 0x0e, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x53, 0x69, 0x67, 0x6e, 0x61,
+	0x74, 0x75, 0x72, 0x65, 0x22, 0xad, 0x02, 0x0a, 0x0a, 0x46, 0x6c, 0x6f, 0x77, 0x43, 0x6f, 0x6e,
+	0x66, 0x69, 0x67, 0x12, 0x10, 0x0a, 0x03, 0x75, 0x72, 0x6c, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09,
+	0x52, 0x03, 0x75, 0x72, 0x6c, 0x12, 0x22, 0x0a, 0x0c, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x50, 0x61,
+	0x79, 0x6c, 0x6f, 0x61, 0x64, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0c, 0x74, 0x6f, 0x6b,
+	0x65, 0x6e, 0x50, 0x61, 0x79, 0x6c, 0x6f, 0x61, 0x64, 0x12, 0x26, 0x0a, 0x0e, 0x74, 0x6f, 0x6b,
+	0x65, 0x6e, 0x53, 0x69, 0x67, 0x6e, 0x61, 0x74, 0x75, 0x72, 0x65, 0x18, 0x03, 0x20, 0x01, 0x28,
+	0x09, 0x52, 0x0e, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x53, 0x69, 0x67, 0x6e, 0x61, 0x74, 0x75, 0x72,
+	0x65, 0x12, 0x35, 0x0a, 0x08, 0x69, 0x6e, 0x74, 0x65, 0x72, 0x76, 0x61, 0x6c, 0x18, 0x04, 0x20,
+	0x01, 0x28, 0x0b, 0x32, 0x19, 0x2e, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f,
+	0x74, 0x6f, 0x62, 0x75, 0x66, 0x2e, 0x44, 0x75, 0x72, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x52, 0x08,
+	0x69, 0x6e, 0x74, 0x65, 0x72, 0x76, 0x61, 0x6c, 0x12, 0x18, 0x0a, 0x07, 0x65, 0x6e, 0x61, 0x62,
+	0x6c, 0x65, 0x64, 0x18, 0x05, 0x20, 0x01, 0x28, 0x08, 0x52, 0x07, 0x65, 0x6e, 0x61, 0x62, 0x6c,
+	0x65, 0x64, 0x12, 0x1a, 0x0a, 0x08, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x65, 0x72, 0x73, 0x18, 0x06,
+	0x20, 0x01, 0x28, 0x08, 0x52, 0x08, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x65, 0x72, 0x73, 0x12, 0x2e,
+	0x0a, 0x12, 0x65, 0x78, 0x69, 0x74, 0x4e, 0x6f, 0x64, 0x65, 0x43, 0x6f, 0x6c, 0x6c, 0x65, 0x63,
+	0x74, 0x69, 0x6f, 0x6e, 0x18, 0x07, 0x20, 0x01, 0x28, 0x08, 0x52, 0x12, 0x65, 0x78, 0x69, 0x74,
+	0x4e, 0x6f, 0x64, 0x65, 0x43, 0x6f, 0x6c, 0x6c, 0x65, 0x63, 0x74, 0x69, 0x6f, 0x6e, 0x12, 0x24,
+	0x0a, 0x0d, 0x64, 0x6e, 0x73, 0x43, 0x6f, 0x6c, 0x6c, 0x65, 0x63, 0x74, 0x69, 0x6f, 0x6e, 0x18,
+	0x08, 0x20, 0x01, 0x28, 0x08, 0x52, 0x0d, 0x64, 0x6e, 0x73, 0x43, 0x6f, 0x6c, 0x6c, 0x65, 0x63,
+	0x74, 0x69, 0x6f, 0x6e, 0x22, 0x29, 0x0a, 0x0d, 0x4d, 0x65, 0x74, 0x72, 0x69, 0x63, 0x73, 0x43,
+	0x6f, 0x6e, 0x66, 0x69, 0x67, 0x12, 0x18, 0x0a, 0x07, 0x65, 0x6e, 0x61, 0x62, 0x6c, 0x65, 0x64,
+	0x18, 0x01, 0x20, 0x01, 0x28, 0x08, 0x52, 0x07, 0x65, 0x6e, 0x61, 0x62, 0x6c, 0x65, 0x64, 0x22,
 	0xa3, 0x01, 0x0a, 0x09, 0x4a, 0x57, 0x54, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x12, 0x16, 0x0a,
 	0x06, 0x69, 0x73, 0x73, 0x75, 0x65, 0x72, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x06, 0x69,
 	0x73, 0x73, 0x75, 0x65, 0x72, 0x12, 0x1a, 0x0a, 0x08, 0x61, 0x75, 0x64, 0x69, 0x65, 0x6e, 0x63,
@@ -5629,7 +5690,7 @@ func file_management_proto_rawDescGZIP() []byte {
 }
 
 var file_management_proto_enumTypes = make([]protoimpl.EnumInfo, 8)
-var file_management_proto_msgTypes = make([]protoimpl.MessageInfo, 60)
+var file_management_proto_msgTypes = make([]protoimpl.MessageInfo, 61)
 var file_management_proto_goTypes = []interface{}{
 	(JobStatus)(0),                         // 0: management.JobStatus
 	(PeerCapability)(0),                    // 1: management.PeerCapability
@@ -5662,45 +5723,46 @@ var file_management_proto_goTypes = []interface{}{
 	(*HostConfig)(nil),                     // 28: management.HostConfig
 	(*RelayConfig)(nil),                    // 29: management.RelayConfig
 	(*FlowConfig)(nil),                     // 30: management.FlowConfig
-	(*JWTConfig)(nil),                      // 31: management.JWTConfig
-	(*ProtectedHostConfig)(nil),            // 32: management.ProtectedHostConfig
-	(*PeerConfig)(nil),                     // 33: management.PeerConfig
-	(*AutoUpdateSettings)(nil),             // 34: management.AutoUpdateSettings
-	(*NetworkMap)(nil),                     // 35: management.NetworkMap
-	(*SSHAuth)(nil),                        // 36: management.SSHAuth
-	(*MachineUserIndexes)(nil),             // 37: management.MachineUserIndexes
-	(*VNCAuth)(nil),                        // 38: management.VNCAuth
-	(*SessionPubKey)(nil),                  // 39: management.SessionPubKey
-	(*RemotePeerConfig)(nil),               // 40: management.RemotePeerConfig
-	(*SSHConfig)(nil),                      // 41: management.SSHConfig
-	(*DeviceAuthorizationFlowRequest)(nil), // 42: management.DeviceAuthorizationFlowRequest
-	(*DeviceAuthorizationFlow)(nil),        // 43: management.DeviceAuthorizationFlow
-	(*PKCEAuthorizationFlowRequest)(nil),   // 44: management.PKCEAuthorizationFlowRequest
-	(*PKCEAuthorizationFlow)(nil),          // 45: management.PKCEAuthorizationFlow
-	(*ProviderConfig)(nil),                 // 46: management.ProviderConfig
-	(*Route)(nil),                          // 47: management.Route
-	(*DNSConfig)(nil),                      // 48: management.DNSConfig
-	(*CustomZone)(nil),                     // 49: management.CustomZone
-	(*SimpleRecord)(nil),                   // 50: management.SimpleRecord
-	(*NameServerGroup)(nil),                // 51: management.NameServerGroup
-	(*NameServer)(nil),                     // 52: management.NameServer
-	(*FirewallRule)(nil),                   // 53: management.FirewallRule
-	(*NetworkAddress)(nil),                 // 54: management.NetworkAddress
-	(*Checks)(nil),                         // 55: management.Checks
-	(*PortInfo)(nil),                       // 56: management.PortInfo
-	(*RouteFirewallRule)(nil),              // 57: management.RouteFirewallRule
-	(*ForwardingRule)(nil),                 // 58: management.ForwardingRule
-	(*ExposeServiceRequest)(nil),           // 59: management.ExposeServiceRequest
-	(*ExposeServiceResponse)(nil),          // 60: management.ExposeServiceResponse
-	(*RenewExposeRequest)(nil),             // 61: management.RenewExposeRequest
-	(*RenewExposeResponse)(nil),            // 62: management.RenewExposeResponse
-	(*StopExposeRequest)(nil),              // 63: management.StopExposeRequest
-	(*StopExposeResponse)(nil),             // 64: management.StopExposeResponse
-	nil,                                    // 65: management.SSHAuth.MachineUsersEntry
-	nil,                                    // 66: management.VNCAuth.MachineUsersEntry
-	(*PortInfo_Range)(nil),                 // 67: management.PortInfo.Range
-	(*timestamppb.Timestamp)(nil),          // 68: google.protobuf.Timestamp
-	(*durationpb.Duration)(nil),            // 69: google.protobuf.Duration
+	(*MetricsConfig)(nil),                  // 31: management.MetricsConfig
+	(*JWTConfig)(nil),                      // 32: management.JWTConfig
+	(*ProtectedHostConfig)(nil),            // 33: management.ProtectedHostConfig
+	(*PeerConfig)(nil),                     // 34: management.PeerConfig
+	(*AutoUpdateSettings)(nil),             // 35: management.AutoUpdateSettings
+	(*NetworkMap)(nil),                     // 36: management.NetworkMap
+	(*SSHAuth)(nil),                        // 37: management.SSHAuth
+	(*MachineUserIndexes)(nil),             // 38: management.MachineUserIndexes
+	(*VNCAuth)(nil),                        // 39: management.VNCAuth
+	(*SessionPubKey)(nil),                  // 40: management.SessionPubKey
+	(*RemotePeerConfig)(nil),               // 41: management.RemotePeerConfig
+	(*SSHConfig)(nil),                      // 42: management.SSHConfig
+	(*DeviceAuthorizationFlowRequest)(nil), // 43: management.DeviceAuthorizationFlowRequest
+	(*DeviceAuthorizationFlow)(nil),        // 44: management.DeviceAuthorizationFlow
+	(*PKCEAuthorizationFlowRequest)(nil),   // 45: management.PKCEAuthorizationFlowRequest
+	(*PKCEAuthorizationFlow)(nil),          // 46: management.PKCEAuthorizationFlow
+	(*ProviderConfig)(nil),                 // 47: management.ProviderConfig
+	(*Route)(nil),                          // 48: management.Route
+	(*DNSConfig)(nil),                      // 49: management.DNSConfig
+	(*CustomZone)(nil),                     // 50: management.CustomZone
+	(*SimpleRecord)(nil),                   // 51: management.SimpleRecord
+	(*NameServerGroup)(nil),                // 52: management.NameServerGroup
+	(*NameServer)(nil),                     // 53: management.NameServer
+	(*FirewallRule)(nil),                   // 54: management.FirewallRule
+	(*NetworkAddress)(nil),                 // 55: management.NetworkAddress
+	(*Checks)(nil),                         // 56: management.Checks
+	(*PortInfo)(nil),                       // 57: management.PortInfo
+	(*RouteFirewallRule)(nil),              // 58: management.RouteFirewallRule
+	(*ForwardingRule)(nil),                 // 59: management.ForwardingRule
+	(*ExposeServiceRequest)(nil),           // 60: management.ExposeServiceRequest
+	(*ExposeServiceResponse)(nil),          // 61: management.ExposeServiceResponse
+	(*RenewExposeRequest)(nil),             // 62: management.RenewExposeRequest
+	(*RenewExposeResponse)(nil),            // 63: management.RenewExposeResponse
+	(*StopExposeRequest)(nil),              // 64: management.StopExposeRequest
+	(*StopExposeResponse)(nil),             // 65: management.StopExposeResponse
+	nil,                                    // 66: management.SSHAuth.MachineUsersEntry
+	nil,                                    // 67: management.VNCAuth.MachineUsersEntry
+	(*PortInfo_Range)(nil),                 // 68: management.PortInfo.Range
+	(*timestamppb.Timestamp)(nil),          // 69: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),            // 70: google.protobuf.Duration
 }
 var file_management_proto_depIdxs = []int32{
 	11, // 0: management.JobRequest.bundle:type_name -> management.BundleParameters
@@ -5708,103 +5770,104 @@ var file_management_proto_depIdxs = []int32{
 	12, // 2: management.JobResponse.bundle:type_name -> management.BundleResult
 	21, // 3: management.SyncRequest.meta:type_name -> management.PeerSystemMeta
 	27, // 4: management.SyncResponse.netbirdConfig:type_name -> management.NetbirdConfig
-	33, // 5: management.SyncResponse.peerConfig:type_name -> management.PeerConfig
-	40, // 6: management.SyncResponse.remotePeers:type_name -> management.RemotePeerConfig
-	35, // 7: management.SyncResponse.NetworkMap:type_name -> management.NetworkMap
-	55, // 8: management.SyncResponse.Checks:type_name -> management.Checks
-	68, // 9: management.SyncResponse.sessionExpiresAt:type_name -> google.protobuf.Timestamp
+	34, // 5: management.SyncResponse.peerConfig:type_name -> management.PeerConfig
+	41, // 6: management.SyncResponse.remotePeers:type_name -> management.RemotePeerConfig
+	36, // 7: management.SyncResponse.NetworkMap:type_name -> management.NetworkMap
+	56, // 8: management.SyncResponse.Checks:type_name -> management.Checks
+	69, // 9: management.SyncResponse.sessionExpiresAt:type_name -> google.protobuf.Timestamp
 	21, // 10: management.SyncMetaRequest.meta:type_name -> management.PeerSystemMeta
 	21, // 11: management.LoginRequest.meta:type_name -> management.PeerSystemMeta
 	17, // 12: management.LoginRequest.peerKeys:type_name -> management.PeerKeys
-	54, // 13: management.PeerSystemMeta.networkAddresses:type_name -> management.NetworkAddress
+	55, // 13: management.PeerSystemMeta.networkAddresses:type_name -> management.NetworkAddress
 	18, // 14: management.PeerSystemMeta.environment:type_name -> management.Environment
 	19, // 15: management.PeerSystemMeta.files:type_name -> management.File
 	20, // 16: management.PeerSystemMeta.flags:type_name -> management.Flags
 	1,  // 17: management.PeerSystemMeta.capabilities:type_name -> management.PeerCapability
 	27, // 18: management.LoginResponse.netbirdConfig:type_name -> management.NetbirdConfig
-	33, // 19: management.LoginResponse.peerConfig:type_name -> management.PeerConfig
-	55, // 20: management.LoginResponse.Checks:type_name -> management.Checks
-	68, // 21: management.LoginResponse.sessionExpiresAt:type_name -> google.protobuf.Timestamp
+	34, // 19: management.LoginResponse.peerConfig:type_name -> management.PeerConfig
+	56, // 20: management.LoginResponse.Checks:type_name -> management.Checks
+	69, // 21: management.LoginResponse.sessionExpiresAt:type_name -> google.protobuf.Timestamp
 	21, // 22: management.ExtendAuthSessionRequest.meta:type_name -> management.PeerSystemMeta
-	68, // 23: management.ExtendAuthSessionResponse.sessionExpiresAt:type_name -> google.protobuf.Timestamp
-	68, // 24: management.ServerKeyResponse.expiresAt:type_name -> google.protobuf.Timestamp
+	69, // 23: management.ExtendAuthSessionResponse.sessionExpiresAt:type_name -> google.protobuf.Timestamp
+	69, // 24: management.ServerKeyResponse.expiresAt:type_name -> google.protobuf.Timestamp
 	28, // 25: management.NetbirdConfig.stuns:type_name -> management.HostConfig
-	32, // 26: management.NetbirdConfig.turns:type_name -> management.ProtectedHostConfig
+	33, // 26: management.NetbirdConfig.turns:type_name -> management.ProtectedHostConfig
 	28, // 27: management.NetbirdConfig.signal:type_name -> management.HostConfig
 	29, // 28: management.NetbirdConfig.relay:type_name -> management.RelayConfig
 	30, // 29: management.NetbirdConfig.flow:type_name -> management.FlowConfig
-	6,  // 30: management.HostConfig.protocol:type_name -> management.HostConfig.Protocol
-	69, // 31: management.FlowConfig.interval:type_name -> google.protobuf.Duration
-	28, // 32: management.ProtectedHostConfig.hostConfig:type_name -> management.HostConfig
-	41, // 33: management.PeerConfig.sshConfig:type_name -> management.SSHConfig
-	34, // 34: management.PeerConfig.autoUpdate:type_name -> management.AutoUpdateSettings
-	33, // 35: management.NetworkMap.peerConfig:type_name -> management.PeerConfig
-	40, // 36: management.NetworkMap.remotePeers:type_name -> management.RemotePeerConfig
-	47, // 37: management.NetworkMap.Routes:type_name -> management.Route
-	48, // 38: management.NetworkMap.DNSConfig:type_name -> management.DNSConfig
-	40, // 39: management.NetworkMap.offlinePeers:type_name -> management.RemotePeerConfig
-	53, // 40: management.NetworkMap.FirewallRules:type_name -> management.FirewallRule
-	57, // 41: management.NetworkMap.routesFirewallRules:type_name -> management.RouteFirewallRule
-	58, // 42: management.NetworkMap.forwardingRules:type_name -> management.ForwardingRule
-	36, // 43: management.NetworkMap.sshAuth:type_name -> management.SSHAuth
-	38, // 44: management.NetworkMap.vncAuth:type_name -> management.VNCAuth
-	65, // 45: management.SSHAuth.machine_users:type_name -> management.SSHAuth.MachineUsersEntry
-	66, // 46: management.VNCAuth.machine_users:type_name -> management.VNCAuth.MachineUsersEntry
-	39, // 47: management.VNCAuth.session_pub_keys:type_name -> management.SessionPubKey
-	41, // 48: management.RemotePeerConfig.sshConfig:type_name -> management.SSHConfig
-	31, // 49: management.SSHConfig.jwtConfig:type_name -> management.JWTConfig
-	7,  // 50: management.DeviceAuthorizationFlow.Provider:type_name -> management.DeviceAuthorizationFlow.provider
-	46, // 51: management.DeviceAuthorizationFlow.ProviderConfig:type_name -> management.ProviderConfig
-	46, // 52: management.PKCEAuthorizationFlow.ProviderConfig:type_name -> management.ProviderConfig
-	51, // 53: management.DNSConfig.NameServerGroups:type_name -> management.NameServerGroup
-	49, // 54: management.DNSConfig.CustomZones:type_name -> management.CustomZone
-	50, // 55: management.CustomZone.Records:type_name -> management.SimpleRecord
-	52, // 56: management.NameServerGroup.NameServers:type_name -> management.NameServer
-	3,  // 57: management.FirewallRule.Direction:type_name -> management.RuleDirection
-	4,  // 58: management.FirewallRule.Action:type_name -> management.RuleAction
-	2,  // 59: management.FirewallRule.Protocol:type_name -> management.RuleProtocol
-	56, // 60: management.FirewallRule.PortInfo:type_name -> management.PortInfo
-	67, // 61: management.PortInfo.range:type_name -> management.PortInfo.Range
-	4,  // 62: management.RouteFirewallRule.action:type_name -> management.RuleAction
-	2,  // 63: management.RouteFirewallRule.protocol:type_name -> management.RuleProtocol
-	56, // 64: management.RouteFirewallRule.portInfo:type_name -> management.PortInfo
-	2,  // 65: management.ForwardingRule.protocol:type_name -> management.RuleProtocol
-	56, // 66: management.ForwardingRule.destinationPort:type_name -> management.PortInfo
-	56, // 67: management.ForwardingRule.translatedPort:type_name -> management.PortInfo
-	5,  // 68: management.ExposeServiceRequest.protocol:type_name -> management.ExposeProtocol
-	37, // 69: management.SSHAuth.MachineUsersEntry.value:type_name -> management.MachineUserIndexes
-	37, // 70: management.VNCAuth.MachineUsersEntry.value:type_name -> management.MachineUserIndexes
-	8,  // 71: management.ManagementService.Login:input_type -> management.EncryptedMessage
-	8,  // 72: management.ManagementService.Sync:input_type -> management.EncryptedMessage
-	26, // 73: management.ManagementService.GetServerKey:input_type -> management.Empty
-	26, // 74: management.ManagementService.isHealthy:input_type -> management.Empty
-	8,  // 75: management.ManagementService.GetDeviceAuthorizationFlow:input_type -> management.EncryptedMessage
-	8,  // 76: management.ManagementService.GetPKCEAuthorizationFlow:input_type -> management.EncryptedMessage
-	8,  // 77: management.ManagementService.SyncMeta:input_type -> management.EncryptedMessage
-	8,  // 78: management.ManagementService.Logout:input_type -> management.EncryptedMessage
-	8,  // 79: management.ManagementService.Job:input_type -> management.EncryptedMessage
-	8,  // 80: management.ManagementService.ExtendAuthSession:input_type -> management.EncryptedMessage
-	8,  // 81: management.ManagementService.CreateExpose:input_type -> management.EncryptedMessage
-	8,  // 82: management.ManagementService.RenewExpose:input_type -> management.EncryptedMessage
-	8,  // 83: management.ManagementService.StopExpose:input_type -> management.EncryptedMessage
-	8,  // 84: management.ManagementService.Login:output_type -> management.EncryptedMessage
-	8,  // 85: management.ManagementService.Sync:output_type -> management.EncryptedMessage
-	25, // 86: management.ManagementService.GetServerKey:output_type -> management.ServerKeyResponse
-	26, // 87: management.ManagementService.isHealthy:output_type -> management.Empty
-	8,  // 88: management.ManagementService.GetDeviceAuthorizationFlow:output_type -> management.EncryptedMessage
-	8,  // 89: management.ManagementService.GetPKCEAuthorizationFlow:output_type -> management.EncryptedMessage
-	26, // 90: management.ManagementService.SyncMeta:output_type -> management.Empty
-	26, // 91: management.ManagementService.Logout:output_type -> management.Empty
-	8,  // 92: management.ManagementService.Job:output_type -> management.EncryptedMessage
-	8,  // 93: management.ManagementService.ExtendAuthSession:output_type -> management.EncryptedMessage
-	8,  // 94: management.ManagementService.CreateExpose:output_type -> management.EncryptedMessage
-	8,  // 95: management.ManagementService.RenewExpose:output_type -> management.EncryptedMessage
-	8,  // 96: management.ManagementService.StopExpose:output_type -> management.EncryptedMessage
-	84, // [84:97] is the sub-list for method output_type
-	71, // [71:84] is the sub-list for method input_type
-	71, // [71:71] is the sub-list for extension type_name
-	71, // [71:71] is the sub-list for extension extendee
-	0,  // [0:71] is the sub-list for field type_name
+	31, // 30: management.NetbirdConfig.metrics:type_name -> management.MetricsConfig
+	6,  // 31: management.HostConfig.protocol:type_name -> management.HostConfig.Protocol
+	70, // 32: management.FlowConfig.interval:type_name -> google.protobuf.Duration
+	28, // 33: management.ProtectedHostConfig.hostConfig:type_name -> management.HostConfig
+	42, // 34: management.PeerConfig.sshConfig:type_name -> management.SSHConfig
+	35, // 35: management.PeerConfig.autoUpdate:type_name -> management.AutoUpdateSettings
+	34, // 36: management.NetworkMap.peerConfig:type_name -> management.PeerConfig
+	41, // 37: management.NetworkMap.remotePeers:type_name -> management.RemotePeerConfig
+	48, // 38: management.NetworkMap.Routes:type_name -> management.Route
+	49, // 39: management.NetworkMap.DNSConfig:type_name -> management.DNSConfig
+	41, // 40: management.NetworkMap.offlinePeers:type_name -> management.RemotePeerConfig
+	54, // 41: management.NetworkMap.FirewallRules:type_name -> management.FirewallRule
+	58, // 42: management.NetworkMap.routesFirewallRules:type_name -> management.RouteFirewallRule
+	59, // 43: management.NetworkMap.forwardingRules:type_name -> management.ForwardingRule
+	37, // 44: management.NetworkMap.sshAuth:type_name -> management.SSHAuth
+	39, // 45: management.NetworkMap.vncAuth:type_name -> management.VNCAuth
+	66, // 46: management.SSHAuth.machine_users:type_name -> management.SSHAuth.MachineUsersEntry
+	67, // 47: management.VNCAuth.machine_users:type_name -> management.VNCAuth.MachineUsersEntry
+	40, // 48: management.VNCAuth.session_pub_keys:type_name -> management.SessionPubKey
+	42, // 49: management.RemotePeerConfig.sshConfig:type_name -> management.SSHConfig
+	32, // 50: management.SSHConfig.jwtConfig:type_name -> management.JWTConfig
+	7,  // 51: management.DeviceAuthorizationFlow.Provider:type_name -> management.DeviceAuthorizationFlow.provider
+	47, // 52: management.DeviceAuthorizationFlow.ProviderConfig:type_name -> management.ProviderConfig
+	47, // 53: management.PKCEAuthorizationFlow.ProviderConfig:type_name -> management.ProviderConfig
+	52, // 54: management.DNSConfig.NameServerGroups:type_name -> management.NameServerGroup
+	50, // 55: management.DNSConfig.CustomZones:type_name -> management.CustomZone
+	51, // 56: management.CustomZone.Records:type_name -> management.SimpleRecord
+	53, // 57: management.NameServerGroup.NameServers:type_name -> management.NameServer
+	3,  // 58: management.FirewallRule.Direction:type_name -> management.RuleDirection
+	4,  // 59: management.FirewallRule.Action:type_name -> management.RuleAction
+	2,  // 60: management.FirewallRule.Protocol:type_name -> management.RuleProtocol
+	57, // 61: management.FirewallRule.PortInfo:type_name -> management.PortInfo
+	68, // 62: management.PortInfo.range:type_name -> management.PortInfo.Range
+	4,  // 63: management.RouteFirewallRule.action:type_name -> management.RuleAction
+	2,  // 64: management.RouteFirewallRule.protocol:type_name -> management.RuleProtocol
+	57, // 65: management.RouteFirewallRule.portInfo:type_name -> management.PortInfo
+	2,  // 66: management.ForwardingRule.protocol:type_name -> management.RuleProtocol
+	57, // 67: management.ForwardingRule.destinationPort:type_name -> management.PortInfo
+	57, // 68: management.ForwardingRule.translatedPort:type_name -> management.PortInfo
+	5,  // 69: management.ExposeServiceRequest.protocol:type_name -> management.ExposeProtocol
+	38, // 70: management.SSHAuth.MachineUsersEntry.value:type_name -> management.MachineUserIndexes
+	38, // 71: management.VNCAuth.MachineUsersEntry.value:type_name -> management.MachineUserIndexes
+	8,  // 72: management.ManagementService.Login:input_type -> management.EncryptedMessage
+	8,  // 73: management.ManagementService.Sync:input_type -> management.EncryptedMessage
+	26, // 74: management.ManagementService.GetServerKey:input_type -> management.Empty
+	26, // 75: management.ManagementService.isHealthy:input_type -> management.Empty
+	8,  // 76: management.ManagementService.GetDeviceAuthorizationFlow:input_type -> management.EncryptedMessage
+	8,  // 77: management.ManagementService.GetPKCEAuthorizationFlow:input_type -> management.EncryptedMessage
+	8,  // 78: management.ManagementService.SyncMeta:input_type -> management.EncryptedMessage
+	8,  // 79: management.ManagementService.Logout:input_type -> management.EncryptedMessage
+	8,  // 80: management.ManagementService.Job:input_type -> management.EncryptedMessage
+	8,  // 81: management.ManagementService.ExtendAuthSession:input_type -> management.EncryptedMessage
+	8,  // 82: management.ManagementService.CreateExpose:input_type -> management.EncryptedMessage
+	8,  // 83: management.ManagementService.RenewExpose:input_type -> management.EncryptedMessage
+	8,  // 84: management.ManagementService.StopExpose:input_type -> management.EncryptedMessage
+	8,  // 85: management.ManagementService.Login:output_type -> management.EncryptedMessage
+	8,  // 86: management.ManagementService.Sync:output_type -> management.EncryptedMessage
+	25, // 87: management.ManagementService.GetServerKey:output_type -> management.ServerKeyResponse
+	26, // 88: management.ManagementService.isHealthy:output_type -> management.Empty
+	8,  // 89: management.ManagementService.GetDeviceAuthorizationFlow:output_type -> management.EncryptedMessage
+	8,  // 90: management.ManagementService.GetPKCEAuthorizationFlow:output_type -> management.EncryptedMessage
+	26, // 91: management.ManagementService.SyncMeta:output_type -> management.Empty
+	26, // 92: management.ManagementService.Logout:output_type -> management.Empty
+	8,  // 93: management.ManagementService.Job:output_type -> management.EncryptedMessage
+	8,  // 94: management.ManagementService.ExtendAuthSession:output_type -> management.EncryptedMessage
+	8,  // 95: management.ManagementService.CreateExpose:output_type -> management.EncryptedMessage
+	8,  // 96: management.ManagementService.RenewExpose:output_type -> management.EncryptedMessage
+	8,  // 97: management.ManagementService.StopExpose:output_type -> management.EncryptedMessage
+	85, // [85:98] is the sub-list for method output_type
+	72, // [72:85] is the sub-list for method input_type
+	72, // [72:72] is the sub-list for extension type_name
+	72, // [72:72] is the sub-list for extension extendee
+	0,  // [0:72] is the sub-list for field type_name
 }
 
 func init() { file_management_proto_init() }
@@ -6090,7 +6153,7 @@ func file_management_proto_init() {
 			}
 		}
 		file_management_proto_msgTypes[23].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*JWTConfig); i {
+			switch v := v.(*MetricsConfig); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6102,7 +6165,7 @@ func file_management_proto_init() {
 			}
 		}
 		file_management_proto_msgTypes[24].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ProtectedHostConfig); i {
+			switch v := v.(*JWTConfig); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6114,7 +6177,7 @@ func file_management_proto_init() {
 			}
 		}
 		file_management_proto_msgTypes[25].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*PeerConfig); i {
+			switch v := v.(*ProtectedHostConfig); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6126,7 +6189,7 @@ func file_management_proto_init() {
 			}
 		}
 		file_management_proto_msgTypes[26].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AutoUpdateSettings); i {
+			switch v := v.(*PeerConfig); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6138,7 +6201,7 @@ func file_management_proto_init() {
 			}
 		}
 		file_management_proto_msgTypes[27].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*NetworkMap); i {
+			switch v := v.(*AutoUpdateSettings); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6150,7 +6213,7 @@ func file_management_proto_init() {
 			}
 		}
 		file_management_proto_msgTypes[28].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SSHAuth); i {
+			switch v := v.(*NetworkMap); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6162,7 +6225,7 @@ func file_management_proto_init() {
 			}
 		}
 		file_management_proto_msgTypes[29].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*MachineUserIndexes); i {
+			switch v := v.(*SSHAuth); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6174,7 +6237,7 @@ func file_management_proto_init() {
 			}
 		}
 		file_management_proto_msgTypes[30].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*VNCAuth); i {
+			switch v := v.(*MachineUserIndexes); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6186,7 +6249,7 @@ func file_management_proto_init() {
 			}
 		}
 		file_management_proto_msgTypes[31].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SessionPubKey); i {
+			switch v := v.(*VNCAuth); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6198,7 +6261,7 @@ func file_management_proto_init() {
 			}
 		}
 		file_management_proto_msgTypes[32].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*RemotePeerConfig); i {
+			switch v := v.(*SessionPubKey); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6210,7 +6273,7 @@ func file_management_proto_init() {
 			}
 		}
 		file_management_proto_msgTypes[33].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SSHConfig); i {
+			switch v := v.(*RemotePeerConfig); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6222,7 +6285,7 @@ func file_management_proto_init() {
 			}
 		}
 		file_management_proto_msgTypes[34].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*DeviceAuthorizationFlowRequest); i {
+			switch v := v.(*SSHConfig); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6234,7 +6297,7 @@ func file_management_proto_init() {
 			}
 		}
 		file_management_proto_msgTypes[35].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*DeviceAuthorizationFlow); i {
+			switch v := v.(*DeviceAuthorizationFlowRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6246,7 +6309,7 @@ func file_management_proto_init() {
 			}
 		}
 		file_management_proto_msgTypes[36].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*PKCEAuthorizationFlowRequest); i {
+			switch v := v.(*DeviceAuthorizationFlow); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6258,7 +6321,7 @@ func file_management_proto_init() {
 			}
 		}
 		file_management_proto_msgTypes[37].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*PKCEAuthorizationFlow); i {
+			switch v := v.(*PKCEAuthorizationFlowRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6270,7 +6333,7 @@ func file_management_proto_init() {
 			}
 		}
 		file_management_proto_msgTypes[38].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ProviderConfig); i {
+			switch v := v.(*PKCEAuthorizationFlow); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6282,7 +6345,7 @@ func file_management_proto_init() {
 			}
 		}
 		file_management_proto_msgTypes[39].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*Route); i {
+			switch v := v.(*ProviderConfig); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6294,7 +6357,7 @@ func file_management_proto_init() {
 			}
 		}
 		file_management_proto_msgTypes[40].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*DNSConfig); i {
+			switch v := v.(*Route); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6306,7 +6369,7 @@ func file_management_proto_init() {
 			}
 		}
 		file_management_proto_msgTypes[41].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*CustomZone); i {
+			switch v := v.(*DNSConfig); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6318,7 +6381,7 @@ func file_management_proto_init() {
 			}
 		}
 		file_management_proto_msgTypes[42].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SimpleRecord); i {
+			switch v := v.(*CustomZone); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6330,7 +6393,7 @@ func file_management_proto_init() {
 			}
 		}
 		file_management_proto_msgTypes[43].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*NameServerGroup); i {
+			switch v := v.(*SimpleRecord); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6342,7 +6405,7 @@ func file_management_proto_init() {
 			}
 		}
 		file_management_proto_msgTypes[44].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*NameServer); i {
+			switch v := v.(*NameServerGroup); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6354,7 +6417,7 @@ func file_management_proto_init() {
 			}
 		}
 		file_management_proto_msgTypes[45].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*FirewallRule); i {
+			switch v := v.(*NameServer); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6366,7 +6429,7 @@ func file_management_proto_init() {
 			}
 		}
 		file_management_proto_msgTypes[46].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*NetworkAddress); i {
+			switch v := v.(*FirewallRule); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6378,7 +6441,7 @@ func file_management_proto_init() {
 			}
 		}
 		file_management_proto_msgTypes[47].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*Checks); i {
+			switch v := v.(*NetworkAddress); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6390,7 +6453,7 @@ func file_management_proto_init() {
 			}
 		}
 		file_management_proto_msgTypes[48].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*PortInfo); i {
+			switch v := v.(*Checks); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6402,7 +6465,7 @@ func file_management_proto_init() {
 			}
 		}
 		file_management_proto_msgTypes[49].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*RouteFirewallRule); i {
+			switch v := v.(*PortInfo); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6414,7 +6477,7 @@ func file_management_proto_init() {
 			}
 		}
 		file_management_proto_msgTypes[50].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ForwardingRule); i {
+			switch v := v.(*RouteFirewallRule); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6426,7 +6489,7 @@ func file_management_proto_init() {
 			}
 		}
 		file_management_proto_msgTypes[51].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ExposeServiceRequest); i {
+			switch v := v.(*ForwardingRule); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6438,7 +6501,7 @@ func file_management_proto_init() {
 			}
 		}
 		file_management_proto_msgTypes[52].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ExposeServiceResponse); i {
+			switch v := v.(*ExposeServiceRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6450,7 +6513,7 @@ func file_management_proto_init() {
 			}
 		}
 		file_management_proto_msgTypes[53].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*RenewExposeRequest); i {
+			switch v := v.(*ExposeServiceResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6462,7 +6525,7 @@ func file_management_proto_init() {
 			}
 		}
 		file_management_proto_msgTypes[54].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*RenewExposeResponse); i {
+			switch v := v.(*RenewExposeRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6474,7 +6537,7 @@ func file_management_proto_init() {
 			}
 		}
 		file_management_proto_msgTypes[55].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*StopExposeRequest); i {
+			switch v := v.(*RenewExposeResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6486,6 +6549,18 @@ func file_management_proto_init() {
 			}
 		}
 		file_management_proto_msgTypes[56].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*StopExposeRequest); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_management_proto_msgTypes[57].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*StopExposeResponse); i {
 			case 0:
 				return &v.state
@@ -6497,7 +6572,7 @@ func file_management_proto_init() {
 				return nil
 			}
 		}
-		file_management_proto_msgTypes[59].Exporter = func(v interface{}, i int) interface{} {
+		file_management_proto_msgTypes[60].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*PortInfo_Range); i {
 			case 0:
 				return &v.state
@@ -6516,7 +6591,7 @@ func file_management_proto_init() {
 	file_management_proto_msgTypes[2].OneofWrappers = []interface{}{
 		(*JobResponse_Bundle)(nil),
 	}
-	file_management_proto_msgTypes[48].OneofWrappers = []interface{}{
+	file_management_proto_msgTypes[49].OneofWrappers = []interface{}{
 		(*PortInfo_Port)(nil),
 		(*PortInfo_Range_)(nil),
 	}
@@ -6526,7 +6601,7 @@ func file_management_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_management_proto_rawDesc,
 			NumEnums:      8,
-			NumMessages:   60,
+			NumMessages:   61,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

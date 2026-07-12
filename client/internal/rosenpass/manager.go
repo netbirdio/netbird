@@ -39,6 +39,7 @@ type rpServer interface {
 
 type Manager struct {
 	ifaceName    string
+	localWgKey   wgtypes.Key
 	spk          []byte
 	ssk          []byte
 	rpKeyHash    string
@@ -51,8 +52,9 @@ type Manager struct {
 	wgIface      PresharedKeySetter
 }
 
-// NewManager creates a new Rosenpass manager
-func NewManager(preSharedKey *wgtypes.Key, wgIfaceName string) (*Manager, error) {
+// NewManager creates a new Rosenpass manager. localWgKey is the local
+// WireGuard public key, used to derive the per-peer rendezvous key.
+func NewManager(preSharedKey *wgtypes.Key, wgIfaceName string, localWgKey wgtypes.Key) (*Manager, error) {
 	public, secret, err := rp.GenerateKeyPair()
 	if err != nil {
 		return nil, err
@@ -62,6 +64,7 @@ func NewManager(preSharedKey *wgtypes.Key, wgIfaceName string) (*Manager, error)
 	log.Tracef("generated new rosenpass key pair with public key %s", rpKeyHash)
 	return &Manager{
 		ifaceName:    wgIfaceName,
+		localWgKey:   localWgKey,
 		rpKeyHash:    rpKeyHash,
 		spk:          public,
 		ssk:          secret,
@@ -73,7 +76,7 @@ func NewManager(preSharedKey *wgtypes.Key, wgIfaceName string) (*Manager, error)
 		// nil receiver in addPeer -> m.rpWgHandler.AddPeer. generateConfig will
 		// replace it with a fresh handler on each Run() to clear stale peer
 		// state from previous engine sessions.
-		rpWgHandler: NewNetbirdHandler(),
+		rpWgHandler: NewNetbirdHandler((*[32]byte)(preSharedKey), localWgKey),
 		lock:        sync.Mutex{},
 	}, nil
 }
@@ -161,7 +164,7 @@ func (m *Manager) generateConfig() (rp.Config, error) {
 	cfg.Peers = []rp.PeerConfig{}
 
 	m.lock.Lock()
-	m.rpWgHandler = NewNetbirdHandler()
+	m.rpWgHandler = NewNetbirdHandler(m.preSharedKey, m.localWgKey)
 	if m.wgIface != nil {
 		m.rpWgHandler.SetInterface(m.wgIface)
 	}

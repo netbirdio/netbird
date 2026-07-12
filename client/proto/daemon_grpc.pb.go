@@ -23,6 +23,7 @@ const (
 	DaemonService_WaitSSOLogin_FullMethodName               = "/daemon.DaemonService/WaitSSOLogin"
 	DaemonService_Up_FullMethodName                         = "/daemon.DaemonService/Up"
 	DaemonService_Status_FullMethodName                     = "/daemon.DaemonService/Status"
+	DaemonService_SubscribeStatus_FullMethodName            = "/daemon.DaemonService/SubscribeStatus"
 	DaemonService_Down_FullMethodName                       = "/daemon.DaemonService/Down"
 	DaemonService_GetConfig_FullMethodName                  = "/daemon.DaemonService/GetConfig"
 	DaemonService_ListNetworks_FullMethodName               = "/daemon.DaemonService/ListNetworks"
@@ -42,6 +43,7 @@ const (
 	DaemonService_StopBundleCapture_FullMethodName          = "/daemon.DaemonService/StopBundleCapture"
 	DaemonService_SubscribeEvents_FullMethodName            = "/daemon.DaemonService/SubscribeEvents"
 	DaemonService_GetEvents_FullMethodName                  = "/daemon.DaemonService/GetEvents"
+	DaemonService_RegisterUILog_FullMethodName              = "/daemon.DaemonService/RegisterUILog"
 	DaemonService_SwitchProfile_FullMethodName              = "/daemon.DaemonService/SwitchProfile"
 	DaemonService_SetConfig_FullMethodName                  = "/daemon.DaemonService/SetConfig"
 	DaemonService_AddProfile_FullMethodName                 = "/daemon.DaemonService/AddProfile"
@@ -55,11 +57,15 @@ const (
 	DaemonService_GetPeerSSHHostKey_FullMethodName          = "/daemon.DaemonService/GetPeerSSHHostKey"
 	DaemonService_RequestJWTAuth_FullMethodName             = "/daemon.DaemonService/RequestJWTAuth"
 	DaemonService_WaitJWTToken_FullMethodName               = "/daemon.DaemonService/WaitJWTToken"
+	DaemonService_RequestExtendAuthSession_FullMethodName   = "/daemon.DaemonService/RequestExtendAuthSession"
+	DaemonService_WaitExtendAuthSession_FullMethodName      = "/daemon.DaemonService/WaitExtendAuthSession"
+	DaemonService_DismissSessionWarning_FullMethodName      = "/daemon.DaemonService/DismissSessionWarning"
 	DaemonService_StartCPUProfile_FullMethodName            = "/daemon.DaemonService/StartCPUProfile"
 	DaemonService_StopCPUProfile_FullMethodName             = "/daemon.DaemonService/StopCPUProfile"
 	DaemonService_GetInstallerResult_FullMethodName         = "/daemon.DaemonService/GetInstallerResult"
 	DaemonService_ExposeService_FullMethodName              = "/daemon.DaemonService/ExposeService"
 	DaemonService_RespondApproval_FullMethodName            = "/daemon.DaemonService/RespondApproval"
+	DaemonService_WailsUIReady_FullMethodName               = "/daemon.DaemonService/WailsUIReady"
 )
 
 // DaemonServiceClient is the client API for DaemonService service.
@@ -75,6 +81,11 @@ type DaemonServiceClient interface {
 	Up(ctx context.Context, in *UpRequest, opts ...grpc.CallOption) (*UpResponse, error)
 	// Status of the service.
 	Status(ctx context.Context, in *StatusRequest, opts ...grpc.CallOption) (*StatusResponse, error)
+	// SubscribeStatus pushes a fresh StatusResponse on connection state
+	// changes (Connected / Disconnected / Connecting / address change /
+	// peers list change). The first message on the stream is the current
+	// snapshot, so a freshly-subscribed UI doesn't need to also call Status.
+	SubscribeStatus(ctx context.Context, in *StatusRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StatusResponse], error)
 	// Down stops engine work in the daemon.
 	Down(ctx context.Context, in *DownRequest, opts ...grpc.CallOption) (*DownResponse, error)
 	// GetConfig of the daemon.
@@ -111,6 +122,10 @@ type DaemonServiceClient interface {
 	StopBundleCapture(ctx context.Context, in *StopBundleCaptureRequest, opts ...grpc.CallOption) (*StopBundleCaptureResponse, error)
 	SubscribeEvents(ctx context.Context, in *SubscribeRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[SystemEvent], error)
 	GetEvents(ctx context.Context, in *GetEventsRequest, opts ...grpc.CallOption) (*GetEventsResponse, error)
+	// RegisterUILog records the desktop UI's absolute log path so the daemon's
+	// debug bundle can collect it (the daemon runs as root and can't resolve the
+	// user's config dir).
+	RegisterUILog(ctx context.Context, in *RegisterUILogRequest, opts ...grpc.CallOption) (*RegisterUILogResponse, error)
 	SwitchProfile(ctx context.Context, in *SwitchProfileRequest, opts ...grpc.CallOption) (*SwitchProfileResponse, error)
 	SetConfig(ctx context.Context, in *SetConfigRequest, opts ...grpc.CallOption) (*SetConfigResponse, error)
 	AddProfile(ctx context.Context, in *AddProfileRequest, opts ...grpc.CallOption) (*AddProfileResponse, error)
@@ -130,6 +145,22 @@ type DaemonServiceClient interface {
 	RequestJWTAuth(ctx context.Context, in *RequestJWTAuthRequest, opts ...grpc.CallOption) (*RequestJWTAuthResponse, error)
 	// WaitJWTToken waits for JWT authentication completion
 	WaitJWTToken(ctx context.Context, in *WaitJWTTokenRequest, opts ...grpc.CallOption) (*WaitJWTTokenResponse, error)
+	// RequestExtendAuthSession initiates an SSO session-extension flow.
+	// The daemon prepares a PKCE/device-code request against the IdP and
+	// returns the verification URI; the UI is expected to open it. The flow
+	// state is kept in the daemon until WaitExtendAuthSession completes it.
+	RequestExtendAuthSession(ctx context.Context, in *RequestExtendAuthSessionRequest, opts ...grpc.CallOption) (*RequestExtendAuthSessionResponse, error)
+	// WaitExtendAuthSession blocks until the user finishes the SSO step
+	// started by RequestExtendAuthSession, then forwards the resulting JWT
+	// to the management server's ExtendAuthSession RPC. Returns the new
+	// session expiry deadline. The tunnel stays up the entire time.
+	WaitExtendAuthSession(ctx context.Context, in *WaitExtendAuthSessionRequest, opts ...grpc.CallOption) (*WaitExtendAuthSessionResponse, error)
+	// DismissSessionWarning records that the user clicked "Dismiss" on the
+	// T-WarningLead interactive notification, suppressing the auto-opened
+	// SessionAboutToExpire dialog that would otherwise fire at
+	// T-FinalWarningLead for the current deadline. Idempotent and best-effort:
+	// a missed call only means the fallback dialog will still appear.
+	DismissSessionWarning(ctx context.Context, in *DismissSessionWarningRequest, opts ...grpc.CallOption) (*DismissSessionWarningResponse, error)
 	// StartCPUProfile starts CPU profiling in the daemon
 	StartCPUProfile(ctx context.Context, in *StartCPUProfileRequest, opts ...grpc.CallOption) (*StartCPUProfileResponse, error)
 	// StopCPUProfile stops CPU profiling in the daemon
@@ -144,6 +175,10 @@ type DaemonServiceClient interface {
 	// subsystem (VNC, SSH, ...) is waiting. The "kind" metadata key tells
 	// the UI which subsystem the prompt belongs to.
 	RespondApproval(ctx context.Context, in *RespondApprovalRequest, opts ...grpc.CallOption) (*RespondApprovalResponse, error)
+	// WailsUIReady is a no-op probe the Wails UI calls once at startup. The UI
+	// only cares whether the daemon implements it: an Unimplemented response
+	// means the daemon predates this UI and is too old to drive it.
+	WailsUIReady(ctx context.Context, in *WailsUIReadyRequest, opts ...grpc.CallOption) (*WailsUIReadyResponse, error)
 }
 
 type daemonServiceClient struct {
@@ -193,6 +228,25 @@ func (c *daemonServiceClient) Status(ctx context.Context, in *StatusRequest, opt
 	}
 	return out, nil
 }
+
+func (c *daemonServiceClient) SubscribeStatus(ctx context.Context, in *StatusRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StatusResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &DaemonService_ServiceDesc.Streams[0], DaemonService_SubscribeStatus_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[StatusRequest, StatusResponse]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type DaemonService_SubscribeStatusClient = grpc.ServerStreamingClient[StatusResponse]
 
 func (c *daemonServiceClient) Down(ctx context.Context, in *DownRequest, opts ...grpc.CallOption) (*DownResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
@@ -336,7 +390,7 @@ func (c *daemonServiceClient) TracePacket(ctx context.Context, in *TracePacketRe
 
 func (c *daemonServiceClient) StartCapture(ctx context.Context, in *StartCaptureRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[CapturePacket], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &DaemonService_ServiceDesc.Streams[0], DaemonService_StartCapture_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &DaemonService_ServiceDesc.Streams[1], DaemonService_StartCapture_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -375,7 +429,7 @@ func (c *daemonServiceClient) StopBundleCapture(ctx context.Context, in *StopBun
 
 func (c *daemonServiceClient) SubscribeEvents(ctx context.Context, in *SubscribeRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[SystemEvent], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &DaemonService_ServiceDesc.Streams[1], DaemonService_SubscribeEvents_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &DaemonService_ServiceDesc.Streams[2], DaemonService_SubscribeEvents_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -396,6 +450,16 @@ func (c *daemonServiceClient) GetEvents(ctx context.Context, in *GetEventsReques
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetEventsResponse)
 	err := c.cc.Invoke(ctx, DaemonService_GetEvents_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *daemonServiceClient) RegisterUILog(ctx context.Context, in *RegisterUILogRequest, opts ...grpc.CallOption) (*RegisterUILogResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RegisterUILogResponse)
+	err := c.cc.Invoke(ctx, DaemonService_RegisterUILog_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -532,6 +596,36 @@ func (c *daemonServiceClient) WaitJWTToken(ctx context.Context, in *WaitJWTToken
 	return out, nil
 }
 
+func (c *daemonServiceClient) RequestExtendAuthSession(ctx context.Context, in *RequestExtendAuthSessionRequest, opts ...grpc.CallOption) (*RequestExtendAuthSessionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RequestExtendAuthSessionResponse)
+	err := c.cc.Invoke(ctx, DaemonService_RequestExtendAuthSession_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *daemonServiceClient) WaitExtendAuthSession(ctx context.Context, in *WaitExtendAuthSessionRequest, opts ...grpc.CallOption) (*WaitExtendAuthSessionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(WaitExtendAuthSessionResponse)
+	err := c.cc.Invoke(ctx, DaemonService_WaitExtendAuthSession_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *daemonServiceClient) DismissSessionWarning(ctx context.Context, in *DismissSessionWarningRequest, opts ...grpc.CallOption) (*DismissSessionWarningResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DismissSessionWarningResponse)
+	err := c.cc.Invoke(ctx, DaemonService_DismissSessionWarning_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *daemonServiceClient) StartCPUProfile(ctx context.Context, in *StartCPUProfileRequest, opts ...grpc.CallOption) (*StartCPUProfileResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(StartCPUProfileResponse)
@@ -564,7 +658,7 @@ func (c *daemonServiceClient) GetInstallerResult(ctx context.Context, in *Instal
 
 func (c *daemonServiceClient) ExposeService(ctx context.Context, in *ExposeServiceRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ExposeServiceEvent], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &DaemonService_ServiceDesc.Streams[2], DaemonService_ExposeService_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &DaemonService_ServiceDesc.Streams[3], DaemonService_ExposeService_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -591,6 +685,16 @@ func (c *daemonServiceClient) RespondApproval(ctx context.Context, in *RespondAp
 	return out, nil
 }
 
+func (c *daemonServiceClient) WailsUIReady(ctx context.Context, in *WailsUIReadyRequest, opts ...grpc.CallOption) (*WailsUIReadyResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(WailsUIReadyResponse)
+	err := c.cc.Invoke(ctx, DaemonService_WailsUIReady_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DaemonServiceServer is the server API for DaemonService service.
 // All implementations must embed UnimplementedDaemonServiceServer
 // for forward compatibility.
@@ -604,6 +708,11 @@ type DaemonServiceServer interface {
 	Up(context.Context, *UpRequest) (*UpResponse, error)
 	// Status of the service.
 	Status(context.Context, *StatusRequest) (*StatusResponse, error)
+	// SubscribeStatus pushes a fresh StatusResponse on connection state
+	// changes (Connected / Disconnected / Connecting / address change /
+	// peers list change). The first message on the stream is the current
+	// snapshot, so a freshly-subscribed UI doesn't need to also call Status.
+	SubscribeStatus(*StatusRequest, grpc.ServerStreamingServer[StatusResponse]) error
 	// Down stops engine work in the daemon.
 	Down(context.Context, *DownRequest) (*DownResponse, error)
 	// GetConfig of the daemon.
@@ -640,6 +749,10 @@ type DaemonServiceServer interface {
 	StopBundleCapture(context.Context, *StopBundleCaptureRequest) (*StopBundleCaptureResponse, error)
 	SubscribeEvents(*SubscribeRequest, grpc.ServerStreamingServer[SystemEvent]) error
 	GetEvents(context.Context, *GetEventsRequest) (*GetEventsResponse, error)
+	// RegisterUILog records the desktop UI's absolute log path so the daemon's
+	// debug bundle can collect it (the daemon runs as root and can't resolve the
+	// user's config dir).
+	RegisterUILog(context.Context, *RegisterUILogRequest) (*RegisterUILogResponse, error)
 	SwitchProfile(context.Context, *SwitchProfileRequest) (*SwitchProfileResponse, error)
 	SetConfig(context.Context, *SetConfigRequest) (*SetConfigResponse, error)
 	AddProfile(context.Context, *AddProfileRequest) (*AddProfileResponse, error)
@@ -659,6 +772,22 @@ type DaemonServiceServer interface {
 	RequestJWTAuth(context.Context, *RequestJWTAuthRequest) (*RequestJWTAuthResponse, error)
 	// WaitJWTToken waits for JWT authentication completion
 	WaitJWTToken(context.Context, *WaitJWTTokenRequest) (*WaitJWTTokenResponse, error)
+	// RequestExtendAuthSession initiates an SSO session-extension flow.
+	// The daemon prepares a PKCE/device-code request against the IdP and
+	// returns the verification URI; the UI is expected to open it. The flow
+	// state is kept in the daemon until WaitExtendAuthSession completes it.
+	RequestExtendAuthSession(context.Context, *RequestExtendAuthSessionRequest) (*RequestExtendAuthSessionResponse, error)
+	// WaitExtendAuthSession blocks until the user finishes the SSO step
+	// started by RequestExtendAuthSession, then forwards the resulting JWT
+	// to the management server's ExtendAuthSession RPC. Returns the new
+	// session expiry deadline. The tunnel stays up the entire time.
+	WaitExtendAuthSession(context.Context, *WaitExtendAuthSessionRequest) (*WaitExtendAuthSessionResponse, error)
+	// DismissSessionWarning records that the user clicked "Dismiss" on the
+	// T-WarningLead interactive notification, suppressing the auto-opened
+	// SessionAboutToExpire dialog that would otherwise fire at
+	// T-FinalWarningLead for the current deadline. Idempotent and best-effort:
+	// a missed call only means the fallback dialog will still appear.
+	DismissSessionWarning(context.Context, *DismissSessionWarningRequest) (*DismissSessionWarningResponse, error)
 	// StartCPUProfile starts CPU profiling in the daemon
 	StartCPUProfile(context.Context, *StartCPUProfileRequest) (*StartCPUProfileResponse, error)
 	// StopCPUProfile stops CPU profiling in the daemon
@@ -673,6 +802,10 @@ type DaemonServiceServer interface {
 	// subsystem (VNC, SSH, ...) is waiting. The "kind" metadata key tells
 	// the UI which subsystem the prompt belongs to.
 	RespondApproval(context.Context, *RespondApprovalRequest) (*RespondApprovalResponse, error)
+	// WailsUIReady is a no-op probe the Wails UI calls once at startup. The UI
+	// only cares whether the daemon implements it: an Unimplemented response
+	// means the daemon predates this UI and is too old to drive it.
+	WailsUIReady(context.Context, *WailsUIReadyRequest) (*WailsUIReadyResponse, error)
 	mustEmbedUnimplementedDaemonServiceServer()
 }
 
@@ -694,6 +827,9 @@ func (UnimplementedDaemonServiceServer) Up(context.Context, *UpRequest) (*UpResp
 }
 func (UnimplementedDaemonServiceServer) Status(context.Context, *StatusRequest) (*StatusResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Status not implemented")
+}
+func (UnimplementedDaemonServiceServer) SubscribeStatus(*StatusRequest, grpc.ServerStreamingServer[StatusResponse]) error {
+	return status.Error(codes.Unimplemented, "method SubscribeStatus not implemented")
 }
 func (UnimplementedDaemonServiceServer) Down(context.Context, *DownRequest) (*DownResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Down not implemented")
@@ -752,6 +888,9 @@ func (UnimplementedDaemonServiceServer) SubscribeEvents(*SubscribeRequest, grpc.
 func (UnimplementedDaemonServiceServer) GetEvents(context.Context, *GetEventsRequest) (*GetEventsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetEvents not implemented")
 }
+func (UnimplementedDaemonServiceServer) RegisterUILog(context.Context, *RegisterUILogRequest) (*RegisterUILogResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RegisterUILog not implemented")
+}
 func (UnimplementedDaemonServiceServer) SwitchProfile(context.Context, *SwitchProfileRequest) (*SwitchProfileResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method SwitchProfile not implemented")
 }
@@ -791,6 +930,15 @@ func (UnimplementedDaemonServiceServer) RequestJWTAuth(context.Context, *Request
 func (UnimplementedDaemonServiceServer) WaitJWTToken(context.Context, *WaitJWTTokenRequest) (*WaitJWTTokenResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method WaitJWTToken not implemented")
 }
+func (UnimplementedDaemonServiceServer) RequestExtendAuthSession(context.Context, *RequestExtendAuthSessionRequest) (*RequestExtendAuthSessionResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RequestExtendAuthSession not implemented")
+}
+func (UnimplementedDaemonServiceServer) WaitExtendAuthSession(context.Context, *WaitExtendAuthSessionRequest) (*WaitExtendAuthSessionResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method WaitExtendAuthSession not implemented")
+}
+func (UnimplementedDaemonServiceServer) DismissSessionWarning(context.Context, *DismissSessionWarningRequest) (*DismissSessionWarningResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DismissSessionWarning not implemented")
+}
 func (UnimplementedDaemonServiceServer) StartCPUProfile(context.Context, *StartCPUProfileRequest) (*StartCPUProfileResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method StartCPUProfile not implemented")
 }
@@ -805,6 +953,9 @@ func (UnimplementedDaemonServiceServer) ExposeService(*ExposeServiceRequest, grp
 }
 func (UnimplementedDaemonServiceServer) RespondApproval(context.Context, *RespondApprovalRequest) (*RespondApprovalResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RespondApproval not implemented")
+}
+func (UnimplementedDaemonServiceServer) WailsUIReady(context.Context, *WailsUIReadyRequest) (*WailsUIReadyResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method WailsUIReady not implemented")
 }
 func (UnimplementedDaemonServiceServer) mustEmbedUnimplementedDaemonServiceServer() {}
 func (UnimplementedDaemonServiceServer) testEmbeddedByValue()                       {}
@@ -898,6 +1049,17 @@ func _DaemonService_Status_Handler(srv interface{}, ctx context.Context, dec fun
 	}
 	return interceptor(ctx, in, info, handler)
 }
+
+func _DaemonService_SubscribeStatus_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(StatusRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(DaemonServiceServer).SubscribeStatus(m, &grpc.GenericServerStream[StatusRequest, StatusResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type DaemonService_SubscribeStatusServer = grpc.ServerStreamingServer[StatusResponse]
 
 func _DaemonService_Down_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(DownRequest)
@@ -1227,6 +1389,24 @@ func _DaemonService_GetEvents_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DaemonService_RegisterUILog_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RegisterUILogRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).RegisterUILog(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DaemonService_RegisterUILog_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).RegisterUILog(ctx, req.(*RegisterUILogRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _DaemonService_SwitchProfile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(SwitchProfileRequest)
 	if err := dec(in); err != nil {
@@ -1461,6 +1641,60 @@ func _DaemonService_WaitJWTToken_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DaemonService_RequestExtendAuthSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RequestExtendAuthSessionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).RequestExtendAuthSession(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DaemonService_RequestExtendAuthSession_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).RequestExtendAuthSession(ctx, req.(*RequestExtendAuthSessionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DaemonService_WaitExtendAuthSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(WaitExtendAuthSessionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).WaitExtendAuthSession(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DaemonService_WaitExtendAuthSession_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).WaitExtendAuthSession(ctx, req.(*WaitExtendAuthSessionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DaemonService_DismissSessionWarning_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DismissSessionWarningRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).DismissSessionWarning(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DaemonService_DismissSessionWarning_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).DismissSessionWarning(ctx, req.(*DismissSessionWarningRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _DaemonService_StartCPUProfile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(StartCPUProfileRequest)
 	if err := dec(in); err != nil {
@@ -1540,6 +1774,24 @@ func _DaemonService_RespondApproval_Handler(srv interface{}, ctx context.Context
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(DaemonServiceServer).RespondApproval(ctx, req.(*RespondApprovalRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DaemonService_WailsUIReady_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(WailsUIReadyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).WailsUIReady(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DaemonService_WailsUIReady_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).WailsUIReady(ctx, req.(*WailsUIReadyRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1636,6 +1888,10 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _DaemonService_GetEvents_Handler,
 		},
 		{
+			MethodName: "RegisterUILog",
+			Handler:    _DaemonService_RegisterUILog_Handler,
+		},
+		{
 			MethodName: "SwitchProfile",
 			Handler:    _DaemonService_SwitchProfile_Handler,
 		},
@@ -1688,6 +1944,18 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _DaemonService_WaitJWTToken_Handler,
 		},
 		{
+			MethodName: "RequestExtendAuthSession",
+			Handler:    _DaemonService_RequestExtendAuthSession_Handler,
+		},
+		{
+			MethodName: "WaitExtendAuthSession",
+			Handler:    _DaemonService_WaitExtendAuthSession_Handler,
+		},
+		{
+			MethodName: "DismissSessionWarning",
+			Handler:    _DaemonService_DismissSessionWarning_Handler,
+		},
+		{
 			MethodName: "StartCPUProfile",
 			Handler:    _DaemonService_StartCPUProfile_Handler,
 		},
@@ -1703,8 +1971,17 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "RespondApproval",
 			Handler:    _DaemonService_RespondApproval_Handler,
 		},
+		{
+			MethodName: "WailsUIReady",
+			Handler:    _DaemonService_WailsUIReady_Handler,
+		},
 	},
 	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "SubscribeStatus",
+			Handler:       _DaemonService_SubscribeStatus_Handler,
+			ServerStreams: true,
+		},
 		{
 			StreamName:    "StartCapture",
 			Handler:       _DaemonService_StartCapture_Handler,

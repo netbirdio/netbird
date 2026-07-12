@@ -105,7 +105,7 @@ func isDuplicated(addresses []NetworkAddress, addr NetworkAddress) bool {
 }
 
 // checkFileAndProcess checks if the file path exists and if a process is running at that path.
-func checkFileAndProcess(paths []string) ([]File, error) {
+func checkFileAndProcess(_ context.Context, _ []string) ([]File, error) {
 	return []File{}, nil
 }
 

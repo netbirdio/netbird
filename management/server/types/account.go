@@ -308,7 +308,8 @@ func (a *Account) SynthesizePrivateServiceZones(peerID string) []nbdns.CustomZon
 			zone = &nbdns.CustomZone{
 				Domain:           dns.Fqdn(serviceDomainZone),
 				Records:          []nbdns.SimpleRecord{},
-				NonAuthoritative: true,
+				NonAuthoritative:     true,
+				SearchDomainDisabled: true,
 			}
 			zonesByApex[serviceDomainZone] = zone
 		}
