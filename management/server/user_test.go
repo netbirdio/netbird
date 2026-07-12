@@ -1239,6 +1239,7 @@ func TestDefaultAccountManager_ExternalCache(t *testing.T) {
 	assert.Equal(t, absentBlockedUser.Name, absentUser.Name)
 	assert.Equal(t, absentBlockedUser.Email, absentUser.Email)
 	assert.True(t, absentUser.IsBlocked)
+	assert.Equal(t, string(types.UserStatusDisabled), absentUser.Status)
 	assert.NotNil(t, absentService)
 	assert.Equal(t, absentServiceUser.ServiceUserName, absentService.Name)
 	assert.True(t, absentService.NonDeletable)

@@ -151,6 +151,10 @@ func (u *User) ToUserInfo(userData *idp.UserData) (*UserInfo, error) {
 	}
 
 	if userData == nil {
+		status := UserStatusActive
+		if u.Blocked {
+			status = UserStatusDisabled
+		}
 
 		name := u.Name
 		if u.IsServiceUser {
@@ -163,7 +167,7 @@ func (u *User) ToUserInfo(userData *idp.UserData) (*UserInfo, error) {
 			Name:            name,
 			Role:            string(u.Role),
 			AutoGroups:      u.AutoGroups,
-			Status:          string(UserStatusActive),
+			Status:          string(status),
 			IsServiceUser:   u.IsServiceUser,
 			IsBlocked:       u.Blocked,
 			NonDeletable:    u.NonDeletable,
