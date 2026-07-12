@@ -24,6 +24,7 @@ import (
 
 type vncServer interface {
 	Start(ctx context.Context, addr netip.AddrPort, network netip.Prefix) error
+	AddListener(ctx context.Context, addr netip.AddrPort, network netip.Prefix) error
 	Stop() error
 	ActiveSessions() []vncserver.ActiveSessionInfo
 }
@@ -43,6 +44,15 @@ func (e *Engine) setupVNCPortRedirection() error {
 	}
 	log.Infof("VNC port redirection: %s:%d -> %s:%d", localAddr, vnc.ExternalPort, localAddr, vnc.InternalPort)
 
+	if wgAddr := e.wgInterface.Address(); wgAddr.HasIPv6() {
+		v6 := wgAddr.IPv6
+		if err := e.firewall.AddInboundDNAT(v6, firewallManager.ProtocolTCP, vnc.ExternalPort, vnc.InternalPort); err != nil {
+			log.Warnf("failed to add IPv6 VNC port redirection: %v", err)
+		} else {
+			log.Infof("VNC port redirection: [%s]:%d -> [%s]:%d", v6, vnc.ExternalPort, v6, vnc.InternalPort)
+		}
+	}
+
 	return nil
 }
 
@@ -58,6 +68,12 @@ func (e *Engine) cleanupVNCPortRedirection() error {
 
 	if err := e.firewall.RemoveInboundDNAT(localAddr, firewallManager.ProtocolTCP, vnc.ExternalPort, vnc.InternalPort); err != nil {
 		return fmt.Errorf("remove VNC port redirection: %w", err)
+	}
+
+	if wgAddr := e.wgInterface.Address(); wgAddr.HasIPv6() {
+		if err := e.firewall.RemoveInboundDNAT(wgAddr.IPv6, firewallManager.ProtocolTCP, vnc.ExternalPort, vnc.InternalPort); err != nil {
+			log.Debugf("failed to remove IPv6 VNC port redirection: %v", err)
+		}
 	}
 
 	return nil
@@ -132,6 +148,13 @@ func (e *Engine) startVNCServer() error {
 	network := e.wgInterface.Address().Network
 	if err := srv.Start(e.ctx, listenAddr, network); err != nil {
 		return fmt.Errorf("start VNC server: %w", err)
+	}
+
+	if wgAddr := e.wgInterface.Address(); wgAddr.HasIPv6() {
+		v6Addr := netip.AddrPortFrom(wgAddr.IPv6, vnc.InternalPort)
+		if err := srv.AddListener(e.ctx, v6Addr, wgAddr.IPv6Net); err != nil {
+			log.Warnf("failed to add IPv6 VNC listener: %v", err)
+		}
 	}
 
 	e.vncSrv = srv

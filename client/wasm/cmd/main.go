@@ -20,6 +20,7 @@ import (
 	nbstatus "github.com/netbirdio/netbird/client/status"
 	wasmcapture "github.com/netbirdio/netbird/client/wasm/internal/capture"
 	"github.com/netbirdio/netbird/client/wasm/internal/http"
+	"github.com/netbirdio/netbird/client/wasm/internal/netutil"
 	"github.com/netbirdio/netbird/client/wasm/internal/rdp"
 	"github.com/netbirdio/netbird/client/wasm/internal/ssh"
 	"github.com/netbirdio/netbird/client/wasm/internal/vnc"
@@ -264,7 +265,7 @@ func performPingTCP(client *netbird.Client, hostname string, port, ipVersion int
 	ctx, cancel := context.WithTimeout(context.Background(), pingTimeout)
 	defer cancel()
 
-	network := ipVersionNetwork("tcp", ipVersion)
+	network := netutil.TCPNetwork(ipVersion)
 
 	address := net.JoinHostPort(hostname, fmt.Sprintf("%d", port))
 	start := time.Now()
@@ -410,7 +411,7 @@ func createGenerateVNCSessionKeyMethod() js.Func {
 }
 
 // createVNCProxyMethod creates the VNC proxy method for raw TCP-over-WebSocket bridging.
-// JS signature: createVNCProxy(hostname, port, mode?, username?, keySessionID?, sessionID?, width?, height?, peerPublicKey?)
+// JS signature: createVNCProxy(hostname, port, mode?, username?, keySessionID?, sessionID?, width?, height?, peerPublicKey?, ipVersion?)
 //
 //	mode:           "attach" (default) or "session"
 //	username:       required when mode is "session"
@@ -418,6 +419,7 @@ func createGenerateVNCSessionKeyMethod() js.Func {
 //	sessionID:      Windows session ID (0 = console/auto)
 //	width/height:   requested viewport size for session mode (0 = server default)
 //	peerPublicKey:  base64 X25519 static pubkey of the destination peer (required for auth)
+//	ipVersion:      address family to dial: 4, 6, or 0/omitted for automatic
 func createVNCProxyMethod(client *netbird.Client) js.Func {
 	return js.FuncOf(func(_ js.Value, args []js.Value) any {
 		params, err := parseVNCProxyArgs(args)
@@ -440,6 +442,7 @@ func createVNCProxyMethod(client *netbird.Client) js.Func {
 			Height:        params.height,
 			PeerPublicKey: params.peerPublicKey,
 			KeySessionID:  params.keySessionID,
+			IPVersion:     params.ipVersion,
 		})
 	})
 }
@@ -454,6 +457,7 @@ type vncProxyParams struct {
 	width            uint16
 	height           uint16
 	peerPublicKey    string
+	ipVersion        int
 	rejectViaPromise bool
 }
 
@@ -539,6 +543,9 @@ func parseVNCProxyOptionalNumbers(args []js.Value, p *vncProxyParams) error {
 	}
 	if len(args) > 8 && args[8].Type() == js.TypeString {
 		p.peerPublicKey = args[8].String()
+	}
+	if len(args) > 9 {
+		p.ipVersion = jsIPVersion(args[9])
 	}
 	return nil
 }
@@ -660,18 +667,6 @@ func createSetLogLevelMethod(client *netbird.Client) js.Func {
 			resolve.Invoke(js.ValueOf(true))
 		})
 	})
-}
-
-// ipVersionNetwork appends "4" or "6" to a base network string (e.g. "tcp" -> "tcp4").
-func ipVersionNetwork(base string, ipVersion int) string {
-	switch ipVersion {
-	case 4:
-		return base + "4"
-	case 6:
-		return base + "6"
-	default:
-		return base
-	}
 }
 
 // jsIPVersion extracts an IP version (4 or 6) from a JS string or number.

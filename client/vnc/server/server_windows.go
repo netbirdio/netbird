@@ -241,20 +241,16 @@ func (s *Server) platformInit() {
 // serviceAcceptLoop runs in Session 0. It validates the source IP and
 // hands accepted connections to handleServiceConnection, which runs the
 // Noise_IK handshake before proxying to the user-session agent.
-func (s *Server) serviceAcceptLoop() {
+func (s *Server) serviceAcceptLoop(ln net.Listener) {
+	if ln == nil {
+		return
+	}
 
 	sm := newSessionManager()
 	go sm.run()
 
 	log.Info("service mode, proxying connections to agent over Unix socket")
 
-	s.mu.Lock()
-	ln := s.listener
-	s.mu.Unlock()
-	if ln == nil {
-		sm.Stop()
-		return
-	}
 	for {
 		conn, err := ln.Accept()
 		if err != nil {

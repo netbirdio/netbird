@@ -2,14 +2,16 @@
 
 package server
 
+import "net"
+
 func (s *Server) platformInit() {
 	// no-op on X11
 }
 
 // serviceAcceptLoop is not supported on Linux.
-func (s *Server) serviceAcceptLoop() {
+func (s *Server) serviceAcceptLoop(ln net.Listener) {
 	s.log.Warn("service mode not supported on Linux, falling back to direct mode")
-	s.acceptLoop()
+	s.acceptLoop(ln)
 }
 
 func (s *Server) platformSessionManager() virtualSessionManager {

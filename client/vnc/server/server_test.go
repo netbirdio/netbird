@@ -145,11 +145,13 @@ func TestAuth_NoUnauthBytesPastHeader(t *testing.T) {
 
 func TestIsAllowedSource(t *testing.T) {
 	tests := []struct {
-		name      string
-		localAddr netip.Addr
-		network   netip.Prefix
-		remote    net.Addr
-		want      bool
+		name       string
+		localAddr  netip.Addr
+		network    netip.Prefix
+		localAddr6 netip.Addr
+		network6   netip.Prefix
+		remote     net.Addr
+		want       bool
 	}{
 		{
 			// Unix-domain remotes (per-session agent path) are local IPC,
@@ -202,12 +204,48 @@ func TestIsAllowedSource(t *testing.T) {
 			remote:    &net.TCPAddr{IP: net.ParseIP("10.99.99.2"), Port: 5900},
 			want:      false,
 		},
+		{
+			name:       "v6 overlay IP allowed",
+			localAddr:  netip.MustParseAddr("10.99.99.1"),
+			network:    netip.MustParsePrefix("10.99.0.0/16"),
+			localAddr6: netip.MustParseAddr("fd00:1234::1"),
+			network6:   netip.MustParsePrefix("fd00:1234::/64"),
+			remote:     &net.TCPAddr{IP: net.ParseIP("fd00:1234::2"), Port: 5900},
+			want:       true,
+		},
+		{
+			name:       "v6 own IP rejected",
+			localAddr:  netip.MustParseAddr("10.99.99.1"),
+			network:    netip.MustParsePrefix("10.99.0.0/16"),
+			localAddr6: netip.MustParseAddr("fd00:1234::1"),
+			network6:   netip.MustParsePrefix("fd00:1234::/64"),
+			remote:     &net.TCPAddr{IP: net.ParseIP("fd00:1234::1"), Port: 5900},
+			want:       false,
+		},
+		{
+			name:       "v6 outside overlay rejected",
+			localAddr:  netip.MustParseAddr("10.99.99.1"),
+			network:    netip.MustParsePrefix("10.99.0.0/16"),
+			localAddr6: netip.MustParseAddr("fd00:1234::1"),
+			network6:   netip.MustParsePrefix("fd00:1234::/64"),
+			remote:     &net.TCPAddr{IP: net.ParseIP("2001:db8::5"), Port: 5900},
+			want:       false,
+		},
+		{
+			name:      "v6 rejected when only v4 overlay configured",
+			localAddr: netip.MustParseAddr("10.99.99.1"),
+			network:   netip.MustParsePrefix("10.99.0.0/16"),
+			remote:    &net.TCPAddr{IP: net.ParseIP("fd00:1234::2"), Port: 5900},
+			want:      false,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			srv := New(Config{Capturer: &testCapturer{}, Injector: &StubInputInjector{}})
 			srv.localAddr = tc.localAddr
 			srv.network = tc.network
+			srv.localAddr6 = tc.localAddr6
+			srv.network6 = tc.network6
 			assert.Equal(t, tc.want, srv.isAllowedSource(tc.remote))
 		})
 	}
