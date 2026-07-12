@@ -54,6 +54,10 @@ type UIPreferences struct {
 	Language            i18n.LanguageCode `json:"language"`
 	ViewMode            ViewMode          `json:"viewMode"`
 	OnboardingCompleted bool              `json:"onboardingCompleted"`
+	// AutostartInitialized records that the one-time autostart default
+	// decision has run for this OS user. It only ever transitions to true
+	// and is never reset, so the default-on flow runs at most once, ever.
+	AutostartInitialized bool `json:"autostartInitialized"`
 }
 
 // LanguageValidator rejects SetLanguage inputs with no shipped bundle.
@@ -146,6 +150,27 @@ func (s *Store) SetOnboardingCompleted(done bool) error {
 	}
 	next := s.current
 	next.OnboardingCompleted = done
+	if err := s.persistLocked(next); err != nil {
+		s.mu.Unlock()
+		return fmt.Errorf("persist preferences: %w", err)
+	}
+	s.current = next
+	s.mu.Unlock()
+
+	s.broadcast(next)
+	return nil
+}
+
+// SetAutostartInitialized persists the one-time autostart decision marker.
+// No-op if unchanged.
+func (s *Store) SetAutostartInitialized(done bool) error {
+	s.mu.Lock()
+	if s.current.AutostartInitialized == done {
+		s.mu.Unlock()
+		return nil
+	}
+	next := s.current
+	next.AutostartInitialized = done
 	if err := s.persistLocked(next); err != nil {
 		s.mu.Unlock()
 		return fmt.Errorf("persist preferences: %w", err)
