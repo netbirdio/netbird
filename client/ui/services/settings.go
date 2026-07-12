@@ -24,7 +24,7 @@ type MDMFields struct {
 	DisableMetricsCollection bool   `json:"disableMetricsCollection"`
 	SplitTunnelMode          bool   `json:"splitTunnelMode"`
 	SplitTunnelApps          bool   `json:"splitTunnelApps"`
-	DisableAdvancedView bool `json:"disableAdvancedView"`
+	DisableAdvancedView      bool   `json:"disableAdvancedView"`
 }
 
 type Features struct {
@@ -54,6 +54,8 @@ type Config struct {
 	MTU                           int64  `json:"mtu"`
 	DisableAutoConnect            bool   `json:"disableAutoConnect"`
 	ServerSSHAllowed              bool   `json:"serverSshAllowed"`
+	ServerVNCAllowed              bool   `json:"serverVncAllowed"`
+	DisableVNCApproval            bool   `json:"disableVncApproval"`
 	RosenpassEnabled              bool   `json:"rosenpassEnabled"`
 	RosenpassPermissive           bool   `json:"rosenpassPermissive"`
 	DisableNotifications          bool   `json:"disableNotifications"`
@@ -85,6 +87,8 @@ type SetConfigParams struct {
 	PreSharedKey                  *string `json:"preSharedKey,omitempty"`
 	DisableAutoConnect            *bool   `json:"disableAutoConnect,omitempty"`
 	ServerSSHAllowed              *bool   `json:"serverSshAllowed,omitempty"`
+	ServerVNCAllowed              *bool   `json:"serverVncAllowed,omitempty"`
+	DisableVNCApproval            *bool   `json:"disableVncApproval,omitempty"`
 	RosenpassEnabled              *bool   `json:"rosenpassEnabled,omitempty"`
 	RosenpassPermissive           *bool   `json:"rosenpassPermissive,omitempty"`
 	DisableNotifications          *bool   `json:"disableNotifications,omitempty"`
@@ -135,6 +139,8 @@ func (s *Settings) GetConfig(ctx context.Context, p ConfigParams) (Config, error
 		MTU:                           resp.GetMtu(),
 		DisableAutoConnect:            resp.GetDisableAutoConnect(),
 		ServerSSHAllowed:              resp.GetServerSSHAllowed(),
+		ServerVNCAllowed:              resp.GetServerVNCAllowed(),
+		DisableVNCApproval:            resp.GetDisableVNCApproval(),
 		RosenpassEnabled:              resp.GetRosenpassEnabled(),
 		RosenpassPermissive:           resp.GetRosenpassPermissive(),
 		DisableNotifications:          resp.GetDisableNotifications(),
@@ -170,6 +176,8 @@ func (s *Settings) SetConfig(ctx context.Context, p SetConfigParams) error {
 		OptionalPreSharedKey:          p.PreSharedKey,
 		DisableAutoConnect:            p.DisableAutoConnect,
 		ServerSSHAllowed:              p.ServerSSHAllowed,
+		ServerVNCAllowed:              p.ServerVNCAllowed,
+		DisableVNCApproval:            p.DisableVNCApproval,
 		RosenpassEnabled:              p.RosenpassEnabled,
 		RosenpassPermissive:           p.RosenpassPermissive,
 		DisableNotifications:          p.DisableNotifications,

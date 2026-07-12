@@ -1321,5 +1321,65 @@
     },
     "error.unknown": {
         "message": "L’opération a échoué."
+    },
+    "settings.tabs.vnc": {
+        "message": "VNC"
+    },
+    "settings.vnc.section.server": {
+        "message": "Serveur"
+    },
+    "settings.vnc.section.approval": {
+        "message": "Approbation"
+    },
+    "settings.vnc.server.label": {
+        "message": "Activer le serveur VNC"
+    },
+    "settings.vnc.server.help": {
+        "message": "Exécuter le serveur VNC de NetBird sur cet hôte afin que les pairs autorisés puissent voir ou contrôler son écran."
+    },
+    "settings.vnc.approval.label": {
+        "message": "Exiger l'approbation des connexions"
+    },
+    "settings.vnc.approval.help": {
+        "message": "Afficher sur cet hôte une invite qui doit être acceptée avant d'autoriser une connexion VNC entrante."
+    },
+    "window.title.approval": {
+        "message": "Demande de connexion"
+    },
+    "approval.title.vnc": {
+        "message": "Autoriser la connexion VNC ?"
+    },
+    "approval.title.ssh": {
+        "message": "Autoriser la connexion SSH ?"
+    },
+    "approval.title.default": {
+        "message": "Autoriser la connexion entrante ?"
+    },
+    "approval.field.user": {
+        "message": "De l'utilisateur"
+    },
+    "approval.field.keyFingerprint": {
+        "message": "Empreinte de clé"
+    },
+    "approval.field.peer": {
+        "message": "Via le pair"
+    },
+    "approval.field.sourceIp": {
+        "message": "IP source"
+    },
+    "approval.field.osUser": {
+        "message": "Utilisateur du système"
+    },
+    "approval.countdown": {
+        "message": "Refus automatique dans {seconds}s"
+    },
+    "approval.action.allow": {
+        "message": "Autoriser"
+    },
+    "approval.action.allowViewOnly": {
+        "message": "Autoriser (lecture seule)"
+    },
+    "approval.action.deny": {
+        "message": "Refuser"
     }
 }

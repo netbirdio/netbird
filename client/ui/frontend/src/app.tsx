@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import "./globals.css";
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
 import SessionExpirationDialog from "@/modules/session/SessionExpirationDialog.tsx";
+import ApprovalDialog from "@/modules/approval/ApprovalDialog.tsx";
 import UpdateInProgressDialog from "@/modules/auto-update/UpdateInProgressDialog.tsx";
 import WelcomeDialog from "@/modules/welcome/WelcomeDialog.tsx";
 import ErrorDialog from "@/modules/error/ErrorDialog.tsx";
@@ -48,6 +49,7 @@ Promise.all([
                                 path={"session-expiration"}
                                 element={<SessionExpirationDialog />}
                             />
+                            <Route path={"approval"} element={<ApprovalDialog />} />
                             <Route path={"welcome"} element={<WelcomeDialog />} />
                             <Route path={"error"} element={<ErrorDialog />} />
                         </Route>

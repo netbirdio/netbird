@@ -8,6 +8,7 @@ import {
     BoltIcon,
     InfoIcon,
     LifeBuoyIcon,
+    MonitorIcon,
     NetworkIcon,
     ShieldIcon,
     SlidersHorizontalIcon,
@@ -61,6 +62,13 @@ export const SettingsNavigation = () => {
                         value={"ssh"}
                         icon={SquareTerminalIcon}
                         title={t("settings.tabs.ssh")}
+                    />
+                )}
+                {!features.disableUpdateSettings && (
+                    <VerticalTabs.Trigger
+                        value={"vnc"}
+                        icon={MonitorIcon}
+                        title={t("settings.tabs.vnc")}
                     />
                 )}
                 {!features.disableUpdateSettings && (

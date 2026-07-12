@@ -318,6 +318,7 @@ func registerServices(app *application.App, conn *Conn, s registeredServices) {
 	app.RegisterService(application.NewService(s.settings))
 	app.RegisterService(application.NewService(s.networks))
 	app.RegisterService(application.NewService(services.NewForwarding(conn)))
+	app.RegisterService(application.NewService(services.NewApproval(conn)))
 	app.RegisterService(application.NewService(s.profiles))
 	app.RegisterService(application.NewService(services.NewDebug(conn)))
 	app.RegisterService(application.NewService(s.update))

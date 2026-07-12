@@ -1321,5 +1321,65 @@
     },
     "error.unknown": {
         "message": "Не удалось выполнить операцию."
+    },
+    "settings.tabs.vnc": {
+        "message": "VNC"
+    },
+    "settings.vnc.section.server": {
+        "message": "Сервер"
+    },
+    "settings.vnc.section.approval": {
+        "message": "Подтверждение"
+    },
+    "settings.vnc.server.label": {
+        "message": "Включить VNC-сервер"
+    },
+    "settings.vnc.server.help": {
+        "message": "Запустить VNC-сервер NetBird на этом хосте, чтобы авторизованные пиры могли просматривать его экран или управлять им."
+    },
+    "settings.vnc.approval.label": {
+        "message": "Требовать подтверждение подключения"
+    },
+    "settings.vnc.approval.help": {
+        "message": "Показывать на этом хосте запрос, который нужно принять перед разрешением входящего VNC-подключения."
+    },
+    "window.title.approval": {
+        "message": "Запрос на подключение"
+    },
+    "approval.title.vnc": {
+        "message": "Разрешить VNC-подключение?"
+    },
+    "approval.title.ssh": {
+        "message": "Разрешить SSH-подключение?"
+    },
+    "approval.title.default": {
+        "message": "Разрешить входящее подключение?"
+    },
+    "approval.field.user": {
+        "message": "От пользователя"
+    },
+    "approval.field.keyFingerprint": {
+        "message": "Отпечаток ключа"
+    },
+    "approval.field.peer": {
+        "message": "Через пир"
+    },
+    "approval.field.sourceIp": {
+        "message": "IP-адрес источника"
+    },
+    "approval.field.osUser": {
+        "message": "Пользователь ОС"
+    },
+    "approval.countdown": {
+        "message": "Автоотклонение через {seconds} с"
+    },
+    "approval.action.allow": {
+        "message": "Разрешить"
+    },
+    "approval.action.allowViewOnly": {
+        "message": "Разрешить (только просмотр)"
+    },
+    "approval.action.deny": {
+        "message": "Отклонить"
     }
 }
