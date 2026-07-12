@@ -21,6 +21,77 @@ import (
 	"github.com/netbirdio/netbird/idp/dex/web"
 )
 
+// FrontendI18n holds translations for the login page.
+type FrontendI18n struct {
+	SignInTitle          string
+	EnterCredentials     string
+	InvalidCredentials   string
+	EmailPlaceholder     string
+	PasswordLabel        string
+	PasswordPlaceholder  string
+	SignInButton         string
+	ChooseAnotherMethod  string
+	ChooseLoginMethod    string
+	ContinueWith         string
+}
+
+// GetI18n returns translations for the given locale.
+func GetI18n(locale string) FrontendI18n {
+	switch strings.ToLower(locale) {
+	case "zh-cn", "zh":
+		return FrontendI18n{
+			SignInTitle:         "登录",
+			EnterCredentials:    "请输入您的凭据",
+			InvalidCredentials:  "邮箱或密码无效",
+			EmailPlaceholder:    "请输入您的邮箱",
+			PasswordLabel:       "密码",
+			PasswordPlaceholder: "请输入您的密码",
+			SignInButton:        "登录",
+			ChooseAnotherMethod: "选择其他登录方式",
+			ChooseLoginMethod:   "选择登录方式",
+			ContinueWith:        "使用",
+		}
+	default:
+		return FrontendI18n{}
+	}
+}
+
+// ToExtraMap converts FrontendI18n to a map for template Extra field.
+func (i FrontendI18n) ToExtraMap() map[string]string {
+	m := make(map[string]string)
+	if i.SignInTitle != "" {
+		m["signInTitle"] = i.SignInTitle
+	}
+	if i.EnterCredentials != "" {
+		m["enterCredentials"] = i.EnterCredentials
+	}
+	if i.InvalidCredentials != "" {
+		m["invalidCredentials"] = i.InvalidCredentials
+	}
+	if i.EmailPlaceholder != "" {
+		m["emailPlaceholder"] = i.EmailPlaceholder
+	}
+	if i.PasswordLabel != "" {
+		m["passwordLabel"] = i.PasswordLabel
+	}
+	if i.PasswordPlaceholder != "" {
+		m["passwordPlaceholder"] = i.PasswordPlaceholder
+	}
+	if i.SignInButton != "" {
+		m["signInButton"] = i.SignInButton
+	}
+	if i.ChooseAnotherMethod != "" {
+		m["chooseAnotherMethod"] = i.ChooseAnotherMethod
+	}
+	if i.ChooseLoginMethod != "" {
+		m["chooseLoginMethod"] = i.ChooseLoginMethod
+	}
+	if i.ContinueWith != "" {
+		m["continueWith"] = i.ContinueWith
+	}
+	return m
+}
+
 // parseDuration parses a duration string (e.g., "6h", "24h", "168h").
 func parseDuration(s string) (time.Duration, error) {
 	return time.ParseDuration(s)
@@ -96,25 +167,11 @@ type TOTPConfig struct {
 
 // WebAuthnConfig holds configuration for a WebAuthn authenticator.
 type WebAuthnConfig struct {
-	// RPDisplayName is the human-readable relying party name shown in the browser
-	// dialog during key registration and authentication (e.g., "My Company SSO").
-	RPDisplayName string `yaml:"rpDisplayName" json:"rpDisplayName"`
-	// RPID is the relying party identifier — must match the domain in the browser
-	// address bar. If empty, derived from the issuer URL hostname.
-	// Example: "auth.example.com"
-	RPID string `yaml:"rpID" json:"rpID"`
-	// RPOrigins is the list of allowed origins for WebAuthn ceremonies.
-	// If empty, derived from the issuer URL (scheme + host).
-	// Example: ["https://auth.example.com"]
-	RPOrigins []string `yaml:"rpOrigins" json:"rpOrigins"`
-	// AttestationPreference controls what attestation data the authenticator should provide:
-	//   "none"     — don't request attestation (simpler, more private)
-	//   "indirect" — authenticator may anonymize attestation (default)
-	//   "direct"   — request full attestation (for enterprise key model verification)
-	AttestationPreference string `yaml:"attestationPreference" json:"attestationPreference"`
-	// Timeout is the duration allowed for the browser WebAuthn ceremony
-	// (registration or login). Defaults to "60s".
-	Timeout string `yaml:"timeout" json:"timeout"`
+	RPDisplayName        string   `yaml:"rpDisplayName" json:"rpDisplayName"`
+	RPID                 string   `yaml:"rpID" json:"rpID"`
+	RPOrigins            []string `yaml:"rpOrigins" json:"rpOrigins"`
+	AttestationPreference string  `yaml:"attestationPreference" json:"attestationPreference"`
+	Timeout              string   `yaml:"timeout" json:"timeout"`
 }
 
 // Web is the config format for the HTTP server.
@@ -171,6 +228,7 @@ type Frontend struct {
 	Theme   string            `yaml:"theme" json:"theme"`
 	Issuer  string            `yaml:"issuer" json:"issuer"`
 	LogoURL string            `yaml:"logoURL" json:"logoURL"`
+	Locale  string            `yaml:"locale" json:"locale"`
 	Extra   map[string]string `yaml:"extra" json:"extra"`
 }
 
@@ -233,8 +291,6 @@ type Connector struct {
 }
 
 // ToStorageConnector converts a Connector to storage.Connector type.
-// It maps custom connector types (e.g., "zitadel", "entra") to Dex-native types
-// and augments the config with OIDC defaults when needed.
 func (c *Connector) ToStorageConnector() (storage.Connector, error) {
 	dexType, augmentedConfig := mapConnectorToDex(c.Type, c.Config)
 
@@ -325,8 +381,6 @@ func (s *Storage) OpenStorage(logger *slog.Logger) (storage.Storage, error) {
 }
 
 // parsePostgresDSN parses a DSN into a sql.Postgres config.
-// It accepts both URI format (postgres://user:pass@host:port/dbname?sslmode=disable)
-// and libpq key=value format (host=localhost port=5432 dbname=mydb), including quoted values.
 func parsePostgresDSN(dsn string) (*sql.Postgres, error) {
 	var params map[string]string
 	var err error
@@ -420,8 +474,7 @@ func parsePostgresURI(dsn string) (map[string]string, error) {
 	return params, nil
 }
 
-// parsePostgresKeyValue parses a libpq key=value DSN string, handling single-quoted values
-// (e.g., password='my pass' host=localhost).
+// parsePostgresKeyValue parses a libpq key=value DSN string, handling single-quoted values.
 func parsePostgresKeyValue(dsn string) (map[string]string, error) {
 	params := make(map[string]string)
 	s := strings.TrimSpace(dsn)
@@ -446,12 +499,10 @@ func parsePostgresKeyValue(dsn string) (map[string]string, error) {
 }
 
 // parseDSNValue parses the next value from a libpq key=value string positioned after the '='.
-// It returns the parsed value and the remaining unparsed string.
 func parseDSNValue(s string) (value, rest string, err error) {
 	if len(s) > 0 && s[0] == '\'' {
 		return parseQuotedDSNValue(s[1:])
 	}
-	// Unquoted value: read until whitespace.
 	idx := strings.IndexAny(s, " \t\n")
 	if idx < 0 {
 		return s, "", nil
@@ -460,7 +511,6 @@ func parseDSNValue(s string) (value, rest string, err error) {
 }
 
 // parseQuotedDSNValue parses a single-quoted value starting after the opening quote.
-// Libpq uses ” to represent a literal single quote inside quoted values.
 func parseQuotedDSNValue(s string) (value, rest string, err error) {
 	var buf strings.Builder
 	for len(s) > 0 {
@@ -586,6 +636,20 @@ func buildSessionsConfig(sessions *Sessions) *server.SessionConfig {
 
 // ToServerConfig converts YAMLConfig to dex server.Config
 func (c *YAMLConfig) ToServerConfig(stor storage.Storage, logger *slog.Logger) server.Config {
+	// Merge locale-based translations into Extra map
+	extra := make(map[string]string)
+	if c.Frontend.Extra != nil {
+		for k, v := range c.Frontend.Extra {
+			extra[k] = v
+		}
+	}
+	if c.Frontend.Locale != "" {
+		i18n := GetI18n(c.Frontend.Locale)
+		for k, v := range i18n.ToExtraMap() {
+			extra[k] = v
+		}
+	}
+
 	cfg := server.Config{
 		Issuer:             c.Issuer,
 		Storage:            stor,
@@ -598,7 +662,7 @@ func (c *YAMLConfig) ToServerConfig(stor storage.Storage, logger *slog.Logger) s
 			LogoURL: c.Frontend.LogoURL,
 			Theme:   c.Frontend.Theme,
 			Dir:     c.Frontend.Dir,
-			Extra:   c.Frontend.Extra,
+			Extra:   extra,
 		},
 		SessionConfig: buildSessionsConfig(c.Sessions),
 		MFAProviders:  buildMFAProviders(c.MFA.Authenticators, c.Issuer, logger),
@@ -634,7 +698,6 @@ func (c *YAMLConfig) ToServerConfig(stor storage.Storage, logger *slog.Logger) s
 }
 
 // GetRefreshTokenPolicy creates a RefreshTokenPolicy from the expiry config.
-// This should be called after ToServerConfig and the policy set on the config.
 func (c *YAMLConfig) GetRefreshTokenPolicy(logger *slog.Logger) (*server.RefreshTokenPolicy, error) {
 	return server.NewRefreshTokenPolicy(
 		logger,
