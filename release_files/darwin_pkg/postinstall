@@ -5,12 +5,33 @@ set -x
 APP=/Applications/NetBird.app
 AGENT=/usr/local/bin/netbird
 LOG_FILE=/var/log/netbird/client_post_install.log
+FRESH_INSTALL_MARKER_DIR="/Library/Application Support/NetBird"
+FRESH_INSTALL_MARKER="$FRESH_INSTALL_MARKER_DIR/.fresh-install"
 
 mkdir -p /var/log/netbird/
 mkdir -p /usr/local/bin/
 
 {
     echo "Installing NetBird..."
+
+    # Fresh-vs-upgrade detection: the pkg receipt of a previous install is
+    # still present while this script runs, so a receipt means upgrade. Only
+    # a true fresh install gets the breadcrumb the GUI uses to enable
+    # launch-on-login by default; the installer itself never writes login
+    # items. On upgrade any stale breadcrumb is removed (covers a fresh
+    # install where the GUI never launched before the first update).
+    IS_UPGRADE="false"
+    if [ -n "${INSTALL_PKG_SESSION_ID:-}" ] && pkgutil --pkg-info "${INSTALL_PKG_SESSION_ID}" > /dev/null 2>&1; then
+        IS_UPGRADE="true"
+    fi
+    if [ "$IS_UPGRADE" = "true" ]; then
+        echo "Upgrade detected (receipt for ${INSTALL_PKG_SESSION_ID} present), removing stale fresh-install marker."
+        rm -f "$FRESH_INSTALL_MARKER"
+    else
+        echo "Fresh install detected, writing fresh-install marker."
+        mkdir -p "$FRESH_INSTALL_MARKER_DIR"
+        touch "$FRESH_INSTALL_MARKER"
+    fi
 
     if test -d $APP; then
         echo "NetBird app copied successfully."
@@ -30,7 +51,14 @@ mkdir -p /usr/local/bin/
     $AGENT service install || true
     $AGENT service start || true
 
-    open $APP
+    # On upgrade the GUI relaunch carries --post-update so its first-run
+    # autostart default cannot fire (belt-and-suspenders on top of the
+    # absent breadcrumb).
+    if [ "$IS_UPGRADE" = "true" ]; then
+        open $APP --args --post-update
+    else
+        open $APP
+    fi
 
     echo "Finished Netbird installation successfully"
     exit 0 # all good
