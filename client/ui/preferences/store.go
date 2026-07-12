@@ -76,8 +76,9 @@ type Emitter interface {
 type Store struct {
 	path string
 
-	mu      sync.RWMutex
-	current UIPreferences
+	mu            sync.RWMutex
+	current       UIPreferences
+	existedAtLoad bool
 
 	subsMu sync.Mutex
 	subs   []chan UIPreferences
@@ -231,12 +232,28 @@ func (s *Store) Subscribe() (<-chan UIPreferences, func()) {
 	return ch, unsubscribe
 }
 
+// ExistedAtLoad reports whether the backing preferences file was present on
+// disk when the store loaded. It distinguishes a user who ran a prior GUI
+// version from a brand-new OS user with no preferences yet.
+func (s *Store) ExistedAtLoad() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.existedAtLoad
+}
+
 // load reads the file into current. A missing file is not an error (the
 // in-memory default stands); malformed contents return an error.
 func (s *Store) load() error {
-	if _, err := os.Stat(s.path); errors.Is(err, os.ErrNotExist) {
-		return nil
+	if _, err := os.Stat(s.path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("stat preferences: %w", err)
 	}
+
+	s.mu.Lock()
+	s.existedAtLoad = true
+	s.mu.Unlock()
 
 	var loaded UIPreferences
 	if _, err := util.ReadJson(s.path, &loaded); err != nil {
