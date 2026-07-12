@@ -12,10 +12,9 @@ import (
 
 func TestShouldEnableAutostartDefault(t *testing.T) {
 	allPass := autostartDefaultState{
-		supported:          true,
-		mdmDisabled:        false,
-		postUpdateRelaunch: false,
-		breadcrumbPresent:  true,
+		supported:    true,
+		mdmDisabled:  false,
+		priorInstall: false,
 	}
 
 	tests := []struct {
@@ -40,32 +39,26 @@ func TestShouldEnableAutostartDefault(t *testing.T) {
 			wantReason: "autostart disabled by MDM policy",
 		},
 		{
-			name:       "post-update relaunch skips",
-			mutate:     func(s *autostartDefaultState) { s.postUpdateRelaunch = true },
-			wantReason: "post-update relaunch",
-		},
-		{
-			name:       "missing breadcrumb (upgrade or portable build) skips",
-			mutate:     func(s *autostartDefaultState) { s.breadcrumbPresent = false },
-			wantReason: "no fresh-install breadcrumb",
+			name:       "existing installation (upgrade) skips",
+			mutate:     func(s *autostartDefaultState) { s.priorInstall = true },
+			wantReason: "existing NetBird installation",
 		},
 		{
 			name: "unsupported wins over every other guard",
 			mutate: func(s *autostartDefaultState) {
 				s.supported = false
 				s.mdmDisabled = true
-				s.postUpdateRelaunch = true
-				s.breadcrumbPresent = false
+				s.priorInstall = true
 			},
 			wantReason: "autostart not supported on this platform",
 		},
 		{
-			name: "breadcrumb present but relaunched after update skips",
+			name: "MDM disable wins over prior install",
 			mutate: func(s *autostartDefaultState) {
-				s.postUpdateRelaunch = true
-				s.breadcrumbPresent = true
+				s.mdmDisabled = true
+				s.priorInstall = true
 			},
-			wantReason: "post-update relaunch",
+			wantReason: "autostart disabled by MDM policy",
 		},
 	}
 

@@ -238,6 +238,23 @@ func TestStore_SetAutostartInitializedPersistsAcrossReload(t *testing.T) {
 	assert.True(t, reloaded.Get().AutostartInitialized, "marker must survive a reload from disk")
 }
 
+func TestStore_ExistedAtLoad(t *testing.T) {
+	withTempConfigDir(t)
+
+	// Brand-new OS user: no preferences file on disk yet.
+	fresh, err := NewStore(nil, nil)
+	require.NoError(t, err)
+	assert.False(t, fresh.ExistedAtLoad(), "ExistedAtLoad must be false when no file is on disk")
+
+	// Persisting a value writes the file to disk.
+	require.NoError(t, fresh.SetLanguage("en"))
+
+	// A subsequent GUI launch reopens the now-present file.
+	reopened, err := NewStore(nil, nil)
+	require.NoError(t, err)
+	assert.True(t, reopened.ExistedAtLoad(), "ExistedAtLoad must be true after the store has persisted and is reopened")
+}
+
 func TestStore_ErrUnsupportedSentinel(t *testing.T) {
 	// Verifies callers can match on the sentinel error rather than parsing
 	// strings — protects against accidental %v -> %w changes that would
