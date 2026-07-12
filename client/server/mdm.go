@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -99,7 +100,10 @@ func (s *Server) onMDMPolicyChange(_, _ *mdm.Policy) error {
 		proto.SystemEvent_SYSTEM,
 		"MDM policy applied",
 		"NetBird configuration was updated by your IT policy.",
-		map[string]string{"source": "mdm", "type": "policy_applied"},
+		map[string]string{
+			proto.MetadataSourceKey: proto.MetadataSourceMDM,
+			proto.MetadataTypeKey:   proto.MetadataTypePolicyApplied,
+		},
 	)
 	return nil
 }
@@ -124,8 +128,8 @@ func (s *Server) publishConfigChangedEvent(source string) {
 		fmt.Sprintf("daemon config changed (source=%s)", source),
 		"",
 		map[string]string{
-			"source": source,
-			"type":   "config_changed",
+			proto.MetadataSourceKey: source,
+			proto.MetadataTypeKey:   proto.MetadataTypeConfigChanged,
 		},
 	)
 }
@@ -152,7 +156,6 @@ func (s *Server) restartEngineForMDMLocked() error {
 	s.config = config
 	s.statusRecorder.UpdateManagementAddress(config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(config.RosenpassEnabled, config.RosenpassPermissive)
-	s.statusRecorder.UpdateLazyConnection(config.LazyConnectionEnabled)
 
 	ctx, cancel := context.WithCancel(s.rootCtx)
 	s.actCancel = cancel
@@ -161,7 +164,7 @@ func (s *Server) restartEngineForMDMLocked() error {
 	s.clientGiveUpChan = make(chan struct{})
 	log.Info("MDM restart: spawning connectWithRetryRuns with re-resolved config")
 	go s.connectWithRetryRuns(ctx, config, s.statusRecorder, s.clientRunningChan, s.clientGiveUpChan)
-	s.publishConfigChangedEvent("mdm")
+	s.publishConfigChangedEvent(proto.MetadataSourceMDM)
 	return nil
 }
 
@@ -178,6 +181,37 @@ func conflictBool(key string, p *bool) conflictCheck {
 			}
 			want, ok := pol.GetBool(key)
 			return ok && want == *p
+		},
+	}
+}
+
+func canonicalURL(s string) string {
+	u, err := url.ParseRequestURI(s)
+	if err != nil {
+		return s
+	}
+	if u.Port() == "" {
+		switch u.Scheme {
+		case "https":
+			u.Host += ":443"
+		case "http":
+			u.Host += ":80"
+		}
+	}
+	return u.String()
+}
+
+// conflictURL is conflictString for URL-typed keys: both sides are
+// normalized via canonicalURL before comparison.
+func conflictURL(key, got string) conflictCheck {
+	return conflictCheck{
+		key: key,
+		check: func(pol *mdm.Policy) bool {
+			if got == "" {
+				return true
+			}
+			want, ok := pol.GetString(key)
+			return ok && canonicalURL(want) == canonicalURL(got)
 		},
 	}
 }
@@ -257,7 +291,7 @@ func mdmManagedFieldConflicts(msg *proto.SetConfigRequest, policy *mdm.Policy) [
 	}
 
 	return resolveConflicts(policy, []conflictCheck{
-		conflictString(mdm.KeyManagementURL, msg.ManagementUrl),
+		conflictURL(mdm.KeyManagementURL, msg.ManagementUrl),
 		conflictString(mdm.KeyPreSharedKey, pskGot),
 		conflictBool(mdm.KeyRosenpassEnabled, msg.RosenpassEnabled),
 		conflictBool(mdm.KeyRosenpassPermissive, msg.RosenpassPermissive),
@@ -305,7 +339,6 @@ func setConfigRequestHasConfigOverrides(msg *proto.SetConfigRequest) bool {
 		msg.DisableFirewall != nil ||
 		msg.BlockLanAccess != nil ||
 		msg.DisableNotifications != nil ||
-		msg.LazyConnectionEnabled != nil ||
 		msg.BlockInbound != nil ||
 		msg.DisableIpv6 != nil ||
 		msg.EnableSSHRoot != nil ||
@@ -348,7 +381,6 @@ func loginRequestHasConfigOverrides(msg *proto.LoginRequest) bool {
 		msg.BlockLanAccess != nil ||
 		msg.DisableNotifications != nil ||
 		len(msg.DnsLabels) > 0 || msg.CleanDNSLabels ||
-		msg.LazyConnectionEnabled != nil ||
 		msg.BlockInbound != nil
 }
 
@@ -380,7 +412,7 @@ func loginRequestMDMConflicts(msg *proto.LoginRequest, policy *mdm.Policy) []str
 	}
 
 	return resolveConflicts(policy, []conflictCheck{
-		conflictString(mdm.KeyManagementURL, msg.ManagementUrl),
+		conflictURL(mdm.KeyManagementURL, msg.ManagementUrl),
 		conflictString(mdm.KeyPreSharedKey, pskGot),
 		conflictBool(mdm.KeyRosenpassEnabled, msg.RosenpassEnabled),
 		conflictBool(mdm.KeyRosenpassPermissive, msg.RosenpassPermissive),

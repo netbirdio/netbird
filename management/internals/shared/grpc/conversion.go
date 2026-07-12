@@ -48,7 +48,11 @@ func init() {
 	precomputedDeprecatedRemotePeersConstraint = constraint
 }
 
-func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken *Token, extraSettings *types.ExtraSettings) *proto.NetbirdConfig {
+// toNetbirdConfig converts the server configuration to the wire representation. It returns
+// nil when no server config is set (the fan-out network-map path) because clients treat any
+// non-nil config as authoritative: a config without a relay section is interpreted as relay
+// disabled and wipes the clients' relay URLs.
+func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken *Token, extraSettings *types.ExtraSettings, settings *types.Settings) *proto.NetbirdConfig {
 	if config == nil {
 		return nil
 	}
@@ -111,6 +115,12 @@ func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken
 		Relay:  relayCfg,
 	}
 
+	if settings != nil {
+		nbConfig.Metrics = &proto.MetricsConfig{
+			Enabled: settings.MetricsPushEnabled,
+		}
+	}
+
 	return nbConfig
 }
 
@@ -165,7 +175,7 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 		Checks: toProtocolChecks(ctx, checks),
 	}
 
-	nbConfig := toNetbirdConfig(config, turnCredentials, relayCredentials, extraSettings)
+	nbConfig := toNetbirdConfig(config, turnCredentials, relayCredentials, extraSettings, settings)
 	extendedConfig := integrationsConfig.ExtendNetBirdConfig(peer.ID, peerGroups, nbConfig, extraSettings)
 	response.NetbirdConfig = extendedConfig
 

@@ -1,0 +1,59 @@
+# Realistic-pricing starter for llm_observability. Drop this into the
+# directory you point the proxy at via --plugin-data-dir, then reference it
+# from the target's plugin config:
+#
+#   plugins:
+#     - id: llm_observability
+#       enabled: true
+#       params:
+#         pricing_path: pricing.yaml
+#
+# Values are USD per 1_000 tokens. Public list prices drift; treat this as a
+# starting point and keep your production copy current.
+
+openai:
+  # GPT-5 family
+  gpt-5:
+    input_per_1k: 0.00125
+    output_per_1k: 0.01
+  gpt-5-mini:
+    input_per_1k: 0.00025
+    output_per_1k: 0.002
+  gpt-5-nano:
+    input_per_1k: 0.00005
+    output_per_1k: 0.0004
+  gpt-5.4:
+    input_per_1k: 0.00125
+    output_per_1k: 0.01
+  # GPT-4o family
+  gpt-4o:
+    input_per_1k: 0.0025
+    output_per_1k: 0.01
+  gpt-4o-mini:
+    input_per_1k: 0.00015
+    output_per_1k: 0.0006
+  # Embeddings
+  text-embedding-3-large:
+    input_per_1k: 0.00013
+    output_per_1k: 0
+  text-embedding-3-small:
+    input_per_1k: 0.00002
+    output_per_1k: 0
+
+anthropic:
+  # Claude 4.x family
+  claude-opus-4-7:
+    input_per_1k: 0.015
+    output_per_1k: 0.075
+  claude-sonnet-4-7:
+    input_per_1k: 0.003
+    output_per_1k: 0.015
+  claude-sonnet-4-6:
+    input_per_1k: 0.003
+    output_per_1k: 0.015
+  claude-sonnet-4-5:
+    input_per_1k: 0.003
+    output_per_1k: 0.015
+  claude-haiku-4-5:
+    input_per_1k: 0.0008
+    output_per_1k: 0.004

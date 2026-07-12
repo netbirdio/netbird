@@ -1,0 +1,24 @@
+# Multistage build for the NetBird client used in e2e tests. The repo has no
+# source-building client Dockerfile (client/Dockerfile packages a goreleaser
+# artifact), so this mirrors its alpine runtime + entrypoint while compiling the
+# CGO-free client inline. BuildKit cache mounts keep rebuilds incremental.
+
+FROM golang:1.25-bookworm AS builder
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY . .
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux go build -o /out/netbird ./client
+
+FROM alpine:3.24
+RUN apk add --no-cache bash ca-certificates ip6tables iproute2 iptables
+ENV NETBIRD_BIN="/usr/local/bin/netbird" \
+    NB_LOG_FILE="console,/var/log/netbird/client.log" \
+    NB_DAEMON_ADDR="unix:///var/run/netbird.sock" \
+    NB_ENABLE_CAPTURE="false" \
+    NB_ENTRYPOINT_SERVICE_TIMEOUT="30"
+ENTRYPOINT [ "/usr/local/bin/netbird-entrypoint.sh" ]
+COPY client/netbird-entrypoint.sh /usr/local/bin/netbird-entrypoint.sh
+COPY --from=builder /out/netbird /usr/local/bin/netbird

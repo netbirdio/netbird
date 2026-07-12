@@ -21,11 +21,11 @@ func TestMaxRecvMsgSize(t *testing.T) {
 		envValue string
 		expected int
 	}{
-		{name: "unset returns 0", envValue: "", expected: 0},
+		{name: "unset returns default", envValue: "", expected: defaultMaxRecvMsgSize},
 		{name: "valid value", envValue: "10485760", expected: 10485760},
-		{name: "non-numeric returns 0", envValue: "abc", expected: 0},
-		{name: "negative returns 0", envValue: "-1", expected: 0},
-		{name: "zero returns 0", envValue: "0", expected: 0},
+		{name: "non-numeric returns default", envValue: "abc", expected: defaultMaxRecvMsgSize},
+		{name: "negative returns default", envValue: "-1", expected: defaultMaxRecvMsgSize},
+		{name: "zero returns default", envValue: "0", expected: defaultMaxRecvMsgSize},
 	}
 
 	for _, tt := range tests {

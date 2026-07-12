@@ -71,12 +71,14 @@ var (
 	extraIFaceBlackList     []string
 	anonymizeFlag           bool
 	dnsRouteInterval        time.Duration
-	lazyConnEnabled         bool
-	mtu                     uint16
-	profilesDisabled        bool
-	updateSettingsDisabled  bool
-	captureEnabled          bool
-	networksDisabled        bool
+	// lazyConnEnabled is the parse target for the deprecated --enable-lazy-connection
+	// flag. The flag is inert; the value is no longer read (use NB_LAZY_CONN instead).
+	lazyConnEnabled        bool
+	mtu                    uint16
+	profilesDisabled       bool
+	updateSettingsDisabled bool
+	captureEnabled         bool
+	networksDisabled       bool
 
 	rootCmd = &cobra.Command{
 		Use:          "netbird",
@@ -210,7 +212,8 @@ func init() {
 	upCmd.PersistentFlags().BoolVar(&rosenpassEnabled, enableRosenpassFlag, false, "[Experimental] Enable Rosenpass feature. If enabled, the connection will be post-quantum secured via Rosenpass.")
 	upCmd.PersistentFlags().BoolVar(&rosenpassPermissive, rosenpassPermissiveFlag, false, "[Experimental] Enable Rosenpass in permissive mode to allow this peer to accept WireGuard connections without requiring Rosenpass functionality from peers that do not have Rosenpass enabled.")
 	upCmd.PersistentFlags().BoolVar(&autoConnectDisabled, disableAutoConnectFlag, false, "Disables auto-connect feature. If enabled, then the client won't connect automatically when the service starts.")
-	upCmd.PersistentFlags().BoolVar(&lazyConnEnabled, enableLazyConnectionFlag, false, "[Experimental] Enable the lazy connection feature. If enabled, the client will establish connections on-demand. Note: this setting may be overridden by management configuration.")
+	upCmd.PersistentFlags().BoolVar(&lazyConnEnabled, enableLazyConnectionFlag, false, "Deprecated: no longer used. Lazy connections are controlled by the server and the NB_LAZY_CONN environment variable.")
+	_ = upCmd.PersistentFlags().MarkDeprecated(enableLazyConnectionFlag, "no longer used; lazy connections are controlled by the server and the NB_LAZY_CONN environment variable")
 
 }
 

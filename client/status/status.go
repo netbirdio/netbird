@@ -55,6 +55,10 @@ type ConvertOptions struct {
 	IPsFilter            map[string]struct{}
 	ConnectionTypeFilter string
 	ProfileName          string
+	// SessionExpiresAt is the absolute UTC instant at which the peer's SSO
+	// session expires. Zero when the peer is not SSO-tracked or login
+	// expiration is disabled. Sourced from StatusResponse.SessionExpiresAt.
+	SessionExpiresAt time.Time
 }
 
 type PeerStateDetailOutput struct {
@@ -169,6 +173,11 @@ type OutputOverview struct {
 	ProfileName             string                     `json:"profileName" yaml:"profileName"`
 	SSHServerState          SSHServerStateOutput       `json:"sshServer" yaml:"sshServer"`
 	VNCServerState          VNCServerStateOutput       `json:"vncServer" yaml:"vncServer"`
+	// SessionExpiresAt is the absolute UTC instant at which the peer's SSO
+	// session expires. nil when the peer is not SSO-tracked or login
+	// expiration is disabled. Pointer (rather than zero-value time.Time) so
+	// JSON / YAML omit the field entirely with `,omitempty`.
+	SessionExpiresAt *time.Time `json:"sessionExpiresAt,omitempty" yaml:"sessionExpiresAt,omitempty"`
 }
 
 // ConvertToStatusOutputOverview converts protobuf status to the output overview.
@@ -216,6 +225,10 @@ func ConvertToStatusOutputOverview(pbFullStatus *proto.FullStatus, opts ConvertO
 		ProfileName:             opts.ProfileName,
 		SSHServerState:          sshServerOverview,
 		VNCServerState:          vncServerOverview,
+	}
+	if !opts.SessionExpiresAt.IsZero() {
+		t := opts.SessionExpiresAt
+		overview.SessionExpiresAt = &t
 	}
 
 	if opts.Anonymize {
@@ -603,6 +616,15 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 
 	peersCountString := fmt.Sprintf("%d/%d Connected", o.Peers.Connected, o.Peers.Total)
 
+	var sessionExpiryString string
+	if o.SessionExpiresAt != nil && !o.SessionExpiresAt.IsZero() {
+		sessionExpiryString = fmt.Sprintf(
+			"Session expires: %s (in %s)\n",
+			o.SessionExpiresAt.Format(time.RFC3339),
+			FormatRemainingDuration(time.Until(*o.SessionExpiresAt)),
+		)
+	}
+
 	var forwardingRulesString string
 	if o.NumberOfForwardingRules > 0 {
 		forwardingRulesString = fmt.Sprintf("Forwarding rules: %d\n", o.NumberOfForwardingRules)
@@ -650,6 +672,7 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 			"VNC Server: %s\n"+
 			"Networks: %s\n"+
 			"%s"+
+			"%s"+
 			"Peers count: %s\n",
 		fmt.Sprintf("%s/%s%s", goos, goarch, goarm),
 		daemonVersion,
@@ -670,6 +693,7 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 		vncServerStatus,
 		networks,
 		forwardingRulesString,
+		sessionExpiryString,
 		peersCountString,
 	)
 	return summary
@@ -1121,5 +1145,59 @@ func anonymizeServerSessions(a *anonymize.Anonymizer, overview *OutputOverview) 
 		overview.VNCServerState.Sessions[i].Username = a.AnonymizeString(sess.Username)
 		overview.VNCServerState.Sessions[i].UserID = a.AnonymizeString(sess.UserID)
 		overview.VNCServerState.Sessions[i].Initiator = a.AnonymizeString(sess.Initiator)
+	}
+}
+
+// FormatRemainingDuration renders a time.Duration for the "Session expires"
+// line. Examples: "2h 15m", "47m 12s", "8s", "expired 3m ago".
+//
+// Granularity drops to seconds only under a minute, otherwise minutes are
+// the smallest unit shown — sub-minute precision is noise for a deadline
+// that's hours or days out.
+func FormatRemainingDuration(d time.Duration) string {
+	if d <= 0 {
+		return "expired " + HumaniseDuration(-d) + " ago"
+	}
+	return HumaniseDuration(d)
+}
+
+// HumaniseDuration renders a positive duration in compact form (e.g.
+// "2h 15m", "47m", "8s"). Exposed alongside FormatRemainingDuration so
+// callers that don't need the "expired … ago" wording can format
+// positive durations directly.
+func HumaniseDuration(d time.Duration) string {
+	if d < time.Minute {
+		s := int(d.Round(time.Second).Seconds())
+		if s < 1 {
+			s = 1
+		}
+		return fmt.Sprintf("%ds", s)
+	}
+
+	const (
+		day    = 24 * time.Hour
+		hour   = time.Hour
+		minute = time.Minute
+	)
+
+	days := int64(d / day)
+	d -= time.Duration(days) * day
+	hours := int64(d / hour)
+	d -= time.Duration(hours) * hour
+	minutes := int64(d / minute)
+
+	switch {
+	case days > 0:
+		if hours == 0 {
+			return fmt.Sprintf("%dd", days)
+		}
+		return fmt.Sprintf("%dd %dh", days, hours)
+	case hours > 0:
+		if minutes == 0 {
+			return fmt.Sprintf("%dh", hours)
+		}
+		return fmt.Sprintf("%dh %dm", hours, minutes)
+	default:
+		return fmt.Sprintf("%dm", minutes)
 	}
 }

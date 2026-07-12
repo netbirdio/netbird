@@ -40,6 +40,7 @@ type WGUSPConfigurer struct {
 	device           *device.Device
 	deviceName       string
 	activityRecorder *bind.ActivityRecorder
+	statsCache       *statsCache
 
 	uapiListener net.Listener
 }
@@ -50,16 +51,19 @@ func NewUSPConfigurer(device *device.Device, deviceName string, activityRecorder
 		deviceName:       deviceName,
 		activityRecorder: activityRecorder,
 	}
+	wgCfg.statsCache = newStatsCache(statsCacheTTL, wgCfg.fetchStats)
 	wgCfg.startUAPI()
 	return wgCfg
 }
 
 func NewUSPConfigurerNoUAPI(device *device.Device, deviceName string, activityRecorder *bind.ActivityRecorder) *WGUSPConfigurer {
-	return &WGUSPConfigurer{
+	wgCfg := &WGUSPConfigurer{
 		device:           device,
 		deviceName:       deviceName,
 		activityRecorder: activityRecorder,
 	}
+	wgCfg.statsCache = newStatsCache(statsCacheTTL, wgCfg.fetchStats)
+	return wgCfg
 }
 
 func (c *WGUSPConfigurer) ConfigureInterface(privateKey string, port int) error {
@@ -348,6 +352,10 @@ func (t *WGUSPConfigurer) Close() {
 }
 
 func (t *WGUSPConfigurer) GetStats() (map[string]WGStats, error) {
+	return t.statsCache.get()
+}
+
+func (t *WGUSPConfigurer) fetchStats() (map[string]WGStats, error) {
 	ipc, err := t.device.IpcGet()
 	if err != nil {
 		return nil, fmt.Errorf("ipc get: %w", err)

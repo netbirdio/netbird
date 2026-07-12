@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"syscall"
 
 	log "github.com/sirupsen/logrus"
 
@@ -439,7 +440,11 @@ func (s *ServiceManager) GetStatePath() string {
 
 	activeProf, err := s.GetActiveProfileState()
 	if err != nil {
-		log.Warnf("failed to get active profile state: %v", err)
+		if errors.Is(err, syscall.ENOSYS) {
+			log.Debugf("active profile state unavailable on this platform: %v", err)
+		} else {
+			log.Warnf("failed to get active profile state: %v", err)
+		}
 		return defaultStatePath
 	}
 

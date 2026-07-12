@@ -58,9 +58,11 @@ type CapturedData struct {
 	// the JWT's group_names claim or from ValidateSession/Tunnel
 	// responses. Slice may be shorter than userGroups for tokens minted
 	// before names were resolvable.
-	userGroupNames []string
-	authMethod     string
-	metadata       map[string]string
+	userGroupNames    []string
+	authMethod        string
+	metadata          map[string]string
+	agentNetwork      bool
+	suppressAccessLog bool
 }
 
 // NewCapturedData creates a CapturedData with the given request ID.
@@ -176,6 +178,41 @@ func (c *CapturedData) SetUserGroups(groups []string) {
 		return
 	}
 	c.userGroups = append(c.userGroups[:0], groups...)
+}
+
+// SetAgentNetwork records whether the request hit a synthesised
+// agent-network target. The terminal access-log middleware stamps the
+// flag onto the proto so management can distinguish synthetic traffic.
+func (c *CapturedData) SetAgentNetwork(b bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.agentNetwork = b
+}
+
+// GetAgentNetwork reports whether the request matched a synthesised
+// agent-network target.
+func (c *CapturedData) GetAgentNetwork() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.agentNetwork
+}
+
+// SetSuppressAccessLog records whether the per-request access-log emission
+// must be skipped for this request. Stamped from the matched target's
+// DisableAccessLog flag so the access-log middleware can short-circuit
+// log delivery for opted-out agent-network targets.
+func (c *CapturedData) SetSuppressAccessLog(b bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.suppressAccessLog = b
+}
+
+// GetSuppressAccessLog reports whether access-log emission has been
+// suppressed for this request.
+func (c *CapturedData) GetSuppressAccessLog() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.suppressAccessLog
 }
 
 // GetUserGroups returns a copy of the authenticated user's group

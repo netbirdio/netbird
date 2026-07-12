@@ -33,7 +33,7 @@
   <br/>
   <br/>
   <strong>
-    🚀 <a href="https://careers.netbird.io">We are hiring! Join us at careers.netbird.io</a>
+    🚀 <a href="https://netbird.io/careers">We are hiring! Join us at https://netbird.io/careers</a>
   </strong>
 </p>
 

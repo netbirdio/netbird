@@ -85,7 +85,7 @@ func newTestManager(spkFirstByte byte, mock *mockServer) *Manager {
 		ssk:         make([]byte, 32),
 		rpKeyHash:   "test-hash",
 		rpPeerIDs:   make(map[string]*rp.PeerID),
-		rpWgHandler: NewNetbirdHandler(),
+		rpWgHandler: NewNetbirdHandler(nil, wgtypes.Key{0x01}),
 		server:      mock,
 	}
 }
@@ -255,7 +255,7 @@ func TestAddPeer_NilServer_ReturnsErrorNoCrash(t *testing.T) {
 // issue #4341 cannot occur in the window between NewManager and Run().
 func TestNewManager_PreInitializesHandler(t *testing.T) {
 	psk := wgtypes.Key{}
-	m, err := NewManager(&psk, "wt0")
+	m, err := NewManager(&psk, "wt0", wgtypes.Key{0x01})
 	require.NoError(t, err)
 	require.NotNil(t, m.rpWgHandler, "rpWgHandler must be initialized in NewManager")
 }
@@ -329,10 +329,10 @@ func TestIsPresharedKeyInitialized_AddedButNotHandshaken_ReturnsFalse(t *testing
 	require.False(t, m.IsPresharedKeyInitialized(wgKey))
 }
 
-// --- NetbirdHandler.outputKey ----------------------------------------------
+// --- NetbirdHandler.applyKey ----------------------------------------------
 
-func TestHandler_OutputKey_FirstCallUsesUpdateOnlyFalse(t *testing.T) {
-	h := NewNetbirdHandler()
+func TestHandler_ApplyKey_FirstCallUsesUpdateOnlyFalse(t *testing.T) {
+	h := NewNetbirdHandler(nil, wgtypes.Key{0x01})
 	iface := &mockIface{}
 	h.SetInterface(iface)
 
@@ -348,8 +348,8 @@ func TestHandler_OutputKey_FirstCallUsesUpdateOnlyFalse(t *testing.T) {
 	require.Equal(t, wgKey.String(), iface.calls[0].peerKey)
 }
 
-func TestHandler_OutputKey_SubsequentCallsUseUpdateOnlyTrue(t *testing.T) {
-	h := NewNetbirdHandler()
+func TestHandler_ApplyKey_SubsequentCallsUseUpdateOnlyTrue(t *testing.T) {
+	h := NewNetbirdHandler(nil, wgtypes.Key{0x01})
 	iface := &mockIface{}
 	h.SetInterface(iface)
 
@@ -364,8 +364,8 @@ func TestHandler_OutputKey_SubsequentCallsUseUpdateOnlyTrue(t *testing.T) {
 	require.True(t, iface.calls[1].updateOnly, "subsequent rotations must use updateOnly=true")
 }
 
-func TestHandler_OutputKey_NilInterface_NoCrashNoCall(t *testing.T) {
-	h := NewNetbirdHandler()
+func TestHandler_ApplyKey_NilInterface_NoCrashNoCall(t *testing.T) {
+	h := NewNetbirdHandler(nil, wgtypes.Key{0x01})
 	// no SetInterface — iface remains nil
 	pid := rp.PeerID{0x03}
 	h.AddPeer(pid, "wt0", rp.Key(wgtypes.Key{}))
@@ -374,8 +374,8 @@ func TestHandler_OutputKey_NilInterface_NoCrashNoCall(t *testing.T) {
 	h.HandshakeCompleted(pid, rp.Key{})
 }
 
-func TestHandler_OutputKey_UnknownPeer_NoCall(t *testing.T) {
-	h := NewNetbirdHandler()
+func TestHandler_ApplyKey_UnknownPeer_NoCall(t *testing.T) {
+	h := NewNetbirdHandler(nil, wgtypes.Key{0x01})
 	iface := &mockIface{}
 	h.SetInterface(iface)
 
@@ -384,7 +384,7 @@ func TestHandler_OutputKey_UnknownPeer_NoCall(t *testing.T) {
 }
 
 func TestHandler_RemovePeer_ClearsInitializedState(t *testing.T) {
-	h := NewNetbirdHandler()
+	h := NewNetbirdHandler(nil, wgtypes.Key{0x01})
 	iface := &mockIface{}
 	h.SetInterface(iface)
 
@@ -398,7 +398,7 @@ func TestHandler_RemovePeer_ClearsInitializedState(t *testing.T) {
 }
 
 func TestHandler_SetInterfaceAfterAddPeer_StillReceivesKey(t *testing.T) {
-	h := NewNetbirdHandler()
+	h := NewNetbirdHandler(nil, wgtypes.Key{0x01})
 	pid := rp.PeerID{0x05}
 	wgKey := wgtypes.Key{0xEE}
 	h.AddPeer(pid, "wt0", rp.Key(wgKey))

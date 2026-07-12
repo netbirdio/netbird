@@ -23,6 +23,7 @@ const serviceParamsFile = "service.json"
 type serviceParams struct {
 	LogLevel              string            `json:"log_level"`
 	DaemonAddr            string            `json:"daemon_addr"`
+	JSONSocket            string            `json:"json_socket"`
 	ManagementURL         string            `json:"management_url,omitempty"`
 	ConfigPath            string            `json:"config_path,omitempty"`
 	LogFiles              []string          `json:"log_files,omitempty"`
@@ -30,6 +31,7 @@ type serviceParams struct {
 	DisableUpdateSettings bool              `json:"disable_update_settings,omitempty"`
 	EnableCapture         bool              `json:"enable_capture,omitempty"`
 	DisableNetworks       bool              `json:"disable_networks,omitempty"`
+	EnableJSONSocket      bool              `json:"enable_json_socket,omitempty"`
 	ServiceEnvVars        map[string]string `json:"service_env_vars,omitempty"`
 }
 
@@ -75,6 +77,7 @@ func currentServiceParams() *serviceParams {
 	params := &serviceParams{
 		LogLevel:              logLevel,
 		DaemonAddr:            daemonAddr,
+		JSONSocket:            jsonSocket,
 		ManagementURL:         managementURL,
 		ConfigPath:            configPath,
 		LogFiles:              logFiles,
@@ -82,6 +85,7 @@ func currentServiceParams() *serviceParams {
 		DisableUpdateSettings: updateSettingsDisabled,
 		EnableCapture:         captureEnabled,
 		DisableNetworks:       networksDisabled,
+		EnableJSONSocket:      enableJSONSocket,
 	}
 
 	if len(serviceEnvVars) > 0 {
@@ -113,15 +117,22 @@ func applyServiceParams(cmd *cobra.Command, params *serviceParams) {
 		return
 	}
 
-	// For fields with non-empty defaults (log-level, daemon-addr), keep the
-	// != "" guard so that an older service.json missing the field doesn't
-	// clobber the default with an empty string.
+	// For fields with non-empty defaults, keep the != "" guard so that an older
+	// service.json missing the field doesn't clobber the default with an empty string.
 	if !rootCmd.PersistentFlags().Changed("log-level") && params.LogLevel != "" {
 		logLevel = params.LogLevel
 	}
 
 	if !rootCmd.PersistentFlags().Changed("daemon-addr") && params.DaemonAddr != "" {
 		daemonAddr = params.DaemonAddr
+	}
+
+	if !serviceCmd.PersistentFlags().Changed("json-socket") && params.JSONSocket != "" {
+		jsonSocket = params.JSONSocket
+	}
+
+	if !serviceCmd.PersistentFlags().Changed("enable-json-socket") {
+		enableJSONSocket = params.EnableJSONSocket
 	}
 
 	// For optional fields where empty means "use default", always apply so

@@ -144,6 +144,8 @@
                                 <true/>
                                 <key>disableNetworks</key>
                                 <true/>
+                                <key>disableAdvancedView</key>
+                                <true/>
                                 <key>disableMetricsCollection</key>
                                 <false/>
                                 -->

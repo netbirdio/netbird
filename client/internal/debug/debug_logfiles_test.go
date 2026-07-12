@@ -40,6 +40,25 @@ func TestAddRotatedLogFiles_PicksUpAllVariants(t *testing.T) {
 	require.NotContains(t, names, "other.log", "unrelated files should not be in bundle")
 }
 
+// TestAddRotatedLogFiles_GUIPrefix asserts the prefix parameter scopes the glob
+// to the GUI log: gui-client.log.* rotated siblings are picked up and the
+// daemon's own client.log.* are not (and vice versa, covered above). This is
+// the load-bearing check for the gui-client.log bundle collection — the old
+// "client*.log.*" glob would have missed gui-client rotations.
+func TestAddRotatedLogFiles_GUIPrefix(t *testing.T) {
+	dir := t.TempDir()
+
+	writeFile(t, filepath.Join(dir, "gui-client.log.1"), "gui rotated\n")
+	writeGzFile(t, filepath.Join(dir, "gui-client.log.2.gz"), "gui rotated gz\n")
+	writeFile(t, filepath.Join(dir, "client.log.1"), "daemon rotated\n")
+
+	names := runAddRotatedLogFilesPrefix(t, dir, "gui-client", 10)
+
+	require.Contains(t, names, "gui-client.log.1", "gui-client rotated file should be in bundle")
+	require.Contains(t, names, "gui-client.log.2.gz", "gui-client gz rotated file should be in bundle")
+	require.NotContains(t, names, "client.log.1", "daemon rotated file must not match the gui-client prefix")
+}
+
 // TestAddRotatedLogFiles_RespectsLogFileCount asserts that only the newest
 // logFileCount rotated files are bundled, ordered by mtime.
 func TestAddRotatedLogFiles_RespectsLogFileCount(t *testing.T) {
@@ -67,6 +86,10 @@ func TestAddRotatedLogFiles_RespectsLogFileCount(t *testing.T) {
 // runAddRotatedLogFiles calls addRotatedLogFiles against a fresh in-memory
 // zip writer and returns the set of entry names that ended up in the archive.
 func runAddRotatedLogFiles(t *testing.T, dir string, logFileCount uint32) map[string]struct{} {
+	return runAddRotatedLogFilesPrefix(t, dir, "client", logFileCount)
+}
+
+func runAddRotatedLogFilesPrefix(t *testing.T, dir, prefix string, logFileCount uint32) map[string]struct{} {
 	t.Helper()
 
 	var buf bytes.Buffer
@@ -74,7 +97,7 @@ func runAddRotatedLogFiles(t *testing.T, dir string, logFileCount uint32) map[st
 		archive:      zip.NewWriter(&buf),
 		logFileCount: logFileCount,
 	}
-	g.addRotatedLogFiles(dir)
+	g.addRotatedLogFiles(dir, prefix)
 	require.NoError(t, g.archive.Close())
 
 	zr, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/netip"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc/metadata"
@@ -33,6 +34,20 @@ func Test_CustomHostname(t *testing.T) {
 
 	got := GetInfo(ctx)
 	assert.Equal(t, want, got.Hostname)
+}
+
+func TestGetInfoWithChecksTimeout_Success(t *testing.T) {
+	info, ok := GetInfoWithChecksTimeout(context.Background(), 30*time.Second, nil)
+	assert.True(t, ok, "expected gathering to complete within the timeout")
+	assert.NotNil(t, info)
+}
+
+func TestGetInfoWithChecksTimeout_Timeout(t *testing.T) {
+	// A 1ns budget expires before the (real) system-info gathering can finish, so the
+	// caller must get (nil, false) instead of blocking on the in-flight goroutine.
+	info, ok := GetInfoWithChecksTimeout(context.Background(), time.Nanosecond, nil)
+	assert.False(t, ok, "expected timeout to be reported")
+	assert.Nil(t, info)
 }
 
 func Test_NetAddresses(t *testing.T) {

@@ -314,3 +314,39 @@ func TestGetFullStatus(t *testing.T) {
 	assert.Equal(t, signalState, fullStatus.SignalState, "signal status should be equal")
 	assert.ElementsMatch(t, []State{peerState1, peerState2}, fullStatus.Peers, "peers states should match")
 }
+
+// notified reports whether a state-change tick is pending on ch, draining it.
+func notified(ch <-chan struct{}) bool {
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
+}
+
+func TestMarkServerStateDoesNotNotifyWhenUnchanged(t *testing.T) {
+	status := NewRecorder("https://mgm")
+	_, ch := status.SubscribeToStateChanges()
+
+	// First transition is a real change and must notify.
+	status.MarkManagementConnected()
+	require.True(t, notified(ch), "first connect should notify")
+
+	// Re-marking the same state must not notify again.
+	status.MarkManagementConnected()
+	assert.False(t, notified(ch), "redundant connect should not notify")
+
+	// Same for signal.
+	status.MarkSignalConnected()
+	require.True(t, notified(ch), "first signal connect should notify")
+	status.MarkSignalConnected()
+	assert.False(t, notified(ch), "redundant signal connect should not notify")
+
+	// A genuine change (disconnect with an error) notifies again.
+	err := errors.New("boom")
+	status.MarkManagementDisconnected(err)
+	require.True(t, notified(ch), "disconnect should notify")
+	status.MarkManagementDisconnected(err)
+	assert.False(t, notified(ch), "redundant disconnect should not notify")
+}

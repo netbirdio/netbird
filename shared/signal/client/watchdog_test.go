@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"io"
 	"net"
 	"testing"
 	"time"
@@ -74,7 +75,7 @@ func TestReceiveProbeRoundTrips(t *testing.T) {
 		t.Fatal("signal stream did not connect within timeout")
 	}
 
-	require.NoError(t, client.sendReceiveProbe())
+	require.NoError(t, client.sendReceiveProbe(ctx))
 
 	select {
 	case <-received:
@@ -105,4 +106,73 @@ func TestReceiveAliveTreatsHandoffBlockAsLiveness(t *testing.T) {
 	c.receiveHandoffBlocked.Store(false)
 	c.markReceived()
 	require.True(t, c.receiveAlive(), "a freshly received frame must keep the stream alive")
+}
+
+// fakeRecvStream feeds the receive loop frames from a channel and reports EOF
+// once the channel is closed. Only Recv is exercised by the loop.
+type fakeRecvStream struct {
+	sigProto.SignalExchange_ConnectStreamClient
+	frames chan *sigProto.EncryptedMessage
+}
+
+func (s *fakeRecvStream) Recv() (*sigProto.EncryptedMessage, error) {
+	msg, ok := <-s.frames
+	if !ok {
+		return nil, io.EOF
+	}
+	return msg, nil
+}
+
+// TestReceiveLoopRefreshesLivenessAfterBlockedHandoff drives the real receive
+// loop into a handoff that blocks past the inactivity threshold, then checks the
+// window after the handoff drains but before the next Recv. The loop must have
+// refreshed the timestamp on unblocking, otherwise that window reads the stale
+// pre-handoff timestamp as a dead stream and the watchdog tears down a healthy
+// connection.
+func TestReceiveLoopRefreshesLivenessAfterBlockedHandoff(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	c := &GrpcClient{ctx: ctx}
+
+	handling := make(chan struct{}, 8)
+	gate := make(chan struct{})
+	decrypt := func(*sigProto.EncryptedMessage) (*sigProto.Message, error) { return &sigProto.Message{}, nil }
+	handler := func(*sigProto.Message) error {
+		handling <- struct{}{}
+		<-gate
+		return nil
+	}
+	c.decryptionWorker = NewWorker(decrypt, handler)
+	workerCtx, workerCancel := context.WithCancel(context.Background())
+	go c.decryptionWorker.Work(workerCtx)
+	t.Cleanup(workerCancel)
+
+	frames := make(chan *sigProto.EncryptedMessage)
+	t.Cleanup(func() { close(frames) })
+	go func() { _ = c.receive(&fakeRecvStream{frames: frames}) }()
+
+	// First frame: the worker drains it and parks in the blocking handler.
+	frames <- &sigProto.EncryptedMessage{}
+	<-handling
+	// Second frame fills the worker's single-slot pool.
+	frames <- &sigProto.EncryptedMessage{}
+	// Third frame: the pool is full, so the loop parks on the handoff.
+	frames <- &sigProto.EncryptedMessage{}
+
+	require.Eventually(t, c.receiveHandoffBlocked.Load, time.Second, time.Millisecond,
+		"receive loop should park on the worker handoff")
+
+	// Simulate the handoff having blocked past the inactivity threshold.
+	c.lastReceived.Store(time.Now().Add(-2 * receiveInactivityThreshold).UnixNano())
+	require.True(t, c.receiveAlive(), "a loop parked on the handoff must stay alive")
+
+	// Drain the worker so the handoff returns and the loop resumes reading.
+	close(gate)
+
+	// Once the handoff clears, the loop is parked on the next Recv with no frame
+	// pending. The stream must still read as alive in that window.
+	require.Eventually(t, func() bool { return !c.receiveHandoffBlocked.Load() }, time.Second, time.Millisecond,
+		"handoff should drain once the worker is released")
+	require.True(t, c.receiveAlive(),
+		"the loop must refresh liveness when the handoff drains, before the next Recv")
 }

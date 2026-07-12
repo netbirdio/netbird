@@ -1,10 +1,27 @@
 package rosenpass
 
 import (
+	"crypto/sha256"
 	"fmt"
 
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
+
+// ratchetLabel domain-separates the expiry ratchet from other uses of the
+// rosenpass output key.
+const ratchetLabel = "netbird-rosenpass-expiry-ratchet"
+
+// RatchetKey derives the successor preshared key from the previous Rosenpass
+// output key. When a key expires without a completed renewal, both peers
+// advance their last shared key by one ratchet step: the expired key is
+// rotated out while both ends still converge on an identical, non-public
+// replacement without communicating.
+func RatchetKey(prev wgtypes.Key) wgtypes.Key {
+	input := make([]byte, 0, len(ratchetLabel)+len(prev))
+	input = append(input, ratchetLabel...)
+	input = append(input, prev[:]...)
+	return sha256.Sum256(input)
+}
 
 // DeterministicSeedKey derives a 32-byte WireGuard preshared key from a pair
 // of peer public keys. Both peers, given the same key pair, produce the same

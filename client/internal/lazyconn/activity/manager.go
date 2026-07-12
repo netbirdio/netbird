@@ -19,17 +19,25 @@ import (
 type listener interface {
 	ReadPackets()
 	Close()
+	CapturedPacket() []byte
+}
+
+// Event reports activity on a managed peer. FirstPacket is the bytes that triggered activation,
+// captured for reinjection through the real transport.
+type Event struct {
+	PeerConnID  peerid.ConnID
+	FirstPacket []byte
 }
 
 type WgInterface interface {
-	RemovePeer(peerKey string) error
 	UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error
 	IsUserspaceBind() bool
 	Address() wgaddr.Address
+	MTU() uint16
 }
 
 type Manager struct {
-	OnActivityChan chan peerid.ConnID
+	OnActivityChan chan Event
 
 	wgIface WgInterface
 
@@ -41,7 +49,7 @@ type Manager struct {
 
 func NewManager(wgIface WgInterface) *Manager {
 	m := &Manager{
-		OnActivityChan: make(chan peerid.ConnID, 1),
+		OnActivityChan: make(chan Event, 1),
 		wgIface:        wgIface,
 		peers:          make(map[peerid.ConnID]listener),
 		done:           make(chan struct{}),
@@ -116,12 +124,12 @@ func (m *Manager) waitForTraffic(l listener, peerConnID peerid.ConnID) {
 	delete(m.peers, peerConnID)
 	m.mu.Unlock()
 
-	m.notify(peerConnID)
+	m.notify(Event{PeerConnID: peerConnID, FirstPacket: l.CapturedPacket()})
 }
 
-func (m *Manager) notify(peerConnID peerid.ConnID) {
+func (m *Manager) notify(ev Event) {
 	select {
 	case <-m.done:
-	case m.OnActivityChan <- peerConnID:
+	case m.OnActivityChan <- ev:
 	}
 }

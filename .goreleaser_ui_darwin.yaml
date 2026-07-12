@@ -1,6 +1,15 @@
 version: 2
 
 project_name: netbird-ui
+
+before:
+  hooks:
+    # Bindings are gitignored; regenerate before the frontend build so
+    # the @wailsio/runtime Vite plugin can resolve them (vite refuses to
+    # build without them).
+    - sh -c 'cd client/ui && wails3 generate bindings -clean=true -ts'
+    - sh -c 'cd client/ui/frontend && pnpm install --frozen-lockfile && pnpm build'
+
 builds:
   - id: netbird-ui-darwin
     dir: client/ui
@@ -20,8 +29,6 @@ builds:
     ldflags:
       - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
     mod_timestamp: "{{ .CommitTimestamp }}"
-    tags:
-      - load_wgnt_from_rsrc
 
 universal_binaries:
   - id: netbird-ui-darwin

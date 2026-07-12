@@ -859,3 +859,31 @@ func TestRouteSelector_ComplexScenarios(t *testing.T) {
 		})
 	}
 }
+
+// TestRouteSelector_EnableExitNodeKeepsOtherRoutes is a regression test for the
+// tray exit-node toggle disabling every non-exit routed network. The tray used
+// to Select an exit node with append=false, which the RouteSelector treats as
+// "drop the whole current selection" (default-on semantics) — so enabling an
+// exit node also turned off every LAN/route the user had on. The fix sends
+// append=true and lets the daemon's SelectNetworks handler deselect only the
+// sibling exit nodes. This test models that handler sequence against the
+// selector: SelectRoutes(exit, append=true) followed by DeselectRoutes(other
+// exit nodes) must leave non-exit routes untouched.
+func TestRouteSelector_EnableExitNodeKeepsOtherRoutes(t *testing.T) {
+	rs := routeselector.NewRouteSelector()
+	all := []route.NetID{"exitA", "exitB", "lan1", "lan2"}
+
+	// User has two LAN routes on (default-on: nothing deselected => all selected).
+	require.True(t, rs.IsSelected("lan1"))
+	require.True(t, rs.IsSelected("lan2"))
+
+	// Tray enables exitA: SelectNetworks handler does SelectRoutes(append=true)
+	// then deselects sibling exit nodes (exitB), never the LAN routes.
+	require.NoError(t, rs.SelectRoutes([]route.NetID{"exitA"}, true, all))
+	require.NoError(t, rs.DeselectRoutes([]route.NetID{"exitB"}, all))
+
+	assert.True(t, rs.IsSelected("exitA"), "selected exit node stays on")
+	assert.False(t, rs.IsSelected("exitB"), "sibling exit node is deselected")
+	assert.True(t, rs.IsSelected("lan1"), "non-exit route must stay selected")
+	assert.True(t, rs.IsSelected("lan2"), "non-exit route must stay selected")
+}

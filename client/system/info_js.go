@@ -103,7 +103,7 @@ func collectLocationInfo(info *Info) {
 	}
 }
 
-func checkFileAndProcess(_ []string) ([]File, error) {
+func checkFileAndProcess(_ context.Context, _ []string) ([]File, error) {
 	return []File{}, nil
 }
 

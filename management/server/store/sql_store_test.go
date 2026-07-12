@@ -1245,6 +1245,31 @@ func TestSqlite_CreateAndGetObjectInTransaction(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestSqlStore_SaveAccountPersistsAgentNetworkOnly(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	account, err := store.GetAccount(context.Background(), accountID)
+	require.NoError(t, err)
+	require.False(t, account.Settings.AgentNetworkOnly, "setting should default to false")
+
+	account.Settings.AgentNetworkOnly = true
+	require.NoError(t, store.SaveAccount(context.Background(), account))
+
+	reloaded, err := store.GetAccount(context.Background(), accountID)
+	require.NoError(t, err)
+	require.True(t, reloaded.Settings.AgentNetworkOnly, "setting should survive a save/load round-trip")
+
+	reloaded.Settings.AgentNetworkOnly = false
+	require.NoError(t, store.SaveAccount(context.Background(), reloaded))
+
+	disabled, err := store.GetAccount(context.Background(), accountID)
+	require.NoError(t, err)
+	require.False(t, disabled.Settings.AgentNetworkOnly, "disabling should persist")
+}
+
 func TestSqlStore_GetAccountUsers(t *testing.T) {
 	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)

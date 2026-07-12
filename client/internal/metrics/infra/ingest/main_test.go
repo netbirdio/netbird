@@ -53,14 +53,14 @@ func TestValidateLine_NegativeValue(t *testing.T) {
 }
 
 func TestValidateLine_DurationTooLarge(t *testing.T) {
-	line := `netbird_sync,deployment_type=cloud,version=1.0.0,os=linux,arch=amd64,peer_id=abc duration_seconds=999 1234567890`
+	line := `netbird_sync,deployment_type=cloud,version=1.0.0,os=linux,arch=amd64,peer_id=abc duration_seconds=100000 1234567890`
 	err := validateLine(line)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "too large")
 }
 
 func TestValidateLine_TotalSecondsTooLarge(t *testing.T) {
-	line := `netbird_peer_connection,deployment_type=cloud,connection_type=ice,attempt_type=initial,version=1.0.0,os=linux,arch=amd64,peer_id=abc,connection_pair_id=pair total_seconds=500 1234567890`
+	line := `netbird_peer_connection,deployment_type=cloud,connection_type=ice,attempt_type=initial,version=1.0.0,os=linux,arch=amd64,peer_id=abc,connection_pair_id=pair total_seconds=100000 1234567890`
 	err := validateLine(line)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "too large")

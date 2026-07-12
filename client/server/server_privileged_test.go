@@ -6,6 +6,7 @@ import (
 	"context"
 	"net"
 	"os/user"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -59,9 +60,25 @@ var (
 	}
 )
 
-// TestConnectWithRetryRuns checks that the connectWithRetry function runs and runs the retries according to the times specified via environment variables
-// we will use a management server started via to simulate the server and capture the number of retries
-func TestConnectWithRetryRuns(t *testing.T) {
+// TestConnectStopsRetryOnPermissionDenied verifies connectWithRetryRuns stops after a single login
+// attempt on PermissionDenied, despite the fast retry config that would otherwise drive several.
+func TestConnectStopsRetryOnPermissionDenied(t *testing.T) {
+	// Redirect profile paths to a temp dir so the test does not need root.
+	tempDir := t.TempDir()
+	origDefaultProfileDir := profilemanager.DefaultConfigPathDir
+	origActiveProfileStatePath := profilemanager.ActiveProfileStatePath
+	origDefaultConfigPath := profilemanager.DefaultConfigPath
+	profilemanager.ConfigDirOverride = tempDir
+	profilemanager.DefaultConfigPathDir = tempDir
+	profilemanager.ActiveProfileStatePath = filepath.Join(tempDir, "active_profile.json")
+	profilemanager.DefaultConfigPath = filepath.Join(tempDir, "default.json")
+	t.Cleanup(func() {
+		profilemanager.DefaultConfigPathDir = origDefaultProfileDir
+		profilemanager.ActiveProfileStatePath = origActiveProfileStatePath
+		profilemanager.DefaultConfigPath = origDefaultConfigPath
+		profilemanager.ConfigDirOverride = ""
+	})
+
 	// start the signal server
 	_, signalAddr, err := startSignal(t)
 	if err != nil {
@@ -113,8 +130,8 @@ func TestConnectWithRetryRuns(t *testing.T) {
 	t.Setenv(retryMultiplierVar, "1")
 
 	s.connectWithRetryRuns(ctx, config, s.statusRecorder, nil, nil)
-	if counter < 3 {
-		t.Fatalf("expected counter > 2, got %d", counter)
+	if counter != 1 {
+		t.Fatalf("expected exactly 1 login attempt (PermissionDenied must stop the retry loop), got %d", counter)
 	}
 }
 

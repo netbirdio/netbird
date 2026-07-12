@@ -37,6 +37,12 @@ const (
 
 type resolver interface {
 	LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error)
+	LookupMX(ctx context.Context, name string) ([]*net.MX, error)
+	LookupTXT(ctx context.Context, name string) ([]string, error)
+	LookupNS(ctx context.Context, name string) ([]*net.NS, error)
+	LookupSRV(ctx context.Context, service, proto, name string) (string, []*net.SRV, error)
+	LookupCNAME(ctx context.Context, host string) (string, error)
+	LookupAddr(ctx context.Context, addr string) ([]string, error)
 }
 
 type firewaller interface {
@@ -210,12 +216,6 @@ func (f *DNSForwarder) handleDNSQuery(logger *log.Entry, w dns.ResponseWriter, q
 		qname, dns.TypeToString[question.Qtype], dns.ClassToString[question.Qclass])
 
 	resp := query.SetReply(query)
-	network := resutil.NetworkForQtype(question.Qtype)
-	if network == "" {
-		resp.Rcode = dns.RcodeNotImplemented
-		f.writeResponse(logger, w, resp, qname, startTime)
-		return
-	}
 
 	mostSpecificResId, matchingEntries := f.getMatchingEntries(strings.TrimSuffix(qname, "."))
 	if mostSpecificResId == "" {
@@ -227,9 +227,46 @@ func (f *DNSForwarder) handleDNSQuery(logger *log.Entry, w dns.ResponseWriter, q
 	ctx, cancel := context.WithTimeout(context.Background(), upstreamTimeout)
 	defer cancel()
 
+	reqHasEdns := query.IsEdns0() != nil
+
+	switch question.Qtype {
+	case dns.TypeA, dns.TypeAAAA:
+		f.handleAddressQuery(ctx, logger, w, resp, mostSpecificResId, matchingEntries, reqHasEdns, startTime)
+	case dns.TypeMX, dns.TypeTXT, dns.TypeNS, dns.TypeSRV, dns.TypeCNAME, dns.TypePTR:
+		f.handleRecordQuery(ctx, logger, w, resp, startTime)
+	default:
+		// The domain is routed here, so any other type is answered NODATA
+		// (NOERROR, empty answer) rather than falling back to a resolver that
+		// would poison the name with NXDOMAIN. The Extended DNS Error lets a
+		// client tell this capability-driven NODATA apart from an
+		// authoritative one. The OPT pseudo-record must not appear unless the
+		// query advertised EDNS0.
+		if reqHasEdns {
+			attachEDE(resp, dns.ExtendedErrorCodeNotSupported, "netbird forwarder: unsupported query type")
+		}
+		f.writeResponse(logger, w, resp, qname, startTime)
+	}
+}
+
+// handleAddressQuery resolves A/AAAA queries, programs the firewall sets and
+// resolved-IP state, and caches the answer for resilience on upstream failure.
+func (f *DNSForwarder) handleAddressQuery(
+	ctx context.Context,
+	logger *log.Entry,
+	w dns.ResponseWriter,
+	resp *dns.Msg,
+	mostSpecificResId route.ResID,
+	matchingEntries []*ForwarderEntry,
+	reqHasEdns bool,
+	startTime time.Time,
+) {
+	question := resp.Question[0]
+	qname := strings.ToLower(question.Name)
+
+	network := resutil.NetworkForQtype(question.Qtype)
 	result := resutil.LookupIP(ctx, f.resolver, network, qname, question.Qtype)
 	if result.Err != nil {
-		f.handleDNSError(ctx, logger, w, question, resp, qname, result, query.IsEdns0() != nil, startTime)
+		f.handleDNSError(ctx, logger, w, question, resp, qname, result, reqHasEdns, startTime)
 		return
 	}
 
@@ -237,6 +274,25 @@ func (f *DNSForwarder) handleDNSQuery(logger *log.Entry, w dns.ResponseWriter, q
 	resp.Answer = append(resp.Answer, resutil.IPsToRRs(qname, result.IPs, f.ttl)...)
 	f.cache.set(qname, question.Qtype, result.IPs)
 
+	f.writeResponse(logger, w, resp, qname, startTime)
+}
+
+// handleRecordQuery resolves non-address record types (MX, TXT, NS, SRV,
+// CNAME, PTR) through the host resolver. Missing records are answered NODATA so
+// the routed name is never poisoned with NXDOMAIN.
+func (f *DNSForwarder) handleRecordQuery(
+	ctx context.Context,
+	logger *log.Entry,
+	w dns.ResponseWriter,
+	resp *dns.Msg,
+	startTime time.Time,
+) {
+	question := resp.Question[0]
+	qname := strings.ToLower(question.Name)
+
+	records, rcode := resutil.LookupRecords(ctx, f.resolver, qname, question.Qtype, f.ttl)
+	resp.Rcode = rcode
+	resp.Answer = append(resp.Answer, records...)
 	f.writeResponse(logger, w, resp, qname, startTime)
 }
 

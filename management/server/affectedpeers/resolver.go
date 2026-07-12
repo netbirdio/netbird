@@ -29,6 +29,19 @@ import (
 	"github.com/netbirdio/netbird/route"
 )
 
+// agentNetworkSynthesizer returns the account's synthesised (never-persisted)
+// agent-network reverse-proxy services. It is registered at boot via
+// SetAgentNetworkSynthesizer to avoid an import cycle (agentnetwork → account →
+// affectedpeers). nil when agent-network is not wired, in which case only
+// persisted services are considered.
+var agentNetworkSynthesizer func(ctx context.Context, s store.Store, accountID string) ([]*rpservice.Service, error)
+
+// SetAgentNetworkSynthesizer registers the agent-network service synthesiser.
+// Called once during boot, before any request is served.
+func SetAgentNetworkSynthesizer(fn func(ctx context.Context, s store.Store, accountID string) ([]*rpservice.Service, error)) {
+	agentNetworkSynthesizer = fn
+}
+
 // Snapshot is an in-memory view of the collections needed to expand a Change.
 // Loaded in-tx, walked by Expand after commit. Only the collections the Change
 // can touch are loaded; the rest stay nil (see Load).
@@ -124,7 +137,12 @@ func (snap *Snapshot) loadDNS(ctx context.Context, s store.Store, accountID stri
 }
 
 // loadProxyServices loads the embedded-proxy cluster index, and the services only
-// when the account actually has embedded proxy peers.
+// when the account actually has embedded proxy peers. Both the persisted
+// reverse-proxy services and the synthesised agent-network services are loaded:
+// agent-network services are never persisted, so without synthesising them here
+// collectFromProxyServices can't fold the embedded proxy peer into the affected
+// set when a client's group changes, and the proxy never learns a newly
+// authorised client until it reconnects (full network-map resync).
 func (snap *Snapshot) loadProxyServices(ctx context.Context, s store.Store, accountID string) error {
 	var err error
 	if snap.proxyByCluster, err = s.GetEmbeddedProxyPeerIDsByCluster(ctx, accountID); err != nil {
@@ -133,8 +151,21 @@ func (snap *Snapshot) loadProxyServices(ctx context.Context, s store.Store, acco
 	if len(snap.proxyByCluster) == 0 {
 		return nil
 	}
-	snap.services, err = s.GetAccountServices(ctx, store.LockingStrengthNone, accountID)
-	return err
+	if snap.services, err = s.GetAccountServices(ctx, store.LockingStrengthNone, accountID); err != nil {
+		return err
+	}
+	if agentNetworkSynthesizer == nil {
+		return nil
+	}
+	synth, serr := agentNetworkSynthesizer(ctx, s, accountID)
+	if serr != nil {
+		// Non-fatal: fall back to persisted services. The next full
+		// network-map resync still converges the proxy.
+		log.WithContext(ctx).Warnf("affectedpeers: synthesise agent-network services for account %s: %v", accountID, serr)
+		return nil
+	}
+	snap.services = append(snap.services, synth...)
+	return nil
 }
 
 // loadGroupIndex loads all groups (for group.Resources) and builds the

@@ -1,0 +1,264 @@
+# Embedded default pricing for llm_observability. Compiled into the proxy
+# binary via go:embed in pricing.go; cost annotation works out of the box
+# without any operator action.
+#
+# Operators override entries by dropping a pricing.yaml into --plugin-data-dir
+# (or whichever basename is given via params.pricing_path). The override file
+# only needs entries the operator wants to change; missing entries fall
+# through to these defaults.
+#
+# Values are USD per 1_000 tokens. Public list prices drift; ship a fresh
+# binary or override individual entries via the override file as needed.
+#
+# Optional cache fields:
+#   cached_input_per_1k    OpenAI: rate for prompt_tokens_details.cached_tokens
+#                          (a SUBSET of prompt_tokens). Typically 0.5x input.
+#                          Absent → cached portion bills at input_per_1k.
+#   cache_read_per_1k      Anthropic: rate for cache_read_input_tokens
+#                          (ADDITIVE to input_tokens). Typically 0.1x input.
+#                          Absent → cache reads bill at input_per_1k.
+#   cache_creation_per_1k  Anthropic: rate for cache_creation_input_tokens
+#                          (ADDITIVE to input_tokens). Typically 1.25x input.
+#                          Absent → cache writes bill at input_per_1k.
+
+openai:
+  # OpenAI + OpenAI-compatible providers (openai_api, azure_openai_api,
+  # mistral_api, and the openai-parser gateways) all emit llm.provider="openai",
+  # so their models are priced here. Kept in sync with the management catalog;
+  # rates cross-checked against LiteLLM model_prices_and_context_window.json.
+
+  # GPT-5.x family — cache reads 10% of input (0.1x).
+  gpt-5.5:
+    input_per_1k: 0.005
+    output_per_1k: 0.03
+    cached_input_per_1k: 0.0005
+  gpt-5.5-pro:
+    input_per_1k: 0.03
+    output_per_1k: 0.18
+    cached_input_per_1k: 0.003
+  gpt-5.4:
+    input_per_1k: 0.0025
+    output_per_1k: 0.015
+    cached_input_per_1k: 0.00025
+  gpt-5.4-pro:
+    input_per_1k: 0.03
+    output_per_1k: 0.18
+    cached_input_per_1k: 0.003
+  gpt-5.4-mini:
+    input_per_1k: 0.00075
+    output_per_1k: 0.0045
+    cached_input_per_1k: 0.000075
+  gpt-5.4-nano:
+    input_per_1k: 0.0002
+    output_per_1k: 0.00125
+    cached_input_per_1k: 0.00002
+  gpt-5.3-codex:
+    input_per_1k: 0.00175
+    output_per_1k: 0.014
+    cached_input_per_1k: 0.000175
+  gpt-5.3-chat-latest:
+    input_per_1k: 0.00175
+    output_per_1k: 0.014
+    cached_input_per_1k: 0.000175
+  # GPT-5 (2025) family — kept for gateway requests using the unsuffixed ids.
+  gpt-5:
+    input_per_1k: 0.00125
+    output_per_1k: 0.01
+    cached_input_per_1k: 0.000125
+  gpt-5-mini:
+    input_per_1k: 0.00025
+    output_per_1k: 0.002
+    cached_input_per_1k: 0.000025
+  gpt-5-nano:
+    input_per_1k: 0.00005
+    output_per_1k: 0.0004
+    cached_input_per_1k: 0.000005
+  o4-mini:
+    input_per_1k: 0.0011
+    output_per_1k: 0.0044
+    cached_input_per_1k: 0.000275
+  # GPT-4.1 family — cache reads 25% of input.
+  gpt-4.1:
+    input_per_1k: 0.002
+    output_per_1k: 0.008
+    cached_input_per_1k: 0.0005
+  gpt-4.1-mini:
+    input_per_1k: 0.0004
+    output_per_1k: 0.0016
+    cached_input_per_1k: 0.0001
+  gpt-4.1-nano:
+    input_per_1k: 0.0001
+    output_per_1k: 0.0004
+    cached_input_per_1k: 0.000025
+  # GPT-4o family — cache reads 50% of input (0.5x).
+  gpt-4o:
+    input_per_1k: 0.0025
+    output_per_1k: 0.01
+    cached_input_per_1k: 0.00125
+  gpt-4o-mini:
+    input_per_1k: 0.00015
+    output_per_1k: 0.0006
+    cached_input_per_1k: 0.000075
+  # Older GPT — no prompt caching.
+  gpt-4-turbo:
+    input_per_1k: 0.01
+    output_per_1k: 0.03
+  gpt-3.5-turbo:
+    input_per_1k: 0.0005
+    output_per_1k: 0.0015
+  gpt-35-turbo: # Azure deployment alias of gpt-3.5-turbo
+    input_per_1k: 0.0005
+    output_per_1k: 0.0015
+  # Embeddings — no caching, no output tokens.
+  text-embedding-3-large:
+    input_per_1k: 0.00013
+    output_per_1k: 0
+  text-embedding-3-small:
+    input_per_1k: 0.00002
+    output_per_1k: 0
+
+  # Mistral (mistral_api) — routed via the openai parser; no prompt caching.
+  mistral-large-latest:
+    input_per_1k: 0.0005
+    output_per_1k: 0.0015
+  mistral-medium-latest:
+    input_per_1k: 0.0004
+    output_per_1k: 0.002
+  mistral-medium-3-5:
+    input_per_1k: 0.0015
+    output_per_1k: 0.0075
+  mistral-small-latest:
+    input_per_1k: 0.00006
+    output_per_1k: 0.00018
+  magistral-medium-latest:
+    input_per_1k: 0.002
+    output_per_1k: 0.005
+  magistral-small-latest:
+    input_per_1k: 0.0005
+    output_per_1k: 0.0015
+  devstral-medium-latest:
+    input_per_1k: 0.0004
+    output_per_1k: 0.002
+  devstral-small-latest:
+    input_per_1k: 0.0001
+    output_per_1k: 0.0003
+  codestral-2508:
+    input_per_1k: 0.0003
+    output_per_1k: 0.0009
+  codestral-latest:
+    input_per_1k: 0.001
+    output_per_1k: 0.003
+  ministral-3-14b-2512:
+    input_per_1k: 0.0002
+    output_per_1k: 0.0002
+  ministral-8b-latest:
+    input_per_1k: 0.00015
+    output_per_1k: 0.00015
+  ministral-3-3b-2512:
+    input_per_1k: 0.0001
+    output_per_1k: 0.0001
+  mistral-embed:
+    input_per_1k: 0.0001
+    output_per_1k: 0
+
+anthropic:
+  # Claude 4.x family — cache reads ≈10% of input, cache writes ≈125% of input.
+  # Pricing source: Anthropic's current published rates per million tokens,
+  # divided by 1000 for the per-1k figures stored here.
+  claude-fable-5:
+    input_per_1k: 0.010
+    output_per_1k: 0.050
+    cache_read_per_1k: 0.001
+    cache_creation_per_1k: 0.0125
+  claude-opus-4-8:
+    input_per_1k: 0.005
+    output_per_1k: 0.025
+    cache_read_per_1k: 0.0005
+    cache_creation_per_1k: 0.00625
+  claude-opus-4-7:
+    input_per_1k: 0.005
+    output_per_1k: 0.025
+    cache_read_per_1k: 0.0005
+    cache_creation_per_1k: 0.00625
+  claude-opus-4-6:
+    input_per_1k: 0.005
+    output_per_1k: 0.025
+    cache_read_per_1k: 0.0005
+    cache_creation_per_1k: 0.00625
+  claude-opus-4-1:
+    input_per_1k: 0.015
+    output_per_1k: 0.075
+    cache_read_per_1k: 0.0015
+    cache_creation_per_1k: 0.01875
+  claude-sonnet-4-6:
+    input_per_1k: 0.003
+    output_per_1k: 0.015
+    cache_read_per_1k: 0.0003
+    cache_creation_per_1k: 0.00375
+  claude-sonnet-4-5:
+    input_per_1k: 0.003
+    output_per_1k: 0.015
+    cache_read_per_1k: 0.0003
+    cache_creation_per_1k: 0.00375
+  claude-haiku-4-5:
+    input_per_1k: 0.001
+    output_per_1k: 0.005
+    cache_read_per_1k: 0.0001
+    cache_creation_per_1k: 0.00125
+
+bedrock:
+  # AWS Bedrock model ids, normalised by the request parser (cross-region
+  # inference-profile prefix + version/throughput suffix stripped), e.g.
+  # eu.anthropic.claude-sonnet-4-5-20250929-v1:0 -> anthropic.claude-sonnet-4-5.
+  # Anthropic-on-Bedrock keeps the additive cache buckets (read ≈0.1x input,
+  # write ≈1.25x input); Nova / Llama report no cache, so cost is input+output.
+  anthropic.claude-opus-4-8:
+    input_per_1k: 0.005
+    output_per_1k: 0.025
+    cache_read_per_1k: 0.0005
+    cache_creation_per_1k: 0.00625
+  anthropic.claude-opus-4-7:
+    input_per_1k: 0.005
+    output_per_1k: 0.025
+    cache_read_per_1k: 0.0005
+    cache_creation_per_1k: 0.00625
+  anthropic.claude-opus-4-6:
+    input_per_1k: 0.005
+    output_per_1k: 0.025
+    cache_read_per_1k: 0.0005
+    cache_creation_per_1k: 0.00625
+  anthropic.claude-opus-4-1:
+    input_per_1k: 0.015
+    output_per_1k: 0.075
+    cache_read_per_1k: 0.0015
+    cache_creation_per_1k: 0.01875
+  anthropic.claude-sonnet-4-6:
+    input_per_1k: 0.003
+    output_per_1k: 0.015
+    cache_read_per_1k: 0.0003
+    cache_creation_per_1k: 0.00375
+  anthropic.claude-sonnet-4-5:
+    input_per_1k: 0.003
+    output_per_1k: 0.015
+    cache_read_per_1k: 0.0003
+    cache_creation_per_1k: 0.00375
+  anthropic.claude-haiku-4-5:
+    input_per_1k: 0.001
+    output_per_1k: 0.005
+    cache_read_per_1k: 0.0001
+    cache_creation_per_1k: 0.00125
+  meta.llama3-3-70b-instruct:
+    input_per_1k: 0.00072
+    output_per_1k: 0.00072
+  amazon.nova-2-lite:
+    input_per_1k: 0.0003
+    output_per_1k: 0.0025
+  amazon.nova-pro:
+    input_per_1k: 0.0008
+    output_per_1k: 0.0032
+  amazon.nova-lite:
+    input_per_1k: 0.00006
+    output_per_1k: 0.00024
+  amazon.nova-micro:
+    input_per_1k: 0.000035
+    output_per_1k: 0.00014

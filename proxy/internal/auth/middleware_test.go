@@ -297,6 +297,109 @@ func TestProtect_SessionCookieGroupsPropagate(t *testing.T) {
 	assert.Equal(t, groups, capturedData.GetUserGroups(), "CapturedData groups must be retained after handler completes")
 }
 
+// stubTunnelValidator implements SessionValidator for the tunnel-peer
+// path. ValidateTunnelPeer returns a fixed response so tests can assert
+// how the proxy maps it onto CapturedData, and records whether the
+// fast-path actually reached management.
+type stubTunnelValidator struct {
+	called bool
+	resp   *proto.ValidateTunnelPeerResponse
+}
+
+func (s *stubTunnelValidator) ValidateSession(context.Context, *proto.ValidateSessionRequest, ...grpc.CallOption) (*proto.ValidateSessionResponse, error) {
+	return nil, errors.New("not used in this test")
+}
+
+func (s *stubTunnelValidator) ValidateTunnelPeer(context.Context, *proto.ValidateTunnelPeerRequest, ...grpc.CallOption) (*proto.ValidateTunnelPeerResponse, error) {
+	s.called = true
+	return s.resp, nil
+}
+
+// TestProtect_PrivateService_TunnelPeerGroupsPropagate locks the agent-network
+// auth path end-to-end at the proxy edge: a Private service must route through
+// ValidateTunnelPeer and lift the returned peer_group_ids onto CapturedData so
+// the llm_router group-authorisation pass can see them. Regression guard for
+// the failure that surfaces downstream as llm_policy.no_authorised_provider —
+// i.e. a synthesised service that reaches the proxy without private=true (so
+// this path is skipped) leaves UserGroups empty and every request is denied.
+func TestProtect_PrivateService_TunnelPeerGroupsPropagate(t *testing.T) {
+	groups := []string{"grp-admins", "grp-users"}
+	names := []string{"Admins", "Users"}
+	validator := &stubTunnelValidator{resp: &proto.ValidateTunnelPeerResponse{
+		Valid:          true,
+		UserId:         "user-1",
+		UserEmail:      "user@example.com",
+		SessionToken:   "tunnel-session-token",
+		PeerGroupIds:   groups,
+		PeerGroupNames: names,
+	}}
+	mw := NewMiddleware(log.StandardLogger(), validator, nil)
+	kp := generateTestKeyPair(t)
+
+	// Private service: no operator schemes — auth gates solely on the tunnel peer.
+	require.NoError(t, mw.AddDomain("agent.example.com", nil, kp.PublicKey, time.Hour, "acct-1", "svc-1", nil, true))
+
+	cd := proxy.NewCapturedData("")
+	cd.SetClientIP(netip.MustParseAddr("100.90.1.14")) // CGNAT tunnel source
+
+	var seenGroups []string
+	var seenUser string
+	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c := proxy.CapturedDataFromContext(r.Context())
+		require.NotNil(t, c, "captured data must be present in request context")
+		seenGroups = c.GetUserGroups()
+		seenUser = c.GetUserID()
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	lookup := TunnelLookupFunc(func(_ netip.Addr) (PeerIdentity, bool) {
+		return PeerIdentity{}, true
+	})
+	req := httptest.NewRequest(http.MethodPost, "http://agent.example.com/v1/chat/completions", nil)
+	req.RemoteAddr = "100.90.1.14:5000"
+	req = req.WithContext(WithTunnelLookup(proxy.WithCapturedData(req.Context(), cd), lookup))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code, "private service must authorise a tunnel peer the validator accepts")
+	assert.Equal(t, groups, seenGroups, "ValidateTunnelPeer peer_group_ids must reach CapturedData.UserGroups for llm_router authorisation")
+	assert.Equal(t, "user-1", seenUser, "tunnel-peer principal must reach CapturedData")
+	assert.Equal(t, groups, cd.GetUserGroups(), "groups must persist on CapturedData after the handler returns")
+}
+
+// TestProtect_PrivateService_TunnelPeerDenied verifies the deny path: when
+// ValidateTunnelPeer rejects the peer, a Private service 403s and never reaches
+// the upstream handler (no fall-through to unauthenticated pass-through).
+func TestProtect_PrivateService_TunnelPeerDenied(t *testing.T) {
+	validator := &stubTunnelValidator{resp: &proto.ValidateTunnelPeerResponse{
+		Valid:        false,
+		DeniedReason: "not_in_group",
+	}}
+	mw := NewMiddleware(log.StandardLogger(), validator, nil)
+	kp := generateTestKeyPair(t)
+	require.NoError(t, mw.AddDomain("agent.example.com", nil, kp.PublicKey, time.Hour, "acct-1", "svc-1", nil, true))
+
+	cd := proxy.NewCapturedData("")
+	cd.SetClientIP(netip.MustParseAddr("100.90.1.14"))
+
+	reached := false
+	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reached = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	lookup := TunnelLookupFunc(func(_ netip.Addr) (PeerIdentity, bool) {
+		return PeerIdentity{}, true
+	})
+	req := httptest.NewRequest(http.MethodPost, "http://agent.example.com/v1/chat/completions", nil)
+	req.RemoteAddr = "100.90.1.14:5000"
+	req = req.WithContext(WithTunnelLookup(proxy.WithCapturedData(req.Context(), cd), lookup))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusForbidden, rec.Code, "private service must 403 when the tunnel peer is rejected")
+	assert.False(t, reached, "denied private request must not reach the upstream handler")
+}
+
 func TestProtect_ExpiredSessionCookieIsRejected(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
 	kp := generateTestKeyPair(t)
@@ -1226,22 +1329,6 @@ func TestProtect_NonOIDCSchemes_PlainHTTP_NotBlocked(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusUnauthorized, rec.Code, "PIN-only domain should serve the login page on plain HTTP")
-}
-
-// stubTunnelValidator records ValidateTunnelPeer calls so a test can
-// assert whether the fast-path reached management.
-type stubTunnelValidator struct {
-	called bool
-	resp   *proto.ValidateTunnelPeerResponse
-}
-
-func (s *stubTunnelValidator) ValidateSession(context.Context, *proto.ValidateSessionRequest, ...grpc.CallOption) (*proto.ValidateSessionResponse, error) {
-	return nil, errors.New("not used in this test")
-}
-
-func (s *stubTunnelValidator) ValidateTunnelPeer(context.Context, *proto.ValidateTunnelPeerRequest, ...grpc.CallOption) (*proto.ValidateTunnelPeerResponse, error) {
-	s.called = true
-	return s.resp, nil
 }
 
 // TestProtect_TunnelPeerFastPath_RequiresInboundMarker guards the
