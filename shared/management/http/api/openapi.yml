@@ -379,6 +379,8 @@ components:
           description: Limits the dashboard to the Agent Network surface for this account. Set for accounts created via netbird.ai signups and can be disabled later.
           type: boolean
           example: false
+        dashboard_features:
+          $ref: '#/components/schemas/AccountDashboardFeatures'
         embedded_idp_enabled:
           description: Indicates whether the embedded identity provider (Dex) is enabled for this account. This is a read-only field.
           type: boolean
@@ -407,6 +409,14 @@ components:
         - regular_users_view_blocked
         - peer_expose_enabled
         - peer_expose_groups
+    AccountDashboardFeatures:
+      description: Per-account dashboard section visibility overrides. Omitted keys follow the default dashboard behavior.
+      type: object
+      properties:
+        agent_network:
+          description: When true, the Agent Network menu is shown for the account even without the deployment feature flag.
+          type: boolean
+          example: true
     AccountExtraSettings:
       type: object
       properties:

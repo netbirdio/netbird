@@ -1612,6 +1612,12 @@ type Account struct {
 	Settings   AccountSettings   `json:"settings"`
 }
 
+// AccountDashboardFeatures Per-account dashboard section visibility overrides. Omitted keys follow the default dashboard behavior.
+type AccountDashboardFeatures struct {
+	// AgentNetwork When true, the Agent Network menu is shown for the account even without the deployment feature flag.
+	AgentNetwork *bool `json:"agent_network,omitempty"`
+}
+
 // AccountExtraSettings defines model for AccountExtraSettings.
 type AccountExtraSettings struct {
 	// NetworkTrafficLogsEnabled Enables or disables network traffic logging. If enabled, all network traffic events from peers will be stored.
@@ -1655,6 +1661,9 @@ type AccountSettings struct {
 
 	// AutoUpdateVersion Set Clients auto-update version. "latest", "disabled", or a specific version (e.g "0.50.1")
 	AutoUpdateVersion *string `json:"auto_update_version,omitempty"`
+
+	// DashboardFeatures Per-account dashboard section visibility overrides. Omitted keys follow the default dashboard behavior.
+	DashboardFeatures *AccountDashboardFeatures `json:"dashboard_features,omitempty"`
 
 	// DnsDomain Allows to define a custom dns domain for the account
 	DnsDomain *string `json:"dns_domain,omitempty"`
