@@ -414,7 +414,7 @@ components:
       type: object
       properties:
         agent_network:
-          description: When true, the Agent Network menu is shown for the account even without the deployment feature flag.
+          description: Controls the Agent Network menu for the account regardless of the deployment feature flag. When true the menu is shown, when false it is hidden, and when omitted the default behavior applies.
           type: boolean
           example: true
     AccountExtraSettings:

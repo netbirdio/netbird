@@ -1614,7 +1614,7 @@ type Account struct {
 
 // AccountDashboardFeatures Per-account dashboard section visibility overrides. Omitted keys follow the default dashboard behavior.
 type AccountDashboardFeatures struct {
-	// AgentNetwork When true, the Agent Network menu is shown for the account even without the deployment feature flag.
+	// AgentNetwork Controls the Agent Network menu for the account regardless of the deployment feature flag. When true the menu is shown, when false it is hidden, and when omitted the default behavior applies.
 	AgentNetwork *bool `json:"agent_network,omitempty"`
 }
 
