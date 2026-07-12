@@ -1647,6 +1647,9 @@ type AccountRequest struct {
 
 // AccountSettings defines model for AccountSettings.
 type AccountSettings struct {
+	// AgentNetworkOnly Limits the dashboard to the Agent Network surface for this account. Set for accounts created via netbird.ai signups and can be disabled later.
+	AgentNetworkOnly *bool `json:"agent_network_only,omitempty"`
+
 	// AutoUpdateAlways When true, updates are installed automatically in the background. When false, updates require user interaction from the UI.
 	AutoUpdateAlways *bool `json:"auto_update_always,omitempty"`
 

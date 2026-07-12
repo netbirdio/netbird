@@ -76,6 +76,10 @@ type Settings struct {
 	// MetricsPushEnabled globally enables or disables client metrics push for the account
 	MetricsPushEnabled bool `gorm:"default:false"`
 
+	// AgentNetworkOnly limits the dashboard to the Agent Network surface for this account.
+	// Set for accounts created via netbird.ai signups; users can disable it later.
+	AgentNetworkOnly bool `gorm:"default:false"`
+
 	// EmbeddedIdpEnabled indicates if the embedded identity provider is enabled.
 	// This is a runtime-only field, not stored in the database.
 	EmbeddedIdpEnabled bool `gorm:"-"`
@@ -114,6 +118,7 @@ func (s *Settings) Copy() *Settings {
 		AutoUpdateAlways:                s.AutoUpdateAlways,
 		IPv6EnabledGroups:               slices.Clone(s.IPv6EnabledGroups),
 		MetricsPushEnabled:              s.MetricsPushEnabled,
+		AgentNetworkOnly:                s.AgentNetworkOnly,
 		EmbeddedIdpEnabled:              s.EmbeddedIdpEnabled,
 		LocalAuthDisabled:               s.LocalAuthDisabled,
 		LocalMfaEnabled:                 s.LocalMfaEnabled,
