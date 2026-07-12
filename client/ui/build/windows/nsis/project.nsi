@@ -75,8 +75,6 @@ OutFile "..\..\..\bin\${INFO_PROJECTNAME}-${ARCH}-installer.exe" # Name of the i
 InstallDir "$PROGRAMFILES64\${INFO_COMPANYNAME}\${INFO_PRODUCTNAME}" # Default installing folder ($PROGRAMFILES is Program Files folder).
 ShowInstDetails show # This will always show the installation details.
 
-Var FreshInstall
-
 Function .onInit
    !insertmacro wails.checkArchitecture
 FunctionEnd
@@ -86,38 +84,16 @@ Section
 
     !insertmacro wails.webview2runtime
 
-    # Fresh-vs-upgrade detection must run before any file is written. An
-    # existing uninstall registry entry or an already-installed executable
-    # means upgrade; only a true fresh install gets the breadcrumb the GUI
-    # uses to enable launch-on-login by default. The installer itself never
-    # writes login items or Run keys.
-    StrCpy $FreshInstall "1"
-    ReadRegStr $0 HKLM "${UNINST_KEY}" "UninstallString"
-    StrCmp $0 "" +2 0
-        StrCpy $FreshInstall "0"
-    IfFileExists "$INSTDIR\${PRODUCT_EXECUTABLE}" 0 +2
-        StrCpy $FreshInstall "0"
-
     SetOutPath $INSTDIR
-
+    
     !insertmacro wails.files
-
-    # On upgrade, delete any stale breadcrumb (covers a fresh install where
-    # the GUI never launched before the first update).
-    StrCmp $FreshInstall "1" 0 removeBreadcrumb
-        FileOpen $0 "$INSTDIR\.fresh-install" w
-        FileClose $0
-        Goto breadcrumbDone
-    removeBreadcrumb:
-        Delete "$INSTDIR\.fresh-install"
-    breadcrumbDone:
 
     CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
     CreateShortCut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
 
     !insertmacro wails.associateFiles
     !insertmacro wails.associateCustomProtocols
-
+    
     !insertmacro wails.writeUninstaller
 SectionEnd
 
