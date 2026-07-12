@@ -375,6 +375,10 @@ components:
           description: Enables or disables client metrics push for all peers in the account
           type: boolean
           example: false
+        agent_network_only:
+          description: Limits the dashboard to the Agent Network surface for this account. Set for accounts created via netbird.ai signups and can be disabled later.
+          type: boolean
+          example: false
         embedded_idp_enabled:
           description: Indicates whether the embedded identity provider (Dex) is enabled for this account. This is a read-only field.
           type: boolean
