@@ -162,6 +162,27 @@ func (s *Connection) Up(ctx context.Context, p UpParams) error {
 	return nil
 }
 
+// WaitSSOLoginAndUp blocks until the SSO login completes and then brings the
+// connection up, both from the Go side. Keeping the post-login Up here rather
+// than as a frontend continuation is deliberate: during SSO the tray window is
+// hidden and the webview is suspended (macOS App Nap / hidden-window timer
+// throttling), so a frontend-driven Up would not run until the user woke the
+// window (e.g. by hovering the tray icon). Doing it in Go connects the moment
+// the daemon reports SSO success. Returns the authenticated user's email.
+func (s *Connection) WaitSSOLoginAndUp(ctx context.Context, wait WaitSSOParams, up UpParams) (string, error) {
+	email, err := s.WaitSSOLogin(ctx, wait)
+	if err != nil {
+		return "", err
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if err := s.Up(ctx, up); err != nil {
+		return "", err
+	}
+	return email, nil
+}
+
 func (s *Connection) Down(ctx context.Context) error {
 	cli, err := s.conn.Client()
 	if err != nil {
