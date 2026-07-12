@@ -1321,5 +1321,65 @@
     },
     "error.unknown": {
         "message": "La operación falló."
+    },
+    "settings.tabs.vnc": {
+        "message": "VNC"
+    },
+    "settings.vnc.section.server": {
+        "message": "Servidor"
+    },
+    "settings.vnc.section.approval": {
+        "message": "Aprobación"
+    },
+    "settings.vnc.server.label": {
+        "message": "Habilitar el servidor VNC"
+    },
+    "settings.vnc.server.help": {
+        "message": "Ejecuta el servidor VNC de NetBird en este host para que los peers autorizados puedan ver o controlar su pantalla."
+    },
+    "settings.vnc.approval.label": {
+        "message": "Requerir aprobación de conexión"
+    },
+    "settings.vnc.approval.help": {
+        "message": "Mostrar en este host una solicitud que debe aceptarse antes de permitir una conexión VNC entrante."
+    },
+    "window.title.approval": {
+        "message": "Solicitud de conexión"
+    },
+    "approval.title.vnc": {
+        "message": "¿Permitir la conexión VNC?"
+    },
+    "approval.title.ssh": {
+        "message": "¿Permitir la conexión SSH?"
+    },
+    "approval.title.default": {
+        "message": "¿Permitir la conexión entrante?"
+    },
+    "approval.field.user": {
+        "message": "Del usuario"
+    },
+    "approval.field.keyFingerprint": {
+        "message": "Huella de la clave"
+    },
+    "approval.field.peer": {
+        "message": "A través del peer"
+    },
+    "approval.field.sourceIp": {
+        "message": "IP de origen"
+    },
+    "approval.field.osUser": {
+        "message": "Usuario del SO"
+    },
+    "approval.countdown": {
+        "message": "Rechazo automático en {seconds}s"
+    },
+    "approval.action.allow": {
+        "message": "Permitir"
+    },
+    "approval.action.allowViewOnly": {
+        "message": "Permitir (solo ver)"
+    },
+    "approval.action.deny": {
+        "message": "Denegar"
     }
 }

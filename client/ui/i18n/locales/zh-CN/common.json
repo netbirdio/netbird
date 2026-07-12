@@ -1321,5 +1321,65 @@
     },
     "error.unknown": {
         "message": "操作失败。"
+    },
+    "settings.tabs.vnc": {
+        "message": "VNC"
+    },
+    "settings.vnc.section.server": {
+        "message": "服务器"
+    },
+    "settings.vnc.section.approval": {
+        "message": "批准"
+    },
+    "settings.vnc.server.label": {
+        "message": "启用 VNC 服务器"
+    },
+    "settings.vnc.server.help": {
+        "message": "在此主机上运行 NetBird VNC 服务器，以便授权的对端可以查看或控制其屏幕。"
+    },
+    "settings.vnc.approval.label": {
+        "message": "要求连接批准"
+    },
+    "settings.vnc.approval.help": {
+        "message": "在此主机上显示一个提示，必须先接受该提示才能允许传入的 VNC 连接。"
+    },
+    "window.title.approval": {
+        "message": "连接请求"
+    },
+    "approval.title.vnc": {
+        "message": "允许 VNC 连接？"
+    },
+    "approval.title.ssh": {
+        "message": "允许 SSH 连接？"
+    },
+    "approval.title.default": {
+        "message": "允许传入连接？"
+    },
+    "approval.field.user": {
+        "message": "来自用户"
+    },
+    "approval.field.keyFingerprint": {
+        "message": "密钥指纹"
+    },
+    "approval.field.peer": {
+        "message": "经由对端"
+    },
+    "approval.field.sourceIp": {
+        "message": "源 IP"
+    },
+    "approval.field.osUser": {
+        "message": "操作系统用户"
+    },
+    "approval.countdown": {
+        "message": "{seconds} 秒后自动拒绝"
+    },
+    "approval.action.allow": {
+        "message": "允许"
+    },
+    "approval.action.allowViewOnly": {
+        "message": "允许（仅查看）"
+    },
+    "approval.action.deny": {
+        "message": "拒绝"
     }
 }

@@ -683,6 +683,10 @@
         "message": "SSH",
         "description": "Settings tab label: SSH. Acronym — keep as-is."
     },
+    "settings.tabs.vnc": {
+        "message": "VNC",
+        "description": "Settings tab label: VNC. Acronym — keep as-is."
+    },
     "settings.tabs.advanced": {
         "message": "Advanced",
         "description": "Settings tab label: Advanced. Keep short."
@@ -950,6 +954,30 @@
     "settings.ssh.jwtTtl.suffix": {
         "message": "Second(s)",
         "description": "Unit suffix shown after the JWT TTL number field. The '(s)' marks an optional plural."
+    },
+    "settings.vnc.section.server": {
+        "message": "Server",
+        "description": "Section heading: Server (VNC settings)."
+    },
+    "settings.vnc.section.approval": {
+        "message": "Approval",
+        "description": "Section heading: Approval (VNC connection approval settings)."
+    },
+    "settings.vnc.server.label": {
+        "message": "Enable VNC Server",
+        "description": "Toggle label: enable the embedded VNC server."
+    },
+    "settings.vnc.server.help": {
+        "message": "Run the NetBird VNC server on this host so authorized peers can view or control its screen.",
+        "description": "Helper text for the VNC server toggle."
+    },
+    "settings.vnc.approval.label": {
+        "message": "Require Connection Approval",
+        "description": "Toggle label: prompt for approval before each inbound VNC connection."
+    },
+    "settings.vnc.approval.help": {
+        "message": "Show a prompt on this host that must be accepted before an incoming VNC connection is allowed.",
+        "description": "Helper text for the VNC connection-approval toggle."
     },
     "settings.advanced.section.interface": {
         "message": "Interface",
@@ -1362,6 +1390,58 @@
     "window.title.sessionExpiration": {
         "message": "Session Expiring",
         "description": "OS window-chrome title for the session-expiration window."
+    },
+    "window.title.approval": {
+        "message": "Connection Request",
+        "description": "OS window-chrome title for the inbound-connection approval window."
+    },
+    "approval.title.vnc": {
+        "message": "Allow VNC Connection?",
+        "description": "Approval dialog heading for an inbound VNC connection."
+    },
+    "approval.title.ssh": {
+        "message": "Allow SSH Connection?",
+        "description": "Approval dialog heading for an inbound SSH connection."
+    },
+    "approval.title.default": {
+        "message": "Allow Incoming Connection?",
+        "description": "Approval dialog heading for an inbound connection of unknown kind."
+    },
+    "approval.field.user": {
+        "message": "From user",
+        "description": "Approval dialog row label: the initiating user's display name."
+    },
+    "approval.field.keyFingerprint": {
+        "message": "Key fingerprint",
+        "description": "Approval dialog row label: the connecting peer's cryptographic key fingerprint."
+    },
+    "approval.field.peer": {
+        "message": "Via peer",
+        "description": "Approval dialog row label: the peer the connection arrives through."
+    },
+    "approval.field.sourceIp": {
+        "message": "Source IP",
+        "description": "Approval dialog row label: the source IP address of the connection."
+    },
+    "approval.field.osUser": {
+        "message": "OS user",
+        "description": "Approval dialog row label: the target operating-system user."
+    },
+    "approval.countdown": {
+        "message": "Auto-deny in {seconds}s",
+        "description": "Approval dialog countdown; {seconds} is the remaining whole seconds before the daemon auto-denies."
+    },
+    "approval.action.allow": {
+        "message": "Allow",
+        "description": "Approval dialog button: allow the connection."
+    },
+    "approval.action.allowViewOnly": {
+        "message": "Allow (view only)",
+        "description": "Approval dialog button: allow the connection in view-only mode."
+    },
+    "approval.action.deny": {
+        "message": "Deny",
+        "description": "Approval dialog button: deny the connection."
     },
     "window.title.updating": {
         "message": "Updating",

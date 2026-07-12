@@ -1321,5 +1321,65 @@
     },
     "error.unknown": {
         "message": "Vorgang fehlgeschlagen."
+    },
+    "settings.tabs.vnc": {
+        "message": "VNC"
+    },
+    "settings.vnc.section.server": {
+        "message": "Server"
+    },
+    "settings.vnc.section.approval": {
+        "message": "Genehmigung"
+    },
+    "settings.vnc.server.label": {
+        "message": "VNC-Server aktivieren"
+    },
+    "settings.vnc.server.help": {
+        "message": "Den NetBird-VNC-Server auf diesem Host ausführen, damit autorisierte Peers den Bildschirm ansehen oder steuern können."
+    },
+    "settings.vnc.approval.label": {
+        "message": "Verbindungsgenehmigung erforderlich"
+    },
+    "settings.vnc.approval.help": {
+        "message": "Auf diesem Host eine Aufforderung anzeigen, die bestätigt werden muss, bevor eine eingehende VNC-Verbindung zugelassen wird."
+    },
+    "window.title.approval": {
+        "message": "Verbindungsanfrage"
+    },
+    "approval.title.vnc": {
+        "message": "VNC-Verbindung zulassen?"
+    },
+    "approval.title.ssh": {
+        "message": "SSH-Verbindung zulassen?"
+    },
+    "approval.title.default": {
+        "message": "Eingehende Verbindung zulassen?"
+    },
+    "approval.field.user": {
+        "message": "Von Benutzer"
+    },
+    "approval.field.keyFingerprint": {
+        "message": "Schlüssel-Fingerabdruck"
+    },
+    "approval.field.peer": {
+        "message": "Über Peer"
+    },
+    "approval.field.sourceIp": {
+        "message": "Quell-IP"
+    },
+    "approval.field.osUser": {
+        "message": "Betriebssystem-Benutzer"
+    },
+    "approval.countdown": {
+        "message": "Automatische Ablehnung in {seconds}s"
+    },
+    "approval.action.allow": {
+        "message": "Zulassen"
+    },
+    "approval.action.allowViewOnly": {
+        "message": "Zulassen (nur ansehen)"
+    },
+    "approval.action.deny": {
+        "message": "Ablehnen"
     }
 }

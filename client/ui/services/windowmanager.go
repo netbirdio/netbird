@@ -106,6 +106,7 @@ type WindowManager struct {
 	settings          *application.WebviewWindow
 	browserLogin      *application.WebviewWindow
 	sessionExpiration *application.WebviewWindow
+	approval          *application.WebviewWindow
 	installProgress   *application.WebviewWindow
 	welcome           *application.WebviewWindow
 	errorDialog       *application.WebviewWindow
@@ -273,6 +274,58 @@ func (s *WindowManager) CloseSessionExpiration() {
 	s.mu.Lock()
 	w := s.sessionExpiration
 	s.sessionExpiration = nil
+	s.mu.Unlock()
+	if w != nil {
+		w.Close()
+	}
+}
+
+// ApprovalRequest carries the daemon-supplied metadata for an inbound-connection
+// approval prompt to the dialog window as query params. Kind, RequestID and
+// ExpiresAt are daemon-issued; the rest are remote-influenced and shown so the
+// user can vet who is connecting.
+type ApprovalRequest struct {
+	RequestID  string
+	Kind       string
+	Initiator  string
+	PeerName   string
+	SourceIP   string
+	Username   string
+	PeerPubKey string
+	ExpiresAt  string
+}
+
+// OpenApproval shows the inbound-connection approval prompt on the cursor's
+// display. Singleton, destroyed on close: a second request replaces the window,
+// and the superseded request auto-denies on the daemon's deadline.
+func (s *WindowManager) OpenApproval(req ApprovalRequest) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	startURL := approvalDialogURL(req)
+	if s.approval == nil {
+		opts := DialogWindowOptions("approval", s.title("window.title.approval"), startURL, s.linuxIcon)
+		opts.Height = 380
+		opts.Screen = s.getScreenBasedOnCursorPosition()
+		opts.InitialPosition = application.WindowCentered
+		s.approval = s.app.Window.NewWithOptions(opts)
+		s.approval.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
+			s.mu.Lock()
+			s.approval = nil
+			s.mu.Unlock()
+		})
+		s.centerOnCursorScreen(s.approval)
+		return
+	}
+	s.approval.SetURL(startURL)
+	s.centerOnCursorScreen(s.approval)
+	s.approval.Show()
+	s.approval.Focus()
+}
+
+func (s *WindowManager) CloseApproval() {
+	s.mu.Lock()
+	w := s.approval
+	s.approval = nil
 	s.mu.Unlock()
 	if w != nil {
 		w.Close()
@@ -566,6 +619,31 @@ func errorDialogURL(title, message string) string {
 		q.Set("message", message)
 	}
 	startURL := "/#/dialog/error"
+	if enc := q.Encode(); enc != "" {
+		startURL += "?" + enc
+	}
+	return startURL
+}
+
+// approvalDialogURL builds the approval window's start URL with the request
+// metadata as escaped query params. Empty fields are omitted so the dialog
+// renders only the rows it has values for.
+func approvalDialogURL(req ApprovalRequest) string {
+	q := url.Values{}
+	set := func(k, v string) {
+		if v != "" {
+			q.Set(k, v)
+		}
+	}
+	set("request_id", req.RequestID)
+	set("kind", req.Kind)
+	set("initiator", req.Initiator)
+	set("peer_name", req.PeerName)
+	set("source_ip", req.SourceIP)
+	set("username", req.Username)
+	set("peer_pubkey", req.PeerPubKey)
+	set("expires_at", req.ExpiresAt)
+	startURL := "/#/dialog/approval"
 	if enc := q.Encode(); enc != "" {
 		startURL += "?" + enc
 	}
