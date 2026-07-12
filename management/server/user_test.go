@@ -1168,8 +1168,17 @@ func TestDefaultAccountManager_ExternalCache(t *testing.T) {
 		Name:    "Stored Absent User",
 		Email:   "absent@example.com",
 	}
+	absentServiceUser := &types.User{
+		Id:              "absentServiceUser",
+		Role:            types.UserRoleAdmin,
+		Issued:          types.UserIssuedAPI,
+		IsServiceUser:   true,
+		NonDeletable:    true,
+		ServiceUserName: "Protected Service User",
+	}
 	account.Users[externalUser.Id] = externalUser
 	account.Users[absentBlockedUser.Id] = absentBlockedUser
+	account.Users[absentServiceUser.Id] = absentServiceUser
 
 	err = storeImpl.SaveAccount(context.Background(), account)
 	if err != nil {
@@ -1209,15 +1218,19 @@ func TestDefaultAccountManager_ExternalCache(t *testing.T) {
 
 	infosMap, err := am.BuildUserInfosForAccount(context.Background(), mockAccountID, mockUserID, accountUsers)
 	assert.NoError(t, err)
-	assert.Equal(t, 3, len(infosMap))
+	assert.Equal(t, 4, len(infosMap))
 	var user *types.UserInfo
 	var absentUser *types.UserInfo
+	var absentService *types.UserInfo
 	for _, info := range infosMap {
 		if info.ID == externalUser.Id {
 			user = info
 		}
 		if info.ID == absentBlockedUser.Id {
 			absentUser = info
+		}
+		if info.ID == absentServiceUser.Id {
+			absentService = info
 		}
 	}
 	assert.NotNil(t, user)
@@ -1226,6 +1239,9 @@ func TestDefaultAccountManager_ExternalCache(t *testing.T) {
 	assert.Equal(t, absentBlockedUser.Name, absentUser.Name)
 	assert.Equal(t, absentBlockedUser.Email, absentUser.Email)
 	assert.True(t, absentUser.IsBlocked)
+	assert.NotNil(t, absentService)
+	assert.Equal(t, absentServiceUser.ServiceUserName, absentService.Name)
+	assert.True(t, absentService.NonDeletable)
 }
 
 func TestUser_IsAdmin(t *testing.T) {
