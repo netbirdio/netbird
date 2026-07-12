@@ -80,7 +80,7 @@ func init() {
 }
 
 func main() {
-	daemonAddr, userSetLogFile := parseFlagsAndInitLog()
+	daemonAddr, userSetLogFile, postUpdate := parseFlagsAndInitLog()
 	conn := NewConn(daemonAddr)
 
 	// Without --log-file, the GUI manages a gui-client.log that follows the
@@ -197,6 +197,9 @@ func main() {
 		// daemon may keep the main window from showing, so the OS toast is the
 		// only reliable signal the user gets.
 		go notifyIfDaemonOutdated(compat, notifier, localizer)
+		// One-time launch-on-login default for fresh installs; gated by the
+		// installer breadcrumb, MDM policy, and the persisted marker.
+		go applyAutostartDefault(context.Background(), services.NewAutostart(app.Autostart), prefStore, postUpdate)
 	})
 
 	if err := app.Run(); err != nil {
@@ -221,17 +224,19 @@ func requestNotificationAuthorization(notifier *notifications.NotificationServic
 	}
 }
 
-// parseFlagsAndInitLog returns the daemon gRPC address and userSetLogFile
-// (true when --log-file was passed). userSetLogFile is the manual-override
-// signal: true leaves logging alone, false lets the GUI manage a
-// daemon-driven gui-client.log. The flag default is empty (not "console") so
-// "no flag" and an explicit "--log-file console" stay distinguishable; empty
-// falls back to console for InitLog.
-func parseFlagsAndInitLog() (string, bool) {
+// parseFlagsAndInitLog returns the daemon gRPC address, userSetLogFile
+// (true when --log-file was passed), and postUpdate (true when the process
+// was relaunched by an installer/updater via --post-update). userSetLogFile
+// is the manual-override signal: true leaves logging alone, false lets the
+// GUI manage a daemon-driven gui-client.log. The flag default is empty (not
+// "console") so "no flag" and an explicit "--log-file console" stay
+// distinguishable; empty falls back to console for InitLog.
+func parseFlagsAndInitLog() (string, bool, bool) {
 	daemonAddr := flag.String("daemon-addr", DaemonAddr(), "Daemon gRPC address: unix:///path or tcp://host:port")
 	logFiles := &stringList{}
 	flag.Var(logFiles, "log-file", "Log destination. Repeat to log to multiple targets at once, e.g. `--log-file console --log-file Y:/netbird-ui.log`. Each value is one of: console, syslog, or a file path. File destinations are rotated by lumberjack (same as the daemon). Defaults to console. Passing any value disables the daemon-debug-driven gui-client.log.")
 	logLevel := flag.String("log-level", "info", "Log level: trace|debug|info|warn|error.")
+	postUpdate := flag.Bool("post-update", false, "Set by installer/updater relaunches; suppresses first-run defaults such as enabling autostart.")
 	flag.Parse()
 
 	userSetLogFile := len(logFiles.values) > 0
@@ -243,7 +248,7 @@ func parseFlagsAndInitLog() (string, bool) {
 	if err := util.InitLog(*logLevel, targets...); err != nil {
 		log.Fatalf("init log: %v", err)
 	}
-	return *daemonAddr, userSetLogFile
+	return *daemonAddr, userSetLogFile, *postUpdate
 }
 
 // newApplication constructs the Wails application. onSecondInstance fires when
