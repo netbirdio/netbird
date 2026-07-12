@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	gocacheStore "github.com/eko/gocache/lib/v4/store"
 	"github.com/google/go-cmp/cmp"
 	"go.uber.org/mock/gomock"
 	"golang.org/x/exp/maps"
@@ -1143,7 +1144,7 @@ func TestDefaultAccountManager_ListUsers(t *testing.T) {
 }
 
 func TestDefaultAccountManager_ExternalCache(t *testing.T) {
-	store, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+	storeImpl, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
 	if err != nil {
 		t.Fatalf("Error when creating store: %s", err)
 	}
@@ -1159,16 +1160,25 @@ func TestDefaultAccountManager_ExternalCache(t *testing.T) {
 			IntegrationType: "external",
 		},
 	}
+	absentBlockedUser := &types.User{
+		Id:      "absentBlockedUser",
+		Role:    types.UserRoleUser,
+		Issued:  types.UserIssuedAPI,
+		Blocked: true,
+		Name:    "Stored Absent User",
+		Email:   "absent@example.com",
+	}
 	account.Users[externalUser.Id] = externalUser
+	account.Users[absentBlockedUser.Id] = absentBlockedUser
 
-	err = store.SaveAccount(context.Background(), account)
+	err = storeImpl.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
-	permissionsManager := permissions.NewManager(store)
+	permissionsManager := permissions.NewManager(storeImpl)
 	am := DefaultAccountManager{
-		Store:              store,
+		Store:              storeImpl,
 		eventStore:         &activity.InMemoryEventStore{},
 		idpManager:         &idp.GoogleWorkspaceManager{}, // empty manager
 		cacheLoading:       map[string]chan struct{}{},
@@ -1178,7 +1188,9 @@ func TestDefaultAccountManager_ExternalCache(t *testing.T) {
 	cacheStore, err := nbcache.NewStore(context.Background(), nbcache.DefaultIDPCacheExpirationMax, nbcache.DefaultIDPCacheCleanupInterval, nbcache.DefaultIDPCacheOpenConn)
 	assert.NoError(t, err)
 	am.externalCacheManager = nbcache.NewUserDataCache(cacheStore)
-	am.cacheManager = nbcache.NewAccountUserDataCache(am.loadAccount, cacheStore)
+	am.cacheManager = nbcache.NewAccountUserDataCache(func(_ context.Context, _ any) (any, []gocacheStore.Option, error) {
+		return []*idp.UserData{{Name: mockUserID, ID: mockUserID}}, nil, nil
+	}, cacheStore)
 	// pretend that we receive mockUserID from IDP
 	err = am.cacheManager.Set(am.ctx, mockAccountID, []*idp.UserData{{Name: mockUserID, ID: mockUserID}}, time.Minute)
 	assert.NoError(t, err)
@@ -1192,17 +1204,28 @@ func TestDefaultAccountManager_ExternalCache(t *testing.T) {
 	err = cacheManager.SetUsers(context.Background(), cacheKeyAccount, []*idp.UserData{tud}, time.Minute)
 	assert.NoError(t, err)
 
-	infos, err := am.GetUsersFromAccount(context.Background(), mockAccountID, mockUserID)
+	accountUsers, err := am.Store.GetAccountUsers(context.Background(), store.LockingStrengthNone, mockAccountID)
 	assert.NoError(t, err)
-	assert.Equal(t, 2, len(infos))
+
+	infosMap, err := am.BuildUserInfosForAccount(context.Background(), mockAccountID, mockUserID, accountUsers)
+	assert.NoError(t, err)
+	assert.Equal(t, 3, len(infosMap))
 	var user *types.UserInfo
-	for _, info := range infos {
+	var absentUser *types.UserInfo
+	for _, info := range infosMap {
 		if info.ID == externalUser.Id {
 			user = info
+		}
+		if info.ID == absentBlockedUser.Id {
+			absentUser = info
 		}
 	}
 	assert.NotNil(t, user)
 	assert.Equal(t, "user@example.com", user.Email)
+	assert.NotNil(t, absentUser)
+	assert.Equal(t, absentBlockedUser.Name, absentUser.Name)
+	assert.Equal(t, absentBlockedUser.Email, absentUser.Email)
+	assert.True(t, absentUser.IsBlocked)
 }
 
 func TestUser_IsAdmin(t *testing.T) {
