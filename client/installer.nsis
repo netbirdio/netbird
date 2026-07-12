@@ -299,14 +299,14 @@ ExecWait '"$INSTDIR\${MAIN_APP_EXE}" service uninstall'
 DetailPrint "Terminating Netbird UI process..."
 ExecWait `taskkill /im ${UI_APP_EXE}.exe /f`
 
-; Remove autostart registry entries
-DetailPrint "Removing autostart registry entries if they exist..."
-; Legacy machine-wide entry written by older installers.
+; Remove the legacy machine-wide autostart entry older installers wrote.
+; The per-user HKCU\...\Run value is owned by the UI's Wails toggle and is
+; left untouched here: the NSIS upgrade path runs this uninstaller before
+; reinstalling, so deleting it would wipe the user's launch-on-login choice
+; on every update. A leftover entry after a genuine uninstall is harmless --
+; Windows ignores Run values whose target executable no longer exists.
+DetailPrint "Removing legacy machine-wide autostart entry if present..."
 DeleteRegValue HKLM "${AUTOSTART_REG_KEY}" "${APP_NAME}"
-; Per-user entry the UI toggle writes via Wails (value name is the lowercase
-; app-name slug). Uninstall removes the app, so drop it too.
-DeleteRegValue HKCU "${AUTOSTART_REG_KEY}" "${APP_NAME}"
-DeleteRegValue HKCU "${AUTOSTART_REG_KEY}" "netbird"
 
 ; Handle data deletion based on checkbox
 DetailPrint "Checking if user requested data deletion..."
