@@ -489,6 +489,102 @@ func MigrateJsonToTable[T any](ctx context.Context, db *gorm.DB, columnName stri
 	return nil
 }
 
+// hasForeignKey checks whether a foreign key constraint exists on the given table and column.
+func hasForeignKey(db *gorm.DB, table, column string) bool {
+	var count int64
+
+	switch db.Name() {
+	case "postgres":
+		db.Raw(`
+			SELECT COUNT(*) FROM information_schema.key_column_usage kcu
+			JOIN information_schema.table_constraints tc
+			  ON tc.constraint_name = kcu.constraint_name
+			  AND tc.table_schema = kcu.table_schema
+			WHERE tc.constraint_type = 'FOREIGN KEY'
+			  AND kcu.table_name = ?
+			  AND kcu.column_name = ?
+		`, table, column).Scan(&count)
+	case "mysql":
+		db.Raw(`
+			SELECT COUNT(*) FROM information_schema.key_column_usage
+			WHERE table_schema = DATABASE()
+			  AND table_name = ?
+			  AND column_name = ?
+			  AND referenced_table_name IS NOT NULL
+		`, table, column).Scan(&count)
+	default: // sqlite
+		type fkInfo struct {
+			From string
+		}
+		var fks []fkInfo
+		db.Raw(fmt.Sprintf("PRAGMA foreign_key_list(%s)", table)).Scan(&fks)
+		for _, fk := range fks {
+			if fk.From == column {
+				return true
+			}
+		}
+		return false
+	}
+
+	return count > 0
+}
+
+// CleanupOrphanedResources deletes rows from the table of model T where the foreign
+// key column (fkColumn) references a row in the table of model R that no longer exists.
+func CleanupOrphanedResources[T any, R any](ctx context.Context, db *gorm.DB, fkColumn string) error {
+	var model T
+	var refModel R
+
+	if !db.Migrator().HasTable(&model) {
+		log.WithContext(ctx).Debugf("table for %T does not exist, no cleanup needed", model)
+		return nil
+	}
+
+	if !db.Migrator().HasTable(&refModel) {
+		log.WithContext(ctx).Debugf("referenced table for %T does not exist, no cleanup needed", refModel)
+		return nil
+	}
+
+	stmtT := &gorm.Statement{DB: db}
+	if err := stmtT.Parse(&model); err != nil {
+		return fmt.Errorf("parse model %T: %w", model, err)
+	}
+	childTable := stmtT.Schema.Table
+
+	stmtR := &gorm.Statement{DB: db}
+	if err := stmtR.Parse(&refModel); err != nil {
+		return fmt.Errorf("parse reference model %T: %w", refModel, err)
+	}
+	parentTable := stmtR.Schema.Table
+
+	if !db.Migrator().HasColumn(&model, fkColumn) {
+		log.WithContext(ctx).Debugf("column %s does not exist in table %s, no cleanup needed", fkColumn, childTable)
+		return nil
+	}
+
+	// If a foreign key constraint already exists on the column, the DB itself
+	// enforces referential integrity and orphaned rows cannot exist.
+	if hasForeignKey(db, childTable, fkColumn) {
+		log.WithContext(ctx).Debugf("foreign key constraint for %s already exists on %s, no cleanup needed", fkColumn, childTable)
+		return nil
+	}
+
+	result := db.Exec(
+		fmt.Sprintf(
+			"DELETE FROM %s WHERE %s NOT IN (SELECT id FROM %s)",
+			childTable, fkColumn, parentTable,
+		),
+	)
+	if result.Error != nil {
+		return fmt.Errorf("cleanup orphaned rows in %s: %w", childTable, result.Error)
+	}
+
+	log.WithContext(ctx).Infof("Cleaned up %d orphaned rows from %s where %s had no matching row in %s",
+		result.RowsAffected, childTable, fkColumn, parentTable)
+
+	return nil
+}
+
 func RemoveDuplicatePeerKeys(ctx context.Context, db *gorm.DB) error {
 	if !db.Migrator().HasTable("peers") {
 		log.WithContext(ctx).Debug("peers table does not exist, skipping duplicate key cleanup")

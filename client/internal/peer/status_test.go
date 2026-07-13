@@ -8,19 +8,20 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAddPeer(t *testing.T) {
 	key := "abc"
 	ip := "100.108.254.1"
 	status := NewRecorder("https://mgm")
-	err := status.AddPeer(key, "abc.netbird", ip)
+	err := status.AddPeer(key, "abc.netbird", ip, "")
 	assert.NoError(t, err, "shouldn't return error")
 
 	_, exists := status.peers[key]
 	assert.True(t, exists, "value was found")
 
-	err = status.AddPeer(key, "abc.netbird", ip)
+	err = status.AddPeer(key, "abc.netbird", ip, "")
 
 	assert.Error(t, err, "should return error on duplicate")
 }
@@ -29,7 +30,7 @@ func TestGetPeer(t *testing.T) {
 	key := "abc"
 	ip := "100.108.254.1"
 	status := NewRecorder("https://mgm")
-	err := status.AddPeer(key, "abc.netbird", ip)
+	err := status.AddPeer(key, "abc.netbird", ip, "")
 	assert.NoError(t, err, "shouldn't return error")
 
 	peerStatus, err := status.GetPeer(key)
@@ -46,7 +47,7 @@ func TestUpdatePeerState(t *testing.T) {
 	ip := "10.10.10.10"
 	fqdn := "peer-a.netbird.local"
 	status := NewRecorder("https://mgm")
-	_ = status.AddPeer(key, fqdn, ip)
+	require.NoError(t, status.AddPeer(key, fqdn, ip, ""))
 
 	peerState := State{
 		PubKey:           key,
@@ -60,6 +61,72 @@ func TestUpdatePeerState(t *testing.T) {
 	state, exists := status.peers[key]
 	assert.True(t, exists, "state should be found")
 	assert.Equal(t, ip, state.IP, "ip should be equal")
+}
+
+func TestStatus_PeerStateByIP(t *testing.T) {
+	status := NewRecorder("https://mgm")
+	req := require.New(t)
+
+	req.NoError(status.AddPeer("pk-1", "peer-1.netbird", "100.64.0.10", ""))
+	req.NoError(status.AddPeer("pk-2", "peer-2.netbird", "100.64.0.11", ""))
+
+	state, ok := status.PeerStateByIP("100.64.0.10")
+	req.True(ok, "known tunnel IP should resolve to a peer state")
+	req.Equal("pk-1", state.PubKey, "matching state must carry the right pub key")
+	req.Equal("peer-1.netbird", state.FQDN, "matching state must carry the right FQDN")
+
+	_, ok = status.PeerStateByIP("100.64.0.99")
+	req.False(ok, "unknown IP must report ok=false")
+}
+
+func TestStatus_PeerStateByIP_MatchesIPv6(t *testing.T) {
+	status := NewRecorder("https://mgm")
+	req := require.New(t)
+
+	req.NoError(status.AddPeer("pk-1", "peer-1.netbird", "100.64.0.10", "fd00::1"))
+
+	state, ok := status.PeerStateByIP("fd00::1")
+	req.True(ok, "IPv6-only match must resolve to the peer state")
+	req.Equal("pk-1", state.PubKey, "matching state must carry the right pub key")
+}
+
+// TestStatus_PeerStateByIP_IgnoresOfflinePeers documents that peers
+// moved into the offline slice via ReplaceOfflinePeers are intentionally
+// not resolvable by IP: only active peers can carry traffic, so callers
+// (DNS filter, embed.Client.IdentityForIP) treat them as unknown.
+func TestStatus_PeerStateByIP_IgnoresOfflinePeers(t *testing.T) {
+	status := NewRecorder("https://mgm")
+	req := require.New(t)
+
+	status.ReplaceOfflinePeers([]State{
+		{PubKey: "pk-offline", FQDN: "offline.netbird", IP: "100.64.0.20", IPv6: "fd00::20"},
+	})
+
+	_, ok := status.PeerStateByIP("100.64.0.20")
+	req.False(ok, "offline peer must not resolve by IPv4 tunnel address")
+
+	_, ok = status.PeerStateByIP("fd00::20")
+	req.False(ok, "offline peer must not resolve by IPv6 tunnel address")
+}
+
+// TestStatus_PeerStateByIP_RemovedPeer verifies RemovePeer drops the
+// IP index entries for both address families.
+func TestStatus_PeerStateByIP_RemovedPeer(t *testing.T) {
+	status := NewRecorder("https://mgm")
+	req := require.New(t)
+
+	req.NoError(status.AddPeer("pk-1", "peer-1.netbird", "100.64.0.10", "fd00::1"))
+
+	_, ok := status.PeerStateByIP("100.64.0.10")
+	req.True(ok, "active peer must resolve before removal")
+
+	req.NoError(status.RemovePeer("pk-1"))
+
+	_, ok = status.PeerStateByIP("100.64.0.10")
+	req.False(ok, "removed peer must not resolve by IPv4 tunnel address")
+
+	_, ok = status.PeerStateByIP("fd00::1")
+	req.False(ok, "removed peer must not resolve by IPv6 tunnel address")
 }
 
 func TestStatus_UpdatePeerFQDN(t *testing.T) {
@@ -85,7 +152,7 @@ func TestGetPeerStateChangeNotifierLogic(t *testing.T) {
 	key := "abc"
 	ip := "10.10.10.10"
 	status := NewRecorder("https://mgm")
-	_ = status.AddPeer(key, "abc.netbird", ip)
+	_ = status.AddPeer(key, "abc.netbird", ip, "")
 
 	sub := status.SubscribeToPeerStateChanges(context.Background(), key)
 	assert.NotNil(t, sub, "channel shouldn't be nil")
@@ -246,4 +313,40 @@ func TestGetFullStatus(t *testing.T) {
 	assert.Equal(t, managementState, fullStatus.ManagementState, "management status should be equal")
 	assert.Equal(t, signalState, fullStatus.SignalState, "signal status should be equal")
 	assert.ElementsMatch(t, []State{peerState1, peerState2}, fullStatus.Peers, "peers states should match")
+}
+
+// notified reports whether a state-change tick is pending on ch, draining it.
+func notified(ch <-chan struct{}) bool {
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
+}
+
+func TestMarkServerStateDoesNotNotifyWhenUnchanged(t *testing.T) {
+	status := NewRecorder("https://mgm")
+	_, ch := status.SubscribeToStateChanges()
+
+	// First transition is a real change and must notify.
+	status.MarkManagementConnected()
+	require.True(t, notified(ch), "first connect should notify")
+
+	// Re-marking the same state must not notify again.
+	status.MarkManagementConnected()
+	assert.False(t, notified(ch), "redundant connect should not notify")
+
+	// Same for signal.
+	status.MarkSignalConnected()
+	require.True(t, notified(ch), "first signal connect should notify")
+	status.MarkSignalConnected()
+	assert.False(t, notified(ch), "redundant signal connect should not notify")
+
+	// A genuine change (disconnect with an error) notifies again.
+	err := errors.New("boom")
+	status.MarkManagementDisconnected(err)
+	require.True(t, notified(ch), "disconnect should notify")
+	status.MarkManagementDisconnected(err)
+	assert.False(t, notified(ch), "redundant disconnect should not notify")
 }

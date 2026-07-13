@@ -3,6 +3,7 @@ package iptables
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"slices"
 
@@ -21,6 +22,10 @@ const (
 
 	// rules chains contains the effective ACL rules
 	chainNameInputRules = "NETBIRD-ACL-INPUT"
+
+	// mangleFwdKey is the entries map key for mangle FORWARD guard rules that prevent
+	// external DNAT from bypassing ACL rules.
+	mangleFwdKey = "MANGLE-FORWARD"
 )
 
 type aclEntries map[string][][]string
@@ -36,6 +41,7 @@ type aclManager struct {
 	entries         aclEntries
 	optionalEntries map[string][]entry
 	ipsetStore      *ipsetStore
+	v6              bool
 
 	stateManager *statemanager.Manager
 }
@@ -47,6 +53,7 @@ func newAclManager(iptablesClient *iptables.IPTables, wgIface iFaceMapper) (*acl
 		entries:         make(map[string][][]string),
 		optionalEntries: make(map[string][]entry),
 		ipsetStore:      newIpsetStore(),
+		v6:              iptablesClient.Proto() == iptables.ProtocolIPv6,
 	}, nil
 }
 
@@ -81,7 +88,11 @@ func (m *aclManager) AddPeerFiltering(
 	chain := chainNameInputRules
 
 	ipsetName = transformIPsetName(ipsetName, sPort, dPort, action)
-	specs := filterRuleSpecs(ip, string(protocol), sPort, dPort, action, ipsetName)
+	if m.v6 && ipsetName != "" {
+		ipsetName += "-v6"
+	}
+	proto := protoForFamily(protocol, m.v6)
+	specs := filterRuleSpecs(ip, proto, sPort, dPort, action, ipsetName)
 
 	mangleSpecs := slices.Clone(specs)
 	mangleSpecs = append(mangleSpecs,
@@ -105,6 +116,7 @@ func (m *aclManager) AddPeerFiltering(
 				ip:        ip.String(),
 				chain:     chain,
 				specs:     specs,
+				v6:        m.v6,
 			}}, nil
 		}
 
@@ -157,6 +169,7 @@ func (m *aclManager) AddPeerFiltering(
 		ipsetName:   ipsetName,
 		ip:          ip.String(),
 		chain:       chain,
+		v6:          m.v6,
 	}
 
 	m.updateState()
@@ -274,6 +287,12 @@ func (m *aclManager) cleanChains() error {
 		}
 	}
 
+	for _, rule := range m.entries[mangleFwdKey] {
+		if err := m.iptablesClient.DeleteIfExists(tableMangle, chainFORWARD, rule...); err != nil {
+			log.Errorf("failed to delete mangle FORWARD guard rule: %v, %s", rule, err)
+		}
+	}
+
 	for _, ipsetName := range m.ipsetStore.ipsetNames() {
 		if err := m.flushIPSet(ipsetName); err != nil {
 			if errors.Is(err, ipset.ErrSetNotExist) {
@@ -303,6 +322,10 @@ func (m *aclManager) createDefaultChains() error {
 	}
 
 	for chainName, rules := range m.entries {
+		// mangle FORWARD guard rules are handled separately below
+		if chainName == mangleFwdKey {
+			continue
+		}
 		for _, rule := range rules {
 			if err := m.iptablesClient.InsertUnique(tableName, chainName, 1, rule...); err != nil {
 				log.Debugf("failed to create input chain jump rule: %s", err)
@@ -321,6 +344,13 @@ func (m *aclManager) createDefaultChains() error {
 		}
 	}
 	clear(m.optionalEntries)
+
+	// Insert mangle FORWARD guard rules to prevent external DNAT bypass.
+	for _, rule := range m.entries[mangleFwdKey] {
+		if err := m.iptablesClient.AppendUnique(tableMangle, chainFORWARD, rule...); err != nil {
+			log.Errorf("failed to add mangle FORWARD guard rule: %v", err)
+		}
+	}
 
 	return nil
 }
@@ -343,6 +373,22 @@ func (m *aclManager) seedInitialEntries() {
 
 	m.appendToEntries("FORWARD", []string{"-o", m.wgIface.Name(), "-j", chainRTFWDOUT})
 	m.appendToEntries("FORWARD", []string{"-i", m.wgIface.Name(), "-j", chainRTFWDIN})
+
+	// Mangle FORWARD guard: when external DNAT redirects traffic from the wg interface, it
+	// traverses FORWARD instead of INPUT, bypassing ACL rules. ACCEPT rules in filter FORWARD
+	// can be inserted above ours. Mangle runs before filter, so these guard rules enforce the
+	// ACL mark check where it cannot be overridden.
+	m.appendToEntries(mangleFwdKey, []string{
+		"-i", m.wgIface.Name(),
+		"-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED",
+		"-j", "ACCEPT",
+	})
+	m.appendToEntries(mangleFwdKey, []string{
+		"-i", m.wgIface.Name(),
+		"-m", "conntrack", "--ctstate", "DNAT",
+		"-m", "mark", "!", "--mark", fmt.Sprintf("%#x", nbnet.PreroutingFwmarkRedirected),
+		"-j", "DROP",
+	})
 }
 
 func (m *aclManager) seedInitialOptionalEntries() {
@@ -376,8 +422,18 @@ func (m *aclManager) updateState() {
 	currentState.Lock()
 	defer currentState.Unlock()
 
-	currentState.ACLEntries = m.entries
-	currentState.ACLIPsetStore = m.ipsetStore
+	// Clone the maps so the persisted state holds a private snapshot. The
+	// live maps keep being mutated by subsequent rule operations while the
+	// state manager marshals the state from its periodic-save goroutine.
+	// Sharing them by reference races the two and aborts the process with a
+	// concurrent map iteration and write.
+	if m.v6 {
+		currentState.ACLEntries6 = maps.Clone(m.entries)
+		currentState.ACLIPsetStore6 = m.ipsetStore.clone()
+	} else {
+		currentState.ACLEntries = maps.Clone(m.entries)
+		currentState.ACLIPsetStore = m.ipsetStore.clone()
+	}
 
 	if err := m.stateManager.UpdateState(currentState); err != nil {
 		log.Errorf("failed to update state: %v", err)
@@ -385,13 +441,22 @@ func (m *aclManager) updateState() {
 }
 
 // filterRuleSpecs returns the specs of a filtering rule
+// protoForFamily translates ICMP to ICMPv6 for ip6tables.
+// ip6tables requires "ipv6-icmp" (or "icmpv6") instead of "icmp".
+func protoForFamily(protocol firewall.Protocol, v6 bool) string {
+	if v6 && protocol == firewall.ProtocolICMP {
+		return "ipv6-icmp"
+	}
+	return string(protocol)
+}
+
 func filterRuleSpecs(ip net.IP, protocol string, sPort, dPort *firewall.Port, action firewall.Action, ipsetName string) (specs []string) {
 	// don't use IP matching if IP is 0.0.0.0
 	matchByIP := !ip.IsUnspecified()
 
 	if matchByIP {
 		if ipsetName != "" {
-			specs = append(specs, "-m", "set", "--set", ipsetName, "src")
+			specs = append(specs, "-m", "set", "--match-set", ipsetName, "src")
 		} else {
 			specs = append(specs, "-s", ip.String())
 		}
@@ -436,6 +501,9 @@ func transformIPsetName(ipsetName string, sPort, dPort *firewall.Port, action fi
 func (m *aclManager) createIPSet(name string) error {
 	opts := ipset.CreateOptions{
 		Replace: true,
+	}
+	if m.v6 {
+		opts.Family = ipset.FamilyIPV6
 	}
 
 	if err := ipset.Create(name, ipset.TypeHashNet, opts); err != nil {

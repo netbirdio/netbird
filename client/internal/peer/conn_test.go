@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/netbirdio/netbird/client/iface"
@@ -15,7 +16,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/util"
-	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
 )
 
 var testDispatcher = dispatcher.NewConnectionDispatcher()
@@ -53,7 +53,6 @@ func TestConn_GetKey(t *testing.T) {
 
 	sd := ServiceDependencies{
 		SrWatcher:          swWatcher,
-		Semaphore:          semaphoregroup.NewSemaphoreGroup(1),
 		PeerConnDispatcher: testDispatcher,
 	}
 	conn, err := NewConn(connConf, sd)
@@ -71,7 +70,6 @@ func TestConn_OnRemoteOffer(t *testing.T) {
 	sd := ServiceDependencies{
 		StatusRecorder:     NewRecorder("https://mgm"),
 		SrWatcher:          swWatcher,
-		Semaphore:          semaphoregroup.NewSemaphoreGroup(1),
 		PeerConnDispatcher: testDispatcher,
 	}
 	conn, err := NewConn(connConf, sd)
@@ -110,7 +108,6 @@ func TestConn_OnRemoteAnswer(t *testing.T) {
 	sd := ServiceDependencies{
 		StatusRecorder:     NewRecorder("https://mgm"),
 		SrWatcher:          swWatcher,
-		Semaphore:          semaphoregroup.NewSemaphoreGroup(1),
 		PeerConnDispatcher: testDispatcher,
 	}
 	conn, err := NewConn(connConf, sd)
@@ -307,4 +304,85 @@ func TestConn_presharedKey_RosenpassManaged(t *testing.T) {
 	if k := conn.presharedKey([]byte("remote")); k == nil {
 		t.Fatalf("expected non-nil presharedKey before Rosenpass manages PSK")
 	}
+}
+
+func newWGTimeoutTestConn(rosenpassEnabled bool, disconnected *[]string) *Conn {
+	cfg := ConnConfig{
+		Key:      "LLHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
+		LocalKey: "RRHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
+		WgConfig: WgConfig{RemoteKey: "LLHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU="},
+	}
+	if rosenpassEnabled {
+		cfg.RosenpassConfig = RosenpassConfig{PubKey: []byte("dummykey")}
+	}
+
+	conn := &Conn{
+		ctx:           context.Background(),
+		config:        cfg,
+		Log:           log.WithField("peer", cfg.Key),
+		metricsStages: &MetricsStages{},
+	}
+	conn.SetOnDisconnected(func(remotePeer string) {
+		*disconnected = append(*disconnected, remotePeer)
+	})
+	return conn
+}
+
+// TestConn_onWGDisconnected_EscalatesToRosenpassReset: repeated handshake
+// timeouts with rosenpass enabled mean the preshared keys have desynced. The
+// renewal exchange runs over the dead tunnel and cannot resync them, so after
+// wgTimeoutEscalationThreshold consecutive timeouts the conn must report the
+// peer disconnected, dropping its rosenpass state so the next configuration
+// programs the rendezvous key.
+func TestConn_onWGDisconnected_EscalatesToRosenpassReset(t *testing.T) {
+	var disconnected []string
+	conn := newWGTimeoutTestConn(true, &disconnected)
+
+	for i := 0; i < wgTimeoutEscalationThreshold-1; i++ {
+		conn.onWGDisconnected()
+	}
+	assert.Empty(t, disconnected, "escalation must not fire below the threshold")
+
+	conn.onWGDisconnected()
+	assert.Equal(t, []string{conn.config.WgConfig.RemoteKey}, disconnected,
+		"reaching the threshold must report the peer disconnected once")
+
+	for i := 0; i < wgTimeoutEscalationThreshold-1; i++ {
+		conn.onWGDisconnected()
+	}
+	assert.Len(t, disconnected, 1, "escalation must restart counting after firing")
+
+	conn.onWGDisconnected()
+	assert.Len(t, disconnected, 2, "continued timeouts must escalate again")
+}
+
+// TestConn_onWGDisconnected_CheckSuccessResetsEscalation: a successful
+// handshake between timeouts means the tunnel recovered; the counter must
+// start over.
+func TestConn_onWGDisconnected_CheckSuccessResetsEscalation(t *testing.T) {
+	var disconnected []string
+	conn := newWGTimeoutTestConn(true, &disconnected)
+
+	for i := 0; i < wgTimeoutEscalationThreshold-1; i++ {
+		conn.onWGDisconnected()
+	}
+	conn.onWGCheckSuccess()
+
+	for i := 0; i < wgTimeoutEscalationThreshold-1; i++ {
+		conn.onWGDisconnected()
+	}
+	assert.Empty(t, disconnected, "handshake success must reset the timeout count")
+}
+
+// TestConn_onWGDisconnected_NoEscalationWithoutRosenpass: without rosenpass
+// there is no per-peer key state to reset; repeated timeouts must not report
+// disconnects.
+func TestConn_onWGDisconnected_NoEscalationWithoutRosenpass(t *testing.T) {
+	var disconnected []string
+	conn := newWGTimeoutTestConn(false, &disconnected)
+
+	for i := 0; i < wgTimeoutEscalationThreshold*3; i++ {
+		conn.onWGDisconnected()
+	}
+	assert.Empty(t, disconnected, "escalation must be limited to rosenpass connections")
 }

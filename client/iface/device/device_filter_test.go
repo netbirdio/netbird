@@ -158,7 +158,7 @@ func TestDeviceWrapperRead(t *testing.T) {
 			t.Errorf("unexpected error: %v", err)
 			return
 		}
-		if n != 0 {
+		if n != 1 {
 			t.Errorf("expected n=1, got %d", n)
 			return
 		}
@@ -220,4 +220,61 @@ func TestDeviceWrapperRead(t *testing.T) {
 			return
 		}
 	})
+}
+
+func TestDeviceWrapperReadPanic(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	tun := mocks.NewMockDevice(ctrl)
+	tun.EXPECT().Read(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(bufs [][]byte, sizes []int, offset int) (int, error) {
+			// Reproduce the wintun zero-length packet panic (index out of range).
+			packet := make([]byte, 0)
+			return int(packet[0]), nil
+		})
+
+	wrapped := newDeviceFilter(tun)
+
+	handlerCalled := false
+	wrapped.SetPanicHandler(func() { handlerCalled = true })
+
+	n, err := wrapped.Read([][]byte{{}}, []int{0}, 0)
+	if err == nil {
+		t.Errorf("expected error from recovered panic, got nil")
+	}
+	if n != 0 {
+		t.Errorf("expected n=0, got %d", n)
+	}
+	if !handlerCalled {
+		t.Errorf("expected panic handler to be called")
+	}
+}
+
+func TestDeviceWrapperWritePanic(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	tun := mocks.NewMockDevice(ctrl)
+	tun.EXPECT().Write(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(bufs [][]byte, offset int) (int, error) {
+			packet := make([]byte, 0)
+			return int(packet[0]), nil
+		})
+
+	wrapped := newDeviceFilter(tun)
+
+	handlerCalled := false
+	wrapped.SetPanicHandler(func() { handlerCalled = true })
+
+	n, err := wrapped.Write([][]byte{{0x45, 0x00}}, 0)
+	if err == nil {
+		t.Errorf("expected error from recovered panic, got nil")
+	}
+	if n != 0 {
+		t.Errorf("expected n=0, got %d", n)
+	}
+	if !handlerCalled {
+		t.Errorf("expected panic handler to be called")
+	}
 }

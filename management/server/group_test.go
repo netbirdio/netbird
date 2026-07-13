@@ -5,13 +5,13 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"net"
 	"net/netip"
 	"strconv"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/golang/mock/gomock"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -26,6 +26,7 @@ import (
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	peer2 "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
@@ -282,6 +283,67 @@ func TestDefaultAccountManager_DeleteGroups(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDefaultAccountManager_DeleteGroupLinkedToFlowGroup(t *testing.T) {
+	am, _, err := createManager(t)
+	require.NoError(t, err)
+
+	ctrl := gomock.NewController(t)
+	settingsMock := settings.NewMockManager(ctrl)
+	settingsMock.EXPECT().
+		GetExtraSettings(gomock.Any(), gomock.Any()).
+		Return(&types.ExtraSettings{FlowGroups: []string{"grp-for-flow"}}, nil).
+		AnyTimes()
+	settingsMock.EXPECT().
+		UpdateExtraSettings(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(false, nil).
+		AnyTimes()
+	am.settingsManager = settingsMock
+
+	_, account, err := initTestGroupAccount(am)
+	require.NoError(t, err)
+
+	grp := &types.Group{
+		ID:        "grp-for-flow",
+		AccountID: account.Id,
+		Name:      "Group for flow",
+		Issued:    types.GroupIssuedAPI,
+		Peers:     make([]string, 0),
+	}
+	require.NoError(t, am.CreateGroup(context.Background(), account.Id, groupAdminUserID, grp))
+
+	err = am.DeleteGroup(context.Background(), account.Id, groupAdminUserID, "grp-for-flow")
+	require.Error(t, err)
+
+	var gErr *GroupLinkError
+	require.ErrorAs(t, err, &gErr)
+	assert.Equal(t, "settings", gErr.Resource)
+	assert.Equal(t, "traffic event logging", gErr.Name)
+
+	group, err := am.GetGroup(context.Background(), account.Id, "grp-for-flow", groupAdminUserID)
+	require.NoError(t, err)
+	assert.NotNil(t, group)
+
+	regularGrp := &types.Group{
+		ID:        "grp-regular",
+		AccountID: account.Id,
+		Name:      "Regular group",
+		Issued:    types.GroupIssuedAPI,
+		Peers:     make([]string, 0),
+	}
+	err = am.CreateGroup(context.Background(), account.Id, groupAdminUserID, regularGrp)
+	require.NoError(t, err)
+
+	err = am.DeleteGroups(context.Background(), account.Id, groupAdminUserID, []string{"grp-for-flow", "grp-regular"})
+	require.Error(t, err)
+
+	group, err = am.GetGroup(context.Background(), account.Id, "grp-for-flow", groupAdminUserID)
+	require.NoError(t, err)
+	assert.NotNil(t, group)
+
+	_, err = am.GetGroup(context.Background(), account.Id, "grp-regular", groupAdminUserID)
+	assert.Error(t, err)
 }
 
 func initTestGroupAccount(am *DefaultAccountManager) (*DefaultAccountManager, *types.Account, error) {
@@ -557,7 +619,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -575,7 +637,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -593,7 +655,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -626,7 +688,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -667,7 +729,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -694,7 +756,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -703,7 +765,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 	t.Run("saving group linked to network router", func(t *testing.T) {
 		permissionsManager := permissions.NewManager(manager.Store)
 		groupsManager := groups.NewManager(manager.Store, permissionsManager, manager)
-		resourcesManager := resources.NewManager(manager.Store, permissionsManager, groupsManager, manager, manager.reverseProxyManager)
+		resourcesManager := resources.NewManager(manager.Store, permissionsManager, groupsManager, manager, manager.serviceManager)
 		routersManager := routers.NewManager(manager.Store, permissionsManager, manager)
 		networksManager := networks.NewManager(manager.Store, permissionsManager, resourcesManager, routersManager, manager)
 
@@ -741,7 +803,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -936,10 +998,10 @@ func Test_AddPeerAndAddToAll(t *testing.T) {
 	assert.Equal(t, totalPeers, len(account.Peers), "Expected %d peers in account %s, got %d", totalPeers, accountID, len(account.Peers))
 }
 
-func uint32ToIP(n uint32) net.IP {
-	ip := make(net.IP, 4)
-	binary.BigEndian.PutUint32(ip, n)
-	return ip
+func uint32ToIP(n uint32) netip.Addr {
+	var b [4]byte
+	binary.BigEndian.PutUint32(b[:], n)
+	return netip.AddrFrom4(b)
 }
 
 func Test_IncrementNetworkSerial(t *testing.T) {

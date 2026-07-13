@@ -1,6 +1,7 @@
 package accesslogs
 
 import (
+	"maps"
 	"net"
 	"net/netip"
 	"time"
@@ -10,20 +11,38 @@ import (
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
+// AccessLogProtocol identifies the transport protocol of an access log entry.
+type AccessLogProtocol string
+
+const (
+	AccessLogProtocolHTTP AccessLogProtocol = "http"
+	AccessLogProtocolTCP  AccessLogProtocol = "tcp"
+	AccessLogProtocolUDP  AccessLogProtocol = "udp"
+)
+
 type AccessLogEntry struct {
-	ID             string        `gorm:"primaryKey"`
-	AccountID      string        `gorm:"index"`
-	ServiceID      string        `gorm:"index"`
-	Timestamp      time.Time     `gorm:"index"`
-	GeoLocation    peer.Location `gorm:"embedded;embeddedPrefix:location_"`
-	Method         string        `gorm:"index"`
-	Host           string        `gorm:"index"`
-	Path           string        `gorm:"index"`
-	Duration       time.Duration `gorm:"index"`
-	StatusCode     int           `gorm:"index"`
-	Reason         string
-	UserId         string `gorm:"index"`
-	AuthMethodUsed string `gorm:"index"`
+	ID              string        `gorm:"primaryKey"`
+	AccountID       string        `gorm:"index"`
+	ServiceID       string        `gorm:"index"`
+	Timestamp       time.Time     `gorm:"index"`
+	GeoLocation     peer.Location `gorm:"embedded;embeddedPrefix:location_"`
+	SubdivisionCode string
+	Method          string        `gorm:"index"`
+	Host            string        `gorm:"index"`
+	Path            string        `gorm:"index"`
+	Duration        time.Duration `gorm:"index"`
+	StatusCode      int           `gorm:"index"`
+	Reason          string
+	UserId          string            `gorm:"index"`
+	AuthMethodUsed  string            `gorm:"index"`
+	BytesUpload     int64             `gorm:"index"`
+	BytesDownload   int64             `gorm:"index"`
+	Protocol        AccessLogProtocol `gorm:"index"`
+	Metadata        map[string]string `gorm:"serializer:json"`
+	// AgentNetwork marks the entry as emitted by a synthesised agent-network
+	// service. Sourced from proto.AccessLog.AgentNetwork the proxy stamps
+	// before shipping. Indexed so the agent-network log surface filters cheaply.
+	AgentNetwork bool `gorm:"index"`
 }
 
 // FromProto creates an AccessLogEntry from a proto.AccessLog
@@ -39,17 +58,26 @@ func (a *AccessLogEntry) FromProto(serviceLog *proto.AccessLog) {
 	a.UserId = serviceLog.GetUserId()
 	a.AuthMethodUsed = serviceLog.GetAuthMechanism()
 	a.AccountID = serviceLog.GetAccountId()
+	a.BytesUpload = serviceLog.GetBytesUpload()
+	a.BytesDownload = serviceLog.GetBytesDownload()
+	a.Protocol = AccessLogProtocol(serviceLog.GetProtocol())
+	a.Metadata = maps.Clone(serviceLog.GetMetadata())
+	a.AgentNetwork = serviceLog.GetAgentNetwork()
 
 	if sourceIP := serviceLog.GetSourceIp(); sourceIP != "" {
-		if ip, err := netip.ParseAddr(sourceIP); err == nil {
-			a.GeoLocation.ConnectionIP = net.IP(ip.AsSlice())
+		if addr, err := netip.ParseAddr(sourceIP); err == nil {
+			addr = addr.Unmap()
+			a.GeoLocation.ConnectionIP = net.IP(addr.AsSlice())
 		}
 	}
 
-	if !serviceLog.GetAuthSuccess() {
-		a.Reason = "Authentication failed"
-	} else if serviceLog.GetResponseCode() >= 400 {
-		a.Reason = "Request failed"
+	// Only set reason for HTTP entries. L4 entries have no auth or status code.
+	if a.Protocol == "" || a.Protocol == AccessLogProtocolHTTP {
+		if !serviceLog.GetAuthSuccess() {
+			a.Reason = "Authentication failed"
+		} else if serviceLog.GetResponseCode() >= 400 {
+			a.Reason = "Request failed"
+		}
 	}
 }
 
@@ -86,20 +114,41 @@ func (a *AccessLogEntry) ToAPIResponse() *api.ProxyAccessLog {
 		cityName = &a.GeoLocation.CityName
 	}
 
+	var subdivisionCode *string
+	if a.SubdivisionCode != "" {
+		subdivisionCode = &a.SubdivisionCode
+	}
+
+	var protocol *string
+	if a.Protocol != "" {
+		p := string(a.Protocol)
+		protocol = &p
+	}
+
+	var metadata *map[string]string
+	if len(a.Metadata) > 0 {
+		metadata = &a.Metadata
+	}
+
 	return &api.ProxyAccessLog{
-		Id:             a.ID,
-		ServiceId:      a.ServiceID,
-		Timestamp:      a.Timestamp,
-		Method:         a.Method,
-		Host:           a.Host,
-		Path:           a.Path,
-		DurationMs:     int(a.Duration.Milliseconds()),
-		StatusCode:     a.StatusCode,
-		SourceIp:       sourceIP,
-		Reason:         reason,
-		UserId:         userID,
-		AuthMethodUsed: authMethod,
-		CountryCode:    countryCode,
-		CityName:       cityName,
+		Id:              a.ID,
+		ServiceId:       a.ServiceID,
+		Timestamp:       a.Timestamp,
+		Method:          a.Method,
+		Host:            a.Host,
+		Path:            a.Path,
+		DurationMs:      int(a.Duration.Milliseconds()),
+		StatusCode:      a.StatusCode,
+		SourceIp:        sourceIP,
+		Reason:          reason,
+		UserId:          userID,
+		AuthMethodUsed:  authMethod,
+		CountryCode:     countryCode,
+		CityName:        cityName,
+		SubdivisionCode: subdivisionCode,
+		BytesUpload:     a.BytesUpload,
+		BytesDownload:   a.BytesDownload,
+		Protocol:        protocol,
+		Metadata:        metadata,
 	}
 }

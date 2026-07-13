@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/netip"
 	"os/exec"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -44,9 +45,11 @@ const (
 
 	nrptMaxDomainsPerRule = 50
 
-	interfaceConfigPath          = `SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces`
-	interfaceConfigNameServerKey = "NameServer"
-	interfaceConfigSearchListKey = "SearchList"
+	interfaceConfigPath           = `SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces`
+	interfaceConfigPathV6         = `SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters\Interfaces`
+	interfaceConfigNameServerKey  = "NameServer"
+	interfaceConfigDhcpNameSrvKey = "DhcpNameServer"
+	interfaceConfigSearchListKey  = "SearchList"
 
 	// Network interface DNS registration settings
 	disableDynamicUpdateKey           = "DisableDynamicUpdate"
@@ -67,10 +70,11 @@ const (
 )
 
 type registryConfigurator struct {
-	guid           string
-	routingAll     bool
-	gpo            bool
-	nrptEntryCount int
+	guid            string
+	routingAll      bool
+	gpo             bool
+	nrptEntryCount  int
+	origNameservers []netip.Addr
 }
 
 func newHostManager(wgInterface WGIface) (*registryConfigurator, error) {
@@ -94,11 +98,114 @@ func newHostManager(wgInterface WGIface) (*registryConfigurator, error) {
 		gpo:  useGPO,
 	}
 
+	origNameservers, err := configurator.captureOriginalNameservers()
+	switch {
+	case err != nil:
+		log.Warnf("capture original nameservers from non-WG adapters: %v", err)
+	case len(origNameservers) == 0:
+		log.Warnf("no original nameservers captured from non-WG adapters; DNS fallback will be empty")
+	default:
+		log.Debugf("captured %d original nameservers from non-WG adapters: %v", len(origNameservers), origNameservers)
+	}
+	configurator.origNameservers = origNameservers
+
 	if err := configurator.configureInterface(); err != nil {
 		log.Errorf("failed to configure interface settings: %v", err)
 	}
 
 	return configurator, nil
+}
+
+// captureOriginalNameservers reads DNS addresses from every Tcpip(6) interface
+// registry key except the WG adapter. v4 and v6 servers live in separate
+// hives (Tcpip vs Tcpip6) keyed by the same interface GUID.
+func (r *registryConfigurator) captureOriginalNameservers() ([]netip.Addr, error) {
+	seen := make(map[netip.Addr]struct{})
+	var out []netip.Addr
+	var merr *multierror.Error
+	for _, root := range []string{interfaceConfigPath, interfaceConfigPathV6} {
+		addrs, err := r.captureFromTcpipRoot(root)
+		if err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("%s: %w", root, err))
+			continue
+		}
+		for _, addr := range addrs {
+			if _, dup := seen[addr]; dup {
+				continue
+			}
+			seen[addr] = struct{}{}
+			out = append(out, addr)
+		}
+	}
+	return out, nberrors.FormatErrorOrNil(merr)
+}
+
+func (r *registryConfigurator) captureFromTcpipRoot(rootPath string) ([]netip.Addr, error) {
+	root, err := registry.OpenKey(registry.LOCAL_MACHINE, rootPath, registry.READ)
+	if err != nil {
+		return nil, fmt.Errorf("open key: %w", err)
+	}
+	defer closer(root)
+
+	guids, err := root.ReadSubKeyNames(-1)
+	if err != nil {
+		return nil, fmt.Errorf("read subkeys: %w", err)
+	}
+
+	var out []netip.Addr
+	for _, guid := range guids {
+		if strings.EqualFold(guid, r.guid) {
+			continue
+		}
+		out = append(out, readInterfaceNameservers(rootPath, guid)...)
+	}
+	return out, nil
+}
+
+func readInterfaceNameservers(rootPath, guid string) []netip.Addr {
+	keyPath := rootPath + "\\" + guid
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, keyPath, registry.QUERY_VALUE)
+	if err != nil {
+		return nil
+	}
+	defer closer(k)
+
+	// Static NameServer wins over DhcpNameServer for actual resolution.
+	for _, name := range []string{interfaceConfigNameServerKey, interfaceConfigDhcpNameSrvKey} {
+		raw, _, err := k.GetStringValue(name)
+		if err != nil || raw == "" {
+			continue
+		}
+		if out := parseRegistryNameservers(raw); len(out) > 0 {
+			return out
+		}
+	}
+	return nil
+}
+
+func parseRegistryNameservers(raw string) []netip.Addr {
+	var out []netip.Addr
+	for _, field := range strings.FieldsFunc(raw, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' }) {
+		addr, err := netip.ParseAddr(strings.TrimSpace(field))
+		if err != nil {
+			continue
+		}
+		addr = addr.Unmap()
+		if !addr.IsValid() || addr.IsUnspecified() {
+			continue
+		}
+		// Drop unzoned link-local: not routable without a scope id. If
+		// the user wrote "fe80::1%eth0" ParseAddr preserves the zone.
+		if addr.IsLinkLocalUnicast() && addr.Zone() == "" {
+			continue
+		}
+		out = append(out, addr)
+	}
+	return out
+}
+
+func (r *registryConfigurator) getOriginalNameservers() []netip.Addr {
+	return slices.Clone(r.origNameservers)
 }
 
 func (r *registryConfigurator) supportCustomPort() bool {
@@ -277,7 +384,7 @@ func (r *registryConfigurator) addDNSMatchPolicy(domains []string, ip netip.Addr
 		}
 	}
 
-	log.Infof("added %d NRPT rules for %d domains. Domain list: %v", ruleIndex, len(domains), domains)
+	log.Infof("added %d NRPT rules for %d domains", ruleIndex, len(domains))
 	return ruleIndex, nil
 }
 

@@ -47,13 +47,13 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 
 	pm := profilemanager.ServiceManager{}
 	err = pm.SetActiveProfileState(&profilemanager.ActiveProfileState{
-		Name:     profName,
+		ID:       profilemanager.ID(profName),
 		Username: currUser.Username,
 	})
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	s := New(ctx, "console", "", false, false)
+	s := New(ctx, "console", "", false, false, false, false)
 
 	rosenpassEnabled := true
 	rosenpassPermissive := true
@@ -69,48 +69,48 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 	disableFirewall := true
 	blockLANAccess := true
 	disableNotifications := true
-	lazyConnectionEnabled := true
 	blockInbound := true
+	disableIPv6 := true
 	mtu := int64(1280)
 	sshJWTCacheTTL := int32(300)
 
 	req := &proto.SetConfigRequest{
-		ProfileName:           profName,
-		Username:              currUser.Username,
-		ManagementUrl:         "https://new-api.netbird.io:443",
-		AdminURL:              "https://new-admin.netbird.io",
-		RosenpassEnabled:      &rosenpassEnabled,
-		RosenpassPermissive:   &rosenpassPermissive,
-		ServerSSHAllowed:      &serverSSHAllowed,
-		InterfaceName:         &interfaceName,
-		WireguardPort:         &wireguardPort,
-		OptionalPreSharedKey:  &preSharedKey,
-		DisableAutoConnect:    &disableAutoConnect,
-		NetworkMonitor:        &networkMonitor,
-		DisableClientRoutes:   &disableClientRoutes,
-		DisableServerRoutes:   &disableServerRoutes,
-		DisableDns:            &disableDNS,
-		DisableFirewall:       &disableFirewall,
-		BlockLanAccess:        &blockLANAccess,
-		DisableNotifications:  &disableNotifications,
-		LazyConnectionEnabled: &lazyConnectionEnabled,
-		BlockInbound:          &blockInbound,
-		NatExternalIPs:        []string{"1.2.3.4", "5.6.7.8"},
-		CleanNATExternalIPs:   false,
-		CustomDNSAddress:      []byte("1.1.1.1:53"),
-		ExtraIFaceBlacklist:   []string{"eth1", "eth2"},
-		DnsLabels:             []string{"label1", "label2"},
-		CleanDNSLabels:        false,
-		DnsRouteInterval:      durationpb.New(2 * time.Minute),
-		Mtu:                   &mtu,
-		SshJWTCacheTTL:        &sshJWTCacheTTL,
+		ProfileName:          profName,
+		Username:             currUser.Username,
+		ManagementUrl:        "https://new-api.netbird.io:443",
+		AdminURL:             "https://new-admin.netbird.io",
+		RosenpassEnabled:     &rosenpassEnabled,
+		RosenpassPermissive:  &rosenpassPermissive,
+		ServerSSHAllowed:     &serverSSHAllowed,
+		InterfaceName:        &interfaceName,
+		WireguardPort:        &wireguardPort,
+		OptionalPreSharedKey: &preSharedKey,
+		DisableAutoConnect:   &disableAutoConnect,
+		NetworkMonitor:       &networkMonitor,
+		DisableClientRoutes:  &disableClientRoutes,
+		DisableServerRoutes:  &disableServerRoutes,
+		DisableDns:           &disableDNS,
+		DisableFirewall:      &disableFirewall,
+		BlockLanAccess:       &blockLANAccess,
+		DisableNotifications: &disableNotifications,
+		BlockInbound:         &blockInbound,
+		DisableIpv6:          &disableIPv6,
+		NatExternalIPs:       []string{"1.2.3.4", "5.6.7.8"},
+		CleanNATExternalIPs:  false,
+		CustomDNSAddress:     []byte("1.1.1.1:53"),
+		ExtraIFaceBlacklist:  []string{"eth1", "eth2"},
+		DnsLabels:            []string{"label1", "label2"},
+		CleanDNSLabels:       false,
+		DnsRouteInterval:     durationpb.New(2 * time.Minute),
+		Mtu:                  &mtu,
+		SshJWTCacheTTL:       &sshJWTCacheTTL,
 	}
 
 	_, err = s.SetConfig(ctx, req)
 	require.NoError(t, err)
 
 	profState := profilemanager.ActiveProfileState{
-		Name:     profName,
+		ID:       profilemanager.ID(profName),
 		Username: currUser.Username,
 	}
 	cfgPath, err := profState.FilePath()
@@ -138,8 +138,8 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 	require.Equal(t, blockLANAccess, cfg.BlockLANAccess)
 	require.NotNil(t, cfg.DisableNotifications)
 	require.Equal(t, disableNotifications, *cfg.DisableNotifications)
-	require.Equal(t, lazyConnectionEnabled, cfg.LazyConnectionEnabled)
 	require.Equal(t, blockInbound, cfg.BlockInbound)
+	require.Equal(t, disableIPv6, cfg.DisableIPv6)
 	require.Equal(t, []string{"1.2.3.4", "5.6.7.8"}, cfg.NATExternalIPs)
 	require.Equal(t, "1.1.1.1:53", cfg.CustomDNSAddress)
 	// IFaceBlackList contains defaults + extras
@@ -161,13 +161,14 @@ func verifyAllFieldsCovered(t *testing.T, req *proto.SetConfigRequest) {
 	t.Helper()
 
 	metadataFields := map[string]bool{
-		"state":               true, // protobuf internal
-		"sizeCache":           true, // protobuf internal
-		"unknownFields":       true, // protobuf internal
-		"Username":            true, // metadata
-		"ProfileName":         true, // metadata
-		"CleanNATExternalIPs": true, // control flag for clearing
-		"CleanDNSLabels":      true, // control flag for clearing
+		"state":                 true, // protobuf internal
+		"sizeCache":             true, // protobuf internal
+		"unknownFields":         true, // protobuf internal
+		"Username":              true, // metadata
+		"ProfileName":           true, // metadata
+		"CleanNATExternalIPs":   true, // control flag for clearing
+		"CleanDNSLabels":        true, // control flag for clearing
+		"LazyConnectionEnabled": true, // deprecated: proto field retained for compat, no longer applied
 	}
 
 	expectedFields := map[string]bool{
@@ -187,8 +188,8 @@ func verifyAllFieldsCovered(t *testing.T, req *proto.SetConfigRequest) {
 		"DisableFirewall":               true,
 		"BlockLanAccess":                true,
 		"DisableNotifications":          true,
-		"LazyConnectionEnabled":         true,
 		"BlockInbound":                  true,
+		"DisableIpv6":                   true,
 		"NatExternalIPs":                true,
 		"CustomDNSAddress":              true,
 		"ExtraIFaceBlacklist":           true,
@@ -247,7 +248,7 @@ func TestCLIFlags_MappedToSetConfig(t *testing.T) {
 		"disable-firewall":                  "DisableFirewall",
 		"block-lan-access":                  "BlockLanAccess",
 		"block-inbound":                     "BlockInbound",
-		"enable-lazy-connection":            "LazyConnectionEnabled",
+		"disable-ipv6":                      "DisableIpv6",
 		"external-ip-map":                   "NatExternalIPs",
 		"dns-resolver-address":              "CustomDNSAddress",
 		"extra-iface-blacklist":             "ExtraIFaceBlacklist",
@@ -264,7 +265,8 @@ func TestCLIFlags_MappedToSetConfig(t *testing.T) {
 
 	// SetConfigRequest fields that don't have CLI flags (settable only via UI or other means).
 	fieldsWithoutCLIFlags := map[string]bool{
-		"DisableNotifications": true, // Only settable via UI
+		"DisableNotifications":  true, // Only settable via UI
+		"LazyConnectionEnabled": true, // deprecated: no longer settable (managed by server + NB_LAZY_CONN)
 	}
 
 	// Get all SetConfigRequest fields to verify our map is complete.

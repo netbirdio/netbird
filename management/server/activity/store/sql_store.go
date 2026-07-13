@@ -249,7 +249,15 @@ func initDatabase(ctx context.Context, dataDir string) (*gorm.DB, error) {
 
 	switch storeEngine {
 	case types.SqliteStoreEngine:
-		dialector = sqlite.Open(filepath.Join(dataDir, eventSinkDB))
+		dbFile := eventSinkDB
+		if envFile, ok := os.LookupEnv("NB_ACTIVITY_EVENT_SQLITE_FILE"); ok && envFile != "" {
+			dbFile = envFile
+		}
+		connStr := dbFile
+		if !filepath.IsAbs(dbFile) {
+			connStr = filepath.Join(dataDir, dbFile)
+		}
+		dialector = sqlite.Open(connStr)
 	case types.PostgresStoreEngine:
 		dsn, ok := os.LookupEnv(postgresDsnEnv)
 		if !ok {

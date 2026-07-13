@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 
@@ -82,15 +83,18 @@ func (l *local) getUploadURL(objectKey string) (string, error) {
 	return newURL.String(), nil
 }
 
+const maxUploadSize = 150 << 20
+
 func (l *local) handlePutRequest(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPut {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to read body: %v", err), http.StatusInternalServerError)
+		http.Error(w, "request body too large or failed to read", http.StatusRequestEntityTooLarge)
 		return
 	}
 
@@ -105,20 +109,47 @@ func (l *local) handlePutRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dirPath := filepath.Join(l.dir, uploadDir)
-	err = os.MkdirAll(dirPath, 0750)
-	if err != nil {
+	cleanBase := filepath.Clean(l.dir) + string(filepath.Separator)
+
+	dirPath := filepath.Clean(filepath.Join(l.dir, uploadDir))
+	if !strings.HasPrefix(dirPath, cleanBase) {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		log.Warnf("Path traversal attempt blocked (dir): %s", dirPath)
+		return
+	}
+
+	filePath := filepath.Clean(filepath.Join(dirPath, uploadFile))
+	if !strings.HasPrefix(filePath, cleanBase) {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		log.Warnf("Path traversal attempt blocked (file): %s", filePath)
+		return
+	}
+
+	if err = os.MkdirAll(dirPath, 0750); err != nil {
 		http.Error(w, "failed to create upload dir", http.StatusInternalServerError)
 		log.Errorf("Failed to create upload dir: %v", err)
 		return
 	}
 
-	file := filepath.Join(dirPath, uploadFile)
-	if err := os.WriteFile(file, body, 0600); err != nil {
-		http.Error(w, "failed to write file", http.StatusInternalServerError)
-		log.Errorf("Failed to write file %s: %v", file, err)
+	flags := os.O_WRONLY | os.O_CREATE | os.O_EXCL
+	f, err := os.OpenFile(filePath, flags, 0600)
+	if err != nil {
+		if os.IsExist(err) {
+			http.Error(w, "file already exists", http.StatusConflict)
+			return
+		}
+		http.Error(w, "failed to create file", http.StatusInternalServerError)
+		log.Errorf("Failed to create file %s: %v", filePath, err)
 		return
 	}
-	log.Infof("Uploading file %s", file)
+	defer func() { _ = f.Close() }()
+
+	if _, err = f.Write(body); err != nil {
+		http.Error(w, "failed to write file", http.StatusInternalServerError)
+		log.Errorf("Failed to write file %s: %v", filePath, err)
+		return
+	}
+
+	log.Infof("Uploaded file %s", filePath)
 	w.WriteHeader(http.StatusOK)
 }

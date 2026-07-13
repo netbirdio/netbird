@@ -5,9 +5,9 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"os"
 	"strconv"
 	"testing"
@@ -133,7 +133,7 @@ func PopulateTestData(b *testing.B, am account.Manager, peers, groups, users, se
 			ID:       fmt.Sprintf("oldpeer-%d", i),
 			DNSLabel: fmt.Sprintf("oldpeer-%d", i),
 			Key:      peerKey.PublicKey().String(),
-			IP:       net.ParseIP(fmt.Sprintf("100.64.%d.%d", i/256, i%256)),
+			IP:       netip.MustParseAddr(fmt.Sprintf("100.64.%d.%d", i/256, i%256)),
 			Status:   &nbpeer.PeerStatus{LastSeen: time.Now().UTC(), Connected: true},
 			UserID:   TestUserId,
 		}

@@ -13,7 +13,6 @@ import (
 
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
-	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/client/internal/dns/resutil"
 	"github.com/netbirdio/netbird/client/internal/dns/types"
@@ -27,6 +26,19 @@ type resolver interface {
 	LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error)
 }
 
+// PeerConnectivity reports whether a tunnel IP belongs to a peer the
+// client knows about and whether that peer is currently connected. The
+// local resolver uses this to suppress A/AAAA answers whose RDATA points
+// at a disconnected peer (typical case: a synthesized private-service
+// record pointing at an embedded proxy peer that just went offline).
+//
+// known=false means the IP isn't in the local peerstore at all — the
+// record is left alone (it points at something outside our mesh, e.g.
+// a non-peer upstream).
+type PeerConnectivity interface {
+	IsConnectedByIP(ip string) (known, connected bool)
+}
+
 type Resolver struct {
 	mu      sync.RWMutex
 	records map[dns.Question][]dns.RR
@@ -34,6 +46,11 @@ type Resolver struct {
 	// zones maps zone domain -> NonAuthoritative (true = non-authoritative, user-created zone)
 	zones    map[domain.Domain]bool
 	resolver resolver
+	// peerConn, when non-nil, is consulted on every A/AAAA answer to
+	// drop records pointing at disconnected peers. nil disables the
+	// filter and preserves the legacy "return whatever is registered"
+	// behaviour for callers that never wire a status source.
+	peerConn PeerConnectivity
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -48,6 +65,15 @@ func NewResolver() *Resolver {
 		ctx:     ctx,
 		cancel:  cancel,
 	}
+}
+
+// SetPeerConnectivity wires the per-IP connectivity check used to filter
+// out A/AAAA answers pointing at disconnected peers. Pass nil to disable.
+// Safe to call multiple times; the latest value wins.
+func (d *Resolver) SetPeerConnectivity(p PeerConnectivity) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.peerConn = p
 }
 
 func (d *Resolver) MatchSubdomains() bool {
@@ -67,17 +93,15 @@ func (d *Resolver) Stop() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	maps.Clear(d.records)
-	maps.Clear(d.domains)
-	maps.Clear(d.zones)
+	clear(d.records)
+	clear(d.domains)
+	clear(d.zones)
 }
 
 // ID returns the unique handler ID
 func (d *Resolver) ID() types.HandlerID {
 	return "local-resolver"
 }
-
-func (d *Resolver) ProbeAvailability() {}
 
 // ServeDNS handles a DNS request
 func (d *Resolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
@@ -98,6 +122,7 @@ func (d *Resolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	replyMessage.RecursionAvailable = true
 
 	result := d.lookupRecords(logger, question)
+	result.records = d.filterDisconnectedPeerAnswers(logger, question, result.records)
 	replyMessage.Authoritative = !result.hasExternalData
 	replyMessage.Answer = result.records
 	replyMessage.Rcode = d.determineRcode(question, result)
@@ -439,14 +464,86 @@ func (d *Resolver) logDNSError(logger *log.Entry, hostname string, qtype uint16,
 	}
 }
 
+// filterDisconnectedPeerAnswers drops A/AAAA records whose RDATA matches
+// a known but disconnected peer. The synthesized private-service zones
+// emit one A record per connected proxy peer in a cluster; when a peer
+// goes offline, the server-side refresh removes the record from the
+// next netmap, but the client may still hold the previous netmap for a
+// short window. This filter is the local belt to that braces — even on
+// the stale netmap, the resolver hides the offline target.
+//
+// Records pointing at unknown IPs (outside the local peerstore, e.g.
+// non-mesh upstreams) are never dropped. Non-A/AAAA records pass
+// through untouched.
+//
+// Escape hatch: if filtering would leave the answer empty AND at least
+// one record was filtered, the original list is returned. Better to
+// hand the client a record that may not respond than NXDOMAIN it
+// completely when every proxy peer is offline (the upstream may still
+// be reachable some other way, or the peerstore may be stale).
+func (d *Resolver) filterDisconnectedPeerAnswers(logger *log.Entry, question dns.Question, records []dns.RR) []dns.RR {
+	if len(records) < 2 {
+		return records
+	}
+	d.mu.RLock()
+	checker := d.peerConn
+	d.mu.RUnlock()
+	if checker == nil {
+		return records
+	}
+
+	kept := make([]dns.RR, 0, len(records))
+	var dropped int
+	for _, rr := range records {
+		ip := extractRecordIP(rr)
+		if ip == "" {
+			kept = append(kept, rr)
+			continue
+		}
+		known, connected := checker.IsConnectedByIP(ip)
+		if known && !connected {
+			dropped++
+			continue
+		}
+		kept = append(kept, rr)
+	}
+	if dropped == 0 {
+		return records
+	}
+	if len(kept) == 0 {
+		logger.Debugf("all %d answers for %s point at disconnected peers; returning the original list", dropped, question.Name)
+		return records
+	}
+	logger.Tracef("dropped %d disconnected-peer answer(s) for %s, returning %d", dropped, question.Name, len(kept))
+	return kept
+}
+
+// extractRecordIP returns the dotted-decimal / colon-hex IP carried by
+// an A or AAAA record, or "" for any other record type.
+func extractRecordIP(rr dns.RR) string {
+	switch r := rr.(type) {
+	case *dns.A:
+		if r.A == nil {
+			return ""
+		}
+		return r.A.String()
+	case *dns.AAAA:
+		if r.AAAA == nil {
+			return ""
+		}
+		return r.AAAA.String()
+	}
+	return ""
+}
+
 // Update replaces all zones and their records
 func (d *Resolver) Update(customZones []nbdns.CustomZone) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	maps.Clear(d.records)
-	maps.Clear(d.domains)
-	maps.Clear(d.zones)
+	clear(d.records)
+	clear(d.domains)
+	clear(d.zones)
 
 	for _, zone := range customZones {
 		zoneDomain := domain.Domain(strings.ToLower(dns.Fqdn(zone.Domain)))

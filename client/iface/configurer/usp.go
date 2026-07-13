@@ -40,6 +40,7 @@ type WGUSPConfigurer struct {
 	device           *device.Device
 	deviceName       string
 	activityRecorder *bind.ActivityRecorder
+	statsCache       *statsCache
 
 	uapiListener net.Listener
 }
@@ -50,7 +51,18 @@ func NewUSPConfigurer(device *device.Device, deviceName string, activityRecorder
 		deviceName:       deviceName,
 		activityRecorder: activityRecorder,
 	}
+	wgCfg.statsCache = newStatsCache(statsCacheTTL, wgCfg.fetchStats)
 	wgCfg.startUAPI()
+	return wgCfg
+}
+
+func NewUSPConfigurerNoUAPI(device *device.Device, deviceName string, activityRecorder *bind.ActivityRecorder) *WGUSPConfigurer {
+	wgCfg := &WGUSPConfigurer{
+		device:           device,
+		deviceName:       deviceName,
+		activityRecorder: activityRecorder,
+	}
+	wgCfg.statsCache = newStatsCache(statsCacheTTL, wgCfg.fetchStats)
 	return wgCfg
 }
 
@@ -111,7 +123,7 @@ func (c *WGUSPConfigurer) UpdatePeer(peerKey string, allowedIps []netip.Prefix, 
 		if err != nil {
 			return fmt.Errorf("failed to parse endpoint address: %w", err)
 		}
-		addrPort := netip.AddrPortFrom(addr, uint16(endpoint.Port))
+		addrPort := netip.AddrPortFrom(addr.Unmap(), uint16(endpoint.Port))
 		c.activityRecorder.UpsertAddress(peerKey, addrPort)
 	}
 	return nil
@@ -340,6 +352,10 @@ func (t *WGUSPConfigurer) Close() {
 }
 
 func (t *WGUSPConfigurer) GetStats() (map[string]WGStats, error) {
+	return t.statsCache.get()
+}
+
+func (t *WGUSPConfigurer) fetchStats() (map[string]WGStats, error) {
 	ipc, err := t.device.IpcGet()
 	if err != nil {
 		return nil, fmt.Errorf("ipc get: %w", err)

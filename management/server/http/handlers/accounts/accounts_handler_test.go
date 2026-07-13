@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -30,6 +32,10 @@ func initAccountsTestData(t *testing.T, account *types.Account) *handler {
 	settingsMockManager.EXPECT().
 		GetSettings(gomock.Any(), account.Id, "test_user").
 		Return(account.Settings, nil).
+		AnyTimes()
+	settingsMockManager.EXPECT().
+		GetEffectiveNetworkRanges(gomock.Any(), account.Id).
+		Return(netip.Prefix{}, netip.Prefix{}, nil).
 		AnyTimes()
 
 	return &handler{
@@ -121,9 +127,13 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				RoutingPeerDnsResolutionEnabled: br(false),
 				LazyConnectionEnabled:           br(false),
 				DnsDomain:                       sr(""),
+				AutoUpdateAlways:                br(false),
 				AutoUpdateVersion:               sr(""),
+				MetricsPushEnabled:              br(false),
+				AgentNetworkOnly:                br(false),
 				EmbeddedIdpEnabled:              br(false),
 				LocalAuthDisabled:               br(false),
+				LocalMfaEnabled:                 br(false),
 			},
 			expectedArray: true,
 			expectedID:    accountID,
@@ -146,9 +156,13 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				RoutingPeerDnsResolutionEnabled: br(false),
 				LazyConnectionEnabled:           br(false),
 				DnsDomain:                       sr(""),
+				AutoUpdateAlways:                br(false),
 				AutoUpdateVersion:               sr(""),
+				MetricsPushEnabled:              br(false),
+				AgentNetworkOnly:                br(false),
 				EmbeddedIdpEnabled:              br(false),
 				LocalAuthDisabled:               br(false),
+				LocalMfaEnabled:                 br(false),
 			},
 			expectedArray: false,
 			expectedID:    accountID,
@@ -171,9 +185,13 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				RoutingPeerDnsResolutionEnabled: br(false),
 				LazyConnectionEnabled:           br(false),
 				DnsDomain:                       sr(""),
+				AutoUpdateAlways:                br(false),
 				AutoUpdateVersion:               sr("latest"),
+				MetricsPushEnabled:              br(false),
+				AgentNetworkOnly:                br(false),
 				EmbeddedIdpEnabled:              br(false),
 				LocalAuthDisabled:               br(false),
+				LocalMfaEnabled:                 br(false),
 			},
 			expectedArray: false,
 			expectedID:    accountID,
@@ -196,9 +214,13 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				RoutingPeerDnsResolutionEnabled: br(false),
 				LazyConnectionEnabled:           br(false),
 				DnsDomain:                       sr(""),
+				AutoUpdateAlways:                br(false),
 				AutoUpdateVersion:               sr(""),
+				MetricsPushEnabled:              br(false),
+				AgentNetworkOnly:                br(false),
 				EmbeddedIdpEnabled:              br(false),
 				LocalAuthDisabled:               br(false),
+				LocalMfaEnabled:                 br(false),
 			},
 			expectedArray: false,
 			expectedID:    accountID,
@@ -221,9 +243,13 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				RoutingPeerDnsResolutionEnabled: br(false),
 				LazyConnectionEnabled:           br(false),
 				DnsDomain:                       sr(""),
+				AutoUpdateAlways:                br(false),
 				AutoUpdateVersion:               sr(""),
+				MetricsPushEnabled:              br(false),
+				AgentNetworkOnly:                br(false),
 				EmbeddedIdpEnabled:              br(false),
 				LocalAuthDisabled:               br(false),
+				LocalMfaEnabled:                 br(false),
 			},
 			expectedArray: false,
 			expectedID:    accountID,
@@ -246,9 +272,103 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				RoutingPeerDnsResolutionEnabled: br(false),
 				LazyConnectionEnabled:           br(false),
 				DnsDomain:                       sr(""),
+				AutoUpdateAlways:                br(false),
 				AutoUpdateVersion:               sr(""),
+				MetricsPushEnabled:              br(false),
+				AgentNetworkOnly:                br(false),
 				EmbeddedIdpEnabled:              br(false),
 				LocalAuthDisabled:               br(false),
+				LocalMfaEnabled:                 br(false),
+			},
+			expectedArray: false,
+			expectedID:    accountID,
+		},
+		{
+			name:           "PutAccount OK enabling agent_network_only",
+			expectedBody:   true,
+			requestType:    http.MethodPut,
+			requestPath:    "/api/accounts/" + accountID,
+			requestBody:    bytes.NewBufferString("{\"settings\": {\"peer_login_expiration\": 15552000,\"peer_login_expiration_enabled\": true,\"agent_network_only\": true},\"onboarding\": {\"onboarding_flow_pending\": true,\"signup_form_pending\": true}}"),
+			expectedStatus: http.StatusOK,
+			expectedSettings: api.AccountSettings{
+				PeerLoginExpiration:             15552000,
+				PeerLoginExpirationEnabled:      true,
+				GroupsPropagationEnabled:        br(false),
+				JwtGroupsClaimName:              sr(""),
+				JwtGroupsEnabled:                br(false),
+				JwtAllowGroups:                  &[]string{},
+				RegularUsersViewBlocked:         false,
+				RoutingPeerDnsResolutionEnabled: br(false),
+				LazyConnectionEnabled:           br(false),
+				DnsDomain:                       sr(""),
+				AutoUpdateAlways:                br(false),
+				AutoUpdateVersion:               sr(""),
+				MetricsPushEnabled:              br(false),
+				AgentNetworkOnly:                br(true),
+				EmbeddedIdpEnabled:              br(false),
+				LocalAuthDisabled:               br(false),
+				LocalMfaEnabled:                 br(false),
+			},
+			expectedArray: false,
+			expectedID:    accountID,
+		},
+		{
+			name:           "PutAccount OK setting dashboard_features agent_network",
+			expectedBody:   true,
+			requestType:    http.MethodPut,
+			requestPath:    "/api/accounts/" + accountID,
+			requestBody:    bytes.NewBufferString("{\"settings\": {\"peer_login_expiration\": 15552000,\"peer_login_expiration_enabled\": true,\"dashboard_features\": {\"agent_network\": true}},\"onboarding\": {\"onboarding_flow_pending\": true,\"signup_form_pending\": true}}"),
+			expectedStatus: http.StatusOK,
+			expectedSettings: api.AccountSettings{
+				PeerLoginExpiration:             15552000,
+				PeerLoginExpirationEnabled:      true,
+				GroupsPropagationEnabled:        br(false),
+				JwtGroupsClaimName:              sr(""),
+				JwtGroupsEnabled:                br(false),
+				JwtAllowGroups:                  &[]string{},
+				RegularUsersViewBlocked:         false,
+				RoutingPeerDnsResolutionEnabled: br(false),
+				LazyConnectionEnabled:           br(false),
+				DnsDomain:                       sr(""),
+				AutoUpdateAlways:                br(false),
+				AutoUpdateVersion:               sr(""),
+				MetricsPushEnabled:              br(false),
+				AgentNetworkOnly:                br(false),
+				DashboardFeatures: &api.AccountDashboardFeatures{
+					AgentNetwork: br(true),
+				},
+				EmbeddedIdpEnabled: br(false),
+				LocalAuthDisabled:  br(false),
+				LocalMfaEnabled:    br(false),
+			},
+			expectedArray: false,
+			expectedID:    accountID,
+		},
+		{
+			name:           "PutAccount OK disabling agent_network_only again",
+			expectedBody:   true,
+			requestType:    http.MethodPut,
+			requestPath:    "/api/accounts/" + accountID,
+			requestBody:    bytes.NewBufferString("{\"settings\": {\"peer_login_expiration\": 15552000,\"peer_login_expiration_enabled\": true,\"agent_network_only\": false},\"onboarding\": {\"onboarding_flow_pending\": true,\"signup_form_pending\": true}}"),
+			expectedStatus: http.StatusOK,
+			expectedSettings: api.AccountSettings{
+				PeerLoginExpiration:             15552000,
+				PeerLoginExpirationEnabled:      true,
+				GroupsPropagationEnabled:        br(false),
+				JwtGroupsClaimName:              sr(""),
+				JwtGroupsEnabled:                br(false),
+				JwtAllowGroups:                  &[]string{},
+				RegularUsersViewBlocked:         false,
+				RoutingPeerDnsResolutionEnabled: br(false),
+				LazyConnectionEnabled:           br(false),
+				DnsDomain:                       sr(""),
+				AutoUpdateAlways:                br(false),
+				AutoUpdateVersion:               sr(""),
+				MetricsPushEnabled:              br(false),
+				AgentNetworkOnly:                br(false),
+				EmbeddedIdpEnabled:              br(false),
+				LocalAuthDisabled:               br(false),
+				LocalMfaEnabled:                 br(false),
 			},
 			expectedArray: false,
 			expectedID:    accountID,
@@ -327,6 +447,30 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 
 			assert.Equal(t, tc.expectedID, actual.Id)
 			assert.Equal(t, tc.expectedSettings, actual.Settings)
+		})
+	}
+}
+
+func TestCalculateMaxHosts(t *testing.T) {
+	tests := []struct {
+		name   string
+		prefix string
+		min    int64
+	}{
+		{"v4 /24", "100.64.0.0/24", 254},
+		{"v4 /16", "100.64.0.0/16", 65534},
+		{"v4 /28", "100.64.0.0/28", 14},
+		{"v6 /64", "fd00::/64", math.MaxInt64},
+		{"v6 /120", "fd00::/120", 256},
+		{"v6 /112", "fd00::/112", 65536},
+		{"v6 /48", "fd00::/48", math.MaxInt64},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			prefix := netip.MustParsePrefix(tt.prefix)
+			got := calculateMaxHosts(prefix)
+			assert.Equal(t, tt.min, got)
 		})
 	}
 }

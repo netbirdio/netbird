@@ -239,8 +239,12 @@ func TestICEBind_HandlesConcurrentMixedTraffic(t *testing.T) {
 		ipv6Count++
 	}
 
-	assert.Equal(t, packetsPerFamily, ipv4Count)
-	assert.Equal(t, packetsPerFamily, ipv6Count)
+	// Allow some UDP packet loss under load (e.g. FreeBSD/QEMU runners). The
+	// routing-correctness checks above are the real assertions; the counts
+	// are a sanity bound to catch a totally silent path.
+	minDelivered := packetsPerFamily * 80 / 100
+	assert.GreaterOrEqual(t, ipv4Count, minDelivered, "IPv4 delivery below threshold")
+	assert.GreaterOrEqual(t, ipv6Count, minDelivered, "IPv6 delivery below threshold")
 }
 
 func TestICEBind_DetectsAddressFamilyFromConnection(t *testing.T) {
@@ -285,7 +289,7 @@ func setupICEBind(t *testing.T) *ICEBind {
 		IP:      netip.MustParseAddr("100.64.0.1"),
 		Network: netip.MustParsePrefix("100.64.0.0/10"),
 	}
-	return NewICEBind(transportNet, nil, address, 1280)
+	return NewICEBind(transportNet, address, 1280)
 }
 
 func createDualStackConns(t *testing.T) (*net.UDPConn, *net.UDPConn) {

@@ -144,8 +144,11 @@ func TestValidateInviteToken_ModifiedToken(t *testing.T) {
 	_, plainToken, err := GenerateInviteToken()
 	require.NoError(t, err)
 
-	// Modify one character in the secret part
-	modifiedToken := plainToken[:5] + "X" + plainToken[6:]
+	replacement := "X"
+	if plainToken[5] == 'X' {
+		replacement = "Y"
+	}
+	modifiedToken := plainToken[:5] + replacement + plainToken[6:]
 	err = ValidateInviteToken(modifiedToken)
 	require.Error(t, err)
 }

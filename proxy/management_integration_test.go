@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -18,9 +19,11 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
+	nbproxy "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
+	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/users"
@@ -37,7 +40,7 @@ type integrationTestSetup struct {
 	grpcServer   *grpc.Server
 	grpcAddr     string
 	cleanup      func()
-	services     []*reverseproxy.Service
+	services     []*service.Service
 }
 
 func setupIntegrationTest(t *testing.T) *integrationTestSetup {
@@ -66,13 +69,13 @@ func setupIntegrationTest(t *testing.T) *integrationTestSetup {
 	privKey := base64.StdEncoding.EncodeToString(priv)
 
 	// Create test services in the store
-	services := []*reverseproxy.Service{
+	services := []*service.Service{
 		{
 			ID:        "rp-1",
 			AccountID: "test-account-1",
 			Name:      "Test App 1",
 			Domain:    "app1.test.proxy.io",
-			Targets: []*reverseproxy.Target{{
+			Targets: []*service.Target{{
 				Path:       strPtr("/"),
 				Host:       "10.0.0.1",
 				Port:       8080,
@@ -91,7 +94,7 @@ func setupIntegrationTest(t *testing.T) *integrationTestSetup {
 			AccountID: "test-account-1",
 			Name:      "Test App 2",
 			Domain:    "app2.test.proxy.io",
-			Targets: []*reverseproxy.Target{{
+			Targets: []*service.Target{{
 				Path:       strPtr("/"),
 				Host:       "10.0.0.2",
 				Port:       8080,
@@ -112,7 +115,11 @@ func setupIntegrationTest(t *testing.T) *integrationTestSetup {
 	}
 
 	// Create real token store
-	tokenStore := nbgrpc.NewOneTimeTokenStore(5 * time.Minute)
+	cacheStore, err := nbcache.NewStore(ctx, 30*time.Minute, 10*time.Minute, 100)
+	require.NoError(t, err)
+
+	tokenStore := nbgrpc.NewOneTimeTokenStore(ctx, cacheStore)
+	pkceStore := nbgrpc.NewPKCEVerifierStore(ctx, cacheStore)
 
 	// Create real users manager
 	usersManager := users.NewManager(testStore)
@@ -124,17 +131,26 @@ func setupIntegrationTest(t *testing.T) *integrationTestSetup {
 		HMACKey:  []byte("test-hmac-key"),
 	}
 
+	proxyManager := &testProxyManager{}
+
 	proxyService := nbgrpc.NewProxyServiceServer(
 		&testAccessLogManager{},
 		tokenStore,
+		pkceStore,
 		oidcConfig,
 		nil,
 		usersManager,
+		nil,
+		proxyManager,
+		nil,
 	)
 
 	// Use store-backed service manager
 	svcMgr := &storeBackedServiceManager{store: testStore, tokenStore: tokenStore}
-	proxyService.SetProxyManager(svcMgr)
+	proxyService.SetServiceManager(svcMgr)
+
+	proxyController := &testProxyController{}
+	proxyService.SetProxyController(proxyController)
 
 	// Start real gRPC server
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
@@ -165,6 +181,18 @@ func setupIntegrationTest(t *testing.T) *integrationTestSetup {
 // testAccessLogManager provides access log storage for testing.
 type testAccessLogManager struct{}
 
+func (m *testAccessLogManager) CleanupOldAccessLogs(ctx context.Context, retentionDays int) (int64, error) {
+	return 0, nil
+}
+
+func (m *testAccessLogManager) StartPeriodicCleanup(ctx context.Context, retentionDays, cleanupIntervalHours int) {
+	// noop
+}
+
+func (m *testAccessLogManager) StopPeriodicCleanup() {
+	// noop
+}
+
 func (m *testAccessLogManager) SaveAccessLog(_ context.Context, _ *accesslogs.AccessLogEntry) error {
 	return nil
 }
@@ -173,25 +201,115 @@ func (m *testAccessLogManager) GetAllAccessLogs(_ context.Context, _, _ string, 
 	return nil, 0, nil
 }
 
+// testProxyManager is a mock implementation of proxy.Manager for testing.
+type testProxyManager struct{}
+
+func (m *testProxyManager) Connect(_ context.Context, proxyID, sessionID, _, _ string, _ *string, _ *nbproxy.Capabilities) (*nbproxy.Proxy, error) {
+	return &nbproxy.Proxy{ID: proxyID, SessionID: sessionID, Status: nbproxy.StatusConnected}, nil
+}
+
+func (m *testProxyManager) Disconnect(_ context.Context, _, _ string) error {
+	return nil
+}
+
+func (m *testProxyManager) Heartbeat(_ context.Context, _ *nbproxy.Proxy) error {
+	return nil
+}
+
+func (m *testProxyManager) GetActiveClusterAddresses(_ context.Context) ([]string, error) {
+	return nil, nil
+}
+
+func (m *testProxyManager) GetActiveClusterAddressesForAccount(_ context.Context, _ string) ([]string, error) {
+	return nil, nil
+}
+
+func (m *testProxyManager) GetActiveClusters(_ context.Context) ([]nbproxy.Cluster, error) {
+	return nil, nil
+}
+
+func (m *testProxyManager) ClusterSupportsCustomPorts(_ context.Context, _ string) *bool {
+	return nil
+}
+
+func (m *testProxyManager) ClusterRequireSubdomain(_ context.Context, _ string) *bool {
+	return nil
+}
+
+func (m *testProxyManager) ClusterSupportsCrowdSec(_ context.Context, _ string) *bool {
+	return nil
+}
+
+func (m *testProxyManager) ClusterSupportsPrivate(_ context.Context, _ string) *bool {
+	return nil
+}
+
+func (m *testProxyManager) CleanupStale(_ context.Context, _ time.Duration) error {
+	return nil
+}
+
+func (m *testProxyManager) GetAccountProxy(_ context.Context, accountID string) (*nbproxy.Proxy, error) {
+	return nil, fmt.Errorf("proxy not found for account %s", accountID)
+}
+
+func (m *testProxyManager) CountAccountProxies(_ context.Context, _ string) (int64, error) {
+	return 0, nil
+}
+
+func (m *testProxyManager) IsClusterAddressAvailable(_ context.Context, _, _ string) (bool, error) {
+	return true, nil
+}
+
+func (m *testProxyManager) DeleteAccountCluster(_ context.Context, _, _ string) error {
+	return nil
+}
+
+// testProxyController is a mock implementation of rpservice.ProxyController for testing.
+type testProxyController struct{}
+
+func (c *testProxyController) SendServiceUpdateToCluster(_ context.Context, _ string, _ *proto.ProxyMapping, _ string) {
+	// noop
+}
+
+func (c *testProxyController) GetOIDCValidationConfig() nbproxy.OIDCValidationConfig {
+	return nbproxy.OIDCValidationConfig{}
+}
+
+func (c *testProxyController) RegisterProxyToCluster(_ context.Context, _, _ string) error {
+	return nil
+}
+
+func (c *testProxyController) UnregisterProxyFromCluster(_ context.Context, _, _ string) error {
+	return nil
+}
+
+func (c *testProxyController) GetProxiesForCluster(_ string) []string {
+	return nil
+}
+
 // storeBackedServiceManager reads directly from the real store.
 type storeBackedServiceManager struct {
 	store      store.Store
 	tokenStore *nbgrpc.OneTimeTokenStore
 }
 
-func (m *storeBackedServiceManager) GetAllServices(ctx context.Context, accountID, userID string) ([]*reverseproxy.Service, error) {
+func (m *storeBackedServiceManager) DeleteAllServices(ctx context.Context, accountID, userID string) error {
+	return nil
+}
+
+func (m *storeBackedServiceManager) GetAllServices(ctx context.Context, accountID, userID string) ([]*service.Service, error) {
 	return m.store.GetAccountServices(ctx, store.LockingStrengthNone, accountID)
 }
 
-func (m *storeBackedServiceManager) GetService(ctx context.Context, accountID, userID, serviceID string) (*reverseproxy.Service, error) {
+func (m *storeBackedServiceManager) GetService(ctx context.Context, accountID, userID, serviceID string) (*service.Service, error) {
 	return m.store.GetServiceByID(ctx, store.LockingStrengthNone, accountID, serviceID)
 }
 
-func (m *storeBackedServiceManager) CreateService(_ context.Context, _, _ string, _ *reverseproxy.Service) (*reverseproxy.Service, error) {
+func (m *storeBackedServiceManager) CreateService(_ context.Context, _, _ string, _ *service.Service) (*service.Service, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m *storeBackedServiceManager) UpdateService(_ context.Context, _, _ string, _ *reverseproxy.Service) (*reverseproxy.Service, error) {
+func (m *storeBackedServiceManager) UpdateService(_ context.Context, _, _ string, _ *service.Service) (*service.Service, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -199,11 +317,15 @@ func (m *storeBackedServiceManager) DeleteService(ctx context.Context, accountID
 	return nil
 }
 
+func (m *storeBackedServiceManager) DeleteAccountCluster(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
 func (m *storeBackedServiceManager) SetCertificateIssuedAt(ctx context.Context, accountID, serviceID string) error {
 	return nil
 }
 
-func (m *storeBackedServiceManager) SetStatus(ctx context.Context, accountID, serviceID string, status reverseproxy.ProxyStatus) error {
+func (m *storeBackedServiceManager) SetStatus(ctx context.Context, accountID, serviceID string, status service.Status) error {
 	return nil
 }
 
@@ -215,20 +337,42 @@ func (m *storeBackedServiceManager) ReloadService(ctx context.Context, accountID
 	return nil
 }
 
-func (m *storeBackedServiceManager) GetGlobalServices(ctx context.Context) ([]*reverseproxy.Service, error) {
+func (m *storeBackedServiceManager) GetGlobalServices(ctx context.Context) ([]*service.Service, error) {
 	return m.store.GetAccountServices(ctx, store.LockingStrengthNone, "test-account-1")
 }
 
-func (m *storeBackedServiceManager) GetServiceByID(ctx context.Context, accountID, serviceID string) (*reverseproxy.Service, error) {
+func (m *storeBackedServiceManager) GetServiceByID(ctx context.Context, accountID, serviceID string) (*service.Service, error) {
 	return m.store.GetServiceByID(ctx, store.LockingStrengthNone, accountID, serviceID)
 }
 
-func (m *storeBackedServiceManager) GetAccountServices(ctx context.Context, accountID string) ([]*reverseproxy.Service, error) {
+func (m *storeBackedServiceManager) GetAccountServices(ctx context.Context, accountID string) ([]*service.Service, error) {
 	return m.store.GetAccountServices(ctx, store.LockingStrengthNone, accountID)
 }
 
 func (m *storeBackedServiceManager) GetServiceIDByTargetID(ctx context.Context, accountID string, targetID string) (string, error) {
 	return "", nil
+}
+
+func (m *storeBackedServiceManager) CreateServiceFromPeer(_ context.Context, _, _ string, _ *service.ExposeServiceRequest) (*service.ExposeServiceResponse, error) {
+	return &service.ExposeServiceResponse{}, nil
+}
+
+func (m *storeBackedServiceManager) RenewServiceFromPeer(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
+func (m *storeBackedServiceManager) StopServiceFromPeer(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
+func (m *storeBackedServiceManager) StartExposeReaper(_ context.Context) {}
+
+func (m *storeBackedServiceManager) GetServiceByDomain(ctx context.Context, domain string) (*service.Service, error) {
+	return m.store.GetServiceByDomain(ctx, domain)
+}
+
+func (m *storeBackedServiceManager) GetClusters(_ context.Context, _, _ string) ([]nbproxy.Cluster, error) {
+	return nil, nil
 }
 
 func strPtr(s string) *string {
@@ -255,13 +399,15 @@ func TestIntegration_ProxyConnection_HappyPath(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Receive all mappings from the snapshot - server sends each mapping individually
 	mappingsByID := make(map[string]*proto.ProxyMapping)
-	for i := 0; i < 2; i++ {
+	for {
 		msg, err := stream.Recv()
 		require.NoError(t, err)
 		for _, m := range msg.GetMapping() {
 			mappingsByID[m.GetId()] = m
+		}
+		if msg.GetInitialSyncComplete() {
+			break
 		}
 	}
 
@@ -302,12 +448,14 @@ func TestIntegration_ProxyConnection_SendsClusterAddress(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Receive all mappings - server sends each mapping individually
 	mappings := make([]*proto.ProxyMapping, 0)
-	for i := 0; i < 2; i++ {
+	for {
 		msg, err := stream.Recv()
 		require.NoError(t, err)
 		mappings = append(mappings, msg.GetMapping()...)
+		if msg.GetInitialSyncComplete() {
+			break
+		}
 	}
 
 	// Should receive the 2 mappings matching the cluster
@@ -331,13 +479,15 @@ func TestIntegration_ProxyConnection_Reconnect_ReceivesSameConfig(t *testing.T) 
 	clusterAddress := "test.proxy.io"
 	proxyID := "test-proxy-reconnect"
 
-	// Helper to receive all mappings from a stream
-	receiveMappings := func(stream proto.ProxyService_GetMappingUpdateClient, count int) []*proto.ProxyMapping {
+	receiveMappings := func(stream proto.ProxyService_GetMappingUpdateClient) []*proto.ProxyMapping {
 		var mappings []*proto.ProxyMapping
-		for i := 0; i < count; i++ {
+		for {
 			msg, err := stream.Recv()
 			require.NoError(t, err)
 			mappings = append(mappings, msg.GetMapping()...)
+			if msg.GetInitialSyncComplete() {
+				break
+			}
 		}
 		return mappings
 	}
@@ -351,7 +501,7 @@ func TestIntegration_ProxyConnection_Reconnect_ReceivesSameConfig(t *testing.T) 
 	})
 	require.NoError(t, err)
 
-	firstMappings := receiveMappings(stream1, 2)
+	firstMappings := receiveMappings(stream1)
 	cancel1()
 
 	time.Sleep(100 * time.Millisecond)
@@ -367,7 +517,7 @@ func TestIntegration_ProxyConnection_Reconnect_ReceivesSameConfig(t *testing.T) 
 	})
 	require.NoError(t, err)
 
-	secondMappings := receiveMappings(stream2, 2)
+	secondMappings := receiveMappings(stream2)
 
 	// Should receive the same mappings
 	assert.Equal(t, len(firstMappings), len(secondMappings),
@@ -398,7 +548,7 @@ func TestIntegration_ProxyConnection_ReconnectDoesNotDuplicateState(t *testing.T
 	logger := log.New()
 	logger.SetLevel(log.WarnLevel)
 
-	authMw := auth.NewMiddleware(logger, nil)
+	authMw := auth.NewMiddleware(logger, nil, nil)
 	proxyHandler := proxy.NewReverseProxy(nil, "auto", nil, logger)
 
 	clusterAddress := "test.proxy.io"
@@ -417,27 +567,31 @@ func TestIntegration_ProxyConnection_ReconnectDoesNotDuplicateState(t *testing.T
 					nil,
 					"",
 					0,
-					mapping.GetAccountId(),
-					mapping.GetId(),
+					proxytypes.AccountID(mapping.GetAccountId()),
+					proxytypes.ServiceID(mapping.GetId()),
+					nil,
+					mapping.GetPrivate(),
 				)
 				require.NoError(t, err)
 
 				// Apply to real proxy (idempotent)
 				proxyHandler.AddMapping(proxy.Mapping{
 					Host:      mapping.GetDomain(),
-					ID:        mapping.GetId(),
+					ID:        proxytypes.ServiceID(mapping.GetId()),
 					AccountID: proxytypes.AccountID(mapping.GetAccountId()),
 				})
 			}
 		}
 	}
 
-	// Helper to receive and apply all mappings
 	receiveAndApply := func(stream proto.ProxyService_GetMappingUpdateClient) {
-		for i := 0; i < 2; i++ {
+		for {
 			msg, err := stream.Recv()
 			require.NoError(t, err)
 			applyMappings(msg.GetMapping())
+			if msg.GetInitialSyncComplete() {
+				break
+			}
 		}
 	}
 
@@ -526,12 +680,14 @@ func TestIntegration_ProxyConnection_MultipleProxiesReceiveUpdates(t *testing.T)
 			})
 			require.NoError(t, err)
 
-			// Receive all mappings - server sends each mapping individually
 			count := 0
-			for i := 0; i < 2; i++ {
+			for {
 				msg, err := stream.Recv()
 				require.NoError(t, err)
 				count += len(msg.GetMapping())
+				if msg.GetInitialSyncComplete() {
+					break
+				}
 			}
 
 			mu.Lock()
@@ -545,4 +701,79 @@ func TestIntegration_ProxyConnection_MultipleProxiesReceiveUpdates(t *testing.T)
 	for proxyID, count := range receivedByProxy {
 		assert.Equal(t, 2, count, "Proxy %s should receive 2 mappings", proxyID)
 	}
+}
+
+// TestIntegration_ProxyConnection_FastReconnectDoesNotLoseState verifies that
+// when a proxy reconnects before the old stream's cleanup runs, the new
+// connection is NOT removed by the stale defer.
+func TestIntegration_ProxyConnection_FastReconnectDoesNotLoseState(t *testing.T) {
+	setup := setupIntegrationTest(t)
+	defer setup.cleanup()
+
+	clusterAddress := "test.proxy.io"
+	proxyID := "test-proxy-race"
+
+	conn, err := grpc.NewClient(setup.grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	defer conn.Close()
+
+	client := proto.NewProxyServiceClient(conn)
+
+	ctx1, cancel1 := context.WithCancel(context.Background())
+	stream1, err := client.GetMappingUpdate(ctx1, &proto.GetMappingUpdateRequest{
+		ProxyId: proxyID,
+		Version: "test-v1",
+		Address: clusterAddress,
+	})
+	require.NoError(t, err)
+
+	for {
+		msg, err := stream1.Recv()
+		require.NoError(t, err)
+		if msg.GetInitialSyncComplete() {
+			break
+		}
+	}
+
+	require.Contains(t, setup.proxyService.GetConnectedProxies(), proxyID,
+		"proxy should be registered after first connection")
+
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel2()
+
+	stream2, err := client.GetMappingUpdate(ctx2, &proto.GetMappingUpdateRequest{
+		ProxyId: proxyID,
+		Version: "test-v1",
+		Address: clusterAddress,
+	})
+	require.NoError(t, err)
+
+	for {
+		msg, err := stream2.Recv()
+		require.NoError(t, err)
+		if msg.GetInitialSyncComplete() {
+			break
+		}
+	}
+
+	cancel1()
+
+	time.Sleep(200 * time.Millisecond)
+
+	assert.Contains(t, setup.proxyService.GetConnectedProxies(), proxyID,
+		"proxy should still be registered after old connection cleanup — old defer must not remove new connection")
+
+	setup.proxyService.SendServiceUpdate(&proto.GetMappingUpdateResponse{
+		Mapping: []*proto.ProxyMapping{{
+			Type:      proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED,
+			Id:        "rp-1",
+			AccountId: "test-account-1",
+			Domain:    "app1.test.proxy.io",
+		}},
+	})
+
+	msg, err := stream2.Recv()
+	require.NoError(t, err, "new stream should still receive updates")
+	require.NotEmpty(t, msg.GetMapping(), "update should contain the mapping")
+	assert.Equal(t, "rp-1", msg.GetMapping()[0].GetId())
 }

@@ -92,9 +92,12 @@ func (g *Group) HasPeers() bool {
 	return len(g.Peers) > 0
 }
 
+// GroupAllName is the reserved name of the default group that contains every peer in an account.
+const GroupAllName = "All"
+
 // IsGroupAll checks if the group is a default "All" group.
 func (g *Group) IsGroupAll() bool {
-	return g.Name == "All"
+	return g.Name == GroupAllName
 }
 
 // AddPeer adds peerID to Peers if not present, returning true if added.

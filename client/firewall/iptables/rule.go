@@ -9,6 +9,7 @@ type Rule struct {
 	mangleSpecs []string
 	ip          string
 	chain       string
+	v6          bool
 }
 
 // GetRuleID returns the rule id

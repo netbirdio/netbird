@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -73,7 +74,7 @@ func TestUpstreamResolver_ServeDNS(t *testing.T) {
 					servers = append(servers, netip.AddrPortFrom(addrPort.Addr().Unmap(), addrPort.Port()))
 				}
 			}
-			resolver.upstreamServers = servers
+			resolver.addRace(servers)
 			resolver.upstreamTimeout = testCase.timeout
 			if testCase.cancelCTX {
 				cancel()
@@ -132,20 +133,10 @@ func (m *mockNetstackProvider) GetInterfaceGUIDString() (string, error) {
 	return "", nil
 }
 
-type mockUpstreamResolver struct {
-	r   *dns.Msg
-	rtt time.Duration
-	err error
-}
-
-// exchange mock implementation of exchange from upstreamResolver
-func (c mockUpstreamResolver) exchange(_ context.Context, _ string, _ *dns.Msg) (*dns.Msg, time.Duration, error) {
-	return c.r, c.rtt, c.err
-}
-
 type mockUpstreamResponse struct {
-	msg *dns.Msg
-	err error
+	msg   *dns.Msg
+	err   error
+	delay time.Duration
 }
 
 type mockUpstreamResolverPerServer struct {
@@ -153,63 +144,19 @@ type mockUpstreamResolverPerServer struct {
 	rtt       time.Duration
 }
 
-func (c mockUpstreamResolverPerServer) exchange(_ context.Context, upstream string, _ *dns.Msg) (*dns.Msg, time.Duration, error) {
-	if r, ok := c.responses[upstream]; ok {
-		return r.msg, c.rtt, r.err
+func (c mockUpstreamResolverPerServer) exchange(ctx context.Context, upstream string, _ *dns.Msg) (*dns.Msg, time.Duration, error) {
+	r, ok := c.responses[upstream]
+	if !ok {
+		return nil, c.rtt, fmt.Errorf("no mock response for %s", upstream)
 	}
-	return nil, c.rtt, fmt.Errorf("no mock response for %s", upstream)
-}
-
-func TestUpstreamResolver_DeactivationReactivation(t *testing.T) {
-	mockClient := &mockUpstreamResolver{
-		err: dns.ErrTime,
-		r:   new(dns.Msg),
-		rtt: time.Millisecond,
+	if r.delay > 0 {
+		select {
+		case <-time.After(r.delay):
+		case <-ctx.Done():
+			return nil, c.rtt, ctx.Err()
+		}
 	}
-
-	resolver := &upstreamResolverBase{
-		ctx:              context.TODO(),
-		upstreamClient:   mockClient,
-		upstreamTimeout:  UpstreamTimeout,
-		reactivatePeriod: time.Microsecond * 100,
-	}
-	addrPort, _ := netip.ParseAddrPort("0.0.0.0:1") // Use valid port for parsing, test will still fail on connection
-	resolver.upstreamServers = []netip.AddrPort{netip.AddrPortFrom(addrPort.Addr().Unmap(), addrPort.Port())}
-
-	failed := false
-	resolver.deactivate = func(error) {
-		failed = true
-		// After deactivation, make the mock client work again
-		mockClient.err = nil
-	}
-
-	reactivated := false
-	resolver.reactivate = func() {
-		reactivated = true
-	}
-
-	resolver.ProbeAvailability()
-
-	if !failed {
-		t.Errorf("expected that resolving was deactivated")
-		return
-	}
-
-	if !resolver.disabled {
-		t.Errorf("resolver should be Disabled")
-		return
-	}
-
-	time.Sleep(time.Millisecond * 200)
-
-	if !reactivated {
-		t.Errorf("expected that resolving was reactivated")
-		return
-	}
-
-	if resolver.disabled {
-		t.Errorf("should be enabled")
-	}
+	return r.msg, c.rtt, r.err
 }
 
 func TestUpstreamResolver_Failover(t *testing.T) {
@@ -339,9 +286,9 @@ func TestUpstreamResolver_Failover(t *testing.T) {
 			resolver := &upstreamResolverBase{
 				ctx:             ctx,
 				upstreamClient:  trackingClient,
-				upstreamServers: []netip.AddrPort{upstream1, upstream2},
 				upstreamTimeout: UpstreamTimeout,
 			}
+			resolver.addRace([]netip.AddrPort{upstream1, upstream2})
 
 			var responseMSG *dns.Msg
 			responseWriter := &test.MockResponseWriter{
@@ -421,9 +368,9 @@ func TestUpstreamResolver_SingleUpstreamFailure(t *testing.T) {
 	resolver := &upstreamResolverBase{
 		ctx:             ctx,
 		upstreamClient:  mockClient,
-		upstreamServers: []netip.AddrPort{upstream},
 		upstreamTimeout: UpstreamTimeout,
 	}
+	resolver.addRace([]netip.AddrPort{upstream})
 
 	var responseMSG *dns.Msg
 	responseWriter := &test.MockResponseWriter{
@@ -438,6 +385,208 @@ func TestUpstreamResolver_SingleUpstreamFailure(t *testing.T) {
 
 	require.NotNil(t, responseMSG, "should write a response")
 	assert.Equal(t, dns.RcodeServerFailure, responseMSG.Rcode, "single upstream SERVFAIL should return SERVFAIL")
+}
+
+// TestUpstreamResolver_RaceAcrossGroups covers two nameserver groups
+// configured for the same domain, with one broken group. The merge+race
+// path should answer as fast as the working group and not pay the timeout
+// of the broken one on every query.
+func TestUpstreamResolver_RaceAcrossGroups(t *testing.T) {
+	broken := netip.MustParseAddrPort("192.0.2.1:53")
+	working := netip.MustParseAddrPort("192.0.2.2:53")
+	successAnswer := "192.0.2.100"
+	timeoutErr := &net.OpError{Op: "read", Err: fmt.Errorf("i/o timeout")}
+
+	mockClient := &mockUpstreamResolverPerServer{
+		responses: map[string]mockUpstreamResponse{
+			// Force the broken upstream to only unblock via timeout /
+			// cancellation so the assertion below can't pass if races
+			// were run serially.
+			broken.String():  {err: timeoutErr, delay: 500 * time.Millisecond},
+			working.String(): {msg: buildMockResponse(dns.RcodeSuccess, successAnswer)},
+		},
+		rtt: time.Millisecond,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	resolver := &upstreamResolverBase{
+		ctx:             ctx,
+		upstreamClient:  mockClient,
+		upstreamTimeout: 250 * time.Millisecond,
+	}
+	resolver.addRace([]netip.AddrPort{broken})
+	resolver.addRace([]netip.AddrPort{working})
+
+	var responseMSG *dns.Msg
+	responseWriter := &test.MockResponseWriter{
+		WriteMsgFunc: func(m *dns.Msg) error {
+			responseMSG = m
+			return nil
+		},
+	}
+
+	inputMSG := new(dns.Msg).SetQuestion("example.com.", dns.TypeA)
+	start := time.Now()
+	resolver.ServeDNS(responseWriter, inputMSG)
+	elapsed := time.Since(start)
+
+	require.NotNil(t, responseMSG, "should write a response")
+	assert.Equal(t, dns.RcodeSuccess, responseMSG.Rcode)
+	require.NotEmpty(t, responseMSG.Answer)
+	assert.Contains(t, responseMSG.Answer[0].String(), successAnswer)
+	// Working group answers in a single RTT; the broken group's
+	// timeout (100ms) must not block the response.
+	assert.Less(t, elapsed, 100*time.Millisecond, "race must not wait for broken group's timeout")
+}
+
+// TestUpstreamResolver_AllGroupsFail checks that when every group fails the
+// resolver returns SERVFAIL rather than leaking a partial response.
+func TestUpstreamResolver_AllGroupsFail(t *testing.T) {
+	a := netip.MustParseAddrPort("192.0.2.1:53")
+	b := netip.MustParseAddrPort("192.0.2.2:53")
+
+	mockClient := &mockUpstreamResolverPerServer{
+		responses: map[string]mockUpstreamResponse{
+			a.String(): {msg: buildMockResponse(dns.RcodeServerFailure, "")},
+			b.String(): {msg: buildMockResponse(dns.RcodeServerFailure, "")},
+		},
+		rtt: time.Millisecond,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	resolver := &upstreamResolverBase{
+		ctx:             ctx,
+		upstreamClient:  mockClient,
+		upstreamTimeout: UpstreamTimeout,
+	}
+	resolver.addRace([]netip.AddrPort{a})
+	resolver.addRace([]netip.AddrPort{b})
+
+	var responseMSG *dns.Msg
+	responseWriter := &test.MockResponseWriter{
+		WriteMsgFunc: func(m *dns.Msg) error {
+			responseMSG = m
+			return nil
+		},
+	}
+
+	resolver.ServeDNS(responseWriter, new(dns.Msg).SetQuestion("example.com.", dns.TypeA))
+	require.NotNil(t, responseMSG)
+	assert.Equal(t, dns.RcodeServerFailure, responseMSG.Rcode)
+}
+
+// TestUpstreamResolver_HealthTracking verifies that query-path results are
+// recorded into per-upstream health, which is what projects back to
+// NSGroupState for status reporting.
+func TestUpstreamResolver_HealthTracking(t *testing.T) {
+	ok := netip.MustParseAddrPort("192.0.2.10:53")
+	bad := netip.MustParseAddrPort("192.0.2.11:53")
+
+	mockClient := &mockUpstreamResolverPerServer{
+		responses: map[string]mockUpstreamResponse{
+			ok.String():  {msg: buildMockResponse(dns.RcodeSuccess, "192.0.2.100")},
+			bad.String(): {msg: buildMockResponse(dns.RcodeServerFailure, "")},
+		},
+		rtt: time.Millisecond,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	resolver := &upstreamResolverBase{
+		ctx:             ctx,
+		upstreamClient:  mockClient,
+		upstreamTimeout: UpstreamTimeout,
+	}
+	resolver.addRace([]netip.AddrPort{ok, bad})
+
+	responseWriter := &test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { return nil }}
+	resolver.ServeDNS(responseWriter, new(dns.Msg).SetQuestion("example.com.", dns.TypeA))
+
+	health := resolver.UpstreamHealth()
+	require.Contains(t, health, ok)
+	assert.False(t, health[ok].LastOk.IsZero(), "ok upstream should have LastOk set")
+	assert.Empty(t, health[ok].LastErr)
+
+	// bad upstream was never tried because ok answered first; its health
+	// should remain unset.
+	assert.NotContains(t, health, bad, "sibling upstream should not be queried when primary answers")
+}
+
+// TestUpstreamResolver_HealthTracking_ResponseMeansReachable verifies that an
+// upstream which answers with SERVFAIL or REFUSED is recorded as healthy:
+// those are per-question outcomes from a reachable server and must not mark
+// the upstream unhealthy. Only transport failures (timeouts) do.
+func TestUpstreamResolver_HealthTracking_ResponseMeansReachable(t *testing.T) {
+	a := netip.MustParseAddrPort("192.0.2.10:53")
+	b := netip.MustParseAddrPort("192.0.2.11:53")
+	timeoutErr := &net.OpError{Op: "read", Err: fmt.Errorf("i/o timeout")}
+
+	tests := []struct {
+		name        string
+		respA       mockUpstreamResponse
+		respB       mockUpstreamResponse
+		wantHealthy bool
+	}{
+		{
+			name:        "both SERVFAIL are reachable",
+			respA:       mockUpstreamResponse{msg: buildMockResponse(dns.RcodeServerFailure, "")},
+			respB:       mockUpstreamResponse{msg: buildMockResponse(dns.RcodeServerFailure, "")},
+			wantHealthy: true,
+		},
+		{
+			name:        "both REFUSED are reachable",
+			respA:       mockUpstreamResponse{msg: buildMockResponse(dns.RcodeRefused, "")},
+			respB:       mockUpstreamResponse{msg: buildMockResponse(dns.RcodeRefused, "")},
+			wantHealthy: true,
+		},
+		{
+			name:        "timeout marks unhealthy",
+			respA:       mockUpstreamResponse{err: timeoutErr},
+			respB:       mockUpstreamResponse{err: timeoutErr},
+			wantHealthy: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mockClient := &mockUpstreamResolverPerServer{
+				responses: map[string]mockUpstreamResponse{
+					a.String(): tc.respA,
+					b.String(): tc.respB,
+				},
+				rtt: time.Millisecond,
+			}
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			resolver := &upstreamResolverBase{
+				ctx:             ctx,
+				upstreamClient:  mockClient,
+				upstreamTimeout: UpstreamTimeout,
+			}
+			resolver.addRace([]netip.AddrPort{a, b})
+
+			responseWriter := &test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { return nil }}
+			resolver.ServeDNS(responseWriter, new(dns.Msg).SetQuestion("example.com.", dns.TypeA))
+
+			health := resolver.UpstreamHealth()
+			require.Contains(t, health, a, "primary upstream should have a health record")
+			if tc.wantHealthy {
+				assert.False(t, health[a].LastOk.IsZero(), "responding upstream should have LastOk set")
+				assert.True(t, health[a].LastFail.IsZero(), "responding upstream should not be marked failed")
+				assert.Empty(t, health[a].LastErr, "responding upstream should have no error")
+			} else {
+				assert.False(t, health[a].LastFail.IsZero(), "timed-out upstream should be marked failed")
+				assert.NotEmpty(t, health[a].LastErr, "timed-out upstream should record an error")
+			}
+		})
+	}
 }
 
 func TestFormatFailures(t *testing.T) {
@@ -473,5 +622,416 @@ func TestFormatFailures(t *testing.T) {
 			result := formatFailures(tc.failures)
 			assert.Equal(t, tc.expected, result)
 		})
+	}
+}
+
+func TestDNSProtocolContext(t *testing.T) {
+	t.Run("roundtrip udp", func(t *testing.T) {
+		ctx := contextWithDNSProtocol(context.Background(), protoUDP)
+		assert.Equal(t, protoUDP, dnsProtocolFromContext(ctx))
+	})
+
+	t.Run("roundtrip tcp", func(t *testing.T) {
+		ctx := contextWithDNSProtocol(context.Background(), protoTCP)
+		assert.Equal(t, protoTCP, dnsProtocolFromContext(ctx))
+	})
+
+	t.Run("missing returns empty", func(t *testing.T) {
+		assert.Equal(t, "", dnsProtocolFromContext(context.Background()))
+	})
+}
+
+func TestExchangeWithFallback_TCPContext(t *testing.T) {
+	// Start a local DNS server that responds on TCP only
+	tcpHandler := dns.HandlerFunc(func(w dns.ResponseWriter, r *dns.Msg) {
+		m := new(dns.Msg)
+		m.SetReply(r)
+		m.Answer = append(m.Answer, &dns.A{
+			Hdr: dns.RR_Header{Name: r.Question[0].Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60},
+			A:   net.ParseIP("10.0.0.1"),
+		})
+		if err := w.WriteMsg(m); err != nil {
+			t.Logf("write msg: %v", err)
+		}
+	})
+
+	tcpServer := &dns.Server{
+		Addr:    "127.0.0.1:0",
+		Net:     "tcp",
+		Handler: tcpHandler,
+	}
+
+	tcpLn, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	tcpServer.Listener = tcpLn
+
+	go func() {
+		if err := tcpServer.ActivateAndServe(); err != nil {
+			t.Logf("tcp server: %v", err)
+		}
+	}()
+	defer func() {
+		_ = tcpServer.Shutdown()
+	}()
+
+	upstream := tcpLn.Addr().String()
+
+	// With TCP context, should connect directly via TCP without trying UDP
+	ctx := contextWithDNSProtocol(context.Background(), protoTCP)
+	client := &dns.Client{Timeout: 2 * time.Second}
+	r := new(dns.Msg).SetQuestion("example.com.", dns.TypeA)
+
+	rm, _, err := ExchangeWithFallback(ctx, client, r, upstream)
+	require.NoError(t, err)
+	require.NotNil(t, rm)
+	require.NotEmpty(t, rm.Answer)
+	assert.Contains(t, rm.Answer[0].String(), "10.0.0.1")
+}
+
+func TestExchangeWithFallback_UDPFallbackToTCP(t *testing.T) {
+	// UDP handler returns a truncated response to trigger TCP retry.
+	udpHandler := dns.HandlerFunc(func(w dns.ResponseWriter, r *dns.Msg) {
+		m := new(dns.Msg)
+		m.SetReply(r)
+		m.Truncated = true
+		if err := w.WriteMsg(m); err != nil {
+			t.Logf("write msg: %v", err)
+		}
+	})
+
+	// TCP handler returns the full answer.
+	tcpHandler := dns.HandlerFunc(func(w dns.ResponseWriter, r *dns.Msg) {
+		m := new(dns.Msg)
+		m.SetReply(r)
+		m.Answer = append(m.Answer, &dns.A{
+			Hdr: dns.RR_Header{Name: r.Question[0].Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60},
+			A:   net.ParseIP("10.0.0.3"),
+		})
+		if err := w.WriteMsg(m); err != nil {
+			t.Logf("write msg: %v", err)
+		}
+	})
+
+	udpPC, err := net.ListenPacket("udp", "127.0.0.1:0")
+	require.NoError(t, err)
+	addr := udpPC.LocalAddr().String()
+
+	udpServer := &dns.Server{
+		PacketConn: udpPC,
+		Net:        "udp",
+		Handler:    udpHandler,
+	}
+
+	tcpLn, err := net.Listen("tcp", addr)
+	require.NoError(t, err)
+
+	tcpServer := &dns.Server{
+		Listener: tcpLn,
+		Net:      "tcp",
+		Handler:  tcpHandler,
+	}
+
+	go func() {
+		if err := udpServer.ActivateAndServe(); err != nil {
+			t.Logf("udp server: %v", err)
+		}
+	}()
+	go func() {
+		if err := tcpServer.ActivateAndServe(); err != nil {
+			t.Logf("tcp server: %v", err)
+		}
+	}()
+	defer func() {
+		_ = udpServer.Shutdown()
+		_ = tcpServer.Shutdown()
+	}()
+
+	ctx := context.Background()
+	client := &dns.Client{Timeout: 2 * time.Second}
+	r := new(dns.Msg).SetQuestion("example.com.", dns.TypeA)
+
+	rm, _, err := ExchangeWithFallback(ctx, client, r, addr)
+	require.NoError(t, err, "should fall back to TCP after truncated UDP response")
+	require.NotNil(t, rm)
+	require.NotEmpty(t, rm.Answer, "TCP response should contain the full answer")
+	assert.Contains(t, rm.Answer[0].String(), "10.0.0.3")
+	assert.False(t, rm.Truncated, "TCP response should not be truncated")
+}
+
+func TestExchangeWithFallback_TCPContextSkipsUDP(t *testing.T) {
+	// Start only a TCP server (no UDP). With TCP context it should succeed.
+	tcpHandler := dns.HandlerFunc(func(w dns.ResponseWriter, r *dns.Msg) {
+		m := new(dns.Msg)
+		m.SetReply(r)
+		m.Answer = append(m.Answer, &dns.A{
+			Hdr: dns.RR_Header{Name: r.Question[0].Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60},
+			A:   net.ParseIP("10.0.0.2"),
+		})
+		if err := w.WriteMsg(m); err != nil {
+			t.Logf("write msg: %v", err)
+		}
+	})
+
+	tcpLn, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	tcpServer := &dns.Server{
+		Listener: tcpLn,
+		Net:      "tcp",
+		Handler:  tcpHandler,
+	}
+
+	go func() {
+		if err := tcpServer.ActivateAndServe(); err != nil {
+			t.Logf("tcp server: %v", err)
+		}
+	}()
+	defer func() {
+		_ = tcpServer.Shutdown()
+	}()
+
+	upstream := tcpLn.Addr().String()
+
+	// TCP context: should skip UDP entirely and go directly to TCP
+	ctx := contextWithDNSProtocol(context.Background(), protoTCP)
+	client := &dns.Client{Timeout: 2 * time.Second}
+	r := new(dns.Msg).SetQuestion("example.com.", dns.TypeA)
+
+	rm, _, err := ExchangeWithFallback(ctx, client, r, upstream)
+	require.NoError(t, err)
+	require.NotNil(t, rm)
+	require.NotEmpty(t, rm.Answer)
+	assert.Contains(t, rm.Answer[0].String(), "10.0.0.2")
+
+	// Without TCP context, trying to reach a TCP-only server via UDP should fail
+	ctx2 := context.Background()
+	client2 := &dns.Client{Timeout: 500 * time.Millisecond}
+	_, _, err = ExchangeWithFallback(ctx2, client2, r, upstream)
+	assert.Error(t, err, "should fail when no UDP server and no TCP context")
+}
+
+func TestExchangeWithFallback_EDNS0Capped(t *testing.T) {
+	// Verify that a client EDNS0 larger than our MTU-derived limit gets
+	// capped in the outgoing request so the upstream doesn't send a
+	// response larger than our read buffer.
+	var receivedUDPSize atomic.Uint32
+	udpHandler := dns.HandlerFunc(func(w dns.ResponseWriter, r *dns.Msg) {
+		if opt := r.IsEdns0(); opt != nil {
+			receivedUDPSize.Store(uint32(opt.UDPSize()))
+		}
+		m := new(dns.Msg)
+		m.SetReply(r)
+		m.Answer = append(m.Answer, &dns.A{
+			Hdr: dns.RR_Header{Name: r.Question[0].Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60},
+			A:   net.ParseIP("10.0.0.1"),
+		})
+		if err := w.WriteMsg(m); err != nil {
+			t.Logf("write msg: %v", err)
+		}
+	})
+
+	udpPC, err := net.ListenPacket("udp", "127.0.0.1:0")
+	require.NoError(t, err)
+	addr := udpPC.LocalAddr().String()
+
+	udpServer := &dns.Server{PacketConn: udpPC, Net: "udp", Handler: udpHandler}
+	go func() { _ = udpServer.ActivateAndServe() }()
+	t.Cleanup(func() { _ = udpServer.Shutdown() })
+
+	ctx := context.Background()
+	client := &dns.Client{Timeout: 2 * time.Second}
+	r := new(dns.Msg).SetQuestion("example.com.", dns.TypeA)
+	r.SetEdns0(4096, false)
+
+	rm, _, err := ExchangeWithFallback(ctx, client, r, addr)
+	require.NoError(t, err)
+	require.NotNil(t, rm)
+
+	expectedMax := uint16(currentMTU - ipUDPHeaderSize)
+	assert.Equal(t, expectedMax, uint16(receivedUDPSize.Load()),
+		"upstream should see capped EDNS0, not the client's 4096")
+}
+
+func TestExchangeWithFallback_TCPTruncatesToClientSize(t *testing.T) {
+	// When the client advertises a large EDNS0 (4096) and the upstream
+	// truncates, the TCP response should NOT be truncated since the full
+	// answer fits within the client's original buffer.
+	udpHandler := dns.HandlerFunc(func(w dns.ResponseWriter, r *dns.Msg) {
+		m := new(dns.Msg)
+		m.SetReply(r)
+		m.Truncated = true
+		if err := w.WriteMsg(m); err != nil {
+			t.Logf("write msg: %v", err)
+		}
+	})
+
+	tcpHandler := dns.HandlerFunc(func(w dns.ResponseWriter, r *dns.Msg) {
+		m := new(dns.Msg)
+		m.SetReply(r)
+		// Add enough records to exceed MTU but fit within 4096
+		for i := range 20 {
+			m.Answer = append(m.Answer, &dns.TXT{
+				Hdr: dns.RR_Header{Name: r.Question[0].Name, Rrtype: dns.TypeTXT, Class: dns.ClassINET, Ttl: 60},
+				Txt: []string{fmt.Sprintf("record-%d-padding-data-to-make-it-longer", i)},
+			})
+		}
+		if err := w.WriteMsg(m); err != nil {
+			t.Logf("write msg: %v", err)
+		}
+	})
+
+	udpPC, err := net.ListenPacket("udp", "127.0.0.1:0")
+	require.NoError(t, err)
+	addr := udpPC.LocalAddr().String()
+
+	udpServer := &dns.Server{PacketConn: udpPC, Net: "udp", Handler: udpHandler}
+	tcpLn, err := net.Listen("tcp", addr)
+	require.NoError(t, err)
+	tcpServer := &dns.Server{Listener: tcpLn, Net: "tcp", Handler: tcpHandler}
+
+	go func() { _ = udpServer.ActivateAndServe() }()
+	go func() { _ = tcpServer.ActivateAndServe() }()
+	t.Cleanup(func() {
+		_ = udpServer.Shutdown()
+		_ = tcpServer.Shutdown()
+	})
+
+	ctx := context.Background()
+	client := &dns.Client{Timeout: 2 * time.Second}
+
+	// Client with large buffer: should get all records without truncation
+	r := new(dns.Msg).SetQuestion("example.com.", dns.TypeTXT)
+	r.SetEdns0(4096, false)
+
+	rm, _, err := ExchangeWithFallback(ctx, client, r, addr)
+	require.NoError(t, err)
+	require.NotNil(t, rm)
+	assert.Len(t, rm.Answer, 20, "large EDNS0 client should get all records")
+	assert.False(t, rm.Truncated, "response should not be truncated for large buffer client")
+
+	// Client with small buffer: should get truncated response
+	r2 := new(dns.Msg).SetQuestion("example.com.", dns.TypeTXT)
+	r2.SetEdns0(512, false)
+
+	rm2, _, err := ExchangeWithFallback(ctx, &dns.Client{Timeout: 2 * time.Second}, r2, addr)
+	require.NoError(t, err)
+	require.NotNil(t, rm2)
+	assert.Less(t, len(rm2.Answer), 20, "small EDNS0 client should get fewer records")
+	assert.True(t, rm2.Truncated, "response should be truncated for small buffer client")
+}
+
+func msgWithEDE(rcode int, codes ...uint16) *dns.Msg {
+	m := new(dns.Msg)
+	m.Response = true
+	m.Rcode = rcode
+	if len(codes) == 0 {
+		return m
+	}
+	opt := &dns.OPT{Hdr: dns.RR_Header{Name: ".", Rrtype: dns.TypeOPT}}
+	opt.SetUDPSize(dns.MinMsgSize)
+	for _, c := range codes {
+		opt.Option = append(opt.Option, &dns.EDNS0_EDE{InfoCode: c})
+	}
+	m.Extra = append(m.Extra, opt)
+	return m
+}
+
+func TestNonRetryableEDE(t *testing.T) {
+	tests := []struct {
+		name     string
+		msg      *dns.Msg
+		wantOK   bool
+		wantCode uint16
+	}{
+		{name: "no edns0", msg: msgWithEDE(dns.RcodeServerFailure)},
+		{
+			name: "opt without ede",
+			msg: func() *dns.Msg {
+				m := msgWithEDE(dns.RcodeServerFailure)
+				opt := &dns.OPT{Hdr: dns.RR_Header{Name: ".", Rrtype: dns.TypeOPT}}
+				opt.Option = append(opt.Option, &dns.EDNS0_NSID{Code: dns.EDNS0NSID})
+				m.Extra = []dns.RR{opt}
+				return m
+			}(),
+		},
+		{name: "ede dnsbogus", msg: msgWithEDE(dns.RcodeServerFailure, dns.ExtendedErrorCodeDNSBogus), wantOK: true, wantCode: dns.ExtendedErrorCodeDNSBogus},
+		{name: "ede signature expired", msg: msgWithEDE(dns.RcodeServerFailure, dns.ExtendedErrorCodeSignatureExpired), wantOK: true, wantCode: dns.ExtendedErrorCodeSignatureExpired},
+		{name: "ede blocked", msg: msgWithEDE(dns.RcodeServerFailure, dns.ExtendedErrorCodeBlocked), wantOK: true, wantCode: dns.ExtendedErrorCodeBlocked},
+		{name: "ede prohibited", msg: msgWithEDE(dns.RcodeRefused, dns.ExtendedErrorCodeProhibited), wantOK: true, wantCode: dns.ExtendedErrorCodeProhibited},
+		{name: "ede cached error retryable", msg: msgWithEDE(dns.RcodeServerFailure, dns.ExtendedErrorCodeCachedError)},
+		{name: "ede network error retryable", msg: msgWithEDE(dns.RcodeServerFailure, dns.ExtendedErrorCodeNetworkError)},
+		{name: "ede not ready retryable", msg: msgWithEDE(dns.RcodeServerFailure, dns.ExtendedErrorCodeNotReady)},
+		{
+			name:     "first non-retryable wins",
+			msg:      msgWithEDE(dns.RcodeServerFailure, dns.ExtendedErrorCodeNetworkError, dns.ExtendedErrorCodeDNSBogus),
+			wantOK:   true,
+			wantCode: dns.ExtendedErrorCodeDNSBogus,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			code, ok := nonRetryableEDE(tc.msg)
+			assert.Equal(t, tc.wantOK, ok, "ok should match")
+			if tc.wantOK {
+				assert.Equal(t, tc.wantCode, code, "code should match")
+			}
+		})
+	}
+}
+
+func TestEDEName(t *testing.T) {
+	assert.Equal(t, "DNSSEC Bogus", edeName(dns.ExtendedErrorCodeDNSBogus))
+	assert.Equal(t, "Signature Expired", edeName(dns.ExtendedErrorCodeSignatureExpired))
+	assert.Equal(t, "EDE 9999", edeName(9999), "unknown code falls back to numeric")
+}
+
+func TestUpstreamResolver_NonRetryableEDEShortCircuits(t *testing.T) {
+	upstream1 := netip.MustParseAddrPort("192.0.2.1:53")
+	upstream2 := netip.MustParseAddrPort("192.0.2.2:53")
+
+	servfailWithEDE := msgWithEDE(dns.RcodeServerFailure, dns.ExtendedErrorCodeDNSBogus)
+	successResp := buildMockResponse(dns.RcodeSuccess, "192.0.2.100")
+
+	var queried []string
+	tracking := &trackingMockClient{
+		inner: &mockUpstreamResolverPerServer{
+			responses: map[string]mockUpstreamResponse{
+				upstream1.String(): {msg: servfailWithEDE},
+				upstream2.String(): {msg: successResp},
+			},
+			rtt: time.Millisecond,
+		},
+		queriedUpstreams: &queried,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	resolver := &upstreamResolverBase{
+		ctx:             ctx,
+		upstreamClient:  tracking,
+		upstreamServers: []upstreamRace{{upstream1, upstream2}},
+		upstreamTimeout: UpstreamTimeout,
+	}
+
+	var written *dns.Msg
+	w := &test.MockResponseWriter{
+		WriteMsgFunc: func(m *dns.Msg) error {
+			written = m
+			return nil
+		},
+	}
+
+	// Client query without EDNS0 must not see an OPT in the response.
+	q := new(dns.Msg).SetQuestion("example.com.", dns.TypeA)
+	resolver.ServeDNS(w, q)
+
+	require.NotNil(t, written, "response must be written")
+	assert.Equal(t, dns.RcodeServerFailure, written.Rcode, "SERVFAIL must propagate")
+	assert.Len(t, queried, 1, "only first upstream should be queried")
+	assert.Equal(t, upstream1.String(), queried[0])
+	for _, rr := range written.Extra {
+		_, isOPT := rr.(*dns.OPT)
+		assert.False(t, isOPT, "synthetic OPT must not leak to a non-EDNS0 client")
 	}
 }

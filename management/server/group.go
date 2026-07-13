@@ -11,6 +11,7 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/affectedpeers"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
@@ -32,7 +33,7 @@ func (e *GroupLinkError) Error() string {
 
 // CheckGroupPermissions validates if a user has the necessary permissions to view groups
 func (am *DefaultAccountManager) CheckGroupPermissions(ctx context.Context, accountID, userID string) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Read)
+	allowed, _, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Read)
 	if err != nil {
 		return err
 	}
@@ -61,13 +62,16 @@ func (am *DefaultAccountManager) GetAllGroups(ctx context.Context, accountID, us
 }
 
 // GetGroupByName filters all groups in an account by name and returns the one with the most peers
-func (am *DefaultAccountManager) GetGroupByName(ctx context.Context, groupName, accountID string) (*types.Group, error) {
+func (am *DefaultAccountManager) GetGroupByName(ctx context.Context, groupName, accountID, userID string) (*types.Group, error) {
+	if err := am.CheckGroupPermissions(ctx, accountID, userID); err != nil {
+		return nil, err
+	}
 	return am.Store.GetGroupByName(ctx, store.LockingStrengthNone, accountID, groupName)
 }
 
 // CreateGroup object of the peers
 func (am *DefaultAccountManager) CreateGroup(ctx context.Context, accountID, userID string, newGroup *types.Group) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Create)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Create)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}
@@ -76,7 +80,8 @@ func (am *DefaultAccountManager) CreateGroup(ctx context.Context, accountID, use
 	}
 
 	var eventsToStore []func()
-	var updateAccountPeers bool
+	var snap *affectedpeers.Snapshot
+	change := affectedpeers.Change{ChangedGroupIDs: []string{newGroup.ID}}
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		if err = validateNewGroup(ctx, transaction, accountID, newGroup); err != nil {
@@ -88,11 +93,6 @@ func (am *DefaultAccountManager) CreateGroup(ctx context.Context, accountID, use
 		events := am.prepareGroupEvents(ctx, transaction, accountID, userID, newGroup)
 		eventsToStore = append(eventsToStore, events...)
 
-		updateAccountPeers, err = areGroupChangesAffectPeers(ctx, transaction, accountID, []string{newGroup.ID})
-		if err != nil {
-			return err
-		}
-
 		if err := transaction.CreateGroup(ctx, newGroup); err != nil {
 			return status.Errorf(status.Internal, "failed to create group: %v", err)
 		}
@@ -101,6 +101,11 @@ func (am *DefaultAccountManager) CreateGroup(ctx context.Context, accountID, use
 			if err := transaction.AddPeerToGroup(ctx, accountID, peerID, newGroup.ID); err != nil {
 				return status.Errorf(status.Internal, "failed to add peer %s to group %s: %v", peerID, newGroup.ID, err)
 			}
+		}
+
+		snap, err = affectedpeers.Load(ctx, transaction, accountID, change)
+		if err != nil {
+			return err
 		}
 
 		return transaction.IncrementNetworkSerial(ctx, accountID)
@@ -113,16 +118,14 @@ func (am *DefaultAccountManager) CreateGroup(ctx context.Context, accountID, use
 		storeEvent()
 	}
 
-	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
-	}
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return nil
 }
 
 // UpdateGroup object of the peers
 func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, userID string, newGroup *types.Group) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Update)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Update)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}
@@ -131,7 +134,8 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 	}
 
 	var eventsToStore []func()
-	var updateAccountPeers bool
+	var snap *affectedpeers.Snapshot
+	change := affectedpeers.Change{ChangedGroupIDs: []string{newGroup.ID}}
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		if err = validateNewGroup(ctx, transaction, accountID, newGroup); err != nil {
@@ -150,24 +154,26 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 
 		peersToAdd := util.Difference(newGroup.Peers, oldGroup.Peers)
 		peersToRemove := util.Difference(oldGroup.Peers, newGroup.Peers)
-
-		for _, peerID := range peersToAdd {
-			if err := transaction.AddPeerToGroup(ctx, accountID, peerID, newGroup.ID); err != nil {
-				return status.Errorf(status.Internal, "failed to add peer %s to group %s: %v", peerID, newGroup.ID, err)
-			}
-		}
-		for _, peerID := range peersToRemove {
-			if err := transaction.RemovePeerFromGroup(ctx, peerID, newGroup.ID); err != nil {
-				return status.Errorf(status.Internal, "failed to remove peer %s from group %s: %v", peerID, newGroup.ID, err)
-			}
-		}
-
-		updateAccountPeers, err = areGroupChangesAffectPeers(ctx, transaction, accountID, []string{newGroup.ID})
-		if err != nil {
+		if err = syncGroupMembership(ctx, transaction, accountID, newGroup.ID, peersToAdd, peersToRemove); err != nil {
 			return err
 		}
 
 		if err = transaction.UpdateGroup(ctx, newGroup); err != nil {
+			return err
+		}
+
+		if err = am.reconcileIPv6ForGroupChanges(ctx, transaction, accountID, []string{newGroup.ID}); err != nil {
+			return err
+		}
+
+		// A membership change does not alter which entities reference the group, so
+		// the dependency walk runs once against the post-change snapshot. The new
+		// members are already in the snapshot's index; the removed members are
+		// carried separately and folded in only when the group is linked.
+		if len(peersToRemove) > 0 {
+			change.RemovedPeersByGroup = map[string][]string{newGroup.ID: peersToRemove}
+		}
+		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
 			return err
 		}
 
@@ -181,10 +187,23 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 		storeEvent()
 	}
 
-	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
-	}
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
+	return nil
+}
+
+// syncGroupMembership applies the peer membership delta for a group within a transaction.
+func syncGroupMembership(ctx context.Context, transaction store.Store, accountID, groupID string, peersToAdd, peersToRemove []string) error {
+	for _, peerID := range peersToAdd {
+		if err := transaction.AddPeerToGroup(ctx, accountID, peerID, groupID); err != nil {
+			return status.Errorf(status.Internal, "failed to add peer %s to group %s: %v", peerID, groupID, err)
+		}
+	}
+	for _, peerID := range peersToRemove {
+		if err := transaction.RemovePeerFromGroup(ctx, peerID, groupID); err != nil {
+			return status.Errorf(status.Internal, "failed to remove peer %s from group %s: %v", peerID, groupID, err)
+		}
+	}
 	return nil
 }
 
@@ -193,7 +212,7 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 // It is the caller's responsibility to ensure proper locking is in place before invoking this method.
 // This method will not create group peer membership relations. Use AddPeerToGroup or RemovePeerFromGroup methods for that.
 func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, userID string, groups []*types.Group) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Create)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Create)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}
@@ -202,11 +221,14 @@ func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, us
 	}
 
 	var eventsToStore []func()
-	var updateAccountPeers bool
+	var snaps []*affectedpeers.Snapshot
+	var changes []affectedpeers.Change
 
 	var globalErr error
-	groupIDs := make([]string, 0, len(groups))
+	createdCount := 0
 	for _, newGroup := range groups {
+		change := affectedpeers.Change{ChangedGroupIDs: []string{newGroup.ID}}
+		var snap *affectedpeers.Snapshot
 		err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 			if err = validateNewGroup(ctx, transaction, accountID, newGroup); err != nil {
 				return err
@@ -223,35 +245,31 @@ func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, us
 				return err
 			}
 
-			groupIDs = append(groupIDs, newGroup.ID)
-
 			events := am.prepareGroupEvents(ctx, transaction, accountID, userID, newGroup)
 			eventsToStore = append(eventsToStore, events...)
 
-			return nil
+			snap, err = affectedpeers.Load(ctx, transaction, accountID, change)
+			return err
 		})
 		if err != nil {
 			log.WithContext(ctx).Errorf("failed to update group %s: %v", newGroup.ID, err)
-			if len(groupIDs) == 1 {
+			if createdCount == 0 {
 				return err
 			}
 			globalErr = errors.Join(globalErr, err)
 			// continue updating other groups
+			continue
 		}
-	}
-
-	updateAccountPeers, err = areGroupChangesAffectPeers(ctx, am.Store, accountID, groupIDs)
-	if err != nil {
-		return err
+		createdCount++
+		snaps = append(snaps, snap)
+		changes = append(changes, change)
 	}
 
 	for _, storeEvent := range eventsToStore {
 		storeEvent()
 	}
 
-	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
-	}
+	go am.dispatchAffected(ctx, accountID, snaps, changes)
 
 	return globalErr
 }
@@ -261,7 +279,7 @@ func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, us
 // It is the caller's responsibility to ensure proper locking is in place before invoking this method.
 // This method will not create group peer membership relations. Use AddPeerToGroup or RemovePeerFromGroup methods for that.
 func (am *DefaultAccountManager) UpdateGroups(ctx context.Context, accountID, userID string, groups []*types.Group) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Update)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Update)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}
@@ -270,58 +288,64 @@ func (am *DefaultAccountManager) UpdateGroups(ctx context.Context, accountID, us
 	}
 
 	var eventsToStore []func()
-	var updateAccountPeers bool
+	var snaps []*affectedpeers.Snapshot
+	var changes []affectedpeers.Change
 
 	var globalErr error
-	groupIDs := make([]string, 0, len(groups))
 	for _, newGroup := range groups {
-		err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-			if err = validateNewGroup(ctx, transaction, accountID, newGroup); err != nil {
-				return err
-			}
-
-			newGroup.AccountID = accountID
-
-			if err = transaction.UpdateGroup(ctx, newGroup); err != nil {
-				return err
-			}
-
-			err = transaction.IncrementNetworkSerial(ctx, accountID)
-			if err != nil {
-				return err
-			}
-
-			events := am.prepareGroupEvents(ctx, transaction, accountID, userID, newGroup)
-			eventsToStore = append(eventsToStore, events...)
-
-			groupIDs = append(groupIDs, newGroup.ID)
-
-			return nil
-		})
+		change := affectedpeers.Change{ChangedGroupIDs: []string{newGroup.ID}}
+		events, snap, err := am.updateSingleGroup(ctx, accountID, userID, newGroup, change)
 		if err != nil {
 			log.WithContext(ctx).Errorf("failed to update group %s: %v", newGroup.ID, err)
 			if len(groups) == 1 {
 				return err
 			}
 			globalErr = errors.Join(globalErr, err)
-			// continue updating other groups
+			continue
 		}
-	}
-
-	updateAccountPeers, err = areGroupChangesAffectPeers(ctx, am.Store, accountID, groupIDs)
-	if err != nil {
-		return err
+		eventsToStore = append(eventsToStore, events...)
+		snaps = append(snaps, snap)
+		changes = append(changes, change)
 	}
 
 	for _, storeEvent := range eventsToStore {
 		storeEvent()
 	}
 
-	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
-	}
+	go am.dispatchAffected(ctx, accountID, snaps, changes)
 
 	return globalErr
+}
+
+func (am *DefaultAccountManager) updateSingleGroup(ctx context.Context, accountID, userID string, newGroup *types.Group, change affectedpeers.Change) ([]func(), *affectedpeers.Snapshot, error) {
+	var events []func()
+	var snap *affectedpeers.Snapshot
+	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		if err := validateNewGroup(ctx, transaction, accountID, newGroup); err != nil {
+			return err
+		}
+
+		newGroup.AccountID = accountID
+
+		if err := transaction.UpdateGroup(ctx, newGroup); err != nil {
+			return err
+		}
+
+		if err := am.reconcileIPv6ForGroupChanges(ctx, transaction, accountID, []string{newGroup.ID}); err != nil {
+			return err
+		}
+
+		if err := transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+			return err
+		}
+
+		events = am.prepareGroupEvents(ctx, transaction, accountID, userID, newGroup)
+
+		var err error
+		snap, err = affectedpeers.Load(ctx, transaction, accountID, change)
+		return err
+	})
+	return events, snap, err
 }
 
 // prepareGroupEvents prepares a list of event functions to be stored.
@@ -413,7 +437,7 @@ func (am *DefaultAccountManager) DeleteGroup(ctx context.Context, accountID, use
 // If an error occurs while deleting a group, the function skips it and continues deleting other groups.
 // Errors are collected and returned at the end.
 func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, userID string, groupIDs []string) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Delete)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Delete)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}
@@ -424,29 +448,37 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 	var allErrors error
 	var groupIDsToDelete []string
 	var deletedGroups []*types.Group
+	var snap *affectedpeers.Snapshot
+	var change affectedpeers.Change
+
+	extraSettings, err := am.settingsManager.GetExtraSettings(ctx, accountID)
+	if err != nil {
+		return err
+	}
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		for _, groupID := range groupIDs {
-			group, err := transaction.GetGroupByID(ctx, store.LockingStrengthNone, accountID, groupID)
-			if err != nil {
-				allErrors = errors.Join(allErrors, err)
-				continue
-			}
-
-			if err := validateDeleteGroup(ctx, transaction, group, userID); err != nil {
-				allErrors = errors.Join(allErrors, err)
-				continue
-			}
-
-			groupIDsToDelete = append(groupIDsToDelete, groupID)
-			deletedGroups = append(deletedGroups, group)
+		deletedGroups, allErrors = collectDeletableGroups(ctx, transaction, accountID, userID, groupIDs, extraSettings.FlowGroups)
+		for _, group := range deletedGroups {
+			groupIDsToDelete = append(groupIDsToDelete, group.ID)
 		}
 
 		if len(groupIDsToDelete) == 0 {
 			return allErrors
 		}
 
+		// Delete: compute affected peers from the PRE-delete state. The groups,
+		// their members and the entities referencing them still exist, so a plain
+		// Load+Expand captures everyone — no removed-peer folding needed.
+		change = affectedpeers.Change{ChangedGroupIDs: groupIDsToDelete}
+		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
+			return err
+		}
+
 		if err = transaction.DeleteGroups(ctx, accountID, groupIDsToDelete); err != nil {
+			return err
+		}
+
+		if err = am.reconcileIPv6ForGroupChanges(ctx, transaction, accountID, groupIDsToDelete); err != nil {
 			return err
 		}
 
@@ -460,21 +492,52 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 		am.StoreEvent(ctx, userID, group.ID, accountID, activity.GroupDeleted, group.EventMeta())
 	}
 
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
+
 	return allErrors
+}
+
+// collectDeletableGroups loads and validates each group for deletion, returning
+// the groups that may be deleted and the joined validation errors for the rest.
+func collectDeletableGroups(ctx context.Context, transaction store.Store, accountID, userID string, groupIDs, flowGroups []string) ([]*types.Group, error) {
+	var deletable []*types.Group
+	var allErrors error
+	for _, groupID := range groupIDs {
+		group, err := transaction.GetGroupByID(ctx, store.LockingStrengthNone, accountID, groupID)
+		if err != nil {
+			allErrors = errors.Join(allErrors, err)
+			continue
+		}
+		if err = validateDeleteGroup(ctx, transaction, group, userID, flowGroups); err != nil {
+			allErrors = errors.Join(allErrors, err)
+			continue
+		}
+		deletable = append(deletable, group)
+	}
+	return deletable, allErrors
 }
 
 // GroupAddPeer appends peer to the group
 func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, groupID, peerID string) error {
-	var updateAccountPeers bool
-	var err error
+	var snap *affectedpeers.Snapshot
+	// A membership change affects only the peer itself and the opposite side of THIS
+	// group's policies — not the group's other members, and not the peer's other
+	// groups. LinkGroups walks only this group (matched, not expanded); OutputPeerIDs
+	// refreshes the peer without seeding its other group memberships. For an
+	// intra-group policy the opposite side is the group, so its members still refresh.
+	change := affectedpeers.Change{OutputPeerIDs: []string{peerID}, LinkGroups: []string{groupID}}
 
-	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		updateAccountPeers, err = areGroupChangesAffectPeers(ctx, transaction, accountID, []string{groupID})
-		if err != nil {
+	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		if err := transaction.AddPeerToGroup(ctx, accountID, peerID, groupID); err != nil {
 			return err
 		}
 
-		if err = transaction.AddPeerToGroup(ctx, accountID, peerID, groupID); err != nil {
+		if err := am.reconcileIPv6ForGroupChanges(ctx, transaction, accountID, []string{groupID}); err != nil {
+			return err
+		}
+
+		var err error
+		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
 			return err
 		}
 
@@ -484,9 +547,7 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 		return err
 	}
 
-	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
-	}
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return nil
 }
@@ -494,8 +555,9 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 // GroupAddResource appends resource to the group
 func (am *DefaultAccountManager) GroupAddResource(ctx context.Context, accountID, groupID string, resource types.Resource) error {
 	var group *types.Group
-	var updateAccountPeers bool
+	var snap *affectedpeers.Snapshot
 	var err error
+	change := affectedpeers.Change{ChangedGroupIDs: []string{groupID}}
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		group, err = transaction.GetGroupByID(context.Background(), store.LockingStrengthUpdate, accountID, groupID)
@@ -507,12 +569,11 @@ func (am *DefaultAccountManager) GroupAddResource(ctx context.Context, accountID
 			return nil
 		}
 
-		updateAccountPeers, err = areGroupChangesAffectPeers(ctx, transaction, accountID, []string{groupID})
-		if err != nil {
+		if err = transaction.UpdateGroup(ctx, group); err != nil {
 			return err
 		}
 
-		if err = transaction.UpdateGroup(ctx, group); err != nil {
+		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
 			return err
 		}
 
@@ -522,25 +583,31 @@ func (am *DefaultAccountManager) GroupAddResource(ctx context.Context, accountID
 		return err
 	}
 
-	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
-	}
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return nil
 }
 
 // GroupDeletePeer removes peer from the group
 func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID, groupID, peerID string) error {
-	var updateAccountPeers bool
-	var err error
+	var snap *affectedpeers.Snapshot
+	// Same as GroupAddPeer: the removed peer and the opposite side of THIS group's
+	// policies refresh, not the group's other members or the peer's other groups. The
+	// peer is no longer in the group's index, but LinkGroups still drives the
+	// opposite-side walk, and OutputPeerIDs refreshes the removed peer itself.
+	change := affectedpeers.Change{OutputPeerIDs: []string{peerID}, LinkGroups: []string{groupID}}
 
-	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		updateAccountPeers, err = areGroupChangesAffectPeers(ctx, transaction, accountID, []string{groupID})
-		if err != nil {
+	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		if err := transaction.RemovePeerFromGroup(ctx, peerID, groupID); err != nil {
 			return err
 		}
 
-		if err = transaction.RemovePeerFromGroup(ctx, peerID, groupID); err != nil {
+		if err := am.reconcileIPv6ForGroupChanges(ctx, transaction, accountID, []string{groupID}); err != nil {
+			return err
+		}
+
+		var err error
+		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
 			return err
 		}
 
@@ -550,9 +617,7 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 		return err
 	}
 
-	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
-	}
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return nil
 }
@@ -560,8 +625,9 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 // GroupDeleteResource removes resource from the group
 func (am *DefaultAccountManager) GroupDeleteResource(ctx context.Context, accountID, groupID string, resource types.Resource) error {
 	var group *types.Group
-	var updateAccountPeers bool
+	var snap *affectedpeers.Snapshot
 	var err error
+	change := affectedpeers.Change{ChangedGroupIDs: []string{groupID}}
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		group, err = transaction.GetGroupByID(context.Background(), store.LockingStrengthUpdate, accountID, groupID)
@@ -573,8 +639,9 @@ func (am *DefaultAccountManager) GroupDeleteResource(ctx context.Context, accoun
 			return nil
 		}
 
-		updateAccountPeers, err = areGroupChangesAffectPeers(ctx, transaction, accountID, []string{groupID})
-		if err != nil {
+		// Load before persisting the removal, so the snapshot still maps the group
+		// to the resource and the bridge can reach its routing peers.
+		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
 			return err
 		}
 
@@ -588,9 +655,7 @@ func (am *DefaultAccountManager) GroupDeleteResource(ctx context.Context, accoun
 		return err
 	}
 
-	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
-	}
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return nil
 }
@@ -621,7 +686,7 @@ func validateNewGroup(ctx context.Context, transaction store.Store, accountID st
 	return nil
 }
 
-func validateDeleteGroup(ctx context.Context, transaction store.Store, group *types.Group, userID string) error {
+func validateDeleteGroup(ctx context.Context, transaction store.Store, group *types.Group, userID string, flowGroups []string) error {
 	// disable a deleting integration group if the initiator is not an admin service user
 	if group.Issued == types.GroupIssuedIntegration {
 		executingUser, err := transaction.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
@@ -639,6 +704,10 @@ func validateDeleteGroup(ctx context.Context, transaction store.Store, group *ty
 
 	if len(group.Resources) > 0 {
 		return &GroupLinkError{"network resource", group.Resources[0].ID}
+	}
+
+	if slices.Contains(flowGroups, group.ID) {
+		return &GroupLinkError{"settings", "traffic event logging"}
 	}
 
 	if isLinked, linkedRoute := isGroupLinkedToRoute(ctx, transaction, group.AccountID, group.ID); isLinked {
@@ -797,49 +866,103 @@ func isGroupLinkedToNetworkRouter(ctx context.Context, transaction store.Store, 
 }
 
 // areGroupChangesAffectPeers checks if any changes to the specified groups will affect peers.
+// It fetches each collection once and checks all groupIDs against them in memory.
 func areGroupChangesAffectPeers(ctx context.Context, transaction store.Store, accountID string, groupIDs []string) (bool, error) {
 	if len(groupIDs) == 0 {
 		return false, nil
 	}
 
-	dnsSettings, err := transaction.GetAccountDNSSettings(ctx, store.LockingStrengthNone, accountID)
-	if err != nil {
-		return false, err
+	groupSet := make(map[string]struct{}, len(groupIDs))
+	for _, id := range groupIDs {
+		groupSet[id] = struct{}{}
 	}
 
-	for _, groupID := range groupIDs {
-		if slices.Contains(dnsSettings.DisabledManagementGroups, groupID) {
-			return true, nil
-		}
-		if linked, _ := isGroupLinkedToDns(ctx, transaction, accountID, groupID); linked {
-			return true, nil
-		}
-		if linked, _ := isGroupLinkedToPolicy(ctx, transaction, accountID, groupID); linked {
-			return true, nil
-		}
-		if linked, _ := isGroupLinkedToRoute(ctx, transaction, accountID, groupID); linked {
-			return true, nil
-		}
-		if linked, _ := isGroupLinkedToNetworkRouter(ctx, transaction, accountID, groupID); linked {
-			return true, nil
-		}
+	if affected, err := dnsSettingsReferenceGroups(ctx, transaction, accountID, groupSet); affected || err != nil {
+		return affected, err
+	}
+	if affected, err := nameServersReferenceGroups(ctx, transaction, accountID, groupSet); affected || err != nil {
+		return affected, err
+	}
+	if affected, err := policiesReferenceGroups(ctx, transaction, accountID, groupSet); affected || err != nil {
+		return affected, err
+	}
+	if affected, err := routesReferenceGroups(ctx, transaction, accountID, groupSet); affected || err != nil {
+		return affected, err
+	}
+	if affected, err := networkRoutersReferenceGroups(ctx, transaction, accountID, groupSet); affected || err != nil {
+		return affected, err
 	}
 
 	return false, nil
 }
 
-// anyGroupHasPeersOrResources checks if any of the given groups in the account have peers or resources.
-func anyGroupHasPeersOrResources(ctx context.Context, transaction store.Store, accountID string, groupIDs []string) (bool, error) {
-	groups, err := transaction.GetGroupsByIDs(ctx, store.LockingStrengthNone, accountID, groupIDs)
+func dnsSettingsReferenceGroups(ctx context.Context, transaction store.Store, accountID string, groupSet map[string]struct{}) (bool, error) {
+	dnsSettings, err := transaction.GetAccountDNSSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return false, err
 	}
+	return anyInSet(dnsSettings.DisabledManagementGroups, groupSet), nil
+}
 
-	for _, group := range groups {
-		if group.HasPeers() || group.HasResources() {
+func nameServersReferenceGroups(ctx context.Context, transaction store.Store, accountID string, groupSet map[string]struct{}) (bool, error) {
+	nameServerGroups, err := transaction.GetAccountNameServerGroups(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return false, err
+	}
+	for _, ns := range nameServerGroups {
+		if anyInSet(ns.Groups, groupSet) {
 			return true, nil
 		}
 	}
-
 	return false, nil
+}
+
+func policiesReferenceGroups(ctx context.Context, transaction store.Store, accountID string, groupSet map[string]struct{}) (bool, error) {
+	policies, err := transaction.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return false, err
+	}
+	for _, policy := range policies {
+		for _, rule := range policy.Rules {
+			if anyInSet(rule.Sources, groupSet) || anyInSet(rule.Destinations, groupSet) {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
+func routesReferenceGroups(ctx context.Context, transaction store.Store, accountID string, groupSet map[string]struct{}) (bool, error) {
+	routes, err := transaction.GetAccountRoutes(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return false, err
+	}
+	for _, r := range routes {
+		if anyInSet(r.Groups, groupSet) || anyInSet(r.PeerGroups, groupSet) || anyInSet(r.AccessControlGroups, groupSet) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func networkRoutersReferenceGroups(ctx context.Context, transaction store.Store, accountID string, groupSet map[string]struct{}) (bool, error) {
+	routers, err := transaction.GetNetworkRoutersByAccountID(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return false, err
+	}
+	for _, router := range routers {
+		if anyInSet(router.PeerGroups, groupSet) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func anyInSet(ids []string, set map[string]struct{}) bool {
+	for _, id := range ids {
+		if _, ok := set[id]; ok {
+			return true
+		}
+	}
+	return false
 }

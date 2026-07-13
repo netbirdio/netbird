@@ -307,6 +307,24 @@ func (p *Preferences) SetBlockInbound(block bool) {
 	p.configInput.BlockInbound = &block
 }
 
+// GetDisableIPv6 reads disable IPv6 setting from config file
+func (p *Preferences) GetDisableIPv6() (bool, error) {
+	if p.configInput.DisableIPv6 != nil {
+		return *p.configInput.DisableIPv6, nil
+	}
+
+	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
+	if err != nil {
+		return false, err
+	}
+	return cfg.DisableIPv6, err
+}
+
+// SetDisableIPv6 stores the given value and waits for commit
+func (p *Preferences) SetDisableIPv6(disable bool) {
+	p.configInput.DisableIPv6 = &disable
+}
+
 // Commit writes out the changes to the config file
 func (p *Preferences) Commit() error {
 	_, err := profilemanager.UpdateOrCreateConfig(p.configInput)

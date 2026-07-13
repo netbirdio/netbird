@@ -336,6 +336,104 @@ func TestUser_GetAllPATs(t *testing.T) {
 	assert.Equal(t, 2, len(pats))
 }
 
+func TestUser_PAT_CrossAccountProtection(t *testing.T) {
+	const (
+		accountAID     = "accountA"
+		accountBID     = "accountB"
+		userAID        = "userA"
+		adminBID       = "adminB"
+		serviceUserBID = "serviceUserB"
+		regularUserBID = "regularUserB"
+		tokenBID       = "tokenB1"
+		hashedTokenB   = "SoMeHaShEdToKeNB"
+	)
+
+	setupStore := func(t *testing.T) (*DefaultAccountManager, func()) {
+		t.Helper()
+
+		s, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+		require.NoError(t, err, "creating store")
+
+		accountA := newAccountWithId(context.Background(), accountAID, userAID, "", "", "", false)
+		require.NoError(t, s.SaveAccount(context.Background(), accountA))
+
+		accountB := newAccountWithId(context.Background(), accountBID, adminBID, "", "", "", false)
+		accountB.Users[serviceUserBID] = &types.User{
+			Id:              serviceUserBID,
+			AccountID:       accountBID,
+			IsServiceUser:   true,
+			ServiceUserName: "svcB",
+			Role:            types.UserRoleAdmin,
+			PATs: map[string]*types.PersonalAccessToken{
+				tokenBID: {
+					ID:          tokenBID,
+					HashedToken: hashedTokenB,
+				},
+			},
+		}
+		accountB.Users[regularUserBID] = &types.User{
+			Id:        regularUserBID,
+			AccountID: accountBID,
+			Role:      types.UserRoleUser,
+		}
+		require.NoError(t, s.SaveAccount(context.Background(), accountB))
+
+		pm := permissions.NewManager(s)
+		am := &DefaultAccountManager{
+			Store:              s,
+			eventStore:         &activity.InMemoryEventStore{},
+			permissionsManager: pm,
+		}
+		return am, cleanup
+	}
+
+	t.Run("CreatePAT for user in different account is denied", func(t *testing.T) {
+		am, cleanup := setupStore(t)
+		t.Cleanup(cleanup)
+
+		_, err := am.CreatePAT(context.Background(), accountAID, userAID, serviceUserBID, "xss-token", 7)
+		require.Error(t, err, "cross-account CreatePAT must fail")
+
+		_, err = am.CreatePAT(context.Background(), accountAID, userAID, regularUserBID, "xss-token", 7)
+		require.Error(t, err, "cross-account CreatePAT for regular user must fail")
+
+		_, err = am.CreatePAT(context.Background(), accountBID, adminBID, serviceUserBID, "legit-token", 7)
+		require.NoError(t, err, "same-account CreatePAT should succeed")
+	})
+
+	t.Run("DeletePAT for user in different account is denied", func(t *testing.T) {
+		am, cleanup := setupStore(t)
+		t.Cleanup(cleanup)
+
+		err := am.DeletePAT(context.Background(), accountAID, userAID, serviceUserBID, tokenBID)
+		require.Error(t, err, "cross-account DeletePAT must fail")
+	})
+
+	t.Run("GetPAT for user in different account is denied", func(t *testing.T) {
+		am, cleanup := setupStore(t)
+		t.Cleanup(cleanup)
+
+		_, err := am.GetPAT(context.Background(), accountAID, userAID, serviceUserBID, tokenBID)
+		require.Error(t, err, "cross-account GetPAT must fail")
+	})
+
+	t.Run("GetAllPATs for user in different account is denied", func(t *testing.T) {
+		am, cleanup := setupStore(t)
+		t.Cleanup(cleanup)
+
+		_, err := am.GetAllPATs(context.Background(), accountAID, userAID, serviceUserBID)
+		require.Error(t, err, "cross-account GetAllPATs must fail")
+	})
+
+	t.Run("CreatePAT with forged accountID targeting foreign user is denied", func(t *testing.T) {
+		am, cleanup := setupStore(t)
+		t.Cleanup(cleanup)
+
+		_, err := am.CreatePAT(context.Background(), accountAID, userAID, adminBID, "forged", 7)
+		require.Error(t, err, "forged accountID CreatePAT must fail")
+	})
+}
+
 func TestUser_Copy(t *testing.T) {
 	// this is an imaginary case which will never be in DB this way
 	user := types.User{
@@ -748,7 +846,7 @@ func TestUser_DeleteUser_regularUser(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	networkMapControllerMock := network_map.NewMockController(ctrl)
 	networkMapControllerMock.EXPECT().
-		OnPeersDeleted(gomock.Any(), gomock.Any(), gomock.Any()).
+		OnPeersDeleted(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil)
 
 	permissionsManager := permissions.NewManager(store)
@@ -864,7 +962,7 @@ func TestUser_DeleteUser_RegularUsers(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	networkMapControllerMock := network_map.NewMockController(ctrl)
 	networkMapControllerMock.EXPECT().
-		OnPeersDeleted(gomock.Any(), gomock.Any(), gomock.Any()).
+		OnPeersDeleted(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil).
 		AnyTimes()
 
@@ -1433,11 +1531,14 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 		}
 	})
 
+	// drain any buffered updates from previous subtests
+	drainPeerUpdates(updMsg)
+
 	// deleting user with no linked peers should not update account peers and not send peer update
 	t.Run("deleting user with no linked peers", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg)
 			close(done)
 		}()
 
@@ -1464,7 +1565,7 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 	require.NoError(t, err)
 
 	expectedPeerKey := key.PublicKey().String()
-	peer4, _, _, err := manager.AddPeer(context.Background(), "", "", "regularUser2", &nbpeer.Peer{
+	peer4, _, _, _, err := manager.AddPeer(context.Background(), "", "", "regularUser2", &nbpeer.Peer{
 		Key:  expectedPeerKey,
 		Meta: nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
 	}, false)
@@ -1488,7 +1589,7 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -1511,7 +1612,7 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -1924,7 +2025,7 @@ func TestUser_Operations_WithEmbeddedIDP(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	networkMapControllerMock := network_map.NewMockController(ctrl)
 	networkMapControllerMock.EXPECT().
-		OnPeersDeleted(gomock.Any(), gomock.Any(), gomock.Any()).
+		OnPeersDeleted(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil).
 		AnyTimes()
 

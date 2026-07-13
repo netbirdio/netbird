@@ -51,18 +51,27 @@ func GetList() []string {
 // This can be used to bypass authz/authn middlewares for certain paths, such as webhooks that implement their own authentication.
 func ShouldBypass(requestPath string, h http.Handler, w http.ResponseWriter, r *http.Request) bool {
 	byPassMutex.RLock()
-	defer byPassMutex.RUnlock()
-
+	var matched bool
 	for bypassPath := range bypassPaths {
-		matched, err := path.Match(bypassPath, requestPath)
+		m, err := path.Match(bypassPath, requestPath)
 		if err != nil {
-			log.WithContext(r.Context()).Errorf("Error matching path %s with %s from %s: %v", bypassPath, requestPath, GetList(), err)
+			list := make([]string, 0, len(bypassPaths))
+			for k := range bypassPaths {
+				list = append(list, k)
+			}
+			log.WithContext(r.Context()).Errorf("Error matching path %s with %s from %v: %v", bypassPath, requestPath, list, err)
 			continue
 		}
-		if matched {
-			h.ServeHTTP(w, r)
-			return true
+		if m {
+			matched = true
+			break
 		}
+	}
+	byPassMutex.RUnlock()
+
+	if matched {
+		h.ServeHTTP(w, r)
+		return true
 	}
 
 	return false

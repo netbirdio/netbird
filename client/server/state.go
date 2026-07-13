@@ -12,7 +12,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
-	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/client/proto"
 )
 
@@ -39,7 +38,7 @@ func (s *Server) ListStates(_ context.Context, _ *proto.ListStatesRequest) (*pro
 
 // CleanState handles cleaning of states (performing cleanup operations)
 func (s *Server) CleanState(ctx context.Context, req *proto.CleanStateRequest) (*proto.CleanStateResponse, error) {
-	if s.connectClient.Status() == internal.StatusConnected || s.connectClient.Status() == internal.StatusConnecting {
+	if s.connectClient != nil && (s.connectClient.Status() == internal.StatusConnected || s.connectClient.Status() == internal.StatusConnecting) {
 		return nil, status.Errorf(codes.FailedPrecondition, "cannot clean state while connecting or connected, run 'netbird down' first.")
 	}
 
@@ -82,7 +81,7 @@ func (s *Server) CleanState(ctx context.Context, req *proto.CleanStateRequest) (
 
 // DeleteState handles deletion of states without cleanup
 func (s *Server) DeleteState(ctx context.Context, req *proto.DeleteStateRequest) (*proto.DeleteStateResponse, error) {
-	if s.connectClient.Status() == internal.StatusConnected || s.connectClient.Status() == internal.StatusConnecting {
+	if s.connectClient != nil && (s.connectClient.Status() == internal.StatusConnected || s.connectClient.Status() == internal.StatusConnecting) {
 		return nil, status.Errorf(codes.FailedPrecondition, "cannot clean state while connecting or connected, run 'netbird down' first.")
 	}
 
@@ -138,10 +137,8 @@ func restoreResidualState(ctx context.Context, statePath string) error {
 	}
 
 	// clean up any remaining routes independently of the state file
-	if !nbnet.AdvancedRouting() {
-		if err := systemops.New(nil, nil).FlushMarkedRoutes(); err != nil {
-			merr = multierror.Append(merr, fmt.Errorf("flush marked routes: %w", err))
-		}
+	if err := systemops.New(nil, nil).FlushMarkedRoutes(); err != nil {
+		merr = multierror.Append(merr, fmt.Errorf("flush marked routes: %w", err))
 	}
 
 	return nberrors.FormatErrorOrNil(merr)

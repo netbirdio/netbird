@@ -13,7 +13,7 @@ import (
 
 func TestAnonymizeIP(t *testing.T) {
 	startIPv4 := netip.MustParseAddr("198.51.100.0")
-	startIPv6 := netip.MustParseAddr("100::")
+	startIPv6 := netip.MustParseAddr("2001:db8:ffff::")
 	anonymizer := anonymize.NewAnonymizer(startIPv4, startIPv6)
 
 	tests := []struct {
@@ -26,9 +26,9 @@ func TestAnonymizeIP(t *testing.T) {
 		{"Second Public IPv4", "4.3.2.1", "198.51.100.1"},
 		{"Repeated IPv4", "1.2.3.4", "198.51.100.0"},
 		{"Private IPv4", "192.168.1.1", "192.168.1.1"},
-		{"First Public IPv6", "2607:f8b0:4005:805::200e", "100::"},
-		{"Second Public IPv6", "a::b", "100::1"},
-		{"Repeated IPv6", "2607:f8b0:4005:805::200e", "100::"},
+		{"First Public IPv6", "2607:f8b0:4005:805::200e", "2001:db8:ffff::"},
+		{"Second Public IPv6", "a::b", "2001:db8:ffff::1"},
+		{"Repeated IPv6", "2607:f8b0:4005:805::200e", "2001:db8:ffff::"},
 		{"Private IPv6", "fe80::1", "fe80::1"},
 		{"In Range IPv4", "198.51.100.2", "198.51.100.2"},
 	}
@@ -274,17 +274,27 @@ func TestAnonymizeString_IPAddresses(t *testing.T) {
 		{
 			name:   "IPv6 Address",
 			input:  "Access attempted from 2001:db8::ff00:42",
-			expect: "Access attempted from 100::",
+			expect: "Access attempted from 2001:db8:ffff::",
 		},
 		{
 			name:   "IPv6 Address with Port",
 			input:  "Access attempted from [2001:db8::ff00:42]:8080",
-			expect: "Access attempted from [100::]:8080",
+			expect: "Access attempted from [2001:db8:ffff::]:8080",
 		},
 		{
 			name:   "Both IPv4 and IPv6",
 			input:  "IPv4: 142.108.0.1 and IPv6: 2001:db8::ff00:43",
-			expect: "IPv4: 198.51.100.1 and IPv6: 100::1",
+			expect: "IPv4: 198.51.100.1 and IPv6: 2001:db8:ffff::1",
+		},
+		{
+			name:   "STUN URI with IPv6",
+			input:  "Connecting to stun:[2001:db8::ff00:42]:3478",
+			expect: "Connecting to stun:[2001:db8:ffff::]:3478",
+		},
+		{
+			name:   "HTTPS URI with IPv6",
+			input:  "Visit https://[2001:db8::ff00:42]:443/path",
+			expect: "Visit https://[2001:db8:ffff::]:443/path",
 		},
 	}
 

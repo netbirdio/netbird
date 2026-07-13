@@ -18,10 +18,12 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       - name: Install Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         id: go
         with:
           go-version-file: "go.mod"
@@ -33,7 +35,7 @@ jobs:
           echo "modcache=$(go env GOMODCACHE)" >> $env:GITHUB_ENV
 
       - name: Cache Go modules
-        uses: actions/cache@v4
+        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
         with:
           path: |
             ${{ env.cache }}
@@ -44,16 +46,15 @@ jobs:
             ${{ runner.os }}-go-
 
       - name: Download wintun
-        uses: carlosperate/download-file-action@v2
         id: download-wintun
+        uses: netbirdio/shared-actions/actions/win-download-and-verify@be5df6047383da2236e02243cceb857d8567c27e # v0.0.2
         with:
-          file-url: https://pkgs.netbird.io/wintun/wintun-0.14.1.zip
-          file-name: wintun.zip
-          location: ${{ env.downloadPath }}
-          sha256: '07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51'
+          url: https://pkgs.netbird.io/wintun/wintun-0.14.1.zip
+          destination: ${{ env.downloadPath }}\wintun.zip
+          sha256: 07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51
 
       - name: Decompressing wintun files
-        run: tar -zvxf "${{ steps.download-wintun.outputs.file-path }}" -C ${{ env.downloadPath }}
+        run: tar -xvf "${{ steps.download-wintun.outputs.file-path }}" -C ${{ env.downloadPath }}
 
       - run: mv ${{ env.downloadPath }}/wintun/bin/amd64/wintun.dll 'C:\Windows\System32\'
 
@@ -63,10 +64,22 @@ jobs:
       - run: PsExec64 -s -w ${{ github.workspace }} C:\hostedtoolcache\windows\go\${{ steps.go.outputs.go-version }}\x64\bin\go.exe env -w GOMODCACHE=${{ env.cache }}
       - run: PsExec64 -s -w ${{ github.workspace }} C:\hostedtoolcache\windows\go\${{ steps.go.outputs.go-version }}\x64\bin\go.exe env -w GOCACHE=${{ env.modcache }}
       - run: PsExec64 -s -w ${{ github.workspace }} C:\hostedtoolcache\windows\go\${{ steps.go.outputs.go-version }}\x64\bin\go.exe mod tidy
-      - run: echo "files=$(go list ./... | ForEach-Object { $_ } | Where-Object { $_ -notmatch '/management' } | Where-Object { $_ -notmatch '/relay' } | Where-Object { $_ -notmatch '/signal' } | Where-Object { $_ -notmatch '/proxy' } | Where-Object { $_ -notmatch '/combined' })" >> $env:GITHUB_ENV
+      - name: Generate test script
+        # Exclude client/ui: its main.go uses //go:embed all:frontend/dist,
+        # which fails to compile until the frontend has been built. The Wails UI
+        # has no Go-side unit tests, and its release pipeline runs `pnpm build`
+        # before goreleaser.
+        # `go list -e` lets the listing succeed even though the embed fails to
+        # resolve; the Where-Object pipeline then drops the broken package by
+        # path. Without -e, go list aborts with empty stdout.
+        run: |
+          $packages = go list -e ./... | Where-Object { $_ -notmatch '/management' } | Where-Object { $_ -notmatch '/relay' } | Where-Object { $_ -notmatch '/signal' } | Where-Object { $_ -notmatch '/proxy' } | Where-Object { $_ -notmatch '/combined' } | Where-Object { $_ -notmatch '/client/ui' }
+          $goExe = "C:\hostedtoolcache\windows\go\${{ steps.go.outputs.go-version }}\x64\bin\go.exe"
+          $cmd = "$goExe test -tags `"devcert privileged`" -timeout 10m -p 1 $($packages -join ' ') > test-out.txt 2>&1"
+          Set-Content -Path "${{ github.workspace }}\run-tests.cmd" -Value $cmd
 
       - name: test
-        run: PsExec64 -s -w ${{ github.workspace }} cmd.exe /c "C:\hostedtoolcache\windows\go\${{ steps.go.outputs.go-version }}\x64\bin\go.exe test -tags=devcert -timeout 10m -p 1 ${{ env.files }} > test-out.txt 2>&1"
+        run: PsExec64 -s -w ${{ github.workspace }} cmd.exe /c "${{ github.workspace }}\run-tests.cmd"
       - name: test output
         if: ${{ always() }}
         run: Get-Content test-out.txt

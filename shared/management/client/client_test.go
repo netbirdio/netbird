@@ -17,8 +17,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/netbirdio/management-integrations/integrations"
 	ephemeral_manager "github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
+	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator/validator"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
@@ -31,6 +31,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/server/config"
 	mgmt "github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/mock_server"
@@ -88,16 +89,23 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 			gomock.Any(),
 			gomock.Any(),
 		).
-		Return(true, nil).
+		Return(true, context.Background(), nil).
 		AnyTimes()
 
 	peersManger := peers.NewManager(store, permissionsManagerMock)
 	settingsManagerMock := settings.NewMockManager(ctrl)
 	jobManager := job.NewJobManager(nil, store, peersManger)
 
-	ia, _ := integrations.NewIntegratedValidator(context.Background(), peersManger, settingsManagerMock, eventStore)
+	ctx := context.Background()
 
-	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
+	cacheStore, err := nbcache.NewStore(ctx, 100*time.Millisecond, 300*time.Millisecond, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ia, _ := validator.NewIntegratedValidator(ctx, peersManger, settingsManagerMock, eventStore, cacheStore)
+
+	metrics, err := telemetry.NewDefaultAppMetrics(ctx)
 	require.NoError(t, err)
 
 	settingsMockManager := settings.NewMockManager(ctrl)
@@ -116,11 +124,10 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 		Return(&types.ExtraSettings{}, nil).
 		AnyTimes()
 
-	ctx := context.Background()
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := mgmt.NewAccountRequestBuffer(ctx, store)
 	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, mgmt.MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(store, peersManger), config)
-	accountManager, err := mgmt.BuildManager(context.Background(), config, store, networkMapController, jobManager, nil, "", eventStore, nil, false, ia, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManagerMock, false)
+	accountManager, err := mgmt.BuildManager(context.Background(), config, store, networkMapController, jobManager, nil, "", eventStore, nil, false, ia, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManagerMock, false, cacheStore)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +138,7 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mgmtServer, err := nbgrpc.NewServer(config, accountManager, settingsMockManager, jobManager, secretsManager, nil, nil, mgmt.MockIntegratedValidator{}, networkMapController, nil)
+	mgmtServer, err := nbgrpc.NewServer(config, accountManager, settingsMockManager, jobManager, secretsManager, nil, nil, mgmt.MockIntegratedValidator{}, networkMapController, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +196,7 @@ func closeManagementSilently(s *grpc.Server, listener net.Listener) {
 	}
 }
 
-func TestClient_GetServerPublicKey(t *testing.T) {
+func TestClient_HealthCheck(t *testing.T) {
 	testKey, err := wgtypes.GenerateKey()
 	if err != nil {
 		t.Fatal(err)
@@ -203,12 +210,8 @@ func TestClient_GetServerPublicKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	key, err := client.GetServerPublicKey()
-	if err != nil {
-		t.Error("couldn't retrieve management public key")
-	}
-	if key == nil {
-		t.Error("got an empty management public key")
+	if err := client.HealthCheck(); err != nil {
+		t.Errorf("health check failed: %v", err)
 	}
 }
 
@@ -225,12 +228,8 @@ func TestClient_LoginUnregistered_ShouldThrow_401(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	key, err := client.GetServerPublicKey()
-	if err != nil {
-		t.Fatal(err)
-	}
 	sysInfo := system.GetInfo(context.TODO())
-	_, err = client.Login(*key, sysInfo, nil, nil)
+	_, err = client.Login(sysInfo, nil, nil)
 	if err == nil {
 		t.Error("expecting err on unregistered login, got nil")
 	}
@@ -253,12 +252,8 @@ func TestClient_LoginRegistered(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	key, err := client.GetServerPublicKey()
-	if err != nil {
-		t.Error(err)
-	}
 	info := system.GetInfo(context.TODO())
-	resp, err := client.Register(*key, ValidKey, "", info, nil, nil)
+	resp, err := client.Register(ValidKey, "", info, nil, nil)
 	if err != nil {
 		t.Error(err)
 	}
@@ -282,13 +277,8 @@ func TestClient_Sync(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	serverKey, err := client.GetServerPublicKey()
-	if err != nil {
-		t.Error(err)
-	}
-
 	info := system.GetInfo(context.TODO())
-	_, err = client.Register(*serverKey, ValidKey, "", info, nil, nil)
+	_, err = client.Register(ValidKey, "", info, nil, nil)
 	if err != nil {
 		t.Error(err)
 	}
@@ -304,7 +294,7 @@ func TestClient_Sync(t *testing.T) {
 	}
 
 	info = system.GetInfo(context.TODO())
-	_, err = remoteClient.Register(*serverKey, ValidKey, "", info, nil, nil)
+	_, err = remoteClient.Register(ValidKey, "", info, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -332,15 +322,21 @@ func TestClient_Sync(t *testing.T) {
 		if resp.GetNetbirdConfig() == nil {
 			t.Error("expecting non nil NetbirdConfig got nil")
 		}
-		if len(resp.GetRemotePeers()) != 1 {
-			t.Errorf("expecting RemotePeers size %d got %d", 1, len(resp.GetRemotePeers()))
+		// we test network map peers from 0.29.3 and dev builds
+		if len(resp.GetRemotePeers()) != 0 {
+			t.Error("expecting top-level RemotePeers to be empty for v0.29.3+ clients")
+		}
+		networkMap := resp.GetNetworkMap()
+		if len(networkMap.GetRemotePeers()) != 1 {
+			t.Errorf("expecting RemotePeers size %d got %d", 1, len(networkMap.GetRemotePeers()))
 			return
 		}
-		if resp.GetRemotePeersIsEmpty() == true {
+
+		if networkMap.GetRemotePeersIsEmpty() {
 			t.Error("expecting RemotePeers property to be false, got true")
 		}
-		if resp.GetRemotePeers()[0].GetWgPubKey() != remoteKey.PublicKey().String() {
-			t.Errorf("expecting RemotePeer public key %s got %s", remoteKey.PublicKey().String(), resp.GetRemotePeers()[0].GetWgPubKey())
+		if networkMap.GetRemotePeers()[0].GetWgPubKey() != remoteKey.PublicKey().String() {
+			t.Errorf("expecting RemotePeer public key %s got %s", remoteKey.PublicKey().String(), networkMap.GetRemotePeers()[0].GetWgPubKey())
 		}
 	case <-time.After(3 * time.Second):
 		t.Error("timeout waiting for test to finish")
@@ -362,11 +358,6 @@ func Test_SystemMetaDataFromClient(t *testing.T) {
 	testClient, err := NewClient(ctx, serverAddr, testKey, false)
 	if err != nil {
 		t.Fatalf("error while creating testClient: %v", err)
-	}
-
-	key, err := testClient.GetServerPublicKey()
-	if err != nil {
-		t.Fatalf("error while getting server public key from testclient, %v", err)
 	}
 
 	var actualMeta *mgmtProto.PeerSystemMeta
@@ -405,7 +396,7 @@ func Test_SystemMetaDataFromClient(t *testing.T) {
 	}
 
 	info := system.GetInfo(context.TODO())
-	_, err = testClient.Register(*key, ValidKey, "", info, nil, nil)
+	_, err = testClient.Register(ValidKey, "", info, nil, nil)
 	if err != nil {
 		t.Errorf("error while trying to register client: %v", err)
 	}
@@ -505,7 +496,7 @@ func Test_GetDeviceAuthorizationFlow(t *testing.T) {
 	}
 
 	mgmtMockServer.GetDeviceAuthorizationFlowFunc = func(ctx context.Context, req *mgmtProto.EncryptedMessage) (*mgmtProto.EncryptedMessage, error) {
-		encryptedResp, err := encryption.EncryptMessage(serverKey, client.key, expectedFlowInfo)
+		encryptedResp, err := encryption.EncryptMessage(client.key.PublicKey(), serverKey, expectedFlowInfo)
 		if err != nil {
 			return nil, err
 		}
@@ -517,7 +508,7 @@ func Test_GetDeviceAuthorizationFlow(t *testing.T) {
 		}, nil
 	}
 
-	flowInfo, err := client.GetDeviceAuthorizationFlow(serverKey)
+	flowInfo, err := client.GetDeviceAuthorizationFlow()
 	if err != nil {
 		t.Error("error while retrieving device auth flow information")
 	}
@@ -551,7 +542,7 @@ func Test_GetPKCEAuthorizationFlow(t *testing.T) {
 	}
 
 	mgmtMockServer.GetPKCEAuthorizationFlowFunc = func(ctx context.Context, req *mgmtProto.EncryptedMessage) (*mgmtProto.EncryptedMessage, error) {
-		encryptedResp, err := encryption.EncryptMessage(serverKey, client.key, expectedFlowInfo)
+		encryptedResp, err := encryption.EncryptMessage(client.key.PublicKey(), serverKey, expectedFlowInfo)
 		if err != nil {
 			return nil, err
 		}
@@ -563,11 +554,11 @@ func Test_GetPKCEAuthorizationFlow(t *testing.T) {
 		}, nil
 	}
 
-	flowInfo, err := client.GetPKCEAuthorizationFlow(serverKey)
+	flowInfo, err := client.GetPKCEAuthorizationFlow()
 	if err != nil {
 		t.Error("error while retrieving pkce auth flow information")
 	}
 
 	assert.Equal(t, expectedFlowInfo.ProviderConfig.ClientID, flowInfo.ProviderConfig.ClientID, "provider configured client ID should match")
-	assert.Equal(t, expectedFlowInfo.ProviderConfig.ClientSecret, flowInfo.ProviderConfig.ClientSecret, "provider configured client secret should match")
+	assert.Equal(t, expectedFlowInfo.ProviderConfig.ClientSecret, flowInfo.ProviderConfig.ClientSecret, "provider configured client secret should match") //nolint:staticcheck
 }

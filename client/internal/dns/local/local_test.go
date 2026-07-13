@@ -30,6 +30,21 @@ func (m *mockResolver) LookupNetIP(ctx context.Context, network, host string) ([
 	return nil, nil
 }
 
+// mockPeerConnectivity returns canned (known, connected) results per IP.
+// Used by the disconnected-peer filter tests below. IPs not in the map
+// are reported as unknown so the filter leaves them alone.
+type mockPeerConnectivity struct {
+	byIP map[string]struct{ known, connected bool }
+}
+
+func (m mockPeerConnectivity) IsConnectedByIP(ip string) (known, connected bool) {
+	v, ok := m.byIP[ip]
+	if !ok {
+		return false, false
+	}
+	return v.known, v.connected
+}
+
 func TestLocalResolver_ServeDNS(t *testing.T) {
 	recordA := nbdns.SimpleRecord{
 		Name:  "peera.netbird.cloud.",
@@ -1263,9 +1278,9 @@ func TestLocalResolver_AuthoritativeFlag(t *testing.T) {
 	})
 }
 
-// TestLocalResolver_Stop tests cleanup on Stop
+// TestLocalResolver_Stop tests cleanup on GracefullyStop
 func TestLocalResolver_Stop(t *testing.T) {
-	t.Run("Stop clears all state", func(t *testing.T) {
+	t.Run("GracefullyStop clears all state", func(t *testing.T) {
 		resolver := NewResolver()
 		resolver.Update([]nbdns.CustomZone{{
 			Domain: "example.com.",
@@ -1285,7 +1300,7 @@ func TestLocalResolver_Stop(t *testing.T) {
 		assert.False(t, resolver.isInManagedZone("host.example.com."))
 	})
 
-	t.Run("Stop is safe to call multiple times", func(t *testing.T) {
+	t.Run("GracefullyStop is safe to call multiple times", func(t *testing.T) {
 		resolver := NewResolver()
 		resolver.Update([]nbdns.CustomZone{{
 			Domain: "example.com.",
@@ -1299,7 +1314,7 @@ func TestLocalResolver_Stop(t *testing.T) {
 		resolver.Stop()
 	})
 
-	t.Run("Stop cancels in-flight external resolution", func(t *testing.T) {
+	t.Run("GracefullyStop cancels in-flight external resolution", func(t *testing.T) {
 		resolver := NewResolver()
 
 		lookupStarted := make(chan struct{})
@@ -2650,5 +2665,127 @@ func BenchmarkIsInManagedZone_ManyZones(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		resolver.isInManagedZone(qname)
+	}
+}
+
+// TestLocalResolver_FilterDisconnectedPeerAnswers verifies the
+// connectivity-aware filtering layered on top of lookupRecords:
+// when an A record's IP belongs to a known peer that's disconnected,
+// the record is dropped from the answer. Records for unknown IPs pass
+// through. If filtering would empty the answer entirely and at least
+// one record was dropped, the original list is restored (escape hatch
+// for the "all proxies offline" case).
+func TestLocalResolver_FilterDisconnectedPeerAnswers(t *testing.T) {
+	zone := "svc.cluster.netbird."
+	connectedRec := nbdns.SimpleRecord{
+		Name:  zone,
+		Type:  int(dns.TypeA),
+		Class: nbdns.DefaultClass,
+		TTL:   5,
+		RData: "100.64.0.10",
+	}
+	disconnectedRec := nbdns.SimpleRecord{
+		Name:  zone,
+		Type:  int(dns.TypeA),
+		Class: nbdns.DefaultClass,
+		TTL:   5,
+		RData: "100.64.0.11",
+	}
+	unknownRec := nbdns.SimpleRecord{
+		Name:  zone,
+		Type:  int(dns.TypeA),
+		Class: nbdns.DefaultClass,
+		TTL:   5,
+		RData: "203.0.113.5",
+	}
+
+	type ipState struct{ known, connected bool }
+	tests := []struct {
+		name        string
+		records     []nbdns.SimpleRecord
+		connByIP    map[string]ipState
+		wantInOrder []string
+	}{
+		{
+			name:    "drops disconnected peer, keeps connected",
+			records: []nbdns.SimpleRecord{connectedRec, disconnectedRec},
+			connByIP: map[string]ipState{
+				"100.64.0.10": {known: true, connected: true},
+				"100.64.0.11": {known: true, connected: false},
+			},
+			wantInOrder: []string{"100.64.0.10"},
+		},
+		{
+			name:    "unknown IPs pass through untouched",
+			records: []nbdns.SimpleRecord{unknownRec, disconnectedRec},
+			connByIP: map[string]ipState{
+				"100.64.0.11": {known: true, connected: false},
+			},
+			wantInOrder: []string{"203.0.113.5"},
+		},
+		{
+			name:    "all disconnected falls back to original list",
+			records: []nbdns.SimpleRecord{disconnectedRec, connectedRec},
+			connByIP: map[string]ipState{
+				"100.64.0.10": {known: true, connected: false},
+				"100.64.0.11": {known: true, connected: false},
+			},
+			wantInOrder: []string{"100.64.0.11", "100.64.0.10"},
+		},
+		{
+			name:        "no checker wired returns all records",
+			records:     []nbdns.SimpleRecord{connectedRec, disconnectedRec},
+			connByIP:    nil,
+			wantInOrder: []string{"100.64.0.10", "100.64.0.11"},
+		},
+		{
+			// A single answer is never filtered: dropping it would only
+			// trigger the empty-answer escape hatch, so the fast path
+			// returns it untouched.
+			name:    "single disconnected answer passes through",
+			records: []nbdns.SimpleRecord{disconnectedRec},
+			connByIP: map[string]ipState{
+				"100.64.0.11": {known: true, connected: false},
+			},
+			wantInOrder: []string{"100.64.0.11"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			resolver := NewResolver()
+			if tc.connByIP != nil {
+				cm := mockPeerConnectivity{byIP: make(map[string]struct{ known, connected bool }, len(tc.connByIP))}
+				for ip, st := range tc.connByIP {
+					cm.byIP[ip] = struct{ known, connected bool }{st.known, st.connected}
+				}
+				resolver.SetPeerConnectivity(cm)
+			}
+			resolver.Update([]nbdns.CustomZone{{
+				Domain:           strings.TrimSuffix(zone, "."),
+				Records:          tc.records,
+				NonAuthoritative: true,
+			}})
+
+			var got *dns.Msg
+			writer := &test.MockResponseWriter{
+				WriteMsgFunc: func(m *dns.Msg) error {
+					got = m
+					return nil
+				},
+			}
+			req := new(dns.Msg).SetQuestion(zone, dns.TypeA)
+			resolver.ServeDNS(writer, req)
+
+			require.NotNil(t, got, "resolver must produce a response")
+			require.Len(t, got.Answer, len(tc.wantInOrder),
+				"answer count must match expected: %v", tc.wantInOrder)
+			for i, want := range tc.wantInOrder {
+				a, ok := got.Answer[i].(*dns.A)
+				require.True(t, ok, "answer[%d] must be an A record", i)
+				assert.Equal(t, want, a.A.String(),
+					"answer[%d] expected %s got %s", i, want, a.A.String())
+			}
+		})
 	}
 }

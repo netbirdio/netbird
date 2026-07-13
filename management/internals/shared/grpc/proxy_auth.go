@@ -107,7 +107,7 @@ func NewProxyAuthInterceptors(tokenStore proxyTokenStore) (grpc.UnaryServerInter
 }
 
 func (i *proxyAuthInterceptor) validateProxyToken(ctx context.Context) (*types.ProxyAccessToken, error) {
-	clientIP := peerIPFromContext(ctx)
+	clientIP := PeerIPFromContext(ctx)
 
 	if clientIP != "" && i.failureLimiter.isLimited(clientIP) {
 		return nil, status.Errorf(codes.ResourceExhausted, "too many failed authentication attempts")
@@ -152,9 +152,6 @@ func (i *proxyAuthInterceptor) doValidateProxyToken(ctx context.Context) (*types
 	if err != nil {
 		return nil, status.Errorf(codes.Unauthenticated, "invalid token")
 	}
-
-	// TODO: Enforce AccountID scope for "bring your own proxy" feature.
-	// Currently tokens are management-wide; AccountID field is reserved for future use.
 
 	if !token.IsValid() {
 		return nil, status.Errorf(codes.Unauthenticated, "token expired or revoked")

@@ -124,15 +124,18 @@ func getSystemdLogs(serviceName string) (string, error) {
 // addFirewallRules collects and adds firewall rules to the archive
 func (g *BundleGenerator) addFirewallRules() error {
 	log.Info("Collecting firewall rules")
-	iptablesRules, err := collectIPTablesRules()
+	g.addIPTablesRulesToBundle("iptables-save", "iptables", "iptables.txt")
+	g.addIPTablesRulesToBundle("ip6tables-save", "ip6tables", "ip6tables.txt")
+
+	ipsetOutput, err := collectIPSets()
 	if err != nil {
-		log.Warnf("Failed to collect iptables rules: %v", err)
+		log.Warnf("Failed to collect ipset information: %v", err)
 	} else {
 		if g.anonymize {
-			iptablesRules = g.anonymizer.AnonymizeString(iptablesRules)
+			ipsetOutput = g.anonymizer.AnonymizeString(ipsetOutput)
 		}
-		if err := g.addFileToZip(strings.NewReader(iptablesRules), "iptables.txt"); err != nil {
-			log.Warnf("Failed to add iptables rules to bundle: %v", err)
+		if err := g.addFileToZip(strings.NewReader(ipsetOutput), "ipset.txt"); err != nil {
+			log.Warnf("Failed to add ipset output to bundle: %v", err)
 		}
 	}
 
@@ -151,44 +154,65 @@ func (g *BundleGenerator) addFirewallRules() error {
 	return nil
 }
 
-// collectIPTablesRules collects rules using both iptables-save and verbose listing
-func collectIPTablesRules() (string, error) {
-	var builder strings.Builder
-
-	saveOutput, err := collectIPTablesSave()
+// addIPTablesRulesToBundle collects iptables/ip6tables rules and writes them to the bundle.
+func (g *BundleGenerator) addIPTablesRulesToBundle(saveBin, listBin, filename string) {
+	rules, err := collectIPTablesRules(saveBin, listBin)
 	if err != nil {
-		log.Warnf("Failed to collect iptables rules using iptables-save: %v", err)
-	} else {
-		builder.WriteString("=== iptables-save output ===\n")
+		log.Warnf("Failed to collect %s rules: %v", listBin, err)
+		return
+	}
+	if g.anonymize {
+		rules = g.anonymizer.AnonymizeString(rules)
+	}
+	if err := g.addFileToZip(strings.NewReader(rules), filename); err != nil {
+		log.Warnf("Failed to add %s rules to bundle: %v", listBin, err)
+	}
+}
+
+// collectIPTablesRules collects rules using both <saveBin> and verbose listing via <listBin>.
+// Returns an error when neither command produced any output (e.g. the binary is missing),
+// so the caller can skip writing an empty file.
+func collectIPTablesRules(saveBin, listBin string) (string, error) {
+	var builder strings.Builder
+	var collected bool
+	var firstErr error
+
+	saveOutput, err := runCommand(saveBin)
+	switch {
+	case err != nil:
+		firstErr = err
+		log.Warnf("Failed to collect %s output: %v", saveBin, err)
+	case strings.TrimSpace(saveOutput) == "":
+		log.Debugf("%s produced no output, skipping", saveBin)
+	default:
+		builder.WriteString(fmt.Sprintf("=== %s output ===\n", saveBin))
 		builder.WriteString(saveOutput)
 		builder.WriteString("\n")
+		collected = true
 	}
 
-	ipsetOutput, err := collectIPSets()
-	if err != nil {
-		log.Warnf("Failed to collect ipset information: %v", err)
-	} else {
-		builder.WriteString("=== ipset list output ===\n")
-		builder.WriteString(ipsetOutput)
-		builder.WriteString("\n")
-	}
-
-	builder.WriteString("=== iptables -v -n -L output ===\n")
+	listHeader := fmt.Sprintf("=== %s -v -n -L output ===\n", listBin)
+	builder.WriteString(listHeader)
 
 	tables := []string{"filter", "nat", "mangle", "raw", "security"}
-
 	for _, table := range tables {
-		builder.WriteString(fmt.Sprintf("*%s\n", table))
-
-		stats, err := getTableStatistics(table)
+		stats, err := runCommand(listBin, "-v", "-n", "-L", "-t", table)
 		if err != nil {
-			log.Warnf("Failed to get statistics for table %s: %v", table, err)
+			if firstErr == nil {
+				firstErr = err
+			}
+			log.Warnf("Failed to get %s statistics for table %s: %v", listBin, table, err)
 			continue
 		}
+		builder.WriteString(fmt.Sprintf("*%s\n", table))
 		builder.WriteString(stats)
 		builder.WriteString("\n")
+		collected = true
 	}
 
+	if !collected {
+		return "", fmt.Errorf("collect %s rules: %w", listBin, firstErr)
+	}
 	return builder.String(), nil
 }
 
@@ -214,34 +238,15 @@ func collectIPSets() (string, error) {
 	return ipsets, nil
 }
 
-// collectIPTablesSave uses iptables-save to get rule definitions
-func collectIPTablesSave() (string, error) {
-	cmd := exec.Command("iptables-save")
+// runCommand executes a command and returns its stdout, wrapping stderr in the error on failure.
+func runCommand(name string, args ...string) (string, error) {
+	cmd := exec.Command(name, args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("execute iptables-save: %w (stderr: %s)", err, stderr.String())
-	}
-
-	rules := stdout.String()
-	if strings.TrimSpace(rules) == "" {
-		return "", fmt.Errorf("no iptables rules found")
-	}
-
-	return rules, nil
-}
-
-// getTableStatistics gets verbose statistics for an entire table using iptables command
-func getTableStatistics(table string) (string, error) {
-	cmd := exec.Command("iptables", "-v", "-n", "-L", "-t", table)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("execute iptables -v -n -L: %w (stderr: %s)", err, stderr.String())
+		return "", fmt.Errorf("execute %s: %w (stderr: %s)", name, err, stderr.String())
 	}
 
 	return stdout.String(), nil
@@ -803,4 +808,92 @@ func formatSetKeyType(keyType nftables.SetDatatype) string {
 	default:
 		return fmt.Sprintf("type-%v", keyType)
 	}
+}
+
+// addSysctls collects forwarding and netbird-managed sysctl values and writes them to the bundle.
+func (g *BundleGenerator) addSysctls() error {
+	log.Info("Collecting sysctls")
+	content := collectSysctls()
+	if g.anonymize {
+		content = g.anonymizer.AnonymizeString(content)
+	}
+	if err := g.addFileToZip(strings.NewReader(content), "sysctls.txt"); err != nil {
+		return fmt.Errorf("add sysctls to bundle: %w", err)
+	}
+	return nil
+}
+
+// collectSysctls reads every sysctl that the netbird client may modify, plus
+// global IPv4/IPv6 forwarding, and returns a formatted dump grouped by topic.
+// Per-interface values are enumerated by listing /proc/sys/net/ipv{4,6}/conf.
+func collectSysctls() string {
+	var builder strings.Builder
+
+	writeSysctlGroup(&builder, "forwarding", []string{
+		"net.ipv4.ip_forward",
+		"net.ipv6.conf.all.forwarding",
+		"net.ipv6.conf.default.forwarding",
+	})
+	writeSysctlGroup(&builder, "ipv4 per-interface forwarding", listInterfaceSysctls("ipv4", "forwarding"))
+	writeSysctlGroup(&builder, "ipv6 per-interface forwarding", listInterfaceSysctls("ipv6", "forwarding"))
+	writeSysctlGroup(&builder, "rp_filter", append(
+		[]string{"net.ipv4.conf.all.rp_filter", "net.ipv4.conf.default.rp_filter"},
+		listInterfaceSysctls("ipv4", "rp_filter")...,
+	))
+	writeSysctlGroup(&builder, "src_valid_mark", append(
+		[]string{"net.ipv4.conf.all.src_valid_mark", "net.ipv4.conf.default.src_valid_mark"},
+		listInterfaceSysctls("ipv4", "src_valid_mark")...,
+	))
+	writeSysctlGroup(&builder, "conntrack", []string{
+		"net.netfilter.nf_conntrack_acct",
+		"net.netfilter.nf_conntrack_tcp_loose",
+	})
+	writeSysctlGroup(&builder, "tcp", []string{
+		"net.ipv4.tcp_tw_reuse",
+	})
+
+	return builder.String()
+}
+
+func writeSysctlGroup(builder *strings.Builder, title string, keys []string) {
+	builder.WriteString(fmt.Sprintf("=== %s ===\n", title))
+	for _, key := range keys {
+		value, err := readSysctl(key)
+		if err != nil {
+			builder.WriteString(fmt.Sprintf("%s = <error: %v>\n", key, err))
+			continue
+		}
+		builder.WriteString(fmt.Sprintf("%s = %s\n", key, value))
+	}
+	builder.WriteString("\n")
+}
+
+// listInterfaceSysctls returns net.ipvX.conf.<iface>.<leaf> keys for every
+// interface present in /proc/sys/net/ipvX/conf, skipping "all" and "default"
+// (callers add those explicitly so they appear first).
+func listInterfaceSysctls(family, leaf string) []string {
+	dir := fmt.Sprintf("/proc/sys/net/%s/conf", family)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var keys []string
+	for _, e := range entries {
+		name := e.Name()
+		if name == "all" || name == "default" {
+			continue
+		}
+		keys = append(keys, fmt.Sprintf("net.%s.conf.%s.%s", family, name, leaf))
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func readSysctl(key string) (string, error) {
+	path := fmt.Sprintf("/proc/sys/%s", strings.ReplaceAll(key, ".", "/"))
+	value, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(value)), nil
 }

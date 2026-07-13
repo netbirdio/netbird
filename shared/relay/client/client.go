@@ -2,15 +2,21 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
+	"net/netip"
+	"net/url"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 
 	auth "github.com/netbirdio/netbird/shared/relay/auth/hmac"
 	"github.com/netbirdio/netbird/shared/relay/client/dialer"
+	netErr "github.com/netbirdio/netbird/shared/relay/client/dialer/net"
 	"github.com/netbirdio/netbird/shared/relay/healthcheck"
 	"github.com/netbirdio/netbird/shared/relay/messages"
 )
@@ -139,6 +145,11 @@ func (cc *connContainer) close() {
 	}
 }
 
+// transportConn is implemented by relay connections that know their transport.
+type transportConn interface {
+	Protocol() string
+}
+
 // Client is a client for the relay server. It is responsible for establishing a connection to the relay server and
 // managing connections to other peers. All exported functions are safe to call concurrently. After close the connection,
 // the client can be reused by calling Connect again. When the client is closed, all connections are closed too.
@@ -146,6 +157,7 @@ func (cc *connContainer) close() {
 type Client struct {
 	log            *log.Entry
 	connectionURL  string
+	serverIP       netip.Addr
 	authTokenStore *auth.TokenStore
 	hashedID       messages.PeerID
 
@@ -167,16 +179,50 @@ type Client struct {
 	stateSubscription *PeersStateSubscription
 
 	mtu uint16
+
+	// transportFallback, when set, records datagram-too-large failures so a
+	// datagram-sized transport is avoided on subsequent connects. Shared via
+	// the manager.
+	transportFallback *transportFallback
+	// datagramFallbackTriggered guards a single fallback per connection so a
+	// burst of oversized datagrams triggers one reconnect, not many.
+	datagramFallbackTriggered atomic.Bool
+
+	// transport is the negotiated relay transport of the
+	// current connection, guarded by mu.
+	transport string
+}
+
+// Transport returns the negotiated relay transport of the current connection,
+// or an empty string when not connected.
+func (c *Client) Transport() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.transport
+}
+
+// SetTransportFallback wires the shared datagram-transport fallback tracker.
+func (c *Client) SetTransportFallback(tf *transportFallback) {
+	c.transportFallback = tf
 }
 
 // NewClient creates a new client for the relay server. The client is not connected to the server until the Connect
+// is called.
 func NewClient(serverURL string, authTokenStore *auth.TokenStore, peerID string, mtu uint16) *Client {
+	return NewClientWithServerIP(serverURL, netip.Addr{}, authTokenStore, peerID, mtu)
+}
+
+// NewClientWithServerIP creates a new client for the relay server with a known server IP. serverIP, when valid, is
+// dialed directly first; the FQDN is only attempted if the IP-based dial fails. TLS verification still uses the
+// FQDN from serverURL via SNI.
+func NewClientWithServerIP(serverURL string, serverIP netip.Addr, authTokenStore *auth.TokenStore, peerID string, mtu uint16) *Client {
 	hashedID := messages.HashID(peerID)
 	relayLog := log.WithFields(log.Fields{"relay": serverURL})
 
 	c := &Client{
 		log:            relayLog,
 		connectionURL:  serverURL,
+		serverIP:       serverIP,
 		authTokenStore: authTokenStore,
 		hashedID:       hashedID,
 		mtu:            mtu,
@@ -304,6 +350,23 @@ func (c *Client) ServerInstanceURL() (string, error) {
 	return c.instanceURL.String(), nil
 }
 
+// ConnectedIP returns the IP address of the live relay-server connection,
+// extracted from the underlying socket's RemoteAddr. Zero value if not
+// connected or if the address is not an IP literal.
+func (c *Client) ConnectedIP() netip.Addr {
+	c.mu.Lock()
+	conn := c.relayConn
+	c.mu.Unlock()
+	if conn == nil {
+		return netip.Addr{}
+	}
+	addr := conn.RemoteAddr()
+	if addr == nil {
+		return netip.Addr{}
+	}
+	return extractIPLiteral(addr.String())
+}
+
 // SetOnDisconnectListener sets a function that will be called when the connection to the relay server is closed.
 func (c *Client) SetOnDisconnectListener(fn func(string)) {
 	c.listenerMutex.Lock()
@@ -330,14 +393,35 @@ func (c *Client) Close() error {
 }
 
 func (c *Client) connect(ctx context.Context) (*RelayAddr, error) {
-	dialers := c.getDialers()
+	mode := transportModeFromEnv()
+	dialers := c.getDialers(mode)
 
-	rd := dialer.NewRaceDial(c.log, dialer.DefaultConnectionTimeout, c.connectionURL, dialers...)
-	conn, err := rd.Dial()
-	if err != nil {
-		return nil, err
+	var conn net.Conn
+	if c.serverIP.IsValid() {
+		var err error
+		conn, err = c.dialRaceDirect(ctx, mode, dialers)
+		if err != nil {
+			c.log.Infof("dial via server IP %s failed, falling back to FQDN: %v", c.serverIP, err)
+			conn = nil
+		}
+	}
+
+	if conn == nil {
+		rd := dialer.NewRaceDial(c.log, dialer.DefaultConnectionTimeout, c.connectionURL, dialers...)
+		if mode.sequential() {
+			rd.WithSequential()
+		}
+		var err error
+		conn, err = rd.Dial(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("dial via FQDN: %w", err)
+		}
 	}
 	c.relayConn = conn
+	c.datagramFallbackTriggered.Store(false)
+	if tc, ok := conn.(transportConn); ok {
+		c.transport = tc.Protocol()
+	}
 
 	instanceURL, err := c.handShake(ctx)
 	if err != nil {
@@ -349,6 +433,55 @@ func (c *Client) connect(ctx context.Context) (*RelayAddr, error) {
 	}
 
 	return instanceURL, nil
+}
+
+// dialRaceDirect dials c.serverIP, preserving the original FQDN as the TLS ServerName for SNI.
+func (c *Client) dialRaceDirect(ctx context.Context, mode TransportMode, dialers []dialer.DialeFn) (net.Conn, error) {
+	directURL, serverName, err := substituteHost(c.connectionURL, c.serverIP)
+	if err != nil {
+		return nil, fmt.Errorf("substitute host: %w", err)
+	}
+
+	c.log.Debugf("dialing via server IP %s (SNI=%s)", c.serverIP, serverName)
+
+	rd := dialer.NewRaceDial(c.log, dialer.DefaultConnectionTimeout, directURL, dialers...).
+		WithServerName(serverName)
+	if mode.sequential() {
+		rd.WithSequential()
+	}
+	return rd.Dial(ctx)
+}
+
+// substituteHost replaces the host portion of a rel/rels URL with ip,
+// preserving the scheme and port. Returns the rewritten URL and the
+// original host to use as the TLS ServerName, or empty if the original
+// host is itself an IP literal (SNI requires a DNS name).
+func substituteHost(serverURL string, ip netip.Addr) (string, string, error) {
+	u, err := url.Parse(serverURL)
+	if err != nil {
+		return "", "", fmt.Errorf("parse %q: %w", serverURL, err)
+	}
+	if u.Scheme == "" || u.Host == "" {
+		return "", "", fmt.Errorf("invalid relay URL %q", serverURL)
+	}
+	if !ip.IsValid() {
+		return "", "", errors.New("invalid server IP")
+	}
+	origHost := u.Hostname()
+	if _, err := netip.ParseAddr(origHost); err == nil {
+		origHost = ""
+	}
+	ip = ip.Unmap()
+	newHost := ip.String()
+	if ip.Is6() {
+		newHost = "[" + newHost + "]"
+	}
+	if port := u.Port(); port != "" {
+		u.Host = newHost + ":" + port
+	} else {
+		u.Host = newHost
+	}
+	return u.String(), origHost, nil
 }
 
 func (c *Client) handShake(ctx context.Context) (*RelayAddr, error) {
@@ -541,11 +674,51 @@ func (c *Client) writeTo(containerRef *connContainer, dstID messages.PeerID, pay
 	}
 
 	// the write always return with 0 length because the underling does not support the size feedback.
-	_, err = c.relayConn.Write(msg)
+	conn := c.relayConn
+	_, err = conn.Write(msg)
 	if err != nil {
-		c.log.Errorf("failed to write transport message: %s", err)
+		if errors.Is(err, netErr.ErrDatagramTooLarge) {
+			c.onDatagramTooLarge(conn, err)
+		} else {
+			c.log.Errorf("failed to write transport message: %s", err)
+		}
 	}
 	return len(payload), err
+}
+
+// onDatagramTooLarge reacts to a datagram rejected as too large for the path.
+// When a non-datagram transport is available, it records a fallback for this
+// server and closes the connection so the reconnect avoids datagram-sized
+// transports. A single fallback is triggered per connection regardless of how
+// many oversized datagrams arrive. cause carries the datagram size and budget.
+func (c *Client) onDatagramTooLarge(conn net.Conn, cause error) {
+	// Handle one oversized datagram per connection; a burst triggers a single
+	// fallback (and a single log line), not many.
+	if !c.datagramFallbackTriggered.CompareAndSwap(false, true) {
+		return
+	}
+
+	// If the selected mode offers no non-datagram transport (e.g. pinned to a
+	// datagram-sized transport), reconnecting would just re-fail, so leave the
+	// connection up rather than loop.
+	if len(nonDatagramSized(c.baseDialers(transportModeFromEnv()))) == 0 {
+		c.log.Warnf("%s, but no non-datagram transport is available, not falling back", cause)
+		return
+	}
+
+	// Without the shared tracker a reconnect would just select the same
+	// transport again and re-fail, so leave the connection up rather than loop.
+	if c.transportFallback == nil {
+		c.log.Debugf("%s, but no transport fallback configured, leaving connection up", cause)
+		return
+	}
+
+	window := c.transportFallback.recordFailure(c.connectionURL)
+	c.log.Warnf("%s, avoiding datagram-sized transport for %s", cause, window)
+
+	if err := conn.Close(); err != nil {
+		c.log.Debugf("close relay connection for transport fallback: %s", err)
+	}
 }
 
 func (c *Client) listenForStopEvents(ctx context.Context, hc *healthcheck.Receiver, conn net.Conn, internalStopFlag *internalStopFlag) {
@@ -639,6 +812,7 @@ func (c *Client) close(gracefullyExit bool) error {
 		return nil
 	}
 	c.serviceIsRunning = false
+	c.transport = ""
 
 	c.muInstanceURL.Lock()
 	c.instanceURL = nil
@@ -715,4 +889,22 @@ func (c *Client) handlePeersWentOfflineMsg(buf []byte) {
 		return
 	}
 	c.stateSubscription.OnPeersWentOffline(peersID)
+}
+
+// extractIPLiteral returns the IP from address forms produced by the relay
+// dialers (URL or host:port). Zero value if the host is not an IP.
+func extractIPLiteral(s string) netip.Addr {
+	if u, err := url.Parse(s); err == nil && u.Host != "" {
+		s = u.Host
+	}
+	host, _, err := net.SplitHostPort(s)
+	if err != nil {
+		host = s
+	}
+	host = strings.Trim(host, "[]")
+	ip, err := netip.ParseAddr(host)
+	if err != nil {
+		return netip.Addr{}
+	}
+	return ip.Unmap()
 }

@@ -67,6 +67,13 @@ func (w *Watcher) GetCertificate(_ *tls.ClientHelloInfo) (*tls.Certificate, erro
 	return w.cert, nil
 }
 
+// Leaf returns the parsed leaf certificate, or nil if not yet loaded.
+func (w *Watcher) Leaf() *x509.Certificate {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.leaf
+}
+
 // Watch starts watching for certificate file changes. It blocks until
 // ctx is cancelled. It uses fsnotify for immediate detection and falls
 // back to polling if fsnotify is unavailable (e.g. on NFS).

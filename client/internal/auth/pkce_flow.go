@@ -188,6 +188,8 @@ func (p *PKCEAuthorizationFlow) WaitToken(ctx context.Context, info AuthFlowInfo
 	waitCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	log.Infof("pkce flow: waiting for authorization callback on %s, timeout %s", p.oAuthConfig.RedirectURL, timeout)
+
 	tokenChan := make(chan *oauth2.Token, 1)
 	errChan := make(chan error, 1)
 
@@ -221,6 +223,7 @@ func (p *PKCEAuthorizationFlow) WaitToken(ctx context.Context, info AuthFlowInfo
 func (p *PKCEAuthorizationFlow) startServer(server *http.Server, tokenChan chan<- *oauth2.Token, errChan chan<- error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
+		log.Infof("pkce flow: received authorization callback from IdP")
 		cert := p.providerConfig.ClientCertPair
 		if cert != nil {
 			tr := &http.Transport{
@@ -271,11 +274,18 @@ func (p *PKCEAuthorizationFlow) handleRequest(req *http.Request) (*oauth2.Token,
 		return nil, fmt.Errorf("authentication failed: missing code")
 	}
 
-	return p.oAuthConfig.Exchange(
+	exchangeStart := time.Now()
+	token, err := p.oAuthConfig.Exchange(
 		req.Context(),
 		code,
 		oauth2.SetAuthURLParam("code_verifier", p.codeVerifier),
 	)
+	if err != nil {
+		return nil, err
+	}
+
+	log.Infof("pkce flow: authorization code exchanged for token in %s", time.Since(exchangeStart).Round(time.Millisecond))
+	return token, nil
 }
 
 func (p *PKCEAuthorizationFlow) parseOAuthToken(token *oauth2.Token) (TokenInfo, error) {
@@ -360,7 +370,13 @@ func isRedirectURLPortUsed(redirectURL string, excludedRanges []excludedPortRang
 		return true
 	}
 
-	addr := fmt.Sprintf(":%s", port)
+	// FreeBSD 15 disables connecting to INADDR_ANY (0.0.0.0) as a localhost
+	// alias by default, ensure explicit ip for localhost.
+	host := parsedURL.Hostname()
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	addr := net.JoinHostPort(host, port)
 	conn, err := net.DialTimeout("tcp", addr, 3*time.Second)
 	if err != nil {
 		return false

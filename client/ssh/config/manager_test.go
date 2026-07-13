@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -28,12 +29,12 @@ func TestManager_SetupSSHClientConfig(t *testing.T) {
 	peers := []PeerSSHInfo{
 		{
 			Hostname: "peer1",
-			IP:       "100.125.1.1",
+			IP:       netip.MustParseAddr("100.125.1.1"),
 			FQDN:     "peer1.nb.internal",
 		},
 		{
 			Hostname: "peer2",
-			IP:       "100.125.1.2",
+			IP:       netip.MustParseAddr("100.125.1.2"),
 			FQDN:     "peer2.nb.internal",
 		},
 	}
@@ -101,7 +102,7 @@ func TestManager_PeerLimit(t *testing.T) {
 	for i := 0; i < MaxPeersForSSHConfig+10; i++ {
 		peers = append(peers, PeerSSHInfo{
 			Hostname: fmt.Sprintf("peer%d", i),
-			IP:       fmt.Sprintf("100.125.1.%d", i%254+1),
+			IP:       netip.MustParseAddr(fmt.Sprintf("100.125.1.%d", i%254+1)),
 			FQDN:     fmt.Sprintf("peer%d.nb.internal", i),
 		})
 	}
@@ -114,6 +115,37 @@ func TestManager_PeerLimit(t *testing.T) {
 	configPath := filepath.Join(manager.sshConfigDir, manager.sshConfigFile)
 	_, err = os.Stat(configPath)
 	assert.True(t, os.IsNotExist(err), "SSH config should not be created with too many peers")
+}
+
+func TestManager_MatchHostFormat(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "netbird-ssh-config-test")
+	require.NoError(t, err)
+	defer func() { assert.NoError(t, os.RemoveAll(tempDir)) }()
+
+	manager := &Manager{
+		sshConfigDir:  filepath.Join(tempDir, "ssh_config.d"),
+		sshConfigFile: "99-netbird.conf",
+	}
+
+	peers := []PeerSSHInfo{
+		{Hostname: "peer1", IP: netip.MustParseAddr("100.125.1.1"), FQDN: "peer1.nb.internal"},
+		{Hostname: "peer2", IP: netip.MustParseAddr("100.125.1.2"), FQDN: "peer2.nb.internal"},
+	}
+
+	err = manager.SetupSSHClientConfig(peers)
+	require.NoError(t, err)
+
+	configPath := filepath.Join(manager.sshConfigDir, manager.sshConfigFile)
+	content, err := os.ReadFile(configPath)
+	require.NoError(t, err)
+	configStr := string(content)
+
+	// Must use "Match host" with comma-separated patterns, not a bare "Host" directive.
+	// A bare "Host" followed by "Match exec" is incorrect per ssh_config(5): the Host block
+	// ends at the next Match keyword, making it a no-op and leaving the Match exec unscoped.
+	assert.NotContains(t, configStr, "\nHost ", "should not use bare Host directive")
+	assert.Contains(t, configStr, "Match host \"100.125.1.1,peer1.nb.internal,peer1,100.125.1.2,peer2.nb.internal,peer2\"",
+		"should use Match host with comma-separated patterns")
 }
 
 func TestManager_ForcedSSHConfig(t *testing.T) {
@@ -136,7 +168,7 @@ func TestManager_ForcedSSHConfig(t *testing.T) {
 	for i := 0; i < MaxPeersForSSHConfig+10; i++ {
 		peers = append(peers, PeerSSHInfo{
 			Hostname: fmt.Sprintf("peer%d", i),
-			IP:       fmt.Sprintf("100.125.1.%d", i%254+1),
+			IP:       netip.MustParseAddr(fmt.Sprintf("100.125.1.%d", i%254+1)),
 			FQDN:     fmt.Sprintf("peer%d.nb.internal", i),
 		})
 	}

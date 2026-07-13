@@ -9,7 +9,11 @@ import (
 )
 
 // IPForwardingState is a struct that keeps track of the IP forwarding state.
-// todo: read initial state of the IP forwarding from the system and reset the state based on it
+// todo: read initial state of the IP forwarding from the system and reset the state based on it.
+// todo: separate v4/v6 forwarding state, since the sysctls are independent
+// (net.ipv4.ip_forward vs net.ipv6.conf.all.forwarding). Currently the nftables
+// manager shares one instance between both routers, which works only because
+// EnableIPForwarding enables both sysctls in a single call.
 type IPForwardingState struct {
 	enabledCounter int
 }

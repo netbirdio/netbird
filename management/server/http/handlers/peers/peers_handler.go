@@ -220,6 +220,18 @@ func (h *Handler) updatePeer(ctx context.Context, accountID, userID, peerID stri
 		}
 	}
 
+	if req.Ipv6 != nil {
+		v6Addr, err := parseIPv6(req.Ipv6)
+		if err != nil {
+			util.WriteError(ctx, status.Errorf(status.InvalidArgument, "%v", err), w)
+			return
+		}
+		if err = h.accountManager.UpdatePeerIPv6(ctx, accountID, userID, peerID, v6Addr); err != nil {
+			util.WriteError(ctx, err, w)
+			return
+		}
+	}
+
 	peer, err := h.accountManager.UpdatePeer(ctx, accountID, userID, update)
 	if err != nil {
 		util.WriteError(ctx, err, w)
@@ -355,6 +367,21 @@ func (h *Handler) setApprovalRequiredFlag(respBody []*api.PeerBatch, validPeersM
 	}
 }
 
+func parseIPv6(s *string) (netip.Addr, error) {
+	if s == nil {
+		return netip.Addr{}, fmt.Errorf("IPv6 address is nil")
+	}
+	addr, err := netip.ParseAddr(*s)
+	if err != nil {
+		return netip.Addr{}, fmt.Errorf("invalid IPv6 address %s: %w", *s, err)
+	}
+	addr = addr.Unmap()
+	if !addr.Is6() {
+		return netip.Addr{}, fmt.Errorf("address %s is not IPv6", *s)
+	}
+	return addr, nil
+}
+
 // GetAccessiblePeers returns a list of all peers that the specified peer can connect to within the network.
 func (h *Handler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request) {
 	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
@@ -378,48 +405,48 @@ func (h *Handler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	allowed, err := h.permissionsManager.ValidateUserPermissions(r.Context(), accountID, userID, modules.Peers, operations.Read)
+	allowed, ctx, err := h.permissionsManager.ValidateUserPermissions(r.Context(), accountID, userID, modules.Peers, operations.Read)
 	if err != nil {
-		util.WriteError(r.Context(), status.NewPermissionValidationError(err), w)
+		util.WriteError(ctx, status.NewPermissionValidationError(err), w)
 		return
 	}
 
-	account, err := h.accountManager.GetAccountByID(r.Context(), accountID, activity.SystemInitiator)
+	account, err := h.accountManager.GetAccountByID(ctx, accountID, activity.SystemInitiator)
 	if err != nil {
-		util.WriteError(r.Context(), err, w)
+		util.WriteError(ctx, err, w)
 		return
 	}
 
 	if !allowed && !userAuth.IsChild {
 		if account.Settings.RegularUsersViewBlocked {
-			util.WriteJSONObject(r.Context(), w, []api.AccessiblePeer{})
+			util.WriteJSONObject(ctx, w, []api.AccessiblePeer{})
 			return
 		}
 
 		peer, ok := account.Peers[peerID]
 		if !ok {
-			util.WriteError(r.Context(), status.Errorf(status.NotFound, "peer not found"), w)
+			util.WriteError(ctx, status.Errorf(status.NotFound, "peer not found"), w)
 			return
 		}
 
 		if peer.UserID != user.Id {
-			util.WriteJSONObject(r.Context(), w, []api.AccessiblePeer{})
+			util.WriteJSONObject(ctx, w, []api.AccessiblePeer{})
 			return
 		}
 	}
 
-	validPeers, _, err := h.accountManager.GetValidatedPeers(r.Context(), accountID)
+	validPeers, _, err := h.accountManager.GetValidatedPeers(ctx, accountID)
 	if err != nil {
-		log.WithContext(r.Context()).Errorf("failed to list approved peers: %v", err)
-		util.WriteError(r.Context(), fmt.Errorf("internal error"), w)
+		log.WithContext(ctx).Errorf("failed to list approved peers: %v", err)
+		util.WriteError(ctx, fmt.Errorf("internal error"), w)
 		return
 	}
 
 	dnsDomain := h.networkMapController.GetDNSDomain(account.Settings)
 
-	netMap := account.GetPeerNetworkMap(r.Context(), peerID, dns.CustomZone{}, nil, validPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil, account.GetActiveGroupUsers())
+	netMap := account.GetPeerNetworkMapFromComponents(ctx, peerID, dns.CustomZone{}, nil, validPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil, account.GetActiveGroupUsers())
 
-	util.WriteJSONObject(r.Context(), w, toAccessiblePeers(netMap, dnsDomain))
+	util.WriteJSONObject(ctx, w, toAccessiblePeers(netMap, dnsDomain))
 }
 
 func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request) {
@@ -452,7 +479,7 @@ func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	peer, _, _, err := h.accountManager.AddPeer(r.Context(), userAuth.AccountId, "", userAuth.UserId, newPeer, true)
+	peer, _, _, _, err := h.accountManager.AddPeer(r.Context(), userAuth.AccountId, "", userAuth.UserId, newPeer, true)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -529,6 +556,7 @@ func peerToAccessiblePeer(peer *nbpeer.Peer, dnsDomain string) api.AccessiblePee
 		GeonameId:   int(peer.Location.GeoNameID),
 		Id:          peer.ID,
 		Ip:          peer.IP.String(),
+		Ipv6:        peerIPv6String(peer),
 		LastSeen:    peer.Status.LastSeen,
 		Name:        peer.Name,
 		Os:          peer.Meta.OS,
@@ -547,6 +575,7 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 		Id:                          peer.ID,
 		Name:                        peer.Name,
 		Ip:                          peer.IP.String(),
+		Ipv6:                        peerIPv6String(peer),
 		ConnectionIp:                peer.Location.ConnectionIP.String(),
 		Connected:                   peer.Status.Connected,
 		LastSeen:                    peer.Status.LastSeen,
@@ -601,6 +630,7 @@ func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dn
 		Id:                          peer.ID,
 		Name:                        peer.Name,
 		Ip:                          peer.IP.String(),
+		Ipv6:                        peerIPv6String(peer),
 		ConnectionIp:                peer.Location.ConnectionIP.String(),
 		Connected:                   peer.Status.Connected,
 		LastSeen:                    peer.Status.LastSeen,
@@ -676,4 +706,12 @@ func fqdnList(extraLabels []string, dnsDomain string) []string {
 		fqdnList = append(fqdnList, fqdn)
 	}
 	return fqdnList
+}
+
+func peerIPv6String(peer *nbpeer.Peer) *string {
+	if !peer.IPv6.IsValid() {
+		return nil
+	}
+	s := peer.IPv6.String()
+	return &s
 }

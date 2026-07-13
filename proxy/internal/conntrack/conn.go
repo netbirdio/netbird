@@ -10,10 +10,11 @@ import (
 type trackedConn struct {
 	net.Conn
 	tracker *HijackTracker
+	host    string
 }
 
 func (c *trackedConn) Close() error {
-	c.tracker.conns.Delete(c)
+	c.tracker.remove(c)
 	return c.Conn.Close()
 }
 
@@ -22,6 +23,7 @@ func (c *trackedConn) Close() error {
 type trackingWriter struct {
 	http.ResponseWriter
 	tracker *HijackTracker
+	host    string
 }
 
 func (w *trackingWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
@@ -33,8 +35,8 @@ func (w *trackingWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	tc := &trackedConn{Conn: conn, tracker: w.tracker}
-	w.tracker.conns.Store(tc, struct{}{})
+	tc := &trackedConn{Conn: conn, tracker: w.tracker, host: w.host}
+	w.tracker.add(tc)
 	return tc, buf, nil
 }
 

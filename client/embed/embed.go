@@ -12,8 +12,10 @@ import (
 	"sync"
 
 	"github.com/sirupsen/logrus"
+	wgdevice "golang.zx2c4.com/wireguard/device"
 	wgnetstack "golang.zx2c4.com/wireguard/tun/netstack"
 
+	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/auth"
@@ -21,7 +23,9 @@ import (
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	sshcommon "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
+	"github.com/netbirdio/netbird/shared/management/domain"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/util/capture"
 )
 
 var (
@@ -31,13 +35,13 @@ var (
 	ErrConfigNotInitialized = errors.New("config not initialized")
 )
 
-// PeerConnStatus is a peer's connection status.
-type PeerConnStatus = peer.ConnStatus
-
 const (
 	// PeerStatusConnected indicates the peer is in connected state.
 	PeerStatusConnected = peer.StatusConnected
 )
+
+// PeerConnStatus is a peer's connection status.
+type PeerConnStatus = peer.ConnStatus
 
 // Client manages a netbird embedded client instance.
 type Client struct {
@@ -63,7 +67,7 @@ type Options struct {
 	PrivateKey string
 	// ManagementURL overrides the default management server URL
 	ManagementURL string
-	// PreSharedKey is the pre-shared key for the WireGuard interface
+	// PreSharedKey is the pre-shared key for the tunnel interface
 	PreSharedKey string
 	// LogOutput is the output destination for logs (defaults to os.Stderr if nil)
 	LogOutput io.Writer
@@ -77,10 +81,46 @@ type Options struct {
 	StatePath string
 	// DisableClientRoutes disables the client routes
 	DisableClientRoutes bool
+	// DisableIPv6 disables IPv6 overlay addressing
+	DisableIPv6 bool
 	// BlockInbound blocks all inbound connections from peers
 	BlockInbound bool
-	// WireguardPort is the port for the WireGuard interface. Use 0 for a random port.
+	// BlockLANAccess blocks the embedded peer from reaching the host's
+	// LAN (RFC 1918, link-local, loopback) when it's used as a routing
+	// peer. Mirrors profilemanager.ConfigInput.BlockLANAccess. Useful
+	// when the embedded client must never act as a stepping stone into
+	// the host's local network (e.g. the proxy's overlay peer).
+	BlockLANAccess bool
+	// WireguardPort is the port for the tunnel interface. Use 0 for a random port.
 	WireguardPort *int
+	// MTU is the MTU for the tunnel interface.
+	// Valid values are in the range 576..8192 bytes.
+	// If non-nil, this value overrides any value stored in the config file.
+	// If nil, the existing config MTU (if non-zero) is preserved; otherwise it defaults to 1280.
+	// Set to a higher value (e.g. 1400) if carrying QUIC or other protocols that require larger datagrams.
+	MTU *uint16
+	// DNSLabels defines additional DNS labels configured in the peer.
+	DNSLabels []string
+	// Performance configures the tunnel's buffer pool cap and batch size.
+	Performance Performance
+}
+
+// Performance configures the embedded client's tunnel memory/throughput knobs.
+//
+// These settings are process-global: any non-nil field also becomes the
+// default for Clients constructed by later embed.New calls in the same
+// process. Nil fields are ignored.
+type Performance struct {
+	// PreallocatedBuffersPerPool caps the per-tunnel buffer pool. Zero
+	// leaves the pool unbounded. Lower values trade throughput for a
+	// tighter memory ceiling. May also be changed on a running Client via
+	// Client.SetPerformance, provided this field was nonzero at construction.
+	PreallocatedBuffersPerPool *uint32
+	// MaxBatchSize overrides the number of packets the tunnel reads or
+	// writes per syscall, which also bounds eager buffer allocation per
+	// worker. Zero uses the platform default. Applied at construction
+	// only; ignored by Client.SetPerformance.
+	MaxBatchSize *uint32
 }
 
 // validateCredentials checks that exactly one credential type is provided
@@ -112,6 +152,12 @@ func New(opts Options) (*Client, error) {
 		return nil, err
 	}
 
+	if opts.MTU != nil {
+		if err := iface.ValidateMTU(*opts.MTU); err != nil {
+			return nil, fmt.Errorf("invalid MTU: %w", err)
+		}
+	}
+
 	if opts.LogOutput != nil {
 		logrus.SetOutput(opts.LogOutput)
 	}
@@ -140,17 +186,26 @@ func New(opts Options) (*Client, error) {
 		}
 	}
 
+	var err error
+	var parsedLabels domain.List
+	if parsedLabels, err = domain.FromStringList(opts.DNSLabels); err != nil {
+		return nil, fmt.Errorf("invalid dns labels: %w", err)
+	}
+
 	t := true
 	var config *profilemanager.Config
-	var err error
 	input := profilemanager.ConfigInput{
 		ConfigPath:          opts.ConfigPath,
 		ManagementURL:       opts.ManagementURL,
 		PreSharedKey:        &opts.PreSharedKey,
 		DisableServerRoutes: &t,
 		DisableClientRoutes: &opts.DisableClientRoutes,
+		DisableIPv6:         &opts.DisableIPv6,
 		BlockInbound:        &opts.BlockInbound,
+		BlockLANAccess:      &opts.BlockLANAccess,
 		WireguardPort:       opts.WireguardPort,
+		MTU:                 opts.MTU,
+		DNSLabels:           parsedLabels,
 	}
 	if opts.ConfigPath != "" {
 		config, err = profilemanager.UpdateOrCreateConfig(input)
@@ -163,6 +218,13 @@ func New(opts Options) (*Client, error) {
 
 	if opts.PrivateKey != "" {
 		config.PrivateKey = opts.PrivateKey
+	}
+
+	if opts.Performance.PreallocatedBuffersPerPool != nil {
+		wgdevice.SetPreallocatedBuffersPerPool(*opts.Performance.PreallocatedBuffersPerPool)
+	}
+	if opts.Performance.MaxBatchSize != nil {
+		wgdevice.SetMaxBatchSizeOverride(*opts.Performance.MaxBatchSize)
 	}
 
 	return &Client{
@@ -202,7 +264,7 @@ func (c *Client) Start(startCtx context.Context) error {
 	if err, _ := authClient.Login(ctx, c.setupKey, c.jwtToken); err != nil {
 		return fmt.Errorf("login: %w", err)
 	}
-	client := internal.NewConnectClient(ctx, c.config, c.recorder, false)
+	client := internal.NewConnectClient(ctx, c.config, c.recorder)
 	client.SetSyncResponsePersistence(true)
 
 	// either startup error (permanent backoff err) or nil err (successful engine up)
@@ -217,6 +279,12 @@ func (c *Client) Start(startCtx context.Context) error {
 
 	select {
 	case <-startCtx.Done():
+		// ConnectClient.Stop now cancels its own run context and waits for the
+		// run loop to tear the engine down, so this cancel() is no longer
+		// required to break the deadlock and could be removed. It is kept as a
+		// defensive belt-and-suspenders: cancelling the parent context first
+		// guarantees the run loop is unblocked even if Stop's contract regresses.
+		cancel()
 		if stopErr := client.Stop(); stopErr != nil {
 			return fmt.Errorf("stop error after context done. Stop error: %w. Context done: %w", stopErr, startCtx.Err())
 		}
@@ -309,7 +377,7 @@ func (c *Client) ListenTCP(address string) (net.Listener, error) {
 	if err != nil {
 		return nil, fmt.Errorf("split host port: %w", err)
 	}
-	listenAddr := fmt.Sprintf("%s:%s", addr, port)
+	listenAddr := net.JoinHostPort(addr.String(), port)
 
 	tcpAddr, err := net.ResolveTCPAddr("tcp", listenAddr)
 	if err != nil {
@@ -330,7 +398,7 @@ func (c *Client) ListenUDP(address string) (net.PacketConn, error) {
 	if err != nil {
 		return nil, fmt.Errorf("split host port: %w", err)
 	}
-	listenAddr := fmt.Sprintf("%s:%s", addr, port)
+	listenAddr := net.JoinHostPort(addr.String(), port)
 
 	udpAddr, err := net.ResolveUDPAddr("udp", listenAddr)
 	if err != nil {
@@ -352,6 +420,47 @@ func (c *Client) NewHTTPClient() *http.Client {
 	}
 }
 
+// Expose exposes a local service via the NetBird reverse proxy, making it accessible through a public URL.
+// It returns an ExposeSession. Call Wait on the session to keep it alive.
+func (c *Client) Expose(ctx context.Context, req ExposeRequest) (*ExposeSession, error) {
+	engine, err := c.getEngine()
+	if err != nil {
+		return nil, err
+	}
+
+	mgr := engine.GetExposeManager()
+	if mgr == nil {
+		return nil, fmt.Errorf("expose manager not available")
+	}
+
+	resp, err := mgr.Expose(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("expose: %w", err)
+	}
+
+	return &ExposeSession{
+		Domain:      resp.Domain,
+		ServiceName: resp.ServiceName,
+		ServiceURL:  resp.ServiceURL,
+		mgr:         mgr,
+	}, nil
+}
+
+// IdentityForIP looks up a remote peer by its tunnel IP using the
+// embedded client's status recorder. Returns the peer's WireGuard public
+// key and FQDN. ok=false means the IP doesn't belong to an active peer
+// — offline roster peers are treated as unknown, same as foreign IPs.
+func (c *Client) IdentityForIP(ip netip.Addr) (pubKey, fqdn string, ok bool) {
+	if !ip.IsValid() || c.recorder == nil {
+		return "", "", false
+	}
+	state, found := c.recorder.PeerStateByIP(ip.String())
+	if !found {
+		return "", "", false
+	}
+	return state.PubKey, state.FQDN, true
+}
+
 // Status returns the current status of the client.
 func (c *Client) Status() (peer.FullStatus, error) {
 	c.mu.Lock()
@@ -361,7 +470,7 @@ func (c *Client) Status() (peer.FullStatus, error) {
 	if connect != nil {
 		engine := connect.Engine()
 		if engine != nil {
-			_ = engine.RunHealthProbes(false)
+			_ = engine.RunHealthProbes(context.Background(), false)
 		}
 	}
 
@@ -418,6 +527,71 @@ func (c *Client) VerifySSHHostKey(peerAddress string, key []byte) error {
 	}
 
 	return sshcommon.VerifyHostKey(storedKey, key, peerAddress)
+}
+
+// SetPerformance retunes a running Client. Only PreallocatedBuffersPerPool
+// takes effect, and only when it was nonzero at construction;
+// MaxBatchSize is construction-only and returns an error if set here.
+//
+// Returns ErrClientNotStarted / ErrEngineNotStarted if the Client is not
+// running yet.
+func (c *Client) SetPerformance(t Performance) error {
+	if t.MaxBatchSize != nil {
+		return errors.New("MaxBatchSize is construction-only and cannot be changed at runtime")
+	}
+	engine, err := c.getEngine()
+	if err != nil {
+		return err
+	}
+	return engine.SetPerformance(internal.Performance{
+		PreallocatedBuffersPerPool: t.PreallocatedBuffersPerPool,
+	})
+}
+
+// StartCapture begins capturing packets on this client's tunnel device.
+// Only one capture can be active at a time; starting a new one stops the previous.
+// Call StopCapture (or CaptureSession.Stop) to end it.
+func (c *Client) StartCapture(opts CaptureOptions) (*CaptureSession, error) {
+	engine, err := c.getEngine()
+	if err != nil {
+		return nil, err
+	}
+
+	var matcher capture.Matcher
+	if opts.Filter != "" {
+		m, err := capture.ParseFilter(opts.Filter)
+		if err != nil {
+			return nil, fmt.Errorf("parse filter: %w", err)
+		}
+		matcher = m
+	}
+
+	sess, err := capture.NewSession(capture.Options{
+		Output:     opts.Output,
+		TextOutput: opts.TextOutput,
+		Matcher:    matcher,
+		Verbose:    opts.Verbose,
+		ASCII:      opts.ASCII,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create capture session: %w", err)
+	}
+
+	if err := engine.SetCapture(sess); err != nil {
+		sess.Stop()
+		return nil, fmt.Errorf("set capture: %w", err)
+	}
+
+	return &CaptureSession{sess: sess, engine: engine}, nil
+}
+
+// StopCapture stops the active capture session if one is running.
+func (c *Client) StopCapture() error {
+	engine, err := c.getEngine()
+	if err != nil {
+		return err
+	}
+	return engine.SetCapture(nil)
 }
 
 // getEngine safely retrieves the engine from the client with proper locking.

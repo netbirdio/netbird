@@ -250,6 +250,15 @@ func TestClaimsExtractor_ToGroups(t *testing.T) {
 			expectedGroups: []string{},
 		},
 		{
+			name: "extracts single group string from claim",
+			claims: jwt.MapClaims{
+				"sub":    "user-123",
+				"groups": "admin",
+			},
+			groupClaimName: "groups",
+			expectedGroups: []string{"admin"},
+		},
+		{
 			name: "handles custom claim name",
 			claims: jwt.MapClaims{
 				"sub":        "user-123",

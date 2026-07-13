@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+    NetBird MDM configuration profile (macOS).
+
+    Wraps a `com.apple.ManagedClient.preferences` payload that pushes the
+    NetBird MDM policy into:
+        /Library/Managed Preferences/io.netbird.client.plist
+
+    Read at runtime by the netbird daemon's macOS loader
+    (client/mdm/policy_darwin.go — Phase 2). Key names match the canonical
+    lowerCamelCase form used in docs/netbird.admx and the mdm.Key*
+    constants in client/mdm/policy.go.
+
+    Bundle identifier: io.netbird.client
+        (confirm against the signed pkg before fleet roll-out)
+
+    Distribution:
+      - sign with `productsign --sign "Developer ID Installer: ..." ...`
+        before fleet roll-out (Apple-Configurator-2 won't install an
+        unsigned profile on Sonoma+ without user override).
+      - For local dev install: `sudo profiles install -path netbird-macos.mobileconfig`.
+      - For MDM (Jamf/Kandji/Mosyle/Intune): upload as a Custom Profile.
+
+    Editing:
+      - Replace UUID placeholders below with fresh UUIDs (`uuidgen` on
+        macOS) when forking this template for a real fleet — each
+        deployment should have unique UUIDs so the OS treats it as a
+        distinct profile.
+      - Tune the PayloadContent values to the policy you want to enforce.
+      - Remove any key you do NOT want to enforce (the daemon treats an
+        absent key as "no enforcement" for that field).
+
+    iOS note:
+      This file is macOS-specific. iOS uses managed app config via
+      UserDefaults[com.apple.configuration.managed] under a different
+      payload type (com.apple.app.configuration.managed); the wrapper
+      structure is the same but the inner payload dictionary differs.
+      See docs/netbird-ios.mobileconfig (Phase 5) when shipped.
+-->
+<plist version="1.0">
+<dict>
+    <!-- Outer profile envelope -->
+    <key>PayloadType</key>
+    <string>Configuration</string>
+    <key>PayloadVersion</key>
+    <integer>1</integer>
+    <key>PayloadIdentifier</key>
+    <string>io.netbird.client.mdm</string>
+    <key>PayloadUUID</key>
+    <string>11111111-1111-1111-1111-111111111111</string>
+    <key>PayloadDisplayName</key>
+    <string>NetBird MDM Policy</string>
+    <key>PayloadDescription</key>
+    <string>Enforces NetBird client configuration. Values written here override any local user / CLI / on-disk setting and are re-applied at every daemon boot and on every 1-minute MDM reload tick.</string>
+    <key>PayloadOrganization</key>
+    <string>NetBird</string>
+    <key>PayloadScope</key>
+    <string>System</string>
+    <key>PayloadRemovalDisallowed</key>
+    <false/>
+
+    <key>PayloadContent</key>
+    <array>
+        <dict>
+            <!-- Managed preferences payload: writes /Library/Managed Preferences/io.netbird.client.plist -->
+            <key>PayloadType</key>
+            <string>com.apple.ManagedClient.preferences</string>
+            <key>PayloadVersion</key>
+            <integer>1</integer>
+            <key>PayloadIdentifier</key>
+            <string>io.netbird.client.mdm.preferences</string>
+            <key>PayloadUUID</key>
+            <string>22222222-2222-2222-2222-222222222222</string>
+            <key>PayloadDisplayName</key>
+            <string>NetBird Managed Preferences</string>
+            <key>PayloadEnabled</key>
+            <true/>
+
+            <key>PayloadContent</key>
+            <dict>
+                <key>io.netbird.client</key>
+                <dict>
+                    <key>Forced</key>
+                    <array>
+                        <dict>
+                            <key>mcx_preference_settings</key>
+                            <dict>
+
+                                <!-- ===== Identity / auth (strings) ===== -->
+                                <key>managementURL</key>
+                                <string>https://api.netbird.io:443</string>
+
+                                <!-- Pre-shared key: secret. Remove the entry entirely
+                                     when not used; do NOT leave an empty string. -->
+                                <!--
+                                <key>preSharedKey</key>
+                                <string>REPLACE_ME</string>
+                                -->
+
+                                <!-- ===== Engine / runtime behavior (bool) =====
+                                     Remove any key to leave the field unmanaged. -->
+                                <!--
+                                <key>disableAutoConnect</key>
+                                <false/>
+                                <key>disableClientRoutes</key>
+                                <false/>
+                                <key>disableServerRoutes</key>
+                                <false/>
+                                <key>blockInbound</key>
+                                <false/>
+                                -->
+                                <key>allowServerSSH</key>
+                                <true/>
+                                <!--
+                                <key>rosenpassEnabled</key>
+                                <true/>
+                                <key>rosenpassPermissive</key>
+                                <false/>
+                                -->
+
+                                <!-- ===== WireGuard UDP port (int) =====
+                                     Range 1-65535. Omit to keep the default. -->
+                                <!--
+                                <key>wireguardPort</key>
+                                <integer>51820</integer>
+                                -->
+
+                                <!-- ===== Split tunnel (Android-only at the daemon level)
+                                     Pushed harmlessly on macOS for fleets with mixed
+                                     desktop+mobile devices; the macOS daemon ignores it. -->
+                                <!--
+                                <key>splitTunnelMode</key>
+                                <string>allow</string>
+                                <key>splitTunnelApps</key>
+                                <string>com.acme.app1,com.acme.app2</string>
+                                -->
+
+                                <!-- ===== UI / kill switches (bool) ===== -->
+                                <!--
+                                <key>disableUpdateSettings</key>
+                                <true/>
+                                <key>disableProfiles</key>
+                                <true/>
+                                <key>disableNetworks</key>
+                                <true/>
+                                <key>disableAdvancedView</key>
+                                <true/>
+                                <key>disableMetricsCollection</key>
+                                <false/>
+                                -->
+
+                            </dict>
+                        </dict>
+                    </array>
+                </dict>
+            </dict>
+        </dict>
+    </array>
+</dict>
+</plist>

@@ -19,6 +19,46 @@ readonly MSG_SEPARATOR="=========================================="
 # Utility Functions
 ############################################
 
+check_docker_sock_perms() {
+  local sock="${DOCKER_HOST:-unix:///var/run/docker.sock}"
+  sock="${sock#unix://}"
+
+  if [[ ! -S "$sock" ]]; then
+    return 0
+  fi
+
+  if [[ ! -r "$sock" ]] || [[ ! -w "$sock" ]]; then
+    local group
+    if [[ "${OSTYPE}" == "darwin"* ]]; then
+      group="$(stat -f '%Sg' "$sock")"
+    else
+      group="$(stat -c '%G' "$sock")"
+    fi
+
+    echo "Cannot access Docker socket: $sock" > /dev/stderr
+    echo "" > /dev/stderr
+    echo "Socket permissions:" > /dev/stderr
+    ls -l "$sock" > /dev/stderr
+    echo "" > /dev/stderr
+
+    if [[ "$group" == "docker" ]]; then
+      echo "Your user may need to be added to the '$group' group:" > /dev/stderr
+      echo "  sudo usermod -aG $group \"$USER\"" > /dev/stderr
+      echo "Then log out and back in, or run this for the current shell:" > /dev/stderr
+      echo "  newgrp $group" > /dev/stderr
+      echo "Note: newgrp is temporary; usermod is the permanent group change." > /dev/stderr
+    else
+      echo "The Docker socket is owned by the '$group' group, which is not the standard 'docker' group." > /dev/stderr
+      echo "For safety, this script will not suggest adding your user to '$group'." > /dev/stderr
+      echo "Instead, either run this script with appropriate privileges (for example, via sudo) or follow Docker's post-install steps to configure access via the 'docker' group:" > /dev/stderr
+      echo "  https://docs.docker.com/engine/install/linux-postinstall/" > /dev/stderr
+    fi
+
+    exit 1
+  fi
+  return 0
+}
+
 check_docker_compose() {
   if command -v docker-compose &> /dev/null
   then
@@ -182,41 +222,20 @@ read_enable_proxy() {
   return 0
 }
 
-read_proxy_domain() {
-  local suggested_proxy="proxy.${BASE_DOMAIN}"
-
+read_enable_crowdsec() {
   echo "" > /dev/stderr
-  echo "NOTE: The proxy domain must be different from the management domain ($NETBIRD_DOMAIN)" > /dev/stderr
-  echo "to avoid TLS certificate conflicts." > /dev/stderr
-  echo "" > /dev/stderr
-  echo "You also need to add a wildcard DNS record for the proxy domain," > /dev/stderr
-  echo "e.g. *.${suggested_proxy} pointing to the same server domain as $NETBIRD_DOMAIN with a CNAME record." > /dev/stderr
-  echo "" > /dev/stderr
-  echo -n "Enter the domain for the NetBird Proxy (e.g. ${suggested_proxy}): " > /dev/stderr
-  read -r READ_PROXY_DOMAIN < /dev/tty
+  echo "Do you want to enable CrowdSec IP reputation blocking?" > /dev/stderr
+  echo "CrowdSec checks client IPs against a community threat intelligence database" > /dev/stderr
+  echo "and blocks known malicious sources before they reach your services." > /dev/stderr
+  echo "A local CrowdSec LAPI container will be added to your deployment." > /dev/stderr
+  echo -n "Enable CrowdSec? [y/N]: " > /dev/stderr
+  read -r CHOICE < /dev/tty
 
-  if [[ -z "$READ_PROXY_DOMAIN" ]]; then
-    echo "The proxy domain cannot be empty." > /dev/stderr
-    read_proxy_domain
-    return
+  if [[ "$CHOICE" =~ ^[Yy]$ ]]; then
+    echo "true"
+  else
+    echo "false"
   fi
-
-  if [[ "$READ_PROXY_DOMAIN" == "$NETBIRD_DOMAIN" ]]; then
-    echo "" > /dev/stderr
-    echo "WARNING: The proxy domain cannot be the same as the management domain ($NETBIRD_DOMAIN)." > /dev/stderr
-    read_proxy_domain
-    return
-  fi
-
-  echo ${READ_PROXY_DOMAIN} | grep ${NETBIRD_DOMAIN} > /dev/null
-  if [[ $? -eq 0 ]]; then
-    echo "" > /dev/stderr
-    echo "WARNING: The proxy domain cannot be a subdomain of the management domain ($NETBIRD_DOMAIN)." > /dev/stderr
-    read_proxy_domain
-    return
-  fi
-
-  echo "$READ_PROXY_DOMAIN"
   return 0
 }
 
@@ -252,7 +271,20 @@ get_upstream_host() {
 
 wait_management_proxy() {
   local proxy_container="${1:-traefik}"
+  local use_docker_logs=false
   set +e
+
+  if [[ "$proxy_container" == "detect-traefik" ]]; then
+    proxy_container=$(docker ps --format "{{.ID}}\t{{.Image}}\t{{.Ports}}" \
+    | awk -F'\t' '$2 ~ /traefik/ && $3 ~ /:(80|443)->/ {print $1; exit}')
+
+    if [[ -z "$proxy_container" ]]; then
+      echo "Warning: could not auto-detect Traefik container, log output will be skipped on timeout." > /dev/stderr
+    else
+      use_docker_logs=true
+    fi
+  fi
+
   echo -n "Waiting for NetBird server to become ready"
   counter=1
   while true; do
@@ -263,7 +295,13 @@ wait_management_proxy() {
     if [[ $counter -eq 60 ]]; then
       echo ""
       echo "Taking too long. Checking logs..."
-      $DOCKER_COMPOSE_COMMAND logs --tail=20 "$proxy_container"
+      if [[ -n "$proxy_container" ]]; then
+        if [[ "$use_docker_logs" == "true" ]]; then
+          docker logs --tail=20 "$proxy_container"
+        else
+          $DOCKER_COMPOSE_COMMAND logs --tail=20 "$proxy_container"
+        fi
+      fi
       $DOCKER_COMPOSE_COMMAND logs --tail=20 netbird-server
     fi
     echo -n " ."
@@ -313,11 +351,12 @@ initialize_default_values() {
   NETBIRD_STUN_PORT=3478
 
   # Docker images
-  DASHBOARD_IMAGE="netbirdio/dashboard:latest"
+  DASHBOARD_IMAGE=${DASHBOARD_IMAGE:-"netbirdio/dashboard:latest"}
   # Combined server replaces separate signal, relay, and management containers
-  NETBIRD_SERVER_IMAGE="netbirdio/netbird-server:latest"
-  NETBIRD_PROXY_IMAGE="netbirdio/reverse-proxy:latest"
-
+  NETBIRD_SERVER_IMAGE=${NETBIRD_SERVER_IMAGE:-"netbirdio/netbird-server:latest"}
+  NETBIRD_PROXY_IMAGE=${NETBIRD_PROXY_IMAGE:-"netbirdio/reverse-proxy:latest"}
+  TRAEFIK_IMAGE=${TRAEFIK_IMAGE:-"traefik:v3.6"}
+  CROWDSEC_IMAGE=${CROWDSEC_IMAGE:-"crowdsecurity/crowdsec:v1.7.7"}
   # Reverse proxy configuration
   REVERSE_PROXY_TYPE="0"
   TRAEFIK_EXTERNAL_NETWORK=""
@@ -334,8 +373,11 @@ initialize_default_values() {
 
   # NetBird Proxy configuration
   ENABLE_PROXY="false"
-  PROXY_DOMAIN=""
   PROXY_TOKEN=""
+
+  # CrowdSec configuration
+  ENABLE_CROWDSEC="false"
+  CROWDSEC_BOUNCER_KEY=""
   return 0
 }
 
@@ -356,7 +398,44 @@ configure_domain() {
   return 0
 }
 
+apply_agent_network_preset() {
+  # Agent-network turnkey install: built-in Traefik + NetBird Proxy with
+  # NB_PROXY_PRIVATE=true, dashboard locked to agent-network-only mode.
+  # Bypasses every reverse-proxy / proxy / CrowdSec prompt. The only
+  # inputs we still need from the operator are the domain (handled by
+  # configure_domain via NETBIRD_DOMAIN env var or interactive prompt)
+  # and the ACME email — both honor env vars first and fall back to a
+  # prompt only when unset. CrowdSec is intentionally off.
+  REVERSE_PROXY_TYPE="0"
+  ENABLE_PROXY="true"
+  ENABLE_CROWDSEC="false"
+
+  if [[ -n "${NETBIRD_LETSENCRYPT_EMAIL}" ]]; then
+    TRAEFIK_ACME_EMAIL="${NETBIRD_LETSENCRYPT_EMAIL}"
+  else
+    TRAEFIK_ACME_EMAIL=$(read_traefik_acme_email)
+  fi
+
+  echo "" > /dev/stderr
+  echo "Agent-network preset enabled (NETBIRD_AGENT_NETWORK=true):" > /dev/stderr
+  echo "  - reverse proxy: built-in Traefik" > /dev/stderr
+  echo "  - NetBird Proxy: enabled with NB_PROXY_PRIVATE=true" > /dev/stderr
+  echo "  - server image: ${NETBIRD_SERVER_IMAGE}" > /dev/stderr
+  echo "  - proxy image: ${NETBIRD_PROXY_IMAGE}" > /dev/stderr
+  echo "  - dashboard: NETBIRD_AGENT_NETWORK_ONLY=true" > /dev/stderr
+  echo "  - CrowdSec: disabled" > /dev/stderr
+  echo "  - Let's Encrypt email: ${TRAEFIK_ACME_EMAIL}" > /dev/stderr
+  echo "" > /dev/stderr
+}
+
 configure_reverse_proxy() {
+  # Short-circuit: agent-network preset locks every reverse-proxy /
+  # proxy / CrowdSec choice and bypasses the interactive prompts.
+  if [[ "${NETBIRD_AGENT_NETWORK}" == "true" ]]; then
+    apply_agent_network_preset
+    return 0
+  fi
+
   # Prompt for reverse proxy type
   REVERSE_PROXY_TYPE=$(read_reverse_proxy_type)
 
@@ -365,7 +444,7 @@ configure_reverse_proxy() {
     TRAEFIK_ACME_EMAIL=$(read_traefik_acme_email)
     ENABLE_PROXY=$(read_enable_proxy)
     if [[ "$ENABLE_PROXY" == "true" ]]; then
-      PROXY_DOMAIN=$(read_proxy_domain)
+      ENABLE_CROWDSEC=$(read_enable_crowdsec)
     fi
   fi
 
@@ -396,7 +475,7 @@ check_existing_installation() {
     echo "Generated files already exist, if you want to reinitialize the environment, please remove them first."
     echo "You can use the following commands:"
     echo "  $DOCKER_COMPOSE_COMMAND down --volumes # to remove all containers and volumes"
-    echo "  rm -f docker-compose.yml dashboard.env config.yaml proxy.env traefik-dynamic.yaml nginx-netbird.conf caddyfile-netbird.txt npm-advanced-config.txt"
+    echo "  rm -f docker-compose.yml dashboard.env config.yaml proxy.env traefik-dynamic.yaml nginx-netbird.conf caddyfile-netbird.txt npm-advanced-config.txt && rm -rf crowdsec/"
     echo "Be aware that this will remove all data from the database, and you will have to reconfigure the dashboard."
     exit 1
   fi
@@ -417,6 +496,9 @@ generate_configuration_files() {
         echo "NB_PROXY_TOKEN=placeholder" >> proxy.env
         # TCP ServersTransport for PROXY protocol v2 to the proxy backend
         render_traefik_dynamic > traefik-dynamic.yaml
+        if [[ "$ENABLE_CROWDSEC" == "true" ]]; then
+          mkdir -p crowdsec
+        fi
       fi
       ;;
     1)
@@ -459,8 +541,12 @@ start_services_and_show_instructions() {
 
     if [[ "$ENABLE_PROXY" == "true" ]]; then
       # Phase 1: Start core services (without proxy)
+      local core_services="traefik dashboard netbird-server"
+      if [[ "$ENABLE_CROWDSEC" == "true" ]]; then
+        core_services="$core_services crowdsec"
+      fi
       echo "Starting core services..."
-      $DOCKER_COMPOSE_COMMAND up -d traefik dashboard netbird-server
+      $DOCKER_COMPOSE_COMMAND up -d $core_services
 
       sleep 3
       wait_management_proxy traefik
@@ -480,7 +566,33 @@ start_services_and_show_instructions() {
 
       echo "Proxy token created successfully."
 
-      # Generate proxy.env with the token
+      if [[ "$ENABLE_CROWDSEC" == "true" ]]; then
+        echo "Registering CrowdSec bouncer..."
+        local cs_retries=0
+        while ! $DOCKER_COMPOSE_COMMAND exec -T crowdsec cscli lapi status >/dev/null 2>&1; do
+          cs_retries=$((cs_retries + 1))
+          if [[ $cs_retries -ge 30 ]]; then
+            echo "WARNING: CrowdSec did not become ready. Skipping CrowdSec setup." > /dev/stderr
+            echo "You can register a bouncer manually later with:" > /dev/stderr
+            echo "  docker exec netbird-crowdsec cscli bouncers add netbird-proxy -o raw" > /dev/stderr
+            ENABLE_CROWDSEC="false"
+            break
+          fi
+          sleep 2
+        done
+
+        if [[ "$ENABLE_CROWDSEC" == "true" ]]; then
+          CROWDSEC_BOUNCER_KEY=$($DOCKER_COMPOSE_COMMAND exec -T crowdsec \
+            cscli bouncers add netbird-proxy -o raw 2>/dev/null)
+          if [[ -z "$CROWDSEC_BOUNCER_KEY" ]]; then
+            echo "WARNING: Failed to create CrowdSec bouncer key. Skipping CrowdSec setup." > /dev/stderr
+            ENABLE_CROWDSEC="false"
+          else
+            echo "CrowdSec bouncer registered."
+          fi
+        fi
+      fi
+
       render_proxy_env > proxy.env
 
       # Start proxy service
@@ -503,7 +615,7 @@ start_services_and_show_instructions() {
     $DOCKER_COMPOSE_COMMAND up -d
 
     sleep 3
-    wait_management_direct
+    wait_management_proxy detect-traefik
 
     echo -e "$MSG_DONE"
     print_post_setup_instructions
@@ -546,12 +658,15 @@ start_services_and_show_instructions() {
 }
 
 init_environment() {
+  # Check if docker compose is installed using check_docker_compose function
+  DOCKER_COMPOSE_COMMAND=$(check_docker_compose)
+  check_docker_sock_perms
+
   initialize_default_values
   configure_domain
   configure_reverse_proxy
 
   check_jq
-  DOCKER_COMPOSE_COMMAND=$(check_docker_compose)
 
   check_existing_installation
   generate_configuration_files
@@ -567,11 +682,25 @@ render_docker_compose_traefik_builtin() {
   # Generate proxy service section and Traefik dynamic config if enabled
   local proxy_service=""
   local proxy_volumes=""
+  local crowdsec_service=""
+  local crowdsec_volumes=""
   local traefik_file_provider=""
   local traefik_dynamic_volume=""
   if [[ "$ENABLE_PROXY" == "true" ]]; then
     traefik_file_provider='      - "--providers.file.filename=/etc/traefik/dynamic.yaml"'
     traefik_dynamic_volume="      - ./traefik-dynamic.yaml:/etc/traefik/dynamic.yaml:ro"
+
+    local proxy_depends="
+      netbird-server:
+        condition: service_started"
+    if [[ "$ENABLE_CROWDSEC" == "true" ]]; then
+      proxy_depends="
+      netbird-server:
+        condition: service_started
+      crowdsec:
+        condition: service_healthy"
+    fi
+
     proxy_service="
   # NetBird Proxy - exposes internal resources to the internet
   proxy:
@@ -581,8 +710,7 @@ render_docker_compose_traefik_builtin() {
     - 51820:51820/udp
     restart: unless-stopped
     networks: [netbird]
-    depends_on:
-      - netbird-server
+    depends_on:${proxy_depends}
     env_file:
       - ./proxy.env
     volumes:
@@ -605,13 +733,42 @@ render_docker_compose_traefik_builtin() {
 "
     proxy_volumes="
   netbird_proxy_certs:"
+
+    if [[ "$ENABLE_CROWDSEC" == "true" ]]; then
+      crowdsec_service="
+  crowdsec:
+    image: $CROWDSEC_IMAGE
+    container_name: netbird-crowdsec
+    restart: unless-stopped
+    networks: [netbird]
+    environment:
+      COLLECTIONS: crowdsecurity/linux
+    volumes:
+      - ./crowdsec:/etc/crowdsec
+      - crowdsec_db:/var/lib/crowdsec/data
+    healthcheck:
+      test: ["CMD", "cscli", "lapi", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+    labels:
+      - traefik.enable=false
+    logging:
+      driver: \"json-file\"
+      options:
+        max-size: \"500m\"
+        max-file: \"2\"
+"
+      crowdsec_volumes="
+  crowdsec_db:"
+    fi
   fi
 
   cat <<EOF
 services:
   # Traefik reverse proxy (automatic TLS via Let's Encrypt)
   traefik:
-    image: traefik:v3.6
+    image: $TRAEFIK_IMAGE
     container_name: netbird-traefik
     restart: unless-stopped
     networks:
@@ -695,7 +852,7 @@ $traefik_dynamic_volume
     labels:
       - traefik.enable=true
       # gRPC router (needs h2c backend for HTTP/2 cleartext)
-      - traefik.http.routers.netbird-grpc.rule=Host(\`$NETBIRD_DOMAIN\`) && (PathPrefix(\`/signalexchange.SignalExchange/\`) || PathPrefix(\`/management.ManagementService/\`))
+      - traefik.http.routers.netbird-grpc.rule=Host(\`$NETBIRD_DOMAIN\`) && (PathPrefix(\`/signalexchange.SignalExchange/\`) || PathPrefix(\`/management.ManagementService/\`) || PathPrefix(\`/management.ProxyService/\`))
       - traefik.http.routers.netbird-grpc.entrypoints=websecure
       - traefik.http.routers.netbird-grpc.tls=true
       - traefik.http.routers.netbird-grpc.tls.certresolver=letsencrypt
@@ -717,10 +874,10 @@ $traefik_dynamic_volume
       options:
         max-size: "500m"
         max-file: "2"
-${proxy_service}
+${proxy_service}${crowdsec_service}
 volumes:
   netbird_data:
-  netbird_traefik_letsencrypt:${proxy_volumes}
+  netbird_traefik_letsencrypt:${proxy_volumes}${crowdsec_volumes}
 
 networks:
   netbird:
@@ -790,6 +947,15 @@ NGINX_SSL_PORT=443
 # Letsencrypt
 LETSENCRYPT_DOMAIN=none
 EOF
+
+  if [[ "${NETBIRD_AGENT_NETWORK}" == "true" ]]; then
+    cat <<EOF
+# Agent-network preset: dashboard hides the standard NetBird surfaces
+# and exposes only the AI Observability + agent-network configuration
+# pages. Paired with NB_PROXY_PRIVATE=true on the proxy side.
+NETBIRD_AGENT_NETWORK_ONLY=true
+EOF
+  fi
   return 0
 }
 
@@ -813,7 +979,7 @@ NB_PROXY_MANAGEMENT_ADDRESS=http://netbird-server:80
 # Allow insecure gRPC connection to management (required for internal Docker network)
 NB_PROXY_ALLOW_INSECURE=true
 # Public URL where this proxy is reachable (used for cluster registration)
-NB_PROXY_DOMAIN=$PROXY_DOMAIN
+NB_PROXY_DOMAIN=$NETBIRD_DOMAIN
 NB_PROXY_ADDRESS=:8443
 NB_PROXY_TOKEN=$PROXY_TOKEN
 NB_PROXY_CERTIFICATE_DIRECTORY=/certs
@@ -825,6 +991,25 @@ NB_PROXY_PROXY_PROTOCOL=true
 # Trust Traefik's IP for PROXY protocol headers
 NB_PROXY_TRUSTED_PROXIES=$TRAEFIK_IP
 EOF
+
+  if [[ "${NETBIRD_AGENT_NETWORK}" == "true" ]]; then
+    cat <<EOF
+# Agent-network preset: turn the proxy into the private reverse-proxy
+# ingress for agent-network synth services. Disables the public-facing
+# surface so the proxy serves only synth-generated routes (the
+# llm_router-driven LLM endpoints) and the per-account inbound
+# listeners on the embedded netstack.
+NB_PROXY_PRIVATE=true
+EOF
+  fi
+
+  if [[ "$ENABLE_CROWDSEC" == "true" && -n "$CROWDSEC_BOUNCER_KEY" ]]; then
+    cat <<EOF
+NB_PROXY_CROWDSEC_API_URL=http://crowdsec:8080
+NB_PROXY_CROWDSEC_API_KEY=$CROWDSEC_BOUNCER_KEY
+EOF
+  fi
+
   return 0
 }
 
@@ -1196,15 +1381,47 @@ print_builtin_traefik_instructions() {
   echo "  - $NETBIRD_STUN_PORT/udp   (STUN - required for NAT traversal)"
   if [[ "$ENABLE_PROXY" == "true" ]]; then
     echo "  - 51820/udp (WIREGUARD - (optional) for P2P proxy connections)"
+  fi
+  echo ""
+  if [[ "${NETBIRD_AGENT_NETWORK}" == "true" ]]; then
+    echo "For enterprise environments requiring high availability and advanced integrations,"
+    echo "consider a commercial on-prem license:"
     echo ""
+    echo "  Commercial license: https://netbird.ai/pricing"
+    echo "  Documentation: https://docs.netbird.io/agent-network"
+  else
+    echo "This setup is ideal for homelabs and smaller organization deployments."
+    echo "For enterprise environments requiring high availability and advanced integrations,"
+    echo "consider a commercial on-prem license or scaling your open source deployment:"
+    echo ""
+    echo "  Commercial license: https://netbird.io/pricing#on-prem"
+    echo "  Scaling guide:      https://docs.netbird.io/scaling-your-self-hosted-deployment"
+  fi
+  echo ""
+  if [[ "$ENABLE_PROXY" == "true" ]]; then
     echo "NetBird Proxy:"
     echo "  The proxy service is enabled and running."
     echo "  Any domain NOT matching $NETBIRD_DOMAIN will be passed through to the proxy."
     echo "  The proxy handles its own TLS certificates via ACME TLS-ALPN-01 challenge."
     echo "  Point your proxy domain to this server's domain address like in the examples below:"
     echo ""
-    echo "  $PROXY_DOMAIN      CNAME    $NETBIRD_DOMAIN"
-    echo "  *.$PROXY_DOMAIN    CNAME    $NETBIRD_DOMAIN"
+    echo "  *.$NETBIRD_DOMAIN    CNAME    $NETBIRD_DOMAIN"
+    echo ""
+    if [[ "$ENABLE_CROWDSEC" == "true" ]]; then
+      echo "CrowdSec IP Reputation:"
+      echo "  CrowdSec LAPI is running and connected to the community blocklist."
+      echo "  The proxy will automatically check client IPs against known threats."
+      echo "  Enable CrowdSec per-service in the dashboard under Access Control."
+      echo ""
+      echo "  To enroll in CrowdSec Console (optional, for dashboard and premium blocklists):"
+      echo "    docker exec netbird-crowdsec cscli console enroll <your-enrollment-key>"
+      echo "  Get your enrollment key at: https://app.crowdsec.net"
+      echo ""
+    fi
+  fi
+  if [[ "${NETBIRD_AGENT_NETWORK}" == "true" ]]; then
+    echo "Note: The public domain is only for setting up secure connections."
+    echo "Your APIs and agent services remain private and are never exposed publicly."
     echo ""
   fi
   return 0

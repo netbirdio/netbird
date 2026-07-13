@@ -46,23 +46,27 @@ func (s *Signaler) Ready() bool {
 
 // SignalOfferAnswer signals either an offer or an answer to remote peer
 func (s *Signaler) signalOfferAnswer(offerAnswer OfferAnswer, remoteKey string, bodyType sProto.Body_Type) error {
-	sessionIDBytes, err := offerAnswer.SessionID.Bytes()
-	if err != nil {
-		log.Warnf("failed to get session ID bytes: %v", err)
+	var sessionIDBytes []byte
+	if offerAnswer.SessionID != nil {
+		var err error
+		sessionIDBytes, err = offerAnswer.SessionID.Bytes()
+		if err != nil {
+			log.Warnf("failed to get session ID bytes: %v", err)
+		}
 	}
-	msg, err := signal.MarshalCredential(
-		s.wgPrivateKey,
-		offerAnswer.WgListenPort,
-		remoteKey,
-		&signal.Credential{
+	msg, err := signal.MarshalCredential(s.wgPrivateKey, remoteKey, signal.CredentialPayload{
+		Type:         bodyType,
+		WgListenPort: offerAnswer.WgListenPort,
+		Credential: &signal.Credential{
 			UFrag: offerAnswer.IceCredentials.UFrag,
 			Pwd:   offerAnswer.IceCredentials.Pwd,
 		},
-		bodyType,
-		offerAnswer.RosenpassPubKey,
-		offerAnswer.RosenpassAddr,
-		offerAnswer.RelaySrvAddress,
-		sessionIDBytes)
+		RosenpassPubKey: offerAnswer.RosenpassPubKey,
+		RosenpassAddr:   offerAnswer.RosenpassAddr,
+		RelaySrvAddress: offerAnswer.RelaySrvAddress,
+		RelaySrvIP:      offerAnswer.RelaySrvIP,
+		SessionID:       sessionIDBytes,
+	})
 	if err != nil {
 		return err
 	}

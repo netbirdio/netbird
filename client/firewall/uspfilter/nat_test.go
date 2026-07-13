@@ -86,13 +86,18 @@ func parsePacket(t testing.TB, packetData []byte) *decoder {
 	d := &decoder{
 		decoded: []gopacket.LayerType{},
 	}
-	d.parser = gopacket.NewDecodingLayerParser(
+	d.parser4 = gopacket.NewDecodingLayerParser(
 		layers.LayerTypeIPv4,
 		&d.eth, &d.ip4, &d.ip6, &d.icmp4, &d.icmp6, &d.tcp, &d.udp,
 	)
-	d.parser.IgnoreUnsupported = true
+	d.parser4.IgnoreUnsupported = true
+	d.parser6 = gopacket.NewDecodingLayerParser(
+		layers.LayerTypeIPv6,
+		&d.eth, &d.ip4, &d.ip6, &d.icmp4, &d.icmp6, &d.tcp, &d.udp,
+	)
+	d.parser6.IgnoreUnsupported = true
 
-	err := d.parser.DecodeLayers(packetData, &d.decoded)
+	err := d.decodePacket(packetData)
 	require.NoError(t, err)
 	return d
 }

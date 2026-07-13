@@ -2,7 +2,9 @@ package uspfilter
 
 import (
 	"fmt"
+	"net"
 	"net/netip"
+	"strconv"
 	"time"
 
 	"github.com/google/gopacket"
@@ -112,10 +114,13 @@ func (t *PacketTrace) AddResultWithForwarder(stage PacketStage, message string, 
 }
 
 func (p *PacketBuilder) Build() ([]byte, error) {
-	ip := p.buildIPLayer()
-	pktLayers := []gopacket.SerializableLayer{ip}
+	ipLayer, err := p.buildIPLayer()
+	if err != nil {
+		return nil, err
+	}
+	pktLayers := []gopacket.SerializableLayer{ipLayer}
 
-	transportLayer, err := p.buildTransportLayer(ip)
+	transportLayer, err := p.buildTransportLayer(ipLayer)
 	if err != nil {
 		return nil, err
 	}
@@ -129,30 +134,43 @@ func (p *PacketBuilder) Build() ([]byte, error) {
 	return serializePacket(pktLayers)
 }
 
-func (p *PacketBuilder) buildIPLayer() *layers.IPv4 {
+func (p *PacketBuilder) buildIPLayer() (gopacket.SerializableLayer, error) {
+	if p.SrcIP.Is4() != p.DstIP.Is4() {
+		return nil, fmt.Errorf("mixed address families: src=%s dst=%s", p.SrcIP, p.DstIP)
+	}
+	proto := getIPProtocolNumber(p.Protocol, p.SrcIP.Is6())
+	if p.SrcIP.Is6() {
+		return &layers.IPv6{
+			Version:    6,
+			HopLimit:   64,
+			NextHeader: proto,
+			SrcIP:      p.SrcIP.AsSlice(),
+			DstIP:      p.DstIP.AsSlice(),
+		}, nil
+	}
 	return &layers.IPv4{
 		Version:  4,
 		TTL:      64,
-		Protocol: layers.IPProtocol(getIPProtocolNumber(p.Protocol)),
+		Protocol: proto,
 		SrcIP:    p.SrcIP.AsSlice(),
 		DstIP:    p.DstIP.AsSlice(),
-	}
+	}, nil
 }
 
-func (p *PacketBuilder) buildTransportLayer(ip *layers.IPv4) ([]gopacket.SerializableLayer, error) {
+func (p *PacketBuilder) buildTransportLayer(ipLayer gopacket.SerializableLayer) ([]gopacket.SerializableLayer, error) {
 	switch p.Protocol {
 	case "tcp":
-		return p.buildTCPLayer(ip)
+		return p.buildTCPLayer(ipLayer)
 	case "udp":
-		return p.buildUDPLayer(ip)
+		return p.buildUDPLayer(ipLayer)
 	case "icmp":
-		return p.buildICMPLayer()
+		return p.buildICMPLayer(ipLayer)
 	default:
 		return nil, fmt.Errorf("unsupported protocol: %s", p.Protocol)
 	}
 }
 
-func (p *PacketBuilder) buildTCPLayer(ip *layers.IPv4) ([]gopacket.SerializableLayer, error) {
+func (p *PacketBuilder) buildTCPLayer(ipLayer gopacket.SerializableLayer) ([]gopacket.SerializableLayer, error) {
 	tcp := &layers.TCP{
 		SrcPort: layers.TCPPort(p.SrcPort),
 		DstPort: layers.TCPPort(p.DstPort),
@@ -164,24 +182,44 @@ func (p *PacketBuilder) buildTCPLayer(ip *layers.IPv4) ([]gopacket.SerializableL
 		PSH:     p.TCPState != nil && p.TCPState.PSH,
 		URG:     p.TCPState != nil && p.TCPState.URG,
 	}
-	if err := tcp.SetNetworkLayerForChecksum(ip); err != nil {
-		return nil, fmt.Errorf("set network layer for TCP checksum: %w", err)
+	if nl, ok := ipLayer.(gopacket.NetworkLayer); ok {
+		if err := tcp.SetNetworkLayerForChecksum(nl); err != nil {
+			return nil, fmt.Errorf("set network layer for TCP checksum: %w", err)
+		}
 	}
 	return []gopacket.SerializableLayer{tcp}, nil
 }
 
-func (p *PacketBuilder) buildUDPLayer(ip *layers.IPv4) ([]gopacket.SerializableLayer, error) {
+func (p *PacketBuilder) buildUDPLayer(ipLayer gopacket.SerializableLayer) ([]gopacket.SerializableLayer, error) {
 	udp := &layers.UDP{
 		SrcPort: layers.UDPPort(p.SrcPort),
 		DstPort: layers.UDPPort(p.DstPort),
 	}
-	if err := udp.SetNetworkLayerForChecksum(ip); err != nil {
-		return nil, fmt.Errorf("set network layer for UDP checksum: %w", err)
+	if nl, ok := ipLayer.(gopacket.NetworkLayer); ok {
+		if err := udp.SetNetworkLayerForChecksum(nl); err != nil {
+			return nil, fmt.Errorf("set network layer for UDP checksum: %w", err)
+		}
 	}
 	return []gopacket.SerializableLayer{udp}, nil
 }
 
-func (p *PacketBuilder) buildICMPLayer() ([]gopacket.SerializableLayer, error) {
+func (p *PacketBuilder) buildICMPLayer(ipLayer gopacket.SerializableLayer) ([]gopacket.SerializableLayer, error) {
+	if p.SrcIP.Is6() || p.DstIP.Is6() {
+		icmp := &layers.ICMPv6{
+			TypeCode: layers.CreateICMPv6TypeCode(p.ICMPType, p.ICMPCode),
+		}
+		if nl, ok := ipLayer.(gopacket.NetworkLayer); ok {
+			_ = icmp.SetNetworkLayerForChecksum(nl)
+		}
+		if p.ICMPType == layers.ICMPv6TypeEchoRequest || p.ICMPType == layers.ICMPv6TypeEchoReply {
+			echo := &layers.ICMPv6Echo{
+				Identifier: 1,
+				SeqNumber:  1,
+			}
+			return []gopacket.SerializableLayer{icmp, echo}, nil
+		}
+		return []gopacket.SerializableLayer{icmp}, nil
+	}
 	icmp := &layers.ICMPv4{
 		TypeCode: layers.CreateICMPv4TypeCode(p.ICMPType, p.ICMPCode),
 	}
@@ -204,14 +242,17 @@ func serializePacket(layers []gopacket.SerializableLayer) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func getIPProtocolNumber(protocol fw.Protocol) int {
+func getIPProtocolNumber(protocol fw.Protocol, isV6 bool) layers.IPProtocol {
 	switch protocol {
 	case fw.ProtocolTCP:
-		return int(layers.IPProtocolTCP)
+		return layers.IPProtocolTCP
 	case fw.ProtocolUDP:
-		return int(layers.IPProtocolUDP)
+		return layers.IPProtocolUDP
 	case fw.ProtocolICMP:
-		return int(layers.IPProtocolICMPv4)
+		if isV6 {
+			return layers.IPProtocolICMPv6
+		}
+		return layers.IPProtocolICMPv4
 	default:
 		return 0
 	}
@@ -234,7 +275,7 @@ func (m *Manager) TracePacket(packetData []byte, direction fw.RuleDirection) *Pa
 	trace := &PacketTrace{Direction: direction}
 
 	// Initial packet decoding
-	if err := d.parser.DecodeLayers(packetData, &d.decoded); err != nil {
+	if err := d.decodePacket(packetData); err != nil {
 		trace.AddResult(StageReceived, fmt.Sprintf("Failed to decode packet: %v", err), false)
 		return trace
 	}
@@ -256,6 +297,8 @@ func (m *Manager) TracePacket(packetData []byte, direction fw.RuleDirection) *Pa
 		trace.DestinationPort = uint16(d.udp.DstPort)
 	case layers.LayerTypeICMPv4:
 		trace.Protocol = "ICMP"
+	case layers.LayerTypeICMPv6:
+		trace.Protocol = "ICMPv6"
 	}
 
 	trace.AddResult(StageReceived, fmt.Sprintf("Received %s packet: %s:%d -> %s:%d",
@@ -319,6 +362,13 @@ func (m *Manager) buildConntrackStateMessage(d *decoder) string {
 			flags&conntrack.TCPFin != 0)
 	case layers.LayerTypeICMPv4:
 		msg += fmt.Sprintf(" (ICMP ID=%d, Seq=%d)", d.icmp4.Id, d.icmp4.Seq)
+	case layers.LayerTypeICMPv6:
+		var id, seq uint16
+		if len(d.icmp6.Payload) >= 4 {
+			id = uint16(d.icmp6.Payload[0])<<8 | uint16(d.icmp6.Payload[1])
+			seq = uint16(d.icmp6.Payload[2])<<8 | uint16(d.icmp6.Payload[3])
+		}
+		msg += fmt.Sprintf(" (ICMPv6 ID=%d, Seq=%d)", id, seq)
 	}
 	return msg
 }
@@ -395,7 +445,7 @@ func (m *Manager) handleRouteACLs(trace *PacketTrace, d *decoder, srcIP, dstIP n
 	trace.AddResult(StageRouteACL, msg, allowed)
 
 	if allowed && m.forwarder.Load() != nil {
-		m.addForwardingResult(trace, "proxy-remote", fmt.Sprintf("%s:%d", dstIP, dstPort), true)
+		m.addForwardingResult(trace, "proxy-remote", net.JoinHostPort(dstIP.String(), strconv.Itoa(int(dstPort))), true)
 	}
 
 	trace.AddResult(StageCompleted, msgProcessingCompleted, allowed)
@@ -415,7 +465,7 @@ func (m *Manager) traceOutbound(packetData []byte, trace *PacketTrace) *PacketTr
 	d := m.decoders.Get().(*decoder)
 	defer m.decoders.Put(d)
 
-	if err := d.parser.DecodeLayers(packetData, &d.decoded); err != nil {
+	if err := d.decodePacket(packetData); err != nil {
 		trace.AddResult(StageCompleted, "Packet dropped - decode error", false)
 		return trace
 	}
@@ -434,7 +484,7 @@ func (m *Manager) traceOutbound(packetData []byte, trace *PacketTrace) *PacketTr
 func (m *Manager) handleInboundDNAT(trace *PacketTrace, packetData []byte, d *decoder, srcIP, dstIP *netip.Addr) bool {
 	portDNATApplied := m.traceInboundPortDNAT(trace, packetData, d)
 	if portDNATApplied {
-		if err := d.parser.DecodeLayers(packetData, &d.decoded); err != nil {
+		if err := d.decodePacket(packetData); err != nil {
 			trace.AddResult(StageInboundPortDNAT, "Failed to re-decode after port DNAT", false)
 			return true
 		}
@@ -444,7 +494,7 @@ func (m *Manager) handleInboundDNAT(trace *PacketTrace, packetData []byte, d *de
 
 	nat1to1Applied := m.traceInbound1to1NAT(trace, packetData, d)
 	if nat1to1Applied {
-		if err := d.parser.DecodeLayers(packetData, &d.decoded); err != nil {
+		if err := d.decodePacket(packetData); err != nil {
 			trace.AddResult(StageInbound1to1NAT, "Failed to re-decode after 1:1 NAT", false)
 			return true
 		}
@@ -509,7 +559,7 @@ func (m *Manager) traceInbound1to1NAT(trace *PacketTrace, packetData []byte, d *
 		return false
 	}
 
-	srcIP := netip.AddrFrom4([4]byte{packetData[12], packetData[13], packetData[14], packetData[15]})
+	srcIP, _ := extractPacketIPs(packetData, d)
 
 	translated := m.translateInboundReverse(packetData, d)
 	if translated {
@@ -539,7 +589,7 @@ func (m *Manager) traceOutbound1to1NAT(trace *PacketTrace, packetData []byte, d 
 		return false
 	}
 
-	dstIP := netip.AddrFrom4([4]byte{packetData[16], packetData[17], packetData[18], packetData[19]})
+	_, dstIP := extractPacketIPs(packetData, d)
 
 	translated := m.translateOutboundDNAT(packetData, d)
 	if translated {

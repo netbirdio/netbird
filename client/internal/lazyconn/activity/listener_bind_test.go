@@ -3,7 +3,6 @@ package activity
 import (
 	"net"
 	"net/netip"
-	"runtime"
 	"testing"
 	"time"
 
@@ -17,10 +16,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
 	peerid "github.com/netbirdio/netbird/client/internal/peer/id"
 )
-
-func isBindListenerPlatform() bool {
-	return runtime.GOOS == "windows" || runtime.GOOS == "js"
-}
 
 // mockEndpointManager implements device.EndpointManager for testing
 type mockEndpointManager struct {
@@ -50,10 +45,6 @@ type MockWGIfaceBind struct {
 	endpointMgr *mockEndpointManager
 }
 
-func (m *MockWGIfaceBind) RemovePeer(string) error {
-	return nil
-}
-
 func (m *MockWGIfaceBind) UpdatePeer(string, []netip.Prefix, time.Duration, *net.UDPAddr, *wgtypes.Key) error {
 	return nil
 }
@@ -71,6 +62,10 @@ func (m *MockWGIfaceBind) Address() wgaddr.Address {
 
 func (m *MockWGIfaceBind) GetBind() device.EndpointManager {
 	return m.endpointMgr
+}
+
+func (m *MockWGIfaceBind) MTU() uint16 {
+	return 1280
 }
 
 func TestBindListener_Creation(t *testing.T) {
@@ -181,10 +176,6 @@ func TestBindListener_Close(t *testing.T) {
 }
 
 func TestManager_BindMode(t *testing.T) {
-	if !isBindListenerPlatform() {
-		t.Skip("BindListener only used on Windows/JS platforms")
-	}
-
 	mockEndpointMgr := newMockEndpointManager()
 	mockIface := &MockWGIfaceBind{endpointMgr: mockEndpointMgr}
 
@@ -216,8 +207,9 @@ func TestManager_BindMode(t *testing.T) {
 	require.NoError(t, err)
 
 	select {
-	case peerConnID := <-mgr.OnActivityChan:
-		assert.Equal(t, cfg.PeerConnID, peerConnID, "Received peer connection ID should match")
+	case ev := <-mgr.OnActivityChan:
+		assert.Equal(t, cfg.PeerConnID, ev.PeerConnID, "Received peer connection ID should match")
+		assert.Nil(t, ev.FirstPacket, "Bind mode does not capture packets: reinjection is kernel-only")
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for activity notification")
 	}
@@ -226,10 +218,6 @@ func TestManager_BindMode(t *testing.T) {
 }
 
 func TestManager_BindMode_MultiplePeers(t *testing.T) {
-	if !isBindListenerPlatform() {
-		t.Skip("BindListener only used on Windows/JS platforms")
-	}
-
 	mockEndpointMgr := newMockEndpointManager()
 	mockIface := &MockWGIfaceBind{endpointMgr: mockEndpointMgr}
 
@@ -279,8 +267,8 @@ func TestManager_BindMode_MultiplePeers(t *testing.T) {
 	receivedPeers := make(map[peerid.ConnID]bool)
 	for i := 0; i < 2; i++ {
 		select {
-		case peerConnID := <-mgr.OnActivityChan:
-			receivedPeers[peerConnID] = true
+		case ev := <-mgr.OnActivityChan:
+			receivedPeers[ev.PeerConnID] = true
 		case <-time.After(2 * time.Second):
 			t.Fatal("timeout waiting for activity notifications")
 		}

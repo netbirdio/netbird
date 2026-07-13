@@ -11,6 +11,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/telemetry"
 
 	"github.com/netbirdio/netbird/management/server/store"
 )
@@ -47,6 +48,11 @@ type EphemeralManager struct {
 
 	lifeTime      time.Duration
 	cleanupWindow time.Duration
+
+	// metrics is nil-safe; methods on telemetry.EphemeralPeersMetrics
+	// no-op when the receiver is nil so deployments without an app
+	// metrics provider work unchanged.
+	metrics *telemetry.EphemeralPeersMetrics
 }
 
 // NewEphemeralManager instantiate new EphemeralManager
@@ -58,6 +64,15 @@ func NewEphemeralManager(store store.Store, peersManager peers.Manager) *Ephemer
 		lifeTime:      ephemeral.EphemeralLifeTime,
 		cleanupWindow: cleanupWindow,
 	}
+}
+
+// SetMetrics attaches a metrics collector. Safe to call once before
+// LoadInitialPeers; later attachment is fine but earlier loads won't be
+// reflected in the gauge. Pass nil to detach.
+func (e *EphemeralManager) SetMetrics(m *telemetry.EphemeralPeersMetrics) {
+	e.peersLock.Lock()
+	e.metrics = m
+	e.peersLock.Unlock()
 }
 
 // LoadInitialPeers load from the database the ephemeral type of peers and schedule a cleanup procedure to the head
@@ -97,7 +112,9 @@ func (e *EphemeralManager) OnPeerConnected(ctx context.Context, peer *nbpeer.Pee
 	e.peersLock.Lock()
 	defer e.peersLock.Unlock()
 
-	e.removePeer(peer.ID)
+	if e.removePeer(peer.ID) {
+		e.metrics.DecPending(1)
+	}
 
 	// stop the unnecessary timer
 	if e.headPeer == nil && e.timer != nil {
@@ -123,6 +140,7 @@ func (e *EphemeralManager) OnPeerDisconnected(ctx context.Context, peer *nbpeer.
 	}
 
 	e.addPeer(peer.AccountID, peer.ID, e.newDeadLine())
+	e.metrics.IncPending()
 	if e.timer == nil {
 		delay := e.headPeer.deadline.Sub(timeNow()) + e.cleanupWindow
 		if delay < 0 {
@@ -145,6 +163,7 @@ func (e *EphemeralManager) loadEphemeralPeers(ctx context.Context) {
 	for _, p := range peers {
 		e.addPeer(p.AccountID, p.ID, t)
 	}
+	e.metrics.AddPending(int64(len(peers)))
 
 	log.WithContext(ctx).Debugf("loaded ephemeral peer(s): %d", len(peers))
 }
@@ -181,6 +200,15 @@ func (e *EphemeralManager) cleanup(ctx context.Context) {
 
 	e.peersLock.Unlock()
 
+	// Drop the gauge by the number of entries we just took off the list,
+	// regardless of whether the subsequent DeletePeers call succeeds. The
+	// list invariant is what the gauge tracks; failed delete batches are
+	// counted separately via CountCleanupError so we can still see them.
+	if len(deletePeers) > 0 {
+		e.metrics.CountCleanupRun()
+		e.metrics.DecPending(int64(len(deletePeers)))
+	}
+
 	peerIDsPerAccount := make(map[string][]string)
 	for id, p := range deletePeers {
 		peerIDsPerAccount[p.accountID] = append(peerIDsPerAccount[p.accountID], id)
@@ -191,7 +219,10 @@ func (e *EphemeralManager) cleanup(ctx context.Context) {
 		err := e.peersManager.DeletePeers(ctx, accountID, peerIDs, activity.SystemInitiator, true)
 		if err != nil {
 			log.WithContext(ctx).Errorf("failed to delete ephemeral peers: %s", err)
+			e.metrics.CountCleanupError()
+			continue
 		}
+		e.metrics.CountPeersCleaned(int64(len(peerIDs)))
 	}
 }
 
@@ -211,9 +242,12 @@ func (e *EphemeralManager) addPeer(accountID string, peerID string, deadline tim
 	e.tailPeer = ep
 }
 
-func (e *EphemeralManager) removePeer(id string) {
+// removePeer drops the entry from the linked list. Returns true if a
+// matching entry was found and removed so callers can keep the pending
+// metric gauge in sync.
+func (e *EphemeralManager) removePeer(id string) bool {
 	if e.headPeer == nil {
-		return
+		return false
 	}
 
 	if e.headPeer.id == id {
@@ -221,7 +255,7 @@ func (e *EphemeralManager) removePeer(id string) {
 		if e.tailPeer.id == id {
 			e.tailPeer = nil
 		}
-		return
+		return true
 	}
 
 	for p := e.headPeer; p.next != nil; p = p.next {
@@ -231,9 +265,10 @@ func (e *EphemeralManager) removePeer(id string) {
 				e.tailPeer = p
 			}
 			p.next = p.next.next
-			return
+			return true
 		}
 	}
+	return false
 }
 
 func (e *EphemeralManager) isPeerOnList(id string) bool {

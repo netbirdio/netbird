@@ -29,6 +29,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/relay/healthcheck"
 	relayServer "github.com/netbirdio/netbird/relay/server"
+	"github.com/netbirdio/netbird/relay/server/listener"
 	"github.com/netbirdio/netbird/relay/server/listener/ws"
 	sharedMetrics "github.com/netbirdio/netbird/shared/metrics"
 	"github.com/netbirdio/netbird/shared/relay/auth"
@@ -64,6 +65,10 @@ func init() {
 	_ = rootCmd.MarkPersistentFlagRequired("config")
 
 	rootCmd.AddCommand(newTokenCommands())
+}
+
+func RootCmd() *cobra.Command {
+	return rootCmd
 }
 
 func Execute() error {
@@ -140,6 +145,23 @@ func initializeConfig() error {
 			os.Setenv("NB_STORE_ENGINE_MYSQL_DSN", dsn)
 		}
 	}
+	if file := config.Server.Store.File; file != "" {
+		os.Setenv("NB_STORE_ENGINE_SQLITE_FILE", file)
+	}
+
+	if engine := config.Server.ActivityStore.Engine; engine != "" {
+		engineLower := strings.ToLower(engine)
+		if engineLower == "postgres" && config.Server.ActivityStore.DSN == "" {
+			return fmt.Errorf("activityStore.dsn is required when activityStore.engine is postgres")
+		}
+		os.Setenv("NB_ACTIVITY_EVENT_STORE_ENGINE", engineLower)
+		if dsn := config.Server.ActivityStore.DSN; dsn != "" {
+			os.Setenv("NB_ACTIVITY_EVENT_POSTGRES_DSN", dsn)
+		}
+	}
+	if file := config.Server.ActivityStore.File; file != "" {
+		os.Setenv("NB_ACTIVITY_EVENT_SQLITE_FILE", file)
+	}
 
 	log.Infof("Starting combined NetBird server")
 	logConfig(config)
@@ -150,7 +172,7 @@ func initializeConfig() error {
 // serverInstances holds all server instances created during startup.
 type serverInstances struct {
 	relaySrv      *relayServer.Server
-	mgmtSrv       *mgmtServer.BaseServer
+	mgmtSrv       mgmtServer.Server
 	signalSrv     *signalServer.Server
 	healthcheck   *healthcheck.Server
 	stunServer    *stun.Server
@@ -306,19 +328,24 @@ func setupServerHooks(servers *serverInstances, cfg *CombinedConfig) {
 		return
 	}
 
-	servers.mgmtSrv.AfterInit(func(s *mgmtServer.BaseServer) {
-		grpcSrv := s.GRPCServer()
+	if s, ok := servers.mgmtSrv.GetContainer(mgmtServer.ContainerKeyBaseServer); ok {
+		if baseServer, ok := s.(*mgmtServer.BaseServer); ok {
+			baseServer.AfterInit(func(s *mgmtServer.BaseServer) {
+				grpcSrv := s.GRPCServer()
 
-		if servers.signalSrv != nil {
-			proto.RegisterSignalExchangeServer(grpcSrv, servers.signalSrv)
-			log.Infof("Signal server registered on port %s", cfg.Server.ListenAddress)
-		}
+				if servers.signalSrv != nil {
+					proto.RegisterSignalExchangeServer(grpcSrv, servers.signalSrv)
+					log.Infof("Signal server registered on port %s", cfg.Server.ListenAddress)
+				}
 
-		s.SetHandlerFunc(createCombinedHandler(grpcSrv, s.APIHandler(), servers.relaySrv, servers.metricsServer.Meter, cfg))
-		if servers.relaySrv != nil {
-			log.Infof("Relay WebSocket handler added (path: /relay)")
+				s.SetHandlerFunc(createCombinedHandler(grpcSrv, s.APIHandler(), s.IDPHandler(), servers.relaySrv, servers.metricsServer.Meter, cfg))
+				if servers.relaySrv != nil {
+					log.Infof("Relay WebSocket handler added (path: /relay)")
+				}
+			})
 		}
-	})
+	}
+
 }
 
 func startServers(wg *sync.WaitGroup, srv *relayServer.Server, httpHealthcheck *healthcheck.Server, stunServer *stun.Server, metricsServer *sharedMetrics.Metrics) {
@@ -328,38 +355,32 @@ func startServers(wg *sync.WaitGroup, srv *relayServer.Server, httpHealthcheck *
 		log.Infof("Relay WebSocket multiplexed on management port (no separate relay listener)")
 	}
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		log.Infof("running metrics server: %s%s", metricsServer.Addr, metricsServer.Endpoint)
 		if err := metricsServer.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("failed to start metrics server: %v", err)
 		}
-	}()
+	})
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		if err := httpHealthcheck.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("failed to start healthcheck server: %v", err)
 		}
-	}()
+	})
 
 	if stunServer != nil {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			if err := stunServer.Listen(); err != nil {
 				if errors.Is(err, stun.ErrServerClosed) {
 					return
 				}
 				log.Errorf("STUN server error: %v", err)
 			}
-		}()
+		})
 	}
 }
 
-func shutdownServers(ctx context.Context, srv *relayServer.Server, httpHealthcheck *healthcheck.Server, stunServer *stun.Server, mgmtSrv *mgmtServer.BaseServer, metricsServer *sharedMetrics.Metrics) error {
+func shutdownServers(ctx context.Context, srv *relayServer.Server, httpHealthcheck *healthcheck.Server, stunServer *stun.Server, mgmtSrv mgmtServer.Server, metricsServer *sharedMetrics.Metrics) error {
 	var errs error
 
 	if err := httpHealthcheck.Shutdown(ctx); err != nil {
@@ -473,11 +494,8 @@ func handleTLSConfig(cfg *CombinedConfig) (*tls.Config, bool, error) {
 	return nil, false, nil
 }
 
-func createManagementServer(cfg *CombinedConfig, mgmtConfig *nbconfig.Config) (*mgmtServer.BaseServer, error) {
+func createManagementServer(cfg *CombinedConfig, mgmtConfig *nbconfig.Config) (mgmtServer.Server, error) {
 	mgmt := cfg.Management
-
-	dnsDomain := mgmt.DnsDomain
-	singleAccModeDomain := dnsDomain
 
 	// Extract port from listen address
 	_, portStr, err := net.SplitHostPort(cfg.Server.ListenAddress)
@@ -487,11 +505,12 @@ func createManagementServer(cfg *CombinedConfig, mgmtConfig *nbconfig.Config) (*
 	}
 	mgmtPort, _ := strconv.Atoi(portStr)
 
-	mgmtSrv := mgmtServer.NewServer(
+	mgmtSrv := newServer(
 		&mgmtServer.Config{
 			NbConfig:                mgmtConfig,
-			DNSDomain:               dnsDomain,
-			MgmtSingleAccModeDomain: singleAccModeDomain,
+			DNSDomain:               "",
+			MgmtSingleAccModeDomain: "",
+			AutoResolveDomains:      true,
 			MgmtPort:                mgmtPort,
 			MgmtMetricsPort:         cfg.Server.MetricsPort,
 			DisableMetrics:          mgmt.DisableAnonymousMetrics,
@@ -505,10 +524,10 @@ func createManagementServer(cfg *CombinedConfig, mgmtConfig *nbconfig.Config) (*
 }
 
 // createCombinedHandler creates an HTTP handler that multiplexes Management, Signal (via wsproxy), and Relay WebSocket traffic
-func createCombinedHandler(grpcServer *grpc.Server, httpHandler http.Handler, relaySrv *relayServer.Server, meter metric.Meter, cfg *CombinedConfig) http.Handler {
+func createCombinedHandler(grpcServer *grpc.Server, httpHandler http.Handler, idpHandler http.Handler, relaySrv *relayServer.Server, meter metric.Meter, cfg *CombinedConfig) http.Handler {
 	wsProxy := wsproxyserver.New(grpcServer, wsproxyserver.WithOTelMeter(meter))
 
-	var relayAcceptFn func(conn net.Conn)
+	var relayAcceptFn func(conn listener.Conn)
 	if relaySrv != nil {
 		relayAcceptFn = relaySrv.RelayAccept()
 	}
@@ -540,6 +559,10 @@ func createCombinedHandler(grpcServer *grpc.Server, httpHandler http.Handler, re
 				http.Error(w, "Relay service not enabled", http.StatusNotFound)
 			}
 
+		// Embedded IdP (Dex)
+		case idpHandler != nil && strings.HasPrefix(r.URL.Path, "/oauth2"):
+			idpHandler.ServeHTTP(w, r)
+
 		// Management HTTP API (default)
 		default:
 			httpHandler.ServeHTTP(w, r)
@@ -548,7 +571,7 @@ func createCombinedHandler(grpcServer *grpc.Server, httpHandler http.Handler, re
 }
 
 // handleRelayWebSocket handles incoming WebSocket connections for the relay service
-func handleRelayWebSocket(w http.ResponseWriter, r *http.Request, acceptFn func(conn net.Conn), cfg *CombinedConfig) {
+func handleRelayWebSocket(w http.ResponseWriter, r *http.Request, acceptFn func(conn listener.Conn), cfg *CombinedConfig) {
 	acceptOptions := &websocket.AcceptOptions{
 		OriginPatterns: []string{"*"},
 	}
@@ -570,15 +593,9 @@ func handleRelayWebSocket(w http.ResponseWriter, r *http.Request, acceptFn func(
 		return
 	}
 
-	lAddr, err := net.ResolveTCPAddr("tcp", cfg.Server.ListenAddress)
-	if err != nil {
-		_ = wsConn.Close(websocket.StatusInternalError, "internal error")
-		return
-	}
-
 	log.Debugf("Relay WS client connected from: %s", rAddr)
 
-	conn := ws.NewConn(wsConn, lAddr, rAddr)
+	conn := ws.NewConn(wsConn, rAddr)
 	acceptFn(conn)
 }
 
@@ -668,8 +685,11 @@ func logEnvVars() {
 		if strings.HasPrefix(env, "NB_") {
 			key, _, _ := strings.Cut(env, "=")
 			value := os.Getenv(key)
-			if strings.Contains(strings.ToLower(key), "secret") || strings.Contains(strings.ToLower(key), "key") || strings.Contains(strings.ToLower(key), "password") {
+			keyLower := strings.ToLower(key)
+			if strings.Contains(keyLower, "secret") || strings.Contains(keyLower, "key") || strings.Contains(keyLower, "password") {
 				value = maskSecret(value)
+			} else if strings.Contains(keyLower, "dsn") {
+				value = maskDSNPassword(value)
 			}
 			log.Infof("  %s=%s", key, value)
 			found = true

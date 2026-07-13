@@ -197,6 +197,7 @@ func NewManager(ctx context.Context, config Config, appMetrics telemetry.AppMetr
 	case "jumpcloud":
 		return NewJumpCloudManager(JumpCloudClientConfig{
 			APIToken: config.ExtraConfig["ApiToken"],
+			ApiUrl:   config.ExtraConfig["ApiUrl"],
 		}, appMetrics)
 	case "pocketid":
 		return NewPocketIdManager(PocketIdClientConfig{

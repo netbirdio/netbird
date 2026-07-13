@@ -23,8 +23,8 @@ func isPlatformUnix() bool {
 
 // Dependency injection variables for testing - allows mocking dynamic runtime checks
 var (
-	getCurrentUser         = user.Current
-	lookupUser             = user.Lookup
+	getCurrentUser         = currentUserWithGetent
+	lookupUser             = lookupWithGetent
 	getCurrentOS           = func() string { return runtime.GOOS }
 	getIsProcessPrivileged = isCurrentProcessPrivileged
 

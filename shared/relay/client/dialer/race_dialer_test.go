@@ -28,7 +28,7 @@ type MockDialer struct {
 	protocolStr string
 }
 
-func (m *MockDialer) Dial(ctx context.Context, address string) (net.Conn, error) {
+func (m *MockDialer) Dial(ctx context.Context, address, _ string) (net.Conn, error) {
 	return m.dialFunc(ctx, address)
 }
 
@@ -78,7 +78,7 @@ func TestRaceDialEmptyDialers(t *testing.T) {
 	serverURL := "test.server.com"
 
 	rd := NewRaceDial(logger, DefaultConnectionTimeout, serverURL)
-	conn, err := rd.Dial()
+	conn, err := rd.Dial(context.Background())
 	if err == nil {
 		t.Errorf("Expected an error with empty dialers, got nil")
 	}
@@ -104,7 +104,7 @@ func TestRaceDialSingleSuccessfulDialer(t *testing.T) {
 	}
 
 	rd := NewRaceDial(logger, DefaultConnectionTimeout, serverURL, mockDialer)
-	conn, err := rd.Dial()
+	conn, err := rd.Dial(context.Background())
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
 	}
@@ -137,7 +137,7 @@ func TestRaceDialMultipleDialersWithOneSuccess(t *testing.T) {
 	}
 
 	rd := NewRaceDial(logger, DefaultConnectionTimeout, serverURL, mockDialer1, mockDialer2)
-	conn, err := rd.Dial()
+	conn, err := rd.Dial(context.Background())
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
 	}
@@ -160,7 +160,7 @@ func TestRaceDialTimeout(t *testing.T) {
 	}
 
 	rd := NewRaceDial(logger, 3*time.Second, serverURL, mockDialer)
-	conn, err := rd.Dial()
+	conn, err := rd.Dial(context.Background())
 	if err == nil {
 		t.Errorf("Expected an error, got nil")
 	}
@@ -188,7 +188,7 @@ func TestRaceDialAllDialersFail(t *testing.T) {
 	}
 
 	rd := NewRaceDial(logger, DefaultConnectionTimeout, serverURL, mockDialer1, mockDialer2)
-	conn, err := rd.Dial()
+	conn, err := rd.Dial(context.Background())
 	if err == nil {
 		t.Errorf("Expected an error, got nil")
 	}
@@ -230,7 +230,7 @@ func TestRaceDialFirstSuccessfulDialerWins(t *testing.T) {
 	}
 
 	rd := NewRaceDial(logger, DefaultConnectionTimeout, serverURL, mockDialer1, mockDialer2)
-	conn, err := rd.Dial()
+	conn, err := rd.Dial(context.Background())
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
 	}
@@ -248,5 +248,68 @@ func TestRaceDialFirstSuccessfulDialerWins(t *testing.T) {
 		if !errors.Is(err, context.Canceled) {
 			t.Errorf("Expected context.Canceled error, got %v", err)
 		}
+	}
+}
+
+func TestRaceDialSequentialFallback(t *testing.T) {
+	logger := logrus.NewEntry(logrus.New())
+	serverURL := "test.server.com"
+
+	var firstDialed, secondDialed bool
+	preferred := &MockDialer{
+		protocolStr: "quic",
+		dialFunc: func(ctx context.Context, address string) (net.Conn, error) {
+			firstDialed = true
+			return nil, errors.New("quic unreachable")
+		},
+	}
+	fallbackConn := &MockConn{remoteAddr: &MockAddr{network: "ws"}}
+	fallback := &MockDialer{
+		protocolStr: "ws",
+		dialFunc: func(ctx context.Context, address string) (net.Conn, error) {
+			secondDialed = true
+			return fallbackConn, nil
+		},
+	}
+
+	rd := NewRaceDial(logger, DefaultConnectionTimeout, serverURL, preferred, fallback).WithSequential()
+	conn, err := rd.Dial(context.Background())
+	if err != nil {
+		t.Fatalf("expected fallback to succeed, got %v", err)
+	}
+	if conn != fallbackConn {
+		t.Errorf("expected fallback connection, got %v", conn)
+	}
+	if !firstDialed || !secondDialed {
+		t.Errorf("expected both dialers attempted in order, first=%v second=%v", firstDialed, secondDialed)
+	}
+}
+
+func TestRaceDialSequentialPreferredWins(t *testing.T) {
+	logger := logrus.NewEntry(logrus.New())
+	serverURL := "test.server.com"
+
+	preferredConn := &MockConn{remoteAddr: &MockAddr{network: "quic"}}
+	preferred := &MockDialer{
+		protocolStr: "quic",
+		dialFunc: func(ctx context.Context, address string) (net.Conn, error) {
+			return preferredConn, nil
+		},
+	}
+	fallback := &MockDialer{
+		protocolStr: "ws",
+		dialFunc: func(ctx context.Context, address string) (net.Conn, error) {
+			t.Errorf("fallback dialer must not be tried when preferred succeeds")
+			return nil, errors.New("should not happen")
+		},
+	}
+
+	rd := NewRaceDial(logger, DefaultConnectionTimeout, serverURL, preferred, fallback).WithSequential()
+	conn, err := rd.Dial(context.Background())
+	if err != nil {
+		t.Fatalf("expected preferred to succeed, got %v", err)
+	}
+	if conn != preferredConn {
+		t.Errorf("expected preferred connection, got %v", conn)
 	}
 }

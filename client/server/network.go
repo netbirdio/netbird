@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"golang.org/x/exp/maps"
+	"google.golang.org/grpc/codes"
+	gstatus "google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/route"
@@ -16,16 +18,21 @@ import (
 )
 
 type selectRoute struct {
-	NetID    route.NetID
-	Network  netip.Prefix
-	Domains  domain.List
-	Selected bool
+	NetID         route.NetID
+	Network       netip.Prefix
+	Domains       domain.List
+	Selected      bool
+	extraNetworks []netip.Prefix
 }
 
 // ListNetworks returns a list of all available networks.
 func (s *Server) ListNetworks(context.Context, *proto.ListNetworksRequest) (*proto.ListNetworksResponse, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
+
+	if s.checkNetworksDisabled() {
+		return nil, gstatus.Errorf(codes.Unavailable, errNetworksDisabled)
+	}
 
 	if s.connectClient == nil {
 		return nil, fmt.Errorf("not connected")
@@ -44,18 +51,32 @@ func (s *Server) ListNetworks(context.Context, *proto.ListNetworksRequest) (*pro
 	routesMap := routeMgr.GetClientRoutesWithNetID()
 	routeSelector := routeMgr.GetRouteSelector()
 
+	v6ExitMerged := route.V6ExitMergeSet(routesMap)
+
 	var routes []*selectRoute
 	for id, rt := range routesMap {
 		if len(rt) == 0 {
 			continue
 		}
-		route := &selectRoute{
+		// Skip v6 exit nodes that are merged into their v4 counterpart.
+		if _, ok := v6ExitMerged[id]; ok {
+			continue
+		}
+
+		r := &selectRoute{
 			NetID:    id,
 			Network:  rt[0].Network,
 			Domains:  rt[0].Domains,
 			Selected: routeSelector.IsSelected(id),
 		}
-		routes = append(routes, route)
+
+		// Merge paired v6 exit node prefix into this entry.
+		v6ID := route.NetID(string(id) + route.V6ExitSuffix)
+		if _, ok := v6ExitMerged[v6ID]; ok && len(routesMap[v6ID]) > 0 {
+			r.extraNetworks = []netip.Prefix{routesMap[v6ID][0].Network}
+		}
+
+		routes = append(routes, r)
 	}
 
 	sort.Slice(routes, func(i, j int) bool {
@@ -76,9 +97,13 @@ func (s *Server) ListNetworks(context.Context, *proto.ListNetworksRequest) (*pro
 	resolvedDomains := s.statusRecorder.GetResolvedDomainsStates()
 	var pbRoutes []*proto.Network
 	for _, route := range routes {
+		rangeStr := route.Network.String()
+		for _, extra := range route.extraNetworks {
+			rangeStr += ", " + extra.String()
+		}
 		pbRoute := &proto.Network{
 			ID:          string(route.NetID),
-			Range:       route.Network.String(),
+			Range:       rangeStr,
 			Domains:     route.Domains.ToSafeStringList(),
 			ResolvedIPs: map[string]*proto.IPList{},
 			Selected:    route.Selected,
@@ -118,6 +143,10 @@ func (s *Server) SelectNetworks(_ context.Context, req *proto.SelectNetworksRequ
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
+	if s.checkNetworksDisabled() {
+		return nil, gstatus.Errorf(codes.Unavailable, errNetworksDisabled)
+	}
+
 	if s.connectClient == nil {
 		return nil, fmt.Errorf("not connected")
 	}
@@ -137,9 +166,22 @@ func (s *Server) SelectNetworks(_ context.Context, req *proto.SelectNetworksRequ
 		routeSelector.SelectAllRoutes()
 	} else {
 		routes := toNetIDs(req.GetNetworkIDs())
-		netIdRoutes := maps.Keys(routeManager.GetClientRoutesWithNetID())
+		routesMap := routeManager.GetClientRoutesWithNetID()
+		routes = route.ExpandV6ExitPairs(routes, routesMap)
+		netIdRoutes := maps.Keys(routesMap)
 		if err := routeSelector.SelectRoutes(routes, req.GetAppend(), netIdRoutes); err != nil {
 			return nil, fmt.Errorf("select routes: %w", err)
+		}
+
+		// Exit nodes are mutually exclusive: if this selection activates an
+		// exit node, deselect every other available exit node so two can't be
+		// selected at once. Non-exit route selections are left untouched.
+		if requestActivatesExitNode(routes, routesMap) {
+			if others := otherExitNodeIDs(routesMap, routes); len(others) > 0 {
+				if err := routeSelector.DeselectRoutes(others, netIdRoutes); err != nil {
+					return nil, fmt.Errorf("deselect sibling exit nodes: %w", err)
+				}
+			}
 		}
 	}
 	routeManager.TriggerSelection(routeManager.GetClientRoutes())
@@ -164,6 +206,10 @@ func (s *Server) DeselectNetworks(_ context.Context, req *proto.SelectNetworksRe
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
+	if s.checkNetworksDisabled() {
+		return nil, gstatus.Errorf(codes.Unavailable, errNetworksDisabled)
+	}
+
 	if s.connectClient == nil {
 		return nil, fmt.Errorf("not connected")
 	}
@@ -183,7 +229,9 @@ func (s *Server) DeselectNetworks(_ context.Context, req *proto.SelectNetworksRe
 		routeSelector.DeselectAllRoutes()
 	} else {
 		routes := toNetIDs(req.GetNetworkIDs())
-		netIdRoutes := maps.Keys(routeManager.GetClientRoutesWithNetID())
+		routesMap := routeManager.GetClientRoutesWithNetID()
+		routes = route.ExpandV6ExitPairs(routes, routesMap)
+		netIdRoutes := maps.Keys(routesMap)
 		if err := routeSelector.DeselectRoutes(routes, netIdRoutes); err != nil {
 			return nil, fmt.Errorf("deselect routes: %w", err)
 		}
@@ -211,4 +259,39 @@ func toNetIDs(routes []string) []route.NetID {
 		netIDs = append(netIDs, route.NetID(rt))
 	}
 	return netIDs
+}
+
+func isExitNodeRoutes(routes []*route.Route) bool {
+	return len(routes) > 0 && (route.IsV4DefaultRoute(routes[0].Network) || route.IsV6DefaultRoute(routes[0].Network))
+}
+
+// requestActivatesExitNode reports whether any requested NetID maps to an exit
+// node (default route) in the current route table.
+func requestActivatesExitNode(requested []route.NetID, routesMap map[route.NetID][]*route.Route) bool {
+	for _, id := range requested {
+		if isExitNodeRoutes(routesMap[id]) {
+			return true
+		}
+	}
+	return false
+}
+
+// otherExitNodeIDs returns every available exit-node NetID that is not in the
+// requested set — the siblings to deselect so a single exit node stays active.
+func otherExitNodeIDs(routesMap map[route.NetID][]*route.Route, requested []route.NetID) []route.NetID {
+	keep := make(map[route.NetID]struct{}, len(requested))
+	for _, id := range requested {
+		keep[id] = struct{}{}
+	}
+	var others []route.NetID
+	for id, routes := range routesMap {
+		if !isExitNodeRoutes(routes) {
+			continue
+		}
+		if _, ok := keep[id]; ok {
+			continue
+		}
+		others = append(others, id)
+	}
+	return others
 }

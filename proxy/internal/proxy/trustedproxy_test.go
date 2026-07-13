@@ -48,77 +48,77 @@ func TestResolveClientIP(t *testing.T) {
 		remoteAddr string
 		xff        string
 		trusted    []netip.Prefix
-		want       string
+		want       netip.Addr
 	}{
 		{
 			name:       "empty trusted list returns RemoteAddr",
 			remoteAddr: "203.0.113.50:9999",
 			xff:        "1.2.3.4",
 			trusted:    nil,
-			want:       "203.0.113.50",
+			want:       netip.MustParseAddr("203.0.113.50"),
 		},
 		{
 			name:       "untrusted RemoteAddr ignores XFF",
 			remoteAddr: "203.0.113.50:9999",
 			xff:        "1.2.3.4, 10.0.0.1",
 			trusted:    trusted,
-			want:       "203.0.113.50",
+			want:       netip.MustParseAddr("203.0.113.50"),
 		},
 		{
 			name:       "trusted RemoteAddr with single client in XFF",
 			remoteAddr: "10.0.0.1:5000",
 			xff:        "203.0.113.50",
 			trusted:    trusted,
-			want:       "203.0.113.50",
+			want:       netip.MustParseAddr("203.0.113.50"),
 		},
 		{
 			name:       "trusted RemoteAddr walks past trusted entries in XFF",
 			remoteAddr: "10.0.0.1:5000",
 			xff:        "203.0.113.50, 10.0.0.2, 172.16.0.5",
 			trusted:    trusted,
-			want:       "203.0.113.50",
+			want:       netip.MustParseAddr("203.0.113.50"),
 		},
 		{
 			name:       "trusted RemoteAddr with empty XFF falls back to RemoteAddr",
 			remoteAddr: "10.0.0.1:5000",
 			xff:        "",
 			trusted:    trusted,
-			want:       "10.0.0.1",
+			want:       netip.MustParseAddr("10.0.0.1"),
 		},
 		{
 			name:       "all XFF IPs trusted returns leftmost",
 			remoteAddr: "10.0.0.1:5000",
 			xff:        "10.0.0.2, 172.16.0.1, 10.0.0.3",
 			trusted:    trusted,
-			want:       "10.0.0.2",
+			want:       netip.MustParseAddr("10.0.0.2"),
 		},
 		{
 			name:       "XFF with whitespace",
 			remoteAddr: "10.0.0.1:5000",
 			xff:        " 203.0.113.50 , 10.0.0.2 ",
 			trusted:    trusted,
-			want:       "203.0.113.50",
+			want:       netip.MustParseAddr("203.0.113.50"),
 		},
 		{
 			name:       "XFF with empty segments",
 			remoteAddr: "10.0.0.1:5000",
 			xff:        "203.0.113.50,,10.0.0.2",
 			trusted:    trusted,
-			want:       "203.0.113.50",
+			want:       netip.MustParseAddr("203.0.113.50"),
 		},
 		{
 			name:       "multi-hop with mixed trust",
 			remoteAddr: "10.0.0.1:5000",
 			xff:        "8.8.8.8, 203.0.113.50, 172.16.0.1",
 			trusted:    trusted,
-			want:       "203.0.113.50",
+			want:       netip.MustParseAddr("203.0.113.50"),
 		},
 		{
 			name:       "RemoteAddr without port",
 			remoteAddr: "10.0.0.1",
 			xff:        "203.0.113.50",
 			trusted:    trusted,
-			want:       "203.0.113.50",
+			want:       netip.MustParseAddr("203.0.113.50"),
 		},
 	}
 	for _, tt := range tests {

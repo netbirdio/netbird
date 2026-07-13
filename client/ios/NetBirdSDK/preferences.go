@@ -110,6 +110,24 @@ func (p *Preferences) GetRosenpassPermissive() (bool, error) {
 	return cfg.RosenpassPermissive, err
 }
 
+// GetDisableIPv6 reads disable IPv6 setting from config file
+func (p *Preferences) GetDisableIPv6() (bool, error) {
+	if p.configInput.DisableIPv6 != nil {
+		return *p.configInput.DisableIPv6, nil
+	}
+
+	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
+	if err != nil {
+		return false, err
+	}
+	return cfg.DisableIPv6, err
+}
+
+// SetDisableIPv6 stores the given value and waits for commit
+func (p *Preferences) SetDisableIPv6(disable bool) {
+	p.configInput.DisableIPv6 = &disable
+}
+
 // Commit write out the changes into config file
 func (p *Preferences) Commit() error {
 	// Use DirectUpdateOrCreateConfig to avoid atomic file operations (temp file + rename)

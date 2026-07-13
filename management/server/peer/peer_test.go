@@ -5,6 +5,7 @@ import (
 	"net/netip"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -138,6 +139,28 @@ func TestFlags_IsEqual(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			require.Equal(t, tt.expect, tt.f1.isEqual(tt.f2))
+		})
+	}
+}
+
+func TestPeerCapabilities(t *testing.T) {
+	tests := []struct {
+		name         string
+		capabilities []int32
+		ipv6         bool
+		srcPrefixes  bool
+	}{
+		{"no capabilities", nil, false, false},
+		{"only source prefixes", []int32{PeerCapabilitySourcePrefixes}, false, true},
+		{"only ipv6", []int32{PeerCapabilityIPv6Overlay}, true, false},
+		{"both", []int32{PeerCapabilitySourcePrefixes, PeerCapabilityIPv6Overlay}, true, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &Peer{Meta: PeerSystemMeta{Capabilities: tt.capabilities}}
+			assert.Equal(t, tt.ipv6, p.SupportsIPv6())
+			assert.Equal(t, tt.srcPrefixes, p.SupportsSourcePrefixes())
 		})
 	}
 }

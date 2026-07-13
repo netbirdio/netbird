@@ -151,8 +151,11 @@ func (t *TunDevice) MTU() uint16 {
 	return t.mtu
 }
 
-func (t *TunDevice) UpdateAddr(_ wgaddr.Address) error {
-	// todo implement
+// UpdateAddr updates the device address. On iOS the tunnel is managed by the
+// NetworkExtension, so we only store the new value. The extension picks up the
+// change on the next tunnel reconfiguration.
+func (t *TunDevice) UpdateAddr(addr wgaddr.Address) error {
+	t.address = addr
 	return nil
 }
 

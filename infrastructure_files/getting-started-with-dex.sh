@@ -172,8 +172,11 @@ init_environment() {
   echo "You can access the NetBird dashboard at $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN"
   echo ""
   echo "Login with the following credentials:"
-  echo "Email: admin@$NETBIRD_DOMAIN" | tee .env
-  echo "Password: $NETBIRD_ADMIN_PASSWORD" | tee -a .env
+  install -m 600 /dev/null .env
+  printf 'Email: admin@%s\nPassword: %s\n' \
+      "$NETBIRD_DOMAIN" "$NETBIRD_ADMIN_PASSWORD" >> .env
+  echo "Email: admin@$NETBIRD_DOMAIN"
+  echo "Password: $NETBIRD_ADMIN_PASSWORD"
   echo ""
   echo "Dex admin UI is not available (Dex has no built-in UI)."
   echo "To add more users, edit dex.yaml and restart: $DOCKER_COMPOSE_COMMAND restart dex"

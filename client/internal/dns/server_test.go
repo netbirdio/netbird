@@ -6,15 +6,15 @@ import (
 	"net"
 	"net/netip"
 	"os"
-	"strings"
+	"runtime"
 	"testing"
 	"time"
 
-	"github.com/golang/mock/gomock"
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/tun/netstack"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
@@ -22,7 +22,6 @@ import (
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/device"
-	pfmock "github.com/netbirdio/netbird/client/iface/mocks"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/dns/local"
 	"github.com/netbirdio/netbird/client/internal/dns/test"
@@ -31,8 +30,10 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
+	"github.com/netbirdio/netbird/client/proto"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/formatter"
+	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
@@ -99,480 +100,6 @@ var zoneRecords = []nbdns.SimpleRecord{
 func init() {
 	log.SetLevel(log.TraceLevel)
 	formatter.SetTextFormatter(log.StandardLogger())
-}
-
-func generateDummyHandler(domain string, servers []nbdns.NameServer) *upstreamResolverBase {
-	var srvs []netip.AddrPort
-	for _, srv := range servers {
-		srvs = append(srvs, srv.AddrPort())
-	}
-	return &upstreamResolverBase{
-		domain:          domain,
-		upstreamServers: srvs,
-		cancel:          func() {},
-	}
-}
-
-func TestUpdateDNSServer(t *testing.T) {
-
-	nameServers := []nbdns.NameServer{
-		{
-			IP:     netip.MustParseAddr("8.8.8.8"),
-			NSType: nbdns.UDPNameServerType,
-			Port:   53,
-		},
-		{
-			IP:     netip.MustParseAddr("8.8.4.4"),
-			NSType: nbdns.UDPNameServerType,
-			Port:   53,
-		},
-	}
-
-	dummyHandler := local.NewResolver()
-
-	testCases := []struct {
-		name                string
-		initUpstreamMap     registeredHandlerMap
-		initLocalZones      []nbdns.CustomZone
-		initSerial          uint64
-		inputSerial         uint64
-		inputUpdate         nbdns.Config
-		shouldFail          bool
-		expectedUpstreamMap registeredHandlerMap
-		expectedLocalQs     []dns.Question
-	}{
-		{
-			name:            "Initial Config Should Succeed",
-			initUpstreamMap: make(registeredHandlerMap),
-			initSerial:      0,
-			inputSerial:     1,
-			inputUpdate: nbdns.Config{
-				ServiceEnable: true,
-				CustomZones: []nbdns.CustomZone{
-					{
-						Domain:  "netbird.cloud",
-						Records: zoneRecords,
-					},
-				},
-				NameServerGroups: []*nbdns.NameServerGroup{
-					{
-						Domains:     []string{"netbird.io"},
-						NameServers: nameServers,
-					},
-					{
-						NameServers: nameServers,
-						Primary:     true,
-					},
-				},
-			},
-			expectedUpstreamMap: registeredHandlerMap{
-				generateDummyHandler("netbird.io", nameServers).ID(): handlerWrapper{
-					domain:   "netbird.io",
-					handler:  dummyHandler,
-					priority: PriorityUpstream,
-				},
-				dummyHandler.ID(): handlerWrapper{
-					domain:   "netbird.cloud",
-					handler:  dummyHandler,
-					priority: PriorityLocal,
-				},
-				generateDummyHandler(".", nameServers).ID(): handlerWrapper{
-					domain:   nbdns.RootZone,
-					handler:  dummyHandler,
-					priority: PriorityDefault,
-				},
-			},
-			expectedLocalQs: []dns.Question{{Name: "peera.netbird.cloud.", Qtype: dns.TypeA, Qclass: dns.ClassINET}},
-		},
-		{
-			name:           "New Config Should Succeed",
-			initLocalZones: []nbdns.CustomZone{{Domain: "netbird.cloud", Records: []nbdns.SimpleRecord{{Name: "netbird.cloud", Type: 1, Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"}}}},
-			initUpstreamMap: registeredHandlerMap{
-				generateDummyHandler(zoneRecords[0].Name, nameServers).ID(): handlerWrapper{
-					domain:   "netbird.cloud",
-					handler:  dummyHandler,
-					priority: PriorityUpstream,
-				},
-			},
-			initSerial:  0,
-			inputSerial: 1,
-			inputUpdate: nbdns.Config{
-				ServiceEnable: true,
-				CustomZones: []nbdns.CustomZone{
-					{
-						Domain:  "netbird.cloud",
-						Records: zoneRecords,
-					},
-				},
-				NameServerGroups: []*nbdns.NameServerGroup{
-					{
-						Domains:     []string{"netbird.io"},
-						NameServers: nameServers,
-					},
-				},
-			},
-			expectedUpstreamMap: registeredHandlerMap{
-				generateDummyHandler("netbird.io", nameServers).ID(): handlerWrapper{
-					domain:   "netbird.io",
-					handler:  dummyHandler,
-					priority: PriorityUpstream,
-				},
-				"local-resolver": handlerWrapper{
-					domain:   "netbird.cloud",
-					handler:  dummyHandler,
-					priority: PriorityLocal,
-				},
-			},
-			expectedLocalQs: []dns.Question{{Name: zoneRecords[0].Name, Qtype: 1, Qclass: 1}},
-		},
-		{
-			name:            "Smaller Config Serial Should Be Skipped",
-			initLocalZones:  []nbdns.CustomZone{},
-			initUpstreamMap: make(registeredHandlerMap),
-			initSerial:      2,
-			inputSerial:     1,
-			shouldFail:      true,
-		},
-		{
-			name:            "Empty NS Group Domain Or Not Primary Element Should Fail",
-			initLocalZones:  []nbdns.CustomZone{},
-			initUpstreamMap: make(registeredHandlerMap),
-			initSerial:      0,
-			inputSerial:     1,
-			inputUpdate: nbdns.Config{
-				ServiceEnable: true,
-				CustomZones: []nbdns.CustomZone{
-					{
-						Domain:  "netbird.cloud",
-						Records: zoneRecords,
-					},
-				},
-				NameServerGroups: []*nbdns.NameServerGroup{
-					{
-						NameServers: nameServers,
-					},
-				},
-			},
-			shouldFail: true,
-		},
-		{
-			name:            "Invalid NS Group Nameservers list Should Fail",
-			initLocalZones:  []nbdns.CustomZone{},
-			initUpstreamMap: make(registeredHandlerMap),
-			initSerial:      0,
-			inputSerial:     1,
-			inputUpdate: nbdns.Config{
-				ServiceEnable: true,
-				CustomZones: []nbdns.CustomZone{
-					{
-						Domain:  "netbird.cloud",
-						Records: zoneRecords,
-					},
-				},
-				NameServerGroups: []*nbdns.NameServerGroup{
-					{
-						NameServers: nameServers,
-					},
-				},
-			},
-			shouldFail: true,
-		},
-		{
-			name:            "Invalid Custom Zone Records list Should Skip",
-			initLocalZones:  []nbdns.CustomZone{},
-			initUpstreamMap: make(registeredHandlerMap),
-			initSerial:      0,
-			inputSerial:     1,
-			inputUpdate: nbdns.Config{
-				ServiceEnable: true,
-				CustomZones: []nbdns.CustomZone{
-					{
-						Domain: "netbird.cloud",
-					},
-				},
-				NameServerGroups: []*nbdns.NameServerGroup{
-					{
-						NameServers: nameServers,
-						Primary:     true,
-					},
-				},
-			},
-			expectedUpstreamMap: registeredHandlerMap{generateDummyHandler(".", nameServers).ID(): handlerWrapper{
-				domain:   ".",
-				handler:  dummyHandler,
-				priority: PriorityDefault,
-			}},
-		},
-		{
-			name:           "Empty Config Should Succeed and Clean Maps",
-			initLocalZones: []nbdns.CustomZone{{Domain: "netbird.cloud", Records: []nbdns.SimpleRecord{{Name: "netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"}}}},
-			initUpstreamMap: registeredHandlerMap{
-				generateDummyHandler(zoneRecords[0].Name, nameServers).ID(): handlerWrapper{
-					domain:   zoneRecords[0].Name,
-					handler:  dummyHandler,
-					priority: PriorityUpstream,
-				},
-			},
-			initSerial:          0,
-			inputSerial:         1,
-			inputUpdate:         nbdns.Config{ServiceEnable: true},
-			expectedUpstreamMap: make(registeredHandlerMap),
-			expectedLocalQs:     []dns.Question{},
-		},
-		{
-			name:           "Disabled Service Should clean map",
-			initLocalZones: []nbdns.CustomZone{{Domain: "netbird.cloud", Records: []nbdns.SimpleRecord{{Name: "netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"}}}},
-			initUpstreamMap: registeredHandlerMap{
-				generateDummyHandler(zoneRecords[0].Name, nameServers).ID(): handlerWrapper{
-					domain:   zoneRecords[0].Name,
-					handler:  dummyHandler,
-					priority: PriorityUpstream,
-				},
-			},
-			initSerial:          0,
-			inputSerial:         1,
-			inputUpdate:         nbdns.Config{ServiceEnable: false},
-			expectedUpstreamMap: make(registeredHandlerMap),
-			expectedLocalQs:     []dns.Question{},
-		},
-	}
-
-	for n, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			privKey, _ := wgtypes.GenerateKey()
-			newNet, err := stdnet.NewNet(context.Background(), nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			opts := iface.WGIFaceOpts{
-				IFaceName:    fmt.Sprintf("utun230%d", n),
-				Address:      fmt.Sprintf("100.66.100.%d/32", n+1),
-				WGPort:       33100,
-				WGPrivKey:    privKey.String(),
-				MTU:          iface.DefaultMTU,
-				TransportNet: newNet,
-			}
-
-			wgIface, err := iface.NewWGIFace(opts)
-			if err != nil {
-				t.Fatal(err)
-			}
-			err = wgIface.Create()
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer func() {
-				err = wgIface.Close()
-				if err != nil {
-					t.Log(err)
-				}
-			}()
-			dnsServer, err := NewDefaultServer(context.Background(), DefaultServerConfig{
-				WgInterface:    wgIface,
-				CustomAddress:  "",
-				StatusRecorder: peer.NewRecorder("mgm"),
-				StateManager:   nil,
-				DisableSys:     false,
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			err = dnsServer.Initialize()
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer func() {
-				err = dnsServer.hostManager.restoreHostDNS()
-				if err != nil {
-					t.Log(err)
-				}
-			}()
-
-			dnsServer.dnsMuxMap = testCase.initUpstreamMap
-			dnsServer.localResolver.Update(testCase.initLocalZones)
-			dnsServer.updateSerial = testCase.initSerial
-
-			err = dnsServer.UpdateDNSServer(testCase.inputSerial, testCase.inputUpdate)
-			if err != nil {
-				if testCase.shouldFail {
-					return
-				}
-				t.Fatalf("update dns server should not fail, got error: %v", err)
-			}
-
-			if len(dnsServer.dnsMuxMap) != len(testCase.expectedUpstreamMap) {
-				t.Fatalf("update upstream failed, map size is different than expected, want %d, got %d", len(testCase.expectedUpstreamMap), len(dnsServer.dnsMuxMap))
-			}
-
-			for key := range testCase.expectedUpstreamMap {
-				_, found := dnsServer.dnsMuxMap[key]
-				if !found {
-					t.Fatalf("update upstream failed, key %s was not found in the dnsMuxMap: %#v", key, dnsServer.dnsMuxMap)
-				}
-			}
-
-			var responseMSG *dns.Msg
-			responseWriter := &test.MockResponseWriter{
-				WriteMsgFunc: func(m *dns.Msg) error {
-					responseMSG = m
-					return nil
-				},
-			}
-			for _, q := range testCase.expectedLocalQs {
-				dnsServer.localResolver.ServeDNS(responseWriter, &dns.Msg{
-					Question: []dns.Question{q},
-				})
-			}
-
-			if len(testCase.expectedLocalQs) > 0 {
-				assert.NotNil(t, responseMSG, "response message should not be nil")
-				assert.Equal(t, dns.RcodeSuccess, responseMSG.Rcode, "response code should be success")
-				assert.NotEmpty(t, responseMSG.Answer, "response message should have answers")
-			}
-		})
-	}
-}
-
-func TestDNSFakeResolverHandleUpdates(t *testing.T) {
-	ov := os.Getenv("NB_WG_KERNEL_DISABLED")
-	defer t.Setenv("NB_WG_KERNEL_DISABLED", ov)
-
-	t.Setenv("NB_WG_KERNEL_DISABLED", "true")
-	newNet, err := stdnet.NewNet(context.Background(), []string{"utun2301"})
-	if err != nil {
-		t.Errorf("create stdnet: %v", err)
-		return
-	}
-
-	privKey, _ := wgtypes.GeneratePrivateKey()
-	opts := iface.WGIFaceOpts{
-		IFaceName:    "utun2301",
-		Address:      "100.66.100.1/32",
-		WGPort:       33100,
-		WGPrivKey:    privKey.String(),
-		MTU:          iface.DefaultMTU,
-		TransportNet: newNet,
-	}
-	wgIface, err := iface.NewWGIFace(opts)
-	if err != nil {
-		t.Errorf("build interface wireguard: %v", err)
-		return
-	}
-
-	err = wgIface.Create()
-	if err != nil {
-		t.Errorf("create and init wireguard interface: %v", err)
-		return
-	}
-	defer func() {
-		if err = wgIface.Close(); err != nil {
-			t.Logf("close wireguard interface: %v", err)
-		}
-	}()
-
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	packetfilter := pfmock.NewMockPacketFilter(ctrl)
-	packetfilter.EXPECT().FilterOutbound(gomock.Any(), gomock.Any()).AnyTimes()
-	packetfilter.EXPECT().AddUDPPacketHook(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any())
-	packetfilter.EXPECT().RemovePacketHook(gomock.Any())
-
-	if err := wgIface.SetFilter(packetfilter); err != nil {
-		t.Errorf("set packet filter: %v", err)
-		return
-	}
-
-	dnsServer, err := NewDefaultServer(context.Background(), DefaultServerConfig{
-		WgInterface:    wgIface,
-		CustomAddress:  "",
-		StatusRecorder: peer.NewRecorder("mgm"),
-		StateManager:   nil,
-		DisableSys:     false,
-	})
-	if err != nil {
-		t.Errorf("create DNS server: %v", err)
-		return
-	}
-
-	err = dnsServer.Initialize()
-	if err != nil {
-		t.Errorf("run DNS server: %v", err)
-		return
-	}
-	defer func() {
-		if err = dnsServer.hostManager.restoreHostDNS(); err != nil {
-			t.Logf("restore DNS settings on the host: %v", err)
-			return
-		}
-	}()
-
-	dnsServer.dnsMuxMap = registeredHandlerMap{
-		"id1": handlerWrapper{
-			domain:   zoneRecords[0].Name,
-			handler:  &local.Resolver{},
-			priority: PriorityUpstream,
-		},
-	}
-	dnsServer.localResolver.Update([]nbdns.CustomZone{{Domain: "netbird.cloud", Records: []nbdns.SimpleRecord{{Name: "netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"}}}})
-	dnsServer.updateSerial = 0
-
-	nameServers := []nbdns.NameServer{
-		{
-			IP:     netip.MustParseAddr("8.8.8.8"),
-			NSType: nbdns.UDPNameServerType,
-			Port:   53,
-		},
-		{
-			IP:     netip.MustParseAddr("8.8.4.4"),
-			NSType: nbdns.UDPNameServerType,
-			Port:   53,
-		},
-	}
-
-	update := nbdns.Config{
-		ServiceEnable: true,
-		CustomZones: []nbdns.CustomZone{
-			{
-				Domain:  "netbird.cloud",
-				Records: zoneRecords,
-			},
-		},
-		NameServerGroups: []*nbdns.NameServerGroup{
-			{
-				Domains:     []string{"netbird.io"},
-				NameServers: nameServers,
-			},
-			{
-				NameServers: nameServers,
-				Primary:     true,
-			},
-		},
-	}
-
-	// Start the server with regular configuration
-	if err := dnsServer.UpdateDNSServer(1, update); err != nil {
-		t.Fatalf("update dns server should not fail, got error: %v", err)
-		return
-	}
-
-	update2 := update
-	update2.ServiceEnable = false
-	// Disable the server, stop the listener
-	if err := dnsServer.UpdateDNSServer(2, update2); err != nil {
-		t.Fatalf("update dns server should not fail, got error: %v", err)
-		return
-	}
-
-	update3 := update2
-	update3.NameServerGroups = update3.NameServerGroups[:1]
-	// But service still get updates and we checking that we handle
-	// internal state in the right way
-	if err := dnsServer.UpdateDNSServer(3, update3); err != nil {
-		t.Fatalf("update dns server should not fail, got error: %v", err)
-		return
-	}
 }
 
 func TestDNSServerStartStop(t *testing.T) {
@@ -653,74 +180,8 @@ func TestDNSServerStartStop(t *testing.T) {
 	}
 }
 
-func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
-	hostManager := &mockHostConfigurator{}
-	server := DefaultServer{
-		ctx:           context.Background(),
-		service:       NewServiceViaMemory(&mocWGIface{}),
-		localResolver: local.NewResolver(),
-		handlerChain:  NewHandlerChain(),
-		hostManager:   hostManager,
-		currentConfig: HostDNSConfig{
-			Domains: []DomainConfig{
-				{false, "domain0", false},
-				{false, "domain1", false},
-				{false, "domain2", false},
-			},
-		},
-		statusRecorder: peer.NewRecorder("mgm"),
-	}
-
-	var domainsUpdate string
-	hostManager.applyDNSConfigFunc = func(config HostDNSConfig, statemanager *statemanager.Manager) error {
-		domains := []string{}
-		for _, item := range config.Domains {
-			if item.Disabled {
-				continue
-			}
-			domains = append(domains, item.Domain)
-		}
-		domainsUpdate = strings.Join(domains, ",")
-		return nil
-	}
-
-	deactivate, reactivate := server.upstreamCallbacks(&nbdns.NameServerGroup{
-		Domains: []string{"domain1"},
-		NameServers: []nbdns.NameServer{
-			{IP: netip.MustParseAddr("8.8.0.0"), NSType: nbdns.UDPNameServerType, Port: 53},
-		},
-	}, nil, 0)
-
-	deactivate(nil)
-	expected := "domain0,domain2"
-	domains := []string{}
-	for _, item := range server.currentConfig.Domains {
-		if item.Disabled {
-			continue
-		}
-		domains = append(domains, item.Domain)
-	}
-	got := strings.Join(domains, ",")
-	if expected != got {
-		t.Errorf("expected domains list: %q, got %q", expected, got)
-	}
-
-	reactivate()
-	expected = "domain0,domain1,domain2"
-	domains = []string{}
-	for _, item := range server.currentConfig.Domains {
-		if item.Disabled {
-			continue
-		}
-		domains = append(domains, item.Domain)
-	}
-	got = strings.Join(domains, ",")
-	if expected != got {
-		t.Errorf("expected domains list: %q, got %q", expected, domainsUpdate)
-	}
-}
-
 func TestDNSPermanent_updateHostDNS_emptyUpstream(t *testing.T) {
+	skipUnlessAndroid(t)
 	wgIFace, err := createWgInterfaceWithBind(t)
 	if err != nil {
 		t.Fatal("failed to initialize wg interface")
@@ -748,6 +209,7 @@ func TestDNSPermanent_updateHostDNS_emptyUpstream(t *testing.T) {
 }
 
 func TestDNSPermanent_updateUpstream(t *testing.T) {
+	skipUnlessAndroid(t)
 	wgIFace, err := createWgInterfaceWithBind(t)
 	if err != nil {
 		t.Fatal("failed to initialize wg interface")
@@ -841,6 +303,7 @@ func TestDNSPermanent_updateUpstream(t *testing.T) {
 }
 
 func TestDNSPermanent_matchOnly(t *testing.T) {
+	skipUnlessAndroid(t)
 	wgIFace, err := createWgInterfaceWithBind(t)
 	if err != nil {
 		t.Fatal("failed to initialize wg interface")
@@ -913,6 +376,18 @@ func TestDNSPermanent_matchOnly(t *testing.T) {
 	}
 }
 
+// skipUnlessAndroid marks tests that exercise the mobile-permanent DNS path,
+// which only matches a real production setup on android (NewDefaultServerPermanentUpstream
+// + androidHostManager). On non-android the desktop host manager replaces it
+// during Initialize and the assertion stops making sense. Skipped here until we
+// have an android CI runner.
+func skipUnlessAndroid(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS != "android" {
+		t.Skip("requires android runner; mobile-permanent path doesn't match production on this OS")
+	}
+}
+
 func createWgInterfaceWithBind(t *testing.T) (*iface.WGIface, error) {
 	t.Helper()
 	ov := os.Getenv("NB_WG_KERNEL_DISABLED")
@@ -929,7 +404,7 @@ func createWgInterfaceWithBind(t *testing.T) (*iface.WGIface, error) {
 
 	opts := iface.WGIFaceOpts{
 		IFaceName:    "utun2301",
-		Address:      "100.66.100.2/24",
+		Address:      wgaddr.MustParseWGAddress("100.66.100.2/24"),
 		WGPort:       33100,
 		WGPrivKey:    privKey.String(),
 		MTU:          iface.DefaultMTU,
@@ -1065,28 +540,27 @@ type mockHandler struct {
 
 func (m *mockHandler) ServeDNS(dns.ResponseWriter, *dns.Msg) {}
 func (m *mockHandler) Stop()                                 {}
-func (m *mockHandler) ProbeAvailability()                    {}
 func (m *mockHandler) ID() types.HandlerID                   { return types.HandlerID(m.Id) }
 
 type mockService struct{}
 
 func (m *mockService) Listen() error                   { return nil }
-func (m *mockService) Stop()                           {}
+func (m *mockService) Stop() error                     { return nil }
 func (m *mockService) RuntimeIP() netip.Addr           { return netip.MustParseAddr("127.0.0.1") }
 func (m *mockService) RuntimePort() int                { return 53 }
 func (m *mockService) RegisterMux(string, dns.Handler) {}
 func (m *mockService) DeregisterMux(string)            {}
 
 func TestDefaultServer_UpdateMux(t *testing.T) {
-	baseMatchHandlers := registeredHandlerMap{
-		"upstream-group1": {
+	baseMatchHandlers := []handlerWrapper{
+		{
 			domain: "example.com",
 			handler: &mockHandler{
 				Id: "upstream-group1",
 			},
 			priority: PriorityUpstream,
 		},
-		"upstream-group2": {
+		{
 			domain: "example.com",
 			handler: &mockHandler{
 				Id: "upstream-group2",
@@ -1095,15 +569,15 @@ func TestDefaultServer_UpdateMux(t *testing.T) {
 		},
 	}
 
-	baseRootHandlers := registeredHandlerMap{
-		"upstream-root1": {
+	baseRootHandlers := []handlerWrapper{
+		{
 			domain: ".",
 			handler: &mockHandler{
 				Id: "upstream-root1",
 			},
 			priority: PriorityDefault,
 		},
-		"upstream-root2": {
+		{
 			domain: ".",
 			handler: &mockHandler{
 				Id: "upstream-root2",
@@ -1112,22 +586,22 @@ func TestDefaultServer_UpdateMux(t *testing.T) {
 		},
 	}
 
-	baseMixedHandlers := registeredHandlerMap{
-		"upstream-group1": {
+	baseMixedHandlers := []handlerWrapper{
+		{
 			domain: "example.com",
 			handler: &mockHandler{
 				Id: "upstream-group1",
 			},
 			priority: PriorityUpstream,
 		},
-		"upstream-group2": {
+		{
 			domain: "example.com",
 			handler: &mockHandler{
 				Id: "upstream-group2",
 			},
 			priority: PriorityUpstream - 1,
 		},
-		"upstream-other": {
+		{
 			domain: "other.com",
 			handler: &mockHandler{
 				Id: "upstream-other",
@@ -1138,7 +612,7 @@ func TestDefaultServer_UpdateMux(t *testing.T) {
 
 	tests := []struct {
 		name             string
-		initialHandlers  registeredHandlerMap
+		initialHandlers  []handlerWrapper
 		updates          []handlerWrapper
 		expectedHandlers map[string]string // map[HandlerID]domain
 		description      string
@@ -1422,32 +896,38 @@ func TestDefaultServer_UpdateMux(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			server := &DefaultServer{
-				dnsMuxMap:    tt.initialHandlers,
-				handlerChain: NewHandlerChain(),
-				service:      &mockService{},
+				dnsMuxHandlers: tt.initialHandlers,
+				handlerChain:   NewHandlerChain(),
+				service:        &mockService{},
 			}
 
 			// Perform the update
 			server.updateMux(tt.updates)
 
 			// Verify the results
-			assert.Equal(t, len(tt.expectedHandlers), len(server.dnsMuxMap),
+			assert.Equal(t, len(tt.expectedHandlers), len(server.dnsMuxHandlers),
 				"Number of handlers after update doesn't match expected")
 
 			// Check each expected handler
 			for id, expectedDomain := range tt.expectedHandlers {
-				handler, exists := server.dnsMuxMap[types.HandlerID(id)]
-				assert.True(t, exists, "Expected handler %s not found", id)
-				if exists {
-					assert.Equal(t, expectedDomain, handler.domain,
+				var found *handlerWrapper
+				for i := range server.dnsMuxHandlers {
+					if server.dnsMuxHandlers[i].handler.ID() == types.HandlerID(id) {
+						found = &server.dnsMuxHandlers[i]
+						break
+					}
+				}
+				assert.NotNil(t, found, "Expected handler %s not found", id)
+				if found != nil {
+					assert.Equal(t, expectedDomain, found.domain,
 						"Domain mismatch for handler %s", id)
 				}
 			}
 
 			// Verify no unexpected handlers exist
-			for HandlerID := range server.dnsMuxMap {
-				_, expected := tt.expectedHandlers[string(HandlerID)]
-				assert.True(t, expected, "Unexpected handler found: %s", HandlerID)
+			for _, entry := range server.dnsMuxHandlers {
+				_, expected := tt.expectedHandlers[string(entry.handler.ID())]
+				assert.True(t, expected, "Unexpected handler found: %s", entry.handler.ID())
 			}
 
 			// Verify the handlerChain state and order
@@ -1462,7 +942,7 @@ func TestDefaultServer_UpdateMux(t *testing.T) {
 
 				// Verify handler exists in mux
 				foundInMux := false
-				for _, muxEntry := range server.dnsMuxMap {
+				for _, muxEntry := range server.dnsMuxHandlers {
 					if chainEntry.Handler == muxEntry.handler &&
 						chainEntry.Priority == muxEntry.priority &&
 						chainEntry.Pattern == dns.Fqdn(muxEntry.domain) {
@@ -1471,10 +951,106 @@ func TestDefaultServer_UpdateMux(t *testing.T) {
 					}
 				}
 				assert.True(t, foundInMux,
-					"Handler in chain not found in dnsMuxMap")
+					"Handler in chain not found in dnsMuxHandlers")
 			}
 		})
 	}
+}
+
+// chainHasPattern reports whether the handler chain holds an entry registered
+// for the given fqdn pattern at the given priority.
+func chainHasPattern(s *DefaultServer, pattern string, priority int) bool {
+	for _, h := range s.handlerChain.handlers {
+		if h.OrigPattern == pattern && h.Priority == priority {
+			return true
+		}
+	}
+	return false
+}
+
+// TestDefaultServer_UpdateMux_SharedHandlerZoneRemoval verifies that updateMux
+// tracks each (handler, domain) registration independently when one handler
+// serves multiple zones. Every custom zone is served by the same handler
+// instance (the local resolver, whose ID is the constant "local-resolver"), so
+// removing one zone must deregister exactly that zone's chain entry and leave
+// the others in place. Tracking registrations by handler ID alone collapses all
+// zones onto one entry, leaving removed zones in the chain to answer
+// authoritatively with no records.
+func TestDefaultServer_UpdateMux_SharedHandlerZoneRemoval(t *testing.T) {
+	// One handler serves every custom zone, mirroring s.localResolver.
+	shared := &mockHandler{Id: "local-resolver"}
+
+	server := &DefaultServer{
+		handlerChain: NewHandlerChain(),
+		service:      &mockService{},
+	}
+
+	// Two custom zones under the same handler. The surviving zone is registered
+	// last, mirroring the management emission order.
+	server.updateMux([]handlerWrapper{
+		{domain: "userzone.test", handler: shared, priority: PriorityLocal},
+		{domain: "peerzone.test", handler: shared, priority: PriorityLocal},
+	})
+
+	require.True(t, chainHasPattern(server, "userzone.test.", PriorityLocal),
+		"userzone.test should be registered after the first update")
+	require.True(t, chainHasPattern(server, "peerzone.test.", PriorityLocal),
+		"peerzone.test should be registered after the first update")
+
+	// Remove one zone, keep the other.
+	server.updateMux([]handlerWrapper{
+		{domain: "peerzone.test", handler: shared, priority: PriorityLocal},
+	})
+
+	assert.True(t, chainHasPattern(server, "peerzone.test.", PriorityLocal),
+		"peerzone.test should remain after removing userzone.test")
+	assert.False(t, chainHasPattern(server, "userzone.test.", PriorityLocal),
+		"userzone.test handler must be deregistered, not leaked in the chain")
+}
+
+// TestDefaultServer_UpdateMux_PreservesLocalResolver verifies that updateMux
+// does not tear down the shared local resolver during reconfiguration. The
+// resolver is a process-lifetime singleton reused across config updates;
+// Stop() cancels its lookup context (breaking external CNAME-target
+// resolution) and clears its records. updateMux must deregister its chain
+// entries without stopping it. Records surviving a teardown update is the
+// observable proxy: Stop() would have cleared them.
+func TestDefaultServer_UpdateMux_PreservesLocalResolver(t *testing.T) {
+	resolver := local.NewResolver()
+	require.NoError(t, resolver.RegisterRecord(nbdns.SimpleRecord{
+		Name:  "peer.netbird.cloud.",
+		Type:  int(dns.TypeA),
+		Class: nbdns.DefaultClass,
+		TTL:   300,
+		RData: "10.0.0.1",
+	}))
+
+	server := &DefaultServer{
+		handlerChain:  NewHandlerChain(),
+		service:       &mockService{},
+		localResolver: resolver,
+	}
+
+	server.updateMux([]handlerWrapper{
+		{domain: "netbird.cloud", handler: resolver, priority: PriorityLocal},
+	})
+
+	// Remove the zone. The resolver must survive so its records and lookup
+	// context stay intact for the next registration.
+	server.updateMux(nil)
+
+	var response *dns.Msg
+	resolver.ServeDNS(&test.MockResponseWriter{
+		WriteMsgFunc: func(m *dns.Msg) error {
+			response = m
+			return nil
+		},
+	}, &dns.Msg{Question: []dns.Question{{Name: "peer.netbird.cloud.", Qtype: dns.TypeA, Qclass: dns.ClassINET}}})
+
+	require.NotNil(t, response, "local resolver should answer after teardown")
+	assert.Equal(t, dns.RcodeSuccess, response.Rcode,
+		"local resolver records must survive teardown; updateMux must not Stop() the shared resolver")
+	assert.NotEmpty(t, response.Answer, "answer should contain the surviving record")
 }
 
 func TestExtraDomains(t *testing.T) {
@@ -2085,6 +1661,619 @@ func TestLocalResolverPriorityConstants(t *testing.T) {
 	assert.Equal(t, "local.example.com", localMuxUpdates[0].domain)
 }
 
+// TestBuildUpstreamHandler_MergesGroupsPerDomain verifies that multiple
+// admin-defined nameserver groups targeting the same domain collapse into a
+// single handler with each group preserved as a sequential inner list.
+func TestBuildUpstreamHandler_MergesGroupsPerDomain(t *testing.T) {
+	wgInterface := &mocWGIface{}
+	service := NewServiceViaMemory(wgInterface)
+	server := &DefaultServer{
+		ctx:           context.Background(),
+		wgInterface:   wgInterface,
+		service:       service,
+		localResolver: local.NewResolver(),
+		handlerChain:  NewHandlerChain(),
+		hostManager:   &noopHostConfigurator{},
+	}
+
+	groups := []*nbdns.NameServerGroup{
+		{
+			NameServers: []nbdns.NameServer{
+				{IP: netip.MustParseAddr("192.0.2.1"), NSType: nbdns.UDPNameServerType, Port: 53},
+			},
+			Domains: []string{"example.com"},
+		},
+		{
+			NameServers: []nbdns.NameServer{
+				{IP: netip.MustParseAddr("192.0.2.2"), NSType: nbdns.UDPNameServerType, Port: 53},
+				{IP: netip.MustParseAddr("192.0.2.3"), NSType: nbdns.UDPNameServerType, Port: 53},
+			},
+			Domains: []string{"example.com"},
+		},
+	}
+
+	muxUpdates, err := server.buildUpstreamHandlerUpdate(groups)
+	require.NoError(t, err)
+	require.Len(t, muxUpdates, 1, "same-domain groups should merge into one handler")
+	assert.Equal(t, "example.com", muxUpdates[0].domain)
+	assert.Equal(t, PriorityUpstream, muxUpdates[0].priority)
+
+	handler := muxUpdates[0].handler.(*upstreamResolver)
+	require.Len(t, handler.upstreamServers, 2, "handler should have two groups")
+	assert.Equal(t, upstreamRace{netip.MustParseAddrPort("192.0.2.1:53")}, handler.upstreamServers[0])
+	assert.Equal(t, upstreamRace{
+		netip.MustParseAddrPort("192.0.2.2:53"),
+		netip.MustParseAddrPort("192.0.2.3:53"),
+	}, handler.upstreamServers[1])
+}
+
+// TestEvaluateNSGroupHealth covers the records-only verdict. The gate
+// (overlay route selected-but-no-active-peer) is intentionally NOT an
+// input to the evaluator anymore: the verdict drives the Enabled flag,
+// which must always reflect what we actually observed. Gate-aware event
+// suppression is tested separately in the projection test.
+//
+// Matrix per upstream: {no record, fresh Ok, fresh Fail, stale Fail,
+// stale Ok, Ok newer than Fail, Fail newer than Ok}.
+// Group verdict: any fresh-working → Healthy; any fresh-broken with no
+// fresh-working → Unhealthy; otherwise Undecided.
+func TestEvaluateNSGroupHealth(t *testing.T) {
+	now := time.Now()
+	a := netip.MustParseAddrPort("192.0.2.1:53")
+	b := netip.MustParseAddrPort("192.0.2.2:53")
+
+	recentOk := UpstreamHealth{LastOk: now.Add(-2 * time.Second)}
+	recentFail := UpstreamHealth{LastFail: now.Add(-1 * time.Second), LastErr: "timeout"}
+	staleOk := UpstreamHealth{LastOk: now.Add(-10 * time.Minute)}
+	staleFail := UpstreamHealth{LastFail: now.Add(-10 * time.Minute), LastErr: "timeout"}
+	okThenFail := UpstreamHealth{
+		LastOk:   now.Add(-10 * time.Second),
+		LastFail: now.Add(-1 * time.Second),
+		LastErr:  "timeout",
+	}
+	failThenOk := UpstreamHealth{
+		LastOk:   now.Add(-1 * time.Second),
+		LastFail: now.Add(-10 * time.Second),
+		LastErr:  "timeout",
+	}
+
+	tests := []struct {
+		name         string
+		health       map[netip.AddrPort]UpstreamHealth
+		servers      []netip.AddrPort
+		wantVerdict  nsGroupVerdict
+		wantErrSubst string
+	}{
+		{
+			name:        "no record, undecided",
+			servers:     []netip.AddrPort{a},
+			wantVerdict: nsVerdictUndecided,
+		},
+		{
+			name:        "fresh success, healthy",
+			health:      map[netip.AddrPort]UpstreamHealth{a: recentOk},
+			servers:     []netip.AddrPort{a},
+			wantVerdict: nsVerdictHealthy,
+		},
+		{
+			name:         "fresh failure, unhealthy",
+			health:       map[netip.AddrPort]UpstreamHealth{a: recentFail},
+			servers:      []netip.AddrPort{a},
+			wantVerdict:  nsVerdictUnhealthy,
+			wantErrSubst: "timeout",
+		},
+		{
+			name:        "only stale success, undecided",
+			health:      map[netip.AddrPort]UpstreamHealth{a: staleOk},
+			servers:     []netip.AddrPort{a},
+			wantVerdict: nsVerdictUndecided,
+		},
+		{
+			name:        "only stale failure, undecided",
+			health:      map[netip.AddrPort]UpstreamHealth{a: staleFail},
+			servers:     []netip.AddrPort{a},
+			wantVerdict: nsVerdictUndecided,
+		},
+		{
+			name:         "both fresh, fail newer, unhealthy",
+			health:       map[netip.AddrPort]UpstreamHealth{a: okThenFail},
+			servers:      []netip.AddrPort{a},
+			wantVerdict:  nsVerdictUnhealthy,
+			wantErrSubst: "timeout",
+		},
+		{
+			name:        "both fresh, ok newer, healthy",
+			health:      map[netip.AddrPort]UpstreamHealth{a: failThenOk},
+			servers:     []netip.AddrPort{a},
+			wantVerdict: nsVerdictHealthy,
+		},
+		{
+			name: "two upstreams, one success wins",
+			health: map[netip.AddrPort]UpstreamHealth{
+				a: recentFail,
+				b: recentOk,
+			},
+			servers:     []netip.AddrPort{a, b},
+			wantVerdict: nsVerdictHealthy,
+		},
+		{
+			name: "two upstreams, one fail one unseen, unhealthy",
+			health: map[netip.AddrPort]UpstreamHealth{
+				a: recentFail,
+			},
+			servers:      []netip.AddrPort{a, b},
+			wantVerdict:  nsVerdictUnhealthy,
+			wantErrSubst: "timeout",
+		},
+		{
+			name: "two upstreams, all recent failures, unhealthy",
+			health: map[netip.AddrPort]UpstreamHealth{
+				a: {LastFail: now.Add(-5 * time.Second), LastErr: "timeout"},
+				b: {LastFail: now.Add(-1 * time.Second), LastErr: "SERVFAIL"},
+			},
+			servers:      []netip.AddrPort{a, b},
+			wantVerdict:  nsVerdictUnhealthy,
+			wantErrSubst: "SERVFAIL",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			verdict, err := evaluateNSGroupHealth(tc.health, tc.servers, now)
+			assert.Equal(t, tc.wantVerdict, verdict, "verdict mismatch")
+			if tc.wantErrSubst != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.wantErrSubst)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+// healthStubHandler is a minimal dnsMuxHandlers entry that exposes a fixed
+// UpstreamHealth snapshot, letting tests drive recomputeNSGroupStates
+// without spinning up real handlers.
+type healthStubHandler struct {
+	health map[netip.AddrPort]UpstreamHealth
+}
+
+func (h *healthStubHandler) ServeDNS(dns.ResponseWriter, *dns.Msg) {}
+func (h *healthStubHandler) Stop()                                 {}
+func (h *healthStubHandler) ID() types.HandlerID                   { return "health-stub" }
+func (h *healthStubHandler) UpstreamHealth() map[netip.AddrPort]UpstreamHealth {
+	return h.health
+}
+
+// TestProjection_SteadyStateIsSilent guards against duplicate events:
+// while a group stays Unhealthy tick after tick, only the first
+// Unhealthy transition may emit. Same for staying Healthy.
+func TestProjection_SteadyStateIsSilent(t *testing.T) {
+	fx := newProjTestFixture(t)
+
+	fx.setHealth(UpstreamHealth{LastFail: time.Now(), LastErr: "timeout"})
+	fx.tick()
+	fx.expectEvent("unreachable", "first fail emits warning")
+
+	fx.setHealth(UpstreamHealth{LastFail: time.Now(), LastErr: "timeout"})
+	fx.tick()
+	fx.tick()
+	fx.expectNoEvent("staying unhealthy must not re-emit")
+
+	fx.setHealth(UpstreamHealth{LastOk: time.Now()})
+	fx.tick()
+	fx.expectEvent("recovered", "recovery on transition")
+
+	fx.tick()
+	fx.tick()
+	fx.expectNoEvent("staying healthy must not re-emit")
+}
+
+// projTestFixture is the common setup for the projection tests: a
+// single-upstream group whose route classification the test can flip by
+// assigning to selected/active. Callers drive failures/successes by
+// mutating stub.health and calling refreshHealth.
+type projTestFixture struct {
+	t        *testing.T
+	recorder *peer.Status
+	events   <-chan *proto.SystemEvent
+	server   *DefaultServer
+	stub     *healthStubHandler
+	group    *nbdns.NameServerGroup
+	srv      netip.AddrPort
+	selected route.HAMap
+	active   route.HAMap
+}
+
+func newProjTestFixture(t *testing.T) *projTestFixture {
+	t.Helper()
+	recorder := peer.NewRecorder("mgm")
+	sub := recorder.SubscribeToEvents()
+	t.Cleanup(func() { recorder.UnsubscribeFromEvents(sub) })
+
+	srv := netip.MustParseAddrPort("100.64.0.1:53")
+	fx := &projTestFixture{
+		t:        t,
+		recorder: recorder,
+		events:   sub.Events(),
+		stub:     &healthStubHandler{health: map[netip.AddrPort]UpstreamHealth{}},
+		srv:      srv,
+		group: &nbdns.NameServerGroup{
+			Domains:     []string{"example.com"},
+			NameServers: []nbdns.NameServer{{IP: srv.Addr(), NSType: nbdns.UDPNameServerType, Port: int(srv.Port())}},
+		},
+	}
+	fx.server = &DefaultServer{
+		ctx:              context.Background(),
+		wgInterface:      &mocWGIface{},
+		statusRecorder:   recorder,
+		selectedRoutes:   func() route.HAMap { return fx.selected },
+		activeRoutes:     func() route.HAMap { return fx.active },
+		warningDelayBase: defaultWarningDelayBase,
+	}
+	fx.server.dnsMuxHandlers = []handlerWrapper{{domain: "example.com", handler: fx.stub, priority: PriorityUpstream}}
+
+	fx.server.mux.Lock()
+	fx.server.updateNSGroupStates([]*nbdns.NameServerGroup{fx.group})
+	fx.server.mux.Unlock()
+	return fx
+}
+
+func (f *projTestFixture) setHealth(h UpstreamHealth) {
+	f.stub.health = map[netip.AddrPort]UpstreamHealth{f.srv: h}
+}
+
+func (f *projTestFixture) tick() []peer.NSGroupState {
+	f.server.refreshHealth()
+	return f.recorder.GetDNSStates()
+}
+
+func (f *projTestFixture) expectNoEvent(why string) {
+	f.t.Helper()
+	select {
+	case evt := <-f.events:
+		f.t.Fatalf("unexpected event (%s): %+v", why, evt)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func (f *projTestFixture) expectEvent(substr, why string) *proto.SystemEvent {
+	f.t.Helper()
+	select {
+	case evt := <-f.events:
+		assert.Contains(f.t, evt.Message, substr, why)
+		return evt
+	case <-time.After(time.Second):
+		f.t.Fatalf("expected event (%s) with %q", why, substr)
+		return nil
+	}
+}
+
+var overlayNetForTest = netip.MustParsePrefix("100.64.0.0/16")
+var overlayMapForTest = route.HAMap{"overlay": {{Network: overlayNetForTest}}}
+
+// TestProjection_PublicFailEmitsImmediately covers rule 1: an upstream
+// that is not inside any selected route (public DNS) fires the warning
+// on the first Unhealthy tick, no grace period.
+func TestProjection_PublicFailEmitsImmediately(t *testing.T) {
+	fx := newProjTestFixture(t)
+
+	fx.setHealth(UpstreamHealth{LastFail: time.Now(), LastErr: "timeout"})
+	states := fx.tick()
+	require.Len(t, states, 1)
+	assert.False(t, states[0].Enabled)
+	fx.expectEvent("unreachable", "public DNS failure")
+}
+
+// TestProjection_OverlayConnectedFailEmitsImmediately covers rule 2:
+// the upstream is inside a selected route AND the route has a Connected
+// peer. Tunnel is up, failure is real, emit immediately.
+func TestProjection_OverlayConnectedFailEmitsImmediately(t *testing.T) {
+	fx := newProjTestFixture(t)
+	fx.selected = overlayMapForTest
+	fx.active = overlayMapForTest
+
+	fx.setHealth(UpstreamHealth{LastFail: time.Now(), LastErr: "timeout"})
+	states := fx.tick()
+	require.Len(t, states, 1)
+	assert.False(t, states[0].Enabled)
+	fx.expectEvent("unreachable", "overlay + connected failure")
+}
+
+// TestProjection_OverlayNotConnectedDelaysWarning covers rule 3: the
+// upstream is routed but no peer is Connected (Connecting/Idle/missing).
+// First tick: Unhealthy display, no warning. After the grace window
+// elapses with no recovery, the warning fires.
+func TestProjection_OverlayNotConnectedDelaysWarning(t *testing.T) {
+	grace := 50 * time.Millisecond
+	fx := newProjTestFixture(t)
+	fx.server.warningDelayBase = grace
+	fx.selected = overlayMapForTest
+	// active stays nil: routed but not connected.
+
+	fx.setHealth(UpstreamHealth{LastFail: time.Now(), LastErr: "timeout"})
+	states := fx.tick()
+	require.Len(t, states, 1)
+	assert.False(t, states[0].Enabled, "display must reflect failure even during grace window")
+	fx.expectNoEvent("first fail tick within grace window")
+
+	time.Sleep(grace + 10*time.Millisecond)
+	fx.setHealth(UpstreamHealth{LastFail: time.Now(), LastErr: "timeout"})
+	fx.tick()
+	fx.expectEvent("unreachable", "warning after grace window")
+}
+
+// TestProjection_OverlayAddrNoRouteDelaysWarning covers an upstream
+// whose address is inside the WireGuard overlay range but is not
+// covered by any selected route (peer-to-peer DNS without an explicit
+// route). Until a peer reports Connected for that address, startup
+// failures must be held just like the routed case.
+func TestProjection_OverlayAddrNoRouteDelaysWarning(t *testing.T) {
+	recorder := peer.NewRecorder("mgm")
+	sub := recorder.SubscribeToEvents()
+	t.Cleanup(func() { recorder.UnsubscribeFromEvents(sub) })
+
+	overlayPeer := netip.MustParseAddrPort("100.66.100.5:53")
+	server := &DefaultServer{
+		ctx:              context.Background(),
+		wgInterface:      &mocWGIface{},
+		statusRecorder:   recorder,
+		selectedRoutes:   func() route.HAMap { return nil },
+		activeRoutes:     func() route.HAMap { return nil },
+		warningDelayBase: 50 * time.Millisecond,
+	}
+	group := &nbdns.NameServerGroup{
+		Domains:     []string{"example.com"},
+		NameServers: []nbdns.NameServer{{IP: overlayPeer.Addr(), NSType: nbdns.UDPNameServerType, Port: int(overlayPeer.Port())}},
+	}
+	stub := &healthStubHandler{health: map[netip.AddrPort]UpstreamHealth{
+		overlayPeer: {LastFail: time.Now(), LastErr: "timeout"},
+	}}
+	server.dnsMuxHandlers = []handlerWrapper{{domain: "example.com", handler: stub, priority: PriorityUpstream}}
+
+	server.mux.Lock()
+	server.updateNSGroupStates([]*nbdns.NameServerGroup{group})
+	server.mux.Unlock()
+	server.refreshHealth()
+
+	select {
+	case evt := <-sub.Events():
+		t.Fatalf("unexpected event during grace window: %+v", evt)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	time.Sleep(60 * time.Millisecond)
+	stub.health = map[netip.AddrPort]UpstreamHealth{overlayPeer: {LastFail: time.Now(), LastErr: "timeout"}}
+	server.refreshHealth()
+
+	select {
+	case evt := <-sub.Events():
+		assert.Contains(t, evt.Message, "unreachable")
+	case <-time.After(time.Second):
+		t.Fatal("expected warning after grace window")
+	}
+}
+
+// TestProjection_StopClearsHealthState verifies that Stop wipes the
+// per-group projection state so a subsequent Start doesn't inherit
+// sticky flags (notably everHealthy) that would bypass the grace
+// window during the next peer handshake.
+func TestProjection_StopClearsHealthState(t *testing.T) {
+	wgIface := &mocWGIface{}
+	server := &DefaultServer{
+		ctx:               context.Background(),
+		wgInterface:       wgIface,
+		service:           NewServiceViaMemory(wgIface),
+		hostManager:       &noopHostConfigurator{},
+		extraDomains:      map[domain.Domain]int{},
+		statusRecorder:    peer.NewRecorder("mgm"),
+		selectedRoutes:    func() route.HAMap { return nil },
+		activeRoutes:      func() route.HAMap { return nil },
+		warningDelayBase:  defaultWarningDelayBase,
+		currentConfigHash: ^uint64(0),
+	}
+	server.ctx, server.ctxCancel = context.WithCancel(context.Background())
+
+	srv := netip.MustParseAddrPort("8.8.8.8:53")
+	group := &nbdns.NameServerGroup{
+		Domains:     []string{"example.com"},
+		NameServers: []nbdns.NameServer{{IP: srv.Addr(), NSType: nbdns.UDPNameServerType, Port: int(srv.Port())}},
+	}
+	stub := &healthStubHandler{health: map[netip.AddrPort]UpstreamHealth{srv: {LastOk: time.Now()}}}
+	server.dnsMuxHandlers = []handlerWrapper{{domain: "example.com", handler: stub, priority: PriorityUpstream}}
+
+	server.mux.Lock()
+	server.updateNSGroupStates([]*nbdns.NameServerGroup{group})
+	server.mux.Unlock()
+	server.refreshHealth()
+
+	server.healthProjectMu.Lock()
+	p, ok := server.nsGroupProj[generateGroupKey(group)]
+	server.healthProjectMu.Unlock()
+	require.True(t, ok, "projection state should exist after tick")
+	require.True(t, p.everHealthy, "tick with success must set everHealthy")
+
+	server.Stop()
+
+	server.healthProjectMu.Lock()
+	cleared := server.nsGroupProj == nil
+	server.healthProjectMu.Unlock()
+	assert.True(t, cleared, "Stop must clear nsGroupProj")
+}
+
+// TestProjection_OverlayRecoversDuringGrace covers the happy path of
+// rule 3: startup failures while the peer is handshaking, then the peer
+// comes up and a query succeeds before the grace window elapses. No
+// warning should ever have fired, and no recovery either.
+func TestWarningDelayBaseFromEnv(t *testing.T) {
+	tests := []struct {
+		name string
+		set  bool
+		val  string
+		want time.Duration
+	}{
+		{name: "unset uses default", set: false, want: defaultWarningDelayBase},
+		{name: "valid override", set: true, val: "90s", want: 90 * time.Second},
+		{name: "valid minutes", set: true, val: "2m", want: 2 * time.Minute},
+		{name: "invalid falls back", set: true, val: "notaduration", want: defaultWarningDelayBase},
+		{name: "zero falls back", set: true, val: "0s", want: defaultWarningDelayBase},
+		{name: "negative falls back", set: true, val: "-30s", want: defaultWarningDelayBase},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(envWarningDelay, tc.val)
+			if !tc.set {
+				os.Unsetenv(envWarningDelay)
+			}
+			assert.Equal(t, tc.want, warningDelayBaseFromEnv(), "grace window base")
+		})
+	}
+}
+
+func TestProjection_OverlayRecoversDuringGrace(t *testing.T) {
+	fx := newProjTestFixture(t)
+	fx.server.warningDelayBase = 200 * time.Millisecond
+	fx.selected = overlayMapForTest
+
+	fx.setHealth(UpstreamHealth{LastFail: time.Now(), LastErr: "timeout"})
+	fx.tick()
+	fx.expectNoEvent("fail within grace, warning suppressed")
+
+	fx.active = overlayMapForTest
+	fx.setHealth(UpstreamHealth{LastOk: time.Now()})
+	states := fx.tick()
+	require.Len(t, states, 1)
+	assert.True(t, states[0].Enabled)
+	fx.expectNoEvent("recovery without prior warning must not emit")
+}
+
+// TestProjection_RecoveryOnlyAfterWarning enforces the invariant the
+// whole design leans on: recovery events only appear when a warning
+// event was actually emitted for the current streak. A Healthy verdict
+// without a prior warning is silent, so the user never sees "recovered"
+// out of thin air.
+func TestProjection_RecoveryOnlyAfterWarning(t *testing.T) {
+	fx := newProjTestFixture(t)
+
+	fx.setHealth(UpstreamHealth{LastOk: time.Now()})
+	states := fx.tick()
+	require.Len(t, states, 1)
+	assert.True(t, states[0].Enabled)
+	fx.expectNoEvent("first healthy tick should not recover anything")
+
+	fx.setHealth(UpstreamHealth{LastFail: time.Now(), LastErr: "timeout"})
+	fx.tick()
+	fx.expectEvent("unreachable", "public fail emits immediately")
+
+	fx.setHealth(UpstreamHealth{LastOk: time.Now()})
+	fx.tick()
+	fx.expectEvent("recovered", "recovery follows real warning")
+
+	fx.setHealth(UpstreamHealth{LastFail: time.Now(), LastErr: "timeout"})
+	fx.tick()
+	fx.expectEvent("unreachable", "second cycle warning")
+
+	fx.setHealth(UpstreamHealth{LastOk: time.Now()})
+	fx.tick()
+	fx.expectEvent("recovered", "second cycle recovery")
+}
+
+// TestProjection_EverHealthyOverridesDelay covers rule 4: once a group
+// has ever been Healthy, subsequent failures skip the grace window even
+// if classification says "routed + not connected". The system has
+// proved it can work, so any new failure is real.
+func TestProjection_EverHealthyOverridesDelay(t *testing.T) {
+	fx := newProjTestFixture(t)
+	// Large base so any emission must come from the everHealthy bypass, not elapsed time.
+	fx.server.warningDelayBase = time.Hour
+	fx.selected = overlayMapForTest
+	fx.active = overlayMapForTest
+
+	// Establish "ever healthy".
+	fx.setHealth(UpstreamHealth{LastOk: time.Now()})
+	fx.tick()
+	fx.expectNoEvent("first healthy tick")
+
+	// Peer drops. Query fails. Routed + not connected → normally grace,
+	// but everHealthy flag bypasses it.
+	fx.active = nil
+	fx.setHealth(UpstreamHealth{LastFail: time.Now(), LastErr: "timeout"})
+	fx.tick()
+	fx.expectEvent("unreachable", "failure after ever-healthy must be immediate")
+}
+
+// TestProjection_ReconnectBlipEmitsPair covers the explicit tradeoff
+// from the design discussion: once a group has been healthy, a brief
+// reconnect that produces a failing tick will fire warning + recovery.
+// This is by design: user-visible blips are accurate signal, not noise.
+func TestProjection_ReconnectBlipEmitsPair(t *testing.T) {
+	fx := newProjTestFixture(t)
+	fx.selected = overlayMapForTest
+	fx.active = overlayMapForTest
+
+	fx.setHealth(UpstreamHealth{LastOk: time.Now()})
+	fx.tick()
+
+	fx.setHealth(UpstreamHealth{LastFail: time.Now(), LastErr: "timeout"})
+	fx.tick()
+	fx.expectEvent("unreachable", "blip warning")
+
+	fx.setHealth(UpstreamHealth{LastOk: time.Now()})
+	fx.tick()
+	fx.expectEvent("recovered", "blip recovery")
+}
+
+// TestProjection_MixedGroupEmitsImmediately covers the multi-upstream
+// rule: a group with at least one public upstream is in the "immediate"
+// category regardless of the other upstreams' routing, because the
+// public one has no peer-startup excuse. Prevents public-DNS failures
+// from being hidden behind a routed sibling.
+func TestProjection_MixedGroupEmitsImmediately(t *testing.T) {
+	recorder := peer.NewRecorder("mgm")
+	sub := recorder.SubscribeToEvents()
+	t.Cleanup(func() { recorder.UnsubscribeFromEvents(sub) })
+	events := sub.Events()
+
+	public := netip.MustParseAddrPort("8.8.8.8:53")
+	overlay := netip.MustParseAddrPort("100.64.0.1:53")
+	overlayMap := route.HAMap{"overlay": {{Network: netip.MustParsePrefix("100.64.0.0/16")}}}
+
+	server := &DefaultServer{
+		ctx:              context.Background(),
+		statusRecorder:   recorder,
+		selectedRoutes:   func() route.HAMap { return overlayMap },
+		activeRoutes:     func() route.HAMap { return nil },
+		warningDelayBase: time.Hour,
+	}
+	group := &nbdns.NameServerGroup{
+		Domains: []string{"example.com"},
+		NameServers: []nbdns.NameServer{
+			{IP: public.Addr(), NSType: nbdns.UDPNameServerType, Port: int(public.Port())},
+			{IP: overlay.Addr(), NSType: nbdns.UDPNameServerType, Port: int(overlay.Port())},
+		},
+	}
+	stub := &healthStubHandler{
+		health: map[netip.AddrPort]UpstreamHealth{
+			public:  {LastFail: time.Now(), LastErr: "servfail"},
+			overlay: {LastFail: time.Now(), LastErr: "timeout"},
+		},
+	}
+	server.dnsMuxHandlers = []handlerWrapper{{domain: "example.com", handler: stub, priority: PriorityUpstream}}
+
+	server.mux.Lock()
+	server.updateNSGroupStates([]*nbdns.NameServerGroup{group})
+	server.mux.Unlock()
+	server.refreshHealth()
+
+	select {
+	case evt := <-events:
+		assert.Contains(t, evt.Message, "unreachable")
+	case <-time.After(time.Second):
+		t.Fatal("expected immediate warning because group contains a public upstream")
+	}
+}
+
 func TestDNSLoopPrevention(t *testing.T) {
 	wgInterface := &mocWGIface{}
 	service := NewServiceViaMemory(wgInterface)
@@ -2097,7 +2286,6 @@ func TestDNSLoopPrevention(t *testing.T) {
 		localResolver: local.NewResolver(),
 		handlerChain:  NewHandlerChain(),
 		hostManager:   &noopHostConfigurator{},
-		dnsMuxMap:     make(registeredHandlerMap),
 	}
 
 	tests := []struct {
@@ -2183,17 +2371,18 @@ func TestDNSLoopPrevention(t *testing.T) {
 
 			if tt.expectedHandlers > 0 {
 				handler := muxUpdates[0].handler.(*upstreamResolver)
-				assert.Len(t, handler.upstreamServers, len(tt.expectedServers))
+				flat := handler.flatUpstreams()
+				assert.Len(t, flat, len(tt.expectedServers))
 
 				if tt.shouldFilterOwnIP {
-					for _, upstream := range handler.upstreamServers {
+					for _, upstream := range flat {
 						assert.NotEqual(t, dnsServerIP, upstream.Addr())
 					}
 				}
 
 				for _, expected := range tt.expectedServers {
 					found := false
-					for _, upstream := range handler.upstreamServers {
+					for _, upstream := range flat {
 						if upstream.Addr() == expected {
 							found = true
 							break

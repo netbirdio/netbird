@@ -7,10 +7,10 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
-	"runtime"
-	"strconv"
+	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/miekg/dns"
 	"github.com/mitchellh/hashstructure/v2"
@@ -25,11 +25,35 @@ import (
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
+	"github.com/netbirdio/netbird/client/proto"
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
-const envSkipDNSProbe = "NB_SKIP_DNS_PROBE"
+const (
+	// healthLookback must exceed the upstream query timeout so one
+	// query per refresh cycle is enough to keep a group marked healthy.
+	healthLookback               = 60 * time.Second
+	nsGroupHealthRefreshInterval = 10 * time.Second
+	// defaultWarningDelayBase is the starting grace window before a
+	// "Nameserver group unreachable" event fires for a group that's
+	// never been healthy and only has overlay upstreams with no
+	// Connected peer. Per-server and overridable via envWarningDelay;
+	// see warningDelay.
+	defaultWarningDelayBase = 60 * time.Second
+	// warningDelayBonusCap caps the route-count bonus added to the
+	// base grace window. See warningDelay.
+	warningDelayBonusCap = 30 * time.Second
+	// envWarningDelay overrides defaultWarningDelayBase with a Go duration
+	// string (e.g. "90s", "2m"). Invalid or non-positive values are ignored.
+	envWarningDelay = "NB_DNS_HEALTH_WARNING_DELAY"
+)
+
+// errNoUsableNameservers signals that a merged-domain group has no usable
+// upstream servers. Callers should skip the group without treating it as a
+// build failure.
+var errNoUsableNameservers = errors.New("no usable nameservers")
 
 // ReadyListener is a notification mechanism what indicate the server is ready to handle host dns address changes
 type ReadyListener interface {
@@ -54,9 +78,10 @@ type Server interface {
 	UpdateDNSServer(serial uint64, update nbdns.Config) error
 	OnUpdatedHostDNSServer(addrs []netip.AddrPort)
 	SearchDomains() []string
-	ProbeAvailability()
 	UpdateServerConfig(domains dnsconfig.ServerDomains) error
 	PopulateManagementDomain(mgmtURL *url.URL) error
+	SetRouteSources(selected, active func() route.HAMap)
+	SetFirewall(Firewall)
 }
 
 type nsGroupsByDomain struct {
@@ -64,11 +89,46 @@ type nsGroupsByDomain struct {
 	groups []*nbdns.NameServerGroup
 }
 
-// hostManagerWithOriginalNS extends the basic hostManager interface
-type hostManagerWithOriginalNS interface {
-	hostManager
-	getOriginalNameservers() []netip.Addr
+// nsGroupID identifies a nameserver group by the tuple (server list, domain
+// list) so config updates produce stable IDs across recomputations.
+type nsGroupID string
+
+// nsHealthSnapshot is the input to projectNSGroupHealth, captured under
+// s.mux so projection runs lock-free.
+type nsHealthSnapshot struct {
+	groups   []*nbdns.NameServerGroup
+	merged   map[netip.AddrPort]UpstreamHealth
+	selected route.HAMap
+	active   route.HAMap
 }
+
+// nsGroupProj holds per-group state for the emission rules.
+type nsGroupProj struct {
+	// unhealthySince is the start of the current Unhealthy streak,
+	// zero when the group is not currently Unhealthy.
+	unhealthySince time.Time
+	// everHealthy is sticky: once the group has been Healthy at least
+	// once this session, subsequent failures skip warningDelay.
+	everHealthy bool
+	// warningActive tracks whether we've already published a warning
+	// for the current streak, so recovery emits iff a warning did.
+	warningActive bool
+}
+
+// nsGroupVerdict is the outcome of evaluateNSGroupHealth.
+type nsGroupVerdict int
+
+const (
+	// nsVerdictUndecided means no upstream has a fresh observation
+	// (startup before first query, or records aged past healthLookback).
+	nsVerdictUndecided nsGroupVerdict = iota
+	// nsVerdictHealthy means at least one upstream's most-recent
+	// in-lookback observation is a success.
+	nsVerdictHealthy
+	// nsVerdictUnhealthy means at least one upstream has a recent
+	// failure and none has a fresher success.
+	nsVerdictUnhealthy
+)
 
 // DefaultServer dns server object
 type DefaultServer struct {
@@ -80,7 +140,7 @@ type DefaultServer struct {
 	disableSys         bool
 	mux                sync.Mutex
 	service            service
-	dnsMuxMap          registeredHandlerMap
+	dnsMuxHandlers     []handlerWrapper
 	localResolver      *local.Resolver
 	wgInterface        WGIface
 	hostManager        hostManager
@@ -98,19 +158,44 @@ type DefaultServer struct {
 	permanent      bool
 	hostsDNSHolder *hostsDNSHolder
 
+	// fallbackHandler is the upstream resolver currently registered at
+	// PriorityFallback. Tracked so registerFallback can Stop() the previous
+	// instance instead of leaking its context.
+	fallbackHandler handlerWithStop
+
 	// make sense on mobile only
 	searchDomainNotifier *notifier
 	iosDnsManager        IosDnsManager
 
 	statusRecorder *peer.Status
 	stateManager   *statemanager.Manager
+	// selectedRoutes returns admin-enabled client routes.
+	selectedRoutes func() route.HAMap
+	// activeRoutes returns the subset whose peer is in StatusConnected.
+	activeRoutes func() route.HAMap
+
+	nsGroups        []*nbdns.NameServerGroup
+	healthProjectMu sync.Mutex
+	// nsGroupProj is the per-group state used by the emission rules.
+	// Accessed only under healthProjectMu.
+	nsGroupProj map[nsGroupID]*nsGroupProj
+	// warningDelayBase is the base grace window for health projection.
+	// Set at construction, mutated only by tests. Read by the
+	// refresher goroutine so never change it while one is running.
+	warningDelayBase time.Duration
+	// healthRefresh is buffered=1; writers coalesce, senders never block.
+	// See refreshHealth for the lock-order rationale.
+	healthRefresh chan struct{}
 }
 
 type handlerWithStop interface {
 	dns.Handler
 	Stop()
-	ProbeAvailability()
 	ID() types.HandlerID
+}
+
+type upstreamHealthReporter interface {
+	UpstreamHealth() map[netip.AddrPort]UpstreamHealth
 }
 
 type handlerWrapper struct {
@@ -118,8 +203,6 @@ type handlerWrapper struct {
 	handler  handlerWithStop
 	priority int
 }
-
-type registeredHandlerMap map[types.HandlerID]handlerWrapper
 
 // DefaultServerConfig holds configuration parameters for NewDefaultServer
 type DefaultServerConfig struct {
@@ -145,7 +228,7 @@ func NewDefaultServer(ctx context.Context, config DefaultServerConfig) (*Default
 	if config.WgInterface.IsUserspaceBind() {
 		dnsService = NewServiceViaMemory(config.WgInterface)
 	} else {
-		dnsService = newServiceViaListener(config.WgInterface, addrPort)
+		dnsService = newServiceViaListener(config.WgInterface, addrPort, nil)
 	}
 
 	server := newDefaultServer(ctx, config.WgInterface, dnsService, config.StatusRecorder, config.StateManager, config.DisableSys)
@@ -167,7 +250,6 @@ func NewDefaultServerPermanentUpstream(
 
 	ds.hostsDNSHolder.set(hostsDnsList)
 	ds.permanent = true
-	ds.addHostRootZone()
 	ds.currentConfig = dnsConfigToHostDNSConfig(config, ds.service.RuntimeIP(), ds.service.RuntimePort())
 	ds.searchDomainNotifier = newNotifier(ds.SearchDomains())
 	ds.searchDomainNotifier.setListener(listener)
@@ -175,7 +257,7 @@ func NewDefaultServerPermanentUpstream(
 	return ds
 }
 
-// NewDefaultServerIos returns a new dns server. It optimized for ios
+// NewDefaultServerIos returns a new dns server. It optimized for ios.
 func NewDefaultServerIos(
 	ctx context.Context,
 	wgInterface WGIface,
@@ -185,6 +267,7 @@ func NewDefaultServerIos(
 ) *DefaultServer {
 	ds := newDefaultServer(ctx, wgInterface, NewServiceViaMemory(wgInterface), statusRecorder, nil, disableSys)
 	ds.iosDnsManager = iosDnsManager
+	ds.permanent = true
 	return ds
 }
 
@@ -200,6 +283,7 @@ func newDefaultServer(
 	ctx, stop := context.WithCancel(ctx)
 
 	mgmtCacheResolver := mgmt.NewResolver()
+	mgmtCacheResolver.SetChainResolver(handlerChain, PriorityUpstream)
 
 	defaultServer := &DefaultServer{
 		ctx:               ctx,
@@ -208,7 +292,6 @@ func newDefaultServer(
 		service:           dnsService,
 		handlerChain:      handlerChain,
 		extraDomains:      make(map[domain.Domain]int),
-		dnsMuxMap:         make(registeredHandlerMap),
 		localResolver:     local.NewResolver(),
 		wgInterface:       wgInterface,
 		statusRecorder:    statusRecorder,
@@ -217,12 +300,41 @@ func newDefaultServer(
 		hostManager:       &noopHostConfigurator{},
 		mgmtCacheResolver: mgmtCacheResolver,
 		currentConfigHash: ^uint64(0), // Initialize to max uint64 to ensure first config is always applied
+		warningDelayBase:  warningDelayBaseFromEnv(),
+		healthRefresh:     make(chan struct{}, 1),
 	}
+	// Wire the local resolver against the peer status recorder so it can
+	// suppress A/AAAA answers that point at disconnected peers (typical
+	// case: synthesised private-service records pointing at an embedded
+	// proxy peer that just went offline).
+	defaultServer.localResolver.SetPeerConnectivity(localPeerConnectivity{statusRecorder})
 
 	// register with root zone, handler chain takes care of the routing
 	dnsService.RegisterMux(".", handlerChain)
 
 	return defaultServer
+}
+
+// SetRouteSources wires the route-manager accessors used by health
+// projection to classify each upstream for emission timing.
+func (s *DefaultServer) SetRouteSources(selected, active func() route.HAMap) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+	s.selectedRoutes = selected
+	s.activeRoutes = active
+
+	// Permanent / iOS constructors build the root handler before the
+	// engine wires route sources, so its selectedRoutes callback would
+	// otherwise remain nil and overlay upstreams would be classified
+	// as public. Propagate the new accessors to existing handlers.
+	type routeSettable interface {
+		setSelectedRoutes(func() route.HAMap)
+	}
+	for _, entry := range s.dnsMuxHandlers {
+		if h, ok := entry.handler.(routeSettable); ok {
+			h.setSelectedRoutes(selected)
+		}
+	}
 }
 
 // RegisterHandler registers a handler for the given domains with the given priority.
@@ -235,7 +347,6 @@ func (s *DefaultServer) RegisterHandler(domains domain.List, handler dns.Handler
 
 	// TODO: This will take over zones for non-wildcard domains, for which we might not have a handler in the chain
 	for _, domain := range domains {
-		// convert to zone with simple ref counter
 		s.extraDomains[toZone(domain)]++
 	}
 	if !s.batchMode {
@@ -336,6 +447,8 @@ func (s *DefaultServer) Initialize() (err error) {
 
 	s.stateManager.RegisterState(&ShutdownState{})
 
+	s.startHealthRefresher()
+
 	// Keep using noop host manager if dns off requested or running in netstack mode.
 	// Netstack mode currently doesn't have a way to receive DNS requests.
 	// TODO: Use listener on localhost in netstack mode when running as root.
@@ -349,6 +462,13 @@ func (s *DefaultServer) Initialize() (err error) {
 		return fmt.Errorf("initialize: %w", err)
 	}
 	s.hostManager = hostManager
+	// On mobile-permanent setups the seeded host DNS list is the only
+	// source until the first network-map arrives; register it now so DNS
+	// works in that window. Desktop host managers register fallback when
+	// applyConfiguration runs.
+	if s.permanent {
+		s.registerFallback()
+	}
 	return nil
 }
 
@@ -358,6 +478,17 @@ func (s *DefaultServer) Initialize() (err error) {
 // For bind interface, fake DNS resolver address returned (second last IP address from Nebird network)
 func (s *DefaultServer) DnsIP() netip.Addr {
 	return s.service.RuntimeIP()
+}
+
+// SetFirewall sets the firewall used for DNS port DNAT rules.
+// This must be called before Initialize when using the listener-based service,
+// because the firewall is typically not available at construction time.
+func (s *DefaultServer) SetFirewall(fw Firewall) {
+	if svc, ok := s.service.(*serviceViaListener); ok {
+		svc.listenerFlagLock.Lock()
+		svc.firewall = fw
+		svc.listenerFlagLock.Unlock()
+	}
 }
 
 // Stop stops the server
@@ -372,20 +503,30 @@ func (s *DefaultServer) Stop() {
 		log.Errorf("failed to disable DNS: %v", err)
 	}
 
-	maps.Clear(s.extraDomains)
+	clear(s.extraDomains)
+
+	// Clear health projection state so a subsequent Start doesn't
+	// inherit sticky flags (notably everHealthy) that would bypass
+	// the grace window during the next peer handshake.
+	s.healthProjectMu.Lock()
+	s.nsGroupProj = nil
+	s.healthProjectMu.Unlock()
 }
 
-func (s *DefaultServer) disableDNS() error {
-	defer s.service.Stop()
+func (s *DefaultServer) disableDNS() (retErr error) {
+	defer func() {
+		if err := s.service.Stop(); err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("stop DNS service: %w", err))
+		}
+	}()
 
 	if s.isUsingNoopHostManager() {
 		return nil
 	}
 
-	// Deregister original nameservers if they were registered as fallback
-	if srvs, ok := s.hostManager.(hostManagerWithOriginalNS); ok && len(srvs.getOriginalNameservers()) > 0 {
-		log.Debugf("deregistering original nameservers as fallback handlers")
-		s.deregisterHandler([]string{nbdns.RootZone}, PriorityFallback)
+	if s.fallbackHandler != nil {
+		log.Debugf("deregistering fallback handlers")
+		s.clearFallback()
 	}
 
 	if err := s.hostManager.restoreHostDNS(); err != nil {
@@ -399,27 +540,16 @@ func (s *DefaultServer) disableDNS() error {
 	return nil
 }
 
-// OnUpdatedHostDNSServer update the DNS servers addresses for root zones
-// It will be applied if the mgm server do not enforce DNS settings for root zone
+// OnUpdatedHostDNSServer updates the fallback DNS upstreams. Called by Android
+// outside the engine's sync mux when the OS reports a network change, so it
+// takes s.mux to serialize against host manager swaps in Initialize/enableDNS.
 func (s *DefaultServer) OnUpdatedHostDNSServer(hostsDnsList []netip.AddrPort) {
 	s.hostsDNSHolder.set(hostsDnsList)
-
-	// Check if there's any root handler
-	var hasRootHandler bool
-	for _, handler := range s.dnsMuxMap {
-		if handler.domain == nbdns.RootZone {
-			hasRootHandler = true
-			break
-		}
-	}
-
-	if hasRootHandler {
-		log.Debugf("on new host DNS config but skip to apply it")
-		return
-	}
-
 	log.Debugf("update host DNS settings: %+v", hostsDnsList)
-	s.addHostRootZone()
+
+	s.mux.Lock()
+	defer s.mux.Unlock()
+	s.registerFallback()
 }
 
 // UpdateDNSServer processes an update received from the management service
@@ -476,31 +606,6 @@ func (s *DefaultServer) SearchDomains() []string {
 		searchDomains = append(searchDomains, dConf.Domain)
 	}
 	return searchDomains
-}
-
-// ProbeAvailability tests each upstream group's servers for availability
-// and deactivates the group if no server responds
-func (s *DefaultServer) ProbeAvailability() {
-	if val := os.Getenv(envSkipDNSProbe); val != "" {
-		skipProbe, err := strconv.ParseBool(val)
-		if err != nil {
-			log.Warnf("failed to parse %s: %v", envSkipDNSProbe, err)
-		}
-		if skipProbe {
-			log.Infof("skipping DNS probe due to %s", envSkipDNSProbe)
-			return
-		}
-	}
-
-	var wg sync.WaitGroup
-	for _, mux := range s.dnsMuxMap {
-		wg.Add(1)
-		go func(mux handlerWithStop) {
-			defer wg.Done()
-			mux.ProbeAvailability()
-		}(mux.handler)
-	}
-	wg.Wait()
 }
 
 func (s *DefaultServer) UpdateServerConfig(domains dnsconfig.ServerDomains) error {
@@ -666,23 +771,32 @@ func (s *DefaultServer) applyHostConfig() {
 		s.currentConfigHash = hash
 	}
 
-	s.registerFallback(config)
+	s.registerFallback()
 }
 
 // registerFallback registers original nameservers as low-priority fallback handlers.
-func (s *DefaultServer) registerFallback(config HostDNSConfig) {
-	hostMgrWithNS, ok := s.hostManager.(hostManagerWithOriginalNS)
-	if !ok {
+// Replaces and Stop()s the previously-registered fallback handler so its
+// context is released rather than leaked until GC.
+func (s *DefaultServer) registerFallback() {
+	originalNameservers := s.hostManager.getOriginalNameservers()
+
+	serverIP := s.service.RuntimeIP()
+	var servers []netip.AddrPort
+	for _, ns := range originalNameservers {
+		if ns == serverIP {
+			log.Debugf("skipping original nameserver %s as it is the same as the server IP %s", ns, serverIP)
+			continue
+		}
+		servers = append(servers, netip.AddrPortFrom(ns, DefaultPort))
+	}
+
+	if len(servers) == 0 {
+		log.Debugf("no fallback upstreams to register; clearing PriorityFallback handler")
+		s.clearFallback()
 		return
 	}
 
-	originalNameservers := hostMgrWithNS.getOriginalNameservers()
-	if len(originalNameservers) == 0 {
-		s.deregisterHandler([]string{nbdns.RootZone}, PriorityFallback)
-		return
-	}
-
-	log.Infof("registering original nameservers %v as upstream handlers with priority %d", originalNameservers, PriorityFallback)
+	log.Infof("registering original nameservers %v as upstream handlers with priority %d", servers, PriorityFallback)
 
 	handler, err := newUpstreamResolver(
 		s.ctx,
@@ -695,20 +809,23 @@ func (s *DefaultServer) registerFallback(config HostDNSConfig) {
 		log.Errorf("failed to create upstream resolver for original nameservers: %v", err)
 		return
 	}
+	handler.selectedRoutes = s.selectedRoutes
+	handler.addRace(servers)
 
-	for _, ns := range originalNameservers {
-		if ns == config.ServerIP {
-			log.Debugf("skipping original nameserver %s as it is the same as the server IP %s", ns, config.ServerIP)
-			continue
-		}
-
-		addrPort := netip.AddrPortFrom(ns, DefaultPort)
-		handler.upstreamServers = append(handler.upstreamServers, addrPort)
-	}
-	handler.deactivate = func(error) { /* always active */ }
-	handler.reactivate = func() { /* always active */ }
-
+	prev := s.fallbackHandler
+	s.fallbackHandler = handler
 	s.registerHandler([]string{nbdns.RootZone}, handler, PriorityFallback)
+	if prev != nil {
+		prev.Stop()
+	}
+}
+
+func (s *DefaultServer) clearFallback() {
+	s.deregisterHandler([]string{nbdns.RootZone}, PriorityFallback)
+	if s.fallbackHandler != nil {
+		s.fallbackHandler.Stop()
+		s.fallbackHandler = nil
+	}
 }
 
 func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) ([]handlerWrapper, []nbdns.CustomZone, error) {
@@ -766,277 +883,483 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 	groupedNS := groupNSGroupsByDomain(nameServerGroups)
 
 	for _, domainGroup := range groupedNS {
-		basePriority := PriorityUpstream
+		priority := PriorityUpstream
 		if domainGroup.domain == nbdns.RootZone {
-			basePriority = PriorityDefault
+			priority = PriorityDefault
 		}
 
-		updates, err := s.createHandlersForDomainGroup(domainGroup, basePriority)
+		update, err := s.buildMergedDomainHandler(domainGroup, priority)
 		if err != nil {
+			if errors.Is(err, errNoUsableNameservers) {
+				log.Errorf("no usable nameservers for domain=%s", domainGroup.domain)
+				continue
+			}
 			return nil, err
 		}
-		muxUpdates = append(muxUpdates, updates...)
+		muxUpdates = append(muxUpdates, *update)
 	}
 
 	return muxUpdates, nil
 }
 
-func (s *DefaultServer) createHandlersForDomainGroup(domainGroup nsGroupsByDomain, basePriority int) ([]handlerWrapper, error) {
-	var muxUpdates []handlerWrapper
-
-	for i, nsGroup := range domainGroup.groups {
-		// Decrement priority by handler index (0, 1, 2, ...) to avoid conflicts
-		priority := basePriority - i
-
-		// Check if we're about to overlap with the next priority tier
-		if s.leaksPriority(domainGroup, basePriority, priority) {
-			break
-		}
-
-		log.Debugf("creating handler for domain=%s with priority=%d", domainGroup.domain, priority)
-		handler, err := newUpstreamResolver(
-			s.ctx,
-			s.wgInterface,
-			s.statusRecorder,
-			s.hostsDNSHolder,
-			domainGroup.domain,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("create upstream resolver: %v", err)
-		}
-
-		for _, ns := range nsGroup.NameServers {
-			if ns.NSType != nbdns.UDPNameServerType {
-				log.Warnf("skipping nameserver %s with type %s, this peer supports only %s",
-					ns.IP.String(), ns.NSType.String(), nbdns.UDPNameServerType.String())
-				continue
-			}
-
-			if ns.IP == s.service.RuntimeIP() {
-				log.Warnf("skipping nameserver %s as it matches our DNS server IP, preventing potential loop", ns.IP)
-				continue
-			}
-
-			handler.upstreamServers = append(handler.upstreamServers, ns.AddrPort())
-		}
-
-		if len(handler.upstreamServers) == 0 {
-			handler.Stop()
-			log.Errorf("received a nameserver group with an invalid nameserver list")
-			continue
-		}
-
-		// when upstream fails to resolve domain several times over all it servers
-		// it will calls this hook to exclude self from the configuration and
-		// reapply DNS settings, but it not touch the original configuration and serial number
-		// because it is temporal deactivation until next try
-		//
-		// after some period defined by upstream it tries to reactivate self by calling this hook
-		// everything we need here is just to re-apply current configuration because it already
-		// contains this upstream settings (temporal deactivation not removed it)
-		handler.deactivate, handler.reactivate = s.upstreamCallbacks(nsGroup, handler, priority)
-
-		muxUpdates = append(muxUpdates, handlerWrapper{
-			domain:   domainGroup.domain,
-			handler:  handler,
-			priority: priority,
-		})
-	}
-
-	return muxUpdates, nil
-}
-
-func (s *DefaultServer) leaksPriority(domainGroup nsGroupsByDomain, basePriority int, priority int) bool {
-	if basePriority == PriorityUpstream && priority <= PriorityDefault {
-		log.Warnf("too many handlers for domain=%s, would overlap with default priority tier (diff=%d). Skipping remaining handlers",
-			domainGroup.domain, PriorityUpstream-PriorityDefault)
-		return true
-	}
-	if basePriority == PriorityDefault && priority <= PriorityFallback {
-		log.Warnf("too many handlers for domain=%s, would overlap with fallback priority tier (diff=%d). Skipping remaining handlers",
-			domainGroup.domain, PriorityDefault-PriorityFallback)
-		return true
-	}
-
-	return false
-}
-
-func (s *DefaultServer) updateMux(muxUpdates []handlerWrapper) {
-	// this will introduce a short period of time when the server is not able to handle DNS requests
-	for _, existing := range s.dnsMuxMap {
-		s.deregisterHandler([]string{existing.domain}, existing.priority)
-		existing.handler.Stop()
-	}
-
-	muxUpdateMap := make(registeredHandlerMap)
-	var containsRootUpdate bool
-
-	for _, update := range muxUpdates {
-		if update.domain == nbdns.RootZone {
-			containsRootUpdate = true
-		}
-		s.registerHandler([]string{update.domain}, update.handler, update.priority)
-		muxUpdateMap[update.handler.ID()] = update
-	}
-
-	// If there's no root update and we had a root handler, restore it
-	if !containsRootUpdate {
-		for _, existing := range s.dnsMuxMap {
-			if existing.domain == nbdns.RootZone {
-				s.addHostRootZone()
-				break
-			}
-		}
-	}
-
-	s.dnsMuxMap = muxUpdateMap
-}
-
-// upstreamCallbacks returns two functions, the first one is used to deactivate
-// the upstream resolver from the configuration, the second one is used to
-// reactivate it. Not allowed to call reactivate before deactivate.
-func (s *DefaultServer) upstreamCallbacks(
-	nsGroup *nbdns.NameServerGroup,
-	handler dns.Handler,
-	priority int,
-) (deactivate func(error), reactivate func()) {
-	var removeIndex map[string]int
-	deactivate = func(err error) {
-		s.mux.Lock()
-		defer s.mux.Unlock()
-
-		l := log.WithField("nameservers", nsGroup.NameServers)
-		l.Info("Temporarily deactivating nameservers group due to timeout")
-
-		removeIndex = make(map[string]int)
-		for _, domain := range nsGroup.Domains {
-			removeIndex[domain] = -1
-		}
-		if nsGroup.Primary {
-			removeIndex[nbdns.RootZone] = -1
-			s.currentConfig.RouteAll = false
-			s.deregisterHandler([]string{nbdns.RootZone}, priority)
-		}
-
-		for i, item := range s.currentConfig.Domains {
-			if _, found := removeIndex[item.Domain]; found {
-				s.currentConfig.Domains[i].Disabled = true
-				s.deregisterHandler([]string{item.Domain}, priority)
-				removeIndex[item.Domain] = i
-			}
-		}
-
-		// Always apply host config when nameserver goes down, regardless of batch mode
-		s.applyHostConfig()
-
-		go func() {
-			if err := s.stateManager.PersistState(s.ctx); err != nil {
-				l.Errorf("Failed to persist dns state: %v", err)
-			}
-		}()
-
-		if runtime.GOOS == "android" && nsGroup.Primary && len(s.hostsDNSHolder.get()) > 0 {
-			s.addHostRootZone()
-		}
-
-		s.updateNSState(nsGroup, err, false)
-	}
-
-	reactivate = func() {
-		s.mux.Lock()
-		defer s.mux.Unlock()
-
-		for domain, i := range removeIndex {
-			if i == -1 || i >= len(s.currentConfig.Domains) || s.currentConfig.Domains[i].Domain != domain {
-				continue
-			}
-			s.currentConfig.Domains[i].Disabled = false
-			s.registerHandler([]string{domain}, handler, priority)
-		}
-
-		l := log.WithField("nameservers", nsGroup.NameServers)
-		l.Debug("reactivate temporary disabled nameserver group")
-
-		if nsGroup.Primary {
-			s.currentConfig.RouteAll = true
-			s.registerHandler([]string{nbdns.RootZone}, handler, priority)
-		}
-
-		// Always apply host config when nameserver reactivates, regardless of batch mode
-		s.applyHostConfig()
-
-		s.updateNSState(nsGroup, nil, true)
-	}
-	return
-}
-
-func (s *DefaultServer) addHostRootZone() {
-	hostDNSServers := s.hostsDNSHolder.get()
-	if len(hostDNSServers) == 0 {
-		log.Debug("no host DNS servers available, skipping root zone handler creation")
-		return
-	}
-
+// buildMergedDomainHandler merges every nameserver group that targets the
+// same domain into one handler whose inner groups are raced in parallel.
+func (s *DefaultServer) buildMergedDomainHandler(domainGroup nsGroupsByDomain, priority int) (*handlerWrapper, error) {
 	handler, err := newUpstreamResolver(
 		s.ctx,
 		s.wgInterface,
 		s.statusRecorder,
 		s.hostsDNSHolder,
-		nbdns.RootZone,
+		domain.Domain(domainGroup.domain),
 	)
 	if err != nil {
-		log.Errorf("unable to create a new upstream resolver, error: %v", err)
+		return nil, fmt.Errorf("create upstream resolver: %v", err)
+	}
+	handler.selectedRoutes = s.selectedRoutes
+
+	for _, nsGroup := range domainGroup.groups {
+		servers := s.filterNameServers(nsGroup.NameServers)
+		if len(servers) == 0 {
+			log.Warnf("nameserver group for domain=%s yielded no usable servers, skipping", domainGroup.domain)
+			continue
+		}
+		handler.addRace(servers)
+	}
+
+	if len(handler.upstreamServers) == 0 {
+		handler.Stop()
+		return nil, errNoUsableNameservers
+	}
+
+	log.Debugf("creating merged handler for domain=%s with %d group(s) priority=%d", domainGroup.domain, len(handler.upstreamServers), priority)
+
+	return &handlerWrapper{
+		domain:   domainGroup.domain,
+		handler:  handler,
+		priority: priority,
+	}, nil
+}
+
+func (s *DefaultServer) filterNameServers(nameServers []nbdns.NameServer) []netip.AddrPort {
+	var out []netip.AddrPort
+	for _, ns := range nameServers {
+		if ns.NSType != nbdns.UDPNameServerType {
+			log.Warnf("skipping nameserver %s with type %s, this peer supports only %s",
+				ns.IP.String(), ns.NSType.String(), nbdns.UDPNameServerType.String())
+			continue
+		}
+		if ns.IP == s.service.RuntimeIP() {
+			log.Warnf("skipping nameserver %s as it matches our DNS server IP, preventing potential loop", ns.IP)
+			continue
+		}
+		out = append(out, ns.AddrPort())
+	}
+	return out
+}
+
+// usableNameServers returns the subset of nameServers the handler would
+// actually query. Matches filterNameServers without the warning logs, so
+// it's safe to call on every health-projection tick.
+func (s *DefaultServer) usableNameServers(nameServers []nbdns.NameServer) []netip.AddrPort {
+	var runtimeIP netip.Addr
+	if s.service != nil {
+		runtimeIP = s.service.RuntimeIP()
+	}
+	var out []netip.AddrPort
+	for _, ns := range nameServers {
+		if ns.NSType != nbdns.UDPNameServerType {
+			continue
+		}
+		if runtimeIP.IsValid() && ns.IP == runtimeIP {
+			continue
+		}
+		out = append(out, ns.AddrPort())
+	}
+	return out
+}
+
+func (s *DefaultServer) updateMux(muxUpdates []handlerWrapper) {
+	// this will introduce a short period of time when the server is not able to handle DNS requests
+	for _, existing := range s.dnsMuxHandlers {
+		s.deregisterHandler([]string{existing.domain}, existing.priority)
+		// The local resolver is a persistent singleton shared by every custom
+		// zone and reused across config updates. Its chain registrations are
+		// per-config and must be deregistered, but Stop() cancels its lookup
+		// context (breaking external CNAME-target resolution) and clears its
+		// records, so it must not be torn down here.
+		if existing.handler != s.localResolver {
+			existing.handler.Stop()
+		}
+	}
+
+	for _, update := range muxUpdates {
+		s.registerHandler([]string{update.domain}, update.handler, update.priority)
+	}
+
+	s.dnsMuxHandlers = muxUpdates
+}
+
+// updateNSGroupStates records the new group set and pokes the refresher.
+// Must hold s.mux; projection runs async (see refreshHealth for why).
+func (s *DefaultServer) updateNSGroupStates(groups []*nbdns.NameServerGroup) {
+	s.nsGroups = groups
+	select {
+	case s.healthRefresh <- struct{}{}:
+	default:
+	}
+}
+
+// refreshHealth runs one projection cycle. Must not be called while
+// holding s.mux: the route callbacks re-enter routemanager's lock.
+func (s *DefaultServer) refreshHealth() {
+	s.mux.Lock()
+	groups := s.nsGroups
+	merged := s.collectUpstreamHealth()
+	selFn := s.selectedRoutes
+	actFn := s.activeRoutes
+	s.mux.Unlock()
+
+	var selected, active route.HAMap
+	if selFn != nil {
+		selected = selFn()
+	}
+	if actFn != nil {
+		active = actFn()
+	}
+
+	s.projectNSGroupHealth(nsHealthSnapshot{
+		groups:   groups,
+		merged:   merged,
+		selected: selected,
+		active:   active,
+	})
+}
+
+// projectNSGroupHealth applies the emission rules to the snapshot and
+// publishes the resulting NSGroupStates. Serialized by healthProjectMu,
+// lock-free wrt s.mux.
+//
+// Rules:
+//   - Healthy: emit recovery iff warningActive; set everHealthy.
+//   - Unhealthy: stamp unhealthySince on streak start; emit warning
+//     iff any of immediate / everHealthy / elapsed >= effective delay.
+//   - Undecided: no-op.
+//
+// "Immediate" means the group has at least one upstream that's public
+// or overlay+Connected: no peer-startup race to wait out.
+func (s *DefaultServer) projectNSGroupHealth(snap nsHealthSnapshot) {
+	if s.statusRecorder == nil {
 		return
 	}
 
-	handler.upstreamServers = maps.Keys(hostDNSServers)
-	handler.deactivate = func(error) {}
-	handler.reactivate = func() {}
+	s.healthProjectMu.Lock()
+	defer s.healthProjectMu.Unlock()
 
-	s.registerHandler([]string{nbdns.RootZone}, handler, PriorityDefault)
-}
+	if s.nsGroupProj == nil {
+		s.nsGroupProj = make(map[nsGroupID]*nsGroupProj)
+	}
 
-func (s *DefaultServer) updateNSGroupStates(groups []*nbdns.NameServerGroup) {
-	var states []peer.NSGroupState
+	now := time.Now()
+	delay := s.warningDelay(haMapRouteCount(snap.selected))
+	states := make([]peer.NSGroupState, 0, len(snap.groups))
+	seen := make(map[nsGroupID]struct{}, len(snap.groups))
+	for _, group := range snap.groups {
+		servers := s.usableNameServers(group.NameServers)
+		if len(servers) == 0 {
+			continue
+		}
+		verdict, groupErr := evaluateNSGroupHealth(snap.merged, servers, now)
+		id := generateGroupKey(group)
+		seen[id] = struct{}{}
 
-	for _, group := range groups {
-		var servers []netip.AddrPort
-		for _, ns := range group.NameServers {
-			servers = append(servers, ns.AddrPort())
+		immediate := s.groupHasImmediateUpstream(servers, snap)
+
+		p, known := s.nsGroupProj[id]
+		if !known {
+			p = &nsGroupProj{}
+			s.nsGroupProj[id] = p
 		}
 
-		state := peer.NSGroupState{
-			ID:      generateGroupKey(group),
+		enabled := true
+		switch verdict {
+		case nsVerdictHealthy:
+			enabled = s.projectHealthy(p, servers)
+		case nsVerdictUnhealthy:
+			enabled = s.projectUnhealthy(p, servers, immediate, now, delay)
+		case nsVerdictUndecided:
+			// Stay Available until evidence says otherwise, unless a
+			// warning is already active for this group. Also clear any
+			// prior Unhealthy streak so a later Unhealthy verdict starts
+			// a fresh grace window rather than inheriting a stale one.
+			p.unhealthySince = time.Time{}
+			enabled = !p.warningActive
+			groupErr = nil
+		}
+
+		states = append(states, peer.NSGroupState{
+			ID:      string(id),
 			Servers: servers,
 			Domains: group.Domains,
-			// The probe will determine the state, default enabled
-			Enabled: true,
-			Error:   nil,
-		}
-		states = append(states, state)
+			Enabled: enabled,
+			Error:   groupErr,
+		})
 	}
-	s.statusRecorder.UpdateDNSStates(states)
-}
-
-func (s *DefaultServer) updateNSState(nsGroup *nbdns.NameServerGroup, err error, enabled bool) {
-	states := s.statusRecorder.GetDNSStates()
-	id := generateGroupKey(nsGroup)
-	for i, state := range states {
-		if state.ID == id {
-			states[i].Enabled = enabled
-			states[i].Error = err
-			break
+	for id := range s.nsGroupProj {
+		if _, ok := seen[id]; !ok {
+			delete(s.nsGroupProj, id)
 		}
 	}
 	s.statusRecorder.UpdateDNSStates(states)
 }
 
-func generateGroupKey(nsGroup *nbdns.NameServerGroup) string {
-	var servers []string
+// projectHealthy records a healthy tick on p and publishes a recovery
+// event iff a warning was active for the current streak. Returns the
+// Enabled flag to record in NSGroupState.
+func (s *DefaultServer) projectHealthy(p *nsGroupProj, servers []netip.AddrPort) bool {
+	p.everHealthy = true
+	p.unhealthySince = time.Time{}
+	if !p.warningActive {
+		return true
+	}
+	log.Debugf("DNS health: group [%s] recovered, emitting event", joinAddrPorts(servers))
+	s.statusRecorder.PublishEvent(
+		proto.SystemEvent_INFO,
+		proto.SystemEvent_DNS,
+		"Nameserver group recovered",
+		"DNS servers are reachable again.",
+		map[string]string{"upstreams": joinAddrPorts(servers)},
+	)
+	p.warningActive = false
+	return true
+}
+
+// projectUnhealthy records an unhealthy tick on p, publishes the
+// warning when the emission rules fire, and returns the Enabled flag
+// to record in NSGroupState.
+func (s *DefaultServer) projectUnhealthy(p *nsGroupProj, servers []netip.AddrPort, immediate bool, now time.Time, delay time.Duration) bool {
+	streakStart := p.unhealthySince.IsZero()
+	if streakStart {
+		p.unhealthySince = now
+	}
+	reason := unhealthyEmitReason(immediate, p.everHealthy, now.Sub(p.unhealthySince), delay)
+	switch {
+	case reason != "" && !p.warningActive:
+		log.Debugf("DNS health: group [%s] unreachable, emitting event (reason=%s)", joinAddrPorts(servers), reason)
+		s.statusRecorder.PublishEvent(
+			proto.SystemEvent_WARNING,
+			proto.SystemEvent_DNS,
+			"Nameserver group unreachable",
+			"Unable to reach one or more DNS servers. This might affect your ability to connect to some services.",
+			map[string]string{"upstreams": joinAddrPorts(servers)},
+		)
+		p.warningActive = true
+	case streakStart && reason == "":
+		// One line per streak, not per tick.
+		log.Debugf("DNS health: group [%s] unreachable but holding warning for up to %v (overlay-routed, no connected peer)", joinAddrPorts(servers), delay)
+	}
+	return false
+}
+
+// warningDelayBaseFromEnv returns the base grace window, honoring
+// envWarningDelay when it holds a valid positive Go duration. Invalid or
+// non-positive values fall back to defaultWarningDelayBase.
+func warningDelayBaseFromEnv() time.Duration {
+	val := os.Getenv(envWarningDelay)
+	if val == "" {
+		return defaultWarningDelayBase
+	}
+	d, err := time.ParseDuration(val)
+	if err != nil {
+		log.Warnf("invalid %s value %q, using default %v: %v", envWarningDelay, val, defaultWarningDelayBase, err)
+		return defaultWarningDelayBase
+	}
+	if d <= 0 {
+		log.Warnf("%s must be positive, got %v, using default %v", envWarningDelay, d, defaultWarningDelayBase)
+		return defaultWarningDelayBase
+	}
+	return d
+}
+
+// warningDelay returns the grace window for the given selected-route
+// count. Scales gently: +1s per 100 routes, capped by
+// warningDelayBonusCap. Parallel handshakes mean handshake time grows
+// much slower than route count, so linear scaling would overcorrect.
+//
+// TODO: revisit the scaling curve with real-world data — the current
+// values are a reasonable starting point, not a measured fit.
+func (s *DefaultServer) warningDelay(routeCount int) time.Duration {
+	bonus := time.Duration(routeCount/100) * time.Second
+	if bonus > warningDelayBonusCap {
+		bonus = warningDelayBonusCap
+	}
+	return s.warningDelayBase + bonus
+}
+
+// groupHasImmediateUpstream reports whether the group has at least one
+// upstream in a classification that bypasses the grace window: public
+// (outside the overlay range and not routed), or overlay/routed with a
+// Connected peer.
+//
+// TODO(ipv6): include the v6 overlay prefix once it's plumbed in.
+func (s *DefaultServer) groupHasImmediateUpstream(servers []netip.AddrPort, snap nsHealthSnapshot) bool {
+	var overlayV4 netip.Prefix
+	if s.wgInterface != nil {
+		overlayV4 = s.wgInterface.Address().Network
+	}
+	for _, srv := range servers {
+		addr := srv.Addr().Unmap()
+		overlay := overlayV4.IsValid() && overlayV4.Contains(addr)
+		selMatched, selDynamic := haMapContains(snap.selected, addr)
+		// Treat an unknown (dynamic selected route) as possibly routed:
+		// the upstream might reach through a dynamic route whose Network
+		// hasn't resolved yet, and classifying as public would bypass
+		// the startup grace window.
+		routed := selMatched || selDynamic
+		if !overlay && !routed {
+			return true
+		}
+		if actMatched, _ := haMapContains(snap.active, addr); actMatched {
+			return true
+		}
+	}
+	return false
+}
+
+// collectUpstreamHealth merges health snapshots across handlers, keeping
+// the most recent success and failure per upstream when an address appears
+// in more than one handler.
+func (s *DefaultServer) collectUpstreamHealth() map[netip.AddrPort]UpstreamHealth {
+	merged := make(map[netip.AddrPort]UpstreamHealth)
+	for _, entry := range s.dnsMuxHandlers {
+		reporter, ok := entry.handler.(upstreamHealthReporter)
+		if !ok {
+			continue
+		}
+		for addr, h := range reporter.UpstreamHealth() {
+			existing, have := merged[addr]
+			if !have {
+				merged[addr] = h
+				continue
+			}
+			if h.LastOk.After(existing.LastOk) {
+				existing.LastOk = h.LastOk
+			}
+			if h.LastFail.After(existing.LastFail) {
+				existing.LastFail = h.LastFail
+				existing.LastErr = h.LastErr
+			}
+			merged[addr] = existing
+		}
+	}
+	return merged
+}
+
+func (s *DefaultServer) startHealthRefresher() {
+	s.shutdownWg.Add(1)
+	go func() {
+		defer s.shutdownWg.Done()
+		ticker := time.NewTicker(nsGroupHealthRefreshInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-s.ctx.Done():
+				return
+			case <-ticker.C:
+			case <-s.healthRefresh:
+			}
+			s.refreshHealth()
+		}
+	}()
+}
+
+// evaluateNSGroupHealth decides a group's verdict from query records
+// alone. Per upstream, the most-recent-in-lookback observation wins.
+// Group is Healthy if any upstream is fresh-working, Unhealthy if any
+// is fresh-broken with no fresh-working sibling, Undecided otherwise.
+func evaluateNSGroupHealth(merged map[netip.AddrPort]UpstreamHealth, servers []netip.AddrPort, now time.Time) (nsGroupVerdict, error) {
+	anyWorking := false
+	anyBroken := false
+	var mostRecentFail time.Time
+	var mostRecentErr string
+
+	for _, srv := range servers {
+		h, ok := merged[srv]
+		if !ok {
+			continue
+		}
+		switch classifyUpstreamHealth(h, now) {
+		case upstreamFresh:
+			anyWorking = true
+		case upstreamBroken:
+			anyBroken = true
+			if h.LastFail.After(mostRecentFail) {
+				mostRecentFail = h.LastFail
+				mostRecentErr = h.LastErr
+			}
+		}
+	}
+
+	if anyWorking {
+		return nsVerdictHealthy, nil
+	}
+	if anyBroken {
+		if mostRecentErr == "" {
+			return nsVerdictUnhealthy, nil
+		}
+		return nsVerdictUnhealthy, errors.New(mostRecentErr)
+	}
+	return nsVerdictUndecided, nil
+}
+
+// upstreamClassification is the per-upstream verdict within healthLookback.
+type upstreamClassification int
+
+const (
+	upstreamStale upstreamClassification = iota
+	upstreamFresh
+	upstreamBroken
+)
+
+// classifyUpstreamHealth compares the last ok and last fail timestamps
+// against healthLookback and returns which one (if any) counts. Fresh
+// wins when both are in-window and ok is newer; broken otherwise.
+func classifyUpstreamHealth(h UpstreamHealth, now time.Time) upstreamClassification {
+	okRecent := !h.LastOk.IsZero() && now.Sub(h.LastOk) <= healthLookback
+	failRecent := !h.LastFail.IsZero() && now.Sub(h.LastFail) <= healthLookback
+	switch {
+	case okRecent && failRecent:
+		if h.LastOk.After(h.LastFail) {
+			return upstreamFresh
+		}
+		return upstreamBroken
+	case okRecent:
+		return upstreamFresh
+	case failRecent:
+		return upstreamBroken
+	}
+	return upstreamStale
+}
+
+func joinAddrPorts(servers []netip.AddrPort) string {
+	parts := make([]string, 0, len(servers))
+	for _, s := range servers {
+		parts = append(parts, s.String())
+	}
+	return strings.Join(parts, ", ")
+}
+
+// generateGroupKey returns a stable identity for an NS group so health
+// state (everHealthy / warningActive) survives reorderings in the
+// configured nameserver or domain lists.
+func generateGroupKey(nsGroup *nbdns.NameServerGroup) nsGroupID {
+	servers := make([]string, 0, len(nsGroup.NameServers))
 	for _, ns := range nsGroup.NameServers {
 		servers = append(servers, ns.AddrPort().String())
 	}
-	return fmt.Sprintf("%v_%v", servers, nsGroup.Domains)
+	slices.Sort(servers)
+	domains := slices.Clone(nsGroup.Domains)
+	slices.Sort(domains)
+	return nsGroupID(fmt.Sprintf("%v_%v", servers, domains))
 }
 
 // groupNSGroupsByDomain groups nameserver groups by their match domains
@@ -1078,10 +1401,47 @@ func toZone(d domain.Domain) domain.Domain {
 	)
 }
 
+// unhealthyEmitReason returns the tag of the rule that fires the
+// warning now, or "" if the group is still inside its grace window.
+func unhealthyEmitReason(immediate, everHealthy bool, elapsed, delay time.Duration) string {
+	switch {
+	case immediate:
+		return "immediate"
+	case everHealthy:
+		return "ever-healthy"
+	case elapsed >= delay:
+		return "grace-elapsed"
+	default:
+		return ""
+	}
+}
+
 // PopulateManagementDomain populates the DNS cache with management domain
 func (s *DefaultServer) PopulateManagementDomain(mgmtURL *url.URL) error {
 	if s.mgmtCacheResolver != nil {
 		return s.mgmtCacheResolver.PopulateFromConfig(s.ctx, mgmtURL)
 	}
 	return nil
+}
+
+// localPeerConnectivity adapts *peer.Status to local.PeerConnectivity so
+// the local resolver can ask "is this IP a known peer and is it
+// connected?" without taking on the peer package as a dependency.
+// A nil status recorder always reports known=false so the resolver
+// short-circuits to the legacy "return everything" path.
+type localPeerConnectivity struct {
+	status *peer.Status
+}
+
+// IsConnectedByIP looks the IP up in the peerstore and surfaces both
+// the known and connected bits. Used by Resolver.filterDisconnectedPeerAnswers.
+func (l localPeerConnectivity) IsConnectedByIP(ip string) (known, connected bool) {
+	if l.status == nil {
+		return false, false
+	}
+	state, ok := l.status.PeerStateByIP(ip)
+	if !ok {
+		return false, false
+	}
+	return true, state.ConnStatus == peer.StatusConnected
 }

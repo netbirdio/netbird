@@ -44,6 +44,12 @@ type Record struct {
 		GeonameID uint   `maxminddb:"geoname_id"`
 		ISOCode   string `maxminddb:"iso_code"`
 	} `maxminddb:"country"`
+	Subdivisions []struct {
+		ISOCode string `maxminddb:"iso_code"`
+		Names   struct {
+			En string `maxminddb:"en"`
+		} `maxminddb:"names"`
+	} `maxminddb:"subdivisions"`
 }
 
 type City struct {
@@ -124,6 +130,10 @@ func (gl *geolocationImpl) Lookup(ip net.IP) (*Record, error) {
 	gl.mux.RLock()
 	defer gl.mux.RUnlock()
 
+	if gl.db == nil {
+		return nil, fmt.Errorf("geolocation database is not available")
+	}
+
 	var record Record
 	err := gl.db.Lookup(ip, &record)
 	if err != nil {
@@ -167,8 +177,14 @@ func (gl *geolocationImpl) GetCitiesByCountry(countryISOCode string) ([]City, er
 
 func (gl *geolocationImpl) Stop() error {
 	close(gl.stopCh)
-	if gl.db != nil {
-		if err := gl.db.Close(); err != nil {
+
+	gl.mux.Lock()
+	db := gl.db
+	gl.db = nil
+	gl.mux.Unlock()
+
+	if db != nil {
+		if err := db.Close(); err != nil {
 			return err
 		}
 	}

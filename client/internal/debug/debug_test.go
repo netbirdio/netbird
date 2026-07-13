@@ -1,17 +1,36 @@
 package debug
 
 import (
+	"archive/zip"
+	"bytes"
 	"encoding/json"
 	"net"
+	"net/netip"
+	"net/url"
+	"os"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/client/anonymize"
+	"github.com/netbirdio/netbird/client/configs"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/shared/management/domain"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/shared/netiputil"
 )
+
+func mustEncodePrefix(t *testing.T, p netip.Prefix) []byte {
+	t.Helper()
+	b, err := netiputil.EncodePrefix(p)
+	require.NoError(t, err)
+	return b
+}
 
 func TestAnonymizeStateFile(t *testing.T) {
 	testState := map[string]json.RawMessage{
@@ -163,7 +182,7 @@ func TestAnonymizeStateFile(t *testing.T) {
 	assert.Equal(t, "100.64.0.1", state["protected_ip"]) // Protected IP unchanged
 	assert.Equal(t, "8.8.8.8", state["well_known_ip"])   // Well-known IP unchanged
 	assert.NotEqual(t, "2001:db8::1", state["ipv6_addr"])
-	assert.Equal(t, "fd00::1", state["private_ipv6"]) // Private IPv6 unchanged
+	assert.NotEqual(t, "fd00::1", state["private_ipv6"]) // ULA IPv6 anonymized (global ID is a fingerprint)
 	assert.NotEqual(t, "test.example.com", state["domain"])
 	assert.True(t, strings.HasSuffix(state["domain"].(string), ".domain"))
 	assert.Equal(t, "device.netbird.cloud", state["netbird_domain"]) // Netbird domain unchanged
@@ -267,11 +286,13 @@ func mustMarshal(v any) json.RawMessage {
 }
 
 func TestAnonymizeNetworkMap(t *testing.T) {
+	origV6Prefix := netip.MustParsePrefix("2001:db8:abcd::5/64")
 	networkMap := &mgmProto.NetworkMap{
 		PeerConfig: &mgmProto.PeerConfig{
-			Address: "203.0.113.5",
-			Dns:     "1.2.3.4",
-			Fqdn:    "peer1.corp.example.com",
+			Address:   "203.0.113.5",
+			AddressV6: mustEncodePrefix(t, origV6Prefix),
+			Dns:       "1.2.3.4",
+			Fqdn:      "peer1.corp.example.com",
 			SshConfig: &mgmProto.SSHConfig{
 				SshPubKey: []byte("ssh-rsa AAAAB3NzaC1..."),
 			},
@@ -344,6 +365,12 @@ func TestAnonymizeNetworkMap(t *testing.T) {
 	require.NotEqual(t, "1.2.3.4", peerCfg.Dns)
 	require.NotEqual(t, "peer1.corp.example.com", peerCfg.Fqdn)
 	require.True(t, strings.HasSuffix(peerCfg.Fqdn, ".domain"))
+
+	// Verify AddressV6 is anonymized but preserves prefix length
+	anonV6Prefix, err := netiputil.DecodePrefix(peerCfg.AddressV6)
+	require.NoError(t, err)
+	assert.Equal(t, origV6Prefix.Bits(), anonV6Prefix.Bits(), "prefix length must be preserved")
+	assert.NotEqual(t, origV6Prefix.Addr(), anonV6Prefix.Addr(), "IPv6 address must be anonymized")
 
 	// Verify SSH key is replaced
 	require.Equal(t, []byte("ssh-placeholder-key"), peerCfg.SshConfig.SshPubKey)
@@ -420,6 +447,226 @@ func TestAnonymizeNetworkMap(t *testing.T) {
 	}
 }
 
+func TestIsSensitiveEnvVar(t *testing.T) {
+	tests := []struct {
+		key       string
+		sensitive bool
+	}{
+		{"NB_SETUP_KEY", true},
+		{"NB_API_TOKEN", true},
+		{"NB_CLIENT_SECRET", true},
+		{"NB_PASSWORD", true},
+		{"NB_CREDENTIAL", true},
+		{"NB_LOG_LEVEL", false},
+		{"NB_MANAGEMENT_URL", false},
+		{"NB_HOSTNAME", false},
+		{"HOME", false},
+		{"PATH", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.key, func(t *testing.T) {
+			assert.Equal(t, tt.sensitive, isSensitiveEnvVar(tt.key))
+		})
+	}
+}
+
+func TestSanitizeServiceEnvVars(t *testing.T) {
+	tests := []struct {
+		name      string
+		anonymize bool
+		input     map[string]any
+		check     func(t *testing.T, params map[string]any)
+	}{
+		{
+			name:      "no env vars key",
+			anonymize: false,
+			input:     map[string]any{"management_url": "https://mgmt.example.com"},
+			check: func(t *testing.T, params map[string]any) {
+				t.Helper()
+				assert.Equal(t, "https://mgmt.example.com", params["management_url"], "non-env fields should be untouched")
+				_, ok := params[jsonKeyServiceEnv]
+				assert.False(t, ok, "service_env_vars should not be added")
+			},
+		},
+		{
+			name:      "non-NB vars are masked",
+			anonymize: false,
+			input: map[string]any{
+				jsonKeyServiceEnv: map[string]any{
+					"HOME":         "/root",
+					"PATH":         "/usr/bin",
+					"NB_LOG_LEVEL": "debug",
+				},
+			},
+			check: func(t *testing.T, params map[string]any) {
+				t.Helper()
+				env := params[jsonKeyServiceEnv].(map[string]any)
+				assert.Equal(t, maskedValue, env["HOME"], "non-NB_ var should be masked")
+				assert.Equal(t, maskedValue, env["PATH"], "non-NB_ var should be masked")
+				assert.Equal(t, "debug", env["NB_LOG_LEVEL"], "safe NB_ var should pass through")
+			},
+		},
+		{
+			name:      "sensitive NB vars are masked",
+			anonymize: false,
+			input: map[string]any{
+				jsonKeyServiceEnv: map[string]any{
+					"NB_SETUP_KEY": "abc123",
+					"NB_API_TOKEN": "tok_xyz",
+					"NB_LOG_LEVEL": "info",
+				},
+			},
+			check: func(t *testing.T, params map[string]any) {
+				t.Helper()
+				env := params[jsonKeyServiceEnv].(map[string]any)
+				assert.Equal(t, maskedValue, env["NB_SETUP_KEY"], "sensitive NB_ var should be masked")
+				assert.Equal(t, maskedValue, env["NB_API_TOKEN"], "sensitive NB_ var should be masked")
+				assert.Equal(t, "info", env["NB_LOG_LEVEL"], "safe NB_ var should pass through")
+			},
+		},
+		{
+			name:      "safe NB vars anonymized when anonymize is true",
+			anonymize: true,
+			input: map[string]any{
+				jsonKeyServiceEnv: map[string]any{
+					"NB_MANAGEMENT_URL": "https://mgmt.example.com:443",
+					"NB_LOG_LEVEL":      "debug",
+					"NB_SETUP_KEY":      "secret",
+					"SOME_OTHER":        "val",
+				},
+			},
+			check: func(t *testing.T, params map[string]any) {
+				t.Helper()
+				env := params[jsonKeyServiceEnv].(map[string]any)
+				// Safe NB_ values should be anonymized (not the original, not masked)
+				mgmtVal := env["NB_MANAGEMENT_URL"].(string)
+				assert.NotEqual(t, "https://mgmt.example.com:443", mgmtVal, "should be anonymized")
+				assert.NotEqual(t, maskedValue, mgmtVal, "should not be masked")
+
+				logVal := env["NB_LOG_LEVEL"].(string)
+				assert.NotEqual(t, maskedValue, logVal, "safe NB_ var should not be masked")
+
+				// Sensitive and non-NB_ still masked
+				assert.Equal(t, maskedValue, env["NB_SETUP_KEY"])
+				assert.Equal(t, maskedValue, env["SOME_OTHER"])
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
+			g := &BundleGenerator{
+				anonymize:  tt.anonymize,
+				anonymizer: anonymizer,
+			}
+			g.sanitizeServiceEnvVars(tt.input)
+			tt.check(t, tt.input)
+		})
+	}
+}
+
+func TestAddServiceParams(t *testing.T) {
+	t.Run("missing service.json returns nil", func(t *testing.T) {
+		g := &BundleGenerator{
+			anonymizer: anonymize.NewAnonymizer(anonymize.DefaultAddresses()),
+		}
+
+		origStateDir := configs.StateDir
+		configs.StateDir = t.TempDir()
+		t.Cleanup(func() { configs.StateDir = origStateDir })
+
+		err := g.addServiceParams()
+		assert.NoError(t, err)
+	})
+
+	t.Run("management_url anonymized when anonymize is true", func(t *testing.T) {
+		dir := t.TempDir()
+		origStateDir := configs.StateDir
+		configs.StateDir = dir
+		t.Cleanup(func() { configs.StateDir = origStateDir })
+
+		input := map[string]any{
+			jsonKeyManagementURL: "https://api.example.com:443",
+			jsonKeyServiceEnv: map[string]any{
+				"NB_LOG_LEVEL": "trace",
+			},
+		}
+		data, err := json.Marshal(input)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, serviceParamsFile), data, 0600))
+
+		var buf bytes.Buffer
+		zw := zip.NewWriter(&buf)
+
+		g := &BundleGenerator{
+			anonymize:  true,
+			anonymizer: anonymize.NewAnonymizer(anonymize.DefaultAddresses()),
+			archive:    zw,
+		}
+
+		require.NoError(t, g.addServiceParams())
+		require.NoError(t, zw.Close())
+
+		zr, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+		require.NoError(t, err)
+		require.Len(t, zr.File, 1)
+		assert.Equal(t, serviceParamsBundle, zr.File[0].Name)
+
+		rc, err := zr.File[0].Open()
+		require.NoError(t, err)
+		defer rc.Close()
+
+		var result map[string]any
+		require.NoError(t, json.NewDecoder(rc).Decode(&result))
+
+		mgmt := result[jsonKeyManagementURL].(string)
+		assert.NotEqual(t, "https://api.example.com:443", mgmt, "management_url should be anonymized")
+		assert.NotEmpty(t, mgmt)
+
+		env := result[jsonKeyServiceEnv].(map[string]any)
+		assert.NotEqual(t, maskedValue, env["NB_LOG_LEVEL"], "safe NB_ var should not be masked")
+	})
+
+	t.Run("management_url preserved when anonymize is false", func(t *testing.T) {
+		dir := t.TempDir()
+		origStateDir := configs.StateDir
+		configs.StateDir = dir
+		t.Cleanup(func() { configs.StateDir = origStateDir })
+
+		input := map[string]any{
+			jsonKeyManagementURL: "https://api.example.com:443",
+		}
+		data, err := json.Marshal(input)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, serviceParamsFile), data, 0600))
+
+		var buf bytes.Buffer
+		zw := zip.NewWriter(&buf)
+
+		g := &BundleGenerator{
+			anonymize:  false,
+			anonymizer: anonymize.NewAnonymizer(anonymize.DefaultAddresses()),
+			archive:    zw,
+		}
+
+		require.NoError(t, g.addServiceParams())
+		require.NoError(t, zw.Close())
+
+		zr, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+		require.NoError(t, err)
+
+		rc, err := zr.File[0].Open()
+		require.NoError(t, err)
+		defer rc.Close()
+
+		var result map[string]any
+		require.NoError(t, json.NewDecoder(rc).Decode(&result))
+
+		assert.Equal(t, "https://api.example.com:443", result[jsonKeyManagementURL], "management_url should be preserved")
+	})
+}
+
 // Helper function to check if IP is in CGNAT range
 func isInCGNATRange(ip net.IP) bool {
 	cgnat := net.IPNet{
@@ -430,8 +677,6 @@ func isInCGNATRange(ip net.IP) bool {
 }
 
 func TestAnonymizeFirewallRules(t *testing.T) {
-	// TODO: Add ipv6
-
 	// Example iptables-save output
 	iptablesSave := `# Generated by iptables-save v1.8.7 on Thu Dec 19 10:00:00 2024
 *filter
@@ -467,17 +712,31 @@ Chain FORWARD (policy ACCEPT 0 packets, 0 bytes)
 Chain OUTPUT (policy ACCEPT 0 packets, 0 bytes)
     pkts bytes target     prot opt in     out     source               destination`
 
-	// Example nftables output
+	// Example ip6tables-save output
+	ip6tablesSave := `# Generated by ip6tables-save v1.8.7 on Thu Dec 19 10:00:00 2024
+*filter
+:INPUT ACCEPT [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -s fd00:1234::1/128 -j ACCEPT
+-A INPUT -s 2607:f8b0:4005::1/128 -j DROP
+-A FORWARD -s 2001:db8::/32 -d 2607:f8b0:4005::200e/128 -j ACCEPT
+COMMIT`
+
+	// Example nftables output with IPv6
 	nftablesRules := `table inet filter {
         chain input {
                 type filter hook input priority filter; policy accept;
                 ip saddr 192.168.1.1 accept
                 ip saddr 44.192.140.1 drop
+                ip6 saddr 2607:f8b0:4005::1 drop
+                ip6 saddr fd00:1234::1 accept
         }
         chain forward {
                 type filter hook forward priority filter; policy accept;
                 ip saddr 10.0.0.0/8 drop
                 ip saddr 44.192.140.0/24 ip daddr 52.84.12.34/24 accept
+                ip6 saddr 2001:db8::/32 ip6 daddr 2607:f8b0:4005::200e/128 accept
         }
     }`
 
@@ -540,4 +799,161 @@ Chain OUTPUT (policy ACCEPT 0 packets, 0 bytes)
 	assert.Contains(t, anonNftables, "table inet filter {")
 	assert.Contains(t, anonNftables, "chain input {")
 	assert.Contains(t, anonNftables, "type filter hook input priority filter; policy accept;")
+
+	// IPv6 public addresses in nftables should be anonymized
+	assert.NotContains(t, anonNftables, "2607:f8b0:4005::1")
+	assert.NotContains(t, anonNftables, "2607:f8b0:4005::200e")
+	assert.NotContains(t, anonNftables, "2001:db8::")
+	assert.Contains(t, anonNftables, "2001:db8:ffff::") // Default anonymous v6 range
+
+	// ULA addresses in nftables should be anonymized (global ID is a fingerprint)
+	assert.NotContains(t, anonNftables, "fd00:1234::1")
+
+	// IPv6 nftables structure preserved
+	assert.Contains(t, anonNftables, "ip6 saddr")
+	assert.Contains(t, anonNftables, "ip6 daddr")
+
+	// Test ip6tables-save anonymization
+	anonIp6tablesSave := anonymizer.AnonymizeString(ip6tablesSave)
+
+	// ULA IPv6 should be anonymized (global ID is a fingerprint)
+	assert.NotContains(t, anonIp6tablesSave, "fd00:1234::1/128")
+
+	// Public IPv6 addresses should be anonymized
+	assert.NotContains(t, anonIp6tablesSave, "2607:f8b0:4005::1")
+	assert.NotContains(t, anonIp6tablesSave, "2607:f8b0:4005::200e")
+	assert.NotContains(t, anonIp6tablesSave, "2001:db8::")
+	assert.Contains(t, anonIp6tablesSave, "2001:db8:ffff::") // Default anonymous v6 range
+
+	// Structure should be preserved
+	assert.Contains(t, anonIp6tablesSave, "*filter")
+	assert.Contains(t, anonIp6tablesSave, "COMMIT")
+	assert.Contains(t, anonIp6tablesSave, "-j DROP")
+	assert.Contains(t, anonIp6tablesSave, "-j ACCEPT")
+}
+
+// TestAddConfig_AllFieldsCovered uses reflection to ensure every field in
+// profilemanager.Config is either rendered in the debug bundle or explicitly
+// excluded. When a new field is added to Config, this test fails until the
+// developer either dumps it in addConfig/addCommonConfigFields or adds it to
+// the excluded set with a justification.
+func TestAddConfig_AllFieldsCovered(t *testing.T) {
+	excluded := map[string]string{
+		"PrivateKey":        "sensitive: WireGuard private key",
+		"PreSharedKey":      "sensitive: WireGuard pre-shared key",
+		"SSHKey":            "sensitive: SSH private key",
+		"ClientCertKeyPair": "non-config: parsed cert pair, not serialized",
+		"Name":              "non-config: profile name is not needed for debug purposes",
+		"policy":            "non-config: in-memory MDM policy snapshot, surfaced via Config.Policy() / GetConfigResponse.MDMManagedFields",
+	}
+
+	mURL, _ := url.Parse("https://api.example.com:443")
+	aURL, _ := url.Parse("https://admin.example.com:443")
+	bTrue := true
+	iVal := 42
+	cfg := &profilemanager.Config{
+		PrivateKey:                    "priv",
+		PreSharedKey:                  "psk",
+		ManagementURL:                 mURL,
+		AdminURL:                      aURL,
+		WgIface:                       "wt0",
+		WgPort:                        51820,
+		NetworkMonitor:                &bTrue,
+		IFaceBlackList:                []string{"eth0"},
+		DisableIPv6Discovery:          true,
+		RosenpassEnabled:              true,
+		RosenpassPermissive:           true,
+		ServerSSHAllowed:              &bTrue,
+		EnableSSHRoot:                 &bTrue,
+		EnableSSHSFTP:                 &bTrue,
+		EnableSSHLocalPortForwarding:  &bTrue,
+		EnableSSHRemotePortForwarding: &bTrue,
+		DisableSSHAuth:                &bTrue,
+		SSHJWTCacheTTL:                &iVal,
+		DisableClientRoutes:           true,
+		DisableServerRoutes:           true,
+		DisableDNS:                    true,
+		DisableFirewall:               true,
+		BlockLANAccess:                true,
+		BlockInbound:                  true,
+		DisableNotifications:          &bTrue,
+		DNSLabels:                     domain.List{},
+		SSHKey:                        "sshkey",
+		NATExternalIPs:                []string{"1.2.3.4"},
+		CustomDNSAddress:              "1.1.1.1:53",
+		DisableAutoConnect:            true,
+		DNSRouteInterval:              5 * time.Second,
+		ClientCertPath:                "/tmp/cert",
+		ClientCertKeyPath:             "/tmp/key",
+		LazyConnection:                "on",
+		MTU:                           1280,
+	}
+
+	for _, anonymize := range []bool{false, true} {
+		t.Run("anonymize="+map[bool]string{true: "true", false: "false"}[anonymize], func(t *testing.T) {
+			g := &BundleGenerator{
+				anonymizer:     newAnonymizerForTest(),
+				internalConfig: cfg,
+				anonymize:      anonymize,
+			}
+
+			var sb strings.Builder
+			g.addCommonConfigFields(&sb)
+			rendered := sb.String() + renderAddConfigSpecific(g)
+
+			val := reflect.ValueOf(cfg).Elem()
+			typ := val.Type()
+			var missing []string
+			for i := 0; i < typ.NumField(); i++ {
+				name := typ.Field(i).Name
+				if _, ok := excluded[name]; ok {
+					continue
+				}
+				if !strings.Contains(rendered, name+":") {
+					missing = append(missing, name)
+				}
+			}
+			if len(missing) > 0 {
+				t.Fatalf("Config field(s) not present in debug bundle output: %v\n"+
+					"Either render the field in addCommonConfigFields/addConfig, "+
+					"or add it to the excluded map with a justification.", missing)
+			}
+		})
+	}
+}
+
+// renderAddConfigSpecific renders the fields handled by the anonymize/non-anonymize
+// branches in addConfig (ManagementURL, AdminURL, NATExternalIPs, CustomDNSAddress).
+// addCommonConfigFields covers the rest. Keeping this in the test mirrors the
+// production shape without needing to write an actual zip.
+func renderAddConfigSpecific(g *BundleGenerator) string {
+	var sb strings.Builder
+	if g.anonymize {
+		if g.internalConfig.ManagementURL != nil {
+			sb.WriteString("ManagementURL: " + g.anonymizer.AnonymizeURI(g.internalConfig.ManagementURL.String()) + "\n")
+		}
+		if g.internalConfig.AdminURL != nil {
+			sb.WriteString("AdminURL: " + g.anonymizer.AnonymizeURI(g.internalConfig.AdminURL.String()) + "\n")
+		}
+		sb.WriteString("NATExternalIPs: x\n")
+		if g.internalConfig.CustomDNSAddress != "" {
+			sb.WriteString("CustomDNSAddress: " + g.anonymizer.AnonymizeString(g.internalConfig.CustomDNSAddress) + "\n")
+		}
+	} else {
+		if g.internalConfig.ManagementURL != nil {
+			sb.WriteString("ManagementURL: " + g.internalConfig.ManagementURL.String() + "\n")
+		}
+		if g.internalConfig.AdminURL != nil {
+			sb.WriteString("AdminURL: " + g.internalConfig.AdminURL.String() + "\n")
+		}
+		sb.WriteString("NATExternalIPs: x\n")
+		if g.internalConfig.CustomDNSAddress != "" {
+			sb.WriteString("CustomDNSAddress: " + g.internalConfig.CustomDNSAddress + "\n")
+		}
+	}
+	return sb.String()
+}
+
+func newAnonymizerForTest() *anonymize.Anonymizer {
+	return anonymize.NewAnonymizer(anonymize.DefaultAddresses())
 }

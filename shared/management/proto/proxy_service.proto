@@ -4,12 +4,22 @@ package management;
 
 option go_package = "/proto";
 
+import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 
 // ProxyService - Management is the SERVER, Proxy is the CLIENT
 // Proxy initiates connection to management
 service ProxyService {
   rpc GetMappingUpdate(GetMappingUpdateRequest) returns (stream GetMappingUpdateResponse);
+
+  // SyncMappings is a bidirectional stream that replaces GetMappingUpdate for
+  // new proxies. The proxy sends an initial SyncMappingsRequest to start the
+  // stream and then sends an ack after each batch is fully processed.
+  // Management waits for the ack before sending the next batch, providing
+  // application-level back-pressure during large initial syncs.
+  // Old proxies continue using GetMappingUpdate; old management servers
+  // return Unimplemented for this RPC and proxies fall back.
+  rpc SyncMappings(stream SyncMappingsRequest) returns (stream SyncMappingsResponse);
 
   rpc SendAccessLog(SendAccessLogRequest) returns (SendAccessLogResponse);
 
@@ -24,6 +34,45 @@ service ProxyService {
   // ValidateSession validates a session token and checks user access permissions.
   // Called by the proxy after receiving a session token from OIDC callback.
   rpc ValidateSession(ValidateSessionRequest) returns (ValidateSessionResponse);
+
+  // ValidateTunnelPeer resolves an inbound peer by its WireGuard tunnel IP and
+  // checks the resolved user's access against the service's access_groups.
+  // Acts as a fast-path equivalent of OIDC for requests originating on the
+  // netbird mesh: when the source IP maps to a known peer in the calling
+  // account and that peer is in the service's access_groups, the proxy can
+  // issue a session cookie without redirecting through the OIDC flow.
+  // Mirrors ValidateSession's response shape.
+  rpc ValidateTunnelPeer(ValidateTunnelPeerRequest) returns (ValidateTunnelPeerResponse);
+
+  // CheckLLMPolicyLimits is the pre-flight RPC the proxy calls before each
+  // LLM request. Management runs the per-policy headroom selection across
+  // every policy authorising the caller's user / groups for the resolved
+  // provider and returns the chosen attribution policy + group, or a deny
+  // when no applicable policy has headroom > 0.
+  rpc CheckLLMPolicyLimits(CheckLLMPolicyLimitsRequest) returns (CheckLLMPolicyLimitsResponse);
+
+  // RecordLLMUsage is the post-flight RPC the proxy calls after the upstream
+  // returns. Increments the per-(dimension, window) counters for the
+  // attribution policy chosen by CheckLLMPolicyLimits.
+  rpc RecordLLMUsage(RecordLLMUsageRequest) returns (RecordLLMUsageResponse);
+}
+
+// ProxyCapabilities describes what a proxy can handle.
+message ProxyCapabilities {
+  // Whether the proxy can bind arbitrary ports for TCP/UDP/TLS services.
+  optional bool supports_custom_ports = 1;
+  // Whether the proxy requires a subdomain label in front of its cluster domain.
+  // When true, accounts cannot use the cluster domain bare.
+  optional bool require_subdomain = 2;
+  // Whether the proxy has CrowdSec configured and can enforce IP reputation checks.
+  optional bool supports_crowdsec = 3;
+  // Whether the proxy is running embedded in the netbird client and serving
+  // exclusively over the WireGuard tunnel (i.e. `netbird proxy` rather than
+  // the standalone netbird-proxy binary). Surfaces upstream so dashboards can
+  // distinguish per-peer / private clusters from centralised ones.
+  optional bool private = 4;
+  // Whether the proxy enforces ProxyMapping.private (fails closed on ValidateTunnelPeer failure). Management MUST NOT stream private mappings to proxies that don't claim this.
+  optional bool supports_private_service = 5;
 }
 
 // GetMappingUpdateRequest is sent to initialise a mapping stream.
@@ -32,6 +81,7 @@ message GetMappingUpdateRequest {
   string version = 2;
   google.protobuf.Timestamp started_at = 3;
   string address = 4;
+  ProxyCapabilities capabilities = 5;
 }
 
 // GetMappingUpdateResponse contains zero or more ProxyMappings.
@@ -50,9 +100,91 @@ enum ProxyMappingUpdateType {
   UPDATE_TYPE_REMOVED = 2;
 }
 
+enum PathRewriteMode {
+  PATH_REWRITE_DEFAULT = 0;
+  PATH_REWRITE_PRESERVE = 1;
+}
+
+message PathTargetOptions {
+  bool skip_tls_verify = 1;
+  google.protobuf.Duration request_timeout = 2;
+  PathRewriteMode path_rewrite = 3;
+  map<string, string> custom_headers = 4;
+  // Send PROXY protocol v2 header to this backend.
+  bool proxy_protocol = 5;
+  // Idle timeout before a UDP session is reaped.
+  google.protobuf.Duration session_idle_timeout = 6;
+  // When true, the proxy dials this target via the host's network stack
+  // instead of through the embedded NetBird client. Useful for upstreams
+  // reachable without WireGuard (public APIs, LAN services, localhost
+  // sidecars). Defaults to false — embedded client is the standard path.
+  bool direct_upstream = 7;
+  // Proxy clamps to [0, proxy-wide max (1 MiB)] at apply time. Agent-network
+  // synthesized targets only; private services leave these zero.
+  int64 capture_max_request_bytes = 8;
+  // Proxy clamps to [0, proxy-wide max (1 MiB)] at apply time.
+  int64 capture_max_response_bytes = 9;
+  // Content types eligible for body capture (e.g. "application/json").
+  repeated string capture_content_types = 10;
+  // Per-target middleware configurations populated by the agent-network
+  // synthesizer. Validated and clamped by the proxy at apply time.
+  repeated MiddlewareConfig middlewares = 11;
+  // When true, the proxy stamps agent_network=true on access-log entries
+  // for this target so management routes them to the agent-network log
+  // surface.
+  bool agent_network = 12;
+  // When true, the proxy suppresses the per-request access-log emission for
+  // this target. Defaults false to preserve existing access-log behavior for
+  // every non-agent-network target. The agent-network synth target sets this
+  // true only when the account's EnableLogCollection toggle is off.
+  bool disable_access_log = 13;
+}
+
+// MiddlewareSlot identifies where in the request lifecycle a middleware
+// runs. Mirrors proxy/internal/middleware.Slot.
+enum MiddlewareSlot {
+  MIDDLEWARE_SLOT_UNSPECIFIED = 0;
+  MIDDLEWARE_SLOT_ON_REQUEST = 1;
+  MIDDLEWARE_SLOT_ON_RESPONSE = 2;
+  MIDDLEWARE_SLOT_TERMINAL = 3;
+}
+
+// MiddlewareConfig is the per-target configuration for a single middleware.
+// The proxy validates every incoming MiddlewareConfig at apply time:
+// unknown ids are rejected, timeout is clamped to [10ms, 5s], and the
+// declared slot must match the registered middleware's slot.
+message MiddlewareConfig {
+  // Middleware id; must match the proxy-local compiled-in registry.
+  string id = 1;
+  bool enabled = 2;
+  MiddlewareSlot slot = 3;
+  // Free-form JSON unmarshalled by the middleware factory into its own typed
+  // config struct. Empty / null / {} are valid (zero-value config).
+  bytes config_json = 4;
+  enum FailMode {
+    FAIL_OPEN = 0;
+    FAIL_CLOSED = 1;
+  }
+  FailMode fail_mode = 5;
+  // Clamped to [10ms, 5s] at apply time; zero → 500ms default.
+  google.protobuf.Duration timeout = 6;
+  // When true, the middleware may mutate request headers or body (subject to
+  // policy). Honoured only when the implementation also declares
+  // MutationsSupported.
+  bool can_mutate = 7;
+}
+
 message PathMapping {
   string path = 1;
   string target = 2;
+  PathTargetOptions options = 3;
+}
+
+message HeaderAuth {
+  // Header name to check, e.g. "Authorization", "X-API-Key".
+  string header = 1;
+  // argon2id hash of the expected full header value.
+  string hashed_value = 2;
 }
 
 message Authentication {
@@ -61,6 +193,16 @@ message Authentication {
   bool password = 3;
   bool pin = 4;
   bool oidc = 5;
+  repeated HeaderAuth header_auths = 6;
+}
+
+message AccessRestrictions {
+  repeated string allowed_cidrs = 1;
+  repeated string blocked_cidrs = 2;
+  repeated string allowed_countries = 3;
+  repeated string blocked_countries = 4;
+  // CrowdSec IP reputation mode: "", "off", "enforce", or "observe".
+  string crowdsec_mode = 5;
 }
 
 message ProxyMapping {
@@ -77,6 +219,13 @@ message ProxyMapping {
   // When true, Location headers in backend responses are rewritten to replace
   // the backend address with the public-facing domain.
   bool rewrite_redirects = 9;
+  // Service mode: "http", "tcp", "udp", or "tls".
+  string mode = 10;
+  // For L4/TLS: the port the proxy listens on.
+  int32 listen_port = 11;
+  AccessRestrictions access_restrictions = 12;
+  // NetBird-only: the proxy MUST call ValidateTunnelPeer and fail closed; operator auth schemes are bypassed.
+  bool private = 13;
 }
 
 // SendAccessLogRequest consists of one or more AccessLogs from a Proxy.
@@ -101,6 +250,15 @@ message AccessLog {
   string auth_mechanism = 11;
   string user_id = 12;
   bool auth_success = 13;
+  int64 bytes_upload = 14;
+  int64 bytes_download = 15;
+  string protocol = 16;
+  // Extra key-value metadata for the access log entry (e.g. crowdsec_verdict, scenario).
+  map<string, string> metadata = 17;
+  // When true, the entry was emitted by an agent-network synth service.
+  // Management routes these to the agent-network access-log surface instead
+  // of the standard service log.
+  bool agent_network = 18;
 }
 
 message AuthenticateRequest {
@@ -109,7 +267,13 @@ message AuthenticateRequest {
   oneof request {
     PasswordRequest password = 3;
     PinRequest pin = 4;
+    HeaderAuthRequest header_auth = 5;
   }
+}
+
+message HeaderAuthRequest {
+  string header_value = 1;
+  string header_name = 2;
 }
 
 message PasswordRequest {
@@ -141,6 +305,25 @@ message SendStatusUpdateRequest {
   ProxyStatus status = 3;
   bool certificate_issued = 4;
   optional string error_message = 5;
+  // Per-account inbound listener state for the account that owns
+  // service_id. Populated only when --private is enabled and the
+  // embedded client for the account is up. Field numbers >=50 reserved
+  // for observability extensions.
+  optional ProxyInboundListener inbound_listener = 50;
+}
+
+// ProxyInboundListener describes a per-account inbound listener that the
+// proxy has bound on the embedded netstack of the account's WireGuard
+// client. Surfaced so dashboards can render "this account is reachable
+// at <tunnel_ip>:<https_port> on this proxy".
+message ProxyInboundListener {
+  // Tunnel IP the embedded netstack listens on. Same address other peers
+  // in the account see for the proxy peer.
+  string tunnel_ip = 1;
+  // TLS port served on tunnel_ip (auto-detected, default 443).
+  uint32 https_port = 2;
+  // Plain-HTTP port served on tunnel_ip (auto-detected, default 80).
+  uint32 http_port = 3;
 }
 
 // SendStatusUpdateResponse is intentionally empty to allow for future expansion
@@ -182,4 +365,139 @@ message ValidateSessionResponse {
   string user_id = 2;
   string user_email = 3;
   string denied_reason = 4;
+  // peer_group_ids carries the calling user's group memberships so the
+  // proxy can authorise policy-aware middlewares without an additional
+  // management round-trip.
+  repeated string peer_group_ids = 5;
+  // peer_group_names carries the human-readable display names for the
+  // ids in peer_group_ids, ordered identically (positional pairing).
+  // Stamped onto upstream requests as X-NetBird-Groups so downstream
+  // services can read names rather than opaque ids.
+  repeated string peer_group_names = 6;
 }
+
+// ValidateTunnelPeerRequest carries the inbound peer's tunnel IP and the
+// service domain whose group requirements should gate access. The calling
+// account is inferred from the proxy's gRPC metadata (ProxyToken).
+message ValidateTunnelPeerRequest {
+  string tunnel_ip = 1;
+  string domain = 2;
+}
+
+// ValidateTunnelPeerResponse mirrors ValidateSessionResponse plus a freshly
+// minted session_token: when valid is true, the proxy installs the token as
+// a session cookie so subsequent requests skip the management round-trip,
+// matching the OIDC flow's UX. denied_reason values:
+//   "peer_not_found" — no peer with that tunnel IP in the calling account
+//   "no_user"        — peer exists but is not bound to a user
+//   "service_not_found"
+//   "account_mismatch"
+//   "not_in_group"   — peer resolved but not in service.access_groups
+message ValidateTunnelPeerResponse {
+  bool valid = 1;
+  string user_id = 2;
+  string user_email = 3;
+  string denied_reason = 4;
+  // session_token is set only when valid is true. Same shape as the JWT
+  // the OIDC flow produces — proxy installs it via setSessionCookie so the
+  // tunnel fast-path is indistinguishable from OIDC for subsequent requests.
+  string session_token = 5;
+  // peer_group_ids carries the resolved peer's user group memberships so
+  // the proxy can authorise policy-aware middlewares without an additional
+  // management round-trip.
+  repeated string peer_group_ids = 6;
+  // peer_group_names carries the human-readable display names for the
+  // ids in peer_group_ids, ordered identically (positional pairing).
+  // Stamped onto upstream requests as X-NetBird-Groups so downstream
+  // services can read names rather than opaque ids.
+  repeated string peer_group_names = 7;
+}
+
+// SyncMappingsRequest is sent by the proxy on the bidirectional SyncMappings
+// stream. The first message MUST be an init; all subsequent messages MUST be
+// acks.
+message SyncMappingsRequest {
+  oneof msg {
+    SyncMappingsInit init = 1;
+    SyncMappingsAck ack = 2;
+  }
+}
+
+// SyncMappingsInit is the first message on the stream, carrying the same
+// identification fields as GetMappingUpdateRequest.
+message SyncMappingsInit {
+  string proxy_id = 1;
+  string version = 2;
+  google.protobuf.Timestamp started_at = 3;
+  string address = 4;
+  ProxyCapabilities capabilities = 5;
+}
+
+// SyncMappingsAck is sent by the proxy after it has fully processed a batch.
+// Management waits for this before sending the next batch.
+message SyncMappingsAck {}
+
+// SyncMappingsResponse is a batch of mappings sent by management.
+// Identical semantics to GetMappingUpdateResponse.
+message SyncMappingsResponse {
+  repeated ProxyMapping mapping = 1;
+  // initial_sync_complete is set on the last message of the initial snapshot.
+  bool initial_sync_complete = 2;
+}
+
+// CheckLLMPolicyLimitsRequest carries the resolved caller identity and the
+// upstream provider already chosen by llm_router. Management computes which
+// policies authorise the request, picks the one with the most remaining
+// headroom, and returns the attribution decision.
+message CheckLLMPolicyLimitsRequest {
+  // account_id is the netbird account the request belongs to.
+  string account_id = 1;
+  // user_id is the netbird user id of the caller. May be empty when the
+  // principal is a tunnel-peer that isn't bound to a user; group membership
+  // still gates the request in that case.
+  string user_id = 2;
+  // group_ids is the caller's full group membership at request time.
+  repeated string group_ids = 3;
+  // provider_id is the agent-network provider record id chosen by llm_router.
+  string provider_id = 4;
+  // model is the upstream model identifier extracted from the request body.
+  string model = 5;
+}
+
+// CheckLLMPolicyLimitsResponse is management's allow-or-deny decision for a
+// pre-flight check.
+message CheckLLMPolicyLimitsResponse {
+  // decision is "allow" or "deny".
+  string decision = 1;
+  // selected_policy_id names the policy that paid for this request.
+  string selected_policy_id = 2;
+  // attribution_group_id is the source group the request booked against.
+  string attribution_group_id = 3;
+  // window_seconds is the cap window length the selected policy uses.
+  int64 window_seconds = 4;
+  // deny_code is set on decision="deny" with a stable label.
+  string deny_code = 5;
+  // deny_reason is a short human-readable explanation paired with deny_code.
+  string deny_reason = 6;
+}
+
+// RecordLLMUsageRequest is the post-flight increment the proxy posts after
+// the upstream call. Counters are keyed on (account, dimension, window).
+message RecordLLMUsageRequest {
+  string account_id = 1;
+  string user_id = 2;
+  // group_id is the selected policy's attribution group, recorded against the
+  // policy window (window_seconds).
+  string group_id = 3;
+  int64 window_seconds = 4;
+  int64 tokens_input = 5;
+  int64 tokens_output = 6;
+  double cost_usd = 7;
+  // group_ids is the caller's full group membership, used to fan the same
+  // usage out to every applicable account-level budget rule's own window.
+  repeated string group_ids = 8;
+}
+
+message RecordLLMUsageResponse {
+}
+

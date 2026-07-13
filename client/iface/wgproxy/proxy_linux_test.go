@@ -1,4 +1,4 @@
-//go:build linux && !android
+//go:build linux && !android && privileged
 
 package wgproxy
 
@@ -66,7 +66,7 @@ func seedProxyForProxyCloseByRemoteConn() ([]proxyInstance, error) {
 	if err != nil {
 		return nil, err
 	}
-	iceBind := bind.NewICEBind(nil, nil, wgAddress, 1280)
+	iceBind := bind.NewICEBind(nil, wgAddress, 1280)
 	endpointAddress := &net.UDPAddr{
 		IP:   net.IPv4(10, 0, 0, 1),
 		Port: 1234,

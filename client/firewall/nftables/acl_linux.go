@@ -33,15 +33,12 @@ const (
 
 const flushError = "flush: %w"
 
-var (
-	anyIP = []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-)
-
 type AclManager struct {
 	rConn              *nftables.Conn
 	sConn              *nftables.Conn
 	wgIface            iFaceMapper
 	routingFwChainName string
+	af                 addrFamily
 
 	workTable       *nftables.Table
 	chainInputRules *nftables.Chain
@@ -67,6 +64,7 @@ func newAclManager(table *nftables.Table, wgIface iFaceMapper, routingFwChainNam
 		wgIface:            wgIface,
 		workTable:          table,
 		routingFwChainName: routingFwChainName,
+		af:                 familyForAddr(table.Family == nftables.TableFamilyIPv4),
 
 		ipsetStore: newIpsetStore(),
 		rules:      make(map[string]*Rule),
@@ -145,7 +143,7 @@ func (m *AclManager) DeletePeerRule(rule firewall.Rule) error {
 	}
 
 	if _, ok := ips[r.ip.String()]; ok {
-		err := m.sConn.SetDeleteElements(r.nftSet, []nftables.SetElement{{Key: r.ip.To4()}})
+		err := m.sConn.SetDeleteElements(r.nftSet, []nftables.SetElement{{Key: ipToBytes(r.ip, m.af)}})
 		if err != nil {
 			log.Errorf("delete elements for set %q: %v", r.nftSet.Name, err)
 		}
@@ -254,11 +252,11 @@ func (m *AclManager) addIOFiltering(
 		expressions = append(expressions, &expr.Payload{
 			DestRegister: 1,
 			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       uint32(9),
+			Offset:       m.af.protoOffset,
 			Len:          uint32(1),
 		})
 
-		protoData, err := protoToInt(proto)
+		protoData, err := m.af.protoNum(proto)
 		if err != nil {
 			return nil, fmt.Errorf("convert protocol to number: %v", err)
 		}
@@ -270,19 +268,16 @@ func (m *AclManager) addIOFiltering(
 		})
 	}
 
-	rawIP := ip.To4()
+	rawIP := ipToBytes(ip, m.af)
 	// check if rawIP contains zeroed IPv4 0.0.0.0 value
 	// in that case not add IP match expression into the rule definition
-	if !bytes.HasPrefix(anyIP, rawIP) {
-		// source address position
-		addrOffset := uint32(12)
-
+	if slices.ContainsFunc(rawIP, func(v byte) bool { return v != 0 }) {
 		expressions = append(expressions,
 			&expr.Payload{
 				DestRegister: 1,
 				Base:         expr.PayloadBaseNetworkHeader,
-				Offset:       addrOffset,
-				Len:          4,
+				Offset:       m.af.srcAddrOffset,
+				Len:          m.af.addrLen,
 			},
 		)
 		// add individual IP for match if no ipset defined
@@ -587,7 +582,7 @@ func (m *AclManager) addJumpRule(chain *nftables.Chain, to string, ifaceKey expr
 
 func (m *AclManager) addIpToSet(ipsetName string, ip net.IP) (*nftables.Set, error) {
 	ipset, err := m.rConn.GetSetByName(m.workTable, ipsetName)
-	rawIP := ip.To4()
+	rawIP := ipToBytes(ip, m.af)
 	if err != nil {
 		if ipset, err = m.createSet(m.workTable, ipsetName); err != nil {
 			return nil, fmt.Errorf("get set name: %v", err)
@@ -619,7 +614,7 @@ func (m *AclManager) createSet(table *nftables.Table, name string) (*nftables.Se
 		Name:    name,
 		Table:   table,
 		Dynamic: true,
-		KeyType: nftables.TypeIPAddr,
+		KeyType: m.af.setKeyType,
 	}
 
 	if err := m.rConn.AddSet(ipset, nil); err != nil {
@@ -707,15 +702,12 @@ func ifname(n string) []byte {
 	return b
 }
 
-func protoToInt(protocol firewall.Protocol) (uint8, error) {
-	switch protocol {
-	case firewall.ProtocolTCP:
-		return unix.IPPROTO_TCP, nil
-	case firewall.ProtocolUDP:
-		return unix.IPPROTO_UDP, nil
-	case firewall.ProtocolICMP:
-		return unix.IPPROTO_ICMP, nil
-	}
 
-	return 0, fmt.Errorf("unsupported protocol: %s", protocol)
+// ipToBytes converts net.IP to the correct byte length for the address family.
+func ipToBytes(ip net.IP, af addrFamily) []byte {
+	if af.addrLen == 4 {
+		return ip.To4()
+	}
+	return ip.To16()
 }
+

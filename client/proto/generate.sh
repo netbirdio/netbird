@@ -1,17 +1,22 @@
 #!/bin/bash
 set -e
 
-if ! which realpath > /dev/null 2>&1
-then
-  echo realpath is not installed
-  echo run: brew install coreutils
-  exit 1
+if ! which realpath >/dev/null 2>&1; then
+	echo realpath is not installed
+	echo run: brew install coreutils
+	exit 1
 fi
 
 old_pwd=$(pwd)
-script_path=$(dirname $(realpath "$0"))
+script_path=$(dirname "$(realpath "$0")")
 cd "$script_path"
 go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.6
-go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.1
-protoc -I ./ ./daemon.proto --go_out=../ --go-grpc_out=../ --experimental_allow_proto3_optional
+go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1
+go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@v2.26.3
+protoc -I ./ ./daemon.proto \
+  --go_out=../ \
+  --go-grpc_out=../ \
+  --grpc-gateway_out=../ \
+  --grpc-gateway_opt=generate_unbound_methods=true \
+  --experimental_allow_proto3_optional
 cd "$old_pwd"

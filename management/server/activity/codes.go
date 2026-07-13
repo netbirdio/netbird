@@ -208,6 +208,79 @@ const (
 	ServiceUpdated Activity = 109
 	ServiceDeleted Activity = 110
 
+	// PeerServiceExposed indicates that a peer exposed a service via the reverse proxy
+	PeerServiceExposed Activity = 111
+	// PeerServiceUnexposed indicates that a peer-exposed service was removed
+	PeerServiceUnexposed Activity = 112
+	// PeerServiceExposeExpired indicates that a peer-exposed service was removed due to TTL expiration
+	PeerServiceExposeExpired Activity = 113
+
+	// AccountPeerExposeEnabled indicates that a user enabled peer expose for the account
+	AccountPeerExposeEnabled Activity = 114
+	// AccountPeerExposeDisabled indicates that a user disabled peer expose for the account
+	AccountPeerExposeDisabled Activity = 115
+
+	// AccountAutoUpdateAlwaysEnabled indicates that a user enabled always auto-update for the account
+	AccountAutoUpdateAlwaysEnabled Activity = 116
+	// AccountAutoUpdateAlwaysDisabled indicates that a user disabled always auto-update for the account
+	AccountAutoUpdateAlwaysDisabled Activity = 117
+
+	// DomainAdded indicates that a user added a custom domain
+	DomainAdded Activity = 118
+	// DomainDeleted indicates that a user deleted a custom domain
+	DomainDeleted Activity = 119
+	// DomainValidated indicates that a custom domain was validated
+	DomainValidated Activity = 120
+	// AccountIPv6Enabled indicates that a user enabled IPv6 overlay for the account
+	AccountIPv6Enabled Activity = 121
+	// AccountIPv6Disabled indicates that a user disabled IPv6 overlay for the account
+	AccountIPv6Disabled Activity = 122
+
+	// AccountLocalMfaEnabled indicates that a user enabled TOTP MFA for local users
+	AccountLocalMfaEnabled Activity = 123
+	// AccountLocalMfaDisabled indicates that a user disabled TOTP MFA for local users
+	AccountLocalMfaDisabled Activity = 124
+	// UserExtendedPeerSession indicates that a user refreshed their peer's
+	// SSO session deadline via ExtendAuthSession without re-establishing the
+	// tunnel. Distinct from UserLoggedInPeer (full interactive login).
+	UserExtendedPeerSession Activity = 125
+
+	// AgentNetworkProviderCreated indicates that a user created an Agent Network provider
+	AgentNetworkProviderCreated Activity = 126
+	// AgentNetworkProviderUpdated indicates that a user updated an Agent Network provider
+	AgentNetworkProviderUpdated Activity = 127
+	// AgentNetworkProviderDeleted indicates that a user deleted an Agent Network provider
+	AgentNetworkProviderDeleted Activity = 128
+
+	// AgentNetworkPolicyCreated indicates that a user created an Agent Network policy
+	AgentNetworkPolicyCreated Activity = 129
+	// AgentNetworkPolicyUpdated indicates that a user updated an Agent Network policy
+	AgentNetworkPolicyUpdated Activity = 130
+	// AgentNetworkPolicyDeleted indicates that a user deleted an Agent Network policy
+	AgentNetworkPolicyDeleted Activity = 131
+
+	// AgentNetworkGuardrailCreated indicates that a user created an Agent Network guardrail
+	AgentNetworkGuardrailCreated Activity = 132
+	// AgentNetworkGuardrailUpdated indicates that a user updated an Agent Network guardrail
+	AgentNetworkGuardrailUpdated Activity = 133
+	// AgentNetworkGuardrailDeleted indicates that a user deleted an Agent Network guardrail
+	AgentNetworkGuardrailDeleted Activity = 134
+
+	// AgentNetworkBudgetRuleCreated indicates that a user created an Agent Network budget rule
+	AgentNetworkBudgetRuleCreated Activity = 135
+	// AgentNetworkBudgetRuleUpdated indicates that a user updated an Agent Network budget rule
+	AgentNetworkBudgetRuleUpdated Activity = 136
+	// AgentNetworkBudgetRuleDeleted indicates that a user deleted an Agent Network budget rule
+	AgentNetworkBudgetRuleDeleted Activity = 137
+
+	// AgentNetworkSettingsUpdated indicates that a user updated Agent Network account settings
+	AgentNetworkSettingsUpdated Activity = 139
+
+	// AccountMetricsPushEnabled indicates that a user enabled metrics push for the account
+	AccountMetricsPushEnabled Activity = 140
+	// AccountMetricsPushDisabled indicates that a user disabled metrics push for the account
+	AccountMetricsPushDisabled Activity = 141
+
 	AccountDeleted Activity = 99999
 )
 
@@ -320,6 +393,11 @@ var activityMap = map[Activity]Code{
 	UserCreated:  {"User created", "user.create"},
 
 	AccountAutoUpdateVersionUpdated: {"Account AutoUpdate Version updated", "account.settings.auto.version.update"},
+	AccountAutoUpdateAlwaysEnabled:  {"Account auto-update always enabled", "account.setting.auto.update.always.enable"},
+	AccountAutoUpdateAlwaysDisabled: {"Account auto-update always disabled", "account.setting.auto.update.always.disable"},
+
+	AccountIPv6Enabled:  {"Account IPv6 overlay enabled", "account.setting.ipv6.enable"},
+	AccountIPv6Disabled: {"Account IPv6 overlay disabled", "account.setting.ipv6.disable"},
 
 	IdentityProviderCreated: {"Identity provider created", "identityprovider.create"},
 	IdentityProviderUpdated: {"Identity provider updated", "identityprovider.update"},
@@ -345,6 +423,43 @@ var activityMap = map[Activity]Code{
 	ServiceCreated: {"Service created", "service.create"},
 	ServiceUpdated: {"Service updated", "service.update"},
 	ServiceDeleted: {"Service deleted", "service.delete"},
+
+	PeerServiceExposed:       {"Peer exposed service", "service.peer.expose"},
+	PeerServiceUnexposed:     {"Peer unexposed service", "service.peer.unexpose"},
+	PeerServiceExposeExpired: {"Peer exposed service expired", "service.peer.expose.expire"},
+
+	AccountPeerExposeEnabled:  {"Account peer expose enabled", "account.setting.peer.expose.enable"},
+	AccountPeerExposeDisabled: {"Account peer expose disabled", "account.setting.peer.expose.disable"},
+
+	AccountLocalMfaEnabled:  {"Account local MFA enabled", "account.setting.local.mfa.enable"},
+	AccountLocalMfaDisabled: {"Account local MFA disabled", "account.setting.local.mfa.disable"},
+
+	UserExtendedPeerSession: {"User extended peer session", "user.peer.session.extend"},
+
+	AgentNetworkProviderCreated: {"Agent Network provider created", "agent_network.provider.create"},
+	AgentNetworkProviderUpdated: {"Agent Network provider updated", "agent_network.provider.update"},
+	AgentNetworkProviderDeleted: {"Agent Network provider deleted", "agent_network.provider.delete"},
+
+	AgentNetworkPolicyCreated: {"Agent Network policy created", "agent_network.policy.create"},
+	AgentNetworkPolicyUpdated: {"Agent Network policy updated", "agent_network.policy.update"},
+	AgentNetworkPolicyDeleted: {"Agent Network policy deleted", "agent_network.policy.delete"},
+
+	AgentNetworkGuardrailCreated: {"Agent Network guardrail created", "agent_network.guardrail.create"},
+	AgentNetworkGuardrailUpdated: {"Agent Network guardrail updated", "agent_network.guardrail.update"},
+	AgentNetworkGuardrailDeleted: {"Agent Network guardrail deleted", "agent_network.guardrail.delete"},
+
+	AgentNetworkBudgetRuleCreated: {"Agent Network budget rule created", "agent_network.budget_rule.create"},
+	AgentNetworkBudgetRuleUpdated: {"Agent Network budget rule updated", "agent_network.budget_rule.update"},
+	AgentNetworkBudgetRuleDeleted: {"Agent Network budget rule deleted", "agent_network.budget_rule.delete"},
+
+	AgentNetworkSettingsUpdated: {"Agent Network settings updated", "agent_network.settings.update"},
+
+	AccountMetricsPushEnabled:  {"Account metrics push enabled", "account.setting.metrics.push.enable"},
+	AccountMetricsPushDisabled: {"Account metrics push disabled", "account.setting.metrics.push.disable"},
+
+	DomainAdded:     {"Domain added", "domain.add"},
+	DomainDeleted:   {"Domain deleted", "domain.delete"},
+	DomainValidated: {"Domain validated", "domain.validate"},
 }
 
 // StringCode returns a string code of the activity

@@ -18,9 +18,12 @@ func executeRouteToggle(id string, manager routemanager.Manager,
 	netID := route.NetID(id)
 	routes := []route.NetID{netID}
 
-	log.Debugf("%s with id: %s", operationName, id)
+	routesMap := manager.GetClientRoutesWithNetID()
+	routes = route.ExpandV6ExitPairs(routes, routesMap)
 
-	if err := routeOperation(routes, maps.Keys(manager.GetClientRoutesWithNetID())); err != nil {
+	log.Debugf("%s with ids: %v", operationName, routes)
+
+	if err := routeOperation(routes, maps.Keys(routesMap)); err != nil {
 		log.Debugf("error when %s: %s", operationName, err)
 		return fmt.Errorf("error %s: %w", operationName, err)
 	}

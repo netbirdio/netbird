@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/netip"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -224,12 +226,11 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 
-	// pass if non A/AAAA query
-	if r.Question[0].Qtype != dns.TypeA && r.Question[0].Qtype != dns.TypeAAAA {
-		d.continueToNextHandler(w, r, logger, "non A/AAAA query")
-		return
-	}
-
+	// All query types for an intercepted domain are forwarded to the peer's
+	// DNS forwarder, which owns the name. Falling through to the system
+	// resolver would let it answer NXDOMAIN for a name it isn't authoritative
+	// for, poisoning the whole name (including the A/AAAA records the route
+	// does serve). The forwarder answers NODATA for types it cannot resolve.
 	d.mu.RLock()
 	peerKey := d.currentPeerKey
 	d.mu.RUnlock()
@@ -249,13 +250,28 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		r.MsgHdr.AuthenticatedData = true
 	}
 
-	upstream := fmt.Sprintf("%s:%d", upstreamIP.String(), uint16(d.forwarderPort.Load()))
+	// Advertise EDNS0 to the forwarder so it may return an Extended DNS Error
+	// describing why a lookup failed. The OPT is stripped from the reply when
+	// the original client did not request EDNS0.
+	hadEdns := r.IsEdns0() != nil
+	if !hadEdns {
+		r.SetEdns0(dns.DefaultMsgSize, false)
+	}
+
+	upstream := net.JoinHostPort(upstreamIP.String(), strconv.FormatUint(uint64(d.forwarderPort.Load()), 10))
 	ctx, cancel := context.WithTimeout(context.Background(), dnsTimeout)
 	defer cancel()
 
 	reply := d.queryUpstreamDNS(ctx, w, r, upstream, upstreamIP, peerKey, logger)
 	if reply == nil {
 		return
+	}
+
+	if ede, ok := resutil.ExtractEDE(reply); ok {
+		resutil.SetMeta(w, "ede", fmt.Sprintf("%d %s", ede.InfoCode, ede.ExtraText))
+	}
+	if !hadEdns {
+		resutil.StripOPT(reply)
 	}
 
 	resutil.SetMeta(w, "peer", peerKey)
@@ -273,19 +289,6 @@ func (d *DnsInterceptor) writeDNSError(w dns.ResponseWriter, r *dns.Msg, logger 
 	resp.SetRcode(r, dns.RcodeServerFailure)
 	if err := w.WriteMsg(resp); err != nil {
 		logger.Errorf("failed to write DNS error response: %v", err)
-	}
-}
-
-// continueToNextHandler signals the handler chain to try the next handler
-func (d *DnsInterceptor) continueToNextHandler(w dns.ResponseWriter, r *dns.Msg, logger *log.Entry, reason string) {
-	logger.Tracef("continuing to next handler for domain=%s reason=%s", r.Question[0].Name, reason)
-
-	resp := new(dns.Msg)
-	resp.SetRcode(r, dns.RcodeNameError)
-	// Set Zero bit to signal handler chain to continue
-	resp.MsgHdr.Zero = true
-	if err := w.WriteMsg(resp); err != nil {
-		logger.Errorf("failed writing DNS continue response: %v", err)
 	}
 }
 
@@ -350,6 +353,11 @@ func (d *DnsInterceptor) writeMsg(w dns.ResponseWriter, r *dns.Msg, logger *log.
 			if err := d.updateDomainPrefixes(resolvedDomain, originalDomain, newPrefixes, logger); err != nil {
 				logger.Errorf("failed to update domain prefixes: %v", err)
 			}
+
+			// Allow time for route changes to be applied before sending
+			// the DNS response (relevant on iOS where setTunnelNetworkSettings
+			// is asynchronous).
+			waitForRouteSettlement(logger)
 
 			d.replaceIPsInDNSResponse(r, newPrefixes, logger)
 		}
@@ -575,7 +583,7 @@ func (d *DnsInterceptor) queryUpstreamDNS(ctx context.Context, w dns.ResponseWri
 	if nsNet != nil {
 		reply, err = nbdns.ExchangeWithNetstack(ctx, nsNet, r, upstream)
 	} else {
-		client, clientErr := nbdns.GetClientPrivate(d.wgInterface.Address().IP, d.wgInterface.Name(), dnsTimeout)
+		client, clientErr := nbdns.GetClientPrivate(d.wgInterface, upstreamIP, dnsTimeout)
 		if clientErr != nil {
 			d.writeDNSError(w, r, logger, fmt.Sprintf("create DNS client: %v", clientErr))
 			return nil
