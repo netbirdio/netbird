@@ -195,13 +195,15 @@ func (s *WindowManager) OpenBrowserLogin(uri string) {
 		bl := s.browserLogin
 		bl.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
 			s.mu.Lock()
-			// Programmatic closers (CloseBrowserLogin/CloseRenewFlow) nil s.browserLogin
-			// before calling Close(); only a user red-X still has it set here
+			// Only a live user red-X still has this registered; programmatic closers
+			// nil s.browserLogin first and clean up themselves. Guarding here stops a
+			// stale close event from wiping a replacement popup's state.
 			userClosed := s.browserLogin == bl
-			s.browserLogin = nil
-			s.restoreHiddenWindowsLocked()
+			if userClosed {
+				s.browserLogin = nil
+				s.restoreHiddenWindowsLocked()
+			}
 			s.mu.Unlock()
-			// Emit event only when user closed the window
 			if userClosed {
 				s.app.Event.Emit(EventBrowserLoginCancel)
 			}
@@ -237,6 +239,8 @@ func (s *WindowManager) CloseBrowserLogin() {
 	s.mu.Lock()
 	w := s.browserLogin
 	s.browserLogin = nil
+	// The WindowClosing hook no-ops on a programmatic close, so restore here.
+	s.restoreHiddenWindowsLocked()
 	s.mu.Unlock()
 	if w != nil {
 		w.Close()
@@ -295,11 +299,10 @@ func (s *WindowManager) CloseRenewFlow() {
 		}
 		s.hiddenForLogin = kept
 	}
+	s.restoreHiddenWindowsLocked()
 	s.mu.Unlock()
 
-	// Close the popup first (its WindowClosing restores the main window), then
-	// the session-expiration window. Both run after the unlock, so the
-	// re-entrant handlers can take s.mu without deadlocking.
+	// Close after unlock so the re-entrant handlers can take s.mu.
 	if bl != nil {
 		bl.Close()
 	}
