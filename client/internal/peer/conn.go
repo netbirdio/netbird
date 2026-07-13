@@ -30,6 +30,11 @@ import (
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 )
 
+// wgTimeoutEscalationThreshold is the number of consecutive WireGuard
+// handshake timeouts after which the rosenpass state for the peer is
+// considered desynced and gets reset.
+const wgTimeoutEscalationThreshold = 3
+
 // MetricsRecorder is an interface for recording peer connection metrics
 type MetricsRecorder interface {
 	RecordConnectionStages(
@@ -118,6 +123,9 @@ type Conn struct {
 	wgWatcher       *WGWatcher
 	wgWatcherWg     sync.WaitGroup
 	wgWatcherCancel context.CancelFunc
+	// wgTimeouts counts consecutive WireGuard handshake timeouts without a
+	// successful handshake in between. Guarded by mu.
+	wgTimeouts int
 
 	// used to store the remote Rosenpass key for Relayed connection in case of connection update from ice
 	rosenpassRemoteKey []byte
@@ -683,6 +691,29 @@ func (conn *Conn) onWGDisconnected(watcherCtx context.Context) {
 	default:
 		conn.Log.Debugf("No active connection to close on WG timeout")
 	}
+
+	conn.escalateWGTimeoutLocked()
+}
+
+// escalateWGTimeoutLocked resets the peer's rosenpass state after repeated
+// handshake timeouts. With rosenpass enabled, persistent timeouts mean the
+// preshared keys have desynced; the renewal exchange runs over the dead
+// tunnel and cannot resync them. Reporting the peer disconnected drops its
+// rosenpass state, so the next connection configuration programs the
+// rendezvous key and the tunnel can bootstrap again. Callers must hold mu.
+func (conn *Conn) escalateWGTimeoutLocked() {
+	if conn.config.RosenpassConfig.PubKey == nil {
+		return
+	}
+
+	conn.wgTimeouts++
+	if conn.wgTimeouts < wgTimeoutEscalationThreshold || conn.onDisconnected == nil {
+		return
+	}
+	conn.wgTimeouts = 0
+
+	conn.Log.Warnf("%d consecutive WireGuard handshake timeouts, resetting rosenpass state for peer", wgTimeoutEscalationThreshold)
+	conn.onDisconnected(conn.config.WgConfig.RemoteKey)
 }
 
 func (conn *Conn) updateRelayStatus(relayServerAddr string, rosenpassPubKey []byte, updateTime time.Time) {
@@ -821,7 +852,7 @@ func (conn *Conn) enableWgWatcherIfNeeded(enabledTime time.Time) {
 	go func() {
 		defer conn.wgWatcherWg.Done()
 		onDisconnected := func() { conn.onWGDisconnected(wgWatcherCtx) }
-		watcher.EnableWgWatcher(wgWatcherCtx, enabledTime, onDisconnected, conn.onWGHandshakeSuccess)
+		watcher.EnableWgWatcher(wgWatcherCtx, enabledTime, onDisconnected, conn.onWGHandshakeSuccess, conn.onWGCheckSuccess)
 	}()
 }
 
@@ -906,6 +937,15 @@ func (conn *Conn) setRelayedProxy(proxy wgproxy.Proxy) {
 func (conn *Conn) onWGHandshakeSuccess(when time.Time) {
 	conn.metricsStages.RecordWGHandshakeSuccess(when)
 	conn.recordConnectionMetrics()
+}
+
+// onWGCheckSuccess is called for every watcher check that observed a fresh
+// handshake, including handshakes of connections that were already up when
+// the watcher started.
+func (conn *Conn) onWGCheckSuccess() {
+	conn.mu.Lock()
+	conn.wgTimeouts = 0
+	conn.mu.Unlock()
 }
 
 // recordConnectionMetrics records connection stage timestamps as metrics

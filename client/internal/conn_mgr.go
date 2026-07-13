@@ -109,7 +109,7 @@ func (e *ConnMgr) UpdatedRemoteFeatureFlag(ctx context.Context, enabled bool) er
 			return nil
 		}
 
-		log.Warnf("lazy connection manager is enabled by management feature flag")
+		log.Infof("lazy connection manager is enabled by the management feature flag")
 		e.initLazyManager(ctx)
 		e.statusRecorder.UpdateLazyConnection(true)
 		return e.addPeersToLazyConnManager()

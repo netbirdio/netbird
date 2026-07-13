@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -264,7 +265,11 @@ func (m *DefaultManager) initSelector() *routeselector.RouteSelector {
 
 	// restore selector state if it exists
 	if err := m.stateManager.LoadState(state); err != nil {
-		log.Warnf("failed to load state: %v", err)
+		if errors.Is(err, syscall.ENOSYS) {
+			log.Debugf("route selector state unavailable on this platform: %v", err)
+		} else {
+			log.Warnf("failed to load state: %v", err)
+		}
 		return routeselector.NewRouteSelector()
 	}
 
@@ -442,6 +447,11 @@ func (m *DefaultManager) UpdateRoutes(
 
 		m.updateClientNetworks(updateSerial, filteredClientRoutes)
 		m.notifier.OnNewRoutes(filteredClientRoutes)
+		// A new network map can add or drop route/exit-node candidates without
+		// touching any peer's chosen-route state, so the peer status alone
+		// wouldn't notify SubscribeStatus subscribers. Bump the revision so the
+		// UI re-fetches ListNetworks.
+		m.statusRecorder.BumpNetworksRevision()
 	}
 	m.clientRoutes = clientRoutes
 
@@ -582,6 +592,10 @@ func (m *DefaultManager) TriggerSelection(networks route.HAMap) {
 	if err := m.stateManager.UpdateState((*SelectorState)(m.routeSelector)); err != nil {
 		log.Errorf("failed to update state: %v", err)
 	}
+
+	// A selection change flips Network.selected without altering the candidate
+	// set, so bump the revision to push the new state to the UI.
+	m.statusRecorder.BumpNetworksRevision()
 }
 
 // stopObsoleteClients stops the client network watcher for the networks that are not in the new list

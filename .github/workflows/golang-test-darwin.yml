@@ -45,7 +45,15 @@ jobs:
         run: git --no-pager diff --exit-code
 
       - name: Test
-        run: NETBIRD_STORE_ENGINE=${{ matrix.store }} CI=true go test -coverprofile=coverage.txt -tags 'devcert privileged' -exec 'sudo --preserve-env=CI,NETBIRD_STORE_ENGINE' -timeout 5m -p 1 $(go list ./... | grep -v -e /management -e /signal -e /relay -e /proxy -e /combined -e /client/testutil/privileged)
+        # Exclude client/ui: its main.go uses //go:embed all:frontend/dist,
+        # which fails to compile until the frontend has been built. The Wails UI
+        # has no Go-side unit tests, and its release pipeline runs `pnpm build`
+        # before goreleaser.
+        # `go list -e` lets the listing succeed even though the embed fails to
+        # resolve; the grep then drops the broken package by path. Without -e,
+        # go list aborts with empty stdout and `go test` falls back to the repo
+        # root, which has no Go files.
+        run: NETBIRD_STORE_ENGINE=${{ matrix.store }} CI=true go test -coverprofile=coverage.txt -tags 'devcert privileged' -exec 'sudo --preserve-env=CI,NETBIRD_STORE_ENGINE' -timeout 5m -p 1 $(go list -e ./... | grep -v -e /management -e /signal -e /relay -e /proxy -e /combined -e /client/ui -e /client/testutil/privileged)
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f #v7.0.0

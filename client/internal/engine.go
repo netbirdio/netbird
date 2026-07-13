@@ -274,6 +274,20 @@ type Engine struct {
 	jobExecutorWG sync.WaitGroup
 
 	exposeManager *expose.Manager
+
+	sessionWatcher sessionDeadlineWatcher
+}
+
+// sessionDeadlineWatcher is the engine-facing surface of the SSO session
+// expiry watcher. The concrete implementation (sessionwatch.Watcher) is wired
+// in via newSessionWatcher, which is build-tagged so the js/wasm build links a
+// no-op stub instead of pulling the full sessionwatch package (and its timer
+// machinery) into the binary — the wasm client never runs the engine's
+// session-warning flow.
+type sessionDeadlineWatcher interface {
+	Update(deadline time.Time) error
+	Dismiss()
+	Close()
 }
 
 // Peer is an instance of the Connection Peer
@@ -325,6 +339,17 @@ func NewEngine(
 		updateManager:      services.UpdateManager,
 		syncStoreDir:       config.StateDir,
 	}
+	// sessionWatcher keeps the SubscribeStatus consumers in sync with the
+	// session expiry deadline. Deadline-change ticks come for free via
+	// Status.SetSessionExpiresAt; the watcher exists to push a wake-up at
+	// T-WarningLead and T-FinalWarningLead so the UI repaints the remaining
+	// time / warning state even when nothing else changed, and to publish
+	// two SystemEvents (the warning composition lives in sessionwatch so
+	// the wire format stays owned by one package):
+	//   - T-WarningLead   → interactive "Extend now / Dismiss" notification
+	//   - T-FinalWarningLead → auto-opened SessionAboutToExpire dialog,
+	//     suppressed when the user dismissed the earlier warning
+	engine.sessionWatcher = newSessionWatcher(engine.statusRecorder)
 
 	log.Infof("I am: %s", config.WgPrivateKey.PublicKey().String())
 	return engine
@@ -389,6 +414,10 @@ func (e *Engine) stopLocked() {
 
 	if e.srWatcher != nil {
 		e.srWatcher.Close()
+	}
+
+	if e.sessionWatcher != nil {
+		e.sessionWatcher.Close()
 	}
 
 	if e.updateManager != nil {
@@ -522,7 +551,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		} else {
 			log.Infof("running rosenpass in strict mode")
 		}
-		e.rpManager, err = rosenpass.NewManager(e.config.PreSharedKey, e.config.WgIfaceName)
+		e.rpManager, err = rosenpass.NewManager(e.config.PreSharedKey, e.config.WgIfaceName, publicKey)
 		if err != nil {
 			return fmt.Errorf("create rosenpass manager: %w", err)
 		}
@@ -932,6 +961,8 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		return e.ctx.Err()
 	}
 
+	e.ApplySessionDeadline(update.GetSessionExpiresAt())
+
 	if update.NetworkMap != nil && update.NetworkMap.PeerConfig != nil {
 		e.handleAutoUpdateVersion(update.NetworkMap.PeerConfig.AutoUpdate)
 	}
@@ -1267,7 +1298,7 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobR
 		ClientMetrics:  e.clientMetrics,
 		DaemonVersion:  version.NetbirdVersion(),
 		RefreshStatus: func() {
-			e.RunHealthProbes(true)
+			e.RunHealthProbes(e.ctx, true)
 		},
 	}
 
@@ -2193,7 +2224,20 @@ func (e *Engine) getRosenpassAddr() string {
 
 // RunHealthProbes executes health checks for Signal, Management, Relay, and WireGuard services
 // and updates the status recorder with the latest states.
-func (e *Engine) RunHealthProbes(waitForResult bool) bool {
+//
+// ctx scopes the (potentially slow) STUN/TURN probing: a caller that gives up —
+// e.g. a Status RPC whose client disconnected — cancels its ctx and the probe
+// returns instead of running to its per-component timeout. The engine's own
+// lifetime ctx still applies independently, so an engine shutdown aborts the
+// probe even if the caller's ctx is context.Background().
+func (e *Engine) RunHealthProbes(ctx context.Context, waitForResult bool) bool {
+	// Tie the caller's ctx to the engine lifetime: either cancelling aborts
+	// the probe below.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stop := context.AfterFunc(e.ctx, cancel)
+	defer stop()
+
 	e.syncMsgMux.Lock()
 
 	signalHealthy := e.signal.IsHealthy()
@@ -2216,9 +2260,9 @@ func (e *Engine) RunHealthProbes(waitForResult bool) bool {
 	if runtime.GOOS != "js" {
 		var results []relay.ProbeResult
 		if waitForResult {
-			results = e.probeStunTurn.ProbeAllWaitResult(e.ctx, stuns, turns)
+			results = e.probeStunTurn.ProbeAllWaitResult(ctx, stuns, turns)
 		} else {
-			results = e.probeStunTurn.ProbeAll(e.ctx, stuns, turns)
+			results = e.probeStunTurn.ProbeAll(ctx, stuns, turns)
 		}
 		e.statusRecorder.UpdateRelayStates(results)
 

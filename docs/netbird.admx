@@ -207,6 +207,18 @@
       <disabledValue><decimal value="0" /></disabledValue>
     </policy>
 
+    <policy name="DisableAdvancedView"
+            class="Machine"
+            displayName="$(string.DisableAdvancedView_Name)"
+            explainText="$(string.DisableAdvancedView_Help)"
+            key="Software\Policies\NetBird"
+            valueName="DisableAdvancedView">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
     <policy name="DisableMetricsCollection"
             class="Machine"
             displayName="$(string.DisableMetricsCollection_Name)"

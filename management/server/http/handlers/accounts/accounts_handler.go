@@ -286,6 +286,14 @@ func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJS
 	if req.Settings.MetricsPushEnabled != nil {
 		returnSettings.MetricsPushEnabled = *req.Settings.MetricsPushEnabled
 	}
+	if req.Settings.AgentNetworkOnly != nil {
+		returnSettings.AgentNetworkOnly = *req.Settings.AgentNetworkOnly
+	}
+	if req.Settings.DashboardFeatures != nil {
+		returnSettings.DashboardFeatures = &types.DashboardFeatures{
+			AgentNetwork: req.Settings.DashboardFeatures.AgentNetwork,
+		}
+	}
 
 	return returnSettings, nil
 }
@@ -417,6 +425,7 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 		AutoUpdateAlways:                &settings.AutoUpdateAlways,
 		Ipv6EnabledGroups:               &settings.IPv6EnabledGroups,
 		MetricsPushEnabled:              &settings.MetricsPushEnabled,
+		AgentNetworkOnly:                &settings.AgentNetworkOnly,
 		EmbeddedIdpEnabled:              &settings.EmbeddedIdpEnabled,
 		LocalAuthDisabled:               &settings.LocalAuthDisabled,
 		LocalMfaEnabled:                 &settings.LocalMfaEnabled,
@@ -429,6 +438,11 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 	if settings.NetworkRangeV6.IsValid() {
 		networkRangeV6Str := settings.NetworkRangeV6.String()
 		apiSettings.NetworkRangeV6 = &networkRangeV6Str
+	}
+	if settings.DashboardFeatures != nil {
+		apiSettings.DashboardFeatures = &api.AccountDashboardFeatures{
+			AgentNetwork: settings.DashboardFeatures.AgentNetwork,
+		}
 	}
 
 	apiOnboarding := api.AccountOnboarding{
