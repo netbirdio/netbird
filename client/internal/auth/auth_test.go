@@ -106,6 +106,11 @@ func TestIsAuthenticationError(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "unauthenticated",
+			err:  status.Error(codes.Unauthenticated, "peer is not registered"),
+			want: true,
+		},
+		{
 			name: "not found",
 			err:  status.Error(codes.NotFound, "setup key is invalid"),
 			want: true,

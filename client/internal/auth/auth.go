@@ -481,6 +481,7 @@ func isAuthenticationError(err error) bool {
 	}
 	return s.Code() == codes.InvalidArgument ||
 		s.Code() == codes.PermissionDenied ||
+		s.Code() == codes.Unauthenticated ||
 		s.Code() == codes.NotFound
 }
 
