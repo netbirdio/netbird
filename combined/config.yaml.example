@@ -8,8 +8,8 @@
 # Architecture:
 #   - Management: Always runs locally (this IS the management server)
 #   - Signal: Local by default; set 'signalUri' to use external (disables local)
-#   - Relay: Local by default; set 'relays' to add external (local stays on if authSecret matches relays.secret)
-#   - STUN: Local on port 3478 by default; set 'stuns' to add external (local STUN stays on if local relay is active)
+#   - Relay: Enabled when authSecret is set; omit authSecret to disable. Set 'relays' to add external servers (local stays on if authSecret matches relays.secret)
+#   - STUN: Enabled when stunPorts has values; omit to disable. Set 'stuns' to add external servers (local stays on if stunPorts has values)
 
 server:
   # Main HTTP/gRPC port for all services (Management, Signal, Relay)
@@ -20,9 +20,9 @@ server:
   # Format: protocol://hostname:port (e.g., https://server.mycompany.com:443)
   exposedAddress: "https://server.mycompany.com:443"
 
-  # STUN server ports (defaults to [3478] if not specified; set 'stuns' to add external STUN servers)
-  # stunPorts:
-  #   - 3478
+  # STUN server ports (omit to disable local STUN; set one or more ports to enable)
+  stunPorts:
+    - 3478
 
   # Metrics endpoint port
   metricsPort: 9090
@@ -46,8 +46,9 @@ server:
       awsRoute53: false
 
   # Shared secret for relay authentication (required when running local relay)
-  # When set, the local relay starts automatically. If external relays are also
-  # configured, the local relay remains active only if authSecret matches relays.secret.
+  # Omit to disable local relay. When set, the local relay starts automatically.
+  # If external relays are also configured, the local relay remains active only
+  # if authSecret matches relays.secret.
   authSecret: "your-secret-key-here"
 
   # Data directory for all services
@@ -56,18 +57,16 @@ server:
   # ============================================================================
   # External Service Overrides (optional)
   # Use these to add external Signal, Relay, or STUN servers alongside local
-  # services. Local relay stays active if authSecret matches relays.secret.
-  # Local STUN stays active if stunPorts is configured and the local relay is 
-  # active (requires authSecret set, matching relays.secret when external
-  # relays are configured).
+  # services. Local relay stays active if authSecret is set and matches relays.secret.
+  # Local STUN stays active when stunPorts has values.
   # ============================================================================
 
-  # External STUN servers (local STUN server stays on if stunPorts is configured and local relay is active)
+  # External STUN servers (local STUN server stays on when stunPorts has values)
   # stuns:
   #   - uri: "stun:stun.example.com:3478"
   #   - uri: "stun:stun.example.com:3479"
 
-  # External relay servers (local relay stays on if authSecret matches relays.secret)
+  # External relay servers (local relay stays on when authSecret is set and matches relays.secret)
   # relays:
   #   addresses:
   #     - "rels://relay.example.com:443"
