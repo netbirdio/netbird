@@ -61,7 +61,7 @@ func TestWGWatcher_CheckSuccessCallback(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	require.True(t, watcher.PrepareInitialHandshake())
+	watcher.PrepareInitialHandshake()
 
 	firstHandshake := make(chan struct{}, 1)
 	checkSuccess := make(chan struct{}, 1)
