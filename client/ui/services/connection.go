@@ -35,7 +35,7 @@ type LoginResult struct {
 	VerificationURIComplete string `json:"verificationUriComplete"`
 }
 
-// WaitSSOParams are the inputs to WaitSSOLogin.
+// WaitSSOParams are the inputs to waitSSOLogin.
 type WaitSSOParams struct {
 	UserCode string `json:"userCode"`
 	Hostname string `json:"hostname"`
@@ -125,23 +125,6 @@ func (s *Connection) Login(ctx context.Context, p LoginParams) (LoginResult, err
 	}, nil
 }
 
-func (s *Connection) WaitSSOLogin(ctx context.Context, p WaitSSOParams) (string, error) {
-	cli, err := s.conn.Client()
-	if err != nil {
-		return "", err
-	}
-	log.Infof("waiting for SSO login to complete")
-	resp, err := cli.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{
-		UserCode: p.UserCode,
-		Hostname: p.Hostname,
-	})
-	if err != nil {
-		return "", s.classifyDaemonError(err)
-	}
-	log.Infof("SSO login completed, daemon reported success")
-	return resp.GetEmail(), nil
-}
-
 func (s *Connection) Up(ctx context.Context, p UpParams) error {
 	cli, err := s.conn.Client()
 	if err != nil {
@@ -170,7 +153,7 @@ func (s *Connection) Up(ctx context.Context, p UpParams) error {
 // window (e.g. by hovering the tray icon). Doing it in Go connects the moment
 // the daemon reports SSO success. Returns the authenticated user's email.
 func (s *Connection) WaitSSOLoginAndUp(ctx context.Context, wait WaitSSOParams, up UpParams) (string, error) {
-	email, err := s.WaitSSOLogin(ctx, wait)
+	email, err := s.waitSSOLogin(ctx, wait)
 	if err != nil {
 		return "", err
 	}
@@ -240,6 +223,26 @@ func (s *Connection) Logout(ctx context.Context, p LogoutParams) error {
 	}
 
 	return nil
+}
+
+// waitSSOLogin blocks until the daemon reports the SSO login result and returns
+// the authenticated user's email. It is unexported because the frontend drives
+// SSO through the exported WaitSSOLoginAndUp.
+func (s *Connection) waitSSOLogin(ctx context.Context, p WaitSSOParams) (string, error) {
+	cli, err := s.conn.Client()
+	if err != nil {
+		return "", err
+	}
+	log.Infof("waiting for SSO login to complete")
+	resp, err := cli.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{
+		UserCode: p.UserCode,
+		Hostname: p.Hostname,
+	})
+	if err != nil {
+		return "", s.classifyDaemonError(err)
+	}
+	log.Infof("SSO login completed, daemon reported success")
+	return resp.GetEmail(), nil
 }
 
 // classifyDaemonError maps a gRPC error to a localised ClientError.
