@@ -1906,6 +1906,9 @@ func (s *Server) ExposeService(req *proto.ExposeServiceRequest, srv proto.Daemon
 // request_ids are silently no-op'd so a slow UI cannot deny a prompt the
 // user already handled (or that already timed out).
 func (s *Server) RespondApproval(_ context.Context, msg *proto.RespondApprovalRequest) (*proto.RespondApprovalResponse, error) {
+	if msg.GetRequestId() == "" {
+		return nil, gstatus.Errorf(codes.InvalidArgument, "request_id is required")
+	}
 	s.mutex.Lock()
 	connectClient := s.connectClient
 	s.mutex.Unlock()

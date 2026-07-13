@@ -49,6 +49,9 @@ func dropAgentPrivileges(targetUID uint32) error {
 	if err := syscall.Setgid(targetGID); err != nil {
 		return fmt.Errorf("setgid(%d): %w", targetGID, err)
 	}
+	if os.Getgid() != targetGID || os.Getegid() != targetGID {
+		return fmt.Errorf("setgid verification: gid=%d egid=%d, expected %d", os.Getgid(), os.Getegid(), targetGID)
+	}
 	if err := syscall.Setuid(int(targetUID)); err != nil {
 		return fmt.Errorf("setuid(%d): %w", targetUID, err)
 	}
