@@ -746,6 +746,8 @@ func ToProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 		pbFullStatus.DnsServers = append(pbFullStatus.DnsServers, pbDnsState)
 	}
 
+	pbFullStatus.Events = fullStatus.Events
+
 	return &pbFullStatus
 }
 
