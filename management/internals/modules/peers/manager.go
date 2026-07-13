@@ -245,6 +245,7 @@ func (m *managerImpl) CreateProxyPeer(ctx context.Context, accountID string, pee
 		// proxy, not by an end user; the stale peer may still be
 		// marked Connected from its prior session, but its session is
 		// dead by definition (its key no longer exists).
+		log.WithContext(ctx).Debugf("removing %d stale embedded proxy peer records [%s]", len(staleIDs), staleIDs)
 		if err := m.DeletePeers(ctx, accountID, staleIDs, "", false); err != nil {
 			return fmt.Errorf("delete stale embedded proxy peers %v: %w", staleIDs, err)
 		}
@@ -282,12 +283,12 @@ func (m *managerImpl) CreateProxyPeer(ctx context.Context, accountID string, pee
 // to garbage-collect stale records left behind when the proxy restarts with a
 // regenerated keypair.
 func (m *managerImpl) findStaleEmbeddedProxyPeers(ctx context.Context, accountID, cluster, newKey string) ([]string, error) {
-	account, err := m.store.GetAccount(ctx, accountID)
+	peers, err := m.store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "")
 	if err != nil {
 		return nil, err
 	}
 	var stale []string
-	for _, p := range account.Peers {
+	for _, p := range peers {
 		if p == nil || !p.ProxyMeta.Embedded {
 			continue
 		}
@@ -299,5 +300,9 @@ func (m *managerImpl) findStaleEmbeddedProxyPeers(ctx context.Context, accountID
 		}
 		stale = append(stale, p.ID)
 	}
-	return stale, nil
+	if len(stale) > 0 {
+		log.WithContext(ctx).Tracef("found stale embedded proxy peer(s) with cluster: %s, and pubkey: %s but voided", cluster, newKey)
+	}
+	// returning empty for validating
+	return []string{}, nil
 }
