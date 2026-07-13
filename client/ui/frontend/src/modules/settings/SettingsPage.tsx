@@ -58,13 +58,18 @@ export const SettingsPage = () => {
             [Tab.Security]: editable,
             [Tab.Profiles]: !features.disableProfiles,
             [Tab.SSH]: mdm.allowServerSSH ?? editable,
-            [Tab.VNC]: editable,
+            [Tab.VNC]: mdm.allowServerVNC ?? editable,
             [Tab.Advanced]: editable,
             [Tab.Troubleshooting]: true,
             [Tab.About]: true,
         };
         return (Object.keys(visibility) as Tab[]).filter((t) => visibility[t]);
-    }, [features.disableUpdateSettings, features.disableProfiles, mdm.allowServerSSH]);
+    }, [
+        features.disableUpdateSettings,
+        features.disableProfiles,
+        mdm.allowServerSSH,
+        mdm.allowServerVNC,
+    ]);
 
     const defaultTab = visibleTabs[0];
     const [active, setActive] = useState<string>(() => navState?.tab ?? defaultTab);

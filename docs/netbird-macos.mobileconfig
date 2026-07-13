@@ -113,6 +113,10 @@
                                 <key>allowServerSSH</key>
                                 <true/>
                                 <!--
+                                <key>allowServerVNC</key>
+                                <true/>
+                                <key>disableVNCApproval</key>
+                                <false/>
                                 <key>rosenpassEnabled</key>
                                 <true/>
                                 <key>rosenpassPermissive</key>

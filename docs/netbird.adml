@@ -35,6 +35,10 @@
 
       <string id="AllowServerSSH_Name">Allow server SSH</string>
       <string id="AllowServerSSH_Help">When enabled, this client accepts incoming SSH sessions via NetBird SSH. Equivalent to --allow-server-ssh.</string>
+      <string id="AllowServerVNC_Name">Allow server VNC</string>
+      <string id="AllowServerVNC_Help">When enabled, this client accepts incoming remote desktop (VNC) sessions via NetBird. Equivalent to --allow-server-vnc.</string>
+      <string id="DisableVNCApproval_Name">Disable VNC connection approval</string>
+      <string id="DisableVNCApproval_Help">When enabled, incoming VNC sessions are accepted without prompting the local user for approval.</string>
 
       <string id="RosenpassEnabled_Name">Enable Rosenpass</string>
       <string id="RosenpassEnabled_Help">Enables Rosenpass post-quantum key exchange on WireGuard tunnels. Both peers must support it.</string>

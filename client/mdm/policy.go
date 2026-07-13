@@ -20,10 +20,10 @@ import (
 // names (lowerCamelCase) so the daemon can map a Policy key directly to a
 // configuration field.
 const (
-	KeyManagementURL            = "managementURL"
-	KeyDisableUpdateSettings    = "disableUpdateSettings"
-	KeyDisableProfiles          = "disableProfiles"
-	KeyDisableNetworks          = "disableNetworks"
+	KeyManagementURL         = "managementURL"
+	KeyDisableUpdateSettings = "disableUpdateSettings"
+	KeyDisableProfiles       = "disableProfiles"
+	KeyDisableNetworks       = "disableNetworks"
 	// KeyDisableAdvancedView gates the advanced-view section in the
 	// upcoming UI revision. UI-only: NOT stored on Config, not
 	// applied by applyMDMPolicy, not rejectable via SetConfig. The
@@ -36,6 +36,8 @@ const (
 	KeyBlockInbound             = "blockInbound"
 	KeyDisableMetricsCollection = "disableMetricsCollection"
 	KeyAllowServerSSH           = "allowServerSSH"
+	KeyAllowServerVNC           = "allowServerVNC"
+	KeyDisableVNCApproval       = "disableVNCApproval"
 	KeyDisableAutoConnect       = "disableAutoConnect"
 	KeyPreSharedKey             = "preSharedKey"
 	KeyRosenpassEnabled         = "rosenpassEnabled"

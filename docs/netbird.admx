@@ -112,6 +112,30 @@
       <disabledValue><decimal value="0" /></disabledValue>
     </policy>
 
+    <policy name="AllowServerVNC"
+            class="Machine"
+            displayName="$(string.AllowServerVNC_Name)"
+            explainText="$(string.AllowServerVNC_Help)"
+            key="Software\Policies\NetBird"
+            valueName="AllowServerVNC">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <policy name="DisableVNCApproval"
+            class="Machine"
+            displayName="$(string.DisableVNCApproval_Name)"
+            explainText="$(string.DisableVNCApproval_Help)"
+            key="Software\Policies\NetBird"
+            valueName="DisableVNCApproval">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
     <policy name="RosenpassEnabled"
             class="Machine"
             displayName="$(string.RosenpassEnabled_Name)"

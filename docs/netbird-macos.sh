@@ -56,6 +56,8 @@ NULL='__UNSET__'
 managementURL='https://api.netbird.io:443'
 preSharedKey="$NULL"                       # secret; redacted in log
 allowServerSSH='true'
+allowServerVNC="$NULL"
+disableVNCApproval="$NULL"
 blockInbound="$NULL"
 disableAutoConnect="$NULL"
 disableClientRoutes="$NULL"
@@ -153,6 +155,8 @@ main() {
   is_set "$managementURL"             && emit_string  managementURL             "$managementURL"
   is_set "$preSharedKey"              && emit_string  preSharedKey              "$preSharedKey"
   is_set "$allowServerSSH"            && emit_bool    allowServerSSH            "$allowServerSSH"
+  is_set "$allowServerVNC"            && emit_bool    allowServerVNC            "$allowServerVNC"
+  is_set "$disableVNCApproval"        && emit_bool    disableVNCApproval        "$disableVNCApproval"
   is_set "$blockInbound"              && emit_bool    blockInbound              "$blockInbound"
   is_set "$disableAutoConnect"        && emit_bool    disableAutoConnect        "$disableAutoConnect"
   is_set "$disableClientRoutes"       && emit_bool    disableClientRoutes       "$disableClientRoutes"
