@@ -21,6 +21,8 @@ var allKeys = []string{
 	KeyBlockInbound,
 	KeyDisableMetricsCollection,
 	KeyAllowServerSSH,
+	KeyAllowServerVNC,
+	KeyDisableVNCApproval,
 	KeyDisableAutoConnect,
 	KeyPreSharedKey,
 	KeyRosenpassEnabled,

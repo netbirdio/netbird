@@ -19,6 +19,8 @@ type MDMFields struct {
 	DisableClientRoutes      bool   `json:"disableClientRoutes"`
 	DisableServerRoutes      bool   `json:"disableServerRoutes"`
 	AllowServerSSH           *bool  `json:"allowServerSSH"`
+	AllowServerVNC           *bool  `json:"allowServerVNC"`
+	DisableVNCApproval       bool   `json:"disableVNCApproval"`
 	DisableAutoConnect       bool   `json:"disableAutoConnect"`
 	BlockInbound             bool   `json:"blockInbound"`
 	DisableMetricsCollection bool   `json:"disableMetricsCollection"`
@@ -260,5 +262,9 @@ func applyMDMRestrictions(mdm *MDMFields, cfgResp *proto.GetConfigResponse) {
 	if _, ok := set["allowServerSSH"]; ok {
 		allowed := cfgResp.GetServerSSHAllowed()
 		mdm.AllowServerSSH = &allowed
+	}
+	if _, ok := set["allowServerVNC"]; ok {
+		allowed := cfgResp.GetServerVNCAllowed()
+		mdm.AllowServerVNC = &allowed
 	}
 }

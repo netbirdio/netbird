@@ -735,6 +735,8 @@ func (config *Config) applyMDMPolicy(policy *mdm.Policy) {
 	}
 
 	applyBool(mdm.KeyAllowServerSSH, func(v bool) { bv := v; config.ServerSSHAllowed = &bv })
+	applyBool(mdm.KeyAllowServerVNC, func(v bool) { bv := v; config.ServerVNCAllowed = &bv })
+	applyBool(mdm.KeyDisableVNCApproval, func(v bool) { bv := v; config.DisableVNCApproval = &bv })
 	applyBool(mdm.KeyDisableClientRoutes, func(v bool) { config.DisableClientRoutes = v })
 	applyBool(mdm.KeyDisableServerRoutes, func(v bool) { config.DisableServerRoutes = v })
 	applyBool(mdm.KeyBlockInbound, func(v bool) { config.BlockInbound = v })

@@ -21,6 +21,7 @@ export const SettingsNavigation = () => {
     const { updateAvailable } = useClientVersion();
     const { mdm, features } = useRestrictions();
     const showSsh = mdm.allowServerSSH ?? !features.disableUpdateSettings;
+    const showVnc = mdm.allowServerVNC ?? !features.disableUpdateSettings;
 
     const aboutAdornment = updateAvailable ? (
         <Tooltip content={t("settings.tabs.updateAvailable")} side={"right"}>
@@ -64,7 +65,7 @@ export const SettingsNavigation = () => {
                         title={t("settings.tabs.ssh")}
                     />
                 )}
-                {!features.disableUpdateSettings && (
+                {showVnc && (
                     <VerticalTabs.Trigger
                         value={"vnc"}
                         icon={MonitorIcon}
