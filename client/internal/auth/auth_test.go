@@ -78,3 +78,55 @@ func TestErrSetupKeyOnSSOExpiredPeer(t *testing.T) {
 		}
 	}
 }
+
+func TestIsAuthenticationError(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "nil",
+			err:  nil,
+			want: false,
+		},
+		{
+			name: "plain error",
+			err:  errors.New("network read: connection reset"),
+			want: false,
+		},
+		{
+			name: "invalid argument",
+			err:  status.Error(codes.InvalidArgument, "invalid setup-key"),
+			want: true,
+		},
+		{
+			name: "permission denied",
+			err:  status.Error(codes.PermissionDenied, "no peer auth method provided"),
+			want: true,
+		},
+		{
+			name: "not found",
+			err:  status.Error(codes.NotFound, "setup key is invalid"),
+			want: true,
+		},
+		{
+			name: "deadline exceeded",
+			err:  status.Error(codes.DeadlineExceeded, "context deadline exceeded"),
+			want: false,
+		},
+		{
+			name: "unavailable",
+			err:  status.Error(codes.Unavailable, "connection refused"),
+			want: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isAuthenticationError(tc.err); got != tc.want {
+				t.Fatalf("isAuthenticationError(%v) = %v, want %v", tc.err, got, tc.want)
+			}
+		})
+	}
+}
