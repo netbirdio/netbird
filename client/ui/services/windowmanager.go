@@ -185,18 +185,12 @@ func (s *WindowManager) OpenBrowserLogin(uri string) {
 			startURL = "/#/dialog/browser-login?uri=" + url.QueryEscape(uri)
 		}
 		s.hideOtherWindowsLocked("browser-login")
-		// Prefer the main window's screen (multi-monitor); falls back to OS-default centering.
-		var screen *application.Screen
-		if s.mainWindow != nil {
-			if sc, err := s.mainWindow.GetScreen(); err == nil {
-				screen = sc
-			}
-		}
 		opts := DialogWindowOptions("browser-login", s.title("window.title.signIn"), startURL, s.linuxIcon)
 		// Not always-on-top: it would obscure the browser tab the user logs in through.
 		opts.AlwaysOnTop = false
 		opts.InitialPosition = application.WindowCentered
-		opts.Screen = screen
+		// Open on the active (where users cursor is) display, like the session-expiration dialog.
+		opts.Screen = s.getScreenBasedOnCursorPosition()
 		s.browserLogin = s.app.Window.NewWithOptions(opts)
 		bl := s.browserLogin
 		// Red-X close means cancel: emit the event so startLogin() tears down the SSO wait.
@@ -207,15 +201,15 @@ func (s *WindowManager) OpenBrowserLogin(uri string) {
 			s.restoreHiddenWindowsLocked()
 			s.mu.Unlock()
 		})
-		s.centerWhenReady(s.browserLogin)
+		s.centerOnCursorScreen(s.browserLogin)
 		return
 	}
 	if uri != "" {
 		s.browserLogin.SetURL("/#/dialog/browser-login?uri=" + url.QueryEscape(uri))
 	}
+	s.centerOnCursorScreen(s.browserLogin)
 	s.browserLogin.Show()
 	s.browserLogin.Focus()
-	s.centerWhenReady(s.browserLogin)
 }
 
 // BrowserLoginWindow returns the live SSO popup, or nil. While non-nil it is the
@@ -276,6 +270,36 @@ func (s *WindowManager) CloseSessionExpiration() {
 	s.mu.Unlock()
 	if w != nil {
 		w.Close()
+	}
+}
+
+// CloseRenewFlow tears down the SSO session-renewal UI in a single call: it
+// closes the browser-login popup and the session-expiration window together.
+func (s *WindowManager) CloseRenewFlow() {
+	s.mu.Lock()
+	bl := s.browserLogin
+	se := s.sessionExpiration
+	s.browserLogin = nil
+	s.sessionExpiration = nil
+	if se != nil {
+		kept := s.hiddenForLogin[:0]
+		for _, w := range s.hiddenForLogin {
+			if w != se {
+				kept = append(kept, w)
+			}
+		}
+		s.hiddenForLogin = kept
+	}
+	s.mu.Unlock()
+
+	// Close the popup first (its WindowClosing restores the main window), then
+	// the session-expiration window. Both run after the unlock, so the
+	// re-entrant handlers can take s.mu without deadlocking.
+	if bl != nil {
+		bl.Close()
+	}
+	if se != nil {
+		se.Close()
 	}
 }
 
