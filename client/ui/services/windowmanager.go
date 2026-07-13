@@ -193,13 +193,18 @@ func (s *WindowManager) OpenBrowserLogin(uri string) {
 		opts.Screen = s.getScreenBasedOnCursorPosition()
 		s.browserLogin = s.app.Window.NewWithOptions(opts)
 		bl := s.browserLogin
-		// Red-X close means cancel: emit the event so startLogin() tears down the SSO wait.
 		bl.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
-			s.app.Event.Emit(EventBrowserLoginCancel)
 			s.mu.Lock()
+			// Programmatic closers (CloseBrowserLogin/CloseRenewFlow) nil s.browserLogin
+			// before calling Close(); only a user red-X still has it set here
+			userClosed := s.browserLogin == bl
 			s.browserLogin = nil
 			s.restoreHiddenWindowsLocked()
 			s.mu.Unlock()
+			// Emit event only when user closed the window
+			if userClosed {
+				s.app.Event.Emit(EventBrowserLoginCancel)
+			}
 		})
 		s.centerOnCursorScreen(s.browserLogin)
 		return
