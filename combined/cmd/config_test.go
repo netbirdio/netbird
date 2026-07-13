@@ -89,6 +89,9 @@ func TestApplyRelayDefaults_StunEnabledWhenStunPortsSet(t *testing.T) {
 	if !c.Relay.Stun.Enabled {
 		t.Error("expected STUN enabled when stunPorts is set")
 	}
+	if len(c.Relay.Stun.Ports) != 1 || c.Relay.Stun.Ports[0] != 3478 {
+		t.Errorf("expected STUN ports [3478], got %v", c.Relay.Stun.Ports)
+	}
 }
 
 func TestAutoConfigureClientSettings_RelayListExternalAndEmbedded(t *testing.T) {
@@ -153,6 +156,12 @@ func TestAutoConfigureClientSettings_StunAdditiveWithExternal(t *testing.T) {
 	}
 	if c.Management.Stuns[0].URI != "stun:external-stun.example.com:3478" {
 		t.Errorf("expected external STUN first, got %s", c.Management.Stuns[0].URI)
+	}
+	if c.Management.Stuns[1].URI != "stun:local.example.com:3478" {
+		t.Errorf("expected local STUN on port 3478 at index 1, got %s", c.Management.Stuns[1].URI)
+	}
+	if c.Management.Stuns[2].URI != "stun:local.example.com:3479" {
+		t.Errorf("expected local STUN on port 3479 at index 2, got %s", c.Management.Stuns[2].URI)
 	}
 }
 
