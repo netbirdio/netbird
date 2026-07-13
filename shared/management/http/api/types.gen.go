@@ -1614,7 +1614,7 @@ type Account struct {
 
 // AccountDashboardFeatures Per-account dashboard section visibility overrides. Omitted keys follow the default dashboard behavior.
 type AccountDashboardFeatures struct {
-	// AgentNetwork Controls the Agent Network menu for the account regardless of the deployment feature flag. When true the menu is shown, when false it is hidden, and when omitted the default behavior applies.
+	// AgentNetwork Controls the Agent Network menu for the account regardless of the deployment feature flag. When true the menu is shown, when false it is hidden, and when omitted the default behavior applies. Must be true when agent_network_only is enabled.
 	AgentNetwork *bool `json:"agent_network,omitempty"`
 }
 
@@ -1653,7 +1653,7 @@ type AccountRequest struct {
 
 // AccountSettings defines model for AccountSettings.
 type AccountSettings struct {
-	// AgentNetworkOnly Limits the dashboard to the Agent Network surface for this account. Set for accounts created via netbird.ai signups and can be disabled later.
+	// AgentNetworkOnly Limits the dashboard to the Agent Network surface for this account. Set for accounts created via netbird.ai signups and can be disabled later. Enabling this requires dashboard_features.agent_network to be true in the same request.
 	AgentNetworkOnly *bool `json:"agent_network_only,omitempty"`
 
 	// AutoUpdateAlways When true, updates are installed automatically in the background. When false, updates require user interaction from the UI.

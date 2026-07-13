@@ -376,7 +376,7 @@ components:
           type: boolean
           example: false
         agent_network_only:
-          description: Limits the dashboard to the Agent Network surface for this account. Set for accounts created via netbird.ai signups and can be disabled later.
+          description: Limits the dashboard to the Agent Network surface for this account. Set for accounts created via netbird.ai signups and can be disabled later. Enabling this requires dashboard_features.agent_network to be true in the same request.
           type: boolean
           example: false
         dashboard_features:
@@ -414,7 +414,7 @@ components:
       type: object
       properties:
         agent_network:
-          description: Controls the Agent Network menu for the account regardless of the deployment feature flag. When true the menu is shown, when false it is hidden, and when omitted the default behavior applies.
+          description: Controls the Agent Network menu for the account regardless of the deployment feature flag. When true the menu is shown, when false it is hidden, and when omitted the default behavior applies. Must be true when agent_network_only is enabled.
           type: boolean
           example: true
     AccountExtraSettings:

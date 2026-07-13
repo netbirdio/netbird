@@ -295,6 +295,13 @@ func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJS
 		}
 	}
 
+	if returnSettings.AgentNetworkOnly &&
+		(returnSettings.DashboardFeatures == nil ||
+			returnSettings.DashboardFeatures.AgentNetwork == nil ||
+			!*returnSettings.DashboardFeatures.AgentNetwork) {
+		return nil, status.Errorf(status.InvalidArgument, "agent network only mode requires dashboard_features.agent_network to be enabled")
+	}
+
 	return returnSettings, nil
 }
 
