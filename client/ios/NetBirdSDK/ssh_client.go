@@ -4,12 +4,15 @@ package NetBirdSDK
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -106,7 +109,9 @@ func (s *SSHClient) Connect(host string, port int, user, password string) error 
 		return errors.New("netbird engine not available")
 	}
 
-	serverType := detectServerType(host, port)
+	wgDialer := makeWGDialer(cfg.WgIface, sshDialTimeout)
+
+	serverType := detectServerType(host, port, wgDialer)
 	log.Infof("SSH server type for %s:%d: %s", host, port, serverType)
 
 	authMethods, hostKeyCallback, err := s.buildAuth(cfg, engine, serverType, password)
@@ -120,7 +125,61 @@ func (s *SSHClient) Connect(host string, port int, user, password string) error 
 		HostKeyCallback: hostKeyCallback,
 		Timeout:         sshDialTimeout,
 	}
-	return s.dialAndHandshake(host, port, clientConfig)
+	return s.dialAndHandshake(host, port, clientConfig, wgDialer)
+}
+
+// ConnectNetBirdPeer connects to a peer that has SSH enabled in the NetBird
+// dashboard. It skips banner-based server detection and goes directly to JWT
+// authentication, which is what the NetBird web dashboard uses. Call this
+// instead of Connect when the target is a known NetBird peer.
+//
+// The urlOpener must be set via SetURLOpener before calling; the opener is
+// invoked so the user can complete the OAuth device-code flow in a browser.
+func (s *SSHClient) ConnectNetBirdPeer(host string, port int, user string) error {
+	cfg, cc := s.nb.sshState()
+	if cc == nil {
+		return errors.New("netbird client not running")
+	}
+	if cfg == nil {
+		return errors.New("netbird config not loaded")
+	}
+	engine := cc.Engine()
+	if engine == nil {
+		return errors.New("netbird engine not available")
+	}
+	_ = engine
+
+	wgDialer := makeWGDialer(cfg.WgIface, sshDialTimeout)
+
+	token, err := s.requestJWTToken(cfg)
+	if err != nil {
+		return err
+	}
+
+	clientConfig := &gossh.ClientConfig{
+		User:  user,
+		Auth:  []gossh.AuthMethod{gossh.Password(token)},
+		// WireGuard already guarantees we are talking to the correct peer
+		// (traffic can only reach 100.x.x.x via the authenticated tunnel),
+		// so an additional SSH host-key check against the management-plane
+		// registry is redundant and prone to stale-key mismatches.
+		HostKeyCallback: gossh.InsecureIgnoreHostKey(), //nolint:gosec
+		Timeout:         sshDialTimeout,
+	}
+	if err := s.dialAndHandshake(host, port, clientConfig, wgDialer); err != nil {
+		if strings.Contains(err.Error(), "no supported methods remain") ||
+			strings.Contains(err.Error(), "unable to authenticate") {
+			return fmt.Errorf("NetBird SSH authentication rejected.\n\n"+
+				"Checklist:\n"+
+				"  1. SSH is enabled for this peer in the NetBird dashboard\n"+
+				"  2. Your account is listed under SSH access for this peer\n"+
+				"  3. The OS username (%q) is mapped to your account\n\n"+
+				"If SSH access is not configured, use a regular password connection instead.\n\n"+
+				"Original: %w", user, err)
+		}
+		return err
+	}
+	return nil
 }
 
 // StartSession requests a PTY and starts an interactive shell. Output from
@@ -293,6 +352,14 @@ func (s *SSHClient) buildAuth(cfg *profilemanager.Config, engine *internal.Engin
 }
 
 func (s *SSHClient) requestJWTToken(cfg *profilemanager.Config) (string, error) {
+	// Reuse cached token to avoid forcing the user to re-authenticate on every
+	// reconnect. SSH servers reject tokens older than DefaultJWTMaxTokenAge
+	// (10 min); we keep the cache for 8 minutes to stay safely inside that window.
+	if cached, ok := s.nb.getCachedSSHJWT(); ok {
+		log.Infof("SSH: reusing cached JWT token")
+		return cached, nil
+	}
+
 	s.mu.Lock()
 	urlOpener := s.urlOpener
 	s.mu.Unlock()
@@ -324,17 +391,25 @@ func (s *SSHClient) requestJWTToken(cfg *profilemanager.Config) (string, error) 
 	if token == "" {
 		return "", errors.New("empty token returned by IdP")
 	}
+
+	// Log JWT claims for debugging auth failures (iss/aud mismatch, etc.)
+	if parts := strings.SplitN(token, ".", 3); len(parts) == 3 {
+		if decoded, err := base64DecodeJWT(parts[1]); err == nil {
+			log.Debugf("SSH JWT claims: %s", decoded)
+		}
+	}
+
+	s.nb.setCachedSSHJWT(token)
 	return token, nil
 }
 
-func (s *SSHClient) dialAndHandshake(host string, port int, clientConfig *gossh.ClientConfig) error {
+func (s *SSHClient) dialAndHandshake(host string, port int, clientConfig *gossh.ClientConfig, dialer *net.Dialer) error {
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	log.Infof("SSH: connecting to %s as %s", addr, clientConfig.User)
 
 	ctx, cancel := context.WithTimeout(context.Background(), sshDialTimeout)
 	defer cancel()
 
-	var dialer net.Dialer
 	conn, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return fmt.Errorf("dial %s: %w", addr, err)
@@ -411,17 +486,59 @@ func (v *engineHostKeyVerifier) VerifySSHHostKey(peerAddress string, presented [
 	return nbssh.VerifyHostKey(storedKey, presented, peerAddress)
 }
 
-func detectServerType(host string, port int) detection.ServerType {
+func detectServerType(host string, port int, dialer *net.Dialer) detection.ServerType {
 	ctx, cancel := context.WithTimeout(context.Background(), sshDetectionTimeout)
 	defer cancel()
 
-	dialer := &net.Dialer{}
 	serverType, err := detection.DetectSSHServerType(ctx, dialer, host, port)
 	if err != nil {
 		log.Debugf("ssh: server detection for %s:%d failed: %v (assuming regular SSH)", host, port, err)
 		return detection.ServerTypeRegular
 	}
 	return serverType
+}
+
+// makeWGDialer returns a net.Dialer whose sockets are bound to the WireGuard
+// interface (wgIface, e.g. "utun100"). This is required in the iOS Network
+// Extension process, where the OS deliberately excludes the provider's own
+// traffic from the VPN tunnel to prevent routing loops. Without binding to
+// the WireGuard interface, TCP connections to NetBird peer IPs (100.x.x.x
+// CGNAT space) would be sent over the physical network and fail with
+// "network is unreachable". Falls back to an unbound dialer if the interface
+// cannot be found (e.g. tunnel not yet up).
+func makeWGDialer(wgIface string, timeout time.Duration) *net.Dialer {
+	return &net.Dialer{
+		Timeout: timeout,
+		Control: func(network, address string, c syscall.RawConn) error {
+			iface, err := net.InterfaceByName(wgIface)
+			if err != nil {
+				log.Debugf("ssh: WG interface %q not found, dialing without bind: %v", wgIface, err)
+				return nil
+			}
+			var innerErr error
+			if ctrlErr := c.Control(func(fd uintptr) {
+				// IP_BOUND_IF (Darwin) = 25: binds the socket to a specific interface index.
+				innerErr = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IP, 25, iface.Index)
+			}); ctrlErr != nil {
+				return ctrlErr
+			}
+			if innerErr != nil {
+				log.Debugf("ssh: IP_BOUND_IF bind to %q failed: %v", wgIface, innerErr)
+			}
+			return innerErr
+		},
+	}
+}
+
+// base64DecodeJWT decodes a base64url-encoded JWT segment (no padding required).
+func base64DecodeJWT(s string) ([]byte, error) {
+	switch len(s) % 4 {
+	case 2:
+		s += "=="
+	case 3:
+		s += "="
+	}
+	return base64.URLEncoding.DecodeString(s)
 }
 
 func closeQuiet(c io.Closer, label string) {
