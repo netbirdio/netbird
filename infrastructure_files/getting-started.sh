@@ -292,6 +292,12 @@ wait_management_proxy() {
     if curl -sk -f -o /dev/null "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/oauth2/.well-known/openid-configuration" 2>/dev/null; then
       break
     fi
+    # Fallback: check the container directly so the script
+    # completes even when hairpin NAT prevents the host from
+    # reaching its own external DNS name.
+    if curl -sk -f -o /dev/null "http://netbird-server:80/oauth2/.well-known/openid-configuration" 2>/dev/null; then
+      break
+    fi
     if [[ $counter -eq 60 ]]; then
       echo ""
       echo "Taking too long. Checking logs..."
