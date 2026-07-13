@@ -39,6 +39,7 @@ func TestSaveAndLoadServiceParams(t *testing.T) {
 	configs.StateDir = tmpDir
 
 	params := &serviceParams{
+		ServiceName:           "netbird-custom",
 		LogLevel:              "debug",
 		DaemonAddr:            "unix:///var/run/netbird.sock",
 		JSONSocket:            "tcp://127.0.0.1:8080",
@@ -64,6 +65,7 @@ func TestSaveAndLoadServiceParams(t *testing.T) {
 	require.NotNil(t, loaded)
 
 	assert.Equal(t, params.LogLevel, loaded.LogLevel)
+	assert.Equal(t, params.ServiceName, loaded.ServiceName)
 	assert.Equal(t, params.DaemonAddr, loaded.DaemonAddr)
 	assert.Equal(t, params.JSONSocket, loaded.JSONSocket)
 	assert.Equal(t, params.EnableJSONSocket, loaded.EnableJSONSocket)
@@ -103,6 +105,7 @@ func TestLoadServiceParams_InvalidJSON(t *testing.T) {
 }
 
 func TestCurrentServiceParams(t *testing.T) {
+	origServiceName := serviceName
 	origLogLevel := logLevel
 	origDaemonAddr := daemonAddr
 	origJSONSocket := jsonSocket
@@ -114,6 +117,7 @@ func TestCurrentServiceParams(t *testing.T) {
 	origUpdateSettingsDisabled := updateSettingsDisabled
 	origServiceEnvVars := serviceEnvVars
 	t.Cleanup(func() {
+		serviceName = origServiceName
 		logLevel = origLogLevel
 		daemonAddr = origDaemonAddr
 		jsonSocket = origJSONSocket
@@ -126,6 +130,7 @@ func TestCurrentServiceParams(t *testing.T) {
 		serviceEnvVars = origServiceEnvVars
 	})
 
+	serviceName = "netbird-custom"
 	logLevel = "trace"
 	daemonAddr = "tcp://127.0.0.1:9999"
 	jsonSocket = "tcp://127.0.0.1:8080"
@@ -139,6 +144,7 @@ func TestCurrentServiceParams(t *testing.T) {
 
 	params := currentServiceParams()
 
+	assert.Equal(t, "netbird-custom", params.ServiceName)
 	assert.Equal(t, "trace", params.LogLevel)
 	assert.Equal(t, "tcp://127.0.0.1:9999", params.DaemonAddr)
 	assert.Equal(t, "tcp://127.0.0.1:8080", params.JSONSocket)
@@ -152,6 +158,7 @@ func TestCurrentServiceParams(t *testing.T) {
 }
 
 func TestApplyServiceParams_OnlyUnchangedFlags(t *testing.T) {
+	origServiceName := serviceName
 	origLogLevel := logLevel
 	origDaemonAddr := daemonAddr
 	origJSONSocket := jsonSocket
@@ -163,6 +170,7 @@ func TestApplyServiceParams_OnlyUnchangedFlags(t *testing.T) {
 	origUpdateSettingsDisabled := updateSettingsDisabled
 	origServiceEnvVars := serviceEnvVars
 	t.Cleanup(func() {
+		serviceName = origServiceName
 		logLevel = origLogLevel
 		daemonAddr = origDaemonAddr
 		jsonSocket = origJSONSocket
@@ -176,6 +184,7 @@ func TestApplyServiceParams_OnlyUnchangedFlags(t *testing.T) {
 	})
 
 	// Reset all flags to defaults.
+	serviceName = "netbird"
 	logLevel = "info"
 	daemonAddr = "unix:///var/run/netbird.sock"
 	jsonSocket = defaultJSONSocket
@@ -200,6 +209,7 @@ func TestApplyServiceParams_OnlyUnchangedFlags(t *testing.T) {
 	require.NoError(t, rootCmd.PersistentFlags().Set("log-level", "warn"))
 
 	saved := &serviceParams{
+		ServiceName:           "netbird-custom",
 		LogLevel:              "debug",
 		DaemonAddr:            "tcp://127.0.0.1:5555",
 		JSONSocket:            "tcp://127.0.0.1:8080",
@@ -217,6 +227,7 @@ func TestApplyServiceParams_OnlyUnchangedFlags(t *testing.T) {
 	applyServiceParams(cmd, saved)
 
 	// log-level was Changed, so it should keep "warn", not use saved "debug".
+	assert.Equal(t, "netbird-custom", serviceName)
 	assert.Equal(t, "warn", logLevel)
 
 	// All other fields were not Changed, so they should use saved values.
@@ -229,6 +240,23 @@ func TestApplyServiceParams_OnlyUnchangedFlags(t *testing.T) {
 	assert.True(t, profilesDisabled)
 	assert.True(t, updateSettingsDisabled)
 	assert.Equal(t, []string{"SAVED_KEY=saved_val"}, serviceEnvVars)
+}
+
+func TestApplyServiceParams_ExplicitServiceName(t *testing.T) {
+	originalServiceName := serviceName
+	serviceFlag := rootCmd.PersistentFlags().Lookup("service")
+	originalFlagChanged := serviceFlag.Changed
+	t.Cleanup(func() {
+		serviceName = originalServiceName
+		serviceFlag.Changed = originalFlagChanged
+	})
+
+	serviceName = "netbird-explicit"
+	serviceFlag.Changed = true
+
+	applyServiceParams(&cobra.Command{}, &serviceParams{ServiceName: "netbird-saved"})
+
+	assert.Equal(t, "netbird-explicit", serviceName)
 }
 
 func TestApplyServiceParams_BooleanRevertToFalse(t *testing.T) {
@@ -431,8 +459,10 @@ func TestServiceParams_BuildArgsCoversAllFlags(t *testing.T) {
 	installerFile, err := parser.ParseFile(fset, "service_installer.go", nil, 0)
 	require.NoError(t, err)
 
-	// Fields that are handled outside of buildServiceArguments (env vars go through newSVCConfig).
+	// Fields that are handled outside of buildServiceArguments (service name and
+	// env vars go through newSVCConfig).
 	fieldsNotInArgs := map[string]bool{
+		"ServiceName":    true,
 		"ServiceEnvVars": true,
 	}
 
@@ -554,6 +584,7 @@ func findFuncDecl(file *ast.File, name string) *ast.FuncDecl {
 // names used in buildServiceArguments and applyServiceParams.
 func fieldToGlobalVar(field string) string {
 	m := map[string]string{
+		"ServiceName":           "serviceName",
 		"LogLevel":              "logLevel",
 		"DaemonAddr":            "daemonAddr",
 		"JSONSocket":            "jsonSocket",
