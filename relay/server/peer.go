@@ -161,7 +161,10 @@ func (p *Peer) handleMsgType(ctx context.Context, msgType messages.MsgType, hc *
 	switch msgType {
 	case messages.MsgTypeHealthCheck:
 		hc.OnHCResponse()
-	case messages.MsgTypeTransport:
+	case messages.MsgTypeTransport, messages.MsgTypeTransportBatch:
+		// A batch frame shares the transport header (dest peerID at the fixed
+		// offset); the relay only reads that header, rewrites it to the source,
+		// and forwards the payload opaque, so both types route identically.
 		p.metrics.TransferBytesRecv.Add(ctx, int64(n))
 		p.metrics.PeerActivity(p.String())
 		return p.handleTransportMsg(bufPtr, n)
