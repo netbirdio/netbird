@@ -247,21 +247,28 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 				// the client merges it into Calculate()'s output the same
 				// way the legacy server did via NetworkMap.Merge.
 				update = grpc.ToComponentSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, p, nil, nil, components, proxyNetworkMap, dnsDomain, postureChecks, account.Settings, extraSetting, maps.Keys(peerGroups), dnsFwdPort)
-				c.metrics.CountToSyncResponseDuration(time.Since(start))
-			} else {
-				nmap := account.GetPeerNetworkMapFromComponents(
-					ctx, p.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics, groupIDToUserIDs)
+				c.metrics.CountToComponentSyncResponseDuration(time.Since(start))
 
-				c.metrics.CountCalcPeerNetworkMapDuration(time.Since(start))
+				c.peersUpdateManager.SendUpdate(ctx, p.ID, &network_map.UpdateMessage{
+					Update:      update,
+					MessageType: network_map.MessageTypeNetworkMap,
+				})
 
-				if proxyNetworkMap != nil {
-					nmap.Merge(proxyNetworkMap)
-				}
-
-				start = time.Now()
-				update = grpc.ToSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, p, nil, nil, nmap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSetting, maps.Keys(peerGroups), dnsFwdPort)
-				c.metrics.CountToSyncResponseDuration(time.Since(start))
+				return
 			}
+
+			nmap := account.GetPeerNetworkMapFromComponents(
+				ctx, p.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics, groupIDToUserIDs)
+
+			c.metrics.CountCalcPeerNetworkMapDuration(time.Since(start))
+
+			if proxyNetworkMap != nil {
+				nmap.Merge(proxyNetworkMap)
+			}
+
+			start = time.Now()
+			update = grpc.ToSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, p, nil, nil, nmap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSetting, maps.Keys(peerGroups), dnsFwdPort)
+			c.metrics.CountToSyncResponseDuration(time.Since(start))
 
 			c.peersUpdateManager.SendUpdate(ctx, p.ID, &network_map.UpdateMessage{
 				Update:      update,
@@ -405,21 +412,28 @@ func (c *Controller) sendUpdateForAffectedPeers(ctx context.Context, accountID s
 				// the client merges it into Calculate()'s output the same
 				// way the legacy server did via NetworkMap.Merge.
 				update = grpc.ToComponentSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, p, nil, nil, components, proxyNetworkMap, dnsDomain, postureChecks, account.Settings, extraSetting, maps.Keys(peerGroups), dnsFwdPort)
-				c.metrics.CountToSyncResponseDuration(time.Since(start))
-			} else {
-				nmap := account.GetPeerNetworkMapFromComponents(
-					ctx, p.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics, groupIDToUserIDs)
+				c.metrics.CountToComponentSyncResponseDuration(time.Since(start))
 
-				c.metrics.CountCalcPeerNetworkMapDuration(time.Since(start))
+				c.peersUpdateManager.SendUpdate(ctx, p.ID, &network_map.UpdateMessage{
+					Update:      update,
+					MessageType: network_map.MessageTypeNetworkMap,
+				})
 
-				if proxyNetworkMap != nil {
-					nmap.Merge(proxyNetworkMap)
-				}
-
-				start = time.Now()
-				update = grpc.ToSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, p, nil, nil, nmap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSetting, maps.Keys(peerGroups), dnsFwdPort)
-				c.metrics.CountToSyncResponseDuration(time.Since(start))
+				return
 			}
+
+			nmap := account.GetPeerNetworkMapFromComponents(
+				ctx, p.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics, groupIDToUserIDs)
+
+			c.metrics.CountCalcPeerNetworkMapDuration(time.Since(start))
+
+			if proxyNetworkMap != nil {
+				nmap.Merge(proxyNetworkMap)
+			}
+
+			start = time.Now()
+			update = grpc.ToSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, p, nil, nil, nmap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSetting, maps.Keys(peerGroups), dnsFwdPort)
+			c.metrics.CountToSyncResponseDuration(time.Since(start))
 
 			c.peersUpdateManager.SendUpdate(ctx, p.ID, &network_map.UpdateMessage{
 				Update:      update,
@@ -529,16 +543,23 @@ func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, pe
 		// the client merges it into Calculate()'s output the same
 		// way the legacy server did via NetworkMap.Merge.
 		update = grpc.ToComponentSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, peer, nil, nil, components, proxyNetworkMap, dnsDomain, postureChecks, account.Settings, extraSettings, maps.Keys(peerGroups), dnsFwdPort)
-	} else {
-		nmap := account.GetPeerNetworkMapFromComponents(
-			ctx, peer.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics, groupIDToUserIDs)
 
-		if proxyNetworkMap != nil {
-			nmap.Merge(proxyNetworkMap)
-		}
+		c.peersUpdateManager.SendUpdate(ctx, peer.ID, &network_map.UpdateMessage{
+			Update:      update,
+			MessageType: network_map.MessageTypeNetworkMap,
+		})
 
-		update = grpc.ToSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, peer, nil, nil, nmap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSettings, maps.Keys(peerGroups), dnsFwdPort)
+		return nil
 	}
+
+	nmap := account.GetPeerNetworkMapFromComponents(
+		ctx, peer.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics, groupIDToUserIDs)
+
+	if proxyNetworkMap != nil {
+		nmap.Merge(proxyNetworkMap)
+	}
+
+	update = grpc.ToSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, peer, nil, nil, nmap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSettings, maps.Keys(peerGroups), dnsFwdPort)
 
 	c.peersUpdateManager.SendUpdate(ctx, peer.ID, &network_map.UpdateMessage{
 		Update:      update,
