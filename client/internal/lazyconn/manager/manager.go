@@ -2,6 +2,8 @@ package manager
 
 import (
 	"context"
+	"net/netip"
+	"sort"
 	"sync"
 	"time"
 
@@ -55,7 +57,15 @@ type Manager struct {
 	// If any peer in the same HA group is active, all peers in that group should prevent going idle
 	peerToHAGroups map[string][]route.HAUniqueID // peer ID -> HA groups they belong to
 	haGroupToPeers map[route.HAUniqueID][]string // HA group -> peer IDs in the group
-	routesMu       sync.RWMutex
+	// peerToRoutePrefixes holds the routed subnets each routing peer serves
+	// (from the management route sync via UpdateRouteHAMap). The activity
+	// listener installs a peer's wake endpoint via WgInterface.UpdatePeer,
+	// and WireGuard only routes a destination to that endpoint when it falls
+	// inside the peer's AllowedIPs. Merging these routed prefixes into the
+	// lazy PeerConfig.AllowedIPs ensures traffic to a routed subnet wakes the
+	// idle routing peer instead of being black-holed.
+	peerToRoutePrefixes map[string][]netip.Prefix // peer ID -> routed prefixes from route sync
+	routesMu            sync.RWMutex
 }
 
 // NewManager creates a new lazy connection manager
@@ -73,6 +83,7 @@ func NewManager(config Config, engineCtx context.Context, peerStore *peerstore.S
 		activityManager:      activity.NewManager(wgIface),
 		peerToHAGroups:       make(map[string][]route.HAUniqueID),
 		haGroupToPeers:       make(map[route.HAUniqueID][]string),
+		peerToRoutePrefixes:  make(map[string][]netip.Prefix),
 	}
 
 	if wgIface.IsUserspaceBind() {
@@ -84,20 +95,47 @@ func NewManager(config Config, engineCtx context.Context, peerStore *peerstore.S
 	return m
 }
 
-// UpdateRouteHAMap updates the HA group mappings for routes
-// This should be called when route configuration changes
+// UpdateRouteHAMap updates the HA group mappings for routes.
+// This should be called when route configuration changes.
+//
+// It also rebuilds peerToRoutePrefixes: the routed subnets each routing
+// peer serves are captured so the activity listener can wake the peer on
+// traffic into those subnets. The prefix capture runs for every route,
+// including single-peer (non-HA) routes that the HA-group builder skips,
+// because a lone routing peer still needs its subnet to trigger a wakeup.
+//
+// The captured prefixes are merged into a peer's AllowedIPs only at listener
+// arm time (see armActivityListener), never written back into the stored
+// PeerConfig. Keeping the stored base pristine (overlay-only) ensures a later
+// route change or removal drops the stale prefix instead of accumulating it,
+// which would otherwise let an idle routing peer re-claim a subnet that has
+// since moved to another HA peer.
 func (m *Manager) UpdateRouteHAMap(haMap route.HAMap) {
 	m.routesMu.Lock()
 	defer m.routesMu.Unlock()
 
 	clear(m.peerToHAGroups)
 	clear(m.haGroupToPeers)
+	clear(m.peerToRoutePrefixes)
+
+	routePrefixes := make(map[string]map[netip.Prefix]struct{})
 
 	for haUniqueID, routes := range haMap {
 		var peers []string
 
 		peerSet := make(map[string]bool)
 		for _, r := range routes {
+			if r == nil {
+				continue
+			}
+
+			if prefix, ok := routePrefixForLazyPeer(r); ok {
+				if routePrefixes[r.Peer] == nil {
+					routePrefixes[r.Peer] = make(map[netip.Prefix]struct{})
+				}
+				routePrefixes[r.Peer][prefix] = struct{}{}
+			}
+
 			if !peerSet[r.Peer] {
 				peerSet[r.Peer] = true
 				peers = append(peers, r.Peer)
@@ -115,7 +153,71 @@ func (m *Manager) UpdateRouteHAMap(haMap route.HAMap) {
 		}
 	}
 
-	log.Debugf("updated route HA mappings: %d HA groups, %d peers with routes", len(m.haGroupToPeers), len(m.peerToHAGroups))
+	for peerID, prefixes := range routePrefixes {
+		m.peerToRoutePrefixes[peerID] = sortedPrefixes(prefixes)
+	}
+
+	log.Debugf("updated route HA mappings: %d HA groups, %d peers with routes, %d peers with route prefixes",
+		len(m.haGroupToPeers), len(m.peerToHAGroups), len(m.peerToRoutePrefixes))
+}
+
+// routePrefixForLazyPeer returns the masked network prefix of a static
+// (non-dynamic) route so it can be merged into the routing peer's
+// AllowedIPs. Dynamic (domain) routes and invalid networks are skipped:
+// they have no fixed subnet the client can pre-install for wakeups.
+func routePrefixForLazyPeer(r *route.Route) (netip.Prefix, bool) {
+	if r.IsDynamic() || !r.Network.IsValid() {
+		return netip.Prefix{}, false
+	}
+	return r.Network.Masked(), true
+}
+
+// sortedPrefixes returns the set's prefixes in a deterministic order (by
+// address, then prefix length) so AllowedIPs assembly is stable.
+func sortedPrefixes(prefixes map[netip.Prefix]struct{}) []netip.Prefix {
+	out := make([]netip.Prefix, 0, len(prefixes))
+	for prefix := range prefixes {
+		out = append(out, prefix)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if cmp := out[i].Addr().Compare(out[j].Addr()); cmp != 0 {
+			return cmp < 0
+		}
+		return out[i].Bits() < out[j].Bits()
+	})
+	return out
+}
+
+// allowedIPsForPeer merges the peer's base AllowedIPs (overlay /32 from the
+// WireGuard config) with its currently routed prefixes (from the route sync).
+// The result is the AllowedIPs the activity listener installs via UpdatePeer
+// so WireGuard routes both overlay- and subnet-bound traffic to the peer's
+// wake endpoint. It is idempotent (masked deduplication) and always computed
+// from the pristine base, so a route change is reflected on the next arm
+// without stale prefixes lingering.
+func (m *Manager) allowedIPsForPeer(peerID string, base []netip.Prefix) []netip.Prefix {
+	m.routesMu.RLock()
+	defer m.routesMu.RUnlock()
+
+	set := make(map[netip.Prefix]struct{}, len(base)+len(m.peerToRoutePrefixes[peerID]))
+	for _, prefix := range base {
+		set[prefix.Masked()] = struct{}{}
+	}
+	for _, prefix := range m.peerToRoutePrefixes[peerID] {
+		set[prefix.Masked()] = struct{}{}
+	}
+	return sortedPrefixes(set)
+}
+
+// armActivityListener starts the activity listener for a peer, merging its
+// routed prefixes into the wake endpoint's AllowedIPs at arm time. The stored
+// PeerConfig is left untouched (pristine overlay-only base): the merge is
+// applied to a copy so successive arms always reflect the current routes and
+// never accumulate stale prefixes.
+func (m *Manager) armActivityListener(peerCfg lazyconn.PeerConfig) error {
+	armCfg := peerCfg
+	armCfg.AllowedIPs = m.allowedIPsForPeer(peerCfg.PublicKey, peerCfg.AllowedIPs)
+	return m.activityManager.MonitorPeerActivity(armCfg)
 }
 
 // Start starts the manager and listens for peer activity and inactivity events
@@ -201,7 +303,10 @@ func (m *Manager) AddPeer(peerCfg lazyconn.PeerConfig) (bool, error) {
 		return false, nil
 	}
 
-	if err := m.activityManager.MonitorPeerActivity(peerCfg); err != nil {
+	// Arm the activity listener with routed subnets merged into the wake
+	// endpoint's AllowedIPs. The stored PeerConfig keeps its pristine
+	// overlay-only base (see armActivityListener).
+	if err := m.armActivityListener(peerCfg); err != nil {
 		return false, err
 	}
 
@@ -288,7 +393,7 @@ func (m *Manager) DeactivatePeer(peerID peerid.ConnID) {
 
 	m.inactivityManager.RemovePeer(mp.peerCfg.PublicKey)
 
-	if err := m.activityManager.MonitorPeerActivity(*mp.peerCfg); err != nil {
+	if err := m.armActivityListener(*mp.peerCfg); err != nil {
 		mp.peerCfg.Log.Errorf("failed to create activity monitor: %v", err)
 		return
 	}
@@ -444,6 +549,12 @@ func (m *Manager) removePeer(peerID string) {
 	m.activityManager.RemovePeer(cfg.Log, cfg.PeerConnID)
 	delete(m.managedPeers, peerID)
 	delete(m.managedPeersByConnID, cfg.PeerConnID)
+
+	// Drop routed-prefix bookkeeping to avoid a map leak. Lock ordering:
+	// managedPeersMu (held by callers) -> routesMu.
+	m.routesMu.Lock()
+	delete(m.peerToRoutePrefixes, peerID)
+	m.routesMu.Unlock()
 }
 
 func (m *Manager) close() {
@@ -459,6 +570,7 @@ func (m *Manager) close() {
 	m.routesMu.Lock()
 	m.peerToHAGroups = make(map[string][]route.HAUniqueID)
 	m.haGroupToPeers = make(map[route.HAUniqueID][]string)
+	m.peerToRoutePrefixes = make(map[string][]netip.Prefix)
 	m.routesMu.Unlock()
 
 	log.Infof("lazy connection manager closed")
@@ -577,7 +689,7 @@ func (m *Manager) onPeerInactivityTimedOut(peerIDs map[string]struct{}) {
 
 		mp.peerCfg.Log.Infof("start activity monitor")
 
-		if err := m.activityManager.MonitorPeerActivity(*mp.peerCfg); err != nil {
+		if err := m.armActivityListener(*mp.peerCfg); err != nil {
 			mp.peerCfg.Log.Errorf("failed to create activity monitor: %v", err)
 			continue
 		}
