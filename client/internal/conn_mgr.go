@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"maps"
 	"os"
 	"strconv"
 	"sync"
@@ -46,6 +47,9 @@ type ConnMgr struct {
 	remoteLazyEnabled bool
 
 	lazyConnMgr *manager.Manager
+	// appliedExcludeList is the exclude set last handed to the lazy manager, kept so an
+	// unchanged set on the next sync skips the O(n) reconciliation.
+	appliedExcludeList map[string]bool
 
 	wg            sync.WaitGroup
 	lazyCtx       context.Context
@@ -131,6 +135,13 @@ func (e *ConnMgr) SetExcludeList(ctx context.Context, peerIDs map[string]bool) {
 	if e.lazyConnMgr == nil {
 		return
 	}
+
+	// The exclude set is recomputed every sync but rarely changes; skip the O(n)
+	// store lookups and reconciliation when it matches what was already applied.
+	if maps.Equal(peerIDs, e.appliedExcludeList) {
+		return
+	}
+	e.appliedExcludeList = maps.Clone(peerIDs)
 
 	excludedPeers := make([]lazyconn.PeerConfig, 0, len(peerIDs))
 
@@ -264,6 +275,7 @@ func (e *ConnMgr) Close() {
 	e.lazyCtxCancel()
 	e.wg.Wait()
 	e.lazyConnMgr = nil
+	e.appliedExcludeList = nil
 }
 
 func (e *ConnMgr) initLazyManager(engineCtx context.Context) {
@@ -271,6 +283,7 @@ func (e *ConnMgr) initLazyManager(engineCtx context.Context) {
 		InactivityThreshold: inactivityThresholdEnv(),
 	}
 	e.lazyConnMgr = manager.NewManager(cfg, engineCtx, e.peerStore, e.iface)
+	e.appliedExcludeList = nil
 
 	e.lazyCtx, e.lazyCtxCancel = context.WithCancel(engineCtx)
 
