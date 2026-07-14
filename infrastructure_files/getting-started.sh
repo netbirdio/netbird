@@ -292,10 +292,10 @@ wait_management_proxy() {
     if curl -sk -f -o /dev/null "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/oauth2/.well-known/openid-configuration" 2>/dev/null; then
       break
     fi
-    # Fallback: check the container directly so the script
-    # completes even when hairpin NAT prevents the host from
-    # reaching its own external DNS name.
-    if curl -sk -f -o /dev/null "http://netbird-server:80/oauth2/.well-known/openid-configuration" 2>/dev/null; then
+    # Fallback: use --resolve to bypass DNS and connect to local
+    # Traefik directly. Works even when hairpin NAT prevents the
+    # host from reaching its own external IP via the domain name.
+    if curl -sk -f -o /dev/null --resolve "${NETBIRD_DOMAIN}:${NETBIRD_PORT}:127.0.0.1" "${NETBIRD_HTTP_PROTOCOL}://${NETBIRD_DOMAIN}/oauth2/.well-known/openid-configuration" 2>/dev/null; then
       break
     fi
     if [[ $counter -eq 60 ]]; then
