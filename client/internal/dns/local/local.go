@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -39,6 +40,30 @@ type PeerConnectivity interface {
 	IsConnectedByIP(ip string) (known, connected bool)
 }
 
+// PeerActivator wakes lazy-connection peers on demand. The local resolver calls
+// it with the tunnel IPs an answer points at, so a peer that is idle (lazily
+// disconnected) begins its WireGuard handshake at DNS-resolution time rather
+// than racing the client's first request packet. nil disables warm-up.
+type PeerActivator interface {
+	// ActivatePeersByIP triggers wake-up for the peer(s) owning ips and blocks
+	// until one is connected or ctx (a short per-query budget) expires. It is a
+	// fast no-op for unknown or already-connected IPs.
+	ActivatePeersByIP(ctx context.Context, ips []string)
+}
+
+const defaultLazyWarmupTimeout = 2 * time.Second
+
+// lazyWarmupTimeout is the per-query budget for waking a lazy-connection peer a
+// DNS answer points at. Tunable via NB_DNS_LAZY_WARMUP_TIMEOUT (a Go duration).
+func lazyWarmupTimeout() time.Duration {
+	if v := os.Getenv("NB_DNS_LAZY_WARMUP_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
+		}
+	}
+	return defaultLazyWarmupTimeout
+}
+
 type Resolver struct {
 	mu      sync.RWMutex
 	records map[dns.Question][]dns.RR
@@ -51,6 +76,9 @@ type Resolver struct {
 	// filter and preserves the legacy "return whatever is registered"
 	// behaviour for callers that never wire a status source.
 	peerConn PeerConnectivity
+	// peerActivator, when non-nil, is called at resolution time to warm the
+	// lazy connection to the peer(s) an answer points at. nil disables warm-up.
+	peerActivator PeerActivator
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -74,6 +102,14 @@ func (d *Resolver) SetPeerConnectivity(p PeerConnectivity) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.peerConn = p
+}
+
+// SetPeerActivator wires the DNS-time lazy-connection warm-up. Pass nil to
+// disable. Safe to call multiple times; the latest value wins.
+func (d *Resolver) SetPeerActivator(a PeerActivator) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.peerActivator = a
 }
 
 func (d *Resolver) MatchSubdomains() bool {
@@ -122,6 +158,9 @@ func (d *Resolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	replyMessage.RecursionAvailable = true
 
 	result := d.lookupRecords(logger, question)
+	// Warm before filtering: activation flips a lazily-idle target to connected,
+	// which then lets it survive the disconnected-peer filter below.
+	d.warmLazyPeers(result.records)
 	result.records = d.filterDisconnectedPeerAnswers(logger, question, result.records)
 	replyMessage.Authoritative = !result.hasExternalData
 	replyMessage.Answer = result.records
@@ -516,6 +555,33 @@ func (d *Resolver) filterDisconnectedPeerAnswers(logger *log.Entry, question dns
 	}
 	logger.Tracef("dropped %d disconnected-peer answer(s) for %s, returning %d", dropped, question.Name, len(kept))
 	return kept
+}
+
+// warmLazyPeers triggers lazy-connection wake-up for the peers a resolved
+// answer points at and waits briefly for one to connect, so the caller's first
+// request doesn't race the WireGuard handshake. No-op when no activator is
+// wired (lazy connections disabled) or the answer carries no peer IPs.
+func (d *Resolver) warmLazyPeers(records []dns.RR) {
+	d.mu.RLock()
+	activator := d.peerActivator
+	d.mu.RUnlock()
+	if activator == nil {
+		return
+	}
+
+	var ips []string
+	for _, rr := range records {
+		if ip := extractRecordIP(rr); ip != "" {
+			ips = append(ips, ip)
+		}
+	}
+	if len(ips) == 0 {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(d.ctx, lazyWarmupTimeout())
+	defer cancel()
+	activator.ActivatePeersByIP(ctx, ips)
 }
 
 // extractRecordIP returns the dotted-decimal / colon-hex IP carried by

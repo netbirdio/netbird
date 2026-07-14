@@ -654,6 +654,18 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	e.connMgr = NewConnMgr(e.config, e.statusRecorder, e.peerStore, wgIface)
 	e.connMgr.Start(e.ctx)
 
+	// Wire DNS-time lazy-connection warm-up now that the connection manager
+	// exists (it does not at DNS-server construction time). A DNS answer that
+	// points at an idle peer then wakes it before the client's first request.
+	if ds, ok := e.dnsServer.(*dns.DefaultServer); ok {
+		ds.SetPeerActivator(&dnsPeerActivator{
+			connMgr:   e.connMgr,
+			peerStore: e.peerStore,
+			status:    e.statusRecorder,
+			mu:        e.syncMsgMux,
+		})
+	}
+
 	e.srWatcher = guard.NewSRWatcher(e.signal, e.relayManager, e.mobileDep.IFaceDiscover, iceCfg)
 	e.srWatcher.Start(peer.IsForceRelayed())
 

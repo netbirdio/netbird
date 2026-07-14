@@ -491,6 +491,13 @@ func (s *DefaultServer) SetFirewall(fw Firewall) {
 	}
 }
 
+// SetPeerActivator wires the DNS-time lazy-connection warm-up on the local
+// resolver. Injected after the connection manager exists (it does not at
+// DNS-server construction time). Pass nil to disable.
+func (s *DefaultServer) SetPeerActivator(a local.PeerActivator) {
+	s.localResolver.SetPeerActivator(a)
+}
+
 // Stop stops the server
 func (s *DefaultServer) Stop() {
 	s.ctxCancel()
