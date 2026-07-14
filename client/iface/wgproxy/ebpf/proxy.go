@@ -11,6 +11,8 @@ import (
 	"github.com/hashicorp/go-multierror"
 	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/net/ipv4"
+	"golang.org/x/net/ipv6"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/iface/bufsize"
@@ -37,7 +39,12 @@ type WGEBPFProxy struct {
 	lastUsedPort uint16
 	rawConnIPv4  net.PacketConn
 	rawConnIPv6  net.PacketConn
-	conn         transport.UDPConn
+	// batchConnIPv4/IPv6 wrap the raw sockets so the inject path can write a
+	// whole batch of packets with one sendmmsg (WriteBatch) instead of one
+	// WriteTo per packet. Non-nil whenever the matching raw socket is present.
+	batchConnIPv4 *ipv4.PacketConn
+	batchConnIPv6 *ipv6.PacketConn
+	conn          transport.UDPConn
 
 	ctx       context.Context
 	ctxCancel context.CancelFunc
@@ -70,10 +77,15 @@ func (p *WGEBPFProxy) Listen() error {
 		return err
 	}
 
+	p.batchConnIPv4 = ipv4.NewPacketConn(p.rawConnIPv4)
+
 	// Prepare IPv6 raw socket (optional)
 	p.rawConnIPv6, err = rawsocket.PrepareSenderRawSocketIPv6()
 	if err != nil {
 		log.Warnf("failed to prepare IPv6 raw socket, continuing with IPv4 only: %v", err)
+	}
+	if p.rawConnIPv6 != nil {
+		p.batchConnIPv6 = ipv6.NewPacketConn(p.rawConnIPv6)
 	}
 
 	err = p.ebpfManager.LoadWgProxy(proxyPort, p.localWGListenPort)
