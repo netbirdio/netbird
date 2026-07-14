@@ -67,7 +67,7 @@ func SyncMessageVersionsFromString(toconvert []string) []SyncMessageVersion {
 	for _, v := range AllSyncMessageVersions {
 		allversions[v.String()] = v
 	}
-	toret := make([]SyncMessageVersion, len(toconvert))
+	toret := make([]SyncMessageVersion, 0)
 	for _, s := range toconvert {
 		toret = append(toret, allversions[s])
 	}
@@ -95,6 +95,8 @@ func SyncMessageVersionsFromMap(toconvert map[string][]string) map[string][]Sync
 	return toret
 }
 
+// these come from the client; peer capabilities are expected to contain all enabled sync message versions.
+// an empty list is interpreted as all but the base version are disabled.
 func SyncMessageVersionsFromProtoEnums(peerCapabilities []int32) []SyncMessageVersion {
 	toret := make([]SyncMessageVersion, 0)
 	for _, pc := range peerCapabilities {

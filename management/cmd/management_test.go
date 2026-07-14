@@ -4,6 +4,8 @@ import (
 	"context"
 	"os"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 const (
@@ -20,26 +22,27 @@ const (
 		"AuthAudience": "https://stageapp/",
 		"AuthIssuer": "https://something.eu.auth0.com/",
 		"OIDCConfigEndpoint": "https://something.eu.auth0.com/.well-known/openid-configuration"
+	  },
+	  "SupportedSyncMessageVersions": ["Base", "ComponentNetworkMap"],
+	  "PerAccountSupportedSyncMessageVersions": {
+	    "1": ["Base"],
+		"2": ["ComponentNetworkMap"],
+		"3": []
 	  }
 	}`
 )
 
 func Test_loadMgmtConfig(t *testing.T) {
 	tmpFile, err := createConfig()
-	if err != nil {
-		t.Fatalf("failed to create config: %s", err)
-	}
+	assert.NoError(t, err)
 
 	cfg, err := LoadMgmtConfig(context.Background(), tmpFile)
-	if err != nil {
-		t.Fatalf("failed to load management config: %s", err)
-	}
-	if cfg.Relay == nil {
-		t.Fatalf("config is nil")
-	}
-	if len(cfg.Relay.Addresses) == 0 {
-		t.Fatalf("relay address is empty")
-	}
+	assert.NoError(t, err)
+	assert.NotEmpty(t, cfg.Relay)
+	assert.NotEmpty(t, cfg.Relay.Addresses)
+	assert.Equal(t, []string{"Base", "ComponentNetworkMap"}, cfg.SupportedSyncMessageVersions)
+	assert.Equal(t, map[string][]string{
+		"1": {"Base"}, "2": {"ComponentNetworkMap"}, "3": {}}, cfg.PerAccountSupportedSyncMessageVersions)
 }
 
 func createConfig() (string, error) {
