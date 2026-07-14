@@ -144,6 +144,78 @@ func TestWriteMsgImmediateDropDatagram(t *testing.T) {
 	}
 }
 
+// TestReadBatchDrainsInOrder verifies Conn.ReadBatch returns queued packets in
+// FIFO order, copies each payload out, frees every Msg exactly once (no pool
+// double-free — run with -race), and reports no drops.
+func TestReadBatchDrainsInOrder(t *testing.T) {
+	cc, c := newTestContainer(t, true)
+	defer cc.close()
+
+	const total = 10
+	for i := 0; i < total; i++ {
+		bufPtr := c.bufPool.Get().(*[]byte)
+		(*bufPtr)[0] = byte(i)
+		cc.writeMsg(Msg{bufPool: c.bufPool, bufPtr: bufPtr, Payload: (*bufPtr)[:16]})
+	}
+
+	const batch = 4
+	bufs := make([][]byte, batch)
+	sizes := make([]int, batch)
+	for i := range bufs {
+		bufs[i] = make([]byte, bufferSize)
+	}
+
+	got := 0
+	for got < total {
+		n, err := cc.conn.ReadBatch(bufs, sizes)
+		if err != nil {
+			t.Fatalf("ReadBatch: %v", err)
+		}
+		if n <= 0 || n > batch {
+			t.Fatalf("ReadBatch returned n=%d, want 1..%d", n, batch)
+		}
+		for i := 0; i < n; i++ {
+			if sizes[i] != 16 {
+				t.Fatalf("sizes[%d]=%d, want 16", i, sizes[i])
+			}
+			if bufs[i][0] != byte(got) {
+				t.Fatalf("out of order: got marker %d, want %d", bufs[i][0], got)
+			}
+			got++
+		}
+	}
+	if d := c.InboundMsgDrops(); d != 0 {
+		t.Fatalf("expected 0 drops, got %d", d)
+	}
+}
+
+// TestReadBatchDrainsOnlyAvailable verifies ReadBatch blocks for the first
+// packet then returns whatever is already queued without waiting for the batch
+// to fill.
+func TestReadBatchDrainsOnlyAvailable(t *testing.T) {
+	cc, c := newTestContainer(t, true)
+	defer cc.close()
+
+	const queued = 3
+	for i := 0; i < queued; i++ {
+		cc.writeMsg(testMsg(c))
+	}
+
+	bufs := make([][]byte, 8)
+	sizes := make([]int, 8)
+	for i := range bufs {
+		bufs[i] = make([]byte, bufferSize)
+	}
+
+	n, err := cc.conn.ReadBatch(bufs, sizes)
+	if err != nil {
+		t.Fatalf("ReadBatch: %v", err)
+	}
+	if n != queued {
+		t.Fatalf("ReadBatch returned n=%d, want %d (only what was queued)", n, queued)
+	}
+}
+
 // TestCloseUnblocksPendingWriters guards against a send on the closed messages
 // channel when close() races blocked writeMsg calls. Run with -race.
 func TestCloseUnblocksPendingWriters(t *testing.T) {
