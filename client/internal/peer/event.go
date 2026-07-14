@@ -1,6 +1,7 @@
 package peer
 
 import (
+	"context"
 	"time"
 
 	"github.com/pion/ice/v4"
@@ -14,6 +15,15 @@ import (
 // is owned by that loop; producers deliver events through the mailbox and
 // never mutate Conn state directly.
 type event any
+
+// staleableEvent is implemented by events tied to the lifetime of a transport
+// component (WG watcher, ICE agent, relay connection). Each such component runs
+// under its own context, cancelled when the component is superseded; an event
+// carrying a cancelled context is dropped at dispatch time. A cancel performed
+// by an earlier event in the same drained batch already suppresses it.
+type staleableEvent interface {
+	isStale() bool
+}
 
 // evClose asks the event loop to tear down the connection. done is closed
 // once the teardown finished.
@@ -55,8 +65,10 @@ type evRelayDown struct{}
 type evRelayDialDone struct{}
 
 type evWGTimeout struct {
-	gen uint64
+	ctx context.Context
 }
+
+func (e evWGTimeout) isStale() bool { return e.ctx.Err() != nil }
 
 // evWGHandshake reports the first WireGuard handshake of the current watcher run.
 type evWGHandshake struct {

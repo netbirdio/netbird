@@ -155,9 +155,6 @@ type Conn struct {
 	wgWatcher       *wg_watcher.WGWatcher
 	wgWatcherWg     sync.WaitGroup
 	wgWatcherCancel context.CancelFunc
-	// wgWatcherGen identifies the current watcher generation; a WG timeout event
-	// carrying an older generation is dropped by the loop. Owned by the event loop.
-	wgWatcherGen uint64
 	// wgTimeouts counts consecutive WireGuard handshake timeouts without a
 	// successful handshake in between. Owned by the event loop.
 	wgTimeouts int
@@ -433,6 +430,10 @@ func (conn *Conn) run(mb *mailbox) {
 }
 
 func (conn *Conn) handleEvent(ev event) {
+	if s, ok := ev.(staleableEvent); ok && s.isStale() {
+		return
+	}
+
 	switch e := ev.(type) {
 	case evRemoteOffer:
 		conn.handleRemoteOffer(&e.offer)
@@ -451,7 +452,7 @@ func (conn *Conn) handleEvent(ev event) {
 	case evRelayDialDone:
 		conn.handleRelayDialDone()
 	case evWGTimeout:
-		conn.handleWGTimeout(e.gen)
+		conn.handleWGTimeout()
 	case evWGHandshake:
 		conn.handleWGHandshakeSuccess(e.when)
 	case evWGCheckOK:
@@ -869,13 +870,8 @@ func (conn *Conn) handleRelayDisconnected() {
 
 // handleWGTimeout closes the active connection after a WireGuard handshake
 // timeout so the guard can trigger a reconnection.
-func (conn *Conn) handleWGTimeout(gen uint64) {
+func (conn *Conn) handleWGTimeout() {
 	if conn.ctx.Err() != nil {
-		return
-	}
-
-	if gen != conn.wgWatcherGen {
-		conn.Log.Debugf("ignore WG timeout from superseded watcher generation %d (current %d)", gen, conn.wgWatcherGen)
 		return
 	}
 
@@ -952,8 +948,8 @@ func (conn *Conn) onGuardEvent() {
 	conn.post(evGuardTick{})
 }
 
-func (conn *Conn) onWGDisconnected(gen uint64) {
-	conn.post(evWGTimeout{gen: gen})
+func (conn *Conn) onWGDisconnected(ctx context.Context) {
+	conn.post(evWGTimeout{ctx: ctx})
 }
 
 func (conn *Conn) onWGHandshakeSuccess(when time.Time) {
@@ -1115,9 +1111,6 @@ func (conn *Conn) enableWgWatcherIfNeeded(enabledTime time.Time) {
 		return
 	}
 
-	conn.wgWatcherGen++
-	gen := conn.wgWatcherGen
-
 	watcher := wg_watcher.NewWGWatcher(conn.Log, conn.config.WgConfig.WgInterface, conn.config.Key, conn.dumpState)
 	watcher.PrepareInitialHandshake()
 
@@ -1127,7 +1120,7 @@ func (conn *Conn) enableWgWatcherIfNeeded(enabledTime time.Time) {
 	conn.wgWatcherWg.Add(1)
 	go func() {
 		defer conn.wgWatcherWg.Done()
-		onDisconnected := func() { conn.onWGDisconnected(gen) }
+		onDisconnected := func() { conn.onWGDisconnected(wgWatcherCtx) }
 		watcher.EnableWgWatcher(wgWatcherCtx, enabledTime, onDisconnected, conn.onWGHandshakeSuccess, conn.onWGCheckSuccess)
 	}()
 }

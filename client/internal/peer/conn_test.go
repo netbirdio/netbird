@@ -289,20 +289,20 @@ func TestConn_onWGDisconnected_EscalatesToRosenpassReset(t *testing.T) {
 	conn := newWGTimeoutTestConn(true, &disconnected)
 
 	for i := 0; i < wgTimeoutEscalationThreshold-1; i++ {
-		conn.handleWGTimeout(conn.wgWatcherGen)
+		conn.handleWGTimeout()
 	}
 	assert.Empty(t, disconnected, "escalation must not fire below the threshold")
 
-	conn.handleWGTimeout(conn.wgWatcherGen)
+	conn.handleWGTimeout()
 	assert.Equal(t, []string{conn.config.WgConfig.RemoteKey}, disconnected,
 		"reaching the threshold must report the peer disconnected once")
 
 	for i := 0; i < wgTimeoutEscalationThreshold-1; i++ {
-		conn.handleWGTimeout(conn.wgWatcherGen)
+		conn.handleWGTimeout()
 	}
 	assert.Len(t, disconnected, 1, "escalation must restart counting after firing")
 
-	conn.handleWGTimeout(conn.wgWatcherGen)
+	conn.handleWGTimeout()
 	assert.Len(t, disconnected, 2, "continued timeouts must escalate again")
 }
 
@@ -314,12 +314,12 @@ func TestConn_onWGDisconnected_CheckSuccessResetsEscalation(t *testing.T) {
 	conn := newWGTimeoutTestConn(true, &disconnected)
 
 	for i := 0; i < wgTimeoutEscalationThreshold-1; i++ {
-		conn.handleWGTimeout(conn.wgWatcherGen)
+		conn.handleWGTimeout()
 	}
 	conn.handleWGCheckSuccess()
 
 	for i := 0; i < wgTimeoutEscalationThreshold-1; i++ {
-		conn.handleWGTimeout(conn.wgWatcherGen)
+		conn.handleWGTimeout()
 	}
 	assert.Empty(t, disconnected, "handshake success must reset the timeout count")
 }
@@ -327,12 +327,30 @@ func TestConn_onWGDisconnected_CheckSuccessResetsEscalation(t *testing.T) {
 // TestConn_onWGDisconnected_NoEscalationWithoutRosenpass: without rosenpass
 // there is no per-peer key state to reset; repeated timeouts must not report
 // disconnects.
+func TestConn_handleEvent_DropsStaleWGTimeout(t *testing.T) {
+	var disconnected []string
+	conn := newWGTimeoutTestConn(true, &disconnected)
+
+	staleCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for i := 0; i < wgTimeoutEscalationThreshold; i++ {
+		conn.handleEvent(evWGTimeout{ctx: staleCtx})
+	}
+	assert.Empty(t, disconnected, "timeouts from a cancelled watcher must be dropped")
+
+	liveCtx := context.Background()
+	for i := 0; i < wgTimeoutEscalationThreshold; i++ {
+		conn.handleEvent(evWGTimeout{ctx: liveCtx})
+	}
+	assert.Len(t, disconnected, 1, "timeouts from the live watcher must be dispatched")
+}
+
 func TestConn_onWGDisconnected_NoEscalationWithoutRosenpass(t *testing.T) {
 	var disconnected []string
 	conn := newWGTimeoutTestConn(false, &disconnected)
 
 	for i := 0; i < wgTimeoutEscalationThreshold*3; i++ {
-		conn.handleWGTimeout(conn.wgWatcherGen)
+		conn.handleWGTimeout()
 	}
 	assert.Empty(t, disconnected, "escalation must be limited to rosenpass connections")
 }
