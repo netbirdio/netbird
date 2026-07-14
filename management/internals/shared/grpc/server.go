@@ -86,8 +86,6 @@ type Server struct {
 
 	reverseProxyManager rpservice.Manager
 	reverseProxyMu      sync.RWMutex
-
-	supportedSyncMessageVersions []SyncMessageVersion
 }
 
 // NewServer creates a new Management server
@@ -132,8 +130,6 @@ func NewServer(
 		}
 	}
 
-	syncMessageVersions := SyncMessageVersionsFromString(config.SupportedSyncMessageVersions)
-
 	return &Server{
 		jobManager:               jobManager,
 		accountManager:           accountManager,
@@ -153,8 +149,6 @@ func NewServer(
 
 		syncLim:        syncLim,
 		syncLimEnabled: syncLimEnabled,
-
-		supportedSyncMessageVersions: syncMessageVersions,
 	}, nil
 }
 
@@ -1028,7 +1022,7 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 	var plainResp *proto.SyncResponse
 
 	commonSyncMessageVersions := CommonSyncMessageVersions(
-		SyncMessageVersionsFromString(s.config.SupportedSyncMessageVersions),
+		SyncMessageVersionsFromString(s.perAccountOrGlobalSyncMessageVersions(peer.AccountID)),
 		SyncMessageVersionsFromProtoEnums(peer.Meta.Capabilities))
 
 	if commonSyncMessageVersions[0] == ComponentNetworkMap {
@@ -1075,6 +1069,13 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 	}
 
 	return nil
+}
+
+func (s *Server) perAccountOrGlobalSyncMessageVersions(accountId string) []string {
+	if versions, ok := s.config.PerAccountSupportedSyncMessageVersions[accountId]; ok {
+		return versions
+	}
+	return s.config.SupportedSyncMessageVersions
 }
 
 // GetDeviceAuthorizationFlow returns a device authorization flow information

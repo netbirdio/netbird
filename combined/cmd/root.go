@@ -510,6 +510,12 @@ func createManagementServer(cfg *CombinedConfig, mgmtConfig *nbconfig.Config) (m
 		return nil, err
 	}
 
+	for accountId, versions := range cfg.Management.PerAccountSupportedSyncMessageVersions {
+		if err := syncgrpc.ValidateSyncMessageVersions(versions); err != nil {
+			return nil, fmt.Errorf("unrecognized sync message version in perAccountSupportedSyncMessageVersions for account %s %w", accountId, err)
+		}
+	}
+
 	mgmtSrv := newServer(
 		&mgmtServer.Config{
 			NbConfig:                mgmtConfig,

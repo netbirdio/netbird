@@ -74,6 +74,27 @@ func SyncMessageVersionsFromString(toconvert []string) []SyncMessageVersion {
 	return toret
 }
 
+// convert per-account human-readable versions to enums
+// please note no validation on versions strings is done, misses are silently discarded
+// the assumption is ValidateSyncMessageVersions() has been called before using SyncMessageVersionsFromMap()
+func SyncMessageVersionsFromMap(toconvert map[string][]string) map[string][]SyncMessageVersion {
+	// no per-account overrides
+	if len(toconvert) == 0 {
+		return nil
+	}
+
+	allversions := make(map[string]SyncMessageVersion, len(AllSyncMessageVersions))
+	for _, v := range AllSyncMessageVersions {
+		allversions[v.String()] = v
+	}
+
+	toret := make(map[string][]SyncMessageVersion, len(toconvert))
+	for account, versions := range toconvert {
+		toret[account] = SyncMessageVersionsFromString(versions)
+	}
+	return toret
+}
+
 func SyncMessageVersionsFromProtoEnums(peerCapabilities []int32) []SyncMessageVersion {
 	toret := make([]SyncMessageVersion, 0)
 	for _, pc := range peerCapabilities {

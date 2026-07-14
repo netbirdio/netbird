@@ -58,6 +58,8 @@ type Controller struct {
 	integratedPeerValidator integrated_validator.IntegratedValidator
 
 	serverSupportedSyncMessageVersions []grpc.SyncMessageVersion
+
+	perAccountServerSupportedSyncMessageVersions map[string][]grpc.SyncMessageVersion
 }
 
 type bufferUpdate struct {
@@ -92,9 +94,10 @@ func NewController(ctx context.Context, store store.Store, metrics telemetry.App
 		dnsDomain:               dnsDomain,
 		config:                  config,
 
-		proxyController:                    proxyController,
-		EphemeralPeersManager:              ephemeralPeersManager,
-		serverSupportedSyncMessageVersions: grpc.SyncMessageVersionsFromString(config.SupportedSyncMessageVersions),
+		proxyController:                              proxyController,
+		EphemeralPeersManager:                        ephemeralPeersManager,
+		serverSupportedSyncMessageVersions:           grpc.SyncMessageVersionsFromString(config.SupportedSyncMessageVersions),
+		perAccountServerSupportedSyncMessageVersions: grpc.SyncMessageVersionsFromMap(config.PerAccountSupportedSyncMessageVersions),
 	}
 }
 
@@ -230,7 +233,7 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 			var update *proto.SyncResponse
 
 			commonSyncMessageVersions := grpc.CommonSyncMessageVersions(
-				c.serverSupportedSyncMessageVersions,
+				c.perAccountOrGlobalSupportedSyncMessageVersions(accountID),
 				grpc.SyncMessageVersionsFromProtoEnums(peer.Meta.Capabilities))
 
 			if commonSyncMessageVersions[0] == grpc.ComponentNetworkMap {
@@ -273,6 +276,13 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 	}
 
 	return nil
+}
+
+func (c *Controller) perAccountOrGlobalSupportedSyncMessageVersions(accountId string) []grpc.SyncMessageVersion {
+	if perAccount, ok := c.perAccountServerSupportedSyncMessageVersions[accountId]; ok {
+		return perAccount
+	}
+	return c.serverSupportedSyncMessageVersions
 }
 
 // UpdatePeers updates all peers that belong to an account.
@@ -381,7 +391,7 @@ func (c *Controller) sendUpdateForAffectedPeers(ctx context.Context, accountID s
 			var update *proto.SyncResponse
 
 			commonSyncMessageVersions := grpc.CommonSyncMessageVersions(
-				c.serverSupportedSyncMessageVersions,
+				c.perAccountOrGlobalSupportedSyncMessageVersions(accountID),
 				grpc.SyncMessageVersionsFromProtoEnums(peer.Meta.Capabilities))
 
 			if commonSyncMessageVersions[0] == grpc.ComponentNetworkMap {
@@ -508,7 +518,7 @@ func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, pe
 	var update *proto.SyncResponse
 
 	commonSyncMessageVersions := grpc.CommonSyncMessageVersions(
-		c.serverSupportedSyncMessageVersions,
+		c.perAccountOrGlobalSupportedSyncMessageVersions(accountId),
 		grpc.SyncMessageVersionsFromProtoEnums(peer.Meta.Capabilities))
 
 	if commonSyncMessageVersions[0] == grpc.ComponentNetworkMap {

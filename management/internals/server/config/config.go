@@ -63,6 +63,8 @@ type Config struct {
 	EmbeddedIdP *idp.EmbeddedIdPConfig
 
 	SupportedSyncMessageVersions []string
+
+	PerAccountSupportedSyncMessageVersions map[string][]string
 }
 
 // GetAuthAudiences returns the audience from the http config and device authorization flow config

@@ -116,20 +116,21 @@ type SignalConfig struct {
 
 // ManagementConfig contains management service settings
 type ManagementConfig struct {
-	Enabled                      bool               `yaml:"enabled"`
-	LogLevel                     string             `yaml:"logLevel"`
-	DataDir                      string             `yaml:"dataDir"`
-	DnsDomain                    string             `yaml:"dnsDomain"`
-	DisableAnonymousMetrics      bool               `yaml:"disableAnonymousMetrics"`
-	DisableGeoliteUpdate         bool               `yaml:"disableGeoliteUpdate"`
-	DisableDefaultPolicy         bool               `yaml:"disableDefaultPolicy"`
-	Auth                         AuthConfig         `yaml:"auth"`
-	Stuns                        []HostConfig       `yaml:"stuns"`
-	Relays                       RelaysConfig       `yaml:"relays"`
-	SignalURI                    string             `yaml:"signalUri"`
-	Store                        StoreConfig        `yaml:"store"`
-	ReverseProxy                 ReverseProxyConfig `yaml:"reverseProxy"`
-	SupportedSyncMessageVersions []string           `yaml:"supportedSyncMessageVersions"`
+	Enabled                                bool                `yaml:"enabled"`
+	LogLevel                               string              `yaml:"logLevel"`
+	DataDir                                string              `yaml:"dataDir"`
+	DnsDomain                              string              `yaml:"dnsDomain"`
+	DisableAnonymousMetrics                bool                `yaml:"disableAnonymousMetrics"`
+	DisableGeoliteUpdate                   bool                `yaml:"disableGeoliteUpdate"`
+	DisableDefaultPolicy                   bool                `yaml:"disableDefaultPolicy"`
+	Auth                                   AuthConfig          `yaml:"auth"`
+	Stuns                                  []HostConfig        `yaml:"stuns"`
+	Relays                                 RelaysConfig        `yaml:"relays"`
+	SignalURI                              string              `yaml:"signalUri"`
+	Store                                  StoreConfig         `yaml:"store"`
+	ReverseProxy                           ReverseProxyConfig  `yaml:"reverseProxy"`
+	SupportedSyncMessageVersions           []string            `yaml:"supportedSyncMessageVersions"`
+	PerAccountSupportedSyncMessageVersions map[string][]string `yaml:"perAccountSupportedSyncMessageVersions"`
 }
 
 // AuthConfig contains authentication/identity provider settings

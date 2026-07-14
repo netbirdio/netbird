@@ -159,6 +159,13 @@ func LoadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*nbconfig.Confi
 		return nil, err
 	}
 
+	for account, versions := range loadedConfig.PerAccountSupportedSyncMessageVersions {
+		err := grpc.ValidateSyncMessageVersions(versions)
+		if err != nil {
+			return nil, fmt.Errorf("unrecognized sync message version for account %s, %w", account, err)
+		}
+	}
+
 	// Apply EmbeddedIdP config to HttpConfig if embedded IdP is enabled
 	err = ApplyEmbeddedIdPConfig(ctx, loadedConfig)
 	if err != nil {
