@@ -17,7 +17,9 @@ import (
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/client/proto"
+	"github.com/netbirdio/netbird/client/server"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/util"
 )
@@ -330,6 +332,14 @@ func doForegroundLogin(ctx context.Context, cmd *cobra.Command, setupKey string,
 	if err != nil {
 		return fmt.Errorf("read config file %s: %v", configFilePath, err)
 	}
+
+	// Mirror runInForegroundMode: recover residual state from a previous
+	// unclean shutdown and enable advanced routing before dialing
+	// management, so leftover routing rules can't break the login.
+	if err := server.RestoreResidualState(ctx, profilemanager.NewServiceManager(configFilePath).GetStatePath()); err != nil {
+		log.Warnf("failed to restore residual state: %v", err)
+	}
+	nbnet.Init()
 
 	err = foregroundLogin(ctx, cmd, config, setupKey, activeProf.ID)
 	if err != nil {

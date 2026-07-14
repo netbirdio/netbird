@@ -22,6 +22,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
+	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/client/server"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/shared/management/domain"
@@ -240,6 +241,11 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *pr
 	if err := server.RestoreResidualState(ctx, profilemanager.NewServiceManager(configPath).GetStatePath()); err != nil {
 		log.Warnf("failed to restore residual state: %v", err)
 	}
+
+	// Enable advanced routing (as the daemon does on startup) so the
+	// management dial bypasses a leftover fwmark rule instead of being
+	// shunted into a stale routing table.
+	nbnet.Init()
 
 	err = foregroundLogin(ctx, cmd, config, providedSetupKey, activeProf.ID)
 	if err != nil {
