@@ -104,6 +104,7 @@ func (p *WGEBPFProxy) Listen() error {
 		return err
 	}
 	p.conn = conn
+	nbnet.SizeRelaySocketBuffers(conn)
 
 	go p.proxyToRemote()
 	log.Infof("local wg proxy listening on: %d", proxyPort)
