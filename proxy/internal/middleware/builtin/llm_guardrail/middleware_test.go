@@ -102,13 +102,44 @@ func TestAllowlistCaseInsensitive(t *testing.T) {
 	}
 }
 
-func TestAllowlistMissingModelKeyAllows(t *testing.T) {
+func TestAllowlistMissingModelKeyDenies(t *testing.T) {
+	// Fail closed: with an allowlist configured, a request whose model the
+	// parser could not extract (URL/path-routed providers such as Bedrock or
+	// Vertex whose shape wasn't recognised) must be denied, not allowed.
 	mw := New(Config{ModelAllowlist: []string{"gpt-4o"}})
 	out, err := mw.Invoke(context.Background(), newInput())
 	require.NoError(t, err)
-	assert.Equal(t, middleware.DecisionAllow, out.Decision, "missing model key must allow even with non-empty allowlist")
+	require.NotNil(t, out)
+	assert.Equal(t, middleware.DecisionDeny, out.Decision, "absent model must be denied when an allowlist is set")
+	assert.Equal(t, 403, out.DenyStatus, "deny status must be 403")
+	require.NotNil(t, out.DenyReason, "deny reason must be populated")
+	assert.Equal(t, "llm_policy.model_unknown", out.DenyReason.Code, "deny code must be model_unknown")
 	dec, _ := metaValue(t, out.Metadata, middleware.KeyLLMPolicyDecision)
-	assert.Equal(t, "allow", dec, "decision must be allow when model key is absent")
+	assert.Equal(t, "deny", dec, "decision must be deny when model key is absent")
+	reason, _ := metaValue(t, out.Metadata, middleware.KeyLLMPolicyReason)
+	assert.Equal(t, "model_unknown", reason, "reason metadata must be model_unknown")
+}
+
+func TestAllowlistEmptyModelValueDenies(t *testing.T) {
+	// A present-but-empty model is as undeterminable as an absent one.
+	mw := New(Config{ModelAllowlist: []string{"gpt-4o"}})
+	out, err := mw.Invoke(context.Background(), newInput(
+		middleware.KV{Key: middleware.KeyLLMModel, Value: "   "},
+	))
+	require.NoError(t, err)
+	require.NotNil(t, out)
+	assert.Equal(t, middleware.DecisionDeny, out.Decision, "empty model must be denied when an allowlist is set")
+	require.NotNil(t, out.DenyReason, "deny reason must be populated")
+	assert.Equal(t, "llm_policy.model_unknown", out.DenyReason.Code, "deny code must be model_unknown")
+}
+
+func TestAllowlistEmptyListAllowsMissingModel(t *testing.T) {
+	// Without an allowlist there is nothing to enforce, so a missing model is
+	// still allowed — the fail-closed rule only applies when a list is set.
+	mw := New(Config{})
+	out, err := mw.Invoke(context.Background(), newInput())
+	require.NoError(t, err)
+	assert.Equal(t, middleware.DecisionAllow, out.Decision, "no allowlist must allow even without a model")
 }
 
 func TestPromptCaptureDisabledEmitsNoPrompt(t *testing.T) {
