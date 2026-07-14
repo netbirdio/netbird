@@ -22,6 +22,7 @@ var allKeys = []string{
 	KeyDisableMetricsCollection,
 	KeyAllowServerSSH,
 	KeyDisableAutoConnect,
+	KeyDisableAutostart,
 	KeyPreSharedKey,
 	KeyRosenpassEnabled,
 	KeyRosenpassPermissive,

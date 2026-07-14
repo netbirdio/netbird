@@ -175,7 +175,9 @@ func TestFlowAggregationOfUnknownProtocols(t *testing.T) {
 }
 
 func TestResetAggregationWindow(t *testing.T) {
-	store := NewAggregatingMemoryStore()
+	now := time.Now()
+	nowFunc := func() time.Time { return now }
+	store := NewAggregatingMemoryStoreWithTimeFunc(nowFunc)
 	store.StoreEvent(&types.Event{
 		ID:        uuid.New(),
 		Timestamp: time.Now(),
@@ -198,6 +200,7 @@ func TestResetAggregationWindow(t *testing.T) {
 		},
 	})
 
+	now = now.Add(1 * time.Second)
 	reset := store.ResetAggregationWindow()
 	previousEvents, ok := reset.(*AggregatingMemory)
 	assert.True(t, ok)

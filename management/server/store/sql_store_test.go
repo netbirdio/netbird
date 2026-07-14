@@ -1246,6 +1246,61 @@ func TestSqlite_CreateAndGetObjectInTransaction(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestSqlStore_SaveAccountPersistsAgentNetworkOnly(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	account, err := store.GetAccount(context.Background(), accountID)
+	require.NoError(t, err)
+	require.False(t, account.Settings.AgentNetworkOnly, "setting should default to false")
+
+	account.Settings.AgentNetworkOnly = true
+	require.NoError(t, store.SaveAccount(context.Background(), account))
+
+	reloaded, err := store.GetAccount(context.Background(), accountID)
+	require.NoError(t, err)
+	require.True(t, reloaded.Settings.AgentNetworkOnly, "setting should survive a save/load round-trip")
+
+	reloaded.Settings.AgentNetworkOnly = false
+	require.NoError(t, store.SaveAccount(context.Background(), reloaded))
+
+	disabled, err := store.GetAccount(context.Background(), accountID)
+	require.NoError(t, err)
+	require.False(t, disabled.Settings.AgentNetworkOnly, "disabling should persist")
+}
+
+func TestSqlStore_SaveAccountPersistsDashboardFeatures(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	account, err := store.GetAccount(context.Background(), accountID)
+	require.NoError(t, err)
+	require.Nil(t, account.Settings.DashboardFeatures, "dashboard features should default to unset")
+
+	agentNetwork := true
+	account.Settings.DashboardFeatures = &types.DashboardFeatures{AgentNetwork: &agentNetwork}
+	require.NoError(t, store.SaveAccount(context.Background(), account))
+
+	reloaded, err := store.GetAccount(context.Background(), accountID)
+	require.NoError(t, err)
+	require.NotNil(t, reloaded.Settings.DashboardFeatures, "dashboard features should survive a save/load round-trip")
+	require.NotNil(t, reloaded.Settings.DashboardFeatures.AgentNetwork, "agent network flag should be set")
+	require.True(t, *reloaded.Settings.DashboardFeatures.AgentNetwork, "agent network flag should persist as true")
+
+	disabled := false
+	reloaded.Settings.DashboardFeatures = &types.DashboardFeatures{AgentNetwork: &disabled}
+	require.NoError(t, store.SaveAccount(context.Background(), reloaded))
+
+	reloadedDisabled, err := store.GetAccount(context.Background(), accountID)
+	require.NoError(t, err)
+	require.NotNil(t, reloadedDisabled.Settings.DashboardFeatures.AgentNetwork, "agent network flag should remain set")
+	require.False(t, *reloadedDisabled.Settings.DashboardFeatures.AgentNetwork, "explicit false should persist")
+}
+
 func TestSqlStore_GetAccountUsers(t *testing.T) {
 	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
