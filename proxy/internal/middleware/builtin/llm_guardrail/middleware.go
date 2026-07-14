@@ -25,6 +25,14 @@ const (
 	denyCodeModel    = "llm_policy.model_blocked"
 	denyReasonModel  = "model_blocked"
 	denyMessageModel = "model is not in the policy allowlist"
+	// Deny reason used when an allowlist is configured but the request model
+	// could not be determined. URL/path-routed providers (AWS Bedrock, Google
+	// Vertex, ...) carry the model outside the JSON body, so a request shape the
+	// parser does not recognise reaches the guardrail with no model. Such a
+	// request must be denied (fail closed), never waved through.
+	denyCodeModelUnknown    = "llm_policy.model_unknown"
+	denyReasonModelUnknown  = "model_unknown"
+	denyMessageModelUnknown = "request model could not be determined for the policy allowlist"
 )
 
 // Middleware enforces the model allowlist and optionally captures the
@@ -108,23 +116,37 @@ func (m *Middleware) evaluateAllowlist(model string, modelPresent bool) *middlew
 	if len(m.cfg.ModelAllowlist) == 0 {
 		return nil
 	}
-	if !modelPresent {
-		return nil
+	// Fail closed: with an allowlist configured, a request whose model the
+	// upstream parser could not extract (absent or empty) must be denied rather
+	// than allowed. This is what enforces the allowlist for URL/path-routed
+	// providers (Bedrock, Vertex, ...) whose model lives outside the JSON body.
+	if !modelPresent || normaliseModel(model) == "" {
+		return denyModel("", denyCodeModelUnknown, denyMessageModelUnknown, denyReasonModelUnknown)
 	}
 	if m.modelInAllowlist(model) {
 		return nil
+	}
+	return denyModel(model, denyCodeModel, denyMessageModel, denyReasonModel)
+}
+
+// denyModel builds a 403 deny Output for a model-allowlist rejection. model is
+// included in the details only when non-empty.
+func denyModel(model, code, message, reason string) *middleware.Output {
+	details := map[string]string{}
+	if model != "" {
+		details["model"] = model
 	}
 	return &middleware.Output{
 		Decision:   middleware.DecisionDeny,
 		DenyStatus: 403,
 		DenyReason: &middleware.DenyReason{
-			Code:    denyCodeModel,
-			Message: denyMessageModel,
-			Details: map[string]string{"model": model},
+			Code:    code,
+			Message: message,
+			Details: details,
 		},
 		Metadata: []middleware.KV{
 			{Key: middleware.KeyLLMPolicyDecision, Value: "deny"},
-			{Key: middleware.KeyLLMPolicyReason, Value: denyReasonModel},
+			{Key: middleware.KeyLLMPolicyReason, Value: reason},
 		},
 	}
 }
