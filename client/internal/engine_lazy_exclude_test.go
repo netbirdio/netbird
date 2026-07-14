@@ -49,7 +49,8 @@ func TestToExcludedLazyPeers_ForwardTarget(t *testing.T) {
 	store.AddPeerConn(targetPeerKey, newTestConn(t, targetPeerKey, "100.110.8.145/32"))
 	store.AddPeerConn(otherPeerKey, newTestConn(t, otherPeerKey, "100.110.9.10/32"))
 
-	e := &Engine{peerStore: store}
+	// Lazy on for normal peers, so the only exclusion under test is the forward target.
+	e := &Engine{peerStore: store, connMgr: &ConnMgr{force: lazyForceOn}}
 
 	peers := []*mgmProto.RemotePeerConfig{
 		{WgPubKey: targetPeerKey, AllowedIps: []string{"100.110.8.145/32"}},
@@ -67,7 +68,8 @@ func TestToExcludedLazyPeers_ForwardTarget(t *testing.T) {
 }
 
 func TestToExcludedLazyPeers_NoRules(t *testing.T) {
-	e := &Engine{peerStore: peerstore.NewConnStore()}
+	// Lazy on for normal peers and no forward rules, so nothing is excluded.
+	e := &Engine{peerStore: peerstore.NewConnStore(), connMgr: &ConnMgr{force: lazyForceOn}}
 
 	peers := []*mgmProto.RemotePeerConfig{
 		{WgPubKey: "peer-a", AllowedIps: []string{"100.110.8.145/32"}},
