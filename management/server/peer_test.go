@@ -501,10 +501,16 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 	accountID := "test_account"
 	adminUser := "account_creator"
 	someUser := "some_user"
+	const sharedGroupID = "shared-group"
 	account := newAccountWithId(context.Background(), accountID, adminUser, "", "", "", false)
 	account.Users[someUser] = &types.User{
-		Id:   someUser,
-		Role: types.UserRoleUser,
+		Id:         someUser,
+		Role:       types.UserRoleUser,
+		AutoGroups: []string{sharedGroupID},
+	}
+	account.Groups[sharedGroupID] = &types.Group{
+		ID:   sharedGroupID,
+		Name: "shared-group",
 	}
 	account.Settings.RegularUsersViewBlocked = false
 
@@ -561,7 +567,74 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 	assert.NotNil(t, peer)
 
 	// the user can NOT see peer2 because it is not owned by them.
-	// Regular users only see peers they directly own.
+	// Regular users only see peers they directly own (RegularUsersGroupPeersViewEnabled is off by default).
+	_, err = manager.GetPeer(context.Background(), accountID, peer2.ID, someUser)
+	assert.Error(t, err)
+
+	// put peer2 in a group the regular user is also a member of (via AutoGroups)
+	err = manager.Store.AddPeerToGroup(context.Background(), accountID, peer2.ID, sharedGroupID)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	// still no access: RegularUsersGroupPeersViewEnabled is off
+	_, err = manager.GetPeer(context.Background(), accountID, peer2.ID, someUser)
+	assert.Error(t, err)
+
+	// enable RegularUsersGroupPeersViewEnabled: now the user can see peer2 because they share a group with it
+	settingsWithGroupView := account.Settings.Copy()
+	settingsWithGroupView.RegularUsersGroupPeersViewEnabled = true
+	err = manager.Store.SaveAccountSettings(context.Background(), accountID, settingsWithGroupView)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	peer, err = manager.GetPeer(context.Background(), accountID, peer2.ID, someUser)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+	assert.NotNil(t, peer)
+
+	// a third peer belongs to a different, disjoint group than the one the regular user is a member of.
+	// With RegularUsersGroupPeersViewEnabled still on, access must be denied: the intersection between
+	// the peer's groups and the user's AutoGroups must actually be checked, not just "peer is in some group".
+	peerKey3, err := wgtypes.GeneratePrivateKey()
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	peer3, _, _, _, err := manager.AddPeer(context.Background(), "", setupKey.Key, "", &nbpeer.Peer{
+		Key:  peerKey3.PublicKey().String(),
+		Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-3"},
+	}, false)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	const disjointGroupID = "disjoint-group"
+	err = manager.Store.AddPeerToGroup(context.Background(), accountID, peer3.ID, disjointGroupID)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	_, err = manager.GetPeer(context.Background(), accountID, peer3.ID, someUser)
+	assert.Error(t, err)
+
+	// RegularUsersViewBlocked takes precedence over RegularUsersGroupPeersViewEnabled
+	settingsBlocked := settingsWithGroupView.Copy()
+	settingsBlocked.RegularUsersViewBlocked = true
+	err = manager.Store.SaveAccountSettings(context.Background(), accountID, settingsBlocked)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
 	_, err = manager.GetPeer(context.Background(), accountID, peer2.ID, someUser)
 	assert.Error(t, err)
 
@@ -579,15 +652,45 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 		return
 	}
 	assert.NotNil(t, peer)
+
+	// a user with the Admin role (as opposed to the account-creator Owner role exercised above) also
+	// has unrestricted, peers:read-equivalent access -- unchanged by this feature, and independent of
+	// group membership or the (currently blocked+group-enabled) settings saved above.
+	explicitAdminUser := "explicit_admin_user"
+	acc, err := manager.Store.GetAccount(context.Background(), accountID)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+	acc.Users[explicitAdminUser] = &types.User{
+		Id:   explicitAdminUser,
+		Role: types.UserRoleAdmin,
+	}
+	err = manager.Store.SaveAccount(context.Background(), acc)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	peer, err = manager.GetPeer(context.Background(), accountID, peer3.ID, explicitAdminUser)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+	assert.NotNil(t, peer)
 }
 
 func TestDefaultAccountManager_GetPeers(t *testing.T) {
 	testCases := []struct {
-		name                string
-		role                types.UserRole
-		limitedViewSettings bool
-		isServiceUser       bool
-		expectedPeerCount   int
+		name                  string
+		role                  types.UserRole
+		limitedViewSettings   bool
+		isServiceUser         bool
+		groupPeersViewEnabled bool
+		userInPeer2Group      bool
+		peer2InDisjointGroup  bool
+		peer1AlsoInUserGroup  bool
+		expectedPeerCount     int
 	}{
 		{
 			name:                "Regular user, no limited view settings, not a service user",
@@ -595,6 +698,81 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 			limitedViewSettings: false,
 			isServiceUser:       false,
 			expectedPeerCount:   1,
+		},
+		{
+			name:                  "Regular user, group peers view disabled (default), member of peer2's group",
+			role:                  types.UserRoleUser,
+			limitedViewSettings:   false,
+			isServiceUser:         false,
+			groupPeersViewEnabled: false,
+			userInPeer2Group:      true,
+			expectedPeerCount:     1,
+		},
+		{
+			name:                  "Regular user, group peers view enabled, not member of peer2's group",
+			role:                  types.UserRoleUser,
+			limitedViewSettings:   false,
+			isServiceUser:         false,
+			groupPeersViewEnabled: true,
+			userInPeer2Group:      false,
+			expectedPeerCount:     1,
+		},
+		{
+			name:                  "Regular user, group peers view enabled, member of peer2's group",
+			role:                  types.UserRoleUser,
+			limitedViewSettings:   false,
+			isServiceUser:         false,
+			groupPeersViewEnabled: true,
+			userInPeer2Group:      true,
+			expectedPeerCount:     2,
+		},
+		{
+			// user.AutoGroups is left nil (not set) here since userInPeer2Group is false, so this
+			// case doubles as a nil-AutoGroups regression check: GetPeers must not panic and must
+			// fall back to returning only the user's own peer.
+			name:                  "Regular user, group peers view enabled, nil AutoGroups does not panic",
+			role:                  types.UserRoleUser,
+			limitedViewSettings:   false,
+			isServiceUser:         false,
+			groupPeersViewEnabled: true,
+			userInPeer2Group:      false,
+			expectedPeerCount:     1,
+		},
+		{
+			// The user is a member of one (non-empty) group while peer2 belongs to a completely
+			// different, disjoint group. This proves GetPeers excludes peers reachable only through
+			// groups the caller doesn't belong to, rather than "peer belongs to some group" being
+			// sufficient -- unlike the "not member of peer2's group" case above, where no group
+			// exists for peer2 at all.
+			name:                  "Regular user, group peers view enabled, peer2 in a disjoint group user is not part of",
+			role:                  types.UserRoleUser,
+			limitedViewSettings:   false,
+			isServiceUser:         false,
+			groupPeersViewEnabled: true,
+			peer2InDisjointGroup:  true,
+			expectedPeerCount:     1,
+		},
+		{
+			// peer1 is owned by the user AND placed in the same group the user is a member of, so it is
+			// returned by both GetUserPeers and GetPeersByGroupIDs. The dedup map must collapse it to a
+			// single entry: a naive concatenation would return 3 peers (peer1 twice, peer2 once) instead of 2.
+			name:                  "Regular user, group peers view enabled, owned peer also in user's group is deduped",
+			role:                  types.UserRoleUser,
+			limitedViewSettings:   false,
+			isServiceUser:         false,
+			groupPeersViewEnabled: true,
+			userInPeer2Group:      true,
+			peer1AlsoInUserGroup:  true,
+			expectedPeerCount:     2,
+		},
+		{
+			name:                  "Regular user, RegularUsersViewBlocked wins over group peers view enabled",
+			role:                  types.UserRoleUser,
+			limitedViewSettings:   true,
+			isServiceUser:         false,
+			groupPeersViewEnabled: true,
+			userInPeer2Group:      true,
+			expectedPeerCount:     0,
 		},
 		{
 			name:                "Service user, no limited view settings",
@@ -623,6 +801,16 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 			limitedViewSettings: false,
 			isServiceUser:       false,
 			expectedPeerCount:   2,
+		},
+		{
+			// admin (peers:read) bypasses the new setting entirely: it always sees all account peers,
+			// whether the setting is on and regardless of the caller's own group membership.
+			name:                  "Admin, group peers view enabled, unaffected and still sees full account peers",
+			role:                  types.UserRoleAdmin,
+			limitedViewSettings:   false,
+			isServiceUser:         false,
+			groupPeersViewEnabled: true,
+			expectedPeerCount:     2,
 		},
 		{
 			name:                "Admin service user, no limited view settings",
@@ -673,13 +861,37 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 			adminUser := "account_creator"
 			someUser := "some_user"
 			account := newAccountWithId(context.Background(), accountID, adminUser, "", "", "", false)
-			account.Users[someUser] = &types.User{
+			const peer2GroupID = "peer2-group"
+			const userOnlyGroupID = "user-only-group"
+			const peer2DisjointGroupID = "peer2-disjoint-group"
+			user := &types.User{
 				Id:            someUser,
 				Role:          testCase.role,
 				IsServiceUser: testCase.isServiceUser,
 			}
+			if testCase.userInPeer2Group {
+				user.AutoGroups = []string{peer2GroupID}
+				account.Groups[peer2GroupID] = &types.Group{
+					ID:   peer2GroupID,
+					Name: "peer2-group",
+				}
+			}
+			if testCase.peer2InDisjointGroup {
+				// user belongs to a non-empty group of their own, disjoint from the group peer2 lives in.
+				user.AutoGroups = []string{userOnlyGroupID}
+				account.Groups[userOnlyGroupID] = &types.Group{
+					ID:   userOnlyGroupID,
+					Name: "user-only-group",
+				}
+				account.Groups[peer2DisjointGroupID] = &types.Group{
+					ID:   peer2DisjointGroupID,
+					Name: "peer2-disjoint-group",
+				}
+			}
+			account.Users[someUser] = user
 			account.Policies = []*types.Policy{}
 			account.Settings.RegularUsersViewBlocked = testCase.limitedViewSettings
+			account.Settings.RegularUsersGroupPeersViewEnabled = testCase.groupPeersViewEnabled
 
 			err = manager.Store.SaveAccount(context.Background(), account)
 			if err != nil {
@@ -699,7 +911,7 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 				return
 			}
 
-			_, _, _, _, err = manager.AddPeer(context.Background(), "", "", someUser, &nbpeer.Peer{
+			peer1, _, _, _, err := manager.AddPeer(context.Background(), "", "", someUser, &nbpeer.Peer{
 				Key:  peerKey1.PublicKey().String(),
 				Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-1"},
 			}, false)
@@ -708,13 +920,40 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 				return
 			}
 
-			_, _, _, _, err = manager.AddPeer(context.Background(), "", "", adminUser, &nbpeer.Peer{
+			peer2, _, _, _, err := manager.AddPeer(context.Background(), "", "", adminUser, &nbpeer.Peer{
 				Key:  peerKey2.PublicKey().String(),
 				Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-2"},
 			}, false)
 			if err != nil {
 				t.Errorf("expecting peer to be added, got failure %v", err)
 				return
+			}
+
+			if testCase.userInPeer2Group {
+				err = manager.Store.AddPeerToGroup(context.Background(), accountID, peer2.ID, peer2GroupID)
+				if err != nil {
+					t.Fatal(err)
+					return
+				}
+			}
+
+			if testCase.peer2InDisjointGroup {
+				err = manager.Store.AddPeerToGroup(context.Background(), accountID, peer2.ID, peer2DisjointGroupID)
+				if err != nil {
+					t.Fatal(err)
+					return
+				}
+			}
+
+			if testCase.peer1AlsoInUserGroup {
+				// peer1 is owned by the user AND placed in the same group the user belongs to, so it
+				// will be returned by both the owned-peers lookup and the group-peers lookup.
+				require.True(t, testCase.userInPeer2Group, "peer1AlsoInUserGroup requires userInPeer2Group to define the group")
+				err = manager.Store.AddPeerToGroup(context.Background(), accountID, peer1.ID, peer2GroupID)
+				if err != nil {
+					t.Fatal(err)
+					return
+				}
 			}
 
 			peers, err := manager.GetPeers(context.Background(), accountID, someUser, "", "")
@@ -725,6 +964,23 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 			assert.NotNil(t, peers)
 
 			assert.Len(t, peers, testCase.expectedPeerCount)
+
+			// no peer ID should ever appear twice, regardless of how many sources (ownership, one or
+			// more shared groups) contributed it -- this is the general dedup invariant.
+			seen := make(map[string]struct{}, len(peers))
+			for _, p := range peers {
+				_, dup := seen[p.ID]
+				assert.False(t, dup, "peer %s returned more than once", p.ID)
+				seen[p.ID] = struct{}{}
+			}
+
+			if testCase.peer1AlsoInUserGroup {
+				gotIDs := make([]string, 0, len(peers))
+				for _, p := range peers {
+					gotIDs = append(gotIDs, p.ID)
+				}
+				assert.ElementsMatch(t, []string{peer1.ID, peer2.ID}, gotIDs)
+			}
 
 		})
 	}

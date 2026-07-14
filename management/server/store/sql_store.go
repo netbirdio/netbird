@@ -1601,7 +1601,7 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 			-- Embedded Settings
 			settings_peer_login_expiration_enabled, settings_peer_login_expiration,
 			settings_peer_inactivity_expiration_enabled, settings_peer_inactivity_expiration,
-			settings_regular_users_view_blocked, settings_groups_propagation_enabled,
+			settings_regular_users_view_blocked, settings_regular_users_group_peers_view_enabled, settings_groups_propagation_enabled,
 			settings_jwt_groups_enabled, settings_jwt_groups_claim_name, settings_jwt_allow_groups,
 			settings_routing_peer_dns_resolution_enabled, settings_dns_domain, settings_network_range,
 			settings_network_range_v6, settings_ipv6_enabled_groups, settings_lazy_connection_enabled,
@@ -1613,36 +1613,37 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		FROM accounts WHERE id = $1`
 
 	var (
-		sPeerLoginExpirationEnabled      sql.NullBool
-		sPeerLoginExpiration             sql.NullInt64
-		sPeerInactivityExpirationEnabled sql.NullBool
-		sPeerInactivityExpiration        sql.NullInt64
-		sRegularUsersViewBlocked         sql.NullBool
-		sGroupsPropagationEnabled        sql.NullBool
-		sJWTGroupsEnabled                sql.NullBool
-		sJWTGroupsClaimName              sql.NullString
-		sJWTAllowGroups                  sql.NullString
-		sRoutingPeerDNSResolutionEnabled sql.NullBool
-		sDNSDomain                       sql.NullString
-		sNetworkRange                    sql.NullString
-		sNetworkRangeV6                  sql.NullString
-		sIPv6EnabledGroups               sql.NullString
-		sLazyConnectionEnabled           sql.NullBool
-		sLocalMFAEnabled                 sql.NullBool
-		sMetricsPushEnabled              sql.NullBool
-		sAgentNetworkOnly                sql.NullBool
-		sDashboardFeatures               sql.NullString
-		sExtraPeerApprovalEnabled        sql.NullBool
-		sExtraUserApprovalRequired       sql.NullBool
-		sExtraIntegratedValidator        sql.NullString
-		sExtraIntegratedValidatorGroups  sql.NullString
-		networkNet                       sql.NullString
-		networkNetV6                     sql.NullString
-		dnsSettingsDisabledGroups        sql.NullString
-		networkIdentifier                sql.NullString
-		networkDns                       sql.NullString
-		networkSerial                    sql.NullInt64
-		createdAt                        sql.NullTime
+		sPeerLoginExpirationEnabled        sql.NullBool
+		sPeerLoginExpiration               sql.NullInt64
+		sPeerInactivityExpirationEnabled   sql.NullBool
+		sPeerInactivityExpiration          sql.NullInt64
+		sRegularUsersViewBlocked           sql.NullBool
+		sRegularUsersGroupPeersViewEnabled sql.NullBool
+		sGroupsPropagationEnabled          sql.NullBool
+		sJWTGroupsEnabled                  sql.NullBool
+		sJWTGroupsClaimName                sql.NullString
+		sJWTAllowGroups                    sql.NullString
+		sRoutingPeerDNSResolutionEnabled   sql.NullBool
+		sDNSDomain                         sql.NullString
+		sNetworkRange                      sql.NullString
+		sNetworkRangeV6                    sql.NullString
+		sIPv6EnabledGroups                 sql.NullString
+		sLazyConnectionEnabled             sql.NullBool
+		sLocalMFAEnabled                   sql.NullBool
+		sMetricsPushEnabled                sql.NullBool
+		sAgentNetworkOnly                  sql.NullBool
+		sDashboardFeatures                 sql.NullString
+		sExtraPeerApprovalEnabled          sql.NullBool
+		sExtraUserApprovalRequired         sql.NullBool
+		sExtraIntegratedValidator          sql.NullString
+		sExtraIntegratedValidatorGroups    sql.NullString
+		networkNet                         sql.NullString
+		networkNetV6                       sql.NullString
+		dnsSettingsDisabledGroups          sql.NullString
+		networkIdentifier                  sql.NullString
+		networkDns                         sql.NullString
+		networkSerial                      sql.NullInt64
+		createdAt                          sql.NullTime
 	)
 	err := s.pool.QueryRow(ctx, accountQuery, accountID).Scan(
 		&account.Id, &account.CreatedBy, &createdAt, &account.Domain, &account.DomainCategory, &account.IsDomainPrimaryAccount,
@@ -1650,7 +1651,7 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		&dnsSettingsDisabledGroups,
 		&sPeerLoginExpirationEnabled, &sPeerLoginExpiration,
 		&sPeerInactivityExpirationEnabled, &sPeerInactivityExpiration,
-		&sRegularUsersViewBlocked, &sGroupsPropagationEnabled,
+		&sRegularUsersViewBlocked, &sRegularUsersGroupPeersViewEnabled, &sGroupsPropagationEnabled,
 		&sJWTGroupsEnabled, &sJWTGroupsClaimName, &sJWTAllowGroups,
 		&sRoutingPeerDNSResolutionEnabled, &sDNSDomain, &sNetworkRange,
 		&sNetworkRangeV6, &sIPv6EnabledGroups, &sLazyConnectionEnabled,
@@ -1699,6 +1700,9 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 	}
 	if sRegularUsersViewBlocked.Valid {
 		account.Settings.RegularUsersViewBlocked = sRegularUsersViewBlocked.Bool
+	}
+	if sRegularUsersGroupPeersViewEnabled.Valid {
+		account.Settings.RegularUsersGroupPeersViewEnabled = sRegularUsersGroupPeersViewEnabled.Bool
 	}
 	if sGroupsPropagationEnabled.Valid {
 		account.Settings.GroupsPropagationEnabled = sGroupsPropagationEnabled.Bool

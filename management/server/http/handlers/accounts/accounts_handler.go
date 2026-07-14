@@ -249,6 +249,9 @@ func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJS
 	if req.Settings.GroupsPropagationEnabled != nil {
 		returnSettings.GroupsPropagationEnabled = *req.Settings.GroupsPropagationEnabled
 	}
+	if req.Settings.RegularUsersGroupPeersViewEnabled != nil {
+		returnSettings.RegularUsersGroupPeersViewEnabled = *req.Settings.RegularUsersGroupPeersViewEnabled
+	}
 	if req.Settings.JwtGroupsClaimName != nil {
 		returnSettings.JWTGroupsClaimName = *req.Settings.JwtGroupsClaimName
 	}
@@ -414,28 +417,29 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 	}
 
 	apiSettings := api.AccountSettings{
-		PeerLoginExpiration:             int(settings.PeerLoginExpiration.Seconds()),
-		PeerLoginExpirationEnabled:      settings.PeerLoginExpirationEnabled,
-		PeerInactivityExpiration:        int(settings.PeerInactivityExpiration.Seconds()),
-		PeerInactivityExpirationEnabled: settings.PeerInactivityExpirationEnabled,
-		GroupsPropagationEnabled:        &settings.GroupsPropagationEnabled,
-		JwtGroupsEnabled:                &settings.JWTGroupsEnabled,
-		JwtGroupsClaimName:              &settings.JWTGroupsClaimName,
-		JwtAllowGroups:                  &jwtAllowGroups,
-		RegularUsersViewBlocked:         settings.RegularUsersViewBlocked,
-		RoutingPeerDnsResolutionEnabled: &settings.RoutingPeerDNSResolutionEnabled,
-		PeerExposeEnabled:               settings.PeerExposeEnabled,
-		PeerExposeGroups:                settings.PeerExposeGroups,
-		LazyConnectionEnabled:           &settings.LazyConnectionEnabled,
-		DnsDomain:                       &settings.DNSDomain,
-		AutoUpdateVersion:               &settings.AutoUpdateVersion,
-		AutoUpdateAlways:                &settings.AutoUpdateAlways,
-		Ipv6EnabledGroups:               &settings.IPv6EnabledGroups,
-		MetricsPushEnabled:              &settings.MetricsPushEnabled,
-		AgentNetworkOnly:                &settings.AgentNetworkOnly,
-		EmbeddedIdpEnabled:              &settings.EmbeddedIdpEnabled,
-		LocalAuthDisabled:               &settings.LocalAuthDisabled,
-		LocalMfaEnabled:                 &settings.LocalMfaEnabled,
+		PeerLoginExpiration:               int(settings.PeerLoginExpiration.Seconds()),
+		PeerLoginExpirationEnabled:        settings.PeerLoginExpirationEnabled,
+		PeerInactivityExpiration:          int(settings.PeerInactivityExpiration.Seconds()),
+		PeerInactivityExpirationEnabled:   settings.PeerInactivityExpirationEnabled,
+		GroupsPropagationEnabled:          &settings.GroupsPropagationEnabled,
+		JwtGroupsEnabled:                  &settings.JWTGroupsEnabled,
+		JwtGroupsClaimName:                &settings.JWTGroupsClaimName,
+		JwtAllowGroups:                    &jwtAllowGroups,
+		RegularUsersViewBlocked:           settings.RegularUsersViewBlocked,
+		RegularUsersGroupPeersViewEnabled: &settings.RegularUsersGroupPeersViewEnabled,
+		RoutingPeerDnsResolutionEnabled:   &settings.RoutingPeerDNSResolutionEnabled,
+		PeerExposeEnabled:                 settings.PeerExposeEnabled,
+		PeerExposeGroups:                  settings.PeerExposeGroups,
+		LazyConnectionEnabled:             &settings.LazyConnectionEnabled,
+		DnsDomain:                         &settings.DNSDomain,
+		AutoUpdateVersion:                 &settings.AutoUpdateVersion,
+		AutoUpdateAlways:                  &settings.AutoUpdateAlways,
+		Ipv6EnabledGroups:                 &settings.IPv6EnabledGroups,
+		MetricsPushEnabled:                &settings.MetricsPushEnabled,
+		AgentNetworkOnly:                  &settings.AgentNetworkOnly,
+		EmbeddedIdpEnabled:                &settings.EmbeddedIdpEnabled,
+		LocalAuthDisabled:                 &settings.LocalAuthDisabled,
+		LocalMfaEnabled:                   &settings.LocalMfaEnabled,
 	}
 
 	if settings.NetworkRange.IsValid() {

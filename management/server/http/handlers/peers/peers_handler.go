@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/netip"
+	"slices"
 
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
@@ -429,7 +430,7 @@ func (h *Handler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if peer.UserID != user.Id {
+		if peer.UserID != user.Id && !userSharesGroupWithPeer(account, user, peerID) {
 			util.WriteJSONObject(ctx, w, []api.AccessiblePeer{})
 			return
 		}
@@ -532,6 +533,28 @@ func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request) 
 	}
 
 	util.WriteJSONObject(r.Context(), w, resp)
+}
+
+// userSharesGroupWithPeer reports whether the given peer belongs to at least one group the user
+// is a member of (user.AutoGroups), but only when RegularUsersGroupPeersViewEnabled is on. It relies
+// on the account's already-loaded Groups map (account.Groups), so it does not perform any extra lookups.
+func userSharesGroupWithPeer(account *types.Account, user *types.User, peerID string) bool {
+	if !account.Settings.RegularUsersGroupPeersViewEnabled {
+		return false
+	}
+
+	for _, groupID := range user.AutoGroups {
+		group, ok := account.Groups[groupID]
+		if !ok {
+			continue
+		}
+
+		if slices.Contains(group.Peers, peerID) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func toAccessiblePeers(netMap *types.NetworkMap, dnsDomain string) []api.AccessiblePeer {

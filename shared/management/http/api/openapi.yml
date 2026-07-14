@@ -311,6 +311,10 @@ components:
           description: Allows blocking regular users from viewing parts of the system.
           type: boolean
           example: true
+        regular_users_group_peers_view_enabled:
+          description: Allows regular users to view peers belonging to groups they are a member of, in addition to peers they personally registered. Has no effect when regular_users_view_blocked is enabled.
+          type: boolean
+          example: false
         groups_propagation_enabled:
           description: Allows propagate the new user auto groups to peers that belongs to the user
           type: boolean
