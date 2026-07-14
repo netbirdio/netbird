@@ -223,6 +223,7 @@ func (m *managerImpl) CreateProxyPeer(ctx context.Context, accountID string, pee
 		// Same pubkey already registered — idempotent.
 		return nil
 	}
+
 	name := fmt.Sprintf("proxy-%s", xid.New().String())
 	newPeer := &peer.Peer{
 		Ephemeral: true,
