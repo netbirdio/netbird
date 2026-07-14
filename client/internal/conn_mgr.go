@@ -14,6 +14,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
 	"github.com/netbirdio/netbird/route"
+	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 )
 
 // lazyForce is the resolved local decision for lazy connections, layered above the
@@ -40,6 +41,9 @@ type ConnMgr struct {
 	iface            lazyconn.WGIface
 	force            lazyForce
 	rosenpassEnabled bool
+	// remoteLazyEnabled caches the account-wide lazy feature flag from management.
+	// It is the default for peers that do not carry a per-peer lazy hint.
+	remoteLazyEnabled bool
 
 	lazyConnMgr *manager.Manager
 
@@ -59,69 +63,56 @@ func NewConnMgr(engineConfig *EngineConfig, statusRecorder *peer.Status, peerSto
 	return e
 }
 
-// Start initializes the connection manager. It starts the lazy connection manager when a
-// local override forces it on; with no local override it waits for the management feature flag.
+// Start initializes the connection manager. The lazy connection manager always runs so that
+// per-peer lazy defaults (e.g. proxy peers) work even when the account flag is off; the
+// account flag and the local override decide the default lazy state per peer (see
+// PeerLazyDefault). Rosenpass is the only condition that disables it.
 func (e *ConnMgr) Start(ctx context.Context) {
 	if e.lazyConnMgr != nil {
 		log.Errorf("lazy connection manager is already started")
 		return
 	}
 
-	switch e.force {
-	case lazyForceOff:
-		log.Infof("lazy connection manager is disabled by local override (%s or MDM policy)", lazyconn.EnvLazyConn)
-		e.statusRecorder.UpdateLazyConnection(false)
-		return
-	case lazyForceNone:
-		log.Infof("lazy connection manager is managed by the management feature flag")
-		e.statusRecorder.UpdateLazyConnection(false)
-		return
-	}
-
 	if e.rosenpassEnabled {
-		log.Warnf("rosenpass connection manager is enabled, lazy connection manager will not be started")
+		log.Warnf("rosenpass is enabled, lazy connection manager will not be started")
 		e.statusRecorder.UpdateLazyConnection(false)
 		return
 	}
 
 	e.initLazyManager(ctx)
-	e.statusRecorder.UpdateLazyConnection(true)
+	e.statusRecorder.UpdateLazyConnection(e.PeerLazyDefault(mgmProto.LazyState_LazyStateDefault))
 }
 
-// UpdatedRemoteFeatureFlag is called when the remote feature flag is updated.
-// If enabled, it initializes the lazy connection manager and start it. Do not need to call Start() again.
-// If disabled, then it closes the lazy connection manager and open the connections to all peers.
-func (e *ConnMgr) UpdatedRemoteFeatureFlag(ctx context.Context, enabled bool) error {
-	// a local override (NB_LAZY_CONN or local config) takes precedence over management
-	if e.force != lazyForceNone {
-		return nil
+// UpdatedRemoteFeatureFlag caches the account-wide lazy feature flag. The manager itself is
+// not started or stopped here; the per-sync exclude-list reconciliation moves normal peers
+// between the lazy and always-active sets when the flag flips.
+func (e *ConnMgr) UpdatedRemoteFeatureFlag(_ context.Context, enabled bool) error {
+	e.remoteLazyEnabled = enabled
+	if e.isStartedWithLazyMgr() {
+		e.statusRecorder.UpdateLazyConnection(e.PeerLazyDefault(mgmProto.LazyState_LazyStateDefault))
+	}
+	return nil
+}
+
+// PeerLazyDefault reports whether a peer should be lazy. The local override
+// (NB_LAZY_CONN/MDM) wins over everything; without a local override the
+// management per-peer state applies (LazyStateLazy/Eager force the decision),
+// and LazyStateDefault follows the account-wide flag.
+func (e *ConnMgr) PeerLazyDefault(state mgmProto.LazyState) bool {
+	switch e.force {
+	case lazyForceOn:
+		return true
+	case lazyForceOff:
+		return false
 	}
 
-	if enabled {
-		// if the lazy connection manager is already started, do not start it again
-		if e.lazyConnMgr != nil {
-			return nil
-		}
-
-		if e.rosenpassEnabled {
-			log.Infof("rosenpass connection manager is enabled, lazy connection manager will not be started")
-			e.statusRecorder.UpdateLazyConnection(false)
-			return nil
-		}
-
-		log.Infof("lazy connection manager is enabled by the management feature flag")
-		e.initLazyManager(ctx)
-		e.statusRecorder.UpdateLazyConnection(true)
-		return e.addPeersToLazyConnManager()
-	} else {
-		if e.lazyConnMgr == nil {
-			e.statusRecorder.UpdateLazyConnection(false)
-			return nil
-		}
-		log.Infof("lazy connection manager is disabled by management feature flag")
-		e.closeManager(ctx)
-		e.statusRecorder.UpdateLazyConnection(false)
-		return nil
+	switch state {
+	case mgmProto.LazyState_LazyStateLazy:
+		return true
+	case mgmProto.LazyState_LazyStateEager:
+		return false
+	default:
+		return e.remoteLazyEnabled
 	}
 }
 
@@ -176,12 +167,16 @@ func (e *ConnMgr) SetExcludeList(ctx context.Context, peerIDs map[string]bool) {
 	}
 }
 
-func (e *ConnMgr) AddPeerConn(ctx context.Context, peerKey string, conn *peer.Conn) (exists bool) {
+// AddPeerConn registers a peer connection. permanent requests an always-active connection
+// (the peer belongs to the exclude set: a forwarder, or a peer that is not lazy by policy).
+// Non-permanent peers are handed to the lazy manager. The subsequent SetExcludeList call
+// reconciles membership for existing peers across flag flips.
+func (e *ConnMgr) AddPeerConn(ctx context.Context, peerKey string, conn *peer.Conn, permanent bool) (exists bool) {
 	if success := e.peerStore.AddPeerConn(peerKey, conn); !success {
 		return true
 	}
 
-	if !e.isStartedWithLazyMgr() {
+	if !e.isStartedWithLazyMgr() || permanent {
 		if err := conn.Open(ctx); err != nil {
 			conn.Log.Errorf("failed to open connection: %v", err)
 		}
@@ -284,43 +279,6 @@ func (e *ConnMgr) initLazyManager(engineCtx context.Context) {
 		defer e.wg.Done()
 		e.lazyConnMgr.Start(e.lazyCtx)
 	}()
-}
-
-func (e *ConnMgr) addPeersToLazyConnManager() error {
-	peers := e.peerStore.PeersPubKey()
-	lazyPeerCfgs := make([]lazyconn.PeerConfig, 0, len(peers))
-	for _, peerID := range peers {
-		var peerConn *peer.Conn
-		var exists bool
-		if peerConn, exists = e.peerStore.PeerConn(peerID); !exists {
-			log.Warnf("failed to find peer conn for peerID: %s", peerID)
-			continue
-		}
-
-		lazyPeerCfg := lazyconn.PeerConfig{
-			PublicKey:  peerID,
-			AllowedIPs: peerConn.WgConfig().AllowedIps,
-			PeerConnID: peerConn.ConnID(),
-			Log:        peerConn.Log,
-		}
-		lazyPeerCfgs = append(lazyPeerCfgs, lazyPeerCfg)
-	}
-
-	return e.lazyConnMgr.AddActivePeers(lazyPeerCfgs)
-}
-
-func (e *ConnMgr) closeManager(ctx context.Context) {
-	if e.lazyConnMgr == nil {
-		return
-	}
-
-	e.lazyCtxCancel()
-	e.wg.Wait()
-	e.lazyConnMgr = nil
-
-	for _, peerID := range e.peerStore.PeersPubKey() {
-		e.peerStore.PeerConnOpen(ctx, peerID)
-	}
 }
 
 func (e *ConnMgr) isStartedWithLazyMgr() bool {
