@@ -28,9 +28,6 @@ import (
 //
 //	Peers              base64(wg_pub_key)          // stable across snapshots
 func DecodeEnvelope(env *proto.NetworkMapEnvelope) (*types.NetworkMapComponents, error) {
-	if env == nil {
-		return nil, fmt.Errorf("nil envelope")
-	}
 	full := env.GetFull()
 	if full == nil {
 		return nil, fmt.Errorf("envelope has no Full payload")

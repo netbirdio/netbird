@@ -995,12 +995,17 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		nm         *mgmProto.NetworkMap
 		components *types.NetworkMapComponents
 	)
-	if envelope := update.GetNetworkMapEnvelope(); envelope != nil {
+	if version := update.GetVersion(); version == mgmProto.SyncResponseVersion_VersionComponentNetworkMap {
 		// Components-format peer: decode the envelope back to typed
 		// components, run Calculate() locally, and convert to the wire
 		// NetworkMap shape the rest of the engine consumes. Components are
 		// retained so future incremental updates can apply deltas instead
 		// of doing a full reconstruction.
+		envelope := update.GetNetworkMapEnvelope()
+		if envelope == nil {
+			return fmt.Errorf("received a SyncReponse indicating use of components network map, but components are missing")
+		}
+
 		localKey := e.config.WgPrivateKey.PublicKey().String()
 		dnsName := ""
 		if pc := update.GetPeerConfig(); pc != nil {

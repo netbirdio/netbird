@@ -121,6 +121,11 @@ message SyncRequest {
   PeerSystemMeta meta = 1;
 }
 
+enum SyncResponseVersion {
+  VersionUnknown = 0;
+  VersionComponentNetworkMap = 1;
+}
+
 // SyncResponse represents a state that should be applied to the local peer (e.g. Netbird servers config as well as local peer and remote peers configs)
 message SyncResponse {
 
@@ -156,6 +161,8 @@ message SyncResponse {
   // is left empty: management ships components and the client runs Calculate()
   // locally instead of receiving an expanded NetworkMap.
   NetworkMapEnvelope NetworkMapEnvelope = 8;
+
+  SyncResponseVersion Version = 9;
 }
 
 message  SyncMetaRequest {

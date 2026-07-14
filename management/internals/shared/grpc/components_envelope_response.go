@@ -72,6 +72,7 @@ func ToComponentSyncResponse(
 		PeerConfig:         peerConfig,
 		NetworkMapEnvelope: envelope,
 		Checks:             toProtocolChecks(ctx, checks),
+		Version:            proto.SyncResponseVersion_VersionComponentNetworkMap,
 	}
 
 	nbConfig := toNetbirdConfig(config, turnCredentials, relayCredentials, extraSettings, settings)
