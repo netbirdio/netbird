@@ -54,7 +54,9 @@ type evRelayDown struct{}
 // successfully or not, so the loop may dispatch a pending offer.
 type evRelayDialDone struct{}
 
-type evWGTimeout struct{}
+type evWGTimeout struct {
+	gen uint64
+}
 
 // evWGHandshake reports the first WireGuard handshake of the current watcher run.
 type evWGHandshake struct {
