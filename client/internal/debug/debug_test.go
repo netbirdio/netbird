@@ -887,6 +887,8 @@ func TestAddConfig_AllFieldsCovered(t *testing.T) {
 		ClientCertKeyPath:             "/tmp/key",
 		LazyConnection:                "on",
 		MTU:                           1280,
+		DisableIPv6:                   true,
+		DisableComponentNetworkMap:    true,
 	}
 
 	for _, anonymize := range []bool{false, true} {
