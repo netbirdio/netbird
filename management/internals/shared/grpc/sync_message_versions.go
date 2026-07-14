@@ -26,7 +26,7 @@ var (
 	}
 )
 
-var UnrecognizedSyncMessageVersionError = errors.New("unrecognized SyncMessageVersion")
+var ErrorUnrecognizedSyncMessageVersion = errors.New("unrecognized SyncMessageVersion")
 
 func (sm SyncMessageVersion) String() string {
 	return [...]string{"Base", "ComponentNetworkMap"}[sm]
@@ -48,7 +48,7 @@ func ValidateSyncMessageVersions(tovalidate []string) error {
 	}
 	for _, s := range tovalidate {
 		if _, ok := allversions[s]; !ok {
-			return fmt.Errorf("%s: %w", s, UnrecognizedSyncMessageVersionError)
+			return fmt.Errorf("%s: %w", s, ErrorUnrecognizedSyncMessageVersion)
 		}
 	}
 	return nil
