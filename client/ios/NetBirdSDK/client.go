@@ -88,6 +88,31 @@ type Client struct {
 	// config holds the active configuration once Run has loaded it. Consumed by
 	// the in-app SSH client for the NetBird SSH key and the OAuth flow.
 	config *profilemanager.Config
+
+	// SSH JWT token cache — avoids re-authenticating on every reconnect.
+	// SSH servers reject tokens older than 10 min (DefaultJWTMaxTokenAge), so
+	// we keep the cache for 8 minutes.
+	sshJWTMu       sync.Mutex
+	sshJWTToken    string
+	sshJWTIssuedAt time.Time
+}
+
+const sshJWTCacheDuration = 8 * time.Minute
+
+func (c *Client) getCachedSSHJWT() (string, bool) {
+	c.sshJWTMu.Lock()
+	defer c.sshJWTMu.Unlock()
+	if c.sshJWTToken != "" && time.Since(c.sshJWTIssuedAt) < sshJWTCacheDuration {
+		return c.sshJWTToken, true
+	}
+	return "", false
+}
+
+func (c *Client) setCachedSSHJWT(token string) {
+	c.sshJWTMu.Lock()
+	defer c.sshJWTMu.Unlock()
+	c.sshJWTToken = token
+	c.sshJWTIssuedAt = time.Now()
 }
 
 // NewClient instantiate a new Client
