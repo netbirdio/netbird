@@ -2627,24 +2627,22 @@ func (e *Engine) isPermanentPeer(p *mgmProto.RemotePeerConfig, rules []firewallM
 		return true
 	}
 
+	// Match against the incoming config's AllowedIPs rather than the peer store:
+	// isPermanentPeer runs in addNewPeer before the peer is in the store, so a
+	// store lookup would miss a forward target and register it as lazy.
+	prefixes := make([]netip.Prefix, 0, len(p.GetAllowedIps()))
+	for _, ipStr := range p.GetAllowedIps() {
+		if prefix, err := netip.ParsePrefix(ipStr); err == nil {
+			prefixes = append(prefixes, prefix)
+		}
+	}
 	for _, r := range rules {
-		if e.peerRoutesAddr(p, r.TranslatedAddress) {
+		if prefixesContain(prefixes, r.TranslatedAddress) {
 			log.Infof("exclude forwarder peer from lazy connection: %s", p.GetWgPubKey())
 			return true
 		}
 	}
 	return false
-}
-
-// peerRoutesAddr reports whether the peer is a router for addr, matched against
-// the peer's already-parsed AllowedIPs from the store (the same typed value the
-// lazy manager consumes) rather than re-parsing the network map strings.
-func (e *Engine) peerRoutesAddr(p *mgmProto.RemotePeerConfig, addr netip.Addr) bool {
-	prefixes, ok := e.peerStore.AllowedIPs(p.GetWgPubKey())
-	if !ok {
-		return false
-	}
-	return prefixesContain(prefixes, addr)
 }
 
 // prefixesContain reports whether addr falls within any of the prefixes.
