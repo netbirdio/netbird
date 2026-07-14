@@ -45,8 +45,9 @@ type WGUDPProxy struct {
 
 	// batchRead drains several packets from the local WireGuard socket with one
 	// recvmmsg and forwards them back-to-back, cutting the per-packet syscall
-	// and wakeup overhead on the hot send path. Gated by NB_RELAY_BATCH_READ;
-	// the per-packet path stays the default.
+	// and wakeup overhead on the hot send path and letting the relay client's
+	// frame coalescer (NB_RELAY_COALESCE) pack full frames. Gated by
+	// NB_RELAY_BATCH_READ; the per-packet path stays the default.
 	batchRead bool
 
 	closeListener *listener.CloseListener
@@ -265,8 +266,9 @@ func (p *WGUDPProxy) proxyToRemote(ctx context.Context) {
 // WireGuard socket with one recvmmsg and forwards each with the same per-packet
 // write toward the relay conn. It blocks for the first packet, then takes
 // whatever is already queued, so a busy flow amortizes the read syscall and
-// wakeup across several packets while a sparse flow still forwards each packet
-// immediately.
+// wakeup across several packets and reaches the relay client's coalescer
+// back-to-back to pack full frames, while a sparse flow still forwards each
+// packet immediately.
 func (p *WGUDPProxy) proxyToRemoteBatch(ctx context.Context, pc net.PacketConn) {
 	batchConn := ipv4.NewPacketConn(pc)
 	bufSize := int(p.mtu) + bufsize.WGBufferOverhead

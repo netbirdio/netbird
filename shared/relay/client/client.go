@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/netip"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -43,6 +44,16 @@ const (
 	msgChanDropCooldown = time.Second
 	// dropLogInterval rate-limits the dropped-message warning.
 	dropLogInterval = 5 * time.Second
+
+	// coalesceMaxCount and coalesceMaxBytes bound one outbound batch frame; it is
+	// flushed when either is reached. coalesceFlushDelay bounds how long the first
+	// buffered packet of a frame waits for company, so sparse/control traffic is
+	// not delayed noticeably while a bulk flow fills frames by size.
+	coalesceMaxCount   = 24
+	coalesceMaxBytes   = bufferSize - 128
+	coalesceFlushDelay = 250 * time.Microsecond
+	// batchLenPrefixSize is the per-payload length prefix in a batch frame.
+	batchLenPrefixSize = 2
 )
 
 var (
@@ -109,6 +120,16 @@ type connContainer struct {
 	// one per message.
 	cooldownUntil atomic.Int64
 	lastDropLog   atomic.Int64 // unix nanos of the last drop warning
+
+	// coalesce accumulates outbound packets to this peer into one batch frame.
+	// All fields below are guarded by coalesceMu.
+	coalesceEnabled bool
+	coalesceMu      sync.Mutex
+	coalesceFrame   []byte // batch frame under construction (header + packed payloads)
+	coalesceCount   int
+	coalesceTimer   *time.Timer
+	// writeRelay writes a full frame to the client's current relay connection.
+	writeRelay func([]byte) (int, error)
 }
 
 func newConnContainer(log *log.Entry, c *Client, peerID messages.PeerID, instanceURL *RelayAddr) *connContainer {
@@ -120,13 +141,15 @@ func newConnContainer(log *log.Entry, c *Client, peerID messages.PeerID, instanc
 		instanceURL: instanceURL,
 	}
 	cc := &connContainer{
-		log:      log,
-		conn:     cn,
-		messages: msgChan,
-		ctx:      ctx,
-		cancel:   cancel,
-		reliable: c.reliableTransport,
-		drops:    &c.inboundDrops,
+		log:             log,
+		conn:            cn,
+		messages:        msgChan,
+		ctx:             ctx,
+		cancel:          cancel,
+		reliable:        c.reliableTransport,
+		drops:           &c.inboundDrops,
+		coalesceEnabled: c.coalesce && c.reliableTransport,
+		writeRelay:      func(b []byte) (int, error) { return c.relayConn.Write(b) },
 	}
 
 	// bind conn to client
@@ -196,7 +219,90 @@ func (cc *connContainer) dropMsg(msg Msg) {
 	}
 }
 
+// enqueueCoalesced appends payload to this peer's pending batch frame and
+// flushes when the frame is full; a short timer flushes a partial frame so
+// sparse/control traffic is not delayed. It returns len(payload) to satisfy the
+// net.Conn.Write contract, mirroring the per-packet path. payload is copied into
+// the frame, so the caller may reuse its buffer after return.
+func (cc *connContainer) enqueueCoalesced(payload []byte) (int, error) {
+	cc.coalesceMu.Lock()
+	if cc.coalesceCount == 0 {
+		cc.coalesceFrame = messages.TransportBatchHeader(cc.conn.dstID)
+	} else if len(cc.coalesceFrame)+batchLenPrefixSize+len(payload) > coalesceMaxBytes {
+		cc.flushLocked()
+		cc.coalesceFrame = messages.TransportBatchHeader(cc.conn.dstID)
+	}
+
+	frame, ok := messages.AppendBatchPayload(cc.coalesceFrame, payload)
+	if !ok {
+		// Payload too large to length-prefix: flush and send it standalone.
+		cc.flushLocked()
+		cc.coalesceMu.Unlock()
+		return cc.writeSingle(payload)
+	}
+	cc.coalesceFrame = frame
+	cc.coalesceCount++
+
+	switch {
+	case cc.coalesceCount >= coalesceMaxCount || len(cc.coalesceFrame) >= coalesceMaxBytes:
+		cc.flushLocked()
+	case cc.coalesceCount == 1:
+		cc.armFlushTimerLocked()
+	}
+	cc.coalesceMu.Unlock()
+	return len(payload), nil
+}
+
+// writeSingle sends one payload as a plain transport message (fallback path).
+func (cc *connContainer) writeSingle(payload []byte) (int, error) {
+	msg, err := messages.MarshalTransportMsg(cc.conn.dstID, payload)
+	if err != nil {
+		return 0, err
+	}
+	if _, err := cc.writeRelay(msg); err != nil {
+		return 0, err
+	}
+	return len(payload), nil
+}
+
+// flushLocked writes the pending batch frame to the relay. Caller holds coalesceMu.
+func (cc *connContainer) flushLocked() {
+	if cc.coalesceCount == 0 {
+		return
+	}
+	frame := cc.coalesceFrame
+	cc.coalesceFrame = nil
+	cc.coalesceCount = 0
+	if cc.coalesceTimer != nil {
+		cc.coalesceTimer.Stop()
+	}
+	if _, err := cc.writeRelay(frame); err != nil {
+		cc.log.Errorf("failed to write coalesced batch frame: %s", err)
+	}
+}
+
+func (cc *connContainer) armFlushTimerLocked() {
+	if cc.coalesceTimer == nil {
+		cc.coalesceTimer = time.AfterFunc(coalesceFlushDelay, cc.timedFlush)
+		return
+	}
+	cc.coalesceTimer.Reset(coalesceFlushDelay)
+}
+
+func (cc *connContainer) timedFlush() {
+	cc.coalesceMu.Lock()
+	cc.flushLocked()
+	cc.coalesceMu.Unlock()
+}
+
 func (cc *connContainer) close() {
+	cc.coalesceMu.Lock()
+	cc.flushLocked()
+	if cc.coalesceTimer != nil {
+		cc.coalesceTimer.Stop()
+	}
+	cc.coalesceMu.Unlock()
+
 	cc.cancel()
 
 	cc.msgChanLock.Lock()
@@ -270,6 +376,11 @@ type Client struct {
 	// destination connection's channel stayed full. Cumulative for the
 	// lifetime of the Client.
 	inboundDrops atomic.Int64
+
+	// coalesce enables packing several outbound packets destined to the same
+	// peer into one MsgTypeTransportBatch frame. Gated by NB_RELAY_COALESCE and
+	// only used on reliable (stream) transports.
+	coalesce bool
 }
 
 // InboundMsgDrops returns the number of inbound transport messages dropped
@@ -317,7 +428,8 @@ func NewClientWithServerIP(serverURL string, serverIP netip.Addr, authTokenStore
 				return &buf
 			},
 		},
-		conns: make(map[messages.PeerID]*connContainer),
+		conns:    make(map[messages.PeerID]*connContainer),
+		coalesce: os.Getenv("NB_RELAY_COALESCE") == "true",
 	}
 
 	c.earlyMsgs = newEarlyMsgBuffer()
@@ -669,6 +781,8 @@ func (c *Client) handleMsg(msgType messages.MsgType, buf []byte, bufPtr *[]byte,
 		c.bufPool.Put(bufPtr)
 	case messages.MsgTypeTransport:
 		return c.handleTransportMsg(buf, bufPtr, internallyStoppedFlag)
+	case messages.MsgTypeTransportBatch:
+		return c.handleTransportBatchMsg(buf, bufPtr, internallyStoppedFlag)
 	case messages.MsgTypePeersOnline:
 		c.handlePeersOnlineMsg(buf)
 		c.bufPool.Put(bufPtr)
@@ -740,6 +854,51 @@ func (c *Client) handleTransportMsg(buf []byte, bufPtr *[]byte, internallyStoppe
 	return true
 }
 
+// handleTransportBatchMsg splits a coalesced frame into its packets and delivers
+// each as an independent Msg. Each packet is copied into its own pooled buffer so
+// ownership is per-packet (an out-of-order drop cannot free a buffer another
+// packet still aliases); the original frame buffer is returned to the pool once.
+func (c *Client) handleTransportBatchMsg(buf []byte, bufPtr *[]byte, internallyStoppedFlag *internalStopFlag) bool {
+	peerID, payloads, err := messages.UnmarshalTransportBatch(buf)
+	if err != nil {
+		if c.serviceIsRunning && !internallyStoppedFlag.isSet() {
+			c.log.Errorf("failed to parse transport batch message: %v", err)
+		}
+		c.bufPool.Put(bufPtr)
+		return true
+	}
+
+	c.mu.Lock()
+	if !c.serviceIsRunning {
+		c.mu.Unlock()
+		c.bufPool.Put(bufPtr)
+		return false
+	}
+	container, ok := c.conns[*peerID]
+	earlyBuf := c.earlyMsgs
+	c.mu.Unlock()
+
+	for _, payload := range payloads {
+		pBufPtr := c.bufPool.Get().(*[]byte)
+		n := copy(*pBufPtr, payload)
+		msg := Msg{
+			bufPool: c.bufPool,
+			bufPtr:  pBufPtr,
+			Payload: (*pBufPtr)[:n],
+		}
+		if !ok {
+			if earlyBuf == nil || !earlyBuf.put(*peerID, msg) {
+				c.bufPool.Put(pBufPtr)
+			}
+			continue
+		}
+		container.writeMsg(msg)
+	}
+
+	c.bufPool.Put(bufPtr)
+	return true
+}
+
 func (c *Client) writeTo(containerRef *connContainer, dstID messages.PeerID, payload []byte) (int, error) {
 	c.mu.Lock()
 	current, ok := c.conns[dstID]
@@ -750,6 +909,10 @@ func (c *Client) writeTo(containerRef *connContainer, dstID messages.PeerID, pay
 
 	if current != containerRef {
 		return 0, net.ErrClosed
+	}
+
+	if current.coalesceEnabled {
+		return current.enqueueCoalesced(payload)
 	}
 
 	// todo: use buffer pool instead of create new transport msg.

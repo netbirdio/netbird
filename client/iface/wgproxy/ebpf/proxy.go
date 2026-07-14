@@ -49,7 +49,8 @@ type WGEBPFProxy struct {
 
 	// batchRead drains several relayed packets from the local WireGuard socket
 	// with one recvmmsg and forwards them back-to-back, cutting the per-packet
-	// syscall and wakeup overhead on the hot send path. Gated by
+	// syscall and wakeup overhead on the hot send path and letting the relay
+	// client's frame coalescer (NB_RELAY_COALESCE) pack full frames. Gated by
 	// NB_RELAY_BATCH_READ; the per-packet path stays the default.
 	batchRead bool
 
@@ -219,7 +220,8 @@ func (p *WGEBPFProxy) proxyToRemote() {
 // the single proxy socket is shared by every relayed peer, recvmmsg yields each
 // packet's source address, which selects the destination turn conn. Draining
 // several packets per recvmmsg amortizes the read syscall and wakeup across the
-// batch on the hot send path.
+// batch and forwards them back-to-back so the relay client's coalescer can pack
+// full frames.
 func (p *WGEBPFProxy) proxyToRemoteBatch(pc net.PacketConn) {
 	batchConn := ipv4.NewPacketConn(pc)
 	bufSize := int(p.mtu) + bufsize.WGBufferOverhead
