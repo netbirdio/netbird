@@ -107,6 +107,17 @@ func (c *Combined) DeletePolicy(ctx context.Context, id string) error {
 	return anDelete(ctx, c, "/api/agent-network/policies/"+id)
 }
 
+// CreateGuardrail creates an agent-network guardrail (e.g. a model allowlist)
+// that can then be attached to a policy via its GuardrailIds.
+func (c *Combined) CreateGuardrail(ctx context.Context, req api.AgentNetworkGuardrailRequest) (api.AgentNetworkGuardrail, error) {
+	return anRequest[api.AgentNetworkGuardrail](ctx, c, http.MethodPost, "/api/agent-network/guardrails", req)
+}
+
+// DeleteGuardrail removes a guardrail by id.
+func (c *Combined) DeleteGuardrail(ctx context.Context, id string) error {
+	return anDelete(ctx, c, "/api/agent-network/guardrails/"+id)
+}
+
 // GetSettings returns the account's agent-network settings row. It exists only
 // after the first provider create bootstraps it.
 func (c *Combined) GetSettings(ctx context.Context) (api.AgentNetworkSettings, error) {
