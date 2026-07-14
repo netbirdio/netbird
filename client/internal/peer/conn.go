@@ -203,7 +203,6 @@ func NewConn(config ConnConfig, services ServiceDependencies) (*Conn, error) {
 		statusICE:          worker.NewAtomicStatus(),
 		dumpState:          dumpState,
 		endpointUpdater:    NewEndpointUpdater(connLog, config.WgConfig, isController(config)),
-		wgWatcher:          NewWGWatcher(connLog, config.WgConfig.WgInterface, config.Key, dumpState),
 		metricsRecorder:    services.MetricsRecorder,
 	}
 
@@ -671,11 +670,12 @@ func (conn *Conn) onGuardEvent() {
 	}
 }
 
-func (conn *Conn) onWGDisconnected() {
+func (conn *Conn) onWGDisconnected(watcherCtx context.Context) {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
-	if conn.ctx.Err() != nil {
+	// watcherCtx guards against a stale watcher tearing down a connection that already superseded it.
+	if conn.ctx.Err() != nil || watcherCtx.Err() != nil {
 		return
 	}
 
@@ -833,25 +833,39 @@ func (conn *Conn) isConnectedOnAllWay() (status guard.ConnStatus) {
 	})
 }
 
+// enableWgWatcherIfNeeded starts a fresh watcher instance per connection attempt, so its
+// lifecycle stays bound to conn.mu and enable/disable can't race an old goroutine's shutdown.
+// Caller must hold conn.mu.
 func (conn *Conn) enableWgWatcherIfNeeded(enabledTime time.Time) {
-	if !conn.wgWatcher.PrepareInitialHandshake() {
+	if conn.wgWatcher != nil {
 		return
 	}
 
+	watcher := NewWGWatcher(conn.Log, conn.config.WgConfig.WgInterface, conn.config.Key, conn.dumpState)
+	watcher.PrepareInitialHandshake()
+
 	wgWatcherCtx, wgWatcherCancel := context.WithCancel(conn.ctx)
+	conn.wgWatcher = watcher
 	conn.wgWatcherCancel = wgWatcherCancel
+
 	conn.wgWatcherWg.Add(1)
 	go func() {
 		defer conn.wgWatcherWg.Done()
-		conn.wgWatcher.EnableWgWatcher(wgWatcherCtx, enabledTime, conn.onWGDisconnected, conn.onWGHandshakeSuccess, conn.onWGCheckSuccess)
+		onDisconnected := func() { conn.onWGDisconnected(wgWatcherCtx) }
+		watcher.EnableWgWatcher(wgWatcherCtx, enabledTime, onDisconnected, conn.onWGHandshakeSuccess, conn.onWGCheckSuccess)
 	}()
 }
 
+// disableWgWatcherIfNeeded cancels and drops the watcher once no transport is active. It never
+// waits for the goroutine: the timeout path reentrantly calls back here under conn.mu, so
+// blocking would deadlock. Caller must hold conn.mu.
 func (conn *Conn) disableWgWatcherIfNeeded() {
-	if conn.currentConnPriority == conntype.None && conn.wgWatcherCancel != nil {
-		conn.wgWatcherCancel()
-		conn.wgWatcherCancel = nil
+	if conn.currentConnPriority != conntype.None || conn.wgWatcher == nil {
+		return
 	}
+	conn.wgWatcherCancel()
+	conn.wgWatcher = nil
+	conn.wgWatcherCancel = nil
 }
 
 func (conn *Conn) newProxy(remoteConn net.Conn) (wgproxy.Proxy, error) {
@@ -874,7 +888,9 @@ func (conn *Conn) resetEndpoint() {
 		return
 	}
 	conn.Log.Infof("reset wg endpoint")
-	conn.wgWatcher.Reset()
+	if conn.wgWatcher != nil {
+		conn.wgWatcher.Reset()
+	}
 	if err := conn.endpointUpdater.RemoveEndpointAddress(); err != nil {
 		conn.Log.Warnf("failed to remove endpoint address before update: %v", err)
 	}
