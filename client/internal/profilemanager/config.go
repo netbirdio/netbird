@@ -130,13 +130,14 @@ type Config struct {
 	DisableSSHAuth                *bool
 	SSHJWTCacheTTL                *int
 
-	DisableClientRoutes bool
-	DisableServerRoutes bool
-	DisableDNS          bool
-	DisableFirewall     bool
-	BlockLANAccess      bool
-	BlockInbound        bool
-	DisableIPv6         bool
+	DisableClientRoutes        bool
+	DisableServerRoutes        bool
+	DisableDNS                 bool
+	DisableFirewall            bool
+	BlockLANAccess             bool
+	BlockInbound               bool
+	DisableIPv6                bool
+	DisableComponentNetworkMap bool
 
 	DisableNotifications *bool
 

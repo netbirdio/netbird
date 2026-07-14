@@ -142,13 +142,14 @@ type EngineConfig struct {
 
 	DNSRouteInterval time.Duration
 
-	DisableClientRoutes bool
-	DisableServerRoutes bool
-	DisableDNS          bool
-	DisableFirewall     bool
-	BlockLANAccess      bool
-	BlockInbound        bool
-	DisableIPv6         bool
+	DisableClientRoutes        bool
+	DisableServerRoutes        bool
+	DisableDNS                 bool
+	DisableFirewall            bool
+	BlockLANAccess             bool
+	BlockInbound               bool
+	DisableIPv6                bool
+	DisableComponentNetworkMap bool
 
 	// LazyConnection is the MDM-sourced lazy-connection override; StateUnset defers to
 	// the env var and management feature flag.
@@ -1228,6 +1229,7 @@ func (e *Engine) applyInfoFlags(info *system.Info) {
 		e.config.BlockLANAccess,
 		e.config.BlockInbound,
 		e.config.DisableIPv6,
+		e.config.DisableComponentNetworkMap,
 		e.config.EnableSSHRoot,
 		e.config.EnableSSHSFTP,
 		e.config.EnableSSHLocalPortForwarding,
@@ -2096,6 +2098,7 @@ func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, bool, err
 		e.config.BlockLANAccess,
 		e.config.BlockInbound,
 		e.config.DisableIPv6,
+		e.config.DisableComponentNetworkMap,
 		e.config.EnableSSHRoot,
 		e.config.EnableSSHSFTP,
 		e.config.EnableSSHLocalPortForwarding,
