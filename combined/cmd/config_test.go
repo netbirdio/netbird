@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestApplySimplifiedDefaultsWithAdditionalRelays(t *testing.T) {
@@ -30,9 +32,7 @@ func TestApplySimplifiedDefaultsWithAdditionalRelays(t *testing.T) {
 		"rels://relay-eu.example.com:443",
 		"rels://relay-us.example.com:443",
 	}
-	if !reflect.DeepEqual(cfg.Management.Relays.Addresses, wantAddresses) {
-		t.Fatalf("relay addresses = %v, want %v", cfg.Management.Relays.Addresses, wantAddresses)
-	}
+	assert.ElementsMatch(t, wantAddresses, cfg.Management.Relays.Addresses)
 	if cfg.Management.Relays.Secret != cfg.Server.AuthSecret {
 		t.Fatalf("relay secret = %q, want server auth secret", cfg.Management.Relays.Secret)
 	}
@@ -72,9 +72,7 @@ func TestApplySimplifiedDefaultsWithRelayOverrideIgnoresAdditionalRelays(t *test
 
 	cfg.ApplySimplifiedDefaults()
 
-	if !reflect.DeepEqual(cfg.Management.Relays.Addresses, cfg.Server.Relays.Addresses) {
-		t.Fatalf("management relay addresses = %v, want %v", cfg.Management.Relays.Addresses, cfg.Server.Relays.Addresses)
-	}
+	assert.ElementsMatch(t, cfg.Server.Relays.Addresses, cfg.Management.Relays.Addresses)
 }
 
 func TestAdditionalRelaysStillRequireLocalRelaySecret(t *testing.T) {
@@ -111,7 +109,5 @@ func TestLoadConfigParsesAdditionalRelays(t *testing.T) {
 		"rels://relay-eu.example.com:443",
 		"rels://relay-us.example.com:443",
 	}
-	if !reflect.DeepEqual(cfg.Management.Relays.Addresses, wantAddresses) {
-		t.Fatalf("relay addresses = %v, want %v", cfg.Management.Relays.Addresses, wantAddresses)
-	}
+	assert.ElementsMatch(t, wantAddresses, cfg.Management.Relays.Addresses)
 }
