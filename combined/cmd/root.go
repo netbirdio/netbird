@@ -26,6 +26,7 @@ import (
 	"github.com/netbirdio/netbird/encryption"
 	mgmtServer "github.com/netbirdio/netbird/management/internals/server"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+	syncgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/relay/healthcheck"
 	relayServer "github.com/netbirdio/netbird/relay/server"
@@ -504,6 +505,10 @@ func createManagementServer(cfg *CombinedConfig, mgmtConfig *nbconfig.Config) (m
 		portStr = "443"
 	}
 	mgmtPort, _ := strconv.Atoi(portStr)
+
+	if err := syncgrpc.ValidateSyncMessageVersions(cfg.Management.SupportedSyncMessageVersions); err != nil {
+		return nil, err
+	}
 
 	mgmtSrv := newServer(
 		&mgmtServer.Config{

@@ -86,6 +86,8 @@ type Server struct {
 
 	reverseProxyManager rpservice.Manager
 	reverseProxyMu      sync.RWMutex
+
+	supportedSyncMessageVersions []SyncMessageVersion
 }
 
 // NewServer creates a new Management server
@@ -130,6 +132,8 @@ func NewServer(
 		}
 	}
 
+	syncMessageVersions := SyncMessageVersionsFromString(config.SupportedSyncMessageVersions)
+
 	return &Server{
 		jobManager:               jobManager,
 		accountManager:           accountManager,
@@ -149,6 +153,8 @@ func NewServer(
 
 		syncLim:        syncLim,
 		syncLimEnabled: syncLimEnabled,
+
+		supportedSyncMessageVersions: syncMessageVersions,
 	}, nil
 }
 
@@ -245,6 +251,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	realIP := getRealIP(ctx)
 	sRealIP := realIP.String()
 	peerMeta := extractPeerMeta(ctx, syncReq.GetMeta())
+
 	userID, err := s.accountManager.GetUserIDByPeerKey(ctx, peerKey.String())
 	if err != nil {
 		s.syncSem.Add(-1)
@@ -1019,7 +1026,12 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 	dnsName := s.networkMapController.GetDNSDomain(settings)
 
 	var plainResp *proto.SyncResponse
-	if s.networkMapController.PeerNeedsComponents(peer) {
+
+	commonSyncMessageVersions := CommonSyncMessageVersions(
+		SyncMessageVersionsFromString(s.config.SupportedSyncMessageVersions),
+		SyncMessageVersionsFromProtoEnums(peer.Meta.Capabilities))
+
+	if commonSyncMessageVersions[0] == ComponentNetworkMap {
 		// Capable peer: discard the legacy NetworkMap that SyncAndMarkPeer
 		// computed and recompute the raw components instead. This wastes one
 		// Calculate() call per initial-sync — the component-based wire
