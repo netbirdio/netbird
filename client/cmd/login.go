@@ -333,9 +333,9 @@ func doForegroundLogin(ctx context.Context, cmd *cobra.Command, setupKey string,
 		return fmt.Errorf("read config file %s: %v", configFilePath, err)
 	}
 
-	// Mirror runInForegroundMode: recover residual state from a previous
-	// unclean shutdown and enable advanced routing before dialing
-	// management, so leftover routing rules can't break the login.
+	// Mirror runInForegroundMode: recover residual state (DNS, firewall,
+	// ssh config, legacy routing) from a previous unclean shutdown and
+	// enable advanced routing before dialing management.
 	if err := server.RestoreResidualState(ctx, profilemanager.NewServiceManager(configFilePath).GetStatePath()); err != nil {
 		log.Warnf("failed to restore residual state: %v", err)
 	}
