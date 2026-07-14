@@ -77,5 +77,5 @@ func (c *Conn) SetDeadline(t time.Time) error {
 }
 
 func (c *Conn) Close() error {
-	return c.Conn.CloseNow()
+	return c.closeConn()
 }

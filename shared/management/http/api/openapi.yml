@@ -375,6 +375,12 @@ components:
           description: Enables or disables client metrics push for all peers in the account
           type: boolean
           example: false
+        agent_network_only:
+          description: Limits the dashboard to the Agent Network surface for this account. Set for accounts created via netbird.ai signups and can be disabled later. Enabling this requires dashboard_features.agent_network to be true in the same request.
+          type: boolean
+          example: false
+        dashboard_features:
+          $ref: '#/components/schemas/AccountDashboardFeatures'
         embedded_idp_enabled:
           description: Indicates whether the embedded identity provider (Dex) is enabled for this account. This is a read-only field.
           type: boolean
@@ -403,6 +409,14 @@ components:
         - regular_users_view_blocked
         - peer_expose_enabled
         - peer_expose_groups
+    AccountDashboardFeatures:
+      description: Per-account dashboard section visibility overrides. Omitted keys follow the default dashboard behavior.
+      type: object
+      properties:
+        agent_network:
+          description: Controls the Agent Network menu for the account regardless of the deployment feature flag. When true the menu is shown, when false it is hidden, and when omitted the default behavior applies. Must be true when agent_network_only is enabled.
+          type: boolean
+          example: true
     AccountExtraSettings:
       type: object
       properties:
@@ -2769,6 +2783,28 @@ components:
           type: integer
           description: "Number of packets transmitted."
           example: 5
+        num_of_starts:
+          type: integer
+          description: "Number of start events."
+          example: 3
+        num_of_ends:
+          type: integer
+          description: "Number of end events."
+          example: 4
+        num_of_drops:
+          type: integer
+          description: "Number of drop events."
+          example: 5
+        window_start:
+          type: string
+          format: date-time
+          description: Timestamp of the start of the aggregation window.
+          example: 2025-03-20T16:23:58.125397Z
+        window_end:
+          type: string
+          format: date-time
+          description: Timestamp of the end of the aggregation window.
+          example: 2025-03-20T16:23:58.125397Z
         events:
           type: array
           description: "List of events that are correlated to this flow (e.g., start, end)."
@@ -2790,6 +2826,11 @@ components:
         - rx_packets
         - tx_bytes
         - tx_packets
+        - num_of_starts
+        - num_of_ends
+        - num_of_drops
+        - window_start
+        - window_end
         - events
     NetworkTrafficEventsResponse:
       type: object
@@ -9300,6 +9341,18 @@ paths:
           required: false
           schema:
             type: string
+        - name: source_id
+          in: query
+          description: Filter by source endpoint ID
+          required: false
+          schema:
+            type: string
+        - name: destination_id
+          in: query
+          description: Filter by destination endpoint ID
+          required: false
+          schema:
+            type: string
         - name: protocol
           in: query
           description: Filter by protocol
@@ -10451,7 +10504,7 @@ paths:
         - EDR Intune Integrations
       summary: Delete EDR Intune Integration
       description: Deletes an EDR Intune Integration by its ID.
-      operationId: deleteIntegration
+      operationId: deleteEDRIntuneIntegration
       responses:
         '200':
           description: Integration deleted successfully. Returns an empty object.
@@ -12535,7 +12588,7 @@ paths:
         - Event Streaming Integrations
       summary: Delete Event Streaming Integration
       description: Deletes an event streaming integration by its ID.
-      operationId: deleteIntegration
+      operationId: deleteEventStreamingIntegration
       responses:
         '200':
           description: Integration deleted successfully. Returns an empty object.
