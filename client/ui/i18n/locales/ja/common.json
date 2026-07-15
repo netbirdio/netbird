@@ -1,0 +1,1325 @@
+{
+    "tray.tooltip": {
+        "message": "NetBird"
+    },
+    "tray.status.disconnected": {
+        "message": "未接続"
+    },
+    "tray.status.daemonUnavailable": {
+        "message": "実行されていません"
+    },
+    "tray.status.error": {
+        "message": "エラー"
+    },
+    "tray.status.connected": {
+        "message": "接続済み"
+    },
+    "tray.status.connecting": {
+        "message": "接続中"
+    },
+    "tray.status.needsLogin": {
+        "message": "ログインが必要"
+    },
+    "tray.status.loginFailed": {
+        "message": "ログインに失敗しました"
+    },
+    "tray.status.sessionExpired": {
+        "message": "セッションが期限切れ"
+    },
+    "tray.session.expiresIn": {
+        "message": "セッションはあと{remaining}で期限切れ"
+    },
+    "tray.session.unit.lessThanMinute": {
+        "message": "1分未満"
+    },
+    "tray.session.unit.minute": {
+        "message": "1分"
+    },
+    "tray.session.unit.minutes": {
+        "message": "{count}分"
+    },
+    "tray.session.unit.hour": {
+        "message": "1時間"
+    },
+    "tray.session.unit.hours": {
+        "message": "{count}時間"
+    },
+    "tray.session.unit.day": {
+        "message": "1日"
+    },
+    "tray.session.unit.days": {
+        "message": "{count}日"
+    },
+    "tray.menu.open": {
+        "message": "NetBird を開く"
+    },
+    "tray.menu.connect": {
+        "message": "接続"
+    },
+    "tray.menu.disconnect": {
+        "message": "切断"
+    },
+    "tray.menu.exitNode": {
+        "message": "出口ノード"
+    },
+    "tray.menu.networks": {
+        "message": "リソース"
+    },
+    "tray.menu.profiles": {
+        "message": "プロファイル"
+    },
+    "tray.menu.manageProfiles": {
+        "message": "プロファイルの管理"
+    },
+    "tray.menu.settings": {
+        "message": "設定..."
+    },
+    "tray.menu.debugBundle": {
+        "message": "デバッグバンドルを作成"
+    },
+    "tray.menu.about": {
+        "message": "ヘルプとサポート"
+    },
+    "tray.menu.github": {
+        "message": "GitHub"
+    },
+    "tray.menu.documentation": {
+        "message": "ドキュメント"
+    },
+    "tray.menu.troubleshoot": {
+        "message": "トラブルシューティング"
+    },
+    "tray.menu.downloadLatest": {
+        "message": "最新バージョンをダウンロード"
+    },
+    "tray.menu.installVersion": {
+        "message": "バージョン {version} をインストール"
+    },
+    "tray.menu.guiVersion": {
+        "message": "GUI: {version}"
+    },
+    "tray.menu.daemonVersion": {
+        "message": "デーモン: {version}"
+    },
+    "tray.menu.versionUnknown": {
+        "message": "—"
+    },
+    "tray.menu.quit": {
+        "message": "NetBird を終了"
+    },
+    "notify.daemonOutdated.title": {
+        "message": "NetBird サービスが古くなっています"
+    },
+    "notify.daemonOutdated.body": {
+        "message": "このアプリを使用するには NetBird サービスを更新してください。"
+    },
+    "notify.update.title": {
+        "message": "NetBird の更新が利用可能"
+    },
+    "notify.update.body": {
+        "message": "NetBird {version} が利用可能です。"
+    },
+    "notify.update.enforcedSuffix": {
+        "message": " 管理者がこの更新を必須にしています。"
+    },
+    "notify.error.title": {
+        "message": "エラー"
+    },
+    "notify.error.connect": {
+        "message": "接続に失敗しました"
+    },
+    "notify.error.disconnect": {
+        "message": "切断に失敗しました"
+    },
+    "notify.error.switchProfile": {
+        "message": "{profile} への切り替えに失敗しました"
+    },
+    "notify.error.exitNode": {
+        "message": "出口ノード {name} の更新に失敗しました"
+    },
+    "notify.sessionExpired.title": {
+        "message": "NetBird セッションが期限切れ"
+    },
+    "notify.sessionExpired.body": {
+        "message": "NetBird セッションの有効期限が切れました。もう一度ログインしてください。"
+    },
+    "notify.sessionWarning.title": {
+        "message": "まもなくセッションが期限切れ"
+    },
+    "notify.sessionWarning.body": {
+        "message": "NetBird セッションはあと{remaining}で期限切れになります。更新するには「今すぐ延長」をクリックしてください。"
+    },
+    "notify.sessionWarning.bodyGeneric": {
+        "message": "NetBird セッションはまもなく期限切れになります。更新するには「今すぐ延長」をクリックしてください。"
+    },
+    "notify.sessionWarning.extend": {
+        "message": "今すぐ延長"
+    },
+    "notify.sessionWarning.dismiss": {
+        "message": "閉じる"
+    },
+    "notify.sessionWarning.failed": {
+        "message": "NetBird セッションの延長に失敗しました"
+    },
+    "notify.sessionWarning.successTitle": {
+        "message": "NetBird セッションを延長しました"
+    },
+    "notify.sessionWarning.successBody": {
+        "message": "セッションが更新されました。"
+    },
+    "notify.sessionDeadlineRejected.title": {
+        "message": "セッション期限が拒否されました"
+    },
+    "notify.sessionDeadlineRejected.body": {
+        "message": "サーバーが無効なセッション期限を送信しました。もう一度サインインしてください。"
+    },
+    "notify.mdm.policyApplied.title": {
+        "message": "NetBird 設定が更新されました"
+    },
+    "notify.mdm.policyApplied.body": {
+        "message": "NetBird の構成が IT ポリシーによって更新されました。"
+    },
+    "common.cancel": {
+        "message": "キャンセル"
+    },
+    "common.save": {
+        "message": "保存"
+    },
+    "common.saveChanges": {
+        "message": "変更を保存"
+    },
+    "common.saving": {
+        "message": "保存中…"
+    },
+    "common.close": {
+        "message": "閉じる"
+    },
+    "common.copy": {
+        "message": "コピー"
+    },
+    "common.togglePasswordVisibility": {
+        "message": "パスワードの表示を切り替え"
+    },
+    "common.increase": {
+        "message": "増やす"
+    },
+    "common.decrease": {
+        "message": "減らす"
+    },
+    "common.delete": {
+        "message": "削除"
+    },
+    "common.create": {
+        "message": "作成"
+    },
+    "common.add": {
+        "message": "追加"
+    },
+    "common.remove": {
+        "message": "削除"
+    },
+    "common.refresh": {
+        "message": "更新"
+    },
+    "common.loading": {
+        "message": "読み込み中…"
+    },
+    "common.netbird": {
+        "message": "NetBird"
+    },
+    "common.noResults.title": {
+        "message": "結果が見つかりませんでした"
+    },
+    "common.noResults.description": {
+        "message": "結果が見つかりませんでした。別の検索語を試すか、フィルターを変更してください。"
+    },
+    "notConnected.title": {
+        "message": "未接続"
+    },
+    "notConnected.description": {
+        "message": "ピア、ネットワークリソース、出口ノードの詳細情報を表示するには、まず NetBird に接続してください。"
+    },
+    "connect.status.disconnected": {
+        "message": "未接続"
+    },
+    "connect.status.connecting": {
+        "message": "接続中..."
+    },
+    "connect.status.connected": {
+        "message": "接続済み"
+    },
+    "connect.status.disconnecting": {
+        "message": "切断中..."
+    },
+    "connect.status.daemonUnavailable": {
+        "message": "デーモンが利用できません"
+    },
+    "connect.status.loginRequired": {
+        "message": "ログインが必要"
+    },
+    "connect.error.loginTitle": {
+        "message": "ログインに失敗しました"
+    },
+    "connect.error.connectTitle": {
+        "message": "接続に失敗しました"
+    },
+    "connect.error.disconnectTitle": {
+        "message": "切断に失敗しました"
+    },
+    "nav.peers.title": {
+        "message": "ピア"
+    },
+    "nav.peers.description": {
+        "message": "{total}台中{connected}台接続中"
+    },
+    "nav.resources.title": {
+        "message": "リソース"
+    },
+    "nav.resources.description": {
+        "message": "{total}件中{active}件有効"
+    },
+    "nav.exitNode.title": {
+        "message": "出口ノード"
+    },
+    "nav.exitNode.none": {
+        "message": "未使用"
+    },
+    "nav.exitNode.using": {
+        "message": "{name} 経由"
+    },
+    "header.openSettings": {
+        "message": "設定を開く"
+    },
+    "header.togglePanel": {
+        "message": "サイドパネルを切り替え"
+    },
+    "profile.selector.loading": {
+        "message": "読み込み中..."
+    },
+    "profile.selector.noProfile": {
+        "message": "プロファイルなし"
+    },
+    "profile.selector.searchPlaceholder": {
+        "message": "名前でプロファイルを検索..."
+    },
+    "profile.selector.emptyTitle": {
+        "message": "プロファイルが見つかりません"
+    },
+    "profile.selector.emptyDescription": {
+        "message": "別の検索語を試すか、新しいプロファイルを作成してください。"
+    },
+    "profile.selector.newProfile": {
+        "message": "新しいプロファイル"
+    },
+    "profile.selector.moreOptions": {
+        "message": "その他のオプション"
+    },
+    "profile.selector.deregister": {
+        "message": "登録解除"
+    },
+    "profile.selector.delete": {
+        "message": "削除"
+    },
+    "profile.selector.switchTo": {
+        "message": "このプロファイルに切り替え"
+    },
+    "profile.selector.edit": {
+        "message": "編集"
+    },
+    "profile.edit.title": {
+        "message": "プロファイルを編集"
+    },
+    "profile.edit.submit": {
+        "message": "変更を保存"
+    },
+    "profile.dialog.title": {
+        "message": "プロファイル名を入力"
+    },
+    "profile.dialog.nameLabel": {
+        "message": "プロファイル名"
+    },
+    "profile.dialog.description": {
+        "message": "分かりやすいプロファイル名を設定してください。"
+    },
+    "profile.dialog.placeholder": {
+        "message": "例: 仕事"
+    },
+    "profile.dialog.submit": {
+        "message": "プロファイルを追加"
+    },
+    "profile.dialog.required": {
+        "message": "プロファイル名を入力してください（例: 仕事、自宅）"
+    },
+    "profile.dialog.managementHelp": {
+        "message": "NetBird Cloud または独自のサーバーを使用します。"
+    },
+    "profile.dialog.urlUnreachable": {
+        "message": "このサーバーに到達できませんでした。URLを確認するか、正しいことが確実な場合はそのままプロファイルを追加してください。"
+    },
+    "header.menu.settings": {
+        "message": "設定..."
+    },
+    "header.menu.defaultView": {
+        "message": "デフォルト表示"
+    },
+    "header.menu.advancedView": {
+        "message": "詳細表示"
+    },
+    "header.menu.updateAvailable": {
+        "message": "更新が利用可能"
+    },
+    "header.menu.open": {
+        "message": "メニューを開く"
+    },
+    "header.profile.switch": {
+        "message": "プロファイルを切り替え"
+    },
+    "connect.toggle.label": {
+        "message": "NetBird 接続を切り替え"
+    },
+    "connect.localIp.label": {
+        "message": "ローカル IP アドレス"
+    },
+    "common.search": {
+        "message": "検索"
+    },
+    "common.filter": {
+        "message": "フィルター"
+    },
+    "exitNodes.dropdown.trigger": {
+        "message": "出口ノードを選択"
+    },
+    "peers.row.label": {
+        "message": "{name} の詳細を開く、{status}"
+    },
+    "peers.dialog.title": {
+        "message": "ピアの詳細"
+    },
+    "networks.row.toggle": {
+        "message": "{name} を切り替え"
+    },
+    "networks.bulk.label": {
+        "message": "表示中のすべてのリソースを切り替え"
+    },
+    "profile.switch.title": {
+        "message": "プロファイルを「{name}」に切り替えますか？"
+    },
+    "profile.switch.message": {
+        "message": "プロファイルを切り替えてもよろしいですか？\n現在のプロファイルは切断されます。"
+    },
+    "profile.switch.confirm": {
+        "message": "確認"
+    },
+    "profile.deregister.title": {
+        "message": "プロファイル「{name}」の登録を解除しますか？"
+    },
+    "profile.deregister.message": {
+        "message": "このプロファイルの登録を解除してもよろしいですか？\n再度使用するにはログインが必要になります。"
+    },
+    "profile.deregister.confirm": {
+        "message": "登録解除"
+    },
+    "profile.delete.title": {
+        "message": "プロファイル「{name}」を削除しますか？"
+    },
+    "profile.delete.message": {
+        "message": "このプロファイルを削除してもよろしいですか？\nこの操作は取り消せません。"
+    },
+    "profile.delete.disabledActive": {
+        "message": "使用中のプロファイルは削除できません。削除する前に別のプロファイルに切り替えてください。"
+    },
+    "profile.delete.disabledDefault": {
+        "message": "デフォルトのプロファイルは削除できません。"
+    },
+    "profile.error.switchTitle": {
+        "message": "プロファイルの切り替えに失敗しました"
+    },
+    "profile.error.deregisterTitle": {
+        "message": "プロファイルの登録解除に失敗しました"
+    },
+    "profile.error.deleteTitle": {
+        "message": "プロファイルの削除に失敗しました"
+    },
+    "profile.error.createTitle": {
+        "message": "プロファイルの作成に失敗しました"
+    },
+    "profile.error.editTitle": {
+        "message": "プロファイルの編集に失敗しました"
+    },
+    "profile.error.loadTitle": {
+        "message": "プロファイルの読み込みに失敗しました"
+    },
+    "profile.dropdown.activeProfile": {
+        "message": "使用中のプロファイル"
+    },
+    "profile.dropdown.switchProfile": {
+        "message": "プロファイルを切り替え"
+    },
+    "profile.dropdown.noEmail": {
+        "message": "その他"
+    },
+    "profile.dropdown.addProfile": {
+        "message": "プロファイルを追加"
+    },
+    "profile.dropdown.manageProfiles": {
+        "message": "プロファイルの管理"
+    },
+    "profile.dropdown.settings": {
+        "message": "設定"
+    },
+    "settings.profiles.section.profiles": {
+        "message": "プロファイル"
+    },
+    "settings.profiles.intro": {
+        "message": "仕事用と個人用のアカウント、あるいは異なる管理サーバーなど、複数の NetBird ID を並行して管理できます。以下でプロファイルの追加、登録解除、削除ができます。"
+    },
+    "settings.profiles.addProfile": {
+        "message": "プロファイルを追加"
+    },
+    "settings.profiles.active": {
+        "message": "使用中"
+    },
+    "settings.profiles.emptyTitle": {
+        "message": "プロファイルがありません"
+    },
+    "settings.profiles.emptyDescription": {
+        "message": "NetBird 管理サーバーに接続するプロファイルを作成してください。"
+    },
+    "settings.error.loadTitle": {
+        "message": "設定の読み込みに失敗しました"
+    },
+    "settings.error.saveTitle": {
+        "message": "設定の保存に失敗しました"
+    },
+    "settings.error.debugBundleTitle": {
+        "message": "デバッグバンドルの作成に失敗しました"
+    },
+    "settings.nav.label": {
+        "message": "設定セクション"
+    },
+    "settings.tabs.general": {
+        "message": "一般"
+    },
+    "settings.tabs.network": {
+        "message": "ネットワーク"
+    },
+    "settings.tabs.security": {
+        "message": "セキュリティ"
+    },
+    "settings.tabs.profiles": {
+        "message": "プロファイル"
+    },
+    "settings.tabs.ssh": {
+        "message": "SSH"
+    },
+    "settings.tabs.advanced": {
+        "message": "詳細設定"
+    },
+    "settings.tabs.troubleshooting": {
+        "message": "トラブルシューティング"
+    },
+    "settings.tabs.about": {
+        "message": "情報"
+    },
+    "settings.tabs.updateAvailable": {
+        "message": "更新が利用可能"
+    },
+    "settings.general.section.general": {
+        "message": "一般"
+    },
+    "settings.general.section.connection": {
+        "message": "接続"
+    },
+    "settings.general.connectOnStartup.label": {
+        "message": "起動時に接続"
+    },
+    "settings.general.connectOnStartup.help": {
+        "message": "サービスの起動時に自動的に接続を確立します。"
+    },
+    "settings.general.notifications.label": {
+        "message": "デスクトップ通知"
+    },
+    "settings.general.notifications.help": {
+        "message": "新しい更新や接続イベントに関するデスクトップ通知を表示します。"
+    },
+    "settings.general.autostart.label": {
+        "message": "ログイン時に NetBird UI を起動"
+    },
+    "settings.general.autostart.help": {
+        "message": "ログイン時に NetBird インターフェースを自動的に起動します。これはグラフィカルインターフェースにのみ影響し、バックグラウンドサービスには影響しません。"
+    },
+    "settings.general.autostart.errorTitle": {
+        "message": "自動起動の変更に失敗しました"
+    },
+    "settings.general.language.label": {
+        "message": "表示言語"
+    },
+    "settings.general.language.help": {
+        "message": "NetBird インターフェースの言語を選択します。"
+    },
+    "settings.general.language.search": {
+        "message": "言語を検索…"
+    },
+    "settings.general.language.empty": {
+        "message": "一致する言語がありません。"
+    },
+    "settings.general.management.label": {
+        "message": "管理サーバー"
+    },
+    "settings.general.management.help": {
+        "message": "NetBird Cloud または自身のセルフホスト管理サーバーに接続します。変更するとクライアントが再接続します。"
+    },
+    "settings.general.management.cloud": {
+        "message": "クラウド"
+    },
+    "settings.general.management.selfHosted": {
+        "message": "セルフホスト"
+    },
+    "settings.general.management.urlPlaceholder": {
+        "message": "https://netbird.selfhosted.com:443"
+    },
+    "settings.general.management.urlError": {
+        "message": "有効なURLを入力してください（例: https://netbird.selfhosted.com:443）"
+    },
+    "settings.general.management.urlUnreachable": {
+        "message": "このサーバーに到達できませんでした。URLを確認するか、正しいことが確実な場合はそのまま保存してください。"
+    },
+    "settings.general.management.switchCloudTitle": {
+        "message": "NetBird Cloud に切り替えますか？"
+    },
+    "settings.general.management.switchCloudMessage": {
+        "message": "セルフホストサーバーが切断されます。\n再度ログインが必要になる場合があります。"
+    },
+    "settings.general.management.switchCloudConfirm": {
+        "message": "クラウドに切り替え"
+    },
+    "settings.network.section.connectivity": {
+        "message": "ネットワーク接続"
+    },
+    "settings.network.section.routingDns": {
+        "message": "ルーティングとDNS"
+    },
+    "settings.network.monitor.label": {
+        "message": "ネットワーク変更時に再接続"
+    },
+    "settings.network.monitor.help": {
+        "message": "ネットワークを監視し、Wi-Fiの切り替え、イーサネットの変更、スリープからの復帰などの変化時に自動的に再接続します。"
+    },
+    "settings.network.dns.label": {
+        "message": "DNSを有効にする"
+    },
+    "settings.network.dns.help": {
+        "message": "NetBird が管理する DNS 設定をホストのリゾルバに適用します。"
+    },
+    "settings.network.clientRoutes.label": {
+        "message": "クライアントルートを有効にする"
+    },
+    "settings.network.clientRoutes.help": {
+        "message": "他のピアからルートを受け入れ、そのネットワークに到達できるようにします。"
+    },
+    "settings.network.serverRoutes.label": {
+        "message": "サーバールートを有効にする"
+    },
+    "settings.network.serverRoutes.help": {
+        "message": "このホストのローカルルートを他のピアにアドバタイズします。"
+    },
+    "settings.network.ipv6.label": {
+        "message": "IPv6を有効にする"
+    },
+    "settings.network.ipv6.help": {
+        "message": "NetBird オーバーレイネットワークで IPv6 アドレッシングを使用します。"
+    },
+    "settings.security.section.firewall": {
+        "message": "ファイアウォール"
+    },
+    "settings.security.section.encryption": {
+        "message": "暗号化"
+    },
+    "settings.security.blockInbound.label": {
+        "message": "受信トラフィックをブロック"
+    },
+    "settings.security.blockInbound.help": {
+        "message": "このデバイスおよびこのデバイスがルーティングするネットワークへの、ピアからの要求されていない接続を拒否します。送信トラフィックには影響しません。"
+    },
+    "settings.security.blockLan.label": {
+        "message": "LANアクセスをブロック"
+    },
+    "settings.security.blockLan.help": {
+        "message": "このデバイスがピアのトラフィックをルーティングする際に、ピアがローカルネットワークやそのデバイスに到達できないようにします。"
+    },
+    "settings.security.rosenpass.label": {
+        "message": "量子耐性を有効にする"
+    },
+    "settings.security.rosenpass.help": {
+        "message": "WireGuard® に加えて Rosenpass によるポスト量子鍵交換を追加します。"
+    },
+    "settings.security.rosenpassPermissive.label": {
+        "message": "寛容モードを有効にする"
+    },
+    "settings.security.rosenpassPermissive.help": {
+        "message": "量子耐性に対応していないピアへの接続を許可します。"
+    },
+    "settings.ssh.section.server": {
+        "message": "サーバー"
+    },
+    "settings.ssh.section.capabilities": {
+        "message": "機能"
+    },
+    "settings.ssh.section.authentication": {
+        "message": "認証"
+    },
+    "settings.ssh.server.label": {
+        "message": "SSHサーバーを有効にする"
+    },
+    "settings.ssh.server.help": {
+        "message": "このホストで NetBird SSH サーバーを実行し、他のピアが接続できるようにします。"
+    },
+    "settings.ssh.root.label": {
+        "message": "rootログインを許可"
+    },
+    "settings.ssh.root.help": {
+        "message": "ピアが root ユーザーとしてサインインできるようにします。無効にすると非特権アカウントが必要になります。"
+    },
+    "settings.ssh.sftp.label": {
+        "message": "SFTPを許可"
+    },
+    "settings.ssh.sftp.help": {
+        "message": "ネイティブの SFTP または SCP クライアントを使用してファイルを安全に転送します。"
+    },
+    "settings.ssh.localForward.label": {
+        "message": "ローカルポート転送"
+    },
+    "settings.ssh.localForward.help": {
+        "message": "接続するピアが、このホストから到達可能なサービスへローカルポートをトンネリングできるようにします。"
+    },
+    "settings.ssh.remoteForward.label": {
+        "message": "リモートポート転送"
+    },
+    "settings.ssh.remoteForward.help": {
+        "message": "接続するピアが、このホスト上のポートを自身のマシンに公開できるようにします。"
+    },
+    "settings.ssh.jwt.label": {
+        "message": "JWT認証を有効にする"
+    },
+    "settings.ssh.jwt.help": {
+        "message": "各 SSH セッションを IdP に対して検証し、ユーザー ID と監査を行います。無効にするとネットワークの ACL ポリシーのみに依存します。IdP が利用できない場合に便利です。"
+    },
+    "settings.ssh.jwtTtl.label": {
+        "message": "JWTキャッシュTTL"
+    },
+    "settings.ssh.jwtTtl.help": {
+        "message": "発信 SSH 接続で再度認証を求めるまでに、このクライアントが JWT をキャッシュする期間です。0 に設定するとキャッシュを無効にし、接続ごとに認証します。"
+    },
+    "settings.ssh.jwtTtl.suffix": {
+        "message": "秒"
+    },
+    "settings.advanced.section.interface": {
+        "message": "インターフェース"
+    },
+    "settings.advanced.section.security": {
+        "message": "セキュリティ"
+    },
+    "settings.advanced.interfaceName.label": {
+        "message": "名前"
+    },
+    "settings.advanced.interfaceName.error": {
+        "message": "1〜15文字の英字、数字、ドット、ハイフン、アンダースコアを使用してください。"
+    },
+    "settings.advanced.interfaceName.errorMac": {
+        "message": "「utun」に続けて数字で始まる必要があります（例: utun100）。"
+    },
+    "settings.advanced.port.label": {
+        "message": "ポート"
+    },
+    "settings.advanced.port.error": {
+        "message": "{min}〜{max}の範囲でポートを入力してください。"
+    },
+    "settings.advanced.port.help": {
+        "message": "0 に設定すると、ランダムな空きポートが使用されます。"
+    },
+    "settings.advanced.mtu.label": {
+        "message": "MTU"
+    },
+    "settings.advanced.mtu.error": {
+        "message": "{min}〜{max}の範囲で MTU 値を入力してください。"
+    },
+    "settings.advanced.psk.label": {
+        "message": "事前共有鍵"
+    },
+    "settings.advanced.psk.help": {
+        "message": "追加の対称暗号化のためのオプションの WireGuard PSK です。NetBird セットアップキーとは異なります。同じ事前共有鍵を使用するピアとのみ通信できます。"
+    },
+    "settings.troubleshooting.section.title": {
+        "message": "デバッグバンドル"
+    },
+    "settings.troubleshooting.anonymize.label": {
+        "message": "機密情報を匿名化"
+    },
+    "settings.troubleshooting.anonymize.help": {
+        "message": "ログからパブリック IP アドレスと NetBird 以外のドメインを隠します。"
+    },
+    "settings.troubleshooting.systemInfo.label": {
+        "message": "システム情報を含める"
+    },
+    "settings.troubleshooting.systemInfo.help": {
+        "message": "OS、カーネル、ネットワークインターフェース、ルーティングテーブルを含めます。"
+    },
+    "settings.troubleshooting.upload.label": {
+        "message": "バンドルを NetBird サーバーにアップロード"
+    },
+    "settings.troubleshooting.upload.help": {
+        "message": "NetBird サポートと共有するためのアップロードキーを返します。"
+    },
+    "settings.troubleshooting.trace.label": {
+        "message": "トレースログを有効にする"
+    },
+    "settings.troubleshooting.trace.help": {
+        "message": "ログレベルを TRACE に引き上げ、その後元に戻します。"
+    },
+    "settings.troubleshooting.capture.label": {
+        "message": "キャプチャセッション"
+    },
+    "settings.troubleshooting.capture.help": {
+        "message": "再接続して待機し、問題を再現できるようにします。"
+    },
+    "settings.troubleshooting.packets.label": {
+        "message": "ネットワークパケットをキャプチャ"
+    },
+    "settings.troubleshooting.packets.help": {
+        "message": "キャプチャ期間中のネットワークトラフィックを .pcap として保存します。"
+    },
+    "settings.troubleshooting.duration.label": {
+        "message": "キャプチャ時間"
+    },
+    "settings.troubleshooting.duration.help": {
+        "message": "キャプチャセッションを実行する時間です。"
+    },
+    "settings.troubleshooting.duration.suffix": {
+        "message": "分"
+    },
+    "settings.troubleshooting.create": {
+        "message": "バンドルを作成"
+    },
+    "settings.troubleshooting.progress.description": {
+        "message": "ログ、システムの詳細、接続状態を収集しています。通常はしばらくで完了します。完了するまで NetBird を使い続けても、設定を閉じても構いません。"
+    },
+    "settings.troubleshooting.cancelling": {
+        "message": "キャンセル中…"
+    },
+    "settings.troubleshooting.done.uploadedTitle": {
+        "message": "デバッグバンドルのアップロードに成功しました！"
+    },
+    "settings.troubleshooting.done.savedTitle": {
+        "message": "バンドルを保存しました"
+    },
+    "settings.troubleshooting.done.uploadedDescription": {
+        "message": "下記のアップロードキーを <docs>NetBird サポート</docs> と共有してください。ローカルコピーもお使いのデバイスに保存されました。"
+    },
+    "settings.troubleshooting.done.savedDescription": {
+        "message": "デバッグバンドルはローカルに保存されました。"
+    },
+    "settings.troubleshooting.done.copyKey": {
+        "message": "キーをコピー"
+    },
+    "settings.troubleshooting.done.openFolder": {
+        "message": "フォルダを開く"
+    },
+    "settings.troubleshooting.done.openFileLocation": {
+        "message": "ファイルの場所を開く"
+    },
+    "settings.troubleshooting.uploadFailedWithReason": {
+        "message": "アップロードに失敗しました: {reason} バンドルはローカルに保存されています。"
+    },
+    "settings.troubleshooting.uploadFailed": {
+        "message": "アップロードに失敗しました。バンドルはローカルに保存されています。"
+    },
+    "settings.troubleshooting.stage.reconnecting": {
+        "message": "NetBird を再接続しています…"
+    },
+    "settings.troubleshooting.stage.capturing": {
+        "message": "デバッグログをキャプチャしています"
+    },
+    "settings.troubleshooting.stage.bundling": {
+        "message": "デバッグバンドルを生成しています…"
+    },
+    "settings.troubleshooting.stage.uploading": {
+        "message": "NetBird にアップロードしています…"
+    },
+    "settings.troubleshooting.stage.cancelling": {
+        "message": "キャンセル中…"
+    },
+    "settings.about.client": {
+        "message": "NetBird Client v{version}"
+    },
+    "settings.about.clientName": {
+        "message": "NetBird Client"
+    },
+    "settings.about.development": {
+        "message": "[開発版]"
+    },
+    "settings.about.gui": {
+        "message": "GUI v{version}"
+    },
+    "settings.about.guiName": {
+        "message": "GUI"
+    },
+    "settings.about.copyright": {
+        "message": "© {year} NetBird. All Rights Reserved."
+    },
+    "settings.about.links.imprint": {
+        "message": "運営者情報"
+    },
+    "settings.about.links.privacy": {
+        "message": "プライバシー"
+    },
+    "settings.about.links.cla": {
+        "message": "CLA"
+    },
+    "settings.about.links.terms": {
+        "message": "利用規約"
+    },
+    "settings.about.community.github": {
+        "message": "GitHub"
+    },
+    "settings.about.community.slack": {
+        "message": "Slack"
+    },
+    "settings.about.community.forum": {
+        "message": "フォーラム"
+    },
+    "settings.about.community.documentation": {
+        "message": "ドキュメント"
+    },
+    "settings.about.community.feedback": {
+        "message": "フィードバック"
+    },
+    "update.banner.message": {
+        "message": "NetBird {version} をインストールする準備ができました。"
+    },
+    "update.banner.later": {
+        "message": "後で"
+    },
+    "update.banner.installNow": {
+        "message": "今すぐインストール"
+    },
+    "update.card.versionAvailableDownload": {
+        "message": "バージョン {version} がダウンロード可能です。"
+    },
+    "update.card.versionAvailableInstall": {
+        "message": "バージョン {version} がインストール可能です。"
+    },
+    "update.card.whatsNew": {
+        "message": "新機能は？"
+    },
+    "update.card.installNow": {
+        "message": "今すぐインストール"
+    },
+    "update.card.getInstaller": {
+        "message": "ダウンロード"
+    },
+    "update.card.autoCheckInterval": {
+        "message": "NetBird はバックグラウンドで更新を確認します。"
+    },
+    "update.card.changelog": {
+        "message": "変更履歴"
+    },
+    "update.card.onLatestVersion": {
+        "message": "最新バージョンを使用しています"
+    },
+    "update.header.tooltip": {
+        "message": "更新が利用可能"
+    },
+    "update.overlay.updatingVersion": {
+        "message": "NetBird を v{version} に更新しています"
+    },
+    "update.overlay.updating": {
+        "message": "NetBird を更新しています"
+    },
+    "update.overlay.description": {
+        "message": "新しいバージョンが利用可能で、インストール中です。更新が完了すると NetBird は自動的に再起動します。"
+    },
+    "update.overlay.error.timeoutTitle": {
+        "message": "更新に時間がかかっています"
+    },
+    "update.overlay.error.timeoutDescription": {
+        "message": "{target} のインストールに時間がかかりすぎ、完了しませんでした。"
+    },
+    "update.overlay.error.canceledTitle": {
+        "message": "更新が停止されました"
+    },
+    "update.overlay.error.canceledDescription": {
+        "message": "{target} への更新は完了前にキャンセルされました。"
+    },
+    "update.overlay.error.failTitle": {
+        "message": "更新をインストールできませんでした"
+    },
+    "update.overlay.error.failDescription": {
+        "message": "{target} をインストールできませんでした。"
+    },
+    "update.overlay.error.unknownMessage": {
+        "message": "不明なエラー"
+    },
+    "update.overlay.error.targetVersion": {
+        "message": "v{version}"
+    },
+    "update.overlay.error.targetFallback": {
+        "message": "新しいバージョン"
+    },
+    "update.error.loadStateTitle": {
+        "message": "更新状態の読み込みに失敗しました"
+    },
+    "update.error.triggerTitle": {
+        "message": "更新の開始に失敗しました"
+    },
+    "update.page.versionLine": {
+        "message": "クライアントを次のバージョンに更新しています: {version}。"
+    },
+    "update.page.versionLineGeneric": {
+        "message": "クライアントを更新しています。"
+    },
+    "update.page.outdated": {
+        "message": "クライアントのバージョンが、管理サーバーで設定された自動更新バージョンより古くなっています。"
+    },
+    "update.page.status.running": {
+        "message": "更新中"
+    },
+    "update.page.status.timeout": {
+        "message": "更新がタイムアウトしました。もう一度お試しください。"
+    },
+    "update.page.status.canceled": {
+        "message": "更新がキャンセルされました。"
+    },
+    "update.page.status.failed": {
+        "message": "更新に失敗しました: {message}"
+    },
+    "update.page.status.unknownError": {
+        "message": "不明な更新エラー"
+    },
+    "update.page.failedTitle": {
+        "message": "更新に失敗しました"
+    },
+    "update.page.timeoutMessage": {
+        "message": "更新がタイムアウトしました。"
+    },
+    "update.page.dontClose": {
+        "message": "このウィンドウを閉じないでください。"
+    },
+    "update.page.updating": {
+        "message": "更新中…"
+    },
+    "update.page.complete": {
+        "message": "更新が完了しました"
+    },
+    "update.page.failed": {
+        "message": "更新に失敗しました"
+    },
+    "window.title.settings": {
+        "message": "設定"
+    },
+    "window.title.signIn": {
+        "message": "サインイン"
+    },
+    "window.title.sessionExpiration": {
+        "message": "セッションの期限切れ"
+    },
+    "window.title.updating": {
+        "message": "更新中"
+    },
+    "window.title.welcome": {
+        "message": "NetBird へようこそ"
+    },
+    "window.title.error": {
+        "message": "エラー"
+    },
+    "welcome.title": {
+        "message": "トレイの NetBird を確認してください"
+    },
+    "welcome.description": {
+        "message": "NetBird はトレイに常駐します。アイコンをクリックして、接続、プロファイルの切り替え、設定を開くことができます。"
+    },
+    "welcome.continue": {
+        "message": "続ける"
+    },
+    "welcome.back": {
+        "message": "戻る"
+    },
+    "welcome.management.title": {
+        "message": "NetBird をセットアップ"
+    },
+    "welcome.management.description": {
+        "message": "「続ける」をクリックして開始するか、独自の NetBird サーバーをお持ちの場合は「セルフホスト」を選択してください。"
+    },
+    "welcome.management.cloud.title": {
+        "message": "NetBird Cloud"
+    },
+    "welcome.management.cloud.description": {
+        "message": "当社のホスト型サービスを使用します。セットアップは不要です。"
+    },
+    "welcome.management.selfHosted.title": {
+        "message": "セルフホスト"
+    },
+    "welcome.management.selfHosted.description": {
+        "message": "独自の管理サーバーに接続します。"
+    },
+    "welcome.management.urlLabel": {
+        "message": "管理サーバーのURL"
+    },
+    "welcome.management.urlPlaceholder": {
+        "message": "https://netbird.selfhosted.com:443"
+    },
+    "welcome.management.urlInvalid": {
+        "message": "有効なURLを入力してください（例: https://netbird.selfhosted.com:443）"
+    },
+    "welcome.management.urlUnreachable": {
+        "message": "このサーバーに到達できませんでした。URLまたはネットワークを確認し、正しいことが確実な場合は続行してください。"
+    },
+    "welcome.management.checking": {
+        "message": "確認中…"
+    },
+    "browserLogin.title": {
+        "message": "ブラウザでログインを完了してください"
+    },
+    "browserLogin.notSeeing": {
+        "message": "サインインを完了できるようブラウザのタブを開きました。表示されませんか？"
+    },
+    "browserLogin.tryAgain": {
+        "message": "再試行"
+    },
+    "browserLogin.openFailedTitle": {
+        "message": "ブラウザの起動に失敗しました"
+    },
+    "sessionExpiration.title": {
+        "message": "まもなくセッションが期限切れになります"
+    },
+    "sessionExpiration.titleLater": {
+        "message": "セッションが期限切れになります"
+    },
+    "sessionExpiration.description": {
+        "message": "このデバイスはまもなく切断されます。ブラウザでのサインインで更新してください。"
+    },
+    "sessionExpiration.descriptionLater": {
+        "message": "ブラウザでサインインすると、このデバイスがネットワークに接続されたままになります。"
+    },
+    "sessionExpiration.stay": {
+        "message": "セッションを更新"
+    },
+    "sessionExpiration.authenticate": {
+        "message": "認証"
+    },
+    "sessionExpiration.logout": {
+        "message": "ログアウト"
+    },
+    "sessionExpiration.expired": {
+        "message": "セッションが期限切れになりました"
+    },
+    "sessionExpiration.expiredDescription": {
+        "message": "デバイスが切断されました。再接続するにはブラウザでサインインして認証してください。"
+    },
+    "sessionExpiration.close": {
+        "message": "閉じる"
+    },
+    "sessionExpiration.extendFailedTitle": {
+        "message": "セッションの延長に失敗しました"
+    },
+    "sessionExpiration.logoutFailedTitle": {
+        "message": "ログアウトに失敗しました"
+    },
+    "peers.search.placeholder": {
+        "message": "名前または IP で検索"
+    },
+    "peers.filter.all": {
+        "message": "すべて"
+    },
+    "peers.filter.online": {
+        "message": "オンライン"
+    },
+    "peers.filter.offline": {
+        "message": "オフライン"
+    },
+    "peers.empty.title": {
+        "message": "利用可能なピアがありません"
+    },
+    "peers.empty.description": {
+        "message": "利用可能なピアがないか、いずれのピアにもアクセス権がありません。"
+    },
+    "peers.details.domain": {
+        "message": "ドメイン"
+    },
+    "peers.details.netbirdIp": {
+        "message": "NetBird IP"
+    },
+    "peers.details.netbirdIpv6": {
+        "message": "NetBird IPv6"
+    },
+    "peers.details.publicKey": {
+        "message": "公開鍵"
+    },
+    "peers.details.connection": {
+        "message": "接続"
+    },
+    "peers.details.latency": {
+        "message": "レイテンシ"
+    },
+    "peers.details.lastHandshake": {
+        "message": "最終ハンドシェイク"
+    },
+    "peers.details.statusSince": {
+        "message": "最終接続更新"
+    },
+    "peers.details.bytes": {
+        "message": "バイト"
+    },
+    "peers.details.bytesSent": {
+        "message": "送信"
+    },
+    "peers.details.bytesReceived": {
+        "message": "受信"
+    },
+    "peers.details.localIce": {
+        "message": "ローカル ICE"
+    },
+    "peers.details.remoteIce": {
+        "message": "リモート ICE"
+    },
+    "peers.details.never": {
+        "message": "なし"
+    },
+    "peers.details.justNow": {
+        "message": "たった今"
+    },
+    "peers.details.refresh": {
+        "message": "更新"
+    },
+    "peers.status.connected": {
+        "message": "接続済み"
+    },
+    "peers.status.connecting": {
+        "message": "接続中"
+    },
+    "peers.status.disconnected": {
+        "message": "未接続"
+    },
+    "peers.details.relayAddress": {
+        "message": "リレー"
+    },
+    "peers.details.networks": {
+        "message": "リソース"
+    },
+    "peers.details.relayed": {
+        "message": "リレー経由"
+    },
+    "peers.details.p2p": {
+        "message": "P2P"
+    },
+    "peers.details.rosenpass": {
+        "message": "Rosenpass 有効"
+    },
+    "networks.search.placeholder": {
+        "message": "ネットワークまたはドメインで検索"
+    },
+    "networks.filter.all": {
+        "message": "すべて"
+    },
+    "networks.filter.active": {
+        "message": "有効"
+    },
+    "networks.filter.overlapping": {
+        "message": "重複"
+    },
+    "networks.empty.title": {
+        "message": "利用可能なリソースがありません"
+    },
+    "networks.empty.description": {
+        "message": "利用可能なネットワークリソースがないか、いずれのリソースにもアクセス権がありません。"
+    },
+    "networks.selected": {
+        "message": "選択中"
+    },
+    "networks.unselected": {
+        "message": "未選択"
+    },
+    "networks.ips.heading": {
+        "message": "解決された IP"
+    },
+    "networks.bulk.selectionCount": {
+        "message": "{total}件中{selected}件有効"
+    },
+    "networks.bulk.enableAll": {
+        "message": "すべて有効化"
+    },
+    "networks.bulk.disableAll": {
+        "message": "すべて無効化"
+    },
+    "exitNodes.search.placeholder": {
+        "message": "出口ノードを検索"
+    },
+    "exitNodes.none": {
+        "message": "なし"
+    },
+    "exitNodes.empty.title": {
+        "message": "利用可能な出口ノードがありません"
+    },
+    "exitNodes.empty.description": {
+        "message": "このピアと共有されている出口ノードはありません。"
+    },
+    "exitNodes.card.title": {
+        "message": "出口ノード"
+    },
+    "exitNodes.card.statusActive": {
+        "message": "有効"
+    },
+    "exitNodes.card.statusInactive": {
+        "message": "無効"
+    },
+    "exitNodes.dropdown.noneTitle": {
+        "message": "なし"
+    },
+    "exitNodes.dropdown.noneDescription": {
+        "message": "出口ノードを使用しない直接接続"
+    },
+    "quickActions.connect": {
+        "message": "接続"
+    },
+    "quickActions.disconnect": {
+        "message": "切断"
+    },
+    "daemon.unavailable.title": {
+        "message": "NetBird サービスが実行されていません"
+    },
+    "daemon.unavailable.description": {
+        "message": "サービスが実行されると、アプリは自動的に再接続します。"
+    },
+    "daemon.unavailable.docsLink": {
+        "message": "ドキュメント"
+    },
+    "daemon.outdated.title": {
+        "message": "NetBird サービスが古くなっています"
+    },
+    "daemon.outdated.description": {
+        "message": "このアプリを使用するには NetBird サービスを更新してください。"
+    },
+    "error.jwt_clock_skew": {
+        "message": "サインインに失敗しました: このデバイスの時計がサーバーと同期していません。システムの時計を同期してからもう一度お試しください。"
+    },
+    "error.jwt_expired": {
+        "message": "サインイントークンの有効期限が切れました。もう一度サインインしてください。"
+    },
+    "error.jwt_signature_invalid": {
+        "message": "サインインに失敗しました: トークンの署名が無効です。管理者にお問い合わせください。"
+    },
+    "error.session_expired": {
+        "message": "セッションの有効期限が切れました。もう一度サインインしてください。"
+    },
+    "error.invalid_setup_key": {
+        "message": "セットアップキーがないか、無効です。"
+    },
+    "error.permission_denied": {
+        "message": "サインインがサーバーによって拒否されました。"
+    },
+    "error.daemon_unreachable": {
+        "message": "NetBird デーモンが応答していません。サービスが実行されているか確認してください。"
+    },
+    "error.unknown": {
+        "message": "操作に失敗しました。"
+    }
+}
