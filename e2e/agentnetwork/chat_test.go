@@ -91,7 +91,7 @@ func availableProviders() []providerCase {
 		if region == "" {
 			region = "us-east-1"
 		}
-		ps = append(ps, providerCase{name: "bedrock", catalogID: "bedrock_api", upstream: "https://bedrock-runtime." + region + ".amazonaws.com", apiKey: k, model: "us.anthropic.claude-haiku-4-5", kind: harness.WireMessages})
+		ps = append(ps, providerCase{name: "bedrock", catalogID: "bedrock_api", upstream: "https://bedrock-runtime." + region + ".amazonaws.com", apiKey: k, model: "us.anthropic.claude-haiku-4-5", kind: harness.WireBedrock})
 	}
 	return ps
 }
@@ -224,9 +224,12 @@ func TestProvidersMatrix(t *testing.T) {
 				var c int
 				var b string
 				var cerr error
-				if pc.kind == harness.WireVertex {
+				switch pc.kind {
+				case harness.WireVertex:
 					c, b, cerr = cl.Vertex(ctx, settings.Endpoint, proxyIP, pc.project, pc.region, pc.model, "Reply with exactly: pong", sessionID)
-				} else {
+				case harness.WireBedrock:
+					c, b, cerr = cl.Bedrock(ctx, settings.Endpoint, proxyIP, pc.model, "Reply with exactly: pong", sessionID)
+				default:
 					c, b, cerr = cl.Chat(ctx, settings.Endpoint, proxyIP, pc.kind, pc.model, "Reply with exactly: pong", sessionID)
 				}
 				if cerr == nil {
