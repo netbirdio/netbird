@@ -91,7 +91,14 @@ func availableProviders() []providerCase {
 		if region == "" {
 			region = "us-east-1"
 		}
-		ps = append(ps, providerCase{name: "bedrock", catalogID: "bedrock_api", upstream: "https://bedrock-runtime." + region + ".amazonaws.com", apiKey: k, model: "us.anthropic.claude-haiku-4-5", kind: harness.WireBedrock})
+		// A valid Bedrock inference-profile id (region prefix + date + version),
+		// overridable per account. `global.` profiles are invokable from any
+		// region; set AWS_BEDROCK_MODEL to match the enabled profile for the token.
+		model := os.Getenv("AWS_BEDROCK_MODEL")
+		if model == "" {
+			model = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+		}
+		ps = append(ps, providerCase{name: "bedrock", catalogID: "bedrock_api", upstream: "https://bedrock-runtime." + region + ".amazonaws.com", apiKey: k, model: model, kind: harness.WireBedrock})
 	}
 	return ps
 }

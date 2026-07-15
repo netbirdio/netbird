@@ -4,6 +4,7 @@ package agentnetwork
 
 import (
 	"context"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -15,13 +16,29 @@ import (
 	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
+// bedrockRegionPrefixes and bedrockVersionSuffix mirror the proxy's Bedrock
+// model normalization (region/inference-profile prefix + version suffix) so the
+// provider is registered under the same catalog key the router matches against.
+var (
+	bedrockRegionPrefixes = []string{"us.", "eu.", "apac.", "global."}
+	bedrockVersionSuffix  = regexp.MustCompile(`-(\d{8}-)?v\d+(:\d+)?$`)
+)
+
 // catalogModel returns the normalized catalog id the proxy stamps for a
-// path-routed provider's configured model — the form the guardrail allowlist is
-// compared against (region prefix / @version stripped).
+// path-routed provider's configured model — the form the router and guardrail
+// allowlist compare against (Bedrock region prefix + version stripped, Vertex
+// @version stripped).
 func catalogModel(pc providerCase) string {
 	switch pc.kind {
 	case harness.WireBedrock:
-		return strings.TrimPrefix(pc.model, "us.")
+		m := pc.model
+		for _, p := range bedrockRegionPrefixes {
+			if strings.HasPrefix(m, p) {
+				m = m[len(p):]
+				break
+			}
+		}
+		return bedrockVersionSuffix.ReplaceAllString(m, "")
 	case harness.WireVertex:
 		return strings.SplitN(pc.model, "@", 2)[0]
 	default:
