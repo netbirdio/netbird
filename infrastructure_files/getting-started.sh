@@ -206,6 +206,20 @@ read_proxy_docker_network() {
   return 0
 }
 
+read_npm_upstream_host() {
+  echo "" > /dev/stderr
+  echo "Enter the hostname or IP address where the NetBird containers are reachable from NPM." > /dev/stderr
+  echo -n "NetBird upstream host: " > /dev/stderr
+  read -r HOST < /dev/tty
+  if [[ -z "$HOST" ]]; then
+    echo "An upstream host is required when NPM runs on another host." > /dev/stderr
+    read_npm_upstream_host
+    return
+  fi
+  echo "$HOST"
+  return 0
+}
+
 read_enable_proxy() {
   echo "" > /dev/stderr
   echo "Do you want to enable the NetBird Proxy service?" > /dev/stderr
@@ -366,6 +380,7 @@ initialize_default_values() {
   DASHBOARD_HOST_PORT="8080"
   MANAGEMENT_HOST_PORT="8081"  # Combined server port (management + signal + relay)
   BIND_LOCALHOST_ONLY="true"
+  NPM_UPSTREAM_HOST="127.0.0.1"
   EXTERNAL_PROXY_NETWORK=""
 
   # Traefik static IP within the internal bridge network
@@ -463,7 +478,12 @@ configure_reverse_proxy() {
   # Handle Docker network prompts for external proxies (options 2-4)
   case "$REVERSE_PROXY_TYPE" in
     2) EXTERNAL_PROXY_NETWORK=$(read_proxy_docker_network "Nginx") ;;
-    3) EXTERNAL_PROXY_NETWORK=$(read_proxy_docker_network "Nginx Proxy Manager") ;;
+    3)
+      EXTERNAL_PROXY_NETWORK=$(read_proxy_docker_network "Nginx Proxy Manager")
+      if [[ "$BIND_LOCALHOST_ONLY" == "false" && -z "$EXTERNAL_PROXY_NETWORK" ]]; then
+        NPM_UPSTREAM_HOST=$(read_npm_upstream_host)
+      fi
+      ;;
     4) EXTERNAL_PROXY_NETWORK=$(read_proxy_docker_network "Caddy") ;;
     *) ;; # No network prompt for other options
   esac
@@ -1306,7 +1326,7 @@ EOF
 }
 
 render_npm_advanced_config() {
-  local upstream_host=$(get_upstream_host)
+  local upstream_host="$NPM_UPSTREAM_HOST"
   local server_addr="${upstream_host}:${MANAGEMENT_HOST_PORT}"
 
   # If external network is specified, use container names instead of host addresses
@@ -1317,6 +1337,7 @@ render_npm_advanced_config() {
   cat <<EOF
 # Advanced Configuration for Nginx Proxy Manager
 # Paste this into the "Advanced" tab of your Proxy Host configuration
+# NetBird upstream host: ${upstream_host}
 #
 # IMPORTANT: Enable "HTTP/2 Support" in the SSL tab for gRPC to work!
 
@@ -1504,7 +1525,7 @@ print_nginx_instructions() {
 
 print_npm_instructions() {
   local bind_addr=$(get_bind_address)
-  local upstream_host=$(get_upstream_host)
+  local upstream_host="$NPM_UPSTREAM_HOST"
   echo ""
   echo "$MSG_SEPARATOR"
   echo "  NGINX PROXY MANAGER SETUP"
