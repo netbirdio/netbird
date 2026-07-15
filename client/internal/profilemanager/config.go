@@ -89,13 +89,14 @@ type ConfigInput struct {
 	ClientCertPath                string
 	ClientCertKeyPath             string
 
-	DisableClientRoutes *bool
-	DisableServerRoutes *bool
-	DisableDNS          *bool
-	DisableFirewall     *bool
-	BlockLANAccess      *bool
-	BlockInbound        *bool
-	DisableIPv6         *bool
+	DisableClientRoutes        *bool
+	DisableServerRoutes        *bool
+	DisableDNS                 *bool
+	DisableFirewall            *bool
+	BlockLANAccess             *bool
+	BlockInbound               *bool
+	DisableIPv6                *bool
+	DisableComponentNetworkMap *bool
 
 	DisableNotifications *bool
 
@@ -585,6 +586,12 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 	if input.DisableIPv6 != nil && *input.DisableIPv6 != config.DisableIPv6 {
 		log.Infof("setting IPv6 overlay disabled=%v", *input.DisableIPv6)
 		config.DisableIPv6 = *input.DisableIPv6
+		updated = true
+	}
+
+	if input.DisableComponentNetworkMap != nil && *input.DisableComponentNetworkMap != config.DisableComponentNetworkMap {
+		log.Infof("setting ComponentNetworkMap disabled=%v", *input.DisableComponentNetworkMap)
+		config.DisableComponentNetworkMap = *input.DisableComponentNetworkMap
 		updated = true
 	}
 
