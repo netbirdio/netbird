@@ -1025,7 +1025,11 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 		SyncMessageVersionsFromString(s.perAccountOrGlobalSyncMessageVersions(peer.AccountID)),
 		SyncMessageVersionsFromProtoEnums(peer.Meta.Capabilities))
 
-	log.WithField("sync_message_version", commonSyncMessageVersions[0]).Debug("common highest sync message version")
+	log.WithFields(
+		log.Fields{
+			"sync_message_version": commonSyncMessageVersions[0],
+			"peer_id":              peer.ID,
+		}).Debug("common highest sync message version")
 
 	if commonSyncMessageVersions[0] == ComponentNetworkMap {
 		// Capable peer: discard the legacy NetworkMap that SyncAndMarkPeer

@@ -236,7 +236,11 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 				c.perAccountOrGlobalSupportedSyncMessageVersions(accountID),
 				grpc.SyncMessageVersionsFromProtoEnums(peer.Meta.Capabilities))
 
-			log.WithField("sync_message_version", commonSyncMessageVersions[0]).Debug("common highest sync message version")
+			log.WithFields(
+				log.Fields{
+					"sync_message_version": commonSyncMessageVersions[0],
+					"peer_id":              peer.ID,
+				}).Debug("common highest sync message version")
 
 			if commonSyncMessageVersions[0] == grpc.ComponentNetworkMap {
 				components := account.GetPeerNetworkMapComponents(
@@ -403,7 +407,11 @@ func (c *Controller) sendUpdateForAffectedPeers(ctx context.Context, accountID s
 				c.perAccountOrGlobalSupportedSyncMessageVersions(accountID),
 				grpc.SyncMessageVersionsFromProtoEnums(peer.Meta.Capabilities))
 
-			log.WithField("sync_message_version", commonSyncMessageVersions[0]).Debug("common highest sync message version")
+			log.WithFields(
+				log.Fields{
+					"sync_message_version": commonSyncMessageVersions[0],
+					"peer_id":              peer.ID,
+				}).Debug("common highest sync message version")
 
 			if commonSyncMessageVersions[0] == grpc.ComponentNetworkMap {
 				components := account.GetPeerNetworkMapComponents(
@@ -539,7 +547,11 @@ func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, pe
 		c.perAccountOrGlobalSupportedSyncMessageVersions(accountId),
 		grpc.SyncMessageVersionsFromProtoEnums(peer.Meta.Capabilities))
 
-	log.WithField("sync_message_version", commonSyncMessageVersions[0]).Debug("common highest sync message version")
+	log.WithFields(
+		log.Fields{
+			"sync_message_version": commonSyncMessageVersions[0],
+			"peer_id":              peer.ID,
+		}).Debug("common highest sync message version")
 
 	if commonSyncMessageVersions[0] == grpc.ComponentNetworkMap {
 		components := account.GetPeerNetworkMapComponents(
