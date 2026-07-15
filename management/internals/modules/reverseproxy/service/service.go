@@ -114,7 +114,7 @@ type MiddlewareConfig struct {
 }
 
 type Target struct {
-	ID            uint          `gorm:"primaryKey" json:"-"`
+	ID            uint          `gorm:"primaryKey;autoIncrement" json:"-"`
 	AccountID     string        `gorm:"index:idx_target_account;not null" json:"-"`
 	ServiceID     string        `gorm:"index:idx_service_targets;not null" json:"-"`
 	Path          *string       `json:"path,omitempty"`
