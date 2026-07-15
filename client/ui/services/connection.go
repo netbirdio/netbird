@@ -177,6 +177,17 @@ func (s *Connection) Down(ctx context.Context) error {
 	return nil
 }
 
+func (s *Connection) DownAsync(ctx context.Context) error {
+	cli, err := s.conn.Client()
+	if err != nil {
+		return err
+	}
+	if _, err = cli.DownAsync(ctx, &proto.DownAsyncRequest{}); err != nil {
+		return s.classifyDaemonError(err)
+	}
+	return nil
+}
+
 // OpenURL opens url in an external browser; the embedded webview blocks
 // window.open, so the SSO verification page can't pop inline. Honors $BROWSER
 // before the platform default.

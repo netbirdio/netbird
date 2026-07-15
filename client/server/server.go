@@ -1074,20 +1074,40 @@ func (s *Server) SwitchProfile(callerCtx context.Context, msg *proto.SwitchProfi
 }
 
 // Down engine work in the daemon.
-func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownResponse, error) {
+func (s *Server) Down(_ context.Context, _ *proto.DownRequest) (*proto.DownResponse, error) {
+	giveUpChan, err := s.beginDown()
+	if err != nil {
+		return nil, err
+	}
+	s.finishDown(giveUpChan)
+	return &proto.DownResponse{}, nil
+}
+
+func (s *Server) DownAsync(_ context.Context, _ *proto.DownAsyncRequest) (*proto.DownAsyncResponse, error) {
+	giveUpChan, err := s.beginDown()
+	if err != nil {
+		return nil, err
+	}
+	go s.finishDown(giveUpChan)
+	return &proto.DownAsyncResponse{}, nil
+}
+
+func (s *Server) beginDown() (chan struct{}, error) {
 	s.mutex.Lock()
+	defer s.mutex.Unlock()
 
 	giveUpChan := s.clientGiveUpChan
 
 	if err := s.cleanupConnection(); err != nil {
-		s.mutex.Unlock()
 		// todo review to update the status in case any type of error
 		log.Errorf("failed to shut down properly: %v", err)
 		return nil, err
 	}
 
-	s.mutex.Unlock()
+	return giveUpChan, nil
+}
 
+func (s *Server) finishDown(giveUpChan chan struct{}) {
 	// Wait for the connectWithRetryRuns goroutine to finish with a short timeout.
 	// This prevents the goroutine from setting ErrResetConnection after Down() returns.
 	// The giveUpChan is closed by the goroutine's deferred cleanup (see
@@ -1116,8 +1136,6 @@ func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownRes
 	// failed to log in.
 	s.statusRecorder.MarkManagementDisconnected(nil)
 	s.statusRecorder.MarkSignalDisconnected(nil)
-
-	return &proto.DownResponse{}, nil
 }
 
 func (s *Server) cleanupConnection() error {
