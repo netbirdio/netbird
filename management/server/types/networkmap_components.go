@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/netbirdio/netbird/client/ssh/auth"
@@ -43,7 +44,8 @@ type NetworkMapComponents struct {
 
 	RouterPeers map[string]*nbpeer.Peer
 
-	routesByPeerIdx map[string][]routeIndexEntry
+	routesByPeerOnce sync.Once
+	routesByPeerIdx  map[string][]routeIndexEntry
 }
 
 type routeIndexEntry struct {
@@ -540,7 +542,6 @@ func (c *NetworkMapComponents) getRoutingPeerRoutes(peerID string) (enabledRoute
 	for _, entry := range c.routesByPeer()[peerID] {
 		if entry.viaGroup {
 			newPeerRoute := entry.route.Copy()
-			newPeerRoute.Peer = peerID
 			newPeerRoute.PeerGroups = nil
 			newPeerRoute.ID = route.ID(string(entry.route.ID) + ":" + peerID)
 			takeRoute(newPeerRoute)
@@ -553,28 +554,26 @@ func (c *NetworkMapComponents) getRoutingPeerRoutes(peerID string) (enabledRoute
 }
 
 func (c *NetworkMapComponents) routesByPeer() map[string][]routeIndexEntry {
-	if c.routesByPeerIdx != nil {
-		return c.routesByPeerIdx
-	}
-
-	idx := make(map[string][]routeIndexEntry)
-	for _, r := range c.Routes {
-		for _, groupID := range r.PeerGroups {
-			group := c.GetGroupInfo(groupID)
-			if group == nil {
-				continue
+	c.routesByPeerOnce.Do(func() {
+		idx := make(map[string][]routeIndexEntry)
+		for _, r := range c.Routes {
+			for _, groupID := range r.PeerGroups {
+				group := c.GetGroupInfo(groupID)
+				if group == nil {
+					continue
+				}
+				for _, id := range group.Peers {
+					idx[id] = append(idx[id], routeIndexEntry{route: r, viaGroup: true})
+				}
 			}
-			for _, id := range group.Peers {
-				idx[id] = append(idx[id], routeIndexEntry{route: r, viaGroup: true})
+			if r.Peer != "" {
+				idx[r.Peer] = append(idx[r.Peer], routeIndexEntry{route: r})
 			}
 		}
-		if r.Peer != "" {
-			idx[r.Peer] = append(idx[r.Peer], routeIndexEntry{route: r})
-		}
-	}
+		c.routesByPeerIdx = idx
+	})
 
-	c.routesByPeerIdx = idx
-	return idx
+	return c.routesByPeerIdx
 }
 
 func (c *NetworkMapComponents) filterRoutesByGroups(routes []*route.Route, groupListMap LookupMap) []*route.Route {
