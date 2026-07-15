@@ -1,0 +1,1766 @@
+{
+    "tray.tooltip": {
+        "message": "NetBird",
+        "description": "Hover tooltip on the system-tray / menu-bar icon. Brand name — do not translate."
+    },
+    "tray.status.disconnected": {
+        "message": "מנותק",
+        "description": "Connection status surfaced through the tray icon: the client is not connected to the network."
+    },
+    "tray.status.daemonUnavailable": {
+        "message": "לא פעיל",
+        "description": "Tray status: the background NetBird service (daemon) is not running."
+    },
+    "tray.status.error": {
+        "message": "שגיאה",
+        "description": "Tray status: the client is in an error state."
+    },
+    "tray.status.connected": {
+        "message": "מחובר",
+        "description": "Tray status: connected to the NetBird network."
+    },
+    "tray.status.connecting": {
+        "message": "מתחבר",
+        "description": "Tray status: a connection is being established."
+    },
+    "tray.status.needsLogin": {
+        "message": "צריך להיכנס",
+        "description": "Tray status: the user must sign in before connecting."
+    },
+    "tray.status.loginFailed": {
+        "message": "הכניסה נכשלה",
+        "description": "Tray status: the last sign-in attempt failed."
+    },
+    "tray.status.sessionExpired": {
+        "message": "תוקף ההפעלה פג",
+        "description": "Tray status: the authenticated session expired; the user must sign in again."
+    },
+    "tray.session.expiresIn": {
+        "message": "תוקף ההפעלה יפוג בעוד {remaining}",
+        "description": "Tray row showing time left before the session expires. {remaining} is a human-readable duration such as '5 minutes', built from the tray.session.unit.* strings. Keep {remaining} unchanged."
+    },
+    "tray.session.unit.lessThanMinute": {
+        "message": "פחות מדקה",
+        "description": "Duration fragment substituted into {remaining} (see tray.session.expiresIn). Used when under one minute remains."
+    },
+    "tray.session.unit.minute": {
+        "message": "דקה",
+        "description": "Duration fragment for exactly one minute, substituted into {remaining}."
+    },
+    "tray.session.unit.minutes": {
+        "message": "{count} דקות",
+        "description": "Duration fragment for several minutes, substituted into {remaining}. {count} is the number of minutes; keep {count}."
+    },
+    "tray.session.unit.hour": {
+        "message": "שעה",
+        "description": "Duration fragment for exactly one hour, substituted into {remaining}."
+    },
+    "tray.session.unit.hours": {
+        "message": "{count} שעות",
+        "description": "Duration fragment for several hours. {count} is the number of hours; keep {count}."
+    },
+    "tray.session.unit.day": {
+        "message": "יום",
+        "description": "Duration fragment for exactly one day, substituted into {remaining}."
+    },
+    "tray.session.unit.days": {
+        "message": "{count} ימים",
+        "description": "Duration fragment for several days. {count} is the number of days; keep {count}."
+    },
+    "tray.menu.open": {
+        "message": "פתיחת NetBird",
+        "description": "Tray menu item that opens the main NetBird window. Keep short."
+    },
+    "tray.menu.connect": {
+        "message": "התחברות",
+        "description": "Tray menu item that connects to the network. Keep short."
+    },
+    "tray.menu.disconnect": {
+        "message": "התנתקות",
+        "description": "Tray menu item that disconnects from the network. Keep short."
+    },
+    "tray.menu.exitNode": {
+        "message": "נקודת יציאה",
+        "description": "Tray submenu title for choosing an exit node (route all traffic through another peer)."
+    },
+    "tray.menu.networks": {
+        "message": "משאבים",
+        "description": "Tray submenu title listing network resources the user can reach. Labelled 'Resources' in the UI even though the key says networks."
+    },
+    "tray.menu.profiles": {
+        "message": "פרופילים",
+        "description": "Tray submenu title listing connection profiles."
+    },
+    "tray.menu.manageProfiles": {
+        "message": "ניהול פרופילים",
+        "description": "Tray menu item that opens Settings → Profiles."
+    },
+    "tray.menu.settings": {
+        "message": "הגדרות…",
+        "description": "Tray menu item that opens the Settings window. The trailing '...' signals that a window opens; keep it."
+    },
+    "tray.menu.debugBundle": {
+        "message": "יצירת מאגד ניפוי שגיאות",
+        "description": "Tray menu item that generates a diagnostic log bundle for support."
+    },
+    "tray.menu.about": {
+        "message": "עזרה ותמיכה",
+        "description": "Tray submenu title for help and support links."
+    },
+    "tray.menu.github": {
+        "message": "GitHub",
+        "description": "Tray menu link to the GitHub repository. Brand name — do not translate."
+    },
+    "tray.menu.documentation": {
+        "message": "תיעוד",
+        "description": "Tray menu link to the online documentation."
+    },
+    "tray.menu.troubleshoot": {
+        "message": "פתרון בעיות",
+        "description": "Tray menu link to troubleshooting help."
+    },
+    "tray.menu.downloadLatest": {
+        "message": "הורדת הגרסה העדכנית ביותר",
+        "description": "Tray menu item to download the latest available version."
+    },
+    "tray.menu.installVersion": {
+        "message": "התקנת גרסה {version}",
+        "description": "Tray menu item to install a specific update. {version} is a version number like 0.30.1; keep {version}."
+    },
+    "tray.menu.guiVersion": {
+        "message": "ממשק משתמש: {version}",
+        "description": "Tray menu row showing the installed UI version. 'GUI' = the graphical app. {version} is a version number; keep it."
+    },
+    "tray.menu.daemonVersion": {
+        "message": "סוכן: {version}",
+        "description": "Tray menu row showing the background-service version. 'Daemon' = the background NetBird service. {version} is a version number; keep it."
+    },
+    "tray.menu.versionUnknown": {
+        "message": "—",
+        "description": "Placeholder shown in version rows when the version can't be determined. It is an em dash — leave as-is."
+    },
+    "tray.menu.quit": {
+        "message": "יציאה מ־NetBird",
+        "description": "Tray menu item that fully exits the app and removes the tray icon. Keep short."
+    },
+    "notify.daemonOutdated.title": {
+        "message": "שירות NetBird אינו עדכני",
+        "description": "Title of the OS desktop notification shown when the running daemon is too old for this UI."
+    },
+    "notify.daemonOutdated.body": {
+        "message": "יש לעדכן את שירות NetBird כדי להשתמש ביישום הזה.",
+        "description": "Body of the desktop notification telling the user to upgrade the daemon."
+    },
+    "notify.update.title": {
+        "message": "יש עדכון ל־NetBird",
+        "description": "Title of the OS desktop notification shown when an app update is available."
+    },
+    "notify.update.body": {
+        "message": "יצא NetBird {version}.",
+        "description": "Body of the update-available desktop notification. {version} is the new version number; keep it."
+    },
+    "notify.update.enforcedSuffix": {
+        "message": "הנהלת המערכת דורשת ממך לעדכן לגרסה הזאת.",
+        "description": "Sentence appended to the update notification body when the admin has made the update mandatory. Note the leading space — keep it."
+    },
+    "notify.error.title": {
+        "message": "שגיאה",
+        "description": "Title of a generic error desktop notification."
+    },
+    "notify.error.connect": {
+        "message": "החיבור נכשל",
+        "description": "Error notification body shown when connecting failed."
+    },
+    "notify.error.disconnect": {
+        "message": "הניתוק נכשל",
+        "description": "Error notification body shown when disconnecting failed."
+    },
+    "notify.error.switchProfile": {
+        "message": "המעבר לפרופיל {profile} נכשל",
+        "description": "Error notification shown when switching profiles failed. {profile} is the target profile name; keep it."
+    },
+    "notify.error.exitNode": {
+        "message": "עדכון נקודת היציאה {name} נכשל",
+        "description": "Error notification shown when updating the exit node failed. {name} is the exit node name; keep it."
+    },
+    "notify.sessionExpired.title": {
+        "message": "תוקף הפעלת NetBird פג",
+        "description": "Title of the desktop notification shown when the session has expired."
+    },
+    "notify.sessionExpired.body": {
+        "message": "תוקף הפעלת ה־NetBird שלך פג. נא להיכנס למערכת שוב.",
+        "description": "Body of the session-expired desktop notification."
+    },
+    "notify.sessionWarning.title": {
+        "message": "תוקף ההפעלה יפוג בקרוב",
+        "description": "Title of the desktop notification warning that the session will expire soon."
+    },
+    "notify.sessionWarning.body": {
+        "message": "הפעלת ה־NetBird שלך תפוג בעוד {remaining}. לחיצה על להאריך כעת תחדש אותה.",
+        "description": "Body of the session-expiry warning notification. {remaining} is a human-readable duration (see tray.session.unit.*); keep it. 'Extend now' refers to the action button notify.sessionWarning.extend."
+    },
+    "notify.sessionWarning.bodyGeneric": {
+        "message": "תוקף הפעלת ה־NetBird שלך עומד לפוג. לחיצה על להאריך כעת תחדש אותו.",
+        "description": "Generic session-expiry warning body used when the exact remaining time isn't known."
+    },
+    "notify.sessionWarning.extend": {
+        "message": "להאריך כעת",
+        "description": "Action button on the session-expiry notification that renews the session. Keep short."
+    },
+    "notify.sessionWarning.dismiss": {
+        "message": "התעלמות",
+        "description": "Action button on the session-expiry notification that dismisses it. Keep short."
+    },
+    "notify.sessionWarning.failed": {
+        "message": "הארכת ההפעלה של NetBird נכשלה",
+        "description": "Notification shown when renewing the session failed."
+    },
+    "notify.sessionWarning.successTitle": {
+        "message": "ההפעלה של NetBird הוארכה",
+        "description": "Title of the notification confirming the session was renewed."
+    },
+    "notify.sessionWarning.successBody": {
+        "message": "ההפעלה שלך התרעננה.",
+        "description": "Body of the notification confirming the session was renewed."
+    },
+    "notify.sessionDeadlineRejected.title": {
+        "message": "מועד הסיום של ההפעלה נדחה",
+        "description": "Title of the notification shown when the server sent an invalid session deadline."
+    },
+    "notify.sessionDeadlineRejected.body": {
+        "message": "השרת שלח מועד סיום שגוי להפעלה. נא להיכנס שוב למערכת.",
+        "description": "Body explaining the server sent an invalid session deadline and the user must sign in again."
+    },
+    "notify.mdm.policyApplied.title": {
+        "message": "ההגדרות של NetBird עודכנו",
+        "description": "Title of the desktop notification shown when an MDM (IT-managed) policy changed the daemon configuration at runtime."
+    },
+    "notify.mdm.policyApplied.body": {
+        "message": "הגדרות ה־NetBird שלך עודכנו על ידי מדיניות צוות המחשוב שלך.",
+        "description": "Body of the MDM policy-applied notification, telling the user their settings were changed by their organization's device-management policy."
+    },
+    "common.cancel": {
+        "message": "ביטול",
+        "description": "Generic Cancel button label, reused across dialogs. Keep short."
+    },
+    "common.save": {
+        "message": "שמירה",
+        "description": "Generic Save button label. Keep short."
+    },
+    "common.saveChanges": {
+        "message": "שמירת השינויים",
+        "description": "Button label to save edited settings. Keep short."
+    },
+    "common.saving": {
+        "message": "שמירה…",
+        "description": "Button label / status shown while a save is in progress. Ends with an ellipsis."
+    },
+    "common.close": {
+        "message": "סגירה",
+        "description": "Generic Close button label. Keep short."
+    },
+    "common.copy": {
+        "message": "העתקת",
+        "description": "Generic Copy button label (copy to clipboard). Keep short."
+    },
+    "common.togglePasswordVisibility": {
+        "message": "הסתרת/חשיפת סיסמה",
+        "description": "Accessibility label for the show/hide button inside a password field."
+    },
+    "common.increase": {
+        "message": "הגדלה",
+        "description": "Accessibility label for the increment (+) button on a numeric stepper input."
+    },
+    "common.decrease": {
+        "message": "הקטנה",
+        "description": "Accessibility label for the decrement (−) button on a numeric stepper input."
+    },
+    "common.delete": {
+        "message": "מחיקה",
+        "description": "Generic Delete button label. Keep short."
+    },
+    "common.create": {
+        "message": "יצירה",
+        "description": "Generic Create button label. Keep short."
+    },
+    "common.add": {
+        "message": "הוספה",
+        "description": "Generic Add button label. Keep short."
+    },
+    "common.remove": {
+        "message": "הסרה",
+        "description": "Generic Remove button label. Keep short."
+    },
+    "common.refresh": {
+        "message": "ריענון",
+        "description": "Generic Refresh button label. Keep short."
+    },
+    "common.loading": {
+        "message": "בטעינה…",
+        "description": "Generic loading indicator text. Ends with an ellipsis."
+    },
+    "common.netbird": {
+        "message": "NetBird",
+        "description": "The product name. Brand — do not translate."
+    },
+    "common.noResults.title": {
+        "message": "לא ניתן למצוא תוצאות כלשהן.",
+        "description": "Title of the empty state shown when a search or filter returns nothing."
+    },
+    "common.noResults.description": {
+        "message": "לא הצלחנו למצוא אף תוצאות. נא לנסות ביטוי חיפוש אחר או לשנות את המסננים שלך.",
+        "description": "Body of the no-results empty state, suggesting a different search term or filters."
+    },
+    "notConnected.title": {
+        "message": "מנותק",
+        "description": "Title of the placeholder shown on data screens while disconnected."
+    },
+    "notConnected.description": {
+        "message": "יש להתחבר ל־NetBird תחילה כדי לצפות בפרטי פרטים על העמיתים, משאבי הרשת ונקודות היציאה שלך.",
+        "description": "Body explaining the user must connect to NetBird first to see peer, resource, and exit-node details."
+    },
+    "connect.status.disconnected": {
+        "message": "מנותק",
+        "description": "Label on the main-window connection toggle: not connected."
+    },
+    "connect.status.connecting": {
+        "message": "מתחבר…",
+        "description": "Connection toggle label while connecting. Ends with an ellipsis."
+    },
+    "connect.status.connected": {
+        "message": "מחובר",
+        "description": "Connection toggle label when connected."
+    },
+    "connect.status.disconnecting": {
+        "message": "מתנתק…",
+        "description": "Connection toggle label while disconnecting. Ends with an ellipsis."
+    },
+    "connect.status.daemonUnavailable": {
+        "message": "הסוכן לא זמין",
+        "description": "Connection toggle label when the background service is unavailable. 'Daemon' = background service."
+    },
+    "connect.status.loginRequired": {
+        "message": "נדרשת כניסה",
+        "description": "Connection toggle label when sign-in is required before connecting."
+    },
+    "connect.error.loginTitle": {
+        "message": "הכניסה נכשלה",
+        "description": "Error-dialog title shown when sign-in fails. The action-named '… Failed' style is intentional — keep it."
+    },
+    "connect.error.connectTitle": {
+        "message": "התחברות נכשלה",
+        "description": "Error-dialog title shown when connecting fails."
+    },
+    "connect.error.disconnectTitle": {
+        "message": "התנתקות נכשלה",
+        "description": "Error-dialog title shown when disconnecting fails."
+    },
+    "nav.peers.title": {
+        "message": "עמיתים",
+        "description": "Navigation label for the Peers section (other devices in the network)."
+    },
+    "nav.peers.description": {
+        "message": "{connected} מתוך {total} מחוברים",
+        "description": "Sub-label under Peers showing how many are connected. {connected} and {total} are numbers; keep both."
+    },
+    "nav.resources.title": {
+        "message": "משאבים",
+        "description": "Navigation label for the Resources section (routed networks)."
+    },
+    "nav.resources.description": {
+        "message": "{active} מתוך {total} פעילים",
+        "description": "Sub-label under Resources showing how many are active. {active} and {total} are numbers; keep both."
+    },
+    "nav.exitNode.title": {
+        "message": "נקודות יציאה",
+        "description": "Navigation label for the Exit Nodes section."
+    },
+    "nav.exitNode.none": {
+        "message": "לא פעיל",
+        "description": "Sub-label under Exit Nodes when no exit node is in use."
+    },
+    "nav.exitNode.using": {
+        "message": "דרך {name}",
+        "description": "Sub-label under Exit Nodes when one is active. {name} is the exit node's name; keep it."
+    },
+    "header.openSettings": {
+        "message": "פתיחת הגדרות",
+        "description": "Accessibility label / tooltip for the gear icon that opens Settings."
+    },
+    "header.togglePanel": {
+        "message": "הצגת/הסתרת לוח צד",
+        "description": "Accessibility label / tooltip for the button that shows or hides the side panel."
+    },
+    "profile.selector.loading": {
+        "message": "בטעינה…",
+        "description": "Shown in the profile picker while profiles load. Ends with an ellipsis."
+    },
+    "profile.selector.noProfile": {
+        "message": "אין פרופיל",
+        "description": "Shown in the profile picker when no profile is selected."
+    },
+    "profile.selector.searchPlaceholder": {
+        "message": "חיפוש פרופיל לפי שם…",
+        "description": "Placeholder text in the profile picker's search field."
+    },
+    "profile.selector.emptyTitle": {
+        "message": "לא נמצאו פרופילים",
+        "description": "Title shown in the profile picker when a search matches no profiles."
+    },
+    "profile.selector.emptyDescription": {
+        "message": "כדאי לנסות ביטוי אחר לחיפוש או ליצור פרופיל חדש.",
+        "description": "Body shown when no profiles match the search, suggesting a different term or creating one."
+    },
+    "profile.selector.newProfile": {
+        "message": "פרופיל חדש",
+        "description": "Button in the profile picker to create a new profile. Keep short."
+    },
+    "profile.selector.moreOptions": {
+        "message": "אפשרויות נוספות",
+        "description": "Accessibility label for the per-profile kebab (⋯) menu."
+    },
+    "profile.selector.deregister": {
+        "message": "ביטול רישום",
+        "description": "Per-profile menu action: deregister (sign out of the profile but keep it)."
+    },
+    "profile.selector.delete": {
+        "message": "מחיקה",
+        "description": "Per-profile menu action: delete the profile."
+    },
+    "profile.selector.switchTo": {
+        "message": "החלפה לפרופיל הזה",
+        "description": "Tooltip / label for the action that switches to a profile."
+    },
+    "profile.selector.edit": {
+        "message": "עריכה",
+        "description": "Per-profile menu action: open the edit dialog to rename or change the management server."
+    },
+    "profile.edit.title": {
+        "message": "עריכת פרופיל",
+        "description": "Title of the dialog for editing an existing profile."
+    },
+    "profile.edit.submit": {
+        "message": "שמירת השינויים",
+        "description": "Submit button on the edit-profile dialog. Keep short."
+    },
+    "profile.dialog.title": {
+        "message": "נא למלא שם פרופיל",
+        "description": "Title of the dialog for naming a new profile."
+    },
+    "profile.dialog.nameLabel": {
+        "message": "שם פרופיל",
+        "description": "Field label for the profile name."
+    },
+    "profile.dialog.description": {
+        "message": "הגדרת שם שניתן לזהות בקלות לפרופיל שלך.",
+        "description": "Helper text under the profile-name field."
+    },
+    "profile.dialog.placeholder": {
+        "message": "למשל: עבודה",
+        "description": "Example placeholder shown in the profile-name field. 'Work' is a sample value; translate it to a natural example."
+    },
+    "profile.dialog.submit": {
+        "message": "הוספת פרופיל",
+        "description": "Submit button on the add-profile dialog. Keep short."
+    },
+    "profile.dialog.required": {
+        "message": "נא למלא שם לפרופיל, למשל: עבודה, בית",
+        "description": "Validation message shown when the profile name is empty. The examples (work, home) may be localized."
+    },
+    "profile.dialog.managementHelp": {
+        "message": "אפשר להשתמש בענן של NetBird או בשרת משלך.",
+        "description": "Helper text noting the profile can use NetBird Cloud or a self-hosted server."
+    },
+    "profile.dialog.urlUnreachable": {
+        "message": "לא ניתן להגיע לשרת. נא לבדוק שהכתובת נכונה או להוסיף את הפרופיל בכל זאת אם ברור לך שהיא נכונה.",
+        "description": "Soft warning when the entered server URL couldn't be reached; the user may add the profile anyway."
+    },
+    "header.menu.settings": {
+        "message": "הגדרות…",
+        "description": "'More' menu item in the header that opens Settings. The trailing '...' signals a window opens."
+    },
+    "header.menu.defaultView": {
+        "message": "תצוגת ברירת מחדל",
+        "description": "'More' menu item that switches the main window to the compact default view."
+    },
+    "header.menu.advancedView": {
+        "message": "תצוגה מתקדמת",
+        "description": "'More' menu item that switches the main window to the wider advanced view."
+    },
+    "header.menu.updateAvailable": {
+        "message": "יש עדכון",
+        "description": "'More' menu item / badge shown when an update is available."
+    },
+    "header.menu.open": {
+        "message": "פתיחת התפריט",
+        "description": "Accessibility label for the header's more (⋮) button that opens the menu."
+    },
+    "header.profile.switch": {
+        "message": "החלפת פרופיל",
+        "description": "Accessibility label for the header's profile selector button."
+    },
+    "connect.toggle.label": {
+        "message": "החלפת מצב חיבור NetBird",
+        "description": "Accessibility label for the large connect/disconnect toggle on the main page."
+    },
+    "connect.localIp.label": {
+        "message": "כתובות IP מקומיות",
+        "description": "Accessibility label for the local IP selector that toggles between IPv4 and IPv6 on the main page."
+    },
+    "common.search": {
+        "message": "חיפוש",
+        "description": "Accessibility label for a generic search input."
+    },
+    "common.filter": {
+        "message": "סינון",
+        "description": "Accessibility label for a generic filter control."
+    },
+    "exitNodes.dropdown.trigger": {
+        "message": "בחירת נקודת יציאה",
+        "description": "Accessibility label for the exit-node picker button at the bottom of the main page."
+    },
+    "peers.row.label": {
+        "message": "פתיחת פרטים עבור {name}, {status}",
+        "description": "Accessibility label for a peer row in the list. {name} is the peer name and {status} is the connection status; keep both placeholders."
+    },
+    "peers.dialog.title": {
+        "message": "פרטי עמית",
+        "description": "Accessibility title (announced to screen readers) for the peer details dialog/panel."
+    },
+    "networks.row.toggle": {
+        "message": "להחליף את המצב של {name}",
+        "description": "Accessibility label for the row-wide toggle on a network/resource. {name} is the resource id; keep the placeholder."
+    },
+    "networks.bulk.label": {
+        "message": "להחליף את המצב של כל המשאבים הגלויים",
+        "description": "Accessibility label for the bulk enable/disable button at the bottom of the resources list."
+    },
+    "profile.switch.title": {
+        "message": "להחליף את הפרופיל כך שיהיה „{name}”?",
+        "description": "Confirmation-dialog title for switching profiles. {name} is the target profile name, shown in quotes; keep {name} and the surrounding quotes."
+    },
+    "profile.switch.message": {
+        "message": "להחליף פרופילים?\nהפרופיל הנוכחי שלך יתנתק.",
+        "description": "Confirmation body for switching profiles. Contains a line break (\\n) — keep it."
+    },
+    "profile.switch.confirm": {
+        "message": "אישור",
+        "description": "Confirm button on the switch-profile dialog. Keep short."
+    },
+    "profile.deregister.title": {
+        "message": "לבטל את רישום הפרופיל „{name}”?",
+        "description": "Confirmation-dialog title for deregistering a profile. {name} is the profile name; keep it and the quotes."
+    },
+    "profile.deregister.message": {
+        "message": "לבטל את רישום הפרופיל הזה?\nצריך להיכנס שוב כדי להשתמש בו.",
+        "description": "Confirmation body for deregistering; warns the user must sign in again. Contains a line break (\\n) — keep it."
+    },
+    "profile.deregister.confirm": {
+        "message": "לבטל רישום",
+        "description": "Confirm button on the deregister dialog. Keep short."
+    },
+    "profile.delete.title": {
+        "message": "למחוק את הפרופיל „{name}”?",
+        "description": "Confirmation-dialog title for deleting a profile. {name} is the profile name; keep it and the quotes."
+    },
+    "profile.delete.message": {
+        "message": "למחוק את הפרופיל הזה?\nזאת פעולה בלתי הפיכה.",
+        "description": "Confirmation body for deleting; warns the action can't be undone. Contains a line break (\\n) — keep it."
+    },
+    "profile.delete.disabledActive": {
+        "message": "לא ניתן למחוק פרופילים פעילים. יש להחליף לפרופיל אחר בטרם מחיקת הפרופיל הזה.",
+        "description": "Tooltip explaining the active profile can't be deleted until the user switches away."
+    },
+    "profile.delete.disabledDefault": {
+        "message": "לא ניתן למחוק את פרופיל ברירת המחדל.",
+        "description": "Tooltip explaining the default profile can't be deleted."
+    },
+    "profile.error.switchTitle": {
+        "message": "החלפת פרופיל נכשלה",
+        "description": "Error-dialog title when switching profiles fails."
+    },
+    "profile.error.deregisterTitle": {
+        "message": "ביטול רישום פרופיל נכשל",
+        "description": "Error-dialog title when deregistering a profile fails."
+    },
+    "profile.error.deleteTitle": {
+        "message": "מחיקת פרופיל נכשלה",
+        "description": "Error-dialog title when deleting a profile fails."
+    },
+    "profile.error.createTitle": {
+        "message": "יצירת פרופיל נכשלה",
+        "description": "Error-dialog title when creating a profile fails."
+    },
+    "profile.error.editTitle": {
+        "message": "עריכת פרופיל נכשלה",
+        "description": "Error-dialog title when editing a profile (rename or management URL change) fails."
+    },
+    "profile.error.loadTitle": {
+        "message": "טעינת פרופיל נכשלה",
+        "description": "Error-dialog title when loading profiles fails."
+    },
+    "profile.dropdown.activeProfile": {
+        "message": "הפרופיל הפעיל",
+        "description": "Section heading in the header profile dropdown for the current profile."
+    },
+    "profile.dropdown.switchProfile": {
+        "message": "החלפת פרופיל",
+        "description": "Section heading / action in the profile dropdown to switch profiles."
+    },
+    "profile.dropdown.noEmail": {
+        "message": "אחר",
+        "description": "Label shown for a profile that has no associated email address."
+    },
+    "profile.dropdown.addProfile": {
+        "message": "הוספת פרופיל",
+        "description": "Profile dropdown action to add a profile."
+    },
+    "profile.dropdown.manageProfiles": {
+        "message": "ניהול פרופילים",
+        "description": "Profile dropdown action that opens Settings → Profiles."
+    },
+    "profile.dropdown.settings": {
+        "message": "הגדרות",
+        "description": "Profile dropdown action that opens Settings."
+    },
+    "settings.profiles.section.profiles": {
+        "message": "פרופילים",
+        "description": "Section heading on the Profiles settings tab."
+    },
+    "settings.profiles.intro": {
+        "message": "להשאיר את זהויות ה־NetBird הנפרדות זו לצד זו, למשל חשבונות עבודה ופרטי או שרתי ניהול שונים. אפשר להוסיף, לבטל רישום או למחוק פרופילים להלן.",
+        "description": "Intro paragraph on the Profiles settings tab explaining what profiles are for."
+    },
+    "settings.profiles.addProfile": {
+        "message": "הוספת פרופיל",
+        "description": "Button on the Profiles settings tab to add a profile."
+    },
+    "settings.profiles.active": {
+        "message": "פעיל",
+        "description": "Badge marking the currently active profile in the profiles table."
+    },
+    "settings.profiles.emptyTitle": {
+        "message": "אין פרופילים",
+        "description": "Title of the empty state when there are no profiles."
+    },
+    "settings.profiles.emptyDescription": {
+        "message": "יש ליצור פרופיל כדי להתחבר לשרת ניהול של NetBird.",
+        "description": "Body of the no-profiles empty state."
+    },
+    "settings.error.loadTitle": {
+        "message": "טעינת ההגדרות נכשלה",
+        "description": "Error-dialog title when loading settings fails."
+    },
+    "settings.error.saveTitle": {
+        "message": "שמירת ההגדרות נכשלה",
+        "description": "Error-dialog title when saving settings fails."
+    },
+    "settings.error.debugBundleTitle": {
+        "message": "מאגד ניפוי השגיאות נכשל",
+        "description": "Error-dialog title when creating the debug bundle fails."
+    },
+    "settings.nav.label": {
+        "message": "סעיפי הגדרות",
+        "description": "Accessibility label for the Settings page's side navigation (list of section tabs)."
+    },
+    "settings.tabs.general": {
+        "message": "כללי",
+        "description": "Settings tab label: General. Keep short."
+    },
+    "settings.tabs.network": {
+        "message": "רשת",
+        "description": "Settings tab label: Network. Keep short."
+    },
+    "settings.tabs.security": {
+        "message": "אבטחה",
+        "description": "Settings tab label: Security. Keep short."
+    },
+    "settings.tabs.profiles": {
+        "message": "פרופילים",
+        "description": "Settings tab label: Profiles. Keep short."
+    },
+    "settings.tabs.ssh": {
+        "message": "SSH",
+        "description": "Settings tab label: SSH. Acronym — keep as-is."
+    },
+    "settings.tabs.advanced": {
+        "message": "מתקדם",
+        "description": "Settings tab label: Advanced. Keep short."
+    },
+    "settings.tabs.troubleshooting": {
+        "message": "פתרון בעיות",
+        "description": "Settings tab label: Troubleshoot. Keep short."
+    },
+    "settings.tabs.about": {
+        "message": "על אודות",
+        "description": "Settings tab label: About. Keep short."
+    },
+    "settings.tabs.updateAvailable": {
+        "message": "יש עדכון",
+        "description": "Settings tab label / badge shown when an update is available."
+    },
+    "settings.general.section.general": {
+        "message": "כללי",
+        "description": "Section heading on the General settings tab."
+    },
+    "settings.general.section.connection": {
+        "message": "חיבור",
+        "description": "Section heading for connection-related options on the General tab."
+    },
+    "settings.general.connectOnStartup.label": {
+        "message": "להתחבר עם העלייה",
+        "description": "Toggle label: connect automatically when the service starts."
+    },
+    "settings.general.connectOnStartup.help": {
+        "message": "להקים חיבור אוטומטית כשהשירות מופעל.",
+        "description": "Helper text for the connect-on-startup toggle."
+    },
+    "settings.general.notifications.label": {
+        "message": "התראות שולחן עבודה",
+        "description": "Toggle label: enable desktop notifications."
+    },
+    "settings.general.notifications.help": {
+        "message": "להציג התראות שולחן עבודה על עדכונים חדשים ואירועי חיבור.",
+        "description": "Helper text for the desktop-notifications toggle."
+    },
+    "settings.general.autostart.label": {
+        "message": "להפעיל את ממשק המשתמש של NetBird עם הכניסה למערכת",
+        "description": "Toggle label: launch the NetBird UI at login."
+    },
+    "settings.general.autostart.help": {
+        "message": "להפעיל את הממשק של NetBird אוטומטית עם הכניסה. הפעולה הזאת משפיעה על הממשק הגרפי בלבד, לא על שירות הרקע.",
+        "description": "Helper text clarifying autostart affects only the UI, not the background service."
+    },
+    "settings.general.autostart.errorTitle": {
+        "message": "שינוי בהפעלה האוטומטית נכשל",
+        "description": "Error-dialog title when changing the autostart setting fails."
+    },
+    "settings.general.language.label": {
+        "message": "שפת התצוגה",
+        "description": "Label for the display-language picker."
+    },
+    "settings.general.language.help": {
+        "message": "בחירת שפת הממשק של NetBird.",
+        "description": "Helper text for the language picker."
+    },
+    "settings.general.language.search": {
+        "message": "חיפוש שפה…",
+        "description": "Placeholder in the language picker's search field."
+    },
+    "settings.general.language.empty": {
+        "message": "אין שפות תואמות.",
+        "description": "Shown when no languages match the search."
+    },
+    "settings.general.management.label": {
+        "message": "שרת ניהול",
+        "description": "Label for the management-server selector."
+    },
+    "settings.general.management.help": {
+        "message": "אפשר להתחבר לענן של NetBird או לשרת ניהול באירוח שלך. שינויים יחברו את הלקוח מחדש.",
+        "description": "Helper text explaining Cloud vs self-hosted management server; warns that changes reconnect the client."
+    },
+    "settings.general.management.cloud": {
+        "message": "ענן",
+        "description": "Option label for using NetBird Cloud as the management server."
+    },
+    "settings.general.management.selfHosted": {
+        "message": "אירוח עצמי",
+        "description": "Option label for using a self-hosted management server. 'Self-hosted' is a common technical term."
+    },
+    "settings.general.management.urlPlaceholder": {
+        "message": "https://netbird.selfhosted.com:443",
+        "description": "Example URL placeholder for the self-hosted server field. It is a sample URL — do not translate the URL itself."
+    },
+    "settings.general.management.urlError": {
+        "message": "נא למלא כתובת תקפה, למשל, https://netbird.selfhosted.com:443",
+        "description": "Validation message for an invalid management-server URL. The example URL stays as-is."
+    },
+    "settings.general.management.urlUnreachable": {
+        "message": "לא ניתן להגיע לשרת הזה. נא לבדוק את הכתובת או לשמור בכל זאת אם ברור לך שהיא נכונה.",
+        "description": "Soft warning when the management URL couldn't be reached; the user may save anyway."
+    },
+    "settings.general.management.switchCloudTitle": {
+        "message": "לעבור לענן NetBird?",
+        "description": "Confirmation-dialog title for switching to NetBird Cloud."
+    },
+    "settings.general.management.switchCloudMessage": {
+        "message": "מנתק אותך מהשרת שלך באירוח עצמי.\nיתכן שיהיה עליך להיכנס למערכת שוב.",
+        "description": "Confirmation body warning the self-hosted server will be disconnected. Contains a line break (\\n) — keep it."
+    },
+    "settings.general.management.switchCloudConfirm": {
+        "message": "מעבר לענן",
+        "description": "Confirm button for switching to Cloud. Keep short."
+    },
+    "settings.network.section.connectivity": {
+        "message": "קישוריות",
+        "description": "Section heading for connectivity options on the Network tab."
+    },
+    "settings.network.section.routingDns": {
+        "message": "ניתוב ו־DNS",
+        "description": "Section heading for routing and DNS options. 'DNS' is an acronym — keep it."
+    },
+    "settings.network.monitor.label": {
+        "message": "להתחבר מחדש כשחל שינוי ברשת",
+        "description": "Toggle label: reconnect automatically on network change."
+    },
+    "settings.network.monitor.help": {
+        "message": "מעקב אחר הרשת כדי להתחבר מחדש עקב שינויים כגון מעבר רשת אלחוטית, שינויים בחיבור הקווי או התעוררות משינה.",
+        "description": "Helper text for the network-change reconnect toggle."
+    },
+    "settings.network.dns.label": {
+        "message": "הפעלת DNS",
+        "description": "Toggle label: enable DNS. 'DNS' — keep acronym."
+    },
+    "settings.network.dns.help": {
+        "message": "החלת הגדרות DNS בניהול NetBird לפותר שמות המארחים.",
+        "description": "Helper text for the enable-DNS toggle."
+    },
+    "settings.network.clientRoutes.label": {
+        "message": "הפעלת ניתובי לקוח",
+        "description": "Toggle label: enable client routes."
+    },
+    "settings.network.clientRoutes.help": {
+        "message": "קבלת ניתובים מעמיתים אחרים כדי להגיע לרשתות שלהם.",
+        "description": "Helper text for client routes (accept routes from other peers)."
+    },
+    "settings.network.serverRoutes.label": {
+        "message": "הפעלת ניתובי שרת",
+        "description": "Toggle label: enable server routes."
+    },
+    "settings.network.serverRoutes.help": {
+        "message": "לפרסם את הניתובים המקומיים של המארח הזה לעמיתים אחרים.",
+        "description": "Helper text for server routes (advertise this host's local routes to other peers)."
+    },
+    "settings.network.ipv6.label": {
+        "message": "הפעלת IPv6",
+        "description": "Toggle label: enable IPv6. 'IPv6' — keep as-is."
+    },
+    "settings.network.ipv6.help": {
+        "message": "להשתמש בחלוקת כתובות IPv6 לרשת שכבת העל של NetBird.",
+        "description": "Helper text for the IPv6 toggle."
+    },
+    "settings.security.section.firewall": {
+        "message": "חומת אש",
+        "description": "Section heading: Firewall."
+    },
+    "settings.security.section.encryption": {
+        "message": "הצפנה",
+        "description": "Section heading: Encryption."
+    },
+    "settings.security.blockInbound.label": {
+        "message": "חסימת תעבורה נכנסת",
+        "description": "Toggle label: block inbound traffic."
+    },
+    "settings.security.blockInbound.help": {
+        "message": "לדחות חיבורים שלא התבקשו מעמיתים למכשיר הזה ולרשתות כלשהן שהוא מנתב אליהן. אין השפעה על התקשורת היוצאת.",
+        "description": "Helper text for blocking inbound traffic."
+    },
+    "settings.security.blockLan.label": {
+        "message": "חסימת גישה לרשת המקומית",
+        "description": "Toggle label: block LAN access. 'LAN' — keep acronym."
+    },
+    "settings.security.blockLan.help": {
+        "message": "למנוע מעמיתים להגיע לרשת המקומית שלך או המכשירים שבה כאשר המכשיר הזה מנתב את התעבורה שלהם.",
+        "description": "Helper text for blocking LAN access."
+    },
+    "settings.security.rosenpass.label": {
+        "message": "הפעלת עמידות לפיענוח צפנים קוונטי",
+        "description": "Toggle label: enable quantum-resistance."
+    },
+    "settings.security.rosenpass.help": {
+        "message": "הוספת החלפת מפתחות עמידה לפיענוח צפנים קוונטי דרך Rosenpass על גבי WireGuard®.",
+        "description": "Helper text: adds a post-quantum key exchange via Rosenpass on top of WireGuard®. 'Rosenpass' and 'WireGuard®' are product names — do not translate; keep the ® symbol."
+    },
+    "settings.security.rosenpassPermissive.label": {
+        "message": "הפעלת מצב מתירני",
+        "description": "Toggle label: enable permissive mode (for quantum-resistance)."
+    },
+    "settings.security.rosenpassPermissive.help": {
+        "message": "לאפשר חיבורים לעמיתים ללא תמיכה בעמידות לפיענוח צפנים קוונטי.",
+        "description": "Helper text for permissive mode (allow peers without quantum-resistance support)."
+    },
+    "settings.ssh.section.server": {
+        "message": "שרת",
+        "description": "Section heading: Server (SSH settings)."
+    },
+    "settings.ssh.section.capabilities": {
+        "message": "יכולות",
+        "description": "Section heading: Capabilities (SSH features)."
+    },
+    "settings.ssh.section.authentication": {
+        "message": "אימות",
+        "description": "Section heading: Authentication (SSH)."
+    },
+    "settings.ssh.server.label": {
+        "message": "הפעלת שרת SSH",
+        "description": "Toggle label: enable the SSH server."
+    },
+    "settings.ssh.server.help": {
+        "message": "להריץ את שרת ה־SSH של NetBird על המארח הזה כדי שעמיתים אחרים יוכלו להתחבר אליו.",
+        "description": "Helper text for the SSH server toggle."
+    },
+    "settings.ssh.root.label": {
+        "message": "לאפשר כניסת ניהול (root)",
+        "description": "Toggle label: allow root login over SSH. 'root' is the Unix superuser account — keep as-is."
+    },
+    "settings.ssh.root.help": {
+        "message": "לאפשר לעמיתים להיכנס בתור משתמש הניהול. אפשר להשבית כדי לדרוש שזה יהיה חשבון ללא הרשאות מופלגות.",
+        "description": "Helper text for allowing root login."
+    },
+    "settings.ssh.sftp.label": {
+        "message": "לאפשר SFTP",
+        "description": "Toggle label: allow SFTP. 'SFTP' — keep acronym."
+    },
+    "settings.ssh.sftp.help": {
+        "message": "העברת קבצים בבטחה עם לקוחות מובנים של SFTP או SCP.",
+        "description": "Helper text about SFTP/SCP file transfer. Keep the acronyms."
+    },
+    "settings.ssh.localForward.label": {
+        "message": "העברת פתחה מקומית",
+        "description": "Toggle label: local port forwarding."
+    },
+    "settings.ssh.localForward.help": {
+        "message": "לאפשר לעמיתים שמתחברים לתעל פתחות מקומיות לשירותים שנגישים למארח הזה.",
+        "description": "Helper text for local port forwarding."
+    },
+    "settings.ssh.remoteForward.label": {
+        "message": "העברת פתחה מרוחקת",
+        "description": "Toggle label: remote port forwarding."
+    },
+    "settings.ssh.remoteForward.help": {
+        "message": "לאפשר לעמיתים שמתחברים לחשוף בפני המארח הזה פתחות שחוזרות למכונות שלהם.",
+        "description": "Helper text for remote port forwarding."
+    },
+    "settings.ssh.jwt.label": {
+        "message": "הפעלת אימות JWT",
+        "description": "Toggle label: enable JWT authentication. 'JWT' — keep acronym."
+    },
+    "settings.ssh.jwt.help": {
+        "message": "לאמת כל הפעלת SSH מול ספק הזהות (IdP) שלך לזהות המשתמש ולפיקוח. יש להשבית כדי לסמוך רק על מדיניויות ה־ACL (רשימת בקרת גישה) של הרשתות בלבד, שימושי כשאין ספק זהות (IdP) זמין.",
+        "description": "Helper text for JWT auth. 'IdP' (identity provider) and 'ACL' are acronyms — keep them."
+    },
+    "settings.ssh.jwtTtl.label": {
+        "message": "זמן חיי JWT במטמון (TTL)",
+        "description": "Label for the JWT cache time-to-live field. 'JWT' and 'TTL' — keep acronyms."
+    },
+    "settings.ssh.jwtTtl.help": {
+        "message": "כמה זמן הלקוח הזה שומר JWT במטמון בטרם הצגת בקשה חוזרת לחיבורי SSH יוצאים. יש להגדיר ל־0 כדי להשבית את המטמון ולעבור אימות עם כל חיבור מחדש.",
+        "description": "Helper text for the JWT cache TTL; mentions setting 0 to disable caching."
+    },
+    "settings.ssh.jwtTtl.suffix": {
+        "message": "שנייה/ות",
+        "description": "Unit suffix shown after the JWT TTL number field. The '(s)' marks an optional plural."
+    },
+    "settings.advanced.section.interface": {
+        "message": "ממשק",
+        "description": "Section heading: Interface (network-interface settings)."
+    },
+    "settings.advanced.section.security": {
+        "message": "אבטחה",
+        "description": "Section heading: Security (advanced)."
+    },
+    "settings.advanced.interfaceName.label": {
+        "message": "שם",
+        "description": "Field label for the WireGuard interface name."
+    },
+    "settings.advanced.interfaceName.error": {
+        "message": "יש להשתמש ב־1-15 אותיות, ספרות, נקודות, מינוסים או קווים תחתיים.",
+        "description": "Validation message for the interface name (allowed characters)."
+    },
+    "settings.advanced.interfaceName.errorMac": {
+        "message": "חייב להתחיל ב־„utun” ולאחריו מספר (למשל: utun100).",
+        "description": "Validation message specific to macOS, where the name must start with 'utun' followed by a number. Keep 'utun' and the example."
+    },
+    "settings.advanced.port.label": {
+        "message": "פתחה",
+        "description": "Field label: Port."
+    },
+    "settings.advanced.port.error": {
+        "message": "נא מלא פתחה בין {min} ל־{max}.",
+        "description": "Validation message for the port range. {min} and {max} are numbers; keep them."
+    },
+    "settings.advanced.port.help": {
+        "message": "אם מוגדר ל־0, ייעשה שימוש בפתחה פנויה אקראית.",
+        "description": "Helper text: 0 means a random free port is used."
+    },
+    "settings.advanced.mtu.label": {
+        "message": "MTU",
+        "description": "Field label: MTU. 'MTU' — keep acronym."
+    },
+    "settings.advanced.mtu.error": {
+        "message": "נא למלא ערך MTU בין {min} לבין {max}.",
+        "description": "Validation message for the MTU range. {min} and {max} are numbers; keep them."
+    },
+    "settings.advanced.psk.label": {
+        "message": "מפתח ששותף מראש",
+        "description": "Field label: Pre-shared Key."
+    },
+    "settings.advanced.psk.help": {
+        "message": "מפתח ששותף מראש (PSK) כרשות להצפנה סימטרית במיוחד. לא זהה למפתח התקנה של NetBird. תהיה לך תקשורת רק מול עמיתים שמשתמשים באותו המפתח ששותף מראש.",
+        "description": "Helper text for the WireGuard PSK. 'WireGuard', 'PSK', and 'NetBird Setup Key' are product/technical terms — keep them."
+    },
+    "settings.troubleshooting.section.title": {
+        "message": "מאגד ניפוי שגיאות",
+        "description": "Section heading: Debug bundle."
+    },
+    "settings.troubleshooting.anonymize.label": {
+        "message": "הסוואת מידע רגיש עם מידע אלמוני",
+        "description": "Toggle label: anonymize sensitive information in the bundle."
+    },
+    "settings.troubleshooting.anonymize.help": {
+        "message": "הסתרת כתובות IP ציבוריות ושמות תחום שאינם של NetBird מהיומנים.",
+        "description": "Helper text for anonymizing logs (hides public IPs and non-NetBird domains)."
+    },
+    "settings.troubleshooting.systemInfo.label": {
+        "message": "לכלול את פרטי המערכת",
+        "description": "Toggle label: include system information in the bundle."
+    },
+    "settings.troubleshooting.systemInfo.help": {
+        "message": "לכלול את מערכת ההפעלה, הליבה, ממשקי הרשת וטבלאות הניתוב.",
+        "description": "Helper text listing the system info included (OS, kernel, interfaces, routing tables)."
+    },
+    "settings.troubleshooting.upload.label": {
+        "message": "להעלות את המאגד לשרתים של NetBird",
+        "description": "Toggle label: upload the bundle to NetBird servers."
+    },
+    "settings.troubleshooting.upload.help": {
+        "message": "החזרת מפתח שליחה לשיתוף עם התמיכה של NetBird.",
+        "description": "Helper text for uploading the bundle."
+    },
+    "settings.troubleshooting.trace.label": {
+        "message": "הפעלת יומני מעקב",
+        "description": "Toggle label: raise daemon log level to TRACE while the bundle is built. 'TRACE' is a log level."
+    },
+    "settings.troubleshooting.trace.help": {
+        "message": "הגברת רמת התיעוד ביומן ל־TRACE (מעקב) ומשחזרת אותה לאחר מכן.",
+        "description": "Helper text for the trace toggle. 'TRACE' is a log level — keep as-is."
+    },
+    "settings.troubleshooting.capture.label": {
+        "message": "הפעלת לכידה",
+        "description": "Toggle label: open a capture session — reconnect NetBird, wait a duration, optionally record packets."
+    },
+    "settings.troubleshooting.capture.help": {
+        "message": "חיבור מחדש והמתנה כדי לאפשר ליצור את התקלה מחדש.",
+        "description": "Helper text for the master Capture Session toggle."
+    },
+    "settings.troubleshooting.packets.label": {
+        "message": "לכידת מנות נתונים מהרשת",
+        "description": "Toggle label: capture packets to a .pcap during the capture session."
+    },
+    "settings.troubleshooting.packets.help": {
+        "message": "שמירת ‎.pcap של תעבורת רשת בזמן חלון האיסוף.",
+        "description": "Helper text for the packet recording toggle. '.pcap' is a file extension — keep it."
+    },
+    "settings.troubleshooting.duration.label": {
+        "message": "משך לכידה",
+        "description": "Label for the trace-capture duration field."
+    },
+    "settings.troubleshooting.duration.help": {
+        "message": "למשך כמה זמן הפעלת הלכידה רצה.",
+        "description": "Helper text for the capture duration."
+    },
+    "settings.troubleshooting.duration.suffix": {
+        "message": "דקה/ות",
+        "description": "Unit suffix after the duration field. The '(s)' marks an optional plural."
+    },
+    "settings.troubleshooting.create": {
+        "message": "יצירת מאגד",
+        "description": "Button to create the debug bundle. Keep short."
+    },
+    "settings.troubleshooting.progress.description": {
+        "message": "היומנים, פרטי המערכת ומצב החיבור נאספים. האיסוף בדרך כלל לוקח כמה רגעים. אפשר להמשיך להשתמש ב־NetBird או לסגור את ההגדרות בזמן שהתהליך מסתיים.",
+        "description": "Status text shown while the debug bundle is being collected; reassures the user they can keep using NetBird or close Settings meanwhile."
+    },
+    "settings.troubleshooting.cancelling": {
+        "message": "מבוטל…",
+        "description": "Status shown while cancelling bundle creation. Ends with an ellipsis."
+    },
+    "settings.troubleshooting.done.uploadedTitle": {
+        "message": "מאגד ניפוי השגיאות נשלח בהצלחה!",
+        "description": "Success title after the bundle was uploaded."
+    },
+    "settings.troubleshooting.done.savedTitle": {
+        "message": "המאגד נשמר",
+        "description": "Title shown when the bundle was saved locally (not uploaded)."
+    },
+    "settings.troubleshooting.done.uploadedDescription": {
+        "message": "יש לשתף את מפתח השליחה להלן עם <docs>התמיכה של NetBird</docs>. עותק מקומי נשמר בנוסף על המכונה שלך.",
+        "description": "Body after upload, telling the user to share the upload key with support. '<docs>…</docs>' wraps the inline link to the NetBird support docs — keep the tags exactly and wrap the phrase that means 'NetBird support'."
+    },
+    "settings.troubleshooting.done.savedDescription": {
+        "message": "מאגד ניפוי השגיאות שלך נשמר מקומית.",
+        "description": "Body shown when the bundle was only saved locally."
+    },
+    "settings.troubleshooting.done.copyKey": {
+        "message": "העתקת מפתח",
+        "description": "Button to copy the upload key. Keep short."
+    },
+    "settings.troubleshooting.done.openFolder": {
+        "message": "פתיחת תיקייה",
+        "description": "Button to open the folder containing the bundle. Keep short."
+    },
+    "settings.troubleshooting.done.openFileLocation": {
+        "message": "פתיחת מקום הקובץ",
+        "description": "Button to reveal the bundle file in the OS file manager."
+    },
+    "settings.troubleshooting.uploadFailedWithReason": {
+        "message": "ההעלאה נכשלה: {reason} המאגד עדיין שמור מקומית.",
+        "description": "Shown when upload failed but the bundle was saved locally. {reason} is the server error text; keep it."
+    },
+    "settings.troubleshooting.uploadFailed": {
+        "message": "ההעלאה נכשלה. המאגד עדיין שמור מקומית.",
+        "description": "Shown when upload failed (no specific reason) but the bundle was saved locally."
+    },
+    "settings.troubleshooting.stage.reconnecting": {
+        "message": "NetBird מתחבר מחדש…",
+        "description": "Progress stage: reconnecting NetBird. Ends with an ellipsis."
+    },
+    "settings.troubleshooting.stage.capturing": {
+        "message": "יומני ניפוי השגיאות נלכדים",
+        "description": "Progress stage: capturing logs. {elapsed} and {total} are time values (e.g. 0:30 / 2:00); keep both."
+    },
+    "settings.troubleshooting.stage.bundling": {
+        "message": "מאגד ניפוי שגיאות נוצר…",
+        "description": "Progress stage: generating the debug bundle. Ends with an ellipsis."
+    },
+    "settings.troubleshooting.stage.uploading": {
+        "message": "נשלח ל־NetBird…",
+        "description": "Progress stage: uploading to NetBird. Ends with an ellipsis."
+    },
+    "settings.troubleshooting.stage.cancelling": {
+        "message": "מבטל…",
+        "description": "Progress stage: cancelling. Ends with an ellipsis."
+    },
+    "settings.about.client": {
+        "message": "לקוח NetBird v{version}",
+        "description": "About tab: client product name and version. {version} is a version number; keep it. 'NetBird Client' — keep brand."
+    },
+    "settings.about.clientName": {
+        "message": "לקוח NetBird",
+        "description": "About tab: the client product name shown when no version is available. Brand — do not translate."
+    },
+    "settings.about.development": {
+        "message": "[פיתוח]",
+        "description": "Badge shown next to the version on development builds. Keep the square brackets."
+    },
+    "settings.about.gui": {
+        "message": "ממשק משתמש v{version}",
+        "description": "About tab: UI component name and version. {version} is a version number; keep it. 'GUI' = the graphical app."
+    },
+    "settings.about.guiName": {
+        "message": "ממשק משתמש",
+        "description": "About tab: the UI component name shown without a version. 'GUI' = the graphical app."
+    },
+    "settings.about.copyright": {
+        "message": "© {year} NetBird. כל הזכויות שמורות.",
+        "description": "Copyright line. {year} is the current year; keep it. 'NetBird' — brand."
+    },
+    "settings.about.links.imprint": {
+        "message": "הצהרה משפטית",
+        "description": "Footer link: Imprint (legal notice / Impressum)."
+    },
+    "settings.about.links.privacy": {
+        "message": "פרטיות",
+        "description": "Footer link: Privacy policy."
+    },
+    "settings.about.links.cla": {
+        "message": "CLA",
+        "description": "Footer link: CLA (Contributor License Agreement). Acronym — keep as-is."
+    },
+    "settings.about.links.terms": {
+        "message": "תנאי השירות",
+        "description": "Footer link: Terms of Service."
+    },
+    "settings.about.community.github": {
+        "message": "GitHub",
+        "description": "Community link: GitHub. Brand — do not translate."
+    },
+    "settings.about.community.slack": {
+        "message": "Slack",
+        "description": "Community link: Slack. Brand — do not translate."
+    },
+    "settings.about.community.forum": {
+        "message": "פורום",
+        "description": "Community link: Forum."
+    },
+    "settings.about.community.documentation": {
+        "message": "תיעוד",
+        "description": "Community link: Documentation."
+    },
+    "settings.about.community.feedback": {
+        "message": "משוב",
+        "description": "Community link: Feedback."
+    },
+    "update.banner.message": {
+        "message": "ההתקנה של NetBird {version} מוכנה.",
+        "description": "Update banner text when a new version is ready to install. {version} is the version number; keep it."
+    },
+    "update.banner.later": {
+        "message": "אחר כך",
+        "description": "Banner button to postpone the update. Keep short."
+    },
+    "update.banner.installNow": {
+        "message": "להתקין עכשיו",
+        "description": "Banner button to install the update now. Keep short."
+    },
+    "update.card.versionAvailableDownload": {
+        "message": "גרסה {version} זמינה להורדה.",
+        "description": "Update card text when a version is available to download. {version} is the version number; keep it."
+    },
+    "update.card.versionAvailableInstall": {
+        "message": "גרסה {version} זמינה להתקנה.",
+        "description": "Update card text when a version is available to install. {version} is the version number; keep it."
+    },
+    "update.card.whatsNew": {
+        "message": "מה חדש?",
+        "description": "Link / label that opens the release notes."
+    },
+    "update.card.installNow": {
+        "message": "להתקין עכשיו",
+        "description": "Update card button: install now. Keep short."
+    },
+    "update.card.getInstaller": {
+        "message": "הורדה",
+        "description": "Update card button: download the installer."
+    },
+    "update.card.autoCheckInterval": {
+        "message": "NetBird בודק ברקע אם יש עדכונים.",
+        "description": "Note that NetBird checks for updates in the background."
+    },
+    "update.card.changelog": {
+        "message": "יומן שינויים",
+        "description": "Link / label: Changelog."
+    },
+    "update.card.onLatestVersion": {
+        "message": "הגרסה המותקנת היא העדכנית ביותר",
+        "description": "Shown when the client is already up to date."
+    },
+    "update.header.tooltip": {
+        "message": "יש עדכון",
+        "description": "Tooltip on the header update badge."
+    },
+    "update.overlay.updatingVersion": {
+        "message": "NetBird מתעדכן ל־v{version}",
+        "description": "Heading in the install-progress window while updating to a specific version. {version} is the version number; keep it. The 'v' prefix is part of the version display."
+    },
+    "update.overlay.updating": {
+        "message": "NetBird מתעדכן",
+        "description": "Heading in the install-progress window while updating when the target version isn't known."
+    },
+    "update.overlay.description": {
+        "message": "גרסה חדשה יותר זמינה ומותקנת כרגע. NetBird יופעל מחדש אוטומטית לאחר סיום העדכון.",
+        "description": "Install-progress window body explaining NetBird will restart automatically after the update."
+    },
+    "update.overlay.error.timeoutTitle": {
+        "message": "העדכון אורך זמן רב מדי",
+        "description": "Install-progress window error title: the update took too long."
+    },
+    "update.overlay.error.timeoutDescription": {
+        "message": "התקנת {target} ארכה זמן רב מדי ולא הסתיימה.",
+        "description": "Install-progress window error body for a timeout. {target} is the target-version label (see update.overlay.error.targetVersion / targetFallback); keep it."
+    },
+    "update.overlay.error.canceledTitle": {
+        "message": "העדכון נעצר",
+        "description": "Install-progress window error title: the update was stopped / canceled."
+    },
+    "update.overlay.error.canceledDescription": {
+        "message": "העדכון לגרסה {target} בוטל לפני שהספיק להסתיים.",
+        "description": "Install-progress window error body for a canceled update. {target} is the target-version label; keep it."
+    },
+    "update.overlay.error.failTitle": {
+        "message": "לא ניתן להתקין את העדכון",
+        "description": "Install-progress window error title: the update couldn't be installed."
+    },
+    "update.overlay.error.failDescription": {
+        "message": "לא ניתן להתקין את {target}.",
+        "description": "Install-progress window error body for a failed install. {target} is the target-version label; keep it."
+    },
+    "update.overlay.error.unknownMessage": {
+        "message": "שגיאה לא ידועה",
+        "description": "Fallback text for an unspecified error, used inside other messages."
+    },
+    "update.overlay.error.targetVersion": {
+        "message": "v{version}",
+        "description": "The target-version label substituted into {target}. {version} is a number; keep the 'v' prefix."
+    },
+    "update.overlay.error.targetFallback": {
+        "message": "הגרסה החדשה",
+        "description": "Fallback target label used when the version isn't known, substituted into {target}."
+    },
+    "update.error.loadStateTitle": {
+        "message": "טעינת מצב העדכון נכשלה",
+        "description": "Error-dialog title when loading update state fails."
+    },
+    "update.error.triggerTitle": {
+        "message": "התחלת העדכון נכשלה",
+        "description": "Error-dialog title when starting the update fails."
+    },
+    "update.page.versionLine": {
+        "message": "הלקוח מתעדכן לגרסה: {version}.",
+        "description": "Install-progress window text naming the target version. {version} is the version number; keep it."
+    },
+    "update.page.versionLineGeneric": {
+        "message": "הלקוח מתעדכן.",
+        "description": "Install-progress text used when the target version isn't known."
+    },
+    "update.page.outdated": {
+        "message": "גרסת הלקוח שלך ישנה מגרסת העדכון האוטומטי שהוגדרה בניהול.",
+        "description": "Note that the client is older than the auto-update version set in Management. 'Management' = the NetBird management server / console."
+    },
+    "update.page.status.running": {
+        "message": "מתעדכן",
+        "description": "Install status: updating."
+    },
+    "update.page.status.timeout": {
+        "message": "הזמן שהוקצב לעדכון הסתיים. נא לנסות שוב.",
+        "description": "Install status: timed out; asks the user to retry."
+    },
+    "update.page.status.canceled": {
+        "message": "העדכון בוטל.",
+        "description": "Install status: canceled."
+    },
+    "update.page.status.failed": {
+        "message": "העדכון נכשל: {message}",
+        "description": "Install status: failed. {message} is the error detail; keep it."
+    },
+    "update.page.status.unknownError": {
+        "message": "שגיאת עדכון לא ידועה",
+        "description": "Fallback text for an unknown update error, used inside update.page.status.failed."
+    },
+    "update.page.failedTitle": {
+        "message": "העדכון נכשל",
+        "description": "Heading shown when the install failed."
+    },
+    "update.page.timeoutMessage": {
+        "message": "הזמן שהוקצב לעדכון תם.",
+        "description": "Message shown when the install timed out."
+    },
+    "update.page.dontClose": {
+        "message": "נא לא לסגור את החלון הזה",
+        "description": "Warning asking the user not to close the install window."
+    },
+    "update.page.updating": {
+        "message": "מתעדכן…",
+        "description": "Short status: updating. Ends with an ellipsis."
+    },
+    "update.page.complete": {
+        "message": "העדכון הושלם",
+        "description": "Short status: update complete."
+    },
+    "update.page.failed": {
+        "message": "העדכון נכשל",
+        "description": "Short status: update failed."
+    },
+    "window.title.settings": {
+        "message": "הגדרות",
+        "description": "OS window-chrome title for the Settings window. The app prefixes it with 'NetBird - '."
+    },
+    "window.title.signIn": {
+        "message": "כניסה",
+        "description": "OS window-chrome title for the sign-in window."
+    },
+    "window.title.sessionExpiration": {
+        "message": "תוקף ההפעלה פג",
+        "description": "OS window-chrome title for the session-expiration window."
+    },
+    "window.title.updating": {
+        "message": "מתעדכן",
+        "description": "OS window-chrome title for the update / install window."
+    },
+    "window.title.welcome": {
+        "message": "ברוך בואך ל־NetBird",
+        "description": "OS window-chrome title for the first-launch welcome window. 'NetBird' — brand."
+    },
+    "window.title.error": {
+        "message": "שגיאה",
+        "description": "OS window-chrome title for the error window."
+    },
+    "welcome.title": {
+        "message": "כדאי לחפש את NetBird בשורת המשימות שלך",
+        "description": "Heading on the first onboarding step, pointing the user to the tray icon. 'tray' = system tray / menu bar."
+    },
+    "welcome.description": {
+        "message": "NetBird שוכן בשורת המשימות שלך. יש ללחוץ על הסמל כדי להתחבר, להחליף פרופילים או כדי לפתוח את ההגדרות.",
+        "description": "Body of the first onboarding step explaining the tray icon."
+    },
+    "welcome.continue": {
+        "message": "המשך",
+        "description": "Primary button to advance the onboarding. Keep short."
+    },
+    "welcome.back": {
+        "message": "חזרה",
+        "description": "Button to go back a step in onboarding. Keep short."
+    },
+    "welcome.management.title": {
+        "message": "הגדרת NetBird",
+        "description": "Heading on the onboarding step for choosing a management server."
+    },
+    "welcome.management.description": {
+        "message": "יש ללחוץ על המשך כדי להתחיל או לבחור באירוח עצמי אם יש לך שרת NetBird משלך.",
+        "description": "Body of the management step; mentions choosing Self-hosted if the user runs their own server."
+    },
+    "welcome.management.cloud.title": {
+        "message": "ענן NetBird",
+        "description": "Option title: NetBird Cloud. Brand — do not translate 'NetBird Cloud'."
+    },
+    "welcome.management.cloud.description": {
+        "message": "אפשר להשתמש בשירות באירוח שלנו. לא צריך הגדרות.",
+        "description": "Option body for NetBird Cloud (hosted service, no setup required)."
+    },
+    "welcome.management.selfHosted.title": {
+        "message": "אירוח עצמי",
+        "description": "Option title: Self-hosted."
+    },
+    "welcome.management.selfHosted.description": {
+        "message": "התחברות לשרת ניהול משלך.",
+        "description": "Option body for connecting to your own management server."
+    },
+    "welcome.management.urlLabel": {
+        "message": "כתובת שרת ניהול",
+        "description": "Field label for the management-server URL."
+    },
+    "welcome.management.urlPlaceholder": {
+        "message": "https://netbird.selfhosted.com:443",
+        "description": "Example URL placeholder. Sample URL — do not translate it."
+    },
+    "welcome.management.urlInvalid": {
+        "message": "נא למלא כתובת שרת ניהול תקפה, כגון, https://netbird.selfhosted.com:443",
+        "description": "Validation message for an invalid URL. The example URL stays as-is."
+    },
+    "welcome.management.urlUnreachable": {
+        "message": "לא ניתן להגיע לשרת הזה. נא לבדוק את הכתובת או את הרשת שלך, לאחר מכן להמשיך אם היא נכונה בוודאות.",
+        "description": "Soft warning when the server couldn't be reached during onboarding; the user may continue anyway."
+    },
+    "welcome.management.checking": {
+        "message": "מתבצעת בדיקה…",
+        "description": "Status shown while checking the server URL. Ends with an ellipsis."
+    },
+    "browserLogin.title": {
+        "message": "יש להשלים את הכניסה בדפדפן שלך",
+        "description": "Heading telling the user to finish signing in via their browser."
+    },
+    "browserLogin.notSeeing": {
+        "message": "פתחנו לשונית בדפדפן כדי שנוכל לסיים עם הכניסה למערכת. לא רואה אותה?",
+        "description": "Prompt asking whether the user doesn't see the opened browser tab."
+    },
+    "browserLogin.tryAgain": {
+        "message": "לנסות שוב",
+        "description": "Button to re-open the browser sign-in page. Keep short."
+    },
+    "browserLogin.openFailedTitle": {
+        "message": "פתיחת הדפדפן נכשלה",
+        "description": "Error-dialog title when the browser couldn't be opened."
+    },
+    "sessionExpiration.title": {
+        "message": "תוקף ההפעלה עומד לפוג בקרוב",
+        "description": "Heading warning the session will expire soon."
+    },
+    "sessionExpiration.titleLater": {
+        "message": "תוקף ההפעלה שלך יפוג",
+        "description": "Alternate, less-urgent heading: the session will expire."
+    },
+    "sessionExpiration.description": {
+        "message": "המכשיר הזה ינותק בהקדם. יש לחדש את הכניסה דרך הדפדפן.",
+        "description": "Body warning the device will disconnect soon; renew via a browser sign-in."
+    },
+    "sessionExpiration.descriptionLater": {
+        "message": "כניסה עם דפדפן משאירה את המכשיר הזה מחובר לרשת שלך.",
+        "description": "Body for the less-urgent variant; a browser sign-in keeps the device connected."
+    },
+    "sessionExpiration.stay": {
+        "message": "חידוש הפעלה",
+        "description": "Button to renew the session (keep connected). Keep short."
+    },
+    "sessionExpiration.authenticate": {
+        "message": "אימות",
+        "description": "Button to authenticate / sign in. Keep short."
+    },
+    "sessionExpiration.logout": {
+        "message": "יציאה",
+        "description": "Button to log out. Keep short."
+    },
+    "sessionExpiration.expired": {
+        "message": "תוקף ההפעלה פג",
+        "description": "Heading shown once the session has actually expired."
+    },
+    "sessionExpiration.expiredDescription": {
+        "message": "המכשיר נותק. יש לעבור אימות עם כניסת דפדפן כדי להתחבר מחדש.",
+        "description": "Body shown after expiry; authenticate via a browser sign-in to reconnect."
+    },
+    "sessionExpiration.close": {
+        "message": "סגירה",
+        "description": "Close button on the session window. Keep short."
+    },
+    "sessionExpiration.extendFailedTitle": {
+        "message": "הארכת ההפעלה נכשלה",
+        "description": "Error-dialog title when extending the session fails."
+    },
+    "sessionExpiration.logoutFailedTitle": {
+        "message": "היציאה מהחשבון נכשלה",
+        "description": "Error-dialog title when logging out fails."
+    },
+    "peers.search.placeholder": {
+        "message": "חיפוש לפי שם או IP",
+        "description": "Placeholder in the peers search field."
+    },
+    "peers.filter.all": {
+        "message": "כולם",
+        "description": "Peers filter option: All. Keep short."
+    },
+    "peers.filter.online": {
+        "message": "מחוברים",
+        "description": "Peers filter option: Online. Keep short."
+    },
+    "peers.filter.offline": {
+        "message": "מנותקים",
+        "description": "Peers filter option: Offline. Keep short."
+    },
+    "peers.empty.title": {
+        "message": "אין עמיתים זמינים",
+        "description": "Title of the empty state when no peers are available."
+    },
+    "peers.empty.description": {
+        "message": "או שאין לך עמיתים זמינים או שאין לך גישה לאף אחד מהם.",
+        "description": "Body of the no-peers empty state."
+    },
+    "peers.details.domain": {
+        "message": "שם תחום",
+        "description": "Peer detail label: Domain."
+    },
+    "peers.details.netbirdIp": {
+        "message": "IP של NetBird",
+        "description": "Peer detail label: NetBird IP address. 'NetBird' — brand; 'IP' — keep acronym."
+    },
+    "peers.details.netbirdIpv6": {
+        "message": "IPv6 של NetBird",
+        "description": "Peer detail label: NetBird IPv6 address. Keep 'NetBird' and 'IPv6'."
+    },
+    "peers.details.publicKey": {
+        "message": "מפתח ציבורי",
+        "description": "Peer detail label: WireGuard public key."
+    },
+    "peers.details.connection": {
+        "message": "חיבור",
+        "description": "Peer detail label: Connection."
+    },
+    "peers.details.latency": {
+        "message": "עיכוב",
+        "description": "Peer detail label: Latency."
+    },
+    "peers.details.lastHandshake": {
+        "message": "לחיצת יד אחרונה",
+        "description": "Peer detail label: time of the last WireGuard handshake."
+    },
+    "peers.details.statusSince": {
+        "message": "עדכון אחרון על החיבור",
+        "description": "Peer detail label: time since the last connection-status update."
+    },
+    "peers.details.bytes": {
+        "message": "בתים",
+        "description": "Peer detail label: Bytes (data transferred)."
+    },
+    "peers.details.bytesSent": {
+        "message": "נשלחו",
+        "description": "Peer detail label: bytes sent."
+    },
+    "peers.details.bytesReceived": {
+        "message": "התקבלו",
+        "description": "Peer detail label: bytes received."
+    },
+    "peers.details.localIce": {
+        "message": "ICE מקומי",
+        "description": "Peer detail label: local ICE candidate. 'ICE' — keep acronym."
+    },
+    "peers.details.remoteIce": {
+        "message": "ICE מרוחק",
+        "description": "Peer detail label: remote ICE candidate. 'ICE' — keep acronym."
+    },
+    "peers.details.never": {
+        "message": "אף פעם לא",
+        "description": "Value shown when an event has never happened (e.g. last handshake = Never)."
+    },
+    "peers.details.justNow": {
+        "message": "כרגע",
+        "description": "Relative-time value meaning a moment ago."
+    },
+    "peers.details.refresh": {
+        "message": "ריענון",
+        "description": "Button to refresh peer details. Keep short."
+    },
+    "peers.status.connected": {
+        "message": "מחובר",
+        "description": "Peer status: connected."
+    },
+    "peers.status.connecting": {
+        "message": "מתחבר",
+        "description": "Peer status: connecting."
+    },
+    "peers.status.disconnected": {
+        "message": "מנותק",
+        "description": "Peer status: disconnected."
+    },
+    "peers.details.relayAddress": {
+        "message": "ממסר",
+        "description": "Peer detail label: Relay (relay-server address)."
+    },
+    "peers.details.networks": {
+        "message": "משאבים",
+        "description": "Peer detail label for the peer's network resources. Labelled 'Resources' in the UI."
+    },
+    "peers.details.relayed": {
+        "message": "דרך ממסר",
+        "description": "Connection-type value: the connection is relayed (not direct). Technical term."
+    },
+    "peers.details.p2p": {
+        "message": "P2P",
+        "description": "Connection-type value: peer-to-peer (direct). 'P2P' — keep as-is."
+    },
+    "peers.details.rosenpass": {
+        "message": "Rosenpass הופעל",
+        "description": "Peer detail indicating Rosenpass (quantum-resistance) is enabled. 'Rosenpass' — product name, do not translate."
+    },
+    "networks.search.placeholder": {
+        "message": "חיפוש לפי רשת או שם תחום",
+        "description": "Placeholder in the resources search field."
+    },
+    "networks.filter.all": {
+        "message": "כולן",
+        "description": "Resources filter: All. Keep short."
+    },
+    "networks.filter.active": {
+        "message": "פעילות",
+        "description": "Resources filter: Active. Keep short."
+    },
+    "networks.filter.overlapping": {
+        "message": "חופפות",
+        "description": "Resources filter: Overlapping (overlapping IP ranges). Keep short."
+    },
+    "networks.empty.title": {
+        "message": "אין משאבים זמינים",
+        "description": "Title of the empty state when no resources are available."
+    },
+    "networks.empty.description": {
+        "message": "אין שאין לך משאבי רשת זמינים או שאין לך גישה לאף אחד מהם.",
+        "description": "Body of the no-resources empty state."
+    },
+    "networks.selected": {
+        "message": "נבחרה",
+        "description": "Label / badge: the resource is selected (enabled)."
+    },
+    "networks.unselected": {
+        "message": "לא נבחרה",
+        "description": "Label / badge: the resource is not selected."
+    },
+    "networks.ips.heading": {
+        "message": "כתובות IP שנפתרו",
+        "description": "Heading for the list of a resource's resolved IP addresses."
+    },
+    "networks.bulk.selectionCount": {
+        "message": "{selected} מתוך {total} פעילות",
+        "description": "Header showing how many resources are active. {selected} and {total} are numbers; keep both."
+    },
+    "networks.bulk.enableAll": {
+        "message": "להפעיל הכול",
+        "description": "Button to enable all resources. Keep short."
+    },
+    "networks.bulk.disableAll": {
+        "message": "לכבות הכול",
+        "description": "Button to disable all resources. Keep short."
+    },
+    "exitNodes.search.placeholder": {
+        "message": "חיפוש נקודות יציאה",
+        "description": "Placeholder in the exit-nodes search field."
+    },
+    "exitNodes.none": {
+        "message": "אין",
+        "description": "Option meaning no exit node. Keep short."
+    },
+    "exitNodes.empty.title": {
+        "message": "אין נקודות יציאה זמינות",
+        "description": "Title of the empty state when no exit nodes are available."
+    },
+    "exitNodes.empty.description": {
+        "message": "לא שותפו נקודות יציאה עם העמית הזה.",
+        "description": "Body of the no-exit-nodes empty state."
+    },
+    "exitNodes.card.title": {
+        "message": "נקודת יציאה",
+        "description": "Card heading: Exit Node."
+    },
+    "exitNodes.card.statusActive": {
+        "message": "פעילה",
+        "description": "Exit node card status: Active."
+    },
+    "exitNodes.card.statusInactive": {
+        "message": "כבויה",
+        "description": "Exit node card status: Inactive."
+    },
+    "exitNodes.dropdown.noneTitle": {
+        "message": "אין",
+        "description": "Dropdown option title: None (no exit node)."
+    },
+    "exitNodes.dropdown.noneDescription": {
+        "message": "חיבור ישיר ללא נקודת יציאה",
+        "description": "Dropdown option body for None: direct connection without an exit node."
+    },
+    "quickActions.connect": {
+        "message": "התחברות",
+        "description": "Quick-action button: Connect. Keep short."
+    },
+    "quickActions.disconnect": {
+        "message": "התנתקות",
+        "description": "Quick-action button: Disconnect. Keep short."
+    },
+    "daemon.unavailable.title": {
+        "message": "שירות NetBird לא פעיל",
+        "description": "Title of the overlay shown when the NetBird background service isn't running."
+    },
+    "daemon.unavailable.description": {
+        "message": "היישום יתחבר אוטומטי לאחר שהשירות יופעל.",
+        "description": "Body reassuring the user the app will reconnect once the service is running."
+    },
+    "daemon.unavailable.docsLink": {
+        "message": "תיעוד",
+        "description": "Documentation link on the daemon-unavailable overlay."
+    },
+    "daemon.outdated.title": {
+        "message": "שירות NetBird אינו עדכני",
+        "description": "Title of the overlay shown when the NetBird background service is too old to drive this UI."
+    },
+    "daemon.outdated.description": {
+        "message": "יש לעדכן את שירות NetBird כדי להשתמש ביישום הזה.",
+        "description": "Body of the daemon-outdated overlay telling the user to upgrade the service."
+    },
+    "error.jwt_clock_skew": {
+        "message": "הכניסה נכשלה: השעון של המכשיר הזה לא תואם במדויק את זה של השרת. נא לכוון את שעון המערכת שלך ולנסות שוב.",
+        "description": "Sign-in error shown to the user: the device clock is out of sync with the server."
+    },
+    "error.jwt_expired": {
+        "message": "תוקף אסימון הכניסה שלך פג. נא להיכנס שוב.",
+        "description": "Sign-in error: the sign-in token expired; sign in again."
+    },
+    "error.jwt_signature_invalid": {
+        "message": "הכניסה נכשלה: חתימת האסימון שגויה. נא ליצור קשר עם הנהלת המערכת שלך.",
+        "description": "Sign-in error: the token signature is invalid; contact the administrator."
+    },
+    "error.session_expired": {
+        "message": "תוקף ההפעלה שלך פג. נא להיכנס שוב.",
+        "description": "Error: the session expired; sign in again."
+    },
+    "error.invalid_setup_key": {
+        "message": "מפתח ההתקנה חסר או שגוי.",
+        "description": "Error: the setup key is missing or invalid. 'setup key' is a NetBird term."
+    },
+    "error.permission_denied": {
+        "message": "בקשת הכניסה נדחתה על ידי השרת.",
+        "description": "Error: the server rejected the sign-in."
+    },
+    "error.daemon_unreachable": {
+        "message": "הסוכן של NetBird לא מגיב. נא לבדוק שהשירות פעיל.",
+        "description": "Error: the NetBird background service isn't responding. 'daemon' = the background service."
+    },
+    "error.unknown": {
+        "message": "הפעולה נכשלה.",
+        "description": "Generic fallback error message used when no specific error applies."
+    }
+}
