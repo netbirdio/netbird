@@ -4,28 +4,12 @@ import (
 	"testing"
 )
 
-func TestMarshalHelloMsg(t *testing.T) {
-	peerID := HashID("abdFAaBcawquEiCMzAabYosuUaGLtSNhKxz+")
-	msg, err := MarshalHelloMsg(peerID, nil)
-	if err != nil {
-		t.Fatalf("error: %v", err)
-	}
-
-	msgType, err := DetermineClientMessageType(msg)
-	if err != nil {
-		t.Fatalf("error: %v", err)
-	}
-
-	if msgType != MsgTypeHello {
-		t.Errorf("expected %d, got %d", MsgTypeHello, msgType)
-	}
-
-	receivedPeerID, _, err := UnmarshalHelloMsg(msg)
-	if err != nil {
-		t.Fatalf("error: %v", err)
-	}
-	if receivedPeerID.String() != peerID.String() {
-		t.Errorf("expected %s, got %s", peerID, receivedPeerID)
+func TestDetermineClientMessageTypeRejectsHello(t *testing.T) {
+	// The deprecated Hello message (type 1) is no longer accepted by the
+	// server, closing the pre-auth gob decode path (GHSA-v5w2-pqxj-6r94).
+	msg := []byte{byte(CurrentProtocolVersion), byte(MsgTypeHello)}
+	if _, err := DetermineClientMessageType(msg); err == nil {
+		t.Fatalf("expected hello message type to be rejected")
 	}
 }
 
