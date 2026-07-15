@@ -20,11 +20,17 @@ type dnsPeerActivator struct {
 	peerStore *peerstore.Store
 	status    *peer.Status
 	mu        *sync.Mutex
+	// ctx is the engine's long-lived context. The connection dial is tied to it
+	// (not the per-query DNS wait budget) so a handshake that outlasts the wait
+	// still completes in the background rather than being cancelled at the deadline.
+	ctx context.Context
 }
 
 // ActivatePeersByIP triggers wake-up for the peer(s) owning ips and waits until
-// one is connected or ctx expires. Unknown or already-connected IPs are skipped,
-// so the steady-state (warm) path adds no latency.
+// one is connected or ctx (the per-query DNS wait budget) expires. Activation
+// itself is tied to the engine's long-lived context so the dial survives a wait
+// that times out. Unknown or already-connected IPs are skipped, so the
+// steady-state (warm) path adds no latency.
 func (a *dnsPeerActivator) ActivatePeersByIP(ctx context.Context, ips []string) {
 	if a == nil || a.connMgr == nil {
 		return
@@ -41,7 +47,7 @@ func (a *dnsPeerActivator) ActivatePeersByIP(ctx context.Context, ips []string) 
 		if !ok {
 			continue
 		}
-		a.connMgr.ActivatePeer(ctx, conn)
+		a.connMgr.ActivatePeer(a.ctx, conn)
 		pending = append(pending, ip)
 	}
 	a.mu.Unlock()

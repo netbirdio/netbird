@@ -92,7 +92,7 @@ func availableProviders() []providerCase {
 			region = "us-east-1"
 		}
 		// A valid Bedrock inference-profile id (region prefix + date + version),
-		// overridable per account. `global.` profiles are invokable from any
+		// overridable per account. `global.` profiles can be invoked from any
 		// region; set AWS_BEDROCK_MODEL to match the enabled profile for the token.
 		model := os.Getenv("AWS_BEDROCK_MODEL")
 		if model == "" {

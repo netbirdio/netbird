@@ -663,6 +663,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 			peerStore: e.peerStore,
 			status:    e.statusRecorder,
 			mu:        e.syncMsgMux,
+			ctx:       e.ctx,
 		})
 	}
 
