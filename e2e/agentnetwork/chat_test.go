@@ -108,8 +108,16 @@ func providerRequest(pc providerCase) api.AgentNetworkProviderRequest {
 		Enabled:     ptr(true),
 	}
 	if pc.kind != harness.WireVertex {
+		// The router matches the normalized catalog id. Bedrock's request model
+		// travels as a region-prefixed inference-profile id in the URL path
+		// (us.anthropic...), which the router strips before matching, so register
+		// the normalized form here or routing fails as model_not_routable.
+		modelID := pc.model
+		if pc.kind == harness.WireBedrock {
+			modelID = catalogModel(pc)
+		}
 		req.Models = &[]api.AgentNetworkProviderModel{
-			{Id: pc.model, InputPer1k: 0.001, OutputPer1k: 0.002},
+			{Id: modelID, InputPer1k: 0.001, OutputPer1k: 0.002},
 		}
 	}
 	return req
