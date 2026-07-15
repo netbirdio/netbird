@@ -553,6 +553,9 @@ func filterDNSRecordsByPeers(records []nbdns.SimpleRecord, peers map[string]*nbp
 		if peer == nil {
 			continue
 		}
+		if peer.Status == nil || !peer.Status.Connected {
+			continue
+		}
 		peerIPs[peer.IP.String()] = struct{}{}
 		if includeIPv6 && peer.IPv6.IsValid() {
 			peerIPs[peer.IPv6.String()] = struct{}{}
