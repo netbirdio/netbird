@@ -43,8 +43,9 @@ type TimeBasedAuthSecretsManager struct {
 	updateManager   network_map.PeersUpdateManager
 	settingsManager settings.Manager
 	groupsManager   groups.Manager
-	turnCancelMap   map[string]chan struct{}
-	relayCancelMap  map[string]chan struct{}
+	scheduler       *refreshScheduler
+	turnJobs        map[string]*refreshJob
+	relayJobs       map[string]*refreshJob
 	wgKey           wgtypes.Key
 }
 
@@ -60,8 +61,6 @@ func NewTimeBasedAuthSecretsManager(updateManager network_map.PeersUpdateManager
 		updateManager:   updateManager,
 		turnCfg:         turnCfg,
 		relayCfg:        relayCfg,
-		turnCancelMap:   make(map[string]chan struct{}),
-		relayCancelMap:  make(map[string]chan struct{}),
 		settingsManager: settingsManager,
 		groupsManager:   groupsManager,
 		wgKey:           key,
@@ -127,16 +126,16 @@ func (m *TimeBasedAuthSecretsManager) GenerateRelayToken() (*Token, error) {
 }
 
 func (m *TimeBasedAuthSecretsManager) cancelTURN(peerID string) {
-	if channel, ok := m.turnCancelMap[peerID]; ok {
-		close(channel)
-		delete(m.turnCancelMap, peerID)
+	if job, ok := m.turnJobs[peerID]; ok {
+		m.scheduler.cancel(job)
+		delete(m.turnJobs, peerID)
 	}
 }
 
 func (m *TimeBasedAuthSecretsManager) cancelRelay(peerID string) {
-	if channel, ok := m.relayCancelMap[peerID]; ok {
-		close(channel)
-		delete(m.relayCancelMap, peerID)
+	if job, ok := m.relayJobs[peerID]; ok {
+		m.scheduler.cancel(job)
+		delete(m.relayJobs, peerID)
 	}
 }
 
@@ -148,6 +147,30 @@ func (m *TimeBasedAuthSecretsManager) CancelRefresh(peerID string) {
 	m.cancelRelay(peerID)
 }
 
+func (m *TimeBasedAuthSecretsManager) ensureScheduler() {
+	if m.scheduler == nil {
+		m.scheduler = newRefreshScheduler(m.runRefreshJob)
+		m.turnJobs = make(map[string]*refreshJob)
+		m.relayJobs = make(map[string]*refreshJob)
+	}
+}
+
+func (m *TimeBasedAuthSecretsManager) runRefreshJob(job *refreshJob) {
+	switch job.kind {
+	case refreshKindTURN:
+		m.pushNewTURNAndRelayTokens(job.ctx, job.accountID, job.peerID)
+	case refreshKindRelay:
+		m.pushNewRelayTokens(job.ctx, job.accountID, job.peerID)
+	}
+}
+
+func refreshInterval(ttl time.Duration) time.Duration {
+	if ttl <= 0 {
+		ttl = defaultDuration
+	}
+	return ttl / 4 * 3
+}
+
 // SetupRefresh starts peer credentials refresh
 func (m *TimeBasedAuthSecretsManager) SetupRefresh(ctx context.Context, accountID, peerID string) {
 	m.mux.Lock()
@@ -157,51 +180,35 @@ func (m *TimeBasedAuthSecretsManager) SetupRefresh(ctx context.Context, accountI
 	m.cancelRelay(peerID)
 
 	if m.turnCfg != nil && m.turnCfg.TimeBasedCredentials {
-		turnCancel := make(chan struct{}, 1)
-		m.turnCancelMap[peerID] = turnCancel
-		go m.refreshTURNTokens(ctx, accountID, peerID, turnCancel)
+		m.ensureScheduler()
+		job := &refreshJob{
+			ctx:       ctx,
+			accountID: accountID,
+			peerID:    peerID,
+			kind:      refreshKindTURN,
+			interval:  refreshInterval(m.turnCfg.CredentialsTTL.Duration),
+		}
+		m.turnJobs[peerID] = job
+		m.scheduler.schedule(job)
 		log.WithContext(ctx).Debugf("starting TURN refresh for %s", peerID)
 	} else {
 		log.WithContext(ctx).Debugf("no TURN configuration, skipping TURN refresh for %s", peerID)
 	}
 
 	if m.relayCfg != nil {
-		relayCancel := make(chan struct{}, 1)
-		m.relayCancelMap[peerID] = relayCancel
-		go m.refreshRelayTokens(ctx, accountID, peerID, relayCancel)
+		m.ensureScheduler()
+		job := &refreshJob{
+			ctx:       ctx,
+			accountID: accountID,
+			peerID:    peerID,
+			kind:      refreshKindRelay,
+			interval:  refreshInterval(m.relayCfg.CredentialsTTL.Duration),
+		}
+		m.relayJobs[peerID] = job
+		m.scheduler.schedule(job)
 		log.WithContext(ctx).Tracef("starting relay refresh for %s", peerID)
 	} else {
 		log.WithContext(ctx).Tracef("no relay configuration, skipping relay refresh for %s", peerID)
-	}
-}
-
-func (m *TimeBasedAuthSecretsManager) refreshTURNTokens(ctx context.Context, accountID, peerID string, cancel chan struct{}) {
-	ticker := time.NewTicker(m.turnCfg.CredentialsTTL.Duration / 4 * 3)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-cancel:
-			log.WithContext(ctx).Tracef("stopping TURN refresh for %s", peerID)
-			return
-		case <-ticker.C:
-			m.pushNewTURNAndRelayTokens(ctx, accountID, peerID)
-		}
-	}
-}
-
-func (m *TimeBasedAuthSecretsManager) refreshRelayTokens(ctx context.Context, accountID, peerID string, cancel chan struct{}) {
-	ticker := time.NewTicker(m.relayCfg.CredentialsTTL.Duration / 4 * 3)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-cancel:
-			log.WithContext(ctx).Tracef("stopping relay refresh for %s", peerID)
-			return
-		case <-ticker.C:
-			m.pushNewRelayTokens(ctx, accountID, peerID)
-		}
 	}
 }
 
