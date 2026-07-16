@@ -714,6 +714,11 @@ func (e *Engine) initFirewall() error {
 		return fmt.Errorf("set firewall: %w", err)
 	}
 
+	// TODO: the firewall backends dedup filter rules by content, so a
+	// management route ACL with identical content would collapse onto the
+	// untracked drop rules installed here, and a later management delete
+	// could remove them. Needs backend refcounting or per-consumer key
+	// namespacing.
 	if e.config.BlockLANAccess {
 		e.blockLanAccess()
 	}
@@ -726,14 +731,14 @@ func (e *Engine) initFirewall() error {
 	port := firewallManager.Port{Values: []uint16{uint16(rosenpassPort)}}
 
 	// IPv4-only: rosenpass peers connect via AllowedIps[0] which is always v4.
-	if _, err := e.firewall.AddPeerFiltering(
+	if _, err := e.firewall.AddFilterRule(
 		nil,
-		net.IP{0, 0, 0, 0},
+		[]netip.Prefix{netip.PrefixFrom(netip.IPv4Unspecified(), 0)},
+		firewallManager.Network{},
 		firewallManager.ProtocolUDP,
 		nil,
 		&port,
 		firewallManager.ActionAccept,
-		"",
 	); err != nil {
 		log.Errorf("failed to allow rosenpass interface traffic: %v", err)
 		return nil
@@ -783,7 +788,7 @@ func (e *Engine) blockLanAccess() {
 		if network.Addr().Is6() {
 			source = v6
 		}
-		if _, err := e.firewall.AddRouteFiltering(
+		if _, err := e.firewall.AddFilterRule(
 			nil,
 			[]netip.Prefix{source},
 			firewallManager.Network{Prefix: network},
@@ -2561,7 +2566,7 @@ func (e *Engine) updateForwardRules(rules []*mgmProto.ForwardingRule) ([]firewal
 	var merr *multierror.Error
 	forwardingRules := make([]firewallManager.ForwardRule, 0, len(rules))
 	for _, rule := range rules {
-		proto, err := convertToFirewallProtocol(rule.GetProtocol())
+		proto, err := acl.ConvertToFirewallProtocol(rule.GetProtocol())
 		if err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("failed to convert protocol '%s': %w", rule.GetProtocol(), err))
 			continue
