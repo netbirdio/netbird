@@ -4,6 +4,7 @@ import (
 	"container/heap"
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -27,6 +28,7 @@ type refreshJob struct {
 	interval  time.Duration
 	nextRun   time.Time
 	index     int
+	cancelled atomic.Bool
 }
 
 type refreshJobHeap []*refreshJob
@@ -95,6 +97,7 @@ func (s *refreshScheduler) schedule(job *refreshJob) {
 func (s *refreshScheduler) cancel(job *refreshJob) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	job.cancelled.Store(true)
 	if job.index >= 0 {
 		heap.Remove(&s.jobs, job.index)
 	}
@@ -147,6 +150,9 @@ func (s *refreshScheduler) loop() {
 
 func (s *refreshScheduler) worker() {
 	for job := range s.work {
+		if job.cancelled.Load() {
+			continue
+		}
 		s.run(job)
 	}
 }

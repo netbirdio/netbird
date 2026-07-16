@@ -470,6 +470,11 @@ func preferHTTP1ForDualProtoClients(base *tls.Config) *tls.Config {
 // serveMultiplexed splits the shared listener by protocol: HTTP/2 connections
 // go to the native gRPC transport (see preferHTTP1ForDualProtoClients for why
 // they are all gRPC), everything else is served by net/http.
+//
+// Content-type based classification cannot be used here: cmux's SendSettings
+// matchers greet non-matching HTTP/2 connections and corrupt them for any
+// subsequent handler, while read-only matchers deadlock grpc-go clients,
+// which do not send HEADERS until they receive the server SETTINGS frame.
 func (s *BaseServer) serveMultiplexed(ctx context.Context, listener net.Listener, grpcServer *grpc.Server, handler http.Handler, tlsEnabled bool) {
 	mux := cmux.New(listener)
 	grpcListener := mux.Match(cmux.HTTP2())

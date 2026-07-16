@@ -165,10 +165,11 @@ func (m *TimeBasedAuthSecretsManager) runRefreshJob(job *refreshJob) {
 }
 
 func refreshInterval(ttl time.Duration) time.Duration {
-	if ttl <= 0 {
-		ttl = defaultDuration
+	interval := ttl / 4 * 3
+	if interval <= 0 {
+		interval = defaultDuration / 4 * 3
 	}
-	return ttl / 4 * 3
+	return interval
 }
 
 // SetupRefresh starts peer credentials refresh
