@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/netbirdio/netbird/client/ssh/auth"
@@ -43,18 +44,26 @@ type NetworkMapComponents struct {
 
 	RouterPeers map[string]*nbpeer.Peer
 
-	// NetworkXIDToPublicID maps Network.ID (xid) → AccountSeqID. Populated by the
-	// account-side component builder; consumed by the envelope encoder to
+	// NetworkXIDToPublicID maps Network.ID (xid) → PublicID.
+	// Consumed by the envelope encoder to
 	// translate RoutersMap keys and NetworkResource.NetworkID references
 	// to compact uint32 ids. Legacy Calculate() doesn't consult it.
 	NetworkXIDToPublicID map[string]string
 
-	// PostureCheckXIDToPublicID maps posture.Checks.ID (xid) → AccountSeqID.
-	// Same role as NetworkXIDToSeq, used for PostureFailedPeers keys and
+	// PostureCheckXIDToPublicID maps posture.Checks.ID (xid) → PublicID.
+	// Same role as NetworkXIDToPublicID, used for PostureFailedPeers keys and
 	// policy SourcePostureChecks references.
 	PostureCheckXIDToPublicID map[string]string
+	routesByPeerOnce          sync.Once
+	routesByPeerIdx           map[string][]routeIndexEntry
+
 	// true when returning an empty-like map (returned instead of nil)
 	empty bool
+}
+
+type routeIndexEntry struct {
+	route    *route.Route
+	viaGroup bool
 }
 
 type AccountSettingsInfo struct {
@@ -552,31 +561,41 @@ func (c *NetworkMapComponents) getRoutingPeerRoutes(peerID string) (enabledRoute
 		disabledRoutes = append(disabledRoutes, r)
 	}
 
-	for _, r := range c.Routes {
-		for _, groupID := range r.PeerGroups {
-			group := c.GetGroupInfo(groupID)
-			if group == nil {
-				continue
-			}
-			for _, id := range group.Peers {
-				if id != peerID {
-					continue
-				}
-
-				newPeerRoute := r.Copy()
-				newPeerRoute.Peer = id
-				newPeerRoute.PeerGroups = nil
-				newPeerRoute.ID = route.ID(string(r.ID) + ":" + id)
-				takeRoute(newPeerRoute)
-				break
-			}
+	for _, entry := range c.routesByPeer()[peerID] {
+		if entry.viaGroup {
+			newPeerRoute := entry.route.Copy()
+			newPeerRoute.PeerGroups = nil
+			newPeerRoute.ID = route.ID(string(entry.route.ID) + ":" + peerID)
+			takeRoute(newPeerRoute)
+			continue
 		}
-		if r.Peer == peerID {
-			takeRoute(r.Copy())
-		}
+		takeRoute(entry.route.Copy())
 	}
 
 	return enabledRoutes, disabledRoutes
+}
+
+func (c *NetworkMapComponents) routesByPeer() map[string][]routeIndexEntry {
+	c.routesByPeerOnce.Do(func() {
+		idx := make(map[string][]routeIndexEntry)
+		for _, r := range c.Routes {
+			for _, groupID := range r.PeerGroups {
+				group := c.GetGroupInfo(groupID)
+				if group == nil {
+					continue
+				}
+				for _, id := range group.Peers {
+					idx[id] = append(idx[id], routeIndexEntry{route: r, viaGroup: true})
+				}
+			}
+			if r.Peer != "" {
+				idx[r.Peer] = append(idx[r.Peer], routeIndexEntry{route: r})
+			}
+		}
+		c.routesByPeerIdx = idx
+	})
+
+	return c.routesByPeerIdx
 }
 
 func (c *NetworkMapComponents) filterRoutesByGroups(routes []*route.Route, groupListMap LookupMap) []*route.Route {
