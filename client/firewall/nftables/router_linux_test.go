@@ -3,6 +3,7 @@
 package nftables
 
 import (
+	"bytes"
 	"encoding/binary"
 	"net/netip"
 	"os/exec"
@@ -19,6 +20,7 @@ import (
 	"github.com/netbirdio/netbird/client/firewall/test"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal/acl/id"
+	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
 const (
@@ -188,6 +190,42 @@ func TestNftablesManager_RemoveNatRule(t *testing.T) {
 			require.True(t, foundCounter, "static postrouting rule should remain")
 		})
 	}
+}
+
+func TestNftablesManager_OutboundMasqueradeIncludesLoopback(t *testing.T) {
+	if check() != NFTABLES {
+		t.Skip("nftables not supported on this OS")
+	}
+
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, manager.Close(nil))
+	})
+	require.NoError(t, manager.Init(nil))
+
+	rules, err := manager.router.conn.GetRules(manager.router.workTable, manager.router.chains[chainNameRoutingNat])
+	require.NoError(t, err)
+
+	mark := binaryutil.NativeEndian.PutUint32(nbnet.PreroutingFwmarkMasquerade)
+	found := false
+	for _, rule := range rules {
+		isOutbound := false
+		hasOutputInterfaceMatch := false
+		for _, expression := range rule.Exprs {
+			switch expression := expression.(type) {
+			case *expr.Cmp:
+				isOutbound = isOutbound || bytes.Equal(mark, expression.Data)
+			case *expr.Meta:
+				hasOutputInterfaceMatch = hasOutputInterfaceMatch || expression.Key == expr.MetaKeyOIFNAME
+			}
+		}
+		if isOutbound {
+			found = true
+			require.False(t, hasOutputInterfaceMatch, "outbound masquerade rule should include locally routed traffic")
+		}
+	}
+	require.True(t, found, "outbound masquerade rule should exist")
 }
 
 func TestRouter_AddRouteFiltering(t *testing.T) {
