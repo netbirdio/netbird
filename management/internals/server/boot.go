@@ -187,7 +187,7 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 		// With the native transport enabled, TLS is terminated at the listeners
 		// (cmux-split shared listener and legacy port), so transport credentials
 		// must not be set or the server would attempt a second handshake.
-		if nativeGRPCEnabled() {
+		if nativeGRPCEnabled() { //nolint:gocritic
 			log.Info("native gRPC transport enabled, TLS is terminated at the listeners")
 		} else if s.Config.HttpConfig.LetsEncryptDomain != "" {
 			certManager, err := encryption.CreateCertManager(s.Config.Datadir, s.Config.HttpConfig.LetsEncryptDomain)

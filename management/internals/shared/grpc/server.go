@@ -369,7 +369,7 @@ func (s *Server) receiveJobResponses(ctx context.Context, peerKey wgtypes.Key, s
 		if err != nil {
 			if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) || ctx.Err() != nil {
 				log.WithContext(ctx).Debugf("job stream of peer %s has been closed", peerKey.String())
-				return nil
+				return nil //nolint:nilerr
 			}
 			log.WithContext(ctx).Warnf("recv job response error: %v", err)
 			return err

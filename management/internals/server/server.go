@@ -462,7 +462,7 @@ func preferHTTP1ForDualProtoClients(base *tls.Config) *tls.Config {
 		if slices.Contains(hello.SupportedProtos, "http/1.1") && slices.Contains(hello.SupportedProtos, "h2") {
 			return h1Config, nil
 		}
-		return nil, nil
+		return base, nil
 	}
 	return steered
 }
