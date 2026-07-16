@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/url"
 	"os"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -141,15 +140,6 @@ type OAuth2 struct {
 	PasswordConnector     string   `yaml:"passwordConnector" json:"passwordConnector"`
 	ResponseTypes         []string `yaml:"responseTypes" json:"responseTypes"`
 	GrantTypes            []string `yaml:"grantTypes" json:"grantTypes"`
-}
-
-// GrantTypeDeviceCode is the RFC 8628 device authorization grant identifier.
-const GrantTypeDeviceCode = "urn:ietf:params:oauth:grant-type:device_code"
-
-// deviceFlowDisabled reports whether grantTypes is set and omits the device grant
-// (empty means all grants allowed).
-func deviceFlowDisabled(grantTypes []string) bool {
-	return len(grantTypes) > 0 && !slices.Contains(grantTypes, GrantTypeDeviceCode)
 }
 
 // Expiry holds configuration for the validity period of components.

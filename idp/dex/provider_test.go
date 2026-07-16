@@ -596,46 +596,6 @@ enablePasswordDB: true
 		"buildDexConfig must set ContinueOnConnectorFailure to true so management starts even if an external IdP is down")
 }
 
-func TestDeviceFlowDisabled(t *testing.T) {
-	tests := []struct {
-		name       string
-		grantTypes []string
-		want       bool
-	}{
-		{"empty allows all grants", nil, false},
-		{"contains device code", []string{"authorization_code", GrantTypeDeviceCode}, false},
-		{"omits device code", []string{"authorization_code", "refresh_token"}, true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, deviceFlowDisabled(tt.grantTypes))
-		})
-	}
-}
-
-func TestIsDeviceFlowPath(t *testing.T) {
-	tests := []struct {
-		path string
-		want bool
-	}{
-		{"/oauth2/device", true},
-		{"/oauth2/device/code", true},
-		{"/oauth2/device/token", true},
-		{"/oauth2/device/auth/verify_code", true},
-		{"/oauth2/device/callback", true},
-		{"/oauth2/token", false},
-		{"/oauth2/auth", false},
-		{"/oauth2/.well-known/openid-configuration", false},
-		{"/oauth2/devices", false},
-		{"/device/code", false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.path, func(t *testing.T) {
-			assert.Equal(t, tt.want, isDeviceFlowPath(tt.path))
-		})
-	}
-}
-
 func TestToServerConfig_WiresGrantTypes(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "dex-grants-*")
 	require.NoError(t, err)
@@ -691,7 +651,6 @@ oauth2:
     - authorization_code
     - refresh_token
 `)
-	require.True(t, provider.deviceFlowDisabled)
 
 	devicePaths := []string{
 		"/oauth2/device",
@@ -717,7 +676,6 @@ oauth2:
 
 func TestHandler_AllowsDeviceEndpointsWhenGrantsDefault(t *testing.T) {
 	provider := newDeviceGuardProvider(t, "")
-	require.False(t, provider.deviceFlowDisabled)
 
 	req := httptest.NewRequest(http.MethodPost, "/oauth2/device/code", nil)
 	rec := httptest.NewRecorder()

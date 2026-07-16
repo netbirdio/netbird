@@ -56,8 +56,6 @@ type Provider struct {
 	logger       *slog.Logger
 	mu           sync.Mutex
 	running      bool
-
-	deviceFlowDisabled bool
 }
 
 // NewProvider creates and initializes the Dex server
@@ -196,12 +194,11 @@ func NewProviderFromYAML(ctx context.Context, yamlConfig *YAMLConfig) (*Provider
 	}
 
 	return &Provider{
-		config:             &Config{Issuer: yamlConfig.Issuer, GRPCAddr: yamlConfig.GRPC.Addr},
-		yamlConfig:         yamlConfig,
-		dexServer:          dexSrv,
-		storage:            stor,
-		logger:             logger,
-		deviceFlowDisabled: deviceFlowDisabled(yamlConfig.OAuth2.GrantTypes),
+		config:     &Config{Issuer: yamlConfig.Issuer, GRPCAddr: yamlConfig.GRPC.Addr},
+		yamlConfig: yamlConfig,
+		dexServer:  dexSrv,
+		storage:    stor,
+		logger:     logger,
 	}, nil
 }
 
@@ -349,7 +346,7 @@ func (p *Provider) Start(_ context.Context) error {
 	// Mount Dex at /oauth2/ path for reverse proxy compatibility
 	// Don't strip the prefix - Dex's issuer includes /oauth2 so it expects the full path
 	mux := http.NewServeMux()
-	mux.Handle("/oauth2/", p.Handler())
+	mux.Handle("/oauth2/", p.dexServer)
 
 	p.httpServer = &http.Server{Handler: mux}
 	p.running = true
@@ -516,12 +513,6 @@ func (p *Provider) SetClientsMFAChain(ctx context.Context, clientIDs []string, m
 // The handler expects requests with path prefix "/oauth2/".
 func (p *Provider) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Dex device endpoints ignore the grant-type filter, so block them here.
-		if p.deviceFlowDisabled && isDeviceFlowPath(r.URL.Path) {
-			http.NotFound(w, r)
-			return
-		}
-
 		// Dex's /logout endpoint requires id_token_hint for RP-initiated logout with
 		// post_logout_redirect_uri. If the dashboard calls logout without one, avoid
 		// rendering Dex's non-actionable Bad Request page and send the user home.
@@ -532,15 +523,6 @@ func (p *Provider) Handler() http.Handler {
 
 		p.dexServer.ServeHTTP(w, r)
 	})
-}
-
-// isDeviceFlowPath reports whether reqPath targets a Dex /oauth2/device* endpoint.
-func isDeviceFlowPath(reqPath string) bool {
-	rest, ok := strings.CutPrefix(reqPath, "/oauth2")
-	if !ok {
-		return false
-	}
-	return rest == "/device" || strings.HasPrefix(rest, "/device/")
 }
 
 // CreateUser creates a new user with the given email, username, and password.
