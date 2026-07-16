@@ -121,11 +121,6 @@ message SyncRequest {
   PeerSystemMeta meta = 1;
 }
 
-enum SyncResponseVersion {
-  VersionUnknown = 0;
-  VersionComponentNetworkMap = 1;
-}
-
 // SyncResponse represents a state that should be applied to the local peer (e.g. Netbird servers config as well as local peer and remote peers configs)
 message SyncResponse {
 
@@ -162,7 +157,7 @@ message SyncResponse {
   // locally instead of receiving an expanded NetworkMap.
   NetworkMapEnvelope NetworkMapEnvelope = 8;
 
-  SyncResponseVersion Version = 9;
+  int32 Version = 9;
 }
 
 message  SyncMetaRequest {
@@ -267,6 +262,7 @@ message PeerSystemMeta {
   Flags flags = 17;
 
   repeated PeerCapability capabilities = 18;
+  int32 syncMessageVersion = 19;
 }
 
 message LoginResponse {

@@ -89,14 +89,14 @@ type ConfigInput struct {
 	ClientCertPath                string
 	ClientCertKeyPath             string
 
-	DisableClientRoutes        *bool
-	DisableServerRoutes        *bool
-	DisableDNS                 *bool
-	DisableFirewall            *bool
-	BlockLANAccess             *bool
-	BlockInbound               *bool
-	DisableIPv6                *bool
-	DisableComponentNetworkMap *bool
+	DisableClientRoutes *bool
+	DisableServerRoutes *bool
+	DisableDNS          *bool
+	DisableFirewall     *bool
+	BlockLANAccess      *bool
+	BlockInbound        *bool
+	DisableIPv6         *bool
+	SyncMessageVersion  *int
 
 	DisableNotifications *bool
 
@@ -131,14 +131,14 @@ type Config struct {
 	DisableSSHAuth                *bool
 	SSHJWTCacheTTL                *int
 
-	DisableClientRoutes        bool
-	DisableServerRoutes        bool
-	DisableDNS                 bool
-	DisableFirewall            bool
-	BlockLANAccess             bool
-	BlockInbound               bool
-	DisableIPv6                bool
-	DisableComponentNetworkMap bool
+	DisableClientRoutes bool
+	DisableServerRoutes bool
+	DisableDNS          bool
+	DisableFirewall     bool
+	BlockLANAccess      bool
+	BlockInbound        bool
+	DisableIPv6         bool
+	SyncMessageVersion  *int
 
 	DisableNotifications *bool
 
@@ -589,9 +589,9 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if input.DisableComponentNetworkMap != nil && *input.DisableComponentNetworkMap != config.DisableComponentNetworkMap {
-		log.Infof("setting ComponentNetworkMap disabled=%v", *input.DisableComponentNetworkMap)
-		config.DisableComponentNetworkMap = *input.DisableComponentNetworkMap
+	if input.SyncMessageVersion != nil && *input.SyncMessageVersion != *config.SyncMessageVersion {
+		log.Infof("setting SyncMessageVersion to %v", *input.SyncMessageVersion)
+		*config.SyncMessageVersion = *input.SyncMessageVersion
 		updated = true
 	}
 

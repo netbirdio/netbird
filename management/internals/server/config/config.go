@@ -62,9 +62,9 @@ type Config struct {
 	// When set, Dex will be embedded in the management server and serve requests at /oauth2/
 	EmbeddedIdP *idp.EmbeddedIdPConfig
 
-	SupportedSyncMessageVersions []string
+	HighestSupportedSyncMessageVersion *int
 
-	PerAccountSupportedSyncMessageVersions map[string][]string
+	PerAccountHighestSupportedSyncMessageVersion map[string]int
 }
 
 // GetAuthAudiences returns the audience from the http config and device authorization flow config

@@ -64,6 +64,7 @@ import (
 	"github.com/netbirdio/netbird/route"
 	mgm "github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/management/domain"
+	sharedgrpc "github.com/netbirdio/netbird/shared/management/grpc"
 	nbnetworkmap "github.com/netbirdio/netbird/shared/management/networkmap"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 	types "github.com/netbirdio/netbird/shared/management/types"
@@ -142,14 +143,14 @@ type EngineConfig struct {
 
 	DNSRouteInterval time.Duration
 
-	DisableClientRoutes        bool
-	DisableServerRoutes        bool
-	DisableDNS                 bool
-	DisableFirewall            bool
-	BlockLANAccess             bool
-	BlockInbound               bool
-	DisableIPv6                bool
-	DisableComponentNetworkMap bool
+	DisableClientRoutes bool
+	DisableServerRoutes bool
+	DisableDNS          bool
+	DisableFirewall     bool
+	BlockLANAccess      bool
+	BlockInbound        bool
+	DisableIPv6         bool
+	SyncMessageVersion  *int
 
 	// LazyConnection is the MDM-sourced lazy-connection override; StateUnset defers to
 	// the env var and management feature flag.
@@ -995,7 +996,7 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		nm         *mgmProto.NetworkMap
 		components *types.NetworkMapComponents
 	)
-	if version := update.GetVersion(); version == mgmProto.SyncResponseVersion_VersionComponentNetworkMap {
+	if version := update.GetVersion(); version == int32(sharedgrpc.ComponentNetworkMap) {
 		// Components-format peer: decode the envelope back to typed
 		// components, run Calculate() locally, and convert to the wire
 		// NetworkMap shape the rest of the engine consumes. Components are
@@ -1234,7 +1235,7 @@ func (e *Engine) applyInfoFlags(info *system.Info) {
 		e.config.BlockLANAccess,
 		e.config.BlockInbound,
 		e.config.DisableIPv6,
-		e.config.DisableComponentNetworkMap,
+		e.config.SyncMessageVersion,
 		e.config.EnableSSHRoot,
 		e.config.EnableSSHSFTP,
 		e.config.EnableSSHLocalPortForwarding,
@@ -2103,7 +2104,7 @@ func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, bool, err
 		e.config.BlockLANAccess,
 		e.config.BlockInbound,
 		e.config.DisableIPv6,
-		e.config.DisableComponentNetworkMap,
+		e.config.SyncMessageVersion,
 		e.config.EnableSSHRoot,
 		e.config.EnableSSHSFTP,
 		e.config.EnableSSHLocalPortForwarding,

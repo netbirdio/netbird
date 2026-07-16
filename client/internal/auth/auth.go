@@ -351,7 +351,7 @@ func (a *Auth) setSystemInfoFlags(info *system.Info) {
 		a.config.BlockLANAccess,
 		a.config.BlockInbound,
 		a.config.DisableIPv6,
-		a.config.DisableComponentNetworkMap,
+		a.config.SyncMessageVersion,
 		a.config.EnableSSHRoot,
 		a.config.EnableSSHSFTP,
 		a.config.EnableSSHLocalPortForwarding,

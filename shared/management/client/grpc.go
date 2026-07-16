@@ -24,6 +24,7 @@ import (
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/shared/management/domain"
+	nbmgmtgrpc "github.com/netbirdio/netbird/shared/management/grpc"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/util/wsproxy"
 )
@@ -1026,6 +1027,8 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 		},
 
 		Capabilities: peerCapabilities(*info),
+
+		SyncMessageVersion: syncMessageVersion(*info),
 	}
 }
 
@@ -1034,14 +1037,15 @@ func peerCapabilities(info system.Info) []proto.PeerCapability {
 	caps := []proto.PeerCapability{
 		proto.PeerCapability_PeerCapabilitySourcePrefixes,
 	}
-	// PeerCapabilityComponentNetworkMap signals that this client can
-	// decode the components-format SyncResponse.NetworkMapEnvelope and
-	// run Calculate() locally.
-	if !info.DisableComponentNetworkMap {
-		caps = append(caps, proto.PeerCapability_PeerCapabilityComponentNetworkMap)
-	}
 	if !info.DisableIPv6 {
 		caps = append(caps, proto.PeerCapability_PeerCapabilityIPv6Overlay)
 	}
 	return caps
+}
+
+func syncMessageVersion(info system.Info) int32 {
+	if info.SyncMessageVersion != nil {
+		return int32(*info.SyncMessageVersion)
+	}
+	return int32(nbmgmtgrpc.CurrentSyncMessageVersion)
 }

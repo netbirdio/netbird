@@ -10,6 +10,7 @@ import (
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/types"
+	sharedgrpc "github.com/netbirdio/netbird/shared/management/grpc"
 	"github.com/netbirdio/netbird/shared/management/networkmap"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
@@ -72,7 +73,7 @@ func ToComponentSyncResponse(
 		PeerConfig:         peerConfig,
 		NetworkMapEnvelope: envelope,
 		Checks:             toProtocolChecks(ctx, checks),
-		Version:            proto.SyncResponseVersion_VersionComponentNetworkMap,
+		Version:            int32(sharedgrpc.ComponentNetworkMap),
 	}
 
 	nbConfig := toNetbirdConfig(config, turnCredentials, relayCredentials, extraSettings, settings)

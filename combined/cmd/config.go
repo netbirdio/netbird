@@ -75,8 +75,8 @@ type ServerConfig struct {
 	AuthStore               StoreConfig        `yaml:"authStore"`
 	ReverseProxy            ReverseProxyConfig `yaml:"reverseProxy"`
 
-	SupportedSyncMessageVersions           []string            `yaml:"supportedSyncMessageVersions"`
-	PerAccountSupportedSyncMessageVersions map[string][]string `yaml:"perAccountSupportedSyncMessageVersions"`
+	SupportedSyncMessageVersions           *int           `yaml:"supportedSyncMessageVersions,omitempty"`
+	PerAccountSupportedSyncMessageVersions map[string]int `yaml:"perAccountSupportedSyncMessageVersions,omitempty"`
 }
 
 // TLSConfig contains TLS/HTTPS settings
@@ -697,18 +697,18 @@ func (c *CombinedConfig) ToManagementConfig() (*nbconfig.Config, error) {
 	httpConfig.AuthCallbackURL = callbackURL + types.ProxyCallbackEndpointFull
 
 	return &nbconfig.Config{
-		Stuns:                                  stuns,
-		Relay:                                  relayConfig,
-		Signal:                                 signalConfig,
-		Datadir:                                mgmt.DataDir,
-		DataStoreEncryptionKey:                 mgmt.Store.EncryptionKey,
-		HttpConfig:                             httpConfig,
-		StoreConfig:                            storeConfig,
-		ReverseProxy:                           reverseProxy,
-		DisableDefaultPolicy:                   mgmt.DisableDefaultPolicy,
-		EmbeddedIdP:                            embeddedIdP,
-		SupportedSyncMessageVersions:           c.Server.SupportedSyncMessageVersions,
-		PerAccountSupportedSyncMessageVersions: c.Server.PerAccountSupportedSyncMessageVersions,
+		Stuns:                              stuns,
+		Relay:                              relayConfig,
+		Signal:                             signalConfig,
+		Datadir:                            mgmt.DataDir,
+		DataStoreEncryptionKey:             mgmt.Store.EncryptionKey,
+		HttpConfig:                         httpConfig,
+		StoreConfig:                        storeConfig,
+		ReverseProxy:                       reverseProxy,
+		DisableDefaultPolicy:               mgmt.DisableDefaultPolicy,
+		EmbeddedIdP:                        embeddedIdP,
+		HighestSupportedSyncMessageVersion: c.Server.SupportedSyncMessageVersions,
+		PerAccountHighestSupportedSyncMessageVersion: c.Server.PerAccountSupportedSyncMessageVersions,
 	}, nil
 }
 

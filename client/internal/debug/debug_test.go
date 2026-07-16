@@ -888,7 +888,7 @@ func TestAddConfig_AllFieldsCovered(t *testing.T) {
 		LazyConnection:                "on",
 		MTU:                           1280,
 		DisableIPv6:                   true,
-		DisableComponentNetworkMap:    true,
+		SyncMessageVersion:            func(v int) *int { return &v }(1),
 	}
 
 	for _, anonymize := range []bool{false, true} {

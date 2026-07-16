@@ -24,8 +24,8 @@ import (
 	"github.com/netbirdio/netbird/formatter/hook"
 	"github.com/netbirdio/netbird/management/internals/server"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
-	"github.com/netbirdio/netbird/management/internals/shared/grpc"
 	nbdomain "github.com/netbirdio/netbird/shared/management/domain"
+	"github.com/netbirdio/netbird/shared/management/grpc"
 	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/util/crypt"
 )
@@ -154,13 +154,13 @@ func LoadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*nbconfig.Confi
 
 	ApplyCommandLineOverrides(loadedConfig)
 
-	err := grpc.ValidateSyncMessageVersions(loadedConfig.SupportedSyncMessageVersions)
+	err := grpc.ValidateSyncMessageVersion(loadedConfig.HighestSupportedSyncMessageVersion)
 	if err != nil {
 		return nil, err
 	}
 
-	for account, versions := range loadedConfig.PerAccountSupportedSyncMessageVersions {
-		err := grpc.ValidateSyncMessageVersions(versions)
+	for account, version := range loadedConfig.PerAccountHighestSupportedSyncMessageVersion {
+		err := grpc.ValidateSyncMessageVersion(&version)
 		if err != nil {
 			return nil, fmt.Errorf("unrecognized sync message version for account %s, %w", account, err)
 		}

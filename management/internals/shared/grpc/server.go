@@ -45,6 +45,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
+	sharedgrpc "github.com/netbirdio/netbird/shared/management/grpc"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	internalStatus "github.com/netbirdio/netbird/shared/management/status"
 )
@@ -684,8 +685,9 @@ func extractPeerMeta(ctx context.Context, meta *proto.PeerSystemMeta) nbpeer.Pee
 			LazyConnectionEnabled: meta.GetFlags().GetLazyConnectionEnabled(),
 			DisableIPv6:           meta.GetFlags().GetDisableIPv6(),
 		},
-		Files:        files,
-		Capabilities: capabilitiesToInt32(meta.GetCapabilities()),
+		Files:              files,
+		Capabilities:       capabilitiesToInt32(meta.GetCapabilities()),
+		SyncMessageVersion: int(meta.GetSyncMessageVersion()),
 	}
 }
 
@@ -1021,13 +1023,13 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 
 	var plainResp *proto.SyncResponse
 
-	commonSyncMessageVersions := CommonSyncMessageVersions(
-		SyncMessageVersionsFromString(s.perAccountOrGlobalSyncMessageVersions(peer.AccountID)),
-		SyncMessageVersionsFromProtoEnums(peer.Meta.Capabilities))
+	commonSyncMessageVersion := sharedgrpc.HighestCommonSyncMessageVersions(
+		s.perAccountOrGlobalSyncMessageVersions(peer.AccountID),
+		sharedgrpc.SyncMessageVersionFromConfig(&peer.Meta.SyncMessageVersion))
 
-	log.WithContext(ctx).WithField("sync_message_version", commonSyncMessageVersions[0]).Debug("common highest sync message version")
+	log.WithContext(ctx).WithField("sync_message_version", commonSyncMessageVersion).Debug("common highest sync message version")
 
-	if commonSyncMessageVersions[0] == ComponentNetworkMap {
+	if commonSyncMessageVersion == sharedgrpc.ComponentNetworkMap {
 		// Capable peer: discard the legacy NetworkMap that SyncAndMarkPeer
 		// computed and recompute the raw components instead. This wastes one
 		// Calculate() call per initial-sync — the component-based wire
@@ -1073,11 +1075,11 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 	return nil
 }
 
-func (s *Server) perAccountOrGlobalSyncMessageVersions(accountId string) []string {
-	if versions, ok := s.config.PerAccountSupportedSyncMessageVersions[accountId]; ok {
-		return versions
+func (s *Server) perAccountOrGlobalSyncMessageVersions(accountId string) sharedgrpc.SyncMessageVersion {
+	if version, ok := s.config.PerAccountHighestSupportedSyncMessageVersion[accountId]; ok {
+		return sharedgrpc.SyncMessageVersionFromConfig(&version)
 	}
-	return s.config.SupportedSyncMessageVersions
+	return sharedgrpc.SyncMessageVersionFromConfig(s.config.HighestSupportedSyncMessageVersion)
 }
 
 // GetDeviceAuthorizationFlow returns a device authorization flow information

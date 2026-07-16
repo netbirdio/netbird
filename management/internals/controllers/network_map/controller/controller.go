@@ -21,6 +21,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/account"
+	sharedgrpc "github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -57,9 +58,9 @@ type Controller struct {
 
 	integratedPeerValidator integrated_validator.IntegratedValidator
 
-	serverSupportedSyncMessageVersions []grpc.SyncMessageVersion
+	serverSupportedSyncMessageVersion sharedgrpc.SyncMessageVersion
 
-	perAccountServerSupportedSyncMessageVersions map[string][]grpc.SyncMessageVersion
+	perAccountServerSupportedSyncMessageVersions map[string]sharedgrpc.SyncMessageVersion
 }
 
 type bufferUpdate struct {
@@ -96,8 +97,8 @@ func NewController(ctx context.Context, store store.Store, metrics telemetry.App
 
 		proxyController:                              proxyController,
 		EphemeralPeersManager:                        ephemeralPeersManager,
-		serverSupportedSyncMessageVersions:           grpc.SyncMessageVersionsFromString(config.SupportedSyncMessageVersions),
-		perAccountServerSupportedSyncMessageVersions: grpc.SyncMessageVersionsFromMap(config.PerAccountSupportedSyncMessageVersions),
+		serverSupportedSyncMessageVersion:            sharedgrpc.SyncMessageVersionFromConfig(config.HighestSupportedSyncMessageVersion),
+		perAccountServerSupportedSyncMessageVersions: sharedgrpc.SyncMessageVersionsFromMap(config.PerAccountHighestSupportedSyncMessageVersion),
 	}
 }
 
@@ -232,13 +233,13 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 			proxyNetworkMap := proxyNetworkMaps[p.ID]
 			var update *proto.SyncResponse
 
-			commonSyncMessageVersions := grpc.CommonSyncMessageVersions(
+			commonSyncMessageVersion := sharedgrpc.HighestCommonSyncMessageVersions(
 				c.perAccountOrGlobalSupportedSyncMessageVersions(accountID),
-				grpc.SyncMessageVersionsFromProtoEnums(peer.Meta.Capabilities))
+				sharedgrpc.SyncMessageVersionFromConfig(&peer.Meta.SyncMessageVersion))
 
-			log.WithContext(ctx).WithField("sync_message_version", commonSyncMessageVersions[0]).Debug("common highest sync message version")
+			log.WithContext(ctx).WithField("sync_message_version", commonSyncMessageVersion).Debug("common highest sync message version")
 
-			if commonSyncMessageVersions[0] == grpc.ComponentNetworkMap {
+			if commonSyncMessageVersion == sharedgrpc.ComponentNetworkMap {
 				components := account.GetPeerNetworkMapComponents(
 					ctx, p.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, groupIDToUserIDs)
 
@@ -287,11 +288,11 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 	return nil
 }
 
-func (c *Controller) perAccountOrGlobalSupportedSyncMessageVersions(accountId string) []grpc.SyncMessageVersion {
+func (c *Controller) perAccountOrGlobalSupportedSyncMessageVersions(accountId string) sharedgrpc.SyncMessageVersion {
 	if perAccount, ok := c.perAccountServerSupportedSyncMessageVersions[accountId]; ok {
 		return perAccount
 	}
-	return c.serverSupportedSyncMessageVersions
+	return c.serverSupportedSyncMessageVersion
 }
 
 // UpdatePeers updates all peers that belong to an account.
@@ -399,13 +400,13 @@ func (c *Controller) sendUpdateForAffectedPeers(ctx context.Context, accountID s
 			proxyNetworkMap := proxyNetworkMaps[p.ID]
 			var update *proto.SyncResponse
 
-			commonSyncMessageVersions := grpc.CommonSyncMessageVersions(
+			commonSyncMessageVersion := sharedgrpc.HighestCommonSyncMessageVersions(
 				c.perAccountOrGlobalSupportedSyncMessageVersions(accountID),
-				grpc.SyncMessageVersionsFromProtoEnums(peer.Meta.Capabilities))
+				sharedgrpc.SyncMessageVersionFromConfig(&peer.Meta.SyncMessageVersion))
 
-			log.WithContext(ctx).WithField("sync_message_version", commonSyncMessageVersions[0]).Debug("common highest sync message version")
+			log.WithContext(ctx).WithField("sync_message_version", commonSyncMessageVersion).Debug("common highest sync message version")
 
-			if commonSyncMessageVersions[0] == grpc.ComponentNetworkMap {
+			if commonSyncMessageVersion == sharedgrpc.ComponentNetworkMap {
 				components := account.GetPeerNetworkMapComponents(
 					ctx, p.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, groupIDToUserIDs)
 
@@ -535,13 +536,13 @@ func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, pe
 
 	var update *proto.SyncResponse
 
-	commonSyncMessageVersions := grpc.CommonSyncMessageVersions(
+	commonSyncMessageVersion := sharedgrpc.HighestCommonSyncMessageVersions(
 		c.perAccountOrGlobalSupportedSyncMessageVersions(accountId),
-		grpc.SyncMessageVersionsFromProtoEnums(peer.Meta.Capabilities))
+		sharedgrpc.SyncMessageVersionFromConfig(&peer.Meta.SyncMessageVersion))
 
-	log.WithContext(ctx).WithField("sync_message_version", commonSyncMessageVersions[0]).Debug("common highest sync message version")
+	log.WithContext(ctx).WithField("sync_message_version", commonSyncMessageVersion).Debug("common highest sync message version")
 
-	if commonSyncMessageVersions[0] == grpc.ComponentNetworkMap {
+	if commonSyncMessageVersion == sharedgrpc.ComponentNetworkMap {
 		components := account.GetPeerNetworkMapComponents(
 			ctx, peer.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, groupIDToUserIDs)
 

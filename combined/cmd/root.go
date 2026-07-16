@@ -506,12 +506,12 @@ func createManagementServer(cfg *CombinedConfig, mgmtConfig *nbconfig.Config) (m
 	}
 	mgmtPort, _ := strconv.Atoi(portStr)
 
-	if err := syncgrpc.ValidateSyncMessageVersions(mgmtConfig.SupportedSyncMessageVersions); err != nil {
+	if err := syncgrpc.ValidateSyncMessageVersion(mgmtConfig.HighestSupportedSyncMessageVersion); err != nil {
 		return nil, err
 	}
 
-	for accountId, versions := range mgmtConfig.PerAccountSupportedSyncMessageVersions {
-		if err := syncgrpc.ValidateSyncMessageVersions(versions); err != nil {
+	for accountId, version := range mgmtConfig.PerAccountHighestSupportedSyncMessageVersion {
+		if err := syncgrpc.ValidateSyncMessageVersion(&version); err != nil {
 			return nil, fmt.Errorf("unrecognized sync message version in perAccountSupportedSyncMessageVersions for account %s %w", accountId, err)
 		}
 	}

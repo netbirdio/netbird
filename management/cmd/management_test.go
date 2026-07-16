@@ -5,6 +5,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/netbirdio/netbird/shared/management/grpc"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -23,34 +24,48 @@ const (
 		"AuthIssuer": "https://something.eu.auth0.com/",
 		"OIDCConfigEndpoint": "https://something.eu.auth0.com/.well-known/openid-configuration"
 	  },
-	  "SupportedSyncMessageVersions": ["Base", "ComponentNetworkMap"],
-	  "PerAccountSupportedSyncMessageVersions": {
-	    "1": ["Base"],
-		"2": ["ComponentNetworkMap"],
-		"3": []
+	  "HighestSupportedSyncMessageVersion": 1,
+	  "PerAccountHighestSupportedSyncMessageVersion": {
+	    "1": 0,
+		"2": 1
 	  }
 	}`
 )
 
-func Test_loadMgmtConfig(t *testing.T) {
-	tmpFile, err := createConfig()
+func Test_LoadMgmtConfig(t *testing.T) {
+	tmpFile, err := createConfig(exampleConfig)
 	assert.NoError(t, err)
 
 	cfg, err := LoadMgmtConfig(context.Background(), tmpFile)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, cfg.Relay)
 	assert.NotEmpty(t, cfg.Relay.Addresses)
-	assert.Equal(t, []string{"Base", "ComponentNetworkMap"}, cfg.SupportedSyncMessageVersions)
-	assert.Equal(t, map[string][]string{
-		"1": {"Base"}, "2": {"ComponentNetworkMap"}, "3": {}}, cfg.PerAccountSupportedSyncMessageVersions)
+	assert.Equal(t, int(grpc.ComponentNetworkMap), *cfg.HighestSupportedSyncMessageVersion)
+	assert.Equal(t, map[string]int{"1": int(grpc.Base), "2": int(grpc.ComponentNetworkMap)}, cfg.PerAccountHighestSupportedSyncMessageVersion)
 }
 
-func createConfig() (string, error) {
+func Test_LoadMgmtConfig_Empty(t *testing.T) {
+	tmpFile, err := createConfig(`{
+		"HttpConfig": {
+			"AuthAudience": "https://stageapp/",
+			"AuthIssuer": "https://something.eu.auth0.com/",
+			"OIDCConfigEndpoint": "https://something.eu.auth0.com/.well-known/openid-configuration"
+		}
+	}`)
+	assert.NoError(t, err)
+
+	cfg, err := LoadMgmtConfig(context.Background(), tmpFile)
+	assert.NoError(t, err)
+	assert.Nil(t, cfg.HighestSupportedSyncMessageVersion)
+	assert.Nil(t, cfg.PerAccountHighestSupportedSyncMessageVersion)
+}
+
+func createConfig(config string) (string, error) {
 	tmpfile, err := os.CreateTemp("", "config.json")
 	if err != nil {
 		return "", err
 	}
-	_, err = tmpfile.Write([]byte(exampleConfig))
+	_, err = tmpfile.Write([]byte(config))
 	if err != nil {
 		return "", err
 	}
