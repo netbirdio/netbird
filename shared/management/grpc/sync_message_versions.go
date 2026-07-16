@@ -41,7 +41,7 @@ func SyncMessageVersionFromConfig(v *int) SyncMessageVersion {
 	return SyncMessageVersion(*v)
 }
 
-// convert per-account supprted versions to SyncMessageVersion
+// convert per-account supported versions to SyncMessageVersion
 // the assumption is ValidateSyncMessageVersion() has been called before using SyncMessageVersionsFromMap()
 func SyncMessageVersionsFromMap(toconvert map[string]int) map[string]SyncMessageVersion {
 	// no per-account overrides
