@@ -79,19 +79,19 @@ type portRouter struct {
 
 type Server struct {
 	ctx               context.Context
-	mgmtClient        proto.ProxyServiceClient
-	proxy             *proxy.ReverseProxy
-	netbird           *roundtrip.NetBird
-	acme              *acme.Manager
+	mgmtClient    proto.ProxyServiceClient
+	proxy         *proxy.ReverseProxy
+	netbird       *roundtrip.NetBird
+	acme          *acme.Manager
 	staticCertWatcher *certwatch.Watcher
-	auth              *auth.Middleware
-	http              *http.Server
-	https             *http.Server
-	debug             *http.Server
-	healthServer      *health.Server
-	healthChecker     *health.Checker
-	meter             *proxymetrics.Metrics
-	accessLog         *accesslog.Logger
+	auth          *auth.Middleware
+	http          *http.Server
+	https         *http.Server
+	debug         *http.Server
+	healthServer  *health.Server
+	healthChecker *health.Checker
+	meter         *proxymetrics.Metrics
+	accessLog     *accesslog.Logger
 	// middlewareManager drives per-target middleware dispatch. Always
 	// constructed during boot; an empty registry produces empty chains and
 	// the reverse-proxy stays on the no-capture fast path.
@@ -99,17 +99,17 @@ type Server struct {
 	// middlewareRegistry is the source of registered middleware factories.
 	// Concrete middlewares register themselves through init().
 	middlewareRegistry *middleware.Registry
-	mainRouter         *nbtcp.Router
-	mainPort           uint16
-	mainPublicPort     uint16
-	udpMu              sync.Mutex
-	udpRelays          map[types.ServiceID]*udprelay.Relay
-	udpRelayWg         sync.WaitGroup
-	portMu             sync.RWMutex
-	portRouters        map[uint16]*portRouter
-	svcPorts           map[types.ServiceID][]uint16
-	lastMappings       map[types.ServiceID]*proto.ProxyMapping
-	portRouterWg       sync.WaitGroup
+	mainRouter     *nbtcp.Router
+	mainPort       uint16
+	mainPublicPort uint16
+	udpMu          sync.Mutex
+	udpRelays      map[types.ServiceID]*udprelay.Relay
+	udpRelayWg     sync.WaitGroup
+	portMu         sync.RWMutex
+	portRouters    map[uint16]*portRouter
+	svcPorts       map[types.ServiceID][]uint16
+	lastMappings   map[types.ServiceID]*proto.ProxyMapping
+	portRouterWg   sync.WaitGroup
 
 	// hijackTracker tracks hijacked connections (e.g. WebSocket upgrades)
 	// so they can be closed during graceful shutdown, since http.Server.Shutdown
