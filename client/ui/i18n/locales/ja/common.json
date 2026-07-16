@@ -120,7 +120,7 @@
         "message": "NetBird {version} が利用可能です。"
     },
     "notify.update.enforcedSuffix": {
-        "message": " 管理者がこの更新を必須にしています。"
+        "message": "管理者がこの更新を必須にしています。"
     },
     "notify.error.title": {
         "message": "エラー"
