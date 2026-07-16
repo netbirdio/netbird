@@ -778,6 +778,11 @@ func (r *router) addNatRule(pair firewall.RouterPair) error {
 			SourceRegister: true,
 			Register:       1,
 		},
+		&expr.Ct{
+			Key:            expr.CtKeyMARK,
+			SourceRegister: true,
+			Register:       1,
+		},
 	)
 
 	ruleKey := firewall.GenKey(firewall.PreroutingFormat, pair)

@@ -418,9 +418,9 @@ func (c *ConnTrack) getFlowID(conntrackID uint32) uuid.UUID {
 
 func (c *ConnTrack) inferDirection(mark uint32, srcIP, dstIP netip.Addr) nftypes.Direction {
 	switch mark {
-	case nbnet.DataPlaneMarkIn:
+	case nbnet.DataPlaneMarkIn, nbnet.PreroutingFwmarkRedirected, nbnet.PreroutingFwmarkMasquerade:
 		return nftypes.Ingress
-	case nbnet.DataPlaneMarkOut:
+	case nbnet.DataPlaneMarkOut, nbnet.PreroutingFwmarkMasqueradeReturn:
 		return nftypes.Egress
 	}
 
