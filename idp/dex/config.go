@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -140,6 +141,15 @@ type OAuth2 struct {
 	PasswordConnector     string   `yaml:"passwordConnector" json:"passwordConnector"`
 	ResponseTypes         []string `yaml:"responseTypes" json:"responseTypes"`
 	GrantTypes            []string `yaml:"grantTypes" json:"grantTypes"`
+}
+
+// GrantTypeDeviceCode is the RFC 8628 device authorization grant identifier.
+const GrantTypeDeviceCode = "urn:ietf:params:oauth:grant-type:device_code"
+
+// deviceFlowDisabled reports whether grantTypes is set and omits the device grant
+// (empty means all grants allowed).
+func deviceFlowDisabled(grantTypes []string) bool {
+	return len(grantTypes) > 0 && !slices.Contains(grantTypes, GrantTypeDeviceCode)
 }
 
 // Expiry holds configuration for the validity period of components.
@@ -611,6 +621,10 @@ func (c *YAMLConfig) ToServerConfig(stor storage.Storage, logger *slog.Logger) s
 
 	if len(c.OAuth2.ResponseTypes) > 0 {
 		cfg.SupportedResponseTypes = c.OAuth2.ResponseTypes
+	}
+
+	if len(c.OAuth2.GrantTypes) > 0 {
+		cfg.AllowedGrantTypes = c.OAuth2.GrantTypes
 	}
 
 	// Apply expiry settings
