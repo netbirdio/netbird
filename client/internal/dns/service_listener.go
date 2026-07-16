@@ -292,7 +292,7 @@ func (s *serviceViaListener) generateFreePort() (uint16, error) {
 		return customPort, nil
 	}
 
-	probeListener, err := net.ListenUDP("udp", &net.UDPAddr{})
+	probeListener, err := net.ListenUDP("udp4", &net.UDPAddr{})
 	if err != nil {
 		log.Debugf("failed to bind random port for DNS: %s", err)
 		return 0, err
