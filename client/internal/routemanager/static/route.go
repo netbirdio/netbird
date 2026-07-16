@@ -62,9 +62,10 @@ func (r *Route) AddAllowedIPs(peerKey string) error {
 }
 
 func (r *Route) RemoveAllowedIPs() error {
-	if _, err := r.allowedIPsRefcounter.Decrement(r.route.Network, r.currentPeerKey); err != nil {
-		return err
+	var err error
+	if _, decErr := r.allowedIPsRefcounter.Decrement(r.route.Network, r.currentPeerKey); decErr != nil {
+		err = fmt.Errorf("remove allowed IP %s: %w", r.route.Network, decErr)
 	}
 	r.currentPeerKey = ""
-	return nil
+	return err
 }

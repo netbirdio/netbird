@@ -106,45 +106,45 @@ func (rm *AllowedIPsRefCounter) Decrement(prefix netip.Prefix, peerKey string) (
 		return Ref[string]{}, nil
 	}
 
-	if e.peers[peerKey] == 0 {
+	if e.peers[peerKey] > 0 {
+		logCallerF("Decreasing allowed IP ref count for prefix %v peer %s [peer %d -> %d, total %d -> %d, active %q]",
+			prefix, peerKey, e.peers[peerKey], e.peers[peerKey]-1, e.total, e.total-1, e.active)
+		e.peers[peerKey]--
+		e.total--
+		if e.peers[peerKey] == 0 {
+			delete(e.peers, peerKey)
+		}
+	} else {
 		logCallerF("No allowed IP reference found for prefix %v peer %s", prefix, peerKey)
+	}
+
+	// If the peer currently installed in WireGuard still holds references, nothing to reprogram.
+	// Keying the check on the active peer (not the one just released) makes this self-healing:
+	// a prior swap whose remove/add failed leaves e.active pointing at a peer with no references,
+	// and this retries the hand-off on the next Decrement instead of getting stuck.
+	if e.active != "" && e.peers[e.active] > 0 {
 		return Ref[string]{Count: e.total, Out: e.active}, nil
 	}
 
-	logCallerF("Decreasing allowed IP ref count for prefix %v peer %s [peer %d -> %d, total %d -> %d, active %q]",
-		prefix, peerKey, e.peers[peerKey], e.peers[peerKey]-1, e.total, e.total-1, e.active)
-
-	e.peers[peerKey]--
-	e.total--
-	if e.peers[peerKey] == 0 {
-		delete(e.peers, peerKey)
-	}
-
-	// Nothing to reprogram unless the peer we just released is the one installed in WireGuard
-	// and it no longer holds any reference.
-	if peerKey != e.active || e.peers[peerKey] > 0 {
-		return Ref[string]{Count: e.total, Out: e.active}, nil
-	}
-
-	// The active peer is gone. Hand the prefix over to a surviving peer, or remove it entirely.
-	if survivor, ok := pickSurvivor(e.peers); ok {
+	// Detach the stale/gone active peer from WireGuard before reprogramming.
+	if e.active != "" {
 		if err := rm.remove(prefix, e.active); err != nil {
 			return Ref[string]{Count: e.total, Out: e.active}, fmt.Errorf("remove allowed IP %v for peer %s: %w", prefix, e.active, err)
 		}
+		e.active = ""
+	}
+
+	// Hand the prefix over to a surviving peer, or drop the entry when none remain.
+	if survivor, ok := pickSurvivor(e.peers); ok {
 		out, err := rm.add(prefix, survivor)
 		if err != nil {
-			e.active = ""
-			return Ref[string]{Count: e.total, Out: e.active}, fmt.Errorf("swap allowed IP %v to peer %s: %w", prefix, survivor, err)
+			return Ref[string]{Count: e.total, Out: ""}, fmt.Errorf("swap allowed IP %v to peer %s: %w", prefix, survivor, err)
 		}
 		e.active = out
 		return Ref[string]{Count: e.total, Out: e.active}, nil
 	}
 
-	if err := rm.remove(prefix, e.active); err != nil {
-		return Ref[string]{}, fmt.Errorf("remove allowed IP %v for peer %s: %w", prefix, e.active, err)
-	}
 	delete(rm.entries, prefix)
-
 	return Ref[string]{Count: 0, Out: ""}, nil
 }
 
