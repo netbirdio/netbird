@@ -33,8 +33,13 @@ type OfferAnswer struct {
 	// Version of NetBird Agent
 	Version string
 	// RosenpassPubKey is the Rosenpass public key of the remote peer when receiving this message
-	// This value is the local Rosenpass server public key when sending the message
+	// This value is the local Rosenpass server public key when sending the message.
+	// May be empty on send when the remote peer has acknowledged already holding it (see RosenpassPubKeyAck).
 	RosenpassPubKey []byte
+	// RosenpassPubKeyHash is the SHA256 of the sender's own RosenpassPubKey. Always set when Rosenpass is enabled.
+	RosenpassPubKeyHash []byte
+	// RosenpassPubKeyAck is the SHA256 of the remote peer's key the sender holds cached; empty means "send it in full".
+	RosenpassPubKeyAck []byte
 	// RosenpassAddr is the Rosenpass server address (IP:port) of the remote peer when receiving this message
 	// This value is the local Rosenpass server address when sending the message
 	RosenpassAddr string
@@ -209,11 +214,11 @@ func (h *Handshaker) sendAnswer() error {
 
 func (h *Handshaker) buildOfferAnswer() OfferAnswer {
 	answer := OfferAnswer{
-		WgListenPort:    h.config.LocalWgPort,
-		Version:         version.NetbirdVersion(),
-		RosenpassPubKey: h.config.RosenpassConfig.PubKey,
-		RosenpassAddr:   h.config.RosenpassConfig.Addr,
+		WgListenPort:  h.config.LocalWgPort,
+		Version:       version.NetbirdVersion(),
+		RosenpassAddr: h.config.RosenpassConfig.Addr,
 	}
+	h.setRosenpassPubKey(&answer)
 
 	if h.ice != nil && h.RemoteICESupported() {
 		uFrag, pwd := h.ice.GetLocalUserCredentials()
@@ -228,6 +233,30 @@ func (h *Handshaker) buildOfferAnswer() OfferAnswer {
 	}
 
 	return answer
+}
+
+// setRosenpassPubKey fills the Rosenpass key fields of an outgoing offer/answer.
+// With a resolver wired it advertises our key hash and the ack for the remote key
+// we hold, and includes the full public key only when the peer has not yet
+// acknowledged holding it. Without a resolver (Rosenpass disabled, or an older
+// code path) it always sends the full key, preserving the previous behaviour.
+func (h *Handshaker) setRosenpassPubKey(answer *OfferAnswer) {
+	localKey := h.config.RosenpassConfig.PubKey
+	if len(localKey) == 0 {
+		return
+	}
+
+	resolver := h.config.RosenpassConfig.KeyResolver
+	if resolver == nil {
+		answer.RosenpassPubKey = localKey
+		return
+	}
+
+	answer.RosenpassPubKeyHash = resolver.LocalPubKeyHash()
+	answer.RosenpassPubKeyAck = resolver.RemotePubKeyAck(h.config.Key)
+	if !resolver.RemoteHasLocalKey(h.config.Key) {
+		answer.RosenpassPubKey = localKey
+	}
 }
 
 func (h *Handshaker) updateRemoteICEState(offer *OfferAnswer) {

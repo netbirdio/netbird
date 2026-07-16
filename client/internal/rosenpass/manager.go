@@ -29,6 +29,11 @@ func hashRosenpassKey(key []byte) string {
 	return hex.EncodeToString(hasher.Sum(nil))
 }
 
+func rawRosenpassKeyHash(key []byte) []byte {
+	sum := sha256.Sum256(key)
+	return sum[:]
+}
+
 // rpServer is the subset of rp.Server used by Manager. Defined as an interface
 // so tests can substitute a mock without spinning up a real UDP server.
 type rpServer interface {
@@ -51,6 +56,15 @@ type Manager struct {
 	lock         sync.Mutex
 	port         int
 	wgIface      PresharedKeySetter
+
+	// remotePubKeys caches remote peers' full Rosenpass public keys keyed by their
+	// WireGuard public key, so a peer that already sent us its (large) key over
+	// signalling need only send its hash on subsequent offers/answers. RAM only —
+	// never persisted (1000 peers x ~512KB would be ~512MB on disk).
+	remotePubKeys map[string][]byte
+	// remoteHasLocalKey tracks, per remote WireGuard key, whether that peer has
+	// acknowledged holding our current Rosenpass public key, letting us omit it.
+	remoteHasLocalKey map[string]bool
 }
 
 // NewManager creates a new Rosenpass manager. localWgKey is the local
@@ -85,8 +99,10 @@ func NewManager(preSharedKey *wgtypes.Key, wgIfaceName string, localWgKey wgtype
 		// nil receiver in addPeer -> m.rpWgHandler.AddPeer. generateConfig will
 		// replace it with a fresh handler on each Run() to clear stale peer
 		// state from previous engine sessions.
-		rpWgHandler: NewNetbirdHandler((*[32]byte)(preSharedKey), localWgKey),
-		lock:        sync.Mutex{},
+		rpWgHandler:       NewNetbirdHandler((*[32]byte)(preSharedKey), localWgKey),
+		lock:              sync.Mutex{},
+		remotePubKeys:     make(map[string][]byte),
+		remoteHasLocalKey: make(map[string]bool),
 	}, nil
 }
 
@@ -97,6 +113,68 @@ func (m *Manager) GetPubKey() []byte {
 // GetAddress returns the address of the Rosenpass server
 func (m *Manager) GetAddress() *net.UDPAddr {
 	return &net.UDPAddr{Port: m.port}
+}
+
+// LocalPubKeyHash returns the raw SHA256 of the local Rosenpass public key. It is
+// advertised on every offer/answer so the remote peer can tell (via its cache)
+// whether it already holds our full key.
+func (m *Manager) LocalPubKeyHash() []byte {
+	return rawRosenpassKeyHash(m.spk)
+}
+
+// RemotePubKeyAck returns the SHA256 of the remote peer's cached public key, used
+// as the acknowledgement we send back. Nil means we do not hold the peer's key,
+// which signals the peer to include its full key next time.
+func (m *Manager) RemotePubKeyAck(remoteWgKey string) []byte {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	key, ok := m.remotePubKeys[remoteWgKey]
+	if !ok {
+		return nil
+	}
+	return rawRosenpassKeyHash(key)
+}
+
+// RemoteHasLocalKey reports whether the remote peer acknowledged holding our
+// current public key, so we may omit the full key from the next offer/answer.
+func (m *Manager) RemoteHasLocalKey(remoteWgKey string) bool {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	return m.remoteHasLocalKey[remoteWgKey]
+}
+
+// ResolveRemotePubKey reconciles the Rosenpass key material from a received
+// offer/answer: it caches a received full key, or — when only a hash was sent —
+// returns the cached key matching that hash. It returns nil when the remote peer
+// does not use Rosenpass (no key, no hash) or on a cache miss (hash sent but not
+// held); a miss self-heals because our resulting empty ack makes the peer resend
+// its full key.
+func (m *Manager) ResolveRemotePubKey(remoteWgKey string, full, hash []byte) []byte {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	if len(full) > 0 {
+		m.remotePubKeys[remoteWgKey] = full
+		return full
+	}
+	if len(hash) == 0 {
+		return nil
+	}
+	if cached, ok := m.remotePubKeys[remoteWgKey]; ok && bytes.Equal(rawRosenpassKeyHash(cached), hash) {
+		return cached
+	}
+	return nil
+}
+
+// SetRemoteAck records whether the remote peer's acknowledgement matches our
+// current public key hash, i.e. whether it already holds our key.
+func (m *Manager) SetRemoteAck(remoteWgKey string, ack []byte) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	m.remoteHasLocalKey[remoteWgKey] = len(ack) > 0 && bytes.Equal(ack, rawRosenpassKeyHash(m.spk))
 }
 
 // addPeer adds a new peer to the Rosenpass server

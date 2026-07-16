@@ -65,6 +65,20 @@ type WgConfig struct {
 	PreSharedKey *wgtypes.Key
 }
 
+// RosenpassKeyResolver lets the handshaker fill the fingerprint/cache fields of an
+// offer/answer without depending on the Rosenpass manager directly. Implemented by
+// rosenpass.Manager and wired in by the engine.
+type RosenpassKeyResolver interface {
+	// LocalPubKeyHash is the SHA256 of our own Rosenpass public key.
+	LocalPubKeyHash() []byte
+	// RemotePubKeyAck is the SHA256 of the remote peer's cached key (nil if we do
+	// not hold it), sent back as an acknowledgement.
+	RemotePubKeyAck(remoteWgKey string) []byte
+	// RemoteHasLocalKey reports whether the peer already holds our key, so the full
+	// key may be omitted.
+	RemoteHasLocalKey(remoteWgKey string) bool
+}
+
 type RosenpassConfig struct {
 	// RosenpassPubKey is this peer's Rosenpass public key
 	PubKey []byte
@@ -72,6 +86,10 @@ type RosenpassConfig struct {
 	Addr string
 
 	PermissiveMode bool
+
+	// KeyResolver drives fingerprint-based key caching over signalling. Nil when
+	// Rosenpass is disabled, which makes the handshaker always send the full key.
+	KeyResolver RosenpassKeyResolver
 }
 
 // ConnConfig is a peer Connection configuration

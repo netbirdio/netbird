@@ -61,11 +61,13 @@ func (s *Signaler) signalOfferAnswer(offerAnswer OfferAnswer, remoteKey string, 
 			UFrag: offerAnswer.IceCredentials.UFrag,
 			Pwd:   offerAnswer.IceCredentials.Pwd,
 		},
-		RosenpassPubKey: offerAnswer.RosenpassPubKey,
-		RosenpassAddr:   offerAnswer.RosenpassAddr,
-		RelaySrvAddress: offerAnswer.RelaySrvAddress,
-		RelaySrvIP:      offerAnswer.RelaySrvIP,
-		SessionID:       sessionIDBytes,
+		RosenpassPubKey:     offerAnswer.RosenpassPubKey,
+		RosenpassPubKeyHash: offerAnswer.RosenpassPubKeyHash,
+		RosenpassPubKeyAck:  offerAnswer.RosenpassPubKeyAck,
+		RosenpassAddr:       offerAnswer.RosenpassAddr,
+		RelaySrvAddress:     offerAnswer.RelaySrvAddress,
+		RelaySrvIP:          offerAnswer.RelaySrvIP,
+		SessionID:           sessionIDBytes,
 	})
 	if err != nil {
 		return err

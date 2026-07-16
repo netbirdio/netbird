@@ -1809,6 +1809,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix, agentV
 			PubKey:         e.getRosenpassPubKey(),
 			Addr:           e.getRosenpassAddr(),
 			PermissiveMode: e.config.RosenpassPermissive,
+			KeyResolver:    e.rosenpassKeyResolver(),
 		},
 		ICEConfig: e.createICEConfig(),
 	}
@@ -1878,6 +1879,8 @@ func (e *Engine) receiveSignalEvents() error {
 				}
 
 				log.Debugf("receiveMSG: took %s to get lock for peer %s with session id %s", gotLock, msg.Key, offerAnswer.SessionID)
+
+				e.applyRosenpassKeyExchange(msg, offerAnswer)
 
 				if msg.Body.Type == sProto.Body_OFFER {
 					conn.OnRemoteOffer(*offerAnswer)
@@ -2220,6 +2223,34 @@ func (e *Engine) getRosenpassAddr() string {
 		return e.rpManager.GetAddress().String()
 	}
 	return ""
+}
+
+// rosenpassKeyResolver returns the Rosenpass manager as the offer/answer key
+// resolver, or a true nil interface when Rosenpass is disabled (returning the
+// typed-nil *Manager would make the interface non-nil and panic on use).
+func (e *Engine) rosenpassKeyResolver() peer.RosenpassKeyResolver {
+	if e.rpManager == nil {
+		return nil
+	}
+	return e.rpManager
+}
+
+// applyRosenpassKeyExchange reconciles the fingerprint/cache fields of an incoming
+// offer/answer against the Rosenpass manager's cache: it resolves the remote peer's
+// full public key (from the message or the cache) into the OfferAnswer, and records
+// whether the peer acknowledged holding our key. No-op when Rosenpass is disabled.
+func (e *Engine) applyRosenpassKeyExchange(msg *sProto.Message, oa *peer.OfferAnswer) {
+	if e.rpManager == nil {
+		return
+	}
+	cfg := msg.GetBody().GetRosenpassConfig()
+	if cfg == nil {
+		return
+	}
+
+	remoteWgKey := msg.GetKey()
+	oa.RosenpassPubKey = e.rpManager.ResolveRemotePubKey(remoteWgKey, cfg.GetRosenpassPubKey(), cfg.GetRosenpassPubKeyHash())
+	e.rpManager.SetRemoteAck(remoteWgKey, cfg.GetAcknowledgedRosenpassPubKeyHash())
 }
 
 // RunHealthProbes executes health checks for Signal, Management, Relay, and WireGuard services

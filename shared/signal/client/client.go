@@ -51,10 +51,17 @@ type CredentialPayload struct {
 	WgListenPort    int
 	Credential      *Credential
 	RosenpassPubKey []byte
-	RosenpassAddr   string
-	RelaySrvAddress string
-	RelaySrvIP      netip.Addr
-	SessionID       []byte
+	// RosenpassPubKeyHash is the SHA256 of the sender's own RosenpassPubKey (empty
+	// when Rosenpass is disabled). RosenpassPubKey may be omitted when the peer has
+	// already acknowledged this hash. See RosenpassConfig in the proto.
+	RosenpassPubKeyHash []byte
+	// RosenpassPubKeyAck is the SHA256 of the remote peer's key the sender holds
+	// cached; empty means "send me the full key".
+	RosenpassPubKeyAck []byte
+	RosenpassAddr      string
+	RelaySrvAddress    string
+	RelaySrvIP         netip.Addr
+	SessionID          []byte
 }
 
 // UnMarshalCredential parses the credentials from the message and returns a Credential instance
@@ -78,8 +85,10 @@ func MarshalCredential(myKey wgtypes.Key, remoteKey string, p CredentialPayload)
 		WgListenPort:   uint32(p.WgListenPort),
 		NetBirdVersion: version.NetbirdVersion(),
 		RosenpassConfig: &proto.RosenpassConfig{
-			RosenpassPubKey:     p.RosenpassPubKey,
-			RosenpassServerAddr: p.RosenpassAddr,
+			RosenpassPubKey:                 p.RosenpassPubKey,
+			RosenpassServerAddr:             p.RosenpassAddr,
+			RosenpassPubKeyHash:             p.RosenpassPubKeyHash,
+			AcknowledgedRosenpassPubKeyHash: p.RosenpassPubKeyAck,
 		},
 		SessionId: p.SessionID,
 	}

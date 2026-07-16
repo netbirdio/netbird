@@ -86,4 +86,15 @@ message RosenpassConfig {
   bytes rosenpassPubKey = 1;
   // rosenpassServerAddr is an IP:port of the rosenpass service
   string rosenpassServerAddr = 2;
+  // rosenpassPubKeyHash is the SHA256 of the sender's own rosenpassPubKey. It is
+  // always set when Rosenpass is enabled and lets the receiver detect (via a
+  // per-peer cache) whether it already holds the sender's full public key,
+  // avoiding re-sending the large key on every offer/answer.
+  bytes rosenpassPubKeyHash = 3;
+  // acknowledgedRosenpassPubKeyHash is the SHA256 of the remote peer's rosenpassPubKey
+  // that the sender currently holds cached. When it matches the receiver's own key hash
+  // the receiver may omit its full rosenpassPubKey from the message. Empty means the
+  // sender does not have the remote key and needs it sent in full. Absent from peers
+  // that predate this field, which keeps them receiving the full key as before.
+  bytes acknowledgedRosenpassPubKeyHash = 4;
 }
