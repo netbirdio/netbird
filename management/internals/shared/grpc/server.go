@@ -215,12 +215,13 @@ func (s *Server) Job(srv proto.ManagementService_JobServer) error {
 		return status.Errorf(codes.Unauthenticated, "peer is not registered")
 	}
 
-	s.startResponseReceiver(ctx, srv)
-
-	updates := s.jobManager.CreateJobChannel(ctx, accountID, peer.ID)
+	stream := s.jobManager.RegisterStream(ctx, accountID, peer.ID, func(event *job.Event) error {
+		return s.sendJob(ctx, peerKey, event, srv)
+	})
+	defer s.jobManager.UnregisterStream(ctx, accountID, peer.ID, stream)
 	log.WithContext(ctx).Debugf("Job: took %v", time.Since(reqStart))
 
-	return s.sendJobsLoop(ctx, accountID, peerKey, peer, updates, srv)
+	return s.receiveJobResponses(ctx, peerKey, srv)
 }
 
 // Sync validates the existence of a connecting peer, sends an initial state (all available for the connecting peers) and
@@ -362,51 +363,26 @@ func (s *Server) handleHandshake(ctx context.Context, srv proto.ManagementServic
 	return peerKey, nil
 }
 
-func (s *Server) startResponseReceiver(ctx context.Context, srv proto.ManagementService_JobServer) {
-	go func() {
-		for {
-			msg, err := srv.Recv()
-			if err != nil {
-				if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
-					return
-				}
-				log.WithContext(ctx).Warnf("recv job response error: %v", err)
-				return
-			}
-
-			jobResp := &proto.JobResponse{}
-			if _, err := s.parseRequest(ctx, msg, jobResp); err != nil {
-				log.WithContext(ctx).Warnf("invalid job response: %v", err)
-				continue
-			}
-
-			if err := s.jobManager.HandleResponse(ctx, jobResp, msg.WgPubKey); err != nil {
-				log.WithContext(ctx).Errorf("handle job response failed: %v", err)
-			}
-		}
-	}()
-}
-
-func (s *Server) sendJobsLoop(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, updates *job.Channel, srv proto.ManagementService_JobServer) error {
-	// todo figure out better error handling strategy
-	defer s.jobManager.CloseChannel(ctx, accountID, peer.ID)
-
+func (s *Server) receiveJobResponses(ctx context.Context, peerKey wgtypes.Key, srv proto.ManagementService_JobServer) error {
 	for {
-		event, err := updates.Event(ctx)
+		msg, err := srv.Recv()
 		if err != nil {
-			if errors.Is(err, job.ErrJobChannelClosed) {
-				log.WithContext(ctx).Debugf("jobs channel for peer %s was closed", peerKey.String())
+			if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) || ctx.Err() != nil {
+				log.WithContext(ctx).Debugf("job stream of peer %s has been closed", peerKey.String())
 				return nil
 			}
-
-			// happens when connection drops, e.g. client disconnects
-			log.WithContext(ctx).Debugf("stream of peer %s has been closed", peerKey.String())
-			return ctx.Err()
+			log.WithContext(ctx).Warnf("recv job response error: %v", err)
+			return err
 		}
 
-		if err := s.sendJob(ctx, peerKey, event, srv); err != nil {
-			log.WithContext(ctx).Warnf("send job failed: %v", err)
-			return nil
+		jobResp := &proto.JobResponse{}
+		if _, err := s.parseRequest(ctx, msg, jobResp); err != nil {
+			log.WithContext(ctx).Warnf("invalid job response: %v", err)
+			continue
+		}
+
+		if err := s.jobManager.HandleResponse(ctx, jobResp, msg.WgPubKey); err != nil {
+			log.WithContext(ctx).Errorf("handle job response failed: %v", err)
 		}
 	}
 }
