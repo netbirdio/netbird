@@ -79,19 +79,19 @@ type portRouter struct {
 
 type Server struct {
 	ctx               context.Context
-	mgmtClient    proto.ProxyServiceClient
-	proxy         *proxy.ReverseProxy
-	netbird       *roundtrip.NetBird
-	acme          *acme.Manager
+	mgmtClient        proto.ProxyServiceClient
+	proxy             *proxy.ReverseProxy
+	netbird           *roundtrip.NetBird
+	acme              *acme.Manager
 	staticCertWatcher *certwatch.Watcher
-	auth          *auth.Middleware
-	http          *http.Server
-	https         *http.Server
-	debug         *http.Server
-	healthServer  *health.Server
-	healthChecker *health.Checker
-	meter         *proxymetrics.Metrics
-	accessLog     *accesslog.Logger
+	auth              *auth.Middleware
+	http              *http.Server
+	https             *http.Server
+	debug             *http.Server
+	healthServer      *health.Server
+	healthChecker     *health.Checker
+	meter             *proxymetrics.Metrics
+	accessLog         *accesslog.Logger
 	// middlewareManager drives per-target middleware dispatch. Always
 	// constructed during boot; an empty registry produces empty chains and
 	// the reverse-proxy stays on the no-capture fast path.
@@ -99,16 +99,17 @@ type Server struct {
 	// middlewareRegistry is the source of registered middleware factories.
 	// Concrete middlewares register themselves through init().
 	middlewareRegistry *middleware.Registry
-	mainRouter    *nbtcp.Router
-	mainPort      uint16
-	udpMu         sync.Mutex
-	udpRelays     map[types.ServiceID]*udprelay.Relay
-	udpRelayWg    sync.WaitGroup
-	portMu        sync.RWMutex
-	portRouters   map[uint16]*portRouter
-	svcPorts      map[types.ServiceID][]uint16
-	lastMappings  map[types.ServiceID]*proto.ProxyMapping
-	portRouterWg  sync.WaitGroup
+	mainRouter         *nbtcp.Router
+	mainPort           uint16
+	mainPublicPort     uint16
+	udpMu              sync.Mutex
+	udpRelays          map[types.ServiceID]*udprelay.Relay
+	udpRelayWg         sync.WaitGroup
+	portMu             sync.RWMutex
+	portRouters        map[uint16]*portRouter
+	svcPorts           map[types.ServiceID][]uint16
+	lastMappings       map[types.ServiceID]*proto.ProxyMapping
+	portRouterWg       sync.WaitGroup
 
 	// hijackTracker tracks hijacked connections (e.g. WebSocket upgrades)
 	// so they can be closed during graceful shutdown, since http.Server.Shutdown
@@ -647,6 +648,9 @@ func (s *Server) bindMainListener(ctx context.Context) (net.Listener, error) {
 // initDefaults sets fallback values for optional Server fields.
 func (s *Server) initDefaults() {
 	s.startTime = time.Now()
+	if s.mainPublicPort == 0 {
+		s.mainPublicPort = 443
+	}
 
 	// If no ID is set then one can be generated.
 	if s.ID == "" {
@@ -1099,6 +1103,13 @@ func (s *Server) routerForPort(ctx context.Context, port uint16) (*nbtcp.Router,
 		return s.mainRouter, nil
 	}
 	return s.getOrCreatePortRouter(ctx, port)
+}
+
+func (s *Server) routerForTLSPort(ctx context.Context, port uint16) (*nbtcp.Router, error) {
+	if port == s.mainPublicPort {
+		return s.mainRouter, nil
+	}
+	return s.routerForPort(ctx, port)
 }
 
 // routerForPortExisting returns the router for the given port without creating
@@ -1823,7 +1834,7 @@ func (s *Server) setupTLSMapping(ctx context.Context, mapping *proto.ProxyMappin
 		return fmt.Errorf("port %d conflicts with tunnel port", tlsPort)
 	}
 
-	router, err := s.routerForPort(ctx, tlsPort)
+	router, err := s.routerForTLSPort(ctx, tlsPort)
 	if err != nil {
 		return fmt.Errorf("router for TLS port %d: %w", tlsPort, err)
 	}
@@ -1844,7 +1855,7 @@ func (s *Server) setupTLSMapping(ctx context.Context, mapping *proto.ProxyMappin
 		Filter:             s.parseRestrictions(mapping),
 	})
 
-	if tlsPort != s.mainPort {
+	if tlsPort != s.mainPort && tlsPort != s.mainPublicPort {
 		s.portMu.Lock()
 		s.svcPorts[svcID] = []uint16{tlsPort}
 		s.portMu.Unlock()
