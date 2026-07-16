@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -53,9 +54,17 @@ type Manager struct {
 }
 
 // NewManager creates a new Rosenpass manager. localWgKey is the local
-// WireGuard public key, used to derive the per-peer rendezvous key.
-func NewManager(preSharedKey *wgtypes.Key, wgIfaceName string, localWgKey wgtypes.Key) (*Manager, error) {
-	public, secret, err := rp.GenerateKeyPair()
+// WireGuard public key, used to derive the per-peer rendezvous key. When stateDir
+// is non-empty the static keypair is persisted under it and reused across
+// restarts, keeping the public key (and the fingerprint peers cache) stable;
+// an empty stateDir keeps the previous behaviour of an ephemeral per-run keypair.
+func NewManager(preSharedKey *wgtypes.Key, wgIfaceName string, localWgKey wgtypes.Key, stateDir string) (*Manager, error) {
+	var keyPath string
+	if stateDir != "" {
+		keyPath = filepath.Join(stateDir, keypairFileName)
+	}
+
+	public, secret, err := loadOrGenerateKeypair(keyPath)
 	if err != nil {
 		return nil, err
 	}

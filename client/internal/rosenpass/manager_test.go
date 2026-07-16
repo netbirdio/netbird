@@ -255,7 +255,7 @@ func TestAddPeer_NilServer_ReturnsErrorNoCrash(t *testing.T) {
 // issue #4341 cannot occur in the window between NewManager and Run().
 func TestNewManager_PreInitializesHandler(t *testing.T) {
 	psk := wgtypes.Key{}
-	m, err := NewManager(&psk, "wt0", wgtypes.Key{0x01})
+	m, err := NewManager(&psk, "wt0", wgtypes.Key{0x01}, "")
 	require.NoError(t, err)
 	require.NotNil(t, m.rpWgHandler, "rpWgHandler must be initialized in NewManager")
 }
