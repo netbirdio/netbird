@@ -70,7 +70,10 @@ func (p *PopulateFields) setNonZero(field reflect.Value) (int, error) {
 		return n + 1, err
 	case reflect.Slice:
 		s := reflect.MakeSlice(field.Type(), 1, 1)
-		p.setNonZero(s.Index(0))
+		_, err := p.setNonZero(s.Index(0))
+		if err != nil {
+			return 0, err
+		}
 		field.Set(s)
 	default:
 		return 0, fmt.Errorf("unhandled field kind %s; extend setNonZero", field.Kind())
