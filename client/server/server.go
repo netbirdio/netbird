@@ -1099,7 +1099,9 @@ func (s *Server) beginDown() (chan struct{}, error) {
 	giveUpChan := s.clientGiveUpChan
 
 	if err := s.cleanupConnection(); err != nil {
-		// todo review to update the status in case any type of error
+		if errors.Is(err, ErrServiceNotUp) {
+			return nil, err
+		}
 		log.Errorf("failed to shut down properly: %v", err)
 		return nil, err
 	}
@@ -1172,7 +1174,7 @@ func (s *Server) cleanupConnection() error {
 	// making the run loop the sole owner of engine shutdown.
 	if engine != nil {
 		if err := engine.Stop(); err != nil {
-			return err
+			log.Errorf("failed to stop engine during cleanup: %v", err)
 		}
 	}
 
