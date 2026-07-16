@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	b64 "encoding/base64"
 	"encoding/binary"
-	"encoding/json"
 	"fmt"
 	"net"
 	"net/netip"
@@ -342,9 +341,7 @@ func Test_AccountSettings_SaveAndRetrieve(t *testing.T) {
 		assert.NotNil(t, accountFromDb)
 		assert.NotNil(t, accountFromDb.Settings)
 
-		settingJson, err := json.Marshal(settings)
-		dbSettingJson, err := json.Marshal(accountFromDb.Settings)
-		assert.True(t, reflect.DeepEqual(&settings, accountFromDb.Settings), "settings: %s\nsettings from db: %s", string(settingJson), string(dbSettingJson))
+		assert.True(t, reflect.DeepEqual(&settings, accountFromDb.Settings), "created settings and settings retrieved from the db should match")
 	})
 }
 
