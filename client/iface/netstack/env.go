@@ -3,7 +3,6 @@
 package netstack
 
 import (
-	"fmt"
 	"net"
 	"os"
 	"strconv"
@@ -36,7 +35,7 @@ func IsEnabled() bool {
 }
 
 func ListenAddr() string {
-	return fmt.Sprintf("%s:%d", listenHost(), listenPort())
+	return net.JoinHostPort(listenHost(), strconv.Itoa(listenPort()))
 }
 
 // listenHost returns the host/IP the SOCKS5 proxy binds to. It defaults to

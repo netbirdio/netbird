@@ -3,14 +3,15 @@
 package netstack
 
 import (
-	"fmt"
+	"net"
+	"strconv"
 	"testing"
 )
 
 func TestListenAddr_DefaultsToLoopback(t *testing.T) {
 	// No env overrides: must bind loopback, never all interfaces.
 	got := ListenAddr()
-	want := fmt.Sprintf("127.0.0.1:%d", DefaultSocks5Port)
+	want := net.JoinHostPort("127.0.0.1", strconv.Itoa(DefaultSocks5Port))
 	if got != want {
 		t.Fatalf("ListenAddr() = %q, want %q", got, want)
 	}
@@ -24,13 +25,14 @@ func TestListenAddr_AddressOverride(t *testing.T) {
 	}{
 		{name: "valid override honored", env: "0.0.0.0", want: "0.0.0.0"},
 		{name: "valid specific ip honored", env: "10.0.0.5", want: "10.0.0.5"},
+		{name: "ipv6 loopback bracketed", env: "::1", want: "::1"},
 		{name: "invalid falls back to loopback", env: "not-an-ip", want: "127.0.0.1"},
 		{name: "empty falls back to loopback", env: "", want: "127.0.0.1"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv(EnvSocks5ListenerAddress, tc.env)
-			want := fmt.Sprintf("%s:%d", tc.want, DefaultSocks5Port)
+			want := net.JoinHostPort(tc.want, strconv.Itoa(DefaultSocks5Port))
 			if got := ListenAddr(); got != want {
 				t.Fatalf("ListenAddr() = %q, want %q", got, want)
 			}
@@ -52,7 +54,7 @@ func TestListenAddr_PortOverride(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv(EnvSocks5ListenerPort, tc.env)
-			want := fmt.Sprintf("127.0.0.1:%d", tc.want)
+			want := net.JoinHostPort("127.0.0.1", strconv.Itoa(tc.want))
 			if got := ListenAddr(); got != want {
 				t.Fatalf("ListenAddr() = %q, want %q", got, want)
 			}
