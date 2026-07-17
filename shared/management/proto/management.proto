@@ -486,6 +486,22 @@ message RemotePeerConfig {
   string fqdn = 4;
 
   string agentVersion = 5;
+
+  // lazyState is the management per-peer override for lazy (on-demand)
+  // connections to this remote peer. LazyStateDefault follows the account-wide
+  // flag; LazyStateLazy forces lazy; LazyStateEager forces an always-active
+  // connection. A local NB_LAZY_CONN/MDM override still wins over this.
+  LazyState lazyState = 6;
+}
+
+// LazyState is the management per-peer override for lazy connections.
+enum LazyState {
+  // Follow the account-wide lazy connection flag.
+  LazyStateDefault = 0;
+  // Force a lazy (on-demand) connection regardless of the account flag.
+  LazyStateLazy = 1;
+  // Force an always-active connection regardless of the account flag.
+  LazyStateEager = 2;
 }
 
 // SSHConfig represents SSH configurations of a peer.

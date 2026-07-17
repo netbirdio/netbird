@@ -164,6 +164,7 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 	// filtered at the source (network map builder).
 	includeIPv6 := peer.SupportsIPv6() && peer.IPv6.IsValid()
 	useSourcePrefixes := peer.SupportsSourcePrefixes()
+	localIsProxy := peer.ProxyMeta.Embedded
 
 	response := &proto.SyncResponse{
 		PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings, httpConfig, deviceFlowConfig, networkMap.EnableSSH),
@@ -183,7 +184,7 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 	response.NetworkMap.PeerConfig = response.PeerConfig
 
 	remotePeers := make([]*proto.RemotePeerConfig, 0, len(networkMap.Peers)+len(networkMap.OfflinePeers))
-	remotePeers = appendRemotePeerConfig(remotePeers, networkMap.Peers, dnsName, includeIPv6)
+	remotePeers = appendRemotePeerConfig(remotePeers, networkMap.Peers, dnsName, includeIPv6, localIsProxy)
 
 	if !shouldSkipSendingDeprecatedRemotePeers(peer.Meta.WtVersion) {
 		response.RemotePeers = remotePeers
@@ -193,7 +194,7 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 	response.RemotePeersIsEmpty = len(remotePeers) == 0
 	response.NetworkMap.RemotePeersIsEmpty = response.RemotePeersIsEmpty
 
-	response.NetworkMap.OfflinePeers = appendRemotePeerConfig(nil, networkMap.OfflinePeers, dnsName, includeIPv6)
+	response.NetworkMap.OfflinePeers = appendRemotePeerConfig(nil, networkMap.OfflinePeers, dnsName, includeIPv6, localIsProxy)
 
 	firewallRules := toProtocolFirewallRules(networkMap.FirewallRules, includeIPv6, useSourcePrefixes)
 	response.NetworkMap.FirewallRules = firewallRules
@@ -292,7 +293,7 @@ func shouldSkipSendingDeprecatedRemotePeers(peerVersion string) bool {
 	return precomputedDeprecatedRemotePeersConstraint.Check(peerNBVersion)
 }
 
-func appendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*nbpeer.Peer, dnsName string, includeIPv6 bool) []*proto.RemotePeerConfig {
+func appendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*nbpeer.Peer, dnsName string, includeIPv6 bool, localIsProxy bool) []*proto.RemotePeerConfig {
 	for _, rPeer := range peers {
 		allowedIPs := []string{rPeer.IP.String() + "/32"}
 		if includeIPv6 && rPeer.IPv6.IsValid() {
@@ -304,9 +305,22 @@ func appendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*nbpeer.Peer,
 			SshConfig:    &proto.SSHConfig{SshPubKey: []byte(rPeer.SSHKey)},
 			Fqdn:         rPeer.FQDN(dnsName),
 			AgentVersion: rPeer.Meta.WtVersion,
+			LazyState:    lazyStateFor(localIsProxy, rPeer),
 		})
 	}
 	return dst
+}
+
+// lazyStateFor returns the per-peer lazy override for a remote peer. Connections
+// involving an ephemeral proxy peer on either endpoint default to lazy so shared
+// proxy infrastructure is not kept permanently connected to every peer. All
+// other peers follow the account-wide flag. A future admin-facing per-peer
+// setting can return LazyStateEager here to force a peer always-active.
+func lazyStateFor(localIsProxy bool, rPeer *nbpeer.Peer) proto.LazyState {
+	if localIsProxy || rPeer.ProxyMeta.Embedded {
+		return proto.LazyState_LazyStateLazy
+	}
+	return proto.LazyState_LazyStateDefault
 }
 
 // toProtocolDNSConfig converts nbdns.Config to proto.DNSConfig using the cache
