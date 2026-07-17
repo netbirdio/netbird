@@ -259,12 +259,18 @@ func (d *DeviceAuthorizationFlow) WaitToken(ctx context.Context, info AuthFlowIn
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
+	log.Infof("device flow: waiting for user authorization, polling token endpoint every %s, code expires in %s", interval, timeout)
+
+	start := time.Now()
+	polls := 0
+
 	for {
 		select {
 		case <-waitCtx.Done():
 			return TokenInfo{}, waitCtx.Err()
 		case <-ticker.C:
 
+			polls++
 			tokenResponse, err := d.requestToken(info)
 			if err != nil {
 				return TokenInfo{}, fmt.Errorf("parsing token response failed with error: %v", err)
@@ -272,10 +278,12 @@ func (d *DeviceAuthorizationFlow) WaitToken(ctx context.Context, info AuthFlowIn
 
 			if tokenResponse.Error != "" {
 				if tokenResponse.Error == "authorization_pending" {
+					log.Tracef("device flow: authorization still pending after poll %d", polls)
 					continue
 				} else if tokenResponse.Error == "slow_down" {
 					interval += (3 * time.Second)
 					ticker.Reset(interval)
+					log.Infof("device flow: IdP requested slow_down, polling interval increased to %s", interval)
 					continue
 				}
 
@@ -296,6 +304,7 @@ func (d *DeviceAuthorizationFlow) WaitToken(ctx context.Context, info AuthFlowIn
 				return TokenInfo{}, fmt.Errorf("validate access token failed with error: %v", err)
 			}
 
+			log.Infof("device flow: user authorization confirmed after %d polls in %s", polls, time.Since(start).Round(time.Second))
 			return tokenInfo, err
 		}
 	}

@@ -613,6 +613,10 @@ func (c *YAMLConfig) ToServerConfig(stor storage.Storage, logger *slog.Logger) s
 		cfg.SupportedResponseTypes = c.OAuth2.ResponseTypes
 	}
 
+	if len(c.OAuth2.GrantTypes) > 0 {
+		cfg.AllowedGrantTypes = c.OAuth2.GrantTypes
+	}
+
 	// Apply expiry settings
 	if c.Expiry.IDTokens != "" {
 		if d, err := parseDuration(c.Expiry.IDTokens); err == nil {
