@@ -113,7 +113,7 @@ func TestToExcludedLazyPeers(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e := &Engine{connMgr: &ConnMgr{force: tt.force, remoteLazyEnabled: tt.remoteEnabled}}
-			got := e.toExcludedLazyPeers(nil, peers)
+			got := e.toExcludedLazyPeers(peers)
 
 			if len(got) != len(tt.want) {
 				t.Fatalf("toExcludedLazyPeers() = %v, want %v", got, tt.want)

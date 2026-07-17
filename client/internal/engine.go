@@ -803,7 +803,7 @@ func (e *Engine) blockLanAccess() {
 
 // modifyPeers updates peers that have been modified (e.g. IP address has been changed).
 // It closes the existing connection, removes it from the peerConns map, and creates a new one.
-func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig, forwardingRules []firewallManager.ForwardRule) error {
+func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 
 	// first, check if peers have been modified
 	var modified []*mgmProto.RemotePeerConfig
@@ -842,8 +842,7 @@ func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig, forwardin
 	}
 	// third, add the peer connections again
 	for _, p := range modified {
-		err := e.addNewPeer(p, forwardingRules)
-		if err != nil {
+		if err := e.addNewPeer(p); err != nil {
 			return err
 		}
 	}
@@ -1474,8 +1473,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 
 	// Ingress forward rules
 	done = e.phase("forward_rules")
-	forwardingRules, err := e.updateForwardRules(networkMap.GetForwardingRules())
-	if err != nil {
+	if _, err := e.updateForwardRules(networkMap.GetForwardingRules()); err != nil {
 		log.Errorf("failed to update forward rules, err: %v", err)
 	}
 	done()
@@ -1486,14 +1484,14 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	e.updateOfflinePeers(networkMap.GetOfflinePeers())
 	done()
 
-	remotePeers, err := e.reconcilePeers(networkMap, forwardingRules)
+	remotePeers, err := e.reconcilePeers(networkMap)
 	if err != nil {
 		return err
 	}
 
 	// must set the exclude list after the peers are added. Without it the manager can not figure out the peers parameters from the store
 	done = e.phase("lazy_exclude")
-	e.connMgr.SetExcludeList(e.ctx, e.toExcludedLazyPeers(forwardingRules, remotePeers))
+	e.connMgr.SetExcludeList(e.ctx, e.toExcludedLazyPeers(remotePeers))
 	done()
 
 	e.networkSerial = serial
@@ -1503,10 +1501,8 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 
 // reconcilePeers applies the remote peer list from the network map (removing,
 // modifying and adding peers, then updating SSH config) and returns the remote
-// peers with our own peer filtered out, for use by later sync steps. The
-// forwarding rules are used to decide whether a newly added peer needs an
-// always-active connection.
-func (e *Engine) reconcilePeers(networkMap *mgmProto.NetworkMap, forwardingRules []firewallManager.ForwardRule) ([]*mgmProto.RemotePeerConfig, error) {
+// peers with our own peer filtered out, for use by later sync steps.
+func (e *Engine) reconcilePeers(networkMap *mgmProto.NetworkMap) ([]*mgmProto.RemotePeerConfig, error) {
 	// Filter out own peer from the remote peers list
 	localPubKey := e.config.WgPrivateKey.PublicKey().String()
 	remotePeers := make([]*mgmProto.RemotePeerConfig, 0, len(networkMap.GetRemotePeers()))
@@ -1534,14 +1530,14 @@ func (e *Engine) reconcilePeers(networkMap *mgmProto.NetworkMap, forwardingRules
 	}
 
 	done = e.phase("modified_peers")
-	err = e.modifyPeers(remotePeers, forwardingRules)
+	err = e.modifyPeers(remotePeers)
 	done()
 	if err != nil {
 		return nil, err
 	}
 
 	done = e.phase("added_peers")
-	err = e.addNewPeers(remotePeers, forwardingRules)
+	err = e.addNewPeers(remotePeers)
 	done()
 	if err != nil {
 		return nil, err
@@ -1737,10 +1733,9 @@ func addrToString(addr netip.Addr) string {
 }
 
 // addNewPeers adds peers that were not know before but arrived from the Management service with the update
-func (e *Engine) addNewPeers(peersUpdate []*mgmProto.RemotePeerConfig, forwardingRules []firewallManager.ForwardRule) error {
+func (e *Engine) addNewPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 	for _, p := range peersUpdate {
-		err := e.addNewPeer(p, forwardingRules)
-		if err != nil {
+		if err := e.addNewPeer(p); err != nil {
 			return err
 		}
 	}
@@ -1748,8 +1743,8 @@ func (e *Engine) addNewPeers(peersUpdate []*mgmProto.RemotePeerConfig, forwardin
 }
 
 // addNewPeer add peer if connection doesn't exist. A peer that is not lazy by
-// policy (or is a forwarder) gets an always-active connection instead.
-func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig, forwardingRules []firewallManager.ForwardRule) error {
+// policy gets an always-active connection instead.
+func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 	peerKey := peerConfig.GetWgPubKey()
 	peerIPs := make([]netip.Prefix, 0, len(peerConfig.GetAllowedIps()))
 	if _, ok := e.peerStore.PeerConn(peerKey); ok {
@@ -1783,7 +1778,8 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig, forwardingRul
 		log.Warnf("error adding peer %s to status recorder, got error: %v", peerKey, err)
 	}
 
-	if exists := e.connMgr.AddPeerConn(e.ctx, peerKey, conn, e.isPermanentPeer(peerConfig, forwardingRules)); exists {
+	permanent := !e.connMgr.PeerLazyDefault(peerConfig.GetLazyState())
+	if exists := e.connMgr.AddPeerConn(e.ctx, peerKey, conn, permanent); exists {
 		conn.Close(false)
 		return fmt.Errorf("peer already exists: %s", peerKey)
 	}
@@ -2610,53 +2606,16 @@ func (e *Engine) updateForwardRules(rules []*mgmProto.ForwardingRule) ([]firewal
 }
 
 // toExcludedLazyPeers returns the peers that must have an always-active
-// connection, so the caller can reconcile the lazy manager's exclude list.
-func (e *Engine) toExcludedLazyPeers(rules []firewallManager.ForwardRule, peers []*mgmProto.RemotePeerConfig) map[string]bool {
+// connection: those that are not lazy by policy (the per-peer lazy state or the
+// account flag, subject to the local override).
+func (e *Engine) toExcludedLazyPeers(peers []*mgmProto.RemotePeerConfig) map[string]bool {
 	excludedPeers := make(map[string]bool)
 	for _, p := range peers {
-		if e.isPermanentPeer(p, rules) {
+		if !e.connMgr.PeerLazyDefault(p.GetLazyState()) {
 			excludedPeers[p.GetWgPubKey()] = true
 		}
 	}
 	return excludedPeers
-}
-
-// isPermanentPeer reports whether a peer needs an always-active connection: it
-// is not lazy by policy (the per-peer lazy hint or account flag, subject to the
-// local override), or it is an ingress forward target. Inbound forwarded traffic
-// is initiated remotely and cannot wake a lazy connection, so the peer routing
-// the target must stay permanently connected.
-func (e *Engine) isPermanentPeer(p *mgmProto.RemotePeerConfig, rules []firewallManager.ForwardRule) bool {
-	if !e.connMgr.PeerLazyDefault(p.GetLazyState()) {
-		return true
-	}
-
-	// Match against the incoming config's AllowedIPs rather than the peer store:
-	// isPermanentPeer runs in addNewPeer before the peer is in the store, so a
-	// store lookup would miss a forward target and register it as lazy.
-	prefixes := make([]netip.Prefix, 0, len(p.GetAllowedIps()))
-	for _, ipStr := range p.GetAllowedIps() {
-		if prefix, err := netip.ParsePrefix(ipStr); err == nil {
-			prefixes = append(prefixes, prefix)
-		}
-	}
-	for _, r := range rules {
-		if prefixesContain(prefixes, r.TranslatedAddress) {
-			log.Infof("exclude forwarder peer from lazy connection: %s", p.GetWgPubKey())
-			return true
-		}
-	}
-	return false
-}
-
-// prefixesContain reports whether addr falls within any of the prefixes.
-func prefixesContain(prefixes []netip.Prefix, addr netip.Addr) bool {
-	for _, prefix := range prefixes {
-		if prefix.Contains(addr) {
-			return true
-		}
-	}
-	return false
 }
 
 // isChecksEqual checks if two slices of checks are equal.
