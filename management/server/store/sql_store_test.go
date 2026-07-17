@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"reflect"
 	"runtime"
 	"sort"
 	"sync"
@@ -34,6 +35,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/util"
 	nbroute "github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/status"
+	"github.com/netbirdio/netbird/shared/testing_helpers"
 	"github.com/netbirdio/netbird/util/crypt"
 )
 
@@ -294,6 +296,53 @@ func Test_SaveAccount(t *testing.T) {
 		if a, err := store.GetAccountBySetupKey(context.Background(), setupKey.Key); a == nil {
 			t.Errorf("expecting SetupKeyID2AccountID index updated after SaveAccount(): %v", err)
 		}
+	})
+}
+
+func Test_AccountSettings_SaveAndRetrieve(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
+	}
+
+	populateFields := testing_helpers.NewPopulateFields().WithCustomFieldSetter(
+		reflect.PointerTo(reflect.TypeOf(types.ExtraSettings{})), func(this *testing_helpers.PopulateFields, field reflect.Value) (int, error) {
+			es := types.ExtraSettings{}
+			reflectedEs := reflect.ValueOf(&es).Elem()
+			n, err := this.PopulateAll(reflectedEs)
+			if err != nil {
+				return n, err
+			}
+			field.Set(reflectedEs.Addr())
+			return n, nil
+		}).WithCustomFieldSetter(
+		reflect.PointerTo(reflect.TypeOf(types.DashboardFeatures{})), func(this *testing_helpers.PopulateFields, field reflect.Value) (int, error) {
+			t := true
+			df := types.DashboardFeatures{AgentNetwork: &t}
+			reflectedDf := reflect.ValueOf(&df).Elem()
+			field.Set(reflectedDf.Addr())
+			return 1, nil
+		}).WithSkippedTag("gorm", "-")
+
+	runTestForAllEngines(t, "", func(t *testing.T, store Store) {
+		account := newAccountWithId(context.Background(), "account_id", "testuser", "")
+		setupKey, _ := types.GenerateDefaultSetupKey()
+		account.SetupKeys[setupKey.Key] = setupKey
+
+		settings := types.Settings{}
+		numOfExportedFields, err := populateFields.PopulateAll(reflect.ValueOf(&settings).Elem())
+		assert.NoError(t, err)
+		assert.Equal(t, 27, numOfExportedFields)
+		account.Settings = &settings
+
+		err = store.SaveAccount(context.Background(), account)
+		assert.NoError(t, err)
+
+		accountFromDb, err := store.GetAccount(context.Background(), account.Id)
+		assert.NoError(t, err)
+		assert.NotNil(t, accountFromDb)
+		assert.NotNil(t, accountFromDb.Settings)
+
+		assert.True(t, reflect.DeepEqual(&settings, accountFromDb.Settings), "created settings and settings retrieved from the db should match")
 	})
 }
 
