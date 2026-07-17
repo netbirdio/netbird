@@ -11,11 +11,13 @@ import (
 	"strings"
 	"time"
 
+	log "github.com/sirupsen/logrus"
+	"gopkg.in/yaml.v3"
+
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/util/crypt"
-	log "github.com/sirupsen/logrus"
 
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 )
