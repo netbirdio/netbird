@@ -5,8 +5,7 @@ import (
 )
 
 func TestDetermineClientMessageTypeRejectsHello(t *testing.T) {
-	// The deprecated Hello message (type 1) is no longer accepted by the
-	// server, closing the pre-auth gob decode path (GHSA-v5w2-pqxj-6r94).
+	// The reserved legacy Hello message (type 1) must be rejected by the server.
 	msg := []byte{byte(CurrentProtocolVersion), byte(MsgTypeHello)}
 	if _, err := DetermineClientMessageType(msg); err == nil {
 		t.Fatalf("expected hello message type to be rejected")

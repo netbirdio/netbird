@@ -14,9 +14,10 @@ const (
 	CurrentProtocolVersion = 1
 
 	MsgTypeUnknown MsgType = 0
-	// Deprecated: Use MsgTypeAuth instead.
-	MsgTypeHello = 1
-	// Deprecated: Use MsgTypeAuthResponse instead.
+	// MsgTypeHello and MsgTypeHelloResponse are the removed legacy handshake
+	// message types. They are retained only to reserve wire values 1 and 2 so
+	// the values are never reused; the server rejects both.
+	MsgTypeHello         = 1
 	MsgTypeHelloResponse = 2
 	MsgTypeTransport     = 3
 	MsgTypeClose         = 4
@@ -130,7 +131,6 @@ func DetermineServerMessageType(msg []byte) (MsgType, error) {
 	msgType := MsgType(msg[1])
 	switch msgType {
 	case
-		MsgTypeHelloResponse,
 		MsgTypeAuthResponse,
 		MsgTypeTransport,
 		MsgTypeClose,
