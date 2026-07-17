@@ -104,6 +104,12 @@ type Server struct {
 	persistSyncResponse bool
 	isSessionActive     atomic.Bool
 
+	// ready is set once the daemon has finished startup and is serving RPCs
+	// backed by a running engine (see SetReady, called after Start succeeds and
+	// the service is registered). Reported via StatusResponse.DaemonReady so
+	// clients can wait deterministically instead of polling heuristically.
+	ready atomic.Bool
+
 	cpuProfileBuf *bytes.Buffer
 	cpuProfiling  bool
 
@@ -156,6 +162,14 @@ func New(ctx context.Context, logFile string, configFile string, profilesDisable
 	s.startSleepDetector()
 
 	return s
+}
+
+// SetReady marks the daemon as fully started and serving RPCs. It is called by
+// the service controller once Start has succeeded and the DaemonService is
+// registered, so a subsequent Status RPC reports DaemonReady=true. Safe for
+// concurrent use.
+func (s *Server) SetReady() {
+	s.ready.Store(true)
 }
 
 func (s *Server) Start() error {
@@ -1422,7 +1436,7 @@ func (s *Server) buildStatusResponse(ctx context.Context, msg *proto.StatusReque
 		s.isSessionActive.Store(false)
 	}
 
-	statusResponse := proto.StatusResponse{Status: string(status), DaemonVersion: version.NetbirdVersion()}
+	statusResponse := proto.StatusResponse{Status: string(status), DaemonVersion: version.NetbirdVersion(), DaemonReady: s.ready.Load()}
 
 	if deadline := s.statusRecorder.GetSessionExpiresAt(); !deadline.IsZero() {
 		statusResponse.SessionExpiresAt = timestamppb.New(deadline)

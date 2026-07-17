@@ -295,9 +295,7 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 
 	client := proto.NewDaemonServiceClient(conn)
 
-	status, err := client.Status(ctx, &proto.StatusRequest{
-		WaitForReady: func() *bool { b := true; return &b }(),
-	})
+	status, err := waitForDaemonStatus(ctx, client)
 	if err != nil {
 		return fmt.Errorf("unable to get daemon status: %v", err)
 	}
@@ -334,6 +332,79 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 	}
 	cmd.Println("Connected")
 	return nil
+}
+
+// daemonStatusPollTimeout bounds how long we poll the Status RPC waiting for the
+// daemon to answer coherently. The transport is already READY at this point (see
+// DialClientGRPCServer), so this only covers the brief window where the gRPC server
+// is serving but the daemon engine is still starting up and the Status RPC races
+// against server.Start().
+const daemonStatusPollTimeout = 15 * time.Second
+
+// daemonReadyGrace bounds how long we keep polling once the daemon answers but
+// still reports DaemonReady=false. A freshly-started daemon flips it to true
+// within this window; an older daemon that never sets the field simply falls
+// through after the grace elapses, preserving backward compatibility.
+const daemonReadyGrace = 10 * time.Second
+
+// waitForDaemonStatus fetches the daemon status, waiting for the daemon to become
+// ready. It handles two startup races:
+//
+//  1. The gRPC server is not yet serving: Status fails with Unavailable — retry.
+//  2. The server serves but the engine is still starting: a DaemonReady-aware
+//     daemon reports DaemonReady=false until Start finishes; poll until it flips
+//     true (bounded by daemonReadyGrace). Older daemons never set DaemonReady, so
+//     we stop waiting on it after the grace and use the status as-is.
+//
+// It gives up after daemonStatusPollTimeout.
+func waitForDaemonStatus(ctx context.Context, client proto.DaemonServiceClient) (*proto.StatusResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, daemonStatusPollTimeout)
+	defer cancel()
+
+	waitForReady := true
+	req := &proto.StatusRequest{WaitForReady: &waitForReady}
+
+	var lastErr error
+	var firstAnswer time.Time
+	for {
+		status, err := client.Status(ctx, req)
+		if err != nil {
+			lastErr = err
+			// Only retry while the daemon is not yet answering; surface real errors.
+			if s, ok := gstatus.FromError(err); !ok || s.Code() != codes.Unavailable {
+				return nil, err
+			}
+		} else {
+			// Daemon answered. Explicitly ready (DaemonReady-aware daemon), or
+			// already fully connected — either way, done. Connected is the only
+			// status unambiguous enough to short-circuit on: a DaemonReady-aware
+			// daemon sets the flag at startup, so trusting Connected here can only
+			// help an older daemon that never sets the flag, without overriding a
+			// new daemon that legitimately reports DaemonReady=false while starting.
+			if status.GetDaemonReady() || internal.StatusType(status.GetStatus()) == internal.StatusConnected {
+				return status, nil
+			}
+			// Answered but neither ready-flagged nor connected yet: give a
+			// DaemonReady-aware daemon a bounded window to finish starting, then
+			// fall through so an older daemon that never sets the flag isn't
+			// blocked here.
+			if firstAnswer.IsZero() {
+				firstAnswer = time.Now()
+			} else if time.Since(firstAnswer) >= daemonReadyGrace {
+				return status, nil
+			}
+			lastErr = nil
+		}
+
+		select {
+		case <-ctx.Done():
+			if lastErr != nil {
+				return nil, fmt.Errorf("daemon did not become ready: %w", lastErr)
+			}
+			return nil, fmt.Errorf("daemon did not become ready within %s", daemonStatusPollTimeout)
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
 }
 
 func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServiceClient, pm *profilemanager.ProfileManager, activeProf *profilemanager.Profile, customDNSAddressConverted []byte, username string) error {
