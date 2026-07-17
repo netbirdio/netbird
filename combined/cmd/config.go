@@ -11,13 +11,11 @@ import (
 	"strings"
 	"time"
 
-	log "github.com/sirupsen/logrus"
-	"gopkg.in/yaml.v3"
-
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/util/crypt"
+	log "github.com/sirupsen/logrus"
 
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 )
@@ -145,6 +143,7 @@ type AuthConfig struct {
 	CLIRedirectURIs                 []string          `yaml:"cliRedirectURIs"`
 	Owner                           *AuthOwnerConfig  `yaml:"owner,omitempty"`
 	DashboardPostLogoutRedirectURIs []string          `yaml:"dashboardPostLogoutRedirectURIs"`
+	GrantTypes                      []string          `yaml:"grantTypes"`
 }
 
 // AuthStorageConfig contains auth storage settings
@@ -604,6 +603,7 @@ func (c *CombinedConfig) buildEmbeddedIdPConfig(mgmt ManagementConfig) (*idp.Emb
 		DashboardRedirectURIs:           mgmt.Auth.DashboardRedirectURIs,
 		CLIRedirectURIs:                 mgmt.Auth.CLIRedirectURIs,
 		DashboardPostLogoutRedirectURIs: mgmt.Auth.DashboardPostLogoutRedirectURIs,
+		GrantTypes:                      mgmt.Auth.GrantTypes,
 	}
 
 	if mgmt.Auth.Owner != nil && mgmt.Auth.Owner.Email != "" {
