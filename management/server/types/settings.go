@@ -25,6 +25,11 @@ type Settings struct {
 	// RegularUsersViewBlocked allows to block regular users from viewing even their own peers and some UI elements
 	RegularUsersViewBlocked bool
 
+	// RegularUsersGroupPeersViewEnabled allows regular users to view peers belonging to groups they are a member of,
+	// in addition to peers they personally registered. Default is false (off), preserving existing behavior.
+	// RegularUsersViewBlocked takes precedence: if it is enabled, this setting has no effect.
+	RegularUsersGroupPeersViewEnabled bool
+
 	// GroupsPropagationEnabled allows to propagate auto groups from the user to the peer
 	GroupsPropagationEnabled bool
 
@@ -101,13 +106,14 @@ type Settings struct {
 // Copy copies the Settings struct
 func (s *Settings) Copy() *Settings {
 	settings := &Settings{
-		PeerLoginExpirationEnabled: s.PeerLoginExpirationEnabled,
-		PeerLoginExpiration:        s.PeerLoginExpiration,
-		JWTGroupsEnabled:           s.JWTGroupsEnabled,
-		JWTGroupsClaimName:         s.JWTGroupsClaimName,
-		GroupsPropagationEnabled:   s.GroupsPropagationEnabled,
-		JWTAllowGroups:             s.JWTAllowGroups,
-		RegularUsersViewBlocked:    s.RegularUsersViewBlocked,
+		PeerLoginExpirationEnabled:        s.PeerLoginExpirationEnabled,
+		PeerLoginExpiration:               s.PeerLoginExpiration,
+		JWTGroupsEnabled:                  s.JWTGroupsEnabled,
+		JWTGroupsClaimName:                s.JWTGroupsClaimName,
+		GroupsPropagationEnabled:          s.GroupsPropagationEnabled,
+		JWTAllowGroups:                    s.JWTAllowGroups,
+		RegularUsersViewBlocked:           s.RegularUsersViewBlocked,
+		RegularUsersGroupPeersViewEnabled: s.RegularUsersGroupPeersViewEnabled,
 
 		PeerInactivityExpirationEnabled: s.PeerInactivityExpirationEnabled,
 		PeerInactivityExpiration:        s.PeerInactivityExpiration,

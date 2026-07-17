@@ -400,12 +400,15 @@ func TestGetAccessiblePeers(t *testing.T) {
 	}
 
 	tt := []struct {
-		name           string
-		peerID         string
-		callerUserID   string
-		viewBlocked    bool
-		expectedStatus int
-		expectedPeers  []string
+		name                       string
+		peerID                     string
+		callerUserID               string
+		viewBlocked                bool
+		groupPeersViewEnabled      bool
+		regularUserInGroup         bool
+		regularUserInDisjointGroup bool
+		expectedStatus             int
+		expectedPeers              []string
 	}{
 		{
 			name:           "non admin user can access owned peer",
@@ -474,6 +477,56 @@ func TestGetAccessiblePeers(t *testing.T) {
 			expectedStatus: http.StatusOK,
 			expectedPeers:  []string{"peer1", "peer2"},
 		},
+		{
+			name:                  "regular user in shared group still can't access unowned peer when group peers view disabled",
+			peerID:                "peer2",
+			callerUserID:          regularUser,
+			groupPeersViewEnabled: false,
+			regularUserInGroup:    true,
+			expectedStatus:        http.StatusOK,
+			expectedPeers:         []string{},
+		},
+		{
+			name:                  "regular user can access unowned peer via shared group when group peers view enabled",
+			peerID:                "peer2",
+			callerUserID:          regularUser,
+			groupPeersViewEnabled: true,
+			regularUserInGroup:    true,
+			expectedStatus:        http.StatusOK,
+			expectedPeers:         []string{"peer1", "peer3"},
+		},
+		{
+			name:                  "regular user not in shared group still can't access unowned peer when group peers view enabled",
+			peerID:                "peer2",
+			callerUserID:          regularUser,
+			groupPeersViewEnabled: true,
+			regularUserInGroup:    false,
+			expectedStatus:        http.StatusOK,
+			expectedPeers:         []string{},
+		},
+		{
+			name:                  "view blocked wins over group peers view enabled for regular user",
+			peerID:                "peer2",
+			callerUserID:          regularUser,
+			viewBlocked:           true,
+			groupPeersViewEnabled: true,
+			regularUserInGroup:    true,
+			expectedStatus:        http.StatusOK,
+			expectedPeers:         []string{},
+		},
+		{
+			// group1 (from initTestMetaData) contains every peer, so being a member of it is not a real
+			// intersection test. Here the caller is a member of a *different*, disjoint group that does not
+			// contain peer2, proving userSharesGroupWithPeer actually intersects the peer's groups with the
+			// user's AutoGroups instead of treating "peer belongs to some group" as sufficient.
+			name:                       "regular user in a disjoint group (not peer2's) still can't access peer2 when group peers view enabled",
+			peerID:                     "peer2",
+			callerUserID:               regularUser,
+			groupPeersViewEnabled:      true,
+			regularUserInDisjointGroup: true,
+			expectedStatus:             http.StatusOK,
+			expectedPeers:              []string{},
+		},
 	}
 
 	for _, tc := range tt {
@@ -489,6 +542,34 @@ func TestGetAccessiblePeers(t *testing.T) {
 						return nil, err
 					}
 					account.Settings.RegularUsersViewBlocked = true
+					return account, nil
+				}
+			}
+
+			if tc.groupPeersViewEnabled || tc.regularUserInGroup || tc.regularUserInDisjointGroup {
+				mockAM := p.accountManager.(*mock_server.MockAccountManager)
+				originalGetAccountByIDFunc := mockAM.GetAccountByIDFunc
+				mockAM.GetAccountByIDFunc = func(ctx context.Context, accountID string, userID string) (*types.Account, error) {
+					account, err := originalGetAccountByIDFunc(ctx, accountID, userID)
+					if err != nil {
+						return nil, err
+					}
+					account.Settings.RegularUsersGroupPeersViewEnabled = tc.groupPeersViewEnabled
+					if tc.regularUserInGroup {
+						account.Users[regularUser].AutoGroups = []string{"group1"}
+					}
+					if tc.regularUserInDisjointGroup {
+						// disjoint-group contains peer1 only (never peer2), and the caller is made a
+						// member of it instead of "group1" -- proving a real group intersection is required.
+						account.Groups["disjoint-group"] = &types.Group{
+							ID:        "disjoint-group",
+							AccountID: "test_id",
+							Name:      "disjoint-group",
+							Issued:    "api",
+							Peers:     []string{"peer1"},
+						}
+						account.Users[regularUser].AutoGroups = []string{"disjoint-group"}
+					}
 					return account, nil
 				}
 			}

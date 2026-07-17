@@ -71,7 +71,34 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 		return []*nbpeer.Peer{}, nil
 	}
 
-	return am.Store.GetUserPeers(ctx, store.LockingStrengthNone, accountID, userID)
+	userPeers, err := am.Store.GetUserPeers(ctx, store.LockingStrengthNone, accountID, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if !user.IsRestrictable() || !settings.RegularUsersGroupPeersViewEnabled {
+		return userPeers, nil
+	}
+
+	groupPeers, err := am.Store.GetPeersByGroupIDs(ctx, accountID, user.AutoGroups)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get group peers: %w", err)
+	}
+
+	peersByID := make(map[string]*nbpeer.Peer, len(userPeers)+len(groupPeers))
+	for _, p := range userPeers {
+		peersByID[p.ID] = p
+	}
+	for _, p := range groupPeers {
+		peersByID[p.ID] = p
+	}
+
+	peers := make([]*nbpeer.Peer, 0, len(peersByID))
+	for _, p := range peersByID {
+		peers = append(peers, p)
+	}
+
+	return peers, nil
 }
 
 // MarkPeerConnected marks a peer as connected with optimistic-locked
@@ -1514,6 +1541,24 @@ func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID,
 	// if admin or user owns this peer, return peer
 	if user.IsAdminOrServiceUser() || peer.UserID == userID {
 		return peer, nil
+	}
+
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get account settings: %w", err)
+	}
+
+	if user.IsRestrictable() && !settings.RegularUsersViewBlocked && settings.RegularUsersGroupPeersViewEnabled {
+		peerGroupIDs, err := am.Store.GetPeerGroupIDs(ctx, store.LockingStrengthNone, accountID, peerID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get peer group IDs: %w", err)
+		}
+
+		for _, groupID := range peerGroupIDs {
+			if slices.Contains(user.AutoGroups, groupID) {
+				return peer, nil
+			}
+		}
 	}
 
 	return nil, status.Errorf(status.Internal, "user %s has no access to peer %s under account %s", userID, peer.ID, accountID)
