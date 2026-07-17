@@ -148,23 +148,29 @@ func (d *Detector) Deregister() error {
 		registryMu.Unlock()
 		return nil
 	}
-	close(d.done)
-	delete(registry, d.handle)
+	handle := d.handle
 	hPowerNotify := d.hPowerNotify
-	d.handle = 0
-	d.hPowerNotify = 0
+	done := d.done
 	registryMu.Unlock()
 
 	log.Info("sleep detection service stopping (deregister)")
 
-	if hPowerNotify == 0 {
-		return nil
+	// Unregister the OS subscription first. If it fails, leave handle and
+	// hPowerNotify intact so a later call can retry the cleanup.
+	if hPowerNotify != 0 {
+		ret, _, callErr := unregisterSuspendResumeNotification.Call(hPowerNotify)
+		if ret == 0 {
+			return fmt.Errorf("UnregisterSuspendResumeNotification failed: %w", callErr)
+		}
 	}
 
-	ret, _, callErr := unregisterSuspendResumeNotification.Call(hPowerNotify)
-	if ret == 0 {
-		return fmt.Errorf("UnregisterSuspendResumeNotification failed: %w", callErr)
-	}
+	registryMu.Lock()
+	close(done)
+	delete(registry, handle)
+	d.handle = 0
+	d.hPowerNotify = 0
+	registryMu.Unlock()
+
 	return nil
 }
 
