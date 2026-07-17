@@ -1034,8 +1034,14 @@
     "welcome.title": {
         "message": "在托盘中查找 NetBird"
     },
+    "welcome.titleMac": {
+        "message": "在菜单栏中查找 NetBird"
+    },
     "welcome.description": {
         "message": "NetBird 驻留在您的托盘中。点击图标即可连接、切换配置文件或打开设置。"
+    },
+    "welcome.descriptionMac": {
+        "message": "NetBird 驻留在您的菜单栏中。点击图标即可连接、切换配置文件或打开设置。"
     },
     "welcome.continue": {
         "message": "继续"

@@ -1034,8 +1034,14 @@
     "welcome.title": {
         "message": "Cerchi NetBird nella tray"
     },
+    "welcome.titleMac": {
+        "message": "Cerchi NetBird nella barra dei menu"
+    },
     "welcome.description": {
         "message": "NetBird risiede nella tray. Clicchi sull'icona per connettersi, cambiare profilo o aprire le impostazioni."
+    },
+    "welcome.descriptionMac": {
+        "message": "NetBird risiede nella barra dei menu. Clicchi sull'icona per connettersi, cambiare profilo o aprire le impostazioni."
     },
     "welcome.continue": {
         "message": "Continua"

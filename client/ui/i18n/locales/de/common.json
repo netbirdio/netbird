@@ -1034,8 +1034,14 @@
     "welcome.title": {
         "message": "Suchen Sie NetBird in der Taskleiste"
     },
+    "welcome.titleMac": {
+        "message": "Suchen Sie NetBird in der Menüleiste"
+    },
     "welcome.description": {
         "message": "NetBird läuft in Ihrer Taskleiste. Klicken Sie auf das Symbol, um sich zu verbinden, Profile zu wechseln oder die Einstellungen zu öffnen."
+    },
+    "welcome.descriptionMac": {
+        "message": "NetBird läuft in Ihrer Menüleiste. Klicken Sie auf das Symbol, um sich zu verbinden, Profile zu wechseln oder die Einstellungen zu öffnen."
     },
     "welcome.continue": {
         "message": "Weiter"

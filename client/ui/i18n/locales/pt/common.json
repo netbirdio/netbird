@@ -1034,8 +1034,14 @@
     "welcome.title": {
         "message": "Procure o NetBird na sua bandeja"
     },
+    "welcome.titleMac": {
+        "message": "Procure o NetBird na sua barra de menus"
+    },
     "welcome.description": {
         "message": "O NetBird fica na sua bandeja. Clique no ícone para conectar, alternar perfis ou abrir as configurações."
+    },
+    "welcome.descriptionMac": {
+        "message": "O NetBird fica na sua barra de menus. Clique no ícone para conectar, alternar perfis ou abrir as configurações."
     },
     "welcome.continue": {
         "message": "Continuar"

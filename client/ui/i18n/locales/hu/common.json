@@ -1034,8 +1034,14 @@
     "welcome.title": {
         "message": "Keresse a NetBirdöt a tálcán"
     },
+    "welcome.titleMac": {
+        "message": "Keresse a NetBirdöt a menüsorban"
+    },
     "welcome.description": {
         "message": "A NetBird a tálcán fut. Kattintson az ikonra a csatlakozáshoz, profilváltáshoz vagy a beállítások megnyitásához."
+    },
+    "welcome.descriptionMac": {
+        "message": "A NetBird a menüsorban fut. Kattintson az ikonra a csatlakozáshoz, profilváltáshoz vagy a beállítások megnyitásához."
     },
     "welcome.continue": {
         "message": "Folytatás"

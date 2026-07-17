@@ -1034,8 +1034,14 @@
     "welcome.title": {
         "message": "Найдите NetBird в системном трее"
     },
+    "welcome.titleMac": {
+        "message": "Найдите NetBird в строке меню"
+    },
     "welcome.description": {
         "message": "NetBird находится в системном трее. Нажмите на значок, чтобы подключиться, переключить профиль или открыть настройки."
+    },
+    "welcome.descriptionMac": {
+        "message": "NetBird находится в строке меню. Нажмите на значок, чтобы подключиться, переключить профиль или открыть настройки."
     },
     "welcome.continue": {
         "message": "Продолжить"
