@@ -1403,8 +1403,12 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		return nil
 	}
 
-	if err := e.connMgr.UpdatedRemoteFeatureFlag(e.ctx, networkMap.GetPeerConfig().GetLazyConnectionEnabled()); err != nil {
-		log.Errorf("failed to update lazy connection feature flag: %v", err)
+	// Only update the flag when the sync carries a peer config; a nil peer config
+	// (e.g. a partial update) must not reset the cached flag to false.
+	if peerConfig := networkMap.GetPeerConfig(); peerConfig != nil {
+		if err := e.connMgr.UpdatedRemoteFeatureFlag(e.ctx, peerConfig.GetLazyConnectionEnabled()); err != nil {
+			log.Errorf("failed to update lazy connection feature flag: %v", err)
+		}
 	}
 
 	if e.firewall != nil {
