@@ -219,7 +219,7 @@ func runServer(cmd *cobra.Command, args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
-	srv := proxy.New(ctx, proxy.Config{
+	return proxy.New(ctx, proxy.Config{
 		ListenAddr:               addr,
 		PublicPort:               publicPort,
 		Logger:                   logger,
@@ -256,9 +256,7 @@ func runServer(cmd *cobra.Command, args []string) error {
 		GeoDataDir:               geoDataDir,
 		CrowdSecAPIURL:           crowdsecAPIURL,
 		CrowdSecAPIKey:           crowdsecAPIKey,
-	})
-
-	return srv.ListenAndServe(ctx, addr)
+	}).ListenAndServe(ctx, addr)
 }
 
 func envBoolOrDefault(key string, def bool) bool {
