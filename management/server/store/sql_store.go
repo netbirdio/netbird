@@ -1606,7 +1606,8 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 			settings_routing_peer_dns_resolution_enabled, settings_dns_domain, settings_network_range,
 			settings_network_range_v6, settings_ipv6_enabled_groups, settings_lazy_connection_enabled,
 			settings_local_mfa_enabled, settings_metrics_push_enabled, settings_agent_network_only,
-			settings_dashboard_features,
+			settings_dashboard_features, settings_auto_update_version, settings_auto_update_always,
+			settings_peer_expose_enabled, settings_peer_expose_groups,
 			-- Embedded ExtraSettings
 			settings_extra_peer_approval_enabled, settings_extra_user_approval_required,
 			settings_extra_integrated_validator, settings_extra_integrated_validator_groups
@@ -1632,6 +1633,10 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		sMetricsPushEnabled              sql.NullBool
 		sAgentNetworkOnly                sql.NullBool
 		sDashboardFeatures               sql.NullString
+		autoUpdateVersion                sql.NullString
+		autoUpdateAlways                 sql.NullBool
+		peerExposeEnabled                sql.NullBool
+		peerExposeGroups                 sql.NullString
 		sExtraPeerApprovalEnabled        sql.NullBool
 		sExtraUserApprovalRequired       sql.NullBool
 		sExtraIntegratedValidator        sql.NullString
@@ -1655,7 +1660,8 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		&sRoutingPeerDNSResolutionEnabled, &sDNSDomain, &sNetworkRange,
 		&sNetworkRangeV6, &sIPv6EnabledGroups, &sLazyConnectionEnabled,
 		&sLocalMFAEnabled, &sMetricsPushEnabled, &sAgentNetworkOnly,
-		&sDashboardFeatures,
+		&sDashboardFeatures, &autoUpdateVersion, &autoUpdateAlways,
+		&peerExposeEnabled, &peerExposeGroups,
 		&sExtraPeerApprovalEnabled, &sExtraUserApprovalRequired,
 		&sExtraIntegratedValidator, &sExtraIntegratedValidatorGroups,
 	)
@@ -1746,6 +1752,18 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 	}
 	if sIPv6EnabledGroups.Valid {
 		_ = json.Unmarshal([]byte(sIPv6EnabledGroups.String), &account.Settings.IPv6EnabledGroups)
+	}
+	if autoUpdateAlways.Valid {
+		account.Settings.AutoUpdateAlways = autoUpdateAlways.Bool
+	}
+	if autoUpdateVersion.Valid {
+		account.Settings.AutoUpdateVersion = autoUpdateVersion.String
+	}
+	if peerExposeEnabled.Valid {
+		account.Settings.PeerExposeEnabled = peerExposeEnabled.Bool
+	}
+	if peerExposeGroups.Valid {
+		_ = json.Unmarshal([]byte(peerExposeGroups.String), &account.Settings.PeerExposeGroups)
 	}
 
 	if sExtraPeerApprovalEnabled.Valid {
