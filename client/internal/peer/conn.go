@@ -404,11 +404,17 @@ func (conn *Conn) ConnID() id.ConnID {
 }
 
 // configureConnection starts proxying traffic from/to local Wireguard and sets connection status to StatusConnected
-func (conn *Conn) onICEConnectionIsReady(priority conntype.ConnPriority, iceConnInfo ICEConnInfo) {
+//
+// ctx is the connection cycle that produced this callback (the workers'
+// creation context). Checking it in addition to conn.ctx drops callbacks
+// that straddle a Close()+Open() sequence: conn.ctx is replaced on reopen,
+// so it alone cannot detect a callback from the previous cycle (same
+// pattern as onWGDisconnected's watcherCtx).
+func (conn *Conn) onICEConnectionIsReady(ctx context.Context, priority conntype.ConnPriority, iceConnInfo ICEConnInfo) {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
-	if conn.ctx.Err() != nil {
+	if conn.ctx.Err() != nil || ctx.Err() != nil {
 		return
 	}
 
@@ -485,11 +491,11 @@ func (conn *Conn) onICEConnectionIsReady(priority conntype.ConnPriority, iceConn
 	conn.doOnConnected(iceConnInfo.RosenpassPubKey, iceConnInfo.RosenpassAddr, updateTime)
 }
 
-func (conn *Conn) onICEStateDisconnected(sessionChanged bool) {
+func (conn *Conn) onICEStateDisconnected(ctx context.Context, sessionChanged bool) {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
-	if conn.ctx.Err() != nil {
+	if conn.ctx.Err() != nil || ctx.Err() != nil {
 		return
 	}
 
@@ -549,11 +555,11 @@ func (conn *Conn) onICEStateDisconnected(sessionChanged bool) {
 	}
 }
 
-func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
+func (conn *Conn) onRelayConnectionIsReady(ctx context.Context, rci RelayConnInfo) {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
-	if conn.ctx.Err() != nil {
+	if conn.ctx.Err() != nil || ctx.Err() != nil {
 		if err := rci.relayedConn.Close(); err != nil {
 			conn.Log.Warnf("failed to close unnecessary relayed connection: %v", err)
 		}
@@ -568,7 +574,7 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 		conn.Log.Errorf("failed to add relayed net.Conn to local proxy: %v", err)
 		return
 	}
-	wgProxy.SetDisconnectListener(conn.onRelayDisconnected)
+	wgProxy.SetDisconnectListener(func() { conn.onRelayDisconnected(ctx) })
 
 	conn.dumpState.NewLocalProxy()
 
@@ -613,9 +619,17 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 	conn.doOnConnected(rci.rosenpassPubKey, rci.rosenpassAddr, updateTime)
 }
 
-func (conn *Conn) onRelayDisconnected() {
+func (conn *Conn) onRelayDisconnected(ctx context.Context) {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
+
+	// Relay-manager close listeners and proxy disconnect listeners are
+	// registered per cycle but outlive Conn.Close; drop callbacks whose
+	// cycle is gone (see onICEConnectionIsReady).
+	if ctx.Err() != nil {
+		return
+	}
+
 	conn.handleRelayDisconnectedLocked()
 }
 
