@@ -198,8 +198,9 @@ func TestManager_MultiPeerActivity(t *testing.T) {
 // deterministically hold open the window between ReadPackets returning and
 // waitForTraffic acquiring m.mu (no sleeps).
 type fakeChurnListener struct {
-	released chan struct{} // closed by Close() (or by the test to simulate traffic)
-	proceed  chan struct{} // test gate: ReadPackets returns only after this is closed
+	released chan struct{}  // closed by Close() (or by the test to simulate traffic)
+	proceed  chan struct{}  // test gate: ReadPackets returns only after this is closed
+	result   ActivityResult // reason ReadPackets reports (zero value = Closed)
 	captured []byte
 }
 
@@ -210,9 +211,10 @@ func newFakeChurnListener() *fakeChurnListener {
 	}
 }
 
-func (f *fakeChurnListener) ReadPackets() {
+func (f *fakeChurnListener) ReadPackets() ActivityResult {
 	<-f.released
 	<-f.proceed
+	return f.result
 }
 
 func (f *fakeChurnListener) Close() {
@@ -286,6 +288,7 @@ func TestManager_WaitForTraffic_StaleListenerMustNotDisarmReplacement(t *testing
 	// Step 5: B stays fully functional - traffic (released without Close,
 	// then proceed) delivers exactly one event and B removes itself.
 	b.captured = []byte{0x01}
+	b.result = ActivityResultTraffic
 	close(b.released)
 	close(b.proceed)
 	select {
@@ -303,6 +306,74 @@ func TestManager_WaitForTraffic_StaleListenerMustNotDisarmReplacement(t *testing
 	}
 	if _, ok := mgr.GetPeerListener(connID); ok {
 		t.Fatal("listener B must have removed itself after delivering traffic")
+	}
+}
+
+// TestManager_WaitForTraffic_RealTrafficSurvivesRemoveRearm pins the reason
+// contract: listener A consumes REAL traffic, then loses the m.mu race
+// against RemovePeer + re-arm (B, same conn ID). B must stay armed
+// (identity guard), but A's event including the captured packet must still
+// be delivered - otherwise the first packet is blackholed (kernel mode:
+// reinjection lost; userspace mode: the only wake edge lost).
+func TestManager_WaitForTraffic_RealTrafficSurvivesRemoveRearm(t *testing.T) {
+	mgr := NewManager(&MocWGIface{})
+	defer mgr.Close()
+
+	peer := &MocPeer{PeerID: "examplePublicKeyChurnTraffic"}
+	connID := peer.ConnID()
+	logger := log.WithField("peer", peer.PeerID)
+
+	// Step 1: arm listener A; A will report real traffic.
+	a := newFakeChurnListener()
+	a.result = ActivityResultTraffic
+	a.captured = []byte{0x04, 0x00, 0x00, 0x00, 0xAA, 0xBB}
+	aDone := mgr.armListener(connID, a)
+
+	// Step 2: A consumes traffic (released without Close) but is held right
+	// before acquiring m.mu.
+	close(a.released)
+
+	// Step 3: RemovePeer + re-arm B run inside the race window.
+	mgr.RemovePeer(logger, connID)
+	b := newFakeChurnListener()
+	bDone := mgr.armListener(connID, b)
+
+	// Step 4: A's goroutine loses the race only now.
+	close(a.proceed)
+	select {
+	case <-aDone:
+	case <-time.After(5 * time.Second): // hang protection only
+		t.Fatal("listener A goroutine did not finish")
+	}
+
+	// Core asserts: B stays armed AND A's real event is delivered.
+	if cur, ok := mgr.GetPeerListener(connID); !ok || cur != listener(b) {
+		t.Fatal("map entry must still be exactly listener B")
+	}
+	select {
+	case ev := <-mgr.OnActivityChan:
+		if ev.PeerConnID != connID {
+			t.Fatalf("wrong conn ID in delivered event: %v", ev.PeerConnID)
+		}
+		if !bytes.Equal(ev.FirstPacket, a.captured) {
+			t.Fatalf("event must carry A's captured packet, got %v", ev.FirstPacket)
+		}
+	default:
+		t.Fatal("real traffic consumed by the raced-out listener must be delivered")
+	}
+
+	// Teardown: remove B via the close path - no further event.
+	mgr.RemovePeer(logger, connID)
+	close(b.proceed)
+	select {
+	case <-bDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("listener B goroutine did not finish")
+	}
+	select {
+	case ev := <-mgr.OnActivityChan:
+		t.Fatalf("closed listener B must not fire an event (got %v)", ev.PeerConnID)
+	default:
 	}
 }
 

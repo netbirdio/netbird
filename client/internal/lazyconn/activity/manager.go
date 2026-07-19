@@ -15,9 +15,27 @@ import (
 	peerid "github.com/netbirdio/netbird/client/internal/peer/id"
 )
 
+// ActivityResult reports why ReadPackets returned. waitForTraffic needs the
+// reason to disambiguate a listener that lost the removal/re-arm race: real
+// consumed traffic must still be delivered, while a Close() teardown must
+// stay silent.
+type ActivityResult int
+
+const (
+	// ActivityResultClosed means the listener was torn down (Close() or a
+	// read error) without consuming wake-worthy traffic. It is deliberately
+	// the zero value so a forgotten return path degrades to the conservative
+	// "no event" semantics.
+	ActivityResultClosed ActivityResult = iota
+	// ActivityResultTraffic means real traffic was consumed (kernel mode: a
+	// frame was captured for reinjection; userspace mode: an activity edge
+	// was signalled).
+	ActivityResultTraffic
+)
+
 // listener defines the contract for activity detection listeners.
 type listener interface {
-	ReadPackets()
+	ReadPackets() ActivityResult
 	Close()
 	CapturedPacket() []byte
 }
@@ -114,22 +132,33 @@ func (m *Manager) Close() {
 }
 
 func (m *Manager) waitForTraffic(l listener, peerConnID peerid.ConnID) {
-	l.ReadPackets()
+	result := l.ReadPackets()
 
 	m.mu.Lock()
 	cur, ok := m.peers[peerConnID]
-	if !ok || cur != l {
-		// The entry is gone (RemovePeer/Close) or was already replaced by a
-		// fresh listener for the same conn ID (remove -> re-arm churn). This
-		// goroutine no longer owns the map entry: it must neither delete the
-		// replacement nor fire an activity event on its behalf - a stale
-		// event would wake a peer without real traffic.
-		m.mu.Unlock()
-		return
+	owned := ok && cur == l
+	if owned {
+		delete(m.peers, peerConnID)
 	}
-	delete(m.peers, peerConnID)
 	m.mu.Unlock()
 
+	if !owned && result != ActivityResultTraffic {
+		// The entry is gone (RemovePeer/Close) or was already replaced by a
+		// fresh listener for the same conn ID (remove -> re-arm churn), and
+		// this listener was merely torn down. It must neither touch the
+		// replacement nor fire an event: a stale close event would wake a
+		// peer without real traffic.
+		return
+	}
+
+	// Two delivery cases:
+	//   owned: this goroutine still owns the map entry (deleted above).
+	//   !owned with traffic: the listener consumed real traffic but lost the
+	//   race against RemovePeer + re-arm. The replacement listener is left
+	//   untouched, but the consumed packet must still be delivered, otherwise
+	//   the first packet is blackholed (kernel mode: reinjection lost;
+	//   userspace mode: the only wake edge lost). The consumer ignores events
+	//   for unknown conn IDs and already-active peers.
 	m.notify(Event{PeerConnID: peerConnID, FirstPacket: l.CapturedPacket()})
 }
 
