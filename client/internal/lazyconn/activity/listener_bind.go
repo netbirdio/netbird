@@ -106,7 +106,7 @@ func (d *BindListener) setupLazyConn() error {
 		IP:   d.fakeIP.AsSlice(),
 		Port: lazyBindPort,
 	}
-	return d.wgIface.UpdatePeer(d.peerCfg.PublicKey, d.peerCfg.AllowedIPs, 0, endpoint, nil)
+	return d.wgIface.IdlePeerEndpoint(d.peerCfg.PublicKey, d.peerCfg.AllowedIPs, endpoint)
 }
 
 // ReadPackets blocks until activity is detected on the LazyConn or the listener is closed.

@@ -210,6 +210,64 @@ func (c *WGUSPConfigurer) RemovePeer(peerKey string) error {
 	return ipcErr
 }
 
+// IdlePeerEndpoint re-creates the peer pointing at the lazy wake endpoint, dropping
+// handshake state while preserving the peer's currently installed allowed IPs.
+func (c *WGUSPConfigurer) IdlePeerEndpoint(peerKey string, allowedIPs []netip.Prefix, endpoint *net.UDPAddr) error {
+	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
+	if err != nil {
+		return err
+	}
+
+	current, err := c.currentAllowedIPs(hex.EncodeToString(peerKeyParsed[:]))
+	if err != nil {
+		return fmt.Errorf("get current allowed IPs: %w", err)
+	}
+
+	config := buildIdlePeerEndpointConfig(peerKeyParsed, mergePrefixes(current, allowedIPs), endpoint)
+	if err := c.device.IpcSet(toWgUserspaceString(config)); err != nil {
+		return fmt.Errorf("set idle peer endpoint: %w", err)
+	}
+
+	if endpoint != nil {
+		addr, err := netip.ParseAddr(endpoint.IP.String())
+		if err != nil {
+			return fmt.Errorf("parse endpoint address: %w", err)
+		}
+		c.activityRecorder.UpsertAddress(peerKey, netip.AddrPortFrom(addr.Unmap(), uint16(endpoint.Port)))
+	}
+	return nil
+}
+
+// currentAllowedIPs returns the allowed IPs currently installed for the peer identified by
+// its hex-encoded public key. It returns an empty list when the peer does not exist.
+func (c *WGUSPConfigurer) currentAllowedIPs(hexKey string) ([]netip.Prefix, error) {
+	ipc, err := c.device.IpcGet()
+	if err != nil {
+		return nil, err
+	}
+
+	var prefixes []netip.Prefix
+	foundPeer := false
+	for _, line := range strings.Split(ipc, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "public_key=") {
+			foundPeer = line == "public_key="+hexKey
+			continue
+		}
+		if !foundPeer || !strings.HasPrefix(line, "allowed_ip=") {
+			continue
+		}
+
+		prefix, err := netip.ParsePrefix(strings.TrimPrefix(line, "allowed_ip="))
+		if err != nil {
+			log.Warnf("failed to parse allowed IP %q: %v", line, err)
+			continue
+		}
+		prefixes = append(prefixes, prefix)
+	}
+	return prefixes, nil
+}
+
 func (c *WGUSPConfigurer) AddAllowedIP(peerKey string, allowedIP netip.Prefix) error {
 	ipNet := net.IPNet{
 		IP:   allowedIP.Addr().AsSlice(),

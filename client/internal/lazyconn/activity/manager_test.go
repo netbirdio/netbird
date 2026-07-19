@@ -8,7 +8,6 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
@@ -26,7 +25,7 @@ func (m *MocPeer) ConnID() peerid.ConnID {
 type MocWGIface struct {
 }
 
-func (m MocWGIface) UpdatePeer(string, []netip.Prefix, time.Duration, *net.UDPAddr, *wgtypes.Key) error {
+func (m MocWGIface) IdlePeerEndpoint(string, []netip.Prefix, *net.UDPAddr) error {
 	return nil
 }
 

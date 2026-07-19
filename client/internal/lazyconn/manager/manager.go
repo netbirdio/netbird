@@ -280,7 +280,7 @@ func (m *Manager) DeactivatePeer(peerID peerid.ConnID) {
 		return
 	}
 
-	m.peerStore.PeerConnClose(mp.peerCfg.PublicKey)
+	m.peerStore.PeerConnIdle(mp.peerCfg.PublicKey, false)
 
 	mp.peerCfg.Log.Infof("start activity monitor")
 
@@ -569,7 +569,7 @@ func (m *Manager) onPeerInactivityTimedOut(peerIDs map[string]struct{}) {
 		mp.peerCfg.Log.Infof("connection timed out")
 
 		// this is blocking operation, potentially can be optimized
-		m.peerStore.PeerConnIdle(mp.peerCfg.PublicKey)
+		m.peerStore.PeerConnIdle(mp.peerCfg.PublicKey, true)
 
 		mp.expectedWatcher = watcherActivity
 

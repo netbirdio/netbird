@@ -9,7 +9,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
@@ -45,7 +44,7 @@ type MockWGIfaceBind struct {
 	endpointMgr *mockEndpointManager
 }
 
-func (m *MockWGIfaceBind) UpdatePeer(string, []netip.Prefix, time.Duration, *net.UDPAddr, *wgtypes.Key) error {
+func (m *MockWGIfaceBind) IdlePeerEndpoint(string, []netip.Prefix, *net.UDPAddr) error {
 	return nil
 }
 

@@ -5,10 +5,8 @@ import (
 	"net"
 	"net/netip"
 	"sync"
-	"time"
 
 	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
@@ -30,7 +28,7 @@ type Event struct {
 }
 
 type WgInterface interface {
-	UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error
+	IdlePeerEndpoint(peerKey string, allowedIPs []netip.Prefix, endpoint *net.UDPAddr) error
 	IsUserspaceBind() bool
 	Address() wgaddr.Address
 	MTU() uint16

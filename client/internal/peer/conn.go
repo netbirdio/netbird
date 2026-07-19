@@ -285,8 +285,20 @@ func (conn *Conn) open(engineCtx context.Context, firstPacket []byte) error {
 	return nil
 }
 
-// Close closes this peer Conn issuing a close event to the Conn closeCh
-func (conn *Conn) Close(signalToRemote bool) {
+// Close closes this peer Conn issuing a close event to the Conn closeCh and removes the WireGuard peer
+func (conn *Conn) Close() {
+	conn.close(false, true)
+}
+
+// Idle tears down the connection for the lazy idle state: transports and proxies are
+// closed but the WireGuard peer is kept, so its AllowedIPs (including routed prefixes
+// installed by the route manager) survive until the activity listener re-points the
+// endpoint at the wake listener.
+func (conn *Conn) Idle(signalToRemote bool) {
+	conn.close(signalToRemote, false)
+}
+
+func (conn *Conn) close(signalToRemote bool, removeWgPeer bool) {
 	conn.mu.Lock()
 	defer conn.wgWatcherWg.Wait()
 	defer conn.mu.Unlock()
@@ -329,8 +341,12 @@ func (conn *Conn) Close(signalToRemote bool) {
 		conn.wgProxyICE = nil
 	}
 
-	if err := conn.endpointUpdater.RemoveWgPeer(); err != nil {
-		conn.Log.Errorf("failed to remove wg endpoint: %v", err)
+	if removeWgPeer {
+		if err := conn.endpointUpdater.RemoveWgPeer(); err != nil {
+			conn.Log.Errorf("failed to remove wg endpoint: %v", err)
+		}
+	} else {
+		conn.endpointUpdater.CancelPendingUpdates()
 	}
 
 	if conn.evalStatus() == StatusConnected && conn.onDisconnected != nil {

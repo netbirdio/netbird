@@ -101,7 +101,7 @@ func (d *UDPListener) Close() {
 
 func (d *UDPListener) createEndpoint() error {
 	d.peerCfg.Log.Debugf("creating lazy endpoint: %s", d.endpoint.String())
-	return d.wgIface.UpdatePeer(d.peerCfg.PublicKey, d.peerCfg.AllowedIPs, 0, d.endpoint, nil)
+	return d.wgIface.IdlePeerEndpoint(d.peerCfg.PublicKey, d.peerCfg.AllowedIPs, d.endpoint)
 }
 
 func (d *UDPListener) newConn() (*net.UDPConn, error) {

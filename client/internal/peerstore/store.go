@@ -108,7 +108,10 @@ func (s *Store) PeerConnOpenWithFirstPacket(ctx context.Context, pubKey string, 
 	}
 }
 
-func (s *Store) PeerConnIdle(pubKey string) {
+// PeerConnIdle transitions the peer connection to the lazy idle state, keeping the
+// WireGuard peer and its AllowedIPs in place. signalToRemote indicates whether the
+// remote peer should be notified (false when the remote initiated the idle via GOAWAY).
+func (s *Store) PeerConnIdle(pubKey string, signalToRemote bool) {
 	s.peerConnsMu.RLock()
 	defer s.peerConnsMu.RUnlock()
 
@@ -116,18 +119,7 @@ func (s *Store) PeerConnIdle(pubKey string) {
 	if !ok {
 		return
 	}
-	p.Close(true)
-}
-
-func (s *Store) PeerConnClose(pubKey string) {
-	s.peerConnsMu.RLock()
-	defer s.peerConnsMu.RUnlock()
-
-	p, ok := s.peerConns[pubKey]
-	if !ok {
-		return
-	}
-	p.Close(false)
+	p.Idle(signalToRemote)
 }
 
 func (s *Store) PeersPubKey() []string {

@@ -228,7 +228,7 @@ func (e *ConnMgr) RemovePeerConn(peerKey string) {
 	if !ok {
 		return
 	}
-	defer conn.Close(false)
+	defer conn.Close()
 
 	if !e.isStartedWithLazyMgr() {
 		return

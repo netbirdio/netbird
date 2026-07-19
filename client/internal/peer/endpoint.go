@@ -65,6 +65,16 @@ func (e *EndpointUpdater) RemoveWgPeer() error {
 	return e.wgConfig.WgInterface.RemovePeer(e.wgConfig.RemoteKey)
 }
 
+// CancelPendingUpdates stops a scheduled delayed endpoint update without touching the
+// WireGuard peer. Used on the idle transition where the peer is kept so a pending
+// responder-side update cannot overwrite the wake endpoint later.
+func (e *EndpointUpdater) CancelPendingUpdates() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.waitForCloseTheDelayedUpdate()
+}
+
 func (e *EndpointUpdater) RemoveEndpointAddress() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()

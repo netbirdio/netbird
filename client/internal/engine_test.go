@@ -53,6 +53,7 @@ type MockWGIface struct {
 	UpdateAddrFunc             func(newAddr wgaddr.Address) error
 	UpdatePeerFunc             func(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error
 	RemovePeerFunc             func(peerKey string) error
+	IdlePeerEndpointFunc       func(peerKey string, allowedIPs []netip.Prefix, endpoint *net.UDPAddr) error
 	AddAllowedIPFunc           func(peerKey string, allowedIP netip.Prefix) error
 	RemoveAllowedIPFunc        func(peerKey string, allowedIP netip.Prefix) error
 	CloseFunc                  func() error
@@ -122,6 +123,13 @@ func (m *MockWGIface) UpdatePeer(peerKey string, allowedIps []netip.Prefix, keep
 
 func (m *MockWGIface) RemovePeer(peerKey string) error {
 	return m.RemovePeerFunc(peerKey)
+}
+
+func (m *MockWGIface) IdlePeerEndpoint(peerKey string, allowedIPs []netip.Prefix, endpoint *net.UDPAddr) error {
+	if m.IdlePeerEndpointFunc == nil {
+		return nil
+	}
+	return m.IdlePeerEndpointFunc(peerKey, allowedIPs, endpoint)
 }
 
 func (m *MockWGIface) AddAllowedIP(peerKey string, allowedIP netip.Prefix) error {

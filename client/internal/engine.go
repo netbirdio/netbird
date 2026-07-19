@@ -1778,7 +1778,7 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 	}
 
 	if exists := e.connMgr.AddPeerConn(e.ctx, peerKey, conn); exists {
-		conn.Close(false)
+		conn.Close()
 		return fmt.Errorf("peer already exists: %s", peerKey)
 	}
 

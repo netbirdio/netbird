@@ -184,6 +184,19 @@ func (w *WGIface) RemovePeer(peerKey string) error {
 	return w.configurer.RemovePeer(peerKey)
 }
 
+// IdlePeerEndpoint re-creates the peer pointing at the lazy wake endpoint, dropping
+// handshake state while preserving the peer's currently installed allowed IPs.
+func (w *WGIface) IdlePeerEndpoint(peerKey string, allowedIPs []netip.Prefix, endpoint *net.UDPAddr) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.configurer == nil {
+		return ErrIfaceNotFound
+	}
+
+	log.Debugf("Resetting peer on interface %s: %s, endpoint %s", w.tun.DeviceName(), peerKey, endpoint)
+	return w.configurer.IdlePeerEndpoint(peerKey, allowedIPs, endpoint)
+}
+
 // AddAllowedIP adds a prefix to the allowed IPs list of peer
 func (w *WGIface) AddAllowedIP(peerKey string, allowedIP netip.Prefix) error {
 	w.mu.Lock()

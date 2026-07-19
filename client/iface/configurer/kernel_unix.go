@@ -3,6 +3,7 @@
 package configurer
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -141,6 +142,39 @@ func (c *KernelConfigurer) RemovePeer(peerKey string) error {
 	err = c.configure(config)
 	if err != nil {
 		return fmt.Errorf(`received error "%w" while removing peer %s from interface %s`, err, peerKey, c.deviceName)
+	}
+	return nil
+}
+
+// IdlePeerEndpoint re-creates the peer pointing at the lazy wake endpoint, dropping
+// handshake state while preserving the peer's currently installed allowed IPs.
+func (c *KernelConfigurer) IdlePeerEndpoint(peerKey string, allowedIPs []netip.Prefix, endpoint *net.UDPAddr) error {
+	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
+	if err != nil {
+		return err
+	}
+
+	var current []netip.Prefix
+	existing, err := c.getPeer(c.deviceName, peerKey)
+	switch {
+	case errors.Is(err, ErrPeerNotFound):
+	case err != nil:
+		return fmt.Errorf("get peer: %w", err)
+	default:
+		for _, ipNet := range existing.AllowedIPs {
+			addr, ok := netip.AddrFromSlice(ipNet.IP)
+			if !ok {
+				log.Warnf("failed to convert allowed IP %s of peer %s", ipNet.String(), peerKey)
+				continue
+			}
+			ones, _ := ipNet.Mask.Size()
+			current = append(current, netip.PrefixFrom(addr.Unmap(), ones))
+		}
+	}
+
+	config := buildIdlePeerEndpointConfig(peerKeyParsed, mergePrefixes(current, allowedIPs), endpoint)
+	if err := c.configure(config); err != nil {
+		return fmt.Errorf(`received error "%w" while setting idle endpoint for peer %s on interface %s`, err, peerKey, c.deviceName)
 	}
 	return nil
 }
