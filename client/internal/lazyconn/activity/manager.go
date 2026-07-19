@@ -117,7 +117,13 @@ func (m *Manager) waitForTraffic(l listener, peerConnID peerid.ConnID) {
 	l.ReadPackets()
 
 	m.mu.Lock()
-	if _, ok := m.peers[peerConnID]; !ok {
+	cur, ok := m.peers[peerConnID]
+	if !ok || cur != l {
+		// The entry is gone (RemovePeer/Close) or was already replaced by a
+		// fresh listener for the same conn ID (remove -> re-arm churn). This
+		// goroutine no longer owns the map entry: it must neither delete the
+		// replacement nor fire an activity event on its behalf - a stale
+		// event would wake a peer without real traffic.
 		m.mu.Unlock()
 		return
 	}

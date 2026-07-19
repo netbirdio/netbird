@@ -194,6 +194,118 @@ func TestManager_MultiPeerActivity(t *testing.T) {
 	}
 }
 
+// fakeChurnListener implements the listener interface with channel gates to
+// deterministically hold open the window between ReadPackets returning and
+// waitForTraffic acquiring m.mu (no sleeps).
+type fakeChurnListener struct {
+	released chan struct{} // closed by Close() (or by the test to simulate traffic)
+	proceed  chan struct{} // test gate: ReadPackets returns only after this is closed
+	captured []byte
+}
+
+func newFakeChurnListener() *fakeChurnListener {
+	return &fakeChurnListener{
+		released: make(chan struct{}),
+		proceed:  make(chan struct{}),
+	}
+}
+
+func (f *fakeChurnListener) ReadPackets() {
+	<-f.released
+	<-f.proceed
+}
+
+func (f *fakeChurnListener) Close() {
+	select {
+	case <-f.released:
+	default:
+		close(f.released)
+	}
+}
+
+func (f *fakeChurnListener) CapturedPacket() []byte { return f.captured }
+
+// armListener mirrors MonitorPeerActivity for injected fake listeners:
+// register under m.mu, then start waitForTraffic. Returns a channel that is
+// closed when the goroutine finishes.
+func (m *Manager) armListener(connID peerid.ConnID, l listener) chan struct{} {
+	m.mu.Lock()
+	m.peers[connID] = l
+	m.mu.Unlock()
+
+	done := make(chan struct{})
+	go func() {
+		m.waitForTraffic(l, connID)
+		close(done)
+	}()
+	return done
+}
+
+// TestManager_WaitForTraffic_StaleListenerMustNotDisarmReplacement pins the
+// identity guard in waitForTraffic: a stale goroutine (listener A) that loses
+// the m.mu race against RemovePeer + re-arm (listener B, same conn ID) must
+// neither delete B from the map nor fire an activity event.
+func TestManager_WaitForTraffic_StaleListenerMustNotDisarmReplacement(t *testing.T) {
+	mgr := NewManager(&MocWGIface{})
+	defer mgr.Close()
+
+	peer := &MocPeer{PeerID: "examplePublicKeyChurn"}
+	connID := peer.ConnID()
+	logger := log.WithField("peer", peer.PeerID)
+
+	// Step 1: arm listener A; its goroutine blocks in ReadPackets.
+	a := newFakeChurnListener()
+	aDone := mgr.armListener(connID, a)
+
+	// Step 2: RemovePeer closes A; A's goroutine is held right before
+	// acquiring m.mu by the proceed gate.
+	mgr.RemovePeer(logger, connID)
+
+	// Step 3: re-arm a fresh listener B for the same conn ID.
+	b := newFakeChurnListener()
+	bDone := mgr.armListener(connID, b)
+
+	// Step 4: A's goroutine loses the race only now.
+	close(a.proceed)
+	select {
+	case <-aDone:
+	case <-time.After(5 * time.Second): // hang protection only
+		t.Fatal("listener A goroutine did not finish")
+	}
+
+	// Core asserts: B must stay armed, and A must not have fired an event.
+	if cur, ok := mgr.GetPeerListener(connID); !ok || cur != listener(b) {
+		t.Fatal("map entry must still be exactly listener B")
+	}
+	select {
+	case ev := <-mgr.OnActivityChan:
+		t.Fatalf("closed stale listener must not fire an event (got %v)", ev.PeerConnID)
+	default:
+	}
+
+	// Step 5: B stays fully functional - traffic (released without Close,
+	// then proceed) delivers exactly one event and B removes itself.
+	b.captured = []byte{0x01}
+	close(b.released)
+	close(b.proceed)
+	select {
+	case <-bDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("listener B goroutine did not finish")
+	}
+	select {
+	case ev := <-mgr.OnActivityChan:
+		if ev.PeerConnID != connID {
+			t.Fatalf("unexpected conn ID: %v", ev.PeerConnID)
+		}
+	default:
+		t.Fatal("live listener B must deliver its traffic event")
+	}
+	if _, ok := mgr.GetPeerListener(connID); ok {
+		t.Fatal("listener B must have removed itself after delivering traffic")
+	}
+}
+
 func trigger(addr string) error {
 	// Create a connection to the destination UDP address and port
 	conn, err := net.Dial("udp", addr)
