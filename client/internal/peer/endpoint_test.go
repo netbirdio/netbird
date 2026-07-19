@@ -37,7 +37,9 @@ func (m *endpointTestWGIface) RemovePeer(string) error {
 	return nil
 }
 
-func (m *endpointTestWGIface) GetStats() (map[string]configurer.WGStats, error) { return nil, nil }
+func (m *endpointTestWGIface) GetStats() (map[string]configurer.WGStats, error) {
+	return map[string]configurer.WGStats{}, nil
+}
 
 func (m *endpointTestWGIface) GetProxy() wgproxy.Proxy { return nil }
 
