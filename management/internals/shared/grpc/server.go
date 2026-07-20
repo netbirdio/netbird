@@ -1023,7 +1023,7 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 
 	var plainResp *proto.SyncResponse
 
-	commonSyncMessageVersion := sharedgrpc.HighestCommonSyncMessageVersions(
+	commonSyncMessageVersion := sharedgrpc.HighestCommonSyncMessageVersion(
 		s.perAccountOrGlobalSyncMessageVersions(peer.AccountID),
 		sharedgrpc.SyncMessageVersionFromConfig(&peer.Meta.SyncMessageVersion))
 

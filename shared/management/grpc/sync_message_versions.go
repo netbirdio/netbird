@@ -12,7 +12,8 @@ const (
 	ComponentNetworkMap
 )
 
-const CurrentSyncMessageVersion = ComponentNetworkMap
+const DefaultSyncMessageVersion = Base
+const HighestSyncMessageVersion = ComponentNetworkMap
 
 var ErrorUnrecognizedSyncMessageVersion = errors.New("unrecognized SyncMessageVersion")
 
@@ -21,8 +22,8 @@ func ValidateSyncMessageVersion(v *int) error {
 	if v == nil {
 		return nil
 	}
-	if *v < 0 || *v > int(CurrentSyncMessageVersion) {
-		return fmt.Errorf("sync message version must between 0 and %d, %w", CurrentSyncMessageVersion, ErrorUnrecognizedSyncMessageVersion)
+	if *v < 0 || *v > int(HighestSyncMessageVersion) {
+		return fmt.Errorf("sync message version must between 0 and %d, %w", HighestSyncMessageVersion, ErrorUnrecognizedSyncMessageVersion)
 	}
 	return nil
 }
@@ -32,9 +33,9 @@ func ValidateSyncMessageVersion(v *int) error {
 // the assumption is ValidateSyncMessageVersion() has been called before using SyncMessageVersionFromConfig()
 func SyncMessageVersionFromConfig(v *int) SyncMessageVersion {
 	if v == nil {
-		return CurrentSyncMessageVersion
+		return DefaultSyncMessageVersion
 	}
-	if *v < 0 || *v > int(CurrentSyncMessageVersion) {
+	if *v < 0 || *v > int(HighestSyncMessageVersion) {
 		return Base
 	}
 
@@ -58,7 +59,7 @@ func SyncMessageVersionsFromMap(toconvert map[string]int) map[string]SyncMessage
 }
 
 // return highest common sync message version, or Default (which is always available)
-func HighestCommonSyncMessageVersions(a SyncMessageVersion, b SyncMessageVersion) SyncMessageVersion {
+func HighestCommonSyncMessageVersion(a SyncMessageVersion, b SyncMessageVersion) SyncMessageVersion {
 	if a > b {
 		return b
 	}

@@ -233,7 +233,7 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 			proxyNetworkMap := proxyNetworkMaps[p.ID]
 			var update *proto.SyncResponse
 
-			commonSyncMessageVersion := sharedgrpc.HighestCommonSyncMessageVersions(
+			commonSyncMessageVersion := sharedgrpc.HighestCommonSyncMessageVersion(
 				c.perAccountOrGlobalSupportedSyncMessageVersions(accountID),
 				sharedgrpc.SyncMessageVersionFromConfig(&peer.Meta.SyncMessageVersion))
 
@@ -400,7 +400,7 @@ func (c *Controller) sendUpdateForAffectedPeers(ctx context.Context, accountID s
 			proxyNetworkMap := proxyNetworkMaps[p.ID]
 			var update *proto.SyncResponse
 
-			commonSyncMessageVersion := sharedgrpc.HighestCommonSyncMessageVersions(
+			commonSyncMessageVersion := sharedgrpc.HighestCommonSyncMessageVersion(
 				c.perAccountOrGlobalSupportedSyncMessageVersions(accountID),
 				sharedgrpc.SyncMessageVersionFromConfig(&peer.Meta.SyncMessageVersion))
 
@@ -536,7 +536,7 @@ func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, pe
 
 	var update *proto.SyncResponse
 
-	commonSyncMessageVersion := sharedgrpc.HighestCommonSyncMessageVersions(
+	commonSyncMessageVersion := sharedgrpc.HighestCommonSyncMessageVersion(
 		c.perAccountOrGlobalSupportedSyncMessageVersions(accountId),
 		sharedgrpc.SyncMessageVersionFromConfig(&peer.Meta.SyncMessageVersion))
 
