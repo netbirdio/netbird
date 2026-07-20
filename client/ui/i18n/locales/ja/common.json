@@ -1034,8 +1034,14 @@
     "welcome.title": {
         "message": "トレイの NetBird を確認してください"
     },
+    "welcome.titleMac": {
+        "message": "メニューバーの NetBird を確認してください"
+    },
     "welcome.description": {
         "message": "NetBird はトレイに常駐します。アイコンをクリックして、接続、プロファイルの切り替え、設定を開くことができます。"
+    },
+    "welcome.descriptionMac": {
+        "message": "NetBird はメニューバーに常駐します。アイコンをクリックして、接続、プロファイルの切り替え、設定を開くことができます。"
     },
     "welcome.continue": {
         "message": "続ける"
