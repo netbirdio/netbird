@@ -237,7 +237,12 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 				c.perAccountOrGlobalSupportedSyncMessageVersions(accountID),
 				sharedgrpc.SyncMessageVersionFromConfig(&peer.Meta.SyncMessageVersion))
 
-			log.WithContext(ctx).WithField("sync_message_version", commonSyncMessageVersion).Debug("common highest sync message version")
+			log.WithContext(ctx).
+				WithFields(log.Fields{
+					"sync_message_version":        commonSyncMessageVersion,
+					"server_sync_message_version": c.perAccountOrGlobalSupportedSyncMessageVersions(peer.AccountID),
+					"peer_sync_message_version":   sharedgrpc.SyncMessageVersionFromConfig(&peer.Meta.SyncMessageVersion),
+				}).Debug("common highest sync message version")
 
 			if commonSyncMessageVersion == sharedgrpc.ComponentNetworkMap {
 				components := account.GetPeerNetworkMapComponents(
@@ -404,7 +409,12 @@ func (c *Controller) sendUpdateForAffectedPeers(ctx context.Context, accountID s
 				c.perAccountOrGlobalSupportedSyncMessageVersions(accountID),
 				sharedgrpc.SyncMessageVersionFromConfig(&peer.Meta.SyncMessageVersion))
 
-			log.WithContext(ctx).WithField("sync_message_version", commonSyncMessageVersion).Debug("common highest sync message version")
+			log.WithContext(ctx).
+				WithFields(log.Fields{
+					"sync_message_version":        commonSyncMessageVersion,
+					"server_sync_message_version": c.perAccountOrGlobalSupportedSyncMessageVersions(peer.AccountID),
+					"peer_sync_message_version":   sharedgrpc.SyncMessageVersionFromConfig(&peer.Meta.SyncMessageVersion),
+				}).Debug("common highest sync message version")
 
 			if commonSyncMessageVersion == sharedgrpc.ComponentNetworkMap {
 				components := account.GetPeerNetworkMapComponents(
@@ -540,7 +550,12 @@ func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, pe
 		c.perAccountOrGlobalSupportedSyncMessageVersions(accountId),
 		sharedgrpc.SyncMessageVersionFromConfig(&peer.Meta.SyncMessageVersion))
 
-	log.WithContext(ctx).WithField("sync_message_version", commonSyncMessageVersion).Debug("common highest sync message version")
+	log.WithContext(ctx).
+		WithFields(log.Fields{
+			"sync_message_version":        commonSyncMessageVersion,
+			"server_sync_message_version": c.perAccountOrGlobalSupportedSyncMessageVersions(peer.AccountID),
+			"peer_sync_message_version":   sharedgrpc.SyncMessageVersionFromConfig(&peer.Meta.SyncMessageVersion),
+		}).Debug("common highest sync message version")
 
 	if commonSyncMessageVersion == sharedgrpc.ComponentNetworkMap {
 		components := account.GetPeerNetworkMapComponents(

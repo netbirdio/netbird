@@ -25,6 +25,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/shared/management/client/common"
+	"github.com/netbirdio/netbird/shared/management/grpc"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
@@ -1027,7 +1028,12 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 		s.perAccountOrGlobalSyncMessageVersions(peer.AccountID),
 		sharedgrpc.SyncMessageVersionFromConfig(&peer.Meta.SyncMessageVersion))
 
-	log.WithContext(ctx).WithField("sync_message_version", commonSyncMessageVersion).Debug("common highest sync message version")
+	log.WithContext(ctx).
+		WithFields(log.Fields{
+			"sync_message_version":        commonSyncMessageVersion,
+			"server_sync_message_version": s.perAccountOrGlobalSyncMessageVersions(peer.AccountID),
+			"peer_sync_message_version":   grpc.SyncMessageVersionFromConfig(&peer.Meta.SyncMessageVersion),
+		}).Debug("common highest sync message version")
 
 	if commonSyncMessageVersion == sharedgrpc.ComponentNetworkMap {
 		// Capable peer: discard the legacy NetworkMap that SyncAndMarkPeer
