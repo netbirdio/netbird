@@ -106,10 +106,12 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 	}
 	if !updated {
 		am.metrics.AccountManagerMetrics().CountPeerStatusUpdate(telemetry.PeerStatusConnect, telemetry.PeerStatusStale)
-		log.WithContext(ctx).Tracef("peer %s already has a newer session in store, skipping connect", peer.ID)
+		log.WithContext(ctx).Debugf("peer %s already has a newer session in store, skipping connect", peer.ID)
 		return nil
 	}
 	am.metrics.AccountManagerMetrics().CountPeerStatusUpdate(telemetry.PeerStatusConnect, telemetry.PeerStatusApplied)
+
+	log.WithContext(ctx).Debugf("mark peer %s connected", peer.ID)
 
 	if err = am.schedulePeerExpirations(ctx, accountID, peer); err != nil {
 		return err
@@ -180,11 +182,13 @@ func (am *DefaultAccountManager) MarkPeerDisconnected(ctx context.Context, peerP
 	}
 	if !updated {
 		am.metrics.AccountManagerMetrics().CountPeerStatusUpdate(telemetry.PeerStatusDisconnect, telemetry.PeerStatusStale)
-		log.WithContext(ctx).Tracef("peer %s session token mismatch on disconnect (token=%d), skipping",
+		log.WithContext(ctx).Debugf("peer %s session token mismatch on disconnect (token=%d), skipping",
 			peer.ID, sessionStartedAt)
 		return nil
 	}
 	am.metrics.AccountManagerMetrics().CountPeerStatusUpdate(telemetry.PeerStatusDisconnect, telemetry.PeerStatusApplied)
+
+	log.WithContext(ctx).Debugf("mark peer %s disconnected", peer.ID)
 
 	// Symmetric with MarkPeerConnected: when an embedded proxy peer goes
 	// offline, refresh the peers that had synthesized records pointing at

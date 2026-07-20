@@ -20,11 +20,12 @@ type MDMFields struct {
 	DisableServerRoutes      bool   `json:"disableServerRoutes"`
 	AllowServerSSH           *bool  `json:"allowServerSSH"`
 	DisableAutoConnect       bool   `json:"disableAutoConnect"`
+	DisableAutostart         bool   `json:"disableAutostart"`
 	BlockInbound             bool   `json:"blockInbound"`
 	DisableMetricsCollection bool   `json:"disableMetricsCollection"`
 	SplitTunnelMode          bool   `json:"splitTunnelMode"`
 	SplitTunnelApps          bool   `json:"splitTunnelApps"`
-	DisableAdvancedView bool `json:"disableAdvancedView"`
+	DisableAdvancedView      bool   `json:"disableAdvancedView"`
 }
 
 type Features struct {

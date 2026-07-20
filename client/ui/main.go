@@ -197,6 +197,9 @@ func main() {
 		// daemon may keep the main window from showing, so the OS toast is the
 		// only reliable signal the user gets.
 		go notifyIfDaemonOutdated(compat, notifier, localizer)
+		// One-time launch-on-login default for fresh installs; gated by the
+		// NetBird footprint check, MDM policy, and the persisted marker.
+		go applyAutostartDefault(context.Background(), services.NewAutostart(app.Autostart), prefStore, prefStore.ExistedAtLoad())
 	})
 
 	if err := app.Run(); err != nil {

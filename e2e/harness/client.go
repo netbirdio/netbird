@@ -194,6 +194,11 @@ const (
 	// WireVertex is the Anthropic-on-Vertex rawPredict shape: the client posts
 	// the full Vertex model path and the proxy mints the SA OAuth token.
 	WireVertex = "vertex"
+	// WireBedrock is the native AWS Bedrock InvokeModel shape: the model id
+	// travels in the URL path (/model/{id}/invoke), not the body, so the proxy
+	// routes by path. This is what a Bedrock SDK client sends and the shape the
+	// model-allowlist guardrail must enforce.
+	WireBedrock = "bedrock"
 )
 
 // Chat issues a chat-completion POST to the agent-network endpoint over the
@@ -223,6 +228,17 @@ func (cl *Client) Chat(ctx context.Context, endpoint, proxyIP, kind, model, prom
 func (cl *Client) Vertex(ctx context.Context, endpoint, proxyIP, project, region, model, prompt, sessionID string) (int, string, error) {
 	path := fmt.Sprintf("/v1/projects/%s/locations/%s/publishers/anthropic/models/%s:rawPredict", project, region, model)
 	body := fmt.Sprintf(`{"anthropic_version":"vertex-2023-10-16","max_tokens":64,"messages":[{"role":"user","content":%q}]}`, prompt)
+	return cl.post(ctx, endpoint, proxyIP, path, body, withSessionID(nil, sessionID))
+}
+
+// Bedrock issues a native AWS Bedrock InvokeModel POST over the tunnel. The
+// model id is carried in the request path (/model/{id}/invoke), so the proxy
+// routes by path; the body uses the bedrock anthropic_version rather than a
+// model field. A non-empty sessionID is sent as the universal x-session-id
+// header the proxy records.
+func (cl *Client) Bedrock(ctx context.Context, endpoint, proxyIP, model, prompt, sessionID string) (int, string, error) {
+	path := "/model/" + model + "/invoke"
+	body := fmt.Sprintf(`{"anthropic_version":"bedrock-2023-05-31","max_tokens":64,"messages":[{"role":"user","content":%q}]}`, prompt)
 	return cl.post(ctx, endpoint, proxyIP, path, body, withSessionID(nil, sessionID))
 }
 
