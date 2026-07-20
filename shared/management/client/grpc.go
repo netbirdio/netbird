@@ -1047,5 +1047,5 @@ func syncMessageVersion(info system.Info) int32 {
 	if info.SyncMessageVersion != nil {
 		return int32(*info.SyncMessageVersion)
 	}
-	return int32(nbmgmtgrpc.DefaultSyncMessageVersion)
+	return int32(nbmgmtgrpc.HighestSyncMessageVersion)
 }
