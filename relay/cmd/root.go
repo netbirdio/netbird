@@ -185,7 +185,7 @@ func execute(cmd *cobra.Command, args []string) error {
 	}
 
 	hashedSecret := sha256.Sum256([]byte(cobraConfig.AuthSecret))
-	authenticator := auth.NewTimedHMACValidator(hashedSecret[:], 24*time.Hour)
+	authenticator := auth.NewTimedHMACValidator(hashedSecret[:])
 
 	cfg := server.Config{
 		Meter:          metricsServer.Meter,
