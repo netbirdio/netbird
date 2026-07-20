@@ -292,15 +292,21 @@ func applyJSONMetadata(rule *JSONMetadataRule, in *middleware.Input) *middleware
 	mutations := &middleware.Mutations{}
 	mutations.HeadersRemove = append(mutations.HeadersRemove, rule.Header)
 
+	emit := func(v string) string {
+		if rule.Sanitize {
+			v = sanitizeMetadataValue(v)
+		}
+		return truncate(v, rule.MaxValueLength)
+	}
 	payload := map[string]string{}
 	if rule.UserKey != "" {
 		if identity := identityFor(in); identity != "" {
-			payload[rule.UserKey] = truncate(identity, rule.MaxValueLength)
+			payload[rule.UserKey] = emit(identity)
 		}
 	}
 	if rule.GroupsKey != "" {
 		if csv := authorisingTagsCSV(in); csv != "" {
-			payload[rule.GroupsKey] = truncate(csv, rule.MaxValueLength)
+			payload[rule.GroupsKey] = emit(csv)
 		}
 	}
 	if len(payload) == 0 {
@@ -357,6 +363,36 @@ func truncate(s string, maxBytes int) string {
 		return s
 	}
 	return s[:maxBytes]
+}
+
+// sanitizeMetadataValue replaces any character outside AWS Bedrock's accepted
+// request-metadata class — letters, digits, space, and + - = . _ : / @ — with
+// '_'. This keeps values (notably the groups CSV, whose commas are rejected, and
+// group display names with arbitrary characters) from making Bedrock reject the
+// request with 400. The result stays opaque to the gateway.
+func sanitizeMetadataValue(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if metadataCharAllowed(r) {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	return b.String()
+}
+
+func metadataCharAllowed(r rune) bool {
+	switch {
+	case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		return true
+	}
+	switch r {
+	case ' ', '+', '-', '=', '.', '_', ':', '/', '@':
+		return true
+	}
+	return false
 }
 
 // tagsIDsFromAuthorising reads llm_router's authorising-groups metadata
