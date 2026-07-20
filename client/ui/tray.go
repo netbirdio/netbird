@@ -464,7 +464,7 @@ func (t *Tray) handleQuit() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), quitDownTimeout)
 	defer cancel()
-	if err := t.svc.Connection.DownAsync(ctx); err != nil {
+	if err := t.svc.Connection.Down(ctx); err != nil {
 		log.Errorf("disconnect on quit: %v", err)
 	}
 	t.app.Quit()

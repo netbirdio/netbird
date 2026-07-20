@@ -25,7 +25,6 @@ const (
 	DaemonService_Status_FullMethodName                     = "/daemon.DaemonService/Status"
 	DaemonService_SubscribeStatus_FullMethodName            = "/daemon.DaemonService/SubscribeStatus"
 	DaemonService_Down_FullMethodName                       = "/daemon.DaemonService/Down"
-	DaemonService_DownAsync_FullMethodName                  = "/daemon.DaemonService/DownAsync"
 	DaemonService_GetConfig_FullMethodName                  = "/daemon.DaemonService/GetConfig"
 	DaemonService_ListNetworks_FullMethodName               = "/daemon.DaemonService/ListNetworks"
 	DaemonService_SelectNetworks_FullMethodName             = "/daemon.DaemonService/SelectNetworks"
@@ -88,9 +87,6 @@ type DaemonServiceClient interface {
 	SubscribeStatus(ctx context.Context, in *StatusRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StatusResponse], error)
 	// Down stops engine work in the daemon.
 	Down(ctx context.Context, in *DownRequest, opts ...grpc.CallOption) (*DownResponse, error)
-	// DownAsync starts stopping engine work in the daemon and returns
-	// immediately without waiting for the teardown to complete.
-	DownAsync(ctx context.Context, in *DownAsyncRequest, opts ...grpc.CallOption) (*DownAsyncResponse, error)
 	// GetConfig of the daemon.
 	GetConfig(ctx context.Context, in *GetConfigRequest, opts ...grpc.CallOption) (*GetConfigResponse, error)
 	// List available networks
@@ -248,16 +244,6 @@ func (c *daemonServiceClient) Down(ctx context.Context, in *DownRequest, opts ..
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(DownResponse)
 	err := c.cc.Invoke(ctx, DaemonService_Down_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *daemonServiceClient) DownAsync(ctx context.Context, in *DownAsyncRequest, opts ...grpc.CallOption) (*DownAsyncResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(DownAsyncResponse)
-	err := c.cc.Invoke(ctx, DaemonService_DownAsync_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -711,9 +697,6 @@ type DaemonServiceServer interface {
 	SubscribeStatus(*StatusRequest, grpc.ServerStreamingServer[StatusResponse]) error
 	// Down stops engine work in the daemon.
 	Down(context.Context, *DownRequest) (*DownResponse, error)
-	// DownAsync starts stopping engine work in the daemon and returns
-	// immediately without waiting for the teardown to complete.
-	DownAsync(context.Context, *DownAsyncRequest) (*DownAsyncResponse, error)
 	// GetConfig of the daemon.
 	GetConfig(context.Context, *GetConfigRequest) (*GetConfigResponse, error)
 	// List available networks
@@ -825,9 +808,6 @@ func (UnimplementedDaemonServiceServer) SubscribeStatus(*StatusRequest, grpc.Ser
 }
 func (UnimplementedDaemonServiceServer) Down(context.Context, *DownRequest) (*DownResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Down not implemented")
-}
-func (UnimplementedDaemonServiceServer) DownAsync(context.Context, *DownAsyncRequest) (*DownAsyncResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method DownAsync not implemented")
 }
 func (UnimplementedDaemonServiceServer) GetConfig(context.Context, *GetConfigRequest) (*GetConfigResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetConfig not implemented")
@@ -1067,24 +1047,6 @@ func _DaemonService_Down_Handler(srv interface{}, ctx context.Context, dec func(
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(DaemonServiceServer).Down(ctx, req.(*DownRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _DaemonService_DownAsync_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(DownAsyncRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(DaemonServiceServer).DownAsync(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: DaemonService_DownAsync_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DaemonServiceServer).DownAsync(ctx, req.(*DownAsyncRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1814,10 +1776,6 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Down",
 			Handler:    _DaemonService_Down_Handler,
-		},
-		{
-			MethodName: "DownAsync",
-			Handler:    _DaemonService_DownAsync_Handler,
 		},
 		{
 			MethodName: "GetConfig",
