@@ -46,7 +46,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
-	sharedgrpc "github.com/netbirdio/netbird/shared/management/grpc"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	internalStatus "github.com/netbirdio/netbird/shared/management/status"
 )
@@ -1024,9 +1023,9 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 
 	var plainResp *proto.SyncResponse
 
-	commonSyncMessageVersion := sharedgrpc.HighestCommonSyncMessageVersion(
+	commonSyncMessageVersion := grpc.HighestCommonSyncMessageVersion(
 		s.perAccountOrGlobalSyncMessageVersions(peer.AccountID),
-		sharedgrpc.SyncMessageVersionFromConfig(&peer.Meta.SyncMessageVersion))
+		grpc.SyncMessageVersionFromConfig(&peer.Meta.SyncMessageVersion))
 
 	log.WithContext(ctx).
 		WithFields(log.Fields{
@@ -1035,7 +1034,7 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 			"peer_sync_message_version":   grpc.SyncMessageVersionFromConfig(&peer.Meta.SyncMessageVersion),
 		}).Debug("common highest sync message version")
 
-	if commonSyncMessageVersion == sharedgrpc.ComponentNetworkMap {
+	if commonSyncMessageVersion == grpc.ComponentNetworkMap {
 		// Capable peer: discard the legacy NetworkMap that SyncAndMarkPeer
 		// computed and recompute the raw components instead. This wastes one
 		// Calculate() call per initial-sync — the component-based wire
@@ -1081,11 +1080,11 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 	return nil
 }
 
-func (s *Server) perAccountOrGlobalSyncMessageVersions(accountId string) sharedgrpc.SyncMessageVersion {
+func (s *Server) perAccountOrGlobalSyncMessageVersions(accountId string) grpc.SyncMessageVersion {
 	if version, ok := s.config.PerAccountHighestSupportedSyncMessageVersion[accountId]; ok {
-		return sharedgrpc.SyncMessageVersionFromConfig(&version)
+		return grpc.SyncMessageVersionFromConfig(&version)
 	}
-	return sharedgrpc.SyncMessageVersionFromConfig(s.config.HighestSupportedSyncMessageVersion)
+	return grpc.SyncMessageVersionFromConfig(s.config.HighestSupportedSyncMessageVersion)
 }
 
 // GetDeviceAuthorizationFlow returns a device authorization flow information

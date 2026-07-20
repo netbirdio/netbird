@@ -1869,7 +1869,7 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 	meta_kernel_version, meta_network_addresses, meta_system_serial_number, meta_system_product_name, meta_system_manufacturer,
 	meta_environment, meta_flags, meta_files, meta_capabilities, peer_status_last_seen, peer_status_session_started_at,
 	peer_status_connected, peer_status_login_expired, peer_status_requires_approval, location_connection_ip,
-	location_country_code, location_city_name, location_geo_name_id, proxy_meta_embedded, proxy_meta_cluster, ipv6
+	location_country_code, location_city_name, location_geo_name_id, proxy_meta_embedded, proxy_meta_cluster, ipv6, meta_sync_message_version
 	FROM peers WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
@@ -1891,6 +1891,7 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			metaSystemSerialNumber, metaSystemProductName, metaSystemManufacturer                           sql.NullString
 			locationCountryCode, locationCityName, proxyCluster                                             sql.NullString
 			locationGeoNameID                                                                               sql.NullInt64
+			metaSyncMessageVersion                                                                          sql.NullInt
 		)
 
 		err := row.Scan(&p.ID, &p.AccountID, &p.Key, &ip, &p.Name, &p.DNSLabel, &p.UserID, &p.SSHKey, &sshEnabled,
@@ -1900,7 +1901,7 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			&metaSystemSerialNumber, &metaSystemProductName, &metaSystemManufacturer, &env, &flags, &files, &capabilities,
 			&peerStatusLastSeen, &peerStatusSessionStartedAt, &peerStatusConnected, &peerStatusLoginExpired,
 			&peerStatusRequiresApproval, &connIP, &locationCountryCode, &locationCityName, &locationGeoNameID,
-			&proxyEmbedded, &proxyCluster, &ipv6)
+			&proxyEmbedded, &proxyCluster, &ipv6, &metaSyncMessageVersion)
 
 		if err == nil {
 			if lastLogin.Valid {
@@ -2019,6 +2020,9 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			}
 			if connIP != nil {
 				_ = json.Unmarshal(connIP, &p.Location.ConnectionIP)
+			}
+			if metaSyncMessageVersion.Valid {
+				p.Meta.SyncMessageVersion = metaSyncMessageVersion.Int
 			}
 		}
 		return p, err
