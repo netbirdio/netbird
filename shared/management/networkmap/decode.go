@@ -104,7 +104,6 @@ func DecodeEnvelope(env *proto.NetworkMapEnvelope) (*types.NetworkMapComponents,
 		c.Groups[groupID] = &types.Group{
 			ID:       groupID,
 			PublicID: gc.Id,
-			Name:     gc.Name,
 			Peers:    peerIDs,
 		}
 	}
@@ -402,8 +401,6 @@ func decodeNameServerGroupRaw(nsg *proto.NameServerGroupRaw) *nbdns.NameServerGr
 	out := &nbdns.NameServerGroup{
 		ID:                   nsg.Id,
 		PublicID:             nsg.Id,
-		Name:                 nsg.Name,
-		Description:          nsg.Description,
 		Groups:               nsg.GroupIds,
 		Primary:              nsg.Primary,
 		Domains:              nsg.Domains,

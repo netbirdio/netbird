@@ -209,7 +209,6 @@ func (e *componentEncoder) encodeGroups() []*proto.GroupCompact {
 		}
 		out = append(out, &proto.GroupCompact{
 			Id:          g.PublicID,
-			Name:        g.Name,
 			PeerIndexes: peerIdxs,
 		})
 	}
@@ -454,8 +453,6 @@ func (e *componentEncoder) encodeNameServerGroups(nsgs []*nbdns.NameServerGroup)
 		}
 		entry := &proto.NameServerGroupRaw{
 			Id:                   nsg.PublicID,
-			Name:                 nsg.Name,
-			Description:          nsg.Description,
 			Nameservers:          encodeNameServers(nsg.NameServers),
 			GroupIds:             e.groupPublicXids(nsg.Groups),
 			Primary:              nsg.Primary,

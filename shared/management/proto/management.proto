@@ -1090,11 +1090,8 @@ message GroupCompact {
   // id comes from PublicID. Used by PolicyCompact.source_group_ids / destination_group_ids.
   string id = 1;
 
-  // Group name; only sent when non-empty (clients use it for diagnostics).
-  string name = 2;
-
   // Indexes into NetworkMapComponentsFull.peers.
-  repeated uint32 peer_indexes = 3;
+  repeated uint32 peer_indexes = 2;
 }
 
 // DNSSettingsCompact mirrors types.DNSSettings.
@@ -1145,16 +1142,14 @@ message RouteRaw {
 // proto.DNSConfig and lacks the Name/Description/Groups/Enabled fields).
 message NameServerGroupRaw {
   string id = 1;
-  string name = 2;
-  string description = 3;
   // Reuses the legacy NameServer wire shape (IP as string).
-  repeated NameServer nameservers = 4;
+  repeated NameServer nameservers = 2;
   // Group ids the NSG distributes nameservers to.
-  repeated string group_ids = 5;
-  bool primary = 6;
-  repeated string domains = 7;
-  bool enabled = 8;
-  bool search_domains_enabled = 9;
+  repeated string group_ids = 3;
+  bool primary = 4;
+  repeated string domains = 5;
+  bool enabled = 6;
+  bool search_domains_enabled = 7;
 }
 
 // NetworkResourceRaw mirrors *resourceTypes.NetworkResource.

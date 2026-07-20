@@ -304,8 +304,6 @@ func TestEncodeNetworkMapEnvelope_GroupsByAccountPublicId(t *testing.T) {
 	}
 	require.Contains(t, groupByID, "1")
 	require.Contains(t, groupByID, "2")
-	assert.Equal(t, "Src", groupByID["1"].Name)
-	assert.Equal(t, "Dst", groupByID["2"].Name)
 	assert.Len(t, groupByID["1"].PeerIndexes, 1)
 	assert.Len(t, groupByID["2"].PeerIndexes, 2)
 }
@@ -600,7 +598,6 @@ func TestEncodeNetworkMapEnvelope_NameServerGroups(t *testing.T) {
 	require.Len(t, full.NameserverGroups, 1)
 	nsg := full.NameserverGroups[0]
 	assert.EqualValues(t, "50", nsg.Id)
-	assert.Equal(t, "Main", nsg.Name)
 	assert.True(t, nsg.Primary)
 	require.Len(t, nsg.Nameservers, 1)
 	assert.Equal(t, "8.8.8.8", nsg.Nameservers[0].IP)
