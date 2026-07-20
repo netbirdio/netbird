@@ -19,12 +19,12 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/netbirdio/netbird/encryption"
-	"github.com/netbirdio/netbird/proxy"
 	"github.com/netbirdio/netbird/relay/healthcheck"
 	"github.com/netbirdio/netbird/relay/server"
 	"github.com/netbirdio/netbird/shared/metrics"
 	"github.com/netbirdio/netbird/shared/relay/auth"
 	"github.com/netbirdio/netbird/stun"
+	"github.com/netbirdio/netbird/trustedproxy"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -160,7 +160,7 @@ func execute(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("setup metrics: %v", err)
 	}
 
-	trustedProxies, err := proxy.ParseTrustedProxies(cobraConfig.TrustedProxies)
+	trustedProxies, err := trustedproxy.Parse(cobraConfig.TrustedProxies)
 	if err != nil {
 		log.Debugf("failed to parse trusted proxies: %s", err)
 		return fmt.Errorf("failed to parse trusted proxies: %s", err)

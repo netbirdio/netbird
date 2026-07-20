@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"crypto/tls"
-	"net/netip"
 	"net/url"
 	"sync"
 
@@ -16,6 +15,7 @@ import (
 	"github.com/netbirdio/netbird/relay/server/listener/quic"
 	"github.com/netbirdio/netbird/relay/server/listener/ws"
 	quictls "github.com/netbirdio/netbird/shared/relay/tls"
+	"github.com/netbirdio/netbird/trustedproxy"
 )
 
 // ListenerConfig is the configuration for the listener.
@@ -25,7 +25,7 @@ import (
 type ListenerConfig struct {
 	Address        string
 	TLSConfig      *tls.Config
-	TrustedProxies []netip.Prefix
+	TrustedProxies *trustedproxy.List
 }
 
 // Server is the main entry point for the relay server.
