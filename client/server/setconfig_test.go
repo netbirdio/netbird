@@ -73,6 +73,8 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 	disableIPv6 := true
 	mtu := int64(1280)
 	sshJWTCacheTTL := int32(300)
+	enableLocalMetrics := true
+	localMetricsAddress := "127.0.0.1:9292"
 
 	req := &proto.SetConfigRequest{
 		ProfileName:          profName,
@@ -104,6 +106,8 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 		DnsRouteInterval:     durationpb.New(2 * time.Minute),
 		Mtu:                  &mtu,
 		SshJWTCacheTTL:       &sshJWTCacheTTL,
+		EnableLocalMetrics:   &enableLocalMetrics,
+		LocalMetricsAddress:  &localMetricsAddress,
 	}
 
 	_, err = s.SetConfig(ctx, req)
@@ -150,6 +154,8 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 	require.Equal(t, uint16(mtu), cfg.MTU)
 	require.NotNil(t, cfg.SSHJWTCacheTTL)
 	require.Equal(t, int(sshJWTCacheTTL), *cfg.SSHJWTCacheTTL)
+	require.Equal(t, enableLocalMetrics, cfg.LocalMetricsEnabled)
+	require.Equal(t, localMetricsAddress, cfg.LocalMetricsAddress)
 
 	verifyAllFieldsCovered(t, req)
 }
@@ -202,6 +208,8 @@ func verifyAllFieldsCovered(t *testing.T, req *proto.SetConfigRequest) {
 		"EnableSSHRemotePortForwarding": true,
 		"DisableSSHAuth":                true,
 		"SshJWTCacheTTL":                true,
+		"EnableLocalMetrics":            true,
+		"LocalMetricsAddress":           true,
 	}
 
 	val := reflect.ValueOf(req).Elem()
@@ -261,6 +269,8 @@ func TestCLIFlags_MappedToSetConfig(t *testing.T) {
 		"enable-ssh-remote-port-forwarding": "EnableSSHRemotePortForwarding",
 		"disable-ssh-auth":                  "DisableSSHAuth",
 		"ssh-jwt-cache-ttl":                 "SshJWTCacheTTL",
+		"enable-local-metrics":              "EnableLocalMetrics",
+		"local-metrics-address":             "LocalMetricsAddress",
 	}
 
 	// SetConfigRequest fields that don't have CLI flags (settable only via UI or other means).

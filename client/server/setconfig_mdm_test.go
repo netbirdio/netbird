@@ -132,6 +132,30 @@ func TestSetConfig_MDMReject_MultipleFields(t *testing.T) {
 	}, v.GetFields())
 }
 
+func TestSetConfig_MDMReject_LocalMetrics(t *testing.T) {
+	withMDMPolicy(t, mdm.NewPolicy(map[string]any{
+		mdm.KeyEnableLocalMetrics:  true,
+		mdm.KeyLocalMetricsAddress: "127.0.0.1:9191",
+	}))
+
+	s, ctx, profName, username, _ := setupServerWithProfile(t)
+
+	enabled := false
+	addr := "0.0.0.0:9999"
+	_, err := s.SetConfig(ctx, &proto.SetConfigRequest{
+		ProfileName:         profName,
+		Username:            username,
+		EnableLocalMetrics:  &enabled,
+		LocalMetricsAddress: &addr,
+	})
+
+	v := extractViolation(t, err)
+	assert.ElementsMatch(t, []string{
+		mdm.KeyEnableLocalMetrics,
+		mdm.KeyLocalMetricsAddress,
+	}, v.GetFields())
+}
+
 func TestSetConfig_MDMReject_AllOrNothing(t *testing.T) {
 	// MDM enforces ManagementURL only; user request touches both the
 	// enforced field AND a non-enforced field (RosenpassEnabled).

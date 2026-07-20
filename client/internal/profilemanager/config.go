@@ -102,6 +102,9 @@ type ConfigInput struct {
 	DNSLabels domain.List
 
 	MTU *uint16
+
+	LocalMetricsEnabled *bool
+	LocalMetricsAddress *string
 }
 
 // Config Configuration type
@@ -141,6 +144,11 @@ type Config struct {
 	DisableNotifications *bool
 
 	DNSLabels domain.List
+
+	// LocalMetricsEnabled enables the local Prometheus /metrics endpoint.
+	LocalMetricsEnabled bool
+	// LocalMetricsAddress is the listen address of the local /metrics endpoint.
+	LocalMetricsAddress string
 
 	// SSHKey is a private SSH key in a PEM format
 	SSHKey string
@@ -383,6 +391,18 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 	if input.RosenpassPermissive != nil && *input.RosenpassPermissive != config.RosenpassPermissive {
 		log.Infof("switching Rosenpass permissive to %t", *input.RosenpassPermissive)
 		config.RosenpassPermissive = *input.RosenpassPermissive
+		updated = true
+	}
+
+	if input.LocalMetricsEnabled != nil && *input.LocalMetricsEnabled != config.LocalMetricsEnabled {
+		log.Infof("switching local metrics to %t", *input.LocalMetricsEnabled)
+		config.LocalMetricsEnabled = *input.LocalMetricsEnabled
+		updated = true
+	}
+
+	if input.LocalMetricsAddress != nil && *input.LocalMetricsAddress != config.LocalMetricsAddress {
+		log.Infof("switching local metrics address to %s", *input.LocalMetricsAddress)
+		config.LocalMetricsAddress = *input.LocalMetricsAddress
 		updated = true
 	}
 
@@ -710,6 +730,12 @@ func (config *Config) applyMDMPolicy(policy *mdm.Policy) {
 	applyBool(mdm.KeyDisableAutoConnect, func(v bool) { config.DisableAutoConnect = v })
 	applyBool(mdm.KeyRosenpassEnabled, func(v bool) { config.RosenpassEnabled = v })
 	applyBool(mdm.KeyRosenpassPermissive, func(v bool) { config.RosenpassPermissive = v })
+	applyBool(mdm.KeyEnableLocalMetrics, func(v bool) { config.LocalMetricsEnabled = v })
+
+	if v, ok := policy.GetString(mdm.KeyLocalMetricsAddress); ok {
+		config.LocalMetricsAddress = v
+		logApplied(mdm.KeyLocalMetricsAddress, v)
+	}
 
 	if v, ok := policy.GetInt(mdm.KeyWireguardPort); ok {
 		// REG_DWORD is 32-bit; UDP port range is 1-65535. Clamp at the

@@ -242,6 +242,9 @@ message LoginRequest {
   optional bool disableSSHAuth = 38;
   optional int32 sshJWTCacheTTL = 39;
   optional bool disable_ipv6 = 40;
+
+  optional bool enable_local_metrics = 41;
+  optional string local_metrics_address = 42;
 }
 
 message LoginResponse {
@@ -757,6 +760,9 @@ message SetConfigRequest {
   optional bool disableSSHAuth = 33;
   optional int32 sshJWTCacheTTL = 34;
   optional bool disable_ipv6 = 35;
+
+  optional bool enable_local_metrics = 36;
+  optional string local_metrics_address = 37;
 }
 
 message SetConfigResponse{}

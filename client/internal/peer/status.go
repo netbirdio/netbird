@@ -1172,6 +1172,18 @@ func (d *Status) GetResolvedDomainsStates() map[domain.Domain]ResolvedDomainInfo
 	return maps.Clone(d.resolvedDomainsStates)
 }
 
+// GetPeerStates returns a snapshot of all known peer states.
+func (d *Status) GetPeerStates() []State {
+	d.mux.RLock()
+	defer d.mux.RUnlock()
+
+	states := make([]State, 0, len(d.peers))
+	for _, state := range d.peers {
+		states = append(states, state)
+	}
+	return states
+}
+
 // GetFullStatus gets full status
 func (d *Status) GetFullStatus() FullStatus {
 	fullStatus := FullStatus{
