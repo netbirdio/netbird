@@ -698,6 +698,94 @@ func TestSynthesizeServices_IdentityInject_Portkey_NotCustomizable(t *testing.T)
 		"same fixed-schema guarantee for the groups dimension")
 }
 
+// TestSynthesizeServices_IdentityInject_Bedrock pins Bedrock's cost-allocation
+// metadata: a JSONMetadata shape emitting X-Amzn-Bedrock-Request-Metadata with
+// the reserved user/group keys, sanitized to Bedrock's accepted charset.
+func TestSynthesizeServices_IdentityInject_Bedrock(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockStore := store.NewMockStore(ctrl)
+
+	br := newSynthTestProvider()
+	br.ID = "prov-bedrock"
+	br.ProviderID = "bedrock_api"
+	br.UpstreamURL = "https://bedrock-runtime.us-east-1.amazonaws.com"
+	br.APIKey = "bedrock-bearer"
+	br.CreatedAt = time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC)
+
+	policy := newSynthTestPolicy(br.ID, "grp-eng", "")
+	policy.ID = "pol-bedrock"
+
+	expectSynthBaseInputs(mockStore, ctx, newSynthTestSettings(),
+		[]*types.Provider{br},
+		[]*types.Policy{policy},
+		[]*types.Guardrail{})
+
+	services, err := SynthesizeServices(ctx, mockStore, testAccountID)
+	require.NoError(t, err)
+	require.Len(t, services, 1)
+
+	var injectCfg identityInjectConfig
+	for _, m := range services[0].Targets[0].Options.Middlewares {
+		if m.ID == middlewareIDLLMIdentityInject {
+			require.NoError(t, json.Unmarshal(m.ConfigJSON, &injectCfg))
+			break
+		}
+	}
+	require.Len(t, injectCfg.Providers, 1)
+	entry := injectCfg.Providers[0]
+	require.NotNil(t, entry.JSONMetadata, "Bedrock uses the JSONMetadata shape for cost-allocation metadata")
+	assert.Nil(t, entry.HeaderPair, "shapes are mutually exclusive")
+	assert.Equal(t, "X-Amzn-Bedrock-Request-Metadata", entry.JSONMetadata.Header,
+		"the caller identity lands in Bedrock's cost-allocation metadata header")
+	assert.Equal(t, "user", entry.JSONMetadata.UserKey)
+	assert.Equal(t, "group", entry.JSONMetadata.GroupsKey)
+	assert.True(t, entry.JSONMetadata.Sanitize,
+		"Bedrock restricts the metadata value charset, so values must be sanitized")
+}
+
+// TestSynthesizeServices_MetadataDisabled_SuppressesInjection verifies the
+// per-provider opt-out: a provider with MetadataDisabled set emits no
+// identity-inject entry (Bedrock has no catalog ExtraHeaders, so the whole
+// entry is dropped).
+func TestSynthesizeServices_MetadataDisabled_SuppressesInjection(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockStore := store.NewMockStore(ctrl)
+
+	br := newSynthTestProvider()
+	br.ID = "prov-bedrock"
+	br.ProviderID = "bedrock_api"
+	br.UpstreamURL = "https://bedrock-runtime.us-east-1.amazonaws.com"
+	br.APIKey = "bedrock-bearer"
+	br.MetadataDisabled = true
+	br.CreatedAt = time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC)
+
+	policy := newSynthTestPolicy(br.ID, "grp-eng", "")
+	policy.ID = "pol-bedrock"
+
+	expectSynthBaseInputs(mockStore, ctx, newSynthTestSettings(),
+		[]*types.Provider{br},
+		[]*types.Policy{policy},
+		[]*types.Guardrail{})
+
+	services, err := SynthesizeServices(ctx, mockStore, testAccountID)
+	require.NoError(t, err)
+	require.Len(t, services, 1)
+
+	var injectCfg identityInjectConfig
+	for _, m := range services[0].Targets[0].Options.Middlewares {
+		if m.ID == middlewareIDLLMIdentityInject {
+			require.NoError(t, json.Unmarshal(m.ConfigJSON, &injectCfg))
+			break
+		}
+	}
+	assert.Empty(t, injectCfg.Providers,
+		"metadata_disabled must drop the provider's identity-inject entry")
+}
+
 // TestSynthesizeServices_IdentityInject_Vercel pins Vercel AI
 // Gateway's wiring: HeaderPair shape with fixed wire names dictated
 // by Vercel's Custom Reporting API (ai-reporting-user /

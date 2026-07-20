@@ -227,7 +227,7 @@ func (s *serverInstances) createRelayServer(cfg *CombinedConfig, tlsSupport bool
 	}
 
 	hashedSecret := sha256.Sum256([]byte(cfg.Relay.AuthSecret))
-	authenticator := auth.NewTimedHMACValidator(hashedSecret[:], 24*time.Hour)
+	authenticator := auth.NewTimedHMACValidator(hashedSecret[:])
 
 	relayCfg := relayServer.Config{
 		Meter:          s.metricsServer.Meter,

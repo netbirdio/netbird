@@ -1891,7 +1891,7 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			metaSystemSerialNumber, metaSystemProductName, metaSystemManufacturer                           sql.NullString
 			locationCountryCode, locationCityName, proxyCluster                                             sql.NullString
 			locationGeoNameID                                                                               sql.NullInt64
-			metaSyncMessageVersion                                                                          sql.NullInt
+			metaSyncMessageVersion                                                                          sql.NullInt32
 		)
 
 		err := row.Scan(&p.ID, &p.AccountID, &p.Key, &ip, &p.Name, &p.DNSLabel, &p.UserID, &p.SSHKey, &sshEnabled,
@@ -2022,7 +2022,7 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 				_ = json.Unmarshal(connIP, &p.Location.ConnectionIP)
 			}
 			if metaSyncMessageVersion.Valid {
-				p.Meta.SyncMessageVersion = metaSyncMessageVersion.Int
+				p.Meta.SyncMessageVersion = int(metaSyncMessageVersion.Int32)
 			}
 		}
 		return p, err

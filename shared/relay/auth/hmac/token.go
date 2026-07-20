@@ -1,10 +1,8 @@
 package hmac
 
 import (
-	"bytes"
 	"crypto/hmac"
 	"encoding/base64"
-	"encoding/gob"
 	"fmt"
 	"hash"
 	"strconv"
@@ -16,14 +14,6 @@ import (
 type Token struct {
 	Payload   string
 	Signature string
-}
-
-func unmarshalToken(payload []byte) (Token, error) {
-	var creds Token
-	buffer := bytes.NewBuffer(payload)
-	decoder := gob.NewDecoder(buffer)
-	err := decoder.Decode(&creds)
-	return creds, err
 }
 
 // TimedHMAC generates a token with TTL and uses a pre-shared secret known to the relay server
