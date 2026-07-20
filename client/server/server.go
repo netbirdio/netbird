@@ -1082,6 +1082,7 @@ func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownRes
 	if err := s.cleanupConnection(); err != nil {
 		s.mutex.Unlock()
 		if errors.Is(err, ErrServiceNotUp) {
+			log.Debugf("Down called while service not up: %v", err)
 			return nil, err
 		}
 		log.Errorf("failed to shut down properly: %v", err)
