@@ -76,6 +76,9 @@ type EmbeddedIdPConfig struct {
 	DashboardPostLogoutRedirectURIs []string
 	// StaticConnectors are additional connectors to seed during initialization
 	StaticConnectors []dex.Connector
+	// GrantTypes restricts allowed OAuth2 grants; empty means all (Dex default). Omit the
+	// device_code grant to disable the device flow; keep authorization_code and refresh_token.
+	GrantTypes []string
 }
 
 // EmbeddedStorageConfig holds storage configuration for the embedded IdP.
@@ -175,6 +178,7 @@ func (c *EmbeddedIdPConfig) ToYAMLConfig() (*dex.YAMLConfig, error) {
 		},
 		OAuth2: dex.OAuth2{
 			SkipApprovalScreen: true,
+			GrantTypes:         c.GrantTypes,
 		},
 		Frontend: dex.Frontend{
 			Issuer: "NetBird",
