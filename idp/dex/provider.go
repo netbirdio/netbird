@@ -20,7 +20,7 @@ import (
 	"github.com/dexidp/dex/server"
 	"github.com/dexidp/dex/server/signer"
 	"github.com/dexidp/dex/storage"
-	jose "github.com/go-jose/go-jose/v4"
+	"github.com/go-jose/go-jose/v4"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/crypto/bcrypt"

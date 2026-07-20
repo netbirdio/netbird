@@ -148,6 +148,7 @@ type AuthConfig struct {
 	CLIRedirectURIs                 []string          `yaml:"cliRedirectURIs"`
 	Owner                           *AuthOwnerConfig  `yaml:"owner,omitempty"`
 	DashboardPostLogoutRedirectURIs []string          `yaml:"dashboardPostLogoutRedirectURIs"`
+	GrantTypes                      []string          `yaml:"grantTypes"`
 }
 
 // AuthStorageConfig contains auth storage settings
@@ -607,6 +608,7 @@ func (c *CombinedConfig) buildEmbeddedIdPConfig(mgmt ManagementConfig) (*idp.Emb
 		DashboardRedirectURIs:           mgmt.Auth.DashboardRedirectURIs,
 		CLIRedirectURIs:                 mgmt.Auth.CLIRedirectURIs,
 		DashboardPostLogoutRedirectURIs: mgmt.Auth.DashboardPostLogoutRedirectURIs,
+		GrantTypes:                      mgmt.Auth.GrantTypes,
 	}
 
 	if mgmt.Auth.Owner != nil && mgmt.Auth.Owner.Email != "" {

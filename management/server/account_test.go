@@ -4279,7 +4279,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_NetworkRangePreserved(t *te
 	}
 
 	// Sanity: an actually different range still triggers reallocation.
-	newRange := netip.MustParsePrefix("100.99.0.0/16")
+	newRange := netip.MustParsePrefix("100.60.0.0/16")
 	_, err = manager.UpdateAccountSettings(ctx, account.Id, userID, &types.Settings{
 		PeerLoginExpirationEnabled: true,
 		PeerLoginExpiration:        types.DefaultPeerLoginExpiration,
