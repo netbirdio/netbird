@@ -3,9 +3,10 @@ package labelgen
 
 import (
 	"fmt"
-	"math/rand"
 	"sort"
 	"sync"
+
+	"github.com/netbirdio/netbird/management/server/util"
 )
 
 // pickAttempts caps the random retries before falling back to the
@@ -40,16 +41,15 @@ func uniqueWords() []string {
 // PickUnique selects a label not already in `taken`. It tries up to
 // pickAttempts random picks; on exhaustion it scans the deduplicated
 // wordlist for any remaining free entry, and if none is left appends
-// `-<fallbackSuffix>` to a deterministic word and returns. The caller
-// is responsible for seeding rng (math/rand).
-func PickUnique(rng *rand.Rand, taken map[string]struct{}, fallbackSuffix string) string {
+// `-<fallbackSuffix>` to a random word and returns.
+func PickUnique(taken map[string]struct{}, fallbackSuffix string) string {
 	pool := uniqueWords()
 	if len(pool) == 0 {
 		return fallbackSuffix
 	}
 
 	for i := 0; i < pickAttempts; i++ {
-		w := pool[rng.Intn(len(pool))]
+		w := pool[util.RandIntn(len(pool))]
 		if _, ok := taken[w]; !ok {
 			return w
 		}
@@ -61,6 +61,6 @@ func PickUnique(rng *rand.Rand, taken map[string]struct{}, fallbackSuffix string
 		}
 	}
 
-	w := pool[rng.Intn(len(pool))]
+	w := pool[util.RandIntn(len(pool))]
 	return fmt.Sprintf("%s-%s", w, fallbackSuffix)
 }

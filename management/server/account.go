@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/rand"
 	"net"
 	"net/netip"
 	"os"
@@ -63,7 +62,7 @@ const (
 type userLoggedInOnce bool
 
 func cacheEntryExpiration() time.Duration {
-	r := rand.Intn(int(nbcache.DefaultIDPCacheExpirationMax.Milliseconds()-nbcache.DefaultIDPCacheExpirationMin.Milliseconds())) + int(nbcache.DefaultIDPCacheExpirationMin.Milliseconds())
+	r := util.RandIntn(int(nbcache.DefaultIDPCacheExpirationMax.Milliseconds()-nbcache.DefaultIDPCacheExpirationMin.Milliseconds())) + int(nbcache.DefaultIDPCacheExpirationMin.Milliseconds())
 	return time.Duration(r) * time.Millisecond
 }
 
@@ -2455,8 +2454,7 @@ func (am *DefaultAccountManager) ensureIPv6Subnet(ctx context.Context, transacti
 		return transaction.UpdateAccountNetworkV6(ctx, accountID, network.NetV6)
 	}
 	if network.NetV6.IP == nil {
-		r := rand.New(rand.NewSource(time.Now().UnixNano()))
-		network.NetV6 = types.AllocateIPv6Subnet(r)
+		network.NetV6 = types.AllocateIPv6Subnet()
 
 		// Sync settings to match the allocated subnet so SaveAccountSettings persists it.
 		ones, _ := network.NetV6.Mask.Size()
