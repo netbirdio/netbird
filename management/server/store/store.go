@@ -624,6 +624,9 @@ func getMigrationsPostAuto(ctx context.Context) []migrationFunc {
 		func(db *gorm.DB) error {
 			return migration.DropIndex[proxy.Proxy](ctx, db, "idx_proxy_account_id_unique")
 		},
+		func(db *gorm.DB) error {
+			return migration.MigrateReverseProxyPortMappings(ctx, db)
+		},
 	}
 }
 
