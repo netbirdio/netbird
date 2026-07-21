@@ -4,6 +4,7 @@ package agentnetwork
 
 import (
 	"context"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -15,20 +16,29 @@ import (
 	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
+// bedrockVersionSuffix mirrors the proxy's normalizer: the trailing
+// "-vN[:N]" or "-YYYYMMDD-vN[:N]" version/throughput suffix of a Bedrock
+// model id.
+var bedrockVersionSuffix = regexp.MustCompile(`-(\d{8}-)?v\d+(:\d+)?$`)
+
 // catalogModel returns the normalized catalog id the proxy stamps for a
 // path-routed provider's configured model — the form the guardrail allowlist is
 // compared against (region prefix / @version stripped).
 func catalogModel(pc providerCase) string {
 	switch pc.kind {
 	case harness.WireBedrock:
-		// Strip whichever cross-region inference-profile prefix the matrix
-		// picked for the configured AWS region (us., eu., apac., us-gov.).
-		for _, p := range []string{"us-gov.", "apac.", "us.", "eu."} {
-			if strings.HasPrefix(pc.model, p) {
-				return strings.TrimPrefix(pc.model, p)
+		// Mirror the proxy's llm.NormalizeBedrockModel (not importable from
+		// here — proxy/internal): strip the region-family prefix and the
+		// date/version suffix so the allowlist carries the catalog key the
+		// guardrail compares against.
+		m := pc.model
+		for _, p := range []string{"us.", "eu.", "apac.", "global."} {
+			if strings.HasPrefix(m, p) {
+				m = strings.TrimPrefix(m, p)
+				break
 			}
 		}
-		return pc.model
+		return bedrockVersionSuffix.ReplaceAllString(m, "")
 	case harness.WireVertex:
 		return strings.SplitN(pc.model, "@", 2)[0]
 	default:
