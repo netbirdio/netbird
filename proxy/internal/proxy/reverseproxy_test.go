@@ -218,6 +218,23 @@ func TestRewriteFunc_SessionCookieStripping(t *testing.T) {
 
 		assert.Empty(t, pr.Out.Header.Get("Cookie"))
 	})
+
+	t.Run("preserves JSON cookie values with RFC-invalid octets", func(t *testing.T) {
+		// Logto / node-oidc-provider set cookies like:
+		//   _interaction={"admin-console":"uid","_legacy":"uid"}
+		// Go's http.Cookie parser drops these; the proxy must forward the raw header.
+		pr := newProxyRequest(t, "http://example.com/sign-in", "1.2.3.4:5000")
+		pr.In.Header.Set("Cookie",
+			`_logto={"appId":"admin-console"}; _interaction={"admin-console":"abc","_legacy":"abc"}; _interaction.sig=xyz; nb_session=secret`)
+
+		rewrite(pr)
+
+		out := pr.Out.Header.Get("Cookie")
+		assert.Contains(t, out, `_interaction={"admin-console":"abc","_legacy":"abc"}`)
+		assert.Contains(t, out, `_logto={"appId":"admin-console"}`)
+		assert.Contains(t, out, `_interaction.sig=xyz`)
+		assert.NotContains(t, out, "nb_session=")
+	})
 }
 
 func TestRewriteFunc_SessionTokenQueryStripping(t *testing.T) {

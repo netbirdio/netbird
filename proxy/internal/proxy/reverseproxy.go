@@ -708,14 +708,40 @@ func (p *ReverseProxy) setUntrustedForwardingHeaders(r *httputil.ProxyRequest, c
 
 // stripSessionCookie removes the proxy's session cookie from the outgoing
 // request while preserving all other cookies.
+//
+// IMPORTANT: This must operate on the raw Cookie header. Go's
+// Request.Cookies()/AddCookie() path drops cookie values that contain
+// characters outside RFC 6265 cookie-octet (e.g. `"`, `,`, `{`, `}`).
+// OIDC providers such as Logto/node-oidc-provider store interaction state
+// as JSON in cookies (_interaction, _logto, …). Re-serializing via
+// Cookies()+AddCookie silently strips those cookies and breaks upstream
+// auth flows (redirect loops to /unknown-session, missing sessions, etc.).
 func stripSessionCookie(r *httputil.ProxyRequest) {
-	cookies := r.In.Cookies()
-	r.Out.Header.Del("Cookie")
-	for _, c := range cookies {
-		if c.Name != auth.SessionCookieName {
-			r.Out.AddCookie(c)
-		}
+	raw := r.In.Header.Get("Cookie")
+	if raw == "" {
+		r.Out.Header.Del("Cookie")
+		return
 	}
+
+	parts := strings.Split(raw, ";")
+	kept := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		name, _, _ := strings.Cut(part, "=")
+		if name == auth.SessionCookieName {
+			continue
+		}
+		kept = append(kept, part)
+	}
+
+	if len(kept) == 0 {
+		r.Out.Header.Del("Cookie")
+		return
+	}
+	r.Out.Header.Set("Cookie", strings.Join(kept, "; "))
 }
 
 // stripSessionTokenQuery removes the OIDC session_token query parameter from
