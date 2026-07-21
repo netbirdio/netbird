@@ -56,6 +56,11 @@ func StartClient(ctx context.Context, c *Combined, setupKey string) (*Client, er
 			// Match the proxy: the combined relay is WebSocket-only, so the
 			// client must use WS transport to keep a stable relay link to it.
 			"NB_RELAY_TRANSPORT": "ws",
+			// Lazy connections defer the peer dial until traffic flows, which
+			// leaves `netbird status` at "0/N Connected" and starves
+			// WaitProxyPeer. Force eager connections so the proxy peer shows
+			// Connected as soon as the tunnel is up.
+			"NB_LAZY_CONN": "false",
 		},
 		HostConfigModifier: func(hc *container.HostConfig) {
 			hc.CapAdd = append(hc.CapAdd, "NET_ADMIN", "SYS_ADMIN", "SYS_RESOURCE")
