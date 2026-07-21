@@ -71,6 +71,14 @@ func buildServiceArguments() []string {
 		args = append(args, "--enable-json-socket", "--json-socket", jsonSocket)
 	}
 
+	if socketOwner != "" {
+		args = append(args, "--socket-owner", socketOwner)
+	}
+
+	if strictSocketDisabled {
+		args = append(args, "--disable-strict-socket")
+	}
+
 	return args
 }
 

@@ -5,6 +5,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"time"
 
 	"github.com/kardianos/service"
@@ -13,11 +14,30 @@ import (
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 
+	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/server"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/util"
 )
+
+// daemonServerOptions returns the gRPC server options that install peer-identity
+// transport credentials on the daemon control channel. Identity extraction is
+// only possible over a Unix socket (SO_PEERCRED) or Windows named pipe (client
+// token); over TCP, or on platforms without a peer-credential primitive, the
+// daemon runs without per-caller authorization and logs a warning.
+func daemonServerOptions(network string) []grpc.ServerOption {
+	creds := ipcauth.NewTransportCredentials()
+	if creds == nil {
+		log.Warnf("daemon control channel has no peer-identity primitive on %s; per-caller authorization is disabled", runtime.GOOS)
+		return nil
+	}
+	if network == "tcp" {
+		log.Warnf("daemon is listening on TCP (%s); peer identity cannot be authenticated over TCP, per-caller authorization is disabled", daemonAddr)
+		return nil
+	}
+	return []grpc.ServerOption{grpc.Creds(creds)}
+}
 
 func validateJSONSocketFlags() error {
 	if serviceCmd.PersistentFlags().Changed("json-socket") && !enableJSONSocket {
@@ -37,8 +57,13 @@ func (p *program) Start(svc service.Service) error {
 	// Collect static system and platform information
 	system.UpdateStaticInfoAsync()
 
-	// in any case, even if configuration does not exists we run daemon to serve CLI gRPC API.
-	p.serv = grpc.NewServer()
+	network, _, err := parseListenAddress(daemonAddr)
+	if err != nil {
+		return fmt.Errorf("parse daemon address: %w", err)
+	}
+
+	// in any case, even if configuration does not exist we run daemon to serve the CLI gRPC API.
+	p.serv = grpc.NewServer(daemonServerOptions(network)...)
 
 	daemonListener, err := listenOnAddress(daemonAddr)
 	if err != nil {
@@ -62,7 +87,8 @@ func (p *program) Start(svc service.Service) error {
 			defer jsonListener.Close()
 		}
 
-		if err := daemonListener.chmodUnixSocket("daemon"); err != nil {
+		serveListener, err := secureDaemonListener(daemonListener)
+		if err != nil {
 			log.Error(err)
 			return
 		}
@@ -84,6 +110,7 @@ func (p *program) Start(svc service.Service) error {
 		p.serverInstanceMu.Unlock()
 
 		if jsonListener != nil {
+			log.Warnf("JSON gateway (--enable-json-socket) re-dials the daemon locally as the daemon's own identity and BYPASSES per-caller authorization; restrict access to %s separately", jsonSocket)
 			if err := p.startJSONGateway(jsonListener, daemonAddr); err != nil {
 				log.Fatalf("failed to start daemon JSON server: %v", err)
 			}
@@ -92,7 +119,7 @@ func (p *program) Start(svc service.Service) error {
 		}
 
 		log.Printf("started daemon server: %v", daemonListener.address)
-		if err := p.serv.Serve(daemonListener.Listener); err != nil {
+		if err := p.serv.Serve(serveListener); err != nil {
 			log.Errorf("failed to serve daemon requests: %v", err)
 		}
 	}()

@@ -26,6 +26,15 @@ func listenOnAddress(addr string) (*socketListener, error) {
 		return nil, err
 	}
 
+	if network == "npipe" {
+		path := pipePath(address)
+		listener, err := listenNamedPipe(path)
+		if err != nil {
+			return nil, err
+		}
+		return &socketListener{Listener: listener, network: network, address: path}, nil
+	}
+
 	if network == "unix" {
 		removeStaleUnixSocket(address)
 	}
@@ -45,11 +54,21 @@ func parseListenAddress(addr string) (string, string, error) {
 	}
 
 	switch network {
-	case "unix", "tcp":
+	case "unix", "tcp", "npipe":
 		return network, address, nil
 	default:
 		return "", "", fmt.Errorf("unsupported daemon address protocol: %v", network)
 	}
+}
+
+// pipePath maps a daemon-addr npipe name (e.g. "netbird" from "npipe://netbird")
+// to a Windows named-pipe path (\\.\pipe\netbird). A caller may also pass a full
+// \\.\pipe\ path, which is returned unchanged.
+func pipePath(name string) string {
+	if strings.HasPrefix(name, `\\`) {
+		return name
+	}
+	return `\\.\pipe\` + name
 }
 
 func removeStaleUnixSocket(path string) {
