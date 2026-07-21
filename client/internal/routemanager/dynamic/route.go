@@ -185,7 +185,7 @@ func (r *Route) startResolver(ctx context.Context) {
 }
 
 func (r *Route) update(ctx context.Context) error {
-	resolved, err := r.resolveDomains()
+	resolved, err := r.resolveDomains(ctx)
 	if err != nil {
 		if len(resolved) == 0 {
 			return fmt.Errorf("resolve domains: %w", err)
@@ -199,9 +199,9 @@ func (r *Route) update(ctx context.Context) error {
 	return nil
 }
 
-func (r *Route) resolveDomains() (domainMap, error) {
+func (r *Route) resolveDomains(ctx context.Context) (domainMap, error) {
 	results := make(chan resolveResult)
-	go r.resolve(results)
+	go r.resolve(ctx, results)
 
 	resolved := domainMap{}
 	var merr *multierror.Error
@@ -217,7 +217,7 @@ func (r *Route) resolveDomains() (domainMap, error) {
 	return resolved, nberrors.FormatErrorOrNil(merr)
 }
 
-func (r *Route) resolve(results chan resolveResult) {
+func (r *Route) resolve(ctx context.Context, results chan resolveResult) {
 	var wg sync.WaitGroup
 
 	for _, d := range r.route.Domains {
@@ -225,10 +225,10 @@ func (r *Route) resolve(results chan resolveResult) {
 		go func(domain domain.Domain) {
 			defer wg.Done()
 
-			ips, err := r.getIPsFromResolver(domain)
+			ips, err := r.getIPsFromResolver(ctx, domain)
 			if err != nil {
 				log.Tracef("Failed to resolve domain %s with private resolver: %v", domain.SafeString(), err)
-				ips, err = net.LookupIP(domain.PunycodeString())
+				ips, err = lookupHostIPs(ctx, domain)
 				if err != nil {
 					results <- resolveResult{domain: domain, err: fmt.Errorf("resolve d %s: %w", domain.SafeString(), err)}
 					return
@@ -362,6 +362,20 @@ func determinePrefixChanges(oldPrefixes, newPrefixes []netip.Prefix) (toAdd, toR
 		}
 	}
 	return
+}
+
+// lookupHostIPs resolves d via the system resolver, honoring ctx cancellation.
+func lookupHostIPs(ctx context.Context, d domain.Domain) ([]net.IP, error) {
+	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, d.PunycodeString())
+	if err != nil {
+		return nil, err
+	}
+
+	ips := make([]net.IP, 0, len(addrs))
+	for _, addr := range addrs {
+		ips = append(ips, addr.IP)
+	}
+	return ips, nil
 }
 
 func combinePrefixes(oldPrefixes, removedPrefixes, addedPrefixes []netip.Prefix) []netip.Prefix {
