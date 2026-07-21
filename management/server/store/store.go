@@ -582,6 +582,15 @@ func getMigrationsPreAuto(ctx context.Context) []migrationFunc {
 		func(db *gorm.DB) error {
 			return migration.CleanupOrphanedResources[domain.Domain, types.Account](ctx, db, "account_id")
 		},
+		// Issue #4326: SQLite -> Postgres migrations done with external
+		// tooling (e.g. pgloader) preserve SQLite's INTEGER 0/1 bool
+		// representation as Postgres `numeric`, which then breaks any
+		// settings update with "cannot find encode plan". Convert all
+		// gorm-mapped bool columns on `accounts` to native `boolean`
+		// before AutoMigrate runs (no-op on non-Postgres engines).
+		func(db *gorm.DB) error {
+			return migration.FixPostgresBoolColumns[types.Account](ctx, db)
+		},
 	}
 }
 
