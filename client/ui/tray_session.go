@@ -93,7 +93,7 @@ func (t *Tray) refreshSessionExpiresLabel() {
 func (t *Tray) sessionRowLabel(deadline time.Time) string {
 	remaining := time.Until(deadline)
 	if remaining <= 0 {
-		return t.loc.T("tray.session.expired")
+		return t.loc.T("tray.status.sessionExpired")
 	}
 	return t.loc.T("tray.session.expiresIn", "remaining", t.formatSessionRemaining(remaining))
 }

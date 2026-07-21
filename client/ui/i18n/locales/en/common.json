@@ -35,10 +35,6 @@
         "message": "Session expired",
         "description": "Tray status: the authenticated session expired; the user must sign in again."
     },
-    "tray.session.expired": {
-        "message": "Session expired \u2014 sign in again",
-        "description": "Tray row shown once the session deadline has passed. Clicking it opens the sign-in flow. Keep short."
-    },
     "tray.session.expiresIn": {
         "message": "Session expires in {remaining}",
         "description": "Tray row showing time left before the session expires. {remaining} is a human-readable duration such as '5 minutes', built from the tray.session.unit.* strings. Keep {remaining} unchanged."
