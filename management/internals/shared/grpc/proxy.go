@@ -29,6 +29,7 @@ import (
 
 	"github.com/netbirdio/netbird/shared/management/domain"
 
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
@@ -36,7 +37,6 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/sessionkey"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/users"
 	proxyauth "github.com/netbirdio/netbird/proxy/auth"
@@ -502,10 +502,11 @@ func (s *ProxyServiceServer) registerProxyConnection(ctx context.Context, params
 	var caps *proxy.Capabilities
 	if c := params.capabilities; c != nil {
 		caps = &proxy.Capabilities{
-			SupportsCustomPorts: c.SupportsCustomPorts,
-			RequireSubdomain:    c.RequireSubdomain,
-			SupportsCrowdsec:    c.SupportsCrowdsec,
-			Private:             c.Private,
+			SupportsCustomPorts:  c.SupportsCustomPorts,
+			RequireSubdomain:     c.RequireSubdomain,
+			SupportsCrowdsec:     c.SupportsCrowdsec,
+			Private:              c.Private,
+			SupportsPortMappings: c.SupportsPortMappings,
 		}
 	}
 
@@ -1052,11 +1053,12 @@ func (s *ProxyServiceServer) SendServiceUpdateToCluster(ctx context.Context, upd
 		if conn.accountID != nil && update.AccountId != "" && *conn.accountID != update.AccountId {
 			continue
 		}
-		if !proxyAcceptsMapping(conn, update) {
-			log.WithContext(ctx).Debugf("Skipping proxy %s: does not support custom ports for mapping %s", proxyID, update.Id)
+		connUpdate := filterMappingsForProxy(conn, updateResponse)
+		if connUpdate == nil || len(connUpdate.Mapping) == 0 {
+			log.WithContext(ctx).Debugf("Skipping proxy %s: required mapping capability is unavailable for service %s", proxyID, update.Id)
 			continue
 		}
-		msg := s.perProxyMessage(updateResponse, proxyID)
+		msg := s.perProxyMessage(connUpdate, proxyID)
 		if msg == nil {
 			log.WithContext(ctx).Warnf("Token generation failed for proxy %s in cluster %s, disconnecting to force resync", proxyID, clusterAddr)
 			conn.cancel()
@@ -1073,9 +1075,9 @@ func (s *ProxyServiceServer) SendServiceUpdateToCluster(ctx context.Context, upd
 }
 
 // proxyAcceptsMapping returns whether the proxy can receive this mapping.
-// Private mappings require SupportsPrivateService; custom-port L4 mappings
-// require SupportsCustomPorts. Remove operations always pass so proxies can
-// clean up.
+// Private mappings require SupportsPrivateService, repeated mappings require
+// SupportsPortMappings, and custom-port L4 mappings require
+// SupportsCustomPorts. Remove operations always pass so proxies can clean up.
 func proxyAcceptsMapping(conn *proxyConnection, mapping *proto.ProxyMapping) bool {
 	if mapping.Type == proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED {
 		return true
@@ -1083,6 +1085,12 @@ func proxyAcceptsMapping(conn *proxyConnection, mapping *proto.ProxyMapping) boo
 	if mapping.GetPrivate() {
 		caps := conn.capabilities
 		if caps == nil || caps.SupportsPrivateService == nil || !*caps.SupportsPrivateService {
+			return false
+		}
+	}
+	if len(mapping.GetPortMappings()) > 0 {
+		caps := conn.capabilities
+		if caps == nil || caps.SupportsPortMappings == nil || !*caps.SupportsPortMappings {
 			return false
 		}
 	}
@@ -1095,20 +1103,31 @@ func proxyAcceptsMapping(conn *proxyConnection, mapping *proto.ProxyMapping) boo
 }
 
 // filterMappingsForProxy drops mappings the proxy cannot safely receive
-// (e.g. private mappings to a proxy without SupportsPrivateService).
+// (e.g. private mappings to a proxy without SupportsPrivateService). An
+// unsupported modification is converted to a removal so a proxy that already
+// serves the legacy representation cannot retain stale listener state after
+// the service starts requiring a newer capability.
 // Returns the input unchanged when no filtering is needed.
 func filterMappingsForProxy(conn *proxyConnection, update *proto.GetMappingUpdateResponse) *proto.GetMappingUpdateResponse {
 	if update == nil || len(update.Mapping) == 0 {
 		return update
 	}
 	kept := make([]*proto.ProxyMapping, 0, len(update.Mapping))
+	changed := false
 	for _, m := range update.Mapping {
 		if !proxyAcceptsMapping(conn, m) {
+			changed = true
+			if m.Type == proto.ProxyMappingUpdateType_UPDATE_TYPE_MODIFIED {
+				removed := shallowCloneMapping(m)
+				removed.Type = proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED
+				removed.AuthToken = ""
+				kept = append(kept, removed)
+			}
 			continue
 		}
 		kept = append(kept, m)
 	}
-	if len(kept) == len(update.Mapping) {
+	if !changed {
 		return update
 	}
 	return &proto.GetMappingUpdateResponse{
@@ -1161,6 +1180,7 @@ func shallowCloneMapping(m *proto.ProxyMapping) *proto.ProxyMapping {
 		RewriteRedirects:   m.RewriteRedirects,
 		Mode:               m.Mode,
 		ListenPort:         m.ListenPort,
+		PortMappings:       m.PortMappings,
 		AccessRestrictions: m.AccessRestrictions,
 		Private:            m.Private,
 	}

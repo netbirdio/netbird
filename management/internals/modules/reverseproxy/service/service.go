@@ -128,6 +128,27 @@ type Target struct {
 	ProxyProtocol bool          `json:"proxy_protocol"`
 }
 
+// PortMapping describes an inclusive public listener range translated
+// one-to-one onto an equally sized target range. Position preserves the API
+// array order without making row IDs part of the public contract.
+type PortMapping struct {
+	ID              uint   `gorm:"primaryKey" json:"-"`
+	AccountID       string `gorm:"index:idx_service_port_mapping_account;not null" json:"-"`
+	ServiceID       string `gorm:"index:idx_service_port_mappings;not null" json:"-"`
+	Protocol        string `gorm:"type:varchar(8);index:idx_service_port_mapping_listener,priority:1;not null" json:"protocol"`
+	ListenPortStart uint16 `gorm:"index:idx_service_port_mapping_listener,priority:2;not null" json:"listen_port_start"`
+	ListenPortEnd   uint16 `gorm:"not null" json:"listen_port_end"`
+	TargetPortStart uint16 `gorm:"not null" json:"target_port_start"`
+	TargetPortEnd   uint16 `gorm:"not null" json:"target_port_end"`
+	Position        int    `gorm:"not null;default:0" json:"-"`
+}
+
+// TableName keeps the association name explicit and avoids colliding with
+// unrelated port-mapping concepts.
+func (PortMapping) TableName() string {
+	return "service_port_mappings"
+}
+
 type PasswordAuthConfig struct {
 	Enabled  bool   `json:"enabled"`
 	Password string `json:"password"`
@@ -233,9 +254,10 @@ type Service struct {
 	ID                string `gorm:"primaryKey"`
 	AccountID         string `gorm:"index"`
 	Name              string
-	Domain            string    `gorm:"type:varchar(255);uniqueIndex"`
-	ProxyCluster      string    `gorm:"index"`
-	Targets           []*Target `gorm:"foreignKey:ServiceID;constraint:OnDelete:CASCADE"`
+	Domain            string         `gorm:"type:varchar(255);uniqueIndex"`
+	ProxyCluster      string         `gorm:"index"`
+	Targets           []*Target      `gorm:"foreignKey:ServiceID;constraint:OnDelete:CASCADE"`
+	PortMappings      []*PortMapping `gorm:"foreignKey:ServiceID;constraint:OnDelete:CASCADE"`
 	Enabled           bool
 	Terminated        bool
 	PassHostHeader    bool
@@ -255,6 +277,10 @@ type Service struct {
 	Private bool
 	// AccessGroups is the group ID allowlist for inbound peers on private services. Mutually exclusive with bearer SSO.
 	AccessGroups []string `json:"access_groups,omitempty" gorm:"serializer:json"`
+	// PortMappingsSet records whether an API request explicitly supplied the
+	// new collection. It is transient and protects multi-port services from
+	// accidental collapse by legacy update clients.
+	PortMappingsSet bool `gorm:"-" json:"-"`
 }
 
 // InitNewRecord generates a new unique ID and resets metadata for a newly created
@@ -266,6 +292,90 @@ func (s *Service) InitNewRecord() {
 		CreatedAt: time.Now(),
 		Status:    string(StatusPending),
 	}
+	s.preparePortMappings()
+}
+
+// IsL4 reports whether the service uses the layer-4 model. PortMappings is
+// checked as well as Mode so partially constructed API requests are handled
+// correctly before their legacy mirror fields are synchronized.
+func (s *Service) IsL4() bool {
+	return len(s.PortMappings) > 0 || IsL4Protocol(s.Mode)
+}
+
+// PopulatePortMappingsFromLegacy converts a complete scalar L4
+// representation into a one-element collection. It deliberately leaves a
+// legacy auto-assigned listener at zero alone; the manager calls it after
+// choosing the port.
+func (s *Service) PopulatePortMappingsFromLegacy() {
+	if len(s.PortMappings) > 0 || !IsL4Protocol(s.Mode) || s.ListenPort == 0 || len(s.Targets) != 1 || s.Targets[0].Port == 0 {
+		return
+	}
+
+	s.PortMappings = []*PortMapping{{
+		AccountID:       s.AccountID,
+		ServiceID:       s.ID,
+		Protocol:        s.Mode,
+		ListenPortStart: s.ListenPort,
+		ListenPortEnd:   s.ListenPort,
+		TargetPortStart: s.Targets[0].Port,
+		TargetPortEnd:   s.Targets[0].Port,
+	}}
+	s.preparePortMappings()
+}
+
+// syncLegacyFields mirrors the first mapping into the original scalar fields.
+// Those fields remain populated so older clients and proxies retain the
+// existing single-port view. PortMappings is authoritative when present.
+func (s *Service) syncLegacyFields() {
+	if len(s.PortMappings) == 0 || len(s.Targets) == 0 {
+		return
+	}
+
+	first := s.PortMappings[0]
+	s.Mode = first.Protocol
+	s.ListenPort = first.ListenPortStart
+	s.PortAutoAssigned = false
+	s.Targets[0].Port = first.TargetPortStart
+	s.Targets[0].Protocol = targetProtocolForMapping(first.Protocol)
+	s.preparePortMappings()
+}
+
+func (s *Service) preparePortMappings() {
+	for i, mapping := range s.PortMappings {
+		if mapping == nil {
+			continue
+		}
+		mapping.AccountID = s.AccountID
+		mapping.ServiceID = s.ID
+		mapping.Position = i
+	}
+}
+
+func targetProtocolForMapping(protocol string) string {
+	if protocol == ModeUDP {
+		return TargetProtoUDP
+	}
+	return TargetProtoTCP
+}
+
+// RequiresMultiPortCapability reports whether the service cannot be faithfully
+// represented by the legacy scalar fields and first target port.
+func (s *Service) RequiresMultiPortCapability() bool {
+	if len(s.PortMappings) == 0 {
+		return false
+	}
+	if len(s.PortMappings) != 1 {
+		return true
+	}
+	mapping := s.PortMappings[0]
+	if mapping == nil || len(s.Targets) != 1 {
+		return true
+	}
+	return mapping.ListenPortStart != mapping.ListenPortEnd ||
+		mapping.TargetPortStart != mapping.TargetPortEnd ||
+		mapping.Protocol != s.Mode ||
+		mapping.ListenPortStart != s.ListenPort ||
+		mapping.TargetPortStart != s.Targets[0].Port
 }
 
 func (s *Service) ToAPIResponse() *api.Service {
@@ -338,6 +448,24 @@ func (s *Service) ToAPIResponse() *api.Service {
 
 	mode := api.ServiceMode(s.Mode)
 	listenPort := int(s.ListenPort)
+	var apiPortMappings *[]api.ServicePortMapping
+	if s.IsL4() {
+		s.PopulatePortMappingsFromLegacy()
+		mappings := make([]api.ServicePortMapping, 0, len(s.PortMappings))
+		for _, mapping := range s.PortMappings {
+			if mapping == nil {
+				continue
+			}
+			mappings = append(mappings, api.ServicePortMapping{
+				Protocol:        api.ServicePortMappingProtocol(mapping.Protocol),
+				ListenPortStart: int(mapping.ListenPortStart),
+				ListenPortEnd:   int(mapping.ListenPortEnd),
+				TargetPortStart: int(mapping.TargetPortStart),
+				TargetPortEnd:   int(mapping.TargetPortEnd),
+			})
+		}
+		apiPortMappings = &mappings
+	}
 
 	resp := &api.Service{
 		Id:                 s.ID,
@@ -354,6 +482,7 @@ func (s *Service) ToAPIResponse() *api.Service {
 		Mode:               &mode,
 		ListenPort:         &listenPort,
 		PortAutoAssigned:   &s.PortAutoAssigned,
+		PortMappings:       apiPortMappings,
 		Private:            &s.Private,
 	}
 
@@ -412,6 +541,21 @@ func (s *Service) ToProtoMapping(operation Operation, authToken string, oidcConf
 		Mode:             s.Mode,
 		ListenPort:       int32(s.ListenPort), //nolint:gosec
 		Private:          s.Private,
+	}
+	if s.RequiresMultiPortCapability() {
+		mapping.PortMappings = make([]*proto.ServicePortMapping, 0, len(s.PortMappings))
+		for _, portMapping := range s.PortMappings {
+			if portMapping == nil {
+				continue
+			}
+			mapping.PortMappings = append(mapping.PortMappings, &proto.ServicePortMapping{
+				Protocol:        portMapping.Protocol,
+				ListenPortStart: uint32(portMapping.ListenPortStart),
+				ListenPortEnd:   uint32(portMapping.ListenPortEnd),
+				TargetPortStart: uint32(portMapping.TargetPortStart),
+				TargetPortEnd:   uint32(portMapping.TargetPortEnd),
+			})
+		}
 	}
 
 	if r := restrictionsToProto(s.Restrictions); r != nil {
@@ -675,6 +819,9 @@ func (s *Service) FromAPIRequest(req *api.ServiceRequest, accountID string) erro
 		s.Mode = string(*req.Mode)
 	}
 	if req.ListenPort != nil {
+		if *req.ListenPort < 0 || *req.ListenPort > 65535 {
+			return fmt.Errorf("listen_port must be between 0 and 65535, got %d", *req.ListenPort)
+		}
 		s.ListenPort = uint16(*req.ListenPort) //nolint:gosec
 	}
 	if req.Private != nil {
@@ -691,6 +838,36 @@ func (s *Service) FromAPIRequest(req *api.ServiceRequest, accountID string) erro
 		return err
 	}
 	s.Targets = targets
+
+	portMappings, err := portMappingsFromAPI(accountID, req.PortMappings)
+	if err != nil {
+		return err
+	}
+	if req.PortMappings != nil {
+		s.PortMappingsSet = true
+		s.PortMappings = portMappings
+		if len(portMappings) == 0 {
+			return errors.New("port_mappings must contain at least one mapping")
+		}
+
+		first := portMappings[0]
+		if req.Mode != nil && s.Mode != first.Protocol {
+			return fmt.Errorf("mode %q must match port_mappings[0].protocol %q", s.Mode, first.Protocol)
+		}
+		if req.ListenPort != nil && s.ListenPort != first.ListenPortStart {
+			return fmt.Errorf("listen_port %d must match port_mappings[0].listen_port_start %d", s.ListenPort, first.ListenPortStart)
+		}
+		if len(s.Targets) == 1 {
+			if s.Targets[0].Port != 0 && s.Targets[0].Port != first.TargetPortStart {
+				return fmt.Errorf("targets[0].port %d must match port_mappings[0].target_port_start %d", s.Targets[0].Port, first.TargetPortStart)
+			}
+			expectedProtocol := targetProtocolForMapping(first.Protocol)
+			if s.Targets[0].Protocol != "" && s.Targets[0].Protocol != expectedProtocol {
+				return fmt.Errorf("targets[0].protocol %q must be %q for port_mappings[0].protocol %q", s.Targets[0].Protocol, expectedProtocol, first.Protocol)
+			}
+		}
+		s.syncLegacyFields()
+	}
 	s.Enabled = req.Enabled
 
 	if req.PassHostHeader != nil {
@@ -723,6 +900,9 @@ func targetsFromAPI(accountID string, apiTargetsPtr *[]api.ServiceTarget) ([]*Ta
 
 	targets := make([]*Target, 0, len(apiTargets))
 	for i, apiTarget := range apiTargets {
+		if apiTarget.Port < 0 || apiTarget.Port > 65535 {
+			return nil, fmt.Errorf("target %d: port must be between 0 and 65535, got %d", i, apiTarget.Port)
+		}
 		target := &Target{
 			AccountID:  accountID,
 			Path:       apiTarget.Path,
@@ -748,6 +928,42 @@ func targetsFromAPI(accountID string, apiTargetsPtr *[]api.ServiceTarget) ([]*Ta
 		targets = append(targets, target)
 	}
 	return targets, nil
+}
+
+func portMappingsFromAPI(accountID string, apiMappingsPtr *[]api.ServicePortMapping) ([]*PortMapping, error) {
+	if apiMappingsPtr == nil {
+		return nil, nil
+	}
+
+	apiMappings := *apiMappingsPtr
+	mappings := make([]*PortMapping, 0, len(apiMappings))
+	for i, apiMapping := range apiMappings {
+		values := []struct {
+			name  string
+			value int
+		}{
+			{name: "listen_port_start", value: apiMapping.ListenPortStart},
+			{name: "listen_port_end", value: apiMapping.ListenPortEnd},
+			{name: "target_port_start", value: apiMapping.TargetPortStart},
+			{name: "target_port_end", value: apiMapping.TargetPortEnd},
+		}
+		for _, value := range values {
+			if value.value < 1 || value.value > 65535 {
+				return nil, fmt.Errorf("port_mappings[%d].%s must be between 1 and 65535, got %d", i, value.name, value.value)
+			}
+		}
+
+		mappings = append(mappings, &PortMapping{
+			AccountID:       accountID,
+			Protocol:        string(apiMapping.Protocol),
+			ListenPortStart: uint16(apiMapping.ListenPortStart), //nolint:gosec // bounds checked above
+			ListenPortEnd:   uint16(apiMapping.ListenPortEnd),   //nolint:gosec // bounds checked above
+			TargetPortStart: uint16(apiMapping.TargetPortStart), //nolint:gosec // bounds checked above
+			TargetPortEnd:   uint16(apiMapping.TargetPortEnd),   //nolint:gosec // bounds checked above
+			Position:        i,
+		})
+	}
+	return mappings, nil
 }
 
 func authFromAPI(reqAuth *api.ServiceAuthConfig) AuthConfig {
@@ -863,6 +1079,12 @@ func (s *Service) Validate() error {
 	if len(s.Targets) == 0 {
 		return errors.New("at least one target is required")
 	}
+	if len(s.PortMappings) > 0 {
+		if s.PortMappings[0] == nil {
+			return errors.New("port_mappings[0] must not be null")
+		}
+		s.syncLegacyFields()
+	}
 
 	if s.Mode == "" {
 		s.Mode = ModeHTTP
@@ -877,17 +1099,116 @@ func (s *Service) Validate() error {
 	if err := s.validatePrivateRequirements(); err != nil {
 		return err
 	}
+	if len(s.PortMappings) > 0 {
+		return s.validatePortMappedL4Mode()
+	}
 
+	var err error
 	switch s.Mode {
 	case ModeHTTP:
-		return s.validateHTTPMode()
+		err = s.validateHTTPMode()
 	case ModeTCP, ModeUDP:
-		return s.validateTCPUDPMode()
+		err = s.validateTCPUDPMode()
 	case ModeTLS:
-		return s.validateTLSMode()
+		err = s.validateTLSMode()
 	default:
 		return fmt.Errorf("unsupported mode %q", s.Mode)
 	}
+	if err == nil {
+		s.PopulatePortMappingsFromLegacy()
+	}
+	return err
+}
+
+func (s *Service) validatePortMappedL4Mode() error {
+	if s.Domain == "" {
+		return errors.New("domain is required for L4 services (used for cluster derivation and TLS SNI)")
+	}
+	if s.isAuthEnabled() {
+		return errors.New("auth is not supported for L4 services")
+	}
+	if len(s.Targets) != 1 {
+		return errors.New("L4 services with port_mappings must have exactly one target")
+	}
+	if err := validatePortMappings(s.PortMappings); err != nil {
+		return err
+	}
+	if s.Targets[0].ProxyProtocol {
+		hasTCP := false
+		for _, mapping := range s.PortMappings {
+			if mapping.Protocol == ModeTCP || mapping.Protocol == ModeTLS {
+				hasTCP = true
+				break
+			}
+		}
+		if !hasTCP {
+			return errors.New("proxy_protocol is not supported for UDP-only services")
+		}
+	}
+	return s.validateL4Target(s.Targets[0])
+}
+
+func validatePortMappings(mappings []*PortMapping) error {
+	if len(mappings) == 0 {
+		return errors.New("port_mappings must contain at least one mapping")
+	}
+
+	for i, mapping := range mappings {
+		if mapping == nil {
+			return fmt.Errorf("port_mappings[%d] must not be null", i)
+		}
+		switch mapping.Protocol {
+		case ModeTCP, ModeUDP, ModeTLS:
+		default:
+			return fmt.Errorf("port_mappings[%d].protocol %q is not supported", i, mapping.Protocol)
+		}
+		if mapping.ListenPortStart == 0 || mapping.ListenPortEnd == 0 ||
+			mapping.TargetPortStart == 0 || mapping.TargetPortEnd == 0 {
+			return fmt.Errorf("port_mappings[%d] ports must be between 1 and 65535", i)
+		}
+		if mapping.ListenPortStart > mapping.ListenPortEnd {
+			return fmt.Errorf("port_mappings[%d] listener range is reversed: %d-%d", i, mapping.ListenPortStart, mapping.ListenPortEnd)
+		}
+		if mapping.TargetPortStart > mapping.TargetPortEnd {
+			return fmt.Errorf("port_mappings[%d] target range is reversed: %d-%d", i, mapping.TargetPortStart, mapping.TargetPortEnd)
+		}
+		listenSize := uint32(mapping.ListenPortEnd) - uint32(mapping.ListenPortStart)
+		targetSize := uint32(mapping.TargetPortEnd) - uint32(mapping.TargetPortStart)
+		if listenSize != targetSize {
+			return fmt.Errorf(
+				"port_mappings[%d] listener range %d-%d and target range %d-%d must contain the same number of ports",
+				i,
+				mapping.ListenPortStart,
+				mapping.ListenPortEnd,
+				mapping.TargetPortStart,
+				mapping.TargetPortEnd,
+			)
+		}
+
+		for j := 0; j < i; j++ {
+			other := mappings[j]
+			if other == nil || other.Protocol != mapping.Protocol {
+				continue
+			}
+			if rangesOverlap(mapping.ListenPortStart, mapping.ListenPortEnd, other.ListenPortStart, other.ListenPortEnd) {
+				return fmt.Errorf(
+					"port_mappings[%d] listener range %d-%d overlaps port_mappings[%d] range %d-%d for protocol %s",
+					i,
+					mapping.ListenPortStart,
+					mapping.ListenPortEnd,
+					j,
+					other.ListenPortStart,
+					other.ListenPortEnd,
+					mapping.Protocol,
+				)
+			}
+		}
+	}
+	return nil
+}
+
+func rangesOverlap(startA, endA, startB, endB uint16) bool {
+	return startA <= endB && startB <= endA
 }
 
 // validatePrivateRequirements enforces the private-service contract: HTTP mode, ≥1 access group, no bearer auth.
@@ -1308,6 +1629,9 @@ func (s *Service) EventMeta() map[string]any {
 	if s.ListenPort != 0 {
 		meta["listen_port"] = s.ListenPort
 	}
+	if len(s.PortMappings) > 0 {
+		meta["port_mapping_count"] = len(s.PortMappings)
+	}
 
 	if len(s.Targets) > 0 {
 		t := s.Targets[0]
@@ -1355,6 +1679,14 @@ func (s *Service) Copy() *Service {
 		}
 		targets[i] = &targetCopy
 	}
+	portMappings := make([]*PortMapping, len(s.PortMappings))
+	for i, mapping := range s.PortMappings {
+		if mapping == nil {
+			continue
+		}
+		mappingCopy := *mapping
+		portMappings[i] = &mappingCopy
+	}
 
 	authCopy := s.Auth
 	if s.Auth.PasswordAuth != nil {
@@ -1389,13 +1721,14 @@ func (s *Service) Copy() *Service {
 		accessGroups = append([]string(nil), s.AccessGroups...)
 	}
 
-	return &Service{
+	serviceCopy := &Service{
 		ID:                s.ID,
 		AccountID:         s.AccountID,
 		Name:              s.Name,
 		Domain:            s.Domain,
 		ProxyCluster:      s.ProxyCluster,
 		Targets:           targets,
+		PortMappings:      portMappings,
 		Enabled:           s.Enabled,
 		Terminated:        s.Terminated,
 		PassHostHeader:    s.PassHostHeader,
@@ -1412,7 +1745,10 @@ func (s *Service) Copy() *Service {
 		PortAutoAssigned:  s.PortAutoAssigned,
 		Private:           s.Private,
 		AccessGroups:      accessGroups,
+		PortMappingsSet:   s.PortMappingsSet,
 	}
+	serviceCopy.preparePortMappings()
+	return serviceCopy
 }
 
 func (s *Service) EncryptSensitiveData(enc *crypt.FieldEncrypt) error {
@@ -1551,6 +1887,7 @@ func (r *ExposeServiceRequest) ToService(accountID, peerID, serviceName string) 
 			Enabled:    true,
 		},
 	}
+	svc.PopulatePortMappingsFromLegacy()
 
 	if r.Pin != "" {
 		svc.Auth.PinAuth = &PINAuthConfig{

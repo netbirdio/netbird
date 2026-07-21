@@ -136,7 +136,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		&types.Account{}, &types.Policy{}, &types.PolicyRule{}, &route.Route{}, &nbdns.NameServerGroup{},
 		&installation{}, &types.ExtraSettings{}, &posture.Checks{}, &nbpeer.NetworkAddress{},
 		&networkTypes.Network{}, &routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{}, &types.AccountOnboarding{},
-		&types.Job{}, &zones.Zone{}, &records.Record{}, &types.UserInviteRecord{}, &rpservice.Service{}, &rpservice.Target{}, &domain.Domain{},
+		&types.Job{}, &zones.Zone{}, &records.Record{}, &types.UserInviteRecord{}, &rpservice.Service{}, &rpservice.Target{}, &rpservice.PortMapping{}, &domain.Domain{},
 		&accesslogs.AccessLogEntry{}, &proxy.Proxy{},
 		&agentNetworkTypes.Provider{}, &agentNetworkTypes.Policy{}, &agentNetworkTypes.Guardrail{}, &agentNetworkTypes.Settings{},
 		&agentNetworkTypes.Consumption{}, &agentNetworkTypes.AccountBudgetRule{},
@@ -1200,6 +1200,9 @@ func (s *SqlStore) getAccountGorm(ctx context.Context, accountID string) (*types
 		Preload("NetworkResources").
 		Preload("Onboarding").
 		Preload("Services.Targets").
+		Preload("Services.PortMappings", func(tx *gorm.DB) *gorm.DB {
+			return tx.Order("position ASC").Order("id ASC")
+		}).
 		Preload("Domains").
 		Take(&account, idQueryCondition, accountID)
 	if result.Error != nil {
@@ -2247,6 +2250,10 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpserv
 	const targetsQuery = `SELECT id, account_id, service_id, path, host, port, protocol,
 		target_id, target_type, enabled
 		FROM targets WHERE service_id = ANY($1)`
+	const portMappingsQuery = `SELECT id, account_id, service_id, protocol,
+		listen_port_start, listen_port_end, target_port_start, target_port_end, position
+		FROM service_port_mappings WHERE service_id = ANY($1)
+		ORDER BY position, id`
 
 	serviceRows, err := s.pool.Query(ctx, serviceQuery, accountID)
 	if err != nil {
@@ -2345,6 +2352,7 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpserv
 			s.ListenPort = uint16(listenPort.Int64)
 		}
 		s.Targets = []*rpservice.Target{}
+		s.PortMappings = []*rpservice.PortMapping{}
 		return &s, nil
 	})
 	if err != nil {
@@ -2397,6 +2405,36 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpserv
 	for _, target := range targets {
 		if service, ok := serviceMap[target.ServiceID]; ok {
 			service.Targets = append(service.Targets, target)
+		}
+	}
+
+	portMappingRows, err := s.pool.Query(ctx, portMappingsQuery, serviceIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	portMappings, err := pgx.CollectRows(portMappingRows, func(row pgx.CollectableRow) (*rpservice.PortMapping, error) {
+		var mapping rpservice.PortMapping
+		err := row.Scan(
+			&mapping.ID,
+			&mapping.AccountID,
+			&mapping.ServiceID,
+			&mapping.Protocol,
+			&mapping.ListenPortStart,
+			&mapping.ListenPortEnd,
+			&mapping.TargetPortStart,
+			&mapping.TargetPortEnd,
+			&mapping.Position,
+		)
+		return &mapping, err
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	for _, mapping := range portMappings {
+		if service, ok := serviceMap[mapping.ServiceID]; ok {
+			service.PortMappings = append(service.PortMappings, mapping)
 		}
 	}
 
@@ -5232,11 +5270,15 @@ func (s *SqlStore) UpdateService(ctx context.Context, service *rpservice.Service
 
 	// Create target type instance outside transaction to avoid variable shadowing
 	targetType := &rpservice.Target{}
+	portMappingType := &rpservice.PortMapping{}
 
 	// Use a transaction to ensure atomic updates of the service and its targets
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		// Delete existing targets
 		if err := tx.Where("service_id = ?", serviceCopy.ID).Delete(targetType).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("service_id = ?", serviceCopy.ID).Delete(portMappingType).Error; err != nil {
 			return err
 		}
 
@@ -5256,13 +5298,29 @@ func (s *SqlStore) UpdateService(ctx context.Context, service *rpservice.Service
 }
 
 func (s *SqlStore) DeleteService(ctx context.Context, accountID, serviceID string) error {
-	result := s.db.Delete(&rpservice.Service{}, accountAndIDQueryCondition, accountID, serviceID)
-	if result.Error != nil {
-		log.WithContext(ctx).Errorf("failed to delete service from store: %v", result.Error)
+	var notFound bool
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		result := tx.Delete(&rpservice.Service{}, accountAndIDQueryCondition, accountID, serviceID)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			notFound = true
+			return nil
+		}
+
+		// Keep deletion portable when an existing database was created without
+		// SQLite foreign-key enforcement. On databases with ON DELETE CASCADE,
+		// this is an idempotent zero-row cleanup.
+		return tx.Where("account_id = ? AND service_id = ?", accountID, serviceID).
+			Delete(&rpservice.PortMapping{}).Error
+	})
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to delete service from store: %v", err)
 		return status.Errorf(status.Internal, "failed to delete service from store")
 	}
 
-	if result.RowsAffected == 0 {
+	if notFound {
 		return status.Errorf(status.NotFound, "service %s not found", serviceID)
 	}
 
@@ -5309,8 +5367,16 @@ func (s *SqlStore) GetTargetsByServiceID(ctx context.Context, lockStrength Locki
 	return targets, nil
 }
 
+func preloadServiceAssociations(db *gorm.DB) *gorm.DB {
+	return db.
+		Preload("Targets").
+		Preload("PortMappings", func(tx *gorm.DB) *gorm.DB {
+			return tx.Order("position ASC").Order("id ASC")
+		})
+}
+
 func (s *SqlStore) GetServiceByID(ctx context.Context, lockStrength LockingStrength, accountID, serviceID string) (*rpservice.Service, error) {
-	tx := s.db.Preload("Targets")
+	tx := preloadServiceAssociations(s.db)
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}
@@ -5335,7 +5401,7 @@ func (s *SqlStore) GetServiceByID(ctx context.Context, lockStrength LockingStren
 
 func (s *SqlStore) GetServiceByDomain(ctx context.Context, domain string) (*rpservice.Service, error) {
 	var service *rpservice.Service
-	result := s.db.Preload("Targets").Where("domain = ?", domain).First(&service)
+	result := preloadServiceAssociations(s.db).Where("domain = ?", domain).First(&service)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "service with domain %s not found", domain)
@@ -5353,7 +5419,7 @@ func (s *SqlStore) GetServiceByDomain(ctx context.Context, domain string) (*rpse
 }
 
 func (s *SqlStore) GetServices(ctx context.Context, lockStrength LockingStrength) ([]*rpservice.Service, error) {
-	tx := s.db.Preload("Targets")
+	tx := preloadServiceAssociations(s.db)
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}
@@ -5375,7 +5441,7 @@ func (s *SqlStore) GetServices(ctx context.Context, lockStrength LockingStrength
 }
 
 func (s *SqlStore) GetAccountServices(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*rpservice.Service, error) {
-	tx := s.db.Preload("Targets")
+	tx := preloadServiceAssociations(s.db)
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}
@@ -5491,13 +5557,24 @@ func (s *SqlStore) EphemeralServiceExists(ctx context.Context, lockStrength Lock
 
 // GetServicesByClusterAndPort returns services matching the given proxy cluster, mode, and listen port.
 func (s *SqlStore) GetServicesByClusterAndPort(ctx context.Context, lockStrength LockingStrength, proxyCluster string, mode string, listenPort uint16) ([]*rpservice.Service, error) {
-	tx := s.db
+	tx := preloadServiceAssociations(s.db)
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}
 
 	var services []*rpservice.Service
-	result := tx.Where("proxy_cluster = ? AND mode = ? AND listen_port = ?", proxyCluster, mode, listenPort).Find(&services)
+	mappedServices := s.db.Model(&rpservice.PortMapping{}).
+		Select("service_id").
+		Where("protocol = ? AND listen_port_start <= ? AND listen_port_end >= ?", mode, listenPort, listenPort)
+	result := tx.
+		Where(
+			"proxy_cluster = ? AND ((mode = ? AND listen_port = ?) OR id IN (?))",
+			proxyCluster,
+			mode,
+			listenPort,
+			mappedServices,
+		).
+		Find(&services)
 	if result.Error != nil {
 		return nil, status.Errorf(status.Internal, "query services by cluster and port")
 	}
@@ -5507,7 +5584,7 @@ func (s *SqlStore) GetServicesByClusterAndPort(ctx context.Context, lockStrength
 
 // GetServicesByCluster returns all services for the given proxy cluster.
 func (s *SqlStore) GetServicesByCluster(ctx context.Context, lockStrength LockingStrength, proxyCluster string) ([]*rpservice.Service, error) {
-	tx := s.db
+	tx := preloadServiceAssociations(s.db)
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}

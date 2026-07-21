@@ -1736,9 +1736,13 @@ func (a *Account) createPrivateServicePolicy(svc *service.Service, proxyPeer *nb
 }
 
 func (a *Account) injectTargetProxyPolicies(ctx context.Context, service *service.Service, target *service.Target, proxyPeers []*nbpeer.Peer) {
-	port, ok := a.resolveTargetPort(ctx, target)
-	if !ok {
-		return
+	var port uint16
+	if len(service.PortMappings) == 0 {
+		var ok bool
+		port, ok = a.resolveTargetPort(ctx, target)
+		if !ok {
+			return
+		}
 	}
 
 	path := ""
@@ -1770,41 +1774,72 @@ func (a *Account) resolveTargetPort(ctx context.Context, target *service.Target)
 
 func (a *Account) createProxyPolicy(svc *service.Service, target *service.Target, proxyPeer *nbpeer.Peer, port uint16, path string) *Policy {
 	policyID := fmt.Sprintf("proxy-access-%s-%s-%s", svc.ID, proxyPeer.ID, path)
-
-	protocol := PolicyRuleProtocolTCP
-	if svc.Mode == service.ModeUDP {
-		protocol = PolicyRuleProtocolUDP
+	rules := make([]*PolicyRule, 0, max(1, len(svc.PortMappings)))
+	if len(svc.PortMappings) > 0 {
+		for i, mapping := range svc.PortMappings {
+			if mapping == nil {
+				continue
+			}
+			protocol := PolicyRuleProtocolTCP
+			if mapping.Protocol == service.ModeUDP {
+				protocol = PolicyRuleProtocolUDP
+			}
+			ruleID := policyID
+			if len(svc.PortMappings) > 1 {
+				ruleID = fmt.Sprintf("%s-mapping-%d", policyID, i)
+			}
+			rules = append(rules, createProxyPolicyRule(
+				policyID,
+				ruleID,
+				svc,
+				target,
+				proxyPeer,
+				protocol,
+				RulePortRange{Start: mapping.TargetPortStart, End: mapping.TargetPortEnd},
+			))
+		}
+	} else {
+		protocol := PolicyRuleProtocolTCP
+		if svc.Mode == service.ModeUDP {
+			protocol = PolicyRuleProtocolUDP
+		}
+		rules = append(rules, createProxyPolicyRule(
+			policyID,
+			policyID,
+			svc,
+			target,
+			proxyPeer,
+			protocol,
+			RulePortRange{Start: port, End: port},
+		))
 	}
 
 	return &Policy{
 		ID:      policyID,
 		Name:    fmt.Sprintf("Proxy Access to %s", svc.Name),
 		Enabled: true,
-		Rules: []*PolicyRule{
-			{
-				ID:       policyID,
-				PolicyID: policyID,
-				Name:     fmt.Sprintf("Allow access to %s", svc.Name),
-				Enabled:  true,
-				SourceResource: Resource{
-					ID:   proxyPeer.ID,
-					Type: ResourceTypePeer,
-				},
-				DestinationResource: Resource{
-					ID:   target.TargetId,
-					Type: ResourceType(target.TargetType),
-				},
-				Bidirectional: false,
-				Protocol:      protocol,
-				Action:        PolicyTrafficActionAccept,
-				PortRanges: []RulePortRange{
-					{
-						Start: port,
-						End:   port,
-					},
-				},
-			},
+		Rules:   rules,
+	}
+}
+
+func createProxyPolicyRule(policyID, ruleID string, svc *service.Service, target *service.Target, proxyPeer *nbpeer.Peer, protocol PolicyRuleProtocolType, portRange RulePortRange) *PolicyRule {
+	return &PolicyRule{
+		ID:       ruleID,
+		PolicyID: policyID,
+		Name:     fmt.Sprintf("Allow access to %s", svc.Name),
+		Enabled:  true,
+		SourceResource: Resource{
+			ID:   proxyPeer.ID,
+			Type: ResourceTypePeer,
 		},
+		DestinationResource: Resource{
+			ID:   target.TargetId,
+			Type: ResourceType(target.TargetType),
+		},
+		Bidirectional: false,
+		Protocol:      protocol,
+		Action:        PolicyTrafficActionAccept,
+		PortRanges:    []RulePortRange{portRange},
 	}
 }
 

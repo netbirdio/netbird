@@ -128,6 +128,81 @@ func seedService(t *testing.T, s store.Store, name, protocol, domain, cluster st
 	return svc
 }
 
+func multiPortService(name, domain, cluster string, mappings ...*rpservice.PortMapping) *rpservice.Service {
+	svc := &rpservice.Service{
+		AccountID:       testAccountID,
+		Name:            name,
+		Domain:          domain,
+		ProxyCluster:    cluster,
+		Enabled:         true,
+		Source:          "permanent",
+		PortMappings:    mappings,
+		PortMappingsSet: true,
+		Targets: []*rpservice.Target{{
+			AccountID: testAccountID, TargetId: testPeerID, TargetType: rpservice.TargetTypePeer,
+			Protocol: rpservice.TargetProtoTCP, Port: mappings[0].TargetPortStart, Enabled: true,
+		}},
+	}
+	svc.InitNewRecord()
+	svc.Mode = mappings[0].Protocol
+	svc.ListenPort = mappings[0].ListenPortStart
+	return svc
+}
+
+func TestPortConflict_MultiPortRangesAndProtocolOwnership(t *testing.T) {
+	tests := []struct {
+		name      string
+		candidate *rpservice.PortMapping
+		wantErr   string
+	}{
+		{
+			name: "overlapping TCP range",
+			candidate: &rpservice.PortMapping{
+				Protocol: rpservice.ModeTCP, ListenPortStart: 5020, ListenPortEnd: 5040,
+				TargetPortStart: 6020, TargetPortEnd: 6040,
+			},
+			wantErr: "conflicts with service",
+		},
+		{
+			name: "adjacent TCP range",
+			candidate: &rpservice.PortMapping{
+				Protocol: rpservice.ModeTCP, ListenPortStart: 5031, ListenPortEnd: 5040,
+				TargetPortStart: 6031, TargetPortEnd: 6040,
+			},
+		},
+		{
+			name: "same numeric UDP range",
+			candidate: &rpservice.PortMapping{
+				Protocol: rpservice.ModeUDP, ListenPortStart: 5000, ListenPortEnd: 5030,
+				TargetPortStart: 7000, TargetPortEnd: 7030,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mgr, testStore, _ := setupL4Test(t, boolPtr(true))
+			ctx := context.Background()
+			existing := multiPortService("existing", "existing."+testCluster, testCluster,
+				&rpservice.PortMapping{
+					Protocol: rpservice.ModeTCP, ListenPortStart: 5000, ListenPortEnd: 5030,
+					TargetPortStart: 6000, TargetPortEnd: 6030,
+				})
+			require.NoError(t, existing.Validate())
+			require.NoError(t, testStore.CreateService(ctx, existing))
+
+			candidate := multiPortService("candidate", "candidate."+testCluster, testCluster, tt.candidate)
+			require.NoError(t, candidate.Validate())
+			err := mgr.persistNewService(ctx, testAccountID, candidate)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			assert.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
+
 func TestPortConflict_TCPSamePortCluster(t *testing.T) {
 	mgr, testStore, _ := setupL4Test(t, boolPtr(true))
 	ctx := context.Background()
