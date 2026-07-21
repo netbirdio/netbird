@@ -94,11 +94,12 @@ func availableProviders() []providerCase {
 		}
 	}
 
-	// Bedrock: path-routed, bearer auth. Model is a cross-region inference
-	// profile id (distinct string from the first-party Anthropic case). The
-	// profile's region prefix must match the endpoint's region family — an
-	// eu.* profile against a us-east endpoint (or vice versa) makes Bedrock
-	// reject the request with "The provided model identifier is invalid".
+	// Bedrock: path-routed, bearer auth. Model is the FULL cross-region
+	// inference-profile id exactly as AWS issues it — region-family prefix
+	// plus the date/version suffix. A bare or wrong-region id makes Bedrock
+	// reject the request with "The provided model identifier is invalid"
+	// before any inference runs. The proxy normalizes this id to the catalog
+	// key (anthropic.claude-haiku-4-5) for routing/pricing/allowlists.
 	// Defaults pair eu-central-1 with the eu.* profile; AWS_REGION overrides
 	// the region and the prefix follows its family.
 	if k := os.Getenv("AWS_BEARER_TOKEN_BEDROCK"); k != "" {
@@ -106,7 +107,7 @@ func availableProviders() []providerCase {
 		if region == "" {
 			region = "eu-central-1"
 		}
-		ps = append(ps, providerCase{name: "bedrock", catalogID: "bedrock_api", upstream: "https://bedrock-runtime." + region + ".amazonaws.com", apiKey: k, model: bedrockProfilePrefix(region) + ".anthropic.claude-haiku-4-5", kind: harness.WireBedrock})
+		ps = append(ps, providerCase{name: "bedrock", catalogID: "bedrock_api", upstream: "https://bedrock-runtime." + region + ".amazonaws.com", apiKey: k, model: bedrockProfilePrefix(region) + ".anthropic.claude-haiku-4-5-20251001-v1:0", kind: harness.WireBedrock})
 	}
 	return ps
 }
