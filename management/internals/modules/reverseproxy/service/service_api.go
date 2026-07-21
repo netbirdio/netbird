@@ -75,9 +75,14 @@ func servicePortMappingsToAPI(service *Service) *[]api.ServicePortMapping {
 	if !service.IsL4() {
 		return nil
 	}
-	service.PopulatePortMappingsFromLegacy()
-	mappings := make([]api.ServicePortMapping, 0, len(service.PortMappings))
-	for _, mapping := range service.PortMappings {
+	portMappings := service.PortMappings
+	if len(portMappings) == 0 {
+		ownedService := *service
+		ownedService.PopulatePortMappingsFromLegacy()
+		portMappings = ownedService.PortMappings
+	}
+	mappings := make([]api.ServicePortMapping, 0, len(portMappings))
+	for _, mapping := range portMappings {
 		if mapping == nil {
 			continue
 		}

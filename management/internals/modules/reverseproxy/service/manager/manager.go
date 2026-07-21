@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"math/rand/v2"
@@ -853,6 +854,7 @@ func samePortBasedListeners(a, b []*service.PortMapping) bool {
 				result = append(result, *mapping)
 			}
 		}
+		slices.SortFunc(result, comparePortBasedListeners)
 		return result
 	}
 	left := filter(a)
@@ -868,6 +870,16 @@ func samePortBasedListeners(a, b []*service.PortMapping) bool {
 		}
 	}
 	return true
+}
+
+func comparePortBasedListeners(a, b service.PortMapping) int {
+	if order := cmp.Compare(a.Protocol, b.Protocol); order != 0 {
+		return order
+	}
+	if order := cmp.Compare(a.ListenPortStart, b.ListenPortStart); order != 0 {
+		return order
+	}
+	return cmp.Compare(a.ListenPortEnd, b.ListenPortEnd)
 }
 
 // validateProtocolChange rejects mode changes on update.
