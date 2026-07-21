@@ -14,6 +14,7 @@ COPY proxy ./proxy
 COPY route ./route
 COPY shared ./shared
 COPY sharedsock ./sharedsock
+COPY trustedproxy ./trustedproxy
 COPY upload-server ./upload-server
 COPY util ./util
 COPY version ./version
