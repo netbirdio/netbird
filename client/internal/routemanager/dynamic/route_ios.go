@@ -3,6 +3,7 @@
 package dynamic
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"time"
@@ -25,6 +26,11 @@ func (r *Route) getIPsFromResolver(domain domain.Domain) ([]net.IP, error) {
 	fqdn := dns.Fqdn(domain.PunycodeString())
 	startTime := time.Now()
 
+	// net.Dialer.DialContext panics on a nil context; passing nil here crashed
+	// the whole extension (SIGABRT) whenever a domain route was resolved.
+	ctx, cancel := context.WithTimeout(context.Background(), dialTimeout)
+	defer cancel()
+
 	var ips []net.IP
 	var queryErr error
 
@@ -32,7 +38,7 @@ func (r *Route) getIPsFromResolver(domain domain.Domain) ([]net.IP, error) {
 		msg := new(dns.Msg)
 		msg.SetQuestion(fqdn, qtype)
 
-		response, _, err := nbdns.ExchangeWithFallback(nil, privateClient, msg, r.resolverAddr.String())
+		response, _, err := nbdns.ExchangeWithFallback(ctx, privateClient, msg, r.resolverAddr.String())
 		if err != nil {
 			if queryErr == nil {
 				queryErr = fmt.Errorf("DNS query for %s (type %d) after %s: %w", domain.SafeString(), qtype, time.Since(startTime), err)
