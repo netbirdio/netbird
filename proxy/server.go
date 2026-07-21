@@ -1757,37 +1757,47 @@ func (s *Server) mappingsOwnSameRuntime(a, b *proto.ProxyMapping) bool {
 	}
 
 	aListeners, bListeners := s.mappingListeners(a), s.mappingListeners(b)
-	// HTTP and a raw TCP fallback can coexist on the main listener: a matching
-	// SNI route wins and non-matching/plain traffic falls back. Only same-host
-	// TLS passthrough competes with HTTP for the SNI route.
-	if !aL4 || !bL4 {
-		httpHost := aHost
-		listeners := bListeners
-		if !bL4 {
-			httpHost = bHost
-			listeners = aListeners
-		}
-		for _, listener := range listeners {
-			if listener.network == "tcp" && listener.port == uint32(s.mainPort) &&
-				!listener.fallback && listener.host != "" && listener.host == httpHost {
-				return true
-			}
-		}
-		return false
+	if !aL4 {
+		return httpAndL4OwnSameRuntime(s.mainPort, aHost, bListeners)
 	}
+	if !bL4 {
+		return httpAndL4OwnSameRuntime(s.mainPort, bHost, aListeners)
+	}
+	return l4ListenersConflict(aListeners, bListeners)
+}
 
+// httpAndL4OwnSameRuntime reports whether an L4 listener competes with an
+// HTTP route. Raw TCP fallback can coexist with HTTP on the main listener;
+// only same-host TLS passthrough competes for the SNI route.
+func httpAndL4OwnSameRuntime(mainPort uint16, httpHost string, listeners []mappingListener) bool {
+	for _, listener := range listeners {
+		if listener.network == "tcp" && listener.port == uint32(mainPort) &&
+			!listener.fallback && listener.host != "" && listener.host == httpHost {
+			return true
+		}
+	}
+	return false
+}
+
+func l4ListenersConflict(aListeners, bListeners []mappingListener) bool {
 	for _, left := range aListeners {
 		for _, right := range bListeners {
-			if left.network != right.network || left.port != right.port {
-				continue
-			}
-			if left.network == "udp" || (left.fallback && right.fallback) ||
-				(!left.fallback && !right.fallback && left.host != "" && left.host == right.host) {
+			if listenersOwnSameRuntime(left, right) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+func listenersOwnSameRuntime(left, right mappingListener) bool {
+	if left.network != right.network || left.port != right.port {
+		return false
+	}
+	if left.network == "udp" || (left.fallback && right.fallback) {
+		return true
+	}
+	return !left.fallback && !right.fallback && left.host != "" && left.host == right.host
 }
 
 func (s *Server) conflictingMappingOwners(mapping *proto.ProxyMapping) []*proto.ProxyMapping {

@@ -433,28 +433,36 @@ func (m *Manager) checkPortConflict(ctx context.Context, transaction store.Store
 	// implement the original one-port lookup. The SQL implementation also
 	// matches ports contained in the additive mapping table.
 	if !svc.RequiresMultiPortCapability() {
-		existing, err := transaction.GetServicesByClusterAndPort(ctx, store.LockingStrengthUpdate, svc.ProxyCluster, svc.Mode, svc.ListenPort)
-		if err != nil {
-			return fmt.Errorf("query port conflicts: %w", err)
-		}
-		for _, existingService := range existing {
-			if existingService.ID == svc.ID {
-				continue
-			}
-			if svc.Mode == service.ModeTLS && existingService.Domain != svc.Domain {
-				continue
-			}
-			return status.Errorf(status.AlreadyExists,
-				"%s port %d is already in use by service %q on cluster %s",
-				svc.Mode, svc.ListenPort, existingService.Name, svc.ProxyCluster)
-		}
-		return nil
+		return checkLegacyPortConflict(ctx, transaction, svc)
 	}
 
 	existing, err := transaction.GetServicesByCluster(ctx, store.LockingStrengthUpdate, svc.ProxyCluster)
 	if err != nil {
 		return fmt.Errorf("query port conflicts: %w", err)
 	}
+	return checkMappedPortConflicts(svc, existing)
+}
+
+func checkLegacyPortConflict(ctx context.Context, transaction store.Store, svc *service.Service) error {
+	existing, err := transaction.GetServicesByClusterAndPort(ctx, store.LockingStrengthUpdate, svc.ProxyCluster, svc.Mode, svc.ListenPort)
+	if err != nil {
+		return fmt.Errorf("query port conflicts: %w", err)
+	}
+	for _, existingService := range existing {
+		if existingService.ID == svc.ID {
+			continue
+		}
+		if svc.Mode == service.ModeTLS && existingService.Domain != svc.Domain {
+			continue
+		}
+		return status.Errorf(status.AlreadyExists,
+			"%s port %d is already in use by service %q on cluster %s",
+			svc.Mode, svc.ListenPort, existingService.Name, svc.ProxyCluster)
+	}
+	return nil
+}
+
+func checkMappedPortConflicts(svc *service.Service, existing []*service.Service) error {
 	for _, existingService := range existing {
 		if existingService.ID == svc.ID {
 			continue
@@ -482,7 +490,6 @@ func (m *Manager) checkPortConflict(ctx context.Context, transaction store.Store
 			}
 		}
 	}
-
 	return nil
 }
 
