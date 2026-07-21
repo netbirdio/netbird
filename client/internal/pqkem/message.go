@@ -82,9 +82,10 @@ func (m *AnswerMsg) Encode() ([]byte, error) {
 	return frame(MsgAnswer, m.ExchangeID, m.KEMAnswer), nil
 }
 
-// Encode serialises the confirm with its framed header.
-func (m *ConfirmMsg) Encode() []byte {
-	return frame(MsgConfirm, m.ExchangeID, nil)
+// Encode serialises the confirm with its framed header. It returns an error only
+// for signature uniformity with the other messages; it never actually fails.
+func (m *ConfirmMsg) Encode() ([]byte, error) {
+	return frame(MsgConfirm, m.ExchangeID, nil), nil
 }
 
 // Decode parses a framed message into one of *OfferMsg / *AnswerMsg / *ConfirmMsg.
