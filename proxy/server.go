@@ -138,6 +138,8 @@ type Server struct {
 
 	// removePeer defaults to netbird.RemovePeer; overridable in tests.
 	removePeer func(ctx context.Context, accountID types.AccountID, key roundtrip.ServiceKey) error
+	// addPeer defaults to netbird.AddPeer; overridable in lifecycle tests.
+	addPeer func(ctx context.Context, accountID types.AccountID, key roundtrip.ServiceKey, authToken string, serviceID types.ServiceID) error
 	// dialResolver defaults to the embedded NetBird client; tests can replace it
 	// to exercise listener/relay lifecycle without creating a tunnel.
 	dialResolver func(accountID types.AccountID) (types.DialContextFunc, error)
@@ -1388,11 +1390,10 @@ func (s *Server) handleSyncMappingsStream(ctx context.Context, stream proto.Prox
 
 			batchStart := time.Now()
 			s.Logger.Debug("Received mapping update, starting processing")
-			if err := s.processMappingsGuarded(ctx, msg.GetMapping()); err != nil {
+			if err := tracker.processBatch(ctx, s, msg.GetMapping(), msg.GetInitialSyncComplete(), batchStart); err != nil {
 				return err
 			}
 			s.Logger.Debug("Processing mapping update completed")
-			tracker.recordBatch(ctx, s, msg.GetMapping(), msg.GetInitialSyncComplete(), batchStart)
 
 			if err := stream.Send(&proto.SyncMappingsRequest{
 				Msg: &proto.SyncMappingsRequest_Ack{Ack: &proto.SyncMappingsAck{}},
@@ -1421,21 +1422,22 @@ func (s *Server) newSnapshotTracker(done *bool, connectTime time.Time) *snapshot
 	return &snapshotTracker{done: done, connectTime: connectTime, snapshotIDs: ids}
 }
 
-func (t *snapshotTracker) recordBatch(ctx context.Context, s *Server, mappings []*proto.ProxyMapping, syncComplete bool, batchStart time.Time) {
-	if *t.done {
-		return
+func (t *snapshotTracker) processBatch(ctx context.Context, s *Server, mappings []*proto.ProxyMapping, syncComplete bool, batchStart time.Time) error {
+	if err := s.processMappingsGuarded(ctx, mappings); err != nil {
+		return err
 	}
-
+	if *t.done {
+		return nil
+	}
 	if s.meter != nil {
 		s.meter.RecordSnapshotBatchDuration(time.Since(batchStart))
 	}
-
 	for _, m := range mappings {
 		t.snapshotIDs[types.ServiceID(m.GetId())] = struct{}{}
 	}
 
 	if !syncComplete {
-		return
+		return nil
 	}
 
 	s.reconcileSnapshot(ctx, t.snapshotIDs)
@@ -1448,6 +1450,7 @@ func (t *snapshotTracker) recordBatch(ctx context.Context, s *Server, mappings [
 		s.meter.RecordSnapshotSyncDuration(time.Since(t.connectTime))
 	}
 	s.Logger.Info("Initial mapping sync complete")
+	return nil
 }
 
 func (s *Server) handleMappingStream(ctx context.Context, mappingClient proto.ProxyService_GetMappingUpdateClient, initialSyncDone *bool, connectTime time.Time) error {
@@ -1474,11 +1477,10 @@ func (s *Server) handleMappingStream(ctx context.Context, mappingClient proto.Pr
 
 			batchStart := time.Now()
 			s.Logger.Debug("Received mapping update, starting processing")
-			if err := s.processMappingsGuarded(ctx, msg.GetMapping()); err != nil {
+			if err := tracker.processBatch(ctx, s, msg.GetMapping(), msg.GetInitialSyncComplete(), batchStart); err != nil {
 				return err
 			}
 			s.Logger.Debug("Processing mapping update completed")
-			tracker.recordBatch(ctx, s, msg.GetMapping(), msg.GetInitialSyncComplete(), batchStart)
 		}
 	}
 }
@@ -1621,21 +1623,204 @@ func (s *Server) processMappings(ctx context.Context, mappings []*proto.ProxyMap
 
 // addMapping registers a service mapping and starts the appropriate relay or routes.
 func (s *Server) addMapping(ctx context.Context, mapping *proto.ProxyMapping) error {
+	if old := s.loadMapping(types.ServiceID(mapping.GetId())); old != nil {
+		// Initial snapshots use CREATE for every current service, including one
+		// already present from a previous stream. Treat that as an upsert.
+		if old.GetAccountId() == mapping.GetAccountId() {
+			// A reconnect snapshot normally differs only in transport metadata.
+			// Keep the existing runtime in that case: rebuilding an unchanged HTTP
+			// mapping closes hijacked/WebSocket connections, while rebuilding an
+			// unchanged L4 mapping cancels relays and briefly releases its listener.
+			if mappingRuntimeEqual(old, mapping) {
+				s.storeMapping(mapping)
+				return nil
+			}
+			return s.modifyMapping(ctx, mapping)
+		}
+		// Account identity is not mutable. If corrupt/stale state presents the
+		// same ID under another account, fully release it before registering the
+		// authenticated replacement.
+		s.removeMapping(ctx, old)
+	}
 	accountID := types.AccountID(mapping.GetAccountId())
 	svcID := types.ServiceID(mapping.GetId())
 	authToken := mapping.GetAuthToken()
 
 	svcKey := s.serviceKeyForMapping(mapping)
-	if err := s.netbird.AddPeer(ctx, accountID, svcKey, authToken, svcID); err != nil {
+	addPeer := s.addPeer
+	if addPeer == nil {
+		addPeer = s.netbird.AddPeer
+	}
+	if err := addPeer(ctx, accountID, svcKey, authToken, svcID); err != nil {
 		return fmt.Errorf("create peer for service %s: %w", svcID, err)
+	}
+
+	// During a reconnect snapshot, a service may have been replaced with a
+	// new ID while retaining its HTTP hostname or TCP/UDP listener. Register
+	// the replacement peer first, then release the cached runtime owners so a
+	// UDP socket or TCP fallback can be rebound without a gap in peer state.
+	conflicts := s.conflictingMappingOwners(mapping)
+	for _, old := range conflicts {
+		s.Logger.WithFields(log.Fields{
+			"old_service_id": old.GetId(),
+			"new_service_id": mapping.GetId(),
+		}).Info("removing superseded runtime owner before applying snapshot mapping")
+		s.removeMapping(ctx, old)
 	}
 
 	if err := s.setupMappingRoutes(ctx, mapping); err != nil {
 		s.cleanupMappingRoutes(mapping)
-		if peerErr := s.netbird.RemovePeer(ctx, accountID, svcKey); peerErr != nil {
+		removePeer := s.removePeer
+		if removePeer == nil {
+			removePeer = s.netbird.RemovePeer
+		}
+		if peerErr := removePeer(ctx, accountID, svcKey); peerErr != nil {
 			s.Logger.WithError(peerErr).WithField("service_id", svcID).Warn("failed to remove peer after setup failure")
 		}
-		return err
+		restoreErrors := []error{err}
+		for _, old := range conflicts {
+			if restoreErr := s.restoreMapping(ctx, old); restoreErr != nil {
+				restoreErrors = append(restoreErrors, fmt.Errorf("restore superseded service %s: %w", old.GetId(), restoreErr))
+			}
+		}
+		return errors.Join(restoreErrors...)
+	}
+	s.storeMapping(mapping)
+	return nil
+}
+
+// mappingRuntimeEqual reports whether two wire mappings describe the same
+// proxy runtime. Type is delivery metadata and auth_token is a one-time
+// credential for creating the already-registered embedded peer; neither
+// requires routes, listeners, authentication policy, or middleware chains to
+// be rebuilt during a same-ID reconnect snapshot.
+func mappingRuntimeEqual(a, b *proto.ProxyMapping) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	left := goproto.Clone(a).(*proto.ProxyMapping)
+	right := goproto.Clone(b).(*proto.ProxyMapping)
+	for _, mapping := range []*proto.ProxyMapping{left, right} {
+		mapping.Type = proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED
+		mapping.AuthToken = ""
+		mapping.Domain = netutil.NormalizeHost(mapping.GetDomain())
+	}
+	return goproto.Equal(left, right)
+}
+
+type mappingListener struct {
+	network  string
+	port     uint32
+	host     string
+	fallback bool
+}
+
+func (s *Server) mappingListeners(mapping *proto.ProxyMapping) []mappingListener {
+	host := netutil.NormalizeHost(mapping.GetDomain())
+	if !isL4Mapping(mapping) {
+		return nil
+	}
+	appendRange := func(listeners []mappingListener, protocol string, start, end uint32) []mappingListener {
+		if start == 0 || end < start || end > 65535 {
+			return listeners
+		}
+		for port := start; port <= end; port++ {
+			switch types.ServiceMode(protocol) {
+			case types.ServiceModeUDP:
+				listeners = append(listeners, mappingListener{network: "udp", port: port})
+			case types.ServiceModeTCP:
+				listeners = append(listeners, mappingListener{network: "tcp", port: port, fallback: true})
+			case types.ServiceModeTLS:
+				listeners = append(listeners, mappingListener{network: "tcp", port: port, host: host})
+			}
+		}
+		return listeners
+	}
+
+	listeners := make([]mappingListener, 0)
+	if len(mapping.GetPortMappings()) > 0 {
+		for _, pm := range mapping.GetPortMappings() {
+			if pm != nil {
+				listeners = appendRange(listeners, pm.GetProtocol(), pm.GetListenPortStart(), pm.GetListenPortEnd())
+			}
+		}
+		return listeners
+	}
+	return appendRange(listeners, mapping.GetMode(), uint32(mapping.GetListenPort()), uint32(mapping.GetListenPort())) //nolint:gosec // invalid values are rejected above
+}
+
+func (s *Server) mappingsOwnSameRuntime(a, b *proto.ProxyMapping) bool {
+	aL4, bL4 := isL4Mapping(a), isL4Mapping(b)
+	aHost, bHost := netutil.NormalizeHost(a.GetDomain()), netutil.NormalizeHost(b.GetDomain())
+	if !aL4 && !bL4 {
+		return aHost != "" && aHost == bHost
+	}
+
+	aListeners, bListeners := s.mappingListeners(a), s.mappingListeners(b)
+	// HTTP and a raw TCP fallback can coexist on the main listener: a matching
+	// SNI route wins and non-matching/plain traffic falls back. Only same-host
+	// TLS passthrough competes with HTTP for the SNI route.
+	if !aL4 || !bL4 {
+		httpHost := aHost
+		listeners := bListeners
+		if !bL4 {
+			httpHost = bHost
+			listeners = aListeners
+		}
+		for _, listener := range listeners {
+			if listener.network == "tcp" && listener.port == uint32(s.mainPort) &&
+				!listener.fallback && listener.host != "" && listener.host == httpHost {
+				return true
+			}
+		}
+		return false
+	}
+
+	for _, left := range aListeners {
+		for _, right := range bListeners {
+			if left.network != right.network || left.port != right.port {
+				continue
+			}
+			if left.network == "udp" || (left.fallback && right.fallback) ||
+				(!left.fallback && !right.fallback && left.host != "" && left.host == right.host) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (s *Server) conflictingMappingOwners(mapping *proto.ProxyMapping) []*proto.ProxyMapping {
+	svcID := types.ServiceID(mapping.GetId())
+	s.portMu.RLock()
+	defer s.portMu.RUnlock()
+	conflicts := make([]*proto.ProxyMapping, 0)
+	for oldID, old := range s.lastMappings {
+		if oldID != svcID && s.mappingsOwnSameRuntime(old, mapping) {
+			conflicts = append(conflicts, old)
+		}
+	}
+	return conflicts
+}
+
+func (s *Server) restoreMapping(ctx context.Context, mapping *proto.ProxyMapping) error {
+	accountID := types.AccountID(mapping.GetAccountId())
+	svcID := types.ServiceID(mapping.GetId())
+	addPeer := s.addPeer
+	if addPeer == nil {
+		addPeer = s.netbird.AddPeer
+	}
+	if err := addPeer(ctx, accountID, s.serviceKeyForMapping(mapping), mapping.GetAuthToken(), svcID); err != nil {
+		return fmt.Errorf("restore peer: %w", err)
+	}
+	if err := s.setupMappingRoutes(ctx, mapping); err != nil {
+		s.cleanupMappingRoutes(mapping)
+		removePeer := s.removePeer
+		if removePeer == nil {
+			removePeer = s.netbird.RemovePeer
+		}
+		_ = removePeer(ctx, accountID, s.serviceKeyForMapping(mapping))
+		return fmt.Errorf("restore routes: %w", err)
 	}
 	s.storeMapping(mapping)
 	return nil
@@ -1645,7 +1830,9 @@ func (s *Server) addMapping(ctx context.Context, mapping *proto.ProxyMapping) er
 // NetBird peer. It cleans up old routes using the previously stored mapping
 // state and re-applies them from the new mapping.
 func (s *Server) modifyMapping(ctx context.Context, mapping *proto.ProxyMapping) error {
-	if old := s.loadMapping(types.ServiceID(mapping.GetId())); old != nil {
+	svcID := types.ServiceID(mapping.GetId())
+	old := s.loadMapping(svcID)
+	if old != nil {
 		s.cleanupMappingRoutes(old)
 		s.removeMappingL4Metrics(old)
 	} else {
@@ -1653,6 +1840,16 @@ func (s *Server) modifyMapping(ctx context.Context, mapping *proto.ProxyMapping)
 	}
 	if err := s.setupMappingRoutes(ctx, mapping); err != nil {
 		s.cleanupMappingRoutes(mapping)
+		if old == nil {
+			s.deleteMapping(svcID)
+			return err
+		}
+		if restoreErr := s.setupMappingRoutes(ctx, old); restoreErr != nil {
+			s.cleanupMappingRoutes(old)
+			s.deleteMapping(svcID)
+			return errors.Join(err, fmt.Errorf("restore previous mapping: %w", restoreErr))
+		}
+		s.storeMapping(old)
 		return err
 	}
 	s.storeMapping(mapping)
@@ -1811,7 +2008,8 @@ func singlePortMapping(parent *proto.ProxyMapping, protocol, targetHost string, 
 
 // setupHTTPMapping configures HTTP reverse proxy, auth, and ACME routes.
 func (s *Server) setupHTTPMapping(ctx context.Context, mapping *proto.ProxyMapping) error {
-	d := domain.Domain(mapping.GetDomain())
+	host := netutil.NormalizeHost(mapping.GetDomain())
+	d := domain.Domain(host)
 	accountID := types.AccountID(mapping.GetAccountId())
 	svcID := types.ServiceID(mapping.GetId())
 
@@ -1821,7 +2019,11 @@ func (s *Server) setupHTTPMapping(ctx context.Context, mapping *proto.ProxyMappi
 
 	var wildcardHit bool
 	if s.acme != nil {
-		wildcardHit = s.acme.AddDomain(d, accountID, svcID)
+		var owned bool
+		wildcardHit, owned = s.acme.AddDomainForService(d, accountID, svcID)
+		if !owned {
+			return fmt.Errorf("domain %q is owned by another HTTP service", d)
+		}
 	} else {
 		wildcardHit = s.staticCertCovers(d)
 	}
@@ -1829,11 +2031,11 @@ func (s *Server) setupHTTPMapping(ctx context.Context, mapping *proto.ProxyMappi
 		Type:      nbtcp.RouteHTTP,
 		AccountID: accountID,
 		ServiceID: svcID,
-		Domain:    mapping.GetDomain(),
+		Domain:    host,
 	}
-	s.mainRouter.AddRoute(nbtcp.SNIHost(mapping.GetDomain()), httpRoute)
+	s.mainRouter.AddRoute(nbtcp.SNIHost(host), httpRoute)
 	if s.inbound != nil {
-		s.inbound.AddRoute(accountID, nbtcp.SNIHost(mapping.GetDomain()), httpRoute)
+		s.inbound.AddRoute(accountID, nbtcp.SNIHost(host), httpRoute)
 	}
 	if err := s.updateMapping(ctx, mapping); err != nil {
 		return fmt.Errorf("update mapping for domain %q: %w", d, err)
@@ -1895,7 +2097,8 @@ func (s *Server) setupTCPMapping(ctx context.Context, mapping *proto.ProxyMappin
 	s.warnIfGeoUnavailable(mapping.GetDomain(), mapping.GetAccessRestrictions())
 
 	router.SetGeo(s.geo)
-	router.SetFallback(nbtcp.Route{
+	filter := s.parseRestrictions(mapping)
+	if !router.SetFallback(nbtcp.Route{
 		Type:               nbtcp.RouteTCP,
 		AccountID:          accountID,
 		ServiceID:          svcID,
@@ -1905,8 +2108,12 @@ func (s *Server) setupTCPMapping(ctx context.Context, mapping *proto.ProxyMappin
 		ProxyProtocol:      s.l4ProxyProtocol(mapping),
 		DialTimeout:        s.l4DialTimeout(mapping),
 		SessionIdleTimeout: s.clampIdleTimeout(l4SessionIdleTimeout(mapping)),
-		Filter:             s.parseRestrictions(mapping),
-	})
+		Filter:             filter,
+	}) {
+		s.releaseCrowdSec(svcID)
+		s.cleanupPortIfEmpty(port)
+		return fmt.Errorf("TCP port %d is owned by another service", port)
+	}
 
 	s.trackServicePort(svcID, port)
 
@@ -2015,15 +2222,17 @@ func (s *Server) trackServicePort(svcID types.ServiceID, port uint16) {
 	s.svcPorts[svcID] = append(s.svcPorts[svcID], port)
 }
 
-// serviceKeyForMapping returns the appropriate ServiceKey for a mapping.
-// Every L4 mode uses the stable service ID so adding/removing/reordering port
-// mappings cannot change the embedded-client registration key. HTTP remains
-// domain-based because its route lifecycle follows domain changes.
+// serviceKeyForMapping returns a mode- and domain-independent key. Mapping
+// updates and sparse REMOVE records always carry the immutable service ID.
 func (s *Server) serviceKeyForMapping(mapping *proto.ProxyMapping) roundtrip.ServiceKey {
-	if len(mapping.GetPortMappings()) > 0 || types.ServiceMode(mapping.GetMode()).IsL4() {
-		return roundtrip.L4ServiceKey(types.ServiceID(mapping.GetId()))
-	}
-	return roundtrip.DomainServiceKey(mapping.GetDomain())
+	return roundtrip.ServiceIDKey(types.ServiceID(mapping.GetId()))
+}
+
+// isL4Mapping reports whether a mapping owns layer-4 runtime state. A mapping
+// with the additive port collection is L4 even when its legacy mode field is
+// empty or stale.
+func isL4Mapping(mapping *proto.ProxyMapping) bool {
+	return len(mapping.GetPortMappings()) > 0 || types.ServiceMode(mapping.GetMode()).IsL4()
 }
 
 // parseRestrictions converts a proto mapping's access restrictions into
@@ -2233,7 +2442,10 @@ func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping)
 		return fmt.Errorf("auth setup for domain %s: %w", mapping.GetDomain(), err)
 	}
 	m := s.protoToMapping(ctx, mapping)
-	s.proxy.AddMapping(m)
+	m.Host = netutil.NormalizeHost(m.Host)
+	if !s.proxy.AddMappingForService(m) {
+		return fmt.Errorf("HTTP route for domain %s is owned by another service", mapping.GetDomain())
+	}
 	s.meter.AddMapping(m)
 	s.rebuildMiddlewareChains(svcID, m)
 	return nil
@@ -2327,8 +2539,16 @@ func buildMiddlewareBindings(svcID types.ServiceID, m proxy.Mapping) []middlewar
 // Uses the stored mapping state when available to ensure all previously
 // configured routes are cleaned up.
 func (s *Server) removeMapping(ctx context.Context, mapping *proto.ProxyMapping) {
-	accountID := types.AccountID(mapping.GetAccountId())
-	svcKey := s.serviceKeyForMapping(mapping)
+	svcID := types.ServiceID(mapping.GetId())
+	// REMOVE updates may contain only the immutable ID. Delete/load the cached
+	// state first and derive account plus runtime identity from that full record.
+	owned := s.deleteMapping(svcID)
+	identity := mapping
+	if owned != nil {
+		identity = owned
+	}
+	accountID := types.AccountID(identity.GetAccountId())
+	svcKey := s.serviceKeyForMapping(identity)
 	removePeer := s.removePeer
 	if removePeer == nil {
 		removePeer = s.netbird.RemovePeer
@@ -2341,42 +2561,61 @@ func (s *Server) removeMapping(ctx context.Context, mapping *proto.ProxyMapping)
 		}).Error("failed to remove NetBird peer, continuing cleanup")
 	}
 
-	if old := s.deleteMapping(types.ServiceID(mapping.GetId())); old != nil {
-		s.cleanupMappingRoutes(old)
-		s.removeMappingL4Metrics(old)
+	if owned != nil {
+		s.cleanupMappingRoutes(owned)
+		s.removeMappingL4Metrics(owned)
 	} else {
-		s.cleanupMappingRoutes(mapping)
+		s.cleanupMappingRoutes(identity)
 	}
 }
 
-// cleanupMappingRoutes removes HTTP/TLS/L4 routes and custom port state for a
-// service without touching the NetBird peer. This is used for both full
-// removal and in-place modification of mappings.
+// cleanupMappingRoutes removes the runtime state owned by one service without
+// touching the NetBird peer. HTTP state is keyed by domain, so it must only be
+// removed for HTTP mappings: an L4 service may legitimately share the domain
+// with an HTTP service. SNI routes are service-ID scoped and are safe to remove
+// for either family.
 func (s *Server) cleanupMappingRoutes(mapping *proto.ProxyMapping) {
 	svcID := types.ServiceID(mapping.GetId())
-	host := mapping.GetDomain()
+	host := netutil.NormalizeHost(mapping.GetDomain())
+	l4 := isL4Mapping(mapping)
 
 	s.invalidateMiddlewareChains(svcID)
 
-	// HTTP/TLS cleanup (only relevant when a domain is set).
-	if host != "" {
+	// ACME, auth, HTTP path mappings, and hijacked HTTP connections are all
+	// domain-keyed and owned exclusively by HTTP mappings. Removing any of
+	// them while cleaning up an L4 mapping would tear down a same-domain HTTP
+	// service owned by a different service ID.
+	if !l4 && host != "" {
 		d := domain.Domain(host)
 		if s.acme != nil {
-			s.acme.RemoveDomain(d)
+			s.acme.RemoveDomainForService(d, svcID)
 		}
-		s.auth.RemoveDomain(host)
-		if s.proxy.RemoveMapping(proxy.Mapping{Host: host}) {
-			s.meter.RemoveMapping(proxy.Mapping{Host: host})
+		s.auth.RemoveDomainForService(host, svcID)
+		removedHTTP := s.proxy.RemoveMapping(proxy.Mapping{ID: svcID, Host: host})
+		if removedHTTP {
+			s.meter.RemoveMapping(proxy.Mapping{ID: svcID, Host: host})
 		}
-		// Close hijacked connections (WebSocket) for this domain.
-		if n := s.hijackTracker.CloseByHost(host); n > 0 {
-			s.Logger.Debugf("closed %d hijacked connection(s) for %s", n, host)
+		// A stale service must not close WebSockets belonging to the current
+		// domain owner. The reverse-proxy ownership check is authoritative.
+		if removedHTTP {
+			if n := s.hijackTracker.CloseByHost(host); n > 0 {
+				s.Logger.Debugf("closed %d hijacked connection(s) for %s", n, host)
+			}
 		}
-		// Remove SNI route from the main router (covers both HTTP and main-port TLS).
-		s.mainRouter.RemoveRoute(nbtcp.SNIHost(host), svcID)
 		if s.inbound != nil {
 			s.inbound.RemoveRoute(types.AccountID(mapping.GetAccountId()), nbtcp.SNIHost(host), svcID)
 		}
+	}
+
+	// Both HTTP and main-port TLS use a service-ID-scoped SNI route. Removing
+	// one route preserves every other route registered for the same hostname.
+	if host != "" && s.mainRouter != nil {
+		s.mainRouter.RemoveRoute(nbtcp.SNIHost(host), svcID)
+	}
+
+	if !l4 {
+		s.releaseCrowdSec(svcID)
+		return
 	}
 
 	// Extract and delete tracked custom-port entries atomically.

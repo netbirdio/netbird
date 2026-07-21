@@ -18,6 +18,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/netbirdio/netbird/proxy/auth"
+	"github.com/netbirdio/netbird/proxy/internal/netutil"
 	"github.com/netbirdio/netbird/proxy/internal/proxy"
 	"github.com/netbirdio/netbird/proxy/internal/restrict"
 	"github.com/netbirdio/netbird/proxy/internal/types"
@@ -103,10 +104,7 @@ func NewMiddleware(logger *log.Logger, sessionValidator SessionValidator, geo re
 // Requests whose Host is not registered pass through unchanged.
 func (mw *Middleware) Protect(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		host, _, err := net.SplitHostPort(r.Host)
-		if err != nil {
-			host = r.Host
-		}
+		host := netutil.NormalizeHost(r.Host)
 
 		config, exists := mw.getDomainConfig(host)
 		mw.logger.Debugf("checking authentication for host: %s, exists: %t", host, exists)
@@ -199,6 +197,7 @@ func (mw *Middleware) blockOIDCOnPlainHTTP(w http.ResponseWriter, r *http.Reques
 }
 
 func (mw *Middleware) getDomainConfig(host string) (DomainConfig, bool) {
+	host = netutil.NormalizeHost(host)
 	mw.domainsMux.RLock()
 	defer mw.domainsMux.RUnlock()
 	config, exists := mw.domains[host]
@@ -645,9 +644,13 @@ func wasCredentialSubmitted(r *http.Request, method auth.Method) bool {
 // AddDomain registers authentication schemes for the given domain. With schemes a valid session public key is required.
 // private=true forces ValidateTunnelPeer enforcement (403 on failure) regardless of the schemes list.
 func (mw *Middleware) AddDomain(domain string, schemes []Scheme, publicKeyB64 string, expiration time.Duration, accountID types.AccountID, serviceID types.ServiceID, ipRestrictions *restrict.Filter, private bool) error {
+	domain = netutil.NormalizeHost(domain)
 	if len(schemes) == 0 {
 		mw.domainsMux.Lock()
 		defer mw.domainsMux.Unlock()
+		if existing, ok := mw.domains[domain]; ok && existing.ServiceID != serviceID {
+			return fmt.Errorf("domain %s is owned by service %s", domain, existing.ServiceID)
+		}
 		mw.domains[domain] = DomainConfig{
 			AccountID:      accountID,
 			ServiceID:      serviceID,
@@ -667,6 +670,9 @@ func (mw *Middleware) AddDomain(domain string, schemes []Scheme, publicKeyB64 st
 
 	mw.domainsMux.Lock()
 	defer mw.domainsMux.Unlock()
+	if existing, ok := mw.domains[domain]; ok && existing.ServiceID != serviceID {
+		return fmt.Errorf("domain %s is owned by service %s", domain, existing.ServiceID)
+	}
 	mw.domains[domain] = DomainConfig{
 		Schemes:           schemes,
 		SessionPublicKey:  pubKeyBytes,
@@ -681,9 +687,24 @@ func (mw *Middleware) AddDomain(domain string, schemes []Scheme, publicKeyB64 st
 
 // RemoveDomain unregisters authentication for the given domain.
 func (mw *Middleware) RemoveDomain(domain string) {
+	domain = netutil.NormalizeHost(domain)
 	mw.domainsMux.Lock()
 	defer mw.domainsMux.Unlock()
 	delete(mw.domains, domain)
+}
+
+// RemoveDomainForService removes a domain only when serviceID still owns it.
+// This protects a replacement HTTP service from stale snapshot cleanup.
+func (mw *Middleware) RemoveDomainForService(domain string, serviceID types.ServiceID) bool {
+	domain = netutil.NormalizeHost(domain)
+	mw.domainsMux.Lock()
+	defer mw.domainsMux.Unlock()
+	config, ok := mw.domains[domain]
+	if !ok || config.ServiceID != serviceID {
+		return false
+	}
+	delete(mw.domains, domain)
+	return true
 }
 
 // validateSessionToken validates a session token. OIDC tokens with a configured

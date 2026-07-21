@@ -52,6 +52,13 @@ func L4ServiceKey(id types.ServiceID) ServiceKey {
 	return ServiceKey("l4:" + id)
 }
 
+// ServiceIDKey returns a mode- and domain-independent service key. Proxy
+// runtime mappings use this stable identity so a domain/mode change and a
+// sparse REMOVE update cannot orphan an embedded-client registration.
+func ServiceIDKey(id types.ServiceID) ServiceKey {
+	return ServiceKey("service:" + id)
+}
+
 var (
 	// ErrNoAccountID is returned when a request context is missing the account ID.
 	ErrNoAccountID = errors.New("no account ID in request context")

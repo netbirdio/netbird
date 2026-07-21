@@ -371,6 +371,10 @@ func (m *storeBackedServiceManager) GetServiceByDomain(ctx context.Context, doma
 	return m.store.GetServiceByDomain(ctx, domain)
 }
 
+func (m *storeBackedServiceManager) GetHTTPServiceByDomain(ctx context.Context, domain string) (*service.Service, error) {
+	return m.store.GetHTTPServiceByDomain(ctx, domain)
+}
+
 func (m *storeBackedServiceManager) GetClusters(_ context.Context, _, _ string) ([]nbproxy.Cluster, error) {
 	return nil, nil
 }
