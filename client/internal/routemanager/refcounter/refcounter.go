@@ -94,6 +94,23 @@ func (rm *Counter[Key, I, O]) Get(key Key) (Ref[O], bool) {
 	return ref, ok
 }
 
+// KeysMatching returns every key whose stored Out satisfies the predicate. The predicate is
+// evaluated under the counter's lock, so keep it cheap and side-effect free. It is used to
+// enumerate the keys (e.g. allowed-IP prefixes) associated with a given Out value (e.g. a peer
+// key) without exposing the internal map.
+func (rm *Counter[Key, I, O]) KeysMatching(pred func(out O) bool) []Key {
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+
+	var keys []Key
+	for key, ref := range rm.refCountMap {
+		if pred(ref.Out) {
+			keys = append(keys, key)
+		}
+	}
+	return keys
+}
+
 // Increment increments the reference count for the given key.
 // If this is the first reference to the key, the AddFunc is called.
 func (rm *Counter[Key, I, O]) Increment(key Key, in I) (Ref[O], error) {
