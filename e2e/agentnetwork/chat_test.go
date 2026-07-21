@@ -39,6 +39,16 @@ func availableProviders() []providerCase {
 	if k := os.Getenv("ANTHROPIC_TOKEN"); k != "" {
 		ps = append(ps, providerCase{name: "anthropic", catalogID: "anthropic_api", upstream: "https://api.anthropic.com", apiKey: k, model: "claude-haiku-4-5", kind: harness.WireMessages})
 	}
+	if k := os.Getenv("KIMI_TOKEN"); k != "" {
+		// Kimi (Moonshot AI) serves two body shapes from the same key: OpenAI
+		// Chat Completions on the bare host (/v1/...) and the Anthropic
+		// Messages API under the /anthropic path prefix (the endpoint
+		// Moonshot's Claude Code guide uses). One provider record per shape,
+		// with distinct model strings so model→provider routing stays
+		// unambiguous while both are enabled.
+		ps = append(ps, providerCase{name: "kimi-openai", catalogID: "kimi_api", upstream: "https://api.moonshot.ai", apiKey: k, model: "kimi-k3", kind: harness.WireChat})
+		ps = append(ps, providerCase{name: "kimi-anthropic", catalogID: "kimi_api", upstream: "https://api.moonshot.ai/anthropic", apiKey: k, model: "kimi-k2-thinking", kind: harness.WireMessages})
+	}
 	if k, u := os.Getenv("VERCEL_TOKEN"), os.Getenv("VERCEL_URL"); k != "" && u != "" {
 		ps = append(ps, providerCase{name: "vercel", catalogID: "vercel_ai_gateway", upstream: u, apiKey: k, model: "openai/gpt-4o-mini", kind: harness.WireChat})
 	}

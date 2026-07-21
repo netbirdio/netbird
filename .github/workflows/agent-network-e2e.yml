@@ -51,6 +51,9 @@ jobs:
           # token (and URL, for gateways) is unset, so partial coverage is fine.
           OPENAI_TOKEN: ${{ secrets.E2E_OPENAI_TOKEN }}
           ANTHROPIC_TOKEN: ${{ secrets.E2E_ANTHROPIC_TOKEN }}
+          # Moonshot AI platform key (platform.kimi.ai); drives both Kimi wire
+          # shapes (OpenAI /v1 and Anthropic /anthropic) through kimi_api.
+          KIMI_TOKEN: ${{ secrets.E2E_KIMI_TOKEN }}
           VERCEL_URL: ${{ secrets.E2E_VERCEL_URL }}
           VERCEL_TOKEN: ${{ secrets.E2E_VERCEL_TOKEN }}
           OPENROUTER_URL: ${{ secrets.E2E_OPENROUTER_URL }}
