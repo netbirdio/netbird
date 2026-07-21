@@ -46,17 +46,25 @@ type connRace struct {
 type FallbackOpener struct {
 	home         *Client
 	foreignStore *ForeignRelaysStore
+
+	fallbackDelay time.Duration
+	totalTimeout  time.Duration
+	// openFn performs a single attempt. It is overridable in tests; when nil the
+	// real home/foreign dispatch in open is used.
+	openFn func(ctx context.Context, peerKey string, remoteRelayServer RelayServer, foreign bool) raceAttempt
 }
 
 func NewFallbackOpener(home *Client, foreignStore *ForeignRelaysStore) *FallbackOpener {
 	return &FallbackOpener{
-		home:         home,
-		foreignStore: foreignStore,
+		home:          home,
+		foreignStore:  foreignStore,
+		fallbackDelay: raceFallbackDelay,
+		totalTimeout:  raceTotalTimeout,
 	}
 }
 
 func (r *FallbackOpener) Run(ctx context.Context, peerKey string, remoteRelayServer RelayServer, preferForeign bool) (net.Conn, error) {
-	raceCtx, cancel := context.WithTimeout(ctx, raceTotalTimeout)
+	raceCtx, cancel := context.WithTimeout(ctx, r.totalTimeout)
 	defer cancel()
 
 	preferredCtx, cancelPreferred := context.WithCancel(raceCtx)
@@ -72,7 +80,7 @@ func (r *FallbackOpener) Run(ctx context.Context, peerKey string, remoteRelaySer
 		cancelPreferred:   cancelPreferred,
 		cancelOther:       cancelOther,
 		results:           make(chan raceAttempt, 2),
-		fallbackTimer:     time.NewTimer(raceFallbackDelay),
+		fallbackTimer:     time.NewTimer(r.fallbackDelay),
 	}
 	defer race.fallbackTimer.Stop()
 
@@ -141,6 +149,9 @@ func (c *connRace) stop() {
 }
 
 func (r *FallbackOpener) open(ctx context.Context, peerKey string, remoteRelayServer RelayServer, foreign bool) raceAttempt {
+	if r.openFn != nil {
+		return r.openFn(ctx, peerKey, remoteRelayServer, foreign)
+	}
 	if foreign {
 		conn, err := r.foreignStore.OpenConn(ctx, peerKey, remoteRelayServer)
 		return raceAttempt{conn: conn, err: err}
