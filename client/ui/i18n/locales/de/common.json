@@ -1293,10 +1293,13 @@
         "message": "Dokumentation"
     },
     "daemon.outdated.title": {
-        "message": "NetBird-Dienst ist veraltet"
+        "message": "NetBird Client ist veraltet"
     },
     "daemon.outdated.description": {
-        "message": "Aktualisieren Sie den NetBird-Dienst, um diese App zu verwenden."
+        "message": "Die neue GUI ist nicht mit Ihrem älteren Client kompatibel. Aktualisieren Sie Ihren Client, um die neue Anwendung zu verwenden."
+    },
+    "daemon.outdated.download": {
+        "message": "Neueste Version herunterladen"
     },
     "error.jwt_clock_skew": {
         "message": "Anmeldung fehlgeschlagen: Die Uhr dieses Geräts ist nicht mit dem Server synchron. Bitte synchronisieren Sie die Systemuhr und versuchen Sie es erneut."

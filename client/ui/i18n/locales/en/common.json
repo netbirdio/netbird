@@ -1724,12 +1724,16 @@
         "description": "Documentation link on the daemon-unavailable overlay."
     },
     "daemon.outdated.title": {
-        "message": "NetBird Service Is Outdated",
-        "description": "Title of the overlay shown when the NetBird background service is too old to drive this UI."
+        "message": "NetBird Client Is Outdated",
+        "description": "Title of the overlay shown when the NetBird client (daemon) is too old to drive this UI."
     },
     "daemon.outdated.description": {
-        "message": "Update the NetBird service to use this app.",
-        "description": "Body of the daemon-outdated overlay telling the user to upgrade the service."
+        "message": "The new GUI isn't compatible with the older NetBird client. Update your client to use the new application.",
+        "description": "Body of the daemon-outdated overlay explaining that the GUI is newer than the client and the client must be updated."
+    },
+    "daemon.outdated.download": {
+        "message": "Download Latest",
+        "description": "Button on the daemon-outdated overlay that opens the download page for the latest release."
     },
     "error.jwt_clock_skew": {
         "message": "Sign-in failed: this device's clock is out of sync with the server. Please sync your system clock and try again.",
