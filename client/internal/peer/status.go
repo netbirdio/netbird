@@ -1335,6 +1335,15 @@ func (d *Status) SubscribeToEvents() *EventSubscription {
 	}
 }
 
+// HasEventSubscribers reports whether any client is currently subscribed
+// to the daemon's SystemEvent stream. Used by the VNC approval broker to
+// fail closed when no UI is connected to prompt the user.
+func (d *Status) HasEventSubscribers() bool {
+	d.eventMux.Lock()
+	defer d.eventMux.Unlock()
+	return len(d.eventStreams) > 0
+}
+
 // UnsubscribeFromEvents removes an event subscription
 func (d *Status) UnsubscribeFromEvents(sub *EventSubscription) {
 	if sub == nil {

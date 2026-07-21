@@ -714,6 +714,7 @@ func Test_LoginPerformance(t *testing.T) {
 									RosenpassEnabled:      meta.GetFlags().GetRosenpassEnabled(),
 									RosenpassPermissive:   meta.GetFlags().GetRosenpassPermissive(),
 									ServerSSHAllowed:      meta.GetFlags().GetServerSSHAllowed(),
+									ServerVNCAllowed:      meta.GetFlags().GetServerVNCAllowed(),
 									DisableClientRoutes:   meta.GetFlags().GetDisableClientRoutes(),
 									DisableServerRoutes:   meta.GetFlags().GetDisableServerRoutes(),
 									DisableDNS:            meta.GetFlags().GetDisableDNS(),

@@ -34,6 +34,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/acl"
+	"github.com/netbirdio/netbird/client/internal/approval"
 	"github.com/netbirdio/netbird/client/internal/debug"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	dnsconfig "github.com/netbirdio/netbird/client/internal/dns/config"
@@ -132,6 +133,8 @@ type EngineConfig struct {
 	RosenpassPermissive bool
 
 	ServerSSHAllowed              bool
+	ServerVNCAllowed              bool
+	DisableVNCApproval            *bool
 	EnableSSHRoot                 *bool
 	EnableSSHSFTP                 *bool
 	EnableSSHLocalPortForwarding  *bool
@@ -222,7 +225,9 @@ type Engine struct {
 
 	networkMonitor *networkmonitor.NetworkMonitor
 
-	sshServer sshServer
+	sshServer      sshServer
+	vncSrv         vncServer
+	approvalBroker *approval.Broker
 
 	statusRecorder *peer.Status
 
@@ -329,6 +334,7 @@ func NewEngine(
 		TURNs:              []*stun.URI{},
 		networkSerial:      0,
 		statusRecorder:     services.StatusRecorder,
+		approvalBroker:     approval.New(services.StatusRecorder),
 		stateManager:       services.StateManager,
 		portForwardManager: portforward.NewManager(),
 		checks:             services.Checks,
@@ -401,6 +407,10 @@ func (e *Engine) stopLocked() {
 
 	if err := e.stopSSHServer(); err != nil {
 		log.Warnf("failed to stop SSH server: %v", err)
+	}
+
+	if err := e.stopVNCServer(); err != nil {
+		log.Warnf("failed to stop VNC server: %v", err)
 	}
 
 	e.cleanupSSHConfig()
@@ -1157,6 +1167,7 @@ func (e *Engine) applyInfoFlags(info *system.Info) {
 		e.config.RosenpassEnabled,
 		e.config.RosenpassPermissive,
 		&e.config.ServerSSHAllowed,
+		&e.config.ServerVNCAllowed,
 		e.config.DisableClientRoutes,
 		e.config.DisableServerRoutes,
 		e.config.DisableDNS,
@@ -1209,6 +1220,10 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 		if err := e.updateSSH(conf.GetSshConfig()); err != nil {
 			log.Warnf("failed handling SSH server setup: %v", err)
 		}
+	}
+
+	if err := e.updateVNC(); err != nil {
+		log.Warnf("failed handling VNC server setup: %v", err)
 	}
 
 	state := e.statusRecorder.GetLocalPeerState()
@@ -1510,6 +1525,11 @@ func (e *Engine) reconcilePeers(networkMap *mgmProto.NetworkMap) ([]*mgmProto.Re
 			remotePeers = append(remotePeers, p)
 		}
 	}
+
+	// VNC auth: always sync, including nil so cleared auth on the management
+	// side is applied locally, and so it isn't skipped on the RemotePeersIsEmpty
+	// cleanup path.
+	e.updateVNCServerAuth(networkMap.GetVncAuth())
 
 	// cleanup request, most likely our peer has been deleted
 	if networkMap.GetRemotePeersIsEmpty() {
@@ -2025,6 +2045,7 @@ func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, bool, err
 		e.config.RosenpassEnabled,
 		e.config.RosenpassPermissive,
 		&e.config.ServerSSHAllowed,
+		&e.config.ServerVNCAllowed,
 		e.config.DisableClientRoutes,
 		e.config.DisableServerRoutes,
 		e.config.DisableDNS,
@@ -2826,4 +2847,17 @@ func decodeRelayIP(b []byte) netip.Addr {
 		return netip.Addr{}
 	}
 	return ip.Unmap()
+}
+
+// RespondApproval relays the user's decision for a pending approval to
+// the broker. viewOnly is honoured only when accept is true. Returns
+// true when the request_id matched a live prompt.
+func (e *Engine) RespondApproval(requestID string, accept, viewOnly bool) bool {
+	if e == nil || e.approvalBroker == nil {
+		return false
+	}
+	return e.approvalBroker.Respond(requestID, approval.Decision{
+		Accept:   accept,
+		ViewOnly: accept && viewOnly,
+	})
 }

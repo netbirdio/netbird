@@ -1321,5 +1321,65 @@
     },
     "error.unknown": {
         "message": "A művelet meghiúsult."
+    },
+    "settings.tabs.vnc": {
+        "message": "VNC"
+    },
+    "settings.vnc.section.server": {
+        "message": "Szerver"
+    },
+    "settings.vnc.section.approval": {
+        "message": "Jóváhagyás"
+    },
+    "settings.vnc.server.label": {
+        "message": "VNC szerver engedélyezése"
+    },
+    "settings.vnc.server.help": {
+        "message": "A NetBird VNC szerver futtatása ezen a gépen, hogy az arra jogosult partnerek megtekinthessék vagy vezérelhessék a képernyőjét."
+    },
+    "settings.vnc.approval.label": {
+        "message": "Kapcsolat jóváhagyásának megkövetelése"
+    },
+    "settings.vnc.approval.help": {
+        "message": "Megerősítést kérő ablak megjelenítése ezen a gépen, amelyet el kell fogadni a bejövő VNC-kapcsolat engedélyezése előtt."
+    },
+    "window.title.approval": {
+        "message": "Kapcsolódási kérés"
+    },
+    "approval.title.vnc": {
+        "message": "Engedélyezi a VNC-kapcsolatot?"
+    },
+    "approval.title.ssh": {
+        "message": "Engedélyezi az SSH-kapcsolatot?"
+    },
+    "approval.title.default": {
+        "message": "Engedélyezi a bejövő kapcsolatot?"
+    },
+    "approval.field.user": {
+        "message": "Felhasználótól"
+    },
+    "approval.field.keyFingerprint": {
+        "message": "Kulcs ujjlenyomata"
+    },
+    "approval.field.peer": {
+        "message": "Partneren keresztül"
+    },
+    "approval.field.sourceIp": {
+        "message": "Forrás IP"
+    },
+    "approval.field.osUser": {
+        "message": "OS-felhasználó"
+    },
+    "approval.countdown": {
+        "message": "Automatikus elutasítás {seconds} mp múlva"
+    },
+    "approval.action.allow": {
+        "message": "Engedélyezés"
+    },
+    "approval.action.allowViewOnly": {
+        "message": "Engedélyezés (csak megtekintés)"
+    },
+    "approval.action.deny": {
+        "message": "Elutasítás"
     }
 }

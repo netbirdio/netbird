@@ -13,6 +13,7 @@ import { SettingsNetwork } from "@/modules/settings/SettingsNetwork.tsx";
 import { SettingsSecurity } from "@/modules/settings/SettingsSecurity.tsx";
 import { ProfilesTab } from "@/modules/profiles/ProfilesTab.tsx";
 import { SettingsSSH } from "@/modules/settings/SettingsSSH.tsx";
+import { SettingsVNC } from "@/modules/settings/SettingsVNC.tsx";
 import { SettingsAdvanced } from "@/modules/settings/SettingsAdvanced.tsx";
 import { SettingsTroubleshooting } from "@/modules/settings/SettingsTroubleshooting.tsx";
 import { SettingsAbout } from "@/modules/settings/SettingsAbout.tsx";
@@ -26,6 +27,7 @@ const enum Tab {
     Security = "security",
     Profiles = "profiles",
     SSH = "ssh",
+    VNC = "vnc",
     Advanced = "advanced",
     Troubleshooting = "troubleshooting",
     About = "about",
@@ -37,6 +39,7 @@ const TAB_CONTENT: Record<Tab, ReactNode> = {
     [Tab.Security]: <SettingsSecurity />,
     [Tab.Profiles]: <ProfilesTab />,
     [Tab.SSH]: <SettingsSSH />,
+    [Tab.VNC]: <SettingsVNC />,
     [Tab.Advanced]: <SettingsAdvanced />,
     [Tab.Troubleshooting]: <SettingsTroubleshooting />,
     [Tab.About]: <SettingsAbout />,
@@ -55,12 +58,18 @@ export const SettingsPage = () => {
             [Tab.Security]: editable,
             [Tab.Profiles]: !features.disableProfiles,
             [Tab.SSH]: mdm.allowServerSSH ?? editable,
+            [Tab.VNC]: mdm.allowServerVNC ?? editable,
             [Tab.Advanced]: editable,
             [Tab.Troubleshooting]: true,
             [Tab.About]: true,
         };
         return (Object.keys(visibility) as Tab[]).filter((t) => visibility[t]);
-    }, [features.disableUpdateSettings, features.disableProfiles, mdm.allowServerSSH]);
+    }, [
+        features.disableUpdateSettings,
+        features.disableProfiles,
+        mdm.allowServerSSH,
+        mdm.allowServerVNC,
+    ]);
 
     const defaultTab = visibleTabs[0];
     const [active, setActive] = useState<string>(() => navState?.tab ?? defaultTab);

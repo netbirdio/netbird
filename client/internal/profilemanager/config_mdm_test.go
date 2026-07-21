@@ -130,6 +130,36 @@ func TestApply_MDMBoolKeysOverrideOnDiskValue(t *testing.T) {
 	assert.True(t, cfg.Policy().HasKey(mdm.KeyRosenpassEnabled))
 }
 
+func TestApply_MDMVNCKeys(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "config.json")
+
+	// Seed without MDM: VNC off, approval prompt on.
+	withMDMPolicy(t, mdm.NewPolicy(nil))
+	_, err := UpdateOrCreateConfig(ConfigInput{
+		ConfigPath:         tmp,
+		ServerVNCAllowed:   boolPtr(false),
+		DisableVNCApproval: boolPtr(false),
+	})
+	require.NoError(t, err)
+
+	// MDM enforces VNC on and disables the approval prompt.
+	withMDMPolicy(t, mdm.NewPolicy(map[string]any{
+		mdm.KeyAllowServerVNC:     true,
+		mdm.KeyDisableVNCApproval: true,
+	}))
+
+	cfg, err := UpdateOrCreateConfig(ConfigInput{ConfigPath: tmp})
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	require.NotNil(t, cfg.ServerVNCAllowed)
+	assert.True(t, *cfg.ServerVNCAllowed, "MDM override should flip on-disk false to true")
+	require.NotNil(t, cfg.DisableVNCApproval)
+	assert.True(t, *cfg.DisableVNCApproval)
+	assert.True(t, cfg.Policy().HasKey(mdm.KeyAllowServerVNC))
+	assert.True(t, cfg.Policy().HasKey(mdm.KeyDisableVNCApproval))
+}
+
 func TestApply_MDMLazyConnection(t *testing.T) {
 	cases := []struct {
 		name string

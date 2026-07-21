@@ -976,6 +976,10 @@ components:
           description: Indicates whether SSH access this peer is allowed or not
           type: boolean
           example: true
+        server_vnc_allowed:
+          description: Indicates whether the embedded VNC server is enabled on this peer
+          type: boolean
+          example: false
         disable_client_routes:
           description: Indicates whether client routes are disabled on this peer or not
           type: boolean
@@ -1021,6 +1025,10 @@ components:
           items:
             type: string
             example: "tcp/80"
+        session_pub_key:
+          description: Ephemeral base64-encoded X25519 public key used with Noise_IK to bind the VNC session. Required for VNC rules; ignored for SSH and L4.
+          type: string
+          example: "n0r3pL4c3h0ld3rK3y=="
       required:
         - name
         - wg_pub_key
@@ -1042,10 +1050,15 @@ components:
           items:
             type: string
             example: "tcp/80"
+        target_pub_key:
+          description: Identity public key of the destination peer the temporary access was requested for. Used by the requester to verify the destination daemon's identity before transmitting credentials.
+          type: string
+          example: "n0r3pL4c3h0ld3rK3y=="
       required:
         - name
         - id
         - rules
+        - target_pub_key
     AccessiblePeer:
       allOf:
         - $ref: '#/components/schemas/PeerMinimum'

@@ -113,8 +113,12 @@ type Server struct {
 	captureEnabled         bool
 	bundleCapture          *bundleCapture
 	// activeCapture is the session currently installed on the engine; guarded by s.mutex.
-	activeCapture    *capture.Session
-	networksDisabled bool
+	activeCapture *capture.Session
+	// activeCaptureCancel tears down the streaming pipe/cancel for the
+	// active streaming capture so eviction unblocks the StartCapture RPC
+	// handler. Nil for bundle captures (they own their own context).
+	activeCaptureCancel func()
+	networksDisabled    bool
 
 	sleepHandler *sleephandler.SleepHandler
 
@@ -492,6 +496,8 @@ func (s *Server) setConfigInputFromRequest(msg *proto.SetConfigRequest) (profile
 	config.RosenpassPermissive = msg.RosenpassPermissive
 	config.DisableAutoConnect = msg.DisableAutoConnect
 	config.ServerSSHAllowed = msg.ServerSSHAllowed
+	config.ServerVNCAllowed = msg.ServerVNCAllowed
+	config.DisableVNCApproval = msg.DisableVNCApproval
 	config.NetworkMonitor = msg.NetworkMonitor
 	config.DisableClientRoutes = msg.DisableClientRoutes
 	config.DisableServerRoutes = msg.DisableServerRoutes
@@ -1437,6 +1443,7 @@ func (s *Server) buildStatusResponse(ctx context.Context, msg *proto.StatusReque
 		pbFullStatus := fullStatus.ToProto()
 		pbFullStatus.Events = s.statusRecorder.GetEventHistory()
 		pbFullStatus.SshServerState = s.getSSHServerState()
+		pbFullStatus.VncServerState = s.getVNCServerState()
 		pbFullStatus.NetworksRevision = s.statusRecorder.GetNetworksRevision()
 		statusResponse.FullStatus = pbFullStatus
 	}
@@ -1475,6 +1482,38 @@ func (s *Server) getSSHServerState() *proto.SSHServerState {
 	}
 
 	return sshServerState
+}
+
+// getVNCServerState retrieves the current VNC server state.
+func (s *Server) getVNCServerState() *proto.VNCServerState {
+	s.mutex.Lock()
+	connectClient := s.connectClient
+	s.mutex.Unlock()
+
+	if connectClient == nil {
+		return nil
+	}
+
+	engine := connectClient.Engine()
+	if engine == nil {
+		return nil
+	}
+
+	enabled, sessions := engine.GetVNCServerStatus()
+	pbSessions := make([]*proto.VNCSessionInfo, 0, len(sessions))
+	for _, sess := range sessions {
+		pbSessions = append(pbSessions, &proto.VNCSessionInfo{
+			RemoteAddress: sess.RemoteAddress,
+			Mode:          sess.Mode,
+			Username:      sess.Username,
+			UserID:        sess.UserID,
+			Initiator:     sess.Initiator,
+		})
+	}
+	return &proto.VNCServerState{
+		Enabled:  enabled,
+		Sessions: pbSessions,
+	}
 }
 
 // GetPeerSSHHostKey retrieves SSH host key for a specific peer
@@ -1862,6 +1901,30 @@ func (s *Server) ExposeService(req *proto.ExposeServiceRequest, srv proto.Daemon
 	return nil
 }
 
+// RespondApproval relays the user's accept/deny decision for a pending
+// approval prompt to the engine's broker. Unknown or already-resolved
+// request_ids are silently no-op'd so a slow UI cannot deny a prompt the
+// user already handled (or that already timed out).
+func (s *Server) RespondApproval(_ context.Context, msg *proto.RespondApprovalRequest) (*proto.RespondApprovalResponse, error) {
+	if msg.GetRequestId() == "" {
+		return nil, gstatus.Errorf(codes.InvalidArgument, "request_id is required")
+	}
+	s.mutex.Lock()
+	connectClient := s.connectClient
+	s.mutex.Unlock()
+	if connectClient == nil {
+		return nil, gstatus.Errorf(codes.FailedPrecondition, "client not initialized")
+	}
+	engine := connectClient.Engine()
+	if engine == nil {
+		return nil, gstatus.Errorf(codes.FailedPrecondition, "engine not running")
+	}
+	if !engine.RespondApproval(msg.GetRequestId(), msg.GetAccept(), msg.GetViewOnly()) {
+		log.Debugf("approval response for unknown request_id %s", msg.GetRequestId())
+	}
+	return &proto.RespondApprovalResponse{}, nil
+}
+
 func isUnixRunningDesktop() bool {
 	if runtime.GOOS != "linux" && runtime.GOOS != "freebsd" {
 		return false
@@ -1969,6 +2032,8 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 		Mtu:                           int64(cfg.MTU),
 		DisableAutoConnect:            cfg.DisableAutoConnect,
 		ServerSSHAllowed:              *cfg.ServerSSHAllowed,
+		ServerVNCAllowed:              cfg.ServerVNCAllowed != nil && *cfg.ServerVNCAllowed,
+		DisableVNCApproval:            cfg.DisableVNCApproval != nil && *cfg.DisableVNCApproval,
 		RosenpassEnabled:              cfg.RosenpassEnabled,
 		RosenpassPermissive:           cfg.RosenpassPermissive,
 		BlockInbound:                  cfg.BlockInbound,

@@ -4179,6 +4179,9 @@ type PeerLocalFlags struct {
 
 	// ServerSshAllowed Indicates whether SSH access this peer is allowed or not
 	ServerSshAllowed *bool `json:"server_ssh_allowed,omitempty"`
+
+	// ServerVncAllowed Indicates whether the embedded VNC server is enabled on this peer
+	ServerVncAllowed *bool `json:"server_vnc_allowed,omitempty"`
 }
 
 // PeerMinimum defines model for PeerMinimum.
@@ -4228,6 +4231,9 @@ type PeerTemporaryAccessRequest struct {
 	// Rules List of temporary access rules
 	Rules []string `json:"rules"`
 
+	// SessionPubKey Ephemeral base64-encoded X25519 public key used with Noise_IK to bind the VNC session. Required for VNC rules; ignored for SSH and L4.
+	SessionPubKey *string `json:"session_pub_key,omitempty"`
+
 	// WgPubKey Peer's WireGuard public key
 	WgPubKey string `json:"wg_pub_key"`
 }
@@ -4242,6 +4248,9 @@ type PeerTemporaryAccessResponse struct {
 
 	// Rules List of temporary access rules
 	Rules []string `json:"rules"`
+
+	// TargetPubKey Identity public key of the destination peer the temporary access was requested for. Used by the requester to verify the destination daemon's identity before transmitting credentials.
+	TargetPubKey string `json:"target_pub_key"`
 }
 
 // PersonalAccessToken defines model for PersonalAccessToken.
