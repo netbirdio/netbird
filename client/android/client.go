@@ -247,6 +247,9 @@ func (c *Client) DebugBundle(platformFiles PlatformFiles, anonymize bool) (strin
 		deps.SyncResponse = resp
 
 		if e := cc.Engine(); e != nil {
+			deps.RefreshStatus = func() {
+				e.RunHealthProbes(context.Background(), true)
+			}
 			if cm := e.GetClientMetrics(); cm != nil {
 				deps.ClientMetrics = cm
 			}

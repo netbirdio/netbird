@@ -304,6 +304,46 @@ func TestInject_JSONMetadata_TruncatesValues(t *testing.T) {
 		"per-value byte length must be capped at MaxValueLength")
 }
 
+// TestInject_JSONMetadata_Sanitize pins the AWS-Bedrock sanitization path: when
+// Sanitize is set, characters outside Bedrock's accepted metadata class
+// (notably the groups CSV comma and arbitrary characters in group display
+// names) are replaced with '_' so Bedrock doesn't reject the request. Allowed
+// characters (letters, digits, spaces, and @ . _ : / + - =) pass through.
+func TestInject_JSONMetadata_Sanitize(t *testing.T) {
+	rule := ProviderInjection{
+		ProviderID: portkeyProvider,
+		JSONMetadata: &JSONMetadataRule{
+			Header:         "X-Amzn-Bedrock-Request-Metadata",
+			UserKey:        "user",
+			GroupsKey:      "group",
+			MaxValueLength: 256,
+			Sanitize:       true,
+		},
+	}
+	mw := New(Config{Providers: []ProviderInjection{rule}})
+	in := newInput(portkeyProvider, "alice", []string{"g1", "g2"})
+	in.UserEmail = "alice@example.com"
+	// Group display names carry characters Bedrock rejects (comma, '#'); the CSV
+	// join adds another comma between the two groups.
+	in.UserGroupNames = []string{"Eng,Team", "Ops#1"}
+
+	out, err := mw.Invoke(context.Background(), in)
+	require.NoError(t, err)
+	require.NotNil(t, out.Mutations)
+	require.Len(t, out.Mutations.HeadersAdd, 1)
+	added := out.Mutations.HeadersAdd[0]
+	assert.Equal(t, "X-Amzn-Bedrock-Request-Metadata", added.Key,
+		"the Bedrock cost-allocation header carries the metadata JSON")
+
+	var payload map[string]string
+	require.NoError(t, json.Unmarshal([]byte(added.Value), &payload))
+	assert.Equal(t, "alice@example.com", payload["user"],
+		"'@' and '.' are in Bedrock's accepted set and must be preserved")
+	assert.NotContains(t, payload["group"], ",", "commas must be sanitized — Bedrock rejects them")
+	assert.NotContains(t, payload["group"], "#", "disallowed characters must be sanitized")
+	assert.Contains(t, payload["group"], "Eng", "allowed characters must be preserved")
+}
+
 // TestInject_JSONMetadata_EmptyIdentity_StripsButDoesNotAdd verifies the
 // anti-spoof Remove still fires when there's nothing to stamp.
 func TestInject_JSONMetadata_EmptyIdentity_StripsButDoesNotAdd(t *testing.T) {
