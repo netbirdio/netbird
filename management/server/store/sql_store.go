@@ -1184,33 +1184,9 @@ func (s *SqlStore) getAccountGorm(ctx context.Context, accountID string) (*types
 		}
 	}()
 
-	var account types.Account
-	result := s.db.Model(&account).
-		Preload("UsersG.PATsG"). // have to be specified as this is nested reference
-		Preload("Policies.Rules").
-		Preload("SetupKeysG").
-		Preload("PeersG").
-		Preload("UsersG").
-		Preload("GroupsG.GroupPeers").
-		Preload("RoutesG").
-		Preload("NameServerGroupsG").
-		Preload("PostureChecks").
-		Preload("Networks").
-		Preload("NetworkRouters").
-		Preload("NetworkResources").
-		Preload("Onboarding").
-		Preload("Services.Targets").
-		Preload("Services.PortMappings", func(tx *gorm.DB) *gorm.DB {
-			return tx.Order("position ASC").Order("id ASC")
-		}).
-		Preload("Domains").
-		Take(&account, idQueryCondition, accountID)
-	if result.Error != nil {
-		log.WithContext(ctx).Errorf("error when getting account %s from the store: %s", accountID, result.Error)
-		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, status.NewAccountNotFoundError(accountID)
-		}
-		return nil, status.NewGetAccountFromStoreError(result.Error)
+	account, err := s.loadAccountGorm(ctx, accountID)
+	if err != nil {
+		return nil, err
 	}
 
 	account.SetupKeys = make(map[string]*types.SetupKey, len(account.SetupKeysG))
@@ -1280,6 +1256,38 @@ func (s *SqlStore) getAccountGorm(ctx context.Context, accountID string) (*types
 		account.NameServerGroups[ns.ID] = &ns
 	}
 	account.NameServerGroupsG = nil
+	return account, nil
+}
+
+func (s *SqlStore) loadAccountGorm(ctx context.Context, accountID string) (*types.Account, error) {
+	var account types.Account
+	result := s.db.Model(&account).
+		Preload("UsersG.PATsG"). // have to be specified as this is nested reference
+		Preload("Policies.Rules").
+		Preload("SetupKeysG").
+		Preload("PeersG").
+		Preload("UsersG").
+		Preload("GroupsG.GroupPeers").
+		Preload("RoutesG").
+		Preload("NameServerGroupsG").
+		Preload("PostureChecks").
+		Preload("Networks").
+		Preload("NetworkRouters").
+		Preload("NetworkResources").
+		Preload("Onboarding").
+		Preload("Services.Targets").
+		Preload("Services.PortMappings", func(tx *gorm.DB) *gorm.DB {
+			return tx.Order("position ASC").Order("id ASC")
+		}).
+		Preload("Domains").
+		Take(&account, idQueryCondition, accountID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("error when getting account %s from the store: %s", accountID, result.Error)
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.NewAccountNotFoundError(accountID)
+		}
+		return nil, status.NewGetAccountFromStoreError(result.Error)
+	}
 	return &account, nil
 }
 
