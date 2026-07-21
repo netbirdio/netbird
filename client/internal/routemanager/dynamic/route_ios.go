@@ -17,7 +17,7 @@ import (
 
 const dialTimeout = 10 * time.Second
 
-func (r *Route) getIPsFromResolver(domain domain.Domain) ([]net.IP, error) {
+func (r *Route) getIPsFromResolver(ctx context.Context, domain domain.Domain) ([]net.IP, error) {
 	privateClient, err := nbdns.GetClientPrivate(r.wgInterface, r.resolverAddr.Addr(), dialTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("error while creating private client: %s", err)
@@ -25,11 +25,6 @@ func (r *Route) getIPsFromResolver(domain domain.Domain) ([]net.IP, error) {
 
 	fqdn := dns.Fqdn(domain.PunycodeString())
 	startTime := time.Now()
-
-	// net.Dialer.DialContext panics on a nil context; passing nil here crashed
-	// the whole extension (SIGABRT) whenever a domain route was resolved.
-	ctx, cancel := context.WithTimeout(context.Background(), dialTimeout)
-	defer cancel()
 
 	var ips []net.IP
 	var queryErr error
