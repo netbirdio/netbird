@@ -421,6 +421,45 @@ var providers = []Provider{
 		},
 	},
 	{
+		ID:                 "kimi_api",
+		Kind:               KindProvider,
+		Name:               "Kimi (Moonshot AI) API",
+		Description:        "Kimi K3 / K2 models via the Moonshot AI platform",
+		DefaultHost:        "api.moonshot.ai",
+		AuthHeaderName:     "Authorization",
+		AuthHeaderTemplate: "Bearer ${API_KEY}",
+		DefaultContentType: "application/json",
+		BrandColor:         "#1A1A2E",
+		// ParserID empty on purpose: Moonshot serves two body shapes on
+		// the same host and key, and the proxy's URL sniffer dispatches
+		// both (same pattern as Bifrost). /v1/chat/completions matches
+		// OpenAIParser; the Anthropic-compatible endpoint the official
+		// Claude Code guide uses (/anthropic/v1/messages) contains
+		// "/v1/messages" and matches AnthropicParser. Pinning "openai"
+		// here would misparse the Claude Code path — the primary way
+		// teams consume Kimi for coding today. Both endpoints accept the
+		// same Moonshot key via Authorization: Bearer (Claude Code's
+		// ANTHROPIC_AUTH_TOKEN rides that header too).
+		//
+		// api.moonshot.ai is the international platform; mainland-China
+		// accounts live on api.moonshot.cn with separate billing —
+		// operators there override the host on the provider record. The
+		// kimi.com subscription coding endpoint (api.kimi.com/coding,
+		// model id "k3") is account-bound seat licensing rather than a
+		// meterable platform key, so it's deliberately not the default.
+		ParserID: "",
+		// Pricing per Moonshot's platform rates at K3 launch (July 2026):
+		// K3 $3/$15 per MTok with $0.30 cached input, flat across the
+		// 1M-token window; K2 Thinking $0.60/$2.50 with $0.15 cache hits.
+		// Kimi K3 has a single always-on-reasoning SKU — no mini/turbo
+		// variants at launch. The consumer app's "K3 Swarm Max" mode is
+		// not an API SKU, so it doesn't appear here.
+		Models: []Model{
+			{ID: "kimi-k3", Label: "Kimi K3", InputPer1k: 0.003, OutputPer1k: 0.015, ContextWindow: 1000000},
+			{ID: "kimi-k2-thinking", Label: "Kimi K2 Thinking", InputPer1k: 0.0006, OutputPer1k: 0.0025, ContextWindow: 262144},
+		},
+	},
+	{
 		ID:                 "litellm_proxy",
 		Kind:               KindGateway,
 		Name:               "LiteLLM Proxy",
