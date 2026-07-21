@@ -93,7 +93,7 @@ func (s *Server) RenewExpose(ctx context.Context, req *proto.EncryptedMessage) (
 		return nil, status.Errorf(codes.Internal, "reverse proxy manager not available")
 	}
 
-	serviceID, err := s.resolveServiceID(ctx, renewReq.Domain)
+	serviceID, err := s.resolveServiceID(ctx, accountID, peer.ID, renewReq.Domain)
 	if err != nil {
 		return nil, mapExposeError(ctx, err)
 	}
@@ -123,7 +123,7 @@ func (s *Server) StopExpose(ctx context.Context, req *proto.EncryptedMessage) (*
 		return nil, status.Errorf(codes.Internal, "reverse proxy manager not available")
 	}
 
-	serviceID, err := s.resolveServiceID(ctx, stopReq.Domain)
+	serviceID, err := s.resolveServiceID(ctx, accountID, peer.ID, stopReq.Domain)
 	if err != nil {
 		return nil, mapExposeError(ctx, err)
 	}
@@ -206,13 +206,21 @@ func (s *Server) SetReverseProxyManager(mgr rpservice.Manager) {
 	s.reverseProxyManager = mgr
 }
 
-// resolveServiceID looks up the service by its globally unique domain.
-func (s *Server) resolveServiceID(ctx context.Context, domain string) (string, error) {
+// resolveServiceID looks up the caller's active ephemeral service by its
+// canonical domain. The account and peer predicates prevent a shared-domain
+// permanent or cross-peer service from being selected.
+func (s *Server) resolveServiceID(ctx context.Context, accountID, peerID, domain string) (string, error) {
 	if domain == "" {
 		return "", status.Errorf(codes.InvalidArgument, "domain is required")
 	}
 
-	svc, err := s.accountManager.GetStore().GetServiceByDomain(ctx, domain)
+	svc, err := s.accountManager.GetStore().GetEphemeralServiceByPeerAndDomain(
+		ctx,
+		store.LockingStrengthNone,
+		accountID,
+		peerID,
+		domain,
+	)
 	if err != nil {
 		return "", err
 	}

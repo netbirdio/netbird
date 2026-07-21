@@ -122,7 +122,11 @@ func SynthesizeServicesForCluster(ctx context.Context, s store.Store, clusterAdd
 // the cluster, which is what auth/session paths previously paid. Returns nil
 // (no error) when no account owns the domain.
 func SynthesizeServiceForDomain(ctx context.Context, s store.Store, domain string) (*rpservice.Service, error) {
-	domain = strings.TrimSpace(domain)
+	canonical, err := rpservice.CanonicalDomain(domain)
+	if err != nil {
+		return nil, fmt.Errorf("canonicalize agent network service domain: %w", err)
+	}
+	domain = canonical
 	cluster := clusterFromDomain(domain)
 	if domain != "" && cluster != "" {
 		settingsRows, err := s.GetAgentNetworkSettingsByCluster(ctx, store.LockingStrengthNone, cluster)
@@ -130,7 +134,11 @@ func SynthesizeServiceForDomain(ctx context.Context, s store.Store, domain strin
 			return nil, fmt.Errorf("list agent network settings on cluster: %w", err)
 		}
 		for _, settings := range settingsRows {
-			if settings == nil || settings.Endpoint() != domain {
+			if settings == nil {
+				continue
+			}
+			endpoint, err := rpservice.CanonicalDomain(settings.Endpoint())
+			if err != nil || endpoint != domain {
 				continue
 			}
 			services, serr := SynthesizeServices(ctx, s, settings.AccountID)
@@ -138,7 +146,11 @@ func SynthesizeServiceForDomain(ctx context.Context, s store.Store, domain strin
 				return nil, serr
 			}
 			for _, svc := range services {
-				if svc != nil && svc.Domain == domain {
+				if svc == nil {
+					continue
+				}
+				svcDomain, err := rpservice.CanonicalDomain(svc.Domain)
+				if err == nil && svcDomain == domain {
 					return svc, nil
 				}
 			}

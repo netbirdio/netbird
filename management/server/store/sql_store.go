@@ -136,7 +136,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		&types.Account{}, &types.Policy{}, &types.PolicyRule{}, &route.Route{}, &nbdns.NameServerGroup{},
 		&installation{}, &types.ExtraSettings{}, &posture.Checks{}, &nbpeer.NetworkAddress{},
 		&networkTypes.Network{}, &routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{}, &types.AccountOnboarding{},
-		&types.Job{}, &zones.Zone{}, &records.Record{}, &types.UserInviteRecord{}, &rpservice.Service{}, &rpservice.Target{}, &rpservice.PortMapping{}, &domain.Domain{},
+		&types.Job{}, &zones.Zone{}, &records.Record{}, &types.UserInviteRecord{}, &rpservice.Service{}, &rpservice.Target{}, &rpservice.PortMapping{}, &rpservice.DomainLock{}, &domain.Domain{},
 		&accesslogs.AccessLogEntry{}, &proxy.Proxy{},
 		&agentNetworkTypes.Provider{}, &agentNetworkTypes.Policy{}, &agentNetworkTypes.Guardrail{}, &agentNetworkTypes.Settings{},
 		&agentNetworkTypes.Consumption{}, &agentNetworkTypes.AccountBudgetRule{},
@@ -5250,12 +5250,18 @@ func (s *SqlStore) GetPeerIDByKey(ctx context.Context, lockStrength LockingStren
 
 func (s *SqlStore) CreateService(ctx context.Context, service *rpservice.Service) error {
 	serviceCopy := service.Copy()
+	if err := serviceCopy.CanonicalizeDomain(); err != nil {
+		return status.Errorf(status.InvalidArgument, "canonicalize service domain: %v", err)
+	}
 	if err := serviceCopy.EncryptSensitiveData(s.fieldEncrypt); err != nil {
 		return fmt.Errorf("encrypt service data: %w", err)
 	}
 	result := s.db.Create(serviceCopy)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to create service to store: %v", result.Error)
+		if serviceCopy.HTTPDomain != nil && isHTTPDomainOwnershipConflict(s.db, result.Error) {
+			return status.Errorf(status.AlreadyExists, "domain %s already has an HTTP service", serviceCopy.Domain)
+		}
 		return status.Errorf(status.Internal, "failed to create service to store")
 	}
 
@@ -5264,6 +5270,9 @@ func (s *SqlStore) CreateService(ctx context.Context, service *rpservice.Service
 
 func (s *SqlStore) UpdateService(ctx context.Context, service *rpservice.Service) error {
 	serviceCopy := service.Copy()
+	if err := serviceCopy.CanonicalizeDomain(); err != nil {
+		return status.Errorf(status.InvalidArgument, "canonicalize service domain: %v", err)
+	}
 	if err := serviceCopy.EncryptSensitiveData(s.fieldEncrypt); err != nil {
 		return fmt.Errorf("encrypt service data: %w", err)
 	}
@@ -5291,6 +5300,9 @@ func (s *SqlStore) UpdateService(ctx context.Context, service *rpservice.Service
 	})
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to update service to store: %v", err)
+		if serviceCopy.HTTPDomain != nil && isHTTPDomainOwnershipConflict(s.db, err) {
+			return status.Errorf(status.AlreadyExists, "domain %s already has an HTTP service", serviceCopy.Domain)
+		}
 		return status.Errorf(status.Internal, "failed to update service to store")
 	}
 
@@ -5400,22 +5412,139 @@ func (s *SqlStore) GetServiceByID(ctx context.Context, lockStrength LockingStren
 }
 
 func (s *SqlStore) GetServiceByDomain(ctx context.Context, domain string) (*rpservice.Service, error) {
-	var service *rpservice.Service
-	result := preloadServiceAssociations(s.db).Where("domain = ?", domain).First(&service)
-	if result.Error != nil {
-		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(status.NotFound, "service with domain %s not found", domain)
-		}
+	services, err := s.GetServicesByDomain(ctx, LockingStrengthNone, domain)
+	if err != nil {
+		return nil, err
+	}
+	if len(services) == 0 {
+		return nil, status.Errorf(status.NotFound, "service with domain %s not found", domain)
+	}
+	if len(services) > 1 {
+		return nil, status.Errorf(status.PreconditionFailed, "multiple services use domain %s; resolve by service ID or mode", domain)
+	}
+	return services[0], nil
+}
 
-		log.WithContext(ctx).Errorf("failed to get service by domain from store: %v", result.Error)
-		return nil, status.Errorf(status.Internal, "failed to get service by domain from store")
+// GetHTTPServiceByDomain resolves the unique HTTP owner for a canonical
+// hostname. L4 services sharing Domain are intentionally excluded.
+func (s *SqlStore) GetHTTPServiceByDomain(ctx context.Context, domain string) (*rpservice.Service, error) {
+	canonical, err := rpservice.CanonicalDomain(domain)
+	if err != nil {
+		return nil, status.Errorf(status.InvalidArgument, "canonicalize service domain: %v", err)
 	}
 
+	var service *rpservice.Service
+	result := preloadServiceAssociations(s.db).Where("http_domain = ?", canonical).First(&service)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "HTTP service with domain %s not found", domain)
+		}
+		log.WithContext(ctx).Errorf("failed to get HTTP service by domain from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get HTTP service by domain from store")
+	}
 	if err := service.DecryptSensitiveData(s.fieldEncrypt); err != nil {
 		return nil, fmt.Errorf("decrypt service data: %w", err)
 	}
-
 	return service, nil
+}
+
+// GetEphemeralServiceByPeerAndDomain resolves expose renew/stop requests
+// without selecting a permanent or another peer's same-domain service.
+func (s *SqlStore) GetEphemeralServiceByPeerAndDomain(ctx context.Context, lockStrength LockingStrength, accountID, peerID, domain string) (*rpservice.Service, error) {
+	canonical, err := rpservice.CanonicalDomain(domain)
+	if err != nil {
+		return nil, status.Errorf(status.InvalidArgument, "canonicalize service domain: %v", err)
+	}
+
+	tx := preloadServiceAssociations(s.db)
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+	var service *rpservice.Service
+	result := tx.Where(
+		"account_id = ? AND source_peer = ? AND domain = ? AND source = ?",
+		accountID,
+		peerID,
+		canonical,
+		rpservice.SourceEphemeral,
+	).First(&service)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "active expose service with domain %s not found", domain)
+		}
+		log.WithContext(ctx).Errorf("failed to get ephemeral service by peer and domain: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get active expose service by domain")
+	}
+	if err := service.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+		return nil, fmt.Errorf("decrypt service data: %w", err)
+	}
+	return service, nil
+}
+
+// GetServicesByDomain returns every service sharing the canonical hostname.
+// Callers that need one owner must filter by mode or use a service ID.
+func (s *SqlStore) GetServicesByDomain(ctx context.Context, lockStrength LockingStrength, domain string) ([]*rpservice.Service, error) {
+	canonical, err := rpservice.CanonicalDomain(domain)
+	if err != nil {
+		return nil, status.Errorf(status.InvalidArgument, "canonicalize service domain: %v", err)
+	}
+
+	tx := preloadServiceAssociations(s.db)
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var services []*rpservice.Service
+	if result := tx.Where("domain = ?", canonical).Find(&services); result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get services by domain from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get services by domain from store")
+	}
+
+	for _, service := range services {
+		if err := service.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+			return nil, fmt.Errorf("decrypt service data: %w", err)
+		}
+	}
+	return services, nil
+}
+
+// AcquireServiceDomainLock serializes all ownership and listener validation
+// for one canonical hostname, including when no service row exists yet. It
+// must be called from ExecuteInTransaction before reading services for the
+// hostname. The insert is the write barrier on SQLite; PostgreSQL and MySQL
+// additionally hold a row-level UPDATE lock until the transaction completes.
+func (s *SqlStore) AcquireServiceDomainLock(ctx context.Context, domain string) error {
+	canonical, err := rpservice.CanonicalDomain(domain)
+	if err != nil {
+		return status.Errorf(status.InvalidArgument, "canonicalize service domain: %v", err)
+	}
+	if canonical == "" {
+		return status.Errorf(status.InvalidArgument, "service domain is required")
+	}
+
+	lock := &rpservice.DomainLock{Domain: canonical}
+	if err := s.db.Clauses(clause.OnConflict{DoNothing: true}).Create(lock).Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to reserve reverse-proxy domain lock: %v", err)
+		return status.Errorf(status.Internal, "failed to reserve service domain lock")
+	}
+
+	result := s.db.Clauses(clause.Locking{Strength: string(LockingStrengthUpdate)}).
+		Where("domain = ?", canonical).
+		First(lock)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to acquire reverse-proxy domain lock: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to acquire service domain lock")
+	}
+	return nil
+}
+
+func isHTTPDomainOwnershipConflict(db *gorm.DB, err error) bool {
+	translator, ok := db.Dialector.(gorm.ErrorTranslator)
+	if !ok || !errors.Is(translator.Translate(err), gorm.ErrDuplicatedKey) {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "idx_services_http_domain") || strings.Contains(message, "services.http_domain")
 }
 
 func (s *SqlStore) GetServices(ctx context.Context, lockStrength LockingStrength) ([]*rpservice.Service, error) {
@@ -5529,10 +5658,14 @@ func (s *SqlStore) CountEphemeralServicesByPeer(ctx context.Context, lockStrengt
 // EphemeralServiceExists checks if an ephemeral service exists for the given peer and domain.
 // Use LockingStrengthUpdate inside a transaction to serialize concurrent create operations.
 func (s *SqlStore) EphemeralServiceExists(ctx context.Context, lockStrength LockingStrength, accountID, peerID, domain string) (bool, error) {
+	canonical, err := rpservice.CanonicalDomain(domain)
+	if err != nil {
+		return false, status.Errorf(status.InvalidArgument, "canonicalize service domain: %v", err)
+	}
 	if lockStrength == LockingStrengthNone {
 		var count int64
 		result := s.db.Model(&rpservice.Service{}).
-			Where("account_id = ? AND source_peer = ? AND domain = ? AND source = ?", accountID, peerID, domain, rpservice.SourceEphemeral).
+			Where("account_id = ? AND source_peer = ? AND domain = ? AND source = ?", accountID, peerID, canonical, rpservice.SourceEphemeral).
 			Count(&count)
 		if result.Error != nil {
 			log.WithContext(ctx).Errorf("failed to check ephemeral service existence: %v", result.Error)
@@ -5545,7 +5678,7 @@ func (s *SqlStore) EphemeralServiceExists(ctx context.Context, lockStrength Lock
 	result := s.db.Model(&rpservice.Service{}).
 		Clauses(clause.Locking{Strength: string(lockStrength)}).
 		Select("id").
-		Where("account_id = ? AND source_peer = ? AND domain = ? AND source = ?", accountID, peerID, domain, rpservice.SourceEphemeral).
+		Where("account_id = ? AND source_peer = ? AND domain = ? AND source = ?", accountID, peerID, canonical, rpservice.SourceEphemeral).
 		Limit(1).
 		Pluck("id", &id)
 	if result.Error != nil {

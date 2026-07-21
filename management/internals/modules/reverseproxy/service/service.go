@@ -20,6 +20,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	"github.com/netbirdio/netbird/shared/hash/argon2id"
+	nbdomain "github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/util/crypt"
 
 	"github.com/netbirdio/netbird/shared/management/http/api"
@@ -254,7 +255,8 @@ type Service struct {
 	ID                string `gorm:"primaryKey"`
 	AccountID         string `gorm:"index"`
 	Name              string
-	Domain            string         `gorm:"type:varchar(255);uniqueIndex"`
+	Domain            string         `gorm:"type:varchar(255);index:idx_services_domain_lookup"`
+	HTTPDomain        *string        `gorm:"type:varchar(255);uniqueIndex:idx_services_http_domain" json:"-"`
 	ProxyCluster      string         `gorm:"index"`
 	Targets           []*Target      `gorm:"foreignKey:ServiceID;constraint:OnDelete:CASCADE"`
 	PortMappings      []*PortMapping `gorm:"foreignKey:ServiceID;constraint:OnDelete:CASCADE"`
@@ -283,6 +285,21 @@ type Service struct {
 	PortMappingsSet bool `gorm:"-" json:"-"`
 }
 
+// DomainLock is a durable serialization key for reverse-proxy hostname
+// ownership checks. The row is intentionally retained after services are
+// deleted: keeping a small, append-only set of canonical hostnames lets an
+// absent service set be locked portably on PostgreSQL, MySQL, and SQLite.
+//
+// It contains no tenant data because reverse-proxy hostnames are globally
+// routed and therefore must be serialized across accounts.
+type DomainLock struct {
+	Domain string `gorm:"type:varchar(255);primaryKey"`
+}
+
+func (DomainLock) TableName() string {
+	return "reverse_proxy_domain_locks"
+}
+
 // InitNewRecord generates a new unique ID and resets metadata for a newly created
 // Service record. This overwrites any existing ID and Meta fields and should
 // only be called during initial creation, not for updates.
@@ -300,6 +317,45 @@ func (s *Service) InitNewRecord() {
 // correctly before their legacy mirror fields are synchronized.
 func (s *Service) IsL4() bool {
 	return len(s.PortMappings) > 0 || IsL4Protocol(s.Mode)
+}
+
+// CanonicalDomain converts a hostname to the lower-case, IDNA ASCII form used
+// for persistence and routing lookups. A single trailing root label is ignored
+// so equivalent FQDN spellings share the same ownership key.
+func CanonicalDomain(value string) (string, error) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	value = strings.TrimSuffix(value, ".")
+	if value == "" {
+		return "", nil
+	}
+
+	d, err := nbdomain.FromString(value)
+	if err != nil {
+		return "", fmt.Errorf("canonicalize domain %q: %w", value, err)
+	}
+	return d.PunycodeString(), nil
+}
+
+// CanonicalizeDomain normalizes Domain and refreshes the nullable ownership
+// key that enforces one HTTP service per hostname at the database layer. L4
+// services intentionally leave HTTPDomain nil so they can share a hostname.
+func (s *Service) CanonicalizeDomain() error {
+	canonical, err := CanonicalDomain(s.Domain)
+	if err != nil {
+		return err
+	}
+	s.Domain = canonical
+	s.refreshHTTPDomain()
+	return nil
+}
+
+func (s *Service) refreshHTTPDomain() {
+	if s.Domain == "" || s.IsL4() {
+		s.HTTPDomain = nil
+		return
+	}
+	value := s.Domain
+	s.HTTPDomain = &value
 }
 
 // PopulatePortMappingsFromLegacy converts a complete scalar L4
@@ -889,7 +945,7 @@ func (s *Service) FromAPIRequest(req *api.ServiceRequest, accountID string) erro
 		s.Restrictions = restrictions
 	}
 
-	return nil
+	return s.CanonicalizeDomain()
 }
 
 func targetsFromAPI(accountID string, apiTargetsPtr *[]api.ServiceTarget) ([]*Target, error) {
@@ -1746,6 +1802,10 @@ func (s *Service) Copy() *Service {
 		Private:           s.Private,
 		AccessGroups:      accessGroups,
 		PortMappingsSet:   s.PortMappingsSet,
+	}
+	if s.HTTPDomain != nil {
+		httpDomain := *s.HTTPDomain
+		serviceCopy.HTTPDomain = &httpDomain
 	}
 	serviceCopy.preparePortMappings()
 	return serviceCopy

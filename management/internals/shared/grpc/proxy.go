@@ -1479,20 +1479,15 @@ func (s *ProxyServiceServer) GetOIDCURL(ctx context.Context, req *proto.GetOIDCU
 	if redirectURL.Scheme != "https" && redirectURL.Scheme != "http" {
 		return nil, status.Errorf(codes.InvalidArgument, "redirect URL must use http or https scheme")
 	}
-	// Validate redirectURL against known service endpoints to avoid abuse of OIDC redirection.
-	services, err := s.serviceManager.GetAccountServices(ctx, req.GetAccountId())
+	// Resolve only the canonical HTTP owner (or the existing agent-network
+	// synthesizer fallback) so an L4 row sharing the hostname cannot authorize
+	// an OIDC redirect. Account ownership is checked after global resolution.
+	service, err := s.getServiceByDomain(ctx, redirectURL.Hostname())
 	if err != nil {
-		log.WithContext(ctx).Errorf("failed to get account services: %v", err)
-		return nil, status.Errorf(codes.FailedPrecondition, "get account services: %v", err)
+		log.WithContext(ctx).Debugf("OIDC redirect URL %q does not resolve to an HTTP service: %v", redirectURL.Hostname(), err)
+		return nil, status.Errorf(codes.FailedPrecondition, "service not found in store")
 	}
-	var found bool
-	for _, service := range services {
-		if service.Domain == redirectURL.Hostname() {
-			found = true
-			break
-		}
-	}
-	if !found {
+	if service.AccountID != req.GetAccountId() || req.GetId() == "" || service.ID != req.GetId() {
 		log.WithContext(ctx).Debugf("OIDC redirect URL %q does not match any service domain", redirectURL.Hostname())
 		return nil, status.Errorf(codes.FailedPrecondition, "service not found in store")
 	}
@@ -1681,18 +1676,14 @@ func (s *ProxyServiceServer) ValidateUserGroupAccess(ctx context.Context, domain
 }
 
 func (s *ProxyServiceServer) getAccountServiceByDomain(ctx context.Context, accountID, domain string) (*rpservice.Service, error) {
-	services, err := s.serviceManager.GetAccountServices(ctx, accountID)
+	service, err := s.getServiceByDomain(ctx, domain)
 	if err != nil {
-		return nil, fmt.Errorf("get account services: %w", err)
+		return nil, fmt.Errorf("get HTTP service by domain: %w", err)
 	}
-
-	for _, service := range services {
-		if service.Domain == domain {
-			return service, nil
-		}
+	if service.AccountID != accountID {
+		return nil, fmt.Errorf("service not found for domain %s in account %s", domain, accountID)
 	}
-
-	return nil, fmt.Errorf("service not found for domain %s in account %s", domain, accountID)
+	return service, nil
 }
 
 // ValidateSession validates a session token and checks if the user has access to the domain.
@@ -1813,7 +1804,13 @@ func (s *ProxyServiceServer) ValidateSession(ctx context.Context, req *proto.Val
 }
 
 func (s *ProxyServiceServer) getServiceByDomain(ctx context.Context, domain string) (*rpservice.Service, error) {
-	service, err := s.serviceManager.GetServiceByDomain(ctx, domain)
+	canonical, err := rpservice.CanonicalDomain(domain)
+	if err != nil {
+		return nil, fmt.Errorf("canonicalize service domain: %w", err)
+	}
+	domain = canonical
+
+	service, err := s.serviceManager.GetHTTPServiceByDomain(ctx, domain)
 	if err == nil {
 		return service, nil
 	}
