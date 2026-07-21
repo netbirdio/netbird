@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/rand"
 	"slices"
 	"strings"
 	"sync"
@@ -123,11 +122,6 @@ type managerImpl struct {
 	// accountID, then by synthesised service ID.
 	reconcileMu    sync.Mutex
 	reconcileCache map[string]map[string]*proto.ProxyMapping
-
-	// labelRngMu guards labelRng. PickUnique consumes math/rand.Source
-	// state; concurrent provider creates would otherwise race.
-	labelRngMu sync.Mutex
-	labelRng   *rand.Rand
 }
 
 // NewManager constructs the persistent Agent Network manager. The
@@ -147,7 +141,6 @@ func NewManager(
 		permissionsManager: permissionsManager,
 		proxyController:    proxyController,
 		reconcileCache:     make(map[string]map[string]*proto.ProxyMapping),
-		labelRng:           rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 }
 
@@ -653,9 +646,7 @@ func (m *managerImpl) bootstrapSettingsIfNeeded(ctx context.Context, accountID, 
 		suffix = suffix[:4]
 	}
 
-	m.labelRngMu.Lock()
-	subdomain := labelgen.PickUnique(m.labelRng, taken, suffix)
-	m.labelRngMu.Unlock()
+	subdomain := labelgen.PickUnique(taken, suffix)
 
 	now := time.Now().UTC()
 	settings := &types.Settings{

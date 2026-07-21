@@ -1,14 +1,13 @@
 package types
 
 import (
+	"crypto/rand"
 	"encoding/binary"
 	"fmt"
-	"math/rand"
 	"net"
 	"net/netip"
 	"slices"
 	"sync"
-	"time"
 
 	"github.com/c-robinson/iplib"
 	"github.com/rs/xid"
@@ -137,14 +136,12 @@ func NewNetwork() *Network {
 	n := iplib.NewNet4(net.ParseIP("100.64.0.0"), NetSize)
 	sub, _ := n.Subnet(SubnetSize)
 
-	s := rand.NewSource(time.Now().UnixNano())
-	r := rand.New(s)
-	intn := r.Intn(len(sub))
+	intn := util.RandIntn(len(sub))
 
 	return &Network{
 		Identifier: xid.New().String(),
 		Net:        sub[intn].IPNet,
-		NetV6:      AllocateIPv6Subnet(r),
+		NetV6:      AllocateIPv6Subnet(),
 		Dns:        "",
 		Serial:     0,
 	}
@@ -154,18 +151,13 @@ func NewNetwork() *Network {
 // The format follows RFC 4193 section 3.1: fd + 40-bit Global ID + 16-bit Subnet ID.
 // The Global ID and Subnet ID are randomized (simplified from the SHA-1 algorithm
 // in section 3.2.2), giving 2^56 possible /64 subnets across all accounts.
-func AllocateIPv6Subnet(r *rand.Rand) net.IPNet {
+func AllocateIPv6Subnet() net.IPNet {
 	ip := make(net.IP, 16)
 	ip[0] = 0xfd
-	// Bytes 1-5: 40-bit random Global ID
-	ip[1] = byte(r.Intn(256))
-	ip[2] = byte(r.Intn(256))
-	ip[3] = byte(r.Intn(256))
-	ip[4] = byte(r.Intn(256))
-	ip[5] = byte(r.Intn(256))
-	// Bytes 6-7: 16-bit random Subnet ID
-	ip[6] = byte(r.Intn(256))
-	ip[7] = byte(r.Intn(256))
+	// Bytes 1-5: 40-bit random Global ID, bytes 6-7: 16-bit random Subnet ID
+	if _, err := rand.Read(ip[1:8]); err != nil {
+		panic(err)
+	}
 
 	return net.IPNet{
 		IP:   ip,
@@ -217,11 +209,10 @@ func AllocatePeerIP(prefix netip.Prefix, takenIps []netip.Addr) (netip.Addr, err
 		taken[binary.BigEndian.Uint32(ab[:])] = struct{}{}
 	}
 
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	maxAttempts := (int(totalIPs) - len(taken)) / 100
 
 	for i := 0; i < maxAttempts; i++ {
-		offset := uint32(rng.Intn(int(totalIPs-2))) + 1
+		offset := uint32(util.RandIntn(int(totalIPs-2))) + 1
 		candidate := baseIP + offset
 		if _, exists := taken[candidate]; !exists {
 			return uint32ToIP(candidate), nil
@@ -245,8 +236,7 @@ func AllocateRandomPeerIP(prefix netip.Prefix) (netip.Addr, error) {
 	hostBits := 32 - prefix.Bits()
 	totalIPs := uint32(1 << hostBits)
 
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	offset := uint32(rng.Intn(int(totalIPs-2))) + 1
+	offset := uint32(util.RandIntn(int(totalIPs-2))) + 1
 
 	candidate := baseIP + offset
 	return uint32ToIP(candidate), nil
@@ -262,23 +252,26 @@ func AllocateRandomPeerIPv6(prefix netip.Prefix) (netip.Addr, error) {
 
 	ip := prefix.Addr().As16()
 
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-
 	// Determine which byte the host bits start in
 	firstHostByte := ones / 8
 	// If the prefix doesn't end on a byte boundary, handle the partial byte
 	partialBits := ones % 8
 
+	var rnd [16]byte
+	if _, err := rand.Read(rnd[firstHostByte:]); err != nil {
+		return netip.Addr{}, err
+	}
+
 	if partialBits > 0 {
 		// Keep the network bits in the partial byte, randomize the rest
 		hostMask := byte(0xff >> partialBits)
-		ip[firstHostByte] = (ip[firstHostByte] & ^hostMask) | (byte(rng.Intn(256)) & hostMask)
+		ip[firstHostByte] = (ip[firstHostByte] & ^hostMask) | (rnd[firstHostByte] & hostMask)
 		firstHostByte++
 	}
 
 	// Randomize remaining full host bytes
 	for i := firstHostByte; i < 16; i++ {
-		ip[i] = byte(rng.Intn(256))
+		ip[i] = rnd[i]
 	}
 
 	// Avoid all-zeros and all-ones host parts by checking only host bits.
