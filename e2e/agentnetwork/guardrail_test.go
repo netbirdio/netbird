@@ -21,7 +21,14 @@ import (
 func catalogModel(pc providerCase) string {
 	switch pc.kind {
 	case harness.WireBedrock:
-		return strings.TrimPrefix(pc.model, "us.")
+		// Strip whichever cross-region inference-profile prefix the matrix
+		// picked for the configured AWS region (us., eu., apac., us-gov.).
+		for _, p := range []string{"us-gov.", "apac.", "us.", "eu."} {
+			if strings.HasPrefix(pc.model, p) {
+				return strings.TrimPrefix(pc.model, p)
+			}
+		}
+		return pc.model
 	case harness.WireVertex:
 		return strings.SplitN(pc.model, "@", 2)[0]
 	default:
@@ -35,7 +42,9 @@ func catalogModel(pc providerCase) string {
 func disallowedModel(pc providerCase) string {
 	switch pc.kind {
 	case harness.WireBedrock:
-		return "us.anthropic.claude-opus-4-8"
+		// Same profile prefix as the allowed model so only the model name
+		// differs; the guardrail must deny it before it reaches AWS.
+		return strings.SplitN(pc.model, ".", 2)[0] + ".anthropic.claude-opus-4-8"
 	case harness.WireVertex:
 		return "claude-opus-4-8@20250101"
 	default:

@@ -95,15 +95,34 @@ func availableProviders() []providerCase {
 	}
 
 	// Bedrock: path-routed, bearer auth. Model is a cross-region inference
-	// profile id (distinct string from the first-party Anthropic case).
+	// profile id (distinct string from the first-party Anthropic case). The
+	// profile's region prefix must match the endpoint's region family — an
+	// eu.* profile against a us-east endpoint (or vice versa) makes Bedrock
+	// reject the request with "The provided model identifier is invalid".
+	// Defaults pair eu-central-1 with the eu.* profile; AWS_REGION overrides
+	// the region and the prefix follows its family.
 	if k := os.Getenv("AWS_BEARER_TOKEN_BEDROCK"); k != "" {
 		region := os.Getenv("AWS_REGION")
 		if region == "" {
-			region = "us-east-1"
+			region = "eu-central-1"
 		}
-		ps = append(ps, providerCase{name: "bedrock", catalogID: "bedrock_api", upstream: "https://bedrock-runtime." + region + ".amazonaws.com", apiKey: k, model: "us.anthropic.claude-haiku-4-5", kind: harness.WireBedrock})
+		ps = append(ps, providerCase{name: "bedrock", catalogID: "bedrock_api", upstream: "https://bedrock-runtime." + region + ".amazonaws.com", apiKey: k, model: bedrockProfilePrefix(region) + ".anthropic.claude-haiku-4-5", kind: harness.WireBedrock})
 	}
 	return ps
+}
+
+// bedrockProfilePrefix maps an AWS region to its cross-region inference
+// profile prefix: us-east-1 -> us, eu-central-1 -> eu, ap-southeast-1 -> apac,
+// us-gov-west-1 -> us-gov.
+func bedrockProfilePrefix(region string) string {
+	switch {
+	case strings.HasPrefix(region, "us-gov-"):
+		return "us-gov"
+	case strings.HasPrefix(region, "ap-"):
+		return "apac"
+	default:
+		return strings.SplitN(region, "-", 2)[0]
+	}
 }
 
 // providerRequest builds a create request for a matrix provider: enabled, with
