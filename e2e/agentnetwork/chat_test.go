@@ -43,17 +43,16 @@ func availableProviders() []providerCase {
 		// Kimi (Moonshot AI) serves two body shapes from the same key: OpenAI
 		// Chat Completions on the bare host (/v1/...) and the Anthropic
 		// Messages API under the /anthropic path prefix (the endpoint
-		// Moonshot's Claude Code guide uses). One provider record per shape,
-		// with distinct model strings so model→provider routing stays
-		// unambiguous while both are enabled. Model choice is constrained by
-		// what the platform actually serves this account: kimi-k2-thinking
-		// returns resource_not_found_error ("... or Permission denied") on
-		// both surfaces — K2-era models aren't available to newer platform
-		// accounts — so the OpenAI shape uses the kimi-latest alias and the
-		// Anthropic shape the kimi-k3 flagship (the only model that surface
-		// serves; it's what Moonshot's Claude Code guide configures).
-		ps = append(ps, providerCase{name: "kimi-openai", catalogID: "kimi_api", upstream: "https://api.moonshot.ai", apiKey: k, model: "kimi-latest", kind: harness.WireChat})
-		ps = append(ps, providerCase{name: "kimi-anthropic", catalogID: "kimi_api", upstream: "https://api.moonshot.ai/anthropic", apiKey: k, model: "kimi-k3", kind: harness.WireMessages})
+		// Moonshot's Claude Code guide uses). The platform serves this
+		// account exactly ONE model — kimi-k3 (kimi-k2-thinking and even
+		// kimi-latest return resource_not_found_error on both surfaces) — so
+		// two concurrent provider records would claim the same model and
+		// route ambiguously. Run the Anthropic shape, the flagship Claude
+		// Code path; the OpenAI wire shape is covered live by the other
+		// chat-shaped matrix providers, and Kimi-over-chat passed with
+		// kimi-k3 before the single-model constraint surfaced (run #73 on
+		// the kimi feature branch).
+		ps = append(ps, providerCase{name: "kimi", catalogID: "kimi_api", upstream: "https://api.moonshot.ai/anthropic", apiKey: k, model: "kimi-k3", kind: harness.WireMessages})
 	}
 	if k, u := os.Getenv("VERCEL_TOKEN"), os.Getenv("VERCEL_URL"); k != "" && u != "" {
 		ps = append(ps, providerCase{name: "vercel", catalogID: "vercel_ai_gateway", upstream: u, apiKey: k, model: "openai/gpt-4o-mini", kind: harness.WireChat})
