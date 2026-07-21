@@ -12,5 +12,11 @@ script_path=$(dirname "$(realpath "$0")")
 cd "$script_path"
 go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.6
 go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1
-protoc -I ./ ./daemon.proto --go_out=../ --go-grpc_out=../ --experimental_allow_proto3_optional
+go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@v2.26.3
+protoc -I ./ ./daemon.proto \
+  --go_out=../ \
+  --go-grpc_out=../ \
+  --grpc-gateway_out=../ \
+  --grpc-gateway_opt=generate_unbound_methods=true \
+  --experimental_allow_proto3_optional
 cd "$old_pwd"

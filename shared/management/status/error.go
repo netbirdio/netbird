@@ -219,6 +219,26 @@ func NewNetworkResourceNotFoundError(resourceID string) error {
 	return Errorf(NotFound, "network resource: %s not found", resourceID)
 }
 
+// NewAgentNetworkProviderNotFoundError creates a new Error with NotFound type for a missing Agent Network provider.
+func NewAgentNetworkProviderNotFoundError(providerID string) error {
+	return Errorf(NotFound, "agent network provider: %s not found", providerID)
+}
+
+// NewAgentNetworkPolicyNotFoundError creates a new Error with NotFound type for a missing Agent Network policy.
+func NewAgentNetworkPolicyNotFoundError(policyID string) error {
+	return Errorf(NotFound, "agent network policy: %s not found", policyID)
+}
+
+// NewAgentNetworkGuardrailNotFoundError creates a new Error with NotFound type for a missing Agent Network guardrail.
+func NewAgentNetworkGuardrailNotFoundError(guardrailID string) error {
+	return Errorf(NotFound, "agent network guardrail: %s not found", guardrailID)
+}
+
+// NewAgentNetworkBudgetRuleNotFoundError creates a new Error with NotFound type for a missing Agent Network budget rule.
+func NewAgentNetworkBudgetRuleNotFoundError(ruleID string) error {
+	return Errorf(NotFound, "agent network budget rule: %s not found", ruleID)
+}
+
 // NewPermissionDeniedError creates a new Error with PermissionDenied type for a permission denied error.
 func NewPermissionDeniedError() error {
 	return Errorf(PermissionDenied, "permission denied")
