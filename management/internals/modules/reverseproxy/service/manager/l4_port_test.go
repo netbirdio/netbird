@@ -803,6 +803,26 @@ func TestValidateL4PortDiffOnClusterDiff(t *testing.T) {
 	}
 }
 
+func TestSamePortBasedListeners_IgnoresMappingOrder(t *testing.T) {
+	left := []*rpservice.PortMapping{
+		{Protocol: rpservice.ModeTCP, ListenPortStart: 443, ListenPortEnd: 443},
+		{Protocol: rpservice.ModeTLS, ListenPortStart: 8443, ListenPortEnd: 8443},
+		{Protocol: rpservice.ModeUDP, ListenPortStart: 5000, ListenPortEnd: 5030},
+	}
+	right := []*rpservice.PortMapping{
+		{Protocol: rpservice.ModeUDP, ListenPortStart: 5000, ListenPortEnd: 5030},
+		nil,
+		{Protocol: rpservice.ModeTCP, ListenPortStart: 443, ListenPortEnd: 443},
+	}
+
+	assert.True(t, samePortBasedListeners(left, right),
+		"reordering identical TCP and UDP listeners must not be treated as a port change")
+
+	right[0].ListenPortEnd = 5031
+	assert.False(t, samePortBasedListeners(left, right),
+		"a changed listener boundary must still be detected")
+}
+
 func TestUpdate_PortConflictRejected(t *testing.T) {
 	mgr, testStore, _ := setupL4Test(t, boolPtr(true))
 	ctx := context.Background()

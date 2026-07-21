@@ -184,6 +184,32 @@ func TestPortMappings_APIRoundTripAndLegacyMirrors(t *testing.T) {
 	]`, string(mustPortMappingsJSON(t, encoded)))
 }
 
+func TestPortMappings_ToAPIResponseDoesNotMutateLegacyService(t *testing.T) {
+	svc := &Service{
+		ID:         "legacy-service",
+		AccountID:  "account-1",
+		Mode:       ModeTCP,
+		ListenPort: 8080,
+		Targets: []*Target{{
+			Port:     18080,
+			Protocol: TargetProtoTCP,
+		}},
+	}
+
+	resp := svc.ToAPIResponse()
+
+	assert.Empty(t, svc.PortMappings, "response conversion must not populate the source service")
+	require.NotNil(t, resp.PortMappings)
+	require.Len(t, *resp.PortMappings, 1)
+	assert.Equal(t, api.ServicePortMapping{
+		Protocol:        api.ServicePortMappingProtocolTcp,
+		ListenPortStart: 8080,
+		ListenPortEnd:   8080,
+		TargetPortStart: 18080,
+		TargetPortEnd:   18080,
+	}, (*resp.PortMappings)[0])
+}
+
 func mustPortMappingsJSON(t *testing.T, serviceJSON []byte) json.RawMessage {
 	t.Helper()
 	var object map[string]json.RawMessage
