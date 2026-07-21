@@ -3073,8 +3073,13 @@ components:
           type: integer
           minimum: 0
           maximum: 65535
-          description: Port the proxy listens on (L4/TLS only)
+          description: Legacy first port the proxy listens on (L4/TLS only). For multi-port services, port_mappings is authoritative.
           example: 8443
+        port_mappings:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServicePortMapping'
+          description: Ordered listener-to-target mappings for an L4 service. Empty or omitted for HTTP services.
         port_auto_assigned:
           type: boolean
           description: Whether the listen port was auto-assigned
@@ -3179,8 +3184,14 @@ components:
           type: integer
           minimum: 0
           maximum: 65535
-          description: Port the proxy listens on (L4/TLS only). Set to 0 for auto-assignment.
+          description: Legacy first port the proxy listens on (L4/TLS only). Set to 0 for legacy auto-assignment. When port_mappings is present, it is authoritative and this value must match its first listener start.
           example: 5432
+        port_mappings:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/ServicePortMapping'
+          description: Ordered listener-to-target mappings for an L4 service. Ranges are inclusive. Do not set for HTTP services.
         targets:
           type: array
           items:
@@ -3218,6 +3229,45 @@ components:
         - name
         - domain
         - enabled
+    ServicePortMapping:
+      type: object
+      description: An inclusive L4 listener range translated one-to-one onto an equally sized target range.
+      properties:
+        protocol:
+          type: string
+          description: Frontend transport. TLS means TLS passthrough selected by SNI.
+          enum: [tcp, udp, tls]
+          example: tcp
+        listen_port_start:
+          type: integer
+          minimum: 1
+          maximum: 65535
+          description: First public listener port, inclusive.
+          example: 5000
+        listen_port_end:
+          type: integer
+          minimum: 1
+          maximum: 65535
+          description: Last public listener port, inclusive.
+          example: 5030
+        target_port_start:
+          type: integer
+          minimum: 1
+          maximum: 65535
+          description: First destination port, inclusive.
+          example: 6000
+        target_port_end:
+          type: integer
+          minimum: 1
+          maximum: 65535
+          description: Last destination port, inclusive.
+          example: 6030
+      required:
+        - protocol
+        - listen_port_start
+        - listen_port_end
+        - target_port_start
+        - target_port_end
     ServiceTargetOptions:
       type: object
       properties:

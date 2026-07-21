@@ -1052,6 +1052,27 @@ func (e ServiceMetaStatus) Valid() bool {
 	}
 }
 
+// Defines values for ServicePortMappingProtocol.
+const (
+	ServicePortMappingProtocolTcp ServicePortMappingProtocol = "tcp"
+	ServicePortMappingProtocolTls ServicePortMappingProtocol = "tls"
+	ServicePortMappingProtocolUdp ServicePortMappingProtocol = "udp"
+)
+
+// Valid indicates whether the value is a known member of the ServicePortMappingProtocol enum.
+func (e ServicePortMappingProtocol) Valid() bool {
+	switch e {
+	case ServicePortMappingProtocolTcp:
+		return true
+	case ServicePortMappingProtocolTls:
+		return true
+	case ServicePortMappingProtocolUdp:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ServiceRequestMode.
 const (
 	ServiceRequestModeHttp ServiceRequestMode = "http"
@@ -4947,7 +4968,7 @@ type Service struct {
 	// Id Service ID
 	Id string `json:"id"`
 
-	// ListenPort Port the proxy listens on (L4/TLS only)
+	// ListenPort Legacy first port the proxy listens on (L4/TLS only). For multi-port services, port_mappings is authoritative.
 	ListenPort *int        `json:"listen_port,omitempty"`
 	Meta       ServiceMeta `json:"meta"`
 
@@ -4962,6 +4983,9 @@ type Service struct {
 
 	// PortAutoAssigned Whether the listen port was auto-assigned
 	PortAutoAssigned *bool `json:"port_auto_assigned,omitempty"`
+
+	// PortMappings Ordered listener-to-target mappings for an L4 service. Empty or omitted for HTTP services.
+	PortMappings *[]ServicePortMapping `json:"port_mappings,omitempty"`
 
 	// Private When true, the service is NetBird-only — its target points at a proxy cluster, inbound peers authenticate via their WireGuard tunnel identity (no OIDC), and an ACL policy is auto-generated from access_groups to the cluster's proxy-peer group. Requires mode=http.
 	Private *bool `json:"private,omitempty"`
@@ -5006,6 +5030,27 @@ type ServiceMeta struct {
 // ServiceMetaStatus Current status of the service
 type ServiceMetaStatus string
 
+// ServicePortMapping An inclusive L4 listener range translated one-to-one onto an equally sized target range.
+type ServicePortMapping struct {
+	// ListenPortEnd Last public listener port, inclusive.
+	ListenPortEnd int `json:"listen_port_end"`
+
+	// ListenPortStart First public listener port, inclusive.
+	ListenPortStart int `json:"listen_port_start"`
+
+	// Protocol Frontend transport. TLS means TLS passthrough selected by SNI.
+	Protocol ServicePortMappingProtocol `json:"protocol"`
+
+	// TargetPortEnd Last destination port, inclusive.
+	TargetPortEnd int `json:"target_port_end"`
+
+	// TargetPortStart First destination port, inclusive.
+	TargetPortStart int `json:"target_port_start"`
+}
+
+// ServicePortMappingProtocol Frontend transport. TLS means TLS passthrough selected by SNI.
+type ServicePortMappingProtocol string
+
 // ServiceRequest defines model for ServiceRequest.
 type ServiceRequest struct {
 	// AccessGroups NetBird group IDs whose peers may reach this private service over the tunnel. Required when private=true; ignored otherwise. Mutually exclusive with bearer auth (SSO).
@@ -5021,7 +5066,7 @@ type ServiceRequest struct {
 	// Enabled Whether the service is enabled
 	Enabled bool `json:"enabled"`
 
-	// ListenPort Port the proxy listens on (L4/TLS only). Set to 0 for auto-assignment.
+	// ListenPort Legacy first port the proxy listens on (L4/TLS only). Set to 0 for legacy auto-assignment. When port_mappings is present, it is authoritative and this value must match its first listener start.
 	ListenPort *int `json:"listen_port,omitempty"`
 
 	// Mode Service mode. "http" for L7 reverse proxy, "tcp"/"udp"/"tls" for L4 passthrough.
@@ -5032,6 +5077,9 @@ type ServiceRequest struct {
 
 	// PassHostHeader When true, the original client Host header is passed through to the backend instead of being rewritten to the backend's address
 	PassHostHeader *bool `json:"pass_host_header,omitempty"`
+
+	// PortMappings Ordered listener-to-target mappings for an L4 service. Ranges are inclusive. Do not set for HTTP services.
+	PortMappings *[]ServicePortMapping `json:"port_mappings,omitempty"`
 
 	// Private When true, the service is NetBird-only — its target points at a proxy cluster, inbound peers authenticate via their WireGuard tunnel identity (no OIDC), and an ACL policy is auto-generated from access_groups to the cluster's proxy-peer group. Requires mode=http.
 	Private *bool `json:"private,omitempty"`
