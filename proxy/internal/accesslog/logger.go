@@ -16,6 +16,7 @@ import (
 	"github.com/netbirdio/netbird/proxy/auth"
 	"github.com/netbirdio/netbird/proxy/internal/types"
 	"github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/trustedproxy"
 )
 
 const (
@@ -66,7 +67,7 @@ type denyBucket struct {
 type Logger struct {
 	client         gRPCClient
 	logger         *log.Logger
-	trustedProxies []netip.Prefix
+	trustedProxies *trustedproxy.List
 
 	usageMux    sync.Mutex
 	domainUsage map[string]*domainUsage
@@ -82,7 +83,7 @@ type Logger struct {
 // NewLogger creates a new access log Logger. The trustedProxies parameter
 // configures which upstream proxy IP ranges are trusted for extracting
 // the real client IP from X-Forwarded-For headers.
-func NewLogger(client gRPCClient, logger *log.Logger, trustedProxies []netip.Prefix) *Logger {
+func NewLogger(client gRPCClient, logger *log.Logger, trustedProxies *trustedproxy.List) *Logger {
 	if logger == nil {
 		logger = log.StandardLogger()
 	}
