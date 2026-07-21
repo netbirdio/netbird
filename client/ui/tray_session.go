@@ -99,30 +99,37 @@ func (t *Tray) sessionRowLabel(deadline time.Time) string {
 }
 
 // formatSessionRemaining renders d as a localised long-form string picking the largest non-zero unit.
+// Each unit is rounded up so the label never claims less time than actually remains, matching the
+// upper-bound sense of the sub-minute "less than a minute" fragment.
 // Singular/plural keys are split per language for proper translation.
 func (t *Tray) formatSessionRemaining(d time.Duration) string {
 	switch {
 	case d < time.Minute:
 		return t.loc.T("tray.session.unit.lessThanMinute")
-	case d < time.Hour:
-		m := int(d / time.Minute)
+	case d <= 59*time.Minute:
+		m := ceilDiv(d, time.Minute)
 		if m == 1 {
 			return t.loc.T("tray.session.unit.minute")
 		}
 		return t.loc.T("tray.session.unit.minutes", "count", strconv.Itoa(m))
-	case d < 24*time.Hour:
-		h := int((d + 30*time.Minute) / time.Hour)
+	case d <= 23*time.Hour:
+		h := ceilDiv(d, time.Hour)
 		if h == 1 {
 			return t.loc.T("tray.session.unit.hour")
 		}
 		return t.loc.T("tray.session.unit.hours", "count", strconv.Itoa(h))
 	default:
-		days := int((d + 12*time.Hour) / (24 * time.Hour))
+		days := ceilDiv(d, 24*time.Hour)
 		if days == 1 {
 			return t.loc.T("tray.session.unit.day")
 		}
 		return t.loc.T("tray.session.unit.days", "count", strconv.Itoa(days))
 	}
+}
+
+// ceilDiv divides d by unit rounding up, assuming d > 0.
+func ceilDiv(d, unit time.Duration) int {
+	return int((d + unit - time.Nanosecond) / unit)
 }
 
 // registerSessionWarningCategory wires the OS notification category and response handler for the expiry warning.
