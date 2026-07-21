@@ -44,10 +44,12 @@ func (s *ProfileSwitcher) SwitchActiveNoConnect(ctx context.Context, p ProfileRe
 
 func (s *ProfileSwitcher) switchActive(ctx context.Context, p ProfileRef, connect bool) error {
 	prevStatus := ""
-	if st, err := s.feed.Get(ctx); err == nil {
-		prevStatus = st.Status
-	} else {
-		log.Warnf("profileswitcher: get status: %v", err)
+	if s.feed != nil {
+		if st, err := s.feed.Get(ctx); err == nil {
+			prevStatus = st.Status
+		} else {
+			log.Warnf("profileswitcher: get status: %v", err)
+		}
 	}
 
 	needsDown := strings.EqualFold(prevStatus, StatusConnected) ||
@@ -62,7 +64,7 @@ func (s *ProfileSwitcher) switchActive(ctx context.Context, p ProfileRef, connec
 	// Optimistic Connecting paint plus stale-push suppression during Down (see
 	// DaemonFeed suppression table); also arms the login-watch that pops
 	// browser-login when the new profile turns out to need SSO.
-	if connect {
+	if connect && s.feed != nil {
 		s.feed.BeginProfileSwitch()
 	}
 
