@@ -173,23 +173,14 @@ func DecodeEnvelope(env *proto.NetworkMapEnvelope) (*types.NetworkMapComponents,
 		}
 	}
 
-	// Phase 8: resource_policies_map (resource seq id → list of *types.Policy
-	// pointers from the decoded policies slice). Resource ID is synthesized
-	// the same way as in decodeNetworkResource.
-	for resourceID, ids := range full.ResourcePoliciesMap {
-		if len(ids.Ids) == 0 {
-			continue
+	// Phase 8: resource_policies_map
+	for _, p := range c.Policies {
+		rule := p.Rules[0] // there's always only one rule
+		if rule.SourceResource.Type != types.ResourceTypePeer && rule.SourceResource.ID != "" {
+			c.ResourcePoliciesMap[rule.SourceResource.ID] = append(c.ResourcePoliciesMap[rule.SourceResource.ID], p)
 		}
-		policies := make([]*types.Policy, 0, len(ids.Ids))
-		for _, id := range ids.Ids {
-			if p, ok := policyByID[id]; ok {
-				policies = append(policies, p)
-			} else {
-				log.WithField("policy id", id).Error("unrecognized policy when decoding resource policies")
-			}
-		}
-		if len(policies) > 0 {
-			c.ResourcePoliciesMap[resourceID] = policies
+		if rule.SourceResource.Type != types.ResourceTypePeer && rule.DestinationResource.Type != "" {
+			c.ResourcePoliciesMap[rule.SourceResource.ID] = append(c.ResourcePoliciesMap[rule.SourceResource.ID], p)
 		}
 	}
 
@@ -344,11 +335,27 @@ func resourceFromProto(r *proto.ResourceCompact, peerIDByIndex []string) types.R
 	if r == nil {
 		return types.Resource{}
 	}
-	out := types.Resource{Type: types.ResourceType(r.Type)}
-	if r.PeerIndexSet && int(r.PeerIndex) < len(peerIDByIndex) {
-		out.ID = peerIDByIndex[r.PeerIndex]
+
+	t, ok := proto.ResourceCompactType_name[int32(r.Type)]
+	if !ok || r.Type == proto.ResourceCompactType_unknown_type {
+		return types.Resource{}
 	}
-	return out
+
+	if r.Type == proto.ResourceCompactType_peer && int(r.GetPeerIndex()) >= len(peerIDByIndex) {
+		return types.Resource{}
+	}
+
+	if r.Type == proto.ResourceCompactType_peer && int(r.GetPeerIndex()) < len(peerIDByIndex) {
+		return types.Resource{
+			Type: types.ResourceTypePeer,
+			ID:   peerIDByIndex[int(r.GetPeerIndex())],
+		}
+	}
+
+	return types.Resource{
+		Type: types.ResourceType(t),
+		ID:   r.GetId(),
+	}
 }
 
 // authorizedGroupsFromProto inverts encodeAuthorizedGroups: the wire form

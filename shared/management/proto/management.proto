@@ -825,80 +825,68 @@ message NetworkMapComponentsFull {
   // the peer has no custom zone records.
   string custom_zone_domain = 7;
 
-  // Deduplicated agent versions; PeerCompact.agent_version_idx indexes here.
-  // Empty string at index 0 if any peer has no version.
-  repeated string agent_versions = 8;
-
   // All peers (deduplicated). The client splits peers into online / offline
   // locally using account_settings.peer_login_expiration on receive.
-  repeated PeerCompact peers = 9;
+  repeated PeerCompact peers = 8;
 
   // Indexes into peers for the subset that may act as routers.
-  repeated uint32 router_peer_indexes = 10;
+  repeated uint32 router_peer_indexes = 9;
 
   // Policies that affect the receiving peer.
-  repeated PolicyCompact policies = 11;
+  repeated PolicyCompact policies = 10;
 
   // Groups in unspecified order — clients key off id (public_id).
-  repeated GroupCompact groups = 12;
+  repeated GroupCompact groups = 11;
 
   // Routes relevant to this peer, raw shape (mirrors []*route.Route).
-  repeated RouteRaw routes = 13;
+  repeated RouteRaw routes = 12;
 
   // Nameserver groups (mirrors []*nbdns.NameServerGroup).
-  repeated NameServerGroupRaw nameserver_groups = 14;
+  repeated NameServerGroupRaw nameserver_groups = 13;
 
   // All DNS records the client needs to assemble its custom zone. Reuses
   // the existing SimpleRecord wire shape.
-  repeated SimpleRecord all_dns_records = 15;
+  repeated SimpleRecord all_dns_records = 14;
 
   // Custom zones (typically the peer's own zone). Reuses the existing
   // CustomZone wire shape.
-  repeated CustomZone account_zones = 16;
+  repeated CustomZone account_zones = 15;
 
   // Network resources (mirrors []*resourceTypes.NetworkResource).
-  repeated NetworkResourceRaw network_resources = 17;
+  repeated NetworkResourceRaw network_resources = 16;
 
   // Routers per network. Outer key: network public_id. Each entry is
   // the set of routers backing that network for this peer's view.
-  map<string, NetworkRouterList> routers_map = 18;
-
-  // For each NetworkResource public_id, the indexes into policies[]
-  // that apply to it.
-  map<string, PolicyIds> resource_policies_map = 19;
+  map<string, NetworkRouterList> routers_map = 17;
 
   // Group-id (public_id) → user ids authorized for SSH on members.
-  map<string, UserIDList> group_id_to_user_ids = 20;
+  map<string, UserIDList> group_id_to_user_ids = 19;
 
   // Account-level allowed user ids (used by Calculate() when assembling SSH
   // authorized users for the receiving peer).
-  repeated string allowed_user_ids = 21;
+  repeated string allowed_user_ids = 20;
 
   // Per posture-check public_id, the set of peer indexes that failed
   // the check. Server-side evaluation result; clients do not re-evaluate.
-  map<string, PeerIndexSet> posture_failed_peers = 22;
+  map<string, PeerIndexSet> posture_failed_peers = 21;
 
   // Account-level DNS forwarder port (mirrors the legacy
   // proto.DNSConfig.ForwarderPort). Computed by the controller from peer
   // versions; clients fold it into their Calculate() DNS output.
-  int64 dns_forwarder_port = 23;
+  int64 dns_forwarder_port = 22;
 
   // Pre-expanded NetworkMap fragments injected post-Calculate by external
   // controllers (BYOP / port-forwarding proxies). The receiving client
   // merges these into its locally-computed NetworkMap the same way the
   // legacy server does via NetworkMap.Merge — so downstream consumers see
   // a unified merged result regardless of source.
-  ProxyPatch proxy_patch = 24;
+  ProxyPatch proxy_patch = 23;
 
   // SSH UserIDClaim — server-side HttpServerConfig.AuthUserIDClaim, or
   // "sub" by default. Populated in proto.SSHAuth.UserIDClaim when the
   // client rebuilds the NetworkMap from this envelope. Empty when the
   // account has no AuthorizedUsers (and thus no SshAuth to populate).
-  string user_id_claim = 25;
-
-  // Reserved for future component additions (incremental_serial, parent_seq,
-  // etc.) without forcing a renumber.
-  reserved 26 to 50;
+  string user_id_claim = 24;
 }
 
 // ProxyPatch carries NetworkMap fragments that don't fit the component-graph
@@ -1066,16 +1054,23 @@ message PolicyCompact {
   repeated string source_posture_check_ids = 13;
 }
 
+enum ResourceCompactType {
+  unknown_type = 0; //placeholder
+  peer = 1;
+	domain = 2;
+	host = 3;
+	subnet = 4;
+}
+
 // ResourceCompact mirrors types.Resource. Used by PolicyCompact to carry
 // rule.SourceResource / rule.DestinationResource when the rule targets a
 // specific resource (typically a peer) rather than groups.
-// peer_index_set tells whether peer_index is valid (proto3 uint32 cannot
-// disambiguate "0" from "unset"); set only when type == "peer".
 message ResourceCompact {
-  string type = 1;
-  bool peer_index_set = 2;
-  uint32 peer_index = 3;
-  reserved 4; // future: host/subnet/domain references when needed
+  ResourceCompactType type = 1;
+  oneof resource_id {
+    string id = 2; // for domain/host/subnet resources
+    uint32 peer_index = 3; // for peers
+  }
 }
 
 // UserNameList is a list of local-user names — used as the value type in

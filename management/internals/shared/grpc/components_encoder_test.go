@@ -125,9 +125,6 @@ func canonicalize(full *proto.NetworkMapComponentsFull) {
 	for newIdx, p := range full.Policies {
 		policyRemap[policyOldOrder[p]] = uint32(newIdx)
 	}
-	for _, idxs := range full.ResourcePoliciesMap {
-		slices.Sort(idxs.Ids)
-	}
 	for _, list := range full.GroupIdToUserIds {
 		slices.Sort(list.UserIds)
 	}
@@ -306,6 +303,32 @@ func TestEncodeNetworkMapEnvelope_GroupsByAccountPublicId(t *testing.T) {
 	require.Contains(t, groupByID, "2")
 	assert.Len(t, groupByID["1"].PeerIndexes, 1)
 	assert.Len(t, groupByID["2"].PeerIndexes, 2)
+}
+
+func TestEncodePolicy(t *testing.T) {
+	encoder := componentEncoder{peerOrder: map[string]uint32{"peerId": uint32(1234)}, networkIdToPublicId: map[string]string{"domain": "publicDomain", "host": "publicHost", "subnet": "publicSubnet"}}
+	assert.Equal(t,
+		encoder.resourceToProto(types.Resource{Type: "peer", ID: "peerId"}),
+		&proto.ResourceCompact{Type: proto.ResourceCompactType_peer, ResourceId: &proto.ResourceCompact_PeerIndex{PeerIndex: uint32(1234)}})
+	// verify invalid peer id results in nil
+	assert.Nil(t,
+		encoder.resourceToProto(types.Resource{Type: "peer", ID: "boom"}))
+	assert.Equal(t,
+		encoder.resourceToProto(types.Resource{Type: "domain", ID: "domain"}),
+		&proto.ResourceCompact{Type: proto.ResourceCompactType_domain, ResourceId: &proto.ResourceCompact_Id{Id: "publicDomain"}})
+	assert.Equal(t,
+		encoder.resourceToProto(types.Resource{Type: "host", ID: "host"}),
+		&proto.ResourceCompact{Type: proto.ResourceCompactType_host, ResourceId: &proto.ResourceCompact_Id{Id: "publicHost"}})
+	assert.Equal(t,
+		encoder.resourceToProto(types.Resource{Type: "subnet", ID: "subnet"}),
+		&proto.ResourceCompact{Type: proto.ResourceCompactType_subnet, ResourceId: &proto.ResourceCompact_Id{Id: "publicSubnet"}})
+	// verify invalid resource type results in nil
+	assert.Nil(t,
+		encoder.resourceToProto(types.Resource{Type: "boom", ID: "boom"}))
+	// verify invalid networkresource id results in nil
+	assert.Nil(t,
+		encoder.resourceToProto(types.Resource{Type: "host", ID: "boom"}))
+
 }
 
 func TestEncodeNetworkMapEnvelope_PolicyExpansion(t *testing.T) {
@@ -574,9 +597,6 @@ func TestEncodeNetworkMapEnvelope_ResourceOnlyPolicyShippedAndIndexed(t *testing
 	require.Contains(t, policyByID, "10", "original peer-traffic policy id 10")
 	require.Contains(t, policyByID, "99", "resource-only policy id 99")
 
-	require.Contains(t, full.ResourcePoliciesMap, "77")
-	ids := full.ResourcePoliciesMap["77"].Ids
-	require.Len(t, ids, 2)
 	assert.ElementsMatch(t, policyIds, ids,
 		"resource policies map must reference both wire policy indexes")
 }
