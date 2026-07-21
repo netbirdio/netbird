@@ -239,8 +239,15 @@ func (s *WindowManager) CloseBrowserLogin() {
 	s.mu.Lock()
 	w := s.browserLogin
 	s.browserLogin = nil
-	// The WindowClosing hook no-ops on a programmatic close, so restore here.
-	s.restoreHiddenWindowsLocked()
+	// The WindowClosing hook no-ops on a programmatic close, so restore here —
+	// but only if a popup was actually open. The frontend calls this even when no
+	// popup was ever shown (e.g. resetDialog() after an early RequestExtend failure,
+	// or connection.ts's catch path), and hiddenForLogin is shared with
+	// OpenInstallProgress, so an unconditional restore could re-show windows a
+	// still-running install-progress is hiding.
+	if w != nil {
+		s.restoreHiddenWindowsLocked()
+	}
 	s.mu.Unlock()
 	if w != nil {
 		w.Close()
