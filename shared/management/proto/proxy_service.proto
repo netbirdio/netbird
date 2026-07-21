@@ -73,6 +73,9 @@ message ProxyCapabilities {
   optional bool private = 4;
   // Whether the proxy enforces ProxyMapping.private (fails closed on ValidateTunnelPeer failure). Management MUST NOT stream private mappings to proxies that don't claim this.
   optional bool supports_private_service = 5;
+  // Whether the proxy understands ProxyMapping.port_mappings and can install
+  // multiple TCP/UDP/TLS listeners for one service.
+  optional bool supports_port_mappings = 6;
 }
 
 // GetMappingUpdateRequest is sent to initialise a mapping stream.
@@ -226,6 +229,9 @@ message ProxyMapping {
   AccessRestrictions access_restrictions = 12;
   // NetBird-only: the proxy MUST call ValidateTunnelPeer and fail closed; operator auth schemes are bypassed.
   bool private = 13;
+  // Additive multi-port L4 representation. Empty means use legacy mode,
+  // listen_port, and path[0].target fields.
+  repeated ServicePortMapping port_mappings = 14;
 }
 
 // SendAccessLogRequest consists of one or more AccessLogs from a Proxy.
@@ -501,3 +507,14 @@ message RecordLLMUsageRequest {
 message RecordLLMUsageResponse {
 }
 
+// ServicePortMapping describes inclusive public and target port ranges. The
+// ranges must contain the same number of ports; each listener port maps to the
+// target port at the same offset. It is declared last to keep descriptor indexes
+// stable for all pre-existing messages.
+message ServicePortMapping {
+  string protocol = 1;
+  uint32 listen_port_start = 2;
+  uint32 listen_port_end = 3;
+  uint32 target_port_start = 4;
+  uint32 target_port_end = 5;
+}
