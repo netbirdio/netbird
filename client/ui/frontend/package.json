@@ -15,7 +15,8 @@
     "lint": "eslint \"src/**/*.{ts,tsx}\"",
     "lint:fix": "eslint \"src/**/*.{ts,tsx}\" --fix",
     "check": "pnpm lint && pnpm typecheck && pnpm format:check",
-    "check:fix": "pnpm lint:fix && pnpm format && pnpm typecheck"
+    "check:fix": "pnpm lint:fix && pnpm format && pnpm typecheck",
+    "i18n:check": "node ../i18n/check-translations.mjs"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",
