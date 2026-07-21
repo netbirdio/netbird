@@ -29,7 +29,8 @@ func TestMessageRoundTrip(t *testing.T) {
 	require.Equal(t, MsgAnswer, typ)
 	require.Equal(t, answer, decoded.(*AnswerMsg).KEMAnswer)
 
-	confBytes := (&ConfirmMsg{ExchangeID: id}).Encode()
+	confBytes, err := (&ConfirmMsg{ExchangeID: id}).Encode()
+	require.NoError(t, err)
 	typ, decoded, err = Decode(confBytes)
 	require.NoError(t, err)
 	require.Equal(t, MsgConfirm, typ)
