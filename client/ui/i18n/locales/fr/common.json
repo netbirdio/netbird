@@ -1034,8 +1034,14 @@
     "welcome.title": {
         "message": "Cherchez NetBird dans votre barre d’état système"
     },
+    "welcome.titleMac": {
+        "message": "Cherchez NetBird dans votre barre des menus"
+    },
     "welcome.description": {
         "message": "NetBird se trouve dans votre barre d’état système. Cliquez sur l’icône pour vous connecter, changer de profil ou ouvrir les paramètres."
+    },
+    "welcome.descriptionMac": {
+        "message": "NetBird se trouve dans votre barre des menus. Cliquez sur l’icône pour vous connecter, changer de profil ou ouvrir les paramètres."
     },
     "welcome.continue": {
         "message": "Continuer"

@@ -1377,11 +1377,19 @@
     },
     "welcome.title": {
         "message": "Look for NetBird in your tray",
-        "description": "Heading on the first onboarding step, pointing the user to the tray icon. 'tray' = system tray / menu bar."
+        "description": "Heading on the first onboarding step, pointing the user to the tray icon. Shown on Windows and Linux; macOS uses welcome.titleMac."
+    },
+    "welcome.titleMac": {
+        "message": "Look for NetBird in your menu bar",
+        "description": "Heading on the first onboarding step on macOS, pointing the user to the menu bar icon. Use your language's Apple term for the macOS menu bar."
     },
     "welcome.description": {
         "message": "NetBird lives in your tray. Click the icon to connect, switch profiles, or open settings.",
-        "description": "Body of the first onboarding step explaining the tray icon."
+        "description": "Body of the first onboarding step explaining the tray icon. Shown on Windows and Linux; macOS uses welcome.descriptionMac."
+    },
+    "welcome.descriptionMac": {
+        "message": "NetBird lives in your menu bar. Click the icon to connect, switch profiles, or open settings.",
+        "description": "Body of the first onboarding step on macOS explaining the menu bar icon. Use your language's Apple term for the macOS menu bar."
     },
     "welcome.continue": {
         "message": "Continue",
