@@ -114,6 +114,24 @@ func (m *mockReverseProxyManager) GetServiceByDomain(_ context.Context, domain s
 	return nil, errors.New("service not found for domain: " + domain)
 }
 
+func (m *mockReverseProxyManager) GetHTTPServiceByDomain(_ context.Context, domain string) (*service.Service, error) {
+	canonical, err := service.CanonicalDomain(domain)
+	if err != nil {
+		return nil, err
+	}
+	if m.err != nil {
+		return nil, m.err
+	}
+	for _, services := range m.proxiesByAccount {
+		for _, svc := range services {
+			if !svc.IsL4() && svc.Domain == canonical {
+				return svc, nil
+			}
+		}
+	}
+	return nil, errors.New("HTTP service not found for domain: " + domain)
+}
+
 func (m *mockReverseProxyManager) GetClusters(_ context.Context, _, _ string) ([]proxy.Cluster, error) {
 	return nil, nil
 }
@@ -309,6 +327,29 @@ func TestValidateUserGroupAccess(t *testing.T) {
 			expectErrMsg: "not in allowed groups",
 		},
 		{
+			name:   "shared-domain L4 row inserted first does not bypass HTTP groups",
+			domain: "APP.EXAMPLE.COM.",
+			userID: "user1",
+			proxiesByAccount: map[string][]*service.Service{
+				"account1": {
+					{Domain: "app.example.com", AccountID: "account1", Mode: service.ModeTCP},
+					{
+						Domain:    "app.example.com",
+						AccountID: "account1",
+						Mode:      service.ModeHTTP,
+						Auth: service.AuthConfig{BearerAuth: &service.BearerAuthConfig{
+							Enabled: true, DistributionGroups: []string{"group1"},
+						}},
+					},
+				},
+			},
+			users: map[string]*types.User{
+				"user1": {Id: "user1", AccountID: "account1", AutoGroups: []string{"group2"}},
+			},
+			expectErr:    true,
+			expectErrMsg: "not in allowed groups",
+		},
+		{
 			name:   "user in one of the allowed groups - allow access",
 			domain: "app.example.com",
 			userID: "user1",
@@ -360,7 +401,7 @@ func TestValidateUserGroupAccess(t *testing.T) {
 				"user1": {Id: "user1", AccountID: "account1"},
 			},
 			expectErr:    true,
-			expectErrMsg: "get account services",
+			expectErrMsg: "get HTTP service by domain",
 		},
 		{
 			name:   "multiple proxies in account - finds correct one",

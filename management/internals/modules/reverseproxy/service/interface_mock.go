@@ -197,6 +197,21 @@ func (mr *MockManagerMockRecorder) GetServiceByDomain(ctx, domain interface{}) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetServiceByDomain", reflect.TypeOf((*MockManager)(nil).GetServiceByDomain), ctx, domain)
 }
 
+// GetHTTPServiceByDomain mocks base method.
+func (m *MockManager) GetHTTPServiceByDomain(ctx context.Context, domain string) (*Service, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetHTTPServiceByDomain", ctx, domain)
+	ret0, _ := ret[0].(*Service)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetHTTPServiceByDomain indicates an expected call of GetHTTPServiceByDomain.
+func (mr *MockManagerMockRecorder) GetHTTPServiceByDomain(ctx, domain interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetHTTPServiceByDomain", reflect.TypeOf((*MockManager)(nil).GetHTTPServiceByDomain), ctx, domain)
+}
+
 // GetServiceByID mocks base method.
 func (m *MockManager) GetServiceByID(ctx context.Context, accountID, serviceID string) (*Service, error) {
 	m.ctrl.T.Helper()

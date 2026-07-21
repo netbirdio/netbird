@@ -5,11 +5,13 @@ import (
 	"os"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 func TestSqlStore_GetAccount_PrivateServiceRoundtrip(t *testing.T) {
@@ -128,5 +130,180 @@ func TestSqlStore_MultiPortServiceCollectionUpdate(t *testing.T) {
 			Where("service_id = ?", svc.ID).
 			Count(&mappingCount).Error)
 		assert.Zero(t, mappingCount, "deleting a service must remove all mapping rows")
+	})
+}
+
+func TestSqlStore_SharedCanonicalServiceDomain(t *testing.T) {
+	if os.Getenv("CI") == "true" && (runtime.GOOS == "darwin" || runtime.GOOS == "windows") {
+		t.Skip("skip CI tests on darwin and windows")
+	}
+
+	runTestForAllEngines(t, "", func(t *testing.T, sqlStore Store) {
+		ctx := context.Background()
+		account := newAccountWithId(ctx, "account_shared_domain", "testuser", "")
+		require.NoError(t, sqlStore.SaveAccount(ctx, account))
+
+		services := []*rpservice.Service{
+			{ID: "tcp", AccountID: account.Id, Name: "tcp", Domain: "SHARED.EXAMPLE", Mode: rpservice.ModeTCP, ListenPort: 2200},
+			{ID: "udp", AccountID: account.Id, Name: "udp", Domain: "shared.example.", Mode: rpservice.ModeUDP, ListenPort: 5300},
+			{ID: "http", AccountID: account.Id, Name: "web", Domain: " Shared.Example. ", Mode: rpservice.ModeHTTP},
+		}
+		for _, service := range services {
+			require.NoError(t, sqlStore.CreateService(ctx, service))
+		}
+
+		shared, err := sqlStore.GetServicesByDomain(ctx, LockingStrengthNone, " SHARED.EXAMPLE. ")
+		require.NoError(t, err)
+		require.Len(t, shared, 3)
+		ids := make([]string, 0, len(shared))
+		for _, service := range shared {
+			ids = append(ids, service.ID)
+			assert.Equal(t, "shared.example", service.Domain)
+			if service.Mode == rpservice.ModeHTTP {
+				require.NotNil(t, service.HTTPDomain)
+				assert.Equal(t, service.Domain, *service.HTTPDomain)
+			} else {
+				assert.Nil(t, service.HTTPDomain)
+			}
+		}
+		assert.ElementsMatch(t, []string{"http", "tcp", "udp"}, ids)
+		httpService, err := sqlStore.GetHTTPServiceByDomain(ctx, " SHARED.EXAMPLE. ")
+		require.NoError(t, err)
+		assert.Equal(t, "http", httpService.ID, "HTTP lookup must not depend on L4 insertion order")
+
+		_, err = sqlStore.GetServiceByDomain(ctx, "shared.example")
+		require.Error(t, err)
+		sErr, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, status.PreconditionFailed, sErr.Type())
+
+		duplicateHTTP := &rpservice.Service{
+			ID: "http-duplicate", AccountID: account.Id, Name: "web-duplicate",
+			Domain: "SHARED.EXAMPLE.", Mode: rpservice.ModeHTTP,
+		}
+		err = sqlStore.CreateService(ctx, duplicateHTTP)
+		require.Error(t, err, "the nullable unique HTTP ownership key must close create races")
+		sErr, ok = status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, status.AlreadyExists, sErr.Type())
+
+		tcpService, err := sqlStore.GetServiceByID(ctx, LockingStrengthNone, account.Id, "tcp")
+		require.NoError(t, err)
+		tcpService.Mode = rpservice.ModeHTTP
+		tcpService.ListenPort = 0
+		tcpService.PortMappings = nil
+		err = sqlStore.UpdateService(ctx, tcpService)
+		require.Error(t, err)
+		sErr, ok = status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, status.AlreadyExists, sErr.Type())
+
+		persistedTCP, err := sqlStore.GetServiceByID(ctx, LockingStrengthNone, account.Id, "tcp")
+		require.NoError(t, err)
+		assert.Equal(t, rpservice.ModeTCP, persistedTCP.Mode, "failed ownership update must roll back")
+	})
+}
+
+func TestSqlStore_ServiceDomainLockSerializesAbsentHostname(t *testing.T) {
+	if os.Getenv("CI") == "true" && (runtime.GOOS == "darwin" || runtime.GOOS == "windows") {
+		t.Skip("skip CI tests on darwin and windows")
+	}
+
+	runTestForAllEngines(t, "", func(t *testing.T, sqlStore Store) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		firstLocked := make(chan struct{})
+		releaseFirst := make(chan struct{})
+		firstResult := make(chan error, 1)
+		go func() {
+			firstResult <- sqlStore.ExecuteInTransaction(ctx, func(tx Store) error {
+				if err := tx.AcquireServiceDomainLock(ctx, " Lock.Example. "); err != nil {
+					return err
+				}
+				close(firstLocked)
+				select {
+				case <-releaseFirst:
+					return nil
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			})
+		}()
+
+		select {
+		case <-firstLocked:
+		case err := <-firstResult:
+			require.NoError(t, err)
+			t.Fatal("first transaction completed before acquiring the test lock")
+		case <-ctx.Done():
+			t.Fatal("timed out acquiring first domain lock")
+		}
+
+		secondResult := make(chan error, 1)
+		go func() {
+			secondResult <- sqlStore.ExecuteInTransaction(ctx, func(tx Store) error {
+				return tx.AcquireServiceDomainLock(ctx, "lock.example")
+			})
+		}()
+
+		select {
+		case err := <-secondResult:
+			require.NoError(t, err)
+			t.Fatal("second transaction acquired an absent-domain key before the first transaction committed")
+		case <-time.After(100 * time.Millisecond):
+		}
+
+		close(releaseFirst)
+		require.NoError(t, <-firstResult)
+		require.NoError(t, <-secondResult)
+
+		concreteStore, ok := sqlStore.(*SqlStore)
+		require.True(t, ok)
+		var count int64
+		require.NoError(t, concreteStore.db.Model(&rpservice.DomainLock{}).
+			Where("domain = ?", "lock.example").Count(&count).Error)
+		assert.EqualValues(t, 1, count, "canonical aliases must share one durable serialization row")
+	})
+}
+
+func TestSqlStore_GetEphemeralServiceByPeerAndCanonicalDomain(t *testing.T) {
+	if os.Getenv("CI") == "true" && (runtime.GOOS == "darwin" || runtime.GOOS == "windows") {
+		t.Skip("skip CI tests on darwin and windows")
+	}
+
+	runTestForAllEngines(t, "", func(t *testing.T, sqlStore Store) {
+		ctx := context.Background()
+		account := newAccountWithId(ctx, "account_expose_domain", "testuser", "")
+		require.NoError(t, sqlStore.SaveAccount(ctx, account))
+
+		services := []*rpservice.Service{
+			{
+				ID: "permanent", AccountID: account.Id, Name: "permanent", Domain: "expose.example",
+				Mode: rpservice.ModeTCP, Source: rpservice.SourcePermanent, SourcePeer: "peer-a",
+			},
+			{
+				ID: "other-peer", AccountID: account.Id, Name: "other-peer", Domain: "EXPOSE.EXAMPLE.",
+				Mode: rpservice.ModeUDP, Source: rpservice.SourceEphemeral, SourcePeer: "peer-b",
+			},
+			{
+				ID: "wanted", AccountID: account.Id, Name: "wanted", Domain: " Expose.Example. ",
+				Mode: rpservice.ModeTCP, Source: rpservice.SourceEphemeral, SourcePeer: "peer-a",
+			},
+		}
+		for _, service := range services {
+			require.NoError(t, sqlStore.CreateService(ctx, service))
+		}
+
+		got, err := sqlStore.GetEphemeralServiceByPeerAndDomain(
+			ctx,
+			LockingStrengthNone,
+			account.Id,
+			"peer-a",
+			" EXPOSE.EXAMPLE. ",
+		)
+		require.NoError(t, err)
+		assert.Equal(t, "wanted", got.ID)
+		assert.Equal(t, "expose.example", got.Domain)
 	})
 }

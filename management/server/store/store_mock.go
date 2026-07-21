@@ -2210,6 +2210,65 @@ func (mr *MockStoreMockRecorder) GetServiceByDomain(ctx, domain interface{}) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetServiceByDomain", reflect.TypeOf((*MockStore)(nil).GetServiceByDomain), ctx, domain)
 }
 
+// GetHTTPServiceByDomain mocks base method.
+func (m *MockStore) GetHTTPServiceByDomain(ctx context.Context, domain string) (*service.Service, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetHTTPServiceByDomain", ctx, domain)
+	ret0, _ := ret[0].(*service.Service)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetHTTPServiceByDomain indicates an expected call of GetHTTPServiceByDomain.
+func (mr *MockStoreMockRecorder) GetHTTPServiceByDomain(ctx, domain interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetHTTPServiceByDomain", reflect.TypeOf((*MockStore)(nil).GetHTTPServiceByDomain), ctx, domain)
+}
+
+// GetEphemeralServiceByPeerAndDomain mocks base method.
+func (m *MockStore) GetEphemeralServiceByPeerAndDomain(ctx context.Context, lockStrength LockingStrength, accountID, peerID, domain string) (*service.Service, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetEphemeralServiceByPeerAndDomain", ctx, lockStrength, accountID, peerID, domain)
+	ret0, _ := ret[0].(*service.Service)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetEphemeralServiceByPeerAndDomain indicates an expected call of GetEphemeralServiceByPeerAndDomain.
+func (mr *MockStoreMockRecorder) GetEphemeralServiceByPeerAndDomain(ctx, lockStrength, accountID, peerID, domain interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEphemeralServiceByPeerAndDomain", reflect.TypeOf((*MockStore)(nil).GetEphemeralServiceByPeerAndDomain), ctx, lockStrength, accountID, peerID, domain)
+}
+
+// GetServicesByDomain mocks base method.
+func (m *MockStore) GetServicesByDomain(ctx context.Context, lockStrength LockingStrength, domain string) ([]*service.Service, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetServicesByDomain", ctx, lockStrength, domain)
+	ret0, _ := ret[0].([]*service.Service)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetServicesByDomain indicates an expected call of GetServicesByDomain.
+func (mr *MockStoreMockRecorder) GetServicesByDomain(ctx, lockStrength, domain interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetServicesByDomain", reflect.TypeOf((*MockStore)(nil).GetServicesByDomain), ctx, lockStrength, domain)
+}
+
+// AcquireServiceDomainLock mocks base method.
+func (m *MockStore) AcquireServiceDomainLock(ctx context.Context, domain string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AcquireServiceDomainLock", ctx, domain)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AcquireServiceDomainLock indicates an expected call of AcquireServiceDomainLock.
+func (mr *MockStoreMockRecorder) AcquireServiceDomainLock(ctx, domain interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AcquireServiceDomainLock", reflect.TypeOf((*MockStore)(nil).AcquireServiceDomainLock), ctx, domain)
+}
+
 // GetServiceByID mocks base method.
 func (m *MockStore) GetServiceByID(ctx context.Context, lockStrength LockingStrength, accountID, serviceID string) (*service.Service, error) {
 	m.ctrl.T.Helper()

@@ -274,6 +274,10 @@ func (m *Manager) CreateService(ctx context.Context, accountID, userID string, s
 }
 
 func (m *Manager) initializeServiceForCreate(ctx context.Context, accountID string, service *service.Service) error {
+	if err := service.CanonicalizeDomain(); err != nil {
+		return status.Errorf(status.InvalidArgument, "canonicalize service domain: %v", err)
+	}
+
 	if m.clusterDeriver != nil {
 		proxyCluster, err := m.clusterDeriver.DeriveClusterFromDomain(ctx, accountID, service.Domain)
 		if err != nil {
@@ -325,6 +329,9 @@ func (m *Manager) validateSubdomainRequirement(ctx context.Context, domain, clus
 }
 
 func (m *Manager) persistNewService(ctx context.Context, accountID string, svc *service.Service) error {
+	if err := svc.CanonicalizeDomain(); err != nil {
+		return status.Errorf(status.InvalidArgument, "canonicalize service domain: %v", err)
+	}
 	customPorts := m.clusterCustomPorts(ctx, svc)
 
 	if err := validateTargetReferences(ctx, m.store, accountID, svc.Targets); err != nil {
@@ -333,7 +340,10 @@ func (m *Manager) persistNewService(ctx context.Context, accountID string, svc *
 
 	return m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		if svc.Domain != "" {
-			if err := m.checkDomainAvailable(ctx, transaction, svc.Domain, ""); err != nil {
+			if err := transaction.AcquireServiceDomainLock(ctx, svc.Domain); err != nil {
+				return fmt.Errorf("acquire domain lock: %w", err)
+			}
+			if err := m.checkDomainAvailable(ctx, transaction, svc, ""); err != nil {
 				return err
 			}
 		}
@@ -534,6 +544,9 @@ func (m *Manager) assignPort(ctx context.Context, tx store.Store, cluster string
 // The count and exists queries use FOR UPDATE locking to serialize concurrent creates
 // for the same peer, preventing the per-peer limit from being bypassed.
 func (m *Manager) persistNewEphemeralService(ctx context.Context, accountID, peerID string, svc *service.Service) error {
+	if err := svc.CanonicalizeDomain(); err != nil {
+		return status.Errorf(status.InvalidArgument, "canonicalize service domain: %v", err)
+	}
 	customPorts := m.clusterCustomPorts(ctx, svc)
 
 	if err := validateTargetReferences(ctx, m.store, accountID, svc.Targets); err != nil {
@@ -575,7 +588,10 @@ func (m *Manager) validateEphemeralPreconditions(ctx context.Context, transactio
 		return status.Errorf(status.AlreadyExists, "peer already has an active expose session for this domain")
 	}
 
-	if err := m.checkDomainAvailable(ctx, transaction, svc.Domain, ""); err != nil {
+	if err := transaction.AcquireServiceDomainLock(ctx, svc.Domain); err != nil {
+		return fmt.Errorf("acquire domain lock: %w", err)
+	}
+	if err := m.checkDomainAvailable(ctx, transaction, svc, ""); err != nil {
 		return err
 	}
 
@@ -590,21 +606,46 @@ func (m *Manager) validateEphemeralPreconditions(ctx context.Context, transactio
 	return nil
 }
 
-// checkDomainAvailable checks that no other service already uses this domain.
-func (m *Manager) checkDomainAvailable(ctx context.Context, transaction store.Store, domain, excludeServiceID string) error {
-	existingService, err := transaction.GetServiceByDomain(ctx, domain)
+// checkDomainAvailable enforces the hostname ownership rule. HTTP services have
+// one global owner; L4 services may share a hostname and are disambiguated by
+// checkPortConflict using protocol, cluster, port range, and TLS SNI.
+func (m *Manager) checkDomainAvailable(ctx context.Context, transaction store.Store, svc *service.Service, excludeServiceID string) error {
+	existingServices, err := transaction.GetServicesByDomain(ctx, store.LockingStrengthUpdate, svc.Domain)
 	if err != nil {
-		if sErr, ok := status.FromError(err); !ok || sErr.Type() != status.NotFound {
-			return fmt.Errorf("check existing service: %w", err)
-		}
-		return nil
+		return fmt.Errorf("check existing services: %w", err)
 	}
 
-	if existingService != nil && existingService.ID != excludeServiceID {
-		return status.Errorf(status.AlreadyExists, "domain already taken")
+	candidateHTTP := !svc.IsL4()
+	candidateTLS := serviceHasTLSListener(svc)
+	for _, existingService := range existingServices {
+		if existingService.ID == excludeServiceID {
+			continue
+		}
+		if existingService.AccountID != svc.AccountID {
+			return status.Errorf(status.AlreadyExists, "domain is owned by another account")
+		}
+		existingHTTP := !existingService.IsL4()
+		if candidateHTTP && existingHTTP {
+			return status.Errorf(status.AlreadyExists, "domain already has an HTTP service")
+		}
+		if (candidateHTTP && serviceHasTLSListener(existingService)) || (candidateTLS && existingHTTP) {
+			return status.Errorf(status.AlreadyExists, "domain cannot be shared between HTTP and TLS passthrough services")
+		}
 	}
 
 	return nil
+}
+
+func serviceHasTLSListener(svc *service.Service) bool {
+	if svc.Mode == service.ModeTLS {
+		return true
+	}
+	for _, mapping := range svc.PortMappings {
+		if mapping != nil && mapping.Protocol == service.ModeTLS {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *Manager) UpdateService(ctx context.Context, accountID, userID string, service *service.Service) (*service.Service, error) {
@@ -644,6 +685,9 @@ type serviceUpdateInfo struct {
 }
 
 func (m *Manager) persistServiceUpdate(ctx context.Context, accountID string, service *service.Service) (*serviceUpdateInfo, error) {
+	if err := service.CanonicalizeDomain(); err != nil {
+		return nil, status.Errorf(status.InvalidArgument, "canonicalize service domain: %v", err)
+	}
 	effectiveCluster, err := m.resolveEffectiveCluster(ctx, accountID, service)
 	if err != nil {
 		return nil, err
@@ -699,6 +743,11 @@ func (m *Manager) resolveEffectiveCluster(ctx context.Context, accountID string,
 }
 
 func (m *Manager) executeServiceUpdate(ctx context.Context, transaction store.Store, accountID string, service *service.Service, updateInfo *serviceUpdateInfo, customPorts *bool, effectiveCluster string) error {
+	if service.Domain != "" {
+		if err := transaction.AcquireServiceDomainLock(ctx, service.Domain); err != nil {
+			return fmt.Errorf("acquire domain lock: %w", err)
+		}
+	}
 	existingService, err := transaction.GetServiceByID(ctx, store.LockingStrengthUpdate, accountID, service.ID)
 	if err != nil {
 		return err
@@ -724,11 +773,14 @@ func (m *Manager) executeServiceUpdate(ctx context.Context, transaction store.St
 	updateInfo.domainChanged = existingService.Domain != service.Domain
 
 	if updateInfo.domainChanged {
-		if err := m.handleDomainChange(ctx, transaction, service, effectiveCluster); err != nil {
-			return err
+		if effectiveCluster != "" {
+			service.ProxyCluster = effectiveCluster
 		}
 	} else {
 		service.ProxyCluster = existingService.ProxyCluster
+	}
+	if err := m.checkDomainAvailable(ctx, transaction, service, service.ID); err != nil {
+		return err
 	}
 
 	m.preserveExistingAuthSecrets(service, existingService)
@@ -809,21 +861,6 @@ func samePortBasedListeners(a, b []*service.PortMapping) bool {
 		}
 	}
 	return true
-}
-
-// handleDomainChange validates the new domain is free inside the transaction
-// and applies the pre-resolved cluster (computed outside the tx by
-// resolveEffectiveCluster). It must NOT call clusterDeriver here: that talks
-// to the main DB pool and would self-deadlock under SQLite (max_open_conns=1)
-// because the transaction already holds the only connection.
-func (m *Manager) handleDomainChange(ctx context.Context, transaction store.Store, svc *service.Service, effectiveCluster string) error {
-	if err := m.checkDomainAvailable(ctx, transaction, svc.Domain, svc.ID); err != nil {
-		return err
-	}
-	if effectiveCluster != "" {
-		svc.ProxyCluster = effectiveCluster
-	}
-	return nil
 }
 
 // validateProtocolChange rejects mode changes on update.
@@ -1193,6 +1230,10 @@ func (m *Manager) GetAccountServices(ctx context.Context, accountID string) ([]*
 
 func (m *Manager) GetServiceByDomain(ctx context.Context, domain string) (*service.Service, error) {
 	return m.store.GetServiceByDomain(ctx, domain)
+}
+
+func (m *Manager) GetHTTPServiceByDomain(ctx context.Context, domain string) (*service.Service, error) {
+	return m.store.GetHTTPServiceByDomain(ctx, domain)
 }
 
 func (m *Manager) GetServiceIDByTargetID(ctx context.Context, accountID string, resourceID string) (string, error) {
