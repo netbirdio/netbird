@@ -31,8 +31,11 @@ type peerSession struct {
 
 	// initiator side: in-flight ephemeral keypair between offer and answer.
 	initiator *Initiator
-	// responder side: PSK derived on the offer, committed only on the confirm.
+	// responder side: the derived PSK and the answer for this exchange. Both are
+	// retained after establishment so retransmitted offers/confirms (same exchangeID)
+	// are handled idempotently — never re-derive a different key.
 	pendingPSK PSK
+	answer     *AnswerMsg
 }
 
 type Manager struct {
@@ -84,22 +87,33 @@ func (m *Manager) StartExchange(remoteWgKey string) (*OfferMsg, error) {
 
 // HandleOffer processes a received offer as the responder, derives the PSK, and
 // returns the answer to send. The PSK is held pending and NOT returned: the caller
-// must not program it until HandleConfirm.
+// must not program it until HandleConfirm. A retransmitted offer (same exchangeID)
+// returns the cached answer without re-deriving, so both sides keep the same key.
 func (m *Manager) HandleOffer(remoteWgKey string, o *OfferMsg) (*AnswerMsg, error) {
+	m.mu.Lock()
+	if s, ok := m.sessions[remoteWgKey]; ok && s.exchangeID == o.ExchangeID && s.answer != nil {
+		ans := s.answer
+		m.mu.Unlock()
+		return ans, nil
+	}
+	m.mu.Unlock()
+
 	answer, psk, err := Respond(o.KEMOffer, m.binding(remoteWgKey))
 	if err != nil {
 		return nil, err
 	}
+	ansMsg := &AnswerMsg{ExchangeID: o.ExchangeID, KEMAnswer: answer}
 
 	m.mu.Lock()
 	m.sessions[remoteWgKey] = &peerSession{
 		state:      stateAwaitingConfirm,
 		exchangeID: o.ExchangeID,
 		pendingPSK: psk,
+		answer:     ansMsg,
 	}
 	m.mu.Unlock()
 
-	return &AnswerMsg{ExchangeID: o.ExchangeID, KEMAnswer: answer}, nil
+	return ansMsg, nil
 }
 
 // HandleAnswer processes a received answer as the initiator. On success it returns
@@ -131,13 +145,15 @@ func (m *Manager) HandleAnswer(remoteWgKey string, a *AnswerMsg) (PSK, *ConfirmM
 }
 
 // HandleConfirm processes a received confirm as the responder and returns the PSK
-// to commit now. It errors on a stale/unknown confirm so the caller ignores it.
+// to commit now. It is idempotent for the current exchangeID: a retransmitted
+// confirm returns the same PSK again (programming the same PSK is harmless). It
+// errors on a stale/unknown confirm so the caller ignores it.
 func (m *Manager) HandleConfirm(remoteWgKey string, c *ConfirmMsg) (PSK, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	s, ok := m.sessions[remoteWgKey]
-	if !ok || s.state != stateAwaitingConfirm {
+	if !ok || (s.state != stateAwaitingConfirm && s.state != stateEstablished) {
 		return PSK{}, fmt.Errorf("no pending answer for peer %s", remoteWgKey)
 	}
 	if s.exchangeID != c.ExchangeID {
@@ -145,9 +161,7 @@ func (m *Manager) HandleConfirm(remoteWgKey string, c *ConfirmMsg) (PSK, error) 
 	}
 
 	s.state = stateEstablished
-	psk := s.pendingPSK
-	s.pendingPSK = PSK{}
-	return psk, nil
+	return s.pendingPSK, nil
 }
 
 func (m *Manager) binding(remoteWgKey string) Binding {
