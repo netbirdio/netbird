@@ -717,24 +717,27 @@ func (p *ReverseProxy) setUntrustedForwardingHeaders(r *httputil.ProxyRequest, c
 // Cookies()+AddCookie silently strips those cookies and breaks upstream
 // auth flows (redirect loops to /unknown-session, missing sessions, etc.).
 func stripSessionCookie(r *httputil.ProxyRequest) {
-	raw := r.In.Header.Get("Cookie")
-	if raw == "" {
+	// HTTP/2 may send multiple Cookie headers; Header.Get returns only the first.
+	cookieHeaders := r.In.Header.Values("Cookie")
+	if len(cookieHeaders) == 0 {
 		r.Out.Header.Del("Cookie")
 		return
 	}
 
-	parts := strings.Split(raw, ";")
-	kept := make([]string, 0, len(parts))
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
+	var kept []string
+	for _, raw := range cookieHeaders {
+		parts := strings.Split(raw, ";")
+		for _, part := range parts {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			name, _, _ := strings.Cut(part, "=")
+			if name == auth.SessionCookieName {
+				continue
+			}
+			kept = append(kept, part)
 		}
-		name, _, _ := strings.Cut(part, "=")
-		if name == auth.SessionCookieName {
-			continue
-		}
-		kept = append(kept, part)
 	}
 
 	if len(kept) == 0 {
