@@ -45,9 +45,12 @@ func availableProviders() []providerCase {
 		// Messages API under the /anthropic path prefix (the endpoint
 		// Moonshot's Claude Code guide uses). One provider record per shape,
 		// with distinct model strings so model→provider routing stays
-		// unambiguous while both are enabled.
-		ps = append(ps, providerCase{name: "kimi-openai", catalogID: "kimi_api", upstream: "https://api.moonshot.ai", apiKey: k, model: "kimi-k3", kind: harness.WireChat})
-		ps = append(ps, providerCase{name: "kimi-anthropic", catalogID: "kimi_api", upstream: "https://api.moonshot.ai/anthropic", apiKey: k, model: "kimi-k2-thinking", kind: harness.WireMessages})
+		// unambiguous while both are enabled. The /anthropic surface only
+		// serves the current coding flagship (kimi-k3 — requesting
+		// kimi-k2-thinking there returns resource_not_found_error), so K3
+		// rides the Anthropic shape and K2 Thinking the OpenAI shape.
+		ps = append(ps, providerCase{name: "kimi-openai", catalogID: "kimi_api", upstream: "https://api.moonshot.ai", apiKey: k, model: "kimi-k2-thinking", kind: harness.WireChat})
+		ps = append(ps, providerCase{name: "kimi-anthropic", catalogID: "kimi_api", upstream: "https://api.moonshot.ai/anthropic", apiKey: k, model: "kimi-k3", kind: harness.WireMessages})
 	}
 	if k, u := os.Getenv("VERCEL_TOKEN"), os.Getenv("VERCEL_URL"); k != "" && u != "" {
 		ps = append(ps, providerCase{name: "vercel", catalogID: "vercel_ai_gateway", upstream: u, apiKey: k, model: "openai/gpt-4o-mini", kind: harness.WireChat})
