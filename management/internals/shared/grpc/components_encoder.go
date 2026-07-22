@@ -210,6 +210,7 @@ func (e *componentEncoder) encodeGroups() []*proto.GroupCompact {
 		out = append(out, &proto.GroupCompact{
 			Id:          g.PublicID,
 			PeerIndexes: peerIdxs,
+			IsAll:       g.IsGroupAll(),
 		})
 	}
 	return out

@@ -101,11 +101,15 @@ func DecodeEnvelope(env *proto.NetworkMapEnvelope) (*types.NetworkMapComponents,
 				log.WithField("peer idx", idx).Error("unrecognized peer idx during decoding")
 			}
 		}
-		c.Groups[groupID] = &types.Group{
+		group := &types.Group{
 			ID:       groupID,
 			PublicID: gc.Id,
 			Peers:    peerIDs,
 		}
+		if gc.IsAll {
+			group.Name = types.GroupAllName
+		}
+		c.Groups[groupID] = group
 	}
 
 	// Phase 3: policies (PolicyCompact = one rule per entry; current data
