@@ -12,15 +12,18 @@ const (
 	// DefaultRekeyInterval matches WireGuard's own REKEY_AFTER_TIME so the freshly
 	// rotated PSK is naturally adopted by WG's next handshake without forcing one.
 	DefaultRekeyInterval = 2 * time.Minute
-	// DefaultRetryInterval is how often an in-flight exchange retransmits.
+	// DefaultRetryInterval is how often the initiator retransmits its outstanding
+	// message (offer, then confirm) while an exchange is in flight.
 	DefaultRetryInterval = 2 * time.Second
-	// DefaultConvergenceTimeout bounds a single exchange before it is declared failed.
-	DefaultConvergenceTimeout = 20 * time.Second
-	// DefaultMaxRekeyFailures is how many consecutive rekey (non-initial) failures are
-	// tolerated before OnRekeyFailed is raised. The initial exchange fails immediately.
+	// DefaultMaxRetries bounds how many times the offer is retransmitted before the
+	// exchange is declared failed. The convergence deadline is thus derived as
+	// MaxRetries * RetryInterval — there is no separate deadline timer.
+	DefaultMaxRetries = 10
+	// DefaultMaxRekeyFailures is how many consecutive rekey (non-initial) failures
+	// are tolerated before OnRekeyFailed. The initial exchange fails immediately.
 	DefaultMaxRekeyFailures = 3
-	// confirmRetransmits is how many extra times the initiator best-effort resends the
-	// confirm (the exchange's unacked last message) to reduce a stuck responder.
+	// confirmRetransmits is how many times the initiator best-effort resends the
+	// confirm after converging, to cover its loss without a dedicated goroutine.
 	confirmRetransmits = 3
 )
 
@@ -31,18 +34,18 @@ type Transport interface {
 	Send(remoteWgKey string, msg []byte) error
 }
 
-type encodableMsg interface {
-	Encode() ([]byte, error)
-}
-
-// exchangeCtl tracks one in-flight exchange for a peer: its id, the cancel for its
-// retransmit/deadline goroutine, when it started (for convergence latency) and
-// whether it is the peer's first (initial) exchange (which fails hard on timeout).
+// exchangeCtl tracks one in-flight exchange for a peer. A single lastSent holds the
+// message currently being (re)transmitted: for the initiator it is the offer and
+// then, once answered, the confirm; for the responder it is the answer, resent on a
+// duplicate offer. Only the initiator runs a retransmit loop (cancel != nil); the
+// responder is purely reactive.
 type exchangeCtl struct {
 	id        ExchangeID
-	cancel    context.CancelFunc
 	startedAt time.Time
 	isInitial bool
+	lastSent  []byte
+	cancel    context.CancelFunc
+	answered  bool // initiator: the answer arrived; retransmit phase is now the confirm
 }
 
 // Driver ties the pure Manager to the outside world: per-peer rekey timer, inbound
@@ -54,10 +57,10 @@ type Driver struct {
 	wg        WGCallbackHandler
 	logger    *slog.Logger
 
-	rekeyInterval      time.Duration
-	retryInterval      time.Duration
-	convergenceTimeout time.Duration
-	maxRekeyFailures   int
+	rekeyInterval    time.Duration
+	retryInterval    time.Duration
+	maxRetries       int
+	maxRekeyFailures int
 
 	rootCtx    context.Context
 	rootCancel context.CancelFunc
@@ -71,7 +74,7 @@ type Driver struct {
 }
 
 // NewDriver builds a driver for the local peer. A zero interval falls back to
-// DefaultRekeyInterval; a nil logger falls back to slog.Default(). Retry/timeout/K
+// DefaultRekeyInterval; a nil logger falls back to slog.Default(). Retry/retries/K
 // use their defaults and can be overridden on the returned struct before use.
 func NewDriver(localWgKey string, t Transport, h WGCallbackHandler, interval time.Duration, logger *slog.Logger) *Driver {
 	if interval <= 0 {
@@ -82,20 +85,20 @@ func NewDriver(localWgKey string, t Transport, h WGCallbackHandler, interval tim
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Driver{
-		mgr:                NewManager(localWgKey),
-		transport:          t,
-		wg:                 h,
-		logger:             logger,
-		rekeyInterval:      interval,
-		retryInterval:      DefaultRetryInterval,
-		convergenceTimeout: DefaultConvergenceTimeout,
-		maxRekeyFailures:   DefaultMaxRekeyFailures,
-		rootCtx:            ctx,
-		rootCancel:         cancel,
-		peers:              make(map[string]context.CancelFunc),
-		exchanges:          make(map[string]*exchangeCtl),
-		established:        make(map[string]bool),
-		failures:           make(map[string]int),
+		mgr:              NewManager(localWgKey),
+		transport:        t,
+		wg:               h,
+		logger:           logger,
+		rekeyInterval:    interval,
+		retryInterval:    DefaultRetryInterval,
+		maxRetries:       DefaultMaxRetries,
+		maxRekeyFailures: DefaultMaxRekeyFailures,
+		rootCtx:          ctx,
+		rootCancel:       cancel,
+		peers:            make(map[string]context.CancelFunc),
+		exchanges:        make(map[string]*exchangeCtl),
+		established:      make(map[string]bool),
+		failures:         make(map[string]int),
 	}
 }
 
@@ -120,7 +123,9 @@ func (d *Driver) RemovePeer(remoteWgKey string) {
 		delete(d.peers, remoteWgKey)
 	}
 	if ex, ok := d.exchanges[remoteWgKey]; ok {
-		ex.cancel()
+		if ex.cancel != nil {
+			ex.cancel()
+		}
 		delete(d.exchanges, remoteWgKey)
 	}
 	delete(d.established, remoteWgKey)
@@ -145,7 +150,6 @@ func (d *Driver) HandleInbound(remoteWgKey string, raw []byte) error {
 	if err != nil {
 		return fmt.Errorf("decode from %s: %w", remoteWgKey, err)
 	}
-
 	switch typ {
 	case MsgOffer:
 		return d.handleOffer(remoteWgKey, msg.(*OfferMsg))
@@ -156,46 +160,6 @@ func (d *Driver) HandleInbound(remoteWgKey string, raw []byte) error {
 	default:
 		return fmt.Errorf("unhandled message type %d from %s", typ, remoteWgKey)
 	}
-}
-
-func (d *Driver) handleOffer(remoteWgKey string, o *OfferMsg) error {
-	answer, err := d.mgr.HandleOffer(remoteWgKey, o)
-	if err != nil {
-		return err
-	}
-	// Arm a responder exchange (deadline waiting for the confirm) unless one for this
-	// id is already armed — a retransmitted offer just re-sends the same answer.
-	d.armExchange(remoteWgKey, o.ExchangeID, nil)
-	return d.send(remoteWgKey, answer)
-}
-
-func (d *Driver) handleAnswer(remoteWgKey string, a *AnswerMsg) error {
-	psk, confirm, err := d.mgr.HandleAnswer(remoteWgKey, a)
-	if err != nil {
-		return err
-	}
-	if err := d.wg.OnNewPSKReady(remoteWgKey, psk); err != nil {
-		return err
-	}
-	// Initiator has the PSK now -> this side has converged.
-	d.onConverged(remoteWgKey, a.ExchangeID)
-	if err := d.send(remoteWgKey, confirm); err != nil {
-		return err
-	}
-	d.retransmitConfirm(remoteWgKey, confirm)
-	return nil
-}
-
-func (d *Driver) handleConfirm(remoteWgKey string, c *ConfirmMsg) error {
-	psk, err := d.mgr.HandleConfirm(remoteWgKey, c)
-	if err != nil {
-		return err
-	}
-	if err := d.wg.OnNewPSKReady(remoteWgKey, psk); err != nil {
-		return err
-	}
-	d.onConverged(remoteWgKey, c.ExchangeID)
-	return nil
 }
 
 // initiateRekey starts a fresh exchange when the local peer is the initiator for
@@ -213,7 +177,24 @@ func (d *Driver) initiateRekey(remoteWgKey string) error {
 	if err != nil {
 		return err
 	}
-	d.armExchange(remoteWgKey, offer.ExchangeID, raw)
+
+	ctx, cancel := context.WithCancel(d.rootCtx)
+	d.mu.Lock()
+	if old := d.exchanges[remoteWgKey]; old != nil && old.cancel != nil {
+		old.cancel()
+	}
+	d.exchanges[remoteWgKey] = &exchangeCtl{
+		id:        offer.ExchangeID,
+		startedAt: time.Now(),
+		isInitial: !d.established[remoteWgKey],
+		lastSent:  raw,
+		cancel:    cancel,
+	}
+	d.mu.Unlock()
+
+	d.wait.Add(1)
+	go d.initiatorLoop(ctx, remoteWgKey, offer.ExchangeID)
+
 	return d.transport.Send(remoteWgKey, raw)
 }
 
@@ -231,12 +212,4 @@ func (d *Driver) rekeyLoop(ctx context.Context, remoteWgKey string) {
 			}
 		}
 	}
-}
-
-func (d *Driver) send(remoteWgKey string, m encodableMsg) error {
-	raw, err := m.Encode()
-	if err != nil {
-		return err
-	}
-	return d.transport.Send(remoteWgKey, raw)
 }
