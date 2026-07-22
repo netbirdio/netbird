@@ -64,11 +64,42 @@ func (t *Tray) applySessionExpiry(deadline *time.Time, connected bool) bool {
 	return changed
 }
 
-// runSessionExpiryTicker recomputes the "Expires in …" row label every 30s. Runs until process exit.
+// runSessionExpiryTicker recomputes the "Expires in …" row label until process exit.
+// The interval scales with the remaining time: coarse when the deadline is far off,
+// down to 10s in the final two minutes so the label doesn't lag the ceiling-rounded
+// countdown near expiry. The cached deadline is re-read every iteration, so an extend
+// or reconnect that moves it is picked up on the next tick.
 func (t *Tray) runSessionExpiryTicker() {
-	tk := time.NewTicker(30 * time.Second)
-	for range tk.C {
+	tm := time.NewTimer(sessionRefreshInterval(t.sessionRemaining()))
+	defer tm.Stop()
+	for range tm.C {
 		t.refreshSessionExpiresLabel()
+		tm.Reset(sessionRefreshInterval(t.sessionRemaining()))
+	}
+}
+
+// sessionRemaining returns the time left on the cached SSO deadline, or 0 when unknown.
+func (t *Tray) sessionRemaining() time.Duration {
+	t.sessionMu.Lock()
+	deadline := t.sessionExpiresAt
+	t.sessionMu.Unlock()
+	if deadline.IsZero() {
+		return 0
+	}
+	return time.Until(deadline)
+}
+
+// sessionRefreshInterval picks how long to wait before the next label recompute.
+func sessionRefreshInterval(remaining time.Duration) time.Duration {
+	switch {
+	case remaining <= 0:
+		return 30 * time.Second
+	case remaining <= 2*time.Minute:
+		return 10 * time.Second
+	case remaining <= time.Hour:
+		return 30 * time.Second
+	default:
+		return time.Minute
 	}
 }
 
