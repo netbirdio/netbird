@@ -49,8 +49,11 @@ func (m *Manager) GetPeerListener(peerConnID peerid.ConnID) (listener, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	l, exists := m.peers[peerConnID]
-	return l, exists
+	ml, exists := m.peers[peerConnID]
+	if !exists {
+		return nil, false
+	}
+	return ml.l, true
 }
 
 func TestManager_MonitorPeerActivity(t *testing.T) {

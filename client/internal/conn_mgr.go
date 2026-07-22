@@ -176,23 +176,20 @@ func (e *ConnMgr) SetExcludeList(ctx context.Context, peerIDs map[string]bool) {
 	}
 }
 
-func (e *ConnMgr) AddPeerConn(ctx context.Context, peerKey string, conn *peer.Conn) (exists bool) {
+// AddPeerConn registers the conn in the peer store and, in lazy mode, arms the wake endpoint.
+// It starts no connection activity; the caller calls StartPeerConn after registering the peer
+// in the status recorder.
+func (e *ConnMgr) AddPeerConn(peerKey string, conn *peer.Conn) (exists bool) {
 	if success := e.peerStore.AddPeerConn(peerKey, conn); !success {
 		return true
 	}
 
 	if !e.isStartedWithLazyMgr() {
-		if err := conn.Open(ctx); err != nil {
-			conn.Log.Errorf("failed to open connection: %v", err)
-		}
 		return
 	}
 
 	if !lazyconn.IsSupported(conn.AgentVersionString()) {
-		conn.Log.Warnf("peer does not support lazy connection (%s), open permanent connection", conn.AgentVersionString())
-		if err := conn.Open(ctx); err != nil {
-			conn.Log.Errorf("failed to open connection: %v", err)
-		}
+		conn.Log.Warnf("peer does not support lazy connection (%s), will open permanent connection", conn.AgentVersionString())
 		return
 	}
 
@@ -204,23 +201,34 @@ func (e *ConnMgr) AddPeerConn(ctx context.Context, peerKey string, conn *peer.Co
 	}
 	excluded, err := e.lazyConnMgr.AddPeer(lazyPeerCfg)
 	if err != nil {
-		conn.Log.Errorf("failed to add peer to lazyconn manager: %v", err)
-		if err := conn.Open(ctx); err != nil {
-			conn.Log.Errorf("failed to open connection: %v", err)
-		}
+		conn.Log.Errorf("failed to add peer to lazyconn manager, will open permanent connection: %v", err)
 		return
 	}
 
 	if excluded {
-		conn.Log.Infof("peer is on lazy conn manager exclude list, opening connection")
-		if err := conn.Open(ctx); err != nil {
-			conn.Log.Errorf("failed to open connection: %v", err)
-		}
+		conn.Log.Infof("peer is on lazy conn manager exclude list, will open permanent connection")
 		return
 	}
 
 	conn.Log.Infof("peer added to lazy conn manager")
 	return
+}
+
+// StartPeerConn starts the activity prepared by AddPeerConn: lazy wake listening or a
+// permanent connection.
+func (e *ConnMgr) StartPeerConn(ctx context.Context, peerKey string) {
+	conn, ok := e.peerStore.PeerConn(peerKey)
+	if !ok {
+		return
+	}
+
+	if e.isStartedWithLazyMgr() && e.lazyConnMgr.StartPeer(peerKey) {
+		return
+	}
+
+	if err := conn.Open(ctx); err != nil {
+		conn.Log.Errorf("failed to open connection: %v", err)
+	}
 }
 
 func (e *ConnMgr) RemovePeerConn(peerKey string) {

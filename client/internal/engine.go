@@ -1771,16 +1771,20 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 		return fmt.Errorf("create peer connection: %w", err)
 	}
 
+	// Order matters: the WireGuard peer must exist before the peer becomes visible in the
+	// status recorder, and event sources may start only after the recorder registration.
+	if exists := e.connMgr.AddPeerConn(peerKey, conn); exists {
+		conn.Close()
+		return fmt.Errorf("peer already exists: %s", peerKey)
+	}
+
 	peerV4, peerV6 := overlayAddrsFromAllowedIPs(peerConfig.GetAllowedIps(), e.wgInterface.Address().IPv6Net)
 	err = e.statusRecorder.AddPeer(peerKey, peerConfig.Fqdn, addrToString(peerV4), addrToString(peerV6))
 	if err != nil {
 		log.Warnf("error adding peer %s to status recorder, got error: %v", peerKey, err)
 	}
 
-	if exists := e.connMgr.AddPeerConn(e.ctx, peerKey, conn); exists {
-		conn.Close()
-		return fmt.Errorf("peer already exists: %s", peerKey)
-	}
+	e.connMgr.StartPeerConn(e.ctx, peerKey)
 
 	return nil
 }

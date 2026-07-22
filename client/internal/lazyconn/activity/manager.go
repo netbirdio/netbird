@@ -34,12 +34,17 @@ type WgInterface interface {
 	MTU() uint16
 }
 
+type managedListener struct {
+	l       listener
+	started bool
+}
+
 type Manager struct {
 	OnActivityChan chan Event
 
 	wgIface WgInterface
 
-	peers map[peerid.ConnID]listener
+	peers map[peerid.ConnID]*managedListener
 	done  chan struct{}
 
 	mu sync.Mutex
@@ -49,13 +54,24 @@ func NewManager(wgIface WgInterface) *Manager {
 	m := &Manager{
 		OnActivityChan: make(chan Event, 1),
 		wgIface:        wgIface,
-		peers:          make(map[peerid.ConnID]listener),
+		peers:          make(map[peerid.ConnID]*managedListener),
 		done:           make(chan struct{}),
 	}
 	return m
 }
 
+// MonitorPeerActivity creates the peer's activity listener and starts consuming traffic on it.
 func (m *Manager) MonitorPeerActivity(peerCfg lazyconn.PeerConfig) error {
+	if err := m.CreatePeerListener(peerCfg); err != nil {
+		return err
+	}
+	m.StartPeerListener(peerCfg.PeerConnID)
+	return nil
+}
+
+// CreatePeerListener arms the wake endpoint without starting to consume traffic; packets queue
+// in the listener socket until StartPeerListener runs.
+func (m *Manager) CreatePeerListener(peerCfg lazyconn.PeerConfig) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -69,9 +85,21 @@ func (m *Manager) MonitorPeerActivity(peerCfg lazyconn.PeerConfig) error {
 		return err
 	}
 
-	m.peers[peerCfg.PeerConnID] = listener
-	go m.waitForTraffic(listener, peerCfg.PeerConnID)
+	m.peers[peerCfg.PeerConnID] = &managedListener{l: listener}
 	return nil
+}
+
+// StartPeerListener starts consuming traffic on the peer's armed activity listener.
+func (m *Manager) StartPeerListener(peerConnID peerid.ConnID) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	ml, ok := m.peers[peerConnID]
+	if !ok || ml.started {
+		return
+	}
+	ml.started = true
+	go m.waitForTraffic(ml.l, peerConnID)
 }
 
 func (m *Manager) createListener(peerCfg lazyconn.PeerConfig) (listener, error) {
@@ -91,13 +119,13 @@ func (m *Manager) RemovePeer(log *log.Entry, peerConnID peerid.ConnID) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	listener, ok := m.peers[peerConnID]
+	ml, ok := m.peers[peerConnID]
 	if !ok {
 		return
 	}
 	log.Debugf("removing activity listener")
 	delete(m.peers, peerConnID)
-	listener.Close()
+	closeListener(ml)
 }
 
 func (m *Manager) Close() {
@@ -105,10 +133,20 @@ func (m *Manager) Close() {
 	defer m.mu.Unlock()
 
 	close(m.done)
-	for peerID, listener := range m.peers {
+	for peerID, ml := range m.peers {
 		delete(m.peers, peerID)
-		listener.Close()
+		closeListener(ml)
 	}
+}
+
+// closeListener closes the listener. Close waits for the reader goroutine, so for a
+// never-started listener the reader is launched first; outside waitForTraffic it cannot emit events.
+func closeListener(ml *managedListener) {
+	if !ml.started {
+		ml.started = true
+		go ml.l.ReadPackets()
+	}
+	ml.l.Close()
 }
 
 func (m *Manager) waitForTraffic(l listener, peerConnID peerid.ConnID) {
