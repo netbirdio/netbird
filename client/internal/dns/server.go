@@ -48,6 +48,9 @@ const (
 	// envWarningDelay overrides defaultWarningDelayBase with a Go duration
 	// string (e.g. "90s", "2m"). Invalid or non-positive values are ignored.
 	envWarningDelay = "NB_DNS_HEALTH_WARNING_DELAY"
+	// hostCacheFlushCoalesce is the window within which repeated host DNS
+	// cache flush requests collapse into a single flush.
+	hostCacheFlushCoalesce = 5 * time.Second
 )
 
 // errNoUsableNameservers signals that a merged-domain group has no usable
@@ -186,6 +189,12 @@ type DefaultServer struct {
 	// healthRefresh is buffered=1; writers coalesce, senders never block.
 	// See refreshHealth for the lock-order rationale.
 	healthRefresh chan struct{}
+
+	// cacheFlushMu guards lastCacheFlush.
+	cacheFlushMu sync.Mutex
+	// lastCacheFlush is when the host DNS cache was last flushed by the
+	// health projection; used to coalesce bursts of recoveries.
+	lastCacheFlush time.Time
 }
 
 type handlerWithStop interface {
@@ -1117,7 +1126,11 @@ func (s *DefaultServer) projectNSGroupHealth(snap nsHealthSnapshot) {
 // Enabled flag to record in NSGroupState.
 func (s *DefaultServer) projectHealthy(p *nsGroupProj, servers []netip.AddrPort) bool {
 	p.everHealthy = true
+	wasUnhealthy := !p.unhealthySince.IsZero() || p.warningActive
 	p.unhealthySince = time.Time{}
+	if wasUnhealthy {
+		s.flushHostDNSCache()
+	}
 	if !p.warningActive {
 		return true
 	}
@@ -1131,6 +1144,46 @@ func (s *DefaultServer) projectHealthy(p *nsGroupProj, servers []netip.AddrPort)
 	)
 	p.warningActive = false
 	return true
+}
+
+// flushHostDNSCache asks the host manager to drop the OS-level DNS cache,
+// when the platform supports it (currently macOS). While the overlay
+// upstreams for a match domain are unreachable (e.g. right after wake from
+// sleep, before tunnels re-establish), queries can be answered by the
+// public resolvers and the OS caches those answers for their full TTL.
+// Flushing on the unhealthy->healthy transition makes clients pick up the
+// overlay answers again immediately instead of serving stale public ones.
+//
+// Flushes triggered within hostCacheFlushCoalesce of each other coalesce
+// into one, so several groups recovering on the same projection tick cause
+// a single flush.
+func (s *DefaultServer) flushHostDNSCache() {
+	s.mux.Lock()
+	hm := s.hostManager
+	s.mux.Unlock()
+
+	// The assertion targets an unexported method on purpose: every
+	// hostManager implementation lives in this package (host_darwin.go
+	// implements flushDNSCache), so this matches on darwin and is a
+	// no-op everywhere else.
+	flusher, ok := hm.(interface{ flushDNSCache() error })
+	if !ok {
+		return
+	}
+
+	s.cacheFlushMu.Lock()
+	if !s.lastCacheFlush.IsZero() && time.Since(s.lastCacheFlush) < hostCacheFlushCoalesce {
+		s.cacheFlushMu.Unlock()
+		return
+	}
+	s.lastCacheFlush = time.Now()
+	s.cacheFlushMu.Unlock()
+
+	go func() {
+		if err := flusher.flushDNSCache(); err != nil {
+			log.Warnf("failed to flush host DNS cache after upstream recovery: %v", err)
+		}
+	}()
 }
 
 // projectUnhealthy records an unhealthy tick on p, publishes the
