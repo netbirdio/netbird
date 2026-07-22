@@ -234,7 +234,10 @@ func (e *ConnMgr) RemovePeerConn(peerKey string) {
 	if !ok {
 		return
 	}
-	defer conn.Close(false)
+	// Permanent removal: drop the WG peer entry too. The peer is gone for
+	// good and the route-manager's refcounter teardown will release any
+	// AllowedIPs it had appended along the same path.
+	defer conn.Close(false, false)
 
 	if !e.isStartedWithLazyMgr() {
 		return

@@ -285,8 +285,24 @@ func (conn *Conn) open(engineCtx context.Context, firstPacket []byte) error {
 	return nil
 }
 
-// Close closes this peer Conn issuing a close event to the Conn closeCh
-func (conn *Conn) Close(signalToRemote bool) {
+// Close closes this peer Conn issuing a close event to the Conn closeCh.
+//
+// keepWgPeer controls whether the WireGuard peer entry is removed at the
+// iface layer. Pass true on lazy-suspend paths (lazy-mgr deactivate) so
+// that any AllowedIPs the route-manager appended in-place to the peer
+// entry (advertised subnets for a routing peer) survive the wake/sleep
+// cycle. Pass false on permanent-removal paths so the peer is fully
+// dropped from the WG iface.
+//
+// Background: when the peer is also a routing peer, the route-manager's
+// allowedIPsRefCounter calls WgInterface.AddAllowedIP(peerKey, prefix)
+// to extend the peer's AllowedIPs in place. RemovePeer wipes the entire
+// peer entry, so a subsequent lazy-wake re-opens the connection with
+// only the basic peer-IP /32 from the original PeerConfig — the
+// route-manager's refcounter is unaware of the round-trip and does not
+// re-apply the routed prefixes, so traffic to those prefixes is
+// silently dropped by WG until the next mgmt-side reconcile.
+func (conn *Conn) Close(signalToRemote, keepWgPeer bool) {
 	conn.mu.Lock()
 	defer conn.wgWatcherWg.Wait()
 	defer conn.mu.Unlock()
@@ -302,7 +318,7 @@ func (conn *Conn) Close(signalToRemote bool) {
 		}
 	}
 
-	conn.Log.Infof("close peer connection")
+	conn.Log.Infof("close peer connection (keepWgPeer=%v)", keepWgPeer)
 	conn.ctxCancel()
 
 	if conn.wgWatcherCancel != nil {
@@ -329,7 +345,9 @@ func (conn *Conn) Close(signalToRemote bool) {
 		conn.wgProxyICE = nil
 	}
 
-	if err := conn.endpointUpdater.RemoveWgPeer(); err != nil {
+	if keepWgPeer {
+		conn.Log.Debugf("keep WG peer entry across lazy-suspend so route-manager-applied AllowedIPs survive")
+	} else if err := conn.endpointUpdater.RemoveWgPeer(); err != nil {
 		conn.Log.Errorf("failed to remove wg endpoint: %v", err)
 	}
 

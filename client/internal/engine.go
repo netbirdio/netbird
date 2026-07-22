@@ -1860,7 +1860,11 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 	}
 
 	if exists := e.connMgr.AddPeerConn(e.ctx, peerKey, conn); exists {
-		conn.Close(false)
+		// AddPeerConn race-loser cleanup: a different Conn for this peer is
+		// already in the store and owns the WG peer entry. Pass keepWgPeer=
+		// true so this rejected Conn does not tear down the live one's WG
+		// state (including any AllowedIPs the route-manager has appended).
+		conn.Close(false, true)
 		return fmt.Errorf("peer already exists: %s", peerKey)
 	}
 
