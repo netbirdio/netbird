@@ -10,6 +10,7 @@ COPY encryption ./encryption
 COPY flow ./flow
 COPY formatter ./formatter
 COPY monotime ./monotime
+COPY management ./management
 COPY proxy ./proxy
 COPY route ./route
 COPY shared ./shared
