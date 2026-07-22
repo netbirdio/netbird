@@ -77,10 +77,6 @@ func StartProxy(ctx context.Context, c *Combined, proxyToken string) (*Proxy, er
 			// Management is plain HTTP in-cluster, so allow the proxy token to
 			// ride a non-TLS gRPC connection.
 			"NB_PROXY_ALLOW_INSECURE": "true",
-			// Keep the embedded overlay peer eager (see the client env note):
-			// lazy connections leave peers unconnected until traffic, which
-			// starves the harness's WaitProxyPeer.
-			"NB_LAZY_CONN": "false",
 			// The combined server multiplexes the relay over WebSocket on :8080
 			// (no QUIC listener). The proxy's embedded relay client defaults to
 			// QUIC, which fails here and flaps the relay link, churning the
