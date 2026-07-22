@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"net/http"
 	"net/netip"
+	"os"
 	"slices"
 	"time"
 
@@ -82,7 +83,7 @@ func (s *BaseServer) CacheStore() cachestore.StoreInterface {
 
 func (s *BaseServer) Store() store.Store {
 	return Create(s, func() store.Store {
-		store, err := store.NewStore(context.Background(), s.Config.StoreConfig.Engine, s.Config.Datadir, s.Metrics(), false)
+		store, err := store.NewStore(context.Background(), s.Config.StoreConfig.Engine, s.Config.Datadir, s.Metrics(), os.Getenv("NETBIRD_SKIP_MIGRATIONS") == "true")
 		if err != nil {
 			log.Fatalf("failed to create store: %v", err)
 		}

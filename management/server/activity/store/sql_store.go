@@ -62,13 +62,24 @@ func NewSqlStore(ctx context.Context, dataDir string, encryptionKey string) (*St
 		return nil, fmt.Errorf("initialize database: %w", err)
 	}
 
-	if err = migrate(ctx, fieldEncrypt, db); err != nil {
-		return nil, fmt.Errorf("events database migration: %w", err)
-	}
+	// Only honor NETBIRD_SKIP_MIGRATIONS for the Postgres activity store, which
+	// is the one that participates in multi-master logical replication.
+	// A per-node SQLite activity store still needs its schema created on fresh
+	// nodes, so the skip must not apply there.
+	skipMigrations := os.Getenv("NETBIRD_SKIP_MIGRATIONS") == "true" &&
+		os.Getenv(storeEngineEnv) == string(types.PostgresStoreEngine)
 
-	err = db.AutoMigrate(&activity.Event{}, &activity.DeletedUser{})
-	if err != nil {
-		return nil, fmt.Errorf("events auto migrate: %w", err)
+	if !skipMigrations {
+		if err = migrate(ctx, fieldEncrypt, db); err != nil {
+			return nil, fmt.Errorf("events database migration: %w", err)
+		}
+
+		err = db.AutoMigrate(&activity.Event{}, &activity.DeletedUser{})
+		if err != nil {
+			return nil, fmt.Errorf("events auto migrate: %w", err)
+		}
+	} else {
+		log.WithContext(ctx).Info("NETBIRD_SKIP_MIGRATIONS=true and activity store engine is Postgres; skipping events database migration and AutoMigrate/schema updates")
 	}
 
 	return &Store{
