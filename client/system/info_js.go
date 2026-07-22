@@ -14,8 +14,7 @@ func UpdateStaticInfoAsync() {
 	// do nothing
 }
 
-// GetInfo retrieves system information for WASM environment
-func GetInfo(ctx context.Context) *Info {
+func getInfo(ctx context.Context) *Info {
 	info := &Info{
 		GoOS:           runtime.GOOS,
 		Kernel:         runtime.GOARCH,

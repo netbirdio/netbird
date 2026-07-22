@@ -174,6 +174,12 @@ func extractDeviceName(ctx context.Context, defaultName string) string {
 	return v
 }
 
+// GetInfo retrieves system information and applies spoofing overrides if configured.
+func GetInfo(ctx context.Context) *Info {
+	info := getInfo(ctx)
+	return applySpoofing(info)
+}
+
 // GetInfoWithChecks retrieves and parses the system information with applied checks.
 // excludeIPs are dropped from the reported network addresses (e.g. our own
 // WireGuard overlay address, which otherwise churns the peer meta).
@@ -190,12 +196,12 @@ func GetInfoWithChecks(ctx context.Context, checks []*proto.Checks, excludeIPs .
 	}
 	log.Debugf("gathering process check information completed")
 
-	info := GetInfo(ctx)
+	info := getInfo(ctx)
 	info.Files = files
 	info.removeAddresses(excludeIPs...)
 
 	log.Debugf("all system information gathered successfully")
-	return info, nil
+	return applySpoofing(info), nil
 }
 
 // GetInfoWithChecksTimeout is GetInfoWithChecks bounded by timeout. Posture-check gathering

@@ -17,8 +17,7 @@ func UpdateStaticInfoAsync() {
 	// do nothing
 }
 
-// GetInfo retrieves and parses the system information
-func GetInfo(ctx context.Context) *Info {
+func getInfo(ctx context.Context) *Info {
 	kernel := "android"
 	osInfo := uname()
 	if len(osInfo) == 2 {
