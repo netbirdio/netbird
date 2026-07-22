@@ -21,6 +21,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/networks"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
+	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	"github.com/netbirdio/netbird/management/server/networks/routers"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
@@ -72,6 +73,50 @@ func TestDefaultAccountManager_CreateGroup(t *testing.T) {
 			t.Errorf("should not create api group with the same name, %s", group.Name)
 		}
 	}
+}
+
+func TestDefaultAccountManager_CreateGroupWithResources(t *testing.T) {
+	am, _, err := createManager(t)
+	if err != nil {
+		t.Fatalf("failed to create account manager: %s", err)
+	}
+
+	_, account, err := initTestGroupAccount(am)
+	if err != nil {
+		t.Fatalf("failed to init testing account: %s", err)
+	}
+
+	// A group referencing a network resource that does not exist must be rejected
+	// instead of being silently created (issue #3495).
+	groupWithMissingResource := &types.Group{
+		Name:   "group-with-missing-resource",
+		Issued: types.GroupIssuedAPI,
+		Peers:  make([]string, 0),
+		Resources: []types.Resource{
+			{ID: "non-existent-resource", Type: types.ResourceTypeHost},
+		},
+	}
+	err = am.CreateGroup(context.Background(), account.Id, groupAdminUserID, groupWithMissingResource)
+	require.Error(t, err, "creating a group with a non-existent resource should fail")
+	s, ok := status.FromError(err)
+	require.True(t, ok, "expected a management status error")
+	assert.Equal(t, status.NotFound, s.Type())
+
+	// Persisting a real network resource makes the same request succeed.
+	resource, err := resourceTypes.NewNetworkResource(account.Id, "test-network", "test-resource", "", "192.0.2.1", []string{}, true)
+	require.NoError(t, err)
+	require.NoError(t, am.Store.SaveNetworkResource(context.Background(), resource))
+
+	groupWithResource := &types.Group{
+		Name:   "group-with-resource",
+		Issued: types.GroupIssuedAPI,
+		Peers:  make([]string, 0),
+		Resources: []types.Resource{
+			{ID: resource.ID, Type: types.ResourceTypeHost},
+		},
+	}
+	err = am.CreateGroup(context.Background(), account.Id, groupAdminUserID, groupWithResource)
+	require.NoError(t, err, "creating a group with an existing resource should succeed")
 }
 
 func TestDefaultAccountManager_DeleteGroup(t *testing.T) {
