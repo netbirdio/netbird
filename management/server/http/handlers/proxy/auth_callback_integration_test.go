@@ -16,6 +16,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/mux"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
@@ -445,6 +446,10 @@ func (m *testServiceManager) GetServiceByDomain(ctx context.Context, domain stri
 	return m.store.GetServiceByDomain(ctx, domain)
 }
 
+func (m *testServiceManager) GetHTTPServiceByDomain(ctx context.Context, domain string) (*service.Service, error) {
+	return m.store.GetHTTPServiceByDomain(ctx, domain)
+}
+
 func (m *testServiceManager) GetClusters(_ context.Context, _, _ string) ([]nbproxy.Cluster, error) {
 	return nil, nil
 }
@@ -453,6 +458,7 @@ func createTestState(t *testing.T, ps *nbgrpc.ProxyServiceServer, redirectURL st
 	t.Helper()
 
 	resp, err := ps.GetOIDCURL(context.Background(), &proto.GetOIDCURLRequest{
+		Id:          "testProxyId",
 		RedirectUrl: redirectURL,
 		AccountId:   "testAccountId",
 	})
@@ -488,6 +494,55 @@ func TestAuthCallback_UserAllowedToLogin(t *testing.T) {
 	require.Equal(t, "test-proxy.example.com", parsedLocation.Host)
 	require.NotEmpty(t, parsedLocation.Query().Get("session_token"), "Should include session token")
 	require.Empty(t, parsedLocation.Query().Get("error"), "Should not have error parameter")
+}
+
+func TestGetOIDCURL_SharedDomainSelectsCanonicalHTTPOwner(t *testing.T) {
+	setup := setupAuthCallbackTest(t)
+	defer setup.cleanup()
+
+	require.NoError(t, setup.store.CreateService(context.Background(), &service.Service{
+		ID: "shared-l4", AccountID: "testAccountId", Name: "Shared TCP",
+		Domain: "TEST-PROXY.EXAMPLE.COM.", Mode: service.ModeTCP, ListenPort: 1773,
+	}))
+
+	resp, err := setup.proxyService.GetOIDCURL(context.Background(), &proto.GetOIDCURLRequest{
+		Id:          "testProxyId",
+		RedirectUrl: "https://TEST-PROXY.EXAMPLE.COM./dashboard",
+		AccountId:   "testAccountId",
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, resp.GetUrl())
+
+	_, err = setup.proxyService.GetOIDCURL(context.Background(), &proto.GetOIDCURLRequest{
+		Id:          "testProxyId",
+		RedirectUrl: "https://test-proxy.example.com/dashboard",
+		AccountId:   "another-account",
+	})
+	require.ErrorContains(t, err, "service not found in store")
+
+	_, err = setup.proxyService.GetOIDCURL(context.Background(), &proto.GetOIDCURLRequest{
+		Id:          "shared-l4",
+		RedirectUrl: "https://test-proxy.example.com/dashboard",
+		AccountId:   "testAccountId",
+	})
+	require.ErrorContains(t, err, "service not found in store", "an L4 service ID must not authorize the shared HTTP hostname")
+}
+
+func TestGetOIDCURL_RejectsL4OnlyDomain(t *testing.T) {
+	setup := setupAuthCallbackTest(t)
+	defer setup.cleanup()
+
+	require.NoError(t, setup.store.CreateService(context.Background(), &service.Service{
+		ID: "l4-only", AccountID: "testAccountId", Name: "TCP only",
+		Domain: "tcp-only.example.com", Mode: service.ModeTCP, ListenPort: 1984,
+	}))
+
+	_, err := setup.proxyService.GetOIDCURL(context.Background(), &proto.GetOIDCURLRequest{
+		Id:          "l4-only",
+		RedirectUrl: "https://tcp-only.example.com/dashboard",
+		AccountId:   "testAccountId",
+	})
+	require.ErrorContains(t, err, "service not found in store")
 }
 
 func TestAuthCallback_ProxyNotFound(t *testing.T) {

@@ -29,6 +29,7 @@ import (
 
 	"github.com/netbirdio/netbird/shared/management/domain"
 
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
@@ -36,7 +37,6 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/sessionkey"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/users"
 	proxyauth "github.com/netbirdio/netbird/proxy/auth"
@@ -502,10 +502,11 @@ func (s *ProxyServiceServer) registerProxyConnection(ctx context.Context, params
 	var caps *proxy.Capabilities
 	if c := params.capabilities; c != nil {
 		caps = &proxy.Capabilities{
-			SupportsCustomPorts: c.SupportsCustomPorts,
-			RequireSubdomain:    c.RequireSubdomain,
-			SupportsCrowdsec:    c.SupportsCrowdsec,
-			Private:             c.Private,
+			SupportsCustomPorts:  c.SupportsCustomPorts,
+			RequireSubdomain:     c.RequireSubdomain,
+			SupportsCrowdsec:     c.SupportsCrowdsec,
+			Private:              c.Private,
+			SupportsPortMappings: c.SupportsPortMappings,
 		}
 	}
 
@@ -1052,11 +1053,12 @@ func (s *ProxyServiceServer) SendServiceUpdateToCluster(ctx context.Context, upd
 		if conn.accountID != nil && update.AccountId != "" && *conn.accountID != update.AccountId {
 			continue
 		}
-		if !proxyAcceptsMapping(conn, update) {
-			log.WithContext(ctx).Debugf("Skipping proxy %s: does not support custom ports for mapping %s", proxyID, update.Id)
+		connUpdate := filterMappingsForProxy(conn, updateResponse)
+		if connUpdate == nil || len(connUpdate.Mapping) == 0 {
+			log.WithContext(ctx).Debugf("Skipping proxy %s: required mapping capability is unavailable for service %s", proxyID, update.Id)
 			continue
 		}
-		msg := s.perProxyMessage(updateResponse, proxyID)
+		msg := s.perProxyMessage(connUpdate, proxyID)
 		if msg == nil {
 			log.WithContext(ctx).Warnf("Token generation failed for proxy %s in cluster %s, disconnecting to force resync", proxyID, clusterAddr)
 			conn.cancel()
@@ -1073,9 +1075,9 @@ func (s *ProxyServiceServer) SendServiceUpdateToCluster(ctx context.Context, upd
 }
 
 // proxyAcceptsMapping returns whether the proxy can receive this mapping.
-// Private mappings require SupportsPrivateService; custom-port L4 mappings
-// require SupportsCustomPorts. Remove operations always pass so proxies can
-// clean up.
+// Private mappings require SupportsPrivateService, repeated mappings require
+// SupportsPortMappings, and custom-port L4 mappings require
+// SupportsCustomPorts. Remove operations always pass so proxies can clean up.
 func proxyAcceptsMapping(conn *proxyConnection, mapping *proto.ProxyMapping) bool {
 	if mapping.Type == proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED {
 		return true
@@ -1083,6 +1085,12 @@ func proxyAcceptsMapping(conn *proxyConnection, mapping *proto.ProxyMapping) boo
 	if mapping.GetPrivate() {
 		caps := conn.capabilities
 		if caps == nil || caps.SupportsPrivateService == nil || !*caps.SupportsPrivateService {
+			return false
+		}
+	}
+	if len(mapping.GetPortMappings()) > 0 {
+		caps := conn.capabilities
+		if caps == nil || caps.SupportsPortMappings == nil || !*caps.SupportsPortMappings {
 			return false
 		}
 	}
@@ -1095,20 +1103,31 @@ func proxyAcceptsMapping(conn *proxyConnection, mapping *proto.ProxyMapping) boo
 }
 
 // filterMappingsForProxy drops mappings the proxy cannot safely receive
-// (e.g. private mappings to a proxy without SupportsPrivateService).
+// (e.g. private mappings to a proxy without SupportsPrivateService). An
+// unsupported modification is converted to a removal so a proxy that already
+// serves the legacy representation cannot retain stale listener state after
+// the service starts requiring a newer capability.
 // Returns the input unchanged when no filtering is needed.
 func filterMappingsForProxy(conn *proxyConnection, update *proto.GetMappingUpdateResponse) *proto.GetMappingUpdateResponse {
 	if update == nil || len(update.Mapping) == 0 {
 		return update
 	}
 	kept := make([]*proto.ProxyMapping, 0, len(update.Mapping))
+	changed := false
 	for _, m := range update.Mapping {
 		if !proxyAcceptsMapping(conn, m) {
+			changed = true
+			if m.Type == proto.ProxyMappingUpdateType_UPDATE_TYPE_MODIFIED {
+				removed := shallowCloneMapping(m)
+				removed.Type = proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED
+				removed.AuthToken = ""
+				kept = append(kept, removed)
+			}
 			continue
 		}
 		kept = append(kept, m)
 	}
-	if len(kept) == len(update.Mapping) {
+	if !changed {
 		return update
 	}
 	return &proto.GetMappingUpdateResponse{
@@ -1161,6 +1180,7 @@ func shallowCloneMapping(m *proto.ProxyMapping) *proto.ProxyMapping {
 		RewriteRedirects:   m.RewriteRedirects,
 		Mode:               m.Mode,
 		ListenPort:         m.ListenPort,
+		PortMappings:       m.PortMappings,
 		AccessRestrictions: m.AccessRestrictions,
 		Private:            m.Private,
 	}
@@ -1459,20 +1479,15 @@ func (s *ProxyServiceServer) GetOIDCURL(ctx context.Context, req *proto.GetOIDCU
 	if redirectURL.Scheme != "https" && redirectURL.Scheme != "http" {
 		return nil, status.Errorf(codes.InvalidArgument, "redirect URL must use http or https scheme")
 	}
-	// Validate redirectURL against known service endpoints to avoid abuse of OIDC redirection.
-	services, err := s.serviceManager.GetAccountServices(ctx, req.GetAccountId())
+	// Resolve only the canonical HTTP owner (or the existing agent-network
+	// synthesizer fallback) so an L4 row sharing the hostname cannot authorize
+	// an OIDC redirect. Account ownership is checked after global resolution.
+	service, err := s.getServiceByDomain(ctx, redirectURL.Hostname())
 	if err != nil {
-		log.WithContext(ctx).Errorf("failed to get account services: %v", err)
-		return nil, status.Errorf(codes.FailedPrecondition, "get account services: %v", err)
+		log.WithContext(ctx).Debugf("OIDC redirect URL %q does not resolve to an HTTP service: %v", redirectURL.Hostname(), err)
+		return nil, status.Errorf(codes.FailedPrecondition, "service not found in store")
 	}
-	var found bool
-	for _, service := range services {
-		if service.Domain == redirectURL.Hostname() {
-			found = true
-			break
-		}
-	}
-	if !found {
+	if service.AccountID != req.GetAccountId() || req.GetId() == "" || service.ID != req.GetId() {
 		log.WithContext(ctx).Debugf("OIDC redirect URL %q does not match any service domain", redirectURL.Hostname())
 		return nil, status.Errorf(codes.FailedPrecondition, "service not found in store")
 	}
@@ -1661,18 +1676,14 @@ func (s *ProxyServiceServer) ValidateUserGroupAccess(ctx context.Context, domain
 }
 
 func (s *ProxyServiceServer) getAccountServiceByDomain(ctx context.Context, accountID, domain string) (*rpservice.Service, error) {
-	services, err := s.serviceManager.GetAccountServices(ctx, accountID)
+	service, err := s.getServiceByDomain(ctx, domain)
 	if err != nil {
-		return nil, fmt.Errorf("get account services: %w", err)
+		return nil, fmt.Errorf("get HTTP service by domain: %w", err)
 	}
-
-	for _, service := range services {
-		if service.Domain == domain {
-			return service, nil
-		}
+	if service.AccountID != accountID {
+		return nil, fmt.Errorf("service not found for domain %s in account %s", domain, accountID)
 	}
-
-	return nil, fmt.Errorf("service not found for domain %s in account %s", domain, accountID)
+	return service, nil
 }
 
 // ValidateSession validates a session token and checks if the user has access to the domain.
@@ -1793,7 +1804,13 @@ func (s *ProxyServiceServer) ValidateSession(ctx context.Context, req *proto.Val
 }
 
 func (s *ProxyServiceServer) getServiceByDomain(ctx context.Context, domain string) (*rpservice.Service, error) {
-	service, err := s.serviceManager.GetServiceByDomain(ctx, domain)
+	canonical, err := rpservice.CanonicalDomain(domain)
+	if err != nil {
+		return nil, fmt.Errorf("canonicalize service domain: %w", err)
+	}
+	domain = canonical
+
+	service, err := s.serviceManager.GetHTTPServiceByDomain(ctx, domain)
 	if err == nil {
 		return service, nil
 	}

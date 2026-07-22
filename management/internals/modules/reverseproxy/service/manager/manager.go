@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"math/rand/v2"
@@ -274,6 +275,10 @@ func (m *Manager) CreateService(ctx context.Context, accountID, userID string, s
 }
 
 func (m *Manager) initializeServiceForCreate(ctx context.Context, accountID string, service *service.Service) error {
+	if err := service.CanonicalizeDomain(); err != nil {
+		return status.Errorf(status.InvalidArgument, "canonicalize service domain: %v", err)
+	}
+
 	if m.clusterDeriver != nil {
 		proxyCluster, err := m.clusterDeriver.DeriveClusterFromDomain(ctx, accountID, service.Domain)
 		if err != nil {
@@ -325,6 +330,9 @@ func (m *Manager) validateSubdomainRequirement(ctx context.Context, domain, clus
 }
 
 func (m *Manager) persistNewService(ctx context.Context, accountID string, svc *service.Service) error {
+	if err := svc.CanonicalizeDomain(); err != nil {
+		return status.Errorf(status.InvalidArgument, "canonicalize service domain: %v", err)
+	}
 	customPorts := m.clusterCustomPorts(ctx, svc)
 
 	if err := validateTargetReferences(ctx, m.store, accountID, svc.Targets); err != nil {
@@ -333,7 +341,10 @@ func (m *Manager) persistNewService(ctx context.Context, accountID string, svc *
 
 	return m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		if svc.Domain != "" {
-			if err := m.checkDomainAvailable(ctx, transaction, svc.Domain, ""); err != nil {
+			if err := transaction.AcquireServiceDomainLock(ctx, svc.Domain); err != nil {
+				return fmt.Errorf("acquire domain lock: %w", err)
+			}
+			if err := m.checkDomainAvailable(ctx, transaction, svc, ""); err != nil {
 				return err
 			}
 		}
@@ -359,7 +370,7 @@ func (m *Manager) persistNewService(ctx context.Context, accountID string, svc *
 // the main DB handle, which deadlocks when called inside a transaction
 // that already holds the connection.
 func (m *Manager) clusterCustomPorts(ctx context.Context, svc *service.Service) *bool {
-	if !service.IsL4Protocol(svc.Mode) {
+	if !svc.IsL4() {
 		return nil
 	}
 	return m.capabilities.ClusterSupportsCustomPorts(ctx, svc.ProxyCluster)
@@ -368,7 +379,13 @@ func (m *Manager) clusterCustomPorts(ctx context.Context, svc *service.Service) 
 // ensureL4Port auto-assigns a listen port when needed and validates cluster support.
 // customPorts must be pre-computed via clusterCustomPorts before entering a transaction.
 func (m *Manager) ensureL4Port(ctx context.Context, tx store.Store, svc *service.Service, customPorts *bool, serviceUpdate bool) error {
-	if !service.IsL4Protocol(svc.Mode) {
+	if !svc.IsL4() {
+		return nil
+	}
+	if svc.PortMappingsSet {
+		if !serviceUpdate && hasPortBasedMappings(svc.PortMappings) && (customPorts == nil || !*customPorts) {
+			return status.Errorf(status.InvalidArgument, "custom ports not supported on cluster %s", svc.ProxyCluster)
+		}
 		return nil
 	}
 	if service.IsPortBasedProtocol(svc.Mode) && svc.ListenPort > 0 && !serviceUpdate && (customPorts == nil || !*customPorts) {
@@ -385,7 +402,17 @@ func (m *Manager) ensureL4Port(ctx context.Context, tx store.Store, svc *service
 		svc.ListenPort = port
 		svc.PortAutoAssigned = true
 	}
+	svc.PopulatePortMappingsFromLegacy()
 	return nil
+}
+
+func hasPortBasedMappings(mappings []*service.PortMapping) bool {
+	for _, mapping := range mappings {
+		if mapping != nil && service.IsPortBasedProtocol(mapping.Protocol) {
+			return true
+		}
+	}
+	return false
 }
 
 // checkPortConflict rejects L4 services that would conflict on the same listener.
@@ -394,28 +421,88 @@ func (m *Manager) ensureL4Port(ctx context.Context, tx store.Store, svc *service
 // Cross-protocol conflicts (TLS vs raw TCP) are intentionally not checked:
 // the proxy router multiplexes TLS (via SNI) and raw TCP (via fallback) on the same listener.
 func (m *Manager) checkPortConflict(ctx context.Context, transaction store.Store, svc *service.Service) error {
-	if !service.IsL4Protocol(svc.Mode) || svc.ListenPort == 0 {
+	if !svc.IsL4() {
+		return nil
+	}
+	svc.PopulatePortMappingsFromLegacy()
+	if len(svc.PortMappings) == 0 {
 		return nil
 	}
 
+	// Preserve the narrow legacy query for scalar services. Besides avoiding a
+	// full-cluster scan, this keeps compatibility with stores/mocks that only
+	// implement the original one-port lookup. The SQL implementation also
+	// matches ports contained in the additive mapping table.
+	if !svc.RequiresMultiPortCapability() {
+		return checkLegacyPortConflict(ctx, transaction, svc)
+	}
+
+	existing, err := transaction.GetServicesByCluster(ctx, store.LockingStrengthUpdate, svc.ProxyCluster)
+	if err != nil {
+		return fmt.Errorf("query port conflicts: %w", err)
+	}
+	return checkMappedPortConflicts(svc, existing)
+}
+
+func checkLegacyPortConflict(ctx context.Context, transaction store.Store, svc *service.Service) error {
 	existing, err := transaction.GetServicesByClusterAndPort(ctx, store.LockingStrengthUpdate, svc.ProxyCluster, svc.Mode, svc.ListenPort)
 	if err != nil {
 		return fmt.Errorf("query port conflicts: %w", err)
 	}
-	for _, s := range existing {
-		if s.ID == svc.ID {
+	for _, existingService := range existing {
+		if existingService.ID == svc.ID {
 			continue
 		}
-		// TLS services on the same port are allowed if they have different domains (SNI routing)
-		if svc.Mode == service.ModeTLS && s.Domain != svc.Domain {
+		if svc.Mode == service.ModeTLS && existingService.Domain != svc.Domain {
 			continue
 		}
 		return status.Errorf(status.AlreadyExists,
 			"%s port %d is already in use by service %q on cluster %s",
-			svc.Mode, svc.ListenPort, s.Name, svc.ProxyCluster)
+			svc.Mode, svc.ListenPort, existingService.Name, svc.ProxyCluster)
 	}
-
 	return nil
+}
+
+func checkMappedPortConflicts(svc *service.Service, existing []*service.Service) error {
+	for _, existingService := range existing {
+		if existingService.ID == svc.ID {
+			continue
+		}
+		existingService.PopulatePortMappingsFromLegacy()
+		for i, mapping := range svc.PortMappings {
+			for _, occupied := range existingService.PortMappings {
+				if !listenerOwnershipConflicts(svc.Domain, mapping, existingService.Domain, occupied) {
+					continue
+				}
+				if !portRangesOverlap(mapping.ListenPortStart, mapping.ListenPortEnd, occupied.ListenPortStart, occupied.ListenPortEnd) {
+					continue
+				}
+				return status.Errorf(status.AlreadyExists,
+					"port_mappings[%d] %s listener range %d-%d conflicts with service %q range %d-%d on cluster %s",
+					i,
+					mapping.Protocol,
+					mapping.ListenPortStart,
+					mapping.ListenPortEnd,
+					existingService.Name,
+					occupied.ListenPortStart,
+					occupied.ListenPortEnd,
+					svc.ProxyCluster,
+				)
+			}
+		}
+	}
+	return nil
+}
+
+func listenerOwnershipConflicts(domain string, mapping *service.PortMapping, otherDomain string, other *service.PortMapping) bool {
+	if mapping == nil || other == nil || mapping.Protocol != other.Protocol {
+		return false
+	}
+	return mapping.Protocol != service.ModeTLS || domain == otherDomain
+}
+
+func portRangesOverlap(startA, endA, startB, endB uint16) bool {
+	return startA <= endB && startB <= endA
 }
 
 // assignPort picks a random available port on the cluster within the auto-assign range.
@@ -427,8 +514,18 @@ func (m *Manager) assignPort(ctx context.Context, tx store.Store, cluster string
 
 	occupied := make(map[uint16]struct{}, len(services))
 	for _, s := range services {
-		if s.ListenPort > 0 {
+		s.PopulatePortMappingsFromLegacy()
+		if len(s.PortMappings) == 0 && s.ListenPort > 0 {
 			occupied[s.ListenPort] = struct{}{}
+			continue
+		}
+		for _, mapping := range s.PortMappings {
+			if mapping == nil {
+				continue
+			}
+			for port := uint32(mapping.ListenPortStart); port <= uint32(mapping.ListenPortEnd); port++ {
+				occupied[uint16(port)] = struct{}{} //nolint:gosec // mapping ports are uint16
+			}
 		}
 	}
 
@@ -440,7 +537,8 @@ func (m *Manager) assignPort(ctx context.Context, tx store.Store, cluster string
 		}
 	}
 
-	for port := autoAssignPortMin; port <= autoAssignPortMax; port++ {
+	for portValue := uint32(autoAssignPortMin); portValue <= uint32(autoAssignPortMax); portValue++ {
+		port := uint16(portValue) //nolint:gosec // loop is bounded by uint16 configuration
 		if _, taken := occupied[port]; !taken {
 			return port, nil
 		}
@@ -454,6 +552,9 @@ func (m *Manager) assignPort(ctx context.Context, tx store.Store, cluster string
 // The count and exists queries use FOR UPDATE locking to serialize concurrent creates
 // for the same peer, preventing the per-peer limit from being bypassed.
 func (m *Manager) persistNewEphemeralService(ctx context.Context, accountID, peerID string, svc *service.Service) error {
+	if err := svc.CanonicalizeDomain(); err != nil {
+		return status.Errorf(status.InvalidArgument, "canonicalize service domain: %v", err)
+	}
 	customPorts := m.clusterCustomPorts(ctx, svc)
 
 	if err := validateTargetReferences(ctx, m.store, accountID, svc.Targets); err != nil {
@@ -495,7 +596,10 @@ func (m *Manager) validateEphemeralPreconditions(ctx context.Context, transactio
 		return status.Errorf(status.AlreadyExists, "peer already has an active expose session for this domain")
 	}
 
-	if err := m.checkDomainAvailable(ctx, transaction, svc.Domain, ""); err != nil {
+	if err := transaction.AcquireServiceDomainLock(ctx, svc.Domain); err != nil {
+		return fmt.Errorf("acquire domain lock: %w", err)
+	}
+	if err := m.checkDomainAvailable(ctx, transaction, svc, ""); err != nil {
 		return err
 	}
 
@@ -510,21 +614,46 @@ func (m *Manager) validateEphemeralPreconditions(ctx context.Context, transactio
 	return nil
 }
 
-// checkDomainAvailable checks that no other service already uses this domain.
-func (m *Manager) checkDomainAvailable(ctx context.Context, transaction store.Store, domain, excludeServiceID string) error {
-	existingService, err := transaction.GetServiceByDomain(ctx, domain)
+// checkDomainAvailable enforces the hostname ownership rule. HTTP services have
+// one global owner; L4 services may share a hostname and are disambiguated by
+// checkPortConflict using protocol, cluster, port range, and TLS SNI.
+func (m *Manager) checkDomainAvailable(ctx context.Context, transaction store.Store, svc *service.Service, excludeServiceID string) error {
+	existingServices, err := transaction.GetServicesByDomain(ctx, store.LockingStrengthUpdate, svc.Domain)
 	if err != nil {
-		if sErr, ok := status.FromError(err); !ok || sErr.Type() != status.NotFound {
-			return fmt.Errorf("check existing service: %w", err)
-		}
-		return nil
+		return fmt.Errorf("check existing services: %w", err)
 	}
 
-	if existingService != nil && existingService.ID != excludeServiceID {
-		return status.Errorf(status.AlreadyExists, "domain already taken")
+	candidateHTTP := !svc.IsL4()
+	candidateTLS := serviceHasTLSListener(svc)
+	for _, existingService := range existingServices {
+		if existingService.ID == excludeServiceID {
+			continue
+		}
+		if existingService.AccountID != svc.AccountID {
+			return status.Errorf(status.AlreadyExists, "domain is owned by another account")
+		}
+		existingHTTP := !existingService.IsL4()
+		if candidateHTTP && existingHTTP {
+			return status.Errorf(status.AlreadyExists, "domain already has an HTTP service")
+		}
+		if (candidateHTTP && serviceHasTLSListener(existingService)) || (candidateTLS && existingHTTP) {
+			return status.Errorf(status.AlreadyExists, "domain cannot be shared between HTTP and TLS passthrough services")
+		}
 	}
 
 	return nil
+}
+
+func serviceHasTLSListener(svc *service.Service) bool {
+	if svc.Mode == service.ModeTLS {
+		return true
+	}
+	for _, mapping := range svc.PortMappings {
+		if mapping != nil && mapping.Protocol == service.ModeTLS {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *Manager) UpdateService(ctx context.Context, accountID, userID string, service *service.Service) (*service.Service, error) {
@@ -564,6 +693,9 @@ type serviceUpdateInfo struct {
 }
 
 func (m *Manager) persistServiceUpdate(ctx context.Context, accountID string, service *service.Service) (*serviceUpdateInfo, error) {
+	if err := service.CanonicalizeDomain(); err != nil {
+		return nil, status.Errorf(status.InvalidArgument, "canonicalize service domain: %v", err)
+	}
 	effectiveCluster, err := m.resolveEffectiveCluster(ctx, accountID, service)
 	if err != nil {
 		return nil, err
@@ -619,6 +751,11 @@ func (m *Manager) resolveEffectiveCluster(ctx context.Context, accountID string,
 }
 
 func (m *Manager) executeServiceUpdate(ctx context.Context, transaction store.Store, accountID string, service *service.Service, updateInfo *serviceUpdateInfo, customPorts *bool, effectiveCluster string) error {
+	if service.Domain != "" {
+		if err := transaction.AcquireServiceDomainLock(ctx, service.Domain); err != nil {
+			return fmt.Errorf("acquire domain lock: %w", err)
+		}
+	}
 	existingService, err := transaction.GetServiceByID(ctx, store.LockingStrengthUpdate, accountID, service.ID)
 	if err != nil {
 		return err
@@ -627,20 +764,31 @@ func (m *Manager) executeServiceUpdate(ctx context.Context, transaction store.St
 	if existingService.Terminated {
 		return status.Errorf(status.PermissionDenied, "service is terminated and cannot be updated")
 	}
+	if existingService.RequiresMultiPortCapability() && !service.PortMappingsSet {
+		return status.Errorf(status.InvalidArgument, "port_mappings is required when updating an existing multi-port service")
+	}
+	if existingService.IsL4() != service.IsL4() {
+		return status.Errorf(status.InvalidArgument, "changing between HTTP and L4 service modes is not supported")
+	}
 
-	if err := validateProtocolChange(existingService.Mode, service.Mode); err != nil {
-		return err
+	if !service.PortMappingsSet {
+		if err := validateProtocolChange(existingService.Mode, service.Mode); err != nil {
+			return err
+		}
 	}
 
 	updateInfo.oldCluster = existingService.ProxyCluster
 	updateInfo.domainChanged = existingService.Domain != service.Domain
 
 	if updateInfo.domainChanged {
-		if err := m.handleDomainChange(ctx, transaction, service, effectiveCluster); err != nil {
-			return err
+		if effectiveCluster != "" {
+			service.ProxyCluster = effectiveCluster
 		}
 	} else {
 		service.ProxyCluster = existingService.ProxyCluster
+	}
+	if err := m.checkDomainAvailable(ctx, transaction, service, service.ID); err != nil {
+		return err
 	}
 
 	m.preserveExistingAuthSecrets(service, existingService)
@@ -678,7 +826,16 @@ func (m *Manager) executeServiceUpdate(ctx context.Context, transaction store.St
 // It ensures no port changes if custom ports are unsupported for a given cluster and protocol mode.
 // Returns an error if validation fails, otherwise returns nil.
 func validateL4PortDiffOnClusterDiff(customPorts *bool, newSVC, oldSVC *service.Service) error {
-	if !service.IsPortBasedProtocol(newSVC.Mode) || (customPorts != nil && *customPorts) {
+	if (customPorts != nil && *customPorts) || !newSVC.IsL4() {
+		return nil
+	}
+	if newSVC.PortMappingsSet {
+		if samePortBasedListeners(newSVC.PortMappings, oldSVC.PortMappings) {
+			return nil
+		}
+		return status.Errorf(status.InvalidArgument, "custom ports not supported on target cluster %s", newSVC.ProxyCluster)
+	}
+	if !service.IsPortBasedProtocol(newSVC.Mode) {
 		return nil
 	}
 
@@ -689,19 +846,40 @@ func validateL4PortDiffOnClusterDiff(customPorts *bool, newSVC, oldSVC *service.
 	return nil
 }
 
-// handleDomainChange validates the new domain is free inside the transaction
-// and applies the pre-resolved cluster (computed outside the tx by
-// resolveEffectiveCluster). It must NOT call clusterDeriver here: that talks
-// to the main DB pool and would self-deadlock under SQLite (max_open_conns=1)
-// because the transaction already holds the only connection.
-func (m *Manager) handleDomainChange(ctx context.Context, transaction store.Store, svc *service.Service, effectiveCluster string) error {
-	if err := m.checkDomainAvailable(ctx, transaction, svc.Domain, svc.ID); err != nil {
-		return err
+func samePortBasedListeners(a, b []*service.PortMapping) bool {
+	filter := func(mappings []*service.PortMapping) []service.PortMapping {
+		result := make([]service.PortMapping, 0, len(mappings))
+		for _, mapping := range mappings {
+			if mapping != nil && service.IsPortBasedProtocol(mapping.Protocol) {
+				result = append(result, *mapping)
+			}
+		}
+		slices.SortFunc(result, comparePortBasedListeners)
+		return result
 	}
-	if effectiveCluster != "" {
-		svc.ProxyCluster = effectiveCluster
+	left := filter(a)
+	right := filter(b)
+	if len(left) != len(right) {
+		return false
 	}
-	return nil
+	for i := range left {
+		if left[i].Protocol != right[i].Protocol ||
+			left[i].ListenPortStart != right[i].ListenPortStart ||
+			left[i].ListenPortEnd != right[i].ListenPortEnd {
+			return false
+		}
+	}
+	return true
+}
+
+func comparePortBasedListeners(a, b service.PortMapping) int {
+	if order := cmp.Compare(a.Protocol, b.Protocol); order != 0 {
+		return order
+	}
+	if order := cmp.Compare(a.ListenPortStart, b.ListenPortStart); order != 0 {
+		return order
+	}
+	return cmp.Compare(a.ListenPortEnd, b.ListenPortEnd)
 }
 
 // validateProtocolChange rejects mode changes on update.
@@ -775,6 +953,9 @@ func (m *Manager) preserveServiceMetadata(service, existingService *service.Serv
 }
 
 func (m *Manager) preserveListenPort(svc, existing *service.Service) {
+	if svc.PortMappingsSet {
+		return
+	}
 	if existing.ListenPort > 0 && svc.ListenPort == 0 {
 		svc.ListenPort = existing.ListenPort
 		svc.PortAutoAssigned = existing.PortAutoAssigned
@@ -1068,6 +1249,10 @@ func (m *Manager) GetAccountServices(ctx context.Context, accountID string) ([]*
 
 func (m *Manager) GetServiceByDomain(ctx context.Context, domain string) (*service.Service, error) {
 	return m.store.GetServiceByDomain(ctx, domain)
+}
+
+func (m *Manager) GetHTTPServiceByDomain(ctx context.Context, domain string) (*service.Service, error) {
+	return m.store.GetHTTPServiceByDomain(ctx, domain)
 }
 
 func (m *Manager) GetServiceIDByTargetID(ctx context.Context, accountID string, resourceID string) (string, error) {

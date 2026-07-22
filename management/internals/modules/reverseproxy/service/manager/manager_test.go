@@ -48,7 +48,7 @@ func TestInitializeServiceForCreate(t *testing.T) {
 		}
 
 		service := &rpservice.Service{
-			Domain: "example.com",
+			Domain: " Example.COM. ",
 			Auth:   rpservice.AuthConfig{},
 		}
 
@@ -56,6 +56,9 @@ func TestInitializeServiceForCreate(t *testing.T) {
 
 		assert.NoError(t, err)
 		assert.Equal(t, accountID, service.AccountID)
+		assert.Equal(t, "example.com", service.Domain)
+		require.NotNil(t, service.HTTPDomain)
+		assert.Equal(t, service.Domain, *service.HTTPDomain)
 		assert.Empty(t, service.ProxyCluster, "proxy cluster should be empty when no deriver")
 		assert.NotEmpty(t, service.ID, "service ID should be initialized")
 		assert.NotEmpty(t, service.SessionPrivateKey, "session private key should be generated")
@@ -85,68 +88,79 @@ func TestCheckDomainAvailable(t *testing.T) {
 
 	tests := []struct {
 		name             string
-		domain           string
+		candidate        *rpservice.Service
 		excludeServiceID string
-		setupMock        func(*store.MockStore)
-		expectedError    bool
+		existing         []*rpservice.Service
+		storeErr         error
+		wantErr          bool
 		errorType        status.Type
 	}{
 		{
-			name:             "domain available - not found",
-			domain:           "available.com",
-			excludeServiceID: "",
-			setupMock: func(ms *store.MockStore) {
-				ms.EXPECT().
-					GetServiceByDomain(ctx, "available.com").
-					Return(nil, status.Errorf(status.NotFound, "not found"))
-			},
-			expectedError: false,
+			name:      "HTTP domain available",
+			candidate: &rpservice.Service{Domain: "available.com", Mode: rpservice.ModeHTTP},
 		},
 		{
-			name:             "domain already exists",
-			domain:           "exists.com",
-			excludeServiceID: "",
-			setupMock: func(ms *store.MockStore) {
-				ms.EXPECT().
-					GetServiceByDomain(ctx, "exists.com").
-					Return(&rpservice.Service{ID: "existing-id", Domain: "exists.com"}, nil)
-			},
-			expectedError: true,
-			errorType:     status.AlreadyExists,
+			name:      "HTTP owner already exists",
+			candidate: &rpservice.Service{Domain: "exists.com", Mode: rpservice.ModeHTTP},
+			existing:  []*rpservice.Service{{ID: "existing-http", Domain: "exists.com", Mode: rpservice.ModeHTTP}},
+			wantErr:   true,
+			errorType: status.AlreadyExists,
 		},
 		{
-			name:             "domain exists but excluded (same ID)",
-			domain:           "exists.com",
+			name:             "same HTTP owner is excluded on update",
+			candidate:        &rpservice.Service{ID: "service-123", Domain: "exists.com", Mode: rpservice.ModeHTTP},
 			excludeServiceID: "service-123",
-			setupMock: func(ms *store.MockStore) {
-				ms.EXPECT().
-					GetServiceByDomain(ctx, "exists.com").
-					Return(&rpservice.Service{ID: "service-123", Domain: "exists.com"}, nil)
-			},
-			expectedError: false,
+			existing:         []*rpservice.Service{{ID: "service-123", Domain: "exists.com", Mode: rpservice.ModeHTTP}},
 		},
 		{
-			name:             "domain exists with different ID",
-			domain:           "exists.com",
-			excludeServiceID: "service-456",
-			setupMock: func(ms *store.MockStore) {
-				ms.EXPECT().
-					GetServiceByDomain(ctx, "exists.com").
-					Return(&rpservice.Service{ID: "service-123", Domain: "exists.com"}, nil)
+			name:      "HTTP may share domain with L4",
+			candidate: &rpservice.Service{Domain: "shared.com", Mode: rpservice.ModeHTTP},
+			existing: []*rpservice.Service{
+				{ID: "tcp", Domain: "shared.com", Mode: rpservice.ModeTCP},
+				{ID: "udp", Domain: "shared.com", Mode: rpservice.ModeUDP},
 			},
-			expectedError: true,
-			errorType:     status.AlreadyExists,
 		},
 		{
-			name:             "store error (non-NotFound)",
-			domain:           "error.com",
-			excludeServiceID: "",
-			setupMock: func(ms *store.MockStore) {
-				ms.EXPECT().
-					GetServiceByDomain(ctx, "error.com").
-					Return(nil, errors.New("database error"))
+			name:      "L4 may share domain with HTTP and L4",
+			candidate: &rpservice.Service{AccountID: "account-1", Domain: "shared.com", Mode: rpservice.ModeTCP},
+			existing: []*rpservice.Service{
+				{ID: "http", AccountID: "account-1", Domain: "shared.com", Mode: rpservice.ModeHTTP},
+				{ID: "udp", AccountID: "account-1", Domain: "shared.com", Mode: rpservice.ModeUDP},
 			},
-			expectedError: true,
+		},
+		{
+			name:      "shared domain cannot cross account boundary",
+			candidate: &rpservice.Service{AccountID: "account-1", Domain: "shared.com", Mode: rpservice.ModeTCP},
+			existing:  []*rpservice.Service{{ID: "udp", AccountID: "account-2", Domain: "shared.com", Mode: rpservice.ModeUDP}},
+			wantErr:   true,
+			errorType: status.AlreadyExists,
+		},
+		{
+			name:      "HTTP cannot share domain with TLS passthrough",
+			candidate: &rpservice.Service{Domain: "shared.com", Mode: rpservice.ModeHTTP},
+			existing:  []*rpservice.Service{{ID: "tls", Domain: "shared.com", Mode: rpservice.ModeTLS}},
+			wantErr:   true,
+			errorType: status.AlreadyExists,
+		},
+		{
+			name: "mapped TLS cannot share domain with HTTP",
+			candidate: &rpservice.Service{
+				Domain: "shared.com",
+				Mode:   rpservice.ModeTCP,
+				PortMappings: []*rpservice.PortMapping{
+					{Protocol: rpservice.ModeTCP},
+					{Protocol: rpservice.ModeTLS},
+				},
+			},
+			existing:  []*rpservice.Service{{ID: "http", Domain: "shared.com", Mode: rpservice.ModeHTTP}},
+			wantErr:   true,
+			errorType: status.AlreadyExists,
+		},
+		{
+			name:      "store error",
+			candidate: &rpservice.Service{Domain: "error.com", Mode: rpservice.ModeHTTP},
+			storeErr:  errors.New("database error"),
+			wantErr:   true,
 		},
 	}
 
@@ -156,12 +170,14 @@ func TestCheckDomainAvailable(t *testing.T) {
 			defer ctrl.Finish()
 
 			mockStore := store.NewMockStore(ctrl)
-			tt.setupMock(mockStore)
+			mockStore.EXPECT().
+				GetServicesByDomain(ctx, store.LockingStrengthUpdate, tt.candidate.Domain).
+				Return(tt.existing, tt.storeErr)
 
 			mgr := &Manager{}
-			err := mgr.checkDomainAvailable(ctx, mockStore, tt.domain, tt.excludeServiceID)
+			err := mgr.checkDomainAvailable(ctx, mockStore, tt.candidate, tt.excludeServiceID)
 
-			if tt.expectedError {
+			if tt.wantErr {
 				require.Error(t, err)
 				if tt.errorType != 0 {
 					sErr, ok := status.FromError(err)
@@ -173,58 +189,6 @@ func TestCheckDomainAvailable(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestCheckDomainAvailable_EdgeCases(t *testing.T) {
-	ctx := context.Background()
-
-	t.Run("empty domain", func(t *testing.T) {
-		ctrl := gomock.NewController(t)
-		defer ctrl.Finish()
-
-		mockStore := store.NewMockStore(ctrl)
-		mockStore.EXPECT().
-			GetServiceByDomain(ctx, "").
-			Return(nil, status.Errorf(status.NotFound, "not found"))
-
-		mgr := &Manager{}
-		err := mgr.checkDomainAvailable(ctx, mockStore, "", "")
-
-		assert.NoError(t, err)
-	})
-
-	t.Run("empty exclude ID with existing service", func(t *testing.T) {
-		ctrl := gomock.NewController(t)
-		defer ctrl.Finish()
-
-		mockStore := store.NewMockStore(ctrl)
-		mockStore.EXPECT().
-			GetServiceByDomain(ctx, "test.com").
-			Return(&rpservice.Service{ID: "some-id", Domain: "test.com"}, nil)
-
-		mgr := &Manager{}
-		err := mgr.checkDomainAvailable(ctx, mockStore, "test.com", "")
-
-		assert.Error(t, err)
-		sErr, ok := status.FromError(err)
-		require.True(t, ok)
-		assert.Equal(t, status.AlreadyExists, sErr.Type())
-	})
-
-	t.Run("nil existing service with nil error", func(t *testing.T) {
-		ctrl := gomock.NewController(t)
-		defer ctrl.Finish()
-
-		mockStore := store.NewMockStore(ctrl)
-		mockStore.EXPECT().
-			GetServiceByDomain(ctx, "nil.com").
-			Return(nil, nil)
-
-		mgr := &Manager{}
-		err := mgr.checkDomainAvailable(ctx, mockStore, "nil.com", "")
-
-		assert.NoError(t, err)
-	})
 }
 
 func TestPersistNewService(t *testing.T) {
@@ -248,9 +212,10 @@ func TestPersistNewService(t *testing.T) {
 			DoAndReturn(func(ctx context.Context, fn func(store.Store) error) error {
 				// Create another mock for the transaction
 				txMock := store.NewMockStore(ctrl)
+				txMock.EXPECT().AcquireServiceDomainLock(ctx, "new.com").Return(nil)
 				txMock.EXPECT().
-					GetServiceByDomain(ctx, "new.com").
-					Return(nil, status.Errorf(status.NotFound, "not found"))
+					GetServicesByDomain(ctx, store.LockingStrengthUpdate, "new.com").
+					Return(nil, nil)
 				txMock.EXPECT().
 					CreateService(ctx, service).
 					Return(nil)
@@ -279,9 +244,10 @@ func TestPersistNewService(t *testing.T) {
 			ExecuteInTransaction(ctx, gomock.Any()).
 			DoAndReturn(func(ctx context.Context, fn func(store.Store) error) error {
 				txMock := store.NewMockStore(ctrl)
+				txMock.EXPECT().AcquireServiceDomainLock(ctx, "existing.com").Return(nil)
 				txMock.EXPECT().
-					GetServiceByDomain(ctx, "existing.com").
-					Return(&rpservice.Service{ID: "other-id", Domain: "existing.com"}, nil)
+					GetServicesByDomain(ctx, store.LockingStrengthUpdate, "existing.com").
+					Return([]*rpservice.Service{{ID: "other-id", Domain: "existing.com", Mode: rpservice.ModeHTTP}}, nil)
 
 				return fn(txMock)
 			})

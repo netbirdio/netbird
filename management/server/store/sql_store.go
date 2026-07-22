@@ -136,7 +136,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		&types.Account{}, &types.Policy{}, &types.PolicyRule{}, &route.Route{}, &nbdns.NameServerGroup{},
 		&installation{}, &types.ExtraSettings{}, &posture.Checks{}, &nbpeer.NetworkAddress{},
 		&networkTypes.Network{}, &routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{}, &types.AccountOnboarding{},
-		&types.Job{}, &zones.Zone{}, &records.Record{}, &types.UserInviteRecord{}, &rpservice.Service{}, &rpservice.Target{}, &domain.Domain{},
+		&types.Job{}, &zones.Zone{}, &records.Record{}, &types.UserInviteRecord{}, &rpservice.Service{}, &rpservice.Target{}, &rpservice.PortMapping{}, &rpservice.DomainLock{}, &domain.Domain{},
 		&accesslogs.AccessLogEntry{}, &proxy.Proxy{},
 		&agentNetworkTypes.Provider{}, &agentNetworkTypes.Policy{}, &agentNetworkTypes.Guardrail{}, &agentNetworkTypes.Settings{},
 		&agentNetworkTypes.Consumption{}, &agentNetworkTypes.AccountBudgetRule{},
@@ -1184,30 +1184,9 @@ func (s *SqlStore) getAccountGorm(ctx context.Context, accountID string) (*types
 		}
 	}()
 
-	var account types.Account
-	result := s.db.Model(&account).
-		Preload("UsersG.PATsG"). // have to be specified as this is nested reference
-		Preload("Policies.Rules").
-		Preload("SetupKeysG").
-		Preload("PeersG").
-		Preload("UsersG").
-		Preload("GroupsG.GroupPeers").
-		Preload("RoutesG").
-		Preload("NameServerGroupsG").
-		Preload("PostureChecks").
-		Preload("Networks").
-		Preload("NetworkRouters").
-		Preload("NetworkResources").
-		Preload("Onboarding").
-		Preload("Services.Targets").
-		Preload("Domains").
-		Take(&account, idQueryCondition, accountID)
-	if result.Error != nil {
-		log.WithContext(ctx).Errorf("error when getting account %s from the store: %s", accountID, result.Error)
-		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, status.NewAccountNotFoundError(accountID)
-		}
-		return nil, status.NewGetAccountFromStoreError(result.Error)
+	account, err := s.loadAccountGorm(ctx, accountID)
+	if err != nil {
+		return nil, err
 	}
 
 	account.SetupKeys = make(map[string]*types.SetupKey, len(account.SetupKeysG))
@@ -1277,6 +1256,38 @@ func (s *SqlStore) getAccountGorm(ctx context.Context, accountID string) (*types
 		account.NameServerGroups[ns.ID] = &ns
 	}
 	account.NameServerGroupsG = nil
+	return account, nil
+}
+
+func (s *SqlStore) loadAccountGorm(ctx context.Context, accountID string) (*types.Account, error) {
+	var account types.Account
+	result := s.db.Model(&account).
+		Preload("UsersG.PATsG"). // have to be specified as this is nested reference
+		Preload("Policies.Rules").
+		Preload("SetupKeysG").
+		Preload("PeersG").
+		Preload("UsersG").
+		Preload("GroupsG.GroupPeers").
+		Preload("RoutesG").
+		Preload("NameServerGroupsG").
+		Preload("PostureChecks").
+		Preload("Networks").
+		Preload("NetworkRouters").
+		Preload("NetworkResources").
+		Preload("Onboarding").
+		Preload("Services.Targets").
+		Preload("Services.PortMappings", func(tx *gorm.DB) *gorm.DB {
+			return tx.Order("position ASC").Order("id ASC")
+		}).
+		Preload("Domains").
+		Take(&account, idQueryCondition, accountID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("error when getting account %s from the store: %s", accountID, result.Error)
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.NewAccountNotFoundError(accountID)
+		}
+		return nil, status.NewGetAccountFromStoreError(result.Error)
+	}
 	return &account, nil
 }
 
@@ -2247,6 +2258,10 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpserv
 	const targetsQuery = `SELECT id, account_id, service_id, path, host, port, protocol,
 		target_id, target_type, enabled
 		FROM targets WHERE service_id = ANY($1)`
+	const portMappingsQuery = `SELECT id, account_id, service_id, protocol,
+		listen_port_start, listen_port_end, target_port_start, target_port_end, position
+		FROM service_port_mappings WHERE service_id = ANY($1)
+		ORDER BY position, id`
 
 	serviceRows, err := s.pool.Query(ctx, serviceQuery, accountID)
 	if err != nil {
@@ -2345,6 +2360,7 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpserv
 			s.ListenPort = uint16(listenPort.Int64)
 		}
 		s.Targets = []*rpservice.Target{}
+		s.PortMappings = []*rpservice.PortMapping{}
 		return &s, nil
 	})
 	if err != nil {
@@ -2397,6 +2413,36 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpserv
 	for _, target := range targets {
 		if service, ok := serviceMap[target.ServiceID]; ok {
 			service.Targets = append(service.Targets, target)
+		}
+	}
+
+	portMappingRows, err := s.pool.Query(ctx, portMappingsQuery, serviceIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	portMappings, err := pgx.CollectRows(portMappingRows, func(row pgx.CollectableRow) (*rpservice.PortMapping, error) {
+		var mapping rpservice.PortMapping
+		err := row.Scan(
+			&mapping.ID,
+			&mapping.AccountID,
+			&mapping.ServiceID,
+			&mapping.Protocol,
+			&mapping.ListenPortStart,
+			&mapping.ListenPortEnd,
+			&mapping.TargetPortStart,
+			&mapping.TargetPortEnd,
+			&mapping.Position,
+		)
+		return &mapping, err
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	for _, mapping := range portMappings {
+		if service, ok := serviceMap[mapping.ServiceID]; ok {
+			service.PortMappings = append(service.PortMappings, mapping)
 		}
 	}
 
@@ -5212,12 +5258,18 @@ func (s *SqlStore) GetPeerIDByKey(ctx context.Context, lockStrength LockingStren
 
 func (s *SqlStore) CreateService(ctx context.Context, service *rpservice.Service) error {
 	serviceCopy := service.Copy()
+	if err := serviceCopy.CanonicalizeDomain(); err != nil {
+		return status.Errorf(status.InvalidArgument, "canonicalize service domain: %v", err)
+	}
 	if err := serviceCopy.EncryptSensitiveData(s.fieldEncrypt); err != nil {
 		return fmt.Errorf("encrypt service data: %w", err)
 	}
 	result := s.db.Create(serviceCopy)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to create service to store: %v", result.Error)
+		if serviceCopy.HTTPDomain != nil && isHTTPDomainOwnershipConflict(s.db, result.Error) {
+			return status.Errorf(status.AlreadyExists, "domain %s already has an HTTP service", serviceCopy.Domain)
+		}
 		return status.Errorf(status.Internal, "failed to create service to store")
 	}
 
@@ -5226,17 +5278,24 @@ func (s *SqlStore) CreateService(ctx context.Context, service *rpservice.Service
 
 func (s *SqlStore) UpdateService(ctx context.Context, service *rpservice.Service) error {
 	serviceCopy := service.Copy()
+	if err := serviceCopy.CanonicalizeDomain(); err != nil {
+		return status.Errorf(status.InvalidArgument, "canonicalize service domain: %v", err)
+	}
 	if err := serviceCopy.EncryptSensitiveData(s.fieldEncrypt); err != nil {
 		return fmt.Errorf("encrypt service data: %w", err)
 	}
 
 	// Create target type instance outside transaction to avoid variable shadowing
 	targetType := &rpservice.Target{}
+	portMappingType := &rpservice.PortMapping{}
 
 	// Use a transaction to ensure atomic updates of the service and its targets
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		// Delete existing targets
 		if err := tx.Where("service_id = ?", serviceCopy.ID).Delete(targetType).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("service_id = ?", serviceCopy.ID).Delete(portMappingType).Error; err != nil {
 			return err
 		}
 
@@ -5249,6 +5308,9 @@ func (s *SqlStore) UpdateService(ctx context.Context, service *rpservice.Service
 	})
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to update service to store: %v", err)
+		if serviceCopy.HTTPDomain != nil && isHTTPDomainOwnershipConflict(s.db, err) {
+			return status.Errorf(status.AlreadyExists, "domain %s already has an HTTP service", serviceCopy.Domain)
+		}
 		return status.Errorf(status.Internal, "failed to update service to store")
 	}
 
@@ -5256,13 +5318,29 @@ func (s *SqlStore) UpdateService(ctx context.Context, service *rpservice.Service
 }
 
 func (s *SqlStore) DeleteService(ctx context.Context, accountID, serviceID string) error {
-	result := s.db.Delete(&rpservice.Service{}, accountAndIDQueryCondition, accountID, serviceID)
-	if result.Error != nil {
-		log.WithContext(ctx).Errorf("failed to delete service from store: %v", result.Error)
+	var notFound bool
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		result := tx.Delete(&rpservice.Service{}, accountAndIDQueryCondition, accountID, serviceID)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			notFound = true
+			return nil
+		}
+
+		// Keep deletion portable when an existing database was created without
+		// SQLite foreign-key enforcement. On databases with ON DELETE CASCADE,
+		// this is an idempotent zero-row cleanup.
+		return tx.Where("account_id = ? AND service_id = ?", accountID, serviceID).
+			Delete(&rpservice.PortMapping{}).Error
+	})
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to delete service from store: %v", err)
 		return status.Errorf(status.Internal, "failed to delete service from store")
 	}
 
-	if result.RowsAffected == 0 {
+	if notFound {
 		return status.Errorf(status.NotFound, "service %s not found", serviceID)
 	}
 
@@ -5309,8 +5387,16 @@ func (s *SqlStore) GetTargetsByServiceID(ctx context.Context, lockStrength Locki
 	return targets, nil
 }
 
+func preloadServiceAssociations(db *gorm.DB) *gorm.DB {
+	return db.
+		Preload("Targets").
+		Preload("PortMappings", func(tx *gorm.DB) *gorm.DB {
+			return tx.Order("position ASC").Order("id ASC")
+		})
+}
+
 func (s *SqlStore) GetServiceByID(ctx context.Context, lockStrength LockingStrength, accountID, serviceID string) (*rpservice.Service, error) {
-	tx := s.db.Preload("Targets")
+	tx := preloadServiceAssociations(s.db)
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}
@@ -5334,26 +5420,143 @@ func (s *SqlStore) GetServiceByID(ctx context.Context, lockStrength LockingStren
 }
 
 func (s *SqlStore) GetServiceByDomain(ctx context.Context, domain string) (*rpservice.Service, error) {
-	var service *rpservice.Service
-	result := s.db.Preload("Targets").Where("domain = ?", domain).First(&service)
-	if result.Error != nil {
-		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(status.NotFound, "service with domain %s not found", domain)
-		}
+	services, err := s.GetServicesByDomain(ctx, LockingStrengthNone, domain)
+	if err != nil {
+		return nil, err
+	}
+	if len(services) == 0 {
+		return nil, status.Errorf(status.NotFound, "service with domain %s not found", domain)
+	}
+	if len(services) > 1 {
+		return nil, status.Errorf(status.PreconditionFailed, "multiple services use domain %s; resolve by service ID or mode", domain)
+	}
+	return services[0], nil
+}
 
-		log.WithContext(ctx).Errorf("failed to get service by domain from store: %v", result.Error)
-		return nil, status.Errorf(status.Internal, "failed to get service by domain from store")
+// GetHTTPServiceByDomain resolves the unique HTTP owner for a canonical
+// hostname. L4 services sharing Domain are intentionally excluded.
+func (s *SqlStore) GetHTTPServiceByDomain(ctx context.Context, domain string) (*rpservice.Service, error) {
+	canonical, err := rpservice.CanonicalDomain(domain)
+	if err != nil {
+		return nil, status.Errorf(status.InvalidArgument, "canonicalize service domain: %v", err)
 	}
 
+	var service *rpservice.Service
+	result := preloadServiceAssociations(s.db).Where("http_domain = ?", canonical).First(&service)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "HTTP service with domain %s not found", domain)
+		}
+		log.WithContext(ctx).Errorf("failed to get HTTP service by domain from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get HTTP service by domain from store")
+	}
 	if err := service.DecryptSensitiveData(s.fieldEncrypt); err != nil {
 		return nil, fmt.Errorf("decrypt service data: %w", err)
 	}
-
 	return service, nil
 }
 
+// GetEphemeralServiceByPeerAndDomain resolves expose renew/stop requests
+// without selecting a permanent or another peer's same-domain service.
+func (s *SqlStore) GetEphemeralServiceByPeerAndDomain(ctx context.Context, lockStrength LockingStrength, accountID, peerID, domain string) (*rpservice.Service, error) {
+	canonical, err := rpservice.CanonicalDomain(domain)
+	if err != nil {
+		return nil, status.Errorf(status.InvalidArgument, "canonicalize service domain: %v", err)
+	}
+
+	tx := preloadServiceAssociations(s.db)
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+	var service *rpservice.Service
+	result := tx.Where(
+		"account_id = ? AND source_peer = ? AND domain = ? AND source = ?",
+		accountID,
+		peerID,
+		canonical,
+		rpservice.SourceEphemeral,
+	).First(&service)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "active expose service with domain %s not found", domain)
+		}
+		log.WithContext(ctx).Errorf("failed to get ephemeral service by peer and domain: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get active expose service by domain")
+	}
+	if err := service.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+		return nil, fmt.Errorf("decrypt service data: %w", err)
+	}
+	return service, nil
+}
+
+// GetServicesByDomain returns every service sharing the canonical hostname.
+// Callers that need one owner must filter by mode or use a service ID.
+func (s *SqlStore) GetServicesByDomain(ctx context.Context, lockStrength LockingStrength, domain string) ([]*rpservice.Service, error) {
+	canonical, err := rpservice.CanonicalDomain(domain)
+	if err != nil {
+		return nil, status.Errorf(status.InvalidArgument, "canonicalize service domain: %v", err)
+	}
+
+	tx := preloadServiceAssociations(s.db)
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var services []*rpservice.Service
+	if result := tx.Where("domain = ?", canonical).Find(&services); result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get services by domain from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get services by domain from store")
+	}
+
+	for _, service := range services {
+		if err := service.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+			return nil, fmt.Errorf("decrypt service data: %w", err)
+		}
+	}
+	return services, nil
+}
+
+// AcquireServiceDomainLock serializes all ownership and listener validation
+// for one canonical hostname, including when no service row exists yet. It
+// must be called from ExecuteInTransaction before reading services for the
+// hostname. The insert is the write barrier on SQLite; PostgreSQL and MySQL
+// additionally hold a row-level UPDATE lock until the transaction completes.
+func (s *SqlStore) AcquireServiceDomainLock(ctx context.Context, domain string) error {
+	canonical, err := rpservice.CanonicalDomain(domain)
+	if err != nil {
+		return status.Errorf(status.InvalidArgument, "canonicalize service domain: %v", err)
+	}
+	if canonical == "" {
+		return status.Errorf(status.InvalidArgument, "service domain is required")
+	}
+
+	lock := &rpservice.DomainLock{Domain: canonical}
+	if err := s.db.Clauses(clause.OnConflict{DoNothing: true}).Create(lock).Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to reserve reverse-proxy domain lock: %v", err)
+		return status.Errorf(status.Internal, "failed to reserve service domain lock")
+	}
+
+	result := s.db.Clauses(clause.Locking{Strength: string(LockingStrengthUpdate)}).
+		Where("domain = ?", canonical).
+		First(lock)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to acquire reverse-proxy domain lock: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to acquire service domain lock")
+	}
+	return nil
+}
+
+func isHTTPDomainOwnershipConflict(db *gorm.DB, err error) bool {
+	translator, ok := db.Dialector.(gorm.ErrorTranslator)
+	if !ok || !errors.Is(translator.Translate(err), gorm.ErrDuplicatedKey) {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "idx_services_http_domain") || strings.Contains(message, "services.http_domain")
+}
+
 func (s *SqlStore) GetServices(ctx context.Context, lockStrength LockingStrength) ([]*rpservice.Service, error) {
-	tx := s.db.Preload("Targets")
+	tx := preloadServiceAssociations(s.db)
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}
@@ -5375,7 +5578,7 @@ func (s *SqlStore) GetServices(ctx context.Context, lockStrength LockingStrength
 }
 
 func (s *SqlStore) GetAccountServices(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*rpservice.Service, error) {
-	tx := s.db.Preload("Targets")
+	tx := preloadServiceAssociations(s.db)
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}
@@ -5463,10 +5666,14 @@ func (s *SqlStore) CountEphemeralServicesByPeer(ctx context.Context, lockStrengt
 // EphemeralServiceExists checks if an ephemeral service exists for the given peer and domain.
 // Use LockingStrengthUpdate inside a transaction to serialize concurrent create operations.
 func (s *SqlStore) EphemeralServiceExists(ctx context.Context, lockStrength LockingStrength, accountID, peerID, domain string) (bool, error) {
+	canonical, err := rpservice.CanonicalDomain(domain)
+	if err != nil {
+		return false, status.Errorf(status.InvalidArgument, "canonicalize service domain: %v", err)
+	}
 	if lockStrength == LockingStrengthNone {
 		var count int64
 		result := s.db.Model(&rpservice.Service{}).
-			Where("account_id = ? AND source_peer = ? AND domain = ? AND source = ?", accountID, peerID, domain, rpservice.SourceEphemeral).
+			Where("account_id = ? AND source_peer = ? AND domain = ? AND source = ?", accountID, peerID, canonical, rpservice.SourceEphemeral).
 			Count(&count)
 		if result.Error != nil {
 			log.WithContext(ctx).Errorf("failed to check ephemeral service existence: %v", result.Error)
@@ -5479,7 +5686,7 @@ func (s *SqlStore) EphemeralServiceExists(ctx context.Context, lockStrength Lock
 	result := s.db.Model(&rpservice.Service{}).
 		Clauses(clause.Locking{Strength: string(lockStrength)}).
 		Select("id").
-		Where("account_id = ? AND source_peer = ? AND domain = ? AND source = ?", accountID, peerID, domain, rpservice.SourceEphemeral).
+		Where("account_id = ? AND source_peer = ? AND domain = ? AND source = ?", accountID, peerID, canonical, rpservice.SourceEphemeral).
 		Limit(1).
 		Pluck("id", &id)
 	if result.Error != nil {
@@ -5491,13 +5698,24 @@ func (s *SqlStore) EphemeralServiceExists(ctx context.Context, lockStrength Lock
 
 // GetServicesByClusterAndPort returns services matching the given proxy cluster, mode, and listen port.
 func (s *SqlStore) GetServicesByClusterAndPort(ctx context.Context, lockStrength LockingStrength, proxyCluster string, mode string, listenPort uint16) ([]*rpservice.Service, error) {
-	tx := s.db
+	tx := preloadServiceAssociations(s.db)
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}
 
 	var services []*rpservice.Service
-	result := tx.Where("proxy_cluster = ? AND mode = ? AND listen_port = ?", proxyCluster, mode, listenPort).Find(&services)
+	mappedServices := s.db.Model(&rpservice.PortMapping{}).
+		Select("service_id").
+		Where("protocol = ? AND listen_port_start <= ? AND listen_port_end >= ?", mode, listenPort, listenPort)
+	result := tx.
+		Where(
+			"proxy_cluster = ? AND ((mode = ? AND listen_port = ?) OR id IN (?))",
+			proxyCluster,
+			mode,
+			listenPort,
+			mappedServices,
+		).
+		Find(&services)
 	if result.Error != nil {
 		return nil, status.Errorf(status.Internal, "query services by cluster and port")
 	}
@@ -5507,7 +5725,7 @@ func (s *SqlStore) GetServicesByClusterAndPort(ctx context.Context, lockStrength
 
 // GetServicesByCluster returns all services for the given proxy cluster.
 func (s *SqlStore) GetServicesByCluster(ctx context.Context, lockStrength LockingStrength, proxyCluster string) ([]*rpservice.Service, error) {
-	tx := s.db
+	tx := preloadServiceAssociations(s.db)
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}

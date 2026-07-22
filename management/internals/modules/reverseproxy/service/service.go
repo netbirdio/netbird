@@ -20,6 +20,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	"github.com/netbirdio/netbird/shared/hash/argon2id"
+	nbdomain "github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/util/crypt"
 
 	"github.com/netbirdio/netbird/shared/management/http/api"
@@ -128,6 +129,27 @@ type Target struct {
 	ProxyProtocol bool          `json:"proxy_protocol"`
 }
 
+// PortMapping describes an inclusive public listener range translated
+// one-to-one onto an equally sized target range. Position preserves the API
+// array order without making row IDs part of the public contract.
+type PortMapping struct {
+	ID              uint   `gorm:"primaryKey" json:"-"`
+	AccountID       string `gorm:"index:idx_service_port_mapping_account;not null" json:"-"`
+	ServiceID       string `gorm:"index:idx_service_port_mappings;not null" json:"-"`
+	Protocol        string `gorm:"type:varchar(8);index:idx_service_port_mapping_listener,priority:1;not null" json:"protocol"`
+	ListenPortStart uint16 `gorm:"index:idx_service_port_mapping_listener,priority:2;not null" json:"listen_port_start"`
+	ListenPortEnd   uint16 `gorm:"not null" json:"listen_port_end"`
+	TargetPortStart uint16 `gorm:"not null" json:"target_port_start"`
+	TargetPortEnd   uint16 `gorm:"not null" json:"target_port_end"`
+	Position        int    `gorm:"not null;default:0" json:"-"`
+}
+
+// TableName keeps the association name explicit and avoids colliding with
+// unrelated port-mapping concepts.
+func (PortMapping) TableName() string {
+	return "service_port_mappings"
+}
+
 type PasswordAuthConfig struct {
 	Enabled  bool   `json:"enabled"`
 	Password string `json:"password"`
@@ -233,9 +255,11 @@ type Service struct {
 	ID                string `gorm:"primaryKey"`
 	AccountID         string `gorm:"index"`
 	Name              string
-	Domain            string    `gorm:"type:varchar(255);uniqueIndex"`
-	ProxyCluster      string    `gorm:"index"`
-	Targets           []*Target `gorm:"foreignKey:ServiceID;constraint:OnDelete:CASCADE"`
+	Domain            string         `gorm:"type:varchar(255);index:idx_services_domain_lookup"`
+	HTTPDomain        *string        `gorm:"type:varchar(255);uniqueIndex:idx_services_http_domain" json:"-"`
+	ProxyCluster      string         `gorm:"index"`
+	Targets           []*Target      `gorm:"foreignKey:ServiceID;constraint:OnDelete:CASCADE"`
+	PortMappings      []*PortMapping `gorm:"foreignKey:ServiceID;constraint:OnDelete:CASCADE"`
 	Enabled           bool
 	Terminated        bool
 	PassHostHeader    bool
@@ -255,6 +279,25 @@ type Service struct {
 	Private bool
 	// AccessGroups is the group ID allowlist for inbound peers on private services. Mutually exclusive with bearer SSO.
 	AccessGroups []string `json:"access_groups,omitempty" gorm:"serializer:json"`
+	// PortMappingsSet records whether an API request explicitly supplied the
+	// new collection. It is transient and protects multi-port services from
+	// accidental collapse by legacy update clients.
+	PortMappingsSet bool `gorm:"-" json:"-"`
+}
+
+// DomainLock is a durable serialization key for reverse-proxy hostname
+// ownership checks. The row is intentionally retained after services are
+// deleted: keeping a small, append-only set of canonical hostnames lets an
+// absent service set be locked portably on PostgreSQL, MySQL, and SQLite.
+//
+// It contains no tenant data because reverse-proxy hostnames are globally
+// routed and therefore must be serialized across accounts.
+type DomainLock struct {
+	Domain string `gorm:"type:varchar(255);primaryKey"`
+}
+
+func (DomainLock) TableName() string {
+	return "reverse_proxy_domain_locks"
 }
 
 // InitNewRecord generates a new unique ID and resets metadata for a newly created
@@ -266,94 +309,150 @@ func (s *Service) InitNewRecord() {
 		CreatedAt: time.Now(),
 		Status:    string(StatusPending),
 	}
+	s.preparePortMappings()
+}
+
+// IsL4 reports whether the service uses the layer-4 model. PortMappings is
+// checked as well as Mode so partially constructed API requests are handled
+// correctly before their legacy mirror fields are synchronized.
+func (s *Service) IsL4() bool {
+	return len(s.PortMappings) > 0 || IsL4Protocol(s.Mode)
+}
+
+// CanonicalDomain converts a hostname to the lower-case, IDNA ASCII form used
+// for persistence and routing lookups. A single trailing root label is ignored
+// so equivalent FQDN spellings share the same ownership key.
+func CanonicalDomain(value string) (string, error) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	value = strings.TrimSuffix(value, ".")
+	if value == "" {
+		return "", nil
+	}
+
+	d, err := nbdomain.FromString(value)
+	if err != nil {
+		return "", fmt.Errorf("canonicalize domain %q: %w", value, err)
+	}
+	return d.PunycodeString(), nil
+}
+
+// CanonicalizeDomain normalizes Domain and refreshes the nullable ownership
+// key that enforces one HTTP service per hostname at the database layer. L4
+// services intentionally leave HTTPDomain nil so they can share a hostname.
+func (s *Service) CanonicalizeDomain() error {
+	canonical, err := CanonicalDomain(s.Domain)
+	if err != nil {
+		return err
+	}
+	s.Domain = canonical
+	s.refreshHTTPDomain()
+	return nil
+}
+
+func (s *Service) refreshHTTPDomain() {
+	if s.Domain == "" || s.IsL4() {
+		s.HTTPDomain = nil
+		return
+	}
+	value := s.Domain
+	s.HTTPDomain = &value
+}
+
+// PopulatePortMappingsFromLegacy converts a complete scalar L4
+// representation into a one-element collection. It deliberately leaves a
+// legacy auto-assigned listener at zero alone; the manager calls it after
+// choosing the port.
+func (s *Service) PopulatePortMappingsFromLegacy() {
+	if len(s.PortMappings) > 0 || !IsL4Protocol(s.Mode) || s.ListenPort == 0 || len(s.Targets) != 1 || s.Targets[0].Port == 0 {
+		return
+	}
+
+	s.PortMappings = []*PortMapping{{
+		AccountID:       s.AccountID,
+		ServiceID:       s.ID,
+		Protocol:        s.Mode,
+		ListenPortStart: s.ListenPort,
+		ListenPortEnd:   s.ListenPort,
+		TargetPortStart: s.Targets[0].Port,
+		TargetPortEnd:   s.Targets[0].Port,
+	}}
+	s.preparePortMappings()
+}
+
+// syncLegacyFields mirrors the first mapping into the original scalar fields.
+// Those fields remain populated so older clients and proxies retain the
+// existing single-port view. PortMappings is authoritative when present.
+func (s *Service) syncLegacyFields() {
+	if len(s.PortMappings) == 0 || len(s.Targets) == 0 {
+		return
+	}
+
+	first := s.PortMappings[0]
+	s.Mode = first.Protocol
+	s.ListenPort = first.ListenPortStart
+	s.PortAutoAssigned = false
+	s.Targets[0].Port = first.TargetPortStart
+	s.Targets[0].Protocol = targetProtocolForMapping(first.Protocol)
+	s.preparePortMappings()
+}
+
+func (s *Service) preparePortMappings() {
+	for i, mapping := range s.PortMappings {
+		if mapping == nil {
+			continue
+		}
+		mapping.AccountID = s.AccountID
+		mapping.ServiceID = s.ID
+		mapping.Position = i
+	}
+}
+
+func targetProtocolForMapping(protocol string) string {
+	if protocol == ModeUDP {
+		return TargetProtoUDP
+	}
+	return TargetProtoTCP
+}
+
+// RequiresMultiPortCapability reports whether the service cannot be faithfully
+// represented by the legacy scalar fields and first target port.
+func (s *Service) RequiresMultiPortCapability() bool {
+	if len(s.PortMappings) == 0 {
+		return false
+	}
+	if len(s.PortMappings) != 1 {
+		return true
+	}
+	mapping := s.PortMappings[0]
+	if mapping == nil || len(s.Targets) != 1 {
+		return true
+	}
+	return mapping.ListenPortStart != mapping.ListenPortEnd ||
+		mapping.TargetPortStart != mapping.TargetPortEnd ||
+		mapping.Protocol != s.Mode ||
+		mapping.ListenPortStart != s.ListenPort ||
+		mapping.TargetPortStart != s.Targets[0].Port
 }
 
 func (s *Service) ToAPIResponse() *api.Service {
-	authConfig := api.ServiceAuthConfig{}
-
-	if s.Auth.PasswordAuth != nil {
-		authConfig.PasswordAuth = &api.PasswordAuthConfig{
-			Enabled: s.Auth.PasswordAuth.Enabled,
-		}
-	}
-
-	if s.Auth.PinAuth != nil {
-		authConfig.PinAuth = &api.PINAuthConfig{
-			Enabled: s.Auth.PinAuth.Enabled,
-		}
-	}
-
-	if s.Auth.BearerAuth != nil {
-		authConfig.BearerAuth = &api.BearerAuthConfig{
-			Enabled:            s.Auth.BearerAuth.Enabled,
-			DistributionGroups: &s.Auth.BearerAuth.DistributionGroups,
-		}
-	}
-
-	if len(s.Auth.HeaderAuths) > 0 {
-		apiHeaders := make([]api.HeaderAuthConfig, 0, len(s.Auth.HeaderAuths))
-		for _, h := range s.Auth.HeaderAuths {
-			if h == nil {
-				continue
-			}
-			apiHeaders = append(apiHeaders, api.HeaderAuthConfig{
-				Enabled: h.Enabled,
-				Header:  h.Header,
-			})
-		}
-		authConfig.HeaderAuths = &apiHeaders
-	}
-
-	// Convert internal targets to API targets
-	apiTargets := make([]api.ServiceTarget, 0, len(s.Targets))
-	for _, target := range s.Targets {
-		st := api.ServiceTarget{
-			Path:       target.Path,
-			Host:       &target.Host,
-			Port:       int(target.Port),
-			Protocol:   api.ServiceTargetProtocol(target.Protocol),
-			TargetId:   target.TargetId,
-			TargetType: api.ServiceTargetTargetType(target.TargetType),
-			Enabled:    target.Enabled && !s.Terminated,
-		}
-		opts := targetOptionsToAPI(target.Options)
-		if opts == nil {
-			opts = &api.ServiceTargetOptions{}
-		}
-		if target.ProxyProtocol {
-			opts.ProxyProtocol = &target.ProxyProtocol
-		}
-		st.Options = opts
-		apiTargets = append(apiTargets, st)
-	}
-
-	meta := api.ServiceMeta{
-		CreatedAt: s.Meta.CreatedAt,
-		Status:    api.ServiceMetaStatus(s.Meta.Status),
-	}
-
-	if s.Meta.CertificateIssuedAt != nil {
-		meta.CertificateIssuedAt = s.Meta.CertificateIssuedAt
-	}
-
 	mode := api.ServiceMode(s.Mode)
 	listenPort := int(s.ListenPort)
-
 	resp := &api.Service{
 		Id:                 s.ID,
 		Name:               s.Name,
 		Domain:             s.Domain,
-		Targets:            apiTargets,
+		Targets:            serviceTargetsToAPI(s.Targets, s.Terminated),
 		Enabled:            s.Enabled && !s.Terminated,
 		Terminated:         &s.Terminated,
 		PassHostHeader:     &s.PassHostHeader,
 		RewriteRedirects:   &s.RewriteRedirects,
-		Auth:               authConfig,
+		Auth:               serviceAuthToAPI(s.Auth),
 		AccessRestrictions: restrictionsToAPI(s.Restrictions),
-		Meta:               meta,
+		Meta:               serviceMetaToAPI(s.Meta),
 		Mode:               &mode,
 		ListenPort:         &listenPort,
 		PortAutoAssigned:   &s.PortAutoAssigned,
+		PortMappings:       servicePortMappingsToAPI(s),
 		Private:            &s.Private,
 	}
 
@@ -412,6 +511,21 @@ func (s *Service) ToProtoMapping(operation Operation, authToken string, oidcConf
 		Mode:             s.Mode,
 		ListenPort:       int32(s.ListenPort), //nolint:gosec
 		Private:          s.Private,
+	}
+	if s.RequiresMultiPortCapability() {
+		mapping.PortMappings = make([]*proto.ServicePortMapping, 0, len(s.PortMappings))
+		for _, portMapping := range s.PortMappings {
+			if portMapping == nil {
+				continue
+			}
+			mapping.PortMappings = append(mapping.PortMappings, &proto.ServicePortMapping{
+				Protocol:        portMapping.Protocol,
+				ListenPortStart: uint32(portMapping.ListenPortStart),
+				ListenPortEnd:   uint32(portMapping.ListenPortEnd),
+				TargetPortStart: uint32(portMapping.TargetPortStart),
+				TargetPortEnd:   uint32(portMapping.TargetPortEnd),
+			})
+		}
 	}
 
 	if r := restrictionsToProto(s.Restrictions); r != nil {
@@ -517,36 +631,6 @@ func pathRewriteToProto(mode PathRewriteMode) proto.PathRewriteMode {
 	}
 }
 
-func targetOptionsToAPI(opts TargetOptions) *api.ServiceTargetOptions {
-	if !opts.SkipTLSVerify && opts.RequestTimeout == 0 && opts.SessionIdleTimeout == 0 &&
-		opts.PathRewrite == "" && len(opts.CustomHeaders) == 0 && !opts.DirectUpstream {
-		return nil
-	}
-	apiOpts := &api.ServiceTargetOptions{}
-	if opts.SkipTLSVerify {
-		apiOpts.SkipTlsVerify = &opts.SkipTLSVerify
-	}
-	if opts.RequestTimeout != 0 {
-		s := opts.RequestTimeout.String()
-		apiOpts.RequestTimeout = &s
-	}
-	if opts.SessionIdleTimeout != 0 {
-		s := opts.SessionIdleTimeout.String()
-		apiOpts.SessionIdleTimeout = &s
-	}
-	if opts.PathRewrite != "" {
-		pr := api.ServiceTargetOptionsPathRewrite(opts.PathRewrite)
-		apiOpts.PathRewrite = &pr
-	}
-	if len(opts.CustomHeaders) > 0 {
-		apiOpts.CustomHeaders = &opts.CustomHeaders
-	}
-	if opts.DirectUpstream {
-		apiOpts.DirectUpstream = &opts.DirectUpstream
-	}
-	return apiOpts
-}
-
 func targetOptionsToProto(opts TargetOptions) *proto.PathTargetOptions {
 	if !opts.SkipTLSVerify && opts.PathRewrite == "" && opts.RequestTimeout == 0 &&
 		len(opts.CustomHeaders) == 0 && !opts.DirectUpstream &&
@@ -635,208 +719,6 @@ func l4TargetOptionsToProto(target *Target) *proto.PathTargetOptions {
 	return opts
 }
 
-func targetOptionsFromAPI(idx int, o *api.ServiceTargetOptions) (TargetOptions, error) {
-	var opts TargetOptions
-	if o.SkipTlsVerify != nil {
-		opts.SkipTLSVerify = *o.SkipTlsVerify
-	}
-	if o.RequestTimeout != nil {
-		d, err := time.ParseDuration(*o.RequestTimeout)
-		if err != nil {
-			return opts, fmt.Errorf("target %d: parse request_timeout %q: %w", idx, *o.RequestTimeout, err)
-		}
-		opts.RequestTimeout = d
-	}
-	if o.SessionIdleTimeout != nil {
-		d, err := time.ParseDuration(*o.SessionIdleTimeout)
-		if err != nil {
-			return opts, fmt.Errorf("target %d: parse session_idle_timeout %q: %w", idx, *o.SessionIdleTimeout, err)
-		}
-		opts.SessionIdleTimeout = d
-	}
-	if o.PathRewrite != nil {
-		opts.PathRewrite = PathRewriteMode(*o.PathRewrite)
-	}
-	if o.CustomHeaders != nil {
-		opts.CustomHeaders = *o.CustomHeaders
-	}
-	if o.DirectUpstream != nil {
-		opts.DirectUpstream = *o.DirectUpstream
-	}
-	return opts, nil
-}
-
-func (s *Service) FromAPIRequest(req *api.ServiceRequest, accountID string) error {
-	s.Name = req.Name
-	s.Domain = req.Domain
-	s.AccountID = accountID
-
-	if req.Mode != nil {
-		s.Mode = string(*req.Mode)
-	}
-	if req.ListenPort != nil {
-		s.ListenPort = uint16(*req.ListenPort) //nolint:gosec
-	}
-	if req.Private != nil {
-		s.Private = *req.Private
-	}
-	if req.AccessGroups != nil {
-		s.AccessGroups = append([]string(nil), *req.AccessGroups...)
-	} else {
-		s.AccessGroups = nil
-	}
-
-	targets, err := targetsFromAPI(accountID, req.Targets)
-	if err != nil {
-		return err
-	}
-	s.Targets = targets
-	s.Enabled = req.Enabled
-
-	if req.PassHostHeader != nil {
-		s.PassHostHeader = *req.PassHostHeader
-	}
-	if req.RewriteRedirects != nil {
-		s.RewriteRedirects = *req.RewriteRedirects
-	}
-
-	if req.Auth != nil {
-		s.Auth = authFromAPI(req.Auth)
-	}
-
-	if req.AccessRestrictions != nil {
-		restrictions, err := restrictionsFromAPI(req.AccessRestrictions)
-		if err != nil {
-			return err
-		}
-		s.Restrictions = restrictions
-	}
-
-	return nil
-}
-
-func targetsFromAPI(accountID string, apiTargetsPtr *[]api.ServiceTarget) ([]*Target, error) {
-	var apiTargets []api.ServiceTarget
-	if apiTargetsPtr != nil {
-		apiTargets = *apiTargetsPtr
-	}
-
-	targets := make([]*Target, 0, len(apiTargets))
-	for i, apiTarget := range apiTargets {
-		target := &Target{
-			AccountID:  accountID,
-			Path:       apiTarget.Path,
-			Port:       uint16(apiTarget.Port), //nolint:gosec // validated by API layer
-			Protocol:   string(apiTarget.Protocol),
-			TargetId:   apiTarget.TargetId,
-			TargetType: TargetType(apiTarget.TargetType),
-			Enabled:    apiTarget.Enabled,
-		}
-		if apiTarget.Host != nil {
-			target.Host = *apiTarget.Host
-		}
-		if apiTarget.Options != nil {
-			opts, err := targetOptionsFromAPI(i, apiTarget.Options)
-			if err != nil {
-				return nil, err
-			}
-			target.Options = opts
-			if apiTarget.Options.ProxyProtocol != nil {
-				target.ProxyProtocol = *apiTarget.Options.ProxyProtocol
-			}
-		}
-		targets = append(targets, target)
-	}
-	return targets, nil
-}
-
-func authFromAPI(reqAuth *api.ServiceAuthConfig) AuthConfig {
-	var auth AuthConfig
-	if reqAuth.PasswordAuth != nil {
-		auth.PasswordAuth = &PasswordAuthConfig{
-			Enabled:  reqAuth.PasswordAuth.Enabled,
-			Password: reqAuth.PasswordAuth.Password,
-		}
-	}
-	if reqAuth.PinAuth != nil {
-		auth.PinAuth = &PINAuthConfig{
-			Enabled: reqAuth.PinAuth.Enabled,
-			Pin:     reqAuth.PinAuth.Pin,
-		}
-	}
-	if reqAuth.BearerAuth != nil {
-		bearerAuth := &BearerAuthConfig{
-			Enabled: reqAuth.BearerAuth.Enabled,
-		}
-		if reqAuth.BearerAuth.DistributionGroups != nil {
-			bearerAuth.DistributionGroups = *reqAuth.BearerAuth.DistributionGroups
-		}
-		auth.BearerAuth = bearerAuth
-	}
-	if reqAuth.HeaderAuths != nil {
-		for _, h := range *reqAuth.HeaderAuths {
-			auth.HeaderAuths = append(auth.HeaderAuths, &HeaderAuthConfig{
-				Enabled: h.Enabled,
-				Header:  h.Header,
-				Value:   h.Value,
-			})
-		}
-	}
-	return auth
-}
-
-func restrictionsFromAPI(r *api.AccessRestrictions) (AccessRestrictions, error) {
-	if r == nil {
-		return AccessRestrictions{}, nil
-	}
-	var res AccessRestrictions
-	if r.AllowedCidrs != nil {
-		res.AllowedCIDRs = *r.AllowedCidrs
-	}
-	if r.BlockedCidrs != nil {
-		res.BlockedCIDRs = *r.BlockedCidrs
-	}
-	if r.AllowedCountries != nil {
-		res.AllowedCountries = *r.AllowedCountries
-	}
-	if r.BlockedCountries != nil {
-		res.BlockedCountries = *r.BlockedCountries
-	}
-	if r.CrowdsecMode != nil {
-		if !r.CrowdsecMode.Valid() {
-			return AccessRestrictions{}, fmt.Errorf("invalid crowdsec_mode %q", *r.CrowdsecMode)
-		}
-		res.CrowdSecMode = string(*r.CrowdsecMode)
-	}
-	return res, nil
-}
-
-func restrictionsToAPI(r AccessRestrictions) *api.AccessRestrictions {
-	if len(r.AllowedCIDRs) == 0 && len(r.BlockedCIDRs) == 0 &&
-		len(r.AllowedCountries) == 0 && len(r.BlockedCountries) == 0 &&
-		r.CrowdSecMode == "" {
-		return nil
-	}
-	res := &api.AccessRestrictions{}
-	if len(r.AllowedCIDRs) > 0 {
-		res.AllowedCidrs = &r.AllowedCIDRs
-	}
-	if len(r.BlockedCIDRs) > 0 {
-		res.BlockedCidrs = &r.BlockedCIDRs
-	}
-	if len(r.AllowedCountries) > 0 {
-		res.AllowedCountries = &r.AllowedCountries
-	}
-	if len(r.BlockedCountries) > 0 {
-		res.BlockedCountries = &r.BlockedCountries
-	}
-	if r.CrowdSecMode != "" {
-		mode := api.AccessRestrictionsCrowdsecMode(r.CrowdSecMode)
-		res.CrowdsecMode = &mode
-	}
-	return res
-}
-
 func restrictionsToProto(r AccessRestrictions) *proto.AccessRestrictions {
 	if len(r.AllowedCIDRs) == 0 && len(r.BlockedCIDRs) == 0 &&
 		len(r.AllowedCountries) == 0 && len(r.BlockedCountries) == 0 &&
@@ -863,6 +745,12 @@ func (s *Service) Validate() error {
 	if len(s.Targets) == 0 {
 		return errors.New("at least one target is required")
 	}
+	if len(s.PortMappings) > 0 {
+		if s.PortMappings[0] == nil {
+			return errors.New("port_mappings[0] must not be null")
+		}
+		s.syncLegacyFields()
+	}
 
 	if s.Mode == "" {
 		s.Mode = ModeHTTP
@@ -877,17 +765,116 @@ func (s *Service) Validate() error {
 	if err := s.validatePrivateRequirements(); err != nil {
 		return err
 	}
+	if len(s.PortMappings) > 0 {
+		return s.validatePortMappedL4Mode()
+	}
 
+	var err error
 	switch s.Mode {
 	case ModeHTTP:
-		return s.validateHTTPMode()
+		err = s.validateHTTPMode()
 	case ModeTCP, ModeUDP:
-		return s.validateTCPUDPMode()
+		err = s.validateTCPUDPMode()
 	case ModeTLS:
-		return s.validateTLSMode()
+		err = s.validateTLSMode()
 	default:
 		return fmt.Errorf("unsupported mode %q", s.Mode)
 	}
+	if err == nil {
+		s.PopulatePortMappingsFromLegacy()
+	}
+	return err
+}
+
+func (s *Service) validatePortMappedL4Mode() error {
+	if s.Domain == "" {
+		return errors.New("domain is required for L4 services (used for cluster derivation and TLS SNI)")
+	}
+	if s.isAuthEnabled() {
+		return errors.New("auth is not supported for L4 services")
+	}
+	if len(s.Targets) != 1 {
+		return errors.New("L4 services with port_mappings must have exactly one target")
+	}
+	if err := validatePortMappings(s.PortMappings); err != nil {
+		return err
+	}
+	if s.Targets[0].ProxyProtocol {
+		hasTCP := false
+		for _, mapping := range s.PortMappings {
+			if mapping.Protocol == ModeTCP || mapping.Protocol == ModeTLS {
+				hasTCP = true
+				break
+			}
+		}
+		if !hasTCP {
+			return errors.New("proxy_protocol is not supported for UDP-only services")
+		}
+	}
+	return s.validateL4Target(s.Targets[0])
+}
+
+func validatePortMappings(mappings []*PortMapping) error {
+	if len(mappings) == 0 {
+		return errors.New("port_mappings must contain at least one mapping")
+	}
+
+	for i, mapping := range mappings {
+		if mapping == nil {
+			return fmt.Errorf("port_mappings[%d] must not be null", i)
+		}
+		switch mapping.Protocol {
+		case ModeTCP, ModeUDP, ModeTLS:
+		default:
+			return fmt.Errorf("port_mappings[%d].protocol %q is not supported", i, mapping.Protocol)
+		}
+		if mapping.ListenPortStart == 0 || mapping.ListenPortEnd == 0 ||
+			mapping.TargetPortStart == 0 || mapping.TargetPortEnd == 0 {
+			return fmt.Errorf("port_mappings[%d] ports must be between 1 and 65535", i)
+		}
+		if mapping.ListenPortStart > mapping.ListenPortEnd {
+			return fmt.Errorf("port_mappings[%d] listener range is reversed: %d-%d", i, mapping.ListenPortStart, mapping.ListenPortEnd)
+		}
+		if mapping.TargetPortStart > mapping.TargetPortEnd {
+			return fmt.Errorf("port_mappings[%d] target range is reversed: %d-%d", i, mapping.TargetPortStart, mapping.TargetPortEnd)
+		}
+		listenSize := uint32(mapping.ListenPortEnd) - uint32(mapping.ListenPortStart)
+		targetSize := uint32(mapping.TargetPortEnd) - uint32(mapping.TargetPortStart)
+		if listenSize != targetSize {
+			return fmt.Errorf(
+				"port_mappings[%d] listener range %d-%d and target range %d-%d must contain the same number of ports",
+				i,
+				mapping.ListenPortStart,
+				mapping.ListenPortEnd,
+				mapping.TargetPortStart,
+				mapping.TargetPortEnd,
+			)
+		}
+
+		for j := 0; j < i; j++ {
+			other := mappings[j]
+			if other == nil || other.Protocol != mapping.Protocol {
+				continue
+			}
+			if rangesOverlap(mapping.ListenPortStart, mapping.ListenPortEnd, other.ListenPortStart, other.ListenPortEnd) {
+				return fmt.Errorf(
+					"port_mappings[%d] listener range %d-%d overlaps port_mappings[%d] range %d-%d for protocol %s",
+					i,
+					mapping.ListenPortStart,
+					mapping.ListenPortEnd,
+					j,
+					other.ListenPortStart,
+					other.ListenPortEnd,
+					mapping.Protocol,
+				)
+			}
+		}
+	}
+	return nil
+}
+
+func rangesOverlap(startA, endA, startB, endB uint16) bool {
+	return startA <= endB && startB <= endA
 }
 
 // validatePrivateRequirements enforces the private-service contract: HTTP mode, ≥1 access group, no bearer auth.
@@ -1308,6 +1295,9 @@ func (s *Service) EventMeta() map[string]any {
 	if s.ListenPort != 0 {
 		meta["listen_port"] = s.ListenPort
 	}
+	if len(s.PortMappings) > 0 {
+		meta["port_mapping_count"] = len(s.PortMappings)
+	}
 
 	if len(s.Targets) > 0 {
 		t := s.Targets[0]
@@ -1355,6 +1345,14 @@ func (s *Service) Copy() *Service {
 		}
 		targets[i] = &targetCopy
 	}
+	portMappings := make([]*PortMapping, len(s.PortMappings))
+	for i, mapping := range s.PortMappings {
+		if mapping == nil {
+			continue
+		}
+		mappingCopy := *mapping
+		portMappings[i] = &mappingCopy
+	}
 
 	authCopy := s.Auth
 	if s.Auth.PasswordAuth != nil {
@@ -1389,13 +1387,14 @@ func (s *Service) Copy() *Service {
 		accessGroups = append([]string(nil), s.AccessGroups...)
 	}
 
-	return &Service{
+	serviceCopy := &Service{
 		ID:                s.ID,
 		AccountID:         s.AccountID,
 		Name:              s.Name,
 		Domain:            s.Domain,
 		ProxyCluster:      s.ProxyCluster,
 		Targets:           targets,
+		PortMappings:      portMappings,
 		Enabled:           s.Enabled,
 		Terminated:        s.Terminated,
 		PassHostHeader:    s.PassHostHeader,
@@ -1412,7 +1411,14 @@ func (s *Service) Copy() *Service {
 		PortAutoAssigned:  s.PortAutoAssigned,
 		Private:           s.Private,
 		AccessGroups:      accessGroups,
+		PortMappingsSet:   s.PortMappingsSet,
 	}
+	if s.HTTPDomain != nil {
+		httpDomain := *s.HTTPDomain
+		serviceCopy.HTTPDomain = &httpDomain
+	}
+	serviceCopy.preparePortMappings()
+	return serviceCopy
 }
 
 func (s *Service) EncryptSensitiveData(enc *crypt.FieldEncrypt) error {
@@ -1551,6 +1557,7 @@ func (r *ExposeServiceRequest) ToService(accountID, peerID, serviceName string) 
 			Enabled:    true,
 		},
 	}
+	svc.PopulatePortMappingsFromLegacy()
 
 	if r.Pin != "" {
 		svc.Auth.PinAuth = &PINAuthConfig{

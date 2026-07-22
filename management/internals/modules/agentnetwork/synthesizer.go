@@ -122,30 +122,47 @@ func SynthesizeServicesForCluster(ctx context.Context, s store.Store, clusterAdd
 // the cluster, which is what auth/session paths previously paid. Returns nil
 // (no error) when no account owns the domain.
 func SynthesizeServiceForDomain(ctx context.Context, s store.Store, domain string) (*rpservice.Service, error) {
-	domain = strings.TrimSpace(domain)
-	cluster := clusterFromDomain(domain)
-	if domain != "" && cluster != "" {
-		settingsRows, err := s.GetAgentNetworkSettingsByCluster(ctx, store.LockingStrengthNone, cluster)
+	canonical, err := rpservice.CanonicalDomain(domain)
+	if err != nil {
+		return nil, fmt.Errorf("canonicalize agent network service domain: %w", err)
+	}
+	cluster := clusterFromDomain(canonical)
+	if canonical == "" || cluster == "" {
+		return nil, nil //nolint:nilnil // optional lookup: no account owns the domain
+	}
+
+	settingsRows, err := s.GetAgentNetworkSettingsByCluster(ctx, store.LockingStrengthNone, cluster)
+	if err != nil {
+		return nil, fmt.Errorf("list agent network settings on cluster: %w", err)
+	}
+	for _, settings := range settingsRows {
+		if settings == nil {
+			continue
+		}
+		endpoint, err := rpservice.CanonicalDomain(settings.Endpoint())
+		if err != nil || endpoint != canonical {
+			continue
+		}
+		services, err := SynthesizeServices(ctx, s, settings.AccountID)
 		if err != nil {
-			return nil, fmt.Errorf("list agent network settings on cluster: %w", err)
+			return nil, err
 		}
-		for _, settings := range settingsRows {
-			if settings == nil || settings.Endpoint() != domain {
-				continue
-			}
-			services, serr := SynthesizeServices(ctx, s, settings.AccountID)
-			if serr != nil {
-				return nil, serr
-			}
-			for _, svc := range services {
-				if svc != nil && svc.Domain == domain {
-					return svc, nil
-				}
-			}
-			break
-		}
+		return synthesizedServiceForDomain(services, canonical), nil
 	}
 	return nil, nil //nolint:nilnil // optional lookup: no account owns the domain
+}
+
+func synthesizedServiceForDomain(services []*rpservice.Service, domain string) *rpservice.Service {
+	for _, svc := range services {
+		if svc == nil {
+			continue
+		}
+		svcDomain, err := rpservice.CanonicalDomain(svc.Domain)
+		if err == nil && svcDomain == domain {
+			return svc
+		}
+	}
+	return nil
 }
 
 // clusterFromDomain returns the cluster portion of an endpoint domain (every

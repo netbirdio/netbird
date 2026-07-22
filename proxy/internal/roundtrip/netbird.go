@@ -42,14 +42,21 @@ type backendKey string
 // DomainServiceKey and L4ServiceKey constructors to avoid namespace collisions.
 type ServiceKey string
 
-// DomainServiceKey returns a ServiceKey for an HTTP/TLS domain-based service.
+// DomainServiceKey returns a ServiceKey for an HTTP domain-based service.
 func DomainServiceKey(domain string) ServiceKey {
 	return ServiceKey("domain:" + domain)
 }
 
-// L4ServiceKey returns a ServiceKey for an L4 service (TCP/UDP).
+// L4ServiceKey returns a ServiceKey for an L4 service (TCP/UDP/TLS).
 func L4ServiceKey(id types.ServiceID) ServiceKey {
 	return ServiceKey("l4:" + id)
+}
+
+// ServiceIDKey returns a mode- and domain-independent service key. Proxy
+// runtime mappings use this stable identity so a domain/mode change and a
+// sparse REMOVE update cannot orphan an embedded-client registration.
+func ServiceIDKey(id types.ServiceID) ServiceKey {
+	return ServiceKey("service:" + id)
 }
 
 var (

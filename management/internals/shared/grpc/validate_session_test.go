@@ -59,6 +59,18 @@ func createTestProxies(t *testing.T, ctx context.Context, testStore store.Store)
 
 	pubKey, privKey := generateSessionKeyPair(t)
 
+	// Insert L4 first to prove auth lookup selects the HTTP ownership key rather
+	// than whichever shared-domain row the database happens to return first.
+	l4Proxy := &service.Service{
+		ID:        "testProxyL4Id",
+		AccountID: "testAccountId",
+		Name:      "Test Proxy TCP",
+		Domain:    "TEST-PROXY.EXAMPLE.COM.",
+		Mode:      service.ModeTCP,
+		Enabled:   true,
+	}
+	require.NoError(t, testStore.CreateService(ctx, l4Proxy))
+
 	testProxy := &service.Service{
 		ID:                "testProxyId",
 		AccountID:         "testAccountId",
@@ -322,6 +334,10 @@ func (m *testValidateSessionServiceManager) StartExposeReaper(_ context.Context)
 
 func (m *testValidateSessionServiceManager) GetServiceByDomain(ctx context.Context, domain string) (*service.Service, error) {
 	return m.store.GetServiceByDomain(ctx, domain)
+}
+
+func (m *testValidateSessionServiceManager) GetHTTPServiceByDomain(ctx context.Context, domain string) (*service.Service, error) {
+	return m.store.GetHTTPServiceByDomain(ctx, domain)
 }
 
 func (m *testValidateSessionServiceManager) GetClusters(_ context.Context, _, _ string) ([]proxy.Cluster, error) {

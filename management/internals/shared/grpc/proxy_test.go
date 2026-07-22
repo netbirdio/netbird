@@ -461,6 +461,56 @@ func TestSendServiceUpdateToCluster_FiltersOnCapability(t *testing.T) {
 	s.SendServiceUpdateToCluster(ctx, tcpMapping, cluster)
 
 	assert.NotNil(t, drainMapping(chNewNoCustom), "new proxy with SupportsCustomPorts=false should still receive mapping")
+	assert.NotNil(t, drainMapping(chModern), "existing modern proxy also receives the repeated legacy test update")
+
+	// Repeated port mappings are a distinct wire capability. A proxy that only
+	// understands legacy custom ports must not receive a mapping it would
+	// otherwise silently reduce to the scalar first port.
+	chMultiPort := registerFakeProxyWithCaps(s, "proxy-multiport", cluster, &proto.ProxyCapabilities{
+		SupportsCustomPorts:  ptr(true),
+		SupportsPortMappings: ptr(true),
+	})
+	multiPortMapping := &proto.ProxyMapping{
+		Type:       proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED,
+		Id:         "service-multiport",
+		AccountId:  "account-1",
+		Domain:     "game.example.com",
+		Mode:       "tcp",
+		ListenPort: 8080,
+		Path:       []*proto.PathMapping{{Target: "10.0.0.5:8080"}},
+		PortMappings: []*proto.ServicePortMapping{
+			{Protocol: "tcp", ListenPortStart: 8080, ListenPortEnd: 8080, TargetPortStart: 8080, TargetPortEnd: 8080},
+			{Protocol: "udp", ListenPortStart: 9001, ListenPortEnd: 9001, TargetPortStart: 9001, TargetPortEnd: 9001},
+		},
+	}
+
+	s.SendServiceUpdateToCluster(ctx, multiPortMapping, cluster)
+
+	require.NotNil(t, drainMapping(chMultiPort), "capable proxy should receive the repeated mapping")
+	assert.Nil(t, drainMapping(chModern), "custom-port-only proxy must not receive repeated mappings")
+	assert.Nil(t, drainMapping(chLegacy), "legacy proxy must not receive repeated mappings")
+	assert.Nil(t, drainMapping(chNewNoCustom), "proxy without the repeated-mapping capability must be filtered")
+
+	// If a previously compatible service is modified into a repeated mapping,
+	// incapable proxies must remove their stale scalar listener rather than
+	// silently continuing to serve the old configuration.
+	multiPortMapping.Type = proto.ProxyMappingUpdateType_UPDATE_TYPE_MODIFIED
+	s.SendServiceUpdateToCluster(ctx, multiPortMapping, cluster)
+
+	capableUpdate := drainMapping(chMultiPort)
+	require.NotNil(t, capableUpdate)
+	require.Equal(t, proto.ProxyMappingUpdateType_UPDATE_TYPE_MODIFIED, capableUpdate.Type)
+	for name, ch := range map[string]chan *proto.GetMappingUpdateResponse{
+		"custom-port-only": chModern,
+		"legacy":           chLegacy,
+		"no-custom-ports":  chNewNoCustom,
+	} {
+		msg := drainMapping(ch)
+		require.NotNil(t, msg, "%s proxy should receive stale-state removal", name)
+		assert.Equal(t, proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED, msg.Type)
+		assert.Equal(t, multiPortMapping.Id, msg.Id)
+		assert.Empty(t, msg.AuthToken)
+	}
 }
 
 func TestSendServiceUpdateToCluster_TLSNotFiltered(t *testing.T) {

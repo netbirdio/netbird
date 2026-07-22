@@ -1315,3 +1315,45 @@ func TestValidate_Private_RejectsNonHTTPMode(t *testing.T) {
 	}}
 	assert.ErrorContains(t, rp.Validate(), "HTTP")
 }
+
+func TestCanonicalizeDomainRefreshesHTTPOwnership(t *testing.T) {
+	tests := []struct {
+		name          string
+		service       Service
+		wantDomain    string
+		wantHTTPOwner bool
+	}{
+		{
+			name:          "HTTP lowercases trims and converts IDNA",
+			service:       Service{Domain: "  BÜCHER.Example. ", Mode: ModeHTTP},
+			wantDomain:    "xn--bcher-kva.example",
+			wantHTTPOwner: true,
+		},
+		{
+			name:       "TCP keeps ownership key null",
+			service:    Service{Domain: "Game.Example.", Mode: ModeTCP},
+			wantDomain: "game.example",
+		},
+		{
+			name: "mapping collection is L4 even with an empty mode",
+			service: Service{
+				Domain:       "Game.Example.",
+				PortMappings: []*PortMapping{{Protocol: ModeUDP}},
+			},
+			wantDomain: "game.example",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.NoError(t, tt.service.CanonicalizeDomain())
+			assert.Equal(t, tt.wantDomain, tt.service.Domain)
+			if tt.wantHTTPOwner {
+				require.NotNil(t, tt.service.HTTPDomain)
+				assert.Equal(t, tt.wantDomain, *tt.service.HTTPDomain)
+				return
+			}
+			assert.Nil(t, tt.service.HTTPDomain)
+		})
+	}
+}

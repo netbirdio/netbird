@@ -220,6 +220,33 @@ func TestSynthesizeServices_HappyPath(t *testing.T) {
 	assert.Equal(t, rpservice.MiddlewareSlotOnResponse, mws[7].Slot, "response parser runs on_response")
 }
 
+func TestSynthesizeServiceForDomain_CanonicalAlias(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockStore := store.NewMockStore(ctrl)
+
+	settings := newSynthTestSettings()
+	provider := newSynthTestProvider()
+	policy := newSynthTestPolicy(provider.ID, "grp-eng", "")
+	mockStore.EXPECT().
+		GetAgentNetworkSettingsByCluster(ctx, store.LockingStrengthNone, testCluster).
+		Return([]*types.Settings{settings}, nil)
+	expectSynthBaseInputs(
+		mockStore,
+		ctx,
+		settings,
+		[]*types.Provider{provider},
+		[]*types.Policy{policy},
+		[]*types.Guardrail{},
+	)
+
+	svc, err := SynthesizeServiceForDomain(ctx, mockStore, " VIOLET.EU.PROXY.NETBIRD.IO. ")
+	require.NoError(t, err)
+	require.NotNil(t, svc)
+	assert.Equal(t, testEndpoint, svc.Domain)
+}
+
 func TestSynthesizeServices_NoSettings_ReturnsNil(t *testing.T) {
 	ctx := context.Background()
 	ctrl := gomock.NewController(t)

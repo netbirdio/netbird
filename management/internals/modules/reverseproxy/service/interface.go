@@ -30,4 +30,5 @@ type Manager interface {
 	StopServiceFromPeer(ctx context.Context, accountID, peerID, serviceID string) error
 	StartExposeReaper(ctx context.Context)
 	GetServiceByDomain(ctx context.Context, domain string) (*Service, error)
+	GetHTTPServiceByDomain(ctx context.Context, domain string) (*Service, error)
 }
