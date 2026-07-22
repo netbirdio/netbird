@@ -69,7 +69,8 @@ func parseGetentPasswd(output string) (*user.User, string, error) {
 
 // validateGetentInput checks that the input is safe to pass to getent or id.
 // Allows POSIX usernames, numeric UIDs, and common NSS extensions
-// (@ for Kerberos, $ for Samba, + for NIS compat).
+// (@ for Kerberos, $ for Samba, + for NIS compat). A leading hyphen is
+// rejected so the input can never be parsed as a command-line flag.
 func validateGetentInput(input string) bool {
 	maxLen := 32
 	if runtime.GOOS == "linux" {
@@ -77,6 +78,10 @@ func validateGetentInput(input string) bool {
 	}
 
 	if len(input) == 0 || len(input) > maxLen {
+		return false
+	}
+
+	if input[0] == '-' {
 		return false
 	}
 

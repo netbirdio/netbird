@@ -113,7 +113,7 @@ require (
 	github.com/ti-mo/conntrack v0.5.1
 	github.com/ti-mo/netfilter v0.5.2
 	github.com/vmihailenco/msgpack/v5 v5.4.1
-	github.com/wailsapp/wails/v3 v3.0.0-alpha2.111
+	github.com/wailsapp/wails/v3 v3.0.0-alpha2.117
 	github.com/yusufpapurcu/wmi v1.2.4
 	github.com/zcalusic/sysinfo v1.1.3
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.67.0
@@ -303,7 +303,6 @@ require (
 	github.com/tklauser/numcpus v0.10.0 // indirect
 	github.com/vishvananda/netns v0.0.5 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
-	github.com/wailsapp/wails/webview2 v1.0.27 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/zeebo/blake3 v0.2.3 // indirect
@@ -335,7 +334,7 @@ replace github.com/cloudflare/circl => codeberg.org/cunicu/circl v0.0.0-20230801
 
 replace github.com/pion/ice/v4 => github.com/netbirdio/ice/v4 v4.0.0-20250908184934-6202be846b51
 
-replace github.com/dexidp/dex => github.com/netbirdio/dex v0.244.1-0.20260512110716-8d70ad8647c1
+replace github.com/dexidp/dex => github.com/netbirdio/dex v0.244.1-0.20260716205454-a163de3129e5
 
 replace github.com/dexidp/dex/api/v2 => github.com/netbirdio/dex/api/v2 v2.0.0-20260512110716-8d70ad8647c1
 
