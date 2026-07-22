@@ -231,6 +231,15 @@ func (cl *Client) Vertex(ctx context.Context, endpoint, proxyIP, project, region
 	return cl.post(ctx, endpoint, proxyIP, path, body, withSessionID(nil, sessionID))
 }
 
+// VertexCountTokens issues the Anthropic-on-Vertex token-count POST: the URL
+// carries the "count-tokens" pseudo-model and the real model travels in the
+// body, so the proxy must resolve the body model for the allowlist and routing.
+func (cl *Client) VertexCountTokens(ctx context.Context, endpoint, proxyIP, project, region, model string) (int, string, error) {
+	path := fmt.Sprintf("/v1/projects/%s/locations/%s/publishers/anthropic/models/count-tokens:rawPredict", project, region)
+	body := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"hi"}]}`, model)
+	return cl.post(ctx, endpoint, proxyIP, path, body, nil)
+}
+
 // Bedrock issues a native AWS Bedrock InvokeModel POST over the tunnel. The
 // model id is carried in the request path (/model/{id}/invoke), so the proxy
 // routes by path; the body uses the bedrock anthropic_version rather than a

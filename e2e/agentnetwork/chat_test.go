@@ -104,8 +104,9 @@ func availableProviders() []providerCase {
 }
 
 // providerRequest builds a create request for a matrix provider: enabled, with
-// a uniquely-priced model for body-routed providers and none for the
-// path-routed Vertex (whose model lives in the request path).
+// a uniquely-priced model registered under the id an operator would paste —
+// the normalized catalog id for Bedrock, the raw form elsewhere (including the
+// "@version" Vertex id, which the router must normalize to route).
 func providerRequest(pc providerCase) api.AgentNetworkProviderRequest {
 	req := api.AgentNetworkProviderRequest{
 		Name:        pc.name,
@@ -114,18 +115,15 @@ func providerRequest(pc providerCase) api.AgentNetworkProviderRequest {
 		ApiKey:      &pc.apiKey,
 		Enabled:     ptr(true),
 	}
-	if pc.kind != harness.WireVertex {
-		// The router matches the normalized catalog id. Bedrock's request model
-		// travels as a region-prefixed inference-profile id in the URL path
-		// (us.anthropic...), which the router strips before matching, so register
-		// the normalized form here or routing fails as model_not_routable.
-		modelID := pc.model
-		if pc.kind == harness.WireBedrock {
-			modelID = catalogModel(pc)
-		}
-		req.Models = &[]api.AgentNetworkProviderModel{
-			{Id: modelID, InputPer1k: 0.001, OutputPer1k: 0.002},
-		}
+	// Register Bedrock under its normalized catalog id (the router strips the
+	// region prefix before matching); other providers, incl. the raw "@version"
+	// Vertex id, register as-is so the router's normalization is exercised.
+	modelID := pc.model
+	if pc.kind == harness.WireBedrock {
+		modelID = catalogModel(pc)
+	}
+	req.Models = &[]api.AgentNetworkProviderModel{
+		{Id: modelID, InputPer1k: 0.001, OutputPer1k: 0.002},
 	}
 	return req
 }

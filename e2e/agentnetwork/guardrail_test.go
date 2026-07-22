@@ -125,7 +125,13 @@ func TestModelAllowlistEnforced(t *testing.T) {
 		require.NoError(t, perr, "create provider %s", pc.name)
 		id := prov.Id
 		ids = append(ids, id)
-		allowed = append(allowed, catalogModel(pc))
+		// Vertex allowlists the raw "@version" id (the guardrail normalizes it);
+		// other providers allowlist the normalized catalog id.
+		if pc.kind == harness.WireVertex {
+			allowed = append(allowed, pc.model)
+		} else {
+			allowed = append(allowed, catalogModel(pc))
+		}
 		t.Cleanup(func() { _ = srv.DeleteProvider(context.Background(), id) })
 	}
 
@@ -182,6 +188,22 @@ func TestModelAllowlistEnforced(t *testing.T) {
 			// the upstream), regardless of whether it is a real catalog model.
 			assert.Equal(t, 403, sendModel(ctx, t, cl, settings.Endpoint, proxyIP, pc, disallowedModel(pc)),
 				"model outside the allowlist must be denied for %s", pc.name)
+
+			if pc.kind != harness.WireVertex {
+				return
+			}
+			// Unversioned model id (the customer-reported shape) must pass the
+			// same allowlist entry.
+			assert.Equal(t, 200, sendModel(ctx, t, cl, settings.Endpoint, proxyIP, pc, catalogModel(pc)),
+				"unversioned model id must be permitted for %s", pc.name)
+			// count-tokens carries the real model in the body: allowed → served.
+			code, _, err := cl.VertexCountTokens(ctx, settings.Endpoint, proxyIP, pc.project, pc.region, pc.model)
+			require.NoError(t, err, "count-tokens request must reach the proxy for %s", pc.name)
+			assert.Equal(t, 200, code, "count-tokens with an allowlisted body model must be permitted for %s", pc.name)
+			// Disallowed body model → denied before the upstream.
+			code, _, err = cl.VertexCountTokens(ctx, settings.Endpoint, proxyIP, pc.project, pc.region, disallowedModel(pc))
+			require.NoError(t, err, "count-tokens request must reach the proxy for %s", pc.name)
+			assert.Equal(t, 403, code, "count-tokens with a body model outside the allowlist must be denied for %s", pc.name)
 		})
 	}
 }
