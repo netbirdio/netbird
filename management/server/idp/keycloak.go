@@ -97,7 +97,7 @@ func NewKeycloakManager(config KeycloakClientConfig, appMetrics telemetry.AppMet
 	}
 
 	return &KeycloakManager{
-		adminEndpoint: config.AdminEndpoint,
+		adminEndpoint: strings.TrimRight(config.AdminEndpoint, "/"),
 		httpClient:    httpClient,
 		credentials:   credentials,
 		helper:        helper,
