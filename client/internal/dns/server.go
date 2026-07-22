@@ -82,6 +82,7 @@ type Server interface {
 	PopulateManagementDomain(mgmtURL *url.URL) error
 	SetRouteSources(selected, active func() route.HAMap)
 	SetFirewall(Firewall)
+	SetPeerActivator(local.PeerActivator)
 }
 
 type nsGroupsByDomain struct {
@@ -1442,11 +1443,11 @@ type localPeerConnectivity struct {
 
 // IsConnectedByIP looks the IP up in the peerstore and surfaces both
 // the known and connected bits. Used by Resolver.filterDisconnectedPeerAnswers.
-func (l localPeerConnectivity) IsConnectedByIP(ip string) (known, connected bool) {
+func (l localPeerConnectivity) IsConnectedByIP(ip netip.Addr) (known, connected bool) {
 	if l.status == nil {
 		return false, false
 	}
-	state, ok := l.status.PeerStateByIP(ip)
+	state, ok := l.status.PeerStateByIP(ip.String())
 	if !ok {
 		return false, false
 	}
