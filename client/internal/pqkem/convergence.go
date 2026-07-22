@@ -25,7 +25,6 @@ func (d *Driver) handleOffer(remoteWgKey string, o *OfferMsg) error {
 	d.exchanges[remoteWgKey] = &exchangeCtl{
 		id:        o.ExchangeID,
 		startedAt: time.Now(),
-		isInitial: !d.established[remoteWgKey],
 	}
 	d.mu.Unlock()
 
@@ -51,15 +50,15 @@ func (d *Driver) handleOffer(remoteWgKey string, o *OfferMsg) error {
 // exchange then switches its retransmit payload to the confirm. Stale or duplicate
 // answers are ignored.
 func (d *Driver) handleAnswer(remoteWgKey string, a *AnswerMsg) error {
-	// Claim the answer under the lock (set answered) so a concurrent/duplicate answer
-	// bails before calling the Manager.
+	// Ignore stale answers, answers to a responder-side exchange (cancel == nil), and
+	// duplicates once we are already in the confirm phase. A duplicate that still
+	// slips through is caught by the Manager, whose HandleAnswer bails under its lock.
 	d.mu.Lock()
 	ex := d.exchanges[remoteWgKey]
-	if ex == nil || ex.id != a.ExchangeID || ex.cancel == nil || ex.answered {
+	if ex == nil || ex.id != a.ExchangeID || ex.cancel == nil || isConfirmPhase(ex.lastSent) {
 		d.mu.Unlock()
 		return nil
 	}
-	ex.answered = true
 	d.mu.Unlock()
 
 	psk, confirm, err := d.mgr.HandleAnswer(remoteWgKey, a)
@@ -132,10 +131,10 @@ func (d *Driver) initiatorLoop(ctx context.Context, remoteWgKey string, id Excha
 				return
 			}
 
-			if !ex.answered {
+			if !isConfirmPhase(ex.lastSent) {
 				if offerAttempts >= d.maxRetries {
 					delete(d.exchanges, remoteWgKey)
-					fail := d.registerFailureLocked(remoteWgKey, ex.isInitial)
+					fail := d.registerFailureLocked(remoteWgKey)
 					d.mu.Unlock()
 					d.raiseFailure(remoteWgKey, fail)
 					return
@@ -161,11 +160,12 @@ func (d *Driver) initiatorLoop(ctx context.Context, remoteWgKey string, id Excha
 }
 
 // registerFailureLocked applies policy B and reports whether OnRekeyFailed is due:
-// the initial exchange fails immediately; a rekey tolerates up to maxRekeyFailures
-// consecutive misses (we stay on the still-valid previous PSK) before failing.
+// an initial exchange (peer never established) fails immediately; a rekey tolerates
+// up to maxRekeyFailures consecutive misses (we stay on the still-valid previous
+// PSK) before failing. Whether it is initial is read live from established.
 // Assumes d.mu is held.
-func (d *Driver) registerFailureLocked(remoteWgKey string, isInitial bool) bool {
-	if isInitial {
+func (d *Driver) registerFailureLocked(remoteWgKey string) bool {
+	if !d.established[remoteWgKey] {
 		return true
 	}
 	d.failures[remoteWgKey]++
@@ -174,6 +174,12 @@ func (d *Driver) registerFailureLocked(remoteWgKey string, isInitial bool) bool 
 		return true
 	}
 	return false
+}
+
+// isConfirmPhase reports whether the initiator's outstanding message is the confirm
+// (as opposed to the offer), derived from the message's type byte.
+func isConfirmPhase(lastSent []byte) bool {
+	return len(lastSent) > 0 && lastSent[0] == byte(MsgConfirm)
 }
 
 func (d *Driver) raiseFailure(remoteWgKey string, fail bool) {

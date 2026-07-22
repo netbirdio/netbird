@@ -35,17 +35,17 @@ type Transport interface {
 }
 
 // exchangeCtl tracks one in-flight exchange for a peer. A single lastSent holds the
-// message currently being (re)transmitted: for the initiator it is the offer and
-// then, once answered, the confirm; for the responder it is the answer, resent on a
-// duplicate offer. Only the initiator runs a retransmit loop (cancel != nil); the
-// responder is purely reactive.
+// message currently being (re)transmitted: for the initiator the offer and then,
+// once answered, the confirm; for the responder the answer, resent on a duplicate
+// offer. Its type byte (lastSent[0]) also encodes the initiator's phase, so no
+// separate "answered" flag is kept. Only the initiator runs a retransmit loop
+// (cancel != nil); the responder is purely reactive. Whether an exchange is the
+// peer's first is read live from d.established, not snapshotted here.
 type exchangeCtl struct {
 	id        ExchangeID
 	startedAt time.Time
-	isInitial bool
 	lastSent  []byte
 	cancel    context.CancelFunc
-	answered  bool // initiator: the answer arrived; retransmit phase is now the confirm
 }
 
 // Driver ties the pure Manager to the outside world: per-peer rekey timer, inbound
@@ -186,7 +186,6 @@ func (d *Driver) initiateRekey(remoteWgKey string) error {
 	d.exchanges[remoteWgKey] = &exchangeCtl{
 		id:        offer.ExchangeID,
 		startedAt: time.Now(),
-		isInitial: !d.established[remoteWgKey],
 		lastSent:  raw,
 		cancel:    cancel,
 	}
