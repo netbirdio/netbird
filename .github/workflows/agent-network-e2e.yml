@@ -5,10 +5,6 @@ on:
   schedule:
     - cron: "0 3 * * *"
   workflow_dispatch:
-  # TEMPORARY: run on pushes to the Kimi feature branch to exercise the new
-  # provider scenarios with E2E_KIMI_TOKEN. Remove before merging.
-  push:
-    branches: [feat/kimi-3-agent-networks]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

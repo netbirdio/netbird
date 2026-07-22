@@ -449,14 +449,16 @@ var providers = []Provider{
 		// meterable platform key, so it's deliberately not the default.
 		ParserID: "",
 		// Pricing per Moonshot's platform rates at K3 launch (July 2026):
-		// K3 $3/$15 per MTok with $0.30 cached input, flat across the
-		// 1M-token window; K2 Thinking $0.60/$2.50 with $0.15 cache hits.
-		// Kimi K3 has a single always-on-reasoning SKU — no mini/turbo
-		// variants at launch. The consumer app's "K3 Swarm Max" mode is
-		// not an API SKU, so it doesn't appear here.
+		// $3/$15 per MTok with $0.30 cached input, flat across the 1M-token
+		// window. kimi-k3 is the ONLY model the platform serves newer
+		// accounts — K2-era ids (kimi-k2-thinking) and even the kimi-latest
+		// alias return resource_not_found_error, verified live 2026-07-21 —
+		// so it's the only catalog entry. Grandfathered accounts with K2
+		// access can still type those ids on the provider's model rows.
+		// The consumer app's "K3 Swarm Max" mode is not an API SKU, so it
+		// doesn't appear here.
 		Models: []Model{
 			{ID: "kimi-k3", Label: "Kimi K3", InputPer1k: 0.003, OutputPer1k: 0.015, ContextWindow: 1000000},
-			{ID: "kimi-k2-thinking", Label: "Kimi K2 Thinking", InputPer1k: 0.0006, OutputPer1k: 0.0025, ContextWindow: 262144},
 		},
 	},
 	{
