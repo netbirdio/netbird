@@ -24,6 +24,9 @@
       <string id="DisableAutoConnect_Name">Disable auto-connect</string>
       <string id="DisableAutoConnect_Help">When enabled, the NetBird tunnel does not auto-connect at daemon startup. Equivalent to --disable-auto-connect.</string>
 
+      <string id="DisableAutostart_Name">Disable autostart</string>
+      <string id="DisableAutostart_Help">When enabled, the NetBird GUI is prevented from registering itself as an OS autostart entry on fresh installs, and any existing OS autostart entry registration is removed on the next GUI launch (Windows Registry Run key, macOS Login Item, Linux .desktop). Once the admin lifts the policy, the setting stays off until the user re-enables it in Settings.</string>
+
       <string id="DisableClientRoutes_Name">Disable client routes</string>
       <string id="DisableClientRoutes_Help">When enabled, this client will not consume routes advertised by routing peers. Equivalent to --disable-client-routes.</string>
 
