@@ -7,9 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"time"
-
-	"github.com/eko/gocache/lib/v4/cache"
-	"github.com/eko/gocache/lib/v4/store"
 )
 
 const (
@@ -22,12 +19,17 @@ var (
 	ErrTokenExpired     = errors.New("JWT expired")
 )
 
-type SessionStore struct {
-	cache *cache.Cache[string]
+// TokenCache atomically records used JWTs until their expiration.
+type TokenCache interface {
+	SetNX(ctx context.Context, key, value string, ttl time.Duration) (bool, error)
 }
 
-func NewSessionStore(cacheStore store.StoreInterface) *SessionStore {
-	return &SessionStore{cache: cache.New[string](cacheStore)}
+type SessionStore struct {
+	cache TokenCache
+}
+
+func NewSessionStore(cacheStore TokenCache) *SessionStore {
+	return &SessionStore{cache: cacheStore}
 }
 
 // RegisterToken records a JWT until its exp time and rejects reuse.
@@ -38,18 +40,12 @@ func (s *SessionStore) RegisterToken(ctx context.Context, token string, expiresA
 	}
 
 	key := usedTokenKeyPrefix + hashToken(token)
-	_, err := s.cache.Get(ctx, key)
-	if err == nil {
-		return ErrTokenAlreadyUsed
-	}
-
-	var notFound *store.NotFound
-	if !errors.As(err, &notFound) {
-		return fmt.Errorf("failed to lookup used token entry: %w", err)
-	}
-
-	if err := s.cache.Set(ctx, key, usedTokenMarker, store.WithExpiration(ttl)); err != nil {
+	created, err := s.cache.SetNX(ctx, key, usedTokenMarker, ttl)
+	if err != nil {
 		return fmt.Errorf("failed to store used token entry: %w", err)
+	}
+	if !created {
+		return ErrTokenAlreadyUsed
 	}
 
 	return nil

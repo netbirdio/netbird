@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -38,6 +39,39 @@ func TestSessionStore_RegisterSameTokenTwiceIsRejected(t *testing.T) {
 	assert.ErrorIs(t, err, ErrTokenAlreadyUsed)
 }
 
+func TestSessionStore_ConcurrentRegistrationAllowsOneCaller(t *testing.T) {
+	s := newTestSessionStore(t)
+	ctx := context.Background()
+	const attempts = 100
+
+	start := make(chan struct{})
+	results := make(chan error, attempts)
+	for range attempts {
+		go func() {
+			<-start
+			results <- s.RegisterToken(ctx, "token", time.Now().Add(time.Hour))
+		}()
+	}
+	close(start)
+
+	succeeded := 0
+	alreadyUsed := 0
+	for range attempts {
+		err := <-results
+		switch {
+		case err == nil:
+			succeeded++
+		case errors.Is(err, ErrTokenAlreadyUsed):
+			alreadyUsed++
+		default:
+			require.NoError(t, err)
+		}
+	}
+
+	assert.Equal(t, 1, succeeded)
+	assert.Equal(t, attempts-1, alreadyUsed)
+}
+
 func TestSessionStore_RegisterDifferentTokensAreIndependent(t *testing.T) {
 	s := newTestSessionStore(t)
 	ctx := context.Background()
@@ -70,6 +104,23 @@ func TestSessionStore_EntryEvictsAtTTLAndAllowsReRegistration(t *testing.T) {
 	time.Sleep(120 * time.Millisecond)
 
 	require.NoError(t, s.RegisterToken(ctx, token, time.Now().Add(time.Hour)))
+}
+
+type failingTokenCache struct {
+	err error
+}
+
+func (f failingTokenCache) SetNX(context.Context, string, string, time.Duration) (bool, error) {
+	return false, f.err
+}
+
+func TestSessionStore_CacheErrorIsReturned(t *testing.T) {
+	cacheErr := errors.New("cache unavailable")
+	s := NewSessionStore(failingTokenCache{err: cacheErr})
+
+	err := s.RegisterToken(context.Background(), "token", time.Now().Add(time.Hour))
+	require.Error(t, err)
+	assert.ErrorIs(t, err, cacheErr)
 }
 
 func TestHashToken_StableAndDoesNotLeak(t *testing.T) {
