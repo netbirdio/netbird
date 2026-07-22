@@ -20,10 +20,9 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"net/netip"
 
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/shared/management/types"
 	nbroute "github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/shared/management/types"
 	"github.com/netbirdio/netbird/shared/netiputil"
 	"github.com/netbirdio/netbird/shared/sshauth"
 )
@@ -274,7 +273,7 @@ func ToProtocolDNSConfig(update nbdns.Config, cache DNSConfigCache, forwardPort 
 
 // AppendRemotePeerConfig appends typed peers as proto.RemotePeerConfig
 // entries to dst and returns the result.
-func AppendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*nbpeer.Peer, dnsName string, includeIPv6 bool) []*proto.RemotePeerConfig {
+func AppendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*types.ComponentPeer, dnsName string, includeIPv6 bool) []*proto.RemotePeerConfig {
 	for _, rPeer := range peers {
 		allowedIPs := []string{rPeer.IP.String() + "/32"}
 		if includeIPv6 && rPeer.IPv6.IsValid() {
@@ -285,7 +284,7 @@ func AppendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*nbpeer.Peer,
 			AllowedIps:   allowedIPs,
 			SshConfig:    &proto.SSHConfig{SshPubKey: []byte(rPeer.SSHKey)},
 			Fqdn:         rPeer.FQDN(dnsName),
-			AgentVersion: rPeer.Meta.WtVersion,
+			AgentVersion: rPeer.AgentVersion,
 		})
 	}
 	return dst
