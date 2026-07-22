@@ -16,25 +16,25 @@ import (
 	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
-// bedrockVersionSuffix mirrors the proxy's normalizer: the trailing
-// "-vN[:N]" or "-YYYYMMDD-vN[:N]" version/throughput suffix of a Bedrock
-// model id.
-var bedrockVersionSuffix = regexp.MustCompile(`-(\d{8}-)?v\d+(:\d+)?$`)
+// bedrockRegionPrefixes and bedrockVersionSuffix mirror the proxy's Bedrock
+// model normalization (region/inference-profile prefix + version suffix) so the
+// provider is registered under the same catalog key the router matches against.
+var (
+	bedrockRegionPrefixes = []string{"us.", "eu.", "apac.", "global."}
+	bedrockVersionSuffix  = regexp.MustCompile(`-(\d{8}-)?v\d+(:\d+)?$`)
+)
 
 // catalogModel returns the normalized catalog id the proxy stamps for a
-// path-routed provider's configured model — the form the guardrail allowlist is
-// compared against (region prefix / @version stripped).
+// path-routed provider's configured model — the form the router and guardrail
+// allowlist compare against (Bedrock region prefix + version stripped, Vertex
+// @version stripped).
 func catalogModel(pc providerCase) string {
 	switch pc.kind {
 	case harness.WireBedrock:
-		// Mirror the proxy's llm.NormalizeBedrockModel (not importable from
-		// here — proxy/internal): strip the region-family prefix and the
-		// date/version suffix so the allowlist carries the catalog key the
-		// guardrail compares against.
 		m := pc.model
-		for _, p := range []string{"us.", "eu.", "apac.", "global."} {
+		for _, p := range bedrockRegionPrefixes {
 			if strings.HasPrefix(m, p) {
-				m = strings.TrimPrefix(m, p)
+				m = m[len(p):]
 				break
 			}
 		}
@@ -166,11 +166,13 @@ func TestModelAllowlistEnforced(t *testing.T) {
 	t.Cleanup(func() { _ = cl.Terminate(context.Background()) })
 
 	require.NoError(t, cl.WaitConnected(ctx, 90*time.Second), "client must connect to management")
+	// Resolve first: the DNS lookup triggers the lazy-connection warm-up, waking
+	// the proxy peer so WaitProxyPeer then observes it connected.
+	proxyIP, err := cl.ResolveProxyIP(ctx, settings.Endpoint)
+	require.NoError(t, err, "resolve agent-network endpoint to proxy IP")
 	if err := cl.WaitProxyPeer(ctx, 180*time.Second); err != nil {
 		t.Fatalf("client did not see the proxy peer: %v\n=== proxy logs ===\n%s", err, px.Logs(context.Background()))
 	}
-	proxyIP, err := cl.ResolveProxyIP(ctx, settings.Endpoint)
-	require.NoError(t, err, "resolve agent-network endpoint to proxy IP")
 
 	for _, pc := range providers {
 		pc := pc

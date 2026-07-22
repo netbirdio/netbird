@@ -19,6 +19,8 @@ type Group struct {
 	// AccountID is a reference to Account that this object belongs
 	AccountID string `json:"-" gorm:"index"`
 
+	PublicID string `json:"-"`
+
 	// Name visible in the UI
 	Name string
 
@@ -74,6 +76,7 @@ func (g *Group) Copy() *Group {
 	group := &Group{
 		ID:                   g.ID,
 		AccountID:            g.AccountID,
+		PublicID:             g.PublicID,
 		Name:                 g.Name,
 		Issued:               g.Issued,
 		Peers:                make([]string, len(g.Peers)),

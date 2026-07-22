@@ -224,11 +224,13 @@ func TestNewDeadlineCancelsPriorTimer(t *testing.T) {
 
 func TestRefreshAfterFireArmsNewWarning(t *testing.T) {
 	r := &fakeRecorder{}
-	lead := 30 * time.Millisecond
+	lead := 150 * time.Millisecond
 	w := newWatcher(lead, r)
 	defer w.Close()
 
-	first := time.Now().Add(50 * time.Millisecond)
+	// Warning fires ~20ms in; the deadline itself stays 150ms away so the
+	// replacement below lands well before it.
+	first := time.Now().Add(170 * time.Millisecond)
 	_ = w.Update(first)
 
 	// Wait for stateChange + warning of the first cycle.
@@ -306,7 +308,29 @@ func TestUpdateRejectsTooFarFuture(t *testing.T) {
 	}
 }
 
-func TestUpdateInPastClearsDeadline(t *testing.T) {
+func TestUpdateRecentPastRecordedAsExpired(t *testing.T) {
+	r := &fakeRecorder{}
+	w := newWatcher(50*time.Millisecond, r)
+	defer w.Close()
+
+	d := time.Now().Add(-1 * time.Hour)
+	if err := w.Update(d); err != nil {
+		t.Fatalf("recent-past Update should succeed, got %v", err)
+	}
+	if !w.Deadline().Equal(d) {
+		t.Fatalf("expected deadline to be recorded, got %v want %v", w.Deadline(), d)
+	}
+	if got := r.deadline(); !got.Equal(d) {
+		t.Fatalf("recorder deadline = %v, want %v", got, d)
+	}
+
+	time.Sleep(80 * time.Millisecond)
+	if n := countWhere(r.snapshot(), func(e event) bool { return e.kind == publish }); n != 0 {
+		t.Fatalf("no warning events may fire for an already-past deadline, got %+v", r.snapshot())
+	}
+}
+
+func TestUpdateAncientPastRejected(t *testing.T) {
 	r := &fakeRecorder{}
 	w := newWatcher(50*time.Millisecond, r)
 	defer w.Close()
@@ -318,31 +342,16 @@ func TestUpdateInPastClearsDeadline(t *testing.T) {
 	// Drain the stateChange from the seed.
 	waitForEvents(t, r, 1)
 
-	err := w.Update(time.Now().Add(-1 * time.Hour))
+	err := w.Update(time.Now().Add(-31 * 24 * time.Hour))
 	if !errors.Is(err, ErrDeadlineInPast) {
 		t.Fatalf("want ErrDeadlineInPast, got %v", err)
 	}
 	if !w.Deadline().IsZero() {
-		t.Fatalf("in-past update must clear the deadline, got %v", w.Deadline())
+		t.Fatalf("rejected ancient-past update must clear the deadline, got %v", w.Deadline())
 	}
 	events := waitForEvents(t, r, 2)
 	if events[1].kind != stateChange {
 		t.Fatalf("expected stateChange on clear, got %+v", events[1])
-	}
-}
-
-func TestUpdateWithinSkewAccepted(t *testing.T) {
-	r := &fakeRecorder{}
-	w := newWatcher(50*time.Millisecond, r)
-	defer w.Close()
-
-	// 5 seconds in the past is within the 30s Skew tolerance — accept it.
-	d := time.Now().Add(-5 * time.Second)
-	if err := w.Update(d); err != nil {
-		t.Fatalf("within-skew Update should succeed, got %v", err)
-	}
-	if !w.Deadline().Equal(d) {
-		t.Fatalf("expected deadline to be applied, got %v want %v", w.Deadline(), d)
 	}
 }
 
@@ -351,19 +360,20 @@ func TestCloseSilencesUpdates(t *testing.T) {
 	w := newWatcher(50*time.Millisecond, r)
 	w.Close()
 
-	_ = w.Update(time.Now().Add(time.Hour))
-
-	time.Sleep(20 * time.Millisecond)
+	if err := w.Update(time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("Update after Close: want nil, got %v", err)
+	}
 	if got := r.snapshot(); len(got) != 0 {
 		t.Fatalf("expected no events after Close, got %+v", got)
 	}
 }
 
-// TestCloseClearsRecorderDeadline pins the profile-switch fix: a watcher
-// holding a live deadline must zero the recorder on Close so the next
-// engine's watcher (and the UI reading the shared server-scoped recorder)
-// doesn't start out showing the previous session's stale "expires in".
-func TestCloseClearsRecorderDeadline(t *testing.T) {
+// TestCloseKeepsRecorderDeadline pins the reconnect-flap fix: the watcher
+// closes on every engine restart (network change, sleep/wake) while the
+// SSO deadline stays valid across those, so Close must leave the
+// server-scoped recorder's value in place. The client run loop clears the
+// recorder when it exits for real.
+func TestCloseKeepsRecorderDeadline(t *testing.T) {
 	r := &fakeRecorder{}
 	w := newWatcher(time.Hour, r)
 
@@ -377,8 +387,8 @@ func TestCloseClearsRecorderDeadline(t *testing.T) {
 
 	w.Close()
 
-	if got := r.deadline(); !got.IsZero() {
-		t.Fatalf("recorder deadline after Close = %v, want zero", got)
+	if got := r.deadline(); !got.Equal(d) {
+		t.Fatalf("recorder deadline after Close = %v, want %v", got, d)
 	}
 }
 

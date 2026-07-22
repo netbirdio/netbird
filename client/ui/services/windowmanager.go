@@ -185,37 +185,38 @@ func (s *WindowManager) OpenBrowserLogin(uri string) {
 			startURL = "/#/dialog/browser-login?uri=" + url.QueryEscape(uri)
 		}
 		s.hideOtherWindowsLocked("browser-login")
-		// Prefer the main window's screen (multi-monitor); falls back to OS-default centering.
-		var screen *application.Screen
-		if s.mainWindow != nil {
-			if sc, err := s.mainWindow.GetScreen(); err == nil {
-				screen = sc
-			}
-		}
 		opts := DialogWindowOptions("browser-login", s.title("window.title.signIn"), startURL, s.linuxIcon)
 		// Not always-on-top: it would obscure the browser tab the user logs in through.
 		opts.AlwaysOnTop = false
 		opts.InitialPosition = application.WindowCentered
-		opts.Screen = screen
+		// Open on the active (where users cursor is) display, like the session-expiration dialog.
+		opts.Screen = s.getScreenBasedOnCursorPosition()
 		s.browserLogin = s.app.Window.NewWithOptions(opts)
 		bl := s.browserLogin
-		// Red-X close means cancel: emit the event so startLogin() tears down the SSO wait.
 		bl.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
-			s.app.Event.Emit(EventBrowserLoginCancel)
 			s.mu.Lock()
-			s.browserLogin = nil
-			s.restoreHiddenWindowsLocked()
+			// Only a live user red-X still has this registered; programmatic closers
+			// nil s.browserLogin first and clean up themselves. Guarding here stops a
+			// stale close event from wiping a replacement popup's state.
+			userClosed := s.browserLogin == bl
+			if userClosed {
+				s.browserLogin = nil
+				s.restoreHiddenWindowsLocked()
+			}
 			s.mu.Unlock()
+			if userClosed {
+				s.app.Event.Emit(EventBrowserLoginCancel)
+			}
 		})
-		s.centerWhenReady(s.browserLogin)
+		s.centerOnCursorScreen(s.browserLogin)
 		return
 	}
 	if uri != "" {
 		s.browserLogin.SetURL("/#/dialog/browser-login?uri=" + url.QueryEscape(uri))
 	}
+	s.centerOnCursorScreen(s.browserLogin)
 	s.browserLogin.Show()
 	s.browserLogin.Focus()
-	s.centerWhenReady(s.browserLogin)
 }
 
 // BrowserLoginWindow returns the live SSO popup, or nil. While non-nil it is the
@@ -238,6 +239,15 @@ func (s *WindowManager) CloseBrowserLogin() {
 	s.mu.Lock()
 	w := s.browserLogin
 	s.browserLogin = nil
+	// The WindowClosing hook no-ops on a programmatic close, so restore here —
+	// but only if a popup was actually open. The frontend calls this even when no
+	// popup was ever shown (e.g. resetDialog() after an early RequestExtend failure,
+	// or connection.ts's catch path), and hiddenForLogin is shared with
+	// OpenInstallProgress, so an unconditional restore could re-show windows a
+	// still-running install-progress is hiding.
+	if w != nil {
+		s.restoreHiddenWindowsLocked()
+	}
 	s.mu.Unlock()
 	if w != nil {
 		w.Close()
@@ -276,6 +286,35 @@ func (s *WindowManager) CloseSessionExpiration() {
 	s.mu.Unlock()
 	if w != nil {
 		w.Close()
+	}
+}
+
+// CloseRenewFlow tears down the SSO session-renewal UI in a single call: it
+// closes the browser-login popup and the session-expiration window together.
+func (s *WindowManager) CloseRenewFlow() {
+	s.mu.Lock()
+	bl := s.browserLogin
+	se := s.sessionExpiration
+	s.browserLogin = nil
+	s.sessionExpiration = nil
+	if se != nil {
+		kept := s.hiddenForLogin[:0]
+		for _, w := range s.hiddenForLogin {
+			if w != se {
+				kept = append(kept, w)
+			}
+		}
+		s.hiddenForLogin = kept
+	}
+	s.restoreHiddenWindowsLocked()
+	s.mu.Unlock()
+
+	// Close after unlock so the re-entrant handlers can take s.mu.
+	if bl != nil {
+		bl.Close()
+	}
+	if se != nil {
+		se.Close()
 	}
 }
 

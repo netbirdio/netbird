@@ -17,8 +17,9 @@ import (
 
 // Peer capability constants mirror the proto enum values.
 const (
-	PeerCapabilitySourcePrefixes int32 = 1
-	PeerCapabilityIPv6Overlay    int32 = 2
+	PeerCapabilitySourcePrefixes      int32 = 1
+	PeerCapabilityIPv6Overlay         int32 = 2
+	PeerCapabilityComponentNetworkMap int32 = 3
 )
 
 // Peer represents a machine connected to the network.
@@ -172,6 +173,7 @@ type PeerSystemMeta struct { //nolint:revive
 	Flags              Flags       `gorm:"serializer:json"`
 	Files              []File      `gorm:"serializer:json"`
 	Capabilities       []int32     `gorm:"serializer:json"`
+	SyncMessageVersion int
 }
 
 func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
@@ -216,6 +218,14 @@ func (p *Peer) SupportsIPv6() bool {
 // SupportsSourcePrefixes reports whether the peer reads SourcePrefixes.
 func (p *Peer) SupportsSourcePrefixes() bool {
 	return p.HasCapability(PeerCapabilitySourcePrefixes)
+}
+
+// SupportsComponentNetworkMap reports whether the peer assembles its
+// NetworkMap from server-shipped components instead of consuming a fully
+// expanded NetworkMap. Determines whether the network_map controller skips
+// Calculate() server-side and emits the components envelope.
+func (p *Peer) SupportsComponentNetworkMap() bool {
+	return p.HasCapability(PeerCapabilityComponentNetworkMap)
 }
 
 func capabilitiesEqual(a, b []int32) bool {
@@ -405,6 +415,9 @@ func diffMeta(oldMeta, newMeta PeerSystemMeta, oldLocation, newLocation Location
 	}
 	if !sameMultiset(oldMeta.Files, newMeta.Files) {
 		add("files", fmt.Sprintf("%v", oldMeta.Files), fmt.Sprintf("%v", newMeta.Files))
+	}
+	if oldMeta.SyncMessageVersion != newMeta.SyncMessageVersion {
+		add("sync_meta_version", fmt.Sprintf("%d", oldMeta.SyncMessageVersion), fmt.Sprintf("%d", newMeta.SyncMessageVersion))
 	}
 
 	if !oldLocation.equal(newLocation) {
