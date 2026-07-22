@@ -1087,6 +1087,13 @@ message GroupCompact {
 
   // Indexes into NetworkMapComponentsFull.peers.
   repeated uint32 peer_indexes = 2;
+
+  // True when the group is named "All" (types.Group.IsGroupAll). The
+  // client-side Calculate short-circuits group→peer expansion on such
+  // groups exactly like the server does; without this bit the decoded
+  // groups lose that property and the two sides expand policy
+  // destinations differently.
+  bool is_all = 3;
 }
 
 // DNSSettingsCompact mirrors types.DNSSettings.

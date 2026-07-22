@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"fmt"
 	"net"
 	"net/netip"
 	"testing"
@@ -130,6 +131,95 @@ func TestDecodeEnvelope_MalformedWgKeyPeerSkipped(t *testing.T) {
 	require.NotNil(t, result)
 	require.NotNil(t, result.Components)
 	require.Len(t, result.Components.Peers, 1, "the well-formed peer survives, the malformed one is dropped")
+}
+
+// TestEnvelopeRoundTrip_AllGroupShortCircuitParity reproduces prod accounts
+// with several groups literally named "All" where the "All"-named group does
+// not contain every peer. Server-side Calculate short-circuits destination
+// expansion at the first group named "All" (getUniquePeerIDsFromGroupsIDs),
+// ignoring the remaining destination groups. The wire must preserve enough
+// group identity for the decoded components to short-circuit identically —
+// otherwise the client unions all destination groups and emits extra
+// firewall rules the server never produced.
+func TestEnvelopeRoundTrip_AllGroupShortCircuitParity(t *testing.T) {
+	ctx := context.Background()
+
+	peers := map[string]*nbpeer.Peer{}
+	for i, id := range []string{"peer-T", "peer-S", "peer-ALL", "peer-O"} {
+		peers[id] = &nbpeer.Peer{
+			ID:       id,
+			Key:      randomWgKey(t),
+			IP:       netip.AddrFrom4([4]byte{100, 64, 0, byte(i + 1)}),
+			DNSLabel: id,
+			Meta:     nbpeer.PeerSystemMeta{WtVersion: "0.40.0"},
+		}
+	}
+
+	c := &types.NetworkMapComponents{
+		PeerID: "peer-T",
+		Network: &types.Network{
+			Identifier: "net-all-groups",
+			Net:        net.IPNet{IP: net.IP{100, 64, 0, 0}, Mask: net.CIDRMask(10, 32)},
+			Serial:     1,
+		},
+		AccountSettings: &types.AccountSettingsInfo{},
+		DNSSettings:     &types.DNSSettings{},
+		Peers:           peers,
+		Groups: map[string]*types.Group{
+			"g-src": {ID: "g-src", PublicID: "1", Name: "staff", Peers: []string{"peer-T", "peer-S"}},
+			"g-all": {ID: "g-all", PublicID: "2", Name: "All", Peers: []string{"peer-ALL"}},
+			"g-two": {ID: "g-two", PublicID: "3", Name: "second", Peers: []string{"peer-T", "peer-O"}},
+		},
+		Policies: []*types.Policy{{
+			ID: "pol-multi-dest", PublicID: "10", Enabled: true,
+			Rules: []*types.PolicyRule{{
+				ID:           "rule-multi-dest",
+				Enabled:      true,
+				Action:       types.PolicyTrafficActionAccept,
+				Protocol:     types.PolicyRuleProtocolALL,
+				Sources:      []string{"g-src"},
+				Destinations: []string{"g-all", "g-two"},
+			}},
+		}},
+	}
+
+	serverNM := c.Calculate(ctx)
+	require.NotNil(t, serverNM)
+
+	envelope := mgmtgrpc.EncodeNetworkMapEnvelope(mgmtgrpc.ComponentsEnvelopeInput{
+		Components: c,
+		DNSDomain:  "netbird.cloud",
+	})
+	wire, err := goproto.Marshal(envelope)
+	require.NoError(t, err, "marshal envelope")
+	var decodedEnv proto.NetworkMapEnvelope
+	require.NoError(t, goproto.Unmarshal(wire, &decodedEnv), "unmarshal envelope")
+
+	result, err := nbnetworkmap.EnvelopeToNetworkMap(ctx, &decodedEnv, peers["peer-T"].Key, "netbird.cloud")
+	require.NoError(t, err, "EnvelopeToNetworkMap")
+	clientNM := result.NetworkMap
+
+	serverRules := make([]string, 0, len(serverNM.FirewallRules))
+	for _, r := range serverNM.FirewallRules {
+		serverRules = append(serverRules, fmt.Sprintf("%s/%d", r.PeerIP, r.Direction))
+	}
+	clientRules := make([]string, 0, len(clientNM.FirewallRules))
+	for _, r := range clientNM.FirewallRules {
+		clientRules = append(clientRules, fmt.Sprintf("%s/%d", r.PeerIP, r.Direction))
+	}
+	require.ElementsMatch(t, serverRules, clientRules,
+		"client-side Calculate must expand destination groups exactly like the server")
+
+	serverPeers := make([]string, 0, len(serverNM.Peers))
+	for _, p := range serverNM.Peers {
+		serverPeers = append(serverPeers, p.Key)
+	}
+	clientPeers := make([]string, 0, len(clientNM.RemotePeers))
+	for _, p := range clientNM.RemotePeers {
+		clientPeers = append(clientPeers, p.WgPubKey)
+	}
+	require.ElementsMatch(t, serverPeers, clientPeers,
+		"client-side Calculate must connect the same remote peers as the server")
 }
 
 // buildSmokeComponents returns a minimal NetworkMapComponents (2 peers, 1
