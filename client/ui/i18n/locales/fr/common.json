@@ -1034,8 +1034,14 @@
     "welcome.title": {
         "message": "Cherchez NetBird dans votre barre d’état système"
     },
+    "welcome.titleMac": {
+        "message": "Cherchez NetBird dans votre barre des menus"
+    },
     "welcome.description": {
         "message": "NetBird se trouve dans votre barre d’état système. Cliquez sur l’icône pour vous connecter, changer de profil ou ouvrir les paramètres."
+    },
+    "welcome.descriptionMac": {
+        "message": "NetBird se trouve dans votre barre des menus. Cliquez sur l’icône pour vous connecter, changer de profil ou ouvrir les paramètres."
     },
     "welcome.continue": {
         "message": "Continuer"
@@ -1293,10 +1299,13 @@
         "message": "Documentation"
     },
     "daemon.outdated.title": {
-        "message": "Le service NetBird est obsolète"
+        "message": "Le Client NetBird est obsolète"
     },
     "daemon.outdated.description": {
-        "message": "Mettez à jour le service NetBird pour utiliser cette application."
+        "message": "La nouvelle GUI n'est pas compatible avec votre ancien client. Mettez à jour votre client pour utiliser la nouvelle application."
+    },
+    "daemon.outdated.download": {
+        "message": "Télécharger la dernière version"
     },
     "error.jwt_clock_skew": {
         "message": "Échec de la connexion : l’horloge de cet appareil n’est pas synchronisée avec le serveur. Veuillez synchroniser l’horloge de votre système et réessayer."

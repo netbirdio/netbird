@@ -106,11 +106,13 @@ func TestVLLMProvider(t *testing.T) {
 	t.Cleanup(func() { _ = cl.Terminate(context.Background()) })
 
 	require.NoError(t, cl.WaitConnected(ctx, 90*time.Second), "client must connect to management")
+	// Resolve first: the DNS lookup triggers the lazy-connection warm-up, waking
+	// the proxy peer so WaitProxyPeer then observes it connected.
+	proxyIP, err := cl.ResolveProxyIP(ctx, settings.Endpoint)
+	require.NoError(t, err, "resolve endpoint to proxy IP")
 	if err := cl.WaitProxyPeer(ctx, 180*time.Second); err != nil {
 		t.Fatalf("client did not see the proxy peer: %v\n=== proxy logs ===\n%s", err, px.Logs(context.Background()))
 	}
-	proxyIP, err := cl.ResolveProxyIP(ctx, settings.Endpoint)
-	require.NoError(t, err, "resolve endpoint to proxy IP")
 
 	before, _ := srv.ListAccessLogs(ctx)
 	sessionID := "e2e-session-vllm"

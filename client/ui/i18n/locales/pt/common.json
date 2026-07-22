@@ -1034,8 +1034,14 @@
     "welcome.title": {
         "message": "Procure o NetBird na sua bandeja"
     },
+    "welcome.titleMac": {
+        "message": "Procure o NetBird na sua barra de menus"
+    },
     "welcome.description": {
         "message": "O NetBird fica na sua bandeja. Clique no ícone para conectar, alternar perfis ou abrir as configurações."
+    },
+    "welcome.descriptionMac": {
+        "message": "O NetBird fica na sua barra de menus. Clique no ícone para conectar, alternar perfis ou abrir as configurações."
     },
     "welcome.continue": {
         "message": "Continuar"
@@ -1293,10 +1299,13 @@
         "message": "Documentação"
     },
     "daemon.outdated.title": {
-        "message": "O serviço NetBird está desatualizado"
+        "message": "O NetBird Client está desatualizado"
     },
     "daemon.outdated.description": {
-        "message": "Atualize o serviço NetBird para usar este aplicativo."
+        "message": "A nova GUI não é compatível com o seu cliente mais antigo. Atualize o seu cliente para usar o novo aplicativo."
+    },
+    "daemon.outdated.download": {
+        "message": "Baixar a versão mais recente"
     },
     "error.jwt_clock_skew": {
         "message": "Falha no login: o relógio deste dispositivo está fora de sincronia com o servidor. Sincronize o relógio do sistema e tente novamente."

@@ -47,11 +47,11 @@ func (r *FirewallRule) Equal(other *FirewallRule) bool {
 	return reflect.DeepEqual(r, other)
 }
 
-// generateRouteFirewallRules generates a list of firewall rules for a given route.
+// GenerateRouteFirewallRules generates a list of firewall rules for a given route.
 // For static routes, source ranges match the destination family (v4 or v6).
 // For dynamic routes (domain-based), separate v4 and v6 rules are generated
 // so the routing peer's forwarding chain allows both address families.
-func generateRouteFirewallRules(ctx context.Context, route *nbroute.Route, rule *PolicyRule, groupPeers []*nbpeer.Peer, direction int, includeIPv6 bool) []*RouteFirewallRule {
+func GenerateRouteFirewallRules(ctx context.Context, route *nbroute.Route, rule *PolicyRule, groupPeers []*nbpeer.Peer, direction int, includeIPv6 bool) []*RouteFirewallRule {
 	rulesExists := make(map[string]struct{})
 	rules := make([]*RouteFirewallRule, 0)
 

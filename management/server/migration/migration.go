@@ -13,6 +13,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -633,5 +634,52 @@ func RemoveDuplicatePeerKeys(ctx context.Context, db *gorm.DB) error {
 		}
 	}
 
+	return nil
+}
+
+func BackfillPublicIDs[T any](ctx context.Context, db *gorm.DB) error {
+	var model T
+
+	if !db.Migrator().HasTable(&model) {
+		log.WithContext(ctx).Debugf("Table for %T does not exist, no backfill needed", model)
+		return nil
+	}
+
+	stmt := &gorm.Statement{DB: db}
+	err := stmt.Parse(&model)
+	if err != nil {
+		return fmt.Errorf("parse model: %w", err)
+	}
+	tableName := stmt.Schema.Table
+
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		if !tx.Migrator().HasColumn(&model, "public_id") {
+			log.WithContext(ctx).Infof("Column public_id does not exist in table %s, adding it", tableName)
+			if err := tx.Migrator().AddColumn(&model, "public_id"); err != nil {
+				return fmt.Errorf("add column public_id: %w", err)
+			}
+		}
+
+		var rows []map[string]any
+		if err := tx.Table(tableName).Select("id", "public_id").Where("public_id IS NULL").Or("public_id = ''").Find(&rows).Error; err != nil {
+			return fmt.Errorf("failed to find rows with empty public_id: %w", err)
+		}
+
+		if len(rows) == 0 {
+			log.WithContext(ctx).Infof("No rows with empty public_id found in table %s, no migration needed", tableName)
+			return nil
+		}
+
+		for _, row := range rows {
+			if err := tx.Table(tableName).Where("id = ?", row["id"]).Update("public_id", xid.New().String()).Error; err != nil {
+				return fmt.Errorf("failed to update row with id %v: %w", row["id"], err)
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	log.WithContext(ctx).Infof("Backfill of empty public_id in table %s completed", tableName)
 	return nil
 }
