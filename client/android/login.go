@@ -124,6 +124,12 @@ func (a *Auth) loginWithSetupKeyAndSaveConfig(setupKey string, deviceName string
 	return profilemanager.WriteOutConfig(a.cfgPath, a.config)
 }
 
+// LoginWithSetupKeySync performs a synchronous setup key login and saves the config.
+// This is used by the MDM managed configuration flow where the native app controls threading.
+func (a *Auth) LoginWithSetupKeySync(setupKey string, deviceName string) error {
+	return a.loginWithSetupKeyAndSaveConfig(setupKey, deviceName)
+}
+
 // Login try register the client on the server
 func (a *Auth) Login(resultListener ErrListener, urlOpener URLOpener, isAndroidTV bool) {
 	go func() {
