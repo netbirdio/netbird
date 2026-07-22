@@ -253,9 +253,7 @@ func parseVertexPath(reqPath string) (vertexRequest, bool) {
 	if c := strings.LastIndex(rest, ":"); c >= 0 {
 		model, action = rest[:c], rest[c+1:]
 	}
-	if at := strings.Index(model, "@"); at >= 0 {
-		model = model[:at]
-	}
+	model = llm.NormalizeVertexModel(model)
 	if model == "" {
 		return vertexRequest{}, false
 	}
@@ -276,23 +274,39 @@ func vertexPublisherVendor(publisher string) string {
 	}
 }
 
+// vertexCountTokensModel is the pseudo-model of the Vertex token-count endpoint,
+// the one Vertex shape whose real model lives in the body, not the URL path.
+const vertexCountTokensModel = "count-tokens"
+
 // invokeVertex emits the model/vendor/session/prompt for a Vertex publisher
 // request, using the publisher's parser to read the (vendor-native) body.
 func (m middlewareImpl) invokeVertex(in *middleware.Input, vx vertexRequest) *middleware.Output {
 	out := &middleware.Output{Decision: middleware.DecisionAllow}
 	vendor := vertexPublisherVendor(vx.publisher)
 
-	md := []middleware.KV{}
-	if vendor != "" {
-		md = append(md, middleware.KV{Key: middleware.KeyLLMProvider, Value: vendor})
-	}
-	md = append(md, middleware.KV{Key: middleware.KeyLLMModel, Value: vx.model})
-	md = append(md, middleware.KV{Key: middleware.KeyLLMStream, Value: strconv.FormatBool(vx.stream)})
-
 	var parser llm.Parser
 	if vendor != "" {
 		parser, _ = llm.ParserByName(vendor)
 	}
+
+	model := vx.model
+	// count-tokens carries its real model in the body; resolve it so the
+	// guardrail and router evaluate the actual model. An unreadable body keeps
+	// the pseudo-model and fails closed downstream.
+	if model == vertexCountTokensModel && parser != nil {
+		if facts, err := parser.ParseRequest(in.Body); err == nil && facts.Model != "" {
+			if bodyModel := llm.NormalizeVertexModel(facts.Model); bodyModel != "" {
+				model = bodyModel
+			}
+		}
+	}
+
+	md := []middleware.KV{}
+	if vendor != "" {
+		md = append(md, middleware.KV{Key: middleware.KeyLLMProvider, Value: vendor})
+	}
+	md = append(md, middleware.KV{Key: middleware.KeyLLMModel, Value: model})
+	md = append(md, middleware.KV{Key: middleware.KeyLLMStream, Value: strconv.FormatBool(vx.stream)})
 
 	sessionID := sessionIDFromHeaders(in.Headers)
 	if sessionID == "" && parser != nil {

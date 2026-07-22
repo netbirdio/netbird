@@ -104,3 +104,93 @@ func TestModelAllowlist_URLRoutedProviders(t *testing.T) {
 		})
 	}
 }
+
+// TestModelAllowlist_VertexRequestShapes replays the Vertex request shapes an
+// Anthropic SDK client sends (model in the URL path, optionally unversioned,
+// plus the count-tokens body-model endpoint) against bare and "@version"
+// allowlists. URLs mirror a customer-reported request.
+func TestModelAllowlist_VertexRequestShapes(t *testing.T) {
+	const (
+		opusBare      = "/v1/projects/corp-gcp-it-all-claude/locations/global/publishers/anthropic/models/claude-opus-4-6:rawPredict"
+		opusBareSSE   = "/v1/projects/corp-gcp-it-all-claude/locations/global/publishers/anthropic/models/claude-opus-4-6:streamRawPredict"
+		countTokens   = "/v1/projects/corp-gcp-it-all-claude/locations/global/publishers/anthropic/models/count-tokens:rawPredict"
+		messagesBody  = `{"anthropic_version":"vertex-2023-10-16","messages":[{"role":"user","content":"hi"}]}`
+		countOpusBody = `{"model":"claude-opus-4-6","messages":[{"role":"user","content":"hi"}]}`
+	)
+
+	tests := []struct {
+		name      string
+		url       string
+		body      string
+		allowlist []string
+		decision  middleware.Decision
+		denyCode  string
+	}{
+		{
+			name:      "unversioned model allowed by bare catalog entry",
+			url:       opusBare,
+			body:      messagesBody,
+			allowlist: []string{"claude-opus-4-6"},
+			decision:  middleware.DecisionAllow,
+		},
+		{
+			name:      "unversioned model allowed by @version allowlist entry",
+			url:       opusBare,
+			body:      messagesBody,
+			allowlist: []string{"claude-opus-4-6@20250514"},
+			decision:  middleware.DecisionAllow,
+		},
+		{
+			name:      "streaming action allowed the same as rawPredict",
+			url:       opusBareSSE,
+			body:      messagesBody,
+			allowlist: []string{"claude-opus-4-6"},
+			decision:  middleware.DecisionAllow,
+		},
+		{
+			// The customer report: a Sonnet-only allowlist must block Opus.
+			name:      "unversioned model outside the allowlist denied",
+			url:       opusBare,
+			body:      messagesBody,
+			allowlist: []string{"claude-sonnet-4-5"},
+			decision:  middleware.DecisionDeny,
+			denyCode:  "llm_policy.model_blocked",
+		},
+		{
+			name:      "count-tokens resolves the body model and passes when allowed",
+			url:       countTokens,
+			body:      countOpusBody,
+			allowlist: []string{"claude-opus-4-6"},
+			decision:  middleware.DecisionAllow,
+		},
+		{
+			name:      "count-tokens with a disallowed body model denied",
+			url:       countTokens,
+			body:      countOpusBody,
+			allowlist: []string{"claude-sonnet-4-5"},
+			decision:  middleware.DecisionDeny,
+			denyCode:  "llm_policy.model_blocked",
+		},
+		{
+			// No body model: the pseudo-model stays and fails closed.
+			name:      "count-tokens without a body model fails closed",
+			url:       countTokens,
+			body:      messagesBody,
+			allowlist: []string{"claude-opus-4-6"},
+			decision:  middleware.DecisionDeny,
+			denyCode:  "llm_policy.model_blocked",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out := runParserGuardrail(t, tt.url, []byte(tt.body), tt.allowlist)
+			assert.Equal(t, tt.decision, out.Decision, "unexpected decision for %s", tt.name)
+			if tt.decision == middleware.DecisionDeny {
+				require.NotNil(t, out.DenyReason, "deny reason must be set for %s", tt.name)
+				assert.Equal(t, 403, out.DenyStatus, "deny status must be 403 for %s", tt.name)
+				assert.Equal(t, tt.denyCode, out.DenyReason.Code, "deny code for %s", tt.name)
+			}
+		})
+	}
+}

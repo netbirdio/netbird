@@ -556,12 +556,14 @@ func routeClaimsModel(route ProviderRoute, model string) bool {
 		if candidate == model {
 			return true
 		}
-		// Bedrock request models reach the router already normalized (the parser
-		// strips the region / inference-profile prefix and version suffix), but
-		// the operator may register the raw inference-profile id (e.g.
-		// "us.anthropic.claude-haiku-4-5"). Normalize the candidate so both sides
-		// compare equal; otherwise a native Bedrock request denies as not-routable.
+		// The request model is already normalized by the parser, but the operator
+		// may register the raw id (Bedrock inference-profile, Vertex "@version").
+		// Normalize the candidate so both spellings match; else it denies as
+		// not-routable.
 		if route.Bedrock && llm.NormalizeBedrockModel(candidate) == model {
+			return true
+		}
+		if route.Vertex && llm.NormalizeVertexModel(candidate) == model {
 			return true
 		}
 	}

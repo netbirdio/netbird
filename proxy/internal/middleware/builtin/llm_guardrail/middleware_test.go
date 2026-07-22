@@ -70,6 +70,25 @@ func TestAllowlistMatchAllows(t *testing.T) {
 	assert.Equal(t, middleware.DecisionAllow, out.Decision, "model in allowlist must be allowed")
 }
 
+// A Vertex "@version" allowlist entry must match the version-stripped request
+// model the parser emits.
+func TestAllowlistVertexVersionedEntryMatchesStrippedModel(t *testing.T) {
+	mw := New(Config{ModelAllowlist: []string{"claude-opus-4-6@20250514"}})
+	out, err := mw.Invoke(context.Background(), newInput(
+		middleware.KV{Key: middleware.KeyLLMModel, Value: "claude-opus-4-6"},
+	))
+	require.NoError(t, err)
+	assert.Equal(t, middleware.DecisionAllow, out.Decision,
+		"@version allowlist entry must match the version-stripped request model")
+
+	out, err = mw.Invoke(context.Background(), newInput(
+		middleware.KV{Key: middleware.KeyLLMModel, Value: "claude-opus-4-8"},
+	))
+	require.NoError(t, err)
+	assert.Equal(t, middleware.DecisionDeny, out.Decision,
+		"a different model must stay denied")
+}
+
 func TestAllowlistMissDenies(t *testing.T) {
 	mw := New(Config{ModelAllowlist: []string{"gpt-4o"}})
 	out, err := mw.Invoke(context.Background(), newInput(

@@ -13,6 +13,7 @@ import (
 	"context"
 	"unicode/utf8"
 
+	"github.com/netbirdio/netbird/proxy/internal/llm"
 	"github.com/netbirdio/netbird/proxy/internal/middleware"
 )
 
@@ -160,6 +161,11 @@ func (m *Middleware) modelInAllowlist(model string) bool {
 	}
 	for _, allowed := range m.cfg.ModelAllowlist {
 		if allowed == normalised {
+			return true
+		}
+		// Accept a Vertex entry stored with its "@version" suffix against the
+		// suffix-stripped request model. Entries without "@" stay exact.
+		if v := llm.NormalizeVertexModel(allowed); v != "" && v != allowed && v == normalised {
 			return true
 		}
 	}
