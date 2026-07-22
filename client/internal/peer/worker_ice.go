@@ -244,6 +244,24 @@ func (w *WorkerICE) SessionID() ICESessionID {
 	return w.sessionID
 }
 
+// ResetSessionID generates a new session ID and clears the remote session ID.
+// This must be called when the WireGuard handshake times out while using a relay
+// connection, so that the next ICE offer carries a fresh session ID and the remote
+// peer recreates its ICE agent with up-to-date candidates instead of skipping the
+// offer because the session ID matches the previous (failed) attempt.
+func (w *WorkerICE) ResetSessionID() {
+	w.muxAgent.Lock()
+	defer w.muxAgent.Unlock()
+
+	sessionID, err := NewICESessionID()
+	if err != nil {
+		w.log.Errorf("failed to create new session ID: %s", err)
+		return
+	}
+	w.sessionID = sessionID
+	w.remoteSessionID = ""
+}
+
 // will block until connection succeeded
 // but it won't release if ICE Agent went into Disconnected or Failed state,
 // so we have to cancel it with the provided context once agent detected a broken connection
