@@ -185,6 +185,7 @@ func (m *Manager) ExcludePeer(peerConfigs []lazyconn.PeerConfig) []string {
 	return added
 }
 
+// AddPeer arms the peer's wake endpoint without starting to consume traffic on it.
 func (m *Manager) AddPeer(peerCfg lazyconn.PeerConfig) (bool, error) {
 	m.managedPeersMu.Lock()
 	defer m.managedPeersMu.Unlock()
@@ -201,7 +202,7 @@ func (m *Manager) AddPeer(peerCfg lazyconn.PeerConfig) (bool, error) {
 		return false, nil
 	}
 
-	if err := m.activityManager.MonitorPeerActivity(peerCfg); err != nil {
+	if err := m.activityManager.CreatePeerListener(peerCfg); err != nil {
 		return false, err
 	}
 
@@ -211,13 +212,29 @@ func (m *Manager) AddPeer(peerCfg lazyconn.PeerConfig) (bool, error) {
 		expectedWatcher: watcherActivity,
 	}
 
-	// Check if this peer should be activated because its HA group peers are active
-	if group, ok := m.shouldActivateNewPeer(peerCfg.PublicKey); ok {
-		peerCfg.Log.Debugf("peer belongs to active HA group %s, will activate immediately", group)
-		m.activateNewPeerInActiveGroup(peerCfg)
+	return false, nil
+}
+
+// StartPeer starts the peer's activity listener and applies HA activation. It reports whether
+// the peer is managed by the lazy manager.
+func (m *Manager) StartPeer(peerKey string) bool {
+	m.managedPeersMu.Lock()
+	defer m.managedPeersMu.Unlock()
+
+	peerCfg, ok := m.managedPeers[peerKey]
+	if !ok {
+		return false
 	}
 
-	return false, nil
+	m.activityManager.StartPeerListener(peerCfg.PeerConnID)
+
+	// Check if this peer should be activated because its HA group peers are active
+	if group, ok := m.shouldActivateNewPeer(peerKey); ok {
+		peerCfg.Log.Debugf("peer belongs to active HA group %s, will activate immediately", group)
+		m.activateNewPeerInActiveGroup(*peerCfg)
+	}
+
+	return true
 }
 
 // AddActivePeers adds a list of peers to the lazy connection manager
