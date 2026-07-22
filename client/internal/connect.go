@@ -257,7 +257,10 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		log.Errorf("failed to clean up temporary installer file: %v", err)
 	}
 
-	defer c.statusRecorder.ClientStop()
+	defer func() {
+		c.statusRecorder.SetSessionExpiresAt(time.Time{})
+		c.statusRecorder.ClientStop()
+	}()
 	operation := func() error {
 		// if context cancelled we not start new backoff cycle
 		if c.ctx.Err() != nil {

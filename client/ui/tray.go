@@ -317,8 +317,7 @@ func (t *Tray) relayoutMenu() {
 		if sessionDeadline.IsZero() {
 			t.sessionExpiresItem.SetHidden(true)
 		} else {
-			remaining := t.formatSessionRemaining(time.Until(sessionDeadline))
-			t.sessionExpiresItem.SetLabel(t.loc.T("tray.session.expiresIn", "remaining", remaining))
+			t.sessionExpiresItem.SetLabel(t.sessionRowLabel(sessionDeadline))
 			t.sessionExpiresItem.SetHidden(false)
 		}
 	}
