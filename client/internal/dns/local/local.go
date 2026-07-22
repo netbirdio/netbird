@@ -37,31 +37,43 @@ type resolver interface {
 // record is left alone (it points at something outside our mesh, e.g.
 // a non-peer upstream).
 type PeerConnectivity interface {
-	IsConnectedByIP(ip string) (known, connected bool)
+	IsConnectedByIP(ip netip.Addr) (known, connected bool)
 }
 
 // PeerActivator wakes lazy-connection peers on demand. The local resolver calls
 // it with the tunnel IPs an answer points at, so a peer that is idle (lazily
-// disconnected) begins its WireGuard handshake at DNS-resolution time rather
-// than racing the client's first request packet. nil disables warm-up.
+// disconnected) starts connecting at DNS-resolution time rather than racing the
+// client's first request packet. nil disables warm-up.
 type PeerActivator interface {
-	// ActivatePeersByIP triggers wake-up for the peer(s) owning ips and blocks
+	// ActivatePeersByIP triggers wake-up for the peer(s) owning addrs and blocks
 	// until one is connected or ctx (a short per-query budget) expires. It is a
-	// fast no-op for unknown or already-connected IPs.
-	ActivatePeersByIP(ctx context.Context, ips []string)
+	// fast no-op for unknown or already-connected addresses.
+	ActivatePeersByIP(ctx context.Context, addrs []netip.Addr)
 }
 
-const defaultLazyWarmupTimeout = 2 * time.Second
+const (
+	defaultLazyWarmupTimeout = 2 * time.Second
+	envLazyWarmupTimeout     = "NB_DNS_LAZY_WARMUP_TIMEOUT"
+)
 
-// lazyWarmupTimeout is the per-query budget for waking a lazy-connection peer a
-// DNS answer points at. Tunable via NB_DNS_LAZY_WARMUP_TIMEOUT (a Go duration).
-func lazyWarmupTimeout() time.Duration {
-	if v := os.Getenv("NB_DNS_LAZY_WARMUP_TIMEOUT"); v != "" {
-		if d, err := time.ParseDuration(v); err == nil && d > 0 {
-			return d
-		}
+// lazyWarmupTimeoutFromEnv returns the per-query budget for waking a
+// lazy-connection peer a DNS answer points at. Tunable via
+// NB_DNS_LAZY_WARMUP_TIMEOUT (a Go duration). Parsed once at construction time.
+func lazyWarmupTimeoutFromEnv() time.Duration {
+	v := os.Getenv(envLazyWarmupTimeout)
+	if v == "" {
+		return defaultLazyWarmupTimeout
 	}
-	return defaultLazyWarmupTimeout
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		log.Warnf("invalid %s value %q, using default %s: %v", envLazyWarmupTimeout, v, defaultLazyWarmupTimeout, err)
+		return defaultLazyWarmupTimeout
+	}
+	if d <= 0 {
+		log.Warnf("non-positive %s value %q, using default %s", envLazyWarmupTimeout, v, defaultLazyWarmupTimeout)
+		return defaultLazyWarmupTimeout
+	}
+	return d
 }
 
 type Resolver struct {
@@ -79,6 +91,9 @@ type Resolver struct {
 	// peerActivator, when non-nil, is called at resolution time to warm the
 	// lazy connection to the peer(s) an answer points at. nil disables warm-up.
 	peerActivator PeerActivator
+	// warmupTimeout is the per-query budget for the lazy-connection warm-up
+	// wait, resolved from the environment once at construction time.
+	warmupTimeout time.Duration
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -87,11 +102,12 @@ type Resolver struct {
 func NewResolver() *Resolver {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Resolver{
-		records: make(map[dns.Question][]dns.RR),
-		domains: make(map[domain.Domain]struct{}),
-		zones:   make(map[domain.Domain]bool),
-		ctx:     ctx,
-		cancel:  cancel,
+		records:       make(map[dns.Question][]dns.RR),
+		domains:       make(map[domain.Domain]struct{}),
+		zones:         make(map[domain.Domain]bool),
+		warmupTimeout: lazyWarmupTimeoutFromEnv(),
+		ctx:           ctx,
+		cancel:        cancel,
 	}
 }
 
@@ -160,7 +176,7 @@ func (d *Resolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	result := d.lookupRecords(logger, question)
 	// Warm before filtering: activation flips a lazily-idle target to connected,
 	// which then lets it survive the disconnected-peer filter below.
-	d.warmLazyPeers(result.records)
+	d.warmLazyPeers(question, result.records)
 	result.records = d.filterDisconnectedPeerAnswers(logger, question, result.records)
 	replyMessage.Authoritative = !result.hasExternalData
 	replyMessage.Answer = result.records
@@ -534,8 +550,8 @@ func (d *Resolver) filterDisconnectedPeerAnswers(logger *log.Entry, question dns
 	kept := make([]dns.RR, 0, len(records))
 	var dropped int
 	for _, rr := range records {
-		ip := extractRecordIP(rr)
-		if ip == "" {
+		ip, ok := extractRecordAddr(rr)
+		if !ok {
 			kept = append(kept, rr)
 			continue
 		}
@@ -559,47 +575,52 @@ func (d *Resolver) filterDisconnectedPeerAnswers(logger *log.Entry, question dns
 
 // warmLazyPeers triggers lazy-connection wake-up for the peers a resolved
 // answer points at and waits briefly for one to connect, so the caller's first
-// request doesn't race the WireGuard handshake. No-op when no activator is
-// wired (lazy connections disabled) or the answer carries no peer IPs.
-func (d *Resolver) warmLazyPeers(records []dns.RR) {
+// request doesn't race the connection establishment. Warm-up is scoped to
+// match-only (non-authoritative) zones — the synthesized private-service zones
+// and user-created zones whose records point at specific peers. The account's
+// peer zone is authoritative, so plain peer-name lookups never trigger warm-up;
+// otherwise resolving any peer's name would wake its idle connection, defeating
+// laziness mesh-wide. No-op when no activator is wired (lazy connections
+// disabled) or the answer carries no peer IPs.
+func (d *Resolver) warmLazyPeers(question dns.Question, records []dns.RR) {
 	d.mu.RLock()
 	activator := d.peerActivator
+	var nonAuth, found bool
+	if activator != nil {
+		nonAuth, found = d.findZone(question.Name)
+	}
 	d.mu.RUnlock()
-	if activator == nil {
+	if activator == nil || !found || !nonAuth {
 		return
 	}
 
-	var ips []string
+	var addrs []netip.Addr
 	for _, rr := range records {
-		if ip := extractRecordIP(rr); ip != "" {
-			ips = append(ips, ip)
+		if addr, ok := extractRecordAddr(rr); ok {
+			addrs = append(addrs, addr)
 		}
 	}
-	if len(ips) == 0 {
+	if len(addrs) == 0 {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(d.ctx, lazyWarmupTimeout())
+	ctx, cancel := context.WithTimeout(d.ctx, d.warmupTimeout)
 	defer cancel()
-	activator.ActivatePeersByIP(ctx, ips)
+	activator.ActivatePeersByIP(ctx, addrs)
 }
 
-// extractRecordIP returns the dotted-decimal / colon-hex IP carried by
-// an A or AAAA record, or "" for any other record type.
-func extractRecordIP(rr dns.RR) string {
+// extractRecordAddr returns the IP address carried by an A or AAAA record.
+// ok is false for any other record type or a record with no address.
+func extractRecordAddr(rr dns.RR) (netip.Addr, bool) {
 	switch r := rr.(type) {
 	case *dns.A:
-		if r.A == nil {
-			return ""
-		}
-		return r.A.String()
+		addr, ok := netip.AddrFromSlice(r.A)
+		return addr.Unmap(), ok
 	case *dns.AAAA:
-		if r.AAAA == nil {
-			return ""
-		}
-		return r.AAAA.String()
+		addr, ok := netip.AddrFromSlice(r.AAAA)
+		return addr.Unmap(), ok
 	}
-	return ""
+	return netip.Addr{}, false
 }
 
 // Update replaces all zones and their records
