@@ -291,3 +291,40 @@ func TestIptablesCreatePerformance(t *testing.T) {
 		})
 	}
 }
+
+// TestIptablesACLIPSetFallback verifies that when the kernel lacks ipset support,
+// the ACL manager falls back to per-IP iptables rules (-s <ip>) instead of
+// silently leaving the chain empty. See discussion #6125.
+func TestIptablesACLIPSetFallback(t *testing.T) {
+	ipv4Client, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
+	require.NoError(t, err)
+
+	// Use Create()/Init() so the router-owned chains (chainRTFWDIN/OUT) are
+	// created before the ACL manager's createDefaultChains() references them.
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
+	require.NoError(t, err)
+	require.NoError(t, manager.Init(nil))
+
+	aclMgr := manager.aclMgr
+	// Simulate a kernel without the ipset hash module.
+	aclMgr.ipsetSupported = false
+
+	defer func() {
+		require.NoError(t, manager.Close(nil))
+	}()
+
+	ip := netip.MustParseAddr("10.20.0.42")
+	port := &fw.Port{Values: []uint16{22}}
+
+	rules, err := aclMgr.AddPeerFiltering(nil, ip.AsSlice(), "tcp", nil, port, fw.ActionAccept, "nb0000001")
+	require.NoError(t, err, "AddPeerFiltering should succeed via fallback")
+	require.NotEmpty(t, rules)
+
+	rule := rules[0].(*Rule)
+	require.Empty(t, rule.ipsetName, "fallback rule must not reference an ipset")
+	require.Contains(t, strings.Join(rule.specs, " "), "-s 10.20.0.42", "fallback rule must match by source IP")
+	require.NotContains(t, strings.Join(rule.specs, " "), "--match-set", "fallback rule must not use ipset matching")
+
+	// The rule must actually be present in the ACL chain (not silently dropped).
+	checkRuleSpecs(t, ipv4Client, rule.chain, true, rule.specs...)
+}
