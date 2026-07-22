@@ -845,6 +845,21 @@ func (mr *MockStoreMockRecorder) DeleteZoneDNSRecords(ctx, accountID, zoneID int
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteZoneDNSRecords", reflect.TypeOf((*MockStore)(nil).DeleteZoneDNSRecords), ctx, accountID, zoneID)
 }
 
+// DisconnectAllProxies mocks base method.
+func (m *MockStore) DisconnectAllProxies(ctx context.Context) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DisconnectAllProxies", ctx)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DisconnectAllProxies indicates an expected call of DisconnectAllProxies.
+func (mr *MockStoreMockRecorder) DisconnectAllProxies(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DisconnectAllProxies", reflect.TypeOf((*MockStore)(nil).DisconnectAllProxies), ctx)
+}
+
 // DisconnectProxy mocks base method.
 func (m *MockStore) DisconnectProxy(ctx context.Context, proxyID, sessionID string) error {
 	m.ctrl.T.Helper()
@@ -1759,6 +1774,21 @@ func (m *MockStore) GetAllEphemeralPeers(ctx context.Context, lockStrength Locki
 func (mr *MockStoreMockRecorder) GetAllEphemeralPeers(ctx, lockStrength interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllEphemeralPeers", reflect.TypeOf((*MockStore)(nil).GetAllEphemeralPeers), ctx, lockStrength)
+}
+
+// GetAllProxies mocks base method.
+func (m *MockStore) GetAllProxies(ctx context.Context) ([]*proxy.Proxy, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAllProxies", ctx)
+	ret0, _ := ret[0].([]*proxy.Proxy)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAllProxies indicates an expected call of GetAllProxies.
+func (mr *MockStoreMockRecorder) GetAllProxies(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllProxies", reflect.TypeOf((*MockStore)(nil).GetAllProxies), ctx)
 }
 
 // GetAllProxyAccessTokens mocks base method.

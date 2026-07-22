@@ -6,8 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
-	"path"
-	"path/filepath"
+	filePath "path/filepath"
 	"strings"
 	"time"
 
@@ -303,6 +302,19 @@ func (c *CombinedConfig) ApplySimplifiedDefaults() {
 	c.autoConfigureClientSettings(exposedProto, exposedHost, exposedHostPort, hasExternalStuns, hasExternalRelay, hasExternalSignal)
 }
 
+// ApplyAdminDefaults applies the management settings needed by admin commands even
+// when the full server config is invalid and ApplySimplifiedDefaults cannot run.
+func (c *CombinedConfig) ApplyAdminDefaults() {
+	if c.Management.DataDir == "" || c.Management.DataDir == "/var/lib/netbird/" {
+		c.Management.DataDir = c.Server.DataDir
+	}
+	if c.Management.Store.Engine == "" || c.Management.Store.Engine == "sqlite" {
+		if c.Server.Store.Engine != "" || c.Server.Store.File != "" || c.Server.Store.DSN != "" {
+			c.Management.Store = c.Server.Store
+		}
+	}
+}
+
 // applyRelayDefaults configures the relay service if no external relay is configured.
 func (c *CombinedConfig) applyRelayDefaults(exposedProto, exposedHostPort string, hasExternalRelay, hasExternalStuns bool) {
 	if hasExternalRelay {
@@ -580,11 +592,11 @@ func (c *CombinedConfig) buildEmbeddedIdPConfig(mgmt ManagementConfig) (*idp.Emb
 			return nil, fmt.Errorf("authStore.dsn is required when authStore.engine is postgres")
 		}
 	} else {
-		authStorageFile = path.Join(mgmt.DataDir, "idp.db")
+		authStorageFile = filePath.Join(mgmt.DataDir, "idp.db")
 		if c.Server.AuthStore.File != "" {
 			authStorageFile = c.Server.AuthStore.File
-			if !filepath.IsAbs(authStorageFile) {
-				authStorageFile = filepath.Join(mgmt.DataDir, authStorageFile)
+			if !filePath.IsAbs(authStorageFile) {
+				authStorageFile = filePath.Join(mgmt.DataDir, authStorageFile)
 			}
 		}
 	}
@@ -734,7 +746,7 @@ func ApplyEmbeddedIdPConfig(ctx context.Context, cfg *nbconfig.Config, mgmtPort 
 		cfg.EmbeddedIdP.Storage.Type = "sqlite3"
 	}
 	if cfg.EmbeddedIdP.Storage.Config.File == "" && cfg.Datadir != "" {
-		cfg.EmbeddedIdP.Storage.Config.File = path.Join(cfg.Datadir, "idp.db")
+		cfg.EmbeddedIdP.Storage.Config.File = filePath.Join(cfg.Datadir, "idp.db")
 	}
 
 	issuer := cfg.EmbeddedIdP.Issuer

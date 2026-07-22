@@ -6140,6 +6140,37 @@ func (s *SqlStore) DisconnectProxy(ctx context.Context, proxyID, sessionID strin
 	return nil
 }
 
+// GetAllProxies returns all reverse proxy instance rows.
+func (s *SqlStore) GetAllProxies(ctx context.Context) ([]*proxy.Proxy, error) {
+	var proxies []*proxy.Proxy
+	result := s.db.Order("cluster_address, id").Find(&proxies)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get proxies: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get proxies")
+	}
+	return proxies, nil
+}
+
+// DisconnectAllProxies force-marks every proxy that is not already disconnected
+// as disconnected, regardless of session ID. Unlike DisconnectProxy it is not
+// session-guarded: it is an administrative repair helper, not part of the
+// connection lifecycle. last_seen is left untouched so the stale-proxy reaper
+// keeps working off the real last heartbeat. Returns the number of proxies updated.
+func (s *SqlStore) DisconnectAllProxies(ctx context.Context) (int64, error) {
+	result := s.db.
+		Model(&proxy.Proxy{}).
+		Where("status != ?", proxy.StatusDisconnected).
+		Updates(map[string]any{
+			"status":          proxy.StatusDisconnected,
+			"disconnected_at": time.Now(),
+		})
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to disconnect all proxies: %v", result.Error)
+		return 0, status.Errorf(status.Internal, "failed to disconnect all proxies")
+	}
+	return result.RowsAffected, nil
+}
+
 // UpdateProxyHeartbeat updates the last_seen timestamp for the proxy's current session.
 func (s *SqlStore) UpdateProxyHeartbeat(ctx context.Context, p *proxy.Proxy) error {
 	now := time.Now()
@@ -6147,7 +6178,11 @@ func (s *SqlStore) UpdateProxyHeartbeat(ctx context.Context, p *proxy.Proxy) err
 	result := s.db.
 		Model(&proxy.Proxy{}).
 		Where("id = ? AND session_id = ?", p.ID, p.SessionID).
-		Update("last_seen", now)
+		Updates(map[string]any{
+			"last_seen":       now,
+			"status":          proxy.StatusConnected,
+			"disconnected_at": nil,
+		})
 
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to update proxy heartbeat: %v", result.Error)
