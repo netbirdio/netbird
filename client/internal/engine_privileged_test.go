@@ -124,7 +124,7 @@ func TestEngine_SSH(t *testing.T) {
 		RemotePeersIsEmpty: false,
 	}
 
-	err = engine.updateNetworkMap(networkMap)
+	_, err = engine.updateNetworkMap(networkMap, maxPeersPerSyncPass, true)
 	require.NoError(t, err)
 
 	assert.Nil(t, engine.sshServer)
@@ -146,7 +146,7 @@ func TestEngine_SSH(t *testing.T) {
 		RemotePeersIsEmpty: false,
 	}
 
-	err = engine.updateNetworkMap(networkMap)
+	_, err = engine.updateNetworkMap(networkMap, maxPeersPerSyncPass, true)
 	require.NoError(t, err)
 
 	time.Sleep(250 * time.Millisecond)
@@ -159,7 +159,7 @@ func TestEngine_SSH(t *testing.T) {
 		RemotePeersIsEmpty: false,
 	}
 
-	err = engine.updateNetworkMap(networkMap)
+	_, err = engine.updateNetworkMap(networkMap, maxPeersPerSyncPass, true)
 	require.NoError(t, err)
 
 	// time.Sleep(250 * time.Millisecond)
@@ -174,7 +174,7 @@ func TestEngine_SSH(t *testing.T) {
 		RemotePeersIsEmpty: false,
 	}
 
-	err = engine.updateNetworkMap(networkMap)
+	_, err = engine.updateNetworkMap(networkMap, maxPeersPerSyncPass, true)
 	require.NoError(t, err)
 
 	assert.Nil(t, engine.sshServer)
