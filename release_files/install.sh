@@ -134,6 +134,12 @@ repo_gpgcheck=1
 EOF
 }
 
+add_zypper_repo() {
+  ${SUDO} zypper --non-interactive removerepo netbird >/dev/null 2>&1 || true
+  ${SUDO} zypper --non-interactive addrepo -f -g https://pkgs.netbird.io/yum/ netbird
+  ${SUDO} zypper --gpg-auto-import-keys refresh netbird
+}
+
 prepare_tun_module() {
   # Create the necessary file structure for /dev/net/tun
   if [ ! -c /dev/net/tun ]; then
@@ -242,6 +248,14 @@ install_netbird() {
 
         if ! $SKIP_UI_APP; then
             ${SUDO} dnf -y install netbird-ui
+        fi
+    ;;
+    zypper)
+        add_zypper_repo
+        ${SUDO} zypper --non-interactive install netbird
+
+        if ! $SKIP_UI_APP; then
+            ${SUDO} zypper --non-interactive install netbird-ui
         fi
     ;;
     rpm-ostree)
@@ -438,6 +452,9 @@ if type uname >/dev/null 2>&1; then
               elif [ -x "$(command -v apt-get)" ]; then
                   PACKAGE_MANAGER="apt"
                   echo "The installation will be performed using apt package manager"
+              elif [ -x "$(command -v zypper)" ]; then
+                  PACKAGE_MANAGER="zypper"
+                  echo "The installation will be performed using zypper package manager"
               elif [ -x "$(command -v dnf)" ]; then
                   PACKAGE_MANAGER="dnf"
                   echo "The installation will be performed using dnf package manager"
