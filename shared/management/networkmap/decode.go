@@ -173,7 +173,7 @@ func DecodeEnvelope(env *proto.NetworkMapEnvelope) (*types.NetworkMapComponents,
 		}
 	}
 
-	// Phase 8: resource_policies_map
+	// Phase 8: rebuild resource_policies_map
 	for _, p := range c.Policies {
 		rule := p.Rules[0] // there's always only one rule
 		if rule.SourceResource.Type != types.ResourceTypePeer && rule.SourceResource.ID != "" {

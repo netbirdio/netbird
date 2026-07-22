@@ -305,7 +305,7 @@ func TestEncodeNetworkMapEnvelope_GroupsByAccountPublicId(t *testing.T) {
 	assert.Len(t, groupByID["2"].PeerIndexes, 2)
 }
 
-func TestEncodePolicy(t *testing.T) {
+func TestEncodeResource(t *testing.T) {
 	encoder := componentEncoder{peerOrder: map[string]uint32{"peerId": uint32(1234)}, networkIdToPublicId: map[string]string{"domain": "publicDomain", "host": "publicHost", "subnet": "publicSubnet"}}
 	assert.Equal(t,
 		encoder.resourceToProto(types.Resource{Type: "peer", ID: "peerId"}),
@@ -328,7 +328,249 @@ func TestEncodePolicy(t *testing.T) {
 	// verify invalid networkresource id results in nil
 	assert.Nil(t,
 		encoder.resourceToProto(types.Resource{Type: "host", ID: "boom"}))
+}
 
+func TestEncodePolicy(t *testing.T) {
+	encoder := componentEncoder{
+		peerOrder: map[string]uint32{"peer-1-id": uint32(1234), "peer-2-id": uint32(1235)},
+		networkIdToPublicId: map[string]string{
+			"resource-3-id": "public-resource-3-id"},
+		components: &types.NetworkMapComponents{
+			Groups: map[string]*types.Group{
+				"group-1-id":  {ID: "group-1-id", PublicID: "group-public-1-id", AccountID: "account-1-id"},
+				"group-2-id":  {ID: "group-2-id", PublicID: "group-public-2-id", AccountID: "account-1-id"},
+				"group-3-id":  {ID: "group-3-id", PublicID: "group-public-3-id", AccountID: "account-1-id"},
+				"group-4-id":  {ID: "group-4-id", PublicID: "group-public-4-id", AccountID: "account-1-id"},
+				"group-11-id": {ID: "group-11-id", PublicID: "group-public-11-id", AccountID: "account-1-id"},
+				"group-22-id": {ID: "group-22-id", PublicID: "group-public-22-id", AccountID: "account-1-id"},
+			},
+			PostureCheckXIDToPublicID: map[string]string{
+				"posture-check-1-id": "public-posture-check-1-id",
+				"posture-check-2-id": "public-posture-check-2-id",
+				"posture-check-3-id": "public-posture-check-3-id",
+				"posture-check-4-id": "public-posture-check-4-id",
+			},
+		}}
+	policyCompacts := encoder.encodePolicies(
+		[]*types.Policy{
+			{
+				// policy without resources
+				ID:                  "policy-1-id",
+				PublicID:            "public-policy-1-id",
+				AccountID:           "account-1-id",
+				Name:                "policy-1-name",
+				Description:         "policy-1-description",
+				Enabled:             true,
+				SourcePostureChecks: []string{"posture-check-1-id", "posture-check-2-id"},
+				Rules: []*types.PolicyRule{
+					{
+						ID:            "policy-1-rule-1-id",
+						PolicyID:      "policy-1-id",
+						Name:          "policy-1-rule-1-name",
+						Description:   "policy-1-rule-1-description",
+						Enabled:       true,
+						Action:        types.PolicyTrafficActionAccept,
+						Destinations:  []string{"group-1-id", "group-2-id"},
+						Sources:       []string{"group-3-id", "group-4-id"},
+						Bidirectional: true,
+						Protocol:      types.PolicyRuleProtocolALL,
+						Ports:         []string{"100", "101", "102"},
+						PortRanges: []types.RulePortRange{
+							{
+								Start: 200,
+								End:   300,
+							},
+						},
+						AuthorizedGroups: map[string][]string{
+							"group-1-id": {"user1", "user2"},
+							"group-2-id": {"user3", "user4"},
+						},
+						AuthorizedUser: "user5",
+					},
+					{
+						ID:            "policy-1-rule-2-id",
+						PolicyID:      "policy-1-id",
+						Name:          "policy-1-rule-2-name",
+						Description:   "policy-1-rule-2-description",
+						Enabled:       true,
+						Action:        types.PolicyTrafficActionAccept,
+						Destinations:  []string{"group-1-id", "group-2-id"},
+						Sources:       []string{"group-3-id", "group-4-id"},
+						Bidirectional: false,
+						Protocol:      types.PolicyRuleProtocolTCP,
+						Ports:         []string{"1000", "1010", "1020"},
+						PortRanges: []types.RulePortRange{
+							{
+								Start: 2000,
+								End:   3000,
+							},
+						},
+						AuthorizedGroups: map[string][]string{
+							"group-1-id": {"user1", "user2"},
+							"group-2-id": {"user3", "user4"},
+						},
+						AuthorizedUser: "user5",
+					},
+					{
+						ID:          "policy-1-rule-3-id",
+						PolicyID:    "policy-1-id",
+						Name:        "policy-1-rule-3-name",
+						Description: "policy-1-rule-3-description",
+						Enabled:     false,
+					},
+				},
+			},
+			{
+				// policy with resources
+				ID:                  "policy-2-id",
+				PublicID:            "public-policy-2-id",
+				AccountID:           "account-2-id",
+				Name:                "policy-2-name",
+				Description:         "policy-2-description",
+				Enabled:             true,
+				SourcePostureChecks: []string{"posture-check-3-id", "posture-check-4-id"},
+				Rules: []*types.PolicyRule{
+					{
+						ID:            "policy-2-rule-1-id",
+						PolicyID:      "policy-2-id",
+						Name:          "policy-2-rule-1-name",
+						Description:   "policy-2-rule-1-description",
+						Enabled:       true,
+						Action:        types.PolicyTrafficActionDrop,
+						Bidirectional: true,
+						DestinationResource: types.Resource{
+							ID:   "peer-1-id",
+							Type: types.ResourceTypePeer,
+						},
+						SourceResource: types.Resource{
+							ID:   "resource-3-id",
+							Type: types.ResourceTypeHost,
+						},
+						Protocol: types.PolicyRuleProtocolALL,
+						Ports:    []string{"200", "201", "202"},
+						PortRanges: []types.RulePortRange{
+							{
+								Start: 400,
+								End:   500,
+							},
+						},
+						AuthorizedGroups: map[string][]string{
+							"group-11-id": {"user11", "user22"},
+							"group-22-id": {"user33", "user44"},
+						},
+						AuthorizedUser: "user55",
+					},
+					{
+						ID:            "policy-2-rule-2-id",
+						PolicyID:      "policy-2-id",
+						Name:          "policy-2-rule-2-name",
+						Description:   "policy-2-rule-2-description",
+						Enabled:       true,
+						Action:        types.PolicyTrafficActionDrop,
+						Bidirectional: false,
+						DestinationResource: types.Resource{
+							ID:   "peer-2-id",
+							Type: types.ResourceTypePeer,
+						},
+						SourceResource: types.Resource{
+							ID:   "resource-3-id",
+							Type: types.ResourceTypeDomain,
+						},
+						Protocol: types.PolicyRuleProtocolUDP,
+						Ports:    []string{"200", "201", "202"},
+						PortRanges: []types.RulePortRange{
+							{
+								Start: 400,
+								End:   500,
+							},
+						},
+						AuthorizedGroups: map[string][]string{
+							"group-11-id": {"user11", "user22"},
+							"group-22-id": {"user33", "user44"},
+						},
+						AuthorizedUser: "user55",
+					},
+				},
+			},
+		})
+
+	assert.Contains(t, policyCompacts, &proto.PolicyCompact{
+		Id:                  "public-policy-1-id",
+		Action:              proto.RuleAction_ACCEPT,
+		Protocol:            proto.RuleProtocol_ALL,
+		Bidirectional:       true,
+		Ports:               []uint32{100, 101, 102},
+		PortRanges:          []*proto.PortInfo_Range{{Start: 200, End: 300}},
+		DestinationGroupIds: []string{"group-public-1-id", "group-public-2-id"},
+		SourceGroupIds:      []string{"group-public-3-id", "group-public-4-id"},
+		AuthorizedGroups: map[string]*proto.UserNameList{
+			"group-public-1-id": {Names: []string{"user1", "user2"}},
+			"group-public-2-id": {Names: []string{"user3", "user4"}},
+		},
+		AuthorizedUser:        "user5",
+		SourcePostureCheckIds: []string{"public-posture-check-1-id", "public-posture-check-2-id"},
+	})
+	assert.Contains(t, policyCompacts, &proto.PolicyCompact{
+		Id:                  "public-policy-1-id",
+		Action:              proto.RuleAction_ACCEPT,
+		Protocol:            proto.RuleProtocol_TCP,
+		Bidirectional:       false,
+		Ports:               []uint32{1000, 1010, 1020},
+		PortRanges:          []*proto.PortInfo_Range{{Start: 2000, End: 3000}},
+		DestinationGroupIds: []string{"group-public-1-id", "group-public-2-id"},
+		SourceGroupIds:      []string{"group-public-3-id", "group-public-4-id"},
+		AuthorizedGroups: map[string]*proto.UserNameList{
+			"group-public-1-id": {Names: []string{"user1", "user2"}},
+			"group-public-2-id": {Names: []string{"user3", "user4"}},
+		},
+		AuthorizedUser:        "user5",
+		SourcePostureCheckIds: []string{"public-posture-check-1-id", "public-posture-check-2-id"},
+	})
+	assert.Contains(t, policyCompacts, &proto.PolicyCompact{
+		Id:            "public-policy-2-id",
+		Action:        proto.RuleAction_DROP,
+		Protocol:      proto.RuleProtocol_ALL,
+		Bidirectional: true,
+		Ports:         []uint32{200, 201, 202},
+		PortRanges:    []*proto.PortInfo_Range{{Start: 400, End: 500}},
+		DestinationResource: &proto.ResourceCompact{
+			Type:       proto.ResourceCompactType_peer,
+			ResourceId: &proto.ResourceCompact_PeerIndex{PeerIndex: 1234},
+		},
+		SourceResource: &proto.ResourceCompact{
+			Type:       proto.ResourceCompactType_host,
+			ResourceId: &proto.ResourceCompact_Id{Id: "public-resource-3-id"},
+		},
+		AuthorizedGroups: map[string]*proto.UserNameList{
+			"group-public-11-id": {Names: []string{"user11", "user22"}},
+			"group-public-22-id": {Names: []string{"user33", "user44"}},
+		},
+		AuthorizedUser:        "user55",
+		SourcePostureCheckIds: []string{"public-posture-check-3-id", "public-posture-check-4-id"},
+	})
+	assert.Contains(t, policyCompacts, &proto.PolicyCompact{
+		Id:            "public-policy-2-id",
+		Action:        proto.RuleAction_DROP,
+		Protocol:      proto.RuleProtocol_UDP,
+		Bidirectional: false,
+		Ports:         []uint32{200, 201, 202},
+		PortRanges:    []*proto.PortInfo_Range{{Start: 400, End: 500}},
+		DestinationResource: &proto.ResourceCompact{
+			Type:       proto.ResourceCompactType_peer,
+			ResourceId: &proto.ResourceCompact_PeerIndex{PeerIndex: 1235},
+		},
+		SourceResource: &proto.ResourceCompact{
+			Type:       proto.ResourceCompactType_domain,
+			ResourceId: &proto.ResourceCompact_Id{Id: "public-resource-3-id"},
+		},
+		AuthorizedGroups: map[string]*proto.UserNameList{
+			"group-public-11-id": {Names: []string{"user11", "user22"}},
+			"group-public-22-id": {Names: []string{"user33", "user44"}},
+		},
+		AuthorizedUser:        "user55",
+		SourcePostureCheckIds: []string{"public-posture-check-3-id", "public-posture-check-4-id"},
+	})
+	assert.Len(t, policyCompacts, 4) // only enabled policies and rules are translated
 }
 
 func TestEncodeNetworkMapEnvelope_PolicyExpansion(t *testing.T) {
@@ -594,11 +836,10 @@ func TestEncodeNetworkMapEnvelope_ResourceOnlyPolicyShippedAndIndexed(t *testing
 		policyByID[p.Id] = p
 		policyIds = append(policyIds, p.Id)
 	}
-	require.Contains(t, policyByID, "10", "original peer-traffic policy id 10")
-	require.Contains(t, policyByID, "99", "resource-only policy id 99")
-
-	assert.ElementsMatch(t, policyIds, ids,
-		"resource policies map must reference both wire policy indexes")
+	assert.Contains(t, full.Policies, &proto.PolicyCompact{
+		Id: "99",
+	}, "original peer-traffic policy id 10")
+	assert.Contains(t, policyByID, "99", "resource-only policy id 99")
 }
 
 func TestEncodeNetworkMapEnvelope_NameServerGroups(t *testing.T) {
