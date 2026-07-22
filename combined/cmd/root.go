@@ -31,6 +31,7 @@ import (
 	relayServer "github.com/netbirdio/netbird/relay/server"
 	"github.com/netbirdio/netbird/relay/server/listener"
 	"github.com/netbirdio/netbird/relay/server/listener/ws"
+	syncgrpc "github.com/netbirdio/netbird/shared/management/grpc"
 	sharedMetrics "github.com/netbirdio/netbird/shared/metrics"
 	"github.com/netbirdio/netbird/shared/relay/auth"
 	"github.com/netbirdio/netbird/shared/signal/proto"
@@ -504,6 +505,16 @@ func createManagementServer(cfg *CombinedConfig, mgmtConfig *nbconfig.Config) (m
 		portStr = "443"
 	}
 	mgmtPort, _ := strconv.Atoi(portStr)
+
+	if err := syncgrpc.ValidateSyncMessageVersion(mgmtConfig.HighestSupportedSyncMessageVersion); err != nil {
+		return nil, err
+	}
+
+	for accountId, version := range mgmtConfig.PerAccountHighestSupportedSyncMessageVersion {
+		if err := syncgrpc.ValidateSyncMessageVersion(&version); err != nil {
+			return nil, fmt.Errorf("unrecognized sync message version in perAccountSupportedSyncMessageVersions for account %s %w", accountId, err)
+		}
+	}
 
 	mgmtSrv := newServer(
 		&mgmtServer.Config{

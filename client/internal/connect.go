@@ -621,6 +621,7 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 		BlockLANAccess:      config.BlockLANAccess,
 		BlockInbound:        config.BlockInbound,
 		DisableIPv6:         config.DisableIPv6,
+		SyncMessageVersion:  config.SyncMessageVersion,
 
 		LazyConnection: lazyconn.ParseState(config.LazyConnection),
 
@@ -696,6 +697,7 @@ func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte,
 		config.BlockLANAccess,
 		config.BlockInbound,
 		config.DisableIPv6,
+		config.SyncMessageVersion,
 		config.EnableSSHRoot,
 		config.EnableSSHSFTP,
 		config.EnableSSHLocalPortForwarding,
