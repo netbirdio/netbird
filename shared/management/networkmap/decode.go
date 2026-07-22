@@ -82,7 +82,7 @@ func DecodeEnvelope(env *proto.NetworkMapEnvelope) (*types.NetworkMapComponents,
 			continue
 		}
 		peerID := base64.StdEncoding.EncodeToString(pc.WgPubKey)
-		peer := decodePeerCompact(pc, peerID, full.AgentVersions)
+		peer := decodePeerCompact(pc, peerID)
 		c.Peers[peerID] = peer
 		peerIDByIndex[idx] = peerID
 	}
@@ -251,7 +251,7 @@ func decodeAccountSettings(as *proto.AccountSettingsCompact) *types.AccountSetti
 	}
 }
 
-func decodePeerCompact(pc *proto.PeerCompact, peerID string, agentVersions []string) *nbpeer.Peer {
+func decodePeerCompact(pc *proto.PeerCompact, peerID string) *nbpeer.Peer {
 	var caps []int32
 	if pc.SupportsSourcePrefixes {
 		caps = append(caps, nbpeer.PeerCapabilitySourcePrefixes)
