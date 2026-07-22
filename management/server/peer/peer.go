@@ -29,7 +29,7 @@ type Peer struct {
 	// AccountID is a reference to Account that this object belongs
 	AccountID string `json:"-" gorm:"index"`
 	// WireGuard public key
-	Key string // uniqueness index (check migrations)
+	Key string `gorm:"size:255;uniqueIndex"`
 	// IP address of the Peer
 	IP netip.Addr `gorm:"serializer:json"` // uniqueness index per accountID (check migrations)
 	// IPv6 overlay address of the Peer, zero value if IPv6 is not enabled for the account.
