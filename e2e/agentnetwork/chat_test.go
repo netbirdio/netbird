@@ -39,6 +39,21 @@ func availableProviders() []providerCase {
 	if k := os.Getenv("ANTHROPIC_TOKEN"); k != "" {
 		ps = append(ps, providerCase{name: "anthropic", catalogID: "anthropic_api", upstream: "https://api.anthropic.com", apiKey: k, model: "claude-haiku-4-5", kind: harness.WireMessages})
 	}
+	if k := os.Getenv("KIMI_TOKEN"); k != "" {
+		// Kimi (Moonshot AI) serves two body shapes from the same key: OpenAI
+		// Chat Completions on the bare host (/v1/...) and the Anthropic
+		// Messages API under the /anthropic path prefix (the endpoint
+		// Moonshot's Claude Code guide uses). The platform serves this
+		// account exactly ONE model — kimi-k3 (kimi-k2-thinking and even
+		// kimi-latest return resource_not_found_error on both surfaces) — so
+		// two concurrent provider records would claim the same model and
+		// route ambiguously. Run the Anthropic shape, the flagship Claude
+		// Code path; the OpenAI wire shape is covered live by the other
+		// chat-shaped matrix providers, and Kimi-over-chat passed with
+		// kimi-k3 before the single-model constraint surfaced (run #73 on
+		// the kimi feature branch).
+		ps = append(ps, providerCase{name: "kimi", catalogID: "kimi_api", upstream: "https://api.moonshot.ai/anthropic", apiKey: k, model: "kimi-k3", kind: harness.WireMessages})
+	}
 	if k, u := os.Getenv("VERCEL_TOKEN"), os.Getenv("VERCEL_URL"); k != "" && u != "" {
 		ps = append(ps, providerCase{name: "vercel", catalogID: "vercel_ai_gateway", upstream: u, apiKey: k, model: "openai/gpt-4o-mini", kind: harness.WireChat})
 	}
@@ -84,23 +99,44 @@ func availableProviders() []providerCase {
 		}
 	}
 
-	// Bedrock: path-routed, bearer auth. Model is a cross-region inference
-	// profile id (distinct string from the first-party Anthropic case).
+	// Bedrock: path-routed, bearer auth. Model is the FULL cross-region
+	// inference-profile id exactly as AWS issues it — region-family prefix
+	// plus the date/version suffix. A bare or wrong-region id makes Bedrock
+	// reject the request with "The provided model identifier is invalid"
+	// before any inference runs. The proxy normalizes this id to the catalog
+	// key (anthropic.claude-haiku-4-5) for routing/pricing/allowlists.
+	// Defaults pair eu-central-1 with the eu.* profile; AWS_REGION overrides
+	// the region and the prefix follows its family.
 	if k := os.Getenv("AWS_BEARER_TOKEN_BEDROCK"); k != "" {
 		region := os.Getenv("AWS_REGION")
 		if region == "" {
-			region = "us-east-1"
+			region = "eu-central-1"
 		}
 		// A valid Bedrock inference-profile id (region prefix + date + version),
-		// overridable per account. `global.` profiles can be invoked from any
-		// region; set AWS_BEDROCK_MODEL to match the enabled profile for the token.
+		// overridable per account via AWS_BEDROCK_MODEL (e.g. a `global.`
+		// profile, invokable from any region). The default derives the
+		// region-family prefix from the configured region.
 		model := os.Getenv("AWS_BEDROCK_MODEL")
 		if model == "" {
-			model = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+			model = bedrockProfilePrefix(region) + ".anthropic.claude-haiku-4-5-20251001-v1:0"
 		}
 		ps = append(ps, providerCase{name: "bedrock", catalogID: "bedrock_api", upstream: "https://bedrock-runtime." + region + ".amazonaws.com", apiKey: k, model: model, kind: harness.WireBedrock})
 	}
 	return ps
+}
+
+// bedrockProfilePrefix maps an AWS region to its cross-region inference
+// profile prefix: us-east-1 -> us, eu-central-1 -> eu, ap-southeast-1 -> apac,
+// us-gov-west-1 -> us-gov.
+func bedrockProfilePrefix(region string) string {
+	switch {
+	case strings.HasPrefix(region, "us-gov-"):
+		return "us-gov"
+	case strings.HasPrefix(region, "ap-"):
+		return "apac"
+	default:
+		return strings.SplitN(region, "-", 2)[0]
+	}
 }
 
 // providerRequest builds a create request for a matrix provider: enabled, with

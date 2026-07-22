@@ -17,8 +17,10 @@ import (
 )
 
 // bedrockRegionPrefixes and bedrockVersionSuffix mirror the proxy's Bedrock
-// model normalization (region/inference-profile prefix + version suffix) so the
-// provider is registered under the same catalog key the router matches against.
+// model normalization (llm.NormalizeBedrockModel, not importable from here —
+// proxy/internal): region/inference-profile prefix + version suffix are
+// stripped so the provider is registered under the same catalog key the
+// router and guardrail allowlist compare against.
 var (
 	bedrockRegionPrefixes = []string{"us.", "eu.", "apac.", "global."}
 	bedrockVersionSuffix  = regexp.MustCompile(`-(\d{8}-)?v\d+(:\d+)?$`)
@@ -52,7 +54,9 @@ func catalogModel(pc providerCase) string {
 func disallowedModel(pc providerCase) string {
 	switch pc.kind {
 	case harness.WireBedrock:
-		return "us.anthropic.claude-opus-4-8"
+		// Same profile prefix as the allowed model so only the model name
+		// differs; the guardrail must deny it before it reaches AWS.
+		return strings.SplitN(pc.model, ".", 2)[0] + ".anthropic.claude-opus-4-8"
 	case harness.WireVertex:
 		return "claude-opus-4-8@20250101"
 	default:
