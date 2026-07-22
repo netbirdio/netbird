@@ -51,6 +51,33 @@ func serviceZone(t *testing.T, resolver *Resolver, zone string, records ...nbdns
 }
 
 func TestLocalResolver_WarmsLazyPeerOnResolve(t *testing.T) {
+	// Warm-up fires only for multi-record answers (the HA / round-robin shape of
+	// the synthesized private-service zones), so register two peer targets.
+	const name = "svc.proxy.netbird.cloud."
+	recs := []nbdns.SimpleRecord{
+		{Name: name, Type: 1, Class: nbdns.DefaultClass, TTL: 300, RData: "100.64.0.7"},
+		{Name: name, Type: 1, Class: nbdns.DefaultClass, TTL: 300, RData: "100.64.0.8"},
+	}
+	resolver := NewResolver()
+	serviceZone(t, resolver, "proxy.netbird.cloud", recs...)
+
+	act := &recordingActivator{}
+	resolver.SetPeerActivator(act)
+
+	resp := serveA(t, resolver, name)
+	require.NotNil(t, resp, "resolver must answer")
+	require.NotEmpty(t, resp.Answer, "answer must carry the A records")
+
+	act.mu.Lock()
+	defer act.mu.Unlock()
+	assert.True(t, act.called, "activator must be invoked for a multi-record service-zone answer")
+	assert.Contains(t, act.addrs, netip.MustParseAddr("100.64.0.7"), "activator must receive the first peer IP")
+	assert.Contains(t, act.addrs, netip.MustParseAddr("100.64.0.8"), "activator must receive the second peer IP")
+}
+
+func TestLocalResolver_NoWarmupForSingleRecord(t *testing.T) {
+	// A single-record answer does not trigger warm-up; the resolver only warms
+	// multi-record answers.
 	rec := nbdns.SimpleRecord{Name: "svc.proxy.netbird.cloud.", Type: 1, Class: nbdns.DefaultClass, TTL: 300, RData: "100.64.0.7"}
 	resolver := NewResolver()
 	serviceZone(t, resolver, "proxy.netbird.cloud", rec)
@@ -64,8 +91,7 @@ func TestLocalResolver_WarmsLazyPeerOnResolve(t *testing.T) {
 
 	act.mu.Lock()
 	defer act.mu.Unlock()
-	assert.True(t, act.called, "activator must be invoked for a service-zone A answer")
-	assert.Contains(t, act.addrs, netip.MustParseAddr("100.64.0.7"), "activator must receive the answer's peer IP")
+	assert.False(t, act.called, "activator must not be invoked for a single-record answer")
 }
 
 func TestLocalResolver_NoActivatorNoWarmup(t *testing.T) {
@@ -99,19 +125,25 @@ func TestLocalResolver_NoWarmupInAuthoritativeZone(t *testing.T) {
 	// The account's peer zone is authoritative; resolving a peer's name there
 	// must not wake its lazy connection — warm-up is scoped to match-only
 	// (non-authoritative) zones such as the synthesized private-service zones.
-	rec := nbdns.SimpleRecord{Name: "peer.netbird.cloud.", Type: 1, Class: nbdns.DefaultClass, TTL: 300, RData: "100.64.0.9"}
+	// Use a multi-record answer so the authoritative-zone scoping is the only
+	// reason warm-up is skipped, not the single-record guard.
+	const name = "peer.netbird.cloud."
+	recs := []nbdns.SimpleRecord{
+		{Name: name, Type: 1, Class: nbdns.DefaultClass, TTL: 300, RData: "100.64.0.9"},
+		{Name: name, Type: 1, Class: nbdns.DefaultClass, TTL: 300, RData: "100.64.0.10"},
+	}
 	resolver := NewResolver()
 	resolver.Update([]nbdns.CustomZone{{
 		Domain:  "netbird.cloud",
-		Records: []nbdns.SimpleRecord{rec},
+		Records: recs,
 	}})
 
 	act := &recordingActivator{}
 	resolver.SetPeerActivator(act)
 
-	resp := serveA(t, resolver, rec.Name)
+	resp := serveA(t, resolver, name)
 	require.NotNil(t, resp, "resolver must answer")
-	require.NotEmpty(t, resp.Answer, "answer must carry the A record")
+	require.NotEmpty(t, resp.Answer, "answer must carry the A records")
 
 	act.mu.Lock()
 	defer act.mu.Unlock()

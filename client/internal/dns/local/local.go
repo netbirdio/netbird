@@ -583,6 +583,9 @@ func (d *Resolver) filterDisconnectedPeerAnswers(logger *log.Entry, question dns
 // laziness mesh-wide. No-op when no activator is wired (lazy connections
 // disabled) or the answer carries no peer IPs.
 func (d *Resolver) warmLazyPeers(question dns.Question, records []dns.RR) {
+	if len(records) < 2 {
+		return
+	}
 	d.mu.RLock()
 	activator := d.peerActivator
 	var nonAuth, found bool
