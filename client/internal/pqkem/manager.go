@@ -31,11 +31,8 @@ type peerSession struct {
 
 	// initiator side: in-flight ephemeral keypair between offer and answer.
 	initiator *Initiator
-	// responder side: the derived PSK and the answer for this exchange. Both are
-	// retained after establishment so retransmitted offers/confirms (same exchangeID)
-	// are handled idempotently — never re-derive a different key.
+	// responder side: PSK derived on the offer, committed only on the confirm.
 	pendingPSK PSK
-	answer     *AnswerMsg
 }
 
 type Manager struct {
@@ -87,33 +84,24 @@ func (m *Manager) StartExchange(remoteWgKey string) (*OfferMsg, error) {
 
 // HandleOffer processes a received offer as the responder, derives the PSK, and
 // returns the answer to send. The PSK is held pending and NOT returned: the caller
-// must not program it until HandleConfirm. A retransmitted offer (same exchangeID)
-// returns the cached answer without re-deriving, so both sides keep the same key.
+// must not program it until HandleConfirm. Retransmitted offers are deduplicated by
+// the driver (via exchangeID) so this is called once per exchange and never
+// re-derives a different key for the same round.
 func (m *Manager) HandleOffer(remoteWgKey string, o *OfferMsg) (*AnswerMsg, error) {
-	m.mu.Lock()
-	if s, ok := m.sessions[remoteWgKey]; ok && s.exchangeID == o.ExchangeID && s.answer != nil {
-		ans := s.answer
-		m.mu.Unlock()
-		return ans, nil
-	}
-	m.mu.Unlock()
-
 	answer, psk, err := Respond(o.KEMOffer, m.binding(remoteWgKey))
 	if err != nil {
 		return nil, err
 	}
-	ansMsg := &AnswerMsg{ExchangeID: o.ExchangeID, KEMAnswer: answer}
 
 	m.mu.Lock()
 	m.sessions[remoteWgKey] = &peerSession{
 		state:      stateAwaitingConfirm,
 		exchangeID: o.ExchangeID,
 		pendingPSK: psk,
-		answer:     ansMsg,
 	}
 	m.mu.Unlock()
 
-	return ansMsg, nil
+	return &AnswerMsg{ExchangeID: o.ExchangeID, KEMAnswer: answer}, nil
 }
 
 // HandleAnswer processes a received answer as the initiator. On success it returns
@@ -121,39 +109,39 @@ func (m *Manager) HandleOffer(remoteWgKey string, o *OfferMsg) (*AnswerMsg, erro
 func (m *Manager) HandleAnswer(remoteWgKey string, a *AnswerMsg) (PSK, *ConfirmMsg, error) {
 	m.mu.Lock()
 	s, ok := m.sessions[remoteWgKey]
-	m.mu.Unlock()
-
 	if !ok || s.state != stateAwaitingAnswer {
+		m.mu.Unlock()
 		return PSK{}, nil, fmt.Errorf("no pending offer for peer %s", remoteWgKey)
 	}
 	if s.exchangeID != a.ExchangeID {
 		// stale answer (e.g. to a pre-restart offer) — drop, keep waiting.
+		m.mu.Unlock()
 		return PSK{}, nil, fmt.Errorf("answer exchangeID mismatch for peer %s", remoteWgKey)
 	}
-
-	psk, err := s.initiator.Finish(a.KEMAnswer, m.binding(remoteWgKey))
-	if err != nil {
-		return PSK{}, nil, err
-	}
-
-	m.mu.Lock()
+	// Claim the exchange under the lock so a concurrent answer bails, and copy out
+	// the initiator so Finish (expensive crypto) runs without holding the lock.
+	init := s.initiator
 	s.state = stateEstablished
 	s.initiator = nil
 	m.mu.Unlock()
+
+	psk, err := init.Finish(a.KEMAnswer, m.binding(remoteWgKey))
+	if err != nil {
+		return PSK{}, nil, err
+	}
 
 	return psk, &ConfirmMsg{ExchangeID: a.ExchangeID}, nil
 }
 
 // HandleConfirm processes a received confirm as the responder and returns the PSK
-// to commit now. It is idempotent for the current exchangeID: a retransmitted
-// confirm returns the same PSK again (programming the same PSK is harmless). It
-// errors on a stale/unknown confirm so the caller ignores it.
+// to commit now. Retransmitted confirms are deduplicated by the driver, so this is
+// called once. It errors on a stale/unknown confirm so the caller ignores it.
 func (m *Manager) HandleConfirm(remoteWgKey string, c *ConfirmMsg) (PSK, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	s, ok := m.sessions[remoteWgKey]
-	if !ok || (s.state != stateAwaitingConfirm && s.state != stateEstablished) {
+	if !ok || s.state != stateAwaitingConfirm {
 		return PSK{}, fmt.Errorf("no pending answer for peer %s", remoteWgKey)
 	}
 	if s.exchangeID != c.ExchangeID {
@@ -161,7 +149,9 @@ func (m *Manager) HandleConfirm(remoteWgKey string, c *ConfirmMsg) (PSK, error) 
 	}
 
 	s.state = stateEstablished
-	return s.pendingPSK, nil
+	psk := s.pendingPSK
+	s.pendingPSK = PSK{}
+	return psk, nil
 }
 
 func (m *Manager) binding(remoteWgKey string) Binding {
