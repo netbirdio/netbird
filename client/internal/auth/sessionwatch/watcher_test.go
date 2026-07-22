@@ -360,9 +360,9 @@ func TestCloseSilencesUpdates(t *testing.T) {
 	w := newWatcher(50*time.Millisecond, r)
 	w.Close()
 
-	_ = w.Update(time.Now().Add(time.Hour))
-
-	time.Sleep(20 * time.Millisecond)
+	if err := w.Update(time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("Update after Close: want nil, got %v", err)
+	}
 	if got := r.snapshot(); len(got) != 0 {
 		t.Fatalf("expected no events after Close, got %+v", got)
 	}
