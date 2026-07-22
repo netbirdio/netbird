@@ -20,17 +20,15 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 
-	cachestore "github.com/eko/gocache/lib/v4/store"
-
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/formatter/hook"
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	accesslogsmanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs/manager"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/activity"
 	activitystore "github.com/netbirdio/netbird/management/server/activity/store"
-	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
 	nbhttp "github.com/netbirdio/netbird/management/server/http"
@@ -70,8 +68,8 @@ func (s *BaseServer) Metrics() telemetry.AppMetrics {
 
 // CacheStore returns a shared cache store backed by Redis or in-memory depending on the environment.
 // All consumers should reuse this store to avoid creating multiple Redis connections.
-func (s *BaseServer) CacheStore() cachestore.StoreInterface {
-	return Create(s, func() cachestore.StoreInterface {
+func (s *BaseServer) CacheStore() nbcache.Store {
+	return Create(s, func() nbcache.Store {
 		cs, err := nbcache.NewStore(context.Background(), nbcache.DefaultStoreMaxTimeout, nbcache.DefaultStoreCleanupInterval, nbcache.DefaultStoreMaxConn)
 		if err != nil {
 			log.Fatalf("failed to create shared cache store: %v", err)

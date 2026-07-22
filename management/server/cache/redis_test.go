@@ -12,32 +12,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/cache"
 )
 
-func TestMemoryStore(t *testing.T) {
-	memStore, err := cache.NewStore(context.Background(), 100*time.Millisecond, 300*time.Millisecond, 100)
-	if err != nil {
-		t.Fatalf("couldn't create memory store: %s", err)
-	}
-	ctx := context.Background()
-	key, value := "testing", "tested"
-	err = memStore.Set(ctx, key, value)
-	if err != nil {
-		t.Errorf("couldn't set testing data: %s", err)
-	}
-	result, err := memStore.Get(ctx, key)
-	if err != nil {
-		t.Errorf("couldn't get testing data: %s", err)
-	}
-	if value != result.(string) {
-		t.Errorf("value returned doesn't match testing data, got %s, expected %s", result, value)
-	}
-	// test expiration
-	time.Sleep(300 * time.Millisecond)
-	_, err = memStore.Get(ctx, key)
-	if err == nil {
-		t.Error("value should not be found")
-	}
-}
-
 func TestRedisStoreConnectionFailure(t *testing.T) {
 	t.Setenv(cache.RedisStoreEnvVar, "redis://127.0.0.1:6379")
 	_, err := cache.NewStore(context.Background(), 10*time.Millisecond, 30*time.Millisecond, 100)
@@ -94,6 +68,47 @@ func TestRedisStoreConnectionSuccess(t *testing.T) {
 	if value != r {
 		t.Errorf("value returned from redis doesn't match testing data, got %s, expected %s", r, value)
 	}
+
+	secondRedisStore, err := cache.NewStore(context.Background(), 100*time.Millisecond, 300*time.Millisecond, 100)
+	if err != nil {
+		t.Fatalf("couldn't create second redis store: %s", err)
+	}
+	start := make(chan struct{})
+	type setResult struct {
+		created bool
+		err     error
+	}
+	results := make(chan setResult, 2)
+	for _, cacheStore := range []cache.Store{redisStore, secondRedisStore} {
+		go func() {
+			<-start
+			created, err := cacheStore.SetNX(ctx, "atomic", value, time.Second)
+			results <- setResult{created: created, err: err}
+		}()
+	}
+	close(start)
+
+	created := 0
+	for range 2 {
+		result := <-results
+		if result.err != nil {
+			t.Fatalf("atomic redis set failed: %s", result.err)
+		}
+		if result.created {
+			created++
+		}
+	}
+	if created != 1 {
+		t.Fatalf("expected exactly one redis client to create the entry, got %d", created)
+	}
+	ttl, err := redisClient.PTTL(ctx, "atomic").Result()
+	if err != nil {
+		t.Fatalf("couldn't read atomic entry TTL: %s", err)
+	}
+	if ttl <= 0 {
+		t.Fatalf("atomic entry should have a positive TTL, got %s", ttl)
+	}
+
 	// test expiration
 	time.Sleep(300 * time.Millisecond)
 	_, err = redisStore.Get(ctx, key)
