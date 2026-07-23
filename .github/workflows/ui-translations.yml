@@ -1,0 +1,42 @@
+name: UI Translations
+
+on:
+  pull_request:
+    paths:
+      - "client/ui/i18n/locales/**"
+      - "client/ui/i18n/check-translations.mjs"
+      - ".github/workflows/ui-translations.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "client/ui/i18n/locales/**"
+      - "client/ui/i18n/check-translations.mjs"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || github.actor_id }}
+  cancel-in-progress: true
+
+jobs:
+  check-translations:
+    name: Check translation key parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # English (en) is the source of truth for translation keys; every other
+      # locale declared in _index.json must carry the exact same key set.
+      - name: Check translation key parity
+        run: node client/ui/i18n/check-translations.mjs

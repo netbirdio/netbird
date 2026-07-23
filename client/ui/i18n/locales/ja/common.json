@@ -1304,6 +1304,9 @@
     "daemon.outdated.description": {
         "message": "このアプリを使用するには NetBird サービスを更新してください。"
     },
+    "daemon.outdated.download": {
+        "message": "最新版をダウンロード"
+    },
     "error.jwt_clock_skew": {
         "message": "サインインに失敗しました: このデバイスの時計がサーバーと同期していません。システムの時計を同期してからもう一度お試しください。"
     },
