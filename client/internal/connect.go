@@ -34,6 +34,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
+	"github.com/netbirdio/netbird/client/internal/tunnelnotifier"
 	"github.com/netbirdio/netbird/client/internal/updater"
 	"github.com/netbirdio/netbird/client/internal/updater/installer"
 	nbnet "github.com/netbirdio/netbird/client/net"
@@ -136,10 +137,13 @@ func (c *ConnectClient) RunOniOS(
 	// Set GC percent to 5% to reduce memory usage as iOS only allows 50MB of memory for the extension.
 	debug.SetGCPercent(5)
 
+	notifier := tunnelnotifier.New(networkChangeListener, dnsManager)
+	defer notifier.Close()
+
 	mobileDependency := MobileDependency{
 		FileDescriptor:        fileDescriptor,
-		NetworkChangeListener: networkChangeListener,
-		DnsManager:            dnsManager,
+		NetworkChangeListener: notifier,
+		DnsManager:            notifier,
 		StateFilePath:         stateFilePath,
 		TempDir:               cacheDir,
 	}
