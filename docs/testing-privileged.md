@@ -16,7 +16,7 @@ make test-unit
 # equivalently:
 go test -tags devcert ./...
 
-# Privileged suite: runs the privileged-tagged tests inside a
+# Privileged suite (Linux): runs the privileged-tagged tests inside a
 # --privileged --cap-add=NET_ADMIN container (requires Docker).
 make test-privileged
 
@@ -38,6 +38,20 @@ list; both are optional and default to the full privileged suite.
    client packages.
 3. Streams the container's output to the test log and fails if the suite fails.
 
+### Running Darwin DNS privileged tests natively
+
+Darwin DNS tests cannot run in the Linux container and must run natively under sudo:
+
+```bash
+go test -tags 'devcert privileged' -exec 'sudo --preserve-env=CI' \
+  -timeout 5m -p 1 ./client/internal/dns/...
+```
+
+WARNING: These tests write and remove global
+`State:/Network/Service/NetBird-*` keys and flush the macOS system DNS cache.
+Stop NetBird and any service using reserved test interface names before running
+them. Do not run them on a production workstation.
+
 ## Adding a privileged test
 
 A test is privileged if it does any of:
@@ -45,7 +59,8 @@ A test is privileged if it does any of:
 - creates a real interface via `iface.NewWGIFace(...).Create()`,
 - opens a netlink or raw socket that hard-fails without `CAP_NET_ADMIN`,
 - runs an eBPF program (`ebpf.*.Listen()`),
-- shells out to `ip`, `iptables`, `nft`, `ifconfig`, or `route` to change state.
+- shells out to `ip`, `iptables`, `nft`, `ifconfig`, or `route` to change state,
+- on macOS, uses `scutil` to mutate DNS resolver keys or flushes DNS caches.
 
 Add the tag to the **top** of the file, combined with any existing platform
 constraint:
@@ -71,8 +86,7 @@ go vet -tags 'devcert privileged' ./...
 
 ## CI
 
-- The `Client / Unit` job runs `go test -tags devcert` with **no** `sudo` — only
-  host-safe tests.
-- The `Client (Docker) / Unit` job runs `go test -tags 'devcert privileged'`
-  inside a `--privileged --cap-add=NET_ADMIN` container, which is where the
-  privileged tests actually execute.
+- The native Linux and Darwin `Client / Unit` jobs run
+  `go test -tags 'devcert privileged'` under `sudo`.
+- The `Client (Docker) / Unit` job also runs `go test -tags 'devcert privileged'`
+  inside a `--privileged --cap-add=NET_ADMIN` container.
