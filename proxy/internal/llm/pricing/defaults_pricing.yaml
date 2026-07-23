@@ -161,6 +161,16 @@ openai:
     input_per_1k: 0.0001
     output_per_1k: 0
 
+  # Kimi / Moonshot AI (kimi_api) — OpenAI-compatible /v1 endpoint. Moonshot
+  # reports cache hits OpenAI-style when present; cached input is 10% of
+  # input ($0.30 vs $3.00 per MTok). kimi-k3 is the only model the platform
+  # serves newer accounts (K2-era ids and kimi-latest 404), matching the
+  # management catalog.
+  kimi-k3:
+    input_per_1k: 0.003
+    output_per_1k: 0.015
+    cached_input_per_1k: 0.0003
+
 anthropic:
   # Claude 4.x family — cache reads ≈10% of input, cache writes ≈125% of input.
   # Pricing source: Anthropic's current published rates per million tokens,
@@ -205,6 +215,20 @@ anthropic:
     output_per_1k: 0.005
     cache_read_per_1k: 0.0001
     cache_creation_per_1k: 0.00125
+
+  # Kimi / Moonshot AI (kimi_api) via the Anthropic-compatible endpoint
+  # (/anthropic/v1/messages — the official Claude Code setup). Same rates
+  # as the OpenAI-shape entry above. "kimi-k3[1m]" is the model id some
+  # Claude Code guides set for the 1M-context alias; priced identically so
+  # cost metering doesn't silently skip those requests.
+  kimi-k3:
+    input_per_1k: 0.003
+    output_per_1k: 0.015
+    cache_read_per_1k: 0.0003
+  "kimi-k3[1m]":
+    input_per_1k: 0.003
+    output_per_1k: 0.015
+    cache_read_per_1k: 0.0003
 
 bedrock:
   # AWS Bedrock model ids, normalised by the request parser (cross-region

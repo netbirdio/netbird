@@ -52,7 +52,9 @@ func catalogModel(pc providerCase) string {
 func disallowedModel(pc providerCase) string {
 	switch pc.kind {
 	case harness.WireBedrock:
-		return "us.anthropic.claude-opus-4-8"
+		// Same profile prefix as the allowed model so only the model name
+		// differs; the guardrail must deny it before it reaches AWS.
+		return strings.SplitN(pc.model, ".", 2)[0] + ".anthropic.claude-opus-4-8"
 	case harness.WireVertex:
 		return "claude-opus-4-8@20250101"
 	default:
@@ -72,7 +74,7 @@ func sendModel(ctx context.Context, t *testing.T, cl *harness.Client, endpoint, 
 	case harness.WireVertex:
 		code, _, err = cl.Vertex(ctx, endpoint, proxyIP, pc.project, pc.region, model, "Reply with exactly: pong", "")
 	default:
-		code, _, err = cl.Chat(ctx, endpoint, proxyIP, pc.kind, model, "Reply with exactly: pong", "")
+		code, _, err = cl.ChatPrefixed(ctx, endpoint, proxyIP, pc.pathPrefix, pc.kind, model, "Reply with exactly: pong", "")
 	}
 	require.NoError(t, err, "request must reach the proxy for %s", pc.name)
 	return code
