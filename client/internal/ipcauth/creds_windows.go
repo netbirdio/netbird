@@ -15,23 +15,17 @@ import (
 var (
 	modadvapi32                    = windows.NewLazySystemDLL("advapi32.dll")
 	procImpersonateNamedPipeClient = modadvapi32.NewProc("ImpersonateNamedPipeClient")
-	procRevertToSelf               = modadvapi32.NewProc("RevertToSelf")
 )
 
-// Windows group-SID attribute flags (winnt.h): a group only counts toward
-// membership when it is enabled and not marked use-for-deny-only.
-const (
-	seGroupEnabled        = 0x00000004
-	seGroupUseForDenyOnly = 0x00000010
-)
-
-// DefaultPipeSDDL restricts the daemon control pipe to LocalSystem (SY), the
-// Administrators group (BA), and interactive logon users (IU). It deliberately
-// excludes Authenticated Users / Everyone so remote or arbitrary service
-// principals cannot connect. This is the connection gate; the interceptor still
-// does per-RPC authorization by caller identity.
+// DefaultPipeSDDL keeps the daemon control pipe open to any LOCAL caller, on par
+// with the Unix socket's 0666 mode.
+//
+//	D:P                 protected DACL, no inheritance
+//	(D;;GA;;;NU)        deny GENERIC_ALL to NETWORK (remote/SMB)
+//	(A;;GA;;;SY)        allow GENERIC_ALL to LocalSystem (the daemon itself)
+//	(A;;GA;;;WD)        allow GENERIC_ALL to Everyone (local, per-RPC ACL gates)
 func DefaultPipeSDDL() string {
-	return "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;IU)"
+	return "D:P(D;;GA;;;NU)(A;;GA;;;SY)(A;;GA;;;WD)"
 }
 
 // NewTransportCredentials returns gRPC transport credentials that derive the
@@ -85,19 +79,25 @@ func (winpipeCreds) OverrideServerName(string) error { return nil }
 // and elevation by impersonating the pipe client on this thread and reading the
 // impersonation token. Impersonation is connection-bound (no PID race) and the
 // window is kept minimal and pinned to the OS thread (impersonation is thread-local).
-func pipeClientIdentity(handle windows.Handle) (Identity, error) {
+func pipeClientIdentity(handle windows.Handle) (id Identity, err error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	if err := impersonateNamedPipeClient(handle); err != nil {
+	if err = impersonateNamedPipeClient(handle); err != nil {
 		return Identity{}, fmt.Errorf("impersonate named pipe client: %w", err)
 	}
-	defer func() { _ = revertToSelf() }()
+	defer func() {
+		// Surface revert error if there are no other errors.
+		revErr := windows.RevertToSelf()
+		if err == nil {
+			err = revErr
+		}
+	}()
 
 	// openAsSelf=true: the token is opened using the daemon's process context
 	// (LocalSystem), not the impersonated client's, so the open always succeeds.
 	var token windows.Token
-	if err := windows.OpenThreadToken(windows.CurrentThread(), windows.TOKEN_QUERY, true, &token); err != nil {
+	if err = windows.OpenThreadToken(windows.CurrentThread(), windows.TOKEN_QUERY, true, &token); err != nil {
 		return Identity{}, fmt.Errorf("open thread token: %w", err)
 	}
 	defer token.Close()
@@ -113,7 +113,7 @@ func pipeClientIdentity(handle windows.Handle) (Identity, error) {
 	}
 	var groups []string
 	for _, g := range tg.AllGroups() {
-		if g.Attributes&seGroupEnabled == 0 || g.Attributes&seGroupUseForDenyOnly != 0 {
+		if g.Attributes&windows.SE_GROUP_ENABLED == 0 || g.Attributes&windows.SE_GROUP_USE_FOR_DENY_ONLY != 0 {
 			continue
 		}
 		groups = append(groups, g.Sid.String())
@@ -129,14 +129,6 @@ func pipeClientIdentity(handle windows.Handle) (Identity, error) {
 
 func impersonateNamedPipeClient(h windows.Handle) error {
 	r, _, e := procImpersonateNamedPipeClient.Call(uintptr(h))
-	if r == 0 {
-		return e
-	}
-	return nil
-}
-
-func revertToSelf() error {
-	r, _, e := procRevertToSelf.Call()
 	if r == 0 {
 		return e
 	}

@@ -144,8 +144,6 @@ func init() {
 
 	defaultDaemonAddr := "unix:///var/run/netbird.sock"
 	if runtime.GOOS == "windows" {
-		// Named pipe (not loopback TCP): the pipe client token carries the
-		// caller's SID so the daemon can authorize each RPC by caller identity.
 		defaultDaemonAddr = "npipe://netbird"
 	}
 

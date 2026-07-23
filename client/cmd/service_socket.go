@@ -61,9 +61,8 @@ func parseListenAddress(addr string) (string, string, error) {
 	}
 }
 
-// pipePath maps a daemon-addr npipe name (e.g. "netbird" from "npipe://netbird")
-// to a Windows named-pipe path (\\.\pipe\netbird). A full \\.\pipe\ path is
-// returned unchanged.
+// pipePath maps a daemon-addr npipe name ("npipe://netbird") to a Windows
+// named-pipe path (\\.\pipe\netbird).
 func pipePath(name string) string {
 	if strings.HasPrefix(name, `\\`) {
 		return name

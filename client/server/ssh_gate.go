@@ -10,19 +10,11 @@ import (
 	"github.com/netbirdio/netbird/client/internal/ipcauth"
 )
 
-// requirePrivilegedForDangerousSSH enforces M-SSHGATE: enabling SSH root login
-// or disabling SSH authentication turns the root/LocalSystem daemon's SSH server
-// into an unauthenticated root shell (local-to-remote-root escalation), so only
-// a privileged caller (Unix root, or Windows elevated-admin/LocalSystem) may set
+// requirePrivilegedForDangerousSSH enforces admin permissions for SSH config.
+// Enabling SSH root login or disabling SSH authentication turns the
+// root/LocalSystem daemon's SSH server into an unauthenticated root shell
+// (local-to-remote-root escalation), so only a privileged caller  may set
 // these flags to true over the local IPC.
-//
-// It gates the request fields, not the resulting config: a value already
-// persisted (e.g. set previously by root, or by MDM/managed config) is untouched;
-// only a new attempt to turn them on via SetConfig/Login is checked.
-//
-// When the caller identity cannot be verified (e.g. the daemon is on a TCP
-// control channel with no peer credentials) it fails closed — refusing rather
-// than letting an unauthenticated local caller flip these flags.
 func requirePrivilegedForDangerousSSH(ctx context.Context, enableSSHRoot, disableSSHAuth *bool) error {
 	dangerous := (enableSSHRoot != nil && *enableSSHRoot) || (disableSSHAuth != nil && *disableSSHAuth)
 	if !dangerous {

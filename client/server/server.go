@@ -403,8 +403,7 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 		}
 	}
 
-	// M-SSHGATE: turning on SSH root login / disabling SSH auth requires a
-	// privileged caller (root or elevated admin).
+	// SSH root login / disabling SSH auth requires a privileged caller.
 	if err := requirePrivilegedForDangerousSSH(callerCtx, msg.EnableSSHRoot, msg.DisableSSHAuth); err != nil {
 		return nil, err
 	}
@@ -544,8 +543,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		}
 	}
 
-	// M-SSHGATE: turning on SSH root login / disabling SSH auth requires a
-	// privileged caller (root or elevated admin).
+	// SSH root login / disabling SSH auth requires a privileged caller.
 	if err := requirePrivilegedForDangerousSSH(callerCtx, msg.EnableSSHRoot, msg.DisableSSHAuth); err != nil {
 		return nil, err
 	}

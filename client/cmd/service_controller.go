@@ -22,19 +22,19 @@ import (
 )
 
 // daemonServerOptions installs peer-identity transport credentials and the
-// authorization interceptor on the daemon control channel. Identity is only
-// available over a Unix socket (SO_PEERCRED) or a Windows named pipe (client
-// token); over TCP, or on platforms without a peer-credential primitive, the
-// daemon runs without per-caller authorization and warns (no interceptor, so it
-// does not deny everyone).
+// authorization interceptor on the daemon ipc. Identity is only available
+// over a Unix socket (SO_PEERCRED) or a Windows named pipe (client token).
+// Over TCP, or on platforms without a peer-credential primitive, the daemon
+// runs without per-caller authorization and warns (no interceptor, so it does
+// not deny everyone).
 func daemonServerOptions(network string, interceptor *ipcauth.Interceptor) []grpc.ServerOption {
 	creds := ipcauth.NewTransportCredentials()
 	if creds == nil {
-		log.Warnf("daemon control channel has no peer-identity primitive on %s; per-caller authorization is disabled", runtime.GOOS)
+		log.Warnf("daemon ipc has no peer-identity primitive on %s, per-caller authorization is disabled", runtime.GOOS)
 		return nil
 	}
 	if network == "tcp" {
-		log.Warnf("daemon is listening on TCP (%s); peer identity cannot be authenticated over TCP, per-caller authorization is disabled", daemonAddr)
+		log.Warnf("daemon is listening on TCP (%s), peer identity cannot be authenticated over TCP, per-caller authorization is disabled", daemonAddr)
 		return nil
 	}
 	return []grpc.ServerOption{
