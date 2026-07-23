@@ -4,6 +4,7 @@ package harness
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -167,22 +168,54 @@ func (cl *Client) pollStatus(ctx context.Context, timeout time.Duration, want st
 	return fmt.Errorf("timed out waiting for %q; last status:\n%s", want, last)
 }
 
-// ResolveProxyIP resolves the agent-network endpoint to the proxy peer's
-// NetBird IP from inside the client (via magic DNS).
+const (
+	// curlExitCouldNotResolve is curl's exit code for a DNS resolution failure, distinct from connection-level failures.
+	curlExitCouldNotResolve = 6
+	// dnsProbeRetryWindow bounds DNS-failure retries: the synthesized zone lands a beat after management connects, so early NXDOMAIN is propagation; a zone still absent after this window is a real failure.
+	dnsProbeRetryWindow   = 30 * time.Second
+	dnsProbeRetryInterval = 2 * time.Second
+)
+
+// ResolveProxyIP GETs https://<endpoint>/ from the client's netns: any HTTP status proves DNS + tunnel and wakes the lazy proxy peer; only DNS failures retry, within dnsProbeRetryWindow. Returns the connected IP for --resolve pinning.
 func (cl *Client) ResolveProxyIP(ctx context.Context, endpoint string) (string, error) {
-	code, reader, err := cl.container.Exec(ctx, []string{"getent", "hosts", endpoint}, tcexec.Multiplexed())
-	if err != nil {
-		return "", err
+	args := []string{
+		"run", "--rm",
+		"--network", "container:" + cl.container.GetContainerID(),
+		curlImage,
+		"-ksS", "-o", "/dev/null",
+		"--connect-timeout", "30", "--max-time", "60",
+		"-w", "%{remote_ip}",
+		"https://" + endpoint + "/",
 	}
-	out, _ := io.ReadAll(reader)
-	if code != 0 {
-		return "", fmt.Errorf("getent hosts %s exited %d", endpoint, code)
+	deadline := time.Now().Add(dnsProbeRetryWindow)
+	for {
+		cmd := exec.CommandContext(ctx, "docker", args...)
+		var stdout, stderr strings.Builder
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		err := cmd.Run()
+		if err == nil {
+			ip := strings.TrimSpace(stdout.String())
+			if ip == "" {
+				return "", fmt.Errorf("got an HTTP response from %s but no remote IP", endpoint)
+			}
+			return ip, nil
+		}
+
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) || exitErr.ExitCode() != curlExitCouldNotResolve {
+			return "", fmt.Errorf("no HTTP response from %s: %w (%s)", endpoint, err, strings.TrimSpace(stderr.String()))
+		}
+		dnsErr := fmt.Errorf("DNS resolution failed for %s: %s", endpoint, strings.TrimSpace(stderr.String()))
+		if time.Until(deadline) < dnsProbeRetryInterval {
+			return "", dnsErr
+		}
+		select {
+		case <-ctx.Done():
+			return "", fmt.Errorf("%w (%w)", dnsErr, ctx.Err())
+		case <-time.After(dnsProbeRetryInterval):
+		}
 	}
-	fields := strings.Fields(string(out))
-	if len(fields) == 0 {
-		return "", fmt.Errorf("no address for %s", endpoint)
-	}
-	return fields[0], nil
 }
 
 // Wire shapes for Chat.

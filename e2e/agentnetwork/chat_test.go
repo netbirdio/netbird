@@ -216,8 +216,7 @@ func TestProvidersMatrix(t *testing.T) {
 	t.Cleanup(func() { _ = cl.Terminate(context.Background()) })
 
 	require.NoError(t, cl.WaitConnected(ctx, 90*time.Second), "client must connect to management")
-	// Resolve first: the DNS lookup triggers the lazy-connection warm-up, waking
-	// the proxy peer so WaitProxyPeer then observes it connected.
+	// Probe first: the GET resolves the endpoint (DNS error fails) and its first packet wakes the lazy proxy peer, so WaitProxyPeer sees it connected; any HTTP status counts.
 	proxyIP, err := cl.ResolveProxyIP(ctx, settings.Endpoint)
 	require.NoError(t, err, "resolve agent-network endpoint to proxy IP")
 	if err := cl.WaitProxyPeer(ctx, 180*time.Second); err != nil {
