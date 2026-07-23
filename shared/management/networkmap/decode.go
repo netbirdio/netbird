@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"slices"
 	"strconv"
 	"time"
 
@@ -178,14 +179,12 @@ func DecodeEnvelope(env *proto.NetworkMapEnvelope) (*types.NetworkMapComponents,
 	}
 
 	// Phase 8: rebuild resource_policies_map
-	for _, p := range c.Policies {
-		rule := p.Rules[0] // there's always only one rule
-		if rule.SourceResource.Type != types.ResourceTypePeer && rule.SourceResource.ID != "" {
-			c.ResourcePoliciesMap[rule.SourceResource.ID] = append(c.ResourcePoliciesMap[rule.SourceResource.ID], p)
+	for _, r := range c.NetworkResources {
+		policies := policiesForNetworkResource(r.ID, c.Policies, c.Groups)
+		if len(policies) == 0 {
+			continue
 		}
-		if rule.SourceResource.Type != types.ResourceTypePeer && rule.DestinationResource.Type != "" {
-			c.ResourcePoliciesMap[rule.SourceResource.ID] = append(c.ResourcePoliciesMap[rule.SourceResource.ID], p)
-		}
+		c.ResourcePoliciesMap[r.ID] = policies
 	}
 
 	// Phase 9: group_id_to_user_ids — wire keys are seq ids, synth to strings.
@@ -221,6 +220,43 @@ func DecodeEnvelope(env *proto.NetworkMapEnvelope) (*types.NetworkMapComponents,
 	}
 
 	return c, nil
+}
+
+func networkResourceGroups(resourceId string, groups map[string]*types.Group) []string {
+	var toret []string
+	for _, group := range groups {
+		for _, resource := range group.Resources {
+			if resource.ID == resourceId {
+				toret = append(toret, resourceId)
+			}
+		}
+	}
+	return toret
+}
+
+func policiesForNetworkResource(resourceId string, allPolicies []*types.Policy, groups map[string]*types.Group) []*types.Policy {
+	var toret []*types.Policy
+
+	networkResourceGroups := networkResourceGroups(resourceId, groups)
+	for _, p := range allPolicies {
+		if p == nil || !p.Enabled {
+			continue
+		}
+
+		// there's always only one rule in each policy
+		if p.Rules[0].DestinationResource.ID == resourceId {
+			toret = append(toret, p)
+			continue
+		}
+		for _, groupId := range networkResourceGroups {
+			if slices.Contains(p.Rules[0].Destinations, groupId) {
+				toret = append(toret, p)
+				break
+			}
+		}
+	}
+
+	return toret
 }
 
 func decodeAccountNetwork(an *proto.AccountNetwork) *types.Network {

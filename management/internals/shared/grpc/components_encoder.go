@@ -189,6 +189,9 @@ func (e *componentEncoder) indexRouterPeers(routers map[string]*nbpeer.Peer) []u
 
 func (e *componentEncoder) indexAllNetworkResources() {
 	for _, r := range e.components.NetworkResources {
+		if !r.Enabled {
+			continue
+		}
 		e.networkIdToPublicId[r.ID] = r.PublicID
 	}
 }
@@ -361,7 +364,7 @@ func (e *componentEncoder) resourceToProto(r types.Resource) *proto.ResourceComp
 		}
 	}
 
-	publicID, ok := e.networkIdToPublicId[r.ID]
+	publicID, ok := e.networkPublicId(r.ID)
 	if !ok {
 		return nil
 	}
