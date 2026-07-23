@@ -5,21 +5,57 @@ import (
 	"time"
 )
 
-// handleOffer (responder) derives the PSK, commits it optimistically, and sends the
-// answer over the current channel. A duplicate offer (same exchangeID) resends the
-// cached answer without re-deriving. The responder is otherwise reactive: no
-// retransmit loop.
-func (m *Manager) handleOffer(remoteID string, o *OfferMsg) error {
+// startExchange creates a fresh initiator exchange and returns the framed offer for
+// the caller to send (pushed over the data path for a rekey, or handed to the host
+// for the signalling channel when viaSignal is set). Any previous in-flight exchange
+// for the peer is cancelled.
+func (m *Manager) startExchange(remoteID string, viaSignal bool) ([]byte, error) {
+	init, err := NewInitiator()
+	if err != nil {
+		return nil, err
+	}
+	id, err := newExchangeID()
+	if err != nil {
+		return nil, err
+	}
+	raw, err := (&OfferMsg{ExchangeID: id, KEMOffer: init.Offer()}).Encode()
+	if err != nil {
+		return nil, err
+	}
+
+	ctx, cancel := context.WithCancel(m.rootCtx)
+	m.mu.Lock()
+	if old := m.exchanges[remoteID]; old != nil && old.cancel != nil {
+		old.cancel()
+	}
+	m.exchanges[remoteID] = &exchangeCtl{
+		id:        id,
+		state:     stateAwaitingAnswer,
+		startedAt: time.Now(),
+		cancel:    cancel,
+		lastSent:  raw,
+		initiator: init,
+		viaSignal: viaSignal,
+	}
+	m.mu.Unlock()
+
+	m.wait.Add(1)
+	go m.initiatorLoop(ctx, remoteID, id)
+	return raw, nil
+}
+
+// processOffer (responder) derives the PSK, commits it optimistically, and returns
+// the framed answer for the caller to send. A duplicate offer (same exchangeID)
+// returns the cached answer without re-deriving; a still-reserved slot returns nil.
+func (m *Manager) processOffer(remoteID string, o *OfferMsg) ([]byte, error) {
 	m.mu.Lock()
 	if ex := m.exchanges[remoteID]; ex != nil && ex.id == o.ExchangeID {
 		state, last := ex.state, ex.lastSent
 		m.mu.Unlock()
 		if state == stateReserved {
-			// another goroutine reserved this exchange and is deriving the answer;
-			// dropping avoids a second (randomized -> divergent) derivation.
-			return nil
+			return nil, nil
 		}
-		return m.send(remoteID, last)
+		return last, nil
 	}
 	// Reserve the slot so a concurrent duplicate offer bails.
 	m.exchanges[remoteID] = &exchangeCtl{id: o.ExchangeID, state: stateReserved, startedAt: time.Now()}
@@ -27,37 +63,36 @@ func (m *Manager) handleOffer(remoteID string, o *OfferMsg) error {
 
 	answerBytes, psk, err := Respond(o.KEMOffer, m.binding(remoteID))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	raw, err := (&AnswerMsg{ExchangeID: o.ExchangeID, KEMAnswer: answerBytes}).Encode()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	m.mu.Lock()
 	ex := m.exchanges[remoteID]
 	if ex == nil || ex.id != o.ExchangeID {
 		m.mu.Unlock()
-		return nil
+		return nil, nil
 	}
 	ex.state = stateAwaitingConfirm
 	ex.lastSent = raw
 	ex.pendingPSK = psk
 	m.mu.Unlock()
 
-	// Commit optimistically so our data path can rekey to the new PSK; a lost answer
-	// simply means the data path won't come up (initial) or the previous PSK keeps
-	// working until it does (rekey grace) — both self-heal via retry.
+	// Commit optimistically so our data path can rekey to the new PSK.
 	if err := m.cbHandler.OnNewPSKReady(remoteID, psk); err != nil {
-		return err
+		return nil, err
 	}
-	return m.send(remoteID, raw)
+	return raw, nil
 }
 
-// handleAnswer (initiator) derives and commits the PSK, then waits for
-// OnDataPathRekeyed to send the confirm. Only valid in stateAwaitingAnswer;
-// advancing the state under the lock makes a concurrent/duplicate answer bail.
-func (m *Manager) handleAnswer(remoteID string, a *AnswerMsg) error {
+// processAnswer (initiator) derives and commits the PSK, then parks in
+// stateAwaitingRekey; the confirm is sent later, over the data path, from
+// OnDataPathRekeyed. Only valid in stateAwaitingAnswer; advancing the state under the
+// lock makes a concurrent/duplicate answer bail.
+func (m *Manager) processAnswer(remoteID string, a *AnswerMsg) error {
 	m.mu.Lock()
 	ex := m.exchanges[remoteID]
 	if ex == nil || ex.id != a.ExchangeID || ex.state != stateAwaitingAnswer {
@@ -73,16 +108,14 @@ func (m *Manager) handleAnswer(remoteID string, a *AnswerMsg) error {
 	if err != nil {
 		return err
 	}
-	// Commit now; the confirm is deferred until OnDataPathRekeyed so it rides the
-	// data path under the new key.
 	return m.cbHandler.OnNewPSKReady(remoteID, psk)
 }
 
-// handleConfirm (responder) records convergence. The PSK was already committed in
-// handleOffer; a confirm arriving over the data path with a matching exchangeID
+// processConfirm (responder) records convergence. The PSK was already committed in
+// processOffer; a confirm arriving over the data path with a matching exchangeID
 // proves we operate on the new key from this exchange. Stale/duplicate confirms find
 // the exchange gone and are ignored.
-func (m *Manager) handleConfirm(remoteID string, c *ConfirmMsg) error {
+func (m *Manager) processConfirm(remoteID string, c *ConfirmMsg) error {
 	m.mu.Lock()
 	ex := m.exchanges[remoteID]
 	if ex == nil || ex.id != c.ExchangeID || ex.state != stateAwaitingConfirm {
@@ -97,11 +130,12 @@ func (m *Manager) handleConfirm(remoteID string, c *ConfirmMsg) error {
 	return nil
 }
 
-// initiatorLoop retransmits the initiator's outstanding message and enforces the
-// convergence deadline, keyed off the exchange state: resend the offer while
-// awaiting the answer; wait (counting toward the deadline) while awaiting the data
-// path rekey; resend the confirm a few best-effort times once sent. Exhausting the
-// deadline before reaching the confirm phase is a failure.
+// initiatorLoop enforces the convergence deadline and retransmits the initiator's
+// outstanding DATA-PATH message: it resends the offer while awaiting the answer only
+// when the offer went over the data path (a signalling-bootstrapped offer is
+// retransmitted by the host with its own negotiation); it waits, counting toward the
+// deadline, while awaiting the data-path rekey; it resends the confirm a few times
+// once sent. Exhausting the deadline before the confirm phase is a failure.
 func (m *Manager) initiatorLoop(ctx context.Context, remoteID string, id ExchangeID) {
 	defer m.wait.Done()
 	t := time.NewTicker(m.retryInterval)
@@ -129,11 +163,14 @@ func (m *Manager) initiatorLoop(ctx context.Context, remoteID string, id Exchang
 					m.raiseFailure(remoteID, fail)
 					return
 				}
+				viaSignal := ex.viaSignal
 				msg := ex.lastSent
 				attempts++
 				m.mu.Unlock()
-				if err := m.send(remoteID, msg); err != nil {
-					m.logger.Warn("pqkem offer retransmit failed", "peer", remoteID, "err", err)
+				if !viaSignal {
+					if err := m.pushDataPath(remoteID, msg); err != nil {
+						m.logger.Warn("pqkem offer retransmit failed", "peer", remoteID, "err", err)
+					}
 				}
 
 			case stateAwaitingRekey:
@@ -158,7 +195,7 @@ func (m *Manager) initiatorLoop(ctx context.Context, remoteID string, id Exchang
 				msg := ex.lastSent
 				confirmsSent++
 				m.mu.Unlock()
-				if err := m.transport.SendDataPath(remoteID, msg); err != nil {
+				if err := m.pushDataPath(remoteID, msg); err != nil {
 					m.logger.Warn("pqkem confirm retransmit failed", "peer", remoteID, "err", err)
 				}
 

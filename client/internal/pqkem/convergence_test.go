@@ -11,24 +11,21 @@ import (
 type dropTransport struct{}
 
 func (dropTransport) SendDataPath(string, []byte) error { return nil }
-func (dropTransport) SendSignal(string, []byte) error   { return nil }
 
-// gate is a loopback transport with a switchable drop flag.
+// gate is a data-path loopback with a switchable drop flag. When dropping it reports
+// success but does not deliver (mimics a lossy/broken tunnel).
 type gate struct {
 	localID string
 	peer    *Manager
 	drop    atomic.Bool
 }
 
-func (g *gate) SendDataPath(remoteID string, msg []byte) error { return g.deliver(msg) }
-func (g *gate) SendSignal(remoteID string, msg []byte) error   { return g.deliver(msg) }
-
-func (g *gate) deliver(msg []byte) error {
+func (g *gate) SendDataPath(remoteID string, msg []byte) error {
 	if g.drop.Load() {
 		return nil
 	}
 	cp := append([]byte(nil), msg...)
-	return g.peer.HandleInbound(g.localID, cp)
+	return g.peer.OnDataPathMessage(g.localID, cp)
 }
 
 func TestManager_InitialTimeoutFailsImmediately(t *testing.T) {
@@ -39,9 +36,12 @@ func TestManager_InitialTimeoutFailsImmediately(t *testing.T) {
 	d.AddPeer("aaaa")
 	defer d.Stop()
 
-	require.NoError(t, d.initiateRekey("aaaa"))
+	// Bootstrap offer is produced for signalling; no answer ever comes back -> the
+	// initial exchange fails fast.
+	offer, err := d.SignalOffer("aaaa")
+	require.NoError(t, err)
+	require.NotNil(t, offer)
 
-	// no answer will ever come -> the initial exchange fails fast.
 	require.Eventually(t, func() bool {
 		wg.mu.Lock()
 		defer wg.mu.Unlock()
@@ -66,25 +66,31 @@ func TestManager_RekeyToleratesKFailures(t *testing.T) {
 	defer dA.Stop()
 	defer dB.Stop()
 
-	// First exchange succeeds -> peer becomes established (subsequent failures are
-	// rekeys). Drive the data-path-rekeyed event so the confirm converges A.
-	require.NoError(t, dB.initiateRekey("aaaa"))
+	// Establish via a signalling bootstrap + data-path-rekeyed, so B becomes
+	// established and its data path is up.
+	offer, err := dB.SignalOffer("aaaa")
+	require.NoError(t, err)
+	answer, err := dA.SignalOnOffer("bbbb", offer)
+	require.NoError(t, err)
+	require.NoError(t, dB.SignalOnAnswer("aaaa", answer))
 	dA.OnDataPathRekeyed("bbbb")
 	dB.OnDataPathRekeyed("aaaa")
 	require.NotEqual(t, PSK{}, wgB.psk("aaaa"))
 
-	// Now drop B's outbound: rekeys can no longer converge.
+	// Now drop B's data-path delivery: rekeys can no longer converge.
 	gB.drop.Store(true)
 
-	// K-1 failures must NOT raise OnRekeyFailed.
+	// K-1 data-path rekeys must NOT raise OnRekeyFailed.
 	for i := 0; i < DefaultMaxRekeyFailures-1; i++ {
-		require.NoError(t, dB.initiateRekey("aaaa"))
+		_, err := dB.startExchange("aaaa", false)
+		require.NoError(t, err)
 		time.Sleep(50 * time.Millisecond)
 	}
 	require.Equal(t, 0, failedCount(wgB), "no failure before K attempts")
 
-	// the K-th failure raises it once.
-	require.NoError(t, dB.initiateRekey("aaaa"))
+	// The K-th failure raises it once.
+	_, err = dB.startExchange("aaaa", false)
+	require.NoError(t, err)
 	require.Eventually(t, func() bool { return failedCount(wgB) == 1 }, time.Second, 5*time.Millisecond)
 }
 
