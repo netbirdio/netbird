@@ -15,7 +15,7 @@ type loopback struct {
 	peer     *Manager
 }
 
-func (l *loopback) Send(remoteWgKey string, msg []byte) error {
+func (l *loopback) Send(remoteID string, msg []byte) error {
 	cp := append([]byte(nil), msg...)
 	return l.peer.HandleInbound(l.localKey, cp)
 }
@@ -28,17 +28,17 @@ type fakeWG struct {
 
 func newFakeWG() *fakeWG { return &fakeWG{psks: map[string]PSK{}} }
 
-func (f *fakeWG) OnNewPSKReady(remoteWgKey string, psk PSK) error {
+func (f *fakeWG) OnNewPSKReady(remoteID string, psk PSK) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.psks[remoteWgKey] = psk
+	f.psks[remoteID] = psk
 	return nil
 }
 
-func (f *fakeWG) OnRekeyFailed(remoteWgKey string) error {
+func (f *fakeWG) OnRekeyFailed(remoteID string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.failed = append(f.failed, remoteWgKey)
+	f.failed = append(f.failed, remoteID)
 	return nil
 }
 

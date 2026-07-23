@@ -10,8 +10,9 @@ import (
 )
 
 const (
-	// DefaultRekeyInterval matches WireGuard's own REKEY_AFTER_TIME so the freshly
-	// rotated PSK is naturally adopted by WG's next handshake without forcing one.
+	// DefaultRekeyInterval is the default PSK rotation cadence (~2 min), chosen so a
+	// rotated PSK is adopted by the consumer's next transport handshake without
+	// forcing one.
 	DefaultRekeyInterval = 2 * time.Minute
 	// DefaultRetryInterval is how often the initiator retransmits its outstanding
 	// message (offer, then confirm) while an exchange is in flight.
@@ -29,11 +30,11 @@ const (
 )
 
 // Transport hands an already-encoded exchange message to the peer. The host routes
-// it over the appropriate channel — Signal before the tunnel is up, the WireGuard
-// tunnel for rekeys — so the Manager never needs to know which is in use. It is the
-// analogue of go-rosenpass's Conn seam.
+// it over the appropriate channel — a signalling channel before the tunnel is up,
+// the data tunnel for rekeys — so the Manager never needs to know which is in use.
+// It is the analogue of go-rosenpass's Conn seam.
 type Transport interface {
-	Send(remoteWgKey string, msg []byte) error
+	Send(remoteID string, msg []byte) error
 }
 
 // exchangeState is the single source of truth for an exchange's role and phase.
@@ -66,14 +67,14 @@ type exchangeCtl struct {
 
 // Manager is the stateful orchestrator — the analogue of go-rosenpass's Server. It
 // runs the per-peer rekey timer, drives the X25519MLKEM768 exchange over a pluggable
-// Transport, and surfaces the derived PSK to the host via WGCallbackHandler. The
+// Transport, and surfaces the derived PSK to the host via CallbackHandler. The
 // cryptography is the pure kem.go primitives; all per-exchange and per-peer state
 // lives here under one lock.
 type Manager struct {
-	localWgKey string
-	transport  Transport
-	wg         WGCallbackHandler
-	logger     *slog.Logger
+	localID   string
+	transport Transport
+	cbHandler CallbackHandler
+	logger    *slog.Logger
 
 	rekeyInterval    time.Duration
 	retryInterval    time.Duration
@@ -91,11 +92,11 @@ type Manager struct {
 	wait        sync.WaitGroup
 }
 
-// NewManager builds a manager for the local peer identified by its WireGuard public
+// NewManager builds a manager for the local peer identified by its peer identity
 // key (used for the deterministic initiator role and the identity binding). A zero
 // interval falls back to DefaultRekeyInterval; a nil logger to slog.Default().
 // Retry/retries/K use their defaults and can be overridden before use.
-func NewManager(localWgKey string, t Transport, h WGCallbackHandler, interval time.Duration, logger *slog.Logger) *Manager {
+func NewManager(localID string, t Transport, h CallbackHandler, interval time.Duration, logger *slog.Logger) *Manager {
 	if interval <= 0 {
 		interval = DefaultRekeyInterval
 	}
@@ -104,9 +105,9 @@ func NewManager(localWgKey string, t Transport, h WGCallbackHandler, interval ti
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Manager{
-		localWgKey:       localWgKey,
+		localID:          localID,
 		transport:        t,
-		wg:               h,
+		cbHandler:        h,
 		logger:           logger,
 		rekeyInterval:    interval,
 		retryInterval:    DefaultRetryInterval,
@@ -122,40 +123,40 @@ func NewManager(localWgKey string, t Transport, h WGCallbackHandler, interval ti
 }
 
 // IsInitiator reports whether the local peer drives the exchange for this remote
-// peer. Roles are deterministic (lexicographic WG-key compare) so exactly one side
-// initiates, mirroring how Rosenpass picks its handshake initiator.
-func (m *Manager) IsInitiator(remoteWgKey string) bool {
-	return m.localWgKey > remoteWgKey
+// peer. Roles are deterministic (lexicographic identity-key compare) so exactly one
+// side initiates, mirroring how Rosenpass picks its handshake initiator.
+func (m *Manager) IsInitiator(remoteID string) bool {
+	return m.localID > remoteID
 }
 
 // AddPeer registers a remote peer and starts its rekey timer. Re-adding is a no-op.
-func (m *Manager) AddPeer(remoteWgKey string) {
+func (m *Manager) AddPeer(remoteID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, ok := m.peers[remoteWgKey]; ok {
+	if _, ok := m.peers[remoteID]; ok {
 		return
 	}
 	ctx, cancel := context.WithCancel(m.rootCtx)
-	m.peers[remoteWgKey] = cancel
+	m.peers[remoteID] = cancel
 	m.wait.Add(1)
-	go m.rekeyLoop(ctx, remoteWgKey)
+	go m.rekeyLoop(ctx, remoteID)
 }
 
 // RemovePeer stops a peer's rekey timer and any in-flight exchange, and drops state.
-func (m *Manager) RemovePeer(remoteWgKey string) {
+func (m *Manager) RemovePeer(remoteID string) {
 	m.mu.Lock()
-	if cancel, ok := m.peers[remoteWgKey]; ok {
+	if cancel, ok := m.peers[remoteID]; ok {
 		cancel()
-		delete(m.peers, remoteWgKey)
+		delete(m.peers, remoteID)
 	}
-	if ex, ok := m.exchanges[remoteWgKey]; ok {
+	if ex, ok := m.exchanges[remoteID]; ok {
 		if ex.cancel != nil {
 			ex.cancel()
 		}
-		delete(m.exchanges, remoteWgKey)
+		delete(m.exchanges, remoteID)
 	}
-	delete(m.established, remoteWgKey)
-	delete(m.failures, remoteWgKey)
+	delete(m.established, remoteID)
+	delete(m.failures, remoteID)
 	m.mu.Unlock()
 }
 
@@ -171,28 +172,28 @@ func (m *Manager) Stop() {
 
 // HandleInbound decodes an incoming message and drives the exchange, sending any
 // response via the transport and surfacing derived PSKs / convergence to the host.
-func (m *Manager) HandleInbound(remoteWgKey string, raw []byte) error {
+func (m *Manager) HandleInbound(remoteID string, raw []byte) error {
 	typ, msg, err := Decode(raw)
 	if err != nil {
-		return fmt.Errorf("decode from %s: %w", remoteWgKey, err)
+		return fmt.Errorf("decode from %s: %w", remoteID, err)
 	}
 	switch typ {
 	case MsgOffer:
-		return m.handleOffer(remoteWgKey, msg.(*OfferMsg))
+		return m.handleOffer(remoteID, msg.(*OfferMsg))
 	case MsgAnswer:
-		return m.handleAnswer(remoteWgKey, msg.(*AnswerMsg))
+		return m.handleAnswer(remoteID, msg.(*AnswerMsg))
 	case MsgConfirm:
-		return m.handleConfirm(remoteWgKey, msg.(*ConfirmMsg))
+		return m.handleConfirm(remoteID, msg.(*ConfirmMsg))
 	default:
-		return fmt.Errorf("unhandled message type %d from %s", typ, remoteWgKey)
+		return fmt.Errorf("unhandled message type %d from %s", typ, remoteID)
 	}
 }
 
 // initiateRekey starts a fresh exchange when the local peer is the initiator for
 // this remote peer; the responder waits for the offer instead. Exposed (unexported
 // but directly callable) so tests can drive a rekey without waiting on the ticker.
-func (m *Manager) initiateRekey(remoteWgKey string) error {
-	if !m.IsInitiator(remoteWgKey) {
+func (m *Manager) initiateRekey(remoteID string) error {
+	if !m.IsInitiator(remoteID) {
 		return nil
 	}
 	init, err := NewInitiator()
@@ -210,10 +211,10 @@ func (m *Manager) initiateRekey(remoteWgKey string) error {
 
 	ctx, cancel := context.WithCancel(m.rootCtx)
 	m.mu.Lock()
-	if old := m.exchanges[remoteWgKey]; old != nil && old.cancel != nil {
+	if old := m.exchanges[remoteID]; old != nil && old.cancel != nil {
 		old.cancel()
 	}
-	m.exchanges[remoteWgKey] = &exchangeCtl{
+	m.exchanges[remoteID] = &exchangeCtl{
 		id:        id,
 		state:     stateAwaitingAnswer,
 		startedAt: time.Now(),
@@ -224,12 +225,12 @@ func (m *Manager) initiateRekey(remoteWgKey string) error {
 	m.mu.Unlock()
 
 	m.wait.Add(1)
-	go m.initiatorLoop(ctx, remoteWgKey, id)
+	go m.initiatorLoop(ctx, remoteID, id)
 
-	return m.transport.Send(remoteWgKey, raw)
+	return m.transport.Send(remoteID, raw)
 }
 
-func (m *Manager) rekeyLoop(ctx context.Context, remoteWgKey string) {
+func (m *Manager) rekeyLoop(ctx context.Context, remoteID string) {
 	defer m.wait.Done()
 	t := time.NewTicker(m.rekeyInterval)
 	defer t.Stop()
@@ -238,15 +239,15 @@ func (m *Manager) rekeyLoop(ctx context.Context, remoteWgKey string) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			if err := m.initiateRekey(remoteWgKey); err != nil {
-				m.logger.Error("pqkem rekey failed to start", "peer", remoteWgKey, "err", err)
+			if err := m.initiateRekey(remoteID); err != nil {
+				m.logger.Error("pqkem rekey failed to start", "peer", remoteID, "err", err)
 			}
 		}
 	}
 }
 
-func (m *Manager) binding(remoteWgKey string) Binding {
-	return Binding{LocalWgPub: []byte(m.localWgKey), RemoteWgPub: []byte(remoteWgKey)}
+func (m *Manager) binding(remoteID string) Binding {
+	return Binding{LocalID: []byte(m.localID), RemoteID: []byte(remoteID)}
 }
 
 func newExchangeID() (ExchangeID, error) {

@@ -9,7 +9,7 @@ import (
 func TestMessageRoundTrip(t *testing.T) {
 	init, err := NewInitiator()
 	require.NoError(t, err)
-	answer, _, err := Respond(init.Offer(), Binding{LocalWgPub: wgB, RemoteWgPub: wgA})
+	answer, _, err := Respond(init.Offer(), Binding{LocalID: wgB, RemoteID: wgA})
 	require.NoError(t, err)
 
 	id := ExchangeID{1, 2, 3, 4}
