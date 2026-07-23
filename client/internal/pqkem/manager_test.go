@@ -8,16 +8,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// loopback delivers a sent message synchronously to the peer driver's HandleInbound,
-// attributing it to localKey (the sender).
+// loopback delivers a sent message synchronously to the peer manager's HandleInbound,
+// attributing it to localID (the sender). Both channels deliver the same way — the
+// test does not care which physical channel is used.
 type loopback struct {
-	localKey string
-	peer     *Manager
+	localID string
+	peer    *Manager
 }
 
-func (l *loopback) Send(remoteID string, msg []byte) error {
+func (l *loopback) SendDataPath(remoteID string, msg []byte) error { return l.deliver(msg) }
+func (l *loopback) SendSignal(remoteID string, msg []byte) error   { return l.deliver(msg) }
+
+func (l *loopback) deliver(msg []byte) error {
 	cp := append([]byte(nil), msg...)
-	return l.peer.HandleInbound(l.localKey, cp)
+	return l.peer.HandleInbound(l.localID, cp)
 }
 
 type fakeWG struct {
@@ -49,8 +53,8 @@ func (f *fakeWG) psk(peer string) PSK {
 }
 
 func TestManager_ExchangeConverges(t *testing.T) {
-	lbA := &loopback{localKey: "aaaa"}
-	lbB := &loopback{localKey: "bbbb"}
+	lbA := &loopback{localID: "aaaa"}
+	lbB := &loopback{localID: "bbbb"}
 	wgA := newFakeWG()
 	wgB := newFakeWG()
 
@@ -65,21 +69,26 @@ func TestManager_ExchangeConverges(t *testing.T) {
 	defer dA.Stop()
 	defer dB.Stop()
 
-	// B is the initiator ("bbbb" > "aaaa").
+	// B is the initiator ("bbbb" > "aaaa"). Offer/answer flow synchronously over the
+	// loopback; both commit their PSK, and B parks in stateAwaitingRekey.
 	require.NoError(t, dB.initiateRekey("aaaa"))
 
-	pskB := wgB.psk("aaaa") // B committed on the answer
-	pskA := wgA.psk("bbbb") // A committed on the confirm
+	// The consumer reports the data path is (re)keyed on both sides; this makes B
+	// send the confirm, which converges A.
+	dA.OnDataPathRekeyed("bbbb")
+	dB.OnDataPathRekeyed("aaaa")
+
+	pskB := wgB.psk("aaaa")
+	pskA := wgA.psk("bbbb")
 	require.NotEqual(t, PSK{}, pskA, "responder A must have a PSK")
 	require.NotEqual(t, PSK{}, pskB, "initiator B must have a PSK")
 	require.Equal(t, pskB, pskA, "both sides converge on the same PSK")
 }
 
 func TestManager_NonInitiatorDoesNothing(t *testing.T) {
-	lbA := &loopback{localKey: "aaaa"}
+	lbA := &loopback{localID: "aaaa"}
 	wgA := newFakeWG()
 	dA := NewManager("aaaa", lbA, wgA, time.Hour, nil)
-	// no peer driver wired; if A wrongly initiated, Send would nil-panic.
 	dA.AddPeer("bbbb")
 	defer dA.Stop()
 
@@ -89,7 +98,7 @@ func TestManager_NonInitiatorDoesNothing(t *testing.T) {
 }
 
 func TestManager_StopIsIdempotent(t *testing.T) {
-	dA := NewManager("aaaa", &loopback{localKey: "aaaa"}, newFakeWG(), time.Hour, nil)
+	dA := NewManager("aaaa", &loopback{localID: "aaaa"}, newFakeWG(), time.Hour, nil)
 	dA.AddPeer("bbbb")
 	dA.Stop()
 	dA.Stop() // must not panic or hang
