@@ -8,114 +8,108 @@ import (
 // handleOffer (responder) derives and sends the answer for a new exchange, or
 // resends the cached answer for a duplicate offer (same exchangeID) without
 // re-deriving. The responder is purely reactive: no retransmit loop, no deadline.
-func (d *Driver) handleOffer(remoteWgKey string, o *OfferMsg) error {
-	d.mu.Lock()
-	if ex := d.exchanges[remoteWgKey]; ex != nil && ex.id == o.ExchangeID {
-		last := ex.lastSent
-		d.mu.Unlock()
-		if last == nil {
+func (m *Manager) handleOffer(remoteWgKey string, o *OfferMsg) error {
+	m.mu.Lock()
+	if ex := m.exchanges[remoteWgKey]; ex != nil && ex.id == o.ExchangeID {
+		state, last := ex.state, ex.lastSent
+		m.mu.Unlock()
+		if state == stateReserved {
 			// another goroutine reserved this exchange and is deriving the answer;
-			// it will send it. Dropping this duplicate avoids a second derivation
-			// (Respond is randomized -> a different PSK).
+			// dropping avoids a second (randomized -> divergent) derivation.
 			return nil
 		}
-		return d.transport.Send(remoteWgKey, last)
+		return m.transport.Send(remoteWgKey, last)
 	}
-	// Reserve the slot (lastSent nil = deriving) so a concurrent duplicate offer bails.
-	d.exchanges[remoteWgKey] = &exchangeCtl{
-		id:        o.ExchangeID,
-		startedAt: time.Now(),
-	}
-	d.mu.Unlock()
+	// Reserve the slot so a concurrent duplicate offer bails.
+	m.exchanges[remoteWgKey] = &exchangeCtl{id: o.ExchangeID, state: stateReserved, startedAt: time.Now()}
+	m.mu.Unlock()
 
-	answer, err := d.mgr.HandleOffer(remoteWgKey, o)
+	answerBytes, psk, err := Respond(o.KEMOffer, m.binding(remoteWgKey))
 	if err != nil {
 		return err
 	}
-	raw, err := answer.Encode()
+	raw, err := (&AnswerMsg{ExchangeID: o.ExchangeID, KEMAnswer: answerBytes}).Encode()
 	if err != nil {
 		return err
 	}
 
-	d.mu.Lock()
-	if ex := d.exchanges[remoteWgKey]; ex != nil && ex.id == o.ExchangeID {
+	m.mu.Lock()
+	if ex := m.exchanges[remoteWgKey]; ex != nil && ex.id == o.ExchangeID {
+		ex.state = stateAwaitingConfirm
 		ex.lastSent = raw
+		ex.pendingPSK = psk
 	}
-	d.mu.Unlock()
+	m.mu.Unlock()
 
-	return d.transport.Send(remoteWgKey, raw)
+	return m.transport.Send(remoteWgKey, raw)
 }
 
-// handleAnswer (initiator) derives the PSK, surfaces it, and sends the confirm. The
-// exchange then switches its retransmit payload to the confirm. Stale or duplicate
-// answers are ignored.
-func (d *Driver) handleAnswer(remoteWgKey string, a *AnswerMsg) error {
-	// Ignore stale answers, answers to a responder-side exchange (cancel == nil), and
-	// duplicates once we are already in the confirm phase. A duplicate that still
-	// slips through is caught by the Manager, whose HandleAnswer bails under its lock.
-	d.mu.Lock()
-	ex := d.exchanges[remoteWgKey]
-	if ex == nil || ex.id != a.ExchangeID || ex.cancel == nil || isConfirmPhase(ex.lastSent) {
-		d.mu.Unlock()
+// handleAnswer (initiator) derives the PSK, surfaces it, and sends the confirm, then
+// switches the retransmit payload to the confirm. Only valid in stateAwaitingAnswer;
+// advancing the state under the lock makes a concurrent/duplicate answer bail.
+func (m *Manager) handleAnswer(remoteWgKey string, a *AnswerMsg) error {
+	m.mu.Lock()
+	ex := m.exchanges[remoteWgKey]
+	if ex == nil || ex.id != a.ExchangeID || ex.state != stateAwaitingAnswer {
+		m.mu.Unlock()
 		return nil
 	}
-	d.mu.Unlock()
+	ex.state = stateConfirming
+	init := ex.initiator
+	ex.initiator = nil
+	m.mu.Unlock()
 
-	psk, confirm, err := d.mgr.HandleAnswer(remoteWgKey, a)
+	psk, err := init.Finish(a.KEMAnswer, m.binding(remoteWgKey))
 	if err != nil {
 		return err
 	}
-	if err := d.wg.OnNewPSKReady(remoteWgKey, psk); err != nil {
+	if err := m.wg.OnNewPSKReady(remoteWgKey, psk); err != nil {
 		return err
 	}
-	raw, err := confirm.Encode()
+	raw, err := (&ConfirmMsg{ExchangeID: a.ExchangeID}).Encode()
 	if err != nil {
 		return err
 	}
 
-	d.mu.Lock()
-	if ex := d.exchanges[remoteWgKey]; ex != nil && ex.id == a.ExchangeID {
+	m.mu.Lock()
+	if ex := m.exchanges[remoteWgKey]; ex != nil && ex.id == a.ExchangeID {
 		ex.lastSent = raw // loop now retransmits the confirm
-		d.established[remoteWgKey] = true
-		d.failures[remoteWgKey] = 0
+		m.established[remoteWgKey] = true
+		m.failures[remoteWgKey] = 0
 		_ = time.Since(ex.startedAt) // convergence latency (metrics hook, later step)
 	}
-	d.mu.Unlock()
+	m.mu.Unlock()
 
-	return d.transport.Send(remoteWgKey, raw)
+	return m.transport.Send(remoteWgKey, raw)
 }
 
-// handleConfirm (responder) commits the pending PSK. Stale or duplicate confirms
-// (the initiator best-effort resends it) are ignored.
-func (d *Driver) handleConfirm(remoteWgKey string, c *ConfirmMsg) error {
-	// Claim-and-remove the exchange under the lock so a duplicate confirm (the
-	// initiator best-effort resends it) bails before calling the Manager.
-	d.mu.Lock()
-	ex := d.exchanges[remoteWgKey]
-	if ex == nil || ex.id != c.ExchangeID {
-		d.mu.Unlock()
+// handleConfirm (responder) commits the pending PSK. Only valid in
+// stateAwaitingConfirm; duplicate confirms (the initiator best-effort resends it)
+// find the exchange gone and are ignored.
+func (m *Manager) handleConfirm(remoteWgKey string, c *ConfirmMsg) error {
+	m.mu.Lock()
+	ex := m.exchanges[remoteWgKey]
+	if ex == nil || ex.id != c.ExchangeID || ex.state != stateAwaitingConfirm {
+		m.mu.Unlock()
 		return nil
 	}
-	delete(d.exchanges, remoteWgKey)
-	d.established[remoteWgKey] = true
-	d.failures[remoteWgKey] = 0
+	psk := ex.pendingPSK
+	delete(m.exchanges, remoteWgKey)
+	m.established[remoteWgKey] = true
+	m.failures[remoteWgKey] = 0
 	_ = time.Since(ex.startedAt) // convergence latency (metrics hook, later step)
-	d.mu.Unlock()
+	m.mu.Unlock()
 
-	psk, err := d.mgr.HandleConfirm(remoteWgKey, c)
-	if err != nil {
-		return err
-	}
-	return d.wg.OnNewPSKReady(remoteWgKey, psk)
+	return m.wg.OnNewPSKReady(remoteWgKey, psk)
 }
 
-// initiatorLoop retransmits the initiator's outstanding message: the offer until
-// the answer arrives (bounded by maxRetries -> failure), then the confirm a few
-// best-effort times before stopping. The convergence deadline is thus derived from
-// maxRetries * retryInterval; there is no separate deadline timer.
-func (d *Driver) initiatorLoop(ctx context.Context, remoteWgKey string, id ExchangeID) {
-	defer d.wait.Done()
-	t := time.NewTicker(d.retryInterval)
+// initiatorLoop retransmits the initiator's outstanding message, keyed off the
+// exchange state: the offer while awaiting the answer (bounded by maxRetries ->
+// failure), then the confirm a few best-effort times before stopping. The
+// convergence deadline is thus derived from maxRetries * retryInterval.
+func (m *Manager) initiatorLoop(ctx context.Context, remoteWgKey string, id ExchangeID) {
+	defer m.wait.Done()
+	t := time.NewTicker(m.retryInterval)
 	defer t.Stop()
 
 	offerAttempts, confirmsSent := 0, 0
@@ -124,37 +118,42 @@ func (d *Driver) initiatorLoop(ctx context.Context, remoteWgKey string, id Excha
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			d.mu.Lock()
-			ex := d.exchanges[remoteWgKey]
+			m.mu.Lock()
+			ex := m.exchanges[remoteWgKey]
 			if ex == nil || ex.id != id {
-				d.mu.Unlock()
+				m.mu.Unlock()
 				return
 			}
 
-			if !isConfirmPhase(ex.lastSent) {
-				if offerAttempts >= d.maxRetries {
-					delete(d.exchanges, remoteWgKey)
-					fail := d.registerFailureLocked(remoteWgKey)
-					d.mu.Unlock()
-					d.raiseFailure(remoteWgKey, fail)
+			switch ex.state {
+			case stateAwaitingAnswer:
+				if offerAttempts >= m.maxRetries {
+					delete(m.exchanges, remoteWgKey)
+					fail := m.registerFailureLocked(remoteWgKey)
+					m.mu.Unlock()
+					m.raiseFailure(remoteWgKey, fail)
 					return
 				}
 				msg := ex.lastSent
 				offerAttempts++
-				d.mu.Unlock()
-				d.retransmit(remoteWgKey, msg)
-				continue
-			}
+				m.mu.Unlock()
+				m.retransmit(remoteWgKey, msg)
 
-			if confirmsSent >= confirmRetransmits {
-				delete(d.exchanges, remoteWgKey)
-				d.mu.Unlock()
+			case stateConfirming:
+				if confirmsSent >= confirmRetransmits {
+					delete(m.exchanges, remoteWgKey)
+					m.mu.Unlock()
+					return
+				}
+				msg := ex.lastSent
+				confirmsSent++
+				m.mu.Unlock()
+				m.retransmit(remoteWgKey, msg)
+
+			default:
+				m.mu.Unlock()
 				return
 			}
-			msg := ex.lastSent
-			confirmsSent++
-			d.mu.Unlock()
-			d.retransmit(remoteWgKey, msg)
 		}
 	}
 }
@@ -162,38 +161,31 @@ func (d *Driver) initiatorLoop(ctx context.Context, remoteWgKey string, id Excha
 // registerFailureLocked applies policy B and reports whether OnRekeyFailed is due:
 // an initial exchange (peer never established) fails immediately; a rekey tolerates
 // up to maxRekeyFailures consecutive misses (we stay on the still-valid previous
-// PSK) before failing. Whether it is initial is read live from established.
-// Assumes d.mu is held.
-func (d *Driver) registerFailureLocked(remoteWgKey string) bool {
-	if !d.established[remoteWgKey] {
+// PSK) before failing. Assumes m.mu is held.
+func (m *Manager) registerFailureLocked(remoteWgKey string) bool {
+	if !m.established[remoteWgKey] {
 		return true
 	}
-	d.failures[remoteWgKey]++
-	if d.failures[remoteWgKey] >= d.maxRekeyFailures {
-		d.failures[remoteWgKey] = 0
+	m.failures[remoteWgKey]++
+	if m.failures[remoteWgKey] >= m.maxRekeyFailures {
+		m.failures[remoteWgKey] = 0
 		return true
 	}
 	return false
 }
 
-// isConfirmPhase reports whether the initiator's outstanding message is the confirm
-// (as opposed to the offer), derived from the message's type byte.
-func isConfirmPhase(lastSent []byte) bool {
-	return len(lastSent) > 0 && lastSent[0] == byte(MsgConfirm)
-}
-
-func (d *Driver) raiseFailure(remoteWgKey string, fail bool) {
+func (m *Manager) raiseFailure(remoteWgKey string, fail bool) {
 	if !fail {
-		d.logger.Warn("pqkem rekey attempt timed out, will retry next cycle", "peer", remoteWgKey)
+		m.logger.Warn("pqkem rekey attempt timed out, will retry next cycle", "peer", remoteWgKey)
 		return
 	}
-	if err := d.wg.OnRekeyFailed(remoteWgKey); err != nil {
-		d.logger.Error("pqkem OnRekeyFailed handler error", "peer", remoteWgKey, "err", err)
+	if err := m.wg.OnRekeyFailed(remoteWgKey); err != nil {
+		m.logger.Error("pqkem OnRekeyFailed handler error", "peer", remoteWgKey, "err", err)
 	}
 }
 
-func (d *Driver) retransmit(remoteWgKey string, msg []byte) {
-	if err := d.transport.Send(remoteWgKey, msg); err != nil {
-		d.logger.Warn("pqkem retransmit failed", "peer", remoteWgKey, "err", err)
+func (m *Manager) retransmit(remoteWgKey string, msg []byte) {
+	if err := m.transport.Send(remoteWgKey, msg); err != nil {
+		m.logger.Warn("pqkem retransmit failed", "peer", remoteWgKey, "err", err)
 	}
 }

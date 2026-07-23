@@ -1,75 +1,96 @@
 package pqkem
 
 import (
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
 
-func TestManager_FullExchange(t *testing.T) {
-	// deterministic roles: "bbbb" > "aaaa" -> B is initiator
-	a := NewManager("aaaa")
-	b := NewManager("bbbb")
-	require.True(t, b.IsInitiator("aaaa"))
-	require.False(t, a.IsInitiator("bbbb"))
+// loopback delivers a sent message synchronously to the peer driver's HandleInbound,
+// attributing it to localKey (the sender).
+type loopback struct {
+	localKey string
+	peer     *Manager
+}
 
-	// B (initiator) -> A
-	offer, err := b.StartExchange("aaaa")
-	require.NoError(t, err)
+func (l *loopback) Send(remoteWgKey string, msg []byte) error {
+	cp := append([]byte(nil), msg...)
+	return l.peer.HandleInbound(l.localKey, cp)
+}
 
-	// A (responder) derives PSK but holds it pending
-	answer, err := a.HandleOffer("bbbb", offer)
-	require.NoError(t, err)
+type fakeWG struct {
+	mu     sync.Mutex
+	psks   map[string]PSK
+	failed []string
+}
 
-	// B derives PSK on the answer, commits now, produces confirm
-	pskB, confirm, err := b.HandleAnswer("aaaa", answer)
-	require.NoError(t, err)
+func newFakeWG() *fakeWG { return &fakeWG{psks: map[string]PSK{}} }
 
-	// A commits only on the confirm
-	pskA, err := a.HandleConfirm("bbbb", confirm)
-	require.NoError(t, err)
+func (f *fakeWG) OnNewPSKReady(remoteWgKey string, psk PSK) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.psks[remoteWgKey] = psk
+	return nil
+}
 
+func (f *fakeWG) OnRekeyFailed(remoteWgKey string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.failed = append(f.failed, remoteWgKey)
+	return nil
+}
+
+func (f *fakeWG) psk(peer string) PSK {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.psks[peer]
+}
+
+func TestManager_ExchangeConverges(t *testing.T) {
+	lbA := &loopback{localKey: "aaaa"}
+	lbB := &loopback{localKey: "bbbb"}
+	wgA := newFakeWG()
+	wgB := newFakeWG()
+
+	// long interval so the ticker never fires during the test; we drive manually.
+	dA := NewManager("aaaa", lbA, wgA, time.Hour, nil)
+	dB := NewManager("bbbb", lbB, wgB, time.Hour, nil)
+	lbA.peer = dB // A sends -> B receives
+	lbB.peer = dA // B sends -> A receives
+
+	dA.AddPeer("bbbb")
+	dB.AddPeer("aaaa")
+	defer dA.Stop()
+	defer dB.Stop()
+
+	// B is the initiator ("bbbb" > "aaaa").
+	require.NoError(t, dB.initiateRekey("aaaa"))
+
+	pskB := wgB.psk("aaaa") // B committed on the answer
+	pskA := wgA.psk("bbbb") // A committed on the confirm
+	require.NotEqual(t, PSK{}, pskA, "responder A must have a PSK")
+	require.NotEqual(t, PSK{}, pskB, "initiator B must have a PSK")
 	require.Equal(t, pskB, pskA, "both sides converge on the same PSK")
-	require.NotEqual(t, PSK{}, pskA)
 }
 
-func TestManager_StaleAnswerDropped(t *testing.T) {
-	b := NewManager("bbbb")
+func TestManager_NonInitiatorDoesNothing(t *testing.T) {
+	lbA := &loopback{localKey: "aaaa"}
+	wgA := newFakeWG()
+	dA := NewManager("aaaa", lbA, wgA, time.Hour, nil)
+	// no peer driver wired; if A wrongly initiated, Send would nil-panic.
+	dA.AddPeer("bbbb")
+	defer dA.Stop()
 
-	_, err := b.StartExchange("aaaa")
-	require.NoError(t, err)
-
-	// craft an answer with a wrong exchangeID
-	stale := &AnswerMsg{ExchangeID: ExchangeID{0xFF}, KEMAnswer: make([]byte, AnswerSize)}
-	_, _, err = b.HandleAnswer("aaaa", stale)
-	require.Error(t, err)
+	// A is NOT the initiator vs "bbbb" -> initiateRekey is a no-op, no Send.
+	require.NoError(t, dA.initiateRekey("bbbb"))
+	require.Equal(t, PSK{}, wgA.psk("bbbb"))
 }
 
-func TestManager_RestartResyncsViaNewExchange(t *testing.T) {
-	// A restarts (fresh manager) mid-flight; a new exchange from scratch converges.
-	a := NewManager("aaaa")
-	b := NewManager("bbbb")
-
-	off1, err := b.StartExchange("aaaa")
-	require.NoError(t, err)
-
-	// B "restarts": new manager, old in-flight state gone
-	b = NewManager("bbbb")
-	off2, err := b.StartExchange("aaaa")
-	require.NoError(t, err)
-	require.NotEqual(t, off1.ExchangeID, off2.ExchangeID)
-
-	ans, err := a.HandleOffer("bbbb", off2)
-	require.NoError(t, err)
-	pskB, conf, err := b.HandleAnswer("aaaa", ans)
-	require.NoError(t, err)
-	pskA, err := a.HandleConfirm("bbbb", conf)
-	require.NoError(t, err)
-	require.Equal(t, pskB, pskA)
-}
-
-func TestManager_UnknownPeerErrors(t *testing.T) {
-	a := NewManager("aaaa")
-	_, err := a.HandleConfirm("zzzz", &ConfirmMsg{})
-	require.Error(t, err)
+func TestManager_StopIsIdempotent(t *testing.T) {
+	dA := NewManager("aaaa", &loopback{localKey: "aaaa"}, newFakeWG(), time.Hour, nil)
+	dA.AddPeer("bbbb")
+	dA.Stop()
+	dA.Stop() // must not panic or hang
 }

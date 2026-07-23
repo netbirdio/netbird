@@ -15,7 +15,7 @@ func (dropTransport) Send(string, []byte) error { return nil }
 // gate is a loopback transport with a switchable drop flag.
 type gate struct {
 	local string
-	peer  *Driver
+	peer  *Manager
 	drop  atomic.Bool
 }
 
@@ -27,9 +27,9 @@ func (g *gate) Send(remote string, msg []byte) error {
 	return g.peer.HandleInbound(g.local, cp)
 }
 
-func TestDriver_InitialTimeoutFailsImmediately(t *testing.T) {
+func TestManager_InitialTimeoutFailsImmediately(t *testing.T) {
 	wg := newFakeWG()
-	d := NewDriver("bbbb", dropTransport{}, wg, time.Hour, nil) // bbbb > aaaa -> initiator
+	d := NewManager("bbbb", dropTransport{}, wg, time.Hour, nil) // bbbb > aaaa -> initiator
 	d.retryInterval = 5 * time.Millisecond
 	d.maxRetries = 3
 	d.AddPeer("aaaa")
@@ -45,14 +45,14 @@ func TestDriver_InitialTimeoutFailsImmediately(t *testing.T) {
 	}, time.Second, 5*time.Millisecond)
 }
 
-func TestDriver_RekeyToleratesKFailures(t *testing.T) {
+func TestManager_RekeyToleratesKFailures(t *testing.T) {
 	gA := &gate{local: "aaaa"}
 	gB := &gate{local: "bbbb"}
 	wgA := newFakeWG()
 	wgB := newFakeWG()
 
-	dA := NewDriver("aaaa", gA, wgA, time.Hour, nil)
-	dB := NewDriver("bbbb", gB, wgB, time.Hour, nil)
+	dA := NewManager("aaaa", gA, wgA, time.Hour, nil)
+	dB := NewManager("bbbb", gB, wgB, time.Hour, nil)
 	gA.peer = dB
 	gB.peer = dA
 	dB.retryInterval = 5 * time.Millisecond
