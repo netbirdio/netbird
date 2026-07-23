@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -19,8 +20,30 @@ import (
 const (
 	bufferSize = messages.MaxMessageSize
 
+	// msgQueueSize bounds the per-peer write queue: enough to absorb
+	// write-latency jitter of a congested destination (~2.2 MB worst case)
+	// without letting a dead peer pin unbounded memory.
+	msgQueueSize = 256
+
 	errCloseConn = "failed to close connection to peer: %s"
+
+	queueDropLogInterval = 5 * time.Second
 )
+
+// msgPool recycles read buffers whose ownership moves from a source peer's
+// read loop to a destination peer's write queue.
+var msgPool = sync.Pool{
+	New: func() any {
+		buf := make([]byte, bufferSize)
+		return &buf
+	},
+}
+
+// queuedMsg is a pooled buffer holding one relayed transport message.
+type queuedMsg struct {
+	bufPtr *[]byte
+	n      int
+}
 
 // Peer represents a peer connection
 type Peer struct {
@@ -34,6 +57,13 @@ type Peer struct {
 
 	ctx       context.Context
 	ctxCancel context.CancelFunc
+
+	// msgQueue decouples writes to this peer from the read loops of the
+	// source peers: a slow or stalled destination only fills its own queue.
+	msgQueue chan queuedMsg
+	// lastQueueDropLog (unix nanos) rate-limits the queue-overflow warning
+	// emitted by source peers forwarding to this peer.
+	lastQueueDropLog atomic.Int64
 
 	peersListener *store.Listener
 
@@ -53,6 +83,7 @@ func NewPeer(metrics *metrics.Metrics, id messages.PeerID, conn listener.Conn, s
 		notifier:  notifier,
 		ctx:       ctx,
 		ctxCancel: cancel,
+		msgQueue:  make(chan queuedMsg, msgQueueSize),
 	}
 
 	return p
@@ -77,11 +108,13 @@ func (p *Peer) Work() {
 	hc := healthcheck.NewSender(p.log)
 	go hc.StartHealthCheck(ctx)
 	go p.handleHealthcheckEvents(ctx, hc)
+	go p.writeLoop()
 
-	buf := make([]byte, bufferSize)
 	for {
-		n, err := p.conn.Read(ctx, buf)
+		bufPtr := msgPool.Get().(*[]byte)
+		n, err := p.conn.Read(ctx, *bufPtr)
 		if err != nil {
+			msgPool.Put(bufPtr)
 			if !errors.Is(err, net.ErrClosed) {
 				p.log.Errorf("failed to read message: %s", err)
 			}
@@ -89,25 +122,30 @@ func (p *Peer) Work() {
 		}
 
 		if n == 0 {
+			msgPool.Put(bufPtr)
 			p.log.Errorf("received empty message")
 			return
 		}
 
-		msg := buf[:n]
+		msg := (*bufPtr)[:n]
 
 		_, err = messages.ValidateVersion(msg)
 		if err != nil {
+			msgPool.Put(bufPtr)
 			p.log.Warnf("failed to validate protocol version: %s", err)
 			return
 		}
 
 		msgType, err := messages.DetermineClientMessageType(msg)
 		if err != nil {
+			msgPool.Put(bufPtr)
 			p.log.Errorf("failed to determine message type: %s", err)
 			return
 		}
 
-		p.handleMsgType(ctx, msgType, hc, n, msg)
+		if !p.handleMsgType(ctx, msgType, hc, n, bufPtr) {
+			msgPool.Put(bufPtr)
+		}
 	}
 }
 
@@ -115,14 +153,18 @@ func (p *Peer) ID() messages.PeerID {
 	return p.id
 }
 
-func (p *Peer) handleMsgType(ctx context.Context, msgType messages.MsgType, hc *healthcheck.Sender, n int, msg []byte) {
+// handleMsgType dispatches one inbound message. It reports whether ownership
+// of bufPtr moved to a destination peer's write queue; when false the caller
+// returns the buffer to the pool.
+func (p *Peer) handleMsgType(ctx context.Context, msgType messages.MsgType, hc *healthcheck.Sender, n int, bufPtr *[]byte) bool {
+	msg := (*bufPtr)[:n]
 	switch msgType {
 	case messages.MsgTypeHealthCheck:
 		hc.OnHCResponse()
 	case messages.MsgTypeTransport:
 		p.metrics.TransferBytesRecv.Add(ctx, int64(n))
 		p.metrics.PeerActivity(p.String())
-		p.handleTransportMsg(msg)
+		return p.handleTransportMsg(bufPtr, n)
 	case messages.MsgTypeClose:
 		p.log.Infof("peer exited gracefully")
 		if err := p.conn.Close(); err != nil {
@@ -135,6 +177,7 @@ func (p *Peer) handleMsgType(ctx context.Context, msgType messages.MsgType, hc *
 	default:
 		p.log.Warnf("received unexpected message type: %s", msgType)
 	}
+	return false
 }
 
 // Write writes data to the connection
@@ -206,32 +249,84 @@ func (p *Peer) handleHealthcheckEvents(ctx context.Context, hc *healthcheck.Send
 	}
 }
 
-func (p *Peer) handleTransportMsg(msg []byte) {
+// handleTransportMsg forwards one transport message by enqueueing it on the
+// destination peer's write queue. It reports whether ownership of bufPtr moved
+// to that queue. The enqueue never blocks: a full queue means the destination
+// is congested or gone, and stalling this read loop would stall every flow of
+// the source peer.
+func (p *Peer) handleTransportMsg(bufPtr *[]byte, n int) bool {
+	msg := (*bufPtr)[:n]
 	peerID, err := messages.UnmarshalTransportID(msg)
 	if err != nil {
 		p.log.Errorf("failed to unmarshal transport message: %s", err)
-		return
+		return false
 	}
 
 	item, ok := p.store.Peer(*peerID)
 	if !ok {
 		p.log.Debugf("peer not found: %s", peerID)
-		return
+		return false
 	}
 	dp := item.(*Peer)
 
-	err = messages.UpdateTransportMsg(msg, p.id)
-	if err != nil {
+	if err := messages.UpdateTransportMsg(msg, p.id); err != nil {
 		p.log.Errorf("failed to update transport message: %s", err)
-		return
+		return false
 	}
 
-	n, err := dp.Write(dp.ctx, msg)
-	if err != nil {
-		p.log.Errorf("failed to write transport message to: %s", dp.String())
-		return
+	select {
+	case dp.msgQueue <- queuedMsg{bufPtr: bufPtr, n: n}:
+		return true
+	default:
+		p.metrics.TransportQueueDrop(dp.conn.Protocol())
+		now := time.Now().UnixNano()
+		last := dp.lastQueueDropLog.Load()
+		if now-last >= int64(queueDropLogInterval) && dp.lastQueueDropLog.CompareAndSwap(last, now) {
+			p.log.Warnf("dropping transport message to %s: write queue full", dp.String())
+		}
+		return false
 	}
-	p.metrics.TransferBytesSent.Add(p.ctx, int64(n))
+}
+
+// writeLoop serializes relayed transport writes to this peer so a slow
+// destination only backs up its own queue, never a source's read loop.
+// Control messages (healthcheck, peer notifications, close) keep writing
+// directly, as before.
+func (p *Peer) writeLoop() {
+	defer p.drainQueue()
+	for {
+		select {
+		case <-p.ctx.Done():
+			return
+		case m := <-p.msgQueue:
+			// Write on the conn directly, not via p.Write: holding connMu.RLock
+			// while a stalled destination blocks the write would deadlock
+			// Close(), which needs connMu.Lock to close the very conn that
+			// unblocks the write. Both conn implementations serialize
+			// concurrent writes and tolerate a concurrent Close.
+			n, err := p.conn.Write(p.ctx, (*m.bufPtr)[:m.n])
+			msgPool.Put(m.bufPtr)
+			if err != nil {
+				if !errors.Is(err, net.ErrClosed) {
+					p.log.Errorf("failed to write transport message: %s", err)
+				}
+				continue
+			}
+			p.metrics.TransferBytesSent.Add(p.ctx, int64(n))
+		}
+	}
+}
+
+// drainQueue returns queued buffers to the pool after the writer stopped.
+func (p *Peer) drainQueue() {
+	for {
+		select {
+		case m := <-p.msgQueue:
+			msgPool.Put(m.bufPtr)
+		default:
+			return
+		}
+	}
 }
 
 func (p *Peer) handleSubscribePeerState(msg []byte) {

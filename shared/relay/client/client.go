@@ -24,7 +24,25 @@ import (
 const (
 	bufferSize            = 8820
 	serverResponseTimeout = 8 * time.Second
-	connChannelSize       = 100
+	// connChannelSize is the buffered-message capacity per peer connection.
+	// It must cover the bandwidth-delay product of a fast relayed path so
+	// steady-state traffic never blocks the shared read loop: at 300 Mbit/s
+	// and 50 ms RTT the in-flight data is ~1.9 MB ≈ 213 messages. Buffers
+	// come from the client's pool, so idle connections hold none.
+	connChannelSize = 512
+
+	// msgChanSendTimeout bounds how long an inbound message may wait for a slot
+	// on a reliable transport before it is dropped. It must stay far below the
+	// server's healthcheck disconnect window (~45s): the wait happens on the
+	// shared read loop, which also answers healthchecks.
+	msgChanSendTimeout = time.Second
+	// msgChanDropCooldown is how long writeMsg falls back to immediate drops
+	// after a timed-out send. Without it, a receiver that stopped draining
+	// (e.g. proxy paused after a P2P takeover) would stall the shared read
+	// loop for msgChanSendTimeout per message.
+	msgChanDropCooldown = time.Second
+	// dropLogInterval rate-limits the dropped-message warning.
+	dropLogInterval = 5 * time.Second
 )
 
 var (
@@ -74,6 +92,23 @@ type connContainer struct {
 	closed      bool // flag to check if channel is closed
 	ctx         context.Context
 	cancel      context.CancelFunc
+
+	// reliable is true when the relay transport is stream-based (e.g. WS over
+	// TCP): the link itself never loses messages, so writeMsg waits bounded for
+	// a channel slot instead of dropping. Datagram transports keep dropping,
+	// matching their link semantics.
+	reliable bool
+	// drops points at the owning Client's inbound-drop counter.
+	drops *atomic.Int64
+	// pendingSends tracks in-flight blocking sends; close() waits for them
+	// before closing the messages channel. Add is guarded by msgChanLock
+	// together with the closed flag.
+	pendingSends sync.WaitGroup
+	// cooldownUntil (unix nanos) makes writeMsg drop immediately while in the
+	// future, so a stalled receiver costs one timeout per cooldown window, not
+	// one per message.
+	cooldownUntil atomic.Int64
+	lastDropLog   atomic.Int64 // unix nanos of the last drop warning
 }
 
 func newConnContainer(log *log.Entry, c *Client, peerID messages.PeerID, instanceURL *RelayAddr) *connContainer {
@@ -90,6 +125,8 @@ func newConnContainer(log *log.Entry, c *Client, peerID messages.PeerID, instanc
 		messages: msgChan,
 		ctx:      ctx,
 		cancel:   cancel,
+		reliable: c.reliableTransport,
+		drops:    &c.inboundDrops,
 	}
 
 	// bind conn to client
@@ -111,19 +148,51 @@ func (cc *connContainer) netConn() net.Conn {
 
 func (cc *connContainer) writeMsg(msg Msg) {
 	cc.msgChanLock.Lock()
-	defer cc.msgChanLock.Unlock()
-
 	if cc.closed {
+		cc.msgChanLock.Unlock()
 		msg.Free()
 		return
 	}
 
 	select {
 	case cc.messages <- msg:
+		cc.msgChanLock.Unlock()
+		return
+	default:
+	}
+
+	if !cc.reliable || time.Now().UnixNano() < cc.cooldownUntil.Load() {
+		cc.msgChanLock.Unlock()
+		cc.dropMsg(msg)
+		return
+	}
+
+	// Registering under msgChanLock while !closed guarantees close() waits for
+	// this send before closing the channel.
+	cc.pendingSends.Add(1)
+	cc.msgChanLock.Unlock()
+	defer cc.pendingSends.Done()
+
+	timer := time.NewTimer(msgChanSendTimeout)
+	defer timer.Stop()
+	select {
+	case cc.messages <- msg:
 	case <-cc.ctx.Done():
 		msg.Free()
-	default:
-		msg.Free()
+	case <-timer.C:
+		cc.cooldownUntil.Store(time.Now().Add(msgChanDropCooldown).UnixNano())
+		cc.dropMsg(msg)
+	}
+}
+
+// dropMsg frees msg, counts the drop, and warns at most once per dropLogInterval.
+func (cc *connContainer) dropMsg(msg Msg) {
+	msg.Free()
+	n := cc.drops.Add(1)
+	now := time.Now().UnixNano()
+	last := cc.lastDropLog.Load()
+	if now-last >= int64(dropLogInterval) && cc.lastDropLog.CompareAndSwap(last, now) {
+		cc.log.Warnf("dropping inbound relayed message: receiver is not draining (%d drops total)", n)
 	}
 }
 
@@ -131,15 +200,18 @@ func (cc *connContainer) close() {
 	cc.cancel()
 
 	cc.msgChanLock.Lock()
-	defer cc.msgChanLock.Unlock()
-
 	if cc.closed {
+		cc.msgChanLock.Unlock()
 		return
 	}
-
 	cc.closed = true
-	close(cc.messages)
+	cc.msgChanLock.Unlock()
 
+	// Senders blocked in writeMsg wake via cc.ctx; waiting for them before
+	// closing the channel rules out a send on the closed channel.
+	cc.pendingSends.Wait()
+
+	close(cc.messages)
 	for msg := range cc.messages {
 		msg.Free()
 	}
@@ -191,6 +263,19 @@ type Client struct {
 	// transport is the negotiated relay transport of the
 	// current connection, guarded by mu.
 	transport string
+	// reliableTransport is true when the negotiated transport is stream-based
+	// (no per-message loss, e.g. WS over TCP); guarded by mu.
+	reliableTransport bool
+	// inboundDrops counts inbound transport messages dropped because the
+	// destination connection's channel stayed full. Cumulative for the
+	// lifetime of the Client.
+	inboundDrops atomic.Int64
+}
+
+// InboundMsgDrops returns the number of inbound transport messages dropped
+// because the receiver did not drain them in time.
+func (c *Client) InboundMsgDrops() int64 {
+	return c.inboundDrops.Load()
 }
 
 // Transport returns the negotiated relay transport of the current connection,
@@ -422,6 +507,7 @@ func (c *Client) connect(ctx context.Context) (*RelayAddr, error) {
 	if tc, ok := conn.(transportConn); ok {
 		c.transport = tc.Protocol()
 	}
+	c.reliableTransport = !dialer.IsConnDatagramSized(conn)
 
 	instanceURL, err := c.handShake(ctx)
 	if err != nil {
@@ -813,6 +899,7 @@ func (c *Client) close(gracefullyExit bool) error {
 	}
 	c.serviceIsRunning = false
 	c.transport = ""
+	c.reliableTransport = false
 
 	c.muInstanceURL.Lock()
 	c.instanceURL = nil

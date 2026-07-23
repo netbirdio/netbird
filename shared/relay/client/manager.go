@@ -55,6 +55,9 @@ type RelayConnState struct {
 	URL string
 	// Transport is the negotiated transport, empty if not connected.
 	Transport string
+	// InboundMsgDrops counts inbound relayed messages dropped because the
+	// receiver did not drain them in time.
+	InboundMsgDrops int64
 	// Err is set when the relay is not connected.
 	Err error
 }
@@ -554,5 +557,5 @@ func relayConnState(c *Client) RelayConnState {
 	if err != nil {
 		return RelayConnState{URL: c.connectionURL, Err: err}
 	}
-	return RelayConnState{URL: addr, Transport: c.Transport()}
+	return RelayConnState{URL: addr, Transport: c.Transport(), InboundMsgDrops: c.InboundMsgDrops()}
 }

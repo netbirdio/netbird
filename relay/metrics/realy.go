@@ -17,16 +17,17 @@ const (
 type Metrics struct {
 	metric.Meter
 
-	TransferBytesSent  metric.Int64Counter
-	TransferBytesRecv  metric.Int64Counter
-	AuthenticationTime metric.Float64Histogram
-	PeerStoreTime      metric.Float64Histogram
-	peerReconnections  metric.Int64Counter
-	peers              metric.Int64UpDownCounter
-	peerActivityChan   chan string
-	peerLastActive     map[string]time.Time
-	mutexActivity      sync.Mutex
-	ctx                context.Context
+	TransferBytesSent   metric.Int64Counter
+	TransferBytesRecv   metric.Int64Counter
+	AuthenticationTime  metric.Float64Histogram
+	PeerStoreTime       metric.Float64Histogram
+	peerReconnections   metric.Int64Counter
+	transportQueueDrops metric.Int64Counter
+	peers               metric.Int64UpDownCounter
+	peerActivityChan    chan string
+	peerLastActive      map[string]time.Time
+	mutexActivity       sync.Mutex
+	ctx                 context.Context
 }
 
 func NewMetrics(ctx context.Context, meter metric.Meter) (*Metrics, error) {
@@ -88,14 +89,22 @@ func NewMetrics(ctx context.Context, meter metric.Meter) (*Metrics, error) {
 		return nil, err
 	}
 
+	transportQueueDrops, err := meter.Int64Counter("relay_transport_queue_drops_total",
+		metric.WithDescription("Total number of relayed messages dropped because the destination peer's write queue was full"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	m := &Metrics{
-		Meter:              meter,
-		TransferBytesSent:  bytesSent,
-		TransferBytesRecv:  bytesRecv,
-		AuthenticationTime: authTime,
-		PeerStoreTime:      peerStoreTime,
-		peers:              peers,
-		peerReconnections:  peerReconnections,
+		Meter:               meter,
+		TransferBytesSent:   bytesSent,
+		TransferBytesRecv:   bytesRecv,
+		AuthenticationTime:  authTime,
+		PeerStoreTime:       peerStoreTime,
+		peers:               peers,
+		peerReconnections:   peerReconnections,
+		transportQueueDrops: transportQueueDrops,
 
 		ctx:              ctx,
 		peerActivityChan: make(chan string, 10),
@@ -149,6 +158,12 @@ func (m *Metrics) PeerDisconnected(id, transport string) {
 
 func (m *Metrics) RecordPeerReconnection() {
 	m.peerReconnections.Add(m.ctx, 1)
+}
+
+// TransportQueueDrop counts a relayed message dropped because the destination
+// peer's write queue was full.
+func (m *Metrics) TransportQueueDrop(transport string) {
+	m.transportQueueDrops.Add(m.ctx, 1, metric.WithAttributes(attribute.String("transport", transport)))
 }
 
 // PeerActivity increases the active connections
