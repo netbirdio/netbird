@@ -59,6 +59,16 @@ func TestIptablesManager_RestoreOrCreateContainers(t *testing.T) {
 	exists, err = manager.iptablesClient.Exists(tableMangle, chainPREROUTING, "-j", chainRTPRE)
 	require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableMangle, chainPREROUTING)
 	require.True(t, exists, "prerouting jump rule should exist")
+	require.Equal(t, []string{
+		"-m", "connmark", "--mark", fmt.Sprintf("%#x", nbnet.PreroutingFwmarkMasquerade),
+		"!", "-o", "lo",
+		"-j", routingFinalNatJump,
+	}, manager.rules["static-nat-outbound"])
+	require.Equal(t, []string{
+		"-m", "connmark", "--mark", fmt.Sprintf("%#x", nbnet.PreroutingFwmarkMasqueradeReturn),
+		"-o", ifaceMock.Name(),
+		"-j", routingFinalNatJump,
+	}, manager.rules["static-nat-return"])
 
 	pair := firewall.RouterPair{
 		ID:          "abc",
@@ -102,7 +112,7 @@ func TestIptablesManager_AddNatRule(t *testing.T) {
 				"--ctstate", "NEW",
 				"-s", testCase.InputPair.Source.String(),
 				"-d", testCase.InputPair.Destination.String(),
-				"-j", "MARK", "--set-mark",
+				"-j", "CONNMARK", "--set-mark",
 				fmt.Sprintf("%#x", nbnet.PreroutingFwmarkMasquerade),
 			}
 
@@ -113,7 +123,6 @@ func TestIptablesManager_AddNatRule(t *testing.T) {
 				foundRule, found := manager.rules[natRuleKey]
 				require.True(t, found, "marking rule should exist in the map")
 				require.Equal(t, markingRule, foundRule, "stored marking rule should match")
-				require.Contains(t, manager.rules, natRuleKey+"-connmark", "connection marking rule should exist in the map")
 			} else {
 				require.False(t, exists, "marking rule should not be created")
 				_, found := manager.rules[natRuleKey]
@@ -129,7 +138,7 @@ func TestIptablesManager_AddNatRule(t *testing.T) {
 				"--ctstate", "NEW",
 				"-s", inversePair.Source.String(),
 				"-d", inversePair.Destination.String(),
-				"-j", "MARK", "--set-mark",
+				"-j", "CONNMARK", "--set-mark",
 				fmt.Sprintf("%#x", nbnet.PreroutingFwmarkMasqueradeReturn),
 			}
 
@@ -140,7 +149,6 @@ func TestIptablesManager_AddNatRule(t *testing.T) {
 				foundRule, found := manager.rules[inverseRuleKey]
 				require.True(t, found, "inverse marking rule should exist in the map")
 				require.Equal(t, inverseMarkingRule, foundRule, "stored inverse marking rule should match")
-				require.Contains(t, manager.rules, inverseRuleKey+"-connmark", "inverse connection marking rule should exist in the map")
 			} else {
 				require.False(t, exists, "inverse marking rule should not be created")
 				_, found := manager.rules[inverseRuleKey]
@@ -179,7 +187,7 @@ func TestIptablesManager_RemoveNatRule(t *testing.T) {
 				"--ctstate", "NEW",
 				"-s", testCase.InputPair.Source.String(),
 				"-d", testCase.InputPair.Destination.String(),
-				"-j", "MARK", "--set-mark",
+				"-j", "CONNMARK", "--set-mark",
 				fmt.Sprintf("%#x", nbnet.PreroutingFwmarkMasquerade),
 			}
 
@@ -189,7 +197,6 @@ func TestIptablesManager_RemoveNatRule(t *testing.T) {
 
 			_, found := manager.rules[natRuleKey]
 			require.False(t, found, "marking rule should not exist in the manager map")
-			require.NotContains(t, manager.rules, natRuleKey+"-connmark", "connection marking rule should not exist in the manager map")
 
 			// Check inverse rule removal
 			inversePair := firewall.GetInversePair(testCase.InputPair)
@@ -200,7 +207,7 @@ func TestIptablesManager_RemoveNatRule(t *testing.T) {
 				"--ctstate", "NEW",
 				"-s", inversePair.Source.String(),
 				"-d", inversePair.Destination.String(),
-				"-j", "MARK", "--set-mark",
+				"-j", "CONNMARK", "--set-mark",
 				fmt.Sprintf("%#x", nbnet.PreroutingFwmarkMasqueradeReturn),
 			}
 
@@ -210,7 +217,6 @@ func TestIptablesManager_RemoveNatRule(t *testing.T) {
 
 			_, found = manager.rules[inverseRuleKey]
 			require.False(t, found, "inverse marking rule should not exist in the map")
-			require.NotContains(t, manager.rules, inverseRuleKey+"-connmark", "inverse connection marking rule should not exist in the map")
 		})
 	}
 }

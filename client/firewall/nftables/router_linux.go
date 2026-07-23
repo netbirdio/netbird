@@ -773,11 +773,6 @@ func (r *router) addNatRule(pair firewall.RouterPair) error {
 			Register: 1,
 			Data:     binaryutil.NativeEndian.PutUint32(markValue),
 		},
-		&expr.Meta{
-			Key:            expr.MetaKeyMARK,
-			SourceRegister: true,
-			Register:       1,
-		},
 		&expr.Ct{
 			Key:            expr.CtKeyMARK,
 			SourceRegister: true,
@@ -810,8 +805,8 @@ func (r *router) addPostroutingRules() {
 	// First masquerade rule for traffic coming in from WireGuard interface
 	exprs := []expr.Any{
 		// Match on the first fwmark
-		&expr.Meta{
-			Key:      expr.MetaKeyMARK,
+		&expr.Ct{
+			Key:      expr.CtKeyMARK,
 			Register: 1,
 		},
 		&expr.Cmp{
@@ -843,8 +838,8 @@ func (r *router) addPostroutingRules() {
 	// Second masquerade rule for traffic going out through WireGuard interface
 	exprs2 := []expr.Any{
 		// Match on the second fwmark
-		&expr.Meta{
-			Key:      expr.MetaKeyMARK,
+		&expr.Ct{
+			Key:      expr.CtKeyMARK,
 			Register: 1,
 		},
 		&expr.Cmp{

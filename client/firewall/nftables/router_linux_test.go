@@ -19,6 +19,7 @@ import (
 	"github.com/netbirdio/netbird/client/firewall/test"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal/acl/id"
+	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
 const (
@@ -110,6 +111,16 @@ func TestNftablesManager_AddNatRule(t *testing.T) {
 							if len(rule.UserData) > 0 && string(rule.UserData) == natRuleKey {
 								// Compare expressions up to the mark setting expressions
 								require.ElementsMatchf(t, rule.Exprs[:len(testingExpression)], testingExpression, "prerouting nat rule elements should match")
+								hasConnectionMarkWrite := false
+								for _, expression := range rule.Exprs {
+									switch expression := expression.(type) {
+									case *expr.Meta:
+										require.False(t, expression.SourceRegister && expression.Key == expr.MetaKeyMARK, "NAT rule should not write a packet mark")
+									case *expr.Ct:
+										hasConnectionMarkWrite = hasConnectionMarkWrite || expression.SourceRegister && expression.Key == expr.CtKeyMARK
+									}
+								}
+								require.True(t, hasConnectionMarkWrite, "NAT rule should write the connection mark")
 								found = 1
 							}
 						}
@@ -187,6 +198,47 @@ func TestNftablesManager_RemoveNatRule(t *testing.T) {
 			}
 			require.True(t, foundCounter, "static postrouting rule should remain")
 		})
+	}
+}
+
+func TestNftablesManager_PostroutingMatchesConnectionMarks(t *testing.T) {
+	if check() != NFTABLES {
+		t.Skip("nftables not supported on this OS")
+	}
+
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, manager.Close(nil))
+	})
+	require.NoError(t, manager.Init(nil))
+
+	rules, err := manager.router.conn.GetRules(manager.router.workTable, manager.router.chains[chainNameRoutingNat])
+	require.NoError(t, err)
+
+	marks := map[uint32]bool{
+		nbnet.PreroutingFwmarkMasquerade:       false,
+		nbnet.PreroutingFwmarkMasqueradeReturn: false,
+	}
+	for _, rule := range rules {
+		usesConnectionMark := false
+		for _, expression := range rule.Exprs {
+			if ct, ok := expression.(*expr.Ct); ok && ct.Key == expr.CtKeyMARK {
+				usesConnectionMark = true
+			}
+			cmp, ok := expression.(*expr.Cmp)
+			if !ok || !usesConnectionMark || len(cmp.Data) != 4 {
+				continue
+			}
+			mark := binaryutil.NativeEndian.Uint32(cmp.Data)
+			if _, ok := marks[mark]; ok {
+				marks[mark] = true
+			}
+		}
+	}
+
+	for mark, found := range marks {
+		require.Truef(t, found, "postrouting rule should match connection mark %#x", mark)
 	}
 }
 

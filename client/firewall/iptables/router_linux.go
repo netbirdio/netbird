@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"maps"
 	"net/netip"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -537,7 +536,7 @@ func (r *router) cleanupDataPlaneMark() error {
 func (r *router) addPostroutingRules() error {
 	// First rule for outbound masquerade
 	rule1 := []string{
-		"-m", "mark", "--mark", fmt.Sprintf("%#x", nbnet.PreroutingFwmarkMasquerade),
+		"-m", "connmark", "--mark", fmt.Sprintf("%#x", nbnet.PreroutingFwmarkMasquerade),
 		"!", "-o", "lo",
 		"-j", routingFinalNatJump,
 	}
@@ -548,7 +547,7 @@ func (r *router) addPostroutingRules() error {
 
 	// Second rule for return traffic masquerade
 	rule2 := []string{
-		"-m", "mark", "--mark", fmt.Sprintf("%#x", nbnet.PreroutingFwmarkMasqueradeReturn),
+		"-m", "connmark", "--mark", fmt.Sprintf("%#x", nbnet.PreroutingFwmarkMasqueradeReturn),
 		"-o", r.wgIface.Name(),
 		"-j", routingFinalNatJump,
 	}
@@ -663,7 +662,6 @@ func (r *router) cleanJumpRules() error {
 
 func (r *router) addNatRule(pair firewall.RouterPair) error {
 	ruleKey := firewall.GenKey(firewall.NatFormat, pair)
-	connmarkRuleKey := ruleKey + "-connmark"
 
 	if _, exists := r.rules[ruleKey]; exists {
 		if err := r.removeNatRule(pair); err != nil {
@@ -697,10 +695,8 @@ func (r *router) addNatRule(pair firewall.RouterPair) error {
 	rule = append(rule, sourceExp...)
 	rule = append(rule, destExp...)
 	rule = append(rule,
-		"-j", "MARK", "--set-mark", fmt.Sprintf("%#x", markValue),
+		"-j", "CONNMARK", "--set-mark", fmt.Sprintf("%#x", markValue),
 	)
-	connmarkRule := slices.Clone(rule[:len(rule)-4])
-	connmarkRule = append(connmarkRule, "-j", "CONNMARK", "--set-mark", fmt.Sprintf("%#x", markValue))
 
 	// Ensure nat rules come first, so the mark can be overwritten.
 	// Currently overwritten by the dst-type LOCAL rules for redirected traffic.
@@ -708,13 +704,8 @@ func (r *router) addNatRule(pair firewall.RouterPair) error {
 		// TODO: rollback ipset counter
 		return fmt.Errorf("error while adding marking rule for %s: %v", pair.Destination, err)
 	}
-	if err := r.iptablesClient.Insert(tableMangle, chainRTPRE, 2, connmarkRule...); err != nil {
-		_ = r.iptablesClient.DeleteIfExists(tableMangle, chainRTPRE, rule...)
-		return fmt.Errorf("error while adding connection marking rule for %s: %v", pair.Destination, err)
-	}
 
 	r.rules[ruleKey] = rule
-	r.rules[connmarkRuleKey] = connmarkRule
 
 	r.updateState()
 	return nil
@@ -722,7 +713,6 @@ func (r *router) addNatRule(pair firewall.RouterPair) error {
 
 func (r *router) removeNatRule(pair firewall.RouterPair) error {
 	ruleKey := firewall.GenKey(firewall.NatFormat, pair)
-	connmarkRuleKey := ruleKey + "-connmark"
 
 	if rule, exists := r.rules[ruleKey]; exists {
 		if err := r.iptablesClient.DeleteIfExists(tableMangle, chainRTPRE, rule...); err != nil {
@@ -735,12 +725,6 @@ func (r *router) removeNatRule(pair firewall.RouterPair) error {
 		}
 	} else {
 		log.Debugf("marking rule %s not found", ruleKey)
-	}
-	if rule, exists := r.rules[connmarkRuleKey]; exists {
-		if err := r.iptablesClient.DeleteIfExists(tableMangle, chainRTPRE, rule...); err != nil {
-			return fmt.Errorf("error while removing connection marking rule for %s: %v", pair.Destination, err)
-		}
-		delete(r.rules, connmarkRuleKey)
 	}
 
 	r.updateState()
