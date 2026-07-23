@@ -30,10 +30,9 @@ func (g *gate) SendDataPath(remoteID string, msg []byte) error {
 
 func TestManager_InitialTimeoutFailsImmediately(t *testing.T) {
 	wg := newFakeWG()
-	d := NewManager("bbbb", dropTransport{}, wg, time.Hour, nil) // bbbb > aaaa -> initiator
+	d := NewManager("bbbb", dropTransport{}, wg, nil) // bbbb > aaaa -> initiator
 	d.retryInterval = 5 * time.Millisecond
 	d.maxRetries = 3
-	d.AddPeer("aaaa")
 	defer d.Stop()
 
 	// Bootstrap offer is produced for signalling; no answer ever comes back -> the
@@ -55,41 +54,38 @@ func TestManager_RekeyToleratesKFailures(t *testing.T) {
 	wgA := newFakeWG()
 	wgB := newFakeWG()
 
-	dA := NewManager("aaaa", gA, wgA, time.Hour, nil)
-	dB := NewManager("bbbb", gB, wgB, time.Hour, nil)
+	dA := NewManager("aaaa", gA, wgA, nil)
+	dB := NewManager("bbbb", gB, wgB, nil)
 	gA.peer = dB
 	gB.peer = dA
 	dB.retryInterval = 5 * time.Millisecond
 	dB.maxRetries = 2
-	dA.AddPeer("bbbb")
-	dB.AddPeer("aaaa")
 	defer dA.Stop()
 	defer dB.Stop()
 
-	// Establish via a signalling bootstrap + data-path-rekeyed, so B becomes
-	// established and its data path is up.
+	// Bootstrap over signalling -> B becomes established.
 	offer, err := dB.SignalOffer("aaaa")
 	require.NoError(t, err)
 	answer, err := dA.SignalOnOffer("bbbb", offer)
 	require.NoError(t, err)
 	require.NoError(t, dB.SignalOnAnswer("aaaa", answer))
-	dA.OnDataPathRekeyed("bbbb")
-	dB.OnDataPathRekeyed("aaaa")
 	require.NotEqual(t, PSK{}, wgB.psk("aaaa"))
 
-	// Now drop B's data-path delivery: rekeys can no longer converge.
+	// Bring the data path up on both, then drop B's delivery so rekeys can't converge.
+	dA.OnDataPathRekeyed("bbbb")
+	dB.OnDataPathRekeyed("aaaa")
 	gB.drop.Store(true)
 
 	// K-1 data-path rekeys must NOT raise OnRekeyFailed.
 	for i := 0; i < DefaultMaxRekeyFailures-1; i++ {
-		_, err := dB.startExchange("aaaa", false)
+		_, err := dB.startExchange("aaaa", false, ExchangeID{})
 		require.NoError(t, err)
 		time.Sleep(50 * time.Millisecond)
 	}
 	require.Equal(t, 0, failedCount(wgB), "no failure before K attempts")
 
 	// The K-th failure raises it once.
-	_, err = dB.startExchange("aaaa", false)
+	_, err = dB.startExchange("aaaa", false, ExchangeID{})
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return failedCount(wgB) == 1 }, time.Second, 5*time.Millisecond)
 }

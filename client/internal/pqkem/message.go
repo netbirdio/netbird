@@ -6,39 +6,45 @@ import (
 )
 
 // Wire framing for the PQ-KEM exchange. Messages are self-contained, versioned,
-// transport-agnostic byte blobs: the same bytes ride the Signal offer/answer
-// (initial, pre-tunnel) or a data-tunnel packet (rekey). They are NOT a gRPC
-// service — the network layer only sees opaque []byte.
+// transport-agnostic byte blobs: the same bytes ride the signalling channel
+// (initial bootstrap) or a data-tunnel packet (rekey). The library only ever sees
+// opaque []byte at the transport seam.
 //
 // Layout (all messages): [type:1][version:1][exchangeID:16][payload...]
+//
+// There is no confirm message: an exchange is acknowledged by the NEXT offer, which
+// carries the acked exchange's id (see OfferMsg.AckID) and — riding the data path
+// under the freshly adopted key — proves that key works.
 
 const (
 	// ProtocolVersion is bumped on any wire-incompatible change; a peer rejects
 	// messages it does not understand rather than misparsing them.
 	ProtocolVersion uint8 = 1
 
-	// ExchangeIDSize identifies one offer/answer/confirm round so stale answers
-	// (e.g. an answer to a pre-restart offer) are dropped instead of applied.
+	// ExchangeIDSize identifies one exchange so answers/acks correlate and stale
+	// messages are dropped.
 	ExchangeIDSize = 16
 
 	headerSize = 1 + 1 + ExchangeIDSize
 )
 
-// MsgType tags the three message kinds of the exchange.
+// MsgType tags the two message kinds of the exchange.
 type MsgType uint8
 
 const (
 	MsgOffer MsgType = iota + 1
 	MsgAnswer
-	MsgConfirm
 )
 
-// ExchangeID is the per-round correlator echoed by the answer and the confirm.
+// ExchangeID is the per-exchange correlator. The zero value means "none" (an offer
+// that acknowledges nothing, i.e. the first exchange of a connection).
 type ExchangeID [ExchangeIDSize]byte
 
-// OfferMsg carries the initiator's public material (X25519 pub ‖ ML-KEM encap key).
+// OfferMsg carries the initiator's public material (X25519 pub ‖ ML-KEM encap key)
+// and AckID, the id of the previous exchange this offer acknowledges (zero if none).
 type OfferMsg struct {
 	ExchangeID ExchangeID
+	AckID      ExchangeID
 	// KEMOffer is the raw Initiator.Offer() blob (OfferSize bytes).
 	KEMOffer []byte
 }
@@ -51,27 +57,15 @@ type AnswerMsg struct {
 	KEMAnswer []byte
 }
 
-// ConfirmMsg is sent ONE WAY, initiator -> responder, over the tunnel under the
-// NEW PSK, for the round identified by ExchangeID. It carries no key material.
-//
-// It is one-way because of the knowledge asymmetry of a KEM: the initiator learns
-// the responder holds the key simply by receiving the answer (the responder had to
-// derive it to encapsulate), so the initiator needs no confirmation. Only the
-// responder is left unsure whether the initiator received the answer and committed
-// the key — this message resolves that. As a bonus, being sent under the new PSK it
-// exercises the consumer's channel handshake with the new key: the responder
-// converges on receiving it, and the initiator converges by observing that handshake
-// succeed (which fails on a PSK mismatch, so success proves the responder committed too).
-type ConfirmMsg struct {
-	ExchangeID ExchangeID
-}
-
-// Encode serialises the offer with its framed header.
+// Encode serialises the offer with its framed header (payload = AckID ‖ KEMOffer).
 func (m *OfferMsg) Encode() ([]byte, error) {
 	if len(m.KEMOffer) != OfferSize {
 		return nil, fmt.Errorf("offer payload: got %d, want %d", len(m.KEMOffer), OfferSize)
 	}
-	return frame(MsgOffer, m.ExchangeID, m.KEMOffer), nil
+	payload := make([]byte, 0, ExchangeIDSize+OfferSize)
+	payload = append(payload, m.AckID[:]...)
+	payload = append(payload, m.KEMOffer...)
+	return frame(MsgOffer, m.ExchangeID, payload), nil
 }
 
 // Encode serialises the answer with its framed header.
@@ -82,13 +76,7 @@ func (m *AnswerMsg) Encode() ([]byte, error) {
 	return frame(MsgAnswer, m.ExchangeID, m.KEMAnswer), nil
 }
 
-// Encode serialises the confirm with its framed header. It returns an error only
-// for signature uniformity with the other messages; it never actually fails.
-func (m *ConfirmMsg) Encode() ([]byte, error) {
-	return frame(MsgConfirm, m.ExchangeID, nil), nil
-}
-
-// Decode parses a framed message into one of *OfferMsg / *AnswerMsg / *ConfirmMsg.
+// Decode parses a framed message into one of *OfferMsg / *AnswerMsg.
 func Decode(buf []byte) (MsgType, any, error) {
 	if len(buf) < headerSize {
 		return 0, nil, fmt.Errorf("message too short: %d bytes", len(buf))
@@ -104,20 +92,17 @@ func Decode(buf []byte) (MsgType, any, error) {
 
 	switch typ {
 	case MsgOffer:
-		if len(payload) != OfferSize {
-			return typ, nil, fmt.Errorf("offer payload: got %d, want %d", len(payload), OfferSize)
+		if len(payload) != ExchangeIDSize+OfferSize {
+			return typ, nil, fmt.Errorf("offer payload: got %d, want %d", len(payload), ExchangeIDSize+OfferSize)
 		}
-		return typ, &OfferMsg{ExchangeID: id, KEMOffer: payload}, nil
+		var ack ExchangeID
+		copy(ack[:], payload[:ExchangeIDSize])
+		return typ, &OfferMsg{ExchangeID: id, AckID: ack, KEMOffer: payload[ExchangeIDSize:]}, nil
 	case MsgAnswer:
 		if len(payload) != AnswerSize {
 			return typ, nil, fmt.Errorf("answer payload: got %d, want %d", len(payload), AnswerSize)
 		}
 		return typ, &AnswerMsg{ExchangeID: id, KEMAnswer: payload}, nil
-	case MsgConfirm:
-		if len(payload) != 0 {
-			return typ, nil, fmt.Errorf("confirm payload must be empty, got %d bytes", len(payload))
-		}
-		return typ, &ConfirmMsg{ExchangeID: id}, nil
 	default:
 		return typ, nil, fmt.Errorf("unknown message type %d", typ)
 	}
