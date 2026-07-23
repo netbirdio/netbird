@@ -1,71 +1,27 @@
 #!/usr/bin/env bash
+# Runs the NetBird daemon and brings the connection up in one container process.
+#
+# A thin wrapper is needed (rather than a one-line ENTRYPOINT) for two reasons:
+#   1. Two processes must run: the daemon (`service run`, long-lived) and a
+#      one-shot `up` that brings the connection up.
+#   2. Signal handling: as PID 1 the wrapper must forward SIGTERM/SIGINT to the
+#      daemon so it tears down WireGuard and deregisters ephemeral peers on
+#      `docker stop`. Without this the daemon would be killed uncleanly.
+#
+# `netbird up` waits for the daemon to become ready on its own, so no readiness
+# poll is needed here.
 set -eEuo pipefail
 
-: ${NB_ENTRYPOINT_SERVICE_TIMEOUT:="30"}
 NETBIRD_BIN="${NETBIRD_BIN:-"netbird"}"
 export NB_LOG_FILE="${NB_LOG_FILE:-"console,/var/log/netbird/client.log"}"
-service_pids=()
 
-_log() {
-  # mimic Go logger's output for easier parsing
-  # 2025-04-15T21:32:00+08:00 INFO client/internal/config.go:495: setting notifications to disabled by default
-  printf "$(date -Isec) ${1} ${BASH_SOURCE[1]}:${BASH_LINENO[1]}: ${2}\n" "${@:3}" >&2
-}
+daemon=""
+cleanup() { [[ -n "${daemon}" ]] && kill -TERM "${daemon}" 2>/dev/null || true; }
+trap cleanup SIGTERM SIGINT EXIT
 
-info() {
-  _log INFO "$@"
-}
+"${NETBIRD_BIN}" service run &
+daemon=$!
 
-warn() {
-  _log WARN "$@"
-}
+"${NETBIRD_BIN}" up
 
-on_exit() {
-  info "Shutting down NetBird daemon..."
-  if test "${#service_pids[@]}" -gt 0; then
-    info "terminating service process IDs: ${service_pids[@]@Q}"
-    kill -TERM "${service_pids[@]}" 2>/dev/null || true
-    wait "${service_pids[@]}" 2>/dev/null || true
-  else
-    info "there are no service processes to terminate"
-  fi
-}
-
-wait_for_daemon_startup() {
-  local timeout="${1}"
-  if [[ "${timeout}" -eq 0 ]]; then
-    info "not waiting for daemon startup due to zero timeout."
-    return
-  fi
-
-  local deadline=$((SECONDS + timeout))
-  while [[ "${SECONDS}" -lt "${deadline}" ]]; do
-    if "${NETBIRD_BIN}" status --check live 2>/dev/null; then
-      return
-    fi
-    sleep 1
-  done
-
-  warn "daemon did not become responsive after ${timeout} seconds, exiting..."
-  exit 1
-}
-
-connect() {
-  info "running 'netbird up'..."
-  "${NETBIRD_BIN}" up
-  return $?
-}
-
-main() {
-  trap 'on_exit' SIGTERM SIGINT EXIT
-  "${NETBIRD_BIN}" service run &
-  service_pids+=("$!")
-  info "registered new service process 'netbird service run', currently running: ${service_pids[@]@Q}"
-
-  wait_for_daemon_startup "${NB_ENTRYPOINT_SERVICE_TIMEOUT}"
-  connect
-
-  wait "${service_pids[@]}"
-}
-
-main "$@"
+wait "${daemon}"
