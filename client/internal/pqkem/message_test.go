@@ -13,13 +13,15 @@ func TestMessageRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	id := ExchangeID{1, 2, 3, 4}
+	ack := ExchangeID{9, 9, 9}
 
-	offBytes, err := (&OfferMsg{ExchangeID: id, KEMOffer: init.Offer()}).Encode()
+	offBytes, err := (&OfferMsg{ExchangeID: id, AckID: ack, KEMOffer: init.Offer()}).Encode()
 	require.NoError(t, err)
 	typ, decoded, err := Decode(offBytes)
 	require.NoError(t, err)
 	require.Equal(t, MsgOffer, typ)
 	require.Equal(t, id, decoded.(*OfferMsg).ExchangeID)
+	require.Equal(t, ack, decoded.(*OfferMsg).AckID)
 	require.Equal(t, init.Offer(), decoded.(*OfferMsg).KEMOffer)
 
 	ansBytes, err := (&AnswerMsg{ExchangeID: id, KEMAnswer: answer}).Encode()
@@ -28,13 +30,6 @@ func TestMessageRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, MsgAnswer, typ)
 	require.Equal(t, answer, decoded.(*AnswerMsg).KEMAnswer)
-
-	confBytes, err := (&ConfirmMsg{ExchangeID: id}).Encode()
-	require.NoError(t, err)
-	typ, decoded, err = Decode(confBytes)
-	require.NoError(t, err)
-	require.Equal(t, MsgConfirm, typ)
-	require.Equal(t, id, decoded.(*ConfirmMsg).ExchangeID)
 }
 
 func TestDecodeRejects(t *testing.T) {
@@ -43,7 +38,7 @@ func TestDecodeRejects(t *testing.T) {
 	require.Error(t, err)
 
 	// wrong version
-	bad := make([]byte, headerSize+OfferSize)
+	bad := make([]byte, headerSize+ExchangeIDSize+OfferSize)
 	bad[0] = byte(MsgOffer)
 	bad[1] = ProtocolVersion + 1
 	_, _, err = Decode(bad)
