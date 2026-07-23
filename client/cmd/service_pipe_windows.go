@@ -5,9 +5,9 @@ package cmd
 import (
 	"context"
 	"net"
-	"time"
 
 	"github.com/Microsoft/go-winio"
+	"golang.org/x/sys/windows"
 
 	"github.com/netbirdio/netbird/client/internal/ipcauth"
 )
@@ -22,11 +22,14 @@ func listenNamedPipe(path string) (net.Listener, error) {
 	})
 }
 
-// dialNamedPipe connects to the daemon control named pipe.
+// dialNamedPipe connects to the daemon control named pipe at SECURITY_IDENTIFICATION.
+//
+// winio's plain DialPipe connects at SECURITY_ANONYMOUS, under which the daemon
+// cannot read the caller's token (ImpersonateNamedPipeClient fails / yields an
+// anonymous token and the handshake is dropped). Identification lets the daemon
+// *identify* the caller (read its SID/groups) without granting it the ability to
+// act as the caller — the least privilege the daemon needs for authorization.
 func dialNamedPipe(ctx context.Context, path string) (net.Conn, error) {
-	if deadline, ok := ctx.Deadline(); ok {
-		timeout := time.Until(deadline)
-		return winio.DialPipe(path, &timeout)
-	}
-	return winio.DialPipeContext(ctx, path)
+	access := uint32(windows.GENERIC_READ | windows.GENERIC_WRITE)
+	return winio.DialPipeAccessImpLevel(ctx, path, access, winio.PipeImpLevelIdentification)
 }

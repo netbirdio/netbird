@@ -35,10 +35,14 @@ func DefaultPipeSDDL() string {
 }
 
 // NewTransportCredentials returns gRPC transport credentials that derive the
-// caller's identity from the named-pipe client token, following Microsoft's
-// "Verifying Client Access with ACLs" pattern: ImpersonateNamedPipeClient ->
-// OpenThreadToken -> RevertToSelf. Per threat-model M-NOIMP, impersonation is
-// used only to read the client token for identity, never to perform privileged work.
+// caller's identity from the named-pipe client token.
+//
+// It uses ImpersonateNamedPipeClient, which binds the client's security context
+// to the *connection* in the kernel — there is no PID lookup, so it is immune to
+// the PID-reuse race that OpenProcess-by-PID would have. Per threat-model
+// M-NOIMP, impersonation is used only to read the client token, then reverted
+// immediately; the daemon never performs privileged work while impersonating.
+// This requires the client to dial at SECURITY_IDENTIFICATION (see dialNamedPipe).
 func NewTransportCredentials() credentials.TransportCredentials {
 	return winpipeCreds{}
 }
@@ -49,8 +53,8 @@ func (winpipeCreds) ClientHandshake(_ context.Context, _ string, conn net.Conn) 
 	return conn, AuthInfo{}, nil
 }
 
-// ServerHandshake extracts the connecting client's identity from the pipe token.
-// Fails closed if the handle or token cannot be read.
+// ServerHandshake extracts the connecting client's identity from the pipe. Fails
+// closed if the handle or token cannot be read.
 func (winpipeCreds) ServerHandshake(conn net.Conn) (net.Conn, credentials.AuthInfo, error) {
 	// go-winio's pipe connection embeds *win32File, which exposes Fd().
 	fdConn, ok := conn.(interface{ Fd() uintptr })
@@ -78,12 +82,10 @@ func (winpipeCreds) Clone() credentials.TransportCredentials { return winpipeCre
 func (winpipeCreds) OverrideServerName(string) error { return nil }
 
 // pipeClientIdentity reads the connecting client's user SID, enabled group SIDs,
-// and elevation from the named-pipe handle. The impersonation window is kept as
-// small as possible and pinned to the OS thread (impersonation is thread-local).
+// and elevation by impersonating the pipe client on this thread and reading the
+// impersonation token. Impersonation is connection-bound (no PID race) and the
+// window is kept minimal and pinned to the OS thread (impersonation is thread-local).
 func pipeClientIdentity(handle windows.Handle) (Identity, error) {
-	var pid uint32
-	hasPID := windows.GetNamedPipeClientProcessId(handle, &pid) == nil
-
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
@@ -121,8 +123,7 @@ func pipeClientIdentity(handle windows.Handle) (Identity, error) {
 		SID:      tu.User.Sid.String(),
 		Groups:   groups,
 		Elevated: token.IsElevated(),
-		PID:      int32(pid),
-		HasPID:   hasPID,
+		HasPID:   false,
 	}, nil
 }
 
