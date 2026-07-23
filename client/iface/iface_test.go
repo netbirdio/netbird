@@ -505,10 +505,12 @@ func Test_ConnectPeers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	localIP, err := getLocalIP()
-	if err != nil {
-		t.Fatal(err)
-	}
+	// Peers talk to each other over loopback. The userspace WireGuard bind
+	// listens on 0.0.0.0, so 127.0.0.1 reaches it. Using the routable NIC IP
+	// instead makes the handshake hairpin through the host/container network
+	// stack, which drops packets under CI load and leaves WireGuard retrying
+	// only every REKEY_TIMEOUT (5s) — the root of the 30s flake.
+	localIP := "127.0.0.1"
 
 	peer1endpoint, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", localIP, peer1wgPort))
 	if err != nil {
@@ -622,27 +624,3 @@ func getPeer(ifaceName, peerPubKey string) (wgtypes.Peer, error) {
 	return wgtypes.Peer{}, fmt.Errorf("peer not found")
 }
 
-func getLocalIP() (string, error) {
-	// Get all interfaces
-	addrs, err := net.InterfaceAddrs()
-	if err != nil {
-		return "", err
-	}
-
-	for _, addr := range addrs {
-		ipNet, ok := addr.(*net.IPNet)
-		if !ok {
-			continue
-		}
-		if ipNet.IP.IsLoopback() {
-			continue
-		}
-
-		if ipNet.IP.To4() == nil {
-			continue
-		}
-		return ipNet.IP.String(), nil
-	}
-
-	return "", fmt.Errorf("no local IP found")
-}
