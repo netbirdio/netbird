@@ -323,9 +323,12 @@ func (t *Tray) relayoutMenu() {
 	}
 	if t.upItem != nil {
 		// Connect stays visible in the NeedsLogin states too — Up drives
-		// the SSO re-auth flow; hidden only when it would be a no-op.
-		t.upItem.SetHidden(connected || connecting || daemonUnavailable)
-		t.upItem.SetEnabled(!connected && !connecting && !daemonUnavailable)
+		// the SSO re-auth flow. Keep it actionable when the daemon is unavailable
+		// too, so a click can explain how to recover instead of silently hiding
+		// the primary action.
+		state := connectMenuState(connected, lastStatus)
+		t.upItem.SetHidden(state.hidden)
+		t.upItem.SetEnabled(state.enabled)
 	}
 	if t.downItem != nil {
 		// Disconnect doubles as the Connecting abort path.
@@ -357,6 +360,19 @@ func (t *Tray) relayoutMenu() {
 	// Single push of the whole tree: on Linux one LayoutUpdated with fresh
 	// container ids; on darwin an NSMenu rebuild against the cached pointer.
 	t.tray.SetMenu(t.menu)
+}
+
+type menuItemState struct {
+	hidden  bool
+	enabled bool
+}
+
+func connectMenuState(connected bool, status string) menuItemState {
+	connecting := strings.EqualFold(status, services.StatusConnecting)
+	return menuItemState{
+		hidden:  connected || connecting,
+		enabled: !connected && !connecting,
+	}
 }
 
 func (t *Tray) buildMenu() *application.Menu {
@@ -477,10 +493,15 @@ func (t *Tray) handleConnect(upItem *application.MenuItem) {
 	// the React startLogin() (which owns the BrowserLogin popup) drives it;
 	// the hidden main webview is alive and subscribed, so only the popup shows.
 	t.statusMu.Lock()
+	daemonUnavailable := strings.EqualFold(t.lastStatus, services.StatusDaemonUnavailable)
 	needsLogin := strings.EqualFold(t.lastStatus, services.StatusNeedsLogin) ||
 		strings.EqualFold(t.lastStatus, services.StatusSessionExpired) ||
 		strings.EqualFold(t.lastStatus, services.StatusLoginFailed)
 	t.statusMu.Unlock()
+	if daemonUnavailable {
+		t.notifyError(t.loc.T("notify.error.daemonUnavailable"))
+		return
+	}
 	if needsLogin {
 		t.app.Event.Emit(services.EventTriggerLogin)
 		return
