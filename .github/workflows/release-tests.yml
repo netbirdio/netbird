@@ -1,0 +1,88 @@
+name: Trigger release tests
+
+on:
+  push:
+    tags:
+      - "v*"
+  release:
+    types: [published]
+
+jobs:
+  trigger:
+    name: "Release tests / ${{ matrix.scenario }}"
+    if: >-
+      ${{ github.repository == 'netbirdio/netbird' &&
+          ((github.event_name == 'push' &&
+            (!contains(github.ref_name, '-') || contains(github.ref_name, '-rc.'))) ||
+           (github.event_name == 'release' && github.event.release.prerelease)) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [prerelease, upgrade]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event.release.tag_name || github.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve test versions
+        id: versions
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$RELEASE_TAG" =~ ^v([0-9]+)\.([0-9]+)\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
+            echo "Unsupported release tag: $RELEASE_TAG" >&2
+            exit 1
+          fi
+
+          major=$((10#${BASH_REMATCH[1]}))
+          minor=$((10#${BASH_REMATCH[2]}))
+          if (( minor < 2 )); then
+            echo "Cannot select an N-2 release for $RELEASE_TAG" >&2
+            exit 1
+          fi
+
+          old_minor=$((minor - 2))
+          old_version=$(git tag --list "v${major}.${old_minor}.*" --sort=-version:refname | grep -E "^v${major}\.${old_minor}\.[0-9]+$" | head -n 1)
+          if [[ -z "$old_version" ]]; then
+            echo "No stable v${major}.${old_minor}.x release found" >&2
+            exit 1
+          fi
+
+          echo "target=sha-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "old=$old_version" >> "$GITHUB_OUTPUT"
+
+      - name: Run prerelease scenarios
+        if: matrix.scenario == 'prerelease'
+        uses: benc-uk/workflow-dispatch@31e2b3319479a63f0ab15bf800eff9e913504e26 # v1.3.2
+        with:
+          workflow: netbird-prerelease.yml
+          repo: netbirdio/pre-release-tests
+          ref: main
+          token: ${{ secrets.RELEASE_TESTS_GITHUB_TOKEN }}
+          inputs: >-
+            { "netbird_version": "${{ steps.versions.outputs.target }}",
+              "netbird_server_version": "${{ steps.versions.outputs.target }}",
+              "netbird_server_image_repository": "ghcr.io/netbirdio/netbird-server" }
+
+      - name: Run upgrade scenarios
+        if: matrix.scenario == 'upgrade'
+        uses: benc-uk/workflow-dispatch@31e2b3319479a63f0ab15bf800eff9e913504e26 # v1.3.2
+        with:
+          workflow: netbird-selfhosted-upgrade.yml
+          repo: netbirdio/pre-release-tests
+          ref: main
+          token: ${{ secrets.RELEASE_TESTS_GITHUB_TOKEN }}
+          inputs: >-
+            { "netbird_version": "${{ steps.versions.outputs.target }}",
+              "old_netbird_server_version": "${{ steps.versions.outputs.old }}",
+              "netbird_server_version": "${{ steps.versions.outputs.target }}",
+              "netbird_server_image_repository": "ghcr.io/netbirdio/netbird-server" }
