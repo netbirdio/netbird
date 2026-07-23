@@ -20,14 +20,15 @@ import (
 // covers whatever credentials are present (source ~/.llm-keys locally / set the
 // Actions secrets in CI).
 type providerCase struct {
-	name      string
-	catalogID string
-	upstream  string
-	apiKey    string
-	model     string // body model (chat/messages) or path model@version (vertex)
-	kind      string // harness.WireChat, harness.WireMessages, or harness.WireVertex
-	project   string // vertex only: GCP project for the rawPredict path
-	region    string // vertex only: GCP region for the rawPredict path
+	name       string
+	catalogID  string
+	upstream   string
+	apiKey     string
+	model      string // body model (chat/messages) or path model@version (vertex)
+	kind       string // harness.WireChat, harness.WireMessages, or harness.WireVertex
+	project    string // vertex only: GCP project for the rawPredict path
+	region     string // vertex only: GCP region for the rawPredict path
+	pathPrefix string // base-URL path prefix the agent carries (e.g. "/anthropic" for Kimi)
 }
 
 // availableProviders builds the matrix from the provider env vars that are set.
@@ -43,16 +44,19 @@ func availableProviders() []providerCase {
 		// Kimi (Moonshot AI) serves two body shapes from the same key: OpenAI
 		// Chat Completions on the bare host (/v1/...) and the Anthropic
 		// Messages API under the /anthropic path prefix (the endpoint
-		// Moonshot's Claude Code guide uses). The platform serves this
-		// account exactly ONE model — kimi-k3 (kimi-k2-thinking and even
-		// kimi-latest return resource_not_found_error on both surfaces) — so
-		// two concurrent provider records would claim the same model and
-		// route ambiguously. Run the Anthropic shape, the flagship Claude
-		// Code path; the OpenAI wire shape is covered live by the other
-		// chat-shaped matrix providers, and Kimi-over-chat passed with
-		// kimi-k3 before the single-model constraint surfaced (run #73 on
-		// the kimi feature branch).
-		ps = append(ps, providerCase{name: "kimi", catalogID: "kimi_api", upstream: "https://api.moonshot.ai/anthropic", apiKey: k, model: "kimi-k3", kind: harness.WireMessages})
+		// Moonshot's Claude Code guide uses). The provider keeps the bare
+		// default upstream and the AGENT carries the /anthropic prefix in
+		// its base URL — exactly the documented Claude Code / Kimi CLI
+		// setup (ANTHROPIC_BASE_URL=https://<endpoint>/anthropic) — so one
+		// provider serves both shapes and the prefix rides through to
+		// Moonshot. Run the Anthropic shape, the flagship Claude Code path;
+		// the OpenAI wire shape is covered live by the other chat-shaped
+		// matrix providers, and Kimi-over-chat passed with kimi-k3 before
+		// the single-model constraint surfaced (run #73 on the kimi feature
+		// branch). The platform serves this account exactly ONE model —
+		// kimi-k3 (kimi-k2-thinking and even kimi-latest return
+		// resource_not_found_error on both surfaces).
+		ps = append(ps, providerCase{name: "kimi", catalogID: "kimi_api", upstream: "https://api.moonshot.ai", apiKey: k, model: "kimi-k3", kind: harness.WireMessages, pathPrefix: "/anthropic"})
 	}
 	if k, u := os.Getenv("VERCEL_TOKEN"), os.Getenv("VERCEL_URL"); k != "" && u != "" {
 		ps = append(ps, providerCase{name: "vercel", catalogID: "vercel_ai_gateway", upstream: u, apiKey: k, model: "openai/gpt-4o-mini", kind: harness.WireChat})
@@ -268,7 +272,7 @@ func TestProvidersMatrix(t *testing.T) {
 				case harness.WireBedrock:
 					c, b, cerr = cl.Bedrock(ctx, settings.Endpoint, proxyIP, pc.model, "Reply with exactly: pong", sessionID)
 				default:
-					c, b, cerr = cl.Chat(ctx, settings.Endpoint, proxyIP, pc.kind, pc.model, "Reply with exactly: pong", sessionID)
+					c, b, cerr = cl.ChatPrefixed(ctx, settings.Endpoint, proxyIP, pc.pathPrefix, pc.kind, pc.model, "Reply with exactly: pong", sessionID)
 				}
 				if cerr == nil {
 					code, body = c, b

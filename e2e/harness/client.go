@@ -206,6 +206,17 @@ const (
 // the wire shape: WireChat (OpenAI) or WireMessages (Anthropic). A non-empty
 // sessionID is sent as the universal x-session-id header the proxy records.
 func (cl *Client) Chat(ctx context.Context, endpoint, proxyIP, kind, model, prompt, sessionID string) (int, string, error) {
+	return cl.ChatPrefixed(ctx, endpoint, proxyIP, "", kind, model, prompt, sessionID)
+}
+
+// ChatPrefixed is Chat with a base-URL path prefix prepended to the wire
+// path, mirroring agents whose base URL carries a shape-selecting prefix that
+// rides through to the upstream — e.g. Claude Code against a Kimi provider
+// sets ANTHROPIC_BASE_URL=https://<endpoint>/anthropic so the proxy forwards
+// /anthropic/v1/messages to Moonshot's Anthropic surface while the provider's
+// upstream URL stays the bare https://api.moonshot.ai. Empty prefix is plain
+// Chat.
+func (cl *Client) ChatPrefixed(ctx context.Context, endpoint, proxyIP, pathPrefix, kind, model, prompt, sessionID string) (int, string, error) {
 	var path, body string
 	var headers []string
 	switch kind {
@@ -217,7 +228,7 @@ func (cl *Client) Chat(ctx context.Context, endpoint, proxyIP, kind, model, prom
 		path = "/v1/chat/completions"
 		body = fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":%q}]}`, model, prompt)
 	}
-	return cl.post(ctx, endpoint, proxyIP, path, body, withSessionID(headers, sessionID))
+	return cl.post(ctx, endpoint, proxyIP, pathPrefix+path, body, withSessionID(headers, sessionID))
 }
 
 // Vertex issues an Anthropic-on-Vertex rawPredict POST over the tunnel. Unlike

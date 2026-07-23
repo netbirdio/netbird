@@ -74,7 +74,7 @@ func sendModel(ctx context.Context, t *testing.T, cl *harness.Client, endpoint, 
 	case harness.WireVertex:
 		code, _, err = cl.Vertex(ctx, endpoint, proxyIP, pc.project, pc.region, model, "Reply with exactly: pong", "")
 	default:
-		code, _, err = cl.Chat(ctx, endpoint, proxyIP, pc.kind, model, "Reply with exactly: pong", "")
+		code, _, err = cl.ChatPrefixed(ctx, endpoint, proxyIP, pc.pathPrefix, pc.kind, model, "Reply with exactly: pong", "")
 	}
 	require.NoError(t, err, "request must reach the proxy for %s", pc.name)
 	return code
