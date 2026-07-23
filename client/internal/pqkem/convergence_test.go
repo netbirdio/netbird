@@ -10,21 +10,25 @@ import (
 
 type dropTransport struct{}
 
-func (dropTransport) Send(string, []byte) error { return nil }
+func (dropTransport) SendDataPath(string, []byte) error { return nil }
+func (dropTransport) SendSignal(string, []byte) error   { return nil }
 
 // gate is a loopback transport with a switchable drop flag.
 type gate struct {
-	local string
-	peer  *Manager
-	drop  atomic.Bool
+	localID string
+	peer    *Manager
+	drop    atomic.Bool
 }
 
-func (g *gate) Send(remote string, msg []byte) error {
+func (g *gate) SendDataPath(remoteID string, msg []byte) error { return g.deliver(msg) }
+func (g *gate) SendSignal(remoteID string, msg []byte) error   { return g.deliver(msg) }
+
+func (g *gate) deliver(msg []byte) error {
 	if g.drop.Load() {
 		return nil
 	}
 	cp := append([]byte(nil), msg...)
-	return g.peer.HandleInbound(g.local, cp)
+	return g.peer.HandleInbound(g.localID, cp)
 }
 
 func TestManager_InitialTimeoutFailsImmediately(t *testing.T) {
@@ -46,8 +50,8 @@ func TestManager_InitialTimeoutFailsImmediately(t *testing.T) {
 }
 
 func TestManager_RekeyToleratesKFailures(t *testing.T) {
-	gA := &gate{local: "aaaa"}
-	gB := &gate{local: "bbbb"}
+	gA := &gate{localID: "aaaa"}
+	gB := &gate{localID: "bbbb"}
 	wgA := newFakeWG()
 	wgB := newFakeWG()
 
@@ -62,11 +66,14 @@ func TestManager_RekeyToleratesKFailures(t *testing.T) {
 	defer dA.Stop()
 	defer dB.Stop()
 
-	// first exchange succeeds -> peer becomes established (subsequent failures are rekeys).
+	// First exchange succeeds -> peer becomes established (subsequent failures are
+	// rekeys). Drive the data-path-rekeyed event so the confirm converges A.
 	require.NoError(t, dB.initiateRekey("aaaa"))
+	dA.OnDataPathRekeyed("bbbb")
+	dB.OnDataPathRekeyed("aaaa")
 	require.NotEqual(t, PSK{}, wgB.psk("aaaa"))
 
-	// now drop B's outbound: rekeys can no longer converge.
+	// Now drop B's outbound: rekeys can no longer converge.
 	gB.drop.Store(true)
 
 	// K-1 failures must NOT raise OnRekeyFailed.
