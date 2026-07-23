@@ -173,11 +173,11 @@ type Server struct {
 
 	remoteForwardListeners map[forwardKey]net.Listener
 
-	jwtValidator *jwt.Validator
-	jwtExtractor *jwt.ClaimsExtractor
-	jwtConfig    *JWTConfig
-
-	authorizer *sshauth.Authorizer
+	jwtValidator   *jwt.Validator
+	jwtExtractor   *jwt.ClaimsExtractor
+	jwtConfig      *JWTConfig
+	jwtAuthVersion uint64
+	authorizer     *sshauth.Authorizer
 
 	suSupportsPty    bool
 	loginIsUtilLinux bool
@@ -457,60 +457,72 @@ func (s *Server) UpdateSSHAuth(config *sshauth.Config) {
 	// Reset JWT validator/extractor to pick up new userIDClaim
 	s.jwtValidator = nil
 	s.jwtExtractor = nil
+	s.jwtAuthVersion++
 
 	s.authorizer.Update(config)
 }
 
+// UpdateJWTConfig updates the JWT authentication settings used by new SSH auth attempts.
+func (s *Server) UpdateJWTConfig(config *JWTConfig) {
+	s.mu.Lock()
+	s.jwtConfig = config
+	s.jwtValidator = nil
+	s.jwtExtractor = nil
+	s.jwtAuthVersion++
+	s.mu.Unlock()
+}
+
 // ensureJWTValidator initializes the JWT validator and extractor if not already initialized
 func (s *Server) ensureJWTValidator() error {
-	s.mu.RLock()
-	if s.jwtValidator != nil && s.jwtExtractor != nil {
+	for {
+		s.mu.RLock()
+		if s.jwtValidator != nil && s.jwtExtractor != nil {
+			s.mu.RUnlock()
+			return nil
+		}
+		config := s.jwtConfig
+		authVersion := s.jwtAuthVersion
+		userIDClaim := s.authorizer.GetUserIDClaim()
 		s.mu.RUnlock()
+
+		if config == nil {
+			return fmt.Errorf("JWT config not set")
+		}
+		if len(config.Audiences) == 0 {
+			return fmt.Errorf("JWT config has no audiences configured")
+		}
+		log.Debugf("Initializing JWT validator (issuer: %s, audiences: %v)", config.Issuer, config.Audiences)
+		validator := jwt.NewValidator(
+			config.Issuer,
+			config.Audiences,
+			config.KeysLocation,
+			true,
+		)
+
+		// Use custom userIDClaim from authorizer if available
+		extractorOptions := []jwt.ClaimsExtractorOption{
+			jwt.WithAudience(config.Audiences[0]),
+		}
+		if userIDClaim != "" {
+			extractorOptions = append(extractorOptions, jwt.WithUserIDClaim(userIDClaim))
+			log.Debugf("Using custom user ID claim: %s", userIDClaim)
+		}
+		extractor := jwt.NewClaimsExtractor(extractorOptions...)
+
+		s.mu.Lock()
+		if s.jwtAuthVersion != authVersion {
+			s.mu.Unlock()
+			continue
+		}
+		defer s.mu.Unlock()
+		if s.jwtValidator != nil && s.jwtExtractor != nil {
+			return nil
+		}
+		s.jwtValidator = validator
+		s.jwtExtractor = extractor
+		log.Infof("JWT validator initialized successfully")
 		return nil
 	}
-	config := s.jwtConfig
-	authorizer := s.authorizer
-	s.mu.RUnlock()
-
-	if config == nil {
-		return fmt.Errorf("JWT config not set")
-	}
-
-	if len(config.Audiences) == 0 {
-		return fmt.Errorf("JWT config has no audiences configured")
-	}
-
-	log.Debugf("Initializing JWT validator (issuer: %s, audiences: %v)", config.Issuer, config.Audiences)
-	validator := jwt.NewValidator(
-		config.Issuer,
-		config.Audiences,
-		config.KeysLocation,
-		true,
-	)
-
-	// Use custom userIDClaim from authorizer if available
-	extractorOptions := []jwt.ClaimsExtractorOption{
-		jwt.WithAudience(config.Audiences[0]),
-	}
-	if authorizer.GetUserIDClaim() != "" {
-		extractorOptions = append(extractorOptions, jwt.WithUserIDClaim(authorizer.GetUserIDClaim()))
-		log.Debugf("Using custom user ID claim: %s", authorizer.GetUserIDClaim())
-	}
-
-	extractor := jwt.NewClaimsExtractor(extractorOptions...)
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.jwtValidator != nil && s.jwtExtractor != nil {
-		return nil
-	}
-
-	s.jwtValidator = validator
-	s.jwtExtractor = extractor
-
-	log.Infof("JWT validator initialized successfully")
-	return nil
 }
 
 func (s *Server) validateJWTToken(tokenString string) (*gojwt.Token, error) {

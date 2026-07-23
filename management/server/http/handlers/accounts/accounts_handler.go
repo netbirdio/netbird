@@ -246,6 +246,9 @@ func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJS
 	if req.Settings.JwtGroupsEnabled != nil {
 		returnSettings.JWTGroupsEnabled = *req.Settings.JwtGroupsEnabled
 	}
+	if req.Settings.SshJwtMaxTokenAge != nil {
+		returnSettings.SSHJWTMaxTokenAge = time.Duration(float64(time.Second.Nanoseconds()) * float64(*req.Settings.SshJwtMaxTokenAge))
+	}
 	if req.Settings.GroupsPropagationEnabled != nil {
 		returnSettings.GroupsPropagationEnabled = *req.Settings.GroupsPropagationEnabled
 	}
@@ -413,11 +416,14 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 		jwtAllowGroups = []string{}
 	}
 
+	SshJwtMaxTokenAge := int(settings.SSHJWTMaxTokenAge.Seconds())
+
 	apiSettings := api.AccountSettings{
 		PeerLoginExpiration:             int(settings.PeerLoginExpiration.Seconds()),
 		PeerLoginExpirationEnabled:      settings.PeerLoginExpirationEnabled,
 		PeerInactivityExpiration:        int(settings.PeerInactivityExpiration.Seconds()),
 		PeerInactivityExpirationEnabled: settings.PeerInactivityExpirationEnabled,
+		SshJwtMaxTokenAge:               &SshJwtMaxTokenAge,
 		GroupsPropagationEnabled:        &settings.GroupsPropagationEnabled,
 		JwtGroupsEnabled:                &settings.JWTGroupsEnabled,
 		JwtGroupsClaimName:              &settings.JWTGroupsClaimName,
