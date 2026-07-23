@@ -215,7 +215,7 @@ func (m *DefaultManager) setupRefCounters(useNoop bool) {
 		)
 	}
 
-	m.allowedIPsRefCounter = refcounter.New(
+	m.allowedIPsRefCounter = refcounter.NewAllowedIPs(
 		func(prefix netip.Prefix, peerKey string) (string, error) {
 			// save peerKey to use it in the remove function
 			return peerKey, m.wgInterface.AddAllowedIP(peerKey, prefix)

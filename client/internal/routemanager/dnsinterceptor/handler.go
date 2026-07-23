@@ -95,7 +95,7 @@ func (d *DnsInterceptor) RemoveRoute() error {
 
 			// AllowedIPs should use real IPs
 			if d.currentPeerKey != "" {
-				if _, err := d.allowedIPsRefcounter.Decrement(prefix); err != nil {
+				if _, err := d.allowedIPsRefcounter.Decrement(prefix, d.currentPeerKey); err != nil {
 					merr = multierror.Append(merr, fmt.Errorf("remove allowed IP %s: %v", prefix, err))
 				}
 			}
@@ -172,7 +172,7 @@ func (d *DnsInterceptor) removeAllowedIP(realPrefix netip.Prefix) error {
 	}
 
 	// AllowedIPs use real IPs
-	if _, err := d.allowedIPsRefcounter.Decrement(realPrefix); err != nil {
+	if _, err := d.allowedIPsRefcounter.Decrement(realPrefix, d.currentPeerKey); err != nil {
 		return fmt.Errorf("remove allowed IP %s: %v", realPrefix, err)
 	}
 
@@ -205,7 +205,7 @@ func (d *DnsInterceptor) RemoveAllowedIPs() error {
 	for _, prefixes := range d.interceptedDomains {
 		for _, prefix := range prefixes {
 			// AllowedIPs use real IPs
-			if _, err := d.allowedIPsRefcounter.Decrement(prefix); err != nil {
+			if _, err := d.allowedIPsRefcounter.Decrement(prefix, d.currentPeerKey); err != nil {
 				merr = multierror.Append(merr, fmt.Errorf("remove allowed IP %s: %v", prefix, err))
 			}
 		}
