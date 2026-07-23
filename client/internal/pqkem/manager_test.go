@@ -8,20 +8,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// loopback delivers a sent message synchronously to the peer manager's HandleInbound,
-// attributing it to localID (the sender). Both channels deliver the same way — the
-// test does not care which physical channel is used.
+// loopback is a data-path transport: a SendDataPath delivers synchronously to the
+// peer manager's OnDataPathMessage, attributing it to localID (the sender). The
+// signalling channel is driven by the test directly via the SignalX methods.
 type loopback struct {
 	localID string
 	peer    *Manager
 }
 
-func (l *loopback) SendDataPath(remoteID string, msg []byte) error { return l.deliver(msg) }
-func (l *loopback) SendSignal(remoteID string, msg []byte) error   { return l.deliver(msg) }
-
-func (l *loopback) deliver(msg []byte) error {
+func (l *loopback) SendDataPath(remoteID string, msg []byte) error {
 	cp := append([]byte(nil), msg...)
-	return l.peer.HandleInbound(l.localID, cp)
+	return l.peer.OnDataPathMessage(l.localID, cp)
 }
 
 type fakeWG struct {
@@ -58,23 +55,30 @@ func TestManager_ExchangeConverges(t *testing.T) {
 	wgA := newFakeWG()
 	wgB := newFakeWG()
 
-	// long interval so the ticker never fires during the test; we drive manually.
 	dA := NewManager("aaaa", lbA, wgA, time.Hour, nil)
 	dB := NewManager("bbbb", lbB, wgB, time.Hour, nil)
-	lbA.peer = dB // A sends -> B receives
-	lbB.peer = dA // B sends -> A receives
+	lbA.peer = dB // A's data-path sends -> B receives
+	lbB.peer = dA // B's data-path sends -> A receives
 
 	dA.AddPeer("bbbb")
 	dB.AddPeer("aaaa")
 	defer dA.Stop()
 	defer dB.Stop()
 
-	// B is the initiator ("bbbb" > "aaaa"). Offer/answer flow synchronously over the
-	// loopback; both commit their PSK, and B parks in stateAwaitingRekey.
-	require.NoError(t, dB.initiateRekey("aaaa"))
+	// Bootstrap over the signalling channel (the test plays the host carrying bytes).
+	// B is the initiator ("bbbb" > "aaaa").
+	offer, err := dB.SignalOffer("aaaa")
+	require.NoError(t, err)
+	require.NotNil(t, offer)
 
-	// The consumer reports the data path is (re)keyed on both sides; this makes B
-	// send the confirm, which converges A.
+	answer, err := dA.SignalOnOffer("bbbb", offer)
+	require.NoError(t, err)
+	require.NotNil(t, answer)
+
+	require.NoError(t, dB.SignalOnAnswer("aaaa", answer))
+
+	// Data path comes up on both sides; this makes B send the confirm over the data
+	// path, converging A.
 	dA.OnDataPathRekeyed("bbbb")
 	dB.OnDataPathRekeyed("aaaa")
 
@@ -85,16 +89,15 @@ func TestManager_ExchangeConverges(t *testing.T) {
 	require.Equal(t, pskB, pskA, "both sides converge on the same PSK")
 }
 
-func TestManager_NonInitiatorDoesNothing(t *testing.T) {
-	lbA := &loopback{localID: "aaaa"}
-	wgA := newFakeWG()
-	dA := NewManager("aaaa", lbA, wgA, time.Hour, nil)
+func TestManager_NonInitiatorReturnsNoOffer(t *testing.T) {
+	dA := NewManager("aaaa", &loopback{localID: "aaaa"}, newFakeWG(), time.Hour, nil)
 	dA.AddPeer("bbbb")
 	defer dA.Stop()
 
-	// A is NOT the initiator vs "bbbb" -> initiateRekey is a no-op, no Send.
-	require.NoError(t, dA.initiateRekey("bbbb"))
-	require.Equal(t, PSK{}, wgA.psk("bbbb"))
+	// A is NOT the initiator vs "bbbb" -> no offer to send.
+	offer, err := dA.SignalOffer("bbbb")
+	require.NoError(t, err)
+	require.Nil(t, offer)
 }
 
 func TestManager_StopIsIdempotent(t *testing.T) {
