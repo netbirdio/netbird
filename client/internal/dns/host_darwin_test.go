@@ -3,100 +3,19 @@
 package dns
 
 import (
-	"bufio"
-	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/netip"
-	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
-func TestDarwinDNSUncleanShutdownCleanup(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping scutil integration test in short mode")
-	}
-
-	tmpDir := t.TempDir()
-	stateFile := filepath.Join(tmpDir, "state.json")
-
-	sm := statemanager.New(stateFile)
-	sm.RegisterState(&ShutdownState{})
-	sm.Start()
-	defer func() {
-		require.NoError(t, sm.Stop(context.Background()))
-	}()
-
-	configurator := &systemConfigurator{
-		createdKeys: make(map[string]struct{}),
-	}
-
-	config := HostDNSConfig{
-		ServerIP:   netip.MustParseAddr("100.64.0.1"),
-		ServerPort: 53,
-		RouteAll:   true,
-		Domains: []DomainConfig{
-			{Domain: "example.com", MatchOnly: true},
-		},
-	}
-
-	err := configurator.applyDNSConfig(config, sm)
-	require.NoError(t, err)
-
-	require.NoError(t, sm.PersistState(context.Background()))
-
-	localKey := getKeyWithInput(netbirdDNSStateKeyFormat, localSuffix)
-
-	// Collect all created keys for cleanup verification
-	createdKeys := make([]string, 0, len(configurator.createdKeys))
-	for key := range configurator.createdKeys {
-		createdKeys = append(createdKeys, key)
-	}
-
-	defer func() {
-		for _, key := range createdKeys {
-			_ = removeTestDNSKey(key)
-		}
-		_ = removeTestDNSKey(localKey)
-	}()
-
-	for _, key := range createdKeys {
-		exists, err := checkDNSKeyExists(key)
-		require.NoError(t, err)
-		if exists {
-			t.Logf("Key %s exists before cleanup", key)
-		}
-	}
-
-	sm2 := statemanager.New(stateFile)
-	sm2.RegisterState(&ShutdownState{})
-	err = sm2.LoadState(&ShutdownState{})
-	require.NoError(t, err)
-
-	state := sm2.GetState(&ShutdownState{})
-	if state == nil {
-		t.Skip("State not saved, skipping cleanup test")
-	}
-
-	shutdownState, ok := state.(*ShutdownState)
-	require.True(t, ok)
-
-	err = shutdownState.Cleanup()
-	require.NoError(t, err)
-
-	for _, key := range createdKeys {
-		exists, err := checkDNSKeyExists(key)
-		require.NoError(t, err)
-		assert.False(t, exists, "Key %s should NOT exist after cleanup", key)
-	}
-}
+const testInterfaceName = "utun999"
 
 // generateShortDomains generates domains like a.com, b.com, ..., aa.com, ab.com, etc.
 func generateShortDomains(count int) []string {
@@ -122,39 +41,6 @@ func generateLongDomains(count int) []string {
 	for i := range count {
 		domains = append(domains, fmt.Sprintf("subdomain-%03d.department.organization-name.example.com", i))
 	}
-	return domains
-}
-
-// readDomainsFromKey reads the SupplementalMatchDomains array back from scutil for a given key.
-func readDomainsFromKey(t *testing.T, key string) []string {
-	t.Helper()
-
-	cmd := exec.Command(scutilPath)
-	cmd.Stdin = strings.NewReader(fmt.Sprintf("open\nshow %s\nquit\n", key))
-	out, err := cmd.Output()
-	require.NoError(t, err, "scutil show should succeed")
-
-	var domains []string
-	inArray := false
-	scanner := bufio.NewScanner(bytes.NewReader(out))
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if strings.HasPrefix(line, "SupplementalMatchDomains") && strings.Contains(line, "<array>") {
-			inArray = true
-			continue
-		}
-		if inArray {
-			if line == "}" {
-				break
-			}
-			// lines look like: "0 : a.com"
-			parts := strings.SplitN(line, " : ", 2)
-			if len(parts) == 2 {
-				domains = append(domains, parts[1])
-			}
-		}
-	}
-	require.NoError(t, scanner.Err())
 	return domains
 }
 
@@ -247,90 +133,10 @@ func TestSplitDomainsIntoBatches(t *testing.T) {
 	}
 }
 
-// TestMatchDomainBatching writes increasing numbers of domains via the batching mechanism
-// and verifies all domains are readable across multiple scutil keys.
-func TestMatchDomainBatching(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping scutil integration test in short mode")
-	}
-
-	testCases := []struct {
-		name      string
-		count     int
-		generator func(int) []string
-	}{
-		{"short_10", 10, generateShortDomains},
-		{"short_50", 50, generateShortDomains},
-		{"short_100", 100, generateShortDomains},
-		{"short_200", 200, generateShortDomains},
-		{"short_500", 500, generateShortDomains},
-		{"long_10", 10, generateLongDomains},
-		{"long_50", 50, generateLongDomains},
-		{"long_100", 100, generateLongDomains},
-		{"long_200", 200, generateLongDomains},
-		{"long_500", 500, generateLongDomains},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			configurator := &systemConfigurator{
-				createdKeys: make(map[string]struct{}),
-			}
-
-			defer func() {
-				for key := range configurator.createdKeys {
-					_ = removeTestDNSKey(key)
-				}
-			}()
-
-			domains := tc.generator(tc.count)
-			err := configurator.addBatchedDomains(matchSuffix, domains, netip.MustParseAddr("100.64.0.1"), 53, false)
-			require.NoError(t, err)
-
-			batches := splitDomainsIntoBatches(domains)
-			t.Logf("wrote %d domains across %d batched keys", tc.count, len(batches))
-
-			// Read back all domains from all batched keys
-			var got []string
-			for i := range batches {
-				key := fmt.Sprintf(netbirdDNSStateKeyIndexedFormat, matchSuffix, i)
-				exists, err := checkDNSKeyExists(key)
-				require.NoError(t, err)
-				require.True(t, exists, "key %s should exist", key)
-
-				got = append(got, readDomainsFromKey(t, key)...)
-			}
-
-			t.Logf("read back %d/%d domains from %d keys", len(got), tc.count, len(batches))
-			assert.Equal(t, tc.count, len(got), "all domains should be readable")
-			assert.Equal(t, domains, got, "domains should match in order")
-		})
-	}
-}
-
-func checkDNSKeyExists(key string) (bool, error) {
-	cmd := exec.Command(scutilPath)
-	cmd.Stdin = strings.NewReader("show " + key + "\nquit\n")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		if strings.Contains(string(output), "No such key") {
-			return false, nil
-		}
-		return false, err
-	}
-	return !strings.Contains(string(output), "No such key"), nil
-}
-
-func removeTestDNSKey(key string) error {
-	cmd := exec.Command(scutilPath)
-	cmd.Stdin = strings.NewReader("remove " + key + "\nquit\n")
-	_, err := cmd.CombinedOutput()
-	return err
-}
-
 func TestGetOriginalNameservers(t *testing.T) {
 	configurator := &systemConfigurator{
-		createdKeys: make(map[string]struct{}),
+		createdKeys:   make(map[string]struct{}),
+		interfaceName: testInterfaceName,
 		origNameservers: []netip.Addr{
 			netip.MustParseAddr("8.8.8.8"),
 			netip.MustParseAddr("1.1.1.1"),
@@ -343,9 +149,12 @@ func TestGetOriginalNameservers(t *testing.T) {
 	assert.Equal(t, netip.MustParseAddr("1.1.1.1"), servers[1])
 }
 
+// TestGetOriginalNameserversFromSystem uses a read-only "show" call and never mutates host DNS state,
+// so it stays untagged rather than in the privileged suite.
 func TestGetOriginalNameserversFromSystem(t *testing.T) {
 	configurator := &systemConfigurator{
-		createdKeys: make(map[string]struct{}),
+		createdKeys:   make(map[string]struct{}),
+		interfaceName: testInterfaceName,
 	}
 
 	_, err := configurator.getSystemDNSSettings()
@@ -363,133 +172,376 @@ func TestGetOriginalNameserversFromSystem(t *testing.T) {
 	t.Logf("found %d original nameservers: %v", len(servers), servers)
 }
 
-func setupTestConfigurator(t *testing.T) (*systemConfigurator, *statemanager.Manager, func()) {
-	t.Helper()
-
-	tmpDir := t.TempDir()
-	stateFile := filepath.Join(tmpDir, "state.json")
-	sm := statemanager.New(stateFile)
-	sm.RegisterState(&ShutdownState{})
-	sm.Start()
-
-	configurator := &systemConfigurator{
-		createdKeys: make(map[string]struct{}),
+func TestGetKeyWithInput(t *testing.T) {
+	tests := []struct {
+		name     string
+		format   string
+		iface    string
+		key      string
+		expected string
+	}{
+		{
+			name:     "search key",
+			format:   netbirdDNSStateKeyFormat,
+			iface:    "utun0",
+			key:      searchSuffix,
+			expected: "State:/Network/Service/NetBird-utun0-Search/DNS",
+		},
+		{
+			name:     "match key",
+			format:   netbirdDNSStateKeyFormat,
+			iface:    "utun0",
+			key:      matchSuffix,
+			expected: "State:/Network/Service/NetBird-utun0-Match/DNS",
+		},
+		{
+			name:     "local key",
+			format:   netbirdDNSStateKeyFormat,
+			iface:    "utun0",
+			key:      localSuffix,
+			expected: "State:/Network/Service/NetBird-utun0-Local/DNS",
+		},
+		{
+			name:     "different interface",
+			format:   netbirdDNSStateKeyFormat,
+			iface:    "utun100",
+			key:      searchSuffix,
+			expected: "State:/Network/Service/NetBird-utun100-Search/DNS",
+		},
 	}
 
-	cleanup := func() {
-		_ = sm.Stop(context.Background())
-		for key := range configurator.createdKeys {
-			_ = removeTestDNSKey(key)
-		}
-		// Also clean up old-format keys and local key in case they exist
-		_ = removeTestDNSKey(getKeyWithInput(netbirdDNSStateKeyFormat, searchSuffix))
-		_ = removeTestDNSKey(getKeyWithInput(netbirdDNSStateKeyFormat, matchSuffix))
-		_ = removeTestDNSKey(getKeyWithInput(netbirdDNSStateKeyFormat, localSuffix))
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := getKeyWithInput(tc.format, tc.iface, tc.key)
+			assert.Equal(t, tc.expected, result)
+		})
 	}
-
-	return configurator, sm, cleanup
 }
 
-func TestOriginalNameserversNoTransition(t *testing.T) {
-	netbirdIP := netip.MustParseAddr("100.64.0.1")
+func TestNewHostManagerWithInterfaceName(t *testing.T) {
+	manager, err := newHostManager("utun42")
+	require.NoError(t, err)
+	assert.Equal(t, "utun42", manager.interfaceName)
+	assert.NotNil(t, manager.createdKeys)
+}
 
-	testCases := []struct {
-		name     string
-		routeAll bool
-	}{
-		{"routeall_false", false},
-		{"routeall_true", true},
+func TestNewHostManagerWithEmptyInterfaceName(t *testing.T) {
+	manager, err := newHostManager("")
+	require.Error(t, err)
+	assert.Nil(t, manager)
+	assert.Contains(t, err.Error(), "interfaceName must not be empty")
+}
+
+func TestMultipleInterfacesGenerateDifferentKeys(t *testing.T) {
+	iface1 := "utun0"
+	iface2 := "utun1"
+
+	for _, suffix := range []string{searchSuffix, matchSuffix, localSuffix} {
+		key1 := getKeyWithInput(netbirdDNSStateKeyFormat, iface1, suffix)
+		key2 := getKeyWithInput(netbirdDNSStateKeyFormat, iface2, suffix)
+		assert.NotEqual(t, key1, key2, "keys for different interfaces should differ (suffix=%s)", suffix)
+		assert.Contains(t, key1, iface1)
+		assert.Contains(t, key2, iface2)
 	}
 
-	for _, tc := range testCases {
+	key1 := fmt.Sprintf(netbirdDNSStateKeyIndexedFormat, iface1, matchSuffix, 0)
+	key2 := fmt.Sprintf(netbirdDNSStateKeyIndexedFormat, iface2, matchSuffix, 0)
+	assert.NotEqual(t, key1, key2)
+	assert.Contains(t, key1, iface1)
+	assert.Contains(t, key2, iface2)
+}
+
+func TestShutdownStateIncludesInterfaceName(t *testing.T) {
+	state := &ShutdownState{
+		InterfaceName: "utun42",
+		CreatedKeys:   []string{"key1", "key2"},
+	}
+	assert.Equal(t, "utun42", state.InterfaceName)
+	assert.Equal(t, "dns_state", state.Name())
+}
+
+func TestPrimaryServiceKeyFormatNotAffected(t *testing.T) {
+	// primaryServiceStateKeyFormat has only one %s placeholder for the service UUID.
+	// It must NOT be called with getKeyWithInput (which expects iface + key).
+	serviceUUID := "12345678-ABCD-1234-ABCD-123456789ABC"
+	result := fmt.Sprintf(primaryServiceStateKeyFormat, serviceUUID)
+	assert.Equal(t, "State:/Network/Service/12345678-ABCD-1234-ABCD-123456789ABC/DNS", result)
+}
+
+// TestDiscoverExistingKeysEmptyInterface short-circuits before any system configuration lookup.
+func TestDiscoverExistingKeysEmptyInterface(t *testing.T) {
+	cfg := &systemConfigurator{createdKeys: make(map[string]struct{})}
+	keys, err := cfg.discoverExistingKeys()
+	require.NoError(t, err)
+	assert.Empty(t, keys, "scoped discovery must return none for an empty interface name")
+}
+
+func TestDiscoverExistingKeysEmptySystemList(t *testing.T) {
+	setScutilPath(t, "/usr/bin/true")
+
+	cfg := &systemConfigurator{createdKeys: make(map[string]struct{}), interfaceName: testInterfaceName}
+	keys, err := cfg.discoverExistingKeys()
+	require.NoError(t, err)
+	assert.Empty(t, keys)
+}
+
+func TestShutdownStateCleanupPreservesStateOnDiscoveryErrors(t *testing.T) {
+	setScutilPath(t, filepath.Join(t.TempDir(), "missing-scutil"))
+
+	tests := []struct {
+		name  string
+		state ShutdownState
+		want  string
+	}{
+		{
+			name:  "scoped discovery",
+			state: ShutdownState{InterfaceName: testInterfaceName},
+			want:  "discover removable DNS keys",
+		},
+		{
+			name:  "legacy discovery",
+			state: ShutdownState{},
+			want:  "discover legacy DNS keys",
+		},
+	}
+
+	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			configurator, sm, cleanup := setupTestConfigurator(t)
-			defer cleanup()
+			manager := statemanager.New(filepath.Join(t.TempDir(), "state.json"))
+			manager.RegisterState(&ShutdownState{})
+			require.NoError(t, manager.UpdateState(&tc.state))
+			require.NoError(t, manager.PersistState(context.Background()))
 
-			_, err := configurator.getSystemDNSSettings()
+			err := manager.CleanupStateByName(tc.state.Name())
+			require.Error(t, err)
+			assert.ErrorContains(t, err, tc.want)
+			assert.Equal(t, &tc.state, manager.GetState(&ShutdownState{}))
+		})
+	}
+}
+
+func setScutilPath(t *testing.T, path string) {
+	t.Helper()
+	original := scutilPath
+	scutilPath = path
+	t.Cleanup(func() { scutilPath = original })
+}
+
+func TestIndexedScopedKeysFromListSparse(t *testing.T) {
+	dnsKeys := "  subKey [0] = State:/Network/Service/NetBird-utun999-Match-0/DNS\n" +
+		"  subKey [1] = State:/Network/Service/NetBird-utun999-Match-2/DNS\n" +
+		"  subKey [2] = State:/Network/Service/NetBird-utun999-Search-1/DNS\n"
+
+	assert.Equal(t, []string{
+		"State:/Network/Service/NetBird-utun999-Search-1/DNS",
+		"State:/Network/Service/NetBird-utun999-Match-0/DNS",
+		"State:/Network/Service/NetBird-utun999-Match-2/DNS",
+	}, scopedKeysFromList(dnsKeys, testInterfaceName))
+}
+
+func TestScopedKeysFromListIsolation(t *testing.T) {
+	dnsKeys := "  subKey [0] = State:/Network/Service/NetBird-utun999-Search/DNS\n" +
+		"  subKey [1] = State:/Network/Service/NetBird-utun999-Match/DNS\n" +
+		"  subKey [2] = State:/Network/Service/NetBird-utun999-Local/DNS\n" +
+		"  subKey [3] = State:/Network/Service/NetBird-utun999-Match-0/DNS\n" +
+		"  subKey [4] = State:/Network/Service/NetBird-Match/DNS\n" +
+		"  subKey [5] = State:/Network/Service/NetBird-Match-0/DNS\n" +
+		"  subKey [6] = State:/Network/Service/NetBird-utun1-Match-0/DNS\n"
+
+	assert.Equal(t, []string{
+		"State:/Network/Service/NetBird-utun999-Search/DNS",
+		"State:/Network/Service/NetBird-utun999-Match/DNS",
+		"State:/Network/Service/NetBird-utun999-Local/DNS",
+		"State:/Network/Service/NetBird-utun999-Match-0/DNS",
+	}, scopedKeysFromList(dnsKeys, testInterfaceName))
+}
+
+func TestPersistShutdownStatePreservesKeys(t *testing.T) {
+	stateFile := filepath.Join(t.TempDir(), "state.json")
+	stateManager := statemanager.New(stateFile)
+	stateManager.RegisterState(&ShutdownState{})
+	configurator := &systemConfigurator{
+		createdKeys: map[string]struct{}{
+			"k1": {},
+			"k2": {},
+		},
+		interfaceName: testInterfaceName,
+	}
+
+	require.NoError(t, configurator.persistShutdownState(stateManager))
+
+	loadedStateManager := statemanager.New(stateFile)
+	loadedStateManager.RegisterState(&ShutdownState{})
+	require.NoError(t, loadedStateManager.LoadState(&ShutdownState{}))
+	state, ok := loadedStateManager.GetState(&ShutdownState{}).(*ShutdownState)
+	require.True(t, ok)
+	assert.Equal(t, testInterfaceName, state.InterfaceName)
+	assert.ElementsMatch(t, []string{"k1", "k2"}, state.CreatedKeys)
+}
+
+func TestShutdownStateUnmarshalLegacyJSON(t *testing.T) {
+	tests := []struct {
+		name              string
+		json              string
+		expectedIface     string
+		expectedKeys      []string
+		expectedKeysCount int
+	}{
+		{
+			name:              "legacy format (PascalCase, no interface)",
+			json:              `{"CreatedKeys":["State:/Network/Service/NetBird-Match/DNS","State:/Network/Service/NetBird-Search/DNS"]}`,
+			expectedIface:     "",
+			expectedKeys:      []string{"State:/Network/Service/NetBird-Match/DNS", "State:/Network/Service/NetBird-Search/DNS"},
+			expectedKeysCount: 2,
+		},
+		{
+			name:              "intermediate format (snake_case, with interface)",
+			json:              `{"interface_name":"utun0","created_keys":["State:/Network/Service/NetBird-utun0-Match-0/DNS"]}`,
+			expectedIface:     "utun0",
+			expectedKeys:      []string{"State:/Network/Service/NetBird-utun0-Match-0/DNS"},
+			expectedKeysCount: 1,
+		},
+		{
+			name:              "empty legacy state",
+			json:              `{}`,
+			expectedIface:     "",
+			expectedKeysCount: 0,
+		},
+		{
+			name:              "legacy with empty keys",
+			json:              `{"CreatedKeys":[]}`,
+			expectedIface:     "",
+			expectedKeysCount: 0,
+		},
+		{
+			name:              "mixed fields: canonical PascalCase wins when populated",
+			json:              `{"interface_name":"utun0","created_keys":["new-key"],"CreatedKeys":["old-key"]}`,
+			expectedIface:     "utun0",
+			expectedKeys:      []string{"old-key"},
+			expectedKeysCount: 1,
+		},
+		{
+			name:              "mixed fields: canonical wins even when explicitly empty",
+			json:              `{"created_keys":["snake-key"],"CreatedKeys":[]}`,
+			expectedIface:     "",
+			expectedKeys:      []string{},
+			expectedKeysCount: 0,
+		},
+		{
+			name:              "mixed fields: canonical wins even when explicitly null",
+			json:              `{"created_keys":["snake-key"],"CreatedKeys":null}`,
+			expectedIface:     "",
+			expectedKeys:      nil,
+			expectedKeysCount: 0,
+		},
+		{
+			name:              "snake_case fills in only when canonical is absent",
+			json:              `{"created_keys":["old-key"]}`,
+			expectedIface:     "",
+			expectedKeys:      []string{"old-key"},
+			expectedKeysCount: 1,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var state ShutdownState
+			err := json.Unmarshal([]byte(tc.json), &state)
 			require.NoError(t, err)
-			initialServers := configurator.getOriginalNameservers()
-			t.Logf("Initial servers: %v", initialServers)
-			require.NotEmpty(t, initialServers)
 
-			for _, srv := range initialServers {
-				require.NotEqual(t, netbirdIP, srv, "initial servers should not contain NetBird IP")
-			}
-
-			config := HostDNSConfig{
-				ServerIP:   netbirdIP,
-				ServerPort: 53,
-				RouteAll:   tc.routeAll,
-				Domains:    []DomainConfig{{Domain: "example.com", MatchOnly: true}},
-			}
-
-			for i := 1; i <= 2; i++ {
-				err = configurator.applyDNSConfig(config, sm)
-				require.NoError(t, err)
-
-				servers := configurator.getOriginalNameservers()
-				t.Logf("After apply %d (RouteAll=%v): %v", i, tc.routeAll, servers)
-				assert.Equal(t, initialServers, servers)
+			assert.Equal(t, tc.expectedIface, state.InterfaceName)
+			assert.Len(t, state.CreatedKeys, tc.expectedKeysCount)
+			if tc.expectedKeys != nil {
+				assert.Equal(t, tc.expectedKeys, state.CreatedKeys)
 			}
 		})
 	}
 }
 
-func TestOriginalNameserversRouteAllTransition(t *testing.T) {
-	netbirdIP := netip.MustParseAddr("100.64.0.1")
+func TestShutdownStateMarshalDowngradeCompat(t *testing.T) {
+	state := &ShutdownState{
+		InterfaceName: "utun0",
+		CreatedKeys:   []string{"key1", "key2"},
+	}
+	data, err := json.Marshal(state)
+	require.NoError(t, err)
 
-	testCases := []struct {
-		name         string
-		initialRoute bool
+	var legacy struct {
+		CreatedKeys []string
+	}
+	require.NoError(t, json.Unmarshal(data, &legacy))
+	assert.Equal(t, state.CreatedKeys, legacy.CreatedKeys)
+}
+
+func TestShutdownStateUnmarshalIntermediateSnakeCase(t *testing.T) {
+	data := []byte(`{"created_keys":["key1"],"interface_name":"utun0"}`)
+	var state ShutdownState
+	require.NoError(t, json.Unmarshal(data, &state))
+	assert.Equal(t, "utun0", state.InterfaceName)
+	assert.Equal(t, []string{"key1"}, state.CreatedKeys)
+}
+
+func TestPersistenceRoundTrip(t *testing.T) {
+	state := &ShutdownState{
+		InterfaceName: "utun0",
+		CreatedKeys:   []string{"key1", "key2", "key3"},
+	}
+	data, err := json.Marshal(state)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), `"CreatedKeys"`, "marshaled JSON must use the canonical PascalCase field name")
+
+	var got ShutdownState
+	require.NoError(t, json.Unmarshal(data, &got))
+	assert.Equal(t, state.InterfaceName, got.InterfaceName)
+	assert.Equal(t, state.CreatedKeys, got.CreatedKeys)
+}
+
+func TestShutdownStateUnmarshalMalformed(t *testing.T) {
+	tests := []struct {
+		name string
+		json string
 	}{
-		{"start_with_routeall_false", false},
-		{"start_with_routeall_true", true},
+		{"invalid syntax", `{"CreatedKeys":`},
+		{"wrong type for CreatedKeys", `{"CreatedKeys":"not-an-array"}`},
+		{"wrong type for interface_name", `{"interface_name":123}`},
 	}
 
-	for _, tc := range testCases {
+	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			configurator, sm, cleanup := setupTestConfigurator(t)
-			defer cleanup()
+			var state ShutdownState
+			err := json.Unmarshal([]byte(tc.json), &state)
+			assert.Error(t, err)
+		})
+	}
+}
 
-			_, err := configurator.getSystemDNSSettings()
-			require.NoError(t, err)
-			initialServers := configurator.getOriginalNameservers()
-			t.Logf("Initial servers: %v", initialServers)
-			require.NotEmpty(t, initialServers)
+func TestIsScutilFailure(t *testing.T) {
+	tests := []struct {
+		name   string
+		stdout string
+		stderr string
+		want   bool
+	}{
+		{name: "permission denied despite exit 0", stdout: "Permission denied\n", want: true},
+		{name: "permission denied on stderr", stderr: "Permission denied\n", want: true},
+		{name: "permission denied with period", stdout: "Permission denied.\n", want: true},
+		{name: "permission denied, different case", stdout: "permission DENIED\n", want: true},
+		{name: "permission denied with surrounding whitespace", stdout: "  Permission denied  \n", want: true},
+		{name: "could not open configuration daemon", stderr: "Could not open configuration daemon socket\n", want: true},
+		{name: "operation not permitted", stdout: "Operation not permitted\n", want: true},
+		{name: "no such key is not a failure", stdout: "No such key\n", want: false},
+		{name: "empty output is not a failure", want: false},
+		{name: "normal show output is not a failure", stdout: "<dictionary> {\n  ServerAddresses : <array> {\n    0 : 100.64.0.1\n  }\n}\n", want: false},
+		{name: "normal list output is not a failure", stdout: "  subKey [0] = State:/Network/Service/NetBird-utun0-Match/DNS\n", want: false},
+		{name: "domain containing 'permission' is not a failure", stdout: "SupplementalMatchDomains : <array> {\n  0 : permission-test.example.com\n}\n", want: false},
+		{name: "domain containing 'denied' is not a failure", stdout: "SupplementalMatchDomains : <array> {\n  0 : access-denied.example.com\n}\n", want: false},
+		{name: "key name containing 'permission' is not a failure", stdout: "  subKey [0] = State:/Network/Service/NetBird-permission-test/DNS\n", want: false},
+		{name: "sentence mentioning permission without matching the exact line is not a failure", stdout: "User lacks permission to view this, but the command still ran.\n", want: false},
+	}
 
-			config := HostDNSConfig{
-				ServerIP:   netbirdIP,
-				ServerPort: 53,
-				RouteAll:   tc.initialRoute,
-				Domains:    []DomainConfig{{Domain: "example.com", MatchOnly: true}},
-			}
-
-			// First apply
-			err = configurator.applyDNSConfig(config, sm)
-			require.NoError(t, err)
-			servers := configurator.getOriginalNameservers()
-			t.Logf("After first apply (RouteAll=%v): %v", tc.initialRoute, servers)
-			assert.Equal(t, initialServers, servers)
-
-			// Toggle RouteAll
-			config.RouteAll = !tc.initialRoute
-			err = configurator.applyDNSConfig(config, sm)
-			require.NoError(t, err)
-			servers = configurator.getOriginalNameservers()
-			t.Logf("After toggle (RouteAll=%v): %v", config.RouteAll, servers)
-			assert.Equal(t, initialServers, servers)
-
-			// Toggle back
-			config.RouteAll = tc.initialRoute
-			err = configurator.applyDNSConfig(config, sm)
-			require.NoError(t, err)
-			servers = configurator.getOriginalNameservers()
-			t.Logf("After toggle back (RouteAll=%v): %v", config.RouteAll, servers)
-			assert.Equal(t, initialServers, servers)
-
-			for _, srv := range servers {
-				assert.NotEqual(t, netbirdIP, srv, "servers should not contain NetBird IP")
-			}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, isScutilFailure([]byte(tc.stdout), []byte(tc.stderr)))
 		})
 	}
 }
