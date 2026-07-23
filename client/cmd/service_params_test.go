@@ -244,10 +244,26 @@ func TestApplyServiceParams_OnlyUnchangedFlags(t *testing.T) {
 
 func TestApplyServiceParams_ExplicitServiceName(t *testing.T) {
 	originalServiceName := serviceName
+	originalEnableJSONSocket := enableJSONSocket
+	originalManagementURL := managementURL
+	originalConfigPath := configPath
+	originalLogFiles := logFiles
+	originalProfilesDisabled := profilesDisabled
+	originalUpdateSettingsDisabled := updateSettingsDisabled
+	originalCaptureEnabled := captureEnabled
+	originalNetworksDisabled := networksDisabled
 	serviceFlag := rootCmd.PersistentFlags().Lookup("service")
 	originalFlagChanged := serviceFlag.Changed
 	t.Cleanup(func() {
 		serviceName = originalServiceName
+		enableJSONSocket = originalEnableJSONSocket
+		managementURL = originalManagementURL
+		configPath = originalConfigPath
+		logFiles = originalLogFiles
+		profilesDisabled = originalProfilesDisabled
+		updateSettingsDisabled = originalUpdateSettingsDisabled
+		captureEnabled = originalCaptureEnabled
+		networksDisabled = originalNetworksDisabled
 		serviceFlag.Changed = originalFlagChanged
 	})
 
