@@ -666,7 +666,7 @@ func Test_ExpandPortsAndRanges_SSHRuleExpansion(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := ExpandPortsAndRanges(tt.base, tt.rule, tt.peer)
+			result := ExpandPortsAndRanges(tt.base, tt.rule, tt.peer.ToComponent())
 
 			var ports []string
 			for _, fr := range result {

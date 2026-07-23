@@ -8,13 +8,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
 func TestSplitPeerSourcesByFamily(t *testing.T) {
-	peers := []*nbpeer.Peer{
+	peers := []*ComponentPeer{
 		{
 			IP:   netip.MustParseAddr("100.64.0.1"),
 			IPv6: netip.MustParseAddr("fd00::1"),
@@ -36,7 +35,7 @@ func TestSplitPeerSourcesByFamily(t *testing.T) {
 }
 
 func TestGenerateRouteFirewallRules_V4Route(t *testing.T) {
-	peers := []*nbpeer.Peer{
+	peers := []*ComponentPeer{
 		{
 			IP:   netip.MustParseAddr("100.64.0.1"),
 			IPv6: netip.MustParseAddr("fd00::1"),
@@ -65,7 +64,7 @@ func TestGenerateRouteFirewallRules_V4Route(t *testing.T) {
 }
 
 func TestGenerateRouteFirewallRules_V6Route(t *testing.T) {
-	peers := []*nbpeer.Peer{
+	peers := []*ComponentPeer{
 		{
 			IP:   netip.MustParseAddr("100.64.0.1"),
 			IPv6: netip.MustParseAddr("fd00::1"),
@@ -93,7 +92,7 @@ func TestGenerateRouteFirewallRules_V6Route(t *testing.T) {
 }
 
 func TestGenerateRouteFirewallRules_DynamicRoute_DualStack(t *testing.T) {
-	peers := []*nbpeer.Peer{
+	peers := []*ComponentPeer{
 		{
 			IP:   netip.MustParseAddr("100.64.0.1"),
 			IPv6: netip.MustParseAddr("fd00::1"),
@@ -126,7 +125,7 @@ func TestGenerateRouteFirewallRules_DynamicRoute_DualStack(t *testing.T) {
 }
 
 func TestGenerateRouteFirewallRules_DynamicRoute_NoV6Peers(t *testing.T) {
-	peers := []*nbpeer.Peer{
+	peers := []*ComponentPeer{
 		{IP: netip.MustParseAddr("100.64.0.1")},
 		{IP: netip.MustParseAddr("100.64.0.2")},
 	}
@@ -150,7 +149,7 @@ func TestGenerateRouteFirewallRules_DynamicRoute_NoV6Peers(t *testing.T) {
 }
 
 func TestGenerateRouteFirewallRules_IncludeIPv6False(t *testing.T) {
-	peers := []*nbpeer.Peer{
+	peers := []*ComponentPeer{
 		{
 			IP:   netip.MustParseAddr("100.64.0.1"),
 			IPv6: netip.MustParseAddr("fd00::1"),
