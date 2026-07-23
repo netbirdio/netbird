@@ -205,6 +205,7 @@ func TestStopStartWhilePreviousReconnectDialInFlight(t *testing.T) {
 	current := newMockListener()
 	dialStarted := make(chan struct{})
 	dialProceed := make(chan struct{})
+	unexpectedDial := make(chan struct{}, 1)
 	callCount := atomic.Int32{}
 
 	ct := New(nil, nil, WithDialer(func() (listener, error) {
@@ -218,7 +219,7 @@ func TestStopStartWhilePreviousReconnectDialInFlight(t *testing.T) {
 		case 3:
 			return current, nil
 		default:
-			t.Fatal("unexpected conntrack dial")
+			unexpectedDial <- struct{}{}
 			return nil, assert.AnError
 		}
 	}))
@@ -252,6 +253,11 @@ func TestStopStartWhilePreviousReconnectDialInFlight(t *testing.T) {
 	assert.Same(t, current, ct.run.conn)
 	ct.mux.Unlock()
 	assert.False(t, current.closed.Load(), "current run connection should remain open")
+	select {
+	case <-unexpectedDial:
+		t.Error("unexpected conntrack dial")
+	default:
+	}
 
 	ct.Stop()
 	assert.True(t, current.closed.Load(), "current run connection should close on Stop")
