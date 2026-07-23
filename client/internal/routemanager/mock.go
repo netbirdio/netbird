@@ -112,6 +112,11 @@ func (m *MockManager) SetFirewall(firewall.Manager) error {
 func (m *MockManager) SetDNSForwarderPort(port uint16) {
 }
 
+// ReconcilePeerAllowedIPs mock implementation of ReconcilePeerAllowedIPs from Manager interface
+func (m *MockManager) ReconcilePeerAllowedIPs(peerKey string) error {
+	return nil
+}
+
 // Stop mock implementation of Stop from Manager interface
 func (m *MockManager) Stop(stateManager *statemanager.Manager) {
 	if m.StopFunc != nil {
