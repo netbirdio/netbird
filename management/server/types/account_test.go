@@ -1751,3 +1751,61 @@ func hasPrivateAccessPolicy(account *Account, serviceID string) bool {
 	}
 	return false
 }
+
+func TestForcesRoutingPeerDNSResolution(t *testing.T) {
+	buildAccount := func(serviceEnabled, targetEnabled, resourceEnabled bool, targetType service.TargetType) *Account {
+		return &Account{
+			Id: "accountID",
+			Groups: map[string]*Group{
+				"router-group": {ID: "router-group", Peers: []string{"router-peer-grp"}},
+			},
+			NetworkRouters: []*routerTypes.NetworkRouter{
+				{ID: "r1", NetworkID: "net-1", AccountID: "accountID", Peer: "router-peer", Enabled: true},
+				{ID: "r2", NetworkID: "net-1", AccountID: "accountID", PeerGroups: []string{"router-group"}, Enabled: true},
+			},
+			NetworkResources: []*resourceTypes.NetworkResource{
+				{ID: "res-domain", AccountID: "accountID", NetworkID: "net-1", Type: resourceTypes.Domain, Domain: "ipinfo.io", Enabled: resourceEnabled},
+			},
+			Services: []*service.Service{
+				{
+					ID: "svc-1", AccountID: "accountID", Enabled: serviceEnabled,
+					Targets: []*service.Target{
+						{TargetId: "res-domain", TargetType: targetType, Enabled: targetEnabled},
+					},
+				},
+			},
+		}
+	}
+
+	t.Run("router peer for RP-targeted domain resource is forced", func(t *testing.T) {
+		account := buildAccount(true, true, true, service.TargetTypeDomain)
+		routers := account.GetResourceRoutersMap()
+		assert.True(t, account.forcesRoutingPeerDNSResolution("router-peer", routers), "direct router peer should be forced")
+		assert.True(t, account.forcesRoutingPeerDNSResolution("router-peer-grp", routers), "group-member router peer should be forced")
+	})
+
+	t.Run("non-router peer is not forced", func(t *testing.T) {
+		account := buildAccount(true, true, true, service.TargetTypeDomain)
+		assert.False(t, account.forcesRoutingPeerDNSResolution("other-peer", account.GetResourceRoutersMap()))
+	})
+
+	t.Run("not forced when service disabled", func(t *testing.T) {
+		account := buildAccount(false, true, true, service.TargetTypeDomain)
+		assert.False(t, account.forcesRoutingPeerDNSResolution("router-peer", account.GetResourceRoutersMap()))
+	})
+
+	t.Run("not forced when target disabled", func(t *testing.T) {
+		account := buildAccount(true, false, true, service.TargetTypeDomain)
+		assert.False(t, account.forcesRoutingPeerDNSResolution("router-peer", account.GetResourceRoutersMap()))
+	})
+
+	t.Run("not forced when resource disabled", func(t *testing.T) {
+		account := buildAccount(true, true, false, service.TargetTypeDomain)
+		assert.False(t, account.forcesRoutingPeerDNSResolution("router-peer", account.GetResourceRoutersMap()))
+	})
+
+	t.Run("not forced for non-domain target type", func(t *testing.T) {
+		account := buildAccount(true, true, true, service.TargetTypePeer)
+		assert.False(t, account.forcesRoutingPeerDNSResolution("router-peer", account.GetResourceRoutersMap()))
+	})
+}

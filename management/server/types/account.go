@@ -1517,6 +1517,54 @@ func (a *Account) GetResourceRoutersMap() map[string]map[string]*routerTypes.Net
 	return routers
 }
 
+// forcesRoutingPeerDNSResolution reports whether the given peer must run
+// routing-peer DNS resolution regardless of the account-global
+// RoutingPeerDNSResolutionEnabled setting. It returns true when the peer is a
+// router for a domain network resource that is targeted by an enabled
+// reverse-proxy service, so the peer's DNS forwarder starts and can resolve
+// the target for the embedded proxy peers. Embedded proxy peers themselves are
+// handled at PeerConfig build time.
+func (a *Account) forcesRoutingPeerDNSResolution(peerID string, routers map[string]map[string]*routerTypes.NetworkRouter) bool {
+	targeted := a.proxyTargetedDomainResourceIDs()
+	if len(targeted) == 0 {
+		return false
+	}
+
+	for _, resource := range a.NetworkResources {
+		if resource == nil || !resource.Enabled {
+			continue
+		}
+		if _, ok := targeted[resource.ID]; !ok {
+			continue
+		}
+		if _, isRouter := routers[resource.NetworkID][peerID]; isRouter {
+			return true
+		}
+	}
+
+	return false
+}
+
+// proxyTargetedDomainResourceIDs returns the set of domain network resource IDs
+// targeted by an enabled, non-terminated reverse-proxy service.
+func (a *Account) proxyTargetedDomainResourceIDs() map[string]struct{} {
+	ids := make(map[string]struct{})
+	for _, svc := range a.Services {
+		if svc == nil || !svc.Enabled || svc.Terminated {
+			continue
+		}
+		for _, target := range svc.Targets {
+			if target == nil || !target.Enabled {
+				continue
+			}
+			if target.TargetType == service.TargetTypeDomain {
+				ids[target.TargetId] = struct{}{}
+			}
+		}
+	}
+	return ids
+}
+
 // getPoliciesSourcePeers collects all unique peers from the source groups defined in the given policies.
 func getPoliciesSourcePeers(policies []*Policy, groups map[string]*Group) map[string]struct{} {
 	sourcePeers := make(map[string]struct{})
