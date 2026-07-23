@@ -82,7 +82,7 @@ require (
 	github.com/moby/moby/api v1.54.1
 	github.com/netbirdio/management-integrations/integrations v0.0.0-20260416123949-2355d972be42
 	github.com/netbirdio/signal-dispatcher/dispatcher v0.0.0-20250805121659-6b4ac470ca45
-	github.com/oapi-codegen/runtime v1.1.2
+	github.com/oapi-codegen/runtime v1.4.2
 	github.com/okta/okta-sdk-golang/v2 v2.18.0
 	github.com/ory/dockertest/v4 v4.0.0
 	github.com/oschwald/maxminddb-golang v1.12.0
