@@ -94,21 +94,24 @@ func (rm *Counter[Key, I, O]) Get(key Key) (Ref[O], bool) {
 	return ref, ok
 }
 
-// KeysMatching returns every key whose stored Out satisfies the predicate. The predicate is
-// evaluated under the counter's lock, so keep it cheap and side-effect free. It is used to
-// enumerate the keys (e.g. allowed-IP prefixes) associated with a given Out value (e.g. a peer
-// key) without exposing the internal map.
-func (rm *Counter[Key, I, O]) KeysMatching(pred func(out O) bool) []Key {
+// ReapplyMatching calls apply for every key whose stored Out satisfies pred, holding the
+// counter lock for the whole pass. Running apply under the lock keeps it atomic with respect
+// to Increment/Decrement: a prefix dropped to zero is removed from the map (and had its
+// RemoveFunc called) before this pass observes it, so a stale key can never be re-applied.
+// pred and apply are invoked under the lock, so they must not call back into the counter.
+func (rm *Counter[Key, I, O]) ReapplyMatching(pred func(out O) bool, apply func(key Key) error) error {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
 
-	var keys []Key
+	var merr *multierror.Error
 	for key, ref := range rm.refCountMap {
 		if pred(ref.Out) {
-			keys = append(keys, key)
+			if err := apply(key); err != nil {
+				merr = multierror.Append(merr, err)
+			}
 		}
 	}
-	return keys
+	return nberrors.FormatErrorOrNil(merr)
 }
 
 // Increment increments the reference count for the given key.

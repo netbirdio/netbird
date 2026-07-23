@@ -246,17 +246,15 @@ func (m *DefaultManager) ReconcilePeerAllowedIPs(peerKey string) error {
 		return nil
 	}
 
-	prefixes := m.allowedIPsRefCounter.KeysMatching(func(out string) bool {
-		return out == peerKey
-	})
-
-	var merr *multierror.Error
-	for _, prefix := range prefixes {
-		if err := m.wgInterface.AddAllowedIP(peerKey, prefix); err != nil {
-			merr = multierror.Append(merr, fmt.Errorf("add allowed IP %s for peer %s: %w", prefix, peerKey, err))
-		}
-	}
-	return nberrors.FormatErrorOrNil(merr)
+	return m.allowedIPsRefCounter.ReapplyMatching(
+		func(out string) bool { return out == peerKey },
+		func(prefix netip.Prefix) error {
+			if err := m.wgInterface.AddAllowedIP(peerKey, prefix); err != nil {
+				return fmt.Errorf("add allowed IP %s for peer %s: %w", prefix, peerKey, err)
+			}
+			return nil
+		},
+	)
 }
 
 // Init sets up the routing
