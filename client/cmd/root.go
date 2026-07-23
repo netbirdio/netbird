@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"os"
 	"os/signal"
 	"path"
@@ -143,10 +144,12 @@ func init() {
 
 	defaultDaemonAddr := "unix:///var/run/netbird.sock"
 	if runtime.GOOS == "windows" {
-		defaultDaemonAddr = "tcp://127.0.0.1:41731"
+		// Named pipe (not loopback TCP): the pipe client token carries the
+		// caller's SID so the daemon can authorize each RPC by caller identity.
+		defaultDaemonAddr = "npipe://netbird"
 	}
 
-	rootCmd.PersistentFlags().StringVar(&daemonAddr, "daemon-addr", defaultDaemonAddr, "Daemon service address to serve CLI requests [unix|tcp]://[path|host:port]")
+	rootCmd.PersistentFlags().StringVar(&daemonAddr, "daemon-addr", defaultDaemonAddr, "Daemon service address to serve CLI requests [unix|tcp|npipe]://[path|host:port|name]")
 	rootCmd.PersistentFlags().StringVarP(&managementURL, "management-url", "m", "", fmt.Sprintf("Management Service URL [http|https]://[host]:[port] (default \"%s\")", profilemanager.DefaultManagementURL))
 	rootCmd.PersistentFlags().StringVar(&adminURL, "admin-url", "", fmt.Sprintf("Admin Panel URL [http|https]://[host]:[port] (default \"%s\")", profilemanager.DefaultAdminURL))
 	rootCmd.PersistentFlags().StringVarP(&logLevel, "log-level", "l", "info", "sets NetBird log level")
@@ -171,6 +174,9 @@ func init() {
 	rootCmd.AddCommand(debugCmd)
 	rootCmd.AddCommand(profileCmd)
 	rootCmd.AddCommand(exposeCmd)
+
+	rootCmd.AddCommand(ownerCmd)
+	ownerCmd.AddCommand(ownerAddCmd, ownerResetCmd, ownerShareCmd, ownerUnshareCmd)
 
 	networksCMD.AddCommand(routesListCmd)
 	networksCMD.AddCommand(routesSelectCmd, routesDeselectCmd)
@@ -265,16 +271,28 @@ func FlagNameToEnvVar(cmdFlag string, prefix string) string {
 }
 
 // DialClientGRPCServer returns client connection to the daemon server.
-func DialClientGRPCServer(ctx context.Context, addr string) (*grpc.ClientConn, error) {
+func DialClientGRPCServer(ctx context.Context, addr string, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Second*10)
 	defer cancel()
 
-	return grpc.DialContext(
-		ctx,
-		strings.TrimPrefix(addr, "tcp://"),
+	opts = append([]grpc.DialOption{
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock(),
-	)
+		grpc.WithBlock()}, opts...)
+
+	// The daemon reads the caller's kernel identity from the transport
+	// (SO_PEERCRED on a Unix socket, the client token on a Windows named pipe),
+	// so the client stays insecure. For npipe we install a context dialer since
+	// gRPC's resolver does not understand Windows named pipes.
+	target := strings.TrimPrefix(addr, "tcp://")
+	if strings.HasPrefix(addr, "npipe://") {
+		path := pipePath(strings.TrimPrefix(addr, "npipe://"))
+		opts = append(opts, grpc.WithContextDialer(func(dialCtx context.Context, _ string) (net.Conn, error) {
+			return dialNamedPipe(dialCtx, path)
+		}))
+		target = "passthrough:///netbird-daemon-pipe"
+	}
+
+	return grpc.DialContext(ctx, target, opts...)
 }
 
 // WithBackOff execute function in backoff cycle.

@@ -23,6 +23,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/expose"
+	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	sleephandler "github.com/netbirdio/netbird/client/internal/sleep/handler"
 	"github.com/netbirdio/netbird/client/mdm"
@@ -402,6 +403,12 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 		}
 	}
 
+	// M-SSHGATE: turning on SSH root login / disabling SSH auth requires a
+	// privileged caller (root or elevated admin).
+	if err := requirePrivilegedForDangerousSSH(callerCtx, msg.EnableSSHRoot, msg.DisableSSHAuth); err != nil {
+		return nil, err
+	}
+
 	// MDM gate: refuse the whole request if any of its fields is enforced
 	// by the active MDM policy. The error carries an MDMManagedFields-
 	// Violation detail listing the offending key names. Non-conflicting
@@ -535,6 +542,12 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		if err := rejectMDMManagedFieldConflicts(loginRequestMDMConflicts(msg, policy)); err != nil {
 			return nil, err
 		}
+	}
+
+	// M-SSHGATE: turning on SSH root login / disabling SSH auth requires a
+	// privileged caller (root or elevated admin).
+	if err := requirePrivilegedForDangerousSSH(callerCtx, msg.EnableSSHRoot, msg.DisableSSHAuth); err != nil {
+		return nil, err
 	}
 
 	s.mutex.Lock()
@@ -943,6 +956,17 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	}
 	s.config = config
 
+	// --owner: explicitly claim ownership of the active profile for the caller.
+	if msg != nil && msg.GetClaimOwner() {
+		if id, ok := ipcauth.IdentityFromContext(callerCtx); ok {
+			if err := s.claimForCallerLocked(id, s.config); err != nil {
+				s.mutex.Unlock()
+				log.Errorf("failed to claim profile ownership: %v", err)
+				return nil, fmt.Errorf("claim owner: %w", err)
+			}
+		}
+	}
+
 	s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)
 
@@ -1048,6 +1072,16 @@ func (s *Server) SwitchProfile(callerCtx context.Context, msg *proto.SwitchProfi
 	}
 
 	if msg != nil && msg.ProfileName != nil {
+		targetUsername := ""
+		if msg.Username != nil {
+			targetUsername = *msg.Username
+		}
+		// The interceptor already gated this against the CURRENT active profile;
+		// also bind the TARGET profile's username so a caller can't switch into
+		// another user's profile.
+		if err := s.bindCallerUsername(callerCtx, targetUsername); err != nil {
+			return nil, err
+		}
 		if _, err := s.switchProfileIfNeeded(*msg.ProfileName, msg.Username, activeProf); err != nil {
 			log.Errorf("failed to switch profile: %v", err)
 			return nil, err
@@ -2005,7 +2039,18 @@ func (s *Server) AddProfile(ctx context.Context, msg *proto.AddProfileRequest) (
 		return nil, gstatus.Errorf(codes.InvalidArgument, "profile name and username must be provided")
 	}
 
-	created, err := s.profileManager.AddProfile(msg.ProfileName, msg.Username)
+	if err := s.bindCallerUsername(ctx, msg.Username); err != nil {
+		return nil, err
+	}
+
+	// Auto-isolate the new profile to its creator. When root/admin creates it we
+	// leave it unowned so the intended user claims it via trust-on-first-use.
+	var initialOwners []string
+	if id, ok := ipcauth.IdentityFromContext(ctx); ok && !id.IsPrivileged() {
+		initialOwners = []string{ipcauth.OwnerPrincipalForIdentity(id)}
+	}
+
+	created, err := s.profileManager.AddProfile(msg.ProfileName, msg.Username, initialOwners)
 	if err != nil {
 		log.Errorf("failed to create profile: %v", err)
 		return nil, fmt.Errorf("failed to create profile: %w", err)
@@ -2026,6 +2071,10 @@ func (s *Server) RenameProfile(ctx context.Context, msg *proto.RenameProfileRequ
 
 	if msg.Handle == "" || msg.Username == "" || msg.NewProfileName == "" {
 		return nil, gstatus.Errorf(codes.InvalidArgument, "profile name, username and new profile name must be provided")
+	}
+
+	if err := s.bindCallerUsername(ctx, msg.Username); err != nil {
+		return nil, err
 	}
 
 	resolved, err := s.resolveProfileHandle(msg.Handle, msg.Username)
@@ -2055,6 +2104,10 @@ func (s *Server) RemoveProfile(ctx context.Context, msg *proto.RemoveProfileRequ
 
 	if msg.ProfileName == "" {
 		return nil, gstatus.Errorf(codes.InvalidArgument, "profile name must be provided")
+	}
+
+	if err := s.bindCallerUsername(ctx, msg.Username); err != nil {
+		return nil, err
 	}
 
 	resolved, err := s.resolveProfileHandle(msg.ProfileName, msg.Username)
@@ -2123,6 +2176,10 @@ func (s *Server) ListProfiles(ctx context.Context, msg *proto.ListProfilesReques
 
 	if msg.Username == "" {
 		return nil, gstatus.Errorf(codes.InvalidArgument, "username must be provided")
+	}
+
+	if err := s.bindCallerUsername(ctx, msg.Username); err != nil {
+		return nil, err
 	}
 
 	profiles, err := s.profileManager.ListProfiles(msg.Username)

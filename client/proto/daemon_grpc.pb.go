@@ -51,6 +51,9 @@ const (
 	DaemonService_RemoveProfile_FullMethodName              = "/daemon.DaemonService/RemoveProfile"
 	DaemonService_ListProfiles_FullMethodName               = "/daemon.DaemonService/ListProfiles"
 	DaemonService_GetActiveProfile_FullMethodName           = "/daemon.DaemonService/GetActiveProfile"
+	DaemonService_AddOwner_FullMethodName                   = "/daemon.DaemonService/AddOwner"
+	DaemonService_ResetOwner_FullMethodName                 = "/daemon.DaemonService/ResetOwner"
+	DaemonService_ShareProfile_FullMethodName               = "/daemon.DaemonService/ShareProfile"
 	DaemonService_Logout_FullMethodName                     = "/daemon.DaemonService/Logout"
 	DaemonService_GetFeatures_FullMethodName                = "/daemon.DaemonService/GetFeatures"
 	DaemonService_TriggerUpdate_FullMethodName              = "/daemon.DaemonService/TriggerUpdate"
@@ -132,6 +135,15 @@ type DaemonServiceClient interface {
 	RemoveProfile(ctx context.Context, in *RemoveProfileRequest, opts ...grpc.CallOption) (*RemoveProfileResponse, error)
 	ListProfiles(ctx context.Context, in *ListProfilesRequest, opts ...grpc.CallOption) (*ListProfilesResponse, error)
 	GetActiveProfile(ctx context.Context, in *GetActiveProfileRequest, opts ...grpc.CallOption) (*GetActiveProfileResponse, error)
+	// AddOwner adds a principal to the active profile's owner list. Requires the
+	// caller to be privileged (root/administrator) or an existing owner.
+	AddOwner(ctx context.Context, in *AddOwnerRequest, opts ...grpc.CallOption) (*AddOwnerResponse, error)
+	// ResetOwner clears the active profile's owner list, returning it to the
+	// unowned state (next caller re-claims via trust-on-first-use). Privileged only.
+	ResetOwner(ctx context.Context, in *ResetOwnerRequest, opts ...grpc.CallOption) (*ResetOwnerResponse, error)
+	// ShareProfile marks the active profile shared (any local caller) or unshared.
+	// Requires the caller to be an owner or privileged.
+	ShareProfile(ctx context.Context, in *ShareProfileRequest, opts ...grpc.CallOption) (*ShareProfileResponse, error)
 	// Logout disconnects from the network and deletes the peer from the management server
 	Logout(ctx context.Context, in *LogoutRequest, opts ...grpc.CallOption) (*LogoutResponse, error)
 	GetFeatures(ctx context.Context, in *GetFeaturesRequest, opts ...grpc.CallOption) (*GetFeaturesResponse, error)
@@ -528,6 +540,36 @@ func (c *daemonServiceClient) GetActiveProfile(ctx context.Context, in *GetActiv
 	return out, nil
 }
 
+func (c *daemonServiceClient) AddOwner(ctx context.Context, in *AddOwnerRequest, opts ...grpc.CallOption) (*AddOwnerResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AddOwnerResponse)
+	err := c.cc.Invoke(ctx, DaemonService_AddOwner_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *daemonServiceClient) ResetOwner(ctx context.Context, in *ResetOwnerRequest, opts ...grpc.CallOption) (*ResetOwnerResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ResetOwnerResponse)
+	err := c.cc.Invoke(ctx, DaemonService_ResetOwner_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *daemonServiceClient) ShareProfile(ctx context.Context, in *ShareProfileRequest, opts ...grpc.CallOption) (*ShareProfileResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ShareProfileResponse)
+	err := c.cc.Invoke(ctx, DaemonService_ShareProfile_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *daemonServiceClient) Logout(ctx context.Context, in *LogoutRequest, opts ...grpc.CallOption) (*LogoutResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(LogoutResponse)
@@ -742,6 +784,15 @@ type DaemonServiceServer interface {
 	RemoveProfile(context.Context, *RemoveProfileRequest) (*RemoveProfileResponse, error)
 	ListProfiles(context.Context, *ListProfilesRequest) (*ListProfilesResponse, error)
 	GetActiveProfile(context.Context, *GetActiveProfileRequest) (*GetActiveProfileResponse, error)
+	// AddOwner adds a principal to the active profile's owner list. Requires the
+	// caller to be privileged (root/administrator) or an existing owner.
+	AddOwner(context.Context, *AddOwnerRequest) (*AddOwnerResponse, error)
+	// ResetOwner clears the active profile's owner list, returning it to the
+	// unowned state (next caller re-claims via trust-on-first-use). Privileged only.
+	ResetOwner(context.Context, *ResetOwnerRequest) (*ResetOwnerResponse, error)
+	// ShareProfile marks the active profile shared (any local caller) or unshared.
+	// Requires the caller to be an owner or privileged.
+	ShareProfile(context.Context, *ShareProfileRequest) (*ShareProfileResponse, error)
 	// Logout disconnects from the network and deletes the peer from the management server
 	Logout(context.Context, *LogoutRequest) (*LogoutResponse, error)
 	GetFeatures(context.Context, *GetFeaturesRequest) (*GetFeaturesResponse, error)
@@ -886,6 +937,15 @@ func (UnimplementedDaemonServiceServer) ListProfiles(context.Context, *ListProfi
 }
 func (UnimplementedDaemonServiceServer) GetActiveProfile(context.Context, *GetActiveProfileRequest) (*GetActiveProfileResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetActiveProfile not implemented")
+}
+func (UnimplementedDaemonServiceServer) AddOwner(context.Context, *AddOwnerRequest) (*AddOwnerResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method AddOwner not implemented")
+}
+func (UnimplementedDaemonServiceServer) ResetOwner(context.Context, *ResetOwnerRequest) (*ResetOwnerResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ResetOwner not implemented")
+}
+func (UnimplementedDaemonServiceServer) ShareProfile(context.Context, *ShareProfileRequest) (*ShareProfileResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ShareProfile not implemented")
 }
 func (UnimplementedDaemonServiceServer) Logout(context.Context, *LogoutRequest) (*LogoutResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Logout not implemented")
@@ -1505,6 +1565,60 @@ func _DaemonService_GetActiveProfile_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DaemonService_AddOwner_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AddOwnerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).AddOwner(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DaemonService_AddOwner_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).AddOwner(ctx, req.(*AddOwnerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DaemonService_ResetOwner_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResetOwnerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).ResetOwner(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DaemonService_ResetOwner_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).ResetOwner(ctx, req.(*ResetOwnerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DaemonService_ShareProfile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ShareProfileRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).ShareProfile(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DaemonService_ShareProfile_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).ShareProfile(ctx, req.(*ShareProfileRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _DaemonService_Logout_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(LogoutRequest)
 	if err := dec(in); err != nil {
@@ -1872,6 +1986,18 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetActiveProfile",
 			Handler:    _DaemonService_GetActiveProfile_Handler,
+		},
+		{
+			MethodName: "AddOwner",
+			Handler:    _DaemonService_AddOwner_Handler,
+		},
+		{
+			MethodName: "ResetOwner",
+			Handler:    _DaemonService_ResetOwner_Handler,
+		},
+		{
+			MethodName: "ShareProfile",
+			Handler:    _DaemonService_ShareProfile_Handler,
 		},
 		{
 			MethodName: "Logout",

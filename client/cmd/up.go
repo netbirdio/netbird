@@ -56,6 +56,7 @@ var (
 	showQR             bool
 	profileName        string
 	configPath         string
+	claimOwner         bool
 
 	upCmd = &cobra.Command{
 		Use:   "up",
@@ -67,6 +68,7 @@ var (
 
 func init() {
 	upCmd.PersistentFlags().BoolVarP(&foregroundMode, "foreground-mode", "F", false, "start service in foreground")
+	upCmd.PersistentFlags().BoolVar(&claimOwner, "owner", false, "claim ownership of this profile for the current user, restricting daemon control of it to you and root/administrator")
 	upCmd.PersistentFlags().StringVar(&interfaceName, interfaceNameFlag, iface.WgInterfaceDefault, "WireGuard interface name")
 	upCmd.PersistentFlags().Uint16Var(&wireguardPort, wireguardPortFlag, iface.DefaultWgPort, "WireGuard interface listening port")
 	upCmd.PersistentFlags().Uint16Var(&mtu, mtuFlag, iface.DefaultMTU, "Set MTU (Maximum Transmission Unit) for the WireGuard interface")
@@ -391,6 +393,7 @@ func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServ
 	if _, err := client.Up(ctx, &proto.UpRequest{
 		ProfileName: &profileID,
 		Username:    &username,
+		ClaimOwner:  claimOwner,
 	}); err != nil {
 		return fmt.Errorf("call service up method: %v", err)
 	}

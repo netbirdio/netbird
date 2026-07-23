@@ -296,7 +296,7 @@ func (s *ServiceManager) DefaultProfilePath() string {
 // The returned Profile carries the freshly-generated ID so callers can
 // show it to the user (and so the gRPC AddProfileResponse can include
 // it).
-func (s *ServiceManager) AddProfile(displayName, username string) (*Profile, error) {
+func (s *ServiceManager) AddProfile(displayName, username string, owners []string) (*Profile, error) {
 	configDir, err := s.getConfigDir(username)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get config directory: %w", err)
@@ -318,6 +318,9 @@ func (s *ServiceManager) AddProfile(displayName, username string) (*Profile, err
 		return nil, fmt.Errorf("failed to create new config: %w", err)
 	}
 	cfg.Name = displayName
+	// owners auto-isolates the new profile to its creator (nil = unowned, so the
+	// eventual first caller claims it via trust-on-first-use).
+	cfg.Owners = owners
 
 	if err := util.WriteJson(context.Background(), profPath, cfg); err != nil {
 		return nil, fmt.Errorf("failed to write profile config: %w", err)

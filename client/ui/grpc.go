@@ -3,16 +3,16 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"runtime"
-	"strings"
 	"sync"
 	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
-	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/netbirdio/netbird/client/cmd"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/ui/desktop"
 )
@@ -36,9 +36,7 @@ func (c *Conn) Client() (proto.DaemonServiceClient, error) {
 		return c.client, nil
 	}
 
-	cc, err := grpc.NewClient(
-		strings.TrimPrefix(c.addr, "tcp://"),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	opts := []grpc.DialOption{
 		grpc.WithUserAgent(desktop.GetUIUserAgent()),
 		// Cap reconnect backoff at 5s; gRPC's default 120s MaxDelay would
 		// leave the UI waiting 30-60s to notice a freshly-started daemon.
@@ -50,6 +48,12 @@ func (c *Conn) Client() (proto.DaemonServiceClient, error) {
 				MaxDelay:   5 * time.Second,
 			},
 		}),
+	}
+
+	cc, err := cmd.DialClientGRPCServer(
+		context.Background(),
+		c.addr,
+		opts...,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("dial daemon: %w", err)
@@ -61,7 +65,7 @@ func (c *Conn) Client() (proto.DaemonServiceClient, error) {
 // DaemonAddr returns the default daemon gRPC address: a Unix socket on Linux/macOS, TCP loopback on Windows.
 func DaemonAddr() string {
 	if runtime.GOOS == "windows" {
-		return "tcp://127.0.0.1:41731"
+		return "npipe://netbird"
 	}
 	return "unix:///var/run/netbird.sock"
 }

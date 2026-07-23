@@ -104,6 +104,18 @@ service DaemonService {
 
   rpc GetActiveProfile(GetActiveProfileRequest) returns (GetActiveProfileResponse) {}
 
+  // AddOwner adds a principal to the active profile's owner list. Requires the
+  // caller to be privileged (root/administrator) or an existing owner.
+  rpc AddOwner(AddOwnerRequest) returns (AddOwnerResponse) {}
+
+  // ResetOwner clears the active profile's owner list, returning it to the
+  // unowned state (next caller re-claims via trust-on-first-use). Privileged only.
+  rpc ResetOwner(ResetOwnerRequest) returns (ResetOwnerResponse) {}
+
+  // ShareProfile marks the active profile shared (any local caller) or unshared.
+  // Requires the caller to be an owner or privileged.
+  rpc ShareProfile(ShareProfileRequest) returns (ShareProfileResponse) {}
+
   // Logout disconnects from the network and deletes the peer from the management server
   rpc Logout(LogoutRequest) returns (LogoutResponse) {}
 
@@ -270,6 +282,10 @@ message UpRequest {
   // RPC blocks until the engine is running or gives up, which is the behaviour
   // needed by the CLI.
   bool async = 4;
+
+  // claimOwner, when true, claims ownership of the active profile for the
+  // calling user (adds their kernel principal to the profile's owner list).
+  bool claimOwner = 5;
 }
 
 message UpResponse {}
@@ -773,6 +789,24 @@ message AddProfileResponse {
   // display a truncated form, UI clients can ignore it.
   string id = 1;
 }
+
+message AddOwnerRequest {
+  // principal is a typed owner string: "uid:1000", "gid:1000",
+  // "group:netbird-admins" (Unix, NSS-resolved), or "sid:S-1-5-..." (Windows).
+  string principal = 1;
+}
+
+message AddOwnerResponse {}
+
+message ResetOwnerRequest {}
+
+message ResetOwnerResponse {}
+
+message ShareProfileRequest {
+  bool shared = 1;
+}
+
+message ShareProfileResponse {}
 
 message RenameProfileRequest {
   string username = 1;
