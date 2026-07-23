@@ -1531,7 +1531,7 @@ func (a *Account) forcesRoutingPeerDNSResolution(peerID string, routers map[stri
 	}
 
 	for _, resource := range a.NetworkResources {
-		if resource == nil || !resource.Enabled {
+		if resource == nil || !resource.Enabled || resource.Type != resourceTypes.Domain {
 			continue
 		}
 		if _, ok := targeted[resource.ID]; !ok {

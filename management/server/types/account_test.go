@@ -1753,7 +1753,7 @@ func hasPrivateAccessPolicy(account *Account, serviceID string) bool {
 }
 
 func TestForcesRoutingPeerDNSResolution(t *testing.T) {
-	buildAccount := func(serviceEnabled, targetEnabled, resourceEnabled bool, targetType service.TargetType) *Account {
+	buildAccountRes := func(serviceEnabled, targetEnabled, resourceEnabled bool, targetType service.TargetType, resType resourceTypes.NetworkResourceType) *Account {
 		return &Account{
 			Id: "accountID",
 			Groups: map[string]*Group{
@@ -1764,7 +1764,7 @@ func TestForcesRoutingPeerDNSResolution(t *testing.T) {
 				{ID: "r2", NetworkID: "net-1", AccountID: "accountID", PeerGroups: []string{"router-group"}, Enabled: true},
 			},
 			NetworkResources: []*resourceTypes.NetworkResource{
-				{ID: "res-domain", AccountID: "accountID", NetworkID: "net-1", Type: resourceTypes.Domain, Domain: "ipinfo.io", Enabled: resourceEnabled},
+				{ID: "res-domain", AccountID: "accountID", NetworkID: "net-1", Type: resType, Domain: "example.org", Enabled: resourceEnabled},
 			},
 			Services: []*service.Service{
 				{
@@ -1775,6 +1775,10 @@ func TestForcesRoutingPeerDNSResolution(t *testing.T) {
 				},
 			},
 		}
+	}
+
+	buildAccount := func(serviceEnabled, targetEnabled, resourceEnabled bool, targetType service.TargetType) *Account {
+		return buildAccountRes(serviceEnabled, targetEnabled, resourceEnabled, targetType, resourceTypes.Domain)
 	}
 
 	t.Run("router peer for RP-targeted domain resource is forced", func(t *testing.T) {
@@ -1807,5 +1811,11 @@ func TestForcesRoutingPeerDNSResolution(t *testing.T) {
 	t.Run("not forced for non-domain target type", func(t *testing.T) {
 		account := buildAccount(true, true, true, service.TargetTypePeer)
 		assert.False(t, account.forcesRoutingPeerDNSResolution("router-peer", account.GetResourceRoutersMap()))
+	})
+
+	t.Run("not forced when targeted resource is not a domain", func(t *testing.T) {
+		account := buildAccountRes(true, true, true, service.TargetTypeDomain, resourceTypes.Host)
+		assert.False(t, account.forcesRoutingPeerDNSResolution("router-peer", account.GetResourceRoutersMap()),
+			"a domain target pointing at a non-domain resource must not force resolution")
 	})
 }
