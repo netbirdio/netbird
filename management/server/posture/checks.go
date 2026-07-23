@@ -49,6 +49,8 @@ type Checks struct {
 	// AccountID is a reference to the Account that this object belongs
 	AccountID string `json:"-" gorm:"index"`
 
+	PublicID string `json:"-"`
+
 	// Checks is a set of objects that perform the actual checks
 	Checks ChecksDefinition `gorm:"serializer:json"`
 }
@@ -167,6 +169,7 @@ func (pc *Checks) Copy() *Checks {
 		Name:        pc.Name,
 		Description: pc.Description,
 		AccountID:   pc.AccountID,
+		PublicID:    pc.PublicID,
 		Checks:      pc.Checks.Copy(),
 	}
 	return checks

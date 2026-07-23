@@ -56,6 +56,8 @@ type Policy struct {
 	// ID of the policy'
 	ID string `gorm:"primaryKey"`
 
+	PublicID string `json:"-"`
+
 	// AccountID is a reference to Account that this object belongs
 	AccountID string `json:"-" gorm:"index"`
 
@@ -80,6 +82,7 @@ func (p *Policy) Copy() *Policy {
 	c := &Policy{
 		ID:                  p.ID,
 		AccountID:           p.AccountID,
+		PublicID:            p.PublicID,
 		Name:                p.Name,
 		Description:         p.Description,
 		Enabled:             p.Enabled,

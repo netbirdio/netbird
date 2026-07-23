@@ -31,6 +31,7 @@ import (
 	relayServer "github.com/netbirdio/netbird/relay/server"
 	"github.com/netbirdio/netbird/relay/server/listener"
 	"github.com/netbirdio/netbird/relay/server/listener/ws"
+	syncgrpc "github.com/netbirdio/netbird/shared/management/grpc"
 	sharedMetrics "github.com/netbirdio/netbird/shared/metrics"
 	"github.com/netbirdio/netbird/shared/relay/auth"
 	"github.com/netbirdio/netbird/shared/signal/proto"
@@ -64,7 +65,8 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "path to YAML configuration file (required)")
 	_ = rootCmd.MarkPersistentFlagRequired("config")
 
-	rootCmd.AddCommand(newTokenCommands())
+	rootCmd.AddCommand(newAdminCommands())
+	rootCmd.AddCommand(newLegacyTokenCommand())
 }
 
 func RootCmd() *cobra.Command {
@@ -122,6 +124,37 @@ func execute(cmd *cobra.Command, _ []string) error {
 }
 
 // initializeConfig loads and validates the configuration, then initializes logging.
+func applyServerStoreEnv(storeConfig StoreConfig) {
+	if dsn := storeConfig.DSN; dsn != "" {
+		switch strings.ToLower(storeConfig.Engine) {
+		case "postgres":
+			os.Setenv("NB_STORE_ENGINE_POSTGRES_DSN", dsn)
+		case "mysql":
+			os.Setenv("NB_STORE_ENGINE_MYSQL_DSN", dsn)
+		}
+	}
+	if file := storeConfig.File; file != "" {
+		os.Setenv("NB_STORE_ENGINE_SQLITE_FILE", file)
+	}
+}
+
+func applyActivityStoreEnv(storeConfig StoreConfig) error {
+	if engine := storeConfig.Engine; engine != "" {
+		engineLower := strings.ToLower(engine)
+		if engineLower == "postgres" && storeConfig.DSN == "" {
+			return fmt.Errorf("activityStore.dsn is required when activityStore.engine is postgres")
+		}
+		os.Setenv("NB_ACTIVITY_EVENT_STORE_ENGINE", engineLower)
+		if dsn := storeConfig.DSN; dsn != "" {
+			os.Setenv("NB_ACTIVITY_EVENT_POSTGRES_DSN", dsn)
+		}
+	}
+	if file := storeConfig.File; file != "" {
+		os.Setenv("NB_ACTIVITY_EVENT_SQLITE_FILE", file)
+	}
+	return nil
+}
+
 func initializeConfig() error {
 	var err error
 	config, err = LoadConfig(configPath)
@@ -137,30 +170,10 @@ func initializeConfig() error {
 		return fmt.Errorf("failed to initialize log: %w", err)
 	}
 
-	if dsn := config.Server.Store.DSN; dsn != "" {
-		switch strings.ToLower(config.Server.Store.Engine) {
-		case "postgres":
-			os.Setenv("NB_STORE_ENGINE_POSTGRES_DSN", dsn)
-		case "mysql":
-			os.Setenv("NB_STORE_ENGINE_MYSQL_DSN", dsn)
-		}
-	}
-	if file := config.Server.Store.File; file != "" {
-		os.Setenv("NB_STORE_ENGINE_SQLITE_FILE", file)
-	}
+	applyServerStoreEnv(config.Server.Store)
 
-	if engine := config.Server.ActivityStore.Engine; engine != "" {
-		engineLower := strings.ToLower(engine)
-		if engineLower == "postgres" && config.Server.ActivityStore.DSN == "" {
-			return fmt.Errorf("activityStore.dsn is required when activityStore.engine is postgres")
-		}
-		os.Setenv("NB_ACTIVITY_EVENT_STORE_ENGINE", engineLower)
-		if dsn := config.Server.ActivityStore.DSN; dsn != "" {
-			os.Setenv("NB_ACTIVITY_EVENT_POSTGRES_DSN", dsn)
-		}
-	}
-	if file := config.Server.ActivityStore.File; file != "" {
-		os.Setenv("NB_ACTIVITY_EVENT_SQLITE_FILE", file)
+	if err := applyActivityStoreEnv(config.Server.ActivityStore); err != nil {
+		return err
 	}
 
 	log.Infof("Starting combined NetBird server")
@@ -504,6 +517,16 @@ func createManagementServer(cfg *CombinedConfig, mgmtConfig *nbconfig.Config) (m
 		portStr = "443"
 	}
 	mgmtPort, _ := strconv.Atoi(portStr)
+
+	if err := syncgrpc.ValidateSyncMessageVersion(mgmtConfig.HighestSupportedSyncMessageVersion); err != nil {
+		return nil, err
+	}
+
+	for accountId, version := range mgmtConfig.PerAccountHighestSupportedSyncMessageVersion {
+		if err := syncgrpc.ValidateSyncMessageVersion(&version); err != nil {
+			return nil, fmt.Errorf("unrecognized sync message version in perAccountSupportedSyncMessageVersions for account %s %w", accountId, err)
+		}
+	}
 
 	mgmtSrv := newServer(
 		&mgmtServer.Config{

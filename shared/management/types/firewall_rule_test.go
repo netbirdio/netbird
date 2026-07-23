@@ -8,13 +8,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
 func TestSplitPeerSourcesByFamily(t *testing.T) {
-	peers := []*nbpeer.Peer{
+	peers := []*ComponentPeer{
 		{
 			IP:   netip.MustParseAddr("100.64.0.1"),
 			IPv6: netip.MustParseAddr("fd00::1"),
@@ -36,7 +35,7 @@ func TestSplitPeerSourcesByFamily(t *testing.T) {
 }
 
 func TestGenerateRouteFirewallRules_V4Route(t *testing.T) {
-	peers := []*nbpeer.Peer{
+	peers := []*ComponentPeer{
 		{
 			IP:   netip.MustParseAddr("100.64.0.1"),
 			IPv6: netip.MustParseAddr("fd00::1"),
@@ -57,7 +56,7 @@ func TestGenerateRouteFirewallRules_V4Route(t *testing.T) {
 		Protocol: PolicyRuleProtocolALL,
 	}
 
-	rules := generateRouteFirewallRules(context.Background(), r, rule, peers, FirewallRuleDirectionIN, true)
+	rules := GenerateRouteFirewallRules(context.Background(), r, rule, peers, FirewallRuleDirectionIN, true)
 
 	require.Len(t, rules, 1)
 	assert.Equal(t, []string{"100.64.0.1/32", "100.64.0.2/32"}, rules[0].SourceRanges, "v4 route should only have v4 sources")
@@ -65,7 +64,7 @@ func TestGenerateRouteFirewallRules_V4Route(t *testing.T) {
 }
 
 func TestGenerateRouteFirewallRules_V6Route(t *testing.T) {
-	peers := []*nbpeer.Peer{
+	peers := []*ComponentPeer{
 		{
 			IP:   netip.MustParseAddr("100.64.0.1"),
 			IPv6: netip.MustParseAddr("fd00::1"),
@@ -86,14 +85,14 @@ func TestGenerateRouteFirewallRules_V6Route(t *testing.T) {
 		Protocol: PolicyRuleProtocolALL,
 	}
 
-	rules := generateRouteFirewallRules(context.Background(), r, rule, peers, FirewallRuleDirectionIN, true)
+	rules := GenerateRouteFirewallRules(context.Background(), r, rule, peers, FirewallRuleDirectionIN, true)
 
 	require.Len(t, rules, 1)
 	assert.Equal(t, []string{"fd00::1/128"}, rules[0].SourceRanges, "v6 route should only have v6 sources")
 }
 
 func TestGenerateRouteFirewallRules_DynamicRoute_DualStack(t *testing.T) {
-	peers := []*nbpeer.Peer{
+	peers := []*ComponentPeer{
 		{
 			IP:   netip.MustParseAddr("100.64.0.1"),
 			IPv6: netip.MustParseAddr("fd00::1"),
@@ -115,7 +114,7 @@ func TestGenerateRouteFirewallRules_DynamicRoute_DualStack(t *testing.T) {
 		Protocol: PolicyRuleProtocolALL,
 	}
 
-	rules := generateRouteFirewallRules(context.Background(), r, rule, peers, FirewallRuleDirectionIN, true)
+	rules := GenerateRouteFirewallRules(context.Background(), r, rule, peers, FirewallRuleDirectionIN, true)
 
 	require.Len(t, rules, 2, "dynamic route should produce both v4 and v6 rules")
 	assert.Equal(t, []string{"100.64.0.1/32", "100.64.0.2/32"}, rules[0].SourceRanges)
@@ -126,7 +125,7 @@ func TestGenerateRouteFirewallRules_DynamicRoute_DualStack(t *testing.T) {
 }
 
 func TestGenerateRouteFirewallRules_DynamicRoute_NoV6Peers(t *testing.T) {
-	peers := []*nbpeer.Peer{
+	peers := []*ComponentPeer{
 		{IP: netip.MustParseAddr("100.64.0.1")},
 		{IP: netip.MustParseAddr("100.64.0.2")},
 	}
@@ -143,14 +142,14 @@ func TestGenerateRouteFirewallRules_DynamicRoute_NoV6Peers(t *testing.T) {
 		Protocol: PolicyRuleProtocolALL,
 	}
 
-	rules := generateRouteFirewallRules(context.Background(), r, rule, peers, FirewallRuleDirectionIN, true)
+	rules := GenerateRouteFirewallRules(context.Background(), r, rule, peers, FirewallRuleDirectionIN, true)
 
 	require.Len(t, rules, 1, "no v6 peers means only v4 rule")
 	assert.Equal(t, []string{"100.64.0.1/32", "100.64.0.2/32"}, rules[0].SourceRanges)
 }
 
 func TestGenerateRouteFirewallRules_IncludeIPv6False(t *testing.T) {
-	peers := []*nbpeer.Peer{
+	peers := []*ComponentPeer{
 		{
 			IP:   netip.MustParseAddr("100.64.0.1"),
 			IPv6: netip.MustParseAddr("fd00::1"),
@@ -173,7 +172,7 @@ func TestGenerateRouteFirewallRules_IncludeIPv6False(t *testing.T) {
 			Protocol: PolicyRuleProtocolALL,
 		}
 
-		rules := generateRouteFirewallRules(context.Background(), r, rule, peers, FirewallRuleDirectionIN, false)
+		rules := GenerateRouteFirewallRules(context.Background(), r, rule, peers, FirewallRuleDirectionIN, false)
 		assert.Empty(t, rules, "v6 route should produce no rules when includeIPv6 is false")
 	})
 
@@ -190,7 +189,7 @@ func TestGenerateRouteFirewallRules_IncludeIPv6False(t *testing.T) {
 			Protocol: PolicyRuleProtocolALL,
 		}
 
-		rules := generateRouteFirewallRules(context.Background(), r, rule, peers, FirewallRuleDirectionIN, false)
+		rules := GenerateRouteFirewallRules(context.Background(), r, rule, peers, FirewallRuleDirectionIN, false)
 		require.Len(t, rules, 1, "dynamic route with includeIPv6=false should produce only v4 rule")
 		assert.Equal(t, []string{"100.64.0.1/32", "100.64.0.2/32"}, rules[0].SourceRanges)
 	})

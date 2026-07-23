@@ -82,6 +82,7 @@ type Server interface {
 	PopulateManagementDomain(mgmtURL *url.URL) error
 	SetRouteSources(selected, active func() route.HAMap)
 	SetFirewall(Firewall)
+	SetPeerActivator(local.PeerActivator)
 }
 
 type nsGroupsByDomain struct {
@@ -489,6 +490,13 @@ func (s *DefaultServer) SetFirewall(fw Firewall) {
 		svc.firewall = fw
 		svc.listenerFlagLock.Unlock()
 	}
+}
+
+// SetPeerActivator wires the DNS-time lazy-connection warm-up on the local
+// resolver. Injected after the connection manager exists (it does not at
+// DNS-server construction time). Pass nil to disable.
+func (s *DefaultServer) SetPeerActivator(a local.PeerActivator) {
+	s.localResolver.SetPeerActivator(a)
 }
 
 // Stop stops the server
@@ -1435,11 +1443,11 @@ type localPeerConnectivity struct {
 
 // IsConnectedByIP looks the IP up in the peerstore and surfaces both
 // the known and connected bits. Used by Resolver.filterDisconnectedPeerAnswers.
-func (l localPeerConnectivity) IsConnectedByIP(ip string) (known, connected bool) {
+func (l localPeerConnectivity) IsConnectedByIP(ip netip.Addr) (known, connected bool) {
 	if l.status == nil {
 		return false, false
 	}
-	state, ok := l.status.PeerStateByIP(ip)
+	state, ok := l.status.PeerStateByIP(ip.String())
 	if !ok {
 		return false, false
 	}

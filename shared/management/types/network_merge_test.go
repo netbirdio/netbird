@@ -1,4 +1,4 @@
-package util
+package types
 
 import (
 	"testing"
@@ -17,7 +17,7 @@ func (t testObject) Equal(other testObject) bool {
 func Test_MergeUniqueArraysWithoutDuplicates(t *testing.T) {
 	arr1 := []testObject{{value: 1}, {value: 2}}
 	arr2 := []testObject{{value: 2}, {value: 3}}
-	result := MergeUnique(arr1, arr2)
+	result := mergeUnique(arr1, arr2)
 	assert.Len(t, result, 3)
 	assert.Contains(t, result, testObject{value: 1})
 	assert.Contains(t, result, testObject{value: 2})
@@ -27,14 +27,14 @@ func Test_MergeUniqueArraysWithoutDuplicates(t *testing.T) {
 func Test_MergeUniqueHandlesEmptyArrays(t *testing.T) {
 	arr1 := []testObject{}
 	arr2 := []testObject{}
-	result := MergeUnique(arr1, arr2)
+	result := mergeUnique(arr1, arr2)
 	assert.Empty(t, result)
 }
 
 func Test_MergeUniqueHandlesOneEmptyArray(t *testing.T) {
 	arr1 := []testObject{{value: 1}, {value: 2}}
 	arr2 := []testObject{}
-	result := MergeUnique(arr1, arr2)
+	result := mergeUnique(arr1, arr2)
 	assert.Len(t, result, 2)
 	assert.Contains(t, result, testObject{value: 1})
 	assert.Contains(t, result, testObject{value: 2})

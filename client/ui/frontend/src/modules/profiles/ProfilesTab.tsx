@@ -45,7 +45,7 @@ export function ProfilesTab() {
         activeProfileId,
         loaded,
         username,
-        switchProfile,
+        switchProfileNoConnect,
         addProfile,
         removeProfile,
         renameProfile,
@@ -100,7 +100,7 @@ export function ProfilesTab() {
             confirmLabel: t("profile.switch.confirm"),
         });
         if (!ok) return;
-        await guarded(i18next.t("profile.error.switchTitle"), () => switchProfile(id));
+        await guarded(i18next.t("profile.error.switchTitle"), () => switchProfileNoConnect(id));
     };
 
     const handleDeregister = async (id: string, name: string) => {
@@ -129,14 +129,13 @@ export function ProfilesTab() {
         await guarded(i18next.t("profile.error.createTitle"), async () => {
             const id = await addProfile(name);
             // SetConfig is keyed by the new profile's ID, so it writes the
-            // not-yet-active profile. Write before switching so any reconnect
-            // targets the right deployment.
+            // not-yet-active profile before the switch makes it current.
             if (!isNetbirdCloud(managementUrl)) {
                 await SettingsSvc.SetConfig(
                     new SetConfigParams({ profileName: id, username, managementUrl }),
                 );
             }
-            await switchProfile(id);
+            await switchProfileNoConnect(id);
         });
     };
 

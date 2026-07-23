@@ -13,12 +13,14 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/shared/management/http/api"
+	sharedTypes "github.com/netbirdio/netbird/shared/management/types"
 )
 
 // Peer capability constants mirror the proto enum values.
 const (
-	PeerCapabilitySourcePrefixes int32 = 1
-	PeerCapabilityIPv6Overlay    int32 = 2
+	PeerCapabilitySourcePrefixes      int32 = 1
+	PeerCapabilityIPv6Overlay         int32 = 2
+	PeerCapabilityComponentNetworkMap int32 = 3
 )
 
 // Peer represents a machine connected to the network.
@@ -172,6 +174,7 @@ type PeerSystemMeta struct { //nolint:revive
 	Flags              Flags       `gorm:"serializer:json"`
 	Files              []File      `gorm:"serializer:json"`
 	Capabilities       []int32     `gorm:"serializer:json"`
+	SyncMessageVersion int
 }
 
 func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
@@ -203,6 +206,35 @@ func (p *Peer) AddedWithSSOLogin() bool {
 	return p.UserID != ""
 }
 
+// ToComponent converts the peer to its self-contained components
+// representation, carrying exactly the subset of peer data that crosses the
+// components wire format. Returns nil for a nil peer so callers can convert
+// possibly-missing peers without guarding.
+func (p *Peer) ToComponent() *sharedTypes.ComponentPeer {
+	if p == nil {
+		return nil
+	}
+	cp := &sharedTypes.ComponentPeer{
+		ID:                     p.ID,
+		Key:                    p.Key,
+		IP:                     p.IP,
+		IPv6:                   p.IPv6,
+		DNSLabel:               p.DNSLabel,
+		SSHKey:                 p.SSHKey,
+		SSHEnabled:             p.SSHEnabled,
+		ServerSSHAllowed:       p.Meta.Flags.ServerSSHAllowed,
+		AgentVersion:           p.Meta.WtVersion,
+		SupportsSourcePrefixes: p.SupportsSourcePrefixes(),
+		SupportsIPv6:           p.SupportsIPv6(),
+		LoginExpirationEnabled: p.LoginExpirationEnabled,
+		AddedWithSSOLogin:      p.AddedWithSSOLogin(),
+	}
+	if p.LastLogin != nil {
+		cp.LastLogin = *p.LastLogin
+	}
+	return cp
+}
+
 // HasCapability reports whether the peer has the given capability.
 func (p *Peer) HasCapability(capability int32) bool {
 	return slices.Contains(p.Meta.Capabilities, capability)
@@ -216,6 +248,14 @@ func (p *Peer) SupportsIPv6() bool {
 // SupportsSourcePrefixes reports whether the peer reads SourcePrefixes.
 func (p *Peer) SupportsSourcePrefixes() bool {
 	return p.HasCapability(PeerCapabilitySourcePrefixes)
+}
+
+// SupportsComponentNetworkMap reports whether the peer assembles its
+// NetworkMap from server-shipped components instead of consuming a fully
+// expanded NetworkMap. Determines whether the network_map controller skips
+// Calculate() server-side and emits the components envelope.
+func (p *Peer) SupportsComponentNetworkMap() bool {
+	return p.HasCapability(PeerCapabilityComponentNetworkMap)
 }
 
 func capabilitiesEqual(a, b []int32) bool {
@@ -405,6 +445,9 @@ func diffMeta(oldMeta, newMeta PeerSystemMeta, oldLocation, newLocation Location
 	}
 	if !sameMultiset(oldMeta.Files, newMeta.Files) {
 		add("files", fmt.Sprintf("%v", oldMeta.Files), fmt.Sprintf("%v", newMeta.Files))
+	}
+	if oldMeta.SyncMessageVersion != newMeta.SyncMessageVersion {
+		add("sync_meta_version", fmt.Sprintf("%d", oldMeta.SyncMessageVersion), fmt.Sprintf("%d", newMeta.SyncMessageVersion))
 	}
 
 	if !oldLocation.equal(newLocation) {

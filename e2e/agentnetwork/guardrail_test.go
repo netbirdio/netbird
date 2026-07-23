@@ -4,6 +4,7 @@ package agentnetwork
 
 import (
 	"context"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -15,13 +16,29 @@ import (
 	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
+// bedrockRegionPrefixes and bedrockVersionSuffix mirror the proxy's Bedrock
+// model normalization (region/inference-profile prefix + version suffix) so the
+// provider is registered under the same catalog key the router matches against.
+var (
+	bedrockRegionPrefixes = []string{"us.", "eu.", "apac.", "global."}
+	bedrockVersionSuffix  = regexp.MustCompile(`-(\d{8}-)?v\d+(:\d+)?$`)
+)
+
 // catalogModel returns the normalized catalog id the proxy stamps for a
-// path-routed provider's configured model — the form the guardrail allowlist is
-// compared against (region prefix / @version stripped).
+// path-routed provider's configured model — the form the router and guardrail
+// allowlist compare against (Bedrock region prefix + version stripped, Vertex
+// @version stripped).
 func catalogModel(pc providerCase) string {
 	switch pc.kind {
 	case harness.WireBedrock:
-		return strings.TrimPrefix(pc.model, "us.")
+		m := pc.model
+		for _, p := range bedrockRegionPrefixes {
+			if strings.HasPrefix(m, p) {
+				m = m[len(p):]
+				break
+			}
+		}
+		return bedrockVersionSuffix.ReplaceAllString(m, "")
 	case harness.WireVertex:
 		return strings.SplitN(pc.model, "@", 2)[0]
 	default:
@@ -35,7 +52,9 @@ func catalogModel(pc providerCase) string {
 func disallowedModel(pc providerCase) string {
 	switch pc.kind {
 	case harness.WireBedrock:
-		return "us.anthropic.claude-opus-4-8"
+		// Same profile prefix as the allowed model so only the model name
+		// differs; the guardrail must deny it before it reaches AWS.
+		return strings.SplitN(pc.model, ".", 2)[0] + ".anthropic.claude-opus-4-8"
 	case harness.WireVertex:
 		return "claude-opus-4-8@20250101"
 	default:
@@ -55,7 +74,7 @@ func sendModel(ctx context.Context, t *testing.T, cl *harness.Client, endpoint, 
 	case harness.WireVertex:
 		code, _, err = cl.Vertex(ctx, endpoint, proxyIP, pc.project, pc.region, model, "Reply with exactly: pong", "")
 	default:
-		code, _, err = cl.Chat(ctx, endpoint, proxyIP, pc.kind, model, "Reply with exactly: pong", "")
+		code, _, err = cl.ChatPrefixed(ctx, endpoint, proxyIP, pc.pathPrefix, pc.kind, model, "Reply with exactly: pong", "")
 	}
 	require.NoError(t, err, "request must reach the proxy for %s", pc.name)
 	return code
@@ -147,11 +166,12 @@ func TestModelAllowlistEnforced(t *testing.T) {
 	t.Cleanup(func() { _ = cl.Terminate(context.Background()) })
 
 	require.NoError(t, cl.WaitConnected(ctx, 90*time.Second), "client must connect to management")
+	// Probe first: the GET resolves the endpoint (DNS error fails) and its first packet wakes the lazy proxy peer, so WaitProxyPeer sees it connected; any HTTP status counts.
+	proxyIP, err := cl.ResolveProxyIP(ctx, settings.Endpoint)
+	require.NoError(t, err, "resolve agent-network endpoint to proxy IP")
 	if err := cl.WaitProxyPeer(ctx, 180*time.Second); err != nil {
 		t.Fatalf("client did not see the proxy peer: %v\n=== proxy logs ===\n%s", err, px.Logs(context.Background()))
 	}
-	proxyIP, err := cl.ResolveProxyIP(ctx, settings.Endpoint)
-	require.NoError(t, err, "resolve agent-network endpoint to proxy IP")
 
 	for _, pc := range providers {
 		pc := pc
