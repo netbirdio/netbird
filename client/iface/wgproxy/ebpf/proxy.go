@@ -6,11 +6,14 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 	"sync"
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/net/ipv4"
+	"golang.org/x/net/ipv6"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/iface/bufsize"
@@ -37,11 +40,27 @@ type WGEBPFProxy struct {
 	lastUsedPort uint16
 	rawConnIPv4  net.PacketConn
 	rawConnIPv6  net.PacketConn
-	conn         transport.UDPConn
+	// batchConnIPv4/IPv6 wrap the raw sockets so the inject path can write a
+	// whole batch of packets with one sendmmsg (WriteBatch) instead of one
+	// WriteTo per packet. Non-nil whenever the matching raw socket is present.
+	batchConnIPv4 *ipv4.PacketConn
+	batchConnIPv6 *ipv6.PacketConn
+	conn          transport.UDPConn
+
+	// batchRead drains several relayed packets from the local WireGuard socket
+	// with one recvmmsg and forwards them back-to-back, cutting the per-packet
+	// syscall and wakeup overhead on the hot send path and letting the relay
+	// client's frame coalescer (NB_RELAY_COALESCE) pack full frames. Gated by
+	// NB_RELAY_BATCH_READ; the per-packet path stays the default.
+	batchRead bool
 
 	ctx       context.Context
 	ctxCancel context.CancelFunc
 }
+
+// batchReadSize bounds how many packets are drained from the local WireGuard
+// socket per recvmmsg when NB_RELAY_BATCH_READ is set.
+const batchReadSize = 64
 
 // NewWGEBPFProxy create new WGEBPFProxy instance
 func NewWGEBPFProxy(wgPort int, mtu uint16) *WGEBPFProxy {
@@ -70,10 +89,15 @@ func (p *WGEBPFProxy) Listen() error {
 		return err
 	}
 
+	p.batchConnIPv4 = ipv4.NewPacketConn(p.rawConnIPv4)
+
 	// Prepare IPv6 raw socket (optional)
 	p.rawConnIPv6, err = rawsocket.PrepareSenderRawSocketIPv6()
 	if err != nil {
 		log.Warnf("failed to prepare IPv6 raw socket, continuing with IPv4 only: %v", err)
+	}
+	if p.rawConnIPv6 != nil {
+		p.batchConnIPv6 = ipv6.NewPacketConn(p.rawConnIPv6)
 	}
 
 	err = p.ebpfManager.LoadWgProxy(proxyPort, p.localWGListenPort)
@@ -104,6 +128,8 @@ func (p *WGEBPFProxy) Listen() error {
 		return err
 	}
 	p.conn = conn
+	nbnet.SizeRelaySocketBuffers(conn)
+	p.batchRead = os.Getenv("NB_RELAY_BATCH_READ") == "true"
 
 	go p.proxyToRemote()
 	log.Infof("local wg proxy listening on: %d", proxyPort)
@@ -169,6 +195,14 @@ func (p *WGEBPFProxy) GetProxyPort() uint16 {
 // proxyToRemote read messages from local WireGuard interface and forward it to remote conn
 // From this go routine has only one instance.
 func (p *WGEBPFProxy) proxyToRemote() {
+	if p.batchRead {
+		if pc, ok := p.conn.(net.PacketConn); ok {
+			p.proxyToRemoteBatch(pc)
+			return
+		}
+		log.Warnf("batch read requested but proxy conn %T is not a net.PacketConn; using per-packet read", p.conn)
+	}
+
 	buf := make([]byte, p.mtu+bufsize.WGBufferOverhead)
 	for p.ctx.Err() == nil {
 		if err := p.readAndForwardPacket(buf); err != nil {
@@ -177,6 +211,62 @@ func (p *WGEBPFProxy) proxyToRemote() {
 			}
 			log.Errorf("failed to proxy packet to remote conn: %s", err)
 		}
+	}
+}
+
+// proxyToRemoteBatch drains up to batchReadSize packets from the local
+// WireGuard socket with one recvmmsg and forwards each through the same
+// per-packet, per-source-port turn lookup as the single-packet path. Because
+// the single proxy socket is shared by every relayed peer, recvmmsg yields each
+// packet's source address, which selects the destination turn conn. Draining
+// several packets per recvmmsg amortizes the read syscall and wakeup across the
+// batch and forwards them back-to-back so the relay client's coalescer can pack
+// full frames.
+func (p *WGEBPFProxy) proxyToRemoteBatch(pc net.PacketConn) {
+	batchConn := ipv4.NewPacketConn(pc)
+	bufSize := int(p.mtu) + bufsize.WGBufferOverhead
+	msgs := make([]ipv4.Message, batchReadSize)
+	for i := range msgs {
+		msgs[i].Buffers = [][]byte{make([]byte, bufSize)}
+	}
+
+	for p.ctx.Err() == nil {
+		n, err := batchConn.ReadBatch(msgs, 0)
+		if err != nil {
+			if p.ctx.Err() != nil {
+				return
+			}
+			log.Errorf("failed to batch read UDP packets from WG: %s", err)
+			continue
+		}
+
+		for i := 0; i < n; i++ {
+			p.forwardBatchPacket(msgs[i].Buffers[0][:msgs[i].N], msgs[i].Addr)
+		}
+	}
+}
+
+// forwardBatchPacket forwards one packet read in a batch to the turn conn that
+// owns its source port, mirroring readAndForwardPacket for the single-read path.
+func (p *WGEBPFProxy) forwardBatchPacket(payload []byte, addr net.Addr) {
+	udpAddr, ok := addr.(*net.UDPAddr)
+	if !ok {
+		log.Errorf("unexpected batch read source address type %T", addr)
+		return
+	}
+
+	p.turnConnMutex.Lock()
+	conn, ok := p.turnConnStore[uint16(udpAddr.Port)]
+	p.turnConnMutex.Unlock()
+	if !ok {
+		if p.ctx.Err() == nil {
+			log.Debugf("turn conn not found by port because conn already has been closed: %d", udpAddr.Port)
+		}
+		return
+	}
+
+	if _, err := conn.Write(payload); err != nil {
+		log.Errorf("failed to forward local WG packet (%d) to remote turn conn: %s", udpAddr.Port, err)
 	}
 }
 

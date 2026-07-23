@@ -102,6 +102,60 @@ func TestMarshalTransportMsg(t *testing.T) {
 	}
 }
 
+func TestMarshalTransportBatch(t *testing.T) {
+	peerID := HashID("abdFAaBcawquEiCMzAabYosuUaGLtSNhKxz+")
+	payloads := [][]byte{
+		[]byte("first"),
+		[]byte(""),
+		[]byte("a slightly longer third payload"),
+	}
+
+	frame := TransportBatchHeader(peerID)
+	for _, p := range payloads {
+		var ok bool
+		frame, ok = AppendBatchPayload(frame, p)
+		if !ok {
+			t.Fatalf("AppendBatchPayload rejected payload of len %d", len(p))
+		}
+	}
+
+	// The batch frame must route like a transport frame on both sides.
+	if mt, err := DetermineClientMessageType(frame); err != nil || mt != MsgTypeTransportBatch {
+		t.Fatalf("client msg type = %v (err %v), want %d", mt, err, MsgTypeTransportBatch)
+	}
+	if mt, err := DetermineServerMessageType(frame); err != nil || mt != MsgTypeTransportBatch {
+		t.Fatalf("server msg type = %v (err %v), want %d", mt, err, MsgTypeTransportBatch)
+	}
+	// The dest peerID lives at the transport offset, so the relay's opaque
+	// UnmarshalTransportID/UpdateTransportMsg work unchanged.
+	if id, err := UnmarshalTransportID(frame); err != nil || id.String() != peerID.String() {
+		t.Fatalf("UnmarshalTransportID = %v (err %v), want %s", id, err, peerID)
+	}
+
+	id, got, err := UnmarshalTransportBatch(frame)
+	if err != nil {
+		t.Fatalf("UnmarshalTransportBatch: %v", err)
+	}
+	if id.String() != peerID.String() {
+		t.Errorf("peerID = %s, want %s", id, peerID)
+	}
+	if len(got) != len(payloads) {
+		t.Fatalf("got %d payloads, want %d", len(got), len(payloads))
+	}
+	for i := range payloads {
+		if string(got[i]) != string(payloads[i]) {
+			t.Errorf("payload %d = %q, want %q", i, got[i], payloads[i])
+		}
+	}
+
+	// A truncated frame (length prefix promises more than is present) must error,
+	// not panic or over-read.
+	truncated := frame[:len(frame)-3]
+	if _, _, err := UnmarshalTransportBatch(truncated); err == nil {
+		t.Errorf("expected error on truncated batch frame")
+	}
+}
+
 func TestMarshalHealthcheck(t *testing.T) {
 	msg := MarshalHealthcheck()
 

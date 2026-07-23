@@ -8,15 +8,22 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"sync"
 
 	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/net/ipv4"
 
 	cerrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/iface/bufsize"
 	"github.com/netbirdio/netbird/client/iface/wgproxy/listener"
+	nbnet "github.com/netbirdio/netbird/client/net"
 )
+
+// batchReadSize bounds how many packets are drained from the local WireGuard
+// socket per recvmmsg when NB_RELAY_BATCH_READ is set.
+const batchReadSize = 64
 
 // WGUDPProxy proxies
 type WGUDPProxy struct {
@@ -35,6 +42,13 @@ type WGUDPProxy struct {
 	paused     bool
 	pausedCond *sync.Cond
 	isStarted  bool
+
+	// batchRead drains several packets from the local WireGuard socket with one
+	// recvmmsg and forwards them back-to-back, cutting the per-packet syscall
+	// and wakeup overhead on the hot send path and letting the relay client's
+	// frame coalescer (NB_RELAY_COALESCE) pack full frames. Gated by
+	// NB_RELAY_BATCH_READ; the per-packet path stays the default.
+	batchRead bool
 
 	closeListener *listener.CloseListener
 }
@@ -63,6 +77,10 @@ func (p *WGUDPProxy) AddTurnConn(ctx context.Context, _ *net.UDPAddr, remoteConn
 		log.Errorf("failed dialing to local Wireguard port %s", err)
 		return err
 	}
+
+	nbnet.SizeRelaySocketBuffers(localConn)
+
+	p.batchRead = os.Getenv("NB_RELAY_BATCH_READ") == "true"
 
 	p.ctx, p.cancel = context.WithCancel(ctx)
 	p.localConn = localConn
@@ -212,6 +230,14 @@ func (p *WGUDPProxy) proxyToRemote(ctx context.Context) {
 		}
 	}()
 
+	if p.batchRead {
+		if pc, ok := p.localConn.(net.PacketConn); ok {
+			p.proxyToRemoteBatch(ctx, pc)
+			return
+		}
+		log.Warnf("batch read requested but local conn %T is not a net.PacketConn; using per-packet read", p.localConn)
+	}
+
 	buf := make([]byte, p.mtu+bufsize.WGBufferOverhead)
 	for ctx.Err() == nil {
 		n, err := p.localConn.Read(buf)
@@ -232,6 +258,44 @@ func (p *WGUDPProxy) proxyToRemote(ctx context.Context) {
 
 			log.Debugf("failed to write to remote conn: %s", err)
 			return
+		}
+	}
+}
+
+// proxyToRemoteBatch drains up to batchReadSize packets from the local
+// WireGuard socket with one recvmmsg and forwards each with the same per-packet
+// write toward the relay conn. It blocks for the first packet, then takes
+// whatever is already queued, so a busy flow amortizes the read syscall and
+// wakeup across several packets and reaches the relay client's coalescer
+// back-to-back to pack full frames, while a sparse flow still forwards each
+// packet immediately.
+func (p *WGUDPProxy) proxyToRemoteBatch(ctx context.Context, pc net.PacketConn) {
+	batchConn := ipv4.NewPacketConn(pc)
+	bufSize := int(p.mtu) + bufsize.WGBufferOverhead
+	msgs := make([]ipv4.Message, batchReadSize)
+	for i := range msgs {
+		msgs[i].Buffers = [][]byte{make([]byte, bufSize)}
+	}
+
+	for ctx.Err() == nil {
+		n, err := batchConn.ReadBatch(msgs, 0)
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			p.closeListener.Notify()
+			log.Debugf("failed to batch read from wg interface conn: %s", err)
+			return
+		}
+
+		for i := 0; i < n; i++ {
+			if _, err := p.remoteConn.Write(msgs[i].Buffers[0][:msgs[i].N]); err != nil {
+				if ctx.Err() != nil {
+					return
+				}
+				log.Debugf("failed to write to remote conn: %s", err)
+				return
+			}
 		}
 	}
 }
