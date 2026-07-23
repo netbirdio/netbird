@@ -7,7 +7,7 @@ import (
 
 // Wire framing for the PQ-KEM exchange. Messages are self-contained, versioned,
 // transport-agnostic byte blobs: the same bytes ride the Signal offer/answer
-// (initial, pre-tunnel) or a WireGuard-tunnel packet (rekey). They are NOT a gRPC
+// (initial, pre-tunnel) or a data-tunnel packet (rekey). They are NOT a gRPC
 // service — the network layer only sees opaque []byte.
 //
 // Layout (all messages): [type:1][version:1][exchangeID:16][payload...]
@@ -59,9 +59,9 @@ type AnswerMsg struct {
 // derive it to encapsulate), so the initiator needs no confirmation. Only the
 // responder is left unsure whether the initiator received the answer and committed
 // the key — this message resolves that. As a bonus, being sent under the new PSK it
-// triggers the WireGuard handshake with the new key: the responder converges on
-// receiving it, and the initiator converges by observing that handshake succeed
-// (which fails on a PSK mismatch, so success proves the responder also committed).
+// exercises the consumer's channel handshake with the new key: the responder
+// converges on receiving it, and the initiator converges by observing that handshake
+// succeed (which fails on a PSK mismatch, so success proves the responder committed too).
 type ConfirmMsg struct {
 	ExchangeID ExchangeID
 }

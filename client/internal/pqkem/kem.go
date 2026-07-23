@@ -1,6 +1,6 @@
 // Package pqkem is a spike (NET-1406) for a post-quantum pre-shared-key exchange
 // that could replace Rosenpass. It performs an X25519MLKEM768 hybrid key
-// encapsulation and derives a 32-byte WireGuard PSK.
+// encapsulation and derives a 32-byte pre-shared key (PSK).
 //
 // The exchange is a single round trip designed to ride the (already
 // authenticated) Signal offer/answer channel:
@@ -9,7 +9,7 @@
 //	initiator <--Answer(1120B)-- responder
 //
 // Both sides then hold the same PSK, which is bound to the two peers' identities
-// (their WireGuard static public keys) so the derived key cannot be transplanted
+// (their peer identity keys) so the derived key cannot be transplanted
 // to a different peer pair even if the transport authentication were bypassed.
 //
 // Combiner note: this follows the IETF hybrid layout (X25519 ‖ ML-KEM on the
@@ -35,14 +35,14 @@ const (
 	pskLabel = "netbird-pq-psk-v1"
 )
 
-// PSK is the 32-byte pre-shared key handed to WireGuard.
+// PSK is the 32-byte derived pre-shared key handed to the consumer to key its channel.
 type PSK [32]byte
 
 // Binding identifies the peer pair the PSK is derived for. Callers set both
-// WireGuard static public keys; the order does not matter (it is canonicalised).
+// peer identity keys; the order does not matter (it is canonicalised).
 type Binding struct {
-	LocalWgPub  []byte
-	RemoteWgPub []byte
+	LocalID  []byte
+	RemoteID []byte
 }
 
 // Initiator holds the ephemeral secrets between Offer and Finish.
@@ -141,7 +141,7 @@ func Respond(offer []byte, b Binding) (answer []byte, psk PSK, err error) {
 // TODO(NET-1406): replace the SHA-256 concat with the RFC HKDF combiner
 // (crypto/hkdf, Go 1.24+) and proper labels before this leaves spike status.
 func derivePSK(ssMLKEM, ssX, offer, answer []byte, b Binding) PSK {
-	lo, hi := canonicalPair(b.LocalWgPub, b.RemoteWgPub)
+	lo, hi := canonicalPair(b.LocalID, b.RemoteID)
 
 	h := sha256.New()
 	h.Write([]byte(pskLabel))
