@@ -269,18 +269,17 @@ func FlagNameToEnvVar(cmdFlag string, prefix string) string {
 }
 
 // DialClientGRPCServer returns client connection to the daemon server.
-func DialClientGRPCServer(ctx context.Context, addr string, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
-	ctx, cancel := context.WithTimeout(ctx, time.Second*10)
-	defer cancel()
-
-	opts = append([]grpc.DialOption{
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock()}, opts...)
-
-	// The daemon reads the caller's kernel identity from the transport
-	// (SO_PEERCRED on a Unix socket, the client token on a Windows named pipe),
-	// so the client stays insecure. For npipe we install a context dialer since
-	// gRPC's resolver does not understand Windows named pipes.
+// daemonDialTarget returns the gRPC dial target and base options for the daemon
+// address, handling the npipe scheme (Windows named pipe, via a context dialer)
+// and unix/tcp. It sets insecure transport credentials but NOT WithBlock, so it
+// serves both the blocking CLI dial and the JSON gateway's lazy client.
+//
+// The daemon reads the caller's kernel identity from the transport (SO_PEERCRED
+// on a Unix socket, the client token on a Windows named pipe), so the client
+// stays insecure. gRPC's resolver does not understand Windows named pipes, hence
+// the context dialer.
+func daemonDialTarget(addr string) (string, []grpc.DialOption) {
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
 	target := strings.TrimPrefix(addr, "tcp://")
 	if strings.HasPrefix(addr, "npipe://") {
 		path := pipePath(strings.TrimPrefix(addr, "npipe://"))
@@ -289,8 +288,18 @@ func DialClientGRPCServer(ctx context.Context, addr string, opts ...grpc.DialOpt
 		}))
 		target = "passthrough:///netbird-daemon-pipe"
 	}
+	return target, opts
+}
 
-	return grpc.DialContext(ctx, target, opts...)
+func DialClientGRPCServer(ctx context.Context, addr string, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Second*10)
+	defer cancel()
+
+	target, dialOpts := daemonDialTarget(addr)
+	dialOpts = append(dialOpts, grpc.WithBlock())
+	dialOpts = append(dialOpts, opts...)
+
+	return grpc.DialContext(ctx, target, dialOpts...)
 }
 
 // WithBackOff execute function in backoff cycle.

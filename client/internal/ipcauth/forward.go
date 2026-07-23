@@ -12,16 +12,28 @@ import (
 // itself the daemon (self/privileged) — i.e. the loopback gateway — so a direct
 // gRPC caller cannot forge them.
 const (
-	mdFwdUID = "x-netbird-fwd-uid"
-	mdFwdGID = "x-netbird-fwd-gid"
+	mdFwdUID      = "x-netbird-fwd-uid"      // Unix
+	mdFwdGID      = "x-netbird-fwd-gid"      // Unix
+	mdFwdSID      = "x-netbird-fwd-sid"      // Windows user SID
+	mdFwdGroup    = "x-netbird-fwd-group"    // Windows group SID (repeated)
+	mdFwdElevated = "x-netbird-fwd-elevated" // Windows, "1" if elevated
 )
 
-// ForwardIdentityMetadata encodes a Unix identity for the gateway to forward to
-// the daemon. Windows identities are not forwarded (the gateway cannot read a
-// pipe token for an HTTP client); nil is returned in that case.
+// ForwardIdentityMetadata encodes an identity for the gateway to forward to the
+// daemon — Unix uid/gid, or the Windows user SID + enabled group SIDs +
+// elevation. Both are supported so the gateway works whether the JSON socket is
+// a Unix socket or a named pipe.
 func ForwardIdentityMetadata(id Identity) metadata.MD {
 	if id.IsWindows() {
-		return nil
+		md := metadata.MD{}
+		md.Set(mdFwdSID, id.SID)
+		if len(id.Groups) > 0 {
+			md.Set(mdFwdGroup, id.Groups...)
+		}
+		if id.Elevated {
+			md.Set(mdFwdElevated, "1")
+		}
+		return md
 	}
 	return metadata.Pairs(
 		mdFwdUID, strconv.FormatUint(uint64(id.UID), 10),
@@ -29,13 +41,22 @@ func ForwardIdentityMetadata(id Identity) metadata.MD {
 	)
 }
 
-// forwardedIdentity extracts a forwarded Unix identity from incoming gRPC
-// metadata, if present and well-formed.
+// forwardedIdentity extracts a forwarded identity from incoming gRPC metadata,
+// if present and well-formed. Windows (SID) takes precedence over Unix (uid).
 func forwardedIdentity(ctx context.Context) (Identity, bool) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
 		return Identity{}, false
 	}
+
+	if sid := mdFirst(md, mdFwdSID); sid != "" {
+		return Identity{
+			SID:      sid,
+			Groups:   md.Get(mdFwdGroup),
+			Elevated: mdFirst(md, mdFwdElevated) == "1",
+		}, true
+	}
+
 	uidStr := mdFirst(md, mdFwdUID)
 	if uidStr == "" {
 		return Identity{}, false

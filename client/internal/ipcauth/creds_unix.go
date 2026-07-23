@@ -27,9 +27,16 @@ func (unixCreds) ClientHandshake(_ context.Context, _ string, conn net.Conn) (ne
 	return conn, AuthInfo{}, nil
 }
 
+// ConnIdentity extracts the caller's identity from an accepted local IPC
+// connection. On Unix it reads peer credentials from the socket. It is shared by
+// the gRPC transport credentials and the JSON gateway (which forwards it).
+func ConnIdentity(conn net.Conn) (Identity, error) {
+	return PeerIdentity(conn)
+}
+
 // ServerHandshake extracts the peer identity and fails closed if it cannot be read.
 func (unixCreds) ServerHandshake(conn net.Conn) (net.Conn, credentials.AuthInfo, error) {
-	id, err := PeerIdentity(conn)
+	id, err := ConnIdentity(conn)
 	if err != nil {
 		return nil, nil, err
 	}

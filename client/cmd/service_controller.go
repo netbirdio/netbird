@@ -121,7 +121,7 @@ func (p *program) Start(svc service.Service) error {
 		p.serverInstanceMu.Unlock()
 
 		if jsonListener != nil {
-			log.Warnf("JSON gateway (--enable-json-socket) re-dials the daemon locally; the HTTP client's identity is forwarded so per-caller authorization still applies, but restrict access to %s appropriately", jsonSocket)
+			log.Warnf("JSON gateway (--enable-json-socket) re-dials the daemon locally. The HTTP client's identity is forwarded so per-caller authorization still applies, but restrict access to %s appropriately", jsonSocket)
 			if err := p.startJSONGateway(jsonListener, daemonAddr); err != nil {
 				log.Fatalf("failed to start daemon JSON server: %v", err)
 			}

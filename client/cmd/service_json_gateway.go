@@ -5,15 +5,14 @@ package cmd
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 
 	"github.com/netbirdio/netbird/client/internal/ipcauth"
@@ -28,7 +27,7 @@ type jsonPeerCtxKey struct{}
 // gateway re-dials the daemon as the daemon's own identity, so without this the
 // daemon would see every JSON request as privileged.
 func jsonConnContext(ctx context.Context, c net.Conn) context.Context {
-	id, err := ipcauth.PeerIdentity(c)
+	id, err := ipcauth.ConnIdentity(c)
 	if err != nil {
 		log.Debugf("json gateway: cannot read HTTP client identity, requests won't carry it: %v", err)
 		return ctx
@@ -47,14 +46,17 @@ func jsonForwardIdentity(ctx context.Context, _ *http.Request) metadata.MD {
 	return ipcauth.ForwardIdentityMetadata(id)
 }
 
-func grpcGatewayEndpoint(addr string) string {
-	return strings.TrimPrefix(addr, "tcp://")
-}
-
 func (p *program) startJSONGateway(jsonListener *socketListener, daemonEndpoint string) error {
 	mux := runtime.NewServeMux(runtime.WithMetadata(jsonForwardIdentity))
-	opts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
-	if err := proto.RegisterDaemonServiceHandlerFromEndpoint(p.ctx, mux, grpcGatewayEndpoint(daemonEndpoint), opts); err != nil {
+
+	// Lazy client to the daemon, npipe-aware (grpc.NewClient does not connect
+	// until the first request, so this does not block startup before Serve).
+	target, opts := daemonDialTarget(daemonEndpoint)
+	conn, err := grpc.NewClient(target, opts...)
+	if err != nil {
+		return fmt.Errorf("create daemon client for JSON gateway: %w", err)
+	}
+	if err := proto.RegisterDaemonServiceHandler(p.ctx, mux, conn); err != nil {
 		return err
 	}
 

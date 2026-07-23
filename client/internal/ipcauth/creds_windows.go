@@ -42,17 +42,23 @@ func (winpipeCreds) ClientHandshake(_ context.Context, _ string, conn net.Conn) 
 	return conn, AuthInfo{}, nil
 }
 
-// ServerHandshake extracts the connecting client's identity from the pipe. Fails
-// closed if the handle or token cannot be read.
-func (winpipeCreds) ServerHandshake(conn net.Conn) (net.Conn, credentials.AuthInfo, error) {
+// ConnIdentity extracts the caller's identity from an accepted named-pipe
+// connection by impersonating the pipe client and reading its token. It is
+// shared by the gRPC transport credentials and the JSON gateway (which forwards
+// it). Requires the client to have connected at SECURITY_IDENTIFICATION.
+func ConnIdentity(conn net.Conn) (Identity, error) {
 	// go-winio's pipe connection embeds *win32File, which exposes Fd().
 	fdConn, ok := conn.(interface{ Fd() uintptr })
 	if !ok {
-		return nil, nil, fmt.Errorf("connection %T does not expose a pipe handle", conn)
+		return Identity{}, fmt.Errorf("connection %T does not expose a pipe handle", conn)
 	}
-	handle := windows.Handle(fdConn.Fd())
+	return pipeClientIdentity(windows.Handle(fdConn.Fd()))
+}
 
-	id, err := pipeClientIdentity(handle)
+// ServerHandshake extracts the connecting client's identity from the pipe. Fails
+// closed if the handle or token cannot be read.
+func (winpipeCreds) ServerHandshake(conn net.Conn) (net.Conn, credentials.AuthInfo, error) {
+	id, err := ConnIdentity(conn)
 	if err != nil {
 		return nil, nil, err
 	}
