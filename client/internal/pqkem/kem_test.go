@@ -18,11 +18,11 @@ func TestExchange_DerivesMatchingPSK(t *testing.T) {
 
 	require.Len(t, init.Offer(), OfferSize)
 
-	answer, pskB, err := Respond(init.Offer(), Binding{LocalWgPub: wgB, RemoteWgPub: wgA})
+	answer, pskB, err := Respond(init.Offer(), Binding{LocalID: wgB, RemoteID: wgA})
 	require.NoError(t, err)
 	require.Len(t, answer, AnswerSize)
 
-	pskA, err := init.Finish(answer, Binding{LocalWgPub: wgA, RemoteWgPub: wgB})
+	pskA, err := init.Finish(answer, Binding{LocalID: wgA, RemoteID: wgB})
 	require.NoError(t, err)
 
 	require.Equal(t, pskB, pskA, "both sides must derive the same PSK")
@@ -34,13 +34,13 @@ func TestExchange_PSKBoundToPeerIdentities(t *testing.T) {
 	require.NoError(t, err)
 
 	// responder computes with the honest pair...
-	_, pskHonest, err := Respond(init.Offer(), Binding{LocalWgPub: wgB, RemoteWgPub: wgA})
+	_, pskHonest, err := Respond(init.Offer(), Binding{LocalID: wgB, RemoteID: wgA})
 	require.NoError(t, err)
 
 	// ...a second responder run with a different peer identity yields a different PSK,
 	// even though the KEM material would otherwise combine identically.
 	wgC := []byte("peer-C-wireguard-pubkey-32bytes!")
-	_, pskWrong, err := Respond(init.Offer(), Binding{LocalWgPub: wgC, RemoteWgPub: wgA})
+	_, pskWrong, err := Respond(init.Offer(), Binding{LocalID: wgC, RemoteID: wgA})
 	require.NoError(t, err)
 
 	require.NotEqual(t, pskHonest, pskWrong, "PSK must be bound to the peer pair")
@@ -70,12 +70,12 @@ func TestExchange_ReportSizesAndTiming(t *testing.T) {
 		tInit += time.Since(s0)
 
 		s1 := time.Now()
-		answer, _, err := Respond(init.Offer(), Binding{LocalWgPub: wgB, RemoteWgPub: wgA})
+		answer, _, err := Respond(init.Offer(), Binding{LocalID: wgB, RemoteID: wgA})
 		require.NoError(t, err)
 		tResp += time.Since(s1)
 
 		s2 := time.Now()
-		_, err = init.Finish(answer, Binding{LocalWgPub: wgA, RemoteWgPub: wgB})
+		_, err = init.Finish(answer, Binding{LocalID: wgA, RemoteID: wgB})
 		require.NoError(t, err)
 		tFinish += time.Since(s2)
 	}

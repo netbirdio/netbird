@@ -8,9 +8,9 @@ import (
 // handleOffer (responder) derives and sends the answer for a new exchange, or
 // resends the cached answer for a duplicate offer (same exchangeID) without
 // re-deriving. The responder is purely reactive: no retransmit loop, no deadline.
-func (m *Manager) handleOffer(remoteWgKey string, o *OfferMsg) error {
+func (m *Manager) handleOffer(remoteID string, o *OfferMsg) error {
 	m.mu.Lock()
-	if ex := m.exchanges[remoteWgKey]; ex != nil && ex.id == o.ExchangeID {
+	if ex := m.exchanges[remoteID]; ex != nil && ex.id == o.ExchangeID {
 		state, last := ex.state, ex.lastSent
 		m.mu.Unlock()
 		if state == stateReserved {
@@ -18,13 +18,13 @@ func (m *Manager) handleOffer(remoteWgKey string, o *OfferMsg) error {
 			// dropping avoids a second (randomized -> divergent) derivation.
 			return nil
 		}
-		return m.transport.Send(remoteWgKey, last)
+		return m.transport.Send(remoteID, last)
 	}
 	// Reserve the slot so a concurrent duplicate offer bails.
-	m.exchanges[remoteWgKey] = &exchangeCtl{id: o.ExchangeID, state: stateReserved, startedAt: time.Now()}
+	m.exchanges[remoteID] = &exchangeCtl{id: o.ExchangeID, state: stateReserved, startedAt: time.Now()}
 	m.mu.Unlock()
 
-	answerBytes, psk, err := Respond(o.KEMOffer, m.binding(remoteWgKey))
+	answerBytes, psk, err := Respond(o.KEMOffer, m.binding(remoteID))
 	if err != nil {
 		return err
 	}
@@ -34,22 +34,22 @@ func (m *Manager) handleOffer(remoteWgKey string, o *OfferMsg) error {
 	}
 
 	m.mu.Lock()
-	if ex := m.exchanges[remoteWgKey]; ex != nil && ex.id == o.ExchangeID {
+	if ex := m.exchanges[remoteID]; ex != nil && ex.id == o.ExchangeID {
 		ex.state = stateAwaitingConfirm
 		ex.lastSent = raw
 		ex.pendingPSK = psk
 	}
 	m.mu.Unlock()
 
-	return m.transport.Send(remoteWgKey, raw)
+	return m.transport.Send(remoteID, raw)
 }
 
 // handleAnswer (initiator) derives the PSK, surfaces it, and sends the confirm, then
 // switches the retransmit payload to the confirm. Only valid in stateAwaitingAnswer;
 // advancing the state under the lock makes a concurrent/duplicate answer bail.
-func (m *Manager) handleAnswer(remoteWgKey string, a *AnswerMsg) error {
+func (m *Manager) handleAnswer(remoteID string, a *AnswerMsg) error {
 	m.mu.Lock()
-	ex := m.exchanges[remoteWgKey]
+	ex := m.exchanges[remoteID]
 	if ex == nil || ex.id != a.ExchangeID || ex.state != stateAwaitingAnswer {
 		m.mu.Unlock()
 		return nil
@@ -59,11 +59,11 @@ func (m *Manager) handleAnswer(remoteWgKey string, a *AnswerMsg) error {
 	ex.initiator = nil
 	m.mu.Unlock()
 
-	psk, err := init.Finish(a.KEMAnswer, m.binding(remoteWgKey))
+	psk, err := init.Finish(a.KEMAnswer, m.binding(remoteID))
 	if err != nil {
 		return err
 	}
-	if err := m.wg.OnNewPSKReady(remoteWgKey, psk); err != nil {
+	if err := m.cbHandler.OnNewPSKReady(remoteID, psk); err != nil {
 		return err
 	}
 	raw, err := (&ConfirmMsg{ExchangeID: a.ExchangeID}).Encode()
@@ -72,42 +72,42 @@ func (m *Manager) handleAnswer(remoteWgKey string, a *AnswerMsg) error {
 	}
 
 	m.mu.Lock()
-	if ex := m.exchanges[remoteWgKey]; ex != nil && ex.id == a.ExchangeID {
+	if ex := m.exchanges[remoteID]; ex != nil && ex.id == a.ExchangeID {
 		ex.lastSent = raw // loop now retransmits the confirm
-		m.established[remoteWgKey] = true
-		m.failures[remoteWgKey] = 0
+		m.established[remoteID] = true
+		m.failures[remoteID] = 0
 		_ = time.Since(ex.startedAt) // convergence latency (metrics hook, later step)
 	}
 	m.mu.Unlock()
 
-	return m.transport.Send(remoteWgKey, raw)
+	return m.transport.Send(remoteID, raw)
 }
 
 // handleConfirm (responder) commits the pending PSK. Only valid in
 // stateAwaitingConfirm; duplicate confirms (the initiator best-effort resends it)
 // find the exchange gone and are ignored.
-func (m *Manager) handleConfirm(remoteWgKey string, c *ConfirmMsg) error {
+func (m *Manager) handleConfirm(remoteID string, c *ConfirmMsg) error {
 	m.mu.Lock()
-	ex := m.exchanges[remoteWgKey]
+	ex := m.exchanges[remoteID]
 	if ex == nil || ex.id != c.ExchangeID || ex.state != stateAwaitingConfirm {
 		m.mu.Unlock()
 		return nil
 	}
 	psk := ex.pendingPSK
-	delete(m.exchanges, remoteWgKey)
-	m.established[remoteWgKey] = true
-	m.failures[remoteWgKey] = 0
+	delete(m.exchanges, remoteID)
+	m.established[remoteID] = true
+	m.failures[remoteID] = 0
 	_ = time.Since(ex.startedAt) // convergence latency (metrics hook, later step)
 	m.mu.Unlock()
 
-	return m.wg.OnNewPSKReady(remoteWgKey, psk)
+	return m.cbHandler.OnNewPSKReady(remoteID, psk)
 }
 
 // initiatorLoop retransmits the initiator's outstanding message, keyed off the
 // exchange state: the offer while awaiting the answer (bounded by maxRetries ->
 // failure), then the confirm a few best-effort times before stopping. The
 // convergence deadline is thus derived from maxRetries * retryInterval.
-func (m *Manager) initiatorLoop(ctx context.Context, remoteWgKey string, id ExchangeID) {
+func (m *Manager) initiatorLoop(ctx context.Context, remoteID string, id ExchangeID) {
 	defer m.wait.Done()
 	t := time.NewTicker(m.retryInterval)
 	defer t.Stop()
@@ -119,7 +119,7 @@ func (m *Manager) initiatorLoop(ctx context.Context, remoteWgKey string, id Exch
 			return
 		case <-t.C:
 			m.mu.Lock()
-			ex := m.exchanges[remoteWgKey]
+			ex := m.exchanges[remoteID]
 			if ex == nil || ex.id != id {
 				m.mu.Unlock()
 				return
@@ -128,27 +128,27 @@ func (m *Manager) initiatorLoop(ctx context.Context, remoteWgKey string, id Exch
 			switch ex.state {
 			case stateAwaitingAnswer:
 				if offerAttempts >= m.maxRetries {
-					delete(m.exchanges, remoteWgKey)
-					fail := m.registerFailureLocked(remoteWgKey)
+					delete(m.exchanges, remoteID)
+					fail := m.registerFailureLocked(remoteID)
 					m.mu.Unlock()
-					m.raiseFailure(remoteWgKey, fail)
+					m.raiseFailure(remoteID, fail)
 					return
 				}
 				msg := ex.lastSent
 				offerAttempts++
 				m.mu.Unlock()
-				m.retransmit(remoteWgKey, msg)
+				m.retransmit(remoteID, msg)
 
 			case stateConfirming:
 				if confirmsSent >= confirmRetransmits {
-					delete(m.exchanges, remoteWgKey)
+					delete(m.exchanges, remoteID)
 					m.mu.Unlock()
 					return
 				}
 				msg := ex.lastSent
 				confirmsSent++
 				m.mu.Unlock()
-				m.retransmit(remoteWgKey, msg)
+				m.retransmit(remoteID, msg)
 
 			default:
 				m.mu.Unlock()
@@ -162,30 +162,30 @@ func (m *Manager) initiatorLoop(ctx context.Context, remoteWgKey string, id Exch
 // an initial exchange (peer never established) fails immediately; a rekey tolerates
 // up to maxRekeyFailures consecutive misses (we stay on the still-valid previous
 // PSK) before failing. Assumes m.mu is held.
-func (m *Manager) registerFailureLocked(remoteWgKey string) bool {
-	if !m.established[remoteWgKey] {
+func (m *Manager) registerFailureLocked(remoteID string) bool {
+	if !m.established[remoteID] {
 		return true
 	}
-	m.failures[remoteWgKey]++
-	if m.failures[remoteWgKey] >= m.maxRekeyFailures {
-		m.failures[remoteWgKey] = 0
+	m.failures[remoteID]++
+	if m.failures[remoteID] >= m.maxRekeyFailures {
+		m.failures[remoteID] = 0
 		return true
 	}
 	return false
 }
 
-func (m *Manager) raiseFailure(remoteWgKey string, fail bool) {
+func (m *Manager) raiseFailure(remoteID string, fail bool) {
 	if !fail {
-		m.logger.Warn("pqkem rekey attempt timed out, will retry next cycle", "peer", remoteWgKey)
+		m.logger.Warn("pqkem rekey attempt timed out, will retry next cycle", "peer", remoteID)
 		return
 	}
-	if err := m.wg.OnRekeyFailed(remoteWgKey); err != nil {
-		m.logger.Error("pqkem OnRekeyFailed handler error", "peer", remoteWgKey, "err", err)
+	if err := m.cbHandler.OnRekeyFailed(remoteID); err != nil {
+		m.logger.Error("pqkem OnRekeyFailed handler error", "peer", remoteID, "err", err)
 	}
 }
 
-func (m *Manager) retransmit(remoteWgKey string, msg []byte) {
-	if err := m.transport.Send(remoteWgKey, msg); err != nil {
-		m.logger.Warn("pqkem retransmit failed", "peer", remoteWgKey, "err", err)
+func (m *Manager) retransmit(remoteID string, msg []byte) {
+	if err := m.transport.Send(remoteID, msg); err != nil {
+		m.logger.Warn("pqkem retransmit failed", "peer", remoteID, "err", err)
 	}
 }
