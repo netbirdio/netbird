@@ -15,34 +15,26 @@ const (
 	// forcing one.
 	DefaultRekeyInterval = 2 * time.Minute
 	// DefaultRetryInterval is how often the initiator retransmits its outstanding
-	// message (offer, then confirm) while an exchange is in flight.
+	// data-path message while an exchange is in flight.
 	DefaultRetryInterval = 2 * time.Second
-	// DefaultMaxRetries bounds how many ticks an exchange may run before the offer
-	// or the wait for the data-path rekey is declared failed. The convergence
-	// deadline is thus derived as MaxRetries * RetryInterval — no separate timer.
+	// DefaultMaxRetries bounds how many ticks an exchange may run before it is
+	// declared failed. The convergence deadline is thus MaxRetries * RetryInterval.
 	DefaultMaxRetries = 10
 	// DefaultMaxRekeyFailures is how many consecutive rekey (non-initial) failures
 	// are tolerated before OnRekeyFailed. The initial exchange fails immediately.
 	DefaultMaxRekeyFailures = 3
 	// confirmRetransmits is how many times the initiator best-effort resends the
-	// confirm over the data path, to cover its loss without a dedicated goroutine.
+	// confirm over the data path, to cover its loss.
 	confirmRetransmits = 3
 )
 
-// Transport carries exchange messages over the two available channels; the library
-// picks which. It is the analogue of go-rosenpass's Conn seam.
-//
-// Model: a message rides the channel keyed with the CURRENTLY valid key. Before a
-// data path exists (initial bootstrap) that is the out-of-band signalling channel;
-// once the data path is up (after OnDataPathRekeyed) offers/answers ride it, and the
-// confirm ALWAYS rides the data path (so its arrival proves the new key works).
+// Transport pushes a message over the peer's data path (e.g. a WireGuard tunnel).
+// It is the library's only outbound send: the control-plane (signalling) channel is
+// host-driven — the library hands the host offer/answer payloads to piggyback on the
+// host's own offer/answer, it never pushes there itself (that would drive the host's
+// connection negotiation, which is not the library's to control).
 type Transport interface {
-	// SendDataPath sends over the peer's established data path (e.g. a WireGuard
-	// tunnel). The consumer routes it accordingly.
 	SendDataPath(remoteID string, msg []byte) error
-	// SendSignal sends over the out-of-band signalling channel, handled outside the
-	// library by the consumer.
-	SendSignal(remoteID string, msg []byte) error
 }
 
 // exchangeState is the single source of truth for an exchange's role and phase.
@@ -58,9 +50,11 @@ const (
 
 // exchangeCtl holds all state for one in-flight exchange with a peer, under the
 // Manager's single lock. state drives every decision. lastSent is the current
-// retransmit payload (offer, then confirm). initiator is the ephemeral handle used
-// at Finish; pendingPSK is the responder's derived key. Only the initiator runs a
-// retransmit loop, so only it sets cancel.
+// data-path retransmit payload. initiator is the ephemeral handle used at Finish;
+// pendingPSK is the responder's derived key. viaSignal records that the offer was
+// handed to the host for the signalling channel (bootstrap), so the loop does not
+// retransmit it on the data path (the host retransmits it with its own negotiation).
+// Only the initiator runs a retransmit loop, so only it sets cancel.
 type exchangeCtl struct {
 	id         ExchangeID
 	state      exchangeState
@@ -69,13 +63,13 @@ type exchangeCtl struct {
 	lastSent   []byte
 	initiator  *Initiator
 	pendingPSK PSK
+	viaSignal  bool
 }
 
 // Manager is the stateful orchestrator — the analogue of go-rosenpass's Server. It
-// runs the per-peer rekey timer, drives the X25519MLKEM768 exchange over the
-// Transport, and surfaces the derived PSK and convergence to the host via
-// CallbackHandler. The cryptography is the pure kem.go primitives; all state lives
-// here under one lock.
+// runs the per-peer rekey timer, drives the X25519MLKEM768 exchange, and surfaces the
+// derived PSK and convergence to the host via CallbackHandler. The cryptography is
+// the pure kem.go primitives; all state lives here under one lock.
 type Manager struct {
 	localID   string
 	transport Transport
@@ -95,12 +89,15 @@ type Manager struct {
 	exchanges   map[string]*exchangeCtl       // in-flight exchange per peer
 	established map[string]bool               // peer has completed at least one exchange
 	failures    map[string]int                // consecutive rekey failures per peer
-	dataPathUp  map[string]bool               // peer's data path is up (offers/answers may ride it)
-	wait        sync.WaitGroup
+	// dataSend holds the peer's data-path sender when the data path is up; nil (absent)
+	// means it is down. Toggled by OnDataPathRekeyed / OnDataPathDown. Its presence is
+	// the "a data path exists" signal.
+	dataSend map[string]func(string, []byte) error
+	wait     sync.WaitGroup
 }
 
-// NewManager builds a manager for the local peer identified by its peer identity
-// key (used for the deterministic initiator role and the identity binding). A zero
+// NewManager builds a manager for the local peer identified by its peer identity key
+// (used for the deterministic initiator role and the identity binding). A zero
 // interval falls back to DefaultRekeyInterval; a nil logger to slog.Default().
 func NewManager(localID string, t Transport, h CallbackHandler, interval time.Duration, logger *slog.Logger) *Manager {
 	if interval <= 0 {
@@ -125,7 +122,7 @@ func NewManager(localID string, t Transport, h CallbackHandler, interval time.Du
 		exchanges:        make(map[string]*exchangeCtl),
 		established:      make(map[string]bool),
 		failures:         make(map[string]int),
-		dataPathUp:       make(map[string]bool),
+		dataSend:         make(map[string]func(string, []byte) error),
 	}
 }
 
@@ -164,7 +161,7 @@ func (m *Manager) RemovePeer(remoteID string) {
 	}
 	delete(m.established, remoteID)
 	delete(m.failures, remoteID)
-	delete(m.dataPathUp, remoteID)
+	delete(m.dataSend, remoteID)
 	m.mu.Unlock()
 }
 
@@ -178,14 +175,89 @@ func (m *Manager) Stop() {
 	m.mu.Unlock()
 }
 
-// OnDataPathRekeyed notifies the library that the peer's data path is up and freshly
-// keyed with the latest PSK (fired on first establishment AND every rekey — the same
-// event). It marks the data path usable and, if we are the initiator waiting to
-// confirm, sends the confirm over the data path (its arrival proves to the responder
-// that we operate on the new key, correlated by exchangeID).
+// ---- Signalling channel (host-driven; rides the host's offer/answer) ----
+
+// SignalOffer returns the KEM offer for the host to embed in its outgoing offer to
+// remoteID (bootstrap). It returns (nil, nil) when the local peer is not the
+// initiator. It is idempotent for an in-flight bootstrap: a repeat call (e.g. the
+// host retransmitting its offer) returns the same offer rather than starting a new
+// exchange.
+func (m *Manager) SignalOffer(remoteID string) ([]byte, error) {
+	if !m.IsInitiator(remoteID) {
+		return nil, nil
+	}
+	m.mu.Lock()
+	if ex := m.exchanges[remoteID]; ex != nil && ex.viaSignal && ex.state == stateAwaitingAnswer {
+		last := ex.lastSent
+		m.mu.Unlock()
+		return last, nil
+	}
+	m.mu.Unlock()
+	return m.startExchange(remoteID, true)
+}
+
+// SignalOnOffer processes a KEM offer the host extracted from an incoming offer and
+// returns the KEM answer for the host to embed in its outgoing answer.
+func (m *Manager) SignalOnOffer(remoteID string, offer []byte) ([]byte, error) {
+	typ, msg, err := Decode(offer)
+	if err != nil {
+		return nil, fmt.Errorf("decode signal offer from %s: %w", remoteID, err)
+	}
+	if typ != MsgOffer {
+		return nil, fmt.Errorf("expected offer from %s, got type %d", remoteID, typ)
+	}
+	return m.processOffer(remoteID, msg.(*OfferMsg))
+}
+
+// SignalOnAnswer processes a KEM answer the host extracted from an incoming answer.
+// There is no reply: the confirm rides the data path after OnDataPathRekeyed.
+func (m *Manager) SignalOnAnswer(remoteID string, answer []byte) error {
+	typ, msg, err := Decode(answer)
+	if err != nil {
+		return fmt.Errorf("decode signal answer from %s: %w", remoteID, err)
+	}
+	if typ != MsgAnswer {
+		return fmt.Errorf("expected answer from %s, got type %d", remoteID, typ)
+	}
+	return m.processAnswer(remoteID, msg.(*AnswerMsg))
+}
+
+// ---- Data path (library-driven push) ----
+
+// OnDataPathMessage feeds a KEM message received over the data path (tunnel) and
+// pushes any reply back over the data path.
+func (m *Manager) OnDataPathMessage(remoteID string, raw []byte) error {
+	typ, msg, err := Decode(raw)
+	if err != nil {
+		return fmt.Errorf("decode data-path msg from %s: %w", remoteID, err)
+	}
+	switch typ {
+	case MsgOffer:
+		answer, err := m.processOffer(remoteID, msg.(*OfferMsg))
+		if err != nil {
+			return err
+		}
+		if answer == nil {
+			return nil
+		}
+		return m.pushDataPath(remoteID, answer)
+	case MsgAnswer:
+		return m.processAnswer(remoteID, msg.(*AnswerMsg))
+	case MsgConfirm:
+		return m.processConfirm(remoteID, msg.(*ConfirmMsg))
+	default:
+		return fmt.Errorf("unhandled data-path message type %d from %s", typ, remoteID)
+	}
+}
+
+// OnDataPathRekeyed notifies that the peer's data path is up and freshly keyed with
+// the latest PSK (fired on first establishment AND every rekey — the same event). It
+// marks the data path usable and, if we are the initiator waiting to confirm, sends
+// the confirm over the data path (its arrival proves to the responder that we operate
+// on the new key, correlated by exchangeID).
 func (m *Manager) OnDataPathRekeyed(remoteID string) {
 	m.mu.Lock()
-	m.dataPathUp[remoteID] = true
+	m.dataSend[remoteID] = m.transport.SendDataPath
 	ex := m.exchanges[remoteID]
 	if ex == nil || ex.state != stateAwaitingRekey {
 		m.mu.Unlock()
@@ -204,69 +276,20 @@ func (m *Manager) OnDataPathRekeyed(remoteID string) {
 	_ = time.Since(ex.startedAt) // convergence latency (metrics hook, later step)
 	m.mu.Unlock()
 
-	if err := m.transport.SendDataPath(remoteID, confirm); err != nil {
+	if err := m.pushDataPath(remoteID, confirm); err != nil {
 		m.logger.Warn("pqkem send confirm failed", "peer", remoteID, "err", err)
 	}
 }
 
-// HandleInbound decodes an incoming message and drives the exchange.
-func (m *Manager) HandleInbound(remoteID string, raw []byte) error {
-	typ, msg, err := Decode(raw)
-	if err != nil {
-		return fmt.Errorf("decode from %s: %w", remoteID, err)
-	}
-	switch typ {
-	case MsgOffer:
-		return m.handleOffer(remoteID, msg.(*OfferMsg))
-	case MsgAnswer:
-		return m.handleAnswer(remoteID, msg.(*AnswerMsg))
-	case MsgConfirm:
-		return m.handleConfirm(remoteID, msg.(*ConfirmMsg))
-	default:
-		return fmt.Errorf("unhandled message type %d from %s", typ, remoteID)
-	}
-}
-
-// initiateRekey starts a fresh exchange when the local peer is the initiator. The
-// offer rides the data path if it is up (rekey) or the signalling channel otherwise
-// (initial bootstrap).
-func (m *Manager) initiateRekey(remoteID string) error {
-	if !m.IsInitiator(remoteID) {
-		return nil
-	}
-	init, err := NewInitiator()
-	if err != nil {
-		return err
-	}
-	id, err := newExchangeID()
-	if err != nil {
-		return err
-	}
-	raw, err := (&OfferMsg{ExchangeID: id, KEMOffer: init.Offer()}).Encode()
-	if err != nil {
-		return err
-	}
-
-	ctx, cancel := context.WithCancel(m.rootCtx)
+// OnDataPathDown notifies that the peer's data path went down; further rekeys wait
+// until it is up again (the host re-bootstraps over signalling on reconnect).
+func (m *Manager) OnDataPathDown(remoteID string) {
 	m.mu.Lock()
-	if old := m.exchanges[remoteID]; old != nil && old.cancel != nil {
-		old.cancel()
-	}
-	m.exchanges[remoteID] = &exchangeCtl{
-		id:        id,
-		state:     stateAwaitingAnswer,
-		startedAt: time.Now(),
-		cancel:    cancel,
-		lastSent:  raw,
-		initiator: init,
-	}
+	delete(m.dataSend, remoteID)
 	m.mu.Unlock()
-
-	m.wait.Add(1)
-	go m.initiatorLoop(ctx, remoteID, id)
-
-	return m.send(remoteID, raw)
 }
+
+// ---- internals ----
 
 func (m *Manager) rekeyLoop(ctx context.Context, remoteID string) {
 	defer m.wait.Done()
@@ -277,23 +300,36 @@ func (m *Manager) rekeyLoop(ctx context.Context, remoteID string) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			if err := m.initiateRekey(remoteID); err != nil {
+			m.mu.Lock()
+			_, dpUp := m.dataSend[remoteID]
+			_, inFlight := m.exchanges[remoteID]
+			m.mu.Unlock()
+			// Rekeys ride the data path only; skip when it is down (the host will
+			// re-bootstrap over signalling on reconnect) or an exchange is in flight.
+			if !dpUp || inFlight || !m.IsInitiator(remoteID) {
+				continue
+			}
+			offer, err := m.startExchange(remoteID, false)
+			if err != nil {
 				m.logger.Error("pqkem rekey failed to start", "peer", remoteID, "err", err)
+				continue
+			}
+			if err := m.pushDataPath(remoteID, offer); err != nil {
+				m.logger.Warn("pqkem send rekey offer failed", "peer", remoteID, "err", err)
 			}
 		}
 	}
 }
 
-// send routes offer/answer over the data path when it is up, else the signalling
-// channel. The confirm never goes through here — it always uses SendDataPath.
-func (m *Manager) send(remoteID string, msg []byte) error {
+// pushDataPath sends over the peer's data path, erroring if it is down.
+func (m *Manager) pushDataPath(remoteID string, msg []byte) error {
 	m.mu.Lock()
-	viaDataPath := m.dataPathUp[remoteID]
+	send := m.dataSend[remoteID]
 	m.mu.Unlock()
-	if viaDataPath {
-		return m.transport.SendDataPath(remoteID, msg)
+	if send == nil {
+		return fmt.Errorf("no data path for peer %s", remoteID)
 	}
-	return m.transport.SendSignal(remoteID, msg)
+	return send(remoteID, msg)
 }
 
 func (m *Manager) binding(remoteID string) Binding {
