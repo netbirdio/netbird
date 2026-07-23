@@ -35,9 +35,7 @@ func PeerIdentity(c net.Conn) (Identity, error) {
 	}
 
 	return Identity{
-		UID:    cred.Uid,
-		GID:    cred.Gid,
-		PID:    cred.Pid,
-		HasPID: true,
+		UID: cred.Uid,
+		GID: cred.Gid,
 	}, nil
 }

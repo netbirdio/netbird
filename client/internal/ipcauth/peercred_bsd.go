@@ -11,8 +11,7 @@ import (
 
 // PeerIdentity reads the kernel-authenticated identity of the process on the
 // other end of a Unix socket connection via LOCAL_PEERCRED (xucred). xucred
-// carries the uid and group list but no pid, so audit on these platforms is
-// uid/gid-based (HasPID is false); PID via LOCAL_PEERPID is a possible follow-up.
+// carries the uid and primary group.
 func PeerIdentity(c net.Conn) (Identity, error) {
 	uc, ok := c.(*net.UnixConn)
 	if !ok {

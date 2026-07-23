@@ -29,11 +29,6 @@ type Identity struct {
 	UID uint32
 	GID uint32
 
-	// PID is the caller's process ID, for audit only. HasPID is false when the
-	// platform cannot supply it (e.g. Darwin/FreeBSD xucred carries no PID).
-	PID    int32
-	HasPID bool
-
 	// SID is the caller's Windows security identifier (empty on Unix).
 	SID string
 
@@ -68,13 +63,7 @@ func (i Identity) IsPrivileged() bool {
 // String renders the identity for audit logs.
 func (i Identity) String() string {
 	if i.IsWindows() {
-		if i.HasPID {
-			return fmt.Sprintf("sid=%s elevated=%t pid=%d", i.SID, i.Elevated, i.PID)
-		}
 		return fmt.Sprintf("sid=%s elevated=%t", i.SID, i.Elevated)
-	}
-	if i.HasPID {
-		return fmt.Sprintf("uid=%d gid=%d pid=%d", i.UID, i.GID, i.PID)
 	}
 	return fmt.Sprintf("uid=%d gid=%d", i.UID, i.GID)
 }

@@ -21,7 +21,7 @@ func TestIdentityFromContext_WrongAuthInfo(t *testing.T) {
 }
 
 func TestIdentityFromContext_Present(t *testing.T) {
-	want := Identity{UID: 1000, GID: 1000, PID: 4242, HasPID: true}
+	want := Identity{UID: 1000, GID: 1000}
 	ctx := peer.NewContext(context.Background(), &peer.Peer{
 		AuthInfo: AuthInfo{
 			CommonAuthInfo: credentials.CommonAuthInfo{SecurityLevel: credentials.NoSecurity},

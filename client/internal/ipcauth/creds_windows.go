@@ -31,11 +31,6 @@ func DefaultPipeSDDL() string {
 // NewTransportCredentials returns gRPC transport credentials that derive the
 // caller's identity from the named-pipe client token.
 //
-// It uses ImpersonateNamedPipeClient, which binds the client's security context
-// to the *connection* in the kernel — there is no PID lookup, so it is immune to
-// the PID-reuse race that OpenProcess-by-PID would have. Per threat-model
-// M-NOIMP, impersonation is used only to read the client token, then reverted
-// immediately; the daemon never performs privileged work while impersonating.
 // This requires the client to dial at SECURITY_IDENTIFICATION (see dialNamedPipe).
 func NewTransportCredentials() credentials.TransportCredentials {
 	return winpipeCreds{}
@@ -77,8 +72,7 @@ func (winpipeCreds) OverrideServerName(string) error { return nil }
 
 // pipeClientIdentity reads the connecting client's user SID, enabled group SIDs,
 // and elevation by impersonating the pipe client on this thread and reading the
-// impersonation token. Impersonation is connection-bound (no PID race) and the
-// window is kept minimal and pinned to the OS thread (impersonation is thread-local).
+// impersonation token.
 func pipeClientIdentity(handle windows.Handle) (id Identity, err error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -123,7 +117,6 @@ func pipeClientIdentity(handle windows.Handle) (id Identity, err error) {
 		SID:      tu.User.Sid.String(),
 		Groups:   groups,
 		Elevated: token.IsElevated(),
-		HasPID:   false,
 	}, nil
 }
 

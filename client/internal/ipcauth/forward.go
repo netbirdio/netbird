@@ -14,7 +14,6 @@ import (
 const (
 	mdFwdUID = "x-netbird-fwd-uid"
 	mdFwdGID = "x-netbird-fwd-gid"
-	mdFwdPID = "x-netbird-fwd-pid"
 )
 
 // ForwardIdentityMetadata encodes a Unix identity for the gateway to forward to
@@ -24,14 +23,10 @@ func ForwardIdentityMetadata(id Identity) metadata.MD {
 	if id.IsWindows() {
 		return nil
 	}
-	md := metadata.Pairs(
+	return metadata.Pairs(
 		mdFwdUID, strconv.FormatUint(uint64(id.UID), 10),
 		mdFwdGID, strconv.FormatUint(uint64(id.GID), 10),
 	)
-	if id.HasPID {
-		md.Set(mdFwdPID, strconv.FormatInt(int64(id.PID), 10))
-	}
-	return md
 }
 
 // forwardedIdentity extracts a forwarded Unix identity from incoming gRPC
@@ -53,12 +48,6 @@ func forwardedIdentity(ctx context.Context) (Identity, bool) {
 	if g := mdFirst(md, mdFwdGID); g != "" {
 		if v, err := strconv.ParseUint(g, 10, 32); err == nil {
 			id.GID = uint32(v)
-		}
-	}
-	if p := mdFirst(md, mdFwdPID); p != "" {
-		if v, err := strconv.ParseInt(p, 10, 32); err == nil {
-			id.PID = int32(v)
-			id.HasPID = true
 		}
 	}
 	return id, true
