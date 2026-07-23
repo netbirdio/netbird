@@ -414,8 +414,8 @@ render_compose_common() {
       - AUTH_AUTHORITY=https://${NETBIRD_DOMAIN}/oauth2
       - USE_AUTH0=false
       - AUTH_SUPPORTED_SCOPES=${NETBIRD_AUTH_SUPPORTED_SCOPES}
-      - AUTH_REDIRECT_URI=/nb-auth
-      - AUTH_SILENT_REDIRECT_URI=/nb-silent-auth
+      - AUTH_REDIRECT_URI=/#callback
+      - AUTH_SILENT_REDIRECT_URI=/#silent-callback
       - NETBIRD_TOKEN_SOURCE=accessToken
       - NGINX_SSL_PORT=443
       - LETSENCRYPT_DOMAIN=
@@ -634,8 +634,8 @@ server:
     localAuthDisabled: false
     signKeyRefreshEnabled: false
     dashboardRedirectURIs:
-      - "https://${NETBIRD_DOMAIN}/nb-auth"
-      - "https://${NETBIRD_DOMAIN}/nb-silent-auth"
+      - "https://${NETBIRD_DOMAIN}/#callback"
+      - "https://${NETBIRD_DOMAIN}/#silent-callback"
     cliRedirectURIs:
       - "http://localhost:53000/"
 

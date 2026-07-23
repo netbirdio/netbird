@@ -352,12 +352,12 @@ func generateConfig(cfg *migrationConfig, connectorConfig *dex.Connector) error 
 		return fmt.Errorf("build issuer URL: %w", err)
 	}
 
-	dashboardRedirectURL, err := buildURL(cfg.dashboardURL, "/nb-auth")
+	dashboardRedirectURL, err := buildURL(cfg.dashboardURL, "/#callback")
 	if err != nil {
 		return fmt.Errorf("build dashboard redirect URL: %w", err)
 	}
 
-	dashboardSilentRedirectURL, err := buildURL(cfg.dashboardURL, "/nb-silent-auth")
+	dashboardSilentRedirectURL, err := buildURL(cfg.dashboardURL, "/#silent-callback")
 	if err != nil {
 		return fmt.Errorf("build dashboard silent redirect URL: %w", err)
 	}
@@ -413,9 +413,19 @@ func buildURL(uri, path string) (string, error) {
 		uri = "https://" + uri
 	}
 
+	path, fragment, _ := strings.Cut(path, "#")
 	val, err := url.JoinPath(uri, path)
 	if err != nil {
 		return "", err
+	}
+
+	if fragment != "" {
+		parsed, err := url.Parse(val)
+		if err != nil {
+			return "", err
+		}
+		parsed.Fragment = fragment
+		return parsed.String(), nil
 	}
 
 	return val, nil
@@ -435,8 +445,8 @@ AUTH_AUDIENCE=netbird-dashboard
 AUTH_CLIENT_ID=netbird-dashboard
 AUTH_AUTHORITY=%s
 AUTH_SUPPORTED_SCOPES=openid profile email groups
-AUTH_REDIRECT_URI=/nb-auth
-AUTH_SILENT_REDIRECT_URI=/nb-silent-auth
+AUTH_REDIRECT_URI=/#callback
+AUTH_SILENT_REDIRECT_URI=/#silent-callback
 	`,
 		authAuthority,
 	)

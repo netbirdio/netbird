@@ -282,7 +282,10 @@ jobs:
         run: test -f zitadel.env
 
       - name: test dashboard.env file gen postgres
-        run: test -f dashboard.env
+        run: |
+          test -f dashboard.env
+          grep -Fx 'AUTH_REDIRECT_URI=/#callback' dashboard.env
+          grep -Fx 'AUTH_SILENT_REDIRECT_URI=/#silent-callback' dashboard.env
 
       - name: test relay.env file gen postgres
         run: test -f relay.env
