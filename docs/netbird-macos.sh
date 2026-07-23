@@ -58,6 +58,7 @@ preSharedKey="$NULL"                       # secret; redacted in log
 allowServerSSH='true'
 blockInbound="$NULL"
 disableAutoConnect="$NULL"
+disableAutostart="$NULL"
 disableClientRoutes="$NULL"
 disableServerRoutes="$NULL"
 disableMetricsCollection="$NULL"
@@ -155,6 +156,7 @@ main() {
   is_set "$allowServerSSH"            && emit_bool    allowServerSSH            "$allowServerSSH"
   is_set "$blockInbound"              && emit_bool    blockInbound              "$blockInbound"
   is_set "$disableAutoConnect"        && emit_bool    disableAutoConnect        "$disableAutoConnect"
+  is_set "$disableAutostart"          && emit_bool    disableAutostart          "$disableAutostart"
   is_set "$disableClientRoutes"       && emit_bool    disableClientRoutes       "$disableClientRoutes"
   is_set "$disableServerRoutes"       && emit_bool    disableServerRoutes       "$disableServerRoutes"
   is_set "$disableMetricsCollection"  && emit_bool    disableMetricsCollection  "$disableMetricsCollection"

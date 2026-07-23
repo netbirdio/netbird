@@ -331,7 +331,7 @@ func TestEmbeddedIdPConfig_ToYAMLConfig_IncludesDeviceCallbackRedirectURI(t *tes
 
 	var cliRedirectURIs []string
 	for _, client := range yamlConfig.StaticClients {
-		if client.ID == staticClientCLI {
+		if client.ID == StaticClientCLI {
 			cliRedirectURIs = client.RedirectURIs
 			break
 		}

@@ -18,6 +18,7 @@ import (
 	"github.com/netbirdio/netbird/client/embed"
 	"github.com/netbirdio/netbird/proxy"
 	nbacme "github.com/netbirdio/netbird/proxy/internal/acme"
+	"github.com/netbirdio/netbird/trustedproxy"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -211,7 +212,7 @@ func runServer(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid domain value %q: %w", proxyDomain, err)
 	}
 
-	parsedTrustedProxies, err := proxy.ParseTrustedProxies(trustedProxies)
+	parsedTrustedProxies, err := trustedproxy.Parse(trustedProxies)
 	if err != nil {
 		return fmt.Errorf("invalid --trusted-proxies: %w", err)
 	}

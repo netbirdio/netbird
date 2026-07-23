@@ -21,8 +21,11 @@ import (
 )
 
 const (
-	staticClientDashboard         = "netbird-dashboard"
-	staticClientCLI               = "netbird-cli"
+	StaticClientDashboard      = "netbird-dashboard"
+	StaticClientCLI            = "netbird-cli"
+	DefaultTOTPAuthenticatorID = "default-totp"
+	LocalConnectorID           = dex.LocalConnectorID
+
 	defaultCLIRedirectURL1        = "http://localhost:53000/"
 	defaultCLIRedirectURL2        = "http://localhost:54000/"
 	defaultScopes                 = "openid profile email groups"
@@ -76,6 +79,9 @@ type EmbeddedIdPConfig struct {
 	DashboardPostLogoutRedirectURIs []string
 	// StaticConnectors are additional connectors to seed during initialization
 	StaticConnectors []dex.Connector
+	// GrantTypes restricts allowed OAuth2 grants; empty means all (Dex default). Omit the
+	// device_code grant to disable the device flow; keep authorization_code and refresh_token.
+	GrantTypes []string
 }
 
 // EmbeddedStorageConfig holds storage configuration for the embedded IdP.
@@ -175,6 +181,7 @@ func (c *EmbeddedIdPConfig) ToYAMLConfig() (*dex.YAMLConfig, error) {
 		},
 		OAuth2: dex.OAuth2{
 			SkipApprovalScreen: true,
+			GrantTypes:         c.GrantTypes,
 		},
 		Frontend: dex.Frontend{
 			Issuer: "NetBird",
@@ -185,14 +192,14 @@ func (c *EmbeddedIdPConfig) ToYAMLConfig() (*dex.YAMLConfig, error) {
 		EnablePasswordDB: true,
 		StaticClients: []storage.Client{
 			{
-				ID:                     staticClientDashboard,
+				ID:                     StaticClientDashboard,
 				Name:                   "NetBird Dashboard",
 				Public:                 true,
 				RedirectURIs:           redirectURIs,
 				PostLogoutRedirectURIs: sanitizePostLogoutRedirectURIs(dashboardPostLogoutRedirectURIs),
 			},
 			{
-				ID:           staticClientCLI,
+				ID:           StaticClientCLI,
 				Name:         "NetBird CLI",
 				Public:       true,
 				RedirectURIs: redirectURIs,
@@ -254,13 +261,13 @@ func sanitizePostLogoutRedirectURIs(uris []string) []string {
 
 func configureMFA(cfg *dex.YAMLConfig, sessionMaxLifetime, sessionIdleTimeout string, rememberMe bool, sessionCookieEncryptionKey string) error {
 	cfg.MFA.Authenticators = []dex.MFAAuthenticator{{
-		ID: "default-totp",
+		ID: DefaultTOTPAuthenticatorID,
 		// Has to be caps otherwise it will fail
 		Type: "TOTP",
 		Config: map[string]interface{}{
 			"issuer": "NetBird",
 		},
-		ConnectorTypes: []string{"local"},
+		ConnectorTypes: []string{LocalConnectorID},
 	}}
 
 	if sessionMaxLifetime == "" {
@@ -736,7 +743,7 @@ func (m *EmbeddedIdPManager) GetDefaultScopes() string {
 
 // GetCLIClientID returns the client ID for CLI authentication.
 func (m *EmbeddedIdPManager) GetCLIClientID() string {
-	return staticClientCLI
+	return StaticClientCLI
 }
 
 // GetCLIRedirectURLs returns the redirect URLs configured for the CLI client.
@@ -775,7 +782,7 @@ func (m *EmbeddedIdPManager) GetLocalKeysLocation() string {
 
 // GetClientIDs returns the OAuth2 client IDs configured for this provider.
 func (m *EmbeddedIdPManager) GetClientIDs() []string {
-	return []string{staticClientDashboard, staticClientCLI}
+	return []string{StaticClientDashboard, StaticClientCLI}
 }
 
 // GetUserIDClaim returns the JWT claim name used for user identification.
@@ -792,11 +799,11 @@ func (m *EmbeddedIdPManager) IsLocalAuthDisabled() bool {
 func (m *EmbeddedIdPManager) SetMFAEnabled(ctx context.Context, enabled bool) error {
 	var mfaChain []string
 	if enabled {
-		mfaChain = []string{"default-totp"}
+		mfaChain = []string{DefaultTOTPAuthenticatorID}
 	}
 	if err := m.provider.SetClientsMFAChain(ctx, []string{
-		staticClientCLI,
-		staticClientDashboard,
+		StaticClientCLI,
+		StaticClientDashboard,
 	}, mfaChain); err != nil {
 		return fmt.Errorf("failed to set MFA enabled=%v: %w", enabled, err)
 	}

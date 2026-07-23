@@ -197,6 +197,12 @@ type JSONMetadataInjection struct {
 	// enforces a 128-char limit per value; oversized values are
 	// truncated rather than failing the request. 0 disables the cap.
 	MaxValueLength int
+	// Sanitize, when true, replaces characters outside the destination's
+	// accepted set with '_' before emitting each value. AWS Bedrock's
+	// X-Amzn-Bedrock-Request-Metadata restricts values to a limited character
+	// class, so unsanitized group display names (e.g. containing spaces) would
+	// make Bedrock reject the request with 400.
+	Sanitize bool
 }
 
 // providers is the canonical list of supported Agent Network providers.
@@ -328,6 +334,18 @@ var providers = []Provider{
 			{ID: "amazon.nova-pro", Label: "Amazon Nova Pro (Bedrock)", InputPer1k: 0.0008, OutputPer1k: 0.0032, ContextWindow: 300000},
 			{ID: "amazon.nova-lite", Label: "Amazon Nova Lite (Bedrock)", InputPer1k: 0.00006, OutputPer1k: 0.00024, ContextWindow: 300000},
 			{ID: "amazon.nova-micro", Label: "Amazon Nova Micro (Bedrock)", InputPer1k: 0.000035, OutputPer1k: 0.00014, ContextWindow: 128000},
+		},
+		// Bedrock accepts a cost-allocation metadata header; stamp the caller's
+		// user + authorizing group so spend can be attributed in AWS Cost
+		// Management. Sanitized because Bedrock restricts the value character set.
+		IdentityInjection: &IdentityInjection{
+			JSONMetadata: &JSONMetadataInjection{
+				Header:         "X-Amzn-Bedrock-Request-Metadata",
+				UserKey:        "user",
+				GroupsKey:      "group",
+				MaxValueLength: 256,
+				Sanitize:       true,
+			},
 		},
 	},
 	{

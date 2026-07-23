@@ -25,6 +25,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/shared/management/client/common"
+	"github.com/netbirdio/netbird/shared/management/grpc"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
@@ -245,6 +246,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	realIP := getRealIP(ctx)
 	sRealIP := realIP.String()
 	peerMeta := extractPeerMeta(ctx, syncReq.GetMeta())
+
 	userID, err := s.accountManager.GetUserIDByPeerKey(ctx, peerKey.String())
 	if err != nil {
 		s.syncSem.Add(-1)
@@ -683,8 +685,9 @@ func extractPeerMeta(ctx context.Context, meta *proto.PeerSystemMeta) nbpeer.Pee
 			LazyConnectionEnabled: meta.GetFlags().GetLazyConnectionEnabled(),
 			DisableIPv6:           meta.GetFlags().GetDisableIPv6(),
 		},
-		Files:        files,
-		Capabilities: capabilitiesToInt32(meta.GetCapabilities()),
+		Files:              files,
+		Capabilities:       capabilitiesToInt32(meta.GetCapabilities()),
+		SyncMessageVersion: int(meta.GetSyncMessageVersion()),
 	}
 }
 
@@ -1016,7 +1019,43 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 		return status.Errorf(codes.Internal, "failed to get peer groups %s", err)
 	}
 
-	plainResp := ToSyncResponse(ctx, s.config, s.config.HttpConfig, s.config.DeviceAuthorizationFlow, peer, turnToken, relayToken, networkMap, s.networkMapController.GetDNSDomain(settings), postureChecks, nil, settings, settings.Extra, peerGroups, dnsFwdPort)
+	dnsName := s.networkMapController.GetDNSDomain(settings)
+
+	var plainResp *proto.SyncResponse
+
+	commonSyncMessageVersion := grpc.HighestCommonSyncMessageVersion(
+		s.perAccountOrGlobalSyncMessageVersions(peer.AccountID),
+		grpc.SyncMessageVersionFromConfig(&peer.Meta.SyncMessageVersion))
+
+	log.WithContext(ctx).
+		WithFields(log.Fields{
+			"sync_message_version":        commonSyncMessageVersion,
+			"server_sync_message_version": s.perAccountOrGlobalSyncMessageVersions(peer.AccountID),
+			"peer_sync_message_version":   grpc.SyncMessageVersionFromConfig(&peer.Meta.SyncMessageVersion),
+		}).Debug("common highest sync message version")
+
+	if commonSyncMessageVersion == grpc.ComponentNetworkMap {
+		// Capable peer: discard the legacy NetworkMap that SyncAndMarkPeer
+		// computed and recompute the raw components instead. This wastes one
+		// Calculate() call per initial-sync — the component-based wire
+		// format is what the peer actually consumes. The streaming path
+		// (network_map.Controller.UpdateAccountPeers) skips this duplication
+		// because it dispatches by capability before computing.
+		//
+		// TODO: refactor SyncPeer / SyncAndMarkPeer / their mocks + manager
+		// interfaces to return PeerNetworkMapResult so the initial-sync path
+		// stops doing duplicate work. Deferred until the client-side
+		// decoder lands and there's a real deployment of capability=3 peers
+		// worth optimizing for.
+		freshPeer, components, proxyPatch, freshPostureChecks, freshDnsFwdPort, err := s.networkMapController.GetValidatedPeerWithComponents(ctx, false, peer.AccountID, peer)
+		if err != nil {
+			log.WithContext(ctx).Errorf("failed to build components for peer %s on initial sync: %v", peer.ID, err)
+			return status.Errorf(codes.Internal, "failed to build initial sync envelope")
+		}
+		plainResp = ToComponentSyncResponse(ctx, s.config, s.config.HttpConfig, s.config.DeviceAuthorizationFlow, freshPeer, turnToken, relayToken, components, proxyPatch, dnsName, freshPostureChecks, settings, settings.Extra, peerGroups, freshDnsFwdPort)
+	} else {
+		plainResp = ToSyncResponse(ctx, s.config, s.config.HttpConfig, s.config.DeviceAuthorizationFlow, peer, turnToken, relayToken, networkMap, dnsName, postureChecks, nil, settings, settings.Extra, peerGroups, dnsFwdPort)
+	}
 
 	key, err := s.secretsManager.GetWGKey()
 	if err != nil {
@@ -1039,6 +1078,13 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 	}
 
 	return nil
+}
+
+func (s *Server) perAccountOrGlobalSyncMessageVersions(accountId string) grpc.SyncMessageVersion {
+	if version, ok := s.config.PerAccountHighestSupportedSyncMessageVersion[accountId]; ok {
+		return grpc.SyncMessageVersionFromConfig(&version)
+	}
+	return grpc.SyncMessageVersionFromConfig(s.config.HighestSupportedSyncMessageVersion)
 }
 
 // GetDeviceAuthorizationFlow returns a device authorization flow information

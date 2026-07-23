@@ -2,13 +2,13 @@ package proxy
 
 import (
 	"context"
-	"net/netip"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/embed"
 	"github.com/netbirdio/netbird/proxy/internal/acme"
+	"github.com/netbirdio/netbird/trustedproxy"
 )
 
 // Config bundles every knob the proxy reads at construction time. It mirrors
@@ -87,9 +87,9 @@ type Config struct {
 	// ForwardedProto overrides the X-Forwarded-Proto value sent to
 	// backends. Valid values: "auto", "http", "https".
 	ForwardedProto string
-	// TrustedProxies is a list of IP prefixes for trusted upstream
-	// proxies that may set forwarding headers.
-	TrustedProxies []netip.Prefix
+	// TrustedProxies is the set of trusted upstream proxies that may set
+	// forwarding headers.
+	TrustedProxies *trustedproxy.List
 	// WireguardPort is the UDP port for the embedded NetBird tunnel.
 	// Zero asks the OS for a random port.
 	WireguardPort uint16

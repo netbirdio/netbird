@@ -91,7 +91,14 @@ func availableProviders() []providerCase {
 		if region == "" {
 			region = "us-east-1"
 		}
-		ps = append(ps, providerCase{name: "bedrock", catalogID: "bedrock_api", upstream: "https://bedrock-runtime." + region + ".amazonaws.com", apiKey: k, model: "us.anthropic.claude-haiku-4-5", kind: harness.WireBedrock})
+		// A valid Bedrock inference-profile id (region prefix + date + version),
+		// overridable per account. `global.` profiles can be invoked from any
+		// region; set AWS_BEDROCK_MODEL to match the enabled profile for the token.
+		model := os.Getenv("AWS_BEDROCK_MODEL")
+		if model == "" {
+			model = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+		}
+		ps = append(ps, providerCase{name: "bedrock", catalogID: "bedrock_api", upstream: "https://bedrock-runtime." + region + ".amazonaws.com", apiKey: k, model: model, kind: harness.WireBedrock})
 	}
 	return ps
 }
@@ -108,8 +115,16 @@ func providerRequest(pc providerCase) api.AgentNetworkProviderRequest {
 		Enabled:     ptr(true),
 	}
 	if pc.kind != harness.WireVertex {
+		// The router matches the normalized catalog id. Bedrock's request model
+		// travels as a region-prefixed inference-profile id in the URL path
+		// (us.anthropic...), which the router strips before matching, so register
+		// the normalized form here or routing fails as model_not_routable.
+		modelID := pc.model
+		if pc.kind == harness.WireBedrock {
+			modelID = catalogModel(pc)
+		}
 		req.Models = &[]api.AgentNetworkProviderModel{
-			{Id: pc.model, InputPer1k: 0.001, OutputPer1k: 0.002},
+			{Id: modelID, InputPer1k: 0.001, OutputPer1k: 0.002},
 		}
 	}
 	return req
@@ -201,11 +216,12 @@ func TestProvidersMatrix(t *testing.T) {
 	t.Cleanup(func() { _ = cl.Terminate(context.Background()) })
 
 	require.NoError(t, cl.WaitConnected(ctx, 90*time.Second), "client must connect to management")
+	// Probe first: the GET resolves the endpoint (DNS error fails) and its first packet wakes the lazy proxy peer, so WaitProxyPeer sees it connected; any HTTP status counts.
+	proxyIP, err := cl.ResolveProxyIP(ctx, settings.Endpoint)
+	require.NoError(t, err, "resolve agent-network endpoint to proxy IP")
 	if err := cl.WaitProxyPeer(ctx, 180*time.Second); err != nil {
 		t.Fatalf("client did not see the proxy peer: %v\n=== proxy logs ===\n%s", err, px.Logs(context.Background()))
 	}
-	proxyIP, err := cl.ResolveProxyIP(ctx, settings.Endpoint)
-	require.NoError(t, err, "resolve agent-network endpoint to proxy IP")
 
 	for _, pc := range matrix {
 		pc := pc

@@ -44,8 +44,21 @@ type NetworkMapComponents struct {
 
 	RouterPeers map[string]*nbpeer.Peer
 
-	routesByPeerOnce sync.Once
-	routesByPeerIdx  map[string][]routeIndexEntry
+	// NetworkXIDToPublicID maps Network.ID (xid) → PublicID.
+	// Consumed by the envelope encoder to
+	// translate RoutersMap keys and NetworkResource.NetworkID references
+	// to compact uint32 ids. Legacy Calculate() doesn't consult it.
+	NetworkXIDToPublicID map[string]string
+
+	// PostureCheckXIDToPublicID maps posture.Checks.ID (xid) → PublicID.
+	// Same role as NetworkXIDToPublicID, used for PostureFailedPeers keys and
+	// policy SourcePostureChecks references.
+	PostureCheckXIDToPublicID map[string]string
+	routesByPeerOnce          sync.Once
+	routesByPeerIdx           map[string][]routeIndexEntry
+
+	// true when returning an empty-like map (returned instead of nil)
+	empty bool
 }
 
 type routeIndexEntry struct {
@@ -58,6 +71,11 @@ type AccountSettingsInfo struct {
 	PeerLoginExpiration             time.Duration
 	PeerInactivityExpirationEnabled bool
 	PeerInactivityExpiration        time.Duration
+}
+
+func EmptyNetworkMapComponents(nm *NetworkMapComponents) *NetworkMapComponents {
+	nm.empty = true
+	return nm
 }
 
 func (c *NetworkMapComponents) GetPeerInfo(peerID string) *nbpeer.Peer {
@@ -178,6 +196,10 @@ func (c *NetworkMapComponents) Calculate(ctx context.Context) *NetworkMap {
 	}
 }
 
+func (c *NetworkMapComponents) IsEmpty() bool {
+	return c.empty
+}
+
 func (c *NetworkMapComponents) getPeerConnectionResources(targetPeerID string) ([]*nbpeer.Peer, []*FirewallRule, map[string]map[string]struct{}, bool) {
 	targetPeer := c.GetPeerInfo(targetPeerID)
 	if targetPeer == nil {
@@ -261,7 +283,7 @@ func (c *NetworkMapComponents) getPeerConnectionResources(targetPeerID string) (
 				default:
 					authorizedUsers[auth.Wildcard] = c.getAllowedUserIDs()
 				}
-			} else if peerInDestinations && policyRuleImpliesLegacySSH(rule) && targetPeer.SSHEnabled {
+			} else if peerInDestinations && PolicyRuleImpliesLegacySSH(rule) && targetPeer.SSHEnabled {
 				sshEnabled = true
 				authorizedUsers[auth.Wildcard] = c.getAllowedUserIDs()
 			}
@@ -328,15 +350,15 @@ func (c *NetworkMapComponents) connResourcesGenerator(targetPeer *nbpeer.Peer) (
 				if len(rule.Ports) == 0 && len(rule.PortRanges) == 0 {
 					rules = append(rules, &fr)
 				} else {
-					rules = append(rules, expandPortsAndRanges(fr, rule, targetPeer)...)
+					rules = append(rules, ExpandPortsAndRanges(fr, rule, targetPeer)...)
 				}
 
-				rules = appendIPv6FirewallRule(rules, rulesExists, peer, targetPeer, rule, firewallRuleContext{
-					direction:   direction,
-					dirStr:      dirStr,
-					protocolStr: protocolStr,
-					actionStr:   actionStr,
-					portsJoined: portsJoined,
+				rules = AppendIPv6FirewallRule(rules, rulesExists, peer, targetPeer, rule, FirewallRuleContext{
+					Direction:   direction,
+					DirStr:      dirStr,
+					ProtocolStr: protocolStr,
+					ActionStr:   actionStr,
+					PortsJoined: portsJoined,
 				})
 			}
 		}, func() ([]*nbpeer.Peer, []*FirewallRule) {
@@ -703,7 +725,7 @@ func (c *NetworkMapComponents) getRouteFirewallRules(ctx context.Context, peerID
 			}
 
 			rulePeers := c.getRulePeers(rule, policy.SourcePostureChecks, peerID, distributionPeers)
-			rules := generateRouteFirewallRules(ctx, route, rule, rulePeers, FirewallRuleDirectionIN, includeIPv6)
+			rules := GenerateRouteFirewallRules(ctx, route, rule, rulePeers, FirewallRuleDirectionIN, includeIPv6)
 			fwRules = append(fwRules, rules...)
 		}
 	}
@@ -972,21 +994,21 @@ func (c *NetworkMapComponents) addNetworksRoutingPeers(
 	return peersToConnect
 }
 
-type firewallRuleContext struct {
-	direction   int
-	dirStr      string
-	protocolStr string
-	actionStr   string
-	portsJoined string
+type FirewallRuleContext struct {
+	Direction   int
+	DirStr      string
+	ProtocolStr string
+	ActionStr   string
+	PortsJoined string
 }
 
-func appendIPv6FirewallRule(rules []*FirewallRule, rulesExists map[string]struct{}, peer, targetPeer *nbpeer.Peer, rule *PolicyRule, rc firewallRuleContext) []*FirewallRule {
+func AppendIPv6FirewallRule(rules []*FirewallRule, rulesExists map[string]struct{}, peer, targetPeer *nbpeer.Peer, rule *PolicyRule, rc FirewallRuleContext) []*FirewallRule {
 	if !peer.IPv6.IsValid() || !targetPeer.SupportsIPv6() || !targetPeer.IPv6.IsValid() {
 		return rules
 	}
 
 	v6IP := peer.IPv6.String()
-	v6RuleID := rule.ID + v6IP + rc.dirStr + rc.protocolStr + rc.actionStr + rc.portsJoined
+	v6RuleID := rule.ID + v6IP + rc.DirStr + rc.ProtocolStr + rc.ActionStr + rc.PortsJoined
 	if _, ok := rulesExists[v6RuleID]; ok {
 		return rules
 	}
@@ -995,12 +1017,12 @@ func appendIPv6FirewallRule(rules []*FirewallRule, rulesExists map[string]struct
 	v6fr := FirewallRule{
 		PolicyID:  rule.ID,
 		PeerIP:    v6IP,
-		Direction: rc.direction,
-		Action:    rc.actionStr,
-		Protocol:  rc.protocolStr,
+		Direction: rc.Direction,
+		Action:    rc.ActionStr,
+		Protocol:  rc.ProtocolStr,
 	}
 	if len(rule.Ports) == 0 && len(rule.PortRanges) == 0 {
 		return append(rules, &v6fr)
 	}
-	return append(rules, expandPortsAndRanges(v6fr, rule, targetPeer)...)
+	return append(rules, ExpandPortsAndRanges(v6fr, rule, targetPeer)...)
 }

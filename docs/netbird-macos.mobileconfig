@@ -103,6 +103,8 @@
                                 <!--
                                 <key>disableAutoConnect</key>
                                 <false/>
+                                <key>disableAutostart</key>
+                                <false/>
                                 <key>disableClientRoutes</key>
                                 <false/>
                                 <key>disableServerRoutes</key>

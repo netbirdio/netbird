@@ -323,6 +323,8 @@ type Store interface {
 	GetClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
 	GetClusterSupportsPrivate(ctx context.Context, clusterAddr string) *bool
 	CleanupStaleProxies(ctx context.Context, inactivityDuration time.Duration) error
+	GetAllProxies(ctx context.Context) ([]*proxy.Proxy, error)
+	DisconnectAllProxies(ctx context.Context) (int64, error)
 	GetProxyByAccountID(ctx context.Context, accountID string) (*proxy.Proxy, error)
 	CountProxiesByAccountID(ctx context.Context, accountID string) (int64, error)
 	IsClusterAddressConflicting(ctx context.Context, clusterAddress, accountID string) (bool, error)
@@ -581,6 +583,30 @@ func getMigrationsPreAuto(ctx context.Context) []migrationFunc {
 		},
 		func(db *gorm.DB) error {
 			return migration.CleanupOrphanedResources[domain.Domain, types.Account](ctx, db, "account_id")
+		},
+		func(db *gorm.DB) error {
+			return migration.BackfillPublicIDs[types.Policy](ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.BackfillPublicIDs[types.Group](ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.BackfillPublicIDs[route.Route](ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.BackfillPublicIDs[resourceTypes.NetworkResource](ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.BackfillPublicIDs[routerTypes.NetworkRouter](ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.BackfillPublicIDs[dns.NameServerGroup](ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.BackfillPublicIDs[networkTypes.Network](ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.BackfillPublicIDs[posture.Checks](ctx, db)
 		},
 	}
 }
