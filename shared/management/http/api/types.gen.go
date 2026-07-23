@@ -1579,7 +1579,8 @@ type AccessiblePeer struct {
 	// Ipv6 Peer's IPv6 overlay address
 	Ipv6 *string `json:"ipv6,omitempty"`
 
-	// LastSeen Last time peer connected to Netbird's management service
+	// LastSeen Last time peer connected to Netbird's management service.
+	// For connected peers this value reflects the current request time.
 	LastSeen time.Time `json:"last_seen"`
 
 	// Name Peer's hostname
@@ -4022,7 +4023,8 @@ type Peer struct {
 	// LastLogin Last time this peer performed log in (authentication). E.g., user authenticated.
 	LastLogin time.Time `json:"last_login"`
 
-	// LastSeen Last time peer connected to Netbird's management service
+	// LastSeen Last time peer connected to Netbird's management service.
+	// For connected peers this value reflects the current request time.
 	LastSeen   time.Time       `json:"last_seen"`
 	LocalFlags *PeerLocalFlags `json:"local_flags,omitempty"`
 
@@ -4116,7 +4118,8 @@ type PeerBatch struct {
 	// LastLogin Last time this peer performed log in (authentication). E.g., user authenticated.
 	LastLogin time.Time `json:"last_login"`
 
-	// LastSeen Last time peer connected to Netbird's management service
+	// LastSeen Last time peer connected to Netbird's management service.
+	// For connected peers this value reflects the current request time.
 	LastSeen   time.Time       `json:"last_seen"`
 	LocalFlags *PeerLocalFlags `json:"local_flags,omitempty"`
 

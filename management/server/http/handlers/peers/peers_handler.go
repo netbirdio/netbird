@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/netip"
+	"time"
 
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
@@ -562,7 +563,7 @@ func peerToAccessiblePeer(peer *nbpeer.Peer, dnsDomain string) api.AccessiblePee
 		Id:          peer.ID,
 		Ip:          peer.IP.String(),
 		Ipv6:        peerIPv6String(peer),
-		LastSeen:    peer.Status.LastSeen,
+		LastSeen:    peerLastSeen(peer),
 		Name:        peer.Name,
 		Os:          peer.Meta.OS,
 		UserId:      peer.UserID,
@@ -583,7 +584,7 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 		Ipv6:                        peerIPv6String(peer),
 		ConnectionIp:                peer.Location.ConnectionIP.String(),
 		Connected:                   peer.Status.Connected,
-		LastSeen:                    peer.Status.LastSeen,
+		LastSeen:                    peerLastSeen(peer),
 		Os:                          fmt.Sprintf("%s %s", peer.Meta.OS, osVersion),
 		KernelVersion:               peer.Meta.KernelVersion,
 		GeonameId:                   int(peer.Location.GeoNameID),
@@ -638,7 +639,7 @@ func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dn
 		Ipv6:                        peerIPv6String(peer),
 		ConnectionIp:                peer.Location.ConnectionIP.String(),
 		Connected:                   peer.Status.Connected,
-		LastSeen:                    peer.Status.LastSeen,
+		LastSeen:                    peerLastSeen(peer),
 		Os:                          fmt.Sprintf("%s %s", peer.Meta.OS, osVersion),
 		KernelVersion:               peer.Meta.KernelVersion,
 		GeonameId:                   int(peer.Location.GeoNameID),
@@ -719,4 +720,17 @@ func peerIPv6String(peer *nbpeer.Peer) *string {
 	}
 	s := peer.IPv6.String()
 	return &s
+}
+
+// peerLastSeen returns the value to expose as last_seen for a peer.
+// Connected peers are reported as seen right now; disconnected peers keep
+// the stored last_seen timestamp (the moment they went offline).
+func peerLastSeen(peer *nbpeer.Peer) time.Time {
+	if peer.Status != nil && peer.Status.Connected {
+		return time.Now().UTC()
+	}
+	if peer.Status != nil {
+		return peer.Status.LastSeen
+	}
+	return time.Time{}
 }
