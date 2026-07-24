@@ -64,8 +64,12 @@ func validateAccessLogCost(t *testing.T, pc providerCase, row api.AgentNetworkAc
 		return
 	}
 
-	require.Positive(t, row.InputTokens, "priced row must carry input tokens")
+	// input_tokens may legitimately be 0: providers that cache aggressively
+	// (Moonshot/Kimi reports the whole prompt under the cache-read bucket)
+	// leave the non-cached input at zero, with the prompt riding total_tokens.
+	// Output and total must always be present on a priced row.
 	require.Positive(t, row.OutputTokens, "priced row must carry output tokens")
+	require.Positive(t, row.TotalTokens, "priced row must carry total tokens")
 
 	base := float64(row.InputTokens)/1000*rates.in + float64(row.OutputTokens)/1000*rates.out
 
