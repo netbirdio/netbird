@@ -30,10 +30,17 @@ fetch_all_tags() {
 
 fetch_current_ports_version() {
     echo "Fetching current version from FreeBSD ports..." >&2
-    fetch_ports_file "Makefile" | \
+    local makefile version
+    makefile=$(fetch_ports_file "Makefile") || return 1
+    version=$(echo "$makefile" | \
         grep -E "^DISTVERSION=" | \
         sed 's/DISTVERSION=[[:space:]]*//' | \
-        tr -d '\t '
+        tr -d '\t ')
+    if [[ -z "$version" ]]; then
+        echo "Error: Could not extract DISTVERSION from ports Makefile" >&2
+        return 1
+    fi
+    echo "$version"
     return 0
 }
 
@@ -46,10 +53,13 @@ fetch_latest_github_release() {
 fetch_ports_file() {
     local filename="$1"
     local content
-    content=$(curl -fsL --retry 3 "${PORTS_MIRROR_BASE}/${filename}" 2>/dev/null) || content=""
+    if ! content=$(curl -fsL --proto '=https' --proto-redir '=https' --retry 3 "${PORTS_MIRROR_BASE}/${filename}" 2>/dev/null); then
+        echo "Error: Could not fetch ${filename} from ${PORTS_MIRROR_BASE}" >&2
+        return 1
+    fi
     if [[ "$content" == \<* ]]; then
         echo "Error: Received HTML instead of ${filename} from ${PORTS_MIRROR_BASE}" >&2
-        content=""
+        return 1
     fi
     printf '%s' "$content"
     return 0

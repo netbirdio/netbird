@@ -20,7 +20,7 @@ PORTS_MAKEFILE_URL="https://raw.githubusercontent.com/freebsd/freebsd-ports/main
 fetch_current_ports_version() {
     echo "Fetching current version from FreeBSD ports..." >&2
     local makefile_content
-    makefile_content=$(curl -fsL --retry 3 "$PORTS_MAKEFILE_URL" 2>/dev/null) || makefile_content=""
+    makefile_content=$(curl -fsL --proto '=https' --proto-redir '=https' --retry 3 "$PORTS_MAKEFILE_URL" 2>/dev/null) || makefile_content=""
     if [[ "$makefile_content" == \<* ]]; then
         echo "Error: Received HTML instead of Makefile from ${PORTS_MAKEFILE_URL}" >&2
         return 1
