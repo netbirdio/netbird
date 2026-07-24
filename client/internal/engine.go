@@ -51,6 +51,7 @@ import (
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
 	"github.com/netbirdio/netbird/client/internal/portforward"
+	"github.com/netbirdio/netbird/client/internal/pqkem"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/client/internal/rosenpass"
@@ -201,6 +202,9 @@ type Engine struct {
 
 	// rpManager is a Rosenpass manager
 	rpManager *rosenpass.Manager
+
+	// pqkemManager runs the ML-KEM post-quantum PSK exchange (gated by NB_ENABLE_PQ_MLKEM).
+	pqkemManager *pqkem.Manager
 
 	// syncMsgMux is used to guarantee sequential Management Service message processing
 	syncMsgMux *sync.Mutex
@@ -579,6 +583,12 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		if err := e.rpManager.Run(); err != nil {
 			return fmt.Errorf("run rosenpass manager: %w", err)
 		}
+	}
+
+	if pqkem.Enabled() {
+		log.Infof("ML-KEM post-quantum exchange enabled")
+		// TODO(NET-1406): wire the real tunnel-UDP transport + WG PSK callback handler.
+		e.pqkemManager = pqkem.NewManager(publicKey.String(), noopPQTransport{}, noopPQCallbackHandler{}, nil)
 	}
 	e.stateManager.Start()
 
@@ -2088,6 +2098,10 @@ func (e *Engine) close() {
 
 	if e.rpManager != nil {
 		_ = e.rpManager.Close()
+	}
+
+	if e.pqkemManager != nil {
+		e.pqkemManager.Stop()
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
