@@ -33,6 +33,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
 
+	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
@@ -137,6 +138,10 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		&networkTypes.Network{}, &routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{}, &types.AccountOnboarding{},
 		&types.Job{}, &zones.Zone{}, &records.Record{}, &types.UserInviteRecord{}, &rpservice.Service{}, &rpservice.Target{}, &domain.Domain{},
 		&accesslogs.AccessLogEntry{}, &proxy.Proxy{},
+		&agentNetworkTypes.Provider{}, &agentNetworkTypes.Policy{}, &agentNetworkTypes.Guardrail{}, &agentNetworkTypes.Settings{},
+		&agentNetworkTypes.Consumption{}, &agentNetworkTypes.AccountBudgetRule{},
+		&agentNetworkTypes.AgentNetworkAccessLog{}, &agentNetworkTypes.AgentNetworkAccessLogGroup{},
+		&agentNetworkTypes.AgentNetworkUsage{}, &agentNetworkTypes.AgentNetworkUsageGroup{},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("auto migratePreAuto: %w", err)
@@ -637,6 +642,22 @@ func (s *SqlStore) SaveUser(ctx context.Context, user *types.User) error {
 }
 
 // CreateGroups creates the given list of groups to the database.
+// groupUpsertColumns is the explicit allowlist of columns that get updated when
+// CreateGroups / UpdateGroups hit a PK conflict. public_id is intentionally
+// omitted so a caller passing an entity with the zero value (e.g. an HTTP
+// handler-built struct) cannot reset the persisted public_id during an upsert.
+// Keep this in sync with the Group schema in management/server/types/group.go.
+func groupUpsertColumns() clause.Set {
+	return clause.AssignmentColumns([]string{
+		"account_id",
+		"name",
+		"issued",
+		"integration_ref_id",
+		"integration_ref_integration_type",
+		"resources",
+	})
+}
+
 func (s *SqlStore) CreateGroups(ctx context.Context, accountID string, groups []*types.Group) error {
 	if len(groups) == 0 {
 		return nil
@@ -646,8 +667,9 @@ func (s *SqlStore) CreateGroups(ctx context.Context, accountID string, groups []
 		result := tx.
 			Clauses(
 				clause.OnConflict{
+					Columns:   []clause.Column{{Name: "id"}},
 					Where:     clause.Where{Exprs: []clause.Expression{clause.Eq{Column: "groups.account_id", Value: accountID}}},
-					UpdateAll: true,
+					DoUpdates: groupUpsertColumns(),
 				},
 			).
 			Omit(clause.Associations).
@@ -671,8 +693,9 @@ func (s *SqlStore) UpdateGroups(ctx context.Context, accountID string, groups []
 		result := tx.
 			Clauses(
 				clause.OnConflict{
+					Columns:   []clause.Column{{Name: "id"}},
 					Where:     clause.Where{Exprs: []clause.Expression{clause.Eq{Column: "groups.account_id", Value: accountID}}},
-					UpdateAll: true,
+					DoUpdates: groupUpsertColumns(),
 				},
 			).
 			Omit(clause.Associations).
@@ -1600,7 +1623,9 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 			settings_jwt_groups_enabled, settings_jwt_groups_claim_name, settings_jwt_allow_groups,
 			settings_routing_peer_dns_resolution_enabled, settings_dns_domain, settings_network_range,
 			settings_network_range_v6, settings_ipv6_enabled_groups, settings_lazy_connection_enabled,
-			settings_local_mfa_enabled,
+			settings_local_mfa_enabled, settings_metrics_push_enabled, settings_agent_network_only,
+			settings_dashboard_features, settings_auto_update_version, settings_auto_update_always,
+			settings_peer_expose_enabled, settings_peer_expose_groups,
 			-- Embedded ExtraSettings
 			settings_extra_peer_approval_enabled, settings_extra_user_approval_required,
 			settings_extra_integrated_validator, settings_extra_integrated_validator_groups
@@ -1623,6 +1648,13 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		sIPv6EnabledGroups               sql.NullString
 		sLazyConnectionEnabled           sql.NullBool
 		sLocalMFAEnabled                 sql.NullBool
+		sMetricsPushEnabled              sql.NullBool
+		sAgentNetworkOnly                sql.NullBool
+		sDashboardFeatures               sql.NullString
+		autoUpdateVersion                sql.NullString
+		autoUpdateAlways                 sql.NullBool
+		peerExposeEnabled                sql.NullBool
+		peerExposeGroups                 sql.NullString
 		sExtraPeerApprovalEnabled        sql.NullBool
 		sExtraUserApprovalRequired       sql.NullBool
 		sExtraIntegratedValidator        sql.NullString
@@ -1645,7 +1677,9 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		&sJWTGroupsEnabled, &sJWTGroupsClaimName, &sJWTAllowGroups,
 		&sRoutingPeerDNSResolutionEnabled, &sDNSDomain, &sNetworkRange,
 		&sNetworkRangeV6, &sIPv6EnabledGroups, &sLazyConnectionEnabled,
-		&sLocalMFAEnabled,
+		&sLocalMFAEnabled, &sMetricsPushEnabled, &sAgentNetworkOnly,
+		&sDashboardFeatures, &autoUpdateVersion, &autoUpdateAlways,
+		&peerExposeEnabled, &peerExposeGroups,
 		&sExtraPeerApprovalEnabled, &sExtraUserApprovalRequired,
 		&sExtraIntegratedValidator, &sExtraIntegratedValidatorGroups,
 	)
@@ -1711,6 +1745,17 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 	if sLocalMFAEnabled.Valid {
 		account.Settings.LocalMfaEnabled = sLocalMFAEnabled.Bool
 	}
+	if sMetricsPushEnabled.Valid {
+		account.Settings.MetricsPushEnabled = sMetricsPushEnabled.Bool
+	}
+	if sAgentNetworkOnly.Valid {
+		account.Settings.AgentNetworkOnly = sAgentNetworkOnly.Bool
+	}
+	if sDashboardFeatures.Valid && sDashboardFeatures.String != "" {
+		if err := json.Unmarshal([]byte(sDashboardFeatures.String), &account.Settings.DashboardFeatures); err != nil {
+			log.WithContext(ctx).Warnf("failed to unmarshal dashboard features for account %s: %v", accountID, err)
+		}
+	}
 	if sJWTAllowGroups.Valid {
 		_ = json.Unmarshal([]byte(sJWTAllowGroups.String), &account.Settings.JWTAllowGroups)
 	}
@@ -1725,6 +1770,18 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 	}
 	if sIPv6EnabledGroups.Valid {
 		_ = json.Unmarshal([]byte(sIPv6EnabledGroups.String), &account.Settings.IPv6EnabledGroups)
+	}
+	if autoUpdateAlways.Valid {
+		account.Settings.AutoUpdateAlways = autoUpdateAlways.Bool
+	}
+	if autoUpdateVersion.Valid {
+		account.Settings.AutoUpdateVersion = autoUpdateVersion.String
+	}
+	if peerExposeEnabled.Valid {
+		account.Settings.PeerExposeEnabled = peerExposeEnabled.Bool
+	}
+	if peerExposeGroups.Valid {
+		_ = json.Unmarshal([]byte(peerExposeGroups.String), &account.Settings.PeerExposeGroups)
 	}
 
 	if sExtraPeerApprovalEnabled.Valid {
@@ -1812,7 +1869,7 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 	meta_kernel_version, meta_network_addresses, meta_system_serial_number, meta_system_product_name, meta_system_manufacturer,
 	meta_environment, meta_flags, meta_files, meta_capabilities, peer_status_last_seen, peer_status_session_started_at,
 	peer_status_connected, peer_status_login_expired, peer_status_requires_approval, location_connection_ip,
-	location_country_code, location_city_name, location_geo_name_id, proxy_meta_embedded, proxy_meta_cluster, ipv6
+	location_country_code, location_city_name, location_geo_name_id, proxy_meta_embedded, proxy_meta_cluster, ipv6, meta_sync_message_version
 	FROM peers WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
@@ -1834,6 +1891,7 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			metaSystemSerialNumber, metaSystemProductName, metaSystemManufacturer                           sql.NullString
 			locationCountryCode, locationCityName, proxyCluster                                             sql.NullString
 			locationGeoNameID                                                                               sql.NullInt64
+			metaSyncMessageVersion                                                                          sql.NullInt32
 		)
 
 		err := row.Scan(&p.ID, &p.AccountID, &p.Key, &ip, &p.Name, &p.DNSLabel, &p.UserID, &p.SSHKey, &sshEnabled,
@@ -1843,7 +1901,7 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			&metaSystemSerialNumber, &metaSystemProductName, &metaSystemManufacturer, &env, &flags, &files, &capabilities,
 			&peerStatusLastSeen, &peerStatusSessionStartedAt, &peerStatusConnected, &peerStatusLoginExpired,
 			&peerStatusRequiresApproval, &connIP, &locationCountryCode, &locationCityName, &locationGeoNameID,
-			&proxyEmbedded, &proxyCluster, &ipv6)
+			&proxyEmbedded, &proxyCluster, &ipv6, &metaSyncMessageVersion)
 
 		if err == nil {
 			if lastLogin.Valid {
@@ -1963,6 +2021,9 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			if connIP != nil {
 				_ = json.Unmarshal(connIP, &p.Location.ConnectionIP)
 			}
+			if metaSyncMessageVersion.Valid {
+				p.Meta.SyncMessageVersion = int(metaSyncMessageVersion.Int32)
+			}
 		}
 		return p, err
 	})
@@ -2018,7 +2079,7 @@ func (s *SqlStore) getUsers(ctx context.Context, accountID string) ([]types.User
 }
 
 func (s *SqlStore) getGroups(ctx context.Context, accountID string) ([]*types.Group, error) {
-	const query = `SELECT id, account_id, name, issued, resources, integration_ref_id, integration_ref_integration_type FROM groups WHERE account_id = $1`
+	const query = `SELECT id, account_id, public_id, name, issued, resources, integration_ref_id, integration_ref_integration_type FROM groups WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
@@ -2028,7 +2089,7 @@ func (s *SqlStore) getGroups(ctx context.Context, accountID string) ([]*types.Gr
 		var resources []byte
 		var refID sql.NullInt64
 		var refType sql.NullString
-		err := row.Scan(&g.ID, &g.AccountID, &g.Name, &g.Issued, &resources, &refID, &refType)
+		err := row.Scan(&g.ID, &g.AccountID, &g.PublicID, &g.Name, &g.Issued, &resources, &refID, &refType)
 		if err == nil {
 			if refID.Valid {
 				g.IntegrationReference.ID = int(refID.Int64)
@@ -2053,7 +2114,7 @@ func (s *SqlStore) getGroups(ctx context.Context, accountID string) ([]*types.Gr
 }
 
 func (s *SqlStore) getPolicies(ctx context.Context, accountID string) ([]*types.Policy, error) {
-	const query = `SELECT id, account_id, name, description, enabled, source_posture_checks FROM policies WHERE account_id = $1`
+	const query = `SELECT id, account_id, public_id, name, description, enabled, source_posture_checks FROM policies WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
@@ -2062,7 +2123,7 @@ func (s *SqlStore) getPolicies(ctx context.Context, accountID string) ([]*types.
 		var p types.Policy
 		var checks []byte
 		var enabled sql.NullBool
-		err := row.Scan(&p.ID, &p.AccountID, &p.Name, &p.Description, &enabled, &checks)
+		err := row.Scan(&p.ID, &p.AccountID, &p.PublicID, &p.Name, &p.Description, &enabled, &checks)
 		if err == nil {
 			if enabled.Valid {
 				p.Enabled = enabled.Bool
@@ -2080,7 +2141,7 @@ func (s *SqlStore) getPolicies(ctx context.Context, accountID string) ([]*types.
 }
 
 func (s *SqlStore) getRoutes(ctx context.Context, accountID string) ([]route.Route, error) {
-	const query = `SELECT id, account_id, network, domains, keep_route, net_id, description, peer, peer_groups, network_type, masquerade, metric, enabled, groups, access_control_groups, skip_auto_apply FROM routes WHERE account_id = $1`
+	const query = `SELECT id, account_id, public_id, network, domains, keep_route, net_id, description, peer, peer_groups, network_type, masquerade, metric, enabled, groups, access_control_groups, skip_auto_apply FROM routes WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
@@ -2090,7 +2151,7 @@ func (s *SqlStore) getRoutes(ctx context.Context, accountID string) ([]route.Rou
 		var network, domains, peerGroups, groups, accessGroups []byte
 		var keepRoute, masquerade, enabled, skipAutoApply sql.NullBool
 		var metric sql.NullInt64
-		err := row.Scan(&r.ID, &r.AccountID, &network, &domains, &keepRoute, &r.NetID, &r.Description, &r.Peer, &peerGroups, &r.NetworkType, &masquerade, &metric, &enabled, &groups, &accessGroups, &skipAutoApply)
+		err := row.Scan(&r.ID, &r.AccountID, &r.PublicID, &network, &domains, &keepRoute, &r.NetID, &r.Description, &r.Peer, &peerGroups, &r.NetworkType, &masquerade, &metric, &enabled, &groups, &accessGroups, &skipAutoApply)
 		if err == nil {
 			if keepRoute.Valid {
 				r.KeepRoute = keepRoute.Bool
@@ -2132,7 +2193,7 @@ func (s *SqlStore) getRoutes(ctx context.Context, accountID string) ([]route.Rou
 }
 
 func (s *SqlStore) getNameServerGroups(ctx context.Context, accountID string) ([]nbdns.NameServerGroup, error) {
-	const query = `SELECT id, account_id, name, description, name_servers, groups, "primary", domains, enabled, search_domains_enabled FROM name_server_groups WHERE account_id = $1`
+	const query = `SELECT id, account_id, public_id, name, description, name_servers, groups, "primary", domains, enabled, search_domains_enabled FROM name_server_groups WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
@@ -2141,7 +2202,7 @@ func (s *SqlStore) getNameServerGroups(ctx context.Context, accountID string) ([
 		var n nbdns.NameServerGroup
 		var ns, groups, domains []byte
 		var primary, enabled, searchDomainsEnabled sql.NullBool
-		err := row.Scan(&n.ID, &n.AccountID, &n.Name, &n.Description, &ns, &groups, &primary, &domains, &enabled, &searchDomainsEnabled)
+		err := row.Scan(&n.ID, &n.AccountID, &n.PublicID, &n.Name, &n.Description, &ns, &groups, &primary, &domains, &enabled, &searchDomainsEnabled)
 		if err == nil {
 			if primary.Valid {
 				n.Primary = primary.Bool
@@ -2177,7 +2238,7 @@ func (s *SqlStore) getNameServerGroups(ctx context.Context, accountID string) ([
 }
 
 func (s *SqlStore) getPostureChecks(ctx context.Context, accountID string) ([]*posture.Checks, error) {
-	const query = `SELECT id, account_id, name, description, checks FROM posture_checks WHERE account_id = $1`
+	const query = `SELECT id, account_id, public_id, name, description, checks FROM posture_checks WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
@@ -2185,7 +2246,7 @@ func (s *SqlStore) getPostureChecks(ctx context.Context, accountID string) ([]*p
 	checks, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*posture.Checks, error) {
 		var c posture.Checks
 		var checksDef []byte
-		err := row.Scan(&c.ID, &c.AccountID, &c.Name, &c.Description, &checksDef)
+		err := row.Scan(&c.ID, &c.AccountID, &c.PublicID, &c.Name, &c.Description, &checksDef)
 		if err == nil && checksDef != nil {
 			_ = json.Unmarshal(checksDef, &c.Checks)
 		}
@@ -2365,7 +2426,7 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpserv
 }
 
 func (s *SqlStore) getNetworks(ctx context.Context, accountID string) ([]*networkTypes.Network, error) {
-	const query = `SELECT id, account_id, name, description FROM networks WHERE account_id = $1`
+	const query = `SELECT id, account_id, public_id, name, description FROM networks WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
@@ -2382,7 +2443,7 @@ func (s *SqlStore) getNetworks(ctx context.Context, accountID string) ([]*networ
 }
 
 func (s *SqlStore) getNetworkRouters(ctx context.Context, accountID string) ([]*routerTypes.NetworkRouter, error) {
-	const query = `SELECT id, network_id, account_id, peer, peer_groups, masquerade, metric, enabled FROM network_routers WHERE account_id = $1`
+	const query = `SELECT id, network_id, account_id, public_id, peer, peer_groups, masquerade, metric, enabled FROM network_routers WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
@@ -2392,7 +2453,7 @@ func (s *SqlStore) getNetworkRouters(ctx context.Context, accountID string) ([]*
 		var peerGroups []byte
 		var masquerade, enabled sql.NullBool
 		var metric sql.NullInt64
-		err := row.Scan(&r.ID, &r.NetworkID, &r.AccountID, &r.Peer, &peerGroups, &masquerade, &metric, &enabled)
+		err := row.Scan(&r.ID, &r.NetworkID, &r.AccountID, &r.PublicID, &r.Peer, &peerGroups, &masquerade, &metric, &enabled)
 		if err == nil {
 			if masquerade.Valid {
 				r.Masquerade = masquerade.Bool
@@ -2420,7 +2481,7 @@ func (s *SqlStore) getNetworkRouters(ctx context.Context, accountID string) ([]*
 }
 
 func (s *SqlStore) getNetworkResources(ctx context.Context, accountID string) ([]*resourceTypes.NetworkResource, error) {
-	const query = `SELECT id, network_id, account_id, name, description, type, domain, prefix, enabled FROM network_resources WHERE account_id = $1`
+	const query = `SELECT id, network_id, account_id, public_id, name, description, type, domain, prefix, enabled FROM network_resources WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
@@ -2429,7 +2490,7 @@ func (s *SqlStore) getNetworkResources(ctx context.Context, accountID string) ([
 		var r resourceTypes.NetworkResource
 		var prefix []byte
 		var enabled sql.NullBool
-		err := row.Scan(&r.ID, &r.NetworkID, &r.AccountID, &r.Name, &r.Description, &r.Type, &r.Domain, &prefix, &enabled)
+		err := row.Scan(&r.ID, &r.NetworkID, &r.AccountID, &r.PublicID, &r.Name, &r.Description, &r.Type, &r.Domain, &prefix, &enabled)
 		if err == nil {
 			if enabled.Valid {
 				r.Enabled = enabled.Bool
@@ -3791,7 +3852,7 @@ func (s *SqlStore) UpdateGroup(ctx context.Context, group *types.Group) error {
 		return status.Errorf(status.InvalidArgument, "group is nil")
 	}
 
-	if err := s.db.Omit(clause.Associations).Save(group).Error; err != nil {
+	if err := s.db.Omit(clause.Associations, "public_id").Save(group).Error; err != nil {
 		log.WithContext(ctx).Errorf("failed to save group to store: %v", err)
 		return status.Errorf(status.Internal, "failed to save group to store")
 	}
@@ -3879,7 +3940,7 @@ func (s *SqlStore) CreatePolicy(ctx context.Context, policy *types.Policy) error
 
 // SavePolicy saves a policy to the database.
 func (s *SqlStore) SavePolicy(ctx context.Context, policy *types.Policy) error {
-	result := s.db.Session(&gorm.Session{FullSaveAssociations: true}).Save(policy)
+	result := s.db.Session(&gorm.Session{FullSaveAssociations: true}).Omit("public_id").Save(policy)
 	if err := result.Error; err != nil {
 		log.WithContext(ctx).Errorf("failed to save policy to the store: %s", err)
 		return status.Errorf(status.Internal, "failed to save policy to store")
@@ -5573,6 +5634,340 @@ func (s *SqlStore) CreateAccessLog(ctx context.Context, logEntry *accesslogs.Acc
 	return nil
 }
 
+// CreateAgentNetworkAccessLog persists a flattened agent-network access-log
+// entry together with its authorising-group child rows in a single
+// transaction.
+func (s *SqlStore) CreateAgentNetworkAccessLog(ctx context.Context, entry *agentNetworkTypes.AgentNetworkAccessLog, groups []agentNetworkTypes.AgentNetworkAccessLogGroup) error {
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		// Idempotent on the log id / (log_id, group_id) so a proxy resend of the
+		// same entry can't fail the request.
+		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(entry).Error; err != nil {
+			return err
+		}
+		if len(groups) > 0 {
+			if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&groups).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		log.WithContext(ctx).WithFields(log.Fields{
+			"account_id": entry.AccountID,
+			"service_id": entry.ServiceID,
+			"model":      entry.Model,
+		}).Errorf("failed to create agent-network access log entry in store: %v", err)
+		return status.Errorf(status.Internal, "failed to create agent-network access log entry in store")
+	}
+	return nil
+}
+
+// CreateAgentNetworkUsage persists a stripped agent-network usage record
+// together with its authorising-group child rows in a single transaction.
+func (s *SqlStore) CreateAgentNetworkUsage(ctx context.Context, usage *agentNetworkTypes.AgentNetworkUsage, groups []agentNetworkTypes.AgentNetworkUsageGroup) error {
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		// Idempotent on the usage id / (usage_id, group_id) so a proxy resend of
+		// the same entry can't fail the request.
+		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(usage).Error; err != nil {
+			return err
+		}
+		if len(groups) > 0 {
+			if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&groups).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		log.WithContext(ctx).WithFields(log.Fields{
+			"account_id": usage.AccountID,
+			"model":      usage.Model,
+		}).Errorf("failed to create agent-network usage record in store: %v", err)
+		return status.Errorf(status.Internal, "failed to create agent-network usage record in store")
+	}
+	return nil
+}
+
+// DeleteOldAgentNetworkAccessLogs deletes an account's access-log rows (and
+// their authorising-group child rows) older than the cutoff. Usage records are
+// untouched — they are the long-term aggregate. Returns the number of log rows
+// deleted.
+func (s *SqlStore) DeleteOldAgentNetworkAccessLogs(ctx context.Context, accountID string, olderThan time.Time) (int64, error) {
+	var deleted int64
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		// Remove group child rows for the soon-to-be-deleted logs first.
+		if err := tx.Exec(
+			"DELETE FROM agent_network_access_log_group WHERE account_id = ? AND log_id IN (SELECT id FROM agent_network_access_log WHERE account_id = ? AND timestamp < ?)",
+			accountID, accountID, olderThan,
+		).Error; err != nil {
+			return err
+		}
+		res := tx.Where("account_id = ? AND timestamp < ?", accountID, olderThan).
+			Delete(&agentNetworkTypes.AgentNetworkAccessLog{})
+		if res.Error != nil {
+			return res.Error
+		}
+		deleted = res.RowsAffected
+		return nil
+	})
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to delete old agent-network access logs for account %s: %v", accountID, err)
+		return 0, status.Errorf(status.Internal, "failed to delete old agent-network access logs")
+	}
+	return deleted, nil
+}
+
+// GetAgentNetworkUsageRows returns the stripped usage rows for an account that
+// match the filter (date / user / group / provider / model). Aggregation into
+// time buckets happens in the manager so granularities stay engine-portable.
+func (s *SqlStore) GetAgentNetworkUsageRows(ctx context.Context, lockStrength LockingStrength, accountID string, filter agentNetworkTypes.AgentNetworkAccessLogFilter) ([]*agentNetworkTypes.AgentNetworkUsage, error) {
+	var rows []*agentNetworkTypes.AgentNetworkUsage
+
+	query := s.applyAgentNetworkUsageFilters(
+		s.db.Where(accountIDCondition, accountID),
+		filter,
+	).Order("timestamp ASC")
+
+	if lockStrength != LockingStrengthNone {
+		query = query.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	if err := query.Find(&rows).Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to get agent-network usage rows from store: %v", err)
+		return nil, status.Errorf(status.Internal, "failed to get agent-network usage rows from store")
+	}
+	return rows, nil
+}
+
+// applyAgentNetworkUsageFilters applies the shared access-log filter's
+// date/user/group/provider/model conditions to a usage-table query. Pagination,
+// sort and free-text search are ignored — the overview is an aggregate.
+func (s *SqlStore) applyAgentNetworkUsageFilters(query *gorm.DB, filter agentNetworkTypes.AgentNetworkAccessLogFilter) *gorm.DB {
+	if filter.UserID != nil {
+		query = query.Where("user_id = ?", *filter.UserID)
+	}
+	if filter.SessionID != nil {
+		query = query.Where("session_id = ?", *filter.SessionID)
+	}
+	if len(filter.ProviderIDs) > 0 {
+		query = query.Where("resolved_provider_id IN ?", filter.ProviderIDs)
+	}
+	if len(filter.Models) > 0 {
+		query = query.Where("model IN ?", filter.Models)
+	}
+	if len(filter.GroupIDs) > 0 {
+		query = query.Where(
+			"id IN (SELECT usage_id FROM agent_network_request_usage_group WHERE group_id IN ?)",
+			filter.GroupIDs,
+		)
+	}
+	if filter.StartDate != nil {
+		query = query.Where("timestamp >= ?", *filter.StartDate)
+	}
+	if filter.EndDate != nil {
+		query = query.Where("timestamp <= ?", *filter.EndDate)
+	}
+	return query
+}
+
+// GetAgentNetworkAccessLogs retrieves flattened agent-network access logs for
+// an account with server-side pagination, filtering and sorting. Authorising
+// group ids are hydrated from the group child table for the returned page.
+func (s *SqlStore) GetAgentNetworkAccessLogs(ctx context.Context, lockStrength LockingStrength, accountID string, filter agentNetworkTypes.AgentNetworkAccessLogFilter) ([]*agentNetworkTypes.AgentNetworkAccessLog, int64, error) {
+	var logs []*agentNetworkTypes.AgentNetworkAccessLog
+	var totalCount int64
+
+	countQuery := s.applyAgentNetworkAccessLogFilters(
+		s.db.Model(&agentNetworkTypes.AgentNetworkAccessLog{}).Where(accountIDCondition, accountID),
+		filter,
+	)
+	if err := countQuery.Count(&totalCount).Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to count agent-network access logs: %v", err)
+		return nil, 0, status.Errorf(status.Internal, "failed to count agent-network access logs")
+	}
+
+	query := s.applyAgentNetworkAccessLogFilters(
+		s.db.Where(accountIDCondition, accountID),
+		filter,
+	).
+		Order(filter.GetSortColumn() + " " + filter.GetSortOrder()).
+		Limit(filter.GetLimit()).
+		Offset(filter.GetOffset())
+
+	if lockStrength != LockingStrengthNone {
+		query = query.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	if err := query.Find(&logs).Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to get agent-network access logs from store: %v", err)
+		return nil, 0, status.Errorf(status.Internal, "failed to get agent-network access logs from store")
+	}
+
+	if err := s.hydrateAgentNetworkAccessLogGroups(ctx, accountID, logs); err != nil {
+		return nil, 0, err
+	}
+
+	return logs, totalCount, nil
+}
+
+// applyAgentNetworkAccessLogFilters applies the filter conditions to a query.
+func (s *SqlStore) applyAgentNetworkAccessLogFilters(query *gorm.DB, filter agentNetworkTypes.AgentNetworkAccessLogFilter) *gorm.DB {
+	if filter.Search != nil {
+		p := "%" + *filter.Search + "%"
+		query = query.Where(
+			"id LIKE ? OR host LIKE ? OR path LIKE ? OR model LIKE ? OR user_id IN (SELECT id FROM users WHERE email LIKE ? OR name LIKE ?)",
+			p, p, p, p, p, p,
+		)
+	}
+	if filter.UserID != nil {
+		query = query.Where("user_id = ?", *filter.UserID)
+	}
+	if filter.SessionID != nil {
+		query = query.Where("session_id = ?", *filter.SessionID)
+	}
+	if filter.Decision != nil {
+		query = query.Where("decision = ?", *filter.Decision)
+	}
+	if filter.PathPrefix != nil {
+		query = query.Where("path LIKE ?", *filter.PathPrefix+"%")
+	}
+	if len(filter.ProviderIDs) > 0 {
+		query = query.Where("resolved_provider_id IN ?", filter.ProviderIDs)
+	}
+	if len(filter.Models) > 0 {
+		query = query.Where("model IN ?", filter.Models)
+	}
+	if len(filter.GroupIDs) > 0 {
+		query = query.Where(
+			"id IN (SELECT log_id FROM agent_network_access_log_group WHERE group_id IN ?)",
+			filter.GroupIDs,
+		)
+	}
+	if filter.StartDate != nil {
+		query = query.Where("timestamp >= ?", *filter.StartDate)
+	}
+	if filter.EndDate != nil {
+		query = query.Where("timestamp <= ?", *filter.EndDate)
+	}
+	return query
+}
+
+// hydrateAgentNetworkAccessLogGroups loads the authorising group ids for the
+// given page of entries and assigns them onto each entry's GroupIDs field.
+func (s *SqlStore) hydrateAgentNetworkAccessLogGroups(ctx context.Context, accountID string, logs []*agentNetworkTypes.AgentNetworkAccessLog) error {
+	if len(logs) == 0 {
+		return nil
+	}
+
+	ids := make([]string, 0, len(logs))
+	for _, l := range logs {
+		ids = append(ids, l.ID)
+	}
+
+	var rows []agentNetworkTypes.AgentNetworkAccessLogGroup
+	if err := s.db.
+		Where(accountIDCondition, accountID).
+		Where("log_id IN ?", ids).
+		Find(&rows).Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to hydrate agent-network access log groups: %v", err)
+		return status.Errorf(status.Internal, "failed to hydrate agent-network access log groups")
+	}
+
+	byLog := make(map[string][]string, len(logs))
+	for _, r := range rows {
+		byLog[r.LogID] = append(byLog[r.LogID], r.GroupID)
+	}
+	for _, l := range logs {
+		l.GroupIDs = byLog[l.ID]
+	}
+	return nil
+}
+
+// agentNetworkSessionKeyExpr is the SQL group key for session-grouped access
+// logs: the row's session id, or — when the client sent none — the row id, so
+// session-less requests each form their own singleton group. COALESCE/NULLIF
+// are standard SQL, so this stays portable across SQLite and Postgres.
+const agentNetworkSessionKeyExpr = "COALESCE(NULLIF(session_id, ''), id)"
+
+// GetAgentNetworkAccessLogSessions retrieves agent-network access logs grouped
+// by session, with server-side pagination, filtering and sorting at the session
+// level. It paginates over the distinct session keys (ordered by the requested
+// session-level aggregate), fetches every entry for the page's sessions, and
+// folds them into per-session summaries. The returned count is the number of
+// matching sessions. Filters apply to the entries, so a session's summary
+// reflects only its filter-matching requests.
+func (s *SqlStore) GetAgentNetworkAccessLogSessions(ctx context.Context, lockStrength LockingStrength, accountID string, filter agentNetworkTypes.AgentNetworkAccessLogFilter) ([]*agentNetworkTypes.AgentNetworkAccessLogSession, int64, error) {
+	// Count distinct sessions via a grouped subquery — portable and avoids
+	// relying on COUNT(DISTINCT <expr>) quoting quirks.
+	sessionsSubquery := s.applyAgentNetworkAccessLogFilters(
+		s.db.Model(&agentNetworkTypes.AgentNetworkAccessLog{}).Where(accountIDCondition, accountID),
+		filter,
+	).
+		Select(agentNetworkSessionKeyExpr + " AS session_key").
+		Group(agentNetworkSessionKeyExpr)
+
+	var totalCount int64
+	if err := s.db.Table("(?) AS sessions", sessionsSubquery).Count(&totalCount).Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to count agent-network access-log sessions: %v", err)
+		return nil, 0, status.Errorf(status.Internal, "failed to count agent-network access-log sessions")
+	}
+
+	// The page of session keys, ordered by the session-level aggregate. The
+	// session-key tiebreaker keeps pagination deterministic when the primary
+	// aggregate ties.
+	type sessionKeyRow struct {
+		SessionKey string
+	}
+	var keyRows []sessionKeyRow
+	keyQuery := s.applyAgentNetworkAccessLogFilters(
+		s.db.Model(&agentNetworkTypes.AgentNetworkAccessLog{}).Where(accountIDCondition, accountID),
+		filter,
+	).
+		Select(agentNetworkSessionKeyExpr + " AS session_key").
+		Group(agentNetworkSessionKeyExpr).
+		Order(filter.GetSessionSortExpr() + " " + filter.GetSortOrder()).
+		Order("session_key ASC").
+		Limit(filter.GetLimit()).
+		Offset(filter.GetOffset())
+	if err := keyQuery.Scan(&keyRows).Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to list agent-network access-log session keys: %v", err)
+		return nil, 0, status.Errorf(status.Internal, "failed to list agent-network access-log session keys")
+	}
+	if len(keyRows) == 0 {
+		return nil, totalCount, nil
+	}
+
+	keys := make([]string, 0, len(keyRows))
+	for _, r := range keyRows {
+		keys = append(keys, r.SessionKey)
+	}
+
+	// All entries for the page's sessions, contiguous per session and oldest
+	// first within each — the fold relies on that ordering.
+	var entries []*agentNetworkTypes.AgentNetworkAccessLog
+	entriesQuery := s.applyAgentNetworkAccessLogFilters(
+		s.db.Where(accountIDCondition, accountID),
+		filter,
+	).
+		Where(agentNetworkSessionKeyExpr+" IN ?", keys).
+		Order(agentNetworkSessionKeyExpr + ", timestamp ASC")
+
+	if lockStrength != LockingStrengthNone {
+		entriesQuery = entriesQuery.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	if err := entriesQuery.Find(&entries).Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to get agent-network access-log session entries: %v", err)
+		return nil, 0, status.Errorf(status.Internal, "failed to get agent-network access-log session entries")
+	}
+
+	if err := s.hydrateAgentNetworkAccessLogGroups(ctx, accountID, entries); err != nil {
+		return nil, 0, err
+	}
+
+	return agentNetworkTypes.FoldAccessLogSessions(keys, entries), totalCount, nil
+}
+
 // GetAccountAccessLogs retrieves access logs for a given account with pagination and filtering
 func (s *SqlStore) GetAccountAccessLogs(ctx context.Context, lockStrength LockingStrength, accountID string, filter accesslogs.AccessLogFilter) ([]*accesslogs.AccessLogEntry, int64, error) {
 	var logs []*accesslogs.AccessLogEntry
@@ -5745,6 +6140,37 @@ func (s *SqlStore) DisconnectProxy(ctx context.Context, proxyID, sessionID strin
 	return nil
 }
 
+// GetAllProxies returns all reverse proxy instance rows.
+func (s *SqlStore) GetAllProxies(ctx context.Context) ([]*proxy.Proxy, error) {
+	var proxies []*proxy.Proxy
+	result := s.db.Order("cluster_address, id").Find(&proxies)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get proxies: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get proxies")
+	}
+	return proxies, nil
+}
+
+// DisconnectAllProxies force-marks every proxy that is not already disconnected
+// as disconnected, regardless of session ID. Unlike DisconnectProxy it is not
+// session-guarded: it is an administrative repair helper, not part of the
+// connection lifecycle. last_seen is left untouched so the stale-proxy reaper
+// keeps working off the real last heartbeat. Returns the number of proxies updated.
+func (s *SqlStore) DisconnectAllProxies(ctx context.Context) (int64, error) {
+	result := s.db.
+		Model(&proxy.Proxy{}).
+		Where("status != ?", proxy.StatusDisconnected).
+		Updates(map[string]any{
+			"status":          proxy.StatusDisconnected,
+			"disconnected_at": time.Now(),
+		})
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to disconnect all proxies: %v", result.Error)
+		return 0, status.Errorf(status.Internal, "failed to disconnect all proxies")
+	}
+	return result.RowsAffected, nil
+}
+
 // UpdateProxyHeartbeat updates the last_seen timestamp for the proxy's current session.
 func (s *SqlStore) UpdateProxyHeartbeat(ctx context.Context, p *proxy.Proxy) error {
 	now := time.Now()
@@ -5752,7 +6178,11 @@ func (s *SqlStore) UpdateProxyHeartbeat(ctx context.Context, p *proxy.Proxy) err
 	result := s.db.
 		Model(&proxy.Proxy{}).
 		Where("id = ? AND session_id = ?", p.ID, p.SessionID).
-		Update("last_seen", now)
+		Updates(map[string]any{
+			"last_seen":       now,
+			"status":          proxy.StatusConnected,
+			"disconnected_at": nil,
+		})
 
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to update proxy heartbeat: %v", result.Error)

@@ -29,6 +29,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
+	sharedgrpc "github.com/netbirdio/netbird/shared/management/grpc"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/management/status"
 	"github.com/netbirdio/netbird/util"
@@ -56,6 +57,10 @@ type Controller struct {
 	proxyController port_forwarding.Controller
 
 	integratedPeerValidator integrated_validator.IntegratedValidator
+
+	serverSupportedSyncMessageVersion sharedgrpc.SyncMessageVersion
+
+	perAccountServerSupportedSyncMessageVersions map[string]sharedgrpc.SyncMessageVersion
 }
 
 type bufferUpdate struct {
@@ -90,8 +95,10 @@ func NewController(ctx context.Context, store store.Store, metrics telemetry.App
 		dnsDomain:               dnsDomain,
 		config:                  config,
 
-		proxyController:       proxyController,
-		EphemeralPeersManager: ephemeralPeersManager,
+		proxyController:                              proxyController,
+		EphemeralPeersManager:                        ephemeralPeersManager,
+		serverSupportedSyncMessageVersion:            sharedgrpc.SyncMessageVersionFromConfig(config.HighestSupportedSyncMessageVersion),
+		perAccountServerSupportedSyncMessageVersions: sharedgrpc.SyncMessageVersionsFromMap(config.PerAccountHighestSupportedSyncMessageVersion),
 	}
 }
 
@@ -114,6 +121,24 @@ func (c *Controller) OnPeerDisconnected(ctx context.Context, accountID string, p
 		return
 	}
 	c.EphemeralPeersManager.OnPeerDisconnected(ctx, peer)
+}
+
+// injectAllProxyPolicies prepares an account for the per-peer network-map
+// computation. It prepends the in-memory agent-network services synthesised
+// from the account's current provider/policy state to account.Services so
+// the existing InjectProxyPolicies + injectPrivateServicePolicies walks pick
+// them up alongside persisted reverse-proxy services. Synthesised services
+// are never persisted; the account is loaded fresh per cycle so re-prepending
+// is safe and idempotent. Accounts without agent-network providers get an
+// empty synth slice — no behaviour change.
+func (c *Controller) injectAllProxyPolicies(ctx context.Context, account *types.Account) {
+	synth, err := c.repo.SynthesizeAgentNetworkServices(ctx, account.Id)
+	if err != nil {
+		log.WithContext(ctx).Warnf("synthesise agent-network services for account %s: %v", account.Id, err)
+	} else if len(synth) > 0 {
+		account.Services = append(synth, account.Services...)
+	}
+	account.InjectProxyPolicies(ctx)
 }
 
 func (c *Controller) CountStreams() int {
@@ -150,7 +175,7 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 	var wg sync.WaitGroup
 	semaphore := make(chan struct{}, 10)
 
-	account.InjectProxyPolicies(ctx)
+	c.injectAllProxyPolicies(ctx, account)
 	dnsCache := &cache.DNSConfigCache{}
 	dnsDomain := c.GetDNSDomain(account.Settings)
 	peersCustomZone := account.GetPeersCustomZone(ctx, dnsDomain)
@@ -204,18 +229,53 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 			c.metrics.CountCalcPostureChecksDuration(time.Since(start))
 			start = time.Now()
 
-			remotePeerNetworkMap := account.GetPeerNetworkMapFromComponents(ctx, p.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics, groupIDToUserIDs)
+			peerGroups := account.GetPeerGroups(p.ID)
+			proxyNetworkMap := proxyNetworkMaps[p.ID]
+			var update *proto.SyncResponse
+
+			commonSyncMessageVersion := sharedgrpc.HighestCommonSyncMessageVersion(
+				c.perAccountOrGlobalSupportedSyncMessageVersions(accountID),
+				sharedgrpc.SyncMessageVersionFromConfig(&peer.Meta.SyncMessageVersion))
+
+			log.WithContext(ctx).
+				WithFields(log.Fields{
+					"sync_message_version":        commonSyncMessageVersion,
+					"server_sync_message_version": c.perAccountOrGlobalSupportedSyncMessageVersions(peer.AccountID),
+					"peer_sync_message_version":   sharedgrpc.SyncMessageVersionFromConfig(&peer.Meta.SyncMessageVersion),
+				}).Debug("common highest sync message version")
+
+			if commonSyncMessageVersion == sharedgrpc.ComponentNetworkMap {
+				components := account.GetPeerNetworkMapComponents(
+					ctx, p.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, groupIDToUserIDs)
+
+				c.metrics.CountCalcPeerNetworkMapDuration(time.Since(start))
+
+				start = time.Now()
+				// proxyNetworkMap rides the envelope as a ProxyPatch sidecar;
+				// the client merges it into Calculate()'s output the same
+				// way the legacy server did via NetworkMap.Merge.
+				update = grpc.ToComponentSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, p, nil, nil, components, proxyNetworkMap, dnsDomain, postureChecks, account.Settings, extraSetting, maps.Keys(peerGroups), dnsFwdPort)
+				c.metrics.CountToComponentSyncResponseDuration(time.Since(start))
+
+				c.peersUpdateManager.SendUpdate(ctx, p.ID, &network_map.UpdateMessage{
+					Update:      update,
+					MessageType: network_map.MessageTypeNetworkMap,
+				})
+
+				return
+			}
+
+			nmap := account.GetPeerNetworkMapFromComponents(
+				ctx, p.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics, groupIDToUserIDs)
 
 			c.metrics.CountCalcPeerNetworkMapDuration(time.Since(start))
 
-			proxyNetworkMap, ok := proxyNetworkMaps[p.ID]
-			if ok {
-				remotePeerNetworkMap.Merge(proxyNetworkMap)
+			if proxyNetworkMap != nil {
+				nmap.Merge(proxyNetworkMap)
 			}
 
-			peerGroups := account.GetPeerGroups(p.ID)
 			start = time.Now()
-			update := grpc.ToSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, p, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSetting, maps.Keys(peerGroups), dnsFwdPort)
+			update = grpc.ToSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, p, nil, nil, nmap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSetting, maps.Keys(peerGroups), dnsFwdPort)
 			c.metrics.CountToSyncResponseDuration(time.Since(start))
 
 			c.peersUpdateManager.SendUpdate(ctx, p.ID, &network_map.UpdateMessage{
@@ -231,6 +291,13 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 	}
 
 	return nil
+}
+
+func (c *Controller) perAccountOrGlobalSupportedSyncMessageVersions(accountId string) sharedgrpc.SyncMessageVersion {
+	if perAccount, ok := c.perAccountServerSupportedSyncMessageVersions[accountId]; ok {
+		return perAccount
+	}
+	return c.serverSupportedSyncMessageVersion
 }
 
 // UpdatePeers updates all peers that belong to an account.
@@ -281,7 +348,15 @@ func (c *Controller) sendUpdateForAffectedPeers(ctx context.Context, accountID s
 	var wg sync.WaitGroup
 	semaphore := make(chan struct{}, 10)
 
-	account.InjectProxyPolicies(ctx)
+	// The affected-peer path MUST mirror sendUpdateAccountPeers (line 171)
+	// here: injectAllProxyPolicies prepends the synthesised agent-network
+	// services BEFORE InjectProxyPolicies + private-service policies run.
+	// Previously this path called only account.InjectProxyPolicies, which
+	// skipped the synth-services prepend — so peer-level changes
+	// (proxy restart, embedded peer connect/disconnect) propagated a
+	// network map that omitted the synth DNS zone, and the agent kept
+	// resolving against the stale or absent record.
+	c.injectAllProxyPolicies(ctx, account)
 	dnsCache := &cache.DNSConfigCache{}
 	dnsDomain := c.GetDNSDomain(account.Settings)
 	peersCustomZone := account.GetPeersCustomZone(ctx, dnsDomain)
@@ -326,18 +401,53 @@ func (c *Controller) sendUpdateForAffectedPeers(ctx context.Context, accountID s
 			c.metrics.CountCalcPostureChecksDuration(time.Since(start))
 			start = time.Now()
 
-			remotePeerNetworkMap := account.GetPeerNetworkMapFromComponents(ctx, p.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics, groupIDToUserIDs)
+			peerGroups := account.GetPeerGroups(p.ID)
+			proxyNetworkMap := proxyNetworkMaps[p.ID]
+			var update *proto.SyncResponse
+
+			commonSyncMessageVersion := sharedgrpc.HighestCommonSyncMessageVersion(
+				c.perAccountOrGlobalSupportedSyncMessageVersions(accountID),
+				sharedgrpc.SyncMessageVersionFromConfig(&peer.Meta.SyncMessageVersion))
+
+			log.WithContext(ctx).
+				WithFields(log.Fields{
+					"sync_message_version":        commonSyncMessageVersion,
+					"server_sync_message_version": c.perAccountOrGlobalSupportedSyncMessageVersions(peer.AccountID),
+					"peer_sync_message_version":   sharedgrpc.SyncMessageVersionFromConfig(&peer.Meta.SyncMessageVersion),
+				}).Debug("common highest sync message version")
+
+			if commonSyncMessageVersion == sharedgrpc.ComponentNetworkMap {
+				components := account.GetPeerNetworkMapComponents(
+					ctx, p.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, groupIDToUserIDs)
+
+				c.metrics.CountCalcPeerNetworkMapDuration(time.Since(start))
+
+				start = time.Now()
+				// proxyNetworkMap rides the envelope as a ProxyPatch sidecar;
+				// the client merges it into Calculate()'s output the same
+				// way the legacy server did via NetworkMap.Merge.
+				update = grpc.ToComponentSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, p, nil, nil, components, proxyNetworkMap, dnsDomain, postureChecks, account.Settings, extraSetting, maps.Keys(peerGroups), dnsFwdPort)
+				c.metrics.CountToComponentSyncResponseDuration(time.Since(start))
+
+				c.peersUpdateManager.SendUpdate(ctx, p.ID, &network_map.UpdateMessage{
+					Update:      update,
+					MessageType: network_map.MessageTypeNetworkMap,
+				})
+
+				return
+			}
+
+			nmap := account.GetPeerNetworkMapFromComponents(
+				ctx, p.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics, groupIDToUserIDs)
 
 			c.metrics.CountCalcPeerNetworkMapDuration(time.Since(start))
 
-			proxyNetworkMap, ok := proxyNetworkMaps[p.ID]
-			if ok {
-				remotePeerNetworkMap.Merge(proxyNetworkMap)
+			if proxyNetworkMap != nil {
+				nmap.Merge(proxyNetworkMap)
 			}
 
-			peerGroups := account.GetPeerGroups(p.ID)
 			start = time.Now()
-			update := grpc.ToSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, p, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSetting, maps.Keys(peerGroups), dnsFwdPort)
+			update = grpc.ToSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, p, nil, nil, nmap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSetting, maps.Keys(peerGroups), dnsFwdPort)
 			c.metrics.CountToSyncResponseDuration(time.Since(start))
 
 			c.peersUpdateManager.SendUpdate(ctx, p.ID, &network_map.UpdateMessage{
@@ -399,7 +509,7 @@ func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, pe
 		return fmt.Errorf("failed to get validated peers: %v", err)
 	}
 
-	account.InjectProxyPolicies(ctx)
+	c.injectAllProxyPolicies(ctx, account)
 	dnsCache := &cache.DNSConfigCache{}
 	dnsDomain := c.GetDNSDomain(account.Settings)
 	peersCustomZone := account.GetPeersCustomZone(ctx, dnsDomain)
@@ -425,13 +535,7 @@ func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, pe
 		return err
 	}
 
-	remotePeerNetworkMap := account.GetPeerNetworkMapFromComponents(ctx, peerId, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics, groupIDToUserIDs)
-
-	proxyNetworkMap, ok := proxyNetworkMaps[peer.ID]
-	if ok {
-		remotePeerNetworkMap.Merge(proxyNetworkMap)
-	}
-
+	proxyNetworkMap := proxyNetworkMaps[peer.ID]
 	extraSettings, err := c.settingsManager.GetExtraSettings(ctx, peer.AccountID)
 	if err != nil {
 		return fmt.Errorf("failed to get extra settings: %v", err)
@@ -440,7 +544,45 @@ func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, pe
 	peerGroups := account.GetPeerGroups(peerId)
 	dnsFwdPort := computeForwarderPort(maps.Values(account.Peers), network_map.DnsForwarderPortMinVersion)
 
-	update := grpc.ToSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, peer, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSettings, maps.Keys(peerGroups), dnsFwdPort)
+	var update *proto.SyncResponse
+
+	commonSyncMessageVersion := sharedgrpc.HighestCommonSyncMessageVersion(
+		c.perAccountOrGlobalSupportedSyncMessageVersions(accountId),
+		sharedgrpc.SyncMessageVersionFromConfig(&peer.Meta.SyncMessageVersion))
+
+	log.WithContext(ctx).
+		WithFields(log.Fields{
+			"sync_message_version":        commonSyncMessageVersion,
+			"server_sync_message_version": c.perAccountOrGlobalSupportedSyncMessageVersions(peer.AccountID),
+			"peer_sync_message_version":   sharedgrpc.SyncMessageVersionFromConfig(&peer.Meta.SyncMessageVersion),
+		}).Debug("common highest sync message version")
+
+	if commonSyncMessageVersion == sharedgrpc.ComponentNetworkMap {
+		components := account.GetPeerNetworkMapComponents(
+			ctx, peer.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, groupIDToUserIDs)
+
+		// proxyNetworkMap rides the envelope as a ProxyPatch sidecar;
+		// the client merges it into Calculate()'s output the same
+		// way the legacy server did via NetworkMap.Merge.
+		update = grpc.ToComponentSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, peer, nil, nil, components, proxyNetworkMap, dnsDomain, postureChecks, account.Settings, extraSettings, maps.Keys(peerGroups), dnsFwdPort)
+
+		c.peersUpdateManager.SendUpdate(ctx, peer.ID, &network_map.UpdateMessage{
+			Update:      update,
+			MessageType: network_map.MessageTypeNetworkMap,
+		})
+
+		return nil
+	}
+
+	nmap := account.GetPeerNetworkMapFromComponents(
+		ctx, peer.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics, groupIDToUserIDs)
+
+	if proxyNetworkMap != nil {
+		nmap.Merge(proxyNetworkMap)
+	}
+
+	update = grpc.ToSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, peer, nil, nil, nmap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSettings, maps.Keys(peerGroups), dnsFwdPort)
+
 	c.peersUpdateManager.SendUpdate(ctx, peer.ID, &network_map.UpdateMessage{
 		Update:      update,
 		MessageType: network_map.MessageTypeNetworkMap,
@@ -485,6 +627,65 @@ func (c *Controller) BufferUpdateAccountPeers(ctx context.Context, accountID str
 	}()
 
 	return nil
+}
+
+// GetValidatedPeerWithComponents is the components-format counterpart of
+// GetValidatedPeerWithMap. It returns raw NetworkMapComponents for capable
+// peers along with the proxy NetworkMap fragment (BYOP / port-forwarding
+// data the legacy server folds in via NetworkMap.Merge). The gRPC layer
+// encodes both into the wire envelope. Callers must gate on capability
+// themselves before dispatching here — this method does NOT branch on it.
+func (c *Controller) GetValidatedPeerWithComponents(ctx context.Context, isRequiresApproval bool, accountID string, peer *nbpeer.Peer) (*nbpeer.Peer, *types.NetworkMapComponents, *types.NetworkMap, []*posture.Checks, int64, error) {
+	if isRequiresApproval {
+		network, err := c.repo.GetAccountNetwork(ctx, accountID)
+		if err != nil {
+			return nil, nil, nil, nil, 0, err
+		}
+		return peer, &types.NetworkMapComponents{Network: network.Copy()}, nil, nil, 0, nil
+	}
+
+	account, err := c.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+	if err != nil {
+		return nil, nil, nil, nil, 0, err
+	}
+
+	c.injectAllProxyPolicies(ctx, account)
+
+	approvedPeersMap, err := c.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
+	if err != nil {
+		return nil, nil, nil, nil, 0, err
+	}
+
+	postureChecks, err := c.getPeerPostureChecks(account, peer.ID)
+	if err != nil {
+		return nil, nil, nil, nil, 0, err
+	}
+
+	accountZones, err := c.repo.GetAccountZones(ctx, account.Id)
+	if err != nil {
+		return nil, nil, nil, nil, 0, err
+	}
+
+	// Fetch the proxy network map fragment for this peer alongside the
+	// components — same single-account-load path the streaming controller
+	// uses, so initial-sync delivers BYOP/forwarding patches synchronously
+	// instead of waiting for the next streaming push.
+	proxyNetworkMaps, err := c.proxyController.GetProxyNetworkMaps(ctx, account.Id, peer.ID, account.Peers)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get proxy network maps: %v", err)
+		return nil, nil, nil, nil, 0, err
+	}
+
+	dnsDomain := c.GetDNSDomain(account.Settings)
+	peersCustomZone := account.GetPeersCustomZone(ctx, dnsDomain)
+
+	resourcePolicies := account.GetResourcePoliciesMap()
+	routers := account.GetResourceRoutersMap()
+	groupIDToUserIDs := account.GetActiveGroupUsers()
+	components := account.GetPeerNetworkMapComponents(ctx, peer.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, groupIDToUserIDs)
+	dnsFwdPort := computeForwarderPort(maps.Values(account.Peers), network_map.DnsForwarderPortMinVersion)
+
+	return peer, components, proxyNetworkMaps[peer.ID], postureChecks, dnsFwdPort, nil
 }
 
 // BufferUpdateAffectedPeers accumulates peer IDs and flushes them after the buffer interval.
@@ -603,7 +804,7 @@ func (c *Controller) GetValidatedPeerWithMap(ctx context.Context, isRequiresAppr
 		return nil, nil, 0, err
 	}
 
-	account.InjectProxyPolicies(ctx)
+	c.injectAllProxyPolicies(ctx, account)
 
 	approvedPeersMap, err := c.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
 	if err != nil {
@@ -874,7 +1075,7 @@ func (c *Controller) GetNetworkMap(ctx context.Context, peerID string) (*types.N
 		return nil, err
 	}
 
-	account.InjectProxyPolicies(ctx)
+	c.injectAllProxyPolicies(ctx, account)
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
 	groupIDToUserIDs := account.GetActiveGroupUsers()

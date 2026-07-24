@@ -15,18 +15,21 @@ var allKeys = []string{
 	KeyDisableUpdateSettings,
 	KeyDisableProfiles,
 	KeyDisableNetworks,
+	KeyDisableAdvancedView,
 	KeyDisableClientRoutes,
 	KeyDisableServerRoutes,
 	KeyBlockInbound,
 	KeyDisableMetricsCollection,
 	KeyAllowServerSSH,
 	KeyDisableAutoConnect,
+	KeyDisableAutostart,
 	KeyPreSharedKey,
 	KeyRosenpassEnabled,
 	KeyRosenpassPermissive,
 	KeyWireguardPort,
 	KeySplitTunnelMode,
 	KeySplitTunnelApps,
+	KeyLazyConnection,
 }
 
 // canonicalKey maps the lowercase form of a managed-config value name to

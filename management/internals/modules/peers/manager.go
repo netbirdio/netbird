@@ -184,6 +184,8 @@ func (m *managerImpl) DeletePeers(ctx context.Context, accountID string, peerIDs
 				return err
 			}
 
+			log.WithContext(ctx).Debugf("DeletePeers: deleted peer %s", peerID)
+
 			if !(peer.ProxyMeta.Embedded || peer.Meta.KernelVersion == "wasm") {
 				eventsToStore = append(eventsToStore, func() {
 					m.accountManager.StoreEvent(ctx, userID, peer.ID, accountID, activity.PeerRemovedByUser, peer.EventMeta(dnsDomain))
@@ -220,12 +222,12 @@ func (m *managerImpl) GetPeerID(ctx context.Context, peerKey string) (string, er
 func (m *managerImpl) CreateProxyPeer(ctx context.Context, accountID string, peerKey string, cluster string) error {
 	existingPeerID, err := m.store.GetPeerIDByKey(ctx, store.LockingStrengthNone, peerKey)
 	if err == nil && existingPeerID != "" {
-		// Peer already exists
+		// Same pubkey already registered — idempotent.
 		return nil
 	}
 
 	name := fmt.Sprintf("proxy-%s", xid.New().String())
-	peer := &peer.Peer{
+	newPeer := &peer.Peer{
 		Ephemeral: true,
 		ProxyMeta: peer.ProxyMeta{
 			Cluster:  cluster,
@@ -242,7 +244,7 @@ func (m *managerImpl) CreateProxyPeer(ctx context.Context, accountID string, pee
 		},
 	}
 
-	_, _, _, _, err = m.accountManager.AddPeer(ctx, accountID, "", "", peer, true)
+	_, _, _, _, err = m.accountManager.AddPeer(ctx, accountID, "", "", newPeer, true)
 	if err != nil {
 		return fmt.Errorf("failed to create proxy peer: %w", err)
 	}

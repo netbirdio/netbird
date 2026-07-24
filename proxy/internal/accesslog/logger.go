@@ -16,6 +16,7 @@ import (
 	"github.com/netbirdio/netbird/proxy/auth"
 	"github.com/netbirdio/netbird/proxy/internal/types"
 	"github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/trustedproxy"
 )
 
 const (
@@ -66,7 +67,7 @@ type denyBucket struct {
 type Logger struct {
 	client         gRPCClient
 	logger         *log.Logger
-	trustedProxies []netip.Prefix
+	trustedProxies *trustedproxy.List
 
 	usageMux    sync.Mutex
 	domainUsage map[string]*domainUsage
@@ -82,7 +83,7 @@ type Logger struct {
 // NewLogger creates a new access log Logger. The trustedProxies parameter
 // configures which upstream proxy IP ranges are trusted for extracting
 // the real client IP from X-Forwarded-For headers.
-func NewLogger(client gRPCClient, logger *log.Logger, trustedProxies []netip.Prefix) *Logger {
+func NewLogger(client gRPCClient, logger *log.Logger, trustedProxies *trustedproxy.List) *Logger {
 	if logger == nil {
 		logger = log.StandardLogger()
 	}
@@ -128,6 +129,7 @@ type logEntry struct {
 	BytesDownload int64
 	Protocol      Protocol
 	Metadata      map[string]string
+	AgentNetwork  bool
 }
 
 // Protocol identifies the transport protocol of an access log entry.
@@ -214,6 +216,54 @@ func (l *Logger) allowDenyLog(serviceID types.ServiceID, reason string) bool {
 	return false
 }
 
+// usageMetadataKeys is the allowlist of metadata retained on a stripped,
+// usage-only agent-network entry. Mirrors the llm.* / cost.* keys in
+// proxy/internal/middleware/keys.go — only the dimensions management needs to
+// record a usage row (provider / model / tokens / cost / groups).
+var usageMetadataKeys = map[string]struct{}{
+	"llm.provider":             {},
+	"llm.model":                {},
+	"llm.resolved_provider_id": {},
+	"llm.input_tokens":         {},
+	"llm.output_tokens":        {},
+	"llm.total_tokens":         {},
+	"cost.usd_total":           {},
+	"llm.authorising_groups":   {},
+}
+
+// stripAgentNetworkEntryForUsage returns the entry reduced to what's needed to
+// record usage/cost: it drops request detail (host / path / source IP) and any
+// prompt capture, keeping the LLM usage metadata plus the caller identity
+// (user / auth mechanism) needed for attribution. Shipped when an
+// agent-network account has log collection disabled but usage must still be
+// collected. logEntry is passed by value, so mutating it here is safe; Metadata
+// is replaced with a fresh map rather than mutated in place.
+func stripAgentNetworkEntryForUsage(entry logEntry) logEntry {
+	entry.Host = ""
+	entry.Path = ""
+	entry.SourceIP = netip.Addr{}
+	// Drop the rest of the per-request telemetry too — a usage-only entry
+	// must carry the LLM usage metadata and caller identity, nothing that
+	// describes the individual request.
+	entry.Method = ""
+	entry.ResponseCode = 0
+	entry.DurationMs = 0
+	entry.BytesUpload = 0
+	entry.BytesDownload = 0
+	entry.Protocol = ""
+
+	if len(entry.Metadata) > 0 {
+		stripped := make(map[string]string, len(usageMetadataKeys))
+		for k := range usageMetadataKeys {
+			if v, ok := entry.Metadata[k]; ok {
+				stripped[k] = v
+			}
+		}
+		entry.Metadata = stripped
+	}
+	return entry
+}
+
 func (l *Logger) log(entry logEntry) {
 	// Fire off the log request in a separate routine.
 	// This increases the possibility of losing a log message
@@ -264,6 +314,7 @@ func (l *Logger) log(entry logEntry) {
 				BytesDownload: entry.BytesDownload,
 				Protocol:      string(entry.Protocol),
 				Metadata:      entry.Metadata,
+				AgentNetwork:  entry.AgentNetwork,
 			},
 		}); err != nil {
 			l.logger.WithFields(log.Fields{

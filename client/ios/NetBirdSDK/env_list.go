@@ -38,7 +38,7 @@ func GetEnvKeyNBForceRelay() string {
 
 // GetEnvKeyNBLazyConn Exports the environment variable for the iOS client
 func GetEnvKeyNBLazyConn() string {
-	return lazyconn.EnvEnableLazyConn
+	return lazyconn.EnvLazyConn
 }
 
 // GetEnvKeyNBInactivityThreshold Exports the environment variable for the iOS client

@@ -66,6 +66,9 @@
     <key>disableAutoConnect</key>
     <false/>
 
+    <key>disableAutostart</key>
+    <false/>
+
     <key>disableClientRoutes</key>
     <false/>
 
@@ -96,6 +99,10 @@
          disableProfiles         : hide the profile menu, reject profile CRUD.
          disableNetworks         : hide the Networks / Exit Node menus,
                                    reject the related RPCs.
+         disableAdvancedView     : hide the advanced-view section of the new
+                                   UI. Tristate at the daemon: set to true to
+                                   hide, false to explicitly show, omit the
+                                   key to let the UI apply its own default.
          disableMetricsCollection: opt out of anonymous usage telemetry. -->
     <!--
     <key>disableUpdateSettings</key>
@@ -105,6 +112,9 @@
     <true/>
 
     <key>disableNetworks</key>
+    <true/>
+
+    <key>disableAdvancedView</key>
     <true/>
 
     <key>disableMetricsCollection</key>

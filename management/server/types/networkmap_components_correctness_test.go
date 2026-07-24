@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rs/xid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -88,13 +89,13 @@ func buildScalableTestAccount(numPeers, numGroups int, withDefaultPolicy bool) (
 		for i := start; i < end; i++ {
 			groupPeers = append(groupPeers, fmt.Sprintf("peer-%d", i))
 		}
-		groups[groupID] = &types.Group{ID: groupID, Name: fmt.Sprintf("Group %d", g), Peers: groupPeers}
+		groups[groupID] = &types.Group{ID: groupID, PublicID: xid.New().String(), Name: fmt.Sprintf("Group %d", g), Peers: groupPeers}
 	}
 
 	policies := make([]*types.Policy, 0, numGroups+2)
 	if withDefaultPolicy {
 		policies = append(policies, &types.Policy{
-			ID: "policy-all", Name: "Default-Allow", Enabled: true,
+			ID: "policy-all", PublicID: xid.New().String(), Name: "Default-Allow", Enabled: true,
 			Rules: []*types.PolicyRule{{
 				ID: "rule-all", Name: "Allow All", Enabled: true, Action: types.PolicyTrafficActionAccept,
 				Protocol: types.PolicyRuleProtocolALL, Bidirectional: true,
@@ -107,7 +108,7 @@ func buildScalableTestAccount(numPeers, numGroups int, withDefaultPolicy bool) (
 		groupID := fmt.Sprintf("group-%d", g)
 		dstGroup := fmt.Sprintf("group-%d", (g+1)%numGroups)
 		policies = append(policies, &types.Policy{
-			ID: fmt.Sprintf("policy-%d", g), Name: fmt.Sprintf("Policy %d", g), Enabled: true,
+			ID: fmt.Sprintf("policy-%d", g), PublicID: xid.New().String(), Name: fmt.Sprintf("Policy %d", g), Enabled: true,
 			Rules: []*types.PolicyRule{{
 				ID: fmt.Sprintf("rule-%d", g), Name: fmt.Sprintf("Rule %d", g), Enabled: true,
 				Action: types.PolicyTrafficActionAccept, Protocol: types.PolicyRuleProtocolTCP,
@@ -120,7 +121,7 @@ func buildScalableTestAccount(numPeers, numGroups int, withDefaultPolicy bool) (
 
 	if numGroups >= 2 {
 		policies = append(policies, &types.Policy{
-			ID: "policy-drop", Name: "Drop DB traffic", Enabled: true,
+			ID: "policy-drop", PublicID: xid.New().String(), Name: "Drop DB traffic", Enabled: true,
 			Rules: []*types.PolicyRule{{
 				ID: "rule-drop", Name: "Drop DB", Enabled: true, Action: types.PolicyTrafficActionDrop,
 				Protocol: types.PolicyRuleProtocolTCP, Ports: []string{"5432"}, Bidirectional: true,
@@ -144,6 +145,7 @@ func buildScalableTestAccount(numPeers, numGroups int, withDefaultPolicy bool) (
 		groupID := fmt.Sprintf("group-%d", r%numGroups)
 		routes[routeID] = &route.Route{
 			ID:                  routeID,
+			PublicID:            xid.New().String(),
 			Network:             netip.MustParsePrefix(fmt.Sprintf("10.%d.0.0/16", r)),
 			Peer:                peers[routePeerID].Key,
 			PeerID:              routePeerID,
@@ -178,18 +180,18 @@ func buildScalableTestAccount(numPeers, numGroups int, withDefaultPolicy bool) (
 		}
 		routerPeerID := fmt.Sprintf("peer-%d", routerPeerIdx)
 
-		networksList = append(networksList, &networkTypes.Network{ID: netID, Name: fmt.Sprintf("Network %d", nr), AccountID: "test-account"})
+		networksList = append(networksList, &networkTypes.Network{ID: netID, PublicID: xid.New().String(), Name: fmt.Sprintf("Network %d", nr), AccountID: "test-account"})
 		networkResources = append(networkResources, &resourceTypes.NetworkResource{
-			ID: resID, NetworkID: netID, AccountID: "test-account", Enabled: true,
+			ID: resID, PublicID: xid.New().String(), NetworkID: netID, AccountID: "test-account", Enabled: true,
 			Address: fmt.Sprintf("svc-%d.netbird.cloud", nr),
 		})
 		networkRouters = append(networkRouters, &routerTypes.NetworkRouter{
-			ID: fmt.Sprintf("router-%d", nr), NetworkID: netID, Peer: routerPeerID,
+			ID: fmt.Sprintf("router-%d", nr), PublicID: xid.New().String(), NetworkID: netID, Peer: routerPeerID,
 			Enabled: true, AccountID: "test-account",
 		})
 
 		policies = append(policies, &types.Policy{
-			ID: fmt.Sprintf("policy-res-%d", nr), Name: fmt.Sprintf("Resource Policy %d", nr), Enabled: true,
+			ID: fmt.Sprintf("policy-res-%d", nr), PublicID: xid.New().String(), Name: fmt.Sprintf("Resource Policy %d", nr), Enabled: true,
 			SourcePostureChecks: []string{"posture-check-ver"},
 			Rules: []*types.PolicyRule{{
 				ID: fmt.Sprintf("rule-res-%d", nr), Name: fmt.Sprintf("Allow Resource %d", nr), Enabled: true,
@@ -215,12 +217,12 @@ func buildScalableTestAccount(numPeers, numGroups int, withDefaultPolicy bool) (
 		DNSSettings: types.DNSSettings{DisabledManagementGroups: []string{}},
 		NameServerGroups: map[string]*nbdns.NameServerGroup{
 			"ns-group-main": {
-				ID: "ns-group-main", Name: "Main NS", Enabled: true, Groups: []string{"group-all"},
+				ID: "ns-group-main", PublicID: xid.New().String(), Name: "Main NS", Enabled: true, Groups: []string{"group-all"},
 				NameServers: []nbdns.NameServer{{IP: netip.MustParseAddr("8.8.8.8"), NSType: nbdns.UDPNameServerType, Port: 53}},
 			},
 		},
 		PostureChecks: []*posture.Checks{
-			{ID: "posture-check-ver", Name: "Check version", Checks: posture.ChecksDefinition{
+			{ID: "posture-check-ver", PublicID: xid.New().String(), Name: "Check version", Checks: posture.ChecksDefinition{
 				NBVersionCheck: &posture.NBVersionCheck{MinVersion: "0.26.0"},
 			}},
 		},

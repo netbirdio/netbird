@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -35,6 +36,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/sessionkey"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/users"
 	proxyauth "github.com/netbirdio/netbird/proxy/auth"
@@ -60,6 +62,23 @@ type ProxyTokenChecker interface {
 }
 
 // ProxyServiceServer implements the ProxyService gRPC server
+// AgentNetworkSynthesizer produces in-memory reverse-proxy services from
+// Agent Network provider/policy state for the proxy snapshot path; synthesised
+// services never appear in the reverseproxy_services table.
+type AgentNetworkSynthesizer interface {
+	SynthesizeServicesForCluster(ctx context.Context, clusterAddr string) ([]*rpservice.Service, error)
+	SynthesizeServicesForAccount(ctx context.Context, accountID string) ([]*rpservice.Service, error)
+	SynthesizeServiceForDomain(ctx context.Context, domain string) (*rpservice.Service, error)
+}
+
+// AgentNetworkLimitsService is the minimal slice of agentnetwork.Manager the
+// gRPC layer needs for CheckLLMPolicyLimits + RecordLLMUsage — kept narrow so
+// the grpc package doesn't take a hard import on the full manager.
+type AgentNetworkLimitsService interface {
+	SelectPolicyForRequest(ctx context.Context, in agentnetwork.PolicySelectionInput) (*agentnetwork.PolicySelectionResult, error)
+	RecordUsage(ctx context.Context, in agentnetwork.RecordUsageInput) error
+}
+
 type ProxyServiceServer struct {
 	proto.UnimplementedProxyServiceServer
 
@@ -72,6 +91,14 @@ type ProxyServiceServer struct {
 	mu sync.RWMutex
 	// Manager for reverse proxy operations
 	serviceManager rpservice.Manager
+	// agentNetworkSynth produces synthesised reverse-proxy services from
+	// Agent Network state. Optional — when nil the snapshot path only ships
+	// persisted services.
+	agentNetworkSynth AgentNetworkSynthesizer
+	// agentNetworkLimits handles the pre-flight selection (CheckLLMPolicyLimits)
+	// and the post-flight consumption write (RecordLLMUsage). Optional — when
+	// nil both RPCs return Unimplemented.
+	agentNetworkLimits AgentNetworkLimitsService
 	// ProxyController for service updates and cluster management
 	proxyController proxy.Controller
 
@@ -207,6 +234,127 @@ func (s *ProxyServiceServer) SetServiceManager(manager rpservice.Manager) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.serviceManager = manager
+}
+
+// SetAgentNetworkSynthesizer wires the agent-network service synthesiser.
+// Optional — when nil the snapshot path skips agent-network synthesis. The
+// modules layer injects this after both the proxy server and the agent-network
+// manager are constructed.
+func (s *ProxyServiceServer) SetAgentNetworkSynthesizer(synth AgentNetworkSynthesizer) {
+	s.mu.Lock()
+	s.agentNetworkSynth = synth
+	s.mu.Unlock()
+}
+
+// SetAgentNetworkLimitsService wires the policy-selection + post-flight
+// consumption sink. Pass nil to disable; both RPCs return Unimplemented while
+// unset so partial wiring surfaces during integration.
+func (s *ProxyServiceServer) SetAgentNetworkLimitsService(svc AgentNetworkLimitsService) {
+	s.mu.Lock()
+	s.agentNetworkLimits = svc
+	s.mu.Unlock()
+}
+
+// agentNetworkSynthesizer returns the synthesiser under read lock.
+func (s *ProxyServiceServer) agentNetworkSynthesizer() AgentNetworkSynthesizer {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.agentNetworkSynth
+}
+
+// CheckLLMPolicyLimits is the pre-flight policy gate the proxy calls before
+// forwarding an LLM request upstream. Delegates to the agent-network selector,
+// which scores applicable policies by remaining headroom and returns the
+// policy that pays for this request (or a deny when all are exhausted).
+func (s *ProxyServiceServer) CheckLLMPolicyLimits(ctx context.Context, req *proto.CheckLLMPolicyLimitsRequest) (*proto.CheckLLMPolicyLimitsResponse, error) {
+	s.mu.RLock()
+	svc := s.agentNetworkLimits
+	s.mu.RUnlock()
+	if svc == nil {
+		return nil, status.Errorf(codes.Unimplemented, "agent-network limits service not configured on management")
+	}
+	if req.GetAccountId() == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "account_id is required")
+	}
+	if err := enforceAccountScope(ctx, req.GetAccountId()); err != nil {
+		return nil, err
+	}
+
+	res, err := svc.SelectPolicyForRequest(ctx, agentnetwork.PolicySelectionInput{
+		AccountID:  req.GetAccountId(),
+		UserID:     req.GetUserId(),
+		GroupIDs:   req.GetGroupIds(),
+		ProviderID: req.GetProviderId(),
+	})
+	if err != nil {
+		log.WithContext(ctx).Errorf("select policy for request: %v", err)
+		return nil, status.Error(codes.Internal, "select policy failed")
+	}
+
+	if !res.Allow {
+		return &proto.CheckLLMPolicyLimitsResponse{
+			Decision:           "deny",
+			SelectedPolicyId:   res.SelectedPolicyID,
+			AttributionGroupId: res.AttributionGroupID,
+			WindowSeconds:      res.WindowSeconds,
+			DenyCode:           res.DenyCode,
+			DenyReason:         res.DenyReason,
+		}, nil
+	}
+	return &proto.CheckLLMPolicyLimitsResponse{
+		Decision:           "allow",
+		SelectedPolicyId:   res.SelectedPolicyID,
+		AttributionGroupId: res.AttributionGroupID,
+		WindowSeconds:      res.WindowSeconds,
+	}, nil
+}
+
+// RecordLLMUsage increments the per-(dimension, window) consumption counter for
+// the user and optional attribution group after a served request. Returns
+// Unimplemented when the agent-network limits service hasn't been wired.
+func (s *ProxyServiceServer) RecordLLMUsage(ctx context.Context, req *proto.RecordLLMUsageRequest) (*proto.RecordLLMUsageResponse, error) {
+	s.mu.RLock()
+	svc := s.agentNetworkLimits
+	s.mu.RUnlock()
+	if svc == nil {
+		return nil, status.Errorf(codes.Unimplemented, "agent-network limits service not configured on management")
+	}
+
+	accountID := req.GetAccountId()
+	if accountID == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "account_id is required")
+	}
+	if err := enforceAccountScope(ctx, accountID); err != nil {
+		return nil, err
+	}
+	tokensIn := req.GetTokensInput()
+	tokensOut := req.GetTokensOutput()
+	costUSD := req.GetCostUsd()
+
+	// Reject impossible counters at the boundary instead of recording them:
+	// a negative window, negative tokens, or a negative / non-finite cost
+	// would otherwise decrement or poison the persisted consumption totals.
+	if req.GetWindowSeconds() < 0 || tokensIn < 0 || tokensOut < 0 || costUSD < 0 || math.IsNaN(costUSD) || math.IsInf(costUSD, 0) {
+		return nil, status.Errorf(codes.InvalidArgument, "usage counters must be non-negative and finite")
+	}
+
+	// Book the policy-window dimensions (when a policy cap bound this request)
+	// and every applicable account budget rule's window in a single batched
+	// transaction.
+	if err := svc.RecordUsage(ctx, agentnetwork.RecordUsageInput{
+		AccountID:          accountID,
+		UserID:             req.GetUserId(),
+		AttributionGroupID: req.GetGroupId(),
+		GroupIDs:           req.GetGroupIds(),
+		WindowSeconds:      req.GetWindowSeconds(),
+		TokensIn:           tokensIn,
+		TokensOut:          tokensOut,
+		CostUSD:            costUSD,
+	}); err != nil {
+		log.WithContext(ctx).Errorf("record usage: %v", err)
+		return nil, status.Error(codes.Internal, "record usage failed")
+	}
+	return &proto.RecordLLMUsageResponse{}, nil
 }
 
 // SetProxyController sets the proxy controller. Must be called before serving.
@@ -460,11 +608,11 @@ func (s *ProxyServiceServer) disconnectProxy(conn *proxyConnection) {
 	if err := s.proxyController.UnregisterProxyFromCluster(context.Background(), conn.address, conn.proxyID); err != nil {
 		log.Warnf("Failed to unregister proxy %s from cluster: %v", conn.proxyID, err)
 	}
+	conn.cancel()
 	if err := s.proxyManager.Disconnect(context.Background(), conn.proxyID, conn.sessionID); err != nil {
 		log.Warnf("Failed to mark proxy %s as disconnected: %v", conn.proxyID, err)
 	}
 
-	conn.cancel()
 	log.Infof("Proxy %s session %s disconnected", conn.proxyID, conn.sessionID)
 }
 
@@ -623,10 +771,38 @@ func (s *ProxyServiceServer) snapshotServiceMappings(ctx context.Context, conn *
 		return nil, fmt.Errorf("get services from store: %w", err)
 	}
 
+	if synth := s.agentNetworkSynthesizer(); synth != nil {
+		var synthesised []*rpservice.Service
+		var serr error
+		// Account-scoped connections synthesise only their own account, so the
+		// snapshot can never carry another tenant's mappings (which embed the
+		// upstream auth header derived from that tenant's provider API key).
+		// Global connections still see the whole cluster.
+		if conn.accountID != nil {
+			synthesised, serr = synth.SynthesizeServicesForAccount(ctx, *conn.accountID)
+		} else {
+			synthesised, serr = synth.SynthesizeServicesForCluster(ctx, conn.address)
+		}
+		if serr != nil {
+			// Surface a real synthesis failure instead of silently shipping an
+			// incomplete snapshot (which would drop the account's agent-network
+			// routes). Consistent with the persisted-services error above; the
+			// proxy retries the snapshot on connection error.
+			return nil, fmt.Errorf("synthesise agent-network services: %w", serr)
+		}
+		services = append(services, synthesised...)
+	}
+
 	oidcCfg := s.GetOIDCValidationConfig()
 	var mappings []*proto.ProxyMapping
 	for _, service := range services {
 		if !service.Enabled || service.ProxyCluster == "" || service.ProxyCluster != conn.address {
+			continue
+		}
+		// Defense in depth: an account-scoped proxy must never receive another
+		// account's mapping, matching the per-account filtering the incremental
+		// update path already applies.
+		if conn.accountID != nil && service.AccountID != *conn.accountID {
 			continue
 		}
 
@@ -1617,7 +1793,29 @@ func (s *ProxyServiceServer) ValidateSession(ctx context.Context, req *proto.Val
 }
 
 func (s *ProxyServiceServer) getServiceByDomain(ctx context.Context, domain string) (*rpservice.Service, error) {
-	return s.serviceManager.GetServiceByDomain(ctx, domain)
+	service, err := s.serviceManager.GetServiceByDomain(ctx, domain)
+	if err == nil {
+		return service, nil
+	}
+
+	// Fall back to the Agent Network synthesiser scoped directly to the domain's
+	// account. Synthesised services are never persisted, so they must resolve
+	// here for OIDC / session / tunnel-peer flows against agent-network
+	// endpoints. Resolving by domain synthesises only the owning account rather
+	// than every tenant on the cluster.
+	if synth := s.agentNetworkSynthesizer(); synth != nil {
+		svc, serr := synth.SynthesizeServiceForDomain(ctx, domain)
+		if serr != nil {
+			// A real synthesis failure must surface, not be masked by the
+			// original store miss — otherwise a transient DB error looks like
+			// "no such service".
+			return nil, fmt.Errorf("synthesize agent-network service for %s: %w", domain, serr)
+		}
+		if svc != nil {
+			return svc, nil
+		}
+	}
+	return nil, err
 }
 
 func (s *ProxyServiceServer) checkGroupAccess(service *rpservice.Service, user *types.User) error {

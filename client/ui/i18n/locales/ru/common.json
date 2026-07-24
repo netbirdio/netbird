@@ -1,0 +1,1334 @@
+{
+    "tray.tooltip": {
+        "message": "NetBird"
+    },
+    "tray.status.disconnected": {
+        "message": "Отключено"
+    },
+    "tray.status.daemonUnavailable": {
+        "message": "Не запущено"
+    },
+    "tray.status.error": {
+        "message": "Ошибка"
+    },
+    "tray.status.connected": {
+        "message": "Подключено"
+    },
+    "tray.status.connecting": {
+        "message": "Подключение"
+    },
+    "tray.status.needsLogin": {
+        "message": "Требуется вход"
+    },
+    "tray.status.loginFailed": {
+        "message": "Ошибка входа"
+    },
+    "tray.status.sessionExpired": {
+        "message": "Сеанс истёк"
+    },
+    "tray.session.expiresIn": {
+        "message": "Сеанс истекает через {remaining}"
+    },
+    "tray.session.unit.lessThanMinute": {
+        "message": "менее чем минуту"
+    },
+    "tray.session.unit.minute": {
+        "message": "1 минуту"
+    },
+    "tray.session.unit.minutes": {
+        "message": "{count} минут"
+    },
+    "tray.session.unit.hour": {
+        "message": "1 час"
+    },
+    "tray.session.unit.hours": {
+        "message": "{count} часов"
+    },
+    "tray.session.unit.day": {
+        "message": "1 день"
+    },
+    "tray.session.unit.days": {
+        "message": "{count} дней"
+    },
+    "tray.menu.open": {
+        "message": "Открыть NetBird"
+    },
+    "tray.menu.connect": {
+        "message": "Подключиться"
+    },
+    "tray.menu.disconnect": {
+        "message": "Отключиться"
+    },
+    "tray.menu.exitNode": {
+        "message": "Выходной узел"
+    },
+    "tray.menu.networks": {
+        "message": "Ресурсы"
+    },
+    "tray.menu.profiles": {
+        "message": "Профили"
+    },
+    "tray.menu.manageProfiles": {
+        "message": "Управление профилями"
+    },
+    "tray.menu.settings": {
+        "message": "Настройки…"
+    },
+    "tray.menu.debugBundle": {
+        "message": "Создать отладочный пакет"
+    },
+    "tray.menu.about": {
+        "message": "Помощь и поддержка"
+    },
+    "tray.menu.github": {
+        "message": "GitHub"
+    },
+    "tray.menu.documentation": {
+        "message": "Документация"
+    },
+    "tray.menu.troubleshoot": {
+        "message": "Диагностика"
+    },
+    "tray.menu.downloadLatest": {
+        "message": "Загрузить последнюю версию"
+    },
+    "tray.menu.installVersion": {
+        "message": "Установить версию {version}"
+    },
+    "tray.menu.guiVersion": {
+        "message": "GUI: {version}"
+    },
+    "tray.menu.daemonVersion": {
+        "message": "Демон: {version}"
+    },
+    "tray.menu.versionUnknown": {
+        "message": "—"
+    },
+    "tray.menu.quit": {
+        "message": "Выйти из NetBird"
+    },
+    "notify.daemonOutdated.title": {
+        "message": "Служба NetBird устарела"
+    },
+    "notify.daemonOutdated.body": {
+        "message": "Обновите службу NetBird, чтобы использовать это приложение."
+    },
+    "notify.update.title": {
+        "message": "Доступно обновление NetBird"
+    },
+    "notify.update.body": {
+        "message": "Доступна версия NetBird {version}."
+    },
+    "notify.update.enforcedSuffix": {
+        "message": " Ваш администратор требует установить это обновление."
+    },
+    "notify.error.title": {
+        "message": "Ошибка"
+    },
+    "notify.error.connect": {
+        "message": "Не удалось подключиться"
+    },
+    "notify.error.disconnect": {
+        "message": "Не удалось отключиться"
+    },
+    "notify.error.switchProfile": {
+        "message": "Не удалось переключиться на {profile}"
+    },
+    "notify.error.exitNode": {
+        "message": "Не удалось обновить выходной узел {name}"
+    },
+    "notify.sessionExpired.title": {
+        "message": "Сеанс NetBird истёк"
+    },
+    "notify.sessionExpired.body": {
+        "message": "Сеанс NetBird истёк. Пожалуйста, войдите снова."
+    },
+    "notify.sessionWarning.title": {
+        "message": "Сеанс скоро истечёт"
+    },
+    "notify.sessionWarning.body": {
+        "message": "Сеанс NetBird истекает через {remaining}. Нажмите «Продлить сейчас», чтобы продлить сеанс."
+    },
+    "notify.sessionWarning.bodyGeneric": {
+        "message": "Сеанс NetBird скоро истечёт. Нажмите «Продлить сейчас», чтобы продлить сеанс."
+    },
+    "notify.sessionWarning.extend": {
+        "message": "Продлить сейчас"
+    },
+    "notify.sessionWarning.dismiss": {
+        "message": "Закрыть"
+    },
+    "notify.sessionWarning.failed": {
+        "message": "Не удалось продлить сеанс NetBird"
+    },
+    "notify.sessionWarning.successTitle": {
+        "message": "Сеанс NetBird продлён"
+    },
+    "notify.sessionWarning.successBody": {
+        "message": "Сеанс обновлён."
+    },
+    "notify.sessionDeadlineRejected.title": {
+        "message": "Неверный срок действия сеанса"
+    },
+    "notify.sessionDeadlineRejected.body": {
+        "message": "Сервер передал неверный срок действия сеанса. Пожалуйста, войдите снова."
+    },
+    "notify.mdm.policyApplied.title": {
+        "message": "Настройки NetBird обновлены"
+    },
+    "notify.mdm.policyApplied.body": {
+        "message": "Конфигурация NetBird была обновлена в соответствии с вашей ИТ-политикой."
+    },
+    "common.cancel": {
+        "message": "Отмена"
+    },
+    "common.save": {
+        "message": "Сохранить"
+    },
+    "common.saveChanges": {
+        "message": "Сохранить изменения"
+    },
+    "common.saving": {
+        "message": "Сохранение…"
+    },
+    "common.close": {
+        "message": "Закрыть"
+    },
+    "common.copy": {
+        "message": "Копировать"
+    },
+    "common.togglePasswordVisibility": {
+        "message": "Показать или скрыть пароль"
+    },
+    "common.increase": {
+        "message": "Увеличить"
+    },
+    "common.decrease": {
+        "message": "Уменьшить"
+    },
+    "common.delete": {
+        "message": "Удалить"
+    },
+    "common.create": {
+        "message": "Создать"
+    },
+    "common.add": {
+        "message": "Добавить"
+    },
+    "common.remove": {
+        "message": "Убрать"
+    },
+    "common.refresh": {
+        "message": "Обновить"
+    },
+    "common.loading": {
+        "message": "Загрузка…"
+    },
+    "common.netbird": {
+        "message": "NetBird"
+    },
+    "common.noResults.title": {
+        "message": "Ничего не найдено"
+    },
+    "common.noResults.description": {
+        "message": "Ничего не найдено. Попробуйте изменить поисковый запрос или фильтры."
+    },
+    "notConnected.title": {
+        "message": "Отключено"
+    },
+    "notConnected.description": {
+        "message": "Сначала подключитесь к NetBird, чтобы увидеть подробную информацию о пирах, сетевых ресурсах и выходных узлах."
+    },
+    "connect.status.disconnected": {
+        "message": "Отключено"
+    },
+    "connect.status.connecting": {
+        "message": "Подключение…"
+    },
+    "connect.status.connected": {
+        "message": "Подключено"
+    },
+    "connect.status.disconnecting": {
+        "message": "Отключение…"
+    },
+    "connect.status.daemonUnavailable": {
+        "message": "Демон недоступен"
+    },
+    "connect.status.loginRequired": {
+        "message": "Требуется вход"
+    },
+    "connect.error.loginTitle": {
+        "message": "Не удалось войти"
+    },
+    "connect.error.connectTitle": {
+        "message": "Не удалось подключиться"
+    },
+    "connect.error.disconnectTitle": {
+        "message": "Не удалось отключиться"
+    },
+    "nav.peers.title": {
+        "message": "Пиры"
+    },
+    "nav.peers.description": {
+        "message": "{connected} из {total} подключено"
+    },
+    "nav.resources.title": {
+        "message": "Ресурсы"
+    },
+    "nav.resources.description": {
+        "message": "{active} из {total} активно"
+    },
+    "nav.exitNode.title": {
+        "message": "Выходные узлы"
+    },
+    "nav.exitNode.none": {
+        "message": "Не активен"
+    },
+    "nav.exitNode.using": {
+        "message": "Через {name}"
+    },
+    "header.openSettings": {
+        "message": "Открыть настройки"
+    },
+    "header.togglePanel": {
+        "message": "Показать или скрыть боковую панель"
+    },
+    "profile.selector.loading": {
+        "message": "Загрузка…"
+    },
+    "profile.selector.noProfile": {
+        "message": "Нет профиля"
+    },
+    "profile.selector.searchPlaceholder": {
+        "message": "Поиск профиля по имени…"
+    },
+    "profile.selector.emptyTitle": {
+        "message": "Профили не найдены"
+    },
+    "profile.selector.emptyDescription": {
+        "message": "Измените поисковый запрос или создайте новый профиль."
+    },
+    "profile.selector.newProfile": {
+        "message": "Новый профиль"
+    },
+    "profile.selector.moreOptions": {
+        "message": "Дополнительные параметры"
+    },
+    "profile.selector.deregister": {
+        "message": "Отменить регистрацию"
+    },
+    "profile.selector.delete": {
+        "message": "Удалить"
+    },
+    "profile.selector.switchTo": {
+        "message": "Переключиться на этот профиль"
+    },
+    "profile.selector.edit": {
+        "message": "Изменить"
+    },
+    "profile.edit.title": {
+        "message": "Изменить профиль"
+    },
+    "profile.edit.submit": {
+        "message": "Сохранить изменения"
+    },
+    "profile.dialog.title": {
+        "message": "Введите имя профиля"
+    },
+    "profile.dialog.nameLabel": {
+        "message": "Имя профиля"
+    },
+    "profile.dialog.description": {
+        "message": "Задайте легко узнаваемое имя для профиля."
+    },
+    "profile.dialog.placeholder": {
+        "message": "например, работа"
+    },
+    "profile.dialog.submit": {
+        "message": "Добавить профиль"
+    },
+    "profile.dialog.required": {
+        "message": "Введите имя профиля, например работа или дом"
+    },
+    "profile.dialog.managementHelp": {
+        "message": "Используйте NetBird Cloud или собственный сервер."
+    },
+    "profile.dialog.urlUnreachable": {
+        "message": "Не удалось связаться с сервером. Проверьте URL или всё равно добавьте профиль, если уверены, что он правильный."
+    },
+    "header.menu.settings": {
+        "message": "Настройки…"
+    },
+    "header.menu.defaultView": {
+        "message": "Обычный вид"
+    },
+    "header.menu.advancedView": {
+        "message": "Расширенный вид"
+    },
+    "header.menu.updateAvailable": {
+        "message": "Доступно обновление"
+    },
+    "header.menu.open": {
+        "message": "Открыть меню"
+    },
+    "header.profile.switch": {
+        "message": "Сменить профиль"
+    },
+    "connect.toggle.label": {
+        "message": "Переключить подключение NetBird"
+    },
+    "connect.localIp.label": {
+        "message": "Локальные IP-адреса"
+    },
+    "common.search": {
+        "message": "Поиск"
+    },
+    "common.filter": {
+        "message": "Фильтр"
+    },
+    "exitNodes.dropdown.trigger": {
+        "message": "Выбрать выходной узел"
+    },
+    "peers.row.label": {
+        "message": "Открыть подробности для {name}, {status}"
+    },
+    "peers.dialog.title": {
+        "message": "Сведения об узле"
+    },
+    "networks.row.toggle": {
+        "message": "Переключить {name}"
+    },
+    "networks.bulk.label": {
+        "message": "Переключить все видимые ресурсы"
+    },
+    "settings.nav.label": {
+        "message": "Разделы настроек"
+    },
+    "profile.switch.title": {
+        "message": "Переключиться на профиль «{name}»?"
+    },
+    "profile.switch.message": {
+        "message": "Вы действительно хотите переключить профиль?\nТекущий профиль будет отключён."
+    },
+    "profile.switch.confirm": {
+        "message": "Подтвердить"
+    },
+    "profile.deregister.title": {
+        "message": "Отменить регистрацию профиля «{name}»?"
+    },
+    "profile.deregister.message": {
+        "message": "Вы действительно хотите отменить регистрацию этого профиля?\nДля его использования потребуется войти снова."
+    },
+    "profile.deregister.confirm": {
+        "message": "Отменить регистрацию"
+    },
+    "profile.delete.title": {
+        "message": "Удалить профиль «{name}»?"
+    },
+    "profile.delete.message": {
+        "message": "Вы действительно хотите удалить этот профиль?\nЭто действие нельзя отменить."
+    },
+    "profile.delete.disabledActive": {
+        "message": "Активные профили нельзя удалить. Переключитесь на другой профиль, прежде чем удалять этот."
+    },
+    "profile.delete.disabledDefault": {
+        "message": "Профиль по умолчанию нельзя удалить."
+    },
+    "profile.error.switchTitle": {
+        "message": "Не удалось переключить профиль"
+    },
+    "profile.error.deregisterTitle": {
+        "message": "Не удалось отменить регистрацию профиля"
+    },
+    "profile.error.deleteTitle": {
+        "message": "Не удалось удалить профиль"
+    },
+    "profile.error.createTitle": {
+        "message": "Не удалось создать профиль"
+    },
+    "profile.error.editTitle": {
+        "message": "Не удалось изменить профиль"
+    },
+    "profile.error.loadTitle": {
+        "message": "Не удалось загрузить профили"
+    },
+    "profile.dropdown.activeProfile": {
+        "message": "Активный профиль"
+    },
+    "profile.dropdown.switchProfile": {
+        "message": "Переключить профиль"
+    },
+    "profile.dropdown.noEmail": {
+        "message": "Другое"
+    },
+    "profile.dropdown.addProfile": {
+        "message": "Добавить профиль"
+    },
+    "profile.dropdown.manageProfiles": {
+        "message": "Управление профилями"
+    },
+    "profile.dropdown.settings": {
+        "message": "Настройки"
+    },
+    "settings.profiles.section.profiles": {
+        "message": "Профили"
+    },
+    "settings.profiles.intro": {
+        "message": "Управляйте несколькими профилями NetBird параллельно — например, рабочими и личными учётными записями или разными серверами управления. Ниже можно добавлять профили, отменять их регистрацию и удалять их."
+    },
+    "settings.profiles.addProfile": {
+        "message": "Добавить профиль"
+    },
+    "settings.profiles.active": {
+        "message": "Активен"
+    },
+    "settings.profiles.emptyTitle": {
+        "message": "Нет профилей"
+    },
+    "settings.profiles.emptyDescription": {
+        "message": "Создайте профиль, чтобы подключиться к серверу управления NetBird."
+    },
+    "settings.error.loadTitle": {
+        "message": "Не удалось загрузить настройки"
+    },
+    "settings.error.saveTitle": {
+        "message": "Не удалось сохранить настройки"
+    },
+    "settings.error.debugBundleTitle": {
+        "message": "Не удалось создать отладочный пакет"
+    },
+    "settings.tabs.general": {
+        "message": "Общие"
+    },
+    "settings.tabs.network": {
+        "message": "Сеть"
+    },
+    "settings.tabs.security": {
+        "message": "Безопасность"
+    },
+    "settings.tabs.profiles": {
+        "message": "Профили"
+    },
+    "settings.tabs.ssh": {
+        "message": "SSH"
+    },
+    "settings.tabs.advanced": {
+        "message": "Дополнительно"
+    },
+    "settings.tabs.troubleshooting": {
+        "message": "Диагностика"
+    },
+    "settings.tabs.about": {
+        "message": "О программе"
+    },
+    "settings.tabs.updateAvailable": {
+        "message": "Доступно обновление"
+    },
+    "settings.general.section.general": {
+        "message": "Общие"
+    },
+    "settings.general.section.connection": {
+        "message": "Подключение"
+    },
+    "settings.general.connectOnStartup.label": {
+        "message": "Подключаться при запуске"
+    },
+    "settings.general.connectOnStartup.help": {
+        "message": "Автоматически устанавливать подключение при запуске службы."
+    },
+    "settings.general.notifications.label": {
+        "message": "Уведомления на рабочем столе"
+    },
+    "settings.general.notifications.help": {
+        "message": "Показывать уведомления о новых обновлениях и событиях подключения."
+    },
+    "settings.general.autostart.label": {
+        "message": "Запускать интерфейс NetBird при входе"
+    },
+    "settings.general.autostart.help": {
+        "message": "Автоматически запускать интерфейс NetBird при входе в систему. Это влияет только на графический интерфейс, но не на фоновую службу."
+    },
+    "settings.general.autostart.errorTitle": {
+        "message": "Не удалось изменить автозапуск"
+    },
+    "settings.general.language.label": {
+        "message": "Язык интерфейса"
+    },
+    "settings.general.language.help": {
+        "message": "Выберите язык интерфейса NetBird."
+    },
+    "settings.general.language.search": {
+        "message": "Поиск языка…"
+    },
+    "settings.general.language.empty": {
+        "message": "Языки не найдены."
+    },
+    "settings.general.management.label": {
+        "message": "Сервер управления"
+    },
+    "settings.general.management.help": {
+        "message": "Подключайтесь к NetBird Cloud или к собственному серверу управления. Изменения вызовут переподключение клиента."
+    },
+    "settings.general.management.cloud": {
+        "message": "Cloud"
+    },
+    "settings.general.management.selfHosted": {
+        "message": "Собственный сервер"
+    },
+    "settings.general.management.urlPlaceholder": {
+        "message": "https://netbird.selfhosted.com:443"
+    },
+    "settings.general.management.urlError": {
+        "message": "Введите корректный URL, например https://netbird.selfhosted.com:443"
+    },
+    "settings.general.management.urlUnreachable": {
+        "message": "Не удалось связаться с сервером. Проверьте URL или всё равно сохраните, если уверены, что он правильный."
+    },
+    "settings.general.management.switchCloudTitle": {
+        "message": "Переключиться на NetBird Cloud?"
+    },
+    "settings.general.management.switchCloudMessage": {
+        "message": "Это отключит ваш собственный сервер.\nВозможно, потребуется войти снова."
+    },
+    "settings.general.management.switchCloudConfirm": {
+        "message": "Переключиться на Cloud"
+    },
+    "settings.network.section.connectivity": {
+        "message": "Подключение"
+    },
+    "settings.network.section.routingDns": {
+        "message": "Маршрутизация и DNS"
+    },
+    "settings.network.monitor.label": {
+        "message": "Переподключаться при смене сети"
+    },
+    "settings.network.monitor.help": {
+        "message": "Отслеживать сеть и автоматически переподключаться при изменениях, таких как смена Wi-Fi, изменения Ethernet или выход из спящего режима."
+    },
+    "settings.network.dns.label": {
+        "message": "Включить DNS"
+    },
+    "settings.network.dns.help": {
+        "message": "Применять управляемые NetBird настройки DNS к системному резолверу."
+    },
+    "settings.network.clientRoutes.label": {
+        "message": "Включить клиентские маршруты"
+    },
+    "settings.network.clientRoutes.help": {
+        "message": "Принимать маршруты от других пиров для доступа к их сетям."
+    },
+    "settings.network.serverRoutes.label": {
+        "message": "Включить серверные маршруты"
+    },
+    "settings.network.serverRoutes.help": {
+        "message": "Анонсировать локальные маршруты этого хоста другим пирам."
+    },
+    "settings.network.ipv6.label": {
+        "message": "Включить IPv6"
+    },
+    "settings.network.ipv6.help": {
+        "message": "Использовать IPv6-адресацию для оверлейной сети NetBird."
+    },
+    "settings.security.section.firewall": {
+        "message": "Брандмауэр"
+    },
+    "settings.security.section.encryption": {
+        "message": "Шифрование"
+    },
+    "settings.security.blockInbound.label": {
+        "message": "Блокировать входящий трафик"
+    },
+    "settings.security.blockInbound.help": {
+        "message": "Отклонять незапрошенные подключения от пиров к этому устройству и сетям, которые оно маршрутизирует. Исходящий трафик не затрагивается."
+    },
+    "settings.security.blockLan.label": {
+        "message": "Блокировать доступ к LAN"
+    },
+    "settings.security.blockLan.help": {
+        "message": "Запрещать пирам доступ к вашей локальной сети и её устройствам, когда это устройство маршрутизирует их трафик."
+    },
+    "settings.security.rosenpass.label": {
+        "message": "Включить квантовую устойчивость"
+    },
+    "settings.security.rosenpass.help": {
+        "message": "Добавить постквантовый обмен ключами через Rosenpass поверх WireGuard®."
+    },
+    "settings.security.rosenpassPermissive.label": {
+        "message": "Включить разрешающий режим"
+    },
+    "settings.security.rosenpassPermissive.help": {
+        "message": "Разрешать подключения к пирам без поддержки квантовой устойчивости."
+    },
+    "settings.ssh.section.server": {
+        "message": "Сервер"
+    },
+    "settings.ssh.section.capabilities": {
+        "message": "Возможности"
+    },
+    "settings.ssh.section.authentication": {
+        "message": "Аутентификация"
+    },
+    "settings.ssh.server.label": {
+        "message": "Включить SSH-сервер"
+    },
+    "settings.ssh.server.help": {
+        "message": "Запускать SSH-сервер NetBird на этом хосте, чтобы другие пиры могли к нему подключаться."
+    },
+    "settings.ssh.root.label": {
+        "message": "Разрешить вход под root"
+    },
+    "settings.ssh.root.help": {
+        "message": "Разрешить пирам входить под пользователем root. Отключите, чтобы требовать непривилегированную учётную запись."
+    },
+    "settings.ssh.sftp.label": {
+        "message": "Разрешить SFTP"
+    },
+    "settings.ssh.sftp.help": {
+        "message": "Безопасно передавать файлы через стандартные клиенты SFTP или SCP."
+    },
+    "settings.ssh.localForward.label": {
+        "message": "Локальная переадресация портов"
+    },
+    "settings.ssh.localForward.help": {
+        "message": "Разрешить подключающимся пирам туннелировать локальные порты к службам, доступным с этого хоста."
+    },
+    "settings.ssh.remoteForward.label": {
+        "message": "Удалённая переадресация портов"
+    },
+    "settings.ssh.remoteForward.help": {
+        "message": "Разрешить подключающимся пирам пробрасывать порты этого хоста на свою машину."
+    },
+    "settings.ssh.jwt.label": {
+        "message": "Включить аутентификацию JWT"
+    },
+    "settings.ssh.jwt.help": {
+        "message": "Проверять каждую сессию SSH через ваш IdP для идентификации пользователя и аудита. Отключите, чтобы полагаться только на сетевые политики ACL — полезно, когда IdP недоступен."
+    },
+    "settings.ssh.jwtTtl.label": {
+        "message": "TTL кэша JWT"
+    },
+    "settings.ssh.jwtTtl.help": {
+        "message": "Как долго этот клиент кэширует JWT, прежде чем снова запрашивать его при исходящих SSH-подключениях. Установите 0, чтобы отключить кэширование и аутентифицироваться при каждом подключении."
+    },
+    "settings.ssh.jwtTtl.suffix": {
+        "message": "сек."
+    },
+    "settings.advanced.section.interface": {
+        "message": "Интерфейс"
+    },
+    "settings.advanced.section.security": {
+        "message": "Безопасность"
+    },
+    "settings.advanced.interfaceName.label": {
+        "message": "Имя"
+    },
+    "settings.advanced.interfaceName.error": {
+        "message": "Используйте от 1 до 15 букв, цифр, точек, дефисов или подчёркиваний."
+    },
+    "settings.advanced.interfaceName.errorMac": {
+        "message": "Должно начинаться с «utun», за которым следует число (например, utun100)."
+    },
+    "settings.advanced.port.label": {
+        "message": "Порт"
+    },
+    "settings.advanced.port.error": {
+        "message": "Введите порт от {min} до {max}."
+    },
+    "settings.advanced.port.help": {
+        "message": "Если задано 0, будет использован случайный свободный порт."
+    },
+    "settings.advanced.mtu.label": {
+        "message": "MTU"
+    },
+    "settings.advanced.mtu.error": {
+        "message": "Введите значение MTU от {min} до {max}."
+    },
+    "settings.advanced.psk.label": {
+        "message": "Общий ключ"
+    },
+    "settings.advanced.psk.help": {
+        "message": "Необязательный PSK WireGuard для дополнительного симметричного шифрования. Это не то же самое, что ключ установки NetBird. Вы будете обмениваться данными только с пирами, использующими тот же общий ключ."
+    },
+    "settings.troubleshooting.section.title": {
+        "message": "Отладочный пакет"
+    },
+    "settings.troubleshooting.anonymize.label": {
+        "message": "Анонимизировать конфиденциальную информацию"
+    },
+    "settings.troubleshooting.anonymize.help": {
+        "message": "Скрывает публичные IP-адреса и сторонние (не относящиеся к NetBird) домены в журналах."
+    },
+    "settings.troubleshooting.systemInfo.label": {
+        "message": "Включить сведения о системе"
+    },
+    "settings.troubleshooting.systemInfo.help": {
+        "message": "Включить ОС, ядро, сетевые интерфейсы и таблицы маршрутизации."
+    },
+    "settings.troubleshooting.upload.label": {
+        "message": "Загрузить пакет на серверы NetBird"
+    },
+    "settings.troubleshooting.upload.help": {
+        "message": "Возвращает ключ загрузки, который можно передать поддержке NetBird."
+    },
+    "settings.troubleshooting.trace.label": {
+        "message": "Включить журналы TRACE"
+    },
+    "settings.troubleshooting.trace.help": {
+        "message": "Повышает уровень журналирования до TRACE и затем восстанавливает прежний."
+    },
+    "settings.troubleshooting.capture.label": {
+        "message": "Сеанс записи"
+    },
+    "settings.troubleshooting.capture.help": {
+        "message": "Переподключается и ожидает, чтобы вы могли воспроизвести проблему."
+    },
+    "settings.troubleshooting.packets.label": {
+        "message": "Записывать сетевые пакеты"
+    },
+    "settings.troubleshooting.packets.help": {
+        "message": "Сохраняет .pcap сетевого трафика во время сеанса записи."
+    },
+    "settings.troubleshooting.duration.label": {
+        "message": "Длительность записи"
+    },
+    "settings.troubleshooting.duration.help": {
+        "message": "Как долго длится сеанс записи."
+    },
+    "settings.troubleshooting.duration.suffix": {
+        "message": "мин."
+    },
+    "settings.troubleshooting.create": {
+        "message": "Создать отладочный пакет"
+    },
+    "settings.troubleshooting.progress.description": {
+        "message": "Сбор журналов, сведений о системе и состояния подключения. Обычно это занимает несколько секунд — не закрывайте это окно до завершения."
+    },
+    "settings.troubleshooting.cancelling": {
+        "message": "Отмена…"
+    },
+    "settings.troubleshooting.done.uploadedTitle": {
+        "message": "Отладочный пакет успешно загружен!"
+    },
+    "settings.troubleshooting.done.savedTitle": {
+        "message": "Пакет сохранён"
+    },
+    "settings.troubleshooting.done.uploadedDescription": {
+        "message": "Поделитесь ключом загрузки ниже с <docs>поддержкой NetBird</docs>. Локальная копия также сохранена на вашем устройстве."
+    },
+    "settings.troubleshooting.done.savedDescription": {
+        "message": "Отладочный пакет сохранён локально."
+    },
+    "settings.troubleshooting.done.copyKey": {
+        "message": "Копировать ключ"
+    },
+    "settings.troubleshooting.done.openFolder": {
+        "message": "Открыть папку"
+    },
+    "settings.troubleshooting.done.openFileLocation": {
+        "message": "Открыть расположение файла"
+    },
+    "settings.troubleshooting.uploadFailedWithReason": {
+        "message": "Не удалось загрузить: {reason} Пакет всё равно сохранён локально."
+    },
+    "settings.troubleshooting.uploadFailed": {
+        "message": "Не удалось загрузить. Пакет всё равно сохранён локально."
+    },
+    "settings.troubleshooting.stage.reconnecting": {
+        "message": "Переподключение NetBird…"
+    },
+    "settings.troubleshooting.stage.capturing": {
+        "message": "Сбор отладочных журналов"
+    },
+    "settings.troubleshooting.stage.bundling": {
+        "message": "Создание отладочного пакета…"
+    },
+    "settings.troubleshooting.stage.uploading": {
+        "message": "Загрузка в NetBird…"
+    },
+    "settings.troubleshooting.stage.cancelling": {
+        "message": "Отмена…"
+    },
+    "settings.about.client": {
+        "message": "Клиент NetBird v{version}"
+    },
+    "settings.about.clientName": {
+        "message": "Клиент NetBird"
+    },
+    "settings.about.development": {
+        "message": "[Разработка]"
+    },
+    "settings.about.gui": {
+        "message": "GUI v{version}"
+    },
+    "settings.about.guiName": {
+        "message": "GUI"
+    },
+    "settings.about.copyright": {
+        "message": "© {year} NetBird. Все права защищены."
+    },
+    "settings.about.links.imprint": {
+        "message": "Правовая информация"
+    },
+    "settings.about.links.privacy": {
+        "message": "Конфиденциальность"
+    },
+    "settings.about.links.cla": {
+        "message": "CLA"
+    },
+    "settings.about.links.terms": {
+        "message": "Условия использования"
+    },
+    "settings.about.community.github": {
+        "message": "GitHub"
+    },
+    "settings.about.community.slack": {
+        "message": "Slack"
+    },
+    "settings.about.community.forum": {
+        "message": "Форум"
+    },
+    "settings.about.community.documentation": {
+        "message": "Документация"
+    },
+    "settings.about.community.feedback": {
+        "message": "Обратная связь"
+    },
+    "update.banner.message": {
+        "message": "NetBird {version} готов к установке."
+    },
+    "update.banner.later": {
+        "message": "Позже"
+    },
+    "update.banner.installNow": {
+        "message": "Установить сейчас"
+    },
+    "update.card.versionAvailableDownload": {
+        "message": "Версия {version} доступна для загрузки."
+    },
+    "update.card.versionAvailableInstall": {
+        "message": "Версия {version} доступна для установки."
+    },
+    "update.card.whatsNew": {
+        "message": "Что нового?"
+    },
+    "update.card.installNow": {
+        "message": "Установить сейчас"
+    },
+    "update.card.getInstaller": {
+        "message": "Загрузить"
+    },
+    "update.card.autoCheckInterval": {
+        "message": "NetBird проверяет обновления в фоновом режиме."
+    },
+    "update.card.changelog": {
+        "message": "Список изменений"
+    },
+    "update.card.onLatestVersion": {
+        "message": "У вас установлена последняя версия"
+    },
+    "update.header.tooltip": {
+        "message": "Доступно обновление"
+    },
+    "update.overlay.updatingVersion": {
+        "message": "Обновление NetBird до v{version}"
+    },
+    "update.overlay.updating": {
+        "message": "Обновление NetBird"
+    },
+    "update.overlay.description": {
+        "message": "Доступна более новая версия, идёт её установка. NetBird автоматически перезапустится после завершения обновления."
+    },
+    "update.overlay.error.timeoutTitle": {
+        "message": "Обновление занимает слишком много времени"
+    },
+    "update.overlay.error.timeoutDescription": {
+        "message": "Установка {target} заняла слишком много времени и не завершилась."
+    },
+    "update.overlay.error.canceledTitle": {
+        "message": "Обновление остановлено"
+    },
+    "update.overlay.error.canceledDescription": {
+        "message": "Обновление до {target} было отменено до завершения."
+    },
+    "update.overlay.error.failTitle": {
+        "message": "Не удалось установить обновление"
+    },
+    "update.overlay.error.failDescription": {
+        "message": "Не удалось установить обновление до {target}."
+    },
+    "update.overlay.error.unknownMessage": {
+        "message": "неизвестная ошибка"
+    },
+    "update.overlay.error.targetVersion": {
+        "message": "v{version}"
+    },
+    "update.overlay.error.targetFallback": {
+        "message": "новой версии"
+    },
+    "update.error.loadStateTitle": {
+        "message": "Не удалось загрузить состояние обновления"
+    },
+    "update.error.triggerTitle": {
+        "message": "Не удалось запустить обновление"
+    },
+    "update.page.versionLine": {
+        "message": "Обновление клиента до версии {version}."
+    },
+    "update.page.versionLineGeneric": {
+        "message": "Обновление клиента."
+    },
+    "update.page.outdated": {
+        "message": "Версия вашего клиента старше версии автообновления, заданной на сервере управления."
+    },
+    "update.page.status.running": {
+        "message": "Обновление"
+    },
+    "update.page.status.timeout": {
+        "message": "Время ожидания обновления истекло. Повторите попытку."
+    },
+    "update.page.status.canceled": {
+        "message": "Обновление отменено."
+    },
+    "update.page.status.failed": {
+        "message": "Не удалось обновить: {message}"
+    },
+    "update.page.status.unknownError": {
+        "message": "неизвестная ошибка обновления"
+    },
+    "update.page.failedTitle": {
+        "message": "Не удалось обновить"
+    },
+    "update.page.timeoutMessage": {
+        "message": "Время ожидания обновления истекло."
+    },
+    "update.page.dontClose": {
+        "message": "Пожалуйста, не закрывайте это окно."
+    },
+    "update.page.updating": {
+        "message": "Обновление…"
+    },
+    "update.page.complete": {
+        "message": "Обновление завершено"
+    },
+    "update.page.failed": {
+        "message": "Обновление не удалось"
+    },
+    "window.title.settings": {
+        "message": "Настройки"
+    },
+    "window.title.signIn": {
+        "message": "Вход"
+    },
+    "window.title.sessionExpiration": {
+        "message": "Истечение сеанса"
+    },
+    "window.title.updating": {
+        "message": "Обновление"
+    },
+    "window.title.welcome": {
+        "message": "Добро пожаловать в NetBird"
+    },
+    "window.title.error": {
+        "message": "Ошибка"
+    },
+    "welcome.title": {
+        "message": "Найдите NetBird в системном трее"
+    },
+    "welcome.titleMac": {
+        "message": "Найдите NetBird в строке меню"
+    },
+    "welcome.description": {
+        "message": "NetBird находится в системном трее. Нажмите на значок, чтобы подключиться, переключить профиль или открыть настройки."
+    },
+    "welcome.descriptionMac": {
+        "message": "NetBird находится в строке меню. Нажмите на значок, чтобы подключиться, переключить профиль или открыть настройки."
+    },
+    "welcome.continue": {
+        "message": "Продолжить"
+    },
+    "welcome.back": {
+        "message": "Назад"
+    },
+    "welcome.management.title": {
+        "message": "Настройка NetBird"
+    },
+    "welcome.management.description": {
+        "message": "Нажмите «Продолжить», чтобы начать, или выберите «Собственный сервер», если у вас есть свой сервер NetBird."
+    },
+    "welcome.management.cloud.title": {
+        "message": "NetBird Cloud"
+    },
+    "welcome.management.cloud.description": {
+        "message": "Используйте наш облачный сервис. Настройка не требуется."
+    },
+    "welcome.management.selfHosted.title": {
+        "message": "Собственный сервер"
+    },
+    "welcome.management.selfHosted.description": {
+        "message": "Подключитесь к собственному серверу управления."
+    },
+    "welcome.management.urlLabel": {
+        "message": "URL сервера управления"
+    },
+    "welcome.management.urlPlaceholder": {
+        "message": "https://netbird.selfhosted.com:443"
+    },
+    "welcome.management.urlInvalid": {
+        "message": "Введите корректный URL, например https://netbird.selfhosted.com:443"
+    },
+    "welcome.management.urlUnreachable": {
+        "message": "Не удалось связаться с сервером. Проверьте URL или сеть, затем продолжите, если уверены, что он правильный."
+    },
+    "welcome.management.checking": {
+        "message": "Проверка…"
+    },
+    "browserLogin.title": {
+        "message": "Завершите вход в браузере"
+    },
+    "browserLogin.notSeeing": {
+        "message": "Мы открыли вкладку браузера, чтобы вы могли войти в аккаунт. Не видите вкладку?"
+    },
+    "browserLogin.tryAgain": {
+        "message": "Повторить"
+    },
+    "browserLogin.openFailedTitle": {
+        "message": "Не удалось открыть браузер"
+    },
+    "sessionExpiration.title": {
+        "message": "Сеанс скоро истечёт"
+    },
+    "sessionExpiration.titleLater": {
+        "message": "Ваш сеанс истечёт"
+    },
+    "sessionExpiration.description": {
+        "message": "Это устройство скоро будет отключено. Продлите сеанс через вход в браузере."
+    },
+    "sessionExpiration.descriptionLater": {
+        "message": "Вход в браузере сохранит подключение этого устройства к вашей сети."
+    },
+    "sessionExpiration.stay": {
+        "message": "Продлить сеанс"
+    },
+    "sessionExpiration.authenticate": {
+        "message": "Войти"
+    },
+    "sessionExpiration.logout": {
+        "message": "Выйти"
+    },
+    "sessionExpiration.expired": {
+        "message": "Сеанс истёк"
+    },
+    "sessionExpiration.expiredDescription": {
+        "message": "Устройство отключено. Войдите через браузер, чтобы переподключиться."
+    },
+    "sessionExpiration.close": {
+        "message": "Закрыть"
+    },
+    "sessionExpiration.extendFailedTitle": {
+        "message": "Не удалось продлить сеанс"
+    },
+    "sessionExpiration.logoutFailedTitle": {
+        "message": "Не удалось выйти"
+    },
+    "peers.search.placeholder": {
+        "message": "Поиск по имени или IP"
+    },
+    "peers.filter.all": {
+        "message": "Все"
+    },
+    "peers.filter.online": {
+        "message": "В сети"
+    },
+    "peers.filter.offline": {
+        "message": "Не в сети"
+    },
+    "peers.empty.title": {
+        "message": "Нет доступных пиров"
+    },
+    "peers.empty.description": {
+        "message": "У вас нет доступных пиров или нет доступа ни к одному из них."
+    },
+    "peers.details.domain": {
+        "message": "Домен"
+    },
+    "peers.details.netbirdIp": {
+        "message": "NetBird IP"
+    },
+    "peers.details.netbirdIpv6": {
+        "message": "NetBird IPv6"
+    },
+    "peers.details.publicKey": {
+        "message": "Открытый ключ"
+    },
+    "peers.details.connection": {
+        "message": "Подключение"
+    },
+    "peers.details.latency": {
+        "message": "Задержка"
+    },
+    "peers.details.lastHandshake": {
+        "message": "Последнее рукопожатие"
+    },
+    "peers.details.statusSince": {
+        "message": "Последнее обновление подключения"
+    },
+    "peers.details.bytes": {
+        "message": "Байты"
+    },
+    "peers.details.bytesSent": {
+        "message": "Отправлено"
+    },
+    "peers.details.bytesReceived": {
+        "message": "Получено"
+    },
+    "peers.details.localIce": {
+        "message": "Локальный ICE"
+    },
+    "peers.details.remoteIce": {
+        "message": "Удалённый ICE"
+    },
+    "peers.details.never": {
+        "message": "Никогда"
+    },
+    "peers.details.justNow": {
+        "message": "Только что"
+    },
+    "peers.details.refresh": {
+        "message": "Обновить"
+    },
+    "peers.status.connected": {
+        "message": "Подключено"
+    },
+    "peers.status.connecting": {
+        "message": "Подключение"
+    },
+    "peers.status.disconnected": {
+        "message": "Отключено"
+    },
+    "peers.details.relayAddress": {
+        "message": "Ретранслятор"
+    },
+    "peers.details.networks": {
+        "message": "Ресурсы"
+    },
+    "peers.details.relayed": {
+        "message": "Через ретранслятор"
+    },
+    "peers.details.p2p": {
+        "message": "P2P"
+    },
+    "peers.details.rosenpass": {
+        "message": "Rosenpass включён"
+    },
+    "networks.search.placeholder": {
+        "message": "Поиск по сети или домену"
+    },
+    "networks.filter.all": {
+        "message": "Все"
+    },
+    "networks.filter.active": {
+        "message": "Активные"
+    },
+    "networks.filter.overlapping": {
+        "message": "Пересекающиеся"
+    },
+    "networks.empty.title": {
+        "message": "Нет доступных ресурсов"
+    },
+    "networks.empty.description": {
+        "message": "У вас нет доступных сетевых ресурсов или нет доступа ни к одному из них."
+    },
+    "networks.selected": {
+        "message": "Выбрано"
+    },
+    "networks.unselected": {
+        "message": "Не выбрано"
+    },
+    "networks.ips.heading": {
+        "message": "Распознанные IP-адреса"
+    },
+    "networks.bulk.selectionCount": {
+        "message": "{selected} из {total} активно"
+    },
+    "networks.bulk.enableAll": {
+        "message": "Включить все"
+    },
+    "networks.bulk.disableAll": {
+        "message": "Отключить все"
+    },
+    "exitNodes.search.placeholder": {
+        "message": "Поиск выходных узлов"
+    },
+    "exitNodes.none": {
+        "message": "Нет"
+    },
+    "exitNodes.empty.title": {
+        "message": "Нет доступных выходных узлов"
+    },
+    "exitNodes.empty.description": {
+        "message": "Этому пиру не предоставлены выходные узлы."
+    },
+    "exitNodes.card.title": {
+        "message": "Выходной узел"
+    },
+    "exitNodes.card.statusActive": {
+        "message": "Активен"
+    },
+    "exitNodes.card.statusInactive": {
+        "message": "Неактивен"
+    },
+    "exitNodes.dropdown.noneTitle": {
+        "message": "Нет"
+    },
+    "exitNodes.dropdown.noneDescription": {
+        "message": "Прямое подключение без выходного узла"
+    },
+    "quickActions.connect": {
+        "message": "Подключиться"
+    },
+    "quickActions.disconnect": {
+        "message": "Отключиться"
+    },
+    "daemon.unavailable.title": {
+        "message": "Служба NetBird не запущена"
+    },
+    "daemon.unavailable.description": {
+        "message": "Приложение автоматически переподключится, как только служба будет запущена."
+    },
+    "daemon.unavailable.docsLink": {
+        "message": "Документация"
+    },
+    "daemon.outdated.title": {
+        "message": "Клиент NetBird устарел"
+    },
+    "daemon.outdated.description": {
+        "message": "Новый GUI несовместим с вашим более старым клиентом. Обновите клиент, чтобы использовать новое приложение."
+    },
+    "daemon.outdated.download": {
+        "message": "Скачать последнюю версию"
+    },
+    "error.jwt_clock_skew": {
+        "message": "Не удалось войти: часы этого устройства рассинхронизированы с сервером. Синхронизируйте системные часы и повторите попытку."
+    },
+    "error.jwt_expired": {
+        "message": "Срок действия токена входа истёк. Войдите снова."
+    },
+    "error.jwt_signature_invalid": {
+        "message": "Не удалось войти: недействительная подпись токена. Обратитесь к администратору."
+    },
+    "error.session_expired": {
+        "message": "Ваш сеанс истёк. Войдите снова."
+    },
+    "error.invalid_setup_key": {
+        "message": "Ключ установки отсутствует или недействителен."
+    },
+    "error.permission_denied": {
+        "message": "Сервер отклонил вход."
+    },
+    "error.daemon_unreachable": {
+        "message": "Демон NetBird не отвечает. Проверьте, запущена ли служба."
+    },
+    "error.unknown": {
+        "message": "Не удалось выполнить операцию."
+    }
+}

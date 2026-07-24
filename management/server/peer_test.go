@@ -1048,7 +1048,7 @@ func testUpdateAccountPeers(t *testing.T) {
 
 			for _, channel := range peerChannels {
 				update := <-channel
-				assert.Nil(t, update.Update.NetbirdConfig)
+				assert.Nil(t, update.Update.NetbirdConfig, "fan-out updates must not carry a NetbirdConfig; clients treat a config without relay as relay disabled and wipe their relay URLs")
 				assert.Equal(t, tc.peers, len(update.Update.NetworkMap.RemotePeers))
 				assert.Equal(t, tc.peers*2, len(update.Update.NetworkMap.FirewallRules))
 			}
@@ -1092,14 +1092,14 @@ func TestToSyncResponse(t *testing.T) {
 	}
 	networkMap := &types.NetworkMap{
 		Network: &types.Network{Net: *ipnet, Serial: 1000},
-		Peers: []*nbpeer.Peer{{
+		Peers: []*types.ComponentPeer{{
 			IP:         netip.MustParseAddr("192.168.1.2"),
 			IPv6:       netip.MustParseAddr("fd00::2"),
 			Key:        "peer2-key",
 			DNSLabel:   "peer2",
 			SSHEnabled: true,
 			SSHKey:     "peer2-ssh-key"}},
-		OfflinePeers: []*nbpeer.Peer{{
+		OfflinePeers: []*types.ComponentPeer{{
 			IP:         netip.MustParseAddr("192.168.1.3"),
 			IPv6:       netip.MustParseAddr("fd00::3"),
 			Key:        "peer3-key",

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -60,6 +61,7 @@ type Manager interface {
 	InitialRouteRange() []string
 	SetFirewall(firewall.Manager) error
 	SetDNSForwarderPort(port uint16)
+	ReconcilePeerAllowedIPs(peerKey string) error
 	Stop(stateManager *statemanager.Manager)
 }
 
@@ -231,6 +233,30 @@ func (m *DefaultManager) setupRefCounters(useNoop bool) {
 	)
 }
 
+// ReconcilePeerAllowedIPs re-applies every routed allowed IP currently tracked for the peer
+// onto the WireGuard device. The allowed-IP refcounter only calls its AddFunc (which pushes to
+// the device) on a prefix's 0->1 transition, so a peer whose device entry was rebuilt without a
+// matching refcounter change — e.g. a lazy connection cycling through idle->wake, which recreates
+// the WireGuard peer with the overlay /32 only — ends up missing routed prefixes the refcounter
+// still considers installed, and nothing retries. Calling this when the peer's WireGuard entry is
+// (re)created restores convergence. It is add-only and idempotent: AddAllowedIP is update-only, so
+// prefixes are re-added to an existing peer and an absent peer is left untouched.
+func (m *DefaultManager) ReconcilePeerAllowedIPs(peerKey string) error {
+	if m.allowedIPsRefCounter == nil {
+		return nil
+	}
+
+	return m.allowedIPsRefCounter.ReapplyMatching(
+		func(out string) bool { return out == peerKey },
+		func(prefix netip.Prefix) error {
+			if err := m.wgInterface.AddAllowedIP(peerKey, prefix); err != nil {
+				return fmt.Errorf("add allowed IP %s for peer %s: %w", prefix, peerKey, err)
+			}
+			return nil
+		},
+	)
+}
+
 // Init sets up the routing
 func (m *DefaultManager) Init() error {
 	m.routeSelector = m.initSelector()
@@ -264,7 +290,11 @@ func (m *DefaultManager) initSelector() *routeselector.RouteSelector {
 
 	// restore selector state if it exists
 	if err := m.stateManager.LoadState(state); err != nil {
-		log.Warnf("failed to load state: %v", err)
+		if errors.Is(err, syscall.ENOSYS) {
+			log.Debugf("route selector state unavailable on this platform: %v", err)
+		} else {
+			log.Warnf("failed to load state: %v", err)
+		}
 		return routeselector.NewRouteSelector()
 	}
 
@@ -442,6 +472,11 @@ func (m *DefaultManager) UpdateRoutes(
 
 		m.updateClientNetworks(updateSerial, filteredClientRoutes)
 		m.notifier.OnNewRoutes(filteredClientRoutes)
+		// A new network map can add or drop route/exit-node candidates without
+		// touching any peer's chosen-route state, so the peer status alone
+		// wouldn't notify SubscribeStatus subscribers. Bump the revision so the
+		// UI re-fetches ListNetworks.
+		m.statusRecorder.BumpNetworksRevision()
 	}
 	m.clientRoutes = clientRoutes
 
@@ -582,6 +617,10 @@ func (m *DefaultManager) TriggerSelection(networks route.HAMap) {
 	if err := m.stateManager.UpdateState((*SelectorState)(m.routeSelector)); err != nil {
 		log.Errorf("failed to update state: %v", err)
 	}
+
+	// A selection change flips Network.selected without altering the candidate
+	// set, so bump the revision to push the new state to the UI.
+	m.statusRecorder.BumpNetworksRevision()
 }
 
 // stopObsoleteClients stops the client network watcher for the networks that are not in the new list
@@ -701,7 +740,13 @@ func resolveURLsToIPs(urls []string) []net.IP {
 	return ips
 }
 
-// updateRouteSelectorFromManagement updates the route selector based on the isSelected status from the management server
+// updateRouteSelectorFromManagement reconciles exit-node selection on every
+// network map: it keeps at most one exit node selected — the user's persisted
+// pick, else whatever management marks for auto-apply (SkipAutoApply=false),
+// else none. We never auto-activate an exit node the map doesn't request; it
+// stays off until the user picks it. Exit nodes are mutually exclusive, but the
+// RouteSelector stores routes with default-on semantics, so without this every
+// available exit node would report selected at once.
 func (m *DefaultManager) updateRouteSelectorFromManagement(clientRoutes route.HAMap) {
 	m.mirrorV6ExitPairSelections(clientRoutes)
 
@@ -712,13 +757,14 @@ func (m *DefaultManager) updateRouteSelectorFromManagement(clientRoutes route.HA
 		return
 	}
 
-	exitNodeInfo := m.collectExitNodeInfo(clientRoutes)
-	if len(exitNodeInfo.allIDs) == 0 {
+	info := m.collectExitNodeInfo(clientRoutes)
+	if len(info.allIDs) == 0 {
 		return
 	}
 
-	m.updateExitNodeSelections(exitNodeInfo)
-	m.logExitNodeUpdate(exitNodeInfo)
+	preferred := pickPreferredExitNode(info)
+	m.enforceSingleExitNode(preferred, info.allIDs)
+	m.logExitNodeUpdate(info, preferred)
 }
 
 // mirrorV6ExitPairSelections keeps every synthesized "-v6" exit route's selection
@@ -746,6 +792,10 @@ type exitNodeInfo struct {
 	userDeselected       []route.NetID
 }
 
+// collectExitNodeInfo categorises the available exit nodes by their persisted
+// selection state. It keys on the base (v4) NetID and skips the synthesized
+// "-v6" partner, which inherits its base's selection through the RouteSelector
+// — counting it separately would double-count the pair.
 func (m *DefaultManager) collectExitNodeInfo(clientRoutes route.HAMap) exitNodeInfo {
 	var info exitNodeInfo
 
@@ -755,6 +805,9 @@ func (m *DefaultManager) collectExitNodeInfo(clientRoutes route.HAMap) exitNodeI
 		}
 
 		netID := haID.NetID()
+		if strings.HasSuffix(string(netID), route.V6ExitSuffix) {
+			continue
+		}
 		info.allIDs = append(info.allIDs, netID)
 
 		if m.routeSelector.HasUserSelectionForRoute(netID) {
@@ -791,45 +844,52 @@ func (m *DefaultManager) checkManagementSelection(routes []*route.Route, netID r
 	}
 }
 
-func (m *DefaultManager) updateExitNodeSelections(info exitNodeInfo) {
-	routesToDeselect := m.getRoutesToDeselect(info.allIDs)
-	m.deselectExitNodes(routesToDeselect)
-	m.selectExitNodesByManagement(info.selectedByManagement, info.allIDs)
+// pickPreferredExitNode chooses the single exit node to keep selected. In order:
+//   - a persisted user selection wins (deterministic if several survive from
+//     legacy state, so the set self-heals down to one);
+//   - otherwise activate only what management marks for auto-apply
+//     (SkipAutoApply=false); the lexicographically first if it marks several.
+//
+// Returns "" when neither holds — we never force an arbitrary exit node on. A
+// route the map doesn't auto-apply stays off until the user selects it.
+// info.userDeselected is informational only: an explicit deselect simply keeps
+// that route out of both lists above, so it can't be picked.
+func pickPreferredExitNode(info exitNodeInfo) route.NetID {
+	if len(info.userSelected) > 0 {
+		return minNetID(info.userSelected)
+	}
+	if len(info.selectedByManagement) > 0 {
+		return minNetID(info.selectedByManagement)
+	}
+	return ""
 }
 
-func (m *DefaultManager) getRoutesToDeselect(allIDs []route.NetID) []route.NetID {
-	var routesToDeselect []route.NetID
-	for _, netID := range allIDs {
-		if !m.routeSelector.HasUserSelectionForRoute(netID) {
-			routesToDeselect = append(routesToDeselect, netID)
+// enforceSingleExitNode makes preferred the only selected exit node: every other
+// available exit node is deselected and preferred (if any) is selected, without
+// disturbing non-exit route selections. The whole reconciliation runs under a
+// single RouteSelector lock (SetExclusiveExitNode) so a concurrent deselect-all
+// cannot interleave and get undone; a global deselect-all is left untouched so
+// the user's "all off" stays in effect.
+func (m *DefaultManager) enforceSingleExitNode(preferred route.NetID, allIDs []route.NetID) {
+	m.routeSelector.SetExclusiveExitNode(preferred, allIDs)
+}
+
+func (m *DefaultManager) logExitNodeUpdate(info exitNodeInfo, preferred route.NetID) {
+	log.Debugf("Exit node selection: %d available, preferred=%q (%d user-selected, %d user-deselected, %d management-selected)",
+		len(info.allIDs), preferred, len(info.userSelected), len(info.userDeselected), len(info.selectedByManagement))
+}
+
+// minNetID returns the lexicographically smallest NetID, for a deterministic
+// default pick that stays stable across restarts.
+func minNetID(ids []route.NetID) route.NetID {
+	if len(ids) == 0 {
+		return ""
+	}
+	best := ids[0]
+	for _, id := range ids[1:] {
+		if id < best {
+			best = id
 		}
 	}
-	return routesToDeselect
-}
-
-func (m *DefaultManager) deselectExitNodes(routesToDeselect []route.NetID) {
-	if len(routesToDeselect) == 0 {
-		return
-	}
-
-	err := m.routeSelector.DeselectRoutes(routesToDeselect, routesToDeselect)
-	if err != nil {
-		log.Warnf("Failed to deselect exit nodes: %v", err)
-	}
-}
-
-func (m *DefaultManager) selectExitNodesByManagement(selectedByManagement []route.NetID, allIDs []route.NetID) {
-	if len(selectedByManagement) == 0 {
-		return
-	}
-
-	err := m.routeSelector.SelectRoutes(selectedByManagement, true, allIDs)
-	if err != nil {
-		log.Warnf("Failed to select exit nodes: %v", err)
-	}
-}
-
-func (m *DefaultManager) logExitNodeUpdate(info exitNodeInfo) {
-	log.Debugf("Updated route selector: %d exit nodes available, %d selected by management, %d user-selected, %d user-deselected",
-		len(info.allIDs), len(info.selectedByManagement), len(info.userSelected), len(info.userDeselected))
+	return best
 }

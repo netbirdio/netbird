@@ -66,6 +66,51 @@ type TargetOptions struct {
 	// reachable without WireGuard (public APIs, LAN services, localhost
 	// sidecars). Default false.
 	DirectUpstream bool `json:"direct_upstream,omitempty"`
+	// Middlewares carries per-target agent-network middleware configs. Empty
+	// for private and operator-defined services; populated only by the
+	// agent-network synthesizer.
+	Middlewares             []MiddlewareConfig `gorm:"serializer:json" json:"middlewares,omitempty"`
+	CaptureMaxRequestBytes  int64              `json:"capture_max_request_bytes,omitempty"`
+	CaptureMaxResponseBytes int64              `json:"capture_max_response_bytes,omitempty"`
+	CaptureContentTypes     []string           `gorm:"serializer:json" json:"capture_content_types,omitempty"`
+	// AgentNetwork marks targets synthesised from Agent Network state. The
+	// proxy uses it to gate agent-network-specific behaviour (access log
+	// tagging, observability, etc.).
+	AgentNetwork bool `json:"agent_network,omitempty"`
+	// DisableAccessLog suppresses the per-request access-log emission for this
+	// target. Defaults false to preserve access-log behaviour for every
+	// non-agent-network target. The agent-network synthesizer sets this true
+	// only when the account's EnableLogCollection toggle is off.
+	DisableAccessLog bool `json:"disable_access_log,omitempty"`
+}
+
+// MiddlewareSlot mirrors proto.MiddlewareSlot / middleware.Slot.
+type MiddlewareSlot string
+
+const (
+	MiddlewareSlotOnRequest  MiddlewareSlot = "on_request"
+	MiddlewareSlotOnResponse MiddlewareSlot = "on_response"
+	MiddlewareSlotTerminal   MiddlewareSlot = "terminal"
+)
+
+// MiddlewareFailMode mirrors proto.MiddlewareConfig_FailMode.
+type MiddlewareFailMode string
+
+const (
+	MiddlewareFailOpen   MiddlewareFailMode = "fail_open"
+	MiddlewareFailClosed MiddlewareFailMode = "fail_closed"
+)
+
+// MiddlewareConfig is the per-target configuration for a single
+// middleware instance. Mirrors proto.MiddlewareConfig.
+type MiddlewareConfig struct {
+	ID         string             `json:"id"`
+	Enabled    bool               `json:"enabled"`
+	Slot       MiddlewareSlot     `json:"slot"`
+	ConfigJSON []byte             `json:"config_json,omitempty"`
+	FailMode   MiddlewareFailMode `json:"fail_mode,omitempty"`
+	TimeoutMs  int32              `json:"timeout_ms,omitempty"`
+	CanMutate  bool               `json:"can_mutate"`
 }
 
 type Target struct {
@@ -504,19 +549,73 @@ func targetOptionsToAPI(opts TargetOptions) *api.ServiceTargetOptions {
 
 func targetOptionsToProto(opts TargetOptions) *proto.PathTargetOptions {
 	if !opts.SkipTLSVerify && opts.PathRewrite == "" && opts.RequestTimeout == 0 &&
-		len(opts.CustomHeaders) == 0 && !opts.DirectUpstream {
+		len(opts.CustomHeaders) == 0 && !opts.DirectUpstream &&
+		len(opts.Middlewares) == 0 && opts.CaptureMaxRequestBytes == 0 &&
+		opts.CaptureMaxResponseBytes == 0 && len(opts.CaptureContentTypes) == 0 &&
+		!opts.AgentNetwork && !opts.DisableAccessLog {
 		return nil
 	}
 	popts := &proto.PathTargetOptions{
-		SkipTlsVerify:  opts.SkipTLSVerify,
-		PathRewrite:    pathRewriteToProto(opts.PathRewrite),
-		CustomHeaders:  opts.CustomHeaders,
-		DirectUpstream: opts.DirectUpstream,
+		SkipTlsVerify:    opts.SkipTLSVerify,
+		PathRewrite:      pathRewriteToProto(opts.PathRewrite),
+		CustomHeaders:    opts.CustomHeaders,
+		DirectUpstream:   opts.DirectUpstream,
+		AgentNetwork:     opts.AgentNetwork,
+		DisableAccessLog: opts.DisableAccessLog,
 	}
 	if opts.RequestTimeout != 0 {
 		popts.RequestTimeout = durationpb.New(opts.RequestTimeout)
 	}
+	if len(opts.Middlewares) > 0 {
+		popts.Middlewares = middlewaresToProto(opts.Middlewares)
+	}
+	popts.CaptureMaxRequestBytes = opts.CaptureMaxRequestBytes
+	popts.CaptureMaxResponseBytes = opts.CaptureMaxResponseBytes
+	if len(opts.CaptureContentTypes) > 0 {
+		popts.CaptureContentTypes = append([]string(nil), opts.CaptureContentTypes...)
+	}
 	return popts
+}
+
+// middlewaresToProto converts the internal middleware slice to the proto
+// representation sent to the proxy via the mapping stream.
+func middlewaresToProto(in []MiddlewareConfig) []*proto.MiddlewareConfig {
+	out := make([]*proto.MiddlewareConfig, 0, len(in))
+	for _, m := range in {
+		pm := &proto.MiddlewareConfig{
+			Id:         m.ID,
+			Enabled:    m.Enabled,
+			Slot:       middlewareSlotToProto(m.Slot),
+			ConfigJson: append([]byte(nil), m.ConfigJSON...),
+			CanMutate:  m.CanMutate,
+			FailMode:   middlewareFailModeToProto(m.FailMode),
+		}
+		if m.TimeoutMs > 0 {
+			pm.Timeout = durationpb.New(time.Duration(m.TimeoutMs) * time.Millisecond)
+		}
+		out = append(out, pm)
+	}
+	return out
+}
+
+func middlewareSlotToProto(s MiddlewareSlot) proto.MiddlewareSlot {
+	switch s {
+	case MiddlewareSlotOnRequest:
+		return proto.MiddlewareSlot_MIDDLEWARE_SLOT_ON_REQUEST
+	case MiddlewareSlotOnResponse:
+		return proto.MiddlewareSlot_MIDDLEWARE_SLOT_ON_RESPONSE
+	case MiddlewareSlotTerminal:
+		return proto.MiddlewareSlot_MIDDLEWARE_SLOT_TERMINAL
+	default:
+		return proto.MiddlewareSlot_MIDDLEWARE_SLOT_UNSPECIFIED
+	}
+}
+
+func middlewareFailModeToProto(m MiddlewareFailMode) proto.MiddlewareConfig_FailMode {
+	if m == MiddlewareFailClosed {
+		return proto.MiddlewareConfig_FAIL_CLOSED
+	}
+	return proto.MiddlewareConfig_FAIL_OPEN
 }
 
 // l4TargetOptionsToProto converts L4-relevant target options to proto.

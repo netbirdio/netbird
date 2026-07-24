@@ -96,12 +96,11 @@ type ConfigInput struct {
 	BlockLANAccess      *bool
 	BlockInbound        *bool
 	DisableIPv6         *bool
+	SyncMessageVersion  *int
 
 	DisableNotifications *bool
 
 	DNSLabels domain.List
-
-	LazyConnectionEnabled *bool
 
 	MTU *uint16
 }
@@ -139,6 +138,7 @@ type Config struct {
 	BlockLANAccess      bool
 	BlockInbound        bool
 	DisableIPv6         bool
+	SyncMessageVersion  *int
 
 	DisableNotifications *bool
 
@@ -180,7 +180,9 @@ type Config struct {
 
 	ClientCertKeyPair *tls.Certificate `json:"-"`
 
-	LazyConnectionEnabled bool
+	// LazyConnection is the MDM-managed lazy-connection override ("on"/"off"/"").
+	// Runtime-only: re-derived from MDM policy on each load, never persisted.
+	LazyConnection string `json:"-"`
 
 	MTU uint16
 
@@ -386,7 +388,7 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if input.NetworkMonitor != nil && input.NetworkMonitor != config.NetworkMonitor {
+	if input.NetworkMonitor != nil && (config.NetworkMonitor == nil || *input.NetworkMonitor != *config.NetworkMonitor) {
 		log.Infof("switching Network Monitor to %t", *input.NetworkMonitor)
 		config.NetworkMonitor = input.NetworkMonitor
 		updated = true
@@ -454,7 +456,7 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if input.EnableSSHRoot != nil && input.EnableSSHRoot != config.EnableSSHRoot {
+	if input.EnableSSHRoot != nil && (config.EnableSSHRoot == nil || *input.EnableSSHRoot != *config.EnableSSHRoot) {
 		if *input.EnableSSHRoot {
 			log.Infof("enabling SSH root login")
 		} else {
@@ -464,7 +466,7 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if input.EnableSSHSFTP != nil && input.EnableSSHSFTP != config.EnableSSHSFTP {
+	if input.EnableSSHSFTP != nil && (config.EnableSSHSFTP == nil || *input.EnableSSHSFTP != *config.EnableSSHSFTP) {
 		if *input.EnableSSHSFTP {
 			log.Infof("enabling SSH SFTP subsystem")
 		} else {
@@ -474,7 +476,7 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if input.EnableSSHLocalPortForwarding != nil && input.EnableSSHLocalPortForwarding != config.EnableSSHLocalPortForwarding {
+	if input.EnableSSHLocalPortForwarding != nil && (config.EnableSSHLocalPortForwarding == nil || *input.EnableSSHLocalPortForwarding != *config.EnableSSHLocalPortForwarding) {
 		if *input.EnableSSHLocalPortForwarding {
 			log.Infof("enabling SSH local port forwarding")
 		} else {
@@ -484,7 +486,7 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if input.EnableSSHRemotePortForwarding != nil && input.EnableSSHRemotePortForwarding != config.EnableSSHRemotePortForwarding {
+	if input.EnableSSHRemotePortForwarding != nil && (config.EnableSSHRemotePortForwarding == nil || *input.EnableSSHRemotePortForwarding != *config.EnableSSHRemotePortForwarding) {
 		if *input.EnableSSHRemotePortForwarding {
 			log.Infof("enabling SSH remote port forwarding")
 		} else {
@@ -494,7 +496,7 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if input.DisableSSHAuth != nil && input.DisableSSHAuth != config.DisableSSHAuth {
+	if input.DisableSSHAuth != nil && (config.DisableSSHAuth == nil || *input.DisableSSHAuth != *config.DisableSSHAuth) {
 		if *input.DisableSSHAuth {
 			log.Infof("disabling SSH authentication")
 		} else {
@@ -504,7 +506,7 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if input.SSHJWTCacheTTL != nil && input.SSHJWTCacheTTL != config.SSHJWTCacheTTL {
+	if input.SSHJWTCacheTTL != nil && (config.SSHJWTCacheTTL == nil || *input.SSHJWTCacheTTL != *config.SSHJWTCacheTTL) {
 		log.Infof("updating SSH JWT cache TTL to %d seconds", *input.SSHJWTCacheTTL)
 		config.SSHJWTCacheTTL = input.SSHJWTCacheTTL
 		updated = true
@@ -587,7 +589,13 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if input.DisableNotifications != nil && input.DisableNotifications != config.DisableNotifications {
+	if input.SyncMessageVersion != nil && *input.SyncMessageVersion != *config.SyncMessageVersion {
+		log.Infof("setting SyncMessageVersion to %v", *input.SyncMessageVersion)
+		*config.SyncMessageVersion = *input.SyncMessageVersion
+		updated = true
+	}
+
+	if input.DisableNotifications != nil && (config.DisableNotifications == nil || *input.DisableNotifications != *config.DisableNotifications) {
 		if *input.DisableNotifications {
 			log.Infof("disabling notifications")
 		} else {
@@ -629,12 +637,6 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 			input.DNSLabels.SafeString(),
 			config.DNSLabels.SafeString())
 		config.DNSLabels = input.DNSLabels
-		updated = true
-	}
-
-	if input.LazyConnectionEnabled != nil && *input.LazyConnectionEnabled != config.LazyConnectionEnabled {
-		log.Infof("switching lazy connection to %t", *input.LazyConnectionEnabled)
-		config.LazyConnectionEnabled = *input.LazyConnectionEnabled
 		updated = true
 	}
 
@@ -727,6 +729,15 @@ func (config *Config) applyMDMPolicy(policy *mdm.Policy) {
 		} else {
 			log.Warnf("MDM wireguard port %d out of range [1,65535]; keeping previous value", v)
 		}
+	}
+
+	if v, ok := policy.GetBool(mdm.KeyLazyConnection); ok {
+		state := "off"
+		if v {
+			state = "on"
+		}
+		config.LazyConnection = state
+		logApplied(mdm.KeyLazyConnection, state)
 	}
 }
 

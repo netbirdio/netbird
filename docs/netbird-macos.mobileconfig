@@ -103,6 +103,8 @@
                                 <!--
                                 <key>disableAutoConnect</key>
                                 <false/>
+                                <key>disableAutostart</key>
+                                <false/>
                                 <key>disableClientRoutes</key>
                                 <false/>
                                 <key>disableServerRoutes</key>
@@ -143,6 +145,8 @@
                                 <key>disableProfiles</key>
                                 <true/>
                                 <key>disableNetworks</key>
+                                <true/>
+                                <key>disableAdvancedView</key>
                                 <true/>
                                 <key>disableMetricsCollection</key>
                                 <false/>

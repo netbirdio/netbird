@@ -351,11 +351,6 @@ initialize_default_values() {
   NETBIRD_STUN_PORT=3478
 
   # Docker images
-  # Record whether the operator explicitly pinned the server/proxy images via
-  # env vars, so the agent-network preset can pick its own defaults without
-  # clobbering an explicit override.
-  NETBIRD_SERVER_IMAGE_EXPLICIT=${NETBIRD_SERVER_IMAGE:+true}
-  NETBIRD_PROXY_IMAGE_EXPLICIT=${NETBIRD_PROXY_IMAGE:+true}
   DASHBOARD_IMAGE=${DASHBOARD_IMAGE:-"netbirdio/dashboard:latest"}
   # Combined server replaces separate signal, relay, and management containers
   NETBIRD_SERVER_IMAGE=${NETBIRD_SERVER_IMAGE:-"netbirdio/netbird-server:latest"}
@@ -414,15 +409,6 @@ apply_agent_network_preset() {
   REVERSE_PROXY_TYPE="0"
   ENABLE_PROXY="true"
   ENABLE_CROWDSEC="false"
-
-  # Agent-network ships dedicated server/proxy images. Honor an explicit
-  # env override; otherwise pin the agent-network builds.
-  if [[ "${NETBIRD_SERVER_IMAGE_EXPLICIT}" != "true" ]]; then
-    NETBIRD_SERVER_IMAGE="netbirdio/netbird-server:0.74.0-rc.2"
-  fi
-  if [[ "${NETBIRD_PROXY_IMAGE_EXPLICIT}" != "true" ]]; then
-    NETBIRD_PROXY_IMAGE="netbirdio/reverse-proxy:0.74.0-rc.2"
-  fi
 
   if [[ -n "${NETBIRD_LETSENCRYPT_EMAIL}" ]]; then
     TRAEFIK_ACME_EMAIL="${NETBIRD_LETSENCRYPT_EMAIL}"
@@ -570,7 +556,7 @@ start_services_and_show_instructions() {
       echo "Creating proxy access token..."
       # Use docker exec with bash to run the token command directly
       PROXY_TOKEN=$($DOCKER_COMPOSE_COMMAND exec -T netbird-server \
-        /go/bin/netbird-server token create --name "default-proxy" --config /etc/netbird/config.yaml 2>/dev/null | grep "^Token:" | awk '{print $2}')
+        /go/bin/netbird-server admin token create --name "default-proxy" --config /etc/netbird/config.yaml 2>/dev/null | grep "^Token:" | awk '{print $2}')
 
       if [[ -z "$PROXY_TOKEN" ]]; then
         echo "ERROR: Failed to create proxy token. Check netbird-server logs." > /dev/stderr

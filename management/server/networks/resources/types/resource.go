@@ -14,6 +14,7 @@ import (
 	nbDomain "github.com/netbirdio/netbird/shared/management/domain"
 
 	"github.com/netbirdio/netbird/shared/management/http/api"
+	sharedTypes "github.com/netbirdio/netbird/shared/management/types"
 )
 
 type NetworkResourceType string
@@ -32,6 +33,7 @@ type NetworkResource struct {
 	ID          string `gorm:"primaryKey"`
 	NetworkID   string `gorm:"index"`
 	AccountID   string `gorm:"index"`
+	PublicID    string `json:"-"`
 	Name        string
 	Description string
 	Type        NetworkResourceType
@@ -61,6 +63,27 @@ func NewNetworkResource(accountID, networkID, name, description, address string,
 		GroupIDs:    groupIDs,
 		Enabled:     enabled,
 	}, nil
+}
+
+// ToComponent converts the resource to its self-contained components
+// representation. Returns nil for a nil resource.
+func (n *NetworkResource) ToComponent() *sharedTypes.ComponentResource {
+	if n == nil {
+		return nil
+	}
+	return &sharedTypes.ComponentResource{
+		ID:          n.ID,
+		PublicID:    n.PublicID,
+		NetworkID:   n.NetworkID,
+		AccountID:   n.AccountID,
+		Name:        n.Name,
+		Description: n.Description,
+		Type:        sharedTypes.ComponentResourceType(n.Type),
+		Address:     n.Address,
+		Domain:      n.Domain,
+		Prefix:      n.Prefix,
+		Enabled:     n.Enabled,
+	}
 }
 
 func (n *NetworkResource) ToAPIResponse(groups []api.GroupMinimum) *api.NetworkResource {
@@ -96,6 +119,7 @@ func (n *NetworkResource) Copy() *NetworkResource {
 		ID:          n.ID,
 		AccountID:   n.AccountID,
 		NetworkID:   n.NetworkID,
+		PublicID:    n.PublicID,
 		Name:        n.Name,
 		Description: n.Description,
 		Type:        n.Type,

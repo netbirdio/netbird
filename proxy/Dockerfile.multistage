@@ -10,10 +10,12 @@ COPY encryption ./encryption
 COPY flow ./flow
 COPY formatter ./formatter
 COPY monotime ./monotime
+COPY management ./management
 COPY proxy ./proxy
 COPY route ./route
 COPY shared ./shared
 COPY sharedsock ./sharedsock
+COPY trustedproxy ./trustedproxy
 COPY upload-server ./upload-server
 COPY util ./util
 COPY version ./version

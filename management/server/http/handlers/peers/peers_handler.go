@@ -446,7 +446,7 @@ func (h *Handler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request) {
 
 	netMap := account.GetPeerNetworkMapFromComponents(ctx, peerID, dns.CustomZone{}, nil, validPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil, account.GetActiveGroupUsers())
 
-	util.WriteJSONObject(ctx, w, toAccessiblePeers(netMap, dnsDomain))
+	util.WriteJSONObject(ctx, w, toAccessiblePeers(netMap, account.Peers, dnsDomain))
 }
 
 func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request) {
@@ -534,15 +534,20 @@ func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request) 
 	util.WriteJSONObject(r.Context(), w, resp)
 }
 
-func toAccessiblePeers(netMap *types.NetworkMap, dnsDomain string) []api.AccessiblePeer {
+// toAccessiblePeers rehydrates the calculated map's component peers into the
+// account's full peer objects, which carry the location/status/meta fields
+// the API response needs.
+func toAccessiblePeers(netMap *types.NetworkMap, accountPeers map[string]*nbpeer.Peer, dnsDomain string) []api.AccessiblePeer {
 	accessiblePeers := make([]api.AccessiblePeer, 0, len(netMap.Peers)+len(netMap.OfflinePeers))
-	for _, p := range netMap.Peers {
-		accessiblePeers = append(accessiblePeers, peerToAccessiblePeer(p, dnsDomain))
+	add := func(peers []*types.ComponentPeer) {
+		for _, p := range peers {
+			if peer := accountPeers[p.ID]; peer != nil {
+				accessiblePeers = append(accessiblePeers, peerToAccessiblePeer(peer, dnsDomain))
+			}
+		}
 	}
-
-	for _, p := range netMap.OfflinePeers {
-		accessiblePeers = append(accessiblePeers, peerToAccessiblePeer(p, dnsDomain))
-	}
+	add(netMap.Peers)
+	add(netMap.OfflinePeers)
 
 	return accessiblePeers
 }
