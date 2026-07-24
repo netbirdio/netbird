@@ -267,8 +267,8 @@ staticClients:
     name: NetBird Dashboard
     secret: $DEX_DASHBOARD_CLIENT_SECRET
     redirectURIs:
-      - $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/nb-auth
-      - $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/nb-silent-auth
+      - $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/#callback
+      - $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/#silent-callback
 
   # CLI client (public - uses PKCE)
   - id: netbird-cli
@@ -405,8 +405,8 @@ AUTH_CLIENT_SECRET=$DEX_DASHBOARD_CLIENT_SECRET
 AUTH_AUTHORITY=$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/dex
 USE_AUTH0=false
 AUTH_SUPPORTED_SCOPES=openid profile email offline_access
-AUTH_REDIRECT_URI=/nb-auth
-AUTH_SILENT_REDIRECT_URI=/nb-silent-auth
+AUTH_REDIRECT_URI=/#callback
+AUTH_SILENT_REDIRECT_URI=/#silent-callback
 # SSL
 NGINX_SSL_PORT=443
 # Letsencrypt

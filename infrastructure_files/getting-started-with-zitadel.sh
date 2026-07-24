@@ -400,7 +400,7 @@ init_zitadel() {
 
   # create zitadel spa applications
   echo "Creating new Zitadel SPA Dashboard application"
-  DASHBOARD_APPLICATION_CLIENT_ID=$(create_new_application "$INSTANCE_URL" "$PAT" "Dashboard" "$BASE_REDIRECT_URL/nb-auth" "$BASE_REDIRECT_URL/nb-silent-auth" "$BASE_REDIRECT_URL/" "$ZITADEL_DEV_MODE" "false")
+  DASHBOARD_APPLICATION_CLIENT_ID=$(create_new_application "$INSTANCE_URL" "$PAT" "Dashboard" "$BASE_REDIRECT_URL/#callback" "$BASE_REDIRECT_URL/#silent-callback" "$BASE_REDIRECT_URL/" "$ZITADEL_DEV_MODE" "false")
 
   echo "Creating new Zitadel SPA Cli application"
   CLI_APPLICATION_CLIENT_ID=$(create_new_application "$INSTANCE_URL" "$PAT" "Cli" "http://localhost:53000/" "http://localhost:54000/" "http://localhost:53000/" "true" "true")
@@ -743,8 +743,8 @@ AUTH_CLIENT_ID=$NETBIRD_AUTH_CLIENT_ID
 AUTH_AUTHORITY=$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN
 USE_AUTH0=false
 AUTH_SUPPORTED_SCOPES="openid profile email offline_access"
-AUTH_REDIRECT_URI=/nb-auth
-AUTH_SILENT_REDIRECT_URI=/nb-silent-auth
+AUTH_REDIRECT_URI=/#callback
+AUTH_SILENT_REDIRECT_URI=/#silent-callback
 # SSL
 NGINX_SSL_PORT=443
 # Letsencrypt
