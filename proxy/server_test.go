@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc"
 
 	proxymetrics "github.com/netbirdio/netbird/proxy/internal/metrics"
+	nbtcp "github.com/netbirdio/netbird/proxy/internal/tcp"
 	"github.com/netbirdio/netbird/proxy/internal/types"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
@@ -23,6 +24,21 @@ import (
 func TestDebugEndpointDisabledByDefault(t *testing.T) {
 	s := &Server{}
 	assert.False(t, s.DebugEndpointEnabled, "debug endpoint should be disabled by default")
+}
+
+func TestRouterForTLSPortUsesMainRouterForPublicPort(t *testing.T) {
+	mainRouter := nbtcp.NewPortRouter(quietLifecycleLogger(), nil)
+	srv := &Server{
+		mainRouter:     mainRouter,
+		mainPort:       8443,
+		mainPublicPort: 443,
+		portRouters:    make(map[uint16]*portRouter),
+	}
+
+	router, err := srv.routerForTLSPort(context.Background(), 443)
+	require.NoError(t, err)
+	assert.Same(t, mainRouter, router)
+	assert.Empty(t, srv.portRouters, "public port must not create an unreachable internal listener")
 }
 
 func TestDebugEndpointAddr(t *testing.T) {

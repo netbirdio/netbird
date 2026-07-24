@@ -102,6 +102,7 @@ type Server struct {
 	middlewareRegistry *middleware.Registry
 	mainRouter         *nbtcp.Router
 	mainPort           uint16
+	mainPublicPort     uint16
 	udpMu              sync.Mutex
 	udpRelays          map[types.ServiceID]*udprelay.Relay
 	udpRelayWg         sync.WaitGroup
@@ -648,6 +649,9 @@ func (s *Server) bindMainListener(ctx context.Context) (net.Listener, error) {
 // initDefaults sets fallback values for optional Server fields.
 func (s *Server) initDefaults() {
 	s.startTime = time.Now()
+	if s.mainPublicPort == 0 {
+		s.mainPublicPort = 443
+	}
 
 	// If no ID is set then one can be generated.
 	if s.ID == "" {
@@ -1098,6 +1102,13 @@ func (s *Server) routerForPort(ctx context.Context, port uint16) (*nbtcp.Router,
 		return s.mainRouter, nil
 	}
 	return s.getOrCreatePortRouter(ctx, port)
+}
+
+func (s *Server) routerForTLSPort(ctx context.Context, port uint16) (*nbtcp.Router, error) {
+	if port == s.mainPublicPort {
+		return s.mainRouter, nil
+	}
+	return s.routerForPort(ctx, port)
 }
 
 // routerForPortExisting returns the router for the given port without creating
@@ -1822,7 +1833,7 @@ func (s *Server) setupTLSMapping(ctx context.Context, mapping *proto.ProxyMappin
 		return fmt.Errorf("port %d conflicts with tunnel port", tlsPort)
 	}
 
-	router, err := s.routerForPort(ctx, tlsPort)
+	router, err := s.routerForTLSPort(ctx, tlsPort)
 	if err != nil {
 		return fmt.Errorf("router for TLS port %d: %w", tlsPort, err)
 	}
@@ -1843,7 +1854,7 @@ func (s *Server) setupTLSMapping(ctx context.Context, mapping *proto.ProxyMappin
 		Filter:             s.parseRestrictions(mapping),
 	})
 
-	if tlsPort != s.mainPort {
+	if tlsPort != s.mainPort && tlsPort != s.mainPublicPort {
 		s.portMu.Lock()
 		s.svcPorts[svcID] = []uint16{tlsPort}
 		s.portMu.Unlock()
