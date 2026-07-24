@@ -569,17 +569,17 @@ func Test_ConnectPeers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// todo: investigate why in some tests execution we need 30s
+	// The peers use userspace WireGuard (stdnet transport). A tight busy-loop
+	// here starves the wireguard-go goroutines that process the handshake, so
+	// poll on a ticker instead and yield the CPU between checks. WireGuard also
+	// only retries a lost handshake initiation every REKEY_TIMEOUT (5s), which
+	// is why the overall wait can occasionally stretch to tens of seconds.
 	timeout := 30 * time.Second
 	timeoutChannel := time.After(timeout)
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
 
 	for {
-		select {
-		case <-timeoutChannel:
-			t.Fatalf("waiting for peer handshake timeout after %s", timeout.String())
-		default:
-		}
-
 		peer, gpErr := getPeer(peer1ifaceName, peer2Key.PublicKey().String())
 		if gpErr != nil {
 			t.Fatal(gpErr)
@@ -587,6 +587,12 @@ func Test_ConnectPeers(t *testing.T) {
 		if !peer.LastHandshakeTime.IsZero() {
 			t.Log("peers successfully handshake")
 			break
+		}
+
+		select {
+		case <-timeoutChannel:
+			t.Fatalf("waiting for peer handshake timeout after %s", timeout.String())
+		case <-ticker.C:
 		}
 	}
 
