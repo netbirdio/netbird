@@ -183,7 +183,7 @@ func TestCloseDrainsQueue(t *testing.T) {
 	}
 	n.Close()
 
-	require.Eventually(t, func() bool { return rec.count() == events }, 5*time.Second, time.Millisecond)
+	require.Equal(t, events, rec.count(), "Close must not return before all queued events are delivered")
 
 	n.OnNetworkChanged("after-close")
 	n.ApplyDns("after-close")

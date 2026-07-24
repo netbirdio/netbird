@@ -32,6 +32,7 @@ type Notifier struct {
 	cond   *sync.Cond
 	queue  *list.List
 	closed bool
+	done   chan struct{}
 
 	listener   listener.NetworkChangeListener
 	dnsManager dns.IosDnsManager
@@ -40,6 +41,7 @@ type Notifier struct {
 func New(l listener.NetworkChangeListener, dm dns.IosDnsManager) *Notifier {
 	n := &Notifier{
 		queue:      list.New(),
+		done:       make(chan struct{}),
 		listener:   l,
 		dnsManager: dm,
 	}
@@ -64,11 +66,14 @@ func (n *Notifier) ApplyDns(config string) {
 	n.enqueue(event{kind: eventDNS, payload: config})
 }
 
+// Close stops accepting new events and blocks until the delivery loop has
+// drained all queued events and exited.
 func (n *Notifier) Close() {
 	n.mu.Lock()
 	n.closed = true
 	n.cond.Signal()
 	n.mu.Unlock()
+	<-n.done
 }
 
 func (n *Notifier) enqueue(ev event) {
@@ -82,6 +87,7 @@ func (n *Notifier) enqueue(ev event) {
 }
 
 func (n *Notifier) deliverLoop() {
+	defer close(n.done)
 	for {
 		n.mu.Lock()
 		for n.queue.Len() == 0 && !n.closed {
