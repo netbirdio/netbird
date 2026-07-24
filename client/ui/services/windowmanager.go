@@ -154,6 +154,9 @@ func NewWindowManager(app *application.App, mainWindow *application.WebviewWindo
 	})
 	// Hide (not destroy) on close to keep React state; reset to General for a flash-free reopen.
 	s.settings.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
+		if ShuttingDown() {
+			return
+		}
 		e.Cancel()
 		s.app.Event.Emit(EventSettingsOpen, "general")
 		s.settings.Hide()
@@ -393,6 +396,9 @@ func (s *WindowManager) CloseWelcome() {
 // OpenError shows the custom error dialog; title/message are pre-localised and ride in the
 // start URL. A second error replaces the open one via SetURL. Singleton, destroyed on close.
 func (s *WindowManager) OpenError(title, message string) {
+	if ShuttingDown() {
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	startURL := errorDialogURL(title, message)

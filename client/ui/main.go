@@ -281,6 +281,9 @@ func newApplication(onSecondInstance func()) *application.App {
 		Linux: application.LinuxOptions{
 			ProgramName: "netbird",
 		},
+		Windows: application.WindowsOptions{
+			WndProcInterceptor: endSessionInterceptor(),
+		},
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID: "io.netbird.ui",
 			OnSecondInstanceLaunch: func(_ application.SecondInstanceData) {
@@ -367,6 +370,9 @@ func newMainWindow(app *application.App, prefStore *preferences.Store) *applicat
 
 	// Hide instead of quit on close; "really quit" is reached via tray -> Quit.
 	window.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
+		if services.ShuttingDown() {
+			return
+		}
 		e.Cancel()
 		window.Hide()
 	})

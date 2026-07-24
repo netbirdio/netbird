@@ -25,6 +25,9 @@ type sendFn func(notifications.NotificationOptions) error
 // event-dispatch goroutine that panic is fatal process-wide; recover() turns
 // it into a logged no-op.
 func safeSendNotification(send sendFn, what string, opts notifications.NotificationOptions) (err error) {
+	if services.ShuttingDown() {
+		return nil
+	}
 	defer func() {
 		if r := recover(); r != nil {
 			log.Errorf("notify %s: recovered from panic (notification bus unavailable): %v", what, r)
