@@ -3,7 +3,6 @@ package client
 import (
 	"context"
 	"net"
-	"net/netip"
 	"sync"
 	"testing"
 	"time"
@@ -13,13 +12,16 @@ import (
 
 // stallingRelayListener accepts TCP connections and holds them open without ever
 // responding, so a relay handshake dialed against it blocks until its context is
-// cancelled. It returns the "rel://host:port" URL to dial.
-func stallingRelayListener(t *testing.T) string {
+// cancelled. accepted is signalled once per incoming connection so a caller can
+// wait until a dial has actually reached the listener. It returns the
+// "rel://host:port" URL to dial.
+func stallingRelayListener(t *testing.T) (string, <-chan struct{}) {
 	t.Helper()
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 
+	accepted := make(chan struct{}, 1)
 	var mu sync.Mutex
 	var conns []net.Conn
 	go func() {
@@ -31,6 +33,10 @@ func stallingRelayListener(t *testing.T) string {
 			mu.Lock()
 			conns = append(conns, c)
 			mu.Unlock()
+			select {
+			case accepted <- struct{}{}:
+			default:
+			}
 		}
 	}()
 	t.Cleanup(func() {
@@ -42,14 +48,14 @@ func stallingRelayListener(t *testing.T) string {
 		mu.Unlock()
 	})
 
-	return "rel://" + ln.Addr().String()
+	return "rel://" + ln.Addr().String(), accepted
 }
 
 // TestRelayStates_DoesNotBlockOnRealHangingDial is a regression test for
 // RelayStates() called by a "status -d command" hanging behind an in-progress
-// relay dial.
+// foreign relay dial.
 func TestRelayStates_DoesNotBlockOnRealHangingDial(t *testing.T) {
-	serverAddr := stallingRelayListener(t)
+	serverAddr, accepted := stallingRelayListener(t)
 
 	mCtx, mCancel := context.WithCancel(context.Background())
 	t.Cleanup(mCancel)
@@ -59,15 +65,14 @@ func TestRelayStates_DoesNotBlockOnRealHangingDial(t *testing.T) {
 	dialDone := make(chan struct{})
 	go func() {
 		defer close(dialDone)
-		_, _ = m.openConnVia(mCtx, serverAddr, "peerKey", netip.Addr{})
+		_, _ = m.foreign.OpenConn(mCtx, "peerKey", RelayServer{Addr: serverAddr})
 	}()
 
-	require.Eventually(t, func() bool {
-		m.relayClientsMutex.RLock()
-		defer m.relayClientsMutex.RUnlock()
-		_, ok := m.relayClients[serverAddr]
-		return ok
-	}, 5*time.Second, 5*time.Millisecond, "relay dial did not start")
+	select {
+	case <-accepted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("relay dial did not reach the listener")
+	}
 
 	done := make(chan []RelayConnState, 1)
 	go func() {
@@ -86,6 +91,6 @@ func TestRelayStates_DoesNotBlockOnRealHangingDial(t *testing.T) {
 	select {
 	case <-dialDone:
 	case <-time.After(5 * time.Second):
-		t.Fatal("openConnVia did not return after context cancellation")
+		t.Fatal("foreign OpenConn did not return after context cancellation")
 	}
 }
