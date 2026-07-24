@@ -3,8 +3,8 @@
 # FreeBSD Port Diff Generator for NetBird
 #
 # This script generates the diff file required for submitting a FreeBSD port update.
-# It works on macOS, Linux, and FreeBSD by fetching files from FreeBSD cgit and
-# computing checksums from the Go module proxy.
+# It works on macOS, Linux, and FreeBSD by fetching files from the FreeBSD ports
+# GitHub mirror and computing checksums from the Go module proxy.
 #
 # Usage: ./freebsd-port-diff.sh [new_version]
 # Example: ./freebsd-port-diff.sh 0.60.7
@@ -14,7 +14,7 @@
 set -e
 
 GITHUB_REPO="netbirdio/netbird"
-PORTS_CGIT_BASE="https://cgit.freebsd.org/ports/plain/security/netbird"
+PORTS_MIRROR_BASE="https://raw.githubusercontent.com/freebsd/freebsd-ports/main/security/netbird"
 GO_PROXY="https://proxy.golang.org/github.com/netbirdio/netbird/@v"
 OUTPUT_DIR="${OUTPUT_DIR:-.}"
 AWK_FIRST_FIELD='{print $1}'
@@ -30,7 +30,7 @@ fetch_all_tags() {
 
 fetch_current_ports_version() {
     echo "Fetching current version from FreeBSD ports..." >&2
-    curl -sL "${PORTS_CGIT_BASE}/Makefile" 2>/dev/null | \
+    fetch_ports_file "Makefile" | \
         grep -E "^DISTVERSION=" | \
         sed 's/DISTVERSION=[[:space:]]*//' | \
         tr -d '\t '
@@ -45,7 +45,13 @@ fetch_latest_github_release() {
 
 fetch_ports_file() {
     local filename="$1"
-    curl -sL "${PORTS_CGIT_BASE}/${filename}" 2>/dev/null
+    local content
+    content=$(curl -fsL --retry 3 "${PORTS_MIRROR_BASE}/${filename}" 2>/dev/null) || content=""
+    if [[ "$content" == \<* ]]; then
+        echo "Error: Received HTML instead of ${filename} from ${PORTS_MIRROR_BASE}" >&2
+        content=""
+    fi
+    printf '%s' "$content"
     return 0
 }
 
