@@ -285,6 +285,7 @@ func (s *ProxyServiceServer) CheckLLMPolicyLimits(ctx context.Context, req *prot
 		UserID:     req.GetUserId(),
 		GroupIDs:   req.GetGroupIds(),
 		ProviderID: req.GetProviderId(),
+		Model:      req.GetModel(),
 	})
 	if err != nil {
 		log.WithContext(ctx).Errorf("select policy for request: %v", err)

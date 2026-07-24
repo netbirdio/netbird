@@ -10,11 +10,22 @@ import (
 )
 
 // Config is the JSON-decoded shape accepted by the factory. The
-// runtime path consumes the normalised allowlist; raw config is not
+// runtime path consumes the normalised allowlists; raw config is not
 // retained beyond construction.
 type Config struct {
-	ModelAllowlist []string      `json:"model_allowlist"`
-	PromptCapture  PromptCapture `json:"prompt_capture"`
+	// ProviderAllowlists maps a resolved provider id (the value llm_router
+	// stamps as KeyLLMResolvedProviderID) to that provider's model allowlist. A
+	// provider present here is restricted to the listed models; a provider
+	// absent is unrestricted. The synthesiser only lists a provider when EVERY
+	// policy authorising it enables an allowlist, so a provider reachable by any
+	// un-guardrailed policy is intentionally absent (unrestricted) here and the
+	// precise per-policy/group decision is left to management. Keeping the gate
+	// per-provider — rather than one account-wide union — is what stops a model
+	// allowlisted for one provider from leaking onto another and stops an
+	// un-guardrailed policy's traffic from being blocked by an unrelated
+	// policy's allowlist.
+	ProviderAllowlists map[string][]string `json:"provider_allowlists,omitempty"`
+	PromptCapture      PromptCapture       `json:"prompt_capture"`
 }
 
 // PromptCapture toggles the optional prompt capture + redaction step
@@ -55,20 +66,28 @@ func isEmptyJSON(raw []byte) bool {
 }
 
 // normaliseConfig lowercases and trims allowlist entries so the runtime
-// match is case-insensitive. Empty entries are dropped.
+// match is case-insensitive. Empty entries are dropped. A provider whose
+// entries all drop out keeps an empty (non-nil) list — an allowlist that
+// permits nothing — which is the intended "deny every model" for that
+// provider, distinct from the provider being absent (unrestricted).
 func normaliseConfig(cfg Config) Config {
-	if len(cfg.ModelAllowlist) == 0 {
+	if len(cfg.ProviderAllowlists) == 0 {
+		cfg.ProviderAllowlists = nil
 		return cfg
 	}
-	cleaned := make([]string, 0, len(cfg.ModelAllowlist))
-	for _, entry := range cfg.ModelAllowlist {
-		n := normaliseModel(entry)
-		if n == "" {
-			continue
+	cleaned := make(map[string][]string, len(cfg.ProviderAllowlists))
+	for provider, models := range cfg.ProviderAllowlists {
+		list := make([]string, 0, len(models))
+		for _, entry := range models {
+			n := normaliseModel(entry)
+			if n == "" {
+				continue
+			}
+			list = append(list, n)
 		}
-		cleaned = append(cleaned, n)
+		cleaned[provider] = list
 	}
-	cfg.ModelAllowlist = cleaned
+	cfg.ProviderAllowlists = cleaned
 	return cfg
 }
 
