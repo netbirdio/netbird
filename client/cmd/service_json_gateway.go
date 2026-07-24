@@ -29,7 +29,7 @@ type jsonPeerCtxKey struct{}
 func jsonConnContext(ctx context.Context, c net.Conn) context.Context {
 	id, err := ipcauth.ConnIdentity(c)
 	if err != nil {
-		log.Debugf("json gateway: cannot read HTTP client identity, requests won't carry it: %v", err)
+		log.Warnf("json gateway: cannot read HTTP client identity, requests won't carry it: %v", err)
 		return ctx
 	}
 	return context.WithValue(ctx, jsonPeerCtxKey{}, id)
@@ -47,6 +47,10 @@ func jsonForwardIdentity(ctx context.Context, _ *http.Request) metadata.MD {
 }
 
 func (p *program) startJSONGateway(jsonListener *socketListener, daemonEndpoint string) error {
+	if jsonListener.network == "tcp" {
+		log.Warnf("json daemon is listening on TCP (%s), peer identity cannot be authenticated over TCP, per-caller authorization is disabled", daemonAddr)
+	}
+
 	mux := runtime.NewServeMux(runtime.WithMetadata(jsonForwardIdentity))
 
 	// Lazy client to the daemon, npipe-aware (grpc.NewClient does not connect
