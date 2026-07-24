@@ -2258,13 +2258,23 @@ func (s *SqlStore) getPostureChecks(ctx context.Context, accountID string) ([]*p
 	return checks, nil
 }
 
+// serviceSelectColumns and targetSelectColumns are the column lists the Postgres
+// pgx read path scans. They must stay in sync with the rpservice.Service and
+// rpservice.Target gorm models; TestPgxServiceColumnsMatchGorm enforces this.
+const serviceSelectColumns = `id, account_id, name, domain, enabled, auth, restrictions,
+	meta_created_at, meta_certificate_issued_at, meta_last_renewed_at, meta_status, proxy_cluster,
+	pass_host_header, rewrite_redirects, session_private_key, session_public_key,
+	mode, listen_port, port_auto_assigned, source, source_peer, terminated,
+	private, access_groups`
+
+const targetSelectColumns = `id, account_id, service_id, path, host, port, protocol,
+	target_id, target_type, enabled, proxy_protocol,
+	skip_tls_verify, request_timeout, session_idle_timeout, path_rewrite, custom_headers,
+	direct_upstream, middlewares, capture_max_request_bytes, capture_max_response_bytes,
+	capture_content_types, agent_network, disable_access_log`
+
 func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpservice.Service, error) {
-	const serviceQuery = `SELECT id, account_id, name, domain, enabled, auth, restrictions,
-		meta_created_at, meta_certificate_issued_at, meta_last_renewed_at, meta_status, proxy_cluster,
-		pass_host_header, rewrite_redirects, session_private_key, session_public_key,
-		mode, listen_port, port_auto_assigned, source, source_peer, terminated,
-		private, access_groups
-		FROM services WHERE account_id = $1`
+	const serviceQuery = `SELECT ` + serviceSelectColumns + ` FROM services WHERE account_id = $1`
 
 	serviceRows, err := s.pool.Query(ctx, serviceQuery, accountID)
 	if err != nil {
@@ -2410,12 +2420,7 @@ func scanService(row pgx.CollectableRow) (*rpservice.Service, error) {
 }
 
 func (s *SqlStore) getServiceTargets(ctx context.Context, serviceIDs []string) ([]*rpservice.Target, error) {
-	const targetsQuery = `SELECT id, account_id, service_id, path, host, port, protocol,
-		target_id, target_type, enabled, proxy_protocol,
-		skip_tls_verify, request_timeout, session_idle_timeout, path_rewrite, custom_headers,
-		direct_upstream, middlewares, capture_max_request_bytes, capture_max_response_bytes,
-		capture_content_types, agent_network, disable_access_log
-		FROM targets WHERE service_id = ANY($1)`
+	const targetsQuery = `SELECT ` + targetSelectColumns + ` FROM targets WHERE service_id = ANY($1)`
 
 	rows, err := s.pool.Query(ctx, targetsQuery, serviceIDs)
 	if err != nil {
