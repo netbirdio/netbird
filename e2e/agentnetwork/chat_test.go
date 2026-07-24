@@ -11,6 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 
 	"github.com/netbirdio/netbird/e2e/harness"
 	"github.com/netbirdio/netbird/shared/management/http/api"
@@ -33,6 +35,93 @@ var publishedPer1k = map[string]struct{ in, out float64 }{
 	"anthropic.claude-haiku-4-5":  {0.001, 0.005}, // Bedrock mirrors first-party rates
 	"anthropic.claude-sonnet-4-5": {0.003, 0.015},
 	"anthropic.claude-sonnet-4-6": {0.003, 0.015},
+}
+
+// rawCostVerificationSQL is the operator-facing double-check query, run
+// straight against the management sqlite store rather than through the API:
+// for every persisted usage row whose model has a published rate, recompute
+// the expected cost band from the row's own token counts. The cache bucket
+// (total - input - output) is bounded by [all-cache-read, all-cache-write]
+// because the read/write split is not persisted. Rates are hardcoded from
+// the vendors' public price lists — independent of the proxy's pricing table.
+const rawCostVerificationSQL = `
+WITH rates(model, in_rate, out_rate, read_rate, write_rate) AS (
+  VALUES
+    ('gpt-4o-mini',                 0.00015, 0.0006, 0.000075, 0.000075),
+    ('gpt-4o',                      0.0025,  0.01,   0.00125,  0.00125),
+    ('claude-haiku-4-5',            0.001,   0.005,  0.0001,   0.00125),
+    ('claude-sonnet-4-5',           0.003,   0.015,  0.0003,   0.00375),
+    ('claude-sonnet-4-6',           0.003,   0.015,  0.0003,   0.00375),
+    ('kimi-k3',                     0.003,   0.015,  0.0003,   0.00375),
+    ('anthropic.claude-haiku-4-5',  0.001,   0.005,  0.0001,   0.00125),
+    ('anthropic.claude-sonnet-4-5', 0.003,   0.015,  0.0003,   0.00375),
+    ('anthropic.claude-sonnet-4-6', 0.003,   0.015,  0.0003,   0.00375)
+)
+SELECT
+  u.provider,
+  u.model,
+  u.input_tokens,
+  u.output_tokens,
+  u.total_tokens,
+  u.total_tokens - u.input_tokens - u.output_tokens AS cache_tokens,
+  u.cost_usd,
+  u.input_tokens*r.in_rate/1000.0 + u.output_tokens*r.out_rate/1000.0
+    + (u.total_tokens-u.input_tokens-u.output_tokens)*r.read_rate/1000.0  AS min_expected,
+  u.input_tokens*r.in_rate/1000.0 + u.output_tokens*r.out_rate/1000.0
+    + (u.total_tokens-u.input_tokens-u.output_tokens)*r.write_rate/1000.0 AS max_expected
+FROM agent_network_request_usage u
+JOIN rates r ON r.model = u.model
+ORDER BY u.timestamp`
+
+// verifyUsageRowsSQL re-checks every persisted usage row directly in the
+// management sqlite store, bypassing the whole API path — the same raw-SQL
+// audit an operator can run against a production store.db. Any row whose
+// stored cost_usd falls outside the [min_expected, max_expected] band fails
+// the run; gateway-prefixed model ids (not in the pricing table) must have
+// stored cost 0, never a guessed rate.
+func verifyUsageRowsSQL(t *testing.T, srv *harness.Combined) {
+	t.Helper()
+
+	dbPath, err := srv.SnapshotStoreDB(t.TempDir())
+	require.NoError(t, err, "snapshot management sqlite store")
+
+	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
+	require.NoError(t, err, "open store snapshot")
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	defer func() { _ = sqlDB.Close() }()
+
+	rows, err := db.Raw(rawCostVerificationSQL).Rows()
+	require.NoError(t, err, "run raw cost verification query")
+	defer func() { _ = rows.Close() }()
+
+	verified := 0
+	for rows.Next() {
+		var provider, model string
+		var inTok, outTok, totalTok, cacheTok int64
+		var cost, lo, hi float64
+		require.NoError(t, rows.Scan(&provider, &model, &inTok, &outTok, &totalTok, &cacheTok, &cost, &lo, &hi), "scan usage row")
+		t.Logf("[sql] %s/%s: in=%d out=%d total=%d cache=%d stored=$%.6f expected in [$%.6f, $%.6f]",
+			provider, model, inTok, outTok, totalTok, cacheTok, cost, lo, hi)
+		assert.GreaterOrEqualf(t, cost, lo-1e-6, "stored cost below expected floor for %s/%s", provider, model)
+		assert.LessOrEqualf(t, cost, hi+1e-6, "stored cost above expected ceiling for %s/%s", provider, model)
+		verified++
+	}
+	require.NoError(t, rows.Err(), "iterate usage rows")
+	require.Positive(t, verified, "raw SQL check must cover at least one usage row")
+	t.Logf("[sql] verified %d usage rows in store.db against published rates", verified)
+
+	gwRows, err := db.Raw(`SELECT model, cost_usd FROM agent_network_request_usage WHERE model LIKE '%/%'`).Rows()
+	require.NoError(t, err, "query gateway-prefixed usage rows")
+	defer func() { _ = gwRows.Close() }()
+	for gwRows.Next() {
+		var model string
+		var cost float64
+		require.NoError(t, gwRows.Scan(&model, &cost), "scan gateway usage row")
+		t.Logf("[sql] gateway %s: stored=$%.6f (must be 0 — deliberately unpriced)", model, cost)
+		assert.Zerof(t, cost, "gateway-prefixed model %q must store cost 0, never a guessed rate", model)
+	}
+	require.NoError(t, gwRows.Err(), "iterate gateway usage rows")
 }
 
 // validateAccessLogCost recomputes the expected USD cost of a live access-log
@@ -413,4 +502,8 @@ func TestProvidersMatrix(t *testing.T) {
 		}
 		return false
 	}, 60*time.Second, 3*time.Second, "consumption must be recorded with positive token counts after live traffic")
+
+	// Final raw-SQL audit: bypass the API entirely and re-verify every
+	// persisted usage row straight in the management sqlite store.
+	verifyUsageRowsSQL(t, srv)
 }

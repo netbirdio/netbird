@@ -5,6 +5,11 @@ on:
   schedule:
     - cron: "0 3 * * *"
   workflow_dispatch:
+  # Auto-run on pushes to the cost-calculation validation branch so every
+  # change gets a live provider-matrix run without a manual dispatch.
+  push:
+    branches:
+      - "claude/model-cost-calculation-bug-9hic1n"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
