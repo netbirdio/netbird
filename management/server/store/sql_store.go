@@ -2259,15 +2259,18 @@ func (s *SqlStore) getPostureChecks(ctx context.Context, accountID string) ([]*p
 }
 
 func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpservice.Service, error) {
-	const serviceQuery = `SELECT id, account_id, name, domain, enabled, auth,
-		meta_created_at, meta_certificate_issued_at, meta_status, proxy_cluster,
+	const serviceQuery = `SELECT id, account_id, name, domain, enabled, auth, restrictions,
+		meta_created_at, meta_certificate_issued_at, meta_last_renewed_at, meta_status, proxy_cluster,
 		pass_host_header, rewrite_redirects, session_private_key, session_public_key,
 		mode, listen_port, port_auto_assigned, source, source_peer, terminated,
 		private, access_groups
 		FROM services WHERE account_id = $1`
 
 	const targetsQuery = `SELECT id, account_id, service_id, path, host, port, protocol,
-		target_id, target_type, enabled
+		target_id, target_type, enabled, proxy_protocol,
+		skip_tls_verify, request_timeout, session_idle_timeout, path_rewrite, custom_headers,
+		direct_upstream, middlewares, capture_max_request_bytes, capture_max_response_bytes,
+		capture_content_types, agent_network, disable_access_log
 		FROM targets WHERE service_id = ANY($1)`
 
 	serviceRows, err := s.pool.Query(ctx, serviceQuery, accountID)
@@ -2278,8 +2281,9 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpserv
 	services, err := pgx.CollectRows(serviceRows, func(row pgx.CollectableRow) (*rpservice.Service, error) {
 		var s rpservice.Service
 		var auth []byte
+		var restrictions []byte
 		var accessGroups []byte
-		var createdAt, certIssuedAt sql.NullTime
+		var createdAt, certIssuedAt, lastRenewedAt sql.NullTime
 		var status, proxyCluster, sessionPrivateKey, sessionPublicKey sql.NullString
 		var mode, source, sourcePeer sql.NullString
 		var terminated, portAutoAssigned, private sql.NullBool
@@ -2291,8 +2295,10 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpserv
 			&s.Domain,
 			&s.Enabled,
 			&auth,
+			&restrictions,
 			&createdAt,
 			&certIssuedAt,
+			&lastRenewedAt,
 			&status,
 			&proxyCluster,
 			&s.PassHostHeader,
@@ -2318,6 +2324,12 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpserv
 			}
 		}
 
+		if len(restrictions) > 0 {
+			if err := json.Unmarshal(restrictions, &s.Restrictions); err != nil {
+				return nil, fmt.Errorf("unmarshal restrictions: %w", err)
+			}
+		}
+
 		if len(accessGroups) > 0 {
 			if err := json.Unmarshal(accessGroups, &s.AccessGroups); err != nil {
 				return nil, fmt.Errorf("unmarshal access_groups: %w", err)
@@ -2335,6 +2347,10 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpserv
 		if certIssuedAt.Valid {
 			t := certIssuedAt.Time
 			s.Meta.CertificateIssuedAt = &t
+		}
+		if lastRenewedAt.Valid {
+			t := lastRenewedAt.Time
+			s.Meta.LastRenewedAt = &t
 		}
 		if status.Valid {
 			s.Meta.Status = status.String
@@ -2392,6 +2408,10 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpserv
 	targets, err := pgx.CollectRows(targetRows, func(row pgx.CollectableRow) (*rpservice.Target, error) {
 		var t rpservice.Target
 		var path sql.NullString
+		var pathRewrite sql.NullString
+		var proxyProtocol, skipTLSVerify, directUpstream, agentNetwork, disableAccessLog sql.NullBool
+		var requestTimeout, sessionIdleTimeout, captureMaxRequestBytes, captureMaxResponseBytes sql.NullInt64
+		var customHeaders, middlewares, captureContentTypes []byte
 		err := row.Scan(
 			&t.ID,
 			&t.AccountID,
@@ -2403,12 +2423,52 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpserv
 			&t.TargetId,
 			&t.TargetType,
 			&t.Enabled,
+			&proxyProtocol,
+			&skipTLSVerify,
+			&requestTimeout,
+			&sessionIdleTimeout,
+			&pathRewrite,
+			&customHeaders,
+			&directUpstream,
+			&middlewares,
+			&captureMaxRequestBytes,
+			&captureMaxResponseBytes,
+			&captureContentTypes,
+			&agentNetwork,
+			&disableAccessLog,
 		)
 		if err != nil {
 			return nil, err
 		}
 		if path.Valid {
 			t.Path = &path.String
+		}
+
+		t.ProxyProtocol = proxyProtocol.Bool
+		t.Options.SkipTLSVerify = skipTLSVerify.Bool
+		t.Options.RequestTimeout = time.Duration(requestTimeout.Int64)
+		t.Options.SessionIdleTimeout = time.Duration(sessionIdleTimeout.Int64)
+		t.Options.PathRewrite = rpservice.PathRewriteMode(pathRewrite.String)
+		t.Options.DirectUpstream = directUpstream.Bool
+		t.Options.CaptureMaxRequestBytes = captureMaxRequestBytes.Int64
+		t.Options.CaptureMaxResponseBytes = captureMaxResponseBytes.Int64
+		t.Options.AgentNetwork = agentNetwork.Bool
+		t.Options.DisableAccessLog = disableAccessLog.Bool
+
+		if len(customHeaders) > 0 {
+			if err := json.Unmarshal(customHeaders, &t.Options.CustomHeaders); err != nil {
+				return nil, fmt.Errorf("unmarshal custom_headers: %w", err)
+			}
+		}
+		if len(middlewares) > 0 {
+			if err := json.Unmarshal(middlewares, &t.Options.Middlewares); err != nil {
+				return nil, fmt.Errorf("unmarshal middlewares: %w", err)
+			}
+		}
+		if len(captureContentTypes) > 0 {
+			if err := json.Unmarshal(captureContentTypes, &t.Options.CaptureContentTypes); err != nil {
+				return nil, fmt.Errorf("unmarshal capture_content_types: %w", err)
+			}
 		}
 		return &t, nil
 	})
