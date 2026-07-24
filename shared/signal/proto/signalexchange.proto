@@ -75,6 +75,13 @@ message Body {
   // fallback dial target when DNS resolution of relayServerAddress fails.
   // SNI/TLS verification still uses relayServerAddress.
   optional bytes relayServerIP = 11;
+
+  // mlkemPayload carries a post-quantum X25519MLKEM768 handshake message that
+  // seeds the WireGuard PSK, riding this Body's OFFER/ANSWER: on an OFFER it is
+  // the KEM offer, on an ANSWER the KEM answer. It is opaque to signal — the
+  // pqkem library frames and parses it. Absent when the sender does not run the
+  // ML-KEM PQ exchange; unknown to older clients, which ignore it.
+  optional bytes mlkemPayload = 12;
 }
 
 // Mode indicates a connection mode
