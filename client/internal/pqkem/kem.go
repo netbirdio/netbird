@@ -12,10 +12,11 @@
 // (their peer identity keys) so the derived key cannot be transplanted
 // to a different peer pair even if the transport authentication were bypassed.
 //
-// Combiner note: this follows the IETF hybrid layout (X25519 ‖ ML-KEM on the
-// wire; ML-KEM_ss ‖ X25519_ss into the KDF) from
-// draft-kwiatkowski-tls-ecdhe-mlkem. The spike uses SHA-256 as the KDF; a
-// production version should use HKDF with the RFC labels — see TODO below.
+// Combiner note: this follows draft-ietf-tls-ecdhe-mlkem for X25519MLKEM768 — on
+// the wire ML-KEM ‖ X25519 (the draft deliberately reversed the share order for
+// this group), and ML-KEM_ss ‖ X25519_ss fed into the KDF. The spike uses SHA-256
+// (also binding the transcript and peer identities); a production version should
+// use HKDF — see TODO below.
 package pqkem
 
 import (
@@ -27,8 +28,9 @@ import (
 )
 
 const (
-	// OfferSize is the initiator message: X25519 public key ‖ ML-KEM-768 encapsulation key.
-	OfferSize = 32 + mlkem.EncapsulationKeySize768 // 1216
+	// OfferSize is the initiator message: ML-KEM-768 encapsulation key ‖ X25519 public key
+	// (share order per draft-ietf-tls-ecdhe-mlkem for X25519MLKEM768).
+	OfferSize = mlkem.EncapsulationKeySize768 + 32 // 1216
 	// AnswerSize is the responder message: ML-KEM-768 ciphertext ‖ X25519 public key.
 	AnswerSize = mlkem.CiphertextSize768 + 32 // 1120
 
@@ -64,8 +66,8 @@ func NewInitiator() (*Initiator, error) {
 	}
 
 	offer := make([]byte, 0, OfferSize)
-	offer = append(offer, x.PublicKey().Bytes()...)
 	offer = append(offer, dk.EncapsulationKey().Bytes()...)
+	offer = append(offer, x.PublicKey().Bytes()...)
 
 	return &Initiator{x25519: x, mlkemDK: dk, offer: offer}, nil
 }
@@ -104,8 +106,8 @@ func Respond(offer []byte, b Binding) (answer []byte, psk PSK, err error) {
 	if len(offer) != OfferSize {
 		return nil, PSK{}, fmt.Errorf("offer: got %d bytes, want %d", len(offer), OfferSize)
 	}
-	peerX := offer[:32]
-	peerEK := offer[32:]
+	peerEK := offer[:mlkem.EncapsulationKeySize768]
+	peerX := offer[mlkem.EncapsulationKeySize768:]
 
 	ek, err := mlkem.NewEncapsulationKey768(peerEK)
 	if err != nil {
