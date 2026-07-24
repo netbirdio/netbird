@@ -1,0 +1,1325 @@
+{
+    "tray.tooltip": {
+        "message": "NetBird"
+    },
+    "tray.status.disconnected": {
+        "message": "מנותק"
+    },
+    "tray.status.daemonUnavailable": {
+        "message": "לא פעיל"
+    },
+    "tray.status.error": {
+        "message": "שגיאה"
+    },
+    "tray.status.connected": {
+        "message": "מחובר"
+    },
+    "tray.status.connecting": {
+        "message": "מתחבר"
+    },
+    "tray.status.needsLogin": {
+        "message": "צריך להיכנס"
+    },
+    "tray.status.loginFailed": {
+        "message": "הכניסה נכשלה"
+    },
+    "tray.status.sessionExpired": {
+        "message": "תוקף ההפעלה פג"
+    },
+    "tray.session.expiresIn": {
+        "message": "תוקף ההפעלה יפוג בעוד {remaining}"
+    },
+    "tray.session.unit.lessThanMinute": {
+        "message": "פחות מדקה"
+    },
+    "tray.session.unit.minute": {
+        "message": "דקה"
+    },
+    "tray.session.unit.minutes": {
+        "message": "{count} דקות"
+    },
+    "tray.session.unit.hour": {
+        "message": "שעה"
+    },
+    "tray.session.unit.hours": {
+        "message": "{count} שעות"
+    },
+    "tray.session.unit.day": {
+        "message": "יום"
+    },
+    "tray.session.unit.days": {
+        "message": "{count} ימים"
+    },
+    "tray.menu.open": {
+        "message": "פתיחת NetBird"
+    },
+    "tray.menu.connect": {
+        "message": "התחברות"
+    },
+    "tray.menu.disconnect": {
+        "message": "התנתקות"
+    },
+    "tray.menu.exitNode": {
+        "message": "נקודת יציאה"
+    },
+    "tray.menu.networks": {
+        "message": "משאבים"
+    },
+    "tray.menu.profiles": {
+        "message": "פרופילים"
+    },
+    "tray.menu.manageProfiles": {
+        "message": "ניהול פרופילים"
+    },
+    "tray.menu.settings": {
+        "message": "הגדרות…"
+    },
+    "tray.menu.debugBundle": {
+        "message": "יצירת מאגד ניפוי שגיאות"
+    },
+    "tray.menu.about": {
+        "message": "עזרה ותמיכה"
+    },
+    "tray.menu.github": {
+        "message": "GitHub"
+    },
+    "tray.menu.documentation": {
+        "message": "תיעוד"
+    },
+    "tray.menu.troubleshoot": {
+        "message": "פתרון בעיות"
+    },
+    "tray.menu.downloadLatest": {
+        "message": "הורדת הגרסה העדכנית ביותר"
+    },
+    "tray.menu.installVersion": {
+        "message": "התקנת גרסה {version}"
+    },
+    "tray.menu.guiVersion": {
+        "message": "ממשק משתמש: {version}"
+    },
+    "tray.menu.daemonVersion": {
+        "message": "סוכן: {version}"
+    },
+    "tray.menu.versionUnknown": {
+        "message": "—"
+    },
+    "tray.menu.quit": {
+        "message": "יציאה מ־NetBird"
+    },
+    "notify.daemonOutdated.title": {
+        "message": "שירות NetBird אינו עדכני"
+    },
+    "notify.daemonOutdated.body": {
+        "message": "יש לעדכן את שירות NetBird כדי להשתמש ביישום הזה."
+    },
+    "notify.update.title": {
+        "message": "יש עדכון ל־NetBird"
+    },
+    "notify.update.body": {
+        "message": "יצא NetBird {version}."
+    },
+    "notify.update.enforcedSuffix": {
+        "message": " הנהלת המערכת דורשת ממך לעדכן לגרסה הזאת."
+    },
+    "notify.error.title": {
+        "message": "שגיאה"
+    },
+    "notify.error.connect": {
+        "message": "החיבור נכשל"
+    },
+    "notify.error.disconnect": {
+        "message": "הניתוק נכשל"
+    },
+    "notify.error.switchProfile": {
+        "message": "המעבר לפרופיל {profile} נכשל"
+    },
+    "notify.error.exitNode": {
+        "message": "עדכון נקודת היציאה {name} נכשל"
+    },
+    "notify.sessionExpired.title": {
+        "message": "תוקף הפעלת NetBird פג"
+    },
+    "notify.sessionExpired.body": {
+        "message": "תוקף הפעלת ה־NetBird שלך פג. נא להיכנס למערכת שוב."
+    },
+    "notify.sessionWarning.title": {
+        "message": "תוקף ההפעלה יפוג בקרוב"
+    },
+    "notify.sessionWarning.body": {
+        "message": "הפעלת ה־NetBird שלך תפוג בעוד {remaining}. לחיצה על להאריך כעת תחדש אותה."
+    },
+    "notify.sessionWarning.bodyGeneric": {
+        "message": "תוקף הפעלת ה־NetBird שלך עומד לפוג. לחיצה על להאריך כעת תחדש אותו."
+    },
+    "notify.sessionWarning.extend": {
+        "message": "להאריך כעת"
+    },
+    "notify.sessionWarning.dismiss": {
+        "message": "התעלמות"
+    },
+    "notify.sessionWarning.failed": {
+        "message": "הארכת ההפעלה של NetBird נכשלה"
+    },
+    "notify.sessionWarning.successTitle": {
+        "message": "ההפעלה של NetBird הוארכה"
+    },
+    "notify.sessionWarning.successBody": {
+        "message": "ההפעלה שלך התרעננה."
+    },
+    "notify.sessionDeadlineRejected.title": {
+        "message": "מועד הסיום של ההפעלה נדחה"
+    },
+    "notify.sessionDeadlineRejected.body": {
+        "message": "השרת שלח מועד סיום שגוי להפעלה. נא להיכנס שוב למערכת."
+    },
+    "notify.mdm.policyApplied.title": {
+        "message": "ההגדרות של NetBird עודכנו"
+    },
+    "notify.mdm.policyApplied.body": {
+        "message": "הגדרות ה־NetBird שלך עודכנו על ידי מדיניות צוות המחשוב שלך."
+    },
+    "common.cancel": {
+        "message": "ביטול"
+    },
+    "common.save": {
+        "message": "שמירה"
+    },
+    "common.saveChanges": {
+        "message": "שמירת השינויים"
+    },
+    "common.saving": {
+        "message": "שמירה…"
+    },
+    "common.close": {
+        "message": "סגירה"
+    },
+    "common.copy": {
+        "message": "העתקת"
+    },
+    "common.togglePasswordVisibility": {
+        "message": "הסתרת/חשיפת סיסמה"
+    },
+    "common.increase": {
+        "message": "הגדלה"
+    },
+    "common.decrease": {
+        "message": "הקטנה"
+    },
+    "common.delete": {
+        "message": "מחיקה"
+    },
+    "common.create": {
+        "message": "יצירה"
+    },
+    "common.add": {
+        "message": "הוספה"
+    },
+    "common.remove": {
+        "message": "הסרה"
+    },
+    "common.refresh": {
+        "message": "ריענון"
+    },
+    "common.loading": {
+        "message": "בטעינה…"
+    },
+    "common.netbird": {
+        "message": "NetBird"
+    },
+    "common.noResults.title": {
+        "message": "לא ניתן למצוא תוצאות כלשהן."
+    },
+    "common.noResults.description": {
+        "message": "לא הצלחנו למצוא אף תוצאות. נא לנסות ביטוי חיפוש אחר או לשנות את המסננים שלך."
+    },
+    "notConnected.title": {
+        "message": "מנותק"
+    },
+    "notConnected.description": {
+        "message": "יש להתחבר ל־NetBird תחילה כדי לצפות בפרטי פרטים על העמיתים, משאבי הרשת ונקודות היציאה שלך."
+    },
+    "connect.status.disconnected": {
+        "message": "מנותק"
+    },
+    "connect.status.connecting": {
+        "message": "מתחבר…"
+    },
+    "connect.status.connected": {
+        "message": "מחובר"
+    },
+    "connect.status.disconnecting": {
+        "message": "מתנתק…"
+    },
+    "connect.status.daemonUnavailable": {
+        "message": "הסוכן לא זמין"
+    },
+    "connect.status.loginRequired": {
+        "message": "נדרשת כניסה"
+    },
+    "connect.error.loginTitle": {
+        "message": "הכניסה נכשלה"
+    },
+    "connect.error.connectTitle": {
+        "message": "התחברות נכשלה"
+    },
+    "connect.error.disconnectTitle": {
+        "message": "התנתקות נכשלה"
+    },
+    "nav.peers.title": {
+        "message": "עמיתים"
+    },
+    "nav.peers.description": {
+        "message": "{connected} מתוך {total} מחוברים"
+    },
+    "nav.resources.title": {
+        "message": "משאבים"
+    },
+    "nav.resources.description": {
+        "message": "{active} מתוך {total} פעילים"
+    },
+    "nav.exitNode.title": {
+        "message": "נקודות יציאה"
+    },
+    "nav.exitNode.none": {
+        "message": "לא פעיל"
+    },
+    "nav.exitNode.using": {
+        "message": "דרך {name}"
+    },
+    "header.openSettings": {
+        "message": "פתיחת הגדרות"
+    },
+    "header.togglePanel": {
+        "message": "הצגת/הסתרת לוח צד"
+    },
+    "profile.selector.loading": {
+        "message": "בטעינה…"
+    },
+    "profile.selector.noProfile": {
+        "message": "אין פרופיל"
+    },
+    "profile.selector.searchPlaceholder": {
+        "message": "חיפוש פרופיל לפי שם…"
+    },
+    "profile.selector.emptyTitle": {
+        "message": "לא נמצאו פרופילים"
+    },
+    "profile.selector.emptyDescription": {
+        "message": "כדאי לנסות ביטוי אחר לחיפוש או ליצור פרופיל חדש."
+    },
+    "profile.selector.newProfile": {
+        "message": "פרופיל חדש"
+    },
+    "profile.selector.moreOptions": {
+        "message": "אפשרויות נוספות"
+    },
+    "profile.selector.deregister": {
+        "message": "ביטול רישום"
+    },
+    "profile.selector.delete": {
+        "message": "מחיקה"
+    },
+    "profile.selector.switchTo": {
+        "message": "החלפה לפרופיל הזה"
+    },
+    "profile.selector.edit": {
+        "message": "עריכה"
+    },
+    "profile.edit.title": {
+        "message": "עריכת פרופיל"
+    },
+    "profile.edit.submit": {
+        "message": "שמירת השינויים"
+    },
+    "profile.dialog.title": {
+        "message": "נא למלא שם פרופיל"
+    },
+    "profile.dialog.nameLabel": {
+        "message": "שם פרופיל"
+    },
+    "profile.dialog.description": {
+        "message": "הגדרת שם שניתן לזהות בקלות לפרופיל שלך."
+    },
+    "profile.dialog.placeholder": {
+        "message": "למשל: עבודה"
+    },
+    "profile.dialog.submit": {
+        "message": "הוספת פרופיל"
+    },
+    "profile.dialog.required": {
+        "message": "נא למלא שם לפרופיל, למשל: עבודה, בית"
+    },
+    "profile.dialog.managementHelp": {
+        "message": "אפשר להשתמש בענן של NetBird או בשרת משלך."
+    },
+    "profile.dialog.urlUnreachable": {
+        "message": "לא ניתן להגיע לשרת. נא לבדוק שהכתובת נכונה או להוסיף את הפרופיל בכל זאת אם ברור לך שהיא נכונה."
+    },
+    "header.menu.settings": {
+        "message": "הגדרות…"
+    },
+    "header.menu.defaultView": {
+        "message": "תצוגת ברירת מחדל"
+    },
+    "header.menu.advancedView": {
+        "message": "תצוגה מתקדמת"
+    },
+    "header.menu.updateAvailable": {
+        "message": "יש עדכון"
+    },
+    "header.menu.open": {
+        "message": "פתיחת התפריט"
+    },
+    "header.profile.switch": {
+        "message": "החלפת פרופיל"
+    },
+    "connect.toggle.label": {
+        "message": "החלפת מצב חיבור NetBird"
+    },
+    "connect.localIp.label": {
+        "message": "כתובות IP מקומיות"
+    },
+    "common.search": {
+        "message": "חיפוש"
+    },
+    "common.filter": {
+        "message": "סינון"
+    },
+    "exitNodes.dropdown.trigger": {
+        "message": "בחירת נקודת יציאה"
+    },
+    "peers.row.label": {
+        "message": "פתיחת פרטים עבור {name}, {status}"
+    },
+    "peers.dialog.title": {
+        "message": "פרטי עמית"
+    },
+    "networks.row.toggle": {
+        "message": "להחליף את המצב של {name}"
+    },
+    "networks.bulk.label": {
+        "message": "להחליף את המצב של כל המשאבים הגלויים"
+    },
+    "profile.switch.title": {
+        "message": "להחליף את הפרופיל כך שיהיה „{name}”?"
+    },
+    "profile.switch.message": {
+        "message": "להחליף פרופילים?\nהפרופיל הנוכחי שלך יתנתק."
+    },
+    "profile.switch.confirm": {
+        "message": "אישור"
+    },
+    "profile.deregister.title": {
+        "message": "לבטל את רישום הפרופיל „{name}”?"
+    },
+    "profile.deregister.message": {
+        "message": "לבטל את רישום הפרופיל הזה?\nצריך להיכנס שוב כדי להשתמש בו."
+    },
+    "profile.deregister.confirm": {
+        "message": "לבטל רישום"
+    },
+    "profile.delete.title": {
+        "message": "למחוק את הפרופיל „{name}”?"
+    },
+    "profile.delete.message": {
+        "message": "למחוק את הפרופיל הזה?\nזאת פעולה בלתי הפיכה."
+    },
+    "profile.delete.disabledActive": {
+        "message": "לא ניתן למחוק פרופילים פעילים. יש להחליף לפרופיל אחר בטרם מחיקת הפרופיל הזה."
+    },
+    "profile.delete.disabledDefault": {
+        "message": "לא ניתן למחוק את פרופיל ברירת המחדל."
+    },
+    "profile.error.switchTitle": {
+        "message": "החלפת פרופיל נכשלה"
+    },
+    "profile.error.deregisterTitle": {
+        "message": "ביטול רישום פרופיל נכשל"
+    },
+    "profile.error.deleteTitle": {
+        "message": "מחיקת פרופיל נכשלה"
+    },
+    "profile.error.createTitle": {
+        "message": "יצירת פרופיל נכשלה"
+    },
+    "profile.error.editTitle": {
+        "message": "עריכת פרופיל נכשלה"
+    },
+    "profile.error.loadTitle": {
+        "message": "טעינת פרופיל נכשלה"
+    },
+    "profile.dropdown.activeProfile": {
+        "message": "הפרופיל הפעיל"
+    },
+    "profile.dropdown.switchProfile": {
+        "message": "החלפת פרופיל"
+    },
+    "profile.dropdown.noEmail": {
+        "message": "אחר"
+    },
+    "profile.dropdown.addProfile": {
+        "message": "הוספת פרופיל"
+    },
+    "profile.dropdown.manageProfiles": {
+        "message": "ניהול פרופילים"
+    },
+    "profile.dropdown.settings": {
+        "message": "הגדרות"
+    },
+    "settings.profiles.section.profiles": {
+        "message": "פרופילים"
+    },
+    "settings.profiles.intro": {
+        "message": "להשאיר את זהויות ה־NetBird הנפרדות זו לצד זו, למשל חשבונות עבודה ופרטי או שרתי ניהול שונים. אפשר להוסיף, לבטל רישום או למחוק פרופילים להלן."
+    },
+    "settings.profiles.addProfile": {
+        "message": "הוספת פרופיל"
+    },
+    "settings.profiles.active": {
+        "message": "פעיל"
+    },
+    "settings.profiles.emptyTitle": {
+        "message": "אין פרופילים"
+    },
+    "settings.profiles.emptyDescription": {
+        "message": "יש ליצור פרופיל כדי להתחבר לשרת ניהול של NetBird."
+    },
+    "settings.error.loadTitle": {
+        "message": "טעינת ההגדרות נכשלה"
+    },
+    "settings.error.saveTitle": {
+        "message": "שמירת ההגדרות נכשלה"
+    },
+    "settings.error.debugBundleTitle": {
+        "message": "מאגד ניפוי השגיאות נכשל"
+    },
+    "settings.nav.label": {
+        "message": "סעיפי הגדרות"
+    },
+    "settings.tabs.general": {
+        "message": "כללי"
+    },
+    "settings.tabs.network": {
+        "message": "רשת"
+    },
+    "settings.tabs.security": {
+        "message": "אבטחה"
+    },
+    "settings.tabs.profiles": {
+        "message": "פרופילים"
+    },
+    "settings.tabs.ssh": {
+        "message": "SSH"
+    },
+    "settings.tabs.advanced": {
+        "message": "מתקדם"
+    },
+    "settings.tabs.troubleshooting": {
+        "message": "פתרון בעיות"
+    },
+    "settings.tabs.about": {
+        "message": "על אודות"
+    },
+    "settings.tabs.updateAvailable": {
+        "message": "יש עדכון"
+    },
+    "settings.general.section.general": {
+        "message": "כללי"
+    },
+    "settings.general.section.connection": {
+        "message": "חיבור"
+    },
+    "settings.general.connectOnStartup.label": {
+        "message": "להתחבר עם העלייה"
+    },
+    "settings.general.connectOnStartup.help": {
+        "message": "להקים חיבור אוטומטית כשהשירות מופעל."
+    },
+    "settings.general.notifications.label": {
+        "message": "התראות שולחן עבודה"
+    },
+    "settings.general.notifications.help": {
+        "message": "להציג התראות שולחן עבודה על עדכונים חדשים ואירועי חיבור."
+    },
+    "settings.general.autostart.label": {
+        "message": "להפעיל את ממשק המשתמש של NetBird עם הכניסה למערכת"
+    },
+    "settings.general.autostart.help": {
+        "message": "להפעיל את הממשק של NetBird אוטומטית עם הכניסה. הפעולה הזאת משפיעה על הממשק הגרפי בלבד, לא על שירות הרקע."
+    },
+    "settings.general.autostart.errorTitle": {
+        "message": "שינוי בהפעלה האוטומטית נכשל"
+    },
+    "settings.general.language.label": {
+        "message": "שפת התצוגה"
+    },
+    "settings.general.language.help": {
+        "message": "בחירת שפת הממשק של NetBird."
+    },
+    "settings.general.language.search": {
+        "message": "חיפוש שפה…"
+    },
+    "settings.general.language.empty": {
+        "message": "אין שפות תואמות."
+    },
+    "settings.general.management.label": {
+        "message": "שרת ניהול"
+    },
+    "settings.general.management.help": {
+        "message": "אפשר להתחבר לענן של NetBird או לשרת ניהול באירוח שלך. שינויים יחברו את הלקוח מחדש."
+    },
+    "settings.general.management.cloud": {
+        "message": "ענן"
+    },
+    "settings.general.management.selfHosted": {
+        "message": "אירוח עצמי"
+    },
+    "settings.general.management.urlPlaceholder": {
+        "message": "https://netbird.selfhosted.com:443"
+    },
+    "settings.general.management.urlError": {
+        "message": "נא למלא כתובת תקפה, למשל, https://netbird.selfhosted.com:443"
+    },
+    "settings.general.management.urlUnreachable": {
+        "message": "לא ניתן להגיע לשרת הזה. נא לבדוק את הכתובת או לשמור בכל זאת אם ברור לך שהיא נכונה."
+    },
+    "settings.general.management.switchCloudTitle": {
+        "message": "לעבור לענן NetBird?"
+    },
+    "settings.general.management.switchCloudMessage": {
+        "message": "מנתק אותך מהשרת שלך באירוח עצמי.\nיתכן שיהיה עליך להיכנס למערכת שוב."
+    },
+    "settings.general.management.switchCloudConfirm": {
+        "message": "מעבר לענן"
+    },
+    "settings.network.section.connectivity": {
+        "message": "קישוריות"
+    },
+    "settings.network.section.routingDns": {
+        "message": "ניתוב ו־DNS"
+    },
+    "settings.network.monitor.label": {
+        "message": "להתחבר מחדש כשחל שינוי ברשת"
+    },
+    "settings.network.monitor.help": {
+        "message": "מעקב אחר הרשת כדי להתחבר מחדש עקב שינויים כגון מעבר רשת אלחוטית, שינויים בחיבור הקווי או התעוררות משינה."
+    },
+    "settings.network.dns.label": {
+        "message": "הפעלת DNS"
+    },
+    "settings.network.dns.help": {
+        "message": "החלת הגדרות DNS בניהול NetBird לפותר שמות המארחים."
+    },
+    "settings.network.clientRoutes.label": {
+        "message": "הפעלת ניתובי לקוח"
+    },
+    "settings.network.clientRoutes.help": {
+        "message": "קבלת ניתובים מעמיתים אחרים כדי להגיע לרשתות שלהם."
+    },
+    "settings.network.serverRoutes.label": {
+        "message": "הפעלת ניתובי שרת"
+    },
+    "settings.network.serverRoutes.help": {
+        "message": "לפרסם את הניתובים המקומיים של המארח הזה לעמיתים אחרים."
+    },
+    "settings.network.ipv6.label": {
+        "message": "הפעלת IPv6"
+    },
+    "settings.network.ipv6.help": {
+        "message": "להשתמש בחלוקת כתובות IPv6 לרשת שכבת העל של NetBird."
+    },
+    "settings.security.section.firewall": {
+        "message": "חומת אש"
+    },
+    "settings.security.section.encryption": {
+        "message": "הצפנה"
+    },
+    "settings.security.blockInbound.label": {
+        "message": "חסימת תעבורה נכנסת"
+    },
+    "settings.security.blockInbound.help": {
+        "message": "לדחות חיבורים שלא התבקשו מעמיתים למכשיר הזה ולרשתות כלשהן שהוא מנתב אליהן. אין השפעה על התקשורת היוצאת."
+    },
+    "settings.security.blockLan.label": {
+        "message": "חסימת גישה לרשת המקומית"
+    },
+    "settings.security.blockLan.help": {
+        "message": "למנוע מעמיתים להגיע לרשת המקומית שלך או המכשירים שבה כאשר המכשיר הזה מנתב את התעבורה שלהם."
+    },
+    "settings.security.rosenpass.label": {
+        "message": "הפעלת עמידות לפיענוח צפנים קוונטי"
+    },
+    "settings.security.rosenpass.help": {
+        "message": "הוספת החלפת מפתחות עמידה לפיענוח צפנים קוונטי דרך Rosenpass על גבי WireGuard®."
+    },
+    "settings.security.rosenpassPermissive.label": {
+        "message": "הפעלת מצב מתירני"
+    },
+    "settings.security.rosenpassPermissive.help": {
+        "message": "לאפשר חיבורים לעמיתים ללא תמיכה בעמידות לפיענוח צפנים קוונטי."
+    },
+    "settings.ssh.section.server": {
+        "message": "שרת"
+    },
+    "settings.ssh.section.capabilities": {
+        "message": "יכולות"
+    },
+    "settings.ssh.section.authentication": {
+        "message": "אימות"
+    },
+    "settings.ssh.server.label": {
+        "message": "הפעלת שרת SSH"
+    },
+    "settings.ssh.server.help": {
+        "message": "להריץ את שרת ה־SSH של NetBird על המארח הזה כדי שעמיתים אחרים יוכלו להתחבר אליו."
+    },
+    "settings.ssh.root.label": {
+        "message": "לאפשר כניסת ניהול (root)"
+    },
+    "settings.ssh.root.help": {
+        "message": "לאפשר לעמיתים להיכנס בתור משתמש הניהול. אפשר להשבית כדי לדרוש שזה יהיה חשבון ללא הרשאות מופלגות."
+    },
+    "settings.ssh.sftp.label": {
+        "message": "לאפשר SFTP"
+    },
+    "settings.ssh.sftp.help": {
+        "message": "העברת קבצים בבטחה עם לקוחות מובנים של SFTP או SCP."
+    },
+    "settings.ssh.localForward.label": {
+        "message": "העברת פתחה מקומית"
+    },
+    "settings.ssh.localForward.help": {
+        "message": "לאפשר לעמיתים שמתחברים לתעל פתחות מקומיות לשירותים שנגישים למארח הזה."
+    },
+    "settings.ssh.remoteForward.label": {
+        "message": "העברת פתחה מרוחקת"
+    },
+    "settings.ssh.remoteForward.help": {
+        "message": "לאפשר לעמיתים שמתחברים לחשוף בפני המארח הזה פתחות שחוזרות למכונות שלהם."
+    },
+    "settings.ssh.jwt.label": {
+        "message": "הפעלת אימות JWT"
+    },
+    "settings.ssh.jwt.help": {
+        "message": "לאמת כל הפעלת SSH מול ספק הזהות (IdP) שלך לזהות המשתמש ולפיקוח. יש להשבית כדי לסמוך רק על מדיניויות ה־ACL (רשימת בקרת גישה) של הרשתות בלבד, שימושי כשאין ספק זהות (IdP) זמין."
+    },
+    "settings.ssh.jwtTtl.label": {
+        "message": "זמן חיי JWT במטמון (TTL)"
+    },
+    "settings.ssh.jwtTtl.help": {
+        "message": "כמה זמן הלקוח הזה שומר JWT במטמון בטרם הצגת בקשה חוזרת לחיבורי SSH יוצאים. יש להגדיר ל־0 כדי להשבית את המטמון ולעבור אימות עם כל חיבור מחדש."
+    },
+    "settings.ssh.jwtTtl.suffix": {
+        "message": "שנייה/ות"
+    },
+    "settings.advanced.section.interface": {
+        "message": "ממשק"
+    },
+    "settings.advanced.section.security": {
+        "message": "אבטחה"
+    },
+    "settings.advanced.interfaceName.label": {
+        "message": "שם"
+    },
+    "settings.advanced.interfaceName.error": {
+        "message": "יש להשתמש ב־1-15 אותיות, ספרות, נקודות, מינוסים או קווים תחתיים."
+    },
+    "settings.advanced.interfaceName.errorMac": {
+        "message": "חייב להתחיל ב־„utun” ולאחריו מספר (למשל: utun100)."
+    },
+    "settings.advanced.port.label": {
+        "message": "פתחה"
+    },
+    "settings.advanced.port.error": {
+        "message": "נא מלא פתחה בין {min} ל־{max}."
+    },
+    "settings.advanced.port.help": {
+        "message": "אם מוגדר ל־0, ייעשה שימוש בפתחה פנויה אקראית."
+    },
+    "settings.advanced.mtu.label": {
+        "message": "MTU"
+    },
+    "settings.advanced.mtu.error": {
+        "message": "נא למלא ערך MTU בין {min} לבין {max}."
+    },
+    "settings.advanced.psk.label": {
+        "message": "מפתח ששותף מראש"
+    },
+    "settings.advanced.psk.help": {
+        "message": "מפתח ששותף מראש (PSK) כרשות להצפנה סימטרית במיוחד. לא זהה למפתח התקנה של NetBird. תהיה לך תקשורת רק מול עמיתים שמשתמשים באותו המפתח ששותף מראש."
+    },
+    "settings.troubleshooting.section.title": {
+        "message": "מאגד ניפוי שגיאות"
+    },
+    "settings.troubleshooting.anonymize.label": {
+        "message": "הסוואת מידע רגיש עם מידע אלמוני"
+    },
+    "settings.troubleshooting.anonymize.help": {
+        "message": "הסתרת כתובות IP ציבוריות ושמות תחום שאינם של NetBird מהיומנים."
+    },
+    "settings.troubleshooting.systemInfo.label": {
+        "message": "לכלול את פרטי המערכת"
+    },
+    "settings.troubleshooting.systemInfo.help": {
+        "message": "לכלול את מערכת ההפעלה, הליבה, ממשקי הרשת וטבלאות הניתוב."
+    },
+    "settings.troubleshooting.upload.label": {
+        "message": "להעלות את המאגד לשרתים של NetBird"
+    },
+    "settings.troubleshooting.upload.help": {
+        "message": "החזרת מפתח שליחה לשיתוף עם התמיכה של NetBird."
+    },
+    "settings.troubleshooting.trace.label": {
+        "message": "הפעלת יומני מעקב"
+    },
+    "settings.troubleshooting.trace.help": {
+        "message": "הגברת רמת התיעוד ביומן ל־TRACE (מעקב) ומשחזרת אותה לאחר מכן."
+    },
+    "settings.troubleshooting.capture.label": {
+        "message": "הפעלת לכידה"
+    },
+    "settings.troubleshooting.capture.help": {
+        "message": "חיבור מחדש והמתנה כדי לאפשר ליצור את התקלה מחדש."
+    },
+    "settings.troubleshooting.packets.label": {
+        "message": "לכידת מנות נתונים מהרשת"
+    },
+    "settings.troubleshooting.packets.help": {
+        "message": "שמירת ‎.pcap של תעבורת רשת בזמן חלון האיסוף."
+    },
+    "settings.troubleshooting.duration.label": {
+        "message": "משך לכידה"
+    },
+    "settings.troubleshooting.duration.help": {
+        "message": "למשך כמה זמן הפעלת הלכידה רצה."
+    },
+    "settings.troubleshooting.duration.suffix": {
+        "message": "דקה/ות"
+    },
+    "settings.troubleshooting.create": {
+        "message": "יצירת מאגד"
+    },
+    "settings.troubleshooting.progress.description": {
+        "message": "היומנים, פרטי המערכת ומצב החיבור נאספים. האיסוף בדרך כלל לוקח כמה רגעים. אפשר להמשיך להשתמש ב־NetBird או לסגור את ההגדרות בזמן שהתהליך מסתיים."
+    },
+    "settings.troubleshooting.cancelling": {
+        "message": "מבוטל…"
+    },
+    "settings.troubleshooting.done.uploadedTitle": {
+        "message": "מאגד ניפוי השגיאות נשלח בהצלחה!"
+    },
+    "settings.troubleshooting.done.savedTitle": {
+        "message": "המאגד נשמר"
+    },
+    "settings.troubleshooting.done.uploadedDescription": {
+        "message": "יש לשתף את מפתח השליחה להלן עם <docs>התמיכה של NetBird</docs>. עותק מקומי נשמר בנוסף על המכונה שלך."
+    },
+    "settings.troubleshooting.done.savedDescription": {
+        "message": "מאגד ניפוי השגיאות שלך נשמר מקומית."
+    },
+    "settings.troubleshooting.done.copyKey": {
+        "message": "העתקת מפתח"
+    },
+    "settings.troubleshooting.done.openFolder": {
+        "message": "פתיחת תיקייה"
+    },
+    "settings.troubleshooting.done.openFileLocation": {
+        "message": "פתיחת מקום הקובץ"
+    },
+    "settings.troubleshooting.uploadFailedWithReason": {
+        "message": "ההעלאה נכשלה: {reason} המאגד עדיין שמור מקומית."
+    },
+    "settings.troubleshooting.uploadFailed": {
+        "message": "ההעלאה נכשלה. המאגד עדיין שמור מקומית."
+    },
+    "settings.troubleshooting.stage.reconnecting": {
+        "message": "NetBird מתחבר מחדש…"
+    },
+    "settings.troubleshooting.stage.capturing": {
+        "message": "יומני ניפוי השגיאות נלכדים"
+    },
+    "settings.troubleshooting.stage.bundling": {
+        "message": "מאגד ניפוי שגיאות נוצר…"
+    },
+    "settings.troubleshooting.stage.uploading": {
+        "message": "נשלח ל־NetBird…"
+    },
+    "settings.troubleshooting.stage.cancelling": {
+        "message": "מבטל…"
+    },
+    "settings.about.client": {
+        "message": "לקוח NetBird v{version}"
+    },
+    "settings.about.clientName": {
+        "message": "לקוח NetBird"
+    },
+    "settings.about.development": {
+        "message": "[פיתוח]"
+    },
+    "settings.about.gui": {
+        "message": "ממשק משתמש v{version}"
+    },
+    "settings.about.guiName": {
+        "message": "ממשק משתמש"
+    },
+    "settings.about.copyright": {
+        "message": "© {year} NetBird. כל הזכויות שמורות."
+    },
+    "settings.about.links.imprint": {
+        "message": "הצהרה משפטית"
+    },
+    "settings.about.links.privacy": {
+        "message": "פרטיות"
+    },
+    "settings.about.links.cla": {
+        "message": "CLA"
+    },
+    "settings.about.links.terms": {
+        "message": "תנאי השירות"
+    },
+    "settings.about.community.github": {
+        "message": "GitHub"
+    },
+    "settings.about.community.slack": {
+        "message": "Slack"
+    },
+    "settings.about.community.forum": {
+        "message": "פורום"
+    },
+    "settings.about.community.documentation": {
+        "message": "תיעוד"
+    },
+    "settings.about.community.feedback": {
+        "message": "משוב"
+    },
+    "update.banner.message": {
+        "message": "ההתקנה של NetBird {version} מוכנה."
+    },
+    "update.banner.later": {
+        "message": "אחר כך"
+    },
+    "update.banner.installNow": {
+        "message": "להתקין עכשיו"
+    },
+    "update.card.versionAvailableDownload": {
+        "message": "גרסה {version} זמינה להורדה."
+    },
+    "update.card.versionAvailableInstall": {
+        "message": "גרסה {version} זמינה להתקנה."
+    },
+    "update.card.whatsNew": {
+        "message": "מה חדש?"
+    },
+    "update.card.installNow": {
+        "message": "להתקין עכשיו"
+    },
+    "update.card.getInstaller": {
+        "message": "הורדה"
+    },
+    "update.card.autoCheckInterval": {
+        "message": "NetBird בודק ברקע אם יש עדכונים."
+    },
+    "update.card.changelog": {
+        "message": "יומן שינויים"
+    },
+    "update.card.onLatestVersion": {
+        "message": "הגרסה המותקנת היא העדכנית ביותר"
+    },
+    "update.header.tooltip": {
+        "message": "יש עדכון"
+    },
+    "update.overlay.updatingVersion": {
+        "message": "NetBird מתעדכן ל־v{version}"
+    },
+    "update.overlay.updating": {
+        "message": "NetBird מתעדכן"
+    },
+    "update.overlay.description": {
+        "message": "גרסה חדשה יותר זמינה ומותקנת כרגע. NetBird יופעל מחדש אוטומטית לאחר סיום העדכון."
+    },
+    "update.overlay.error.timeoutTitle": {
+        "message": "העדכון אורך זמן רב מדי"
+    },
+    "update.overlay.error.timeoutDescription": {
+        "message": "התקנת {target} ארכה זמן רב מדי ולא הסתיימה."
+    },
+    "update.overlay.error.canceledTitle": {
+        "message": "העדכון נעצר"
+    },
+    "update.overlay.error.canceledDescription": {
+        "message": "העדכון לגרסה {target} בוטל לפני שהספיק להסתיים."
+    },
+    "update.overlay.error.failTitle": {
+        "message": "לא ניתן להתקין את העדכון"
+    },
+    "update.overlay.error.failDescription": {
+        "message": "לא ניתן להתקין את {target}."
+    },
+    "update.overlay.error.unknownMessage": {
+        "message": "שגיאה לא ידועה"
+    },
+    "update.overlay.error.targetVersion": {
+        "message": "v{version}"
+    },
+    "update.overlay.error.targetFallback": {
+        "message": "הגרסה החדשה"
+    },
+    "update.error.loadStateTitle": {
+        "message": "טעינת מצב העדכון נכשלה"
+    },
+    "update.error.triggerTitle": {
+        "message": "התחלת העדכון נכשלה"
+    },
+    "update.page.versionLine": {
+        "message": "הלקוח מתעדכן לגרסה: {version}."
+    },
+    "update.page.versionLineGeneric": {
+        "message": "הלקוח מתעדכן."
+    },
+    "update.page.outdated": {
+        "message": "גרסת הלקוח שלך ישנה מגרסת העדכון האוטומטי שהוגדרה בניהול."
+    },
+    "update.page.status.running": {
+        "message": "מתעדכן"
+    },
+    "update.page.status.timeout": {
+        "message": "הזמן שהוקצב לעדכון הסתיים. נא לנסות שוב."
+    },
+    "update.page.status.canceled": {
+        "message": "העדכון בוטל."
+    },
+    "update.page.status.failed": {
+        "message": "העדכון נכשל: {message}"
+    },
+    "update.page.status.unknownError": {
+        "message": "שגיאת עדכון לא ידועה"
+    },
+    "update.page.failedTitle": {
+        "message": "העדכון נכשל"
+    },
+    "update.page.timeoutMessage": {
+        "message": "הזמן שהוקצב לעדכון תם."
+    },
+    "update.page.dontClose": {
+        "message": "נא לא לסגור את החלון הזה"
+    },
+    "update.page.updating": {
+        "message": "מתעדכן…"
+    },
+    "update.page.complete": {
+        "message": "העדכון הושלם"
+    },
+    "update.page.failed": {
+        "message": "העדכון נכשל"
+    },
+    "window.title.settings": {
+        "message": "הגדרות"
+    },
+    "window.title.signIn": {
+        "message": "כניסה"
+    },
+    "window.title.sessionExpiration": {
+        "message": "תוקף ההפעלה פג"
+    },
+    "window.title.updating": {
+        "message": "מתעדכן"
+    },
+    "window.title.welcome": {
+        "message": "ברוך בואך ל־NetBird"
+    },
+    "window.title.error": {
+        "message": "שגיאה"
+    },
+    "welcome.title": {
+        "message": "כדאי לחפש את NetBird בשורת המשימות שלך"
+    },
+    "welcome.description": {
+        "message": "NetBird שוכן בשורת המשימות שלך. יש ללחוץ על הסמל כדי להתחבר, להחליף פרופילים או כדי לפתוח את ההגדרות."
+    },
+    "welcome.continue": {
+        "message": "המשך"
+    },
+    "welcome.back": {
+        "message": "חזרה"
+    },
+    "welcome.management.title": {
+        "message": "הגדרת NetBird"
+    },
+    "welcome.management.description": {
+        "message": "יש ללחוץ על המשך כדי להתחיל או לבחור באירוח עצמי אם יש לך שרת NetBird משלך."
+    },
+    "welcome.management.cloud.title": {
+        "message": "ענן NetBird"
+    },
+    "welcome.management.cloud.description": {
+        "message": "אפשר להשתמש בשירות באירוח שלנו. לא צריך הגדרות."
+    },
+    "welcome.management.selfHosted.title": {
+        "message": "אירוח עצמי"
+    },
+    "welcome.management.selfHosted.description": {
+        "message": "התחברות לשרת ניהול משלך."
+    },
+    "welcome.management.urlLabel": {
+        "message": "כתובת שרת ניהול"
+    },
+    "welcome.management.urlPlaceholder": {
+        "message": "https://netbird.selfhosted.com:443"
+    },
+    "welcome.management.urlInvalid": {
+        "message": "נא למלא כתובת שרת ניהול תקפה, כגון, https://netbird.selfhosted.com:443"
+    },
+    "welcome.management.urlUnreachable": {
+        "message": "לא ניתן להגיע לשרת הזה. נא לבדוק את הכתובת או את הרשת שלך, לאחר מכן להמשיך אם היא נכונה בוודאות."
+    },
+    "welcome.management.checking": {
+        "message": "מתבצעת בדיקה…"
+    },
+    "browserLogin.title": {
+        "message": "יש להשלים את הכניסה בדפדפן שלך"
+    },
+    "browserLogin.notSeeing": {
+        "message": "פתחנו לשונית בדפדפן כדי שנוכל לסיים עם הכניסה למערכת. לא רואה אותה?"
+    },
+    "browserLogin.tryAgain": {
+        "message": "לנסות שוב"
+    },
+    "browserLogin.openFailedTitle": {
+        "message": "פתיחת הדפדפן נכשלה"
+    },
+    "sessionExpiration.title": {
+        "message": "תוקף ההפעלה עומד לפוג בקרוב"
+    },
+    "sessionExpiration.titleLater": {
+        "message": "תוקף ההפעלה שלך יפוג"
+    },
+    "sessionExpiration.description": {
+        "message": "המכשיר הזה ינותק בהקדם. יש לחדש את הכניסה דרך הדפדפן."
+    },
+    "sessionExpiration.descriptionLater": {
+        "message": "כניסה עם דפדפן משאירה את המכשיר הזה מחובר לרשת שלך."
+    },
+    "sessionExpiration.stay": {
+        "message": "חידוש הפעלה"
+    },
+    "sessionExpiration.authenticate": {
+        "message": "אימות"
+    },
+    "sessionExpiration.logout": {
+        "message": "יציאה"
+    },
+    "sessionExpiration.expired": {
+        "message": "תוקף ההפעלה פג"
+    },
+    "sessionExpiration.expiredDescription": {
+        "message": "המכשיר נותק. יש לעבור אימות עם כניסת דפדפן כדי להתחבר מחדש."
+    },
+    "sessionExpiration.close": {
+        "message": "סגירה"
+    },
+    "sessionExpiration.extendFailedTitle": {
+        "message": "הארכת ההפעלה נכשלה"
+    },
+    "sessionExpiration.logoutFailedTitle": {
+        "message": "היציאה מהחשבון נכשלה"
+    },
+    "peers.search.placeholder": {
+        "message": "חיפוש לפי שם או IP"
+    },
+    "peers.filter.all": {
+        "message": "כולם"
+    },
+    "peers.filter.online": {
+        "message": "מחוברים"
+    },
+    "peers.filter.offline": {
+        "message": "מנותקים"
+    },
+    "peers.empty.title": {
+        "message": "אין עמיתים זמינים"
+    },
+    "peers.empty.description": {
+        "message": "או שאין לך עמיתים זמינים או שאין לך גישה לאף אחד מהם."
+    },
+    "peers.details.domain": {
+        "message": "שם תחום"
+    },
+    "peers.details.netbirdIp": {
+        "message": "IP של NetBird"
+    },
+    "peers.details.netbirdIpv6": {
+        "message": "IPv6 של NetBird"
+    },
+    "peers.details.publicKey": {
+        "message": "מפתח ציבורי"
+    },
+    "peers.details.connection": {
+        "message": "חיבור"
+    },
+    "peers.details.latency": {
+        "message": "עיכוב"
+    },
+    "peers.details.lastHandshake": {
+        "message": "לחיצת יד אחרונה"
+    },
+    "peers.details.statusSince": {
+        "message": "עדכון אחרון על החיבור"
+    },
+    "peers.details.bytes": {
+        "message": "בתים"
+    },
+    "peers.details.bytesSent": {
+        "message": "נשלחו"
+    },
+    "peers.details.bytesReceived": {
+        "message": "התקבלו"
+    },
+    "peers.details.localIce": {
+        "message": "ICE מקומי"
+    },
+    "peers.details.remoteIce": {
+        "message": "ICE מרוחק"
+    },
+    "peers.details.never": {
+        "message": "אף פעם לא"
+    },
+    "peers.details.justNow": {
+        "message": "כרגע"
+    },
+    "peers.details.refresh": {
+        "message": "ריענון"
+    },
+    "peers.status.connected": {
+        "message": "מחובר"
+    },
+    "peers.status.connecting": {
+        "message": "מתחבר"
+    },
+    "peers.status.disconnected": {
+        "message": "מנותק"
+    },
+    "peers.details.relayAddress": {
+        "message": "ממסר"
+    },
+    "peers.details.networks": {
+        "message": "משאבים"
+    },
+    "peers.details.relayed": {
+        "message": "דרך ממסר"
+    },
+    "peers.details.p2p": {
+        "message": "P2P"
+    },
+    "peers.details.rosenpass": {
+        "message": "Rosenpass הופעל"
+    },
+    "networks.search.placeholder": {
+        "message": "חיפוש לפי רשת או שם תחום"
+    },
+    "networks.filter.all": {
+        "message": "כולן"
+    },
+    "networks.filter.active": {
+        "message": "פעילות"
+    },
+    "networks.filter.overlapping": {
+        "message": "חופפות"
+    },
+    "networks.empty.title": {
+        "message": "אין משאבים זמינים"
+    },
+    "networks.empty.description": {
+        "message": "או שאין לך משאבי רשת זמינים או שאין לך גישה לאף אחד מהם."
+    },
+    "networks.selected": {
+        "message": "נבחרה"
+    },
+    "networks.unselected": {
+        "message": "לא נבחרה"
+    },
+    "networks.ips.heading": {
+        "message": "כתובות IP שנפתרו"
+    },
+    "networks.bulk.selectionCount": {
+        "message": "{selected} מתוך {total} פעילות"
+    },
+    "networks.bulk.enableAll": {
+        "message": "להפעיל הכול"
+    },
+    "networks.bulk.disableAll": {
+        "message": "לכבות הכול"
+    },
+    "exitNodes.search.placeholder": {
+        "message": "חיפוש נקודות יציאה"
+    },
+    "exitNodes.none": {
+        "message": "אין"
+    },
+    "exitNodes.empty.title": {
+        "message": "אין נקודות יציאה זמינות"
+    },
+    "exitNodes.empty.description": {
+        "message": "לא שותפו נקודות יציאה עם העמית הזה."
+    },
+    "exitNodes.card.title": {
+        "message": "נקודת יציאה"
+    },
+    "exitNodes.card.statusActive": {
+        "message": "פעילה"
+    },
+    "exitNodes.card.statusInactive": {
+        "message": "כבויה"
+    },
+    "exitNodes.dropdown.noneTitle": {
+        "message": "אין"
+    },
+    "exitNodes.dropdown.noneDescription": {
+        "message": "חיבור ישיר ללא נקודת יציאה"
+    },
+    "quickActions.connect": {
+        "message": "התחברות"
+    },
+    "quickActions.disconnect": {
+        "message": "התנתקות"
+    },
+    "daemon.unavailable.title": {
+        "message": "שירות NetBird לא פעיל"
+    },
+    "daemon.unavailable.description": {
+        "message": "היישום יתחבר אוטומטית לאחר שהשירות יופעל."
+    },
+    "daemon.unavailable.docsLink": {
+        "message": "תיעוד"
+    },
+    "daemon.outdated.title": {
+        "message": "שירות NetBird אינו עדכני"
+    },
+    "daemon.outdated.description": {
+        "message": "יש לעדכן את שירות NetBird כדי להשתמש ביישום הזה."
+    },
+    "error.jwt_clock_skew": {
+        "message": "הכניסה נכשלה: השעון של המכשיר הזה לא תואם במדויק את זה של השרת. נא לכוון את שעון המערכת שלך ולנסות שוב."
+    },
+    "error.jwt_expired": {
+        "message": "תוקף אסימון הכניסה שלך פג. נא להיכנס שוב."
+    },
+    "error.jwt_signature_invalid": {
+        "message": "הכניסה נכשלה: חתימת האסימון שגויה. נא ליצור קשר עם הנהלת המערכת שלך."
+    },
+    "error.session_expired": {
+        "message": "תוקף ההפעלה שלך פג. נא להיכנס שוב."
+    },
+    "error.invalid_setup_key": {
+        "message": "מפתח ההתקנה חסר או שגוי."
+    },
+    "error.permission_denied": {
+        "message": "בקשת הכניסה נדחתה על ידי השרת."
+    },
+    "error.daemon_unreachable": {
+        "message": "הסוכן של NetBird לא מגיב. נא לבדוק שהשירות פעיל."
+    },
+    "error.unknown": {
+        "message": "הפעולה נכשלה."
+    }
+}
