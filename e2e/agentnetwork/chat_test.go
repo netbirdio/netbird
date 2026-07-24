@@ -49,14 +49,18 @@ var publishedPer1k = map[string]struct{ in, out float64 }{
 func validateAccessLogCost(t *testing.T, pc providerCase, row api.AgentNetworkAccessLog) {
 	t.Helper()
 	model := catalogModel(pc)
+	t.Logf("[cost] %s: model=%s input_tokens=%d output_tokens=%d total_tokens=%d stored cost_usd=$%.6f",
+		pc.name, model, row.InputTokens, row.OutputTokens, row.TotalTokens, row.CostUsd)
+
 	rates, known := publishedPer1k[model]
 	if !known {
 		if strings.Contains(model, "/") {
+			t.Logf("[cost] %s: gateway-prefixed model %q is deliberately unpriced — expecting cost_usd=0", pc.name, model)
 			assert.Zerof(t, row.CostUsd,
 				"gateway-prefixed model %q is not in the pricing table so the cost meter must skip (cost 0), got %v", model, row.CostUsd)
 			return
 		}
-		t.Logf("no published rate on file for model %q (env-overridden?); skipping cost validation", model)
+		t.Logf("[cost] %s: no published rate on file for model %q (env-overridden?); skipping cost validation", pc.name, model)
 		return
 	}
 
@@ -72,6 +76,8 @@ func validateAccessLogCost(t *testing.T, pc providerCase, row api.AgentNetworkAc
 	}
 
 	if cacheTokens == 0 {
+		t.Logf("[cost] %s: expecting %d×$%v/1k + %d×$%v/1k = $%.6f (no cache tokens)",
+			pc.name, row.InputTokens, rates.in, row.OutputTokens, rates.out, base)
 		assert.InDeltaf(t, base, row.CostUsd, 1e-6,
 			"cost for %s (%s): %d in × $%v/1k + %d out × $%v/1k must equal the stored cost",
 			pc.name, model, row.InputTokens, rates.in, row.OutputTokens, rates.out)
@@ -80,6 +86,8 @@ func validateAccessLogCost(t *testing.T, pc providerCase, row api.AgentNetworkAc
 
 	lo := base + float64(cacheTokens)/1000*rates.in*0.1  // whole bucket read from cache
 	hi := base + float64(cacheTokens)/1000*rates.in*1.25 // whole bucket written to cache
+	t.Logf("[cost] %s: %d prompt-cache tokens ride total_tokens — expecting $%.6f base + cache in [$%.6f, $%.6f]",
+		pc.name, cacheTokens, base, lo, hi)
 	assert.GreaterOrEqualf(t, row.CostUsd, lo-1e-6,
 		"cost for %s (%s) below the all-cache-read floor (base %v, %d cache tokens)", pc.name, model, base, cacheTokens)
 	assert.LessOrEqualf(t, row.CostUsd, hi+1e-6,
@@ -353,6 +361,7 @@ func TestProvidersMatrix(t *testing.T) {
 				time.Sleep(5 * time.Second)
 			}
 			require.Equal(t, 200, code, "chat through %s (%s %s) should return 200; body: %s", pc.name, pc.kind, pc.model, body)
+			t.Logf("[chat] %s: %s %s returned 200 (session %s)", pc.name, pc.kind, pc.model, sessionID)
 
 			require.Eventually(t, func() bool {
 				logs, lerr := srv.ListAccessLogs(ctx)
