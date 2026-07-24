@@ -39,6 +39,12 @@ type OfferAnswer struct {
 	// This value is the local Rosenpass server address when sending the message
 	RosenpassAddr string
 
+	// MlkemPayload carries the post-quantum X25519MLKEM768 handshake message
+	// (pqkem-framed offer on an OFFER, answer on an ANSWER) that seeds the
+	// WireGuard PSK. Opaque here — the pqkem library frames and parses it. Nil
+	// when the peer does not run the ML-KEM PQ exchange.
+	MlkemPayload []byte
+
 	// relay server address
 	RelaySrvAddress string
 	// RelaySrvIP is the IP the remote peer is connected to on its
