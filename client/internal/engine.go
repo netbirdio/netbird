@@ -577,8 +577,9 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 
 	if pqkem.Enabled() {
 		log.Infof("ML-KEM post-quantum exchange enabled")
-		// TODO(NET-1406): wire the real tunnel-UDP transport + WG PSK callback handler.
-		e.pqkemManager = pqkem.NewManager(publicKey.String(), noopPQTransport{}, noopPQCallbackHandler{}, nil)
+		// TODO(NET-1406): replace noopPQTransport with the real dedicated UDP transport
+		// bound on the WG overlay IPv4.
+		e.pqkemManager = pqkem.NewManager(publicKey.String(), noopPQTransport{}, pqCallbackHandler{wg: e.wgInterface}, nil)
 	}
 	e.stateManager.Start()
 
