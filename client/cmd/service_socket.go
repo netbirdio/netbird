@@ -7,12 +7,38 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 )
+
+const (
+	windowsPipeDaemonAddr = "npipe://netbird"
+
+	// legacyWindowsDaemonAddr is the loopback-TCP address the Windows daemon used
+	// before named-pipe support. TCP exposes no peer-identity primitive, so the
+	// authorization interceptor cannot run over it.
+	legacyWindowsDaemonAddr = "tcp://127.0.0.1:41731"
+)
+
+// migrateLegacyDaemonAddr upgrades the pre-named-pipe Windows daemon address to
+// the pipe. Existing installs persist daemon addr, so on upgrade the daemon
+// would otherwise keep listening on TCP and silently run without IPC
+// authorization. Only the exact legacy default is rewritten, while a
+// deliberately-chosen custom TCP address is left alone.
+func migrateLegacyDaemonAddr(addr string) (string, bool) {
+	return migrateLegacyDaemonAddrForOS(runtime.GOOS, addr)
+}
+
+func migrateLegacyDaemonAddrForOS(goos, addr string) (string, bool) {
+	if goos == "windows" && addr == legacyWindowsDaemonAddr {
+		return windowsPipeDaemonAddr, true
+	}
+	return addr, false
+}
 
 type socketListener struct {
 	net.Listener

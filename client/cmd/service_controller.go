@@ -62,6 +62,15 @@ func (p *program) Start(svc service.Service) error {
 	// Collect static system and platform information
 	system.UpdateStaticInfoAsync()
 
+	// A daemon installed before named-pipe support uses the old loopback-TCP
+	// address as the daemon address. We migrate to a named pipe so an
+	// upgraded daemon enforces per-caller authorization instead of silently
+	// running on identity-less TCP.
+	if migrated, ok := migrateLegacyDaemonAddr(daemonAddr); ok {
+		log.Infof("legacy daemon address %q predates named-pipe support. listening on %q so per-caller authorization is enforced", daemonAddr, migrated)
+		daemonAddr = migrated
+	}
+
 	network, _, err := parseListenAddress(daemonAddr)
 	if err != nil {
 		return fmt.Errorf("parse daemon address: %w", err)

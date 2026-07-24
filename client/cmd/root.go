@@ -144,7 +144,7 @@ func init() {
 
 	defaultDaemonAddr := "unix:///var/run/netbird.sock"
 	if runtime.GOOS == "windows" {
-		defaultDaemonAddr = "npipe://netbird"
+		defaultDaemonAddr = windowsPipeDaemonAddr
 	}
 
 	rootCmd.PersistentFlags().StringVar(&daemonAddr, "daemon-addr", defaultDaemonAddr, "Daemon service address to serve CLI requests [unix|tcp|npipe]://[path|host:port|name]")

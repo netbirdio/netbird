@@ -125,6 +125,10 @@ func applyServiceParams(cmd *cobra.Command, params *serviceParams) {
 
 	if !rootCmd.PersistentFlags().Changed("daemon-addr") && params.DaemonAddr != "" {
 		daemonAddr = params.DaemonAddr
+		if migrated, ok := migrateLegacyDaemonAddr(daemonAddr); ok {
+			cmd.Printf("Migrating saved daemon address %q to %q so per-caller authorization can be enforced\n", daemonAddr, migrated)
+			daemonAddr = migrated
+		}
 	}
 
 	if !serviceCmd.PersistentFlags().Changed("json-socket") && params.JSONSocket != "" {
