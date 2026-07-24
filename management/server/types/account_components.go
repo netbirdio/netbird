@@ -140,6 +140,8 @@ func (a *Account) GetPeerNetworkMapComponents(
 		RouterPeers:               make(map[string]*ComponentPeer),
 		NetworkXIDToPublicID:      make(map[string]string, len(a.Networks)),
 		PostureCheckXIDToPublicID: make(map[string]string, len(a.PostureChecks)),
+
+		ForceRoutingPeerDNSResolution: a.forcesRoutingPeerDNSResolution(peerID, routers),
 	}
 	for _, n := range a.Networks {
 		if n != nil {
