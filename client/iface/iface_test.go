@@ -517,12 +517,8 @@ func Test_ConnectPeers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	localIP, err := getLocalIP()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	peer1endpoint, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", localIP, peer1wgPort))
+	localIP1 := "127.1.0.1"
+	peer1endpoint, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", localIP1, peer1wgPort))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -558,7 +554,8 @@ func Test_ConnectPeers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	peer2endpoint, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", localIP, peer2wgPort))
+	localIP2 := "127.1.0.2"
+	peer2endpoint, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", localIP2, peer2wgPort))
 	if err != nil {
 		t.Fatal(err)
 	}
