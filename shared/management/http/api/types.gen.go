@@ -17,6 +17,24 @@ const (
 	TokenAuthScopes  tokenAuthContextKey  = "TokenAuth.Scopes"
 )
 
+// Defines values for AccessRestrictionsAllowMatch.
+const (
+	AccessRestrictionsAllowMatchAll AccessRestrictionsAllowMatch = "all"
+	AccessRestrictionsAllowMatchAny AccessRestrictionsAllowMatch = "any"
+)
+
+// Valid indicates whether the value is a known member of the AccessRestrictionsAllowMatch enum.
+func (e AccessRestrictionsAllowMatch) Valid() bool {
+	switch e {
+	case AccessRestrictionsAllowMatchAll:
+		return true
+	case AccessRestrictionsAllowMatchAny:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AccessRestrictionsCrowdsecMode.
 const (
 	AccessRestrictionsCrowdsecModeEnforce AccessRestrictionsCrowdsecMode = "enforce"
@@ -1534,6 +1552,9 @@ func (e PutApiIntegrationsMspTenantsIdInviteJSONBodyValue) Valid() bool {
 
 // AccessRestrictions Connection-level access restrictions based on IP address or geography. Applies to both HTTP and L4 services.
 type AccessRestrictions struct {
+	// AllowMatch How the allowlists (allowed_cidrs, allowed_countries) combine. "all" (default) requires a connection to match every configured allowlist (AND); "any" requires it to match at least one (OR), e.g. an allowed country OR an allowed CIDR. Blocklists always reject on match regardless of this setting.
+	AllowMatch *AccessRestrictionsAllowMatch `json:"allow_match,omitempty"`
+
 	// AllowedCidrs CIDR allowlist. If non-empty, only IPs matching these CIDRs are allowed.
 	AllowedCidrs *[]string `json:"allowed_cidrs,omitempty"`
 
@@ -1549,6 +1570,9 @@ type AccessRestrictions struct {
 	// CrowdsecMode CrowdSec IP reputation mode. Only available when the proxy cluster supports CrowdSec.
 	CrowdsecMode *AccessRestrictionsCrowdsecMode `json:"crowdsec_mode,omitempty"`
 }
+
+// AccessRestrictionsAllowMatch How the allowlists (allowed_cidrs, allowed_countries) combine. "all" (default) requires a connection to match every configured allowlist (AND); "any" requires it to match at least one (OR), e.g. an allowed country OR an allowed CIDR. Blocklists always reject on match regardless of this setting.
+type AccessRestrictionsAllowMatch string
 
 // AccessRestrictionsCrowdsecMode CrowdSec IP reputation mode. Only available when the proxy cluster supports CrowdSec.
 type AccessRestrictionsCrowdsecMode string

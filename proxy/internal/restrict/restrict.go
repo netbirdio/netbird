@@ -50,6 +50,28 @@ const (
 	CrowdSecObserve CrowdSecMode = "observe"
 )
 
+// AllowMatch controls how the configured allowlists (CIDR, country) combine.
+// Blocklists are always a separate hard-deny gate and are unaffected by it.
+type AllowMatch string
+
+const (
+	// AllowMatchAll requires the address to match every configured allowlist
+	// (AND). This is the default and preserves the historical behavior.
+	AllowMatchAll AllowMatch = "all"
+	// AllowMatchAny requires the address to match at least one configured
+	// allowlist (OR), e.g. "allowed country OR allowed CIDR".
+	AllowMatchAny AllowMatch = "any"
+)
+
+// normalizeAllowMatch maps unknown or empty values to the restrictive default
+// (AllowMatchAll) so an unrecognized mode never loosens access.
+func normalizeAllowMatch(m AllowMatch) AllowMatch {
+	if m == AllowMatchAny {
+		return AllowMatchAny
+	}
+	return AllowMatchAll
+}
+
 // Filter evaluates IP restrictions. CIDR checks are performed first
 // (cheap), followed by country lookups (more expensive) only when needed.
 type Filter struct {
@@ -59,6 +81,9 @@ type Filter struct {
 	BlockedCountries []string
 	CrowdSec         CrowdSecChecker
 	CrowdSecMode     CrowdSecMode
+	// AllowMatch controls how the allowlists combine (AND vs OR). Empty means
+	// AllowMatchAll.
+	AllowMatch AllowMatch
 }
 
 // FilterConfig holds the raw configuration for building a Filter.
@@ -69,6 +94,7 @@ type FilterConfig struct {
 	BlockedCountries []string
 	CrowdSec         CrowdSecChecker
 	CrowdSecMode     CrowdSecMode
+	AllowMatch       AllowMatch
 	Logger           *log.Entry
 }
 
@@ -89,6 +115,7 @@ func ParseFilter(cfg FilterConfig) *Filter {
 	f := &Filter{
 		AllowedCountries: normalizeCountryCodes(cfg.AllowedCountries),
 		BlockedCountries: normalizeCountryCodes(cfg.BlockedCountries),
+		AllowMatch:       normalizeAllowMatch(cfg.AllowMatch),
 	}
 	if hasCS {
 		f.CrowdSec = cfg.CrowdSec
@@ -216,6 +243,10 @@ func (f *Filter) Check(addr netip.Addr, geo GeoResolver) Verdict {
 	// IPv4 CIDR rules match regardless of how the address was received.
 	addr = addr.Unmap()
 
+	if f.AllowMatch == AllowMatchAny {
+		return f.checkAny(addr, geo)
+	}
+
 	if v := f.checkCIDR(addr); v != Allow {
 		return v
 	}
@@ -223,6 +254,77 @@ func (f *Filter) Check(addr netip.Addr, geo GeoResolver) Verdict {
 		return v
 	}
 	return f.checkCrowdSec(addr)
+}
+
+// checkAny evaluates the filter with OR semantics across allowlists: the
+// address is admitted if it matches any configured allowlist (CIDR or country).
+// Blocklists remain a hard-deny gate evaluated first and are independent of the
+// allow-combine mode, so a blocklist match (or unverifiable country block) still
+// denies. CrowdSec runs last, as in the default path.
+func (f *Filter) checkAny(addr netip.Addr, geo GeoResolver) Verdict {
+	if v := f.checkBlocked(addr, geo); v != Allow {
+		return v
+	}
+	if v := f.checkAllowedAny(addr, geo); v != Allow {
+		return v
+	}
+	return f.checkCrowdSec(addr)
+}
+
+// checkBlocked is the hard-deny gate: it denies on any blocklist match,
+// regardless of the allow-combine mode. A configured country blocklist with an
+// unavailable geo lookup fails closed.
+func (f *Filter) checkBlocked(addr netip.Addr, geo GeoResolver) Verdict {
+	for _, prefix := range f.BlockedCIDRs {
+		if prefix.Contains(addr) {
+			return DenyCIDR
+		}
+	}
+
+	if len(f.BlockedCountries) == 0 {
+		return Allow
+	}
+	if geo == nil || !geo.Available() {
+		return DenyGeoUnavailable
+	}
+	if code := geo.LookupAddr(addr).CountryCode; code != "" && slices.Contains(f.BlockedCountries, code) {
+		return DenyCountry
+	}
+	return Allow
+}
+
+// checkAllowedAny admits the address if it matches any active allowlist. The
+// CIDR allowlist is evaluated first so a match admits without a geo lookup;
+// only when it does not match is the country allowlist consulted, where an
+// unavailable geo lookup fails closed.
+func (f *Filter) checkAllowedAny(addr netip.Addr, geo GeoResolver) Verdict {
+	cidrActive := len(f.AllowedCIDRs) > 0
+	countryActive := len(f.AllowedCountries) > 0
+	if !cidrActive && !countryActive {
+		return Allow
+	}
+
+	if cidrActive {
+		for _, prefix := range f.AllowedCIDRs {
+			if prefix.Contains(addr) {
+				return Allow
+			}
+		}
+	}
+
+	if countryActive {
+		if geo == nil || !geo.Available() {
+			return DenyGeoUnavailable
+		}
+		if code := geo.LookupAddr(addr).CountryCode; code != "" && slices.Contains(f.AllowedCountries, code) {
+			return Allow
+		}
+	}
+
+	if cidrActive {
+		return DenyCIDR
+	}
+	return DenyCountry
 }
 
 func (f *Filter) checkCIDR(addr netip.Addr) Verdict {
