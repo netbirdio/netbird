@@ -1060,6 +1060,7 @@ enum ResourceCompactType {
 	domain = 2;
 	host = 3;
 	subnet = 4;
+  network = 5;
 }
 
 // ResourceCompact mirrors types.Resource. Used by PolicyCompact to carry
@@ -1094,6 +1095,8 @@ message GroupCompact {
   // groups lose that property and the two sides expand policy
   // destinations differently.
   bool is_all = 3;
+
+  repeated ResourceCompact resources = 4;
 }
 
 // DNSSettingsCompact mirrors types.DNSSettings.

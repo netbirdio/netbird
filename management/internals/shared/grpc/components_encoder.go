@@ -209,10 +209,20 @@ func (e *componentEncoder) encodeGroups() []*proto.GroupCompact {
 				peerIdxs = append(peerIdxs, idx)
 			}
 		}
+
+		groupCompactResources := func() []*proto.ResourceCompact {
+			var toret []*proto.ResourceCompact
+			for _, r := range g.Resources {
+				toret = append(toret, e.resourceToProto(r))
+			}
+			return toret
+		}
+
 		out = append(out, &proto.GroupCompact{
 			Id:          g.PublicID,
 			PeerIndexes: peerIdxs,
 			IsAll:       g.IsGroupAll(),
+			Resources:   groupCompactResources(),
 		})
 	}
 	return out
@@ -364,7 +374,7 @@ func (e *componentEncoder) resourceToProto(r types.Resource) *proto.ResourceComp
 		}
 	}
 
-	publicID, ok := e.networkPublicId(r.ID)
+	publicID, ok := e.networkIdToPublicId[r.ID]
 	if !ok {
 		return nil
 	}

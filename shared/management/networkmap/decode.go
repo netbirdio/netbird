@@ -102,10 +102,22 @@ func DecodeEnvelope(env *proto.NetworkMapEnvelope) (*types.NetworkMapComponents,
 				log.WithField("peer idx", idx).Error("unrecognized peer idx during decoding")
 			}
 		}
+
+		fromCompactResources := func() []types.Resource {
+			var toret []types.Resource
+
+			for _, r := range gc.Resources {
+				toret = append(toret, resourceFromProto(r, peerIDByIndex))
+			}
+
+			return toret
+		}
+
 		group := &types.Group{
-			ID:       groupID,
-			PublicID: gc.Id,
-			Peers:    peerIDs,
+			ID:        groupID,
+			PublicID:  gc.Id,
+			Peers:     peerIDs,
+			Resources: fromCompactResources(),
 		}
 		if gc.IsAll {
 			group.Name = types.GroupAllName
@@ -227,7 +239,7 @@ func networkResourceGroups(resourceId string, groups map[string]*types.Group) []
 	for _, group := range groups {
 		for _, resource := range group.Resources {
 			if resource.ID == resourceId {
-				toret = append(toret, resourceId)
+				toret = append(toret, group.ID)
 			}
 		}
 	}
