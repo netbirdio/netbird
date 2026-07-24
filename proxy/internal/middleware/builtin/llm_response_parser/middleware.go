@@ -155,12 +155,12 @@ func (m *Middleware) Invoke(_ context.Context, in *middleware.Input) (*middlewar
 // envelope without flooding the log with multi-megabyte completions.
 const debugLogRawBytes = 4096
 
-// debugLogger returns the proxy logger when debug logging is enabled, nil
-// otherwise. All cost-audit logging in this middleware is debug-only so the
-// hot path stays quiet at production log levels.
-func debugLogger() *log.Logger {
+// auditLogger returns the proxy logger when warn-level logging is enabled,
+// nil otherwise. Cost-audit logging is emitted at WARN so it is visible on
+// default production log levels while the cost pipeline is being verified.
+func auditLogger() *log.Logger {
 	logger := builtin.Context().Logger
-	if logger == nil || !logger.IsLevelEnabled(log.DebugLevel) {
+	if logger == nil || !logger.IsLevelEnabled(log.WarnLevel) {
 		return nil
 	}
 	return logger
@@ -171,7 +171,7 @@ func debugLogger() *log.Logger {
 // counts and cost the proxy derives from it. Bodies are truncated and
 // %q-quoted, so binary AWS event-stream framing stays log-safe.
 func logRawResponse(provider, contentType string, status int, body []byte) {
-	logger := debugLogger()
+	logger := auditLogger()
 	if logger == nil {
 		return
 	}
@@ -188,13 +188,13 @@ func logRawResponse(provider, contentType string, status int, body []byte) {
 		"content_type": contentType,
 		"body_bytes":   len(body),
 		"truncated":    truncated,
-	}).Debugf("llm raw response body: %q", shown)
+	}).Warnf("llm raw response body: %q", shown)
 }
 
 // logParsedUsage debug-logs the token counts extracted from the upstream
 // response — the exact values the cost meter will price.
 func logParsedUsage(provider, mode string, usage llm.Usage) {
-	logger := debugLogger()
+	logger := auditLogger()
 	if logger == nil {
 		return
 	}
@@ -202,7 +202,7 @@ func logParsedUsage(provider, mode string, usage llm.Usage) {
 		"middleware": ID,
 		"provider":   provider,
 		"mode":       mode,
-	}).Debugf("llm response tokens: input=%d output=%d cache_read=%d cache_creation=%d total=%d",
+	}).Warnf("llm response tokens: input=%d output=%d cache_read=%d cache_creation=%d total=%d",
 		usage.InputTokens, usage.OutputTokens, usage.CachedInputTokens, usage.CacheCreationTokens, usage.TotalTokens)
 }
 
@@ -220,9 +220,9 @@ func (m *Middleware) invokeBuffered(parser llm.Parser, in *middleware.Input, con
 	if err == nil {
 		md = appendUsage(md, usage)
 		logParsedUsage(parser.ProviderName(), "buffered", usage)
-	} else if logger := debugLogger(); logger != nil {
+	} else if logger := auditLogger(); logger != nil {
 		logger.WithFields(log.Fields{"middleware": ID, "provider": parser.ProviderName()}).
-			Debugf("llm response usage not extracted: %v", err)
+			Warnf("llm response usage not extracted: %v", err)
 	}
 
 	if completion := truncateCompletion(parser.ExtractCompletion(in.Status, contentType, body)); completion != "" && m.captureCompletion {

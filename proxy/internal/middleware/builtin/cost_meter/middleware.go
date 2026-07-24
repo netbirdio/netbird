@@ -145,18 +145,18 @@ func (m *Middleware) Invoke(_ context.Context, in *middleware.Input) (*middlewar
 	table := m.loader.Get()
 	cost, ok := table.Cost(provider, model, inTokens, outTokens, cachedTokens, cacheCreationTokens)
 	if !ok {
-		if logger := debugLogger(); logger != nil {
+		if logger := auditLogger(); logger != nil {
 			logger.WithFields(log.Fields{"middleware": ID, "provider": provider, "model": model}).
-				Debugf("cost skipped: no pricing entry (tokens input=%d output=%d cache_read=%d cache_creation=%d)",
+				Warnf("cost skipped: no pricing entry (tokens input=%d output=%d cache_read=%d cache_creation=%d)",
 					inTokens, outTokens, cachedTokens, cacheCreationTokens)
 		}
 		out.Metadata = skip(skipUnknownModel)
 		return out, nil
 	}
 
-	if logger := debugLogger(); logger != nil {
+	if logger := auditLogger(); logger != nil {
 		logger.WithFields(log.Fields{"middleware": ID, "provider": provider, "model": model}).
-			Debugf("cost computed: tokens input=%d output=%d cache_read=%d cache_creation=%d => cost_usd=%.6f",
+			Warnf("cost computed: tokens input=%d output=%d cache_read=%d cache_creation=%d => cost_usd=%.6f",
 				inTokens, outTokens, cachedTokens, cacheCreationTokens, cost)
 	}
 
@@ -166,12 +166,12 @@ func (m *Middleware) Invoke(_ context.Context, in *middleware.Input) (*middlewar
 	return out, nil
 }
 
-// debugLogger returns the proxy logger when debug logging is enabled, nil
-// otherwise. Cost-audit logging is debug-only so the hot path stays quiet at
-// production log levels.
-func debugLogger() *log.Logger {
+// auditLogger returns the proxy logger when warn-level logging is enabled,
+// nil otherwise. Cost-audit logging is emitted at WARN so it is visible on
+// default production log levels while the cost pipeline is being verified.
+func auditLogger() *log.Logger {
 	logger := builtin.Context().Logger
-	if logger == nil || !logger.IsLevelEnabled(log.DebugLevel) {
+	if logger == nil || !logger.IsLevelEnabled(log.WarnLevel) {
 		return nil
 	}
 	return logger
