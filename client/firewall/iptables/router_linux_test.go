@@ -60,6 +60,14 @@ func TestIptablesManager_RestoreOrCreateContainers(t *testing.T) {
 	require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableMangle, chainPREROUTING)
 	require.True(t, exists, "prerouting jump rule should exist")
 
+	outboundMasqueradeRule := []string{
+		"-m", "mark", "--mark", fmt.Sprintf("%#x", nbnet.PreroutingFwmarkMasquerade),
+		"-j", routingFinalNatJump,
+	}
+	exists, err = manager.iptablesClient.Exists(tableNat, chainRTNAT, outboundMasqueradeRule...)
+	require.NoError(t, err, "should be able to query the outbound masquerade rule")
+	require.True(t, exists, "outbound masquerade rule should include locally routed traffic")
+
 	pair := firewall.RouterPair{
 		ID:          "abc",
 		Source:      firewall.Network{Prefix: netip.MustParsePrefix("100.100.100.1/32")},
