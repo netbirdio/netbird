@@ -317,10 +317,12 @@ func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*types.Account
 		return nil, err
 	}
 
-	_, err = account.FindPeerByPubKey(peer2.Key)
+	peer2, err = account.FindPeerByPubKey(peer2.Key)
 	if err != nil {
 		return nil, err
 	}
+	peer1.Status.Connected = true
+	peer2.Status.Connected = true
 
 	newGroup1 := &types.Group{
 		ID:    dnsGroup1ID,
@@ -356,6 +358,12 @@ func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*types.Account
 
 	err = am.Store.SaveAccount(context.Background(), account)
 	if err != nil {
+		return nil, err
+	}
+	if err = am.Store.SavePeerStatus(context.Background(), account.Id, peer1.ID, *peer1.Status); err != nil {
+		return nil, err
+	}
+	if err = am.Store.SavePeerStatus(context.Background(), account.Id, peer2.ID, *peer2.Status); err != nil {
 		return nil, err
 	}
 
