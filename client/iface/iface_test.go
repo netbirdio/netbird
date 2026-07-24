@@ -464,6 +464,18 @@ func Test_RemovePeer(t *testing.T) {
 }
 
 func Test_ConnectPeers(t *testing.T) {
+	// This test brings up two kernel WireGuard interfaces in the same process.
+	// The eBPF proxy manager is a singleton with a single shared XDP program
+	// and settings map, so the second interface's factory overwrites the
+	// wg_port/proxy_port of the first. The shared program can then no longer
+	// serve both peers and the handshake is dropped, making this test
+	// incompatible with the eBPF factory. The proxy only loads when the runner
+	// grants the required BPF capabilities (reliably so inside the privileged
+	// Docker CI container), which is what turned this test red. Disable it so
+	// the peers handshake directly over loopback. Running the suite across all
+	// three modes — eBPF, UDP proxy and ICE bind — would need a larger refactor.
+	t.Setenv("NB_DISABLE_EBPF_WG_PROXY", "true")
+
 	peer1ifaceName := fmt.Sprintf("utun%d", WgIntNumber+400)
 	peer1wgIP := netip.MustParsePrefix("10.99.99.17/30")
 	peer1Key, _ := wgtypes.GeneratePrivateKey()
