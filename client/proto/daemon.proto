@@ -242,6 +242,10 @@ message LoginRequest {
   optional bool disableSSHAuth = 38;
   optional int32 sshJWTCacheTTL = 39;
   optional bool disable_ipv6 = 40;
+
+  // useDeviceAuth forces the OAuth 2.0 Device Authorization Grant instead of
+  // the PKCE/browser flow.
+  optional bool useDeviceAuth = 41;
 }
 
 message LoginResponse {
