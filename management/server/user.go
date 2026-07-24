@@ -1091,20 +1091,9 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 				return nil, err
 			}
 		} else {
-			name := ""
-			if localUser.IsServiceUser {
-				name = localUser.ServiceUserName
-			}
-
-			info = &types.UserInfo{
-				ID:            localUser.Id,
-				Email:         localUser.Email,
-				Name:          name,
-				Role:          string(localUser.Role),
-				AutoGroups:    localUser.AutoGroups,
-				Status:        string(types.UserStatusActive),
-				IsServiceUser: localUser.IsServiceUser,
-				NonDeletable:  localUser.NonDeletable,
+			info, err = localUser.ToUserInfo(nil)
+			if err != nil {
+				return nil, err
 			}
 		}
 		// Try to decode Dex user ID to extract the IdP ID (connector ID)
