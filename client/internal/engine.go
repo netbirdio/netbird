@@ -574,13 +574,6 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 			return fmt.Errorf("run rosenpass manager: %w", err)
 		}
 	}
-
-	if pqkem.Enabled() {
-		log.Infof("ML-KEM post-quantum exchange enabled")
-		// TODO(NET-1406): replace noopPQTransport with the real dedicated UDP transport
-		// bound on the WG overlay IPv4.
-		e.pqkemManager = pqkem.NewManager(publicKey.String(), noopPQTransport{}, pqCallbackHandler{wg: e.wgInterface}, nil)
-	}
 	e.stateManager.Start()
 
 	dnsServer, err := e.newDnsServer()
@@ -653,6 +646,14 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	// Set the WireGuard interface for rosenpass after interface is up
 	if e.rpManager != nil {
 		e.rpManager.SetInterface(e.wgInterface)
+	}
+
+	// Start the ML-KEM PQ manager after the interface is up so its (dedicated UDP)
+	// transport can bind on the WG overlay IP. TODO(NET-1406): replace noopPQTransport
+	// with the real transport bound on e.config.WgAddr.IP.
+	if pqkem.Enabled() {
+		log.Infof("ML-KEM post-quantum exchange enabled")
+		e.pqkemManager = pqkem.NewManager(publicKey.String(), noopPQTransport{}, pqCallbackHandler{wg: e.wgInterface}, nil)
 	}
 
 	// if inbound conns are blocked there is no need to create the ACL manager
@@ -2868,6 +2869,7 @@ func convertToOfferAnswer(msg *sProto.Message) (*peer.OfferAnswer, error) {
 		RosenpassPubKey: rosenpassPubKey,
 		RosenpassAddr:   rosenpassAddr,
 		MlkemPayload:    msg.GetBody().GetMlkemPayload(),
+		MlkemPort:       int(msg.GetBody().GetMlkemPort()),
 		RelaySrvAddress: msg.GetBody().GetRelayServerAddress(),
 		RelaySrvIP:      relayIP,
 		SessionID:       sessionID,
