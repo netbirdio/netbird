@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/netip"
 	"net/url"
@@ -2373,21 +2374,7 @@ func scanService(row pgx.CollectableRow) (*rpservice.Service, error) {
 		s.Private = private.Bool
 	}
 
-	s.Meta = rpservice.Meta{}
-	if createdAt.Valid {
-		s.Meta.CreatedAt = createdAt.Time
-	}
-	if certIssuedAt.Valid {
-		t := certIssuedAt.Time
-		s.Meta.CertificateIssuedAt = &t
-	}
-	if lastRenewedAt.Valid {
-		t := lastRenewedAt.Time
-		s.Meta.LastRenewedAt = &t
-	}
-	if status.Valid {
-		s.Meta.Status = status.String
-	}
+	s.Meta = serviceMetaFromRow(createdAt, certIssuedAt, lastRenewedAt, status)
 	if proxyCluster.Valid {
 		s.ProxyCluster = proxyCluster.String
 	}
@@ -2413,10 +2400,32 @@ func scanService(row pgx.CollectableRow) (*rpservice.Service, error) {
 		s.PortAutoAssigned = portAutoAssigned.Bool
 	}
 	if listenPort.Valid {
+		if listenPort.Int64 < 0 || listenPort.Int64 > math.MaxUint16 {
+			return nil, fmt.Errorf("listen_port %d out of range", listenPort.Int64)
+		}
 		s.ListenPort = uint16(listenPort.Int64)
 	}
 	s.Targets = []*rpservice.Target{}
 	return &s, nil
+}
+
+func serviceMetaFromRow(createdAt, certIssuedAt, lastRenewedAt sql.NullTime, status sql.NullString) rpservice.Meta {
+	meta := rpservice.Meta{}
+	if createdAt.Valid {
+		meta.CreatedAt = createdAt.Time
+	}
+	if certIssuedAt.Valid {
+		t := certIssuedAt.Time
+		meta.CertificateIssuedAt = &t
+	}
+	if lastRenewedAt.Valid {
+		t := lastRenewedAt.Time
+		meta.LastRenewedAt = &t
+	}
+	if status.Valid {
+		meta.Status = status.String
+	}
+	return meta
 }
 
 func (s *SqlStore) getServiceTargets(ctx context.Context, serviceIDs []string) ([]*rpservice.Target, error) {
