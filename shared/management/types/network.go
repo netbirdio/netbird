@@ -15,6 +15,8 @@ import (
 	"golang.org/x/exp/maps"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -37,11 +39,11 @@ const (
 )
 
 type NetworkMap struct {
-	Peers               []*ComponentPeer
+	Peers               []*nbpeer.Peer
 	Network             *Network
 	Routes              []*route.Route
 	DNSConfig           nbdns.Config
-	OfflinePeers        []*ComponentPeer
+	OfflinePeers        []*nbpeer.Peer
 	FirewallRules       []*FirewallRule
 	RoutesFirewallRules []*RouteFirewallRule
 	ForwardingRules     []*ForwardingRule
@@ -51,46 +53,15 @@ type NetworkMap struct {
 
 func (nm *NetworkMap) Merge(other *NetworkMap) {
 	nm.Peers = mergeUniquePeersByID(nm.Peers, other.Peers)
-	nm.Routes = mergeUnique(nm.Routes, other.Routes)
+	nm.Routes = util.MergeUnique(nm.Routes, other.Routes)
 	nm.OfflinePeers = mergeUniquePeersByID(nm.OfflinePeers, other.OfflinePeers)
-	nm.FirewallRules = mergeUnique(nm.FirewallRules, other.FirewallRules)
-	nm.RoutesFirewallRules = mergeUnique(nm.RoutesFirewallRules, other.RoutesFirewallRules)
-	nm.ForwardingRules = mergeUnique(nm.ForwardingRules, other.ForwardingRules)
+	nm.FirewallRules = util.MergeUnique(nm.FirewallRules, other.FirewallRules)
+	nm.RoutesFirewallRules = util.MergeUnique(nm.RoutesFirewallRules, other.RoutesFirewallRules)
+	nm.ForwardingRules = util.MergeUnique(nm.ForwardingRules, other.ForwardingRules)
 }
 
-type comparableObject[T any] interface {
-	Equal(other T) bool
-}
-
-func mergeUnique[T comparableObject[T]](arr1, arr2 []T) []T {
-	var result []T
-
-	for _, item := range arr1 {
-		if !containsEqual(result, item) {
-			result = append(result, item)
-		}
-	}
-
-	for _, item := range arr2 {
-		if !containsEqual(result, item) {
-			result = append(result, item)
-		}
-	}
-
-	return result
-}
-
-func containsEqual[T comparableObject[T]](slice []T, element T) bool {
-	for _, item := range slice {
-		if item.Equal(element) {
-			return true
-		}
-	}
-	return false
-}
-
-func mergeUniquePeersByID(peers1, peers2 []*ComponentPeer) []*ComponentPeer {
-	result := make(map[string]*ComponentPeer)
+func mergeUniquePeersByID(peers1, peers2 []*nbpeer.Peer) []*nbpeer.Peer {
+	result := make(map[string]*nbpeer.Peer)
 	for _, peer := range peers1 {
 		result[peer.ID] = peer
 	}

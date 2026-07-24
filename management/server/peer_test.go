@@ -1092,14 +1092,14 @@ func TestToSyncResponse(t *testing.T) {
 	}
 	networkMap := &types.NetworkMap{
 		Network: &types.Network{Net: *ipnet, Serial: 1000},
-		Peers: []*types.ComponentPeer{{
+		Peers: []*nbpeer.Peer{{
 			IP:         netip.MustParseAddr("192.168.1.2"),
 			IPv6:       netip.MustParseAddr("fd00::2"),
 			Key:        "peer2-key",
 			DNSLabel:   "peer2",
 			SSHEnabled: true,
 			SSHKey:     "peer2-ssh-key"}},
-		OfflinePeers: []*types.ComponentPeer{{
+		OfflinePeers: []*nbpeer.Peer{{
 			IP:         netip.MustParseAddr("192.168.1.3"),
 			IPv6:       netip.MustParseAddr("fd00::3"),
 			Key:        "peer3-key",

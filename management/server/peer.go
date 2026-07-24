@@ -405,7 +405,7 @@ func (am *DefaultAccountManager) CreatePeerJob(ctx context.Context, accountID, p
 		return status.NewPeerNotPartOfAccountError()
 	}
 
-	meetMinVer, err := version.MeetsMinVersion(remoteJobsMinVer, p.Meta.WtVersion)
+	meetMinVer, err := posture.MeetsMinVersion(remoteJobsMinVer, p.Meta.WtVersion)
 	if !version.IsDevelopmentVersion(p.Meta.WtVersion) && (!meetMinVer || err != nil) {
 		return status.Errorf(status.PreconditionFailed, "peer version %s does not meet the minimum required version %s for remote jobs", p.Meta.WtVersion, remoteJobsMinVer)
 	}
@@ -1588,7 +1588,7 @@ func affectedPeerIDsFromNetworkMap(nmap *types.NetworkMap, selfPeerID string) []
 	}
 	seen := make(map[string]struct{}, len(nmap.Peers)+len(nmap.OfflinePeers))
 	ids := make([]string, 0, len(nmap.Peers)+len(nmap.OfflinePeers))
-	add := func(peers []*types.ComponentPeer) {
+	add := func(peers []*nbpeer.Peer) {
 		for _, p := range peers {
 			if p == nil || p.ID == "" || p.ID == selfPeerID {
 				continue

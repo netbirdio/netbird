@@ -9,6 +9,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	nbroute "github.com/netbirdio/netbird/route"
 )
 
@@ -50,7 +51,7 @@ func (r *FirewallRule) Equal(other *FirewallRule) bool {
 // For static routes, source ranges match the destination family (v4 or v6).
 // For dynamic routes (domain-based), separate v4 and v6 rules are generated
 // so the routing peer's forwarding chain allows both address families.
-func GenerateRouteFirewallRules(ctx context.Context, route *nbroute.Route, rule *PolicyRule, groupPeers []*ComponentPeer, direction int, includeIPv6 bool) []*RouteFirewallRule {
+func GenerateRouteFirewallRules(ctx context.Context, route *nbroute.Route, rule *PolicyRule, groupPeers []*nbpeer.Peer, direction int, includeIPv6 bool) []*RouteFirewallRule {
 	rulesExists := make(map[string]struct{})
 	rules := make([]*RouteFirewallRule, 0)
 
@@ -106,7 +107,7 @@ func GenerateRouteFirewallRules(ctx context.Context, route *nbroute.Route, rule 
 }
 
 // splitPeerSourcesByFamily separates peer IPs into v4 (/32) and v6 (/128) source ranges.
-func splitPeerSourcesByFamily(groupPeers []*ComponentPeer) (v4, v6 []string) {
+func splitPeerSourcesByFamily(groupPeers []*nbpeer.Peer) (v4, v6 []string) {
 	v4 = make([]string, 0, len(groupPeers))
 	v6 = make([]string, 0, len(groupPeers))
 	for _, peer := range groupPeers {

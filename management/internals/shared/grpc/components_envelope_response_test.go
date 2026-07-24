@@ -19,10 +19,10 @@ func TestComputeSSHEnabledForPeer(t *testing.T) {
 
 	mkComponents := func(rule *types.PolicyRule, sshEnabled bool) (*types.NetworkMapComponents, *nbpeer.Peer) {
 		peer := &nbpeer.Peer{ID: targetPeerID, SSHEnabled: sshEnabled}
-		group := &types.ComponentGroup{ID: targetGroupID, Name: "dst", Peers: []string{targetPeerID}}
+		group := &types.Group{ID: targetGroupID, Name: "dst", Peers: []string{targetPeerID}}
 		return &types.NetworkMapComponents{
-			Peers:  map[string]*types.ComponentPeer{targetPeerID: peer.ToComponent()},
-			Groups: map[string]*types.ComponentGroup{targetGroupID: group},
+			Peers:  map[string]*nbpeer.Peer{targetPeerID: peer},
+			Groups: map[string]*types.Group{targetGroupID: group},
 			Policies: []*types.Policy{{
 				ID:      "p",
 				Enabled: true,
@@ -158,8 +158,8 @@ func TestComputeSSHEnabledForPeer(t *testing.T) {
 func TestComputeSSHEnabledForPeer_TargetMissingFromComponents(t *testing.T) {
 	peer := &nbpeer.Peer{ID: "missing", SSHEnabled: true}
 	c := &types.NetworkMapComponents{
-		Peers: map[string]*types.ComponentPeer{}, // target peer NOT present
-		Groups: map[string]*types.ComponentGroup{
+		Peers: map[string]*nbpeer.Peer{}, // target peer NOT present
+		Groups: map[string]*types.Group{
 			"g": {ID: "g", Peers: []string{"missing"}},
 		},
 		Policies: []*types.Policy{{

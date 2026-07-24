@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	nbroute "github.com/netbirdio/netbird/route"
 	sharedtypes "github.com/netbirdio/netbird/shared/management/types"
 )
@@ -16,6 +17,9 @@ import (
 type DNSSettings = sharedtypes.DNSSettings
 
 type FirewallRule = sharedtypes.FirewallRule
+
+type Group = sharedtypes.Group
+type GroupPeer = sharedtypes.GroupPeer
 
 type Network = sharedtypes.Network
 type NetworkMap = sharedtypes.NetworkMap
@@ -38,18 +42,6 @@ type RouteFirewallRule = sharedtypes.RouteFirewallRule
 
 type NetworkMapComponents = sharedtypes.NetworkMapComponents
 
-type ComponentPeer = sharedtypes.ComponentPeer
-type ComponentGroup = sharedtypes.ComponentGroup
-type ComponentRouter = sharedtypes.ComponentRouter
-type ComponentResource = sharedtypes.ComponentResource
-type ComponentResourceType = sharedtypes.ComponentResourceType
-
-const (
-	ComponentResourceHost   = sharedtypes.ComponentResourceHost
-	ComponentResourceSubnet = sharedtypes.ComponentResourceSubnet
-	ComponentResourceDomain = sharedtypes.ComponentResourceDomain
-)
-
 var EmptyNetworkMapComponents = sharedtypes.EmptyNetworkMapComponents
 
 type AccountSettingsInfo = sharedtypes.AccountSettingsInfo
@@ -60,7 +52,12 @@ type NetworkMapComponentsCompact = sharedtypes.NetworkMapComponentsCompact
 type LookupMap = sharedtypes.LookupMap
 type FirewallRuleContext = sharedtypes.FirewallRuleContext
 
-const GroupAllName = sharedtypes.GroupAllName
+const (
+	GroupIssuedAPI         = sharedtypes.GroupIssuedAPI
+	GroupIssuedJWT         = sharedtypes.GroupIssuedJWT
+	GroupIssuedIntegration = sharedtypes.GroupIssuedIntegration
+	GroupAllName           = sharedtypes.GroupAllName
+)
 
 // Function forwarders preserve types.X(...) call sites that previously
 // resolved to package-local funcs. Plain forwarders (not var aliases) keep
@@ -70,11 +67,11 @@ func PolicyRuleImpliesLegacySSH(rule *PolicyRule) bool {
 	return sharedtypes.PolicyRuleImpliesLegacySSH(rule)
 }
 
-func ExpandPortsAndRanges(base FirewallRule, rule *PolicyRule, peer *ComponentPeer) []*FirewallRule {
+func ExpandPortsAndRanges(base FirewallRule, rule *PolicyRule, peer *nbpeer.Peer) []*FirewallRule {
 	return sharedtypes.ExpandPortsAndRanges(base, rule, peer)
 }
 
-func AppendIPv6FirewallRule(rules []*FirewallRule, rulesExists map[string]struct{}, peer, targetPeer *ComponentPeer, rule *PolicyRule, rc FirewallRuleContext) []*FirewallRule {
+func AppendIPv6FirewallRule(rules []*FirewallRule, rulesExists map[string]struct{}, peer, targetPeer *nbpeer.Peer, rule *PolicyRule, rc FirewallRuleContext) []*FirewallRule {
 	return sharedtypes.AppendIPv6FirewallRule(rules, rulesExists, peer, targetPeer, rule, rc)
 }
 
@@ -82,7 +79,7 @@ func CalculateNetworkMapFromComponents(ctx context.Context, components *NetworkM
 	return sharedtypes.CalculateNetworkMapFromComponents(ctx, components)
 }
 
-func GenerateRouteFirewallRules(ctx context.Context, route *nbroute.Route, rule *PolicyRule, groupPeers []*ComponentPeer, direction int, includeIPv6 bool) []*RouteFirewallRule {
+func GenerateRouteFirewallRules(ctx context.Context, route *nbroute.Route, rule *PolicyRule, groupPeers []*nbpeer.Peer, direction int, includeIPv6 bool) []*RouteFirewallRule {
 	return sharedtypes.GenerateRouteFirewallRules(ctx, route, rule, groupPeers, direction, includeIPv6)
 }
 

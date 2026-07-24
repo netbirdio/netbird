@@ -3,6 +3,8 @@ package types
 import (
 	"strconv"
 
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -46,8 +48,8 @@ func portsIncludesSSH(ports []string) bool {
 }
 
 // ExpandPortsAndRanges expands Ports and PortRanges of a rule into individual firewall rules.
-func ExpandPortsAndRanges(base FirewallRule, rule *PolicyRule, peer *ComponentPeer) []*FirewallRule {
-	features := peerSupportedFirewallFeatures(peer.AgentVersion)
+func ExpandPortsAndRanges(base FirewallRule, rule *PolicyRule, peer *nbpeer.Peer) []*FirewallRule {
+	features := peerSupportedFirewallFeatures(peer.Meta.WtVersion)
 
 	var expanded []*FirewallRule
 
@@ -104,8 +106,8 @@ func isPortInRule(portString string, portInt uint16, rule *FirewallRule) bool {
 	return rule.Port == portString || (rule.PortRange.Start <= portInt && portInt <= rule.PortRange.End)
 }
 
-func shouldCheckRulesForNativeSSH(supportsNative bool, rule *PolicyRule, peer *ComponentPeer) bool {
-	return supportsNative && peer.SSHEnabled && peer.ServerSSHAllowed && rule.Protocol == PolicyRuleProtocolTCP
+func shouldCheckRulesForNativeSSH(supportsNative bool, rule *PolicyRule, peer *nbpeer.Peer) bool {
+	return supportsNative && peer.SSHEnabled && peer.Meta.Flags.ServerSSHAllowed && rule.Protocol == PolicyRuleProtocolTCP
 }
 
 func peerSupportedFirewallFeatures(peerVer string) supportedFeatures {
@@ -115,13 +117,13 @@ func peerSupportedFirewallFeatures(peerVer string) supportedFeatures {
 
 	var features supportedFeatures
 
-	meetMinVer, err := version.MeetsMinVersion(firewallRuleMinNativeSSHVer, peerVer)
+	meetMinVer, err := posture.MeetsMinVersion(firewallRuleMinNativeSSHVer, peerVer)
 	features.nativeSSH = err == nil && meetMinVer
 
 	if features.nativeSSH {
 		features.portRanges = true
 	} else {
-		meetMinVer, err = version.MeetsMinVersion(firewallRuleMinPortRangesVer, peerVer)
+		meetMinVer, err = posture.MeetsMinVersion(firewallRuleMinPortRangesVer, peerVer)
 		features.portRanges = err == nil && meetMinVer
 	}
 

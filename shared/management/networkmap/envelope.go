@@ -54,8 +54,8 @@ func EnvelopeToNetworkMap(ctx context.Context, env *proto.NetworkMapEnvelope, lo
 	}
 	components.PeerID = canonicalKey
 
-	includeIPv6 := localPeer.SupportsIPv6 && localPeer.IPv6.IsValid()
-	useSourcePrefixes := localPeer.SupportsSourcePrefixes
+	includeIPv6 := localPeer.SupportsIPv6() && localPeer.IPv6.IsValid()
+	useSourcePrefixes := localPeer.SupportsSourcePrefixes()
 
 	typedNM := components.Calculate(ctx)
 

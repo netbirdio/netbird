@@ -5,6 +5,9 @@ import (
 	"strconv"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
+	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/types"
 	nbroute "github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/networkmap"
@@ -163,7 +166,7 @@ func (e *componentEncoder) indexAllPeers() {
 	}
 }
 
-func (e *componentEncoder) appendPeer(p *types.ComponentPeer) uint32 {
+func (e *componentEncoder) appendPeer(p *nbpeer.Peer) uint32 {
 	if idx, ok := e.peerOrder[p.ID]; ok {
 		return idx
 	}
@@ -177,7 +180,7 @@ func (e *componentEncoder) appendPeer(p *types.ComponentPeer) uint32 {
 // (c.RouterPeers may contain peers not in c.Peers when validation rules drop
 // them) and returns their wire indexes for the RouterPeerIndexes field. Must
 // run before any encoder that resolves peer ids via e.peerOrder.
-func (e *componentEncoder) indexRouterPeers(routers map[string]*types.ComponentPeer) []uint32 {
+func (e *componentEncoder) indexRouterPeers(routers map[string]*nbpeer.Peer) []uint32 {
 	if len(routers) == 0 {
 		return nil
 	}
@@ -511,7 +514,7 @@ func encodeCustomZones(zones []nbdns.CustomZone) []*proto.CustomZone {
 	return out
 }
 
-func (e *componentEncoder) encodeNetworkResources(resources []*types.ComponentResource) []*proto.NetworkResourceRaw {
+func (e *componentEncoder) encodeNetworkResources(resources []*resourceTypes.NetworkResource) []*proto.NetworkResourceRaw {
 	if len(resources) == 0 {
 		return nil
 	}
@@ -540,7 +543,7 @@ func (e *componentEncoder) encodeNetworkResources(resources []*types.ComponentRe
 	return out
 }
 
-func (e *componentEncoder) encodeRoutersMap(routersMap map[string]map[string]*types.ComponentRouter) map[string]*proto.NetworkRouterList {
+func (e *componentEncoder) encodeRoutersMap(routersMap map[string]map[string]*routerTypes.NetworkRouter) map[string]*proto.NetworkRouterList {
 	if len(routersMap) == 0 {
 		return nil
 	}
@@ -689,20 +692,20 @@ func toAccountNetwork(n *types.Network) *proto.AccountNetwork {
 	return out
 }
 
-func toPeerCompact(p *types.ComponentPeer) *proto.PeerCompact {
+func toPeerCompact(p *nbpeer.Peer) *proto.PeerCompact {
 	pc := &proto.PeerCompact{
 		WgPubKey:               decodeWgKey(p.Key),
 		SshPubKey:              []byte(p.SSHKey),
 		DnsLabel:               p.DNSLabel,
-		AgentVersion:           p.AgentVersion,
-		AddedWithSsoLogin:      p.AddedWithSSOLogin,
+		AgentVersion:           p.Meta.WtVersion,
+		AddedWithSsoLogin:      p.UserID != "",
 		LoginExpirationEnabled: p.LoginExpirationEnabled,
 		SshEnabled:             p.SSHEnabled,
-		SupportsIpv6:           p.SupportsIPv6,
-		SupportsSourcePrefixes: p.SupportsSourcePrefixes,
-		ServerSshAllowed:       p.ServerSSHAllowed,
+		SupportsIpv6:           p.SupportsIPv6(),
+		SupportsSourcePrefixes: p.SupportsSourcePrefixes(),
+		ServerSshAllowed:       p.Meta.Flags.ServerSSHAllowed,
 	}
-	if !p.LastLogin.IsZero() {
+	if p.LastLogin != nil {
 		pc.LastLoginUnixNano = p.LastLogin.UnixNano()
 	}
 	switch {

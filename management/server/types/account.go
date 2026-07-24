@@ -1082,7 +1082,6 @@ func (a *Account) connResourcesGenerator(ctx context.Context, targetPeer *nbpeer
 	peersExists := make(map[string]struct{})
 	rules := make([]*FirewallRule, 0)
 	peers := make([]*nbpeer.Peer, 0)
-	targetComponent := targetPeer.ToComponent()
 
 	return func(rule *PolicyRule, groupPeers []*nbpeer.Peer, direction int) {
 			for _, peer := range groupPeers {
@@ -1118,10 +1117,10 @@ func (a *Account) connResourcesGenerator(ctx context.Context, targetPeer *nbpeer
 				if len(rule.Ports) == 0 && len(rule.PortRanges) == 0 {
 					rules = append(rules, &fr)
 				} else {
-					rules = append(rules, ExpandPortsAndRanges(fr, rule, targetComponent)...)
+					rules = append(rules, ExpandPortsAndRanges(fr, rule, targetPeer)...)
 				}
 
-				rules = AppendIPv6FirewallRule(rules, rulesExists, peer.ToComponent(), targetComponent, rule, FirewallRuleContext{
+				rules = AppendIPv6FirewallRule(rules, rulesExists, peer, targetPeer, rule, FirewallRuleContext{
 					Direction:   direction,
 					DirStr:      strconv.Itoa(direction),
 					ProtocolStr: string(protocol),
@@ -1281,7 +1280,7 @@ func (a *Account) getRouteFirewallRules(ctx context.Context, peerID string, poli
 	return fwRules
 }
 
-func (a *Account) getRulePeers(rule *PolicyRule, postureChecks []string, peerID string, distributionPeers map[string]struct{}, validatedPeersMap map[string]struct{}) []*ComponentPeer {
+func (a *Account) getRulePeers(rule *PolicyRule, postureChecks []string, peerID string, distributionPeers map[string]struct{}, validatedPeersMap map[string]struct{}) []*nbpeer.Peer {
 	distPeersWithPolicy := make(map[string]struct{})
 	for _, id := range rule.Sources {
 		group := a.Groups[id]
@@ -1308,13 +1307,13 @@ func (a *Account) getRulePeers(rule *PolicyRule, postureChecks []string, peerID 
 		}
 	}
 
-	distributionGroupPeers := make([]*ComponentPeer, 0, len(distPeersWithPolicy))
+	distributionGroupPeers := make([]*nbpeer.Peer, 0, len(distPeersWithPolicy))
 	for pID := range distPeersWithPolicy {
 		peer := a.Peers[pID]
 		if peer == nil {
 			continue
 		}
-		distributionGroupPeers = append(distributionGroupPeers, peer.ToComponent())
+		distributionGroupPeers = append(distributionGroupPeers, peer)
 	}
 	return distributionGroupPeers
 }
