@@ -5,6 +5,11 @@ on:
   schedule:
     - cron: "0 3 * * *"
   workflow_dispatch:
+  # TEMPORARY: run on every push to the per-policy model-allowlist branch while
+  # it is under review. Remove this push trigger before merge.
+  push:
+    branches:
+      - agent-network-per-policy-model-allowlist
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
