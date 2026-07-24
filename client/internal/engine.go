@@ -663,6 +663,12 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	iceCfg := e.createICEConfig()
 
 	e.connMgr = NewConnMgr(e.config, e.statusRecorder, e.peerStore, wgIface)
+	e.connMgr.SetRoutedIPsReconciler(func(peerKey string) error {
+		if e.routeManager == nil {
+			return nil
+		}
+		return e.routeManager.ReconcilePeerAllowedIPs(peerKey)
+	})
 	e.connMgr.Start(e.ctx)
 
 	// Wire DNS-time lazy-connection warm-up now that the connection manager

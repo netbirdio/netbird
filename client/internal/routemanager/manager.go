@@ -61,6 +61,7 @@ type Manager interface {
 	InitialRouteRange() []string
 	SetFirewall(firewall.Manager) error
 	SetDNSForwarderPort(port uint16)
+	ReconcilePeerAllowedIPs(peerKey string) error
 	Stop(stateManager *statemanager.Manager)
 }
 
@@ -226,6 +227,30 @@ func (m *DefaultManager) setupRefCounters(useNoop bool) {
 					return err
 				}
 				log.Tracef("Remove allowed IPs %s for %s: %v", prefix, peerKey, err)
+			}
+			return nil
+		},
+	)
+}
+
+// ReconcilePeerAllowedIPs re-applies every routed allowed IP currently tracked for the peer
+// onto the WireGuard device. The allowed-IP refcounter only calls its AddFunc (which pushes to
+// the device) on a prefix's 0->1 transition, so a peer whose device entry was rebuilt without a
+// matching refcounter change — e.g. a lazy connection cycling through idle->wake, which recreates
+// the WireGuard peer with the overlay /32 only — ends up missing routed prefixes the refcounter
+// still considers installed, and nothing retries. Calling this when the peer's WireGuard entry is
+// (re)created restores convergence. It is add-only and idempotent: AddAllowedIP is update-only, so
+// prefixes are re-added to an existing peer and an absent peer is left untouched.
+func (m *DefaultManager) ReconcilePeerAllowedIPs(peerKey string) error {
+	if m.allowedIPsRefCounter == nil {
+		return nil
+	}
+
+	return m.allowedIPsRefCounter.ReapplyMatching(
+		func(out string) bool { return out == peerKey },
+		func(prefix netip.Prefix) error {
+			if err := m.wgInterface.AddAllowedIP(peerKey, prefix); err != nil {
+				return fmt.Errorf("add allowed IP %s for peer %s: %w", prefix, peerKey, err)
 			}
 			return nil
 		},
