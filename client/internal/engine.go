@@ -2839,6 +2839,7 @@ func convertToOfferAnswer(msg *sProto.Message) (*peer.OfferAnswer, error) {
 		Version:         msg.GetBody().GetNetBirdVersion(),
 		RosenpassPubKey: rosenpassPubKey,
 		RosenpassAddr:   rosenpassAddr,
+		MlkemPayload:    msg.GetBody().GetMlkemPayload(),
 		RelaySrvAddress: msg.GetBody().GetRelayServerAddress(),
 		RelaySrvIP:      relayIP,
 		SessionID:       sessionID,
