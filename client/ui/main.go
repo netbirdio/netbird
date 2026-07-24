@@ -8,6 +8,7 @@ import (
 	"flag"
 	"io/fs"
 	"log"
+	"os"
 	"runtime"
 	"strings"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/events"
 	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 
+	"github.com/netbirdio/netbird/client/cmd"
 	"github.com/netbirdio/netbird/client/ui/authsession"
 	"github.com/netbirdio/netbird/client/ui/i18n"
 	"github.com/netbirdio/netbird/client/ui/preferences"
@@ -80,6 +82,16 @@ func init() {
 }
 
 func main() {
+	// When re-launched under a privilege prompt (pkexec/UAC/osascript) to apply
+	// the dangerous SSH settings, this binary is invoked as os.Executable().
+	// Delegate to the shared CLI command and exit before starting the GUI.
+	if len(os.Args) > 1 && os.Args[1] == cmd.SetSSHConfigCmdName {
+		if err := cmd.Execute(); err != nil {
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
 	daemonAddr, userSetLogFile := parseFlagsAndInitLog()
 	conn := NewConn(daemonAddr)
 

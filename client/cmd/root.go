@@ -176,6 +176,8 @@ func init() {
 	rootCmd.AddCommand(ownerCmd)
 	ownerCmd.AddCommand(ownerAddCmd, ownerResetCmd, ownerShareCmd, ownerUnshareCmd)
 
+	rootCmd.AddCommand(setSSHConfigCmd)
+
 	networksCMD.AddCommand(routesListCmd)
 	networksCMD.AddCommand(routesSelectCmd, routesDeselectCmd)
 

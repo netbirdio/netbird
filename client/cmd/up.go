@@ -21,8 +21,8 @@ import (
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
-	"github.com/netbirdio/netbird/client/proto"
 	nbnet "github.com/netbirdio/netbird/client/net"
+	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/server"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/shared/management/domain"
@@ -321,6 +321,24 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 		return fmt.Errorf("get current user: %v", err)
 	}
 
+	// Enabling SSH root login / disabling SSH auth is a privileged change the
+	// daemon rejects from a non-privileged caller. Offer to elevate (polkit/UAC/
+	// osascript) so an elevated helper applies just those settings.
+	if wantsDangerousSSH(cmd) && !isProcessPrivileged() {
+		cmd.Println("Enabling SSH root login / disabling SSH authentication requires administrator privileges, requesting elevation...")
+		var enableRoot, disableAuth *bool
+		if cmd.Flag(enableSSHRootFlag).Changed {
+			enableRoot = &enableSSHRoot
+		}
+		if cmd.Flag(disableSSHAuthFlag).Changed {
+			disableAuth = &disableSSHAuth
+		}
+		if err := ElevateSSHConfig(activeProf.ID.String(), username.Username, enableRoot, disableAuth); err != nil {
+			return fmt.Errorf("apply privileged SSH settings: %w", err)
+		}
+		sshConfigElevated = true
+	}
+
 	// set the new config
 	req := setupSetConfigReq(customDNSAddressConverted, cmd, activeProf.ID.String(), username.Username)
 	if _, err := client.SetConfig(ctx, req); err != nil {
@@ -424,7 +442,7 @@ func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, pro
 	if cmd.Flag(serverSSHAllowedFlag).Changed {
 		req.ServerSSHAllowed = &serverSSHAllowed
 	}
-	if cmd.Flag(enableSSHRootFlag).Changed {
+	if cmd.Flag(enableSSHRootFlag).Changed && !sshConfigElevated {
 		req.EnableSSHRoot = &enableSSHRoot
 	}
 	if cmd.Flag(enableSSHSFTPFlag).Changed {
@@ -436,7 +454,7 @@ func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, pro
 	if cmd.Flag(enableSSHRemotePortForwardFlag).Changed {
 		req.EnableSSHRemotePortForwarding = &enableSSHRemotePortForward
 	}
-	if cmd.Flag(disableSSHAuthFlag).Changed {
+	if cmd.Flag(disableSSHAuthFlag).Changed && !sshConfigElevated {
 		req.DisableSSHAuth = &disableSSHAuth
 	}
 	if cmd.Flag(sshJWTCacheTTLFlag).Changed {
@@ -652,7 +670,7 @@ func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte
 		loginRequest.ServerSSHAllowed = &serverSSHAllowed
 	}
 
-	if cmd.Flag(enableSSHRootFlag).Changed {
+	if cmd.Flag(enableSSHRootFlag).Changed && !sshConfigElevated {
 		loginRequest.EnableSSHRoot = &enableSSHRoot
 	}
 
@@ -668,7 +686,7 @@ func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte
 		loginRequest.EnableSSHRemotePortForwarding = &enableSSHRemotePortForward
 	}
 
-	if cmd.Flag(disableSSHAuthFlag).Changed {
+	if cmd.Flag(disableSSHAuthFlag).Changed && !sshConfigElevated {
 		loginRequest.DisableSSHAuth = &disableSSHAuth
 	}
 
