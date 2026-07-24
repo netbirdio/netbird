@@ -9,8 +9,11 @@ import (
 	"fmt"
 	"strconv"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/proxy/internal/llm/pricing"
 	"github.com/netbirdio/netbird/proxy/internal/middleware"
+	"github.com/netbirdio/netbird/proxy/internal/middleware/builtin"
 )
 
 // ID is the registry identifier for this middleware.
@@ -142,14 +145,36 @@ func (m *Middleware) Invoke(_ context.Context, in *middleware.Input) (*middlewar
 	table := m.loader.Get()
 	cost, ok := table.Cost(provider, model, inTokens, outTokens, cachedTokens, cacheCreationTokens)
 	if !ok {
+		if logger := debugLogger(); logger != nil {
+			logger.WithFields(log.Fields{"middleware": ID, "provider": provider, "model": model}).
+				Debugf("cost skipped: no pricing entry (tokens input=%d output=%d cache_read=%d cache_creation=%d)",
+					inTokens, outTokens, cachedTokens, cacheCreationTokens)
+		}
 		out.Metadata = skip(skipUnknownModel)
 		return out, nil
+	}
+
+	if logger := debugLogger(); logger != nil {
+		logger.WithFields(log.Fields{"middleware": ID, "provider": provider, "model": model}).
+			Debugf("cost computed: tokens input=%d output=%d cache_read=%d cache_creation=%d => cost_usd=%.6f",
+				inTokens, outTokens, cachedTokens, cacheCreationTokens, cost)
 	}
 
 	out.Metadata = []middleware.KV{
 		{Key: middleware.KeyCostUSDTotal, Value: fmt.Sprintf("%.6f", cost)},
 	}
 	return out, nil
+}
+
+// debugLogger returns the proxy logger when debug logging is enabled, nil
+// otherwise. Cost-audit logging is debug-only so the hot path stays quiet at
+// production log levels.
+func debugLogger() *log.Logger {
+	logger := builtin.Context().Logger
+	if logger == nil || !logger.IsLevelEnabled(log.DebugLevel) {
+		return nil
+	}
+	return logger
 }
 
 // skip returns a single-entry metadata slice carrying the given skip

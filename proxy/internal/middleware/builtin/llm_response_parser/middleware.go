@@ -16,8 +16,11 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/proxy/internal/llm"
 	"github.com/netbirdio/netbird/proxy/internal/middleware"
+	"github.com/netbirdio/netbird/proxy/internal/middleware/builtin"
 	"github.com/netbirdio/netbird/proxy/internal/middleware/builtin/llm_guardrail"
 )
 
@@ -136,6 +139,7 @@ func (m *Middleware) Invoke(_ context.Context, in *middleware.Input) (*middlewar
 	body := decodeResponseBody(in.RespBody, headerLookup(in.RespHeaders, "Content-Encoding"))
 
 	contentType := headerLookup(in.RespHeaders, "Content-Type")
+	logRawResponse(provider, contentType, in.Status, body)
 	switch {
 	case isEventStream(contentType), isAWSEventStream(contentType):
 		out.Metadata = m.invokeStreaming(parser, body)
@@ -144,6 +148,62 @@ func (m *Middleware) Invoke(_ context.Context, in *middleware.Input) (*middlewar
 	}
 
 	return out, nil
+}
+
+// debugLogRawBytes caps how much of a raw upstream response body the debug
+// log carries. Enough to inspect a full usage block and the surrounding
+// envelope without flooding the log with multi-megabyte completions.
+const debugLogRawBytes = 4096
+
+// debugLogger returns the proxy logger when debug logging is enabled, nil
+// otherwise. All cost-audit logging in this middleware is debug-only so the
+// hot path stays quiet at production log levels.
+func debugLogger() *log.Logger {
+	logger := builtin.Context().Logger
+	if logger == nil || !logger.IsLevelEnabled(log.DebugLevel) {
+		return nil
+	}
+	return logger
+}
+
+// logRawResponse debug-logs the (decompressed) upstream response body so an
+// operator can compare the provider's own usage block against the token
+// counts and cost the proxy derives from it. Bodies are truncated and
+// %q-quoted, so binary AWS event-stream framing stays log-safe.
+func logRawResponse(provider, contentType string, status int, body []byte) {
+	logger := debugLogger()
+	if logger == nil {
+		return
+	}
+	shown := body
+	truncated := false
+	if len(shown) > debugLogRawBytes {
+		shown = shown[:debugLogRawBytes]
+		truncated = true
+	}
+	logger.WithFields(log.Fields{
+		"middleware":   ID,
+		"provider":     provider,
+		"status":       status,
+		"content_type": contentType,
+		"body_bytes":   len(body),
+		"truncated":    truncated,
+	}).Debugf("llm raw response body: %q", shown)
+}
+
+// logParsedUsage debug-logs the token counts extracted from the upstream
+// response — the exact values the cost meter will price.
+func logParsedUsage(provider, mode string, usage llm.Usage) {
+	logger := debugLogger()
+	if logger == nil {
+		return
+	}
+	logger.WithFields(log.Fields{
+		"middleware": ID,
+		"provider":   provider,
+		"mode":       mode,
+	}).Debugf("llm response tokens: input=%d output=%d cache_read=%d cache_creation=%d total=%d",
+		usage.InputTokens, usage.OutputTokens, usage.CachedInputTokens, usage.CacheCreationTokens, usage.TotalTokens)
 }
 
 // invokeBuffered decodes a non-streaming JSON response body. Status
@@ -159,6 +219,10 @@ func (m *Middleware) invokeBuffered(parser llm.Parser, in *middleware.Input, con
 	usage, err := parser.ParseResponse(in.Status, contentType, body)
 	if err == nil {
 		md = appendUsage(md, usage)
+		logParsedUsage(parser.ProviderName(), "buffered", usage)
+	} else if logger := debugLogger(); logger != nil {
+		logger.WithFields(log.Fields{"middleware": ID, "provider": parser.ProviderName()}).
+			Debugf("llm response usage not extracted: %v", err)
 	}
 
 	if completion := truncateCompletion(parser.ExtractCompletion(in.Status, contentType, body)); completion != "" && m.captureCompletion {
@@ -180,6 +244,7 @@ func (m *Middleware) invokeStreaming(parser llm.Parser, body []byte) []middlewar
 	}
 
 	usage, completion := accumulateStream(parser.ProviderName(), body)
+	logParsedUsage(parser.ProviderName(), "streaming", usage)
 
 	var md []middleware.KV
 	if usage.InputTokens > 0 || usage.OutputTokens > 0 || usage.TotalTokens > 0 {
