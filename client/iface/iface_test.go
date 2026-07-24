@@ -517,7 +517,11 @@ func Test_ConnectPeers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	localIP1 := "127.1.0.1"
+	// Use 127.0.0.1 (distinguished by port) for both peers. It is the only
+	// loopback address that is local on every platform: Linux routes all of
+	// 127.0.0.0/8 to lo, but macOS/BSD only assign 127.0.0.1 to lo0, so a
+	// 127.x.y.z endpoint is unreachable there and the handshake never lands.
+	localIP1 := "127.0.0.1"
 	peer1endpoint, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", localIP1, peer1wgPort))
 	if err != nil {
 		t.Fatal(err)
@@ -554,7 +558,7 @@ func Test_ConnectPeers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	localIP2 := "127.1.0.2"
+	localIP2 := "127.0.0.1"
 	peer2endpoint, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", localIP2, peer2wgPort))
 	if err != nil {
 		t.Fatal(err)
