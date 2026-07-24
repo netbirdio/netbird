@@ -104,15 +104,14 @@ func TestInterceptorForwardedIdentity(t *testing.T) {
 		return metadata.NewIncomingContext(ctx, metadata.Pairs(mdFwdUID, itoa(fwdUID)))
 	}
 
-	// Gateway (peer == daemon-self) forwards a non-owner client → denied as that client.
+	// Gateway forwards a non-owner client: denied as that client.
 	i := &Interceptor{policy: &mockPolicy{o: owners}, selfUID: selfUID}
 	assert.Error(t, i.authorize(withFwd(selfUID, 2000), up))
 
-	// Gateway forwards the owner → allowed.
+	// Gateway forwards the owner: allowed.
 	assert.NoError(t, i.authorize(withFwd(selfUID, 1000), up))
 
-	// A non-privileged direct caller's forwarded metadata is IGNORED (can't forge):
-	// caller uid 2000 forwarding uid:1000 is still treated as 2000 → denied.
+	// A non-privileged direct caller's forwarded metadata: denied
 	assert.Error(t, i.authorize(withFwd(2000, 1000), up))
 }
 

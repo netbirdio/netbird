@@ -5,8 +5,7 @@
 // On Unix the identity is read from the kernel via SO_PEERCRED (Linux) or
 // LOCAL_PEERCRED (Darwin/FreeBSD). On Windows it is derived from the named-pipe
 // client token. Platforms without a peer-identity primitive get no credentials
-// and therefore no enforcement (the daemon logs a warning and stays open,
-// preserving today's behavior until the transport gains an identity primitive).
+// and therefore no enforcement.
 package ipcauth
 
 import (
@@ -21,8 +20,7 @@ import (
 const sidLocalSystem = "S-1-5-18"
 
 // Identity is the kernel-authenticated identity of a local IPC caller. The zero
-// value is not a valid identity; obtain one via IdentityFromContext (which
-// reports presence) or PeerIdentity.
+// value is not a valid identity.
 type Identity struct {
 	// UID and GID are the caller's Unix user ID and primary group ID.
 	// Zero on Windows, where SID is authoritative instead.
@@ -49,10 +47,7 @@ func (i Identity) IsWindows() bool {
 }
 
 // IsPrivileged reports whether the caller is the platform's administrative
-// principal — Unix root (uid 0), or on Windows an elevated token or LocalSystem.
-// It deliberately requires actual elevation on Windows (a non-elevated member of
-// Administrators has a filtered token and is NOT privileged), mirroring "must
-// really be root" on Unix.
+// principal.
 func (i Identity) IsPrivileged() bool {
 	if i.IsWindows() {
 		return i.Elevated || i.SID == sidLocalSystem
@@ -80,8 +75,7 @@ func (AuthInfo) AuthType() string { return "netbird-ipc-peercred" }
 
 // IdentityFromContext extracts the caller's kernel-authenticated identity from
 // the gRPC peer context. The second return value is false when no IPC transport
-// credentials were negotiated (e.g. an unsupported platform, or a caller that
-// did not come through the daemon socket) — callers MUST fail closed in that case.
+// credentials were negotiated, callers MUST fail closed in that case.
 func IdentityFromContext(ctx context.Context) (Identity, bool) {
 	p, ok := peer.FromContext(ctx)
 	if !ok {

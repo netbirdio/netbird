@@ -45,8 +45,7 @@ func UIDPrincipal(uid uint32) string {
 func SIDPrincipal(sid string) string { return string(KindSID) + ":" + sid }
 
 // OwnerPrincipalForIdentity returns the self-ownership principal for an identity:
-// the user's UID on Unix, or the user's SID on Windows. Used to auto-isolate a
-// new profile to its creator.
+// the user's UID on Unix, or the user's SID on Windows.
 func OwnerPrincipalForIdentity(id Identity) string {
 	if id.IsWindows() {
 		return SIDPrincipal(id.SID)

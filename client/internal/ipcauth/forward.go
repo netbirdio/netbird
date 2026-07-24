@@ -8,9 +8,7 @@ import (
 )
 
 // Metadata keys used by the local JSON gateway to forward the HTTP client's
-// identity to the daemon. Trusted by the interceptor ONLY when the gRPC peer is
-// itself the daemon (self/privileged) — i.e. the loopback gateway — so a direct
-// gRPC caller cannot forge them.
+// identity to the daemon.
 const (
 	mdFwdUID      = "x-netbird-fwd-uid"      // Unix
 	mdFwdGID      = "x-netbird-fwd-gid"      // Unix
@@ -20,9 +18,7 @@ const (
 )
 
 // ForwardIdentityMetadata encodes an identity for the gateway to forward to the
-// daemon — Unix uid/gid, or the Windows user SID + enabled group SIDs +
-// elevation. Both are supported so the gateway works whether the JSON socket is
-// a Unix socket or a named pipe.
+// daemon.
 func ForwardIdentityMetadata(id Identity) metadata.MD {
 	if id.IsWindows() {
 		md := metadata.MD{}
@@ -41,8 +37,7 @@ func ForwardIdentityMetadata(id Identity) metadata.MD {
 	)
 }
 
-// forwardedIdentity extracts a forwarded identity from incoming gRPC metadata,
-// if present and well-formed. Windows (SID) takes precedence over Unix (uid).
+// forwardedIdentity extracts a forwarded identity from incoming gRPC metadata
 func forwardedIdentity(ctx context.Context) (Identity, bool) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {

@@ -231,7 +231,7 @@ func requestNotificationAuthorization(notifier *notifications.NotificationServic
 // "no flag" and an explicit "--log-file console" stay distinguishable; empty
 // falls back to console for InitLog.
 func parseFlagsAndInitLog() (string, bool) {
-	daemonAddr := flag.String("daemon-addr", DaemonAddr(), "Daemon gRPC address: unix:///path or tcp://host:port")
+	daemonAddr := flag.String("daemon-addr", DaemonAddr(), "Daemon gRPC address: unix:///path, npipe://name, tcp://host:port")
 	logFiles := &stringList{}
 	flag.Var(logFiles, "log-file", "Log destination. Repeat to log to multiple targets at once, e.g. `--log-file console --log-file Y:/netbird-ui.log`. Each value is one of: console, syslog, or a file path. File destinations are rotated by lumberjack (same as the daemon). Defaults to console. Passing any value disables the daemon-debug-driven gui-client.log.")
 	logLevel := flag.String("log-level", "info", "Log level: trace|debug|info|warn|error.")

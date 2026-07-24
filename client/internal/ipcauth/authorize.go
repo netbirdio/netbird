@@ -12,10 +12,8 @@ type Ownership struct {
 	Shared bool
 }
 
-// GroupResolver resolves a Unix caller's effective group IDs (primary +
-// supplementary, NSS-aware) and owner group names to GIDs. It is only consulted
-// for Unix `gid:`/`group:` owners; Windows uses the SIDs carried in the Identity.
-// A nil resolver disables group matching.
+// GroupResolver resolves a Unix caller's effective group IDs and owner group
+// names to GIDs. A nil resolver disables group matching.
 type GroupResolver interface {
 	// CallerGIDs returns the set of group IDs the caller belongs to.
 	CallerGIDs(id Identity) map[uint32]struct{}
@@ -24,9 +22,7 @@ type GroupResolver interface {
 }
 
 // Authorize reports whether the identity may control a profile with the given
-// ownership. Privileged callers (root / elevated-admin / LocalSystem) and shared
-// profiles are always allowed; otherwise the identity must match one of the
-// owner principals.
+// ownership. Privileged callers and shared profiles are always allowed.
 func Authorize(o Ownership, id Identity, r GroupResolver) bool {
 	if id.IsPrivileged() {
 		return true
@@ -76,8 +72,6 @@ func principalMatches(p Principal, id Identity, r GroupResolver) bool {
 	}
 }
 
-// callerHasGID reports whether gid is the caller's primary GID (from peercred,
-// no lookup) or one of their supplementary groups (NSS-resolved via r).
 func callerHasGID(gid uint32, id Identity, r GroupResolver) bool {
 	if id.GID == gid {
 		return true

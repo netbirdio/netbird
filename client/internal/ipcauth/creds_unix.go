@@ -17,10 +17,6 @@ func NewTransportCredentials() credentials.TransportCredentials {
 	return unixCreds{}
 }
 
-// unixCreds implements credentials.TransportCredentials over a Unix socket.
-// The server side reads SO_PEERCRED/LOCAL_PEERCRED during the handshake; the
-// client side is a no-op (the kernel supplies the peer identity to the server
-// without any client cooperation), so an ordinary insecure client still works.
 type unixCreds struct{}
 
 func (unixCreds) ClientHandshake(_ context.Context, _ string, conn net.Conn) (net.Conn, credentials.AuthInfo, error) {
@@ -28,8 +24,8 @@ func (unixCreds) ClientHandshake(_ context.Context, _ string, conn net.Conn) (ne
 }
 
 // ConnIdentity extracts the caller's identity from an accepted local IPC
-// connection. On Unix it reads peer credentials from the socket. It is shared by
-// the gRPC transport credentials and the JSON gateway (which forwards it).
+// connection. On Unix it reads peer credentials from the socket. It is shared
+// by the gRPC transport credentials and the JSON gateway (which forwards it).
 func ConnIdentity(conn net.Conn) (Identity, error) {
 	return PeerIdentity(conn)
 }
@@ -47,7 +43,7 @@ func (unixCreds) ServerHandshake(conn net.Conn) (net.Conn, credentials.AuthInfo,
 }
 
 func (unixCreds) Info() credentials.ProtocolInfo {
-	return credentials.ProtocolInfo{SecurityProtocol: "netbird-ipc-peercred"}
+	return credentials.ProtocolInfo{SecurityProtocol: AuthInfo{}.AuthType()}
 }
 
 func (unixCreds) Clone() credentials.TransportCredentials { return unixCreds{} }

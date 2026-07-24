@@ -17,8 +17,8 @@ var (
 	procImpersonateNamedPipeClient = modadvapi32.NewProc("ImpersonateNamedPipeClient")
 )
 
-// DefaultPipeSDDL keeps the daemon control pipe open to any LOCAL caller, on par
-// with the Unix socket's 0666 mode.
+// DefaultPipeSDDL keeps the daemon control pipe open to any LOCAL caller,
+// like Unix socket with 0666 permissions.
 //
 //	D:P                 protected DACL, no inheritance
 //	(D;;GA;;;NU)        deny GENERIC_ALL to NETWORK (remote/SMB)
@@ -69,7 +69,7 @@ func (winpipeCreds) ServerHandshake(conn net.Conn) (net.Conn, credentials.AuthIn
 }
 
 func (winpipeCreds) Info() credentials.ProtocolInfo {
-	return credentials.ProtocolInfo{SecurityProtocol: "netbird-ipc-peercred"}
+	return credentials.ProtocolInfo{SecurityProtocol: AuthInfo{}.AuthType()}
 }
 
 func (winpipeCreds) Clone() credentials.TransportCredentials { return winpipeCreds{} }

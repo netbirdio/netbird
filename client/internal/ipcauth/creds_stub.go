@@ -11,8 +11,7 @@ import (
 )
 
 // NewTransportCredentials returns nil on platforms without a peer-identity
-// primitive. The daemon falls back to insecure credentials and skips per-RPC
-// authorization (logging a warning), preserving pre-hardening behavior.
+// primitive.
 func NewTransportCredentials() credentials.TransportCredentials {
 	return nil
 }

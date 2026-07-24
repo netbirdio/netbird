@@ -13,10 +13,7 @@ import (
 )
 
 // listenNamedPipe creates the daemon control named pipe with a permissive,
-// local-only SDDL. Any local caller may connect, on par with the Unix
-// socket's 0666, and the per-RPC interceptor authorizes. ListenPipe fails
-// if the pipe already exists (first-instance semantics), which prevents a
-// squatting process from pre-creating it.
+// local-only SDDL. Any local caller may connect, like Unix socket with 0666.
 func listenNamedPipe(path string) (net.Listener, error) {
 	return winio.ListenPipe(path, &winio.PipeConfig{
 		SecurityDescriptor: ipcauth.DefaultPipeSDDL(),

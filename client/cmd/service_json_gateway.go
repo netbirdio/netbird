@@ -23,8 +23,8 @@ import (
 type jsonPeerCtxKey struct{}
 
 // jsonConnContext reads the connecting HTTP client's identity from the JSON
-// socket (peercred) and stashes it so it can be forwarded to the daemon. The
-// gateway re-dials the daemon as the daemon's own identity, so without this the
+// socket and stashes it so it can be forwarded to the daemon. The gateway
+// re-dials the daemon as the daemon's own identity, so without this the
 // daemon would see every JSON request as privileged.
 func jsonConnContext(ctx context.Context, c net.Conn) context.Context {
 	id, err := ipcauth.ConnIdentity(c)

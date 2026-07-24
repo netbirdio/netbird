@@ -268,16 +268,9 @@ func FlagNameToEnvVar(cmdFlag string, prefix string) string {
 	return prefix + upper
 }
 
-// DialClientGRPCServer returns client connection to the daemon server.
 // daemonDialTarget returns the gRPC dial target and base options for the daemon
 // address, handling the npipe scheme (Windows named pipe, via a context dialer)
-// and unix/tcp. It sets insecure transport credentials but NOT WithBlock, so it
-// serves both the blocking CLI dial and the JSON gateway's lazy client.
-//
-// The daemon reads the caller's kernel identity from the transport (SO_PEERCRED
-// on a Unix socket, the client token on a Windows named pipe), so the client
-// stays insecure. gRPC's resolver does not understand Windows named pipes, hence
-// the context dialer.
+// and unix/tcp.
 func daemonDialTarget(addr string) (string, []grpc.DialOption) {
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
 	target := strings.TrimPrefix(addr, "tcp://")
@@ -291,6 +284,7 @@ func daemonDialTarget(addr string) (string, []grpc.DialOption) {
 	return target, opts
 }
 
+// DialClientGRPCServer returns client connection to the daemon server.
 func DialClientGRPCServer(ctx context.Context, addr string, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Second*10)
 	defer cancel()

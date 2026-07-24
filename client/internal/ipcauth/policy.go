@@ -5,7 +5,7 @@ import "sync"
 const servicePath = "/daemon.DaemonService/"
 
 // ProfilePolicy exposes the active profile's ownership to the interceptor. The
-// daemon server implements it; ConfigAdapter bridges the gap because the gRPC
+// daemon server implements it. ConfigAdapter bridges the gap because the gRPC
 // server (and its interceptor) is constructed before the server instance exists.
 type ProfilePolicy interface {
 	// ActiveProfileOwnership returns the active profile's ownership policy.
@@ -14,8 +14,7 @@ type ProfilePolicy interface {
 	// ClaimActiveProfileOwnerIfUnowned atomically claims the active profile for
 	// id when it has no owners and is not shared (trust-on-first-use), and
 	// reports whether id is now an owner. A false return means the profile was
-	// already owned/shared or another caller won the claim — the caller must
-	// re-read ownership and authorize normally.
+	// already owned/shared or another caller won the claim.
 	ClaimActiveProfileOwnerIfUnowned(id Identity) (bool, error)
 }
 
@@ -30,8 +29,7 @@ var handlerAuthorizedMethods = map[string]bool{
 	servicePath + "RenameProfile":    true,
 }
 
-// auditMethods are the Tier-C/H RPCs (threat model §3) whose successful
-// authorization is worth an audit log line. Denials are always logged.
+// auditMethods are worth an audit log line. Denials are always logged.
 var auditMethods = map[string]bool{
 	servicePath + "GetConfig":          true,
 	servicePath + "SetConfig":          true,
@@ -56,7 +54,7 @@ var auditMethods = map[string]bool{
 
 // ConfigAdapter is a ProfilePolicy whose backend is set lazily, once the daemon
 // server instance is created. Until then it reports an unowned profile
-// (Ownership zero value), so non-privileged callers are denied — fail closed.
+// (Ownership zero value), so non-privileged callers are denied.
 type ConfigAdapter struct {
 	mu      sync.RWMutex
 	backend ProfilePolicy

@@ -33,9 +33,8 @@ func TestForwardIdentityRoundTrip(t *testing.T) {
 
 func TestForwardedIdentity_None(t *testing.T) {
 	_, ok := forwardedIdentity(context.Background())
-	assert.False(t, ok, "no metadata → no forwarded identity")
+	assert.False(t, ok, "no metadata, no forwarded identity")
 
-	// Empty metadata (no forwarding keys) → none.
 	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("other", "x"))
 	_, ok = forwardedIdentity(ctx)
 	assert.False(t, ok)

@@ -192,8 +192,7 @@ type Config struct {
 	// Owners lists the principals allowed to control this profile over the local
 	// IPC, as typed strings: "uid:1000", "gid:1000", "group:netbird-admins"
 	// (Unix, NSS-resolved) or "sid:S-1-5-..." (Windows user or group SID). Empty
-	// with Shared=false means the profile is owned by nobody yet (privileged +
-	// daemon-self only, until claimed). Interpreted by client/internal/ipcauth.
+	// with Shared=false means the profile is owned by nobody yet, until claimed
 	Owners []string `json:"Owners,omitempty"`
 
 	// Shared, when true, lets any authenticated local caller control this profile

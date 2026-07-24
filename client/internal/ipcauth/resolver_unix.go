@@ -12,8 +12,7 @@ import (
 
 const groupCacheTTL = 30 * time.Second
 
-// NewDefaultGroupResolver returns an NSS-aware group resolver backed by
-// getent/`id -G` (via client/internal/shell), so `gid:`/`group:` owners resolve
+// NewDefaultGroupResolver returns an NSS-aware group resolver, owners resolve
 // correctly for LDAP/AD users under CGO_ENABLED=0. Results are cached briefly.
 func NewDefaultGroupResolver() GroupResolver {
 	return &nssResolver{byUID: make(map[uint32]gidCacheEntry)}

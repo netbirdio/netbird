@@ -22,11 +22,7 @@ import (
 )
 
 // daemonServerOptions installs peer-identity transport credentials and the
-// authorization interceptor on the daemon ipc. Identity is only available
-// over a Unix socket (SO_PEERCRED) or a Windows named pipe (client token).
-// Over TCP, or on platforms without a peer-credential primitive, the daemon
-// runs without per-caller authorization and warns (no interceptor, so it does
-// not deny everyone).
+// authorization interceptor on the daemon ipc if supported.
 func daemonServerOptions(network string, interceptor *ipcauth.Interceptor) []grpc.ServerOption {
 	creds := ipcauth.NewTransportCredentials()
 	if creds == nil {

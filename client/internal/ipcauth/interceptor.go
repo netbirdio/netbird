@@ -10,16 +10,14 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// Interceptor enforces per-RPC authorization on the daemon control channel,
-// keyed to the caller's kernel-authenticated identity. It is safe-by-default:
+// Interceptor enforces per-RPC authorization on the daemon IPC, keyed to
+// the caller's kernel-authenticated identity. It is safe-by-default:
 // any RPC without a matching bypass is gated by the active profile's ownership,
 // and a caller without a readable identity is denied.
 type Interceptor struct {
 	policy   ProfilePolicy
 	resolver GroupResolver
-	// selfUID is the daemon's own effective UID. A caller whose UID matches it
-	// (rootless container / foreground daemon running as the invoking user) is
-	// allowed: it already has full control of the daemon process. -1 on Windows.
+	// selfUID is the daemon's own effective UID. -1 on Windows.
 	selfUID int
 }
 
@@ -51,22 +49,22 @@ func (i *Interceptor) StreamServerInterceptor() grpc.StreamServerInterceptor {
 func (i *Interceptor) authorize(ctx context.Context, fullMethod string) error {
 	id, ok := IdentityFromContext(ctx)
 	if !ok {
-		log.Warnf("ipc authz: DENY %s — caller identity unavailable", fullMethod)
+		log.Warnf("ipc authz: DENY %s. caller identity unavailable", fullMethod)
 		return status.Error(codes.PermissionDenied, "caller identity could not be verified on the daemon control channel")
 	}
 
 	if i.isSelfOrPrivileged(id) {
 		// The local JSON gateway connects as the daemon itself (self/privileged)
-		// and forwards the real HTTP client's identity. Trust it here — and only
-		// here, where the transport peer is already the daemon — then authorize
-		// as the forwarded client. A direct non-privileged caller never reaches
-		// this branch, so it cannot forge the forwarding metadata.
+		// and forwards the real HTTP client's identity. Trust it here, where
+		// the transport peer is already the daemon, then authorize as the
+		// forwarded client. A direct non-privileged caller never reaches this
+		// branch, so it cannot forge the forwarding metadata.
 		fwd, hasFwd := forwardedIdentity(ctx)
 		if !hasFwd {
 			i.auditAllow(id, fullMethod)
 			return nil
 		}
-		log.Infof("ipc authz: honoring gateway-forwarded identity %s", fwd)
+		log.Infof("ipc authz: gateway-forwarded identity %s", fwd)
 		id = fwd
 		if i.isSelfOrPrivileged(id) {
 			i.auditAllow(id, fullMethod)
@@ -82,7 +80,7 @@ func (i *Interceptor) authorize(ctx context.Context, fullMethod string) error {
 	o := i.policy.ActiveProfileOwnership()
 
 	// Trust-on-first-use: an unowned, non-shared profile is claimed by the first
-	// caller. The claim is atomic; if we lose the race we re-read and authorize.
+	// caller. The claim is atomic, if we lose the race we re-read and authorize.
 	if len(o.Owners) == 0 && !o.Shared {
 		claimed, err := i.policy.ClaimActiveProfileOwnerIfUnowned(id)
 		if err != nil {
@@ -102,9 +100,9 @@ func (i *Interceptor) authorize(ctx context.Context, fullMethod string) error {
 		return nil
 	}
 
-	log.Warnf("ipc authz: DENY %s for %s — active profile owned by another principal", fullMethod, id)
+	log.Warnf("ipc authz: DENY %s for %s. active profile owned by another principal", fullMethod, id)
 	return status.Errorf(codes.PermissionDenied,
-		"not authorized to control the active profile (caller %s); ask an owner or run as root/administrator", id)
+		"not authorized to control the active profile (caller %s). ask an owner or run as root/administrator", id)
 }
 
 // isSelfOrPrivileged reports whether the caller is the platform administrator

@@ -19,8 +19,7 @@ const (
 	windowsPipeDaemonAddr = "npipe://netbird"
 
 	// legacyWindowsDaemonAddr is the loopback-TCP address the Windows daemon used
-	// before named-pipe support. TCP exposes no peer-identity primitive, so the
-	// authorization interceptor cannot run over it.
+	// before named-pipe support.
 	legacyWindowsDaemonAddr = "tcp://127.0.0.1:41731"
 )
 

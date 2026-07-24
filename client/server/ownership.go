@@ -15,8 +15,7 @@ import (
 	"github.com/netbirdio/netbird/util"
 )
 
-// The daemon Server implements ipcauth.ProfilePolicy so the gRPC interceptor can
-// authorize each RPC against the active profile's ownership.
+// Verify that the daemon Server implements ipcauth.ProfilePolicy.
 var _ ipcauth.ProfilePolicy = (*Server)(nil)
 
 // ActiveProfileOwnership returns the active profile's ownership policy. Reads
@@ -40,8 +39,7 @@ func (s *Server) ActiveProfileOwnership() ipcauth.Ownership {
 
 // ClaimActiveProfileOwnerIfUnowned atomically claims the active profile for id
 // when it has no owners and is not shared (trust-on-first-use). Returns whether
-// id is now an owner. Concurrent first-callers are serialized by s.mutex, so
-// exactly one wins the claim; the others get false and are authorized normally.
+// id is now an owner. Concurrent first-callers are serialized by s.mutex.
 func (s *Server) ClaimActiveProfileOwnerIfUnowned(id ipcauth.Identity) (bool, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
@@ -56,7 +54,7 @@ func (s *Server) ClaimActiveProfileOwnerIfUnowned(id ipcauth.Identity) (bool, er
 	}
 
 	if len(cfg.Owners) > 0 || cfg.Shared {
-		return false, nil // already owned or shared — someone won the race
+		return false, nil // already owned or shared
 	}
 
 	cfg.Owners = []string{ipcauth.OwnerPrincipalForIdentity(id)}
@@ -130,7 +128,7 @@ func (s *Server) claimForCallerLocked(id ipcauth.Identity, cfg *profilemanager.C
 }
 
 // AddOwner adds a principal to the active profile's owner list. The interceptor
-// has already confirmed the caller is an owner or privileged; the handler just
+// has already confirmed the caller is an owner or privileged, the handler just
 // validates and persists.
 func (s *Server) AddOwner(_ context.Context, msg *proto.AddOwnerRequest) (*proto.AddOwnerResponse, error) {
 	principal := msg.GetPrincipal()
