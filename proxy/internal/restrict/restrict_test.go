@@ -150,6 +150,187 @@ func TestFilter_Check_CIDRAllowThenCountryBlock(t *testing.T) {
 	assert.Equal(t, DenyCIDR, f.Check(netip.MustParseAddr("192.168.1.1"), geo), "CIDR denied before country check")
 }
 
+// TestFilter_Check_CrossCategoryAllowlistsAreAND documents the current
+// behavior: when both a CIDR allowlist and a country allowlist are set, a
+// request must satisfy BOTH to be allowed (AND across categories). There is no
+// way today to express "allow if in allowed country OR in allowed CIDR", e.g.
+// "allow all US traffic plus our office IP abroad". This is the gap an
+// any/all allow-combine mode would close; the cases marked "GAP" are the ones
+// that would flip to Allow under an "any" mode.
+func TestFilter_Check_CrossCategoryAllowlistsAreAND(t *testing.T) {
+	officeAbroad := "203.0.113.7" // in allowed CIDR, but country not in allowlist
+	usOutsideOffice := "1.1.1.1"  // allowed country, but not in allowed CIDR
+	usOffice := "203.0.113.8"     // both
+	neither := "198.51.100.1"     // neither
+
+	geo := newMockGeo(map[string]string{
+		officeAbroad:    "DE",
+		usOutsideOffice: "US",
+		usOffice:        "US",
+		neither:         "CN",
+	})
+	f := ParseFilter(FilterConfig{
+		AllowedCIDRs:     []string{"203.0.113.0/24"},
+		AllowedCountries: []string{"US"},
+	})
+
+	assert.Equal(t, Allow, f.Check(netip.MustParseAddr(usOffice), geo), "in allowed CIDR and allowed country")
+	assert.Equal(t, DenyCountry, f.Check(netip.MustParseAddr(officeAbroad), geo), "GAP: in allowed CIDR but country not allowed; any-mode should Allow")
+	assert.Equal(t, DenyCIDR, f.Check(netip.MustParseAddr(usOutsideOffice), geo), "GAP: allowed country but not in allowed CIDR; any-mode should Allow")
+	assert.Equal(t, DenyCIDR, f.Check(netip.MustParseAddr(neither), geo), "neither: denied under both modes")
+}
+
+// TestFilter_Check_CrossCategoryBlockAndAllow locks the current (all/AND)
+// cross-category semantics that the evaluator must preserve: a blocklist match
+// in any category denies regardless of allowlists, and blocklists across
+// categories are effectively OR (a match in either denies).
+func TestFilter_Check_CrossCategoryBlockAndAllow(t *testing.T) {
+	geo := newMockGeo(map[string]string{
+		"1.1.1.1":  "US",
+		"10.1.2.3": "US",
+		"2.2.2.2":  "CN",
+		"3.3.3.3":  "US",
+	})
+
+	t.Run("country allowlist with CIDR blocklist", func(t *testing.T) {
+		f := ParseFilter(FilterConfig{
+			AllowedCountries: []string{"US"},
+			BlockedCIDRs:     []string{"10.1.0.0/16"},
+		})
+		assert.Equal(t, Allow, f.Check(netip.MustParseAddr("1.1.1.1"), geo), "US and not in blocked CIDR")
+		assert.Equal(t, DenyCIDR, f.Check(netip.MustParseAddr("10.1.2.3"), geo), "US but in blocked CIDR, block wins")
+		assert.Equal(t, DenyCountry, f.Check(netip.MustParseAddr("2.2.2.2"), geo), "not in allowed country")
+	})
+
+	t.Run("blocklists across categories are OR", func(t *testing.T) {
+		f := ParseFilter(FilterConfig{
+			BlockedCIDRs:     []string{"10.1.0.0/16"},
+			BlockedCountries: []string{"CN"},
+		})
+		assert.Equal(t, DenyCIDR, f.Check(netip.MustParseAddr("10.1.2.3"), geo), "in blocked CIDR")
+		assert.Equal(t, DenyCountry, f.Check(netip.MustParseAddr("2.2.2.2"), geo), "in blocked country")
+		assert.Equal(t, Allow, f.Check(netip.MustParseAddr("3.3.3.3"), geo), "in neither blocklist")
+	})
+}
+
+// TestFilter_Check_AllowCIDRPlusAllowCountryDeniesGeolessLAN documents a trap
+// with all/AND mode: pairing an allowed CIDR (a private LAN) with an allowed
+// country denies the LAN source, because a private IP has no country in the
+// geo DB and an active country allowlist denies unknown countries. Under an
+// "any" mode the CIDR match alone would admit it. This is the strongest reason
+// allow-CIDR + allow-country usually wants OR, not AND.
+func TestFilter_Check_AllowCIDRPlusAllowCountryDeniesGeolessLAN(t *testing.T) {
+	geo := newMockGeo(map[string]string{}) // no entries: every lookup is unknown country
+	f := ParseFilter(FilterConfig{
+		AllowedCIDRs:     []string{"192.168.50.0/24"},
+		AllowedCountries: []string{"US"},
+	})
+
+	got := f.Check(netip.MustParseAddr("192.168.50.5"), geo)
+	assert.Equal(t, DenyCountry, got, "GAP: LAN source in allowed CIDR is denied by the country allowlist; any-mode should Allow")
+}
+
+func TestFilter_Check_AllowMatchAny(t *testing.T) {
+	bannedIP := "203.0.113.9"
+	geo := newMockGeo(map[string]string{
+		"1.1.1.1":      "US", // allowed country, outside allowed CIDR
+		"203.0.113.7":  "DE", // allowed CIDR, non-allowed country
+		"203.0.113.8":  "US", // both
+		bannedIP:       "US", // allowed CIDR, but CrowdSec-banned
+		"198.51.100.1": "CN", // neither
+		"2.2.2.2":      "CN", // blocked country, but in allowed CIDR
+	})
+
+	tests := []struct {
+		name   string
+		config FilterConfig
+		addr   string
+		geo    GeoResolver
+		want   Verdict
+	}{
+		{
+			name:   "in allowed CIDR only",
+			config: FilterConfig{AllowMatch: AllowMatchAny, AllowedCIDRs: []string{"203.0.113.0/24"}, AllowedCountries: []string{"US"}},
+			addr:   "203.0.113.7", geo: geo, want: Allow,
+		},
+		{
+			name:   "in allowed country only",
+			config: FilterConfig{AllowMatch: AllowMatchAny, AllowedCIDRs: []string{"203.0.113.0/24"}, AllowedCountries: []string{"US"}},
+			addr:   "1.1.1.1", geo: geo, want: Allow,
+		},
+		{
+			name:   "in both",
+			config: FilterConfig{AllowMatch: AllowMatchAny, AllowedCIDRs: []string{"203.0.113.0/24"}, AllowedCountries: []string{"US"}},
+			addr:   "203.0.113.8", geo: geo, want: Allow,
+		},
+		{
+			name:   "in neither",
+			config: FilterConfig{AllowMatch: AllowMatchAny, AllowedCIDRs: []string{"203.0.113.0/24"}, AllowedCountries: []string{"US"}},
+			addr:   "198.51.100.1", geo: geo, want: DenyCIDR,
+		},
+		{
+			name:   "geoless LAN admitted via CIDR (the #597 trap, fixed)",
+			config: FilterConfig{AllowMatch: AllowMatchAny, AllowedCIDRs: []string{"192.168.50.0/24"}, AllowedCountries: []string{"US"}},
+			addr:   "192.168.50.5", geo: newMockGeo(map[string]string{}), want: Allow,
+		},
+		{
+			name:   "CIDR match short-circuits geo when geo unavailable",
+			config: FilterConfig{AllowMatch: AllowMatchAny, AllowedCIDRs: []string{"203.0.113.0/24"}, AllowedCountries: []string{"US"}},
+			addr:   "203.0.113.7", geo: &unavailableGeo{}, want: Allow,
+		},
+		{
+			name:   "geo unavailable fails closed when CIDR does not match",
+			config: FilterConfig{AllowMatch: AllowMatchAny, AllowedCIDRs: []string{"203.0.113.0/24"}, AllowedCountries: []string{"US"}},
+			addr:   "1.1.1.1", geo: &unavailableGeo{}, want: DenyGeoUnavailable,
+		},
+		{
+			name:   "block gate wins over allowed CIDR (blocked country)",
+			config: FilterConfig{AllowMatch: AllowMatchAny, AllowedCIDRs: []string{"0.0.0.0/0"}, BlockedCountries: []string{"CN"}},
+			addr:   "2.2.2.2", geo: geo, want: DenyCountry,
+		},
+		{
+			name:   "block gate wins over allowed country (blocked CIDR)",
+			config: FilterConfig{AllowMatch: AllowMatchAny, AllowedCountries: []string{"US"}, BlockedCIDRs: []string{"203.0.113.0/24"}},
+			addr:   "203.0.113.8", geo: geo, want: DenyCIDR,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := ParseFilter(tc.config)
+			assert.Equal(t, tc.want, f.Check(netip.MustParseAddr(tc.addr), tc.geo))
+		})
+	}
+}
+
+func TestFilter_Check_AllowMatchAny_CrowdSecStillRuns(t *testing.T) {
+	bannedIP := "203.0.113.9"
+	cs := &mockCrowdSec{decisions: map[string]*CrowdSecDecision{bannedIP: {Type: DecisionBan}}, ready: true}
+	geo := newMockGeo(map[string]string{bannedIP: "US", "203.0.113.7": "US"})
+
+	f := ParseFilter(FilterConfig{
+		AllowMatch:   AllowMatchAny,
+		AllowedCIDRs: []string{"203.0.113.0/24"},
+		CrowdSec:     cs,
+		CrowdSecMode: CrowdSecEnforce,
+	})
+	assert.Equal(t, DenyCrowdSecBan, f.Check(netip.MustParseAddr(bannedIP), geo), "CrowdSec ban denies even when allowlist admits")
+	assert.Equal(t, Allow, f.Check(netip.MustParseAddr("203.0.113.7"), geo), "clean IP in allowed CIDR is allowed")
+}
+
+func TestFilter_Check_UnknownAllowMatchDefaultsToAll(t *testing.T) {
+	// An unrecognized allow-combine mode must fall back to the restrictive
+	// AND default, never loosen access.
+	geo := newMockGeo(map[string]string{"203.0.113.7": "DE"})
+	f := ParseFilter(FilterConfig{
+		AllowMatch:       AllowMatch("bogus"),
+		AllowedCIDRs:     []string{"203.0.113.0/24"},
+		AllowedCountries: []string{"US"},
+	})
+	assert.Equal(t, AllowMatchAll, f.AllowMatch, "unknown mode normalizes to all")
+	assert.Equal(t, DenyCountry, f.Check(netip.MustParseAddr("203.0.113.7"), geo), "AND semantics: in CIDR but wrong country denied")
+}
+
 func TestParseFilter_Empty(t *testing.T) {
 	f := ParseFilter(FilterConfig{})
 	assert.Nil(t, f)
