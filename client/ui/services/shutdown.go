@@ -2,16 +2,23 @@ package services
 
 import "sync/atomic"
 
-var shuttingDown atomic.Bool
+var (
+	sessionEnding atomic.Bool
+	quitting      atomic.Bool
+)
 
-func BeginShutdown() {
-	shuttingDown.Store(true)
+func BeginSessionEnd() {
+	sessionEnding.Store(true)
 }
 
-func AbortShutdown() {
-	shuttingDown.Store(false)
+func AbortSessionEnd() {
+	sessionEnding.Store(false)
+}
+
+func BeginShutdown() {
+	quitting.Store(true)
 }
 
 func ShuttingDown() bool {
-	return shuttingDown.Load()
+	return sessionEnding.Load() || quitting.Load()
 }

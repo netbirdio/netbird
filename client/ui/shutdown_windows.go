@@ -19,11 +19,11 @@ func endSessionInterceptor() func(hwnd uintptr, msg uint32, wParam, lParam uintp
 	return func(_ uintptr, msg uint32, wParam, _ uintptr) (uintptr, bool) {
 		switch msg {
 		case wmQueryEndSession:
-			services.BeginShutdown()
+			services.BeginSessionEnd()
 			return 1, true
 		case wmEndSession:
 			if wParam == 0 {
-				services.AbortShutdown()
+				services.AbortSessionEnd()
 				return 0, true
 			}
 			log.Info("windows session is ending; exiting immediately")
