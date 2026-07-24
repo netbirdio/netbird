@@ -45,6 +45,10 @@ type OfferAnswer struct {
 	// when the peer does not run the ML-KEM PQ exchange.
 	MlkemPayload []byte
 
+	// MlkemPort is the peer's ML-KEM PQ service UDP port (bound on its WG overlay
+	// IP) where data-path rekey messages are sent. Zero when not running the exchange.
+	MlkemPort int
+
 	// relay server address
 	RelaySrvAddress string
 	// RelaySrvIP is the IP the remote peer is connected to on its
