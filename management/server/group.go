@@ -10,6 +10,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/affectedpeers"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
@@ -744,6 +745,10 @@ func validateDeleteGroup(ctx context.Context, transaction store.Store, group *ty
 		return &GroupLinkError{"network router", linkedRouter.ID}
 	}
 
+	if isLinked, linkedService := isGroupLinkedToService(ctx, transaction, group.AccountID, group.ID); isLinked {
+		return &GroupLinkError{"service", linkedService.Name}
+	}
+
 	return checkGroupLinkedToSettings(ctx, transaction, group)
 }
 
@@ -872,6 +877,23 @@ func isGroupLinkedToNetworkRouter(ctx context.Context, transaction store.Store, 
 			return true, router
 		}
 	}
+	return false, nil
+}
+
+// isGroupLinkedToService checks if a group is linked to any reverse proxy service in the account.
+func isGroupLinkedToService(ctx context.Context, transaction store.Store, accountID string, groupID string) (bool, *service.Service) {
+	services, err := transaction.GetAccountServices(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("error retrieving services while checking group linkage: %v", err)
+		return false, nil
+	}
+
+	for _, svc := range services {
+		if slices.Contains(svc.AccessGroups, groupID) {
+			return true, svc
+		}
+	}
+
 	return false, nil
 }
 
