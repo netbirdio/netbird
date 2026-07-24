@@ -166,15 +166,17 @@ func (m *Middleware) Invoke(_ context.Context, in *middleware.Input) (*middlewar
 	return out, nil
 }
 
-// auditLogger returns the proxy logger when warn-level logging is enabled,
-// nil otherwise. Cost-audit logging is emitted at WARN so it is visible on
-// default production log levels while the cost pipeline is being verified.
+// auditLogger returns the logger the cost-audit lines are emitted on. The
+// lines carry WARN severity so they surface on default production log
+// levels, but emission is not gated on any level check here — filtering is
+// left entirely to the logger's own configuration. Falls back to the
+// process-wide standard logger when the middleware context carries none, so
+// the audit trail never silently disappears.
 func auditLogger() *log.Logger {
-	logger := builtin.Context().Logger
-	if logger == nil || !logger.IsLevelEnabled(log.WarnLevel) {
-		return nil
+	if logger := builtin.Context().Logger; logger != nil {
+		return logger
 	}
-	return logger
+	return log.StandardLogger()
 }
 
 // skip returns a single-entry metadata slice carrying the given skip

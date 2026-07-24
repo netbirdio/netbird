@@ -169,10 +169,8 @@ func (t *Table) Cost(provider, model string, inTokens, outTokens, cachedInput, c
 		nonCached := float64(inTokens-clamped) / 1000.0 * entry.InputPer1K
 		cached := float64(clamped) / 1000.0 * cachedRate
 		total := nonCached + cached + output
-		if log.IsLevelEnabled(log.WarnLevel) {
-			log.Warnf("pricing %s/%s: non_cached_input %d/1000×$%v=$%.6f + cached_input %d/1000×$%v=$%.6f + output %d/1000×$%v=$%.6f => $%.6f",
-				provider, model, inTokens-clamped, entry.InputPer1K, nonCached, clamped, cachedRate, cached, outTokens, entry.OutputPer1K, output, total)
-		}
+		log.Warnf("pricing %s/%s: non_cached_input %d/1000×$%v=$%.6f + cached_input %d/1000×$%v=$%.6f + output %d/1000×$%v=$%.6f => $%.6f",
+			provider, model, inTokens-clamped, entry.InputPer1K, nonCached, clamped, cachedRate, cached, outTokens, entry.OutputPer1K, output, total)
 		return total, true
 	case "anthropic", "bedrock":
 		// Bedrock-Anthropic returns the same additive cache buckets as
@@ -190,18 +188,14 @@ func (t *Table) Cost(provider, model string, inTokens, outTokens, cachedInput, c
 		read := float64(cachedInput) / 1000.0 * readRate
 		create := float64(cacheCreation) / 1000.0 * createRate
 		total := input + read + create + output
-		if log.IsLevelEnabled(log.WarnLevel) {
-			log.Warnf("pricing %s/%s: input %d/1000×$%v=$%.6f + cache_read %d/1000×$%v=$%.6f + cache_creation %d/1000×$%v=$%.6f + output %d/1000×$%v=$%.6f => $%.6f",
-				provider, model, inTokens, entry.InputPer1K, input, cachedInput, readRate, read, cacheCreation, createRate, create, outTokens, entry.OutputPer1K, output, total)
-		}
+		log.Warnf("pricing %s/%s: input %d/1000×$%v=$%.6f + cache_read %d/1000×$%v=$%.6f + cache_creation %d/1000×$%v=$%.6f + output %d/1000×$%v=$%.6f => $%.6f",
+			provider, model, inTokens, entry.InputPer1K, input, cachedInput, readRate, read, cacheCreation, createRate, create, outTokens, entry.OutputPer1K, output, total)
 		return total, true
 	default:
 		input := float64(inTokens) / 1000.0 * entry.InputPer1K
 		total := input + output
-		if log.IsLevelEnabled(log.WarnLevel) {
-			log.Warnf("pricing %s/%s: input %d/1000×$%v=$%.6f + output %d/1000×$%v=$%.6f => $%.6f",
-				provider, model, inTokens, entry.InputPer1K, input, outTokens, entry.OutputPer1K, output, total)
-		}
+		log.Warnf("pricing %s/%s: input %d/1000×$%v=$%.6f + output %d/1000×$%v=$%.6f => $%.6f",
+			provider, model, inTokens, entry.InputPer1K, input, outTokens, entry.OutputPer1K, output, total)
 		return total, true
 	}
 }
