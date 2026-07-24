@@ -881,6 +881,7 @@ volumes:
 
 networks:
   netbird:
+    name: netbird
     driver: bridge
     ipam:
       config:
@@ -1015,7 +1016,7 @@ EOF
 
 render_docker_compose_traefik() {
   local network_name="${TRAEFIK_EXTERNAL_NETWORK:-netbird}"
-  local network_config=""
+  local network_config="    name: netbird"
   if [[ -n "$TRAEFIK_EXTERNAL_NETWORK" ]]; then
     network_config="    external: true"
   fi
@@ -1100,13 +1101,15 @@ render_docker_compose_exposed_ports() {
   local bind_addr=$(get_bind_address)
   local networks="[netbird]"
   local networks_config="networks:
-  netbird:"
+  netbird:
+    name: netbird"
 
   # If an external network is specified, add it and include in service networks
   if [[ -n "$EXTERNAL_PROXY_NETWORK" ]]; then
     networks="[netbird, $EXTERNAL_PROXY_NETWORK]"
     networks_config="networks:
   netbird:
+    name: netbird
   $EXTERNAL_PROXY_NETWORK:
     external: true"
   fi
