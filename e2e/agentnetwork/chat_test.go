@@ -9,11 +9,82 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/e2e/harness"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 )
+
+// publishedPer1k carries the vendors' PUBLISHED per-1k-token USD rates for the
+// models the live matrix can drive, keyed by the normalized model id the proxy
+// stamps on the access-log row. These are intentionally hardcoded from the
+// public price lists (not read from the proxy's pricing table) so the e2e run
+// cross-checks the whole billing pipeline against an independent source: a
+// wrong embedded rate, a broken model normalization, or a per-token-instead-of
+// -per-1k-chunk regression (a 1000× blowup) all fail the assertion.
+var publishedPer1k = map[string]struct{ in, out float64 }{
+	"gpt-4o-mini":                 {0.00015, 0.0006}, // $0.15 / $0.60 per MTok
+	"gpt-4o":                      {0.0025, 0.01},    // $2.50 / $10 per MTok
+	"claude-haiku-4-5":            {0.001, 0.005},    // $1 / $5 per MTok
+	"claude-sonnet-4-5":           {0.003, 0.015},    // $3 / $15 per MTok
+	"claude-sonnet-4-6":           {0.003, 0.015},
+	"kimi-k3":                     {0.003, 0.015},
+	"anthropic.claude-haiku-4-5":  {0.001, 0.005}, // Bedrock mirrors first-party rates
+	"anthropic.claude-sonnet-4-5": {0.003, 0.015},
+	"anthropic.claude-sonnet-4-6": {0.003, 0.015},
+}
+
+// validateAccessLogCost recomputes the expected USD cost of a live access-log
+// row from the published per-1k rates and asserts the stored cost_usd matches.
+//
+// Anthropic-shape providers report prompt-cache buckets ADDITIVELY: they are
+// billed (read ≈0.1×, write ≈1.25× the input rate) and folded into
+// total_tokens, but not into input_tokens/output_tokens — so when
+// total > in + out the expectation widens to the [all-read, all-write] band
+// for the extra tokens instead of failing on correct cache billing.
+//
+// Models the proxy deliberately does not price (gateway-prefixed ids like
+// "openai/gpt-4o-mini") must store cost 0, never a guessed rate.
+func validateAccessLogCost(t *testing.T, pc providerCase, row api.AgentNetworkAccessLog) {
+	t.Helper()
+	model := catalogModel(pc)
+	rates, known := publishedPer1k[model]
+	if !known {
+		if strings.Contains(model, "/") {
+			assert.Zerof(t, row.CostUsd,
+				"gateway-prefixed model %q is not in the pricing table so the cost meter must skip (cost 0), got %v", model, row.CostUsd)
+			return
+		}
+		t.Logf("no published rate on file for model %q (env-overridden?); skipping cost validation", model)
+		return
+	}
+
+	require.Positive(t, row.InputTokens, "priced row must carry input tokens")
+	require.Positive(t, row.OutputTokens, "priced row must carry output tokens")
+
+	base := float64(row.InputTokens)/1000*rates.in + float64(row.OutputTokens)/1000*rates.out
+
+	// Cache buckets ride total_tokens only (additive Anthropic/Bedrock shape).
+	cacheTokens := row.TotalTokens - row.InputTokens - row.OutputTokens
+	if cacheTokens < 0 {
+		cacheTokens = 0
+	}
+
+	if cacheTokens == 0 {
+		assert.InDeltaf(t, base, row.CostUsd, 1e-6,
+			"cost for %s (%s): %d in × $%v/1k + %d out × $%v/1k must equal the stored cost",
+			pc.name, model, row.InputTokens, rates.in, row.OutputTokens, rates.out)
+		return
+	}
+
+	lo := base + float64(cacheTokens)/1000*rates.in*0.1  // whole bucket read from cache
+	hi := base + float64(cacheTokens)/1000*rates.in*1.25 // whole bucket written to cache
+	assert.GreaterOrEqualf(t, row.CostUsd, lo-1e-6,
+		"cost for %s (%s) below the all-cache-read floor (base %v, %d cache tokens)", pc.name, model, base, cacheTokens)
+	assert.LessOrEqualf(t, row.CostUsd, hi+1e-6,
+		"cost for %s (%s) above the all-cache-write ceiling (base %v, %d cache tokens)", pc.name, model, base, cacheTokens)
+}
 
 // providerCase is one entry in the live provider matrix. The same scenario runs
 // for every available provider; availability is keyed off env vars so the suite
@@ -290,6 +361,7 @@ func TestProvidersMatrix(t *testing.T) {
 
 			// The session id sent as x-session-id must round-trip into the
 			// access-log row for this provider.
+			var row api.AgentNetworkAccessLog
 			require.Eventually(t, func() bool {
 				logs, lerr := srv.ListAccessLogs(ctx)
 				if lerr != nil {
@@ -297,11 +369,17 @@ func TestProvidersMatrix(t *testing.T) {
 				}
 				for _, r := range logs.Data {
 					if r.SessionId != nil && *r.SessionId == sessionID {
+						row = r
 						return true
 					}
 				}
 				return false
 			}, 30*time.Second, 2*time.Second, "session id %q must be recorded in an access-log row for %s", sessionID, pc.name)
+
+			// The stored cost must match the vendor's published per-1k rates
+			// applied to the row's token counts (cache-aware for the additive
+			// Anthropic/Bedrock buckets, zero for unpriced gateway model ids).
+			validateAccessLogCost(t, pc, row)
 		})
 	}
 

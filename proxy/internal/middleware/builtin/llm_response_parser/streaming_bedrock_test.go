@@ -66,6 +66,26 @@ func TestAccumulateBedrockStream_Converse(t *testing.T) {
 	require.Equal(t, "pong", completion, "converse text deltas concatenated")
 }
 
+// TestAccumulateBedrockStream_ConverseCacheBuckets proves the converse-stream
+// metadata frame's camelCase cache fields reach the billed cache buckets, same
+// as the InvokeModel wrapped Anthropic events.
+func TestAccumulateBedrockStream_ConverseCacheBuckets(t *testing.T) {
+	var body bytes.Buffer
+	body.Write(bedrockFrame(t, "contentBlockDelta", mustJSON(t, map[string]any{"delta": map[string]any{"text": "pong"}})))
+	body.Write(bedrockFrame(t, "metadata", mustJSON(t, map[string]any{"usage": map[string]any{
+		"inputTokens": 11, "outputTokens": 3, "totalTokens": 30,
+		"cacheReadInputTokens": 7, "cacheWriteInputTokens": 9,
+	}})))
+
+	usage, completion := accumulateBedrockStream(body.Bytes())
+	require.Equal(t, int64(11), usage.InputTokens, "input tokens from metadata frame")
+	require.Equal(t, int64(3), usage.OutputTokens, "output tokens from metadata frame")
+	require.Equal(t, int64(7), usage.CachedInputTokens, "cache-read tokens from metadata frame")
+	require.Equal(t, int64(9), usage.CacheCreationTokens, "cache-write tokens from metadata frame")
+	require.Equal(t, int64(30), usage.TotalTokens, "provider-reported total wins")
+	require.Equal(t, "pong", completion)
+}
+
 func TestAccumulateBedrockStream_Truncated(t *testing.T) {
 	// A body cut mid-frame must not panic; partial usage is returned.
 	full := bedrockFrame(t, "metadata", mustJSON(t, map[string]any{"usage": map[string]any{"inputTokens": 11, "outputTokens": 3}}))

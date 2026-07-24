@@ -26,6 +26,21 @@ func TestBedrockParser_ParseResponse_Converse(t *testing.T) {
 	require.Equal(t, int64(14), u.TotalTokens, "converse uses provider total")
 }
 
+// TestBedrockParser_ParseResponse_ConverseCacheBuckets proves the Converse
+// camelCase cache fields (cacheReadInputTokens / cacheWriteInputTokens) land
+// in the same Usage buckets as the InvokeModel snake_case fields — the cost
+// meter bills them, so dropping them silently under-counts cached requests.
+func TestBedrockParser_ParseResponse_ConverseCacheBuckets(t *testing.T) {
+	body := []byte(`{"usage":{"inputTokens":11,"outputTokens":3,"cacheReadInputTokens":7,"cacheWriteInputTokens":9}}`)
+	u, err := BedrockParser{}.ParseResponse(200, "application/json", body)
+	require.NoError(t, err)
+	require.Equal(t, int64(11), u.InputTokens, "converse input tokens")
+	require.Equal(t, int64(3), u.OutputTokens, "converse output tokens")
+	require.Equal(t, int64(7), u.CachedInputTokens, "converse cache-read tokens")
+	require.Equal(t, int64(9), u.CacheCreationTokens, "converse cache-write tokens")
+	require.Equal(t, int64(11+3+7+9), u.TotalTokens, "total backfill is additive when the provider omits totalTokens")
+}
+
 func TestBedrockParser_ParseResponse_StreamingUnsupported(t *testing.T) {
 	_, err := BedrockParser{}.ParseResponse(200, "application/vnd.amazon.eventstream", []byte("binary"))
 	require.ErrorIs(t, err, ErrStreamingUnsupported, "event-stream must route to the streaming accumulator")

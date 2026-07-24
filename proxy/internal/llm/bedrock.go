@@ -56,10 +56,14 @@ type bedrockResponse struct {
 		OutputTokens             int64 `json:"output_tokens"`
 		CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
 		CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
-		// Converse — camelCase.
-		InputTokensCamel  int64 `json:"inputTokens"`
-		OutputTokensCamel int64 `json:"outputTokens"`
-		TotalTokensCamel  int64 `json:"totalTokens"`
+		// Converse — camelCase. Cache buckets are additive to inputTokens,
+		// mirroring the InvokeModel snake_case fields above (AWS names the
+		// write bucket cacheWriteInputTokens).
+		InputTokensCamel      int64 `json:"inputTokens"`
+		OutputTokensCamel     int64 `json:"outputTokens"`
+		TotalTokensCamel      int64 `json:"totalTokens"`
+		CacheReadTokensCamel  int64 `json:"cacheReadInputTokens"`
+		CacheWriteTokensCamel int64 `json:"cacheWriteInputTokens"`
 	} `json:"usage"`
 }
 
@@ -83,16 +87,18 @@ func (BedrockParser) ParseResponse(status int, contentType string, body []byte) 
 	}
 	inTok := firstNonZero(resp.Usage.InputTokens, resp.Usage.InputTokensCamel)
 	outTok := firstNonZero(resp.Usage.OutputTokens, resp.Usage.OutputTokensCamel)
+	cacheRead := firstNonZero(resp.Usage.CacheReadInputTokens, resp.Usage.CacheReadTokensCamel)
+	cacheWrite := firstNonZero(resp.Usage.CacheCreationInputTokens, resp.Usage.CacheWriteTokensCamel)
 	total := resp.Usage.TotalTokensCamel
 	if total == 0 {
-		total = inTok + outTok + resp.Usage.CacheReadInputTokens + resp.Usage.CacheCreationInputTokens
+		total = inTok + outTok + cacheRead + cacheWrite
 	}
 	return Usage{
 		InputTokens:         inTok,
 		OutputTokens:        outTok,
 		TotalTokens:         total,
-		CachedInputTokens:   resp.Usage.CacheReadInputTokens,
-		CacheCreationTokens: resp.Usage.CacheCreationInputTokens,
+		CachedInputTokens:   cacheRead,
+		CacheCreationTokens: cacheWrite,
 	}, nil
 }
 

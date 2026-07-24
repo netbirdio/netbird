@@ -69,15 +69,19 @@ func applyBedrockInvokeChunk(payload []byte, usage *llm.Usage, completion *strin
 }
 
 // converseStreamEvent captures the Converse stream frames carrying completion
-// text (contentBlockDelta) and the final token usage (metadata).
+// text (contentBlockDelta) and the final token usage (metadata). The cache
+// buckets are additive to inputTokens, same as the InvokeModel snake_case
+// shape (AWS names the write bucket cacheWriteInputTokens).
 type converseStreamEvent struct {
 	Delta *struct {
 		Text string `json:"text"`
 	} `json:"delta"`
 	Usage *struct {
-		InputTokens  int64 `json:"inputTokens"`
-		OutputTokens int64 `json:"outputTokens"`
-		TotalTokens  int64 `json:"totalTokens"`
+		InputTokens      int64 `json:"inputTokens"`
+		OutputTokens     int64 `json:"outputTokens"`
+		TotalTokens      int64 `json:"totalTokens"`
+		CacheReadTokens  int64 `json:"cacheReadInputTokens"`
+		CacheWriteTokens int64 `json:"cacheWriteInputTokens"`
 	} `json:"usage"`
 }
 
@@ -104,6 +108,12 @@ func applyConverseStreamEvent(eventType string, payload []byte, usage *llm.Usage
 			}
 			if ev.Usage.TotalTokens > 0 {
 				usage.TotalTokens = ev.Usage.TotalTokens
+			}
+			if ev.Usage.CacheReadTokens > 0 {
+				usage.CachedInputTokens = ev.Usage.CacheReadTokens
+			}
+			if ev.Usage.CacheWriteTokens > 0 {
+				usage.CacheCreationTokens = ev.Usage.CacheWriteTokens
 			}
 		}
 	}
