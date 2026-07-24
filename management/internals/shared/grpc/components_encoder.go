@@ -81,6 +81,7 @@ func EncodeNetworkMapEnvelope(in ComponentsEnvelopeInput) *proto.NetworkMapEnvel
 	enc := newComponentEncoder(c)
 	enc.indexAllPeers()
 	routerIdxs := enc.indexRouterPeers(c.RouterPeers)
+	enc.indexAllNetworkResources()
 
 	// Phase 2: gather every policy that any consumer references (peer-pair
 	// policies + resource-only policies) so encodeResourcePoliciesMap can
@@ -102,7 +103,6 @@ func EncodeNetworkMapEnvelope(in ComponentsEnvelopeInput) *proto.NetworkMapEnvel
 		DnsSettings:         enc.encodeDNSSettings(c.DNSSettings),
 		DnsDomain:           in.DNSDomain,
 		CustomZoneDomain:    c.CustomZoneDomain,
-		AgentVersions:       enc.agentVersions,
 		Peers:               enc.peers,
 		RouterPeerIndexes:   routerIdxs,
 		Policies:            policies,
@@ -140,16 +140,15 @@ type componentEncoder struct {
 	peerOrder map[string]uint32
 	peers     []*proto.PeerCompact
 
-	agentVersionOrder map[string]uint32
-	agentVersions     []string
+	networkIdToPublicId map[string]string
 }
 
 func newComponentEncoder(c *types.NetworkMapComponents) *componentEncoder {
 	return &componentEncoder{
-		components:        c,
-		peerOrder:         make(map[string]uint32, len(c.Peers)),
-		peers:             make([]*proto.PeerCompact, 0, len(c.Peers)),
-		agentVersionOrder: make(map[string]uint32),
+		components:          c,
+		peerOrder:           make(map[string]uint32, len(c.Peers)),
+		peers:               make([]*proto.PeerCompact, 0, len(c.Peers)),
+		networkIdToPublicId: make(map[string]string),
 	}
 }
 
@@ -190,6 +189,15 @@ func (e *componentEncoder) indexRouterPeers(routers map[string]*nmdata.Peer) []u
 	return out
 }
 
+func (e *componentEncoder) indexAllNetworkResources() {
+	for _, r := range e.components.NetworkResources {
+		if !r.Enabled {
+			continue
+		}
+		e.networkIdToPublicId[r.ID] = r.PublicID
+	}
+}
+
 func (e *componentEncoder) encodeGroups() []*proto.GroupCompact {
 	if len(e.components.Groups) == 0 {
 		return nil
@@ -203,10 +211,20 @@ func (e *componentEncoder) encodeGroups() []*proto.GroupCompact {
 				peerIdxs = append(peerIdxs, idx)
 			}
 		}
+
+		groupCompactResources := func() []*proto.ResourceCompact {
+			var toret []*proto.ResourceCompact
+			for _, r := range g.Resources {
+				toret = append(toret, e.resourceToProto(r))
+			}
+			return toret
+		}
+
 		out = append(out, &proto.GroupCompact{
 			Id:          g.PublicID,
 			PeerIndexes: peerIdxs,
 			IsAll:       g.IsGroupAll(),
+			Resources:   groupCompactResources(),
 		})
 	}
 	return out
@@ -343,17 +361,30 @@ func (e *componentEncoder) groupPublicXid(groupID string) (string, bool) {
 // today (Calculate's resource-typed rule path consults SourceResource only
 // for "peer" — other types fall through to group-based lookup).
 func (e *componentEncoder) resourceToProto(r nmdata.Resource) *proto.ResourceCompact {
-	if r.ID == "" && r.Type == "" {
+	t, ok := proto.ResourceCompactType_value[string(r.Type)]
+	if !ok || t == 0 || r.ID == "" {
 		return nil
 	}
-	out := &proto.ResourceCompact{Type: r.Type}
-	if r.Type == string(types.ResourceTypePeer) && r.ID != "" {
-		if idx, ok := e.peerOrder[r.ID]; ok {
-			out.PeerIndexSet = true
-			out.PeerIndex = idx
+	if t == int32(proto.ResourceCompactType_peer) {
+		idx, ok := e.peerOrder[r.ID]
+		if !ok {
+			return nil
+		}
+		return &proto.ResourceCompact{
+			Type:       proto.ResourceCompactType_peer,
+			ResourceId: &proto.ResourceCompact_PeerIndex{PeerIndex: idx},
 		}
 	}
-	return out
+
+	publicID, ok := e.networkIdToPublicId[r.ID]
+	if !ok {
+		return nil
+	}
+
+	return &proto.ResourceCompact{
+		Type:       proto.ResourceCompactType(t),
+		ResourceId: &proto.ResourceCompact_Id{Id: publicID},
+	}
 }
 
 // postureCheckSeqs translates a slice of posture-check xids to their

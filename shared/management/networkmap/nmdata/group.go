@@ -6,9 +6,10 @@ const groupAllName = "All"
 
 // Group is the slim twin of types.Group.
 type Group struct {
-	Name     string
-	PublicID string
-	Peers    []string
+	Name      string
+	PublicID  string
+	Peers     []string
+	Resources []Resource
 }
 
 func (g *Group) IsGroupAll() bool {

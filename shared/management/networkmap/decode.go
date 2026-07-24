@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"slices"
 	"strconv"
 	"time"
 
@@ -98,9 +99,21 @@ func DecodeEnvelope(env *proto.NetworkMapEnvelope) (*types.NetworkMapComponents,
 				log.WithField("peer idx", idx).Error("unrecognized peer idx during decoding")
 			}
 		}
+
+		fromCompactResources := func() []nmdata.Resource {
+			var toret []nmdata.Resource
+
+			for _, r := range gc.Resources {
+				toret = append(toret, resourceFromProto(r, peerIDByIndex))
+			}
+
+			return toret
+		}
+
 		group := &nmdata.Group{
-			PublicID: gc.Id,
-			Peers:    peerIDs,
+			PublicID:  gc.Id,
+			Peers:     peerIDs,
+			Resources: fromCompactResources(),
 		}
 		if gc.IsAll {
 			group.Name = types.GroupAllName
@@ -190,6 +203,15 @@ func DecodeEnvelope(env *proto.NetworkMapEnvelope) (*types.NetworkMapComponents,
 		}
 	}
 
+	// Phase 8: rebuild resource_policies_map
+	for _, r := range c.NetworkResources {
+		policies := policiesForNetworkResource(r.ID, c.Policies, c.Groups)
+		if len(policies) == 0 {
+			continue
+		}
+		c.ResourcePoliciesMap[r.ID] = policies
+	}
+
 	// Phase 9: group_id_to_user_ids — wire keys are seq ids, synth to strings.
 	for groupId, list := range full.GroupIdToUserIds {
 		c.GroupIDToUserIDs[groupId] = append([]string(nil), list.UserIds...)
@@ -223,6 +245,43 @@ func DecodeEnvelope(env *proto.NetworkMapEnvelope) (*types.NetworkMapComponents,
 	}
 
 	return c, nil
+}
+
+func networkResourceGroups(resourceId string, groups map[string]*nmdata.Group) []string {
+	var toret []string
+	for _, group := range groups {
+		for _, resource := range group.Resources {
+			if resource.ID == resourceId {
+				toret = append(toret, group.PublicID)
+			}
+		}
+	}
+	return toret
+}
+
+func policiesForNetworkResource(resourceId string, allPolicies []*nmdata.Policy, groups map[string]*nmdata.Group) []*nmdata.Policy {
+	var toret []*nmdata.Policy
+
+	networkResourceGroups := networkResourceGroups(resourceId, groups)
+	for _, p := range allPolicies {
+		if p == nil || !p.Enabled {
+			continue
+		}
+
+		// there's always only one rule in each policy
+		if p.Rules[0].DestinationResource.ID == resourceId {
+			toret = append(toret, p)
+			continue
+		}
+		for _, groupId := range networkResourceGroups {
+			if slices.Contains(p.Rules[0].Destinations, groupId) {
+				toret = append(toret, p)
+				break
+			}
+		}
+	}
+
+	return toret
 }
 
 func decodeAccountNetwork(an *proto.AccountNetwork) *nmdata.Network {
@@ -341,11 +400,27 @@ func resourceFromProto(r *proto.ResourceCompact, peerIDByIndex []string) nmdata.
 	if r == nil {
 		return nmdata.Resource{}
 	}
-	out := nmdata.Resource{Type: r.Type}
-	if r.PeerIndexSet && int(r.PeerIndex) < len(peerIDByIndex) {
-		out.ID = peerIDByIndex[r.PeerIndex]
+
+	t, ok := proto.ResourceCompactType_name[int32(r.Type)]
+	if !ok || r.Type == proto.ResourceCompactType_unknown_type {
+		return nmdata.Resource{}
 	}
-	return out
+
+	if r.Type == proto.ResourceCompactType_peer && int(r.GetPeerIndex()) >= len(peerIDByIndex) {
+		return nmdata.Resource{}
+	}
+
+	if r.Type == proto.ResourceCompactType_peer && int(r.GetPeerIndex()) < len(peerIDByIndex) {
+		return nmdata.Resource{
+			Type: "peer",
+			ID:   peerIDByIndex[int(r.GetPeerIndex())],
+		}
+	}
+
+	return nmdata.Resource{
+		Type: t,
+		ID:   r.GetId(),
+	}
 }
 
 // authorizedGroupsFromProto inverts encodeAuthorizedGroups: the wire form
