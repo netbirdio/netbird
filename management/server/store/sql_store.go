@@ -2259,7 +2259,7 @@ func (s *SqlStore) getPostureChecks(ctx context.Context, accountID string) ([]*p
 }
 
 func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpservice.Service, error) {
-	const serviceQuery = `SELECT id, account_id, name, domain, enabled, auth,
+	const serviceQuery = `SELECT id, account_id, name, domain, enabled, auth, restrictions,
 		meta_created_at, meta_certificate_issued_at, meta_status, proxy_cluster,
 		pass_host_header, rewrite_redirects, session_private_key, session_public_key,
 		mode, listen_port, port_auto_assigned, source, source_peer, terminated,
@@ -2278,6 +2278,7 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpserv
 	services, err := pgx.CollectRows(serviceRows, func(row pgx.CollectableRow) (*rpservice.Service, error) {
 		var s rpservice.Service
 		var auth []byte
+		var restrictions []byte
 		var accessGroups []byte
 		var createdAt, certIssuedAt sql.NullTime
 		var status, proxyCluster, sessionPrivateKey, sessionPublicKey sql.NullString
@@ -2291,6 +2292,7 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpserv
 			&s.Domain,
 			&s.Enabled,
 			&auth,
+			&restrictions,
 			&createdAt,
 			&certIssuedAt,
 			&status,
@@ -2315,6 +2317,12 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpserv
 		if auth != nil {
 			if err := json.Unmarshal(auth, &s.Auth); err != nil {
 				return nil, err
+			}
+		}
+
+		if len(restrictions) > 0 {
+			if err := json.Unmarshal(restrictions, &s.Restrictions); err != nil {
+				return nil, fmt.Errorf("unmarshal restrictions: %w", err)
 			}
 		}
 
