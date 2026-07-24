@@ -26,6 +26,25 @@ func newInput(meta ...middleware.KV) *middleware.Input {
 	return &middleware.Input{Slot: middleware.SlotOnRequest, Metadata: meta}
 }
 
+const (
+	testProvider  = "prov-1"
+	otherProvider = "prov-2"
+)
+
+// providerCfg builds a Config restricting testProvider to the given models.
+func providerCfg(models ...string) Config {
+	return Config{ProviderAllowlists: map[string][]string{testProvider: models}}
+}
+
+// newInputProvider builds an input that carries a resolved provider id (as
+// llm_router would stamp) plus any extra metadata.
+func newInputProvider(provider string, meta ...middleware.KV) *middleware.Input {
+	all := make([]middleware.KV, 0, len(meta)+1)
+	all = append(all, middleware.KV{Key: middleware.KeyLLMResolvedProviderID, Value: provider})
+	all = append(all, meta...)
+	return &middleware.Input{Slot: middleware.SlotOnRequest, Metadata: all}
+}
+
 func TestMiddlewareIdentity(t *testing.T) {
 	mw := New(Config{})
 	assert.Equal(t, ID, mw.ID(), "middleware ID must be llm_guardrail")
@@ -47,12 +66,12 @@ func TestMiddlewareIdentity(t *testing.T) {
 
 func TestAllowlistEmptyAllowsAnyModel(t *testing.T) {
 	mw := New(Config{})
-	out, err := mw.Invoke(context.Background(), newInput(
+	out, err := mw.Invoke(context.Background(), newInputProvider(testProvider,
 		middleware.KV{Key: middleware.KeyLLMModel, Value: "gpt-4o"},
 	))
 	require.NoError(t, err)
 	require.NotNil(t, out)
-	assert.Equal(t, middleware.DecisionAllow, out.Decision, "empty allowlist must allow any model")
+	assert.Equal(t, middleware.DecisionAllow, out.Decision, "no provider allowlists must allow any model")
 	v, ok := metaValue(t, out.Metadata, middleware.KeyLLMPolicyDecision)
 	require.True(t, ok, "decision metadata must be emitted")
 	assert.Equal(t, "allow", v, "decision must be allow")
@@ -62,8 +81,8 @@ func TestAllowlistEmptyAllowsAnyModel(t *testing.T) {
 }
 
 func TestAllowlistMatchAllows(t *testing.T) {
-	mw := New(Config{ModelAllowlist: []string{"gpt-4o", "claude-opus-4"}})
-	out, err := mw.Invoke(context.Background(), newInput(
+	mw := New(providerCfg("gpt-4o", "claude-opus-4"))
+	out, err := mw.Invoke(context.Background(), newInputProvider(testProvider,
 		middleware.KV{Key: middleware.KeyLLMModel, Value: "gpt-4o"},
 	))
 	require.NoError(t, err)
@@ -71,8 +90,8 @@ func TestAllowlistMatchAllows(t *testing.T) {
 }
 
 func TestAllowlistMissDenies(t *testing.T) {
-	mw := New(Config{ModelAllowlist: []string{"gpt-4o"}})
-	out, err := mw.Invoke(context.Background(), newInput(
+	mw := New(providerCfg("gpt-4o"))
+	out, err := mw.Invoke(context.Background(), newInputProvider(testProvider,
 		middleware.KV{Key: middleware.KeyLLMModel, Value: "claude-opus-4"},
 	))
 	require.NoError(t, err)
@@ -91,10 +110,10 @@ func TestAllowlistMissDenies(t *testing.T) {
 }
 
 func TestAllowlistCaseInsensitive(t *testing.T) {
-	mw := New(Config{ModelAllowlist: []string{"  GPT-4o  ", "Claude-OPUS-4"}})
+	mw := New(providerCfg("  GPT-4o  ", "Claude-OPUS-4"))
 	cases := []string{"gpt-4o", "GPT-4O", "  claude-opus-4 "}
 	for _, model := range cases {
-		out, err := mw.Invoke(context.Background(), newInput(
+		out, err := mw.Invoke(context.Background(), newInputProvider(testProvider,
 			middleware.KV{Key: middleware.KeyLLMModel, Value: model},
 		))
 		require.NoError(t, err)
@@ -103,14 +122,15 @@ func TestAllowlistCaseInsensitive(t *testing.T) {
 }
 
 func TestAllowlistMissingModelKeyDenies(t *testing.T) {
-	// Fail closed: with an allowlist configured, a request whose model the
-	// parser could not extract (URL/path-routed providers such as Bedrock or
-	// Vertex whose shape wasn't recognised) must be denied, not allowed.
-	mw := New(Config{ModelAllowlist: []string{"gpt-4o"}})
-	out, err := mw.Invoke(context.Background(), newInput())
+	// Fail closed: with an allowlist in effect for the resolved provider, a
+	// request whose model the parser could not extract (URL/path-routed
+	// providers such as Bedrock or Vertex whose shape wasn't recognised) must be
+	// denied, not allowed.
+	mw := New(providerCfg("gpt-4o"))
+	out, err := mw.Invoke(context.Background(), newInputProvider(testProvider))
 	require.NoError(t, err)
 	require.NotNil(t, out)
-	assert.Equal(t, middleware.DecisionDeny, out.Decision, "absent model must be denied when an allowlist is set")
+	assert.Equal(t, middleware.DecisionDeny, out.Decision, "absent model must be denied when the provider is restricted")
 	assert.Equal(t, 403, out.DenyStatus, "deny status must be 403")
 	require.NotNil(t, out.DenyReason, "deny reason must be populated")
 	assert.Equal(t, "llm_policy.model_unknown", out.DenyReason.Code, "deny code must be model_unknown")
@@ -122,24 +142,70 @@ func TestAllowlistMissingModelKeyDenies(t *testing.T) {
 
 func TestAllowlistEmptyModelValueDenies(t *testing.T) {
 	// A present-but-empty model is as undeterminable as an absent one.
-	mw := New(Config{ModelAllowlist: []string{"gpt-4o"}})
-	out, err := mw.Invoke(context.Background(), newInput(
+	mw := New(providerCfg("gpt-4o"))
+	out, err := mw.Invoke(context.Background(), newInputProvider(testProvider,
 		middleware.KV{Key: middleware.KeyLLMModel, Value: "   "},
 	))
 	require.NoError(t, err)
 	require.NotNil(t, out)
-	assert.Equal(t, middleware.DecisionDeny, out.Decision, "empty model must be denied when an allowlist is set")
+	assert.Equal(t, middleware.DecisionDeny, out.Decision, "empty model must be denied when the provider is restricted")
 	require.NotNil(t, out.DenyReason, "deny reason must be populated")
 	assert.Equal(t, "llm_policy.model_unknown", out.DenyReason.Code, "deny code must be model_unknown")
 }
 
 func TestAllowlistEmptyListAllowsMissingModel(t *testing.T) {
-	// Without an allowlist there is nothing to enforce, so a missing model is
-	// still allowed — the fail-closed rule only applies when a list is set.
+	// Without any provider allowlists there is nothing to enforce, so a missing
+	// model is still allowed — the fail-closed rule only applies when a
+	// restriction is in effect.
 	mw := New(Config{})
 	out, err := mw.Invoke(context.Background(), newInput())
 	require.NoError(t, err)
 	assert.Equal(t, middleware.DecisionAllow, out.Decision, "no allowlist must allow even without a model")
+}
+
+func TestUnrestrictedProviderAllowsAnyModel(t *testing.T) {
+	// testProvider is restricted, but the request resolved to otherProvider,
+	// which carries no allowlist. Its traffic must not be caught by the other
+	// provider's restriction — this is the cross-provider-leak / false-deny
+	// guard. Management owns any per-policy/group decision for otherProvider.
+	mw := New(providerCfg("gpt-4o"))
+	out, err := mw.Invoke(context.Background(), newInputProvider(otherProvider,
+		middleware.KV{Key: middleware.KeyLLMModel, Value: "claude-opus-4"},
+	))
+	require.NoError(t, err)
+	assert.Equal(t, middleware.DecisionAllow, out.Decision, "an unrestricted provider must not inherit another provider's allowlist")
+}
+
+func TestPerProviderAllowlistsAreIsolated(t *testing.T) {
+	// gpt-4o is allowed only on testProvider; claude-opus-4 only on
+	// otherProvider. A model allowlisted for one provider must not be usable on
+	// the other — the fail-closed layer never unions allowlists across providers.
+	mw := New(Config{ProviderAllowlists: map[string][]string{
+		testProvider:  {"gpt-4o"},
+		otherProvider: {"claude-opus-4"},
+	}})
+	out, err := mw.Invoke(context.Background(), newInputProvider(testProvider,
+		middleware.KV{Key: middleware.KeyLLMModel, Value: "claude-opus-4"},
+	))
+	require.NoError(t, err)
+	assert.Equal(t, middleware.DecisionDeny, out.Decision, "claude-opus-4 is allowed only on otherProvider, not testProvider")
+	require.NotNil(t, out.DenyReason)
+	assert.Equal(t, "llm_policy.model_blocked", out.DenyReason.Code, "cross-provider model must be blocked, not model_unknown")
+}
+
+func TestRestrictionsButNoResolvedProviderFailsClosed(t *testing.T) {
+	// Restrictions exist for the account but the resolved provider id is absent,
+	// so the request cannot be scoped to a provider. Fail closed rather than
+	// wave it through.
+	mw := New(providerCfg("gpt-4o"))
+	out, err := mw.Invoke(context.Background(), newInput(
+		middleware.KV{Key: middleware.KeyLLMModel, Value: "gpt-4o"},
+	))
+	require.NoError(t, err)
+	require.NotNil(t, out)
+	assert.Equal(t, middleware.DecisionDeny, out.Decision, "missing resolved provider must fail closed when restrictions exist")
+	require.NotNil(t, out.DenyReason)
+	assert.Equal(t, "llm_policy.model_unknown", out.DenyReason.Code, "deny code must be model_unknown")
 }
 
 func TestPromptCaptureDisabledEmitsNoPrompt(t *testing.T) {
@@ -217,8 +283,8 @@ func TestFactoryAcceptsZeroConfigs(t *testing.T) {
 
 func TestFactoryDecodesValidConfig(t *testing.T) {
 	cfg := Config{
-		ModelAllowlist: []string{"gpt-4o"},
-		PromptCapture:  PromptCapture{Enabled: true, RedactPii: true},
+		ProviderAllowlists: map[string][]string{testProvider: {"gpt-4o"}},
+		PromptCapture:      PromptCapture{Enabled: true, RedactPii: true},
 	}
 	raw, err := json.Marshal(cfg)
 	require.NoError(t, err, "marshalling test config must succeed")
@@ -234,15 +300,15 @@ func TestFactoryRejectsMalformedJSON(t *testing.T) {
 }
 
 func TestFactoryNormalisesAllowlist(t *testing.T) {
-	raw := []byte(`{"model_allowlist":["  GPT-4o  ","",""," Claude-3 "]}`)
+	raw := []byte(`{"provider_allowlists":{"prov-1":["  GPT-4o  ","",""," Claude-3 "]}}`)
 	mw, err := Factory{}.New(raw)
 	require.NoError(t, err)
-	out, err := mw.Invoke(context.Background(), newInput(
+	out, err := mw.Invoke(context.Background(), newInputProvider(testProvider,
 		middleware.KV{Key: middleware.KeyLLMModel, Value: "gpt-4o"},
 	))
 	require.NoError(t, err)
 	assert.Equal(t, middleware.DecisionAllow, out.Decision, "factory must lowercase + trim allowlist entries")
-	out2, err := mw.Invoke(context.Background(), newInput(
+	out2, err := mw.Invoke(context.Background(), newInputProvider(testProvider,
 		middleware.KV{Key: middleware.KeyLLMModel, Value: "claude-3"},
 	))
 	require.NoError(t, err)

@@ -83,8 +83,9 @@ func (m *Middleware) MutationsSupported() bool { return false }
 // prompt capture only affects the metadata emitted alongside an allow.
 func (m *Middleware) Invoke(_ context.Context, in *middleware.Input) (*middleware.Output, error) {
 	model, modelPresent := lookupMetadata(in.Metadata, middleware.KeyLLMModel)
+	providerID, _ := lookupMetadata(in.Metadata, middleware.KeyLLMResolvedProviderID)
 
-	if denial := m.evaluateAllowlist(model, modelPresent); denial != nil {
+	if denial := m.evaluateAllowlist(providerID, model, modelPresent); denial != nil {
 		return denial, nil
 	}
 
@@ -110,20 +111,38 @@ func (m *Middleware) Invoke(_ context.Context, in *middleware.Input) (*middlewar
 // is a no-op.
 func (m *Middleware) Close() error { return nil }
 
-// evaluateAllowlist returns a deny Output when the configured allowlist
-// rejects the model. A nil return means the request should proceed.
-func (m *Middleware) evaluateAllowlist(model string, modelPresent bool) *middleware.Output {
-	if len(m.cfg.ModelAllowlist) == 0 {
+// evaluateAllowlist returns a deny Output when the allowlist for the request's
+// resolved provider rejects the model. A nil return means the request should
+// proceed. The allowlist is scoped to the provider llm_router resolved: a
+// provider absent from the config is unrestricted, so an un-guardrailed policy's
+// traffic is never caught by an unrelated provider's allowlist.
+func (m *Middleware) evaluateAllowlist(providerID, model string, modelPresent bool) *middleware.Output {
+	if len(m.cfg.ProviderAllowlists) == 0 {
 		return nil
 	}
-	// Fail closed: with an allowlist configured, a request whose model the
-	// upstream parser could not extract (absent or empty) must be denied rather
-	// than allowed. This is what enforces the allowlist for URL/path-routed
-	// providers (Bedrock, Vertex, ...) whose model lives outside the JSON body.
+	// Restrictions exist for this account but the resolved provider is unknown,
+	// so we cannot tell whether this request is bound for a restricted provider.
+	// Fail closed rather than wave it through. In practice llm_router always
+	// stamps the resolved provider before the guardrail runs (or denies first),
+	// so this is a defensive guard, not the common path.
+	if providerID == "" {
+		return denyModel("", denyCodeModelUnknown, denyMessageModelUnknown, denyReasonModelUnknown)
+	}
+	allowlist, restricted := m.cfg.ProviderAllowlists[providerID]
+	if !restricted {
+		// This provider has no allowlist (some authorising policy left it
+		// unrestricted); management owns any per-policy/group decision.
+		return nil
+	}
+	// Fail closed: with an allowlist in effect for this provider, a request whose
+	// model the upstream parser could not extract (absent or empty) must be
+	// denied rather than allowed. This is what enforces the allowlist for
+	// URL/path-routed providers (Bedrock, Vertex, ...) whose model lives outside
+	// the JSON body.
 	if !modelPresent || normaliseModel(model) == "" {
 		return denyModel("", denyCodeModelUnknown, denyMessageModelUnknown, denyReasonModelUnknown)
 	}
-	if m.modelInAllowlist(model) {
+	if modelInAllowlist(allowlist, model) {
 		return nil
 	}
 	return denyModel(model, denyCodeModel, denyMessageModel, denyReasonModel)
@@ -151,14 +170,15 @@ func denyModel(model, code, message, reason string) *middleware.Output {
 	}
 }
 
-// modelInAllowlist reports whether the model matches any allowlist
-// entry under the case-insensitive, trim-tolerant comparison rule.
-func (m *Middleware) modelInAllowlist(model string) bool {
+// modelInAllowlist reports whether the model matches any entry in the supplied
+// (already-normalised) allowlist under the case-insensitive, trim-tolerant
+// comparison rule.
+func modelInAllowlist(allowlist []string, model string) bool {
 	normalised := normaliseModel(model)
 	if normalised == "" {
 		return false
 	}
-	for _, allowed := range m.cfg.ModelAllowlist {
+	for _, allowed := range allowlist {
 		if allowed == normalised {
 			return true
 		}
