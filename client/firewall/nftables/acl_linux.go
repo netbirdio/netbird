@@ -388,8 +388,8 @@ func (m *AclManager) createPreroutingRule(expressions []expr.Any, userData []byt
 			Register: 1,
 			Data:     binaryutil.NativeEndian.PutUint32(nbnet.PreroutingFwmarkRedirected),
 		},
-		&expr.Meta{
-			Key:            expr.MetaKeyMARK,
+		&expr.Ct{
+			Key:            expr.CtKeyMARK,
 			Register:       1,
 			SourceRegister: true,
 		},
@@ -477,8 +477,8 @@ func (m *AclManager) addFwmarkToForward(chainFwFilter *nftables.Chain) {
 		Table: m.workTable,
 		Chain: chainFwFilter,
 		Exprs: []expr.Any{
-			&expr.Meta{
-				Key:      expr.MetaKeyMARK,
+			&expr.Ct{
+				Key:      expr.CtKeyMARK,
 				Register: 1,
 			},
 			&expr.Cmp{
@@ -702,7 +702,6 @@ func ifname(n string) []byte {
 	return b
 }
 
-
 // ipToBytes converts net.IP to the correct byte length for the address family.
 func ipToBytes(ip net.IP, af addrFamily) []byte {
 	if af.addrLen == 4 {
@@ -710,4 +709,3 @@ func ipToBytes(ip net.IP, af addrFamily) []byte {
 	}
 	return ip.To16()
 }
-

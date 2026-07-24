@@ -536,7 +536,7 @@ func (r *router) cleanupDataPlaneMark() error {
 func (r *router) addPostroutingRules() error {
 	// First rule for outbound masquerade
 	rule1 := []string{
-		"-m", "mark", "--mark", fmt.Sprintf("%#x", nbnet.PreroutingFwmarkMasquerade),
+		"-m", "connmark", "--mark", fmt.Sprintf("%#x", nbnet.PreroutingFwmarkMasquerade),
 		"!", "-o", "lo",
 		"-j", routingFinalNatJump,
 	}
@@ -547,7 +547,7 @@ func (r *router) addPostroutingRules() error {
 
 	// Second rule for return traffic masquerade
 	rule2 := []string{
-		"-m", "mark", "--mark", fmt.Sprintf("%#x", nbnet.PreroutingFwmarkMasqueradeReturn),
+		"-m", "connmark", "--mark", fmt.Sprintf("%#x", nbnet.PreroutingFwmarkMasqueradeReturn),
 		"-o", r.wgIface.Name(),
 		"-j", routingFinalNatJump,
 	}
@@ -663,11 +663,10 @@ func (r *router) cleanJumpRules() error {
 func (r *router) addNatRule(pair firewall.RouterPair) error {
 	ruleKey := firewall.GenKey(firewall.NatFormat, pair)
 
-	if rule, exists := r.rules[ruleKey]; exists {
-		if err := r.iptablesClient.DeleteIfExists(tableMangle, chainRTPRE, rule...); err != nil {
-			return fmt.Errorf("error while removing existing marking rule for %s: %v", pair.Destination, err)
+	if _, exists := r.rules[ruleKey]; exists {
+		if err := r.removeNatRule(pair); err != nil {
+			return err
 		}
-		delete(r.rules, ruleKey)
 	}
 
 	markValue := nbnet.PreroutingFwmarkMasquerade
@@ -696,7 +695,7 @@ func (r *router) addNatRule(pair firewall.RouterPair) error {
 	rule = append(rule, sourceExp...)
 	rule = append(rule, destExp...)
 	rule = append(rule,
-		"-j", "MARK", "--set-mark", fmt.Sprintf("%#x", markValue),
+		"-j", "CONNMARK", "--set-mark", fmt.Sprintf("%#x", markValue),
 	)
 
 	// Ensure nat rules come first, so the mark can be overwritten.

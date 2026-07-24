@@ -3,6 +3,7 @@
 package conntrack
 
 import (
+	"net/netip"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -11,6 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 	nfct "github.com/ti-mo/conntrack"
 	"github.com/ti-mo/netfilter"
+
+	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
+	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
 type mockListener struct {
@@ -221,4 +225,12 @@ func TestStartIsIdempotent(t *testing.T) {
 	assert.Equal(t, int32(1), callCount.Load(), "dial should only be called once")
 
 	ct.Stop()
+}
+
+func TestInferDirectionForFirewallConnectionMarks(t *testing.T) {
+	ct := &ConnTrack{}
+
+	assert.Equal(t, nftypes.Ingress, ct.inferDirection(nbnet.PreroutingFwmarkRedirected, netip.Addr{}, netip.Addr{}))
+	assert.Equal(t, nftypes.Ingress, ct.inferDirection(nbnet.PreroutingFwmarkMasquerade, netip.Addr{}, netip.Addr{}))
+	assert.Equal(t, nftypes.Egress, ct.inferDirection(nbnet.PreroutingFwmarkMasqueradeReturn, netip.Addr{}, netip.Addr{}))
 }
