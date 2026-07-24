@@ -321,10 +321,19 @@ func (a *Account) getPeersGroupsPoliciesRoutes(
 
 	relevantPeerIDs[peerID] = a.GetPeer(peerID).ToComponent()
 
+	addRelevantGroup := func(groupID string) *Group {
+		if g, ok := relevantGroupIDs[groupID]; ok {
+			return g
+		}
+		g := a.GetGroup(groupID)
+		relevantGroupIDs[groupID] = g
+		return g
+	}
+
 	peerGroupSet := make(map[string]struct{}, 8)
 	for groupID, group := range a.Groups {
 		if slices.Contains(group.Peers, peerID) {
-			relevantGroupIDs[groupID] = a.GetGroup(groupID)
+			relevantGroupIDs[groupID] = group
 			peerGroupSet[groupID] = struct{}{}
 		}
 	}
@@ -355,15 +364,12 @@ func (a *Account) getPeersGroupsPoliciesRoutes(
 			continue
 		}
 
-		for _, groupID := range r.PeerGroups {
-			relevantGroupIDs[groupID] = a.GetGroup(groupID)
-		}
 		for _, groupID := range r.Groups {
-			relevantGroupIDs[groupID] = a.GetGroup(groupID)
+			addRelevantGroup(groupID)
 		}
 		if r.Enabled {
 			for _, groupID := range r.AccessControlGroups {
-				relevantGroupIDs[groupID] = a.GetGroup(groupID)
+				addRelevantGroup(groupID)
 				routeAccessControlGroups[groupID] = struct{}{}
 			}
 		}
@@ -389,7 +395,7 @@ func (a *Account) getPeersGroupsPoliciesRoutes(
 			}
 		}
 		for _, groupID := range r.PeerGroups {
-			g := a.GetGroup(groupID)
+			g := addRelevantGroup(groupID)
 			if g == nil {
 				continue
 			}
@@ -424,10 +430,10 @@ func (a *Account) getPeersGroupsPoliciesRoutes(
 					if _, needed := routeAccessControlGroups[destGroupID]; needed {
 						policyRelevant = true
 						for _, srcGroupID := range rule.Sources {
-							relevantGroupIDs[srcGroupID] = a.GetGroup(srcGroupID)
+							addRelevantGroup(srcGroupID)
 						}
 						for _, dstGroupID := range rule.Destinations {
-							relevantGroupIDs[dstGroupID] = a.GetGroup(dstGroupID)
+							addRelevantGroup(dstGroupID)
 						}
 						break
 					}
@@ -463,7 +469,7 @@ func (a *Account) getPeersGroupsPoliciesRoutes(
 					}
 				}
 				for _, dstGroupID := range rule.Destinations {
-					relevantGroupIDs[dstGroupID] = a.GetGroup(dstGroupID)
+					addRelevantGroup(dstGroupID)
 				}
 			}
 
@@ -475,7 +481,7 @@ func (a *Account) getPeersGroupsPoliciesRoutes(
 					}
 				}
 				for _, srcGroupID := range rule.Sources {
-					relevantGroupIDs[srcGroupID] = a.GetGroup(srcGroupID)
+					addRelevantGroup(srcGroupID)
 				}
 
 				if rule.Protocol == PolicyRuleProtocolNetbirdSSH {
