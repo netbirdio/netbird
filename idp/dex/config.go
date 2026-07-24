@@ -270,11 +270,13 @@ func applyOIDCDefaults(connType string, config map[string]interface{}) map[strin
 	for k, v := range config {
 		augmented[k] = v
 	}
-	setDefault(augmented, "scopes", []string{"openid", "profile", "email", "groups"})
+	setDefault(augmented, "scopes", []string{"openid", "profile", "email"})
 	setDefault(augmented, "insecureEnableGroups", true)
 	setDefault(augmented, "insecureSkipEmailVerified", true)
 
 	switch connType {
+	case "oidc":
+		augmented["scopes"] = []string{"openid", "profile", "email", "groups"}
 	case "zitadel":
 		setDefault(augmented, "getUserInfo", true)
 	case "entra":
