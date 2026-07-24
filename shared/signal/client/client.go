@@ -54,7 +54,9 @@ type CredentialPayload struct {
 	RosenpassAddr   string
 	// MlkemPayload is the opaque post-quantum KEM handshake message riding this
 	// OFFER/ANSWER (see Body.mlkemPayload). Nil when not running the PQ exchange.
-	MlkemPayload    []byte
+	MlkemPayload []byte
+	// MlkemPort is the sender's ML-KEM PQ service UDP port (0 when not running).
+	MlkemPort       int
 	RelaySrvAddress string
 	RelaySrvIP      netip.Addr
 	SessionID       []byte
@@ -94,6 +96,10 @@ func MarshalCredential(myKey wgtypes.Key, remoteKey string, p CredentialPayload)
 	}
 	if len(p.MlkemPayload) > 0 {
 		body.MlkemPayload = p.MlkemPayload
+	}
+	if p.MlkemPort > 0 {
+		port := uint32(p.MlkemPort)
+		body.MlkemPort = &port
 	}
 	return &proto.Message{
 		Key:       myKey.PublicKey().String(),

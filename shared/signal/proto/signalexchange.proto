@@ -82,6 +82,11 @@ message Body {
   // pqkem library frames and parses it. Absent when the sender does not run the
   // ML-KEM PQ exchange; unknown to older clients, which ignore it.
   optional bytes mlkemPayload = 12;
+
+  // mlkemPort is the UDP port of the sender's ML-KEM PQ service, bound on its
+  // WireGuard overlay IP. Peers send subsequent rekey messages there over the
+  // data path. Zero/absent when the ML-KEM PQ exchange is not running.
+  optional uint32 mlkemPort = 13;
 }
 
 // Mode indicates a connection mode
