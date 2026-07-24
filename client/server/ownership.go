@@ -127,6 +127,60 @@ func (s *Server) claimForCallerLocked(id ipcauth.Identity, cfg *profilemanager.C
 	return nil
 }
 
+// authorizeTargetProfile authorizes a caller to operate on a specific target
+// profile. It MUST be called after bindCallerUsername, which enforces the legacy
+// per-username-directory guard. this layers the collision-free Owners field on
+// top of it:
+//
+//   - Privileged callers (root / elevated-admin) may operate on any profile.
+//   - If the target has Owners (or is Shared), they are authoritative. This
+//     disambiguates users whose sanitized usernames collide.
+//   - If the target is unowned (a legacy profile predating ownership), passing
+//     the username guard is sufficient and then the profile is claimed.
+//
+// Caller must hold s.mutex (it may persist an ownership claim).
+func (s *Server) authorizeTargetProfile(ctx context.Context, target *profilemanager.Profile, claim bool) error {
+	id, ok := ipcauth.IdentityFromContext(ctx)
+	if !ok {
+		return gstatus.Error(codes.PermissionDenied, "caller identity could not be verified")
+	}
+	if id.IsPrivileged() {
+		return nil
+	}
+
+	path, err := target.FilePath()
+	if err != nil {
+		return fmt.Errorf("resolve target profile path: %w", err)
+	}
+	cfg, err := profilemanager.GetConfig(path)
+	if err != nil {
+		return fmt.Errorf("load target profile config: %w", err)
+	}
+
+	ownership := ipcauth.Ownership{Owners: cfg.Owners, Shared: cfg.Shared}
+
+	// Owned or shared: the Owners field is authoritative (collision-free).
+	if len(ownership.Owners) > 0 || ownership.Shared {
+		if ipcauth.Authorize(ownership, id, s.groupResolver) {
+			return nil
+		}
+		return gstatus.Errorf(codes.PermissionDenied,
+			"not authorized to operate on profile %q (owned by another principal)", target.Name)
+	}
+
+	// Unowned legacy profile: the username guard authorizes. Stamp the caller
+	// as owner so future access is collision-free.
+	if claim {
+		principal := ipcauth.OwnerPrincipalForIdentity(id)
+		cfg.Owners = []string{principal}
+		if err := util.WriteJson(context.Background(), path, cfg); err != nil {
+			return fmt.Errorf("persist profile ownership claim: %w", err)
+		}
+		log.Infof("profile %q (%s) claimed by %s on first access (trust-on-first-use)", target.Name, target.ID, id)
+	}
+	return nil
+}
+
 // AddOwner adds a principal to the active profile's owner list. The interceptor
 // has already confirmed the caller is an owner or privileged, the handler just
 // validates and persists.

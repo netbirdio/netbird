@@ -127,6 +127,12 @@ type Server struct {
 	updateManager *updater.Manager
 
 	jwtCache *jwtCache
+
+	// groupResolver resolves a Unix caller's supplementary group membership
+	// (NSS/getent) so gid:/group: owner principals authorize correctly. Nil on
+	// Windows (SID group membership travels in the identity itself); ipcauth
+	// treats a nil resolver as "no group matching".
+	groupResolver ipcauth.GroupResolver
 }
 
 type oauthAuthFlow struct {
@@ -151,6 +157,7 @@ func New(ctx context.Context, logFile string, configFile string, profilesDisable
 		jwtCache:               newJWTCache(),
 		extendAuthSessionFlow:  auth.NewPendingFlow(),
 		probeThrottle:          newProbeThrottle(probeThreshold),
+		groupResolver:          ipcauth.NewDefaultGroupResolver(),
 	}
 	agent := &serverAgent{s}
 	s.sleepHandler = sleephandler.New(agent)
@@ -1078,6 +1085,19 @@ func (s *Server) SwitchProfile(callerCtx context.Context, msg *proto.SwitchProfi
 		// also bind the TARGET profile's username so a caller can't switch into
 		// another user's profile.
 		if err := s.bindCallerUsername(callerCtx, targetUsername); err != nil {
+			return nil, err
+		}
+		// Authorize against the target profile's owners, claiming an unowned
+		// legacy target for the caller.
+		resolveUsername := targetUsername
+		if *msg.ProfileName == profilemanager.DefaultProfileName {
+			resolveUsername = ""
+		}
+		resolvedTarget, err := s.resolveProfileHandle(*msg.ProfileName, resolveUsername)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.authorizeTargetProfile(callerCtx, resolvedTarget, true); err != nil {
 			return nil, err
 		}
 		if _, err := s.switchProfileIfNeeded(*msg.ProfileName, msg.Username, activeProf); err != nil {
@@ -2080,6 +2100,10 @@ func (s *Server) RenameProfile(ctx context.Context, msg *proto.RenameProfileRequ
 		return nil, err
 	}
 
+	if err := s.authorizeTargetProfile(ctx, resolved, true); err != nil {
+		return nil, err
+	}
+
 	err = s.profileManager.RenameProfile(resolved.ID, msg.Username, msg.NewProfileName)
 	if err != nil {
 		log.Errorf("failed to rename profile: %v", err)
@@ -2110,6 +2134,11 @@ func (s *Server) RemoveProfile(ctx context.Context, msg *proto.RemoveProfileRequ
 
 	resolved, err := s.resolveProfileHandle(msg.ProfileName, msg.Username)
 	if err != nil {
+		return nil, err
+	}
+
+	// claim=false: don't stamp ownership on a profile we're about to delete.
+	if err := s.authorizeTargetProfile(ctx, resolved, false); err != nil {
 		return nil, err
 	}
 

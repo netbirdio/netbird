@@ -13,14 +13,12 @@ import (
 )
 
 // bindCallerUsername enforces that a non-privileged caller may only operate on
-// its OWN user's profiles. Profiles live in per-username directories, but the
-// username is a client-supplied gRPC field the server historically never
-// checked; binding it to the caller's kernel identity closes the "pass another
-// user's username" hole. Privileged callers (root / elevated-admin) may manage
-// any user's profiles.
+// its OWN user's profiles. This binds the client-supplied gRPC field to the
+// caller's kernel identity.
+// Privileged callers (root / elevated-admin) may manage any user's profiles.
 func (s *Server) bindCallerUsername(ctx context.Context, requested string) error {
 	if requested == "" {
-		return nil // handlers validate emptiness themselves; nothing to bind
+		return nil
 	}
 
 	id, ok := ipcauth.IdentityFromContext(ctx)
