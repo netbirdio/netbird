@@ -64,7 +64,10 @@ import (
 	"github.com/netbirdio/netbird/route"
 	mgm "github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/management/domain"
+	sharedgrpc "github.com/netbirdio/netbird/shared/management/grpc"
+	nbnetworkmap "github.com/netbirdio/netbird/shared/management/networkmap"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
+	types "github.com/netbirdio/netbird/shared/management/types"
 	"github.com/netbirdio/netbird/shared/netiputil"
 	auth "github.com/netbirdio/netbird/shared/relay/auth/hmac"
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
@@ -147,6 +150,7 @@ type EngineConfig struct {
 	BlockLANAccess      bool
 	BlockInbound        bool
 	DisableIPv6         bool
+	SyncMessageVersion  *int
 
 	// LazyConnection is the MDM-sourced lazy-connection override; StateUnset defers to
 	// the env var and management feature flag.
@@ -219,6 +223,13 @@ type Engine struct {
 
 	// networkSerial is the latest CurrentSerial (state ID) of the network sent by the Management service
 	networkSerial uint64
+
+	// latestComponents is the most-recent NetworkMapComponents decoded from
+	// a NetworkMapEnvelope (capability=3 peers only). Held alongside the
+	// NetworkMap that Calculate() produced from it so future incremental
+	// updates have a base to apply changes against. nil for legacy-format
+	// peers. Guarded by syncMsgMux.
+	latestComponents *types.NetworkMapComponents
 
 	networkMonitor *networkmonitor.NetworkMonitor
 
@@ -652,7 +663,23 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	iceCfg := e.createICEConfig()
 
 	e.connMgr = NewConnMgr(e.config, e.statusRecorder, e.peerStore, wgIface)
+	e.connMgr.SetRoutedIPsReconciler(func(peerKey string) error {
+		if e.routeManager == nil {
+			return nil
+		}
+		return e.routeManager.ReconcilePeerAllowedIPs(peerKey)
+	})
 	e.connMgr.Start(e.ctx)
+
+	// Wire DNS-time lazy-connection warm-up now that the connection manager
+	// exists (it does not at DNS-server construction time). A DNS answer that
+	// points at an idle peer then wakes it before the client's first request.
+	e.dnsServer.SetPeerActivator(&dnsPeerActivator{
+		connMgr:   e.connMgr,
+		peerStore: e.peerStore,
+		status:    e.statusRecorder,
+		ctx:       e.ctx,
+	})
 
 	e.srWatcher = guard.NewSRWatcher(e.signal, e.relayManager, e.mobileDep.IFaceDiscover, iceCfg)
 	e.srWatcher.Start(peer.IsForceRelayed())
@@ -963,8 +990,12 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 
 	e.ApplySessionDeadline(update.GetSessionExpiresAt())
 
-	if update.NetworkMap != nil && update.NetworkMap.PeerConfig != nil {
-		e.handleAutoUpdateVersion(update.NetworkMap.PeerConfig.AutoUpdate)
+	// Envelope sync responses carry PeerConfig at the top level; legacy
+	// NetworkMap syncs carry it under NetworkMap.PeerConfig.
+	if pc := update.GetPeerConfig(); pc != nil {
+		e.handleAutoUpdateVersion(pc.GetAutoUpdate())
+	} else if nm := update.GetNetworkMap(); nm != nil && nm.GetPeerConfig() != nil {
+		e.handleAutoUpdateVersion(nm.GetPeerConfig().GetAutoUpdate())
 	}
 
 	done := e.phase("netbird_config")
@@ -974,12 +1005,47 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		return err
 	}
 
+	// Decode the network map from either the components envelope or the
+	// legacy proto.NetworkMap before the posture-check gating below, so the
+	// "is there a network map" decision covers both wire shapes.
+	var (
+		nm         *mgmProto.NetworkMap
+		components *types.NetworkMapComponents
+	)
+	if version := update.GetVersion(); version == int32(sharedgrpc.ComponentNetworkMap) {
+		// Components-format peer: decode the envelope back to typed
+		// components, run Calculate() locally, and convert to the wire
+		// NetworkMap shape the rest of the engine consumes. Components are
+		// retained so future incremental updates can apply deltas instead
+		// of doing a full reconstruction.
+		envelope := update.GetNetworkMapEnvelope()
+		if envelope == nil {
+			return fmt.Errorf("received a SyncReponse indicating use of components network map, but components are missing")
+		}
+
+		localKey := e.config.WgPrivateKey.PublicKey().String()
+		dnsName := ""
+		if pc := update.GetPeerConfig(); pc != nil {
+			// PeerConfig.Fqdn = "<dns_label>.<dns_domain>" — extract the
+			// shared domain by stripping the peer's own label prefix. Falls
+			// back to empty if the FQDN doesn't have the expected shape.
+			dnsName = extractDNSDomainFromFQDN(pc.GetFqdn())
+		}
+		result, err := nbnetworkmap.EnvelopeToNetworkMap(e.ctx, envelope, localKey, dnsName)
+		if err != nil {
+			return fmt.Errorf("decode network map envelope: %w", err)
+		}
+		nm = result.NetworkMap
+		components = result.Components
+	} else {
+		nm = update.GetNetworkMap()
+	}
+
 	// Posture checks are bound to the network map presence:
 	//   NetworkMap != nil, checks present -> apply the received checks
 	//   NetworkMap != nil, checks nil     -> posture checks were removed, clear them
 	//   NetworkMap == nil                 -> config-only update (e.g. relay token rotation),
 	//                                        leave the previously applied checks untouched
-	nm := update.GetNetworkMap()
 	if nm == nil {
 		return nil
 	}
@@ -992,6 +1058,14 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	}
 
 	done = e.phase("persist")
+	// Only retain the components view when the server sent the envelope
+	// path. A legacy proto.NetworkMap means components == nil; writing it
+	// here would clobber a previously-cached snapshot, breaking the
+	// incremental-delta base on a future envelope sync.
+	if components != nil {
+		e.latestComponents = components
+	}
+
 	e.persistSyncResponse(update)
 	done()
 
@@ -1003,6 +1077,19 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	e.statusRecorder.PublishEvent(cProto.SystemEvent_INFO, cProto.SystemEvent_SYSTEM, "Network map updated", "", nil)
 
 	return nil
+}
+
+// extractDNSDomainFromFQDN returns the trailing dotted domain part of the
+// receiving peer's FQDN — the same value the management server fills as
+// dnsName when it builds the legacy NetworkMap. "peer42.netbird.cloud" →
+// "netbird.cloud". An empty string is returned for unrecognized formats.
+func extractDNSDomainFromFQDN(fqdn string) string {
+	for i := 0; i < len(fqdn); i++ {
+		if fqdn[i] == '.' && i+1 < len(fqdn) {
+			return fqdn[i+1:]
+		}
+	}
+	return ""
 }
 
 // updateNetbirdConfig applies the management-provided NetBird configuration:
@@ -1164,6 +1251,7 @@ func (e *Engine) applyInfoFlags(info *system.Info) {
 		e.config.BlockLANAccess,
 		e.config.BlockInbound,
 		e.config.DisableIPv6,
+		e.config.SyncMessageVersion,
 		e.config.EnableSSHRoot,
 		e.config.EnableSSHSFTP,
 		e.config.EnableSSHLocalPortForwarding,
@@ -2032,6 +2120,7 @@ func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, bool, err
 		e.config.BlockLANAccess,
 		e.config.BlockInbound,
 		e.config.DisableIPv6,
+		e.config.SyncMessageVersion,
 		e.config.EnableSSHRoot,
 		e.config.EnableSSHSFTP,
 		e.config.EnableSSHLocalPortForwarding,
@@ -2605,13 +2694,14 @@ func (e *Engine) updateForwardRules(rules []*mgmProto.ForwardingRule) ([]firewal
 
 func (e *Engine) toExcludedLazyPeers(rules []firewallManager.ForwardRule, peers []*mgmProto.RemotePeerConfig) map[string]bool {
 	excludedPeers := make(map[string]bool)
+
+	// Ingress forward targets: inbound forwarded traffic is initiated remotely and
+	// cannot wake a lazy connection, so the peer routing the target must stay
+	// permanently connected. AllowedIPs are already parsed on the peer conn, so
+	// reuse those typed prefixes instead of re-parsing the network map strings.
 	for _, r := range rules {
-		ip := r.TranslatedAddress
 		for _, p := range peers {
-			for _, allowedIP := range p.GetAllowedIps() {
-				if allowedIP != ip.String() {
-					continue
-				}
+			if e.peerRoutesAddr(p, r.TranslatedAddress) {
 				log.Infof("exclude forwarder peer from lazy connection: %s", p.GetWgPubKey())
 				excludedPeers[p.GetWgPubKey()] = true
 			}
@@ -2619,6 +2709,27 @@ func (e *Engine) toExcludedLazyPeers(rules []firewallManager.ForwardRule, peers 
 	}
 
 	return excludedPeers
+}
+
+// peerRoutesAddr reports whether the peer is a router for addr, matched against
+// the peer's already-parsed AllowedIPs from the store (the same typed value the
+// lazy manager consumes) rather than re-parsing the network map strings.
+func (e *Engine) peerRoutesAddr(p *mgmProto.RemotePeerConfig, addr netip.Addr) bool {
+	prefixes, ok := e.peerStore.AllowedIPs(p.GetWgPubKey())
+	if !ok {
+		return false
+	}
+	return prefixesContain(prefixes, addr)
+}
+
+// prefixesContain reports whether addr falls within any of the prefixes.
+func prefixesContain(prefixes []netip.Prefix, addr netip.Addr) bool {
+	for _, prefix := range prefixes {
+		if prefix.Contains(addr) {
+			return true
+		}
+	}
+	return false
 }
 
 // isChecksEqual checks if two slices of checks are equal.

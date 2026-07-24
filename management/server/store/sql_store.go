@@ -642,6 +642,22 @@ func (s *SqlStore) SaveUser(ctx context.Context, user *types.User) error {
 }
 
 // CreateGroups creates the given list of groups to the database.
+// groupUpsertColumns is the explicit allowlist of columns that get updated when
+// CreateGroups / UpdateGroups hit a PK conflict. public_id is intentionally
+// omitted so a caller passing an entity with the zero value (e.g. an HTTP
+// handler-built struct) cannot reset the persisted public_id during an upsert.
+// Keep this in sync with the Group schema in management/server/types/group.go.
+func groupUpsertColumns() clause.Set {
+	return clause.AssignmentColumns([]string{
+		"account_id",
+		"name",
+		"issued",
+		"integration_ref_id",
+		"integration_ref_integration_type",
+		"resources",
+	})
+}
+
 func (s *SqlStore) CreateGroups(ctx context.Context, accountID string, groups []*types.Group) error {
 	if len(groups) == 0 {
 		return nil
@@ -651,8 +667,9 @@ func (s *SqlStore) CreateGroups(ctx context.Context, accountID string, groups []
 		result := tx.
 			Clauses(
 				clause.OnConflict{
+					Columns:   []clause.Column{{Name: "id"}},
 					Where:     clause.Where{Exprs: []clause.Expression{clause.Eq{Column: "groups.account_id", Value: accountID}}},
-					UpdateAll: true,
+					DoUpdates: groupUpsertColumns(),
 				},
 			).
 			Omit(clause.Associations).
@@ -676,8 +693,9 @@ func (s *SqlStore) UpdateGroups(ctx context.Context, accountID string, groups []
 		result := tx.
 			Clauses(
 				clause.OnConflict{
+					Columns:   []clause.Column{{Name: "id"}},
 					Where:     clause.Where{Exprs: []clause.Expression{clause.Eq{Column: "groups.account_id", Value: accountID}}},
-					UpdateAll: true,
+					DoUpdates: groupUpsertColumns(),
 				},
 			).
 			Omit(clause.Associations).
@@ -1606,7 +1624,8 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 			settings_routing_peer_dns_resolution_enabled, settings_dns_domain, settings_network_range,
 			settings_network_range_v6, settings_ipv6_enabled_groups, settings_lazy_connection_enabled,
 			settings_local_mfa_enabled, settings_metrics_push_enabled, settings_agent_network_only,
-			settings_dashboard_features,
+			settings_dashboard_features, settings_auto_update_version, settings_auto_update_always,
+			settings_peer_expose_enabled, settings_peer_expose_groups,
 			-- Embedded ExtraSettings
 			settings_extra_peer_approval_enabled, settings_extra_user_approval_required,
 			settings_extra_integrated_validator, settings_extra_integrated_validator_groups
@@ -1632,6 +1651,10 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		sMetricsPushEnabled              sql.NullBool
 		sAgentNetworkOnly                sql.NullBool
 		sDashboardFeatures               sql.NullString
+		autoUpdateVersion                sql.NullString
+		autoUpdateAlways                 sql.NullBool
+		peerExposeEnabled                sql.NullBool
+		peerExposeGroups                 sql.NullString
 		sExtraPeerApprovalEnabled        sql.NullBool
 		sExtraUserApprovalRequired       sql.NullBool
 		sExtraIntegratedValidator        sql.NullString
@@ -1655,7 +1678,8 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		&sRoutingPeerDNSResolutionEnabled, &sDNSDomain, &sNetworkRange,
 		&sNetworkRangeV6, &sIPv6EnabledGroups, &sLazyConnectionEnabled,
 		&sLocalMFAEnabled, &sMetricsPushEnabled, &sAgentNetworkOnly,
-		&sDashboardFeatures,
+		&sDashboardFeatures, &autoUpdateVersion, &autoUpdateAlways,
+		&peerExposeEnabled, &peerExposeGroups,
 		&sExtraPeerApprovalEnabled, &sExtraUserApprovalRequired,
 		&sExtraIntegratedValidator, &sExtraIntegratedValidatorGroups,
 	)
@@ -1747,6 +1771,18 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 	if sIPv6EnabledGroups.Valid {
 		_ = json.Unmarshal([]byte(sIPv6EnabledGroups.String), &account.Settings.IPv6EnabledGroups)
 	}
+	if autoUpdateAlways.Valid {
+		account.Settings.AutoUpdateAlways = autoUpdateAlways.Bool
+	}
+	if autoUpdateVersion.Valid {
+		account.Settings.AutoUpdateVersion = autoUpdateVersion.String
+	}
+	if peerExposeEnabled.Valid {
+		account.Settings.PeerExposeEnabled = peerExposeEnabled.Bool
+	}
+	if peerExposeGroups.Valid {
+		_ = json.Unmarshal([]byte(peerExposeGroups.String), &account.Settings.PeerExposeGroups)
+	}
 
 	if sExtraPeerApprovalEnabled.Valid {
 		account.Settings.Extra.PeerApprovalEnabled = sExtraPeerApprovalEnabled.Bool
@@ -1833,7 +1869,7 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 	meta_kernel_version, meta_network_addresses, meta_system_serial_number, meta_system_product_name, meta_system_manufacturer,
 	meta_environment, meta_flags, meta_files, meta_capabilities, peer_status_last_seen, peer_status_session_started_at,
 	peer_status_connected, peer_status_login_expired, peer_status_requires_approval, location_connection_ip,
-	location_country_code, location_city_name, location_geo_name_id, proxy_meta_embedded, proxy_meta_cluster, ipv6
+	location_country_code, location_city_name, location_geo_name_id, proxy_meta_embedded, proxy_meta_cluster, ipv6, meta_sync_message_version
 	FROM peers WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
@@ -1855,6 +1891,7 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			metaSystemSerialNumber, metaSystemProductName, metaSystemManufacturer                           sql.NullString
 			locationCountryCode, locationCityName, proxyCluster                                             sql.NullString
 			locationGeoNameID                                                                               sql.NullInt64
+			metaSyncMessageVersion                                                                          sql.NullInt32
 		)
 
 		err := row.Scan(&p.ID, &p.AccountID, &p.Key, &ip, &p.Name, &p.DNSLabel, &p.UserID, &p.SSHKey, &sshEnabled,
@@ -1864,7 +1901,7 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			&metaSystemSerialNumber, &metaSystemProductName, &metaSystemManufacturer, &env, &flags, &files, &capabilities,
 			&peerStatusLastSeen, &peerStatusSessionStartedAt, &peerStatusConnected, &peerStatusLoginExpired,
 			&peerStatusRequiresApproval, &connIP, &locationCountryCode, &locationCityName, &locationGeoNameID,
-			&proxyEmbedded, &proxyCluster, &ipv6)
+			&proxyEmbedded, &proxyCluster, &ipv6, &metaSyncMessageVersion)
 
 		if err == nil {
 			if lastLogin.Valid {
@@ -1984,6 +2021,9 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			if connIP != nil {
 				_ = json.Unmarshal(connIP, &p.Location.ConnectionIP)
 			}
+			if metaSyncMessageVersion.Valid {
+				p.Meta.SyncMessageVersion = int(metaSyncMessageVersion.Int32)
+			}
 		}
 		return p, err
 	})
@@ -2039,7 +2079,7 @@ func (s *SqlStore) getUsers(ctx context.Context, accountID string) ([]types.User
 }
 
 func (s *SqlStore) getGroups(ctx context.Context, accountID string) ([]*types.Group, error) {
-	const query = `SELECT id, account_id, name, issued, resources, integration_ref_id, integration_ref_integration_type FROM groups WHERE account_id = $1`
+	const query = `SELECT id, account_id, public_id, name, issued, resources, integration_ref_id, integration_ref_integration_type FROM groups WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
@@ -2049,7 +2089,7 @@ func (s *SqlStore) getGroups(ctx context.Context, accountID string) ([]*types.Gr
 		var resources []byte
 		var refID sql.NullInt64
 		var refType sql.NullString
-		err := row.Scan(&g.ID, &g.AccountID, &g.Name, &g.Issued, &resources, &refID, &refType)
+		err := row.Scan(&g.ID, &g.AccountID, &g.PublicID, &g.Name, &g.Issued, &resources, &refID, &refType)
 		if err == nil {
 			if refID.Valid {
 				g.IntegrationReference.ID = int(refID.Int64)
@@ -2074,7 +2114,7 @@ func (s *SqlStore) getGroups(ctx context.Context, accountID string) ([]*types.Gr
 }
 
 func (s *SqlStore) getPolicies(ctx context.Context, accountID string) ([]*types.Policy, error) {
-	const query = `SELECT id, account_id, name, description, enabled, source_posture_checks FROM policies WHERE account_id = $1`
+	const query = `SELECT id, account_id, public_id, name, description, enabled, source_posture_checks FROM policies WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
@@ -2083,7 +2123,7 @@ func (s *SqlStore) getPolicies(ctx context.Context, accountID string) ([]*types.
 		var p types.Policy
 		var checks []byte
 		var enabled sql.NullBool
-		err := row.Scan(&p.ID, &p.AccountID, &p.Name, &p.Description, &enabled, &checks)
+		err := row.Scan(&p.ID, &p.AccountID, &p.PublicID, &p.Name, &p.Description, &enabled, &checks)
 		if err == nil {
 			if enabled.Valid {
 				p.Enabled = enabled.Bool
@@ -2101,7 +2141,7 @@ func (s *SqlStore) getPolicies(ctx context.Context, accountID string) ([]*types.
 }
 
 func (s *SqlStore) getRoutes(ctx context.Context, accountID string) ([]route.Route, error) {
-	const query = `SELECT id, account_id, network, domains, keep_route, net_id, description, peer, peer_groups, network_type, masquerade, metric, enabled, groups, access_control_groups, skip_auto_apply FROM routes WHERE account_id = $1`
+	const query = `SELECT id, account_id, public_id, network, domains, keep_route, net_id, description, peer, peer_groups, network_type, masquerade, metric, enabled, groups, access_control_groups, skip_auto_apply FROM routes WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
@@ -2111,7 +2151,7 @@ func (s *SqlStore) getRoutes(ctx context.Context, accountID string) ([]route.Rou
 		var network, domains, peerGroups, groups, accessGroups []byte
 		var keepRoute, masquerade, enabled, skipAutoApply sql.NullBool
 		var metric sql.NullInt64
-		err := row.Scan(&r.ID, &r.AccountID, &network, &domains, &keepRoute, &r.NetID, &r.Description, &r.Peer, &peerGroups, &r.NetworkType, &masquerade, &metric, &enabled, &groups, &accessGroups, &skipAutoApply)
+		err := row.Scan(&r.ID, &r.AccountID, &r.PublicID, &network, &domains, &keepRoute, &r.NetID, &r.Description, &r.Peer, &peerGroups, &r.NetworkType, &masquerade, &metric, &enabled, &groups, &accessGroups, &skipAutoApply)
 		if err == nil {
 			if keepRoute.Valid {
 				r.KeepRoute = keepRoute.Bool
@@ -2153,7 +2193,7 @@ func (s *SqlStore) getRoutes(ctx context.Context, accountID string) ([]route.Rou
 }
 
 func (s *SqlStore) getNameServerGroups(ctx context.Context, accountID string) ([]nbdns.NameServerGroup, error) {
-	const query = `SELECT id, account_id, name, description, name_servers, groups, "primary", domains, enabled, search_domains_enabled FROM name_server_groups WHERE account_id = $1`
+	const query = `SELECT id, account_id, public_id, name, description, name_servers, groups, "primary", domains, enabled, search_domains_enabled FROM name_server_groups WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
@@ -2162,7 +2202,7 @@ func (s *SqlStore) getNameServerGroups(ctx context.Context, accountID string) ([
 		var n nbdns.NameServerGroup
 		var ns, groups, domains []byte
 		var primary, enabled, searchDomainsEnabled sql.NullBool
-		err := row.Scan(&n.ID, &n.AccountID, &n.Name, &n.Description, &ns, &groups, &primary, &domains, &enabled, &searchDomainsEnabled)
+		err := row.Scan(&n.ID, &n.AccountID, &n.PublicID, &n.Name, &n.Description, &ns, &groups, &primary, &domains, &enabled, &searchDomainsEnabled)
 		if err == nil {
 			if primary.Valid {
 				n.Primary = primary.Bool
@@ -2198,7 +2238,7 @@ func (s *SqlStore) getNameServerGroups(ctx context.Context, accountID string) ([
 }
 
 func (s *SqlStore) getPostureChecks(ctx context.Context, accountID string) ([]*posture.Checks, error) {
-	const query = `SELECT id, account_id, name, description, checks FROM posture_checks WHERE account_id = $1`
+	const query = `SELECT id, account_id, public_id, name, description, checks FROM posture_checks WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
@@ -2206,7 +2246,7 @@ func (s *SqlStore) getPostureChecks(ctx context.Context, accountID string) ([]*p
 	checks, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*posture.Checks, error) {
 		var c posture.Checks
 		var checksDef []byte
-		err := row.Scan(&c.ID, &c.AccountID, &c.Name, &c.Description, &checksDef)
+		err := row.Scan(&c.ID, &c.AccountID, &c.PublicID, &c.Name, &c.Description, &checksDef)
 		if err == nil && checksDef != nil {
 			_ = json.Unmarshal(checksDef, &c.Checks)
 		}
@@ -2386,7 +2426,7 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpserv
 }
 
 func (s *SqlStore) getNetworks(ctx context.Context, accountID string) ([]*networkTypes.Network, error) {
-	const query = `SELECT id, account_id, name, description FROM networks WHERE account_id = $1`
+	const query = `SELECT id, account_id, public_id, name, description FROM networks WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
@@ -2403,7 +2443,7 @@ func (s *SqlStore) getNetworks(ctx context.Context, accountID string) ([]*networ
 }
 
 func (s *SqlStore) getNetworkRouters(ctx context.Context, accountID string) ([]*routerTypes.NetworkRouter, error) {
-	const query = `SELECT id, network_id, account_id, peer, peer_groups, masquerade, metric, enabled FROM network_routers WHERE account_id = $1`
+	const query = `SELECT id, network_id, account_id, public_id, peer, peer_groups, masquerade, metric, enabled FROM network_routers WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
@@ -2413,7 +2453,7 @@ func (s *SqlStore) getNetworkRouters(ctx context.Context, accountID string) ([]*
 		var peerGroups []byte
 		var masquerade, enabled sql.NullBool
 		var metric sql.NullInt64
-		err := row.Scan(&r.ID, &r.NetworkID, &r.AccountID, &r.Peer, &peerGroups, &masquerade, &metric, &enabled)
+		err := row.Scan(&r.ID, &r.NetworkID, &r.AccountID, &r.PublicID, &r.Peer, &peerGroups, &masquerade, &metric, &enabled)
 		if err == nil {
 			if masquerade.Valid {
 				r.Masquerade = masquerade.Bool
@@ -2441,7 +2481,7 @@ func (s *SqlStore) getNetworkRouters(ctx context.Context, accountID string) ([]*
 }
 
 func (s *SqlStore) getNetworkResources(ctx context.Context, accountID string) ([]*resourceTypes.NetworkResource, error) {
-	const query = `SELECT id, network_id, account_id, name, description, type, domain, prefix, enabled FROM network_resources WHERE account_id = $1`
+	const query = `SELECT id, network_id, account_id, public_id, name, description, type, domain, prefix, enabled FROM network_resources WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
@@ -2450,7 +2490,7 @@ func (s *SqlStore) getNetworkResources(ctx context.Context, accountID string) ([
 		var r resourceTypes.NetworkResource
 		var prefix []byte
 		var enabled sql.NullBool
-		err := row.Scan(&r.ID, &r.NetworkID, &r.AccountID, &r.Name, &r.Description, &r.Type, &r.Domain, &prefix, &enabled)
+		err := row.Scan(&r.ID, &r.NetworkID, &r.AccountID, &r.PublicID, &r.Name, &r.Description, &r.Type, &r.Domain, &prefix, &enabled)
 		if err == nil {
 			if enabled.Valid {
 				r.Enabled = enabled.Bool
@@ -3812,7 +3852,7 @@ func (s *SqlStore) UpdateGroup(ctx context.Context, group *types.Group) error {
 		return status.Errorf(status.InvalidArgument, "group is nil")
 	}
 
-	if err := s.db.Omit(clause.Associations).Save(group).Error; err != nil {
+	if err := s.db.Omit(clause.Associations, "public_id").Save(group).Error; err != nil {
 		log.WithContext(ctx).Errorf("failed to save group to store: %v", err)
 		return status.Errorf(status.Internal, "failed to save group to store")
 	}
@@ -3900,7 +3940,7 @@ func (s *SqlStore) CreatePolicy(ctx context.Context, policy *types.Policy) error
 
 // SavePolicy saves a policy to the database.
 func (s *SqlStore) SavePolicy(ctx context.Context, policy *types.Policy) error {
-	result := s.db.Session(&gorm.Session{FullSaveAssociations: true}).Save(policy)
+	result := s.db.Session(&gorm.Session{FullSaveAssociations: true}).Omit("public_id").Save(policy)
 	if err := result.Error; err != nil {
 		log.WithContext(ctx).Errorf("failed to save policy to the store: %s", err)
 		return status.Errorf(status.Internal, "failed to save policy to store")
@@ -6100,6 +6140,37 @@ func (s *SqlStore) DisconnectProxy(ctx context.Context, proxyID, sessionID strin
 	return nil
 }
 
+// GetAllProxies returns all reverse proxy instance rows.
+func (s *SqlStore) GetAllProxies(ctx context.Context) ([]*proxy.Proxy, error) {
+	var proxies []*proxy.Proxy
+	result := s.db.Order("cluster_address, id").Find(&proxies)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get proxies: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get proxies")
+	}
+	return proxies, nil
+}
+
+// DisconnectAllProxies force-marks every proxy that is not already disconnected
+// as disconnected, regardless of session ID. Unlike DisconnectProxy it is not
+// session-guarded: it is an administrative repair helper, not part of the
+// connection lifecycle. last_seen is left untouched so the stale-proxy reaper
+// keeps working off the real last heartbeat. Returns the number of proxies updated.
+func (s *SqlStore) DisconnectAllProxies(ctx context.Context) (int64, error) {
+	result := s.db.
+		Model(&proxy.Proxy{}).
+		Where("status != ?", proxy.StatusDisconnected).
+		Updates(map[string]any{
+			"status":          proxy.StatusDisconnected,
+			"disconnected_at": time.Now(),
+		})
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to disconnect all proxies: %v", result.Error)
+		return 0, status.Errorf(status.Internal, "failed to disconnect all proxies")
+	}
+	return result.RowsAffected, nil
+}
+
 // UpdateProxyHeartbeat updates the last_seen timestamp for the proxy's current session.
 func (s *SqlStore) UpdateProxyHeartbeat(ctx context.Context, p *proxy.Proxy) error {
 	now := time.Now()
@@ -6107,7 +6178,11 @@ func (s *SqlStore) UpdateProxyHeartbeat(ctx context.Context, p *proxy.Proxy) err
 	result := s.db.
 		Model(&proxy.Proxy{}).
 		Where("id = ? AND session_id = ?", p.ID, p.SessionID).
-		Update("last_seen", now)
+		Updates(map[string]any{
+			"last_seen":       now,
+			"status":          proxy.StatusConnected,
+			"disconnected_at": nil,
+		})
 
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to update proxy heartbeat: %v", result.Error)

@@ -64,6 +64,18 @@
       <disabledValue><decimal value="0" /></disabledValue>
     </policy>
 
+    <policy name="DisableAutostart"
+            class="Machine"
+            displayName="$(string.DisableAutostart_Name)"
+            explainText="$(string.DisableAutostart_Help)"
+            key="Software\Policies\NetBird"
+            valueName="DisableAutostart">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
     <policy name="DisableClientRoutes"
             class="Machine"
             displayName="$(string.DisableClientRoutes_Name)"

@@ -339,20 +339,20 @@ func TestConn_onWGDisconnected_EscalatesToRosenpassReset(t *testing.T) {
 	conn := newWGTimeoutTestConn(true, &disconnected)
 
 	for i := 0; i < wgTimeoutEscalationThreshold-1; i++ {
-		conn.onWGDisconnected()
+		conn.onWGDisconnected(conn.ctx)
 	}
 	assert.Empty(t, disconnected, "escalation must not fire below the threshold")
 
-	conn.onWGDisconnected()
+	conn.onWGDisconnected(conn.ctx)
 	assert.Equal(t, []string{conn.config.WgConfig.RemoteKey}, disconnected,
 		"reaching the threshold must report the peer disconnected once")
 
 	for i := 0; i < wgTimeoutEscalationThreshold-1; i++ {
-		conn.onWGDisconnected()
+		conn.onWGDisconnected(conn.ctx)
 	}
 	assert.Len(t, disconnected, 1, "escalation must restart counting after firing")
 
-	conn.onWGDisconnected()
+	conn.onWGDisconnected(conn.ctx)
 	assert.Len(t, disconnected, 2, "continued timeouts must escalate again")
 }
 
@@ -364,12 +364,12 @@ func TestConn_onWGDisconnected_CheckSuccessResetsEscalation(t *testing.T) {
 	conn := newWGTimeoutTestConn(true, &disconnected)
 
 	for i := 0; i < wgTimeoutEscalationThreshold-1; i++ {
-		conn.onWGDisconnected()
+		conn.onWGDisconnected(conn.ctx)
 	}
 	conn.onWGCheckSuccess()
 
 	for i := 0; i < wgTimeoutEscalationThreshold-1; i++ {
-		conn.onWGDisconnected()
+		conn.onWGDisconnected(conn.ctx)
 	}
 	assert.Empty(t, disconnected, "handshake success must reset the timeout count")
 }
@@ -382,7 +382,7 @@ func TestConn_onWGDisconnected_NoEscalationWithoutRosenpass(t *testing.T) {
 	conn := newWGTimeoutTestConn(false, &disconnected)
 
 	for i := 0; i < wgTimeoutEscalationThreshold*3; i++ {
-		conn.onWGDisconnected()
+		conn.onWGDisconnected(conn.ctx)
 	}
 	assert.Empty(t, disconnected, "escalation must be limited to rosenpass connections")
 }

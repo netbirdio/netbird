@@ -257,7 +257,10 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		log.Errorf("failed to clean up temporary installer file: %v", err)
 	}
 
-	defer c.statusRecorder.ClientStop()
+	defer func() {
+		c.statusRecorder.SetSessionExpiresAt(time.Time{})
+		c.statusRecorder.ClientStop()
+	}()
 	operation := func() error {
 		// if context cancelled we not start new backoff cycle
 		if c.ctx.Err() != nil {
@@ -618,6 +621,7 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 		BlockLANAccess:      config.BlockLANAccess,
 		BlockInbound:        config.BlockInbound,
 		DisableIPv6:         config.DisableIPv6,
+		SyncMessageVersion:  config.SyncMessageVersion,
 
 		LazyConnection: lazyconn.ParseState(config.LazyConnection),
 
@@ -693,6 +697,7 @@ func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte,
 		config.BlockLANAccess,
 		config.BlockInbound,
 		config.DisableIPv6,
+		config.SyncMessageVersion,
 		config.EnableSSHRoot,
 		config.EnableSSHSFTP,
 		config.EnableSSHLocalPortForwarding,

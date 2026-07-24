@@ -181,7 +181,7 @@ func (s *Server) Start() error {
 		log.Warnf("failed to redirect stderr: %v", err)
 	}
 
-	if err := restoreResidualState(s.rootCtx, s.profileManager.GetStatePath()); err != nil {
+	if err := RestoreResidualState(s.rootCtx, s.profileManager.GetStatePath()); err != nil {
 		log.Warnf(errRestoreResidualState, err)
 	}
 
@@ -551,7 +551,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	s.actCancel = cancel
 	s.mutex.Unlock()
 
-	if err := restoreResidualState(s.rootCtx, s.profileManager.GetStatePath()); err != nil {
+	if err := RestoreResidualState(s.rootCtx, s.profileManager.GetStatePath()); err != nil {
 		log.Warnf(errRestoreResidualState, err)
 	}
 
@@ -858,7 +858,7 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 
 		return s.waitForUp(callerCtx)
 	}
-	if err := restoreResidualState(callerCtx, s.profileManager.GetStatePath()); err != nil {
+	if err := RestoreResidualState(callerCtx, s.profileManager.GetStatePath()); err != nil {
 		log.Warnf(errRestoreResidualState, err)
 	}
 
@@ -1081,7 +1081,10 @@ func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownRes
 
 	if err := s.cleanupConnection(); err != nil {
 		s.mutex.Unlock()
-		// todo review to update the status in case any type of error
+		if errors.Is(err, ErrServiceNotUp) {
+			log.Debugf("Down called while service not up: %v", err)
+			return nil, err
+		}
 		log.Errorf("failed to shut down properly: %v", err)
 		return nil, err
 	}
@@ -1154,7 +1157,7 @@ func (s *Server) cleanupConnection() error {
 	// making the run loop the sole owner of engine shutdown.
 	if engine != nil {
 		if err := engine.Stop(); err != nil {
-			return err
+			log.Errorf("failed to stop engine during cleanup: %v", err)
 		}
 	}
 

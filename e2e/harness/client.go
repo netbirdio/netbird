@@ -4,6 +4,7 @@ package harness
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -167,22 +168,54 @@ func (cl *Client) pollStatus(ctx context.Context, timeout time.Duration, want st
 	return fmt.Errorf("timed out waiting for %q; last status:\n%s", want, last)
 }
 
-// ResolveProxyIP resolves the agent-network endpoint to the proxy peer's
-// NetBird IP from inside the client (via magic DNS).
+const (
+	// curlExitCouldNotResolve is curl's exit code for a DNS resolution failure, distinct from connection-level failures.
+	curlExitCouldNotResolve = 6
+	// dnsProbeRetryWindow bounds DNS-failure retries: the synthesized zone lands a beat after management connects, so early NXDOMAIN is propagation; a zone still absent after this window is a real failure.
+	dnsProbeRetryWindow   = 30 * time.Second
+	dnsProbeRetryInterval = 2 * time.Second
+)
+
+// ResolveProxyIP GETs https://<endpoint>/ from the client's netns: any HTTP status proves DNS + tunnel and wakes the lazy proxy peer; only DNS failures retry, within dnsProbeRetryWindow. Returns the connected IP for --resolve pinning.
 func (cl *Client) ResolveProxyIP(ctx context.Context, endpoint string) (string, error) {
-	code, reader, err := cl.container.Exec(ctx, []string{"getent", "hosts", endpoint}, tcexec.Multiplexed())
-	if err != nil {
-		return "", err
+	args := []string{
+		"run", "--rm",
+		"--network", "container:" + cl.container.GetContainerID(),
+		curlImage,
+		"-ksS", "-o", "/dev/null",
+		"--connect-timeout", "30", "--max-time", "60",
+		"-w", "%{remote_ip}",
+		"https://" + endpoint + "/",
 	}
-	out, _ := io.ReadAll(reader)
-	if code != 0 {
-		return "", fmt.Errorf("getent hosts %s exited %d", endpoint, code)
+	deadline := time.Now().Add(dnsProbeRetryWindow)
+	for {
+		cmd := exec.CommandContext(ctx, "docker", args...)
+		var stdout, stderr strings.Builder
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		err := cmd.Run()
+		if err == nil {
+			ip := strings.TrimSpace(stdout.String())
+			if ip == "" {
+				return "", fmt.Errorf("got an HTTP response from %s but no remote IP", endpoint)
+			}
+			return ip, nil
+		}
+
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) || exitErr.ExitCode() != curlExitCouldNotResolve {
+			return "", fmt.Errorf("no HTTP response from %s: %w (%s)", endpoint, err, strings.TrimSpace(stderr.String()))
+		}
+		dnsErr := fmt.Errorf("DNS resolution failed for %s: %s", endpoint, strings.TrimSpace(stderr.String()))
+		if time.Until(deadline) < dnsProbeRetryInterval {
+			return "", dnsErr
+		}
+		select {
+		case <-ctx.Done():
+			return "", fmt.Errorf("%w (%w)", dnsErr, ctx.Err())
+		case <-time.After(dnsProbeRetryInterval):
+		}
 	}
-	fields := strings.Fields(string(out))
-	if len(fields) == 0 {
-		return "", fmt.Errorf("no address for %s", endpoint)
-	}
-	return fields[0], nil
 }
 
 // Wire shapes for Chat.
@@ -194,6 +227,11 @@ const (
 	// WireVertex is the Anthropic-on-Vertex rawPredict shape: the client posts
 	// the full Vertex model path and the proxy mints the SA OAuth token.
 	WireVertex = "vertex"
+	// WireBedrock is the native AWS Bedrock InvokeModel shape: the model id
+	// travels in the URL path (/model/{id}/invoke), not the body, so the proxy
+	// routes by path. This is what a Bedrock SDK client sends and the shape the
+	// model-allowlist guardrail must enforce.
+	WireBedrock = "bedrock"
 )
 
 // Chat issues a chat-completion POST to the agent-network endpoint over the
@@ -201,6 +239,17 @@ const (
 // the wire shape: WireChat (OpenAI) or WireMessages (Anthropic). A non-empty
 // sessionID is sent as the universal x-session-id header the proxy records.
 func (cl *Client) Chat(ctx context.Context, endpoint, proxyIP, kind, model, prompt, sessionID string) (int, string, error) {
+	return cl.ChatPrefixed(ctx, endpoint, proxyIP, "", kind, model, prompt, sessionID)
+}
+
+// ChatPrefixed is Chat with a base-URL path prefix prepended to the wire
+// path, mirroring agents whose base URL carries a shape-selecting prefix that
+// rides through to the upstream — e.g. Claude Code against a Kimi provider
+// sets ANTHROPIC_BASE_URL=https://<endpoint>/anthropic so the proxy forwards
+// /anthropic/v1/messages to Moonshot's Anthropic surface while the provider's
+// upstream URL stays the bare https://api.moonshot.ai. Empty prefix is plain
+// Chat.
+func (cl *Client) ChatPrefixed(ctx context.Context, endpoint, proxyIP, pathPrefix, kind, model, prompt, sessionID string) (int, string, error) {
 	var path, body string
 	var headers []string
 	switch kind {
@@ -212,7 +261,7 @@ func (cl *Client) Chat(ctx context.Context, endpoint, proxyIP, kind, model, prom
 		path = "/v1/chat/completions"
 		body = fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":%q}]}`, model, prompt)
 	}
-	return cl.post(ctx, endpoint, proxyIP, path, body, withSessionID(headers, sessionID))
+	return cl.post(ctx, endpoint, proxyIP, pathPrefix+path, body, withSessionID(headers, sessionID))
 }
 
 // Vertex issues an Anthropic-on-Vertex rawPredict POST over the tunnel. Unlike
@@ -223,6 +272,17 @@ func (cl *Client) Chat(ctx context.Context, endpoint, proxyIP, kind, model, prom
 func (cl *Client) Vertex(ctx context.Context, endpoint, proxyIP, project, region, model, prompt, sessionID string) (int, string, error) {
 	path := fmt.Sprintf("/v1/projects/%s/locations/%s/publishers/anthropic/models/%s:rawPredict", project, region, model)
 	body := fmt.Sprintf(`{"anthropic_version":"vertex-2023-10-16","max_tokens":64,"messages":[{"role":"user","content":%q}]}`, prompt)
+	return cl.post(ctx, endpoint, proxyIP, path, body, withSessionID(nil, sessionID))
+}
+
+// Bedrock issues a native AWS Bedrock InvokeModel POST over the tunnel. The
+// model id is carried in the request path (/model/{id}/invoke), so the proxy
+// routes by path; the body uses the bedrock anthropic_version rather than a
+// model field. A non-empty sessionID is sent as the universal x-session-id
+// header the proxy records.
+func (cl *Client) Bedrock(ctx context.Context, endpoint, proxyIP, model, prompt, sessionID string) (int, string, error) {
+	path := "/model/" + model + "/invoke"
+	body := fmt.Sprintf(`{"anthropic_version":"bedrock-2023-05-31","max_tokens":64,"messages":[{"role":"user","content":%q}]}`, prompt)
 	return cl.post(ctx, endpoint, proxyIP, path, body, withSessionID(nil, sessionID))
 }
 

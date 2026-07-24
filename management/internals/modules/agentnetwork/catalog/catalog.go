@@ -197,6 +197,12 @@ type JSONMetadataInjection struct {
 	// enforces a 128-char limit per value; oversized values are
 	// truncated rather than failing the request. 0 disables the cap.
 	MaxValueLength int
+	// Sanitize, when true, replaces characters outside the destination's
+	// accepted set with '_' before emitting each value. AWS Bedrock's
+	// X-Amzn-Bedrock-Request-Metadata restricts values to a limited character
+	// class, so unsanitized group display names (e.g. containing spaces) would
+	// make Bedrock reject the request with 400.
+	Sanitize bool
 }
 
 // providers is the canonical list of supported Agent Network providers.
@@ -329,6 +335,18 @@ var providers = []Provider{
 			{ID: "amazon.nova-lite", Label: "Amazon Nova Lite (Bedrock)", InputPer1k: 0.00006, OutputPer1k: 0.00024, ContextWindow: 300000},
 			{ID: "amazon.nova-micro", Label: "Amazon Nova Micro (Bedrock)", InputPer1k: 0.000035, OutputPer1k: 0.00014, ContextWindow: 128000},
 		},
+		// Bedrock accepts a cost-allocation metadata header; stamp the caller's
+		// user + authorizing group so spend can be attributed in AWS Cost
+		// Management. Sanitized because Bedrock restricts the value character set.
+		IdentityInjection: &IdentityInjection{
+			JSONMetadata: &JSONMetadataInjection{
+				Header:         "X-Amzn-Bedrock-Request-Metadata",
+				UserKey:        "user",
+				GroupsKey:      "group",
+				MaxValueLength: 256,
+				Sanitize:       true,
+			},
+		},
 	},
 	{
 		ID:                 "vertex_ai_api",
@@ -400,6 +418,47 @@ var providers = []Provider{
 			{ID: "ministral-8b-latest", Label: "Ministral 8B", InputPer1k: 0.00015, OutputPer1k: 0.00015, ContextWindow: 262144},
 			{ID: "ministral-3-3b-2512", Label: "Ministral 3 3B", InputPer1k: 0.0001, OutputPer1k: 0.0001, ContextWindow: 131072},
 			{ID: "mistral-embed", Label: "Mistral Embed", InputPer1k: 0.0001, OutputPer1k: 0, ContextWindow: 8192},
+		},
+	},
+	{
+		ID:                 "kimi_api",
+		Kind:               KindProvider,
+		Name:               "Kimi (Moonshot AI) API",
+		Description:        "Kimi K3 / K2 models via the Moonshot AI platform",
+		DefaultHost:        "api.moonshot.ai",
+		AuthHeaderName:     "Authorization",
+		AuthHeaderTemplate: "Bearer ${API_KEY}",
+		DefaultContentType: "application/json",
+		BrandColor:         "#1A1A2E",
+		// ParserID empty on purpose: Moonshot serves two body shapes on
+		// the same host and key, and the proxy's URL sniffer dispatches
+		// both (same pattern as Bifrost). /v1/chat/completions matches
+		// OpenAIParser; the Anthropic-compatible endpoint the official
+		// Claude Code guide uses (/anthropic/v1/messages) contains
+		// "/v1/messages" and matches AnthropicParser. Pinning "openai"
+		// here would misparse the Claude Code path — the primary way
+		// teams consume Kimi for coding today. Both endpoints accept the
+		// same Moonshot key via Authorization: Bearer (Claude Code's
+		// ANTHROPIC_AUTH_TOKEN rides that header too).
+		//
+		// api.moonshot.ai is the international platform; mainland-China
+		// accounts live on api.moonshot.cn with separate billing —
+		// operators there override the host on the provider record. The
+		// kimi.com subscription coding endpoint (api.kimi.com/coding,
+		// model id "k3") is account-bound seat licensing rather than a
+		// meterable platform key, so it's deliberately not the default.
+		ParserID: "",
+		// Pricing per Moonshot's platform rates at K3 launch (July 2026):
+		// $3/$15 per MTok with $0.30 cached input, flat across the 1M-token
+		// window. kimi-k3 is the ONLY model the platform serves newer
+		// accounts — K2-era ids (kimi-k2-thinking) and even the kimi-latest
+		// alias return resource_not_found_error, verified live 2026-07-21 —
+		// so it's the only catalog entry. Grandfathered accounts with K2
+		// access can still type those ids on the provider's model rows.
+		// The consumer app's "K3 Swarm Max" mode is not an API SKU, so it
+		// doesn't appear here.
+		Models: []Model{
+			{ID: "kimi-k3", Label: "Kimi K3", InputPer1k: 0.003, OutputPer1k: 0.015, ContextWindow: 1000000},
 		},
 	},
 	{

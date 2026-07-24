@@ -376,7 +376,7 @@ components:
           type: boolean
           example: false
         agent_network_only:
-          description: Limits the dashboard to the Agent Network surface for this account. Set for accounts created via netbird.ai signups and can be disabled later.
+          description: Limits the dashboard to the Agent Network surface for this account. Set for accounts created via netbird.ai signups and can be disabled later. Enabling this requires dashboard_features.agent_network to be true in the same request.
           type: boolean
           example: false
         dashboard_features:
@@ -414,7 +414,7 @@ components:
       type: object
       properties:
         agent_network:
-          description: Controls the Agent Network menu for the account regardless of the deployment feature flag. When true the menu is shown, when false it is hidden, and when omitted the default behavior applies.
+          description: Controls the Agent Network menu for the account regardless of the deployment feature flag. When true the menu is shown, when false it is hidden, and when omitted the default behavior applies. Must be true when agent_network_only is enabled.
           type: boolean
           example: true
     AccountExtraSettings:
@@ -5164,6 +5164,10 @@ components:
           type: boolean
           description: Whether upstream TLS certificate verification is skipped when the proxy dials this provider's URL. Intended for self-hosted / internal gateways behind a private or self-signed certificate.
           example: false
+        metadata_disabled:
+          type: boolean
+          description: Whether identity metadata injection is disabled for this provider. When enabled (the default), the proxy stamps the caller's user and authorizing group onto upstream requests as provider-specific metadata (e.g. AWS Bedrock's X-Amzn-Bedrock-Request-Metadata header). Set true to suppress it.
+          example: false
         created_at:
           type: string
           format: date-time
@@ -5184,6 +5188,7 @@ components:
         - models
         - enabled
         - skip_tls_verification
+        - metadata_disabled
         - created_at
         - updated_at
     AgentNetworkProviderRequest:
@@ -5239,6 +5244,10 @@ components:
         skip_tls_verification:
           type: boolean
           description: Skip upstream TLS certificate verification when the proxy dials this provider's URL. For self-hosted / internal gateways behind a private or self-signed certificate. Defaults to false. When omitted on update, the stored value is left unchanged.
+          example: false
+        metadata_disabled:
+          type: boolean
+          description: Disable identity metadata injection (the caller's user + authorizing group) for this provider. Defaults to false (metadata is injected). When omitted on update, the stored value is left unchanged.
           example: false
       required:
         - provider_id

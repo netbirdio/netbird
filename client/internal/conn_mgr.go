@@ -34,6 +34,8 @@ const (
 // - Handling connection establishment based on peer signaling
 //
 // The implementation is not thread-safe; it is protected by engine.syncMsgMux.
+// The only exception is ActivatePeer, which is safe for concurrent use so the
+// DNS warm-up path can call it without contending on the engine mutex.
 type ConnMgr struct {
 	peerStore        *peerstore.Store
 	statusRecorder   *peer.Status
@@ -42,10 +44,24 @@ type ConnMgr struct {
 	rosenpassEnabled bool
 
 	lazyConnMgr *manager.Manager
+	// lazyConnMgrMu guards the lazyConnMgr pointer for readers outside the
+	// engine loop (ActivatePeer). Writers hold it in addition to
+	// engine.syncMsgMux; all other reads stay under engine.syncMsgMux only.
+	lazyConnMgrMu sync.RWMutex
+
+	// reconcileRoutedIPs re-applies a peer's routed allowed IPs after its lazy wake endpoint is
+	// (re)armed (Mode A at arm time). Injected by the engine; nil disables the reconcile.
+	reconcileRoutedIPs func(peerKey string) error
 
 	wg            sync.WaitGroup
 	lazyCtx       context.Context
 	lazyCtxCancel context.CancelFunc
+}
+
+// SetRoutedIPsReconciler injects the callback used to re-apply a peer's routed allowed IPs when
+// its lazy wake endpoint is (re)armed. Must be called before the lazy manager starts.
+func (e *ConnMgr) SetRoutedIPsReconciler(fn func(peerKey string) error) {
+	e.reconcileRoutedIPs = fn
 }
 
 func NewConnMgr(engineConfig *EngineConfig, statusRecorder *peer.Status, peerStore *peerstore.Store, iface lazyconn.WGIface) *ConnMgr {
@@ -238,12 +254,20 @@ func (e *ConnMgr) RemovePeerConn(peerKey string) {
 	conn.Log.Infof("removed peer from lazy conn manager")
 }
 
+// ActivatePeer wakes an idle lazy connection. Unlike the rest of ConnMgr it is
+// safe for concurrent use: the lazy manager pointer is read under lazyConnMgrMu
+// and the manager itself is internally synchronized, so callers outside the
+// engine loop (DNS warm-up) do not need engine.syncMsgMux.
 func (e *ConnMgr) ActivatePeer(ctx context.Context, conn *peer.Conn) {
-	if !e.isStartedWithLazyMgr() {
+	e.lazyConnMgrMu.RLock()
+	lazyConnMgr := e.lazyConnMgr
+	started := lazyConnMgr != nil && e.lazyCtxCancel != nil
+	e.lazyConnMgrMu.RUnlock()
+	if !started {
 		return
 	}
 
-	if found := e.lazyConnMgr.ActivatePeer(conn.GetKey()); found {
+	if found := lazyConnMgr.ActivatePeer(conn.GetKey()); found {
 		if err := conn.Open(ctx); err != nil {
 			conn.Log.Errorf("failed to open connection: %v", err)
 		}
@@ -268,16 +292,22 @@ func (e *ConnMgr) Close() {
 
 	e.lazyCtxCancel()
 	e.wg.Wait()
+
+	e.lazyConnMgrMu.Lock()
 	e.lazyConnMgr = nil
+	e.lazyConnMgrMu.Unlock()
 }
 
 func (e *ConnMgr) initLazyManager(engineCtx context.Context) {
 	cfg := manager.Config{
 		InactivityThreshold: inactivityThresholdEnv(),
+		ReconcileAllowedIPs: e.reconcileRoutedIPs,
 	}
-	e.lazyConnMgr = manager.NewManager(cfg, engineCtx, e.peerStore, e.iface)
 
+	e.lazyConnMgrMu.Lock()
+	e.lazyConnMgr = manager.NewManager(cfg, engineCtx, e.peerStore, e.iface)
 	e.lazyCtx, e.lazyCtxCancel = context.WithCancel(engineCtx)
+	e.lazyConnMgrMu.Unlock()
 
 	e.wg.Add(1)
 	go func() {
@@ -316,7 +346,10 @@ func (e *ConnMgr) closeManager(ctx context.Context) {
 
 	e.lazyCtxCancel()
 	e.wg.Wait()
+
+	e.lazyConnMgrMu.Lock()
 	e.lazyConnMgr = nil
+	e.lazyConnMgrMu.Unlock()
 
 	for _, peerID := range e.peerStore.PeersPubKey() {
 		e.peerStore.PeerConnOpen(ctx, peerID)

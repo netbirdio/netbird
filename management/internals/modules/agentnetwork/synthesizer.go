@@ -540,6 +540,7 @@ type identityInjectJSONMetadata struct {
 	UserKey        string `json:"user_key,omitempty"`
 	GroupsKey      string `json:"groups_key,omitempty"`
 	MaxValueLength int    `json:"max_value_length,omitempty"`
+	Sanitize       bool   `json:"sanitize,omitempty"`
 }
 
 // buildIdentityInjectConfigJSON walks the enabled providers and emits
@@ -583,9 +584,11 @@ func buildIdentityInjectConfigJSON(providers []*types.Provider, groupIndex map[s
 func buildIdentityInjectRule(p *types.Provider, entry catalog.Provider) (identityInjectProvider, bool) {
 	rule := identityInjectProvider{ProviderID: p.ID}
 	// Identity-stamping shape (one of HeaderPair / JSONMetadata). Skip the
-	// shape silently when the catalog entry doesn't declare one — extras
-	// can still apply, see below.
-	if entry.IdentityInjection != nil {
+	// shape silently when the catalog entry doesn't declare one, or when the
+	// operator disabled metadata for this provider — extras can still apply,
+	// see below. MetadataDisabled suppresses only the identity dimensions
+	// (user + authorizing group), not the catalog's routing ExtraHeaders.
+	if !p.MetadataDisabled && entry.IdentityInjection != nil {
 		switch {
 		case entry.IdentityInjection.HeaderPair != nil:
 			rule.HeaderPair = buildIdentityHeaderPair(p, entry.IdentityInjection.HeaderPair)
@@ -651,6 +654,7 @@ func buildIdentityJSONMetadata(p *types.Provider, jm *catalog.JSONMetadataInject
 		UserKey:        userKey,
 		GroupsKey:      groupsKey,
 		MaxValueLength: jm.MaxValueLength,
+		Sanitize:       jm.Sanitize,
 	}
 }
 

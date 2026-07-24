@@ -1614,7 +1614,7 @@ type Account struct {
 
 // AccountDashboardFeatures Per-account dashboard section visibility overrides. Omitted keys follow the default dashboard behavior.
 type AccountDashboardFeatures struct {
-	// AgentNetwork Controls the Agent Network menu for the account regardless of the deployment feature flag. When true the menu is shown, when false it is hidden, and when omitted the default behavior applies.
+	// AgentNetwork Controls the Agent Network menu for the account regardless of the deployment feature flag. When true the menu is shown, when false it is hidden, and when omitted the default behavior applies. Must be true when agent_network_only is enabled.
 	AgentNetwork *bool `json:"agent_network,omitempty"`
 }
 
@@ -1653,7 +1653,7 @@ type AccountRequest struct {
 
 // AccountSettings defines model for AccountSettings.
 type AccountSettings struct {
-	// AgentNetworkOnly Limits the dashboard to the Agent Network surface for this account. Set for accounts created via netbird.ai signups and can be disabled later.
+	// AgentNetworkOnly Limits the dashboard to the Agent Network surface for this account. Set for accounts created via netbird.ai signups and can be disabled later. Enabling this requires dashboard_features.agent_network to be true in the same request.
 	AgentNetworkOnly *bool `json:"agent_network_only,omitempty"`
 
 	// AutoUpdateAlways When true, updates are installed automatically in the background. When false, updates require user interaction from the UI.
@@ -2227,6 +2227,9 @@ type AgentNetworkProvider struct {
 	// IdentityHeaderUserId Wire header name the proxy stamps with the caller's display identity (user email or peer name) when the catalog entry's HeaderPair is `customizable`. Empty disables stamping for this dimension. Ignored when the catalog entry has a fixed HeaderPair (e.g. LiteLLM, Portkey). Used today by Bifrost: typical values are `x-bf-lh-netbird_user_id` (always-on log metadata) or `x-bf-dim-netbird_user_id` (Prometheus / OTEL — requires the label to be pre-declared in the gateway's `client.prometheus_labels` config).
 	IdentityHeaderUserId *string `json:"identity_header_user_id,omitempty"`
 
+	// MetadataDisabled Whether identity metadata injection is disabled for this provider. When enabled (the default), the proxy stamps the caller's user and authorizing group onto upstream requests as provider-specific metadata (e.g. AWS Bedrock's X-Amzn-Bedrock-Request-Metadata header). Set true to suppress it.
+	MetadataDisabled bool `json:"metadata_disabled"`
+
 	// Models Models exposed through this endpoint, with the operator's per-1k input/output prices. Empty means all catalog models are allowed at catalog prices.
 	Models []AgentNetworkProviderModel `json:"models"`
 
@@ -2277,6 +2280,9 @@ type AgentNetworkProviderRequest struct {
 
 	// IdentityHeaderUserId Wire header name for the caller's display identity. See AgentNetworkProvider.identity_header_user_id. When omitted on a request, the stored value is left unchanged; pass an empty string explicitly to clear it (which disables stamping for this dimension).
 	IdentityHeaderUserId *string `json:"identity_header_user_id,omitempty"`
+
+	// MetadataDisabled Disable identity metadata injection (the caller's user + authorizing group) for this provider. Defaults to false (metadata is injected). When omitted on update, the stored value is left unchanged.
+	MetadataDisabled *bool `json:"metadata_disabled,omitempty"`
 
 	// Models Models exposed through this endpoint, with the operator's per-1k input/output prices. Empty means all catalog models are allowed at catalog prices.
 	Models *[]AgentNetworkProviderModel `json:"models,omitempty"`
