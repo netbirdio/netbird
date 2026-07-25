@@ -204,9 +204,8 @@ type Engine struct {
 	rpManager *rosenpass.Manager
 
 	// pqkemManager runs the ML-KEM post-quantum PSK exchange (gated by NB_ENABLE_PQ_MLKEM).
+	// It owns the data-path transport and peer endpoint routing.
 	pqkemManager *pqkem.Manager
-	// pqTransport is the ML-KEM data-path UDP transport, bound on the WG overlay IP.
-	pqTransport *pqTransport
 
 	// syncMsgMux is used to guarantee sequential Management Service message processing
 	syncMsgMux *sync.Mutex
@@ -667,11 +666,9 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		if pqErr != nil {
 			log.Errorf("ML-KEM PQ transport bind failed, PQ exchange disabled: %v", pqErr)
 		} else {
-			e.pqTransport = tr
-			e.pqkemManager = pqkem.NewManager(publicKey.String(), tr, pqCallbackHandler{wg: e.wgInterface}, nil)
-			tr.setManager(e.pqkemManager)
-			go tr.run()
-			log.Infof("ML-KEM post-quantum exchange enabled (udp port %d on overlay %s)", tr.Port(), e.config.WgAddr.IP)
+			e.pqkemManager = pqkem.NewManager(publicKey.String(), pqCallbackHandler{wg: e.wgInterface}, nil)
+			e.pqkemManager.SetTransport(tr)
+			log.Infof("ML-KEM post-quantum exchange enabled (udp port %d on overlay %s)", e.pqkemManager.LocalPort(), e.config.WgAddr.IP)
 		}
 	}
 
@@ -2111,9 +2108,6 @@ func (e *Engine) close() {
 		_ = e.rpManager.Close()
 	}
 
-	if e.pqTransport != nil {
-		_ = e.pqTransport.Close()
-	}
 	if e.pqkemManager != nil {
 		e.pqkemManager.Stop()
 	}

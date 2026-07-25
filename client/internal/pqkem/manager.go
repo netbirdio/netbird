@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"sync"
 	"time"
 )
@@ -21,12 +22,22 @@ const (
 	DefaultMaxRekeyFailures = 3
 )
 
-// Transport pushes a message over the peer's data path (e.g. a WireGuard tunnel).
-// It is the library's only outbound send: the control-plane (signalling) channel is
-// host-driven — the library hands the host offer/answer payloads to piggyback on the
-// host's own negotiation, it never pushes there itself.
+// Transport is the data-path socket the Manager drives (the analogue of
+// go-rosenpass's Conn). It is a dumb mover of bytes to/from endpoints: the Manager
+// owns the remoteID<->endpoint routing and hands the transport a resolved endpoint
+// to Send, and reverse-resolves the source of each inbound datagram. Its lifecycle
+// belongs to the Manager (Run at SetTransport, Close at Stop).
 type Transport interface {
-	SendDataPath(remoteID string, msg []byte) error
+	// Send delivers msg to the given data-path endpoint.
+	Send(endpoint netip.AddrPort, msg []byte) error
+	// LocalPort is the bound local UDP port, announced to peers so they know where
+	// to send data-path messages.
+	LocalPort() int
+	// Run starts delivering inbound datagrams as (source endpoint, msg) to onInbound
+	// and returns immediately; it runs until Close.
+	Run(onInbound func(src netip.AddrPort, msg []byte))
+	// Close stops delivery and releases the socket.
+	Close() error
 }
 
 // exchangeState is the single source of truth for an exchange's role and phase.
@@ -58,14 +69,13 @@ type exchangeCtl struct {
 }
 
 // Manager is the stateful orchestrator — the analogue of go-rosenpass's Server. It
-// drives the X25519MLKEM768 exchange and surfaces the derived PSK and convergence to
-// the host via CallbackHandler. It is fully event-driven: the bootstrap is triggered
-// by the host (SignalOffer) and each rotation is clocked by OnDataPathRekeyed (the
-// consumer's transport rekey). The cryptography is the pure kem.go primitives; all
-// state lives here under one lock.
+// drives the X25519MLKEM768 exchange, owns the peer endpoint routing and the data-path
+// transport, and surfaces the derived PSK and convergence to the host via
+// CallbackHandler. It is event-driven: the bootstrap is triggered by the host
+// (SignalOffer) and each rotation is clocked by OnDataPathRekeyed. The cryptography is
+// the pure kem.go primitives; all state lives here under one lock.
 type Manager struct {
 	localID   string
-	transport Transport
 	cbHandler CallbackHandler
 	logger    *slog.Logger
 
@@ -77,27 +87,25 @@ type Manager struct {
 	rootCancel context.CancelFunc
 
 	mu          sync.Mutex
-	exchanges   map[string]*exchangeCtl // in-flight exchange per peer
-	established map[string]bool         // peer has completed at least one exchange
-	failures    map[string]int          // consecutive rekey failures per peer
-	// dataSend holds the peer's data-path sender when the data path is up; nil
-	// (absent) means it is down. Toggled by OnDataPathRekeyed / OnDataPathDown.
-	dataSend map[string]func(string, []byte) error
-	wait     sync.WaitGroup
+	transport   Transport
+	exchanges   map[string]*exchangeCtl   // in-flight exchange per peer
+	established  map[string]bool          // peer has completed at least one exchange
+	failures    map[string]int            // consecutive rekey failures per peer
+	peers       map[string]netip.AddrPort // remoteID -> data-path endpoint (send routing)
+	peersByAddr map[netip.AddrPort]string // reverse: source endpoint -> remoteID (inbound)
+	wait        sync.WaitGroup
 }
 
 // NewManager builds a manager for the local peer identified by its peer identity key
 // (used for the deterministic initiator role and the identity binding). A nil logger
-// falls back to slog.Default(). Retry/retries/K use their defaults and can be
-// overridden before use.
-func NewManager(localID string, t Transport, h CallbackHandler, logger *slog.Logger) *Manager {
+// falls back to slog.Default(). Set the data-path transport with SetTransport.
+func NewManager(localID string, h CallbackHandler, logger *slog.Logger) *Manager {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Manager{
 		localID:          localID,
-		transport:        t,
 		cbHandler:        h,
 		logger:           logger,
 		retryInterval:    DefaultRetryInterval,
@@ -108,8 +116,32 @@ func NewManager(localID string, t Transport, h CallbackHandler, logger *slog.Log
 		exchanges:        make(map[string]*exchangeCtl),
 		established:      make(map[string]bool),
 		failures:         make(map[string]int),
-		dataSend:         make(map[string]func(string, []byte) error),
+		peers:            make(map[string]netip.AddrPort),
+		peersByAddr:      make(map[netip.AddrPort]string),
 	}
+}
+
+// SetTransport installs the data-path transport and starts its inbound delivery. The
+// Manager owns it from here: Stop closes it.
+func (m *Manager) SetTransport(t Transport) {
+	m.mu.Lock()
+	m.transport = t
+	m.mu.Unlock()
+	if t != nil {
+		t.Run(m.onDataPathInbound)
+	}
+}
+
+// LocalPort is the data-path transport's bound UDP port (0 if no transport), to be
+// announced to peers.
+func (m *Manager) LocalPort() int {
+	m.mu.Lock()
+	t := m.transport
+	m.mu.Unlock()
+	if t == nil {
+		return 0
+	}
+	return t.LocalPort()
 }
 
 // IsInitiator reports whether the local peer drives the exchange for this remote
@@ -119,7 +151,22 @@ func (m *Manager) IsInitiator(remoteID string) bool {
 	return m.localID > remoteID
 }
 
-// RemovePeer stops any in-flight exchange for a peer and drops its state.
+// AddPeer registers where a peer's data-path messages are sent and received: its
+// overlay endpoint (IP:port). Re-adding updates the endpoint.
+func (m *Manager) AddPeer(remoteID string, endpoint netip.AddrPort) {
+	if !endpoint.IsValid() {
+		return
+	}
+	m.mu.Lock()
+	if old, ok := m.peers[remoteID]; ok {
+		delete(m.peersByAddr, old)
+	}
+	m.peers[remoteID] = endpoint
+	m.peersByAddr[endpoint] = remoteID
+	m.mu.Unlock()
+}
+
+// RemovePeer stops any in-flight exchange for a peer and drops its state and routing.
 func (m *Manager) RemovePeer(remoteID string) {
 	m.mu.Lock()
 	if ex, ok := m.exchanges[remoteID]; ok {
@@ -130,17 +177,26 @@ func (m *Manager) RemovePeer(remoteID string) {
 	}
 	delete(m.established, remoteID)
 	delete(m.failures, remoteID)
-	delete(m.dataSend, remoteID)
+	if ep, ok := m.peers[remoteID]; ok {
+		delete(m.peersByAddr, ep)
+		delete(m.peers, remoteID)
+	}
 	m.mu.Unlock()
 }
 
-// Stop cancels all in-flight exchanges and waits for their goroutines to exit.
+// Stop cancels all in-flight exchanges, closes the transport, and waits for the
+// exchange goroutines to exit.
 func (m *Manager) Stop() {
 	m.rootCancel()
 	m.wait.Wait()
 	m.mu.Lock()
+	t := m.transport
+	m.transport = nil
 	m.exchanges = make(map[string]*exchangeCtl)
 	m.mu.Unlock()
+	if t != nil {
+		_ = t.Close()
+	}
 }
 
 // ---- Signalling channel (host-driven; rides the host's negotiation) ----
@@ -190,10 +246,24 @@ func (m *Manager) SignalOnAnswer(remoteID string, answer []byte) error {
 	return m.processAnswer(remoteID, msg.(*AnswerMsg))
 }
 
-// ---- Data path (library-driven push) ----
+// ---- Data path ----
 
-// OnDataPathMessage feeds a KEM message received over the data path (tunnel) and
-// pushes any reply back over the data path.
+// onDataPathInbound is the transport's inbound handler: it reverse-resolves the
+// source endpoint to a peer and dispatches. Unknown sources are dropped.
+func (m *Manager) onDataPathInbound(src netip.AddrPort, msg []byte) {
+	m.mu.Lock()
+	remoteID := m.peersByAddr[src]
+	m.mu.Unlock()
+	if remoteID == "" {
+		return
+	}
+	if err := m.OnDataPathMessage(remoteID, msg); err != nil {
+		m.logger.Debug("pqkem inbound", "peer", remoteID, "err", err)
+	}
+}
+
+// OnDataPathMessage handles a KEM message received over the data path from remoteID
+// and pushes any reply back over the data path.
 func (m *Manager) OnDataPathMessage(remoteID string, raw []byte) error {
 	typ, msg, err := Decode(raw)
 	if err != nil {
@@ -217,13 +287,12 @@ func (m *Manager) OnDataPathMessage(remoteID string, raw []byte) error {
 }
 
 // OnDataPathRekeyed notifies that the peer's data path is up and freshly keyed with
-// the latest PSK (fired on first establishment AND every rekey). It marks the data
-// path usable and, if we are the initiator that just derived a PSK, chains the next
-// exchange: a fresh offer over the data path that acknowledges the just-completed one
-// (its arrival under the new key proves to the responder that the key works).
+// the latest PSK (fired on first establishment AND every rekey). If we are the
+// initiator that just derived a PSK, it chains the next exchange: a fresh offer over
+// the data path that acknowledges the just-completed one (its arrival under the new
+// key proves to the responder that the key works).
 func (m *Manager) OnDataPathRekeyed(remoteID string) {
 	m.mu.Lock()
-	m.dataSend[remoteID] = m.transport.SendDataPath
 	ex := m.exchanges[remoteID]
 	chain := ex != nil && ex.state == stateAwaitingRekey
 	var ackID ExchangeID
@@ -245,25 +314,27 @@ func (m *Manager) OnDataPathRekeyed(remoteID string) {
 	}
 }
 
-// OnDataPathDown notifies that the peer's data path went down; rotations pause until
-// it is up again (the host re-bootstraps over signalling on reconnect).
-func (m *Manager) OnDataPathDown(remoteID string) {
-	m.mu.Lock()
-	delete(m.dataSend, remoteID)
-	m.mu.Unlock()
-}
+// OnDataPathDown notifies that the peer's data path went down. Rotations resume once
+// the host re-bootstraps over signalling on reconnect; in-flight data-path sends will
+// simply fail until then. Reserved as an explicit hook.
+func (m *Manager) OnDataPathDown(remoteID string) {}
 
 // ---- internals ----
 
-// pushDataPath sends over the peer's data path, erroring if it is down.
+// pushDataPath resolves the peer's endpoint and sends over the data-path transport,
+// erroring if the peer is unknown or no transport is set.
 func (m *Manager) pushDataPath(remoteID string, msg []byte) error {
 	m.mu.Lock()
-	send := m.dataSend[remoteID]
+	ep, ok := m.peers[remoteID]
+	t := m.transport
 	m.mu.Unlock()
-	if send == nil {
-		return fmt.Errorf("no data path for peer %s", remoteID)
+	if !ok {
+		return fmt.Errorf("no data-path endpoint for peer %s", remoteID)
 	}
-	return send(remoteID, msg)
+	if t == nil {
+		return fmt.Errorf("no data-path transport")
+	}
+	return t.Send(ep, msg)
 }
 
 func (m *Manager) binding(remoteID string) Binding {
