@@ -25,8 +25,12 @@ type AgentNetworkUsage struct {
 	InputTokens        int64
 	OutputTokens       int64
 	TotalTokens        int64
-	CostUSD            float64
-	CreatedAt          time.Time
+	// Prompt-cache buckets: read + write token counts and the portion of CostUSD they account for.
+	CachedInputTokens   int64
+	CacheCreationTokens int64
+	CostUSD             float64
+	CacheCostUSD        float64
+	CreatedAt           time.Time
 }
 
 // TableName keeps usage records in their own stripped table. Named

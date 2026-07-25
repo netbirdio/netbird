@@ -41,8 +41,12 @@ type AgentNetworkAccessLog struct {
 	InputTokens        int64
 	OutputTokens       int64
 	TotalTokens        int64
-	CostUSD            float64
-	Stream             bool
+	// Prompt-cache buckets: read + write token counts and the portion of CostUSD they account for.
+	CachedInputTokens   int64
+	CacheCreationTokens int64
+	CostUSD             float64
+	CacheCostUSD        float64
+	Stream              bool
 
 	// Prompt capture. Only populated when prompt collection is enabled
 	// (account master switch AND policy guardrail). Heavy free text.
@@ -63,16 +67,19 @@ func (AgentNetworkAccessLog) TableName() string { return "agent_network_access_l
 // ToAPIResponse renders the flattened entry as the API representation.
 func (a *AgentNetworkAccessLog) ToAPIResponse() api.AgentNetworkAccessLog {
 	out := api.AgentNetworkAccessLog{
-		Id:           a.ID,
-		ServiceId:    a.ServiceID,
-		Timestamp:    a.Timestamp,
-		StatusCode:   a.StatusCode,
-		DurationMs:   int(a.Duration.Milliseconds()),
-		InputTokens:  a.InputTokens,
-		OutputTokens: a.OutputTokens,
-		TotalTokens:  a.TotalTokens,
-		CostUsd:      a.CostUSD,
-		Stream:       &a.Stream,
+		Id:                  a.ID,
+		ServiceId:           a.ServiceID,
+		Timestamp:           a.Timestamp,
+		StatusCode:          a.StatusCode,
+		DurationMs:          int(a.Duration.Milliseconds()),
+		InputTokens:         a.InputTokens,
+		OutputTokens:        a.OutputTokens,
+		TotalTokens:         a.TotalTokens,
+		CachedInputTokens:   a.CachedInputTokens,
+		CacheCreationTokens: a.CacheCreationTokens,
+		CostUsd:             a.CostUSD,
+		CacheCostUsd:        a.CacheCostUSD,
+		Stream:              &a.Stream,
 	}
 
 	out.UserId = strPtr(a.UserID)
@@ -112,20 +119,23 @@ func strPtr(s string) *string {
 // summary plus its ordered entries. Assembled in Go from a page of entries — it
 // is not a stored table.
 type AgentNetworkAccessLogSession struct {
-	SessionID    string // empty for a session-less (singleton) request
-	UserID       string
-	GroupIDs     []string // union of the entries' authorising groups
-	StartedAt    time.Time
-	EndedAt      time.Time
-	RequestCount int
-	InputTokens  int64
-	OutputTokens int64
-	TotalTokens  int64
-	CostUSD      float64
-	Providers    []string // distinct vendors seen in the session
-	Models       []string // distinct models seen in the session
-	Decision     string   // "deny" if any entry was denied, else "allow"
-	Entries      []*AgentNetworkAccessLog
+	SessionID           string // empty for a session-less (singleton) request
+	UserID              string
+	GroupIDs            []string // union of the entries' authorising groups
+	StartedAt           time.Time
+	EndedAt             time.Time
+	RequestCount        int
+	InputTokens         int64
+	OutputTokens        int64
+	TotalTokens         int64
+	CachedInputTokens   int64
+	CacheCreationTokens int64
+	CostUSD             float64
+	CacheCostUSD        float64
+	Providers           []string // distinct vendors seen in the session
+	Models              []string // distinct models seen in the session
+	Decision            string   // "deny" if any entry was denied, else "allow"
+	Entries             []*AgentNetworkAccessLog
 }
 
 // sessionKey is the grouping key for an entry: its session id, or — when the
@@ -205,7 +215,10 @@ func (sess *AgentNetworkAccessLogSession) foldEntry(sk *sessionSeen, e *AgentNet
 	sess.InputTokens += e.InputTokens
 	sess.OutputTokens += e.OutputTokens
 	sess.TotalTokens += e.TotalTokens
+	sess.CachedInputTokens += e.CachedInputTokens
+	sess.CacheCreationTokens += e.CacheCreationTokens
 	sess.CostUSD += e.CostUSD
+	sess.CacheCostUSD += e.CacheCostUSD
 	if e.Timestamp.Before(sess.StartedAt) {
 		sess.StartedAt = e.Timestamp
 	}
@@ -248,15 +261,18 @@ func (sess *AgentNetworkAccessLogSession) ToAPIResponse() api.AgentNetworkAccess
 	}
 
 	out := api.AgentNetworkAccessLogSession{
-		StartedAt:    sess.StartedAt,
-		EndedAt:      sess.EndedAt,
-		RequestCount: sess.RequestCount,
-		InputTokens:  sess.InputTokens,
-		OutputTokens: sess.OutputTokens,
-		TotalTokens:  sess.TotalTokens,
-		CostUsd:      sess.CostUSD,
-		Decision:     sess.Decision,
-		Entries:      entries,
+		StartedAt:           sess.StartedAt,
+		EndedAt:             sess.EndedAt,
+		RequestCount:        sess.RequestCount,
+		InputTokens:         sess.InputTokens,
+		OutputTokens:        sess.OutputTokens,
+		TotalTokens:         sess.TotalTokens,
+		CachedInputTokens:   sess.CachedInputTokens,
+		CacheCreationTokens: sess.CacheCreationTokens,
+		CostUsd:             sess.CostUSD,
+		CacheCostUsd:        sess.CacheCostUSD,
+		Decision:            sess.Decision,
+		Entries:             entries,
 	}
 	out.SessionId = strPtr(sess.SessionID)
 	out.UserId = strPtr(sess.UserID)

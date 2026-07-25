@@ -28,17 +28,20 @@ func newIngestTestEntry() *accesslogs.AccessLogEntry {
 		UserId:       "user-1",
 		AgentNetwork: true,
 		Metadata: map[string]string{
-			metaKeyProvider:           "openai",
-			metaKeyModel:              "gpt-5.4",
-			metaKeyResolvedProviderID: "prov-1",
-			metaKeySessionID:          "sess-1",
-			metaKeyInputTokens:        "100",
-			metaKeyOutputTokens:       "50",
-			metaKeyTotalTokens:        "150",
-			metaKeyCostUSDTotal:       "0.0123",
-			metaKeyStream:             "true",
-			metaKeyRequestPrompt:      "hello",
-			metaKeyResponseCompletion: "world",
+			metaKeyProvider:            "openai",
+			metaKeyModel:               "gpt-5.4",
+			metaKeyResolvedProviderID:  "prov-1",
+			metaKeySessionID:           "sess-1",
+			metaKeyInputTokens:         "100",
+			metaKeyOutputTokens:        "50",
+			metaKeyTotalTokens:         "1174",
+			metaKeyCachedInputTokens:   "256",
+			metaKeyCacheCreationTokens: "768",
+			metaKeyCostUSDTotal:        "0.0123",
+			metaKeyCostUSDCache:        "0.0029",
+			metaKeyStream:              "true",
+			metaKeyRequestPrompt:       "hello",
+			metaKeyResponseCompletion:  "world",
 			// repeated id must be de-duplicated before the group rows insert.
 			metaKeyAuthorisingGroups: "grp-eng,grp-eng,grp-ops",
 		},
@@ -65,7 +68,10 @@ func TestIngestAccessLog_RealStore_LogCollectionOff(t *testing.T) {
 	require.Len(t, usage, 1, "usage row must be written even with log collection off")
 	assert.Equal(t, int64(100), usage[0].InputTokens, "input tokens must round-trip from metadata")
 	assert.Equal(t, int64(50), usage[0].OutputTokens, "output tokens must round-trip from metadata")
+	assert.Equal(t, int64(256), usage[0].CachedInputTokens, "cache-read tokens must round-trip from metadata")
+	assert.Equal(t, int64(768), usage[0].CacheCreationTokens, "cache-write tokens must round-trip from metadata")
 	assert.InDelta(t, 0.0123, usage[0].CostUSD, 1e-9, "cost must round-trip from metadata")
+	assert.InDelta(t, 0.0029, usage[0].CacheCostUSD, 1e-9, "cache cost must round-trip from metadata")
 
 	logs, _, err := s.GetAgentNetworkAccessLogs(ctx, store.LockingStrengthNone, testAccountID, types.AgentNetworkAccessLogFilter{})
 	require.NoError(t, err)
@@ -96,6 +102,9 @@ func TestIngestAccessLog_RealStore_LogCollectionOn(t *testing.T) {
 	require.Equal(t, int64(1), total, "exactly one access-log row expected")
 	require.Len(t, logs, 1, "full access-log row must be written when log collection is on")
 	assert.Equal(t, "gpt-5.4", logs[0].Model, "model must flatten from metadata")
+	assert.Equal(t, int64(256), logs[0].CachedInputTokens, "cache-read tokens must flatten from metadata")
+	assert.Equal(t, int64(768), logs[0].CacheCreationTokens, "cache-write tokens must flatten from metadata")
+	assert.InDelta(t, 0.0029, logs[0].CacheCostUSD, 1e-9, "cache cost must flatten from metadata")
 	assert.Equal(t, "hello", logs[0].RequestPrompt, "prompt must be retained when log collection is on")
 	assert.Equal(t, "world", logs[0].ResponseCompletion, "completion must be retained when log collection is on")
 	assert.True(t, logs[0].Stream, "stream flag must flatten from metadata")
