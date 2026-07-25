@@ -200,6 +200,8 @@ type Engine struct {
 
 	// pqkemManager runs the ML-KEM post-quantum PSK exchange (gated by NB_ENABLE_PQ_MLKEM).
 	pqkemManager *pqkem.Manager
+	// pqTransport is the ML-KEM data-path UDP transport, bound on the WG overlay IP.
+	pqTransport *pqTransport
 
 	// syncMsgMux is used to guarantee sequential Management Service message processing
 	syncMsgMux *sync.Mutex
@@ -648,12 +650,19 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		e.rpManager.SetInterface(e.wgInterface)
 	}
 
-	// Start the ML-KEM PQ manager after the interface is up so its (dedicated UDP)
-	// transport can bind on the WG overlay IP. TODO(NET-1406): replace noopPQTransport
-	// with the real transport bound on e.config.WgAddr.IP.
+	// Start the ML-KEM PQ manager after the interface is up so its dedicated UDP
+	// transport can bind on the WG overlay IP.
 	if pqkem.Enabled() {
-		log.Infof("ML-KEM post-quantum exchange enabled")
-		e.pqkemManager = pqkem.NewManager(publicKey.String(), noopPQTransport{}, pqCallbackHandler{wg: e.wgInterface}, nil)
+		tr, pqErr := newPQTransport(e.config.WgAddr.IP)
+		if pqErr != nil {
+			log.Errorf("ML-KEM PQ transport bind failed, PQ exchange disabled: %v", pqErr)
+		} else {
+			e.pqTransport = tr
+			e.pqkemManager = pqkem.NewManager(publicKey.String(), tr, pqCallbackHandler{wg: e.wgInterface}, nil)
+			tr.setManager(e.pqkemManager)
+			go tr.run()
+			log.Infof("ML-KEM post-quantum exchange enabled (udp port %d on overlay %s)", tr.Port(), e.config.WgAddr.IP)
+		}
 	}
 
 	// if inbound conns are blocked there is no need to create the ACL manager
@@ -2088,6 +2097,9 @@ func (e *Engine) close() {
 		_ = e.rpManager.Close()
 	}
 
+	if e.pqTransport != nil {
+		_ = e.pqTransport.Close()
+	}
 	if e.pqkemManager != nil {
 		e.pqkemManager.Stop()
 	}
