@@ -1,24 +1,61 @@
 package pqkem
 
 import (
+	"fmt"
+	"net/netip"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
-// loopback is a data-path transport: SendDataPath delivers synchronously to the peer
-// manager's OnDataPathMessage, attributing it to localID (the sender). The signalling
-// channel is driven by the test directly via the SignalX methods.
-type loopback struct {
-	localID string
-	peer    *Manager
+// netSwitch is an in-memory UDP fabric: transports register their endpoint and get
+// datagrams delivered to their inbound handler.
+type netSwitch struct {
+	mu sync.Mutex
+	h  map[netip.AddrPort]func(netip.AddrPort, []byte)
 }
 
-func (l *loopback) SendDataPath(remoteID string, msg []byte) error {
-	cp := append([]byte(nil), msg...)
-	return l.peer.OnDataPathMessage(l.localID, cp)
+func newSwitch() *netSwitch {
+	return &netSwitch{h: map[netip.AddrPort]func(netip.AddrPort, []byte){}}
 }
+
+func (s *netSwitch) register(ep netip.AddrPort, fn func(netip.AddrPort, []byte)) {
+	s.mu.Lock()
+	s.h[ep] = fn
+	s.mu.Unlock()
+}
+
+func (s *netSwitch) deliver(dst, src netip.AddrPort, msg []byte) error {
+	s.mu.Lock()
+	fn := s.h[dst]
+	s.mu.Unlock()
+	if fn == nil {
+		return fmt.Errorf("no route to %s", dst)
+	}
+	fn(src, msg)
+	return nil
+}
+
+// loopback is an endpoint-based pqkem.Transport over a netSwitch, with a switchable
+// drop flag.
+type loopback struct {
+	ep   netip.AddrPort
+	sw   *netSwitch
+	drop atomic.Bool
+}
+
+func (l *loopback) Send(dst netip.AddrPort, msg []byte) error {
+	if l.drop.Load() {
+		return nil
+	}
+	return l.sw.deliver(dst, l.ep, append([]byte(nil), msg...))
+}
+
+func (l *loopback) LocalPort() int                             { return int(l.ep.Port()) }
+func (l *loopback) Run(onInbound func(netip.AddrPort, []byte)) { l.sw.register(l.ep, onInbound) }
+func (l *loopback) Close() error                               { return nil }
 
 type fakeWG struct {
 	mu     sync.Mutex
@@ -48,18 +85,27 @@ func (f *fakeWG) psk(peer string) PSK {
 	return f.psks[peer]
 }
 
-// pair builds two wired managers (B is the initiator, "bbbb" > "aaaa").
-func pair(t *testing.T) (dA, dB *Manager, wgA, wgB *fakeWG) {
+var (
+	epA = netip.MustParseAddrPort("100.64.0.1:51833")
+	epB = netip.MustParseAddrPort("100.64.0.2:51833")
+)
+
+// pair builds two wired managers (B is the initiator, "bbbb" > "aaaa") sharing a
+// netSwitch, with each peer's data-path endpoint registered. lbB is B's loopback
+// (for toggling drop).
+func pair(t *testing.T) (dA, dB *Manager, wgA, wgB *fakeWG, lbB *loopback) {
 	t.Helper()
-	lbA := &loopback{localID: "aaaa"}
-	lbB := &loopback{localID: "bbbb"}
+	sw := newSwitch()
 	wgA = newFakeWG()
 	wgB = newFakeWG()
-	dA = NewManager("aaaa", lbA, wgA, nil)
-	dB = NewManager("bbbb", lbB, wgB, nil)
-	lbA.peer = dB
-	lbB.peer = dA
-	return dA, dB, wgA, wgB
+	dA = NewManager("aaaa", wgA, nil)
+	dB = NewManager("bbbb", wgB, nil)
+	dA.SetTransport(&loopback{ep: epA, sw: sw})
+	lbB = &loopback{ep: epB, sw: sw}
+	dB.SetTransport(lbB)
+	dA.AddPeer("bbbb", epB)
+	dB.AddPeer("aaaa", epA)
+	return dA, dB, wgA, wgB, lbB
 }
 
 // bootstrap runs the signalling offer/answer (the test plays the host carrying bytes).
@@ -75,7 +121,7 @@ func bootstrap(t *testing.T, dA, dB *Manager) {
 }
 
 func TestManager_BootstrapDerivesSamePSK(t *testing.T) {
-	dA, dB, wgA, wgB := pair(t)
+	dA, dB, wgA, wgB, _ := pair(t)
 	defer dA.Stop()
 	defer dB.Stop()
 
@@ -88,15 +134,15 @@ func TestManager_BootstrapDerivesSamePSK(t *testing.T) {
 }
 
 func TestManager_ChainRotatesAndAcks(t *testing.T) {
-	dA, dB, wgA, wgB := pair(t)
+	dA, dB, wgA, wgB, _ := pair(t)
 	defer dA.Stop()
 	defer dB.Stop()
 
 	bootstrap(t, dA, dB)
 	psk1 := wgB.psk("aaaa")
 
-	// Data path up on both sides; B chains the next offer (acking exchange 1) over the
-	// data path, which rotates both to a fresh PSK and acknowledges A.
+	// Data path up: B (initiator) chains the next offer over the data path, which
+	// rotates both to a fresh PSK and acknowledges A.
 	dA.OnDataPathRekeyed("bbbb")
 	dB.OnDataPathRekeyed("aaaa")
 
@@ -107,7 +153,7 @@ func TestManager_ChainRotatesAndAcks(t *testing.T) {
 }
 
 func TestManager_NonInitiatorReturnsNoOffer(t *testing.T) {
-	dA := NewManager("aaaa", &loopback{localID: "aaaa"}, newFakeWG(), nil)
+	dA := NewManager("aaaa", newFakeWG(), nil)
 	defer dA.Stop()
 
 	offer, err := dA.SignalOffer("bbbb") // not the initiator vs "bbbb"
@@ -116,7 +162,8 @@ func TestManager_NonInitiatorReturnsNoOffer(t *testing.T) {
 }
 
 func TestManager_StopIsIdempotent(t *testing.T) {
-	dA := NewManager("aaaa", &loopback{localID: "aaaa"}, newFakeWG(), nil)
+	dA := NewManager("aaaa", newFakeWG(), nil)
+	dA.SetTransport(&loopback{ep: epA, sw: newSwitch()})
 	dA.Stop()
 	dA.Stop() // must not panic or hang
 }
