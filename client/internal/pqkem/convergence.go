@@ -179,7 +179,7 @@ func (m *Manager) initiatorLoop(ctx context.Context, remoteID RemoteID, id Excha
 				m.mu.Unlock()
 				if !viaSignal {
 					if err := m.pushDataPath(remoteID, msg); err != nil {
-						m.logger.Warn("pqkem offer retransmit failed", "peer", remoteID, "err", err)
+						m.logger.Warn("pqkem: offer retransmit failed", "peer", remoteID, "err", err)
 					}
 				}
 
@@ -213,10 +213,10 @@ func (m *Manager) registerFailureLocked(remoteID RemoteID) bool {
 
 func (m *Manager) raiseFailure(remoteID RemoteID, fail bool) {
 	if !fail {
-		m.logger.Warn("pqkem rekey attempt timed out, will retry next cycle", "peer", remoteID)
+		m.logger.Warn("pqkem: rekey attempt timed out, will retry next cycle", "peer", remoteID)
 		return
 	}
 	if err := m.cbHandler.OnRekeyFailed(remoteID); err != nil {
-		m.logger.Error("pqkem OnRekeyFailed handler error", "peer", remoteID, "err", err)
+		m.logger.Error("pqkem: OnRekeyFailed handler error", "peer", remoteID, "err", err)
 	}
 }
