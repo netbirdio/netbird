@@ -841,6 +841,8 @@ func (conn *Conn) enableWgWatcherIfNeeded(enabledTime time.Time) {
 		return
 	}
 
+	conn.endpointUpdater.EnableKeepAlive()
+
 	watcher := NewWGWatcher(conn.Log, conn.config.WgConfig.WgInterface, conn.config.Key, conn.dumpState)
 	watcher.PrepareInitialHandshake()
 
@@ -888,6 +890,7 @@ func (conn *Conn) resetEndpoint() {
 		return
 	}
 	conn.Log.Infof("reset wg endpoint")
+	conn.endpointUpdater.EnableKeepAlive()
 	if conn.wgWatcher != nil {
 		conn.wgWatcher.Reset()
 	}
@@ -945,7 +948,12 @@ func (conn *Conn) onWGHandshakeSuccess(when time.Time) {
 func (conn *Conn) onWGCheckSuccess() {
 	conn.mu.Lock()
 	conn.wgTimeouts = 0
+	presharedKey := conn.presharedKey(conn.rosenpassRemoteKey)
 	conn.mu.Unlock()
+
+	if err := conn.endpointUpdater.DisableKeepAlive(presharedKey); err != nil {
+		conn.Log.Warnf("failed to disable WireGuard keepalive: %v", err)
+	}
 }
 
 // recordConnectionMetrics records connection stage timestamps as metrics

@@ -316,11 +316,16 @@ func newWGTimeoutTestConn(rosenpassEnabled bool, disconnected *[]string) *Conn {
 		cfg.RosenpassConfig = RosenpassConfig{PubKey: []byte("dummykey")}
 	}
 
+	connLog := log.WithField("peer", cfg.Key)
+	endpointUpdater := NewEndpointUpdater(connLog, cfg.WgConfig, false)
+	endpointUpdater.keepAlive = 0
+
 	conn := &Conn{
-		ctx:           context.Background(),
-		config:        cfg,
-		Log:           log.WithField("peer", cfg.Key),
-		metricsStages: &MetricsStages{},
+		ctx:             context.Background(),
+		config:          cfg,
+		Log:             connLog,
+		metricsStages:   &MetricsStages{},
+		endpointUpdater: endpointUpdater,
 	}
 	conn.SetOnDisconnected(func(remotePeer string) {
 		*disconnected = append(*disconnected, remotePeer)

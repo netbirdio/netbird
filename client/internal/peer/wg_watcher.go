@@ -109,10 +109,15 @@ func (w *WGWatcher) periodicHandshakeCheck(ctx context.Context, onDisconnectedFn
 			}
 
 			lastHandshake = *handshake
+			w.stateDump.WGcheckSuccess()
+
+			if isWgKeepAliveDisabled() {
+				w.log.Debugf("WireGuard watcher waiting for peer reset")
+				continue
+			}
 
 			resetTime := time.Until(handshake.Add(checkPeriod))
 			timer.Reset(resetTime)
-			w.stateDump.WGcheckSuccess()
 
 			w.log.Debugf("WireGuard watcher reset timer: %v", resetTime)
 		case <-w.resetCh:

@@ -7,8 +7,9 @@ import (
 )
 
 const (
-	EnvKeyNBForceRelay       = "NB_FORCE_RELAY"
-	EnvKeyNBHomeRelayServers = "NB_HOME_RELAY_SERVERS"
+	EnvKeyNBForceRelay         = "NB_FORCE_RELAY"
+	EnvKeyNBHomeRelayServers   = "NB_HOME_RELAY_SERVERS"
+	EnvKeyNBDisableWgKeepAlive = "NB_DISABLE_WG_KEEP_ALIVE"
 )
 
 func IsForceRelayed() bool {
@@ -16,6 +17,10 @@ func IsForceRelayed() bool {
 		return true
 	}
 	return strings.EqualFold(os.Getenv(EnvKeyNBForceRelay), "true")
+}
+
+func isWgKeepAliveDisabled() bool {
+	return strings.EqualFold(os.Getenv(EnvKeyNBDisableWgKeepAlive), "true")
 }
 
 // OverrideRelayURLs returns the relay server URL list set in

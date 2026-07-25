@@ -20,10 +20,11 @@ type EndpointUpdater struct {
 	wgConfig  WgConfig
 	initiator bool
 
-	// mu protects cancelFunc
+	// mu protects cancelFunc and keepAlive
 	mu         sync.Mutex
 	cancelFunc func()
 	updateWg   sync.WaitGroup
+	keepAlive  time.Duration
 }
 
 func NewEndpointUpdater(log *logrus.Entry, wgConfig WgConfig, initiator bool) *EndpointUpdater {
@@ -31,6 +32,7 @@ func NewEndpointUpdater(log *logrus.Entry, wgConfig WgConfig, initiator bool) *E
 		log:       log,
 		wgConfig:  wgConfig,
 		initiator: initiator,
+		keepAlive: defaultWgKeepAlive,
 	}
 }
 
@@ -71,6 +73,31 @@ func (e *EndpointUpdater) RemoveEndpointAddress() error {
 
 	e.waitForCloseTheDelayedUpdate()
 	return e.wgConfig.WgInterface.RemoveEndpointAddress(e.wgConfig.RemoteKey)
+}
+
+func (e *EndpointUpdater) DisableKeepAlive(presharedKey *wgtypes.Key) error {
+	if !isWgKeepAliveDisabled() {
+		return nil
+	}
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if e.keepAlive == 0 {
+		return nil
+	}
+
+	e.waitForCloseTheDelayedUpdate()
+	e.keepAlive = 0
+	e.log.Debugf("disable WireGuard persistent keepalive")
+	return e.updateWireGuardPeer(nil, presharedKey)
+}
+
+func (e *EndpointUpdater) EnableKeepAlive() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.keepAlive = defaultWgKeepAlive
 }
 
 func (e *EndpointUpdater) configureAsInitiator(addr *net.UDPAddr, presharedKey *wgtypes.Key) error {
@@ -127,7 +154,7 @@ func (e *EndpointUpdater) updateWireGuardPeer(endpoint *net.UDPAddr, presharedKe
 	return e.wgConfig.WgInterface.UpdatePeer(
 		e.wgConfig.RemoteKey,
 		e.wgConfig.AllowedIps,
-		defaultWgKeepAlive,
+		e.keepAlive,
 		endpoint,
 		presharedKey,
 	)
