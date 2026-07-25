@@ -256,7 +256,7 @@ func (cl *Client) ChatPrefixed(ctx context.Context, endpoint, proxyIP, pathPrefi
 	case WireMessages:
 		path = "/v1/messages"
 		headers = []string{"anthropic-version: 2023-06-01"}
-		body = fmt.Sprintf(`{"model":%q,"max_tokens":64,"messages":[{"role":"user","content":%q}]}`, model, prompt)
+		body = fmt.Sprintf(`{"model":%q,"max_tokens":2048,"messages":[{"role":"user","content":%q}]}`, model, prompt)
 	default:
 		path = "/v1/chat/completions"
 		body = fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":%q}]}`, model, prompt)
@@ -271,7 +271,7 @@ func (cl *Client) ChatPrefixed(ctx context.Context, endpoint, proxyIP, pathPrefi
 // is sent as the universal x-session-id header the proxy records.
 func (cl *Client) Vertex(ctx context.Context, endpoint, proxyIP, project, region, model, prompt, sessionID string) (int, string, error) {
 	path := fmt.Sprintf("/v1/projects/%s/locations/%s/publishers/anthropic/models/%s:rawPredict", project, region, model)
-	body := fmt.Sprintf(`{"anthropic_version":"vertex-2023-10-16","max_tokens":64,"messages":[{"role":"user","content":%q}]}`, prompt)
+	body := fmt.Sprintf(`{"anthropic_version":"vertex-2023-10-16","max_tokens":2048,"messages":[{"role":"user","content":%q}]}`, prompt)
 	return cl.post(ctx, endpoint, proxyIP, path, body, withSessionID(nil, sessionID))
 }
 
@@ -282,7 +282,7 @@ func (cl *Client) Vertex(ctx context.Context, endpoint, proxyIP, project, region
 // header the proxy records.
 func (cl *Client) Bedrock(ctx context.Context, endpoint, proxyIP, model, prompt, sessionID string) (int, string, error) {
 	path := "/model/" + model + "/invoke"
-	body := fmt.Sprintf(`{"anthropic_version":"bedrock-2023-05-31","max_tokens":64,"messages":[{"role":"user","content":%q}]}`, prompt)
+	body := fmt.Sprintf(`{"anthropic_version":"bedrock-2023-05-31","max_tokens":2048,"messages":[{"role":"user","content":%q}]}`, prompt)
 	return cl.post(ctx, endpoint, proxyIP, path, body, withSessionID(nil, sessionID))
 }
 
@@ -341,7 +341,7 @@ func (cl *Client) Terminate(ctx context.Context) error {
 	return cl.container.Terminate(ctx)
 }
 
-// containerLogs reads up to 256 KiB of a container's logs for diagnostics.
+// containerLogs reads up to 4 MiB of a container's logs for diagnostics — enough for a whole provider-matrix run.
 func containerLogs(ctx context.Context, c testcontainers.Container) string {
 	if c == nil {
 		return ""
@@ -351,6 +351,6 @@ func containerLogs(ctx context.Context, c testcontainers.Container) string {
 		return fmt.Sprintf("<logs error: %v>", err)
 	}
 	defer r.Close()
-	b, _ := io.ReadAll(io.LimitReader(r, 256<<10))
+	b, _ := io.ReadAll(io.LimitReader(r, 4<<20))
 	return string(b)
 }

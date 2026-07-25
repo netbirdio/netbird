@@ -9,11 +9,168 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 
 	"github.com/netbirdio/netbird/e2e/harness"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 )
+
+// per1k is a model's published USD rates per 1k tokens. read is the prompt-cache read rate
+// (OpenAI: the cached-input discount rate); write is the cache-creation rate where one exists.
+type per1k struct{ in, out, read, write float64 }
+
+// publishedPer1k hardcodes the vendors' PUBLISHED rates for the models the live matrix can drive,
+// keyed by the normalized model id the proxy stamps. Deliberately independent of the proxy's
+// pricing table so a wrong embedded rate or a broken normalization fails the run.
+var publishedPer1k = map[string]per1k{
+	"gpt-4o-mini":                 {0.00015, 0.0006, 0.000075, 0},
+	"gpt-4o":                      {0.0025, 0.01, 0.00125, 0},
+	"claude-haiku-4-5":            {0.001, 0.005, 0.0001, 0.00125},
+	"claude-sonnet-4-5":           {0.003, 0.015, 0.0003, 0.00375},
+	"claude-sonnet-4-6":           {0.003, 0.015, 0.0003, 0.00375},
+	"kimi-k3":                     {0.003, 0.015, 0.0003, 0.003}, // no published write rate: bills at the input rate
+	"anthropic.claude-haiku-4-5":  {0.001, 0.005, 0.0001, 0.00125},
+	"anthropic.claude-sonnet-4-5": {0.003, 0.015, 0.0003, 0.00375},
+	"anthropic.claude-sonnet-4-6": {0.003, 0.015, 0.0003, 0.00375},
+}
+
+// rawCostVerificationSQL is the operator-facing double-check, run straight against the management
+// sqlite store: recompute each usage row's expected total and cache cost from its own persisted
+// token buckets and hardcoded published rates. OpenAI counts cached tokens as a subset of input;
+// Anthropic-shape providers count cache buckets additively.
+const rawCostVerificationSQL = `
+WITH rates(model, in_rate, out_rate, read_rate, write_rate) AS (
+  VALUES
+    ('gpt-4o-mini',                 0.00015, 0.0006, 0.000075, 0.0),
+    ('gpt-4o',                      0.0025,  0.01,   0.00125,  0.0),
+    ('claude-haiku-4-5',            0.001,   0.005,  0.0001,   0.00125),
+    ('claude-sonnet-4-5',           0.003,   0.015,  0.0003,   0.00375),
+    ('claude-sonnet-4-6',           0.003,   0.015,  0.0003,   0.00375),
+    ('kimi-k3',                     0.003,   0.015,  0.0003,   0.003),
+    ('anthropic.claude-haiku-4-5',  0.001,   0.005,  0.0001,   0.00125),
+    ('anthropic.claude-sonnet-4-5', 0.003,   0.015,  0.0003,   0.00375),
+    ('anthropic.claude-sonnet-4-6', 0.003,   0.015,  0.0003,   0.00375)
+)
+SELECT
+  u.provider,
+  u.model,
+  u.input_tokens,
+  u.output_tokens,
+  u.cached_input_tokens,
+  u.cache_creation_tokens,
+  u.cost_usd,
+  u.cache_cost_usd,
+  CASE WHEN u.provider = 'openai' THEN
+    (u.input_tokens - MIN(u.cached_input_tokens, u.input_tokens))*r.in_rate/1000.0
+      + MIN(u.cached_input_tokens, u.input_tokens)*r.read_rate/1000.0
+      + u.output_tokens*r.out_rate/1000.0
+  ELSE
+    u.input_tokens*r.in_rate/1000.0 + u.cached_input_tokens*r.read_rate/1000.0
+      + u.cache_creation_tokens*r.write_rate/1000.0 + u.output_tokens*r.out_rate/1000.0
+  END AS expected_total,
+  CASE WHEN u.provider = 'openai' THEN
+    MIN(u.cached_input_tokens, u.input_tokens)*r.read_rate/1000.0
+  ELSE
+    u.cached_input_tokens*r.read_rate/1000.0 + u.cache_creation_tokens*r.write_rate/1000.0
+  END AS expected_cache
+FROM agent_network_request_usage u
+JOIN rates r ON r.model = u.model
+ORDER BY u.timestamp`
+
+// verifyUsageRowsSQL re-checks every persisted usage row directly in the management sqlite store,
+// bypassing the API path — the same audit an operator can run on a production store.db.
+func verifyUsageRowsSQL(t *testing.T, srv *harness.Combined) {
+	t.Helper()
+
+	dbPath, err := srv.SnapshotStoreDB(t.TempDir())
+	require.NoError(t, err, "snapshot management sqlite store")
+
+	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
+	require.NoError(t, err, "open store snapshot")
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	defer func() { _ = sqlDB.Close() }()
+
+	rows, err := db.Raw(rawCostVerificationSQL).Rows()
+	require.NoError(t, err, "run raw cost verification query")
+	defer func() { _ = rows.Close() }()
+
+	verified := 0
+	for rows.Next() {
+		var provider, model string
+		var inTok, outTok, readTok, writeTok int64
+		var cost, cacheCost, wantTotal, wantCache float64
+		require.NoError(t, rows.Scan(&provider, &model, &inTok, &outTok, &readTok, &writeTok, &cost, &cacheCost, &wantTotal, &wantCache), "scan usage row")
+		t.Logf("[sql] %s/%s: in=%d out=%d cache_read=%d cache_write=%d stored=$%.6f/$%.6f expected=$%.6f/$%.6f",
+			provider, model, inTok, outTok, readTok, writeTok, cost, cacheCost, wantTotal, wantCache)
+		assert.InDeltaf(t, wantTotal, cost, 1e-6, "stored cost_usd for %s/%s must match the published-rate recompute", provider, model)
+		assert.InDeltaf(t, wantCache, cacheCost, 1e-6, "stored cache_cost_usd for %s/%s must match the published-rate recompute", provider, model)
+		verified++
+	}
+	require.NoError(t, rows.Err(), "iterate usage rows")
+	require.Positive(t, verified, "raw SQL check must cover at least one usage row")
+	t.Logf("[sql] verified %d usage rows in store.db against published rates", verified)
+
+	gwRows, err := db.Raw(`SELECT model, cost_usd FROM agent_network_request_usage WHERE model LIKE '%/%'`).Rows()
+	require.NoError(t, err, "query gateway-prefixed usage rows")
+	defer func() { _ = gwRows.Close() }()
+	for gwRows.Next() {
+		var model string
+		var cost float64
+		require.NoError(t, gwRows.Scan(&model, &cost), "scan gateway usage row")
+		t.Logf("[sql] gateway %s: stored=$%.6f (must be 0 — deliberately unpriced)", model, cost)
+		assert.Zerof(t, cost, "gateway-prefixed model %q must store cost 0, never a guessed rate", model)
+	}
+	require.NoError(t, gwRows.Err(), "iterate gateway usage rows")
+}
+
+// validateAccessLogCost recomputes a live access-log row's expected total and cache cost from the
+// published per-1k rates and the row's persisted token buckets, and asserts both stored values.
+// Gateway-prefixed model ids the proxy deliberately does not price must store cost 0.
+func validateAccessLogCost(t *testing.T, pc providerCase, row api.AgentNetworkAccessLog) {
+	t.Helper()
+	model := catalogModel(pc)
+	provider := ""
+	if row.Provider != nil {
+		provider = *row.Provider
+	}
+	t.Logf("[cost] %s: provider=%s model=%s in=%d out=%d total=%d cache_read=%d cache_write=%d cost=$%.6f cache_cost=$%.6f",
+		pc.name, provider, model, row.InputTokens, row.OutputTokens, row.TotalTokens,
+		row.CachedInputTokens, row.CacheCreationTokens, row.CostUsd, row.CacheCostUsd)
+
+	rates, known := publishedPer1k[model]
+	if !known {
+		if strings.Contains(model, "/") {
+			assert.Zerof(t, row.CostUsd, "gateway-prefixed model %q is not priced so the cost meter must skip (cost 0)", model)
+			return
+		}
+		t.Logf("[cost] %s: no published rate on file for model %q (env-overridden?); skipping cost validation", pc.name, model)
+		return
+	}
+
+	// input_tokens may legitimately be 0: Moonshot/Kimi reports fully cached prompts under the cache
+	// buckets only. Output and total must always be present on a priced row.
+	require.Positive(t, row.OutputTokens, "priced row must carry output tokens")
+	require.Positive(t, row.TotalTokens, "priced row must carry total tokens")
+
+	var wantTotal, wantCache float64
+	if provider == "openai" {
+		cached := min(row.CachedInputTokens, row.InputTokens) // cached is a subset of input
+		wantCache = float64(cached) / 1000 * rates.read
+		wantTotal = float64(row.InputTokens-cached)/1000*rates.in + wantCache + float64(row.OutputTokens)/1000*rates.out
+	} else {
+		// Anthropic / Bedrock shape: cache buckets are additive to input_tokens.
+		wantCache = float64(row.CachedInputTokens)/1000*rates.read + float64(row.CacheCreationTokens)/1000*rates.write
+		wantTotal = float64(row.InputTokens)/1000*rates.in + wantCache + float64(row.OutputTokens)/1000*rates.out
+	}
+
+	t.Logf("[cost] %s: expecting total=$%.6f cache=$%.6f from published rates", pc.name, wantTotal, wantCache)
+	assert.InDeltaf(t, wantTotal, row.CostUsd, 1e-6, "stored cost_usd for %s (%s)", pc.name, model)
+	assert.InDeltaf(t, wantCache, row.CacheCostUsd, 1e-6, "stored cache_cost_usd for %s (%s)", pc.name, model)
+}
 
 // providerCase is one entry in the live provider matrix. The same scenario runs
 // for every available provider; availability is keyed off env vars so the suite
@@ -116,12 +273,12 @@ func availableProviders() []providerCase {
 		if region == "" {
 			region = "eu-central-1"
 		}
-		// A valid Bedrock inference-profile id (region prefix + date + version),
-		// overridable per account. `global.` profiles can be invoked from any
-		// region; set AWS_BEDROCK_MODEL to match the enabled profile for the token.
+		// A valid Bedrock inference-profile id, overridable per account (AWS_BEDROCK_MODEL, also the
+		// workflow's bedrock_model dispatch input). `global.` profiles work from any region. Defaults to
+		// Sonnet 4.6, whose id convention dropped the -YYYYMMDD-v1:0 suffix that Haiku 4.5 still carries.
 		model := os.Getenv("AWS_BEDROCK_MODEL")
 		if model == "" {
-			model = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+			model = "global.anthropic.claude-sonnet-4-6"
 		}
 		ps = append(ps, providerCase{name: "bedrock", catalogID: "bedrock_api", upstream: "https://bedrock-runtime." + region + ".amazonaws.com", apiKey: k, model: model, kind: harness.WireBedrock})
 	}
@@ -257,6 +414,10 @@ func TestProvidersMatrix(t *testing.T) {
 			// session id and confirm the marker propagated end-to-end.
 			sessionID := "e2e-session-" + pc.name
 
+			// A long-form prompt so completions carry realistic token counts for cost validation;
+			// max_tokens in the harness bodies (2048) lets the full answer through.
+			const matrixPrompt = "explain GitHub workflow in 1000 words"
+
 			// Retry briefly to absorb tunnel/DNS jitter on the first call.
 			var code int
 			var body string
@@ -267,11 +428,11 @@ func TestProvidersMatrix(t *testing.T) {
 				var cerr error
 				switch pc.kind {
 				case harness.WireVertex:
-					c, b, cerr = cl.Vertex(ctx, settings.Endpoint, proxyIP, pc.project, pc.region, pc.model, "Reply with exactly: pong", sessionID)
+					c, b, cerr = cl.Vertex(ctx, settings.Endpoint, proxyIP, pc.project, pc.region, pc.model, matrixPrompt, sessionID)
 				case harness.WireBedrock:
-					c, b, cerr = cl.Bedrock(ctx, settings.Endpoint, proxyIP, pc.model, "Reply with exactly: pong", sessionID)
+					c, b, cerr = cl.Bedrock(ctx, settings.Endpoint, proxyIP, pc.model, matrixPrompt, sessionID)
 				default:
-					c, b, cerr = cl.ChatPrefixed(ctx, settings.Endpoint, proxyIP, pc.pathPrefix, pc.kind, pc.model, "Reply with exactly: pong", sessionID)
+					c, b, cerr = cl.ChatPrefixed(ctx, settings.Endpoint, proxyIP, pc.pathPrefix, pc.kind, pc.model, matrixPrompt, sessionID)
 				}
 				if cerr == nil {
 					code, body = c, b
@@ -290,6 +451,7 @@ func TestProvidersMatrix(t *testing.T) {
 
 			// The session id sent as x-session-id must round-trip into the
 			// access-log row for this provider.
+			var row api.AgentNetworkAccessLog
 			require.Eventually(t, func() bool {
 				logs, lerr := srv.ListAccessLogs(ctx)
 				if lerr != nil {
@@ -297,11 +459,15 @@ func TestProvidersMatrix(t *testing.T) {
 				}
 				for _, r := range logs.Data {
 					if r.SessionId != nil && *r.SessionId == sessionID {
+						row = r
 						return true
 					}
 				}
 				return false
 			}, 30*time.Second, 2*time.Second, "session id %q must be recorded in an access-log row for %s", sessionID, pc.name)
+
+			// Stored total and cache cost must match the published rates applied to the row's buckets.
+			validateAccessLogCost(t, pc, row)
 		})
 	}
 
@@ -322,4 +488,7 @@ func TestProvidersMatrix(t *testing.T) {
 		}
 		return false
 	}, 60*time.Second, 3*time.Second, "consumption must be recorded with positive token counts after live traffic")
+
+	// Final raw-SQL audit: bypass the API and re-verify every persisted usage row in the store.
+	verifyUsageRowsSQL(t, srv)
 }
