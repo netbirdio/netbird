@@ -267,7 +267,7 @@ func (m *Manager) onDataPathInbound(src netip.AddrPort, msg []byte) {
 		return
 	}
 	if err := m.OnDataPathMessage(remoteID, msg); err != nil {
-		m.logger.Debug("pqkem inbound", "peer", remoteID, "err", err)
+		m.logger.Debug("pqkem: inbound", "peer", remoteID, "err", err)
 	}
 }
 
@@ -315,11 +315,11 @@ func (m *Manager) OnDataPathRekeyed(remoteID RemoteID) {
 	}
 	offer, err := m.startExchange(remoteID, false, ackID)
 	if err != nil {
-		m.logger.Error("pqkem chain offer failed to start", "peer", remoteID, "err", err)
+		m.logger.Error("pqkem: chain offer failed to start", "peer", remoteID, "err", err)
 		return
 	}
 	if err := m.pushDataPath(remoteID, offer); err != nil {
-		m.logger.Warn("pqkem send chain offer failed", "peer", remoteID, "err", err)
+		m.logger.Warn("pqkem: send chain offer failed", "peer", remoteID, "err", err)
 	}
 }
 
