@@ -305,10 +305,23 @@ func (s *Server) authorizeTargetProfile(ctx context.Context, target *profilemana
 	return nil
 }
 
-// AddOwner adds a principal to the daemon-wide owner set. The interceptor has
-// already confirmed the caller is an owner or privileged, the handler just
-// validates and persists.
-func (s *Server) AddOwner(_ context.Context, msg *proto.AddOwnerRequest) (*proto.AddOwnerResponse, error) {
+// requireDaemonOwnerLocked fails closed unless the caller is a daemon owner or
+// privileged. Defense in depth for the owner-set mutations, which the interceptor
+// owner tier already gates. Caller must hold s.mutex.
+func (s *Server) requireDaemonOwnerLocked(ctx context.Context) error {
+	id, ok := ipcauth.IdentityFromContext(ctx)
+	if !ok {
+		return gstatus.Error(codes.PermissionDenied, "caller identity could not be verified")
+	}
+	if id.IsPrivileged() || ipcauth.Authorize(s.owners, id, s.groupResolver) {
+		return nil
+	}
+	return gstatus.Error(codes.PermissionDenied, "not authorized: managing daemon owners requires a daemon owner or root/administrator")
+}
+
+// AddOwner adds a principal to the daemon-wide owner set. The owner tier gates
+// this, the handler re-checks (defense in depth), validates, and persists.
+func (s *Server) AddOwner(ctx context.Context, msg *proto.AddOwnerRequest) (*proto.AddOwnerResponse, error) {
 	principal := msg.GetPrincipal()
 	if _, ok := ipcauth.ParsePrincipal(principal); !ok {
 		return nil, gstatus.Errorf(codes.InvalidArgument, "invalid owner principal %q (expected uid:/gid:/group:/sid:)", principal)
@@ -317,6 +330,9 @@ func (s *Server) AddOwner(_ context.Context, msg *proto.AddOwnerRequest) (*proto
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
+	if err := s.requireDaemonOwnerLocked(ctx); err != nil {
+		return nil, err
+	}
 	if s.daemonOwnerStore == nil {
 		return nil, gstatus.Error(codes.Unavailable, "daemon owner store unavailable")
 	}
@@ -356,12 +372,15 @@ func (s *Server) ResetOwner(ctx context.Context, _ *proto.ResetOwnerRequest) (*p
 }
 
 // ShareProfile marks the daemon shared or unshared. When shared, any authenticated
-// local caller may control the daemon and its default profile. The interceptor has
-// already confirmed the caller is an owner or privileged.
-func (s *Server) ShareProfile(_ context.Context, msg *proto.ShareProfileRequest) (*proto.ShareProfileResponse, error) {
+// local caller may control the daemon and its default profile. The owner tier
+// gates this, the handler re-checks (defense in depth).
+func (s *Server) ShareProfile(ctx context.Context, msg *proto.ShareProfileRequest) (*proto.ShareProfileResponse, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
+	if err := s.requireDaemonOwnerLocked(ctx); err != nil {
+		return nil, err
+	}
 	if s.daemonOwnerStore == nil {
 		return nil, gstatus.Error(codes.Unavailable, "daemon owner store unavailable")
 	}

@@ -174,12 +174,9 @@ func getStatus(ctx context.Context, fullPeerStatus bool, shouldRunProbes bool) (
 	return resp, nil
 }
 
-// getActiveProfileName asks the daemon for the active profile's display name.
-// The daemon runs as root and can read the per-user profile files to resolve the
-// ID to its human-readable name. When the active profile belongs to another local
-// user, the name is annotated with that owner so the caller understands why the
-// daemon is not under their control. Returns an empty string on any error so
-// status output degrades gracefully.
+// getActiveProfileName asks the daemon for the active profile's display name,
+// annotated with the owning user when the active profile belongs to someone else.
+// Returns an empty string on any error so status output degrades gracefully.
 func getActiveProfileName(ctx context.Context) string {
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {

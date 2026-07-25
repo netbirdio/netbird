@@ -71,8 +71,9 @@ func TestDaemonOwnerPolicyDefaultProfile(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, claimed)
 
-	// AddOwner appends a daemon-wide principal (persisted).
-	_, err = s.AddOwner(context.Background(), &proto.AddOwnerRequest{Principal: "uid:1001"})
+	// AddOwner appends a daemon-wide principal (persisted). The caller must be a
+	// daemon owner: uid:1000 claimed ownership above.
+	_, err = s.AddOwner(ctxWithIdentity(ipcauth.Identity{UID: 1000}), &proto.AddOwnerRequest{Principal: "uid:1001"})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"uid:1000", "uid:1001"}, store.owners)
 
@@ -81,6 +82,42 @@ func TestDaemonOwnerPolicyDefaultProfile(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, store.owners)
 	assert.False(t, store.shared)
+}
+
+// TestOwnerMutationsRequireDaemonOwner checks the handler defense-in-depth: a
+// caller who is neither a daemon owner nor privileged is denied at the handler.
+func TestOwnerMutationsRequireDaemonOwner(t *testing.T) {
+	store := &fakeOwnerStore{owners: []string{"uid:1000"}}
+	s := &Server{groupResolver: ipcauth.NewDefaultGroupResolver()}
+	s.SetDaemonOwnerStore(store) // loads {uid:1000} into s.owners
+
+	owner := ctxWithIdentity(ipcauth.Identity{UID: 1000})
+	nonOwner := ctxWithIdentity(ipcauth.Identity{UID: 2000})
+	root := ctxWithIdentity(ipcauth.Identity{UID: 0})
+
+	t.Run("AddOwner denied for non-daemon-owner", func(t *testing.T) {
+		_, err := s.AddOwner(nonOwner, &proto.AddOwnerRequest{Principal: "uid:2000"})
+		assert.Equal(t, codes.PermissionDenied, gstatus.Code(err))
+		assert.Equal(t, []string{"uid:1000"}, store.owners, "owner set must be unchanged")
+	})
+
+	t.Run("ShareProfile denied for non-daemon-owner", func(t *testing.T) {
+		_, err := s.ShareProfile(nonOwner, &proto.ShareProfileRequest{Shared: true})
+		assert.Equal(t, codes.PermissionDenied, gstatus.Code(err))
+		assert.False(t, store.shared, "shared flag must be unchanged")
+	})
+
+	t.Run("AddOwner allowed for daemon owner", func(t *testing.T) {
+		_, err := s.AddOwner(owner, &proto.AddOwnerRequest{Principal: "uid:2000"})
+		require.NoError(t, err)
+		assert.Equal(t, []string{"uid:1000", "uid:2000"}, store.owners)
+	})
+
+	t.Run("ShareProfile allowed for root", func(t *testing.T) {
+		_, err := s.ShareProfile(root, &proto.ShareProfileRequest{Shared: true})
+		require.NoError(t, err)
+		assert.True(t, store.shared)
+	})
 }
 
 // TestDaemonOwnerAllOwnersUseDefault verifies every daemon owner is authorized

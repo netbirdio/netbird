@@ -56,13 +56,15 @@ func ctxWith(id Identity) context.Context {
 }
 
 const (
-	up      = servicePath + "Up"
-	list    = servicePath + "ListProfiles"
-	unkwn   = servicePath + "SomeFutureMethod"
-	down    = servicePath + "Down"
-	statusm = servicePath + "Status"
-	addp    = servicePath + "AddProfile"
-	switchp = servicePath + "SwitchProfile"
+	up       = servicePath + "Up"
+	list     = servicePath + "ListProfiles"
+	unkwn    = servicePath + "SomeFutureMethod"
+	down     = servicePath + "Down"
+	statusm  = servicePath + "Status"
+	addp     = servicePath + "AddProfile"
+	switchp  = servicePath + "SwitchProfile"
+	addowner = servicePath + "AddOwner"
+	sharep   = servicePath + "ShareProfile"
 )
 
 func TestInterceptorAuthorize(t *testing.T) {
@@ -107,6 +109,11 @@ func TestInterceptorAuthorize(t *testing.T) {
 		{"add by daemon owner allowed", Ownership{}, Ownership{Owners: []string{"uid:1000"}}, nil, ctxWith(Identity{UID: 1000}), addp, false},
 		{"add by non-owner denied", Ownership{}, Ownership{Owners: []string{"uid:1000"}}, nil, ctxWith(Identity{UID: 2000}), addp, true},
 		{"owner-tier TOFU claims unowned daemon", Ownership{}, Ownership{}, nil, ctxWith(Identity{UID: 2000}), down, false},
+
+		// Owner-set mutations gate on daemon ownership, not the active profile.
+		{"add-owner by daemon owner allowed", Ownership{Owners: []string{"uid:9"}}, Ownership{Owners: []string{"uid:1000"}}, nil, ctxWith(Identity{UID: 1000}), addowner, false},
+		{"add-owner by active-profile owner (non daemon owner) denied", Ownership{Owners: []string{"uid:2000"}}, Ownership{Owners: []string{"uid:1000"}}, nil, ctxWith(Identity{UID: 2000}), addowner, true},
+		{"share by active-profile owner (non daemon owner) denied", Ownership{Owners: []string{"uid:2000"}}, Ownership{Owners: []string{"uid:1000"}}, nil, ctxWith(Identity{UID: 2000}), sharep, true},
 	}
 
 	for _, tt := range tests {

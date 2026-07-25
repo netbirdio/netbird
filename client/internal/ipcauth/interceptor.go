@@ -46,6 +46,13 @@ func (i *Interceptor) StreamServerInterceptor() grpc.StreamServerInterceptor {
 	}
 }
 
+// authorize decides each RPC from the caller's identity, first match wins:
+//
+//  0. no identity                    DENY
+//  1. self / privileged / forwarded  ALLOW (root, elevated, daemon-self, JSON gateway)
+//  2. in ownersAuthorizedMethods     owner tier   (gate on DaemonOwnership)
+//  3. in handlerAuthorizedMethods    profile tier (bypass, handler decides)
+//  4. everything else                default tier (gate on ActiveProfileOwnership)
 func (i *Interceptor) authorize(ctx context.Context, fullMethod string) error {
 	id, ok := IdentityFromContext(ctx)
 	if !ok {

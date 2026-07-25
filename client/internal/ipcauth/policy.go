@@ -26,22 +26,22 @@ type ProfilePolicy interface {
 	ClaimDaemonOwnerIfUnowned(id Identity) (bool, error)
 }
 
-// ownersAuthorizedMethods require a daemon-wide owner (or root). They are
-// daemon-level operations independent of any single profile: creating profiles,
-// tearing down the connection, and reading daemon status.
+// ownersAuthorizedMethods gate on the daemon-wide owner set (or root): daemon-level
+// ops independent of any profile. The owner-set mutations (AddOwner, ShareProfile,
+// ResetOwner) must gate here, not on the active profile, else a per-profile owner
+// could escalate via `owner add`. ResetOwner also requires root in its handler.
 var ownersAuthorizedMethods = map[string]bool{
-	servicePath + "AddProfile": true,
-	servicePath + "Down":       true,
-	servicePath + "Status":     true,
+	servicePath + "AddProfile":   true,
+	servicePath + "Down":         true,
+	servicePath + "Status":       true,
+	servicePath + "AddOwner":     true,
+	servicePath + "ShareProfile": true,
+	servicePath + "ResetOwner":   true,
 }
 
-// handlerAuthorizedMethods bypass the active-profile gate. Peer identity is still
-// required to reach them. They either self-authorize in the handler against the
-// profile they target (SwitchProfile, RemoveProfile, RenameProfile via
-// authorizeTargetProfile) or against the caller's own profiles (ListProfiles via
-// bindCallerUsername), or return only non-sensitive metadata that any local user
-// may read (GetActiveProfile: the active profile's id, name, and owning username,
-// so the CLI can show which profile, and whose, holds the daemon).
+// handlerAuthorizedMethods bypass the ownership gate (identity still required)
+// and let the handler authorize. GetActiveProfile bypasses only to return
+// public metadata any local user may read.
 var handlerAuthorizedMethods = map[string]bool{
 	servicePath + "ListProfiles":     true,
 	servicePath + "RemoveProfile":    true,
@@ -71,6 +71,9 @@ var auditMethods = map[string]bool{
 	servicePath + "Logout":             true,
 	servicePath + "CleanState":         true,
 	servicePath + "DeleteState":        true,
+	servicePath + "AddOwner":           true,
+	servicePath + "ResetOwner":         true,
+	servicePath + "ShareProfile":       true,
 }
 
 // ConfigAdapter is a ProfilePolicy whose backend is set lazily, once the daemon
