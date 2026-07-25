@@ -140,12 +140,12 @@ func (m *Manager) ackConverged(remoteID string, ackID ExchangeID) {
 	m.mu.Unlock()
 }
 
-// initiatorLoop enforces the convergence deadline and retransmits the initiator's
-// outstanding data-path offer while awaiting the answer (a signalling-bootstrapped
-// offer is retransmitted by the host, so it is not resent here). It then waits,
-// counting toward the deadline, in stateAwaitingRekey until OnDataPathRekeyed chains
-// the next exchange (which supersedes and cancels this loop). Exhausting the deadline
-// is a failure.
+// initiatorLoop enforces the offer->answer convergence deadline and retransmits the
+// initiator's outstanding data-path offer while awaiting the answer (a
+// signalling-bootstrapped offer is retransmitted by the host, so it is not resent
+// here). Exhausting the deadline before the answer arrives is a failure. Once the
+// answer is in (state past awaitingAnswer) the loop exits: the next rotation is driven
+// by OnDataPathRekeyed, and the idle wait for it has no deadline.
 func (m *Manager) initiatorLoop(ctx context.Context, remoteID string, id ExchangeID) {
 	defer m.wait.Done()
 	t := time.NewTicker(m.retryInterval)
@@ -183,20 +183,11 @@ func (m *Manager) initiatorLoop(ctx context.Context, remoteID string, id Exchang
 					}
 				}
 
-			case stateAwaitingRekey:
-				// Waiting for OnDataPathRekeyed to chain the next exchange; the
-				// deadline still applies (the data path may never adopt the new key).
-				if attempts >= m.maxRetries {
-					delete(m.exchanges, remoteID)
-					fail := m.registerFailureLocked(remoteID)
-					m.mu.Unlock()
-					m.raiseFailure(remoteID, fail)
-					return
-				}
-				attempts++
-				m.mu.Unlock()
-
 			default:
+				// Past awaiting the answer (converged) or superseded: the loop's job
+				// is done. The next rotation is driven externally by OnDataPathRekeyed,
+				// so there is no deadline while idle-waiting for it (that wait can be
+				// as long as the transport's natural rekey interval).
 				m.mu.Unlock()
 				return
 			}
