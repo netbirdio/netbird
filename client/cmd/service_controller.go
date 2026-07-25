@@ -115,6 +115,9 @@ func (p *program) Start(svc service.Service) error {
 		}
 
 		serverInstance := server.New(p.ctx, util.FindFirstLogPath(logFiles), configPath, profilesDisabled, updateSettingsDisabled, captureEnabled, networksDisabled)
+		// Daemon-wide owners live in service.json (governs the default profile and
+		// daemon access), wire persistence before serving so owner add / TOFU work.
+		serverInstance.SetDaemonOwnerStore(daemonOwnerStore{})
 		if err := serverInstance.Start(); err != nil {
 			log.Fatalf("failed to start daemon: %v", err)
 		}

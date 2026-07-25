@@ -33,11 +33,52 @@ type serviceParams struct {
 	DisableNetworks       bool              `json:"disable_networks,omitempty"`
 	EnableJSONSocket      bool              `json:"enable_json_socket,omitempty"`
 	ServiceEnvVars        map[string]string `json:"service_env_vars,omitempty"`
+	// Owners lists the principals allowed to control this profile over the local
+	// IPC, as typed strings: "uid:1000", "gid:1000", "group:netbird-admins"
+	// (Unix, NSS-resolved) or "sid:S-1-5-..." (Windows user or group SID). Empty
+	// with Shared=false means the profile is owned by nobody yet, until claimed
+	Owners []string `json:"owners,omitempty"`
+
+	// Shared, when true, lets any authenticated local caller control this profile
+	// (opt-in). Takes precedence over Owners.
+	Shared bool `json:"shared,omitempty"`
 }
 
 // serviceParamsPath returns the path to the service params file.
 func serviceParamsPath() string {
 	return filepath.Join(configs.StateDir, serviceParamsFile)
+}
+
+// daemonOwnerStore persists the daemon-wide owner set in service.json. It
+// implements server.DaemonOwnerStore so the daemon can read owners at startup and
+// mutate them at runtime (owner add, reset, share, TOFU claim) without server
+// importing cmd. Load-modify-write preserves the other service.json fields.
+type daemonOwnerStore struct{}
+
+func (daemonOwnerStore) Load() ([]string, bool, error) {
+	params, err := loadServiceParams()
+	if err != nil {
+		return nil, false, err
+	}
+	if params == nil {
+		return nil, false, nil
+	}
+	return params.Owners, params.Shared, nil
+}
+
+func (daemonOwnerStore) Save(owners []string, shared bool) error {
+	params, err := loadServiceParams()
+	if err != nil {
+		return err
+	}
+	if params == nil {
+		// No service.json yet (daemon started without `service install`). Seed it
+		// from the running daemon's current parameters so the file stays complete.
+		params = currentServiceParams()
+	}
+	params.Owners = owners
+	params.Shared = shared
+	return saveServiceParams(params)
 }
 
 // loadServiceParams reads saved service parameters from disk.
@@ -86,6 +127,8 @@ func currentServiceParams() *serviceParams {
 		EnableCapture:         captureEnabled,
 		DisableNetworks:       networksDisabled,
 		EnableJSONSocket:      enableJSONSocket,
+		Owners:                owners,
+		Shared:                daemonShared,
 	}
 
 	if len(serviceEnvVars) > 0 {
@@ -168,6 +211,14 @@ func applyServiceParams(cmd *cobra.Command, params *serviceParams) {
 	if !serviceCmd.PersistentFlags().Changed("disable-networks") {
 		networksDisabled = params.DisableNetworks
 	}
+
+	// Carry the daemon-wide owner set forward across install/reconfigure so a
+	// runtime owner add or TOFU claim in service.json is not clobbered. --owner
+	// overrides.
+	if !serviceCmd.PersistentFlags().Changed("owner") && len(params.Owners) > 0 {
+		owners = params.Owners
+	}
+	daemonShared = params.Shared
 
 	applyServiceEnvParams(cmd, params)
 }

@@ -13,18 +13,19 @@ import (
 
 var ownerCmd = &cobra.Command{
 	Use:   "owner",
-	Short: "Manage who may control the active NetBird profile",
-	Long: `Manage the owners of the active profile's daemon control channel.
+	Short: "Manage who may control the NetBird daemon",
+	Long: `Manage the daemon-wide owners.
 
-Ownership is enforced per profile: an isolated profile can only be controlled by
-its owner principals (plus root/administrator). A new profile is automatically
-owned by its creator; an unowned profile is claimed by the first caller.`,
+Owners are enforced on the daemon and stored in the service parameters. All owners
+may control the daemon and use the shared default profile (plus root/administrator),
+every other profile stays isolated to the user that created it. An unowned daemon
+is claimed by the first caller (trust-on-first-use).`,
 }
 
 var ownerAddCmd = &cobra.Command{
 	Use:   "add <principal>",
-	Short: "Add an owner principal to the active profile",
-	Long: `Add an owner principal to the active profile. Principals are typed:
+	Short: "Add a daemon owner principal",
+	Long: `Add a daemon-wide owner principal. Principals are typed:
   uid:1000               a Unix user ID
   gid:1000               a Unix group ID
   group:netbird-admins   a Unix group name (resolved via NSS/getent)
@@ -37,7 +38,7 @@ Requires root/administrator or an existing owner.`,
 			if _, err := c.AddOwner(ctx, &proto.AddOwnerRequest{Principal: args[0]}); err != nil {
 				return err
 			}
-			cmd.Printf("Added owner %q to the active profile\n", args[0])
+			cmd.Printf("Added daemon owner %q\n", args[0])
 			return nil
 		})
 	},
@@ -45,8 +46,8 @@ Requires root/administrator or an existing owner.`,
 
 var ownerResetCmd = &cobra.Command{
 	Use:   "reset",
-	Short: "Clear the active profile's owner list (root/administrator only)",
-	Long: `Clear the active profile's owner list, returning it to the unowned
+	Short: "Clear the daemon owner list (root/administrator only)",
+	Long: `Clear the daemon-wide owner list, returning the daemon to the unowned
 state. The next caller then claims ownership (trust-on-first-use). Requires
 root/administrator.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -54,7 +55,7 @@ root/administrator.`,
 			if _, err := c.ResetOwner(ctx, &proto.ResetOwnerRequest{}); err != nil {
 				return err
 			}
-			cmd.Println("Owner list cleared; the next caller will claim ownership")
+			cmd.Println("Daemon owner list cleared, the next caller will claim ownership")
 			return nil
 		})
 	},
@@ -62,13 +63,13 @@ root/administrator.`,
 
 var ownerShareCmd = &cobra.Command{
 	Use:   "share",
-	Short: "Mark the active profile shared (any local user may control it)",
+	Short: "Mark the daemon shared (any local user may control it)",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return withDaemon(cmd, func(ctx context.Context, c proto.DaemonServiceClient) error {
 			if _, err := c.ShareProfile(ctx, &proto.ShareProfileRequest{Shared: true}); err != nil {
 				return err
 			}
-			cmd.Println("Active profile is now shared with all local users")
+			cmd.Println("Daemon is now shared with all local users")
 			return nil
 		})
 	},
@@ -76,13 +77,13 @@ var ownerShareCmd = &cobra.Command{
 
 var ownerUnshareCmd = &cobra.Command{
 	Use:   "unshare",
-	Short: "Stop sharing the active profile (restrict to its owners)",
+	Short: "Stop sharing the daemon (restrict to its owners)",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return withDaemon(cmd, func(ctx context.Context, c proto.DaemonServiceClient) error {
 			if _, err := c.ShareProfile(ctx, &proto.ShareProfileRequest{Shared: false}); err != nil {
 				return err
 			}
-			cmd.Println("Active profile is no longer shared")
+			cmd.Println("Daemon is no longer shared")
 			return nil
 		})
 	},

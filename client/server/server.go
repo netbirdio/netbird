@@ -130,9 +130,18 @@ type Server struct {
 
 	// groupResolver resolves a Unix caller's supplementary group membership
 	// (NSS/getent) so gid:/group: owner principals authorize correctly. Nil on
-	// Windows (SID group membership travels in the identity itself); ipcauth
+	// Windows, where SID group membership travels in the identity itself. ipcauth
 	// treats a nil resolver as "no group matching".
 	groupResolver ipcauth.GroupResolver
+
+	// owners is the in-memory daemon-wide owner set, loaded from daemonOwnerStore.
+	// It governs the default profile and daemon-wide access. Non-default profiles
+	// stay isolated per user via their own per-profile owner. Guarded by s.mutex.
+	owners ipcauth.Ownership
+	// daemonOwnerStore persists owners to service.json, injected by cmd via
+	// SetDaemonOwnerStore. Nil before injection or in tests, where the daemon is
+	// treated as unowned and non-privileged callers are denied on the default.
+	daemonOwnerStore DaemonOwnerStore
 }
 
 type oauthAuthFlow struct {
