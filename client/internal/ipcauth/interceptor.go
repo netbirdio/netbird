@@ -72,8 +72,11 @@ func (i *Interceptor) authorize(ctx context.Context, fullMethod string) error {
 		}
 	}
 
-	// Per-user / per-target-profile RPCs authorize themselves in the handler.
+	// These RPCs authorize themselves in the handler (target-profile check) or are
+	// connection-lifecycle actions any authenticated local user may perform; they
+	// bypass the active-profile gate. Still audit the C/H ones on allow.
 	if handlerAuthorizedMethods[fullMethod] {
+		i.auditAllow(id, fullMethod)
 		return nil
 	}
 

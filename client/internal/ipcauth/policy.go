@@ -18,15 +18,26 @@ type ProfilePolicy interface {
 	ClaimActiveProfileOwnerIfUnowned(id Identity) (bool, error)
 }
 
-// handlerAuthorizedMethods bypass the active-profile gate: they are per-user or
-// per-target-profile operations whose handler does its own authorization (bound
-// to the caller identity). Peer identity is still required to reach them.
+// handlerAuthorizedMethods bypass the active-profile gate. Peer identity is
+// still required to reach them. Two groups:
+//
+//   - Per-user / per-target-profile operations whose handler does its own
+//     authorization bound to the caller identity: AddProfile, ListProfiles,
+//     GetActiveProfile, RemoveProfile, RenameProfile, and SwitchProfile (gated
+//     on the TARGET profile's ownership via authorizeTargetProfile).
+//   - Connection-lifecycle operations on the single shared daemon connection
+//     that any authenticated local user may perform: Down. Gating these on the
+//     ACTIVE profile's owner would trap a user behind another user's profile —
+//     they could neither disconnect nor switch to their OWN profile. SwitchProfile
+//     is bounded by its target check; Down only tears the connection down.
 var handlerAuthorizedMethods = map[string]bool{
 	servicePath + "AddProfile":       true,
 	servicePath + "ListProfiles":     true,
 	servicePath + "GetActiveProfile": true,
 	servicePath + "RemoveProfile":    true,
 	servicePath + "RenameProfile":    true,
+	servicePath + "SwitchProfile":    true,
+	servicePath + "Down":             true,
 }
 
 // auditMethods are worth an audit log line. Denials are always logged.

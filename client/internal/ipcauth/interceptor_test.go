@@ -42,9 +42,11 @@ func ctxWith(id Identity) context.Context {
 }
 
 const (
-	up    = servicePath + "Up"
-	list  = servicePath + "ListProfiles"
-	unkwn = servicePath + "SomeFutureMethod"
+	up      = servicePath + "Up"
+	list    = servicePath + "ListProfiles"
+	unkwn   = servicePath + "SomeFutureMethod"
+	down    = servicePath + "Down"
+	switchp = servicePath + "SwitchProfile"
 )
 
 func TestInterceptorAuthorize(t *testing.T) {
@@ -65,6 +67,8 @@ func TestInterceptorAuthorize(t *testing.T) {
 		{"uid owner allowed", Ownership{Owners: []string{"uid:1000"}}, nil, ctxWith(Identity{UID: 1000}), up, false},
 		{"non-owner denied", Ownership{Owners: []string{"uid:1000"}}, nil, ctxWith(Identity{UID: 2000}), up, true},
 		{"handler-authorized bypass", Ownership{Owners: []string{"uid:1000"}}, nil, ctxWith(Identity{UID: 2000}), list, false},
+		{"down allowed while another user's profile active", Ownership{Owners: []string{"uid:1000"}}, nil, ctxWith(Identity{UID: 2000}), down, false},
+		{"switch-profile bypasses active-profile gate", Ownership{Owners: []string{"uid:1000"}}, nil, ctxWith(Identity{UID: 2000}), switchp, false},
 		{"unknown method gated", Ownership{Owners: []string{"uid:1000"}}, nil, ctxWith(Identity{UID: 2000}), unkwn, true},
 		{"primary gid owner", Ownership{Owners: []string{"gid:5000"}}, nil, ctxWith(Identity{UID: 2000, GID: 5000}), up, false},
 		{"group-name owner via resolver", Ownership{Owners: []string{"group:admins"}},
