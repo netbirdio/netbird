@@ -1732,6 +1732,15 @@ type AccountSettings struct {
 
 // AgentNetworkAccessLog One per-request agent-network (LLM) access log entry with flattened, queryable LLM dimensions.
 type AgentNetworkAccessLog struct {
+	// CacheCostUsd Portion of cost_usd billed for prompt-cache usage.
+	CacheCostUsd float64 `json:"cache_cost_usd"`
+
+	// CacheCreationTokens Input tokens written to the provider's prompt cache. Zero for providers without a cache-write bucket.
+	CacheCreationTokens int64 `json:"cache_creation_tokens"`
+
+	// CachedInputTokens Input tokens read from the provider's prompt cache. Additive to input_tokens for Anthropic-shape providers; a subset of input_tokens for OpenAI.
+	CachedInputTokens int64 `json:"cached_input_tokens"`
+
 	// CostUsd Estimated USD cost of the request.
 	CostUsd float64 `json:"cost_usd"`
 
@@ -1801,7 +1810,7 @@ type AgentNetworkAccessLog struct {
 	// Timestamp Timestamp when the request was made.
 	Timestamp time.Time `json:"timestamp"`
 
-	// TotalTokens Total tokens consumed.
+	// TotalTokens Total tokens consumed, including prompt-cache tokens.
 	TotalTokens int64 `json:"total_tokens"`
 
 	// UserId NetBird user id of the authenticated caller, if applicable.
@@ -1810,6 +1819,15 @@ type AgentNetworkAccessLog struct {
 
 // AgentNetworkAccessLogSession A session-grouped view of agent-network access logs — all requests sharing a session id (or a single session-less request) folded into one summary plus its ordered entries.
 type AgentNetworkAccessLogSession struct {
+	// CacheCostUsd Portion of cost_usd billed for prompt-cache usage across the session.
+	CacheCostUsd float64 `json:"cache_cost_usd"`
+
+	// CacheCreationTokens Total prompt-cache write tokens across the session.
+	CacheCreationTokens int64 `json:"cache_creation_tokens"`
+
+	// CachedInputTokens Total prompt-cache read tokens across the session.
+	CachedInputTokens int64 `json:"cached_input_tokens"`
+
 	// CostUsd Total estimated USD cost across the session.
 	CostUsd float64 `json:"cost_usd"`
 
@@ -1846,7 +1864,7 @@ type AgentNetworkAccessLogSession struct {
 	// StartedAt Timestamp of the session's earliest request.
 	StartedAt time.Time `json:"started_at"`
 
-	// TotalTokens Total tokens across the session.
+	// TotalTokens Total tokens across the session, including prompt-cache tokens.
 	TotalTokens int64 `json:"total_tokens"`
 
 	// UserId NetBird user id of the session's caller.
@@ -2347,6 +2365,15 @@ type AgentNetworkSettingsRequest struct {
 
 // AgentNetworkUsageBucket One aggregated agent-network usage time bucket (UTC). The bucket width is set by the request's granularity.
 type AgentNetworkUsageBucket struct {
+	// CacheCostUsd Portion of cost_usd billed for prompt-cache usage in the bucket.
+	CacheCostUsd float64 `json:"cache_cost_usd"`
+
+	// CacheCreationTokens Total prompt-cache write tokens in the bucket.
+	CacheCreationTokens int64 `json:"cache_creation_tokens"`
+
+	// CachedInputTokens Total prompt-cache read tokens in the bucket.
+	CachedInputTokens int64 `json:"cached_input_tokens"`
+
 	// CostUsd Total estimated USD spend in the bucket.
 	CostUsd float64 `json:"cost_usd"`
 
@@ -2359,7 +2386,7 @@ type AgentNetworkUsageBucket struct {
 	// PeriodStart Start of the bucket in YYYY-MM-DD (UTC) — the day, the week start (Monday), or the month start, depending on granularity.
 	PeriodStart string `json:"period_start"`
 
-	// TotalTokens Total tokens in the bucket.
+	// TotalTokens Total tokens in the bucket, including prompt-cache tokens.
 	TotalTokens int64 `json:"total_tokens"`
 }
 
