@@ -89,7 +89,7 @@ type Manager struct {
 	mu          sync.Mutex
 	transport   Transport
 	exchanges   map[string]*exchangeCtl   // in-flight exchange per peer
-	established  map[string]bool          // peer has completed at least one exchange
+	established map[string]bool           // peer has completed at least one exchange
 	failures    map[string]int            // consecutive rekey failures per peer
 	peers       map[string]netip.AddrPort // remoteID -> data-path endpoint (send routing)
 	peersByAddr map[netip.AddrPort]string // reverse: source endpoint -> remoteID (inbound)
