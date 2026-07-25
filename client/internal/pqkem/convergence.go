@@ -9,7 +9,7 @@ import (
 // bootstrap) and returns the framed offer for the caller to send — pushed over the
 // data path for a chained rekey, or handed to the host for signalling when viaSignal
 // is set. Any previous in-flight exchange for the peer is cancelled.
-func (m *Manager) startExchange(remoteID string, viaSignal bool, ackID ExchangeID) ([]byte, error) {
+func (m *Manager) startExchange(remoteID RemoteID, viaSignal bool, ackID ExchangeID) ([]byte, error) {
 	init, err := NewInitiator()
 	if err != nil {
 		return nil, err
@@ -48,7 +48,7 @@ func (m *Manager) startExchange(remoteID string, viaSignal bool, ackID ExchangeI
 // (that offer riding the data path under the freshly adopted key proves it worked),
 // then derives the PSK for the new offer, commits it optimistically, and returns the
 // framed answer. A duplicate offer returns the cached answer without re-deriving.
-func (m *Manager) processOffer(remoteID string, o *OfferMsg) ([]byte, error) {
+func (m *Manager) processOffer(remoteID RemoteID, o *OfferMsg) ([]byte, error) {
 	if o.AckID != (ExchangeID{}) {
 		m.ackConverged(remoteID, o.AckID)
 	}
@@ -97,7 +97,7 @@ func (m *Manager) processOffer(remoteID string, o *OfferMsg) ([]byte, error) {
 // stateAwaitingRekey; the next offer (chained from OnDataPathRekeyed) will acknowledge
 // this exchange. Only valid in stateAwaitingAnswer; advancing the state under the
 // lock makes a concurrent/duplicate answer bail.
-func (m *Manager) processAnswer(remoteID string, a *AnswerMsg) error {
+func (m *Manager) processAnswer(remoteID RemoteID, a *AnswerMsg) error {
 	m.mu.Lock()
 	ex := m.exchanges[remoteID]
 	if ex == nil || ex.id != a.ExchangeID || ex.state != stateAwaitingAnswer {
@@ -126,7 +126,7 @@ func (m *Manager) processAnswer(remoteID string, a *AnswerMsg) error {
 // ackConverged (responder) records convergence of the exchange named by ackID: a
 // later offer acknowledging it proves both sides operate on that exchange's key. Only
 // acts on a matching stateAwaitingAck exchange; anything else is ignored.
-func (m *Manager) ackConverged(remoteID string, ackID ExchangeID) {
+func (m *Manager) ackConverged(remoteID RemoteID, ackID ExchangeID) {
 	m.mu.Lock()
 	ex := m.exchanges[remoteID]
 	if ex == nil || ex.id != ackID || ex.state != stateAwaitingAck {
@@ -146,7 +146,7 @@ func (m *Manager) ackConverged(remoteID string, ackID ExchangeID) {
 // here). Exhausting the deadline before the answer arrives is a failure. Once the
 // answer is in (state past awaitingAnswer) the loop exits: the next rotation is driven
 // by OnDataPathRekeyed, and the idle wait for it has no deadline.
-func (m *Manager) initiatorLoop(ctx context.Context, remoteID string, id ExchangeID) {
+func (m *Manager) initiatorLoop(ctx context.Context, remoteID RemoteID, id ExchangeID) {
 	defer m.wait.Done()
 	t := time.NewTicker(m.retryInterval)
 	defer t.Stop()
@@ -199,7 +199,7 @@ func (m *Manager) initiatorLoop(ctx context.Context, remoteID string, id Exchang
 // an initial exchange (peer never established) fails immediately; a rekey tolerates
 // up to maxRekeyFailures consecutive misses (we stay on the still-valid previous
 // PSK) before failing. Assumes m.mu is held.
-func (m *Manager) registerFailureLocked(remoteID string) bool {
+func (m *Manager) registerFailureLocked(remoteID RemoteID) bool {
 	if !m.established[remoteID] {
 		return true
 	}
@@ -211,7 +211,7 @@ func (m *Manager) registerFailureLocked(remoteID string) bool {
 	return false
 }
 
-func (m *Manager) raiseFailure(remoteID string, fail bool) {
+func (m *Manager) raiseFailure(remoteID RemoteID, fail bool) {
 	if !fail {
 		m.logger.Warn("pqkem rekey attempt timed out, will retry next cycle", "peer", remoteID)
 		return
