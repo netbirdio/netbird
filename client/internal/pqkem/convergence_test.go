@@ -11,10 +11,10 @@ import (
 // dropTransport is a pqkem.Transport that silently discards everything.
 type dropTransport struct{}
 
-func (dropTransport) Send(netip.AddrPort, []byte) error       { return nil }
-func (dropTransport) LocalPort() int                          { return 0 }
-func (dropTransport) Run(func(netip.AddrPort, []byte))        {}
-func (dropTransport) Close() error                            { return nil }
+func (dropTransport) Send(netip.AddrPort, []byte) error { return nil }
+func (dropTransport) LocalPort() int                    { return 0 }
+func (dropTransport) Run(func(netip.AddrPort, []byte))  {}
+func (dropTransport) Close() error                      { return nil }
 
 func failedCount(f *fakeWG) int {
 	f.mu.Lock()
@@ -44,6 +44,11 @@ func TestManager_RekeyToleratesKFailures(t *testing.T) {
 	defer dA.Stop()
 	defer dB.Stop()
 
+	// Tighten B's timings before any exchange loop spawns (the loop reads these
+	// fields, so writing them after a loop is running would race).
+	dB.retryInterval = 5 * time.Millisecond
+	dB.maxRetries = 2
+
 	// Establish: bootstrap + data-path-rekeyed so B becomes established and its data
 	// path is usable.
 	bootstrap(t, dA, dB)
@@ -51,9 +56,7 @@ func TestManager_RekeyToleratesKFailures(t *testing.T) {
 	dB.OnDataPathRekeyed("aaaa")
 	require.NotEqual(t, PSK{}, wgB.psk("aaaa"))
 
-	// Tighten timings and drop B's outbound so rekeys can no longer converge.
-	dB.retryInterval = 5 * time.Millisecond
-	dB.maxRetries = 2
+	// Drop B's outbound so rekeys can no longer converge.
 	lbB.drop.Store(true)
 
 	// K-1 data-path rekeys must NOT raise OnRekeyFailed.
