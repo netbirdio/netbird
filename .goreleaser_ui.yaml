@@ -88,6 +88,8 @@ nfpms:
         dst: /usr/share/pixmaps/netbird.png
     dependencies:
       - netbird
+      - libgtk-4-1 (>= 4.14)
+      - libwebkitgtk-6.0-4
 
   - maintainer: Netbird <dev@netbird.io>
     description: Netbird client UI.
@@ -109,6 +111,8 @@ nfpms:
         dst: /usr/share/pixmaps/netbird.png
     dependencies:
       - netbird
+      - (gtk4 >= 4.14 or libgtk-4-1 >= 4.14)
+      - (webkitgtk6.0 or libwebkitgtk-6_0-4)
 
     rpm:
       signature:
