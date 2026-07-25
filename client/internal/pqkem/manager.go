@@ -22,11 +22,18 @@ const (
 	DefaultMaxRekeyFailures = 3
 )
 
+// LocalID and RemoteID are peer identity keys (e.g. WireGuard public keys). They are
+// distinct types so the local and a remote identity cannot be mixed up.
+type (
+	LocalID  string
+	RemoteID string
+)
+
 // Transport is the data-path socket the Manager drives (the analogue of
 // go-rosenpass's Conn). It is a dumb mover of bytes to/from endpoints: the Manager
 // owns the remoteID<->endpoint routing and hands the transport a resolved endpoint
 // to Send, and reverse-resolves the source of each inbound datagram. Its lifecycle
-// belongs to the Manager (Run at SetTransport, Close at Stop).
+// belongs to the Manager (Run at Start, Close at Stop).
 type Transport interface {
 	// Send delivers msg to the given data-path endpoint.
 	Send(endpoint netip.AddrPort, msg []byte) error
@@ -75,7 +82,7 @@ type exchangeCtl struct {
 // (SignalOffer) and each rotation is clocked by OnDataPathRekeyed. The cryptography is
 // the pure kem.go primitives; all state lives here under one lock.
 type Manager struct {
-	localID   string
+	localID   LocalID
 	cbHandler CallbackHandler
 	logger    *slog.Logger
 
@@ -88,18 +95,18 @@ type Manager struct {
 
 	mu          sync.Mutex
 	transport   Transport
-	exchanges   map[string]*exchangeCtl   // in-flight exchange per peer
-	established map[string]bool           // peer has completed at least one exchange
-	failures    map[string]int            // consecutive rekey failures per peer
-	peers       map[string]netip.AddrPort // remoteID -> data-path endpoint (send routing)
-	peersByAddr map[netip.AddrPort]string // reverse: source endpoint -> remoteID (inbound)
+	exchanges   map[RemoteID]*exchangeCtl   // in-flight exchange per peer
+	established map[RemoteID]bool           // peer has completed at least one exchange
+	failures    map[RemoteID]int            // consecutive rekey failures per peer
+	peerAddrs   map[RemoteID]netip.AddrPort // remoteID -> data-path endpoint (send routing)
+	peersByAddr map[netip.AddrPort]RemoteID // reverse: source endpoint -> remoteID (inbound)
 	wait        sync.WaitGroup
 }
 
 // NewManager builds a manager for the local peer identified by its peer identity key
 // (used for the deterministic initiator role and the identity binding). A nil logger
-// falls back to slog.Default(). Set the data-path transport with SetTransport.
-func NewManager(localID string, h CallbackHandler, logger *slog.Logger) *Manager {
+// falls back to slog.Default(). Install the data-path transport with Start.
+func NewManager(localID LocalID, h CallbackHandler, logger *slog.Logger) *Manager {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -113,17 +120,17 @@ func NewManager(localID string, h CallbackHandler, logger *slog.Logger) *Manager
 		maxRekeyFailures: DefaultMaxRekeyFailures,
 		rootCtx:          ctx,
 		rootCancel:       cancel,
-		exchanges:        make(map[string]*exchangeCtl),
-		established:      make(map[string]bool),
-		failures:         make(map[string]int),
-		peers:            make(map[string]netip.AddrPort),
-		peersByAddr:      make(map[netip.AddrPort]string),
+		exchanges:        make(map[RemoteID]*exchangeCtl),
+		established:      make(map[RemoteID]bool),
+		failures:         make(map[RemoteID]int),
+		peerAddrs:        make(map[RemoteID]netip.AddrPort),
+		peersByAddr:      make(map[netip.AddrPort]RemoteID),
 	}
 }
 
-// SetTransport installs the data-path transport and starts its inbound delivery. The
-// Manager owns it from here: Stop closes it.
-func (m *Manager) SetTransport(t Transport) {
+// Start installs the data-path transport and begins its inbound delivery. The Manager
+// owns it from here; Stop closes it. Start/Stop are the transport lifecycle pair.
+func (m *Manager) Start(t Transport) {
 	m.mu.Lock()
 	m.transport = t
 	m.mu.Unlock()
@@ -147,27 +154,27 @@ func (m *Manager) LocalPort() int {
 // IsInitiator reports whether the local peer drives the exchange for this remote
 // peer. Roles are deterministic (lexicographic identity-key compare) so exactly one
 // side initiates, mirroring how Rosenpass picks its handshake initiator.
-func (m *Manager) IsInitiator(remoteID string) bool {
-	return m.localID > remoteID
+func (m *Manager) IsInitiator(remoteID RemoteID) bool {
+	return string(m.localID) > string(remoteID)
 }
 
 // AddPeer registers where a peer's data-path messages are sent and received: its
 // overlay endpoint (IP:port). Re-adding updates the endpoint.
-func (m *Manager) AddPeer(remoteID string, endpoint netip.AddrPort) {
+func (m *Manager) AddPeer(remoteID RemoteID, endpoint netip.AddrPort) {
 	if !endpoint.IsValid() {
 		return
 	}
 	m.mu.Lock()
-	if old, ok := m.peers[remoteID]; ok {
+	if old, ok := m.peerAddrs[remoteID]; ok {
 		delete(m.peersByAddr, old)
 	}
-	m.peers[remoteID] = endpoint
+	m.peerAddrs[remoteID] = endpoint
 	m.peersByAddr[endpoint] = remoteID
 	m.mu.Unlock()
 }
 
 // RemovePeer stops any in-flight exchange for a peer and drops its state and routing.
-func (m *Manager) RemovePeer(remoteID string) {
+func (m *Manager) RemovePeer(remoteID RemoteID) {
 	m.mu.Lock()
 	if ex, ok := m.exchanges[remoteID]; ok {
 		if ex.cancel != nil {
@@ -177,9 +184,9 @@ func (m *Manager) RemovePeer(remoteID string) {
 	}
 	delete(m.established, remoteID)
 	delete(m.failures, remoteID)
-	if ep, ok := m.peers[remoteID]; ok {
+	if ep, ok := m.peerAddrs[remoteID]; ok {
 		delete(m.peersByAddr, ep)
-		delete(m.peers, remoteID)
+		delete(m.peerAddrs, remoteID)
 	}
 	m.mu.Unlock()
 }
@@ -192,10 +199,12 @@ func (m *Manager) Stop() {
 	m.mu.Lock()
 	t := m.transport
 	m.transport = nil
-	m.exchanges = make(map[string]*exchangeCtl)
+	m.exchanges = make(map[RemoteID]*exchangeCtl)
 	m.mu.Unlock()
 	if t != nil {
-		_ = t.Close()
+		if err := t.Close(); err != nil {
+			m.logger.Warn("pqkem: closing data-path transport", "err", err)
+		}
 	}
 }
 
@@ -205,7 +214,7 @@ func (m *Manager) Stop() {
 // remoteID (bootstrap). It returns (nil, nil) when the local peer is not the
 // initiator. It is idempotent for an in-flight bootstrap: a repeat call returns the
 // same offer rather than starting a new exchange.
-func (m *Manager) SignalOffer(remoteID string) ([]byte, error) {
+func (m *Manager) SignalOffer(remoteID RemoteID) ([]byte, error) {
 	if !m.IsInitiator(remoteID) {
 		return nil, nil
 	}
@@ -222,7 +231,7 @@ func (m *Manager) SignalOffer(remoteID string) ([]byte, error) {
 
 // SignalOnOffer processes a KEM offer the host extracted from an incoming offer and
 // returns the KEM answer for the host to embed in its outgoing answer.
-func (m *Manager) SignalOnOffer(remoteID string, offer []byte) ([]byte, error) {
+func (m *Manager) SignalOnOffer(remoteID RemoteID, offer []byte) ([]byte, error) {
 	typ, msg, err := Decode(offer)
 	if err != nil {
 		return nil, fmt.Errorf("decode signal offer from %s: %w", remoteID, err)
@@ -235,7 +244,7 @@ func (m *Manager) SignalOnOffer(remoteID string, offer []byte) ([]byte, error) {
 
 // SignalOnAnswer processes a KEM answer the host extracted from an incoming answer.
 // There is no reply: the next offer (over the data path) acknowledges this exchange.
-func (m *Manager) SignalOnAnswer(remoteID string, answer []byte) error {
+func (m *Manager) SignalOnAnswer(remoteID RemoteID, answer []byte) error {
 	typ, msg, err := Decode(answer)
 	if err != nil {
 		return fmt.Errorf("decode signal answer from %s: %w", remoteID, err)
@@ -252,9 +261,9 @@ func (m *Manager) SignalOnAnswer(remoteID string, answer []byte) error {
 // source endpoint to a peer and dispatches. Unknown sources are dropped.
 func (m *Manager) onDataPathInbound(src netip.AddrPort, msg []byte) {
 	m.mu.Lock()
-	remoteID := m.peersByAddr[src]
+	remoteID, ok := m.peersByAddr[src]
 	m.mu.Unlock()
-	if remoteID == "" {
+	if !ok {
 		return
 	}
 	if err := m.OnDataPathMessage(remoteID, msg); err != nil {
@@ -264,7 +273,7 @@ func (m *Manager) onDataPathInbound(src netip.AddrPort, msg []byte) {
 
 // OnDataPathMessage handles a KEM message received over the data path from remoteID
 // and pushes any reply back over the data path.
-func (m *Manager) OnDataPathMessage(remoteID string, raw []byte) error {
+func (m *Manager) OnDataPathMessage(remoteID RemoteID, raw []byte) error {
 	typ, msg, err := Decode(raw)
 	if err != nil {
 		return fmt.Errorf("decode data-path msg from %s: %w", remoteID, err)
@@ -291,7 +300,7 @@ func (m *Manager) OnDataPathMessage(remoteID string, raw []byte) error {
 // initiator that just derived a PSK, it chains the next exchange: a fresh offer over
 // the data path that acknowledges the just-completed one (its arrival under the new
 // key proves to the responder that the key works).
-func (m *Manager) OnDataPathRekeyed(remoteID string) {
+func (m *Manager) OnDataPathRekeyed(remoteID RemoteID) {
 	m.mu.Lock()
 	ex := m.exchanges[remoteID]
 	chain := ex != nil && ex.state == stateAwaitingRekey
@@ -317,15 +326,15 @@ func (m *Manager) OnDataPathRekeyed(remoteID string) {
 // OnDataPathDown notifies that the peer's data path went down. Rotations resume once
 // the host re-bootstraps over signalling on reconnect; in-flight data-path sends will
 // simply fail until then. Reserved as an explicit hook.
-func (m *Manager) OnDataPathDown(remoteID string) {}
+func (m *Manager) OnDataPathDown(remoteID RemoteID) {}
 
 // ---- internals ----
 
 // pushDataPath resolves the peer's endpoint and sends over the data-path transport,
 // erroring if the peer is unknown or no transport is set.
-func (m *Manager) pushDataPath(remoteID string, msg []byte) error {
+func (m *Manager) pushDataPath(remoteID RemoteID, msg []byte) error {
 	m.mu.Lock()
-	ep, ok := m.peers[remoteID]
+	ep, ok := m.peerAddrs[remoteID]
 	t := m.transport
 	m.mu.Unlock()
 	if !ok {
@@ -337,7 +346,7 @@ func (m *Manager) pushDataPath(remoteID string, msg []byte) error {
 	return t.Send(ep, msg)
 }
 
-func (m *Manager) binding(remoteID string) Binding {
+func (m *Manager) binding(remoteID RemoteID) Binding {
 	return Binding{LocalID: []byte(m.localID), RemoteID: []byte(remoteID)}
 }
 

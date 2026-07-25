@@ -656,8 +656,8 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		if pqErr != nil {
 			log.Errorf("ML-KEM PQ transport bind failed, PQ exchange disabled: %v", pqErr)
 		} else {
-			e.pqkemManager = pqkem.NewManager(publicKey.String(), pqCallbackHandler{wg: e.wgInterface}, nil)
-			e.pqkemManager.SetTransport(tr)
+			e.pqkemManager = pqkem.NewManager(pqkem.LocalID(publicKey.String()), pqCallbackHandler{wg: e.wgInterface}, nil)
+			e.pqkemManager.Start(tr)
 			log.Infof("ML-KEM post-quantum exchange enabled (udp port %d on overlay %s)", e.pqkemManager.LocalPort(), e.config.WgAddr.IP)
 		}
 	}

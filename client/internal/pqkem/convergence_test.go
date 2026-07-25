@@ -25,7 +25,7 @@ func failedCount(f *fakeWG) int {
 func TestManager_InitialTimeoutFailsImmediately(t *testing.T) {
 	wg := newFakeWG()
 	d := NewManager("bbbb", wg, nil) // bbbb > aaaa -> initiator
-	d.SetTransport(dropTransport{})
+	d.Start(dropTransport{})
 	d.retryInterval = 5 * time.Millisecond
 	d.maxRetries = 3
 	defer d.Stop()
