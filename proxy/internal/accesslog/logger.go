@@ -221,14 +221,17 @@ func (l *Logger) allowDenyLog(serviceID types.ServiceID, reason string) bool {
 // proxy/internal/middleware/keys.go — only the dimensions management needs to
 // record a usage row (provider / model / tokens / cost / groups).
 var usageMetadataKeys = map[string]struct{}{
-	"llm.provider":             {},
-	"llm.model":                {},
-	"llm.resolved_provider_id": {},
-	"llm.input_tokens":         {},
-	"llm.output_tokens":        {},
-	"llm.total_tokens":         {},
-	"cost.usd_total":           {},
-	"llm.authorising_groups":   {},
+	"llm.provider":              {},
+	"llm.model":                 {},
+	"llm.resolved_provider_id":  {},
+	"llm.input_tokens":          {},
+	"llm.output_tokens":         {},
+	"llm.total_tokens":          {},
+	"llm.cached_input_tokens":   {},
+	"llm.cache_creation_tokens": {},
+	"cost.usd_total":            {},
+	"cost.usd_cache":            {},
+	"llm.authorising_groups":    {},
 }
 
 // stripAgentNetworkEntryForUsage returns the entry reduced to what's needed to

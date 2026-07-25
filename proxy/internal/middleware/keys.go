@@ -77,6 +77,8 @@ const (
 
 	// Cost metering (emitted by cost_meter).
 	KeyCostUSDTotal = "cost.usd_total"
+	// KeyCostUSDCache is the portion of cost.usd_total billed for prompt-cache buckets (cache read/creation, or OpenAI's cached input subset).
+	KeyCostUSDCache = "cost.usd_cache"
 	KeyCostSkipped  = "cost.skipped"
 
 	// Framework-emitted error markers. Use the mw.<id>.* prefix to

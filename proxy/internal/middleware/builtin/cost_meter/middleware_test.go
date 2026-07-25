@@ -67,7 +67,7 @@ func TestMiddleware_StaticSurface(t *testing.T) {
 	assert.NoError(t, mw.Close(), "Close on stateless middleware is a no-op")
 
 	keys := mw.MetadataKeys()
-	expected := []string{middleware.KeyCostUSDTotal, middleware.KeyCostSkipped}
+	expected := []string{middleware.KeyCostUSDTotal, middleware.KeyCostUSDCache, middleware.KeyCostSkipped}
 	assert.Equal(t, expected, keys, "metadata key allowlist must match the spec")
 }
 
@@ -359,6 +359,11 @@ func TestInvoke_OpenAICachedSubsetDiscount(t *testing.T) {
 	// 250 non-cached at 0.0025/1k + 750 cached at 0.00125/1k + 500 output at 0.01/1k.
 	assert.Equal(t, "0.006563", value,
 		"cached subset must be billed at the discount rate, non-cached at the full rate; never double-billed")
+
+	cache, ok := metaValue(t, out.Metadata, middleware.KeyCostUSDCache)
+	require.True(t, ok, "cost.usd_cache must be emitted alongside cost.usd_total")
+	// 750 cached at 0.00125/1k = 0.0009375, rendered 0.000937 by %.6f on the binary float.
+	assert.Equal(t, "0.000937", cache, "cache cost is the discounted cost of the cached subset")
 }
 
 // TestInvoke_AnthropicCacheBucketsAdditive proves the Anthropic
@@ -387,6 +392,11 @@ func TestInvoke_AnthropicCacheBucketsAdditive(t *testing.T) {
 	// = 0.000768 + 0.0002304 + 0.00192 + 0.003 = 0.0059184 → "0.005918" with 6-decimal format.
 	assert.Equal(t, "0.005918", value,
 		"each Anthropic input bucket must bill at its own rate — cache_read cheap, cache_creation expensive, regular input mid")
+
+	cache, ok := metaValue(t, out.Metadata, middleware.KeyCostUSDCache)
+	require.True(t, ok, "cost.usd_cache must be emitted alongside cost.usd_total")
+	// 768 cache_read * 0.0003 + 512 cache_creation * 0.00375 = 0.0021504 → "0.002150".
+	assert.Equal(t, "0.002150", cache, "cache cost sums the read and creation buckets")
 }
 
 // TestInvoke_CachedTokensAbsentFallsBackToBaseFormula covers the

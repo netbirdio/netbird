@@ -33,6 +33,7 @@ const (
 
 var metadataKeys = []string{
 	middleware.KeyCostUSDTotal,
+	middleware.KeyCostUSDCache,
 	middleware.KeyCostSkipped,
 }
 
@@ -140,14 +141,15 @@ func (m *Middleware) Invoke(_ context.Context, in *middleware.Input) (*middlewar
 	}
 
 	table := m.loader.Get()
-	cost, ok := table.Cost(provider, model, inTokens, outTokens, cachedTokens, cacheCreationTokens)
+	costs, ok := table.Costs(provider, model, inTokens, outTokens, cachedTokens, cacheCreationTokens)
 	if !ok {
 		out.Metadata = skip(skipUnknownModel)
 		return out, nil
 	}
 
 	out.Metadata = []middleware.KV{
-		{Key: middleware.KeyCostUSDTotal, Value: fmt.Sprintf("%.6f", cost)},
+		{Key: middleware.KeyCostUSDTotal, Value: fmt.Sprintf("%.6f", costs.TotalUSD)},
+		{Key: middleware.KeyCostUSDCache, Value: fmt.Sprintf("%.6f", costs.CacheUSD)},
 	}
 	return out, nil
 }
