@@ -4,9 +4,9 @@ import "sync"
 
 const servicePath = "/daemon.DaemonService/"
 
-// ProfilePolicy exposes the active profile's ownership to the interceptor. The
-// daemon server implements it. ConfigAdapter bridges the gap because the gRPC
-// server (and its interceptor) is constructed before the server instance exists.
+// ProfilePolicy exposes ownership to the interceptor. The daemon server
+// implements it. ConfigAdapter bridges the gap because the gRPC server (and its
+// interceptor) is constructed before the server instance exists.
 type ProfilePolicy interface {
 	// ActiveProfileOwnership returns the active profile's ownership policy.
 	ActiveProfileOwnership() Ownership
@@ -14,31 +14,40 @@ type ProfilePolicy interface {
 	// ClaimActiveProfileOwnerIfUnowned atomically claims the active profile for
 	// id when it has no owners and is not shared (trust-on-first-use), and
 	// reports whether id is now an owner. A false return means the profile was
-	// already owned/shared or another caller won the claim.
+	// already owned or shared or another caller won the claim.
 	ClaimActiveProfileOwnerIfUnowned(id Identity) (bool, error)
+
+	// DaemonOwnership returns the daemon-wide ownership policy that governs the
+	// owner-tier RPCs and the default profile.
+	DaemonOwnership() Ownership
+
+	// ClaimDaemonOwnerIfUnowned atomically claims daemon-wide ownership for id
+	// when the daemon is unowned and not shared (trust-on-first-use).
+	ClaimDaemonOwnerIfUnowned(id Identity) (bool, error)
 }
 
-// handlerAuthorizedMethods bypass the active-profile gate. Peer identity is
-// still required to reach them. Two groups:
-//
-//   - Per-user or per-target-profile ops that self-authorize in the handler,
-//     bound to the caller identity: AddProfile, ListProfiles, GetActiveProfile,
-//     RemoveProfile, RenameProfile, and SwitchProfile (target ownership checked
-//     via authorizeTargetProfile).
-//   - Connection-lifecycle ops any authenticated local user may run on the shared
-//     daemon connection: Down and Status. Gating these on the active profile's
-//     owner would trap a user behind another user's profile, unable to disconnect
-//     or switch to their own. SwitchProfile is bounded by its target check, Down
-//     and Status only read or tear down the connection.
+// ownersAuthorizedMethods require a daemon-wide owner (or root). They are
+// daemon-level operations independent of any single profile: creating profiles,
+// tearing down the connection, and reading daemon status.
+var ownersAuthorizedMethods = map[string]bool{
+	servicePath + "AddProfile": true,
+	servicePath + "Down":       true,
+	servicePath + "Status":     true,
+}
+
+// handlerAuthorizedMethods bypass the active-profile gate. Peer identity is still
+// required to reach them. They either self-authorize in the handler against the
+// profile they target (SwitchProfile, RemoveProfile, RenameProfile via
+// authorizeTargetProfile) or against the caller's own profiles (ListProfiles via
+// bindCallerUsername), or return only non-sensitive metadata that any local user
+// may read (GetActiveProfile: the active profile's id, name, and owning username,
+// so the CLI can show which profile, and whose, holds the daemon).
 var handlerAuthorizedMethods = map[string]bool{
-	servicePath + "AddProfile":       true,
 	servicePath + "ListProfiles":     true,
-	servicePath + "GetActiveProfile": true,
 	servicePath + "RemoveProfile":    true,
 	servicePath + "RenameProfile":    true,
 	servicePath + "SwitchProfile":    true,
-	servicePath + "Down":             true,
-	servicePath + "Status":           true,
+	servicePath + "GetActiveProfile": true,
 }
 
 // auditMethods are worth an audit log line. Denials are always logged.
@@ -99,4 +108,25 @@ func (a *ConfigAdapter) ClaimActiveProfileOwnerIfUnowned(id Identity) (bool, err
 		return false, nil
 	}
 	return a.backend.ClaimActiveProfileOwnerIfUnowned(id)
+}
+
+// DaemonOwnership delegates to the backend, reporting unowned when none is set.
+func (a *ConfigAdapter) DaemonOwnership() Ownership {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	if a.backend == nil {
+		return Ownership{}
+	}
+	return a.backend.DaemonOwnership()
+}
+
+// ClaimDaemonOwnerIfUnowned delegates to the backend. Before the backend is set
+// it cannot claim, so it reports not-owned (fail closed).
+func (a *ConfigAdapter) ClaimDaemonOwnerIfUnowned(id Identity) (bool, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	if a.backend == nil {
+		return false, nil
+	}
+	return a.backend.ClaimDaemonOwnerIfUnowned(id)
 }

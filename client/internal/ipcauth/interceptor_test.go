@@ -13,8 +13,10 @@ import (
 )
 
 type mockPolicy struct {
-	o       Ownership
-	claimed bool
+	o             Ownership // active profile ownership
+	daemon        Ownership // daemon-wide ownership
+	claimed       bool
+	daemonClaimed bool
 }
 
 func (m *mockPolicy) ActiveProfileOwnership() Ownership { return m.o }
@@ -24,6 +26,18 @@ func (m *mockPolicy) ClaimActiveProfileOwnerIfUnowned(id Identity) (bool, error)
 	if len(m.o.Owners) == 0 && !m.o.Shared {
 		m.o.Owners = []string{OwnerPrincipalForIdentity(id)}
 		m.claimed = true
+		return true, nil
+	}
+	return false, nil
+}
+
+func (m *mockPolicy) DaemonOwnership() Ownership { return m.daemon }
+
+// ClaimDaemonOwnerIfUnowned records a daemon claim and marks the daemon owned.
+func (m *mockPolicy) ClaimDaemonOwnerIfUnowned(id Identity) (bool, error) {
+	if len(m.daemon.Owners) == 0 && !m.daemon.Shared {
+		m.daemon.Owners = []string{OwnerPrincipalForIdentity(id)}
+		m.daemonClaimed = true
 		return true, nil
 	}
 	return false, nil
@@ -46,6 +60,8 @@ const (
 	list    = servicePath + "ListProfiles"
 	unkwn   = servicePath + "SomeFutureMethod"
 	down    = servicePath + "Down"
+	statusm = servicePath + "Status"
+	addp    = servicePath + "AddProfile"
 	switchp = servicePath + "SwitchProfile"
 )
 
@@ -54,37 +70,48 @@ func TestInterceptorAuthorize(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		own      Ownership
+		own      Ownership // active profile ownership
+		daemon   Ownership // daemon-wide ownership
 		resolver GroupResolver
 		ctx      context.Context
 		method   string
 		wantErr  bool
 	}{
-		{"no identity denies", Ownership{}, nil, context.Background(), up, true},
-		{"root allowed", Ownership{}, nil, ctxWith(Identity{UID: 0}), up, false},
-		{"daemon-self allowed", Ownership{}, nil, ctxWith(Identity{UID: selfUID}), up, false},
-		{"shared allows any", Ownership{Shared: true}, nil, ctxWith(Identity{UID: 1234}), up, false},
-		{"uid owner allowed", Ownership{Owners: []string{"uid:1000"}}, nil, ctxWith(Identity{UID: 1000}), up, false},
-		{"non-owner denied", Ownership{Owners: []string{"uid:1000"}}, nil, ctxWith(Identity{UID: 2000}), up, true},
-		{"handler-authorized bypass", Ownership{Owners: []string{"uid:1000"}}, nil, ctxWith(Identity{UID: 2000}), list, false},
-		{"down allowed while another user's profile active", Ownership{Owners: []string{"uid:1000"}}, nil, ctxWith(Identity{UID: 2000}), down, false},
-		{"switch-profile bypasses active-profile gate", Ownership{Owners: []string{"uid:1000"}}, nil, ctxWith(Identity{UID: 2000}), switchp, false},
-		{"unknown method gated", Ownership{Owners: []string{"uid:1000"}}, nil, ctxWith(Identity{UID: 2000}), unkwn, true},
-		{"primary gid owner", Ownership{Owners: []string{"gid:5000"}}, nil, ctxWith(Identity{UID: 2000, GID: 5000}), up, false},
-		{"group-name owner via resolver", Ownership{Owners: []string{"group:admins"}},
+		// Default gate (active profile ownership).
+		{"no identity denies", Ownership{}, Ownership{}, nil, context.Background(), up, true},
+		{"root allowed", Ownership{}, Ownership{}, nil, ctxWith(Identity{UID: 0}), up, false},
+		{"daemon-self allowed", Ownership{}, Ownership{}, nil, ctxWith(Identity{UID: selfUID}), up, false},
+		{"shared allows any", Ownership{Shared: true}, Ownership{}, nil, ctxWith(Identity{UID: 1234}), up, false},
+		{"uid owner allowed", Ownership{Owners: []string{"uid:1000"}}, Ownership{}, nil, ctxWith(Identity{UID: 1000}), up, false},
+		{"non-owner denied", Ownership{Owners: []string{"uid:1000"}}, Ownership{Owners: []string{"uid:1000"}}, nil, ctxWith(Identity{UID: 2000}), up, true},
+		{"unknown method gated", Ownership{Owners: []string{"uid:1000"}}, Ownership{}, nil, ctxWith(Identity{UID: 2000}), unkwn, true},
+		{"primary gid owner", Ownership{Owners: []string{"gid:5000"}}, Ownership{}, nil, ctxWith(Identity{UID: 2000, GID: 5000}), up, false},
+		{"group-name owner via resolver", Ownership{Owners: []string{"group:admins"}}, Ownership{},
 			mockResolver{names: map[string]uint32{"admins": 5000}, gids: map[uint32]struct{}{5000: {}}},
 			ctxWith(Identity{UID: 2000, GID: 42}), up, false},
-		{"windows sid owner", Ownership{Owners: []string{"sid:S-1-5-21-9"}}, nil,
+		{"windows sid owner", Ownership{Owners: []string{"sid:S-1-5-21-9"}}, Ownership{}, nil,
 			ctxWith(Identity{SID: "S-1-5-21-9"}), up, false},
-		{"windows group-sid owner", Ownership{Owners: []string{"sid:S-1-5-32-544"}}, nil,
+		{"windows group-sid owner", Ownership{Owners: []string{"sid:S-1-5-32-544"}}, Ownership{}, nil,
 			ctxWith(Identity{SID: "S-1-5-21-1", Groups: []string{"S-1-5-32-544"}}), up, false},
-		{"windows elevated privileged", Ownership{}, nil,
+		{"windows elevated privileged", Ownership{}, Ownership{}, nil,
 			ctxWith(Identity{SID: "S-1-5-21-1", Elevated: true}), up, false},
+
+		// Profile tier (handler self-authorizes, bypass).
+		{"list bypasses gate", Ownership{Owners: []string{"uid:1000"}}, Ownership{}, nil, ctxWith(Identity{UID: 2000}), list, false},
+		{"switch-profile bypasses gate", Ownership{Owners: []string{"uid:1000"}}, Ownership{}, nil, ctxWith(Identity{UID: 2000}), switchp, false},
+
+		// Owner tier (daemon-wide ownership), independent of the active profile.
+		{"down by daemon owner allowed", Ownership{Owners: []string{"uid:9"}}, Ownership{Owners: []string{"uid:1000"}}, nil, ctxWith(Identity{UID: 1000}), down, false},
+		{"down by non-owner denied", Ownership{}, Ownership{Owners: []string{"uid:1000"}}, nil, ctxWith(Identity{UID: 2000}), down, true},
+		{"status by non-owner denied", Ownership{}, Ownership{Owners: []string{"uid:1000"}}, nil, ctxWith(Identity{UID: 2000}), statusm, true},
+		{"add by daemon owner allowed", Ownership{}, Ownership{Owners: []string{"uid:1000"}}, nil, ctxWith(Identity{UID: 1000}), addp, false},
+		{"add by non-owner denied", Ownership{}, Ownership{Owners: []string{"uid:1000"}}, nil, ctxWith(Identity{UID: 2000}), addp, true},
+		{"owner-tier TOFU claims unowned daemon", Ownership{}, Ownership{}, nil, ctxWith(Identity{UID: 2000}), down, false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			i := &Interceptor{policy: &mockPolicy{o: tt.own}, resolver: tt.resolver, selfUID: selfUID}
+			i := &Interceptor{policy: &mockPolicy{o: tt.own, daemon: tt.daemon}, resolver: tt.resolver, selfUID: selfUID}
 			err := i.authorize(tt.ctx, tt.method)
 			if tt.wantErr {
 				assert.Error(t, err)

@@ -72,33 +72,35 @@ func (i *Interceptor) authorize(ctx context.Context, fullMethod string) error {
 		}
 	}
 
-	// These RPCs authorize themselves in the handler (target-profile check) or are
-	// connection-lifecycle actions any authenticated local user may perform. They
-	// bypass the active-profile gate. Still audit the C/H ones on allow.
+	// Owner tier: daemon-level RPCs (Add, Down, Status) require a daemon-wide owner.
+	if ownersAuthorizedMethods[fullMethod] {
+		allowed, err := i.authorizeOwnership(id, i.policy.DaemonOwnership, i.policy.ClaimDaemonOwnerIfUnowned)
+		if err != nil {
+			log.Errorf("ipc authz: claim daemon owner for %s: %v", id, err)
+			return status.Error(codes.Internal, "failed to claim daemon ownership")
+		}
+		if allowed {
+			i.auditAllow(id, fullMethod)
+			return nil
+		}
+		log.Warnf("ipc authz: DENY %s for %s. not a daemon owner", fullMethod, id)
+		return status.Errorf(codes.PermissionDenied,
+			"not authorized (caller %s is not a daemon owner). ask an owner or run as root/administrator", id)
+	}
+
+	// Profile tier: the handler self-authorizes against the target profile.
 	if handlerAuthorizedMethods[fullMethod] {
 		i.auditAllow(id, fullMethod)
 		return nil
 	}
 
-	o := i.policy.ActiveProfileOwnership()
-
-	// Trust-on-first-use: an unowned, non-shared profile is claimed by the first
-	// caller. The claim is atomic, if we lose the race we re-read and authorize.
-	if len(o.Owners) == 0 && !o.Shared {
-		claimed, err := i.policy.ClaimActiveProfileOwnerIfUnowned(id)
-		if err != nil {
-			log.Errorf("ipc authz: claim active profile for %s: %v", id, err)
-			return status.Error(codes.Internal, "failed to claim profile ownership")
-		}
-		if claimed {
-			log.Infof("ipc authz: %s claimed ownership of the active profile (trust-on-first-use)", id)
-			i.auditAllow(id, fullMethod)
-			return nil
-		}
-		o = i.policy.ActiveProfileOwnership()
+	// Default: gated on the active profile's ownership.
+	allowed, err := i.authorizeOwnership(id, i.policy.ActiveProfileOwnership, i.policy.ClaimActiveProfileOwnerIfUnowned)
+	if err != nil {
+		log.Errorf("ipc authz: claim active profile for %s: %v", id, err)
+		return status.Error(codes.Internal, "failed to claim profile ownership")
 	}
-
-	if Authorize(o, id, i.resolver) {
+	if allowed {
 		i.auditAllow(id, fullMethod)
 		return nil
 	}
@@ -106,6 +108,24 @@ func (i *Interceptor) authorize(ctx context.Context, fullMethod string) error {
 	log.Warnf("ipc authz: DENY %s for %s. active profile owned by another principal", fullMethod, id)
 	return status.Errorf(codes.PermissionDenied,
 		"not authorized to control the active profile (caller %s). ask an owner or run as root/administrator", id)
+}
+
+// authorizeOwnership authorizes id against an ownership set, claiming it via
+// trust-on-first-use when it is unowned and unshared. The claim is atomic, so on
+// a lost race it re-reads and authorizes normally.
+func (i *Interceptor) authorizeOwnership(id Identity, get func() Ownership, claim func(Identity) (bool, error)) (bool, error) {
+	o := get()
+	if len(o.Owners) == 0 && !o.Shared {
+		claimed, err := claim(id)
+		if err != nil {
+			return false, err
+		}
+		if claimed {
+			return true, nil
+		}
+		o = get()
+	}
+	return Authorize(o, id, i.resolver), nil
 }
 
 // isSelfOrPrivileged reports whether the caller is the platform administrator

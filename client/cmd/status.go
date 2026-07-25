@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"os/user"
+	"runtime"
 	"strings"
 	"time"
 
@@ -172,10 +174,12 @@ func getStatus(ctx context.Context, fullPeerStatus bool, shouldRunProbes bool) (
 	return resp, nil
 }
 
-// getActiveProfileName asks the daemon for the active profile's display
-// name. The daemon runs as root and can read the per-user profile files to
-// resolve the ID to its human-readable name. Returns an empty string on any
-// error so status output degrades gracefully.
+// getActiveProfileName asks the daemon for the active profile's display name.
+// The daemon runs as root and can read the per-user profile files to resolve the
+// ID to its human-readable name. When the active profile belongs to another local
+// user, the name is annotated with that owner so the caller understands why the
+// daemon is not under their control. Returns an empty string on any error so
+// status output degrades gracefully.
 func getActiveProfileName(ctx context.Context) string {
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
@@ -188,7 +192,22 @@ func getActiveProfileName(ctx context.Context) string {
 		return ""
 	}
 
-	return resp.GetProfileName()
+	name := resp.GetProfileName()
+	if owner := resp.GetUsername(); owner != "" {
+		if curr, uerr := user.Current(); uerr != nil || !usernamesMatch(owner, curr.Username) {
+			name = fmt.Sprintf("%s (user %s)", name, owner)
+		}
+	}
+	return name
+}
+
+// usernamesMatch compares usernames case-insensitively on Windows (domain
+// accounts) and exactly elsewhere.
+func usernamesMatch(a, b string) bool {
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
 }
 
 func parseFilters() error {

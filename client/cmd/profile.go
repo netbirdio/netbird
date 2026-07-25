@@ -117,10 +117,12 @@ func listProfilesFunc(cmd *cobra.Command, _ []string) error {
 	} else {
 		fmt.Fprintln(tw, "NAME\tACTIVE")
 	}
+	anyActive := false
 	for _, profile := range resp.Profiles {
 		marker := ""
 		if profile.IsActive {
 			marker = "✓"
+			anyActive = true
 		}
 		name := profilemanager.StripCtrlChars(profile.Name)
 		id := profilemanager.ID(profile.Id)
@@ -130,7 +132,19 @@ func listProfilesFunc(cmd *cobra.Command, _ []string) error {
 			fmt.Fprintf(tw, "%s\t%s\n", name, marker)
 		}
 	}
-	return tw.Flush()
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+
+	// None of the caller's profiles is active: another user may hold the daemon.
+	// Surface it so the empty ACTIVE column is not mistaken for "nothing active".
+	if !anyActive {
+		if active, aerr := daemonClient.GetActiveProfile(cmd.Context(), &proto.GetActiveProfileRequest{}); aerr == nil && active.GetUsername() != "" && !usernamesMatch(active.GetUsername(), currUser.Username) {
+			cmd.Printf("\nActive profile belongs to another user: %s (user %s)\n",
+				profilemanager.StripCtrlChars(active.GetProfileName()), active.GetUsername())
+		}
+	}
+	return nil
 }
 
 func addProfileFunc(cmd *cobra.Command, args []string) error {

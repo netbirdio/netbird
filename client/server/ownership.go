@@ -127,6 +127,22 @@ func (s *Server) ClaimActiveProfileOwnerIfUnowned(id ipcauth.Identity) (bool, er
 	return true, nil
 }
 
+// DaemonOwnership returns the daemon-wide owner set. It governs the owner-tier
+// RPCs (Add, Down, Status) and the default profile.
+func (s *Server) DaemonOwnership() ipcauth.Ownership {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	return s.owners
+}
+
+// ClaimDaemonOwnerIfUnowned claims daemon-wide ownership for id when the daemon
+// is unowned and unshared (trust-on-first-use).
+func (s *Server) ClaimDaemonOwnerIfUnowned(id ipcauth.Identity) (bool, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	return s.claimDaemonOwnerLocked(id)
+}
+
 // claimDaemonOwnerLocked claims daemon-wide ownership for id when the daemon is
 // unowned and unshared, persisting via the owner store. Caller must hold s.mutex.
 func (s *Server) claimDaemonOwnerLocked(id ipcauth.Identity) (bool, error) {
