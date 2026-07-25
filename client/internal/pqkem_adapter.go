@@ -31,11 +31,3 @@ func (h pqCallbackHandler) OnRekeyFailed(remoteID string) error {
 	log.Warnf("pqkem: post-quantum rekey failed for peer %s", remoteID)
 	return nil
 }
-
-// noopPQTransport is a placeholder data-path transport for the ML-KEM manager.
-// TODO(NET-1406): replace with the real dedicated UDP transport bound on the WG
-// overlay IPv4 (send over the data path, feed inbound to Manager.OnDataPathMessage),
-// analogue of go-rosenpass's Conn.
-type noopPQTransport struct{}
-
-func (noopPQTransport) SendDataPath(remoteID string, msg []byte) error { return nil }
