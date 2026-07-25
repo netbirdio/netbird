@@ -9,10 +9,10 @@ type CallbackHandler interface {
 	// and must be programmed into the consumer's secure channel. It is invoked at
 	// the commit point of each side: the initiator on receiving the answer, the
 	// responder on receiving the confirm.
-	OnNewPSKReady(remoteID string, psk PSK) error
+	OnNewPSKReady(remoteID RemoteID, psk PSK) error
 
 	// OnRekeyFailed fires when an exchange fails to converge within the allotted
 	// time. The host should tear the peer connection down so it re-establishes, and
 	// log a WARN. The library reports the event; it does not dictate the reaction.
-	OnRekeyFailed(remoteID string) error
+	OnRekeyFailed(remoteID RemoteID) error
 }

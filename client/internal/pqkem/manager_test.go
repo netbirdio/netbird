@@ -59,27 +59,27 @@ func (l *loopback) Close() error                               { return nil }
 
 type fakeWG struct {
 	mu     sync.Mutex
-	psks   map[string]PSK
-	failed []string
+	psks   map[RemoteID]PSK
+	failed []RemoteID
 }
 
-func newFakeWG() *fakeWG { return &fakeWG{psks: map[string]PSK{}} }
+func newFakeWG() *fakeWG { return &fakeWG{psks: map[RemoteID]PSK{}} }
 
-func (f *fakeWG) OnNewPSKReady(remoteID string, psk PSK) error {
+func (f *fakeWG) OnNewPSKReady(remoteID RemoteID, psk PSK) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.psks[remoteID] = psk
 	return nil
 }
 
-func (f *fakeWG) OnRekeyFailed(remoteID string) error {
+func (f *fakeWG) OnRekeyFailed(remoteID RemoteID) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.failed = append(f.failed, remoteID)
 	return nil
 }
 
-func (f *fakeWG) psk(peer string) PSK {
+func (f *fakeWG) psk(peer RemoteID) PSK {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.psks[peer]
@@ -100,9 +100,9 @@ func pair(t *testing.T) (dA, dB *Manager, wgA, wgB *fakeWG, lbB *loopback) {
 	wgB = newFakeWG()
 	dA = NewManager("aaaa", wgA, nil)
 	dB = NewManager("bbbb", wgB, nil)
-	dA.SetTransport(&loopback{ep: epA, sw: sw})
+	dA.Start(&loopback{ep: epA, sw: sw})
 	lbB = &loopback{ep: epB, sw: sw}
-	dB.SetTransport(lbB)
+	dB.Start(lbB)
 	dA.AddPeer("bbbb", epB)
 	dB.AddPeer("aaaa", epA)
 	return dA, dB, wgA, wgB, lbB
@@ -163,7 +163,7 @@ func TestManager_NonInitiatorReturnsNoOffer(t *testing.T) {
 
 func TestManager_StopIsIdempotent(t *testing.T) {
 	dA := NewManager("aaaa", newFakeWG(), nil)
-	dA.SetTransport(&loopback{ep: epA, sw: newSwitch()})
+	dA.Start(&loopback{ep: epA, sw: newSwitch()})
 	dA.Stop()
 	dA.Stop() // must not panic or hang
 }

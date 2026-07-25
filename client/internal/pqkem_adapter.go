@@ -21,13 +21,13 @@ type pqCallbackHandler struct {
 
 // OnNewPSKReady programs the freshly derived PSK for the peer (updateOnly: a no-op
 // if the peer is not present, mirroring Rosenpass). remoteID is the peer's WG pubkey.
-func (h pqCallbackHandler) OnNewPSKReady(remoteID string, psk pqkem.PSK) error {
-	return h.wg.SetPresharedKey(remoteID, wgtypes.Key(psk), true)
+func (h pqCallbackHandler) OnNewPSKReady(remoteID pqkem.RemoteID, psk pqkem.PSK) error {
+	return h.wg.SetPresharedKey(string(remoteID), wgtypes.Key(psk), true)
 }
 
 // OnRekeyFailed reports a failed PQ (re)key convergence.
 // TODO(NET-1406): tear the peer connection down / trigger ICE reconnect.
-func (h pqCallbackHandler) OnRekeyFailed(remoteID string) error {
+func (h pqCallbackHandler) OnRekeyFailed(remoteID pqkem.RemoteID) error {
 	log.Warnf("pqkem: post-quantum rekey failed for peer %s", remoteID)
 	return nil
 }
