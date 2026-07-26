@@ -33,27 +33,45 @@ func ParseUsageGranularity(s string) UsageGranularity {
 // AgentNetworkUsageBucket is one aggregated usage time bucket. PeriodStart is
 // the UTC start of the bucket as YYYY-MM-DD.
 type AgentNetworkUsageBucket struct {
-	PeriodStart         string
-	InputTokens         int64
-	OutputTokens        int64
-	TotalTokens         int64
-	CachedInputTokens   int64
-	CacheCreationTokens int64
-	CostUSD             float64
-	CacheCostUSD        float64
+	PeriodStart          string
+	InputTokens          int64
+	OutputTokens         int64
+	TotalTokens          int64
+	CachedInputTokens    int64
+	CacheCreationTokens  int64
+	InputCostUSD         float64
+	CachedInputCostUSD   float64
+	CacheCreationCostUSD float64
+	OutputCostUSD        float64
+}
+
+// TotalCostUSD is the bucket's total spend: the sum of the four per-bucket
+// costs. Derived rather than accumulated separately so it cannot disagree with
+// the components.
+func (b *AgentNetworkUsageBucket) TotalCostUSD() float64 {
+	return b.InputCostUSD + b.CachedInputCostUSD + b.CacheCreationCostUSD + b.OutputCostUSD
+}
+
+// CacheCostUSD is the bucket's prompt-cache spend: cache reads plus writes.
+func (b *AgentNetworkUsageBucket) CacheCostUSD() float64 {
+	return b.CachedInputCostUSD + b.CacheCreationCostUSD
 }
 
 // ToAPIResponse renders the bucket as the API representation.
 func (b *AgentNetworkUsageBucket) ToAPIResponse() api.AgentNetworkUsageBucket {
 	return api.AgentNetworkUsageBucket{
-		PeriodStart:         b.PeriodStart,
-		InputTokens:         b.InputTokens,
-		OutputTokens:        b.OutputTokens,
-		TotalTokens:         b.TotalTokens,
-		CachedInputTokens:   b.CachedInputTokens,
-		CacheCreationTokens: b.CacheCreationTokens,
-		CostUsd:             b.CostUSD,
-		CacheCostUsd:        b.CacheCostUSD,
+		PeriodStart:          b.PeriodStart,
+		InputTokens:          b.InputTokens,
+		OutputTokens:         b.OutputTokens,
+		TotalTokens:          b.TotalTokens,
+		CachedInputTokens:    b.CachedInputTokens,
+		CacheCreationTokens:  b.CacheCreationTokens,
+		InputCostUsd:         b.InputCostUSD,
+		CachedInputCostUsd:   b.CachedInputCostUSD,
+		CacheCreationCostUsd: b.CacheCreationCostUSD,
+		OutputCostUsd:        b.OutputCostUSD,
+		CostUsd:              b.TotalCostUSD(),
+		CacheCostUsd:         b.CacheCostUSD(),
 	}
 }
 
@@ -92,8 +110,10 @@ func AggregateUsageByGranularity(rows []*AgentNetworkUsage, g UsageGranularity) 
 		b.TotalTokens += r.TotalTokens
 		b.CachedInputTokens += r.CachedInputTokens
 		b.CacheCreationTokens += r.CacheCreationTokens
-		b.CostUSD += r.CostUSD
-		b.CacheCostUSD += r.CacheCostUSD
+		b.InputCostUSD += r.InputCostUSD
+		b.CachedInputCostUSD += r.CachedInputCostUSD
+		b.CacheCreationCostUSD += r.CacheCreationCostUSD
+		b.OutputCostUSD += r.OutputCostUSD
 	}
 
 	out := make([]*AgentNetworkUsageBucket, 0, len(byPeriod))

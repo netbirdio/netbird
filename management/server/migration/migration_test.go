@@ -16,6 +16,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
+	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	"github.com/netbirdio/netbird/management/server/migration"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/testutil"
@@ -638,4 +639,97 @@ func TestCleanupOrphanedResources_SkipsWhenForeignKeyExists(t *testing.T) {
 	var count int64
 	db.Model(&testChildWithFK{}).Count(&count)
 	assert.Equal(t, int64(2), count, "Both rows should survive — migration must skip when FK constraint exists")
+}
+
+// legacyCostRow is the pre-breakdown shape of the usage table: cost was stored
+// as a total plus a cache portion, with no per-bucket columns. Used to build a
+// realistic pre-upgrade table for the fold migration to run against.
+type legacyCostRow struct {
+	ID           string `gorm:"primaryKey"`
+	AccountID    string
+	Model        string
+	CostUSD      float64
+	CacheCostUSD float64
+}
+
+func (legacyCostRow) TableName() string { return "agent_network_request_usage" }
+
+// TestFoldCostAggregatesIntoBuckets_PreservesHistoricalCost covers the upgrade
+// path: a table written under the old schema must come out with its per-row
+// total and cache cost unchanged, because dropping cost_usd without folding it
+// forward would silently zero every historical row's spend.
+func TestFoldCostAggregatesIntoBuckets_PreservesHistoricalCost(t *testing.T) {
+	ctx := context.Background()
+	db := setupDatabase(t)
+	// setupDatabase hands back a process-shared database, so start from a clean
+	// table rather than inheriting rows from another test.
+	require.NoError(t, db.Migrator().DropTable(&agentNetworkTypes.AgentNetworkUsage{}))
+
+	require.NoError(t, db.AutoMigrate(&legacyCostRow{}), "legacy table must be created")
+	require.NoError(t, db.Create(&legacyCostRow{
+		ID: "u1", AccountID: "acct-1", Model: "claude-sonnet-4-6", CostUSD: 0.0123, CacheCostUSD: 0.0029,
+	}).Error)
+	require.NoError(t, db.Create(&legacyCostRow{
+		ID: "u2", AccountID: "acct-1", Model: "gpt-4o", CostUSD: 0.5, CacheCostUSD: 0,
+	}).Error)
+	// A zero-cost row (denied / unpriced request) must stay zero, not be touched.
+	require.NoError(t, db.Create(&legacyCostRow{ID: "u3", AccountID: "acct-1", Model: "gw/unpriced"}).Error)
+
+	// AutoMigrate adds the per-bucket columns alongside the legacy ones, exactly
+	// as a real upgrade does before the post-auto migrations run.
+	require.NoError(t, db.AutoMigrate(&agentNetworkTypes.AgentNetworkUsage{}), "new columns must be added")
+
+	require.NoError(t, migration.FoldCostAggregatesIntoBuckets[agentNetworkTypes.AgentNetworkUsage](ctx, db))
+
+	assert.False(t, db.Migrator().HasColumn(&agentNetworkTypes.AgentNetworkUsage{}, "cost_usd"),
+		"legacy cost_usd column must be dropped once folded")
+	assert.False(t, db.Migrator().HasColumn(&agentNetworkTypes.AgentNetworkUsage{}, "cache_cost_usd"),
+		"legacy cache_cost_usd column must be dropped once folded")
+
+	var rows []*agentNetworkTypes.AgentNetworkUsage
+	require.NoError(t, db.Order("id").Find(&rows).Error)
+	require.Len(t, rows, 3)
+
+	// u1: total and cache portion both preserved; the read/write and
+	// input/output splits are unknowable for a legacy row, so the cache total
+	// lands on cached_input and the remainder on input.
+	assert.InDelta(t, 0.0123, rows[0].TotalCostUSD(), 1e-9, "historical total must survive the fold")
+	assert.InDelta(t, 0.0029, rows[0].CacheCostUSD(), 1e-9, "historical cache cost must survive the fold")
+	assert.InDelta(t, 0.0094, rows[0].InputCostUSD, 1e-9, "non-cache remainder lands on input")
+	assert.InDelta(t, 0.0029, rows[0].CachedInputCostUSD, 1e-9, "legacy cache total lands on cached input")
+	assert.Zero(t, rows[0].CacheCreationCostUSD, "legacy rows carry no read/write split to recover")
+	assert.Zero(t, rows[0].OutputCostUSD, "legacy rows carry no input/output split to recover")
+
+	// u2: no cache spend — the whole total is the non-cache remainder.
+	assert.InDelta(t, 0.5, rows[1].TotalCostUSD(), 1e-9, "cache-free historical total must survive")
+	assert.Zero(t, rows[1].CacheCostUSD(), "a cache-free row must stay cache-free")
+
+	// u3: zero stays zero rather than being rewritten.
+	assert.Zero(t, rows[2].TotalCostUSD(), "an unpriced row must remain unpriced")
+}
+
+// TestFoldCostAggregatesIntoBuckets_SkipsAlreadyMigrated proves the migration is
+// safe to re-run: with no legacy column present it is a no-op that leaves a
+// true four-way split untouched.
+func TestFoldCostAggregatesIntoBuckets_SkipsAlreadyMigrated(t *testing.T) {
+	ctx := context.Background()
+	db := setupDatabase(t)
+	require.NoError(t, db.Migrator().DropTable(&agentNetworkTypes.AgentNetworkUsage{}))
+
+	require.NoError(t, db.AutoMigrate(&agentNetworkTypes.AgentNetworkUsage{}))
+	require.NoError(t, db.Create(&agentNetworkTypes.AgentNetworkUsage{
+		ID: "u1", AccountID: "acct-1", Model: "claude-sonnet-4-6",
+		InputCostUSD: 0.001, CachedInputCostUSD: 0.002, CacheCreationCostUSD: 0.003, OutputCostUSD: 0.004,
+	}).Error)
+
+	require.NoError(t, migration.FoldCostAggregatesIntoBuckets[agentNetworkTypes.AgentNetworkUsage](ctx, db),
+		"running against an already-migrated table must be a no-op, not an error")
+
+	var row agentNetworkTypes.AgentNetworkUsage
+	require.NoError(t, db.First(&row, "id = ?", "u1").Error)
+	assert.InDelta(t, 0.001, row.InputCostUSD, 1e-9, "a true split must not be rewritten")
+	assert.InDelta(t, 0.002, row.CachedInputCostUSD, 1e-9)
+	assert.InDelta(t, 0.003, row.CacheCreationCostUSD, 1e-9)
+	assert.InDelta(t, 0.004, row.OutputCostUSD, 1e-9)
+	assert.InDelta(t, 0.01, row.TotalCostUSD(), 1e-9, "derived total sums the four buckets")
 }

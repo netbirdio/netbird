@@ -5839,6 +5839,26 @@ components:
           format: double
           description: Estimated USD cost of the request.
           example: 0.0231
+        input_cost_usd:
+          type: number
+          format: double
+          description: Cost of the non-cached input tokens. Base component of cost_usd.
+          example: 0.0048
+        cached_input_cost_usd:
+          type: number
+          format: double
+          description: Cost of the prompt-cache read tokens. Base component of cost_usd, and part of cache_cost_usd.
+          example: 0.0015
+        cache_creation_cost_usd:
+          type: number
+          format: double
+          description: Cost of the prompt-cache write tokens. Base component of cost_usd, and part of cache_cost_usd.
+          example: 0.1130
+        output_cost_usd:
+          type: number
+          format: double
+          description: Cost of the output tokens. Base component of cost_usd.
+          example: 0.0038
         cache_cost_usd:
           type: number
           format: double
@@ -5869,6 +5889,10 @@ components:
         - total_tokens
         - cached_input_tokens
         - cache_creation_tokens
+        - input_cost_usd
+        - cached_input_cost_usd
+        - cache_creation_cost_usd
+        - output_cost_usd
         - cost_usd
         - cache_cost_usd
     AgentNetworkAccessLogsResponse:
@@ -5961,6 +5985,26 @@ components:
           format: double
           description: Total estimated USD cost across the session.
           example: 0.1617
+        input_cost_usd:
+          type: number
+          format: double
+          description: Total cost of non-cached input tokens across the session.
+          example: 0.0210
+        cached_input_cost_usd:
+          type: number
+          format: double
+          description: Total cost of prompt-cache read tokens across the session.
+          example: 0.0015
+        cache_creation_cost_usd:
+          type: number
+          format: double
+          description: Total cost of prompt-cache write tokens across the session.
+          example: 0.1130
+        output_cost_usd:
+          type: number
+          format: double
+          description: Total cost of output tokens across the session.
+          example: 0.0262
         cache_cost_usd:
           type: number
           format: double
@@ -5994,6 +6038,10 @@ components:
         - total_tokens
         - cached_input_tokens
         - cache_creation_tokens
+        - input_cost_usd
+        - cached_input_cost_usd
+        - cache_creation_cost_usd
+        - output_cost_usd
         - cost_usd
         - cache_cost_usd
         - decision
@@ -6061,6 +6109,26 @@ components:
           format: int64
           description: Total prompt-cache write tokens in the bucket.
           example: 45000
+        input_cost_usd:
+          type: number
+          format: double
+          description: Total cost of non-cached input tokens in the bucket.
+          example: 1.12
+        cached_input_cost_usd:
+          type: number
+          format: double
+          description: Total cost of prompt-cache read tokens in the bucket.
+          example: 0.06
+        cache_creation_cost_usd:
+          type: number
+          format: double
+          description: Total cost of prompt-cache write tokens in the bucket.
+          example: 0.36
+        output_cost_usd:
+          type: number
+          format: double
+          description: Total cost of output tokens in the bucket.
+          example: 0.77
         cost_usd:
           type: number
           format: double
@@ -6078,6 +6146,10 @@ components:
         - total_tokens
         - cached_input_tokens
         - cache_creation_tokens
+        - input_cost_usd
+        - cached_input_cost_usd
+        - cache_creation_cost_usd
+        - output_cost_usd
         - cost_usd
         - cache_cost_usd
     AgentNetworkSettings:

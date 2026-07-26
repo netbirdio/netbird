@@ -1735,8 +1735,14 @@ type AgentNetworkAccessLog struct {
 	// CacheCostUsd Portion of cost_usd billed for prompt-cache usage.
 	CacheCostUsd float64 `json:"cache_cost_usd"`
 
+	// CacheCreationCostUsd Cost of the prompt-cache write tokens. Base component of cost_usd, and part of cache_cost_usd.
+	CacheCreationCostUsd float64 `json:"cache_creation_cost_usd"`
+
 	// CacheCreationTokens Input tokens written to the provider's prompt cache. Zero for providers without a cache-write bucket.
 	CacheCreationTokens int64 `json:"cache_creation_tokens"`
+
+	// CachedInputCostUsd Cost of the prompt-cache read tokens. Base component of cost_usd, and part of cache_cost_usd.
+	CachedInputCostUsd float64 `json:"cached_input_cost_usd"`
 
 	// CachedInputTokens Input tokens read from the provider's prompt cache. Additive to input_tokens for Anthropic-shape providers; a subset of input_tokens for OpenAI.
 	CachedInputTokens int64 `json:"cached_input_tokens"`
@@ -1762,6 +1768,9 @@ type AgentNetworkAccessLog struct {
 	// Id Unique identifier for the access log entry.
 	Id string `json:"id"`
 
+	// InputCostUsd Cost of the non-cached input tokens. Base component of cost_usd.
+	InputCostUsd float64 `json:"input_cost_usd"`
+
 	// InputTokens Input (prompt) tokens consumed.
 	InputTokens int64 `json:"input_tokens"`
 
@@ -1770,6 +1779,9 @@ type AgentNetworkAccessLog struct {
 
 	// Model Requested LLM model.
 	Model *string `json:"model,omitempty"`
+
+	// OutputCostUsd Cost of the output tokens. Base component of cost_usd.
+	OutputCostUsd float64 `json:"output_cost_usd"`
 
 	// OutputTokens Output (completion) tokens produced.
 	OutputTokens int64 `json:"output_tokens"`
@@ -1822,8 +1834,14 @@ type AgentNetworkAccessLogSession struct {
 	// CacheCostUsd Portion of cost_usd billed for prompt-cache usage across the session.
 	CacheCostUsd float64 `json:"cache_cost_usd"`
 
+	// CacheCreationCostUsd Total cost of prompt-cache write tokens across the session.
+	CacheCreationCostUsd float64 `json:"cache_creation_cost_usd"`
+
 	// CacheCreationTokens Total prompt-cache write tokens across the session.
 	CacheCreationTokens int64 `json:"cache_creation_tokens"`
+
+	// CachedInputCostUsd Total cost of prompt-cache read tokens across the session.
+	CachedInputCostUsd float64 `json:"cached_input_cost_usd"`
 
 	// CachedInputTokens Total prompt-cache read tokens across the session.
 	CachedInputTokens int64 `json:"cached_input_tokens"`
@@ -1843,11 +1861,17 @@ type AgentNetworkAccessLogSession struct {
 	// GroupIds Union of the authorising group ids across the session's entries.
 	GroupIds *[]string `json:"group_ids,omitempty"`
 
+	// InputCostUsd Total cost of non-cached input tokens across the session.
+	InputCostUsd float64 `json:"input_cost_usd"`
+
 	// InputTokens Total input (prompt) tokens across the session.
 	InputTokens int64 `json:"input_tokens"`
 
 	// Models Distinct models seen in the session.
 	Models *[]string `json:"models,omitempty"`
+
+	// OutputCostUsd Total cost of output tokens across the session.
+	OutputCostUsd float64 `json:"output_cost_usd"`
 
 	// OutputTokens Total output (completion) tokens across the session.
 	OutputTokens int64 `json:"output_tokens"`
@@ -2368,8 +2392,14 @@ type AgentNetworkUsageBucket struct {
 	// CacheCostUsd Portion of cost_usd billed for prompt-cache usage in the bucket.
 	CacheCostUsd float64 `json:"cache_cost_usd"`
 
+	// CacheCreationCostUsd Total cost of prompt-cache write tokens in the bucket.
+	CacheCreationCostUsd float64 `json:"cache_creation_cost_usd"`
+
 	// CacheCreationTokens Total prompt-cache write tokens in the bucket.
 	CacheCreationTokens int64 `json:"cache_creation_tokens"`
+
+	// CachedInputCostUsd Total cost of prompt-cache read tokens in the bucket.
+	CachedInputCostUsd float64 `json:"cached_input_cost_usd"`
 
 	// CachedInputTokens Total prompt-cache read tokens in the bucket.
 	CachedInputTokens int64 `json:"cached_input_tokens"`
@@ -2377,8 +2407,14 @@ type AgentNetworkUsageBucket struct {
 	// CostUsd Total estimated USD spend in the bucket.
 	CostUsd float64 `json:"cost_usd"`
 
+	// InputCostUsd Total cost of non-cached input tokens in the bucket.
+	InputCostUsd float64 `json:"input_cost_usd"`
+
 	// InputTokens Total input (prompt) tokens in the bucket.
 	InputTokens int64 `json:"input_tokens"`
+
+	// OutputCostUsd Total cost of output tokens in the bucket.
+	OutputCostUsd float64 `json:"output_cost_usd"`
 
 	// OutputTokens Total output (completion) tokens in the bucket.
 	OutputTokens int64 `json:"output_tokens"`

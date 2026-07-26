@@ -32,6 +32,10 @@ const (
 )
 
 var metadataKeys = []string{
+	middleware.KeyCostUSDInput,
+	middleware.KeyCostUSDCachedInput,
+	middleware.KeyCostUSDCacheCreation,
+	middleware.KeyCostUSDOutput,
 	middleware.KeyCostUSDTotal,
 	middleware.KeyCostUSDCache,
 	middleware.KeyCostSkipped,
@@ -147,12 +151,31 @@ func (m *Middleware) Invoke(_ context.Context, in *middleware.Input) (*middlewar
 		return out, nil
 	}
 
+	// Per-bucket costs first: they're the base of the breakdown, and the two
+	// aggregates that follow are derived from exactly these four values.
 	out.Metadata = []middleware.KV{
-		{Key: middleware.KeyCostUSDTotal, Value: fmt.Sprintf("%.6f", costs.TotalUSD)},
-		{Key: middleware.KeyCostUSDCache, Value: fmt.Sprintf("%.6f", costs.CacheUSD)},
+		{Key: middleware.KeyCostUSDInput, Value: usd(costs.InputUSD)},
+		{Key: middleware.KeyCostUSDCachedInput, Value: usd(costs.CachedInputUSD)},
+		{Key: middleware.KeyCostUSDCacheCreation, Value: usd(costs.CacheCreationUSD)},
+		{Key: middleware.KeyCostUSDOutput, Value: usd(costs.OutputUSD)},
+		{Key: middleware.KeyCostUSDTotal, Value: usd(costs.TotalUSD)},
+		{Key: middleware.KeyCostUSDCache, Value: usd(costs.CacheUSD)},
 	}
 	return out, nil
 }
+
+// usd renders a cost as the fixed-precision string every cost.usd_* key
+// carries, so the per-bucket values and the aggregates round identically.
+//
+// 9 decimals, not 6: these values are summed downstream — per request, per
+// session, and per usage bucket — so the rounding step is applied once per
+// bucket per row and then accumulated. At 6 decimals a single row loses up to
+// 2e-6 across its four buckets (enough to break a 1e-6 reconciliation against
+// published rates), and a bucket smaller than half a microdollar quantises to
+// zero outright: 16 cache-read tokens on a cheap model is 1.6e-9, so summing
+// 10k such rows reports 0.02 instead of 0.016. Nano-dollar precision keeps the
+// per-row error ~1000x below the smallest realistic bucket.
+func usd(v float64) string { return fmt.Sprintf("%.9f", v) }
 
 // skip returns a single-entry metadata slice carrying the given skip
 // reason under KeyCostSkipped.

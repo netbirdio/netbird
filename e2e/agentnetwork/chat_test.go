@@ -61,8 +61,30 @@ SELECT
   u.output_tokens,
   u.cached_input_tokens,
   u.cache_creation_tokens,
-  u.cost_usd,
-  u.cache_cost_usd,
+  u.input_cost_usd,
+  u.cached_input_cost_usd,
+  u.cache_creation_cost_usd,
+  u.output_cost_usd,
+  -- No cost_usd / cache_cost_usd columns are stored: both are derived from the
+  -- four per-bucket columns above, exactly as the API renders them.
+  (u.input_cost_usd + u.cached_input_cost_usd + u.cache_creation_cost_usd + u.output_cost_usd) AS cost_usd,
+  (u.cached_input_cost_usd + u.cache_creation_cost_usd) AS cache_cost_usd,
+  CASE WHEN u.provider = 'openai' THEN
+    (u.input_tokens - MIN(u.cached_input_tokens, u.input_tokens))*r.in_rate/1000.0
+  ELSE
+    u.input_tokens*r.in_rate/1000.0
+  END AS expected_input,
+  CASE WHEN u.provider = 'openai' THEN
+    MIN(u.cached_input_tokens, u.input_tokens)*r.read_rate/1000.0
+  ELSE
+    u.cached_input_tokens*r.read_rate/1000.0
+  END AS expected_cached_input,
+  CASE WHEN u.provider = 'openai' THEN
+    0.0
+  ELSE
+    u.cache_creation_tokens*r.write_rate/1000.0
+  END AS expected_cache_creation,
+  u.output_tokens*r.out_rate/1000.0 AS expected_output,
   CASE WHEN u.provider = 'openai' THEN
     (u.input_tokens - MIN(u.cached_input_tokens, u.input_tokens))*r.in_rate/1000.0
       + MIN(u.cached_input_tokens, u.input_tokens)*r.read_rate/1000.0
@@ -102,19 +124,31 @@ func verifyUsageRowsSQL(t *testing.T, srv *harness.Combined) {
 	for rows.Next() {
 		var provider, model string
 		var inTok, outTok, readTok, writeTok int64
-		var cost, cacheCost, wantTotal, wantCache float64
-		require.NoError(t, rows.Scan(&provider, &model, &inTok, &outTok, &readTok, &writeTok, &cost, &cacheCost, &wantTotal, &wantCache), "scan usage row")
-		t.Logf("[sql] %s/%s: in=%d out=%d cache_read=%d cache_write=%d stored=$%.6f/$%.6f expected=$%.6f/$%.6f",
-			provider, model, inTok, outTok, readTok, writeTok, cost, cacheCost, wantTotal, wantCache)
-		assert.InDeltaf(t, wantTotal, cost, 1e-6, "stored cost_usd for %s/%s must match the published-rate recompute", provider, model)
-		assert.InDeltaf(t, wantCache, cacheCost, 1e-6, "stored cache_cost_usd for %s/%s must match the published-rate recompute", provider, model)
+		var inCost, cachedInCost, cacheCreateCost, outCost, cost, cacheCost float64
+		var wantIn, wantCachedIn, wantCacheCreate, wantOut, wantTotal, wantCache float64
+		require.NoError(t, rows.Scan(&provider, &model, &inTok, &outTok, &readTok, &writeTok,
+			&inCost, &cachedInCost, &cacheCreateCost, &outCost, &cost, &cacheCost,
+			&wantIn, &wantCachedIn, &wantCacheCreate, &wantOut, &wantTotal, &wantCache), "scan usage row")
+		t.Logf("[sql] %s/%s: in=%d out=%d cache_read=%d cache_write=%d stored in/cached/create/out=$%.6f/$%.6f/$%.6f/$%.6f total=$%.6f cache=$%.6f expected total=$%.6f cache=$%.6f",
+			provider, model, inTok, outTok, readTok, writeTok,
+			inCost, cachedInCost, cacheCreateCost, outCost, cost, cacheCost, wantTotal, wantCache)
+		assert.InDeltaf(t, wantIn, inCost, 1e-6, "stored input_cost_usd for %s/%s must match the published-rate recompute", provider, model)
+		assert.InDeltaf(t, wantCachedIn, cachedInCost, 1e-6, "stored cached_input_cost_usd for %s/%s must match the published-rate recompute", provider, model)
+		assert.InDeltaf(t, wantCacheCreate, cacheCreateCost, 1e-6, "stored cache_creation_cost_usd for %s/%s must match the published-rate recompute", provider, model)
+		assert.InDeltaf(t, wantOut, outCost, 1e-6, "stored output_cost_usd for %s/%s must match the published-rate recompute", provider, model)
+		assert.InDeltaf(t, wantTotal, cost, 1e-6, "derived cost_usd for %s/%s must match the published-rate recompute", provider, model)
+		assert.InDeltaf(t, wantCache, cacheCost, 1e-6, "derived cache_cost_usd for %s/%s must match the published-rate recompute", provider, model)
+		assert.InDeltaf(t, inCost+cachedInCost+cacheCreateCost+outCost, cost, 1e-9,
+			"stored buckets must sum to the derived cost_usd for %s/%s", provider, model)
 		verified++
 	}
 	require.NoError(t, rows.Err(), "iterate usage rows")
 	require.Positive(t, verified, "raw SQL check must cover at least one usage row")
 	t.Logf("[sql] verified %d usage rows in store.db against published rates", verified)
 
-	gwRows, err := db.Raw(`SELECT model, cost_usd FROM agent_network_request_usage WHERE model LIKE '%/%'`).Rows()
+	gwRows, err := db.Raw(`SELECT model,
+	  (input_cost_usd + cached_input_cost_usd + cache_creation_cost_usd + output_cost_usd) AS cost_usd
+	  FROM agent_network_request_usage WHERE model LIKE '%/%'`).Rows()
 	require.NoError(t, err, "query gateway-prefixed usage rows")
 	defer func() { _ = gwRows.Close() }()
 	for gwRows.Next() {
@@ -156,20 +190,37 @@ func validateAccessLogCost(t *testing.T, pc providerCase, row api.AgentNetworkAc
 	require.Positive(t, row.OutputTokens, "priced row must carry output tokens")
 	require.Positive(t, row.TotalTokens, "priced row must carry total tokens")
 
-	var wantTotal, wantCache float64
+	var wantInput, wantCachedInput, wantCacheCreation float64
 	if provider == "openai" {
 		cached := min(row.CachedInputTokens, row.InputTokens) // cached is a subset of input
-		wantCache = float64(cached) / 1000 * rates.read
-		wantTotal = float64(row.InputTokens-cached)/1000*rates.in + wantCache + float64(row.OutputTokens)/1000*rates.out
+		wantInput = float64(row.InputTokens-cached) / 1000 * rates.in
+		wantCachedInput = float64(cached) / 1000 * rates.read
+		// OpenAI has no cache-write bucket; wantCacheCreation stays 0.
 	} else {
 		// Anthropic / Bedrock shape: cache buckets are additive to input_tokens.
-		wantCache = float64(row.CachedInputTokens)/1000*rates.read + float64(row.CacheCreationTokens)/1000*rates.write
-		wantTotal = float64(row.InputTokens)/1000*rates.in + wantCache + float64(row.OutputTokens)/1000*rates.out
+		wantInput = float64(row.InputTokens) / 1000 * rates.in
+		wantCachedInput = float64(row.CachedInputTokens) / 1000 * rates.read
+		wantCacheCreation = float64(row.CacheCreationTokens) / 1000 * rates.write
 	}
+	wantOutput := float64(row.OutputTokens) / 1000 * rates.out
+	wantCache := wantCachedInput + wantCacheCreation
+	wantTotal := wantInput + wantCache + wantOutput
 
-	t.Logf("[cost] %s: expecting total=$%.6f cache=$%.6f from published rates", pc.name, wantTotal, wantCache)
-	assert.InDeltaf(t, wantTotal, row.CostUsd, 1e-6, "stored cost_usd for %s (%s)", pc.name, model)
-	assert.InDeltaf(t, wantCache, row.CacheCostUsd, 1e-6, "stored cache_cost_usd for %s (%s)", pc.name, model)
+	t.Logf("[cost] %s: expecting input=$%.6f cached_input=$%.6f cache_creation=$%.6f output=$%.6f total=$%.6f cache=$%.6f from published rates",
+		pc.name, wantInput, wantCachedInput, wantCacheCreation, wantOutput, wantTotal, wantCache)
+	assert.InDeltaf(t, wantInput, row.InputCostUsd, 1e-6, "stored input_cost_usd for %s (%s)", pc.name, model)
+	assert.InDeltaf(t, wantCachedInput, row.CachedInputCostUsd, 1e-6, "stored cached_input_cost_usd for %s (%s)", pc.name, model)
+	assert.InDeltaf(t, wantCacheCreation, row.CacheCreationCostUsd, 1e-6, "stored cache_creation_cost_usd for %s (%s)", pc.name, model)
+	assert.InDeltaf(t, wantOutput, row.OutputCostUsd, 1e-6, "stored output_cost_usd for %s (%s)", pc.name, model)
+	assert.InDeltaf(t, wantTotal, row.CostUsd, 1e-6, "derived cost_usd for %s (%s)", pc.name, model)
+	assert.InDeltaf(t, wantCache, row.CacheCostUsd, 1e-6, "derived cache_cost_usd for %s (%s)", pc.name, model)
+
+	// The aggregates must be exactly the sum of the stored components, not an
+	// independently-computed figure that could drift from the breakdown.
+	assert.InDeltaf(t, row.InputCostUsd+row.CachedInputCostUsd+row.CacheCreationCostUsd+row.OutputCostUsd,
+		row.CostUsd, 1e-9, "stored buckets must sum to the derived cost_usd for %s (%s)", pc.name, model)
+	assert.InDeltaf(t, row.CachedInputCostUsd+row.CacheCreationCostUsd,
+		row.CacheCostUsd, 1e-9, "stored cache buckets must sum to the derived cache_cost_usd for %s (%s)", pc.name, model)
 }
 
 // providerCase is one entry in the live provider matrix. The same scenario runs

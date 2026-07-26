@@ -132,11 +132,37 @@ func (t *Table) Cost(provider, model string, inTokens, outTokens, cachedInput, c
 	return c.TotalUSD, ok
 }
 
-// Costs is a per-request cost split. CacheUSD is the portion of TotalUSD billed for
-// prompt-cache buckets and is always <= TotalUSD.
+// Costs is a per-request cost split. The four per-bucket fields are the base
+// of the breakdown — one per token bucket the provider bills separately — and
+// the two aggregates are derived from them:
+//
+//	TotalUSD = InputUSD + CachedInputUSD + CacheCreationUSD + OutputUSD
+//	CacheUSD = CachedInputUSD + CacheCreationUSD
+//
+// InputUSD is always the cost of the *non-cached* input bucket, for both
+// provider shapes: on OpenAI the cached subset is carved out of inTokens and
+// billed as CachedInputUSD, so the two never double-count. Buckets a provider
+// doesn't bill are zero, which keeps the identities above true everywhere.
 type Costs struct {
-	TotalUSD float64
-	CacheUSD float64
+	InputUSD         float64
+	CachedInputUSD   float64
+	CacheCreationUSD float64
+	OutputUSD        float64
+	TotalUSD         float64
+	CacheUSD         float64
+}
+
+// newCosts assembles a split from its per-bucket parts, deriving the two
+// aggregates so TotalUSD and CacheUSD can never drift from the breakdown.
+func newCosts(input, cachedInput, cacheCreation, output float64) Costs {
+	return Costs{
+		InputUSD:         input,
+		CachedInputUSD:   cachedInput,
+		CacheCreationUSD: cacheCreation,
+		OutputUSD:        output,
+		TotalUSD:         input + cachedInput + cacheCreation + output,
+		CacheUSD:         cachedInput + cacheCreation,
+	}
 }
 
 // Costs returns the estimated USD cost split for the given token counts, with
@@ -182,7 +208,7 @@ func (t *Table) Costs(provider, model string, inTokens, outTokens, cachedInput, 
 		}
 		nonCached := float64(inTokens-clamped) / 1000.0 * entry.InputPer1K
 		cached := float64(clamped) / 1000.0 * cachedRate
-		return Costs{TotalUSD: nonCached + cached + output, CacheUSD: cached}, true
+		return newCosts(nonCached, cached, 0, output), true
 	case "anthropic", "bedrock":
 		// Bedrock-Anthropic returns the same additive cache buckets as
 		// first-party Anthropic; non-Anthropic Bedrock models simply report
@@ -198,10 +224,10 @@ func (t *Table) Costs(provider, model string, inTokens, outTokens, cachedInput, 
 		input := float64(inTokens) / 1000.0 * entry.InputPer1K
 		read := float64(cachedInput) / 1000.0 * readRate
 		create := float64(cacheCreation) / 1000.0 * createRate
-		return Costs{TotalUSD: input + read + create + output, CacheUSD: read + create}, true
+		return newCosts(input, read, create, output), true
 	default:
 		input := float64(inTokens) / 1000.0 * entry.InputPer1K
-		return Costs{TotalUSD: input + output}, true
+		return newCosts(input, 0, 0, output), true
 	}
 }
 
