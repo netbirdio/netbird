@@ -1337,6 +1337,21 @@ func TestRestrictions_AllowMatch_EmptyDefaultsToAll(t *testing.T) {
 	assert.Nil(t, apiOut.AllowMatch, "empty allow_match is omitted from the API response")
 }
 
+func TestRestrictions_AllowMatchOnly_Preserved(t *testing.T) {
+	// allow_match set without any list must not be dropped by the emptiness
+	// guards, so it round-trips through both the API and proto conversions.
+	model := AccessRestrictions{AllowMatch: "any"}
+
+	apiOut := restrictionsToAPI(model)
+	require.NotNil(t, apiOut, "allow-match-only restriction must not be omitted from the API response")
+	require.NotNil(t, apiOut.AllowMatch)
+	assert.Equal(t, api.AccessRestrictionsAllowMatchAny, *apiOut.AllowMatch)
+
+	protoOut := restrictionsToProto(model)
+	require.NotNil(t, protoOut, "allow-match-only restriction must not be omitted from the proto output")
+	assert.Equal(t, "any", protoOut.AllowMatch)
+}
+
 func TestValidate_RejectsInvalidAllowMatch(t *testing.T) {
 	rp := validProxy()
 	rp.Restrictions = AccessRestrictions{
