@@ -1925,6 +1925,9 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix, agentV
 		ICEConfig: e.createICEConfig(),
 		NetMgr:    e.netMgr,
 	}
+	if e.pqkemManager != nil {
+		config.PQ = pqHandshaker{mgr: e.pqkemManager}
+	}
 
 	serviceDependencies := peer.ServiceDependencies{
 		StatusRecorder:     e.statusRecorder,
