@@ -838,10 +838,7 @@ func applyAccountCollectionControls(merged *MergedGuardrails, settings *types.Se
 func marshalGuardrailConfig(providerAllowlists map[string][]string, capture MergedPromptCapture) ([]byte, error) {
 	cfg := guardrailConfig{
 		ProviderAllowlists: providerAllowlists,
-		PromptCapture: guardrailPromptCapture{
-			Enabled:   capture.Enabled,
-			RedactPii: capture.RedactPii,
-		},
+		PromptCapture:      guardrailPromptCapture(capture),
 	}
 	out, err := json.Marshal(cfg)
 	if err != nil {
