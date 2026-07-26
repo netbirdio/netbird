@@ -717,8 +717,11 @@ func TestFoldCostAggregatesIntoBuckets_SkipsAlreadyMigrated(t *testing.T) {
 	require.NoError(t, db.Migrator().DropTable(&agentNetworkTypes.AgentNetworkUsage{}))
 
 	require.NoError(t, db.AutoMigrate(&agentNetworkTypes.AgentNetworkUsage{}))
+	// Timestamp must be set explicitly: a zero time.Time serialises as
+	// '0000-00-00 00:00:00', which MySQL rejects under strict mode.
 	require.NoError(t, db.Create(&agentNetworkTypes.AgentNetworkUsage{
 		ID: "u1", AccountID: "acct-1", Model: "claude-sonnet-4-6",
+		Timestamp:    time.Date(2026, 5, 5, 9, 0, 0, 0, time.UTC),
 		InputCostUSD: 0.001, CachedInputCostUSD: 0.002, CacheCreationCostUSD: 0.003, OutputCostUSD: 0.004,
 	}).Error)
 

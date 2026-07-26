@@ -55,19 +55,19 @@ func TestSessionSummary_SumsMatchSummedEntries(t *testing.T) {
 	require.Len(t, sessions, 1)
 	sess := sessions[0].ToAPIResponse()
 
-	var wantIn, wantCachedIn, wantCacheCreate, wantOut float64
+	var wantInput, wantCachedInput, wantCacheCreation, wantOutput float64
 	for _, e := range entries {
-		wantIn += e.InputCostUSD
-		wantCachedIn += e.CachedInputCostUSD
-		wantCacheCreate += e.CacheCreationCostUSD
-		wantOut += e.OutputCostUSD
+		wantInput += e.InputCostUSD
+		wantCachedInput += e.CachedInputCostUSD
+		wantCacheCreation += e.CacheCreationCostUSD
+		wantOutput += e.OutputCostUSD
 	}
 
-	assert.InDelta(t, wantIn, sess.InputCostUsd, 1e-12, "session input cost is the sum of its entries")
-	assert.InDelta(t, wantCachedIn, sess.CachedInputCostUsd, 1e-12, "session cache-read cost is the sum of its entries")
-	assert.InDelta(t, wantCacheCreate, sess.CacheCreationCostUsd, 1e-12, "session cache-write cost is the sum of its entries")
-	assert.InDelta(t, wantOut, sess.OutputCostUsd, 1e-12, "session output cost is the sum of its entries")
-	assert.InDelta(t, wantIn+wantCachedIn+wantCacheCreate+wantOut, sess.CostUsd, 1e-12,
+	assert.InDelta(t, wantInput, sess.InputCostUsd, 1e-12, "session input cost is the sum of its entries")
+	assert.InDelta(t, wantCachedInput, sess.CachedInputCostUsd, 1e-12, "session cache-read cost is the sum of its entries")
+	assert.InDelta(t, wantCacheCreation, sess.CacheCreationCostUsd, 1e-12, "session cache-write cost is the sum of its entries")
+	assert.InDelta(t, wantOutput, sess.OutputCostUsd, 1e-12, "session output cost is the sum of its entries")
+	assert.InDelta(t, wantInput+wantCachedInput+wantCacheCreation+wantOutput, sess.CostUsd, 1e-12,
 		"session total equals the summed entry buckets")
 
 	// Summing the rendered entries must give the same answer as reading the

@@ -125,17 +125,17 @@ func verifyUsageRowsSQL(t *testing.T, srv *harness.Combined) {
 		var provider, model string
 		var inTok, outTok, readTok, writeTok int64
 		var inCost, cachedInCost, cacheCreateCost, outCost, cost, cacheCost float64
-		var wantIn, wantCachedIn, wantCacheCreate, wantOut, wantTotal, wantCache float64
+		var wantInput, wantCachedInput, wantCacheCreation, wantOutput, wantTotal, wantCache float64
 		require.NoError(t, rows.Scan(&provider, &model, &inTok, &outTok, &readTok, &writeTok,
 			&inCost, &cachedInCost, &cacheCreateCost, &outCost, &cost, &cacheCost,
-			&wantIn, &wantCachedIn, &wantCacheCreate, &wantOut, &wantTotal, &wantCache), "scan usage row")
+			&wantInput, &wantCachedInput, &wantCacheCreation, &wantOutput, &wantTotal, &wantCache), "scan usage row")
 		t.Logf("[sql] %s/%s: in=%d out=%d cache_read=%d cache_write=%d stored in/cached/create/out=$%.6f/$%.6f/$%.6f/$%.6f total=$%.6f cache=$%.6f expected total=$%.6f cache=$%.6f",
 			provider, model, inTok, outTok, readTok, writeTok,
 			inCost, cachedInCost, cacheCreateCost, outCost, cost, cacheCost, wantTotal, wantCache)
-		assert.InDeltaf(t, wantIn, inCost, 1e-6, "stored input_cost_usd for %s/%s must match the published-rate recompute", provider, model)
-		assert.InDeltaf(t, wantCachedIn, cachedInCost, 1e-6, "stored cached_input_cost_usd for %s/%s must match the published-rate recompute", provider, model)
-		assert.InDeltaf(t, wantCacheCreate, cacheCreateCost, 1e-6, "stored cache_creation_cost_usd for %s/%s must match the published-rate recompute", provider, model)
-		assert.InDeltaf(t, wantOut, outCost, 1e-6, "stored output_cost_usd for %s/%s must match the published-rate recompute", provider, model)
+		assert.InDeltaf(t, wantInput, inCost, 1e-6, "stored input_cost_usd for %s/%s must match the published-rate recompute", provider, model)
+		assert.InDeltaf(t, wantCachedInput, cachedInCost, 1e-6, "stored cached_input_cost_usd for %s/%s must match the published-rate recompute", provider, model)
+		assert.InDeltaf(t, wantCacheCreation, cacheCreateCost, 1e-6, "stored cache_creation_cost_usd for %s/%s must match the published-rate recompute", provider, model)
+		assert.InDeltaf(t, wantOutput, outCost, 1e-6, "stored output_cost_usd for %s/%s must match the published-rate recompute", provider, model)
 		assert.InDeltaf(t, wantTotal, cost, 1e-6, "derived cost_usd for %s/%s must match the published-rate recompute", provider, model)
 		assert.InDeltaf(t, wantCache, cacheCost, 1e-6, "derived cache_cost_usd for %s/%s must match the published-rate recompute", provider, model)
 		assert.InDeltaf(t, inCost+cachedInCost+cacheCreateCost+outCost, cost, 1e-9,
