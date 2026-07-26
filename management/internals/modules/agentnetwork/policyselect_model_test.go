@@ -2,6 +2,7 @@ package agentnetwork
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -245,4 +246,84 @@ func TestSelectPolicy_UnionAcrossPolicyGuardrails(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, res.Allow, "a model in any of the policy's allowlist guardrails must be permitted")
 	assert.Equal(t, "pol-A", res.SelectedPolicyID)
+}
+
+// TestSelectPolicy_GuardrailLookupErrorPropagates proves a store failure while
+// resolving the candidate policies' guardrails surfaces as an error, not a
+// silent allow/deny.
+func TestSelectPolicy_GuardrailLookupErrorPropagates(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mgr, mockStore := newSelectorMgr(t, ctrl)
+
+	policy := guardedPolicy("pol-A", "acc-1", []string{"grp-eng"}, "prov-1", "g-1")
+	expectPolicies(mockStore, "acc-1", policy)
+	mockStore.EXPECT().
+		GetAccountAgentNetworkGuardrails(gomock.Any(), gomock.Any(), "acc-1").
+		Return(nil, errors.New("store unavailable"))
+
+	res, err := mgr.SelectPolicyForRequest(context.Background(), PolicySelectionInput{
+		AccountID:  "acc-1",
+		GroupIDs:   []string{"grp-eng"},
+		ProviderID: "prov-1",
+		Model:      "gpt-4o",
+	})
+	require.Error(t, err, "a guardrail-lookup failure must surface as an error")
+	assert.Nil(t, res)
+}
+
+// TestSelectPolicy_MissingGuardrailReferenceTreatedAsUnrestricted proves a
+// policy referencing a guardrail ID absent from the account's set (a stale
+// reference) imposes no model restriction — same as no guardrail.
+func TestSelectPolicy_MissingGuardrailReferenceTreatedAsUnrestricted(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mgr, mockStore := newSelectorMgr(t, ctrl)
+
+	policy := guardedPolicy("pol-A", "acc-1", []string{"grp-eng"}, "prov-1", "g-missing")
+	expectPolicies(mockStore, "acc-1", policy)
+	expectGuardrails(mockStore, "acc-1")
+	expectConsumptionBatch(mockStore, nil)
+
+	res, err := mgr.SelectPolicyForRequest(context.Background(), PolicySelectionInput{
+		AccountID:  "acc-1",
+		GroupIDs:   []string{"grp-eng"},
+		ProviderID: "prov-1",
+		Model:      "anything-goes",
+	})
+	require.NoError(t, err)
+	assert.True(t, res.Allow, "an orphaned guardrail reference must not restrict the model")
+	assert.Equal(t, "pol-A", res.SelectedPolicyID)
+}
+
+// TestSelectPolicy_PartialCandidatesPermittedAfterModelFilter proves the model
+// gate narrows candidates before cap scoring: the permitting policy is selected
+// even though the blocked one has a larger, more attractive cap.
+func TestSelectPolicy_PartialCandidatesPermittedAfterModelFilter(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mgr, mockStore := newSelectorMgr(t, ctrl)
+
+	polBig := guardedPolicy("pol-big", "acc-1", []string{"grp-eng"}, "prov-1", "g-restrict")
+	polBig.Limits = types.PolicyLimits{
+		TokenLimit: types.PolicyTokenLimit{Enabled: true, GroupCap: 1_000_000, WindowSeconds: 3600},
+	}
+	polSmall := guardedPolicy("pol-small", "acc-1", []string{"grp-eng"}, "prov-1", "g-permit")
+	polSmall.Limits = types.PolicyLimits{
+		TokenLimit: types.PolicyTokenLimit{Enabled: true, GroupCap: 100, WindowSeconds: 3600},
+	}
+	expectPolicies(mockStore, "acc-1", polBig, polSmall)
+	expectGuardrails(mockStore, "acc-1",
+		allowlistGuardrail("g-restrict", "acc-1", "gpt-4o"),
+		allowlistGuardrail("g-permit", "acc-1", "claude-opus-4"),
+	)
+	expectConsumptionBatch(mockStore, nil)
+
+	res, err := mgr.SelectPolicyForRequest(context.Background(), PolicySelectionInput{
+		AccountID:  "acc-1",
+		GroupIDs:   []string{"grp-eng"},
+		ProviderID: "prov-1",
+		Model:      "claude-opus-4", // only pol-small's guardrail permits this
+	})
+	require.NoError(t, err)
+	assert.True(t, res.Allow)
+	assert.Equal(t, "pol-small", res.SelectedPolicyID,
+		"the model filter must exclude pol-big before cap scoring")
 }

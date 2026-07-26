@@ -207,6 +207,36 @@ func TestRestrictionsButNoResolvedProviderFailsClosed(t *testing.T) {
 	assert.Equal(t, "llm_policy.model_unknown", out.DenyReason.Code, "deny code must be model_unknown")
 }
 
+func TestEnabledButEmptyAllowlistDeniesEveryModel(t *testing.T) {
+	// An allowlist-enabled provider with zero models is distinct from an
+	// unrestricted (absent) provider: it must deny every model.
+	mw := New(providerCfg())
+	out, err := mw.Invoke(context.Background(), newInputProvider(testProvider,
+		middleware.KV{Key: middleware.KeyLLMModel, Value: "gpt-4o"},
+	))
+	require.NoError(t, err)
+	require.NotNil(t, out)
+	assert.Equal(t, middleware.DecisionDeny, out.Decision, "an enabled-but-empty allowlist must deny every model")
+	require.NotNil(t, out.DenyReason)
+	assert.Equal(t, "llm_policy.model_blocked", out.DenyReason.Code, "deny code must be model_blocked, not model_unknown")
+}
+
+func TestFactoryAllEmptyEntriesDenyEveryModel(t *testing.T) {
+	// All the provider's entries are blank; they collapse to a non-nil empty
+	// list (deny everything for that provider), not "no restriction".
+	raw := []byte(`{"provider_allowlists":{"prov-1":["","   "]}}`)
+	mw, err := Factory{}.New(raw)
+	require.NoError(t, err)
+	out, err := mw.Invoke(context.Background(), newInputProvider(testProvider,
+		middleware.KV{Key: middleware.KeyLLMModel, Value: "gpt-4o"},
+	))
+	require.NoError(t, err)
+	require.NotNil(t, out)
+	assert.Equal(t, middleware.DecisionDeny, out.Decision, "all-blank allowlist entries must still restrict the provider")
+	require.NotNil(t, out.DenyReason)
+	assert.Equal(t, "llm_policy.model_blocked", out.DenyReason.Code, "deny code must be model_blocked")
+}
+
 func TestPromptCaptureDisabledEmitsNoPrompt(t *testing.T) {
 	mw := New(Config{})
 	out, err := mw.Invoke(context.Background(), newInput(
