@@ -13,17 +13,10 @@ import (
 // runtime path consumes the normalised allowlists; raw config is not
 // retained beyond construction.
 type Config struct {
-	// ProviderAllowlists maps a resolved provider id (the value llm_router
-	// stamps as KeyLLMResolvedProviderID) to that provider's model allowlist. A
-	// provider present here is restricted to the listed models; a provider
-	// absent is unrestricted. The synthesiser only lists a provider when EVERY
-	// policy authorising it enables an allowlist, so a provider reachable by any
-	// un-guardrailed policy is intentionally absent (unrestricted) here and the
-	// precise per-policy/group decision is left to management. Keeping the gate
-	// per-provider — rather than one account-wide union — is what stops a model
-	// allowlisted for one provider from leaking onto another and stops an
-	// un-guardrailed policy's traffic from being blocked by an unrelated
-	// policy's allowlist.
+	// ProviderAllowlists maps a resolved provider id (KeyLLMResolvedProviderID) to
+	// its model allowlist. A provider present is restricted to those models; one
+	// absent is unrestricted. Kept per-provider so one provider's list can't leak
+	// onto another.
 	ProviderAllowlists map[string][]string `json:"provider_allowlists,omitempty"`
 	PromptCapture      PromptCapture       `json:"prompt_capture"`
 }
@@ -65,11 +58,10 @@ func isEmptyJSON(raw []byte) bool {
 	return false
 }
 
-// normaliseConfig lowercases and trims allowlist entries so the runtime
-// match is case-insensitive. Empty entries are dropped. A provider whose
-// entries all drop out keeps an empty (non-nil) list — an allowlist that
-// permits nothing — which is the intended "deny every model" for that
-// provider, distinct from the provider being absent (unrestricted).
+// normaliseConfig lowercases and trims allowlist entries for case-insensitive
+// matching; empty entries drop. A provider whose entries all drop keeps an empty
+// (non-nil) list — "deny every model" — distinct from an absent provider
+// (unrestricted).
 func normaliseConfig(cfg Config) Config {
 	if len(cfg.ProviderAllowlists) == 0 {
 		cfg.ProviderAllowlists = nil

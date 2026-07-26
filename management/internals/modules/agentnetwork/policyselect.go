@@ -37,9 +37,8 @@ const (
 	//nolint:gosec // account deny code label, not a credential
 	denyCodeAccountBudgetCapExceeded = "llm_account.budget_cap_exceeded"
 	// denyCodeModelBlocked is returned when policies govern the request's
-	// (provider, caller-groups) but none of them permits the requested model
-	// under its guardrail allowlist. Matches the proxy guardrail's code so the
-	// two enforcement layers surface the same label.
+	// (provider, caller-groups) but none permits the model. Matches the proxy
+	// guardrail's code so both layers surface the same label.
 	denyCodeModelBlocked = "llm_policy.model_blocked"
 )
 
@@ -165,18 +164,9 @@ func (m *managerImpl) SelectPolicyForRequest(ctx context.Context, in PolicySelec
 	}
 	candidates := filterApplicablePolicies(policies, in)
 
-	// Model-allowlist gate (per-policy, per-group). Among the policies that
-	// authorise this (provider, caller-groups), keep only those whose guardrails
-	// permit the requested model; a policy with no allowlist-enabled guardrail is
-	// unrestricted and always permits. When policies govern this request but none
-	// permits the model, deny. This is the authoritative allowlist decision:
-	// because it is scoped to the matched policies, a model allowlisted for one
-	// group/provider never leaks to another (no account-wide union), and a policy
-	// that carries no guardrail is genuinely unrestricted rather than being caught
-	// by some other policy's allowlist.
-	// Only consult guardrails when at least one candidate policy references one;
-	// a policy with no guardrail is unrestricted, so when none of them carries a
-	// guardrail the gate is a no-op and we skip the store read entirely.
+	// Model-allowlist gate scoped to the matched policies: keep candidates whose
+	// guardrails permit the model (none enabled = unrestricted), deny when
+	// policies apply but none permits it. Skip the load when none has a guardrail.
 	if len(candidates) > 0 && anyPolicyHasGuardrails(candidates) {
 		guardrailsByID, gErr := m.loadGuardrailsByID(ctx, in.AccountID)
 		if gErr != nil {
@@ -323,13 +313,10 @@ func filterModelPermittedPolicies(policies []*types.Policy, byID map[string]*typ
 	return out
 }
 
-// policyPermitsModel reports whether a policy permits the requested model under
-// its attached guardrails. A policy with no allowlist-enabled guardrail is
-// unrestricted (permits any model, including an empty/undetermined one). A
-// policy with one or more allowlist-enabled guardrails permits the model only
-// when it appears in the union of those allowlists; an empty/undetermined model
-// never matches a non-empty allowlist, so such a policy fails closed — the same
-// contract the proxy guardrail enforces for path-routed providers.
+// policyPermitsModel reports whether a policy permits the model. No
+// allowlist-enabled guardrail = unrestricted (permits any, incl. empty);
+// otherwise the model must be in the union of its allowlists, so an
+// empty/undetermined model fails closed.
 func policyPermitsModel(p *types.Policy, byID map[string]*types.Guardrail, model string) bool {
 	if p == nil {
 		return false

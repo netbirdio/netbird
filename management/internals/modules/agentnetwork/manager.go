@@ -92,13 +92,10 @@ type PolicySelectionInput struct {
 	UserID     string
 	GroupIDs   []string
 	ProviderID string
-	// Model is the (already-normalised) upstream model identifier the proxy
-	// extracted from the request. The proxy's request parser strips
-	// path-routed provider decoration (Bedrock region/version, Vertex
-	// @version) before emitting it, so a plain case-insensitive compare
-	// against a guardrail allowlist is sufficient here. Empty when the model
-	// could not be determined — treated as "not permitted" by any policy that
-	// restricts models (fail closed), mirroring the proxy guardrail.
+	// Model is the already-normalised upstream model id the proxy extracted
+	// (parser strips Bedrock region/version, Vertex @version), so a
+	// case-insensitive compare suffices. Empty = undetermined → not permitted
+	// (fail closed).
 	Model string
 }
 

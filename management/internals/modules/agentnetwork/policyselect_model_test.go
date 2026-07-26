@@ -120,10 +120,9 @@ func TestSelectPolicy_CaseInsensitiveModelMatch(t *testing.T) {
 	assert.True(t, res.Allow, "case/whitespace variants must match the allowlist entry")
 }
 
-// TestSelectPolicy_UnguardedPolicyIsUnrestricted is the false-deny fix: when
-// two policies authorise the same (provider, group) and one carries no
-// guardrail, that un-guardrailed policy makes the request unrestricted — it is
-// NOT caught by the other policy's allowlist.
+// TestSelectPolicy_UnguardedPolicyIsUnrestricted is the false-deny fix: when two
+// policies authorise the same (provider, group) and one has no guardrail, that
+// policy makes the request unrestricted — not caught by the other's allowlist.
 func TestSelectPolicy_UnguardedPolicyIsUnrestricted(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mgr, mockStore := newSelectorMgr(t, ctrl)
@@ -146,10 +145,8 @@ func TestSelectPolicy_UnguardedPolicyIsUnrestricted(t *testing.T) {
 }
 
 // TestSelectPolicy_AllowlistDoesNotLeakAcrossGroups is the false-allow fix: a
-// model allowlisted only for grp-b must not be usable by a caller in grp-a,
-// even though both groups' policies target the same provider. The selector only
-// considers policies applicable to the caller's groups, so grp-b's allowlist
-// never enters grp-a's decision.
+// model allowlisted only for grp-b must not be usable by a grp-a caller. The
+// selector considers only policies applicable to the caller's groups.
 func TestSelectPolicy_AllowlistDoesNotLeakAcrossGroups(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mgr, mockStore := newSelectorMgr(t, ctrl)

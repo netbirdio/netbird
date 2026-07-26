@@ -164,10 +164,9 @@ func TestAllowlistEmptyListAllowsMissingModel(t *testing.T) {
 }
 
 func TestUnrestrictedProviderAllowsAnyModel(t *testing.T) {
-	// testProvider is restricted, but the request resolved to otherProvider,
-	// which carries no allowlist. Its traffic must not be caught by the other
-	// provider's restriction — this is the cross-provider-leak / false-deny
-	// guard. Management owns any per-policy/group decision for otherProvider.
+	// The request resolved to otherProvider, which has no allowlist, so its
+	// traffic must not be caught by testProvider's restriction — the
+	// cross-provider-leak / false-deny guard.
 	mw := New(providerCfg("gpt-4o"))
 	out, err := mw.Invoke(context.Background(), newInputProvider(otherProvider,
 		middleware.KV{Key: middleware.KeyLLMModel, Value: "claude-opus-4"},

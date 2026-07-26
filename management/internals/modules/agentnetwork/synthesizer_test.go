@@ -1031,12 +1031,10 @@ func TestSynthesizeServices_GuardrailMerge_AllowlistUnion_LimitsRestrictive(t *t
 
 	var cfg guardrailConfig
 	require.NoError(t, json.Unmarshal(guardrailJSON, &cfg), "guardrail config must unmarshal cleanly")
-	// Both policies restrict the same provider, so the proxy-side per-provider
-	// backstop carries the union of their models. This coarse union is
-	// deliberate: it can still let grp-a reach grp-b's model at the proxy layer,
-	// which management's per-policy/group check (SelectPolicyForRequest) is the
-	// one that rejects. The backstop only guarantees nothing outside the
-	// provider's union slips through when management is unreachable.
+	// Both policies restrict the same provider, so the per-provider backstop
+	// carries the union of their models — a coarse gate that management's
+	// per-policy/group check narrows; it only blocks models outside the union
+	// when management is down.
 	assert.ElementsMatch(t, []string{"gpt-5.4-mini", "gpt-5.4-pro"}, cfg.ProviderAllowlists["prov-1"],
 		"per-provider allowlist union must keep both models")
 }

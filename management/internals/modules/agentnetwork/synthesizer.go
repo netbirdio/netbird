@@ -235,12 +235,10 @@ func SynthesizeServices(ctx context.Context, s store.Store, accountID string) ([
 
 	mergedGuardrails := mergeGuardrails(enabledPolicies, guardrailsByID)
 	applyAccountCollectionControls(&mergedGuardrails, settings)
-	// The proxy guardrail is the fail-closed backstop, scoped per provider so it
-	// never applies one policy's allowlist to another provider's traffic. The
-	// authoritative per-policy/group model decision lives in management's
-	// SelectPolicyForRequest; a provider only lands in this map when EVERY policy
-	// authorising it restricts models, so an un-guardrailed policy leaves its
-	// providers unrestricted here.
+	// The proxy guardrail is a per-provider fail-closed backstop; the
+	// authoritative per-policy/group decision is management's
+	// SelectPolicyForRequest. A provider lands in this map only when every
+	// authorising policy restricts models.
 	providerAllowlists := buildProviderAllowlists(enabledPolicies, guardrailsByID)
 	guardrailJSON, err := marshalGuardrailConfig(providerAllowlists, mergedGuardrails.PromptCapture)
 	if err != nil {
@@ -852,15 +850,9 @@ func marshalGuardrailConfig(providerAllowlists map[string][]string, capture Merg
 	return out, nil
 }
 
-// buildProviderAllowlists computes the per-provider model allowlist the proxy
-// guardrail enforces as a fail-closed backstop. A provider is included ONLY when
-// every enabled policy that authorises it restricts models (has at least one
-// allowlist-enabled guardrail); its list is then the union of those policies'
-// allowed models. If any authorising policy leaves models unrestricted, the
-// provider is omitted entirely — the proxy treats an absent provider as
-// unrestricted and defers to management's per-policy/group decision, so a
-// mixed set of policies can neither leak a model across providers nor wrongly
-// block an un-guardrailed policy's traffic.
+// buildProviderAllowlists returns the proxy's per-provider backstop: a provider
+// is included only when every authorising policy restricts models (their union);
+// if any leaves it unrestricted it is omitted, so management decides per group.
 func buildProviderAllowlists(policies []*types.Policy, byID map[string]*types.Guardrail) map[string][]string {
 	type providerAcc struct {
 		models          map[string]struct{}
@@ -905,10 +897,9 @@ func buildProviderAllowlists(policies []*types.Policy, byID map[string]*types.Gu
 	return out
 }
 
-// policyModelAllowlist reports whether a policy restricts models (has at least
-// one allowlist-enabled guardrail) and the union of allowed models across those
-// guardrails. Models are returned verbatim; the proxy factory lowercases and
-// trims them at decode time, matching the runtime compare.
+// policyModelAllowlist reports whether a policy restricts models (has an
+// allowlist-enabled guardrail) and the union of allowed models. Models are
+// verbatim; the proxy factory lowercases/trims them at decode time.
 func policyModelAllowlist(p *types.Policy, byID map[string]*types.Guardrail) (bool, []string) {
 	restricted := false
 	var models []string
@@ -1070,11 +1061,9 @@ func unionSourceGroups(policies []*types.Policy) []string {
 	return out
 }
 
-// MergedGuardrails is the intermediate the synthesiser folds policy guardrails
-// into. Only prompt capture is merged here — the model allowlist is emitted
-// per-provider via buildProviderAllowlists, and token/budget/retention moved off
-// guardrails onto Policy.Limits and account Settings — so this carries just the
-// prompt-capture decision the capture parsers and guardrail config consume.
+// MergedGuardrails is the synthesiser's fold target. Only prompt capture is
+// merged here — the model allowlist is emitted per-provider, and
+// token/budget/retention moved onto Policy.Limits and account Settings.
 type MergedGuardrails struct {
 	PromptCapture MergedPromptCapture
 }
@@ -1084,17 +1073,10 @@ type MergedPromptCapture struct {
 	RedactPii bool `json:"redact_pii"`
 }
 
-// mergeGuardrails computes the prompt-capture portion of the effective
-// guardrail spec, given the referencing policies and the account's guardrail
-// catalogue. Policy enabled-ness is the caller's responsibility — only enabled
-// policies should be passed in.
-//
-// The model allowlist is NOT merged here: it is enforced per-policy/group in
-// management (SelectPolicyForRequest) and shipped to the proxy per-provider via
-// buildProviderAllowlists, so a single account-wide union would be both
-// incorrect (leaks a model across groups/providers) and redundant. Token,
-// budget, and retention likewise live off guardrails now (Policy.Limits and
-// account Settings), so prompt capture is all that remains to merge.
+// mergeGuardrails folds the referencing policies' guardrails into the
+// prompt-capture decision only. The model allowlist is enforced per-policy/group
+// in management and shipped per-provider; token/budget/retention live off
+// guardrails now.
 //
 // Merge rule — prompt capture: enabled if any policy enables it; redact_pii
 // sticks if any enabling policy turns it on.

@@ -14,40 +14,9 @@ import (
 	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
-// TestGuardrailMultiPolicyModelAllowlist is the end-to-end regression guard for
-// the multi-policy interactions of the model-allowlist guardrail: what happens
-// when several enabled policies govern an account and some carry a guardrail
-// while others don't. The earlier implementation merged every policy's allowlist
-// into ONE account-wide union enforced flat on every request, which produced two
-// defects this test pins:
-//
-//   - false-ALLOW (cross-group leak): a model allowlisted only for another
-//     group's policy became usable by any caller, because the union ignored
-//     which policy/group actually authorised the request; and
-//   - false-DENY: a policy with NO guardrail (intended unrestricted) still had
-//     its traffic blocked by some other policy's allowlist.
-//
-// The fix scopes enforcement to the matched policy/group in management
-// (SelectPolicyForRequest) with a per-provider fail-closed backstop at the
-// proxy. The account here has one client in grpMain and three policies over two
-// catch-all upstreams (the mock vLLM answers any model 200, so a 403 can only be
-// a policy decision, never a routing miss):
-//
-//   - polMain : grpMain  -> pRestricted, guardrail allowlisting modelSelected
-//   - polOther: grpOther -> pRestricted, guardrail allowlisting modelOther
-//   - polOpen : grpMain  -> pOpen,       NO guardrail (unrestricted)
-//
-// Providers declare their models so routing is deterministic. Over the tunnel,
-// as the grpMain client:
-//
-//   - modelSelected on pRestricted is served (200) — allowed by grpMain's policy;
-//   - modelOther on pRestricted is denied 403 (llm_policy.model_blocked) — it is
-//     allowlisted only for grpOther and must NOT leak to grpMain; and
-//   - openModel on pOpen is served (200) — the un-guardrailed policy leaves that
-//     provider unrestricted and must NOT be blocked by another policy's list.
-//
-// Under the old account-wide union the middle case returned 200 (the leak) and
-// the last case returned 403 (the false-deny); both are inverted here.
+// TestGuardrailMultiPolicyModelAllowlist: modelSelected served (200), grpOther's
+// modelOther denied for the grpMain client (403 model_blocked, no cross-group
+// leak), and openModel on the un-guardrailed policy's provider served (200).
 func TestGuardrailMultiPolicyModelAllowlist(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()

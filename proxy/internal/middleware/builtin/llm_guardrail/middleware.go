@@ -111,20 +111,16 @@ func (m *Middleware) Invoke(_ context.Context, in *middleware.Input) (*middlewar
 // is a no-op.
 func (m *Middleware) Close() error { return nil }
 
-// evaluateAllowlist returns a deny Output when the allowlist for the request's
-// resolved provider rejects the model. A nil return means the request should
-// proceed. The allowlist is scoped to the provider llm_router resolved: a
-// provider absent from the config is unrestricted, so an un-guardrailed policy's
-// traffic is never caught by an unrelated provider's allowlist.
+// evaluateAllowlist denies when the resolved provider's allowlist rejects the
+// model; nil means proceed. Scoped to the provider llm_router resolved, so an
+// unrestricted provider (absent from config) is never caught by another's list.
 func (m *Middleware) evaluateAllowlist(providerID, model string, modelPresent bool) *middleware.Output {
 	if len(m.cfg.ProviderAllowlists) == 0 {
 		return nil
 	}
-	// Restrictions exist for this account but the resolved provider is unknown,
-	// so we cannot tell whether this request is bound for a restricted provider.
-	// Fail closed rather than wave it through. In practice llm_router always
-	// stamps the resolved provider before the guardrail runs (or denies first),
-	// so this is a defensive guard, not the common path.
+	// Restrictions exist but the resolved provider is unknown, so we can't tell
+	// if this request targets a restricted provider — fail closed. llm_router
+	// normally stamps the provider first, so this is a defensive guard.
 	if providerID == "" {
 		return denyModel("", denyCodeModelUnknown, denyMessageModelUnknown, denyReasonModelUnknown)
 	}
@@ -135,10 +131,8 @@ func (m *Middleware) evaluateAllowlist(providerID, model string, modelPresent bo
 		return nil
 	}
 	// Fail closed: with an allowlist in effect for this provider, a request whose
-	// model the upstream parser could not extract (absent or empty) must be
-	// denied rather than allowed. This is what enforces the allowlist for
-	// URL/path-routed providers (Bedrock, Vertex, ...) whose model lives outside
-	// the JSON body.
+	// model the parser couldn't extract (absent/empty) is denied. This enforces
+	// the allowlist for path-routed providers (Bedrock, Vertex) with no body model.
 	if !modelPresent || normaliseModel(model) == "" {
 		return denyModel("", denyCodeModelUnknown, denyMessageModelUnknown, denyReasonModelUnknown)
 	}
