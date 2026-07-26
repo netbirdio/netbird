@@ -84,6 +84,7 @@ func (m *Manager) processOffer(remoteID RemoteID, o *OfferMsg) ([]byte, error) {
 	ex.state = stateAwaitingAck
 	ex.lastSent = raw
 	ex.pendingPSK = psk
+	m.psks[remoteID] = psk
 	m.mu.Unlock()
 
 	// Commit optimistically so our data path can rekey to the new PSK.
@@ -118,6 +119,7 @@ func (m *Manager) processAnswer(remoteID RemoteID, a *AnswerMsg) error {
 	m.mu.Lock()
 	m.established[remoteID] = true
 	m.failures[remoteID] = 0
+	m.psks[remoteID] = psk
 	m.mu.Unlock()
 
 	return m.cbHandler.OnNewPSKReady(remoteID, psk)

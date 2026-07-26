@@ -98,6 +98,7 @@ type Manager struct {
 	exchanges   map[RemoteID]*exchangeCtl   // in-flight exchange per peer
 	established map[RemoteID]bool           // peer has completed at least one exchange
 	failures    map[RemoteID]int            // consecutive rekey failures per peer
+	psks        map[RemoteID]PSK            // latest derived PSK per peer (pulled at WG peer-config time)
 	peerAddrs   map[RemoteID]netip.AddrPort // remoteID -> data-path endpoint (send routing)
 	peersByAddr map[netip.AddrPort]RemoteID // reverse: source endpoint -> remoteID (inbound)
 	wait        sync.WaitGroup
@@ -123,6 +124,7 @@ func NewManager(localID LocalID, h CallbackHandler, logger *slog.Logger) *Manage
 		exchanges:        make(map[RemoteID]*exchangeCtl),
 		established:      make(map[RemoteID]bool),
 		failures:         make(map[RemoteID]int),
+		psks:             make(map[RemoteID]PSK),
 		peerAddrs:        make(map[RemoteID]netip.AddrPort),
 		peersByAddr:      make(map[netip.AddrPort]RemoteID),
 	}
@@ -158,6 +160,15 @@ func (m *Manager) IsInitiator(remoteID RemoteID) bool {
 	return string(m.localID) > string(remoteID)
 }
 
+// PSK returns the latest PSK derived for the peer, for the host to program at WG
+// peer-config time (the pull path). ok is false until an exchange has derived one.
+func (m *Manager) PSK(remoteID RemoteID) (PSK, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	psk, ok := m.psks[remoteID]
+	return psk, ok
+}
+
 // AddPeer registers where a peer's data-path messages are sent and received: its
 // overlay endpoint (IP:port). Re-adding updates the endpoint.
 func (m *Manager) AddPeer(remoteID RemoteID, endpoint netip.AddrPort) {
@@ -184,6 +195,7 @@ func (m *Manager) RemovePeer(remoteID RemoteID) {
 	}
 	delete(m.established, remoteID)
 	delete(m.failures, remoteID)
+	delete(m.psks, remoteID)
 	if ep, ok := m.peerAddrs[remoteID]; ok {
 		delete(m.peersByAddr, ep)
 		delete(m.peerAddrs, remoteID)
@@ -200,6 +212,7 @@ func (m *Manager) Stop() {
 	t := m.transport
 	m.transport = nil
 	m.exchanges = make(map[RemoteID]*exchangeCtl)
+	m.psks = make(map[RemoteID]PSK)
 	m.mu.Unlock()
 	if t != nil {
 		if err := t.Close(); err != nil {
