@@ -83,4 +83,13 @@ func TestBuildProviderAllowlists(t *testing.T) {
 		assert.ElementsMatch(t, []string{"claude-opus-4", "gpt-4o"}, got["prov-x"],
 			"a policy's own multiple allowlist guardrails union together")
 	})
+
+	t.Run("an enabled allowlist with no models denies everything", func(t *testing.T) {
+		empty := map[string]*types.Guardrail{"g-empty": allowlistGuardrail("g-empty", "acc-1")}
+		got := buildProviderAllowlists([]*types.Policy{
+			policyForProviders("p1", []string{"g-empty"}, "prov-x"),
+		}, empty)
+		assert.Equal(t, map[string][]string{"prov-x": {}}, got,
+			"an enabled-but-empty allowlist is restricted with an empty set, not unrestricted")
+	})
 }
