@@ -825,7 +825,7 @@ func restrictionsFromAPI(r *api.AccessRestrictions) (AccessRestrictions, error) 
 func restrictionsToAPI(r AccessRestrictions) *api.AccessRestrictions {
 	if len(r.AllowedCIDRs) == 0 && len(r.BlockedCIDRs) == 0 &&
 		len(r.AllowedCountries) == 0 && len(r.BlockedCountries) == 0 &&
-		r.CrowdSecMode == "" {
+		r.CrowdSecMode == "" && r.AllowMatch == "" {
 		return nil
 	}
 	res := &api.AccessRestrictions{}
@@ -855,7 +855,7 @@ func restrictionsToAPI(r AccessRestrictions) *api.AccessRestrictions {
 func restrictionsToProto(r AccessRestrictions) *proto.AccessRestrictions {
 	if len(r.AllowedCIDRs) == 0 && len(r.BlockedCIDRs) == 0 &&
 		len(r.AllowedCountries) == 0 && len(r.BlockedCountries) == 0 &&
-		r.CrowdSecMode == "" {
+		r.CrowdSecMode == "" && r.AllowMatch == "" {
 		return nil
 	}
 	return &proto.AccessRestrictions{
