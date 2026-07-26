@@ -25,8 +25,8 @@ type Model struct {
 //     These typically need NetBird identity stamped onto upstream
 //     requests so the gateway's analytics and budgets attribute to the
 //     real caller; that's what IdentityInjection is for.
-//   - KindCustom: the catch-all "OpenAI-compatible self-hosted endpoint"
-//     entry (vLLM, Ollama, custom inference servers).
+//   - KindCustom: named and generic OpenAI-compatible self-hosted
+//     endpoints (vLLM, Ollama, custom inference servers).
 //
 // Frontend uses Kind to group the provider Select in the modal so an
 // operator can spot at a glance which catalog entries proxy other
@@ -702,10 +702,25 @@ var providers = []Provider{
 		Models:             []Model{},
 	},
 	{
+		// Ollama exposes an OpenAI-compatible /v1 API. Like vLLM, it gets a
+		// dedicated catalog id for provider-specific setup guidance while
+		// retaining the generic custom-provider routing and auth behavior.
+		ID:                 "ollama",
+		Kind:               KindCustom,
+		Name:               "Ollama",
+		Description:        "Self-hosted Ollama (OpenAI-compatible)",
+		DefaultHost:        "",
+		AuthHeaderName:     "Authorization",
+		AuthHeaderTemplate: "Bearer ${API_KEY}",
+		DefaultContentType: "application/json",
+		BrandColor:         "#000000",
+		Models:             []Model{},
+	},
+	{
 		ID:                 "custom",
 		Kind:               KindCustom,
 		Name:               "Custom / Self-hosted",
-		Description:        "OpenAI-compatible endpoint (vLLM, Ollama, …)",
+		Description:        "Other OpenAI-compatible endpoint",
 		DefaultHost:        "",
 		AuthHeaderName:     "Authorization",
 		AuthHeaderTemplate: "Bearer ${API_KEY}",
