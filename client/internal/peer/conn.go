@@ -74,6 +74,21 @@ type RosenpassConfig struct {
 	PermissiveMode bool
 }
 
+// PQHandshaker attaches post-quantum ML-KEM material to signalling offers/answers and
+// feeds received material back. It is implemented by the engine over the pqkem
+// manager and is nil when the PQ exchange is disabled. remoteKey is the peer's
+// WireGuard public key.
+type PQHandshaker interface {
+	// OfferPayload returns the KEM offer to embed in an outgoing offer (nil if this
+	// peer is not the KEM initiator) and the local PQ data-path port to announce.
+	OfferPayload(remoteKey string) (payload []byte, port int)
+	// AnswerPayload processes a received KEM offer (nil if absent) and returns the KEM
+	// answer to embed in the outgoing answer (nil if none) and the local PQ port.
+	AnswerPayload(remoteKey string, recvOffer []byte) (payload []byte, port int)
+	// OnAnswer feeds a received KEM answer (nil if absent).
+	OnAnswer(remoteKey string, recvAnswer []byte)
+}
+
 // ConnConfig is a peer Connection configuration
 type ConnConfig struct {
 	// Key is a public key of a remote peer
@@ -90,6 +105,9 @@ type ConnConfig struct {
 	LocalWgPort int
 
 	RosenpassConfig RosenpassConfig
+
+	// PQ carries post-quantum ML-KEM material on offers/answers; nil when disabled.
+	PQ PQHandshaker
 
 	// ICEConfig ICE protocol configuration
 	ICEConfig icemaker.Config

@@ -138,7 +138,7 @@ func (h *Handshaker) Listen(ctx context.Context) {
 				h.iceListener(&remoteOfferAnswer)
 			}
 
-			if err := h.sendAnswer(); err != nil {
+			if err := h.sendAnswer(&remoteOfferAnswer); err != nil {
 				h.log.Errorf("failed to send remote offer confirmation: %s", err)
 				continue
 			}
@@ -158,6 +158,10 @@ func (h *Handshaker) Listen(ctx context.Context) {
 
 			if h.iceListener != nil && h.RemoteICESupported() {
 				h.iceListener(&remoteOfferAnswer)
+			}
+
+			if h.config.PQ != nil {
+				h.config.PQ.OnAnswer(h.config.Key, remoteOfferAnswer.MlkemPayload)
 			}
 		case <-ctx.Done():
 			h.log.Infof("stop listening for remote offers and answers")
@@ -205,13 +209,23 @@ func (h *Handshaker) sendOffer() error {
 	}
 
 	offer := h.buildOfferAnswer()
+	if h.config.PQ != nil {
+		offer.MlkemPayload, offer.MlkemPort = h.config.PQ.OfferPayload(h.config.Key)
+	}
 	h.log.Debugf("sending offer with serial: %s", offer.SessionIDString())
 
 	return h.signaler.SignalOffer(offer, h.config.Key)
 }
 
-func (h *Handshaker) sendAnswer() error {
+func (h *Handshaker) sendAnswer(remoteOffer *OfferAnswer) error {
 	answer := h.buildOfferAnswer()
+	if h.config.PQ != nil {
+		var recvOffer []byte
+		if remoteOffer != nil {
+			recvOffer = remoteOffer.MlkemPayload
+		}
+		answer.MlkemPayload, answer.MlkemPort = h.config.PQ.AnswerPayload(h.config.Key, recvOffer)
+	}
 	h.log.Debugf("sending answer with serial: %s", answer.SessionIDString())
 
 	return h.signaler.SignalAnswer(answer, h.config.Key)
