@@ -1,6 +1,7 @@
 package pqkem
 
 import (
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -31,4 +32,28 @@ func Enabled() bool {
 		return false
 	}
 	return enabled
+}
+
+// EnvLogLevel overrides the ML-KEM manager's slog level (debug/info/warn/error).
+// Defaults to info.
+const EnvLogLevel = "NB_PQ_MLKEM_LOG_LEVEL"
+
+// NewLogger builds the slog logger for the ML-KEM manager: a text handler to stdout
+// at the level from EnvLogLevel. Mirrors the Rosenpass manager's logger setup so PQ
+// components log consistently.
+func NewLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel()}))
+}
+
+func logLevel() slog.Level {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(EnvLogLevel))) {
+	case "debug":
+		return slog.LevelDebug
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
 }
