@@ -44,7 +44,8 @@ var metadataKeys = []string{
 // Middleware computes a per-response cost estimate from the token
 // counts emitted upstream by llm_response_parser.
 type Middleware struct {
-	loader *pricing.Loader
+	loader         *pricing.Loader
+	providerPrices map[string]map[string]ModelPrice
 	// cancel stops this instance's pricing-reload goroutine. Non-nil only
 	// when the loader watches an override file; Close calls it so a chain
 	// rebuild doesn't leak a poll goroutine per retired instance.
@@ -53,8 +54,21 @@ type Middleware struct {
 
 // newMiddleware constructs a Middleware bound to the given pricing loader.
 // cancel may be nil (defaults-only loader with no reloader to stop).
-func newMiddleware(loader *pricing.Loader, cancel context.CancelFunc) *Middleware {
-	return &Middleware{loader: loader, cancel: cancel}
+func newMiddleware(loader *pricing.Loader, cancel context.CancelFunc, prices []ProviderPrices) *Middleware {
+	providerPrices := make(map[string]map[string]ModelPrice, len(prices))
+	for _, provider := range prices {
+		models := make(map[string]ModelPrice, len(provider.Models))
+		for _, model := range provider.Models {
+			if model.ID == "" || model.InputPer1k < 0 || model.OutputPer1k < 0 || (model.InputPer1k == 0 && model.OutputPer1k == 0) {
+				continue
+			}
+			models[model.ID] = model
+		}
+		if provider.ProviderID != "" && len(models) > 0 {
+			providerPrices[provider.ProviderID] = models
+		}
+	}
+	return &Middleware{loader: loader, cancel: cancel, providerPrices: providerPrices}
 }
 
 // ID returns the registry identifier.
@@ -144,8 +158,11 @@ func (m *Middleware) Invoke(_ context.Context, in *middleware.Input) (*middlewar
 		return out, nil
 	}
 
-	table := m.loader.Get()
-	costs, ok := table.Costs(provider, model, inTokens, outTokens, cachedTokens, cacheCreationTokens)
+	costs, ok := m.customCosts(in.Metadata, provider, model, inTokens, outTokens, cachedTokens, cacheCreationTokens)
+	if !ok {
+		table := m.loader.Get()
+		costs, ok = table.Costs(provider, model, inTokens, outTokens, cachedTokens, cacheCreationTokens)
+	}
 	if !ok {
 		out.Metadata = skip(skipUnknownModel)
 		return out, nil
@@ -176,6 +193,37 @@ func (m *Middleware) Invoke(_ context.Context, in *middleware.Input) (*middlewar
 // 10k such rows reports 0.02 instead of 0.016. Nano-dollar precision keeps the
 // per-row error ~1000x below the smallest realistic bucket.
 func usd(v float64) string { return fmt.Sprintf("%.9f", v) }
+
+// customCosts returns a configured exact-route price, if the router recorded a
+// resolved provider ID and that provider declares the requested model. Custom
+// prices have no cache-specific rates, so cache buckets use the input rate.
+func (m *Middleware) customCosts(metadata []middleware.KV, provider, model string, inputTokens, outputTokens, cachedTokens, cacheCreationTokens int64) (pricing.Costs, bool) {
+	providerID := lookupKV(metadata, middleware.KeyLLMResolvedProviderID)
+	price, ok := m.providerPrices[providerID][model]
+	if !ok {
+		return pricing.Costs{}, false
+	}
+	input := float64(inputTokens) / 1000 * price.InputPer1k
+	cachedInput := 0.0
+	cacheCreation := 0.0
+	if provider == "openai" {
+		cachedTokens = min(cachedTokens, inputTokens)
+		input = float64(inputTokens-cachedTokens) / 1000 * price.InputPer1k
+		cachedInput = float64(cachedTokens) / 1000 * price.InputPer1k
+	} else if provider == "anthropic" || provider == "bedrock" {
+		cachedInput = float64(cachedTokens) / 1000 * price.InputPer1k
+		cacheCreation = float64(cacheCreationTokens) / 1000 * price.InputPer1k
+	}
+	output := float64(outputTokens) / 1000 * price.OutputPer1k
+	return pricing.Costs{
+		InputUSD:         input,
+		CachedInputUSD:   cachedInput,
+		CacheCreationUSD: cacheCreation,
+		OutputUSD:        output,
+		TotalUSD:         input + cachedInput + cacheCreation + output,
+		CacheUSD:         cachedInput + cacheCreation,
+	}, true
+}
 
 // skip returns a single-entry metadata slice carrying the given skip
 // reason under KeyCostSkipped.

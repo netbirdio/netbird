@@ -140,6 +140,100 @@ func TestFactory_PricingPathOverride(t *testing.T) {
 	assert.Equal(t, "0.015000000", value, "2*0.0025 + 1*0.01 = 0.015 with 9-decimal format")
 }
 
+func TestInvoke_PrefersConfiguredProviderPrice(t *testing.T) {
+	configureBuiltin(t)
+	raw, err := json.Marshal(Config{ProviderPrices: []ProviderPrices{{
+		ProviderID: "custom-provider",
+		Models: []ModelPrice{{
+			ID:          "gpt-4o",
+			InputPer1k:  0.1,
+			OutputPer1k: 0.2,
+		}},
+	}, {
+		ProviderID: "other-provider",
+		Models: []ModelPrice{{
+			ID:          "gpt-4o",
+			InputPer1k:  0.3,
+			OutputPer1k: 0.4,
+		}},
+	}}})
+	require.NoError(t, err)
+	mw := buildMiddleware(t, raw)
+
+	out, err := mw.Invoke(context.Background(), &middleware.Input{Metadata: []middleware.KV{
+		{Key: middleware.KeyLLMProvider, Value: "openai"},
+		{Key: middleware.KeyLLMResolvedProviderID, Value: "custom-provider"},
+		{Key: middleware.KeyLLMModel, Value: "gpt-4o"},
+		{Key: middleware.KeyLLMInputTokens, Value: "1000"},
+		{Key: middleware.KeyLLMOutputTokens, Value: "1000"},
+	}})
+	require.NoError(t, err)
+
+	value, ok := metaValue(t, out.Metadata, middleware.KeyCostUSDTotal)
+	require.True(t, ok, "configured provider price must produce a cost")
+	assert.Equal(t, "0.300000", value, "configured route price must override static vendor pricing")
+
+	out, err = mw.Invoke(context.Background(), &middleware.Input{Metadata: []middleware.KV{
+		{Key: middleware.KeyLLMProvider, Value: "openai"},
+		{Key: middleware.KeyLLMResolvedProviderID, Value: "other-provider"},
+		{Key: middleware.KeyLLMModel, Value: "gpt-4o"},
+		{Key: middleware.KeyLLMInputTokens, Value: "1000"},
+		{Key: middleware.KeyLLMOutputTokens, Value: "1000"},
+	}})
+	require.NoError(t, err)
+	value, ok = metaValue(t, out.Metadata, middleware.KeyCostUSDTotal)
+	require.True(t, ok, "second configured provider price must produce a cost")
+	assert.Equal(t, "0.700000", value, "resolved provider ID must select the matching price for a shared model")
+}
+
+func TestInvoke_ConfiguredProviderPriceUsesCacheFallbackRates(t *testing.T) {
+	configureBuiltin(t)
+	raw, err := json.Marshal(Config{ProviderPrices: []ProviderPrices{{
+		ProviderID: "custom-provider",
+		Models:     []ModelPrice{{ID: "claude-sonnet-4-5", InputPer1k: 0.1, OutputPer1k: 0.2}},
+	}}})
+	require.NoError(t, err)
+	mw := buildMiddleware(t, raw)
+
+	out, err := mw.Invoke(context.Background(), &middleware.Input{Metadata: []middleware.KV{
+		{Key: middleware.KeyLLMProvider, Value: "anthropic"},
+		{Key: middleware.KeyLLMResolvedProviderID, Value: "custom-provider"},
+		{Key: middleware.KeyLLMModel, Value: "claude-sonnet-4-5"},
+		{Key: middleware.KeyLLMInputTokens, Value: "1000"},
+		{Key: middleware.KeyLLMOutputTokens, Value: "1000"},
+		{Key: middleware.KeyLLMCachedInputTokens, Value: "1000"},
+		{Key: middleware.KeyLLMCacheCreationTokens, Value: "1000"},
+	}})
+	require.NoError(t, err)
+
+	value, ok := metaValue(t, out.Metadata, middleware.KeyCostUSDTotal)
+	require.True(t, ok, "configured provider price must produce a cost")
+	assert.Equal(t, "0.500000", value, "cache buckets must fall back to configured input price")
+}
+
+func TestInvoke_ZeroConfiguredPriceFallsBackToStaticTable(t *testing.T) {
+	configureBuiltin(t)
+	raw, err := json.Marshal(Config{ProviderPrices: []ProviderPrices{{
+		ProviderID: "custom-provider",
+		Models:     []ModelPrice{{ID: "gpt-4o"}},
+	}}})
+	require.NoError(t, err)
+	mw := buildMiddleware(t, raw)
+
+	out, err := mw.Invoke(context.Background(), &middleware.Input{Metadata: []middleware.KV{
+		{Key: middleware.KeyLLMProvider, Value: "openai"},
+		{Key: middleware.KeyLLMResolvedProviderID, Value: "custom-provider"},
+		{Key: middleware.KeyLLMModel, Value: "gpt-4o"},
+		{Key: middleware.KeyLLMInputTokens, Value: "1000"},
+		{Key: middleware.KeyLLMOutputTokens, Value: "1000"},
+	}})
+	require.NoError(t, err)
+
+	value, ok := metaValue(t, out.Metadata, middleware.KeyCostUSDTotal)
+	require.True(t, ok, "static table must price a zero-valued configured model")
+	assert.Equal(t, "0.012500", value, "zero configured price must not override static vendor pricing")
+}
+
 func TestInvoke_ComputesCostForKnownModel(t *testing.T) {
 	configureBuiltin(t)
 	mw := buildMiddleware(t, nil)
@@ -493,7 +587,7 @@ func TestInvoke_UnparseableCachedTokensSkippedSilently(t *testing.T) {
 // the mtime-poll loop doesn't outlive the chain.
 func TestMiddleware_CloseCancelsReloader(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	m := newMiddleware(nil, cancel)
+	m := newMiddleware(nil, cancel, nil)
 
 	require.NoError(t, m.Close(), "Close must not error")
 	require.Error(t, ctx.Err(), "Close must cancel the reloader context so the poll goroutine exits")
@@ -502,7 +596,7 @@ func TestMiddleware_CloseCancelsReloader(t *testing.T) {
 // TestMiddleware_CloseNilSafe confirms Close is a no-op (no panic) for an
 // instance with no reloader and for a nil receiver.
 func TestMiddleware_CloseNilSafe(t *testing.T) {
-	require.NoError(t, newMiddleware(nil, nil).Close(), "no-reloader Close must be a no-op")
+	require.NoError(t, newMiddleware(nil, nil, nil).Close(), "no-reloader Close must be a no-op")
 	var m *Middleware
 	require.NoError(t, m.Close(), "nil-receiver Close must be safe")
 }

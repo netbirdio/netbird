@@ -214,7 +214,11 @@ func TestSynthesizeServices_HappyPath(t *testing.T) {
 
 	assert.Equal(t, middlewareIDCostMeter, mws[6].ID, "seventh middleware is the cost meter")
 	assert.Equal(t, rpservice.MiddlewareSlotOnResponse, mws[6].Slot, "cost meter runs on_response")
-	assert.Equal(t, []byte("{}"), mws[6].ConfigJSON, "cost meter carries an explicit empty config")
+	var costCfg costMeterConfig
+	require.NoError(t, json.Unmarshal(mws[6].ConfigJSON, &costCfg), "cost meter config must unmarshal")
+	require.Equal(t, []costMeterProviderPrices{
+		{ProviderID: openai.ID, Models: []costMeterModelPrice{{ID: "gpt-5.4", InputPer1k: 0.0025, OutputPer1k: 0.015}}},
+	}, costCfg.ProviderPrices, "configured route prices must reach cost meter")
 
 	assert.Equal(t, middlewareIDLLMResponseParser, mws[7].ID, "eighth middleware is the response parser")
 	assert.Equal(t, rpservice.MiddlewareSlotOnResponse, mws[7].Slot, "response parser runs on_response")

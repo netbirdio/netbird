@@ -227,6 +227,10 @@ func SynthesizeServices(ctx context.Context, s store.Store, accountID string) ([
 	if err != nil {
 		return nil, err
 	}
+	costMeterCfgJSON, err := buildCostMeterConfigJSON(enabledProviders, groupIndex)
+	if err != nil {
+		return nil, err
+	}
 
 	identityInjectJSON, err := buildIdentityInjectConfigJSON(enabledProviders, groupIndex)
 	if err != nil {
@@ -248,7 +252,7 @@ func SynthesizeServices(ctx context.Context, s store.Store, accountID string) ([
 	// Use the merged decision (account settings OR policy-required redaction),
 	// not the raw account flag, so a policy that mandates PII redaction is
 	// honored by the capture parsers even when the account toggle is off.
-	middlewares := buildMiddlewareChain(routerCfgJSON, identityInjectJSON, guardrailJSON, mergedGuardrails.PromptCapture.RedactPii, mergedGuardrails.PromptCapture.Enabled)
+	middlewares := buildMiddlewareChain(routerCfgJSON, costMeterCfgJSON, identityInjectJSON, guardrailJSON, mergedGuardrails.PromptCapture.RedactPii, mergedGuardrails.PromptCapture.Enabled)
 
 	priv, pub, err := pickServiceSessionKeys(enabledProviders)
 	if err != nil {
@@ -377,6 +381,24 @@ type routerProviderRoute struct {
 	SkipTLSVerify bool `json:"skip_tls_verify,omitempty"`
 }
 
+// costMeterConfig mirrors the provider-scoped prices accepted by the proxy's
+// cost_meter middleware. The router emits the selected provider ID, allowing
+// the cost meter to distinguish identically named models on separate routes.
+type costMeterConfig struct {
+	ProviderPrices []costMeterProviderPrices `json:"provider_prices"`
+}
+
+type costMeterProviderPrices struct {
+	ProviderID string                `json:"provider_id"`
+	Models     []costMeterModelPrice `json:"models"`
+}
+
+type costMeterModelPrice struct {
+	ID          string  `json:"id"`
+	InputPer1k  float64 `json:"input_per_1k"`
+	OutputPer1k float64 `json:"output_per_1k"`
+}
+
 // indexProviderGroups walks the enabled policies and returns, per
 // provider id, the sorted union of source group ids across every
 // policy that authorises the provider. Providers with no authorising
@@ -465,6 +487,43 @@ func buildRouterConfigJSON(providers []*types.Provider, groupIndex map[string][]
 	out, err := json.Marshal(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("marshal llm_router middleware config: %w", err)
+	}
+	return out, nil
+}
+
+// buildCostMeterConfigJSON emits configured model prices for reachable
+// providers. Catalog pricing remains the fallback when a route has no custom
+// price for the selected model.
+func buildCostMeterConfigJSON(providers []*types.Provider, groupIndex map[string][]string) ([]byte, error) {
+	cfg := costMeterConfig{ProviderPrices: make([]costMeterProviderPrices, 0, len(providers))}
+	for _, p := range providers {
+		if _, hasPolicy := groupIndex[p.ID]; !hasPolicy || len(p.Models) == 0 {
+			continue
+		}
+		prices := costMeterProviderPrices{
+			ProviderID: p.ID,
+			Models:     make([]costMeterModelPrice, 0, len(p.Models)),
+		}
+		for _, model := range p.Models {
+			// A zero-value model row can exist in older records. It is not a
+			// configured price, so preserve catalog pricing rather than turning
+			// a known model into a free route.
+			if model.ID == "" || model.InputPer1k < 0 || model.OutputPer1k < 0 || (model.InputPer1k == 0 && model.OutputPer1k == 0) {
+				continue
+			}
+			prices.Models = append(prices.Models, costMeterModelPrice{
+				ID:          model.ID,
+				InputPer1k:  model.InputPer1k,
+				OutputPer1k: model.OutputPer1k,
+			})
+		}
+		if len(prices.Models) > 0 {
+			cfg.ProviderPrices = append(cfg.ProviderPrices, prices)
+		}
+	}
+	out, err := json.Marshal(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("marshal cost_meter middleware config: %w", err)
 	}
 	return out, nil
 }
@@ -700,7 +759,7 @@ func buildIdentityExtraHeaders(p *types.Provider, extras []catalog.ExtraHeader) 
 // requests bound for gateways like LiteLLM that key budgets and
 // attribution off request headers. CanMutate is required so its
 // HeadersAdd / HeadersRemove pass the framework's mutation gate.
-func buildMiddlewareChain(routerCfgJSON, identityInjectJSON, guardrailJSON []byte, redactPii, capturePromptContent bool) []rpservice.MiddlewareConfig {
+func buildMiddlewareChain(routerCfgJSON, costMeterCfgJSON, identityInjectJSON, guardrailJSON []byte, redactPii, capturePromptContent bool) []rpservice.MiddlewareConfig {
 	// Both parsers receive an explicit capture flag derived from the account's
 	// enable_prompt_collection toggle; nil/unset would default to the legacy
 	// "always emit" behavior in the middleware, which is precisely what we
@@ -772,7 +831,7 @@ func buildMiddlewareChain(routerCfgJSON, identityInjectJSON, guardrailJSON []byt
 			ID:         middlewareIDCostMeter,
 			Enabled:    true,
 			Slot:       rpservice.MiddlewareSlotOnResponse,
-			ConfigJSON: []byte("{}"),
+			ConfigJSON: costMeterCfgJSON,
 		},
 		{
 			ID:         middlewareIDLLMResponseParser,
