@@ -1070,47 +1070,18 @@ func unionSourceGroups(policies []*types.Policy) []string {
 	return out
 }
 
-// MergedGuardrails is the JSON shape passed to the proxy via the
-// guardrail middleware's config_json. Mirrors the proxy-side
-// expectations and is intentionally distinct from
-// types.GuardrailChecks so we can evolve either side independently.
+// MergedGuardrails is the intermediate the synthesiser folds policy guardrails
+// into. Only prompt capture is merged here — the model allowlist is emitted
+// per-provider via buildProviderAllowlists, and token/budget/retention moved off
+// guardrails onto Policy.Limits and account Settings — so this carries just the
+// prompt-capture decision the capture parsers and guardrail config consume.
 type MergedGuardrails struct {
-	TokenLimits   MergedTokenLimits   `json:"token_limits"`
-	Budget        MergedBudget        `json:"budget"`
-	PromptCapture MergedPromptCapture `json:"prompt_capture"`
-	Retention     MergedRetention     `json:"retention"`
-}
-
-type MergedTokenLimits struct {
-	Hourly  *MergedTokenWindow `json:"hourly,omitempty"`
-	Daily   *MergedTokenWindow `json:"daily,omitempty"`
-	Monthly *MergedTokenWindow `json:"monthly,omitempty"`
-}
-
-type MergedTokenWindow struct {
-	MaxInputTokens  int `json:"max_input_tokens,omitempty"`
-	MaxOutputTokens int `json:"max_output_tokens,omitempty"`
-}
-
-type MergedBudget struct {
-	Hourly  *MergedBudgetWindow `json:"hourly,omitempty"`
-	Daily   *MergedBudgetWindow `json:"daily,omitempty"`
-	Monthly *MergedBudgetWindow `json:"monthly,omitempty"`
-}
-
-type MergedBudgetWindow struct {
-	SoftCapUSD float64 `json:"soft_cap_usd,omitempty"`
-	HardCapUSD float64 `json:"hard_cap_usd,omitempty"`
+	PromptCapture MergedPromptCapture
 }
 
 type MergedPromptCapture struct {
 	Enabled   bool `json:"enabled"`
 	RedactPii bool `json:"redact_pii"`
-}
-
-type MergedRetention struct {
-	Enabled bool `json:"enabled"`
-	Days    int  `json:"days"`
 }
 
 // mergeGuardrails computes the prompt-capture portion of the effective
