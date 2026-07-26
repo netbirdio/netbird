@@ -88,6 +88,9 @@ type PQHandshaker interface {
 	AnswerPayload(remoteKey string, recvOffer []byte) (payload []byte, port int)
 	// OnAnswer feeds a received KEM answer (nil if absent).
 	OnAnswer(remoteKey string, recvAnswer []byte)
+	// PSK returns the peer's latest derived post-quantum PSK to program at WG
+	// peer-config time (the pull path). ok is false until one has been derived.
+	PSK(remoteKey string) (wgtypes.Key, bool)
 }
 
 // ConnConfig is a peer Connection configuration
@@ -1008,6 +1011,15 @@ func (conn *Conn) AgentVersionString() string {
 }
 
 func (conn *Conn) presharedKey(remoteRosenpassKey []byte) *wgtypes.Key {
+	// Post-quantum: once the ML-KEM exchange has derived a PSK for this peer, program
+	// it here so the peer's next WireGuard handshake adopts it. Applied at peer-config
+	// time (bootstrap / reconnect); steady-state rotation is pushed separately.
+	if conn.config.PQ != nil {
+		if psk, ok := conn.config.PQ.PSK(conn.config.Key); ok {
+			return &psk
+		}
+	}
+
 	if conn.config.RosenpassConfig.PubKey == nil {
 		return conn.config.WgConfig.PreSharedKey
 	}
