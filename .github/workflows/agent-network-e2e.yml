@@ -12,10 +12,6 @@ on:
           AWS issues it. Leave empty for the Sonnet 4.6 default.
         required: false
         default: ""
-  # Auto-run on pushes to the cache-accounting branch until its PR opens.
-  push:
-    branches:
-      - "anet-cache-cost-accounting"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
