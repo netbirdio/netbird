@@ -656,7 +656,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		if pqErr != nil {
 			log.Errorf("pqkem: transport bind failed, exchange disabled: %v", pqErr)
 		} else {
-			e.pqkemManager = pqkem.NewManager(pqkem.LocalID(publicKey.String()), pqCallbackHandler{wg: e.wgInterface}, nil)
+			e.pqkemManager = pqkem.NewManager(pqkem.LocalID(publicKey.String()), pqCallbackHandler{wg: e.wgInterface}, pqkem.NewLogger())
 			e.pqkemManager.Start(tr)
 			log.Infof("pqkem: enabled (udp port %d on overlay %s)", e.pqkemManager.LocalPort(), e.config.WgAddr.IP)
 		}
