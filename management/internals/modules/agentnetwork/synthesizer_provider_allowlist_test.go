@@ -74,4 +74,13 @@ func TestBuildProviderAllowlists(t *testing.T) {
 		assert.Equal(t, []string{"gpt-4o"}, got["prov-x"])
 		assert.Equal(t, []string{"gpt-4o"}, got["prov-y"])
 	})
+
+	t.Run("union across a single policy's guardrails", func(t *testing.T) {
+		policies := []*types.Policy{
+			policyForProviders("p1", []string{"g-4o", "g-opus"}, "prov-x"),
+		}
+		got := buildProviderAllowlists(policies, byID)
+		assert.ElementsMatch(t, []string{"claude-opus-4", "gpt-4o"}, got["prov-x"],
+			"a policy's own multiple allowlist guardrails union together")
+	})
 }

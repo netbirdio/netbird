@@ -221,3 +221,28 @@ func TestSelectPolicy_DisabledAllowlistDoesNotRestrict(t *testing.T) {
 	assert.True(t, res.Allow, "a disabled allowlist must not restrict the model")
 	assert.Equal(t, "pol-A", res.SelectedPolicyID)
 }
+
+// TestSelectPolicy_UnionAcrossPolicyGuardrails proves a policy with multiple
+// allowlist guardrails permits the union of their models (not just the first).
+func TestSelectPolicy_UnionAcrossPolicyGuardrails(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mgr, mockStore := newSelectorMgr(t, ctrl)
+
+	policy := guardedPolicy("pol-A", "acc-1", []string{"grp-eng"}, "prov-1", "g-1", "g-2")
+	expectPolicies(mockStore, "acc-1", policy)
+	expectGuardrails(mockStore, "acc-1",
+		allowlistGuardrail("g-1", "acc-1", "gpt-4o"),
+		allowlistGuardrail("g-2", "acc-1", "claude-opus-4"),
+	)
+	expectConsumptionBatch(mockStore, nil)
+
+	res, err := mgr.SelectPolicyForRequest(context.Background(), PolicySelectionInput{
+		AccountID:  "acc-1",
+		GroupIDs:   []string{"grp-eng"},
+		ProviderID: "prov-1",
+		Model:      "claude-opus-4", // only in the second guardrail's list
+	})
+	require.NoError(t, err)
+	assert.True(t, res.Allow, "a model in any of the policy's allowlist guardrails must be permitted")
+	assert.Equal(t, "pol-A", res.SelectedPolicyID)
+}
