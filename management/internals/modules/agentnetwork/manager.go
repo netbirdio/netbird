@@ -12,6 +12,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/catalog"
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/labelgen"
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
@@ -174,11 +175,8 @@ func (m *managerImpl) CreateProvider(ctx context.Context, userID string, provide
 		return nil, err
 	}
 
-	// An empty api_key would silently produce a synthesised service
-	// that 401s on every upstream request. Surface the misconfiguration
-	// at create time instead.
-	if strings.TrimSpace(provider.APIKey) == "" {
-		return nil, status.Errorf(status.InvalidArgument, "api_key is required when creating an agent network provider")
+	if err := prepareProviderAPIKey(provider, nil); err != nil {
+		return nil, err
 	}
 
 	if provider.ID == "" {
@@ -222,13 +220,8 @@ func (m *managerImpl) UpdateProvider(ctx context.Context, userID string, provide
 		return nil, fmt.Errorf("failed to get agent network provider: %w", err)
 	}
 
-	// Preserve the API key if the caller didn't rotate it. A
-	// whitespace-only value is treated as "not rotated" rather than a
-	// real key, but it must not silently overwrite a valid stored key.
-	if provider.APIKey == "" {
-		provider.APIKey = existing.APIKey
-	} else if strings.TrimSpace(provider.APIKey) == "" {
-		return nil, status.Errorf(status.InvalidArgument, "api_key must be non-blank when rotating an agent network provider")
+	if err := prepareProviderAPIKey(provider, existing); err != nil {
+		return nil, err
 	}
 	// Always preserve the session keypair across updates so existing
 	// session cookies stay valid. The keys are server-managed and
@@ -249,6 +242,52 @@ func (m *managerImpl) UpdateProvider(ctx context.Context, userID string, provide
 	m.reconcile(ctx, provider.AccountID)
 
 	return provider, nil
+}
+
+// prepareProviderAPIKey applies catalog-owned authentication semantics before
+// a provider is persisted. existing is nil on create. On update, omission
+// preserves a key only when the provider type is unchanged; switching types
+// never carries an old provider's secret into the new upstream.
+func prepareProviderAPIKey(provider, existing *types.Provider) error {
+	entry, ok := catalog.Lookup(provider.ProviderID)
+	if !ok {
+		return status.Errorf(status.InvalidArgument, "provider_id %q is not a known catalog provider", provider.ProviderID)
+	}
+	return prepareProviderAPIKeyForEntry(provider, existing, entry)
+}
+
+func prepareProviderAPIKeyForEntry(provider, existing *types.Provider, entry catalog.Provider) error {
+	keyProvided := provider.APIKeyProvided || provider.APIKey != ""
+	providerChanged := existing != nil && provider.ProviderID != existing.ProviderID
+	if existing != nil && !keyProvided && !providerChanged && entry.EffectiveAuthMode() != catalog.AuthModeNone {
+		provider.APIKey = existing.APIKey
+	}
+	// Normalize after a preserved value is restored so a legacy
+	// whitespace-only credential cannot pass manager validation and then fail
+	// later during synthesis.
+	if strings.TrimSpace(provider.APIKey) == "" {
+		provider.APIKey = ""
+	}
+
+	switch entry.EffectiveAuthMode() {
+	case catalog.AuthModeRequired:
+		if provider.APIKey == "" {
+			return status.Errorf(status.InvalidArgument, "api_key is required for provider_id %q", provider.ProviderID)
+		}
+	case catalog.AuthModeOptional:
+		// Empty is a valid credential state.
+	case catalog.AuthModeNone:
+		if keyProvided && provider.APIKey != "" {
+			return status.Errorf(status.InvalidArgument, "api_key is not supported for provider_id %q", provider.ProviderID)
+		}
+		// Clear any stale credential already stored for a provider whose
+		// catalog semantics changed to no authentication.
+		provider.APIKey = ""
+	default:
+		return status.Errorf(status.InvalidArgument, "provider_id %q has an invalid authentication mode", provider.ProviderID)
+	}
+
+	return nil
 }
 
 func (m *managerImpl) DeleteProvider(ctx context.Context, accountID, userID, providerID string) error {

@@ -38,6 +38,27 @@ func (e AccessRestrictionsCrowdsecMode) Valid() bool {
 	}
 }
 
+// Defines values for AgentNetworkCatalogProviderAuthMode.
+const (
+	AgentNetworkCatalogProviderAuthModeNone     AgentNetworkCatalogProviderAuthMode = "none"
+	AgentNetworkCatalogProviderAuthModeOptional AgentNetworkCatalogProviderAuthMode = "optional"
+	AgentNetworkCatalogProviderAuthModeRequired AgentNetworkCatalogProviderAuthMode = "required"
+)
+
+// Valid indicates whether the value is a known member of the AgentNetworkCatalogProviderAuthMode enum.
+func (e AgentNetworkCatalogProviderAuthMode) Valid() bool {
+	switch e {
+	case AgentNetworkCatalogProviderAuthModeNone:
+		return true
+	case AgentNetworkCatalogProviderAuthModeOptional:
+		return true
+	case AgentNetworkCatalogProviderAuthModeRequired:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AgentNetworkCatalogProviderKind.
 const (
 	AgentNetworkCatalogProviderKindCustom   AgentNetworkCatalogProviderKind = "custom"
@@ -2038,6 +2059,9 @@ type AgentNetworkCatalogProvider struct {
 	// AuthHeaderTemplate Template the proxy uses to inject the API key (the literal string ${API_KEY} is replaced at request time).
 	AuthHeaderTemplate string `json:"auth_header_template"`
 
+	// AuthMode Whether this provider requires, optionally accepts, or does not support an upstream API key.
+	AuthMode AgentNetworkCatalogProviderAuthMode `json:"auth_mode"`
+
 	// BrandColor Hex brand color used to render the provider badge in the dashboard.
 	BrandColor string `json:"brand_color"`
 
@@ -2071,6 +2095,9 @@ type AgentNetworkCatalogProvider struct {
 	// Name Display name for the provider.
 	Name string `json:"name"`
 }
+
+// AgentNetworkCatalogProviderAuthMode Whether this provider requires, optionally accepts, or does not support an upstream API key.
+type AgentNetworkCatalogProviderAuthMode string
 
 // AgentNetworkCatalogProviderKind Presentation grouping for the provider Select on the dashboard.
 // "provider" — first-party vendor API (OpenAI, Anthropic, …); the upstream is the model itself.
@@ -2260,6 +2287,9 @@ type AgentNetworkProvider struct {
 	// ExtraValues Operator-typed values for catalog-declared extra headers. Keys are wire header names (e.g. `x-portkey-config`); values are the strings the proxy stamps on every upstream request to this provider. Catalog (AgentNetworkCatalogProvider.extra_headers) declares which keys are accepted; values not declared by the catalog are ignored at synth time. Empty / missing values mean no header stamped.
 	ExtraValues *map[string]string `json:"extra_values,omitempty"`
 
+	// HasApiKey Whether an upstream API key is currently stored. The key itself is never returned.
+	HasApiKey bool `json:"has_api_key"`
+
 	// Id Provider ID
 	Id string `json:"id"`
 
@@ -2305,7 +2335,7 @@ type AgentNetworkProviderModel struct {
 
 // AgentNetworkProviderRequest defines model for AgentNetworkProviderRequest.
 type AgentNetworkProviderRequest struct {
-	// ApiKey Upstream provider API key. Sealed at rest on the management server and never returned in responses. Required on create; optional on update (omit to keep the existing key).
+	// ApiKey Upstream provider API key. Sealed at rest on the management server and never returned in responses. Whether a key is accepted or required is declared by the selected catalog provider's `auth_mode`. On update, omit this field to preserve the existing key or send an empty string to clear an optional key.
 	ApiKey *string `json:"api_key,omitempty"`
 
 	// BootstrapCluster Proxy cluster used to bootstrap the per-account agent-network endpoint when the first provider is created. Ignored on subsequent creates and on updates because the cluster is pinned on the account-level Settings row.

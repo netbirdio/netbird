@@ -40,6 +40,18 @@ const (
 	KindCustom   ProviderKind = "custom"
 )
 
+// AuthMode describes whether a catalog provider accepts an upstream
+// credential. The zero value intentionally resolves to AuthModeRequired so
+// existing and newly-added catalog entries fail closed unless they explicitly
+// opt into a less restrictive mode.
+type AuthMode string
+
+const (
+	AuthModeRequired AuthMode = "required"
+	AuthModeOptional AuthMode = "optional"
+	AuthModeNone     AuthMode = "none"
+)
+
 // Provider is the in-memory representation of a catalog provider.
 type Provider struct {
 	ID          string
@@ -48,6 +60,9 @@ type Provider struct {
 	DefaultHost string
 	// Kind groups this entry for UI presentation; see ProviderKind.
 	Kind ProviderKind
+	// AuthMode declares whether the provider requires, optionally accepts, or
+	// does not support an upstream API key. Empty defaults to required.
+	AuthMode AuthMode
 	// AuthHeaderName is the HTTP header the provider's API expects
 	// the credential under (e.g. "Authorization" for OpenAI,
 	// "x-api-key" for Anthropic). Combined with AuthHeaderTemplate
@@ -704,9 +719,11 @@ var providers = []Provider{
 	{
 		// Ollama exposes an OpenAI-compatible /v1 API. Like vLLM, it gets a
 		// dedicated catalog id for provider-specific setup guidance while
-		// retaining the generic custom-provider routing and auth behavior.
+		// retaining generic custom-provider routing. Authentication is optional
+		// because local Ollama is authless but protected front ends may use it.
 		ID:                 "ollama",
 		Kind:               KindCustom,
+		AuthMode:           AuthModeOptional,
 		Name:               "Ollama",
 		Description:        "Self-hosted Ollama (OpenAI-compatible)",
 		DefaultHost:        "",
@@ -753,6 +770,15 @@ func IsKnown(id string) bool {
 	return ok
 }
 
+// EffectiveAuthMode returns the provider's configured authentication mode.
+// Treating the zero value as required keeps older catalog entries fail closed.
+func (p Provider) EffectiveAuthMode() AuthMode {
+	if p.AuthMode == "" {
+		return AuthModeRequired
+	}
+	return p.AuthMode
+}
+
 // IsVertexPathStyle reports whether a provider uses the Google Vertex AI
 // request shape — the model is carried in the URL path
 // (/v1/projects/{p}/locations/{r}/publishers/{pub}/models/{model}:{action})
@@ -794,6 +820,7 @@ func (p Provider) ToAPIResponse() api.AgentNetworkCatalogProvider {
 		Description:        p.Description,
 		DefaultHost:        p.DefaultHost,
 		Kind:               kind,
+		AuthMode:           api.AgentNetworkCatalogProviderAuthMode(p.EffectiveAuthMode()),
 		AuthHeaderTemplate: p.AuthHeaderTemplate,
 		DefaultContentType: p.DefaultContentType,
 		BrandColor:         p.BrandColor,

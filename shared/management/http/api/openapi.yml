@@ -5138,6 +5138,9 @@ components:
           description: Models exposed through this endpoint, with the operator's per-1k input/output prices. Empty means all catalog models are allowed at catalog prices.
           items:
             $ref: '#/components/schemas/AgentNetworkProviderModel'
+        has_api_key:
+          type: boolean
+          description: Whether an upstream API key is currently stored. The key itself is never returned.
         extra_values:
           type: object
           description: |
@@ -5186,6 +5189,7 @@ components:
         - name
         - upstream_url
         - models
+        - has_api_key
         - enabled
         - skip_tls_verification
         - metadata_disabled
@@ -5212,7 +5216,8 @@ components:
           example: "eu.proxy.netbird.io"
         api_key:
           type: string
-          description: Upstream provider API key. Sealed at rest on the management server and never returned in responses. Required on create; optional on update (omit to keep the existing key).
+          description: |
+            Upstream provider API key. Sealed at rest on the management server and never returned in responses. Whether a key is accepted or required is declared by the selected catalog provider's `auth_mode`. On update, omit this field to preserve the existing key or send an empty string to clear an optional key.
           example: "sk-..."
         models:
           type: array
@@ -5325,6 +5330,11 @@ components:
           type: string
           description: Default upstream host suggested when adding a provider of this type.
           example: "api.openai.com"
+        auth_mode:
+          type: string
+          description: Whether this provider requires, optionally accepts, or does not support an upstream API key.
+          enum: [required, optional, none]
+          example: "required"
         auth_header_template:
           type: string
           description: Template the proxy uses to inject the API key (the literal string ${API_KEY} is replaced at request time).
@@ -5364,6 +5374,7 @@ components:
         - name
         - description
         - default_host
+        - auth_mode
         - auth_header_template
         - default_content_type
         - brand_color

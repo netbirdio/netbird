@@ -77,3 +77,37 @@ func TestProvider_MetadataDisabled_RoundTrip(t *testing.T) {
 	assert.False(t, p.MetadataDisabled, "explicit false must clear metadata_disabled")
 	assert.False(t, p.ToAPIResponse().MetadataDisabled, "response must reflect the cleared value")
 }
+
+func TestProvider_APIKeyPresenceAndResponse(t *testing.T) {
+	base := func() *api.AgentNetworkProviderRequest {
+		return &api.AgentNetworkProviderRequest{
+			ProviderId:  "ollama",
+			Name:        "Ollama",
+			UpstreamUrl: "http://ollama.internal:11434",
+		}
+	}
+
+	p := NewProvider("acc-1")
+	p.FromAPIRequest(base())
+	assert.False(t, p.APIKeyProvided, "omission must remain distinguishable from an explicit clear")
+	assert.False(t, p.ToAPIResponse().HasApiKey)
+
+	key := "protected-endpoint-token"
+	withKey := base()
+	withKey.ApiKey = &key
+	p.FromAPIRequest(withKey)
+	assert.True(t, p.APIKeyProvided)
+	assert.Equal(t, key, p.APIKey)
+	assert.True(t, p.ToAPIResponse().HasApiKey)
+
+	empty := ""
+	clearKey := base()
+	clearKey.ApiKey = &empty
+	p.FromAPIRequest(clearKey)
+	assert.True(t, p.APIKeyProvided, "explicit empty must be carried to the manager as a clear")
+	assert.Empty(t, p.APIKey)
+	assert.False(t, p.ToAPIResponse().HasApiKey)
+
+	p.FromAPIRequest(base())
+	assert.False(t, p.APIKeyProvided, "a later omitted value must reset transient request presence")
+}

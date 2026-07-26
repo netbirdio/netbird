@@ -193,11 +193,12 @@ func (h *handler) deleteProvider(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
 }
 
-func validate(req *api.AgentNetworkProviderRequest, requireAPIKey bool) error {
+func validate(req *api.AgentNetworkProviderRequest, creating bool) error {
 	if strings.TrimSpace(req.ProviderId) == "" {
 		return status.Errorf(status.InvalidArgument, "provider_id is required")
 	}
-	if !catalog.IsKnown(req.ProviderId) {
+	entry, ok := catalog.Lookup(req.ProviderId)
+	if !ok {
 		return status.Errorf(status.InvalidArgument, "provider_id %q is not a known catalog provider", req.ProviderId)
 	}
 	if strings.TrimSpace(req.Name) == "" {
@@ -210,8 +211,27 @@ func validate(req *api.AgentNetworkProviderRequest, requireAPIKey bool) error {
 	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
 		return status.Errorf(status.InvalidArgument, "upstream_url must be a full http(s) URL")
 	}
-	if requireAPIKey && (req.ApiKey == nil || strings.TrimSpace(*req.ApiKey) == "") {
-		return status.Errorf(status.InvalidArgument, "api_key is required")
+	return validateProviderAPIKey(entry, req.ApiKey, creating)
+}
+
+func validateProviderAPIKey(entry catalog.Provider, apiKey *string, creating bool) error {
+	apiKeyBlank := apiKey == nil || strings.TrimSpace(*apiKey) == ""
+	switch entry.EffectiveAuthMode() {
+	case catalog.AuthModeRequired:
+		// Updates may omit the key to preserve it, but an explicitly empty
+		// value cannot clear a credential required by the selected provider.
+		if (creating || apiKey != nil) && apiKeyBlank {
+			return status.Errorf(status.InvalidArgument, "api_key is required for provider_id %q", entry.ID)
+		}
+	case catalog.AuthModeOptional:
+		// Both omitted and explicitly empty values are valid. The manager
+		// distinguishes preserve from clear during update.
+	case catalog.AuthModeNone:
+		if !apiKeyBlank {
+			return status.Errorf(status.InvalidArgument, "api_key is not supported for provider_id %q", entry.ID)
+		}
+	default:
+		return status.Errorf(status.InvalidArgument, "provider_id %q has an invalid authentication mode", entry.ID)
 	}
 	return nil
 }
