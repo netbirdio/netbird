@@ -98,6 +98,24 @@ func (e AgentNetworkConsumptionDimensionKind) Valid() bool {
 	}
 }
 
+// Defines values for AgentNetworkModelDiscoveryResponseSource.
+const (
+	AgentNetworkModelDiscoveryResponseSourceOllamaApiTags  AgentNetworkModelDiscoveryResponseSource = "ollama_api_tags"
+	AgentNetworkModelDiscoveryResponseSourceOpenaiV1Models AgentNetworkModelDiscoveryResponseSource = "openai_v1_models"
+)
+
+// Valid indicates whether the value is a known member of the AgentNetworkModelDiscoveryResponseSource enum.
+func (e AgentNetworkModelDiscoveryResponseSource) Valid() bool {
+	switch e {
+	case AgentNetworkModelDiscoveryResponseSourceOllamaApiTags:
+		return true
+	case AgentNetworkModelDiscoveryResponseSourceOpenaiV1Models:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CreateAzureIntegrationRequestHost.
 const (
 	CreateAzureIntegrationRequestHostMicrosoftCom CreateAzureIntegrationRequestHost = "microsoft.com"
@@ -2094,6 +2112,9 @@ type AgentNetworkCatalogProvider struct {
 
 	// Name Display name for the provider.
 	Name string `json:"name"`
+
+	// SupportsModelDiscovery Whether models can be loaded from a persisted endpoint through the selected proxy cluster.
+	SupportsModelDiscovery bool `json:"supports_model_discovery"`
 }
 
 // AgentNetworkCatalogProviderAuthMode Whether this provider requires, optionally accepts, or does not support an upstream API key.
@@ -2134,6 +2155,15 @@ type AgentNetworkConsumption struct {
 
 // AgentNetworkConsumptionDimensionKind Whether this row counts a single end user or a single source group across every member.
 type AgentNetworkConsumptionDimensionKind string
+
+// AgentNetworkDiscoveredModel A model reported by the provider's persisted upstream endpoint.
+type AgentNetworkDiscoveredModel struct {
+	// Id Exact model identifier accepted by the upstream endpoint.
+	Id string `json:"id"`
+
+	// Label Human-friendly label reported by the endpoint. Falls back to the model identifier.
+	Label string `json:"label"`
+}
 
 // AgentNetworkGuardrail defines model for AgentNetworkGuardrail.
 type AgentNetworkGuardrail struct {
@@ -2181,6 +2211,26 @@ type AgentNetworkGuardrailRequest struct {
 	// Name Display name for the guardrail.
 	Name string `json:"name"`
 }
+
+// AgentNetworkModelDiscoveryResponse Result of an explicit model-discovery probe executed by a connected
+// proxy in the account's selected Agent Network cluster. Discovered
+// models are not persisted until the provider is updated.
+type AgentNetworkModelDiscoveryResponse struct {
+	// Models Normalized, deduplicated models reported by the upstream.
+	Models []AgentNetworkDiscoveredModel `json:"models"`
+
+	// ProxyCluster Proxy cluster from which the endpoint was queried.
+	ProxyCluster string `json:"proxy_cluster"`
+
+	// RequestId Correlation identifier for the management-to-proxy probe.
+	RequestId string `json:"request_id"`
+
+	// Source Upstream API shape used to obtain the result.
+	Source AgentNetworkModelDiscoveryResponseSource `json:"source"`
+}
+
+// AgentNetworkModelDiscoveryResponseSource Upstream API shape used to obtain the result.
+type AgentNetworkModelDiscoveryResponseSource string
 
 // AgentNetworkPolicy defines model for AgentNetworkPolicy.
 type AgentNetworkPolicy struct {

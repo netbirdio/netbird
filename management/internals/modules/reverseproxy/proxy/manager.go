@@ -4,10 +4,15 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
+
+// ErrModelDiscoveryUnavailable is returned when no connected proxy in the
+// requested cluster can execute a model-discovery request.
+var ErrModelDiscoveryUnavailable = errors.New("model discovery proxy unavailable")
 
 // Manager defines the interface for proxy operations
 type Manager interface {
@@ -38,6 +43,7 @@ type OIDCValidationConfig struct {
 // Controller is responsible for managing proxy clusters and routing service updates.
 type Controller interface {
 	SendServiceUpdateToCluster(ctx context.Context, accountID string, update *proto.ProxyMapping, clusterAddr string)
+	DiscoverModels(ctx context.Context, accountID, clusterAddr string, req *proto.ModelDiscoveryRequest) (*proto.ModelDiscoveryResult, error)
 	GetOIDCValidationConfig() OIDCValidationConfig
 	RegisterProxyToCluster(ctx context.Context, clusterAddr, proxyID string) error
 	UnregisterProxyFromCluster(ctx context.Context, clusterAddr, proxyID string) error

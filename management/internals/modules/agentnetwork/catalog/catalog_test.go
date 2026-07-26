@@ -23,13 +23,24 @@ func TestOllamaCatalogEntry(t *testing.T) {
 	assert.Equal(t, "application/json", entry.DefaultContentType)
 	assert.Empty(t, entry.ParserID, "Ollama preserves the untagged vLLM/custom routing behavior")
 	assert.Empty(t, entry.Models, "Ollama models are installed dynamically on the configured endpoint")
+	require.NotNil(t, entry.ModelDiscovery)
+	assert.True(t, entry.ModelDiscovery.OllamaFallback)
 
 	wire := entry.ToAPIResponse()
 	assert.Equal(t, "ollama", wire.Id)
 	assert.Equal(t, api.AgentNetworkCatalogProviderKindCustom, wire.Kind)
 	assert.Equal(t, api.AgentNetworkCatalogProviderAuthModeOptional, wire.AuthMode)
+	assert.True(t, wire.SupportsModelDiscovery)
 	assert.NotNil(t, wire.Models)
 	assert.Empty(t, wire.Models)
+}
+
+func TestOnlyOllamaSupportsModelDiscovery(t *testing.T) {
+	for _, entry := range All() {
+		supportsDiscovery := entry.ModelDiscovery != nil
+		assert.Equal(t, entry.ID == "ollama", supportsDiscovery, entry.ID)
+		assert.Equal(t, supportsDiscovery, entry.ToAPIResponse().SupportsModelDiscovery, entry.ID)
+	}
 }
 
 func TestCatalogAuthenticationModes(t *testing.T) {

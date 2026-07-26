@@ -259,6 +259,21 @@ func (m *MockController) EXPECT() *MockControllerMockRecorder {
 	return m.recorder
 }
 
+// DiscoverModels mocks base method.
+func (m *MockController) DiscoverModels(ctx context.Context, accountID, clusterAddr string, req *proto.ModelDiscoveryRequest) (*proto.ModelDiscoveryResult, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DiscoverModels", ctx, accountID, clusterAddr, req)
+	ret0, _ := ret[0].(*proto.ModelDiscoveryResult)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DiscoverModels indicates an expected call of DiscoverModels.
+func (mr *MockControllerMockRecorder) DiscoverModels(ctx, accountID, clusterAddr, req interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DiscoverModels", reflect.TypeOf((*MockController)(nil).DiscoverModels), ctx, accountID, clusterAddr, req)
+}
+
 // GetOIDCValidationConfig mocks base method.
 func (m *MockController) GetOIDCValidationConfig() OIDCValidationConfig {
 	m.ctrl.T.Helper()

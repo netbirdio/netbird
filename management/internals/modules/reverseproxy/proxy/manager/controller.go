@@ -39,6 +39,12 @@ func (c *GRPCController) SendServiceUpdateToCluster(ctx context.Context, account
 	c.metrics.IncrementServiceUpdateSendCount(clusterAddr)
 }
 
+// DiscoverModels executes a correlated model-discovery request on one capable
+// proxy connected to the requested cluster.
+func (c *GRPCController) DiscoverModels(ctx context.Context, accountID, clusterAddr string, req *proto.ModelDiscoveryRequest) (*proto.ModelDiscoveryResult, error) {
+	return c.proxyGRPCServer.DiscoverModels(ctx, accountID, clusterAddr, req)
+}
+
 // GetOIDCValidationConfig returns the OIDC validation configuration from the gRPC server.
 func (c *GRPCController) GetOIDCValidationConfig() proxy.OIDCValidationConfig {
 	return c.proxyGRPCServer.GetOIDCValidationConfig()
@@ -50,10 +56,12 @@ func (c *GRPCController) RegisterProxyToCluster(ctx context.Context, clusterAddr
 		return nil
 	}
 	proxySet, _ := c.clusterProxies.LoadOrStore(clusterAddr, &sync.Map{})
-	proxySet.(*sync.Map).Store(proxyID, struct{}{})
+	_, alreadyRegistered := proxySet.(*sync.Map).LoadOrStore(proxyID, struct{}{})
 	log.WithContext(ctx).Debugf("Registered proxy %s to cluster %s", proxyID, clusterAddr)
 
-	c.metrics.IncrementProxyConnectionCount(clusterAddr)
+	if !alreadyRegistered {
+		c.metrics.IncrementProxyConnectionCount(clusterAddr)
+	}
 
 	return nil
 }
@@ -64,10 +72,10 @@ func (c *GRPCController) UnregisterProxyFromCluster(ctx context.Context, cluster
 		return nil
 	}
 	if proxySet, ok := c.clusterProxies.Load(clusterAddr); ok {
-		proxySet.(*sync.Map).Delete(proxyID)
-		log.WithContext(ctx).Debugf("Unregistered proxy %s from cluster %s", proxyID, clusterAddr)
-
-		c.metrics.DecrementProxyConnectionCount(clusterAddr)
+		if _, registered := proxySet.(*sync.Map).LoadAndDelete(proxyID); registered {
+			log.WithContext(ctx).Debugf("Unregistered proxy %s from cluster %s", proxyID, clusterAddr)
+			c.metrics.DecrementProxyConnectionCount(clusterAddr)
+		}
 	}
 	return nil
 }

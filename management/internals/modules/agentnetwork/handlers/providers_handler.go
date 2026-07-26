@@ -35,6 +35,7 @@ func RegisterEndpoints(manager agentnetwork.Manager, router *mux.Router) {
 	router.HandleFunc("/agent-network/providers/{providerId}", h.getProvider).Methods("GET", "OPTIONS")
 	router.HandleFunc("/agent-network/providers/{providerId}", h.updateProvider).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/agent-network/providers/{providerId}", h.deleteProvider).Methods("DELETE", "OPTIONS")
+	router.HandleFunc("/agent-network/providers/{providerId}/discover-models", h.discoverProviderModels).Methods("POST", "OPTIONS")
 	h.addPolicyEndpoints(router)
 	h.addGuardrailEndpoints(router)
 	h.addSettingsEndpoints(router)
@@ -96,6 +97,41 @@ func (h *handler) getProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	util.WriteJSONObject(r.Context(), w, provider.ToAPIResponse())
+}
+
+func (h *handler) discoverProviderModels(w http.ResponseWriter, r *http.Request) {
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	providerID := strings.TrimSpace(mux.Vars(r)["providerId"])
+	if providerID == "" {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "provider ID is required"), w)
+		return
+	}
+
+	result, err := h.manager.DiscoverProviderModels(r.Context(), userAuth.AccountId, userAuth.UserId, providerID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	models := make([]api.AgentNetworkDiscoveredModel, 0, len(result.Models))
+	for _, model := range result.Models {
+		models = append(models, api.AgentNetworkDiscoveredModel{
+			Id:    model.ID,
+			Label: model.Label,
+		})
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	util.WriteJSONObject(r.Context(), w, api.AgentNetworkModelDiscoveryResponse{
+		Models:       models,
+		Source:       api.AgentNetworkModelDiscoveryResponseSource(result.Source),
+		ProxyCluster: result.ProxyCluster,
+		RequestId:    result.RequestID,
+	})
 }
 
 func (h *handler) createProvider(w http.ResponseWriter, r *http.Request) {

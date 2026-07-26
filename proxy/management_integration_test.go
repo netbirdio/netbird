@@ -271,6 +271,10 @@ func (c *testProxyController) SendServiceUpdateToCluster(_ context.Context, _ st
 	// noop
 }
 
+func (c *testProxyController) DiscoverModels(_ context.Context, _, _ string, _ *proto.ModelDiscoveryRequest) (*proto.ModelDiscoveryResult, error) {
+	return nil, nbproxy.ErrModelDiscoveryUnavailable
+}
+
 func (c *testProxyController) GetOIDCValidationConfig() nbproxy.OIDCValidationConfig {
 	return nbproxy.OIDCValidationConfig{}
 }

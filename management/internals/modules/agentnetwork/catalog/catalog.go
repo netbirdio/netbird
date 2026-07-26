@@ -101,6 +101,17 @@ type Provider struct {
 	// upstream provider + credentials on Portkey's hosted side).
 	ExtraHeaders []ExtraHeader
 	Models       []Model
+	// ModelDiscovery configures provider-specific discovery behavior. A nil
+	// profile means discovery is unsupported. The profile never carries
+	// caller-supplied paths: the proxy owns the fixed endpoint allowlist.
+	ModelDiscovery *ModelDiscovery
+}
+
+// ModelDiscovery describes the safe, catalog-owned fallback behavior for a
+// discoverable provider. Every discovery starts with OpenAI-compatible
+// /v1/models; OllamaFallback permits /api/tags only when that route is absent.
+type ModelDiscovery struct {
+	OllamaFallback bool
 }
 
 // ExtraHeader names a single optional per-provider routing/config
@@ -732,6 +743,9 @@ var providers = []Provider{
 		DefaultContentType: "application/json",
 		BrandColor:         "#000000",
 		Models:             []Model{},
+		ModelDiscovery: &ModelDiscovery{
+			OllamaFallback: true,
+		},
 	},
 	{
 		ID:                 "custom",
@@ -815,16 +829,17 @@ func (p Provider) ToAPIResponse() api.AgentNetworkCatalogProvider {
 		kind = api.AgentNetworkCatalogProviderKindCustom
 	}
 	resp := api.AgentNetworkCatalogProvider{
-		Id:                 p.ID,
-		Name:               p.Name,
-		Description:        p.Description,
-		DefaultHost:        p.DefaultHost,
-		Kind:               kind,
-		AuthMode:           api.AgentNetworkCatalogProviderAuthMode(p.EffectiveAuthMode()),
-		AuthHeaderTemplate: p.AuthHeaderTemplate,
-		DefaultContentType: p.DefaultContentType,
-		BrandColor:         p.BrandColor,
-		Models:             models,
+		Id:                     p.ID,
+		Name:                   p.Name,
+		Description:            p.Description,
+		DefaultHost:            p.DefaultHost,
+		Kind:                   kind,
+		AuthMode:               api.AgentNetworkCatalogProviderAuthMode(p.EffectiveAuthMode()),
+		AuthHeaderTemplate:     p.AuthHeaderTemplate,
+		DefaultContentType:     p.DefaultContentType,
+		BrandColor:             p.BrandColor,
+		Models:                 models,
+		SupportsModelDiscovery: p.ModelDiscovery != nil,
 	}
 	if len(p.ExtraHeaders) > 0 {
 		extras := make([]api.AgentNetworkCatalogExtraHeader, 0, len(p.ExtraHeaders))

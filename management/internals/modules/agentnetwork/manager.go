@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	log "github.com/sirupsen/logrus"
 
@@ -49,6 +51,7 @@ func ensureSessionKeys(p *types.Provider) error {
 type Manager interface {
 	GetAllProviders(ctx context.Context, accountID, userID string) ([]*types.Provider, error)
 	GetProvider(ctx context.Context, accountID, userID, providerID string) (*types.Provider, error)
+	DiscoverProviderModels(ctx context.Context, accountID, userID, providerID string) (*types.ModelDiscoveryResult, error)
 	CreateProvider(ctx context.Context, userID string, provider *types.Provider, bootstrapCluster string) (*types.Provider, error)
 	UpdateProvider(ctx context.Context, userID string, provider *types.Provider) (*types.Provider, error)
 	DeleteProvider(ctx context.Context, accountID, userID, providerID string) error
@@ -129,7 +132,26 @@ type managerImpl struct {
 	// state; concurrent provider creates would otherwise race.
 	labelRngMu sync.Mutex
 	labelRng   *rand.Rand
+
+	// discoveryAttempts provides lightweight per-provider admission control for
+	// the explicit endpoint probe. It prevents duplicate clicks from occupying
+	// multiple proxy control-stream requests at once and adds a short cooldown
+	// after each attempt.
+	discoveryMu       sync.Mutex
+	discoveryAttempts map[string]modelDiscoveryAttempt
 }
+
+type modelDiscoveryAttempt struct {
+	inFlight    bool
+	lastStarted time.Time
+}
+
+const (
+	modelDiscoveryTimeout  = 10 * time.Second
+	modelDiscoveryCooldown = 2 * time.Second
+	maxDiscoveredModels    = 500
+	maxDiscoveredModelLen  = 512
+)
 
 // NewManager constructs the persistent Agent Network manager. The
 // manager persists provider/policy/guardrail configuration and, on
@@ -149,6 +171,7 @@ func NewManager(
 		proxyController:    proxyController,
 		reconcileCache:     make(map[string]map[string]*proto.ProxyMapping),
 		labelRng:           rand.New(rand.NewSource(time.Now().UnixNano())),
+		discoveryAttempts:  make(map[string]modelDiscoveryAttempt),
 	}
 }
 
@@ -164,6 +187,202 @@ func (m *managerImpl) GetProvider(ctx context.Context, accountID, userID, provid
 		return nil, err
 	}
 	return m.store.GetAgentNetworkProviderByID(ctx, store.LockingStrengthNone, accountID, providerID)
+}
+
+// DiscoverProviderModels asks a capable proxy in the account's selected
+// cluster to query the persisted provider endpoint. The browser supplies only
+// the provider id: URL, TLS policy, and credential are loaded here so a caller
+// cannot turn this operation into an arbitrary network probe.
+func (m *managerImpl) DiscoverProviderModels(ctx context.Context, accountID, userID, providerID string) (*types.ModelDiscoveryResult, error) {
+	if err := m.requirePermission(ctx, accountID, userID, operations.Update); err != nil {
+		return nil, err
+	}
+	providerID = strings.TrimSpace(providerID)
+	if providerID == "" {
+		return nil, status.Errorf(status.InvalidArgument, "provider ID is required")
+	}
+
+	provider, err := m.store.GetAgentNetworkProviderByID(ctx, store.LockingStrengthNone, accountID, providerID)
+	if err != nil {
+		return nil, err
+	}
+	entry, ok := catalog.Lookup(provider.ProviderID)
+	if !ok {
+		return nil, status.Errorf(status.PreconditionFailed, "provider references an unknown catalog provider")
+	}
+	if entry.ModelDiscovery == nil {
+		return nil, status.Errorf(status.PreconditionFailed, "provider type %q does not support model discovery", provider.ProviderID)
+	}
+	if m.proxyController == nil {
+		return nil, status.Errorf(status.PreconditionFailed, "model discovery is unavailable")
+	}
+
+	settings, err := m.store.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		var statusErr *status.Error
+		if errors.As(err, &statusErr) && statusErr.Type() == status.NotFound {
+			return nil, status.Errorf(status.PreconditionFailed, "configure an Agent Network proxy cluster before discovering models")
+		}
+		return nil, err
+	}
+	cluster := strings.TrimSpace(settings.Cluster)
+	if cluster == "" {
+		return nil, status.Errorf(status.PreconditionFailed, "configure an Agent Network proxy cluster before discovering models")
+	}
+
+	authHeaderName, authHeaderValue, gcpKey, err := providerAuthHeader(provider)
+	if err != nil {
+		return nil, status.Errorf(status.PreconditionFailed, "provider authentication is not configured correctly")
+	}
+	if gcpKey != "" {
+		return nil, status.Errorf(status.PreconditionFailed, "provider authentication is not supported for model discovery")
+	}
+
+	attemptKey := accountID + "\x00" + provider.ID
+	if !m.beginModelDiscovery(attemptKey, time.Now()) {
+		return nil, status.Errorf(status.TooManyRequests, "model discovery is already running or was requested too recently")
+	}
+	defer m.finishModelDiscovery(attemptKey)
+
+	probeCtx, cancel := context.WithTimeout(ctx, modelDiscoveryTimeout)
+	defer cancel()
+	probeResult, err := m.proxyController.DiscoverModels(probeCtx, accountID, cluster, &proto.ModelDiscoveryRequest{
+		UpstreamUrl:     strings.TrimSpace(provider.UpstreamURL),
+		AuthHeaderName:  authHeaderName,
+		AuthHeaderValue: authHeaderValue,
+		SkipTlsVerify:   provider.SkipTLSVerification,
+		OllamaFallback:  entry.ModelDiscovery.OllamaFallback,
+	})
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(probeCtx.Err(), context.DeadlineExceeded) {
+			return nil, status.Errorf(status.PreconditionFailed, "model discovery timed out")
+		}
+		if _, ok := status.FromError(err); ok {
+			return nil, err
+		}
+		return nil, status.Errorf(status.PreconditionFailed, "model discovery could not be completed")
+	}
+	if probeResult == nil {
+		return nil, status.Errorf(status.PreconditionFailed, "proxy returned an empty model discovery response")
+	}
+	if strings.TrimSpace(probeResult.Error) != "" {
+		message := safeModelDiscoveryText(probeResult.Error, 256)
+		if message == "" {
+			message = "proxy reported a discovery failure"
+		}
+		requestID := safeModelDiscoveryText(probeResult.RequestId, 128)
+		if requestID != "" {
+			return nil, status.Errorf(status.PreconditionFailed, "model discovery failed: %s (request_id: %s)", message, requestID)
+		}
+		return nil, status.Errorf(status.PreconditionFailed, "model discovery failed: %s", message)
+	}
+
+	requestID := safeModelDiscoveryText(probeResult.RequestId, 128)
+	if requestID == "" {
+		return nil, status.Errorf(status.PreconditionFailed, "proxy returned an uncorrelated model discovery response")
+	}
+	source := strings.TrimSpace(probeResult.Source)
+	switch source {
+	case "openai_v1_models", "ollama_api_tags":
+	default:
+		return nil, status.Errorf(status.PreconditionFailed, "proxy returned an unsupported model discovery response")
+	}
+
+	return &types.ModelDiscoveryResult{
+		RequestID:    requestID,
+		Source:       source,
+		ProxyCluster: cluster,
+		Models:       normalizeDiscoveredModels(probeResult.Models),
+	}, nil
+}
+
+func (m *managerImpl) beginModelDiscovery(key string, now time.Time) bool {
+	m.discoveryMu.Lock()
+	defer m.discoveryMu.Unlock()
+	if m.discoveryAttempts == nil {
+		m.discoveryAttempts = make(map[string]modelDiscoveryAttempt)
+	}
+	attempt := m.discoveryAttempts[key]
+	if attempt.inFlight || (!attempt.lastStarted.IsZero() && now.Sub(attempt.lastStarted) < modelDiscoveryCooldown) {
+		return false
+	}
+	attempt.inFlight = true
+	attempt.lastStarted = now
+	m.discoveryAttempts[key] = attempt
+	return true
+}
+
+func (m *managerImpl) finishModelDiscovery(key string) {
+	m.discoveryMu.Lock()
+	attempt, ok := m.discoveryAttempts[key]
+	if !ok {
+		m.discoveryMu.Unlock()
+		return
+	}
+	attempt.inFlight = false
+	m.discoveryAttempts[key] = attempt
+	m.discoveryMu.Unlock()
+
+	remaining := time.Until(attempt.lastStarted.Add(modelDiscoveryCooldown))
+	if remaining <= 0 {
+		m.expireModelDiscoveryAttempt(key, attempt.lastStarted)
+		return
+	}
+	time.AfterFunc(remaining, func() {
+		m.expireModelDiscoveryAttempt(key, attempt.lastStarted)
+	})
+}
+
+func (m *managerImpl) expireModelDiscoveryAttempt(key string, lastStarted time.Time) {
+	m.discoveryMu.Lock()
+	defer m.discoveryMu.Unlock()
+	attempt, ok := m.discoveryAttempts[key]
+	if ok && !attempt.inFlight && attempt.lastStarted.Equal(lastStarted) {
+		delete(m.discoveryAttempts, key)
+	}
+}
+
+func normalizeDiscoveredModels(models []*proto.ModelDiscoveryModel) []types.DiscoveredModel {
+	out := make([]types.DiscoveredModel, 0, min(len(models), maxDiscoveredModels))
+	seen := make(map[string]struct{}, min(len(models), maxDiscoveredModels))
+	for _, model := range models {
+		if model == nil {
+			continue
+		}
+		id := safeModelDiscoveryText(model.Id, maxDiscoveredModelLen)
+		if id == "" || len(id) > maxDiscoveredModelLen {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		label := safeModelDiscoveryText(model.Label, maxDiscoveredModelLen)
+		if label == "" || len(label) > maxDiscoveredModelLen {
+			label = id
+		}
+		seen[id] = struct{}{}
+		out = append(out, types.DiscoveredModel{ID: id, Label: label})
+		if len(out) == maxDiscoveredModels {
+			break
+		}
+	}
+	slices.SortFunc(out, func(a, b types.DiscoveredModel) int {
+		return strings.Compare(a.ID, b.ID)
+	})
+	return out
+}
+
+func safeModelDiscoveryText(value string, maxLen int) string {
+	value = strings.TrimSpace(value)
+	if value == "" || len(value) > maxLen || !utf8.ValidString(value) {
+		return ""
+	}
+	for _, r := range value {
+		if unicode.IsControl(r) {
+			return ""
+		}
+	}
+	return value
 }
 
 // CreateProvider persists a new provider for the account. bootstrapCluster
@@ -845,6 +1064,10 @@ func (*mockManager) GetAllProviders(_ context.Context, _, _ string) ([]*types.Pr
 
 func (*mockManager) GetProvider(_ context.Context, _, _, _ string) (*types.Provider, error) {
 	return &types.Provider{}, nil
+}
+
+func (*mockManager) DiscoverProviderModels(_ context.Context, _, _, _ string) (*types.ModelDiscoveryResult, error) {
+	return nil, status.Errorf(status.PreconditionFailed, "model discovery is unavailable")
 }
 
 func (*mockManager) CreateProvider(_ context.Context, _ string, p *types.Provider, _ string) (*types.Provider, error) {

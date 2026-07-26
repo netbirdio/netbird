@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -29,6 +30,7 @@ import (
 
 	"github.com/netbirdio/netbird/shared/management/domain"
 
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
@@ -36,7 +38,6 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/sessionkey"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/users"
 	proxyauth "github.com/netbirdio/netbird/proxy/auth"
@@ -84,6 +85,10 @@ type ProxyServiceServer struct {
 
 	// Map of connected proxies: proxy_id -> proxy connection
 	connectedProxies sync.Map
+	// modelDiscoveryPending correlates out-of-band model-discovery results
+	// received on SyncMappings with the management request waiting for them.
+	modelDiscoveryMu      sync.Mutex
+	modelDiscoveryPending map[string]*pendingModelDiscovery
 
 	// Manager for access logs
 	accessLogManager accesslogs.Manager
@@ -143,6 +148,8 @@ const defaultProxyTokenTTL = 5 * time.Minute
 
 const defaultSnapshotBatchSize = 500
 
+const modelDiscoveryQueueSize = 16
+
 func snapshotBatchSizeFromEnv() int {
 	if v := os.Getenv("NB_PROXY_SNAPSHOT_BATCH_SIZE"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
@@ -171,10 +178,26 @@ type proxyConnection struct {
 	stream       proto.ProxyService_GetMappingUpdateServer
 	// syncStream is set when the proxy connected via SyncMappings.
 	// When non-nil, the sender goroutine uses this instead of stream.
-	syncStream proto.ProxyService_SyncMappingsServer
-	sendChan   chan *proto.GetMappingUpdateResponse
-	ctx        context.Context
-	cancel     context.CancelFunc
+	syncStream         proto.ProxyService_SyncMappingsServer
+	sendChan           chan *proto.GetMappingUpdateResponse
+	modelDiscoveryChan chan *proto.ModelDiscoveryRequest
+	// ready closes after the initial snapshot completes and the sender
+	// goroutine is about to start. Discovery never competes with snapshot
+	// delivery on the stream.
+	ready  chan struct{}
+	ctx    context.Context
+	cancel context.CancelFunc
+}
+
+type modelDiscoveryCompletion struct {
+	result *proto.ModelDiscoveryResult
+	err    error
+}
+
+type pendingModelDiscovery struct {
+	proxyID   string
+	sessionID string
+	done      chan modelDiscoveryCompletion
 }
 
 func enforceAccountScope(ctx context.Context, requestAccountID string) error {
@@ -192,17 +215,18 @@ func enforceAccountScope(ctx context.Context, requestAccountID string) error {
 func NewProxyServiceServer(accessLogMgr accesslogs.Manager, tokenStore *OneTimeTokenStore, pkceStore *PKCEVerifierStore, oidcConfig ProxyOIDCConfig, peersManager peers.Manager, usersManager users.Manager, idpManager idp.Manager, proxyMgr proxy.Manager, tokenChecker ProxyTokenChecker) *ProxyServiceServer {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &ProxyServiceServer{
-		accessLogManager:  accessLogMgr,
-		oidcConfig:        oidcConfig,
-		tokenStore:        tokenStore,
-		pkceVerifierStore: pkceStore,
-		peersManager:      peersManager,
-		usersManager:      usersManager,
-		idpManager:        idpManager,
-		proxyManager:      proxyMgr,
-		tokenChecker:      tokenChecker,
-		snapshotBatchSize: snapshotBatchSizeFromEnv(),
-		cancel:            cancel,
+		accessLogManager:      accessLogMgr,
+		oidcConfig:            oidcConfig,
+		tokenStore:            tokenStore,
+		pkceVerifierStore:     pkceStore,
+		peersManager:          peersManager,
+		usersManager:          usersManager,
+		idpManager:            idpManager,
+		proxyManager:          proxyMgr,
+		tokenChecker:          tokenChecker,
+		snapshotBatchSize:     snapshotBatchSizeFromEnv(),
+		modelDiscoveryPending: make(map[string]*pendingModelDiscovery),
+		cancel:                cancel,
 	}
 	go s.cleanupStaleProxies(ctx)
 	return s
@@ -392,6 +416,7 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 		return fmt.Errorf("send snapshot to proxy %s: %w", params.proxyID, err)
 	}
 
+	close(conn.ready)
 	errChan := make(chan error, 2)
 	go s.sender(conn, errChan)
 
@@ -425,9 +450,10 @@ func (s *ProxyServiceServer) SyncMappings(stream proto.ProxyService_SyncMappings
 		return fmt.Errorf("send snapshot to proxy %s: %w", params.proxyID, err)
 	}
 
+	close(conn.ready)
 	errChan := make(chan error, 2)
 	go s.sender(conn, errChan)
-	go s.drainRecv(stream, errChan)
+	go s.drainRecv(conn, stream, errChan)
 
 	return s.serveProxyConnection(conn, proxyRecord, errChan, true)
 }
@@ -496,6 +522,8 @@ func (s *ProxyServiceServer) registerProxyConnection(ctx context.Context, params
 	connSeed.tokenID = tokenID
 	connSeed.capabilities = params.capabilities
 	connSeed.sendChan = make(chan *proto.GetMappingUpdateResponse, 100)
+	connSeed.modelDiscoveryChan = make(chan *proto.ModelDiscoveryRequest, modelDiscoveryQueueSize)
+	connSeed.ready = make(chan struct{})
 	connSeed.ctx = connCtx
 	connSeed.cancel = cancel
 
@@ -543,10 +571,13 @@ func (s *ProxyServiceServer) supersedePriorConnection(proxyID, newSessionID stri
 // cleanupFailedSnapshot removes the connection from the cluster and store
 // after a snapshot send failure.
 func (s *ProxyServiceServer) cleanupFailedSnapshot(ctx context.Context, conn *proxyConnection) {
+	s.failModelDiscoveries(conn, proxy.ErrModelDiscoveryUnavailable)
 	if s.connectedProxies.CompareAndDelete(conn.proxyID, conn) {
 		if err := s.proxyController.UnregisterProxyFromCluster(context.Background(), conn.address, conn.proxyID); err != nil {
 			log.WithContext(ctx).Debugf("cleanup after snapshot failure for proxy %s: %v", conn.proxyID, err)
 		}
+	} else {
+		s.unregisterSupersededProxyCluster(ctx, conn)
 	}
 	conn.cancel()
 	if err := s.proxyManager.Disconnect(context.Background(), conn.proxyID, conn.sessionID); err != nil {
@@ -554,14 +585,18 @@ func (s *ProxyServiceServer) cleanupFailedSnapshot(ctx context.Context, conn *pr
 	}
 }
 
-// drainRecv consumes and discards messages from a bidirectional stream.
-// The proxy sends an ack for every incremental update; we don't need them
-// after the snapshot phase. Recv errors are forwarded to errChan.
-func (s *ProxyServiceServer) drainRecv(stream proto.ProxyService_SyncMappingsServer, errChan chan<- error) {
+// drainRecv consumes post-snapshot messages from a bidirectional stream.
+// Incremental mapping acks need no action; model-discovery results are
+// dispatched to the correlated management caller.
+func (s *ProxyServiceServer) drainRecv(conn *proxyConnection, stream proto.ProxyService_SyncMappingsServer, errChan chan<- error) {
 	for {
-		if _, err := stream.Recv(); err != nil {
+		msg, err := stream.Recv()
+		if err != nil {
 			errChan <- err
 			return
+		}
+		if result := msg.GetModelDiscoveryResult(); result != nil {
+			s.completeModelDiscovery(conn, result)
 		}
 	}
 }
@@ -599,7 +634,9 @@ func (s *ProxyServiceServer) serveProxyConnection(conn *proxyConnection, proxyRe
 // disconnectProxy removes the connection from cluster and store, unless it
 // has already been superseded by a newer connection.
 func (s *ProxyServiceServer) disconnectProxy(conn *proxyConnection) {
+	s.failModelDiscoveries(conn, proxy.ErrModelDiscoveryUnavailable)
 	if !s.connectedProxies.CompareAndDelete(conn.proxyID, conn) {
+		s.unregisterSupersededProxyCluster(context.Background(), conn)
 		log.Infof("Proxy %s session %s: skipping cleanup, superseded by new connection", conn.proxyID, conn.sessionID)
 		conn.cancel()
 		return
@@ -614,6 +651,26 @@ func (s *ProxyServiceServer) disconnectProxy(conn *proxyConnection) {
 	}
 
 	log.Infof("Proxy %s session %s disconnected", conn.proxyID, conn.sessionID)
+}
+
+// unregisterSupersededProxyCluster removes membership owned only by an old
+// session after the same proxy ID reconnects at a different address. When the
+// address is unchanged, the membership is shared with the replacement and
+// must remain registered.
+func (s *ProxyServiceServer) unregisterSupersededProxyCluster(ctx context.Context, conn *proxyConnection) {
+	if conn == nil || s.proxyController == nil {
+		return
+	}
+	currentValue, ok := s.connectedProxies.Load(conn.proxyID)
+	if ok {
+		current := currentValue.(*proxyConnection)
+		if current == conn || current.address == conn.address {
+			return
+		}
+	}
+	if err := s.proxyController.UnregisterProxyFromCluster(ctx, conn.address, conn.proxyID); err != nil {
+		log.WithContext(ctx).Debugf("cleanup superseded cluster membership for proxy %s: %v", conn.proxyID, err)
+	}
 }
 
 // sendSnapshotSync sends the initial snapshot with back-pressure: it sends
@@ -852,6 +909,20 @@ func (s *ProxyServiceServer) sender(conn *proxyConnection, errChan chan<- error)
 				return
 			}
 			log.WithContext(conn.ctx).Tracef("Send response to proxy %s", conn.proxyID)
+		case req := <-conn.modelDiscoveryChan:
+			// The API caller may have timed out while this request waited
+			// behind other stream work. Pending correlation is removed on
+			// cancellation, so skip stale probes before they reach the
+			// proxy and expose a stored credential unnecessarily.
+			if !s.isModelDiscoveryPendingFor(conn, req.GetRequestId()) {
+				continue
+			}
+			if err := conn.sendModelDiscoveryRequest(req); err != nil {
+				errChan <- err
+				log.WithContext(conn.ctx).Tracef("Failed to send model discovery request to proxy %s: %v", conn.proxyID, err)
+				return
+			}
+			log.WithContext(conn.ctx).Tracef("Sent model discovery request to proxy %s", conn.proxyID)
 		case <-conn.ctx.Done():
 			return
 		}
@@ -867,6 +938,15 @@ func (conn *proxyConnection) sendResponse(resp *proto.GetMappingUpdateResponse) 
 		})
 	}
 	return conn.stream.Send(resp)
+}
+
+func (conn *proxyConnection) sendModelDiscoveryRequest(req *proto.ModelDiscoveryRequest) error {
+	if conn.syncStream == nil {
+		return proxy.ErrModelDiscoveryUnavailable
+	}
+	return conn.syncStream.Send(&proto.SyncMappingsResponse{
+		ModelDiscoveryRequest: req,
+	})
 }
 
 // SendAccessLog processes access log from proxy
@@ -1017,6 +1097,181 @@ func (s *ProxyServiceServer) GetConnectedProxyURLs() []string {
 	return urls
 }
 
+// DiscoverModels sends one correlated model-discovery request to a capable
+// proxy in clusterAddr and waits for its result. Only the stored connection's
+// cluster/account scope is used for routing; no routing identity is carried in
+// the request delivered to the proxy.
+func (s *ProxyServiceServer) DiscoverModels(ctx context.Context, accountID, clusterAddr string, req *proto.ModelDiscoveryRequest) (*proto.ModelDiscoveryResult, error) {
+	if req == nil {
+		return nil, nbstatus.Errorf(nbstatus.InvalidArgument, "model discovery request is required")
+	}
+	if strings.TrimSpace(accountID) == "" {
+		return nil, nbstatus.Errorf(nbstatus.InvalidArgument, "account ID is required for model discovery")
+	}
+	if strings.TrimSpace(clusterAddr) == "" {
+		return nil, nbstatus.Errorf(nbstatus.PreconditionFailed, "agent network proxy cluster is not configured")
+	}
+	if s.proxyController == nil {
+		return nil, nbstatus.Errorf(nbstatus.PreconditionFailed, "model discovery is unavailable for the configured proxy cluster")
+	}
+
+	proxyIDs := s.proxyController.GetProxiesForCluster(clusterAddr)
+	sort.Strings(proxyIDs)
+
+	request := &proto.ModelDiscoveryRequest{
+		RequestId:       uuid.NewString(),
+		UpstreamUrl:     req.GetUpstreamUrl(),
+		AuthHeaderName:  req.GetAuthHeaderName(),
+		AuthHeaderValue: req.GetAuthHeaderValue(),
+		SkipTlsVerify:   req.GetSkipTlsVerify(),
+		OllamaFallback:  req.GetOllamaFallback(),
+	}
+
+	for _, proxyID := range proxyIDs {
+		connVal, ok := s.connectedProxies.Load(proxyID)
+		if !ok {
+			continue
+		}
+		conn := connVal.(*proxyConnection)
+		// Cluster membership can briefly retain a proxy ID from a superseded
+		// session. The live connection is authoritative: never send provider
+		// credentials unless it is connected to the exact requested cluster.
+		if conn.address != clusterAddr {
+			continue
+		}
+		if !modelDiscoveryCapable(conn, accountID) {
+			continue
+		}
+
+		pending := &pendingModelDiscovery{
+			proxyID:   conn.proxyID,
+			sessionID: conn.sessionID,
+			done:      make(chan modelDiscoveryCompletion, 1),
+		}
+		s.registerModelDiscovery(request.GetRequestId(), pending)
+
+		queued := false
+		select {
+		case conn.modelDiscoveryChan <- request:
+			queued = true
+		case <-ctx.Done():
+			s.removeModelDiscovery(request.GetRequestId(), pending)
+			return nil, modelDiscoveryContextError(ctx.Err())
+		default:
+			s.removeModelDiscovery(request.GetRequestId(), pending)
+		}
+		if !queued {
+			continue
+		}
+
+		defer s.removeModelDiscovery(request.GetRequestId(), pending)
+		select {
+		case completion := <-pending.done:
+			if completion.err != nil {
+				return nil, nbstatus.Errorf(nbstatus.PreconditionFailed, "model discovery proxy disconnected")
+			}
+			return completion.result, nil
+		case <-ctx.Done():
+			return nil, modelDiscoveryContextError(ctx.Err())
+		case <-conn.ctx.Done():
+			return nil, nbstatus.Errorf(nbstatus.PreconditionFailed, "model discovery proxy disconnected")
+		}
+	}
+
+	return nil, nbstatus.Errorf(nbstatus.PreconditionFailed, "no connected proxy in the configured cluster supports model discovery")
+}
+
+func modelDiscoveryCapable(conn *proxyConnection, accountID string) bool {
+	if conn == nil || conn.syncStream == nil || conn.modelDiscoveryChan == nil || conn.ready == nil {
+		return false
+	}
+	if conn.ctx == nil || conn.ctx.Err() != nil {
+		return false
+	}
+	if conn.accountID != nil && *conn.accountID != accountID {
+		return false
+	}
+	if conn.capabilities == nil || !conn.capabilities.GetSupportsModelDiscovery() {
+		return false
+	}
+	select {
+	case <-conn.ready:
+		return true
+	default:
+		return false
+	}
+}
+
+func modelDiscoveryContextError(err error) error {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return nbstatus.Errorf(nbstatus.PreconditionFailed, "model discovery timed out")
+	}
+	return nbstatus.Errorf(nbstatus.PreconditionFailed, "model discovery was canceled")
+}
+
+func (s *ProxyServiceServer) registerModelDiscovery(requestID string, pending *pendingModelDiscovery) {
+	s.modelDiscoveryMu.Lock()
+	defer s.modelDiscoveryMu.Unlock()
+	if s.modelDiscoveryPending == nil {
+		s.modelDiscoveryPending = make(map[string]*pendingModelDiscovery)
+	}
+	s.modelDiscoveryPending[requestID] = pending
+}
+
+func (s *ProxyServiceServer) removeModelDiscovery(requestID string, pending *pendingModelDiscovery) {
+	s.modelDiscoveryMu.Lock()
+	defer s.modelDiscoveryMu.Unlock()
+	if s.modelDiscoveryPending[requestID] == pending {
+		delete(s.modelDiscoveryPending, requestID)
+	}
+}
+
+func (s *ProxyServiceServer) isModelDiscoveryPendingFor(conn *proxyConnection, requestID string) bool {
+	if conn == nil || requestID == "" {
+		return false
+	}
+	s.modelDiscoveryMu.Lock()
+	defer s.modelDiscoveryMu.Unlock()
+	pending := s.modelDiscoveryPending[requestID]
+	return pending != nil && pending.proxyID == conn.proxyID && pending.sessionID == conn.sessionID
+}
+
+func (s *ProxyServiceServer) completeModelDiscovery(conn *proxyConnection, result *proto.ModelDiscoveryResult) {
+	if conn == nil || result == nil || result.GetRequestId() == "" {
+		return
+	}
+	s.modelDiscoveryMu.Lock()
+	pending := s.modelDiscoveryPending[result.GetRequestId()]
+	s.modelDiscoveryMu.Unlock()
+	if pending == nil || pending.proxyID != conn.proxyID || pending.sessionID != conn.sessionID {
+		return
+	}
+	select {
+	case pending.done <- modelDiscoveryCompletion{result: result}:
+	default:
+	}
+}
+
+func (s *ProxyServiceServer) failModelDiscoveries(conn *proxyConnection, err error) {
+	if conn == nil {
+		return
+	}
+	s.modelDiscoveryMu.Lock()
+	pending := make([]*pendingModelDiscovery, 0)
+	for _, item := range s.modelDiscoveryPending {
+		if item.proxyID == conn.proxyID && item.sessionID == conn.sessionID {
+			pending = append(pending, item)
+		}
+	}
+	s.modelDiscoveryMu.Unlock()
+	for _, item := range pending {
+		select {
+		case item.done <- modelDiscoveryCompletion{err: err}:
+		default:
+		}
+	}
+}
+
 // SendServiceUpdateToCluster sends a service update to all proxy servers in a specific cluster.
 // If clusterAddr is empty, broadcasts to all connected proxy servers (backward compatibility).
 // For create/update operations a unique one-time auth token is generated per
@@ -1049,6 +1304,12 @@ func (s *ProxyServiceServer) SendServiceUpdateToCluster(ctx context.Context, upd
 			continue
 		}
 		conn := connVal.(*proxyConnection)
+		// Membership can retain this proxy ID from a superseded session in a
+		// different cluster. The live connection address is authoritative,
+		// especially because Agent Network mappings can contain credentials.
+		if conn.address != clusterAddr {
+			continue
+		}
 		if conn.accountID != nil && update.AccountId != "" && *conn.accountID != update.AccountId {
 			continue
 		}
