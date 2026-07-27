@@ -135,10 +135,17 @@ func TestDispositionFor(t *testing.T) {
 		t.Run(dns.TypeToString[tt.qtype], func(t *testing.T) {
 			assert.Equal(t, tt.want, dispositionFor(tt.qtype), "disposition for %s", dns.TypeToString[tt.qtype])
 
-			if tt.want != dispositionPeer {
-				assert.Equal(t, tt.want == dispositionPeerFirst, resutil.SupportedRecordQtype(tt.qtype),
-					"only types a forwarder resolves may be sent to a peer")
+			// Address types are resolved by the forwarder's address path, not by
+			// its record path, so they are deliberately outside
+			// SupportedRecordQtype and their disposition does not depend on it.
+			if tt.want == dispositionPeer {
+				assert.False(t, resutil.SupportedRecordQtype(tt.qtype),
+					"address types take the forwarder's address path")
+				return
 			}
+
+			assert.Equal(t, tt.want == dispositionPeerFirst, resutil.SupportedRecordQtype(tt.qtype),
+				"only types a forwarder resolves may be sent to a peer")
 		})
 	}
 }

@@ -367,8 +367,11 @@ func (c *HandlerChain) dispatch(w dns.ResponseWriter, r *dns.Msg, maxPriority in
 			resutil.AttachEDE(resp, resutil.EDENetbirdSoftenedNegative,
 				"netbird: name is served locally, no fallthrough resolver for this query type")
 		}
-		logger.Tracef("no handler below the deferring one for domain=%s type=%s, answering NODATA",
-			qname, dns.TypeToString[question.Qtype])
+		// logResponse never runs on this path, so the carried metadata is
+		// appended here or the reason for the deferral is lost in exactly the
+		// case that is hardest to diagnose.
+		logger.Tracef("no handler below the deferring one for domain=%s type=%s, answering NODATA%s",
+			qname, dns.TypeToString[question.Qtype], carried.format())
 	}
 	if err := w.WriteMsg(resp); err != nil {
 		logger.Errorf("failed to write DNS response: %v", err)

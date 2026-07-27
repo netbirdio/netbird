@@ -1344,6 +1344,12 @@ func responseLineFor(hook *logtest.Hook, qname string) string {
 // without it an empty answer is indistinguishable from a real "no such record"
 // in a dig output or a capture taken next to the application.
 func TestHandlerChain_SoftNegative_IsVisibleToTheClient(t *testing.T) {
+	// One hook for the whole test: logtest installs it on the standard logger
+	// and logrus has no way to take it off again, so a hook per subtest would
+	// leave several behind buffering every later line in the package.
+	hook := logtest.NewGlobal()
+	t.Cleanup(hook.Reset)
+
 	newChain := func() *nbdns.HandlerChain {
 		chain := nbdns.NewHandlerChain()
 		chain.AddHandler("*.example.com.", &deferringHandler{softNegative: true}, nbdns.PriorityDNSRoute)
@@ -1387,9 +1393,6 @@ func TestHandlerChain_SoftNegative_IsVisibleToTheClient(t *testing.T) {
 	t.Run("log fields keep a stable order", func(t *testing.T) {
 		const qname = "_mongodb._tcp.stable.example.com."
 
-		hook := logtest.NewGlobal()
-		t.Cleanup(hook.Reset)
-
 		prev := log.GetLevel()
 		log.SetLevel(log.TraceLevel)
 		t.Cleanup(func() { log.SetLevel(prev) })
@@ -1422,8 +1425,7 @@ func TestHandlerChain_SoftNegative_IsVisibleToTheClient(t *testing.T) {
 	t.Run("logged with the reason it was deferred", func(t *testing.T) {
 		const qname = "_mongodb._tcp.reason.example.com."
 
-		hook := logtest.NewGlobal()
-		t.Cleanup(hook.Reset)
+		hook.Reset()
 
 		prev := log.GetLevel()
 		log.SetLevel(log.TraceLevel)
