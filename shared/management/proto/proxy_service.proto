@@ -73,6 +73,10 @@ message ProxyCapabilities {
   optional bool private = 4;
   // Whether the proxy enforces ProxyMapping.private (fails closed on ValidateTunnelPeer failure). Management MUST NOT stream private mappings to proxies that don't claim this.
   optional bool supports_private_service = 5;
+  // Whether the proxy has a CrowdSec AppSec (WAF) endpoint configured and can
+  // inspect HTTP requests. Independent of supports_crowdsec: AppSec is a
+  // separate endpoint on the Security Engine and applies to HTTP services only.
+  optional bool supports_appsec = 6;
 }
 
 // GetMappingUpdateRequest is sent to initialise a mapping stream.
@@ -207,6 +211,10 @@ message AccessRestrictions {
   // every allowlist (AND); "any" requires matching at least one (OR).
   // Blocklists are always a hard-deny gate, independent of this mode.
   string allow_match = 6;
+  // CrowdSec AppSec (WAF) request inspection mode: "", "off", "enforce", or
+  // "observe". HTTP services only: "enforce" and "observe" are rejected at
+  // validation for TCP/UDP/TLS services, which carry no requests to inspect.
+  string appsec_mode = 7;
 }
 
 message ProxyMapping {

@@ -155,6 +155,8 @@ func TestSqlStore_GetAccount_ServiceRestrictionsRoundtrip(t *testing.T) {
 				AllowedCIDRs:     []string{"203.0.113.0/24"},
 				AllowedCountries: []string{"US"},
 				AllowMatch:       "any",
+				CrowdSecMode:     "observe",
+				AppSecMode:       "enforce",
 			},
 		}
 		require.NoError(t, store.CreateService(ctx, svc))
@@ -164,11 +166,13 @@ func TestSqlStore_GetAccount_ServiceRestrictionsRoundtrip(t *testing.T) {
 		require.Len(t, loaded.Services, 1)
 
 		// Restrictions are stored as a JSON blob; confirm the whole struct,
-		// including allow_match, survives the read path (Postgres pgx path
-		// included via runTestForAllEngines).
+		// including allow_match and the CrowdSec modes, survives the read path
+		// (Postgres pgx path included via runTestForAllEngines).
 		got := loaded.Services[0].Restrictions
 		assert.Equal(t, []string{"203.0.113.0/24"}, got.AllowedCIDRs)
 		assert.Equal(t, []string{"US"}, got.AllowedCountries)
 		assert.Equal(t, "any", got.AllowMatch)
+		assert.Equal(t, "observe", got.CrowdSecMode)
+		assert.Equal(t, "enforce", got.AppSecMode)
 	})
 }

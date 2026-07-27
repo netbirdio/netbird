@@ -23,6 +23,9 @@ type Domain struct {
 	// SupportsCrowdSec is populated at query time from proxy cluster capabilities.
 	// Not persisted.
 	SupportsCrowdSec *bool `gorm:"-"`
+	// SupportsAppSec is populated at query time from proxy cluster capabilities.
+	// Not persisted.
+	SupportsAppSec *bool `gorm:"-"`
 	// SupportsPrivate is populated at query time from proxy cluster capabilities. Not persisted.
 	SupportsPrivate *bool `gorm:"-"`
 }
