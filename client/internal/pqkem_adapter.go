@@ -1,6 +1,8 @@
 package internal
 
 import (
+	"net/netip"
+
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
@@ -77,4 +79,14 @@ func (p pqHandshaker) PSK(remoteKey string) (wgtypes.Key, bool) {
 		return wgtypes.Key{}, false
 	}
 	return wgtypes.Key(psk), true
+}
+
+// SetRemotePort registers the peer's data-path endpoint (overlay IP + pq UDP port)
+// learned from signalling. Sends only ever fire once the tunnel is up (clocked by
+// OnDataPathRekeyed), so registering here is safe even before connection-up.
+func (p pqHandshaker) SetRemotePort(remoteKey string, overlayIP netip.Addr, port int) {
+	if port <= 0 || port > 65535 || !overlayIP.IsValid() {
+		return
+	}
+	p.mgr.AddPeer(pqkem.RemoteID(remoteKey), netip.AddrPortFrom(overlayIP, uint16(port)))
 }
