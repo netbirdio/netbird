@@ -20,6 +20,7 @@ const (
 	rpFilterPath          = "net.ipv4.conf.all.rp_filter"
 	rpFilterInterfacePath = "net.ipv4.conf.%s.rp_filter"
 	srcValidMarkPath      = "net.ipv4.conf.all.src_valid_mark"
+	dotEscape             = "__DOT__"
 )
 
 type iface interface {
@@ -56,7 +57,9 @@ func Setup(wgIface iface) (map[string]int, error) {
 			continue
 		}
 
-		i := fmt.Sprintf(rpFilterInterfacePath, intf.Name)
+		// Escape dots in the interface name (e.g. flannel.1 -> flannel__DOT__1)
+		safeName := strings.ReplaceAll(intf.Name, ".", dotEscape)
+		i := fmt.Sprintf(rpFilterInterfacePath, safeName)
 		oldVal, err := Set(i, 2, true)
 		if err != nil {
 			result = multierror.Append(result, err)
@@ -70,7 +73,10 @@ func Setup(wgIface iface) (map[string]int, error) {
 
 // Set sets a sysctl configuration, if onlyIfOne is true it will only set the new value if it's set to 1
 func Set(key string, desiredValue int, onlyIfOne bool) (int, error) {
-	path := fmt.Sprintf("/proc/sys/%s", strings.ReplaceAll(key, ".", "/"))
+	path := strings.ReplaceAll(key, ".", "/")
+	// Unescape dot in interface name (e.g. flannel__DOT__1 -> flannel.1)
+	path = strings.ReplaceAll(path, dotEscape, ".")
+	path = fmt.Sprintf("/proc/sys/%s", path)
 	currentValue, err := os.ReadFile(path)
 	if err != nil {
 		return -1, fmt.Errorf("read sysctl %s: %w", key, err)
