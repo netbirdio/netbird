@@ -1201,7 +1201,7 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 	peer1Routes, err := am.GetNetworkMap(context.Background(), peer1ID)
 	require.NoError(t, err)
 	require.Len(t, peer1Routes.Routes, 1, "we should receive one route for peer1")
-	require.True(t, expectedRoute.Equal(peer1Routes.Routes[0]), "received route should be equal")
+	require.True(t, types.TwinRoute(expectedRoute).Equal(peer1Routes.Routes[0]), "received route should be equal")
 
 	peer2Routes, err := am.GetNetworkMap(context.Background(), peer2ID)
 	require.NoError(t, err)

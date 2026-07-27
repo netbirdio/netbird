@@ -7,6 +7,7 @@ import (
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
 
 // TestComputeSSHEnabledForPeer covers both Calculate-mirroring branches:
@@ -17,16 +18,15 @@ func TestComputeSSHEnabledForPeer(t *testing.T) {
 	const targetPeerID = "target"
 	const targetGroupID = "g_dst"
 
-	mkComponents := func(rule *types.PolicyRule, sshEnabled bool) (*types.NetworkMapComponents, *nbpeer.Peer) {
+	mkComponents := func(rule *nmdata.PolicyRule, sshEnabled bool) (*types.NetworkMapComponents, *nbpeer.Peer) {
 		peer := &nbpeer.Peer{ID: targetPeerID, SSHEnabled: sshEnabled}
-		group := &types.Group{ID: targetGroupID, Name: "dst", Peers: []string{targetPeerID}}
 		return &types.NetworkMapComponents{
-			Peers:  map[string]*nbpeer.Peer{targetPeerID: peer},
-			Groups: map[string]*types.Group{targetGroupID: group},
-			Policies: []*types.Policy{{
+			Peers:  map[string]*nmdata.Peer{targetPeerID: types.TwinPeer(peer)},
+			Groups: map[string]*nmdata.Group{targetGroupID: {Name: "dst", Peers: []string{targetPeerID}}},
+			Policies: []*nmdata.Policy{{
 				ID:      "p",
 				Enabled: true,
-				Rules:   []*types.PolicyRule{rule},
+				Rules:   []*nmdata.PolicyRule{rule},
 			}},
 		}, peer
 	}
@@ -34,14 +34,14 @@ func TestComputeSSHEnabledForPeer(t *testing.T) {
 	cases := []struct {
 		name        string
 		peerSSH     bool
-		rule        types.PolicyRule
+		rule        nmdata.PolicyRule
 		wantEnabled bool
 	}{
 		{
 			name:    "explicit-netbird-ssh-activates-regardless-of-peer-ssh",
 			peerSSH: false,
-			rule: types.PolicyRule{
-				Enabled: true, Protocol: types.PolicyRuleProtocolNetbirdSSH,
+			rule: nmdata.PolicyRule{
+				Enabled: true, Protocol: string(types.PolicyRuleProtocolNetbirdSSH),
 				Destinations: []string{targetGroupID},
 			},
 			wantEnabled: true,
@@ -49,8 +49,8 @@ func TestComputeSSHEnabledForPeer(t *testing.T) {
 		{
 			name:    "implicit-tcp-22-with-peer-ssh",
 			peerSSH: true,
-			rule: types.PolicyRule{
-				Enabled: true, Protocol: types.PolicyRuleProtocolTCP, Ports: []string{"22"},
+			rule: nmdata.PolicyRule{
+				Enabled: true, Protocol: string(types.PolicyRuleProtocolTCP), Ports: []string{"22"},
 				Destinations: []string{targetGroupID},
 			},
 			wantEnabled: true,
@@ -58,8 +58,8 @@ func TestComputeSSHEnabledForPeer(t *testing.T) {
 		{
 			name:    "implicit-tcp-22-without-peer-ssh-disabled",
 			peerSSH: false,
-			rule: types.PolicyRule{
-				Enabled: true, Protocol: types.PolicyRuleProtocolTCP, Ports: []string{"22"},
+			rule: nmdata.PolicyRule{
+				Enabled: true, Protocol: string(types.PolicyRuleProtocolTCP), Ports: []string{"22"},
 				Destinations: []string{targetGroupID},
 			},
 			wantEnabled: false,
@@ -67,8 +67,8 @@ func TestComputeSSHEnabledForPeer(t *testing.T) {
 		{
 			name:    "implicit-tcp-22022-with-peer-ssh",
 			peerSSH: true,
-			rule: types.PolicyRule{
-				Enabled: true, Protocol: types.PolicyRuleProtocolTCP, Ports: []string{"22022"},
+			rule: nmdata.PolicyRule{
+				Enabled: true, Protocol: string(types.PolicyRuleProtocolTCP), Ports: []string{"22022"},
 				Destinations: []string{targetGroupID},
 			},
 			wantEnabled: true,
@@ -76,8 +76,8 @@ func TestComputeSSHEnabledForPeer(t *testing.T) {
 		{
 			name:    "implicit-all-protocol-with-peer-ssh",
 			peerSSH: true,
-			rule: types.PolicyRule{
-				Enabled: true, Protocol: types.PolicyRuleProtocolALL,
+			rule: nmdata.PolicyRule{
+				Enabled: true, Protocol: string(types.PolicyRuleProtocolALL),
 				Destinations: []string{targetGroupID},
 			},
 			wantEnabled: true,
@@ -85,10 +85,10 @@ func TestComputeSSHEnabledForPeer(t *testing.T) {
 		{
 			name:    "implicit-port-range-covers-22",
 			peerSSH: true,
-			rule: types.PolicyRule{
+			rule: nmdata.PolicyRule{
 				Enabled:      true,
-				Protocol:     types.PolicyRuleProtocolTCP,
-				PortRanges:   []types.RulePortRange{{Start: 20, End: 30}},
+				Protocol:     string(types.PolicyRuleProtocolTCP),
+				PortRanges:   []nmdata.RulePortRange{{Start: 20, End: 30}},
 				Destinations: []string{targetGroupID},
 			},
 			wantEnabled: true,
@@ -96,8 +96,8 @@ func TestComputeSSHEnabledForPeer(t *testing.T) {
 		{
 			name:    "tcp-80-no-ssh",
 			peerSSH: true,
-			rule: types.PolicyRule{
-				Enabled: true, Protocol: types.PolicyRuleProtocolTCP, Ports: []string{"80"},
+			rule: nmdata.PolicyRule{
+				Enabled: true, Protocol: string(types.PolicyRuleProtocolTCP), Ports: []string{"80"},
 				Destinations: []string{targetGroupID},
 			},
 			wantEnabled: false,
@@ -105,8 +105,8 @@ func TestComputeSSHEnabledForPeer(t *testing.T) {
 		{
 			name:    "disabled-rule-skipped",
 			peerSSH: true,
-			rule: types.PolicyRule{
-				Enabled: false, Protocol: types.PolicyRuleProtocolNetbirdSSH,
+			rule: nmdata.PolicyRule{
+				Enabled: false, Protocol: string(types.PolicyRuleProtocolNetbirdSSH),
 				Destinations: []string{targetGroupID},
 			},
 			wantEnabled: false,
@@ -114,8 +114,8 @@ func TestComputeSSHEnabledForPeer(t *testing.T) {
 		{
 			name:    "peer-not-in-destinations",
 			peerSSH: true,
-			rule: types.PolicyRule{
-				Enabled: true, Protocol: types.PolicyRuleProtocolNetbirdSSH,
+			rule: nmdata.PolicyRule{
+				Enabled: true, Protocol: string(types.PolicyRuleProtocolNetbirdSSH),
 				Destinations: []string{"g_other"}, // target not in this group
 			},
 			wantEnabled: false,
@@ -123,21 +123,21 @@ func TestComputeSSHEnabledForPeer(t *testing.T) {
 		{
 			name:    "peer-typed-destination-resource-matches",
 			peerSSH: false,
-			rule: types.PolicyRule{
+			rule: nmdata.PolicyRule{
 				Enabled:             true,
-				Protocol:            types.PolicyRuleProtocolNetbirdSSH,
-				DestinationResource: types.Resource{ID: targetPeerID, Type: types.ResourceTypePeer},
+				Protocol:            string(types.PolicyRuleProtocolNetbirdSSH),
+				DestinationResource: nmdata.Resource{ID: targetPeerID, Type: string(types.ResourceTypePeer)},
 			},
 			wantEnabled: true,
 		},
 		{
 			name:    "non-peer-destination-resource-falls-through-to-groups",
 			peerSSH: false,
-			rule: types.PolicyRule{
+			rule: nmdata.PolicyRule{
 				Enabled:             true,
-				Protocol:            types.PolicyRuleProtocolNetbirdSSH,
-				DestinationResource: types.Resource{ID: targetPeerID, Type: "host"}, // wrong type
-				Destinations:        []string{targetGroupID},                        // saved by group fallback
+				Protocol:            string(types.PolicyRuleProtocolNetbirdSSH),
+				DestinationResource: nmdata.Resource{ID: targetPeerID, Type: "host"}, // wrong type
+				Destinations:        []string{targetGroupID},                         // saved by group fallback
 			},
 			wantEnabled: true,
 		},
@@ -158,14 +158,14 @@ func TestComputeSSHEnabledForPeer(t *testing.T) {
 func TestComputeSSHEnabledForPeer_TargetMissingFromComponents(t *testing.T) {
 	peer := &nbpeer.Peer{ID: "missing", SSHEnabled: true}
 	c := &types.NetworkMapComponents{
-		Peers: map[string]*nbpeer.Peer{}, // target peer NOT present
-		Groups: map[string]*types.Group{
-			"g": {ID: "g", Peers: []string{"missing"}},
+		Peers: map[string]*nmdata.Peer{}, // target peer NOT present
+		Groups: map[string]*nmdata.Group{
+			"g": {Peers: []string{"missing"}},
 		},
-		Policies: []*types.Policy{{
+		Policies: []*nmdata.Policy{{
 			ID: "p", Enabled: true,
-			Rules: []*types.PolicyRule{{
-				Enabled: true, Protocol: types.PolicyRuleProtocolNetbirdSSH,
+			Rules: []*nmdata.PolicyRule{{
+				Enabled: true, Protocol: string(types.PolicyRuleProtocolNetbirdSSH),
 				Destinations: []string{"g"},
 			}},
 		}},

@@ -13,9 +13,9 @@ import (
 	goproto "google.golang.org/protobuf/proto"
 
 	mgmtgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/types"
 	nbnetworkmap "github.com/netbirdio/netbird/shared/management/networkmap"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -56,13 +56,13 @@ func TestEnvelopeToNetworkMap_RoundTrip(t *testing.T) {
 func TestCalculate_FirewallRuleProtocol_NeverNetbirdSSH(t *testing.T) {
 	c, localPeerKey := buildSmokeComponents(t)
 	// Replace the smoke policy with a NetbirdSSH-protocol allow.
-	c.Policies = []*types.Policy{{
+	c.Policies = []*nmdata.Policy{{
 		ID: "pol-ssh", PublicID: "2", Enabled: true,
-		Rules: []*types.PolicyRule{{
+		Rules: []*nmdata.PolicyRule{{
 			ID:            "rule-ssh",
 			Enabled:       true,
-			Action:        types.PolicyTrafficActionAccept,
-			Protocol:      types.PolicyRuleProtocolNetbirdSSH,
+			Action:        string(types.PolicyTrafficActionAccept),
+			Protocol:      string(types.PolicyRuleProtocolNetbirdSSH),
 			Bidirectional: true,
 			Sources:       []string{"group-all"},
 			Destinations:  []string{"group-all"},
@@ -144,39 +144,39 @@ func TestDecodeEnvelope_MalformedWgKeyPeerSkipped(t *testing.T) {
 func TestEnvelopeRoundTrip_AllGroupShortCircuitParity(t *testing.T) {
 	ctx := context.Background()
 
-	peers := map[string]*nbpeer.Peer{}
+	peers := map[string]*nmdata.Peer{}
 	for i, id := range []string{"peer-T", "peer-S", "peer-ALL", "peer-O"} {
-		peers[id] = &nbpeer.Peer{
+		peers[id] = &nmdata.Peer{
 			ID:       id,
 			Key:      randomWgKey(t),
 			IP:       netip.AddrFrom4([4]byte{100, 64, 0, byte(i + 1)}),
 			DNSLabel: id,
-			Meta:     nbpeer.PeerSystemMeta{WtVersion: "0.40.0"},
+			Meta:     nmdata.PeerSystemMeta{WtVersion: "0.40.0"},
 		}
 	}
 
 	c := &types.NetworkMapComponents{
 		PeerID: "peer-T",
-		Network: &types.Network{
+		Network: &nmdata.Network{
 			Identifier: "net-all-groups",
 			Net:        net.IPNet{IP: net.IP{100, 64, 0, 0}, Mask: net.CIDRMask(10, 32)},
 			Serial:     1,
 		},
-		AccountSettings: &types.AccountSettingsInfo{},
-		DNSSettings:     &types.DNSSettings{},
+		AccountSettings: &nmdata.AccountSettingsInfo{},
+		DNSSettings:     &nmdata.DNSSettings{},
 		Peers:           peers,
-		Groups: map[string]*types.Group{
-			"g-src": {ID: "g-src", PublicID: "1", Name: "staff", Peers: []string{"peer-T", "peer-S"}},
-			"g-all": {ID: "g-all", PublicID: "2", Name: "All", Peers: []string{"peer-ALL"}},
-			"g-two": {ID: "g-two", PublicID: "3", Name: "second", Peers: []string{"peer-T", "peer-O"}},
+		Groups: map[string]*nmdata.Group{
+			"g-src": {PublicID: "1", Name: "staff", Peers: []string{"peer-T", "peer-S"}},
+			"g-all": {PublicID: "2", Name: "All", Peers: []string{"peer-ALL"}},
+			"g-two": {PublicID: "3", Name: "second", Peers: []string{"peer-T", "peer-O"}},
 		},
-		Policies: []*types.Policy{{
+		Policies: []*nmdata.Policy{{
 			ID: "pol-multi-dest", PublicID: "10", Enabled: true,
-			Rules: []*types.PolicyRule{{
+			Rules: []*nmdata.PolicyRule{{
 				ID:           "rule-multi-dest",
 				Enabled:      true,
-				Action:       types.PolicyTrafficActionAccept,
-				Protocol:     types.PolicyRuleProtocolALL,
+				Action:       string(types.PolicyTrafficActionAccept),
+				Protocol:     string(types.PolicyRuleProtocolALL),
 				Sources:      []string{"g-src"},
 				Destinations: []string{"g-all", "g-two"},
 			}},
@@ -232,33 +232,33 @@ func buildSmokeComponents(t *testing.T) (*types.NetworkMapComponents, string) {
 	peerAKey := randomWgKey(t)
 	peerBKey := randomWgKey(t)
 
-	peerA := &nbpeer.Peer{
+	peerA := &nmdata.Peer{
 		ID:       "peer-A",
 		Key:      peerAKey,
 		IP:       netip.AddrFrom4([4]byte{100, 64, 0, 1}),
 		DNSLabel: "peerA",
-		Meta:     nbpeer.PeerSystemMeta{WtVersion: "0.40.0"},
+		Meta:     nmdata.PeerSystemMeta{WtVersion: "0.40.0"},
 	}
-	peerB := &nbpeer.Peer{
+	peerB := &nmdata.Peer{
 		ID:       "peer-B",
 		Key:      peerBKey,
 		IP:       netip.AddrFrom4([4]byte{100, 64, 0, 2}),
 		DNSLabel: "peerB",
-		Meta:     nbpeer.PeerSystemMeta{WtVersion: "0.40.0"},
+		Meta:     nmdata.PeerSystemMeta{WtVersion: "0.40.0"},
 	}
 
-	group := &types.Group{
-		ID: "group-all", PublicID: "1", Name: "All",
+	group := &nmdata.Group{
+		PublicID: "1", Name: "All",
 		Peers: []string{"peer-A", "peer-B"},
 	}
 
-	policy := &types.Policy{
+	policy := &nmdata.Policy{
 		ID: "pol-allow", PublicID: "1", Enabled: true,
-		Rules: []*types.PolicyRule{{
+		Rules: []*nmdata.PolicyRule{{
 			ID:            "rule-allow",
 			Enabled:       true,
-			Action:        types.PolicyTrafficActionAccept,
-			Protocol:      types.PolicyRuleProtocolALL,
+			Action:        string(types.PolicyTrafficActionAccept),
+			Protocol:      string(types.PolicyRuleProtocolALL),
 			Bidirectional: true,
 			Sources:       []string{"group-all"},
 			Destinations:  []string{"group-all"},
@@ -267,21 +267,21 @@ func buildSmokeComponents(t *testing.T) (*types.NetworkMapComponents, string) {
 
 	c := &types.NetworkMapComponents{
 		PeerID: "peer-A",
-		Network: &types.Network{
+		Network: &nmdata.Network{
 			Identifier: "net-smoke",
 			Net:        net.IPNet{IP: net.IP{100, 64, 0, 0}, Mask: net.CIDRMask(10, 32)},
 			Serial:     1,
 		},
-		AccountSettings: &types.AccountSettingsInfo{},
-		DNSSettings:     &types.DNSSettings{},
-		Peers: map[string]*nbpeer.Peer{
+		AccountSettings: &nmdata.AccountSettingsInfo{},
+		DNSSettings:     &nmdata.DNSSettings{},
+		Peers: map[string]*nmdata.Peer{
 			"peer-A": peerA,
 			"peer-B": peerB,
 		},
-		Groups: map[string]*types.Group{
+		Groups: map[string]*nmdata.Group{
 			"group-all": group,
 		},
-		Policies: []*types.Policy{policy},
+		Policies: []*nmdata.Policy{policy},
 	}
 	return c, peerAKey
 }

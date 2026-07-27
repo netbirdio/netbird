@@ -67,12 +67,16 @@ func PolicyRuleImpliesLegacySSH(rule *PolicyRule) bool {
 	return sharedtypes.PolicyRuleImpliesLegacySSH(rule)
 }
 
+// ExpandPortsAndRanges / AppendIPv6FirewallRule / GenerateRouteFirewallRules
+// forward to the shared twin-typed helpers, converting the real types the
+// legacy Account calc still uses to nmdata twins at this boundary.
+
 func ExpandPortsAndRanges(base FirewallRule, rule *PolicyRule, peer *nbpeer.Peer) []*FirewallRule {
-	return sharedtypes.ExpandPortsAndRanges(base, rule, peer)
+	return sharedtypes.ExpandPortsAndRanges(base, twinRule(rule), twinPeer(peer))
 }
 
 func AppendIPv6FirewallRule(rules []*FirewallRule, rulesExists map[string]struct{}, peer, targetPeer *nbpeer.Peer, rule *PolicyRule, rc FirewallRuleContext) []*FirewallRule {
-	return sharedtypes.AppendIPv6FirewallRule(rules, rulesExists, peer, targetPeer, rule, rc)
+	return sharedtypes.AppendIPv6FirewallRule(rules, rulesExists, twinPeer(peer), twinPeer(targetPeer), twinRule(rule), rc)
 }
 
 func CalculateNetworkMapFromComponents(ctx context.Context, components *NetworkMapComponents) *NetworkMap {
@@ -80,7 +84,7 @@ func CalculateNetworkMapFromComponents(ctx context.Context, components *NetworkM
 }
 
 func GenerateRouteFirewallRules(ctx context.Context, route *nbroute.Route, rule *PolicyRule, groupPeers []*nbpeer.Peer, direction int, includeIPv6 bool) []*RouteFirewallRule {
-	return sharedtypes.GenerateRouteFirewallRules(ctx, route, rule, groupPeers, direction, includeIPv6)
+	return sharedtypes.GenerateRouteFirewallRules(ctx, twinRoute(route), twinRule(rule), twinPeers(groupPeers), direction, includeIPv6)
 }
 
 func AllocateIPv6Subnet(r *rand.Rand) net.IPNet {

@@ -1,0 +1,11 @@
+package nmdata
+
+import "time"
+
+// AccountSettingsInfo is the slim twin of types.AccountSettingsInfo.
+type AccountSettingsInfo struct {
+	PeerLoginExpirationEnabled      bool
+	PeerLoginExpiration             time.Duration
+	PeerInactivityExpirationEnabled bool
+	PeerInactivityExpiration        time.Duration
+}

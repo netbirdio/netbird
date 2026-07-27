@@ -15,9 +15,8 @@ import (
 	"golang.org/x/exp/maps"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/util"
-	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
@@ -39,11 +38,11 @@ const (
 )
 
 type NetworkMap struct {
-	Peers               []*nbpeer.Peer
-	Network             *Network
-	Routes              []*route.Route
+	Peers               []*nmdata.Peer
+	Network             *nmdata.Network
+	Routes              []*nmdata.Route
 	DNSConfig           nbdns.Config
-	OfflinePeers        []*nbpeer.Peer
+	OfflinePeers        []*nmdata.Peer
 	FirewallRules       []*FirewallRule
 	RoutesFirewallRules []*RouteFirewallRule
 	ForwardingRules     []*ForwardingRule
@@ -60,8 +59,8 @@ func (nm *NetworkMap) Merge(other *NetworkMap) {
 	nm.ForwardingRules = util.MergeUnique(nm.ForwardingRules, other.ForwardingRules)
 }
 
-func mergeUniquePeersByID(peers1, peers2 []*nbpeer.Peer) []*nbpeer.Peer {
-	result := make(map[string]*nbpeer.Peer)
+func mergeUniquePeersByID(peers1, peers2 []*nmdata.Peer) []*nmdata.Peer {
+	result := make(map[string]*nmdata.Peer)
 	for _, peer := range peers1 {
 		result[peer.ID] = peer
 	}

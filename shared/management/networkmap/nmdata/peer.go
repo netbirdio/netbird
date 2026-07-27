@@ -1,0 +1,105 @@
+package nmdata
+
+import (
+	"net"
+	"net/netip"
+	"slices"
+	"time"
+)
+
+const (
+	peerCapabilitySourcePrefixes int32 = 1
+	peerCapabilityIPv6Overlay    int32 = 2
+)
+
+// Peer is the slim twin of peer.Peer.
+type Peer struct {
+	ID                     string
+	Key                    string
+	SSHKey                 string
+	DNSLabel               string
+	UserID                 string
+	SSHEnabled             bool
+	LoginExpirationEnabled bool
+	LastLogin              *time.Time
+	IP                     netip.Addr
+	IPv6                   netip.Addr
+	Meta                   PeerSystemMeta
+	Location               PeerLocation
+}
+
+// PeerSystemMeta is the slim twin of peer.PeerSystemMeta.
+type PeerSystemMeta struct {
+	WtVersion        string
+	GoOS             string
+	OSVersion        string
+	KernelVersion    string
+	NetworkAddresses []NetworkAddress
+	Files            []File
+	Capabilities     []int32
+	Flags            Flags
+}
+
+// Flags is the slim twin of peer.Flags.
+type Flags struct {
+	ServerSSHAllowed bool
+	DisableIPv6      bool
+}
+
+// NetworkAddress is the slim twin of peer.NetworkAddress.
+type NetworkAddress struct {
+	NetIP netip.Prefix
+}
+
+// File is the slim twin of peer.File.
+type File struct {
+	Path             string
+	ProcessIsRunning bool
+}
+
+// PeerLocation is the slim twin of peer.Location.
+type PeerLocation struct {
+	CountryCode  string
+	CityName     string
+	ConnectionIP net.IP
+}
+
+func (p *Peer) HasCapability(capability int32) bool {
+	return slices.Contains(p.Meta.Capabilities, capability)
+}
+
+func (p *Peer) SupportsIPv6() bool {
+	return !p.Meta.Flags.DisableIPv6 && p.HasCapability(peerCapabilityIPv6Overlay)
+}
+
+func (p *Peer) SupportsSourcePrefixes() bool {
+	return p.HasCapability(peerCapabilitySourcePrefixes)
+}
+
+func (p *Peer) AddedWithSSOLogin() bool {
+	return p.UserID != ""
+}
+
+func (p *Peer) FQDN(dnsDomain string) string {
+	if dnsDomain == "" {
+		return ""
+	}
+	return p.DNSLabel + "." + dnsDomain
+}
+
+func (p *Peer) GetLastLogin() time.Time {
+	if p.LastLogin != nil {
+		return *p.LastLogin
+	}
+	return time.Time{}
+}
+
+func (p *Peer) LoginExpired(expiresIn time.Duration) (bool, time.Duration) {
+	if !p.AddedWithSSOLogin() || !p.LoginExpirationEnabled {
+		return false, 0
+	}
+	expiresAt := p.GetLastLogin().Add(expiresIn)
+	now := time.Now()
+	timeLeft := expiresAt.Sub(now)
+	return timeLeft <= 0, timeLeft
+}

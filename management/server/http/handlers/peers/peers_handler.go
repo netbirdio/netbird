@@ -446,7 +446,7 @@ func (h *Handler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request) {
 
 	netMap := account.GetPeerNetworkMapFromComponents(ctx, peerID, dns.CustomZone{}, nil, validPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil, account.GetActiveGroupUsers())
 
-	util.WriteJSONObject(ctx, w, toAccessiblePeers(netMap, dnsDomain))
+	util.WriteJSONObject(ctx, w, toAccessiblePeers(account.Peers, netMap, dnsDomain))
 }
 
 func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request) {
@@ -534,14 +534,21 @@ func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request) 
 	util.WriteJSONObject(r.Context(), w, resp)
 }
 
-func toAccessiblePeers(netMap *types.NetworkMap, dnsDomain string) []api.AccessiblePeer {
+// toAccessiblePeers resolves the twin peers in netMap back to the full account
+// peers (by ID) so the API response keeps Status/Name/OS/GeoNameID, which the
+// slim netmap twins intentionally don't carry.
+func toAccessiblePeers(accountPeers map[string]*nbpeer.Peer, netMap *types.NetworkMap, dnsDomain string) []api.AccessiblePeer {
 	accessiblePeers := make([]api.AccessiblePeer, 0, len(netMap.Peers)+len(netMap.OfflinePeers))
-	for _, p := range netMap.Peers {
-		accessiblePeers = append(accessiblePeers, peerToAccessiblePeer(p, dnsDomain))
+	appendByID := func(id string) {
+		if p, ok := accountPeers[id]; ok && p != nil {
+			accessiblePeers = append(accessiblePeers, peerToAccessiblePeer(p, dnsDomain))
+		}
 	}
-
+	for _, p := range netMap.Peers {
+		appendByID(p.ID)
+	}
 	for _, p := range netMap.OfflinePeers {
-		accessiblePeers = append(accessiblePeers, peerToAccessiblePeer(p, dnsDomain))
+		appendByID(p.ID)
 	}
 
 	return accessiblePeers

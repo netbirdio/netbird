@@ -4,13 +4,9 @@ import (
 	"encoding/base64"
 	"strconv"
 
-	nbdns "github.com/netbirdio/netbird/dns"
-	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
-	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/types"
-	nbroute "github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/networkmap"
+	nmdata "github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -131,7 +127,7 @@ func EncodeNetworkMapEnvelope(in ComponentsEnvelopeInput) *proto.NetworkMapEnvel
 // networkSerial returns c.Network.CurrentSerial() with a nil guard. The
 // production path always populates c.Network, but the encoder is exported
 // and a hand-built components struct may omit it.
-func networkSerial(n *types.Network) uint64 {
+func networkSerial(n *nmdata.Network) uint64 {
 	if n == nil {
 		return 0
 	}
@@ -166,7 +162,7 @@ func (e *componentEncoder) indexAllPeers() {
 	}
 }
 
-func (e *componentEncoder) appendPeer(p *nbpeer.Peer) uint32 {
+func (e *componentEncoder) appendPeer(p *nmdata.Peer) uint32 {
 	if idx, ok := e.peerOrder[p.ID]; ok {
 		return idx
 	}
@@ -180,7 +176,7 @@ func (e *componentEncoder) appendPeer(p *nbpeer.Peer) uint32 {
 // (c.RouterPeers may contain peers not in c.Peers when validation rules drop
 // them) and returns their wire indexes for the RouterPeerIndexes field. Must
 // run before any encoder that resolves peer ids via e.peerOrder.
-func (e *componentEncoder) indexRouterPeers(routers map[string]*nbpeer.Peer) []uint32 {
+func (e *componentEncoder) indexRouterPeers(routers map[string]*nmdata.Peer) []uint32 {
 	if len(routers) == 0 {
 		return nil
 	}
@@ -220,7 +216,7 @@ func (e *componentEncoder) encodeGroups() []*proto.GroupCompact {
 // list and a map from policy pointer to the indexes of its emitted rules in
 // that list — used by encodeResourcePoliciesMap to translate
 // ResourcePoliciesMap[resourceID][]*Policy into wire-side indexes.
-func (e *componentEncoder) encodePolicies(policies []*types.Policy) []*proto.PolicyCompact {
+func (e *componentEncoder) encodePolicies(policies []*nmdata.Policy) []*proto.PolicyCompact {
 	if len(policies) == 0 {
 		return nil
 	}
@@ -242,7 +238,7 @@ func (e *componentEncoder) encodePolicies(policies []*types.Policy) []*proto.Pol
 }
 
 // encodePolicyRule maps a single PolicyRule under pol to a PolicyCompact entry.
-func (e *componentEncoder) encodePolicyRule(pol *types.Policy, r *types.PolicyRule) *proto.PolicyCompact {
+func (e *componentEncoder) encodePolicyRule(pol *nmdata.Policy, r *nmdata.PolicyRule) *proto.PolicyCompact {
 	return &proto.PolicyCompact{
 		Id:                    pol.PublicID,
 		Action:                networkmap.GetProtoAction(string(r.Action)),
@@ -281,14 +277,14 @@ func (e *componentEncoder) groupPublicXids(src []string) []string {
 // only live in ResourcePoliciesMap; without this union step they'd be lost
 // from the wire and the client's resource-policy lookup would come back
 // empty.
-func unionPolicies(policies []*types.Policy, resourcePolicies map[string][]*types.Policy) []*types.Policy {
+func unionPolicies(policies []*nmdata.Policy, resourcePolicies map[string][]*nmdata.Policy) []*nmdata.Policy {
 	// Fast path: non-router peers have no resource-only policies, so the
 	// "union" is identical to `policies`. Skip the dedup map allocation.
 	if len(resourcePolicies) == 0 {
 		return policies
 	}
 	seen := make(map[string]struct{}, len(policies))
-	out := make([]*types.Policy, 0, len(policies))
+	out := make([]*nmdata.Policy, 0, len(policies))
 	for _, p := range policies {
 		if p == nil {
 			continue
@@ -346,12 +342,12 @@ func (e *componentEncoder) groupPublicXid(groupID string) (string, bool) {
 // peers array. For other resource types only the type string is shipped
 // today (Calculate's resource-typed rule path consults SourceResource only
 // for "peer" — other types fall through to group-based lookup).
-func (e *componentEncoder) resourceToProto(r types.Resource) *proto.ResourceCompact {
+func (e *componentEncoder) resourceToProto(r nmdata.Resource) *proto.ResourceCompact {
 	if r.ID == "" && r.Type == "" {
 		return nil
 	}
-	out := &proto.ResourceCompact{Type: string(r.Type)}
-	if r.Type == types.ResourceTypePeer && r.ID != "" {
+	out := &proto.ResourceCompact{Type: r.Type}
+	if r.Type == string(types.ResourceTypePeer) && r.ID != "" {
 		if idx, ok := e.peerOrder[r.ID]; ok {
 			out.PeerIndexSet = true
 			out.PeerIndex = idx
@@ -390,7 +386,7 @@ func (e *componentEncoder) networkPublicId(xid string) (string, bool) {
 	return id, true
 }
 
-func (e *componentEncoder) encodeDNSSettings(s *types.DNSSettings) *proto.DNSSettingsCompact {
+func (e *componentEncoder) encodeDNSSettings(s *nmdata.DNSSettings) *proto.DNSSettingsCompact {
 	if s == nil || len(s.DisabledManagementGroups) == 0 {
 		return nil
 	}
@@ -405,7 +401,7 @@ func (e *componentEncoder) encodeDNSSettings(s *types.DNSSettings) *proto.DNSSet
 	return out
 }
 
-func (e *componentEncoder) encodeRoutes(routes []*nbroute.Route) []*proto.RouteRaw {
+func (e *componentEncoder) encodeRoutes(routes []*nmdata.Route) []*proto.RouteRaw {
 	if len(routes) == 0 {
 		return nil
 	}
@@ -443,7 +439,7 @@ func (e *componentEncoder) encodeRoutes(routes []*nbroute.Route) []*proto.RouteR
 	return out
 }
 
-func (e *componentEncoder) encodeNameServerGroups(nsgs []*nbdns.NameServerGroup) []*proto.NameServerGroupRaw {
+func (e *componentEncoder) encodeNameServerGroups(nsgs []*nmdata.NameServerGroup) []*proto.NameServerGroupRaw {
 	if len(nsgs) == 0 {
 		return nil
 	}
@@ -466,7 +462,7 @@ func (e *componentEncoder) encodeNameServerGroups(nsgs []*nbdns.NameServerGroup)
 	return out
 }
 
-func encodeNameServers(servers []nbdns.NameServer) []*proto.NameServer {
+func encodeNameServers(servers []nmdata.NameServer) []*proto.NameServer {
 	if len(servers) == 0 {
 		return nil
 	}
@@ -481,7 +477,7 @@ func encodeNameServers(servers []nbdns.NameServer) []*proto.NameServer {
 	return out
 }
 
-func encodeSimpleRecords(records []nbdns.SimpleRecord) []*proto.SimpleRecord {
+func encodeSimpleRecords(records []nmdata.SimpleRecord) []*proto.SimpleRecord {
 	if len(records) == 0 {
 		return nil
 	}
@@ -498,7 +494,7 @@ func encodeSimpleRecords(records []nbdns.SimpleRecord) []*proto.SimpleRecord {
 	return out
 }
 
-func encodeCustomZones(zones []nbdns.CustomZone) []*proto.CustomZone {
+func encodeCustomZones(zones []nmdata.CustomZone) []*proto.CustomZone {
 	if len(zones) == 0 {
 		return nil
 	}
@@ -514,7 +510,7 @@ func encodeCustomZones(zones []nbdns.CustomZone) []*proto.CustomZone {
 	return out
 }
 
-func (e *componentEncoder) encodeNetworkResources(resources []*resourceTypes.NetworkResource) []*proto.NetworkResourceRaw {
+func (e *componentEncoder) encodeNetworkResources(resources []*nmdata.NetworkResource) []*proto.NetworkResourceRaw {
 	if len(resources) == 0 {
 		return nil
 	}
@@ -543,7 +539,7 @@ func (e *componentEncoder) encodeNetworkResources(resources []*resourceTypes.Net
 	return out
 }
 
-func (e *componentEncoder) encodeRoutersMap(routersMap map[string]map[string]*routerTypes.NetworkRouter) map[string]*proto.NetworkRouterList {
+func (e *componentEncoder) encodeRoutersMap(routersMap map[string]map[string]*nmdata.NetworkRouter) map[string]*proto.NetworkRouterList {
 	if len(routersMap) == 0 {
 		return nil
 	}
@@ -579,7 +575,7 @@ func (e *componentEncoder) encodeRoutersMap(routersMap map[string]map[string]*ro
 	return out
 }
 
-func (e *componentEncoder) encodeResourcePoliciesMap(rpm map[string][]*types.Policy) map[string]*proto.PolicyIds {
+func (e *componentEncoder) encodeResourcePoliciesMap(rpm map[string][]*nmdata.Policy) map[string]*proto.PolicyIds {
 	if len(rpm) == 0 {
 		return nil
 	}
@@ -666,7 +662,7 @@ func (e *componentEncoder) encodePostureFailedPeers(m map[string]map[string]stru
 // (which shouldn't happen in production but the encoder is exported)
 // degrades to login_expiration_enabled = false, which makes
 // LoginExpired() return false for every peer.
-func toAccountSettingsCompact(s *types.AccountSettingsInfo) *proto.AccountSettingsCompact {
+func toAccountSettingsCompact(s *nmdata.AccountSettingsInfo) *proto.AccountSettingsCompact {
 	if s == nil {
 		return &proto.AccountSettingsCompact{}
 	}
@@ -676,7 +672,7 @@ func toAccountSettingsCompact(s *types.AccountSettingsInfo) *proto.AccountSettin
 	}
 }
 
-func toAccountNetwork(n *types.Network) *proto.AccountNetwork {
+func toAccountNetwork(n *nmdata.Network) *proto.AccountNetwork {
 	if n == nil {
 		return nil
 	}
@@ -692,7 +688,7 @@ func toAccountNetwork(n *types.Network) *proto.AccountNetwork {
 	return out
 }
 
-func toPeerCompact(p *nbpeer.Peer) *proto.PeerCompact {
+func toPeerCompact(p *nmdata.Peer) *proto.PeerCompact {
 	pc := &proto.PeerCompact{
 		WgPubKey:               decodeWgKey(p.Key),
 		SshPubKey:              []byte(p.SSHKey),
@@ -754,7 +750,7 @@ func portsToUint32(ports []string) []uint32 {
 	return out
 }
 
-func portRangesToProto(ranges []types.RulePortRange) []*proto.PortInfo_Range {
+func portRangesToProto(ranges []nmdata.RulePortRange) []*proto.PortInfo_Range {
 	if len(ranges) == 0 {
 		return nil
 	}

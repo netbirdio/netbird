@@ -641,7 +641,7 @@ func (c *Controller) GetValidatedPeerWithComponents(ctx context.Context, isRequi
 		if err != nil {
 			return nil, nil, nil, nil, 0, err
 		}
-		return peer, &types.NetworkMapComponents{Network: network.Copy()}, nil, nil, 0, nil
+		return peer, &types.NetworkMapComponents{Network: types.TwinNetwork(network)}, nil, nil, 0, nil
 	}
 
 	account, err := c.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
@@ -794,7 +794,7 @@ func (c *Controller) GetValidatedPeerWithMap(ctx context.Context, isRequiresAppr
 		}
 
 		emptyMap := &types.NetworkMap{
-			Network: network.Copy(),
+			Network: types.TwinNetwork(network),
 		}
 		return emptyMap, nil, 0, nil
 	}

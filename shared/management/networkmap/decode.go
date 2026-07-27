@@ -10,12 +10,9 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	nbdns "github.com/netbirdio/netbird/dns"
-	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
-	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	nbroute "github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
+	nmdata "github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/management/types"
 )
@@ -38,28 +35,28 @@ func DecodeEnvelope(env *proto.NetworkMapEnvelope) (*types.NetworkMapComponents,
 		Network:             decodeAccountNetwork(full.Network),
 		AccountSettings:     decodeAccountSettings(full.AccountSettings),
 		CustomZoneDomain:    full.CustomZoneDomain,
-		Peers:               make(map[string]*nbpeer.Peer, len(full.Peers)),
-		Groups:              make(map[string]*types.Group, len(full.Groups)),
-		Policies:            make([]*types.Policy, 0, len(full.Policies)),
-		Routes:              make([]*nbroute.Route, 0, len(full.Routes)),
-		NameServerGroups:    make([]*nbdns.NameServerGroup, 0, len(full.NameserverGroups)),
+		Peers:               make(map[string]*nmdata.Peer, len(full.Peers)),
+		Groups:              make(map[string]*nmdata.Group, len(full.Groups)),
+		Policies:            make([]*nmdata.Policy, 0, len(full.Policies)),
+		Routes:              make([]*nmdata.Route, 0, len(full.Routes)),
+		NameServerGroups:    make([]*nmdata.NameServerGroup, 0, len(full.NameserverGroups)),
 		AllDNSRecords:       decodeSimpleRecords(full.AllDnsRecords),
 		AccountZones:        decodeCustomZones(full.AccountZones),
-		ResourcePoliciesMap: make(map[string][]*types.Policy),
-		RoutersMap:          make(map[string]map[string]*routerTypes.NetworkRouter),
-		NetworkResources:    make([]*resourceTypes.NetworkResource, 0, len(full.NetworkResources)),
-		RouterPeers:         make(map[string]*nbpeer.Peer),
+		ResourcePoliciesMap: make(map[string][]*nmdata.Policy),
+		RoutersMap:          make(map[string]map[string]*nmdata.NetworkRouter),
+		NetworkResources:    make([]*nmdata.NetworkResource, 0, len(full.NetworkResources)),
+		RouterPeers:         make(map[string]*nmdata.Peer),
 		AllowedUserIDs:      stringSliceToSet(full.AllowedUserIds),
 		PostureFailedPeers:  make(map[string]map[string]struct{}, len(full.PostureFailedPeers)),
 		GroupIDToUserIDs:    make(map[string][]string, len(full.GroupIdToUserIds)),
 	}
 
 	if full.DnsSettings != nil {
-		c.DNSSettings = &types.DNSSettings{
+		c.DNSSettings = &nmdata.DNSSettings{
 			DisabledManagementGroups: full.DnsSettings.DisabledManagementGroupIds,
 		}
 	} else {
-		c.DNSSettings = &types.DNSSettings{}
+		c.DNSSettings = &nmdata.DNSSettings{}
 	}
 
 	// Phase 1: peers. The envelope's peers slice is index-addressed on the
@@ -101,8 +98,7 @@ func DecodeEnvelope(env *proto.NetworkMapEnvelope) (*types.NetworkMapComponents,
 				log.WithField("peer idx", idx).Error("unrecognized peer idx during decoding")
 			}
 		}
-		group := &types.Group{
-			ID:       groupID,
+		group := &nmdata.Group{
 			PublicID: gc.Id,
 			Peers:    peerIDs,
 		}
@@ -114,7 +110,7 @@ func DecodeEnvelope(env *proto.NetworkMapEnvelope) (*types.NetworkMapComponents,
 
 	// Phase 3: policies (PolicyCompact = one rule per entry; current data
 	// model is 1 rule per policy).
-	policyByID := make(map[string]*types.Policy, len(full.Policies))
+	policyByID := make(map[string]*nmdata.Policy, len(full.Policies))
 	for i, pc := range full.Policies {
 		if pc == nil {
 			return nil, fmt.Errorf("invalid envelope: policies[%d] is nil", i)
@@ -151,7 +147,7 @@ func DecodeEnvelope(env *proto.NetworkMapEnvelope) (*types.NetworkMapComponents,
 	// Phase 7: routers_map (outer key = network seq id, inner key = peer-id
 	// reconstructed from peer_index). Synthesized network id is "net_<seq>".
 	for networkID, list := range full.RoutersMap {
-		inner := make(map[string]*routerTypes.NetworkRouter, len(list.Entries))
+		inner := make(map[string]*nmdata.NetworkRouter, len(list.Entries))
 		for _, entry := range list.Entries {
 			if !entry.PeerIndexSet {
 				continue
@@ -161,11 +157,8 @@ func DecodeEnvelope(env *proto.NetworkMapEnvelope) (*types.NetworkMapComponents,
 				continue
 			}
 			peerID := peerIDByIndex[entry.PeerIndex]
-			inner[peerID] = &routerTypes.NetworkRouter{
-				ID:         "",
-				NetworkID:  networkID,
+			inner[peerID] = &nmdata.NetworkRouter{
 				PublicID:   entry.Id,
-				Peer:       peerID,
 				PeerGroups: entry.PeerGroupIds,
 				Masquerade: entry.Masquerade,
 				Metric:     int(entry.Metric),
@@ -184,7 +177,7 @@ func DecodeEnvelope(env *proto.NetworkMapEnvelope) (*types.NetworkMapComponents,
 		if len(ids.Ids) == 0 {
 			continue
 		}
-		policies := make([]*types.Policy, 0, len(ids.Ids))
+		policies := make([]*nmdata.Policy, 0, len(ids.Ids))
 		for _, id := range ids.Ids {
 			if p, ok := policyByID[id]; ok {
 				policies = append(policies, p)
@@ -232,11 +225,11 @@ func DecodeEnvelope(env *proto.NetworkMapEnvelope) (*types.NetworkMapComponents,
 	return c, nil
 }
 
-func decodeAccountNetwork(an *proto.AccountNetwork) *types.Network {
+func decodeAccountNetwork(an *proto.AccountNetwork) *nmdata.Network {
 	if an == nil {
 		return nil
 	}
-	n := &types.Network{
+	n := &nmdata.Network{
 		Identifier: an.Identifier,
 		Dns:        an.Dns,
 		Serial:     an.Serial,
@@ -254,17 +247,17 @@ func decodeAccountNetwork(an *proto.AccountNetwork) *types.Network {
 	return n
 }
 
-func decodeAccountSettings(as *proto.AccountSettingsCompact) *types.AccountSettingsInfo {
+func decodeAccountSettings(as *proto.AccountSettingsCompact) *nmdata.AccountSettingsInfo {
 	if as == nil {
-		return &types.AccountSettingsInfo{}
+		return &nmdata.AccountSettingsInfo{}
 	}
-	return &types.AccountSettingsInfo{
+	return &nmdata.AccountSettingsInfo{
 		PeerLoginExpirationEnabled: as.PeerLoginExpirationEnabled,
 		PeerLoginExpiration:        time.Duration(as.PeerLoginExpirationNs),
 	}
 }
 
-func decodePeerCompact(pc *proto.PeerCompact, peerID string) *nbpeer.Peer {
+func decodePeerCompact(pc *proto.PeerCompact, peerID string) *nmdata.Peer {
 	var caps []int32
 	if pc.SupportsSourcePrefixes {
 		caps = append(caps, nbpeer.PeerCapabilitySourcePrefixes)
@@ -272,17 +265,17 @@ func decodePeerCompact(pc *proto.PeerCompact, peerID string) *nbpeer.Peer {
 	if pc.SupportsIpv6 {
 		caps = append(caps, nbpeer.PeerCapabilityIPv6Overlay)
 	}
-	peer := &nbpeer.Peer{
+	peer := &nmdata.Peer{
 		ID:                     peerID,
 		Key:                    peerID,
 		SSHKey:                 string(pc.SshPubKey),
 		SSHEnabled:             pc.SshEnabled,
 		DNSLabel:               pc.DnsLabel,
 		LoginExpirationEnabled: pc.LoginExpirationEnabled,
-		Meta: nbpeer.PeerSystemMeta{
+		Meta: nmdata.PeerSystemMeta{
 			WtVersion:    pc.AgentVersion,
 			Capabilities: caps,
-			Flags: nbpeer.Flags{
+			Flags: nmdata.Flags{
 				ServerSSHAllowed: pc.ServerSshAllowed,
 			},
 		},
@@ -315,13 +308,13 @@ func decodePeerCompact(pc *proto.PeerCompact, peerID string) *nbpeer.Peer {
 	return peer
 }
 
-func decodePolicyCompact(pc *proto.PolicyCompact, policyID string, peerIDByIndex []string) *types.Policy {
-	rule := &types.PolicyRule{
+func decodePolicyCompact(pc *proto.PolicyCompact, policyID string, peerIDByIndex []string) *nmdata.Policy {
+	rule := &nmdata.PolicyRule{
 		ID:                  policyID, // 1 rule per policy → reuse synthesized id
 		PolicyID:            policyID,
 		Enabled:             true,
-		Action:              actionFromProto(pc.Action),
-		Protocol:            protocolFromProto(pc.Protocol),
+		Action:              string(actionFromProto(pc.Action)),
+		Protocol:            string(protocolFromProto(pc.Protocol)),
 		Bidirectional:       pc.Bidirectional,
 		Ports:               uint32SliceToStrings(pc.Ports),
 		PortRanges:          portRangesFromProto(pc.PortRanges),
@@ -332,11 +325,11 @@ func decodePolicyCompact(pc *proto.PolicyCompact, policyID string, peerIDByIndex
 		SourceResource:      resourceFromProto(pc.SourceResource, peerIDByIndex),
 		DestinationResource: resourceFromProto(pc.DestinationResource, peerIDByIndex),
 	}
-	return &types.Policy{
+	return &nmdata.Policy{
 		ID:                  policyID,
 		PublicID:            pc.Id,
 		Enabled:             true,
-		Rules:               []*types.PolicyRule{rule},
+		Rules:               []*nmdata.PolicyRule{rule},
 		SourcePostureChecks: pc.SourcePostureCheckIds,
 	}
 }
@@ -344,11 +337,11 @@ func decodePolicyCompact(pc *proto.PolicyCompact, policyID string, peerIDByIndex
 // resourceFromProto rebuilds types.Resource. For peer-typed resources the
 // peer reference is reconstructed from the envelope's peer index — wire
 // format ships no xid for peers, so we use the synthesized peer id.
-func resourceFromProto(r *proto.ResourceCompact, peerIDByIndex []string) types.Resource {
+func resourceFromProto(r *proto.ResourceCompact, peerIDByIndex []string) nmdata.Resource {
 	if r == nil {
-		return types.Resource{}
+		return nmdata.Resource{}
 	}
-	out := types.Resource{Type: types.ResourceType(r.Type)}
+	out := nmdata.Resource{Type: r.Type}
 	if r.PeerIndexSet && int(r.PeerIndex) < len(peerIDByIndex) {
 		out.ID = peerIDByIndex[r.PeerIndex]
 	}
@@ -373,15 +366,15 @@ func authorizedGroupsFromProto(m map[string]*proto.UserNameList) map[string][]st
 	return out
 }
 
-func decodeRouteRaw(rr *proto.RouteRaw, peerIDByIndex []string) *nbroute.Route {
-	r := &nbroute.Route{
-		ID:                  nbroute.ID(rr.Id),
+func decodeRouteRaw(rr *proto.RouteRaw, peerIDByIndex []string) *nmdata.Route {
+	r := &nmdata.Route{
+		ID:                  rr.Id,
 		PublicID:            rr.Id,
-		NetID:               nbroute.NetID(rr.NetId),
+		NetID:               rr.NetId,
 		Description:         rr.Description,
 		Domains:             domainsFromPunycode(rr.Domains),
 		KeepRoute:           rr.KeepRoute,
-		NetworkType:         nbroute.NetworkType(rr.NetworkType),
+		NetworkType:         int(rr.NetworkType),
 		Masquerade:          rr.Masquerade,
 		Metric:              int(rr.Metric),
 		Enabled:             rr.Enabled,
@@ -401,8 +394,8 @@ func decodeRouteRaw(rr *proto.RouteRaw, peerIDByIndex []string) *nbroute.Route {
 	return r
 }
 
-func decodeNameServerGroupRaw(nsg *proto.NameServerGroupRaw) *nbdns.NameServerGroup {
-	out := &nbdns.NameServerGroup{
+func decodeNameServerGroupRaw(nsg *proto.NameServerGroupRaw) *nmdata.NameServerGroup {
+	out := &nmdata.NameServerGroup{
 		ID:                   nsg.Id,
 		PublicID:             nsg.Id,
 		Groups:               nsg.GroupIds,
@@ -410,13 +403,13 @@ func decodeNameServerGroupRaw(nsg *proto.NameServerGroupRaw) *nbdns.NameServerGr
 		Domains:              nsg.Domains,
 		Enabled:              nsg.Enabled,
 		SearchDomainsEnabled: nsg.SearchDomainsEnabled,
-		NameServers:          make([]nbdns.NameServer, 0, len(nsg.Nameservers)),
+		NameServers:          make([]nmdata.NameServer, 0, len(nsg.Nameservers)),
 	}
 	for _, ns := range nsg.Nameservers {
 		if addr, err := netip.ParseAddr(ns.IP); err == nil {
-			out.NameServers = append(out.NameServers, nbdns.NameServer{
+			out.NameServers = append(out.NameServers, nmdata.NameServer{
 				IP:     addr,
-				NSType: nbdns.NameServerType(ns.NSType),
+				NSType: int(ns.NSType),
 				Port:   int(ns.Port),
 			})
 		}
@@ -424,14 +417,14 @@ func decodeNameServerGroupRaw(nsg *proto.NameServerGroupRaw) *nbdns.NameServerGr
 	return out
 }
 
-func decodeNetworkResource(nr *proto.NetworkResourceRaw) *resourceTypes.NetworkResource {
-	out := &resourceTypes.NetworkResource{
+func decodeNetworkResource(nr *proto.NetworkResourceRaw) *nmdata.NetworkResource {
+	out := &nmdata.NetworkResource{
 		ID:          nr.Id,
 		PublicID:    nr.Id,
 		NetworkID:   nr.NetworkSeq,
 		Name:        nr.Name,
 		Description: nr.Description,
-		Type:        resourceTypes.NetworkResourceType(nr.Type),
+		Type:        nr.Type,
 		Address:     nr.Address,
 		Domain:      nr.DomainValue,
 		Enabled:     nr.Enabled,
@@ -444,10 +437,10 @@ func decodeNetworkResource(nr *proto.NetworkResourceRaw) *resourceTypes.NetworkR
 	return out
 }
 
-func decodeSimpleRecords(records []*proto.SimpleRecord) []nbdns.SimpleRecord {
-	out := make([]nbdns.SimpleRecord, 0, len(records))
+func decodeSimpleRecords(records []*proto.SimpleRecord) []nmdata.SimpleRecord {
+	out := make([]nmdata.SimpleRecord, 0, len(records))
 	for _, r := range records {
-		out = append(out, nbdns.SimpleRecord{
+		out = append(out, nmdata.SimpleRecord{
 			Name:  r.Name,
 			Type:  int(r.Type),
 			Class: r.Class,
@@ -458,10 +451,10 @@ func decodeSimpleRecords(records []*proto.SimpleRecord) []nbdns.SimpleRecord {
 	return out
 }
 
-func decodeCustomZones(zones []*proto.CustomZone) []nbdns.CustomZone {
-	out := make([]nbdns.CustomZone, 0, len(zones))
+func decodeCustomZones(zones []*proto.CustomZone) []nmdata.CustomZone {
+	out := make([]nmdata.CustomZone, 0, len(zones))
 	for _, z := range zones {
-		out = append(out, nbdns.CustomZone{
+		out = append(out, nmdata.CustomZone{
 			Domain:               z.Domain,
 			Records:              decodeSimpleRecords(z.Records),
 			SearchDomainDisabled: z.SearchDomainDisabled,
@@ -482,16 +475,16 @@ func uint32SliceToStrings(ports []uint32) []string {
 	return out
 }
 
-func portRangesFromProto(ranges []*proto.PortInfo_Range) []types.RulePortRange {
+func portRangesFromProto(ranges []*proto.PortInfo_Range) []nmdata.RulePortRange {
 	if len(ranges) == 0 {
 		return nil
 	}
-	out := make([]types.RulePortRange, 0, len(ranges))
+	out := make([]nmdata.RulePortRange, 0, len(ranges))
 	for _, r := range ranges {
 		if r == nil || r.Start > 65535 || r.End > 65535 {
 			continue
 		}
-		out = append(out, types.RulePortRange{
+		out = append(out, nmdata.RulePortRange{
 			Start: uint16(r.Start),
 			End:   uint16(r.End),
 		})

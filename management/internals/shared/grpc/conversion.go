@@ -22,6 +22,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/networkmap"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/netiputil"
 )
@@ -119,7 +120,7 @@ func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken
 	return nbConfig
 }
 
-func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, settings *types.Settings, httpConfig *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfig.DeviceAuthorizationFlow, enableSSH bool) *proto.PeerConfig {
+func toPeerConfig(peer *nbpeer.Peer, network *nmdata.Network, dnsName string, settings *types.Settings, httpConfig *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfig.DeviceAuthorizationFlow, enableSSH bool) *proto.PeerConfig {
 	netmask, _ := network.Net.Mask.Size()
 	fqdn := peer.FQDN(dnsName)
 

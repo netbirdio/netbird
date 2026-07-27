@@ -1,11 +1,7 @@
 package types
 
 import (
-	nbdns "github.com/netbirdio/netbird/dns"
-	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
-	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/route"
+	nmdata "github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
 
 type GroupCompact struct {
@@ -16,26 +12,26 @@ type GroupCompact struct {
 type NetworkMapComponentsCompact struct {
 	PeerID string
 
-	Network          *Network
-	AccountSettings  *AccountSettingsInfo
-	DNSSettings      *DNSSettings
+	Network          *nmdata.Network
+	AccountSettings  *nmdata.AccountSettingsInfo
+	DNSSettings      *nmdata.DNSSettings
 	CustomZoneDomain string
 
-	AllPeers          []*nbpeer.Peer
+	AllPeers          []*nmdata.Peer
 	PeerIndexes       []int
 	RouterPeerIndexes []int
 
 	Groups              map[string]*GroupCompact
-	AllPolicies         []*Policy
+	AllPolicies         []*nmdata.Policy
 	PolicyIndexes       []int
 	ResourcePoliciesMap map[string][]int
-	Routes              []*route.Route
-	NameServerGroups    []*nbdns.NameServerGroup
-	AllDNSRecords       []nbdns.SimpleRecord
-	AccountZones        []nbdns.CustomZone
+	Routes              []*nmdata.Route
+	NameServerGroups    []*nmdata.NameServerGroup
+	AllDNSRecords       []nmdata.SimpleRecord
+	AccountZones        []nmdata.CustomZone
 
-	RoutersMap       map[string]map[string]*routerTypes.NetworkRouter
-	NetworkResources []*resourceTypes.NetworkResource
+	RoutersMap       map[string]map[string]*nmdata.NetworkRouter
+	NetworkResources []*nmdata.NetworkResource
 
 	GroupIDToUserIDs   map[string][]string
 	AllowedUserIDs     map[string]struct{}
@@ -44,7 +40,7 @@ type NetworkMapComponentsCompact struct {
 
 func (c *NetworkMapComponents) ToCompact() *NetworkMapComponentsCompact {
 	peerToIndex := make(map[string]int)
-	var allPeers []*nbpeer.Peer
+	var allPeers []*nmdata.Peer
 
 	for id, peer := range c.Peers {
 		if _, exists := peerToIndex[id]; !exists {
@@ -84,8 +80,8 @@ func (c *NetworkMapComponents) ToCompact() *NetworkMapComponentsCompact {
 		}
 	}
 
-	policyToIndex := make(map[*Policy]int)
-	var allPolicies []*Policy
+	policyToIndex := make(map[*nmdata.Policy]int)
+	var allPolicies []*nmdata.Policy
 
 	for _, policy := range c.Policies {
 		if _, exists := policyToIndex[policy]; !exists {
@@ -150,7 +146,7 @@ func (c *NetworkMapComponents) ToCompact() *NetworkMapComponentsCompact {
 }
 
 func (c *NetworkMapComponentsCompact) ToFull() *NetworkMapComponents {
-	peers := make(map[string]*nbpeer.Peer, len(c.PeerIndexes))
+	peers := make(map[string]*nmdata.Peer, len(c.PeerIndexes))
 	for _, idx := range c.PeerIndexes {
 		if idx >= 0 && idx < len(c.AllPeers) {
 			peer := c.AllPeers[idx]
@@ -158,7 +154,7 @@ func (c *NetworkMapComponentsCompact) ToFull() *NetworkMapComponents {
 		}
 	}
 
-	routerPeers := make(map[string]*nbpeer.Peer, len(c.RouterPeerIndexes))
+	routerPeers := make(map[string]*nmdata.Peer, len(c.RouterPeerIndexes))
 	for _, idx := range c.RouterPeerIndexes {
 		if idx >= 0 && idx < len(c.AllPeers) {
 			peer := c.AllPeers[idx]
@@ -166,7 +162,7 @@ func (c *NetworkMapComponentsCompact) ToFull() *NetworkMapComponents {
 		}
 	}
 
-	groups := make(map[string]*Group, len(c.Groups))
+	groups := make(map[string]*nmdata.Group, len(c.Groups))
 	for id, gc := range c.Groups {
 		peerIDs := make([]string, 0, len(gc.PeerIndexes))
 		for _, idx := range gc.PeerIndexes {
@@ -174,25 +170,24 @@ func (c *NetworkMapComponentsCompact) ToFull() *NetworkMapComponents {
 				peerIDs = append(peerIDs, c.AllPeers[idx].ID)
 			}
 		}
-		groups[id] = &Group{
-			ID:    id,
+		groups[id] = &nmdata.Group{
 			Name:  gc.Name,
 			Peers: peerIDs,
 		}
 	}
 
-	policies := make([]*Policy, len(c.PolicyIndexes))
+	policies := make([]*nmdata.Policy, len(c.PolicyIndexes))
 	for i, idx := range c.PolicyIndexes {
 		if idx >= 0 && idx < len(c.AllPolicies) {
 			policies[i] = c.AllPolicies[idx]
 		}
 	}
 
-	var resourcePoliciesMap map[string][]*Policy
+	var resourcePoliciesMap map[string][]*nmdata.Policy
 	if len(c.ResourcePoliciesMap) > 0 {
-		resourcePoliciesMap = make(map[string][]*Policy, len(c.ResourcePoliciesMap))
+		resourcePoliciesMap = make(map[string][]*nmdata.Policy, len(c.ResourcePoliciesMap))
 		for resID, indexes := range c.ResourcePoliciesMap {
-			pols := make([]*Policy, 0, len(indexes))
+			pols := make([]*nmdata.Policy, 0, len(indexes))
 			for _, idx := range indexes {
 				if idx >= 0 && idx < len(c.AllPolicies) {
 					pols = append(pols, c.AllPolicies[idx])

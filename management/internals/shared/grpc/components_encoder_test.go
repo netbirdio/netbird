@@ -15,11 +15,8 @@ import (
 	goproto "google.golang.org/protobuf/proto"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
-	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/types"
-	nbroute "github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -155,67 +152,66 @@ func envelopesEquivalent(a, b *proto.NetworkMapEnvelope) bool {
 }
 
 func newTestComponents() *types.NetworkMapComponents {
-	peerA := &nbpeer.Peer{
+	peerA := &nmdata.Peer{
 		ID:       "peer-a",
 		Key:      testWgKeyA,
 		IP:       netip.AddrFrom4([4]byte{100, 64, 0, 1}),
 		DNSLabel: "peera",
 		SSHKey:   "ssh-a",
-		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now()},
-		Meta:     nbpeer.PeerSystemMeta{WtVersion: "0.40.0"},
+		Meta:     nmdata.PeerSystemMeta{WtVersion: "0.40.0"},
 	}
-	peerB := &nbpeer.Peer{
+	peerB := &nmdata.Peer{
 		ID:       "peer-b",
 		Key:      testWgKeyB,
 		IP:       netip.AddrFrom4([4]byte{100, 64, 0, 2}),
 		IPv6:     netip.AddrFrom16([16]byte{0xfd, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2}),
 		DNSLabel: "peerb",
-		Meta:     nbpeer.PeerSystemMeta{WtVersion: "0.25.0"},
+		Meta:     nmdata.PeerSystemMeta{WtVersion: "0.25.0"},
 	}
-	peerC := &nbpeer.Peer{
+	peerC := &nmdata.Peer{
 		ID:       "peer-c",
 		Key:      testWgKeyC,
 		IP:       netip.AddrFrom4([4]byte{100, 64, 0, 3}),
 		DNSLabel: "peerc",
-		Meta:     nbpeer.PeerSystemMeta{WtVersion: "0.40.0"},
+		Meta:     nmdata.PeerSystemMeta{WtVersion: "0.40.0"},
 	}
 
 	return &types.NetworkMapComponents{
 		PeerID: "peer-a",
-		Network: &types.Network{
+		Network: &nmdata.Network{
 			Identifier: "net-test",
 			Net:        net.IPNet{IP: net.IP{100, 64, 0, 0}, Mask: net.CIDRMask(10, 32)},
 			Serial:     7,
 		},
-		AccountSettings: &types.AccountSettingsInfo{
+		AccountSettings: &nmdata.AccountSettingsInfo{
 			PeerLoginExpirationEnabled: true,
 			PeerLoginExpiration:        2 * time.Hour,
 		},
-		Peers: map[string]*nbpeer.Peer{
+		Peers: map[string]*nmdata.Peer{
 			"peer-a": peerA,
 			"peer-b": peerB,
 			"peer-c": peerC,
 		},
-		Groups: map[string]*types.Group{
-			"group-src": {ID: "group-src", PublicID: "1", Name: "Src", Peers: []string{"peer-a"}},
-			"group-dst": {ID: "group-dst", PublicID: "2", Name: "Dst", Peers: []string{"peer-b", "peer-c"}},
+		Groups: map[string]*nmdata.Group{
+			"group-src": {PublicID: "1", Name: "Src", Peers: []string{"peer-a"}},
+			"group-dst": {PublicID: "2", Name: "Dst", Peers: []string{"peer-b", "peer-c"}},
 		},
-		Policies: []*types.Policy{
+		Policies: []*nmdata.Policy{
 			{
 				ID:       "pol-1",
 				PublicID: "10",
 				Enabled:  true,
-				Rules: []*types.PolicyRule{{
-					ID: "rule-1", Enabled: true, Action: types.PolicyTrafficActionAccept,
-					Protocol: types.PolicyRuleProtocolTCP, Bidirectional: true,
+				Rules: []*nmdata.PolicyRule{{
+					ID: "rule-1", Enabled: true, Action: string(types.PolicyTrafficActionAccept),
+					Protocol: string(types.PolicyRuleProtocolTCP), Bidirectional: true,
 					Ports:        []string{"22", "80"},
-					PortRanges:   []types.RulePortRange{{Start: 8000, End: 8100}},
+					PortRanges:   []nmdata.RulePortRange{{Start: 8000, End: 8100}},
 					Sources:      []string{"group-src"},
 					Destinations: []string{"group-dst"},
 				}},
 			},
 		},
-		RouterPeers: map[string]*nbpeer.Peer{"peer-c": peerC},
+		RouterPeers: map[string]*nmdata.Peer{"peer-c": peerC},
 	}
 }
 
@@ -381,12 +377,12 @@ func TestEncodeNetworkMapEnvelope_MalformedWgKey(t *testing.T) {
 
 func TestEncodeNetworkMapEnvelope_IPv6OnlyPeer(t *testing.T) {
 	c := newTestComponents()
-	v6Only := &nbpeer.Peer{
+	v6Only := &nmdata.Peer{
 		ID:       "peer-v6",
 		Key:      testWgKeyA,
 		IPv6:     netip.AddrFrom16([16]byte{0xfd, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9}),
 		DNSLabel: "peerv6",
-		Meta:     nbpeer.PeerSystemMeta{WtVersion: "0.40.0"},
+		Meta:     nmdata.PeerSystemMeta{WtVersion: "0.40.0"},
 	}
 	c.Peers["peer-v6"] = v6Only
 
@@ -405,11 +401,11 @@ func TestEncodeNetworkMapEnvelope_IPv6OnlyPeer(t *testing.T) {
 
 func TestEncodeNetworkMapEnvelope_PeerWithoutIP(t *testing.T) {
 	c := newTestComponents()
-	c.Peers["peer-noip"] = &nbpeer.Peer{
+	c.Peers["peer-noip"] = &nmdata.Peer{
 		ID:       "peer-noip",
 		Key:      testWgKeyA,
 		DNSLabel: "peernoip",
-		Meta:     nbpeer.PeerSystemMeta{WtVersion: "0.40.0"},
+		Meta:     nmdata.PeerSystemMeta{WtVersion: "0.40.0"},
 	}
 
 	full := EncodeNetworkMapEnvelope(ComponentsEnvelopeInput{Components: c}).GetFull()
@@ -427,7 +423,7 @@ func TestEncodeNetworkMapEnvelope_PeerWithoutIP(t *testing.T) {
 
 func TestEncodeNetworkMapEnvelope_EmptyInput(t *testing.T) {
 	c := &types.NetworkMapComponents{
-		Network: &types.Network{Identifier: "x", Net: net.IPNet{IP: net.IP{100, 64, 0, 0}, Mask: net.CIDRMask(10, 32)}},
+		Network: &nmdata.Network{Identifier: "x", Net: net.IPNet{IP: net.IP{100, 64, 0, 0}, Mask: net.CIDRMask(10, 32)}},
 	}
 
 	env := EncodeNetworkMapEnvelope(ComponentsEnvelopeInput{Components: c})
@@ -476,7 +472,7 @@ func TestEncodeNetworkMapEnvelope_PeerLoginExpirationFields(t *testing.T) {
 
 func TestEncodeNetworkMapEnvelope_RoutesRoundTrip(t *testing.T) {
 	c := newTestComponents()
-	c.Routes = []*nbroute.Route{
+	c.Routes = []*nmdata.Route{
 		{
 			ID:                  "route-peer",
 			PublicID:            "100",
@@ -523,7 +519,7 @@ func TestEncodeNetworkMapEnvelope_RoutesRoundTrip(t *testing.T) {
 
 func TestEncodeNetworkMapEnvelope_RouteWithMissingPeerLeavesIndexUnset(t *testing.T) {
 	c := newTestComponents()
-	c.Routes = []*nbroute.Route{{
+	c.Routes = []*nmdata.Route{{
 		ID:       "route-x",
 		PublicID: "100",
 		Peer:     "peer-not-in-components",
@@ -543,21 +539,21 @@ func TestEncodeNetworkMapEnvelope_ResourceOnlyPolicyShippedAndIndexed(t *testing
 	// Policy that exists ONLY in ResourcePoliciesMap, not in c.Policies. This
 	// is the I1 case — without unionPolicies the encoder would silently
 	// drop it from the wire.
-	resourceOnlyPolicy := &types.Policy{
+	resourceOnlyPolicy := &nmdata.Policy{
 		ID: "pol-resource", PublicID: "99", Enabled: true,
-		Rules: []*types.PolicyRule{{
-			ID: "rule-r", Enabled: true, Action: types.PolicyTrafficActionAccept,
-			Protocol:     types.PolicyRuleProtocolTCP,
+		Rules: []*nmdata.PolicyRule{{
+			ID: "rule-r", Enabled: true, Action: string(types.PolicyTrafficActionAccept),
+			Protocol:     string(types.PolicyRuleProtocolTCP),
 			Sources:      []string{"group-src"},
 			Destinations: []string{"group-dst"},
 		}},
 	}
-	c.ResourcePoliciesMap = map[string][]*types.Policy{
+	c.ResourcePoliciesMap = map[string][]*nmdata.Policy{
 		"resource-x": {c.Policies[0], resourceOnlyPolicy}, // shared + resource-only
 	}
 	// Resource must appear in components.NetworkResources with a seq id —
 	// encoder uses that to translate the xid map key to uint32.
-	c.NetworkResources = []*resourceTypes.NetworkResource{
+	c.NetworkResources = []*nmdata.NetworkResource{
 		{ID: "resource-x", PublicID: "77", Name: "res-x", Enabled: true},
 	}
 
@@ -583,10 +579,10 @@ func TestEncodeNetworkMapEnvelope_ResourceOnlyPolicyShippedAndIndexed(t *testing
 
 func TestEncodeNetworkMapEnvelope_NameServerGroups(t *testing.T) {
 	c := newTestComponents()
-	c.NameServerGroups = []*nbdns.NameServerGroup{{
+	c.NameServerGroups = []*nmdata.NameServerGroup{{
 		ID: "nsg-1", PublicID: "50", Name: "Main", Description: "primary",
-		NameServers: []nbdns.NameServer{{
-			IP: netip.MustParseAddr("8.8.8.8"), NSType: nbdns.UDPNameServerType, Port: 53,
+		NameServers: []nmdata.NameServer{{
+			IP: netip.MustParseAddr("8.8.8.8"), NSType: int(nbdns.UDPNameServerType), Port: 53,
 		}},
 		Groups:  []string{"group-src", "group-not-persisted"},
 		Primary: true, Enabled: true,
@@ -625,11 +621,11 @@ func TestEncodeNetworkMapEnvelope_PostureFailedPeers(t *testing.T) {
 func TestEncodeNetworkMapEnvelope_RoutersMap(t *testing.T) {
 	c := newTestComponents()
 	c.NetworkXIDToPublicID = map[string]string{"net-1": "5"}
-	c.RoutersMap = map[string]map[string]*routerTypes.NetworkRouter{
+	c.RoutersMap = map[string]map[string]*nmdata.NetworkRouter{
 		"net-1": {
 			"peer-c": {
-				ID: "router-1", PublicID: "200",
-				Peer: "peer-c", Masquerade: true, Metric: 10, Enabled: true,
+				PublicID:   "200",
+				Masquerade: true, Metric: 10, Enabled: true,
 			},
 		},
 	}
@@ -655,14 +651,14 @@ func TestEncodeNetworkMapEnvelope_RouterPeerNotInComponentsPeers(t *testing.T) {
 	// peer_index reference must still resolve.
 	c := newTestComponents()
 	delete(c.Peers, "peer-c")
-	routerPeer := &nbpeer.Peer{
+	routerPeer := &nmdata.Peer{
 		ID: "peer-c", Key: testWgKeyC, IP: netip.AddrFrom4([4]byte{100, 64, 0, 3}),
-		DNSLabel: "peerc", Meta: nbpeer.PeerSystemMeta{WtVersion: "0.40.0"},
+		DNSLabel: "peerc", Meta: nmdata.PeerSystemMeta{WtVersion: "0.40.0"},
 	}
-	c.RouterPeers = map[string]*nbpeer.Peer{"peer-c": routerPeer}
+	c.RouterPeers = map[string]*nmdata.Peer{"peer-c": routerPeer}
 	c.NetworkXIDToPublicID = map[string]string{"net-1": "5"}
-	c.RoutersMap = map[string]map[string]*routerTypes.NetworkRouter{
-		"net-1": {"peer-c": {ID: "r-1", PublicID: "1", Peer: "peer-c", Enabled: true}},
+	c.RoutersMap = map[string]map[string]*nmdata.NetworkRouter{
+		"net-1": {"peer-c": {PublicID: "1", Enabled: true}},
 	}
 
 	full := EncodeNetworkMapEnvelope(ComponentsEnvelopeInput{Components: c}).GetFull()
@@ -695,9 +691,9 @@ func TestToProxyPatch_EmptyInputReturnsNil(t *testing.T) {
 
 func TestToProxyPatch_PopulatesAllFields(t *testing.T) {
 	nm := &types.NetworkMap{
-		Peers: []*nbpeer.Peer{{
+		Peers: []*nmdata.Peer{{
 			ID: "ext-peer", Key: testWgKeyA, IP: netip.AddrFrom4([4]byte{100, 64, 0, 9}),
-			DNSLabel: "extpeer", Meta: nbpeer.PeerSystemMeta{WtVersion: "0.40.0"},
+			DNSLabel: "extpeer", Meta: nmdata.PeerSystemMeta{WtVersion: "0.40.0"},
 		}},
 		FirewallRules: []*types.FirewallRule{{
 			PeerIP: "100.64.0.9", Action: "accept", Direction: 0, Protocol: "tcp",
@@ -766,7 +762,7 @@ func TestEncodeNetworkMapEnvelope_NilComponentsGracefulDegrade(t *testing.T) {
 
 func TestEncodeNetworkMapEnvelope_AccountSettingsAlwaysEmitted(t *testing.T) {
 	c := &types.NetworkMapComponents{
-		Network: &types.Network{Identifier: "x", Net: net.IPNet{IP: net.IP{100, 64, 0, 0}, Mask: net.CIDRMask(10, 32)}},
+		Network: &nmdata.Network{Identifier: "x", Net: net.IPNet{IP: net.IP{100, 64, 0, 0}, Mask: net.CIDRMask(10, 32)}},
 		// AccountSettings deliberately nil
 	}
 
@@ -780,6 +776,6 @@ func TestEncodeNetworkMapEnvelope_AccountSettingsAlwaysEmitted(t *testing.T) {
 func emptyNetworkMapComponents() *types.NetworkMapComponents {
 	return types.EmptyNetworkMapComponents(
 		&types.NetworkMapComponents{
-			PeerID: "peer-id", Peers: map[string]*nbpeer.Peer{"peer-id": {}}},
+			PeerID: "peer-id", Peers: map[string]*nmdata.Peer{"peer-id": {}}},
 	)
 }

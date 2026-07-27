@@ -57,6 +57,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 	nbroute "github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -1091,22 +1092,22 @@ func TestToSyncResponse(t *testing.T) {
 		Signature: "turn-pass",
 	}
 	networkMap := &types.NetworkMap{
-		Network: &types.Network{Net: *ipnet, Serial: 1000},
-		Peers: []*nbpeer.Peer{{
+		Network: &nmdata.Network{Net: *ipnet, Serial: 1000},
+		Peers: []*nmdata.Peer{{
 			IP:         netip.MustParseAddr("192.168.1.2"),
 			IPv6:       netip.MustParseAddr("fd00::2"),
 			Key:        "peer2-key",
 			DNSLabel:   "peer2",
 			SSHEnabled: true,
 			SSHKey:     "peer2-ssh-key"}},
-		OfflinePeers: []*nbpeer.Peer{{
+		OfflinePeers: []*nmdata.Peer{{
 			IP:         netip.MustParseAddr("192.168.1.3"),
 			IPv6:       netip.MustParseAddr("fd00::3"),
 			Key:        "peer3-key",
 			DNSLabel:   "peer3",
 			SSHEnabled: true,
 			SSHKey:     "peer3-ssh-key"}},
-		Routes: []*nbroute.Route{
+		Routes: []*nmdata.Route{
 			{
 				ID:          "route1",
 				Network:     netip.MustParsePrefix("10.0.0.0/24"),
