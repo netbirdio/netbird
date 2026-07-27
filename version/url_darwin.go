@@ -12,10 +12,16 @@ const (
 
 // DownloadUrl return with the proper download link
 func DownloadUrl() string {
-	if isBrewInstall() {
+	cmd := exec.Command("brew", "list --formula | grep -i netbird")
+	if err := cmd.Start(); err != nil {
+		goto PKGINSTALL
+	}
+
+	if err := cmd.Wait(); err == nil {
 		return downloadURL
 	}
 
+PKGINSTALL:
 	switch runtime.GOARCH {
 	case "amd64":
 		return urlMacIntel
@@ -24,9 +30,4 @@ func DownloadUrl() string {
 	default:
 		return downloadURL
 	}
-}
-
-// isBrewInstall reports whether NetBird is installed via Homebrew.
-func isBrewInstall() bool {
-	return exec.Command("brew", "list", "netbird").Run() == nil
 }
