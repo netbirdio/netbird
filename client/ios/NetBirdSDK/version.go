@@ -10,9 +10,3 @@ import "github.com/netbirdio/netbird/version"
 func GoClientVersion() string {
 	return version.NetbirdVersion()
 }
-
-// GoClientCommit returns the VCS revision of the Go client build, or an empty
-// string when no build info is embedded.
-func GoClientCommit() string {
-	return version.NetbirdCommit()
-}
