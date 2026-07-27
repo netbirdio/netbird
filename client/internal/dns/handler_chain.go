@@ -3,6 +3,7 @@ package dns
 import (
 	"context"
 	"fmt"
+	"maps"
 	"math"
 	"net"
 	"slices"
@@ -31,6 +32,26 @@ type SubdomainMatcher interface {
 	MatchSubdomains() bool
 }
 
+// responseMeta holds the annotations handlers attach to a request to explain the
+// response the chain ends up writing. It survives a deferral, so an answer that
+// did not come from the handler that owns the name still says who stepped aside
+// and why.
+type responseMeta map[resutil.MetaKey]string
+
+// format renders the annotations for the response log line. The order is stable
+// so the same event reads the same way every time; a map's own order is not.
+func (m responseMeta) format() string {
+	if len(m) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	for _, k := range slices.Sorted(maps.Keys(m)) {
+		b.WriteString(" " + string(k) + "=" + m[k])
+	}
+	return b.String()
+}
+
 type HandlerEntry struct {
 	Handler         dns.Handler
 	Priority        int
@@ -52,8 +73,19 @@ type ResponseWriterChain struct {
 	origPattern    string
 	requestID      string
 	shouldContinue bool
-	response       *dns.Msg
-	meta           map[string]string
+	// softNegative suppresses a poisoning negative verdict for this request. A
+	// handler that owns the name but cannot answer this query type sets it
+	// before deferring, and it stays set for every handler that runs after.
+	softNegative bool
+	// clientHasEdns records whether the original query advertised EDNS0, taken
+	// before any handler ran: handlers add EDNS0 to the query they forward
+	// upstream, so the message itself no longer answers the question later.
+	clientHasEdns bool
+	response      *dns.Msg
+	// meta is handed to the next handler when this one defers, so the same map
+	// outlives the writer that created it. Handlers must only set metadata from
+	// within ServeDNS, never from a goroutine that outlives the call.
+	meta responseMeta
 }
 
 // RequestID returns the request ID for tracing
@@ -62,11 +94,18 @@ func (w *ResponseWriterChain) RequestID() string {
 }
 
 // SetMeta sets a metadata key-value pair for logging
-func (w *ResponseWriterChain) SetMeta(key, value string) {
+func (w *ResponseWriterChain) SetMeta(key resutil.MetaKey, value string) {
 	if w.meta == nil {
-		w.meta = make(map[string]string)
+		w.meta = make(responseMeta)
 	}
 	w.meta[key] = value
+}
+
+// RequestSoftNegative marks the request so a downstream NXDOMAIN is turned into
+// NODATA before it reaches the client. Set by a handler that defers a query for
+// a name it owns but a type it cannot resolve.
+func (w *ResponseWriterChain) RequestSoftNegative() {
+	w.softNegative = true
 }
 
 func (w *ResponseWriterChain) WriteMsg(m *dns.Msg) error {
@@ -75,11 +114,42 @@ func (w *ResponseWriterChain) WriteMsg(m *dns.Msg) error {
 		w.shouldContinue = true
 		return nil
 	}
+	if w.softNegative && m.Rcode == dns.RcodeNameError {
+		m = softenNegative(m, w.clientHasEdns)
+		w.SetMeta(resutil.MetaKeySoftened, "nxdomain->nodata")
+	}
 	w.response = m
 	if m.MsgHdr.Truncated {
-		w.SetMeta("truncated", "true")
+		w.SetMeta(resutil.MetaKeyTruncated, "true")
 	}
 	return w.ResponseWriter.WriteMsg(m)
+}
+
+// softenNegative downgrades an NXDOMAIN to NODATA for a request a handler that
+// owns the name deferred. NXDOMAIN is cached for the name and every type below
+// it, so a resolver that has never heard of a routed name would take out the
+// record types the route does serve; NODATA is cached for this name and type
+// only. The authority section goes with it: the negative TTL of a zone we just
+// overruled does not apply, and RFC 2308 keeps a negative answer that carries no
+// SOA out of caches altogether, so the rewrite cannot outlive the route.
+//
+// The rewrite is ours, not the answering resolver's, so an EDNS0 client is told
+// as much: the reply we hand back travels a path no capture on this host sees,
+// and an empty answer is otherwise indistinguishable from a real one. Returns a
+// copy so the answering handler keeps whatever it may hold on to.
+func softenNegative(m *dns.Msg, clientHasEdns bool) *dns.Msg {
+	out := m.Copy()
+	out.Rcode = dns.RcodeSuccess
+	out.Ns = nil
+
+	if clientHasEdns {
+		resutil.AttachEDE(out, resutil.EDENetbirdSoftenedNegative,
+			"netbird: name is served locally, NXDOMAIN from the fallthrough resolver suppressed")
+	} else {
+		resutil.StripOPT(out)
+	}
+
+	return out
 }
 
 func NewHandlerChain() *HandlerChain {
@@ -223,6 +293,19 @@ func (c *HandlerChain) dispatch(w dns.ResponseWriter, r *dns.Msg, maxPriority in
 	handlers := slices.Clone(c.handlers)
 	c.mu.RUnlock()
 
+	// Carried across deferrals: once a handler that owns the name defers, no
+	// handler after it may answer with a verdict that poisons the name. The
+	// metadata of a handler that stepped aside is carried too, so the response
+	// log line explains an answer that did not come from the handler that owns
+	// the name.
+	var softNegative bool
+	var carried responseMeta
+
+	// Taken before any handler runs: handlers advertise EDNS0 on the query they
+	// forward upstream, so afterwards the message no longer tells us whether the
+	// client did.
+	clientHasEdns := r.IsEdns0() != nil
+
 	// Try handlers in priority order
 	for _, entry := range handlers {
 		if entry.Priority > maxPriority {
@@ -245,11 +328,16 @@ func (c *HandlerChain) dispatch(w dns.ResponseWriter, r *dns.Msg, maxPriority in
 			ResponseWriter: w,
 			origPattern:    entry.OrigPattern,
 			requestID:      requestID,
+			softNegative:   softNegative,
+			clientHasEdns:  clientHasEdns,
+			meta:           carried,
 		}
 		entry.Handler.ServeDNS(chainWriter, r)
 
 		// If handler wants to continue, try next handler
 		if chainWriter.shouldContinue {
+			softNegative = softNegative || chainWriter.softNegative
+			carried = chainWriter.meta
 			if entry.Priority != PriorityMgmtCache {
 				logger.Tracef("handler requested continue for domain=%s", qname)
 			}
@@ -265,30 +353,56 @@ func (c *HandlerChain) dispatch(w dns.ResponseWriter, r *dns.Msg, maxPriority in
 		qname, dns.TypeToString[question.Qtype], dns.ClassToString[question.Qclass])
 	resp := &dns.Msg{}
 	resp.SetRcode(r, dns.RcodeRefused)
+	// A handler that owns the name deferred and nothing below it could answer
+	// (a client with no primary nameserver group). The name exists as far as
+	// this client is concerned, since the route serves its addresses, so REFUSED
+	// would contradict the route: a stub that takes it as "not served here" and
+	// retries another resolver can come back with an NXDOMAIN that takes the
+	// whole name down. Answer "no records of this type" instead, without an SOA,
+	// so RFC 2308 keeps it out of negative caches, and tell an EDNS0 client the
+	// empty answer is ours rather than a resolver's.
+	if softNegative {
+		resp.Rcode = dns.RcodeSuccess
+		if clientHasEdns {
+			resutil.AttachEDE(resp, resutil.EDENetbirdSoftenedNegative,
+				"netbird: name is served locally, no fallthrough resolver for this query type")
+		}
+		logger.Tracef("no handler below the deferring one for domain=%s type=%s, answering NODATA",
+			qname, dns.TypeToString[question.Qtype])
+	}
 	if err := w.WriteMsg(resp); err != nil {
 		logger.Errorf("failed to write DNS response: %v", err)
 	}
 }
 
 func (c *HandlerChain) logResponse(logger *log.Entry, cw *ResponseWriterChain, qname string, startTime time.Time) {
+	// Runs for every query, and the arguments below are not free: Len() packs
+	// the message to measure it, and formatting the answers and the metadata
+	// allocates. None of it is worth doing when the line is discarded.
+	if !log.IsLevelEnabled(log.TraceLevel) {
+		return
+	}
+
 	if cw.response == nil {
 		return
 	}
 
-	var meta string
-	for k, v := range cw.meta {
-		meta += " " + k + "=" + v
-	}
-
 	logger.Tracef("response: domain=%s rcode=%s answers=%s size=%dB%s took=%s",
 		qname, dns.RcodeToString[cw.response.Rcode], resutil.FormatAnswers(cw.response.Answer),
-		cw.response.Len(), meta, time.Since(startTime))
+		cw.response.Len(), cw.meta.format(), time.Since(startTime))
 }
 
 // ResolveInternal runs an in-process DNS query against the chain, skipping any
 // handler with priority > maxPriority. Used by internal callers (e.g. the mgmt
-// cache refresher) that must bypass themselves to avoid loops. Honors ctx
-// cancellation; on ctx.Done the dispatch goroutine is left to drain on its own
+// cache refresher) that must bypass themselves to avoid loops.
+//
+// "Nothing answered" is read off RcodeRefused, which a request soft-negatived by
+// a deferring handler never carries: it ends in an empty NOERROR instead, and
+// would look resolved. No caller can reach that today, since every handler that
+// defers sits above the maxPriority any caller passes. Lowering one below it
+// means this check needs the soft-negative case too.
+//
+// Honors ctx cancellation; on ctx.Done the dispatch goroutine is left to drain on its own
 // (bounded by the invoked handler's internal timeout).
 func (c *HandlerChain) ResolveInternal(ctx context.Context, r *dns.Msg, maxPriority int) (*dns.Msg, error) {
 	if len(r.Question) == 0 {
