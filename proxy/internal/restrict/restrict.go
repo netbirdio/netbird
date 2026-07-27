@@ -261,70 +261,61 @@ func (f *Filter) Check(addr netip.Addr, geo GeoResolver) Verdict {
 // Blocklists remain a hard-deny gate evaluated first and are independent of the
 // allow-combine mode, so a blocklist match (or unverifiable country block) still
 // denies. CrowdSec runs last, as in the default path.
+//
+// The country is resolved at most once and shared by both the blocklist and the
+// allowlist, matching what the all-mode path does. Splitting the two checks into
+// separate helpers cost a second geo lookup per connection whenever both country
+// lists were configured.
 func (f *Filter) checkAny(addr netip.Addr, geo GeoResolver) Verdict {
-	if v := f.checkBlocked(addr, geo); v != Allow {
-		return v
-	}
-	if v := f.checkAllowedAny(addr, geo); v != Allow {
-		return v
-	}
-	return f.checkCrowdSec(addr)
-}
-
-// checkBlocked is the hard-deny gate: it denies on any blocklist match,
-// regardless of the allow-combine mode. A configured country blocklist with an
-// unavailable geo lookup fails closed.
-func (f *Filter) checkBlocked(addr netip.Addr, geo GeoResolver) Verdict {
 	for _, prefix := range f.BlockedCIDRs {
 		if prefix.Contains(addr) {
 			return DenyCIDR
 		}
 	}
 
-	if len(f.BlockedCountries) == 0 {
-		return Allow
-	}
-	if geo == nil || !geo.Available() {
-		return DenyGeoUnavailable
-	}
-	if code := geo.LookupAddr(addr).CountryCode; code != "" && slices.Contains(f.BlockedCountries, code) {
-		return DenyCountry
-	}
-	return Allow
-}
-
-// checkAllowedAny admits the address if it matches any active allowlist. The
-// CIDR allowlist is evaluated first so a match admits without a geo lookup;
-// only when it does not match is the country allowlist consulted, where an
-// unavailable geo lookup fails closed.
-func (f *Filter) checkAllowedAny(addr netip.Addr, geo GeoResolver) Verdict {
 	cidrActive := len(f.AllowedCIDRs) > 0
-	countryActive := len(f.AllowedCountries) > 0
-	if !cidrActive && !countryActive {
-		return Allow
-	}
-
+	cidrAllowed := false
 	if cidrActive {
 		for _, prefix := range f.AllowedCIDRs {
 			if prefix.Contains(addr) {
-				return Allow
+				cidrAllowed = true
+				break
 			}
 		}
 	}
 
-	if countryActive {
+	countryActive := len(f.AllowedCountries) > 0
+	// The blocklist is a hard gate, so it needs the country even when a CIDR
+	// allowlist already admitted the address. The allowlist needs it only when
+	// the CIDR list did not admit it, which is why a matching allowed CIDR
+	// still skips the lookup when no country blocklist is configured.
+	needCountry := len(f.BlockedCountries) > 0 || (countryActive && !cidrAllowed)
+
+	country := ""
+	if needCountry {
 		if geo == nil || !geo.Available() {
 			return DenyGeoUnavailable
 		}
-		if code := geo.LookupAddr(addr).CountryCode; code != "" && slices.Contains(f.AllowedCountries, code) {
-			return Allow
-		}
+		country = geo.LookupAddr(addr).CountryCode
 	}
 
-	if cidrActive {
-		return DenyCIDR
+	if country != "" && slices.Contains(f.BlockedCountries, country) {
+		return DenyCountry
 	}
-	return DenyCountry
+
+	allowed := (!cidrActive && !countryActive) ||
+		cidrAllowed ||
+		(countryActive && country != "" && slices.Contains(f.AllowedCountries, country))
+	if !allowed {
+		// Both allowlists missing is reported against the CIDR list, the one
+		// checked first, so the reason stays stable for existing access logs.
+		if cidrActive {
+			return DenyCIDR
+		}
+		return DenyCountry
+	}
+
+	return f.checkCrowdSec(addr)
 }
 
 func (f *Filter) checkCIDR(addr netip.Addr) Verdict {
