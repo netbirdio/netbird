@@ -100,6 +100,14 @@ func TestProvider_APIKeyPresenceAndResponse(t *testing.T) {
 	assert.Equal(t, key, p.APIKey)
 	assert.True(t, p.ToAPIResponse().HasApiKey)
 
+	paddedKey := " \tprotected-endpoint-token\n"
+	withPaddedKey := base()
+	withPaddedKey.ApiKey = &paddedKey
+	p.FromAPIRequest(withPaddedKey)
+	assert.True(t, p.APIKeyProvided)
+	assert.Equal(t, key, p.APIKey, "non-blank API keys must be normalized before storage")
+	assert.True(t, p.ToAPIResponse().HasApiKey, "the response must reflect the normalized stored key")
+
 	empty := ""
 	clearKey := base()
 	clearKey.ApiKey = &empty

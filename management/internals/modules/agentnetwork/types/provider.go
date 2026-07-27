@@ -110,11 +110,7 @@ func (p *Provider) FromAPIRequest(req *api.AgentNetworkProviderRequest) {
 	p.UpstreamURL = req.UpstreamUrl
 	p.APIKeyProvided = req.ApiKey != nil
 	if req.ApiKey != nil {
-		if strings.TrimSpace(*req.ApiKey) == "" {
-			p.APIKey = ""
-		} else {
-			p.APIKey = *req.ApiKey
-		}
+		p.APIKey = strings.TrimSpace(*req.ApiKey)
 	}
 	if req.ExtraValues != nil {
 		// Replace the whole map (rather than merge) so unsetting a

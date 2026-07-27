@@ -1372,6 +1372,7 @@ func (s *Server) handleSyncMappingsStream(ctx context.Context, stream proto.Prox
 	}
 
 	tracker := s.newSnapshotTracker(initialSyncDone, connectTime)
+	initialSnapshotComplete := false
 	discoverer := s.modelDiscoverer
 	if discoverer == nil {
 		discoverer = modeldiscovery.New(s.Logger)
@@ -1411,7 +1412,10 @@ func (s *Server) handleSyncMappingsStream(ctx context.Context, stream proto.Prox
 
 			if discovery := msg.GetModelDiscoveryRequest(); discovery != nil {
 				if len(msg.GetMapping()) != 0 || msg.GetInitialSyncComplete() {
-					return errors.New("model discovery message must not include mapping data")
+					return errors.New("model discovery message must not include mapping data or set initial_sync_complete")
+				}
+				if !initialSnapshotComplete {
+					return errors.New("model discovery request received before initial sync completed")
 				}
 
 				select {
@@ -1455,7 +1459,11 @@ func (s *Server) handleSyncMappingsStream(ctx context.Context, stream proto.Prox
 				return err
 			}
 			s.Logger.Debug("Processing mapping update completed")
-			tracker.recordBatch(ctx, s, msg.GetMapping(), msg.GetInitialSyncComplete(), batchStart)
+			syncComplete := msg.GetInitialSyncComplete()
+			tracker.recordBatch(ctx, s, msg.GetMapping(), syncComplete, batchStart)
+			if syncComplete {
+				initialSnapshotComplete = true
+			}
 
 			if err := send(&proto.SyncMappingsRequest{
 				Msg: &proto.SyncMappingsRequest_Ack{Ack: &proto.SyncMappingsAck{}},

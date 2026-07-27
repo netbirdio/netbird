@@ -94,6 +94,17 @@ func (s *modelDiscoverySyncStream) Context() context.Context {
 	return s.ctx
 }
 
+func completeModelDiscoveryInitialSync(t *testing.T, stream *modelDiscoverySyncStream) {
+	t.Helper()
+	stream.recv <- &proto.SyncMappingsResponse{InitialSyncComplete: true}
+	select {
+	case sent := <-stream.sent:
+		require.NotNil(t, sent.GetAck())
+	case <-time.After(time.Second):
+		t.Fatal("initial snapshot was not acknowledged")
+	}
+}
+
 func TestProxyCapabilitiesAdvertiseModelDiscovery(t *testing.T) {
 	t.Parallel()
 
@@ -178,10 +189,11 @@ func TestHandleSyncMappingsStreamRunsDiscoveryOutOfBand(t *testing.T) {
 	stream.sendWait = 10 * time.Millisecond
 
 	done := make(chan error, 1)
-	initialSyncDone := true
+	initialSyncDone := false
 	go func() {
 		done <- server.handleSyncMappingsStream(ctx, stream, &initialSyncDone, time.Time{})
 	}()
+	completeModelDiscoveryInitialSync(t, stream)
 
 	stream.recv <- &proto.SyncMappingsResponse{
 		ModelDiscoveryRequest: &proto.ModelDiscoveryRequest{
@@ -242,10 +254,11 @@ func TestHandleSyncMappingsStreamBoundsConcurrentDiscovery(t *testing.T) {
 	stream := newModelDiscoverySyncStream(ctx)
 
 	done := make(chan error, 1)
-	initialSyncDone := true
+	initialSyncDone := false
 	go func() {
 		done <- server.handleSyncMappingsStream(ctx, stream, &initialSyncDone, time.Time{})
 	}()
+	completeModelDiscoveryInitialSync(t, stream)
 
 	for i := range 5 {
 		stream.recv <- &proto.SyncMappingsResponse{
@@ -298,7 +311,8 @@ func TestHandleSyncMappingsStreamRejectsMixedDiscoveryMessage(t *testing.T) {
 	}
 	stream := newModelDiscoverySyncStream(ctx)
 	stream.recv <- &proto.SyncMappingsResponse{
-		Mapping: []*proto.ProxyMapping{{Id: "mapping-1"}},
+		Mapping:             []*proto.ProxyMapping{{Id: "mapping-1"}},
+		InitialSyncComplete: true,
 		ModelDiscoveryRequest: &proto.ModelDiscoveryRequest{
 			RequestId: "request-1",
 		},
@@ -307,5 +321,29 @@ func TestHandleSyncMappingsStreamRejectsMixedDiscoveryMessage(t *testing.T) {
 
 	initialSyncDone := true
 	err := server.handleSyncMappingsStream(ctx, stream, &initialSyncDone, time.Time{})
-	require.EqualError(t, err, "model discovery message must not include mapping data")
+	require.EqualError(t, err, "model discovery message must not include mapping data or set initial_sync_complete")
+}
+
+func TestHandleSyncMappingsStreamRejectsDiscoveryBeforeInitialSnapshot(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	server := &Server{
+		Logger:          log.New(),
+		routerReady:     closedChan(),
+		modelDiscoverer: &stubModelDiscoverer{},
+	}
+	stream := newModelDiscoverySyncStream(ctx)
+	stream.recv <- &proto.SyncMappingsResponse{
+		ModelDiscoveryRequest: &proto.ModelDiscoveryRequest{
+			RequestId: "request-1",
+		},
+	}
+	close(stream.recv)
+
+	initialSyncDone := true
+	err := server.handleSyncMappingsStream(ctx, stream, &initialSyncDone, time.Time{})
+	require.EqualError(t, err, "model discovery request received before initial sync completed")
 }
