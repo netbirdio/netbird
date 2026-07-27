@@ -58,6 +58,42 @@ func TestSelectRoutes_ExitNodeExclusivity(t *testing.T) {
 	assert.True(t, m.routeSelector.IsSelected("lan"), "non-exit route selection is untouched")
 }
 
+func TestSelectRoutes_PartialErrorStillEnforcesExclusivity(t *testing.T) {
+	m := newSelectionTestManager()
+
+	require.NoError(t, m.selectRoutes([]route.NetID{"exitA"}, true))
+
+	// The unknown ID must be reported, but the valid exit node in the same
+	// request is still selected — so its sibling must still be deselected.
+	err := m.selectRoutes([]route.NetID{"exitB", "missing"}, true)
+	assert.Error(t, err, "unknown id must be reported")
+	assert.True(t, m.routeSelector.IsSelected("exitB"), "valid exit node from the request is selected")
+	assert.False(t, m.routeSelector.IsSelected("exitA"), "sibling exit node must be deselected despite the error")
+	assert.False(t, m.routeSelector.IsSelected("exitA-v6"), "sibling's v6 pair must be deselected too")
+}
+
+func TestSelectAllRoutes_KeepsSingleExitNode(t *testing.T) {
+	// Both exit nodes are marked for auto-apply by management
+	// (SkipAutoApply=false), the state where select-all could turn on two at
+	// once without the immediate reconciliation.
+	m := &DefaultManager{
+		routeSelector: routeselector.NewRouteSelector(),
+		clientRoutes: route.HAMap{
+			"exitA|0.0.0.0/0":    {exitRoute("exitA", "p1", false)},
+			"exitB|0.0.0.0/0":    {exitRoute("exitB", "p2", false)},
+			"lan|192.168.1.0/24": {{NetID: "lan", Network: netip.MustParsePrefix("192.168.1.0/24"), Peer: "p3"}},
+		},
+	}
+
+	require.NoError(t, m.selectRoutes([]route.NetID{"exitB"}, true))
+
+	m.selectAllRoutes()
+
+	assert.True(t, m.routeSelector.IsSelected("lan"), "non-exit routes are all selected")
+	assert.True(t, m.routeSelector.IsSelected("exitA"), "the deterministic management pick stays active")
+	assert.False(t, m.routeSelector.IsSelected("exitB"), "select-all must not leave a second exit node active")
+}
+
 func TestSelectRoutes_UnknownRoute(t *testing.T) {
 	m := newSelectionTestManager()
 

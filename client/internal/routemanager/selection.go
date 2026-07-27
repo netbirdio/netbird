@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
 
+	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -48,9 +50,22 @@ func (m *DefaultManager) deselectRoutes(ids []route.NetID) error {
 }
 
 // SelectAllRoutes selects every available route and applies the selection.
+// Exit nodes stay mutually exclusive: at most one remains active.
 func (m *DefaultManager) SelectAllRoutes() {
-	m.routeSelector.SelectAllRoutes()
+	m.selectAllRoutes()
 	m.TriggerSelection(m.GetClientRoutes())
+}
+
+func (m *DefaultManager) selectAllRoutes() {
+	m.routeSelector.SelectAllRoutes()
+
+	// Select-all wipes every explicit selection, so exit nodes fall back to
+	// management's auto-apply flags — which may mark several at once.
+	// Reconcile immediately so at most one exit node stays active instead of
+	// waiting for the next network map to enforce it.
+	m.mux.Lock()
+	defer m.mux.Unlock()
+	m.updateRouteSelectorFromManagement(m.clientRoutes)
 }
 
 // DeselectAllRoutes deselects every route and applies the change.
@@ -66,8 +81,11 @@ func (m *DefaultManager) selectRoutes(ids []route.NetID, appendRoute bool) error
 
 	log.Debugf("selecting routes with ids: %v", routes)
 
+	// A partial failure (e.g. an unknown ID in the request) still selects the
+	// valid routes, so exclusivity below must run regardless of the error.
+	var merr *multierror.Error
 	if err := m.routeSelector.SelectRoutes(routes, appendRoute, allIDs); err != nil {
-		return fmt.Errorf("select routes: %w", err)
+		merr = multierror.Append(merr, fmt.Errorf("select routes: %w", err))
 	}
 
 	// Exit nodes are mutually exclusive: if this selection activates an
@@ -76,12 +94,12 @@ func (m *DefaultManager) selectRoutes(ids []route.NetID, appendRoute bool) error
 	if requestActivatesExitNode(routes, routesMap) {
 		if others := otherExitNodeIDs(routesMap, routes); len(others) > 0 {
 			if err := m.routeSelector.DeselectRoutes(others, allIDs); err != nil {
-				return fmt.Errorf("deselect sibling exit nodes: %w", err)
+				merr = multierror.Append(merr, fmt.Errorf("deselect sibling exit nodes: %w", err))
 			}
 		}
 	}
 
-	return nil
+	return nberrors.FormatErrorOrNil(merr)
 }
 
 func isExitNodeRoutes(routes []*route.Route) bool {
