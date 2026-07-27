@@ -180,6 +180,11 @@ anthropic:
     output_per_1k: 0.050
     cache_read_per_1k: 0.001
     cache_creation_per_1k: 0.0125
+  claude-opus-5:
+    input_per_1k: 0.005
+    output_per_1k: 0.025
+    cache_read_per_1k: 0.0005
+    cache_creation_per_1k: 0.00625
   claude-opus-4-8:
     input_per_1k: 0.005
     output_per_1k: 0.025
@@ -236,6 +241,11 @@ bedrock:
   # eu.anthropic.claude-sonnet-4-5-20250929-v1:0 -> anthropic.claude-sonnet-4-5.
   # Anthropic-on-Bedrock keeps the additive cache buckets (read ≈0.1x input,
   # write ≈1.25x input); Nova / Llama report no cache, so cost is input+output.
+  anthropic.claude-opus-5:
+    input_per_1k: 0.005
+    output_per_1k: 0.025
+    cache_read_per_1k: 0.0005
+    cache_creation_per_1k: 0.00625
   anthropic.claude-opus-4-8:
     input_per_1k: 0.005
     output_per_1k: 0.025

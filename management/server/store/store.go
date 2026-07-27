@@ -650,6 +650,14 @@ func getMigrationsPostAuto(ctx context.Context) []migrationFunc {
 		func(db *gorm.DB) error {
 			return migration.DropIndex[proxy.Proxy](ctx, db, "idx_proxy_account_id_unique")
 		},
+		// Post-auto so the per-bucket cost columns already exist when the legacy
+		// aggregates are folded into them and dropped.
+		func(db *gorm.DB) error {
+			return migration.FoldCostAggregatesIntoBuckets[agentNetworkTypes.AgentNetworkAccessLog](ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.FoldCostAggregatesIntoBuckets[agentNetworkTypes.AgentNetworkUsage](ctx, db)
+		},
 	}
 }
 
