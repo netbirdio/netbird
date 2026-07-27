@@ -81,14 +81,14 @@ func (p pqHandshaker) PSK(remoteKey string) (wgtypes.Key, bool) {
 	return wgtypes.Key(psk), true
 }
 
-// SetRemotePort registers the peer's data-path endpoint (overlay IP + pq UDP port)
+// SetRemoteAddr registers the peer's data-path endpoint (overlay IP + pq UDP port)
 // learned from signalling. Sends only ever fire once the tunnel is up (clocked by
 // OnDataPathRekeyed), so registering here is safe even before connection-up.
-func (p pqHandshaker) SetRemotePort(remoteKey string, overlayIP netip.Addr, port int) {
-	if port <= 0 || port > 65535 || !overlayIP.IsValid() {
+func (p pqHandshaker) SetRemoteAddr(remoteKey string, addr netip.AddrPort) {
+	if !addr.IsValid() || addr.Port() == 0 {
 		return
 	}
-	p.mgr.AddPeer(pqkem.RemoteID(remoteKey), netip.AddrPortFrom(overlayIP, uint16(port)))
+	p.mgr.AddPeer(pqkem.RemoteID(remoteKey), addr)
 }
 
 // OnDataPathRekeyed clocks the next chained PSK rotation on a fresh WG handshake.
