@@ -45,6 +45,7 @@ import (
 	"github.com/netbirdio/netbird/client/embed"
 	"github.com/netbirdio/netbird/proxy/internal/accesslog"
 	"github.com/netbirdio/netbird/proxy/internal/acme"
+	"github.com/netbirdio/netbird/proxy/internal/appsec"
 	"github.com/netbirdio/netbird/proxy/internal/auth"
 	"github.com/netbirdio/netbird/proxy/internal/certwatch"
 	"github.com/netbirdio/netbird/proxy/internal/conntrack"
@@ -125,6 +126,10 @@ type Server struct {
 	// proper acquire/release lifecycle management.
 	crowdsecMu       sync.Mutex
 	crowdsecServices map[types.ServiceID]bool
+
+	// appsecClient is the shared CrowdSec AppSec client, nil when no AppSec
+	// endpoint is configured. Stateless, so it needs no per-service lifecycle.
+	appsecClient *appsec.Client
 
 	// routerReady is closed once mainRouter is fully initialized.
 	// The mapping worker waits on this before processing updates.
@@ -238,6 +243,20 @@ type Server struct {
 	CrowdSecAPIURL string
 	// CrowdSecAPIKey is the CrowdSec bouncer API key. Empty disables CrowdSec.
 	CrowdSecAPIKey string
+	// CrowdSecAppSecURL is the CrowdSec AppSec (WAF) endpoint, e.g.
+	// http://127.0.0.1:7422/. Empty disables request inspection. Requires
+	// CrowdSecAPIKey, which the AppSec component validates against LAPI.
+	CrowdSecAppSecURL string
+	// CrowdSecAppSecTimeout bounds a single AppSec inspection call.
+	// Zero means appsec.DefaultTimeout.
+	CrowdSecAppSecTimeout time.Duration
+	// CrowdSecAppSecMaxBodyBytes caps the request body mirrored to the AppSec
+	// engine. Zero means appsec.DefaultMaxBodyBytes; negative disables body
+	// forwarding, leaving header and URI inspection.
+	CrowdSecAppSecMaxBodyBytes int64
+	// CrowdSecAppSecMaxConcurrent bounds AppSec inspections in flight. Zero
+	// means appsec.DefaultMaxConcurrent; negative removes the bound.
+	CrowdSecAppSecMaxConcurrent int
 	// MaxSessionIdleTimeout caps the per-service session idle timeout.
 	// Zero means no cap (the proxy honors whatever management sends).
 	// Set via NB_PROXY_MAX_SESSION_IDLE_TIMEOUT for shared deployments.
@@ -384,6 +403,13 @@ func (s *Server) Start(ctx context.Context) error {
 
 	s.crowdsecRegistry = crowdsec.NewRegistry(s.CrowdSecAPIURL, s.CrowdSecAPIKey, log.NewEntry(s.Logger))
 	s.crowdsecServices = make(map[types.ServiceID]bool)
+	// Must precede the mapping worker: the worker opens the management stream
+	// and reports proxyCapabilities, which reads appsecClient. Building it
+	// afterwards would both race the read and, when the worker won, advertise
+	// the proxy as AppSec-incapable for the lifetime of that stream.
+	if err := s.initAppSec(); err != nil {
+		return err
+	}
 
 	go s.newManagementMappingWorker(runCtx, s.mgmtClient)
 
@@ -411,6 +437,7 @@ func (s *Server) Start(ctx context.Context) error {
 	}()
 
 	s.auth = auth.NewMiddleware(s.Logger, s.mgmtClient, s.geo)
+	s.auth.SetAppSec(s.appsecClient)
 	s.accessLog = accesslog.NewLogger(s.mgmtClient, s.Logger, s.TrustedProxies)
 
 	s.startDebugEndpoint()
@@ -1274,6 +1301,7 @@ func (s *Server) newManagementMappingWorker(ctx context.Context, client proto.Pr
 
 func (s *Server) proxyCapabilities() *proto.ProxyCapabilities {
 	supportsCrowdSec := s.crowdsecRegistry.Available()
+	supportsAppSec := s.appsecClient != nil
 	privateCapability := s.Private
 	// Always true: this build enforces ProxyMapping.private via the auth middleware.
 	supportsPrivateService := true
@@ -1281,6 +1309,7 @@ func (s *Server) proxyCapabilities() *proto.ProxyCapabilities {
 		SupportsCustomPorts:    &s.SupportsCustomPorts,
 		RequireSubdomain:       &s.RequireSubdomain,
 		SupportsCrowdsec:       &supportsCrowdSec,
+		SupportsAppsec:         &supportsAppSec,
 		Private:                &privateCapability,
 		SupportsPrivateService: &supportsPrivateService,
 	}
@@ -1908,6 +1937,67 @@ func (s *Server) parseRestrictions(mapping *proto.ProxyMapping) *restrict.Filter
 	})
 }
 
+// initAppSec builds the shared AppSec client when an endpoint is configured.
+// A configured-but-invalid endpoint is a startup error rather than a silent
+// downgrade: services asking for enforce would otherwise fail closed on every
+// request with no indication why.
+//
+// Runs before the management stream opens so the reported capability is stable;
+// the auth middleware picks the client up separately once it exists.
+func (s *Server) initAppSec() error {
+	if s.CrowdSecAppSecURL == "" {
+		return nil
+	}
+	if s.CrowdSecAPIKey == "" {
+		return errors.New("crowdsec appsec url is set but the crowdsec api key is empty")
+	}
+
+	// Share the middleware capture budget rather than opening a second pool:
+	// AppSec buffers before authentication, so its ceiling has to count against
+	// the same proxy-wide allowance the body tap draws from.
+	var budget appsec.Budget
+	if s.middlewareManager != nil {
+		budget = s.middlewareManager.Budget()
+	}
+
+	client, err := appsec.New(appsec.Config{
+		URL:           s.CrowdSecAppSecURL,
+		APIKey:        s.CrowdSecAPIKey,
+		Timeout:       s.CrowdSecAppSecTimeout,
+		MaxBodyBytes:  s.CrowdSecAppSecMaxBodyBytes,
+		MaxConcurrent: s.CrowdSecAppSecMaxConcurrent,
+		Budget:        budget,
+		Logger:        log.NewEntry(s.Logger),
+	})
+	if err != nil {
+		return fmt.Errorf("init crowdsec appsec: %w", err)
+	}
+
+	s.appsecClient = client
+	s.Logger.Infof("CrowdSec AppSec inspection available at %s", s.CrowdSecAppSecURL)
+	return nil
+}
+
+// appSecMode resolves the per-service AppSec mode. A service asking for
+// inspection on a proxy with no AppSec endpoint keeps its mode so the auth
+// middleware fails closed for enforce, mirroring the CrowdSec behavior.
+func (s *Server) appSecMode(mapping *proto.ProxyMapping) restrict.AppSecMode {
+	raw := mapping.GetAccessRestrictions().GetAppsecMode()
+	mode := restrict.ParseAppSecMode(raw)
+	// An unrecognized value disables inspection, which is the safe default but a
+	// silent one: with a newer management and an older proxy, a mode this build
+	// does not know would look identical to "off" on a service the operator set
+	// to enforce. Say so rather than leaving it to be discovered.
+	if mode == restrict.AppSecOff && raw != "" && raw != "off" {
+		s.Logger.Warnf("service %s requests unrecognized AppSec mode %q; this build supports %q and %q, so inspection is disabled",
+			mapping.GetId(), raw, restrict.AppSecEnforce, restrict.AppSecObserve)
+	}
+	if mode.Enabled() && s.appsecClient == nil {
+		s.Logger.Warnf("service %s requests AppSec mode %q but proxy has no AppSec endpoint configured", mapping.GetId(), mode)
+	}
+	return mode
+}
+
 // releaseCrowdSec releases the CrowdSec bouncer reference for the given
 // service if it had one.
 func (s *Server) releaseCrowdSec(svcID types.ServiceID) {
@@ -2074,7 +2164,17 @@ func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping)
 	s.warnIfGeoUnavailable(mapping.GetDomain(), mapping.GetAccessRestrictions())
 
 	maxSessionAge := time.Duration(mapping.GetAuth().GetMaxSessionAgeSeconds()) * time.Second
-	if err := s.auth.AddDomain(mapping.GetDomain(), schemes, mapping.GetAuth().GetSessionKey(), maxSessionAge, accountID, svcID, ipRestrictions, mapping.GetPrivate()); err != nil {
+	settings := auth.DomainSettings{
+		Schemes:           schemes,
+		SessionPublicKey:  mapping.GetAuth().GetSessionKey(),
+		SessionExpiration: maxSessionAge,
+		AccountID:         accountID,
+		ServiceID:         svcID,
+		IPRestrictions:    ipRestrictions,
+		Private:           mapping.GetPrivate(),
+		AppSecMode:        s.appSecMode(mapping),
+	}
+	if err := s.auth.AddDomain(mapping.GetDomain(), settings); err != nil {
 		return fmt.Errorf("auth setup for domain %s: %w", mapping.GetDomain(), err)
 	}
 	m := s.protoToMapping(ctx, mapping)

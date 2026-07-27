@@ -17,6 +17,27 @@ const (
 	TokenAuthScopes  tokenAuthContextKey  = "TokenAuth.Scopes"
 )
 
+// Defines values for AccessRestrictionsAppsecMode.
+const (
+	AccessRestrictionsAppsecModeEnforce AccessRestrictionsAppsecMode = "enforce"
+	AccessRestrictionsAppsecModeObserve AccessRestrictionsAppsecMode = "observe"
+	AccessRestrictionsAppsecModeOff     AccessRestrictionsAppsecMode = "off"
+)
+
+// Valid indicates whether the value is a known member of the AccessRestrictionsAppsecMode enum.
+func (e AccessRestrictionsAppsecMode) Valid() bool {
+	switch e {
+	case AccessRestrictionsAppsecModeEnforce:
+		return true
+	case AccessRestrictionsAppsecModeObserve:
+		return true
+	case AccessRestrictionsAppsecModeOff:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AccessRestrictionsCrowdsecMode.
 const (
 	AccessRestrictionsCrowdsecModeEnforce AccessRestrictionsCrowdsecMode = "enforce"
@@ -1540,6 +1561,9 @@ type AccessRestrictions struct {
 	// AllowedCountries ISO 3166-1 alpha-2 country codes to allow. If non-empty, only these countries are permitted.
 	AllowedCountries *[]string `json:"allowed_countries,omitempty"`
 
+	// AppsecMode CrowdSec AppSec (WAF) request inspection mode. Only available when the proxy cluster supports AppSec, and only applied to HTTP services. "enforce" blocks requests the WAF flags; "observe" records the verdict in the access log without blocking.
+	AppsecMode *AccessRestrictionsAppsecMode `json:"appsec_mode,omitempty"`
+
 	// BlockedCidrs CIDR blocklist. Connections from these CIDRs are rejected. Evaluated after allowed_cidrs.
 	BlockedCidrs *[]string `json:"blocked_cidrs,omitempty"`
 
@@ -1549,6 +1573,9 @@ type AccessRestrictions struct {
 	// CrowdsecMode CrowdSec IP reputation mode. Only available when the proxy cluster supports CrowdSec.
 	CrowdsecMode *AccessRestrictionsCrowdsecMode `json:"crowdsec_mode,omitempty"`
 }
+
+// AccessRestrictionsAppsecMode CrowdSec AppSec (WAF) request inspection mode. Only available when the proxy cluster supports AppSec, and only applied to HTTP services. "enforce" blocks requests the WAF flags; "observe" records the verdict in the access log without blocking.
+type AccessRestrictionsAppsecMode string
 
 // AccessRestrictionsCrowdsecMode CrowdSec IP reputation mode. Only available when the proxy cluster supports CrowdSec.
 type AccessRestrictionsCrowdsecMode string
@@ -4728,6 +4755,9 @@ type ProxyCluster struct {
 	// RequireSubdomain Whether services on this cluster must include a subdomain label
 	RequireSubdomain *bool `json:"require_subdomain,omitempty"`
 
+	// SupportsAppsec Whether all active proxies in the cluster have a CrowdSec AppSec (WAF) endpoint configured
+	SupportsAppsec *bool `json:"supports_appsec,omitempty"`
+
 	// SupportsCrowdsec Whether all active proxies in the cluster have CrowdSec configured
 	SupportsCrowdsec *bool `json:"supports_crowdsec,omitempty"`
 
@@ -4795,6 +4825,9 @@ type ReverseProxyDomain struct {
 
 	// RequireSubdomain Whether a subdomain label is required in front of this domain. When true, the domain cannot be used bare.
 	RequireSubdomain *bool `json:"require_subdomain,omitempty"`
+
+	// SupportsAppsec Whether the proxy cluster has a CrowdSec AppSec (WAF) endpoint configured
+	SupportsAppsec *bool `json:"supports_appsec,omitempty"`
 
 	// SupportsCrowdsec Whether the proxy cluster has CrowdSec configured
 	SupportsCrowdsec *bool `json:"supports_crowdsec,omitempty"`
