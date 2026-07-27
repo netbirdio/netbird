@@ -93,6 +93,11 @@ type PQHandshaker interface {
 	// SetRemotePort registers the peer's data-path endpoint from signalling: the peer's
 	// WG overlay IP combined with its advertised pq UDP port.
 	SetRemotePort(remoteKey string, overlayIP netip.Addr, port int)
+	// OnDataPathRekeyed signals a fresh WireGuard handshake for the peer; it clocks the
+	// next chained PSK rotation pushed over the data path.
+	OnDataPathRekeyed(remoteKey string)
+	// OnDataPathDown signals the peer's tunnel went down.
+	OnDataPathDown(remoteKey string)
 }
 
 // ConnConfig is a peer Connection configuration
@@ -707,6 +712,10 @@ func (conn *Conn) onWGDisconnected(watcherCtx context.Context) {
 
 	conn.Log.Warnf("WireGuard handshake timeout detected, closing current connection")
 
+	if conn.config.PQ != nil {
+		conn.config.PQ.OnDataPathDown(conn.config.Key)
+	}
+
 	// Close the active connection based on current priority
 	switch conn.currentConnPriority {
 	case conntype.Relay:
@@ -972,6 +981,11 @@ func (conn *Conn) onWGCheckSuccess() {
 	conn.mu.Lock()
 	conn.wgTimeouts = 0
 	conn.mu.Unlock()
+
+	// A fresh WireGuard handshake is the clock for the post-quantum PSK rotation.
+	if conn.config.PQ != nil {
+		conn.config.PQ.OnDataPathRekeyed(conn.config.Key)
+	}
 }
 
 // recordConnectionMetrics records connection stage timestamps as metrics
