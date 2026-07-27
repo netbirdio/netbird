@@ -59,17 +59,28 @@ func TestSelectRoutes_ExitNodeExclusivity(t *testing.T) {
 }
 
 func TestSelectRoutes_PartialErrorStillEnforcesExclusivity(t *testing.T) {
-	m := newSelectionTestManager()
-
-	require.NoError(t, m.selectRoutes([]route.NetID{"exitA"}, true))
-
 	// The unknown ID must be reported, but the valid exit node in the same
 	// request is still selected — so its sibling must still be deselected.
-	err := m.selectRoutes([]route.NetID{"exitB", "missing"}, true)
-	assert.Error(t, err, "unknown id must be reported")
-	assert.True(t, m.routeSelector.IsSelected("exitB"), "valid exit node from the request is selected")
-	assert.False(t, m.routeSelector.IsSelected("exitA"), "sibling exit node must be deselected despite the error")
-	assert.False(t, m.routeSelector.IsSelected("exitA-v6"), "sibling's v6 pair must be deselected too")
+	// Both orderings are covered: processing must continue past the invalid
+	// ID wherever it sits in the request.
+	requests := map[string][]route.NetID{
+		"invalid id first": {"missing", "exitB"},
+		"invalid id last":  {"exitB", "missing"},
+	}
+
+	for name, ids := range requests {
+		t.Run(name, func(t *testing.T) {
+			m := newSelectionTestManager()
+
+			require.NoError(t, m.selectRoutes([]route.NetID{"exitA"}, true))
+
+			err := m.selectRoutes(ids, true)
+			assert.Error(t, err, "unknown id must be reported")
+			assert.True(t, m.routeSelector.IsSelected("exitB"), "valid exit node from the request is selected")
+			assert.False(t, m.routeSelector.IsSelected("exitA"), "sibling exit node must be deselected despite the error")
+			assert.False(t, m.routeSelector.IsSelected("exitA-v6"), "sibling's v6 pair must be deselected too")
+		})
+	}
 }
 
 func TestSelectAllRoutes_KeepsSingleExitNode(t *testing.T) {
