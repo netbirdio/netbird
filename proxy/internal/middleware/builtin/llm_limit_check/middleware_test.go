@@ -115,6 +115,34 @@ func TestInvoke_DenyConvertsToProxyDeny(t *testing.T) {
 	assert.NotContains(t, out.DenyReason.Message, "1000", "internal cap numbers must not reach the caller")
 }
 
+// TestInvoke_ModelBlockedDenyMessage proves a model-allowlist rejection
+// gets a model-specific public message rather than the generic quota
+// wording, so a blocked model reads consistently with the local guardrail.
+func TestInvoke_ModelBlockedDenyMessage(t *testing.T) {
+	mgmt := &fakeMgmt{
+		checkResp: &proto.CheckLLMPolicyLimitsResponse{
+			Decision: "deny",
+			DenyCode: "llm_policy.model_blocked",
+		},
+	}
+	m := New(mgmt, nil)
+
+	out := runInvoke(t, m, &middleware.Input{
+		AccountID:  "acc-1",
+		UserGroups: []string{"grp-engineers"},
+		Metadata: []middleware.KV{
+			{Key: middleware.KeyLLMResolvedProviderID, Value: "prov-1"},
+			{Key: middleware.KeyLLMModel, Value: "blocked-model"},
+		},
+	})
+
+	assert.Equal(t, middleware.DecisionDeny, out.Decision)
+	require.NotNil(t, out.DenyReason, "deny envelope must carry a reason payload")
+	assert.Equal(t, "llm_policy.model_blocked", out.DenyReason.Code, "canonical deny code surfaces to the caller")
+	assert.Equal(t, "model is not in the policy allowlist", out.DenyReason.Message,
+		"model denials must use a model-specific message, matching the local guardrail")
+}
+
 // TestInvoke_NoMgmtClientPassesThrough proves the partial-wiring
 // safety: a middleware constructed without a management client
 // allows every request without attribution. This makes a half-set-up
