@@ -90,3 +90,13 @@ func (p pqHandshaker) SetRemotePort(remoteKey string, overlayIP netip.Addr, port
 	}
 	p.mgr.AddPeer(pqkem.RemoteID(remoteKey), netip.AddrPortFrom(overlayIP, uint16(port)))
 }
+
+// OnDataPathRekeyed clocks the next chained PSK rotation on a fresh WG handshake.
+func (p pqHandshaker) OnDataPathRekeyed(remoteKey string) {
+	p.mgr.OnDataPathRekeyed(pqkem.RemoteID(remoteKey))
+}
+
+// OnDataPathDown signals the peer's tunnel went down.
+func (p pqHandshaker) OnDataPathDown(remoteKey string) {
+	p.mgr.OnDataPathDown(pqkem.RemoteID(remoteKey))
+}
