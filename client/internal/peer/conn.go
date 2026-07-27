@@ -90,6 +90,9 @@ type PQHandshaker interface {
 	// PSK returns the peer's latest derived post-quantum PSK to program at WG
 	// peer-config time (the pull path). ok is false until one has been derived.
 	PSK(remoteKey string) (wgtypes.Key, bool)
+	// SetRemotePort registers the peer's data-path endpoint from signalling: the peer's
+	// WG overlay IP combined with its advertised pq UDP port.
+	SetRemotePort(remoteKey string, overlayIP netip.Addr, port int)
 }
 
 // ConnConfig is a peer Connection configuration

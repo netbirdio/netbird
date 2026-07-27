@@ -925,6 +925,10 @@ func (e *Engine) removePeer(peerKey string) error {
 
 	e.connMgr.RemovePeerConn(peerKey)
 
+	if e.pqkemManager != nil {
+		e.pqkemManager.RemovePeer(pqkem.RemoteID(peerKey))
+	}
+
 	err := e.statusRecorder.RemovePeer(peerKey)
 	if err != nil {
 		log.Warnf("received error when removing peer %s from status recorder: %v", peerKey, err)

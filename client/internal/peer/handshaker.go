@@ -130,6 +130,8 @@ func (h *Handshaker) Listen(ctx context.Context) {
 
 			h.updateRemoteICEState(&remoteOfferAnswer)
 
+			h.pqRegisterEndpoint(remoteOfferAnswer.MlkemPort)
+
 			if h.relayListener != nil {
 				h.relayListener.Notify(&remoteOfferAnswer)
 			}
@@ -152,6 +154,8 @@ func (h *Handshaker) Listen(ctx context.Context) {
 
 			h.updateRemoteICEState(&remoteOfferAnswer)
 
+			h.pqRegisterEndpoint(remoteOfferAnswer.MlkemPort)
+
 			if h.relayListener != nil {
 				h.relayListener.Notify(&remoteOfferAnswer)
 			}
@@ -168,6 +172,15 @@ func (h *Handshaker) Listen(ctx context.Context) {
 			return
 		}
 	}
+}
+
+// pqRegisterEndpoint feeds the post-quantum handshaker the peer's data-path endpoint
+// (its WG overlay IP plus the advertised pq UDP port) learned from a remote offer/answer.
+func (h *Handshaker) pqRegisterEndpoint(remotePort int) {
+	if h.config.PQ == nil || remotePort <= 0 || len(h.config.WgConfig.AllowedIps) == 0 {
+		return
+	}
+	h.config.PQ.SetRemotePort(h.config.Key, h.config.WgConfig.AllowedIps[0].Addr(), remotePort)
 }
 
 func (h *Handshaker) SendOffer() error {
