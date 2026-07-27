@@ -91,6 +91,74 @@ func TestDiscoverProviderModelsUsesPersistedProviderAndCluster(t *testing.T) {
 	}, result.Models)
 }
 
+func TestDiscoverProviderModelsSupportsOllamaCloud(t *testing.T) {
+	manager, mockStore, mockPermissions, mockProxy := newModelDiscoveryManager(t)
+	allowModelDiscovery(mockPermissions)
+
+	provider := &types.Provider{
+		ID:          "provider-cloud",
+		AccountID:   "account-1",
+		ProviderID:  "ollama_cloud",
+		UpstreamURL: "https://ollama.com",
+		APIKey:      "ollama-cloud-key",
+	}
+	mockStore.EXPECT().
+		GetAgentNetworkProviderByID(gomock.Any(), store.LockingStrengthNone, "account-1", provider.ID).
+		Return(provider, nil)
+	mockStore.EXPECT().
+		GetAgentNetworkSettings(gomock.Any(), store.LockingStrengthNone, "account-1").
+		Return(&types.Settings{AccountID: "account-1", Cluster: "cloud-proxies.example.com"}, nil)
+	mockProxy.EXPECT().
+		DiscoverModels(gomock.Any(), "account-1", "cloud-proxies.example.com", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _, _ string, request *proto.ModelDiscoveryRequest) (*proto.ModelDiscoveryResult, error) {
+			assert.Equal(t, "https://ollama.com", request.UpstreamUrl)
+			assert.Equal(t, "Authorization", request.AuthHeaderName)
+			assert.Equal(t, "Bearer ollama-cloud-key", request.AuthHeaderValue)
+			assert.False(t, request.SkipTlsVerify)
+			assert.True(t, request.OllamaFallback)
+			return &proto.ModelDiscoveryResult{
+				RequestId: "probe-cloud",
+				Source:    "openai_v1_models",
+				Models: []*proto.ModelDiscoveryModel{
+					{Id: "gpt-oss:120b", Label: "gpt-oss:120b"},
+				},
+			}, nil
+		})
+
+	result, err := manager.DiscoverProviderModels(context.Background(), "account-1", "user-1", provider.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "probe-cloud", result.RequestID)
+	assert.Equal(t, "cloud-proxies.example.com", result.ProxyCluster)
+	assert.Equal(t, []types.DiscoveredModel{
+		{ID: "gpt-oss:120b", Label: "gpt-oss:120b"},
+	}, result.Models)
+}
+
+func TestDiscoverProviderModelsRejectsOllamaCloudWithoutKey(t *testing.T) {
+	manager, mockStore, mockPermissions, _ := newModelDiscoveryManager(t)
+	allowModelDiscovery(mockPermissions)
+
+	provider := &types.Provider{
+		ID:          "provider-cloud",
+		AccountID:   "account-1",
+		ProviderID:  "ollama_cloud",
+		UpstreamURL: "https://ollama.com",
+	}
+	mockStore.EXPECT().
+		GetAgentNetworkProviderByID(gomock.Any(), store.LockingStrengthNone, "account-1", provider.ID).
+		Return(provider, nil)
+	mockStore.EXPECT().
+		GetAgentNetworkSettings(gomock.Any(), store.LockingStrengthNone, "account-1").
+		Return(&types.Settings{AccountID: "account-1", Cluster: "cloud-proxies.example.com"}, nil)
+
+	_, err := manager.DiscoverProviderModels(context.Background(), "account-1", "user-1", provider.ID)
+	require.Error(t, err)
+	statusErr, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, status.PreconditionFailed, statusErr.Type())
+	assert.Contains(t, err.Error(), "authentication is not configured correctly")
+}
+
 func TestDiscoverProviderModelsRejectsUnsupportedProvider(t *testing.T) {
 	manager, mockStore, mockPermissions, _ := newModelDiscoveryManager(t)
 	allowModelDiscovery(mockPermissions)

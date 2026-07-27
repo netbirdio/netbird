@@ -35,10 +35,41 @@ func TestOllamaCatalogEntry(t *testing.T) {
 	assert.Empty(t, wire.Models)
 }
 
-func TestOnlyOllamaSupportsModelDiscovery(t *testing.T) {
+func TestOllamaCloudCatalogEntry(t *testing.T) {
+	entry, ok := Lookup("ollama_cloud")
+	require.True(t, ok, "Ollama Cloud must be available as a dedicated catalog provider")
+
+	assert.Equal(t, KindProvider, entry.Kind)
+	assert.Equal(t, AuthModeRequired, entry.EffectiveAuthMode())
+	assert.Equal(t, "Ollama Cloud", entry.Name)
+	assert.Equal(t, "Hosted Ollama models via the OpenAI-compatible API", entry.Description)
+	assert.Equal(t, "ollama.com", entry.DefaultHost)
+	assert.Equal(t, "Authorization", entry.AuthHeaderName)
+	assert.Equal(t, "Bearer ${API_KEY}", entry.AuthHeaderTemplate)
+	assert.Equal(t, "application/json", entry.DefaultContentType)
+	assert.Empty(t, entry.ParserID, "Ollama Cloud preserves the untagged Ollama/vLLM/custom routing behavior")
+	assert.Empty(t, entry.Models, "Ollama Cloud models are discovered dynamically")
+	require.NotNil(t, entry.ModelDiscovery)
+	assert.True(t, entry.ModelDiscovery.OllamaFallback)
+
+	wire := entry.ToAPIResponse()
+	assert.Equal(t, "ollama_cloud", wire.Id)
+	assert.Equal(t, api.AgentNetworkCatalogProviderKindProvider, wire.Kind)
+	assert.Equal(t, api.AgentNetworkCatalogProviderAuthModeRequired, wire.AuthMode)
+	assert.Equal(t, "ollama.com", wire.DefaultHost)
+	assert.True(t, wire.SupportsModelDiscovery)
+	assert.NotNil(t, wire.Models)
+	assert.Empty(t, wire.Models)
+}
+
+func TestOnlyOllamaProvidersSupportModelDiscovery(t *testing.T) {
+	discoverable := map[string]bool{
+		"ollama":       true,
+		"ollama_cloud": true,
+	}
 	for _, entry := range All() {
 		supportsDiscovery := entry.ModelDiscovery != nil
-		assert.Equal(t, entry.ID == "ollama", supportsDiscovery, entry.ID)
+		assert.Equal(t, discoverable[entry.ID], supportsDiscovery, entry.ID)
 		assert.Equal(t, supportsDiscovery, entry.ToAPIResponse().SupportsModelDiscovery, entry.ID)
 	}
 }

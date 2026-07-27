@@ -1275,3 +1275,46 @@ func TestSynthesizeServices_OllamaOptionalAPIKey(t *testing.T) {
 		})
 	}
 }
+
+func TestSynthesizeServices_OllamaCloudRoute(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockStore := store.NewMockStore(ctrl)
+
+	provider := newSynthTestProvider()
+	provider.ProviderID = "ollama_cloud"
+	provider.Name = "Ollama Cloud"
+	provider.UpstreamURL = "https://ollama.com"
+	provider.APIKey = "ollama-cloud-key"
+	provider.Models = []types.ProviderModel{{ID: "gpt-oss:120b"}}
+	policy := newSynthTestPolicy(provider.ID, "grp-eng", "")
+
+	expectSynthBaseInputs(mockStore, ctx, newSynthTestSettings(),
+		[]*types.Provider{provider},
+		[]*types.Policy{policy},
+		[]*types.Guardrail{})
+
+	services, err := SynthesizeServices(ctx, mockStore, testAccountID)
+	require.NoError(t, err)
+	require.Len(t, services, 1)
+
+	var routerCfg routerConfig
+	for _, middleware := range services[0].Targets[0].Options.Middlewares {
+		if middleware.ID == middlewareIDLLMRouter {
+			require.NoError(t, json.Unmarshal(middleware.ConfigJSON, &routerCfg))
+			break
+		}
+	}
+	require.Len(t, routerCfg.Providers, 1)
+
+	route := routerCfg.Providers[0]
+	assert.Empty(t, route.Vendor, "Ollama Cloud preserves the untagged Ollama/vLLM/custom routing behavior")
+	assert.Equal(t, []string{"gpt-oss:120b"}, route.Models)
+	assert.Equal(t, "https", route.UpstreamScheme)
+	assert.Equal(t, "ollama.com", route.UpstreamHost)
+	assert.Empty(t, route.UpstreamPath)
+	assert.Equal(t, "Authorization", route.AuthHeaderName)
+	assert.Equal(t, "Bearer ollama-cloud-key", route.AuthHeaderValue)
+	assert.False(t, route.SkipTLSVerify)
+}

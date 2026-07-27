@@ -18,6 +18,23 @@ func TestPrepareProviderAPIKey(t *testing.T) {
 		assert.Contains(t, err.Error(), "api_key is required")
 	})
 
+	t.Run("Ollama Cloud requires a key", func(t *testing.T) {
+		provider := &types.Provider{ProviderID: "ollama_cloud"}
+		err := prepareProviderAPIKey(provider, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "api_key is required")
+	})
+
+	t.Run("Ollama Cloud accepts a key", func(t *testing.T) {
+		provider := &types.Provider{
+			ProviderID:     "ollama_cloud",
+			APIKey:         "ollama-cloud-key",
+			APIKeyProvided: true,
+		}
+		require.NoError(t, prepareProviderAPIKey(provider, nil))
+		assert.Equal(t, "ollama-cloud-key", provider.APIKey)
+	})
+
 	t.Run("optional create accepts an empty key", func(t *testing.T) {
 		provider := &types.Provider{ProviderID: "ollama"}
 		require.NoError(t, prepareProviderAPIKey(provider, nil))

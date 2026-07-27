@@ -488,6 +488,27 @@ var providers = []Provider{
 		},
 	},
 	{
+		// Direct Ollama Cloud uses the hosted OpenAI-compatible /v1 API.
+		// Models are discovered dynamically because the Cloud catalog changes
+		// independently of NetBird releases. ParserID intentionally remains
+		// empty to preserve the routing behavior of Ollama, vLLM, and custom
+		// OpenAI-compatible providers.
+		ID:                 "ollama_cloud",
+		Kind:               KindProvider,
+		AuthMode:           AuthModeRequired,
+		Name:               "Ollama Cloud",
+		Description:        "Hosted Ollama models via the OpenAI-compatible API",
+		DefaultHost:        "ollama.com",
+		AuthHeaderName:     "Authorization",
+		AuthHeaderTemplate: "Bearer ${API_KEY}",
+		DefaultContentType: "application/json",
+		BrandColor:         "#000000",
+		Models:             []Model{},
+		ModelDiscovery: &ModelDiscovery{
+			OllamaFallback: true,
+		},
+	},
+	{
 		ID:                 "litellm_proxy",
 		Kind:               KindGateway,
 		Name:               "LiteLLM Proxy",

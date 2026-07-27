@@ -210,9 +210,9 @@ func (d *Discoverer) fetch(ctx context.Context, in Request, endpointPath string)
 	}
 	req.Header.Set("Accept", "application/json")
 	if in.AuthHeaderName != "" {
-		// Phase 3 is Ollama-only. Canonicalizing the sole catalog-owned
-		// credential header keeps the control message from becoming a generic
-		// arbitrary-header primitive.
+		// Discovery is currently enabled only for Ollama-compatible providers.
+		// Canonicalizing the sole catalog-owned credential header keeps the
+		// control message from becoming a generic arbitrary-header primitive.
 		req.Header.Set("Authorization", in.AuthHeaderValue)
 	}
 
