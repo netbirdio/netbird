@@ -26,11 +26,7 @@ func DownloadUrl() string {
 	}
 }
 
-// isBrewInstall reports whether NetBird is installed via Homebrew, either as
-// the netbird formula or the netbird-ui cask.
+// isBrewInstall reports whether NetBird is installed via Homebrew.
 func isBrewInstall() bool {
-	if err := exec.Command("brew", "list", "--formula", "netbird").Run(); err == nil {
-		return true
-	}
-	return exec.Command("brew", "list", "--cask", "netbird-ui").Run() == nil
+	return exec.Command("brew", "list", "netbird").Run() == nil
 }
