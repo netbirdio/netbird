@@ -20,7 +20,8 @@ const (
 	rpFilterPath          = "net.ipv4.conf.all.rp_filter"
 	rpFilterInterfacePath = "net.ipv4.conf.%s.rp_filter"
 	srcValidMarkPath      = "net.ipv4.conf.all.src_valid_mark"
-	dotEscape             = "__DOT__"
+	percentEscape         = "%25"
+	dotEscape             = "%2E"
 )
 
 type iface interface {
@@ -57,8 +58,10 @@ func Setup(wgIface iface) (map[string]int, error) {
 			continue
 		}
 
-		// Escape dots in the interface name (e.g. flannel.1 -> flannel__DOT__1)
-		safeName := strings.ReplaceAll(intf.Name, ".", dotEscape)
+		// Escape '%' and '.' so they survive the dot-to-slash conversion in Set()
+		safeName := strings.ReplaceAll(intf.Name, "%", percentEscape)
+		safeName = strings.ReplaceAll(safeName, ".", dotEscape)
+
 		i := fmt.Sprintf(rpFilterInterfacePath, safeName)
 		oldVal, err := Set(i, 2, true)
 		if err != nil {
@@ -74,8 +77,9 @@ func Setup(wgIface iface) (map[string]int, error) {
 // Set sets a sysctl configuration, if onlyIfOne is true it will only set the new value if it's set to 1
 func Set(key string, desiredValue int, onlyIfOne bool) (int, error) {
 	path := strings.ReplaceAll(key, ".", "/")
-	// Unescape dot in interface name (e.g. flannel__DOT__1 -> flannel.1)
+	// Unescape interface dots and percent signs
 	path = strings.ReplaceAll(path, dotEscape, ".")
+	path = strings.ReplaceAll(path, percentEscape, "%")
 	path = fmt.Sprintf("/proc/sys/%s", path)
 	currentValue, err := os.ReadFile(path)
 	if err != nil {
