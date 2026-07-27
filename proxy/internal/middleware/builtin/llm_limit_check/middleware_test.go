@@ -115,32 +115,44 @@ func TestInvoke_DenyConvertsToProxyDeny(t *testing.T) {
 	assert.NotContains(t, out.DenyReason.Message, "1000", "internal cap numbers must not reach the caller")
 }
 
-// TestInvoke_ModelBlockedDenyMessage proves a model-allowlist rejection
-// gets a model-specific public message rather than the generic quota
-// wording, so a blocked model reads consistently with the local guardrail.
-func TestInvoke_ModelBlockedDenyMessage(t *testing.T) {
-	mgmt := &fakeMgmt{
-		checkResp: &proto.CheckLLMPolicyLimitsResponse{
-			Decision: "deny",
-			DenyCode: "llm_policy.model_blocked",
-		},
+// TestInvoke_ModelDenyMessages proves a model-allowlist rejection gets a
+// model-specific public message rather than the generic quota wording, so a
+// blocked or undetermined model reads consistently with the local guardrail.
+func TestInvoke_ModelDenyMessages(t *testing.T) {
+	cases := []struct {
+		name    string
+		code    string
+		message string
+	}{
+		{"blocked", "llm_policy.model_blocked", "model is not in the policy allowlist"},
+		{"unknown", "llm_policy.model_unknown", "request model could not be determined for the policy allowlist"},
 	}
-	m := New(mgmt, nil)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mgmt := &fakeMgmt{
+				checkResp: &proto.CheckLLMPolicyLimitsResponse{
+					Decision: "deny",
+					DenyCode: tc.code,
+				},
+			}
+			m := New(mgmt, nil)
 
-	out := runInvoke(t, m, &middleware.Input{
-		AccountID:  "acc-1",
-		UserGroups: []string{"grp-engineers"},
-		Metadata: []middleware.KV{
-			{Key: middleware.KeyLLMResolvedProviderID, Value: "prov-1"},
-			{Key: middleware.KeyLLMModel, Value: "blocked-model"},
-		},
-	})
+			out := runInvoke(t, m, &middleware.Input{
+				AccountID:  "acc-1",
+				UserGroups: []string{"grp-engineers"},
+				Metadata: []middleware.KV{
+					{Key: middleware.KeyLLMResolvedProviderID, Value: "prov-1"},
+					{Key: middleware.KeyLLMModel, Value: "some-model"},
+				},
+			})
 
-	assert.Equal(t, middleware.DecisionDeny, out.Decision)
-	require.NotNil(t, out.DenyReason, "deny envelope must carry a reason payload")
-	assert.Equal(t, "llm_policy.model_blocked", out.DenyReason.Code, "canonical deny code surfaces to the caller")
-	assert.Equal(t, "model is not in the policy allowlist", out.DenyReason.Message,
-		"model denials must use a model-specific message, matching the local guardrail")
+			assert.Equal(t, middleware.DecisionDeny, out.Decision)
+			require.NotNil(t, out.DenyReason, "deny envelope must carry a reason payload")
+			assert.Equal(t, tc.code, out.DenyReason.Code, "canonical deny code surfaces to the caller")
+			assert.Equal(t, tc.message, out.DenyReason.Message,
+				"model denials must use a model-specific message, matching the local guardrail")
+		})
+	}
 }
 
 // TestInvoke_NoMgmtClientPassesThrough proves the partial-wiring
