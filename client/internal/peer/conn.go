@@ -91,9 +91,9 @@ type PQHandshaker interface {
 	// PSK returns the peer's latest derived post-quantum PSK to program at WG
 	// peer-config time (the pull path). ok is false until one has been derived.
 	PSK(remoteKey string) (wgtypes.Key, bool)
-	// SetRemotePort registers the peer's data-path endpoint from signalling: the peer's
-	// WG overlay IP combined with its advertised pq UDP port.
-	SetRemotePort(remoteKey string, overlayIP netip.Addr, port int)
+	// SetRemoteAddr registers the peer's data-path endpoint learned from signalling:
+	// its WG overlay IP with the advertised pq UDP port.
+	SetRemoteAddr(remoteKey string, addr netip.AddrPort)
 	// OnDataPathRekeyed signals a fresh WireGuard handshake for the peer; it clocks the
 	// next chained PSK rotation pushed over the data path.
 	OnDataPathRekeyed(remoteKey string)
