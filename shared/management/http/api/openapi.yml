@@ -5834,13 +5834,48 @@ components:
         total_tokens:
           type: integer
           format: int64
-          description: Total tokens consumed.
+          description: Total tokens consumed, including prompt-cache tokens.
           example: 1840
+        cached_input_tokens:
+          type: integer
+          format: int64
+          description: Input tokens read from the provider's prompt cache. Additive to input_tokens for Anthropic-shape providers; a subset of input_tokens for OpenAI.
+          example: 0
+        cache_creation_tokens:
+          type: integer
+          format: int64
+          description: Input tokens written to the provider's prompt cache. Zero for providers without a cache-write bucket.
+          example: 30528
         cost_usd:
           type: number
           format: double
           description: Estimated USD cost of the request.
           example: 0.0231
+        input_cost_usd:
+          type: number
+          format: double
+          description: Cost of the non-cached input tokens. Base component of cost_usd.
+          example: 0.0048
+        cached_input_cost_usd:
+          type: number
+          format: double
+          description: Cost of the prompt-cache read tokens. Base component of cost_usd, and part of cache_cost_usd.
+          example: 0.0015
+        cache_creation_cost_usd:
+          type: number
+          format: double
+          description: Cost of the prompt-cache write tokens. Base component of cost_usd, and part of cache_cost_usd.
+          example: 0.1130
+        output_cost_usd:
+          type: number
+          format: double
+          description: Cost of the output tokens. Base component of cost_usd.
+          example: 0.0038
+        cache_cost_usd:
+          type: number
+          format: double
+          description: Portion of cost_usd billed for prompt-cache usage.
+          example: 0.1145
         stream:
           type: boolean
           description: Whether the request was a streaming completion.
@@ -5864,7 +5899,14 @@ components:
         - input_tokens
         - output_tokens
         - total_tokens
+        - cached_input_tokens
+        - cache_creation_tokens
+        - input_cost_usd
+        - cached_input_cost_usd
+        - cache_creation_cost_usd
+        - output_cost_usd
         - cost_usd
+        - cache_cost_usd
     AgentNetworkAccessLogsResponse:
       type: object
       properties:
@@ -5938,13 +5980,48 @@ components:
         total_tokens:
           type: integer
           format: int64
-          description: Total tokens across the session.
+          description: Total tokens across the session, including prompt-cache tokens.
           example: 12880
+        cached_input_tokens:
+          type: integer
+          format: int64
+          description: Total prompt-cache read tokens across the session.
+          example: 0
+        cache_creation_tokens:
+          type: integer
+          format: int64
+          description: Total prompt-cache write tokens across the session.
+          example: 30528
         cost_usd:
           type: number
           format: double
           description: Total estimated USD cost across the session.
           example: 0.1617
+        input_cost_usd:
+          type: number
+          format: double
+          description: Total cost of non-cached input tokens across the session.
+          example: 0.0210
+        cached_input_cost_usd:
+          type: number
+          format: double
+          description: Total cost of prompt-cache read tokens across the session.
+          example: 0.0015
+        cache_creation_cost_usd:
+          type: number
+          format: double
+          description: Total cost of prompt-cache write tokens across the session.
+          example: 0.1130
+        output_cost_usd:
+          type: number
+          format: double
+          description: Total cost of output tokens across the session.
+          example: 0.0262
+        cache_cost_usd:
+          type: number
+          format: double
+          description: Portion of cost_usd billed for prompt-cache usage across the session.
+          example: 0.1145
         providers:
           type: array
           items:
@@ -5971,7 +6048,14 @@ components:
         - input_tokens
         - output_tokens
         - total_tokens
+        - cached_input_tokens
+        - cache_creation_tokens
+        - input_cost_usd
+        - cached_input_cost_usd
+        - cache_creation_cost_usd
+        - output_cost_usd
         - cost_usd
+        - cache_cost_usd
         - decision
         - entries
     AgentNetworkAccessLogSessionsResponse:
@@ -6025,19 +6109,61 @@ components:
         total_tokens:
           type: integer
           format: int64
-          description: Total tokens in the bucket.
+          description: Total tokens in the bucket, including prompt-cache tokens.
           example: 184000
+        cached_input_tokens:
+          type: integer
+          format: int64
+          description: Total prompt-cache read tokens in the bucket.
+          example: 20000
+        cache_creation_tokens:
+          type: integer
+          format: int64
+          description: Total prompt-cache write tokens in the bucket.
+          example: 45000
+        input_cost_usd:
+          type: number
+          format: double
+          description: Total cost of non-cached input tokens in the bucket.
+          example: 1.12
+        cached_input_cost_usd:
+          type: number
+          format: double
+          description: Total cost of prompt-cache read tokens in the bucket.
+          example: 0.06
+        cache_creation_cost_usd:
+          type: number
+          format: double
+          description: Total cost of prompt-cache write tokens in the bucket.
+          example: 0.36
+        output_cost_usd:
+          type: number
+          format: double
+          description: Total cost of output tokens in the bucket.
+          example: 0.77
         cost_usd:
           type: number
           format: double
           description: Total estimated USD spend in the bucket.
           example: 2.31
+        cache_cost_usd:
+          type: number
+          format: double
+          description: Portion of cost_usd billed for prompt-cache usage in the bucket.
+          example: 0.42
       required:
         - period_start
         - input_tokens
         - output_tokens
         - total_tokens
+        - cached_input_tokens
+        - cache_creation_tokens
+        - input_cost_usd
+        - cached_input_cost_usd
+        - cache_creation_cost_usd
+        - output_cost_usd
         - cost_usd
+        - cache_cost_usd
     AgentNetworkSettings:
       type: object
       description: Per-account Agent Network gateway settings. One row per account; cluster and subdomain are auto-assigned on first provider create and immutable thereafter.
