@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/proxy/internal/geolocation"
 )
@@ -732,4 +733,82 @@ func TestFilter_HasRestrictions_CrowdSec(t *testing.T) {
 	// because Check() will fail-closed with DenyCrowdSecUnavailable.
 	f2 := ParseFilter(FilterConfig{CrowdSec: nil, CrowdSecMode: CrowdSecEnforce})
 	assert.True(t, f2.HasRestrictions())
+}
+
+// countingGeo records how many times an address was resolved.
+type countingGeo struct {
+	countries map[string]string
+	lookups   int
+}
+
+func (c *countingGeo) LookupAddr(addr netip.Addr) geolocation.Result {
+	c.lookups++
+	return geolocation.Result{CountryCode: c.countries[addr.String()]}
+}
+
+func (c *countingGeo) Available() bool { return true }
+
+// The geo lookup is the expensive part of the check and runs per connection, so
+// "any" mode must resolve the country once and share it between the blocklist
+// and the allowlist, the way "all" mode does.
+func TestCheck_AnyResolvesCountryOnce(t *testing.T) {
+	tests := []struct {
+		name        string
+		ip          string
+		want        Verdict
+		wantLookups int
+	}{
+		{"blocked and allowed lists both active", "203.0.113.1", Allow, 1},
+		{"blocked country denies", "198.51.100.1", DenyCountry, 1},
+		{"neither allowlist matches", "192.0.2.1", DenyCIDR, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			geo := &countingGeo{countries: map[string]string{
+				"203.0.113.1":  "US",
+				"198.51.100.1": "CN",
+				"192.0.2.1":    "FR",
+			}}
+			f := ParseFilter(FilterConfig{
+				AllowedCIDRs:     []string{"10.0.0.0/8"},
+				AllowedCountries: []string{"US"},
+				BlockedCountries: []string{"CN"},
+				AllowMatch:       AllowMatchAny,
+			})
+			require.NotNil(t, f)
+
+			assert.Equal(t, tt.want, f.Check(netip.MustParseAddr(tt.ip), geo))
+			assert.Equal(t, tt.wantLookups, geo.lookups, "the country must be resolved at most once per check")
+		})
+	}
+}
+
+// A matching allowed CIDR short-circuits the allowlist, so with no country
+// blocklist configured there is nothing left to resolve.
+func TestCheck_AnySkipsLookupWhenCIDRAdmits(t *testing.T) {
+	geo := &countingGeo{countries: map[string]string{"10.1.2.3": "US"}}
+	f := ParseFilter(FilterConfig{
+		AllowedCIDRs:     []string{"10.0.0.0/8"},
+		AllowedCountries: []string{"DE"},
+		AllowMatch:       AllowMatchAny,
+	})
+	require.NotNil(t, f)
+
+	assert.Equal(t, Allow, f.Check(netip.MustParseAddr("10.1.2.3"), geo))
+	assert.Zero(t, geo.lookups, "an admitted CIDR needs no geo lookup")
+}
+
+// The blocklist is a hard gate, so it is consulted even when a CIDR allowlist
+// already admitted the address.
+func TestCheck_AnyBlocklistOutranksAllowedCIDR(t *testing.T) {
+	geo := &countingGeo{countries: map[string]string{"10.1.2.3": "CN"}}
+	f := ParseFilter(FilterConfig{
+		AllowedCIDRs:     []string{"10.0.0.0/8"},
+		BlockedCountries: []string{"CN"},
+		AllowMatch:       AllowMatchAny,
+	})
+	require.NotNil(t, f)
+
+	assert.Equal(t, DenyCountry, f.Check(netip.MustParseAddr("10.1.2.3"), geo))
+	assert.Equal(t, 1, geo.lookups)
 }
