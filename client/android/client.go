@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -299,6 +300,13 @@ func (c *Client) SetInfoLogLevel() {
 // PeersList return with the list of the PeerInfos
 func (c *Client) PeersList() *PeerInfoArray {
 
+	// The recorder only caches transfer counters and handshake times; nothing
+	// refreshes them on its own, so without this they read as zero. The desktop
+	// daemon does the same before serving a full peer status.
+	if err := c.recorder.RefreshWireGuardStats(); err != nil {
+		log.Debugf("failed to refresh WireGuard stats: %v", err)
+	}
+
 	fullStatus := c.recorder.GetFullStatus()
 
 	peerInfos := make([]PeerInfo, len(fullStatus.Peers))
@@ -309,6 +317,20 @@ func (c *Client) PeersList() *PeerInfoArray {
 			FQDN:       p.FQDN,
 			ConnStatus: int(p.ConnStatus),
 			Routes:     PeerRoutes{routes: maps.Keys(p.GetRoutes())},
+
+			PubKey:                     p.PubKey,
+			Latency:                    formatDuration(p.Latency),
+			LatencyMs:                  p.Latency.Milliseconds(),
+			BytesRx:                    p.BytesRx,
+			BytesTx:                    p.BytesTx,
+			ConnStatusUpdate:           formatTime(p.ConnStatusUpdate),
+			Relayed:                    p.Relayed,
+			RosenpassEnabled:           p.RosenpassEnabled,
+			LastWireguardHandshake:     formatTime(p.LastWireguardHandshake),
+			LocalIceCandidateType:      p.LocalIceCandidateType,
+			RemoteIceCandidateType:     p.RemoteIceCandidateType,
+			LocalIceCandidateEndpoint:  p.LocalIceCandidateEndpoint,
+			RemoteIceCandidateEndpoint: p.RemoteIceCandidateEndpoint,
 		}
 		peerInfos[n] = pi
 	}
@@ -511,4 +533,29 @@ func exportEnvList(list *EnvList) {
 			log.Errorf("could not set env variable %s: %v", k, err)
 		}
 	}
+}
+
+// formatDuration renders a duration for display, trimming the fractional part
+// to two digits so latencies read as "12.34ms" rather than "12.345678ms".
+func formatDuration(d time.Duration) string {
+	ds := d.String()
+	dotIndex := strings.Index(ds, ".")
+	if dotIndex == -1 {
+		return ds
+	}
+
+	endIndex := min(dotIndex+3, len(ds))
+
+	// Skip the remaining digits so only the unit suffix is appended back.
+	unitStart := endIndex
+	for unitStart < len(ds) && ds[unitStart] >= '0' && ds[unitStart] <= '9' {
+		unitStart++
+	}
+	return ds[:endIndex] + ds[unitStart:]
+}
+
+// formatTime renders a timestamp in UTC using a fixed layout. The zero time is
+// passed through as-is so the UI can recognise it and show "never" instead.
+func formatTime(t time.Time) string {
+	return t.UTC().Format("2006-01-02 15:04:05")
 }
