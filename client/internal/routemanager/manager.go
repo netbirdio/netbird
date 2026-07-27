@@ -52,6 +52,10 @@ type Manager interface {
 	UpdateRoutes(updateSerial uint64, serverRoutes map[route.ID]*route.Route, clientRoutes route.HAMap, useNewDNSRoute bool) error
 	ClassifyRoutes(newRoutes []*route.Route) (map[route.ID]*route.Route, route.HAMap)
 	TriggerSelection(route.HAMap)
+	SelectRoutes(ids []route.NetID, appendRoute bool) error
+	DeselectRoutes(ids []route.NetID) error
+	SelectAllRoutes()
+	DeselectAllRoutes()
 	GetRouteSelector() *routeselector.RouteSelector
 	GetClientRoutes() route.HAMap
 	GetSelectedClientRoutes() route.HAMap
@@ -800,7 +804,7 @@ func (m *DefaultManager) collectExitNodeInfo(clientRoutes route.HAMap) exitNodeI
 	var info exitNodeInfo
 
 	for haID, routes := range clientRoutes {
-		if !m.isExitNodeRoute(routes) {
+		if !isExitNodeRoutes(routes) {
 			continue
 		}
 
@@ -818,13 +822,6 @@ func (m *DefaultManager) collectExitNodeInfo(clientRoutes route.HAMap) exitNodeI
 	}
 
 	return info
-}
-
-func (m *DefaultManager) isExitNodeRoute(routes []*route.Route) bool {
-	if len(routes) == 0 {
-		return false
-	}
-	return route.IsV4DefaultRoute(routes[0].Network) || route.IsV6DefaultRoute(routes[0].Network)
 }
 
 func (m *DefaultManager) categorizeUserSelection(netID route.NetID, info *exitNodeInfo) {

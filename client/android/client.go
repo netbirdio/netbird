@@ -439,10 +439,6 @@ func (c *Client) RemoveConnectionListener() {
 	c.recorder.RemoveConnectionListener()
 }
 
-func (c *Client) toggleRoute(command routeCommand) error {
-	return command.toggleRoute()
-}
-
 func (c *Client) getRouteManager() (routemanager.Manager, error) {
 	client := c.getConnectClient()
 	if client == nil {
@@ -462,22 +458,22 @@ func (c *Client) getRouteManager() (routemanager.Manager, error) {
 	return manager, nil
 }
 
-func (c *Client) SelectRoute(route string) error {
+func (c *Client) SelectRoute(id string) error {
 	manager, err := c.getRouteManager()
 	if err != nil {
 		return err
 	}
 
-	return c.toggleRoute(selectRouteCommand{route: route, manager: manager})
+	return manager.SelectRoutes([]route.NetID{route.NetID(id)}, true)
 }
 
-func (c *Client) DeselectRoute(route string) error {
+func (c *Client) DeselectRoute(id string) error {
 	manager, err := c.getRouteManager()
 	if err != nil {
 		return err
 	}
 
-	return c.toggleRoute(deselectRouteCommand{route: route, manager: manager})
+	return manager.DeselectRoutes([]route.NetID{route.NetID(id)})
 }
 
 // getNetworkDomainsFromRoute extracts domains from a route and enriches each domain
