@@ -2,8 +2,21 @@ package pqkem
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"time"
 )
+
+// idHex renders an exchange ID for logs.
+func idHex(id ExchangeID) string { return hex.EncodeToString(id[:]) }
+
+// pskFingerprint is a short, non-secret digest of a derived PSK: identical on both
+// peers iff they derived the same key. Logged instead of the raw PSK so debug logs
+// never carry the actual WireGuard preshared key.
+func pskFingerprint(psk PSK) string {
+	sum := sha256.Sum256(psk[:])
+	return hex.EncodeToString(sum[:8])
+}
 
 // startExchange creates a fresh initiator exchange (acknowledging ackID, zero for a
 // bootstrap) and returns the framed offer for the caller to send — pushed over the
@@ -41,6 +54,12 @@ func (m *Manager) startExchange(remoteID RemoteID, viaSignal bool, ackID Exchang
 
 	m.wait.Add(1)
 	go m.initiatorLoop(ctx, remoteID, id)
+
+	via := "data-path"
+	if viaSignal {
+		via = "signal"
+	}
+	m.trace("pqkem: offer sent", "peer", remoteID, "exchange", idHex(id), "acks", idHex(ackID), "via", via)
 	return raw, nil
 }
 
@@ -49,6 +68,8 @@ func (m *Manager) startExchange(remoteID RemoteID, viaSignal bool, ackID Exchang
 // then derives the PSK for the new offer, commits it optimistically, and returns the
 // framed answer. A duplicate offer returns the cached answer without re-deriving.
 func (m *Manager) processOffer(remoteID RemoteID, o *OfferMsg) ([]byte, error) {
+	m.trace("pqkem: offer received", "peer", remoteID, "exchange", idHex(o.ExchangeID), "acks", idHex(o.AckID))
+
 	if o.AckID != (ExchangeID{}) {
 		m.ackConverged(remoteID, o.AckID)
 	}
@@ -60,6 +81,7 @@ func (m *Manager) processOffer(remoteID RemoteID, o *OfferMsg) ([]byte, error) {
 		if state == stateReserved {
 			return nil, nil
 		}
+		m.trace("pqkem: duplicate offer, resending cached answer", "peer", remoteID, "exchange", idHex(o.ExchangeID))
 		return last, nil
 	}
 	// Reserve the slot so a concurrent duplicate offer bails.
@@ -79,6 +101,7 @@ func (m *Manager) processOffer(remoteID RemoteID, o *OfferMsg) ([]byte, error) {
 	ex := m.exchanges[remoteID]
 	if ex == nil || ex.id != o.ExchangeID {
 		m.mu.Unlock()
+		m.trace("pqkem: exchange superseded during respond, dropping answer", "peer", remoteID, "exchange", idHex(o.ExchangeID))
 		return nil, nil
 	}
 	ex.state = stateAwaitingAck
@@ -87,10 +110,13 @@ func (m *Manager) processOffer(remoteID RemoteID, o *OfferMsg) ([]byte, error) {
 	m.psks[remoteID] = psk
 	m.mu.Unlock()
 
+	m.trace("pqkem: new PSK derived", "peer", remoteID, "exchange", idHex(o.ExchangeID), "role", "responder", "psk_fp", pskFingerprint(psk))
+
 	// Commit optimistically so our data path can rekey to the new PSK.
 	if err := m.cbHandler.OnNewPSKReady(remoteID, psk); err != nil {
 		return nil, err
 	}
+	m.trace("pqkem: answer sent", "peer", remoteID, "exchange", idHex(o.ExchangeID))
 	return raw, nil
 }
 
@@ -102,13 +128,20 @@ func (m *Manager) processAnswer(remoteID RemoteID, a *AnswerMsg) error {
 	m.mu.Lock()
 	ex := m.exchanges[remoteID]
 	if ex == nil || ex.id != a.ExchangeID || ex.state != stateAwaitingAnswer {
+		haveID := "none"
+		if ex != nil {
+			haveID = idHex(ex.id)
+		}
 		m.mu.Unlock()
+		m.trace("pqkem: unexpected answer dropped (inconsistency)", "peer", remoteID, "answer_for", idHex(a.ExchangeID), "have_exchange", haveID)
 		return nil
 	}
 	ex.state = stateAwaitingRekey
 	init := ex.initiator
 	ex.initiator = nil
 	m.mu.Unlock()
+
+	m.trace("pqkem: answer received", "peer", remoteID, "exchange", idHex(a.ExchangeID))
 
 	psk, err := init.Finish(a.KEMAnswer, m.binding(remoteID))
 	if err != nil {
@@ -122,6 +155,8 @@ func (m *Manager) processAnswer(remoteID RemoteID, a *AnswerMsg) error {
 	m.psks[remoteID] = psk
 	m.mu.Unlock()
 
+	m.trace("pqkem: new PSK derived", "peer", remoteID, "exchange", idHex(a.ExchangeID), "role", "initiator", "psk_fp", pskFingerprint(psk))
+
 	return m.cbHandler.OnNewPSKReady(remoteID, psk)
 }
 
@@ -133,6 +168,7 @@ func (m *Manager) ackConverged(remoteID RemoteID, ackID ExchangeID) {
 	ex := m.exchanges[remoteID]
 	if ex == nil || ex.id != ackID || ex.state != stateAwaitingAck {
 		m.mu.Unlock()
+		m.trace("pqkem: ack for unknown/mismatched exchange, ignored (inconsistency)", "peer", remoteID, "acks", idHex(ackID))
 		return
 	}
 	delete(m.exchanges, remoteID)
@@ -140,6 +176,8 @@ func (m *Manager) ackConverged(remoteID RemoteID, ackID ExchangeID) {
 	m.failures[remoteID] = 0
 	_ = time.Since(ex.startedAt) // convergence latency (metrics hook, later step)
 	m.mu.Unlock()
+
+	m.trace("pqkem: previous exchange confirmed by ack", "peer", remoteID, "exchange", idHex(ackID))
 }
 
 // initiatorLoop enforces the offer->answer convergence deadline and retransmits the

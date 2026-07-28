@@ -169,6 +169,12 @@ func (m *Manager) PSK(remoteID RemoteID) (PSK, bool) {
 	return psk, ok
 }
 
+// trace logs at LevelTrace, the verbose per-exchange lifecycle level gated by
+// NB_PQ_MLKEM_LOG_LEVEL=trace.
+func (m *Manager) trace(msg string, args ...any) {
+	m.logger.Log(context.Background(), LevelTrace, msg, args...)
+}
+
 // AddPeer registers where a peer's data-path messages are sent and received: its
 // overlay endpoint (IP:port). Re-adding updates the endpoint.
 func (m *Manager) AddPeer(remoteID RemoteID, endpoint netip.AddrPort) {
@@ -280,7 +286,7 @@ func (m *Manager) onDataPathInbound(src netip.AddrPort, msg []byte) {
 		return
 	}
 	if err := m.OnDataPathMessage(remoteID, msg); err != nil {
-		m.logger.Debug("pqkem: inbound", "peer", remoteID, "err", err)
+		m.trace("pqkem: inbound", "peer", remoteID, "err", err)
 	}
 }
 
@@ -323,6 +329,7 @@ func (m *Manager) OnDataPathRekeyed(remoteID RemoteID) {
 	}
 	m.mu.Unlock()
 
+	m.trace("pqkem: data-path rekey signal", "peer", remoteID, "chaining", chain)
 	if !chain {
 		return
 	}
@@ -333,7 +340,9 @@ func (m *Manager) OnDataPathRekeyed(remoteID RemoteID) {
 	}
 	if err := m.pushDataPath(remoteID, offer); err != nil {
 		m.logger.Warn("pqkem: send chain offer failed", "peer", remoteID, "err", err)
+		return
 	}
+	m.trace("pqkem: chain offer sent over data path", "peer", remoteID)
 }
 
 // OnDataPathDown notifies that the peer's data path went down. Rotations resume once
