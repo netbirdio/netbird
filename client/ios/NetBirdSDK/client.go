@@ -84,18 +84,16 @@ type Client struct {
 	// preloadedConfig holds config loaded from JSON (used on tvOS where file writes are blocked)
 	preloadedConfig *profilemanager.Config
 
-<<<<<<< ours
 	// mdmLoader holds the per-Client MDM policy source. Set by
 	// SetMDMPolicyFetcher (called from the Swift side at extension
 	// init). Each Run passes this loader to the resolved Config so
 	// applyMDMPolicy picks up the active overlay. Nil means "MDM
 	// enforcement off for this Client".
 	mdmLoader *mdm.Loader
-=======
+
 	stateMu       sync.RWMutex
 	connectClient *internal.ConnectClient
 	config        *profilemanager.Config
->>>>>>> theirs
 }
 
 // NewClient instantiate a new Client

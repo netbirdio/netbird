@@ -131,15 +131,6 @@ func TestSetConfig_MDMReject_SingleField(t *testing.T) {
 }
 
 func TestSetConfig_MDMReject_MultipleFields(t *testing.T) {
-<<<<<<< ours
-=======
-	withMDMPolicy(t, mdm.NewPolicy(map[string]any{
-		mdm.KeyManagementURL:    "https://mdm.example.com:443",
-		mdm.KeyBlockInbound:     true,
-		mdm.KeyRosenpassEnabled: true,
-	}))
-
->>>>>>> theirs
 	s, ctx, profName, username, _ := setupServerWithProfile(t)
 	withMDMPolicy(t, s, mdm.NewPolicy(map[string]any{
 		mdm.KeyManagementURL:    "https://mdm.example.com:443",
@@ -229,11 +220,10 @@ func TestSetConfig_MDMAllow_ManagementURLPortNormalized(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			withMDMPolicy(t, mdm.NewPolicy(map[string]any{
+			s, ctx, profName, username, _ := setupServerWithProfile(t)
+			withMDMPolicy(t, s, mdm.NewPolicy(map[string]any{
 				mdm.KeyManagementURL: tc.mdmURL,
 			}))
-
-			s, ctx, profName, username, _ := setupServerWithProfile(t)
 
 			rosenpassEnabled := true
 			resp, err := s.SetConfig(ctx, &proto.SetConfigRequest{

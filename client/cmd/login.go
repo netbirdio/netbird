@@ -17,11 +17,8 @@ import (
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
-<<<<<<< ours
 	"github.com/netbirdio/netbird/client/mdm"
-=======
 	nbnet "github.com/netbirdio/netbird/client/net"
->>>>>>> theirs
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/server"
 	"github.com/netbirdio/netbird/client/system"
