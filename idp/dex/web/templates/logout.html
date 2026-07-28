@@ -1,0 +1,14 @@
+{{ template "header.html" . }}
+
+<div class="nb-card">
+    <h1 class="nb-heading">Logged Out</h1>
+    <p class="nb-subheading">You have been successfully logged out.</p>
+
+    {{ if .BackURL }}
+    <div class="nb-back-link">
+        <a href="{{ .BackURL }}" class="nb-link">&larr; Back to Application</a>
+    </div>
+    {{ end }}
+</div>
+
+{{ template "footer.html" . }}

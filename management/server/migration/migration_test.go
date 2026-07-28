@@ -16,6 +16,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
+	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	"github.com/netbirdio/netbird/management/server/migration"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/testutil"
@@ -198,7 +199,11 @@ func TestMigrateNetIPFieldFromBlobToJSON_WithJSONData(t *testing.T) {
 	require.NoError(t, err, "Failed to insert account")
 
 	account.PeersG = []nbpeer.Peer{
-		{AccountID: "1234", Location: nbpeer.Location{ConnectionIP: net.IP{10, 0, 0, 1}}},
+		{
+			AccountID: "1234",
+			Location:  nbpeer.Location{ConnectionIP: net.IP{10, 0, 0, 1}},
+			Status:    &nbpeer.PeerStatus{LastSeen: time.Now()},
+		},
 	}
 
 	err = db.Save(account).Error
@@ -339,4 +344,395 @@ func TestCreateIndexIfExists(t *testing.T) {
 
 	exist = db.Migrator().HasIndex(&nbpeer.Peer{}, indexName)
 	assert.True(t, exist, "Should have the index")
+}
+
+type testPeer struct {
+	ID                  string `gorm:"primaryKey"`
+	Key                 string `gorm:"index"`
+	PeerStatusLastSeen  time.Time
+	PeerStatusConnected bool
+}
+
+func (testPeer) TableName() string {
+	return "peers"
+}
+
+func setupPeerTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db := setupDatabase(t)
+	_ = db.Migrator().DropTable(&testPeer{})
+	err := db.AutoMigrate(&testPeer{})
+	require.NoError(t, err, "Failed to auto-migrate tables")
+	return db
+}
+
+func TestRemoveDuplicatePeerKeys_NoDuplicates(t *testing.T) {
+	db := setupPeerTestDB(t)
+
+	now := time.Now()
+	peers := []testPeer{
+		{ID: "peer1", Key: "key1", PeerStatusLastSeen: now},
+		{ID: "peer2", Key: "key2", PeerStatusLastSeen: now},
+		{ID: "peer3", Key: "key3", PeerStatusLastSeen: now},
+	}
+
+	for _, p := range peers {
+		err := db.Create(&p).Error
+		require.NoError(t, err)
+	}
+
+	err := migration.RemoveDuplicatePeerKeys(context.Background(), db)
+	require.NoError(t, err)
+
+	var count int64
+	db.Model(&testPeer{}).Count(&count)
+	assert.Equal(t, int64(len(peers)), count, "All peers should remain when no duplicates")
+}
+
+func TestRemoveDuplicatePeerKeys_WithDuplicates(t *testing.T) {
+	db := setupPeerTestDB(t)
+
+	now := time.Now()
+	peers := []testPeer{
+		{ID: "peer1", Key: "key1", PeerStatusLastSeen: now.Add(-2 * time.Hour)},
+		{ID: "peer2", Key: "key1", PeerStatusLastSeen: now.Add(-1 * time.Hour)},
+		{ID: "peer3", Key: "key1", PeerStatusLastSeen: now},
+		{ID: "peer4", Key: "key2", PeerStatusLastSeen: now},
+		{ID: "peer5", Key: "key3", PeerStatusLastSeen: now.Add(-1 * time.Hour)},
+		{ID: "peer6", Key: "key3", PeerStatusLastSeen: now},
+	}
+
+	for _, p := range peers {
+		err := db.Create(&p).Error
+		require.NoError(t, err)
+	}
+
+	err := migration.RemoveDuplicatePeerKeys(context.Background(), db)
+	require.NoError(t, err)
+
+	var count int64
+	db.Model(&testPeer{}).Count(&count)
+	assert.Equal(t, int64(3), count, "Should have 3 peers after removing duplicates")
+
+	var remainingPeers []testPeer
+	err = db.Find(&remainingPeers).Error
+	require.NoError(t, err)
+
+	remainingIDs := make(map[string]bool)
+	for _, p := range remainingPeers {
+		remainingIDs[p.ID] = true
+	}
+
+	assert.True(t, remainingIDs["peer3"], "peer3 should remain (most recent for key1)")
+	assert.True(t, remainingIDs["peer4"], "peer4 should remain (only peer for key2)")
+	assert.True(t, remainingIDs["peer6"], "peer6 should remain (most recent for key3)")
+
+	assert.False(t, remainingIDs["peer1"], "peer1 should be deleted (older duplicate)")
+	assert.False(t, remainingIDs["peer2"], "peer2 should be deleted (older duplicate)")
+	assert.False(t, remainingIDs["peer5"], "peer5 should be deleted (older duplicate)")
+}
+
+func TestRemoveDuplicatePeerKeys_EmptyTable(t *testing.T) {
+	db := setupPeerTestDB(t)
+
+	err := migration.RemoveDuplicatePeerKeys(context.Background(), db)
+	require.NoError(t, err, "Should not fail on empty table")
+}
+
+func TestRemoveDuplicatePeerKeys_NoTable(t *testing.T) {
+	db := setupDatabase(t)
+	_ = db.Migrator().DropTable(&testPeer{})
+
+	err := migration.RemoveDuplicatePeerKeys(context.Background(), db)
+	require.NoError(t, err, "Should not fail when table does not exist")
+}
+
+type testParent struct {
+	ID string `gorm:"primaryKey"`
+}
+
+func (testParent) TableName() string {
+	return "test_parents"
+}
+
+type testChild struct {
+	ID       string `gorm:"primaryKey"`
+	ParentID string
+}
+
+func (testChild) TableName() string {
+	return "test_children"
+}
+
+type testChildWithFK struct {
+	ID       string      `gorm:"primaryKey"`
+	ParentID string      `gorm:"index"`
+	Parent   *testParent `gorm:"foreignKey:ParentID"`
+}
+
+func (testChildWithFK) TableName() string {
+	return "test_children"
+}
+
+func setupOrphanTestDB(t *testing.T, models ...any) *gorm.DB {
+	t.Helper()
+	db := setupDatabase(t)
+	for _, m := range models {
+		_ = db.Migrator().DropTable(m)
+	}
+	err := db.AutoMigrate(models...)
+	require.NoError(t, err, "Failed to auto-migrate tables")
+	return db
+}
+
+func TestCleanupOrphanedResources_NoChildTable(t *testing.T) {
+	db := setupDatabase(t)
+	_ = db.Migrator().DropTable(&testChild{})
+	_ = db.Migrator().DropTable(&testParent{})
+
+	err := migration.CleanupOrphanedResources[testChild, testParent](context.Background(), db, "parent_id")
+	require.NoError(t, err, "Should not fail when child table does not exist")
+}
+
+func TestCleanupOrphanedResources_NoParentTable(t *testing.T) {
+	db := setupDatabase(t)
+	_ = db.Migrator().DropTable(&testParent{})
+	_ = db.Migrator().DropTable(&testChild{})
+
+	err := db.AutoMigrate(&testChild{})
+	require.NoError(t, err)
+
+	err = migration.CleanupOrphanedResources[testChild, testParent](context.Background(), db, "parent_id")
+	require.NoError(t, err, "Should not fail when parent table does not exist")
+}
+
+func TestCleanupOrphanedResources_EmptyTables(t *testing.T) {
+	db := setupOrphanTestDB(t, &testParent{}, &testChild{})
+
+	err := migration.CleanupOrphanedResources[testChild, testParent](context.Background(), db, "parent_id")
+	require.NoError(t, err, "Should not fail on empty tables")
+
+	var count int64
+	db.Model(&testChild{}).Count(&count)
+	assert.Equal(t, int64(0), count)
+}
+
+func TestCleanupOrphanedResources_NoOrphans(t *testing.T) {
+	db := setupOrphanTestDB(t, &testParent{}, &testChild{})
+
+	require.NoError(t, db.Create(&testParent{ID: "p1"}).Error)
+	require.NoError(t, db.Create(&testParent{ID: "p2"}).Error)
+	require.NoError(t, db.Create(&testChild{ID: "c1", ParentID: "p1"}).Error)
+	require.NoError(t, db.Create(&testChild{ID: "c2", ParentID: "p2"}).Error)
+
+	err := migration.CleanupOrphanedResources[testChild, testParent](context.Background(), db, "parent_id")
+	require.NoError(t, err)
+
+	var count int64
+	db.Model(&testChild{}).Count(&count)
+	assert.Equal(t, int64(2), count, "All children should remain when no orphans")
+}
+
+func TestCleanupOrphanedResources_AllOrphans(t *testing.T) {
+	db := setupOrphanTestDB(t, &testParent{}, &testChild{})
+
+	require.NoError(t, db.Exec("INSERT INTO test_children (id, parent_id) VALUES (?, ?)", "c1", "gone1").Error)
+	require.NoError(t, db.Exec("INSERT INTO test_children (id, parent_id) VALUES (?, ?)", "c2", "gone2").Error)
+	require.NoError(t, db.Exec("INSERT INTO test_children (id, parent_id) VALUES (?, ?)", "c3", "gone3").Error)
+
+	err := migration.CleanupOrphanedResources[testChild, testParent](context.Background(), db, "parent_id")
+	require.NoError(t, err)
+
+	var count int64
+	db.Model(&testChild{}).Count(&count)
+	assert.Equal(t, int64(0), count, "All orphaned children should be deleted")
+}
+
+func TestCleanupOrphanedResources_MixedValidAndOrphaned(t *testing.T) {
+	db := setupOrphanTestDB(t, &testParent{}, &testChild{})
+
+	require.NoError(t, db.Create(&testParent{ID: "p1"}).Error)
+	require.NoError(t, db.Create(&testParent{ID: "p2"}).Error)
+
+	require.NoError(t, db.Create(&testChild{ID: "c1", ParentID: "p1"}).Error)
+	require.NoError(t, db.Create(&testChild{ID: "c2", ParentID: "p2"}).Error)
+	require.NoError(t, db.Create(&testChild{ID: "c3", ParentID: "p1"}).Error)
+
+	require.NoError(t, db.Exec("INSERT INTO test_children (id, parent_id) VALUES (?, ?)", "c4", "gone1").Error)
+	require.NoError(t, db.Exec("INSERT INTO test_children (id, parent_id) VALUES (?, ?)", "c5", "gone2").Error)
+
+	err := migration.CleanupOrphanedResources[testChild, testParent](context.Background(), db, "parent_id")
+	require.NoError(t, err)
+
+	var remaining []testChild
+	require.NoError(t, db.Order("id").Find(&remaining).Error)
+
+	assert.Len(t, remaining, 3, "Only valid children should remain")
+	assert.Equal(t, "c1", remaining[0].ID)
+	assert.Equal(t, "c2", remaining[1].ID)
+	assert.Equal(t, "c3", remaining[2].ID)
+}
+
+func TestCleanupOrphanedResources_Idempotent(t *testing.T) {
+	db := setupOrphanTestDB(t, &testParent{}, &testChild{})
+
+	require.NoError(t, db.Create(&testParent{ID: "p1"}).Error)
+	require.NoError(t, db.Create(&testChild{ID: "c1", ParentID: "p1"}).Error)
+	require.NoError(t, db.Exec("INSERT INTO test_children (id, parent_id) VALUES (?, ?)", "c2", "gone").Error)
+
+	ctx := context.Background()
+
+	err := migration.CleanupOrphanedResources[testChild, testParent](ctx, db, "parent_id")
+	require.NoError(t, err)
+
+	var count int64
+	db.Model(&testChild{}).Count(&count)
+	assert.Equal(t, int64(1), count)
+
+	err = migration.CleanupOrphanedResources[testChild, testParent](ctx, db, "parent_id")
+	require.NoError(t, err)
+
+	db.Model(&testChild{}).Count(&count)
+	assert.Equal(t, int64(1), count, "Count should remain the same after second run")
+}
+
+func TestCleanupOrphanedResources_SkipsWhenForeignKeyExists(t *testing.T) {
+	engine := os.Getenv("NETBIRD_STORE_ENGINE")
+	if engine != "postgres" && engine != "mysql" {
+		t.Skip("FK constraint early-exit test requires postgres or mysql")
+	}
+
+	db := setupDatabase(t)
+	_ = db.Migrator().DropTable(&testChildWithFK{})
+	_ = db.Migrator().DropTable(&testParent{})
+
+	err := db.AutoMigrate(&testParent{}, &testChildWithFK{})
+	require.NoError(t, err)
+
+	require.NoError(t, db.Create(&testParent{ID: "p1"}).Error)
+	require.NoError(t, db.Create(&testParent{ID: "p2"}).Error)
+	require.NoError(t, db.Create(&testChildWithFK{ID: "c1", ParentID: "p1"}).Error)
+	require.NoError(t, db.Create(&testChildWithFK{ID: "c2", ParentID: "p2"}).Error)
+
+	switch engine {
+	case "postgres":
+		require.NoError(t, db.Exec("ALTER TABLE test_children DROP CONSTRAINT fk_test_children_parent").Error)
+		require.NoError(t, db.Exec("DELETE FROM test_parents WHERE id = ?", "p2").Error)
+		require.NoError(t, db.Exec(
+			"ALTER TABLE test_children ADD CONSTRAINT fk_test_children_parent "+
+				"FOREIGN KEY (parent_id) REFERENCES test_parents(id) NOT VALID",
+		).Error)
+	case "mysql":
+		require.NoError(t, db.Exec("SET FOREIGN_KEY_CHECKS = 0").Error)
+		require.NoError(t, db.Exec("ALTER TABLE test_children DROP FOREIGN KEY fk_test_children_parent").Error)
+		require.NoError(t, db.Exec("DELETE FROM test_parents WHERE id = ?", "p2").Error)
+		require.NoError(t, db.Exec(
+			"ALTER TABLE test_children ADD CONSTRAINT fk_test_children_parent "+
+				"FOREIGN KEY (parent_id) REFERENCES test_parents(id)",
+		).Error)
+		require.NoError(t, db.Exec("SET FOREIGN_KEY_CHECKS = 1").Error)
+	}
+
+	err = migration.CleanupOrphanedResources[testChildWithFK, testParent](context.Background(), db, "parent_id")
+	require.NoError(t, err)
+
+	var count int64
+	db.Model(&testChildWithFK{}).Count(&count)
+	assert.Equal(t, int64(2), count, "Both rows should survive — migration must skip when FK constraint exists")
+}
+
+// legacyCostRow is the pre-breakdown shape of the usage table: cost was stored
+// as a total plus a cache portion, with no per-bucket columns. Used to build a
+// realistic pre-upgrade table for the fold migration to run against.
+type legacyCostRow struct {
+	ID           string `gorm:"primaryKey"`
+	AccountID    string
+	Model        string
+	CostUSD      float64
+	CacheCostUSD float64
+}
+
+func (legacyCostRow) TableName() string { return "agent_network_request_usage" }
+
+// TestFoldCostAggregatesIntoBuckets_PreservesHistoricalCost covers the upgrade
+// path: a table written under the old schema must come out with its per-row
+// total and cache cost unchanged, because dropping cost_usd without folding it
+// forward would silently zero every historical row's spend.
+func TestFoldCostAggregatesIntoBuckets_PreservesHistoricalCost(t *testing.T) {
+	ctx := context.Background()
+	db := setupDatabase(t)
+	// setupDatabase hands back a process-shared database, so start from a clean
+	// table rather than inheriting rows from another test.
+	require.NoError(t, db.Migrator().DropTable(&agentNetworkTypes.AgentNetworkUsage{}))
+
+	require.NoError(t, db.AutoMigrate(&legacyCostRow{}), "legacy table must be created")
+	require.NoError(t, db.Create(&legacyCostRow{
+		ID: "u1", AccountID: "acct-1", Model: "claude-sonnet-4-6", CostUSD: 0.0123, CacheCostUSD: 0.0029,
+	}).Error)
+	require.NoError(t, db.Create(&legacyCostRow{
+		ID: "u2", AccountID: "acct-1", Model: "gpt-4o", CostUSD: 0.5, CacheCostUSD: 0,
+	}).Error)
+	// A zero-cost row (denied / unpriced request) must stay zero, not be touched.
+	require.NoError(t, db.Create(&legacyCostRow{ID: "u3", AccountID: "acct-1", Model: "gw/unpriced"}).Error)
+
+	// AutoMigrate adds the per-bucket columns alongside the legacy ones, exactly
+	// as a real upgrade does before the post-auto migrations run.
+	require.NoError(t, db.AutoMigrate(&agentNetworkTypes.AgentNetworkUsage{}), "new columns must be added")
+
+	require.NoError(t, migration.FoldCostAggregatesIntoBuckets[agentNetworkTypes.AgentNetworkUsage](ctx, db))
+
+	assert.False(t, db.Migrator().HasColumn(&agentNetworkTypes.AgentNetworkUsage{}, "cost_usd"),
+		"legacy cost_usd column must be dropped once folded")
+	assert.False(t, db.Migrator().HasColumn(&agentNetworkTypes.AgentNetworkUsage{}, "cache_cost_usd"),
+		"legacy cache_cost_usd column must be dropped once folded")
+
+	var rows []*agentNetworkTypes.AgentNetworkUsage
+	require.NoError(t, db.Order("id").Find(&rows).Error)
+	require.Len(t, rows, 3)
+
+	// u1: total and cache portion both preserved; the read/write and
+	// input/output splits are unknowable for a legacy row, so the cache total
+	// lands on cached_input and the remainder on input.
+	assert.InDelta(t, 0.0123, rows[0].TotalCostUSD(), 1e-9, "historical total must survive the fold")
+	assert.InDelta(t, 0.0029, rows[0].CacheCostUSD(), 1e-9, "historical cache cost must survive the fold")
+	assert.InDelta(t, 0.0094, rows[0].InputCostUSD, 1e-9, "non-cache remainder lands on input")
+	assert.InDelta(t, 0.0029, rows[0].CachedInputCostUSD, 1e-9, "legacy cache total lands on cached input")
+	assert.Zero(t, rows[0].CacheCreationCostUSD, "legacy rows carry no read/write split to recover")
+	assert.Zero(t, rows[0].OutputCostUSD, "legacy rows carry no input/output split to recover")
+
+	// u2: no cache spend — the whole total is the non-cache remainder.
+	assert.InDelta(t, 0.5, rows[1].TotalCostUSD(), 1e-9, "cache-free historical total must survive")
+	assert.Zero(t, rows[1].CacheCostUSD(), "a cache-free row must stay cache-free")
+
+	// u3: zero stays zero rather than being rewritten.
+	assert.Zero(t, rows[2].TotalCostUSD(), "an unpriced row must remain unpriced")
+}
+
+// TestFoldCostAggregatesIntoBuckets_SkipsAlreadyMigrated proves the migration is
+// safe to re-run: with no legacy column present it is a no-op that leaves a
+// true four-way split untouched.
+func TestFoldCostAggregatesIntoBuckets_SkipsAlreadyMigrated(t *testing.T) {
+	ctx := context.Background()
+	db := setupDatabase(t)
+	require.NoError(t, db.Migrator().DropTable(&agentNetworkTypes.AgentNetworkUsage{}))
+
+	require.NoError(t, db.AutoMigrate(&agentNetworkTypes.AgentNetworkUsage{}))
+	// Timestamp must be set explicitly: a zero time.Time serialises as
+	// '0000-00-00 00:00:00', which MySQL rejects under strict mode.
+	require.NoError(t, db.Create(&agentNetworkTypes.AgentNetworkUsage{
+		ID: "u1", AccountID: "acct-1", Model: "claude-sonnet-4-6",
+		Timestamp:    time.Date(2026, 5, 5, 9, 0, 0, 0, time.UTC),
+		InputCostUSD: 0.001, CachedInputCostUSD: 0.002, CacheCreationCostUSD: 0.003, OutputCostUSD: 0.004,
+	}).Error)
+
+	require.NoError(t, migration.FoldCostAggregatesIntoBuckets[agentNetworkTypes.AgentNetworkUsage](ctx, db),
+		"running against an already-migrated table must be a no-op, not an error")
+
+	var row agentNetworkTypes.AgentNetworkUsage
+	require.NoError(t, db.First(&row, "id = ?", "u1").Error)
+	assert.InDelta(t, 0.001, row.InputCostUSD, 1e-9, "a true split must not be rewritten")
+	assert.InDelta(t, 0.002, row.CachedInputCostUSD, 1e-9)
+	assert.InDelta(t, 0.003, row.CacheCreationCostUSD, 1e-9)
+	assert.InDelta(t, 0.004, row.OutputCostUSD, 1e-9)
+	assert.InDelta(t, 0.01, row.TotalCostUSD(), 1e-9, "derived total sums the four buckets")
 }

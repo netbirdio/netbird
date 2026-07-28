@@ -56,7 +56,7 @@ func NewWGUDPProxy(wgPort int, mtu uint16) *WGUDPProxy {
 // the connection is complete, an error is returned. Once successfully
 // connected, any expiration of the context will not affect the
 // connection.
-func (p *WGUDPProxy) AddTurnConn(ctx context.Context, endpoint *net.UDPAddr, remoteConn net.Conn) error {
+func (p *WGUDPProxy) AddTurnConn(ctx context.Context, _ *net.UDPAddr, remoteConn net.Conn) error {
 	dialer := net.Dialer{}
 	localConn, err := dialer.DialContext(ctx, "udp", fmt.Sprintf(":%d", p.localWGListenPort))
 	if err != nil {
@@ -145,6 +145,17 @@ func (p *WGUDPProxy) RedirectAs(endpoint *net.UDPAddr) {
 	}
 	p.srcFakerConn = srcFakerConn
 	p.sendPkg = p.srcFakerConn.SendPkg
+}
+
+// InjectPacket writes b to the remote peer over the underlying transport.
+func (p *WGUDPProxy) InjectPacket(b []byte) error {
+	if p.remoteConn == nil {
+		return errors.New("proxy not started")
+	}
+	if _, err := p.remoteConn.Write(b); err != nil {
+		return err
+	}
+	return nil
 }
 
 // CloseConn close the localConn

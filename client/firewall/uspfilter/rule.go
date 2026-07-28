@@ -19,8 +19,6 @@ type PeerRule struct {
 	sPort      *firewall.Port
 	dPort      *firewall.Port
 	drop       bool
-
-	udpHook func([]byte) bool
 }
 
 // ID returns the rule id
@@ -34,7 +32,7 @@ type RouteRule struct {
 	sources      []netip.Prefix
 	dstSet       firewall.Set
 	destinations []netip.Prefix
-	proto        firewall.Protocol
+	protoLayer   gopacket.LayerType
 	srcPort      *firewall.Port
 	dstPort      *firewall.Port
 	action       firewall.Action

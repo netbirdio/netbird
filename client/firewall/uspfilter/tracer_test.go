@@ -399,21 +399,17 @@ func TestTracePacket(t *testing.T) {
 		{
 			name: "UDPTraffic_WithHook",
 			setup: func(m *Manager) {
-				hookFunc := func([]byte) bool {
-					return true
-				}
-				m.AddUDPPacketHook(true, netip.MustParseAddr("1.1.1.1"), 53, hookFunc)
+				m.SetUDPPacketHook(netip.MustParseAddr("100.10.255.254"), 53, func([]byte) bool {
+					return true // drop (intercepted by hook)
+				})
 			},
 			packetBuilder: func() *PacketBuilder {
-				return createPacketBuilder("1.1.1.1", "100.10.0.100", "udp", 12345, 53, fw.RuleDirectionIN)
+				return createPacketBuilder("100.10.0.100", "100.10.255.254", "udp", 12345, 53, fw.RuleDirectionOUT)
 			},
 			expectedStages: []PacketStage{
 				StageReceived,
-				StageInboundPortDNAT,
-				StageInbound1to1NAT,
-				StageConntrack,
-				StageRouting,
-				StagePeerACL,
+				StageOutbound1to1NAT,
+				StageOutboundPortReverse,
 				StageCompleted,
 			},
 			expectedAllow: false,

@@ -2,16 +2,14 @@ package client
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
 )
 
-const (
-	// TODO: make it configurable, the manager should validate all configurable parameters
-	reconnectingTimeout = 60 * time.Second
-)
+const defaultMaxBackoffInterval = 60 * time.Second
 
 // Guard manage the reconnection tries to the Relay server in case of disconnection event.
 type Guard struct {
@@ -19,16 +17,38 @@ type Guard struct {
 	OnNewRelayClient chan *Client
 	OnReconnected    chan struct{}
 	serverPicker     *ServerPicker
+
+	// maxBackoffInterval caps the exponential backoff between reconnect
+	// attempts.
+	maxBackoffInterval time.Duration
+
+	// lastErr is the error from the most recent failed reconnect attempt,
+	// surfaced as the home relay status while disconnected.
+	lastErr atomic.Pointer[error]
 }
 
-// NewGuard creates a new guard for the relay client.
-func NewGuard(sp *ServerPicker) *Guard {
+// NewGuard creates a new guard for the relay client. A non-positive
+// maxBackoffInterval falls back to defaultMaxBackoffInterval.
+func NewGuard(sp *ServerPicker, maxBackoffInterval time.Duration) *Guard {
+	if maxBackoffInterval <= 0 {
+		maxBackoffInterval = defaultMaxBackoffInterval
+	}
 	g := &Guard{
-		OnNewRelayClient: make(chan *Client, 1),
-		OnReconnected:    make(chan struct{}, 1),
-		serverPicker:     sp,
+		OnNewRelayClient:   make(chan *Client, 1),
+		OnReconnected:      make(chan struct{}, 1),
+		serverPicker:       sp,
+		maxBackoffInterval: maxBackoffInterval,
 	}
 	return g
+}
+
+// LastError returns the error from the most recent failed reconnect attempt, or
+// nil if reconnection last succeeded.
+func (g *Guard) LastError() error {
+	if p := g.lastErr.Load(); p != nil {
+		return *p
+	}
+	return nil
 }
 
 // StartReconnectTrys is called when the relay client is disconnected from the relay server.
@@ -49,7 +69,7 @@ func (g *Guard) StartReconnectTrys(ctx context.Context, relayClient *Client) {
 	}
 
 	// start a ticker to pick a new server
-	ticker := exponentTicker(ctx)
+	ticker := g.exponentTicker(ctx)
 	defer ticker.Stop()
 
 	for {
@@ -57,6 +77,7 @@ func (g *Guard) StartReconnectTrys(ctx context.Context, relayClient *Client) {
 		case <-ticker.C:
 			if err := g.retry(ctx); err != nil {
 				log.Errorf("failed to pick new Relay server: %s", err)
+				g.setLastError(err)
 				continue
 			}
 			return
@@ -64,6 +85,10 @@ func (g *Guard) StartReconnectTrys(ctx context.Context, relayClient *Client) {
 			return
 		}
 	}
+}
+
+func (g *Guard) setLastError(err error) {
+	g.lastErr.Store(&err)
 }
 
 func (g *Guard) tryToQuickReconnect(parentCtx context.Context, rc *Client) bool {
@@ -83,6 +108,7 @@ func (g *Guard) tryToQuickReconnect(parentCtx context.Context, rc *Client) bool 
 
 	if err := rc.Connect(parentCtx); err != nil {
 		log.Errorf("failed to reconnect to relay server: %s", err)
+		g.setLastError(err)
 		return false
 	}
 	return true
@@ -94,6 +120,7 @@ func (g *Guard) retry(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	g.setLastError(nil)
 
 	// prevent to work with a deprecated Relay client instance
 	g.drainRelayClientChan()
@@ -119,17 +146,18 @@ func (g *Guard) isServerURLStillValid(rc *Client) bool {
 }
 
 func (g *Guard) notifyReconnected() {
+	g.setLastError(nil)
 	select {
 	case g.OnReconnected <- struct{}{}:
 	default:
 	}
 }
 
-func exponentTicker(ctx context.Context) *backoff.Ticker {
+func (g *Guard) exponentTicker(ctx context.Context) *backoff.Ticker {
 	bo := backoff.WithContext(&backoff.ExponentialBackOff{
 		InitialInterval: 2 * time.Second,
 		Multiplier:      2,
-		MaxInterval:     reconnectingTimeout,
+		MaxInterval:     g.maxBackoffInterval,
 		Clock:           backoff.SystemClock,
 	}, ctx)
 

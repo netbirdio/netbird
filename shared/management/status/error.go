@@ -48,6 +48,10 @@ type Type int32
 var (
 	ErrExtraSettingsNotFound = errors.New("extra settings not found")
 	ErrPeerAlreadyLoggedIn   = errors.New("peer with the same public key is already logged in")
+
+	// ErrNoAuthMethodProvided is returned when a peer login attempt carries neither a
+	// setup key nor an SSO token. Match it with errors.Is.
+	ErrNoAuthMethodProvided = Errorf(Unauthenticated, "no peer auth method provided, please use a setup key or interactive SSO login")
 )
 
 // Error is an internal error
@@ -64,6 +68,16 @@ func (e *Error) Type() Type {
 // Error is an error string
 func (e *Error) Error() string {
 	return e.Message
+}
+
+// Is reports whether target is an *Error with the same type and message,
+// enabling matching with errors.Is against sentinel errors.
+func (e *Error) Is(target error) bool {
+	var t *Error
+	if !errors.As(target, &t) {
+		return false
+	}
+	return e.ErrorType == t.ErrorType && e.Message == t.Message
 }
 
 // Errorf returns Error(ErrorType, fmt.Sprintf(format, a...)).
@@ -205,6 +219,26 @@ func NewNetworkResourceNotFoundError(resourceID string) error {
 	return Errorf(NotFound, "network resource: %s not found", resourceID)
 }
 
+// NewAgentNetworkProviderNotFoundError creates a new Error with NotFound type for a missing Agent Network provider.
+func NewAgentNetworkProviderNotFoundError(providerID string) error {
+	return Errorf(NotFound, "agent network provider: %s not found", providerID)
+}
+
+// NewAgentNetworkPolicyNotFoundError creates a new Error with NotFound type for a missing Agent Network policy.
+func NewAgentNetworkPolicyNotFoundError(policyID string) error {
+	return Errorf(NotFound, "agent network policy: %s not found", policyID)
+}
+
+// NewAgentNetworkGuardrailNotFoundError creates a new Error with NotFound type for a missing Agent Network guardrail.
+func NewAgentNetworkGuardrailNotFoundError(guardrailID string) error {
+	return Errorf(NotFound, "agent network guardrail: %s not found", guardrailID)
+}
+
+// NewAgentNetworkBudgetRuleNotFoundError creates a new Error with NotFound type for a missing Agent Network budget rule.
+func NewAgentNetworkBudgetRuleNotFoundError(ruleID string) error {
+	return Errorf(NotFound, "agent network budget rule: %s not found", ruleID)
+}
+
 // NewPermissionDeniedError creates a new Error with PermissionDenied type for a permission denied error.
 func NewPermissionDeniedError() error {
 	return Errorf(PermissionDenied, "permission denied")
@@ -251,4 +285,22 @@ func NewOperationNotFoundError(operation operations.Operation) error {
 
 func NewRouteNotFoundError(routeID string) error {
 	return Errorf(NotFound, "route: %s not found", routeID)
+}
+
+// NewZoneNotFoundError creates a new Error with NotFound type for a missing dns zone.
+func NewZoneNotFoundError(zoneID string) error {
+	return Errorf(NotFound, "zone: %s not found", zoneID)
+}
+
+// NewDNSRecordNotFoundError creates a new Error with NotFound type for a missing dns record.
+func NewDNSRecordNotFoundError(recordID string) error {
+	return Errorf(NotFound, "dns record: %s not found", recordID)
+}
+
+func NewResourceInUseError(resourceID string, proxyID string) error {
+	return Errorf(PreconditionFailed, "resource %s is in use by proxy %s", resourceID, proxyID)
+}
+
+func NewPeerInUseError(peerID string, proxyID string) error {
+	return Errorf(PreconditionFailed, "peer %s is in use by proxy %s", peerID, proxyID)
 }

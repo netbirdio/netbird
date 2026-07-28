@@ -563,8 +563,11 @@ initEnvironment() {
   echo -e "\nDone!\n"
   echo "You can access the NetBird dashboard at $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN"
   echo "Login with the following credentials:"
-  echo "Username: $ZITADEL_ADMIN_USERNAME" | tee .env
-  echo "Password: $ZITADEL_ADMIN_PASSWORD" | tee -a .env
+  install -m 600 /dev/null .env
+  printf 'Username: %s\nPassword: %s\n' \
+      "$ZITADEL_ADMIN_USERNAME" "$ZITADEL_ADMIN_PASSWORD" >> .env
+  echo "Username: $ZITADEL_ADMIN_USERNAME"
+  echo "Password: $ZITADEL_ADMIN_PASSWORD"
 }
 
 renderCaddyfile() {

@@ -4,9 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 
 	"github.com/netbirdio/netbird/shared/management/http/api"
 )
+
+// ErrGroupNotFound is returned when a group is not found
+var ErrGroupNotFound = errors.New("group not found")
 
 // GroupsAPI APIs for Groups, do not use directly
 type GroupsAPI struct {
@@ -25,6 +29,27 @@ func (a *GroupsAPI) List(ctx context.Context) ([]api.Group, error) {
 	}
 	ret, err := parseResponse[[]api.Group](resp)
 	return ret, err
+}
+
+// GetByName get group by name
+// See more: https://docs.netbird.io/api/resources/groups#list-all-groups
+func (a *GroupsAPI) GetByName(ctx context.Context, groupName string) (*api.Group, error) {
+	params := map[string]string{"name": groupName}
+	resp, err := a.c.NewRequest(ctx, "GET", "/api/groups", nil, params)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
+	ret, err := parseResponse[[]api.Group](resp)
+	if err != nil {
+		return nil, err
+	}
+	if len(ret) == 0 {
+		return nil, ErrGroupNotFound
+	}
+	return &ret[0], nil
 }
 
 // Get get group info

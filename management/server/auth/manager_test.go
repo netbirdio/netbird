@@ -16,11 +16,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/idp/dex"
 	"github.com/netbirdio/netbird/management/server/auth"
-	nbjwt "github.com/netbirdio/netbird/management/server/auth/jwt"
-	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
+	nbauth "github.com/netbirdio/netbird/shared/auth"
+	nbjwt "github.com/netbirdio/netbird/shared/auth/jwt"
 )
 
 func TestAuthManager_GetAccountInfoFromPAT(t *testing.T) {
@@ -52,7 +53,7 @@ func TestAuthManager_GetAccountInfoFromPAT(t *testing.T) {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
-	manager := auth.NewManager(store, "", "", "", "", []string{}, false)
+	manager := auth.NewManager(store, "", "", "", "", []string{}, false, nil)
 
 	user, pat, _, _, err := manager.GetPATInfo(context.Background(), token)
 	if err != nil {
@@ -92,7 +93,7 @@ func TestAuthManager_MarkPATUsed(t *testing.T) {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
-	manager := auth.NewManager(store, "", "", "", "", []string{}, false)
+	manager := auth.NewManager(store, "", "", "", "", []string{}, false, nil)
 
 	err = manager.MarkPATUsed(context.Background(), "tokenId")
 	if err != nil {
@@ -131,7 +132,7 @@ func TestAuthManager_EnsureUserAccessByJWTGroups(t *testing.T) {
 	}
 
 	// this has been validated and parsed by ValidateAndParseToken
-	userAuth := nbcontext.UserAuth{
+	userAuth := nbauth.UserAuth{
 		AccountId:      account.Id,
 		Domain:         domain,
 		UserId:         userId,
@@ -142,7 +143,7 @@ func TestAuthManager_EnsureUserAccessByJWTGroups(t *testing.T) {
 	// these tests only assert groups are parsed from token as per account settings
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"idp-groups": []interface{}{"group1", "group2"}})
 
-	manager := auth.NewManager(store, "", "", "", "", []string{}, false)
+	manager := auth.NewManager(store, "", "", "", "", []string{}, false, nil)
 
 	t.Run("JWT groups disabled", func(t *testing.T) {
 		userAuth, err := manager.EnsureUserAccessByJWTGroups(context.Background(), userAuth, token)
@@ -206,6 +207,43 @@ func TestAuthManager_EnsureUserAccessByJWTGroups(t *testing.T) {
 		_, err = manager.EnsureUserAccessByJWTGroups(context.Background(), userAuth, token)
 		require.Error(t, err, "ensure user access is not in allowed groups")
 	})
+
+	t.Run("Local embedded-Dex user is exempt from JWT allow-groups", func(t *testing.T) {
+		account.Settings.JWTGroupsEnabled = true
+		account.Settings.JWTGroupsClaimName = "idp-groups"
+		account.Settings.JWTAllowGroups = []string{"not-a-group"}
+		err := store.SaveAccount(context.Background(), account)
+		require.NoError(t, err, "save account failed")
+
+		// Local Dex users have a "local" connector encoded in their user ID.
+		localUserAuth := nbauth.UserAuth{
+			AccountId: account.Id,
+			Domain:    domain,
+			UserId:    dex.EncodeDexUserID("local-owner", "local"),
+		}
+
+		localUserAuth, err = manager.EnsureUserAccessByJWTGroups(context.Background(), localUserAuth, token)
+		require.NoError(t, err, "local user must not be locked out by JWT allow-groups (issue #5337)")
+		require.Len(t, localUserAuth.Groups, 0, "JWT groups must not be evaluated for local users")
+	})
+
+	t.Run("Federated embedded-Dex user is still subject to JWT allow-groups", func(t *testing.T) {
+		account.Settings.JWTGroupsEnabled = true
+		account.Settings.JWTGroupsClaimName = "idp-groups"
+		account.Settings.JWTAllowGroups = []string{"not-a-group"}
+		err := store.SaveAccount(context.Background(), account)
+		require.NoError(t, err, "save account failed")
+
+		// A federated user (non-"local" connector) must remain restricted.
+		fedUserAuth := nbauth.UserAuth{
+			AccountId: account.Id,
+			Domain:    domain,
+			UserId:    dex.EncodeDexUserID("entra-user", "entra"),
+		}
+
+		_, err = manager.EnsureUserAccessByJWTGroups(context.Background(), fedUserAuth, token)
+		require.Error(t, err, "federated user must still be restricted by JWT allow-groups")
+	})
 }
 
 func TestAuthManager_ValidateAndParseToken(t *testing.T) {
@@ -225,7 +263,7 @@ func TestAuthManager_ValidateAndParseToken(t *testing.T) {
 	keyId := "test-key"
 
 	// note, we can use a nil store because ValidateAndParseToken does not use it in it's flow
-	manager := auth.NewManager(nil, issuer, audience, server.URL, userIdClaim, []string{audience}, false)
+	manager := auth.NewManager(nil, issuer, audience, server.URL, userIdClaim, []string{audience}, false, nil)
 
 	customClaim := func(name string) string {
 		return fmt.Sprintf("%s/%s", audience, name)
@@ -236,7 +274,7 @@ func TestAuthManager_ValidateAndParseToken(t *testing.T) {
 	tests := []struct {
 		name      string
 		tokenFunc func() string
-		expected  *nbcontext.UserAuth // nil indicates expected error
+		expected  *nbauth.UserAuth // nil indicates expected error
 	}{
 		{
 			name: "Valid with custom claims",
@@ -258,7 +296,7 @@ func TestAuthManager_ValidateAndParseToken(t *testing.T) {
 				tokenString, _ := token.SignedString(key)
 				return tokenString
 			},
-			expected: &nbcontext.UserAuth{
+			expected: &nbauth.UserAuth{
 				UserId:         "user-id|123",
 				AccountId:      "account-id|567",
 				Domain:         "http://localhost",
@@ -282,7 +320,7 @@ func TestAuthManager_ValidateAndParseToken(t *testing.T) {
 				tokenString, _ := token.SignedString(key)
 				return tokenString
 			},
-			expected: &nbcontext.UserAuth{
+			expected: &nbauth.UserAuth{
 				UserId: "user-id|123",
 			},
 		},

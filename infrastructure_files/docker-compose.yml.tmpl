@@ -53,7 +53,8 @@ services:
     command: [
       "--cert-file", "$NETBIRD_MGMT_API_CERT_FILE",
       "--cert-key", "$NETBIRD_MGMT_API_CERT_KEY_FILE",
-      "--log-file", "console"
+      "--log-file", "console",
+      "--port", "80"
     ]
 
   # Relay

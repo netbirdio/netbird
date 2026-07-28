@@ -1,15 +1,14 @@
 package uspfilter
 
 import (
-	"context"
 	"fmt"
-	"net/netip"
 	"os/exec"
 	"syscall"
-	"time"
 
+	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 
+	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
@@ -26,47 +25,26 @@ func (m *Manager) Close(*statemanager.Manager) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	m.outgoingRules = make(map[netip.Addr]RuleSet)
-	m.incomingDenyRules = make(map[netip.Addr]RuleSet)
-	m.incomingRules = make(map[netip.Addr]RuleSet)
-
-	if m.udpTracker != nil {
-		m.udpTracker.Close()
-	}
-
-	if m.icmpTracker != nil {
-		m.icmpTracker.Close()
-	}
-
-	if m.tcpTracker != nil {
-		m.tcpTracker.Close()
-	}
-
-	if fwder := m.forwarder.Load(); fwder != nil {
-		fwder.Stop()
-	}
-
-	if m.logger != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-		if err := m.logger.Stop(ctx); err != nil {
-			log.Errorf("failed to shutdown logger: %v", err)
-		}
-	}
+	m.resetState()
 
 	if !isWindowsFirewallReachable() {
 		return nil
 	}
 
-	if !isFirewallRuleActive(firewallRuleName) {
-		return nil
+	var merr *multierror.Error
+	if isFirewallRuleActive(firewallRuleName) {
+		if err := manageFirewallRule(firewallRuleName, deleteRule); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("remove windows firewall rule: %w", err))
+		}
 	}
 
-	if err := manageFirewallRule(firewallRuleName, deleteRule); err != nil {
-		return fmt.Errorf("couldn't remove windows firewall: %w", err)
+	if isFirewallRuleActive(firewallRuleName + "-v6") {
+		if err := manageFirewallRule(firewallRuleName+"-v6", deleteRule); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("remove windows v6 firewall rule: %w", err))
+		}
 	}
 
-	return nil
+	return nberrors.FormatErrorOrNil(merr)
 }
 
 // AllowNetbird allows netbird interface traffic
@@ -75,17 +53,33 @@ func (m *Manager) AllowNetbird() error {
 		return nil
 	}
 
-	if isFirewallRuleActive(firewallRuleName) {
-		return nil
+	if !isFirewallRuleActive(firewallRuleName) {
+		if err := manageFirewallRule(firewallRuleName,
+			addRule,
+			"dir=in",
+			"enable=yes",
+			"action=allow",
+			"profile=any",
+			"localip="+m.wgIface.Address().IP.String(),
+		); err != nil {
+			return err
+		}
 	}
-	return manageFirewallRule(firewallRuleName,
-		addRule,
-		"dir=in",
-		"enable=yes",
-		"action=allow",
-		"profile=any",
-		"localip="+m.wgIface.Address().IP.String(),
-	)
+
+	if v6 := m.wgIface.Address().IPv6; v6.IsValid() && !isFirewallRuleActive(firewallRuleName+"-v6") {
+		if err := manageFirewallRule(firewallRuleName+"-v6",
+			addRule,
+			"dir=in",
+			"enable=yes",
+			"action=allow",
+			"profile=any",
+			"localip="+v6.String(),
+		); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func manageFirewallRule(ruleName string, action action, extraArgs ...string) error {

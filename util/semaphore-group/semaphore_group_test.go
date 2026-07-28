@@ -2,65 +2,89 @@ package semaphoregroup
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 )
 
 func TestSemaphoreGroup(t *testing.T) {
-	semGroup := NewSemaphoreGroup(2)
+	semGroup := NewSemaphoreGroup(1)
+	_ = semGroup.Add(context.Background())
 
-	for i := 0; i < 5; i++ {
-		semGroup.Add(context.Background())
-		go func(id int) {
-			defer semGroup.Done(context.Background())
+	ctxTimeout, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	t.Cleanup(cancel)
 
-			got := len(semGroup.semaphore)
-			if got == 0 {
-				t.Errorf("Expected semaphore length > 0 , got 0")
-			}
-
-			time.Sleep(time.Millisecond)
-			t.Logf("Goroutine %d is running\n", id)
-		}(i)
-	}
-
-	semGroup.Wait()
-
-	want := 0
-	got := len(semGroup.semaphore)
-	if got != want {
-		t.Errorf("Expected semaphore length %d, got %d", want, got)
+	if err := semGroup.Add(ctxTimeout); err == nil {
+		t.Error("Adding to semaphore group should not block")
 	}
 }
 
-func TestSemaphoreGroupContext(t *testing.T) {
+func TestSemaphoreGroupFreeUp(t *testing.T) {
 	semGroup := NewSemaphoreGroup(1)
-	semGroup.Add(context.Background())
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	_ = semGroup.Add(context.Background())
+	semGroup.Done()
+
+	ctxTimeout, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	t.Cleanup(cancel)
-	rChan := make(chan struct{})
+	if err := semGroup.Add(ctxTimeout); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestSemaphoreGroupCanceledContext(t *testing.T) {
+	semGroup := NewSemaphoreGroup(1)
+	_ = semGroup.Add(context.Background())
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	if err := semGroup.Add(ctx); err == nil {
+		t.Error("Add should return error when context is already canceled")
+	}
+}
+
+func TestSemaphoreGroupCancelWhileWaiting(t *testing.T) {
+	semGroup := NewSemaphoreGroup(1)
+	_ = semGroup.Add(context.Background())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errChan := make(chan error, 1)
 
 	go func() {
-		semGroup.Add(ctx)
-		rChan <- struct{}{}
+		errChan <- semGroup.Add(ctx)
 	}()
-	select {
-	case <-rChan:
-	case <-time.NewTimer(2 * time.Second).C:
-		t.Error("Adding to semaphore group should not block when context is not done")
+
+	time.Sleep(10 * time.Millisecond)
+	cancel()
+
+	if err := <-errChan; err == nil {
+		t.Error("Add should return error when context is canceled while waiting")
+	}
+}
+
+func TestSemaphoreGroupHighConcurrency(t *testing.T) {
+	const limit = 10
+	const numGoroutines = 100
+
+	semGroup := NewSemaphoreGroup(limit)
+	var wg sync.WaitGroup
+
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := semGroup.Add(context.Background()); err != nil {
+				t.Errorf("Unexpected error: %v", err)
+				return
+			}
+			time.Sleep(time.Millisecond)
+			semGroup.Done()
+		}()
 	}
 
-	semGroup.Done(context.Background())
+	wg.Wait()
 
-	ctxDone, cancelDone := context.WithTimeout(context.Background(), 1*time.Second)
-	t.Cleanup(cancelDone)
-	go func() {
-		semGroup.Done(ctxDone)
-		rChan <- struct{}{}
-	}()
-	select {
-	case <-rChan:
-	case <-time.NewTimer(2 * time.Second).C:
-		t.Error("Releasing from semaphore group should not block when context is not done")
+	// Verify all slots were released
+	if got := len(semGroup.semaphore); got != 0 {
+		t.Errorf("Expected semaphore to be empty, got %d slots occupied", got)
 	}
 }

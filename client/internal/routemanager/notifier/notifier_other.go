@@ -23,6 +23,10 @@ func (n *Notifier) SetInitialClientRoutes([]*route.Route, []*route.Route) {
 	// Not used on non-mobile platforms
 }
 
+func (n *Notifier) SetFakeIPRoutes([]*route.Route) {
+	// Not used on non-mobile platforms
+}
+
 func (n *Notifier) OnNewRoutes(idMap route.HAMap) {
 	// Not used on non-mobile platforms
 }
@@ -33,4 +37,8 @@ func (n *Notifier) OnNewPrefixes(prefixes []netip.Prefix) {
 
 func (n *Notifier) GetInitialRouteRanges() []string {
 	return []string{}
+}
+
+func (n *Notifier) Close() {
+	// unused
 }

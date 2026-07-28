@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
 	"sync"
 	"time"
 
@@ -31,6 +32,9 @@ type ProbeResult struct {
 	URI  string
 	Err  error
 	Addr string
+	// Transport is the negotiated relay transport, empty
+	// for stun/turn probes or when not connected.
+	Transport string
 }
 
 type StunTurnProbe struct {
@@ -197,7 +201,7 @@ func (p *StunTurnProbe) probeSTUN(ctx context.Context, uri *stun.URI) (addr stri
 		}
 	}()
 
-	net, err := stdnet.NewNet(nil)
+	net, err := stdnet.NewNet(ctx, nil)
 	if err != nil {
 		probeErr = fmt.Errorf("new net: %w", err)
 		return
@@ -257,7 +261,7 @@ func (p *StunTurnProbe) probeTURN(ctx context.Context, uri *stun.URI) (addr stri
 		}
 	}()
 
-	turnServerAddr := fmt.Sprintf("%s:%d", uri.Host, uri.Port)
+	turnServerAddr := net.JoinHostPort(uri.Host, strconv.Itoa(uri.Port))
 
 	var conn net.PacketConn
 	switch uri.Proto {
@@ -286,7 +290,7 @@ func (p *StunTurnProbe) probeTURN(ctx context.Context, uri *stun.URI) (addr stri
 		}
 	}()
 
-	net, err := stdnet.NewNet(nil)
+	net, err := stdnet.NewNet(ctx, nil)
 	if err != nil {
 		probeErr = fmt.Errorf("new net: %w", err)
 		return

@@ -62,8 +62,8 @@ type Server struct {
 }
 
 // NewServer creates a new Signal server
-func NewServer(ctx context.Context, meter metric.Meter) (*Server, error) {
-	appMetrics, err := metrics.NewAppMetrics(meter)
+func NewServer(ctx context.Context, meter metric.Meter, metricsPrefix ...string) (*Server, error) {
+	appMetrics, err := metrics.NewAppMetrics(meter, metricsPrefix...)
 	if err != nil {
 		return nil, fmt.Errorf("creating app metrics: %v", err)
 	}
@@ -179,7 +179,7 @@ func (s *Server) forwardMessageToPeer(ctx context.Context, msg *proto.EncryptedM
 	sendResultChan := make(chan error, 1)
 	go func() {
 		select {
-		case sendResultChan <- dstPeer.Stream.Send(msg):
+		case sendResultChan <- dstPeer.Send(msg):
 			return
 		case <-dstPeer.Stream.Context().Done():
 			return

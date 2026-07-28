@@ -86,13 +86,18 @@ func parsePacket(t testing.TB, packetData []byte) *decoder {
 	d := &decoder{
 		decoded: []gopacket.LayerType{},
 	}
-	d.parser = gopacket.NewDecodingLayerParser(
+	d.parser4 = gopacket.NewDecodingLayerParser(
 		layers.LayerTypeIPv4,
 		&d.eth, &d.ip4, &d.ip6, &d.icmp4, &d.icmp6, &d.tcp, &d.udp,
 	)
-	d.parser.IgnoreUnsupported = true
+	d.parser4.IgnoreUnsupported = true
+	d.parser6 = gopacket.NewDecodingLayerParser(
+		layers.LayerTypeIPv6,
+		&d.eth, &d.ip4, &d.ip6, &d.icmp4, &d.icmp6, &d.tcp, &d.udp,
+	)
+	d.parser6.IgnoreUnsupported = true
 
-	err := d.parser.DecodeLayers(packetData, &d.decoded)
+	err := d.decodePacket(packetData)
 	require.NoError(t, err)
 	return d
 }
@@ -234,9 +239,10 @@ func TestInboundPortDNATNegative(t *testing.T) {
 			require.False(t, translated, "Packet should NOT be translated for %s", tc.name)
 
 			d = parsePacket(t, packet)
-			if tc.protocol == layers.IPProtocolTCP {
+			switch tc.protocol {
+			case layers.IPProtocolTCP:
 				require.Equal(t, tc.dstPort, uint16(d.tcp.DstPort), "Port should remain unchanged")
-			} else if tc.protocol == layers.IPProtocolUDP {
+			case layers.IPProtocolUDP:
 				require.Equal(t, tc.dstPort, uint16(d.udp.DstPort), "Port should remain unchanged")
 			}
 		})

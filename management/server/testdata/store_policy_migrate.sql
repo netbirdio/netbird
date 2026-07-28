@@ -14,7 +14,7 @@ CREATE TABLE `posture_checks` (`id` text,`name` text,`description` text,`account
 CREATE TABLE `network_addresses` (`net_ip` text,`mac` text);
 CREATE INDEX `idx_accounts_domain` ON `accounts`(`domain`);
 CREATE INDEX `idx_setup_keys_account_id` ON `setup_keys`(`account_id`);
-CREATE INDEX `idx_peers_key` ON `peers`(`key`);
+CREATE UNIQUE INDEX `idx_peers_key_unique` ON `peers`(`key`);
 CREATE INDEX `idx_peers_account_id` ON `peers`(`account_id`);
 CREATE INDEX `idx_users_account_id` ON `users`(`account_id`);
 CREATE INDEX `idx_personal_access_tokens_user_id` ON `personal_access_tokens`(`user_id`);

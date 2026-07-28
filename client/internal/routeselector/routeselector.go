@@ -7,14 +7,9 @@ import (
 	"sync"
 
 	"github.com/hashicorp/go-multierror"
-	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/route"
-)
-
-const (
-	exitNodeCIDR = "0.0.0.0/0"
 )
 
 type RouteSelector struct {
@@ -44,8 +39,8 @@ func (rs *RouteSelector) SelectRoutes(routes []route.NetID, appendRoute bool, al
 		if rs.selectedRoutes == nil {
 			rs.selectedRoutes = map[route.NetID]struct{}{}
 		}
-		maps.Clear(rs.deselectedRoutes)
-		maps.Clear(rs.selectedRoutes)
+		clear(rs.deselectedRoutes)
+		clear(rs.selectedRoutes)
 		for _, r := range allRoutes {
 			rs.deselectedRoutes[r] = struct{}{}
 		}
@@ -78,8 +73,8 @@ func (rs *RouteSelector) SelectAllRoutes() {
 	if rs.selectedRoutes == nil {
 		rs.selectedRoutes = map[route.NetID]struct{}{}
 	}
-	maps.Clear(rs.deselectedRoutes)
-	maps.Clear(rs.selectedRoutes)
+	clear(rs.deselectedRoutes)
+	clear(rs.selectedRoutes)
 }
 
 // DeselectRoutes removes specific routes from the selection.
@@ -116,8 +111,47 @@ func (rs *RouteSelector) DeselectAllRoutes() {
 	if rs.selectedRoutes == nil {
 		rs.selectedRoutes = map[route.NetID]struct{}{}
 	}
-	maps.Clear(rs.deselectedRoutes)
-	maps.Clear(rs.selectedRoutes)
+	clear(rs.deselectedRoutes)
+	clear(rs.selectedRoutes)
+}
+
+// SetExclusiveExitNode atomically makes preferred the only selected exit node
+// among exitIDs: every other ID in exitIDs is deselected and preferred (when
+// non-empty) is selected, all under a single lock. Holding the lock across the
+// whole reconciliation prevents a concurrent DeselectAllRoutes from interleaving
+// between the deselect and select steps and being silently undone. A global
+// deselect-all is left untouched so the user's "all off" stays in effect;
+// non-exit routes are never referenced, so their selection is preserved.
+func (rs *RouteSelector) SetExclusiveExitNode(preferred route.NetID, exitIDs []route.NetID) {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+
+	if rs.deselectAll {
+		return
+	}
+
+	for _, id := range exitIDs {
+		if id == preferred {
+			continue
+		}
+		rs.deselectedRoutes[id] = struct{}{}
+		delete(rs.selectedRoutes, id)
+	}
+
+	if preferred != "" {
+		delete(rs.deselectedRoutes, preferred)
+		rs.selectedRoutes[preferred] = struct{}{}
+	}
+}
+
+// IsDeselectAll reports whether the global "deselect all" flag is set, i.e. the
+// user explicitly disabled every route. Callers enforcing per-route invariants
+// (e.g. single exit node) should leave the selection untouched when it is.
+func (rs *RouteSelector) IsDeselectAll() bool {
+	rs.mu.RLock()
+	defer rs.mu.RUnlock()
+
+	return rs.deselectAll
 }
 
 // IsSelected checks if a specific route is selected.
@@ -125,13 +159,34 @@ func (rs *RouteSelector) IsSelected(routeID route.NetID) bool {
 	rs.mu.RLock()
 	defer rs.mu.RUnlock()
 
+	return rs.isSelectedLocked(routeID)
+}
+
+// SyncPairedSelection forces pairedID's explicit selection state to match baseID's,
+// so a synthesized "-v6" exit route always follows its v4 base: selecting or
+// deselecting the v4 exit node governs the ::/0 pair, and any stale (orphaned)
+// explicit state on the v6 entry is reset. The v4/v6 exit pair is treated as a single
+// toggle, so the v6 entry carries no independent selection of its own.
+func (rs *RouteSelector) SyncPairedSelection(baseID, pairedID route.NetID) {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+
 	if rs.deselectAll {
-		return false
+		return
 	}
 
-	_, deselected := rs.deselectedRoutes[routeID]
-	isSelected := !deselected
-	return isSelected
+	_, baseSelected := rs.selectedRoutes[baseID]
+	_, baseDeselected := rs.deselectedRoutes[baseID]
+
+	delete(rs.selectedRoutes, pairedID)
+	delete(rs.deselectedRoutes, pairedID)
+
+	switch {
+	case baseSelected:
+		rs.selectedRoutes[pairedID] = struct{}{}
+	case baseDeselected:
+		rs.deselectedRoutes[pairedID] = struct{}{}
+	}
 }
 
 // FilterSelected removes unselected routes from the provided map.
@@ -145,23 +200,21 @@ func (rs *RouteSelector) FilterSelected(routes route.HAMap) route.HAMap {
 
 	filtered := route.HAMap{}
 	for id, rt := range routes {
-		netID := id.NetID()
-		_, deselected := rs.deselectedRoutes[netID]
-		if !deselected {
+		if !rs.isDeselectedLocked(id.NetID()) {
 			filtered[id] = rt
 		}
 	}
 	return filtered
 }
 
-// HasUserSelectionForRoute returns true if the user has explicitly selected or deselected this specific route
+// HasUserSelectionForRoute returns true if the user has explicitly selected or deselected this route.
+// The lookup is literal; v4/v6 exit pairs are kept consistent at write time via SyncPairedSelection,
+// so a synthesized "-v6" entry carries the same explicit state as its v4 base.
 func (rs *RouteSelector) HasUserSelectionForRoute(routeID route.NetID) bool {
 	rs.mu.RLock()
 	defer rs.mu.RUnlock()
 
-	_, selected := rs.selectedRoutes[routeID]
-	_, deselected := rs.deselectedRoutes[routeID]
-	return selected || deselected
+	return rs.hasUserSelectionForRouteLocked(routeID)
 }
 
 func (rs *RouteSelector) FilterSelectedExitNodes(routes route.HAMap) route.HAMap {
@@ -175,7 +228,7 @@ func (rs *RouteSelector) FilterSelectedExitNodes(routes route.HAMap) route.HAMap
 	filtered := make(route.HAMap, len(routes))
 	for id, rt := range routes {
 		netID := id.NetID()
-		if rs.isDeselected(netID) {
+		if rs.isDeselectedLocked(netID) {
 			continue
 		}
 
@@ -188,51 +241,6 @@ func (rs *RouteSelector) FilterSelectedExitNodes(routes route.HAMap) route.HAMap
 	}
 
 	return filtered
-}
-
-func (rs *RouteSelector) isDeselected(netID route.NetID) bool {
-	_, deselected := rs.deselectedRoutes[netID]
-	return deselected || rs.deselectAll
-}
-
-func isExitNode(rt []*route.Route) bool {
-	return len(rt) > 0 && rt[0].Network.String() == exitNodeCIDR
-}
-
-func (rs *RouteSelector) applyExitNodeFilter(
-	id route.HAUniqueID,
-	netID route.NetID,
-	rt []*route.Route,
-	out route.HAMap,
-) {
-
-	if rs.hasUserSelections() {
-		// user made explicit selects/deselects
-		if rs.IsSelected(netID) {
-			out[id] = rt
-		}
-		return
-	}
-
-	// no explicit selections: only include routes marked !SkipAutoApply (=AutoApply)
-	sel := collectSelected(rt)
-	if len(sel) > 0 {
-		out[id] = sel
-	}
-}
-
-func (rs *RouteSelector) hasUserSelections() bool {
-	return len(rs.selectedRoutes) > 0 || len(rs.deselectedRoutes) > 0
-}
-
-func collectSelected(rt []*route.Route) []*route.Route {
-	var sel []*route.Route
-	for _, r := range rt {
-		if !r.SkipAutoApply {
-			sel = append(sel, r)
-		}
-	}
-	return sel
 }
 
 // MarshalJSON implements the json.Marshaler interface
@@ -287,4 +295,60 @@ func (rs *RouteSelector) UnmarshalJSON(data []byte) error {
 	}
 
 	return nil
+}
+
+func (rs *RouteSelector) isSelectedLocked(routeID route.NetID) bool {
+	if rs.deselectAll {
+		return false
+	}
+	_, deselected := rs.deselectedRoutes[routeID]
+	return !deselected
+}
+
+func (rs *RouteSelector) isDeselectedLocked(netID route.NetID) bool {
+	if rs.deselectAll {
+		return true
+	}
+	_, deselected := rs.deselectedRoutes[netID]
+	return deselected
+}
+
+func (rs *RouteSelector) hasUserSelectionForRouteLocked(routeID route.NetID) bool {
+	_, selected := rs.selectedRoutes[routeID]
+	_, deselected := rs.deselectedRoutes[routeID]
+	return selected || deselected
+}
+
+func (rs *RouteSelector) applyExitNodeFilter(
+	id route.HAUniqueID,
+	netID route.NetID,
+	rt []*route.Route,
+	out route.HAMap,
+) {
+	if rs.hasUserSelectionForRouteLocked(netID) {
+		if rs.isSelectedLocked(netID) {
+			out[id] = rt
+		}
+		return
+	}
+
+	// no explicit selection for this route: defer to management's SkipAutoApply flag
+	sel := collectSelected(rt)
+	if len(sel) > 0 {
+		out[id] = sel
+	}
+}
+
+func isExitNode(rt []*route.Route) bool {
+	return len(rt) > 0 && (route.IsV4DefaultRoute(rt[0].Network) || route.IsV6DefaultRoute(rt[0].Network))
+}
+
+func collectSelected(rt []*route.Route) []*route.Route {
+	var sel []*route.Route
+	for _, r := range rt {
+		if !r.SkipAutoApply {
+			sel = append(sel, r)
+		}
+	}
+	return sel
 }

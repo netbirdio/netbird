@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/netip"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	jwtv5 "github.com/golang-jwt/jwt/v5"
 	pb "github.com/golang/protobuf/proto" // nolint
 	"github.com/golang/protobuf/ptypes/timestamp"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
@@ -22,9 +24,14 @@ import (
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 
+	"github.com/netbirdio/netbird/shared/management/client/common"
+	"github.com/netbirdio/netbird/shared/management/grpc"
+
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
+	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
-	"github.com/netbirdio/netbird/management/server/peers/ephemeral"
+	"github.com/netbirdio/netbird/management/server/idp"
+	"github.com/netbirdio/netbird/management/server/job"
 
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -55,15 +62,14 @@ const (
 type Server struct {
 	accountManager  account.Manager
 	settingsManager settings.Manager
-	wgKey           wgtypes.Key
 	proto.UnimplementedManagementServiceServer
-	peersUpdateManager network_map.PeersUpdateManager
-	config             *nbconfig.Config
-	secretsManager     SecretsManager
-	appMetrics         telemetry.AppMetrics
-	ephemeralManager   ephemeral.Manager
-	peerLocks          sync.Map
-	authManager        auth.Manager
+	jobManager     *job.Manager
+	config         *nbconfig.Config
+	secretsManager SecretsManager
+	appMetrics     telemetry.AppMetrics
+	peerLocks      sync.Map
+	authManager    auth.Manager
+	sessionStore   *auth.SessionStore
 
 	logBlockedPeers          bool
 	blockPeersWithSameConfig bool
@@ -73,8 +79,14 @@ type Server struct {
 
 	networkMapController network_map.Controller
 
-	syncSem atomic.Int32
-	syncLim int32
+	oAuthConfigProvider idp.OAuthConfigProvider
+
+	syncSem        atomic.Int32
+	syncLimEnabled bool
+	syncLim        int32
+
+	reverseProxyManager rpservice.Manager
+	reverseProxyMu      sync.RWMutex
 }
 
 // NewServer creates a new Management server
@@ -82,23 +94,19 @@ func NewServer(
 	config *nbconfig.Config,
 	accountManager account.Manager,
 	settingsManager settings.Manager,
-	peersUpdateManager network_map.PeersUpdateManager,
+	jobManager *job.Manager,
 	secretsManager SecretsManager,
 	appMetrics telemetry.AppMetrics,
-	ephemeralManager ephemeral.Manager,
 	authManager auth.Manager,
 	integratedPeerValidator integrated_validator.IntegratedValidator,
 	networkMapController network_map.Controller,
+	oAuthConfigProvider idp.OAuthConfigProvider,
+	sessionStore *auth.SessionStore,
 ) (*Server, error) {
-	key, err := wgtypes.GeneratePrivateKey()
-	if err != nil {
-		return nil, err
-	}
-
 	if appMetrics != nil {
 		// update gauge based on number of connected peers which is equal to open gRPC streams
-		err = appMetrics.GRPCMetrics().RegisterConnectedStreams(func() int64 {
-			return int64(peersUpdateManager.CountStreams())
+		err := appMetrics.GRPCMetrics().RegisterConnectedStreams(func() int64 {
+			return int64(networkMapController.CountStreams())
 		})
 		if err != nil {
 			return nil, err
@@ -109,6 +117,7 @@ func NewServer(
 	blockPeersWithSameConfig := strings.ToLower(os.Getenv(envBlockPeers)) == "true"
 
 	syncLim := int32(defaultSyncLim)
+	syncLimEnabled := true
 	if syncLimStr := os.Getenv(envConcurrentSyncs); syncLimStr != "" {
 		syncLimParsed, err := strconv.Atoi(syncLimStr)
 		if err != nil {
@@ -116,28 +125,31 @@ func NewServer(
 		} else {
 			//nolint:gosec
 			syncLim = int32(syncLimParsed)
+			if syncLim < 0 {
+				syncLimEnabled = false
+			}
 		}
 	}
 
 	return &Server{
-		wgKey: key,
-		// peerKey -> event channel
-		peersUpdateManager:       peersUpdateManager,
+		jobManager:               jobManager,
 		accountManager:           accountManager,
 		settingsManager:          settingsManager,
 		config:                   config,
 		secretsManager:           secretsManager,
 		authManager:              authManager,
 		appMetrics:               appMetrics,
-		ephemeralManager:         ephemeralManager,
 		logBlockedPeers:          logBlockedPeers,
 		blockPeersWithSameConfig: blockPeersWithSameConfig,
 		integratedPeerValidator:  integratedPeerValidator,
 		networkMapController:     networkMapController,
+		oAuthConfigProvider:      oAuthConfigProvider,
+		sessionStore:             sessionStore,
 
 		loginFilter: newLoginFilter(),
 
-		syncLim: syncLim,
+		syncLim:        syncLim,
+		syncLimEnabled: syncLimEnabled,
 	}, nil
 }
 
@@ -149,10 +161,6 @@ func (s *Server) GetServerKey(ctx context.Context, req *proto.Empty) (*proto.Ser
 	}
 
 	log.WithContext(ctx).Tracef("GetServerKey request from %s", ip)
-	start := time.Now()
-	defer func() {
-		log.WithContext(ctx).Tracef("GetServerKey from %s took %v", ip, time.Since(start))
-	}()
 
 	// todo introduce something more meaningful with the key expiration/rotation
 	if s.appMetrics != nil {
@@ -163,8 +171,14 @@ func (s *Server) GetServerKey(ctx context.Context, req *proto.Empty) (*proto.Ser
 	nanos := int32(now.Nanosecond())
 	expiresAt := &timestamp.Timestamp{Seconds: secs, Nanos: nanos}
 
+	key, err := s.secretsManager.GetWGKey()
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get wireguard key: %v", err)
+		return nil, errors.New("failed to get wireguard key")
+	}
+
 	return &proto.ServerKeyResponse{
-		Key:       s.wgKey.PublicKey().String(),
+		Key:       key.PublicKey().String(),
 		ExpiresAt: expiresAt,
 	}, nil
 }
@@ -176,15 +190,50 @@ func getRealIP(ctx context.Context) net.IP {
 	return nil
 }
 
+func (s *Server) Job(srv proto.ManagementService_JobServer) error {
+	reqStart := time.Now()
+	ctx := srv.Context()
+
+	peerKey, err := s.handleHandshake(ctx, srv)
+	if err != nil {
+		return err
+	}
+
+	accountID, err := s.accountManager.GetAccountIDForPeerKey(ctx, peerKey.String())
+	if err != nil {
+		// nolint:staticcheck
+		ctx = context.WithValue(ctx, nbContext.AccountIDKey, "UNKNOWN")
+		log.WithContext(ctx).Tracef("peer %s is not registered", peerKey.String())
+		if errStatus, ok := internalStatus.FromError(err); ok && errStatus.Type() == internalStatus.NotFound {
+			return status.Errorf(codes.PermissionDenied, "peer is not registered")
+		}
+		return err
+	}
+	// nolint:staticcheck
+	ctx = context.WithValue(ctx, nbContext.AccountIDKey, accountID)
+	peer, err := s.accountManager.GetStore().GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, peerKey.String())
+	if err != nil {
+		return status.Errorf(codes.Unauthenticated, "peer is not registered")
+	}
+
+	s.startResponseReceiver(ctx, srv)
+
+	updates := s.jobManager.CreateJobChannel(ctx, accountID, peer.ID)
+	log.WithContext(ctx).Debugf("Job: took %v", time.Since(reqStart))
+
+	return s.sendJobsLoop(ctx, accountID, peerKey, peer, updates, srv)
+}
+
 // Sync validates the existence of a connecting peer, sends an initial state (all available for the connecting peers) and
 // notifies the connected peer of any updates (e.g. new peers under the same account)
 func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_SyncServer) error {
-	if s.syncSem.Load() >= s.syncLim {
+	if s.syncLimEnabled && s.syncSem.Load() >= s.syncLim {
 		return status.Errorf(codes.ResourceExhausted, "too many concurrent sync requests, please try again later")
 	}
 	s.syncSem.Add(1)
 
 	reqStart := time.Now()
+	syncStart := reqStart.UTC()
 
 	ctx := srv.Context()
 
@@ -197,13 +246,23 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	realIP := getRealIP(ctx)
 	sRealIP := realIP.String()
 	peerMeta := extractPeerMeta(ctx, syncReq.GetMeta())
-	metahashed := metaHash(peerMeta, sRealIP)
-	if !s.loginFilter.allowLogin(peerKey.String(), metahashed) {
+
+	userID, err := s.accountManager.GetUserIDByPeerKey(ctx, peerKey.String())
+	if err != nil {
+		s.syncSem.Add(-1)
+		if errStatus, ok := internalStatus.FromError(err); ok && errStatus.Type() == internalStatus.NotFound {
+			return status.Errorf(codes.PermissionDenied, "peer is not registered")
+		}
+		return mapError(ctx, err)
+	}
+
+	metahashed := metaHash(peerMeta)
+	if userID == "" && !s.loginFilter.allowLogin(peerKey.String(), metahashed) {
 		if s.appMetrics != nil {
 			s.appMetrics.GRPCMetrics().CountSyncRequestBlocked()
 		}
 		if s.logBlockedPeers {
-			log.WithContext(ctx).Warnf("peer %s with meta hash %d is blocked from syncing", peerKey.String(), metahashed)
+			log.WithContext(ctx).Tracef("peer %s with meta hash %d is blocked from syncing", peerKey.String(), metahashed)
 		}
 		if s.blockPeersWithSameConfig {
 			s.syncSem.Add(-1)
@@ -231,8 +290,6 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 		return err
 	}
 
-	log.WithContext(ctx).Debugf("Sync: GetAccountIDForPeerKey since start %v", time.Since(reqStart))
-
 	// nolint:staticcheck
 	ctx = context.WithValue(ctx, nbContext.AccountIDKey, accountID)
 
@@ -244,7 +301,6 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 		}
 	}()
 	log.WithContext(ctx).Tracef("acquired peer lock for peer %s took %v", peerKey.String(), time.Since(start))
-	log.WithContext(ctx).Debugf("Sync: acquirePeerLockByUID since start %v", time.Since(reqStart))
 
 	log.WithContext(ctx).Debugf("Sync request from peer [%s] [%s]", req.WgPubKey, sRealIP)
 
@@ -252,10 +308,10 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 		log.WithContext(ctx).Tracef("peer system meta has to be provided on sync. Peer %s, remote addr %s", peerKey.String(), realIP)
 	}
 
-	metahash := metaHash(peerMeta, realIP.String())
+	metahash := metaHash(peerMeta)
 	s.loginFilter.addLogin(peerKey.String(), metahash)
 
-	peer, netMap, postureChecks, dnsFwdPort, err := s.accountManager.SyncAndMarkPeer(ctx, accountID, peerKey.String(), peerMeta, realIP)
+	peer, netMap, postureChecks, dnsFwdPort, err := s.accountManager.SyncAndMarkPeer(ctx, accountID, peerKey.String(), peerMeta, realIP, syncStart)
 	if err != nil {
 		log.WithContext(ctx).Debugf("error while syncing peer %s: %v", peerKey.String(), err)
 		s.syncSem.Add(-1)
@@ -266,33 +322,112 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	if err != nil {
 		log.WithContext(ctx).Debugf("error while sending initial sync for %s: %v", peerKey.String(), err)
 		s.syncSem.Add(-1)
+		s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer, syncStart)
 		return err
 	}
 
-	updates := s.peersUpdateManager.CreateChannel(ctx, peer.ID)
-
-	s.ephemeralManager.OnPeerConnected(ctx, peer)
+	updates, err := s.networkMapController.OnPeerConnected(ctx, accountID, peer.ID)
+	if err != nil {
+		log.WithContext(ctx).Debugf("error while notify peer connected for %s: %v", peerKey.String(), err)
+		s.syncSem.Add(-1)
+		s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer, syncStart)
+		return err
+	}
 
 	s.secretsManager.SetupRefresh(ctx, accountID, peer.ID)
-
-	if s.appMetrics != nil {
-		s.appMetrics.GRPCMetrics().CountSyncRequestDuration(time.Since(reqStart), accountID)
-	}
 
 	unlock()
 	unlock = nil
 
+	if s.appMetrics != nil {
+		s.appMetrics.GRPCMetrics().CountSyncRequestDuration(time.Since(reqStart), accountID)
+	}
+	log.WithContext(ctx).Debugf("Sync took %s", time.Since(reqStart))
+
 	s.syncSem.Add(-1)
 
-	return s.handleUpdates(ctx, accountID, peerKey, peer, updates, srv)
+	return s.handleUpdates(ctx, accountID, peerKey, peer, updates, srv, syncStart)
+}
+
+func (s *Server) handleHandshake(ctx context.Context, srv proto.ManagementService_JobServer) (wgtypes.Key, error) {
+	hello, err := srv.Recv()
+	if err != nil {
+		return wgtypes.Key{}, status.Errorf(codes.InvalidArgument, "missing hello: %v", err)
+	}
+
+	jobReq := &proto.JobRequest{}
+	peerKey, err := s.parseRequest(ctx, hello, jobReq)
+	if err != nil {
+		return wgtypes.Key{}, err
+	}
+
+	return peerKey, nil
+}
+
+func (s *Server) startResponseReceiver(ctx context.Context, srv proto.ManagementService_JobServer) {
+	go func() {
+		for {
+			msg, err := srv.Recv()
+			if err != nil {
+				if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
+					return
+				}
+				log.WithContext(ctx).Warnf("recv job response error: %v", err)
+				return
+			}
+
+			jobResp := &proto.JobResponse{}
+			if _, err := s.parseRequest(ctx, msg, jobResp); err != nil {
+				log.WithContext(ctx).Warnf("invalid job response: %v", err)
+				continue
+			}
+
+			if err := s.jobManager.HandleResponse(ctx, jobResp, msg.WgPubKey); err != nil {
+				log.WithContext(ctx).Errorf("handle job response failed: %v", err)
+			}
+		}
+	}()
+}
+
+func (s *Server) sendJobsLoop(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, updates *job.Channel, srv proto.ManagementService_JobServer) error {
+	// todo figure out better error handling strategy
+	defer s.jobManager.CloseChannel(ctx, accountID, peer.ID)
+
+	for {
+		event, err := updates.Event(ctx)
+		if err != nil {
+			if errors.Is(err, job.ErrJobChannelClosed) {
+				log.WithContext(ctx).Debugf("jobs channel for peer %s was closed", peerKey.String())
+				return nil
+			}
+
+			// happens when connection drops, e.g. client disconnects
+			log.WithContext(ctx).Debugf("stream of peer %s has been closed", peerKey.String())
+			return ctx.Err()
+		}
+
+		if err := s.sendJob(ctx, peerKey, event, srv); err != nil {
+			log.WithContext(ctx).Warnf("send job failed: %v", err)
+			return nil
+		}
+	}
 }
 
 // handleUpdates sends updates to the connected peer until the updates channel is closed.
-func (s *Server) handleUpdates(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, updates chan *network_map.UpdateMessage, srv proto.ManagementService_SyncServer) error {
+// It implements a backpressure mechanism that sends the first update immediately,
+// then debounces subsequent rapid updates, ensuring only the latest update is sent
+// after a quiet period.
+func (s *Server) handleUpdates(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, updates chan *network_map.UpdateMessage, srv proto.ManagementService_SyncServer, streamStartTime time.Time) error {
 	log.WithContext(ctx).Tracef("starting to handle updates for peer %s", peerKey.String())
+
+	// Create a debouncer for this peer connection
+	debouncer := NewUpdateDebouncer(1000 * time.Millisecond)
+	defer debouncer.Stop()
+
 	for {
 		select {
 		// condition when there are some updates
+		// todo set the updates channel size to 1
 		case update, open := <-updates:
 			if s.appMetrics != nil {
 				s.appMetrics.GRPCMetrics().UpdateChannelQueueLength(len(updates) + 1)
@@ -300,21 +435,38 @@ func (s *Server) handleUpdates(ctx context.Context, accountID string, peerKey wg
 
 			if !open {
 				log.WithContext(ctx).Debugf("updates channel for peer %s was closed", peerKey.String())
-				s.cancelPeerRoutines(ctx, accountID, peer)
+				s.cancelPeerRoutines(ctx, accountID, peer, streamStartTime)
 				return nil
 			}
-			log.WithContext(ctx).Debugf("received an update for peer %s", peerKey.String())
 
-			if err := s.sendUpdate(ctx, accountID, peerKey, peer, update, srv); err != nil {
-				log.WithContext(ctx).Debugf("error while sending an update to peer %s: %v", peerKey.String(), err)
-				return err
+			log.WithContext(ctx).Tracef("received an update for peer %s", peerKey.String())
+			if debouncer.ProcessUpdate(update) {
+				// Send immediately (first update or after quiet period)
+				if err := s.sendUpdate(ctx, accountID, peerKey, peer, update, srv, streamStartTime); err != nil {
+					log.WithContext(ctx).Debugf("error while sending an update to peer %s: %v", peerKey.String(), err)
+					return err
+				}
+			}
+
+		// Timer expired - quiet period reached, send pending updates if any
+		case <-debouncer.TimerChannel():
+			pendingUpdates := debouncer.GetPendingUpdates()
+			if len(pendingUpdates) == 0 {
+				continue
+			}
+			log.WithContext(ctx).Debugf("sending %d debounced update(s) for peer %s", len(pendingUpdates), peerKey.String())
+			for _, pendingUpdate := range pendingUpdates {
+				if err := s.sendUpdate(ctx, accountID, peerKey, peer, pendingUpdate, srv, streamStartTime); err != nil {
+					log.WithContext(ctx).Debugf("error while sending an update to peer %s: %v", peerKey.String(), err)
+					return err
+				}
 			}
 
 		// condition when client <-> server connection has been terminated
 		case <-srv.Context().Done():
 			// happens when connection drops, e.g. client disconnects
 			log.WithContext(ctx).Debugf("stream of peer %s has been closed", peerKey.String())
-			s.cancelPeerRoutines(ctx, accountID, peer)
+			s.cancelPeerRoutines(ctx, accountID, peer, streamStartTime)
 			return srv.Context().Err()
 		}
 	}
@@ -322,40 +474,75 @@ func (s *Server) handleUpdates(ctx context.Context, accountID string, peerKey wg
 
 // sendUpdate encrypts the update message using the peer key and the server's wireguard key,
 // then sends the encrypted message to the connected peer via the sync server.
-func (s *Server) sendUpdate(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, update *network_map.UpdateMessage, srv proto.ManagementService_SyncServer) error {
-	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, update.Update)
+func (s *Server) sendUpdate(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, update *network_map.UpdateMessage, srv proto.ManagementService_SyncServer, streamStartTime time.Time) error {
+	key, err := s.secretsManager.GetWGKey()
 	if err != nil {
-		s.cancelPeerRoutines(ctx, accountID, peer)
+		s.cancelPeerRoutines(ctx, accountID, peer, streamStartTime)
 		return status.Errorf(codes.Internal, "failed processing update message")
 	}
-	err = srv.SendMsg(&proto.EncryptedMessage{
-		WgPubKey: s.wgKey.PublicKey().String(),
+
+	encryptedResp, err := encryption.EncryptMessage(peerKey, key, update.Update)
+	if err != nil {
+		s.cancelPeerRoutines(ctx, accountID, peer, streamStartTime)
+		return status.Errorf(codes.Internal, "failed processing update message")
+	}
+	err = srv.Send(&proto.EncryptedMessage{
+		WgPubKey: key.PublicKey().String(),
 		Body:     encryptedResp,
 	})
 	if err != nil {
-		s.cancelPeerRoutines(ctx, accountID, peer)
+		s.cancelPeerRoutines(ctx, accountID, peer, streamStartTime)
 		return status.Errorf(codes.Internal, "failed sending update message")
 	}
-	log.WithContext(ctx).Debugf("sent an update to peer %s", peerKey.String())
+	log.WithContext(ctx).Tracef("sent an update to peer %s", peerKey.String())
 	return nil
 }
 
-func (s *Server) cancelPeerRoutines(ctx context.Context, accountID string, peer *nbpeer.Peer) {
-	unlock := s.acquirePeerLockByUID(ctx, peer.Key)
+// sendJob encrypts the update message using the peer key and the server's wireguard key,
+// then sends the encrypted message to the connected peer via the sync server.
+func (s *Server) sendJob(ctx context.Context, peerKey wgtypes.Key, job *job.Event, srv proto.ManagementService_JobServer) error {
+	wgKey, err := s.secretsManager.GetWGKey()
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get wg key for peer %s: %v", peerKey.String(), err)
+		return status.Errorf(codes.Internal, "failed processing job message")
+	}
+
+	encryptedResp, err := encryption.EncryptMessage(peerKey, wgKey, job.Request)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to encrypt job for peer %s: %v", peerKey.String(), err)
+		return status.Errorf(codes.Internal, "failed processing job message")
+	}
+	err = srv.Send(&proto.EncryptedMessage{
+		WgPubKey: wgKey.PublicKey().String(),
+		Body:     encryptedResp,
+	})
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed sending job message")
+	}
+	log.WithContext(ctx).Debugf("sent a job to peer: %s", peerKey.String())
+	return nil
+}
+
+func (s *Server) cancelPeerRoutines(ctx context.Context, accountID string, peer *nbpeer.Peer, streamStartTime time.Time) {
+	uncanceledCTX := context.WithoutCancel(ctx)
+	unlock := s.acquirePeerLockByUID(uncanceledCTX, peer.Key)
 	defer unlock()
 
-	err := s.accountManager.OnPeerDisconnected(ctx, accountID, peer.Key)
+	s.cancelPeerRoutinesWithoutLock(uncanceledCTX, accountID, peer, streamStartTime)
+}
+
+func (s *Server) cancelPeerRoutinesWithoutLock(ctx context.Context, accountID string, peer *nbpeer.Peer, streamStartTime time.Time) {
+	err := s.accountManager.OnPeerDisconnected(ctx, accountID, peer.Key, streamStartTime)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to disconnect peer %s properly: %v", peer.Key, err)
 	}
-	s.peersUpdateManager.CloseChannel(ctx, peer.ID)
+	s.networkMapController.OnPeerDisconnected(ctx, accountID, peer.ID)
 	s.secretsManager.CancelRefresh(peer.ID)
-	s.ephemeralManager.OnPeerDisconnected(ctx, peer)
 
-	log.WithContext(ctx).Tracef("peer %s has been disconnected", peer.Key)
+	log.WithContext(ctx).Debugf("peer %s has been disconnected", peer.Key)
 }
 
-func (s *Server) validateToken(ctx context.Context, jwtToken string) (string, error) {
+func (s *Server) validateToken(ctx context.Context, peerKey, jwtToken string) (string, error) {
 	if s.authManager == nil {
 		return "", status.Errorf(codes.Internal, "missing auth manager")
 	}
@@ -363,6 +550,10 @@ func (s *Server) validateToken(ctx context.Context, jwtToken string) (string, er
 	userAuth, token, err := s.authManager.ValidateAndParseToken(ctx, jwtToken)
 	if err != nil {
 		return "", status.Errorf(codes.InvalidArgument, "invalid jwt token, err: %v", err)
+	}
+
+	if err := s.claimLoginToken(ctx, peerKey, jwtToken, token); err != nil {
+		return "", err
 	}
 
 	// we need to call this method because if user is new, we will automatically add it to existing or create a new account
@@ -492,9 +683,20 @@ func extractPeerMeta(ctx context.Context, meta *proto.PeerSystemMeta) nbpeer.Pee
 			BlockLANAccess:        meta.GetFlags().GetBlockLANAccess(),
 			BlockInbound:          meta.GetFlags().GetBlockInbound(),
 			LazyConnectionEnabled: meta.GetFlags().GetLazyConnectionEnabled(),
+			DisableIPv6:           meta.GetFlags().GetDisableIPv6(),
 		},
-		Files: files,
+		Files:              files,
+		Capabilities:       capabilitiesToInt32(meta.GetCapabilities()),
+		SyncMessageVersion: int(meta.GetSyncMessageVersion()),
 	}
+}
+
+func capabilitiesToInt32(caps []proto.PeerCapability) []int32 {
+	result := make([]int32, len(caps))
+	for i, c := range caps {
+		result[i] = int32(c)
+	}
+	return result
 }
 
 func (s *Server) parseRequest(ctx context.Context, req *proto.EncryptedMessage, parsed pb.Message) (wgtypes.Key, error) {
@@ -504,7 +706,12 @@ func (s *Server) parseRequest(ctx context.Context, req *proto.EncryptedMessage, 
 		return wgtypes.Key{}, status.Errorf(codes.InvalidArgument, "provided wgPubKey %s is invalid", req.WgPubKey)
 	}
 
-	err = encryption.DecryptMessage(peerKey, s.wgKey, req.Body, parsed)
+	key, err := s.secretsManager.GetWGKey()
+	if err != nil {
+		return wgtypes.Key{}, status.Errorf(codes.Internal, "failed processing request")
+	}
+
+	err = encryption.DecryptMessage(peerKey, key, req.Body, parsed)
 	if err != nil {
 		return wgtypes.Key{}, status.Errorf(codes.InvalidArgument, "invalid request message")
 	}
@@ -520,7 +727,6 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 	reqStart := time.Now()
 	realIP := getRealIP(ctx)
 	sRealIP := realIP.String()
-	log.WithContext(ctx).Debugf("Login request from peer [%s] [%s]", req.WgPubKey, sRealIP)
 
 	loginReq := &proto.LoginRequest{}
 	peerKey, err := s.parseRequest(ctx, req, loginReq)
@@ -529,10 +735,10 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 	}
 
 	peerMeta := extractPeerMeta(ctx, loginReq.GetMeta())
-	metahashed := metaHash(peerMeta, sRealIP)
+	metahashed := metaHash(peerMeta)
 	if !s.loginFilter.allowLogin(peerKey.String(), metahashed) {
 		if s.logBlockedPeers {
-			log.WithContext(ctx).Warnf("peer %s with meta hash %d is blocked from login", peerKey.String(), metahashed)
+			log.WithContext(ctx).Tracef("peer %s with meta hash %d is blocked from login", peerKey.String(), metahashed)
 		}
 		if s.appMetrics != nil {
 			s.appMetrics.GRPCMetrics().CountLoginRequestBlocked()
@@ -556,17 +762,7 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 	//nolint
 	ctx = context.WithValue(ctx, nbContext.AccountIDKey, accountID)
 
-	log.WithContext(ctx).Debugf("Login: GetAccountIDForPeerKey since start %v", time.Since(reqStart))
-
-	defer func() {
-		if s.appMetrics != nil {
-			s.appMetrics.GRPCMetrics().CountLoginRequestDuration(time.Since(reqStart), accountID)
-		}
-		took := time.Since(reqStart)
-		if took > 7*time.Second {
-			log.WithContext(ctx).Debugf("Login: took %v", time.Since(reqStart))
-		}
-	}()
+	log.WithContext(ctx).Debugf("Login request from peer [%s] [%s]", req.WgPubKey, sRealIP)
 
 	if loginReq.GetMeta() == nil {
 		msg := status.Errorf(codes.FailedPrecondition,
@@ -585,7 +781,7 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 		sshKey = loginReq.GetPeerKeys().GetSshPubKey()
 	}
 
-	peer, netMap, postureChecks, err := s.accountManager.LoginPeer(ctx, types.PeerLogin{
+	peer, network, postureChecks, enableSSH, err := s.accountManager.LoginPeer(ctx, types.PeerLogin{
 		WireGuardPubKey: peerKey.String(),
 		SSHKey:          string(sshKey),
 		Meta:            peerMeta,
@@ -595,39 +791,118 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 		ExtraDNSLabels:  loginReq.GetDnsLabels(),
 	})
 	if err != nil {
-		log.WithContext(ctx).Warnf("failed logging in peer %s: %s", peerKey, err)
+		if errors.Is(err, internalStatus.ErrNoAuthMethodProvided) {
+			log.WithContext(ctx).Tracef("failed logging in peer %s: %s", peerKey, err)
+		} else {
+			log.WithContext(ctx).Warnf("failed logging in peer %s: %s", peerKey, err)
+		}
 		return nil, mapError(ctx, err)
 	}
 
-	log.WithContext(ctx).Debugf("Login: LoginPeer since start %v", time.Since(reqStart))
-
-	// if the login request contains setup key then it is a registration request
-	if loginReq.GetSetupKey() != "" {
-		s.ephemeralManager.OnPeerDisconnected(ctx, peer)
-		log.WithContext(ctx).Debugf("Login: OnPeerDisconnected since start %v", time.Since(reqStart))
-	}
-
-	loginResp, err := s.prepareLoginResponse(ctx, peer, netMap, postureChecks)
+	loginResp, err := s.prepareLoginResponse(ctx, peer, network, postureChecks, enableSSH)
 	if err != nil {
 		log.WithContext(ctx).Warnf("failed preparing login response for peer %s: %s", peerKey, err)
 		return nil, status.Errorf(codes.Internal, "failed logging in peer")
 	}
 
-	log.WithContext(ctx).Debugf("Login: prepareLoginResponse since start %v", time.Since(reqStart))
+	key, err := s.secretsManager.GetWGKey()
+	if err != nil {
+		log.WithContext(ctx).Warnf("failed getting server's WireGuard private key: %s", err)
+		return nil, status.Errorf(codes.Internal, "failed logging in peer")
+	}
 
-	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, loginResp)
+	encryptedResp, err := encryption.EncryptMessage(peerKey, key, loginResp)
 	if err != nil {
 		log.WithContext(ctx).Warnf("failed encrypting peer %s message", peer.ID)
 		return nil, status.Errorf(codes.Internal, "failed logging in peer")
 	}
 
+	if s.appMetrics != nil {
+		s.appMetrics.GRPCMetrics().CountLoginRequestDuration(time.Since(reqStart), accountID)
+	}
+	log.WithContext(ctx).Debugf("Login took %s", time.Since(reqStart))
+
 	return &proto.EncryptedMessage{
-		WgPubKey: s.wgKey.PublicKey().String(),
+		WgPubKey: key.PublicKey().String(),
 		Body:     encryptedResp,
 	}, nil
 }
 
-func (s *Server) prepareLoginResponse(ctx context.Context, peer *nbpeer.Peer, netMap *types.NetworkMap, postureChecks []*posture.Checks) (*proto.LoginResponse, error) {
+// ExtendAuthSession refreshes the peer's SSO session expiry deadline using a
+// fresh JWT. The same JWT validation pipeline as Login is used. The tunnel
+// stays up; no network map sync is performed. The new deadline is returned
+// in ExtendAuthSessionResponse.SessionExpiresAt.
+func (s *Server) ExtendAuthSession(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
+	extendReq := &proto.ExtendAuthSessionRequest{}
+	peerKey, err := s.parseRequest(ctx, req, extendReq)
+	if err != nil {
+		return nil, err
+	}
+
+	//nolint
+	ctx = context.WithValue(ctx, nbContext.PeerIDKey, peerKey.String())
+	if accountID, accErr := s.accountManager.GetAccountIDForPeerKey(ctx, peerKey.String()); accErr == nil {
+		//nolint
+		ctx = context.WithValue(ctx, nbContext.AccountIDKey, accountID)
+	}
+
+	jwt := extendReq.GetJwtToken()
+	if jwt == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "jwt token is required")
+	}
+
+	var userID string
+	const attempts = 3
+	for i := 0; i < attempts; i++ {
+		userID, err = s.validateToken(ctx, peerKey.String(), jwt)
+		if err == nil {
+			break
+		}
+		if i == attempts-1 {
+			break
+		}
+		log.WithContext(ctx).Warnf("failed validating JWT token while extending session for peer %s: %v. Retrying (idP cache).", peerKey.String(), err)
+		select {
+		case <-time.After(200 * time.Millisecond):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	if userID == "" {
+		return nil, status.Errorf(codes.Unauthenticated, "jwt token did not yield a user id")
+	}
+
+	deadline, err := s.accountManager.ExtendPeerSession(ctx, peerKey.String(), userID)
+	if err != nil {
+		log.WithContext(ctx).Warnf("failed extending session for peer %s: %v", peerKey.String(), err)
+		return nil, mapError(ctx, err)
+	}
+
+	// Success path normally returns a non-zero deadline. A defensive zero
+	// would still encode as the explicit "disabled" sentinel rather than nil,
+	// so the client clears any stale anchor instead of preserving it.
+	resp := &proto.ExtendAuthSessionResponse{
+		SessionExpiresAt: encodeSessionExpiresAt(deadline),
+	}
+
+	wgKey, err := s.secretsManager.GetWGKey()
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed processing request")
+	}
+	encrypted, err := encryption.EncryptMessage(peerKey, wgKey, resp)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed encrypting response")
+	}
+	return &proto.EncryptedMessage{
+		WgPubKey: wgKey.PublicKey().String(),
+		Body:     encrypted,
+	}, nil
+}
+
+func (s *Server) prepareLoginResponse(ctx context.Context, peer *nbpeer.Peer, network *types.Network, postureChecks []*posture.Checks, enableSSH bool) (*proto.LoginResponse, error) {
 	var relayToken *Token
 	var err error
 	if s.config.Relay != nil && len(s.config.Relay.Addresses) > 0 {
@@ -645,12 +920,43 @@ func (s *Server) prepareLoginResponse(ctx context.Context, peer *nbpeer.Peer, ne
 
 	// if peer has reached this point then it has logged in
 	loginResp := &proto.LoginResponse{
-		NetbirdConfig: toNetbirdConfig(s.config, nil, relayToken, nil),
-		PeerConfig:    toPeerConfig(peer, netMap.Network, s.networkMapController.GetDNSDomain(settings), settings),
+		NetbirdConfig: toNetbirdConfig(s.config, nil, relayToken, nil, settings),
+		PeerConfig:    toPeerConfig(peer, network, s.networkMapController.GetDNSDomain(settings), settings, s.config.HttpConfig, s.config.DeviceAuthorizationFlow, enableSSH),
 		Checks:        toProtocolChecks(ctx, postureChecks),
 	}
 
+	// settings is always non-nil here, so we never emit nil — encoder returns
+	// either a valid deadline or the explicit-zero "disabled" sentinel.
+	loginResp.SessionExpiresAt = encodeSessionExpiresAt(
+		peer.SessionExpiresAt(settings.PeerLoginExpirationEnabled, settings.PeerLoginExpiration),
+	)
+
 	return loginResp, nil
+}
+
+func (s *Server) claimLoginToken(ctx context.Context, peerKey, jwtToken string, token *jwtv5.Token) error {
+	if s.sessionStore == nil || token == nil {
+		return nil
+	}
+
+	exp, err := token.Claims.GetExpirationTime()
+	if err != nil || exp == nil {
+		log.WithContext(ctx).Warnf("JWT has no usable exp claim for peer %s", peerKey)
+		return status.Error(codes.Unauthenticated, "jwt token has no expiration")
+	}
+
+	err = s.sessionStore.RegisterToken(ctx, jwtToken, exp.Time)
+	if err == nil {
+		return nil
+	}
+
+	if errors.Is(err, auth.ErrTokenAlreadyUsed) || errors.Is(err, auth.ErrTokenExpired) {
+		log.WithContext(ctx).Warnf("%v for peer %s", err, peerKey)
+		return status.Error(codes.Unauthenticated, err.Error())
+	}
+
+	log.WithContext(ctx).Warnf("failed to claim JWT for peer %s: %v", peerKey, err)
+	return status.Error(codes.Unavailable, "failed to claim jwt token")
 }
 
 // processJwtToken validates the existence of a JWT token in the login request, and returns the corresponding user ID if
@@ -663,7 +969,7 @@ func (s *Server) processJwtToken(ctx context.Context, loginReq *proto.LoginReque
 	if loginReq.GetJwtToken() != "" {
 		var err error
 		for i := 0; i < 3; i++ {
-			userID, err = s.validateToken(ctx, loginReq.GetJwtToken())
+			userID, err = s.validateToken(ctx, peerKey.String(), loginReq.GetJwtToken())
 			if err == nil {
 				break
 			}
@@ -686,8 +992,8 @@ func (s *Server) IsHealthy(ctx context.Context, req *proto.Empty) (*proto.Empty,
 // sendInitialSync sends initial proto.SyncResponse to the peer requesting synchronization
 func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer *nbpeer.Peer, networkMap *types.NetworkMap, postureChecks []*posture.Checks, srv proto.ManagementService_SyncServer, dnsFwdPort int64) error {
 	var err error
-
 	var turnToken *Token
+
 	if s.config.TURNConfig != nil && s.config.TURNConfig.TimeBasedCredentials {
 		turnToken, err = s.secretsManager.GenerateTurnToken()
 		if err != nil {
@@ -713,19 +1019,58 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 		return status.Errorf(codes.Internal, "failed to get peer groups %s", err)
 	}
 
-	plainResp := ToSyncResponse(ctx, s.config, peer, turnToken, relayToken, networkMap, s.networkMapController.GetDNSDomain(settings), postureChecks, nil, settings, settings.Extra, peerGroups, dnsFwdPort)
+	dnsName := s.networkMapController.GetDNSDomain(settings)
 
-	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, plainResp)
+	var plainResp *proto.SyncResponse
+
+	commonSyncMessageVersion := grpc.HighestCommonSyncMessageVersion(
+		s.perAccountOrGlobalSyncMessageVersions(peer.AccountID),
+		grpc.SyncMessageVersionFromConfig(&peer.Meta.SyncMessageVersion))
+
+	log.WithContext(ctx).
+		WithFields(log.Fields{
+			"sync_message_version":        commonSyncMessageVersion,
+			"server_sync_message_version": s.perAccountOrGlobalSyncMessageVersions(peer.AccountID),
+			"peer_sync_message_version":   grpc.SyncMessageVersionFromConfig(&peer.Meta.SyncMessageVersion),
+		}).Debug("common highest sync message version")
+
+	if commonSyncMessageVersion == grpc.ComponentNetworkMap {
+		// Capable peer: discard the legacy NetworkMap that SyncAndMarkPeer
+		// computed and recompute the raw components instead. This wastes one
+		// Calculate() call per initial-sync — the component-based wire
+		// format is what the peer actually consumes. The streaming path
+		// (network_map.Controller.UpdateAccountPeers) skips this duplication
+		// because it dispatches by capability before computing.
+		//
+		// TODO: refactor SyncPeer / SyncAndMarkPeer / their mocks + manager
+		// interfaces to return PeerNetworkMapResult so the initial-sync path
+		// stops doing duplicate work. Deferred until the client-side
+		// decoder lands and there's a real deployment of capability=3 peers
+		// worth optimizing for.
+		freshPeer, components, proxyPatch, freshPostureChecks, freshDnsFwdPort, err := s.networkMapController.GetValidatedPeerWithComponents(ctx, false, peer.AccountID, peer)
+		if err != nil {
+			log.WithContext(ctx).Errorf("failed to build components for peer %s on initial sync: %v", peer.ID, err)
+			return status.Errorf(codes.Internal, "failed to build initial sync envelope")
+		}
+		plainResp = ToComponentSyncResponse(ctx, s.config, s.config.HttpConfig, s.config.DeviceAuthorizationFlow, freshPeer, turnToken, relayToken, components, proxyPatch, dnsName, freshPostureChecks, settings, settings.Extra, peerGroups, freshDnsFwdPort)
+	} else {
+		plainResp = ToSyncResponse(ctx, s.config, s.config.HttpConfig, s.config.DeviceAuthorizationFlow, peer, turnToken, relayToken, networkMap, dnsName, postureChecks, nil, settings, settings.Extra, peerGroups, dnsFwdPort)
+	}
+
+	key, err := s.secretsManager.GetWGKey()
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed getting server key")
+	}
+
+	encryptedResp, err := encryption.EncryptMessage(peerKey, key, plainResp)
 	if err != nil {
 		return status.Errorf(codes.Internal, "error handling request")
 	}
 
-	sendStart := time.Now()
 	err = srv.Send(&proto.EncryptedMessage{
-		WgPubKey: s.wgKey.PublicKey().String(),
+		WgPubKey: key.PublicKey().String(),
 		Body:     encryptedResp,
 	})
-	log.WithContext(ctx).Debugf("sendInitialSync: sending response took %s", time.Since(sendStart))
 
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed sending SyncResponse %v", err)
@@ -735,15 +1080,18 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 	return nil
 }
 
+func (s *Server) perAccountOrGlobalSyncMessageVersions(accountId string) grpc.SyncMessageVersion {
+	if version, ok := s.config.PerAccountHighestSupportedSyncMessageVersion[accountId]; ok {
+		return grpc.SyncMessageVersionFromConfig(&version)
+	}
+	return grpc.SyncMessageVersionFromConfig(s.config.HighestSupportedSyncMessageVersion)
+}
+
 // GetDeviceAuthorizationFlow returns a device authorization flow information
 // This is used for initiating an Oauth 2 device authorization grant flow
 // which will be used by our clients to Login
 func (s *Server) GetDeviceAuthorizationFlow(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
 	log.WithContext(ctx).Tracef("GetDeviceAuthorizationFlow request for pubKey: %s", req.WgPubKey)
-	start := time.Now()
-	defer func() {
-		log.WithContext(ctx).Tracef("GetDeviceAuthorizationFlow for pubKey: %s took %v", req.WgPubKey, time.Since(start))
-	}()
 
 	peerKey, err := wgtypes.ParseKey(req.GetWgPubKey())
 	if err != nil {
@@ -752,43 +1100,64 @@ func (s *Server) GetDeviceAuthorizationFlow(ctx context.Context, req *proto.Encr
 		return nil, status.Error(codes.InvalidArgument, errMSG)
 	}
 
-	err = encryption.DecryptMessage(peerKey, s.wgKey, req.Body, &proto.DeviceAuthorizationFlowRequest{})
+	key, err := s.secretsManager.GetWGKey()
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to get server key")
+	}
+
+	err = encryption.DecryptMessage(peerKey, key, req.Body, &proto.DeviceAuthorizationFlowRequest{})
 	if err != nil {
 		errMSG := fmt.Sprintf("error while decrypting peer's message with Wireguard public key %s.", req.WgPubKey)
 		log.WithContext(ctx).Warn(errMSG)
 		return nil, status.Error(codes.InvalidArgument, errMSG)
 	}
 
-	if s.config.DeviceAuthorizationFlow == nil || s.config.DeviceAuthorizationFlow.Provider == string(nbconfig.NONE) {
-		return nil, status.Error(codes.NotFound, "no device authorization flow information available")
+	var flowInfoResp *proto.DeviceAuthorizationFlow
+
+	// Use embedded IdP configuration if available
+	if s.oAuthConfigProvider != nil {
+		flowInfoResp = &proto.DeviceAuthorizationFlow{
+			Provider: proto.DeviceAuthorizationFlow_HOSTED,
+			ProviderConfig: &proto.ProviderConfig{
+				ClientID:           s.oAuthConfigProvider.GetCLIClientID(),
+				Audience:           s.oAuthConfigProvider.GetCLIClientID(),
+				DeviceAuthEndpoint: s.oAuthConfigProvider.GetDeviceAuthEndpoint(),
+				TokenEndpoint:      s.oAuthConfigProvider.GetTokenEndpoint(),
+				Scope:              s.oAuthConfigProvider.GetDefaultScopes(),
+			},
+		}
+	} else {
+		if s.config.DeviceAuthorizationFlow == nil || s.config.DeviceAuthorizationFlow.Provider == string(nbconfig.NONE) {
+			return nil, status.Error(codes.NotFound, "no device authorization flow information available")
+		}
+
+		provider, ok := proto.DeviceAuthorizationFlowProvider_value[strings.ToUpper(s.config.DeviceAuthorizationFlow.Provider)]
+		if !ok {
+			return nil, status.Errorf(codes.InvalidArgument, "no provider found in the protocol for %s", s.config.DeviceAuthorizationFlow.Provider)
+		}
+
+		flowInfoResp = &proto.DeviceAuthorizationFlow{
+			Provider: proto.DeviceAuthorizationFlowProvider(provider),
+			ProviderConfig: &proto.ProviderConfig{
+				ClientID:           s.config.DeviceAuthorizationFlow.ProviderConfig.ClientID,
+				ClientSecret:       s.config.DeviceAuthorizationFlow.ProviderConfig.ClientSecret,
+				Domain:             s.config.DeviceAuthorizationFlow.ProviderConfig.Domain,
+				Audience:           s.config.DeviceAuthorizationFlow.ProviderConfig.Audience,
+				DeviceAuthEndpoint: s.config.DeviceAuthorizationFlow.ProviderConfig.DeviceAuthEndpoint,
+				TokenEndpoint:      s.config.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint,
+				Scope:              s.config.DeviceAuthorizationFlow.ProviderConfig.Scope,
+				UseIDToken:         s.config.DeviceAuthorizationFlow.ProviderConfig.UseIDToken,
+			},
+		}
 	}
 
-	provider, ok := proto.DeviceAuthorizationFlowProvider_value[strings.ToUpper(s.config.DeviceAuthorizationFlow.Provider)]
-	if !ok {
-		return nil, status.Errorf(codes.InvalidArgument, "no provider found in the protocol for %s", s.config.DeviceAuthorizationFlow.Provider)
-	}
-
-	flowInfoResp := &proto.DeviceAuthorizationFlow{
-		Provider: proto.DeviceAuthorizationFlowProvider(provider),
-		ProviderConfig: &proto.ProviderConfig{
-			ClientID:           s.config.DeviceAuthorizationFlow.ProviderConfig.ClientID,
-			ClientSecret:       s.config.DeviceAuthorizationFlow.ProviderConfig.ClientSecret,
-			Domain:             s.config.DeviceAuthorizationFlow.ProviderConfig.Domain,
-			Audience:           s.config.DeviceAuthorizationFlow.ProviderConfig.Audience,
-			DeviceAuthEndpoint: s.config.DeviceAuthorizationFlow.ProviderConfig.DeviceAuthEndpoint,
-			TokenEndpoint:      s.config.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint,
-			Scope:              s.config.DeviceAuthorizationFlow.ProviderConfig.Scope,
-			UseIDToken:         s.config.DeviceAuthorizationFlow.ProviderConfig.UseIDToken,
-		},
-	}
-
-	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, flowInfoResp)
+	encryptedResp, err := encryption.EncryptMessage(peerKey, key, flowInfoResp)
 	if err != nil {
-		return nil, status.Error(codes.Internal, "failed to encrypt no device authorization flow information")
+		return nil, status.Error(codes.Internal, "failed to encrypt device authorization flow information")
 	}
 
 	return &proto.EncryptedMessage{
-		WgPubKey: s.wgKey.PublicKey().String(),
+		WgPubKey: key.PublicKey().String(),
 		Body:     encryptedResp,
 	}, nil
 }
@@ -798,10 +1167,6 @@ func (s *Server) GetDeviceAuthorizationFlow(ctx context.Context, req *proto.Encr
 // which will be used by our clients to Login
 func (s *Server) GetPKCEAuthorizationFlow(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
 	log.WithContext(ctx).Tracef("GetPKCEAuthorizationFlow request for pubKey: %s", req.WgPubKey)
-	start := time.Now()
-	defer func() {
-		log.WithContext(ctx).Tracef("GetPKCEAuthorizationFlow for pubKey %s took %v", req.WgPubKey, time.Since(start))
-	}()
 
 	peerKey, err := wgtypes.ParseKey(req.GetWgPubKey())
 	if err != nil {
@@ -810,41 +1175,63 @@ func (s *Server) GetPKCEAuthorizationFlow(ctx context.Context, req *proto.Encryp
 		return nil, status.Error(codes.InvalidArgument, errMSG)
 	}
 
-	err = encryption.DecryptMessage(peerKey, s.wgKey, req.Body, &proto.PKCEAuthorizationFlowRequest{})
+	key, err := s.secretsManager.GetWGKey()
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to get server key")
+	}
+
+	err = encryption.DecryptMessage(peerKey, key, req.Body, &proto.PKCEAuthorizationFlowRequest{})
 	if err != nil {
 		errMSG := fmt.Sprintf("error while decrypting peer's message with Wireguard public key %s.", req.WgPubKey)
 		log.WithContext(ctx).Warn(errMSG)
 		return nil, status.Error(codes.InvalidArgument, errMSG)
 	}
 
-	if s.config.PKCEAuthorizationFlow == nil {
-		return nil, status.Error(codes.NotFound, "no pkce authorization flow information available")
-	}
+	var initInfoFlow *proto.PKCEAuthorizationFlow
 
-	initInfoFlow := &proto.PKCEAuthorizationFlow{
-		ProviderConfig: &proto.ProviderConfig{
-			Audience:              s.config.PKCEAuthorizationFlow.ProviderConfig.Audience,
-			ClientID:              s.config.PKCEAuthorizationFlow.ProviderConfig.ClientID,
-			ClientSecret:          s.config.PKCEAuthorizationFlow.ProviderConfig.ClientSecret,
-			TokenEndpoint:         s.config.PKCEAuthorizationFlow.ProviderConfig.TokenEndpoint,
-			AuthorizationEndpoint: s.config.PKCEAuthorizationFlow.ProviderConfig.AuthorizationEndpoint,
-			Scope:                 s.config.PKCEAuthorizationFlow.ProviderConfig.Scope,
-			RedirectURLs:          s.config.PKCEAuthorizationFlow.ProviderConfig.RedirectURLs,
-			UseIDToken:            s.config.PKCEAuthorizationFlow.ProviderConfig.UseIDToken,
-			DisablePromptLogin:    s.config.PKCEAuthorizationFlow.ProviderConfig.DisablePromptLogin,
-			LoginFlag:             uint32(s.config.PKCEAuthorizationFlow.ProviderConfig.LoginFlag),
-		},
+	// Use embedded IdP configuration if available
+	if s.oAuthConfigProvider != nil {
+		initInfoFlow = &proto.PKCEAuthorizationFlow{
+			ProviderConfig: &proto.ProviderConfig{
+				Audience:              s.oAuthConfigProvider.GetCLIClientID(),
+				ClientID:              s.oAuthConfigProvider.GetCLIClientID(),
+				TokenEndpoint:         s.oAuthConfigProvider.GetTokenEndpoint(),
+				AuthorizationEndpoint: s.oAuthConfigProvider.GetAuthorizationEndpoint(),
+				Scope:                 s.oAuthConfigProvider.GetDefaultScopes(),
+				RedirectURLs:          s.oAuthConfigProvider.GetCLIRedirectURLs(),
+				LoginFlag:             uint32(common.LoginFlagPromptLogin),
+			},
+		}
+	} else {
+		if s.config.PKCEAuthorizationFlow == nil {
+			return nil, status.Error(codes.NotFound, "no pkce authorization flow information available")
+		}
+
+		initInfoFlow = &proto.PKCEAuthorizationFlow{
+			ProviderConfig: &proto.ProviderConfig{
+				Audience:              s.config.PKCEAuthorizationFlow.ProviderConfig.Audience,
+				ClientID:              s.config.PKCEAuthorizationFlow.ProviderConfig.ClientID,
+				ClientSecret:          s.config.PKCEAuthorizationFlow.ProviderConfig.ClientSecret,
+				TokenEndpoint:         s.config.PKCEAuthorizationFlow.ProviderConfig.TokenEndpoint,
+				AuthorizationEndpoint: s.config.PKCEAuthorizationFlow.ProviderConfig.AuthorizationEndpoint,
+				Scope:                 s.config.PKCEAuthorizationFlow.ProviderConfig.Scope,
+				RedirectURLs:          s.config.PKCEAuthorizationFlow.ProviderConfig.RedirectURLs,
+				UseIDToken:            s.config.PKCEAuthorizationFlow.ProviderConfig.UseIDToken,
+				DisablePromptLogin:    s.config.PKCEAuthorizationFlow.ProviderConfig.DisablePromptLogin,
+				LoginFlag:             uint32(s.config.PKCEAuthorizationFlow.ProviderConfig.LoginFlag),
+			},
+		}
 	}
 
 	flowInfoResp := s.integratedPeerValidator.ValidateFlowResponse(ctx, peerKey.String(), initInfoFlow)
 
-	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, flowInfoResp)
+	encryptedResp, err := encryption.EncryptMessage(peerKey, key, flowInfoResp)
 	if err != nil {
-		return nil, status.Error(codes.Internal, "failed to encrypt no pkce authorization flow information")
+		return nil, status.Error(codes.Internal, "failed to encrypt pkce authorization flow information")
 	}
 
 	return &proto.EncryptedMessage{
-		WgPubKey: s.wgKey.PublicKey().String(),
+		WgPubKey: key.PublicKey().String(),
 		Body:     encryptedResp,
 	}, nil
 }
@@ -868,7 +1255,7 @@ func (s *Server) SyncMeta(ctx context.Context, req *proto.EncryptedMessage) (*pr
 		return nil, msg
 	}
 
-	err = s.accountManager.SyncPeerMeta(ctx, peerKey.String(), extractPeerMeta(ctx, syncMetaReq.GetMeta()))
+	err = s.accountManager.SyncPeerMeta(ctx, peerKey.String(), extractPeerMeta(ctx, syncMetaReq.GetMeta()), realIP)
 	if err != nil {
 		return nil, mapError(ctx, err)
 	}
@@ -917,7 +1304,10 @@ func (s *Server) Logout(ctx context.Context, req *proto.EncryptedMessage) (*prot
 func toProtocolChecks(ctx context.Context, postureChecks []*posture.Checks) []*proto.Checks {
 	protoChecks := make([]*proto.Checks, 0, len(postureChecks))
 	for _, postureCheck := range postureChecks {
-		protoChecks = append(protoChecks, toProtocolCheck(postureCheck))
+		check := toProtocolCheck(postureCheck)
+		if check != nil {
+			protoChecks = append(protoChecks, check)
+		}
 	}
 
 	return protoChecks
@@ -939,6 +1329,10 @@ func toProtocolCheck(postureCheck *posture.Checks) *proto.Checks {
 				protoCheck.Files = append(protoCheck.Files, process.WindowsPath)
 			}
 		}
+	}
+
+	if len(protoCheck.Files) == 0 {
+		return nil
 	}
 
 	return protoCheck

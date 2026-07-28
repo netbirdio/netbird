@@ -1,0 +1,101 @@
+{{define "style"}}
+body {
+    font-family: monospace;
+    margin: 20px;
+    background: #1a1a1a;
+    color: #eee;
+}
+a {
+    color: #6cf;
+}
+h1, h2, h3 {
+    color: #fff;
+}
+.info {
+    color: #aaa;
+}
+table {
+    border-collapse: collapse;
+    margin: 10px 0;
+}
+th, td {
+    border: 1px solid #444;
+    padding: 8px;
+    text-align: left;
+}
+th {
+    background: #333;
+}
+.nav {
+    margin-bottom: 20px;
+}
+.nav a {
+    margin-right: 15px;
+    padding: 8px 16px;
+    background: #333;
+    text-decoration: none;
+    border-radius: 4px;
+}
+.nav a.active {
+    background: #6cf;
+    color: #000;
+}
+pre {
+    background: #222;
+    padding: 15px;
+    border-radius: 4px;
+    overflow-x: auto;
+    white-space: pre-wrap;
+}
+input, select, textarea {
+    background: #333;
+    color: #eee;
+    border: 1px solid #555;
+    padding: 8px;
+    border-radius: 4px;
+    font-family: monospace;
+}
+input:focus, select:focus, textarea:focus {
+    outline: none;
+    border-color: #6cf;
+}
+button {
+    background: #6cf;
+    color: #000;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: monospace;
+}
+button:hover {
+    background: #5be;
+}
+button:disabled {
+    background: #555;
+    color: #888;
+    cursor: not-allowed;
+}
+.form-group {
+    margin-bottom: 15px;
+}
+.form-group label {
+    display: block;
+    margin-bottom: 5px;
+    color: #aaa;
+}
+.form-row {
+    display: flex;
+    gap: 10px;
+    align-items: flex-end;
+}
+.result {
+    margin-top: 20px;
+}
+.success {
+    color: #5f5;
+}
+.error {
+    color: #f55;
+}
+{{end}}

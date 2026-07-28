@@ -1,5 +1,4 @@
 //go:build pprof
-// +build pprof
 
 package cmd
 

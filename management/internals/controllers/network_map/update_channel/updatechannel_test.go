@@ -25,11 +25,14 @@ func TestCreateChannel(t *testing.T) {
 func TestSendUpdate(t *testing.T) {
 	peer := "test-sendupdate"
 	peersUpdater := NewPeersUpdateManager(nil)
-	update1 := &network_map.UpdateMessage{Update: &proto.SyncResponse{
-		NetworkMap: &proto.NetworkMap{
-			Serial: 0,
+	update1 := &network_map.UpdateMessage{
+		Update: &proto.SyncResponse{
+			NetworkMap: &proto.NetworkMap{
+				Serial: 0,
+			},
 		},
-	}}
+		MessageType: network_map.MessageTypeNetworkMap,
+	}
 	_ = peersUpdater.CreateChannel(context.Background(), peer)
 	if _, ok := peersUpdater.peerChannels[peer]; !ok {
 		t.Error("Error creating the channel")
@@ -45,11 +48,14 @@ func TestSendUpdate(t *testing.T) {
 		peersUpdater.SendUpdate(context.Background(), peer, update1)
 	}
 
-	update2 := &network_map.UpdateMessage{Update: &proto.SyncResponse{
-		NetworkMap: &proto.NetworkMap{
-			Serial: 10,
+	update2 := &network_map.UpdateMessage{
+		Update: &proto.SyncResponse{
+			NetworkMap: &proto.NetworkMap{
+				Serial: 10,
+			},
 		},
-	}}
+		MessageType: network_map.MessageTypeNetworkMap,
+	}
 
 	peersUpdater.SendUpdate(context.Background(), peer, update2)
 	timeout := time.After(5 * time.Second)

@@ -2,9 +2,11 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -22,6 +24,24 @@ import (
 	"github.com/netbirdio/netbird/shared/signal/proto"
 	"github.com/netbirdio/netbird/util/wsproxy"
 )
+
+const (
+	// receiveInactivityThreshold is how long the receive stream may be silent
+	// before the watchdog actively probes it. The gRPC transport can stay
+	// healthy (keepalive satisfied) while the server stops delivering messages,
+	// which the transport layer cannot detect.
+	receiveInactivityThreshold = 30 * time.Second
+	// receiveProbeTimeout is how long the watchdog waits for its self-addressed
+	// probe to round-trip back on the stream before declaring the receive
+	// direction dead.
+	receiveProbeTimeout = 10 * time.Second
+	// receiveWatchdogInterval is how often the watchdog evaluates the stream.
+	receiveWatchdogInterval = 10 * time.Second
+)
+
+// errReceiveStreamStalled is reported when the receive stream is transport-alive
+// but no longer delivering messages, so the stream is torn down to reconnect.
+var errReceiveStreamStalled = errors.New("signal receive stream stalled")
 
 // ConnStateNotifier is a wrapper interface of the status recorder
 type ConnStateNotifier interface {
@@ -50,6 +70,22 @@ type GrpcClient struct {
 	decryptionWorker       *Worker
 	decryptionWorkerCancel context.CancelFunc
 	decryptionWg           sync.WaitGroup
+
+	// lastReceived holds the Unix-nano timestamp of the last message read from
+	// the receive stream, used by the receive watchdog.
+	lastReceived atomic.Int64
+	// receiveStalled is set by the receive watchdog when the stream is
+	// transport-alive but no longer delivering messages. It is the source of
+	// truth IsHealthy reads, and is cleared once any frame is received again.
+	receiveStalled atomic.Bool
+	// receiveHandoffBlocked is set while the receive loop is parked handing a
+	// message to a busy decryption worker. The loop stops calling Recv (and
+	// markReceived) in that window, so the stream looks silent though it is
+	// healthy. The watchdog reads this to avoid misreading self-inflicted
+	// receive backpressure as a dead stream: reconnecting cannot help, since the
+	// new stream feeds the same worker, and only triggers a reconnect storm.
+	receiveHandoffBlocked atomic.Bool
+	watchdogWg            sync.WaitGroup
 }
 
 // NewClient creates a new Signal client
@@ -146,9 +182,9 @@ func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Mes
 
 		// connect to Signal stream identifying ourselves with a public WireGuard key
 		// todo once the key rotation logic has been implemented, consider changing to some other identifier (received from management)
-		ctx, cancelStream := context.WithCancel(ctx)
+		streamCtx, cancelStream := context.WithCancel(ctx)
 		defer cancelStream()
-		stream, err := c.connect(ctx, c.key.PublicKey().String())
+		stream, err := c.connect(streamCtx, c.key.PublicKey().String())
 		if err != nil {
 			log.Warnf("disconnected from the Signal Exchange due to an error: %v", err)
 			return err
@@ -162,10 +198,25 @@ func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Mes
 		// Start worker pool if not already started
 		c.startEncryptionWorker(msgHandler)
 
+		// Guard the receive direction: the transport can stay healthy while the
+		// server stops delivering messages. The watchdog reconnects via cancelStream.
+		c.markReceived()
+		c.watchdogWg.Add(1)
+		go func() {
+			defer c.watchdogWg.Done()
+			c.watchReceiveStream(streamCtx, cancelStream)
+		}()
+
 		// start receiving messages from the Signal stream (from other peers through signal)
 		err = c.receive(stream)
+
+		cancelStream()
+		c.watchdogWg.Wait()
+
 		if err != nil {
-			if s, ok := status.FromError(err); ok && s.Code() == codes.Canceled {
+			// Check the parent context, not streamCtx: a watchdog-triggered
+			// cancelStream must reconnect, only a parent cancel is shutdown.
+			if ctx.Err() != nil {
 				log.Debugf("signal connection context has been canceled, this usually indicates shutdown")
 				return nil
 			}
@@ -211,15 +262,6 @@ func (c *GrpcClient) notifyStreamConnected() {
 	}
 }
 
-func (c *GrpcClient) getStreamStatusChan() <-chan struct{} {
-	c.mux.Lock()
-	defer c.mux.Unlock()
-	if c.connectedCh == nil {
-		c.connectedCh = make(chan struct{})
-	}
-	return c.connectedCh
-}
-
 func (c *GrpcClient) connect(ctx context.Context, key string) (proto.SignalExchange_ConnectStreamClient, error) {
 	c.stream = nil
 
@@ -250,7 +292,10 @@ func (c *GrpcClient) Ready() bool {
 	return c.signalConn.GetState() == connectivity.Ready || c.signalConn.GetState() == connectivity.Idle
 }
 
-// IsHealthy probes the gRPC connection and returns false on errors
+// IsHealthy reports whether the Signal connection is usable, based on the
+// transport state plus the receive watchdog's verdict, and updates the status
+// recorder accordingly. It does not actively probe: the watchdog
+// (watchReceiveStream) owns probing the receive path and reconnecting.
 func (c *GrpcClient) IsHealthy() bool {
 	switch c.signalConn.GetState() {
 	case connectivity.TransientFailure:
@@ -263,16 +308,8 @@ func (c *GrpcClient) IsHealthy() bool {
 	case connectivity.Ready:
 	}
 
-	ctx, cancel := context.WithTimeout(c.ctx, 1*time.Second)
-	defer cancel()
-	_, err := c.realClient.Send(ctx, &proto.EncryptedMessage{
-		Key:       c.key.PublicKey().String(),
-		RemoteKey: "dummy",
-		Body:      nil,
-	})
-	if err != nil {
-		c.notifyDisconnected(err)
-		log.Warnf("health check returned: %s", err)
+	if c.receiveStalled.Load() {
+		c.notifyDisconnected(errReceiveStreamStalled)
 		return false
 	}
 	c.notifyConnected()
@@ -280,14 +317,24 @@ func (c *GrpcClient) IsHealthy() bool {
 }
 
 // WaitStreamConnected waits until the client is connected to the Signal stream
-func (c *GrpcClient) WaitStreamConnected() {
-
+func (c *GrpcClient) WaitStreamConnected(ctx context.Context) {
+	// Check the status and obtain the wait channel atomically: otherwise
+	// notifyStreamConnected could flip the status and close/clear the channel
+	// between the check and the channel creation, leaving us waiting forever on
+	// a stale channel.
+	c.mux.Lock()
 	if c.status == StreamConnected {
+		c.mux.Unlock()
 		return
 	}
+	if c.connectedCh == nil {
+		c.connectedCh = make(chan struct{})
+	}
+	ch := c.connectedCh
+	c.mux.Unlock()
 
-	ch := c.getStreamStatusChan()
 	select {
+	case <-ctx.Done():
 	case <-c.ctx.Done():
 	case <-ch:
 	}
@@ -362,7 +409,12 @@ func (c *GrpcClient) encryptMessage(msg *proto.Message) (*proto.EncryptedMessage
 
 // Send sends a message to the remote Peer through the Signal Exchange.
 func (c *GrpcClient) Send(msg *proto.Message) error {
+	return c.send(c.ctx, msg)
+}
 
+// send delivers a message deriving per-attempt timeouts from parentCtx, so a
+// caller can abort an in-flight send by cancelling that context.
+func (c *GrpcClient) send(parentCtx context.Context, msg *proto.Message) error {
 	if !c.Ready() {
 		return fmt.Errorf("no connection to signal")
 	}
@@ -378,7 +430,7 @@ func (c *GrpcClient) Send(msg *proto.Message) error {
 		if attempt > 1 {
 			attemptTimeout = time.Duration(attempt) * 5 * time.Second
 		}
-		ctx, cancel := context.WithTimeout(c.ctx, attemptTimeout)
+		ctx, cancel := context.WithTimeout(parentCtx, attemptTimeout)
 
 		_, err = c.realClient.Send(ctx, encryptedMessage)
 
@@ -394,6 +446,80 @@ func (c *GrpcClient) Send(msg *proto.Message) error {
 	}
 
 	return err
+}
+
+// markReceived records that a frame was just read from the receive stream and
+// clears the stalled flag.
+func (c *GrpcClient) markReceived() {
+	c.lastReceived.Store(time.Now().UnixNano())
+	c.receiveStalled.Store(false)
+}
+
+// idleSinceReceive returns how long the receive stream has been silent.
+func (c *GrpcClient) idleSinceReceive() time.Duration {
+	return time.Since(time.Unix(0, c.lastReceived.Load()))
+}
+
+// receiveAlive reports whether the receive stream shows liveness: it delivered a
+// frame within the inactivity threshold, or the receive loop is currently parked
+// handing a message to a busy decryption worker. In the latter case the loop has
+// stopped calling Recv, so the stream looks silent while being healthy, and
+// reconnecting would not help, so the watchdog must treat it as alive.
+func (c *GrpcClient) receiveAlive() bool {
+	return c.idleSinceReceive() < receiveInactivityThreshold ||
+		c.receiveHandoffBlocked.Load()
+}
+
+// watchReceiveStream guards against a receive stream that is transport-alive but
+// no longer delivering messages. While the stream is idle past
+// receiveInactivityThreshold it sends a self-addressed probe that the Signal
+// server routes back to this client. If the probe does not round-trip within
+// receiveProbeTimeout the receive direction is considered dead and cancelStream
+// is called so the retry loop reconnects.
+func (c *GrpcClient) watchReceiveStream(ctx context.Context, cancelStream context.CancelFunc) {
+	ticker := time.NewTicker(receiveWatchdogInterval)
+	defer ticker.Stop()
+
+	var probeSentAt time.Time
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if c.receiveAlive() {
+				probeSentAt = time.Time{}
+				continue
+			}
+
+			if !probeSentAt.IsZero() && time.Since(probeSentAt) >= receiveProbeTimeout {
+				log.Warnf("signal receive stream stalled: no messages for %s and probe did not return, reconnecting", c.idleSinceReceive().Round(time.Second))
+				c.receiveStalled.Store(true)
+				c.notifyDisconnected(errReceiveStreamStalled)
+				cancelStream()
+				return
+			}
+
+			if probeSentAt.IsZero() {
+				if err := c.sendReceiveProbe(ctx); err != nil {
+					log.Debugf("failed to send signal receive probe: %v", err)
+				}
+				probeSentAt = time.Now()
+			}
+		}
+	}
+}
+
+// sendReceiveProbe sends a self-addressed heartbeat bound to ctx, so cancelStream
+// aborts an in-flight probe instead of leaving the watchdog blocked on send timeouts.
+// The Signal server routes it back to this client, exercising the exact receive
+// path the watchdog guards.
+func (c *GrpcClient) sendReceiveProbe(ctx context.Context) error {
+	self := c.key.PublicKey().String()
+	return c.send(ctx, &proto.Message{
+		Key:       self,
+		RemoteKey: self,
+		Body:      &proto.Body{Type: proto.Body_HEARTBEAT},
+	})
 }
 
 // receive receives messages from other peers coming through the Signal Exchange
@@ -417,13 +543,24 @@ func (c *GrpcClient) receive(stream proto.SignalExchange_ConnectStreamClient) er
 			return err
 		}
 
+		// Any frame from the server proves the receive direction is alive.
+		c.markReceived()
+
 		if msg == nil {
 			continue
 		}
 
+		// The handoff blocks while the worker is busy, which parks this loop and
+		// stops Recv. Flag it so the watchdog does not read the resulting silence
+		// as a dead stream.
+		c.receiveHandoffBlocked.Store(true)
 		if err := c.decryptionWorker.AddMsg(c.ctx, msg); err != nil {
 			log.Errorf("failed to add message to decryption worker: %v", err)
 		}
+		// Refresh liveness before clearing the flag so the window between here and
+		// the next Recv does not read a stale timestamp as a dead stream.
+		c.markReceived()
+		c.receiveHandoffBlocked.Store(false)
 	}
 }
 

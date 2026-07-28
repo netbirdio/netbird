@@ -15,16 +15,17 @@ import (
 	"github.com/netbirdio/netbird/monotime"
 )
 
-var zeroKey wgtypes.Key
-
 type KernelConfigurer struct {
 	deviceName string
+	statsCache *statsCache
 }
 
 func NewKernelConfigurer(deviceName string) *KernelConfigurer {
-	return &KernelConfigurer{
+	c := &KernelConfigurer{
 		deviceName: deviceName,
 	}
+	c.statsCache = newStatsCache(statsCacheTTL, c.fetchStats)
+	return c
 }
 
 func (c *KernelConfigurer) ConfigureInterface(privateKey string, port int) error {
@@ -46,6 +47,18 @@ func (c *KernelConfigurer) ConfigureInterface(privateKey string, port int) error
 		return fmt.Errorf(`received error "%w" while configuring interface %s with port %d`, err, c.deviceName, port)
 	}
 	return nil
+}
+
+// SetPresharedKey sets the preshared key for a peer.
+// If updateOnly is true, only updates the existing peer; if false, creates or updates.
+func (c *KernelConfigurer) SetPresharedKey(peerKey string, psk wgtypes.Key, updateOnly bool) error {
+	parsedPeerKey, err := wgtypes.ParseKey(peerKey)
+	if err != nil {
+		return err
+	}
+
+	cfg := buildPresharedKeyConfig(parsedPeerKey, psk, updateOnly)
+	return c.configure(cfg)
 }
 
 func (c *KernelConfigurer) UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
@@ -236,12 +249,6 @@ func (c *KernelConfigurer) configure(config wgtypes.Config) error {
 		}
 	}()
 
-	// validate if device with name exists
-	_, err = wg.Device(c.deviceName)
-	if err != nil {
-		return err
-	}
-
 	return wg.ConfigureDevice(c.deviceName, config)
 }
 
@@ -279,7 +286,7 @@ func (c *KernelConfigurer) FullStats() (*Stats, error) {
 			TxBytes:       p.TransmitBytes,
 			RxBytes:       p.ReceiveBytes,
 			LastHandshake: p.LastHandshakeTime,
-			PresharedKey:  p.PresharedKey != zeroKey,
+			PresharedKey:  [32]byte(p.PresharedKey),
 		}
 		if p.Endpoint != nil {
 			peer.Endpoint = *p.Endpoint
@@ -290,6 +297,14 @@ func (c *KernelConfigurer) FullStats() (*Stats, error) {
 }
 
 func (c *KernelConfigurer) GetStats() (map[string]WGStats, error) {
+	return c.statsCache.get()
+}
+
+func (c *KernelConfigurer) LastActivities() map[string]monotime.Time {
+	return nil
+}
+
+func (c *KernelConfigurer) fetchStats() (map[string]WGStats, error) {
 	stats := make(map[string]WGStats)
 	wg, err := wgctrl.New()
 	if err != nil {
@@ -315,8 +330,4 @@ func (c *KernelConfigurer) GetStats() (map[string]WGStats, error) {
 		}
 	}
 	return stats, nil
-}
-
-func (c *KernelConfigurer) LastActivities() map[string]monotime.Time {
-	return nil
 }

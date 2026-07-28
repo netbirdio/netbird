@@ -16,6 +16,7 @@ import (
 type Notifier struct {
 	initialRoutes []*route.Route
 	currentRoutes []*route.Route
+	fakeIPRoutes  []*route.Route
 
 	listener    listener.NetworkChangeListener
 	listenerMux sync.Mutex
@@ -31,26 +32,15 @@ func (n *Notifier) SetListener(listener listener.NetworkChangeListener) {
 	n.listener = listener
 }
 
+// SetInitialClientRoutes stores the initial route sets for TUN configuration.
 func (n *Notifier) SetInitialClientRoutes(initialRoutes []*route.Route, routesForComparison []*route.Route) {
-	// initialRoutes contains fake IP block for interface configuration
-	filteredInitial := make([]*route.Route, 0)
-	for _, r := range initialRoutes {
-		if r.IsDynamic() {
-			continue
-		}
-		filteredInitial = append(filteredInitial, r)
-	}
-	n.initialRoutes = filteredInitial
+	n.initialRoutes = filterStatic(initialRoutes)
+	n.currentRoutes = filterStatic(routesForComparison)
+}
 
-	// routesForComparison excludes fake IP block for comparison with new routes
-	filteredComparison := make([]*route.Route, 0)
-	for _, r := range routesForComparison {
-		if r.IsDynamic() {
-			continue
-		}
-		filteredComparison = append(filteredComparison, r)
-	}
-	n.currentRoutes = filteredComparison
+// SetFakeIPRoutes stores the fake IP routes to be included in every TUN rebuild.
+func (n *Notifier) SetFakeIPRoutes(routes []*route.Route) {
+	n.fakeIPRoutes = routes
 }
 
 func (n *Notifier) OnNewRoutes(idMap route.HAMap) {
@@ -83,11 +73,24 @@ func (n *Notifier) notify() {
 		return
 	}
 
-	routeStrings := n.routesToStrings(n.currentRoutes)
+	allRoutes := slices.Clone(n.currentRoutes)
+	allRoutes = append(allRoutes, n.fakeIPRoutes...)
+
+	routeStrings := n.routesToStrings(allRoutes)
 	sort.Strings(routeStrings)
 	go func(l listener.NetworkChangeListener) {
-		l.OnNetworkChanged(strings.Join(n.addIPv6RangeIfNeeded(routeStrings, n.currentRoutes), ","))
+		l.OnNetworkChanged(strings.Join(routeStrings, ","))
 	}(n.listener)
+}
+
+func filterStatic(routes []*route.Route) []*route.Route {
+	out := make([]*route.Route, 0, len(routes))
+	for _, r := range routes {
+		if !r.IsDynamic() {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 func (n *Notifier) routesToStrings(routes []*route.Route) []string {
@@ -114,14 +117,9 @@ func (n *Notifier) hasRouteDiff(a []*route.Route, b []*route.Route) bool {
 func (n *Notifier) GetInitialRouteRanges() []string {
 	initialStrings := n.routesToStrings(n.initialRoutes)
 	sort.Strings(initialStrings)
-	return n.addIPv6RangeIfNeeded(initialStrings, n.initialRoutes)
+	return initialStrings
 }
 
-func (n *Notifier) addIPv6RangeIfNeeded(inputRanges []string, routes []*route.Route) []string {
-	for _, r := range routes {
-		if r.Network.Addr().Is4() && r.Network.Bits() == 0 {
-			return append(slices.Clone(inputRanges), "::/0")
-		}
-	}
-	return inputRanges
+func (n *Notifier) Close() {
+	// unused
 }

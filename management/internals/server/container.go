@@ -44,6 +44,9 @@ func maybeCreateNamed[T any](s Server, name string, createFunc func() T) (result
 
 func maybeCreateKeyed[T any](s Server, key string, createFunc func() T) (result T, isNew bool) {
 	if t, ok := s.GetContainer(key); ok {
+		if t == nil {
+			return result, false
+		}
 		return t.(T), false
 	}
 

@@ -1,3 +1,5 @@
+//go:build privileged
+
 package iptables
 
 import (
@@ -46,8 +48,6 @@ func (i *iFaceMock) Address() wgaddr.Address {
 	}
 	panic("AddressFunc is not set")
 }
-
-func (i *iFaceMock) IsUserspaceBind() bool { return false }
 
 func TestIptablesManager(t *testing.T) {
 	ipv4Client, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
@@ -161,7 +161,7 @@ func TestIptablesManagerDenyRules(t *testing.T) {
 			t.Logf("  [%d] %s", i, rule)
 		}
 
-		var denyRuleIndex, acceptRuleIndex int = -1, -1
+		var denyRuleIndex, acceptRuleIndex = -1, -1
 		for i, rule := range rules {
 			if strings.Contains(rule, "DROP") {
 				t.Logf("Found DROP rule at index %d: %s", i, rule)

@@ -24,6 +24,11 @@ func (w *USPFactory) GetProxy() Proxy {
 	return proxyBind.NewProxyBind(w.bind, w.mtu)
 }
 
+// GetProxyPort returns 0 as userspace WireGuard doesn't use a separate proxy port.
+func (w *USPFactory) GetProxyPort() uint16 {
+	return 0
+}
+
 func (w *USPFactory) Free() error {
 	return nil
 }

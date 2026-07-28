@@ -9,6 +9,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/permissions/roles"
@@ -18,9 +19,9 @@ import (
 )
 
 type Manager interface {
-	ValidateUserPermissions(ctx context.Context, accountID, userID string, module modules.Module, operation operations.Operation) (bool, error)
+	ValidateUserPermissions(ctx context.Context, accountID, userID string, module modules.Module, operation operations.Operation) (bool, context.Context, error)
 	ValidateRoleModuleAccess(ctx context.Context, accountID string, role roles.RolePermissions, module modules.Module, operation operations.Operation) bool
-	ValidateAccountAccess(ctx context.Context, accountID string, user *types.User, allowOwnerAndAdmin bool) error
+	ValidateAccountAccess(ctx context.Context, accountID string, user *types.User, allowOwnerAndAdmin bool) (context.Context, error)
 
 	GetPermissionsByRole(ctx context.Context, role types.UserRole) (roles.Permissions, error)
 	SetAccountManager(accountManager account.Manager)
@@ -42,42 +43,43 @@ func (m *managerImpl) ValidateUserPermissions(
 	userID string,
 	module modules.Module,
 	operation operations.Operation,
-) (bool, error) {
+) (bool, context.Context, error) {
 	if userID == activity.SystemInitiator {
-		return true, nil
+		return true, ctx, nil
 	}
 
 	user, err := m.store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
 	if err != nil {
-		return false, err
+		return false, ctx, err
 	}
 
 	if user == nil {
-		return false, status.NewUserNotFoundError(userID)
+		return false, ctx, status.NewUserNotFoundError(userID)
 	}
 
 	if user.IsBlocked() && !user.PendingApproval {
-		return false, status.NewUserBlockedError()
+		return false, ctx, status.NewUserBlockedError()
 	}
 
 	if user.IsBlocked() && user.PendingApproval {
-		return false, status.NewUserPendingApprovalError()
+		return false, ctx, status.NewUserPendingApprovalError()
 	}
 
-	if err := m.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
-		return false, err
+	ctxEnriched, err := m.ValidateAccountAccess(ctx, accountID, user, false)
+	if err != nil {
+		return false, ctx, err
 	}
 
 	if operation == operations.Read && user.IsServiceUser {
-		return true, nil // this should be replaced by proper granular access role
+		return true, ctxEnriched, nil // this should be replaced by proper granular access role
 	}
 
 	role, ok := roles.RolesMap[user.Role]
 	if !ok {
-		return false, status.NewUserRoleNotFoundError(string(user.Role))
+		return false, ctxEnriched, status.NewUserRoleNotFoundError(string(user.Role))
 	}
 
-	return m.ValidateRoleModuleAccess(ctx, accountID, role, module, operation), nil
+	return m.ValidateRoleModuleAccess(ctx, accountID, role, module, operation), ctxEnriched, nil
 }
 
 func (m *managerImpl) ValidateRoleModuleAccess(
@@ -98,11 +100,14 @@ func (m *managerImpl) ValidateRoleModuleAccess(
 	return role.AutoAllowNew[operation]
 }
 
-func (m *managerImpl) ValidateAccountAccess(ctx context.Context, accountID string, user *types.User, allowOwnerAndAdmin bool) error {
+func (m *managerImpl) ValidateAccountAccess(ctx context.Context, accountID string, user *types.User, allowOwnerAndAdmin bool) (context.Context, error) {
 	if user.AccountID != accountID {
-		return status.NewUserNotPartOfAccountError()
+		return ctx, status.NewUserNotPartOfAccountError()
 	}
-	return nil
+
+	ctx = nbcontext.WithRole(ctx, string(user.Role))
+
+	return ctx, nil
 }
 
 func (m *managerImpl) GetPermissionsByRole(ctx context.Context, role types.UserRole) (roles.Permissions, error) {

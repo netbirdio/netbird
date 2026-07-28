@@ -1,6 +1,7 @@
 package uspfilter
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -12,28 +13,40 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/uuid"
+	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 
+	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/common"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/conntrack"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/forwarder"
 	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
 	"github.com/netbirdio/netbird/client/iface/netstack"
+	nbid "github.com/netbirdio/netbird/client/internal/acl/id"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
 const (
-	layerTypeAll = 0
+	layerTypeAll = 255
 
-	// ipTCPHeaderMinSize represents minimum IP (20) + TCP (20) header size for MSS calculation
-	ipTCPHeaderMinSize = 40
+	// ipv4TCPHeaderMinSize represents minimum IPv4 (20) + TCP (20) header size for MSS calculation
+	ipv4TCPHeaderMinSize = 40
+	// ipv6TCPHeaderMinSize represents minimum IPv6 (40) + TCP (20) header size for MSS calculation
+	ipv6TCPHeaderMinSize = 60
 )
+
+// serviceKey represents a protocol/port combination for netstack service registry
+type serviceKey struct {
+	protocol gopacket.LayerType
+	port     uint16
+}
 
 const (
 	// EnvDisableConntrack disables the stateful filter, replies to outbound traffic won't be allowed.
@@ -59,12 +72,6 @@ const (
 
 var errNatNotSupported = errors.New("nat not supported with userspace firewall")
 
-// serviceKey represents a protocol/port combination for netstack service registry
-type serviceKey struct {
-	protocol gopacket.LayerType
-	port     uint16
-}
-
 // RuleSet is a set of rules grouped by a string key
 type RuleSet map[string]PeerRule
 
@@ -89,6 +96,7 @@ type Manager struct {
 	incomingDenyRules map[netip.Addr]RuleSet
 	incomingRules     map[netip.Addr]RuleSet
 	routeRules        RouteRules
+	routeRulesMap     map[nbid.RuleID]*RouteRule
 	decoders          sync.Pool
 	wgIface           common.IFaceMapper
 	nativeFirewall    firewall.Manager
@@ -110,14 +118,16 @@ type Manager struct {
 
 	localipmanager *localIPManager
 
-	udpTracker  *conntrack.UDPTracker
-	icmpTracker *conntrack.ICMPTracker
-	tcpTracker  *conntrack.TCPTracker
-	forwarder   atomic.Pointer[forwarder.Forwarder]
-	logger      *nblog.Logger
-	flowLogger  nftypes.FlowLogger
+	udpTracker     *conntrack.UDPTracker
+	icmpTracker    *conntrack.ICMPTracker
+	tcpTracker     *conntrack.TCPTracker
+	fragments      *fragmentTracker
+	forwarder      atomic.Pointer[forwarder.Forwarder]
+	pendingCapture atomic.Pointer[forwarder.PacketCapture]
+	logger         *nblog.Logger
+	flowLogger     nftypes.FlowLogger
 
-	blockRule firewall.Rule
+	blockRules []firewall.Rule
 
 	// Internal 1:1 DNAT
 	dnatEnabled  atomic.Bool
@@ -132,9 +142,14 @@ type Manager struct {
 	netstackServices     map[serviceKey]struct{}
 	netstackServiceMutex sync.RWMutex
 
-	mtu             uint16
-	mssClampValue   uint16
-	mssClampEnabled bool
+	mtu               uint16
+	mssClampValueIPv4 uint16
+	mssClampValueIPv6 uint16
+	mssClampEnabled   bool
+
+	// Only one hook per protocol is supported. Outbound direction only.
+	udpHookOut atomic.Pointer[common.PacketHook]
+	tcpHookOut atomic.Pointer[common.PacketHook]
 }
 
 // decoder for packages
@@ -147,9 +162,61 @@ type decoder struct {
 	icmp4   layers.ICMPv4
 	icmp6   layers.ICMPv6
 	decoded []gopacket.LayerType
-	parser  *gopacket.DecodingLayerParser
+	parser4 *gopacket.DecodingLayerParser
+	parser6 *gopacket.DecodingLayerParser
 
 	dnatOrigPort uint16
+}
+
+// decodePacket decodes packet data using the appropriate parser based on IP version.
+func (d *decoder) decodePacket(data []byte) error {
+	if len(data) == 0 {
+		return errors.New("empty packet")
+	}
+	version := data[0] >> 4
+	switch version {
+	case 4:
+		return d.parser4.DecodeLayers(data, &d.decoded)
+	case 6:
+		return d.parser6.DecodeLayers(data, &d.decoded)
+	default:
+		return fmt.Errorf("unknown IP version %d", version)
+	}
+}
+
+// decodeTransport decodes the transport header of a first fragment (which
+// gopacket leaves undecoded) into the decoder and appends its layer type to
+// decoded, so the ACL pipeline can evaluate it like a normal packet. It returns
+// false if the protocol is unsupported or the header is truncated.
+func (d *decoder) decodeTransport(proto layers.IPProtocol, payload []byte) bool {
+	var l4 gopacket.DecodingLayer
+	var layerType gopacket.LayerType
+	var minLen int
+	switch proto {
+	case layers.IPProtocolTCP:
+		l4, layerType, minLen = &d.tcp, layers.LayerTypeTCP, 20
+	case layers.IPProtocolUDP:
+		l4, layerType, minLen = &d.udp, layers.LayerTypeUDP, 8
+	case layers.IPProtocolICMPv4:
+		l4, layerType, minLen = &d.icmp4, layers.LayerTypeICMPv4, 8
+	case layers.IPProtocolICMPv6:
+		l4, layerType, minLen = &d.icmp6, layers.LayerTypeICMPv6, 8
+	default:
+		return false
+	}
+
+	// Reject a fragment too small to hold the full transport header before
+	// decoding: it can't be ACL-evaluated (tiny-fragment attack), and skipping
+	// the decode avoids gopacket allocating an error on the drop path.
+	if len(payload) < minLen {
+		return false
+	}
+
+	if err := l4.DecodeFromBytes(payload, gopacket.NilDecodeFeedback); err != nil {
+		return false
+	}
+	d.decoded = append(d.decoded, layerType)
+	return true
 }
 
 // Create userspace firewall manager constructor
@@ -209,11 +276,17 @@ func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableSe
 				d := &decoder{
 					decoded: []gopacket.LayerType{},
 				}
-				d.parser = gopacket.NewDecodingLayerParser(
+				d.parser4 = gopacket.NewDecodingLayerParser(
 					layers.LayerTypeIPv4,
 					&d.eth, &d.ip4, &d.ip6, &d.icmp4, &d.icmp6, &d.tcp, &d.udp,
 				)
-				d.parser.IgnoreUnsupported = true
+				d.parser4.IgnoreUnsupported = true
+
+				d.parser6 = gopacket.NewDecodingLayerParser(
+					layers.LayerTypeIPv6,
+					&d.eth, &d.ip4, &d.ip6, &d.icmp4, &d.icmp6, &d.tcp, &d.udp,
+				)
+				d.parser6.IgnoreUnsupported = true
 				return d
 			},
 		},
@@ -229,6 +302,7 @@ func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableSe
 		flowLogger:          flowLogger,
 		netstack:            netstack.IsEnabled(),
 		localForwarding:     enableLocalForwarding,
+		routeRulesMap:       make(map[nbid.RuleID]*RouteRule),
 		dnatMappings:        make(map[netip.Addr]netip.Addr),
 		portDNATRules:       []portDNATRule{},
 		netstackServices:    make(map[serviceKey]struct{}),
@@ -238,11 +312,18 @@ func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableSe
 
 	if !disableMSSClamping {
 		m.mssClampEnabled = true
-		m.mssClampValue = mtu - ipTCPHeaderMinSize
+		if mtu > ipv4TCPHeaderMinSize {
+			m.mssClampValueIPv4 = mtu - ipv4TCPHeaderMinSize
+		}
+		if mtu > ipv6TCPHeaderMinSize {
+			m.mssClampValueIPv6 = mtu - ipv6TCPHeaderMinSize
+		}
 	}
 	if err := m.localipmanager.UpdateLocalIPs(iface); err != nil {
 		return nil, fmt.Errorf("update local IPs: %w", err)
 	}
+	m.fragments = newFragmentTracker(m.logger)
+
 	if disableConntrack {
 		log.Info("conntrack is disabled")
 	} else {
@@ -256,21 +337,31 @@ func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableSe
 		}
 	}
 	if err := iface.SetFilter(m); err != nil {
+		m.fragments.Close()
 		return nil, fmt.Errorf("set filter: %w", err)
 	}
 	return m, nil
 }
 
-func (m *Manager) blockInvalidRouted(iface common.IFaceMapper) (firewall.Rule, error) {
-	wgPrefix, err := netip.ParsePrefix(iface.Address().Network.String())
-	if err != nil {
-		return nil, fmt.Errorf("parse wireguard network: %w", err)
-	}
+// blockInvalidRouted installs drop rules for traffic to the wg overlay that
+// arrives via the routing path. v4 and v6 are independent: a v6 install
+// failure leaves v4 protection in place (and vice versa) so the returned
+// slice always contains whatever was successfully installed, even on error.
+// Callers must persist the slice so DisableRouting can clean partial state.
+func (m *Manager) blockInvalidRouted(iface common.IFaceMapper) ([]firewall.Rule, error) {
+	wgPrefix := iface.Address().Network
 	log.Debugf("blocking invalid routed traffic for %s", wgPrefix)
 
-	rule, err := m.addRouteFiltering(
+	sources := []netip.Prefix{netip.PrefixFrom(netip.IPv4Unspecified(), 0)}
+	v6Net := iface.Address().IPv6Net
+	if v6Net.IsValid() {
+		sources = append(sources, netip.PrefixFrom(netip.IPv6Unspecified(), 0))
+	}
+
+	var rules []firewall.Rule
+	v4Rule, err := m.addRouteFiltering(
 		nil,
-		[]netip.Prefix{netip.PrefixFrom(netip.IPv4Unspecified(), 0)},
+		sources,
 		firewall.Network{Prefix: wgPrefix},
 		firewall.ProtocolALL,
 		nil,
@@ -278,12 +369,30 @@ func (m *Manager) blockInvalidRouted(iface common.IFaceMapper) (firewall.Rule, e
 		firewall.ActionDrop,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("block wg nte : %w", err)
+		return rules, fmt.Errorf("block wg v4 net: %w", err)
+	}
+	rules = append(rules, v4Rule)
+
+	if v6Net.IsValid() {
+		log.Debugf("blocking invalid routed traffic for %s", v6Net)
+		v6Rule, err := m.addRouteFiltering(
+			nil,
+			sources,
+			firewall.Network{Prefix: v6Net},
+			firewall.ProtocolALL,
+			nil,
+			nil,
+			firewall.ActionDrop,
+		)
+		if err != nil {
+			return rules, fmt.Errorf("block wg v6 net: %w", err)
+		}
+		rules = append(rules, v6Rule)
 	}
 
 	// TODO: Block networks that we're a client of
 
-	return rule, nil
+	return rules, nil
 }
 
 func (m *Manager) determineRouting() error {
@@ -344,6 +453,19 @@ func (m *Manager) determineRouting() error {
 	return nil
 }
 
+// SetPacketCapture sets or clears packet capture on the forwarder endpoint.
+// This captures outbound response packets that bypass the FilteredDevice in netstack mode.
+func (m *Manager) SetPacketCapture(pc forwarder.PacketCapture) {
+	if pc == nil {
+		m.pendingCapture.Store(nil)
+	} else {
+		m.pendingCapture.Store(&pc)
+	}
+	if fwder := m.forwarder.Load(); fwder != nil {
+		fwder.SetCapture(pc)
+	}
+}
+
 // initForwarder initializes the forwarder, it disables routing on errors
 func (m *Manager) initForwarder() error {
 	if m.forwarder.Load() != nil {
@@ -364,6 +486,11 @@ func (m *Manager) initForwarder() error {
 	}
 
 	m.forwarder.Store(forwarder)
+
+	// Re-load after store: a concurrent SetPacketCapture may have seen forwarder as nil and only updated pendingCapture.
+	if pc := m.pendingCapture.Load(); pc != nil {
+		forwarder.SetCapture(*pc)
+	}
 
 	log.Debug("forwarder initialized")
 
@@ -439,19 +566,7 @@ func (m *Manager) AddPeerFiltering(
 	r.sPort = sPort
 	r.dPort = dPort
 
-	switch proto {
-	case firewall.ProtocolTCP:
-		r.protoLayer = layers.LayerTypeTCP
-	case firewall.ProtocolUDP:
-		r.protoLayer = layers.LayerTypeUDP
-	case firewall.ProtocolICMP:
-		r.protoLayer = layers.LayerTypeICMPv4
-		if r.ipLayer == layers.LayerTypeIPv6 {
-			r.protoLayer = layers.LayerTypeICMPv6
-		}
-	case firewall.ProtocolALL:
-		r.protoLayer = layerTypeAll
-	}
+	r.protoLayer = protoToLayer(proto, r.ipLayer)
 
 	m.mutex.Lock()
 	var targetMap map[netip.Addr]RuleSet
@@ -495,17 +610,22 @@ func (m *Manager) addRouteFiltering(
 		return m.nativeFirewall.AddRouteFiltering(id, sources, destination, proto, sPort, dPort, action)
 	}
 
-	ruleID := uuid.New().String()
+	ruleKey := nbid.GenerateRouteRuleKey(sources, destination, proto, sPort, dPort, action)
+
+	if existingRule, ok := m.routeRulesMap[ruleKey]; ok {
+		return existingRule, nil
+	}
+
 	rule := RouteRule{
 		// TODO: consolidate these IDs
-		id:      ruleID,
-		mgmtId:  id,
-		sources: sources,
-		dstSet:  destination.Set,
-		proto:   proto,
-		srcPort: sPort,
-		dstPort: dPort,
-		action:  action,
+		id:         string(ruleKey),
+		mgmtId:     id,
+		sources:    sources,
+		dstSet:     destination.Set,
+		protoLayer: protoToLayer(proto, ipLayerFromPrefix(destination.Prefix)),
+		srcPort:    sPort,
+		dstPort:    dPort,
+		action:     action,
 	}
 	if destination.IsPrefix() {
 		rule.destinations = []netip.Prefix{destination.Prefix}
@@ -513,6 +633,7 @@ func (m *Manager) addRouteFiltering(
 
 	m.routeRules = append(m.routeRules, &rule)
 	m.routeRules.Sort()
+	m.routeRulesMap[ruleKey] = &rule
 
 	return &rule, nil
 }
@@ -529,15 +650,20 @@ func (m *Manager) deleteRouteRule(rule firewall.Rule) error {
 		return m.nativeFirewall.DeleteRouteRule(rule)
 	}
 
-	ruleID := rule.ID()
+	ruleKey := nbid.RuleID(rule.ID())
+	if _, ok := m.routeRulesMap[ruleKey]; !ok {
+		return fmt.Errorf("route rule not found: %s", ruleKey)
+	}
+
 	idx := slices.IndexFunc(m.routeRules, func(r *RouteRule) bool {
-		return r.id == ruleID
+		return r.id == string(ruleKey)
 	})
 	if idx < 0 {
-		return fmt.Errorf("route rule not found: %s", ruleID)
+		return fmt.Errorf("route rule not found in slice: %s", ruleKey)
 	}
 
 	m.routeRules = slices.Delete(m.routeRules, idx, idx+1)
+	delete(m.routeRulesMap, ruleKey)
 	return nil
 }
 
@@ -584,6 +710,55 @@ func (m *Manager) SetLegacyManagement(isLegacy bool) error {
 // Flush doesn't need to be implemented for this manager
 func (m *Manager) Flush() error { return nil }
 
+// resetState clears all firewall rules and closes connection trackers.
+// Must be called with m.mutex held.
+func (m *Manager) resetState() {
+	clear(m.outgoingRules)
+	clear(m.incomingDenyRules)
+	clear(m.incomingRules)
+	clear(m.routeRulesMap)
+	m.routeRules = m.routeRules[:0]
+	m.udpHookOut.Store(nil)
+	m.tcpHookOut.Store(nil)
+
+	if m.udpTracker != nil {
+		m.udpTracker.Close()
+	}
+
+	if m.icmpTracker != nil {
+		m.icmpTracker.Close()
+	}
+
+	if m.tcpTracker != nil {
+		m.tcpTracker.Close()
+	}
+
+	if m.fragments != nil {
+		m.fragments.Close()
+	}
+
+	if fwder := m.forwarder.Load(); fwder != nil {
+		fwder.SetCapture(nil)
+		fwder.Stop()
+	}
+
+	if m.logger != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if err := m.logger.Stop(ctx); err != nil {
+			log.Errorf("failed to shutdown logger: %v", err)
+		}
+	}
+}
+
+// SetupEBPFProxyNoTrack creates notrack rules for eBPF proxy loopback traffic.
+func (m *Manager) SetupEBPFProxyNoTrack(proxyPort, wgPort uint16) error {
+	if m.nativeFirewall == nil {
+		return nil
+	}
+	return m.nativeFirewall.SetupEBPFProxyNoTrack(proxyPort, wgPort)
+}
+
 // UpdateSet updates the rule destinations associated with the given set
 // by merging the existing prefixes with the new ones, then deduplicating.
 func (m *Manager) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
@@ -606,11 +781,7 @@ func (m *Manager) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
 	}
 
 	destinations := matches[0].destinations
-	for _, prefix := range prefixes {
-		if prefix.Addr().Is4() {
-			destinations = append(destinations, prefix)
-		}
-	}
+	destinations = append(destinations, prefixes...)
 
 	slices.SortFunc(destinations, func(a, b netip.Prefix) int {
 		cmp := a.Addr().Compare(b.Addr())
@@ -649,7 +820,7 @@ func (m *Manager) filterOutbound(packetData []byte, size int) bool {
 	d := m.decoders.Get().(*decoder)
 	defer m.decoders.Put(d)
 
-	if err := d.parser.DecodeLayers(packetData, &d.decoded); err != nil {
+	if err := d.decodePacket(packetData); err != nil {
 		return false
 	}
 
@@ -659,7 +830,9 @@ func (m *Manager) filterOutbound(packetData []byte, size int) bool {
 
 	srcIP, dstIP := m.extractIPs(d)
 	if !srcIP.IsValid() {
-		m.logger.Error1("Unknown network layer: %v", d.decoded[0])
+		if m.logger.Enabled(nblog.LevelError) {
+			m.logger.Error1("Unknown network layer: %v", d.decoded[0])
+		}
 		return false
 	}
 
@@ -669,6 +842,9 @@ func (m *Manager) filterOutbound(packetData []byte, size int) bool {
 			return true
 		}
 	case layers.LayerTypeTCP:
+		if m.tcpHooksDrop(uint16(d.tcp.DstPort), dstIP, packetData) {
+			return true
+		}
 		// Clamp MSS on all TCP SYN packets, including those from local IPs.
 		// SNATed routed traffic may appear as local IP but still requires clamping.
 		if m.mssClampEnabled {
@@ -730,12 +906,32 @@ func (m *Manager) clampTCPMSS(packetData []byte, d *decoder) bool {
 		return false
 	}
 
+	var mssClampValue uint16
+	var ipHeaderSize int
+	switch d.decoded[0] {
+	case layers.LayerTypeIPv4:
+		mssClampValue = m.mssClampValueIPv4
+		ipHeaderSize = int(d.ip4.IHL) * 4
+		if ipHeaderSize < 20 {
+			return false
+		}
+	case layers.LayerTypeIPv6:
+		mssClampValue = m.mssClampValueIPv6
+		ipHeaderSize = 40
+	default:
+		return false
+	}
+
+	if mssClampValue == 0 {
+		return false
+	}
+
 	mssOptionIndex := -1
 	var currentMSS uint16
 	for i, opt := range d.tcp.Options {
 		if opt.OptionType == layers.TCPOptionKindMSS && len(opt.OptionData) == 2 {
 			currentMSS = binary.BigEndian.Uint16(opt.OptionData)
-			if currentMSS > m.mssClampValue {
+			if currentMSS > mssClampValue {
 				mssOptionIndex = i
 				break
 			}
@@ -746,20 +942,17 @@ func (m *Manager) clampTCPMSS(packetData []byte, d *decoder) bool {
 		return false
 	}
 
-	ipHeaderSize := int(d.ip4.IHL) * 4
-	if ipHeaderSize < 20 {
+	if !m.updateMSSOption(packetData, d, mssOptionIndex, mssClampValue, ipHeaderSize) {
 		return false
 	}
 
-	if !m.updateMSSOption(packetData, d, mssOptionIndex, ipHeaderSize) {
-		return false
+	if m.logger.Enabled(nblog.LevelTrace) {
+		m.logger.Trace2("Clamped TCP MSS from %d to %d", currentMSS, mssClampValue)
 	}
-
-	m.logger.Trace2("Clamped TCP MSS from %d to %d", currentMSS, m.mssClampValue)
 	return true
 }
 
-func (m *Manager) updateMSSOption(packetData []byte, d *decoder, mssOptionIndex, ipHeaderSize int) bool {
+func (m *Manager) updateMSSOption(packetData []byte, d *decoder, mssOptionIndex int, mssClampValue uint16, ipHeaderSize int) bool {
 	tcpHeaderStart := ipHeaderSize
 	tcpOptionsStart := tcpHeaderStart + 20
 
@@ -774,7 +967,7 @@ func (m *Manager) updateMSSOption(packetData []byte, d *decoder, mssOptionIndex,
 	}
 
 	mssValueOffset := optOffset + 2
-	binary.BigEndian.PutUint16(packetData[mssValueOffset:mssValueOffset+2], m.mssClampValue)
+	binary.BigEndian.PutUint16(packetData[mssValueOffset:mssValueOffset+2], mssClampValue)
 
 	m.recalculateTCPChecksum(packetData, d, tcpHeaderStart)
 	return true
@@ -784,18 +977,32 @@ func (m *Manager) recalculateTCPChecksum(packetData []byte, d *decoder, tcpHeade
 	tcpLayer := packetData[tcpHeaderStart:]
 	tcpLength := len(packetData) - tcpHeaderStart
 
+	// Zero out existing checksum
 	tcpLayer[16] = 0
 	tcpLayer[17] = 0
 
+	// Build pseudo-header checksum based on IP version
 	var pseudoSum uint32
-	pseudoSum += uint32(d.ip4.SrcIP[0])<<8 | uint32(d.ip4.SrcIP[1])
-	pseudoSum += uint32(d.ip4.SrcIP[2])<<8 | uint32(d.ip4.SrcIP[3])
-	pseudoSum += uint32(d.ip4.DstIP[0])<<8 | uint32(d.ip4.DstIP[1])
-	pseudoSum += uint32(d.ip4.DstIP[2])<<8 | uint32(d.ip4.DstIP[3])
-	pseudoSum += uint32(d.ip4.Protocol)
-	pseudoSum += uint32(tcpLength)
+	switch d.decoded[0] {
+	case layers.LayerTypeIPv4:
+		pseudoSum += uint32(d.ip4.SrcIP[0])<<8 | uint32(d.ip4.SrcIP[1])
+		pseudoSum += uint32(d.ip4.SrcIP[2])<<8 | uint32(d.ip4.SrcIP[3])
+		pseudoSum += uint32(d.ip4.DstIP[0])<<8 | uint32(d.ip4.DstIP[1])
+		pseudoSum += uint32(d.ip4.DstIP[2])<<8 | uint32(d.ip4.DstIP[3])
+		pseudoSum += uint32(d.ip4.Protocol)
+		pseudoSum += uint32(tcpLength)
+	case layers.LayerTypeIPv6:
+		for i := 0; i < 16; i += 2 {
+			pseudoSum += uint32(d.ip6.SrcIP[i])<<8 | uint32(d.ip6.SrcIP[i+1])
+		}
+		for i := 0; i < 16; i += 2 {
+			pseudoSum += uint32(d.ip6.DstIP[i])<<8 | uint32(d.ip6.DstIP[i+1])
+		}
+		pseudoSum += uint32(tcpLength)
+		pseudoSum += uint32(layers.IPProtocolTCP)
+	}
 
-	var sum uint32 = pseudoSum
+	sum := pseudoSum
 	for i := 0; i < tcpLength-1; i += 2 {
 		sum += uint32(tcpLayer[i])<<8 | uint32(tcpLayer[i+1])
 	}
@@ -833,6 +1040,9 @@ func (m *Manager) trackOutbound(d *decoder, srcIP, dstIP netip.Addr, packetData 
 		}
 	case layers.LayerTypeICMPv4:
 		m.icmpTracker.TrackOutbound(srcIP, dstIP, d.icmp4.Id, d.icmp4.TypeCode, d.icmp4.Payload, size)
+	case layers.LayerTypeICMPv6:
+		id, tc := icmpv6EchoFields(d)
+		m.icmpTracker.TrackOutbound(srcIP, dstIP, id, tc, d.icmp6.Payload, size)
 	}
 }
 
@@ -846,44 +1056,20 @@ func (m *Manager) trackInbound(d *decoder, srcIP, dstIP netip.Addr, ruleID []byt
 		m.tcpTracker.TrackInbound(srcIP, dstIP, uint16(d.tcp.SrcPort), uint16(d.tcp.DstPort), flags, ruleID, size, d.dnatOrigPort)
 	case layers.LayerTypeICMPv4:
 		m.icmpTracker.TrackInbound(srcIP, dstIP, d.icmp4.Id, d.icmp4.TypeCode, ruleID, d.icmp4.Payload, size)
+	case layers.LayerTypeICMPv6:
+		id, tc := icmpv6EchoFields(d)
+		m.icmpTracker.TrackInbound(srcIP, dstIP, id, tc, ruleID, d.icmp6.Payload, size)
 	}
 
 	d.dnatOrigPort = 0
 }
 
-// udpHooksDrop checks if any UDP hooks should drop the packet
 func (m *Manager) udpHooksDrop(dport uint16, dstIP netip.Addr, packetData []byte) bool {
-	m.mutex.RLock()
-	defer m.mutex.RUnlock()
+	return common.HookMatches(m.udpHookOut.Load(), dstIP, dport, packetData)
+}
 
-	// Check specific destination IP first
-	if rules, exists := m.outgoingRules[dstIP]; exists {
-		for _, rule := range rules {
-			if rule.udpHook != nil && portsMatch(rule.dPort, dport) {
-				return rule.udpHook(packetData)
-			}
-		}
-	}
-
-	// Check IPv4 unspecified address
-	if rules, exists := m.outgoingRules[netip.IPv4Unspecified()]; exists {
-		for _, rule := range rules {
-			if rule.udpHook != nil && portsMatch(rule.dPort, dport) {
-				return rule.udpHook(packetData)
-			}
-		}
-	}
-
-	// Check IPv6 unspecified address
-	if rules, exists := m.outgoingRules[netip.IPv6Unspecified()]; exists {
-		for _, rule := range rules {
-			if rule.udpHook != nil && portsMatch(rule.dPort, dport) {
-				return rule.udpHook(packetData)
-			}
-		}
-	}
-
-	return false
+func (m *Manager) tcpHooksDrop(dport uint16, dstIP netip.Addr, packetData []byte) bool {
+	return common.HookMatches(m.tcpHookOut.Load(), dstIP, dport, packetData)
 }
 
 // filterInbound implements filtering logic for incoming packets.
@@ -903,17 +1089,24 @@ func (m *Manager) filterInbound(packetData []byte, size int) bool {
 		return true
 	}
 
-	// TODO: pass fragments of routed packets to forwarder
+	// gopacket does not decode the transport header of any IP fragment, so
+	// fragments take a dedicated path: the first fragment's header is decoded
+	// and ACL-evaluated here, and the remaining fragments inherit its verdict.
 	if fragment {
-		m.logger.Trace4("packet is a fragment: src=%v dst=%v id=%v flags=%v",
-			srcIP, dstIP, d.ip4.Id, d.ip4.Flags)
-		return false
+		return m.filterInboundFragment(d, srcIP, dstIP, size)
 	}
 
+	return m.filterInboundDecoded(d, srcIP, dstIP, packetData, size)
+}
+
+// filterInboundDecoded runs the ACL, DNAT and conntrack pipeline on a fully
+// decoded (non-fragment) inbound packet. It returns true if the packet should
+// be dropped.
+func (m *Manager) filterInboundDecoded(d *decoder, srcIP, dstIP netip.Addr, packetData []byte, size int) bool {
 	// TODO: optimize port DNAT by caching matched rules in conntrack
 	if translated := m.translateInboundPortDNAT(packetData, d, srcIP, dstIP); translated {
 		// Re-decode after port DNAT translation to update port information
-		if err := d.parser.DecodeLayers(packetData, &d.decoded); err != nil {
+		if err := d.decodePacket(packetData); err != nil {
 			m.logger.Error1("failed to re-decode packet after port DNAT: %v", err)
 			return true
 		}
@@ -922,7 +1115,7 @@ func (m *Manager) filterInbound(packetData []byte, size int) bool {
 
 	if translated := m.translateInboundReverse(packetData, d); translated {
 		// Re-decode after translation to get original addresses
-		if err := d.parser.DecodeLayers(packetData, &d.decoded); err != nil {
+		if err := d.decodePacket(packetData); err != nil {
 			m.logger.Error1("failed to re-decode packet after reverse DNAT: %v", err)
 			return true
 		}
@@ -940,31 +1133,226 @@ func (m *Manager) filterInbound(packetData []byte, size int) bool {
 	return m.handleRoutedTraffic(d, srcIP, dstIP, packetData, size)
 }
 
+// fragmentMeta holds the reassembly identity and layout of an IP fragment,
+// extracted uniformly for IPv4 and IPv6.
+type fragmentMeta struct {
+	key fragmentKey
+	// offset is the fragment offset in 8-byte units (zero for the first
+	// fragment).
+	offset uint16
+	// moreFragments is the More Fragments bit. A first fragment with it unset is
+	// an IPv6 atomic fragment (a complete datagram, RFC 6946): it has no trailing
+	// fragments to inherit a verdict, so it must not be recorded.
+	moreFragments bool
+	proto         layers.IPProtocol
+	// l4payload is the fragmentable payload of this fragment. For the first
+	// fragment it starts with the transport header.
+	l4payload []byte
+	// headerEndOctets is the first fragment's payload length in 8-byte units:
+	// the smallest offset a trailing fragment may start at without overlapping
+	// the inspected transport header.
+	headerEndOctets uint16
+}
+
+// fragmentMetadata extracts the fragment identity and layout from a decoded IP
+// fragment. It returns false for fragments it can't interpret (e.g. an IPv6
+// fragment header shorter than 8 bytes), which are then dropped.
+func fragmentMetadata(d *decoder, srcIP, dstIP netip.Addr) (fragmentMeta, bool) {
+	switch d.decoded[0] {
+	case layers.LayerTypeIPv4:
+		payload := d.ip4.Payload
+		return fragmentMeta{
+			key:             fragmentKey{srcIP: srcIP, dstIP: dstIP, id: uint32(d.ip4.Id), proto: uint8(d.ip4.Protocol)},
+			offset:          d.ip4.FragOffset,
+			moreFragments:   d.ip4.Flags&layers.IPv4MoreFragments != 0,
+			proto:           d.ip4.Protocol,
+			l4payload:       payload,
+			headerEndOctets: octets(len(payload)),
+		}, true
+
+	case layers.LayerTypeIPv6:
+		// IPv6 fragment extension header: 8 bytes, followed by the fragmentable
+		// payload. Layout: next header (1), reserved (1), offset+flags (2), id (4).
+		payload := d.ip6.Payload
+		if len(payload) < 8 {
+			return fragmentMeta{}, false
+		}
+		nextHeader := layers.IPProtocol(payload[0])
+		offsetFlags := binary.BigEndian.Uint16(payload[2:4])
+		id := binary.BigEndian.Uint32(payload[4:8])
+		l4 := payload[8:]
+		return fragmentMeta{
+			key:             fragmentKey{srcIP: srcIP, dstIP: dstIP, id: id, proto: uint8(nextHeader)},
+			offset:          offsetFlags >> 3,
+			moreFragments:   offsetFlags&1 != 0,
+			proto:           nextHeader,
+			l4payload:       l4,
+			headerEndOctets: octets(len(l4)),
+		}, true
+
+	default:
+		return fragmentMeta{}, false
+	}
+}
+
+// octets rounds a byte length up to whole 8-byte units, the granularity of the
+// IP fragment offset field.
+func octets(nbytes int) uint16 {
+	return uint16((nbytes + 7) / 8)
+}
+
+// filterInboundFragment decides the fate of an IP fragment. gopacket stops
+// decoding at the network layer for every fragment, so the first fragment's
+// transport header is decoded and ACL-evaluated here and its verdict recorded;
+// the remaining (headerless) fragments inherit that verdict. Anything that
+// cannot be tied to an allowed, non-overlapping first fragment is dropped.
+func (m *Manager) filterInboundFragment(d *decoder, srcIP, dstIP netip.Addr, size int) bool {
+	meta, ok := fragmentMetadata(d, srcIP, dstIP)
+	if !ok {
+		if m.logger.Enabled(nblog.LevelTrace) {
+			m.logger.Trace2("dropping unsupported fragment: src=%v dst=%v", srcIP, dstIP)
+		}
+		return true
+	}
+
+	if meta.offset != 0 {
+		return m.filterTrailingFragment(meta, srcIP, dstIP)
+	}
+
+	// A new first fragment supersedes any recorded verdict for this datagram, so
+	// a re-sent or overlapping offset-zero fragment can't inherit the old one.
+	m.fragments.poison(meta.key)
+
+	// First fragment: decode its transport header so the ACL can evaluate it. A
+	// decode failure means the fragment is too small to hold the full transport
+	// header (RFC 1858 §3 tiny-fragment attack); it can't be evaluated, so drop it.
+	if !d.decodeTransport(meta.proto, meta.l4payload) {
+		if m.logger.Enabled(nblog.LevelTrace) {
+			m.logger.Trace3("dropping first fragment without full L4 header: src=%v dst=%v id=%v",
+				srcIP, dstIP, meta.key.id)
+		}
+		return true
+	}
+
+	return m.filterFirstFragment(d, meta, srcIP, dstIP, size)
+}
+
+// filterTrailingFragment applies a recorded first-fragment verdict to a
+// non-first fragment.
+func (m *Manager) filterTrailingFragment(meta fragmentMeta, srcIP, dstIP netip.Addr) bool {
+	switch m.fragments.verdict(meta.key, meta.offset) {
+	case fragmentAllow:
+		return false
+	case fragmentOverlap:
+		if m.logger.Enabled(nblog.LevelTrace) {
+			m.logger.Trace3("dropping overlapping fragment rewriting inspected header: src=%v dst=%v id=%v",
+				srcIP, dstIP, meta.key.id)
+		}
+		return true
+	default:
+		if m.logger.Enabled(nblog.LevelTrace) {
+			m.logger.Trace3("dropping fragment with no allowed first fragment: src=%v dst=%v id=%v",
+				srcIP, dstIP, meta.key.id)
+		}
+		return true
+	}
+}
+
+// filterFirstFragment runs the verdict part of the inbound pipeline on a first
+// fragment with its transport header decoded. It mirrors filterInboundDecoded
+// but skips DNAT (port rewriting on fragments is unsupported) and forwarder
+// injection (fragments are left to the stack to reassemble, not forwarded).
+// Allowed fragments have their verdict recorded so the datagram's trailing
+// fragments inherit it.
+func (m *Manager) filterFirstFragment(d *decoder, meta fragmentMeta, srcIP, dstIP netip.Addr, size int) bool {
+	if m.stateful && m.isValidTrackedConnection(d, srcIP, dstIP, size) {
+		m.recordFirstFragment(meta)
+		return false
+	}
+
+	if m.localipmanager.IsLocalIP(dstIP) {
+		ruleID, blocked := m.peerACLsBlock(srcIP, d, nil)
+		if blocked {
+			m.storeDropFlow("Dropping local first fragment (ACL denied): rule_id=%s proto=%v src=%s:%d dst=%s:%d",
+				d, srcIP, dstIP, ruleID, size)
+			return true
+		}
+		m.trackInbound(d, srcIP, dstIP, ruleID, size)
+		m.recordFirstFragment(meta)
+		return false
+	}
+
+	if !m.routingEnabled.Load() {
+		if m.logger.Enabled(nblog.LevelTrace) {
+			m.logger.Trace2("Dropping routed fragment (routing disabled): src=%s dst=%s", srcIP, dstIP)
+		}
+		return true
+	}
+	if m.nativeRouter.Load() {
+		m.trackInbound(d, srcIP, dstIP, nil, size)
+		m.recordFirstFragment(meta)
+		return false
+	}
+
+	// TODO: pass fragments of routed packets to the forwarder; until then
+	// allowed routed fragments go to the native stack.
+	srcPort, dstPort := getPortsFromPacket(d)
+	ruleID, pass := m.routeACLsPass(srcIP, dstIP, d.decoded[1], srcPort, dstPort)
+	if !pass {
+		m.storeDropFlow("Dropping routed first fragment (ACL denied): rule_id=%s proto=%v src=%s:%d dst=%s:%d",
+			d, srcIP, dstIP, ruleID, size)
+		return true
+	}
+
+	m.recordFirstFragment(meta)
+	return false
+}
+
+// recordFirstFragment caches an allowed first fragment's verdict for its
+// trailing fragments to inherit. Atomic fragments (no More Fragments bit) are
+// complete datagrams with no trailing fragments, so they are not cached and
+// cannot exhaust the verdict table.
+func (m *Manager) recordFirstFragment(meta fragmentMeta) {
+	if !meta.moreFragments {
+		return
+	}
+	m.fragments.recordAllowed(meta.key, meta.headerEndOctets)
+}
+
+// storeDropFlow logs and records a netflow drop event for an inbound packet
+// denied by the ACLs. msg is the trace format taking rule id, protocol, source
+// and destination.
+func (m *Manager) storeDropFlow(msg string, d *decoder, srcIP, dstIP netip.Addr, ruleID []byte, size int) {
+	pnum := getProtocolFromPacket(d)
+	srcPort, dstPort := getPortsFromPacket(d)
+
+	if m.logger.Enabled(nblog.LevelTrace) {
+		m.logger.Trace6(msg, ruleID, pnum, srcIP, srcPort, dstIP, dstPort)
+	}
+
+	m.flowLogger.StoreEvent(nftypes.EventFields{
+		FlowID:     uuid.New(),
+		Type:       nftypes.TypeDrop,
+		RuleID:     ruleID,
+		Direction:  nftypes.Ingress,
+		Protocol:   pnum,
+		SourceIP:   srcIP,
+		DestIP:     dstIP,
+		SourcePort: srcPort,
+		DestPort:   dstPort,
+		// TODO: icmp type/code
+		RxPackets: 1,
+		RxBytes:   uint64(size),
+	})
+}
+
 // handleLocalTraffic handles local traffic.
 // If it returns true, the packet should be dropped.
 func (m *Manager) handleLocalTraffic(d *decoder, srcIP, dstIP netip.Addr, packetData []byte, size int) bool {
 	ruleID, blocked := m.peerACLsBlock(srcIP, d, packetData)
 	if blocked {
-		_, pnum := getProtocolFromPacket(d)
-		srcPort, dstPort := getPortsFromPacket(d)
-
-		m.logger.Trace6("Dropping local packet (ACL denied): rule_id=%s proto=%v src=%s:%d dst=%s:%d",
-			ruleID, pnum, srcIP, srcPort, dstIP, dstPort)
-
-		m.flowLogger.StoreEvent(nftypes.EventFields{
-			FlowID:     uuid.New(),
-			Type:       nftypes.TypeDrop,
-			RuleID:     ruleID,
-			Direction:  nftypes.Ingress,
-			Protocol:   pnum,
-			SourceIP:   srcIP,
-			DestIP:     dstIP,
-			SourcePort: srcPort,
-			DestPort:   dstPort,
-			// TODO: icmp type/code
-			RxPackets: 1,
-			RxBytes:   uint64(size),
-		})
+		m.storeDropFlow("Dropping local packet (ACL denied): rule_id=%s proto=%v src=%s:%d dst=%s:%d",
+			d, srcIP, dstIP, ruleID, size)
 		return true
 	}
 
@@ -999,8 +1387,10 @@ func (m *Manager) handleForwardedLocalTraffic(packetData []byte) bool {
 func (m *Manager) handleRoutedTraffic(d *decoder, srcIP, dstIP netip.Addr, packetData []byte, size int) bool {
 	// Drop if routing is disabled
 	if !m.routingEnabled.Load() {
-		m.logger.Trace2("Dropping routed packet (routing disabled): src=%s dst=%s",
-			srcIP, dstIP)
+		if m.logger.Enabled(nblog.LevelTrace) {
+			m.logger.Trace2("Dropping routed packet (routing disabled): src=%s dst=%s",
+				srcIP, dstIP)
+		}
 		return true
 	}
 
@@ -1010,28 +1400,13 @@ func (m *Manager) handleRoutedTraffic(d *decoder, srcIP, dstIP netip.Addr, packe
 		return false
 	}
 
-	proto, pnum := getProtocolFromPacket(d)
+	protoLayer := d.decoded[1]
 	srcPort, dstPort := getPortsFromPacket(d)
 
-	ruleID, pass := m.routeACLsPass(srcIP, dstIP, proto, srcPort, dstPort)
+	ruleID, pass := m.routeACLsPass(srcIP, dstIP, protoLayer, srcPort, dstPort)
 	if !pass {
-		m.logger.Trace6("Dropping routed packet (ACL denied): rule_id=%s proto=%v src=%s:%d dst=%s:%d",
-			ruleID, pnum, srcIP, srcPort, dstIP, dstPort)
-
-		m.flowLogger.StoreEvent(nftypes.EventFields{
-			FlowID:     uuid.New(),
-			Type:       nftypes.TypeDrop,
-			RuleID:     ruleID,
-			Direction:  nftypes.Ingress,
-			Protocol:   pnum,
-			SourceIP:   srcIP,
-			DestIP:     dstIP,
-			SourcePort: srcPort,
-			DestPort:   dstPort,
-			// TODO: icmp type/code
-			RxPackets: 1,
-			RxBytes:   uint64(size),
-		})
+		m.storeDropFlow("Dropping routed packet (ACL denied): rule_id=%s proto=%v src=%s:%d dst=%s:%d",
+			d, srcIP, dstIP, ruleID, size)
 		return true
 	}
 
@@ -1052,16 +1427,77 @@ func (m *Manager) handleRoutedTraffic(d *decoder, srcIP, dstIP netip.Addr, packe
 	return true
 }
 
-func getProtocolFromPacket(d *decoder) (firewall.Protocol, nftypes.Protocol) {
+// icmpv6EchoFields extracts the echo identifier from an ICMPv6 packet and maps
+// the ICMPv6 type code to an ICMPv4TypeCode so the ICMP conntrack can handle
+// both families uniformly. The echo ID is in the first two payload bytes.
+func icmpv6EchoFields(d *decoder) (id uint16, tc layers.ICMPv4TypeCode) {
+	if len(d.icmp6.Payload) >= 2 {
+		id = uint16(d.icmp6.Payload[0])<<8 | uint16(d.icmp6.Payload[1])
+	}
+	// Map ICMPv6 echo types to ICMPv4 equivalents for unified tracking.
+	switch d.icmp6.TypeCode.Type() {
+	case layers.ICMPv6TypeEchoRequest:
+		tc = layers.CreateICMPv4TypeCode(layers.ICMPv4TypeEchoRequest, 0)
+	case layers.ICMPv6TypeEchoReply:
+		tc = layers.CreateICMPv4TypeCode(layers.ICMPv4TypeEchoReply, 0)
+	default:
+		tc = layers.CreateICMPv4TypeCode(d.icmp6.TypeCode.Type(), d.icmp6.TypeCode.Code())
+	}
+	return id, tc
+}
+
+// protoLayerMatches checks if a packet's protocol layer matches a rule's expected
+// protocol layer. ICMPv4 and ICMPv6 are treated as equivalent when matching
+// ICMP rules since management sends a single ICMP rule for both families.
+func protoLayerMatches(ruleLayer, packetLayer gopacket.LayerType) bool {
+	if ruleLayer == packetLayer {
+		return true
+	}
+	if ruleLayer == layers.LayerTypeICMPv4 && packetLayer == layers.LayerTypeICMPv6 {
+		return true
+	}
+	if ruleLayer == layers.LayerTypeICMPv6 && packetLayer == layers.LayerTypeICMPv4 {
+		return true
+	}
+	return false
+}
+
+func ipLayerFromPrefix(p netip.Prefix) gopacket.LayerType {
+	if p.Addr().Is6() {
+		return layers.LayerTypeIPv6
+	}
+	return layers.LayerTypeIPv4
+}
+
+func protoToLayer(proto firewall.Protocol, ipLayer gopacket.LayerType) gopacket.LayerType {
+	switch proto {
+	case firewall.ProtocolTCP:
+		return layers.LayerTypeTCP
+	case firewall.ProtocolUDP:
+		return layers.LayerTypeUDP
+	case firewall.ProtocolICMP:
+		if ipLayer == layers.LayerTypeIPv6 {
+			return layers.LayerTypeICMPv6
+		}
+		return layers.LayerTypeICMPv4
+	case firewall.ProtocolALL:
+		return layerTypeAll
+	}
+	return 0
+}
+
+func getProtocolFromPacket(d *decoder) nftypes.Protocol {
 	switch d.decoded[1] {
 	case layers.LayerTypeTCP:
-		return firewall.ProtocolTCP, nftypes.TCP
+		return nftypes.TCP
 	case layers.LayerTypeUDP:
-		return firewall.ProtocolUDP, nftypes.UDP
-	case layers.LayerTypeICMPv4, layers.LayerTypeICMPv6:
-		return firewall.ProtocolICMP, nftypes.ICMP
+		return nftypes.UDP
+	case layers.LayerTypeICMPv4:
+		return nftypes.ICMP
+	case layers.LayerTypeICMPv6:
+		return nftypes.ICMPv6
 	default:
-		return firewall.ProtocolALL, nftypes.ProtocolUnknown
+		return nftypes.ProtocolUnknown
 	}
 }
 
@@ -1080,8 +1516,10 @@ func getPortsFromPacket(d *decoder) (srcPort, dstPort uint16) {
 // It returns true, false if the packet is valid and not a fragment.
 // It returns true, true if the packet is a fragment and valid.
 func (m *Manager) isValidPacket(d *decoder, packetData []byte) (bool, bool) {
-	if err := d.parser.DecodeLayers(packetData, &d.decoded); err != nil {
-		m.logger.Trace1("couldn't decode packet, err: %s", err)
+	if err := d.decodePacket(packetData); err != nil {
+		if m.logger.Enabled(nblog.LevelTrace) {
+			m.logger.Trace1("couldn't decode packet, err: %s", err)
+		}
 		return false, false
 	}
 
@@ -1093,10 +1531,21 @@ func (m *Manager) isValidPacket(d *decoder, packetData []byte) (bool, bool) {
 	}
 
 	// Fragments are also valid
-	if l == 1 && d.decoded[0] == layers.LayerTypeIPv4 {
-		ip4 := d.ip4
-		if ip4.Flags&layers.IPv4MoreFragments != 0 || ip4.FragOffset != 0 {
-			return true, true
+	if l == 1 {
+		switch d.decoded[0] {
+		case layers.LayerTypeIPv4:
+			if d.ip4.Flags&layers.IPv4MoreFragments != 0 || d.ip4.FragOffset != 0 {
+				return true, true
+			}
+		case layers.LayerTypeIPv6:
+			// IPv6 uses Fragment extension header (NextHeader=44). If gopacket
+			// only decoded the IPv6 layer, the transport is in a fragment.
+			// TODO: handle non-Fragment extension headers (HopByHop, Routing,
+			// DestOpts) by walking the chain. gopacket's parser does not
+			// support them as DecodingLayers; today we drop such packets.
+			if d.ip6.NextHeader == layers.IPProtocolIPv6Fragment {
+				return true, true
+			}
 		}
 	}
 
@@ -1134,21 +1583,35 @@ func (m *Manager) isValidTrackedConnection(d *decoder, srcIP, dstIP netip.Addr, 
 			size,
 		)
 
-		// TODO: ICMPv6
+	case layers.LayerTypeICMPv6:
+		id, _ := icmpv6EchoFields(d)
+		return m.icmpTracker.IsValidInbound(
+			srcIP,
+			dstIP,
+			id,
+			d.icmp6.TypeCode.Type(),
+			size,
+		)
 	}
 
 	return false
 }
 
-// isSpecialICMP returns true if the packet is a special ICMP packet that should be allowed
+// isSpecialICMP returns true if the packet is a special ICMP error packet that should be allowed.
 func (m *Manager) isSpecialICMP(d *decoder) bool {
-	if d.decoded[1] != layers.LayerTypeICMPv4 {
-		return false
+	switch d.decoded[1] {
+	case layers.LayerTypeICMPv4:
+		icmpType := d.icmp4.TypeCode.Type()
+		return icmpType == layers.ICMPv4TypeDestinationUnreachable ||
+			icmpType == layers.ICMPv4TypeTimeExceeded
+	case layers.LayerTypeICMPv6:
+		icmpType := d.icmp6.TypeCode.Type()
+		return icmpType == layers.ICMPv6TypeDestinationUnreachable ||
+			icmpType == layers.ICMPv6TypePacketTooBig ||
+			icmpType == layers.ICMPv6TypeTimeExceeded ||
+			icmpType == layers.ICMPv6TypeParameterProblem
 	}
-
-	icmpType := d.icmp4.TypeCode.Type()
-	return icmpType == layers.ICMPv4TypeDestinationUnreachable ||
-		icmpType == layers.ICMPv4TypeTimeExceeded
+	return false
 }
 
 func (m *Manager) peerACLsBlock(srcIP netip.Addr, d *decoder, packetData []byte) ([]byte, bool) {
@@ -1205,7 +1668,7 @@ func validateRule(ip netip.Addr, packetData []byte, rules map[string]PeerRule, d
 			return rule.mgmtId, rule.drop, true
 		}
 
-		if payloadLayer != rule.protoLayer {
+		if !protoLayerMatches(rule.protoLayer, payloadLayer) {
 			continue
 		}
 
@@ -1215,12 +1678,6 @@ func validateRule(ip netip.Addr, packetData []byte, rules map[string]PeerRule, d
 				return rule.mgmtId, rule.drop, true
 			}
 		case layers.LayerTypeUDP:
-			// if rule has UDP hook (and if we are here we match this rule)
-			// we ignore rule.drop and call this hook
-			if rule.udpHook != nil {
-				return rule.mgmtId, rule.udpHook(packetData), true
-			}
-
 			if portsMatch(rule.sPort, uint16(d.udp.SrcPort)) && portsMatch(rule.dPort, uint16(d.udp.DstPort)) {
 				return rule.mgmtId, rule.drop, true
 			}
@@ -1233,19 +1690,29 @@ func validateRule(ip netip.Addr, packetData []byte, rules map[string]PeerRule, d
 }
 
 // routeACLsPass returns true if the packet is allowed by the route ACLs
-func (m *Manager) routeACLsPass(srcIP, dstIP netip.Addr, proto firewall.Protocol, srcPort, dstPort uint16) ([]byte, bool) {
+func (m *Manager) routeACLsPass(srcIP, dstIP netip.Addr, protoLayer gopacket.LayerType, srcPort, dstPort uint16) ([]byte, bool) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
 	for _, rule := range m.routeRules {
-		if matches := m.ruleMatches(rule, srcIP, dstIP, proto, srcPort, dstPort); matches {
+		if matches := m.ruleMatches(rule, srcIP, dstIP, protoLayer, srcPort, dstPort); matches {
 			return rule.mgmtId, rule.action == firewall.ActionAccept
 		}
 	}
 	return nil, false
 }
 
-func (m *Manager) ruleMatches(rule *RouteRule, srcAddr, dstAddr netip.Addr, proto firewall.Protocol, srcPort, dstPort uint16) bool {
+func (m *Manager) ruleMatches(rule *RouteRule, srcAddr, dstAddr netip.Addr, protoLayer gopacket.LayerType, srcPort, dstPort uint16) bool {
+	if rule.protoLayer != layerTypeAll && !protoLayerMatches(rule.protoLayer, protoLayer) {
+		return false
+	}
+
+	if protoLayer == layers.LayerTypeTCP || protoLayer == layers.LayerTypeUDP {
+		if !portsMatch(rule.srcPort, srcPort) || !portsMatch(rule.dstPort, dstPort) {
+			return false
+		}
+	}
+
 	destMatched := false
 	for _, dst := range rule.destinations {
 		if dst.Contains(dstAddr) {
@@ -1264,82 +1731,18 @@ func (m *Manager) ruleMatches(rule *RouteRule, srcAddr, dstAddr netip.Addr, prot
 			break
 		}
 	}
-	if !sourceMatched {
-		return false
-	}
 
-	if rule.proto != firewall.ProtocolALL && rule.proto != proto {
-		return false
-	}
-
-	if proto == firewall.ProtocolTCP || proto == firewall.ProtocolUDP {
-		if !portsMatch(rule.srcPort, srcPort) || !portsMatch(rule.dstPort, dstPort) {
-			return false
-		}
-	}
-
-	return true
+	return sourceMatched
 }
 
-// AddUDPPacketHook calls hook when UDP packet from given direction matched
-//
-// Hook function returns flag which indicates should be the matched package dropped or not
-func (m *Manager) AddUDPPacketHook(in bool, ip netip.Addr, dPort uint16, hook func(packet []byte) bool) string {
-	r := PeerRule{
-		id:         uuid.New().String(),
-		ip:         ip,
-		protoLayer: layers.LayerTypeUDP,
-		dPort:      &firewall.Port{Values: []uint16{dPort}},
-		ipLayer:    layers.LayerTypeIPv6,
-		udpHook:    hook,
-	}
-
-	if ip.Is4() {
-		r.ipLayer = layers.LayerTypeIPv4
-	}
-
-	m.mutex.Lock()
-	if in {
-		// Incoming UDP hooks are stored in allow rules map
-		if _, ok := m.incomingRules[r.ip]; !ok {
-			m.incomingRules[r.ip] = make(map[string]PeerRule)
-		}
-		m.incomingRules[r.ip][r.id] = r
-	} else {
-		if _, ok := m.outgoingRules[r.ip]; !ok {
-			m.outgoingRules[r.ip] = make(map[string]PeerRule)
-		}
-		m.outgoingRules[r.ip][r.id] = r
-	}
-	m.mutex.Unlock()
-
-	return r.id
+// SetUDPPacketHook sets the outbound UDP packet hook. Pass nil hook to remove.
+func (m *Manager) SetUDPPacketHook(ip netip.Addr, dPort uint16, hook func(packet []byte) bool) {
+	common.SetHook(&m.udpHookOut, ip, dPort, hook)
 }
 
-// RemovePacketHook removes packet hook by given ID
-func (m *Manager) RemovePacketHook(hookID string) error {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-
-	// Check incoming hooks (stored in allow rules)
-	for _, arr := range m.incomingRules {
-		for _, r := range arr {
-			if r.id == hookID {
-				delete(arr, r.id)
-				return nil
-			}
-		}
-	}
-	// Check outgoing hooks
-	for _, arr := range m.outgoingRules {
-		for _, r := range arr {
-			if r.id == hookID {
-				delete(arr, r.id)
-				return nil
-			}
-		}
-	}
-	return fmt.Errorf("hook with given id not found")
+// SetTCPPacketHook sets the outbound TCP packet hook. Pass nil hook to remove.
+func (m *Manager) SetTCPPacketHook(ip netip.Addr, dPort uint16, hook func(packet []byte) bool) {
+	common.SetHook(&m.tcpHookOut, ip, dPort, hook)
 }
 
 // SetLogLevel sets the log level for the firewall manager
@@ -1361,12 +1764,13 @@ func (m *Manager) EnableRouting() error {
 		return nil
 	}
 
-	rule, err := m.blockInvalidRouted(m.wgIface)
+	rules, err := m.blockInvalidRouted(m.wgIface)
+	// Persist whatever was installed even on partial failure, so DisableRouting
+	// can clean it up later.
+	m.blockRules = rules
 	if err != nil {
 		return fmt.Errorf("block invalid routed: %w", err)
 	}
-
-	m.blockRule = rule
 
 	return nil
 }
@@ -1383,9 +1787,16 @@ func (m *Manager) DisableRouting() error {
 	m.routingEnabled.Store(false)
 	m.nativeRouter.Store(false)
 
-	// don't stop forwarder if in use by netstack
+	var merr *multierror.Error
+	for _, rule := range m.blockRules {
+		if err := m.deleteRouteRule(rule); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("delete block rule: %w", err))
+		}
+	}
+	m.blockRules = nil
+
 	if m.netstack && m.localForwarding {
-		return nil
+		return nberrors.FormatErrorOrNil(merr)
 	}
 
 	fwder.Stop()
@@ -1393,14 +1804,7 @@ func (m *Manager) DisableRouting() error {
 
 	log.Debug("forwarder stopped")
 
-	if m.blockRule != nil {
-		if err := m.deleteRouteRule(m.blockRule); err != nil {
-			return fmt.Errorf("delete block rule: %w", err)
-		}
-		m.blockRule = nil
-	}
-
-	return nil
+	return nberrors.FormatErrorOrNil(merr)
 }
 
 // RegisterNetstackService registers a service as listening on the netstack for the given protocol and port
@@ -1454,7 +1858,8 @@ func (m *Manager) shouldForward(d *decoder, dstIP netip.Addr) bool {
 	}
 
 	// traffic to our other local interfaces (not NetBird IP) - always forward
-	if dstIP != m.wgIface.Address().IP {
+	addr := m.wgIface.Address()
+	if dstIP != addr.IP && (!addr.IPv6.IsValid() || dstIP != addr.IPv6) {
 		return true
 	}
 

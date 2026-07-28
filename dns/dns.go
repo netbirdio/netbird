@@ -45,6 +45,10 @@ type CustomZone struct {
 	Domain string
 	// Records custom zone records
 	Records []SimpleRecord
+	// SearchDomainDisabled indicates whether to add match domains to a search domains list or not
+	SearchDomainDisabled bool
+	// NonAuthoritative marks user-created zones
+	NonAuthoritative bool
 }
 
 // SimpleRecord provides a simple DNS record specification for CNAME, A and AAAA records

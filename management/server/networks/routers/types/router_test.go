@@ -38,7 +38,7 @@ func TestNewNetworkRouter(t *testing.T) {
 			expectedError: false,
 		},
 		{
-			name:          "Valid with no peer or peerGroups",
+			name:          "Invalid with no peer or peerGroups",
 			networkID:     "network-3",
 			accountID:     "account-3",
 			peer:          "",
@@ -46,7 +46,18 @@ func TestNewNetworkRouter(t *testing.T) {
 			masquerade:    true,
 			metric:        300,
 			enabled:       true,
-			expectedError: false,
+			expectedError: true,
+		},
+		{
+			name:          "Invalid with empty peerGroups slice",
+			networkID:     "network-5",
+			accountID:     "account-5",
+			peer:          "",
+			peerGroups:    []string{},
+			masquerade:    true,
+			metric:        500,
+			enabled:       true,
+			expectedError: true,
 		},
 
 		// Invalid cases

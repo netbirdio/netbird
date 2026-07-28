@@ -1,6 +1,7 @@
 package udpmux
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -12,8 +13,9 @@ import (
 	"github.com/pion/logging"
 	"github.com/pion/stun/v3"
 	"github.com/pion/transport/v3"
-	"github.com/pion/transport/v3/stdnet"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/internal/stdnet"
 )
 
 /*
@@ -199,7 +201,7 @@ func (m *SingleSocketUDPMux) updateLocalAddresses() {
 		if len(networks) > 0 {
 			if m.params.Net == nil {
 				var err error
-				if m.params.Net, err = stdnet.NewNet(); err != nil {
+				if m.params.Net, err = stdnet.NewNet(context.Background(), nil); err != nil {
 					m.params.Logger.Errorf("failed to get create network: %v", err)
 				}
 			}

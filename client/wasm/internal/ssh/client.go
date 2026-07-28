@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"sync"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	netbird "github.com/netbirdio/netbird/client/embed"
+	nbssh "github.com/netbirdio/netbird/client/ssh"
 )
 
 const (
@@ -44,42 +46,36 @@ func NewClient(nbClient *netbird.Client) *Client {
 	}
 }
 
-// Connect establishes an SSH connection through NetBird network
-func (c *Client) Connect(host string, port int, username string) error {
-	addr := fmt.Sprintf("%s:%d", host, port)
+// Connect establishes an SSH connection through NetBird network.
+// ipVersion may be 4, 6, or 0 for automatic selection.
+func (c *Client) Connect(host string, port int, username, jwtToken string, ipVersion int) error {
+	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	logrus.Infof("SSH: Connecting to %s as %s", addr, username)
 
-	var authMethods []ssh.AuthMethod
-
-	nbConfig, err := c.nbClient.GetConfig()
+	authMethods, err := c.getAuthMethods(jwtToken)
 	if err != nil {
-		return fmt.Errorf("get NetBird config: %w", err)
+		return err
 	}
-	if nbConfig.SSHKey == "" {
-		return fmt.Errorf("no NetBird SSH key available - key should be generated during client initialization")
-	}
-
-	signer, err := parseSSHPrivateKey([]byte(nbConfig.SSHKey))
-	if err != nil {
-		return fmt.Errorf("parse NetBird SSH private key: %w", err)
-	}
-
-	pubKey := signer.PublicKey()
-	logrus.Infof("SSH: Using NetBird key authentication with public key type: %s", pubKey.Type())
-
-	authMethods = append(authMethods, ssh.PublicKeys(signer))
 
 	config := &ssh.ClientConfig{
 		User:            username,
 		Auth:            authMethods,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		HostKeyCallback: nbssh.CreateHostKeyCallback(c.nbClient),
 		Timeout:         sshDialTimeout,
+	}
+
+	network := "tcp"
+	switch ipVersion {
+	case 4:
+		network = "tcp4"
+	case 6:
+		network = "tcp6"
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), sshDialTimeout)
 	defer cancel()
 
-	conn, err := c.nbClient.Dial(ctx, "tcp", addr)
+	conn, err := c.nbClient.Dial(ctx, network, addr)
 	if err != nil {
 		return fmt.Errorf("dial %s: %w", addr, err)
 	}
@@ -94,6 +90,33 @@ func (c *Client) Connect(host string, port int, username string) error {
 	logrus.Infof("SSH: Connected to %s", addr)
 
 	return nil
+}
+
+// getAuthMethods returns SSH authentication methods, preferring JWT if available
+func (c *Client) getAuthMethods(jwtToken string) ([]ssh.AuthMethod, error) {
+	if jwtToken != "" {
+		logrus.Debugf("SSH: Using JWT password authentication")
+		return []ssh.AuthMethod{ssh.Password(jwtToken)}, nil
+	}
+
+	logrus.Debugf("SSH: No JWT token, using public key authentication")
+
+	nbConfig, err := c.nbClient.GetConfig()
+	if err != nil {
+		return nil, fmt.Errorf("get NetBird config: %w", err)
+	}
+
+	if nbConfig.SSHKey == "" {
+		return nil, fmt.Errorf("no NetBird SSH key available")
+	}
+
+	signer, err := ssh.ParsePrivateKey([]byte(nbConfig.SSHKey))
+	if err != nil {
+		return nil, fmt.Errorf("parse NetBird SSH private key: %w", err)
+	}
+
+	logrus.Debugf("SSH: Added public key auth")
+	return []ssh.AuthMethod{ssh.PublicKeys(signer)}, nil
 }
 
 // StartSession starts an SSH session with PTY

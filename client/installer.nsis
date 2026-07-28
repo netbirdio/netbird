@@ -6,7 +6,7 @@
 !define DESCRIPTION "Connect your devices into a secure WireGuard-based overlay network with SSO, MFA, and granular access controls."
 !define INSTALLER_NAME "netbird-installer.exe"
 !define MAIN_APP_EXE "Netbird"
-!define ICON "ui\\assets\\netbird.ico"
+!define ICON "ui\\build\\windows\\icon.ico"
 !define BANNER "ui\\build\\banner.bmp"
 !define LICENSE_DATA "..\\LICENSE"
 
@@ -79,8 +79,6 @@ ShowInstDetails Show
 
 !insertmacro MUI_PAGE_DIRECTORY
 
-Page custom AutostartPage AutostartPageLeave
-
 !insertmacro MUI_PAGE_INSTFILES
 
 !insertmacro MUI_PAGE_FINISH
@@ -97,39 +95,11 @@ UninstPage custom un.DeleteDataPage un.DeleteDataPageLeave
 
 !insertmacro MUI_LANGUAGE "English"
 
-; Variables for autostart option
-Var AutostartCheckbox
-Var AutostartEnabled
-
 ; Variables for uninstall data deletion option
 Var DeleteDataCheckbox
 Var DeleteDataEnabled
 
 ######################################################################
-
-; Function to create the autostart options page
-Function AutostartPage
-  !insertmacro MUI_HEADER_TEXT "Startup Options" "Configure how ${APP_NAME} launches with Windows."
-
-  nsDialogs::Create 1018
-  Pop $0
-
-  ${If} $0 == error
-    Abort
-  ${EndIf}
-
-  ${NSD_CreateCheckbox} 0 20u 100% 10u "Start ${APP_NAME} UI automatically when Windows starts"
-  Pop $AutostartCheckbox
-  ${NSD_Check} $AutostartCheckbox
-  StrCpy $AutostartEnabled "1"
-
-  nsDialogs::Show
-FunctionEnd
-
-; Function to handle leaving the autostart page
-Function AutostartPageLeave
-  ${NSD_GetState} $AutostartCheckbox $AutostartEnabled
-FunctionEnd
 
 ; Function to create the uninstall data deletion page
 Function un.DeleteDataPage
@@ -201,7 +171,16 @@ Pop $0
 
 Function .onInit
 StrCpy $INSTDIR "${INSTALL_DIR}"
+
+; Pre-0.70.1 installers ran without SetRegView, so their uninstall keys live
+; in the 32-bit view. Fall back to it so upgrades still find them.
+SetRegView 64
 ReadRegStr $R0 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\$(^NAME)" "UninstallString"
+${If} $R0 == ""
+    SetRegView 32
+    ReadRegStr $R0 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\$(^NAME)" "UninstallString"
+    SetRegView 64
+${EndIf}
 ${If} $R0 != ""
     # if silent install jump to uninstall step
     IfSilent uninstall
@@ -213,6 +192,10 @@ ${If} $R0 != ""
     done:
 
 ${EndIf}
+FunctionEnd
+
+Function un.onInit
+SetRegView 64
 FunctionEnd
 ######################################################################
 Section -MainProgram
@@ -228,6 +211,7 @@ Section -MainProgram
     !else
         File /r "..\\dist\\netbird_windows_amd64\\"
     !endif
+    File "..\\client\\ui\\assets\\netbird.png"
 SectionEnd
 ######################################################################
 
@@ -244,15 +228,12 @@ WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "Publisher" "${COMP_NAME}"
 
 WriteRegStr ${REG_ROOT} "${UI_REG_APP_PATH}" "" "$INSTDIR\${UI_APP_EXE}"
 
-; Create autostart registry entry based on checkbox
-DetailPrint "Autostart enabled: $AutostartEnabled"
-${If} $AutostartEnabled == "1"
-    WriteRegStr HKCU "${AUTOSTART_REG_KEY}" "${APP_NAME}" "$INSTDIR\${UI_APP_EXE}.exe"
-    DetailPrint "Added autostart registry entry: $INSTDIR\${UI_APP_EXE}.exe"
-${Else}
-    DeleteRegValue HKCU "${AUTOSTART_REG_KEY}" "${APP_NAME}"
-    DetailPrint "Autostart not enabled by user"
-${EndIf}
+; Autostart is owned by the UI's per-user setting (HKCU\...\Run via Wails),
+; not the installer. Drop the machine-wide entry older installers wrote so the
+; toggle is the single source of truth. HKCU is left untouched -- it may hold
+; the user's own toggle state, which must survive upgrades.
+DetailPrint "Removing installer-managed autostart registry entry if present..."
+DeleteRegValue HKLM "${AUTOSTART_REG_KEY}" "${APP_NAME}"
 
 EnVar::SetHKLM
 EnVar::AddValueEx "path" "$INSTDIR"
@@ -260,6 +241,43 @@ EnVar::AddValueEx "path" "$INSTDIR"
 SetShellVarContext all
 CreateShortCut "$SMPROGRAMS\${APP_NAME}.lnk" "$INSTDIR\${UI_APP_EXE}"
 CreateShortCut "$DESKTOP\${APP_NAME}.lnk" "$INSTDIR\${UI_APP_EXE}"
+SectionEnd
+
+# Install the Microsoft Edge WebView2 runtime if it isn't already present.
+# Macro adapted from Wails3's NSIS template (wails_tools.nsh): a registry
+# probe followed by a silent install of the embedded evergreen bootstrapper.
+# The MicrosoftEdgeWebview2Setup.exe payload is staged next to this script
+# by the sign-pipelines build step (`wails3 generate webview2bootstrapper`).
+!macro nb.webview2runtime
+    SetRegView 64
+    # Per-machine install marker — populated when the runtime ships with
+    # Edge or has been installed by an admin previously.
+    ReadRegStr $0 HKLM "SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" "pv"
+    ${If} $0 != ""
+        Goto webview2_ok
+    ${EndIf}
+    # Per-user fallback for HKCU installs.
+    ReadRegStr $0 HKCU "Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" "pv"
+    ${If} $0 != ""
+        Goto webview2_ok
+    ${EndIf}
+
+    SetDetailsPrint both
+    DetailPrint "Installing: WebView2 Runtime"
+    SetDetailsPrint listonly
+
+    InitPluginsDir
+    CreateDirectory "$pluginsdir\webview2bootstrapper"
+    SetOutPath "$pluginsdir\webview2bootstrapper"
+    File "MicrosoftEdgeWebview2Setup.exe"
+    ExecWait '"$pluginsdir\webview2bootstrapper\MicrosoftEdgeWebview2Setup.exe" /silent /install'
+
+    SetDetailsPrint both
+    webview2_ok:
+!macroend
+
+Section -WebView2
+    !insertmacro nb.webview2runtime
 SectionEnd
 
 Section -Post
@@ -281,9 +299,14 @@ ExecWait '"$INSTDIR\${MAIN_APP_EXE}" service uninstall'
 DetailPrint "Terminating Netbird UI process..."
 ExecWait `taskkill /im ${UI_APP_EXE}.exe /f`
 
-; Remove autostart registry entry
-DetailPrint "Removing autostart registry entry if exists..."
+; Remove autostart registry entries
+DetailPrint "Removing autostart registry entries if they exist..."
+; Legacy machine-wide entry written by older installers.
+DeleteRegValue HKLM "${AUTOSTART_REG_KEY}" "${APP_NAME}"
+; Per-user entry the UI toggle writes via Wails (value name is the lowercase
+; app-name slug). Uninstall removes the app, so drop it too.
 DeleteRegValue HKCU "${AUTOSTART_REG_KEY}" "${APP_NAME}"
+DeleteRegValue HKCU "${AUTOSTART_REG_KEY}" "netbird"
 
 ; Handle data deletion based on checkbox
 DetailPrint "Checking if user requested data deletion..."
@@ -306,9 +329,9 @@ DetailPrint "Deleting application files..."
 Delete "$INSTDIR\${UI_APP_EXE}"
 Delete "$INSTDIR\${MAIN_APP_EXE}"
 Delete "$INSTDIR\wintun.dll"
-!if ${ARCH} == "amd64"
+# Legacy: pre-Wails installs shipped opengl32.dll (Mesa3D for Fyne); remove
+# any leftover copy on uninstall so old upgrades don't leave it behind.
 Delete "$INSTDIR\opengl32.dll"
-!endif
 DetailPrint "Removing application directory..."
 RmDir /r "$INSTDIR"
 
@@ -321,6 +344,7 @@ DetailPrint "Removing registry keys..."
 DeleteRegKey ${REG_ROOT} "${REG_APP_PATH}"
 DeleteRegKey ${REG_ROOT} "${UNINSTALL_PATH}"
 DeleteRegKey ${REG_ROOT} "${UI_REG_APP_PATH}"
+DeleteRegKey HKCU "Software\Classes\AppUserModelId\${APP_NAME}"
 
 DetailPrint "Removing application directory from PATH..."
 EnVar::SetHKLM

@@ -1,0 +1,45 @@
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    open-pull-requests-limit: 15
+    groups:
+      actions:
+        patterns:
+          - "*"
+    ignore:
+      # git-town/action v1.3.x crashes on cyclic PR graphs (self-loop main->main
+      # fork PRs) via its topological-sort visualization. Pinned to v1.2.1 in
+      # git-town.yml; block v1.3.x until upstream tolerates cyclic edges.
+      - dependency-name: "git-town/action"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-major"
+
+  - package-ecosystem: "gomod"
+    directories:
+      - "/"
+    schedule:
+      interval: "daily"
+    open-pull-requests-limit: 15
+    groups:
+      aws-sdk:
+        patterns:
+          - "github.com/aws/aws-sdk-go-v2/*"
+      pion:
+        patterns:
+          - "github.com/pion/*"
+      gorm:
+        patterns:
+          - "gorm.io/*"
+      otel:
+        patterns:
+          - "go.opentelemetry.io/*"
+      testcontainers:
+        patterns:
+          - "github.com/testcontainers/testcontainers-go/*"
+      wireguard:
+        patterns:
+          - "golang.zx2c4.com/wireguard*"

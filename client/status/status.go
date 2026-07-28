@@ -11,7 +11,11 @@ import (
 	"strings"
 	"time"
 
+	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"gopkg.in/yaml.v3"
+
+	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/client/anonymize"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -21,9 +25,46 @@ import (
 	"github.com/netbirdio/netbird/version"
 )
 
+// DaemonStatus represents the current state of the NetBird daemon.
+// These values mirror internal.StatusType but are defined here to avoid an import cycle.
+type DaemonStatus string
+
+const (
+	DaemonStatusIdle           DaemonStatus = "Idle"
+	DaemonStatusConnecting     DaemonStatus = "Connecting"
+	DaemonStatusConnected      DaemonStatus = "Connected"
+	DaemonStatusNeedsLogin     DaemonStatus = "NeedsLogin"
+	DaemonStatusLoginFailed    DaemonStatus = "LoginFailed"
+	DaemonStatusSessionExpired DaemonStatus = "SessionExpired"
+)
+
+// ParseDaemonStatus converts a raw status string to DaemonStatus.
+// Unrecognized values are preserved as-is to remain visible during version skew.
+func ParseDaemonStatus(s string) DaemonStatus {
+	return DaemonStatus(s)
+}
+
+// ConvertOptions holds parameters for ConvertToStatusOutputOverview.
+type ConvertOptions struct {
+	Anonymize            bool
+	DaemonVersion        string
+	DaemonStatus         DaemonStatus
+	StatusFilter         string
+	PrefixNamesFilter    []string
+	PrefixNamesFilterMap map[string]struct{}
+	IPsFilter            map[string]struct{}
+	ConnectionTypeFilter string
+	ProfileName          string
+	// SessionExpiresAt is the absolute UTC instant at which the peer's SSO
+	// session expires. Zero when the peer is not SSO-tracked or login
+	// expiration is disabled. Sourced from StatusResponse.SessionExpiresAt.
+	SessionExpiresAt time.Time
+}
+
 type PeerStateDetailOutput struct {
 	FQDN                   string           `json:"fqdn" yaml:"fqdn"`
 	IP                     string           `json:"netbirdIp" yaml:"netbirdIp"`
+	IPv6                   string           `json:"netbirdIpv6,omitempty" yaml:"netbirdIpv6,omitempty"`
 	PubKey                 string           `json:"publicKey" yaml:"publicKey"`
 	Status                 string           `json:"status" yaml:"status"`
 	LastStatusUpdate       time.Time        `json:"lastStatusUpdate" yaml:"lastStatusUpdate"`
@@ -61,6 +102,7 @@ type RelayStateOutputDetail struct {
 	URI       string `json:"uri" yaml:"uri"`
 	Available bool   `json:"available" yaml:"available"`
 	Error     string `json:"error" yaml:"error"`
+	Transport string `json:"transport,omitempty" yaml:"transport,omitempty"`
 }
 
 type RelayStateOutput struct {
@@ -81,16 +123,32 @@ type NsServerGroupStateOutput struct {
 	Error   string   `json:"error" yaml:"error"`
 }
 
+type SSHSessionOutput struct {
+	Username      string   `json:"username" yaml:"username"`
+	RemoteAddress string   `json:"remoteAddress" yaml:"remoteAddress"`
+	Command       string   `json:"command" yaml:"command"`
+	JWTUsername   string   `json:"jwtUsername,omitempty" yaml:"jwtUsername,omitempty"`
+	PortForwards  []string `json:"portForwards,omitempty" yaml:"portForwards,omitempty"`
+}
+
+type SSHServerStateOutput struct {
+	Enabled  bool               `json:"enabled" yaml:"enabled"`
+	Sessions []SSHSessionOutput `json:"sessions" yaml:"sessions"`
+}
+
 type OutputOverview struct {
 	Peers                   PeersStateOutput           `json:"peers" yaml:"peers"`
 	CliVersion              string                     `json:"cliVersion" yaml:"cliVersion"`
 	DaemonVersion           string                     `json:"daemonVersion" yaml:"daemonVersion"`
+	DaemonStatus            DaemonStatus               `json:"daemonStatus" yaml:"daemonStatus"`
 	ManagementState         ManagementStateOutput      `json:"management" yaml:"management"`
 	SignalState             SignalStateOutput          `json:"signal" yaml:"signal"`
 	Relays                  RelayStateOutput           `json:"relays" yaml:"relays"`
 	IP                      string                     `json:"netbirdIp" yaml:"netbirdIp"`
+	IPv6                    string                     `json:"netbirdIpv6,omitempty" yaml:"netbirdIpv6,omitempty"`
 	PubKey                  string                     `json:"publicKey" yaml:"publicKey"`
 	KernelInterface         bool                       `json:"usesKernelInterface" yaml:"usesKernelInterface"`
+	WgPort                  int                        `json:"wireguardPort" yaml:"wireguardPort"`
 	FQDN                    string                     `json:"fqdn" yaml:"fqdn"`
 	RosenpassEnabled        bool                       `json:"quantumResistance" yaml:"quantumResistance"`
 	RosenpassPermissive     bool                       `json:"quantumResistancePermissive" yaml:"quantumResistancePermissive"`
@@ -100,11 +158,16 @@ type OutputOverview struct {
 	Events                  []SystemEventOutput        `json:"events" yaml:"events"`
 	LazyConnectionEnabled   bool                       `json:"lazyConnectionEnabled" yaml:"lazyConnectionEnabled"`
 	ProfileName             string                     `json:"profileName" yaml:"profileName"`
+	SSHServerState          SSHServerStateOutput       `json:"sshServer" yaml:"sshServer"`
+	// SessionExpiresAt is the absolute UTC instant at which the peer's SSO
+	// session expires. nil when the peer is not SSO-tracked or login
+	// expiration is disabled. Pointer (rather than zero-value time.Time) so
+	// JSON / YAML omit the field entirely with `,omitempty`.
+	SessionExpiresAt *time.Time `json:"sessionExpiresAt,omitempty" yaml:"sessionExpiresAt,omitempty"`
 }
 
-func ConvertToStatusOutputOverview(resp *proto.StatusResponse, anon bool, statusFilter string, prefixNamesFilter []string, prefixNamesFilterMap map[string]struct{}, ipsFilter map[string]struct{}, connectionTypeFilter string, profName string) OutputOverview {
-	pbFullStatus := resp.GetFullStatus()
-
+// ConvertToStatusOutputOverview converts protobuf status to the output overview.
+func ConvertToStatusOutputOverview(pbFullStatus *proto.FullStatus, opts ConvertOptions) OutputOverview {
 	managementState := pbFullStatus.GetManagementState()
 	managementOverview := ManagementStateOutput{
 		URL:       managementState.GetURL(),
@@ -120,18 +183,22 @@ func ConvertToStatusOutputOverview(resp *proto.StatusResponse, anon bool, status
 	}
 
 	relayOverview := mapRelays(pbFullStatus.GetRelays())
-	peersOverview := mapPeers(resp.GetFullStatus().GetPeers(), statusFilter, prefixNamesFilter, prefixNamesFilterMap, ipsFilter, connectionTypeFilter)
+	sshServerOverview := mapSSHServer(pbFullStatus.GetSshServerState())
+	peersOverview := mapPeers(pbFullStatus.GetPeers(), opts.StatusFilter, opts.PrefixNamesFilter, opts.PrefixNamesFilterMap, opts.IPsFilter, opts.ConnectionTypeFilter)
 
 	overview := OutputOverview{
 		Peers:                   peersOverview,
 		CliVersion:              version.NetbirdVersion(),
-		DaemonVersion:           resp.GetDaemonVersion(),
+		DaemonVersion:           opts.DaemonVersion,
+		DaemonStatus:            opts.DaemonStatus,
 		ManagementState:         managementOverview,
 		SignalState:             signalOverview,
 		Relays:                  relayOverview,
 		IP:                      pbFullStatus.GetLocalPeerState().GetIP(),
+		IPv6:                    pbFullStatus.GetLocalPeerState().GetIpv6(),
 		PubKey:                  pbFullStatus.GetLocalPeerState().GetPubKey(),
 		KernelInterface:         pbFullStatus.GetLocalPeerState().GetKernelInterface(),
+		WgPort:                  int(pbFullStatus.GetLocalPeerState().GetWgPort()),
 		FQDN:                    pbFullStatus.GetLocalPeerState().GetFqdn(),
 		RosenpassEnabled:        pbFullStatus.GetLocalPeerState().GetRosenpassEnabled(),
 		RosenpassPermissive:     pbFullStatus.GetLocalPeerState().GetRosenpassPermissive(),
@@ -140,10 +207,15 @@ func ConvertToStatusOutputOverview(resp *proto.StatusResponse, anon bool, status
 		NSServerGroups:          mapNSGroups(pbFullStatus.GetDnsServers()),
 		Events:                  mapEvents(pbFullStatus.GetEvents()),
 		LazyConnectionEnabled:   pbFullStatus.GetLazyConnectionEnabled(),
-		ProfileName:             profName,
+		ProfileName:             opts.ProfileName,
+		SSHServerState:          sshServerOverview,
+	}
+	if !opts.SessionExpiresAt.IsZero() {
+		t := opts.SessionExpiresAt
+		overview.SessionExpiresAt = &t
 	}
 
-	if anon {
+	if opts.Anonymize {
 		anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
 		anonymizeOverview(anonymizer, &overview)
 	}
@@ -161,7 +233,8 @@ func mapRelays(relays []*proto.RelayState) RelayStateOutput {
 			RelayStateOutputDetail{
 				URI:       relay.URI,
 				Available: available,
-				Error:     relay.GetError(),
+				Error:     relayErrorString(relay.GetError()),
+				Transport: relay.GetTransport(),
 			},
 		)
 
@@ -177,6 +250,12 @@ func mapRelays(relays []*proto.RelayState) RelayStateOutput {
 	}
 }
 
+// relayErrorString flattens a newline-joined aggregated relay error onto a
+// single line for status output.
+func relayErrorString(s string) string {
+	return strings.ReplaceAll(s, "\n", "; ")
+}
+
 func mapNSGroups(servers []*proto.NSGroupState) []NsServerGroupStateOutput {
 	mappedNSGroups := make([]NsServerGroupStateOutput, 0, len(servers))
 	for _, pbNsGroupServer := range servers {
@@ -188,6 +267,31 @@ func mapNSGroups(servers []*proto.NSGroupState) []NsServerGroupStateOutput {
 		})
 	}
 	return mappedNSGroups
+}
+
+func mapSSHServer(sshServerState *proto.SSHServerState) SSHServerStateOutput {
+	if sshServerState == nil {
+		return SSHServerStateOutput{
+			Enabled:  false,
+			Sessions: []SSHSessionOutput{},
+		}
+	}
+
+	sessions := make([]SSHSessionOutput, 0, len(sshServerState.GetSessions()))
+	for _, session := range sshServerState.GetSessions() {
+		sessions = append(sessions, SSHSessionOutput{
+			Username:      session.GetUsername(),
+			RemoteAddress: session.GetRemoteAddress(),
+			Command:       session.GetCommand(),
+			JWTUsername:   session.GetJwtUsername(),
+			PortForwards:  session.GetPortForwards(),
+		})
+	}
+
+	return SSHServerStateOutput{
+		Enabled:  sshServerState.GetEnabled(),
+		Sessions: sessions,
+	}
 }
 
 func mapPeers(
@@ -239,6 +343,7 @@ func mapPeers(
 		timeLocal := pbPeerState.GetConnStatusUpdate().AsTime().Local()
 		peerState := PeerStateDetailOutput{
 			IP:               pbPeerState.GetIP(),
+			IPv6:             pbPeerState.GetIpv6(),
 			PubKey:           pbPeerState.GetPubKey(),
 			Status:           pbPeerState.GetConnStatus(),
 			LastStatusUpdate: timeLocal,
@@ -284,61 +389,69 @@ func sortPeersByIP(peersStateDetail []PeerStateDetailOutput) {
 	}
 }
 
-func ParseToJSON(overview OutputOverview) (string, error) {
-	jsonBytes, err := json.Marshal(overview)
+// JSON returns the status overview as a JSON string.
+func (o *OutputOverview) JSON() (string, error) {
+	jsonBytes, err := json.Marshal(o)
 	if err != nil {
 		return "", fmt.Errorf("json marshal failed")
 	}
 	return string(jsonBytes), err
 }
 
-func ParseToYAML(overview OutputOverview) (string, error) {
-	yamlBytes, err := yaml.Marshal(overview)
+// YAML returns the status overview as a YAML string.
+func (o *OutputOverview) YAML() (string, error) {
+	yamlBytes, err := yaml.Marshal(o)
 	if err != nil {
 		return "", fmt.Errorf("yaml marshal failed")
 	}
 	return string(yamlBytes), nil
 }
 
-func ParseGeneralSummary(overview OutputOverview, showURL bool, showRelays bool, showNameServers bool) string {
+// GeneralSummary returns a general summary of the status overview.
+func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameServers bool, showSSHSessions bool) string {
 	var managementConnString string
-	if overview.ManagementState.Connected {
+	if o.ManagementState.Connected {
 		managementConnString = "Connected"
 		if showURL {
-			managementConnString = fmt.Sprintf("%s to %s", managementConnString, overview.ManagementState.URL)
+			managementConnString = fmt.Sprintf("%s to %s", managementConnString, o.ManagementState.URL)
 		}
 	} else {
 		managementConnString = "Disconnected"
-		if overview.ManagementState.Error != "" {
-			managementConnString = fmt.Sprintf("%s, reason: %s", managementConnString, overview.ManagementState.Error)
+		if o.ManagementState.Error != "" {
+			managementConnString = fmt.Sprintf("%s, reason: %s", managementConnString, o.ManagementState.Error)
 		}
 	}
 
 	var signalConnString string
-	if overview.SignalState.Connected {
+	if o.SignalState.Connected {
 		signalConnString = "Connected"
 		if showURL {
-			signalConnString = fmt.Sprintf("%s to %s", signalConnString, overview.SignalState.URL)
+			signalConnString = fmt.Sprintf("%s to %s", signalConnString, o.SignalState.URL)
 		}
 	} else {
 		signalConnString = "Disconnected"
-		if overview.SignalState.Error != "" {
-			signalConnString = fmt.Sprintf("%s, reason: %s", signalConnString, overview.SignalState.Error)
+		if o.SignalState.Error != "" {
+			signalConnString = fmt.Sprintf("%s, reason: %s", signalConnString, o.SignalState.Error)
 		}
 	}
 
 	interfaceTypeString := "Userspace"
-	interfaceIP := overview.IP
-	if overview.KernelInterface {
+	interfaceIP := o.IP
+	if o.KernelInterface {
 		interfaceTypeString = "Kernel"
-	} else if overview.IP == "" {
+	} else if o.IP == "" {
 		interfaceTypeString = "N/A"
 		interfaceIP = "N/A"
 	}
 
+	ipv6Line := ""
+	if o.IPv6 != "" {
+		ipv6Line = fmt.Sprintf("NetBird IPv6: %s\n", o.IPv6)
+	}
+
 	var relaysString string
 	if showRelays {
-		for _, relay := range overview.Relays.Details {
+		for _, relay := range o.Relays.Details {
 			available := "Available"
 			reason := ""
 
@@ -349,23 +462,25 @@ func ParseGeneralSummary(overview OutputOverview, showURL bool, showRelays bool,
 					available = "Unavailable"
 					reason = fmt.Sprintf(", reason: %s", relay.Error)
 				}
+			} else if relay.Transport != "" {
+				available = fmt.Sprintf("%s via %s", available, relay.Transport)
 			}
 
 			relaysString += fmt.Sprintf("\n  [%s] is %s%s", relay.URI, available, reason)
 		}
 	} else {
-		relaysString = fmt.Sprintf("%d/%d Available", overview.Relays.Available, overview.Relays.Total)
+		relaysString = fmt.Sprintf("%d/%d Available", o.Relays.Available, o.Relays.Total)
 	}
 
 	networks := "-"
-	if len(overview.Networks) > 0 {
-		sort.Strings(overview.Networks)
-		networks = strings.Join(overview.Networks, ", ")
+	if len(o.Networks) > 0 {
+		sort.Strings(o.Networks)
+		networks = strings.Join(o.Networks, ", ")
 	}
 
 	var dnsServersString string
 	if showNameServers {
-		for _, nsServerGroup := range overview.NSServerGroups {
+		for _, nsServerGroup := range o.NSServerGroups {
 			enabled := "Available"
 			if !nsServerGroup.Enabled {
 				enabled = "Unavailable"
@@ -389,29 +504,96 @@ func ParseGeneralSummary(overview OutputOverview, showURL bool, showRelays bool,
 			)
 		}
 	} else {
-		dnsServersString = fmt.Sprintf("%d/%d Available", countEnabled(overview.NSServerGroups), len(overview.NSServerGroups))
+		dnsServersString = fmt.Sprintf("%d/%d Available", countEnabled(o.NSServerGroups), len(o.NSServerGroups))
 	}
 
 	rosenpassEnabledStatus := "false"
-	if overview.RosenpassEnabled {
+	if o.RosenpassEnabled {
 		rosenpassEnabledStatus = "true"
-		if overview.RosenpassPermissive {
+		if o.RosenpassPermissive {
 			rosenpassEnabledStatus = "true (permissive)" //nolint:gosec
 		}
 	}
 
 	lazyConnectionEnabledStatus := "false"
-	if overview.LazyConnectionEnabled {
+	if o.LazyConnectionEnabled {
 		lazyConnectionEnabledStatus = "true"
 	}
 
-	peersCountString := fmt.Sprintf("%d/%d Connected", overview.Peers.Connected, overview.Peers.Total)
+	sshServerStatus := "Disabled"
+	if o.SSHServerState.Enabled {
+		sessionCount := len(o.SSHServerState.Sessions)
+		if sessionCount > 0 {
+			sessionWord := "session"
+			if sessionCount > 1 {
+				sessionWord = "sessions"
+			}
+			sshServerStatus = fmt.Sprintf("Enabled (%d active %s)", sessionCount, sessionWord)
+		} else {
+			sshServerStatus = "Enabled"
+		}
+
+		if showSSHSessions && sessionCount > 0 {
+			for _, session := range o.SSHServerState.Sessions {
+				var sessionDisplay string
+				if session.JWTUsername != "" {
+					sessionDisplay = fmt.Sprintf("[%s@%s -> %s] %s",
+						session.JWTUsername,
+						session.RemoteAddress,
+						session.Username,
+						session.Command,
+					)
+				} else {
+					sessionDisplay = fmt.Sprintf("[%s@%s] %s",
+						session.Username,
+						session.RemoteAddress,
+						session.Command,
+					)
+				}
+				sshServerStatus += "\n  " + sessionDisplay
+				for _, pf := range session.PortForwards {
+					sshServerStatus += "\n    " + pf
+				}
+			}
+		}
+	}
+
+	peersCountString := fmt.Sprintf("%d/%d Connected", o.Peers.Connected, o.Peers.Total)
+
+	var sessionExpiryString string
+	if o.SessionExpiresAt != nil && !o.SessionExpiresAt.IsZero() {
+		sessionExpiryString = fmt.Sprintf(
+			"Session expires: %s (in %s)\n",
+			o.SessionExpiresAt.Format(time.RFC3339),
+			FormatRemainingDuration(time.Until(*o.SessionExpiresAt)),
+		)
+	}
+
+	var forwardingRulesString string
+	if o.NumberOfForwardingRules > 0 {
+		forwardingRulesString = fmt.Sprintf("Forwarding rules: %d\n", o.NumberOfForwardingRules)
+	}
 
 	goos := runtime.GOOS
 	goarch := runtime.GOARCH
 	goarm := ""
 	if goarch == "arm" {
 		goarm = fmt.Sprintf(" (ARMv%s)", os.Getenv("GOARM"))
+	}
+
+	daemonVersion := "N/A"
+	if o.DaemonVersion != "" {
+		daemonVersion = o.DaemonVersion
+	}
+
+	cliVersion := version.NetbirdVersion()
+	if o.CliVersion != "" {
+		cliVersion = o.CliVersion
+	}
+
+	wgPortString := "N/A"
+	if o.WgPort > 0 {
+		wgPortString = fmt.Sprintf("%d", o.WgPort)
 	}
 
 	summary := fmt.Sprintf(
@@ -425,36 +607,45 @@ func ParseGeneralSummary(overview OutputOverview, showURL bool, showRelays bool,
 			"Nameservers: %s\n"+
 			"FQDN: %s\n"+
 			"NetBird IP: %s\n"+
+			"%s"+
 			"Interface type: %s\n"+
+			"Wireguard port: %s\n"+
 			"Quantum resistance: %s\n"+
 			"Lazy connection: %s\n"+
+			"SSH Server: %s\n"+
 			"Networks: %s\n"+
-			"Forwarding rules: %d\n"+
+			"%s"+
+			"%s"+
 			"Peers count: %s\n",
 		fmt.Sprintf("%s/%s%s", goos, goarch, goarm),
-		overview.DaemonVersion,
-		version.NetbirdVersion(),
-		overview.ProfileName,
+		daemonVersion,
+		cliVersion,
+		o.ProfileName,
 		managementConnString,
 		signalConnString,
 		relaysString,
 		dnsServersString,
-		domain.Domain(overview.FQDN).SafeString(),
+		domain.Domain(o.FQDN).SafeString(),
 		interfaceIP,
+		ipv6Line,
 		interfaceTypeString,
+		wgPortString,
 		rosenpassEnabledStatus,
 		lazyConnectionEnabledStatus,
+		sshServerStatus,
 		networks,
-		overview.NumberOfForwardingRules,
+		forwardingRulesString,
+		sessionExpiryString,
 		peersCountString,
 	)
 	return summary
 }
 
-func ParseToFullDetailSummary(overview OutputOverview) string {
-	parsedPeersString := parsePeers(overview.Peers, overview.RosenpassEnabled, overview.RosenpassPermissive)
-	parsedEventsString := parseEvents(overview.Events)
-	summary := ParseGeneralSummary(overview, true, true, true)
+// FullDetailSummary returns a full detailed summary with peer details and events.
+func (o *OutputOverview) FullDetailSummary() string {
+	parsedPeersString := parsePeers(o.Peers, o.RosenpassEnabled, o.RosenpassPermissive)
+	parsedEventsString := parseEvents(o.Events)
+	summary := o.GeneralSummary(true, true, true, true)
 
 	return fmt.Sprintf(
 		"Peers detail:"+
@@ -466,6 +657,98 @@ func ParseToFullDetailSummary(overview OutputOverview) string {
 		parsedEventsString,
 		summary,
 	)
+}
+
+func ToProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
+	pbFullStatus := proto.FullStatus{
+		ManagementState: &proto.ManagementState{},
+		SignalState:     &proto.SignalState{},
+		LocalPeerState:  &proto.LocalPeerState{},
+		Peers:           []*proto.PeerState{},
+	}
+
+	pbFullStatus.ManagementState.URL = fullStatus.ManagementState.URL
+	pbFullStatus.ManagementState.Connected = fullStatus.ManagementState.Connected
+	if err := fullStatus.ManagementState.Error; err != nil {
+		pbFullStatus.ManagementState.Error = err.Error()
+	}
+
+	pbFullStatus.SignalState.URL = fullStatus.SignalState.URL
+	pbFullStatus.SignalState.Connected = fullStatus.SignalState.Connected
+	if err := fullStatus.SignalState.Error; err != nil {
+		pbFullStatus.SignalState.Error = err.Error()
+	}
+
+	pbFullStatus.LocalPeerState.IP = fullStatus.LocalPeerState.IP
+	pbFullStatus.LocalPeerState.Ipv6 = fullStatus.LocalPeerState.IPv6
+	pbFullStatus.LocalPeerState.PubKey = fullStatus.LocalPeerState.PubKey
+	pbFullStatus.LocalPeerState.KernelInterface = fullStatus.LocalPeerState.KernelInterface
+	pbFullStatus.LocalPeerState.Fqdn = fullStatus.LocalPeerState.FQDN
+	pbFullStatus.LocalPeerState.RosenpassPermissive = fullStatus.RosenpassState.Permissive
+	pbFullStatus.LocalPeerState.RosenpassEnabled = fullStatus.RosenpassState.Enabled
+	pbFullStatus.LocalPeerState.Networks = maps.Keys(fullStatus.LocalPeerState.Routes)
+	pbFullStatus.NumberOfForwardingRules = int32(fullStatus.NumOfForwardingRules)
+	pbFullStatus.LazyConnectionEnabled = fullStatus.LazyConnectionEnabled
+
+	for _, peerState := range fullStatus.Peers {
+		pbPeerState := &proto.PeerState{
+			IP:                         peerState.IP,
+			Ipv6:                       peerState.IPv6,
+			PubKey:                     peerState.PubKey,
+			ConnStatus:                 peerState.ConnStatus.String(),
+			ConnStatusUpdate:           timestamppb.New(peerState.ConnStatusUpdate),
+			Relayed:                    peerState.Relayed,
+			LocalIceCandidateType:      peerState.LocalIceCandidateType,
+			RemoteIceCandidateType:     peerState.RemoteIceCandidateType,
+			LocalIceCandidateEndpoint:  peerState.LocalIceCandidateEndpoint,
+			RemoteIceCandidateEndpoint: peerState.RemoteIceCandidateEndpoint,
+			RelayAddress:               peerState.RelayServerAddress,
+			Fqdn:                       peerState.FQDN,
+			LastWireguardHandshake:     timestamppb.New(peerState.LastWireguardHandshake),
+			BytesRx:                    peerState.BytesRx,
+			BytesTx:                    peerState.BytesTx,
+			RosenpassEnabled:           peerState.RosenpassEnabled,
+			Networks:                   maps.Keys(peerState.GetRoutes()),
+			Latency:                    durationpb.New(peerState.Latency),
+			SshHostKey:                 peerState.SSHHostKey,
+		}
+		pbFullStatus.Peers = append(pbFullStatus.Peers, pbPeerState)
+	}
+
+	for _, relayState := range fullStatus.Relays {
+		pbRelayState := &proto.RelayState{
+			URI:       relayState.URI,
+			Available: relayState.Err == nil,
+		}
+		if err := relayState.Err; err != nil {
+			pbRelayState.Error = err.Error()
+		}
+		pbFullStatus.Relays = append(pbFullStatus.Relays, pbRelayState)
+	}
+
+	for _, dnsState := range fullStatus.NSGroupStates {
+		var err string
+		if dnsState.Error != nil {
+			err = dnsState.Error.Error()
+		}
+
+		var servers []string
+		for _, server := range dnsState.Servers {
+			servers = append(servers, server.String())
+		}
+
+		pbDnsState := &proto.NSGroupState{
+			Servers: servers,
+			Domains: dnsState.Domains,
+			Enabled: dnsState.Enabled,
+			Error:   err,
+		}
+		pbFullStatus.DnsServers = append(pbFullStatus.DnsServers, pbDnsState)
+	}
+
+	pbFullStatus.Events = fullStatus.Events
+
+	return &pbFullStatus
 }
 
 func parsePeers(peers PeersStateOutput, rosenpassEnabled, rosenpassPermissive bool) string {
@@ -518,9 +801,15 @@ func parsePeers(peers PeersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 			networks = strings.Join(peerState.Networks, ", ")
 		}
 
+		ipv6Line := ""
+		if peerState.IPv6 != "" {
+			ipv6Line = fmt.Sprintf("  NetBird IPv6: %s\n", peerState.IPv6)
+		}
+
 		peerString := fmt.Sprintf(
 			"\n %s:\n"+
 				"  NetBird IP: %s\n"+
+				"%s"+
 				"  Public key: %s\n"+
 				"  Status: %s\n"+
 				"  -- detail --\n"+
@@ -536,6 +825,7 @@ func parsePeers(peers PeersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 				"  Latency: %s\n",
 			domain.Domain(peerState.FQDN).SafeString(),
 			peerState.IP,
+			ipv6Line,
 			peerState.PubKey,
 			peerState.Status,
 			peerState.ConnType,
@@ -572,6 +862,9 @@ func skipDetailByFilters(peerState *proto.PeerState, peerStatus string, statusFi
 
 	if len(ipsFilter) > 0 {
 		_, ok := ipsFilter[peerState.IP]
+		if !ok {
+			_, ok = ipsFilter[peerState.Ipv6]
+		}
 		if !ok {
 			ipEval = true
 		}
@@ -690,6 +983,7 @@ func anonymizePeerDetail(a *anonymize.Anonymizer, peer *PeerStateDetailOutput) {
 		peer.IceCandidateEndpoint.Remote = fmt.Sprintf("%s:%s", a.AnonymizeIPString(remoteIP), port)
 	}
 
+	peer.IPv6 = a.AnonymizeIPString(peer.IPv6)
 	peer.RelayAddress = a.AnonymizeURI(peer.RelayAddress)
 
 	for i, route := range peer.Networks {
@@ -714,6 +1008,7 @@ func anonymizeOverview(a *anonymize.Anonymizer, overview *OutputOverview) {
 	overview.SignalState.Error = a.AnonymizeString(overview.SignalState.Error)
 
 	overview.IP = a.AnonymizeIPString(overview.IP)
+	overview.IPv6 = a.AnonymizeIPString(overview.IPv6)
 	for i, detail := range overview.Relays.Details {
 		detail.URI = a.AnonymizeURI(detail.URI)
 		detail.Error = a.AnonymizeString(detail.Error)
@@ -745,5 +1040,68 @@ func anonymizeOverview(a *anonymize.Anonymizer, overview *OutputOverview) {
 		for k, v := range event.Metadata {
 			event.Metadata[k] = a.AnonymizeString(v)
 		}
+	}
+
+	for i, session := range overview.SSHServerState.Sessions {
+		if host, port, err := net.SplitHostPort(session.RemoteAddress); err == nil {
+			overview.SSHServerState.Sessions[i].RemoteAddress = fmt.Sprintf("%s:%s", a.AnonymizeIPString(host), port)
+		} else {
+			overview.SSHServerState.Sessions[i].RemoteAddress = a.AnonymizeIPString(session.RemoteAddress)
+		}
+		overview.SSHServerState.Sessions[i].Command = a.AnonymizeString(session.Command)
+	}
+}
+
+// FormatRemainingDuration renders a time.Duration for the "Session expires"
+// line. Examples: "2h 15m", "47m 12s", "8s", "expired 3m ago".
+//
+// Granularity drops to seconds only under a minute, otherwise minutes are
+// the smallest unit shown — sub-minute precision is noise for a deadline
+// that's hours or days out.
+func FormatRemainingDuration(d time.Duration) string {
+	if d <= 0 {
+		return "expired " + HumaniseDuration(-d) + " ago"
+	}
+	return HumaniseDuration(d)
+}
+
+// HumaniseDuration renders a positive duration in compact form (e.g.
+// "2h 15m", "47m", "8s"). Exposed alongside FormatRemainingDuration so
+// callers that don't need the "expired … ago" wording can format
+// positive durations directly.
+func HumaniseDuration(d time.Duration) string {
+	if d < time.Minute {
+		s := int(d.Round(time.Second).Seconds())
+		if s < 1 {
+			s = 1
+		}
+		return fmt.Sprintf("%ds", s)
+	}
+
+	const (
+		day    = 24 * time.Hour
+		hour   = time.Hour
+		minute = time.Minute
+	)
+
+	days := int64(d / day)
+	d -= time.Duration(days) * day
+	hours := int64(d / hour)
+	d -= time.Duration(hours) * hour
+	minutes := int64(d / minute)
+
+	switch {
+	case days > 0:
+		if hours == 0 {
+			return fmt.Sprintf("%dd", days)
+		}
+		return fmt.Sprintf("%dd %dh", days, hours)
+	case hours > 0:
+		if minutes == 0 {
+			return fmt.Sprintf("%dh", hours)
+		}
+		return fmt.Sprintf("%dh %dm", hours, minutes)
+	default:
+		return fmt.Sprintf("%dm", minutes)
 	}
 }

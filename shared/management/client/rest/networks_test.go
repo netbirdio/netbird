@@ -1,5 +1,4 @@
 //go:build integration
-// +build integration
 
 package rest_test
 
@@ -217,6 +216,35 @@ func TestNetworks_Integration(t *testing.T) {
 
 		err = c.Networks.Delete(context.Background(), "TestID")
 		assert.NoError(t, err)
+	})
+}
+
+func TestNetworks_ListAllRouters_200(t *testing.T) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
+		mux.HandleFunc("/api/networks/routers", func(w http.ResponseWriter, r *http.Request) {
+			retBytes, _ := json.Marshal([]api.NetworkRouter{testNetworkRouter})
+			_, err := w.Write(retBytes)
+			require.NoError(t, err)
+		})
+		ret, err := c.Networks.ListAllRouters(context.Background())
+		require.NoError(t, err)
+		assert.Len(t, ret, 1)
+		assert.Equal(t, testNetworkRouter, ret[0])
+	})
+}
+
+func TestNetworks_ListAllRouters_Err(t *testing.T) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
+		mux.HandleFunc("/api/networks/routers", func(w http.ResponseWriter, r *http.Request) {
+			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "No", Code: 400})
+			w.WriteHeader(400)
+			_, err := w.Write(retBytes)
+			require.NoError(t, err)
+		})
+		ret, err := c.Networks.ListAllRouters(context.Background())
+		assert.Error(t, err)
+		assert.Equal(t, "No", err.Error())
+		assert.Empty(t, ret)
 	})
 }
 

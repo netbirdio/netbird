@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Netbird
+Exec=env WEBKIT_DISABLE_DMABUF_RENDERER=1 /usr/bin/netbird-ui
+Icon=netbird
+Type=Application
+Terminal=false
+Categories=Utility;
+Keywords=netbird;
+StartupWMClass=org.wails.netbird

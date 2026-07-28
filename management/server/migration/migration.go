@@ -13,6 +13,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -393,7 +394,7 @@ func CreateIndexIfNotExists[T any](ctx context.Context, db *gorm.DB, indexName s
 		return fmt.Errorf("failed to parse model schema: %w", err)
 	}
 	tableName := stmt.Schema.Table
-	dialect := db.Dialector.Name()
+	dialect := db.Name()
 
 	if db.Migrator().HasIndex(&model, indexName) {
 		log.WithContext(ctx).Infof("index %s already exists on table %s", indexName, tableName)
@@ -404,10 +405,11 @@ func CreateIndexIfNotExists[T any](ctx context.Context, db *gorm.DB, indexName s
 	if dialect == "mysql" {
 		var withLength []string
 		for _, col := range columns {
-			if col == "ip" || col == "dns_label" {
-				withLength = append(withLength, fmt.Sprintf("%s(64)", col))
+			quotedCol := fmt.Sprintf("`%s`", col)
+			if col == "ip" || col == "dns_label" || col == "key" {
+				withLength = append(withLength, fmt.Sprintf("%s(64)", quotedCol))
 			} else {
-				withLength = append(withLength, col)
+				withLength = append(withLength, quotedCol)
 			}
 		}
 		columnClause = strings.Join(withLength, ", ")
@@ -485,5 +487,277 @@ func MigrateJsonToTable[T any](ctx context.Context, db *gorm.DB, columnName stri
 	}
 
 	log.WithContext(ctx).Infof("Migration of JSON field %s from table %s into separate table completed", columnName, tableName)
+	return nil
+}
+
+// hasForeignKey checks whether a foreign key constraint exists on the given table and column.
+func hasForeignKey(db *gorm.DB, table, column string) bool {
+	var count int64
+
+	switch db.Name() {
+	case "postgres":
+		db.Raw(`
+			SELECT COUNT(*) FROM information_schema.key_column_usage kcu
+			JOIN information_schema.table_constraints tc
+			  ON tc.constraint_name = kcu.constraint_name
+			  AND tc.table_schema = kcu.table_schema
+			WHERE tc.constraint_type = 'FOREIGN KEY'
+			  AND kcu.table_name = ?
+			  AND kcu.column_name = ?
+		`, table, column).Scan(&count)
+	case "mysql":
+		db.Raw(`
+			SELECT COUNT(*) FROM information_schema.key_column_usage
+			WHERE table_schema = DATABASE()
+			  AND table_name = ?
+			  AND column_name = ?
+			  AND referenced_table_name IS NOT NULL
+		`, table, column).Scan(&count)
+	default: // sqlite
+		type fkInfo struct {
+			From string
+		}
+		var fks []fkInfo
+		db.Raw(fmt.Sprintf("PRAGMA foreign_key_list(%s)", table)).Scan(&fks)
+		for _, fk := range fks {
+			if fk.From == column {
+				return true
+			}
+		}
+		return false
+	}
+
+	return count > 0
+}
+
+// CleanupOrphanedResources deletes rows from the table of model T where the foreign
+// key column (fkColumn) references a row in the table of model R that no longer exists.
+func CleanupOrphanedResources[T any, R any](ctx context.Context, db *gorm.DB, fkColumn string) error {
+	var model T
+	var refModel R
+
+	if !db.Migrator().HasTable(&model) {
+		log.WithContext(ctx).Debugf("table for %T does not exist, no cleanup needed", model)
+		return nil
+	}
+
+	if !db.Migrator().HasTable(&refModel) {
+		log.WithContext(ctx).Debugf("referenced table for %T does not exist, no cleanup needed", refModel)
+		return nil
+	}
+
+	stmtT := &gorm.Statement{DB: db}
+	if err := stmtT.Parse(&model); err != nil {
+		return fmt.Errorf("parse model %T: %w", model, err)
+	}
+	childTable := stmtT.Schema.Table
+
+	stmtR := &gorm.Statement{DB: db}
+	if err := stmtR.Parse(&refModel); err != nil {
+		return fmt.Errorf("parse reference model %T: %w", refModel, err)
+	}
+	parentTable := stmtR.Schema.Table
+
+	if !db.Migrator().HasColumn(&model, fkColumn) {
+		log.WithContext(ctx).Debugf("column %s does not exist in table %s, no cleanup needed", fkColumn, childTable)
+		return nil
+	}
+
+	// If a foreign key constraint already exists on the column, the DB itself
+	// enforces referential integrity and orphaned rows cannot exist.
+	if hasForeignKey(db, childTable, fkColumn) {
+		log.WithContext(ctx).Debugf("foreign key constraint for %s already exists on %s, no cleanup needed", fkColumn, childTable)
+		return nil
+	}
+
+	result := db.Exec(
+		fmt.Sprintf(
+			"DELETE FROM %s WHERE %s NOT IN (SELECT id FROM %s)",
+			childTable, fkColumn, parentTable,
+		),
+	)
+	if result.Error != nil {
+		return fmt.Errorf("cleanup orphaned rows in %s: %w", childTable, result.Error)
+	}
+
+	log.WithContext(ctx).Infof("Cleaned up %d orphaned rows from %s where %s had no matching row in %s",
+		result.RowsAffected, childTable, fkColumn, parentTable)
+
+	return nil
+}
+
+func RemoveDuplicatePeerKeys(ctx context.Context, db *gorm.DB) error {
+	if !db.Migrator().HasTable("peers") {
+		log.WithContext(ctx).Debug("peers table does not exist, skipping duplicate key cleanup")
+		return nil
+	}
+
+	keyColumn := GetColumnName(db, "key")
+
+	var duplicates []struct {
+		Key   string
+		Count int64
+	}
+
+	if err := db.Table("peers").
+		Select(keyColumn + ", COUNT(*) as count").
+		Group(keyColumn).
+		Having("COUNT(*) > 1").
+		Find(&duplicates).Error; err != nil {
+		return fmt.Errorf("find duplicate keys: %w", err)
+	}
+
+	if len(duplicates) == 0 {
+		return nil
+	}
+
+	log.WithContext(ctx).Warnf("Found %d duplicate peer keys, cleaning up", len(duplicates))
+
+	for _, dup := range duplicates {
+		var peerIDs []string
+		if err := db.Table("peers").
+			Select("id").
+			Where(keyColumn+" = ?", dup.Key).
+			Order("peer_status_last_seen DESC").
+			Pluck("id", &peerIDs).Error; err != nil {
+			return fmt.Errorf("get peers for key: %w", err)
+		}
+
+		if len(peerIDs) <= 1 {
+			continue
+		}
+
+		idsToDelete := peerIDs[1:]
+
+		if err := db.Table("peers").Where("id IN ?", idsToDelete).Delete(nil).Error; err != nil {
+			return fmt.Errorf("delete duplicate peers: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func BackfillPublicIDs[T any](ctx context.Context, db *gorm.DB) error {
+	var model T
+
+	if !db.Migrator().HasTable(&model) {
+		log.WithContext(ctx).Debugf("Table for %T does not exist, no backfill needed", model)
+		return nil
+	}
+
+	stmt := &gorm.Statement{DB: db}
+	err := stmt.Parse(&model)
+	if err != nil {
+		return fmt.Errorf("parse model: %w", err)
+	}
+	tableName := stmt.Schema.Table
+
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		if !tx.Migrator().HasColumn(&model, "public_id") {
+			log.WithContext(ctx).Infof("Column public_id does not exist in table %s, adding it", tableName)
+			if err := tx.Migrator().AddColumn(&model, "public_id"); err != nil {
+				return fmt.Errorf("add column public_id: %w", err)
+			}
+		}
+
+		var rows []map[string]any
+		if err := tx.Table(tableName).Select("id", "public_id").Where("public_id IS NULL").Or("public_id = ''").Find(&rows).Error; err != nil {
+			return fmt.Errorf("failed to find rows with empty public_id: %w", err)
+		}
+
+		if len(rows) == 0 {
+			log.WithContext(ctx).Infof("No rows with empty public_id found in table %s, no migration needed", tableName)
+			return nil
+		}
+
+		for _, row := range rows {
+			if err := tx.Table(tableName).Where("id = ?", row["id"]).Update("public_id", xid.New().String()).Error; err != nil {
+				return fmt.Errorf("failed to update row with id %v: %w", row["id"], err)
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	log.WithContext(ctx).Infof("Backfill of empty public_id in table %s completed", tableName)
+	return nil
+}
+
+// FoldCostAggregatesIntoBuckets migrates a per-request cost table from the old
+// "stored aggregate" shape (cost_usd + cache_cost_usd columns) to the per-bucket
+// breakdown, where the total and cache portion are derived on read instead.
+//
+// The fold preserves both aggregates exactly for historical rows: the cache
+// total moves into cached_input_cost_usd and the remainder into
+// input_cost_usd, so a row's derived total and cache cost still match what it
+// reported before the upgrade. The finer split is genuinely unknown for those
+// rows — the old schema never recorded a read/write or input/output division —
+// so it is lumped rather than guessed; only rows written after the upgrade
+// carry a true four-way split.
+//
+// Dropping the columns before folding would zero every historical row's cost,
+// so the update runs first and the drop only happens once it succeeds. A table
+// with no cost_usd column has already been migrated (or was created fresh) and
+// is skipped.
+func FoldCostAggregatesIntoBuckets[T any](ctx context.Context, db *gorm.DB) error {
+	var model T
+
+	if !db.Migrator().HasTable(&model) {
+		log.WithContext(ctx).Debugf("table for %T does not exist, no cost-bucket migration needed", model)
+		return nil
+	}
+	if !db.Migrator().HasColumn(&model, "cost_usd") {
+		log.WithContext(ctx).Debugf("table for %T has no cost_usd column, cost buckets already migrated", model)
+		return nil
+	}
+
+	stmt := &gorm.Statement{DB: db}
+	if err := stmt.Parse(&model); err != nil {
+		return fmt.Errorf("parse model schema: %w", err)
+	}
+	tableName := stmt.Schema.Table
+
+	// COALESCE guards rows whose new columns were added as NULL by an earlier
+	// AutoMigrate run that predates the NOT NULL default.
+	hasCacheColumn := db.Migrator().HasColumn(&model, "cache_cost_usd")
+	cacheExpr := "0"
+	if hasCacheColumn {
+		cacheExpr = "COALESCE(cache_cost_usd, 0)"
+	}
+
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		// Only touch rows that carry a legacy total and no breakdown yet, so
+		// the migration is idempotent and never overwrites a true split.
+		update := fmt.Sprintf(`UPDATE %s
+			SET input_cost_usd = COALESCE(cost_usd, 0) - %s,
+			    cached_input_cost_usd = %s,
+			    cache_creation_cost_usd = 0,
+			    output_cost_usd = 0
+			WHERE COALESCE(cost_usd, 0) <> 0
+			  AND COALESCE(input_cost_usd, 0) = 0
+			  AND COALESCE(cached_input_cost_usd, 0) = 0
+			  AND COALESCE(cache_creation_cost_usd, 0) = 0
+			  AND COALESCE(output_cost_usd, 0) = 0`, tableName, cacheExpr, cacheExpr)
+		res := tx.Exec(update)
+		if res.Error != nil {
+			return fmt.Errorf("fold legacy cost aggregates in %s: %w", tableName, res.Error)
+		}
+		log.WithContext(ctx).Infof("folded legacy cost aggregates into per-bucket columns for %d rows in table %s", res.RowsAffected, tableName)
+
+		if err := tx.Migrator().DropColumn(&model, "cost_usd"); err != nil {
+			return fmt.Errorf("drop cost_usd from %s: %w", tableName, err)
+		}
+		if hasCacheColumn {
+			if err := tx.Migrator().DropColumn(&model, "cache_cost_usd"); err != nil {
+				return fmt.Errorf("drop cache_cost_usd from %s: %w", tableName, err)
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	log.WithContext(ctx).Infof("migration of stored cost aggregates to per-bucket columns in table %s completed", tableName)
 	return nil
 }

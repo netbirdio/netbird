@@ -1,6 +1,9 @@
+//go:build privileged
+
 package iface
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/netip"
@@ -9,13 +12,14 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/pion/transport/v3/stdnet"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/iface/device"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/internal/stdnet"
 )
 
 // keep darwin compatibility
@@ -40,14 +44,14 @@ func TestWGIface_UpdateAddr(t *testing.T) {
 	ifaceName := fmt.Sprintf("utun%d", WgIntNumber+4)
 	addr := "100.64.0.1/8"
 	wgPort := 33100
-	newNet, err := stdnet.NewNet()
+	newNet, err := stdnet.NewNet(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	opts := WGIFaceOpts{
 		IFaceName:    ifaceName,
-		Address:      addr,
+		Address:      wgaddr.MustParseWGAddress(addr),
 		WGPort:       wgPort,
 		WGPrivKey:    key,
 		MTU:          DefaultMTU,
@@ -83,7 +87,7 @@ func TestWGIface_UpdateAddr(t *testing.T) {
 
 	//update WireGuard address
 	addr = "100.64.0.2/8"
-	err = iface.UpdateAddr(addr)
+	err = iface.UpdateAddr(wgaddr.MustParseWGAddress(addr))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,13 +127,13 @@ func getIfaceAddrs(ifaceName string) ([]net.Addr, error) {
 func Test_CreateInterface(t *testing.T) {
 	ifaceName := fmt.Sprintf("utun%d", WgIntNumber+1)
 	wgIP := "10.99.99.1/32"
-	newNet, err := stdnet.NewNet()
+	newNet, err := stdnet.NewNet(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	opts := WGIFaceOpts{
 		IFaceName:    ifaceName,
-		Address:      wgIP,
+		Address:      wgaddr.MustParseWGAddress(wgIP),
 		WGPort:       33100,
 		WGPrivKey:    key,
 		MTU:          DefaultMTU,
@@ -166,14 +170,14 @@ func Test_Close(t *testing.T) {
 	ifaceName := fmt.Sprintf("utun%d", WgIntNumber+2)
 	wgIP := "10.99.99.2/32"
 	wgPort := 33100
-	newNet, err := stdnet.NewNet()
+	newNet, err := stdnet.NewNet(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	opts := WGIFaceOpts{
 		IFaceName:    ifaceName,
-		Address:      wgIP,
+		Address:      wgaddr.MustParseWGAddress(wgIP),
 		WGPort:       wgPort,
 		WGPrivKey:    key,
 		MTU:          DefaultMTU,
@@ -211,14 +215,14 @@ func TestRecreation(t *testing.T) {
 			ifaceName := fmt.Sprintf("utun%d", WgIntNumber+2)
 			wgIP := "10.99.99.2/32"
 			wgPort := 33100
-			newNet, err := stdnet.NewNet()
+			newNet, err := stdnet.NewNet(context.Background(), nil)
 			if err != nil {
 				t.Fatal(err)
 			}
 
 			opts := WGIFaceOpts{
 				IFaceName:    ifaceName,
-				Address:      wgIP,
+				Address:      wgaddr.MustParseWGAddress(wgIP),
 				WGPort:       wgPort,
 				WGPrivKey:    key,
 				MTU:          DefaultMTU,
@@ -284,13 +288,13 @@ func Test_ConfigureInterface(t *testing.T) {
 	ifaceName := fmt.Sprintf("utun%d", WgIntNumber+3)
 	wgIP := "10.99.99.5/30"
 	wgPort := 33100
-	newNet, err := stdnet.NewNet()
+	newNet, err := stdnet.NewNet(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	opts := WGIFaceOpts{
 		IFaceName:    ifaceName,
-		Address:      wgIP,
+		Address:      wgaddr.MustParseWGAddress(wgIP),
 		WGPort:       wgPort,
 		WGPrivKey:    key,
 		MTU:          DefaultMTU,
@@ -339,14 +343,14 @@ func Test_ConfigureInterface(t *testing.T) {
 func Test_UpdatePeer(t *testing.T) {
 	ifaceName := fmt.Sprintf("utun%d", WgIntNumber+4)
 	wgIP := "10.99.99.9/30"
-	newNet, err := stdnet.NewNet()
+	newNet, err := stdnet.NewNet(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	opts := WGIFaceOpts{
 		IFaceName:    ifaceName,
-		Address:      wgIP,
+		Address:      wgaddr.MustParseWGAddress(wgIP),
 		WGPort:       33100,
 		WGPrivKey:    key,
 		MTU:          DefaultMTU,
@@ -409,14 +413,14 @@ func Test_UpdatePeer(t *testing.T) {
 func Test_RemovePeer(t *testing.T) {
 	ifaceName := fmt.Sprintf("utun%d", WgIntNumber+4)
 	wgIP := "10.99.99.13/30"
-	newNet, err := stdnet.NewNet()
+	newNet, err := stdnet.NewNet(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	opts := WGIFaceOpts{
 		IFaceName:    ifaceName,
-		Address:      wgIP,
+		Address:      wgaddr.MustParseWGAddress(wgIP),
 		WGPort:       33100,
 		WGPrivKey:    key,
 		MTU:          DefaultMTU,
@@ -460,6 +464,8 @@ func Test_RemovePeer(t *testing.T) {
 }
 
 func Test_ConnectPeers(t *testing.T) {
+	t.Setenv("NB_DISABLE_EBPF_WG_PROXY", "true")
+
 	peer1ifaceName := fmt.Sprintf("utun%d", WgIntNumber+400)
 	peer1wgIP := netip.MustParsePrefix("10.99.99.17/30")
 	peer1Key, _ := wgtypes.GeneratePrivateKey()
@@ -471,7 +477,7 @@ func Test_ConnectPeers(t *testing.T) {
 	peer2wgPort := 33200
 
 	keepAlive := 1 * time.Second
-	newNet, err := stdnet.NewNet()
+	newNet, err := stdnet.NewNet(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -481,7 +487,7 @@ func Test_ConnectPeers(t *testing.T) {
 
 	optsPeer1 := WGIFaceOpts{
 		IFaceName:    peer1ifaceName,
-		Address:      peer1wgIP.String(),
+		Address:      wgaddr.MustParseWGAddress(peer1wgIP.String()),
 		WGPort:       peer1wgPort,
 		WGPrivKey:    peer1Key.String(),
 		MTU:          DefaultMTU,
@@ -501,12 +507,8 @@ func Test_ConnectPeers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	localIP, err := getLocalIP()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	peer1endpoint, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", localIP, peer1wgPort))
+	localIP1 := "127.0.0.1"
+	peer1endpoint, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", localIP1, peer1wgPort))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -514,14 +516,14 @@ func Test_ConnectPeers(t *testing.T) {
 	guid = fmt.Sprintf("{%s}", uuid.New().String())
 	device.CustomWindowsGUIDString = strings.ToLower(guid)
 
-	newNet, err = stdnet.NewNet()
+	newNet, err = stdnet.NewNet(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	optsPeer2 := WGIFaceOpts{
 		IFaceName:    peer2ifaceName,
-		Address:      peer2wgIP.String(),
+		Address:      wgaddr.MustParseWGAddress(peer2wgIP.String()),
 		WGPort:       peer2wgPort,
 		WGPrivKey:    peer2Key.String(),
 		MTU:          DefaultMTU,
@@ -542,7 +544,8 @@ func Test_ConnectPeers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	peer2endpoint, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", localIP, peer2wgPort))
+	localIP2 := "127.0.0.1"
+	peer2endpoint, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", localIP2, peer2wgPort))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -565,17 +568,17 @@ func Test_ConnectPeers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// todo: investigate why in some tests execution we need 30s
+	// The peers use userspace WireGuard (stdnet transport). A tight busy-loop
+	// here starves the wireguard-go goroutines that process the handshake, so
+	// poll on a ticker instead and yield the CPU between checks. WireGuard also
+	// only retries a lost handshake initiation every REKEY_TIMEOUT (5s), which
+	// is why the overall wait can occasionally stretch to tens of seconds.
 	timeout := 30 * time.Second
 	timeoutChannel := time.After(timeout)
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
 
 	for {
-		select {
-		case <-timeoutChannel:
-			t.Fatalf("waiting for peer handshake timeout after %s", timeout.String())
-		default:
-		}
-
 		peer, gpErr := getPeer(peer1ifaceName, peer2Key.PublicKey().String())
 		if gpErr != nil {
 			t.Fatal(gpErr)
@@ -583,6 +586,12 @@ func Test_ConnectPeers(t *testing.T) {
 		if !peer.LastHandshakeTime.IsZero() {
 			t.Log("peers successfully handshake")
 			break
+		}
+
+		select {
+		case <-timeoutChannel:
+			t.Fatalf("waiting for peer handshake timeout after %s", timeout.String())
+		case <-ticker.C:
 		}
 	}
 
@@ -610,29 +619,4 @@ func getPeer(ifaceName, peerPubKey string) (wgtypes.Peer, error) {
 		}
 	}
 	return wgtypes.Peer{}, fmt.Errorf("peer not found")
-}
-
-func getLocalIP() (string, error) {
-	// Get all interfaces
-	addrs, err := net.InterfaceAddrs()
-	if err != nil {
-		return "", err
-	}
-
-	for _, addr := range addrs {
-		ipNet, ok := addr.(*net.IPNet)
-		if !ok {
-			continue
-		}
-		if ipNet.IP.IsLoopback() {
-			continue
-		}
-
-		if ipNet.IP.To4() == nil {
-			continue
-		}
-		return ipNet.IP.String(), nil
-	}
-
-	return "", fmt.Errorf("no local IP found")
 }

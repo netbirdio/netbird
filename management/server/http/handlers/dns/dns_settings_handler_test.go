@@ -11,13 +11,14 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/status"
-	"github.com/netbirdio/netbird/management/server/types"
 
 	"github.com/gorilla/mux"
 
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/shared/auth"
 
 	"github.com/netbirdio/netbird/management/server/mock_server"
 )
@@ -107,7 +108,7 @@ func TestDNSSettingsHandlers(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
-			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+			req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
 				UserId:    testingDNSSettingsAccount.Users[testDNSSettingsUserID].Id,
 				AccountId: testingDNSSettingsAccount.Id,
 				Domain:    testingDNSSettingsAccount.Domain,

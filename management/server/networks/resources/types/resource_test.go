@@ -23,10 +23,12 @@ func TestGetResourceType(t *testing.T) {
 		{"example.com", Domain, false, "example.com", netip.Prefix{}},
 		{"*.example.com", Domain, false, "*.example.com", netip.Prefix{}},
 		{"sub.example.com", Domain, false, "sub.example.com", netip.Prefix{}},
+		{"example.x", Domain, false, "example.x", netip.Prefix{}},
+		{"internal", Domain, false, "internal", netip.Prefix{}},
 		// Invalid inputs
-		{"invalid", "", true, "", netip.Prefix{}},
 		{"1.1.1.1/abc", "", true, "", netip.Prefix{}},
-		{"1234", "", true, "", netip.Prefix{}},
+		{"-invalid.com", "", true, "", netip.Prefix{}},
+		{"", "", true, "", netip.Prefix{}},
 	}
 
 	for _, tt := range tests {

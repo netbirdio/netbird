@@ -3,24 +3,19 @@
 package server
 
 import (
+	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
-	"os"
+	"runtime/pprof"
 
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal/debug"
 	"github.com/netbirdio/netbird/client/proto"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
-	"github.com/netbirdio/netbird/upload-server/types"
+	"github.com/netbirdio/netbird/version"
 )
-
-const maxBundleUploadSize = 50 * 1024 * 1024
 
 // DebugBundle creates a debug bundle and returns the location.
 func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (resp *proto.DebugBundleResponse, err error) {
@@ -32,16 +27,56 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 		log.Warnf("failed to get latest sync response: %v", err)
 	}
 
+	var clientMetrics debug.MetricsExporter
+	if s.connectClient != nil {
+		if engine := s.connectClient.Engine(); engine != nil {
+			if cm := engine.GetClientMetrics(); cm != nil {
+				clientMetrics = cm
+			}
+		}
+	}
+
+	var cpuProfileData []byte
+	if s.cpuProfileBuf != nil && !s.cpuProfiling {
+		cpuProfileData = s.cpuProfileBuf.Bytes()
+		defer func() {
+			s.cpuProfileBuf = nil
+		}()
+	}
+
+	capturePath := s.bundleCapturePath()
+	defer s.cleanupBundleCapture()
+
+	var refreshStatus func()
+	if s.connectClient != nil {
+		engine := s.connectClient.Engine()
+		if engine != nil {
+			refreshStatus = func() {
+				log.Debug("refreshing system health status for debug bundle")
+				// Background ctx: the bundle wants a full, fresh probe regardless
+				// of the DebugBundle RPC client's lifetime. The engine's own ctx
+				// still aborts it on shutdown.
+				engine.RunHealthProbes(context.Background(), true)
+			}
+		}
+	}
+
 	bundleGenerator := debug.NewBundleGenerator(
 		debug.GeneratorDependencies{
 			InternalConfig: s.config,
 			StatusRecorder: s.statusRecorder,
 			SyncResponse:   syncResponse,
-			LogFile:        s.logFile,
+			LogPath:        s.logFile,
+			UILogPath:      s.uiLogPath,
+			CPUProfile:     cpuProfileData,
+			CapturePath:    capturePath,
+			RefreshStatus:  refreshStatus,
+			ClientMetrics:  clientMetrics,
+			DaemonVersion:  version.NetbirdVersion(),
+			CliVersion:     req.CliVersion,
 		},
 		debug.BundleConfig{
 			Anonymize:         req.GetAnonymize(),
-			ClientStatus:      req.GetStatus(),
 			IncludeSystemInfo: req.GetSystemInfo(),
 			LogFileCount:      req.GetLogFileCount(),
 		},
@@ -55,7 +90,7 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 	if req.GetUploadURL() == "" {
 		return &proto.DebugBundleResponse{Path: path}, nil
 	}
-	key, err := uploadDebugBundle(context.Background(), req.GetUploadURL(), s.config.ManagementURL.String(), path)
+	key, err := debug.UploadDebugBundle(context.Background(), req.GetUploadURL(), s.config.ManagementURL.String(), path)
 	if err != nil {
 		log.Errorf("failed to upload debug bundle to %s: %v", req.GetUploadURL(), err)
 		return &proto.DebugBundleResponse{Path: path, UploadFailureReason: err.Error()}, nil
@@ -64,92 +99,6 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 	log.Infof("debug bundle uploaded to %s with key %s", req.GetUploadURL(), key)
 
 	return &proto.DebugBundleResponse{Path: path, UploadedKey: key}, nil
-}
-
-func uploadDebugBundle(ctx context.Context, url, managementURL, filePath string) (key string, err error) {
-	response, err := getUploadURL(ctx, url, managementURL)
-	if err != nil {
-		return "", err
-	}
-
-	err = upload(ctx, filePath, response)
-	if err != nil {
-		return "", err
-	}
-	return response.Key, nil
-}
-
-func upload(ctx context.Context, filePath string, response *types.GetURLResponse) error {
-	fileData, err := os.Open(filePath)
-	if err != nil {
-		return fmt.Errorf("open file: %w", err)
-	}
-
-	defer fileData.Close()
-
-	stat, err := fileData.Stat()
-	if err != nil {
-		return fmt.Errorf("stat file: %w", err)
-	}
-
-	if stat.Size() > maxBundleUploadSize {
-		return fmt.Errorf("file size exceeds maximum limit of %d bytes", maxBundleUploadSize)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "PUT", response.URL, fileData)
-	if err != nil {
-		return fmt.Errorf("create PUT request: %w", err)
-	}
-
-	req.ContentLength = stat.Size()
-	req.Header.Set("Content-Type", "application/octet-stream")
-
-	putResp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("upload failed: %v", err)
-	}
-	defer putResp.Body.Close()
-
-	if putResp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(putResp.Body)
-		return fmt.Errorf("upload status %d: %s", putResp.StatusCode, string(body))
-	}
-	return nil
-}
-
-func getUploadURL(ctx context.Context, url string, managementURL string) (*types.GetURLResponse, error) {
-	id := getURLHash(managementURL)
-	getReq, err := http.NewRequestWithContext(ctx, "GET", url+"?id="+id, nil)
-	if err != nil {
-		return nil, fmt.Errorf("create GET request: %w", err)
-	}
-
-	getReq.Header.Set(types.ClientHeader, types.ClientHeaderValue)
-
-	resp, err := http.DefaultClient.Do(getReq)
-	if err != nil {
-		return nil, fmt.Errorf("get presigned URL: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("get presigned URL status %d: %s", resp.StatusCode, string(body))
-	}
-
-	urlBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read response body: %w", err)
-	}
-	var response types.GetURLResponse
-	if err := json.Unmarshal(urlBytes, &response); err != nil {
-		return nil, fmt.Errorf("unmarshal response: %w", err)
-	}
-	return &response, nil
-}
-
-func getURLHash(url string) string {
-	return fmt.Sprintf("%x", sha256.Sum256([]byte(url)))
 }
 
 // GetLogLevel gets the current logging level for the server.
@@ -173,24 +122,30 @@ func (s *Server) SetLogLevel(_ context.Context, req *proto.SetLogLevelRequest) (
 
 	log.SetLevel(level)
 
-	if s.connectClient == nil {
-		return nil, fmt.Errorf("connect client not initialized")
+	if s.connectClient != nil {
+		s.connectClient.SetLogLevel(level)
 	}
-	engine := s.connectClient.Engine()
-	if engine == nil {
-		return nil, fmt.Errorf("engine not initialized")
-	}
-
-	fwManager := engine.GetFirewallManager()
-	if fwManager == nil {
-		return nil, fmt.Errorf("firewall manager not initialized")
-	}
-
-	fwManager.SetLogLevel(level)
 
 	log.Infof("Log level set to %s", level.String())
 
+	// Signal the desktop UI so it can attach/detach its gui-client.log. Rides
+	// the SubscribeEvents stream as a marked event (see publishLogLevelChanged).
+	s.publishLogLevelChanged(level.String())
+
 	return &proto.SetLogLevelResponse{}, nil
+}
+
+// RegisterUILog records the desktop UI's absolute log path so DebugBundle can
+// collect the GUI log. The daemon runs as root and can't resolve the user's
+// config dir, so the UI reports it. Last-writer-wins (one UI per socket).
+func (s *Server) RegisterUILog(_ context.Context, req *proto.RegisterUILogRequest) (*proto.RegisterUILogResponse, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	s.uiLogPath = req.GetPath()
+	log.Infof("registered UI log path: %s", s.uiLogPath)
+
+	return &proto.RegisterUILogResponse{}, nil
 }
 
 // SetSyncResponsePersistence sets the sync response persistence for the server.
@@ -214,4 +169,44 @@ func (s *Server) getLatestSyncResponse() (*mgmProto.SyncResponse, error) {
 	}
 
 	return cClient.GetLatestSyncResponse()
+}
+
+// StartCPUProfile starts CPU profiling in the daemon.
+func (s *Server) StartCPUProfile(_ context.Context, _ *proto.StartCPUProfileRequest) (*proto.StartCPUProfileResponse, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if s.cpuProfiling {
+		return nil, fmt.Errorf("CPU profiling already in progress")
+	}
+
+	s.cpuProfileBuf = &bytes.Buffer{}
+	s.cpuProfiling = true
+	if err := pprof.StartCPUProfile(s.cpuProfileBuf); err != nil {
+		s.cpuProfileBuf = nil
+		s.cpuProfiling = false
+		return nil, fmt.Errorf("start CPU profile: %w", err)
+	}
+
+	log.Info("CPU profiling started")
+	return &proto.StartCPUProfileResponse{}, nil
+}
+
+// StopCPUProfile stops CPU profiling in the daemon.
+func (s *Server) StopCPUProfile(_ context.Context, _ *proto.StopCPUProfileRequest) (*proto.StopCPUProfileResponse, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if !s.cpuProfiling {
+		return nil, fmt.Errorf("CPU profiling not in progress")
+	}
+
+	pprof.StopCPUProfile()
+	s.cpuProfiling = false
+
+	if s.cpuProfileBuf != nil {
+		log.Infof("CPU profiling stopped, captured %d bytes", s.cpuProfileBuf.Len())
+	}
+
+	return &proto.StopCPUProfileResponse{}, nil
 }
