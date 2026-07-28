@@ -1,0 +1,56 @@
+package networkmap_pgsql
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
+)
+
+const (
+	pgMaxConnections    = 30
+	pgMinConnections    = 1
+	pgMaxConnLifetime   = 60 * time.Minute
+	pgHealthCheckPeriod = 1 * time.Minute
+)
+
+var _ networkmapdb.NetworkMapDBStore = &PgStore{}
+
+type PgStore struct {
+	pool *pgxpool.Pool
+}
+
+func NewPostgresqlStore(ctx context.Context, dsn string) (*PgStore, error) {
+	pool, err := connectToPgDb(context.Background(), dsn)
+	if err != nil {
+		return nil, err
+	}
+
+	return &PgStore{pool: pool}, nil
+}
+
+func connectToPgDb(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
+	config, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse database config: %w", err)
+	}
+
+	config.MaxConns = pgMaxConnections
+	config.MinConns = pgMinConnections
+	config.MaxConnLifetime = pgMaxConnLifetime
+	config.HealthCheckPeriod = pgHealthCheckPeriod
+
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create connection pool: %w", err)
+	}
+
+	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("unable to ping database: %w", err)
+	}
+
+	return pool, nil
+}
