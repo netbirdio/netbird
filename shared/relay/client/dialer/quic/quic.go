@@ -59,14 +59,12 @@ func (d Dialer) Dial(ctx context.Context, address, serverName string) (net.Conn,
 
 	udpConn, err := nbnet.ListenUDP("udp", &net.UDPAddr{Port: 0})
 	if err != nil {
-		log.Errorf("failed to listen on UDP: %s", err)
-		return nil, err
+		return nil, fmt.Errorf("listen udp: %w", err)
 	}
 
 	udpAddr, err := net.ResolveUDPAddr("udp", quicURL)
 	if err != nil {
-		log.Errorf("failed to resolve UDP address: %s", err)
-		return nil, err
+		return nil, fmt.Errorf("resolve %s: %w", quicURL, err)
 	}
 
 	session, err := quic.Dial(ctx, udpConn, udpAddr, tlsClientConfig, quicConfig)
@@ -74,7 +72,7 @@ func (d Dialer) Dial(ctx context.Context, address, serverName string) (net.Conn,
 		if errors.Is(err, context.Canceled) {
 			return nil, err
 		}
-		log.Errorf("failed to dial to Relay server via QUIC '%s': %s", quicURL, err)
+		log.Debugf("failed to dial to Relay server via QUIC '%s': %s", quicURL, err)
 		return nil, err
 	}
 

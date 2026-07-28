@@ -292,18 +292,16 @@ func (s *serviceViaListener) generateFreePort() (uint16, error) {
 		return customPort, nil
 	}
 
-	udpAddr := net.UDPAddrFromAddrPort(netip.MustParseAddrPort("0.0.0.0:0"))
-	probeListener, err := net.ListenUDP("udp", udpAddr)
+	probeListener, err := net.ListenUDP("udp4", &net.UDPAddr{})
 	if err != nil {
 		log.Debugf("failed to bind random port for DNS: %s", err)
 		return 0, err
 	}
 
-	addrPort := netip.MustParseAddrPort(probeListener.LocalAddr().String()) // might panic if address is incorrect
-	err = probeListener.Close()
-	if err != nil {
+	port := uint16(probeListener.LocalAddr().(*net.UDPAddr).Port)
+	if err = probeListener.Close(); err != nil {
 		log.Debugf("failed to free up DNS port: %s", err)
 		return 0, err
 	}
-	return addrPort.Port(), nil
+	return port, nil
 }

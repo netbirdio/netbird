@@ -19,6 +19,7 @@ const (
 	Pats              Module = "pats"
 	IdentityProviders Module = "identity_providers"
 	Services          Module = "services"
+	AgentNetwork      Module = "agent_network"
 )
 
 var All = map[Module]struct{}{
@@ -38,4 +39,5 @@ var All = map[Module]struct{}{
 	Pats:              {},
 	IdentityProviders: {},
 	Services:          {},
+	AgentNetwork:      {},
 }

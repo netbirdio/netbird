@@ -3,7 +3,9 @@ package controller
 import (
 	"context"
 
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	"github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -16,6 +18,10 @@ type Repository interface {
 	GetPeersByIDs(ctx context.Context, accountID string, peerIDs []string) (map[string]*peer.Peer, error)
 	GetPeerByID(ctx context.Context, accountID string, peerID string) (*peer.Peer, error)
 	GetAccountZones(ctx context.Context, accountID string) ([]*zones.Zone, error)
+	// SynthesizeAgentNetworkServices returns the in-memory reverse-proxy
+	// services synthesised from the account's agent-network provider/policy
+	// state. Empty for accounts without agent-network providers.
+	SynthesizeAgentNetworkServices(ctx context.Context, accountID string) ([]*service.Service, error)
 }
 
 type repository struct {
@@ -48,6 +54,10 @@ func (r *repository) GetPeersByIDs(ctx context.Context, accountID string, peerID
 
 func (r *repository) GetPeerByID(ctx context.Context, accountID string, peerID string) (*peer.Peer, error) {
 	return r.store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
+}
+
+func (r *repository) SynthesizeAgentNetworkServices(ctx context.Context, accountID string) ([]*service.Service, error) {
+	return agentnetwork.SynthesizeServices(ctx, r.store, accountID)
 }
 
 func (r *repository) GetAccountZones(ctx context.Context, accountID string) ([]*zones.Zone, error) {

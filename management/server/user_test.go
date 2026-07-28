@@ -846,7 +846,7 @@ func TestUser_DeleteUser_regularUser(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	networkMapControllerMock := network_map.NewMockController(ctrl)
 	networkMapControllerMock.EXPECT().
-		OnPeersDeleted(gomock.Any(), gomock.Any(), gomock.Any()).
+		OnPeersDeleted(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil)
 
 	permissionsManager := permissions.NewManager(store)
@@ -962,7 +962,7 @@ func TestUser_DeleteUser_RegularUsers(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	networkMapControllerMock := network_map.NewMockController(ctrl)
 	networkMapControllerMock.EXPECT().
-		OnPeersDeleted(gomock.Any(), gomock.Any(), gomock.Any()).
+		OnPeersDeleted(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil).
 		AnyTimes()
 
@@ -1531,11 +1531,14 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 		}
 	})
 
+	// drain any buffered updates from previous subtests
+	drainPeerUpdates(updMsg)
+
 	// deleting user with no linked peers should not update account peers and not send peer update
 	t.Run("deleting user with no linked peers", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg)
 			close(done)
 		}()
 
@@ -1562,7 +1565,7 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 	require.NoError(t, err)
 
 	expectedPeerKey := key.PublicKey().String()
-	peer4, _, _, err := manager.AddPeer(context.Background(), "", "", "regularUser2", &nbpeer.Peer{
+	peer4, _, _, _, err := manager.AddPeer(context.Background(), "", "", "regularUser2", &nbpeer.Peer{
 		Key:  expectedPeerKey,
 		Meta: nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
 	}, false)
@@ -2022,7 +2025,7 @@ func TestUser_Operations_WithEmbeddedIDP(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	networkMapControllerMock := network_map.NewMockController(ctrl)
 	networkMapControllerMock.EXPECT().
-		OnPeersDeleted(gomock.Any(), gomock.Any(), gomock.Any()).
+		OnPeersDeleted(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil).
 		AnyTimes()
 
