@@ -67,8 +67,8 @@ type Tray struct {
 	loc       *Localizer
 
 	// menu and the *Item/*Submenu fields below are reassigned by buildMenu
-	// on every relayout (which destroys the replaced tree) — touch them only
-	// with menuMu held; snapshot under the lock, then call the item.
+	// on every relayout, which destroys the replaced tree — locate items and
+	// call them with menuMu held, so a relayout can't destroy one mid-call.
 	menu       *application.Menu
 	statusItem *application.MenuItem
 	// sessionExpiresItem shows the SSO deadline as a remaining-time label,
@@ -507,9 +507,8 @@ func (t *Tray) handleConnect() {
 
 func (t *Tray) setItemEnabled(get func() *application.MenuItem, enabled bool) {
 	t.menuMu.Lock()
-	item := get()
-	t.menuMu.Unlock()
-	if item != nil {
+	defer t.menuMu.Unlock()
+	if item := get(); item != nil {
 		item.SetEnabled(enabled)
 	}
 }
