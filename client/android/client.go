@@ -8,6 +8,7 @@ import (
 	"os"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/exp/maps"
@@ -75,6 +76,17 @@ type Client struct {
 	connectClient *internal.ConnectClient
 	config        *profilemanager.Config
 	cacheDir      string
+
+	stateChangeMu    sync.Mutex
+	stateChangeSubID string
+	eventSub         *peer.EventSubscription
+
+	// Latched "the server wants an interactive login": survives the engine
+	// restarts that replace the run loop's context state. See Client.Status.
+	loginRequired atomic.Bool
+
+	extendMu     sync.Mutex
+	extendCancel context.CancelFunc
 }
 
 func (c *Client) setState(cfg *profilemanager.Config, cacheDir string, cc *internal.ConnectClient) {
@@ -148,6 +160,9 @@ func (c *Client) Run(platformFiles PlatformFiles, urlOpener URLOpener, isAndroid
 	if err != nil {
 		return err
 	}
+	// This path runs the interactive SSO flow, so reaching here means the peer
+	// is authenticated again — release the latch Status() reports from.
+	c.loginRequired.Store(false)
 
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
