@@ -291,6 +291,11 @@ message StatusResponse{
   // Unset when the peer is not SSO-registered or login expiration is disabled.
   // The UI derives "warning active" from this value and its own clock.
   google.protobuf.Timestamp sessionExpiresAt = 4;
+  // daemonReady reports whether the daemon has finished starting up and is
+  // serving RPCs backed by a running engine. Older daemons never set this
+  // (it defaults to false); clients must treat an unset value as "unknown"
+  // and fall back to their previous readiness heuristics for compatibility.
+  bool daemonReady = 5;
 }
 
 message DownRequest {}

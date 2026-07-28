@@ -20,6 +20,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"google.golang.org/grpc"
+	gbackoff "google.golang.org/grpc/backoff"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
 
 	daddr "github.com/netbirdio/netbird/client/internal/daemonaddr"
@@ -264,17 +266,70 @@ func FlagNameToEnvVar(cmdFlag string, prefix string) string {
 	return prefix + upper
 }
 
-// DialClientGRPCServer returns client connection to the daemon server.
-func DialClientGRPCServer(ctx context.Context, addr string) (*grpc.ClientConn, error) {
-	ctx, cancel := context.WithTimeout(ctx, time.Second*10)
-	defer cancel()
+// defaultDaemonDialTimeout is how long DialClientGRPCServer waits for the daemon
+// to become reachable. It is intentionally generous so that invoking the CLI
+// right after "netbird service start" (e.g. from a container entrypoint) tolerates
+// the window where the daemon has created its socket but is not yet serving.
+const defaultDaemonDialTimeout = 30 * time.Second
 
-	return grpc.DialContext(
-		ctx,
+// DialClientGRPCServer returns a client connection to the daemon server. It waits
+// for the daemon to become reachable, retrying with backoff until the connection
+// reports READY or defaultDaemonDialTimeout elapses. This handles the startup race
+// where the daemon socket exists (or is about to) before the gRPC server is serving.
+func DialClientGRPCServer(ctx context.Context, addr string) (*grpc.ClientConn, error) {
+	return dialClientGRPCServer(ctx, addr, defaultDaemonDialTimeout)
+}
+
+func dialClientGRPCServer(ctx context.Context, addr string, timeout time.Duration) (*grpc.ClientConn, error) {
+	conn, err := grpc.NewClient(
 		strings.TrimPrefix(addr, "tcp://"),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock(),
+		// Cap reconnect backoff at 5s; gRPC's default 120s MaxDelay would leave the
+		// CLI waiting far too long to notice a freshly-started daemon. Mirrors the GUI.
+		grpc.WithConnectParams(grpc.ConnectParams{
+			Backoff: gbackoff.Config{
+				BaseDelay:  1 * time.Second,
+				Multiplier: 1.6,
+				Jitter:     0.2,
+				MaxDelay:   5 * time.Second,
+			},
+		}),
 	)
+	if err != nil {
+		return nil, fmt.Errorf("create daemon gRPC client: %w", err)
+	}
+
+	// grpc.NewClient is lazy: it does not connect until the first RPC or until we
+	// nudge it. Trigger connection attempts and wait until the channel reaches READY.
+	if err := waitForConnReady(ctx, conn, timeout); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	return conn, nil
+}
+
+// waitForConnReady drives the gRPC channel out of IDLE and blocks until it becomes
+// READY, or until timeout/ctx expires. TRANSIENT_FAILURE (daemon not yet serving)
+// is treated as retryable so the caller keeps waiting within the deadline.
+func waitForConnReady(ctx context.Context, conn *grpc.ClientConn, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	for {
+		state := conn.GetState()
+		switch state {
+		case connectivity.Ready:
+			return nil
+		case connectivity.Idle:
+			// Kick the lazy channel into connecting.
+			conn.Connect()
+		}
+
+		if !conn.WaitForStateChange(ctx, state) {
+			// ctx expired while in `state`.
+			return fmt.Errorf("timed out after %s waiting for daemon to become ready (last state: %s)", timeout, state)
+		}
+	}
 }
 
 // WithBackOff execute function in backoff cycle.

@@ -78,6 +78,10 @@ func (p *program) Start(svc service.Service) error {
 			log.Fatalf("failed to start daemon: %v", err)
 		}
 		proto.RegisterDaemonServiceServer(p.serv, serverInstance)
+		// The engine is started and the service is registered: from here on the
+		// daemon serves RPCs backed by a running engine. Report readiness so
+		// clients (e.g. netbird up) can wait deterministically.
+		serverInstance.SetReady()
 
 		p.serverInstanceMu.Lock()
 		p.serverInstance = serverInstance
