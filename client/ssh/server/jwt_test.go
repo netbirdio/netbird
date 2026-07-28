@@ -108,6 +108,30 @@ func TestJWTEnforcement(t *testing.T) {
 
 }
 
+func TestUpdateJWTConfig(t *testing.T) {
+	originalConfig := &JWTConfig{
+		Issuer:       "original-issuer",
+		Audiences:    []string{"original-audience"},
+		KeysLocation: "original-keys",
+		MaxTokenAge:  300,
+	}
+	updatedConfig := &JWTConfig{
+		Issuer:       "updated-issuer",
+		Audiences:    []string{"updated-audience"},
+		KeysLocation: "updated-keys",
+		MaxTokenAge:  600,
+	}
+	server := New(&Config{JWT: originalConfig})
+	server.jwtValidator = nbjwt.NewValidator(originalConfig.Issuer, originalConfig.Audiences, originalConfig.KeysLocation, true)
+	server.jwtExtractor = nbjwt.NewClaimsExtractor()
+
+	server.UpdateJWTConfig(updatedConfig)
+
+	require.Same(t, updatedConfig, server.jwtConfig)
+	assert.Nil(t, server.jwtValidator)
+	assert.Nil(t, server.jwtExtractor)
+}
+
 // setupJWKSServer creates a test HTTP server serving JWKS and returns the server, private key, and URL
 func setupJWKSServer(t *testing.T) (*httptest.Server, *rsa.PrivateKey, string) {
 	privateKey, jwksJSON := generateTestJWKS(t)
