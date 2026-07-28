@@ -311,6 +311,7 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 
 	reply := d.queryUpstreamDNS(ctx, w, query, upstream, upstreamIP, peerKey, logger)
 	if reply == nil {
+		// queryUpstreamDNS already logged the failure and answered the client
 		return
 	}
 
