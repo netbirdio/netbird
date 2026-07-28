@@ -26,7 +26,7 @@ func (pg *PgStore) GetPeers(ctx context.Context, accountId string) ([]nmdata.Pee
 	}
 
 	var (
-		id, key, sshKey, dnsLabel, userId                            sql.NullString
+		key, sshKey, dnsLabel, userId                                sql.NullString
 		lastLogin                                                    sql.NullTime
 		sshEnabled, loginExpirationEnabled                           sql.NullBool
 		ip, ipv6, locationConnectionIp                               []byte
@@ -37,16 +37,13 @@ func (pg *PgStore) GetPeers(ctx context.Context, accountId string) ([]nmdata.Pee
 
 	peers, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (nmdata.Peer, error) {
 		var peer nmdata.Peer
-		err := row.Scan(&id, &key, &sshKey, &dnsLabel, &userId, &sshEnabled, &loginExpirationEnabled, &lastLogin, &ip, &ipv6,
+		err := row.Scan(&peer.ID, &key, &sshKey, &dnsLabel, &userId, &sshEnabled, &loginExpirationEnabled, &lastLogin, &ip, &ipv6,
 			&metaWtVersion, &metaGoOS, &metaOSVersion, &metaKernelVersion, &metaNetworkAddresses, &metaFiles, &metaCapabilities, &metaFlags,
 			&locationCountryCode, &locationCityName, &locationConnectionIp)
 		if err != nil {
 			return peer, err
 		}
 
-		if id.Valid {
-			peer.ID = id.String
-		}
 		if key.Valid {
 			peer.Key = key.String
 		}

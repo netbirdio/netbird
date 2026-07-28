@@ -7,7 +7,9 @@ import (
 )
 
 type NetworkMapDBStore interface {
-	GetGroups(ctx context.Context, accountId string) ([]nmdata.Group, error)
+	GetGroups(ctx context.Context, accountId string) ([]nmdata.Group, error) // TODO: join/populate peers
+	GetPeers(ctx context.Context, accountId string) ([]nmdata.Peer, error)
+	GetPolicies(ctx context.Context, accountId string) ([]nmdata.Policy, error)
 }
 
 type NetworkMapDBStoreImpl struct {
