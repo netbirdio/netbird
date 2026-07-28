@@ -224,6 +224,7 @@ func (c *Client) DebugBundle(anonymize bool) (string, error) {
 				return "", fmt.Errorf("load config: %w", err)
 			}
 		}
+		c.applyMDMOverlay(cfg)
 	}
 
 	deps := debug.GeneratorDependencies{
