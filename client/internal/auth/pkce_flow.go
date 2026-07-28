@@ -22,6 +22,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/templates"
 	"github.com/netbirdio/netbird/shared/management/client/common"
+	"github.com/netbirdio/netbird/util"
 )
 
 var _ OAuthFlow = &PKCEAuthorizationFlow{}
@@ -198,7 +199,10 @@ func (p *PKCEAuthorizationFlow) WaitToken(ctx context.Context, info AuthFlowInfo
 		return TokenInfo{}, fmt.Errorf("failed to parse redirect URL: %v", err)
 	}
 
-	server := &http.Server{Addr: fmt.Sprintf(":%s", parsedURL.Port())}
+	server := &http.Server{
+		Addr:      fmt.Sprintf(":%s", parsedURL.Port()),
+		TLSConfig: &tls.Config{RootCAs: util.GetGlobalCertPool()},
+	}
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -229,6 +233,7 @@ func (p *PKCEAuthorizationFlow) startServer(server *http.Server, tokenChan chan<
 			tr := &http.Transport{
 				TLSClientConfig: &tls.Config{
 					Certificates: []tls.Certificate{*cert},
+					RootCAs:      util.GetGlobalCertPool(),
 				},
 			}
 			sslClient := &http.Client{Transport: tr}
@@ -274,9 +279,20 @@ func (p *PKCEAuthorizationFlow) handleRequest(req *http.Request) (*oauth2.Token,
 		return nil, fmt.Errorf("authentication failed: missing code")
 	}
 
+	ctxWithRootCAs := req.Context()
+	if p.providerConfig.ClientCertPair == nil {
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.TLSClientConfig = &tls.Config{RootCAs: util.GetGlobalCertPool()}
+		ctxWithRootCAs = context.WithValue(
+			ctxWithRootCAs,
+			oauth2.HTTPClient,
+			&http.Client{Transport: transport},
+		)
+	}
+
 	exchangeStart := time.Now()
 	token, err := p.oAuthConfig.Exchange(
-		req.Context(),
+		ctxWithRootCAs,
 		code,
 		oauth2.SetAuthURLParam("code_verifier", p.codeVerifier),
 	)

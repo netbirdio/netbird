@@ -10,7 +10,6 @@ package proxy
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -68,7 +67,7 @@ import (
 	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/trustedproxy"
-	"github.com/netbirdio/netbird/util/embeddedroots"
+	"github.com/netbirdio/netbird/util"
 )
 
 // portRouter bundles a per-port Router with its listener and cancel func.
@@ -787,13 +786,8 @@ func (s *Server) dialManagement() (*grpc.ClientConn, error) {
 	creds := insecure.NewCredentials()
 	// Assume management TLS is enabled for gRPC as well if using HTTPS for the API.
 	if mgmtURL.Scheme == "https" {
-		certPool, err := x509.SystemCertPool()
-		if err != nil || certPool == nil {
-			// Fall back to embedded CAs if no OS-provided ones are available.
-			certPool = embeddedroots.Get()
-		}
 		creds = credentials.NewTLS(&tls.Config{
-			RootCAs: certPool,
+			RootCAs: util.GetGlobalCertPool(),
 		})
 	}
 	s.Logger.WithFields(log.Fields{
