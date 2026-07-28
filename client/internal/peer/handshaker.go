@@ -91,14 +91,20 @@ type Handshaker struct {
 
 func NewHandshaker(log *log.Entry, config ConnConfig, signaler *Signaler, ice *WorkerICE, relay *WorkerRelay, metricsStages *MetricsStages) *Handshaker {
 	h := &Handshaker{
-		log:            log,
-		config:         config,
-		signaler:       signaler,
-		ice:            ice,
-		relay:          relay,
-		metricsStages:  metricsStages,
-		remoteOffersCh: make(chan OfferAnswer),
-		remoteAnswerCh: make(chan OfferAnswer),
+		log:           log,
+		config:        config,
+		signaler:      signaler,
+		ice:           ice,
+		relay:         relay,
+		metricsStages: metricsStages,
+		// Buffered by 1: the single Listen goroutine can be busy handling an offer
+		// (sendAnswer does a blocking signal send) exactly when the matching answer
+		// arrives on the other channel. Unbuffered, that answer would hit the
+		// non-blocking send's default and be dropped — fatal for the post-quantum
+		// exchange, which needs the answer to converge. A 1-slot cushion lets it wait
+		// until Listen loops back, without ever blocking the signal receiver.
+		remoteOffersCh: make(chan OfferAnswer, 1),
+		remoteAnswerCh: make(chan OfferAnswer, 1),
 	}
 	// assume remote supports ICE until we learn otherwise from received offers
 	h.remoteICESupported.Store(ice != nil)
