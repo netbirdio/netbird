@@ -10,6 +10,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/ui/updater"
+	"github.com/netbirdio/netbird/version"
 )
 
 // UpdateResult mirrors TriggerUpdateResponse.
@@ -31,6 +32,12 @@ func NewUpdate(conn DaemonConn, holder *updater.Holder) *Update {
 
 func (s *Update) GetState() updater.State {
 	return s.holder.Get()
+}
+
+// DownloadURL returns the platform-appropriate installer download link for
+// manual (non-enforced) updates.
+func (s *Update) DownloadURL() string {
+	return version.DownloadUrl()
 }
 
 // Quit exits the app. Scheduled off the calling goroutine so the JS caller's

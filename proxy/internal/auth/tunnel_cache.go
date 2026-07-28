@@ -3,19 +3,29 @@ package auth
 import (
 	"context"
 	"net/netip"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/sync/singleflight"
 
 	"github.com/netbirdio/netbird/proxy/internal/types"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
-// tunnelCacheTTL caps how long a positive ValidateTunnelPeer result is
-// reused before re-fetching from management. 5 minutes balances freshness
-// against management load on busy mesh networks.
+// tunnelCacheTTL is the default cap on how long a positive ValidateTunnelPeer
+// result is reused before re-fetching from management. 5 minutes balances
+// freshness against management load on busy mesh networks. Override it with
+// envTunnelCacheTTL when an account needs authorization changes to take effect
+// sooner (at the cost of more ValidateTunnelPeer RPCs).
 const tunnelCacheTTL = 300 * time.Second
+
+// envTunnelCacheTTL overrides tunnelCacheTTL. The value is a Go duration string
+// (e.g. "30s", "2m"); an unset, unparseable, or non-positive value keeps the
+// default.
+const envTunnelCacheTTL = "NB_PROXY_TUNNEL_CACHE_TTL"
 
 // tunnelCachePerAccount caps the number of cached identities per account.
 // Bounded eviction avoids memory growth in pathological cases (huge peer
@@ -60,14 +70,33 @@ type accountBucket struct {
 	order []tunnelCacheKey
 }
 
-// newTunnelValidationCache constructs a cache with default TTL and bounds.
+// newTunnelValidationCache constructs a cache with the configured TTL
+// (envTunnelCacheTTL override or default) and default bounds.
 func newTunnelValidationCache() *tunnelValidationCache {
 	return &tunnelValidationCache{
 		entries: make(map[types.AccountID]*accountBucket),
-		ttl:     tunnelCacheTTL,
+		ttl:     tunnelCacheTTLFromEnv(),
 		maxSize: tunnelCachePerAccount,
 		now:     time.Now,
 	}
+}
+
+// tunnelCacheTTLFromEnv returns the tunnel-cache TTL, honoring the
+// envTunnelCacheTTL override. The override must be a positive Go duration
+// string (e.g. "30s", "2m"); anything unset, unparseable, or non-positive
+// falls back to tunnelCacheTTL.
+func tunnelCacheTTLFromEnv() time.Duration {
+	raw := strings.TrimSpace(os.Getenv(envTunnelCacheTTL))
+	if raw == "" {
+		return tunnelCacheTTL
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		log.Warnf("ignoring invalid %s=%q (want a positive Go duration like 30s or 2m); using default %s",
+			envTunnelCacheTTL, raw, tunnelCacheTTL)
+		return tunnelCacheTTL
+	}
+	return d
 }
 
 // get returns a cached response for the key, or nil when missing or

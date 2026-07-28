@@ -28,12 +28,12 @@ func TestDefaultTable_FirstPartyModelCoverage(t *testing.T) {
 			"ministral-8b-latest", "mistral-embed",
 		},
 		"anthropic": {
-			"claude-fable-5", "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6",
+			"claude-fable-5", "claude-opus-5", "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6",
 			"claude-opus-4-1", "claude-sonnet-4-6", "claude-sonnet-4-5", "claude-haiku-4-5",
 		},
 		// bedrock keys are the normalized ids the request parser emits.
 		"bedrock": {
-			"anthropic.claude-opus-4-8", "anthropic.claude-opus-4-7", "anthropic.claude-opus-4-6",
+			"anthropic.claude-opus-5", "anthropic.claude-opus-4-8", "anthropic.claude-opus-4-7", "anthropic.claude-opus-4-6",
 			"anthropic.claude-opus-4-1", "anthropic.claude-sonnet-4-6", "anthropic.claude-sonnet-4-5",
 			"anthropic.claude-haiku-4-5", "meta.llama3-3-70b-instruct",
 			"amazon.nova-pro", "amazon.nova-lite", "amazon.nova-micro", "amazon.nova-2-lite",

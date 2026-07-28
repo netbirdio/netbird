@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
@@ -35,6 +36,10 @@ const (
 	denyCodeAccountTokenCapExceeded = "llm_account.token_cap_exceeded"
 	//nolint:gosec // account deny code label, not a credential
 	denyCodeAccountBudgetCapExceeded = "llm_account.budget_cap_exceeded"
+	// denyCodeModelBlocked is returned when policies govern the request's
+	// (provider, caller-groups) but none permits the model. Matches the proxy
+	// guardrail's code so both layers surface the same label.
+	denyCodeModelBlocked = "llm_policy.model_blocked"
 )
 
 // consumptionCache holds the consumption counters prefetched for one
@@ -159,6 +164,25 @@ func (m *managerImpl) SelectPolicyForRequest(ctx context.Context, in PolicySelec
 	}
 	candidates := filterApplicablePolicies(policies, in)
 
+	// Model-allowlist gate scoped to the matched policies: keep candidates whose
+	// guardrails permit the model (none enabled = unrestricted), deny when
+	// policies apply but none permits it. Skip the load when none has a guardrail.
+	if len(candidates) > 0 && anyPolicyHasGuardrails(candidates) {
+		guardrailsByID, gErr := m.loadGuardrailsByID(ctx, in.AccountID)
+		if gErr != nil {
+			return nil, gErr
+		}
+		permitted := filterModelPermittedPolicies(candidates, guardrailsByID, in.Model)
+		if len(permitted) == 0 {
+			return &PolicySelectionResult{
+				Allow:      false,
+				DenyCode:   denyCodeModelBlocked,
+				DenyReason: modelBlockedReason(in.Model),
+			}, nil
+		}
+		candidates = permitted
+	}
+
 	// Prefetch every consumption counter the ceiling + candidate policies will
 	// read, in a single store round-trip, then score against the cache.
 	cache, err := m.prefetchConsumption(ctx, in, rules, candidates, now)
@@ -248,6 +272,90 @@ func filterApplicablePolicies(policies []*types.Policy, in PolicySelectionInput)
 		out = append(out, p)
 	}
 	return out
+}
+
+// anyPolicyHasGuardrails reports whether any policy references at least one
+// guardrail, so the selector can skip loading guardrails when none do.
+func anyPolicyHasGuardrails(policies []*types.Policy) bool {
+	for _, p := range policies {
+		if p != nil && len(p.GuardrailIDs) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// loadGuardrailsByID loads the account's guardrails indexed by ID. Used by the
+// model-allowlist gate to resolve each candidate policy's attached guardrails.
+func (m *managerImpl) loadGuardrailsByID(ctx context.Context, accountID string) (map[string]*types.Guardrail, error) {
+	guardrails, err := m.store.GetAccountAgentNetworkGuardrails(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("list account guardrails: %w", err)
+	}
+	byID := make(map[string]*types.Guardrail, len(guardrails))
+	for _, g := range guardrails {
+		if g != nil {
+			byID[g.ID] = g
+		}
+	}
+	return byID, nil
+}
+
+// filterModelPermittedPolicies returns the subset of policies whose guardrails
+// permit the model. Order is preserved so downstream scoring is unaffected.
+func filterModelPermittedPolicies(policies []*types.Policy, byID map[string]*types.Guardrail, model string) []*types.Policy {
+	out := make([]*types.Policy, 0, len(policies))
+	for _, p := range policies {
+		if policyPermitsModel(p, byID, model) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// policyPermitsModel reports whether a policy permits the model. No
+// allowlist-enabled guardrail = unrestricted (permits any, incl. empty);
+// otherwise the model must be in the union of its allowlists, so an
+// empty/undetermined model fails closed.
+func policyPermitsModel(p *types.Policy, byID map[string]*types.Guardrail, model string) bool {
+	if p == nil {
+		return false
+	}
+	wanted := normaliseModelID(model)
+	restricted := false
+	for _, gID := range p.GuardrailIDs {
+		g, ok := byID[gID]
+		if !ok || g == nil || !g.Checks.ModelAllowlist.Enabled {
+			continue
+		}
+		restricted = true
+		if wanted == "" {
+			continue
+		}
+		for _, allowed := range g.Checks.ModelAllowlist.Models {
+			if normaliseModelID(allowed) == wanted {
+				return true
+			}
+		}
+	}
+	return !restricted
+}
+
+// normaliseModelID lowercases and trims a model identifier so the allowlist
+// compare is case-insensitive and trim-tolerant. Mirrors the proxy guardrail's
+// normaliseModel so both layers agree on what "same model" means.
+func normaliseModelID(model string) string {
+	return strings.ToLower(strings.TrimSpace(model))
+}
+
+// modelBlockedReason builds the human-readable deny reason for a model-allowlist
+// rejection. The model is quoted when known; an undetermined model is reported
+// as such so the access log distinguishes "wrong model" from "no model".
+func modelBlockedReason(model string) string {
+	if normaliseModelID(model) == "" {
+		return "request model could not be determined for the policy allowlist"
+	}
+	return fmt.Sprintf("model %q is not permitted by any applicable policy allowlist", model)
 }
 
 // candidate is the per-policy intermediate the selector ranks. A
