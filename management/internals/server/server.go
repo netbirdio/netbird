@@ -6,12 +6,16 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
+	"github.com/soheilhy/cmux"
 	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/net/http2"
@@ -36,7 +40,17 @@ const (
 	DefaultSelfHostedDomain = "netbird.selfhosted"
 
 	ContainerKeyBaseServer = "baseServer"
+
+	// NativeGRPCEnvVar enables serving gRPC on the native gRPC transport,
+	// multiplexed with HTTP on the shared listener, instead of through the
+	// net/http ServeHTTP path which costs two extra goroutines per stream.
+	NativeGRPCEnvVar = "NB_MGMT_NATIVE_GRPC"
 )
+
+func nativeGRPCEnabled() bool {
+	enabled, _ := strconv.ParseBool(os.Getenv(NativeGRPCEnvVar))
+	return enabled
+}
 
 type Server interface {
 	Start(ctx context.Context) error
@@ -182,11 +196,22 @@ func (s *BaseServer) Start(ctx context.Context) error {
 		}
 	}
 
+	// With the native transport enabled the gRPC server carries no transport
+	// credentials, so TLS must be terminated at each of its listeners.
+	var grpcTLSConfig *tls.Config
+	if nativeGRPCEnabled() {
+		if s.certManager != nil {
+			grpcTLSConfig = s.certManager.TLSConfig()
+		} else {
+			grpcTLSConfig = tlsConfig
+		}
+	}
+
 	var compatListener net.Listener
 	if s.mgmtPort != ManagementLegacyPort && !s.disableLegacyManagementPort {
 		// The Management gRPC server was running on port 33073 previously. Old agents that are already connected to it
 		// are using port 33073. For compatibility purposes we keep running a 2nd gRPC server on port 33073.
-		compatListener, err = s.serveGRPC(srvCtx, s.GRPCServer(), ManagementLegacyPort)
+		compatListener, err = s.serveGRPC(srvCtx, s.GRPCServer(), ManagementLegacyPort, grpcTLSConfig)
 		if err != nil {
 			return err
 		}
@@ -196,22 +221,38 @@ func (s *BaseServer) Start(ctx context.Context) error {
 	rootHandler := s.handlerFunc(srvCtx, s.GRPCServer(), s.APIHandler(), s.IDPHandler(), s.Metrics().GetMeter())
 	switch {
 	case s.certManager != nil:
-		// a call to certManager.Listener() always creates a new listener so we do it once
-		cml := s.certManager.Listener()
 		if s.mgmtPort == 443 {
 			// CertManager, HTTP and gRPC API all on the same port
 			rootHandler = s.certManager.HTTPHandler(rootHandler)
-			s.listener = cml
+			if nativeGRPCEnabled() {
+				var tcpListener net.Listener
+				tcpListener, err = net.Listen("tcp", fmt.Sprintf(":%d", s.mgmtPort))
+				if err != nil {
+					return fmt.Errorf("failed creating TCP listener on port %d: %v", s.mgmtPort, err)
+				}
+				s.listener = tls.NewListener(tcpListener, preferHTTP1ForDualProtoClients(s.certManager.TLSConfig()))
+			} else {
+				s.listener = s.certManager.Listener()
+			}
 		} else {
-			s.listener, err = tls.Listen("tcp", fmt.Sprintf(":%d", s.mgmtPort), s.certManager.TLSConfig())
+			mgmtTLSConfig := s.certManager.TLSConfig()
+			if nativeGRPCEnabled() {
+				mgmtTLSConfig = preferHTTP1ForDualProtoClients(mgmtTLSConfig)
+			}
+			s.listener, err = tls.Listen("tcp", fmt.Sprintf(":%d", s.mgmtPort), mgmtTLSConfig)
 			if err != nil {
 				return fmt.Errorf("failed creating TLS listener on port %d: %v", s.mgmtPort, err)
 			}
+			cml := s.certManager.Listener()
 			log.WithContext(ctx).Infof("running HTTP server (LetsEncrypt challenge handler): %s", cml.Addr().String())
 			s.serveHTTP(ctx, cml, s.certManager.HTTPHandler(nil))
 		}
 	case tlsConfig != nil:
-		s.listener, err = tls.Listen("tcp", fmt.Sprintf(":%d", s.mgmtPort), tlsConfig)
+		mgmtTLSConfig := tlsConfig
+		if nativeGRPCEnabled() {
+			mgmtTLSConfig = preferHTTP1ForDualProtoClients(mgmtTLSConfig)
+		}
+		s.listener, err = tls.Listen("tcp", fmt.Sprintf(":%d", s.mgmtPort), mgmtTLSConfig)
 		if err != nil {
 			return fmt.Errorf("failed creating TLS listener on port %d: %v", s.mgmtPort, err)
 		}
@@ -224,7 +265,12 @@ func (s *BaseServer) Start(ctx context.Context) error {
 
 	log.WithContext(ctx).Infof("management server version %s", version.NetbirdVersion())
 	log.WithContext(ctx).Infof("running HTTP server and gRPC server on the same port: %s", s.listener.Addr().String())
-	s.serveGRPCWithHTTP(ctx, s.listener, rootHandler, tlsEnabled)
+	if nativeGRPCEnabled() {
+		log.WithContext(ctx).Infof("serving gRPC on the native transport (multiplexed with HTTP)")
+		s.serveMultiplexed(ctx, s.listener, s.GRPCServer(), rootHandler, tlsEnabled)
+	} else {
+		s.serveGRPCWithHTTP(ctx, s.listener, rootHandler, tlsEnabled)
+	}
 
 	s.update = version.NewUpdateAndStart("nb/management")
 	s.update.SetDaemonVersion(version.NetbirdVersion())
@@ -331,10 +377,13 @@ func (s *BaseServer) handlerFunc(_ context.Context, gRPCHandler *grpc.Server, ht
 	})
 }
 
-func (s *BaseServer) serveGRPC(ctx context.Context, grpcServer *grpc.Server, port int) (net.Listener, error) {
+func (s *BaseServer) serveGRPC(ctx context.Context, grpcServer *grpc.Server, port int, tlsConf *tls.Config) (net.Listener, error) {
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		return nil, err
+	}
+	if tlsConf != nil {
+		listener = tls.NewListener(listener, tlsConf)
 	}
 
 	s.wg.Add(1)
@@ -397,6 +446,69 @@ func (s *BaseServer) serveGRPCWithHTTP(ctx context.Context, listener net.Listene
 		default:
 		}
 	}()
+}
+
+// preferHTTP1ForDualProtoClients steers TLS clients that offer both "h2" and
+// "http/1.1" in ALPN (browsers, REST clients) to HTTP/1.1. gRPC clients offer
+// only "h2", so with this steering every HTTP/2 connection on the shared
+// listener carries gRPC and can be routed to the native transport without
+// inspecting frames. ACME "acme-tls/1" and single-protocol clients keep the
+// base configuration.
+func preferHTTP1ForDualProtoClients(base *tls.Config) *tls.Config {
+	h1Config := base.Clone()
+	h1Config.NextProtos = []string{"http/1.1"}
+	steered := base.Clone()
+	steered.GetConfigForClient = func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
+		if slices.Contains(hello.SupportedProtos, "http/1.1") && slices.Contains(hello.SupportedProtos, "h2") {
+			return h1Config, nil
+		}
+		return base, nil
+	}
+	return steered
+}
+
+// serveMultiplexed splits the shared listener by protocol: HTTP/2 connections
+// go to the native gRPC transport (see preferHTTP1ForDualProtoClients for why
+// they are all gRPC), everything else is served by net/http.
+//
+// Content-type based classification cannot be used here: cmux's SendSettings
+// matchers greet non-matching HTTP/2 connections and corrupt them for any
+// subsequent handler, while read-only matchers deadlock grpc-go clients,
+// which do not send HEADERS until they receive the server SETTINGS frame.
+func (s *BaseServer) serveMultiplexed(ctx context.Context, listener net.Listener, grpcServer *grpc.Server, handler http.Handler, tlsEnabled bool) {
+	mux := cmux.New(listener)
+	grpcListener := mux.Match(cmux.HTTP2())
+	httpListener := mux.Match(cmux.Any())
+
+	httpHandler := handler
+	if !tlsEnabled {
+		//nolint:staticcheck // h2c also handles the HTTP/1 Upgrade mechanism, which http.Server's UnencryptedHTTP2 does not
+		httpHandler = h2c.NewHandler(handler, &http2.Server{})
+	}
+
+	s.wg.Add(3)
+	go func() {
+		defer s.wg.Done()
+		s.reportServeError(ctx, grpcServer.Serve(grpcListener))
+	}()
+	go func() {
+		defer s.wg.Done()
+		s.reportServeError(ctx, http.Serve(httpListener, httpHandler))
+	}()
+	go func() {
+		defer s.wg.Done()
+		s.reportServeError(ctx, mux.Serve())
+	}()
+}
+
+func (s *BaseServer) reportServeError(ctx context.Context, err error) {
+	if ctx.Err() != nil || err == nil {
+		return
+	}
+	select {
+	case s.errCh <- err:
+	default:
+	}
 }
 
 // ResolveDomains determines dnsDomain and mgmtSingleAccModeDomain based on store state.

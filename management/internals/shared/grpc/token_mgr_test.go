@@ -112,12 +112,12 @@ func TestTimeBasedAuthSecretsManager_SetupRefresh(t *testing.T) {
 
 	tested.SetupRefresh(ctx, "someAccountID", peer)
 
-	if _, ok := tested.turnCancelMap[peer]; !ok {
-		t.Errorf("expecting peer to be present in the turn cancel map, got not present")
+	if _, ok := tested.turnJobs[peer]; !ok {
+		t.Errorf("expecting peer to be present in the turn jobs map, got not present")
 	}
 
-	if _, ok := tested.relayCancelMap[peer]; !ok {
-		t.Errorf("expecting peer to be present in the relay cancel map, got not present")
+	if _, ok := tested.relayJobs[peer]; !ok {
+		t.Errorf("expecting peer to be present in the relay jobs map, got not present")
 	}
 
 	var updates []*network_map.UpdateMessage
@@ -212,19 +212,26 @@ func TestTimeBasedAuthSecretsManager_CancelRefresh(t *testing.T) {
 	require.NoError(t, err)
 
 	tested.SetupRefresh(context.Background(), "someAccountID", peer)
-	if _, ok := tested.turnCancelMap[peer]; !ok {
-		t.Errorf("expecting peer to be present in turn cancel map, got not present")
+	if _, ok := tested.turnJobs[peer]; !ok {
+		t.Errorf("expecting peer to be present in turn jobs map, got not present")
 	}
-	if _, ok := tested.relayCancelMap[peer]; !ok {
-		t.Errorf("expecting peer to be present in relay cancel map, got not present")
+	if _, ok := tested.relayJobs[peer]; !ok {
+		t.Errorf("expecting peer to be present in relay jobs map, got not present")
 	}
 
 	tested.CancelRefresh(peer)
-	if _, ok := tested.turnCancelMap[peer]; ok {
-		t.Errorf("expecting peer to be not present in turn cancel map, got present")
+	if _, ok := tested.turnJobs[peer]; ok {
+		t.Errorf("expecting peer to be not present in turn jobs map, got present")
 	}
-	if _, ok := tested.relayCancelMap[peer]; ok {
-		t.Errorf("expecting peer to be not present in relay cancel map, got present")
+	if _, ok := tested.relayJobs[peer]; ok {
+		t.Errorf("expecting peer to be not present in relay jobs map, got present")
+	}
+
+	tested.scheduler.mu.Lock()
+	heapLen := len(tested.scheduler.jobs)
+	tested.scheduler.mu.Unlock()
+	if heapLen != 0 {
+		t.Errorf("expecting scheduler heap to be empty after cancel, got %d entries", heapLen)
 	}
 }
 
