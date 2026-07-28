@@ -171,9 +171,10 @@ type DaemonFeed struct {
 	// statusSubs are Go-side snapshot consumers (the tray), fed directly so
 	// they don't ride the window event bus. Callbacks run synchronously on
 	// the stream goroutine, so pushes arrive in order.
-	statusSubsMu sync.Mutex
-	statusSubs   []func(Status)
-	lastStatus   *Status
+	statusSubsMu     sync.Mutex
+	statusSubs       []func(Status)
+	lastStatus       *Status
+	windowDispatcher func(Status)
 
 	switchMu              sync.Mutex
 	switchInProgress      bool
@@ -204,15 +205,30 @@ func (s *DaemonFeed) OnStatus(cb func(Status)) {
 	s.statusSubsMu.Unlock()
 }
 
+// SetWindowDispatcher installs the frontend push path: it receives every
+// snapshot and decides which webview windows get it (visible ones). While
+// unset, pushStatus falls back to the event-bus broadcast.
+func (s *DaemonFeed) SetWindowDispatcher(fn func(Status)) {
+	s.statusSubsMu.Lock()
+	s.windowDispatcher = fn
+	s.statusSubsMu.Unlock()
+}
+
 // pushStatus delivers a snapshot to the Go-side subscribers and the frontend,
-// and caches it for LastStatus replays.
+// and caches it for LastStatus replays. Hidden windows are skipped by the
+// window dispatcher; they catch up via the show replay (WindowManager).
 func (s *DaemonFeed) pushStatus(st Status) {
 	s.statusSubsMu.Lock()
 	s.lastStatus = &st
 	subs := slices.Clone(s.statusSubs)
+	dispatch := s.windowDispatcher
 	s.statusSubsMu.Unlock()
 	for _, cb := range subs {
 		cb(st)
+	}
+	if dispatch != nil {
+		dispatch(st)
+		return
 	}
 	s.emitter.Emit(EventStatusSnapshot, st)
 }

@@ -103,6 +103,18 @@ func main() {
 	updaterHolder := updater.NewHolder(app.Event)
 	update := services.NewUpdate(conn, updaterHolder)
 	daemonFeed := services.NewDaemonFeed(conn, app.Event, updaterHolder, debugLog)
+	// Status snapshots go only to visible windows — a snapshot is full state,
+	// so a hidden webview loses nothing by being skipped; it gets the cached
+	// one on show (SetShowReplay below). Every other event stays on the bus.
+	daemonFeed.SetWindowDispatcher(func(st services.Status) {
+		ev := &application.CustomEvent{Name: services.EventStatusSnapshot, Data: st}
+		for _, w := range app.Window.GetAll() {
+			if w == nil || !w.IsVisible() {
+				continue
+			}
+			w.DispatchWailsEvent(ev)
+		}
+	})
 	notifier := notifications.New()
 	compat := services.NewCompat(conn)
 	// macOS shows no toast until permission is requested. Run it after
