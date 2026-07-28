@@ -27,7 +27,7 @@ func (h pqCallbackHandler) OnNewPSKReady(remoteID pqkem.RemoteID, psk pqkem.PSK)
 	// updateOnly: applies to an already-configured peer (rotation). At bootstrap the
 	// peer is not configured yet, so this is a no-op there and the PSK is instead
 	// pulled at peer-config time (pqHandshaker.PSK / conn.presharedKey).
-	log.Debugf("pqkem: programming PSK for peer %s", remoteID)
+	log.Tracef("pqkem: programming PSK for peer %s", remoteID)
 	return h.wg.SetPresharedKey(string(remoteID), wgtypes.Key(psk), true)
 }
 
