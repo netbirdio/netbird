@@ -173,6 +173,7 @@ type DaemonFeed struct {
 	// the stream goroutine, so pushes arrive in order.
 	statusSubsMu sync.Mutex
 	statusSubs   []func(Status)
+	lastStatus   *Status
 
 	switchMu              sync.Mutex
 	switchInProgress      bool
@@ -203,15 +204,25 @@ func (s *DaemonFeed) OnStatus(cb func(Status)) {
 	s.statusSubsMu.Unlock()
 }
 
-// pushStatus delivers a snapshot to the Go-side subscribers and the frontend.
+// pushStatus delivers a snapshot to the Go-side subscribers and the frontend,
+// and caches it for LastStatus replays.
 func (s *DaemonFeed) pushStatus(st Status) {
 	s.statusSubsMu.Lock()
+	s.lastStatus = &st
 	subs := slices.Clone(s.statusSubs)
 	s.statusSubsMu.Unlock()
 	for _, cb := range subs {
 		cb(st)
 	}
 	s.emitter.Emit(EventStatusSnapshot, st)
+}
+
+// LastStatus returns the most recently pushed snapshot, or nil before the
+// first push. Windows becoming visible replay it so they never paint stale.
+func (s *DaemonFeed) LastStatus() *Status {
+	s.statusSubsMu.Lock()
+	defer s.statusSubsMu.Unlock()
+	return s.lastStatus
 }
 
 // BeginProfileSwitch arms suppression for a switch from Connected/Connecting,
