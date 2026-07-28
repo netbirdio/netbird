@@ -166,14 +166,16 @@ func (c *Client) Run(platformFiles PlatformFiles, urlOpener URLOpener, isAndroid
 	if err != nil {
 		return err
 	}
-	// This path runs the interactive SSO flow, so reaching here means the peer
-	// is authenticated again — release the latch Status() reports from.
-	c.clearLoginRequired()
-
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
 	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder)
 	c.setState(cfg, cacheDir, connectClient)
+	// This path runs the interactive SSO flow, so reaching here means the peer
+	// is authenticated again — release the latch Status() reports from. Clear
+	// only once the fresh connect client is installed: until then Status()
+	// still reads the previous run's context state, which holds the NeedsLogin
+	// that prompted this login, and would re-latch what was just cleared.
+	c.clearLoginRequired()
 	return connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener, stateFile, cacheDir)
 }
 
