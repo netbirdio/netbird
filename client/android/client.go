@@ -8,7 +8,6 @@ import (
 	"os"
 	"slices"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"golang.org/x/exp/maps"
@@ -80,10 +79,17 @@ type Client struct {
 	stateChangeMu    sync.Mutex
 	stateChangeSubID string
 	eventSub         *peer.EventSubscription
+	// Closed to stop the watch goroutines from delivering buffered items to a
+	// listener that has been removed or replaced. See stopStateChangeWatchLocked.
+	stateChangeDone chan struct{}
 
 	// Latched "the server wants an interactive login": survives the engine
 	// restarts that replace the run loop's context state. See Client.Status.
-	loginRequired atomic.Bool
+	// Guarded by loginRequiredMu together with loginCleared, which counts
+	// clears so a stale observation cannot re-latch over one.
+	loginRequiredMu sync.Mutex
+	loginRequired   bool
+	loginCleared    uint64
 
 	extendMu     sync.Mutex
 	extendCancel context.CancelFunc
@@ -162,7 +168,7 @@ func (c *Client) Run(platformFiles PlatformFiles, urlOpener URLOpener, isAndroid
 	}
 	// This path runs the interactive SSO flow, so reaching here means the peer
 	// is authenticated again — release the latch Status() reports from.
-	c.loginRequired.Store(false)
+	c.clearLoginRequired()
 
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)

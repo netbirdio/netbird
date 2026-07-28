@@ -40,9 +40,11 @@ type StateChangeListener interface {
 // The label is latched: the run loop keeps its status in a per-run context
 // state, which a restart replaces with a fresh Idle one, so an engine restart
 // (network change, always-on) would otherwise erase the fact that the peer
-// still needs to log in. Only a successful interactive login clears it.
+// still needs to log in. Only a successful interactive login or extend clears
+// it — see clearLoginRequired.
 func (c *Client) Status() string {
-	if c.loginRequired.Load() {
+	latched, generation := c.loginRequiredState()
+	if latched {
 		return string(internal.StatusNeedsLogin)
 	}
 	cc := c.getConnectClient()
@@ -51,9 +53,38 @@ func (c *Client) Status() string {
 	}
 	status := cc.Status()
 	if status == internal.StatusNeedsLogin {
-		c.loginRequired.Store(true)
+		c.latchLoginRequired(generation)
 	}
 	return string(status)
+}
+
+func (c *Client) loginRequiredState() (bool, uint64) {
+	c.loginRequiredMu.Lock()
+	defer c.loginRequiredMu.Unlock()
+	return c.loginRequired, c.loginCleared
+}
+
+// latchLoginRequired records a NeedsLogin observation, unless a clear landed
+// while the caller was reading the run loop's status: cc.Status() is read
+// outside the lock, so a login or extend completing in that window would
+// otherwise be undone by this stale observation, stranding the UI on
+// "login required" over a healthy session.
+func (c *Client) latchLoginRequired(observedGeneration uint64) {
+	c.loginRequiredMu.Lock()
+	defer c.loginRequiredMu.Unlock()
+	if c.loginCleared != observedGeneration {
+		return
+	}
+	c.loginRequired = true
+}
+
+// clearLoginRequired releases the latch after a successful interactive login
+// or session extend, and invalidates any observation already in flight.
+func (c *Client) clearLoginRequired() {
+	c.loginRequiredMu.Lock()
+	defer c.loginRequiredMu.Unlock()
+	c.loginRequired = false
+	c.loginCleared++
 }
 
 // SessionExpiresAtUnix returns the SSO session deadline as unix seconds, or 0
@@ -79,6 +110,14 @@ func (c *Client) SetStateChangeListener(listener StateChangeListener) {
 		return
 	}
 
+	// Both subscriptions are buffered (one pending tick, ten pending events),
+	// so unsubscribing is not enough to stop callbacks: the loops would drain
+	// what is already queued and deliver it to a listener the caller has
+	// already removed or replaced. Gate every callback on this registration's
+	// own signal, which is closed before unsubscribing.
+	done := make(chan struct{})
+	c.stateChangeDone = done
+
 	id, ch := c.recorder.SubscribeToStateChanges()
 	c.stateChangeSubID = id
 	// The channel is closed by UnsubscribeFromStateChanges, which ends the
@@ -86,12 +125,17 @@ func (c *Client) SetStateChangeListener(listener StateChangeListener) {
 	// wakes the listener once.
 	go func() {
 		for range ch {
+			select {
+			case <-done:
+				return
+			default:
+			}
 			listener.OnStateChanged()
 		}
 	}()
 
 	c.eventSub = c.recorder.SubscribeToEvents()
-	go watchSessionWarnings(c.eventSub, listener)
+	go watchSessionWarnings(c.eventSub, listener, done)
 }
 
 // RemoveStateChangeListener unregisters the state notification listener.
@@ -157,6 +201,13 @@ func (c *Client) CancelExtendAuthSession() {
 }
 
 func (c *Client) stopStateChangeWatchLocked() {
+	// Signal first, unsubscribe second: closing the channels only stops new
+	// items, and the loops would still hand whatever is buffered to a listener
+	// that is no longer registered.
+	if c.stateChangeDone != nil {
+		close(c.stateChangeDone)
+		c.stateChangeDone = nil
+	}
 	if c.stateChangeSubID != "" {
 		c.recorder.UnsubscribeFromStateChanges(c.stateChangeSubID)
 		c.stateChangeSubID = ""
@@ -172,9 +223,16 @@ func (c *Client) stopStateChangeWatchLocked() {
 // listener. The event stream also carries unrelated traffic — network-map
 // updates on every sync, DNS and route errors — so everything but an
 // AUTHENTICATION event carrying the session-warning marker is dropped. Exits
-// when the subscription is closed by UnsubscribeFromEvents.
-func watchSessionWarnings(sub *peer.EventSubscription, listener StateChangeListener) {
+// when the subscription is closed by UnsubscribeFromEvents, or earlier when
+// done is closed — the stream buffers up to ten events, and a deregistered
+// listener must not receive the ones already queued.
+func watchSessionWarnings(sub *peer.EventSubscription, listener StateChangeListener, done <-chan struct{}) {
 	for ev := range sub.Events() {
+		select {
+		case <-done:
+			return
+		default:
+		}
 		if ev.GetCategory() != cProto.SystemEvent_AUTHENTICATION {
 			continue
 		}
@@ -244,7 +302,7 @@ func (c *Client) extendAuthSession(ctx context.Context, urlOpener URLOpener, isA
 	if _, err := engine.ExtendAuthSession(ctx, tokenInfo.GetTokenToUse()); err != nil {
 		return err
 	}
-	c.loginRequired.Store(false)
+	c.clearLoginRequired()
 
 	go urlOpener.OnLoginSuccess()
 	return nil
