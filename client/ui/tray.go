@@ -196,7 +196,7 @@ func NewTray(app *application.App, window *application.WebviewWindow, svc TraySe
 	// menu (e.g. GNOME Shell AppIndicator).
 	bindTrayClick(t)
 
-	app.Event.On(services.EventStatusSnapshot, t.onStatusEvent)
+	svc.DaemonFeed.OnStatus(t.applyStatus)
 	app.Event.On(services.EventDaemonNotification, t.onSystemEvent)
 	// Refresh the Profiles submenu on ProfileSwitcher's change event. A
 	// switch on an idle daemon drives no status transition, so without this

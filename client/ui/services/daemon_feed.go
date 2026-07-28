@@ -5,6 +5,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -167,6 +168,12 @@ type DaemonFeed struct {
 	cancel   context.CancelFunc
 	streamWg sync.WaitGroup
 
+	// statusSubs are Go-side snapshot consumers (the tray), fed directly so
+	// they don't ride the window event bus. Callbacks run synchronously on
+	// the stream goroutine, so pushes arrive in order.
+	statusSubsMu sync.Mutex
+	statusSubs   []func(Status)
+
 	switchMu              sync.Mutex
 	switchInProgress      bool
 	switchInProgressUntil time.Time
@@ -188,6 +195,25 @@ func NewDaemonFeed(conn DaemonConn, emitter Emitter, updaterHolder *updater.Hold
 	return &DaemonFeed{conn: conn, emitter: emitter, updater: updaterHolder, logCtl: logCtl}
 }
 
+// OnStatus registers a Go-side status subscriber. Not for the frontend —
+// React consumers subscribe to EventStatusSnapshot on the event bus.
+func (s *DaemonFeed) OnStatus(cb func(Status)) {
+	s.statusSubsMu.Lock()
+	s.statusSubs = append(s.statusSubs, cb)
+	s.statusSubsMu.Unlock()
+}
+
+// pushStatus delivers a snapshot to the Go-side subscribers and the frontend.
+func (s *DaemonFeed) pushStatus(st Status) {
+	s.statusSubsMu.Lock()
+	subs := slices.Clone(s.statusSubs)
+	s.statusSubsMu.Unlock()
+	for _, cb := range subs {
+		cb(st)
+	}
+	s.emitter.Emit(EventStatusSnapshot, st)
+}
+
 // BeginProfileSwitch arms suppression for a switch from Connected/Connecting,
 // where the daemon emits stale Connected updates during Down's teardown then an
 // Idle before the new Up; statusStreamLoop drops those, and a synthetic
@@ -201,7 +227,7 @@ func (s *DaemonFeed) BeginProfileSwitch() {
 	s.switchLoginWatch = true
 	s.switchLoginWatchUntil = now.Add(30 * time.Second)
 	s.switchMu.Unlock()
-	s.emitter.Emit(EventStatusSnapshot, Status{Status: StatusConnecting})
+	s.pushStatus(Status{Status: StatusConnecting})
 }
 
 // CancelProfileSwitch aborts a switch midway (tray Disconnect while Connecting):
@@ -343,7 +369,7 @@ func (s *DaemonFeed) statusStreamLoop(ctx context.Context) {
 			return
 		}
 		unavailable = true
-		s.emitter.Emit(EventStatusSnapshot, Status{Status: StatusDaemonUnavailable})
+		s.pushStatus(Status{Status: StatusDaemonUnavailable})
 	}
 
 	op := func() error {
@@ -403,7 +429,7 @@ func (s *DaemonFeed) emitStatus(st Status) {
 		log.Debugf("suppressing status=%q during profile switch", st.Status)
 		return
 	}
-	s.emitter.Emit(EventStatusSnapshot, st)
+	s.pushStatus(st)
 	if triggerLogin {
 		s.emitter.Emit(EventTriggerLogin)
 	}
