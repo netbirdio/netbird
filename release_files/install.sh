@@ -134,6 +134,72 @@ repo_gpgcheck=1
 EOF
 }
 
+# The desktop app renders in a GTK 4 WebKit webview and needs GTK 4.10+ with
+# WebKitGTK 6.0. The netbird-ui packages do not declare these libraries, so
+# the installer resolves them and degrades to a CLI-only install when the
+# system cannot provide them.
+UI_MIN_GTK_VERSION="4.10"
+
+skip_ui_app() {
+    SKIP_UI_APP=true
+    echo "NetBird UI installation will be omitted: $1"
+}
+
+install_ui_apt() {
+    GTK_CANDIDATE="$(apt-cache policy libgtk-4-1 2>/dev/null | awk '/Candidate:/ {print $2}')"
+    if [ -z "$GTK_CANDIDATE" ] || [ "$GTK_CANDIDATE" = "(none)" ]; then
+        skip_ui_app "GTK 4 is not available in the configured APT repositories"
+        return 0
+    fi
+    if ! dpkg --compare-versions "$GTK_CANDIDATE" ge "$UI_MIN_GTK_VERSION"; then
+        skip_ui_app "the desktop app needs GTK ${UI_MIN_GTK_VERSION}+ and this release provides ${GTK_CANDIDATE} (Ubuntu 24.04+ or Debian 13+ required)"
+        return 0
+    fi
+    if ! ${SUDO} apt-get install netbird-ui libgtk-4-1 libwebkitgtk-6.0-4 xdg-utils -y; then
+        skip_ui_app "the desktop app dependencies could not be installed"
+    fi
+}
+
+# Enabling EPEL changes the system's repository configuration, so it needs
+# an explicit go-ahead: either NETBIRD_INSTALL_EPEL=true in the environment
+# or an interactive confirmation. Returns 0 when EPEL is available.
+confirm_epel() {
+    if rpm -q epel-release >/dev/null 2>&1; then
+        return 0
+    fi
+    if [ "${NETBIRD_INSTALL_EPEL:-}" = "true" ]; then
+        echo "NETBIRD_INSTALL_EPEL=true is set, enabling the EPEL repository"
+        ${SUDO} dnf -y install epel-release
+        return $?
+    fi
+    if (exec < /dev/tty) 2>/dev/null; then
+        printf "The desktop app needs WebKitGTK 6.0 from the EPEL repository (https://docs.fedoraproject.org/en-US/epel/). Enable EPEL and continue? [y/N] "
+        read -r EPEL_REPLY < /dev/tty
+        case "$EPEL_REPLY" in
+            y|Y|yes|YES)
+                ${SUDO} dnf -y install epel-release
+                return $?
+            ;;
+        esac
+    fi
+    return 1
+}
+
+install_ui_dnf() {
+    # webkitgtk6.0 comes from EPEL on RHEL, AlmaLinux and Rocky Linux 10.
+    case "$OS_NAME" in
+        rhel|almalinux|rocky|centos)
+            if ! confirm_epel; then
+                skip_ui_app "the desktop app needs WebKitGTK 6.0 from EPEL; re-run with NETBIRD_INSTALL_EPEL=true to enable it"
+                return 0
+            fi
+        ;;
+    esac
+    if ! ${SUDO} dnf -y install netbird-ui gtk4 webkitgtk6.0 xdg-utils; then
+        skip_ui_app "GTK 4.10+ and WebKitGTK 6.0 are not available on this system (Fedora 43+ or RHEL 10+ required)"
+    fi
+}
+
 prepare_tun_module() {
   # Create the necessary file structure for /dev/net/tun
   if [ ! -c /dev/net/tun ]; then
@@ -226,14 +292,16 @@ install_netbird() {
         ${SUDO} apt-get install netbird -y
 
         if ! $SKIP_UI_APP; then
-            ${SUDO} apt-get install netbird-ui -y
+            install_ui_apt
         fi
     ;;
     yum)
         add_rpm_repo
         ${SUDO} yum -y install netbird
         if ! $SKIP_UI_APP; then
-            ${SUDO} yum -y install netbird-ui
+            # Systems where dnf is absent (RHEL 9, Amazon Linux) do not
+            # provide GTK 4.10+ or WebKitGTK 6.0.
+            skip_ui_app "this system does not provide the desktop app dependencies (RHEL 10+ required)"
         fi
     ;;
     dnf)
@@ -241,7 +309,7 @@ install_netbird() {
         ${SUDO} dnf -y install netbird
 
         if ! $SKIP_UI_APP; then
-            ${SUDO} dnf -y install netbird-ui
+            install_ui_dnf
         fi
     ;;
     rpm-ostree)
@@ -401,9 +469,8 @@ if type uname >/dev/null 2>&1; then
               OS_NAME="$(. /etc/os-release && echo "$ID")"
               INSTALL_DIR="/usr/bin"
 
-              # Allow netbird UI installation for x64 arch only
-              if [ "$ARCH" != "amd64" ] && [ "$ARCH" != "arm64" ] \
-                  && [ "$ARCH" != "x86_64" ];then
+              # The netbird-ui Linux packages are built for x86_64 only
+              if [ "$ARCH" != "amd64" ] && [ "$ARCH" != "x86_64" ];then
                   SKIP_UI_APP=true
                   echo "NetBird UI installation will be omitted as $ARCH is not a compatible architecture"
               fi

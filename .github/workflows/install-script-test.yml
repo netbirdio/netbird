@@ -7,6 +7,7 @@ on:
   pull_request:
     paths:
       - "release_files/install.sh"
+      - ".github/workflows/install-script-test.yml"
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || github.actor_id }}
   cancel-in-progress: true
@@ -37,3 +38,54 @@ jobs:
 
       - name: check cli binary
         run: command -v netbird
+
+  test-install-script-distros:
+    name: UI gating on ${{ matrix.image }}${{ matrix.install_epel && ' (EPEL pre-confirmed)' || '' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        include:
+          # GTK 4 below 4.10: desktop app must be skipped, CLI installed
+          - image: "ubuntu:22.04"
+            expect_ui: false
+          - image: "debian:12"
+            expect_ui: false
+          # GTK 4.10+ and WebKitGTK 6.0 available: desktop app installed
+          - image: "debian:13"
+            expect_ui: true
+          - image: "fedora:43"
+            expect_ui: true
+          # webkitgtk6.0 needs EPEL: skipped without confirmation,
+          # installed when NETBIRD_INSTALL_EPEL=true
+          - image: "almalinux:10"
+            expect_ui: false
+          - image: "almalinux:10"
+            expect_ui: true
+            install_epel: true
+    container:
+      image: ${{ matrix.image }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: run install script
+        env:
+          XDG_CURRENT_DESKTOP: GNOME
+          NETBIRD_INSTALL_EPEL: ${{ matrix.install_epel && 'true' || '' }}
+        run: sh -x release_files/install.sh
+
+      - name: check binaries
+        run: |
+          command -v netbird
+          if [ "${{ matrix.expect_ui }}" = "true" ]; then
+            command -v netbird-ui
+          else
+            if command -v netbird-ui; then
+              echo "netbird-ui should not have been installed on ${{ matrix.image }}"
+              exit 1
+            fi
+          fi
