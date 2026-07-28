@@ -73,6 +73,14 @@ func collectStatusBurst(ctx context.Context, ch <-chan struct{}) (pending, open 
 			}
 			pending = true
 		case <-timer.C:
+			select {
+			case _, ok := <-ch:
+				if !ok {
+					return pending, false
+				}
+				pending = true
+			default:
+			}
 			return pending, true
 		case <-ctx.Done():
 			return false, false
