@@ -840,7 +840,7 @@ func TestUser_DeleteUser_OtherAccount(t *testing.T) {
 	for _, targetUserID := range []string{"otherRegularUser", "otherServiceUser"} {
 		t.Run(targetUserID, func(t *testing.T) {
 			err := am.DeleteUser(context.Background(), mockAccountID, mockUserID, targetUserID)
-			assert.Equal(t, status.NewPermissionDeniedError(), err)
+			assert.Equal(t, status.NewUserNotFoundError(targetUserID), err)
 
 			_, err = testStore.GetUserByUserID(context.Background(), store.LockingStrengthNone, targetUserID)
 			assert.NoError(t, err, "user of another account must not be deleted")
