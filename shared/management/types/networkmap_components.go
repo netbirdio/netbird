@@ -56,6 +56,11 @@ type NetworkMapComponents struct {
 
 	// true when returning an empty-like map (returned instead of nil)
 	empty bool
+
+	// ForceRoutingPeerDNSResolution forces the peer to run/use routing-peer DNS
+	// resolution regardless of the account-global setting, for reverse-proxy
+	// domain targets.
+	ForceRoutingPeerDNSResolution bool
 }
 
 type routeIndexEntry struct {
@@ -190,6 +195,8 @@ func (c *NetworkMapComponents) Calculate(ctx context.Context) *NetworkMap {
 		RoutesFirewallRules: append(networkResourcesFirewallRules, routesFirewallRules...),
 		AuthorizedUsers:     authorizedUsers,
 		EnableSSH:           sshEnabled,
+
+		ForceRoutingPeerDNSResolution: c.ForceRoutingPeerDNSResolution,
 	}
 }
 
