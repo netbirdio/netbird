@@ -25,6 +25,7 @@ import (
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	nbmgmtgrpc "github.com/netbirdio/netbird/shared/management/grpc"
+	nbnetworkmap "github.com/netbirdio/netbird/shared/management/networkmap"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/util/wsproxy"
 )
@@ -472,11 +473,48 @@ func (c *GrpcClient) GetNetworkMap(sysInfo *system.Info) (*proto.NetworkMap, err
 		return nil, err
 	}
 
-	if decryptedResp.GetNetworkMap() == nil {
+	var nm *proto.NetworkMap
+	if version := decryptedResp.GetVersion(); version == int32(nbmgmtgrpc.ComponentNetworkMap) {
+		// Components-format peer: decode the envelope back to typed
+		// components, run Calculate() locally, and convert to the wire
+		// NetworkMap shape the rest of the engine consumes. Components are
+		// retained so future incremental updates can apply deltas instead
+		// of doing a full reconstruction.
+		envelope := decryptedResp.GetNetworkMapEnvelope()
+		if envelope == nil {
+			return nil, fmt.Errorf("received a SyncReponse indicating use of components network map, but components are missing")
+		}
+
+		localKey := c.key.String()
+		dnsName := ""
+		if pc := decryptedResp.GetPeerConfig(); pc != nil {
+			// PeerConfig.Fqdn = "<dns_label>.<dns_domain>" — extract the
+			// shared domain by stripping the peer's own label prefix. Falls
+			// back to empty if the FQDN doesn't have the expected shape.
+			dnsName = extractDNSDomainFromFQDN(pc.GetFqdn())
+		}
+		result, err := nbnetworkmap.EnvelopeToNetworkMap(c.ctx, envelope, localKey, dnsName)
+		if err != nil {
+			return nil, fmt.Errorf("decode network map envelope: %w", err)
+		}
+		nm = result.NetworkMap
+	} else {
+		nm = decryptedResp.GetNetworkMap()
+	}
+	if nm == nil {
 		return nil, fmt.Errorf("invalid msg, required network map")
 	}
 
-	return decryptedResp.GetNetworkMap(), nil
+	return nm, nil
+}
+
+func extractDNSDomainFromFQDN(fqdn string) string {
+	for i := 0; i < len(fqdn); i++ {
+		if fqdn[i] == '.' && i+1 < len(fqdn) {
+			return fqdn[i+1:]
+		}
+	}
+	return ""
 }
 
 func (c *GrpcClient) connectToSyncStream(ctx context.Context, serverPubKey wgtypes.Key, sysInfo *system.Info) (proto.ManagementService_SyncClient, error) {
