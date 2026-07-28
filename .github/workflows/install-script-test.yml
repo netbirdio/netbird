@@ -72,6 +72,16 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: prepare container
+        # The netbird package postinstall registers a SysV service when
+        # systemd is not running. The trixie and fedora images ship without
+        # the SysV directories and tools it needs, unlike the older images.
+        run: |
+          mkdir -p /etc/init.d
+          if command -v dnf >/dev/null 2>&1; then
+            dnf -y install initscripts-service || dnf -y install initscripts
+          fi
+
       - name: run install script
         env:
           XDG_CURRENT_DESKTOP: GNOME
