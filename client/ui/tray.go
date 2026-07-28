@@ -452,6 +452,7 @@ func (t *Tray) buildMenu() *application.Menu {
 }
 
 func (t *Tray) handleQuit() {
+	services.BeginShutdown()
 	t.profileMu.Lock()
 	if t.switchCancel != nil {
 		t.switchCancel()
