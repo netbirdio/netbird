@@ -4,14 +4,16 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"reflect"
 
 	"github.com/jackc/pgx/v5"
+	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
 
 const (
 	GetPoliciesQuery = `
-	select p.id, p.public_id, p.enabled, p.source_posture_checks, pr.enabled, pr.action, pr.protocol, pr.bidirectional, 
+	select p.id, p.public_id, p.enabled, p.source_posture_checks, pr.enabled as rule_enabled, pr.action, pr.protocol, pr.bidirectional, 
 	pr.sources, pr.destinations, pr.source_resource, pr.destination_resource, pr.ports, pr.port_ranges,
 	pr.authorized_groups, pr.authorized_user
 	from policies as p
@@ -26,18 +28,21 @@ func (pg *PgStore) GetPolicies(ctx context.Context, accountId string) ([]nmdata.
 		return nil, err
 	}
 
-	var (
-		publicId, sourcePostureChecks                          sql.NullString
-		enabled, ruleEnabled, bidirectional                    sql.NullBool
-		action, protocol, sources, destinations                sql.NullString
-		sourceResource, destinationResource, ports, portRanges sql.NullString
-		authorizedGroups, authorizedUser                       sql.NullString
-	)
+	policies, err := pgx.CollectRows(rows, pgx.RowToStructByName[policy])
+	if err != nil {
+		return nil, err
+	}
 
-	policies, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (nmdata.Policy, error) {
-		var policy nmdata.Policy
+	toret := make([]nmdata.Policy, 0, len(policies))
+	for _, p := range policies {
+		policy := nmdata.Policy{}
+		err := networkmapdb.FromSqlTypesToSharedTypes(
+			reflect.ValueOf(&p).Elem(), reflect.ValueOf(&policy).Elem())
+		if err != nil {
+			return nil, err
+		}
+
 		var policyRule *nmdata.PolicyRule
-
 		pr := func() *nmdata.PolicyRule {
 			if policyRule != nil {
 				return policyRule
@@ -47,91 +52,91 @@ func (pg *PgStore) GetPolicies(ctx context.Context, accountId string) ([]nmdata.
 			return policyRule
 		}
 
-		err := row.Scan(&policy.ID, &publicId, &enabled, &sourcePostureChecks, &ruleEnabled, &action, &protocol, &bidirectional,
-			&sources, &destinations, &sourceResource, &destinationResource, &ports, &portRanges,
-			&authorizedGroups, &authorizedUser)
-		if err != nil {
-			return policy, err
+		if p.RuleEnabled.Valid {
+			pr().Enabled = p.RuleEnabled.Bool
 		}
-
-		if publicId.Valid {
-			policy.PublicID = publicId.String
+		if p.Action.Valid {
+			pr().Action = p.Action.String
 		}
-		if sourcePostureChecks.Valid {
-			err := json.Unmarshal([]byte(sourcePostureChecks.String), &policy.SourcePostureChecks)
+		if p.Protocol.Valid {
+			pr().Protocol = p.Protocol.String
+		}
+		if p.Bidirectional.Valid {
+			pr().Bidirectional = p.Bidirectional.Bool
+		}
+		if len(p.Sources) > 0 {
+			err := json.Unmarshal([]byte(p.Sources), &pr().Sources)
 			if err != nil {
-				return policy, err
+				return toret, err
 			}
 		}
-		if enabled.Valid {
-			policy.Enabled = enabled.Bool
-		}
-		if ruleEnabled.Valid {
-			pr().Enabled = ruleEnabled.Bool
-		}
-		if action.Valid {
-			pr().Action = action.String
-		}
-		if protocol.Valid {
-			pr().Protocol = protocol.String
-		}
-		if bidirectional.Valid {
-			pr().Bidirectional = bidirectional.Bool
-		}
-		if sources.Valid {
-			err := json.Unmarshal([]byte(sources.String), &pr().Sources)
+		if len(p.Destinations) > 0 {
+			err := json.Unmarshal([]byte(p.Destinations), &pr().Destinations)
 			if err != nil {
-				return policy, err
+				return toret, err
 			}
 		}
-		if destinations.Valid {
-			err := json.Unmarshal([]byte(destinations.String), &pr().Destinations)
+		if len(p.SourceResource) > 0 {
+			err := json.Unmarshal([]byte(p.SourceResource), &pr().SourceResource)
 			if err != nil {
-				return policy, err
+				return toret, err
 			}
 		}
-		if sourceResource.Valid {
-			err := json.Unmarshal([]byte(sourceResource.String), &pr().SourceResource)
+		if len(p.DestinationResource) > 0 {
+			err := json.Unmarshal([]byte(p.DestinationResource), &pr().DestinationResource)
 			if err != nil {
-				return policy, err
+				return toret, err
 			}
 		}
-		if destinationResource.Valid {
-			err := json.Unmarshal([]byte(destinationResource.String), &pr().DestinationResource)
+		if len(p.Ports) > 0 {
+			err := json.Unmarshal([]byte(p.Ports), &pr().Ports)
 			if err != nil {
-				return policy, err
+				return toret, err
 			}
 		}
-		if ports.Valid {
-			err := json.Unmarshal([]byte(ports.String), &pr().Ports)
+		if len(p.PortRanges) > 0 {
+			err := json.Unmarshal([]byte(p.PortRanges), &pr().PortRanges)
 			if err != nil {
-				return policy, err
+				return toret, err
 			}
 		}
-		if portRanges.Valid {
-			err := json.Unmarshal([]byte(portRanges.String), &pr().PortRanges)
+		if len(p.AuthorizedGroups) > 0 {
+			err := json.Unmarshal([]byte(p.AuthorizedGroups), &pr().AuthorizedGroups)
 			if err != nil {
-				return policy, err
+				return toret, err
 			}
 		}
-		if authorizedGroups.Valid {
-			err := json.Unmarshal([]byte(authorizedGroups.String), &pr().AuthorizedGroups)
-			if err != nil {
-				return policy, err
-			}
-		}
-		if authorizedUser.Valid {
-			pr().AuthorizedUser = authorizedUser.String
+		if p.AuthorizedUser.Valid {
+			pr().AuthorizedUser = p.AuthorizedUser.String
 		}
 
 		if policyRule != nil {
-			policyRule.ID = policy.ID
-			policyRule.PolicyID = policy.ID
+			policyRule.ID = p.ID
+			policyRule.PolicyID = p.ID
 			policy.Rules = []*nmdata.PolicyRule{policyRule}
 		}
 
-		return policy, nil
-	})
+		toret = append(toret, policy)
+	}
 
-	return policies, err
+	return toret, err
+}
+
+type policy struct {
+	ID                  string
+	PublicID            sql.NullString
+	SourcePostureChecks json.RawMessage
+	Enabled             sql.NullBool
+	RuleEnabled         sql.NullBool    `nmap:"skip"`
+	Bidirectional       sql.NullBool    `nmap:"skip"`
+	Action              sql.NullString  `nmap:"skip"`
+	Protocol            sql.NullString  `nmap:"skip"`
+	Sources             json.RawMessage `nmap:"skip"`
+	Destinations        json.RawMessage `nmap:"skip"`
+	SourceResource      json.RawMessage `nmap:"skip"`
+	DestinationResource json.RawMessage `nmap:"skip"`
+	Ports               json.RawMessage `nmap:"skip"`
+	PortRanges          json.RawMessage `nmap:"skip"`
+	AuthorizedGroups    json.RawMessage `nmap:"skip"`
+	AuthorizedUser      sql.NullString  `nmap:"skip"`
 }

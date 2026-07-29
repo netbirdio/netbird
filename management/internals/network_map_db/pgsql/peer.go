@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"reflect"
 
 	"github.com/jackc/pgx/v5"
+	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
 
@@ -25,108 +27,94 @@ func (pg *PgStore) GetPeers(ctx context.Context, accountId string) ([]nmdata.Pee
 		return nil, err
 	}
 
-	var (
-		key, sshKey, dnsLabel, userId                                sql.NullString
-		lastLogin                                                    sql.NullTime
-		sshEnabled, loginExpirationEnabled                           sql.NullBool
-		ip, ipv6, locationConnectionIp                               []byte
-		metaFiles, metaCapabilities, metaFlags, metaNetworkAddresses []byte
-		metaWtVersion, metaGoOS, metaOSVersion, metaKernelVersion    sql.NullString
-		locationCountryCode, locationCityName                        sql.NullString
-	)
+	peers, err := pgx.CollectRows(rows, pgx.RowToStructByName[peer])
+	if err != nil {
+		return nil, err
+	}
 
-	peers, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (nmdata.Peer, error) {
-		var peer nmdata.Peer
-		err := row.Scan(&peer.ID, &key, &sshKey, &dnsLabel, &userId, &sshEnabled, &loginExpirationEnabled, &lastLogin, &ip, &ipv6,
-			&metaWtVersion, &metaGoOS, &metaOSVersion, &metaKernelVersion, &metaNetworkAddresses, &metaFiles, &metaCapabilities, &metaFlags,
-			&locationCountryCode, &locationCityName, &locationConnectionIp)
+	toret := make([]nmdata.Peer, 0, len(peers))
+	for _, p := range peers {
+		dp := nmdata.Peer{}
+		err := networkmapdb.FromSqlTypesToSharedTypes(
+			reflect.ValueOf(&p).Elem(), reflect.ValueOf(&dp).Elem())
 		if err != nil {
-			return peer, err
+			return nil, err
 		}
 
-		if key.Valid {
-			peer.Key = key.String
+		if p.MetaWtVersion.Valid {
+			dp.Meta.WtVersion = p.MetaWtVersion.String
 		}
-		if sshKey.Valid {
-			peer.SSHKey = sshKey.String
+		if p.MetaGoOS.Valid {
+			dp.Meta.GoOS = p.MetaGoOS.String
 		}
-		if dnsLabel.Valid {
-			peer.DNSLabel = dnsLabel.String
+		if p.MetaOSVersion.Valid {
+			dp.Meta.OSVersion = p.MetaOSVersion.String
 		}
-		if userId.Valid {
-			peer.UserID = userId.String
+		if p.MetaKernelVersion.Valid {
+			dp.Meta.KernelVersion = p.MetaKernelVersion.String
 		}
-		if lastLogin.Valid {
-			peer.LastLogin = &lastLogin.Time
+		if p.LocationCountryCode.Valid {
+			dp.Location.CountryCode = p.LocationCountryCode.String
 		}
-		if sshEnabled.Valid {
-			peer.SSHEnabled = sshEnabled.Bool
+		if p.LocationCityName.Valid {
+			dp.Location.CityName = p.LocationCityName.String
 		}
-		if loginExpirationEnabled.Valid {
-			peer.LoginExpirationEnabled = loginExpirationEnabled.Bool
-		}
-		if metaWtVersion.Valid {
-			peer.Meta.WtVersion = metaWtVersion.String
-		}
-		if metaGoOS.Valid {
-			peer.Meta.GoOS = metaGoOS.String
-		}
-		if metaOSVersion.Valid {
-			peer.Meta.OSVersion = metaOSVersion.String
-		}
-		if metaKernelVersion.Valid {
-			peer.Meta.KernelVersion = metaKernelVersion.String
-		}
-		if locationCountryCode.Valid {
-			peer.Location.CountryCode = locationCountryCode.String
-		}
-		if locationCityName.Valid {
-			peer.Location.CityName = locationCityName.String
-		}
-		if ip != nil {
-			err := json.Unmarshal(ip, &peer.IP)
+		if p.LocationConnectionIp != nil {
+			err := json.Unmarshal(p.LocationConnectionIp, &dp.Location.ConnectionIP)
 			if err != nil {
-				return peer, err
+				return toret, err
 			}
 		}
-		if ipv6 != nil {
-			err := json.Unmarshal(ipv6, &peer.IPv6)
+		if p.MetaFiles != nil {
+			err := json.Unmarshal(p.MetaFiles, &dp.Meta.Files)
 			if err != nil {
-				return peer, err
+				return toret, err
 			}
 		}
-		if locationConnectionIp != nil {
-			err := json.Unmarshal(locationConnectionIp, &peer.Location.ConnectionIP)
+		if p.MetaCapabilities != nil {
+			err := json.Unmarshal(p.MetaCapabilities, &dp.Meta.Capabilities)
 			if err != nil {
-				return peer, err
+				return toret, err
 			}
 		}
-		if metaFiles != nil {
-			err := json.Unmarshal(metaFiles, &peer.Meta.Files)
+		if p.MetaFlags != nil {
+			err := json.Unmarshal(p.MetaFlags, &dp.Meta.Flags)
 			if err != nil {
-				return peer, err
+				return toret, err
 			}
 		}
-		if metaCapabilities != nil {
-			err := json.Unmarshal(metaCapabilities, &peer.Meta.Capabilities)
+		if p.MetaNetworkAddresses != nil {
+			err := json.Unmarshal(p.MetaNetworkAddresses, &dp.Meta.NetworkAddresses)
 			if err != nil {
-				return peer, err
+				return toret, err
 			}
 		}
-		if metaFlags != nil {
-			err := json.Unmarshal(metaFlags, &peer.Meta.Flags)
-			if err != nil {
-				return peer, err
-			}
-		}
-		if metaNetworkAddresses != nil {
-			err := json.Unmarshal(metaNetworkAddresses, &peer.Meta.NetworkAddresses)
-			if err != nil {
-				return peer, err
-			}
-		}
-		return peer, nil
-	})
+	}
 
-	return peers, err
+	return toret, nil
+}
+
+// TODO add support for creating struct fields from denormalized fields
+type peer struct {
+	ID                     string
+	Key                    sql.NullString
+	SSHKey                 sql.NullString
+	DNSLabel               sql.NullString
+	UserID                 sql.NullString
+	LastLogin              sql.NullTime
+	SSHEnabled             sql.NullBool
+	LoginExpirationEnabled sql.NullBool
+	IP                     json.RawMessage
+	IPv6                   json.RawMessage
+	LocationConnectionIp   json.RawMessage `nmap:"skip"`
+	MetaFiles              json.RawMessage `nmap:"skip"`
+	MetaCapabilities       json.RawMessage `nmap:"skip"`
+	MetaFlags              json.RawMessage `nmap:"skip"`
+	MetaNetworkAddresses   json.RawMessage `nmap:"skip"`
+	MetaWtVersion          sql.NullString  `nmap:"skip"`
+	MetaGoOS               sql.NullString  `nmap:"skip"`
+	MetaOSVersion          sql.NullString  `nmap:"skip"`
+	MetaKernelVersion      sql.NullString  `nmap:"skip"`
+	LocationCountryCode    sql.NullString  `nmap:"skip"`
+	LocationCityName       sql.NullString  `nmap:"skip"`
 }

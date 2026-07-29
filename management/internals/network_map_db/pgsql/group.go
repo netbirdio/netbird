@@ -4,14 +4,22 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"reflect"
 
 	"github.com/jackc/pgx/v5"
+	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
 
 const (
 	GetGroupsQuery = `
-	select name, public_id, resources from groups where account_id=$1
+	select name, public_id, resources,
+	(
+	  select array_agg(group_peers.peer_id)
+      from group_peers
+	  where group_peers.group_id = groups.id
+	) as peers
+	from groups where account_id=$1
 	`
 )
 
@@ -21,33 +29,24 @@ func (pg *PgStore) GetGroups(ctx context.Context, accountId string) ([]nmdata.Gr
 		return nil, err
 	}
 
-	var (
-		group                     nmdata.Group
-		name, publicId, resources sql.NullString
-	)
-
-	groups, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (nmdata.Group, error) {
-		err := row.Scan(&name, &publicId, &resources)
+	groups, err := pgx.CollectRows(rows, pgx.RowToStructByName[group])
+	toret := make([]nmdata.Group, 0, len(groups))
+	for _, g := range groups {
+		dg := nmdata.Group{}
+		err := networkmapdb.FromSqlTypesToSharedTypes(
+			reflect.ValueOf(&g).Elem(), reflect.ValueOf(&dg).Elem())
 		if err != nil {
-			return group, err
+			return nil, err
 		}
+		toret = append(toret, dg)
+	}
 
-		if name.Valid {
-			group.Name = name.String
-		}
-		if publicId.Valid {
-			group.PublicID = publicId.String
-		}
-		if resources.Valid {
-			groupResources := make([]nmdata.Resource, 0)
-			err := json.Unmarshal([]byte(resources.String), &groupResources)
-			if err != nil {
-				return group, err
-			}
-			group.Resources = groupResources
-		}
-		return group, nil
-	})
+	return toret, err
+}
 
-	return groups, err
+type group struct {
+	Name      sql.NullString
+	PublicID  sql.NullString
+	Resources json.RawMessage
+	Peers     []string
 }
