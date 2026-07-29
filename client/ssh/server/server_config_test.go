@@ -420,35 +420,17 @@ func TestServer_PortConflictHandling(t *testing.T) {
 
 func TestServer_IsPrivilegedUser(t *testing.T) {
 
-	tests := []struct {
+	type privilegedUserCase struct {
 		username    string
 		expected    bool
 		description string
-	}{
-		{
-			username:    "root",
-			expected:    true,
-			description: "root should be considered privileged",
-		},
-		{
-			username:    "regular",
-			expected:    false,
-			description: "regular user should not be privileged",
-		},
-		{
-			username:    "",
-			expected:    false,
-			description: "empty username should not be privileged",
-		},
 	}
+	var tests []privilegedUserCase
 
-	// Add Windows-specific tests
 	if runtime.GOOS == "windows" {
-		tests = append(tests, []struct {
-			username    string
-			expected    bool
-			description string
-		}{
+		// On Windows, accounts that cannot be resolved or evaluated count as
+		// privileged (fail closed), including nonexistent and empty names.
+		tests = []privilegedUserCase{
 			{
 				username:    "Administrator",
 				expected:    true,
@@ -459,20 +441,50 @@ func TestServer_IsPrivilegedUser(t *testing.T) {
 				expected:    true,
 				description: "administrator should be considered privileged on Windows (case insensitive)",
 			},
-		}...)
+			{
+				username:    "NT AUTHORITY\\SYSTEM",
+				expected:    true,
+				description: "SYSTEM should be considered privileged on Windows",
+			},
+			{
+				username:    "Guest",
+				expected:    false,
+				description: "Guest should not be privileged on Windows",
+			},
+			{
+				username:    "netbird-no-such-user",
+				expected:    true,
+				description: "unresolvable account should fail closed on Windows",
+			},
+			{
+				username:    "",
+				expected:    true,
+				description: "empty username should fail closed on Windows",
+			},
+		}
 	} else {
-		// On non-Windows systems, Administrator should not be privileged
-		tests = append(tests, []struct {
-			username    string
-			expected    bool
-			description string
-		}{
+		tests = []privilegedUserCase{
+			{
+				username:    "root",
+				expected:    true,
+				description: "root should be considered privileged",
+			},
+			{
+				username:    "regular",
+				expected:    false,
+				description: "regular user should not be privileged",
+			},
+			{
+				username:    "",
+				expected:    false,
+				description: "empty username should not be privileged",
+			},
 			{
 				username:    "Administrator",
 				expected:    false,
 				description: "Administrator should not be privileged on non-Windows systems",
 			},
-		}...)
+		}
 	}
 
 	for _, tt := range tests {
