@@ -8,9 +8,9 @@ type Network struct {
 	Net        net.IPNet
 	NetV6      net.IPNet
 	Dns        string
-	Serial     uint64
+	Serial     int64
 }
 
 func (n *Network) CurrentSerial() uint64 {
-	return n.Serial
+	return uint64(n.Serial)
 }

@@ -25,6 +25,7 @@ type NetworkMapDBStore interface {
 	GetNameServerGroups(ctx context.Context, accountId string) ([]nmdata.NameServerGroup, error)
 	GetNetworkResources(ctx context.Context, accountId string) ([]nmdata.NetworkResource, error)
 	GetNetworkRouters(ctx context.Context, accountId string) ([]nmdata.NetworkRouter, error)
+	GetNetwork(ctx context.Context, accountId string) (nmdata.Network, error)
 }
 
 type NetworkMapDBStoreImpl struct {

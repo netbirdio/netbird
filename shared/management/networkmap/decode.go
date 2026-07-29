@@ -291,7 +291,7 @@ func decodeAccountNetwork(an *proto.AccountNetwork) *nmdata.Network {
 	n := &nmdata.Network{
 		Identifier: an.Identifier,
 		Dns:        an.Dns,
-		Serial:     an.Serial,
+		Serial:     int64(an.Serial),
 	}
 	if an.NetCidr != "" {
 		if _, ipnet, err := net.ParseCIDR(an.NetCidr); err == nil && ipnet != nil {

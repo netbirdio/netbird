@@ -332,7 +332,7 @@ func TwinNetwork(n *Network) *nmdata.Network {
 		Net:        nc.Net,
 		NetV6:      nc.NetV6,
 		Dns:        nc.Dns,
-		Serial:     nc.Serial,
+		Serial:     int64(nc.Serial),
 	}
 }
 
