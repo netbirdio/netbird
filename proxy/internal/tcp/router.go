@@ -297,18 +297,29 @@ func (r *Router) Serve(ctx context.Context, ln net.Listener) error {
 		}
 	}()
 
+	var backoff AcceptBackoff
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
-			if ctx.Err() != nil || errors.Is(err, net.ErrClosed) {
+			if ctx.Err() != nil || IsClosedListenerErr(err) {
 				if ok := r.Drain(DefaultDrainTimeout); !ok {
 					r.logger.Warn("timed out waiting for connections to drain")
 				}
 				return nil
 			}
-			r.logger.Debugf("SNI router accept: %v", err)
+			r.logger.Debugf("SNI router accept: %v; backing off", err)
+			if !backoff.Backoff(ctx) {
+				// Cancelled during backoff: still drain in-flight
+				// connections/relays before returning, matching the
+				// shutdown path above.
+				if ok := r.Drain(DefaultDrainTimeout); !ok {
+					r.logger.Warn("timed out waiting for connections to drain")
+				}
+				return nil
+			}
 			continue
 		}
+		backoff.Reset()
 		r.logger.Debugf("SNI router accepted conn from %s on %s", conn.RemoteAddr(), conn.LocalAddr())
 		r.activeConns.Add(1)
 		go func() {

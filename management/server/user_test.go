@@ -802,6 +802,52 @@ func TestUser_DeleteUser_SelfDelete(t *testing.T) {
 	}
 }
 
+func TestUser_DeleteUser_OtherAccount(t *testing.T) {
+	testStore, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+	if err != nil {
+		t.Fatalf("Error when creating store: %s", err)
+	}
+	t.Cleanup(cleanup)
+
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
+	if err = testStore.SaveAccount(context.Background(), account); err != nil {
+		t.Fatalf("Error when saving account: %s", err)
+	}
+
+	otherAccount := newAccountWithId(context.Background(), "otherAccount", "otherOwner", "", "", "", false)
+	otherAccount.Users["otherRegularUser"] = &types.User{
+		Id:        "otherRegularUser",
+		AccountID: "otherAccount",
+		Role:      types.UserRoleUser,
+	}
+	otherAccount.Users["otherServiceUser"] = &types.User{
+		Id:              "otherServiceUser",
+		AccountID:       "otherAccount",
+		Role:            types.UserRoleUser,
+		IsServiceUser:   true,
+		ServiceUserName: "otherServiceUser",
+	}
+	if err = testStore.SaveAccount(context.Background(), otherAccount); err != nil {
+		t.Fatalf("Error when saving other account: %s", err)
+	}
+
+	am := DefaultAccountManager{
+		Store:              testStore,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissions.NewManager(testStore),
+	}
+
+	for _, targetUserID := range []string{"otherRegularUser", "otherServiceUser"} {
+		t.Run(targetUserID, func(t *testing.T) {
+			err := am.DeleteUser(context.Background(), mockAccountID, mockUserID, targetUserID)
+			assert.Equal(t, status.NewUserNotFoundError(targetUserID), err)
+
+			_, err = testStore.GetUserByUserID(context.Background(), store.LockingStrengthNone, targetUserID)
+			assert.NoError(t, err, "user of another account must not be deleted")
+		})
+	}
+}
+
 func TestUser_DeleteUser_regularUser(t *testing.T) {
 	store, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
 	if err != nil {
@@ -846,7 +892,7 @@ func TestUser_DeleteUser_regularUser(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	networkMapControllerMock := network_map.NewMockController(ctrl)
 	networkMapControllerMock.EXPECT().
-		OnPeersDeleted(gomock.Any(), gomock.Any(), gomock.Any()).
+		OnPeersDeleted(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil)
 
 	permissionsManager := permissions.NewManager(store)
@@ -962,7 +1008,7 @@ func TestUser_DeleteUser_RegularUsers(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	networkMapControllerMock := network_map.NewMockController(ctrl)
 	networkMapControllerMock.EXPECT().
-		OnPeersDeleted(gomock.Any(), gomock.Any(), gomock.Any()).
+		OnPeersDeleted(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil).
 		AnyTimes()
 
@@ -1531,11 +1577,14 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 		}
 	})
 
+	// drain any buffered updates from previous subtests
+	drainPeerUpdates(updMsg)
+
 	// deleting user with no linked peers should not update account peers and not send peer update
 	t.Run("deleting user with no linked peers", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg)
 			close(done)
 		}()
 
@@ -1562,7 +1611,7 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 	require.NoError(t, err)
 
 	expectedPeerKey := key.PublicKey().String()
-	peer4, _, _, err := manager.AddPeer(context.Background(), "", "", "regularUser2", &nbpeer.Peer{
+	peer4, _, _, _, err := manager.AddPeer(context.Background(), "", "", "regularUser2", &nbpeer.Peer{
 		Key:  expectedPeerKey,
 		Meta: nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
 	}, false)
@@ -2022,7 +2071,7 @@ func TestUser_Operations_WithEmbeddedIDP(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	networkMapControllerMock := network_map.NewMockController(ctrl)
 	networkMapControllerMock.EXPECT().
-		OnPeersDeleted(gomock.Any(), gomock.Any(), gomock.Any()).
+		OnPeersDeleted(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil).
 		AnyTimes()
 

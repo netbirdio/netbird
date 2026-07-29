@@ -121,6 +121,7 @@ type Manager struct {
 	udpTracker     *conntrack.UDPTracker
 	icmpTracker    *conntrack.ICMPTracker
 	tcpTracker     *conntrack.TCPTracker
+	fragments      *fragmentTracker
 	forwarder      atomic.Pointer[forwarder.Forwarder]
 	pendingCapture atomic.Pointer[forwarder.PacketCapture]
 	logger         *nblog.Logger
@@ -181,6 +182,41 @@ func (d *decoder) decodePacket(data []byte) error {
 	default:
 		return fmt.Errorf("unknown IP version %d", version)
 	}
+}
+
+// decodeTransport decodes the transport header of a first fragment (which
+// gopacket leaves undecoded) into the decoder and appends its layer type to
+// decoded, so the ACL pipeline can evaluate it like a normal packet. It returns
+// false if the protocol is unsupported or the header is truncated.
+func (d *decoder) decodeTransport(proto layers.IPProtocol, payload []byte) bool {
+	var l4 gopacket.DecodingLayer
+	var layerType gopacket.LayerType
+	var minLen int
+	switch proto {
+	case layers.IPProtocolTCP:
+		l4, layerType, minLen = &d.tcp, layers.LayerTypeTCP, 20
+	case layers.IPProtocolUDP:
+		l4, layerType, minLen = &d.udp, layers.LayerTypeUDP, 8
+	case layers.IPProtocolICMPv4:
+		l4, layerType, minLen = &d.icmp4, layers.LayerTypeICMPv4, 8
+	case layers.IPProtocolICMPv6:
+		l4, layerType, minLen = &d.icmp6, layers.LayerTypeICMPv6, 8
+	default:
+		return false
+	}
+
+	// Reject a fragment too small to hold the full transport header before
+	// decoding: it can't be ACL-evaluated (tiny-fragment attack), and skipping
+	// the decode avoids gopacket allocating an error on the drop path.
+	if len(payload) < minLen {
+		return false
+	}
+
+	if err := l4.DecodeFromBytes(payload, gopacket.NilDecodeFeedback); err != nil {
+		return false
+	}
+	d.decoded = append(d.decoded, layerType)
+	return true
 }
 
 // Create userspace firewall manager constructor
@@ -286,6 +322,8 @@ func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableSe
 	if err := m.localipmanager.UpdateLocalIPs(iface); err != nil {
 		return nil, fmt.Errorf("update local IPs: %w", err)
 	}
+	m.fragments = newFragmentTracker(m.logger)
+
 	if disableConntrack {
 		log.Info("conntrack is disabled")
 	} else {
@@ -299,6 +337,7 @@ func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableSe
 		}
 	}
 	if err := iface.SetFilter(m); err != nil {
+		m.fragments.Close()
 		return nil, fmt.Errorf("set filter: %w", err)
 	}
 	return m, nil
@@ -694,6 +733,10 @@ func (m *Manager) resetState() {
 		m.tcpTracker.Close()
 	}
 
+	if m.fragments != nil {
+		m.fragments.Close()
+	}
+
 	if fwder := m.forwarder.Load(); fwder != nil {
 		fwder.SetCapture(nil)
 		fwder.Stop()
@@ -1046,19 +1089,20 @@ func (m *Manager) filterInbound(packetData []byte, size int) bool {
 		return true
 	}
 
-	// TODO: pass fragments of routed packets to forwarder
+	// gopacket does not decode the transport header of any IP fragment, so
+	// fragments take a dedicated path: the first fragment's header is decoded
+	// and ACL-evaluated here, and the remaining fragments inherit its verdict.
 	if fragment {
-		if m.logger.Enabled(nblog.LevelTrace) {
-			if d.decoded[0] == layers.LayerTypeIPv4 {
-				m.logger.Trace4("packet is a fragment: src=%v dst=%v id=%v flags=%v",
-					srcIP, dstIP, d.ip4.Id, d.ip4.Flags)
-			} else {
-				m.logger.Trace2("packet is an IPv6 fragment: src=%v dst=%v", srcIP, dstIP)
-			}
-		}
-		return false
+		return m.filterInboundFragment(d, srcIP, dstIP, size)
 	}
 
+	return m.filterInboundDecoded(d, srcIP, dstIP, packetData, size)
+}
+
+// filterInboundDecoded runs the ACL, DNAT and conntrack pipeline on a fully
+// decoded (non-fragment) inbound packet. It returns true if the packet should
+// be dropped.
+func (m *Manager) filterInboundDecoded(d *decoder, srcIP, dstIP netip.Addr, packetData []byte, size int) bool {
 	// TODO: optimize port DNAT by caching matched rules in conntrack
 	if translated := m.translateInboundPortDNAT(packetData, d, srcIP, dstIP); translated {
 		// Re-decode after port DNAT translation to update port information
@@ -1089,33 +1133,226 @@ func (m *Manager) filterInbound(packetData []byte, size int) bool {
 	return m.handleRoutedTraffic(d, srcIP, dstIP, packetData, size)
 }
 
+// fragmentMeta holds the reassembly identity and layout of an IP fragment,
+// extracted uniformly for IPv4 and IPv6.
+type fragmentMeta struct {
+	key fragmentKey
+	// offset is the fragment offset in 8-byte units (zero for the first
+	// fragment).
+	offset uint16
+	// moreFragments is the More Fragments bit. A first fragment with it unset is
+	// an IPv6 atomic fragment (a complete datagram, RFC 6946): it has no trailing
+	// fragments to inherit a verdict, so it must not be recorded.
+	moreFragments bool
+	proto         layers.IPProtocol
+	// l4payload is the fragmentable payload of this fragment. For the first
+	// fragment it starts with the transport header.
+	l4payload []byte
+	// headerEndOctets is the first fragment's payload length in 8-byte units:
+	// the smallest offset a trailing fragment may start at without overlapping
+	// the inspected transport header.
+	headerEndOctets uint16
+}
+
+// fragmentMetadata extracts the fragment identity and layout from a decoded IP
+// fragment. It returns false for fragments it can't interpret (e.g. an IPv6
+// fragment header shorter than 8 bytes), which are then dropped.
+func fragmentMetadata(d *decoder, srcIP, dstIP netip.Addr) (fragmentMeta, bool) {
+	switch d.decoded[0] {
+	case layers.LayerTypeIPv4:
+		payload := d.ip4.Payload
+		return fragmentMeta{
+			key:             fragmentKey{srcIP: srcIP, dstIP: dstIP, id: uint32(d.ip4.Id), proto: uint8(d.ip4.Protocol)},
+			offset:          d.ip4.FragOffset,
+			moreFragments:   d.ip4.Flags&layers.IPv4MoreFragments != 0,
+			proto:           d.ip4.Protocol,
+			l4payload:       payload,
+			headerEndOctets: octets(len(payload)),
+		}, true
+
+	case layers.LayerTypeIPv6:
+		// IPv6 fragment extension header: 8 bytes, followed by the fragmentable
+		// payload. Layout: next header (1), reserved (1), offset+flags (2), id (4).
+		payload := d.ip6.Payload
+		if len(payload) < 8 {
+			return fragmentMeta{}, false
+		}
+		nextHeader := layers.IPProtocol(payload[0])
+		offsetFlags := binary.BigEndian.Uint16(payload[2:4])
+		id := binary.BigEndian.Uint32(payload[4:8])
+		l4 := payload[8:]
+		return fragmentMeta{
+			key:             fragmentKey{srcIP: srcIP, dstIP: dstIP, id: id, proto: uint8(nextHeader)},
+			offset:          offsetFlags >> 3,
+			moreFragments:   offsetFlags&1 != 0,
+			proto:           nextHeader,
+			l4payload:       l4,
+			headerEndOctets: octets(len(l4)),
+		}, true
+
+	default:
+		return fragmentMeta{}, false
+	}
+}
+
+// octets rounds a byte length up to whole 8-byte units, the granularity of the
+// IP fragment offset field.
+func octets(nbytes int) uint16 {
+	return uint16((nbytes + 7) / 8)
+}
+
+// filterInboundFragment decides the fate of an IP fragment. gopacket stops
+// decoding at the network layer for every fragment, so the first fragment's
+// transport header is decoded and ACL-evaluated here and its verdict recorded;
+// the remaining (headerless) fragments inherit that verdict. Anything that
+// cannot be tied to an allowed, non-overlapping first fragment is dropped.
+func (m *Manager) filterInboundFragment(d *decoder, srcIP, dstIP netip.Addr, size int) bool {
+	meta, ok := fragmentMetadata(d, srcIP, dstIP)
+	if !ok {
+		if m.logger.Enabled(nblog.LevelTrace) {
+			m.logger.Trace2("dropping unsupported fragment: src=%v dst=%v", srcIP, dstIP)
+		}
+		return true
+	}
+
+	if meta.offset != 0 {
+		return m.filterTrailingFragment(meta, srcIP, dstIP)
+	}
+
+	// A new first fragment supersedes any recorded verdict for this datagram, so
+	// a re-sent or overlapping offset-zero fragment can't inherit the old one.
+	m.fragments.poison(meta.key)
+
+	// First fragment: decode its transport header so the ACL can evaluate it. A
+	// decode failure means the fragment is too small to hold the full transport
+	// header (RFC 1858 §3 tiny-fragment attack); it can't be evaluated, so drop it.
+	if !d.decodeTransport(meta.proto, meta.l4payload) {
+		if m.logger.Enabled(nblog.LevelTrace) {
+			m.logger.Trace3("dropping first fragment without full L4 header: src=%v dst=%v id=%v",
+				srcIP, dstIP, meta.key.id)
+		}
+		return true
+	}
+
+	return m.filterFirstFragment(d, meta, srcIP, dstIP, size)
+}
+
+// filterTrailingFragment applies a recorded first-fragment verdict to a
+// non-first fragment.
+func (m *Manager) filterTrailingFragment(meta fragmentMeta, srcIP, dstIP netip.Addr) bool {
+	switch m.fragments.verdict(meta.key, meta.offset) {
+	case fragmentAllow:
+		return false
+	case fragmentOverlap:
+		if m.logger.Enabled(nblog.LevelTrace) {
+			m.logger.Trace3("dropping overlapping fragment rewriting inspected header: src=%v dst=%v id=%v",
+				srcIP, dstIP, meta.key.id)
+		}
+		return true
+	default:
+		if m.logger.Enabled(nblog.LevelTrace) {
+			m.logger.Trace3("dropping fragment with no allowed first fragment: src=%v dst=%v id=%v",
+				srcIP, dstIP, meta.key.id)
+		}
+		return true
+	}
+}
+
+// filterFirstFragment runs the verdict part of the inbound pipeline on a first
+// fragment with its transport header decoded. It mirrors filterInboundDecoded
+// but skips DNAT (port rewriting on fragments is unsupported) and forwarder
+// injection (fragments are left to the stack to reassemble, not forwarded).
+// Allowed fragments have their verdict recorded so the datagram's trailing
+// fragments inherit it.
+func (m *Manager) filterFirstFragment(d *decoder, meta fragmentMeta, srcIP, dstIP netip.Addr, size int) bool {
+	if m.stateful && m.isValidTrackedConnection(d, srcIP, dstIP, size) {
+		m.recordFirstFragment(meta)
+		return false
+	}
+
+	if m.localipmanager.IsLocalIP(dstIP) {
+		ruleID, blocked := m.peerACLsBlock(srcIP, d, nil)
+		if blocked {
+			m.storeDropFlow("Dropping local first fragment (ACL denied): rule_id=%s proto=%v src=%s:%d dst=%s:%d",
+				d, srcIP, dstIP, ruleID, size)
+			return true
+		}
+		m.trackInbound(d, srcIP, dstIP, ruleID, size)
+		m.recordFirstFragment(meta)
+		return false
+	}
+
+	if !m.routingEnabled.Load() {
+		if m.logger.Enabled(nblog.LevelTrace) {
+			m.logger.Trace2("Dropping routed fragment (routing disabled): src=%s dst=%s", srcIP, dstIP)
+		}
+		return true
+	}
+	if m.nativeRouter.Load() {
+		m.trackInbound(d, srcIP, dstIP, nil, size)
+		m.recordFirstFragment(meta)
+		return false
+	}
+
+	// TODO: pass fragments of routed packets to the forwarder; until then
+	// allowed routed fragments go to the native stack.
+	srcPort, dstPort := getPortsFromPacket(d)
+	ruleID, pass := m.routeACLsPass(srcIP, dstIP, d.decoded[1], srcPort, dstPort)
+	if !pass {
+		m.storeDropFlow("Dropping routed first fragment (ACL denied): rule_id=%s proto=%v src=%s:%d dst=%s:%d",
+			d, srcIP, dstIP, ruleID, size)
+		return true
+	}
+
+	m.recordFirstFragment(meta)
+	return false
+}
+
+// recordFirstFragment caches an allowed first fragment's verdict for its
+// trailing fragments to inherit. Atomic fragments (no More Fragments bit) are
+// complete datagrams with no trailing fragments, so they are not cached and
+// cannot exhaust the verdict table.
+func (m *Manager) recordFirstFragment(meta fragmentMeta) {
+	if !meta.moreFragments {
+		return
+	}
+	m.fragments.recordAllowed(meta.key, meta.headerEndOctets)
+}
+
+// storeDropFlow logs and records a netflow drop event for an inbound packet
+// denied by the ACLs. msg is the trace format taking rule id, protocol, source
+// and destination.
+func (m *Manager) storeDropFlow(msg string, d *decoder, srcIP, dstIP netip.Addr, ruleID []byte, size int) {
+	pnum := getProtocolFromPacket(d)
+	srcPort, dstPort := getPortsFromPacket(d)
+
+	if m.logger.Enabled(nblog.LevelTrace) {
+		m.logger.Trace6(msg, ruleID, pnum, srcIP, srcPort, dstIP, dstPort)
+	}
+
+	m.flowLogger.StoreEvent(nftypes.EventFields{
+		FlowID:     uuid.New(),
+		Type:       nftypes.TypeDrop,
+		RuleID:     ruleID,
+		Direction:  nftypes.Ingress,
+		Protocol:   pnum,
+		SourceIP:   srcIP,
+		DestIP:     dstIP,
+		SourcePort: srcPort,
+		DestPort:   dstPort,
+		// TODO: icmp type/code
+		RxPackets: 1,
+		RxBytes:   uint64(size),
+	})
+}
+
 // handleLocalTraffic handles local traffic.
 // If it returns true, the packet should be dropped.
 func (m *Manager) handleLocalTraffic(d *decoder, srcIP, dstIP netip.Addr, packetData []byte, size int) bool {
 	ruleID, blocked := m.peerACLsBlock(srcIP, d, packetData)
 	if blocked {
-		pnum := getProtocolFromPacket(d)
-		srcPort, dstPort := getPortsFromPacket(d)
-
-		if m.logger.Enabled(nblog.LevelTrace) {
-			m.logger.Trace6("Dropping local packet (ACL denied): rule_id=%s proto=%v src=%s:%d dst=%s:%d",
-				ruleID, pnum, srcIP, srcPort, dstIP, dstPort)
-		}
-
-		m.flowLogger.StoreEvent(nftypes.EventFields{
-			FlowID:     uuid.New(),
-			Type:       nftypes.TypeDrop,
-			RuleID:     ruleID,
-			Direction:  nftypes.Ingress,
-			Protocol:   pnum,
-			SourceIP:   srcIP,
-			DestIP:     dstIP,
-			SourcePort: srcPort,
-			DestPort:   dstPort,
-			// TODO: icmp type/code
-			RxPackets: 1,
-			RxBytes:   uint64(size),
-		})
+		m.storeDropFlow("Dropping local packet (ACL denied): rule_id=%s proto=%v src=%s:%d dst=%s:%d",
+			d, srcIP, dstIP, ruleID, size)
 		return true
 	}
 
@@ -1168,27 +1405,8 @@ func (m *Manager) handleRoutedTraffic(d *decoder, srcIP, dstIP netip.Addr, packe
 
 	ruleID, pass := m.routeACLsPass(srcIP, dstIP, protoLayer, srcPort, dstPort)
 	if !pass {
-		proto := getProtocolFromPacket(d)
-
-		if m.logger.Enabled(nblog.LevelTrace) {
-			m.logger.Trace6("Dropping routed packet (ACL denied): rule_id=%s proto=%v src=%s:%d dst=%s:%d",
-				ruleID, proto, srcIP, srcPort, dstIP, dstPort)
-		}
-
-		m.flowLogger.StoreEvent(nftypes.EventFields{
-			FlowID:     uuid.New(),
-			Type:       nftypes.TypeDrop,
-			RuleID:     ruleID,
-			Direction:  nftypes.Ingress,
-			Protocol:   proto,
-			SourceIP:   srcIP,
-			DestIP:     dstIP,
-			SourcePort: srcPort,
-			DestPort:   dstPort,
-			// TODO: icmp type/code
-			RxPackets: 1,
-			RxBytes:   uint64(size),
-		})
+		m.storeDropFlow("Dropping routed packet (ACL denied): rule_id=%s proto=%v src=%s:%d dst=%s:%d",
+			d, srcIP, dstIP, ruleID, size)
 		return true
 	}
 

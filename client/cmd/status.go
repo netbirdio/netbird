@@ -6,12 +6,12 @@ import (
 	"net"
 	"net/netip"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/internal"
-	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
 	nbstatus "github.com/netbirdio/netbird/client/status"
 	"github.com/netbirdio/netbird/util"
@@ -111,10 +111,14 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	pm := profilemanager.NewProfileManager()
-	var profName string
-	if activeProf, err := pm.GetActiveProfile(); err == nil {
-		profName = activeProf.Name
+	// Resolve the active profile's display name via the daemon, which runs
+	// as root and can read the per-user profile files. The local profile
+	// manager only knows the active profile ID, not its display name.
+	profName := getActiveProfileName(ctx)
+
+	var sessionExpiresAt time.Time
+	if ts := resp.GetSessionExpiresAt(); ts.IsValid() {
+		sessionExpiresAt = ts.AsTime().UTC()
 	}
 
 	var outputInformationHolder = nbstatus.ConvertToStatusOutputOverview(resp.GetFullStatus(), nbstatus.ConvertOptions{
@@ -127,6 +131,7 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 		IPsFilter:            ipsFilterMap,
 		ConnectionTypeFilter: connectionTypeFilter,
 		ProfileName:          profName,
+		SessionExpiresAt:     sessionExpiresAt,
 	})
 	var statusOutputString string
 	switch {
@@ -165,6 +170,25 @@ func getStatus(ctx context.Context, fullPeerStatus bool, shouldRunProbes bool) (
 	}
 
 	return resp, nil
+}
+
+// getActiveProfileName asks the daemon for the active profile's display
+// name. The daemon runs as root and can read the per-user profile files to
+// resolve the ID to its human-readable name. Returns an empty string on any
+// error so status output degrades gracefully.
+func getActiveProfileName(ctx context.Context) string {
+	conn, err := DialClientGRPCServer(ctx, daemonAddr)
+	if err != nil {
+		return ""
+	}
+	defer conn.Close()
+
+	resp, err := proto.NewDaemonServiceClient(conn).GetActiveProfile(ctx, &proto.GetActiveProfileRequest{})
+	if err != nil {
+		return ""
+	}
+
+	return resp.GetProfileName()
 }
 
 func parseFilters() error {

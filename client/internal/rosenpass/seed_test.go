@@ -41,4 +41,3 @@ func TestDeterministicSeedKey_TooShortKey_ReturnsError(t *testing.T) {
 	_, err = DeterministicSeedKey(long, short)
 	require.Error(t, err)
 }
-

@@ -33,6 +33,11 @@ func NewConn(wsConn *websocket.Conn, serverAddress string, underlying net.Conn) 
 	}
 }
 
+// Protocol returns the transport name for this connection.
+func (c *Conn) Protocol() string {
+	return Network
+}
+
 func (c *Conn) Read(b []byte) (n int, err error) {
 	t, ioReader, err := c.Conn.Reader(c.ctx)
 	if err != nil {
@@ -72,5 +77,5 @@ func (c *Conn) SetDeadline(t time.Time) error {
 }
 
 func (c *Conn) Close() error {
-	return c.Conn.CloseNow()
+	return c.closeConn()
 }
