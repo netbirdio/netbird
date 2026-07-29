@@ -215,7 +215,7 @@ func (s *DaemonFeed) SetWindowDispatcher(fn func(Status)) {
 }
 
 // pushStatus delivers a snapshot to the Go-side subscribers and the frontend,
-// and caches it for LastStatus replays. Hidden windows are skipped by the
+// and caches it for ReplayLast. Hidden windows are skipped by the
 // window dispatcher; they catch up via the show replay (WindowManager).
 func (s *DaemonFeed) pushStatus(st Status) {
 	s.statusSubsMu.Lock()
@@ -233,12 +233,17 @@ func (s *DaemonFeed) pushStatus(st Status) {
 	s.emitter.Emit(EventStatusSnapshot, st)
 }
 
-// LastStatus returns the most recently pushed snapshot, or nil before the
-// first push. Windows becoming visible replay it so they never paint stale.
-func (s *DaemonFeed) LastStatus() *Status {
+// ReplayLast feeds the most recently pushed snapshot to dispatch; no-op before
+// the first push. The status lock is held across the dispatch so a concurrent
+// pushStatus cannot deliver a newer snapshot in between the read and the
+// dispatch — the replayed value is never older than anything already delivered.
+func (s *DaemonFeed) ReplayLast(dispatch func(Status)) {
 	s.statusSubsMu.Lock()
 	defer s.statusSubsMu.Unlock()
-	return s.lastStatus
+	if s.lastStatus == nil {
+		return
+	}
+	dispatch(*s.lastStatus)
 }
 
 // BeginProfileSwitch arms suppression for a switch from Connected/Connecting,

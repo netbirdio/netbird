@@ -165,11 +165,13 @@ func main() {
 	// desktops, macOS, and Windows.
 	windowManager.SetRecenterOnShow(recenterOnShowPredicate())
 	// Replay the latest snapshot into a window on (re)show, so a webview that
-	// was hidden while pushes flowed never paints stale state.
+	// was hidden while pushes flowed never paints stale state. ReplayLast keeps
+	// the feed's status lock across the dispatch, so a racing live push can't
+	// slip in between and then be overwritten by this older cached snapshot.
 	windowManager.SetShowReplay(func(w application.Window) {
-		if st := daemonFeed.LastStatus(); st != nil {
-			w.DispatchWailsEvent(&application.CustomEvent{Name: services.EventStatusSnapshot, Data: *st})
-		}
+		daemonFeed.ReplayLast(func(st services.Status) {
+			w.DispatchWailsEvent(&application.CustomEvent{Name: services.EventStatusSnapshot, Data: st})
+		})
 	})
 	app.RegisterService(application.NewService(windowManager))
 
