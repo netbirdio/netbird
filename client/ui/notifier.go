@@ -94,6 +94,8 @@ func (n *Notifier) RegisterNotificationCategory(category notifications.Notificat
 
 // OnNotificationResponse registers the response callback. Pure Go state, so
 // it is safe (and simply inert) when the backend never started.
+//
+//wails:ignore
 func (n *Notifier) OnNotificationResponse(callback func(result notifications.NotificationResult)) {
 	n.inner.OnNotificationResponse(callback)
 }
