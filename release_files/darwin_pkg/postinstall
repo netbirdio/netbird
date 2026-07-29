@@ -30,10 +30,6 @@ mkdir -p /usr/local/bin/
     $AGENT service install || true
     $AGENT service start || true
 
-    # Launch the GUI as the logged-in console user, NOT as the installer's
-    # (root) context. When there is no active GUI session 
-    # (unattended MDM install, login window), there is nobody to launch as, skip it;
-    
     console_user=$(stat -f%Su /dev/console 2>/dev/null)
     case "$console_user" in
         ""|root|loginwindow|_mbsetupuser)
@@ -41,13 +37,12 @@ mkdir -p /usr/local/bin/
             ;;
         *)
             uid=$(id -u "$console_user" 2>/dev/null)
-            home_dir=$(dscl . -read "/Users/$console_user" NFSHomeDirectory 2>/dev/null | awk '{print $2}')
-            if [ -z "$uid" ] || [ -z "$home_dir" ]; then
-                echo "Could not resolve uid/home for console user '$console_user' (uid='$uid', home='$home_dir'); skipping UI launch."
+            if [ -z "$uid" ]; then
+                echo "Could not resolve uid for console user '$console_user'; skipping UI launch."
             else
-                echo "Launching NetBird UI as console user $console_user (uid $uid, home $home_dir)."
-                if ! HOME="$home_dir" launchctl asuser "$uid" open "$APP"; then
-                    echo "Failed to launch NetBird UI; it will start at next login via the per-user LaunchAgent."
+                echo "Launching NetBird UI as console user $console_user (uid $uid)."
+                if ! launchctl asuser "$uid" sudo -u "$console_user" -H open "$APP"; then
+                    echo "Failed to launch NetBird UI; if autostart is enabled it will start at next login."
                 fi
             fi
             ;;
