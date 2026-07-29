@@ -27,6 +27,69 @@ func mustParseSID(t *testing.T, s string) *windows.SID {
 	return sid
 }
 
+// localAccountNames returns the names of the local user accounts.
+func localAccountNames(t *testing.T) []string {
+	t.Helper()
+
+	var buf *byte
+	var entriesRead, totalEntries, resume uint32
+	err := windows.NetUserEnum(nil, 0, filterNormalAccount, &buf, maxPreferredLength,
+		&entriesRead, &totalEntries, &resume)
+	require.NoError(t, err, "enumerate local users")
+	t.Cleanup(func() {
+		require.NoError(t, windows.NetApiBufferFree(buf), "free NetApi buffer")
+	})
+
+	entries := unsafe.Slice((*userInfo0)(unsafe.Pointer(buf)), entriesRead)
+	names := make([]string, 0, entriesRead)
+	for _, entry := range entries {
+		names = append(names, windows.UTF16PtrToString(entry.name))
+	}
+	return names
+}
+
+// localAccountNameByRID returns the name of the local account carrying the
+// given RID. Accounts such as Administrator and Guest can be renamed and are
+// localized, so tests must not name them literally.
+func localAccountNameByRID(t *testing.T, rid uint32) string {
+	t.Helper()
+
+	for _, name := range localAccountNames(t) {
+		sid, _, _, err := windows.LookupSID("", name)
+		if err != nil {
+			continue
+		}
+		if sid.IdentifierAuthority() != windows.SECURITY_NT_AUTHORITY {
+			continue
+		}
+		count := sid.SubAuthorityCount()
+		if count < 2 || sid.SubAuthority(0) != 21 {
+			continue
+		}
+		if sid.SubAuthority(uint32(count-1)) == rid {
+			return name
+		}
+	}
+
+	t.Fatalf("no local account with RID %d", rid)
+	return ""
+}
+
+// wellKnownAccountName resolves a well-known SID to the qualified account name
+// the local system uses for it, which is localized.
+func wellKnownAccountName(t *testing.T, sidType windows.WELL_KNOWN_SID_TYPE) string {
+	t.Helper()
+
+	sid, err := windows.CreateWellKnownSid(sidType)
+	require.NoError(t, err, "create well-known SID")
+	name, domain, _, err := sid.LookupAccount("")
+	require.NoError(t, err, "resolve %s to an account name", sid)
+	if domain == "" {
+		return name
+	}
+	return domain + `\` + name
+}
+
 func TestIsBuiltinAdministratorSID(t *testing.T) {
 	tests := []struct {
 		name string
@@ -81,14 +144,14 @@ func TestIsWindowsAccountPrivileged(t *testing.T) {
 		username string
 		want     bool
 	}{
-		{"system", "NT AUTHORITY\\SYSTEM", true},
-		{"local_service", "NT AUTHORITY\\LOCAL SERVICE", true},
-		{"network_service", "NT AUTHORITY\\NETWORK SERVICE", true},
-		{"administrators_group_name", "BUILTIN\\Administrators", true},
-		// The built-in Administrator and Guest accounts exist on every
-		// Windows installation, though they may be disabled.
-		{"builtin_administrator", "Administrator", true},
-		{"guest", "Guest", false},
+		{"system", wellKnownAccountName(t, windows.WinLocalSystemSid), true},
+		{"local_service", wellKnownAccountName(t, windows.WinLocalServiceSid), true},
+		{"network_service", wellKnownAccountName(t, windows.WinNetworkServiceSid), true},
+		{"administrators_group", wellKnownAccountName(t, windows.WinBuiltinAdministratorsSid), true},
+		// The built-in Administrator (RID 500) and Guest (RID 501) accounts
+		// exist on every Windows installation, though they may be disabled.
+		{"builtin_administrator", localAccountNameByRID(t, 500), true},
+		{"guest", localAccountNameByRID(t, 501), false},
 		// Unresolvable accounts fail closed.
 		{"nonexistent_user", "netbird-no-such-user", true},
 		{"empty_username", "", true},
@@ -136,21 +199,8 @@ func TestS4UMembershipAgreesWithLocalGroups(t *testing.T) {
 	adminSid, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
 	require.NoError(t, err, "create Administrators SID")
 
-	var buf *byte
-	var entriesRead, totalEntries uint32
-	var resume uint32
-	err = windows.NetUserEnum(nil, 0, filterNormalAccount, &buf, maxPreferredLength,
-		&entriesRead, &totalEntries, &resume)
-	require.NoError(t, err, "enumerate local users")
-	defer func() {
-		require.NoError(t, windows.NetApiBufferFree(buf), "free NetApi buffer")
-	}()
-
-	names := unsafe.Slice((*userInfo0)(unsafe.Pointer(buf)), entriesRead)
 	checked := 0
-	for _, entry := range names {
-		name := windows.UTF16PtrToString(entry.name)
-
+	for _, name := range localAccountNames(t) {
 		viaToken, err := s4uTokenIsMember(name, ".", adminSid)
 		if err != nil {
 			// Disabled or logon-restricted accounts cannot get an S4U logon.
@@ -166,15 +216,16 @@ func TestS4UMembershipAgreesWithLocalGroups(t *testing.T) {
 	t.Logf("checked %d local accounts via S4U", checked)
 }
 
-// TestLocalGroupsContainSID_Administrator checks the positive case against an
-// account that is a member of Administrators on every Windows installation.
+// TestLocalGroupsContainSID_Administrator checks the positive case against the
+// built-in Administrator, a member of Administrators on every installation.
 func TestLocalGroupsContainSID_Administrator(t *testing.T) {
 	adminSid, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
 	require.NoError(t, err, "create Administrators SID")
 
-	member, err := localGroupsContainSID("Administrator", adminSid)
-	require.NoError(t, err, "enumerate local groups for Administrator")
-	assert.True(t, member, "the built-in Administrator is a member of Administrators")
+	administrator := localAccountNameByRID(t, 500)
+	member, err := localGroupsContainSID(administrator, adminSid)
+	require.NoError(t, err, "enumerate local groups for %s", administrator)
+	assert.True(t, member, "%s is a member of the Administrators group", administrator)
 }
 
 // TestLocalGroupsContainSID_UnresolvableGroupFailsClosed covers a wanted SID
@@ -183,7 +234,7 @@ func TestLocalGroupsContainSID_Administrator(t *testing.T) {
 func TestLocalGroupsContainSID_UnresolvableGroupFailsClosed(t *testing.T) {
 	unknown := mustParseSID(t, "S-1-5-21-1111111111-2222222222-3333333333-4444")
 
-	_, err := localGroupsContainSID("Administrator", unknown)
+	_, err := localGroupsContainSID(localAccountNameByRID(t, 500), unknown)
 	require.Error(t, err, "must report an error when the wanted group cannot be identified")
 }
 
@@ -193,11 +244,13 @@ func TestLocalGroupsContainSID_Guest(t *testing.T) {
 	adminsSid, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
 	require.NoError(t, err, "create Administrators SID")
 
-	inGuests, err := localGroupsContainSID("Guest", guestsSid)
-	require.NoError(t, err, "enumerate local groups for Guest")
-	assert.True(t, inGuests, "Guest should be a member of BUILTIN\\Guests")
+	guest := localAccountNameByRID(t, 501)
 
-	inAdmins, err := localGroupsContainSID("Guest", adminsSid)
-	require.NoError(t, err, "enumerate local groups for Guest")
-	assert.False(t, inAdmins, "Guest should not be a member of BUILTIN\\Administrators")
+	inGuests, err := localGroupsContainSID(guest, guestsSid)
+	require.NoError(t, err, "enumerate local groups for %s", guest)
+	assert.True(t, inGuests, "%s is a member of the Guests group", guest)
+
+	inAdmins, err := localGroupsContainSID(guest, adminsSid)
+	require.NoError(t, err, "enumerate local groups for %s", guest)
+	assert.False(t, inAdmins, "%s is not a member of the Administrators group", guest)
 }
