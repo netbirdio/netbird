@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"fmt"
+	"net"
 	"net/netip"
 	"reflect"
 	"testing"
@@ -14,7 +15,9 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller/cache"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/management/networkmap"
 )
 
 func TestToProtocolDNSConfigWithCache(t *testing.T) {
@@ -64,13 +67,13 @@ func TestToProtocolDNSConfigWithCache(t *testing.T) {
 	}
 
 	// First run with config1
-	result1 := toProtocolDNSConfig(config1, &cache, int64(network_map.DnsForwarderPort))
+	result1 := networkmap.ToProtocolDNSConfig(config1, &cache, int64(network_map.DnsForwarderPort))
 
 	// Second run with config2
-	result2 := toProtocolDNSConfig(config2, &cache, int64(network_map.DnsForwarderPort))
+	result2 := networkmap.ToProtocolDNSConfig(config2, &cache, int64(network_map.DnsForwarderPort))
 
 	// Third run with config1 again
-	result3 := toProtocolDNSConfig(config1, &cache, int64(network_map.DnsForwarderPort))
+	result3 := networkmap.ToProtocolDNSConfig(config1, &cache, int64(network_map.DnsForwarderPort))
 
 	// Verify that result1 and result3 are identical
 	if !reflect.DeepEqual(result1, result3) {
@@ -102,15 +105,14 @@ func BenchmarkToProtocolDNSConfig(b *testing.B) {
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				toProtocolDNSConfig(testData, cache, int64(network_map.DnsForwarderPort))
+				networkmap.ToProtocolDNSConfig(testData, cache, int64(network_map.DnsForwarderPort))
 			}
 		})
 
 		b.Run(fmt.Sprintf("WithoutCache-Size%d", size), func(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				cache := &cache.DNSConfigCache{}
-				toProtocolDNSConfig(testData, cache, int64(network_map.DnsForwarderPort))
+				networkmap.ToProtocolDNSConfig(testData, nil, int64(network_map.DnsForwarderPort))
 			}
 		})
 	}
@@ -300,4 +302,36 @@ func TestToNetbirdConfig_RelayInvariant(t *testing.T) {
 		require.NotNil(t, nbCfg.Metrics)
 		assert.True(t, nbCfg.Metrics.Enabled, "metrics flag should carry the settings value")
 	})
+}
+
+func TestToPeerConfig_RoutingPeerDNSResolution(t *testing.T) {
+	network := &types.Network{Net: net.IPNet{IP: net.IPv4(100, 0, 0, 0), Mask: net.CIDRMask(8, 32)}}
+
+	newPeer := func(embedded bool) *nbpeer.Peer {
+		p := &nbpeer.Peer{IP: netip.MustParseAddr("100.0.0.1")}
+		p.ProxyMeta.Embedded = embedded
+		return p
+	}
+
+	tests := []struct {
+		name        string
+		globalFlag  bool
+		embedded    bool
+		forceParam  bool
+		wantEnabled bool
+	}{
+		{name: "global off, regular peer, no force", wantEnabled: false},
+		{name: "global on wins", globalFlag: true, wantEnabled: true},
+		{name: "embedded proxy peer forced", embedded: true, wantEnabled: true},
+		{name: "routing peer forced via param", forceParam: true, wantEnabled: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			settings := &types.Settings{RoutingPeerDNSResolutionEnabled: tt.globalFlag}
+			cfg := toPeerConfig(newPeer(tt.embedded), network, "netbird.selfhosted", settings, nil, nil, false, tt.forceParam)
+			assert.Equal(t, tt.wantEnabled, cfg.RoutingPeerDnsResolutionEnabled,
+				"RoutingPeerDnsResolutionEnabled should reflect global || embedded || forced")
+		})
+	}
 }

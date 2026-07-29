@@ -1081,7 +1081,10 @@ func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownRes
 
 	if err := s.cleanupConnection(); err != nil {
 		s.mutex.Unlock()
-		// todo review to update the status in case any type of error
+		if errors.Is(err, ErrServiceNotUp) {
+			log.Debugf("Down called while service not up: %v", err)
+			return nil, err
+		}
 		log.Errorf("failed to shut down properly: %v", err)
 		return nil, err
 	}
@@ -1154,7 +1157,7 @@ func (s *Server) cleanupConnection() error {
 	// making the run loop the sole owner of engine shutdown.
 	if engine != nil {
 		if err := engine.Stop(); err != nil {
-			return err
+			log.Errorf("failed to stop engine during cleanup: %v", err)
 		}
 	}
 

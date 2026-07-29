@@ -71,7 +71,7 @@ func (s *SqlStore) GetAgentNetworkMetrics(ctx context.Context) (AgentNetworkMetr
 	usageRow := db.Model(&agentNetworkTypes.AgentNetworkUsage{}).
 		Select("COALESCE(SUM(input_tokens), 0) AS input_tokens, " +
 			"COALESCE(SUM(output_tokens), 0) AS output_tokens, " +
-			"COALESCE(SUM(cost_usd), 0) AS cost_usd").Row()
+			"COALESCE(SUM" + agentNetworkTypes.CostUSDSQLExpr + ", 0) AS cost_usd").Row()
 	if err := usageRow.Scan(&m.InputTokens, &m.OutputTokens, &m.CostUSD); err != nil {
 		return AgentNetworkMetrics{}, fmt.Errorf("scan agent network usage metrics: %w", err)
 	}

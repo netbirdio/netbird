@@ -421,6 +421,47 @@ var providers = []Provider{
 		},
 	},
 	{
+		ID:                 "kimi_api",
+		Kind:               KindProvider,
+		Name:               "Kimi (Moonshot AI) API",
+		Description:        "Kimi K3 / K2 models via the Moonshot AI platform",
+		DefaultHost:        "api.moonshot.ai",
+		AuthHeaderName:     "Authorization",
+		AuthHeaderTemplate: "Bearer ${API_KEY}",
+		DefaultContentType: "application/json",
+		BrandColor:         "#1A1A2E",
+		// ParserID empty on purpose: Moonshot serves two body shapes on
+		// the same host and key, and the proxy's URL sniffer dispatches
+		// both (same pattern as Bifrost). /v1/chat/completions matches
+		// OpenAIParser; the Anthropic-compatible endpoint the official
+		// Claude Code guide uses (/anthropic/v1/messages) contains
+		// "/v1/messages" and matches AnthropicParser. Pinning "openai"
+		// here would misparse the Claude Code path — the primary way
+		// teams consume Kimi for coding today. Both endpoints accept the
+		// same Moonshot key via Authorization: Bearer (Claude Code's
+		// ANTHROPIC_AUTH_TOKEN rides that header too).
+		//
+		// api.moonshot.ai is the international platform; mainland-China
+		// accounts live on api.moonshot.cn with separate billing —
+		// operators there override the host on the provider record. The
+		// kimi.com subscription coding endpoint (api.kimi.com/coding,
+		// model id "k3") is account-bound seat licensing rather than a
+		// meterable platform key, so it's deliberately not the default.
+		ParserID: "",
+		// Pricing per Moonshot's platform rates at K3 launch (July 2026):
+		// $3/$15 per MTok with $0.30 cached input, flat across the 1M-token
+		// window. kimi-k3 is the ONLY model the platform serves newer
+		// accounts — K2-era ids (kimi-k2-thinking) and even the kimi-latest
+		// alias return resource_not_found_error, verified live 2026-07-21 —
+		// so it's the only catalog entry. Grandfathered accounts with K2
+		// access can still type those ids on the provider's model rows.
+		// The consumer app's "K3 Swarm Max" mode is not an API SKU, so it
+		// doesn't appear here.
+		Models: []Model{
+			{ID: "kimi-k3", Label: "Kimi K3", InputPer1k: 0.003, OutputPer1k: 0.015, ContextWindow: 1000000},
+		},
+	},
+	{
 		ID:                 "litellm_proxy",
 		Kind:               KindGateway,
 		Name:               "LiteLLM Proxy",

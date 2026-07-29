@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path"
+	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/server"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	nbdomain "github.com/netbirdio/netbird/shared/management/domain"
+	"github.com/netbirdio/netbird/shared/management/grpc"
 	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/util/crypt"
 )
@@ -153,8 +155,20 @@ func LoadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*nbconfig.Confi
 
 	ApplyCommandLineOverrides(loadedConfig)
 
+	err := grpc.ValidateSyncMessageVersion(loadedConfig.HighestSupportedSyncMessageVersion)
+	if err != nil {
+		return nil, err
+	}
+
+	for account, version := range loadedConfig.PerAccountHighestSupportedSyncMessageVersion {
+		err := grpc.ValidateSyncMessageVersion(&version)
+		if err != nil {
+			return nil, fmt.Errorf("unrecognized sync message version for account %s, %w", account, err)
+		}
+	}
+
 	// Apply EmbeddedIdP config to HttpConfig if embedded IdP is enabled
-	err := ApplyEmbeddedIdPConfig(ctx, loadedConfig)
+	err = ApplyEmbeddedIdPConfig(ctx, loadedConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -209,7 +223,7 @@ func ApplyEmbeddedIdPConfig(ctx context.Context, cfg *nbconfig.Config) error {
 		cfg.EmbeddedIdP.Storage.Type = "sqlite3"
 	}
 	if cfg.EmbeddedIdP.Storage.Config.File == "" && cfg.Datadir != "" {
-		cfg.EmbeddedIdP.Storage.Config.File = path.Join(cfg.Datadir, "idp.db")
+		cfg.EmbeddedIdP.Storage.Config.File = filepath.Join(cfg.Datadir, "idp.db")
 	}
 
 	issuer := cfg.EmbeddedIdP.Issuer

@@ -25,10 +25,17 @@ func runParserGuardrail(t *testing.T, url string, body []byte, allowlist []strin
 	})
 	require.NoError(t, err, "parser must not error")
 
-	guard := llm_guardrail.New(llm_guardrail.Config{ModelAllowlist: allowlist})
+	const providerID = "prov-under-test"
+	guard := llm_guardrail.New(llm_guardrail.Config{
+		ProviderAllowlists: map[string][]string{providerID: allowlist},
+	})
+	// The real chain has llm_router stamp the resolved provider id before the
+	// guardrail runs; the parser doesn't, so add it here so the guardrail can
+	// scope the allowlist to this provider.
+	meta := append([]middleware.KV{{Key: middleware.KeyLLMResolvedProviderID, Value: providerID}}, parsed.Metadata...)
 	out, err := guard.Invoke(context.Background(), &middleware.Input{
 		Slot:     middleware.SlotOnRequest,
-		Metadata: parsed.Metadata,
+		Metadata: meta,
 	})
 	require.NoError(t, err, "guardrail must not error")
 	require.NotNil(t, out, "guardrail must return an output")

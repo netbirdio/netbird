@@ -96,6 +96,7 @@ type ConfigInput struct {
 	BlockLANAccess      *bool
 	BlockInbound        *bool
 	DisableIPv6         *bool
+	SyncMessageVersion  *int
 
 	DisableNotifications *bool
 
@@ -137,6 +138,7 @@ type Config struct {
 	BlockLANAccess      bool
 	BlockInbound        bool
 	DisableIPv6         bool
+	SyncMessageVersion  *int
 
 	DisableNotifications *bool
 
@@ -584,6 +586,12 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 	if input.DisableIPv6 != nil && *input.DisableIPv6 != config.DisableIPv6 {
 		log.Infof("setting IPv6 overlay disabled=%v", *input.DisableIPv6)
 		config.DisableIPv6 = *input.DisableIPv6
+		updated = true
+	}
+
+	if input.SyncMessageVersion != nil && *input.SyncMessageVersion != *config.SyncMessageVersion {
+		log.Infof("setting SyncMessageVersion to %v", *input.SyncMessageVersion)
+		*config.SyncMessageVersion = *input.SyncMessageVersion
 		updated = true
 	}
 

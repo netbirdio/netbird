@@ -1647,6 +1647,10 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 			return nil
 		}
 
+		for _, g := range newGroupsToCreate {
+			g.PublicID = xid.New().String()
+		}
+
 		if err = transaction.CreateGroups(ctx, userAuth.AccountId, newGroupsToCreate); err != nil {
 			return fmt.Errorf("error saving groups: %w", err)
 		}
