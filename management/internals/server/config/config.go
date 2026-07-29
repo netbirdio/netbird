@@ -125,6 +125,9 @@ type HttpServerConfig struct {
 	ExtraAuthAudience string
 	// AuthCallbackDomain contains the callback domain
 	AuthCallbackURL string
+	// CORSAllowedOrigins lists the browser origins allowed to read API responses,
+	// e.g. https://app.example.com. Any origin is allowed when left empty.
+	CORSAllowedOrigins []string
 }
 
 // Host represents a Netbird host (e.g. STUN, TURN, Signal)
