@@ -14,13 +14,15 @@
 //
 // Combiner note: this follows draft-ietf-tls-ecdhe-mlkem for X25519MLKEM768 — on
 // the wire ML-KEM ‖ X25519 (the draft deliberately reversed the share order for
-// this group), and ML-KEM_ss ‖ X25519_ss fed into the KDF. The spike uses SHA-256
-// (also binding the transcript and peer identities); a production version should
-// use HKDF — see TODO below.
+// this group), and ML-KEM_ss ‖ X25519_ss as the KDF input. The PSK is derived with
+// HKDF-SHA256 over that hybrid secret, salted with a domain-separation label and
+// bound (via the HKDF info) to the full transcript and the canonicalised peer
+// identities.
 package pqkem
 
 import (
 	"crypto/ecdh"
+	"crypto/hkdf"
 	"crypto/mlkem"
 	"crypto/rand"
 	"crypto/sha256"
@@ -98,7 +100,7 @@ func (i *Initiator) Finish(answer []byte, b Binding) (PSK, error) {
 		return PSK{}, fmt.Errorf("x25519 ecdh: %w", err)
 	}
 
-	return derivePSK(ssMLKEM, ssX, i.offer, answer, b), nil
+	return derivePSK(ssMLKEM, ssX, i.offer, answer, b)
 }
 
 // Respond consumes an initiator offer, produces the answer, and derives the PSK.
@@ -134,29 +136,38 @@ func Respond(offer []byte, b Binding) (answer []byte, psk PSK, err error) {
 
 	// derivePSK uses the same argument order on both sides; the responder's local
 	// binding is the mirror of the initiator's, canonicalised inside derivePSK.
-	return answer, derivePSK(ssMLKEM, ssX, offer, answer, b), nil
+	psk, err = derivePSK(ssMLKEM, ssX, offer, answer, b)
+	if err != nil {
+		return nil, PSK{}, err
+	}
+	return answer, psk, nil
 }
 
-// derivePSK combines the two shared secrets and binds the result to the full
-// transcript (offer ‖ answer) and the canonicalised peer identities.
-//
-// TODO(NET-1406): replace the SHA-256 concat with the RFC HKDF combiner
-// (crypto/hkdf, Go 1.24+) and proper labels before this leaves spike status.
-func derivePSK(ssMLKEM, ssX, offer, answer []byte, b Binding) PSK {
+// derivePSK runs HKDF-SHA256 over the hybrid shared secret (ML-KEM_ss ‖ X25519_ss,
+// per draft-ietf-tls-ecdhe-mlkem), salted with the domain-separation label, and binds
+// the result — via the HKDF info — to the full transcript (offer ‖ answer) and the
+// canonicalised peer identities, so the PSK cannot be transplanted to another peer
+// pair or a different exchange.
+func derivePSK(ssMLKEM, ssX, offer, answer []byte, b Binding) (PSK, error) {
 	lo, hi := canonicalPair(b.LocalID, b.RemoteID)
 
-	h := sha256.New()
-	h.Write([]byte(pskLabel))
-	h.Write(ssMLKEM)
-	h.Write(ssX)
-	h.Write(offer)
-	h.Write(answer)
-	h.Write(lo)
-	h.Write(hi)
+	ikm := make([]byte, 0, len(ssMLKEM)+len(ssX))
+	ikm = append(ikm, ssMLKEM...)
+	ikm = append(ikm, ssX...)
+
+	info := make([]byte, 0, len(offer)+len(answer)+len(lo)+len(hi))
+	info = append(info, offer...)
+	info = append(info, answer...)
+	info = append(info, lo...)
+	info = append(info, hi...)
 
 	var psk PSK
-	copy(psk[:], h.Sum(nil))
-	return psk
+	key, err := hkdf.Key(sha256.New, ikm, []byte(pskLabel), string(info), len(psk))
+	if err != nil {
+		return PSK{}, fmt.Errorf("hkdf derive psk: %w", err)
+	}
+	copy(psk[:], key)
+	return psk, nil
 }
 
 func canonicalPair(a, b []byte) (lo, hi []byte) {
