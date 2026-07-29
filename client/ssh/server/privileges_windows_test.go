@@ -15,6 +15,24 @@ import (
 // filterNormalAccount limits NetUserEnum to normal user accounts.
 const filterNormalAccount = 0x2
 
+// TOKEN_ELEVATION_TYPE values.
+const (
+	tokenElevationTypeDefault = 1
+	tokenElevationTypeFull    = 2
+	tokenElevationTypeLimited = 3
+)
+
+// tokenElevationType reads TokenElevationType from a token.
+func tokenElevationType(token windows.Token) (uint32, error) {
+	var elevationType, returnedLen uint32
+	err := windows.GetTokenInformation(token, windows.TokenElevationType,
+		(*byte)(unsafe.Pointer(&elevationType)), uint32(unsafe.Sizeof(elevationType)), &returnedLen)
+	if err != nil {
+		return 0, err
+	}
+	return elevationType, nil
+}
+
 // userInfo0 mirrors USER_INFO_0.
 type userInfo0 struct {
 	name *uint16
@@ -166,18 +184,34 @@ func TestIsWindowsAccountPrivileged(t *testing.T) {
 }
 
 func TestIsProcessElevated(t *testing.T) {
+	elevated := isProcessElevated()
+
+	// TokenElevationType is a second, independent view of the same token:
+	// Full means elevated and Limited means a filtered administrator, while
+	// Default covers both a standard user and an administrator with no linked
+	// token (UAC off, the built-in Administrator, SYSTEM), so it implies nothing.
+	elevationType, err := tokenElevationType(windows.GetCurrentProcessToken())
+	require.NoError(t, err, "read token elevation type")
+
 	adminSid, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
 	require.NoError(t, err, "create Administrators SID")
 
-	// Token(0) makes CheckTokenMembership evaluate the caller's own token.
+	// Token(0) makes CheckTokenMembership evaluate the caller's own token. It
+	// counts only enabled SIDs, so a filtered administrator reports false here.
 	member, err := windows.Token(0).IsMember(adminSid)
 	require.NoError(t, err, "check own Administrators membership")
 
-	elevated := isProcessElevated()
-	t.Logf("member of Administrators: %v, token elevated: %v", member, elevated)
+	t.Logf("elevated=%v elevationType=%d memberOfAdministrators=%v", elevated, elevationType, member)
 
-	// An enabled Administrators SID in the token implies an elevated token.
-	// CI runs this test as SYSTEM, which satisfies both.
+	switch elevationType {
+	case tokenElevationTypeFull:
+		assert.True(t, elevated, "a token of elevation type Full must report elevated")
+	case tokenElevationTypeLimited:
+		assert.False(t, elevated, "a filtered administrator token must not report elevated")
+	}
+
+	// Administrators enabled in the token means the token wields administrative
+	// rights, which is what elevation reports.
 	if member {
 		assert.True(t, elevated, "token with enabled Administrators membership must report elevated")
 	}
@@ -213,6 +247,9 @@ func TestS4UMembershipAgreesWithLocalGroups(t *testing.T) {
 		assert.Equal(t, viaSAM, viaToken, "S4U token and SAM enumeration must agree on Administrators membership for %s", name)
 		checked++
 	}
+	// Ineligible accounts are skipped, so without this the test could report
+	// success while comparing nothing at all.
+	require.Positive(t, checked, "no local account completed an S4U logon, so nothing was compared")
 	t.Logf("checked %d local accounts via S4U", checked)
 }
 
