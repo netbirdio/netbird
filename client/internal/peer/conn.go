@@ -999,7 +999,16 @@ func (conn *Conn) onWGCheckSuccess() {
 // (WireGuard keepalives excluded), per the same LastActivities signal the
 // lazy-connection inactivity monitor uses. It reports a very large duration when no
 // activity has ever been recorded, so the peer is treated as idle.
+//
+// In kernel mode there is no per-peer data-activity signal (LastActivities is
+// userspace-only), so we cannot tell active from idle. We report zero — always
+// "active" — so PSK rotation is not disabled in kernel mode. Lazy back-to-idle is
+// already limited there; the eBPF WG-activity detection (future) will supply a real
+// signal that excludes handshake/pqkem traffic.
 func (conn *Conn) dataActivityAge() time.Duration {
+	if !conn.config.WgConfig.WgInterface.IsUserspaceBind() {
+		return 0
+	}
 	last, ok := conn.config.WgConfig.WgInterface.LastActivities()[conn.config.WgConfig.RemoteKey]
 	if !ok {
 		return time.Duration(math.MaxInt64)

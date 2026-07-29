@@ -23,4 +23,8 @@ type WGIface interface {
 	// LastActivities returns the last real-data activity time per peer (WireGuard
 	// keepalives excluded), used to gate post-quantum PSK rotation on active tunnels.
 	LastActivities() map[string]monotime.Time
+	// IsUserspaceBind reports whether WireGuard runs in userspace. Only there does
+	// LastActivities track per-peer data activity; in kernel mode it is unavailable,
+	// so PSK rotation cannot be gated on activity.
+	IsUserspaceBind() bool
 }
