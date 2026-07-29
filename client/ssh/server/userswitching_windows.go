@@ -13,6 +13,8 @@ import (
 	"github.com/gliderlabs/ssh"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/windows"
+
+	shellutil "github.com/netbirdio/netbird/client/internal/shell"
 )
 
 // validateUsername validates Windows usernames according to SAM Account Name rules
@@ -104,7 +106,7 @@ func (s *Server) createExecutorCommand(logger *log.Entry, session ssh.Session, l
 func (s *Server) createUserSwitchCommand(logger *log.Entry, session ssh.Session, localUser *user.User) (*exec.Cmd, func(), error) {
 	username, domain := s.parseUsername(localUser.Username)
 
-	shell := getUserShell(localUser.Uid)
+	shell := shellutil.GetUserShell(localUser.Uid)
 
 	rawCmd := session.RawCommand()
 	var command string

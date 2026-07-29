@@ -1,6 +1,6 @@
 //go:build !windows
 
-package server
+package shell
 
 import (
 	"context"
@@ -14,19 +14,26 @@ import (
 
 const getentTimeout = 5 * time.Second
 
-// getShellFromGetent gets a user's login shell via getent by UID.
+// GetShellFromGetent gets a user's login shell via getent by UID.
 // This is needed even with CGO because getShellFromPasswd reads /etc/passwd
 // directly and won't find NSS-provided users there.
-func getShellFromGetent(userID string) string {
-	_, shell, err := runGetent(userID)
+func GetShellFromGetent(userID string) string {
+	_, shell, err := runGetentPasswd(userID)
 	if err != nil {
 		return ""
 	}
 	return shell
 }
 
-// runGetent executes `getent passwd <query>` and returns the user and login shell.
-func runGetent(query string) (*user.User, string, error) {
+// GetUserFromGetent returns the resolved user from either a uid or username,
+// going through the host's NSS stack.
+func GetUserFromGetent(query string) (*user.User, error) {
+	u, _, err := runGetentPasswd(query)
+	return u, err
+}
+
+// runGetentPasswd executes `getent passwd <query>` and returns the user and login shell.
+func runGetentPasswd(query string) (*user.User, string, error) {
 	if !validateGetentInput(query) {
 		return nil, "", fmt.Errorf("invalid getent input: %q", query)
 	}
@@ -42,7 +49,24 @@ func runGetent(query string) (*user.User, string, error) {
 	return parseGetentPasswd(string(out))
 }
 
-// parseGetentPasswd parses getent passwd output: "name:x:uid:gid:gecos:home:shell"
+// runGetentGroup executes `getent group <query>` and returns the group.
+func runGetentGroup(query string) (*user.Group, error) {
+	if !validateGetentInput(query) {
+		return nil, fmt.Errorf("invalid getent input: %q", query)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), getentTimeout)
+	defer cancel()
+
+	out, err := exec.CommandContext(ctx, "getent", "group", query).Output()
+	if err != nil {
+		return nil, fmt.Errorf("getent group %s: %w", query, err)
+	}
+
+	return parseGetentGroup(string(out))
+}
+
+// parseGetentPasswd parses getent passwd output: "name:x:uid:gid:gecos:home:shell".
 func parseGetentPasswd(output string) (*user.User, string, error) {
 	fields := strings.SplitN(strings.TrimSpace(output), ":", 8)
 	if len(fields) < 6 {
@@ -65,6 +89,20 @@ func parseGetentPasswd(output string) (*user.User, string, error) {
 		Name:     fields[4],
 		HomeDir:  fields[5],
 	}, shell, nil
+}
+
+// parseGetentGroup parses getent group output: "group:x:gid:members".
+func parseGetentGroup(output string) (*user.Group, error) {
+	fields := strings.SplitN(strings.TrimSpace(output), ":", 8)
+	if len(fields) < 4 {
+		return nil, fmt.Errorf("unexpected getent output (need 4+ fields): %q", output)
+	}
+
+	if fields[0] == "" || fields[2] == "" {
+		return nil, fmt.Errorf("missing required fields in getent output: %q", output)
+	}
+
+	return &user.Group{Gid: fields[2], Name: fields[0]}, nil
 }
 
 // validateGetentInput checks that the input is safe to pass to getent or id.

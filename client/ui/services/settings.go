@@ -7,6 +7,10 @@ import (
 	"fmt"
 	"reflect"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
+	"github.com/netbirdio/netbird/client/cmd"
 	"github.com/netbirdio/netbird/client/proto"
 )
 
@@ -190,7 +194,25 @@ func (s *Settings) SetConfig(ctx context.Context, p SetConfigParams) error {
 		SshJWTCacheTTL:                p.SSHJWTCacheTTL,
 	}
 	_, err = cli.SetConfig(ctx, req)
+	if err != nil && wantsDangerousSSHConfig(p) && status.Code(err) == codes.PermissionDenied {
+		// The daemon restricts enabling SSH root login / disabling SSH auth to
+		// root/administrator, and the UI runs as the unprivileged desktop user.
+		// Elevate (polkit/UAC/osascript) so a privileged helper applies just
+		// those flags.
+		if elevErr := cmd.ElevateSSHConfig(p.ProfileName, p.Username, p.EnableSSHRoot, p.DisableSSHAuth); elevErr != nil {
+			return elevErr
+		}
+		req.EnableSSHRoot = nil
+		req.DisableSSHAuth = nil
+		_, err = cli.SetConfig(ctx, req)
+	}
 	return err
+}
+
+// wantsDangerousSSHConfig reports whether p tries to enable SSH root login or
+// disable SSH authentication.
+func wantsDangerousSSHConfig(p SetConfigParams) bool {
+	return (p.EnableSSHRoot != nil && *p.EnableSSHRoot) || (p.DisableSSHAuth != nil && *p.DisableSSHAuth)
 }
 
 func (s *Settings) GetRestrictions(ctx context.Context) (Restrictions, error) {

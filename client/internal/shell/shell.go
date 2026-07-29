@@ -1,17 +1,14 @@
-package server
+package shell
 
 import (
 	"bufio"
 	"fmt"
-	"net"
 	"os"
 	"os/exec"
 	"os/user"
 	"runtime"
-	"strconv"
 	"strings"
 
-	"github.com/gliderlabs/ssh"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -22,9 +19,9 @@ const (
 	powershellExe = "powershell.exe"
 )
 
-// getUserShell returns the appropriate shell for the given user ID
-// Handles all platform-specific logic and fallbacks consistently
-func getUserShell(userID string) string {
+// GetUserShell returns the appropriate shell for the given user ID.
+// Handles all platform-specific logic and fallbacks consistently.
+func GetUserShell(userID string) string {
 	switch runtime.GOOS {
 	case "windows":
 		return getWindowsUserShell()
@@ -56,7 +53,7 @@ func getUnixUserShell(userID string) string {
 		return shell
 	}
 
-	if shell := getShellFromGetent(userID); shell != "" {
+	if shell := GetShellFromGetent(userID); shell != "" {
 		return shell
 	}
 
@@ -67,7 +64,7 @@ func getUnixUserShell(userID string) string {
 	return defaultUnixShell
 }
 
-// getShellFromPasswd reads the shell from /etc/passwd for the given user ID
+// getShellFromPasswd reads the shell from /etc/passwd for the given user ID.
 func getShellFromPasswd(userID string) string {
 	file, err := os.Open("/etc/passwd")
 	if err != nil {
@@ -101,8 +98,8 @@ func getShellFromPasswd(userID string) string {
 	return ""
 }
 
-// prepareUserEnv prepares environment variables for user execution
-func prepareUserEnv(user *user.User, shell string) []string {
+// PrepareUserEnv prepares environment variables for user execution.
+func PrepareUserEnv(user *user.User, shell string) []string {
 	pathValue := "/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games"
 	if runtime.GOOS == "windows" {
 		pathValue = `C:\Windows\System32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0`
@@ -117,9 +114,9 @@ func prepareUserEnv(user *user.User, shell string) []string {
 	}
 }
 
-// acceptEnv checks if environment variable from SSH client should be accepted
-// This is a whitelist of variables that SSH clients can send to the server
-func acceptEnv(envVar string) bool {
+// AcceptEnv checks if an environment variable from an SSH client should be accepted.
+// This is a whitelist of variables that SSH clients can send to the server.
+func AcceptEnv(envVar string) bool {
 	varName := envVar
 	if idx := strings.Index(envVar, "="); idx != -1 {
 		varName = envVar[:idx]
@@ -155,30 +152,4 @@ func acceptEnv(envVar string) bool {
 	}
 
 	return false
-}
-
-// prepareSSHEnv prepares SSH protocol-specific environment variables
-// These variables provide information about the SSH connection itself
-func prepareSSHEnv(session ssh.Session) []string {
-	remoteAddr := session.RemoteAddr()
-	localAddr := session.LocalAddr()
-
-	remoteHost, remotePort, err := net.SplitHostPort(remoteAddr.String())
-	if err != nil {
-		remoteHost = remoteAddr.String()
-		remotePort = "0"
-	}
-
-	localHost, localPort, err := net.SplitHostPort(localAddr.String())
-	if err != nil {
-		localHost = localAddr.String()
-		localPort = strconv.Itoa(InternalSSHPort)
-	}
-
-	return []string{
-		// SSH_CLIENT format: "client_ip client_port server_port"
-		fmt.Sprintf("SSH_CLIENT=%s %s %s", remoteHost, remotePort, localPort),
-		// SSH_CONNECTION format: "client_ip client_port server_ip server_port"
-		fmt.Sprintf("SSH_CONNECTION=%s %s %s %s", remoteHost, remotePort, localHost, localPort),
-	}
 }

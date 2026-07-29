@@ -5,6 +5,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"time"
 
 	"github.com/kardianos/service"
@@ -13,11 +14,31 @@ import (
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 
+	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/server"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/util"
 )
+
+// daemonServerOptions installs peer-identity transport credentials and the
+// authorization interceptor on the daemon ipc if supported.
+func daemonServerOptions(network string, interceptor *ipcauth.Interceptor) []grpc.ServerOption {
+	creds := ipcauth.NewTransportCredentials()
+	if creds == nil {
+		log.Warnf("daemon ipc has no peer-identity primitive on %s, per-caller authorization is disabled", runtime.GOOS)
+		return nil
+	}
+	if network == "tcp" {
+		log.Warnf("daemon is listening on TCP (%s), peer identity cannot be authenticated over TCP, per-caller authorization is disabled", daemonAddr)
+		return nil
+	}
+	return []grpc.ServerOption{
+		grpc.Creds(creds),
+		grpc.ChainUnaryInterceptor(interceptor.UnaryServerInterceptor()),
+		grpc.ChainStreamInterceptor(interceptor.StreamServerInterceptor()),
+	}
+}
 
 func validateJSONSocketFlags() error {
 	if serviceCmd.PersistentFlags().Changed("json-socket") && !enableJSONSocket {
@@ -37,8 +58,28 @@ func (p *program) Start(svc service.Service) error {
 	// Collect static system and platform information
 	system.UpdateStaticInfoAsync()
 
-	// in any case, even if configuration does not exists we run daemon to serve CLI gRPC API.
-	p.serv = grpc.NewServer()
+	// A daemon installed before named-pipe support uses the old loopback-TCP
+	// address as the daemon address. We migrate to a named pipe so an
+	// upgraded daemon enforces per-caller authorization instead of silently
+	// running on identity-less TCP.
+	if migrated, ok := migrateLegacyDaemonAddr(daemonAddr); ok {
+		log.Infof("legacy daemon address %q predates named-pipe support. listening on %q so per-caller authorization is enforced", daemonAddr, migrated)
+		daemonAddr = migrated
+	}
+
+	network, _, err := parseListenAddress(daemonAddr)
+	if err != nil {
+		return fmt.Errorf("parse daemon address: %w", err)
+	}
+
+	// Owner-authorization interceptor. The ConfigAdapter is a lazy bridge: the
+	// gRPC server is built before the daemon server instance exists, so we set
+	// the real policy backend below once serverInstance is created.
+	ownerAdapter := &ipcauth.ConfigAdapter{}
+	authInterceptor := ipcauth.NewInterceptor(ownerAdapter, ipcauth.NewDefaultGroupResolver())
+
+	// in any case, even if configuration does not exist we run daemon to serve the CLI gRPC API.
+	p.serv = grpc.NewServer(daemonServerOptions(network, authInterceptor)...)
 
 	daemonListener, err := listenOnAddress(daemonAddr)
 	if err != nil {
@@ -74,9 +115,13 @@ func (p *program) Start(svc service.Service) error {
 		}
 
 		serverInstance := server.New(p.ctx, util.FindFirstLogPath(logFiles), configPath, profilesDisabled, updateSettingsDisabled, captureEnabled, networksDisabled)
+		// Daemon-wide owners live in service.json (governs the default profile and
+		// daemon access), wire persistence before serving so owner add / TOFU work.
+		serverInstance.SetDaemonOwnerStore(daemonOwnerStore{})
 		if err := serverInstance.Start(); err != nil {
 			log.Fatalf("failed to start daemon: %v", err)
 		}
+		ownerAdapter.SetBackend(serverInstance)
 		proto.RegisterDaemonServiceServer(p.serv, serverInstance)
 
 		p.serverInstanceMu.Lock()
@@ -84,6 +129,7 @@ func (p *program) Start(svc service.Service) error {
 		p.serverInstanceMu.Unlock()
 
 		if jsonListener != nil {
+			log.Warnf("JSON gateway (--enable-json-socket) re-dials the daemon locally. The HTTP client's identity is forwarded so per-caller authorization still applies, but restrict access to %s appropriately", jsonSocket)
 			if err := p.startJSONGateway(jsonListener, daemonAddr); err != nil {
 				log.Fatalf("failed to start daemon JSON server: %v", err)
 			}

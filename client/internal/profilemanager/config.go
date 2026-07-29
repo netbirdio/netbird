@@ -103,6 +103,11 @@ type ConfigInput struct {
 	DNSLabels domain.List
 
 	MTU *uint16
+
+	// Owners replaces the profile's owner principal list when non-nil.
+	// Shared replaces the profile's shared flag when non-nil.
+	Owners []string
+	Shared *bool
 }
 
 // Config Configuration type
@@ -185,6 +190,16 @@ type Config struct {
 	LazyConnection string `json:"-"`
 
 	MTU uint16
+
+	// Owners lists the principals allowed to control this profile over the local
+	// IPC, as typed strings: "uid:1000", "gid:1000", "group:netbird-admins"
+	// (Unix, NSS-resolved) or "sid:S-1-5-..." (Windows user or group SID). Empty
+	// with Shared=false means the profile is owned by nobody yet, until claimed
+	Owners []string `json:"Owners,omitempty"`
+
+	// Shared, when true, lets any authenticated local caller control this profile
+	// (opt-in). Takes precedence over Owners.
+	Shared bool `json:"Shared,omitempty"`
 
 	// policy is the MDM policy that produced the currently-set values for
 	// any MDM-enforced fields. Set by applyMDMPolicy at the tail of apply()
@@ -647,6 +662,18 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 	} else if config.MTU == 0 {
 		config.MTU = iface.DefaultMTU
 		log.Infof("using default MTU %d", config.MTU)
+		updated = true
+	}
+
+	if input.Owners != nil && !slices.Equal(config.Owners, input.Owners) {
+		log.Infof("updating profile owners to %v", input.Owners)
+		config.Owners = input.Owners
+		updated = true
+	}
+
+	if input.Shared != nil && *input.Shared != config.Shared {
+		log.Infof("updating profile shared flag to %t", *input.Shared)
+		config.Shared = *input.Shared
 		updated = true
 	}
 

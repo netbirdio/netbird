@@ -145,7 +145,7 @@ func (pm *ProfileManager) SwitchProfile(id string) error {
 // AddProfile creates a new profile
 func (pm *ProfileManager) AddProfile(profileName string) error {
 	// Use ServiceManager (creates profile in profiles/ directory)
-	profile, err := pm.serviceMgr.AddProfile(profileName, androidUsername)
+	profile, err := pm.serviceMgr.AddProfile(profileName, androidUsername, nil)
 	if err != nil {
 		return fmt.Errorf("failed to add profile: %w", err)
 	}

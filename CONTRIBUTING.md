@@ -237,7 +237,7 @@ task dev
 Pass daemon flags after `--`:
 
 ```
-task dev -- --daemon-addr=tcp://127.0.0.1:41731
+task dev -- --daemon-addr=npipe://netbird
 ```
 
 Production build (frontend assets embedded into the binary, output in `client/ui/bin/`):

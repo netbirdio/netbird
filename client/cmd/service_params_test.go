@@ -431,9 +431,15 @@ func TestServiceParams_BuildArgsCoversAllFlags(t *testing.T) {
 	installerFile, err := parser.ParseFile(fset, "service_installer.go", nil, 0)
 	require.NoError(t, err)
 
-	// Fields that are handled outside of buildServiceArguments (env vars go through newSVCConfig).
+	// Fields that are handled outside of buildServiceArguments.
+	//   - ServiceEnvVars flows through newSVCConfig() EnvVars, not CLI args.
+	//   - Owners/Shared are daemon-wide ownership persisted in service.json and
+	//     read+mutated by the daemon at runtime (owner add / TOFU claim); they are
+	//     deliberately NOT baked into the run args so runtime changes are not lost.
 	fieldsNotInArgs := map[string]bool{
 		"ServiceEnvVars": true,
+		"Owners":         true,
+		"Shared":         true,
 	}
 
 	buildFields := extractFuncGlobalRefs(t, installerFile, "buildServiceArguments")

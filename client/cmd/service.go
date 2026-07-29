@@ -30,6 +30,12 @@ var (
 	serviceEnvVars   []string
 	jsonSocket       string
 	enableJSONSocket bool
+	// owners seeds the daemon-wide owner set at install time (--owner). At runtime
+	// the daemon reads and writes owners in service.json directly.
+	owners []string
+	// daemonShared carries the persisted daemon shared flag across
+	// install/reconfigure round-trips (set at runtime via `netbird owner share`).
+	daemonShared bool
 )
 
 type program struct {
@@ -54,7 +60,8 @@ func init() {
 	serviceCmd.PersistentFlags().BoolVar(&captureEnabled, "enable-capture", false, "Enables packet capture via 'netbird debug capture'. To persist, use: netbird service install --enable-capture")
 	serviceCmd.PersistentFlags().BoolVar(&networksDisabled, "disable-networks", false, "Disables network selection. If enabled, the client will not allow listing, selecting, or deselecting networks. To persist, use: netbird service install --disable-networks")
 	serviceCmd.PersistentFlags().BoolVar(&enableJSONSocket, "enable-json-socket", false, "Enables the HTTP/JSON API socket served by grpc-gateway. To persist, use: netbird service install --enable-json-socket")
-	serviceCmd.PersistentFlags().StringVar(&jsonSocket, "json-socket", defaultJSONSocket, "HTTP/JSON API socket address [unix|tcp]://[path|host:port]. Requires --enable-json-socket to serve. To persist, use: netbird service install --enable-json-socket --json-socket")
+	serviceCmd.PersistentFlags().StringVar(&jsonSocket, "json-socket", defaultJSONSocket, "HTTP/JSON API socket address [unix|tcp|npipe]://[path|host:port|name]. Requires --enable-json-socket to serve. To persist, use: netbird service install --enable-json-socket --json-socket")
+	serviceCmd.PersistentFlags().StringSliceVar(&owners, "owner", nil, "Principal(s) allowed to control the daemon and its default profile: uid:1000, gid:1000, group:netbird-admins (NSS), or sid:S-1-5-... (Windows). Repeatable. Other profiles stay isolated per user. To persist: netbird service install --owner uid:1000")
 
 	rootCmd.PersistentFlags().StringVarP(&serviceName, "service", "s", defaultServiceName, "Netbird system service name")
 	serviceEnvDesc := `Sets extra environment variables for the service. ` +

@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	log "github.com/sirupsen/logrus"
+
+	shellutil "github.com/netbirdio/netbird/client/internal/shell"
 )
 
 var (
@@ -23,8 +25,8 @@ func isPlatformUnix() bool {
 
 // Dependency injection variables for testing - allows mocking dynamic runtime checks
 var (
-	getCurrentUser         = currentUserWithGetent
-	lookupUser             = lookupWithGetent
+	getCurrentUser         = shellutil.CurrentUserWithGetent
+	lookupUser             = shellutil.LookupWithGetent
 	getCurrentOS           = func() string { return runtime.GOOS }
 	getIsProcessPrivileged = isCurrentProcessPrivileged
 

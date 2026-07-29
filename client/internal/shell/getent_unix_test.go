@@ -1,6 +1,6 @@
 //go:build !windows
 
-package server
+package shell
 
 import (
 	"os/exec"
@@ -198,7 +198,7 @@ func TestRunGetent_RootUser(t *testing.T) {
 		t.Skip("getent not available on this system")
 	}
 
-	u, shell, err := runGetent("root")
+	u, shell, err := runGetentPasswd("root")
 	require.NoError(t, err)
 	assert.Equal(t, "root", u.Username)
 	assert.Equal(t, "0", u.Uid)
@@ -211,7 +211,7 @@ func TestRunGetent_ByUID(t *testing.T) {
 		t.Skip("getent not available on this system")
 	}
 
-	u, _, err := runGetent("0")
+	u, _, err := runGetentPasswd("0")
 	require.NoError(t, err)
 	assert.Equal(t, "root", u.Username)
 	assert.Equal(t, "0", u.Uid)
@@ -222,15 +222,15 @@ func TestRunGetent_NonexistentUser(t *testing.T) {
 		t.Skip("getent not available on this system")
 	}
 
-	_, _, err := runGetent("nonexistent_user_xyzzy_12345")
+	_, _, err := runGetentPasswd("nonexistent_user_xyzzy_12345")
 	assert.Error(t, err)
 }
 
 func TestRunGetent_InvalidInput(t *testing.T) {
-	_, _, err := runGetent("")
+	_, _, err := runGetentPasswd("")
 	assert.Error(t, err)
 
-	_, _, err = runGetent("user\x00name")
+	_, _, err = runGetentPasswd("user\x00name")
 	assert.Error(t, err)
 }
 
@@ -239,7 +239,7 @@ func TestRunGetent_NotAvailable(t *testing.T) {
 		t.Skip("getent is available, can't test missing case")
 	}
 
-	_, _, err := runGetent("root")
+	_, _, err := runGetentPasswd("root")
 	assert.Error(t, err, "should fail when getent is not installed")
 }
 
@@ -286,7 +286,7 @@ func TestGetentResultsMatchStdlib(t *testing.T) {
 	current, err := user.Current()
 	require.NoError(t, err)
 
-	getentUser, _, err := runGetent(current.Username)
+	getentUser, _, err := runGetentPasswd(current.Username)
 	require.NoError(t, err)
 
 	assert.Equal(t, current.Username, getentUser.Username, "username should match")
@@ -303,7 +303,7 @@ func TestGetentResultsMatchStdlib_ByUID(t *testing.T) {
 	current, err := user.Current()
 	require.NoError(t, err)
 
-	getentUser, _, err := runGetent(current.Uid)
+	getentUser, _, err := runGetentPasswd(current.Uid)
 	require.NoError(t, err)
 
 	assert.Equal(t, current.Username, getentUser.Username, "username should match when looked up by UID")
@@ -359,7 +359,7 @@ func TestGetShellFromPasswd_CurrentUser(t *testing.T) {
 	assert.True(t, shell[0] == '/', "shell should be an absolute path, got %q", shell)
 
 	if _, err := exec.LookPath("getent"); err == nil {
-		_, getentShell, getentErr := runGetent(current.Uid)
+		_, getentShell, getentErr := runGetentPasswd(current.Uid)
 		if getentErr == nil && getentShell != "" {
 			assert.Equal(t, getentShell, shell, "shell from /etc/passwd should match getent")
 		}
@@ -403,7 +403,7 @@ func TestGetShellFromPasswd_MatchesGetentForKnownUsers(t *testing.T) {
 			continue
 		}
 
-		_, getentShell, err := runGetent(uid)
+		_, getentShell, err := runGetentPasswd(uid)
 		if err != nil {
 			continue
 		}
