@@ -113,12 +113,8 @@ func (u *Installer) startUIAsUser() error {
 	launchCmd := exec.Command("launchctl", "asuser", userInfo.Uid, "sudo", "-u", username, "-H", "open", "-a", uiBinary)
 	log.Infof("launchCmd: %s", launchCmd.String())
 
-	if err := launchCmd.Start(); err != nil {
-		return fmt.Errorf("start UI process: %w", err)
-	}
-
-	if err := launchCmd.Process.Release(); err != nil {
-		log.Warnf("failed to release UI process: %v", err)
+	if err := launchCmd.Run(); err != nil {
+		return fmt.Errorf("run UI launch: %w", err)
 	}
 
 	log.Infof("netbird-ui started successfully for user %s", username)
