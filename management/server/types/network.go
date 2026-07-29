@@ -191,10 +191,22 @@ func (n *Network) Copy() *Network {
 	}
 }
 
+// validateIPv4Prefix ensures the prefix is an IPv4 network with assignable host addresses.
+func validateIPv4Prefix(prefix netip.Prefix) error {
+	if !prefix.IsValid() || !prefix.Addr().Is4() || prefix.Bits() < 1 || prefix.Bits() >= 31 {
+		return fmt.Errorf("invalid IPv4 subnet: %s", prefix.String())
+	}
+	return nil
+}
+
 // AllocatePeerIP picks an available IP from a netip.Prefix.
 // This method considers already taken IPs and reuses IPs if there are gaps in takenIps.
 // E.g. if prefix=100.30.0.0/16 and takenIps=[100.30.0.1, 100.30.0.4] then the result would be 100.30.0.2 or 100.30.0.3.
 func AllocatePeerIP(prefix netip.Prefix, takenIps []netip.Addr) (netip.Addr, error) {
+	if err := validateIPv4Prefix(prefix); err != nil {
+		return netip.Addr{}, err
+	}
+
 	b := prefix.Masked().Addr().As4()
 	baseIP := binary.BigEndian.Uint32(b[:])
 	hostBits := 32 - prefix.Bits()
@@ -205,6 +217,9 @@ func AllocatePeerIP(prefix netip.Prefix, takenIps []netip.Addr) (netip.Addr, err
 	taken[baseIP+totalIPs-1] = struct{}{} // reserve broadcast IP
 
 	for _, ip := range takenIps {
+		if !ip.Is4() {
+			continue
+		}
 		ab := ip.As4()
 		taken[binary.BigEndian.Uint32(ab[:])] = struct{}{}
 	}
@@ -231,6 +246,10 @@ func AllocatePeerIP(prefix netip.Prefix, takenIps []netip.Addr) (netip.Addr, err
 
 // AllocateRandomPeerIP picks a random available IP from a netip.Prefix.
 func AllocateRandomPeerIP(prefix netip.Prefix) (netip.Addr, error) {
+	if err := validateIPv4Prefix(prefix); err != nil {
+		return netip.Addr{}, err
+	}
+
 	b := prefix.Masked().Addr().As4()
 	baseIP := binary.BigEndian.Uint32(b[:])
 	hostBits := 32 - prefix.Bits()
