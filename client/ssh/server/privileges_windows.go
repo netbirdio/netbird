@@ -14,12 +14,6 @@ import (
 var (
 	netapi32                  = windows.NewLazySystemDLL("netapi32.dll")
 	procNetUserGetLocalGroups = netapi32.NewProc("NetUserGetLocalGroups")
-
-	// lookupGroupSID resolves a group name to its SID, indirected for testing.
-	lookupGroupSID = func(name string) (*windows.SID, error) {
-		sid, _, _, err := windows.LookupSID("", name)
-		return sid, err
-	}
 )
 
 const (
@@ -98,11 +92,17 @@ func isBuiltinAdministratorSID(sid *windows.SID) bool {
 }
 
 // isLocalAdminsMember reports whether the account is a member of the local
-// Administrators group. Local accounts are checked against the local SAM,
-// which is authoritative for them. For domain accounts an S4U identification
-// token is preferred because its group list is LSA's transitive expansion
-// (nested and universal groups included); NetUserGetLocalGroups expands only
-// one global-group hop but needs no logon, so it serves as fallback.
+// Administrators group.
+//
+// Local accounts are checked against the local SAM, which is authoritative for
+// them and, unlike a token, cannot under-report: UAC filters the tokens of
+// local administrators, and a filtered token carries Administrators as
+// deny-only, which a membership check on the token would read as "not a
+// member". Domain accounts are exempt from that filtering, so for them an S4U
+// token is preferred because its group list is LSA's transitive expansion and
+// therefore covers nested and universal groups plus the machine's own local
+// groups. NetUserGetLocalGroups expands only one global-group hop but needs no
+// logon, so it serves as the fallback when no token can be obtained.
 func isLocalAdminsMember(username string) (bool, error) {
 	adminSid, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
 	if err != nil {
@@ -142,43 +142,35 @@ func s4uTokenIsMember(account, domain string, sid *windows.SID) (bool, error) {
 	return windows.Token(token).IsMember(sid)
 }
 
-// localGroupsContainSID enumerates the local groups the account belongs to
-// (including membership through global groups) and reports whether the wanted
-// SID is among them. Group names are resolved to SIDs so the comparison is not
-// sensitive to localization.
+// localGroupsContainSID reports whether the wanted group is among the local
+// groups the account belongs to, directly or through a global group.
 //
-// A group whose name does not resolve is compared against the wanted SID's own
-// account name rather than skipped: skipping it would under-report membership,
-// which for a privilege check means reporting a privileged account as
-// unprivileged. If neither comparison is possible the error is returned so the
-// caller can fail closed.
+// The wanted SID is resolved to its group name once and compared against the
+// enumerated names. Well-known SIDs resolve from a static table, so that lookup
+// needs no domain controller, and it keeps the comparison correct for a renamed
+// or localized group because both sides then carry the new name. Resolving each
+// enumerated name back to a SID instead would add a lookup per group that can
+// block until it times out while a domain controller is unreachable, and cannot
+// change the outcome: the names enumerated here are local groups of this
+// machine, whose names are unique, so a name match identifies the group.
+//
+// A failure to resolve the wanted SID is returned rather than reported as
+// "not a member", so a privilege check built on this fails closed.
 func localGroupsContainSID(username string, want *windows.SID) (bool, error) {
+	wantName, _, _, err := want.LookupAccount("")
+	if err != nil {
+		return false, fmt.Errorf("resolve group SID %s to a name: %w", want, err)
+	}
+
 	groups, err := netUserGetLocalGroups(username)
 	if err != nil {
 		return false, err
 	}
 
-	wantName, _, _, wantNameErr := want.LookupAccount("")
-
 	for _, group := range groups {
-		groupSid, err := lookupGroupSID(group)
-		if err == nil {
-			if groupSid.Equals(want) {
-				return true, nil
-			}
-			continue
-		}
-
-		if wantNameErr != nil {
-			return false, fmt.Errorf("resolve group %q: %w (and resolve wanted SID to a name: %w)", group, err, wantNameErr)
-		}
-
-		// Local group names are unique per machine, so a name mismatch is
-		// conclusive even though the SID is unavailable.
 		if strings.EqualFold(group, wantName) {
 			return true, nil
 		}
-		log.Debugf("local group %q does not resolve to a SID and does not match %q: %v", group, wantName, err)
 	}
 	return false, nil
 }
