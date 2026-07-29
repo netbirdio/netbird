@@ -30,7 +30,21 @@ mkdir -p /usr/local/bin/
     $AGENT service install || true
     $AGENT service start || true
 
-    open $APP
+    # Launch the GUI as the logged-in console user, NOT as the installer's
+    # (root) context. When there is no active GUI session 
+    # (unattended MDM install, login window), there is nobody to launch as, skip it;
+    
+    console_user=$(stat -f%Su /dev/console 2>/dev/null)
+    case "$console_user" in
+        ""|root|loginwindow|_mbsetupuser)
+            echo "No active GUI user session (console user: '${console_user:-none}'); skipping UI launch."
+            ;;
+        *)
+            uid=$(id -u "$console_user")
+            echo "Launching NetBird UI as console user $console_user (uid $uid)."
+            launchctl asuser "$uid" open "$APP" || true
+            ;;
+    esac
 
     echo "Finished Netbird installation successfully"
     exit 0 # all good
