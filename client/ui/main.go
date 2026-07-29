@@ -96,7 +96,6 @@ func main() {
 		}
 	})
 
-	settings := services.NewSettings(conn)
 	profiles := services.NewProfiles(conn)
 	// updater.Holder owns the typed update State; DaemonFeed feeds it and the
 	// Update service is a thin Wails-bound facade over it plus the install RPCs.
@@ -117,6 +116,7 @@ func main() {
 	bundle, prefStore, localizer := buildI18n(app)
 
 	// After bundle + prefStore: both are used to localise daemon errors.
+	settings := services.NewSettings(conn, bundle, prefStore, daemonAddr)
 	connection := services.NewConnection(conn, bundle, prefStore)
 	profileSwitcher := services.NewProfileSwitcher(profiles, connection, daemonFeed)
 	// authsession.Session owns the full extend + dismiss surface the tray
