@@ -67,9 +67,8 @@ type Tray struct {
 	loc       *Localizer
 
 	// menu and the *Item/*Submenu fields below are reassigned by buildMenu
-	// on every relayout — touch them only with menuMu held. Exceptions:
-	// the Connect/Disconnect OnClick closures capture their own item, and
-	// refreshSessionExpiresLabel snapshots its item under menuMu.
+	// on every relayout, which destroys the replaced tree — locate items and
+	// call them with menuMu held, so a relayout can't destroy one mid-call.
 	menu       *application.Menu
 	statusItem *application.MenuItem
 	// sessionExpiresItem shows the SSO deadline as a remaining-time label,
@@ -172,7 +171,7 @@ func NewTray(app *application.App, window *application.WebviewWindow, svc TraySe
 		// in the right locale — no English flash then re-paint.
 		loc: svc.Localizer,
 	}
-	t.updater = newTrayUpdater(app, window, svc.Update, svc.Notifier, t.loc, func() { t.applyIcon() }, func() { t.relayoutMenu() })
+	t.updater = newTrayUpdater(app, window, svc.Update, svc.Notifier, t.loc, func() { t.applyIcon() }, func() { t.relayoutMenu() }, func() { t.showMainWindow() })
 	t.tray = app.SystemTray.New()
 	// Seed panel-theme detection before the first paint so the initial icon
 	// matches the panel's light/dark scheme (Linux only).
@@ -196,7 +195,7 @@ func NewTray(app *application.App, window *application.WebviewWindow, svc TraySe
 	// menu (e.g. GNOME Shell AppIndicator).
 	bindTrayClick(t)
 
-	app.Event.On(services.EventStatusSnapshot, t.onStatusEvent)
+	svc.DaemonFeed.OnStatus(t.applyStatus)
 	app.Event.On(services.EventDaemonNotification, t.onSystemEvent)
 	// Refresh the Profiles submenu on ProfileSwitcher's change event. A
 	// switch on an idle daemon drives no status transition, so without this
@@ -253,6 +252,19 @@ func (t *Tray) ShowWindow() {
 	t.window.Focus()
 }
 
+// showMainWindow brings the main window forward through the WindowManager so
+// the status replay and re-centering apply; falls back to a bare Show in tests.
+func (t *Tray) showMainWindow() {
+	if t.svc.WindowManager != nil {
+		t.svc.WindowManager.ShowMain()
+		return
+	}
+	if t.window != nil {
+		t.window.Show()
+		t.window.Focus()
+	}
+}
+
 // applyLanguage re-renders every translated surface in the Localizer's current
 // language. Wails dispatches menu/tray APIs onto the UI thread internally, so
 // calling them from the Localizer's background goroutine is safe; profileLoadMu
@@ -286,6 +298,7 @@ func (t *Tray) relayoutMenu() {
 	t.menuMu.Lock()
 	defer t.menuMu.Unlock()
 
+	old := t.menu
 	t.menu = t.buildMenu()
 
 	t.statusMu.Lock()
@@ -356,6 +369,10 @@ func (t *Tray) relayoutMenu() {
 	// Single push of the whole tree: on Linux one LayoutUpdated with fresh
 	// container ids; on darwin an NSMenu rebuild against the cached pointer.
 	t.tray.SetMenu(t.menu)
+
+	if old != nil {
+		old.Destroy()
+	}
 }
 
 func (t *Tray) buildMenu() *application.Menu {
@@ -371,13 +388,11 @@ func (t *Tray) buildMenu() *application.Menu {
 
 	menu.AddSeparator()
 
-	// The OnClick closures capture the local item because t.upItem/t.downItem
-	// are menuMu-guarded and must not be read from the click goroutine.
 	upItem := menu.Add(t.loc.T("tray.menu.connect"))
-	upItem.OnClick(func(*application.Context) { t.handleConnect(upItem) })
+	upItem.OnClick(func(*application.Context) { t.handleConnect() })
 	t.upItem = upItem
 	downItem := menu.Add(t.loc.T("tray.menu.disconnect"))
-	downItem.OnClick(func(*application.Context) { t.handleDisconnect(downItem) })
+	downItem.OnClick(func(*application.Context) { t.handleDisconnect() })
 	downItem.SetHidden(true)
 	t.downItem = downItem
 
@@ -469,9 +484,7 @@ func (t *Tray) handleQuit() {
 	t.app.Quit()
 }
 
-// handleConnect receives the clicked item from the buildMenu closure —
-// t.upItem is menuMu-guarded and must not be read here.
-func (t *Tray) handleConnect(upItem *application.MenuItem) {
+func (t *Tray) handleConnect() {
 	// NeedsLogin/SessionExpired/LoginFailed won't honor a plain Up RPC — they
 	// need the Login → WaitSSOLogin → Up sequence. Emit EventTriggerLogin so
 	// the React startLogin() (which owns the BrowserLogin popup) drives it;
@@ -485,7 +498,7 @@ func (t *Tray) handleConnect(upItem *application.MenuItem) {
 		t.app.Event.Emit(services.EventTriggerLogin)
 		return
 	}
-	upItem.SetEnabled(false)
+	t.setItemEnabled(func() *application.MenuItem { return t.upItem }, false)
 	// Arm the SSO auto-handoff: Up() is async and the daemon may flip to
 	// NeedsLogin on an SSO peer with no cached token. applyStatus consumes the
 	// flag on that transition to trigger browser-login without a second Connect
@@ -500,18 +513,25 @@ func (t *Tray) handleConnect(upItem *application.MenuItem) {
 			t.statusMu.Lock()
 			t.pendingConnectLogin = false
 			t.statusMu.Unlock()
-			upItem.SetEnabled(true)
+			t.setItemEnabled(func() *application.MenuItem { return t.upItem }, true)
 		}
 	}()
+}
+
+func (t *Tray) setItemEnabled(get func() *application.MenuItem, enabled bool) {
+	t.menuMu.Lock()
+	defer t.menuMu.Unlock()
+	if item := get(); item != nil {
+		item.SetEnabled(enabled)
+	}
 }
 
 // handleDisconnect aborts any in-flight profile switch before sending Down —
 // otherwise the switcher's queued Up would reconnect right after, making the
 // click a no-op. Also clears Peers' optimistic-Connecting guard so the daemon's
 // Idle push paints through instead of being swallowed by the suppression filter.
-// Receives the clicked item from the buildMenu closure (see handleConnect).
-func (t *Tray) handleDisconnect(downItem *application.MenuItem) {
-	downItem.SetEnabled(false)
+func (t *Tray) handleDisconnect() {
+	t.setItemEnabled(func() *application.MenuItem { return t.downItem }, false)
 	t.profileMu.Lock()
 	if t.switchCancel != nil {
 		t.switchCancel()
@@ -523,7 +543,7 @@ func (t *Tray) handleDisconnect(downItem *application.MenuItem) {
 		if err := t.svc.Connection.Down(context.Background()); err != nil {
 			log.Errorf("disconnect: %v", err)
 			t.notifyError(t.loc.T("notify.error.disconnect"))
-			downItem.SetEnabled(true)
+			t.setItemEnabled(func() *application.MenuItem { return t.downItem }, true)
 		}
 	}()
 }

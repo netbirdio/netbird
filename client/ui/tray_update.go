@@ -28,6 +28,9 @@ type trayUpdater struct {
 	// About submenu, which KDE/Plasma caches on first open and never re-fetches
 	// on a plain SetLabel/SetHidden — only a relayout (fresh submenu ids) repaints.
 	onMenuChange func()
+	// showMain brings the main window forward via the WindowManager (status
+	// replay + centering); nil falls back to a bare window.Show.
+	showMain func()
 
 	mu                 sync.Mutex
 	item               *application.MenuItem
@@ -36,7 +39,7 @@ type trayUpdater struct {
 	progressWindowOpen bool
 }
 
-func newTrayUpdater(app *application.App, window *application.WebviewWindow, update *services.Update, notifier *notifications.NotificationService, loc *Localizer, onIconChange func(), onMenuChange func()) *trayUpdater {
+func newTrayUpdater(app *application.App, window *application.WebviewWindow, update *services.Update, notifier *notifications.NotificationService, loc *Localizer, onIconChange, onMenuChange, showMain func()) *trayUpdater {
 	u := &trayUpdater{
 		app:          app,
 		window:       window,
@@ -45,6 +48,7 @@ func newTrayUpdater(app *application.App, window *application.WebviewWindow, upd
 		loc:          loc,
 		onIconChange: onIconChange,
 		onMenuChange: onMenuChange,
+		showMain:     showMain,
 	}
 	app.Event.On(updater.EventStateChanged, u.onStateEvent)
 	// Seed from cached state to cover an event that fired before wiring completed.
@@ -193,6 +197,10 @@ func (u *trayUpdater) openProgressWindow(version string) {
 		url += "?version=" + version
 	}
 	u.window.SetURL(url)
+	if u.showMain != nil {
+		u.showMain()
+		return
+	}
 	u.window.Show()
 	u.window.Focus()
 }

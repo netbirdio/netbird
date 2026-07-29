@@ -115,6 +115,9 @@ type WindowManager struct {
 	// recenterOnShow is set only on the minimal-WM/XEmbed path, where the WM neither centers nor
 	// restores position; nil on full desktops so re-centering can't fight a user-moved window.
 	recenterOnShow func() bool
+	// showReplay fires whenever a live-but-hidden window is (re)shown, so the
+	// caller can replay the latest status snapshot into its webview.
+	showReplay func(application.Window)
 }
 
 // NewWindowManager wires the manager to the main app; translator/prefs may be nil (tests). The
@@ -174,6 +177,7 @@ func (s *WindowManager) OpenSettings(tab string) {
 	s.app.Event.Emit(EventSettingsOpen, target)
 	s.settings.Show()
 	s.settings.Focus()
+	s.notifyShown(s.settings)
 	// Re-center (minimal-WM only; see centerWhenReady).
 	s.centerWhenReady(s.settings)
 }
@@ -220,6 +224,7 @@ func (s *WindowManager) OpenBrowserLogin(uri string) {
 	s.centerOnCursorScreen(s.browserLogin)
 	s.browserLogin.Show()
 	s.browserLogin.Focus()
+	s.notifyShown(s.browserLogin)
 }
 
 // BrowserLoginWindow returns the live SSO popup, or nil. While non-nil it is the
@@ -280,6 +285,7 @@ func (s *WindowManager) OpenSessionExpiration(seconds int) {
 	s.centerOnCursorScreen(s.sessionExpiration)
 	s.sessionExpiration.Show()
 	s.sessionExpiration.Focus()
+	s.notifyShown(s.sessionExpiration)
 }
 
 func (s *WindowManager) CloseSessionExpiration() {
@@ -347,6 +353,7 @@ func (s *WindowManager) OpenInstallProgress(version string) {
 	s.installProgress.SetURL(startURL)
 	s.installProgress.Show()
 	s.installProgress.Focus()
+	s.notifyShown(s.installProgress)
 	s.centerWhenReady(s.installProgress)
 }
 
@@ -380,6 +387,7 @@ func (s *WindowManager) OpenWelcome() {
 	}
 	s.welcome.Show()
 	s.welcome.Focus()
+	s.notifyShown(s.welcome)
 	s.centerWhenReady(s.welcome)
 }
 
@@ -417,6 +425,7 @@ func (s *WindowManager) OpenError(title, message string) {
 	s.errorDialog.SetURL(startURL)
 	s.errorDialog.Show()
 	s.errorDialog.Focus()
+	s.notifyShown(s.errorDialog)
 	s.centerWhenReady(s.errorDialog)
 }
 
@@ -443,6 +452,7 @@ func (s *WindowManager) ShowMain() {
 	}
 	s.mainWindow.Show()
 	s.mainWindow.Focus()
+	s.notifyShown(s.mainWindow)
 	// Re-center (minimal-WM only; see centerWhenReady).
 	s.centerWhenReady(s.mainWindow)
 }
@@ -450,6 +460,17 @@ func (s *WindowManager) ShowMain() {
 // SetRecenterOnShow installs the recenterOnShow predicate (see the field).
 func (s *WindowManager) SetRecenterOnShow(pred func() bool) {
 	s.recenterOnShow = pred
+}
+
+// SetShowReplay installs the shown-window hook (see the showReplay field).
+func (s *WindowManager) SetShowReplay(fn func(application.Window)) {
+	s.showReplay = fn
+}
+
+func (s *WindowManager) notifyShown(w application.Window) {
+	if s.showReplay != nil && w != nil {
+		s.showReplay(w)
+	}
 }
 
 // centerWhenReady centers w only on minimal WMs (recenterOnShow); elsewhere it
@@ -572,6 +593,7 @@ func (s *WindowManager) restoreHiddenWindowsLocked() {
 			continue
 		}
 		w.Show()
+		s.notifyShown(w)
 		if w == s.mainWindow {
 			mainRestored = true
 		}

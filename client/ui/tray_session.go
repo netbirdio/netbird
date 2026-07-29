@@ -30,11 +30,11 @@ const (
 // handleSessionExpired notifies and brings the window forward so the frontend's /login route drives renewal.
 func (t *Tray) handleSessionExpired() {
 	t.notify(t.loc.T("notify.sessionExpired.title"), t.loc.T("notify.sessionExpired.body"), notifyIDSessionExpired)
-	if t.window != nil {
-		t.window.SetURL("/#/login")
-		t.window.Show()
-		t.window.Focus()
+	if t.window == nil {
+		return
 	}
+	t.window.SetURL("/#/login")
+	t.showMainWindow()
 }
 
 // applySessionExpiry refreshes the cached SSO deadline and reports whether it changed.
@@ -104,21 +104,19 @@ func sessionRefreshInterval(remaining time.Duration) time.Duration {
 }
 
 // refreshSessionExpiresLabel updates only the countdown label, no relayout, to avoid disturbing an open menu.
-// The item is snapshotted under menuMu since buildMenu reassigns it on every relayout.
+// menuMu is held across the SetLabel so a relayout can't destroy the item mid-call.
 func (t *Tray) refreshSessionExpiresLabel() {
-	t.menuMu.Lock()
-	item := t.sessionExpiresItem
-	t.menuMu.Unlock()
-	if item == nil {
-		return
-	}
 	t.sessionMu.Lock()
 	deadline := t.sessionExpiresAt
 	t.sessionMu.Unlock()
 	if deadline.IsZero() {
 		return
 	}
-	item.SetLabel(t.sessionRowLabel(deadline))
+	t.menuMu.Lock()
+	defer t.menuMu.Unlock()
+	if t.sessionExpiresItem != nil {
+		t.sessionExpiresItem.SetLabel(t.sessionRowLabel(deadline))
+	}
 }
 
 func (t *Tray) sessionRowLabel(deadline time.Time) string {
@@ -310,8 +308,7 @@ func (t *Tray) openSessionExtendFlow() {
 	if seconds <= 0 {
 		if t.window != nil {
 			t.window.SetURL("/#/login")
-			t.window.Show()
-			t.window.Focus()
+			t.showMainWindow()
 		}
 		return
 	}
