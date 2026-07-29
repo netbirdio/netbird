@@ -173,5 +173,5 @@ func TestNewTable_NilAndEmpty(t *testing.T) {
 
 	entries, err := NewEntries(nil)
 	require.NoError(t, err)
-	assert.Nil(t, entries, "nil in, nil out for the per-record map")
+	assert.Empty(t, entries, "nil in, empty (never-matching) map out for the per-record map")
 }

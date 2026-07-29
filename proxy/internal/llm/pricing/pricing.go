@@ -56,11 +56,8 @@ type Table struct {
 // finite, non-negative USD amount; a violation is returned as an error so
 // a corrupt config fails the chain build loudly instead of mispricing.
 // Management validates the same constraints at its API boundary, so this
-// is defense-in-depth. Nil input yields nil output.
+// is defense-in-depth. Nil input yields an empty (never-matching) map.
 func NewEntries(raw map[string]map[string]EntryJSON) (map[string]map[string]Entry, error) {
-	if raw == nil {
-		return nil, nil
-	}
 	out := make(map[string]map[string]Entry, len(raw))
 	for outer, models := range raw {
 		inner := make(map[string]Entry, len(models))
@@ -76,13 +73,9 @@ func NewEntries(raw map[string]map[string]EntryJSON) (map[string]map[string]Entr
 					return nil, fmt.Errorf("pricing %s/%s: %s must be a finite, non-negative rate, got %v", outer, model, field, v)
 				}
 			}
-			inner[model] = Entry{
-				InputPer1K:         e.InputPer1K,
-				OutputPer1K:        e.OutputPer1K,
-				CachedInputPer1K:   e.CachedInputPer1K,
-				CacheReadPer1K:     e.CacheReadPer1K,
-				CacheCreationPer1K: e.CacheCreationPer1K,
-			}
+			// EntryJSON and Entry are field-identical (tags aside), so a
+			// direct conversion carries all five rates.
+			inner[model] = Entry(e)
 		}
 		out[outer] = inner
 	}
@@ -95,9 +88,6 @@ func NewTable(raw map[string]map[string]EntryJSON) (*Table, error) {
 	entries, err := NewEntries(raw)
 	if err != nil {
 		return nil, err
-	}
-	if entries == nil {
-		entries = map[string]map[string]Entry{}
 	}
 	return &Table{entries: entries}, nil
 }
