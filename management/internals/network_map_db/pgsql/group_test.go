@@ -127,6 +127,28 @@ func TestGetNSGroups(t *testing.T) {
 	// )
 }
 
+func TestGetNetworkResources(t *testing.T) {
+	ctx := context.TODO()
+
+	s, err := NewPostgresqlStore(ctx, "postgresql://root:netbird@localhost:5432/netbird")
+	assert.NoError(t, err)
+	//	err = loadSQL(ctx, s.pool, initDb)
+	//assert.NoError(t, err)
+
+	res, err := s.GetNetworkResources(ctx, "cag86v2t2r9s73d0416g") //"ckd7ee2fic3c73dtendg")
+	assert.NoError(t, err)
+
+	fmt.Print(res)
+	// assert.Contains(t,
+	// 	groups,
+	// 	nmdata.Group{Name: "test-group-1", PublicID: "public-id-1", Resources: []nmdata.Resource{{ID: "cui7q2jl0ubs73d8qpi0", Type: "host"}}},
+	// )
+	// assert.Contains(t,
+	// 	groups,
+	// 	nmdata.Group{Name: "All", PublicID: "d9aejspvcsu517nkh4a0", Resources: []nmdata.Resource{{ID: "cui7olrl0ubs73d8qpe0", Type: "subnet"}, {ID: "cui7q2jl0ubs73d8qpi0", Type: "host"}}},
+	// )
+}
+
 func loadSQL(ctx context.Context, pool *pgxpool.Pool, initdb string) error {
 	queries := strings.Split(string(initdb), ";")
 
