@@ -189,16 +189,10 @@ func (s *Server) SetAllowRootLogin(allow bool) {
 
 // userNameLookup performs user lookup with root login permission check
 func (s *Server) userNameLookup(username string) (*user.User, error) {
-	result := s.CheckPrivileges(PrivilegeCheckRequest{
-		RequestedUsername:         username,
-		FeatureSupportsUserSwitch: true,
-		FeatureName:               FeatureSSHLogin,
-	})
-
-	if !result.Allowed {
-		return nil, result.Error
+	result, err := s.userPrivilegeCheck(username)
+	if err != nil {
+		return nil, err
 	}
-
 	return result.User, nil
 }
 

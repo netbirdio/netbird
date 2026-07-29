@@ -3,6 +3,7 @@
 package server
 
 import (
+	"errors"
 	"os/user"
 	"testing"
 	"unsafe"
@@ -164,6 +165,43 @@ func TestS4UMembershipAgreesWithLocalGroups(t *testing.T) {
 		checked++
 	}
 	t.Logf("checked %d local accounts via S4U", checked)
+}
+
+// TestLocalGroupsContainSID_UnresolvableGroupMatchesByName covers the case
+// where a group name cannot be resolved to a SID: membership must still be
+// found by name instead of the group being skipped, which would report a
+// privileged account as unprivileged.
+func TestLocalGroupsContainSID_UnresolvableGroupMatchesByName(t *testing.T) {
+	adminSid, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
+	require.NoError(t, err, "create Administrators SID")
+
+	original := lookupGroupSID
+	t.Cleanup(func() { lookupGroupSID = original })
+	lookupGroupSID = func(string) (*windows.SID, error) {
+		return nil, errors.New("simulated SID resolution failure")
+	}
+
+	// The built-in Administrator is always a member of Administrators.
+	member, err := localGroupsContainSID("Administrator", adminSid)
+	require.NoError(t, err, "enumerate local groups for Administrator")
+	assert.True(t, member, "unresolvable group must be matched by name, not skipped")
+}
+
+// TestLocalGroupsContainSID_UnresolvableFailsClosed covers the case where
+// neither the group SID nor the wanted SID's name can be resolved: the error
+// must surface so the caller treats the account as privileged.
+func TestLocalGroupsContainSID_UnresolvableFailsClosed(t *testing.T) {
+	// A SID that resolves to no account, so LookupAccount fails.
+	unknown := mustParseSID(t, "S-1-5-21-1111111111-2222222222-3333333333-4444")
+
+	original := lookupGroupSID
+	t.Cleanup(func() { lookupGroupSID = original })
+	lookupGroupSID = func(string) (*windows.SID, error) {
+		return nil, errors.New("simulated SID resolution failure")
+	}
+
+	_, err := localGroupsContainSID("Administrator", unknown)
+	require.Error(t, err, "must report an error when membership cannot be determined either way")
 }
 
 func TestLocalGroupsContainSID_Guest(t *testing.T) {

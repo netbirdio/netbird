@@ -4,6 +4,7 @@ package server
 
 import (
 	"fmt"
+	"strings"
 	"unsafe"
 
 	log "github.com/sirupsen/logrus"
@@ -13,6 +14,12 @@ import (
 var (
 	netapi32                  = windows.NewLazySystemDLL("netapi32.dll")
 	procNetUserGetLocalGroups = netapi32.NewProc("NetUserGetLocalGroups")
+
+	// lookupGroupSID resolves a group name to its SID, indirected for testing.
+	lookupGroupSID = func(name string) (*windows.SID, error) {
+		sid, _, _, err := windows.LookupSID("", name)
+		return sid, err
+	}
 )
 
 const (
@@ -136,23 +143,42 @@ func s4uTokenIsMember(account, domain string, sid *windows.SID) (bool, error) {
 }
 
 // localGroupsContainSID enumerates the local groups the account belongs to
-// (including membership through global groups) and compares each group's SID
-// against the wanted SID. Group names are resolved back to SIDs so the
-// comparison is not sensitive to localization.
+// (including membership through global groups) and reports whether the wanted
+// SID is among them. Group names are resolved to SIDs so the comparison is not
+// sensitive to localization.
+//
+// A group whose name does not resolve is compared against the wanted SID's own
+// account name rather than skipped: skipping it would under-report membership,
+// which for a privilege check means reporting a privileged account as
+// unprivileged. If neither comparison is possible the error is returned so the
+// caller can fail closed.
 func localGroupsContainSID(username string, want *windows.SID) (bool, error) {
 	groups, err := netUserGetLocalGroups(username)
 	if err != nil {
 		return false, err
 	}
+
+	wantName, _, _, wantNameErr := want.LookupAccount("")
+
 	for _, group := range groups {
-		groupSid, _, _, err := windows.LookupSID("", group)
-		if err != nil {
-			log.Debugf("resolve local group %q to SID: %v", group, err)
+		groupSid, err := lookupGroupSID(group)
+		if err == nil {
+			if groupSid.Equals(want) {
+				return true, nil
+			}
 			continue
 		}
-		if groupSid.Equals(want) {
+
+		if wantNameErr != nil {
+			return false, fmt.Errorf("resolve group %q: %w (and resolve wanted SID to a name: %w)", group, err, wantNameErr)
+		}
+
+		// Local group names are unique per machine, so a name mismatch is
+		// conclusive even though the SID is unavailable.
+		if strings.EqualFold(group, wantName) {
 			return true, nil
 		}
+		log.Debugf("local group %q does not resolve to a SID and does not match %q: %v", group, wantName, err)
 	}
 	return false, nil
 }
@@ -188,6 +214,13 @@ func netUserGetLocalGroups(username string) ([]string, error) {
 			log.Debugf("free NetApi buffer: %v", err)
 		}
 	}()
+
+	// MAX_PREFERRED_LENGTH makes the API allocate as much as it needs, so a
+	// short read is not expected. Report it rather than silently returning a
+	// subset of the account's groups.
+	if entriesRead != totalEntries {
+		return nil, fmt.Errorf("NetUserGetLocalGroups for %q returned %d of %d groups", username, entriesRead, totalEntries)
+	}
 
 	entries := unsafe.Slice((*localGroupUsersInfo0)(unsafe.Pointer(buf)), entriesRead)
 	groups := make([]string, 0, entriesRead)
