@@ -171,7 +171,7 @@ func NewTray(app *application.App, window *application.WebviewWindow, svc TraySe
 		// in the right locale — no English flash then re-paint.
 		loc: svc.Localizer,
 	}
-	t.updater = newTrayUpdater(app, window, svc.Update, svc.Notifier, t.loc, func() { t.applyIcon() }, func() { t.relayoutMenu() })
+	t.updater = newTrayUpdater(app, window, svc.Update, svc.Notifier, t.loc, func() { t.applyIcon() }, func() { t.relayoutMenu() }, func() { t.showMainWindow() })
 	t.tray = app.SystemTray.New()
 	// Seed panel-theme detection before the first paint so the initial icon
 	// matches the panel's light/dark scheme (Linux only).
@@ -195,7 +195,7 @@ func NewTray(app *application.App, window *application.WebviewWindow, svc TraySe
 	// menu (e.g. GNOME Shell AppIndicator).
 	bindTrayClick(t)
 
-	app.Event.On(services.EventStatusSnapshot, t.onStatusEvent)
+	svc.DaemonFeed.OnStatus(t.applyStatus)
 	app.Event.On(services.EventDaemonNotification, t.onSystemEvent)
 	// Refresh the Profiles submenu on ProfileSwitcher's change event. A
 	// switch on an idle daemon drives no status transition, so without this
@@ -250,6 +250,19 @@ func (t *Tray) ShowWindow() {
 	}
 	t.window.Show()
 	t.window.Focus()
+}
+
+// showMainWindow brings the main window forward through the WindowManager so
+// the status replay and re-centering apply; falls back to a bare Show in tests.
+func (t *Tray) showMainWindow() {
+	if t.svc.WindowManager != nil {
+		t.svc.WindowManager.ShowMain()
+		return
+	}
+	if t.window != nil {
+		t.window.Show()
+		t.window.Focus()
+	}
 }
 
 // applyLanguage re-renders every translated surface in the Localizer's current

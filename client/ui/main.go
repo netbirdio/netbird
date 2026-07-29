@@ -103,6 +103,18 @@ func main() {
 	updaterHolder := updater.NewHolder(app.Event)
 	update := services.NewUpdate(conn, updaterHolder)
 	daemonFeed := services.NewDaemonFeed(conn, app.Event, updaterHolder, debugLog)
+	// Status snapshots go only to visible windows — a snapshot is full state,
+	// so a hidden webview loses nothing by being skipped; it gets the cached
+	// one on show (SetShowReplay below). Every other event stays on the bus.
+	daemonFeed.SetWindowDispatcher(func(st services.Status) {
+		ev := &application.CustomEvent{Name: services.EventStatusSnapshot, Data: st}
+		for _, w := range app.Window.GetAll() {
+			if w == nil || !w.IsVisible() {
+				continue
+			}
+			w.DispatchWailsEvent(ev)
+		}
+	})
 	notifier := notifications.New()
 	compat := services.NewCompat(conn)
 	// macOS shows no toast until permission is requested. Run it after
@@ -152,7 +164,28 @@ func main() {
 	// re-centering on that environment; nil leaves placement to the WM on full
 	// desktops, macOS, and Windows.
 	windowManager.SetRecenterOnShow(recenterOnShowPredicate())
+	// Replay the latest snapshot into a window on (re)show, so a webview that
+	// was hidden while pushes flowed never paints stale state.
+	windowManager.SetShowReplay(func(w application.Window) {
+		if st := daemonFeed.LastStatus(); st != nil {
+			w.DispatchWailsEvent(&application.CustomEvent{Name: services.EventStatusSnapshot, Data: *st})
+		}
+	})
 	app.RegisterService(application.NewService(windowManager))
+
+	// On macOS, Wails' default applicationShouldHandleReopen handler Show()s
+	// every hidden window on dock-icon click, resurrecting hide-on-close
+	// surfaces like Settings. Cancel it in a hook (hooks run before listeners)
+	// and show only the main window. No-op elsewhere — the event never fires.
+	if runtime.GOOS == "darwin" {
+		app.Event.RegisterApplicationEventHook(events.Mac.ApplicationShouldHandleReopen, func(e *application.ApplicationEvent) {
+			e.Cancel()
+			if e.Context().HasVisibleWindows() {
+				return
+			}
+			windowManager.ShowMain()
+		})
+	}
 
 	// Welcome window, first launch only — Continue flips OnboardingCompleted
 	// so later launches skip it. ApplicationStarted hook so the Wails window
@@ -376,21 +409,6 @@ func newMainWindow(app *application.App, prefStore *preferences.Store) *applicat
 		e.Cancel()
 		window.Hide()
 	})
-
-	// On macOS, Wails' default applicationShouldHandleReopen handler Show()s
-	// every hidden window on dock-icon click, resurrecting hide-on-close
-	// surfaces like Settings. Cancel it in a hook (hooks run before listeners)
-	// and show only the main window. No-op elsewhere — the event never fires.
-	if runtime.GOOS == "darwin" {
-		app.Event.RegisterApplicationEventHook(events.Mac.ApplicationShouldHandleReopen, func(e *application.ApplicationEvent) {
-			e.Cancel()
-			if e.Context().HasVisibleWindows() {
-				return
-			}
-			window.Show()
-			window.Focus()
-		})
-	}
 
 	return window
 }
