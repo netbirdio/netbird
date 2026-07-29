@@ -171,7 +171,7 @@ func TestInvoke_PrefersConfiguredProviderPrice(t *testing.T) {
 
 	value, ok := metaValue(t, out.Metadata, middleware.KeyCostUSDTotal)
 	require.True(t, ok, "configured provider price must produce a cost")
-	assert.Equal(t, "0.300000", value, "configured route price must override static vendor pricing")
+	assert.Equal(t, "0.300000000", value, "configured route price must override static vendor pricing")
 
 	out, err = mw.Invoke(context.Background(), &middleware.Input{Metadata: []middleware.KV{
 		{Key: middleware.KeyLLMProvider, Value: "openai"},
@@ -183,7 +183,7 @@ func TestInvoke_PrefersConfiguredProviderPrice(t *testing.T) {
 	require.NoError(t, err)
 	value, ok = metaValue(t, out.Metadata, middleware.KeyCostUSDTotal)
 	require.True(t, ok, "second configured provider price must produce a cost")
-	assert.Equal(t, "0.700000", value, "resolved provider ID must select the matching price for a shared model")
+	assert.Equal(t, "0.700000000", value, "resolved provider ID must select the matching price for a shared model")
 }
 
 func TestInvoke_ConfiguredProviderPriceUsesCacheFallbackRates(t *testing.T) {
@@ -208,7 +208,7 @@ func TestInvoke_ConfiguredProviderPriceUsesCacheFallbackRates(t *testing.T) {
 
 	value, ok := metaValue(t, out.Metadata, middleware.KeyCostUSDTotal)
 	require.True(t, ok, "configured provider price must produce a cost")
-	assert.Equal(t, "0.500000", value, "cache buckets must fall back to configured input price")
+	assert.Equal(t, "0.500000000", value, "cache buckets must fall back to configured input price")
 }
 
 func TestInvoke_ZeroConfiguredPriceFallsBackToStaticTable(t *testing.T) {
@@ -231,7 +231,7 @@ func TestInvoke_ZeroConfiguredPriceFallsBackToStaticTable(t *testing.T) {
 
 	value, ok := metaValue(t, out.Metadata, middleware.KeyCostUSDTotal)
 	require.True(t, ok, "static table must price a zero-valued configured model")
-	assert.Equal(t, "0.012500", value, "zero configured price must not override static vendor pricing")
+	assert.Equal(t, "0.012500000", value, "zero configured price must not override static vendor pricing")
 }
 
 func TestInvoke_ComputesCostForKnownModel(t *testing.T) {
