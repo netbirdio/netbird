@@ -40,9 +40,16 @@ mkdir -p /usr/local/bin/
             echo "No active GUI user session (console user: '${console_user:-none}'); skipping UI launch."
             ;;
         *)
-            uid=$(id -u "$console_user")
-            echo "Launching NetBird UI as console user $console_user (uid $uid)."
-            launchctl asuser "$uid" open "$APP" || true
+            uid=$(id -u "$console_user" 2>/dev/null)
+            home_dir=$(dscl . -read "/Users/$console_user" NFSHomeDirectory 2>/dev/null | awk '{print $2}')
+            if [ -z "$uid" ] || [ -z "$home_dir" ]; then
+                echo "Could not resolve uid/home for console user '$console_user' (uid='$uid', home='$home_dir'); skipping UI launch."
+            else
+                echo "Launching NetBird UI as console user $console_user (uid $uid, home $home_dir)."
+                if ! HOME="$home_dir" launchctl asuser "$uid" open "$APP"; then
+                    echo "Failed to launch NetBird UI; it will start at next login via the per-user LaunchAgent."
+                fi
+            fi
             ;;
     esac
 
