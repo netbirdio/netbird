@@ -22,6 +22,9 @@ type NetworkMapDBStore interface {
 	GetPeers(ctx context.Context, accountId string) ([]nmdata.Peer, error)
 	GetPolicies(ctx context.Context, accountId string) ([]nmdata.Policy, error)
 	GetRoutes(ctx context.Context, accountId string) ([]nmdata.Route, error)
+	GetNameServerGroups(ctx context.Context, accountId string) ([]nmdata.NameServerGroup, error)
+	GetNetworkResources(ctx context.Context, accountId string) ([]nmdata.NetworkResource, error)
+	GetNetworkRouters(ctx context.Context, accountId string) ([]nmdata.NetworkRouter, error)
 }
 
 type NetworkMapDBStoreImpl struct {
