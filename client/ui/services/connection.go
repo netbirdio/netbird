@@ -33,9 +33,10 @@ type LoginResult struct {
 	UserCode                string `json:"userCode"`
 	VerificationURI         string `json:"verificationUri"`
 	VerificationURIComplete string `json:"verificationUriComplete"`
-	// ProfileID is the profile this login ran against, resolved here when the
-	// caller left it empty. Pass it back in WaitSSOParams so the account email
-	// lands on this profile even if the active one changes during SSO.
+	// ProfileID is the ID of the profile this login ran against, or "" when the
+	// caller named the profile itself and no ID was resolved. Pass it back in
+	// WaitSSOParams so the account email lands on this profile even if the
+	// active one changes during SSO.
 	ProfileID string `json:"profileId"`
 }
 
@@ -85,11 +86,16 @@ func (s *Connection) Login(ctx context.Context, p LoginParams) (LoginResult, err
 	// Fall back to the daemon's active profile and the current OS user.
 	profileName := p.ProfileName
 	username := p.Username
+	// Only set when the daemon told us the ID. A caller-supplied ProfileName is
+	// a handle — a display name or an ID prefix resolve too — and the state file
+	// is named after the ID, so passing a handle on would name the wrong file.
+	profileID := ""
 	if profileName == "" {
 		if active, aerr := cli.GetActiveProfile(ctx, &proto.GetActiveProfileRequest{}); aerr == nil {
 			// Address the active profile by ID (the daemon resolves it as a
 			// handle); names can collide, the ID cannot.
 			profileName = active.GetId()
+			profileID = profileName
 			if username == "" {
 				username = active.GetUsername()
 			}
@@ -130,7 +136,7 @@ func (s *Connection) Login(ctx context.Context, p LoginParams) (LoginResult, err
 		UserCode:                resp.GetUserCode(),
 		VerificationURI:         resp.GetVerificationURI(),
 		VerificationURIComplete: resp.GetVerificationURIComplete(),
-		ProfileID:               profileName,
+		ProfileID:               profileID,
 	}, nil
 }
 
