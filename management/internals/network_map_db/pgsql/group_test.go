@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	_ "embed"
 
@@ -213,6 +214,24 @@ func TestGetAccountZones(t *testing.T) {
 	// 	groups,
 	// 	nmdata.Group{Name: "All", PublicID: "d9aejspvcsu517nkh4a0", Resources: []nmdata.Resource{{ID: "cui7olrl0ubs73d8qpe0", Type: "subnet"}, {ID: "cui7q2jl0ubs73d8qpi0", Type: "host"}}},
 	// )
+}
+
+func TestGetAccountSetings(t *testing.T) {
+	ctx := context.TODO()
+
+	s, err := NewPostgresqlStore(ctx, "postgresql://root:netbird@localhost:5432/netbird")
+	assert.NoError(t, err)
+	//	err = loadSQL(ctx, s.pool, initDb)
+	//assert.NoError(t, err)
+
+	settings, err := s.GetAccountSettings(ctx, "d5n27dafadhs73bt5ovg") //"ckd7ee2fic3c73dtendg")
+	assert.NoError(t, err)
+	assert.Equal(t, nmdata.AccountSettingsInfo{
+		PeerLoginExpirationEnabled:      true,
+		PeerLoginExpiration:             86400000000000 * time.Nanosecond,
+		PeerInactivityExpirationEnabled: true,
+		PeerInactivityExpiration:        600000000000 * time.Nanosecond,
+	}, settings)
 }
 
 func loadSQL(ctx context.Context, pool *pgxpool.Pool, initdb string) error {
