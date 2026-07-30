@@ -105,7 +105,9 @@ func (nw *NetworkMonitor) Listen(ctx context.Context) (err error) {
 		case watchErr := <-watchErrors:
 			timer.Stop()
 			if errors.Is(watchErr, context.Canceled) {
-				return ctx.Err()
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					return ctxErr
+				}
 			}
 			return fmt.Errorf("watch network changes: %w", watchErr)
 		case <-ctx.Done():

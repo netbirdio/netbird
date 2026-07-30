@@ -185,3 +185,20 @@ func TestNetworkMonitor_WatcherError(t *testing.T) {
 		t.Fatalf("Listen() error = %v, want wrapped %v", err, watcherErr)
 	}
 }
+
+func TestNetworkMonitor_WatcherCanceledWithoutListenerCancellation(t *testing.T) {
+	useTestNextHop(t)
+
+	previousCheckChangeFn := checkChangeFn
+	checkChangeFn = func(context.Context, systemops.Nexthop, systemops.Nexthop) error {
+		return context.Canceled
+	}
+	t.Cleanup(func() {
+		checkChangeFn = previousCheckChangeFn
+	})
+
+	err := New().Listen(context.Background())
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Listen() error = %v, want wrapped %v", err, context.Canceled)
+	}
+}
