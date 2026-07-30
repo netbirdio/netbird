@@ -41,9 +41,6 @@ const (
 	PublicCategory  = "public"
 	PrivateCategory = "private"
 	UnknownCategory = "unknown"
-
-	// vncInternalPort is the internal port the VNC server listens on (behind DNAT from 5900).
-	vncInternalPort = 25900
 )
 
 // AccountMeta is a struct that contains a stripped down version of the Account object.
