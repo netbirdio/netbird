@@ -37,23 +37,25 @@
 // Updater Process (Setup):
 //
 //  1. Receives parameters from service via command-line arguments
-//  2. Runs installer with appropriate silent/quiet flags:
+//  2. Terminates the UI so the installer does not have to replace a locked image
+//     file, which would otherwise leave the install needing a reboot
+//  3. Runs installer with appropriate silent/quiet flags:
 //     - Windows EXE: installer.exe /S
-//     - Windows MSI: msiexec.exe /i installer.msi /quiet /qn /l*v msi.log
+//     - Windows MSI: msiexec.exe /i installer.msi /qn /norestart REBOOT=ReallySuppress /l*v msi.log
 //     - macOS PKG: installer -pkg installer.pkg -target /
 //     - macOS Homebrew: brew upgrade netbirdio/tap/netbird
-//  3. Installer terminates daemon and UI processes
-//  4. Installer replaces binaries with new version
-//  5. Updater waits for installer to complete
-//  6. Updater restarts daemon:
+//  4. Installer terminates the daemon
+//  5. Installer replaces binaries with new version
+//  6. Updater waits for installer to complete
+//  7. Updater restarts daemon:
 //     - Windows: netbird.exe service start
 //     - macOS/Linux: netbird service start
-//  7. Updater restarts UI:
+//  8. Updater restarts UI:
 //     - Windows: Launches netbird-ui.exe as active console user using CreateProcessAsUser
 //     - macOS: Uses launchctl asuser to launch NetBird.app for console user
 //     - Linux: Not implemented (UI typically auto-starts)
-//  8. Updater writes result.json with success/error status
-//  9. Updater process exits
+//  9. Updater writes result.json with success/error status
+//  10. Updater process exits
 //
 // # Result Communication
 //
