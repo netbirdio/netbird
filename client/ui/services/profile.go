@@ -6,6 +6,8 @@ import (
 	"context"
 	"os/user"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
 )
@@ -151,11 +153,26 @@ func (s *Profiles) Remove(ctx context.Context, p ProfileRef) error {
 	if err != nil {
 		return err
 	}
-	_, err = cli.RemoveProfile(ctx, &proto.RemoveProfileRequest{
+	if _, err = cli.RemoveProfile(ctx, &proto.RemoveProfileRequest{
 		ProfileName: p.ProfileName,
 		Username:    p.Username,
-	})
-	return err
+	}); err != nil {
+		return err
+	}
+
+	// The daemon deletes what it owns but runs as root, so it leaves the
+	// user-owned state file holding the account email behind (same split as
+	// Connection.Logout). Legacy profiles are keyed by name rather than by a
+	// generated ID, so a recreated profile of the same name would inherit the
+	// deleted one's email and offer it as the login_hint.
+	if p.ProfileName != "" {
+		if err := profilemanager.NewProfileManager().RemoveProfileState(p.ProfileName); err != nil {
+			// Non-fatal: the profile itself is gone.
+			log.Warnf("failed to remove profile state for %s: %v", p.ProfileName, err)
+		}
+	}
+
+	return nil
 }
 
 // Rename changes a profile's display name. The on-disk ID is unaffected, so
