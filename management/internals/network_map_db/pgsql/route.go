@@ -36,7 +36,7 @@ func (pg *PgStore) GetRoutes(ctx context.Context, accountId string) ([]nmdata.Ro
 	for _, r := range routes {
 		route := nmdata.Route{}
 		err := networkmapdb.FromSqlTypesToSharedTypes(
-			reflect.ValueOf(&r).Elem(), reflect.ValueOf(&route).Elem())
+			reflect.ValueOf(&r), reflect.ValueOf(&route))
 		if err != nil {
 			return nil, err
 		}

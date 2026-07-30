@@ -32,7 +32,7 @@ func (pg *PgStore) GetNetwork(ctx context.Context, accountId string) (nmdata.Net
 
 	toret := nmdata.Network{}
 	err = networkmapdb.FromSqlTypesToSharedTypes(
-		reflect.ValueOf(&n).Elem(), reflect.ValueOf(&toret).Elem())
+		reflect.ValueOf(&n), reflect.ValueOf(&toret))
 	if err != nil {
 		return nmdata.Network{}, err
 	}

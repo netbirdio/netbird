@@ -36,7 +36,7 @@ func (pg *PgStore) GetPeers(ctx context.Context, accountId string) ([]nmdata.Pee
 	for _, p := range peers {
 		dp := nmdata.Peer{}
 		err := networkmapdb.FromSqlTypesToSharedTypes(
-			reflect.ValueOf(&p).Elem(), reflect.ValueOf(&dp).Elem())
+			reflect.ValueOf(&p), reflect.ValueOf(&dp))
 		if err != nil {
 			return nil, err
 		}

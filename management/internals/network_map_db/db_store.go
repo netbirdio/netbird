@@ -33,7 +33,7 @@ type NetworkMapDBStoreImpl struct {
 }
 
 func FromSqlTypesToSharedTypes(src reflect.Value, dst reflect.Value) error {
-	typ := src.Type()
+	typ := src.Elem().Type()
 
 	for i := 0; i < typ.NumField(); i++ {
 		f := typ.Field(i)
@@ -56,13 +56,12 @@ func FromSqlTypesToSharedTypes(src reflect.Value, dst reflect.Value) error {
 			dstFieldName = override
 		}
 
-		dstField := dst.FieldByName(dstFieldName)
+		dstField := dst.Elem().FieldByName(dstFieldName)
 		if !dstField.IsValid() {
-			return errors.New("invalid field in destination type: " + dstFieldName)
+			return errors.New("unsupported type in destination field: " + dstFieldName)
 		}
 
-		srcField := src.Field(i)
-
+		srcField := src.Elem().Field(i)
 		srcFieldType := srcField.Type().String()
 		switch srcFieldType {
 		case "string":
@@ -96,6 +95,10 @@ func FromSqlTypesToSharedTypes(src reflect.Value, dst reflect.Value) error {
 		case "json.RawMessage":
 			s := srcField.Interface().(json.RawMessage)
 			json.Unmarshal(s, dstField.Addr().Interface())
+		case "[]string":
+			dstv := reflect.MakeSlice(dstField.Type(), srcField.Len(), srcField.Cap())
+			reflect.Copy(dstv, srcField)
+			dstField.Set(dstv)
 		}
 	}
 

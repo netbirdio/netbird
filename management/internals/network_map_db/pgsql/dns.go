@@ -2,8 +2,6 @@ package networkmap_pgsql
 
 import (
 	"context"
-	"database/sql"
-	"encoding/json"
 	"reflect"
 
 	"github.com/jackc/pgx/v5"
@@ -12,14 +10,14 @@ import (
 )
 
 const (
-	GetNameserversQuery = `
+	GetCustomZonesQuery = `
 	select id, public_id, name, description, name_servers, groups, "primary", domains, enabled, search_domains_enabled
 	from name_server_groups
 	where account_id=$1
 	`
 )
 
-func (pg *PgStore) GetNameServerGroups(ctx context.Context, accountId string) ([]nmdata.NameServerGroup, error) {
+func (pg *PgStore) GetCustomZones(ctx context.Context, accountId string) ([]nmdata.NameServerGroup, error) {
 	rows, err := pg.pool.Query(ctx, GetNameserversQuery, accountId)
 	if err != nil {
 		return nil, err
@@ -41,17 +39,4 @@ func (pg *PgStore) GetNameServerGroups(ctx context.Context, accountId string) ([
 		toret = append(toret, group)
 	}
 	return toret, nil
-}
-
-type nameserverGroup struct {
-	ID                   string
-	PublicID             sql.NullString
-	Name                 sql.NullString
-	Description          sql.NullString
-	NameServers          json.RawMessage
-	Groups               json.RawMessage
-	Primary              sql.NullBool
-	Domains              json.RawMessage
-	Enabled              sql.NullBool
-	SearchDomainsEnabled sql.NullBool
 }

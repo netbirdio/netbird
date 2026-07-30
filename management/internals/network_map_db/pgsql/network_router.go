@@ -34,7 +34,7 @@ func (pg *PgStore) GetNetworkRouters(ctx context.Context, accountId string) ([]n
 	for _, nrt := range netrouters {
 		router := nmdata.NetworkRouter{}
 		err := networkmapdb.FromSqlTypesToSharedTypes(
-			reflect.ValueOf(&nrt).Elem(), reflect.ValueOf(&router).Elem())
+			reflect.ValueOf(&nrt), reflect.ValueOf(&router))
 		if err != nil {
 			return nil, err
 		}

@@ -34,7 +34,7 @@ func (pg *PgStore) GetNetworkResources(ctx context.Context, accountId string) ([
 	for _, nres := range netresorces {
 		resource := nmdata.NetworkResource{}
 		err := networkmapdb.FromSqlTypesToSharedTypes(
-			reflect.ValueOf(&nres).Elem(), reflect.ValueOf(&resource).Elem())
+			reflect.ValueOf(&nres), reflect.ValueOf(&resource))
 		if err != nil {
 			return nil, err
 		}

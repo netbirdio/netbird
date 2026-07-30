@@ -34,7 +34,7 @@ func (pg *PgStore) GetGroups(ctx context.Context, accountId string) ([]nmdata.Gr
 	for _, g := range groups {
 		dg := nmdata.Group{}
 		err := networkmapdb.FromSqlTypesToSharedTypes(
-			reflect.ValueOf(&g).Elem(), reflect.ValueOf(&dg).Elem())
+			reflect.ValueOf(&g), reflect.ValueOf(&dg))
 		if err != nil {
 			return nil, err
 		}

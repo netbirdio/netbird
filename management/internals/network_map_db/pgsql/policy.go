@@ -37,7 +37,7 @@ func (pg *PgStore) GetPolicies(ctx context.Context, accountId string) ([]nmdata.
 	for _, p := range policies {
 		policy := nmdata.Policy{}
 		err := networkmapdb.FromSqlTypesToSharedTypes(
-			reflect.ValueOf(&p).Elem(), reflect.ValueOf(&policy).Elem())
+			reflect.ValueOf(&p), reflect.ValueOf(&policy))
 		if err != nil {
 			return nil, err
 		}
