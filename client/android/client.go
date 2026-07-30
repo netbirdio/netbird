@@ -57,6 +57,12 @@ type DnsReadyListener interface {
 	dns.ReadyListener
 }
 
+// TunSettings is a snapshot of the settings the TUN device is rebuilt with
+type TunSettings struct {
+	Routes        string
+	SearchDomains string
+}
+
 func init() {
 	formatter.SetLogcatFormatter(log.StandardLogger())
 }
@@ -238,6 +244,24 @@ func (c *Client) RenewTun(fd int) error {
 	}
 
 	return e.RenewTun(fd)
+}
+
+func (c *Client) GetTunSettings() (*TunSettings, error) {
+	cc := c.getConnectClient()
+	if cc == nil {
+		return nil, fmt.Errorf("engine not running")
+	}
+
+	e := cc.Engine()
+	if e == nil {
+		return nil, fmt.Errorf("engine not initialized")
+	}
+
+	routes, searchDomains := e.TunSettings()
+	return &TunSettings{
+		Routes:        strings.Join(routes, ";"),
+		SearchDomains: strings.Join(searchDomains, ";"),
+	}, nil
 }
 
 // DebugBundle generates a debug bundle, uploads it, and returns the upload key.

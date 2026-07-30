@@ -35,6 +35,11 @@ func (m *MockManager) InitialRouteRange() []string {
 	return nil
 }
 
+// CurrentRouteRange mock implementation of CurrentRouteRange from Manager interface
+func (m *MockManager) CurrentRouteRange() []string {
+	return nil
+}
+
 // UpdateRoutes mock implementation of UpdateRoutes from Manager interface
 func (m *MockManager) UpdateRoutes(updateSerial uint64, newRoutes map[route.ID]*route.Route, clientRoutes route.HAMap, useNewDNSRoute bool) error {
 	if m.UpdateRoutesFunc != nil {

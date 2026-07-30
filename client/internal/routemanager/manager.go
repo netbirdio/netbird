@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"runtime"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -63,6 +64,7 @@ type Manager interface {
 	GetClientRoutesWithNetID() map[route.NetID][]*route.Route
 	SetRouteChangeListener(listener listener.NetworkChangeListener)
 	InitialRouteRange() []string
+	CurrentRouteRange() []string
 	SetFirewall(firewall.Manager) error
 	SetDNSForwarderPort(port uint16)
 	ReconcilePeerAllowedIPs(peerKey string) error
@@ -191,7 +193,7 @@ func (m *DefaultManager) enableFakeIPRoutes() []*route.Route {
 		NetworkType: route.IPv6Network,
 	}
 	fakeRoutes := []*route.Route{fakeIPRoute, fakeIPv6Route}
-	m.notifier.SetFakeIPRoutes(fakeRoutes)
+	m.notifier.NotifyRouteChange()
 	return fakeRoutes
 }
 
@@ -511,6 +513,34 @@ func (m *DefaultManager) SetRouteChangeListener(listener listener.NetworkChangeL
 // InitialRouteRange return the list of initial routes. It used by mobile systems
 func (m *DefaultManager) InitialRouteRange() []string {
 	return m.notifier.GetInitialRouteRanges()
+}
+
+// CurrentRouteRange returns the current TUN route list. It is used by mobile systems
+func (m *DefaultManager) CurrentRouteRange() []string {
+	m.mux.Lock()
+	defer m.mux.Unlock()
+
+	if m.disableClientRoutes {
+		return nil
+	}
+
+	filtered := m.routeSelector.FilterSelectedExitNodes(m.clientRoutes)
+	var nets []string
+	for _, routes := range filtered {
+		for _, r := range routes {
+			if r.IsDynamic() {
+				continue
+			}
+			nets = append(nets, r.NetString())
+		}
+	}
+
+	if m.fakeIPManager != nil {
+		nets = append(nets, m.fakeIPManager.GetFakeIPBlock().String(), m.fakeIPManager.GetFakeIPv6Block().String())
+	}
+
+	sort.Strings(nets)
+	return nets
 }
 
 // GetRouteSelector returns the route selector
