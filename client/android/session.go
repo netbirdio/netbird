@@ -278,7 +278,7 @@ func (c *Client) endExtend() {
 }
 
 func (c *Client) extendAuthSession(ctx context.Context, urlOpener URLOpener, isAndroidTV bool) error {
-	cfg, _, cc := c.stateSnapshot()
+	cfg, cfgPath, cc := c.authSnapshot()
 	if cfg == nil || cc == nil {
 		return fmt.Errorf("engine is not running")
 	}
@@ -296,7 +296,7 @@ func (c *Client) extendAuthSession(ctx context.Context, urlOpener URLOpener, isA
 	// Passing the config path makes the flow pick up the login_hint: an extend
 	// renews the session of the account already signed in, so it must not stop to
 	// offer a choice.
-	a := NewAuthWithConfig(ctx, cfg, c.configPathSnapshot())
+	a := NewAuthWithConfig(ctx, cfg, cfgPath)
 	tokenInfo, err := a.foregroundGetTokenInfo(authClient, urlOpener, isAndroidTV)
 	if err != nil {
 		return fmt.Errorf("interactive sso login failed: %v", err)
