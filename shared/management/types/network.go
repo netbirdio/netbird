@@ -48,6 +48,10 @@ type NetworkMap struct {
 	ForwardingRules     []*ForwardingRule
 	AuthorizedUsers     map[string]map[string]struct{}
 	EnableSSH           bool
+	// ForceRoutingPeerDNSResolution forces the peer to run/use routing-peer DNS
+	// resolution regardless of the account-global setting, for reverse-proxy
+	// domain targets.
+	ForceRoutingPeerDNSResolution bool
 }
 
 func (nm *NetworkMap) Merge(other *NetworkMap) {
@@ -57,6 +61,7 @@ func (nm *NetworkMap) Merge(other *NetworkMap) {
 	nm.FirewallRules = util.MergeUnique(nm.FirewallRules, other.FirewallRules)
 	nm.RoutesFirewallRules = util.MergeUnique(nm.RoutesFirewallRules, other.RoutesFirewallRules)
 	nm.ForwardingRules = util.MergeUnique(nm.ForwardingRules, other.ForwardingRules)
+	nm.ForceRoutingPeerDNSResolution = nm.ForceRoutingPeerDNSResolution || other.ForceRoutingPeerDNSResolution
 }
 
 func mergeUniquePeersByID(peers1, peers2 []*nmdata.Peer) []*nmdata.Peer {

@@ -104,5 +104,9 @@ func (a *Account) GetPeerNetworkMapComponents(
 	groupIDToUserIDs map[string][]string,
 ) *NetworkMapComponents {
 	nmd := a.toNetworkMapData(accountZones, validatedPeersMap, resourcePolicies, routers, groupIDToUserIDs)
-	return nmd.GetPeerNetworkMapComponents(peerID, toTwinCustomZone(peersCustomZone))
+	components := nmd.GetPeerNetworkMapComponents(peerID, toTwinCustomZone(peersCustomZone))
+	if components != nil {
+		components.ForceRoutingPeerDNSResolution = a.forcesRoutingPeerDNSResolution(peerID, routers)
+	}
+	return components
 }
