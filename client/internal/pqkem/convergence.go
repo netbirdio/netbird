@@ -208,9 +208,10 @@ func (m *Manager) initiatorLoop(ctx context.Context, remoteID RemoteID, id Excha
 			case stateAwaitingAnswer:
 				if attempts >= m.maxRetries {
 					delete(m.exchanges, remoteID)
+					initial := !m.established[remoteID]
 					fail := m.registerFailureLocked(remoteID)
 					m.mu.Unlock()
-					m.raiseFailure(remoteID, fail)
+					m.raiseFailure(remoteID, fail, initial)
 					return
 				}
 				viaSignal := ex.viaSignal
@@ -251,10 +252,18 @@ func (m *Manager) registerFailureLocked(remoteID RemoteID) bool {
 	return false
 }
 
-func (m *Manager) raiseFailure(remoteID RemoteID, fail bool) {
+// raiseFailure reports a convergence failure. initial distinguishes a never-established
+// peer (bootstrap failed → no PQ PSK at all; in strict mode the peer stays blocked =
+// "stuck") from a rekey failure (a previous PSK is still in force and traffic continues).
+func (m *Manager) raiseFailure(remoteID RemoteID, fail, initial bool) {
 	if !fail {
 		m.logger.Warn("pqkem: rekey attempt timed out, will retry next cycle", "peer", remoteID)
 		return
+	}
+	if initial {
+		m.logger.Warn("pqkem: initial exchange failed — no PQ PSK established for peer (strict mode keeps the peer blocked until it converges)", "peer", remoteID)
+	} else {
+		m.logger.Warn("pqkem: rekey failed after retries — staying on the previous PSK", "peer", remoteID)
 	}
 	if err := m.cbHandler.OnRekeyFailed(remoteID); err != nil {
 		m.logger.Error("pqkem: OnRekeyFailed handler error", "peer", remoteID, "err", err)
