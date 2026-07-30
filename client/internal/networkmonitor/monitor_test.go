@@ -16,6 +16,18 @@ type MocMultiEvent struct {
 	watcherExited chan struct{}
 }
 
+func useTestNextHop(t *testing.T) {
+	t.Helper()
+
+	previousGetNextHopFn := getNextHopFn
+	getNextHopFn = func(netip.Addr) (systemops.Nexthop, error) {
+		return systemops.Nexthop{Intf: &net.Interface{Name: "test"}}, nil
+	}
+	t.Cleanup(func() {
+		getNextHopFn = previousGetNextHopFn
+	})
+}
+
 func (m *MocMultiEvent) checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop) error {
 	if m.counter == 0 {
 		<-ctx.Done()
@@ -29,6 +41,8 @@ func (m *MocMultiEvent) checkChange(ctx context.Context, nexthopv4, nexthopv6 sy
 }
 
 func TestNetworkMonitor_Close(t *testing.T) {
+	useTestNextHop(t)
+
 	watcherExited := make(chan struct{})
 	checkChangeFn = func(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop) error {
 		<-ctx.Done()
@@ -55,6 +69,8 @@ func TestNetworkMonitor_Close(t *testing.T) {
 }
 
 func TestNetworkMonitor_Event(t *testing.T) {
+	useTestNextHop(t)
+
 	watcherExited := make(chan struct{})
 	checkChangeFn = func(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop) error {
 		timeout, cancel := context.WithTimeout(ctx, 3*time.Second)
@@ -85,6 +101,8 @@ func TestNetworkMonitor_Event(t *testing.T) {
 }
 
 func TestNetworkMonitor_MultiEvent(t *testing.T) {
+	useTestNextHop(t)
+
 	eventsRepeated := 3
 	me := &MocMultiEvent{counter: eventsRepeated, watcherExited: make(chan struct{})}
 	checkChangeFn = me.checkChange
