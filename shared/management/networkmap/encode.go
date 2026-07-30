@@ -144,6 +144,8 @@ func GetProtoProtocol(protocol string) proto.RuleProtocol {
 		return proto.RuleProtocol_ICMP
 	case types.PolicyRuleProtocolNetbirdSSH:
 		return proto.RuleProtocol_NETBIRD_SSH
+	case types.PolicyRuleProtocolNetbirdVNC:
+		return proto.RuleProtocol_NETBIRD_VNC
 	default:
 		return proto.RuleProtocol_UNKNOWN
 	}

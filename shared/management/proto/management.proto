@@ -676,6 +676,12 @@ enum RuleProtocol {
   // ships RAW policies — the client must see this protocol to derive
   // AuthorizedUsers locally.
   NETBIRD_SSH = 6;
+  // NETBIRD_VNC (types.PolicyRuleProtocolType "netbird-vnc") is the marker
+  // policy rule that authorizes the embedded VNC server, for the same reason
+  // NETBIRD_SSH is shipped: the components path ships RAW policies, so the
+  // client must see this protocol to derive VNCAuthorizedUsers and the VNC
+  // port scoping locally.
+  NETBIRD_VNC = 7;
 }
 
 enum RuleDirection {
@@ -1105,6 +1111,14 @@ message PolicyCompact {
   // are dropped from sourcePeers). Match keys in
   // NetworkMapComponentsFull.posture_failed_peers.
   repeated string source_posture_check_ids = 13;
+
+  // Ephemeral X25519 static public key (base64) the dashboard registered for
+  // a temporary VNC session, plus the label shown in the host's approval
+  // prompt. Only set on NETBIRD_VNC rules; Calculate() turns them into the
+  // NetworkMap's VNCSessionPubKeys, which is what the daemon's Noise_IK
+  // authorizer accepts a client on.
+  string session_pub_key = 14;
+  string session_display_name = 15;
 }
 
 // ResourceCompact mirrors types.Resource. Used by PolicyCompact to carry
