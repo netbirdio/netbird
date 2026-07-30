@@ -21,7 +21,10 @@ const (
 	debounceTime = 2 * time.Second
 )
 
-var checkChangeFn = checkChange
+var (
+	checkChangeFn = checkChange
+	getNextHopFn  = systemops.GetNextHop
+)
 
 // NetworkMonitor watches for changes in network configuration.
 type NetworkMonitor struct {
@@ -54,8 +57,8 @@ func (nw *NetworkMonitor) Listen(ctx context.Context) (err error) {
 
 	operation := func() error {
 		var errv4, errv6 error
-		nexthop4, errv4 = systemops.GetNextHop(netip.IPv4Unspecified())
-		nexthop6, errv6 = systemops.GetNextHop(netip.IPv6Unspecified())
+		nexthop4, errv4 = getNextHopFn(netip.IPv4Unspecified())
+		nexthop6, errv6 = getNextHopFn(netip.IPv6Unspecified())
 
 		if errv4 != nil && errv6 != nil {
 			return errors.New("failed to get default next hops")
@@ -86,7 +89,8 @@ func (nw *NetworkMonitor) Listen(ctx context.Context) (err error) {
 	}()
 
 	event := make(chan struct{}, 1)
-	go nw.checkChanges(ctx, event, nexthop4, nexthop6)
+	watchErrors := make(chan error, 1)
+	go nw.checkChanges(ctx, event, watchErrors, nexthop4, nexthop6)
 
 	log.Infof("start watching for network changes")
 	// debounce changes
@@ -98,6 +102,12 @@ func (nw *NetworkMonitor) Listen(ctx context.Context) (err error) {
 			timer.Reset(debounceTime)
 		case <-timer.C:
 			return nil
+		case watchErr := <-watchErrors:
+			timer.Stop()
+			if errors.Is(watchErr, context.Canceled) {
+				return ctx.Err()
+			}
+			return fmt.Errorf("watch network changes: %w", watchErr)
 		case <-ctx.Done():
 			timer.Stop()
 			return ctx.Err()
@@ -118,12 +128,15 @@ func (nw *NetworkMonitor) Stop() {
 	nw.wg.Wait()
 }
 
-func (nw *NetworkMonitor) checkChanges(ctx context.Context, event chan struct{}, nexthop4 systemops.Nexthop, nexthop6 systemops.Nexthop) {
-	defer close(event)
+func (nw *NetworkMonitor) checkChanges(ctx context.Context, event chan struct{}, watchErrors chan<- error, nexthop4 systemops.Nexthop, nexthop6 systemops.Nexthop) {
 	for {
 		if err := checkChangeFn(ctx, nexthop4, nexthop6); err != nil {
 			if !errors.Is(err, context.Canceled) {
 				log.Errorf("Network monitor: failed to check for changes: %v", err)
+			}
+			select {
+			case watchErrors <- err:
+			case <-ctx.Done():
 			}
 			return
 		}
