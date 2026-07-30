@@ -262,7 +262,7 @@ func (s *BaseServer) Stop() error {
 		s.proxyAuthClose()
 		s.proxyAuthClose = nil
 	}
-	runExtensionShutdownHooks(s.grpcExtensions)
+	runExtensionShutdownHooks(ctx, s.grpcExtensions)
 	_ = s.Store().Close(ctx)
 	_ = s.EventStore().Close(ctx)
 	if s.update != nil {

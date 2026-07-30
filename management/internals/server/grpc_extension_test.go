@@ -32,7 +32,7 @@ func TestGRPCExtensionAppliedToServer(t *testing.T) {
 				return handler(ctx, req)
 			},
 		},
-		Shutdown: func() { streamShutdownCalled.Store(true) },
+		Shutdown: func(ctx context.Context) { streamShutdownCalled.Store(true) },
 	}
 	exts := []GRPCExtension{ext}
 
@@ -72,9 +72,81 @@ func TestGRPCExtensionAppliedToServer(t *testing.T) {
 		t.Errorf("extension interceptor calls = %d, want 1", unaryCalls.Load())
 	}
 
-	runExtensionShutdownHooks(exts)
+	runExtensionShutdownHooks(context.Background(), exts)
 	if !streamShutdownCalled.Load() {
 		t.Error("extension shutdown hook was not called")
+	}
+}
+
+// TestGRPCExtensionShutdownHookReceivesCallerContext asserts that each hook receives
+// a non-nil context and that it is the very same context the caller passed
+// in, so hooks can rely on values/deadlines placed on it by Stop().
+func TestGRPCExtensionShutdownHookReceivesCallerContext(t *testing.T) {
+	type sentinelKey struct{}
+	want := "shutdown-ctx-sentinel"
+	ctx := context.WithValue(context.Background(), sentinelKey{}, want)
+
+	var called bool
+	ext := GRPCExtension{
+		Shutdown: func(hookCtx context.Context) {
+			called = true
+			if hookCtx == nil {
+				t.Fatal("hook received a nil context")
+			}
+			got, _ := hookCtx.Value(sentinelKey{}).(string)
+			if got != want {
+				t.Errorf("hook context sentinel = %q, want %q (not the caller's context)", got, want)
+			}
+		},
+	}
+
+	runExtensionShutdownHooks(ctx, []GRPCExtension{ext})
+	if !called {
+		t.Fatal("shutdown hook was not called")
+	}
+}
+
+// TestGRPCExtensionShutdownHookObservesCancellation documents, by test, that
+// hooks can honor cancellation/deadlines: a hook given an already-cancelled
+// context must see ctx.Err() != nil and a closed Done() channel.
+func TestGRPCExtensionShutdownHookObservesCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	var called bool
+	ext := GRPCExtension{
+		Shutdown: func(hookCtx context.Context) {
+			called = true
+			if hookCtx.Err() == nil {
+				t.Error("hook context Err() = nil, want non-nil for a cancelled context")
+			}
+			select {
+			case <-hookCtx.Done():
+			default:
+				t.Error("hook context Done() channel is not closed for a cancelled context")
+			}
+		},
+	}
+
+	runExtensionShutdownHooks(ctx, []GRPCExtension{ext})
+	if !called {
+		t.Fatal("shutdown hook was not called")
+	}
+}
+
+// TestGRPCExtensionShutdownHookNilSkipped asserts that an extension
+// with a nil Shutdown hook is skipped without panicking, and that hooks for
+// other extensions still run.
+func TestGRPCExtensionShutdownHookNilSkipped(t *testing.T) {
+	var called atomic.Bool
+	exts := []GRPCExtension{
+		{Shutdown: nil},
+		{Shutdown: func(context.Context) { called.Store(true) }},
+	}
+
+	runExtensionShutdownHooks(context.Background(), exts)
+	if !called.Load() {
+		t.Error("shutdown hook for non-nil extension was not called")
 	}
 }
 

@@ -1,6 +1,10 @@
 package server
 
-import "google.golang.org/grpc"
+import (
+	"context"
+
+	"google.golang.org/grpc"
+)
 
 // GRPCExtension bundles an external module's contribution to the management
 // gRPC server: the registration of one or more services onto the shared
@@ -18,8 +22,14 @@ type GRPCExtension struct {
 	// StreamInterceptors are appended to the server's stream interceptor chain,
 	// running after the built-in interceptors. May be empty.
 	StreamInterceptors []grpc.StreamServerInterceptor
-	// Shutdown, if non-nil, is called once during Stop().
-	Shutdown func()
+	// Shutdown, if non-nil, is called once during Stop() with the context
+	// governing server shutdown, which carries a deadline. The hook MUST
+	// return promptly and MUST abandon its work once that context is
+	// cancelled or expires: it runs before the rest of Stop()'s cleanup
+	// (store, event store, embedded IdP) and before Stop() itself checks the
+	// context's deadline, so a hook that ignores the context will delay all
+	// of that cleanup and prevent Stop() from returning on time. May be nil.
+	Shutdown func(ctx context.Context)
 }
 
 // RegisterGRPCExtension registers a gRPC extension. Call before the gRPC server
@@ -53,11 +63,12 @@ func registerExtensions(reg grpc.ServiceRegistrar, exts []GRPCExtension) {
 	}
 }
 
-// runExtensionShutdownHooks calls each extension's shutdown hook, if set.
-func runExtensionShutdownHooks(exts []GRPCExtension) {
+// runExtensionShutdownHooks calls each extension's shutdown hook, if set,
+// passing ctx through so hooks can honor its deadline/cancellation.
+func runExtensionShutdownHooks(ctx context.Context, exts []GRPCExtension) {
 	for _, ext := range exts {
 		if ext.Shutdown != nil {
-			ext.Shutdown()
+			ext.Shutdown(ctx)
 		}
 	}
 }
