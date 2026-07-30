@@ -142,6 +142,10 @@ func (e *Engine) startVNCServer() error {
 		NetstackNet:     e.wgInterface.GetNet(),
 		RequireApproval: requireApproval,
 		Approver:        &vncApprover{broker: e.approvalBroker, statusRecorder: e.statusRecorder},
+		// Session start/stop is invisible to the peer status recorder, so push a
+		// snapshot ourselves; otherwise the UI's session list goes stale until an
+		// unrelated peer change happens to fire one.
+		OnSessionsChanged: e.statusRecorder.NotifyStateChange,
 	})
 
 	listenAddr := netip.AddrPortFrom(netbirdIP, vnc.InternalPort)
