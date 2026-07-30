@@ -113,10 +113,14 @@ func (c *Client) stateSnapshot() (*profilemanager.Config, string, *internal.Conn
 	return c.config, c.cacheDir, c.connectClient
 }
 
-func (c *Client) configPathSnapshot() string {
+// authSnapshot returns the config together with the path it was loaded from, in
+// one lock: the path identifies the profile whose account email backs the login
+// hint, so reading it separately could pair one profile's config with another's
+// hint when a profile switch lands in between.
+func (c *Client) authSnapshot() (*profilemanager.Config, string, *internal.ConnectClient) {
 	c.stateMu.RLock()
 	defer c.stateMu.RUnlock()
-	return c.cfgPath
+	return c.config, c.cfgPath, c.connectClient
 }
 
 func (c *Client) getConnectClient() *internal.ConnectClient {
