@@ -246,8 +246,11 @@ func (s *Server) serviceAcceptLoop(ln net.Listener) {
 		return
 	}
 
-	sm := newSessionManager()
-	go sm.run()
+	sm := s.serviceAgent()
+	if sm == nil {
+		s.log.Error("service mode: no agent manager available")
+		return
+	}
 
 	log.Info("service mode, proxying connections to agent over Unix socket")
 
@@ -256,7 +259,6 @@ func (s *Server) serviceAcceptLoop(ln net.Listener) {
 		if err != nil {
 			select {
 			case <-s.ctx.Done():
-				sm.Stop()
 				return
 			default:
 			}
@@ -278,4 +280,12 @@ func (s *Server) serviceAcceptLoop(ln net.Listener) {
 			s.handleServiceConnection(c, sm)
 		}(conn)
 	}
+}
+
+// newServiceAgentManager starts the session manager that owns the console
+// agent. Called once per server via Server.serviceAgent.
+func (s *Server) newServiceAgentManager() (sessionAgent, func()) {
+	sm := newSessionManager()
+	go sm.run()
+	return sm, sm.Stop
 }
