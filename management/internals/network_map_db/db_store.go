@@ -26,6 +26,7 @@ type NetworkMapDBStore interface {
 	GetNetworkResources(ctx context.Context, accountId string) ([]nmdata.NetworkResource, error)
 	GetNetworkRouters(ctx context.Context, accountId string) ([]nmdata.NetworkRouter, error)
 	GetNetwork(ctx context.Context, accountId string) (nmdata.Network, error)
+	GetAccountZones(ctx context.Context, accountId string) ([]nmdata.CustomZone, error)
 }
 
 type NetworkMapDBStoreImpl struct {
