@@ -33,12 +33,20 @@ type LoginResult struct {
 	UserCode                string `json:"userCode"`
 	VerificationURI         string `json:"verificationUri"`
 	VerificationURIComplete string `json:"verificationUriComplete"`
+	// ProfileID is the profile this login ran against, resolved here when the
+	// caller left it empty. Pass it back in WaitSSOParams so the account email
+	// lands on this profile even if the active one changes during SSO.
+	ProfileID string `json:"profileId"`
 }
 
 // WaitSSOParams are the inputs to waitSSOLogin.
 type WaitSSOParams struct {
 	UserCode string `json:"userCode"`
 	Hostname string `json:"hostname"`
+	// ProfileID is the profile the login was started for, used to file the
+	// account email against it rather than against whichever profile is active
+	// when the flow returns. Optional: empty falls back to the active profile.
+	ProfileID string `json:"profileId"`
 }
 
 // UpParams selects the profile to bring up.
@@ -122,6 +130,7 @@ func (s *Connection) Login(ctx context.Context, p LoginParams) (LoginResult, err
 		UserCode:                resp.GetUserCode(),
 		VerificationURI:         resp.GetVerificationURI(),
 		VerificationURIComplete: resp.GetVerificationURIComplete(),
+		ProfileID:               profileName,
 	}, nil
 }
 
@@ -250,11 +259,20 @@ func (s *Connection) waitSSOLogin(ctx context.Context, p WaitSSOParams) (string,
 	// and later logins and session extends go out without a login_hint —
 	// leaving the IdP to guess which account was meant.
 	if email := resp.GetEmail(); email != "" {
-		if err := profilemanager.NewProfileManager().SetActiveProfileState(&profilemanager.ProfileState{
-			Email: email,
-		}); err != nil {
+		state := &profilemanager.ProfileState{Email: email}
+		pm := profilemanager.NewProfileManager()
+
+		// Against the profile the login was started for: SSO spans seconds of
+		// user interaction, and a profile switch in that window would otherwise
+		// file the email under the wrong profile.
+		if p.ProfileID != "" {
+			err = pm.SetProfileState(profilemanager.ID(p.ProfileID), state)
+		} else {
+			err = pm.SetActiveProfileState(state)
+		}
+		if err != nil {
 			// Non-fatal: the login itself succeeded.
-			log.Warnf("failed to store account email for the active profile: %v", err)
+			log.Warnf("failed to store account email: %v", err)
 		}
 	}
 
