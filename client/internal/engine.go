@@ -1931,6 +1931,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix, agentV
 	}
 	if e.pqkemManager != nil {
 		config.PQ = pqHandshaker{mgr: e.pqkemManager}
+		config.PQStrict = pqkem.Strict()
 	}
 
 	serviceDependencies := peer.ServiceDependencies{
