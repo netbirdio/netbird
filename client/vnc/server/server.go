@@ -183,8 +183,15 @@ type Server struct {
 	ctx            context.Context
 	cancel         context.CancelFunc
 	vmgr           virtualSessionManager
-	authorizer     *sshauth.Authorizer
-	netstackNet    *netstack.Net
+	// serviceAgentMu guards the shared per-session agent manager below, which
+	// every service-mode accept loop resolves through; see Server.serviceAgent.
+	// Its own mutex rather than mu: Stop holds mu while tearing it down.
+	serviceAgentMu      sync.Mutex
+	serviceAgentMgr     sessionAgent
+	serviceAgentStop    func()
+	serviceAgentStopped bool
+	authorizer          *sshauth.Authorizer
+	netstackNet         *netstack.Net
 	// agentToken holds the raw token bytes for agent-mode auth.
 	agentToken []byte
 	// invalidAgentToken latches when AgentTokenHex was provided but failed
@@ -709,6 +716,8 @@ func (s *Server) Stop() error {
 	if s.vmgr != nil {
 		s.vmgr.StopAll()
 	}
+
+	s.stopServiceAgent()
 
 	if s.serviceMode {
 		s.platformShutdown()

@@ -21,3 +21,9 @@ func (s *Server) platformSessionManager() virtualSessionManager {
 func (s *Server) platformShutdown() {
 	// no-op on this platform
 }
+
+// newServiceAgentManager has no service mode to manage on this platform;
+// serviceAcceptLoop falls back to direct mode and never asks for it.
+func (s *Server) newServiceAgentManager() (sessionAgent, func()) {
+	return nil, nil
+}

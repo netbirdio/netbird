@@ -29,8 +29,11 @@ func (s *Server) serviceAcceptLoop(ln net.Listener) {
 		return
 	}
 
-	mgr := newDarwinAgentManager(s.ctx)
-	defer mgr.stop()
+	mgr := s.serviceAgent()
+	if mgr == nil {
+		s.log.Error("service mode: no agent manager available")
+		return
+	}
 
 	log.Info("service mode, proxying connections to per-user agent over Unix socket")
 
@@ -60,4 +63,11 @@ func (s *Server) serviceAcceptLoop(ln net.Listener) {
 			s.handleServiceConnection(c, mgr)
 		}(conn)
 	}
+}
+
+// newServiceAgentManager starts the manager that owns the per-user agent.
+// Called once per server via Server.serviceAgent.
+func (s *Server) newServiceAgentManager() (sessionAgent, func()) {
+	mgr := newDarwinAgentManager(s.ctx)
+	return mgr, mgr.stop
 }

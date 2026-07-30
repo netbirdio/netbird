@@ -24,16 +24,6 @@ import (
 // browser can show a meaningful message.
 var errNoConsoleUser = errors.New("no user logged into console")
 
-// sessionAgent abstracts the per-platform manager that spawns and tracks
-// the user-session VNC agent. Resolve returns the agent's Unix-socket
-// path, the shared per-spawn token, and the uid the agent was spawned
-// under (used to validate peer credentials before the daemon hands the
-// token to whoever is on the other end of the socket). Resolve may spawn
-// the agent lazily.
-type sessionAgent interface {
-	Resolve(ctx context.Context) (socketPath, token string, peerUID uint32, err error)
-}
-
 // prefixConn replays already-consumed header bytes ahead of the proxy
 // stream by swapping in a different Reader on the same underlying Conn.
 type prefixConn struct {
