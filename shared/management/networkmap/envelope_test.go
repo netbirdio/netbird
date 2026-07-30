@@ -86,6 +86,77 @@ func TestCalculate_FirewallRuleProtocol_NeverNetbirdSSH(t *testing.T) {
 	}
 }
 
+// A netbird-vnc policy must survive the components round trip and come out as
+// VncAuth on the client side. The daemon's VNC authorizer reads only that
+// field, so a components-path peer without it refuses every VNC connection —
+// the feature would be silently dead for capability-advertising peers while
+// working fine on the legacy path.
+func TestEnvelopeToNetworkMap_VNCPolicyProducesVncAuth(t *testing.T) {
+	c, localPeerKey := buildSmokeComponents(t)
+	c.GroupIDToUserIDs = map[string][]string{"1": {"user-1"}}
+	c.Policies = []*types.Policy{{
+		ID: "pol-vnc", PublicID: "2", Enabled: true,
+		Rules: []*types.PolicyRule{{
+			ID:                 "rule-vnc",
+			Enabled:            true,
+			Action:             types.PolicyTrafficActionAccept,
+			Protocol:           types.PolicyRuleProtocolNetbirdVNC,
+			Bidirectional:      true,
+			Sources:            []string{"group-all"},
+			Destinations:       []string{"group-all"},
+			AuthorizedUser:     "user-1",
+			SessionPubKey:      base64.StdEncoding.EncodeToString(make([]byte, 32)),
+			SessionDisplayName: "Alice",
+		}},
+	}}
+
+	result := roundTripComponents(t, c, localPeerKey)
+
+	require.NotNil(t, result.NetworkMap.VncAuth, "netbird-vnc policy must produce VncAuth")
+	require.NotEmpty(t, result.NetworkMap.VncAuth.AuthorizedUsers, "authorized users must survive the round trip")
+	require.Len(t, result.NetworkMap.VncAuth.SessionPubKeys, 1, "the session pubkey must survive the round trip")
+	pk := result.NetworkMap.VncAuth.SessionPubKeys[0]
+	require.Len(t, pk.PubKey, 32, "pubkey must be decoded to raw 32 bytes")
+	require.NotEmpty(t, pk.UserIdHash, "user id must be hashed for the authorizer")
+	require.Equal(t, "Alice", pk.DisplayName)
+
+	// The VNC marker protocol must not reach the firewall rules, for the same
+	// reason NetbirdSSH must not: agents fall into UNKNOWN-protocol handling.
+	for i, fr := range result.NetworkMap.FirewallRules {
+		require.NotEqualf(t, proto.RuleProtocol_NETBIRD_VNC, fr.Protocol,
+			"FirewallRules[%d].Protocol must be the rewritten TCP, not NETBIRD_VNC", i)
+	}
+}
+
+// A policy that authorizes nothing VNC-related must leave VncAuth unset, so the
+// authorizer keeps refusing rather than being handed an empty allow-list to
+// interpret.
+func TestEnvelopeToNetworkMap_NoVNCPolicyLeavesVncAuthUnset(t *testing.T) {
+	c, localPeerKey := buildSmokeComponents(t)
+	result := roundTripComponents(t, c, localPeerKey)
+	require.Nil(t, result.NetworkMap.VncAuth, "a non-VNC policy set must not produce VncAuth")
+}
+
+// roundTripComponents encodes c as an envelope, pushes it through the wire, and
+// decodes it the way a client does.
+func roundTripComponents(t *testing.T, c *types.NetworkMapComponents, localPeerKey string) *nbnetworkmap.EnvelopeResult {
+	t.Helper()
+	envelope := mgmtgrpc.EncodeNetworkMapEnvelope(mgmtgrpc.ComponentsEnvelopeInput{
+		Components: c,
+		DNSDomain:  "netbird.cloud",
+	})
+	wire, err := goproto.Marshal(envelope)
+	require.NoError(t, err, "marshal envelope")
+	var decoded proto.NetworkMapEnvelope
+	require.NoError(t, goproto.Unmarshal(wire, &decoded), "unmarshal envelope")
+
+	result, err := nbnetworkmap.EnvelopeToNetworkMap(context.Background(), &decoded, localPeerKey, "netbird.cloud")
+	require.NoError(t, err, "EnvelopeToNetworkMap")
+	require.NotNil(t, result)
+	require.NotNil(t, result.NetworkMap)
+	return result
+}
+
 func TestEnvelopeToNetworkMap_NilEnvelope(t *testing.T) {
 	_, err := nbnetworkmap.EnvelopeToNetworkMap(context.Background(), nil, "key", "netbird.cloud")
 	require.Error(t, err, "nil envelope must produce an error rather than panic")
