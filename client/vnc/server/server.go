@@ -209,6 +209,9 @@ type Server struct {
 	sessionSeq   uint64
 	sessions     map[uint64]ActiveSessionInfo
 	sessionConns map[uint64]net.Conn
+	// onSessionsChanged wakes the daemon's status subscribers after the
+	// session set changes; see Config.OnSessionsChanged.
+	onSessionsChanged func()
 	// acceptedConns tracks every connection between Accept() and handler
 	// return, including connections still in the connection-header /
 	// handshake phase that have not yet been registered in sessionConns.
@@ -303,6 +306,13 @@ type Config struct {
 	// addr/network args to Start are then ignored. The agent uses this to
 	// listen on a Unix socket.
 	Listener net.Listener
+
+	// OnSessionsChanged, when set, is called after a session is added or
+	// removed. The daemon uses it to wake its status subscribers: session
+	// lifecycle is invisible to the peer status recorder, so without it the
+	// UI keeps showing the previous session list until some unrelated peer
+	// change happens to push a snapshot.
+	OnSessionsChanged func()
 	// RequireApproval gates each accepted connection on a user-side accept
 	// prompt before the proxy/session starts. Requires Approver to be set;
 	// otherwise the gate fails closed.
@@ -344,23 +354,24 @@ type ApprovalInfo struct {
 // auth. The protocol-level VNC password scheme is not supported.
 func New(cfg Config) *Server {
 	s := &Server{
-		capturer:        cfg.Capturer,
-		injector:        cfg.Injector,
-		identityKey:     cfg.IdentityKey,
-		serviceMode:     cfg.ServiceMode,
-		sessionRecorder: cfg.SessionRecorder,
-		requireApproval: cfg.RequireApproval,
-		approver:        cfg.Approver,
-		disableAuth:     cfg.DisableAuth,
-		netstackNet:     cfg.NetstackNet,
-		preListener:     cfg.Listener,
-		authorizer:      sshauth.NewAuthorizer(),
-		log:             log.WithField("component", "vnc-server"),
-		sessions:        make(map[uint64]ActiveSessionInfo),
-		sessionConns:    make(map[uint64]net.Conn),
-		acceptedConns:   make(map[net.Conn]struct{}),
-		connAuth:        make(map[net.Conn]connAuthInfo),
-		connSem:         make(chan struct{}, maxConcurrentVNCConns),
+		capturer:          cfg.Capturer,
+		injector:          cfg.Injector,
+		identityKey:       cfg.IdentityKey,
+		serviceMode:       cfg.ServiceMode,
+		sessionRecorder:   cfg.SessionRecorder,
+		requireApproval:   cfg.RequireApproval,
+		approver:          cfg.Approver,
+		disableAuth:       cfg.DisableAuth,
+		netstackNet:       cfg.NetstackNet,
+		preListener:       cfg.Listener,
+		authorizer:        sshauth.NewAuthorizer(),
+		log:               log.WithField("component", "vnc-server"),
+		sessions:          make(map[uint64]ActiveSessionInfo),
+		sessionConns:      make(map[uint64]net.Conn),
+		onSessionsChanged: cfg.OnSessionsChanged,
+		acceptedConns:     make(map[net.Conn]struct{}),
+		connAuth:          make(map[net.Conn]connAuthInfo),
+		connSem:           make(chan struct{}, maxConcurrentVNCConns),
 	}
 	if len(cfg.IdentityKey) == 32 {
 		pub, err := curve25519.X25519(cfg.IdentityKey, curve25519.Basepoint)
@@ -394,19 +405,33 @@ func (s *Server) ActiveSessions() []ActiveSessionInfo {
 
 func (s *Server) addSession(info ActiveSessionInfo, conn net.Conn) uint64 {
 	s.sessionsMu.Lock()
-	defer s.sessionsMu.Unlock()
 	s.sessionSeq++
 	id := s.sessionSeq
 	s.sessions[id] = info
 	s.sessionConns[id] = conn
+	s.sessionsMu.Unlock()
+
+	// After the unlock: the callback fans out to status subscribers, and
+	// nothing it reaches should be able to take sessionsMu back.
+	s.notifySessionsChanged()
 	return id
 }
 
 func (s *Server) removeSession(id uint64) {
 	s.sessionsMu.Lock()
-	defer s.sessionsMu.Unlock()
 	delete(s.sessions, id)
 	delete(s.sessionConns, id)
+	s.sessionsMu.Unlock()
+
+	s.notifySessionsChanged()
+}
+
+// notifySessionsChanged wakes the daemon's status subscribers, if the daemon
+// asked to be told.
+func (s *Server) notifySessionsChanged() {
+	if s.onSessionsChanged != nil {
+		s.onSessionsChanged()
+	}
 }
 
 // closeActiveSessions closes every accepted connection so per-connection
