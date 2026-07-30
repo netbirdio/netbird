@@ -53,9 +53,11 @@ type Privilege struct {
 	// Actor names what the operation requires ("root", "administrator privileges").
 	Actor string `json:"actor"`
 	// Commands equivalent to the settings the daemon guards, ready to copy.
-	AllowSSHServer string `json:"allowSshServer"`
-	EnableSSHRoot  string `json:"enableSshRoot"`
-	DisableSSHAuth string `json:"disableSshAuth"`
+	AllowSSHServer     string `json:"allowSshServer"`
+	EnableSSHRoot      string `json:"enableSshRoot"`
+	DisableSSHAuth     string `json:"disableSshAuth"`
+	AllowVNCServer     string `json:"allowVncServer"`
+	DisableVNCApproval string `json:"disableVncApproval"`
 }
 
 type ConfigParams struct {
@@ -233,8 +235,8 @@ func (s *Settings) SetConfig(ctx context.Context, p SetConfigParams) error {
 }
 
 // Privilege reports whether this UI process could carry out the changes the
-// daemon restricts to root/administrator, and the command that performs the one
-// users hit in the SSH settings. It applies the daemon's own rule to what it can
+// daemon restricts to root/administrator, and the command that performs each of
+// the ones users hit in the SSH and VNC settings. It applies the daemon's own rule to what it can
 // see locally, so the frontend can present those controls as unavailable up front
 // instead of letting a save fail. No daemon round-trip, so it also works while the
 // daemon is down.
@@ -259,11 +261,13 @@ func (s *Settings) Privilege() Privilege {
 
 func newPrivilege(privileged bool) Privilege {
 	return Privilege{
-		Privileged:     privileged,
-		Actor:          ipcauth.PrivilegedActor(),
-		AllowSSHServer: ipcauth.UpCommand("--allow-server-ssh"),
-		EnableSSHRoot:  ipcauth.UpCommand("--enable-ssh-root"),
-		DisableSSHAuth: ipcauth.UpCommand("--disable-ssh-auth"),
+		Privileged:         privileged,
+		Actor:              ipcauth.PrivilegedActor(),
+		AllowSSHServer:     ipcauth.UpCommand("--allow-server-ssh"),
+		EnableSSHRoot:      ipcauth.UpCommand("--enable-ssh-root"),
+		DisableSSHAuth:     ipcauth.UpCommand("--disable-ssh-auth"),
+		AllowVNCServer:     ipcauth.UpCommand("--allow-server-vnc"),
+		DisableVNCApproval: ipcauth.UpCommand("--disable-vnc-approval"),
 	}
 }
 
