@@ -106,6 +106,18 @@ type LocalPeer struct {
 	Networks []string `json:"networks"`
 }
 
+// VNCSession describes one VNC connection currently attached to this machine.
+// Surfaced so the UI can warn before an action ends a session that may be the
+// one the person is using: input injected by the VNC agent is indistinguishable
+// from local input, so the UI cannot tell whether it is being driven remotely.
+type VNCSession struct {
+	RemoteAddress string `json:"remoteAddress"`
+	Mode          string `json:"mode"`
+	// Initiator is the display name of the dashboard user who started the
+	// session, when known.
+	Initiator string `json:"initiator"`
+}
+
 // Status is the snapshot the frontend renders on the dashboard.
 type Status struct {
 	Status        string        `json:"status"`
@@ -122,6 +134,8 @@ type Status struct {
 	// SessionExpiresAt is the absolute UTC instant the SSO session expires; nil
 	// when the peer is not SSO-tracked or login expiration is disabled.
 	SessionExpiresAt *time.Time `json:"sessionExpiresAt,omitempty"`
+	// VNCSessions lists the VNC connections currently attached to this machine.
+	VNCSessions []VNCSession `json:"vncSessions,omitempty"`
 }
 
 // DaemonFeed fans the daemon's two long-running gRPC streams (SubscribeStatus,
@@ -522,6 +536,14 @@ func statusFromProto(resp *proto.StatusResponse) Status {
 			Fqdn:     local.GetFqdn(),
 			Networks: append([]string{}, local.GetNetworks()...),
 		},
+	}
+
+	for _, v := range full.GetVncServerState().GetSessions() {
+		st.VNCSessions = append(st.VNCSessions, VNCSession{
+			RemoteAddress: v.GetRemoteAddress(),
+			Mode:          v.GetMode(),
+			Initiator:     v.GetInitiator(),
+		})
 	}
 
 	for _, p := range full.GetPeers() {

@@ -1855,6 +1855,18 @@
         "message": "Operation failed.",
         "description": "Generic fallback error message used when no specific error applies."
     },
+    "connect.activeSession.badge": {
+        "message": "Screen shared",
+        "description": "Short label on the badge shown on the main screen while somebody is attached to this machine over VNC."
+    },
+    "connect.activeSession.tooltip": {
+        "message": "This screen is being viewed over VNC ({sessionCount} session(s)). Disconnecting ends it, and if you are connected through VNC you will lose access.",
+        "description": "Tooltip on the screen-shared badge. {sessionCount} is how many VNC sessions are attached; wording covers any number since the bundle has no plural forms."
+    },
+    "connect.activeSession.tooltipNamed": {
+        "message": "This screen is being viewed over VNC by {who} ({sessionCount} session(s)). Disconnecting ends it, and if you are connected through VNC you will lose access.",
+        "description": "As connect.activeSession.tooltip, with {who} naming the dashboard users who started the sessions."
+    },
     "settings.privilege.hint": {
         "message": "Requires {actor}. Run this instead:",
         "description": "Help text under a remote-access setting the user cannot change: it needs elevated privileges. {actor} is 'root' on Linux/macOS or 'administrator privileges' on Windows. Followed by a copyable command."
