@@ -293,7 +293,10 @@ func (c *Client) extendAuthSession(ctx context.Context, urlOpener URLOpener, isA
 	}
 	defer authClient.Close()
 
-	a := &Auth{ctx: ctx, config: cfg}
+	// Passing the config path makes the flow pick up the login_hint: an extend
+	// renews the session of the account already signed in, so it must not stop to
+	// offer a choice.
+	a := NewAuthWithConfig(ctx, cfg, c.configPathSnapshot())
 	tokenInfo, err := a.foregroundGetTokenInfo(authClient, urlOpener, isAndroidTV)
 	if err != nil {
 		return fmt.Errorf("interactive sso login failed: %v", err)

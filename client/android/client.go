@@ -82,6 +82,8 @@ type Client struct {
 	connectClient *internal.ConnectClient
 	config        *profilemanager.Config
 	cacheDir      string
+	// Identifies the running profile for the SSO login hint; see profile_state.go.
+	cfgPath string
 
 	stateChangeMu    sync.Mutex
 	stateChangeSubID string
@@ -102,11 +104,12 @@ type Client struct {
 	extendCancel context.CancelFunc
 }
 
-func (c *Client) setState(cfg *profilemanager.Config, cacheDir string, cc *internal.ConnectClient) {
+func (c *Client) setState(cfg *profilemanager.Config, cacheDir string, cfgPath string, cc *internal.ConnectClient) {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
 	c.config = cfg
 	c.cacheDir = cacheDir
+	c.cfgPath = cfgPath
 	c.connectClient = cc
 }
 
@@ -114,6 +117,12 @@ func (c *Client) stateSnapshot() (*profilemanager.Config, string, *internal.Conn
 	c.stateMu.RLock()
 	defer c.stateMu.RUnlock()
 	return c.config, c.cacheDir, c.connectClient
+}
+
+func (c *Client) configPathSnapshot() string {
+	c.stateMu.RLock()
+	defer c.stateMu.RUnlock()
+	return c.cfgPath
 }
 
 func (c *Client) getConnectClient() *internal.ConnectClient {
@@ -168,7 +177,7 @@ func (c *Client) Run(platformFiles PlatformFiles, urlOpener URLOpener, isAndroid
 	defer c.ctxCancel()
 	c.ctxCancelLock.Unlock()
 
-	auth := NewAuthWithConfig(ctx, cfg)
+	auth := NewAuthWithConfig(ctx, cfg, cfgFile)
 	err = auth.login(urlOpener, isAndroidTV)
 	if err != nil {
 		return err
@@ -176,7 +185,7 @@ func (c *Client) Run(platformFiles PlatformFiles, urlOpener URLOpener, isAndroid
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
 	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder)
-	c.setState(cfg, cacheDir, connectClient)
+	c.setState(cfg, cacheDir, cfgFile, connectClient)
 	// This path runs the interactive SSO flow, so reaching here means the peer
 	// is authenticated again — release the latch Status() reports from. Clear
 	// only once the fresh connect client is installed: until then Status()
@@ -217,7 +226,7 @@ func (c *Client) RunWithoutLogin(platformFiles PlatformFiles, dns *DNSList, dnsR
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
 	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder)
-	c.setState(cfg, cacheDir, connectClient)
+	c.setState(cfg, cacheDir, cfgFile, connectClient)
 	return connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener, stateFile, cacheDir)
 }
 
