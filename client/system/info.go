@@ -80,6 +80,8 @@ type Info struct {
 	EnableSSHLocalPortForwarding  bool
 	EnableSSHRemotePortForwarding bool
 	DisableSSHAuth                bool
+
+	SyncMessageVersion *int
 }
 
 func (i *Info) SetFlags(
@@ -87,7 +89,7 @@ func (i *Info) SetFlags(
 	serverSSHAllowed *bool,
 	serverVNCAllowed *bool,
 	disableClientRoutes, disableServerRoutes,
-	disableDNS, disableFirewall, blockLANAccess, blockInbound, disableIPv6 bool,
+	disableDNS, disableFirewall, blockLANAccess, blockInbound, disableIPv6 bool, syncMessageVersion *int,
 	enableSSHRoot, enableSSHSFTP, enableSSHLocalPortForwarding, enableSSHRemotePortForwarding *bool,
 	disableSSHAuth *bool,
 ) {
@@ -107,6 +109,8 @@ func (i *Info) SetFlags(
 	i.BlockLANAccess = blockLANAccess
 	i.BlockInbound = blockInbound
 	i.DisableIPv6 = disableIPv6
+
+	i.SyncMessageVersion = syncMessageVersion
 
 	if enableSSHRoot != nil {
 		i.EnableSSHRoot = *enableSSHRoot

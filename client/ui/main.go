@@ -96,7 +96,6 @@ func main() {
 		}
 	})
 
-	settings := services.NewSettings(conn)
 	profiles := services.NewProfiles(conn)
 	// updater.Holder owns the typed update State; DaemonFeed feeds it and the
 	// Update service is a thin Wails-bound facade over it plus the install RPCs.
@@ -117,6 +116,7 @@ func main() {
 	bundle, prefStore, localizer := buildI18n(app)
 
 	// After bundle + prefStore: both are used to localise daemon errors.
+	settings := services.NewSettings(conn, bundle, prefStore, daemonAddr)
 	connection := services.NewConnection(conn, bundle, prefStore)
 	profileSwitcher := services.NewProfileSwitcher(profiles, connection, daemonFeed)
 	// authsession.Session owns the full extend + dismiss surface the tray
@@ -197,6 +197,9 @@ func main() {
 		// daemon may keep the main window from showing, so the OS toast is the
 		// only reliable signal the user gets.
 		go notifyIfDaemonOutdated(compat, notifier, localizer)
+		// One-time launch-on-login default for fresh installs; gated by the
+		// NetBird footprint check, MDM policy, and the persisted marker.
+		go applyAutostartDefault(context.Background(), services.NewAutostart(app.Autostart), prefStore, prefStore.ExistedAtLoad())
 	})
 
 	if err := app.Run(); err != nil {
@@ -277,6 +280,9 @@ func newApplication(onSecondInstance func()) *application.App {
 		},
 		Linux: application.LinuxOptions{
 			ProgramName: "netbird",
+		},
+		Windows: application.WindowsOptions{
+			WndProcInterceptor: endSessionInterceptor(),
 		},
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID: "io.netbird.ui",
@@ -365,6 +371,9 @@ func newMainWindow(app *application.App, prefStore *preferences.Store) *applicat
 
 	// Hide instead of quit on close; "really quit" is reached via tray -> Quit.
 	window.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
+		if services.ShuttingDown() {
+			return
+		}
 		e.Cancel()
 		window.Hide()
 	})

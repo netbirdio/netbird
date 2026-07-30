@@ -13,7 +13,6 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
-	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/auth"
@@ -233,6 +232,9 @@ func (c *Client) DebugBundle(anonymize bool) (string, error) {
 		deps.SyncResponse = resp
 
 		if e := cc.Engine(); e != nil {
+			deps.RefreshStatus = func() {
+				e.RunHealthProbes(context.Background(), true)
+			}
 			if cm := e.GetClientMetrics(); cm != nil {
 				deps.ClientMetrics = cm
 			}
@@ -634,23 +636,18 @@ func (c *Client) SelectRoute(id string) error {
 	}
 
 	routeManager := engine.GetRouteManager()
-	routeSelector := routeManager.GetRouteSelector()
 	if id == "All" {
 		log.Debugf("select all routes")
-		routeSelector.SelectAllRoutes()
-	} else {
-		log.Debugf("select route with id: %s", id)
-		routes := toNetIDs([]string{id})
-		routesMap := routeManager.GetClientRoutesWithNetID()
-		routes = route.ExpandV6ExitPairs(routes, routesMap)
-		if err := routeSelector.SelectRoutes(routes, true, maps.Keys(routesMap)); err != nil {
-			log.Debugf("error when selecting routes: %s", err)
-			return fmt.Errorf("select routes: %w", err)
-		}
+		routeManager.SelectAllRoutes()
+		return nil
 	}
-	routeManager.TriggerSelection(routeManager.GetClientRoutes())
-	return nil
 
+	log.Debugf("select route with id: %s", id)
+	if err := routeManager.SelectRoutes(toNetIDs([]string{id}), true); err != nil {
+		log.Debugf("error when selecting routes: %s", err)
+		return err
+	}
+	return nil
 }
 
 func (c *Client) DeselectRoute(id string) error {
@@ -664,21 +661,17 @@ func (c *Client) DeselectRoute(id string) error {
 	}
 
 	routeManager := engine.GetRouteManager()
-	routeSelector := routeManager.GetRouteSelector()
 	if id == "All" {
 		log.Debugf("deselect all routes")
-		routeSelector.DeselectAllRoutes()
-	} else {
-		log.Debugf("deselect route with id: %s", id)
-		routes := toNetIDs([]string{id})
-		routesMap := routeManager.GetClientRoutesWithNetID()
-		routes = route.ExpandV6ExitPairs(routes, routesMap)
-		if err := routeSelector.DeselectRoutes(routes, maps.Keys(routesMap)); err != nil {
-			log.Debugf("error when deselecting routes: %s", err)
-			return fmt.Errorf("deselect routes: %w", err)
-		}
+		routeManager.DeselectAllRoutes()
+		return nil
 	}
-	routeManager.TriggerSelection(routeManager.GetClientRoutes())
+
+	log.Debugf("deselect route with id: %s", id)
+	if err := routeManager.DeselectRoutes(toNetIDs([]string{id})); err != nil {
+		log.Debugf("error when deselecting routes: %s", err)
+		return err
+	}
 	return nil
 }
 

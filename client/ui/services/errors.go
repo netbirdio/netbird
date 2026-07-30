@@ -6,12 +6,29 @@ import (
 	"encoding/json"
 	"strings"
 
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	gcodes "google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
+	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/netbirdio/netbird/client/ui/i18n"
 	"github.com/netbirdio/netbird/client/ui/preferences"
 )
+
+// privilegeErrorInfo returns the daemon's privilege-refusal detail, if the error
+// carries one.
+func privilegeErrorInfo(err error) (*errdetails.ErrorInfo, bool) {
+	for _, detail := range gstatus.Convert(err).Details() {
+		info, ok := detail.(*errdetails.ErrorInfo)
+		if !ok {
+			continue
+		}
+		if info.GetReason() == ipcauth.ErrorReasonPrivilegeRequired && info.GetDomain() == ipcauth.ErrorDomain {
+			return info, true
+		}
+	}
+	return nil, false
+}
 
 // ErrorTranslator localises daemon errors; runtime impl is *i18n.Bundle.
 type ErrorTranslator interface {
@@ -30,6 +47,10 @@ type ClientError struct {
 	Code  string `json:"code"`
 	Short string `json:"short"`
 	Long  string `json:"long"`
+	// Command is a command the user can run to complete the operation
+	// themselves, set when the daemon refused it for want of privileges. The
+	// frontend offers it for copying.
+	Command string `json:"command,omitempty"`
 }
 
 // Error returns the short message for plain Go callers.
@@ -72,6 +93,24 @@ func (c errorClassifier) classify(err error) *ClientError {
 		msg = st.Message()
 		grpcCode = st.Code()
 	}
+
+	// A refusal for want of privileges carries its own summary and the command
+	// that performs the operation, both written for the user. Surface them
+	// verbatim: no substring guessing, and no localisation of a message the
+	// daemon composed.
+	if info, ok := privilegeErrorInfo(err); ok {
+		summary := info.GetMetadata()[ipcauth.ErrorMetaSummary]
+		if summary == "" {
+			summary = msg
+		}
+		return &ClientError{
+			Code:    "privilege_required",
+			Short:   summary,
+			Long:    summary,
+			Command: info.GetMetadata()[ipcauth.ErrorMetaCommand],
+		}
+	}
+
 	lower := strings.ToLower(msg)
 
 	code := "unknown"

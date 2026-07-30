@@ -3,6 +3,7 @@
 package dynamic
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"time"
@@ -16,7 +17,7 @@ import (
 
 const dialTimeout = 10 * time.Second
 
-func (r *Route) getIPsFromResolver(domain domain.Domain) ([]net.IP, error) {
+func (r *Route) getIPsFromResolver(ctx context.Context, domain domain.Domain) ([]net.IP, error) {
 	privateClient, err := nbdns.GetClientPrivate(r.wgInterface, r.resolverAddr.Addr(), dialTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("error while creating private client: %s", err)
@@ -32,7 +33,7 @@ func (r *Route) getIPsFromResolver(domain domain.Domain) ([]net.IP, error) {
 		msg := new(dns.Msg)
 		msg.SetQuestion(fqdn, qtype)
 
-		response, _, err := nbdns.ExchangeWithFallback(nil, privateClient, msg, r.resolverAddr.String())
+		response, _, err := nbdns.ExchangeWithFallback(ctx, privateClient, msg, r.resolverAddr.String())
 		if err != nil {
 			if queryErr == nil {
 				queryErr = fmt.Errorf("DNS query for %s (type %d) after %s: %w", domain.SafeString(), qtype, time.Since(startTime), err)

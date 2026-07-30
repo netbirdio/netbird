@@ -34,6 +34,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
+	"github.com/netbirdio/netbird/client/internal/tunnelnotifier"
 	"github.com/netbirdio/netbird/client/internal/updater"
 	"github.com/netbirdio/netbird/client/internal/updater/installer"
 	nbnet "github.com/netbirdio/netbird/client/net"
@@ -136,10 +137,13 @@ func (c *ConnectClient) RunOniOS(
 	// Set GC percent to 5% to reduce memory usage as iOS only allows 50MB of memory for the extension.
 	debug.SetGCPercent(5)
 
+	notifier := tunnelnotifier.New(networkChangeListener, dnsManager)
+	defer notifier.Close()
+
 	mobileDependency := MobileDependency{
 		FileDescriptor:        fileDescriptor,
-		NetworkChangeListener: networkChangeListener,
-		DnsManager:            dnsManager,
+		NetworkChangeListener: notifier,
+		DnsManager:            notifier,
 		StateFilePath:         stateFilePath,
 		TempDir:               cacheDir,
 	}
@@ -257,7 +261,10 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		log.Errorf("failed to clean up temporary installer file: %v", err)
 	}
 
-	defer c.statusRecorder.ClientStop()
+	defer func() {
+		c.statusRecorder.SetSessionExpiresAt(time.Time{})
+		c.statusRecorder.ClientStop()
+	}()
 	operation := func() error {
 		// if context cancelled we not start new backoff cycle
 		if c.ctx.Err() != nil {
@@ -620,6 +627,7 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 		BlockLANAccess:      config.BlockLANAccess,
 		BlockInbound:        config.BlockInbound,
 		DisableIPv6:         config.DisableIPv6,
+		SyncMessageVersion:  config.SyncMessageVersion,
 
 		LazyConnection: lazyconn.ParseState(config.LazyConnection),
 
@@ -696,6 +704,7 @@ func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte,
 		config.BlockLANAccess,
 		config.BlockInbound,
 		config.DisableIPv6,
+		config.SyncMessageVersion,
 		config.EnableSSHRoot,
 		config.EnableSSHSFTP,
 		config.EnableSSHLocalPortForwarding,

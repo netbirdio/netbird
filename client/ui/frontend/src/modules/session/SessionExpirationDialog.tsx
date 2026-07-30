@@ -73,6 +73,13 @@ export default function SessionExpirationDialog() {
 
         let offCancel: (() => void) | undefined;
 
+        // Return the dialog to its interactive state and dismiss the browser popup
+        const resetDialog = () => {
+            offCancel?.();
+            WindowManager.CloseBrowserLogin().catch(console.error);
+            setBusy(false);
+        };
+
         try {
             const start = await Session.RequestExtend({ hint: "" });
             const uri = start.verificationUriComplete || start.verificationUri;
@@ -105,25 +112,22 @@ export default function SessionExpirationDialog() {
             if (outcome.kind === "cancel") {
                 waitPromise.cancel?.();
                 waitPromise.catch(() => {});
+                resetDialog();
                 return;
             }
 
             // Another surface owns this flow; keep the dialog open to retry.
             if (outcome.result.preempted) {
+                resetDialog();
                 return;
             }
-
-            // Close before the popup so the restore can't flash this window back.
-            WindowManager.CloseSessionExpiration().catch(console.error);
+            WindowManager.CloseRenewFlow().catch(console.error);
         } catch (e) {
+            resetDialog();
             await errorDialog({
                 Title: t("sessionExpiration.extendFailedTitle"),
                 Message: formatErrorMessage(e),
             });
-        } finally {
-            offCancel?.();
-            WindowManager.CloseBrowserLogin().catch(console.error);
-            setBusy(false);
         }
     }, [busy, t]);
 
@@ -139,12 +143,11 @@ export default function SessionExpirationDialog() {
             });
             WindowManager.CloseSessionExpiration().catch(console.error);
         } catch (e) {
+            setBusy(false);
             await errorDialog({
                 Title: t("sessionExpiration.logoutFailedTitle"),
                 Message: formatErrorMessage(e),
             });
-        } finally {
-            setBusy(false);
         }
     }, [busy, t]);
 
