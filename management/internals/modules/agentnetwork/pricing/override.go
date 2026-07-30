@@ -70,11 +70,13 @@ func LoadFile(path string, required bool) error {
 	table, mtime, err := readFile(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) && !required {
+			log.Infof("agent-network pricing defaults file %s not present; serving built-in defaults", path)
 			return nil
 		}
 		return err
 	}
 	storeFileTable(table, mtime)
+	log.Infof("agent-network pricing defaults loaded from %s", path)
 	return nil
 }
 
@@ -113,6 +115,8 @@ func reload() {
 	path, lastMtime := fileState.path, fileState.mtime
 	fileState.mu.Unlock()
 
+	log.Debugf("agent-network pricing defaults reload: checking %s for changes", path)
+
 	st, err := os.Stat(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -128,6 +132,7 @@ func reload() {
 		return
 	}
 	if st.ModTime().UnixNano() == lastMtime {
+		log.Debugf("agent-network pricing defaults %s unchanged since last check", path)
 		return
 	}
 

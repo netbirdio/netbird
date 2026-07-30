@@ -137,12 +137,13 @@ server:
 
   # Agent network (LLM gateway) settings (optional)
   # agentNetwork:
-  #   # Path to the YAML file holding the default LLM pricing table. When empty,
-  #   # {dataDir}/defaults_llm_pricing.yaml is probed; if no file is present the
-  #   # compiled-in defaults are used. Schema: surface ("openai"/"anthropic"/
-  #   # "bedrock") -> model -> rates in USD per 1k tokens (input_per_1k,
-  #   # output_per_1k, and the optional cached_input_per_1k / cache_read_per_1k /
-  #   # cache_creation_per_1k). The file is re-read periodically (mtime poll). An
-  #   # explicitly configured path that fails to load fails startup; runtime
-  #   # reload errors keep the previous table.
-  #   pricingDefaultsFile: "/var/lib/netbird/defaults_llm_pricing.yaml"
+  #   # Path to the YAML file holding the default LLM pricing table. A relative
+  #   # path is resolved against dataDir, so a bare filename like "pricing.yaml"
+  #   # lands in the data directory. When empty, {dataDir}/defaults_llm_pricing.yaml
+  #   # is probed; if no file is present the compiled-in defaults are used.
+  #   # Schema: surface ("openai"/"anthropic"/"bedrock") -> model -> rates in USD
+  #   # per 1k tokens (input_per_1k, output_per_1k, and the optional
+  #   # cached_input_per_1k / cache_read_per_1k / cache_creation_per_1k). The file
+  #   # is re-read periodically (mtime poll). An explicitly configured path that
+  #   # fails to load fails startup; runtime reload errors keep the previous table.
+  #   pricingDefaultsFile: "pricing.yaml"
