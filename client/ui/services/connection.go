@@ -242,6 +242,22 @@ func (s *Connection) waitSSOLogin(ctx context.Context, p WaitSSOParams) (string,
 		return "", s.classifyDaemonError(err)
 	}
 	log.Infof("SSO login completed, daemon reported success")
+
+	// Persist the account email the same way the CLI does after its own
+	// WaitSSOLogin: the daemon returns it but cannot store it, since it runs as
+	// root and the per-profile state file is user-owned (see Logout below).
+	// Without this the profile has no email, so Profiles.List shows no account
+	// and later logins and session extends go out without a login_hint —
+	// leaving the IdP to guess which account was meant.
+	if email := resp.GetEmail(); email != "" {
+		if err := profilemanager.NewProfileManager().SetActiveProfileState(&profilemanager.ProfileState{
+			Email: email,
+		}); err != nil {
+			// Non-fatal: the login itself succeeded.
+			log.Warnf("failed to store account email for the active profile: %v", err)
+		}
+	}
+
 	return resp.GetEmail(), nil
 }
 
