@@ -64,6 +64,11 @@ func TestLogin_AuthRefusalStartsSSOFlow(t *testing.T) {
 	require.Error(t, err)
 	require.NotErrorIs(t, err, refused,
 		"the refusal was handed back to the caller instead of starting the SSO flow")
+
+	status, stateErr := internal.CtxGetState(s.rootCtx).Status()
+	require.NoError(t, stateErr)
+	require.Equal(t, internal.StatusLoginFailed, status,
+		"the SSO flow setup was never reached with the broken key")
 }
 
 // breakProfilePrivateKey replaces the profile's private key with an unparseable
