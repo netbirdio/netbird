@@ -153,10 +153,11 @@ func (s *Profiles) Remove(ctx context.Context, p ProfileRef) error {
 	if err != nil {
 		return err
 	}
-	if _, err = cli.RemoveProfile(ctx, &proto.RemoveProfileRequest{
+	resp, err := cli.RemoveProfile(ctx, &proto.RemoveProfileRequest{
 		ProfileName: p.ProfileName,
 		Username:    p.Username,
-	}); err != nil {
+	})
+	if err != nil {
 		return err
 	}
 
@@ -165,10 +166,14 @@ func (s *Profiles) Remove(ctx context.Context, p ProfileRef) error {
 	// Connection.Logout). Legacy profiles are keyed by name rather than by a
 	// generated ID, so a recreated profile of the same name would inherit the
 	// deleted one's email and offer it as the login_hint.
-	if p.ProfileName != "" {
-		if err := profilemanager.NewProfileManager().RemoveProfileState(p.ProfileName); err != nil {
+	//
+	// Keyed on the ID the daemon resolved, not on the request handle: that may
+	// have been a display name or an ID prefix, which would name a different
+	// file (or none).
+	if id := resp.GetId(); id != "" {
+		if err := profilemanager.NewProfileManager().RemoveProfileState(id); err != nil {
 			// Non-fatal: the profile itself is gone.
-			log.Warnf("failed to remove profile state for %s: %v", p.ProfileName, err)
+			log.Warnf("failed to remove profile state for %s: %v", id, err)
 		}
 	}
 
