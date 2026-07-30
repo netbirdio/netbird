@@ -29,8 +29,13 @@ cask "{{ $projectName }}" do
   end
 
   uninstall_preflight do
-    system_command "#{appdir}/Netbird UI.app/uninstaller.sh",
-                   sudo: false
+    system_command "/bin/sh",
+                   args: ["-c", <<~CMD],
+                     launchctl bootout system/netbird 2>/dev/null || \
+                       launchctl unload /Library/LaunchDaemons/netbird.plist 2>/dev/null || true
+                     rm -f /Library/LaunchDaemons/netbird.plist
+                   CMD
+                   sudo: true
   end
 
   name "Netbird UI"
