@@ -166,6 +166,25 @@ func (s *Connection) WaitSSOLoginAndUp(ctx context.Context, wait WaitSSOParams, 
 	return email, nil
 }
 
+// Reconnect tears the session down and brings it straight back up, for the
+// stale state a sleep/wake or a network roam leaves behind. Down is
+// synchronous, so Up goes out only once the daemon reports the teardown
+// finished, and a failed Down aborts rather than stacking an Up on a session
+// that is still up. A ctx cancelled between the two legs aborts as well: a
+// Disconnect or a quit racing the round trip must not be undone by a late Up.
+func (s *Connection) Reconnect(ctx context.Context) error {
+	if err := s.Down(ctx); err != nil {
+		return fmt.Errorf("down: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := s.Up(ctx, UpParams{}); err != nil {
+		return fmt.Errorf("up: %w", err)
+	}
+	return nil
+}
+
 func (s *Connection) Down(ctx context.Context) error {
 	cli, err := s.conn.Client()
 	if err != nil {

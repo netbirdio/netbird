@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"runtime"
 	"strings"
 	"sync"
@@ -31,6 +32,10 @@ const (
 	statusError = "Error"
 
 	quitDownTimeout = 5 * time.Second
+	// reconnectTimeout bounds the Reconnect round trip so a daemon that never
+	// answers Down cannot leave the entry greyed out for the rest of the
+	// session. Matched to DaemonFeed's own switch-suppression window.
+	reconnectTimeout = 30 * time.Second
 
 	urlGitHubRepo = "https://github.com/netbirdio/netbird"
 	urlDocs       = "https://docs.netbird.io"
@@ -77,6 +82,7 @@ type Tray struct {
 	sessionExpiresItem *application.MenuItem
 	upItem             *application.MenuItem
 	downItem           *application.MenuItem
+	reconnectItem      *application.MenuItem
 	exitNodeItem       *application.MenuItem
 	exitNodeSubmenu    *application.Menu
 	profileSubmenu     *application.Menu
@@ -86,6 +92,17 @@ type Tray struct {
 	daemonVersionItem  *application.MenuItem
 
 	updater *trayUpdater
+
+	// reconnectMu guards reconnectCancel, which is non-nil exactly while the
+	// Reconnect entry's Down → Up round trip is in flight. It carries both
+	// duties: handleReconnect and relayoutMenu read it to keep a second click
+	// from sending a Down into the in-flight Up, and Disconnect/quit call it so
+	// the Up cannot bring the session back after the user asked for it to go
+	// down. The click-time SetEnabled(false) cannot stand in for the first duty:
+	// buildMenu recreates the item on every relayout, and the status pushes the
+	// round trip itself produces are what triggers those relayouts.
+	reconnectMu     sync.Mutex
+	reconnectCancel context.CancelFunc
 
 	// statusMu guards the daemon-status core mirrored on the tray. One mutex
 	// covers these fields because applyStatus writes them together on every
@@ -331,6 +348,16 @@ func (t *Tray) relayoutMenu() {
 		t.downItem.SetHidden(!connected && !connecting)
 		t.downItem.SetEnabled(connected || connecting)
 	}
+	if t.reconnectItem != nil {
+		// Same visibility gate as Disconnect, but stays greyed out while a
+		// round trip is in flight: buildMenu has just recreated the item, so
+		// handleReconnect's SetEnabled(false) is gone by now.
+		t.reconnectMu.Lock()
+		reconnecting := t.reconnectCancel != nil
+		t.reconnectMu.Unlock()
+		t.reconnectItem.SetHidden(!connected && !connecting)
+		t.reconnectItem.SetEnabled((connected || connecting) && !reconnecting)
+	}
 	if t.exitNodeItem != nil {
 		t.exitNodeItem.SetEnabled(connected && len(exitNodeEntries) > 0 && !disableNetworks)
 	}
@@ -380,6 +407,13 @@ func (t *Tray) buildMenu() *application.Menu {
 	downItem.OnClick(func(*application.Context) { t.handleDisconnect(downItem) })
 	downItem.SetHidden(true)
 	t.downItem = downItem
+	// Reconnect collapses the Disconnect → wait → Connect dance users repeat
+	// after sleep or a network roam. It shares Disconnect's visibility: with no
+	// session to tear down, a reconnect is just Connect.
+	reconnectItem := menu.Add(t.loc.T("tray.menu.reconnect"))
+	reconnectItem.OnClick(func(*application.Context) { t.handleReconnect(reconnectItem) })
+	reconnectItem.SetHidden(true)
+	t.reconnectItem = reconnectItem
 
 	menu.AddSeparator()
 
@@ -453,6 +487,7 @@ func (t *Tray) buildMenu() *application.Menu {
 
 func (t *Tray) handleQuit() {
 	services.BeginShutdown()
+	t.cancelReconnect()
 	t.profileMu.Lock()
 	if t.switchCancel != nil {
 		t.switchCancel()
@@ -512,6 +547,8 @@ func (t *Tray) handleConnect(upItem *application.MenuItem) {
 // Receives the clicked item from the buildMenu closure (see handleConnect).
 func (t *Tray) handleDisconnect(downItem *application.MenuItem) {
 	downItem.SetEnabled(false)
+	// A Reconnect mid-flight would otherwise finish its Up behind this Down.
+	t.cancelReconnect()
 	t.profileMu.Lock()
 	if t.switchCancel != nil {
 		t.switchCancel()
@@ -526,6 +563,113 @@ func (t *Tray) handleDisconnect(downItem *application.MenuItem) {
 			downItem.SetEnabled(true)
 		}
 	}()
+}
+
+// handleReconnect drives the Reconnect entry, for the stale sessions a
+// wake-from-sleep or a network roam leaves behind. The Down → Up sequence
+// itself is Connection.Reconnect; what lives here is the tray's share of it —
+// the in-flight guard, the transitional paint, and the failure toast. Receives
+// the clicked item from the buildMenu closure (see handleConnect).
+//
+// The transitional paint is DaemonFeed's: BeginProfileSwitch emits the
+// optimistic Connecting and swallows the stale Connected/Idle blink the daemon
+// pushes while Down tears the session down — the same sequence a profile switch
+// performs, so it is reused rather than duplicated. It also arms the
+// login-watch, so an Up that lands in NeedsLogin (an expired session, say)
+// still opens browser-login instead of stalling.
+func (t *Tray) handleReconnect(reconnectItem *application.MenuItem) {
+	// A profile switch is already a Down → Up. Cancelling one midway can leave
+	// the daemon and the CLI's on-disk profile state disagreeing (see
+	// ProfileSwitcher.switchActive), and the Up below carries no profile of its
+	// own, so which one came back would depend on where the cancel landed.
+	t.profileMu.Lock()
+	switching := t.switchCancel != nil
+	t.profileMu.Unlock()
+	if switching {
+		log.Infof("reconnect: profile switch in flight, ignoring click")
+		return
+	}
+
+	ctx, ok := t.beginReconnect()
+	if !ok {
+		return
+	}
+	reconnectItem.SetEnabled(false)
+
+	// DaemonFeed's login-watch owns the SSO handoff for this Up, so drop any
+	// flag handleConnect left armed: both firing on one NeedsLogin push would
+	// emit EventTriggerLogin twice.
+	t.statusMu.Lock()
+	t.pendingConnectLogin = false
+	t.statusMu.Unlock()
+
+	t.svc.DaemonFeed.BeginProfileSwitch()
+
+	go func() {
+		err := t.svc.Connection.Reconnect(ctx)
+		// Read before endReconnect, which cancels ctx itself and would make
+		// every outcome look aborted. Keyed off ctx rather than err because a
+		// cancel landing inside the Down RPC surfaces as a classified gRPC
+		// error, not context.Canceled.
+		aborted := errors.Is(ctx.Err(), context.Canceled)
+		t.endReconnect()
+		switch {
+		case err == nil:
+		case aborted:
+			// Disconnect or quit aborted us; that path paints its own state.
+			log.Infof("reconnect aborted: %v", err)
+		default:
+			log.Errorf("reconnect: %v", err)
+			// A failed Down left the daemon exactly as it was, and
+			// SubscribeStatus only pushes on state changes — waiting for one
+			// would strand the optimistic Connecting. Repaint from a snapshot.
+			t.svc.DaemonFeed.CancelProfileSwitch()
+			if st, serr := t.svc.DaemonFeed.Get(context.Background()); serr == nil {
+				t.applyStatus(st)
+			}
+			t.notifyError(t.loc.T("notify.error.reconnect"))
+		}
+		// reconnectItem is detached by now — buildMenu ran on the optimistic
+		// Connecting — so the row comes back through a relayout, not SetEnabled.
+		t.relayoutMenu()
+	}()
+}
+
+// beginReconnect claims the reconnect slot and returns the context the round
+// trip runs under, or false when one is already in flight.
+func (t *Tray) beginReconnect() (context.Context, bool) {
+	t.reconnectMu.Lock()
+	defer t.reconnectMu.Unlock()
+	if t.reconnectCancel != nil {
+		return nil, false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), reconnectTimeout)
+	t.reconnectCancel = cancel
+	return ctx, true
+}
+
+// endReconnect releases the slot and the context held since beginReconnect.
+func (t *Tray) endReconnect() {
+	t.reconnectMu.Lock()
+	cancel := t.reconnectCancel
+	t.reconnectCancel = nil
+	t.reconnectMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+// cancelReconnect aborts an in-flight round trip. Disconnect and quit both send
+// their own Down; without this, the Up still queued behind ours would bring the
+// session back up right after the user asked for it to go down. The slot itself
+// is cleared by endReconnect once the round trip unwinds.
+func (t *Tray) cancelReconnect() {
+	t.reconnectMu.Lock()
+	cancel := t.reconnectCancel
+	t.reconnectMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 }
 
 // notify wraps the Wails notification service with the tray's standard
