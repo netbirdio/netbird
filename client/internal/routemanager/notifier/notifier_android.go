@@ -15,7 +15,6 @@ import (
 type Notifier struct {
 	mu sync.Mutex
 
-	initialRoutes []*route.Route
 	// currentRoutes is the last announced route set. It exists only to
 	// suppress noise: without it every network map sync would trigger the
 	// Java side, even when the routes did not change. The actual TUN route
@@ -33,14 +32,6 @@ func (n *Notifier) SetListener(listener listener.NetworkChangeListener) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.listener = listener
-}
-
-// SetInitialClientRoutes stores the initial route sets for TUN configuration.
-func (n *Notifier) SetInitialClientRoutes(initialRoutes []*route.Route, routesForComparison []*route.Route) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	n.initialRoutes = filterStatic(initialRoutes)
-	n.currentRoutes = filterStatic(routesForComparison)
 }
 
 func (n *Notifier) NotifyRouteChange() {
@@ -81,26 +72,8 @@ func (n *Notifier) notifyLocked() {
 	n.listener.OnNetworkChanged("")
 }
 
-func (n *Notifier) GetInitialRouteRanges() []string {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	initialStrings := routesToStrings(n.initialRoutes)
-	sort.Strings(initialStrings)
-	return initialStrings
-}
-
 func (n *Notifier) Close() {
 	// unused
-}
-
-func filterStatic(routes []*route.Route) []*route.Route {
-	out := make([]*route.Route, 0, len(routes))
-	for _, r := range routes {
-		if !r.IsDynamic() {
-			out = append(out, r)
-		}
-	}
-	return out
 }
 
 func routesToStrings(routes []*route.Route) []string {
