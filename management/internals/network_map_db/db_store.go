@@ -28,6 +28,7 @@ type NetworkMapDBStore interface {
 	GetNetwork(ctx context.Context, accountId string) (nmdata.Network, error)
 	GetAccountZones(ctx context.Context, accountId string) ([]nmdata.CustomZone, error)
 	GetAccountSettings(ctx context.Context, accountId string) (nmdata.AccountSettingsInfo, error)
+	GetPostureChecks(ctx context.Context, accountId string) ([]nmdata.PostureChecks, error)
 }
 
 type NetworkMapDBStoreImpl struct {
