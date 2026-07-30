@@ -23,6 +23,7 @@ import (
 	"github.com/netbirdio/netbird/proxy/internal/roundtrip"
 	"github.com/netbirdio/netbird/proxy/internal/types"
 	"github.com/netbirdio/netbird/proxy/web"
+	"github.com/netbirdio/netbird/trustedproxy"
 )
 
 func TestRewriteFunc_HostRewriting(t *testing.T) {
@@ -302,7 +303,7 @@ func TestExtractHostIP(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, extractHostIP(tt.remoteAddr))
+			assert.Equal(t, tt.expected, trustedproxy.ExtractHostIP(tt.remoteAddr))
 		})
 	}
 }
@@ -330,7 +331,7 @@ func TestExtractForwardedPort(t *testing.T) {
 
 func TestRewriteFunc_TrustedProxy(t *testing.T) {
 	target, _ := url.Parse("http://backend.internal:8080")
-	trusted := []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
+	trusted := trustedproxy.FromPrefixes([]netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")})
 
 	t.Run("appends to X-Forwarded-For", func(t *testing.T) {
 		p := &ReverseProxy{forwardedProto: "auto", trustedProxies: trusted}

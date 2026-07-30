@@ -234,9 +234,6 @@ init_environment() {
 
   NETBIRD_LICENSE_KEY=$(read_secret "Enter license key (input hidden)")
 
-  GHCR_USERNAME="netbirdExtAccess1"
-  GHCR_TOKEN=$(read_secret "Enter GHCR token (input hidden)")
-
   POSTGRES_USER="netbird"
   POSTGRES_DB="netbird"
   POSTGRES_PASSWORD=$(rand_secret)
@@ -262,10 +259,6 @@ init_environment() {
   render_caddyfile > Caddyfile
   install -m 600 /dev/null config.yaml
   render_config_yaml >> config.yaml
-
-  echo "Logging in to ghcr.io ..."
-  printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
-  unset GHCR_TOKEN
 
   echo ""
   echo "Pulling images ..."

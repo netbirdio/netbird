@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/netbirdio/netbird/client/configs"
+	"github.com/netbirdio/netbird/client/internal/daemonaddr"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -125,6 +126,13 @@ func applyServiceParams(cmd *cobra.Command, params *serviceParams) {
 
 	if !rootCmd.PersistentFlags().Changed("daemon-addr") && params.DaemonAddr != "" {
 		daemonAddr = params.DaemonAddr
+		// An install that predates named-pipe support has the loopback TCP
+		// address saved. Callers carry no identity over TCP, so move it to the
+		// pipe instead of restoring a socket the daemon cannot authorize on.
+		if migrated, ok := daemonaddr.MigrateLegacy(daemonAddr); ok {
+			cmd.Printf("Moving the saved daemon address from %s to %s so the daemon can identify its callers\n", daemonAddr, migrated)
+			daemonAddr = migrated
+		}
 	}
 
 	if !serviceCmd.PersistentFlags().Changed("json-socket") && params.JSONSocket != "" {

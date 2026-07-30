@@ -10,7 +10,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
-// Autostart facade over Wails' AutostartManager. The OS login-item registration
+// Autostart facade over Wails' AutostartManager. The OS autostart entry registration
 // is the single source of truth; nothing is mirrored to preferences.
 type Autostart struct {
 	mgr *application.AutostartManager

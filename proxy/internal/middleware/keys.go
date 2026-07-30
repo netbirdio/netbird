@@ -75,8 +75,19 @@ const (
 	KeyLLMAttributionGroupID = "llm.attribution_group_id"
 	KeyLLMAttributionWindowS = "llm.attribution_window_seconds"
 
-	// Cost metering (emitted by cost_meter).
-	KeyCostUSDTotal = "cost.usd_total"
+	// Cost metering (emitted by cost_meter). The four per-bucket keys are the
+	// base of the breakdown — one per token bucket the provider bills
+	// separately — and the two aggregates below are derived from them:
+	// usd_total is their sum, usd_cache is cached_input + cache_creation.
+	KeyCostUSDInput = "cost.usd_input"
+	// KeyCostUSDCachedInput is the cost of the cache-read bucket (Anthropic cache_read; OpenAI's discounted cached subset of input).
+	KeyCostUSDCachedInput = "cost.usd_cached_input"
+	// KeyCostUSDCacheCreation is the cost of the cache-write bucket. Zero for providers without one.
+	KeyCostUSDCacheCreation = "cost.usd_cache_creation"
+	KeyCostUSDOutput        = "cost.usd_output"
+	KeyCostUSDTotal         = "cost.usd_total"
+	// KeyCostUSDCache is the portion of cost.usd_total billed for prompt-cache buckets (cache read/creation, or OpenAI's cached input subset).
+	KeyCostUSDCache = "cost.usd_cache"
 	KeyCostSkipped  = "cost.skipped"
 
 	// Framework-emitted error markers. Use the mw.<id>.* prefix to

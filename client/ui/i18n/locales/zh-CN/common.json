@@ -1034,8 +1034,14 @@
     "welcome.title": {
         "message": "在托盘中查找 NetBird"
     },
+    "welcome.titleMac": {
+        "message": "在菜单栏中查找 NetBird"
+    },
     "welcome.description": {
         "message": "NetBird 驻留在您的托盘中。点击图标即可连接、切换配置文件或打开设置。"
+    },
+    "welcome.descriptionMac": {
+        "message": "NetBird 驻留在您的菜单栏中。点击图标即可连接、切换配置文件或打开设置。"
     },
     "welcome.continue": {
         "message": "继续"
@@ -1293,10 +1299,13 @@
         "message": "文档"
     },
     "daemon.outdated.title": {
-        "message": "NetBird 服务版本过旧"
+        "message": "NetBird 客户端版本过旧"
     },
     "daemon.outdated.description": {
-        "message": "请更新 NetBird 服务以使用此应用。"
+        "message": "新版 GUI 与您较旧的客户端不兼容。请更新客户端以使用新应用。"
+    },
+    "daemon.outdated.download": {
+        "message": "下载最新版本"
     },
     "error.jwt_clock_skew": {
         "message": "登录失败：此设备的时钟与服务器不同步。请同步您的系统时钟后重试。"

@@ -3170,6 +3170,16 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthNone, "user2")
 		assert.NoError(t, err, "unable to get user")
 		assert.Len(t, user.AutoGroups, 1, "new group should be added")
+
+		var newJWTGroup *types.Group
+		for _, g := range groups {
+			if g.Name == "group3" {
+				newJWTGroup = g
+				break
+			}
+		}
+		require.NotNil(t, newJWTGroup, "JIT-created JWT group not found")
+		assert.NotEqual(t, "", newJWTGroup.PublicID, "JIT-created JWT group must have a non-empty PublicID")
 	})
 
 	t.Run("remove all JWT groups when list is empty", func(t *testing.T) {
@@ -4269,7 +4279,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_NetworkRangePreserved(t *te
 	}
 
 	// Sanity: an actually different range still triggers reallocation.
-	newRange := netip.MustParsePrefix("100.99.0.0/16")
+	newRange := netip.MustParsePrefix("100.60.0.0/16")
 	_, err = manager.UpdateAccountSettings(ctx, account.Id, userID, &types.Settings{
 		PeerLoginExpirationEnabled: true,
 		PeerLoginExpiration:        types.DefaultPeerLoginExpiration,

@@ -122,7 +122,7 @@ At request time the path is independent: the proxy calls `SelectPolicyForRequest
   | on_request | 1 | `llm_router` | `{"providers":[{id, models[], upstream_*, auth_header_*, allowed_group_ids[]}]}` | **true** |
   | on_request | 2 | `llm_limit_check` | `{}` | – |
   | on_request | 3 | `llm_identity_inject` | `{"providers":[{provider_id, header_pair?, json_metadata?, extra_headers?}]}` | **true** |
-  | on_request | 4 | `llm_guardrail` | `{"model_allowlist"?, "prompt_capture":{enabled,redact_pii}}` | – |
+  | on_request | 4 | `llm_guardrail` | `{"provider_allowlists"?: {providerID: []model}, "prompt_capture":{enabled,redact_pii}}` | – |
   | on_response | 5 | `llm_limit_record` | `{}` (runs LAST at runtime) | – |
   | on_response | 6 | `cost_meter` | `{}` | – |
   | on_response | 7 | `llm_response_parser` | `{"capture_completion": <bool>, "redact_pii"?: true}` | – |

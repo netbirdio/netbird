@@ -10,11 +10,15 @@ import (
 )
 
 // Config is the JSON-decoded shape accepted by the factory. The
-// runtime path consumes the normalised allowlist; raw config is not
+// runtime path consumes the normalised allowlists; raw config is not
 // retained beyond construction.
 type Config struct {
-	ModelAllowlist []string      `json:"model_allowlist"`
-	PromptCapture  PromptCapture `json:"prompt_capture"`
+	// ProviderAllowlists maps a resolved provider id (KeyLLMResolvedProviderID) to
+	// its model allowlist. A provider present is restricted to those models; one
+	// absent is unrestricted. Kept per-provider so one provider's list can't leak
+	// onto another.
+	ProviderAllowlists map[string][]string `json:"provider_allowlists,omitempty"`
+	PromptCapture      PromptCapture       `json:"prompt_capture"`
 }
 
 // PromptCapture toggles the optional prompt capture + redaction step
@@ -54,21 +58,28 @@ func isEmptyJSON(raw []byte) bool {
 	return false
 }
 
-// normaliseConfig lowercases and trims allowlist entries so the runtime
-// match is case-insensitive. Empty entries are dropped.
+// normaliseConfig lowercases and trims allowlist entries for case-insensitive
+// matching; empty entries drop. A provider whose entries all drop keeps an empty
+// (non-nil) list — "deny every model" — distinct from an absent provider
+// (unrestricted).
 func normaliseConfig(cfg Config) Config {
-	if len(cfg.ModelAllowlist) == 0 {
+	if len(cfg.ProviderAllowlists) == 0 {
+		cfg.ProviderAllowlists = nil
 		return cfg
 	}
-	cleaned := make([]string, 0, len(cfg.ModelAllowlist))
-	for _, entry := range cfg.ModelAllowlist {
-		n := normaliseModel(entry)
-		if n == "" {
-			continue
+	cleaned := make(map[string][]string, len(cfg.ProviderAllowlists))
+	for provider, models := range cfg.ProviderAllowlists {
+		list := make([]string, 0, len(models))
+		for _, entry := range models {
+			n := normaliseModel(entry)
+			if n == "" {
+				continue
+			}
+			list = append(list, n)
 		}
-		cleaned = append(cleaned, n)
+		cleaned[provider] = list
 	}
-	cfg.ModelAllowlist = cleaned
+	cfg.ProviderAllowlists = cleaned
 	return cfg
 }
 

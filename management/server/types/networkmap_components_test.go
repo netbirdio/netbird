@@ -49,7 +49,7 @@ func allPeersValidated(account *types.Account, excludePeerIDs ...string) map[str
 	return validated
 }
 
-func peerIDs(peers []*nbpeer.Peer) []string {
+func peerIDs(peers []*types.ComponentPeer) []string {
 	ids := make([]string, len(peers))
 	for i, p := range peers {
 		ids[i] = p.ID

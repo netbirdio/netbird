@@ -1,0 +1,129 @@
+package routemanager
+
+import (
+	"net/netip"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/client/internal/routeselector"
+	"github.com/netbirdio/netbird/route"
+)
+
+func v6ExitRoute(netID, peer string) *route.Route {
+	return &route.Route{
+		NetID:   route.NetID(netID),
+		Network: netip.MustParsePrefix("::/0"),
+		Peer:    peer,
+	}
+}
+
+func newSelectionTestManager() *DefaultManager {
+	return &DefaultManager{
+		routeSelector: routeselector.NewRouteSelector(),
+		clientRoutes: route.HAMap{
+			"exitA|0.0.0.0/0":    {exitRoute("exitA", "p1", true)},
+			"exitA-v6|::/0":      {v6ExitRoute("exitA-v6", "p1")},
+			"exitB|0.0.0.0/0":    {exitRoute("exitB", "p2", true)},
+			"lan|192.168.1.0/24": {{NetID: "lan", Network: netip.MustParsePrefix("192.168.1.0/24"), Peer: "p3"}},
+		},
+	}
+}
+
+func TestSelectRoutes_ExitNodeExclusivity(t *testing.T) {
+	m := newSelectionTestManager()
+
+	// Selecting an exit node selects its v6 pair and deselects the sibling.
+	require.NoError(t, m.selectRoutes([]route.NetID{"exitA"}, true))
+	assert.True(t, m.routeSelector.IsSelected("exitA"), "exitA should be selected")
+	assert.True(t, m.routeSelector.IsSelected("exitA-v6"), "the v6 pair follows its v4 base")
+	assert.False(t, m.routeSelector.IsSelected("exitB"), "the sibling exit node must be deselected")
+
+	// Switching to the sibling deselects the previous exit node and its v6 pair.
+	require.NoError(t, m.selectRoutes([]route.NetID{"exitB"}, true))
+	assert.True(t, m.routeSelector.IsSelected("exitB"), "exitB should now be selected")
+	assert.False(t, m.routeSelector.IsSelected("exitA"), "the previous exit node must be deselected")
+	assert.False(t, m.routeSelector.IsSelected("exitA-v6"), "the previous exit node's v6 pair must be deselected")
+	assert.True(t, m.routeSelector.IsSelected("lan"), "non-exit route selection is untouched")
+
+	// Selecting a non-exit route leaves the active exit node alone.
+	require.NoError(t, m.selectRoutes([]route.NetID{"lan"}, true))
+	assert.True(t, m.routeSelector.IsSelected("exitB"), "selecting a non-exit route keeps the exit node")
+
+	// Deselecting the active exit node turns every exit node off.
+	require.NoError(t, m.deselectRoutes([]route.NetID{"exitB"}))
+	assert.False(t, m.routeSelector.IsSelected("exitB"), "exitB should be deselected")
+	assert.False(t, m.routeSelector.IsSelected("exitA"), "exitA stays deselected")
+	assert.True(t, m.routeSelector.IsSelected("lan"), "non-exit route selection is untouched")
+}
+
+func TestSelectRoutes_PartialErrorStillEnforcesExclusivity(t *testing.T) {
+	// The unknown ID must be reported, but the valid exit node in the same
+	// request is still selected — so its sibling must still be deselected.
+	// Both orderings are covered: processing must continue past the invalid
+	// ID wherever it sits in the request.
+	requests := map[string][]route.NetID{
+		"invalid id first": {"missing", "exitB"},
+		"invalid id last":  {"exitB", "missing"},
+	}
+
+	for name, ids := range requests {
+		t.Run(name, func(t *testing.T) {
+			m := newSelectionTestManager()
+
+			require.NoError(t, m.selectRoutes([]route.NetID{"exitA"}, true))
+
+			err := m.selectRoutes(ids, true)
+			assert.Error(t, err, "unknown id must be reported")
+			assert.True(t, m.routeSelector.IsSelected("exitB"), "valid exit node from the request is selected")
+			assert.False(t, m.routeSelector.IsSelected("exitA"), "sibling exit node must be deselected despite the error")
+			assert.False(t, m.routeSelector.IsSelected("exitA-v6"), "sibling's v6 pair must be deselected too")
+		})
+	}
+}
+
+func TestSelectAllRoutes_KeepsSingleExitNode(t *testing.T) {
+	// Both exit nodes are marked for auto-apply by management
+	// (SkipAutoApply=false), the state where select-all could turn on two at
+	// once without the immediate reconciliation.
+	m := &DefaultManager{
+		routeSelector: routeselector.NewRouteSelector(),
+		clientRoutes: route.HAMap{
+			"exitA|0.0.0.0/0":    {exitRoute("exitA", "p1", false)},
+			"exitB|0.0.0.0/0":    {exitRoute("exitB", "p2", false)},
+			"lan|192.168.1.0/24": {{NetID: "lan", Network: netip.MustParsePrefix("192.168.1.0/24"), Peer: "p3"}},
+		},
+	}
+
+	require.NoError(t, m.selectRoutes([]route.NetID{"exitB"}, true))
+
+	m.selectAllRoutes()
+
+	assert.True(t, m.routeSelector.IsSelected("lan"), "non-exit routes are all selected")
+	assert.True(t, m.routeSelector.IsSelected("exitA"), "the deterministic management pick stays active")
+	assert.False(t, m.routeSelector.IsSelected("exitB"), "select-all must not leave a second exit node active")
+}
+
+func TestSelectRoutes_UnknownRoute(t *testing.T) {
+	m := newSelectionTestManager()
+
+	assert.Error(t, m.selectRoutes([]route.NetID{"missing"}, true), "selecting an unavailable route must fail")
+	assert.Error(t, m.deselectRoutes([]route.NetID{"missing"}), "deselecting an unavailable route must fail")
+}
+
+func TestExitNodeSelectionHelpers(t *testing.T) {
+	routesMap := map[route.NetID][]*route.Route{
+		"exitA": {{Network: netip.MustParsePrefix("0.0.0.0/0")}},
+		"exitB": {{Network: netip.MustParsePrefix("::/0")}},
+		"lan":   {{Network: netip.MustParsePrefix("192.168.0.0/16")}},
+	}
+
+	assert.True(t, requestActivatesExitNode([]route.NetID{"exitA"}, routesMap), "v4 default route is an exit node")
+	assert.True(t, requestActivatesExitNode([]route.NetID{"exitB"}, routesMap), "v6 default route is an exit node")
+	assert.False(t, requestActivatesExitNode([]route.NetID{"lan"}, routesMap), "lan route is not an exit node")
+	assert.False(t, requestActivatesExitNode([]route.NetID{"missing"}, routesMap), "unknown id is not an exit node")
+
+	others := otherExitNodeIDs(routesMap, []route.NetID{"exitB"})
+	assert.ElementsMatch(t, []route.NetID{"exitA"}, others, "only the other exit node is a sibling; the lan route is ignored")
+}

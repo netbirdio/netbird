@@ -64,11 +64,42 @@ func (t *Tray) applySessionExpiry(deadline *time.Time, connected bool) bool {
 	return changed
 }
 
-// runSessionExpiryTicker recomputes the "Expires in …" row label every 30s. Runs until process exit.
+// runSessionExpiryTicker recomputes the "Expires in …" row label until process exit.
+// The interval scales with the remaining time: coarse when the deadline is far off,
+// down to 10s in the final two minutes so the label doesn't lag the ceiling-rounded
+// countdown near expiry. The cached deadline is re-read every iteration, so an extend
+// or reconnect that moves it is picked up on the next tick.
 func (t *Tray) runSessionExpiryTicker() {
-	tk := time.NewTicker(30 * time.Second)
-	for range tk.C {
+	tm := time.NewTimer(sessionRefreshInterval(t.sessionRemaining()))
+	defer tm.Stop()
+	for range tm.C {
 		t.refreshSessionExpiresLabel()
+		tm.Reset(sessionRefreshInterval(t.sessionRemaining()))
+	}
+}
+
+// sessionRemaining returns the time left on the cached SSO deadline, or 0 when unknown.
+func (t *Tray) sessionRemaining() time.Duration {
+	t.sessionMu.Lock()
+	deadline := t.sessionExpiresAt
+	t.sessionMu.Unlock()
+	if deadline.IsZero() {
+		return 0
+	}
+	return time.Until(deadline)
+}
+
+// sessionRefreshInterval picks how long to wait before the next label recompute.
+func sessionRefreshInterval(remaining time.Duration) time.Duration {
+	switch {
+	case remaining <= 0:
+		return 30 * time.Second
+	case remaining <= 2*time.Minute:
+		return 10 * time.Second
+	case remaining <= time.Hour:
+		return 30 * time.Second
+	default:
+		return time.Minute
 	}
 }
 
@@ -87,35 +118,49 @@ func (t *Tray) refreshSessionExpiresLabel() {
 	if deadline.IsZero() {
 		return
 	}
-	remaining := t.formatSessionRemaining(time.Until(deadline))
-	item.SetLabel(t.loc.T("tray.session.expiresIn", "remaining", remaining))
+	item.SetLabel(t.sessionRowLabel(deadline))
+}
+
+func (t *Tray) sessionRowLabel(deadline time.Time) string {
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		return t.loc.T("tray.status.sessionExpired")
+	}
+	return t.loc.T("tray.session.expiresIn", "remaining", t.formatSessionRemaining(remaining))
 }
 
 // formatSessionRemaining renders d as a localised long-form string picking the largest non-zero unit.
+// Each unit is rounded up so the label never claims less time than actually remains, matching the
+// upper-bound sense of the sub-minute "less than a minute" fragment.
 // Singular/plural keys are split per language for proper translation.
 func (t *Tray) formatSessionRemaining(d time.Duration) string {
 	switch {
 	case d < time.Minute:
 		return t.loc.T("tray.session.unit.lessThanMinute")
-	case d < time.Hour:
-		m := int(d / time.Minute)
+	case d <= 59*time.Minute:
+		m := ceilDiv(d, time.Minute)
 		if m == 1 {
 			return t.loc.T("tray.session.unit.minute")
 		}
 		return t.loc.T("tray.session.unit.minutes", "count", strconv.Itoa(m))
-	case d < 24*time.Hour:
-		h := int((d + 30*time.Minute) / time.Hour)
+	case d <= 23*time.Hour:
+		h := ceilDiv(d, time.Hour)
 		if h == 1 {
 			return t.loc.T("tray.session.unit.hour")
 		}
 		return t.loc.T("tray.session.unit.hours", "count", strconv.Itoa(h))
 	default:
-		days := int((d + 12*time.Hour) / (24 * time.Hour))
+		days := ceilDiv(d, 24*time.Hour)
 		if days == 1 {
 			return t.loc.T("tray.session.unit.day")
 		}
 		return t.loc.T("tray.session.unit.days", "count", strconv.Itoa(days))
 	}
+}
+
+// ceilDiv divides d by unit rounding up, assuming d > 0.
+func ceilDiv(d, unit time.Duration) int {
+	return int((d + unit - time.Nanosecond) / unit)
 }
 
 // registerSessionWarningCategory wires the OS notification category and response handler for the expiry warning.
@@ -252,11 +297,9 @@ func (t *Tray) openSessionExpiration() {
 }
 
 // openSessionExtendFlow opens the SessionExpiration window seeded with the cached deadline's remaining time,
-// for the "Expires in …" tray row. No-ops when the deadline is unknown or elapsed.
+// for the "Expires in …" tray row. Once the deadline has elapsed the row reads "Session expired" and the
+// click routes to the login flow instead. No-op when the deadline is unknown.
 func (t *Tray) openSessionExtendFlow() {
-	if t.svc.WindowManager == nil {
-		return
-	}
 	t.sessionMu.Lock()
 	deadline := t.sessionExpiresAt
 	t.sessionMu.Unlock()
@@ -265,6 +308,14 @@ func (t *Tray) openSessionExtendFlow() {
 	}
 	seconds := int(time.Until(deadline).Seconds())
 	if seconds <= 0 {
+		if t.window != nil {
+			t.window.SetURL("/#/login")
+			t.window.Show()
+			t.window.Focus()
+		}
+		return
+	}
+	if t.svc.WindowManager == nil {
 		return
 	}
 	t.svc.WindowManager.OpenSessionExpiration(seconds)

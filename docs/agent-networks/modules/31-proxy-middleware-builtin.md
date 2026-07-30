@@ -244,7 +244,7 @@ no mocks. Tests: `TestChain_AllowPath_StampsAttributionAndRecordsCounter`
 | `llm_router` | `{providers: [{id, models, upstream_scheme, upstream_host, upstream_path?, auth_header_name, auth_header_value, allowed_group_ids}]}` |
 | `llm_limit_check` | `{}` — pulls `MgmtClient` from `FactoryContext` |
 | `llm_identity_inject` | `{providers: [{provider_id, header_pair?|json_metadata?, extra_headers?}]}` |
-| `llm_guardrail` | `{model_allowlist: []string, prompt_capture: {enabled, redact_pii}}` |
+| `llm_guardrail` | `{provider_allowlists: {providerID: []string}, prompt_capture: {enabled, redact_pii}}` — allowlist keyed by resolved provider id; a provider absent from the map is unrestricted (fail-closed backstop; authoritative per-policy/group check is management's `CheckLLMPolicyLimits`) |
 | `llm_response_parser` | `{redact_pii?, capture_completion?: *bool}` |
 | `cost_meter` | `{pricing_path?}` (basename inside data-dir; defaults `pricing.yaml`) |
 | `llm_limit_record` | `{}` — same pattern as `llm_limit_check` |

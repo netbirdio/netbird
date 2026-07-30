@@ -490,8 +490,6 @@ init_migration() {
   echo ""
   echo "Step 1: Image swap (community → Enterprise). License key required."
   NB_LICENSE_KEY=$(read_secret "  License key")
-  GHCR_USERNAME="netbirdExtAccess1"
-  GHCR_TOKEN=$(read_secret "  GHCR token (input hidden)")
 
   # Step 2 — optional
   echo ""
@@ -587,11 +585,6 @@ apply_changes() {
       echo "NETBIRD_ENCRYPTION_KEY=${NETBIRD_ENCRYPTION_KEY}"
     fi
   } >> "$ENV_FILE"
-
-  echo ""
-  echo "Logging in to ghcr.io ..."
-  printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
-  unset GHCR_TOKEN
 
   echo ""
   echo "Pulling enterprise images ..."

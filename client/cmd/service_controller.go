@@ -5,6 +5,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"time"
 
 	"github.com/kardianos/service"
@@ -13,6 +14,8 @@ import (
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 
+	"github.com/netbirdio/netbird/client/internal/daemonaddr"
+	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/server"
 	"github.com/netbirdio/netbird/client/system"
@@ -26,6 +29,31 @@ func validateJSONSocketFlags() error {
 	return nil
 }
 
+// daemonServerOptions installs the transport credentials that expose each
+// caller's kernel-authenticated identity to the handlers, which is what lets
+// the daemon require root/administrator for privileged operations.
+//
+// The handshake exchanges no bytes, so older CLI and UI binaries still
+// interoperate. Callers on a TCP socket carry no identity at all: the daemon
+// keeps serving them, and the privileged operations deny them, so a warning is
+// logged to make the loss of functionality visible.
+func daemonServerOptions(network string) []grpc.ServerOption {
+	if network == "tcp" {
+		log.Warnf("daemon is listening on TCP (%s): callers carry no verifiable identity over TCP, "+
+			"so privileged operations (SSH root login, SSH auth, enabling the SSH server, management URL changes, "+
+			"deregistration) will be denied. Use a unix socket, or npipe:// on Windows", daemonAddr)
+		return nil
+	}
+
+	creds := ipcauth.NewTransportCredentials()
+	if creds == nil {
+		log.Warnf("daemon IPC has no peer-identity primitive on %s: privileged operations will be denied", runtime.GOOS)
+		return nil
+	}
+
+	return []grpc.ServerOption{grpc.Creds(creds)}
+}
+
 func (p *program) Start(svc service.Service) error {
 	// Start should not block. Do the actual work async.
 	log.Info("starting NetBird service") //nolint
@@ -37,65 +65,103 @@ func (p *program) Start(svc service.Service) error {
 	// Collect static system and platform information
 	system.UpdateStaticInfoAsync()
 
-	// in any case, even if configuration does not exists we run daemon to serve CLI gRPC API.
-	p.serv = grpc.NewServer()
-
-	daemonListener, err := listenOnAddress(daemonAddr)
-	if err != nil {
-		return fmt.Errorf("listen daemon interface: %w", err)
+	// A daemon installed before named-pipe support has the loopback TCP address
+	// persisted. Move it to the named pipe so an upgraded daemon can identify
+	// its callers instead of silently serving an unauthenticated socket.
+	if migrated, ok := daemonaddr.MigrateLegacy(daemonAddr); ok {
+		log.Infof("daemon address %q predates named-pipe support, listening on %q so callers can be identified", daemonAddr, migrated)
+		daemonAddr = migrated
 	}
 
-	var jsonListener *socketListener
-	if enableJSONSocket {
-		jsonListener, err = listenOnAddress(jsonSocket)
-		if err != nil {
-			_ = daemonListener.Close()
-			return fmt.Errorf("listen daemon JSON interface: %w", err)
-		}
-	} else {
-		removeStaleUnixSocketForAddress(jsonSocket)
+	network, _, err := parseListenAddress(daemonAddr)
+	if err != nil {
+		return fmt.Errorf("parse daemon address: %w", err)
+	}
+
+	// in any case, even if configuration does not exists we run daemon to serve CLI gRPC API.
+	p.serv = grpc.NewServer(daemonServerOptions(network)...)
+
+	daemonListener, jsonListener, err := listenDaemonSockets()
+	if err != nil {
+		return err
 	}
 
 	go func() {
-		defer daemonListener.Close()
-		if jsonListener != nil {
-			defer jsonListener.Close()
-		}
-
-		if err := daemonListener.chmodUnixSocket("daemon"); err != nil {
-			log.Error(err)
-			return
-		}
-		if jsonListener != nil {
-			if err := jsonListener.chmodUnixSocket("daemon JSON"); err != nil {
-				log.Error(err)
-				return
-			}
-		}
-
-		serverInstance := server.New(p.ctx, util.FindFirstLogPath(logFiles), configPath, profilesDisabled, updateSettingsDisabled, captureEnabled, networksDisabled)
-		if err := serverInstance.Start(); err != nil {
-			log.Fatalf("failed to start daemon: %v", err)
-		}
-		proto.RegisterDaemonServiceServer(p.serv, serverInstance)
-
-		p.serverInstanceMu.Lock()
-		p.serverInstance = serverInstance
-		p.serverInstanceMu.Unlock()
-
-		if jsonListener != nil {
-			if err := p.startJSONGateway(jsonListener, daemonAddr); err != nil {
-				log.Fatalf("failed to start daemon JSON server: %v", err)
-			}
-		} else {
-			log.Debug("daemon JSON socket disabled")
-		}
-
-		log.Printf("started daemon server: %v", daemonListener.address)
-		if err := p.serv.Serve(daemonListener.Listener); err != nil {
-			log.Errorf("failed to serve daemon requests: %v", err)
+		// Fatal here rather than inside serve, so serve's deferred listener
+		// closes run before the process exits.
+		if err := p.serve(daemonListener, jsonListener); err != nil {
+			log.Fatalf("failed to %v", err)
 		}
 	}()
+	return nil
+}
+
+// listenDaemonSockets opens the daemon control socket and, when it is enabled, the
+// JSON gateway socket. The control socket is closed again if the second one fails,
+// so a failed start leaves nothing listening. The returned JSON listener is nil
+// when the socket is disabled.
+func listenDaemonSockets() (*socketListener, *socketListener, error) {
+	daemonListener, err := listenOnAddress(daemonAddr)
+	if err != nil {
+		return nil, nil, fmt.Errorf("listen daemon interface: %w", err)
+	}
+
+	if !enableJSONSocket {
+		removeStaleUnixSocketForAddress(jsonSocket)
+		return daemonListener, nil, nil
+	}
+
+	jsonListener, err := listenOnAddress(jsonSocket)
+	if err != nil {
+		if cerr := daemonListener.Close(); cerr != nil {
+			log.Debugf("close daemon listener: %v", cerr)
+		}
+		return nil, nil, fmt.Errorf("listen daemon JSON interface: %w", err)
+	}
+
+	return daemonListener, jsonListener, nil
+}
+
+// serve brings up the daemon server on an already-open control socket and blocks
+// until it stops. jsonListener is nil when the JSON socket is disabled. A returned
+// error means the daemon cannot run at all and the caller is expected to exit; the
+// failures it recovers from on its own are logged here.
+func (p *program) serve(daemonListener, jsonListener *socketListener) error {
+	defer daemonListener.Close()
+	if jsonListener != nil {
+		defer jsonListener.Close()
+	}
+
+	// chmodUnixSocket is a no-op for a nil listener and for a non-unix one.
+	if err := daemonListener.chmodUnixSocket("daemon"); err != nil {
+		log.Error(err)
+		return nil
+	}
+	if err := jsonListener.chmodUnixSocket("daemon JSON"); err != nil {
+		log.Error(err)
+		return nil
+	}
+
+	serverInstance := server.New(p.ctx, util.FindFirstLogPath(logFiles), configPath, profilesDisabled, updateSettingsDisabled, captureEnabled, networksDisabled)
+	if err := serverInstance.Start(); err != nil {
+		return fmt.Errorf("start daemon: %w", err)
+	}
+	proto.RegisterDaemonServiceServer(p.serv, serverInstance)
+
+	p.serverInstanceMu.Lock()
+	p.serverInstance = serverInstance
+	p.serverInstanceMu.Unlock()
+
+	if jsonListener == nil {
+		log.Debug("daemon JSON socket disabled")
+	} else if err := p.startJSONGateway(jsonListener, daemonAddr); err != nil {
+		return fmt.Errorf("start daemon JSON server: %w", err)
+	}
+
+	log.Printf("started daemon server: %v", daemonListener.address)
+	if err := p.serv.Serve(daemonListener.Listener); err != nil {
+		log.Errorf("failed to serve daemon requests: %v", err)
+	}
 	return nil
 }
 
@@ -113,8 +179,13 @@ func (p *program) Stop(srv service.Service) error {
 	p.cancel()
 
 	p.jsonServMu.Lock()
-	jsonServ := p.jsonServ
+	jsonServ, jsonClient := p.jsonServ, p.jsonClient
 	p.jsonServMu.Unlock()
+	if jsonClient != nil {
+		if err := jsonClient.Close(); err != nil {
+			log.Debugf("close daemon JSON gateway client: %v", err)
+		}
+	}
 	if jsonServ != nil {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
 		if err := jsonServ.Shutdown(shutdownCtx); err != nil {

@@ -44,10 +44,25 @@ type Auth struct {
 // NewAuth instantiate Auth struct and validate the management URL
 func NewAuth(cfgPath string, mgmURL string) (*Auth, error) {
 	inputCfg := profilemanager.ConfigInput{
+		ConfigPath:    cfgPath,
 		ManagementURL: mgmURL,
 	}
 
-	cfg, err := profilemanager.CreateInMemoryConfig(inputCfg)
+	// Load the existing config when a config file is already present so an
+	// interactive re-login reuses the peer's persisted WireGuard private key
+	// (and thus its identity) instead of generating a fresh one. Generating a
+	// new key registers a brand-new peer on the management server on every
+	// re-auth (named after the fallback hostname). Only fall back to a fresh
+	// in-memory config for the first-time login when no config file exists yet.
+	// DirectUpdateOrCreateConfig uses non-atomic writes so it also works inside
+	// the tvOS App Group sandbox where atomic temp-file+rename is blocked.
+	var cfg *profilemanager.Config
+	var err error
+	if cfgPath != "" {
+		cfg, err = profilemanager.DirectUpdateOrCreateConfig(inputCfg)
+	} else {
+		cfg, err = profilemanager.CreateInMemoryConfig(inputCfg)
+	}
 	if err != nil {
 		return nil, err
 	}

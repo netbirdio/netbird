@@ -184,6 +184,8 @@ func (m *managerImpl) DeletePeers(ctx context.Context, accountID string, peerIDs
 				return err
 			}
 
+			log.WithContext(ctx).Debugf("DeletePeers: deleted peer %s", peerID)
+
 			if !(peer.ProxyMeta.Embedded || peer.Meta.KernelVersion == "wasm") {
 				eventsToStore = append(eventsToStore, func() {
 					m.accountManager.StoreEvent(ctx, userID, peer.ID, accountID, activity.PeerRemovedByUser, peer.EventMeta(dnsDomain))
@@ -224,30 +226,6 @@ func (m *managerImpl) CreateProxyPeer(ctx context.Context, accountID string, pee
 		return nil
 	}
 
-	// Dedupe stale embedded peer records for the same (account, cluster).
-	// The proxy generates a fresh WireGuard keypair on every startup
-	// (proxy/internal/roundtrip/netbird.go), so without this sweep the
-	// prior embedded peer would linger forever — holding its CGNAT IP
-	// allocation, polluting other peers' rosters, and (most visibly)
-	// leaving the synth DNS pointing at the dead address. The
-	// (account, cluster) tuple identifies "the embedded peer for this
-	// proxy instance at this cluster"; any record matching that tuple
-	// with a different pubkey is by definition stale and must go.
-	staleIDs, err := m.findStaleEmbeddedProxyPeers(ctx, accountID, cluster, peerKey)
-	if err != nil {
-		return fmt.Errorf("scan for stale embedded proxy peers: %w", err)
-	}
-	if len(staleIDs) > 0 {
-		// userID="" + checkConnected=false: the deletion is initiated
-		// by management itself on behalf of the freshly-registering
-		// proxy, not by an end user; the stale peer may still be
-		// marked Connected from its prior session, but its session is
-		// dead by definition (its key no longer exists).
-		if err := m.DeletePeers(ctx, accountID, staleIDs, "", false); err != nil {
-			return fmt.Errorf("delete stale embedded proxy peers %v: %w", staleIDs, err)
-		}
-	}
-
 	name := fmt.Sprintf("proxy-%s", xid.New().String())
 	newPeer := &peer.Peer{
 		Ephemeral: true,
@@ -272,30 +250,4 @@ func (m *managerImpl) CreateProxyPeer(ctx context.Context, accountID string, pee
 	}
 
 	return nil
-}
-
-// findStaleEmbeddedProxyPeers returns the peer IDs of embedded proxy peer
-// records in accountID that target the same cluster but carry a different
-// WireGuard pubkey than the freshly-registering one. Used by CreateProxyPeer
-// to garbage-collect stale records left behind when the proxy restarts with a
-// regenerated keypair.
-func (m *managerImpl) findStaleEmbeddedProxyPeers(ctx context.Context, accountID, cluster, newKey string) ([]string, error) {
-	account, err := m.store.GetAccount(ctx, accountID)
-	if err != nil {
-		return nil, err
-	}
-	var stale []string
-	for _, p := range account.Peers {
-		if p == nil || !p.ProxyMeta.Embedded {
-			continue
-		}
-		if p.ProxyMeta.Cluster != cluster {
-			continue
-		}
-		if p.Key == newKey {
-			continue
-		}
-		stale = append(stale, p.ID)
-	}
-	return stale, nil
 }

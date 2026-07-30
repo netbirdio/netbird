@@ -3,7 +3,6 @@
 package notifier
 
 import (
-	"container/list"
 	"net/netip"
 	"slices"
 	"sort"
@@ -16,20 +15,12 @@ import (
 
 type Notifier struct {
 	mu              sync.Mutex
-	cond            *sync.Cond
 	currentPrefixes []string
 	listener        listener.NetworkChangeListener
-	queue           *list.List
-	closed          bool
 }
 
 func NewNotifier() *Notifier {
-	n := &Notifier{
-		queue: list.New(),
-	}
-	n.cond = sync.NewCond(&n.mu)
-	go n.deliverLoop()
-	return n
+	return &Notifier{}
 }
 
 func (n *Notifier) SetListener(listener listener.NetworkChangeListener) {
@@ -59,44 +50,19 @@ func (n *Notifier) OnNewPrefixes(prefixes []netip.Prefix) {
 	sort.Strings(newNets)
 
 	n.mu.Lock()
+	defer n.mu.Unlock()
 	if slices.Equal(n.currentPrefixes, newNets) {
-		n.mu.Unlock()
 		return
 	}
 	n.currentPrefixes = newNets
-	routes := strings.Join(n.currentPrefixes, ",")
-	n.queue.PushBack(routes)
-	n.cond.Signal()
-	n.mu.Unlock()
+	if n.listener != nil {
+		n.listener.OnNetworkChanged(strings.Join(n.currentPrefixes, ","))
+	}
 }
 
 func (n *Notifier) Close() {
-	n.mu.Lock()
-	n.closed = true
-	n.cond.Signal()
-	n.mu.Unlock()
 }
 
 func (n *Notifier) GetInitialRouteRanges() []string {
 	return nil
-}
-
-func (n *Notifier) deliverLoop() {
-	for {
-		n.mu.Lock()
-		for n.queue.Len() == 0 && !n.closed {
-			n.cond.Wait()
-		}
-		if n.closed && n.queue.Len() == 0 {
-			n.mu.Unlock()
-			return
-		}
-		routes := n.queue.Remove(n.queue.Front()).(string)
-		l := n.listener
-		n.mu.Unlock()
-
-		if l != nil {
-			l.OnNetworkChanged(routes)
-		}
-	}
 }

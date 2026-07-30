@@ -82,6 +82,12 @@ type Server struct {
 	// extend flow or vice versa.
 	extendAuthSessionFlow *auth.PendingFlow
 
+	// guardedConfigMu serializes a privilege check against the write it
+	// authorizes. Without it the two are separate steps over the same file, and a
+	// change that was allowed because the profile had the SSH server disabled
+	// could land after a concurrent privileged request enabled it.
+	guardedConfigMu sync.Mutex
+
 	mutex  sync.Mutex
 	config *profilemanager.Config
 	proto.UnimplementedDaemonServiceServer
@@ -185,7 +191,7 @@ func (s *Server) Start() error {
 		log.Warnf("failed to redirect stderr: %v", err)
 	}
 
-	if err := restoreResidualState(s.rootCtx, s.profileManager.GetStatePath()); err != nil {
+	if err := RestoreResidualState(s.rootCtx, s.profileManager.GetStatePath()); err != nil {
 		log.Warnf(errRestoreResidualState, err)
 	}
 
@@ -415,6 +421,20 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 		return nil, err
 	}
 
+	// Privilege gate: refuse the parts of the request that would let a local
+	// user turn the root daemon into a root shell. Held across the write so the
+	// config cannot gain the SSH server between the decision and the update.
+	s.guardedConfigMu.Lock()
+	defer s.guardedConfigMu.Unlock()
+
+	stored, err := s.storedProfileConfig(msg.ProfileName, msg.Username)
+	if err != nil {
+		return nil, err
+	}
+	if err := requirePrivilegeForConfigChange(callerCtx, stored, privilegedChangeFromSetConfig(msg)); err != nil {
+		return nil, err
+	}
+
 	config, err := s.setConfigInputFromRequest(msg)
 	if err != nil {
 		return nil, err
@@ -543,22 +563,23 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		}
 	}
 
-	s.mutex.Lock()
-	if s.actCancel != nil {
-		s.actCancel()
-	}
-	ctx, cancel := context.WithCancel(callerCtx)
-
-	md, ok := metadata.FromIncomingContext(callerCtx)
-	if ok {
-		ctx = metadata.NewOutgoingContext(ctx, md)
+	activeProf, err := s.profileManager.GetActiveProfileState()
+	if err != nil {
+		log.Errorf("failed to get active profile state: %v", err)
+		return nil, fmt.Errorf("failed to get active profile state: %w", err)
 	}
 
-	s.actCancel = cancel
-	s.mutex.Unlock()
-
-	if err := restoreResidualState(s.rootCtx, s.profileManager.GetStatePath()); err != nil {
-		log.Warnf(errRestoreResidualState, err)
+	// Privilege gate: same restrictions as SetConfig, since LoginRequest can carry
+	// the same fields. It runs before anything here changes daemon state, so a
+	// refused login neither switches the profile nor cancels a login already in
+	// progress, and it reads the profile the request targets, which is the one the
+	// switch below would activate.
+	stored, err := s.storedLoginConfig(activeProf, msg)
+	if err != nil {
+		return nil, err
+	}
+	if err := requirePrivilegeForConfigChange(callerCtx, stored, privilegedChangeFromLogin(msg)); err != nil {
+		return nil, err
 	}
 
 	state := internal.CtxGetState(s.rootCtx)
@@ -569,23 +590,16 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		}
 	}()
 
-	activeProf, err := s.profileManager.GetActiveProfileState()
+	ctx, activeProf, err := s.authorizeAndPrepareLogin(callerCtx, msg, activeProf)
 	if err != nil {
-		log.Errorf("failed to get active profile state: %v", err)
-		return nil, fmt.Errorf("failed to get active profile state: %w", err)
-	}
-
-	if msg.ProfileName != nil {
-		if _, err := s.switchProfileIfNeeded(*msg.ProfileName, msg.Username, activeProf); err != nil {
-			log.Errorf("failed to switch profile: %v", err)
-			return nil, err
+		// The RPC boundary is where this gets recorded: nothing logs handler
+		// errors for us, and a caller that retries would otherwise leave no
+		// trace in the daemon log. A refusal is skipped because the gate has
+		// already logged the decision, with the caller's identity.
+		if gstatus.Code(err) != codes.PermissionDenied {
+			log.Errorf("failed to prepare login: %v", err)
 		}
-	}
-
-	activeProf, err = s.profileManager.GetActiveProfileState()
-	if err != nil {
-		log.Errorf("failed to get active profile state: %v", err)
-		return nil, fmt.Errorf("failed to get active profile state: %w", err)
+		return nil, err
 	}
 
 	log.Infof("active profile: %s for %s", activeProf.ID, activeProf.Username)
@@ -598,11 +612,6 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	}
 
 	s.mutex.Unlock()
-
-	if err := persistLoginOverrides(activeProf, msg.ManagementUrl, msg.OptionalPreSharedKey); err != nil {
-		log.Errorf("failed to persist login overrides: %v", err)
-		return nil, fmt.Errorf("persist login overrides: %w", err)
-	}
 
 	config, _, err := s.getConfig(activeProf)
 	if err != nil {
@@ -864,7 +873,7 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 
 		return s.waitForUp(callerCtx)
 	}
-	if err := restoreResidualState(callerCtx, s.profileManager.GetStatePath()); err != nil {
+	if err := RestoreResidualState(callerCtx, s.profileManager.GetStatePath()); err != nil {
 		log.Warnf(errRestoreResidualState, err)
 	}
 
@@ -986,6 +995,63 @@ func (s *Server) waitForUp(callerCtx context.Context) (*proto.UpResponse, error)
 	}
 }
 
+// storedProfileConfig loads the on-disk config of the profile a request
+// targets, so a privileged-change decision can be made against the values the
+// profile currently holds. A profile that has no config file yet yields nil,
+// which every caller must read as "nothing enabled yet".
+func (s *Server) storedProfileConfig(handle, username string) (*profilemanager.Config, error) {
+	resolved, err := s.resolveProfileHandle(handle, username)
+	if err != nil {
+		return nil, err
+	}
+
+	path := resolved.Path
+	if path == "" {
+		path = profilemanager.DefaultConfigPath
+	}
+
+	return s.storedConfigAtPath(path)
+}
+
+// storedLoginConfig loads the on-disk config of the profile a login request
+// targets: the one it names, or the active one when it names none. Used to decide
+// a privileged change before the request is allowed to switch profiles.
+func (s *Server) storedLoginConfig(activeProf *profilemanager.ActiveProfileState, msg *proto.LoginRequest) (*profilemanager.Config, error) {
+	if msg.ProfileName == nil {
+		cfgPath, err := activeProf.FilePath()
+		if err != nil {
+			return nil, fmt.Errorf("active profile file path: %w", err)
+		}
+		return s.storedConfigAtPath(cfgPath)
+	}
+
+	// Mirrors switchProfileIfNeeded: the default profile resolves without a
+	// username, so this reads the same profile the switch would activate.
+	handle := *msg.ProfileName
+	username := ""
+	if handle != profilemanager.DefaultProfileName {
+		username = msg.GetUsername()
+	}
+	return s.storedProfileConfig(handle, username)
+}
+
+// storedConfigAtPath reads a profile config file, yielding nil when it does not
+// exist yet.
+func (s *Server) storedConfigAtPath(path string) (*profilemanager.Config, error) {
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil //nolint:nilnil
+		}
+		return nil, fmt.Errorf("stat profile config: %w", err)
+	}
+
+	cfg, err := profilemanager.GetConfig(path)
+	if err != nil {
+		return nil, fmt.Errorf("read profile config: %w", err)
+	}
+	return cfg, nil
+}
+
 // resolveProfileHandle resolves a wire-level profile handle (display
 // name, ID, or unique ID prefix) to a concrete profile. Returns gRPC
 // status errors so handlers can return them directly.
@@ -1087,7 +1153,10 @@ func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownRes
 
 	if err := s.cleanupConnection(); err != nil {
 		s.mutex.Unlock()
-		// todo review to update the status in case any type of error
+		if errors.Is(err, ErrServiceNotUp) {
+			log.Debugf("Down called while service not up: %v", err)
+			return nil, err
+		}
 		log.Errorf("failed to shut down properly: %v", err)
 		return nil, err
 	}
@@ -1160,7 +1229,7 @@ func (s *Server) cleanupConnection() error {
 	// making the run loop the sole owner of engine shutdown.
 	if engine != nil {
 		if err := engine.Stop(); err != nil {
-			return err
+			log.Errorf("failed to stop engine during cleanup: %v", err)
 		}
 	}
 
@@ -1200,6 +1269,12 @@ func (s *Server) handleProfileLogout(ctx context.Context, msg *proto.LogoutReque
 
 	if err := s.logoutFromProfile(ctx, resolved); err != nil {
 		log.Errorf("failed to logout from profile %s: %v", resolved.ID, err)
+		// A refused deregistration is already a status error carrying the reason
+		// and the command to run; rewrapping it as Internal would flatten both
+		// into a gRPC dump for the user.
+		if _, isStatus := gstatus.FromError(err); isStatus {
+			return nil, err
+		}
 		return nil, gstatus.Errorf(codes.Internal, "logout: %v", err)
 	}
 
@@ -1321,6 +1396,13 @@ func (s *Server) sendLogoutRequest(ctx context.Context) error {
 }
 
 func (s *Server) sendLogoutRequestWithConfig(ctx context.Context, config *profilemanager.Config) error {
+	// Privilege gate: deregistering frees this machine's key to be registered
+	// against another management server, which is only restricted while the SSH
+	// server makes that a privilege handover.
+	if err := requirePrivilegeForDeregistration(ctx, config); err != nil {
+		return err
+	}
+
 	key, err := wgtypes.ParseKey(config.PrivateKey)
 	if err != nil {
 		return fmt.Errorf("parse private key: %w", err)
@@ -2125,7 +2207,10 @@ func (s *Server) RemoveProfile(ctx context.Context, msg *proto.RemoveProfileRequ
 	}
 
 	if err := s.logoutFromProfile(ctx, resolved); err != nil {
-		log.Warnf("failed to logout from profile %s before removal: %v", resolved.ID, err)
+		// Deregistration is best-effort here: the local profile is removed
+		// either way, so an unprivileged caller leaves the peer registered on
+		// the management server rather than being blocked from removing it.
+		log.Warnf("removing profile %s locally without deregistering it: %v", resolved.ID, err)
 	}
 
 	if err := s.profileManager.RemoveProfile(resolved.ID, msg.Username); err != nil {
@@ -2422,6 +2507,69 @@ func sendTerminalNotification() error {
 
 // persistLoginOverrides writes management URL and pre-shared key from a LoginRequest to the
 // active profile config so that subsequent reads pick them up. Empty/nil values are ignored.
+// afterLoginPreCheck is a seam for tests to run a concurrent config change
+// between Login's first privilege check and the authoritative one.
+var afterLoginPreCheck func()
+
+// authorizeAndPrepareLogin makes the authoritative privilege decision for a login
+// and, when it passes, carries out every state change that decision authorizes:
+// cancelling an login already in progress, switching to the requested profile, and
+// persisting the config overrides the request carries.
+//
+// All of it happens under guardedConfigMu, which SetConfig also holds across its
+// own check and write. Login's earlier check refuses the ordinary case before any
+// of this is reached; this one exists because that check is not synchronized
+// against a concurrent privileged request that enables the SSH server, and a
+// caller refused here must not have cancelled or switched anything either.
+func (s *Server) authorizeAndPrepareLogin(callerCtx context.Context, msg *proto.LoginRequest, activeProf *profilemanager.ActiveProfileState) (context.Context, *profilemanager.ActiveProfileState, error) {
+	if afterLoginPreCheck != nil {
+		afterLoginPreCheck()
+	}
+
+	s.guardedConfigMu.Lock()
+	defer s.guardedConfigMu.Unlock()
+
+	stored, err := s.storedLoginConfig(activeProf, msg)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := requirePrivilegeForConfigChange(callerCtx, stored, privilegedChangeFromLogin(msg)); err != nil {
+		return nil, nil, err
+	}
+
+	s.mutex.Lock()
+	if s.actCancel != nil {
+		s.actCancel()
+	}
+	ctx, cancel := context.WithCancel(callerCtx)
+	if md, ok := metadata.FromIncomingContext(callerCtx); ok {
+		ctx = metadata.NewOutgoingContext(ctx, md)
+	}
+	s.actCancel = cancel
+	s.mutex.Unlock()
+
+	if err := RestoreResidualState(s.rootCtx, s.profileManager.GetStatePath()); err != nil {
+		log.Warnf(errRestoreResidualState, err)
+	}
+
+	if msg.ProfileName != nil {
+		if _, err := s.switchProfileIfNeeded(*msg.ProfileName, msg.Username, activeProf); err != nil {
+			return nil, nil, fmt.Errorf("switch profile: %w", err)
+		}
+	}
+
+	activeProf, err = s.profileManager.GetActiveProfileState()
+	if err != nil {
+		return nil, nil, fmt.Errorf("active profile state: %w", err)
+	}
+
+	if err := persistLoginOverrides(activeProf, msg.ManagementUrl, msg.OptionalPreSharedKey); err != nil {
+		return nil, nil, fmt.Errorf("persist login overrides: %w", err)
+	}
+
+	return ctx, activeProf, nil
+}
+
 func persistLoginOverrides(activeProf *profilemanager.ActiveProfileState, managementURL string, preSharedKey *string) error {
 	if preSharedKey != nil && *preSharedKey == "" {
 		preSharedKey = nil

@@ -52,11 +52,14 @@ int xdp_dns_fwd(struct iphdr  *ip, struct udphdr *udp) {
 
     if (udp->dest == GENERAL_DNS_PORT && ip->daddr == dns_ip) {
         udp->dest = dns_port;
+        // Clear the now-stale checksum; zero means "not computed" for IPv4.
+        udp->check = 0;
         return XDP_PASS;
     }
 
     if (udp->source == dns_port && ip->saddr == dns_ip) {
         udp->source = GENERAL_DNS_PORT;
+        udp->check = 0;
         return XDP_PASS;
     }
 

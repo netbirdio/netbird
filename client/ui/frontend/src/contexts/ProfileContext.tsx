@@ -28,6 +28,7 @@ type ProfileContextValue = {
     loaded: boolean;
     refresh: () => Promise<void>;
     switchProfile: (id: string) => Promise<void>;
+    switchProfileNoConnect: (id: string) => Promise<void>;
     addProfile: (name: string) => Promise<string>;
     removeProfile: (id: string) => Promise<void>;
     renameProfile: (id: string, newName: string) => Promise<void>;
@@ -112,6 +113,16 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
         [username, refresh],
     );
 
+    // Manage-profiles variant: switches without connecting, so the user can
+    // still adjust the management URL before bringing the connection up.
+    const switchProfileNoConnect = useCallback(
+        async (id: string) => {
+            await ProfileSwitcher.SwitchActiveNoConnect({ profileName: id, username });
+            await refresh();
+        },
+        [username, refresh],
+    );
+
     // addProfile creates a profile by display name and returns the
     // daemon-generated ID, so the caller can immediately address it by ID.
     const addProfile = useCallback(
@@ -158,6 +169,7 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
             loaded,
             refresh,
             switchProfile,
+            switchProfileNoConnect,
             addProfile,
             removeProfile,
             renameProfile,
@@ -171,6 +183,7 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
             loaded,
             refresh,
             switchProfile,
+            switchProfileNoConnect,
             addProfile,
             removeProfile,
             renameProfile,

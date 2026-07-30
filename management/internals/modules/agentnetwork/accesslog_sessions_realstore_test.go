@@ -38,7 +38,7 @@ func accessLogRow(id, sessionID string, ts time.Time, opts ...func(*types.AgentN
 		InputTokens:        100,
 		OutputTokens:       50,
 		TotalTokens:        150,
-		CostUSD:            0.01,
+		InputCostUSD:       0.01,
 	}
 	for _, o := range opts {
 		o(e)
@@ -74,7 +74,7 @@ func withTokens(in, out, total int64, cost float64) func(*types.AgentNetworkAcce
 		e.InputTokens = in
 		e.OutputTokens = out
 		e.TotalTokens = total
-		e.CostUSD = cost
+		e.InputCostUSD = cost
 	}
 }
 
@@ -155,7 +155,7 @@ func TestAccessLogSessions_FoldAndAggregate(t *testing.T) {
 	assert.Equal(t, int64(310), a.InputTokens, "input tokens summed")
 	assert.Equal(t, int64(135), a.OutputTokens, "output tokens summed")
 	assert.Equal(t, int64(445), a.TotalTokens, "total tokens summed")
-	assert.InDelta(t, 0.031, a.CostUSD, 1e-9, "cost summed")
+	assert.InDelta(t, 0.031, a.TotalCostUSD(), 1e-9, "cost summed")
 	assert.Equal(t, "deny", a.Decision, "any deny makes the session a deny")
 	assert.ElementsMatch(t, []string{"openai", "anthropic"}, a.Providers, "distinct providers")
 	assert.ElementsMatch(t, []string{"gpt-5.4", "claude-haiku-4-5"}, a.Models, "distinct models")

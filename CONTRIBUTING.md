@@ -234,11 +234,21 @@ cd client/ui
 task dev
 ```
 
-Pass daemon flags after `--`:
+Pass daemon flags after `--`, pointing the UI at the socket the daemon serves:
 
 ```
-task dev -- --daemon-addr=tcp://127.0.0.1:41731
+task dev -- --daemon-addr=unix:///var/run/netbird.sock   # Linux, macOS
+task dev -- --daemon-addr=npipe://netbird                # Windows
 ```
+
+On Windows the daemon serves a named pipe (`npipe://netbird`). Which path that
+ends up being depends on what the daemon may create: as a service or elevated it
+serves `\\.\pipe\ProtectedPrefix\Administrators\netbird`, which no unprivileged
+process can take from it, and otherwise it falls back to `\\.\pipe\netbird`.
+Clients try both and check who owns the pipe before using the plain one. Avoid
+`tcp://127.0.0.1:41731`: loopback TCP carries no caller identity, so the daemon
+refuses the operations that require an administrator and you will not exercise
+those paths.
 
 Production build (frontend assets embedded into the binary, output in `client/ui/bin/`):
 

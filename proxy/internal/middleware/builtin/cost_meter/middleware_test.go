@@ -67,7 +67,15 @@ func TestMiddleware_StaticSurface(t *testing.T) {
 	assert.NoError(t, mw.Close(), "Close on stateless middleware is a no-op")
 
 	keys := mw.MetadataKeys()
-	expected := []string{middleware.KeyCostUSDTotal, middleware.KeyCostSkipped}
+	expected := []string{
+		middleware.KeyCostUSDInput,
+		middleware.KeyCostUSDCachedInput,
+		middleware.KeyCostUSDCacheCreation,
+		middleware.KeyCostUSDOutput,
+		middleware.KeyCostUSDTotal,
+		middleware.KeyCostUSDCache,
+		middleware.KeyCostSkipped,
+	}
 	assert.Equal(t, expected, keys, "metadata key allowlist must match the spec")
 }
 
@@ -105,7 +113,7 @@ func TestFactory_DefaultPricingPathLoadsFixture(t *testing.T) {
 
 	value, ok := metaValue(t, out.Metadata, middleware.KeyCostUSDTotal)
 	require.True(t, ok, "cost.usd_total must be emitted for known model")
-	assert.Equal(t, "0.000750", value, "0.00015 + 0.0006 per 1k tokens, 6-decimal format")
+	assert.Equal(t, "0.000750000", value, "0.00015 + 0.0006 per 1k tokens, 9-decimal format")
 }
 
 func TestFactory_PricingPathOverride(t *testing.T) {
@@ -129,7 +137,7 @@ func TestFactory_PricingPathOverride(t *testing.T) {
 
 	value, ok := metaValue(t, out.Metadata, middleware.KeyCostUSDTotal)
 	require.True(t, ok, "cost.usd_total must be emitted with custom pricing path")
-	assert.Equal(t, "0.015000", value, "2*0.0025 + 1*0.01 = 0.015 with 6-decimal format")
+	assert.Equal(t, "0.015000000", value, "2*0.0025 + 1*0.01 = 0.015 with 9-decimal format")
 }
 
 func TestInvoke_ComputesCostForKnownModel(t *testing.T) {
@@ -148,7 +156,7 @@ func TestInvoke_ComputesCostForKnownModel(t *testing.T) {
 
 	value, ok := metaValue(t, out.Metadata, middleware.KeyCostUSDTotal)
 	require.True(t, ok, "cost.usd_total must be emitted")
-	assert.Equal(t, "0.018000", value, "0.003 + 0.015 = 0.018 with 6-decimal format")
+	assert.Equal(t, "0.018000000", value, "0.003 + 0.015 = 0.018 with 9-decimal format")
 	_, skipped := metaValue(t, out.Metadata, middleware.KeyCostSkipped)
 	assert.False(t, skipped, "cost.skipped must not be set when cost is computed")
 }
@@ -357,8 +365,25 @@ func TestInvoke_OpenAICachedSubsetDiscount(t *testing.T) {
 	value, ok := metaValue(t, out.Metadata, middleware.KeyCostUSDTotal)
 	require.True(t, ok, "cached subset path must produce a cost — never a skip")
 	// 250 non-cached at 0.0025/1k + 750 cached at 0.00125/1k + 500 output at 0.01/1k.
-	assert.Equal(t, "0.006563", value,
+	assert.Equal(t, "0.006562500", value,
 		"cached subset must be billed at the discount rate, non-cached at the full rate; never double-billed")
+
+	cache, ok := metaValue(t, out.Metadata, middleware.KeyCostUSDCache)
+	require.True(t, ok, "cost.usd_cache must be emitted alongside cost.usd_total")
+	// 750 cached at 0.00125/1k = 0.0009375.
+	assert.Equal(t, "0.000937500", cache, "cache cost is the discounted cost of the cached subset")
+
+	// Per-bucket breakdown. On OpenAI the cached subset is carved out of the
+	// input bucket, so input covers only the 250 non-cached tokens — the two
+	// must never double-count the same 750 tokens.
+	assertBucket(t, out.Metadata, middleware.KeyCostUSDInput, "0.000625000",
+		"input bucket bills only the non-cached remainder")
+	assertBucket(t, out.Metadata, middleware.KeyCostUSDCachedInput, "0.000937500",
+		"cached-input bucket bills the discounted subset")
+	assertBucket(t, out.Metadata, middleware.KeyCostUSDCacheCreation, "0.000000000",
+		"OpenAI has no cache-write bucket")
+	assertBucket(t, out.Metadata, middleware.KeyCostUSDOutput, "0.005000000",
+		"output bucket bills 500 tokens at 0.01/1k")
 }
 
 // TestInvoke_AnthropicCacheBucketsAdditive proves the Anthropic
@@ -384,9 +409,33 @@ func TestInvoke_AnthropicCacheBucketsAdditive(t *testing.T) {
 	value, ok := metaValue(t, out.Metadata, middleware.KeyCostUSDTotal)
 	require.True(t, ok)
 	// 256 input * 0.003 + 768 cache_read * 0.0003 + 512 cache_creation * 0.00375 + 200 output * 0.015
-	// = 0.000768 + 0.0002304 + 0.00192 + 0.003 = 0.0059184 → "0.005918" with 6-decimal format.
-	assert.Equal(t, "0.005918", value,
+	// = 0.000768 + 0.0002304 + 0.00192 + 0.003 = 0.0059184.
+	assert.Equal(t, "0.005918400", value,
 		"each Anthropic input bucket must bill at its own rate — cache_read cheap, cache_creation expensive, regular input mid")
+
+	cache, ok := metaValue(t, out.Metadata, middleware.KeyCostUSDCache)
+	require.True(t, ok, "cost.usd_cache must be emitted alongside cost.usd_total")
+	// 768 cache_read * 0.0003 + 512 cache_creation * 0.00375 = 0.0021504.
+	assert.Equal(t, "0.002150400", cache, "cache cost sums the read and creation buckets")
+
+	// Per-bucket breakdown: four separately-billed buckets, each at its own rate.
+	assertBucket(t, out.Metadata, middleware.KeyCostUSDInput, "0.000768000",
+		"input bucket bills 256 tokens at 0.003/1k")
+	assertBucket(t, out.Metadata, middleware.KeyCostUSDCachedInput, "0.000230400",
+		"cache-read bucket bills 768 tokens at the cheap 0.0003/1k")
+	assertBucket(t, out.Metadata, middleware.KeyCostUSDCacheCreation, "0.001920000",
+		"cache-write bucket bills 512 tokens at the expensive 0.00375/1k")
+	assertBucket(t, out.Metadata, middleware.KeyCostUSDOutput, "0.003000000",
+		"output bucket bills 200 tokens at 0.015/1k")
+}
+
+// assertBucket asserts one per-bucket cost key carries the expected
+// 6-decimal value.
+func assertBucket(t *testing.T, md []middleware.KV, key, want, msg string) {
+	t.Helper()
+	got, ok := metaValue(t, md, key)
+	require.Truef(t, ok, "%s must be emitted", key)
+	assert.Equal(t, want, got, msg)
 }
 
 // TestInvoke_CachedTokensAbsentFallsBackToBaseFormula covers the
@@ -411,7 +460,7 @@ func TestInvoke_CachedTokensAbsentFallsBackToBaseFormula(t *testing.T) {
 	value, ok := metaValue(t, out.Metadata, middleware.KeyCostUSDTotal)
 	require.True(t, ok)
 	// 1000 input * 0.0025 + 500 output * 0.01 = 0.0025 + 0.005 = 0.0075
-	assert.Equal(t, "0.007500", value, "no cached metadata = same cost as before the feature landed")
+	assert.Equal(t, "0.007500000", value, "no cached metadata = same cost as before the feature landed")
 }
 
 // TestInvoke_UnparseableCachedTokensSkippedSilently proves the
@@ -435,7 +484,7 @@ func TestInvoke_UnparseableCachedTokensSkippedSilently(t *testing.T) {
 	require.NoError(t, err)
 	value, ok := metaValue(t, out.Metadata, middleware.KeyCostUSDTotal)
 	require.True(t, ok, "garbage cache metadata must NOT switch the response from a cost to a skip — fall back to 0 cached")
-	assert.Equal(t, "0.007500", value, "same as the no-cached-metadata path")
+	assert.Equal(t, "0.007500000", value, "same as the no-cached-metadata path")
 }
 
 // TestMiddleware_CloseCancelsReloader proves Close stops the per-instance

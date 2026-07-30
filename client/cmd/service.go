@@ -33,10 +33,15 @@ var (
 )
 
 type program struct {
-	ctx              context.Context
-	cancel           context.CancelFunc
-	serv             *grpc.Server
-	jsonServ         *http.Server
+	ctx      context.Context
+	cancel   context.CancelFunc
+	serv     *grpc.Server
+	jsonServ *http.Server
+	// jsonClient is the gateway's own connection to the daemon. It is held so
+	// shutting the gateway down also closes it: nothing else references it once
+	// the handlers are registered, so its transport goroutines would otherwise
+	// outlive the server.
+	jsonClient       *grpc.ClientConn
 	jsonServMu       sync.Mutex
 	serverInstance   *server.Server
 	serverInstanceMu sync.Mutex

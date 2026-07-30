@@ -563,3 +563,61 @@ func TestArePostureCheckChangesAffectPeers(t *testing.T) {
 		assert.Empty(t, directPeerIDs)
 	})
 }
+
+// TestSavePostureChecks_AllocatesSeqIDOnCreate verifies that the create path
+// (no incoming ID) allocates a non-zero AccountSeqID via the
+// account_seq_counters table.
+func TestSavePostureChecks_AllocatesSeqIDOnCreate(t *testing.T) {
+	am, _, err := createManager(t)
+	require.NoError(t, err)
+
+	account, err := initTestPostureChecksAccount(am)
+	require.NoError(t, err)
+
+	created, err := am.SavePostureChecks(context.Background(), account.Id, adminUserID, &posture.Checks{
+		Name: "seq-allocation-test",
+		Checks: posture.ChecksDefinition{
+			NBVersionCheck: &posture.NBVersionCheck{MinVersion: "0.26.0"},
+		},
+	}, true)
+	require.NoError(t, err)
+	require.NotEqual(t, "", created.PublicID, "SavePostureChecks on create must create PublicID")
+}
+
+// TestSavePostureChecks_PreservesSeqIDOnUpdate verifies the update path does
+// not reset AccountSeqID even when the caller passes a zero value (REST
+// handler shape, because the field is `json:"-"`).
+func TestSavePostureChecks_PreservesSeqIDOnUpdate(t *testing.T) {
+	am, _, err := createManager(t)
+	require.NoError(t, err)
+
+	account, err := initTestPostureChecksAccount(am)
+	require.NoError(t, err)
+
+	created, err := am.SavePostureChecks(context.Background(), account.Id, adminUserID, &posture.Checks{
+		Name: "seq-preserve-original",
+		Checks: posture.ChecksDefinition{
+			NBVersionCheck: &posture.NBVersionCheck{MinVersion: "0.26.0"},
+		},
+	}, true)
+	require.NoError(t, err)
+	originalPublicID := created.PublicID
+	require.NotEqual(t, "", originalPublicID)
+
+	update := &posture.Checks{
+		ID:   created.ID,
+		Name: "seq-preserve-renamed",
+		Checks: posture.ChecksDefinition{
+			NBVersionCheck: &posture.NBVersionCheck{MinVersion: "0.27.0"},
+		},
+	}
+	require.Equal(t, "", update.PublicID, "incoming struct must mirror an HTTP handler shape")
+
+	_, err = am.SavePostureChecks(context.Background(), account.Id, adminUserID, update, false)
+	require.NoError(t, err)
+
+	got, err := am.GetPostureChecks(context.Background(), account.Id, created.ID, adminUserID)
+	require.NoError(t, err)
+	require.Equal(t, originalPublicID, got.PublicID, "PublicID must survive SavePostureChecks update")
+	require.Equal(t, "seq-preserve-renamed", got.Name)
+}

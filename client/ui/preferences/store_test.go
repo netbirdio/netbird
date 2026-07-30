@@ -215,6 +215,46 @@ func TestStore_FileShapeIsJSON(t *testing.T) {
 	assert.Equal(t, i18n.LanguageCode("hu"), parsed.Language)
 }
 
+func TestStore_SetAutostartInitializedPersistsAcrossReload(t *testing.T) {
+	withTempConfigDir(t)
+	emitter := &recordingEmitter{}
+	s, err := NewStore(nil, emitter)
+	require.NoError(t, err)
+
+	assert.False(t, s.Get().AutostartInitialized, "marker must default to false when no file is on disk")
+
+	require.NoError(t, s.SetAutostartInitialized(true))
+	assert.True(t, s.Get().AutostartInitialized, "Get should reflect the persisted marker")
+	require.Len(t, emitter.calledWith(EventPreferencesChanged), 1, "first marker write should broadcast")
+
+	// Re-setting the same value must be a no-op: no disk write, no broadcast.
+	require.NoError(t, s.SetAutostartInitialized(true))
+	assert.Len(t, emitter.calledWith(EventPreferencesChanged), 1, "idempotent marker write should not broadcast again")
+
+	// A fresh Store (new GUI launch) must see the marker so the autostart
+	// default decision never runs twice.
+	reloaded, err := NewStore(nil, nil)
+	require.NoError(t, err)
+	assert.True(t, reloaded.Get().AutostartInitialized, "marker must survive a reload from disk")
+}
+
+func TestStore_ExistedAtLoad(t *testing.T) {
+	withTempConfigDir(t)
+
+	// Brand-new OS user: no preferences file on disk yet.
+	fresh, err := NewStore(nil, nil)
+	require.NoError(t, err)
+	assert.False(t, fresh.ExistedAtLoad(), "ExistedAtLoad must be false when no file is on disk")
+
+	// Persisting a value writes the file to disk.
+	require.NoError(t, fresh.SetLanguage("en"))
+
+	// A subsequent GUI launch reopens the now-present file.
+	reopened, err := NewStore(nil, nil)
+	require.NoError(t, err)
+	assert.True(t, reopened.ExistedAtLoad(), "ExistedAtLoad must be true after the store has persisted and is reopened")
+}
+
 func TestStore_ErrUnsupportedSentinel(t *testing.T) {
 	// Verifies callers can match on the sentinel error rather than parsing
 	// strings — protects against accidental %v -> %w changes that would

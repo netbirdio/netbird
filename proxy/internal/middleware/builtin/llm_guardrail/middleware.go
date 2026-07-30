@@ -25,6 +25,14 @@ const (
 	denyCodeModel    = "llm_policy.model_blocked"
 	denyReasonModel  = "model_blocked"
 	denyMessageModel = "model is not in the policy allowlist"
+	// Deny reason used when an allowlist is configured but the request model
+	// could not be determined. URL/path-routed providers (AWS Bedrock, Google
+	// Vertex, ...) carry the model outside the JSON body, so a request shape the
+	// parser does not recognise reaches the guardrail with no model. Such a
+	// request must be denied (fail closed), never waved through.
+	denyCodeModelUnknown    = "llm_policy.model_unknown"
+	denyReasonModelUnknown  = "model_unknown"
+	denyMessageModelUnknown = "request model could not be determined for the policy allowlist"
 )
 
 // Middleware enforces the model allowlist and optionally captures the
@@ -75,8 +83,9 @@ func (m *Middleware) MutationsSupported() bool { return false }
 // prompt capture only affects the metadata emitted alongside an allow.
 func (m *Middleware) Invoke(_ context.Context, in *middleware.Input) (*middleware.Output, error) {
 	model, modelPresent := lookupMetadata(in.Metadata, middleware.KeyLLMModel)
+	providerID, _ := lookupMetadata(in.Metadata, middleware.KeyLLMResolvedProviderID)
 
-	if denial := m.evaluateAllowlist(model, modelPresent); denial != nil {
+	if denial := m.evaluateAllowlist(providerID, model, modelPresent); denial != nil {
 		return denial, nil
 	}
 
@@ -102,41 +111,68 @@ func (m *Middleware) Invoke(_ context.Context, in *middleware.Input) (*middlewar
 // is a no-op.
 func (m *Middleware) Close() error { return nil }
 
-// evaluateAllowlist returns a deny Output when the configured allowlist
-// rejects the model. A nil return means the request should proceed.
-func (m *Middleware) evaluateAllowlist(model string, modelPresent bool) *middleware.Output {
-	if len(m.cfg.ModelAllowlist) == 0 {
+// evaluateAllowlist denies when the resolved provider's allowlist rejects the
+// model; nil means proceed. Scoped to the provider llm_router resolved, so an
+// unrestricted provider (absent from config) is never caught by another's list.
+func (m *Middleware) evaluateAllowlist(providerID, model string, modelPresent bool) *middleware.Output {
+	if len(m.cfg.ProviderAllowlists) == 0 {
 		return nil
 	}
-	if !modelPresent {
+	// Restrictions exist but the resolved provider is unknown, so we can't tell
+	// if this request targets a restricted provider — fail closed. llm_router
+	// normally stamps the provider first, so this is a defensive guard.
+	if providerID == "" {
+		return denyModel("", denyCodeModelUnknown, denyMessageModelUnknown, denyReasonModelUnknown)
+	}
+	allowlist, restricted := m.cfg.ProviderAllowlists[providerID]
+	if !restricted {
+		// This provider has no allowlist (some authorising policy left it
+		// unrestricted); management owns any per-policy/group decision.
 		return nil
 	}
-	if m.modelInAllowlist(model) {
+	// Fail closed: with an allowlist in effect for this provider, a request whose
+	// model the parser couldn't extract (absent/empty) is denied. This enforces
+	// the allowlist for path-routed providers (Bedrock, Vertex) with no body model.
+	if !modelPresent || normaliseModel(model) == "" {
+		return denyModel("", denyCodeModelUnknown, denyMessageModelUnknown, denyReasonModelUnknown)
+	}
+	if modelInAllowlist(allowlist, model) {
 		return nil
+	}
+	return denyModel(model, denyCodeModel, denyMessageModel, denyReasonModel)
+}
+
+// denyModel builds a 403 deny Output for a model-allowlist rejection. model is
+// included in the details only when non-empty.
+func denyModel(model, code, message, reason string) *middleware.Output {
+	details := map[string]string{}
+	if model != "" {
+		details["model"] = model
 	}
 	return &middleware.Output{
 		Decision:   middleware.DecisionDeny,
 		DenyStatus: 403,
 		DenyReason: &middleware.DenyReason{
-			Code:    denyCodeModel,
-			Message: denyMessageModel,
-			Details: map[string]string{"model": model},
+			Code:    code,
+			Message: message,
+			Details: details,
 		},
 		Metadata: []middleware.KV{
 			{Key: middleware.KeyLLMPolicyDecision, Value: "deny"},
-			{Key: middleware.KeyLLMPolicyReason, Value: denyReasonModel},
+			{Key: middleware.KeyLLMPolicyReason, Value: reason},
 		},
 	}
 }
 
-// modelInAllowlist reports whether the model matches any allowlist
-// entry under the case-insensitive, trim-tolerant comparison rule.
-func (m *Middleware) modelInAllowlist(model string) bool {
+// modelInAllowlist reports whether the model matches any entry in the supplied
+// (already-normalised) allowlist under the case-insensitive, trim-tolerant
+// comparison rule.
+func modelInAllowlist(allowlist []string, model string) bool {
 	normalised := normaliseModel(model)
 	if normalised == "" {
 		return false
 	}
-	for _, allowed := range m.cfg.ModelAllowlist {
+	for _, allowed := range allowlist {
 		if allowed == normalised {
 			return true
 		}

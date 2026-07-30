@@ -51,6 +51,12 @@ type Provider struct {
 	// private or self-signed certificate. The synthesiser propagates it into
 	// the router route so the proxy dials that provider's upstream insecurely.
 	SkipTLSVerification bool `gorm:"column:skip_tls_verification"`
+	// MetadataDisabled suppresses identity metadata injection for this provider.
+	// Metadata (the caller's user + authorizing group) is injected by default;
+	// when true the synthesiser omits the provider's identity-inject shape, so no
+	// user/group headers (e.g. Bedrock's X-Amzn-Bedrock-Request-Metadata) are
+	// stamped. Catalog ExtraHeaders (routing config) are unaffected.
+	MetadataDisabled bool `gorm:"column:metadata_disabled"`
 	// SessionPrivateKey + SessionPublicKey are the ed25519 keypair the
 	// synthesised reverse-proxy service uses to sign / verify session
 	// JWTs after a successful OIDC handshake. Generated once on
@@ -137,6 +143,9 @@ func (p *Provider) FromAPIRequest(req *api.AgentNetworkProviderRequest) {
 	if req.SkipTlsVerification != nil {
 		p.SkipTLSVerification = *req.SkipTlsVerification
 	}
+	if req.MetadataDisabled != nil {
+		p.MetadataDisabled = *req.MetadataDisabled
+	}
 	// Identity-header overrides for catalogs flagged Customizable.
 	// nil pointer = "field omitted on the wire" → leave the stored
 	// value untouched (per the openapi description). Empty string is
@@ -170,6 +179,7 @@ func (p *Provider) ToAPIResponse() *api.AgentNetworkProvider {
 		Models:              models,
 		Enabled:             p.Enabled,
 		SkipTlsVerification: p.SkipTLSVerification,
+		MetadataDisabled:    p.MetadataDisabled,
 		CreatedAt:           &created,
 		UpdatedAt:           &updated,
 	}

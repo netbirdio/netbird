@@ -39,10 +39,16 @@ const (
 	KeyAllowServerVNC           = "allowServerVNC"
 	KeyDisableVNCApproval       = "disableVNCApproval"
 	KeyDisableAutoConnect       = "disableAutoConnect"
-	KeyPreSharedKey             = "preSharedKey"
-	KeyRosenpassEnabled         = "rosenpassEnabled"
-	KeyRosenpassPermissive      = "rosenpassPermissive"
-	KeyWireguardPort            = "wireguardPort"
+	// KeyDisableAutostart suppresses the GUI's fresh-install
+	// launch-on-login default and marks the Settings toggle as
+	// MDM-managed. UI-only: NOT stored on Config and not applied by
+	// applyMDMPolicy; the GUI reads it directly and it appears in
+	// GetConfigResponse.mDMManagedFields when set.
+	KeyDisableAutostart    = "disableAutostart"
+	KeyPreSharedKey        = "preSharedKey"
+	KeyRosenpassEnabled    = "rosenpassEnabled"
+	KeyRosenpassPermissive = "rosenpassPermissive"
+	KeyWireguardPort       = "wireguardPort"
 
 	// Split tunnel is modeled as a single conceptual policy with two
 	// registry/plist values. KeySplitTunnelMode is the discriminator

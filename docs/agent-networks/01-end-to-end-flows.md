@@ -109,7 +109,7 @@ sequenceDiagram
         Chk->>Inj: continue
         Inj->>Inj: inject NetBird identity headers per provider config
         Inj->>Grd: continue
-        Grd->>Grd: enforce model allowlist
+        Grd->>Grd: enforce per-provider allowlist (fail-closed backstop)
         Grd->>Up: forward (over WireGuard)
         Up-->>Resp: response (JSON or SSE stream)
         Resp->>Resp: parse usage tokens, completion
@@ -135,6 +135,21 @@ sequenceDiagram
   (`redact_pii = settings.RedactPii`). Phones, emails, credit cards,
   PII names — see `redact.go` for the full set. See
   [`modules/31-proxy-middleware-builtin.md`](modules/31-proxy-middleware-builtin.md).
+- The model allowlist is enforced in TWO places. `CheckLLMPolicyLimits`
+  is authoritative: it resolves the policy that governs this
+  (provider, caller-groups) and denies (`deny_code = llm_policy.model_blocked`)
+  when no applicable policy permits the model — so an allowlist scoped to
+  one group/provider never leaks to another, and an un-guardrailed policy
+  is genuinely unrestricted. `llm_guardrail` is a per-provider fail-closed
+  backstop: it only carries an allowlist for a provider every authorising
+  policy restricts, and blocks unknown/undetermined models even when
+  management is unreachable. Because that backstop allowlist is the UNION
+  of every restricting policy's models, per-group narrowing lives only in
+  the authoritative check: during a `CheckLLMPolicyLimits` outage
+  `llm_limit_check` fails open, so a caller can reach any model in the
+  provider's union — a group scoped to model A could reach model B if
+  another group restricts the same provider to B. This is the documented
+  fail-open trade-off; a future flag may switch it to fail-closed.
 - SSE streaming requires special handling on the response side; the
   parser must handle partial chunks without buffering the whole
   stream. See [`modules/32-proxy-llm-parsers.md`](modules/32-proxy-llm-parsers.md).

@@ -285,6 +285,7 @@ func (s *ProxyServiceServer) CheckLLMPolicyLimits(ctx context.Context, req *prot
 		UserID:     req.GetUserId(),
 		GroupIDs:   req.GetGroupIds(),
 		ProviderID: req.GetProviderId(),
+		Model:      req.GetModel(),
 	})
 	if err != nil {
 		log.WithContext(ctx).Errorf("select policy for request: %v", err)
@@ -608,11 +609,11 @@ func (s *ProxyServiceServer) disconnectProxy(conn *proxyConnection) {
 	if err := s.proxyController.UnregisterProxyFromCluster(context.Background(), conn.address, conn.proxyID); err != nil {
 		log.Warnf("Failed to unregister proxy %s from cluster: %v", conn.proxyID, err)
 	}
+	conn.cancel()
 	if err := s.proxyManager.Disconnect(context.Background(), conn.proxyID, conn.sessionID); err != nil {
 		log.Warnf("Failed to mark proxy %s as disconnected: %v", conn.proxyID, err)
 	}
 
-	conn.cancel()
 	log.Infof("Proxy %s session %s disconnected", conn.proxyID, conn.sessionID)
 }
 
