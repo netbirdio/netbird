@@ -124,6 +124,9 @@ type ConnConfig struct {
 
 	// PQ carries post-quantum ML-KEM material on offers/answers; nil when disabled.
 	PQ PQHandshaker
+	// PQStrict fails closed: block peer traffic until the ML-KEM PSK is established,
+	// instead of letting the tunnel come up classically and upgrading to PQ later.
+	PQStrict bool
 
 	// ICEConfig ICE protocol configuration
 	ICEConfig icemaker.Config
@@ -187,6 +190,11 @@ type Conn struct {
 	// pendingFirstPacket is the lazyconn-captured handshake init, replayed once the real
 	// transport is up.
 	pendingFirstPacket []byte
+
+	// pqBlockingKey is a per-conn random sentinel PSK used in PQ strict mode to fail
+	// closed: it is programmed until the real ML-KEM PSK is derived, so no session can
+	// form on a non-PQ key. Per-conn random so two strict peers never match by chance.
+	pqBlockingKey *wgtypes.Key
 }
 
 // injectPendingFirstPacket replays the captured handshake through the proxy if present, else
@@ -242,6 +250,14 @@ func NewConn(config ConnConfig, services ServiceDependencies) (*Conn, error) {
 		dumpState:          dumpState,
 		endpointUpdater:    NewEndpointUpdater(connLog, config.WgConfig, isController(config)),
 		metricsRecorder:    services.MetricsRecorder,
+	}
+
+	if config.PQ != nil && config.PQStrict {
+		if k, err := wgtypes.GenerateKey(); err != nil {
+			connLog.Errorf("pqkem: failed to generate strict-mode sentinel key, strict fail-closed disabled for this peer: %v", err)
+		} else {
+			conn.pqBlockingKey = &k
+		}
 	}
 
 	return conn, nil
@@ -767,7 +783,7 @@ func (conn *Conn) updateRelayStatus(relayServerAddr string, rosenpassPubKey []by
 		ConnStatus:         conn.evalStatus(),
 		Relayed:            conn.isRelayed(),
 		RelayServerAddress: relayServerAddr,
-		RosenpassEnabled:   isRosenpassEnabled(rosenpassPubKey),
+		RosenpassEnabled:   conn.quantumResistant(rosenpassPubKey),
 	}
 
 	err := conn.statusRecorder.UpdatePeerRelayedState(peerState)
@@ -786,7 +802,7 @@ func (conn *Conn) updateIceState(iceConnInfo ICEConnInfo, updateTime time.Time) 
 		RemoteIceCandidateType:     iceConnInfo.RemoteIceCandidateType,
 		LocalIceCandidateEndpoint:  iceConnInfo.LocalIceCandidateEndpoint,
 		RemoteIceCandidateEndpoint: iceConnInfo.RemoteIceCandidateEndpoint,
-		RosenpassEnabled:           isRosenpassEnabled(iceConnInfo.RosenpassPubKey),
+		RosenpassEnabled:           conn.quantumResistant(iceConnInfo.RosenpassPubKey),
 	}
 
 	err := conn.statusRecorder.UpdatePeerICEState(peerState)
@@ -1063,6 +1079,14 @@ func (conn *Conn) presharedKey(remoteRosenpassKey []byte) *wgtypes.Key {
 		if psk, ok := conn.config.PQ.PSK(conn.config.Key); ok {
 			return &psk
 		}
+		if conn.config.PQStrict && conn.pqBlockingKey != nil {
+			// Fail closed: program a non-matching sentinel so no session forms on a
+			// non-PQ key until the ML-KEM exchange derives the real PSK (pushed via
+			// SetPresharedKey once it converges). "pending" — turns into a "stuck"
+			// warning from the manager if the exchange keeps failing (see raiseFailure).
+			conn.Log.Debugf("pqkem: strict mode — no PQ PSK yet, blocking peer traffic until the ML-KEM exchange converges")
+			return conn.pqBlockingKey
+		}
 	}
 
 	if conn.config.RosenpassConfig.PubKey == nil {
@@ -1102,6 +1126,21 @@ func isController(config ConnConfig) bool {
 
 func isRosenpassEnabled(remoteRosenpassPubKey []byte) bool {
 	return remoteRosenpassPubKey != nil
+}
+
+// quantumResistant reports whether the peer's tunnel is post-quantum protected, for
+// the status "Quantum resistance" field: either Rosenpass (the remote advertised a
+// Rosenpass key) or the ML-KEM exchange (a PQ PSK has been derived for this peer).
+func (conn *Conn) quantumResistant(remoteRosenpassPubKey []byte) bool {
+	if isRosenpassEnabled(remoteRosenpassPubKey) {
+		return true
+	}
+	if conn.config.PQ != nil {
+		if _, ok := conn.config.PQ.PSK(conn.config.Key); ok {
+			return true
+		}
+	}
+	return false
 }
 
 func evalConnStatus(in connStatusInputs) guard.ConnStatus {

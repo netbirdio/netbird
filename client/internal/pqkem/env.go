@@ -35,6 +35,28 @@ func Enabled() bool {
 	return enabled
 }
 
+// EnvStrict enables strict (fail-closed) mode: block peer traffic until the ML-KEM
+// PSK has been established, instead of the default opportunistic behaviour that lets
+// the tunnel come up classically and upgrades to PQ once the exchange converges.
+const EnvStrict = "NB_PQ_MLKEM_STRICT"
+
+// Strict reports whether strict (fail-closed) mode is enabled via the environment.
+// An empty or unrecognized value is treated as disabled (opportunistic).
+func Strict() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(EnvStrict))) {
+	case "on":
+		return true
+	case "", "off":
+		return false
+	}
+	enabled, err := strconv.ParseBool(strings.TrimSpace(os.Getenv(EnvStrict)))
+	if err != nil {
+		log.Warnf("failed to parse %s value %q: %v", EnvStrict, os.Getenv(EnvStrict), err)
+		return false
+	}
+	return enabled
+}
+
 // EnvLogLevel overrides the ML-KEM manager's slog level (trace/debug/info/warn/error).
 // Defaults to info. The verbose per-exchange lifecycle logs are emitted at trace.
 const EnvLogLevel = "NB_PQ_MLKEM_LOG_LEVEL"
