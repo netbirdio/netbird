@@ -726,6 +726,22 @@ func (conn *Conn) onGuardEvent() {
 	}
 }
 
+// RequestReoffer sends a fresh signalling offer for the peer, re-running the
+// post-quantum bootstrap over Signal. Used to recover from a persistent data-path
+// rekey failure: a new exchange overwrites the stalled PSK on both sides. No-op if the
+// connection is not open yet.
+func (conn *Conn) RequestReoffer() {
+	conn.mu.Lock()
+	h := conn.handshaker
+	conn.mu.Unlock()
+	if h == nil {
+		return
+	}
+	if err := h.SendOffer(); err != nil {
+		conn.Log.Debugf("pqkem: recovery re-offer failed: %v", err)
+	}
+}
+
 func (conn *Conn) onWGDisconnected(watcherCtx context.Context) {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()

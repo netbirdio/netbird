@@ -20,6 +20,9 @@ type pqPresharedKeySetter interface {
 // engine-side implementation of pqkem.CallbackHandler.
 type pqCallbackHandler struct {
 	wg pqPresharedKeySetter
+	// reoffer re-bootstraps the KEM over Signal for a peer (a fresh signalling offer)
+	// to recover from a persistent data-path rekey failure. Nil disables recovery.
+	reoffer func(remoteKey string)
 }
 
 // OnNewPSKReady programs the freshly derived PSK for the peer (updateOnly: a no-op
@@ -32,10 +35,16 @@ func (h pqCallbackHandler) OnNewPSKReady(remoteID pqkem.RemoteID, psk pqkem.PSK)
 	return h.wg.SetPresharedKey(string(remoteID), wgtypes.Key(psk), true)
 }
 
-// OnRekeyFailed reports a failed PQ (re)key convergence.
-// TODO(NET-1406): tear the peer connection down / trigger ICE reconnect.
+// OnRekeyFailed reports a failed PQ (re)key convergence and re-bootstraps the KEM over
+// Signal to recover: a fresh signalling offer starts a new exchange that overwrites the
+// stalled PSK on both sides, resyncing after a persistent data-path desync. The tunnel
+// stays up on the previous PSK meanwhile (the Signal channel is independent of the
+// broken data path).
 func (h pqCallbackHandler) OnRekeyFailed(remoteID pqkem.RemoteID) error {
-	log.Warnf("pqkem: post-quantum rekey failed for peer %s", remoteID)
+	log.Warnf("pqkem: post-quantum rekey failed for peer %s, re-bootstrapping over signal", remoteID)
+	if h.reoffer != nil {
+		h.reoffer(string(remoteID))
+	}
 	return nil
 }
 
