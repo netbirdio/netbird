@@ -32,14 +32,14 @@ const (
 // the mock vLLM upstream, with the proxy and client up and the endpoint resolved
 // — ready to drive chat. All containers are torn down via t.Cleanup.
 type pricedEnv struct {
-	provID   string
-	groupID  string // source group of the policy; the client peer's auto-group
-	policyID string // policy that authorises (and meters) the requests
-	upstream string // provider upstream URL, needed to re-send on a PUT update
-	endpoint string
-	proxyIP  string
-	client   *harness.Client
-	proxy    *harness.Proxy
+	providerID string
+	groupID    string // source group of the policy; the client peer's auto-group
+	policyID   string // policy that authorises (and meters) the requests
+	upstream   string // provider upstream URL, needed to re-send on a PUT update
+	endpoint   string
+	proxyIP    string
+	client     *harness.Client
+	proxy      *harness.Proxy
 }
 
 // provisionPricedProvider brings up the full path for a cost test: a mock vLLM
@@ -137,14 +137,14 @@ func provisionPricedProvider(t *testing.T, ctx context.Context, name string, mod
 	}
 
 	return pricedEnv{
-		provID:   prov.Id,
-		groupID:  grp.Id,
-		policyID: pol.Id,
-		upstream: vllm.URL,
-		endpoint: settings.Endpoint,
-		proxyIP:  proxyIP,
-		client:   cl,
-		proxy:    px,
+		providerID: prov.Id,
+		groupID:    grp.Id,
+		policyID:   pol.Id,
+		upstream:   vllm.URL,
+		endpoint:   settings.Endpoint,
+		proxyIP:    proxyIP,
+		client:     cl,
+		proxy:      px,
 	}
 }
 
@@ -337,7 +337,7 @@ func TestPriceChangeUpdatesRecordedCost(t *testing.T) {
 	// the models array is re-sent with the new rates (PUT replaces the list).
 	// This reconciles synchronously and pushes a fresh cost_meter table to the
 	// already-connected proxy — no reconnect.
-	_, err := srv.UpdateProvider(ctx, env.provID, api.AgentNetworkProviderRequest{
+	_, err := srv.UpdateProvider(ctx, env.providerID, api.AgentNetworkProviderRequest{
 		Name:        "reprice",
 		ProviderId:  "openai_api",
 		UpstreamUrl: env.upstream,
@@ -515,7 +515,7 @@ func TestCustomModelAccessLogAttribution(t *testing.T) {
 	// and which group the authorisation came through. Without these, spend on a
 	// custom model can be seen but not attributed.
 	require.NotNil(t, row.ResolvedProviderId, "row must name the provider record that served the request")
-	assert.Equal(t, env.provID, *row.ResolvedProviderId,
+	assert.Equal(t, env.providerID, *row.ResolvedProviderId,
 		"the router stamps the operator's provider record id; a custom model must attribute to the record that enumerated it")
 	require.NotNil(t, row.SelectedPolicyId, "row must name the policy that authorised the request")
 	assert.Equal(t, env.policyID, *row.SelectedPolicyId,
@@ -579,7 +579,7 @@ func TestCustomModelAccessLogAttribution(t *testing.T) {
 
 	// Final raw-SQL audit of the parallel usage row: the ledger must carry the
 	// same custom model, surface, and provider-record attribution as the log.
-	verifyUsageAttributionForSession(t, sessionID, customModel, "openai", env.provID, env.groupID)
+	verifyUsageAttributionForSession(t, sessionID, customModel, "openai", env.providerID, env.groupID)
 }
 
 // verifyUsageAttributionForSession checks the usage ledger's attribution columns
