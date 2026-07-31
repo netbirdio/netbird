@@ -22,6 +22,8 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
+	nbnet "github.com/netbirdio/netbird/client/net"
+	"github.com/netbirdio/netbird/client/server"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/util"
@@ -229,6 +231,24 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *pr
 
 	_, _ = profilemanager.UpdateOldManagementURL(ctx, config, configFilePath)
 
+	// Restore residual state left by a previous run that did not shut down
+	// cleanly, mirroring what the daemon does before connecting: it recovers
+	// DNS config (a stale resolv.conf takeover can make the management
+	// hostname unresolvable), firewall rules, ssh config and legacy routing.
+	// Route cleanup itself happens at engine start; nbnet.Init() below lets
+	// the management dial bypass a leftover fwmark rule until then.
+	// Foreground mode is particularly exposed in containers: a crashed
+	// container restarts inside the same (pod) network namespace, so stale
+	// state survives while the process does not.
+	if err := server.RestoreResidualState(ctx, profilemanager.NewServiceManager(configPath).GetStatePath()); err != nil {
+		log.Warnf("failed to restore residual state: %v", err)
+	}
+
+	// Enable advanced routing (as the daemon does on startup) so the
+	// management dial bypasses a leftover fwmark rule instead of being
+	// shunted into a stale routing table.
+	nbnet.Init()
+
 	err = foregroundLogin(ctx, cmd, config, providedSetupKey, activeProf.ID)
 	if err != nil {
 		return fmt.Errorf("foreground login failed: %v", err)
@@ -305,7 +325,7 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 		if st, ok := gstatus.FromError(err); ok && st.Code() == codes.Unavailable {
 			log.Warnf("setConfig method is not available in the daemon: %s", st.Message())
 		} else {
-			return fmt.Errorf("call service setConfig method: %v", err)
+			return daemonCallError("call service setConfig method", err)
 		}
 	}
 
@@ -359,7 +379,7 @@ func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServ
 	}
 
 	if loginErr != nil {
-		return fmt.Errorf("login failed: %v", loginErr)
+		return daemonCallError("login failed", loginErr)
 	}
 
 	if loginResp.NeedsSSOLogin {
@@ -372,7 +392,7 @@ func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServ
 		ProfileName: &profileID,
 		Username:    &username,
 	}); err != nil {
-		return fmt.Errorf("call service up method: %v", err)
+		return daemonCallError("call service up method", err)
 	}
 
 	return nil

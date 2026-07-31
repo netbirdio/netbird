@@ -20,20 +20,33 @@ import (
 // names (lowerCamelCase) so the daemon can map a Policy key directly to a
 // configuration field.
 const (
-	KeyManagementURL            = "managementURL"
-	KeyDisableUpdateSettings    = "disableUpdateSettings"
-	KeyDisableProfiles          = "disableProfiles"
-	KeyDisableNetworks          = "disableNetworks"
+	KeyManagementURL         = "managementURL"
+	KeyDisableUpdateSettings = "disableUpdateSettings"
+	KeyDisableProfiles       = "disableProfiles"
+	KeyDisableNetworks       = "disableNetworks"
+	// KeyDisableAdvancedView gates the advanced-view section in the
+	// upcoming UI revision. UI-only: NOT stored on Config, not
+	// applied by applyMDMPolicy, not rejectable via SetConfig. The
+	// daemon surfaces it through GetFeatures (tristate: present
+	// true / present false / absent) and the same key appears in
+	// GetConfigResponse.mDMManagedFields when set.
+	KeyDisableAdvancedView      = "disableAdvancedView"
 	KeyDisableClientRoutes      = "disableClientRoutes"
 	KeyDisableServerRoutes      = "disableServerRoutes"
 	KeyBlockInbound             = "blockInbound"
 	KeyDisableMetricsCollection = "disableMetricsCollection"
 	KeyAllowServerSSH           = "allowServerSSH"
 	KeyDisableAutoConnect       = "disableAutoConnect"
-	KeyPreSharedKey             = "preSharedKey"
-	KeyRosenpassEnabled         = "rosenpassEnabled"
-	KeyRosenpassPermissive      = "rosenpassPermissive"
-	KeyWireguardPort            = "wireguardPort"
+	// KeyDisableAutostart suppresses the GUI's fresh-install
+	// launch-on-login default and marks the Settings toggle as
+	// MDM-managed. UI-only: NOT stored on Config and not applied by
+	// applyMDMPolicy; the GUI reads it directly and it appears in
+	// GetConfigResponse.mDMManagedFields when set.
+	KeyDisableAutostart    = "disableAutostart"
+	KeyPreSharedKey        = "preSharedKey"
+	KeyRosenpassEnabled    = "rosenpassEnabled"
+	KeyRosenpassPermissive = "rosenpassPermissive"
+	KeyWireguardPort       = "wireguardPort"
 
 	// Split tunnel is modeled as a single conceptual policy with two
 	// registry/plist values. KeySplitTunnelMode is the discriminator

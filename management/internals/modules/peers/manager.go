@@ -184,6 +184,8 @@ func (m *managerImpl) DeletePeers(ctx context.Context, accountID string, peerIDs
 				return err
 			}
 
+			log.WithContext(ctx).Debugf("DeletePeers: deleted peer %s", peerID)
+
 			if !(peer.ProxyMeta.Embedded || peer.Meta.KernelVersion == "wasm") {
 				eventsToStore = append(eventsToStore, func() {
 					m.accountManager.StoreEvent(ctx, userID, peer.ID, accountID, activity.PeerRemovedByUser, peer.EventMeta(dnsDomain))
