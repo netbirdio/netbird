@@ -23,6 +23,15 @@ PROXY_TOKEN_ID=""
 # server trusts X-Forwarded-* headers from this address only.
 TRAEFIK_IP="172.30.0.10"
 
+# IPv6 is opt-in: it needs global IPv6 connectivity on the host and ip6tables
+# support in the Docker daemon, neither of which can be detected reliably. The
+# ULA subnet is only used inside the compose bridge network; override the
+# NETBIRD_IPV6_* variables if it collides with an existing Docker network.
+NETBIRD_IPV6="no"
+NETBIRD_IPV6_SUBNET=${NETBIRD_IPV6_SUBNET:-"fd30::/64"}
+NETBIRD_IPV6_GATEWAY=${NETBIRD_IPV6_GATEWAY:-"fd30::1"}
+TRAEFIK_IPV6=${TRAEFIK_IPV6:-"fd30::10"}
+
 LICENSE_VERDICT="unknown"
 LICENSE_LOG_LINES=""
 
@@ -199,6 +208,81 @@ read_yes_no() {
     [Yy] | [Yy][Ee][Ss]) echo "yes" ;;
     *) echo "no" ;;
   esac
+}
+
+probe_docker_ipv6() {
+  local probe_net="netbird-ipv6-probe-$$"
+  local out
+
+  if ! out=$(docker network create --ipv6 --subnet "$NETBIRD_IPV6_SUBNET" \
+    --gateway "$NETBIRD_IPV6_GATEWAY" "$probe_net" 2>&1); then
+    echo "Docker refused to create an IPv6 network:" > /dev/stderr
+    echo "$out" > /dev/stderr
+    return 1
+  fi
+
+  local subnets
+  subnets=$(docker network inspect -f '{{range .IPAM.Config}}{{.Subnet}} {{end}}' "$probe_net" 2>/dev/null || echo "")
+  docker network rm "$probe_net" > /dev/null 2>&1 || true
+
+  if [[ "$subnets" != *:* ]]; then
+    echo "Docker created the network without an IPv6 subnet." > /dev/stderr
+    return 1
+  fi
+  return 0
+}
+
+print_docker_ipv6_help() {
+  echo ""
+  echo "IPv6 is not usable with the current Docker configuration."
+  echo "Enable it in /etc/docker/daemon.json, for example:"
+  echo '  {'
+  echo '    "ipv6": true,'
+  echo '    "ip6tables": true,'
+  echo '    "fixed-cidr-v6": "fd20::/64"'
+  echo '  }'
+  echo "Then restart Docker: sudo systemctl restart docker"
+  echo "See https://docs.docker.com/engine/daemon/ipv6/ for details."
+  echo ""
+}
+
+read_ipv6_option() {
+  echo ""
+  echo "IPv6:"
+  echo "  Publishes the NetBird ports on IPv6 as well and gives the internal"
+  echo "  Docker network an IPv6 subnet, so clients can reach the server over IPv6."
+  echo "  Requires global IPv6 connectivity on this host and IPv6 support"
+  echo "  (ip6tables) in the Docker daemon, which cannot be detected reliably."
+  NETBIRD_IPV6=$(read_yes_no "Enable IPv6" "n")
+
+  [[ "$NETBIRD_IPV6" == "yes" ]] || return 0
+
+  if probe_docker_ipv6; then
+    return 0
+  fi
+
+  print_docker_ipv6_help
+  if [[ "$(read_yes_no "Continue without IPv6" "y")" != "yes" ]]; then
+    exit 1
+  fi
+  NETBIRD_IPV6="no"
+  echo "Continuing without IPv6."
+}
+
+# Renders a compose "ports" entry. A published port with an explicit host
+# address covers only that address family, so with IPv6 enabled every port
+# gets a second entry and both host addresses are spelled out instead of
+# relying on the daemon's default binding.
+render_published_port() {
+  local indent="$1"
+  local mapping="$2"
+
+  if [[ "$NETBIRD_IPV6" != "yes" ]]; then
+    printf "%s- '%s'\n" "$indent" "$mapping"
+    return 0
+  fi
+
+  printf "%s- '0.0.0.0:%s'\n%s- '[::]:%s'\n" "$indent" "$mapping" "$indent" "$mapping"
 }
 
 read_crowdsec_option() {
@@ -421,6 +505,15 @@ start_proxy() {
   PROXY_TOKEN_ID=""
 }
 
+print_ipv6_notes() {
+  echo ""
+  echo "IPv6:"
+  echo "  Ports are published on IPv4 and IPv6. Internal network: ${NETBIRD_IPV6_SUBNET}"
+  echo "  Add an AAAA record for ${NETBIRD_DOMAIN} pointing to this host's global IPv6 address."
+  echo "  Allow the same ports over IPv6 in the host firewall: ip6tables and nftables"
+  echo "  rules are separate from IPv4."
+}
+
 print_proxy_notes() {
   echo ""
   echo "NetBird Proxy:"
@@ -475,6 +568,8 @@ init_environment() {
     read_crowdsec_option
   fi
 
+  read_ipv6_option
+
   echo ""
   NETBIRD_DOMAIN=$(read_nb_domain)
 
@@ -500,6 +595,7 @@ init_environment() {
   echo "  Traffic flow: ${NETBIRD_TRAFFIC_FLOW}"
   echo "  Proxy:        ${NETBIRD_PROXY}"
   echo "  CrowdSec:     ${NETBIRD_CROWDSEC}"
+  echo "  IPv6:         ${NETBIRD_IPV6}"
   echo "  Domain:       ${NETBIRD_DOMAIN}"
   echo "  ACME email:   ${NETBIRD_LETSENCRYPT_EMAIL}"
   echo ""
@@ -546,6 +642,9 @@ init_environment() {
   if [[ "$NETBIRD_PROXY" == "yes" ]]; then
     print_proxy_notes
   fi
+  if [[ "$NETBIRD_IPV6" == "yes" ]]; then
+    print_ipv6_notes
+  fi
   echo ""
   echo "Tail logs:"
   echo "  cd $(pwd) && $DOCKER_COMPOSE_COMMAND logs -f netbird-server traefik"
@@ -581,6 +680,8 @@ enable_features() {
   NETBIRD_TRAFFIC_FLOW=$(env_get NETBIRD_TRAFFIC_FLOW_ENABLED no)
   NETBIRD_PROXY=$(env_get NETBIRD_PROXY_ENABLED no)
   NETBIRD_CROWDSEC=$(env_get NETBIRD_CROWDSEC_ENABLED no)
+  NETBIRD_IPV6=$(env_get NETBIRD_IPV6_ENABLED no)
+  TRAEFIK_IPV6=$(env_get NETBIRD_TRAEFIK_IPV6 "$TRAEFIK_IPV6")
   # A custom certificate counts only once Traefik mounts it and ACME is already gone,
   # so the re-render never removes a working Let's Encrypt setup.
   local traefik_block
@@ -725,6 +826,8 @@ NETBIRD_DOMAIN=${NETBIRD_DOMAIN}
 NETBIRD_LETSENCRYPT_EMAIL=${NETBIRD_LETSENCRYPT_EMAIL}
 NETBIRD_TRAEFIK_TAG=${NETBIRD_TRAEFIK_TAG:-v3.6}
 NETBIRD_TRAEFIK_IP=${TRAEFIK_IP}
+NETBIRD_IPV6_ENABLED=${NETBIRD_IPV6}
+NETBIRD_TRAEFIK_IPV6=${TRAEFIK_IPV6}
 
 # Image tags. Default to "latest"
 NETBIRD_DASHBOARD_TAG=${NETBIRD_DASHBOARD_TAG:-latest}
@@ -828,6 +931,11 @@ render_compose_common() {
     networks:
       netbird:
         ipv4_address: ${NETBIRD_TRAEFIK_IP}
+EOF
+  if [[ "$NETBIRD_IPV6" == "yes" ]]; then
+    echo '        ipv6_address: ${NETBIRD_TRAEFIK_IPV6}'
+  fi
+  cat <<'EOF'
     command:
       # Logging
       - "--log.level=INFO"
@@ -856,8 +964,10 @@ render_compose_common() {
       # Dynamic config in ./traefik: the proxy transport and an optional custom certificate
       - "--providers.file.directory=/etc/traefik/dynamic"
     ports:
-      - '443:443'
-      - '80:80'
+EOF
+  render_published_port "      " "443:443"
+  render_published_port "      " "80:80"
+  cat <<'EOF'
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - netbird_traefik_letsencrypt:/letsencrypt
@@ -931,7 +1041,9 @@ render_compose_server() {
       postgres:
         condition: service_healthy
     ports:
-      - '3478:3478/udp'
+EOF
+  render_published_port "      " "3478:3478/udp"
+  cat <<'EOF'
     volumes:
       - netbird_data:/var/lib/netbird
       - ./config.yaml:/etc/netbird/config.yaml
@@ -1049,7 +1161,9 @@ render_compose_proxy() {
       netbird-server:
         condition: service_started
     ports:
-      - '51820:51820/udp'
+EOF
+  render_published_port "      " "51820:51820/udp"
+  cat <<'EOF'
     volumes:
       - netbird_proxy_certs:/certs
     labels:
@@ -1072,8 +1186,15 @@ render_compose_proxy() {
       - NB_PROXY_ACME_CERTIFICATES=true
       - NB_PROXY_FORWARDED_PROTO=https
       - NB_PROXY_PROXY_PROTOCOL=true
-      - NB_PROXY_TRUSTED_PROXIES=${NETBIRD_TRAEFIK_IP}
 EOF
+  # On a dual-stack network Docker DNS answers with both families and Traefik
+  # connects over either, so both of its addresses have to be trusted or the
+  # PROXY protocol header is ignored and the client IP is lost.
+  if [[ "$NETBIRD_IPV6" == "yes" ]]; then
+    echo '      - NB_PROXY_TRUSTED_PROXIES=${NETBIRD_TRAEFIK_IP},${NETBIRD_TRAEFIK_IPV6}'
+  else
+    echo '      - NB_PROXY_TRUSTED_PROXIES=${NETBIRD_TRAEFIK_IP}'
+  fi
   if [[ "$NETBIRD_CROWDSEC" == "yes" ]]; then
     cat <<'EOF'
       - NB_PROXY_CROWDSEC_API_URL=http://crowdsec:8080
@@ -1146,6 +1267,20 @@ networks:
   netbird:
     name: netbird
     driver: bridge
+EOF
+  if [[ "$NETBIRD_IPV6" == "yes" ]]; then
+    cat <<EOF
+    enable_ipv6: true
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+          gateway: 172.30.0.1
+        - subnet: $NETBIRD_IPV6_SUBNET
+          gateway: $NETBIRD_IPV6_GATEWAY
+EOF
+    return 0
+  fi
+  cat <<'EOF'
     ipam:
       config:
         - subnet: 172.30.0.0/24
@@ -1154,6 +1289,16 @@ EOF
 }
 
 render_config_yaml() {
+  # Docker DNS answers with both families on a dual-stack network and Traefik
+  # reaches management over either, so its IPv6 address has to be trusted too.
+  # An untrusted peer makes management fall back to the socket address and
+  # ignore the forwarded client IP, which the geolocation lookup depends on.
+  local TRAEFIK_IPV6_ENTRY=""
+  if [[ "$NETBIRD_IPV6" == "yes" ]]; then
+    TRAEFIK_IPV6_ENTRY="
+      - \"${TRAEFIK_IPV6}/128\""
+  fi
+
   cat <<EOF
 # NetBird Enterprise server configuration.
 # Generated by getting-started-enterprise.sh. Mode 600.
@@ -1192,15 +1337,15 @@ server:
     cliRedirectURIs:
       - "http://localhost:53000/"
 
-  # Trust X-Forwarded-* only from the Traefik container's static address. Both
-  # keys must stay in step with the ipv4_address pinned in docker-compose.yml:
+  # Trust X-Forwarded-* only from the Traefik container's static addresses. Both
+  # keys must stay in step with the addresses pinned in docker-compose.yml:
   # trustedPeers restricts which sources may supply forwarded headers. Leaving
   # it unset trusts all IPv4 and IPv6 sources.
   reverseProxy:
     trustedPeers:
-      - "${TRAEFIK_IP}/32"
+      - "${TRAEFIK_IP}/32"${TRAEFIK_IPV6_ENTRY}
     trustedHTTPProxies:
-      - "${TRAEFIK_IP}/32"
+      - "${TRAEFIK_IP}/32"${TRAEFIK_IPV6_ENTRY}
 
   store:
     engine: "postgres"
