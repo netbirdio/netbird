@@ -233,6 +233,11 @@ func SynthesizeServices(ctx context.Context, s store.Store, accountID string) ([
 		return nil, err
 	}
 
+	costMeterJSON, err := buildCostMeterConfigJSON(enabledProviders, groupIndex)
+	if err != nil {
+		return nil, err
+	}
+
 	mergedGuardrails := mergeGuardrails(enabledPolicies, guardrailsByID)
 	applyAccountCollectionControls(&mergedGuardrails, settings)
 	// The proxy guardrail is a per-provider fail-closed backstop; the
@@ -248,7 +253,7 @@ func SynthesizeServices(ctx context.Context, s store.Store, accountID string) ([
 	// Use the merged decision (account settings OR policy-required redaction),
 	// not the raw account flag, so a policy that mandates PII redaction is
 	// honored by the capture parsers even when the account toggle is off.
-	middlewares := buildMiddlewareChain(routerCfgJSON, identityInjectJSON, guardrailJSON, mergedGuardrails.PromptCapture.RedactPii, mergedGuardrails.PromptCapture.Enabled)
+	middlewares := buildMiddlewareChain(routerCfgJSON, identityInjectJSON, guardrailJSON, costMeterJSON, mergedGuardrails.PromptCapture.RedactPii, mergedGuardrails.PromptCapture.Enabled)
 
 	priv, pub, err := pickServiceSessionKeys(enabledProviders)
 	if err != nil {
@@ -700,7 +705,7 @@ func buildIdentityExtraHeaders(p *types.Provider, extras []catalog.ExtraHeader) 
 // requests bound for gateways like LiteLLM that key budgets and
 // attribution off request headers. CanMutate is required so its
 // HeadersAdd / HeadersRemove pass the framework's mutation gate.
-func buildMiddlewareChain(routerCfgJSON, identityInjectJSON, guardrailJSON []byte, redactPii, capturePromptContent bool) []rpservice.MiddlewareConfig {
+func buildMiddlewareChain(routerCfgJSON, identityInjectJSON, guardrailJSON, costMeterJSON []byte, redactPii, capturePromptContent bool) []rpservice.MiddlewareConfig {
 	// Both parsers receive an explicit capture flag derived from the account's
 	// enable_prompt_collection toggle; nil/unset would default to the legacy
 	// "always emit" behavior in the middleware, which is precisely what we
@@ -769,10 +774,13 @@ func buildMiddlewareChain(routerCfgJSON, identityInjectJSON, guardrailJSON []byt
 			ConfigJSON: []byte("{}"),
 		},
 		{
+			// Carries the full pricing table (defaults + per-provider
+			// operator prices) so the proxy bills without an embedded
+			// price list; see buildCostMeterConfigJSON.
 			ID:         middlewareIDCostMeter,
 			Enabled:    true,
 			Slot:       rpservice.MiddlewareSlotOnResponse,
-			ConfigJSON: []byte("{}"),
+			ConfigJSON: costMeterJSON,
 		},
 		{
 			ID:         middlewareIDLLMResponseParser,

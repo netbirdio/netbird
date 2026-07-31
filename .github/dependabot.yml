@@ -3,8 +3,8 @@ updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "daily"
-    open-pull-requests-limit: 15
+      interval: "weekly"
+    open-pull-requests-limit: 3
     groups:
       actions:
         patterns:
@@ -22,9 +22,12 @@ updates:
     directories:
       - "/"
     schedule:
-      interval: "daily"
+      interval: "weekly"
     open-pull-requests-limit: 15
     groups:
+      golang-x-packages:
+        patterns:
+          - "golang.org/x/*"
       aws-sdk:
         patterns:
           - "github.com/aws/aws-sdk-go-v2/*"

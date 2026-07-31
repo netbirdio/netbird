@@ -93,9 +93,18 @@ func StartCombined(ctx context.Context) (*Combined, error) {
 		_ = net.Remove(ctx)
 		return nil, fmt.Errorf("write combined config: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Join(workDir, "data"), 0o755); err != nil {
+	dataDir := filepath.Join(workDir, "data")
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		_ = net.Remove(ctx)
 		return nil, fmt.Errorf("create datadir: %w", err)
+	}
+	// The config's agentNetwork.pricingDefaultsFile is a bare filename, so the
+	// server resolves it against the datadir; write it there. It is an explicitly
+	// configured path, so a failure to load fails the server's startup — which
+	// surfaces here as the /api/instance readiness wait timing out.
+	if err := os.WriteFile(filepath.Join(dataDir, PricingDefaultsFileName), []byte(pricingDefaultsYAML), 0o644); err != nil { //nolint:gosec // non-secret config, bind-mounted and read by the container
+		_ = net.Remove(ctx)
+		return nil, fmt.Errorf("write pricing defaults: %w", err)
 	}
 
 	req := testcontainers.ContainerRequest{

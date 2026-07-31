@@ -953,6 +953,17 @@ func (r *router) addMSSClampingRules() error {
 	return r.conn.Flush()
 }
 
+func buildLegacyRouteRuleExpressions(sourceExp, destExp []expr.Any) []expr.Any {
+	exprs := make([]expr.Any, 0, len(sourceExp)+len(destExp)+2)
+	exprs = append(exprs, sourceExp...)
+	exprs = append(exprs, destExp...)
+	exprs = append(exprs,
+		&expr.Counter{},
+		&expr.Verdict{Kind: expr.VerdictAccept},
+	)
+	return exprs
+}
+
 // addLegacyRouteRule adds a legacy routing rule for mgmt servers pre route acls
 func (r *router) addLegacyRouteRule(pair firewall.RouterPair) error {
 	sourceExp, err := r.applyNetwork(pair.Source, nil, true)
@@ -965,15 +976,7 @@ func (r *router) addLegacyRouteRule(pair firewall.RouterPair) error {
 		return fmt.Errorf("apply destination: %w", err)
 	}
 
-	exprs := []expr.Any{
-		&expr.Counter{},
-		&expr.Verdict{
-			Kind: expr.VerdictAccept,
-		},
-	}
-
-	exprs = append(exprs, sourceExp...)
-	exprs = append(exprs, destExp...)
+	exprs := buildLegacyRouteRuleExpressions(sourceExp, destExp)
 
 	ruleKey := firewall.GenKey(firewall.ForwardingFormat, pair)
 

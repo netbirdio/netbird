@@ -6,6 +6,11 @@ import (
 	"runtime"
 )
 
+// UILogFile is the file name the desktop UI writes its log to. It is defined
+// here so the UI (writer), the daemon's RegisterUILog validation, and the debug
+// bundle collector all share one definition.
+const UILogFile = "gui-client.log"
+
 var (
 	// StateDir holds persistent state (config, profiles, install metadata).
 	StateDir string

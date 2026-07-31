@@ -29,8 +29,9 @@ const errCloseConnection = "Failed to close connection: %v"
 var (
 	logFileCount        uint32
 	systemInfoFlag      bool
-	uploadBundleFlag    bool
-	uploadBundleURLFlag string
+	uploadBundleFlag         bool
+	uploadBundleURLFlag      string
+	uploadBundleInsecureFlag bool
 )
 
 var debugCmd = &cobra.Command{
@@ -174,10 +175,11 @@ func debugBundle(cmd *cobra.Command, _ []string) error {
 	}
 	if uploadBundleFlag {
 		request.UploadURL = uploadBundleURLFlag
+		request.UploadInsecure = uploadBundleInsecureFlag
 	}
 	resp, err := client.DebugBundle(cmd.Context(), request)
 	if err != nil {
-		return fmt.Errorf("failed to bundle debug: %v", status.Convert(err).Message())
+		return daemonCallError("bundle debug", err)
 	}
 	cmd.Printf("Local file:\n%s\n", resp.GetPath())
 
@@ -373,10 +375,11 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 	}
 	if uploadBundleFlag {
 		request.UploadURL = uploadBundleURLFlag
+		request.UploadInsecure = uploadBundleInsecureFlag
 	}
 	resp, err := client.DebugBundle(cmd.Context(), request)
 	if err != nil {
-		return fmt.Errorf("failed to bundle debug: %v", status.Convert(err).Message())
+		return daemonCallError("bundle debug", err)
 	}
 
 	if needsRestoreUp {
@@ -524,10 +527,12 @@ func init() {
 	debugBundleCmd.Flags().BoolVarP(&systemInfoFlag, "system-info", "S", true, "Adds system information to the debug bundle")
 	debugBundleCmd.Flags().BoolVarP(&uploadBundleFlag, "upload-bundle", "U", false, "Uploads the debug bundle to a server")
 	debugBundleCmd.Flags().StringVar(&uploadBundleURLFlag, "upload-bundle-url", types.DefaultBundleURL, "Service URL to get an URL to upload the debug bundle")
+	debugBundleCmd.Flags().BoolVar(&uploadBundleInsecureFlag, "upload-bundle-insecure", false, "Allow uploading to an http or untrusted-TLS upload server (self-hosted); requires root")
 
 	forCmd.Flags().Uint32VarP(&logFileCount, "log-file-count", "C", 1, "Number of rotated log files to include in debug bundle")
 	forCmd.Flags().BoolVarP(&systemInfoFlag, "system-info", "S", true, "Adds system information to the debug bundle")
 	forCmd.Flags().BoolVarP(&uploadBundleFlag, "upload-bundle", "U", false, "Uploads the debug bundle to a server")
 	forCmd.Flags().StringVar(&uploadBundleURLFlag, "upload-bundle-url", types.DefaultBundleURL, "Service URL to get an URL to upload the debug bundle")
+	forCmd.Flags().BoolVar(&uploadBundleInsecureFlag, "upload-bundle-insecure", false, "Allow uploading to an http or untrusted-TLS upload server (self-hosted); requires root")
 	forCmd.Flags().Bool("capture", false, "Capture packets during the debug duration and include in bundle")
 }

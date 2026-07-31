@@ -27,7 +27,7 @@ func (g *BundleGenerator) addPlatformLog() error {
 	}
 
 	swiftLogPath := filepath.Join(filepath.Dir(g.logPath), swiftLogFile)
-	if err := g.addSingleLogfile(swiftLogPath, swiftLogFile); err != nil {
+	if err := g.addSingleLogfile(openLogFile, swiftLogPath, swiftLogFile); err != nil {
 		// The Swift log is best-effort: the app may not have written it yet.
 		log.Warnf("failed to add %s to debug bundle: %v", swiftLogFile, err)
 	}

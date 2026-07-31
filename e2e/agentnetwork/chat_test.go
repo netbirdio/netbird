@@ -23,8 +23,13 @@ import (
 type per1k struct{ in, out, read, write float64 }
 
 // publishedPer1k hardcodes the vendors' PUBLISHED rates for the models the live matrix can drive,
-// keyed by the normalized model id the proxy stamps. Deliberately independent of the proxy's
-// pricing table so a wrong embedded rate or a broken normalization fails the run.
+// keyed by the normalized model id the proxy stamps. Deliberately independent of NetBird's own
+// default pricing table so a wrong default rate or a broken normalization fails the run.
+//
+// These rates are also what providerRequest registers as the operator's per-model prices. Since
+// management now ships operator prices to the cost meter as a per-provider-record table that is
+// consulted BEFORE the surface defaults, registering the published rate is what keeps this matrix
+// asserting vendor rates — and exercises the per-record path at the same time.
 var publishedPer1k = map[string]per1k{
 	"gpt-4o-mini":                 {0.00015, 0.0006, 0.000075, 0},
 	"gpt-4o":                      {0.0025, 0.01, 0.00125, 0},
@@ -35,12 +40,22 @@ var publishedPer1k = map[string]per1k{
 	"anthropic.claude-haiku-4-5":  {0.001, 0.005, 0.0001, 0.00125},
 	"anthropic.claude-sonnet-4-5": {0.003, 0.015, 0.0003, 0.00375},
 	"anthropic.claude-sonnet-4-6": {0.003, 0.015, 0.0003, 0.00375},
+	// Gateway-prefixed ids (Vercel AI Gateway, OpenRouter). A gateway model is not in
+	// NetBird's default table, so before operator pricing it could only be recorded at
+	// cost 0. The operator names it and prices it — at the underlying vendor's published
+	// rate, which is what the gateway charges through — so these rows are now priced.
+	"openai/gpt-4o-mini": {0.00015, 0.0006, 0.000075, 0},
+	"openai/gpt-4o":      {0.0025, 0.01, 0.00125, 0},
 }
 
 // rawCostVerificationSQL is the operator-facing double-check, run straight against the management
 // sqlite store: recompute each usage row's expected total and cache cost from its own persisted
 // token buckets and hardcoded published rates. OpenAI counts cached tokens as a subset of input;
 // Anthropic-shape providers count cache buckets additively.
+//
+// The rate rows must stay in sync with publishedPer1k — they are the same vendor rates the matrix
+// registers as operator prices. The join is on model, so rows written by other tests in this
+// package (which price their own made-up model ids) are simply not covered here.
 const rawCostVerificationSQL = `
 WITH rates(model, in_rate, out_rate, read_rate, write_rate) AS (
   VALUES
@@ -52,7 +67,9 @@ WITH rates(model, in_rate, out_rate, read_rate, write_rate) AS (
     ('kimi-k3',                     0.003,   0.015,  0.0003,   0.003),
     ('anthropic.claude-haiku-4-5',  0.001,   0.005,  0.0001,   0.00125),
     ('anthropic.claude-sonnet-4-5', 0.003,   0.015,  0.0003,   0.00375),
-    ('anthropic.claude-sonnet-4-6', 0.003,   0.015,  0.0003,   0.00375)
+    ('anthropic.claude-sonnet-4-6', 0.003,   0.015,  0.0003,   0.00375),
+    ('openai/gpt-4o-mini',          0.00015, 0.0006, 0.000075, 0.0),
+    ('openai/gpt-4o',               0.0025,  0.01,   0.00125,  0.0)
 )
 SELECT
   u.provider,
@@ -146,6 +163,11 @@ func verifyUsageRowsSQL(t *testing.T, srv *harness.Combined) {
 	require.Positive(t, verified, "raw SQL check must cover at least one usage row")
 	t.Logf("[sql] verified %d usage rows in store.db against published rates", verified)
 
+	// Gateway-prefixed model ids are absent from NetBird's default pricing table, so they are
+	// priced only because the operator registered and priced them on the provider record. Assert
+	// they are priced (not silently 0) — the join above already checked the exact figures for the
+	// ones this matrix drives. A gateway row at cost 0 means the per-record table never reached
+	// the cost meter, which is the regression this guards.
 	gwRows, err := db.Raw(`SELECT model,
 	  (input_cost_usd + cached_input_cost_usd + cache_creation_cost_usd + output_cost_usd) AS cost_usd
 	  FROM agent_network_request_usage WHERE model LIKE '%/%'`).Rows()
@@ -155,8 +177,8 @@ func verifyUsageRowsSQL(t *testing.T, srv *harness.Combined) {
 		var model string
 		var cost float64
 		require.NoError(t, gwRows.Scan(&model, &cost), "scan gateway usage row")
-		t.Logf("[sql] gateway %s: stored=$%.6f (must be 0 — deliberately unpriced)", model, cost)
-		assert.Zerof(t, cost, "gateway-prefixed model %q must store cost 0, never a guessed rate", model)
+		t.Logf("[sql] gateway %s: stored=$%.6f (priced from the operator's per-record rate)", model, cost)
+		assert.Positivef(t, cost, "gateway-prefixed model %q is priced on the provider record, so its cost must be > 0", model)
 	}
 	require.NoError(t, gwRows.Err(), "iterate gateway usage rows")
 }
@@ -177,10 +199,6 @@ func validateAccessLogCost(t *testing.T, pc providerCase, row api.AgentNetworkAc
 
 	rates, known := publishedPer1k[model]
 	if !known {
-		if strings.Contains(model, "/") {
-			assert.Zerof(t, row.CostUsd, "gateway-prefixed model %q is not priced so the cost meter must skip (cost 0)", model)
-			return
-		}
 		t.Logf("[cost] %s: no published rate on file for model %q (env-overridden?); skipping cost validation", pc.name, model)
 		return
 	}
@@ -337,8 +355,17 @@ func availableProviders() []providerCase {
 }
 
 // providerRequest builds a create request for a matrix provider: enabled, with
-// a uniquely-priced model for body-routed providers and none for the
-// path-routed Vertex (whose model lives in the request path).
+// its model registered at the vendor's published rates for body-routed
+// providers, and no models for the path-routed Vertex (whose model lives in the
+// request path, so it prices from the defaults table management ships).
+//
+// The registered rates matter: management synthesizes them into the cost
+// meter's per-provider-record table, which is consulted before the surface
+// defaults, so these are the rates the proxy actually bills with. Registering
+// the published rate keeps the cost assertions vendor-anchored while covering
+// the operator-pricing path. A model with no published rate on file (an
+// env-overridden Bedrock profile) falls back to a nominal rate, and
+// validateAccessLogCost skips its cost check.
 func providerRequest(pc providerCase) api.AgentNetworkProviderRequest {
 	req := api.AgentNetworkProviderRequest{
 		Name:        pc.name,
@@ -356,9 +383,23 @@ func providerRequest(pc providerCase) api.AgentNetworkProviderRequest {
 		if pc.kind == harness.WireBedrock {
 			modelID = catalogModel(pc)
 		}
-		req.Models = &[]api.AgentNetworkProviderModel{
-			{Id: modelID, InputPer1k: 0.001, OutputPer1k: 0.002},
+		model := api.AgentNetworkProviderModel{Id: modelID, InputPer1k: 0.001, OutputPer1k: 0.002}
+		if rates, known := publishedPer1k[catalogModel(pc)]; known {
+			model.InputPer1k = rates.in
+			model.OutputPer1k = rates.out
+			// Pin the cache rates too, rather than letting them inherit from the
+			// defaults table: a gateway-prefixed id has no default entry to
+			// inherit from, and an unset rate bills that bucket at the input
+			// rate, which would not match the published-rate recompute.
+			if rates.read > 0 {
+				model.CachedInputPer1k = ptr(rates.read) // OpenAI shape
+				model.CacheReadPer1k = ptr(rates.read)   // Anthropic / Bedrock shape
+			}
+			if rates.write > 0 {
+				model.CacheCreationPer1k = ptr(rates.write)
+			}
 		}
+		req.Models = &[]api.AgentNetworkProviderModel{model}
 	}
 	return req
 }

@@ -8,7 +8,6 @@ package llm_request_parser
 import (
 	"context"
 	"net/url"
-	"regexp"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -253,9 +252,7 @@ func parseVertexPath(reqPath string) (vertexRequest, bool) {
 	if c := strings.LastIndex(rest, ":"); c >= 0 {
 		model, action = rest[:c], rest[c+1:]
 	}
-	if at := strings.Index(model, "@"); at >= 0 {
-		model = model[:at]
-	}
+	model = llm.NormalizeVertexModel(model)
 	if model == "" {
 		return vertexRequest{}, false
 	}
@@ -343,14 +340,6 @@ func trimBedrockNamespace(reqPath string) string {
 	return reqPath
 }
 
-// bedrockRegionPrefixes are the cross-region inference-profile prefixes that
-// front a Bedrock model id (e.g. "eu.anthropic.claude-...").
-var bedrockRegionPrefixes = []string{"us.", "eu.", "apac.", "global."}
-
-// bedrockVersionSuffix matches the trailing "-vN[:N]" or "-YYYYMMDD-vN[:N]"
-// version/throughput suffix of a Bedrock model id.
-var bedrockVersionSuffix = regexp.MustCompile(`-(\d{8}-)?v\d+(:\d+)?$`)
-
 // parseBedrockPath extracts the model and streaming/converse flags from an AWS
 // Bedrock runtime model endpoint:
 //
@@ -375,7 +364,7 @@ func parseBedrockPath(reqPath string) (bedrockRequest, bool) {
 	if decoded, err := url.PathUnescape(rawModel); err == nil {
 		rawModel = decoded
 	}
-	model := normalizeBedrockModel(rawModel)
+	model := llm.NormalizeBedrockModel(rawModel)
 	if model == "" {
 		return bedrockRequest{}, false
 	}
@@ -387,30 +376,6 @@ func parseBedrockPath(reqPath string) (bedrockRequest, bool) {
 	default:
 		return bedrockRequest{}, false
 	}
-}
-
-// normalizeBedrockModel strips an ARN wrapper, a cross-region inference-profile
-// prefix, and the version/throughput suffix from a Bedrock model id so it
-// matches the catalog/pricing key, e.g.
-// "eu.anthropic.claude-sonnet-4-5-20250929-v1:0" -> "anthropic.claude-sonnet-4-5"
-// and "arn:aws:bedrock:eu-central-1:123:inference-profile/eu.anthropic.claude-sonnet-4-5-20250929-v1:0"
-// -> "anthropic.claude-sonnet-4-5".
-func normalizeBedrockModel(modelID string) string {
-	m := modelID
-	// A full ARN (inference-profile / provisioned-throughput / foundation-model)
-	// carries the model id in its last path segment.
-	if strings.HasPrefix(m, "arn:") {
-		if i := strings.LastIndex(m, "/"); i >= 0 {
-			m = m[i+1:]
-		}
-	}
-	for _, p := range bedrockRegionPrefixes {
-		if strings.HasPrefix(m, p) {
-			m = m[len(p):]
-			break
-		}
-	}
-	return bedrockVersionSuffix.ReplaceAllString(m, "")
 }
 
 // invokeBedrock emits the model/provider/session/prompt for an AWS Bedrock

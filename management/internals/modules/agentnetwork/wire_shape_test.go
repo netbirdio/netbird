@@ -103,6 +103,12 @@ func TestSynthesizedService_WireShape(t *testing.T) {
 
 	assert.Equal(t, middlewareIDCostMeter, mws[6].GetId(), "seventh middleware id")
 	assert.Equal(t, proto.MiddlewareSlot_MIDDLEWARE_SLOT_ON_RESPONSE, mws[6].GetSlot(), "cost meter slot")
+	var costCfg costMeterConfig
+	require.NoError(t, json.Unmarshal(mws[6].GetConfigJson(), &costCfg), "cost meter config JSON must decode from the wire")
+	require.NotNil(t, costCfg.Pricing, "the pricing table must travel on the wire — the proxy has no embedded price list to fall back to")
+	assert.NotEmpty(t, costCfg.Pricing.Defaults["openai"], "default table rides in every mapping")
+	assert.NotEmpty(t, costCfg.Pricing.Defaults["anthropic"], "default table covers all surfaces")
+	assert.NotEmpty(t, costCfg.Pricing.Defaults["bedrock"], "default table covers all surfaces")
 
 	assert.Equal(t, middlewareIDLLMResponseParser, mws[7].GetId(), "eighth middleware id")
 	assert.Equal(t, proto.MiddlewareSlot_MIDDLEWARE_SLOT_ON_RESPONSE, mws[7].GetSlot(), "response parser slot")

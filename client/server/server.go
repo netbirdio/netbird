@@ -72,6 +72,9 @@ type Server struct {
 	// RegisterUILog. Guarded by mutex. Consumed by DebugBundle so the bundle
 	// can collect the GUI log even though the daemon runs as root and can't
 	// resolve the user's config dir. Last-writer-wins (one UI per socket).
+	// DebugBundle opens it on behalf of the bundle requester and refuses a file
+	// that caller does not own, so a local user cannot read another user's log
+	// or a root-only file through it.
 	uiLogPath string
 
 	oauthAuthFlow oauthAuthFlow
@@ -397,6 +400,16 @@ func (s *Server) loginAttempt(ctx context.Context, setupKey, jwtToken string) (i
 
 // Login uses setup key to prepare configuration for the daemon.
 func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigRequest) (*proto.SetConfigResponse, error) {
+	// Privilege gate: refuse the parts of the request that would let a local
+	// user turn the root daemon into a root shell. Held across the write so the
+	// config cannot gain the SSH server between the decision and the update.
+	//
+	// Taken before s.mutex: authorizeAndPrepareLogin takes s.mutex while holding
+	// guardedConfigMu, so acquiring the two in the other order here would let a
+	// concurrent login deadlock the daemon.
+	s.guardedConfigMu.Lock()
+	defer s.guardedConfigMu.Unlock()
+
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -420,12 +433,6 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 	if err := rejectMDMManagedFieldConflicts(mdmManagedFieldConflicts(msg, policy)); err != nil {
 		return nil, err
 	}
-
-	// Privilege gate: refuse the parts of the request that would let a local
-	// user turn the root daemon into a root shell. Held across the write so the
-	// config cannot gain the SSH server between the decision and the update.
-	s.guardedConfigMu.Lock()
-	defer s.guardedConfigMu.Unlock()
 
 	stored, err := s.storedProfileConfig(msg.ProfileName, msg.Username)
 	if err != nil {
