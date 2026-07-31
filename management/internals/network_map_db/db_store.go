@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/netbirdio/netbird/shared/management/networkmap"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
 
@@ -29,6 +30,7 @@ type NetworkMapDBStore interface {
 	GetAccountZones(ctx context.Context, accountId string) ([]nmdata.CustomZone, error)
 	GetAccountSettings(ctx context.Context, accountId string) (nmdata.AccountSettingsInfo, error)
 	GetPostureChecks(ctx context.Context, accountId string) ([]nmdata.PostureChecks, error)
+	GetNetworkMapData(ctx context.Context, accountId string) (*networkmap.NetworkMapData, error)
 }
 
 type NetworkMapDBStoreImpl struct {

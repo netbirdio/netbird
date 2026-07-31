@@ -6,6 +6,7 @@ import (
 	"reflect"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
@@ -19,7 +20,15 @@ const (
 )
 
 func (pg *PgStore) GetPostureChecks(ctx context.Context, accountId string) ([]nmdata.PostureChecks, error) {
-	rows, err := pg.Pool.Query(ctx, GetPostureChecksQuery, accountId)
+	c, err := pg.Pool.Acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return GetPostureChecksViaConnection(ctx, c, accountId)
+}
+
+func GetPostureChecksViaConnection(ctx context.Context, con *pgxpool.Conn, accountId string) ([]nmdata.PostureChecks, error) {
+	rows, err := con.Query(ctx, GetPostureChecksQuery, accountId)
 	if err != nil {
 		return nil, err
 	}

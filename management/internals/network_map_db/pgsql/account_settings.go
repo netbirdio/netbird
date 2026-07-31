@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
 
@@ -21,7 +22,16 @@ const (
 )
 
 func (pg *PgStore) GetAccountSettings(ctx context.Context, accountId string) (nmdata.AccountSettingsInfo, error) {
-	rows, err := pg.Pool.Query(ctx, GetAccountSettingsQuery, accountId)
+	c, err := pg.Pool.Acquire(ctx)
+	if err != nil {
+		return nmdata.AccountSettingsInfo{}, err
+	}
+	return GetAccountSettingsViaConnection(ctx, c, accountId)
+
+}
+
+func GetAccountSettingsViaConnection(ctx context.Context, con *pgxpool.Conn, accountId string) (nmdata.AccountSettingsInfo, error) {
+	rows, err := con.Query(ctx, GetAccountSettingsQuery, accountId)
 	if err != nil {
 		return nmdata.AccountSettingsInfo{}, err
 	}

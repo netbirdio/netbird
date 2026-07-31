@@ -7,6 +7,7 @@ import (
 	"reflect"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
@@ -20,7 +21,15 @@ const (
 )
 
 func (pg *PgStore) GetNetwork(ctx context.Context, accountId string) (nmdata.Network, error) {
-	rows, err := pg.Pool.Query(ctx, GetNetworkQuery, accountId)
+	c, err := pg.Pool.Acquire(ctx)
+	if err != nil {
+		return nmdata.Network{}, err
+	}
+	return GetNetworkViaConnection(ctx, c, accountId)
+}
+
+func GetNetworkViaConnection(ctx context.Context, con *pgxpool.Conn, accountId string) (nmdata.Network, error) {
+	rows, err := con.Query(ctx, GetNetworkQuery, accountId)
 	if err != nil {
 		return nmdata.Network{}, err
 	}

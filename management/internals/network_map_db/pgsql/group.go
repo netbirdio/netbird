@@ -7,6 +7,7 @@ import (
 	"reflect"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
@@ -24,7 +25,15 @@ const (
 )
 
 func (pg *PgStore) GetGroups(ctx context.Context, accountId string) ([]nmdata.Group, error) {
-	rows, err := pg.Pool.Query(ctx, GetGroupsQuery, accountId)
+	c, err := pg.Pool.Acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return GetGroupsViaConnection(ctx, c, accountId)
+}
+
+func GetGroupsViaConnection(ctx context.Context, con *pgxpool.Conn, accountId string) ([]nmdata.Group, error) {
+	rows, err := con.Query(ctx, GetGroupsQuery, accountId)
 	if err != nil {
 		return nil, err
 	}
