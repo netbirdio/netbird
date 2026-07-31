@@ -54,7 +54,7 @@ func (m *reconcileWGMock) GetNet() *netstack.Net                      { return n
 func TestReconcilePeerAllowedIPs(t *testing.T) {
 	wg := &reconcileWGMock{}
 	m := &DefaultManager{wgInterface: wg}
-	m.allowedIPsRefCounter = refcounter.New[netip.Prefix, string, string](
+	m.allowedIPsRefCounter = refcounter.NewAllowedIPs(
 		func(_ netip.Prefix, peerKey string) (string, error) { return peerKey, nil },
 		func(netip.Prefix, string) error { return nil },
 	)

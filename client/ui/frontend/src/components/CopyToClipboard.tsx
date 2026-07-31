@@ -18,6 +18,9 @@ type CopyToClipboardProps = {
     className?: string;
     iconClassName?: string;
     alwaysShowIcon?: boolean;
+    // wrap lets long content (a shell command, a path) break across lines
+    // instead of being truncated to one line.
+    wrap?: boolean;
     variant?: CopyToClipboardVariant;
     "aria-label"?: string;
     tabIndex?: number;
@@ -32,6 +35,7 @@ export const CopyToClipboard = ({
     className,
     iconClassName,
     alwaysShowIcon = false,
+    wrap = false,
     variant = "default",
     "aria-label": ariaLabel,
     tabIndex = 0,
@@ -83,7 +87,8 @@ export const CopyToClipboard = ({
         >
             <span
                 className={cn(
-                    "relative min-w-0 truncate",
+                    "relative min-w-0",
+                    wrap ? "whitespace-pre-wrap break-all" : "truncate",
                     "[&_*]:transition-colors",
                     VARIANT_HOVER[variant],
                 )}

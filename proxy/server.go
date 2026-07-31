@@ -246,10 +246,6 @@ type Server struct {
 	// in processMappings before the receive loop reconnects to resync.
 	// Zero uses defaultMappingBatchWatchdog.
 	MappingBatchWatchdog time.Duration
-	// MiddlewareDataDir is the base directory the middleware system uses to
-	// resolve file-backed configuration (e.g. the cost_meter pricing table).
-	// Empty means any middleware that requires a file fails at configure time.
-	MiddlewareDataDir string
 	// MiddlewareCaptureBudgetBytes overrides the proxy-wide in-flight capture
 	// budget passed to middleware.NewManager. Zero or negative values fall
 	// back to defaultMiddlewareCaptureBudgetBytes (256 MiB).
@@ -2094,7 +2090,7 @@ func (s *Server) initMiddlewareManager(ctx context.Context) error {
 		return fmt.Errorf("middleware manager requires metrics bundle")
 	}
 	otelMeter := s.meter.Meter()
-	mwbuiltin.Configure(ctx, s.MiddlewareDataDir, otelMeter, s.Logger, s.mgmtClient)
+	mwbuiltin.Configure(ctx, otelMeter, s.Logger, s.mgmtClient)
 
 	mwMetrics, err := middleware.NewMetrics(otelMeter)
 	if err != nil {
