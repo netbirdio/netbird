@@ -33,7 +33,7 @@ func GetNetworkViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId st
 		return nmdata.Network{}, err
 	}
 
-	n, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[network])
+	n, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[accountnetwork])
 	if err != nil {
 		return nmdata.Network{}, err
 	}
@@ -48,7 +48,7 @@ func GetNetworkViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId st
 	return toret, nil
 }
 
-type network struct {
+type accountnetwork struct {
 	Identifier sql.NullString
 	Net        json.RawMessage
 	NetV6      json.RawMessage
