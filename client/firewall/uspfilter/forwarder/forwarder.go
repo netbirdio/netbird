@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"os"
 	"runtime"
+	"strconv"
 	"sync"
 	"time"
 
@@ -32,6 +34,11 @@ const (
 	defaultMaxInFlight   = 1024
 	iosReceiveWindow     = 16384
 	iosMaxInFlight       = 256
+
+	// envForceTCPRACK overrides the platform default for gVisor's RACK loss
+	// detection. Set to a truthy value to force RACK on, or a falsy value to
+	// force it off, on any platform.
+	envForceTCPRACK = "NB_FORCE_TCP_RACK"
 )
 
 // IFace provides the WireGuard device and overlay addresses the forwarder needs.
@@ -158,6 +165,8 @@ func New(iface IFace, logger *nblog.Logger, flowLogger nftypes.FlowLogger, netst
 		receiveWindow = iosReceiveWindow
 		maxInFlight = iosMaxInFlight
 	}
+
+	configureTCPRecovery(s)
 
 	tcpForwarder := tcp.NewForwarder(s, receiveWindow, maxInFlight, f.handleTCP)
 	s.SetTransportProtocolHandler(tcp.ProtocolNumber, tcpForwarder.HandlePacket)
@@ -472,4 +481,32 @@ func probeRawICMP(network, addr string, logger *nblog.Logger) bool {
 
 	logger.Debug1("forwarder: raw %s socket access available", network)
 	return true
+}
+
+// configureTCPRecovery disables gVisor's RACK loss detection on Windows, where
+// it interacts poorly with the host and collapses throughput on routed TCP
+// connections (gVisor issue #9778). Other platforms keep the default. The
+// EnvForceTCPRACK environment variable overrides the platform default.
+func configureTCPRecovery(s *stack.Stack) {
+	disableRACK := runtime.GOOS == "windows"
+
+	if val := os.Getenv(envForceTCPRACK); val != "" {
+		force, err := strconv.ParseBool(val)
+		if err != nil {
+			log.Warnf("parse %s: %v", envForceTCPRACK, err)
+		} else {
+			disableRACK = !force
+		}
+	}
+
+	if !disableRACK {
+		return
+	}
+
+	opt := tcpip.TCPRecovery(0)
+	if err := s.SetTransportProtocolOption(tcp.ProtocolNumber, &opt); err != nil {
+		log.Warnf("disable TCP RACK loss detection: %v", err)
+		return
+	}
+	log.Info("forwarder: TCP RACK loss detection disabled")
 }

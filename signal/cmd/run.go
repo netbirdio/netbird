@@ -10,13 +10,14 @@ import (
 	"net/http"
 	// nolint:gosec
 	_ "net/http/pprof"
+	"os"
 	"time"
 
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
+	"golang.org/x/net/http2/h2c" //nolint:staticcheck
 
 	"github.com/netbirdio/netbird/shared/metrics"
 
@@ -195,12 +196,14 @@ var (
 )
 
 func startPprof() {
-	go func() {
-		log.Debugf("Starting pprof server on 127.0.0.1:6060")
-		if err := http.ListenAndServe("127.0.0.1:6060", nil); err != nil {
-			log.Fatalf("pprof server failed: %v", err)
-		}
-	}()
+	if pprofAddr := os.Getenv("NB_PPROF_ADDR"); pprofAddr != "" {
+		log.Infof("pprof enabled, listening on: %s", pprofAddr)
+		go func() {
+			if err := http.ListenAndServe(pprofAddr, nil); err != nil {
+				log.Fatalf("pprof server failed: %v", err)
+			}
+		}()
+	}
 }
 
 func getTLSConfigurations() ([]grpc.ServerOption, *autocert.Manager, *tls.Config, error) {
@@ -281,6 +284,7 @@ func serveHTTP(httpListener net.Listener, handler http.Handler) {
 	go func() {
 		// Use h2c to support HTTP/2 without TLS (needed for gRPC)
 		h1s := &http.Server{
+			//nolint:staticcheck // h2c also handles the HTTP/1 Upgrade mechanism, which http.Server's UnencryptedHTTP2 does not
 			Handler: h2c.NewHandler(handler, &http2.Server{}),
 		}
 		err := h1s.Serve(httpListener)

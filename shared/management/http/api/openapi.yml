@@ -375,6 +375,12 @@ components:
           description: Enables or disables client metrics push for all peers in the account
           type: boolean
           example: false
+        agent_network_only:
+          description: Limits the dashboard to the Agent Network surface for this account. Set for accounts created via netbird.ai signups and can be disabled later. Enabling this requires dashboard_features.agent_network to be true in the same request.
+          type: boolean
+          example: false
+        dashboard_features:
+          $ref: '#/components/schemas/AccountDashboardFeatures'
         embedded_idp_enabled:
           description: Indicates whether the embedded identity provider (Dex) is enabled for this account. This is a read-only field.
           type: boolean
@@ -403,6 +409,14 @@ components:
         - regular_users_view_blocked
         - peer_expose_enabled
         - peer_expose_groups
+    AccountDashboardFeatures:
+      description: Per-account dashboard section visibility overrides. Omitted keys follow the default dashboard behavior.
+      type: object
+      properties:
+        agent_network:
+          description: Controls the Agent Network menu for the account regardless of the deployment feature flag. When true the menu is shown, when false it is hidden, and when omitted the default behavior applies. Must be true when agent_network_only is enabled.
+          type: boolean
+          example: true
     AccountExtraSettings:
       type: object
       properties:
@@ -5150,6 +5164,10 @@ components:
           type: boolean
           description: Whether upstream TLS certificate verification is skipped when the proxy dials this provider's URL. Intended for self-hosted / internal gateways behind a private or self-signed certificate.
           example: false
+        metadata_disabled:
+          type: boolean
+          description: Whether identity metadata injection is disabled for this provider. When enabled (the default), the proxy stamps the caller's user and authorizing group onto upstream requests as provider-specific metadata (e.g. AWS Bedrock's X-Amzn-Bedrock-Request-Metadata header). Set true to suppress it.
+          example: false
         created_at:
           type: string
           format: date-time
@@ -5170,6 +5188,7 @@ components:
         - models
         - enabled
         - skip_tls_verification
+        - metadata_disabled
         - created_at
         - updated_at
     AgentNetworkProviderRequest:
@@ -5226,6 +5245,10 @@ components:
           type: boolean
           description: Skip upstream TLS certificate verification when the proxy dials this provider's URL. For self-hosted / internal gateways behind a private or self-signed certificate. Defaults to false. When omitted on update, the stored value is left unchanged.
           example: false
+        metadata_disabled:
+          type: boolean
+          description: Disable identity metadata injection (the caller's user + authorizing group) for this provider. Defaults to false (metadata is injected). When omitted on update, the stored value is left unchanged.
+          example: false
       required:
         - provider_id
         - name
@@ -5248,6 +5271,21 @@ components:
           format: double
           description: Cost per 1k output tokens, in USD.
           example: 0.0006
+        cached_input_per_1k:
+          type: number
+          format: double
+          description: OpenAI-shape cache rate — cost per 1k cached prompt tokens (a subset of input tokens), in USD. Omitted means inherit NetBird's default rate for this model when one exists; 0 means no discount (cached tokens bill at input_per_1k).
+          example: 0.000075
+        cache_read_per_1k:
+          type: number
+          format: double
+          description: Anthropic-shape cache rate — cost per 1k cache-read tokens (additive to input tokens), in USD. Omitted means inherit NetBird's default rate for this model when one exists; 0 means cache reads bill at input_per_1k.
+          example: 0.0003
+        cache_creation_per_1k:
+          type: number
+          format: double
+          description: Anthropic-shape cache rate — cost per 1k cache-creation tokens (additive to input tokens), in USD. Omitted means inherit NetBird's default rate for this model when one exists; 0 means cache writes bill at input_per_1k.
+          example: 0.00375
       required:
         - id
         - input_per_1k
@@ -5273,6 +5311,21 @@ components:
           format: double
           description: Output token price per 1k tokens, in USD.
           example: 0.015
+        cached_input_per_1k:
+          type: number
+          format: double
+          description: OpenAI-shape cache rate — default cost per 1k cached prompt tokens (a subset of input tokens), in USD. Absent when the model has no cached-input discount.
+          example: 0.000075
+        cache_read_per_1k:
+          type: number
+          format: double
+          description: Anthropic-shape cache rate — default cost per 1k cache-read tokens (additive to input tokens), in USD. Absent when the model has no cache-read rate.
+          example: 0.0003
+        cache_creation_per_1k:
+          type: number
+          format: double
+          description: Anthropic-shape cache rate — default cost per 1k cache-creation tokens (additive to input tokens), in USD. Absent when the model has no cache-creation rate.
+          example: 0.00375
         context_window:
           type: integer
           description: Maximum context window in tokens.
@@ -5331,6 +5384,13 @@ components:
             $ref: '#/components/schemas/AgentNetworkCatalogExtraHeader'
         identity_injection:
           $ref: '#/components/schemas/AgentNetworkCatalogIdentityInjection'
+        pricing_surfaces:
+          type: array
+          description: |
+            Cost-meter pricing surfaces this provider's traffic is metered under ("openai", "anthropic", "bedrock"). Tells the dashboard which cache-rate fields apply to this provider's models: "openai" → cached_input_per_1k (cached prompt tokens are a subset of input); "anthropic"/"bedrock" → cache_read_per_1k + cache_creation_per_1k (additive buckets). Absent/empty for gateway and custom entries, whose upstream shape NetBird cannot know ahead of time — surface all cache fields for those.
+          items:
+            type: string
+          example: ["openai"]
         models:
           type: array
           description: Catalog models available for this provider.
@@ -5799,13 +5859,48 @@ components:
         total_tokens:
           type: integer
           format: int64
-          description: Total tokens consumed.
+          description: Total tokens consumed, including prompt-cache tokens.
           example: 1840
+        cached_input_tokens:
+          type: integer
+          format: int64
+          description: Input tokens read from the provider's prompt cache. Additive to input_tokens for Anthropic-shape providers; a subset of input_tokens for OpenAI.
+          example: 0
+        cache_creation_tokens:
+          type: integer
+          format: int64
+          description: Input tokens written to the provider's prompt cache. Zero for providers without a cache-write bucket.
+          example: 30528
         cost_usd:
           type: number
           format: double
           description: Estimated USD cost of the request.
           example: 0.0231
+        input_cost_usd:
+          type: number
+          format: double
+          description: Cost of the non-cached input tokens. Base component of cost_usd.
+          example: 0.0048
+        cached_input_cost_usd:
+          type: number
+          format: double
+          description: Cost of the prompt-cache read tokens. Base component of cost_usd, and part of cache_cost_usd.
+          example: 0.0015
+        cache_creation_cost_usd:
+          type: number
+          format: double
+          description: Cost of the prompt-cache write tokens. Base component of cost_usd, and part of cache_cost_usd.
+          example: 0.1130
+        output_cost_usd:
+          type: number
+          format: double
+          description: Cost of the output tokens. Base component of cost_usd.
+          example: 0.0038
+        cache_cost_usd:
+          type: number
+          format: double
+          description: Portion of cost_usd billed for prompt-cache usage.
+          example: 0.1145
         stream:
           type: boolean
           description: Whether the request was a streaming completion.
@@ -5829,7 +5924,14 @@ components:
         - input_tokens
         - output_tokens
         - total_tokens
+        - cached_input_tokens
+        - cache_creation_tokens
+        - input_cost_usd
+        - cached_input_cost_usd
+        - cache_creation_cost_usd
+        - output_cost_usd
         - cost_usd
+        - cache_cost_usd
     AgentNetworkAccessLogsResponse:
       type: object
       properties:
@@ -5903,13 +6005,48 @@ components:
         total_tokens:
           type: integer
           format: int64
-          description: Total tokens across the session.
+          description: Total tokens across the session, including prompt-cache tokens.
           example: 12880
+        cached_input_tokens:
+          type: integer
+          format: int64
+          description: Total prompt-cache read tokens across the session.
+          example: 0
+        cache_creation_tokens:
+          type: integer
+          format: int64
+          description: Total prompt-cache write tokens across the session.
+          example: 30528
         cost_usd:
           type: number
           format: double
           description: Total estimated USD cost across the session.
           example: 0.1617
+        input_cost_usd:
+          type: number
+          format: double
+          description: Total cost of non-cached input tokens across the session.
+          example: 0.0210
+        cached_input_cost_usd:
+          type: number
+          format: double
+          description: Total cost of prompt-cache read tokens across the session.
+          example: 0.0015
+        cache_creation_cost_usd:
+          type: number
+          format: double
+          description: Total cost of prompt-cache write tokens across the session.
+          example: 0.1130
+        output_cost_usd:
+          type: number
+          format: double
+          description: Total cost of output tokens across the session.
+          example: 0.0262
+        cache_cost_usd:
+          type: number
+          format: double
+          description: Portion of cost_usd billed for prompt-cache usage across the session.
+          example: 0.1145
         providers:
           type: array
           items:
@@ -5936,7 +6073,14 @@ components:
         - input_tokens
         - output_tokens
         - total_tokens
+        - cached_input_tokens
+        - cache_creation_tokens
+        - input_cost_usd
+        - cached_input_cost_usd
+        - cache_creation_cost_usd
+        - output_cost_usd
         - cost_usd
+        - cache_cost_usd
         - decision
         - entries
     AgentNetworkAccessLogSessionsResponse:
@@ -5990,19 +6134,61 @@ components:
         total_tokens:
           type: integer
           format: int64
-          description: Total tokens in the bucket.
+          description: Total tokens in the bucket, including prompt-cache tokens.
           example: 184000
+        cached_input_tokens:
+          type: integer
+          format: int64
+          description: Total prompt-cache read tokens in the bucket.
+          example: 20000
+        cache_creation_tokens:
+          type: integer
+          format: int64
+          description: Total prompt-cache write tokens in the bucket.
+          example: 45000
+        input_cost_usd:
+          type: number
+          format: double
+          description: Total cost of non-cached input tokens in the bucket.
+          example: 1.12
+        cached_input_cost_usd:
+          type: number
+          format: double
+          description: Total cost of prompt-cache read tokens in the bucket.
+          example: 0.06
+        cache_creation_cost_usd:
+          type: number
+          format: double
+          description: Total cost of prompt-cache write tokens in the bucket.
+          example: 0.36
+        output_cost_usd:
+          type: number
+          format: double
+          description: Total cost of output tokens in the bucket.
+          example: 0.77
         cost_usd:
           type: number
           format: double
           description: Total estimated USD spend in the bucket.
           example: 2.31
+        cache_cost_usd:
+          type: number
+          format: double
+          description: Portion of cost_usd billed for prompt-cache usage in the bucket.
+          example: 0.42
       required:
         - period_start
         - input_tokens
         - output_tokens
         - total_tokens
+        - cached_input_tokens
+        - cache_creation_tokens
+        - input_cost_usd
+        - cached_input_cost_usd
+        - cache_creation_cost_usd
+        - output_cost_usd
         - cost_usd
+        - cache_cost_usd
     AgentNetworkSettings:
       type: object
       description: Per-account Agent Network gateway settings. One row per account; cluster and subdomain are auto-assigned on first provider create and immutable thereafter.
@@ -9327,6 +9513,18 @@ paths:
           required: false
           schema:
             type: string
+        - name: source_id
+          in: query
+          description: Filter by source endpoint ID
+          required: false
+          schema:
+            type: string
+        - name: destination_id
+          in: query
+          description: Filter by destination endpoint ID
+          required: false
+          schema:
+            type: string
         - name: protocol
           in: query
           description: Filter by protocol
@@ -10478,7 +10676,7 @@ paths:
         - EDR Intune Integrations
       summary: Delete EDR Intune Integration
       description: Deletes an EDR Intune Integration by its ID.
-      operationId: deleteIntegration
+      operationId: deleteEDRIntuneIntegration
       responses:
         '200':
           description: Integration deleted successfully. Returns an empty object.
@@ -12562,7 +12760,7 @@ paths:
         - Event Streaming Integrations
       summary: Delete Event Streaming Integration
       description: Deletes an event streaming integration by its ID.
-      operationId: deleteIntegration
+      operationId: deleteEventStreamingIntegration
       responses:
         '200':
           description: Integration deleted successfully. Returns an empty object.

@@ -67,6 +67,7 @@ import (
 	"github.com/netbirdio/netbird/proxy/web"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/trustedproxy"
 	"github.com/netbirdio/netbird/util/embeddedroots"
 )
 
@@ -79,19 +80,19 @@ type portRouter struct {
 
 type Server struct {
 	ctx               context.Context
-	mgmtClient    proto.ProxyServiceClient
-	proxy         *proxy.ReverseProxy
-	netbird       *roundtrip.NetBird
-	acme          *acme.Manager
+	mgmtClient        proto.ProxyServiceClient
+	proxy             *proxy.ReverseProxy
+	netbird           *roundtrip.NetBird
+	acme              *acme.Manager
 	staticCertWatcher *certwatch.Watcher
-	auth          *auth.Middleware
-	http          *http.Server
-	https         *http.Server
-	debug         *http.Server
-	healthServer  *health.Server
-	healthChecker *health.Checker
-	meter         *proxymetrics.Metrics
-	accessLog     *accesslog.Logger
+	auth              *auth.Middleware
+	http              *http.Server
+	https             *http.Server
+	debug             *http.Server
+	healthServer      *health.Server
+	healthChecker     *health.Checker
+	meter             *proxymetrics.Metrics
+	accessLog         *accesslog.Logger
 	// middlewareManager drives per-target middleware dispatch. Always
 	// constructed during boot; an empty registry produces empty chains and
 	// the reverse-proxy stays on the no-capture fast path.
@@ -99,16 +100,16 @@ type Server struct {
 	// middlewareRegistry is the source of registered middleware factories.
 	// Concrete middlewares register themselves through init().
 	middlewareRegistry *middleware.Registry
-	mainRouter    *nbtcp.Router
-	mainPort      uint16
-	udpMu         sync.Mutex
-	udpRelays     map[types.ServiceID]*udprelay.Relay
-	udpRelayWg    sync.WaitGroup
-	portMu        sync.RWMutex
-	portRouters   map[uint16]*portRouter
-	svcPorts      map[types.ServiceID][]uint16
-	lastMappings  map[types.ServiceID]*proto.ProxyMapping
-	portRouterWg  sync.WaitGroup
+	mainRouter         *nbtcp.Router
+	mainPort           uint16
+	udpMu              sync.Mutex
+	udpRelays          map[types.ServiceID]*udprelay.Relay
+	udpRelayWg         sync.WaitGroup
+	portMu             sync.RWMutex
+	portRouters        map[uint16]*portRouter
+	svcPorts           map[types.ServiceID][]uint16
+	lastMappings       map[types.ServiceID]*proto.ProxyMapping
+	portRouterWg       sync.WaitGroup
 
 	// hijackTracker tracks hijacked connections (e.g. WebSocket upgrades)
 	// so they can be closed during graceful shutdown, since http.Server.Shutdown
@@ -192,10 +193,10 @@ type Server struct {
 	// ForwardedProto overrides the X-Forwarded-Proto value sent to backends.
 	// Valid values: "auto" (detect from TLS), "http", "https".
 	ForwardedProto string
-	// TrustedProxies is a list of IP prefixes for trusted upstream proxies.
-	// When set, forwarding headers from these sources are preserved and
-	// appended to instead of being stripped.
-	TrustedProxies []netip.Prefix
+	// TrustedProxies is the set of trusted upstream proxies. When set,
+	// forwarding headers from these sources are preserved and appended to
+	// instead of being stripped.
+	TrustedProxies *trustedproxy.List
 	// WireguardPort is the port for the NetBird tunnel interface. Use 0
 	// for a random OS-assigned port. A fixed port only works with
 	// single-account deployments; multiple accounts will fail to bind
@@ -245,10 +246,6 @@ type Server struct {
 	// in processMappings before the receive loop reconnects to resync.
 	// Zero uses defaultMappingBatchWatchdog.
 	MappingBatchWatchdog time.Duration
-	// MiddlewareDataDir is the base directory the middleware system uses to
-	// resolve file-backed configuration (e.g. the cost_meter pricing table).
-	// Empty means any middleware that requires a file fails at configure time.
-	MiddlewareDataDir string
 	// MiddlewareCaptureBudgetBytes overrides the proxy-wide in-flight capture
 	// budget passed to middleware.NewManager. Zero or negative values fall
 	// back to defaultMiddlewareCaptureBudgetBytes (256 MiB).
@@ -718,7 +715,7 @@ func (s *Server) wrapProxyProtocol(ln net.Listener) net.Listener {
 		Listener:          ln,
 		ReadHeaderTimeout: proxyProtoHeaderTimeout,
 	}
-	if len(s.TrustedProxies) > 0 {
+	if !s.TrustedProxies.Empty() {
 		ppListener.ConnPolicy = s.proxyProtocolPolicy
 	} else {
 		s.Logger.Warn("PROXY protocol enabled without trusted proxies; any source may send PROXY headers")
@@ -742,10 +739,8 @@ func (s *Server) proxyProtocolPolicy(opts proxyproto.ConnPolicyOptions) (proxypr
 	addr = addr.Unmap()
 
 	// called per accept
-	for _, prefix := range s.TrustedProxies {
-		if prefix.Contains(addr) {
-			return proxyproto.REQUIRE, nil
-		}
+	if s.TrustedProxies.Contains(addr) {
+		return proxyproto.REQUIRE, nil
 	}
 	return proxyproto.IGNORE, nil
 }
@@ -2094,7 +2089,7 @@ func (s *Server) initMiddlewareManager(ctx context.Context) error {
 		return fmt.Errorf("middleware manager requires metrics bundle")
 	}
 	otelMeter := s.meter.Meter()
-	mwbuiltin.Configure(ctx, s.MiddlewareDataDir, otelMeter, s.Logger, s.mgmtClient)
+	mwbuiltin.Configure(ctx, otelMeter, s.Logger, s.mgmtClient)
 
 	mwMetrics, err := middleware.NewMetrics(otelMeter)
 	if err != nil {

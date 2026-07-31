@@ -96,6 +96,7 @@ type ConfigInput struct {
 	BlockLANAccess      *bool
 	BlockInbound        *bool
 	DisableIPv6         *bool
+	SyncMessageVersion  *int
 
 	DisableNotifications *bool
 
@@ -137,6 +138,7 @@ type Config struct {
 	BlockLANAccess      bool
 	BlockInbound        bool
 	DisableIPv6         bool
+	SyncMessageVersion  *int
 
 	DisableNotifications *bool
 
@@ -587,6 +589,12 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
+	if input.SyncMessageVersion != nil && *input.SyncMessageVersion != *config.SyncMessageVersion {
+		log.Infof("setting SyncMessageVersion to %v", *input.SyncMessageVersion)
+		*config.SyncMessageVersion = *input.SyncMessageVersion
+		updated = true
+	}
+
 	if input.DisableNotifications != nil && (config.DisableNotifications == nil || *input.DisableNotifications != *config.DisableNotifications) {
 		if *input.DisableNotifications {
 			log.Infof("disabling notifications")
@@ -738,6 +746,13 @@ func (config *Config) applyMDMPolicy(policy *mdm.Policy) {
 // appended for https or ":80" for http. The serviceName parameter is
 // used to contextualise error messages. On success returns the parsed
 // *url.URL; on failure returns a non-nil error.
+// ParseServiceURL normalises a service URL exactly as the config layer does when
+// it stores one, so callers comparing a requested URL against a stored one do not
+// have to reimplement the scheme validation and default-port handling.
+func ParseServiceURL(serviceName, serviceURL string) (*url.URL, error) {
+	return parseURL(serviceName, serviceURL)
+}
+
 func parseURL(serviceName, serviceURL string) (*url.URL, error) {
 	parsedMgmtURL, err := url.ParseRequestURI(serviceURL)
 	if err != nil {

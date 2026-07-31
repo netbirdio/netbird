@@ -33,14 +33,17 @@ func newSynthTestSettings() *types.Settings {
 
 func newSynthTestProvider() *types.Provider {
 	return &types.Provider{
-		ID:                "prov-1",
-		AccountID:         testAccountID,
-		ProviderID:        "openai_api",
-		Name:              "OpenAI",
-		UpstreamURL:       "https://api.openai.com",
-		APIKey:            "sk-test-key",
-		Enabled:           true,
-		Models:            []types.ProviderModel{{ID: "gpt-5.4", InputPer1k: 0.0025, OutputPer1k: 0.015}},
+		ID:          "prov-1",
+		AccountID:   testAccountID,
+		ProviderID:  "openai_api",
+		Name:        "OpenAI",
+		UpstreamURL: "https://api.openai.com",
+		APIKey:      "sk-test-key",
+		Enabled:     true,
+		// Prices deliberately differ from the catalog's gpt-5.4 rates
+		// (0.0025/0.015) so pricing tests can prove the operator's
+		// stored price overlays the catalog default.
+		Models:            []types.ProviderModel{{ID: "gpt-5.4", InputPer1k: 0.004, OutputPer1k: 0.02}},
 		SessionPrivateKey: "test-priv-key",
 		SessionPublicKey:  "test-pub-key",
 		CreatedAt:         time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
@@ -214,7 +217,27 @@ func TestSynthesizeServices_HappyPath(t *testing.T) {
 
 	assert.Equal(t, middlewareIDCostMeter, mws[6].ID, "seventh middleware is the cost meter")
 	assert.Equal(t, rpservice.MiddlewareSlotOnResponse, mws[6].Slot, "cost meter runs on_response")
-	assert.Equal(t, []byte("{}"), mws[6].ConfigJSON, "cost meter carries an explicit empty config")
+
+	var costCfg costMeterConfig
+	require.NoError(t, json.Unmarshal(mws[6].ConfigJSON, &costCfg), "cost meter config must unmarshal")
+	require.NotNil(t, costCfg.Pricing, "cost meter config must carry the pricing table — its absence tells the proxy management predates config-delivered pricing")
+
+	gpt4o, ok := costCfg.Pricing.Defaults["openai"]["gpt-4o"]
+	require.True(t, ok, "the full default table ships regardless of the account's providers")
+	assert.InDelta(t, 0.0025, gpt4o.InputPer1k, 1e-9, "default gpt-4o input rate comes from the catalog")
+
+	openaiPrices, ok := costCfg.Pricing.Providers[openai.ID]
+	require.True(t, ok, "operator-priced provider must have a per-record entry")
+	gpt54, ok := openaiPrices["gpt-5.4"]
+	require.True(t, ok, "operator's model row keys the per-record map")
+	assert.InDelta(t, 0.004, gpt54.InputPer1k, 1e-9, "operator input price overlays the catalog default (0.0025)")
+	assert.InDelta(t, 0.02, gpt54.OutputPer1k, 1e-9, "operator output price overlays the catalog default (0.015)")
+	assert.InDelta(t, 0.00025, gpt54.CachedInputPer1k, 1e-9, "cache rate the operator didn't state is inherited from the default entry")
+
+	opus, ok := costCfg.Pricing.Providers[anthropic.ID]["claude-opus-4-7"]
+	require.True(t, ok, "anthropic's model row keys its per-record map")
+	assert.Zero(t, opus.InputPer1k, "operator-stored zero prices ship verbatim — an explicit $0 model bills as free, it does not revert to list price")
+	assert.InDelta(t, 0.0005, opus.CacheReadPer1k, 1e-9, "cache rates still inherit from the default entry")
 
 	assert.Equal(t, middlewareIDLLMResponseParser, mws[7].ID, "eighth middleware is the response parser")
 	assert.Equal(t, rpservice.MiddlewareSlotOnResponse, mws[7].Slot, "response parser runs on_response")
@@ -698,6 +721,94 @@ func TestSynthesizeServices_IdentityInject_Portkey_NotCustomizable(t *testing.T)
 		"same fixed-schema guarantee for the groups dimension")
 }
 
+// TestSynthesizeServices_IdentityInject_Bedrock pins Bedrock's cost-allocation
+// metadata: a JSONMetadata shape emitting X-Amzn-Bedrock-Request-Metadata with
+// the reserved user/group keys, sanitized to Bedrock's accepted charset.
+func TestSynthesizeServices_IdentityInject_Bedrock(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockStore := store.NewMockStore(ctrl)
+
+	br := newSynthTestProvider()
+	br.ID = "prov-bedrock"
+	br.ProviderID = "bedrock_api"
+	br.UpstreamURL = "https://bedrock-runtime.us-east-1.amazonaws.com"
+	br.APIKey = "bedrock-bearer"
+	br.CreatedAt = time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC)
+
+	policy := newSynthTestPolicy(br.ID, "grp-eng", "")
+	policy.ID = "pol-bedrock"
+
+	expectSynthBaseInputs(mockStore, ctx, newSynthTestSettings(),
+		[]*types.Provider{br},
+		[]*types.Policy{policy},
+		[]*types.Guardrail{})
+
+	services, err := SynthesizeServices(ctx, mockStore, testAccountID)
+	require.NoError(t, err)
+	require.Len(t, services, 1)
+
+	var injectCfg identityInjectConfig
+	for _, m := range services[0].Targets[0].Options.Middlewares {
+		if m.ID == middlewareIDLLMIdentityInject {
+			require.NoError(t, json.Unmarshal(m.ConfigJSON, &injectCfg))
+			break
+		}
+	}
+	require.Len(t, injectCfg.Providers, 1)
+	entry := injectCfg.Providers[0]
+	require.NotNil(t, entry.JSONMetadata, "Bedrock uses the JSONMetadata shape for cost-allocation metadata")
+	assert.Nil(t, entry.HeaderPair, "shapes are mutually exclusive")
+	assert.Equal(t, "X-Amzn-Bedrock-Request-Metadata", entry.JSONMetadata.Header,
+		"the caller identity lands in Bedrock's cost-allocation metadata header")
+	assert.Equal(t, "user", entry.JSONMetadata.UserKey)
+	assert.Equal(t, "group", entry.JSONMetadata.GroupsKey)
+	assert.True(t, entry.JSONMetadata.Sanitize,
+		"Bedrock restricts the metadata value charset, so values must be sanitized")
+}
+
+// TestSynthesizeServices_MetadataDisabled_SuppressesInjection verifies the
+// per-provider opt-out: a provider with MetadataDisabled set emits no
+// identity-inject entry (Bedrock has no catalog ExtraHeaders, so the whole
+// entry is dropped).
+func TestSynthesizeServices_MetadataDisabled_SuppressesInjection(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockStore := store.NewMockStore(ctrl)
+
+	br := newSynthTestProvider()
+	br.ID = "prov-bedrock"
+	br.ProviderID = "bedrock_api"
+	br.UpstreamURL = "https://bedrock-runtime.us-east-1.amazonaws.com"
+	br.APIKey = "bedrock-bearer"
+	br.MetadataDisabled = true
+	br.CreatedAt = time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC)
+
+	policy := newSynthTestPolicy(br.ID, "grp-eng", "")
+	policy.ID = "pol-bedrock"
+
+	expectSynthBaseInputs(mockStore, ctx, newSynthTestSettings(),
+		[]*types.Provider{br},
+		[]*types.Policy{policy},
+		[]*types.Guardrail{})
+
+	services, err := SynthesizeServices(ctx, mockStore, testAccountID)
+	require.NoError(t, err)
+	require.Len(t, services, 1)
+
+	var injectCfg identityInjectConfig
+	for _, m := range services[0].Targets[0].Options.Middlewares {
+		if m.ID == middlewareIDLLMIdentityInject {
+			require.NoError(t, json.Unmarshal(m.ConfigJSON, &injectCfg))
+			break
+		}
+	}
+	assert.Empty(t, injectCfg.Providers,
+		"metadata_disabled must drop the provider's identity-inject entry")
+}
+
 // TestSynthesizeServices_IdentityInject_Vercel pins Vercel AI
 // Gateway's wiring: HeaderPair shape with fixed wire names dictated
 // by Vercel's Custom Reporting API (ai-reporting-user /
@@ -943,8 +1054,12 @@ func TestSynthesizeServices_GuardrailMerge_AllowlistUnion_LimitsRestrictive(t *t
 
 	var cfg guardrailConfig
 	require.NoError(t, json.Unmarshal(guardrailJSON, &cfg), "guardrail config must unmarshal cleanly")
-	assert.ElementsMatch(t, []string{"gpt-5.4-mini", "gpt-5.4-pro"}, cfg.ModelAllowlist,
-		"model allowlist union must keep both models")
+	// Both policies restrict the same provider, so the per-provider backstop
+	// carries the union of their models — a coarse gate that management's
+	// per-policy/group check narrows; it only blocks models outside the union
+	// when management is down.
+	assert.ElementsMatch(t, []string{"gpt-5.4-mini", "gpt-5.4-pro"}, cfg.ProviderAllowlists["prov-1"],
+		"per-provider allowlist union must keep both models")
 }
 
 func TestSynthesizeServices_BackfillsMissingSessionKeys(t *testing.T) {

@@ -297,6 +297,17 @@ func (r *family) addMSSClampingRules() error {
 	return r.conn.Flush()
 }
 
+func buildLegacyRouteRuleExpressions(sourceExp, destExp []expr.Any) []expr.Any {
+	exprs := make([]expr.Any, 0, len(sourceExp)+len(destExp)+2)
+	exprs = append(exprs, sourceExp...)
+	exprs = append(exprs, destExp...)
+	exprs = append(exprs,
+		&expr.Counter{},
+		&expr.Verdict{Kind: expr.VerdictAccept},
+	)
+	return exprs
+}
+
 func (r *family) addLegacyRouteRule(pair firewall.RouterPair) error {
 	sourceExp, err := r.applyNetwork(pair.Source, nil, true)
 	if err != nil {
@@ -309,13 +320,7 @@ func (r *family) addLegacyRouteRule(pair firewall.RouterPair) error {
 		return fmt.Errorf("apply destination: %w", err)
 	}
 
-	var exprs []expr.Any
-	exprs = append(exprs, sourceExp...)
-	exprs = append(exprs, destExp...)
-	exprs = append(exprs,
-		&expr.Counter{},
-		&expr.Verdict{Kind: expr.VerdictAccept},
-	)
+	exprs := buildLegacyRouteRuleExpressions(sourceExp, destExp)
 
 	ruleID := pair.GenKey(firewall.ForwardingFormat)
 

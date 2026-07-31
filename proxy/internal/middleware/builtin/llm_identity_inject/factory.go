@@ -64,6 +64,11 @@ type JSONMetadataRule struct {
 	UserKey        string `json:"user_key,omitempty"`
 	GroupsKey      string `json:"groups_key,omitempty"`
 	MaxValueLength int    `json:"max_value_length,omitempty"`
+	// Sanitize replaces characters outside the destination provider's accepted
+	// set with '_' before emitting each value. AWS Bedrock's
+	// X-Amzn-Bedrock-Request-Metadata restricts values to [A-Za-z0-9 +-=._:/@];
+	// group display names with other characters would otherwise 400.
+	Sanitize bool `json:"sanitize,omitempty"`
 }
 
 // Config is the on-wire configuration accepted by the factory. An

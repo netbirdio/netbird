@@ -14,7 +14,7 @@ import type { Config } from "@bindings/services/models.js";
 import i18next from "@/lib/i18n";
 import { useProfile } from "@/contexts/ProfileContext.tsx";
 import { SettingsSkeleton } from "@/modules/settings/SettingsSkeleton.tsx";
-import { errorDialog, formatErrorMessage as errorMessage } from "@/lib/errors.ts";
+import { errorCommand, errorDialog, formatErrorMessage as errorMessage } from "@/lib/errors.ts";
 
 const SAVE_DEBOUNCE_MS = 400;
 
@@ -67,6 +67,21 @@ const useSettingsState = () => {
     useEffect(() => {
         loadedRef.current = loaded;
     }, [loaded]);
+
+    // reload re-reads the daemon's config, which is authoritative. Used on
+    // mount, on the daemon's config_changed event, and to undo an optimistic
+    // update the daemon then rejected.
+    const reload = useCallback(
+        async (profileName: string) => {
+            try {
+                const data = await SettingsSvc.GetConfig({ profileName, username });
+                setLoaded({ profileName, data });
+            } catch (e) {
+                console.warn("[SettingsContext] reload after rejected save failed", e);
+            }
+        },
+        [username],
+    );
 
     useEffect(() => {
         if (!profileLoaded || !activeProfileId) return;
@@ -133,13 +148,20 @@ const useSettingsState = () => {
                     username,
                 });
             } catch (e) {
+                // The optimistic update is wrong now: the daemon refused it
+                // (a change that needs elevated privileges, an MDM-managed
+                // field, ...). Snap the controls back to what it actually
+                // holds before reporting, so the UI never shows a value the
+                // daemon does not have.
+                await reload(profileName);
                 await errorDialog({
                     Title: i18next.t("settings.error.saveTitle"),
                     Message: errorMessage(e),
+                    Command: errorCommand(e),
                 });
             }
         },
-        [username],
+        [username, reload],
     );
 
     const setField = useCallback(

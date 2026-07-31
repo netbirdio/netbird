@@ -1612,6 +1612,12 @@ type Account struct {
 	Settings   AccountSettings   `json:"settings"`
 }
 
+// AccountDashboardFeatures Per-account dashboard section visibility overrides. Omitted keys follow the default dashboard behavior.
+type AccountDashboardFeatures struct {
+	// AgentNetwork Controls the Agent Network menu for the account regardless of the deployment feature flag. When true the menu is shown, when false it is hidden, and when omitted the default behavior applies. Must be true when agent_network_only is enabled.
+	AgentNetwork *bool `json:"agent_network,omitempty"`
+}
+
 // AccountExtraSettings defines model for AccountExtraSettings.
 type AccountExtraSettings struct {
 	// NetworkTrafficLogsEnabled Enables or disables network traffic logging. If enabled, all network traffic events from peers will be stored.
@@ -1647,11 +1653,17 @@ type AccountRequest struct {
 
 // AccountSettings defines model for AccountSettings.
 type AccountSettings struct {
+	// AgentNetworkOnly Limits the dashboard to the Agent Network surface for this account. Set for accounts created via netbird.ai signups and can be disabled later. Enabling this requires dashboard_features.agent_network to be true in the same request.
+	AgentNetworkOnly *bool `json:"agent_network_only,omitempty"`
+
 	// AutoUpdateAlways When true, updates are installed automatically in the background. When false, updates require user interaction from the UI.
 	AutoUpdateAlways *bool `json:"auto_update_always,omitempty"`
 
 	// AutoUpdateVersion Set Clients auto-update version. "latest", "disabled", or a specific version (e.g "0.50.1")
 	AutoUpdateVersion *string `json:"auto_update_version,omitempty"`
+
+	// DashboardFeatures Per-account dashboard section visibility overrides. Omitted keys follow the default dashboard behavior.
+	DashboardFeatures *AccountDashboardFeatures `json:"dashboard_features,omitempty"`
 
 	// DnsDomain Allows to define a custom dns domain for the account
 	DnsDomain *string `json:"dns_domain,omitempty"`
@@ -1720,6 +1732,21 @@ type AccountSettings struct {
 
 // AgentNetworkAccessLog One per-request agent-network (LLM) access log entry with flattened, queryable LLM dimensions.
 type AgentNetworkAccessLog struct {
+	// CacheCostUsd Portion of cost_usd billed for prompt-cache usage.
+	CacheCostUsd float64 `json:"cache_cost_usd"`
+
+	// CacheCreationCostUsd Cost of the prompt-cache write tokens. Base component of cost_usd, and part of cache_cost_usd.
+	CacheCreationCostUsd float64 `json:"cache_creation_cost_usd"`
+
+	// CacheCreationTokens Input tokens written to the provider's prompt cache. Zero for providers without a cache-write bucket.
+	CacheCreationTokens int64 `json:"cache_creation_tokens"`
+
+	// CachedInputCostUsd Cost of the prompt-cache read tokens. Base component of cost_usd, and part of cache_cost_usd.
+	CachedInputCostUsd float64 `json:"cached_input_cost_usd"`
+
+	// CachedInputTokens Input tokens read from the provider's prompt cache. Additive to input_tokens for Anthropic-shape providers; a subset of input_tokens for OpenAI.
+	CachedInputTokens int64 `json:"cached_input_tokens"`
+
 	// CostUsd Estimated USD cost of the request.
 	CostUsd float64 `json:"cost_usd"`
 
@@ -1741,6 +1768,9 @@ type AgentNetworkAccessLog struct {
 	// Id Unique identifier for the access log entry.
 	Id string `json:"id"`
 
+	// InputCostUsd Cost of the non-cached input tokens. Base component of cost_usd.
+	InputCostUsd float64 `json:"input_cost_usd"`
+
 	// InputTokens Input (prompt) tokens consumed.
 	InputTokens int64 `json:"input_tokens"`
 
@@ -1749,6 +1779,9 @@ type AgentNetworkAccessLog struct {
 
 	// Model Requested LLM model.
 	Model *string `json:"model,omitempty"`
+
+	// OutputCostUsd Cost of the output tokens. Base component of cost_usd.
+	OutputCostUsd float64 `json:"output_cost_usd"`
 
 	// OutputTokens Output (completion) tokens produced.
 	OutputTokens int64 `json:"output_tokens"`
@@ -1789,7 +1822,7 @@ type AgentNetworkAccessLog struct {
 	// Timestamp Timestamp when the request was made.
 	Timestamp time.Time `json:"timestamp"`
 
-	// TotalTokens Total tokens consumed.
+	// TotalTokens Total tokens consumed, including prompt-cache tokens.
 	TotalTokens int64 `json:"total_tokens"`
 
 	// UserId NetBird user id of the authenticated caller, if applicable.
@@ -1798,6 +1831,21 @@ type AgentNetworkAccessLog struct {
 
 // AgentNetworkAccessLogSession A session-grouped view of agent-network access logs — all requests sharing a session id (or a single session-less request) folded into one summary plus its ordered entries.
 type AgentNetworkAccessLogSession struct {
+	// CacheCostUsd Portion of cost_usd billed for prompt-cache usage across the session.
+	CacheCostUsd float64 `json:"cache_cost_usd"`
+
+	// CacheCreationCostUsd Total cost of prompt-cache write tokens across the session.
+	CacheCreationCostUsd float64 `json:"cache_creation_cost_usd"`
+
+	// CacheCreationTokens Total prompt-cache write tokens across the session.
+	CacheCreationTokens int64 `json:"cache_creation_tokens"`
+
+	// CachedInputCostUsd Total cost of prompt-cache read tokens across the session.
+	CachedInputCostUsd float64 `json:"cached_input_cost_usd"`
+
+	// CachedInputTokens Total prompt-cache read tokens across the session.
+	CachedInputTokens int64 `json:"cached_input_tokens"`
+
 	// CostUsd Total estimated USD cost across the session.
 	CostUsd float64 `json:"cost_usd"`
 
@@ -1813,11 +1861,17 @@ type AgentNetworkAccessLogSession struct {
 	// GroupIds Union of the authorising group ids across the session's entries.
 	GroupIds *[]string `json:"group_ids,omitempty"`
 
+	// InputCostUsd Total cost of non-cached input tokens across the session.
+	InputCostUsd float64 `json:"input_cost_usd"`
+
 	// InputTokens Total input (prompt) tokens across the session.
 	InputTokens int64 `json:"input_tokens"`
 
 	// Models Distinct models seen in the session.
 	Models *[]string `json:"models,omitempty"`
+
+	// OutputCostUsd Total cost of output tokens across the session.
+	OutputCostUsd float64 `json:"output_cost_usd"`
 
 	// OutputTokens Total output (completion) tokens across the session.
 	OutputTokens int64 `json:"output_tokens"`
@@ -1834,7 +1888,7 @@ type AgentNetworkAccessLogSession struct {
 	// StartedAt Timestamp of the session's earliest request.
 	StartedAt time.Time `json:"started_at"`
 
-	// TotalTokens Total tokens across the session.
+	// TotalTokens Total tokens across the session, including prompt-cache tokens.
 	TotalTokens int64 `json:"total_tokens"`
 
 	// UserId NetBird user id of the session's caller.
@@ -1963,6 +2017,15 @@ type AgentNetworkCatalogJSONMetadataInjection struct {
 
 // AgentNetworkCatalogModel defines model for AgentNetworkCatalogModel.
 type AgentNetworkCatalogModel struct {
+	// CacheCreationPer1k Anthropic-shape cache rate — default cost per 1k cache-creation tokens (additive to input tokens), in USD. Absent when the model has no cache-creation rate.
+	CacheCreationPer1k *float64 `json:"cache_creation_per_1k,omitempty"`
+
+	// CacheReadPer1k Anthropic-shape cache rate — default cost per 1k cache-read tokens (additive to input tokens), in USD. Absent when the model has no cache-read rate.
+	CacheReadPer1k *float64 `json:"cache_read_per_1k,omitempty"`
+
+	// CachedInputPer1k OpenAI-shape cache rate — default cost per 1k cached prompt tokens (a subset of input tokens), in USD. Absent when the model has no cached-input discount.
+	CachedInputPer1k *float64 `json:"cached_input_per_1k,omitempty"`
+
 	// ContextWindow Maximum context window in tokens.
 	ContextWindow int `json:"context_window"`
 
@@ -2016,6 +2079,9 @@ type AgentNetworkCatalogProvider struct {
 
 	// Name Display name for the provider.
 	Name string `json:"name"`
+
+	// PricingSurfaces Cost-meter pricing surfaces this provider's traffic is metered under ("openai", "anthropic", "bedrock"). Tells the dashboard which cache-rate fields apply to this provider's models: "openai" → cached_input_per_1k (cached prompt tokens are a subset of input); "anthropic"/"bedrock" → cache_read_per_1k + cache_creation_per_1k (additive buckets). Absent/empty for gateway and custom entries, whose upstream shape NetBird cannot know ahead of time — surface all cache fields for those.
+	PricingSurfaces *[]string `json:"pricing_surfaces,omitempty"`
 }
 
 // AgentNetworkCatalogProviderKind Presentation grouping for the provider Select on the dashboard.
@@ -2215,6 +2281,9 @@ type AgentNetworkProvider struct {
 	// IdentityHeaderUserId Wire header name the proxy stamps with the caller's display identity (user email or peer name) when the catalog entry's HeaderPair is `customizable`. Empty disables stamping for this dimension. Ignored when the catalog entry has a fixed HeaderPair (e.g. LiteLLM, Portkey). Used today by Bifrost: typical values are `x-bf-lh-netbird_user_id` (always-on log metadata) or `x-bf-dim-netbird_user_id` (Prometheus / OTEL — requires the label to be pre-declared in the gateway's `client.prometheus_labels` config).
 	IdentityHeaderUserId *string `json:"identity_header_user_id,omitempty"`
 
+	// MetadataDisabled Whether identity metadata injection is disabled for this provider. When enabled (the default), the proxy stamps the caller's user and authorizing group onto upstream requests as provider-specific metadata (e.g. AWS Bedrock's X-Amzn-Bedrock-Request-Metadata header). Set true to suppress it.
+	MetadataDisabled bool `json:"metadata_disabled"`
+
 	// Models Models exposed through this endpoint, with the operator's per-1k input/output prices. Empty means all catalog models are allowed at catalog prices.
 	Models []AgentNetworkProviderModel `json:"models"`
 
@@ -2236,6 +2305,15 @@ type AgentNetworkProvider struct {
 
 // AgentNetworkProviderModel A model exposed by the provider, with the operator's per-1k input/output prices in USD.
 type AgentNetworkProviderModel struct {
+	// CacheCreationPer1k Anthropic-shape cache rate — cost per 1k cache-creation tokens (additive to input tokens), in USD. Omitted means inherit NetBird's default rate for this model when one exists; 0 means cache writes bill at input_per_1k.
+	CacheCreationPer1k *float64 `json:"cache_creation_per_1k,omitempty"`
+
+	// CacheReadPer1k Anthropic-shape cache rate — cost per 1k cache-read tokens (additive to input tokens), in USD. Omitted means inherit NetBird's default rate for this model when one exists; 0 means cache reads bill at input_per_1k.
+	CacheReadPer1k *float64 `json:"cache_read_per_1k,omitempty"`
+
+	// CachedInputPer1k OpenAI-shape cache rate — cost per 1k cached prompt tokens (a subset of input tokens), in USD. Omitted means inherit NetBird's default rate for this model when one exists; 0 means no discount (cached tokens bill at input_per_1k).
+	CachedInputPer1k *float64 `json:"cached_input_per_1k,omitempty"`
+
 	// Id Model identifier (e.g. "gpt-4o-mini").
 	Id string `json:"id"`
 
@@ -2265,6 +2343,9 @@ type AgentNetworkProviderRequest struct {
 
 	// IdentityHeaderUserId Wire header name for the caller's display identity. See AgentNetworkProvider.identity_header_user_id. When omitted on a request, the stored value is left unchanged; pass an empty string explicitly to clear it (which disables stamping for this dimension).
 	IdentityHeaderUserId *string `json:"identity_header_user_id,omitempty"`
+
+	// MetadataDisabled Disable identity metadata injection (the caller's user + authorizing group) for this provider. Defaults to false (metadata is injected). When omitted on update, the stored value is left unchanged.
+	MetadataDisabled *bool `json:"metadata_disabled,omitempty"`
 
 	// Models Models exposed through this endpoint, with the operator's per-1k input/output prices. Empty means all catalog models are allowed at catalog prices.
 	Models *[]AgentNetworkProviderModel `json:"models,omitempty"`
@@ -2329,11 +2410,32 @@ type AgentNetworkSettingsRequest struct {
 
 // AgentNetworkUsageBucket One aggregated agent-network usage time bucket (UTC). The bucket width is set by the request's granularity.
 type AgentNetworkUsageBucket struct {
+	// CacheCostUsd Portion of cost_usd billed for prompt-cache usage in the bucket.
+	CacheCostUsd float64 `json:"cache_cost_usd"`
+
+	// CacheCreationCostUsd Total cost of prompt-cache write tokens in the bucket.
+	CacheCreationCostUsd float64 `json:"cache_creation_cost_usd"`
+
+	// CacheCreationTokens Total prompt-cache write tokens in the bucket.
+	CacheCreationTokens int64 `json:"cache_creation_tokens"`
+
+	// CachedInputCostUsd Total cost of prompt-cache read tokens in the bucket.
+	CachedInputCostUsd float64 `json:"cached_input_cost_usd"`
+
+	// CachedInputTokens Total prompt-cache read tokens in the bucket.
+	CachedInputTokens int64 `json:"cached_input_tokens"`
+
 	// CostUsd Total estimated USD spend in the bucket.
 	CostUsd float64 `json:"cost_usd"`
 
+	// InputCostUsd Total cost of non-cached input tokens in the bucket.
+	InputCostUsd float64 `json:"input_cost_usd"`
+
 	// InputTokens Total input (prompt) tokens in the bucket.
 	InputTokens int64 `json:"input_tokens"`
+
+	// OutputCostUsd Total cost of output tokens in the bucket.
+	OutputCostUsd float64 `json:"output_cost_usd"`
 
 	// OutputTokens Total output (completion) tokens in the bucket.
 	OutputTokens int64 `json:"output_tokens"`
@@ -2341,7 +2443,7 @@ type AgentNetworkUsageBucket struct {
 	// PeriodStart Start of the bucket in YYYY-MM-DD (UTC) — the day, the week start (Monday), or the month start, depending on granularity.
 	PeriodStart string `json:"period_start"`
 
-	// TotalTokens Total tokens in the bucket.
+	// TotalTokens Total tokens in the bucket, including prompt-cache tokens.
 	TotalTokens int64 `json:"total_tokens"`
 }
 
@@ -5856,6 +5958,12 @@ type GetApiEventsNetworkTrafficParams struct {
 
 	// ReporterId Filter by reporter ID
 	ReporterId *string `form:"reporter_id,omitempty" json:"reporter_id,omitempty"`
+
+	// SourceId Filter by source endpoint ID
+	SourceId *string `form:"source_id,omitempty" json:"source_id,omitempty"`
+
+	// DestinationId Filter by destination endpoint ID
+	DestinationId *string `form:"destination_id,omitempty" json:"destination_id,omitempty"`
 
 	// Protocol Filter by protocol
 	Protocol *int `form:"protocol,omitempty" json:"protocol,omitempty"`

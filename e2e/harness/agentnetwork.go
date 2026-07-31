@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 
 	"github.com/netbirdio/netbird/shared/management/http/api"
 )
@@ -74,6 +75,13 @@ func (c *Combined) DeleteProvider(ctx context.Context, id string) error {
 	return anDelete(ctx, c, "/api/agent-network/providers/"+id)
 }
 
+// UpdateProvider replaces a provider by id (PUT). The API key may be omitted on
+// the request to keep the stored one; Models replaces the enumerated list, so
+// this is the path a test uses to change a model's price mid-run.
+func (c *Combined) UpdateProvider(ctx context.Context, id string, req api.AgentNetworkProviderRequest) (api.AgentNetworkProvider, error) {
+	return anRequest[api.AgentNetworkProvider](ctx, c, http.MethodPut, "/api/agent-network/providers/"+id, req)
+}
+
 // SetProviderEnabled toggles a provider's enabled flag, preserving its other
 // fields (the API key is omitted, which keeps the stored one). Used to run one
 // provider at a time so model→provider routing is unambiguous.
@@ -107,6 +115,17 @@ func (c *Combined) DeletePolicy(ctx context.Context, id string) error {
 	return anDelete(ctx, c, "/api/agent-network/policies/"+id)
 }
 
+// CreateGuardrail creates an agent-network guardrail (e.g. a model allowlist)
+// that can then be attached to a policy via its GuardrailIds.
+func (c *Combined) CreateGuardrail(ctx context.Context, req api.AgentNetworkGuardrailRequest) (api.AgentNetworkGuardrail, error) {
+	return anRequest[api.AgentNetworkGuardrail](ctx, c, http.MethodPost, "/api/agent-network/guardrails", req)
+}
+
+// DeleteGuardrail removes a guardrail by id.
+func (c *Combined) DeleteGuardrail(ctx context.Context, id string) error {
+	return anDelete(ctx, c, "/api/agent-network/guardrails/"+id)
+}
+
 // GetSettings returns the account's agent-network settings row. It exists only
 // after the first provider create bootstraps it.
 func (c *Combined) GetSettings(ctx context.Context) (api.AgentNetworkSettings, error) {
@@ -127,4 +146,17 @@ func (c *Combined) ListConsumption(ctx context.Context) ([]api.AgentNetworkConsu
 // flattened per-request rows the proxy ships and management ingests).
 func (c *Combined) ListAccessLogs(ctx context.Context) (api.AgentNetworkAccessLogsResponse, error) {
 	return anRequest[api.AgentNetworkAccessLogsResponse](ctx, c, http.MethodGet, "/api/agent-network/access-logs", nil)
+}
+
+// ListAccessLogsFiltered returns the access-log page narrowed by the given
+// query parameters (e.g. model=..., session_id=..., provider_id=...). This
+// exercises management's server-side filtering rather than filtering client
+// side, so a row that is ingested but not indexed under the filtered column
+// surfaces as an empty page.
+func (c *Combined) ListAccessLogsFiltered(ctx context.Context, query url.Values) (api.AgentNetworkAccessLogsResponse, error) {
+	path := "/api/agent-network/access-logs"
+	if encoded := query.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+	return anRequest[api.AgentNetworkAccessLogsResponse](ctx, c, http.MethodGet, path, nil)
 }

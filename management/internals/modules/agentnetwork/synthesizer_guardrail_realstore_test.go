@@ -81,8 +81,8 @@ func TestSynthesizeServices_RealStore_PromptCaptureAccountIsSoleControl(t *testi
 	require.Len(t, services, 1)
 
 	cfg := decodeServiceGuardrailConfig(t, services[0])
-	assert.Equal(t, []string{"gpt-5.4"}, cfg.ModelAllowlist,
-		"model allowlist is a pure policy guardrail and must always reach the config")
+	assert.Equal(t, map[string][]string{"prov-1": {"gpt-5.4"}}, cfg.ProviderAllowlists,
+		"model allowlist is a pure policy guardrail and must reach the per-provider config")
 	assert.False(t, cfg.PromptCapture.Enabled,
 		"prompt capture must be off when the account toggle is off, even with a capture-enabled guardrail")
 }
@@ -172,7 +172,7 @@ func TestSynthesizeServices_RealStore_NoGuardrail_CaptureOff(t *testing.T) {
 	require.Len(t, services, 1, "exactly one synth service expected")
 
 	cfg := decodeServiceGuardrailConfig(t, services[0])
-	assert.Empty(t, cfg.ModelAllowlist, "no guardrail → no allowlist")
+	assert.Empty(t, cfg.ProviderAllowlists, "no guardrail → provider unrestricted (absent from map)")
 	assert.False(t, cfg.PromptCapture.Enabled, "no guardrail → prompt capture off by default")
 	assert.False(t, cfg.PromptCapture.RedactPii, "no guardrail → redact off by default")
 }

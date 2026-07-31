@@ -29,6 +29,7 @@ type AggregatingMemory struct {
 	WindowStart time.Time
 	WindowEnd   time.Time
 	rnd         *v2.PCG
+	nowFunc     func() time.Time
 }
 
 func (m *Memory) StoreEvent(event *types.Event) {
@@ -62,14 +63,19 @@ func (m *Memory) DeleteEvents(ids []uuid.UUID) {
 }
 
 func NewAggregatingMemoryStore() *AggregatingMemory {
-	return &AggregatingMemory{WindowStart: time.Now(), Memory: Memory{events: make(map[uuid.UUID]*types.Event)}, rnd: v2.NewPCG(rand.Uint64(), rand.Uint64())}
+	return NewAggregatingMemoryStoreWithTimeFunc(defaultNowFunc)
+}
+
+// used in tests when deterministic (less random) time intervals are required
+func NewAggregatingMemoryStoreWithTimeFunc(nowFunc func() time.Time) *AggregatingMemory {
+	return &AggregatingMemory{WindowStart: nowFunc(), Memory: Memory{events: make(map[uuid.UUID]*types.Event)}, nowFunc: nowFunc, rnd: v2.NewPCG(rand.Uint64(), rand.Uint64())}
 }
 
 func (am *AggregatingMemory) ResetAggregationWindow() types.FlowEventAggregator {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	now := time.Now()
+	now := am.nowFunc()
 	toret := AggregatingMemory{WindowStart: am.WindowStart, WindowEnd: now, Memory: Memory{events: am.events}, rnd: v2.NewPCG(rand.Uint64(), rand.Uint64())}
 
 	am.events = make(map[uuid.UUID]*types.Event)
@@ -151,4 +157,8 @@ func (am *AggregatingMemory) GetAggregatedEvents() []*types.Event {
 	}
 
 	return slices.Collect(maps.Values(aggregated)) // could return an iterator instead here
+}
+
+func defaultNowFunc() time.Time {
+	return time.Now()
 }
