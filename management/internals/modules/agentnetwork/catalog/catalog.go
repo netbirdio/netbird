@@ -25,8 +25,8 @@ type Model struct {
 //     These typically need NetBird identity stamped onto upstream
 //     requests so the gateway's analytics and budgets attribute to the
 //     real caller; that's what IdentityInjection is for.
-//   - KindCustom: the catch-all "OpenAI-compatible self-hosted endpoint"
-//     entry (vLLM, Ollama, custom inference servers).
+//   - KindCustom: named and generic OpenAI-compatible self-hosted
+//     endpoints (vLLM, Ollama, custom inference servers).
 //
 // Frontend uses Kind to group the provider Select in the modal so an
 // operator can spot at a glance which catalog entries proxy other
@@ -40,6 +40,18 @@ const (
 	KindCustom   ProviderKind = "custom"
 )
 
+// AuthMode describes whether a catalog provider accepts an upstream
+// credential. The zero value intentionally resolves to AuthModeRequired so
+// existing and newly-added catalog entries fail closed unless they explicitly
+// opt into a less restrictive mode.
+type AuthMode string
+
+const (
+	AuthModeRequired AuthMode = "required"
+	AuthModeOptional AuthMode = "optional"
+	AuthModeNone     AuthMode = "none"
+)
+
 // Provider is the in-memory representation of a catalog provider.
 type Provider struct {
 	ID          string
@@ -48,6 +60,9 @@ type Provider struct {
 	DefaultHost string
 	// Kind groups this entry for UI presentation; see ProviderKind.
 	Kind ProviderKind
+	// AuthMode declares whether the provider requires, optionally accepts, or
+	// does not support an upstream API key. Empty defaults to required.
+	AuthMode AuthMode
 	// AuthHeaderName is the HTTP header the provider's API expects
 	// the credential under (e.g. "Authorization" for OpenAI,
 	// "x-api-key" for Anthropic). Combined with AuthHeaderTemplate
@@ -86,6 +101,17 @@ type Provider struct {
 	// upstream provider + credentials on Portkey's hosted side).
 	ExtraHeaders []ExtraHeader
 	Models       []Model
+	// ModelDiscovery configures provider-specific discovery behavior. A nil
+	// profile means discovery is unsupported. The profile never carries
+	// caller-supplied paths: the proxy owns the fixed endpoint allowlist.
+	ModelDiscovery *ModelDiscovery
+}
+
+// ModelDiscovery describes the safe, catalog-owned fallback behavior for a
+// discoverable provider. Every discovery starts with OpenAI-compatible
+// /v1/models; OllamaFallback permits /api/tags only when that route is absent.
+type ModelDiscovery struct {
+	OllamaFallback bool
 }
 
 // ExtraHeader names a single optional per-provider routing/config
@@ -462,6 +488,27 @@ var providers = []Provider{
 		},
 	},
 	{
+		// Direct Ollama Cloud uses the hosted OpenAI-compatible /v1 API.
+		// Models are discovered dynamically because the Cloud catalog changes
+		// independently of NetBird releases. ParserID intentionally remains
+		// empty to preserve the routing behavior of Ollama, vLLM, and custom
+		// OpenAI-compatible providers.
+		ID:                 "ollama_cloud",
+		Kind:               KindProvider,
+		AuthMode:           AuthModeRequired,
+		Name:               "Ollama Cloud",
+		Description:        "Hosted Ollama models via the OpenAI-compatible API",
+		DefaultHost:        "ollama.com",
+		AuthHeaderName:     "Authorization",
+		AuthHeaderTemplate: "Bearer ${API_KEY}",
+		DefaultContentType: "application/json",
+		BrandColor:         "#000000",
+		Models:             []Model{},
+		ModelDiscovery: &ModelDiscovery{
+			OllamaFallback: true,
+		},
+	},
+	{
 		ID:                 "litellm_proxy",
 		Kind:               KindGateway,
 		Name:               "LiteLLM Proxy",
@@ -702,10 +749,30 @@ var providers = []Provider{
 		Models:             []Model{},
 	},
 	{
+		// Ollama exposes an OpenAI-compatible /v1 API. Like vLLM, it gets a
+		// dedicated catalog id for provider-specific setup guidance while
+		// retaining generic custom-provider routing. Authentication is optional
+		// because local Ollama is authless but protected front ends may use it.
+		ID:                 "ollama",
+		Kind:               KindCustom,
+		AuthMode:           AuthModeOptional,
+		Name:               "Ollama",
+		Description:        "Self-hosted Ollama (OpenAI-compatible)",
+		DefaultHost:        "",
+		AuthHeaderName:     "Authorization",
+		AuthHeaderTemplate: "Bearer ${API_KEY}",
+		DefaultContentType: "application/json",
+		BrandColor:         "#000000",
+		Models:             []Model{},
+		ModelDiscovery: &ModelDiscovery{
+			OllamaFallback: true,
+		},
+	},
+	{
 		ID:                 "custom",
 		Kind:               KindCustom,
 		Name:               "Custom / Self-hosted",
-		Description:        "OpenAI-compatible endpoint (vLLM, Ollama, …)",
+		Description:        "Other OpenAI-compatible endpoint",
 		DefaultHost:        "",
 		AuthHeaderName:     "Authorization",
 		AuthHeaderTemplate: "Bearer ${API_KEY}",
@@ -736,6 +803,15 @@ func Lookup(id string) (Provider, bool) {
 func IsKnown(id string) bool {
 	_, ok := Lookup(id)
 	return ok
+}
+
+// EffectiveAuthMode returns the provider's configured authentication mode.
+// Treating the zero value as required keeps older catalog entries fail closed.
+func (p Provider) EffectiveAuthMode() AuthMode {
+	if p.AuthMode == "" {
+		return AuthModeRequired
+	}
+	return p.AuthMode
 }
 
 // IsVertexPathStyle reports whether a provider uses the Google Vertex AI
@@ -774,15 +850,17 @@ func (p Provider) ToAPIResponse() api.AgentNetworkCatalogProvider {
 		kind = api.AgentNetworkCatalogProviderKindCustom
 	}
 	resp := api.AgentNetworkCatalogProvider{
-		Id:                 p.ID,
-		Name:               p.Name,
-		Description:        p.Description,
-		DefaultHost:        p.DefaultHost,
-		Kind:               kind,
-		AuthHeaderTemplate: p.AuthHeaderTemplate,
-		DefaultContentType: p.DefaultContentType,
-		BrandColor:         p.BrandColor,
-		Models:             models,
+		Id:                     p.ID,
+		Name:                   p.Name,
+		Description:            p.Description,
+		DefaultHost:            p.DefaultHost,
+		Kind:                   kind,
+		AuthMode:               api.AgentNetworkCatalogProviderAuthMode(p.EffectiveAuthMode()),
+		AuthHeaderTemplate:     p.AuthHeaderTemplate,
+		DefaultContentType:     p.DefaultContentType,
+		BrandColor:             p.BrandColor,
+		Models:                 models,
+		SupportsModelDiscovery: p.ModelDiscovery != nil,
 	}
 	if len(p.ExtraHeaders) > 0 {
 		extras := make([]api.AgentNetworkCatalogExtraHeader, 0, len(p.ExtraHeaders))

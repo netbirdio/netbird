@@ -978,22 +978,32 @@ const (
 	noopUpstreamPort   = uint16(443)
 )
 
-// providerAuthHeader builds the upstream auth header pair for a
-// provider from its catalog entry. The catalog declares which header
-// name and template a provider's API expects; the synthesiser
-// substitutes the provider's decrypted API key into the template and
-// returns the (name, value) pair the router middleware injects after
-// stripping the inbound vendor auth headers.
+// providerAuthHeader builds the upstream auth header pair for a provider from
+// its catalog entry. Optional providers with no key and providers using no
+// authentication return an empty pair. Otherwise, the synthesiser substitutes
+// the decrypted API key into the catalog template and returns the pair the
+// router injects after stripping inbound vendor credentials.
 func providerAuthHeader(p *types.Provider) (name, value, gcpSAKeyB64 string, err error) {
 	entry, ok := catalog.Lookup(p.ProviderID)
 	if !ok {
 		return "", "", "", fmt.Errorf("provider %s references unknown catalog id %q", p.ID, p.ProviderID)
 	}
+	switch entry.EffectiveAuthMode() {
+	case catalog.AuthModeNone:
+		return "", "", "", nil
+	case catalog.AuthModeOptional:
+		if strings.TrimSpace(p.APIKey) == "" {
+			return "", "", "", nil
+		}
+	case catalog.AuthModeRequired:
+		if strings.TrimSpace(p.APIKey) == "" {
+			return "", "", "", fmt.Errorf("provider %s has no api key", p.ID)
+		}
+	default:
+		return "", "", "", fmt.Errorf("catalog entry %q has invalid authentication mode %q", p.ProviderID, entry.AuthMode)
+	}
 	if entry.AuthHeaderName == "" || entry.AuthHeaderTemplate == "" {
 		return "", "", "", fmt.Errorf("catalog entry %q has no auth header configured", p.ProviderID)
-	}
-	if p.APIKey == "" {
-		return "", "", "", fmt.Errorf("provider %s has no api key", p.ID)
 	}
 	// A "keyfile::<base64 json>" api_key is a GCP service-account key, not a
 	// static bearer. The proxy mints + refreshes a short-lived OAuth token from

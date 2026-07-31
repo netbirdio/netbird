@@ -35,6 +35,7 @@ func RegisterEndpoints(manager agentnetwork.Manager, router *mux.Router) {
 	router.HandleFunc("/agent-network/providers/{providerId}", h.getProvider).Methods("GET", "OPTIONS")
 	router.HandleFunc("/agent-network/providers/{providerId}", h.updateProvider).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/agent-network/providers/{providerId}", h.deleteProvider).Methods("DELETE", "OPTIONS")
+	router.HandleFunc("/agent-network/providers/{providerId}/discover-models", h.discoverProviderModels).Methods("POST", "OPTIONS")
 	h.addPolicyEndpoints(router)
 	h.addGuardrailEndpoints(router)
 	h.addSettingsEndpoints(router)
@@ -96,6 +97,41 @@ func (h *handler) getProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	util.WriteJSONObject(r.Context(), w, provider.ToAPIResponse())
+}
+
+func (h *handler) discoverProviderModels(w http.ResponseWriter, r *http.Request) {
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	providerID := strings.TrimSpace(mux.Vars(r)["providerId"])
+	if providerID == "" {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "provider ID is required"), w)
+		return
+	}
+
+	result, err := h.manager.DiscoverProviderModels(r.Context(), userAuth.AccountId, userAuth.UserId, providerID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	models := make([]api.AgentNetworkDiscoveredModel, 0, len(result.Models))
+	for _, model := range result.Models {
+		models = append(models, api.AgentNetworkDiscoveredModel{
+			Id:    model.ID,
+			Label: model.Label,
+		})
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	util.WriteJSONObject(r.Context(), w, api.AgentNetworkModelDiscoveryResponse{
+		Models:       models,
+		Source:       api.AgentNetworkModelDiscoveryResponseSource(result.Source),
+		ProxyCluster: result.ProxyCluster,
+		RequestId:    result.RequestID,
+	})
 }
 
 func (h *handler) createProvider(w http.ResponseWriter, r *http.Request) {
@@ -193,11 +229,12 @@ func (h *handler) deleteProvider(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
 }
 
-func validate(req *api.AgentNetworkProviderRequest, requireAPIKey bool) error {
+func validate(req *api.AgentNetworkProviderRequest, creating bool) error {
 	if strings.TrimSpace(req.ProviderId) == "" {
 		return status.Errorf(status.InvalidArgument, "provider_id is required")
 	}
-	if !catalog.IsKnown(req.ProviderId) {
+	entry, ok := catalog.Lookup(req.ProviderId)
+	if !ok {
 		return status.Errorf(status.InvalidArgument, "provider_id %q is not a known catalog provider", req.ProviderId)
 	}
 	if strings.TrimSpace(req.Name) == "" {
@@ -210,8 +247,27 @@ func validate(req *api.AgentNetworkProviderRequest, requireAPIKey bool) error {
 	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
 		return status.Errorf(status.InvalidArgument, "upstream_url must be a full http(s) URL")
 	}
-	if requireAPIKey && (req.ApiKey == nil || strings.TrimSpace(*req.ApiKey) == "") {
-		return status.Errorf(status.InvalidArgument, "api_key is required")
+	return validateProviderAPIKey(entry, req.ApiKey, creating)
+}
+
+func validateProviderAPIKey(entry catalog.Provider, apiKey *string, creating bool) error {
+	apiKeyBlank := apiKey == nil || strings.TrimSpace(*apiKey) == ""
+	switch entry.EffectiveAuthMode() {
+	case catalog.AuthModeRequired:
+		// Updates may omit the key to preserve it, but an explicitly empty
+		// value cannot clear a credential required by the selected provider.
+		if (creating || apiKey != nil) && apiKeyBlank {
+			return status.Errorf(status.InvalidArgument, "api_key is required for provider_id %q", entry.ID)
+		}
+	case catalog.AuthModeOptional:
+		// Both omitted and explicitly empty values are valid. The manager
+		// distinguishes preserve from clear during update.
+	case catalog.AuthModeNone:
+		if !apiKeyBlank {
+			return status.Errorf(status.InvalidArgument, "api_key is not supported for provider_id %q", entry.ID)
+		}
+	default:
+		return status.Errorf(status.InvalidArgument, "provider_id %q has an invalid authentication mode", entry.ID)
 	}
 	return nil
 }

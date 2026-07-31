@@ -33,6 +33,10 @@ type Provider struct {
 	// the operator selected.
 	UpstreamURL string `gorm:"column:upstream_url"`
 	APIKey      string `gorm:"column:api_key"`
+	// APIKeyProvided records whether api_key was present in the request. It is
+	// transient and lets updates distinguish omission (preserve) from an
+	// explicit empty value (clear an optional credential).
+	APIKeyProvided bool `gorm:"-" json:"-"`
 	// ExtraValues holds operator-typed values for catalog-declared
 	// ExtraHeaders (see catalog.Provider.ExtraHeaders). Keyed by
 	// header name (e.g. "x-portkey-config"); a non-empty value is
@@ -97,15 +101,16 @@ func NewProvider(accountID string) *Provider {
 	}
 }
 
-// FromAPIRequest applies the request payload onto the receiver. The api_key
-// is only overwritten when the caller provided one — empty/nil leaves the
-// existing key intact, so updates can omit it.
+// FromAPIRequest applies the request payload onto the receiver. APIKeyProvided
+// preserves the distinction between an omitted api_key and an explicit empty
+// value; the manager applies the catalog-specific preserve/clear semantics.
 func (p *Provider) FromAPIRequest(req *api.AgentNetworkProviderRequest) {
 	p.ProviderID = req.ProviderId
 	p.Name = req.Name
 	p.UpstreamURL = req.UpstreamUrl
-	if req.ApiKey != nil && strings.TrimSpace(*req.ApiKey) != "" {
-		p.APIKey = *req.ApiKey
+	p.APIKeyProvided = req.ApiKey != nil
+	if req.ApiKey != nil {
+		p.APIKey = strings.TrimSpace(*req.ApiKey)
 	}
 	if req.ExtraValues != nil {
 		// Replace the whole map (rather than merge) so unsetting a
@@ -178,6 +183,7 @@ func (p *Provider) ToAPIResponse() *api.AgentNetworkProvider {
 		UpstreamUrl:         p.UpstreamURL,
 		Models:              models,
 		Enabled:             p.Enabled,
+		HasApiKey:           strings.TrimSpace(p.APIKey) != "",
 		SkipTlsVerification: p.SkipTLSVerification,
 		MetadataDisabled:    p.MetadataDisabled,
 		CreatedAt:           &created,

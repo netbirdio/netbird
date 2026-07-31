@@ -42,6 +42,10 @@ func newTestProxyController() *testProxyController {
 func (c *testProxyController) SendServiceUpdateToCluster(_ context.Context, _ string, _ *proto.ProxyMapping, _ string) {
 }
 
+func (c *testProxyController) DiscoverModels(_ context.Context, _, _ string, _ *proto.ModelDiscoveryRequest) (*proto.ModelDiscoveryResult, error) {
+	return nil, proxy.ErrModelDiscoveryUnavailable
+}
+
 func (c *testProxyController) GetOIDCValidationConfig() proxy.OIDCValidationConfig {
 	return proxy.OIDCValidationConfig{}
 }
@@ -216,6 +220,65 @@ func TestSendServiceUpdateToCluster_DeleteNoToken(t *testing.T) {
 	// Delete operations should not generate tokens
 	assert.Empty(t, msg1.AuthToken)
 	assert.Empty(t, msg2.AuthToken)
+}
+
+func TestSendServiceUpdateToCluster_RejectsStaleClusterMembership(t *testing.T) {
+	ctx := context.Background()
+	s := &ProxyServiceServer{
+		tokenStore: NewOneTimeTokenStore(ctx, testCacheStore(t)),
+	}
+	controller := newTestProxyController()
+	s.SetProxyController(controller)
+
+	ch := registerFakeProxy(s, "proxy-a", "new-cluster.example.com")
+	require.NoError(t, controller.RegisterProxyToCluster(ctx, "old-cluster.example.com", "proxy-a"))
+
+	s.SendServiceUpdateToCluster(ctx, &proto.ProxyMapping{
+		Type:      proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED,
+		Id:        "agent-network-provider-1",
+		AccountId: "account-1",
+		Domain:    "agent.example.com",
+		Path: []*proto.PathMapping{
+			{Path: "/", Target: "http://ollama.internal:11434/"},
+		},
+	}, "old-cluster.example.com")
+
+	assert.True(t, drainEmpty(ch), "stale membership must not route a mapping to a different live cluster")
+}
+
+func TestDisconnectProxy_RemovesSupersededMembershipFromOldCluster(t *testing.T) {
+	controller := newTestProxyController()
+	server := &ProxyServiceServer{proxyController: controller}
+	oldCtx, cancelOld := context.WithCancel(context.Background())
+	newCtx, cancelNew := context.WithCancel(context.Background())
+	t.Cleanup(cancelOld)
+	t.Cleanup(cancelNew)
+
+	oldConnection := &proxyConnection{
+		proxyID:   "proxy-a",
+		sessionID: "old-session",
+		address:   "old-cluster.example.com",
+		ctx:       oldCtx,
+		cancel:    cancelOld,
+	}
+	newConnection := &proxyConnection{
+		proxyID:   "proxy-a",
+		sessionID: "new-session",
+		address:   "new-cluster.example.com",
+		ctx:       newCtx,
+		cancel:    cancelNew,
+	}
+	require.NoError(t, controller.RegisterProxyToCluster(context.Background(), oldConnection.address, oldConnection.proxyID))
+	require.NoError(t, controller.RegisterProxyToCluster(context.Background(), newConnection.address, newConnection.proxyID))
+	server.connectedProxies.Store(newConnection.proxyID, newConnection)
+
+	server.disconnectProxy(oldConnection)
+
+	assert.Empty(t, controller.GetProxiesForCluster(oldConnection.address))
+	assert.Equal(t, []string{"proxy-a"}, controller.GetProxiesForCluster(newConnection.address))
+	current, ok := server.connectedProxies.Load(newConnection.proxyID)
+	require.True(t, ok)
+	assert.Same(t, newConnection, current)
 }
 
 func TestSendServiceUpdate_UniqueTokensPerProxy(t *testing.T) {

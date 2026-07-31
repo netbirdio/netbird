@@ -5138,6 +5138,9 @@ components:
           description: Models exposed through this endpoint, with the operator's per-1k input/output prices. Empty means all catalog models are allowed at catalog prices.
           items:
             $ref: '#/components/schemas/AgentNetworkProviderModel'
+        has_api_key:
+          type: boolean
+          description: Whether an upstream API key is currently stored. The key itself is never returned.
         extra_values:
           type: object
           description: |
@@ -5186,6 +5189,7 @@ components:
         - name
         - upstream_url
         - models
+        - has_api_key
         - enabled
         - skip_tls_verification
         - metadata_disabled
@@ -5212,7 +5216,8 @@ components:
           example: "eu.proxy.netbird.io"
         api_key:
           type: string
-          description: Upstream provider API key. Sealed at rest on the management server and never returned in responses. Required on create; optional on update (omit to keep the existing key).
+          description: |
+            Upstream provider API key. Sealed at rest on the management server and never returned in responses. Whether a key is accepted or required is declared by the selected catalog provider's `auth_mode`. On update, omit this field to preserve the existing key or send an empty string to clear an optional key.
           example: "sk-..."
         models:
           type: array
@@ -5275,6 +5280,51 @@ components:
         - id
         - input_per_1k
         - output_per_1k
+    AgentNetworkDiscoveredModel:
+      type: object
+      description: A model reported by the provider's persisted upstream endpoint.
+      properties:
+        id:
+          type: string
+          description: Exact model identifier accepted by the upstream endpoint.
+          example: "llama3.2:latest"
+        label:
+          type: string
+          description: Human-friendly label reported by the endpoint. Falls back to the model identifier.
+          example: "llama3.2:latest"
+      required:
+        - id
+        - label
+    AgentNetworkModelDiscoveryResponse:
+      type: object
+      description: |
+        Result of an explicit model-discovery probe executed by a connected
+        proxy in the account's selected Agent Network cluster. Discovered
+        models are not persisted until the provider is updated.
+      properties:
+        models:
+          type: array
+          description: Normalized, deduplicated models reported by the upstream.
+          items:
+            $ref: '#/components/schemas/AgentNetworkDiscoveredModel'
+        source:
+          type: string
+          description: Upstream API shape used to obtain the result.
+          enum: [openai_v1_models, ollama_api_tags]
+          example: "openai_v1_models"
+        proxy_cluster:
+          type: string
+          description: Proxy cluster from which the endpoint was queried.
+          example: "eu.proxy.netbird.io"
+        request_id:
+          type: string
+          description: Correlation identifier for the management-to-proxy probe.
+          example: "b7ef7da0-78cc-4583-8c4f-55f2ce72015f"
+      required:
+        - models
+        - source
+        - proxy_cluster
+        - request_id
     AgentNetworkCatalogModel:
       type: object
       properties:
@@ -5325,6 +5375,11 @@ components:
           type: string
           description: Default upstream host suggested when adding a provider of this type.
           example: "api.openai.com"
+        auth_mode:
+          type: string
+          description: Whether this provider requires, optionally accepts, or does not support an upstream API key.
+          enum: [required, optional, none]
+          example: "required"
         auth_header_template:
           type: string
           description: Template the proxy uses to inject the API key (the literal string ${API_KEY} is replaced at request time).
@@ -5346,6 +5401,10 @@ components:
             "custom" — generic OpenAI-compatible self-hosted endpoint catch-all.
           enum: [provider, gateway, custom]
           example: "provider"
+        supports_model_discovery:
+          type: boolean
+          description: Whether models can be loaded from a persisted endpoint through the selected proxy cluster.
+          example: false
         extra_headers:
           type: array
           description: |
@@ -5364,10 +5423,12 @@ components:
         - name
         - description
         - default_host
+        - auth_mode
         - auth_header_template
         - default_content_type
         - brand_color
         - kind
+        - supports_model_discovery
         - models
     AgentNetworkCatalogIdentityInjection:
       type: object
@@ -14026,6 +14087,48 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '404':
           "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/agent-network/providers/{providerId}/discover-models:
+    post:
+      summary: Discover models from an Agent Network provider
+      description: |
+        Executes a bounded, read-only model-list probe from a connected proxy
+        in the account's selected Agent Network cluster. The probe uses the
+        provider's persisted endpoint, TLS setting, and stored credential.
+        Returned models are not persisted by this operation.
+      tags: [ Agent Network ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: providerId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a persisted Agent Network provider
+      responses:
+        '200':
+          description: Models discovered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentNetworkModelDiscoveryResponse'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '412':
+          description: The provider cannot be queried or no capable proxy is connected
+          content: { }
+        '429':
+          description: A discovery probe is already running or was requested too recently
+          content: { }
         '500':
           "$ref": "#/components/responses/internal_error"
   /api/agent-network/policies:

@@ -73,6 +73,10 @@ message ProxyCapabilities {
   optional bool private = 4;
   // Whether the proxy enforces ProxyMapping.private (fails closed on ValidateTunnelPeer failure). Management MUST NOT stream private mappings to proxies that don't claim this.
   optional bool supports_private_service = 5;
+  // Whether the proxy can execute correlated Agent Network model-discovery
+  // requests delivered over SyncMappings. Management must not send discovery
+  // requests to proxies that omit or disable this capability.
+  optional bool supports_model_discovery = 6;
 }
 
 // GetMappingUpdateRequest is sent to initialise a mapping stream.
@@ -420,6 +424,8 @@ message SyncMappingsRequest {
   oneof msg {
     SyncMappingsInit init = 1;
     SyncMappingsAck ack = 2;
+    // Correlated response to a ModelDiscoveryRequest received from management.
+    ModelDiscoveryResult model_discovery_result = 3;
   }
 }
 
@@ -443,6 +449,9 @@ message SyncMappingsResponse {
   repeated ProxyMapping mapping = 1;
   // initial_sync_complete is set on the last message of the initial snapshot.
   bool initial_sync_complete = 2;
+  // An out-of-band model-discovery operation. This is sent only after the
+  // initial snapshot and only to proxies advertising supports_model_discovery.
+  ModelDiscoveryRequest model_discovery_request = 3;
 }
 
 // CheckLLMPolicyLimitsRequest carries the resolved caller identity and the
@@ -501,3 +510,33 @@ message RecordLLMUsageRequest {
 message RecordLLMUsageResponse {
 }
 
+// ModelDiscoveryRequest asks a proxy to list models from a persisted provider
+// endpoint using the proxy host's network path. request_id is assigned by
+// management and echoed verbatim in ModelDiscoveryResult.
+message ModelDiscoveryRequest {
+  string request_id = 1;
+  string upstream_url = 2;
+  string auth_header_name = 3;
+  string auth_header_value = 4;
+  bool skip_tls_verify = 5;
+  // When true, the proxy may fall back from the OpenAI-compatible
+  // GET /v1/models endpoint to Ollama's native GET /api/tags endpoint.
+  bool ollama_fallback = 6;
+}
+
+// ModelDiscoveryModel is the normalized model shape returned to management.
+// Arbitrary upstream fields never cross the proxy control channel.
+message ModelDiscoveryModel {
+  string id = 1;
+  string label = 2;
+}
+
+// ModelDiscoveryResult completes one ModelDiscoveryRequest. error is empty on
+// success and contains only a sanitized diagnostic on failure.
+message ModelDiscoveryResult {
+  string request_id = 1;
+  repeated ModelDiscoveryModel models = 2;
+  // Stable source label, currently openai_v1_models or ollama_api_tags.
+  string source = 3;
+  string error = 4;
+}

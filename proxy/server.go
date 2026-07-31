@@ -57,6 +57,7 @@ import (
 	proxymetrics "github.com/netbirdio/netbird/proxy/internal/metrics"
 	"github.com/netbirdio/netbird/proxy/internal/middleware"
 	mwbuiltin "github.com/netbirdio/netbird/proxy/internal/middleware/builtin"
+	"github.com/netbirdio/netbird/proxy/internal/modeldiscovery"
 	"github.com/netbirdio/netbird/proxy/internal/netutil"
 	"github.com/netbirdio/netbird/proxy/internal/proxy"
 	"github.com/netbirdio/netbird/proxy/internal/restrict"
@@ -76,6 +77,10 @@ type portRouter struct {
 	router   *nbtcp.Router
 	listener net.Listener
 	cancel   context.CancelFunc
+}
+
+type providerModelDiscoverer interface {
+	Discover(context.Context, modeldiscovery.Request) (modeldiscovery.Result, error)
 }
 
 type Server struct {
@@ -100,16 +105,20 @@ type Server struct {
 	// middlewareRegistry is the source of registered middleware factories.
 	// Concrete middlewares register themselves through init().
 	middlewareRegistry *middleware.Registry
-	mainRouter         *nbtcp.Router
-	mainPort           uint16
-	udpMu              sync.Mutex
-	udpRelays          map[types.ServiceID]*udprelay.Relay
-	udpRelayWg         sync.WaitGroup
-	portMu             sync.RWMutex
-	portRouters        map[uint16]*portRouter
-	svcPorts           map[types.ServiceID][]uint16
-	lastMappings       map[types.ServiceID]*proto.ProxyMapping
-	portRouterWg       sync.WaitGroup
+	// modelDiscoverer executes explicit provider model-list probes on the
+	// proxy's host network. Lazily constructed for normal servers; injectable
+	// in focused control-stream tests.
+	modelDiscoverer providerModelDiscoverer
+	mainRouter      *nbtcp.Router
+	mainPort        uint16
+	udpMu           sync.Mutex
+	udpRelays       map[types.ServiceID]*udprelay.Relay
+	udpRelayWg      sync.WaitGroup
+	portMu          sync.RWMutex
+	portRouters     map[uint16]*portRouter
+	svcPorts        map[types.ServiceID][]uint16
+	lastMappings    map[types.ServiceID]*proto.ProxyMapping
+	portRouterWg    sync.WaitGroup
 
 	// hijackTracker tracks hijacked connections (e.g. WebSocket upgrades)
 	// so they can be closed during graceful shutdown, since http.Server.Shutdown
@@ -1277,12 +1286,16 @@ func (s *Server) proxyCapabilities() *proto.ProxyCapabilities {
 	privateCapability := s.Private
 	// Always true: this build enforces ProxyMapping.private via the auth middleware.
 	supportsPrivateService := true
+	// Model discovery is handled only on SyncMappings. Management also gates
+	// dispatch on the live connection using this capability.
+	supportsModelDiscovery := true
 	return &proto.ProxyCapabilities{
 		SupportsCustomPorts:    &s.SupportsCustomPorts,
 		RequireSubdomain:       &s.RequireSubdomain,
 		SupportsCrowdsec:       &supportsCrowdSec,
 		Private:                &privateCapability,
 		SupportsPrivateService: &supportsPrivateService,
+		SupportsModelDiscovery: &supportsModelDiscovery,
 	}
 }
 
@@ -1349,7 +1362,8 @@ func isSyncUnimplemented(err error) bool {
 // handleSyncMappingsStream consumes batches from a bidirectional SyncMappings
 // stream, sending an ack after each batch is fully processed. Management waits
 // for the ack before sending the next batch, providing application-level
-// back-pressure.
+// back-pressure. Model discovery commands are out-of-band: they run with
+// bounded concurrency and return a correlated result instead of an ack.
 func (s *Server) handleSyncMappingsStream(ctx context.Context, stream proto.ProxyService_SyncMappingsClient, initialSyncDone *bool, connectTime time.Time) error {
 	select {
 	case <-s.routerReady:
@@ -1358,6 +1372,30 @@ func (s *Server) handleSyncMappingsStream(ctx context.Context, stream proto.Prox
 	}
 
 	tracker := s.newSnapshotTracker(initialSyncDone, connectTime)
+	initialSnapshotComplete := false
+	discoverer := s.modelDiscoverer
+	if discoverer == nil {
+		discoverer = modeldiscovery.New(s.Logger)
+	}
+
+	const maxConcurrentDiscoveries = 4
+	discoverySlots := make(chan struct{}, maxConcurrentDiscoveries)
+	discoveryCtx, cancelDiscoveries := context.WithCancel(ctx)
+	var discoveryWG sync.WaitGroup
+	var sendMu sync.Mutex
+	defer func() {
+		cancelDiscoveries()
+		discoveryWG.Wait()
+	}()
+
+	// gRPC permits one concurrent sender and one concurrent receiver, but not
+	// multiple senders. Mapping acks and asynchronous discovery results share
+	// this serialized send path.
+	send := func(message *proto.SyncMappingsRequest) error {
+		sendMu.Lock()
+		defer sendMu.Unlock()
+		return stream.Send(message)
+	}
 
 	for {
 		select {
@@ -1372,21 +1410,93 @@ func (s *Server) handleSyncMappingsStream(ctx context.Context, stream proto.Prox
 				return fmt.Errorf("receive msg: %w", err)
 			}
 
+			if discovery := msg.GetModelDiscoveryRequest(); discovery != nil {
+				if len(msg.GetMapping()) != 0 || msg.GetInitialSyncComplete() {
+					return errors.New("model discovery message must not include mapping data or set initial_sync_complete")
+				}
+				if !initialSnapshotComplete {
+					return errors.New("model discovery request received before initial sync completed")
+				}
+
+				select {
+				case discoverySlots <- struct{}{}:
+					discoveryWG.Add(1)
+					go func() {
+						defer discoveryWG.Done()
+						defer func() { <-discoverySlots }()
+
+						result := executeModelDiscovery(discoveryCtx, discoverer, discovery)
+						if discoveryCtx.Err() != nil {
+							return
+						}
+						if err := send(&proto.SyncMappingsRequest{
+							Msg: &proto.SyncMappingsRequest_ModelDiscoveryResult{
+								ModelDiscoveryResult: result,
+							},
+						}); err != nil {
+							s.Logger.WithError(err).Debug("failed to send model discovery result")
+						}
+					}()
+				default:
+					result := &proto.ModelDiscoveryResult{
+						RequestId: discovery.GetRequestId(),
+						Error:     "model discovery is busy",
+					}
+					if err := send(&proto.SyncMappingsRequest{
+						Msg: &proto.SyncMappingsRequest_ModelDiscoveryResult{
+							ModelDiscoveryResult: result,
+						},
+					}); err != nil {
+						return fmt.Errorf("send model discovery busy result: %w", err)
+					}
+				}
+				continue
+			}
+
 			batchStart := time.Now()
 			s.Logger.Debug("Received mapping update, starting processing")
 			if err := s.processMappingsGuarded(ctx, msg.GetMapping()); err != nil {
 				return err
 			}
 			s.Logger.Debug("Processing mapping update completed")
-			tracker.recordBatch(ctx, s, msg.GetMapping(), msg.GetInitialSyncComplete(), batchStart)
+			syncComplete := msg.GetInitialSyncComplete()
+			tracker.recordBatch(ctx, s, msg.GetMapping(), syncComplete, batchStart)
+			if syncComplete {
+				initialSnapshotComplete = true
+			}
 
-			if err := stream.Send(&proto.SyncMappingsRequest{
+			if err := send(&proto.SyncMappingsRequest{
 				Msg: &proto.SyncMappingsRequest_Ack{Ack: &proto.SyncMappingsAck{}},
 			}); err != nil {
 				return fmt.Errorf("send ack: %w", err)
 			}
 		}
 	}
+}
+
+func executeModelDiscovery(ctx context.Context, discoverer providerModelDiscoverer, request *proto.ModelDiscoveryRequest) *proto.ModelDiscoveryResult {
+	result := &proto.ModelDiscoveryResult{RequestId: request.GetRequestId()}
+	discovered, err := discoverer.Discover(ctx, modeldiscovery.Request{
+		UpstreamURL:         request.GetUpstreamUrl(),
+		AuthHeaderName:      request.GetAuthHeaderName(),
+		AuthHeaderValue:     request.GetAuthHeaderValue(),
+		SkipTLSVerify:       request.GetSkipTlsVerify(),
+		AllowOllamaFallback: request.GetOllamaFallback(),
+	})
+	if err != nil {
+		result.Error = err.Error()
+		return result
+	}
+
+	result.Source = discovered.Source
+	result.Models = make([]*proto.ModelDiscoveryModel, 0, len(discovered.Models))
+	for _, model := range discovered.Models {
+		result.Models = append(result.Models, &proto.ModelDiscoveryModel{
+			Id:    model.ID,
+			Label: model.Label,
+		})
+	}
+	return result
 }
 
 // snapshotTracker accumulates service IDs during the initial snapshot and
