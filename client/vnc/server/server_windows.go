@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"sync"
 	"unsafe"
@@ -104,15 +105,32 @@ func enableSoftwareSAS() {
 	}
 	defer key.Close()
 
+	// Held across the read and the write: releasing in between would let a
+	// concurrent restore clear the snapshot we are about to force a value over,
+	// leaving the machine with our value and nothing recorded to put back.
 	sasStateMu.Lock()
+	defer sasStateMu.Unlock()
+
 	if !savedSASState.captured {
-		if prev, _, err := key.GetIntegerValue("SoftwareSASGeneration"); err == nil {
+		prev, _, err := key.GetIntegerValue("SoftwareSASGeneration")
+		switch {
+		case err == nil && prev > math.MaxUint32:
+			// A DWORD is what the policy takes, so a wider value is not ours to
+			// narrow and restore.
+			log.Warnf("SoftwareSASGeneration is %d, wider than a DWORD, leaving it alone", prev)
+			return
+		case err == nil:
 			savedSASState = sasOriginalState{had: true, value: uint32(prev), captured: true}
-		} else {
+		case errors.Is(err, registry.ErrNotExist):
 			savedSASState = sasOriginalState{had: false, captured: true}
+		default:
+			// Unreadable is not absent. Recording it as absent would have
+			// disableSoftwareSAS delete a value the administrator set, so leave
+			// the policy untouched instead.
+			log.Warnf("read SoftwareSASGeneration, leaving it alone: %v", err)
+			return
 		}
 	}
-	sasStateMu.Unlock()
 
 	if err := key.SetDWordValue("SoftwareSASGeneration", 1); err != nil {
 		log.Warnf("set SoftwareSASGeneration: %v", err)
