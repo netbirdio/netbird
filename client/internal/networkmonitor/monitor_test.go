@@ -28,6 +28,16 @@ func useTestNextHop(t *testing.T) {
 	})
 }
 
+func useTestCheckChange(t *testing.T, fn func(context.Context, systemops.Nexthop, systemops.Nexthop) error) {
+	t.Helper()
+
+	previousCheckChangeFn := checkChangeFn
+	checkChangeFn = fn
+	t.Cleanup(func() {
+		checkChangeFn = previousCheckChangeFn
+	})
+}
+
 func (m *MocMultiEvent) checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop) error {
 	if m.counter == 0 {
 		<-ctx.Done()
@@ -44,11 +54,11 @@ func TestNetworkMonitor_Close(t *testing.T) {
 	useTestNextHop(t)
 
 	watcherExited := make(chan struct{})
-	checkChangeFn = func(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop) error {
+	useTestCheckChange(t, func(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop) error {
 		<-ctx.Done()
 		close(watcherExited)
 		return ctx.Err()
-	}
+	})
 	nw := New()
 
 	var resErr error
@@ -72,7 +82,7 @@ func TestNetworkMonitor_Event(t *testing.T) {
 	useTestNextHop(t)
 
 	watcherExited := make(chan struct{})
-	checkChangeFn = func(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop) error {
+	useTestCheckChange(t, func(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop) error {
 		timeout, cancel := context.WithTimeout(ctx, 3*time.Second)
 		defer cancel()
 		select {
@@ -82,7 +92,7 @@ func TestNetworkMonitor_Event(t *testing.T) {
 		case <-timeout.Done():
 			return nil
 		}
-	}
+	})
 	nw := New()
 	defer nw.Stop()
 
@@ -105,7 +115,7 @@ func TestNetworkMonitor_MultiEvent(t *testing.T) {
 
 	eventsRepeated := 3
 	me := &MocMultiEvent{counter: eventsRepeated, watcherExited: make(chan struct{})}
-	checkChangeFn = me.checkChange
+	useTestCheckChange(t, me.checkChange)
 
 	nw := New()
 	defer nw.Stop()
@@ -129,12 +139,8 @@ func TestNetworkMonitor_MultiEvent(t *testing.T) {
 
 func TestNetworkMonitor_WatcherDoesNotCloseEvents(t *testing.T) {
 	watcherErr := errors.New("watcher failed")
-	previousCheckChangeFn := checkChangeFn
-	checkChangeFn = func(context.Context, systemops.Nexthop, systemops.Nexthop) error {
+	useTestCheckChange(t, func(context.Context, systemops.Nexthop, systemops.Nexthop) error {
 		return watcherErr
-	}
-	t.Cleanup(func() {
-		checkChangeFn = previousCheckChangeFn
 	})
 
 	events := make(chan struct{}, 1)
@@ -167,16 +173,14 @@ func TestNetworkMonitor_WatcherDoesNotCloseEvents(t *testing.T) {
 
 func TestNetworkMonitor_WatcherError(t *testing.T) {
 	watcherErr := errors.New("watcher failed")
-	previousCheckChangeFn := checkChangeFn
 	previousGetNextHopFn := getNextHopFn
-	checkChangeFn = func(context.Context, systemops.Nexthop, systemops.Nexthop) error {
+	useTestCheckChange(t, func(context.Context, systemops.Nexthop, systemops.Nexthop) error {
 		return watcherErr
-	}
+	})
 	getNextHopFn = func(netip.Addr) (systemops.Nexthop, error) {
 		return systemops.Nexthop{Intf: &net.Interface{Name: "test"}}, nil
 	}
 	t.Cleanup(func() {
-		checkChangeFn = previousCheckChangeFn
 		getNextHopFn = previousGetNextHopFn
 	})
 
@@ -189,16 +193,34 @@ func TestNetworkMonitor_WatcherError(t *testing.T) {
 func TestNetworkMonitor_WatcherCanceledWithoutListenerCancellation(t *testing.T) {
 	useTestNextHop(t)
 
-	previousCheckChangeFn := checkChangeFn
-	checkChangeFn = func(context.Context, systemops.Nexthop, systemops.Nexthop) error {
+	useTestCheckChange(t, func(context.Context, systemops.Nexthop, systemops.Nexthop) error {
 		return context.Canceled
-	}
-	t.Cleanup(func() {
-		checkChangeFn = previousCheckChangeFn
 	})
 
 	err := New().Listen(context.Background())
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Listen() error = %v, want wrapped %v", err, context.Canceled)
+	}
+}
+
+func TestUseTestCheckChangeRestoresPreviousValue(t *testing.T) {
+	previousErr := errors.New("previous watcher")
+	useTestCheckChange(t, func(context.Context, systemops.Nexthop, systemops.Nexthop) error {
+		return previousErr
+	})
+
+	overrideErr := errors.New("override watcher")
+	t.Run("override", func(t *testing.T) {
+		useTestCheckChange(t, func(context.Context, systemops.Nexthop, systemops.Nexthop) error {
+			return overrideErr
+		})
+
+		if got := checkChangeFn(context.Background(), systemops.Nexthop{}, systemops.Nexthop{}); !errors.Is(got, overrideErr) {
+			t.Fatalf("checkChangeFn() error = %v, want %v", got, overrideErr)
+		}
+	})
+
+	if got := checkChangeFn(context.Background(), systemops.Nexthop{}, systemops.Nexthop{}); !errors.Is(got, previousErr) {
+		t.Fatalf("checkChangeFn() error after cleanup = %v, want %v", got, previousErr)
 	}
 }
