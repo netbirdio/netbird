@@ -2,6 +2,7 @@ package internal
 
 import (
 	"net/netip"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -92,8 +93,10 @@ func (p pqHandshaker) SetRemoteAddr(remoteKey string, addr netip.AddrPort) {
 }
 
 // OnDataPathRekeyed clocks the next chained PSK rotation on a fresh WG handshake.
-func (p pqHandshaker) OnDataPathRekeyed(remoteKey string) {
-	p.mgr.OnDataPathRekeyed(pqkem.RemoteID(remoteKey))
+// sinceActivity is how long ago the peer last exchanged real user data; the manager
+// skips rotation for idle tunnels.
+func (p pqHandshaker) OnDataPathRekeyed(remoteKey string, sinceActivity time.Duration) {
+	p.mgr.OnDataPathRekeyed(pqkem.RemoteID(remoteKey), sinceActivity)
 }
 
 // OnDataPathDown signals the peer's tunnel went down.

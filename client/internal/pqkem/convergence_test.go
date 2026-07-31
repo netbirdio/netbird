@@ -52,8 +52,8 @@ func TestManager_RekeyToleratesKFailures(t *testing.T) {
 	// Establish: bootstrap + data-path-rekeyed so B becomes established and its data
 	// path is usable.
 	bootstrap(t, dA, dB)
-	dA.OnDataPathRekeyed("bbbb")
-	dB.OnDataPathRekeyed("aaaa")
+	dA.OnDataPathRekeyed("bbbb", 0)
+	dB.OnDataPathRekeyed("aaaa", 0)
 	require.NotEqual(t, PSK{}, wgB.psk("aaaa"))
 
 	// Drop B's outbound so rekeys can no longer converge.
