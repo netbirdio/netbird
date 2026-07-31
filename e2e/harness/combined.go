@@ -93,9 +93,18 @@ func StartCombined(ctx context.Context) (*Combined, error) {
 		_ = net.Remove(ctx)
 		return nil, fmt.Errorf("write combined config: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Join(workDir, "data"), 0o755); err != nil {
+	dataDir := filepath.Join(workDir, "data")
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		_ = net.Remove(ctx)
 		return nil, fmt.Errorf("create datadir: %w", err)
+	}
+	// The config's agentNetwork.pricingDefaultsFile is a bare filename, so the
+	// server resolves it against the datadir; write it there. It is an explicitly
+	// configured path, so a failure to load fails the server's startup — which
+	// surfaces here as the /api/instance readiness wait timing out.
+	if err := os.WriteFile(filepath.Join(dataDir, PricingDefaultsFileName), []byte(pricingDefaultsYAML), 0o644); err != nil { //nolint:gosec // non-secret config, bind-mounted and read by the container
+		_ = net.Remove(ctx)
+		return nil, fmt.Errorf("write pricing defaults: %w", err)
 	}
 
 	req := testcontainers.ContainerRequest{
@@ -219,6 +228,29 @@ func (c *Combined) CreateProxyTokenCLI(ctx context.Context, name string) (string
 		}
 	}
 	return "", fmt.Errorf("token not found in CLI output: %s", string(out))
+}
+
+// SnapshotStoreDB copies the management sqlite store (with WAL/SHM sidecars) out of the bind-mounted
+// data dir into dstDir and returns the copy's path; reading a copy avoids locking against live writes.
+func (c *Combined) SnapshotStoreDB(dstDir string) (string, error) {
+	src := filepath.Join(c.workDir, "data", "store.db")
+	if _, err := os.Stat(src); err != nil {
+		return "", fmt.Errorf("management store not found at %s: %w", src, err)
+	}
+	dst := filepath.Join(dstDir, "store.db")
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		data, err := os.ReadFile(src + suffix)
+		if err != nil {
+			if os.IsNotExist(err) && suffix != "" {
+				continue // sidecar only exists in WAL mode
+			}
+			return "", fmt.Errorf("read %s: %w", src+suffix, err)
+		}
+		if err := os.WriteFile(dst+suffix, data, 0o600); err != nil {
+			return "", fmt.Errorf("write %s: %w", dst+suffix, err)
+		}
+	}
+	return dst, nil
 }
 
 // Logs returns the combined server container logs, for diagnostics.
