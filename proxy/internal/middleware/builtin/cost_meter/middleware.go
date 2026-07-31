@@ -206,11 +206,12 @@ func (m *Middleware) customCosts(metadata []middleware.KV, provider, model strin
 	input := float64(inputTokens) / 1000 * price.InputPer1k
 	cachedInput := 0.0
 	cacheCreation := 0.0
-	if provider == "openai" {
+	switch provider {
+	case "openai":
 		cachedTokens = min(cachedTokens, inputTokens)
 		input = float64(inputTokens-cachedTokens) / 1000 * price.InputPer1k
 		cachedInput = float64(cachedTokens) / 1000 * price.InputPer1k
-	} else if provider == "anthropic" || provider == "bedrock" {
+	case "anthropic", "bedrock":
 		cachedInput = float64(cachedTokens) / 1000 * price.InputPer1k
 		cacheCreation = float64(cacheCreationTokens) / 1000 * price.InputPer1k
 	}
