@@ -1,6 +1,7 @@
 package version
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -41,6 +42,35 @@ func TestDownloadURL_PackageFallback(t *testing.T) {
 	}
 
 	assertBrewArgs(t, recordedArgs, "list --formula netbird\nlist --cask netbird-ui")
+}
+
+func TestIsHomebrewInstall_CanceledContext(t *testing.T) {
+	tests := []struct {
+		name           string
+		successfulArgs string
+	}{
+		{
+			name:           "formula",
+			successfulArgs: "list --formula netbird",
+		},
+		{
+			name:           "cask",
+			successfulArgs: "list --cask netbird-ui",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			installBrew(t, tt.successfulArgs)
+
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+
+			if isHomebrewInstall(ctx) {
+				t.Fatal("isHomebrewInstall() = true, want false for canceled context")
+			}
+		})
+	}
 }
 
 func installBrew(t *testing.T, successfulArgs string) string {

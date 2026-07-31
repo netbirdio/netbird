@@ -1,18 +1,24 @@
 package version
 
 import (
+	"context"
 	"os/exec"
 	"runtime"
+	"time"
 )
 
 const (
-	urlMacIntel = "https://pkgs.netbird.io/macos/amd64"
-	urlMacM1M2  = "https://pkgs.netbird.io/macos/arm64"
+	urlMacIntel          = "https://pkgs.netbird.io/macos/amd64"
+	urlMacM1M2           = "https://pkgs.netbird.io/macos/arm64"
+	homebrewCheckTimeout = 5 * time.Second
 )
 
 // DownloadUrl return with the proper download link
 func DownloadUrl() string {
-	if isHomebrewInstall() {
+	ctx, cancel := context.WithTimeout(context.Background(), homebrewCheckTimeout)
+	defer cancel()
+
+	if isHomebrewInstall(ctx) {
 		return downloadURL
 	}
 
@@ -26,17 +32,17 @@ func DownloadUrl() string {
 	}
 }
 
-func isHomebrewInstall() bool {
+func isHomebrewInstall(ctx context.Context) bool {
 	brew := brewExecutable()
 	if brew == "" {
 		return false
 	}
 
-	if err := exec.Command(brew, "list", "--formula", "netbird").Run(); err == nil {
+	if err := exec.CommandContext(ctx, brew, "list", "--formula", "netbird").Run(); err == nil {
 		return true
 	}
 
-	return exec.Command(brew, "list", "--cask", "netbird-ui").Run() == nil
+	return exec.CommandContext(ctx, brew, "list", "--cask", "netbird-ui").Run() == nil
 }
 
 func brewExecutable() string {
