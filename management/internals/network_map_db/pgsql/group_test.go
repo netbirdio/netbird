@@ -14,9 +14,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-//go:embed test_db.sql
-var initDb string
-
 func TestGetGroups(t *testing.T) {
 	ctx := context.TODO()
 

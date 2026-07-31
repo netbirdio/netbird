@@ -18,7 +18,7 @@ const (
 )
 
 type NetworkMapDBStore interface {
-	GetGroups(ctx context.Context, accountId string) ([]nmdata.Group, error) // TODO: join/populate peers
+	GetGroups(ctx context.Context, accountId string) ([]nmdata.Group, error)
 	GetPeers(ctx context.Context, accountId string) ([]nmdata.Peer, error)
 	GetPolicies(ctx context.Context, accountId string) ([]nmdata.Policy, error)
 	GetRoutes(ctx context.Context, accountId string) ([]nmdata.Route, error)
