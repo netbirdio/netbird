@@ -318,6 +318,18 @@ func TestHosted_WaitTokenMissingInterval(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 }
 
+func TestHosted_WaitTokenMaximumInterval(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	deviceFlow := &DeviceAuthorizationFlow{}
+	maxInt := int(^uint(0) >> 1)
+	tokenInfo, err := deviceFlow.WaitToken(ctx, AuthFlowInfo{ExpiresIn: 10, Interval: maxInt})
+
+	require.Empty(t, tokenInfo)
+	require.ErrorIs(t, err, context.Canceled)
+}
+
 func TestInitialDeviceFlowPollingInterval(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -337,5 +349,102 @@ func TestInitialDeviceFlowPollingInterval(t *testing.T) {
 }
 
 func TestSlowDownDeviceFlowPollingInterval(t *testing.T) {
-	require.Equal(t, 7*time.Second, slowDownDeviceFlowPollingInterval(2*time.Second))
+	interval := slowDownDeviceFlowPollingInterval(2 * time.Second)
+	require.Equal(t, 7*time.Second, interval)
+
+	interval = slowDownDeviceFlowPollingInterval(interval)
+	require.Equal(t, 12*time.Second, interval)
+}
+
+func TestDeviceFlowPollingIntervalFromSeconds(t *testing.T) {
+	tests := []struct {
+		name    string
+		seconds int64
+		want    time.Duration
+	}{
+		{
+			name:    "largest safe whole second",
+			seconds: maxDeviceFlowPollingIntervalSeconds,
+			want:    time.Duration(maxDeviceFlowPollingIntervalSeconds) * time.Second,
+		},
+		{
+			name:    "above largest safe whole second",
+			seconds: maxDeviceFlowPollingIntervalSeconds + 1,
+			want:    maxDeviceFlowPollingInterval,
+		},
+		{
+			name:    "maximum int64",
+			seconds: int64(1<<63 - 1),
+			want:    maxDeviceFlowPollingInterval,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, deviceFlowPollingIntervalFromSeconds(tt.seconds))
+		})
+	}
+}
+
+func TestInitialDeviceFlowPollingIntervalMaximumInt(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	got := initialDeviceFlowPollingInterval(maxInt)
+
+	if int64(maxInt) > maxDeviceFlowPollingIntervalSeconds {
+		require.Equal(t, maxDeviceFlowPollingInterval, got)
+		return
+	}
+
+	require.Equal(t, time.Duration(maxInt)*time.Second, got)
+}
+
+func TestSlowDownDeviceFlowPollingIntervalBoundaries(t *testing.T) {
+	tests := []struct {
+		name     string
+		interval time.Duration
+		want     time.Duration
+	}{
+		{
+			name:     "non-positive",
+			interval: 0,
+			want:     defaultDeviceFlowPollingInterval,
+		},
+		{
+			name:     "exact fit",
+			interval: maxDeviceFlowPollingInterval - deviceFlowSlowDownIncrement,
+			want:     maxDeviceFlowPollingInterval,
+		},
+		{
+			name:     "addition would overflow",
+			interval: maxDeviceFlowPollingInterval - deviceFlowSlowDownIncrement + 1,
+			want:     maxDeviceFlowPollingInterval,
+		},
+		{
+			name:     "already saturated",
+			interval: maxDeviceFlowPollingInterval,
+			want:     maxDeviceFlowPollingInterval,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, slowDownDeviceFlowPollingInterval(tt.interval))
+		})
+	}
+}
+
+func TestDeviceFlowPollingIntervalTickerSafe(t *testing.T) {
+	durations := []time.Duration{
+		initialDeviceFlowPollingInterval(0),
+		deviceFlowPollingIntervalFromSeconds(int64(1<<63 - 1)),
+		slowDownDeviceFlowPollingInterval(maxDeviceFlowPollingInterval),
+	}
+
+	for _, duration := range durations {
+		require.NotPanics(t, func() {
+			ticker := time.NewTicker(duration)
+			ticker.Reset(duration)
+			ticker.Stop()
+		})
+	}
 }

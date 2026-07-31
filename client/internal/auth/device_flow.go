@@ -20,9 +20,11 @@ import (
 
 // HostedGrantType grant type for device flow on Hosted
 const (
-	HostedGrantType                  = "urn:ietf:params:oauth:grant-type:device_code"
-	defaultDeviceFlowPollingInterval = 5 * time.Second
-	deviceFlowSlowDownIncrement      = 5 * time.Second
+	HostedGrantType                     = "urn:ietf:params:oauth:grant-type:device_code"
+	defaultDeviceFlowPollingInterval    = 5 * time.Second
+	deviceFlowSlowDownIncrement         = 5 * time.Second
+	maxDeviceFlowPollingInterval        = time.Duration(1<<63 - 1)
+	maxDeviceFlowPollingIntervalSeconds = int64(maxDeviceFlowPollingInterval / time.Second)
 )
 
 var _ OAuthFlow = &DeviceAuthorizationFlow{}
@@ -249,14 +251,30 @@ func (d *DeviceAuthorizationFlow) requestToken(info AuthFlowInfo) (TokenRequestR
 }
 
 func initialDeviceFlowPollingInterval(seconds int) time.Duration {
+	return deviceFlowPollingIntervalFromSeconds(int64(seconds))
+}
+
+// deviceFlowPollingIntervalFromSeconds uses int64 so exact overflow boundaries
+// remain testable without breaking 32-bit builds.
+func deviceFlowPollingIntervalFromSeconds(seconds int64) time.Duration {
 	if seconds <= 0 {
 		return defaultDeviceFlowPollingInterval
+	}
+	if seconds > maxDeviceFlowPollingIntervalSeconds {
+		return maxDeviceFlowPollingInterval
 	}
 
 	return time.Duration(seconds) * time.Second
 }
 
 func slowDownDeviceFlowPollingInterval(interval time.Duration) time.Duration {
+	if interval <= 0 {
+		return defaultDeviceFlowPollingInterval
+	}
+	if interval > maxDeviceFlowPollingInterval-deviceFlowSlowDownIncrement {
+		return maxDeviceFlowPollingInterval
+	}
+
 	return interval + deviceFlowSlowDownIncrement
 }
 
