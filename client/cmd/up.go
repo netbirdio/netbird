@@ -325,7 +325,7 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 		if st, ok := gstatus.FromError(err); ok && st.Code() == codes.Unavailable {
 			log.Warnf("setConfig method is not available in the daemon: %s", st.Message())
 		} else {
-			return fmt.Errorf("call service setConfig method: %v", err)
+			return daemonCallError("call service setConfig method", err)
 		}
 	}
 
@@ -379,7 +379,7 @@ func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServ
 	}
 
 	if loginErr != nil {
-		return fmt.Errorf("login failed: %v", loginErr)
+		return daemonCallError("login failed", loginErr)
 	}
 
 	if loginResp.NeedsSSOLogin {
@@ -392,7 +392,7 @@ func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServ
 		ProfileName: &profileID,
 		Username:    &username,
 	}); err != nil {
-		return fmt.Errorf("call service up method: %v", err)
+		return daemonCallError("call service up method", err)
 	}
 
 	return nil

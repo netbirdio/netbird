@@ -299,7 +299,7 @@ func (d *DeviceAuthorizationFlow) WaitToken(ctx context.Context, info AuthFlowIn
 				UseIDToken:   d.providerConfig.UseIDToken,
 			}
 
-			err = isValidAccessToken(tokenInfo.GetTokenToUse(), d.providerConfig.Audience)
+			err = validateTokenAudience(tokenInfo.GetTokenToUse(), d.providerConfig.Audience)
 			if err != nil {
 				return TokenInfo{}, fmt.Errorf("validate access token failed with error: %v", err)
 			}

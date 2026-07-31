@@ -22,6 +22,7 @@ import (
 	"github.com/netbirdio/netbird/proxy/internal/roundtrip"
 	"github.com/netbirdio/netbird/proxy/internal/types"
 	"github.com/netbirdio/netbird/proxy/web"
+	"github.com/netbirdio/netbird/trustedproxy"
 )
 
 type ReverseProxy struct {
@@ -29,10 +30,10 @@ type ReverseProxy struct {
 	// forwardedProto overrides the X-Forwarded-Proto header value.
 	// Valid values: "auto" (detect from TLS), "http", "https".
 	forwardedProto string
-	// trustedProxies is a list of IP prefixes for trusted upstream proxies.
-	// When the direct connection comes from a trusted proxy, forwarding
-	// headers are preserved and appended to instead of being stripped.
-	trustedProxies []netip.Prefix
+	// trustedProxies is the set of trusted upstream proxies. When the direct
+	// connection comes from a trusted proxy, forwarding headers are preserved
+	// and appended to instead of being stripped.
+	trustedProxies *trustedproxy.List
 	mappingsMux    sync.RWMutex
 	mappings       map[string]Mapping
 	logger         *log.Logger
@@ -63,7 +64,7 @@ func WithMiddlewareManager(m *middleware.Manager) Option {
 // between requested URLs and targets.
 // The internal mappings can be modified using the AddMapping
 // and RemoveMapping functions.
-func NewReverseProxy(transport http.RoundTripper, forwardedProto string, trustedProxies []netip.Prefix, logger *log.Logger, opts ...Option) *ReverseProxy {
+func NewReverseProxy(transport http.RoundTripper, forwardedProto string, trustedProxies *trustedproxy.List, logger *log.Logger, opts ...Option) *ReverseProxy {
 	if logger == nil {
 		logger = log.StandardLogger()
 	}
@@ -527,7 +528,7 @@ func (p *ReverseProxy) isSelfTargetLoop(r *http.Request, target *url.URL) bool {
 	if !types.IsOverlayOrigin(r.Context()) {
 		return false
 	}
-	srcIP := extractHostIP(r.RemoteAddr)
+	srcIP := trustedproxy.ExtractHostIP(r.RemoteAddr)
 	if !srcIP.IsValid() {
 		return false
 	}
@@ -578,9 +579,9 @@ func (p *ReverseProxy) rewriteFunc(target *url.URL, matchedPath string, passHost
 
 		stampNetBirdIdentity(r)
 
-		clientIP := extractHostIP(r.In.RemoteAddr)
+		clientIP := trustedproxy.ExtractHostIP(r.In.RemoteAddr)
 
-		if isTrustedAddr(clientIP, p.trustedProxies) {
+		if p.trustedProxies.Contains(clientIP) {
 			p.setTrustedForwardingHeaders(r, clientIP)
 		} else {
 			p.setUntrustedForwardingHeaders(r, clientIP)
@@ -664,7 +665,7 @@ func (p *ReverseProxy) setTrustedForwardingHeaders(r *httputil.ProxyRequest, cli
 	if realIP := r.In.Header.Get("X-Real-IP"); realIP != "" {
 		r.Out.Header.Set("X-Real-IP", realIP)
 	} else {
-		resolved := ResolveClientIP(r.In.RemoteAddr, r.In.Header.Get("X-Forwarded-For"), p.trustedProxies)
+		resolved := p.trustedProxies.ResolveClientIP(r.In.RemoteAddr, r.In.Header.Get("X-Forwarded-For"))
 		r.Out.Header.Set("X-Real-IP", resolved.String())
 	}
 

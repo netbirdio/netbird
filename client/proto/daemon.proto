@@ -539,6 +539,10 @@ message DebugBundleRequest {
   string uploadURL = 4;
   uint32 logFileCount = 5;
   string cliVersion = 6;
+  // uploadInsecure allows uploading to an http endpoint or one with an
+  // untrusted TLS certificate. Restricted to privileged callers; for
+  // self-hosted upload servers.
+  bool uploadInsecure = 7;
 }
 
 message DebugBundleResponse {

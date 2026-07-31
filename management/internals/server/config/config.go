@@ -55,12 +55,18 @@ type Config struct {
 
 	ReverseProxy ReverseProxy
 
+	AgentNetwork AgentNetwork
+
 	// disable default all-to-all policy
 	DisableDefaultPolicy bool
 
 	// EmbeddedIdP contains configuration for the embedded Dex OIDC provider.
 	// When set, Dex will be embedded in the management server and serve requests at /oauth2/
 	EmbeddedIdP *idp.EmbeddedIdPConfig
+
+	HighestSupportedSyncMessageVersion *int
+
+	PerAccountHighestSupportedSyncMessageVersion map[string]int
 }
 
 // GetAuthAudiences returns the audience from the http config and device authorization flow config
@@ -179,6 +185,25 @@ type ProviderConfig struct {
 // StoreConfig contains Store configuration
 type StoreConfig struct {
 	Engine types.Engine
+}
+
+// AgentNetwork contains agent-network (LLM gateway) configuration.
+type AgentNetwork struct {
+	// PricingDefaultsFile is the path to the YAML file holding the default
+	// LLM pricing table (defaults_llm_pricing.yaml). A relative path is
+	// resolved against <Datadir>, so a bare filename lands alongside the
+	// store. Empty falls back to probing <Datadir>/defaults_llm_pricing.yaml;
+	// with no file present the compiled-in defaults serve. Schema: surface ("openai"/"anthropic"/
+	// "bedrock") -> model -> rates in USD per 1k tokens (input_per_1k,
+	// output_per_1k, and the optional cached_input_per_1k /
+	// cache_read_per_1k / cache_creation_per_1k). File entries replace the
+	// compiled-in entry for the same surface+model whole; everything else
+	// keeps the compiled-in rates. The file is re-read periodically (mtime
+	// poll), and the live table feeds both the synthesizer (what proxies
+	// bill with) and the dashboard's catalog endpoint (what model rows
+	// prefill with). An explicitly configured path that fails to load
+	// fails startup; runtime reload errors keep the previous table.
+	PricingDefaultsFile string
 }
 
 // ReverseProxy contains reverse proxy configuration in front of management.

@@ -20,7 +20,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
 	daddr "github.com/netbirdio/netbird/client/internal/daemonaddr"
 	"github.com/netbirdio/netbird/client/internal/localmetrics"
@@ -96,6 +95,7 @@ var (
 			// Don't resolve for service commands — they create the socket, not connect to it.
 			if !isServiceCmd(cmd) {
 				daemonAddr = daddr.ResolveUnixDaemonAddr(daemonAddr)
+				daemonAddr = daddr.ResolveDaemonAddr(daemonAddr)
 			}
 			return nil
 		},
@@ -148,10 +148,10 @@ func init() {
 
 	defaultDaemonAddr := "unix:///var/run/netbird.sock"
 	if runtime.GOOS == "windows" {
-		defaultDaemonAddr = "tcp://127.0.0.1:41731"
+		defaultDaemonAddr = daddr.WindowsPipeAddr
 	}
 
-	rootCmd.PersistentFlags().StringVar(&daemonAddr, "daemon-addr", defaultDaemonAddr, "Daemon service address to serve CLI requests [unix|tcp]://[path|host:port]")
+	rootCmd.PersistentFlags().StringVar(&daemonAddr, "daemon-addr", defaultDaemonAddr, "Daemon service address to serve CLI requests [unix|tcp|npipe]://[path|host:port|name]")
 	rootCmd.PersistentFlags().StringVarP(&managementURL, "management-url", "m", "", fmt.Sprintf("Management Service URL [http|https]://[host]:[port] (default \"%s\")", profilemanager.DefaultManagementURL))
 	rootCmd.PersistentFlags().StringVar(&adminURL, "admin-url", "", fmt.Sprintf("Admin Panel URL [http|https]://[host]:[port] (default \"%s\")", profilemanager.DefaultAdminURL))
 	rootCmd.PersistentFlags().StringVarP(&logLevel, "log-level", "l", "info", "sets NetBird log level")
@@ -276,12 +276,10 @@ func DialClientGRPCServer(ctx context.Context, addr string) (*grpc.ClientConn, e
 	ctx, cancel := context.WithTimeout(ctx, time.Second*10)
 	defer cancel()
 
-	return grpc.DialContext(
-		ctx,
-		strings.TrimPrefix(addr, "tcp://"),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock(),
-	)
+	target, opts := daddr.DialTarget(addr)
+	opts = append(opts, grpc.WithBlock())
+
+	return grpc.DialContext(ctx, target, opts...)
 }
 
 // WithBackOff execute function in backoff cycle.

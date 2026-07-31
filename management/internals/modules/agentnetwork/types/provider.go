@@ -14,10 +14,24 @@ import (
 // ProviderModel is one row in the provider's models list. The operator
 // pins the per-1k input/output price for cost tracking; ID is the
 // model identifier the upstream provider expects on the wire.
+//
+// The three cache rates are pointers because absence is meaningful: nil
+// means "inherit NetBird's default rate for this model" (folded in at
+// synthesis time), while an explicit 0 means "no discount — bill this
+// cache bucket at the input rate".
 type ProviderModel struct {
 	ID          string  `json:"id"`
 	InputPer1k  float64 `json:"input_per_1k"`
 	OutputPer1k float64 `json:"output_per_1k"`
+	// CachedInputPer1k is the OpenAI-shape rate for cached prompt tokens
+	// (a subset of input tokens).
+	CachedInputPer1k *float64 `json:"cached_input_per_1k,omitempty"`
+	// CacheReadPer1k is the Anthropic-shape rate for cache-read tokens
+	// (additive to input tokens).
+	CacheReadPer1k *float64 `json:"cache_read_per_1k,omitempty"`
+	// CacheCreationPer1k is the Anthropic-shape rate for cache-creation
+	// tokens (additive to input tokens).
+	CacheCreationPer1k *float64 `json:"cache_creation_per_1k,omitempty"`
 }
 
 // Provider is an Agent Network AI provider record persisted per account.
@@ -51,6 +65,12 @@ type Provider struct {
 	// private or self-signed certificate. The synthesiser propagates it into
 	// the router route so the proxy dials that provider's upstream insecurely.
 	SkipTLSVerification bool `gorm:"column:skip_tls_verification"`
+	// MetadataDisabled suppresses identity metadata injection for this provider.
+	// Metadata (the caller's user + authorizing group) is injected by default;
+	// when true the synthesiser omits the provider's identity-inject shape, so no
+	// user/group headers (e.g. Bedrock's X-Amzn-Bedrock-Request-Metadata) are
+	// stamped. Catalog ExtraHeaders (routing config) are unaffected.
+	MetadataDisabled bool `gorm:"column:metadata_disabled"`
 	// SessionPrivateKey + SessionPublicKey are the ed25519 keypair the
 	// synthesised reverse-proxy service uses to sign / verify session
 	// JWTs after a successful OIDC handshake. Generated once on
@@ -122,9 +142,12 @@ func (p *Provider) FromAPIRequest(req *api.AgentNetworkProviderRequest) {
 	if req.Models != nil {
 		for _, m := range *req.Models {
 			p.Models = append(p.Models, ProviderModel{
-				ID:          m.Id,
-				InputPer1k:  m.InputPer1k,
-				OutputPer1k: m.OutputPer1k,
+				ID:                 m.Id,
+				InputPer1k:         m.InputPer1k,
+				OutputPer1k:        m.OutputPer1k,
+				CachedInputPer1k:   copyFloatPtr(m.CachedInputPer1k),
+				CacheReadPer1k:     copyFloatPtr(m.CacheReadPer1k),
+				CacheCreationPer1k: copyFloatPtr(m.CacheCreationPer1k),
 			})
 		}
 	}
@@ -136,6 +159,9 @@ func (p *Provider) FromAPIRequest(req *api.AgentNetworkProviderRequest) {
 	}
 	if req.SkipTlsVerification != nil {
 		p.SkipTLSVerification = *req.SkipTlsVerification
+	}
+	if req.MetadataDisabled != nil {
+		p.MetadataDisabled = *req.MetadataDisabled
 	}
 	// Identity-header overrides for catalogs flagged Customizable.
 	// nil pointer = "field omitted on the wire" → leave the stored
@@ -155,9 +181,12 @@ func (p *Provider) ToAPIResponse() *api.AgentNetworkProvider {
 	models := make([]api.AgentNetworkProviderModel, 0, len(p.Models))
 	for _, m := range p.Models {
 		models = append(models, api.AgentNetworkProviderModel{
-			Id:          m.ID,
-			InputPer1k:  m.InputPer1k,
-			OutputPer1k: m.OutputPer1k,
+			Id:                 m.ID,
+			InputPer1k:         m.InputPer1k,
+			OutputPer1k:        m.OutputPer1k,
+			CachedInputPer1k:   copyFloatPtr(m.CachedInputPer1k),
+			CacheReadPer1k:     copyFloatPtr(m.CacheReadPer1k),
+			CacheCreationPer1k: copyFloatPtr(m.CacheCreationPer1k),
 		})
 	}
 	created := p.CreatedAt
@@ -170,6 +199,7 @@ func (p *Provider) ToAPIResponse() *api.AgentNetworkProvider {
 		Models:              models,
 		Enabled:             p.Enabled,
 		SkipTlsVerification: p.SkipTLSVerification,
+		MetadataDisabled:    p.MetadataDisabled,
 		CreatedAt:           &created,
 		UpdatedAt:           &updated,
 	}
@@ -191,11 +221,27 @@ func (p *Provider) ToAPIResponse() *api.AgentNetworkProvider {
 	return resp
 }
 
+// copyFloatPtr returns a fresh pointer to the same value, or nil. Keeps
+// stored models and API payloads from aliasing each other's rate fields.
+func copyFloatPtr(v *float64) *float64 {
+	if v == nil {
+		return nil
+	}
+	out := *v
+	return &out
+}
+
 // Copy returns a deep copy of the provider.
 func (p *Provider) Copy() *Provider {
 	clone := *p
 	if p.Models != nil {
-		clone.Models = append([]ProviderModel(nil), p.Models...)
+		clone.Models = make([]ProviderModel, len(p.Models))
+		for i, m := range p.Models {
+			m.CachedInputPer1k = copyFloatPtr(m.CachedInputPer1k)
+			m.CacheReadPer1k = copyFloatPtr(m.CacheReadPer1k)
+			m.CacheCreationPer1k = copyFloatPtr(m.CacheCreationPer1k)
+			clone.Models[i] = m
+		}
 	}
 	if p.ExtraValues != nil {
 		clone.ExtraValues = make(map[string]string, len(p.ExtraValues))
