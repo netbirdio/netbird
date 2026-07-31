@@ -143,13 +143,37 @@ func TestManager_ChainRotatesAndAcks(t *testing.T) {
 
 	// Data path up: B (initiator) chains the next offer over the data path, which
 	// rotates both to a fresh PSK and acknowledges A.
-	dA.OnDataPathRekeyed("bbbb")
-	dB.OnDataPathRekeyed("aaaa")
+	dA.OnDataPathRekeyed("bbbb", 0)
+	dB.OnDataPathRekeyed("aaaa", 0)
 
 	psk2A := wgA.psk("bbbb")
 	psk2B := wgB.psk("aaaa")
 	require.Equal(t, psk2B, psk2A, "both sides converge on the rotated PSK")
 	require.NotEqual(t, psk1, psk2B, "the chain rotated to a new PSK")
+}
+
+func TestManager_RotationSkippedWhenIdle(t *testing.T) {
+	dA, dB, wgA, wgB, _ := pair(t)
+	defer dA.Stop()
+	defer dB.Stop()
+
+	bootstrap(t, dA, dB)
+	psk1 := wgB.psk("aaaa")
+	require.NotEqual(t, PSK{}, psk1)
+
+	// Idle: the peer's last real-data activity is older than the window, so a rekey
+	// must NOT clock a rotation.
+	dA.OnDataPathRekeyed("bbbb", rotationActivityWindow)
+	dB.OnDataPathRekeyed("aaaa", rotationActivityWindow)
+	require.Equal(t, psk1, wgB.psk("aaaa"), "idle peer must not rotate the PSK")
+	require.Equal(t, psk1, wgA.psk("bbbb"), "idle peer must not rotate the PSK")
+
+	// Active: activity within the window clocks the rotation as usual.
+	dA.OnDataPathRekeyed("bbbb", rotationActivityWindow-1)
+	dB.OnDataPathRekeyed("aaaa", rotationActivityWindow-1)
+	psk2 := wgB.psk("aaaa")
+	require.NotEqual(t, psk1, psk2, "recent activity must clock a rotation")
+	require.Equal(t, psk2, wgA.psk("bbbb"), "both sides converge on the rotated PSK")
 }
 
 func TestManager_NonInitiatorReturnsNoOffer(t *testing.T) {
