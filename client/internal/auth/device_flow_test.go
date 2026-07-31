@@ -335,3 +335,7 @@ func TestInitialDeviceFlowPollingInterval(t *testing.T) {
 		})
 	}
 }
+
+func TestSlowDownDeviceFlowPollingInterval(t *testing.T) {
+	require.Equal(t, 7*time.Second, slowDownDeviceFlowPollingInterval(2*time.Second))
+}
