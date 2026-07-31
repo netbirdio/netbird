@@ -8,7 +8,6 @@ import (
 	"reflect"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/miekg/dns"
 	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
@@ -31,10 +30,10 @@ func (pg *PgStore) GetAccountZones(ctx context.Context, accountId string) ([]nmd
 	if err != nil {
 		return nil, err
 	}
-	return GetAccountZonesViaConnection(ctx, c, accountId)
+	return GetAccountZonesViaPgxConnection(ctx, c.Conn(), accountId)
 }
 
-func GetAccountZonesViaConnection(ctx context.Context, conn *pgxpool.Conn, accountId string) ([]nmdata.CustomZone, error) {
+func GetAccountZonesViaPgxConnection(ctx context.Context, conn *pgx.Conn, accountId string) ([]nmdata.CustomZone, error) {
 	rows, err := conn.Query(ctx, GetAccountZonesQuery, accountId)
 	if err != nil {
 		return nil, err

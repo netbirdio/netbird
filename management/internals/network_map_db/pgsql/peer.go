@@ -7,7 +7,6 @@ import (
 	"reflect"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
@@ -27,10 +26,10 @@ func (pg *PgStore) GetPeers(ctx context.Context, accountId string) ([]nmdata.Pee
 	if err != nil {
 		return nil, err
 	}
-	return GetPeersViaConnection(ctx, c, accountId)
+	return GetPeersViaPgxConnection(ctx, c.Conn(), accountId)
 }
 
-func GetPeersViaConnection(ctx context.Context, con *pgxpool.Conn, accountId string) ([]nmdata.Peer, error) {
+func GetPeersViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId string) ([]nmdata.Peer, error) {
 	rows, err := con.Query(ctx, GetPeersQuery, accountId)
 	if err != nil {
 		return nil, err

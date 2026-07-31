@@ -7,7 +7,6 @@ import (
 	"reflect"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
@@ -28,10 +27,10 @@ func (pg *PgStore) GetPolicies(ctx context.Context, accountId string) ([]nmdata.
 	if err != nil {
 		return nil, err
 	}
-	return GetPoliciesViaConnection(ctx, c, accountId)
+	return GetPoliciesViaPgxConnection(ctx, c.Conn(), accountId)
 }
 
-func GetPoliciesViaConnection(ctx context.Context, con *pgxpool.Conn, accountId string) ([]nmdata.Policy, error) {
+func GetPoliciesViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId string) ([]nmdata.Policy, error) {
 	rows, err := con.Query(ctx, GetPoliciesQuery, accountId)
 	if err != nil {
 		return nil, err
