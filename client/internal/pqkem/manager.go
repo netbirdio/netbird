@@ -20,6 +20,14 @@ const (
 	// DefaultMaxRekeyFailures is how many consecutive rekey (non-initial) failures
 	// are tolerated before OnRekeyFailed. The initial exchange fails immediately.
 	DefaultMaxRekeyFailures = 3
+
+	// rotationActivityWindow gates rotation on recent real-data activity: a rekey
+	// clocks a rotation only if the peer exchanged user data within this window. It
+	// must stay shorter than the data path's rekey interval (WireGuard
+	// REKEY_AFTER_TIME ~120s) so the rotation's own traffic — which itself renews the
+	// activity signal — ages out before the next rekey, letting an idle tunnel stop
+	// rotating instead of self-sustaining.
+	rotationActivityWindow = 90 * time.Second
 )
 
 // LocalID and RemoteID are peer identity keys (e.g. WireGuard public keys). They are
@@ -319,7 +327,17 @@ func (m *Manager) OnDataPathMessage(remoteID RemoteID, raw []byte) error {
 // initiator that just derived a PSK, it chains the next exchange: a fresh offer over
 // the data path that acknowledges the just-completed one (its arrival under the new
 // key proves to the responder that the key works).
-func (m *Manager) OnDataPathRekeyed(remoteID RemoteID) {
+// OnDataPathRekeyed clocks the next chained PSK rotation on a fresh data-path rekey.
+// sinceActivity is how long ago the peer last exchanged real user data; when it
+// exceeds rotationActivityWindow the tunnel is treated as idle and rotation is
+// skipped — an idle tunnel has nothing to protect, and rotating would emit data-path
+// traffic that keeps the peer artificially active (see conn.onWGCheckSuccess).
+func (m *Manager) OnDataPathRekeyed(remoteID RemoteID, sinceActivity time.Duration) {
+	if sinceActivity >= rotationActivityWindow {
+		m.trace("pqkem: peer idle, skipping data-path rotation", "peer", remoteID, "since_activity", sinceActivity)
+		return
+	}
+
 	m.mu.Lock()
 	ex := m.exchanges[remoteID]
 	chain := ex != nil && ex.state == stateAwaitingRekey

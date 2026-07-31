@@ -3,6 +3,7 @@ package peer
 import (
 	"context"
 	"fmt"
+	"math"
 	"net"
 	"net/netip"
 	"runtime"
@@ -27,6 +28,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/rosenpass"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/client/netevents"
+	"github.com/netbirdio/netbird/monotime"
 	"github.com/netbirdio/netbird/route"
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 )
@@ -95,8 +97,10 @@ type PQHandshaker interface {
 	// its WG overlay IP with the advertised pq UDP port.
 	SetRemoteAddr(remoteKey string, addr netip.AddrPort)
 	// OnDataPathRekeyed signals a fresh WireGuard handshake for the peer; it clocks the
-	// next chained PSK rotation pushed over the data path.
-	OnDataPathRekeyed(remoteKey string)
+	// next chained PSK rotation pushed over the data path. sinceActivity is how long
+	// ago the peer last exchanged real user data, so the rotation can be skipped for
+	// idle tunnels.
+	OnDataPathRekeyed(remoteKey string, sinceActivity time.Duration)
 	// OnDataPathDown signals the peer's tunnel went down.
 	OnDataPathDown(remoteKey string)
 }
@@ -986,10 +990,25 @@ func (conn *Conn) onWGCheckSuccess() {
 	conn.wgTimeouts = 0
 	conn.mu.Unlock()
 
-	// A fresh WireGuard handshake is the clock for the post-quantum PSK rotation.
+	// A fresh WireGuard handshake clocks the post-quantum PSK rotation. Pass how long
+	// ago the peer last exchanged real user data (keepalives excluded) so the pqkem
+	// manager can skip rotation on idle tunnels — rotating then would push data-path
+	// traffic that keeps the lazy connection artificially active.
 	if conn.config.PQ != nil {
-		conn.config.PQ.OnDataPathRekeyed(conn.config.Key)
+		conn.config.PQ.OnDataPathRekeyed(conn.config.Key, conn.dataActivityAge())
 	}
+}
+
+// dataActivityAge returns how long ago the peer last exchanged real user data
+// (WireGuard keepalives excluded), per the same LastActivities signal the
+// lazy-connection inactivity monitor uses. It reports a very large duration when no
+// activity has ever been recorded, so the peer is treated as idle.
+func (conn *Conn) dataActivityAge() time.Duration {
+	last, ok := conn.config.WgConfig.WgInterface.LastActivities()[conn.config.WgConfig.RemoteKey]
+	if !ok {
+		return time.Duration(math.MaxInt64)
+	}
+	return monotime.Since(last)
 }
 
 // recordConnectionMetrics records connection stage timestamps as metrics
