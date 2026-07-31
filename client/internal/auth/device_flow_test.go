@@ -306,3 +306,32 @@ func TestHosted_WaitToken(t *testing.T) {
 		})
 	}
 }
+
+func TestHosted_WaitTokenMissingInterval(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	deviceFlow := &DeviceAuthorizationFlow{}
+	tokenInfo, err := deviceFlow.WaitToken(ctx, AuthFlowInfo{ExpiresIn: 10})
+
+	require.Empty(t, tokenInfo)
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+func TestInitialDeviceFlowPollingInterval(t *testing.T) {
+	tests := []struct {
+		name    string
+		seconds int
+		want    time.Duration
+	}{
+		{name: "missing", seconds: 0, want: 5 * time.Second},
+		{name: "negative", seconds: -1, want: 5 * time.Second},
+		{name: "provided", seconds: 7, want: 7 * time.Second},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, initialDeviceFlowPollingInterval(tt.seconds))
+		})
+	}
+}

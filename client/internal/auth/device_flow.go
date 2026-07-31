@@ -20,7 +20,8 @@ import (
 
 // HostedGrantType grant type for device flow on Hosted
 const (
-	HostedGrantType = "urn:ietf:params:oauth:grant-type:device_code"
+	HostedGrantType                  = "urn:ietf:params:oauth:grant-type:device_code"
+	defaultDeviceFlowPollingInterval = 5 * time.Second
 )
 
 var _ OAuthFlow = &DeviceAuthorizationFlow{}
@@ -246,6 +247,14 @@ func (d *DeviceAuthorizationFlow) requestToken(info AuthFlowInfo) (TokenRequestR
 	return tokenResponse, nil
 }
 
+func initialDeviceFlowPollingInterval(seconds int) time.Duration {
+	if seconds <= 0 {
+		return defaultDeviceFlowPollingInterval
+	}
+
+	return time.Duration(seconds) * time.Second
+}
+
 // WaitToken waits user's login and authorize the app. Once the user's authorize
 // it retrieves the access token from Hosted's endpoint and validates it before returning.
 // The method creates a timeout context internally based on info.ExpiresIn.
@@ -255,7 +264,7 @@ func (d *DeviceAuthorizationFlow) WaitToken(ctx context.Context, info AuthFlowIn
 	waitCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	interval := time.Duration(info.Interval) * time.Second
+	interval := initialDeviceFlowPollingInterval(info.Interval)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
