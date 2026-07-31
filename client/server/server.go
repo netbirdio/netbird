@@ -72,6 +72,9 @@ type Server struct {
 	// RegisterUILog. Guarded by mutex. Consumed by DebugBundle so the bundle
 	// can collect the GUI log even though the daemon runs as root and can't
 	// resolve the user's config dir. Last-writer-wins (one UI per socket).
+	// DebugBundle opens it on behalf of the bundle requester and refuses a file
+	// that caller does not own, so a local user cannot read another user's log
+	// or a root-only file through it.
 	uiLogPath string
 
 	oauthAuthFlow oauthAuthFlow
