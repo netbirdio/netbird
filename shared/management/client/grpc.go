@@ -187,16 +187,16 @@ func (c *GrpcClient) ready() bool {
 // Sync wraps the real client's Sync endpoint call and takes care of retries and encryption/decryption of messages
 // Blocking request. The result will be sent via msgHandler callback function
 func (c *GrpcClient) Sync(ctx context.Context, sysInfo *system.Info, msgHandler func(msg *proto.SyncResponse) error) error {
-	return c.withMgmtStream(ctx, func(ctx context.Context, serverPubKey wgtypes.Key) error {
-		return c.handleSyncStream(ctx, serverPubKey, sysInfo, msgHandler)
+	return c.withMgmtStream(ctx, func(ctx context.Context, serverPubKey wgtypes.Key, backOff backoff.BackOff) error {
+		return c.handleSyncStream(ctx, serverPubKey, sysInfo, msgHandler, backOff)
 	})
 }
 
 // Job wraps the real client's Job endpoint call and takes care of retries and encryption/decryption of messages
 // Blocking request. The result will be sent via msgHandler callback function
 func (c *GrpcClient) Job(ctx context.Context, msgHandler func(msg *proto.JobRequest) *proto.JobResponse) error {
-	return c.withMgmtStream(ctx, func(ctx context.Context, serverPubKey wgtypes.Key) error {
-		return c.handleJobStream(ctx, serverPubKey, msgHandler)
+	return c.withMgmtStream(ctx, func(ctx context.Context, serverPubKey wgtypes.Key, backOff backoff.BackOff) error {
+		return c.handleJobStream(ctx, serverPubKey, msgHandler, backOff)
 	})
 }
 
@@ -204,7 +204,7 @@ func (c *GrpcClient) Job(ctx context.Context, msgHandler func(msg *proto.JobRequ
 // It takes care of retries, connection readiness, and fetching server public key.
 func (c *GrpcClient) withMgmtStream(
 	ctx context.Context,
-	handler func(ctx context.Context, serverPubKey wgtypes.Key) error,
+	handler func(ctx context.Context, serverPubKey wgtypes.Key, backOff backoff.BackOff) error,
 ) error {
 	backOff := defaultBackoff(ctx)
 	operation := func() error {
@@ -224,7 +224,7 @@ func (c *GrpcClient) withMgmtStream(
 			return err
 		}
 
-		return handler(ctx, *serverPubKey)
+		return handler(ctx, *serverPubKey, backOff)
 	}
 
 	err := backoff.Retry(operation, backOff)
@@ -239,6 +239,7 @@ func (c *GrpcClient) handleJobStream(
 	ctx context.Context,
 	serverPubKey wgtypes.Key,
 	msgHandler func(msg *proto.JobRequest) *proto.JobResponse,
+	backOff backoff.BackOff,
 ) error {
 	ctx, cancelStream := context.WithCancel(ctx)
 	defer cancelStream()
@@ -255,6 +256,19 @@ func (c *GrpcClient) handleJobStream(
 	}
 
 	log.Debug("job stream handshake sent successfully")
+
+	// The stream is up, so reset the backoff. This matters for two reasons,
+	// both caused by the backoff lib not resetting its state on a successful
+	// connection:
+	//  1. Without a reset, after a connect followed by an error the next retry
+	//     starts from the accumulated (large) interval instead of retrying
+	//     promptly, delaying reconnection.
+	//  2. Worse, once the accumulated elapsed time exceeds MaxElapsedTime, the
+	//     next stream error makes NextBackOff() return Stop, so the retry loop
+	//     exits immediately. That error is then mislabeled unrecoverable and
+	//     bubbles up to trigger a full engine restart / data-plane teardown
+	//     instead of a silent reconnection.
+	backOff.Reset()
 
 	// Main loop: receive, process, respond
 	for {
@@ -371,7 +385,7 @@ func (c *GrpcClient) sendJobResponse(
 	return nil
 }
 
-func (c *GrpcClient) handleSyncStream(ctx context.Context, serverPubKey wgtypes.Key, sysInfo *system.Info, msgHandler func(msg *proto.SyncResponse) error) error {
+func (c *GrpcClient) handleSyncStream(ctx context.Context, serverPubKey wgtypes.Key, sysInfo *system.Info, msgHandler func(msg *proto.SyncResponse) error, backOff backoff.BackOff) error {
 	ctx, cancelStream := context.WithCancel(ctx)
 	defer cancelStream()
 
@@ -389,6 +403,19 @@ func (c *GrpcClient) handleSyncStream(ctx context.Context, serverPubKey wgtypes.
 	log.Infof("connected to the Management Service stream")
 	c.notifyConnected()
 	c.setSyncStreamConnected()
+
+	// The stream is up, so reset the backoff. This matters for two reasons,
+	// both caused by the backoff lib not resetting its state on a successful
+	// connection:
+	//  1. Without a reset, after a connect followed by an error the next retry
+	//     starts from the accumulated (large) interval instead of retrying
+	//     promptly, delaying reconnection.
+	//  2. Worse, once the accumulated elapsed time exceeds MaxElapsedTime, the
+	//     next stream error makes NextBackOff() return Stop, so the retry loop
+	//     exits immediately. That error is then mislabeled unrecoverable and
+	//     bubbles up to trigger a full engine restart / data-plane teardown
+	//     instead of a silent reconnection.
+	backOff.Reset()
 
 	// blocking until error
 	err = c.receiveUpdatesEvents(stream, serverPubKey, msgHandler)

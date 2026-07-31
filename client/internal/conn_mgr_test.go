@@ -104,3 +104,38 @@ func TestConnMgr_ActivatePeerConcurrentWithLifecycle(t *testing.T) {
 	close(done)
 	wg.Wait()
 }
+
+func TestInactivityThresholdEnv(t *testing.T) {
+	tests := []struct {
+		name string
+		val  string
+		want *time.Duration
+	}{
+		{name: "unset", val: "", want: nil},
+		{name: "go duration minutes", val: "30m", want: durPtr(30 * time.Minute)},
+		{name: "go duration hours", val: "1h", want: durPtr(time.Hour)},
+		{name: "go duration seconds", val: "90s", want: durPtr(90 * time.Second)},
+		{name: "bare integer is minutes (backwards compat)", val: "5", want: durPtr(5 * time.Minute)},
+		{name: "zero duration", val: "0s", want: nil},
+		{name: "zero integer", val: "0", want: nil},
+		{name: "negative duration", val: "-5m", want: nil},
+		{name: "garbage", val: "abc", want: nil},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(lazyconn.EnvInactivityThreshold, tc.val)
+			got := inactivityThresholdEnv()
+			switch {
+			case tc.want == nil && got != nil:
+				t.Fatalf("want nil, got %v", *got)
+			case tc.want != nil && got == nil:
+				t.Fatalf("want %v, got nil", *tc.want)
+			case tc.want != nil && *got != *tc.want:
+				t.Fatalf("want %v, got %v", *tc.want, *got)
+			}
+		})
+	}
+}
+
+func durPtr(d time.Duration) *time.Duration { return &d }

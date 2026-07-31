@@ -7,12 +7,28 @@ package catalog
 import "github.com/netbirdio/netbird/shared/management/http/api"
 
 // Model is the in-memory representation of a catalog model.
+//
+// The three cache rates mirror the proxy cost meter's Entry semantics
+// (USD per 1k tokens; 0 = no rate configured, that bucket bills at
+// InputPer1k):
+//   - CachedInputPer1k: OpenAI-shape rate for cached prompt tokens
+//     (a SUBSET of input tokens). Typically 0.1-0.5x input.
+//   - CacheReadPer1k / CacheCreationPer1k: Anthropic-shape rates for
+//     the two ADDITIVE prompt-cache buckets. Typically 0.1x / 1.25x
+//     input.
+//
+// The catalog is the single default-pricing source: the agentnetwork
+// pricing package folds these models into per-surface tables that the
+// synthesizer ships to the proxy's cost_meter.
 type Model struct {
-	ID            string
-	Label         string
-	InputPer1k    float64
-	OutputPer1k   float64
-	ContextWindow int
+	ID                 string
+	Label              string
+	InputPer1k         float64
+	OutputPer1k        float64
+	CachedInputPer1k   float64
+	CacheReadPer1k     float64
+	CacheCreationPer1k float64
+	ContextWindow      int
 }
 
 // ProviderKind groups catalog entries for UI presentation. The split
@@ -65,6 +81,17 @@ type Provider struct {
 	// surface — the proxy middleware then falls back to URL sniffing
 	// or skips request-side enrichment.
 	ParserID string
+	// PricingSurfaces names the cost-meter pricing surfaces this
+	// provider's Models are priced under ("openai", "anthropic",
+	// "bedrock" — the llm.Parser surface the request parser stamps as
+	// llm.provider at billing time). NOT derivable from ParserID:
+	// bedrock_api and vertex_ai_api leave ParserID empty (URL-sniffed)
+	// yet price under "bedrock" / "anthropic", and kimi_api serves two
+	// body shapes so it prices under both. Nil for gateway/custom
+	// entries, which declare no models. Same (surface, model) pair
+	// contributed by two providers must carry identical rates — the
+	// pricing package's tests enforce that.
+	PricingSurfaces []string
 	// IdentityInjection, when non-nil, instructs the proxy to stamp
 	// the caller's NetBird identity onto upstream requests under the
 	// configured header names. Used for gateways like LiteLLM that
@@ -219,6 +246,7 @@ var providers = []Provider{
 		DefaultContentType: "application/json",
 		BrandColor:         "#10A37F",
 		ParserID:           "openai",
+		PricingSurfaces:    []string{"openai"},
 		// Pricing + context windows cross-checked against LiteLLM's
 		// model_prices_and_context_window.json. Notable corrections from
 		// earlier values: o4-mini repriced from $4/$16 to $1.10/$4.40
@@ -226,20 +254,20 @@ var providers = []Provider{
 		// family context windows split between 1.05M for full-size
 		// models and 272K for mini/nano/codex variants.
 		Models: []Model{
-			{ID: "gpt-5.5", Label: "GPT-5.5", InputPer1k: 0.005, OutputPer1k: 0.030, ContextWindow: 1050000},
-			{ID: "gpt-5.5-pro", Label: "GPT-5.5 Pro", InputPer1k: 0.030, OutputPer1k: 0.180, ContextWindow: 1050000},
-			{ID: "gpt-5.4", Label: "GPT-5.4", InputPer1k: 0.0025, OutputPer1k: 0.015, ContextWindow: 1050000},
-			{ID: "gpt-5.4-pro", Label: "GPT-5.4 Pro", InputPer1k: 0.030, OutputPer1k: 0.180, ContextWindow: 1050000},
-			{ID: "gpt-5.4-mini", Label: "GPT-5.4 Mini", InputPer1k: 0.00075, OutputPer1k: 0.0045, ContextWindow: 272000},
-			{ID: "gpt-5.4-nano", Label: "GPT-5.4 Nano", InputPer1k: 0.0002, OutputPer1k: 0.00125, ContextWindow: 272000},
-			{ID: "gpt-5.3-codex", Label: "GPT-5.3 Codex", InputPer1k: 0.00175, OutputPer1k: 0.014, ContextWindow: 272000},
-			{ID: "gpt-5.3-chat-latest", Label: "GPT-5.3 Chat", InputPer1k: 0.00175, OutputPer1k: 0.014, ContextWindow: 128000},
-			{ID: "o4-mini", Label: "o4-mini", InputPer1k: 0.0011, OutputPer1k: 0.0044, ContextWindow: 200000},
-			{ID: "gpt-4.1", Label: "GPT-4.1", InputPer1k: 0.002, OutputPer1k: 0.008, ContextWindow: 1047576},
-			{ID: "gpt-4.1-mini", Label: "GPT-4.1 mini", InputPer1k: 0.0004, OutputPer1k: 0.0016, ContextWindow: 1047576},
-			{ID: "gpt-4.1-nano", Label: "GPT-4.1 nano", InputPer1k: 0.0001, OutputPer1k: 0.0004, ContextWindow: 1047576},
-			{ID: "gpt-4o", Label: "GPT-4o", InputPer1k: 0.0025, OutputPer1k: 0.010, ContextWindow: 128000},
-			{ID: "gpt-4o-mini", Label: "GPT-4o mini", InputPer1k: 0.00015, OutputPer1k: 0.0006, ContextWindow: 128000},
+			{ID: "gpt-5.5", Label: "GPT-5.5", InputPer1k: 0.005, OutputPer1k: 0.030, CachedInputPer1k: 0.0005, ContextWindow: 1050000},
+			{ID: "gpt-5.5-pro", Label: "GPT-5.5 Pro", InputPer1k: 0.030, OutputPer1k: 0.180, CachedInputPer1k: 0.003, ContextWindow: 1050000},
+			{ID: "gpt-5.4", Label: "GPT-5.4", InputPer1k: 0.0025, OutputPer1k: 0.015, CachedInputPer1k: 0.00025, ContextWindow: 1050000},
+			{ID: "gpt-5.4-pro", Label: "GPT-5.4 Pro", InputPer1k: 0.030, OutputPer1k: 0.180, CachedInputPer1k: 0.003, ContextWindow: 1050000},
+			{ID: "gpt-5.4-mini", Label: "GPT-5.4 Mini", InputPer1k: 0.00075, OutputPer1k: 0.0045, CachedInputPer1k: 0.000075, ContextWindow: 272000},
+			{ID: "gpt-5.4-nano", Label: "GPT-5.4 Nano", InputPer1k: 0.0002, OutputPer1k: 0.00125, CachedInputPer1k: 0.00002, ContextWindow: 272000},
+			{ID: "gpt-5.3-codex", Label: "GPT-5.3 Codex", InputPer1k: 0.00175, OutputPer1k: 0.014, CachedInputPer1k: 0.000175, ContextWindow: 272000},
+			{ID: "gpt-5.3-chat-latest", Label: "GPT-5.3 Chat", InputPer1k: 0.00175, OutputPer1k: 0.014, CachedInputPer1k: 0.000175, ContextWindow: 128000},
+			{ID: "o4-mini", Label: "o4-mini", InputPer1k: 0.0011, OutputPer1k: 0.0044, CachedInputPer1k: 0.000275, ContextWindow: 200000},
+			{ID: "gpt-4.1", Label: "GPT-4.1", InputPer1k: 0.002, OutputPer1k: 0.008, CachedInputPer1k: 0.0005, ContextWindow: 1047576},
+			{ID: "gpt-4.1-mini", Label: "GPT-4.1 mini", InputPer1k: 0.0004, OutputPer1k: 0.0016, CachedInputPer1k: 0.0001, ContextWindow: 1047576},
+			{ID: "gpt-4.1-nano", Label: "GPT-4.1 nano", InputPer1k: 0.0001, OutputPer1k: 0.0004, CachedInputPer1k: 0.000025, ContextWindow: 1047576},
+			{ID: "gpt-4o", Label: "GPT-4o", InputPer1k: 0.0025, OutputPer1k: 0.010, CachedInputPer1k: 0.00125, ContextWindow: 128000},
+			{ID: "gpt-4o-mini", Label: "GPT-4o mini", InputPer1k: 0.00015, OutputPer1k: 0.0006, CachedInputPer1k: 0.000075, ContextWindow: 128000},
 			{ID: "gpt-4-turbo", Label: "GPT-4 Turbo", InputPer1k: 0.01, OutputPer1k: 0.03, ContextWindow: 128000},
 			{ID: "gpt-3.5-turbo", Label: "GPT-3.5 Turbo", InputPer1k: 0.0005, OutputPer1k: 0.0015, ContextWindow: 16385},
 			{ID: "text-embedding-3-large", Label: "text-embedding-3-large", InputPer1k: 0.00013, OutputPer1k: 0, ContextWindow: 8191},
@@ -257,6 +285,7 @@ var providers = []Provider{
 		DefaultContentType: "application/json",
 		BrandColor:         "#D97757",
 		ParserID:           "anthropic",
+		PricingSurfaces:    []string{"anthropic"},
 		// Per Anthropic's current model lineup. Pricing in USD per 1k
 		// tokens. Context windows: 4.6+ family is 1M; Haiku 4.5 stays at
 		// 200K. claude-3-7-sonnet and claude-3-5-haiku retired
@@ -267,14 +296,14 @@ var providers = []Provider{
 		// account to be on >= 30-day data retention or all requests
 		// 400.
 		Models: []Model{
-			{ID: "claude-fable-5", Label: "Claude Fable 5", InputPer1k: 0.010, OutputPer1k: 0.050, ContextWindow: 1000000},
-			{ID: "claude-opus-4-8", Label: "Claude Opus 4.8", InputPer1k: 0.005, OutputPer1k: 0.025, ContextWindow: 1000000},
-			{ID: "claude-opus-4-7", Label: "Claude Opus 4.7", InputPer1k: 0.005, OutputPer1k: 0.025, ContextWindow: 1000000},
-			{ID: "claude-opus-4-6", Label: "Claude Opus 4.6", InputPer1k: 0.005, OutputPer1k: 0.025, ContextWindow: 1000000},
-			{ID: "claude-opus-4-1", Label: "Claude Opus 4.1 (deprecated, retires 2026-08-05)", InputPer1k: 0.015, OutputPer1k: 0.075, ContextWindow: 200000},
-			{ID: "claude-sonnet-4-6", Label: "Claude Sonnet 4.6", InputPer1k: 0.003, OutputPer1k: 0.015, ContextWindow: 1000000},
-			{ID: "claude-sonnet-4-5", Label: "Claude Sonnet 4.5", InputPer1k: 0.003, OutputPer1k: 0.015, ContextWindow: 200000},
-			{ID: "claude-haiku-4-5", Label: "Claude Haiku 4.5", InputPer1k: 0.001, OutputPer1k: 0.005, ContextWindow: 200000},
+			{ID: "claude-fable-5", Label: "Claude Fable 5", InputPer1k: 0.010, OutputPer1k: 0.050, CacheReadPer1k: 0.001, CacheCreationPer1k: 0.0125, ContextWindow: 1000000},
+			{ID: "claude-opus-4-8", Label: "Claude Opus 4.8", InputPer1k: 0.005, OutputPer1k: 0.025, CacheReadPer1k: 0.0005, CacheCreationPer1k: 0.00625, ContextWindow: 1000000},
+			{ID: "claude-opus-4-7", Label: "Claude Opus 4.7", InputPer1k: 0.005, OutputPer1k: 0.025, CacheReadPer1k: 0.0005, CacheCreationPer1k: 0.00625, ContextWindow: 1000000},
+			{ID: "claude-opus-4-6", Label: "Claude Opus 4.6", InputPer1k: 0.005, OutputPer1k: 0.025, CacheReadPer1k: 0.0005, CacheCreationPer1k: 0.00625, ContextWindow: 1000000},
+			{ID: "claude-opus-4-1", Label: "Claude Opus 4.1 (deprecated, retires 2026-08-05)", InputPer1k: 0.015, OutputPer1k: 0.075, CacheReadPer1k: 0.0015, CacheCreationPer1k: 0.01875, ContextWindow: 200000},
+			{ID: "claude-sonnet-4-6", Label: "Claude Sonnet 4.6", InputPer1k: 0.003, OutputPer1k: 0.015, CacheReadPer1k: 0.0003, CacheCreationPer1k: 0.00375, ContextWindow: 1000000},
+			{ID: "claude-sonnet-4-5", Label: "Claude Sonnet 4.5", InputPer1k: 0.003, OutputPer1k: 0.015, CacheReadPer1k: 0.0003, CacheCreationPer1k: 0.00375, ContextWindow: 200000},
+			{ID: "claude-haiku-4-5", Label: "Claude Haiku 4.5", InputPer1k: 0.001, OutputPer1k: 0.005, CacheReadPer1k: 0.0001, CacheCreationPer1k: 0.00125, ContextWindow: 200000},
 		},
 	},
 	{
@@ -288,18 +317,19 @@ var providers = []Provider{
 		DefaultContentType: "application/json",
 		BrandColor:         "#0078D4",
 		ParserID:           "openai",
+		PricingSurfaces:    []string{"openai"},
 		// Mirrors openai_api pricing — Azure resells OpenAI models at the
 		// same per-token rates, just under different deployment names.
 		Models: []Model{
-			{ID: "gpt-5.5", Label: "GPT-5.5 (Azure)", InputPer1k: 0.005, OutputPer1k: 0.030, ContextWindow: 1050000},
-			{ID: "gpt-5.4", Label: "GPT-5.4 (Azure)", InputPer1k: 0.0025, OutputPer1k: 0.015, ContextWindow: 1050000},
-			{ID: "gpt-5.4-mini", Label: "GPT-5.4 Mini (Azure)", InputPer1k: 0.00075, OutputPer1k: 0.0045, ContextWindow: 272000},
-			{ID: "gpt-5.4-nano", Label: "GPT-5.4 Nano (Azure)", InputPer1k: 0.0002, OutputPer1k: 0.00125, ContextWindow: 272000},
-			{ID: "o4-mini", Label: "o4-mini (Azure)", InputPer1k: 0.0011, OutputPer1k: 0.0044, ContextWindow: 200000},
-			{ID: "gpt-4.1", Label: "GPT-4.1 (Azure)", InputPer1k: 0.002, OutputPer1k: 0.008, ContextWindow: 1047576},
-			{ID: "gpt-4.1-mini", Label: "GPT-4.1 mini (Azure)", InputPer1k: 0.0004, OutputPer1k: 0.0016, ContextWindow: 1047576},
-			{ID: "gpt-4o", Label: "GPT-4o (Azure)", InputPer1k: 0.0025, OutputPer1k: 0.010, ContextWindow: 128000},
-			{ID: "gpt-4o-mini", Label: "GPT-4o mini (Azure)", InputPer1k: 0.00015, OutputPer1k: 0.0006, ContextWindow: 128000},
+			{ID: "gpt-5.5", Label: "GPT-5.5 (Azure)", InputPer1k: 0.005, OutputPer1k: 0.030, CachedInputPer1k: 0.0005, ContextWindow: 1050000},
+			{ID: "gpt-5.4", Label: "GPT-5.4 (Azure)", InputPer1k: 0.0025, OutputPer1k: 0.015, CachedInputPer1k: 0.00025, ContextWindow: 1050000},
+			{ID: "gpt-5.4-mini", Label: "GPT-5.4 Mini (Azure)", InputPer1k: 0.00075, OutputPer1k: 0.0045, CachedInputPer1k: 0.000075, ContextWindow: 272000},
+			{ID: "gpt-5.4-nano", Label: "GPT-5.4 Nano (Azure)", InputPer1k: 0.0002, OutputPer1k: 0.00125, CachedInputPer1k: 0.00002, ContextWindow: 272000},
+			{ID: "o4-mini", Label: "o4-mini (Azure)", InputPer1k: 0.0011, OutputPer1k: 0.0044, CachedInputPer1k: 0.000275, ContextWindow: 200000},
+			{ID: "gpt-4.1", Label: "GPT-4.1 (Azure)", InputPer1k: 0.002, OutputPer1k: 0.008, CachedInputPer1k: 0.0005, ContextWindow: 1047576},
+			{ID: "gpt-4.1-mini", Label: "GPT-4.1 mini (Azure)", InputPer1k: 0.0004, OutputPer1k: 0.0016, CachedInputPer1k: 0.0001, ContextWindow: 1047576},
+			{ID: "gpt-4o", Label: "GPT-4o (Azure)", InputPer1k: 0.0025, OutputPer1k: 0.010, CachedInputPer1k: 0.00125, ContextWindow: 128000},
+			{ID: "gpt-4o-mini", Label: "GPT-4o mini (Azure)", InputPer1k: 0.00015, OutputPer1k: 0.0006, CachedInputPer1k: 0.000075, ContextWindow: 128000},
 			{ID: "gpt-35-turbo", Label: "GPT-3.5 Turbo (Azure)", InputPer1k: 0.0005, OutputPer1k: 0.0015, ContextWindow: 16385},
 		},
 	},
@@ -313,6 +343,9 @@ var providers = []Provider{
 		AuthHeaderTemplate: "Bearer ${API_KEY}",
 		DefaultContentType: "application/json",
 		BrandColor:         "#FF9900",
+		// ParserID stays empty (path-style dispatch via IsBedrockPathStyle);
+		// the request parser meters these under the "bedrock" surface.
+		PricingSurfaces: []string{"bedrock"},
 		// Anthropic models on Bedrock take the anthropic.* prefix and
 		// follow the same lineup / pricing as the first-party Anthropic
 		// catalog entry above. claude-3-7-sonnet and claude-3-5-haiku
@@ -322,13 +355,13 @@ var providers = []Provider{
 		// Llama 3.3 70B entry kept unchanged — LiteLLM tracks only
 		// per-region Llama 3 entries; standalone 3.3 not yet listed.
 		Models: []Model{
-			{ID: "anthropic.claude-opus-4-8", Label: "Claude Opus 4.8 (Bedrock)", InputPer1k: 0.005, OutputPer1k: 0.025, ContextWindow: 1000000},
-			{ID: "anthropic.claude-opus-4-7", Label: "Claude Opus 4.7 (Bedrock)", InputPer1k: 0.005, OutputPer1k: 0.025, ContextWindow: 1000000},
-			{ID: "anthropic.claude-opus-4-6", Label: "Claude Opus 4.6 (Bedrock)", InputPer1k: 0.005, OutputPer1k: 0.025, ContextWindow: 1000000},
-			{ID: "anthropic.claude-opus-4-1", Label: "Claude Opus 4.1 (Bedrock, deprecated 2026-08-05)", InputPer1k: 0.015, OutputPer1k: 0.075, ContextWindow: 200000},
-			{ID: "anthropic.claude-sonnet-4-6", Label: "Claude Sonnet 4.6 (Bedrock)", InputPer1k: 0.003, OutputPer1k: 0.015, ContextWindow: 1000000},
-			{ID: "anthropic.claude-sonnet-4-5", Label: "Claude Sonnet 4.5 (Bedrock)", InputPer1k: 0.003, OutputPer1k: 0.015, ContextWindow: 200000},
-			{ID: "anthropic.claude-haiku-4-5", Label: "Claude Haiku 4.5 (Bedrock)", InputPer1k: 0.001, OutputPer1k: 0.005, ContextWindow: 200000},
+			{ID: "anthropic.claude-opus-4-8", Label: "Claude Opus 4.8 (Bedrock)", InputPer1k: 0.005, OutputPer1k: 0.025, CacheReadPer1k: 0.0005, CacheCreationPer1k: 0.00625, ContextWindow: 1000000},
+			{ID: "anthropic.claude-opus-4-7", Label: "Claude Opus 4.7 (Bedrock)", InputPer1k: 0.005, OutputPer1k: 0.025, CacheReadPer1k: 0.0005, CacheCreationPer1k: 0.00625, ContextWindow: 1000000},
+			{ID: "anthropic.claude-opus-4-6", Label: "Claude Opus 4.6 (Bedrock)", InputPer1k: 0.005, OutputPer1k: 0.025, CacheReadPer1k: 0.0005, CacheCreationPer1k: 0.00625, ContextWindow: 1000000},
+			{ID: "anthropic.claude-opus-4-1", Label: "Claude Opus 4.1 (Bedrock, deprecated 2026-08-05)", InputPer1k: 0.015, OutputPer1k: 0.075, CacheReadPer1k: 0.0015, CacheCreationPer1k: 0.01875, ContextWindow: 200000},
+			{ID: "anthropic.claude-sonnet-4-6", Label: "Claude Sonnet 4.6 (Bedrock)", InputPer1k: 0.003, OutputPer1k: 0.015, CacheReadPer1k: 0.0003, CacheCreationPer1k: 0.00375, ContextWindow: 1000000},
+			{ID: "anthropic.claude-sonnet-4-5", Label: "Claude Sonnet 4.5 (Bedrock)", InputPer1k: 0.003, OutputPer1k: 0.015, CacheReadPer1k: 0.0003, CacheCreationPer1k: 0.00375, ContextWindow: 200000},
+			{ID: "anthropic.claude-haiku-4-5", Label: "Claude Haiku 4.5 (Bedrock)", InputPer1k: 0.001, OutputPer1k: 0.005, CacheReadPer1k: 0.0001, CacheCreationPer1k: 0.00125, ContextWindow: 200000},
 			{ID: "meta.llama3-3-70b-instruct", Label: "Llama 3.3 70B (Bedrock)", InputPer1k: 0.00072, OutputPer1k: 0.00072, ContextWindow: 128000},
 			{ID: "amazon.nova-2-lite", Label: "Amazon Nova 2 Lite (Bedrock, preview)", InputPer1k: 0.0003, OutputPer1k: 0.0025, ContextWindow: 1000000},
 			{ID: "amazon.nova-pro", Label: "Amazon Nova Pro (Bedrock)", InputPer1k: 0.0008, OutputPer1k: 0.0032, ContextWindow: 300000},
@@ -358,6 +391,10 @@ var providers = []Provider{
 		AuthHeaderTemplate: "Bearer ${API_KEY}",
 		DefaultContentType: "application/json",
 		BrandColor:         "#4285F4",
+		// ParserID stays empty (path-style dispatch via IsVertexPathStyle);
+		// Anthropic-on-Vertex requests are metered under the "anthropic"
+		// surface with the bare, unversioned model id.
+		PricingSurfaces: []string{"anthropic"},
 		// Vertex carries the model in the URL path and authenticates with a
 		// service-account-minted OAuth token (api_key = "keyfile::<base64 SA>").
 		// Only Anthropic-on-Vertex is metered today: the request parser maps the
@@ -369,14 +406,14 @@ var providers = []Provider{
 		// exists — the router denies unmeterable publishers rather than forward
 		// them uncounted.
 		Models: []Model{
-			{ID: "claude-fable-5", Label: "Claude Fable 5 (Vertex)", InputPer1k: 0.010, OutputPer1k: 0.050, ContextWindow: 1000000},
-			{ID: "claude-opus-4-8", Label: "Claude Opus 4.8 (Vertex)", InputPer1k: 0.005, OutputPer1k: 0.025, ContextWindow: 1000000},
-			{ID: "claude-opus-4-7", Label: "Claude Opus 4.7 (Vertex)", InputPer1k: 0.005, OutputPer1k: 0.025, ContextWindow: 1000000},
-			{ID: "claude-opus-4-6", Label: "Claude Opus 4.6 (Vertex)", InputPer1k: 0.005, OutputPer1k: 0.025, ContextWindow: 1000000},
-			{ID: "claude-opus-4-1", Label: "Claude Opus 4.1 (Vertex, deprecated 2026-08-05)", InputPer1k: 0.015, OutputPer1k: 0.075, ContextWindow: 200000},
-			{ID: "claude-sonnet-4-6", Label: "Claude Sonnet 4.6 (Vertex)", InputPer1k: 0.003, OutputPer1k: 0.015, ContextWindow: 1000000},
-			{ID: "claude-sonnet-4-5", Label: "Claude Sonnet 4.5 (Vertex)", InputPer1k: 0.003, OutputPer1k: 0.015, ContextWindow: 200000},
-			{ID: "claude-haiku-4-5", Label: "Claude Haiku 4.5 (Vertex)", InputPer1k: 0.001, OutputPer1k: 0.005, ContextWindow: 200000},
+			{ID: "claude-fable-5", Label: "Claude Fable 5 (Vertex)", InputPer1k: 0.010, OutputPer1k: 0.050, CacheReadPer1k: 0.001, CacheCreationPer1k: 0.0125, ContextWindow: 1000000},
+			{ID: "claude-opus-4-8", Label: "Claude Opus 4.8 (Vertex)", InputPer1k: 0.005, OutputPer1k: 0.025, CacheReadPer1k: 0.0005, CacheCreationPer1k: 0.00625, ContextWindow: 1000000},
+			{ID: "claude-opus-4-7", Label: "Claude Opus 4.7 (Vertex)", InputPer1k: 0.005, OutputPer1k: 0.025, CacheReadPer1k: 0.0005, CacheCreationPer1k: 0.00625, ContextWindow: 1000000},
+			{ID: "claude-opus-4-6", Label: "Claude Opus 4.6 (Vertex)", InputPer1k: 0.005, OutputPer1k: 0.025, CacheReadPer1k: 0.0005, CacheCreationPer1k: 0.00625, ContextWindow: 1000000},
+			{ID: "claude-opus-4-1", Label: "Claude Opus 4.1 (Vertex, deprecated 2026-08-05)", InputPer1k: 0.015, OutputPer1k: 0.075, CacheReadPer1k: 0.0015, CacheCreationPer1k: 0.01875, ContextWindow: 200000},
+			{ID: "claude-sonnet-4-6", Label: "Claude Sonnet 4.6 (Vertex)", InputPer1k: 0.003, OutputPer1k: 0.015, CacheReadPer1k: 0.0003, CacheCreationPer1k: 0.00375, ContextWindow: 1000000},
+			{ID: "claude-sonnet-4-5", Label: "Claude Sonnet 4.5 (Vertex)", InputPer1k: 0.003, OutputPer1k: 0.015, CacheReadPer1k: 0.0003, CacheCreationPer1k: 0.00375, ContextWindow: 200000},
+			{ID: "claude-haiku-4-5", Label: "Claude Haiku 4.5 (Vertex)", InputPer1k: 0.001, OutputPer1k: 0.005, CacheReadPer1k: 0.0001, CacheCreationPer1k: 0.00125, ContextWindow: 200000},
 		},
 	},
 	{
@@ -390,6 +427,7 @@ var providers = []Provider{
 		DefaultContentType: "application/json",
 		BrandColor:         "#FF7000",
 		ParserID:           "openai",
+		PricingSurfaces:    []string{"openai"},
 		// Pricing + context windows cross-checked against LiteLLM. Key
 		// gotchas the marketing page hides:
 		//   - `mistral-medium-latest` aliases to Medium 3.1 ($0.40/$2),
@@ -418,6 +456,58 @@ var providers = []Provider{
 			{ID: "ministral-8b-latest", Label: "Ministral 8B", InputPer1k: 0.00015, OutputPer1k: 0.00015, ContextWindow: 262144},
 			{ID: "ministral-3-3b-2512", Label: "Ministral 3 3B", InputPer1k: 0.0001, OutputPer1k: 0.0001, ContextWindow: 131072},
 			{ID: "mistral-embed", Label: "Mistral Embed", InputPer1k: 0.0001, OutputPer1k: 0, ContextWindow: 8192},
+		},
+	},
+	{
+		ID:                 "kimi_api",
+		Kind:               KindProvider,
+		Name:               "Kimi (Moonshot AI) API",
+		Description:        "Kimi K3 / K2 models via the Moonshot AI platform",
+		DefaultHost:        "api.moonshot.ai",
+		AuthHeaderName:     "Authorization",
+		AuthHeaderTemplate: "Bearer ${API_KEY}",
+		DefaultContentType: "application/json",
+		BrandColor:         "#1A1A2E",
+		// ParserID empty on purpose: Moonshot serves two body shapes on
+		// the same host and key, and the proxy's URL sniffer dispatches
+		// both (same pattern as Bifrost). /v1/chat/completions matches
+		// OpenAIParser; the Anthropic-compatible endpoint the official
+		// Claude Code guide uses (/anthropic/v1/messages) contains
+		// "/v1/messages" and matches AnthropicParser. Pinning "openai"
+		// here would misparse the Claude Code path — the primary way
+		// teams consume Kimi for coding today. Both endpoints accept the
+		// same Moonshot key via Authorization: Bearer (Claude Code's
+		// ANTHROPIC_AUTH_TOKEN rides that header too).
+		//
+		// api.moonshot.ai is the international platform; mainland-China
+		// accounts live on api.moonshot.cn with separate billing —
+		// operators there override the host on the provider record. The
+		// kimi.com subscription coding endpoint (api.kimi.com/coding,
+		// model id "k3") is account-bound seat licensing rather than a
+		// meterable platform key, so it's deliberately not the default.
+		ParserID: "",
+		// Both body shapes are metered: /v1/chat/completions under
+		// "openai", /anthropic/v1/messages under "anthropic" — so the
+		// K3 entry is priced on both surfaces.
+		PricingSurfaces: []string{"openai", "anthropic"},
+		// Pricing per Moonshot's platform rates at K3 launch (July 2026):
+		// $3/$15 per MTok with $0.30 cached input, flat across the 1M-token
+		// window. kimi-k3 is the ONLY model the platform serves newer
+		// accounts — K2-era ids (kimi-k2-thinking) and even the kimi-latest
+		// alias return resource_not_found_error, verified live 2026-07-21 —
+		// so it's the only catalog entry. Grandfathered accounts with K2
+		// access can still type those ids on the provider's model rows.
+		// The consumer app's "K3 Swarm Max" mode is not an API SKU, so it
+		// doesn't appear here.
+		Models: []Model{
+			// Carries both cache shapes: Moonshot reports cache hits
+			// OpenAI-style on /v1/chat/completions (CachedInputPer1k)
+			// and Anthropic-style on /anthropic/v1/messages
+			// (CacheReadPer1k) — $0.30/MTok either way. Each surface's
+			// cost formula reads only its own field, so the superset
+			// entry prices both endpoints correctly. No cache-creation
+			// rate published; writes bill at the input rate.
+			{ID: "kimi-k3", Label: "Kimi K3", InputPer1k: 0.003, OutputPer1k: 0.015, CachedInputPer1k: 0.0003, CacheReadPer1k: 0.0003, ContextWindow: 1000000},
 		},
 	},
 	{
@@ -717,13 +807,28 @@ func IsBedrockPathStyle(providerID string) bool {
 func (p Provider) ToAPIResponse() api.AgentNetworkCatalogProvider {
 	models := make([]api.AgentNetworkCatalogModel, 0, len(p.Models))
 	for _, m := range p.Models {
-		models = append(models, api.AgentNetworkCatalogModel{
+		am := api.AgentNetworkCatalogModel{
 			Id:            m.ID,
 			Label:         m.Label,
 			InputPer1k:    m.InputPer1k,
 			OutputPer1k:   m.OutputPer1k,
 			ContextWindow: m.ContextWindow,
-		})
+		}
+		// Cache rates are emitted only when configured so the dashboard
+		// can prefill them; 0 stays off the wire (absent = no rate).
+		if m.CachedInputPer1k > 0 {
+			v := m.CachedInputPer1k
+			am.CachedInputPer1k = &v
+		}
+		if m.CacheReadPer1k > 0 {
+			v := m.CacheReadPer1k
+			am.CacheReadPer1k = &v
+		}
+		if m.CacheCreationPer1k > 0 {
+			v := m.CacheCreationPer1k
+			am.CacheCreationPer1k = &v
+		}
+		models = append(models, am)
 	}
 	kind := api.AgentNetworkCatalogProviderKindProvider
 	switch p.Kind {
@@ -742,6 +847,10 @@ func (p Provider) ToAPIResponse() api.AgentNetworkCatalogProvider {
 		DefaultContentType: p.DefaultContentType,
 		BrandColor:         p.BrandColor,
 		Models:             models,
+	}
+	if len(p.PricingSurfaces) > 0 {
+		surfaces := append([]string(nil), p.PricingSurfaces...)
+		resp.PricingSurfaces = &surfaces
 	}
 	if len(p.ExtraHeaders) > 0 {
 		extras := make([]api.AgentNetworkCatalogExtraHeader, 0, len(p.ExtraHeaders))

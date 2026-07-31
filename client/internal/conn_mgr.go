@@ -49,9 +49,19 @@ type ConnMgr struct {
 	// engine.syncMsgMux; all other reads stay under engine.syncMsgMux only.
 	lazyConnMgrMu sync.RWMutex
 
+	// reconcileRoutedIPs re-applies a peer's routed allowed IPs after its lazy wake endpoint is
+	// (re)armed (Mode A at arm time). Injected by the engine; nil disables the reconcile.
+	reconcileRoutedIPs func(peerKey string) error
+
 	wg            sync.WaitGroup
 	lazyCtx       context.Context
 	lazyCtxCancel context.CancelFunc
+}
+
+// SetRoutedIPsReconciler injects the callback used to re-apply a peer's routed allowed IPs when
+// its lazy wake endpoint is (re)armed. Must be called before the lazy manager starts.
+func (e *ConnMgr) SetRoutedIPsReconciler(fn func(peerKey string) error) {
+	e.reconcileRoutedIPs = fn
 }
 
 func NewConnMgr(engineConfig *EngineConfig, statusRecorder *peer.Status, peerStore *peerstore.Store, iface lazyconn.WGIface) *ConnMgr {
@@ -291,6 +301,7 @@ func (e *ConnMgr) Close() {
 func (e *ConnMgr) initLazyManager(engineCtx context.Context) {
 	cfg := manager.Config{
 		InactivityThreshold: inactivityThresholdEnv(),
+		ReconcileAllowedIPs: e.reconcileRoutedIPs,
 	}
 
 	e.lazyConnMgrMu.Lock()
@@ -374,11 +385,20 @@ func inactivityThresholdEnv() *time.Duration {
 		return nil
 	}
 
-	parsedMinutes, err := strconv.Atoi(envValue)
-	if err != nil || parsedMinutes <= 0 {
-		return nil
+	// Documented format: a Go duration such as "30m" or "1h".
+	if d, err := time.ParseDuration(envValue); err == nil {
+		if d <= 0 {
+			return nil
+		}
+		return &d
 	}
 
-	d := time.Duration(parsedMinutes) * time.Minute
-	return &d
+	// Backwards compatibility: a bare integer used to be interpreted as minutes.
+	if parsedMinutes, err := strconv.Atoi(envValue); err == nil && parsedMinutes > 0 {
+		d := time.Duration(parsedMinutes) * time.Minute
+		return &d
+	}
+
+	log.Warnf("invalid %s value %q: expected a Go duration such as 30m or 1h", lazyconn.EnvInactivityThreshold, envValue)
+	return nil
 }

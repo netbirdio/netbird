@@ -2,9 +2,6 @@ package types
 
 import (
 	nbdns "github.com/netbirdio/netbird/dns"
-	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
-	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -21,7 +18,7 @@ type NetworkMapComponentsCompact struct {
 	DNSSettings      *DNSSettings
 	CustomZoneDomain string
 
-	AllPeers          []*nbpeer.Peer
+	AllPeers          []*ComponentPeer
 	PeerIndexes       []int
 	RouterPeerIndexes []int
 
@@ -34,8 +31,8 @@ type NetworkMapComponentsCompact struct {
 	AllDNSRecords       []nbdns.SimpleRecord
 	AccountZones        []nbdns.CustomZone
 
-	RoutersMap       map[string]map[string]*routerTypes.NetworkRouter
-	NetworkResources []*resourceTypes.NetworkResource
+	RoutersMap       map[string]map[string]*ComponentRouter
+	NetworkResources []*ComponentResource
 
 	GroupIDToUserIDs   map[string][]string
 	AllowedUserIDs     map[string]struct{}
@@ -44,7 +41,7 @@ type NetworkMapComponentsCompact struct {
 
 func (c *NetworkMapComponents) ToCompact() *NetworkMapComponentsCompact {
 	peerToIndex := make(map[string]int)
-	var allPeers []*nbpeer.Peer
+	var allPeers []*ComponentPeer
 
 	for id, peer := range c.Peers {
 		if _, exists := peerToIndex[id]; !exists {
@@ -150,7 +147,7 @@ func (c *NetworkMapComponents) ToCompact() *NetworkMapComponentsCompact {
 }
 
 func (c *NetworkMapComponentsCompact) ToFull() *NetworkMapComponents {
-	peers := make(map[string]*nbpeer.Peer, len(c.PeerIndexes))
+	peers := make(map[string]*ComponentPeer, len(c.PeerIndexes))
 	for _, idx := range c.PeerIndexes {
 		if idx >= 0 && idx < len(c.AllPeers) {
 			peer := c.AllPeers[idx]
@@ -158,7 +155,7 @@ func (c *NetworkMapComponentsCompact) ToFull() *NetworkMapComponents {
 		}
 	}
 
-	routerPeers := make(map[string]*nbpeer.Peer, len(c.RouterPeerIndexes))
+	routerPeers := make(map[string]*ComponentPeer, len(c.RouterPeerIndexes))
 	for _, idx := range c.RouterPeerIndexes {
 		if idx >= 0 && idx < len(c.AllPeers) {
 			peer := c.AllPeers[idx]
@@ -166,7 +163,7 @@ func (c *NetworkMapComponentsCompact) ToFull() *NetworkMapComponents {
 		}
 	}
 
-	groups := make(map[string]*Group, len(c.Groups))
+	groups := make(map[string]*ComponentGroup, len(c.Groups))
 	for id, gc := range c.Groups {
 		peerIDs := make([]string, 0, len(gc.PeerIndexes))
 		for _, idx := range gc.PeerIndexes {
@@ -174,7 +171,7 @@ func (c *NetworkMapComponentsCompact) ToFull() *NetworkMapComponents {
 				peerIDs = append(peerIDs, c.AllPeers[idx].ID)
 			}
 		}
-		groups[id] = &Group{
+		groups[id] = &ComponentGroup{
 			ID:    id,
 			Name:  gc.Name,
 			Peers: peerIDs,

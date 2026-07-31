@@ -52,7 +52,9 @@ func catalogModel(pc providerCase) string {
 func disallowedModel(pc providerCase) string {
 	switch pc.kind {
 	case harness.WireBedrock:
-		return "us.anthropic.claude-opus-4-8"
+		// Same profile prefix as the allowed model so only the model name
+		// differs; the guardrail must deny it before it reaches AWS.
+		return strings.SplitN(pc.model, ".", 2)[0] + ".anthropic.claude-opus-4-8"
 	case harness.WireVertex:
 		return "claude-opus-4-8@20250101"
 	default:
@@ -72,7 +74,7 @@ func sendModel(ctx context.Context, t *testing.T, cl *harness.Client, endpoint, 
 	case harness.WireVertex:
 		code, _, err = cl.Vertex(ctx, endpoint, proxyIP, pc.project, pc.region, model, "Reply with exactly: pong", "")
 	default:
-		code, _, err = cl.Chat(ctx, endpoint, proxyIP, pc.kind, model, "Reply with exactly: pong", "")
+		code, _, err = cl.ChatPrefixed(ctx, endpoint, proxyIP, pc.pathPrefix, pc.kind, model, "Reply with exactly: pong", "")
 	}
 	require.NoError(t, err, "request must reach the proxy for %s", pc.name)
 	return code
@@ -164,8 +166,7 @@ func TestModelAllowlistEnforced(t *testing.T) {
 	t.Cleanup(func() { _ = cl.Terminate(context.Background()) })
 
 	require.NoError(t, cl.WaitConnected(ctx, 90*time.Second), "client must connect to management")
-	// Resolve first: the DNS lookup triggers the lazy-connection warm-up, waking
-	// the proxy peer so WaitProxyPeer then observes it connected.
+	// Probe first: the GET resolves the endpoint (DNS error fails) and its first packet wakes the lazy proxy peer, so WaitProxyPeer sees it connected; any HTTP status counts.
 	proxyIP, err := cl.ResolveProxyIP(ctx, settings.Endpoint)
 	require.NoError(t, err, "resolve agent-network endpoint to proxy IP")
 	if err := cl.WaitProxyPeer(ctx, 180*time.Second); err != nil {

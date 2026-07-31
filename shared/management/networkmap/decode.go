@@ -11,9 +11,6 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
-	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	nbroute "github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/proto"
@@ -38,17 +35,17 @@ func DecodeEnvelope(env *proto.NetworkMapEnvelope) (*types.NetworkMapComponents,
 		Network:             decodeAccountNetwork(full.Network),
 		AccountSettings:     decodeAccountSettings(full.AccountSettings),
 		CustomZoneDomain:    full.CustomZoneDomain,
-		Peers:               make(map[string]*nbpeer.Peer, len(full.Peers)),
-		Groups:              make(map[string]*types.Group, len(full.Groups)),
+		Peers:               make(map[string]*types.ComponentPeer, len(full.Peers)),
+		Groups:              make(map[string]*types.ComponentGroup, len(full.Groups)),
 		Policies:            make([]*types.Policy, 0, len(full.Policies)),
 		Routes:              make([]*nbroute.Route, 0, len(full.Routes)),
 		NameServerGroups:    make([]*nbdns.NameServerGroup, 0, len(full.NameserverGroups)),
 		AllDNSRecords:       decodeSimpleRecords(full.AllDnsRecords),
 		AccountZones:        decodeCustomZones(full.AccountZones),
 		ResourcePoliciesMap: make(map[string][]*types.Policy),
-		RoutersMap:          make(map[string]map[string]*routerTypes.NetworkRouter),
-		NetworkResources:    make([]*resourceTypes.NetworkResource, 0, len(full.NetworkResources)),
-		RouterPeers:         make(map[string]*nbpeer.Peer),
+		RoutersMap:          make(map[string]map[string]*types.ComponentRouter),
+		NetworkResources:    make([]*types.ComponentResource, 0, len(full.NetworkResources)),
+		RouterPeers:         make(map[string]*types.ComponentPeer),
 		AllowedUserIDs:      stringSliceToSet(full.AllowedUserIds),
 		PostureFailedPeers:  make(map[string]map[string]struct{}, len(full.PostureFailedPeers)),
 		GroupIDToUserIDs:    make(map[string][]string, len(full.GroupIdToUserIds)),
@@ -101,7 +98,7 @@ func DecodeEnvelope(env *proto.NetworkMapEnvelope) (*types.NetworkMapComponents,
 				log.WithField("peer idx", idx).Error("unrecognized peer idx during decoding")
 			}
 		}
-		group := &types.Group{
+		group := &types.ComponentGroup{
 			ID:       groupID,
 			PublicID: gc.Id,
 			Peers:    peerIDs,
@@ -151,7 +148,7 @@ func DecodeEnvelope(env *proto.NetworkMapEnvelope) (*types.NetworkMapComponents,
 	// Phase 7: routers_map (outer key = network seq id, inner key = peer-id
 	// reconstructed from peer_index). Synthesized network id is "net_<seq>".
 	for networkID, list := range full.RoutersMap {
-		inner := make(map[string]*routerTypes.NetworkRouter, len(list.Entries))
+		inner := make(map[string]*types.ComponentRouter, len(list.Entries))
 		for _, entry := range list.Entries {
 			if !entry.PeerIndexSet {
 				continue
@@ -161,8 +158,7 @@ func DecodeEnvelope(env *proto.NetworkMapEnvelope) (*types.NetworkMapComponents,
 				continue
 			}
 			peerID := peerIDByIndex[entry.PeerIndex]
-			inner[peerID] = &routerTypes.NetworkRouter{
-				ID:         "",
+			inner[peerID] = &types.ComponentRouter{
 				NetworkID:  networkID,
 				PublicID:   entry.Id,
 				Peer:       peerID,
@@ -264,40 +260,22 @@ func decodeAccountSettings(as *proto.AccountSettingsCompact) *types.AccountSetti
 	}
 }
 
-func decodePeerCompact(pc *proto.PeerCompact, peerID string) *nbpeer.Peer {
-	var caps []int32
-	if pc.SupportsSourcePrefixes {
-		caps = append(caps, nbpeer.PeerCapabilitySourcePrefixes)
-	}
-	if pc.SupportsIpv6 {
-		caps = append(caps, nbpeer.PeerCapabilityIPv6Overlay)
-	}
-	peer := &nbpeer.Peer{
+func decodePeerCompact(pc *proto.PeerCompact, peerID string) *types.ComponentPeer {
+	peer := &types.ComponentPeer{
 		ID:                     peerID,
 		Key:                    peerID,
 		SSHKey:                 string(pc.SshPubKey),
 		SSHEnabled:             pc.SshEnabled,
 		DNSLabel:               pc.DnsLabel,
 		LoginExpirationEnabled: pc.LoginExpirationEnabled,
-		Meta: nbpeer.PeerSystemMeta{
-			WtVersion:    pc.AgentVersion,
-			Capabilities: caps,
-			Flags: nbpeer.Flags{
-				ServerSSHAllowed: pc.ServerSshAllowed,
-			},
-		},
-	}
-	if pc.AddedWithSsoLogin {
-		// Set a non-empty UserID so (*Peer).AddedWithSSOLogin() returns true.
-		// The original UserID isn't on the wire; the value is intentionally
-		// visibly synthetic so any future consumer that mistakes UserID for a
-		// real account user xid won't silently match (or worse, write the
-		// sentinel into a downstream record).
-		peer.UserID = "<env-sso>"
+		AgentVersion:           pc.AgentVersion,
+		SupportsSourcePrefixes: pc.SupportsSourcePrefixes,
+		SupportsIPv6:           pc.SupportsIpv6,
+		ServerSSHAllowed:       pc.ServerSshAllowed,
+		AddedWithSSOLogin:      pc.AddedWithSsoLogin,
 	}
 	if pc.LastLoginUnixNano != 0 {
-		t := time.Unix(0, pc.LastLoginUnixNano)
-		peer.LastLogin = &t
+		peer.LastLogin = time.Unix(0, pc.LastLoginUnixNano)
 	}
 	switch len(pc.Ip) {
 	case 4:
@@ -424,14 +402,14 @@ func decodeNameServerGroupRaw(nsg *proto.NameServerGroupRaw) *nbdns.NameServerGr
 	return out
 }
 
-func decodeNetworkResource(nr *proto.NetworkResourceRaw) *resourceTypes.NetworkResource {
-	out := &resourceTypes.NetworkResource{
+func decodeNetworkResource(nr *proto.NetworkResourceRaw) *types.ComponentResource {
+	out := &types.ComponentResource{
 		ID:          nr.Id,
 		PublicID:    nr.Id,
 		NetworkID:   nr.NetworkSeq,
 		Name:        nr.Name,
 		Description: nr.Description,
-		Type:        resourceTypes.NetworkResourceType(nr.Type),
+		Type:        types.ComponentResourceType(nr.Type),
 		Address:     nr.Address,
 		Domain:      nr.DomainValue,
 		Enabled:     nr.Enabled,

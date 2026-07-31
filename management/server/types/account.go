@@ -283,8 +283,8 @@ func (a *Account) SynthesizePrivateServiceZones(peerID string) []nbdns.CustomZon
 			// it, adding a single private service would black-hole every
 			// other name under the zone apex.
 			zone = &nbdns.CustomZone{
-				Domain:           dns.Fqdn(serviceDomainZone),
-				Records:          []nbdns.SimpleRecord{},
+				Domain:               dns.Fqdn(serviceDomainZone),
+				Records:              []nbdns.SimpleRecord{},
 				NonAuthoritative:     true,
 				SearchDomainDisabled: true,
 			}
@@ -1082,6 +1082,7 @@ func (a *Account) connResourcesGenerator(ctx context.Context, targetPeer *nbpeer
 	peersExists := make(map[string]struct{})
 	rules := make([]*FirewallRule, 0)
 	peers := make([]*nbpeer.Peer, 0)
+	targetComponent := targetPeer.ToComponent()
 
 	return func(rule *PolicyRule, groupPeers []*nbpeer.Peer, direction int) {
 			for _, peer := range groupPeers {
@@ -1117,10 +1118,10 @@ func (a *Account) connResourcesGenerator(ctx context.Context, targetPeer *nbpeer
 				if len(rule.Ports) == 0 && len(rule.PortRanges) == 0 {
 					rules = append(rules, &fr)
 				} else {
-					rules = append(rules, ExpandPortsAndRanges(fr, rule, targetPeer)...)
+					rules = append(rules, ExpandPortsAndRanges(fr, rule, targetComponent)...)
 				}
 
-				rules = AppendIPv6FirewallRule(rules, rulesExists, peer, targetPeer, rule, FirewallRuleContext{
+				rules = AppendIPv6FirewallRule(rules, rulesExists, peer.ToComponent(), targetComponent, rule, FirewallRuleContext{
 					Direction:   direction,
 					DirStr:      strconv.Itoa(direction),
 					ProtocolStr: string(protocol),
@@ -1280,7 +1281,7 @@ func (a *Account) getRouteFirewallRules(ctx context.Context, peerID string, poli
 	return fwRules
 }
 
-func (a *Account) getRulePeers(rule *PolicyRule, postureChecks []string, peerID string, distributionPeers map[string]struct{}, validatedPeersMap map[string]struct{}) []*nbpeer.Peer {
+func (a *Account) getRulePeers(rule *PolicyRule, postureChecks []string, peerID string, distributionPeers map[string]struct{}, validatedPeersMap map[string]struct{}) []*ComponentPeer {
 	distPeersWithPolicy := make(map[string]struct{})
 	for _, id := range rule.Sources {
 		group := a.Groups[id]
@@ -1307,13 +1308,13 @@ func (a *Account) getRulePeers(rule *PolicyRule, postureChecks []string, peerID 
 		}
 	}
 
-	distributionGroupPeers := make([]*nbpeer.Peer, 0, len(distPeersWithPolicy))
+	distributionGroupPeers := make([]*ComponentPeer, 0, len(distPeersWithPolicy))
 	for pID := range distPeersWithPolicy {
 		peer := a.Peers[pID]
 		if peer == nil {
 			continue
 		}
-		distributionGroupPeers = append(distributionGroupPeers, peer)
+		distributionGroupPeers = append(distributionGroupPeers, peer.ToComponent())
 	}
 	return distributionGroupPeers
 }
@@ -1514,6 +1515,54 @@ func (a *Account) GetResourceRoutersMap() map[string]map[string]*routerTypes.Net
 	}
 
 	return routers
+}
+
+// forcesRoutingPeerDNSResolution reports whether the given peer must run
+// routing-peer DNS resolution regardless of the account-global
+// RoutingPeerDNSResolutionEnabled setting. It returns true when the peer is a
+// router for a domain network resource that is targeted by an enabled
+// reverse-proxy service, so the peer's DNS forwarder starts and can resolve
+// the target for the embedded proxy peers. Embedded proxy peers themselves are
+// handled at PeerConfig build time.
+func (a *Account) forcesRoutingPeerDNSResolution(peerID string, routers map[string]map[string]*routerTypes.NetworkRouter) bool {
+	targeted := a.proxyTargetedDomainResourceIDs()
+	if len(targeted) == 0 {
+		return false
+	}
+
+	for _, resource := range a.NetworkResources {
+		if resource == nil || !resource.Enabled || resource.Type != resourceTypes.Domain {
+			continue
+		}
+		if _, ok := targeted[resource.ID]; !ok {
+			continue
+		}
+		if _, isRouter := routers[resource.NetworkID][peerID]; isRouter {
+			return true
+		}
+	}
+
+	return false
+}
+
+// proxyTargetedDomainResourceIDs returns the set of domain network resource IDs
+// targeted by an enabled, non-terminated reverse-proxy service.
+func (a *Account) proxyTargetedDomainResourceIDs() map[string]struct{} {
+	ids := make(map[string]struct{})
+	for _, svc := range a.Services {
+		if svc == nil || !svc.Enabled || svc.Terminated {
+			continue
+		}
+		for _, target := range svc.Targets {
+			if target == nil || !target.Enabled {
+				continue
+			}
+			if target.TargetType == service.TargetTypeDomain {
+				ids[target.TargetId] = struct{}{}
+			}
+		}
+	}
+	return ids
 }
 
 // getPoliciesSourcePeers collects all unique peers from the source groups defined in the given policies.
