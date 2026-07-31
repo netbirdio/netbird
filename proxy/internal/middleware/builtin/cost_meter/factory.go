@@ -21,6 +21,21 @@ type Config struct {
 	// file probed inside the proxy data directory. When empty the
 	// loader falls back to "pricing.yaml".
 	PricingPath string `json:"pricing_path"`
+	// ProviderPrices overrides static pricing for an exact router provider ID
+	// and model pair. It is supplied by Agent Network synthesis for custom
+	// providers whose model pricing is not present in the static table.
+	ProviderPrices []ProviderPrices `json:"provider_prices"`
+}
+
+type ProviderPrices struct {
+	ProviderID string       `json:"provider_id"`
+	Models     []ModelPrice `json:"models"`
+}
+
+type ModelPrice struct {
+	ID          string  `json:"id"`
+	InputPer1k  float64 `json:"input_per_1k"`
+	OutputPer1k float64 `json:"output_per_1k"`
 }
 
 // Factory builds cost_meter instances from raw config bytes.
@@ -53,7 +68,7 @@ func (Factory) New(rawConfig []byte) (middleware.Middleware, error) {
 
 	cancel := startReloader(fctx.Context, loader)
 
-	return newMiddleware(loader, cancel), nil
+	return newMiddleware(loader, cancel, cfg.ProviderPrices), nil
 }
 
 // startReloader binds the loader's mtime-poll goroutine to a context
