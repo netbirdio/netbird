@@ -76,6 +76,24 @@ type Client struct {
 	connectClient *internal.ConnectClient
 	config        *profilemanager.Config
 	cacheDir      string
+
+	stateChangeMu    sync.Mutex
+	stateChangeSubID string
+	eventSub         *peer.EventSubscription
+	// Closed to stop the watch goroutines from delivering buffered items to a
+	// listener that has been removed or replaced. See stopStateChangeWatchLocked.
+	stateChangeDone chan struct{}
+
+	// Latched "the server wants an interactive login": survives the engine
+	// restarts that replace the run loop's context state. See Client.Status.
+	// Guarded by loginRequiredMu together with loginCleared, which counts
+	// clears so a stale observation cannot re-latch over one.
+	loginRequiredMu sync.Mutex
+	loginRequired   bool
+	loginCleared    uint64
+
+	extendMu     sync.Mutex
+	extendCancel context.CancelFunc
 }
 
 func (c *Client) setState(cfg *profilemanager.Config, cacheDir string, cc *internal.ConnectClient) {
@@ -149,11 +167,16 @@ func (c *Client) Run(platformFiles PlatformFiles, urlOpener URLOpener, isAndroid
 	if err != nil {
 		return err
 	}
-
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
 	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder)
 	c.setState(cfg, cacheDir, connectClient)
+	// This path runs the interactive SSO flow, so reaching here means the peer
+	// is authenticated again — release the latch Status() reports from. Clear
+	// only once the fresh connect client is installed: until then Status()
+	// still reads the previous run's context state, which holds the NeedsLogin
+	// that prompted this login, and would re-latch what was just cleared.
+	c.clearLoginRequired()
 	return connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener, stateFile, cacheDir)
 }
 
@@ -278,7 +301,7 @@ func (c *Client) DebugBundle(platformFiles PlatformFiles, anonymize bool) (strin
 	uploadCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	key, err := debug.UploadDebugBundle(uploadCtx, types.DefaultBundleURL, cfg.ManagementURL.String(), path)
+	key, err := debug.UploadDebugBundle(uploadCtx, types.DefaultBundleURL, cfg.ManagementURL.String(), path, false)
 	if err != nil {
 		return "", fmt.Errorf("upload debug bundle: %w", err)
 	}
