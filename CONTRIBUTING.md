@@ -92,8 +92,8 @@ agreed ticket, a change you have actually run, a diff small enough to review wit
 care, and an author who can explain it. Whatever wrote the diff, you are its
 author — you own every line you submit and the consequences of opening a PR with it.
 
-We reserve the right to consider if it is worth to maintain the contribution and to ensure 
-that what is merged aligns with our security standards and design expectations.
+We may assess whether a contribution is maintainable and whether its merged code
+aligns with our security standards and design expectations.
 
 ## Contents
 
