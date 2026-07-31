@@ -50,7 +50,7 @@ func ToComponentSyncResponse(
 	// TODO (dmitri) consider using invariants?
 	//
 	enableSSH := computeSSHEnabledForPeer(components, peer)
-	peerConfig := toPeerConfig(peer, components.Network, dnsName, settings, httpConfig, deviceFlowConfig, enableSSH)
+	peerConfig := toPeerConfig(peer, components.Network, dnsName, settings, httpConfig, deviceFlowConfig, enableSSH, components.ForceRoutingPeerDNSResolution)
 
 	includeIPv6 := peer.SupportsIPv6() && peer.IPv6.IsValid()
 	useSourcePrefixes := peer.SupportsSourcePrefixes()

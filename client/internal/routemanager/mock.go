@@ -16,6 +16,8 @@ type MockManager struct {
 	ClassifyRoutesFunc           func(routes []*route.Route) (map[route.ID]*route.Route, route.HAMap)
 	UpdateRoutesFunc             func(updateSerial uint64, serverRoutes map[route.ID]*route.Route, clientRoutes route.HAMap, useNewDNSRoute bool) error
 	TriggerSelectionFunc         func(haMap route.HAMap)
+	SelectRoutesFunc             func(ids []route.NetID, appendRoute bool) error
+	DeselectRoutesFunc           func(ids []route.NetID) error
 	GetRouteSelectorFunc         func() *routeselector.RouteSelector
 	GetClientRoutesFunc          func() route.HAMap
 	GetSelectedClientRoutesFunc  func() route.HAMap
@@ -53,6 +55,30 @@ func (m *MockManager) TriggerSelection(networks route.HAMap) {
 	if m.TriggerSelectionFunc != nil {
 		m.TriggerSelectionFunc(networks)
 	}
+}
+
+// SelectRoutes mock implementation of SelectRoutes from Manager interface
+func (m *MockManager) SelectRoutes(ids []route.NetID, appendRoute bool) error {
+	if m.SelectRoutesFunc != nil {
+		return m.SelectRoutesFunc(ids, appendRoute)
+	}
+	return nil
+}
+
+// DeselectRoutes mock implementation of DeselectRoutes from Manager interface
+func (m *MockManager) DeselectRoutes(ids []route.NetID) error {
+	if m.DeselectRoutesFunc != nil {
+		return m.DeselectRoutesFunc(ids)
+	}
+	return nil
+}
+
+// SelectAllRoutes mock implementation of SelectAllRoutes from Manager interface
+func (m *MockManager) SelectAllRoutes() {
+}
+
+// DeselectAllRoutes mock implementation of DeselectAllRoutes from Manager interface
+func (m *MockManager) DeselectAllRoutes() {
 }
 
 // GetRouteSelector mock implementation of GetRouteSelector from Manager interface

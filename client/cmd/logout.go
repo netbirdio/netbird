@@ -46,7 +46,7 @@ var logoutCmd = &cobra.Command{
 		}
 
 		if _, err := daemonClient.Logout(ctx, req); err != nil {
-			return fmt.Errorf("deregister: %v", err)
+			return daemonCallError("deregister", err)
 		}
 
 		cmd.Println("Deregistered successfully")
