@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 
 	"github.com/netbirdio/netbird/shared/management/http/api"
 )
@@ -145,4 +146,17 @@ func (c *Combined) ListConsumption(ctx context.Context) ([]api.AgentNetworkConsu
 // flattened per-request rows the proxy ships and management ingests).
 func (c *Combined) ListAccessLogs(ctx context.Context) (api.AgentNetworkAccessLogsResponse, error) {
 	return anRequest[api.AgentNetworkAccessLogsResponse](ctx, c, http.MethodGet, "/api/agent-network/access-logs", nil)
+}
+
+// ListAccessLogsFiltered returns the access-log page narrowed by the given
+// query parameters (e.g. model=..., session_id=..., provider_id=...). This
+// exercises management's server-side filtering rather than filtering client
+// side, so a row that is ingested but not indexed under the filtered column
+// surfaces as an empty page.
+func (c *Combined) ListAccessLogsFiltered(ctx context.Context, query url.Values) (api.AgentNetworkAccessLogsResponse, error) {
+	path := "/api/agent-network/access-logs"
+	if encoded := query.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+	return anRequest[api.AgentNetworkAccessLogsResponse](ctx, c, http.MethodGet, path, nil)
 }

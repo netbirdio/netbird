@@ -5,6 +5,7 @@ package agentnetwork
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"testing"
 	"time"
 
@@ -32,6 +33,8 @@ const (
 // — ready to drive chat. All containers are torn down via t.Cleanup.
 type pricedEnv struct {
 	provID   string
+	groupID  string // source group of the policy; the client peer's auto-group
+	policyID string // policy that authorises (and meters) the requests
 	upstream string // provider upstream URL, needed to re-send on a PUT update
 	endpoint string
 	proxyIP  string
@@ -133,7 +136,16 @@ func provisionPricedProvider(t *testing.T, ctx context.Context, name string, mod
 		t.Fatalf("client did not see the proxy peer: %v\n=== proxy logs ===\n%s", err, px.Logs(context.Background()))
 	}
 
-	return pricedEnv{provID: prov.Id, upstream: vllm.URL, endpoint: settings.Endpoint, proxyIP: proxyIP, client: cl, proxy: px}
+	return pricedEnv{
+		provID:   prov.Id,
+		groupID:  grp.Id,
+		policyID: pol.Id,
+		upstream: vllm.URL,
+		endpoint: settings.Endpoint,
+		proxyIP:  proxyIP,
+		client:   cl,
+		proxy:    px,
+	}
 }
 
 // chatOnce drives one OpenAI-shaped chat for model through the tunnel, retrying
@@ -435,6 +447,180 @@ func TestPricingDefaultsFileLeavesOtherModelsAlone(t *testing.T) {
 	row := findAccessLogBySession(t, ctx, sessionID)
 	assertOpenAICostAtRates(t, row, builtinInRate, builtinOutRate)
 	verifyUsageRowForSession(t, sessionID, builtinInRate, builtinOutRate)
+}
+
+// TestCustomModelAccessLogAttribution proves a custom (non-catalog) model is
+// handled correctly in the ACCESS LOG, not just in the cost columns. The other
+// tests here assert money; this one asserts the row's identity and attribution
+// dimensions — the columns the dashboard filters, groups and drills down on.
+//
+// A custom model id is the interesting case precisely because nothing in
+// NetBird's catalog describes it. Its provider vendor, parser surface, cost
+// buckets, and dashboard filterability all have to come from the operator's
+// provider record rather than from a compiled-in entry. So this checks:
+//
+//   - the row is stamped with the REQUESTED model id verbatim, not the mock
+//     upstream's response model (Qwen/Qwen2.5-0.5B-Instruct) and not a
+//     normalized or catalog-substituted id;
+//   - provider is the vendor SURFACE ("openai", from the catalog entry's
+//     ParserID) — a custom model does not change which wire shape was spoken;
+//   - resolved_provider_id / selected_policy_id / group_ids attribute the row to
+//     the operator's provider record, the authorising policy, and the caller's
+//     group, so spend on a custom model is attributable;
+//   - decision is "allow" with no deny reason, and the request dimensions
+//     (status 200, POST, the OpenAI chat path, non-stream, source IP, duration)
+//     are recorded;
+//   - management's SERVER-SIDE model filter finds the row by its custom id, so
+//     the model column is genuinely indexed and queryable rather than merely
+//     stored;
+//   - prompt/completion capture stays empty, since prompt collection is off by
+//     default and a custom model must not bypass that gate.
+func TestCustomModelAccessLogAttribution(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
+
+	// A model id no catalog entry carries, at odd rates so its cost cannot come
+	// from anywhere but the provider record.
+	const (
+		customModel = "e2e-attribution-model-v9"
+		inRate      = 0.0271
+		outRate     = 0.0913
+	)
+
+	env := provisionPricedProvider(t, ctx, "attribution", []api.AgentNetworkProviderModel{
+		{Id: customModel, InputPer1k: inRate, OutputPer1k: outRate},
+	})
+
+	sessionID := "e2e-session-attribution"
+	body := chatOnce(t, ctx, env, customModel, sessionID)
+	require.Contains(t, body, "chat.completion", "body should be an OpenAI-compatible completion; got: %s", body)
+
+	row := findAccessLogBySession(t, ctx, sessionID)
+
+	// Identity: the requested model verbatim. The mock answers with its own
+	// served model id, so a row carrying that instead means the log is sourced
+	// from the response body rather than the parsed request.
+	require.NotNil(t, row.Model, "access-log row must carry the requested model")
+	assert.Equal(t, customModel, *row.Model,
+		"the row must be stamped with the requested custom model id verbatim, not the mock upstream's response model (%s)", harness.VLLMModel)
+
+	// Surface: a custom model id does not change the wire shape that was spoken.
+	// provider is the vendor surface from the catalog entry's parser, which is
+	// also the key the cost meter's cache formula switches on.
+	require.NotNil(t, row.Provider, "access-log row must carry the vendor surface")
+	assert.Equal(t, "openai", *row.Provider,
+		"openai_api's parser surface is openai, regardless of how exotic the model id is")
+
+	// Attribution: which provider record served it, which policy authorised it,
+	// and which group the authorisation came through. Without these, spend on a
+	// custom model can be seen but not attributed.
+	require.NotNil(t, row.ResolvedProviderId, "row must name the provider record that served the request")
+	assert.Equal(t, env.provID, *row.ResolvedProviderId,
+		"the router stamps the operator's provider record id; a custom model must attribute to the record that enumerated it")
+	require.NotNil(t, row.SelectedPolicyId, "row must name the policy that authorised the request")
+	assert.Equal(t, env.policyID, *row.SelectedPolicyId,
+		"the policy carrying the token limit is the one that paid for the request")
+	require.NotNil(t, row.GroupIds, "row must carry the authorising group ids")
+	assert.Contains(t, *row.GroupIds, env.groupID,
+		"the caller's group is the policy's source group, so it must be the authorising group")
+
+	// Decision + request dimensions.
+	require.NotNil(t, row.Decision, "row must carry the policy decision")
+	assert.Equal(t, "allow", *row.Decision, "the uncapped policy allows this request")
+	if row.DenyReason != nil {
+		assert.Empty(t, *row.DenyReason, "an allowed request must carry no deny reason")
+	}
+	assert.Equal(t, 200, row.StatusCode, "the mock upstream answers 200")
+	if row.Method != nil {
+		assert.Equal(t, "POST", *row.Method, "a chat completion is a POST")
+	}
+	require.NotNil(t, row.Path, "row must record the request path")
+	assert.Equal(t, "/v1/chat/completions", *row.Path,
+		"the OpenAI chat path the client called, as seen by the proxy")
+	require.NotNil(t, row.Host, "row must record the host the client addressed")
+	assert.Equal(t, env.endpoint, *row.Host, "the agent-network endpoint the client resolved")
+	if row.Stream != nil {
+		assert.False(t, *row.Stream, "the harness sends a non-streaming request")
+	}
+	require.NotNil(t, row.SourceIp, "row must record the caller's tunnel IP")
+	assert.NotEmpty(t, *row.SourceIp, "the request arrived over the tunnel, so a source IP is known")
+
+	// Tokens and cost, so the attribution above is anchored to a real priced row
+	// rather than an empty shell that happens to carry the right ids.
+	assertOpenAICostAtRates(t, row, inRate, outRate)
+	assert.EqualValues(t, vllmPromptTokens+vllmCompletionTokens, row.TotalTokens,
+		"total_tokens is the mock's reported total")
+
+	// Prompt capture is off by default (account master switch), and a custom
+	// model must not bypass that gate.
+	if row.RequestPrompt != nil {
+		assert.Empty(t, *row.RequestPrompt, "prompt collection is off by default, so no prompt may be stored")
+	}
+	if row.ResponseCompletion != nil {
+		assert.Empty(t, *row.ResponseCompletion, "prompt collection is off by default, so no completion may be stored")
+	}
+
+	// Queryability: management's SERVER-SIDE model filter must find the row by
+	// its custom id. findAccessLogBySession above scans a page client-side, so
+	// this is the check that the model column is actually indexed and filterable
+	// — the dashboard's per-model drill-down on a custom model depends on it.
+	filtered, err := srv.ListAccessLogsFiltered(ctx, url.Values{"model": []string{customModel}})
+	require.NoError(t, err, "filter access logs by the custom model id")
+	require.Positive(t, filtered.TotalRecords, "the custom model must be findable via the server-side model filter")
+	foundSession := false
+	for _, r := range filtered.Data {
+		require.NotNil(t, r.Model, "filtered row must carry a model")
+		assert.Equal(t, customModel, *r.Model, "the model filter must not return rows for other models")
+		if r.SessionId != nil && *r.SessionId == sessionID {
+			foundSession = true
+		}
+	}
+	assert.True(t, foundSession, "the filtered page must include this test's request")
+
+	// Final raw-SQL audit of the parallel usage row: the ledger must carry the
+	// same custom model, surface, and provider-record attribution as the log.
+	verifyUsageAttributionForSession(t, sessionID, customModel, "openai", env.provID, env.groupID)
+}
+
+// verifyUsageAttributionForSession checks the usage ledger's attribution columns
+// for a session directly in the management sqlite store — including the group
+// child row, which the API renders but which only exists if the proxy's
+// authorising-group CSV was parsed into normalised rows. The usage table is
+// written unconditionally (independent of the log-collection toggle), so this is
+// the record that must attribute spend even for accounts with logs off.
+func verifyUsageAttributionForSession(t *testing.T, sessionID, wantModel, wantProvider, wantProviderID, wantGroupID string) {
+	t.Helper()
+	dbPath, err := srv.SnapshotStoreDB(t.TempDir())
+	require.NoError(t, err, "snapshot management sqlite store")
+
+	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
+	require.NoError(t, err, "open store snapshot")
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	defer func() { _ = sqlDB.Close() }()
+
+	var id, provider, model, resolvedProviderID, userID string
+	require.NoError(t, db.Raw(
+		`SELECT id, provider, model, resolved_provider_id, user_id
+		 FROM agent_network_request_usage WHERE session_id = ? ORDER BY timestamp DESC LIMIT 1`, sessionID).
+		Row().Scan(&id, &provider, &model, &resolvedProviderID, &userID),
+		"a usage row must exist for session %q", sessionID)
+
+	t.Logf("[sql] usage attribution session=%s id=%s provider=%s model=%s resolved_provider_id=%s user_id=%s",
+		sessionID, id, provider, model, resolvedProviderID, userID)
+	assert.Equal(t, wantModel, model, "usage row must carry the requested custom model")
+	assert.Equal(t, wantProvider, provider, "usage row must carry the vendor surface")
+	assert.Equal(t, wantProviderID, resolvedProviderID, "usage row must attribute to the operator's provider record")
+	assert.NotEmpty(t, userID, "the tunnel peer resolves to a principal, so the usage row must be attributable to it")
+
+	// The authorising group lands in the normalised child table, which is what
+	// the usage overview joins on to break spend down by group.
+	var groupIDs []string
+	require.NoError(t, db.Raw(
+		`SELECT group_id FROM agent_network_request_usage_group WHERE usage_id = ?`, id).
+		Scan(&groupIDs).Error, "read usage group child rows")
+	assert.Contains(t, groupIDs, wantGroupID,
+		"the authorising group must be normalised into a usage_group row so spend can be grouped by it")
 }
 
 // inDelta reports whether a and b are within tol of each other.
