@@ -4,8 +4,10 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
+	"sync"
 	"unsafe"
 
 	log "github.com/sirupsen/logrus"
@@ -20,14 +22,18 @@ var (
 	procConvertStringSecurityDescriptorToSecurityDescriptor = advapi32.NewProc("ConvertStringSecurityDescriptorToSecurityDescriptorW")
 )
 
-// sasSecurityAttributes builds a SECURITY_ATTRIBUTES that grants
-// EVENT_MODIFY_STATE only to the SYSTEM account, preventing unprivileged
-// local processes from triggering the Secure Attention Sequence.
+// sasSecurityAttributes builds a SECURITY_ATTRIBUTES granting access to the
+// SYSTEM account only, so no unprivileged local process can trigger the Secure
+// Attention Sequence. The caller owns the returned descriptor and must release
+// it with freeSecurityDescriptor once the object it secures exists.
+//
+// SYSTEM alone is enough for both ends: the daemon creates and waits on the
+// event as LocalSystem, and the only legitimate signaller is the session agent,
+// which spawnAgentInSession starts with a SYSTEM token and which never drops
+// privileges on Windows. Granting EVENT_MODIFY_STATE to interactive users would
+// let any logged-in local user drive SendSAS.
 func sasSecurityAttributes() (*windows.SecurityAttributes, error) {
-	// SDDL: grant full access to SYSTEM (creates/waits) and EVENT_MODIFY_STATE
-	// to the interactive user (IU) so the VNC agent in the console session can
-	// signal it. Other local users and network users are denied.
-	sddl, err := windows.UTF16PtrFromString("D:(A;;GA;;;SY)(A;;0x0002;;;IU)")
+	sddl, err := windows.UTF16PtrFromString("D:(A;;GA;;;SY)")
 	if err != nil {
 		return nil, err
 	}
@@ -48,6 +54,19 @@ func sasSecurityAttributes() (*windows.SecurityAttributes, error) {
 	}, nil
 }
 
+// freeSecurityDescriptor releases the descriptor
+// ConvertStringSecurityDescriptorToSecurityDescriptorW allocated. Safe on a nil
+// SecurityAttributes so callers can defer it before checking for an error.
+func freeSecurityDescriptor(sa *windows.SecurityAttributes) {
+	if sa == nil || sa.SecurityDescriptor == nil {
+		return
+	}
+	if _, err := windows.LocalFree(windows.Handle(unsafe.Pointer(sa.SecurityDescriptor))); err != nil {
+		log.Debugf("free SAS security descriptor: %v", err)
+	}
+	sa.SecurityDescriptor = nil
+}
+
 // sasOriginalState tracks the SoftwareSASGeneration value present before we
 // changed it, so disableSoftwareSAS can restore the machine to its prior
 // state on shutdown instead of leaving the policy enabled.
@@ -61,7 +80,13 @@ type sasOriginalState struct {
 	captured bool
 }
 
-var savedSASState sasOriginalState
+var (
+	// sasStateMu guards savedSASState: enable and disable run from a Server's
+	// platformInit / platformShutdown, and nothing stops two Servers (or a
+	// restart overlapping a shutdown) from reaching it at once.
+	sasStateMu    sync.Mutex
+	savedSASState sasOriginalState
+)
 
 // enableSoftwareSAS sets the SoftwareSASGeneration registry key to allow
 // services to trigger the Secure Attention Sequence via SendSAS. Without this,
@@ -79,6 +104,7 @@ func enableSoftwareSAS() {
 	}
 	defer key.Close()
 
+	sasStateMu.Lock()
 	if !savedSASState.captured {
 		if prev, _, err := key.GetIntegerValue("SoftwareSASGeneration"); err == nil {
 			savedSASState = sasOriginalState{had: true, value: uint32(prev), captured: true}
@@ -86,6 +112,7 @@ func enableSoftwareSAS() {
 			savedSASState = sasOriginalState{had: false, captured: true}
 		}
 	}
+	sasStateMu.Unlock()
 
 	if err := key.SetDWordValue("SoftwareSASGeneration", 1); err != nil {
 		log.Warnf("set SoftwareSASGeneration: %v", err)
@@ -108,15 +135,30 @@ func disableSoftwareSAS() {
 	}
 	defer key.Close()
 
-	if savedSASState.had {
-		if err := key.SetDWordValue("SoftwareSASGeneration", savedSASState.value); err != nil {
-			log.Warnf("restore SoftwareSASGeneration to %d: %v", savedSASState.value, err)
-		}
+	sasStateMu.Lock()
+	defer sasStateMu.Unlock()
+
+	if !savedSASState.captured {
 		return
 	}
-	if err := key.DeleteValue("SoftwareSASGeneration"); err != nil {
-		log.Debugf("delete SoftwareSASGeneration: %v", err)
+
+	if savedSASState.had {
+		if err := key.SetDWordValue("SoftwareSASGeneration", savedSASState.value); err != nil {
+			// Keep the snapshot: the machine still holds our forced value, and a
+			// later attempt is the only chance to put the original one back.
+			log.Warnf("restore SoftwareSASGeneration to %d: %v", savedSASState.value, err)
+			return
+		}
+		savedSASState = sasOriginalState{}
+		return
 	}
+
+	err = key.DeleteValue("SoftwareSASGeneration")
+	if err != nil && !errors.Is(err, registry.ErrNotExist) {
+		log.Debugf("delete SoftwareSASGeneration: %v", err)
+		return
+	}
+	savedSASState = sasOriginalState{}
 }
 
 // startSASListener creates a named event with a restricted DACL and waits for
@@ -159,6 +201,10 @@ func createSASEvent() (windows.Handle, bool) {
 		log.Warnf("build SAS security descriptor: %v", err)
 		return 0, false
 	}
+	// Only after CreateEvent: the descriptor has to outlive the call that
+	// copies it into the kernel object.
+	defer freeSecurityDescriptor(sa)
+
 	ev, err := windows.CreateEvent(sa, 0, 0, namePtr)
 	if err != nil {
 		log.Warnf("SAS CreateEvent: %v", err)
