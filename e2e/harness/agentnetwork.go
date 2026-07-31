@@ -74,6 +74,13 @@ func (c *Combined) DeleteProvider(ctx context.Context, id string) error {
 	return anDelete(ctx, c, "/api/agent-network/providers/"+id)
 }
 
+// UpdateProvider replaces a provider by id (PUT). The API key may be omitted on
+// the request to keep the stored one; Models replaces the enumerated list, so
+// this is the path a test uses to change a model's price mid-run.
+func (c *Combined) UpdateProvider(ctx context.Context, id string, req api.AgentNetworkProviderRequest) (api.AgentNetworkProvider, error) {
+	return anRequest[api.AgentNetworkProvider](ctx, c, http.MethodPut, "/api/agent-network/providers/"+id, req)
+}
+
 // SetProviderEnabled toggles a provider's enabled flag, preserving its other
 // fields (the API key is omitted, which keeps the stored one). Used to run one
 // provider at a time so model→provider routing is unambiguous.
