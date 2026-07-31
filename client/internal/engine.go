@@ -666,7 +666,18 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		if pqErr != nil {
 			log.Errorf("pqkem: transport bind failed, exchange disabled: %v", pqErr)
 		} else {
-			e.pqkemManager = pqkem.NewManager(pqkem.LocalID(publicKey.String()), pqCallbackHandler{wg: e.wgInterface}, pqkem.NewLogger())
+			cbHandler := pqCallbackHandler{
+				wg: e.wgInterface,
+				// On a persistent rekey failure, re-bootstrap the KEM over Signal: a
+				// fresh signalling offer starts a new exchange that overwrites the
+				// stalled PSK on both sides, recovering from a data-path desync.
+				reoffer: func(remoteKey string) {
+					if conn, ok := e.peerStore.PeerConn(remoteKey); ok {
+						conn.RequestReoffer()
+					}
+				},
+			}
+			e.pqkemManager = pqkem.NewManager(pqkem.LocalID(publicKey.String()), cbHandler, pqkem.NewLogger())
 			e.pqkemManager.Start(tr)
 			log.Infof("pqkem: enabled (udp port %d on overlay %s)", e.pqkemManager.LocalPort(), e.config.WgAddr.IP)
 		}
