@@ -89,11 +89,20 @@ PRIV_RUN=TestNftablesManager PRIV_PKGS=./client/firewall/nftables/... make test-
 ./client/proto/generate.sh
 ./flow/proto/generate.sh
 
-# Run locally
+# Run locally (lab only, never on a machine you rely on)
 sudo ./client/netbird up --log-level debug --log-file console
+sudo ./client/netbird down                   # teardown: restores routing, firewall, DNS
 ./signal/signal run --log-level debug --log-file console
 ./management/management management --log-level debug --log-file console --config ./management.json
 ```
+
+`netbird up` needs root and rewrites the host's routing table, firewall rules,
+DNS configuration, and WireGuard® interface. Run it only in a disposable test
+environment (a VM, container, or throwaway host) that you can rebuild, never on
+a workstation or server whose connectivity matters. Run `sudo netbird down`
+before you stop working, before rebuilding the binary, and on every failure
+path, so the host's networking state is restored instead of left half-applied.
+See [Pitfalls](#pitfalls) for why cleanup on every exit path matters.
 
 ## Structure
 
