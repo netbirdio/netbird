@@ -154,6 +154,9 @@ func NewWindowManager(app *application.App, mainWindow *application.WebviewWindo
 	})
 	// Hide (not destroy) on close to keep React state; reset to General for a flash-free reopen.
 	s.settings.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
+		if ShuttingDown() {
+			return
+		}
 		e.Cancel()
 		s.app.Event.Emit(EventSettingsOpen, "general")
 		s.settings.Hide()
@@ -390,12 +393,17 @@ func (s *WindowManager) CloseWelcome() {
 	}
 }
 
-// OpenError shows the custom error dialog; title/message are pre-localised and ride in the
-// start URL. A second error replaces the open one via SetURL. Singleton, destroyed on close.
-func (s *WindowManager) OpenError(title, message string) {
+// OpenError shows the custom error dialog; title/message/command are pre-localised
+// and ride in the start URL. command is optional and, when set, is offered for
+// copying so the user can run the operation the daemon refused. A second error
+// replaces the open one via SetURL. Singleton, destroyed on close.
+func (s *WindowManager) OpenError(title, message, command string) {
+	if ShuttingDown() {
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	startURL := errorDialogURL(title, message)
+	startURL := errorDialogURL(title, message, command)
 	if s.errorDialog == nil {
 		s.errorDialog = s.app.Window.NewWithOptions(
 			DialogWindowOptions("error", s.title("window.title.error"), startURL, s.linuxIcon),
@@ -595,14 +603,17 @@ func (s *WindowManager) getScreenBasedOnCursorPosition() *application.Screen {
 	return nil
 }
 
-// errorDialogURL builds the error window's start URL with title/message as escaped query params.
-func errorDialogURL(title, message string) string {
+// errorDialogURL builds the error window's start URL with title/message/command as escaped query params.
+func errorDialogURL(title, message, command string) string {
 	q := url.Values{}
 	if title != "" {
 		q.Set("title", title)
 	}
 	if message != "" {
 		q.Set("message", message)
+	}
+	if command != "" {
+		q.Set("command", command)
 	}
 	startURL := "/#/dialog/error"
 	if enc := q.Encode(); enc != "" {

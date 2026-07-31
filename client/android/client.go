@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -75,6 +76,24 @@ type Client struct {
 	connectClient *internal.ConnectClient
 	config        *profilemanager.Config
 	cacheDir      string
+
+	stateChangeMu    sync.Mutex
+	stateChangeSubID string
+	eventSub         *peer.EventSubscription
+	// Closed to stop the watch goroutines from delivering buffered items to a
+	// listener that has been removed or replaced. See stopStateChangeWatchLocked.
+	stateChangeDone chan struct{}
+
+	// Latched "the server wants an interactive login": survives the engine
+	// restarts that replace the run loop's context state. See Client.Status.
+	// Guarded by loginRequiredMu together with loginCleared, which counts
+	// clears so a stale observation cannot re-latch over one.
+	loginRequiredMu sync.Mutex
+	loginRequired   bool
+	loginCleared    uint64
+
+	extendMu     sync.Mutex
+	extendCancel context.CancelFunc
 }
 
 func (c *Client) setState(cfg *profilemanager.Config, cacheDir string, cc *internal.ConnectClient) {
@@ -148,11 +167,16 @@ func (c *Client) Run(platformFiles PlatformFiles, urlOpener URLOpener, isAndroid
 	if err != nil {
 		return err
 	}
-
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
 	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder)
 	c.setState(cfg, cacheDir, connectClient)
+	// This path runs the interactive SSO flow, so reaching here means the peer
+	// is authenticated again — release the latch Status() reports from. Clear
+	// only once the fresh connect client is installed: until then Status()
+	// still reads the previous run's context state, which holds the NeedsLogin
+	// that prompted this login, and would re-latch what was just cleared.
+	c.clearLoginRequired()
 	return connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener, stateFile, cacheDir)
 }
 
@@ -299,6 +323,13 @@ func (c *Client) SetInfoLogLevel() {
 // PeersList return with the list of the PeerInfos
 func (c *Client) PeersList() *PeerInfoArray {
 
+	// The recorder only caches transfer counters and handshake times; nothing
+	// refreshes them on its own, so without this they read as zero. The desktop
+	// daemon does the same before serving a full peer status.
+	if err := c.recorder.RefreshWireGuardStats(); err != nil {
+		log.Debugf("failed to refresh WireGuard stats: %v", err)
+	}
+
 	fullStatus := c.recorder.GetFullStatus()
 
 	peerInfos := make([]PeerInfo, len(fullStatus.Peers))
@@ -309,6 +340,20 @@ func (c *Client) PeersList() *PeerInfoArray {
 			FQDN:       p.FQDN,
 			ConnStatus: int(p.ConnStatus),
 			Routes:     PeerRoutes{routes: maps.Keys(p.GetRoutes())},
+
+			PubKey:                     p.PubKey,
+			Latency:                    formatDuration(p.Latency),
+			LatencyMs:                  p.Latency.Milliseconds(),
+			BytesRx:                    p.BytesRx,
+			BytesTx:                    p.BytesTx,
+			ConnStatusUpdate:           formatTime(p.ConnStatusUpdate),
+			Relayed:                    p.Relayed,
+			RosenpassEnabled:           p.RosenpassEnabled,
+			LastWireguardHandshake:     formatTime(p.LastWireguardHandshake),
+			LocalIceCandidateType:      p.LocalIceCandidateType,
+			RemoteIceCandidateType:     p.RemoteIceCandidateType,
+			LocalIceCandidateEndpoint:  p.LocalIceCandidateEndpoint,
+			RemoteIceCandidateEndpoint: p.RemoteIceCandidateEndpoint,
 		}
 		peerInfos[n] = pi
 	}
@@ -439,10 +484,6 @@ func (c *Client) RemoveConnectionListener() {
 	c.recorder.RemoveConnectionListener()
 }
 
-func (c *Client) toggleRoute(command routeCommand) error {
-	return command.toggleRoute()
-}
-
 func (c *Client) getRouteManager() (routemanager.Manager, error) {
 	client := c.getConnectClient()
 	if client == nil {
@@ -462,22 +503,22 @@ func (c *Client) getRouteManager() (routemanager.Manager, error) {
 	return manager, nil
 }
 
-func (c *Client) SelectRoute(route string) error {
+func (c *Client) SelectRoute(id string) error {
 	manager, err := c.getRouteManager()
 	if err != nil {
 		return err
 	}
 
-	return c.toggleRoute(selectRouteCommand{route: route, manager: manager})
+	return manager.SelectRoutes([]route.NetID{route.NetID(id)}, true)
 }
 
-func (c *Client) DeselectRoute(route string) error {
+func (c *Client) DeselectRoute(id string) error {
 	manager, err := c.getRouteManager()
 	if err != nil {
 		return err
 	}
 
-	return c.toggleRoute(deselectRouteCommand{route: route, manager: manager})
+	return manager.DeselectRoutes([]route.NetID{route.NetID(id)})
 }
 
 // getNetworkDomainsFromRoute extracts domains from a route and enriches each domain
@@ -511,4 +552,29 @@ func exportEnvList(list *EnvList) {
 			log.Errorf("could not set env variable %s: %v", k, err)
 		}
 	}
+}
+
+// formatDuration renders a duration for display, trimming the fractional part
+// to two digits so latencies read as "12.34ms" rather than "12.345678ms".
+func formatDuration(d time.Duration) string {
+	ds := d.String()
+	dotIndex := strings.Index(ds, ".")
+	if dotIndex == -1 {
+		return ds
+	}
+
+	endIndex := min(dotIndex+3, len(ds))
+
+	// Skip the remaining digits so only the unit suffix is appended back.
+	unitStart := endIndex
+	for unitStart < len(ds) && ds[unitStart] >= '0' && ds[unitStart] <= '9' {
+		unitStart++
+	}
+	return ds[:endIndex] + ds[unitStart:]
+}
+
+// formatTime renders a timestamp in UTC using a fixed layout. The zero time is
+// passed through as-is so the UI can recognise it and show "never" instead.
+func formatTime(t time.Time) string {
+	return t.UTC().Format("2006-01-02 15:04:05")
 }
