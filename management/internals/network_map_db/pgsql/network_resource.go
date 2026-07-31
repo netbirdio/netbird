@@ -20,7 +20,7 @@ const (
 )
 
 func (pg *PgStore) GetNetworkResources(ctx context.Context, accountId string) ([]nmdata.NetworkResource, error) {
-	rows, err := pg.pool.Query(ctx, GetNetworkResourcesQuery, accountId)
+	rows, err := pg.Pool.Query(ctx, GetNetworkResourcesQuery, accountId)
 	if err != nil {
 		return nil, err
 	}

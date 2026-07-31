@@ -23,7 +23,7 @@ const (
 )
 
 func (pg *PgStore) GetPolicies(ctx context.Context, accountId string) ([]nmdata.Policy, error) {
-	rows, err := pg.pool.Query(ctx, GetPoliciesQuery, accountId)
+	rows, err := pg.Pool.Query(ctx, GetPoliciesQuery, accountId)
 	if err != nil {
 		return nil, err
 	}

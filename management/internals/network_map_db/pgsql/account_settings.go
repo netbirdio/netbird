@@ -21,7 +21,7 @@ const (
 )
 
 func (pg *PgStore) GetAccountSettings(ctx context.Context, accountId string) (nmdata.AccountSettingsInfo, error) {
-	rows, err := pg.pool.Query(ctx, GetAccountSettingsQuery, accountId)
+	rows, err := pg.Pool.Query(ctx, GetAccountSettingsQuery, accountId)
 	if err != nil {
 		return nmdata.AccountSettingsInfo{}, err
 	}

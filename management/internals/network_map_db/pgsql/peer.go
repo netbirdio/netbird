@@ -22,7 +22,7 @@ const (
 )
 
 func (pg *PgStore) GetPeers(ctx context.Context, accountId string) ([]nmdata.Peer, error) {
-	rows, err := pg.pool.Query(ctx, GetPeersQuery, accountId)
+	rows, err := pg.Pool.Query(ctx, GetPeersQuery, accountId)
 	if err != nil {
 		return nil, err
 	}

@@ -24,7 +24,7 @@ const (
 )
 
 func (pg *PgStore) GetGroups(ctx context.Context, accountId string) ([]nmdata.Group, error) {
-	rows, err := pg.pool.Query(ctx, GetGroupsQuery, accountId)
+	rows, err := pg.Pool.Query(ctx, GetGroupsQuery, accountId)
 	if err != nil {
 		return nil, err
 	}

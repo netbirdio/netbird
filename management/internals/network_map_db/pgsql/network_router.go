@@ -20,7 +20,7 @@ const (
 )
 
 func (pg *PgStore) GetNetworkRouters(ctx context.Context, accountId string) ([]nmdata.NetworkRouter, error) {
-	rows, err := pg.pool.Query(ctx, GetNetworkRouterQuery, accountId)
+	rows, err := pg.Pool.Query(ctx, GetNetworkRouterQuery, accountId)
 	if err != nil {
 		return nil, err
 	}

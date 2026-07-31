@@ -26,7 +26,7 @@ const (
 )
 
 func (pg *PgStore) GetAccountZones(ctx context.Context, accountId string) ([]nmdata.CustomZone, error) {
-	rows, err := pg.pool.Query(ctx, GetAccountZonesQuery, accountId)
+	rows, err := pg.Pool.Query(ctx, GetAccountZonesQuery, accountId)
 	if err != nil {
 		return nil, err
 	}

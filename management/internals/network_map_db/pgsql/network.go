@@ -20,7 +20,7 @@ const (
 )
 
 func (pg *PgStore) GetNetwork(ctx context.Context, accountId string) (nmdata.Network, error) {
-	rows, err := pg.pool.Query(ctx, GetNetworkQuery, accountId)
+	rows, err := pg.Pool.Query(ctx, GetNetworkQuery, accountId)
 	if err != nil {
 		return nmdata.Network{}, err
 	}

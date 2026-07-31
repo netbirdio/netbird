@@ -20,7 +20,7 @@ const (
 )
 
 func (pg *PgStore) GetNameServerGroups(ctx context.Context, accountId string) ([]nmdata.NameServerGroup, error) {
-	rows, err := pg.pool.Query(ctx, GetNameserversQuery, accountId)
+	rows, err := pg.Pool.Query(ctx, GetNameserversQuery, accountId)
 	if err != nil {
 		return nil, err
 	}

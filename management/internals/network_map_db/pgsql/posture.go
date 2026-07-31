@@ -19,7 +19,7 @@ const (
 )
 
 func (pg *PgStore) GetPostureChecks(ctx context.Context, accountId string) ([]nmdata.PostureChecks, error) {
-	rows, err := pg.pool.Query(ctx, GetPostureChecksQuery, accountId)
+	rows, err := pg.Pool.Query(ctx, GetPostureChecksQuery, accountId)
 	if err != nil {
 		return nil, err
 	}

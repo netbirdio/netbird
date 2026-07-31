@@ -19,7 +19,7 @@ const (
 var _ networkmapdb.NetworkMapDBStore = &PgStore{}
 
 type PgStore struct {
-	pool *pgxpool.Pool
+	Pool *pgxpool.Pool
 }
 
 func NewPostgresqlStore(ctx context.Context, dsn string) (*PgStore, error) {
@@ -28,7 +28,7 @@ func NewPostgresqlStore(ctx context.Context, dsn string) (*PgStore, error) {
 		return nil, err
 	}
 
-	return &PgStore{pool: pool}, nil
+	return &PgStore{Pool: pool}, nil
 }
 
 func connectToPgDb(ctx context.Context, dsn string) (*pgxpool.Pool, error) {

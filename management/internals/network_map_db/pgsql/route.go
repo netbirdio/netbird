@@ -22,7 +22,7 @@ const (
 )
 
 func (pg *PgStore) GetRoutes(ctx context.Context, accountId string) ([]nmdata.Route, error) {
-	rows, err := pg.pool.Query(ctx, GetRoutesQuery, accountId)
+	rows, err := pg.Pool.Query(ctx, GetRoutesQuery, accountId)
 	if err != nil {
 		return nil, err
 	}
