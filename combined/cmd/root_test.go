@@ -29,6 +29,10 @@ server:
 `
 	require.NoError(t, os.WriteFile(cfgFile, []byte(yamlContent), 0o600))
 
+	// initializeConfig writes the activity-store env vars; register them here so the
+	// test restores the process environment on exit instead of leaking into siblings.
+	t.Setenv("NB_ACTIVITY_EVENT_STORE_ENGINE", "")
+	t.Setenv("NB_ACTIVITY_EVENT_SQLITE_FILE", "")
 	t.Setenv("NB_ACTIVITY_EVENT_POSTGRES_DSN", "postgres://user:pass@localhost:5432/activity")
 
 	oldConfigPath := configPath
@@ -60,6 +64,9 @@ server:
     engine: postgres
 `
 	require.NoError(t, os.WriteFile(cfgFile, []byte(yamlContent), 0o600))
+
+	t.Setenv("NB_ACTIVITY_EVENT_STORE_ENGINE", "")
+	t.Setenv("NB_ACTIVITY_EVENT_SQLITE_FILE", "")
 
 	oldConfigPath := configPath
 	oldConfig := config
