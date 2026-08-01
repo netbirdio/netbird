@@ -2852,7 +2852,7 @@ type EDRFleetDMRequest struct {
 	// LastSyncedInterval The devices last sync requirement interval in hours. Minimum value is 24 hours
 	LastSyncedInterval int `json:"last_synced_interval"`
 
-	// MatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open-source version. Premium-only attributes are marked accordingly
+	// MatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open source version. Premium-only attributes are marked accordingly
 	MatchAttributes FleetDMMatchAttributes `json:"match_attributes"`
 }
 
@@ -2885,7 +2885,7 @@ type EDRFleetDMResponse struct {
 	// LastSyncedInterval The devices last sync requirement interval in hours.
 	LastSyncedInterval int `json:"last_synced_interval"`
 
-	// MatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open-source version. Premium-only attributes are marked accordingly
+	// MatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open source version. Premium-only attributes are marked accordingly
 	MatchAttributes FleetDMMatchAttributes `json:"match_attributes"`
 
 	// UpdatedAt Timestamp of when the integration was last updated.
@@ -3105,7 +3105,7 @@ type Event struct {
 // EventActivityCode The string code of the activity that occurred during the event
 type EventActivityCode string
 
-// FleetDMMatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open-source version. Premium-only attributes are marked accordingly
+// FleetDMMatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open source version. Premium-only attributes are marked accordingly
 type FleetDMMatchAttributes struct {
 	// DiskEncryptionEnabled Whether disk encryption (FileVault/BitLocker) must be enabled on the host
 	DiskEncryptionEnabled *bool `json:"disk_encryption_enabled,omitempty"`
