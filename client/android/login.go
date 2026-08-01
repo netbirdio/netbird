@@ -36,12 +36,20 @@ type Auth struct {
 }
 
 // NewAuth instantiate Auth struct and validate the management URL
+//
+// The configuration at cfgPath is reused when one is already there, and only created when it is
+// not. Building a fresh in-memory config unconditionally gives the client a new WireGuard key on
+// every call: the peer registers under that key, the key is written out, and any peer registered by
+// an earlier call is orphaned on the server. It also breaks a client that enrols and then runs from
+// the persisted config, because the identity it registered is not the one it runs with — the
+// management stream rejects it with "no peer auth method provided".
 func NewAuth(cfgPath string, mgmURL string) (*Auth, error) {
 	inputCfg := profilemanager.ConfigInput{
+		ConfigPath:    cfgPath,
 		ManagementURL: mgmURL,
 	}
 
-	cfg, err := profilemanager.CreateInMemoryConfig(inputCfg)
+	cfg, err := profilemanager.UpdateOrCreateConfig(inputCfg)
 	if err != nil {
 		return nil, err
 	}
