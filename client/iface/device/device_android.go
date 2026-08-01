@@ -68,21 +68,35 @@ func (t *WGTunDevice) Create(routes []string, dns string, searchDomains []string
 		ipv6Host = t.address.IPv6HostPrefix().String()
 	}
 
-	fd, err := t.tunAdapter.ConfigureInterface(t.address.HostPrefix().String(), ipv6Host, int(t.mtu), dns, searchDomainsToString, routesString)
-	if err != nil {
-		log.Errorf("failed to create Android interface: %s", err)
-		return nil, err
+	var (
+		tunDevice tun.Device
+		name      string
+		err       error
+	)
+	if provider, ok := t.tunAdapter.(TunDeviceProvider); ok {
+		// The host owns the tun and hands us the device directly; see TunDeviceProvider.
+		tunDevice, name, err = provider.TunDevice(t.address.HostPrefix().String(), ipv6Host, int(t.mtu), dns, searchDomainsToString, routesString)
+		if err != nil {
+			log.Errorf("failed to obtain a tun device from the host: %s", err)
+			return nil, err
+		}
+	} else {
+		var fd int
+		fd, err = t.tunAdapter.ConfigureInterface(t.address.HostPrefix().String(), ipv6Host, int(t.mtu), dns, searchDomainsToString, routesString)
+		if err != nil {
+			log.Errorf("failed to create Android interface: %s", err)
+			return nil, err
+		}
+
+		tunDevice, name, err = tun.CreateUnmonitoredTUNFromFD(fd)
+		if err != nil {
+			_ = unix.Close(fd)
+			log.Errorf("failed to create Android interface: %s", err)
+			return nil, err
+		}
 	}
 
-	unmonitoredTUN, name, err := tun.CreateUnmonitoredTUNFromFD(fd)
-	if err != nil {
-		_ = unix.Close(fd)
-		log.Errorf("failed to create Android interface: %s", err)
-		return nil, err
-	}
-
-	t.renewableTun.AddDevice(unmonitoredTUN)
-
+	t.renewableTun.AddDevice(tunDevice)
 	t.name = name
 	t.filteredDevice = newDeviceFilter(t.renewableTun)
 
