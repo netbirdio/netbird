@@ -5271,6 +5271,21 @@ components:
           format: double
           description: Cost per 1k output tokens, in USD.
           example: 0.0006
+        cached_input_per_1k:
+          type: number
+          format: double
+          description: OpenAI-shape cache rate — cost per 1k cached prompt tokens (a subset of input tokens), in USD. Omitted means inherit NetBird's default rate for this model when one exists; 0 means no discount (cached tokens bill at input_per_1k).
+          example: 0.000075
+        cache_read_per_1k:
+          type: number
+          format: double
+          description: Anthropic-shape cache rate — cost per 1k cache-read tokens (additive to input tokens), in USD. Omitted means inherit NetBird's default rate for this model when one exists; 0 means cache reads bill at input_per_1k.
+          example: 0.0003
+        cache_creation_per_1k:
+          type: number
+          format: double
+          description: Anthropic-shape cache rate — cost per 1k cache-creation tokens (additive to input tokens), in USD. Omitted means inherit NetBird's default rate for this model when one exists; 0 means cache writes bill at input_per_1k.
+          example: 0.00375
       required:
         - id
         - input_per_1k
@@ -5296,6 +5311,21 @@ components:
           format: double
           description: Output token price per 1k tokens, in USD.
           example: 0.015
+        cached_input_per_1k:
+          type: number
+          format: double
+          description: OpenAI-shape cache rate — default cost per 1k cached prompt tokens (a subset of input tokens), in USD. Absent when the model has no cached-input discount.
+          example: 0.000075
+        cache_read_per_1k:
+          type: number
+          format: double
+          description: Anthropic-shape cache rate — default cost per 1k cache-read tokens (additive to input tokens), in USD. Absent when the model has no cache-read rate.
+          example: 0.0003
+        cache_creation_per_1k:
+          type: number
+          format: double
+          description: Anthropic-shape cache rate — default cost per 1k cache-creation tokens (additive to input tokens), in USD. Absent when the model has no cache-creation rate.
+          example: 0.00375
         context_window:
           type: integer
           description: Maximum context window in tokens.
@@ -5354,6 +5384,13 @@ components:
             $ref: '#/components/schemas/AgentNetworkCatalogExtraHeader'
         identity_injection:
           $ref: '#/components/schemas/AgentNetworkCatalogIdentityInjection'
+        pricing_surfaces:
+          type: array
+          description: |
+            Cost-meter pricing surfaces this provider's traffic is metered under ("openai", "anthropic", "bedrock"). Tells the dashboard which cache-rate fields apply to this provider's models: "openai" → cached_input_per_1k (cached prompt tokens are a subset of input); "anthropic"/"bedrock" → cache_read_per_1k + cache_creation_per_1k (additive buckets). Absent/empty for gateway and custom entries, whose upstream shape NetBird cannot know ahead of time — surface all cache fields for those.
+          items:
+            type: string
+          example: ["openai"]
         models:
           type: array
           description: Catalog models available for this provider.
