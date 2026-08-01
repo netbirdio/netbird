@@ -155,7 +155,8 @@ func TestGetNetworkRouters(t *testing.T) {
 	//	err = loadSQL(ctx, s.pool, initDb)
 	//assert.NoError(t, err)
 
-	res, err := s.GetNetworkRouters(ctx, "d29f99jl0ubs73cm8ce0") //"ckd7ee2fic3c73dtendg")
+	c, _ := s.Pool.Acquire(ctx)
+	res, err := GetNetworkRoutersViaPgxConnection(ctx, c.Conn(), "d29f99jl0ubs73cm8ce0") //"ckd7ee2fic3c73dtendg")
 	assert.NoError(t, err)
 
 	fmt.Print(res)
