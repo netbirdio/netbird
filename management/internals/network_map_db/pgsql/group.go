@@ -23,33 +23,38 @@ const (
 	`
 )
 
-func (pg *PgStore) GetGroups(ctx context.Context, accountId string) ([]nmdata.Group, error) {
+func (pg *PgStore) GetGroups(ctx context.Context, accountId string) ([]nmdata.Group, map[string][]*nmdata.Group, error) {
 	c, err := pg.Pool.Acquire(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	return GetGroupsViaPgxConnection(ctx, c.Conn(), accountId)
 }
 
-func GetGroupsViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId string) ([]nmdata.Group, error) {
+func GetGroupsViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId string) ([]nmdata.Group, map[string][]*nmdata.Group, error) {
 	rows, err := con.Query(ctx, GetGroupsQuery, accountId)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	groups, err := pgx.CollectRows(rows, pgx.RowToStructByName[group])
 	toret := make([]nmdata.Group, 0, len(groups))
+	toretidx := make(map[string][]*nmdata.Group)
+
 	for _, g := range groups {
 		dg := nmdata.Group{}
 		err := networkmapdb.FromSqlTypesToSharedTypes(
 			reflect.ValueOf(&g), reflect.ValueOf(&dg))
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		toret = append(toret, dg)
+		for _, resource := range dg.Resources {
+			toretidx[resource.ID] = append(toretidx[resource.ID], &dg)
+		}
 	}
 
-	return toret, err
+	return toret, toretidx, err
 }
 
 type group struct {
