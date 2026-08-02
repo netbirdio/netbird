@@ -20,6 +20,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/ssh/detection"
+	"github.com/netbirdio/netbird/client/ssh/jwtcache"
 )
 
 const (
@@ -293,6 +294,14 @@ func (s *SSHClient) buildAuth(cfg *profilemanager.Config, engine *internal.Engin
 }
 
 func (s *SSHClient) requestJWTToken(cfg *profilemanager.Config) (string, error) {
+	// Reuse a cached token so the user is not forced through the browser OAuth
+	// flow on every reconnect. TTL comes from cfg.SSHJWTCacheTTL, same as the
+	// daemon's cache; unset/0 disables caching.
+	if token, ok := s.nb.sshJWTCache.Get(); ok {
+		log.Debug("SSH: reusing cached JWT token")
+		return token, nil
+	}
+
 	s.mu.Lock()
 	urlOpener := s.urlOpener
 	s.mu.Unlock()
@@ -323,6 +332,10 @@ func (s *SSHClient) requestJWTToken(cfg *profilemanager.Config) (string, error) 
 	token := tokenInfo.GetTokenToUse()
 	if token == "" {
 		return "", errors.New("empty token returned by IdP")
+	}
+
+	if ttl := jwtcache.ResolveTTL(cfg.SSHJWTCacheTTL); ttl > 0 {
+		s.nb.sshJWTCache.Store(token, ttl)
 	}
 	return token, nil
 }

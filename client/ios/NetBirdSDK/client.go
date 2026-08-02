@@ -21,6 +21,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/ssh/jwtcache"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/formatter"
 	"github.com/netbirdio/netbird/route"
@@ -87,6 +88,11 @@ type Client struct {
 	// config holds the active configuration once Run has loaded it. Consumed by
 	// the in-app SSH client for the NetBird SSH key and the OAuth flow.
 	config *profilemanager.Config
+
+	// sshJWTCache keeps the SSH JWT token between reconnects so the user is not
+	// forced through the browser OAuth flow on every session. Lives on Client
+	// (not SSHClient) because the app creates a new SSHClient per session.
+	sshJWTCache *jwtcache.Cache
 }
 
 // NewClient instantiate a new Client
@@ -103,6 +109,7 @@ func NewClient(cfgFile, stateFile, cacheDir, logFilePath, deviceName string, osV
 		ctxCancelLock:         &sync.Mutex{},
 		networkChangeListener: networkChangeListener,
 		dnsManager:            dnsManager,
+		sshJWTCache:           jwtcache.New(),
 	}
 }
 

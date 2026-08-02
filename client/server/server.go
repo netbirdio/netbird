@@ -26,6 +26,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	sleephandler "github.com/netbirdio/netbird/client/internal/sleep/handler"
 	"github.com/netbirdio/netbird/client/mdm"
+	"github.com/netbirdio/netbird/client/ssh/jwtcache"
 	"github.com/netbirdio/netbird/client/system"
 	mgm "github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/management/domain"
@@ -49,9 +50,6 @@ const (
 	defaultMaxRetryInterval = 60 * time.Minute
 	defaultMaxRetryTime     = 14 * 24 * time.Hour
 	defaultRetryMultiplier  = 1.7
-
-	// JWT token cache TTL for the client daemon (disabled by default)
-	defaultJWTCacheTTL = 0
 
 	errRestoreResidualState   = "failed to restore residual state: %v"
 	errProfilesDisabled       = "profiles are disabled, you cannot use this feature without profiles enabled"
@@ -134,7 +132,7 @@ type Server struct {
 
 	updateManager *updater.Manager
 
-	jwtCache *jwtCache
+	jwtCache *jwtcache.Cache
 }
 
 type oauthAuthFlow struct {
@@ -156,7 +154,7 @@ func New(ctx context.Context, logFile string, configFile string, profilesDisable
 		updateSettingsDisabled: updateSettingsDisabled,
 		captureEnabled:         captureEnabled,
 		networksDisabled:       networksDisabled,
-		jwtCache:               newJWTCache(),
+		jwtCache:               jwtcache.New(),
 		extendAuthSessionFlow:  auth.NewPendingFlow(),
 		probeThrottle:          newProbeThrottle(probeThreshold),
 	}
@@ -1624,19 +1622,11 @@ func (s *Server) getJWTCacheTTL() time.Duration {
 	config := s.config
 	s.mutex.Unlock()
 
-	if config == nil || config.SSHJWTCacheTTL == nil {
-		return defaultJWTCacheTTL
+	if config == nil {
+		return jwtcache.DefaultTTL
 	}
 
-	seconds := *config.SSHJWTCacheTTL
-	if seconds == 0 {
-		log.Debug("SSH JWT cache disabled (configured to 0)")
-		return 0
-	}
-
-	ttl := time.Duration(seconds) * time.Second
-	log.Debugf("SSH JWT cache TTL set to %v from config", ttl)
-	return ttl
+	return jwtcache.ResolveTTL(config.SSHJWTCacheTTL)
 }
 
 // RequestJWTAuth initiates JWT authentication flow for SSH
@@ -1658,7 +1648,7 @@ func (s *Server) RequestJWTAuth(
 
 	jwtCacheTTL := s.getJWTCacheTTL()
 	if jwtCacheTTL > 0 {
-		if cachedToken, found := s.jwtCache.get(); found {
+		if cachedToken, found := s.jwtCache.Get(); found {
 			log.Debugf("JWT token found in cache, returning cached token for SSH authentication")
 
 			return &proto.RequestJWTAuthResponse{
@@ -1731,7 +1721,7 @@ func (s *Server) WaitJWTToken(
 
 	jwtCacheTTL := s.getJWTCacheTTL()
 	if jwtCacheTTL > 0 {
-		s.jwtCache.store(token, jwtCacheTTL)
+		s.jwtCache.Store(token, jwtCacheTTL)
 		log.Debugf("JWT token cached for SSH authentication, TTL: %v", jwtCacheTTL)
 	} else {
 		log.Debug("JWT caching disabled, not storing token")
