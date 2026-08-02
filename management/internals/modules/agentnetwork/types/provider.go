@@ -164,9 +164,7 @@ func (p *Provider) FromAPIRequest(req *api.AgentNetworkProviderRequest) {
 		p.MetadataDisabled = *req.MetadataDisabled
 	}
 	// Identity-header overrides for catalogs flagged Customizable.
-	// nil pointer = "field omitted on the wire" → leave the stored
-	// value untouched (per the openapi description). Empty string is
-	// an explicit clear that disables stamping for this dimension.
+	// Empty or omitted disables stamping for this dimension.
 	if req.IdentityHeaderUserId != nil {
 		p.IdentityHeaderUserID = strings.TrimSpace(*req.IdentityHeaderUserId)
 	}

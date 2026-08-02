@@ -54,16 +54,14 @@ func TestValidate_ModelRates(t *testing.T) {
 	}
 }
 
-// TestProviderHandler_UpdatePreservesOmittedFields is the anti-clobber guard
-// for PUT /agent-network/providers/{id}: the fields the OpenAPI schema
-// documents as omit-preserves — extra_values, metadata_disabled, identity
-// headers, enabled, skip_tls_verification, api_key — must keep their stored
-// values when absent from the request. Before the handler merged onto the
-// existing row, such an update silently wiped dashboard-configured
-// extra_values and reset the toggles account-wide. Models carry no such
-// contract: like the rest of the PUT payload they are replaced with what the
-// request says, so an omitted list clears.
-func TestProviderHandler_UpdatePreservesOmittedFields(t *testing.T) {
+// TestProviderHandler_UpdateReplacesFullState pins the update contract shared
+// with the other PUT endpoints: the request replaces the provider's mutable
+// state, so optional fields absent from the JSON land as their zero values.
+// The two exceptions are server-side: the api_key (a secret — omitted means
+// "not rotated") and the session keypair, both preserved by the manager. The
+// identity headers stay on the wire as explicit empty strings so a cleared
+// value round-trips.
+func TestProviderHandler_UpdateReplacesFullState(t *testing.T) {
 	f := newAgentNetworkHandlerFixture(t)
 
 	create := `{
@@ -84,26 +82,21 @@ func TestProviderHandler_UpdatePreservesOmittedFields(t *testing.T) {
 	var created api.AgentNetworkProvider
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
 
-	// Minimal update: only the required fields (a rename), nothing optional.
-	update := `{"provider_id": "openai_api", "name": "openai-renamed", "upstream_url": "https://api.openai.com"}`
+	// Minimal update: only the required fields, no api_key. Everything
+	// optional must land as its zero value.
+	update := `{"provider_id": "openai_api", "name": "openai-renamed", "upstream_url": "https://api.openai.com", "enabled": true}`
 	rec = f.do(t, nethttp.MethodPut, "/agent-network/providers/"+created.Id, update)
-	require.Equal(t, nethttp.StatusOK, rec.Code, "update must succeed: %s", rec.Body.String())
+	require.Equal(t, nethttp.StatusOK, rec.Code, "update without api_key must succeed (key is preserved): %s", rec.Body.String())
 
 	var updated api.AgentNetworkProvider
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
 	assert.Equal(t, "openai-renamed", updated.Name, "sent field must apply")
-	assert.True(t, updated.MetadataDisabled, "omitted metadata_disabled must be preserved")
-	assert.True(t, updated.SkipTlsVerification, "omitted skip_tls_verification must be preserved")
-	assert.True(t, updated.Enabled, "omitted enabled must be preserved")
-	require.NotNil(t, updated.ExtraValues, "omitted extra_values must be preserved")
-	assert.Equal(t, "pc-prod-3f2a", (*updated.ExtraValues)["x-portkey-config"], "stored extra value must survive the update")
-	assert.Equal(t, "x-bf-dim-netbird_user_id", updated.IdentityHeaderUserId, "omitted identity header must be preserved")
-	assert.Empty(t, updated.Models, "models carry no omit-preserves contract: an omitted list is replaced with empty")
-
-	// An explicit "" clears the identity header and stays on the wire.
-	clearHeader := `{"provider_id": "openai_api", "name": "openai-renamed", "upstream_url": "https://api.openai.com", "identity_header_user_id": ""}`
-	rec = f.do(t, nethttp.MethodPut, "/agent-network/providers/"+created.Id, clearHeader)
-	require.Equal(t, nethttp.StatusOK, rec.Code, "clearing update must succeed: %s", rec.Body.String())
+	assert.True(t, updated.Enabled, "sent field must apply")
+	assert.False(t, updated.MetadataDisabled, "omitted metadata_disabled must land as false — PUT replaces the full state")
+	assert.False(t, updated.SkipTlsVerification, "omitted skip_tls_verification must land as false")
+	assert.Nil(t, updated.ExtraValues, "omitted extra_values must be cleared")
+	assert.Equal(t, "", updated.IdentityHeaderUserId, "omitted identity header must be cleared yet stay on the wire")
+	assert.Empty(t, updated.Models, "omitted models must be cleared")
 	assert.Contains(t, rec.Body.String(), `"identity_header_user_id":""`,
 		"cleared identity header must round-trip as an explicit empty string")
 }
