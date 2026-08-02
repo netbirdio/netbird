@@ -44,10 +44,25 @@ type Auth struct {
 // NewAuth instantiate Auth struct and validate the management URL
 func NewAuth(cfgPath string, mgmURL string) (*Auth, error) {
 	inputCfg := profilemanager.ConfigInput{
+		ConfigPath:    cfgPath,
 		ManagementURL: mgmURL,
 	}
 
-	cfg, err := profilemanager.CreateInMemoryConfig(inputCfg)
+	// Load the existing config when a config file is already present so an
+	// interactive re-login reuses the peer's persisted WireGuard private key
+	// (and thus its identity) instead of generating a fresh one. Generating a
+	// new key registers a brand-new peer on the management server on every
+	// re-auth (named after the fallback hostname). Only fall back to a fresh
+	// in-memory config for the first-time login when no config file exists yet.
+	// DirectUpdateOrCreateConfig uses non-atomic writes so it also works inside
+	// the tvOS App Group sandbox where atomic temp-file+rename is blocked.
+	var cfg *profilemanager.Config
+	var err error
+	if cfgPath != "" {
+		cfg, err = profilemanager.DirectUpdateOrCreateConfig(inputCfg)
+	} else {
+		cfg, err = profilemanager.CreateInMemoryConfig(inputCfg)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -207,17 +222,36 @@ func (a *Auth) Login(resultListener ErrListener, urlOpener URLOpener, forceDevic
 // LoginWithDeviceName performs interactive login with device authentication support
 // The deviceName parameter allows specifying a custom device name (required for tvOS)
 func (a *Auth) LoginWithDeviceName(resultListener ErrListener, urlOpener URLOpener, forceDeviceAuth bool, deviceName string) {
+	a.startLogin(resultListener, urlOpener, forceDeviceAuth, deviceName, false)
+}
+
+// LoginInteractive performs the same interactive login as LoginWithDeviceName but skips the
+// IsLoginRequired() pre-flight and goes straight to the browser / device-code flow.
+//
+// IsLoginRequired() is itself a full Login RPC against the management server, so when the
+// caller has ALREADY established that login is required it is a pure duplicate. On iOS the
+// main app decides to show the browser based on its own isLoginRequired() check and then
+// calls straight into this method, so re-asking the server would add another Login RPC to
+// every interactive login.
+//
+// Use LoginWithDeviceName when the auth state is unknown and a silent (browser-less) login
+// must still be possible; use this when the browser is going to be shown regardless.
+func (a *Auth) LoginInteractive(resultListener ErrListener, urlOpener URLOpener, forceDeviceAuth bool, deviceName string) {
+	a.startLogin(resultListener, urlOpener, forceDeviceAuth, deviceName, true)
+}
+
+func (a *Auth) startLogin(resultListener ErrListener, urlOpener URLOpener, forceDeviceAuth bool, deviceName string, skipLoginCheck bool) {
 	if resultListener == nil {
-		log.Errorf("LoginWithDeviceName: resultListener is nil")
+		log.Errorf("startLogin: resultListener is nil")
 		return
 	}
 	if urlOpener == nil {
-		log.Errorf("LoginWithDeviceName: urlOpener is nil")
+		log.Errorf("startLogin: urlOpener is nil")
 		resultListener.OnError(fmt.Errorf("urlOpener is nil"))
 		return
 	}
 	go func() {
-		err := a.login(urlOpener, forceDeviceAuth, deviceName)
+		err := a.login(urlOpener, forceDeviceAuth, deviceName, skipLoginCheck)
 		if err != nil {
 			resultListener.OnError(err)
 		} else {
@@ -226,7 +260,7 @@ func (a *Auth) LoginWithDeviceName(resultListener ErrListener, urlOpener URLOpen
 	}()
 }
 
-func (a *Auth) login(urlOpener URLOpener, forceDeviceAuth bool, deviceName string) error {
+func (a *Auth) login(urlOpener URLOpener, forceDeviceAuth bool, deviceName string, skipLoginCheck bool) error {
 	// Create context with device name if provided
 	ctx := a.ctx
 	if deviceName != "" {
@@ -240,10 +274,13 @@ func (a *Auth) login(urlOpener URLOpener, forceDeviceAuth bool, deviceName strin
 	}
 	defer authClient.Close()
 
-	// check if we need to generate JWT token
-	needsLogin, err := authClient.IsLoginRequired(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to check login requirement: %v", err)
+	// check if we need to generate JWT token (skipped when the caller already knows)
+	needsLogin := true
+	if !skipLoginCheck {
+		needsLogin, err = authClient.IsLoginRequired(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to check login requirement: %v", err)
+		}
 	}
 
 	jwtToken := ""

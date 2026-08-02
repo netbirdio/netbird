@@ -358,7 +358,8 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 			oldSettings.AutoUpdateVersion != newSettings.AutoUpdateVersion ||
 			oldSettings.AutoUpdateAlways != newSettings.AutoUpdateAlways ||
 			oldSettings.PeerLoginExpirationEnabled != newSettings.PeerLoginExpirationEnabled ||
-			oldSettings.PeerLoginExpiration != newSettings.PeerLoginExpiration {
+			oldSettings.PeerLoginExpiration != newSettings.PeerLoginExpiration ||
+			oldSettings.MetricsPushEnabled != newSettings.MetricsPushEnabled {
 			// Session deadline is derived from LastLogin + PeerLoginExpiration
 			// on every Login/Sync response. Without a fan-out push, connected
 			// peers keep the deadline they received at login time and only see
@@ -409,6 +410,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	am.handleAutoUpdateVersionSettings(ctx, oldSettings, newSettings, userID, accountID)
 	am.handleAutoUpdateAlwaysSettings(ctx, oldSettings, newSettings, userID, accountID)
 	am.handlePeerExposeSettings(ctx, oldSettings, newSettings, userID, accountID)
+	am.handleMetricsPushSettings(ctx, oldSettings, newSettings, userID, accountID)
 	if err = am.handleInactivityExpirationSettings(ctx, oldSettings, newSettings, userID, accountID); err != nil {
 		return nil, err
 	}
@@ -563,6 +565,16 @@ func (am *DefaultAccountManager) handleLazyConnectionSettings(ctx context.Contex
 	}
 }
 
+func (am *DefaultAccountManager) handleMetricsPushSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) {
+	if oldSettings.MetricsPushEnabled != newSettings.MetricsPushEnabled {
+		if newSettings.MetricsPushEnabled {
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountMetricsPushEnabled, nil)
+		} else {
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountMetricsPushDisabled, nil)
+		}
+	}
+}
+
 func (am *DefaultAccountManager) handlePeerLoginExpirationSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) {
 	if oldSettings.PeerLoginExpirationEnabled != newSettings.PeerLoginExpirationEnabled {
 		event := activity.AccountPeerLoginExpirationEnabled
@@ -689,7 +701,7 @@ func (am *DefaultAccountManager) peerLoginExpirationJob(ctx context.Context, acc
 
 		log.WithContext(ctx).Debugf("discovered %d peers to expire for account %s", len(peerIDs), accountID)
 
-		if err := am.expireAndUpdatePeers(ctx, accountID, expiredPeers); err != nil {
+		if err := am.expireAndUpdatePeers(ctx, accountID, expiredPeers, peerExpirationSessionExpired); err != nil {
 			log.WithContext(ctx).Errorf("failed updating account peers while expiring peers for account %s", accountID)
 			return peerSchedulerRetryInterval, true
 		}
@@ -724,7 +736,7 @@ func (am *DefaultAccountManager) peerInactivityExpirationJob(ctx context.Context
 
 		log.Debugf("discovered %d peers to expire for account %s", len(peerIDs), accountID)
 
-		if err := am.expireAndUpdatePeers(ctx, accountID, inactivePeers); err != nil {
+		if err := am.expireAndUpdatePeers(ctx, accountID, inactivePeers, peerExpirationInactivity); err != nil {
 			log.Errorf("failed updating account peers while expiring peers for account %s", accountID)
 			return peerSchedulerRetryInterval, true
 		}
@@ -1636,6 +1648,10 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 			return nil
 		}
 
+		for _, g := range newGroupsToCreate {
+			g.PublicID = xid.New().String()
+		}
+
 		if err = transaction.CreateGroups(ctx, userAuth.AccountId, newGroupsToCreate); err != nil {
 			return fmt.Errorf("error saving groups: %w", err)
 		}
@@ -1949,7 +1965,7 @@ func (am *DefaultAccountManager) onPeersInvalidated(ctx context.Context, account
 		}
 	}
 	if len(peers) > 0 {
-		err := am.expireAndUpdatePeers(ctx, accountID, peers)
+		err := am.expireAndUpdatePeers(ctx, accountID, peers, peerExpirationValidationFailed)
 		if err != nil {
 			log.WithContext(ctx).Errorf("failed to expire and update invalidated peers for account %s: %v", accountID, err)
 			return
@@ -2045,6 +2061,7 @@ func newAccountWithId(ctx context.Context, accountID, userID, domain, email, nam
 			Extra: &types.ExtraSettings{
 				UserApprovalRequired: true,
 			},
+			LazyConnectionEnabled: true,
 		},
 		Onboarding: types.AccountOnboarding{
 			OnboardingFlowPending: true,

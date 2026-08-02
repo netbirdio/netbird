@@ -23,7 +23,7 @@ const (
 	RDCleanPathProxyHost   = "rdcleanpath.proxy.local"
 	RDCleanPathProxyScheme = "ws"
 
-	rdpDialTimeout = 15 * time.Second
+	rdpDialTimeout = 30 * time.Second
 
 	GeneralErrorCode = 1
 	WSAETimedOut     = 10060

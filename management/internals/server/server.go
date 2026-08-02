@@ -15,7 +15,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
+	"golang.org/x/net/http2/h2c" //nolint:staticcheck
 	"google.golang.org/grpc"
 
 	"github.com/netbirdio/netbird/encryption"
@@ -382,6 +382,7 @@ func (s *BaseServer) serveGRPCWithHTTP(ctx context.Context, listener net.Listene
 			// the following magic is needed to support HTTP2 without TLS
 			// and still share a single port between gRPC and HTTP APIs
 			h1s := &http.Server{
+				//nolint:staticcheck // h2c also handles the HTTP/1 Upgrade mechanism, which http.Server's UnencryptedHTTP2 does not
 				Handler: h2c.NewHandler(handler, &http2.Server{}),
 			}
 			err = h1s.Serve(listener)

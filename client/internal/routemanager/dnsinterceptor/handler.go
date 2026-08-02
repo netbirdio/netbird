@@ -95,7 +95,7 @@ func (d *DnsInterceptor) RemoveRoute() error {
 
 			// AllowedIPs should use real IPs
 			if d.currentPeerKey != "" {
-				if _, err := d.allowedIPsRefcounter.Decrement(prefix); err != nil {
+				if _, err := d.allowedIPsRefcounter.Decrement(prefix, d.currentPeerKey); err != nil {
 					merr = multierror.Append(merr, fmt.Errorf("remove allowed IP %s: %v", prefix, err))
 				}
 			}
@@ -172,7 +172,7 @@ func (d *DnsInterceptor) removeAllowedIP(realPrefix netip.Prefix) error {
 	}
 
 	// AllowedIPs use real IPs
-	if _, err := d.allowedIPsRefcounter.Decrement(realPrefix); err != nil {
+	if _, err := d.allowedIPsRefcounter.Decrement(realPrefix, d.currentPeerKey); err != nil {
 		return fmt.Errorf("remove allowed IP %s: %v", realPrefix, err)
 	}
 
@@ -205,7 +205,7 @@ func (d *DnsInterceptor) RemoveAllowedIPs() error {
 	for _, prefixes := range d.interceptedDomains {
 		for _, prefix := range prefixes {
 			// AllowedIPs use real IPs
-			if _, err := d.allowedIPsRefcounter.Decrement(prefix); err != nil {
+			if _, err := d.allowedIPsRefcounter.Decrement(prefix, d.currentPeerKey); err != nil {
 				merr = multierror.Append(merr, fmt.Errorf("remove allowed IP %s: %v", prefix, err))
 			}
 		}
@@ -226,12 +226,11 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 
-	// pass if non A/AAAA query
-	if r.Question[0].Qtype != dns.TypeA && r.Question[0].Qtype != dns.TypeAAAA {
-		d.continueToNextHandler(w, r, logger, "non A/AAAA query")
-		return
-	}
-
+	// All query types for an intercepted domain are forwarded to the peer's
+	// DNS forwarder, which owns the name. Falling through to the system
+	// resolver would let it answer NXDOMAIN for a name it isn't authoritative
+	// for, poisoning the whole name (including the A/AAAA records the route
+	// does serve). The forwarder answers NODATA for types it cannot resolve.
 	d.mu.RLock()
 	peerKey := d.currentPeerKey
 	d.mu.RUnlock()
@@ -290,19 +289,6 @@ func (d *DnsInterceptor) writeDNSError(w dns.ResponseWriter, r *dns.Msg, logger 
 	resp.SetRcode(r, dns.RcodeServerFailure)
 	if err := w.WriteMsg(resp); err != nil {
 		logger.Errorf("failed to write DNS error response: %v", err)
-	}
-}
-
-// continueToNextHandler signals the handler chain to try the next handler
-func (d *DnsInterceptor) continueToNextHandler(w dns.ResponseWriter, r *dns.Msg, logger *log.Entry, reason string) {
-	logger.Tracef("continuing to next handler for domain=%s reason=%s", r.Question[0].Name, reason)
-
-	resp := new(dns.Msg)
-	resp.SetRcode(r, dns.RcodeNameError)
-	// Set Zero bit to signal handler chain to continue
-	resp.MsgHdr.Zero = true
-	if err := w.WriteMsg(resp); err != nil {
-		logger.Errorf("failed writing DNS continue response: %v", err)
 	}
 }
 

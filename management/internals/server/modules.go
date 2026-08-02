@@ -20,6 +20,7 @@ import (
 	recordsManager "github.com/netbirdio/netbird/management/internals/modules/zones/records/manager"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/account"
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/idp"
@@ -191,6 +192,24 @@ func (s *BaseServer) RoutesManager() routers.Manager {
 func (s *BaseServer) NetworksManager() networks.Manager {
 	return Create(s, func() networks.Manager {
 		return networks.NewManager(s.Store(), s.PermissionsManager(), s.ResourcesManager(), s.RoutesManager(), s.AccountManager())
+	})
+}
+
+func (s *BaseServer) AgentNetworkManager() agentnetwork.Manager {
+	return Create(s, func() agentnetwork.Manager {
+		mgr := agentnetwork.NewManager(
+			s.Store(),
+			s.PermissionsManager(),
+			s.AccountManager(),
+			s.ServiceProxyController(),
+		)
+		// Sweep expired agent-network access logs per account retention,
+		// reusing the reverse-proxy cleanup interval config.
+		mgr.StartAccessLogCleanup(
+			context.Background(),
+			s.Config.ReverseProxy.AccessLogCleanupIntervalHours,
+		)
+		return mgr
 	})
 }
 

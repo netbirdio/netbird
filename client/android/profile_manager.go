@@ -189,6 +189,19 @@ func (pm *ProfileManager) LogoutProfile(id string) error {
 	return nil
 }
 
+// RenameProfile changes a profile's display name. The profile ID, and therefore
+// its on-disk filename, is left untouched: only the "name" field of the config
+// is rewritten. This works for the default profile too, whose config lives in
+// netbird.cfg rather than under profiles/.
+func (pm *ProfileManager) RenameProfile(id string, newName string) error {
+	if err := pm.serviceMgr.RenameProfile(profilemanager.ID(id), androidUsername, newName); err != nil {
+		return fmt.Errorf("failed to rename profile: %w", err)
+	}
+
+	log.Infof("renamed profile %s to: %s", id, newName)
+	return nil
+}
+
 // RemoveProfile deletes a profile
 func (pm *ProfileManager) RemoveProfile(id string) error {
 	// Use ServiceManager (removes profile from profiles/ directory)

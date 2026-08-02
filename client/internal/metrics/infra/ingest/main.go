@@ -19,7 +19,7 @@ const (
 	defaultListenAddr  = ":8087"
 	defaultInfluxDBURL = "http://influxdb:8086/api/v2/write?org=netbird&bucket=metrics&precision=ns"
 	maxBodySize        = 50 * 1024 * 1024 // 50 MB max request body
-	maxDurationSeconds = 300.0            // reject any duration field > 5 minutes
+	maxDurationSeconds = 86400.0          // reject any duration field > 24 hours
 	peerIDLength       = 16               // truncated SHA-256: 8 bytes = 16 hex chars
 	maxTagValueLength  = 64               // reject tag values longer than this
 )
@@ -57,6 +57,19 @@ var allowedMeasurements = map[string]measurementSpec{
 			"os":              true,
 			"arch":            true,
 			"peer_id":         true,
+		},
+	},
+	"netbird_sync_phase": {
+		allowedFields: map[string]bool{
+			"duration_seconds": true,
+		},
+		allowedTags: map[string]bool{
+			"deployment_type": true,
+			"version":         true,
+			"os":              true,
+			"arch":            true,
+			"peer_id":         true,
+			"phase":           true,
 		},
 	},
 	"netbird_login": {

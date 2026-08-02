@@ -24,6 +24,9 @@
       <string id="DisableAutoConnect_Name">Disable auto-connect</string>
       <string id="DisableAutoConnect_Help">When enabled, the NetBird tunnel does not auto-connect at daemon startup. Equivalent to --disable-auto-connect.</string>
 
+      <string id="DisableAutostart_Name">Disable autostart</string>
+      <string id="DisableAutostart_Help">When enabled, the NetBird GUI is prevented from registering itself as an OS autostart entry on fresh installs, and any existing OS autostart entry registration is removed on the next GUI launch (Windows Registry Run key, macOS Login Item, Linux .desktop). Once the admin lifts the policy, the setting stays off until the user re-enables it in Settings.</string>
+
       <string id="DisableClientRoutes_Name">Disable client routes</string>
       <string id="DisableClientRoutes_Help">When enabled, this client will not consume routes advertised by routing peers. Equivalent to --disable-client-routes.</string>
 
@@ -59,6 +62,9 @@
 
       <string id="DisableNetworks_Name">Disable networks</string>
       <string id="DisableNetworks_Help">When enabled, the client UI/CLI cannot list, select or deselect NetBird networks (the corresponding daemon RPCs return Unavailable). Equivalent to --disable-networks.</string>
+
+      <string id="DisableAdvancedView_Name">Disable advanced view</string>
+      <string id="DisableAdvancedView_Help">When enabled, the client UI hides the advanced-view section of the new UI revision. Tristate at the daemon: 1 (enabled) hides the section; 0 (disabled) explicitly shows it; not configured leaves the UI's default behavior in place. MDM is the sole source — no equivalent CLI flag exists.</string>
 
       <string id="DisableMetricsCollection_Name">Disable metrics collection</string>
       <string id="DisableMetricsCollection_Help">When enabled, the client does not collect or report local usage metrics.</string>

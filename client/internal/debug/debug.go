@@ -232,6 +232,12 @@ const (
 	errorLogFile  = "netbird.err"
 	stdoutLogFile = "netbird.out"
 
+	// Rotated-log glob prefixes (base log name without extension) passed to
+	// addRotatedLogFiles. The daemon's own log and the GUI log live in the same
+	// dir, so the prefixes must be disjoint to keep their rotated siblings apart.
+	clientLogPrefix = "client"
+	uiLogPrefix     = "gui-client"
+
 	darwinErrorLogPath  = "/var/log/netbird.out.log"
 	darwinStdoutLogPath = "/var/log/netbird.err.log"
 )
@@ -239,6 +245,20 @@ const (
 // MetricsExporter is an interface for exporting metrics
 type MetricsExporter interface {
 	Export(w io.Writer) error
+}
+
+// LogOpener opens a log file for inclusion in the bundle. It exists so that log
+// files whose path was supplied by an IPC caller can be opened under a check
+// the daemon defines, instead of being opened with the daemon's privileges
+// unconditionally.
+type LogOpener func(path string) (*os.File, error)
+
+func openLogFile(path string) (*os.File, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open %s: %w", path, err)
+	}
+	return f, nil
 }
 
 type BundleGenerator struct {
@@ -249,6 +269,8 @@ type BundleGenerator struct {
 	statusRecorder *peer.Status
 	syncResponse   *mgmProto.SyncResponse
 	logPath        string
+	uiLogPath      string
+	uiLogOpener    LogOpener
 	tempDir        string
 	statePath      string
 	cpuProfile     []byte
@@ -276,14 +298,21 @@ type GeneratorDependencies struct {
 	StatusRecorder *peer.Status
 	SyncResponse   *mgmProto.SyncResponse
 	LogPath        string
-	TempDir        string // Directory for temporary bundle zip files. If empty, os.TempDir() is used.
-	StatePath      string // Path to the state file. If empty, the ServiceManager default path is used.
-	CPUProfile     []byte
-	CapturePath    string
-	RefreshStatus  func()
-	ClientMetrics  MetricsExporter
-	DaemonVersion  string
-	CliVersion     string
+	UILogPath      string // Absolute path to the desktop UI's gui-client.log, reported via RegisterUILog. Empty if no UI registered one.
+	// UILogOpener opens the UI log and its rotated siblings. The path comes from
+	// a local IPC caller, so the daemon must not open it with plain os.Open: the
+	// opener is where the caller's right to that file is enforced. Defaults to
+	// os.Open, which is only correct where the path is not caller-supplied
+	// (mobile).
+	UILogOpener   LogOpener
+	TempDir       string // Directory for temporary bundle zip files. If empty, os.TempDir() is used.
+	StatePath     string // Path to the state file. If empty, the ServiceManager default path is used.
+	CPUProfile    []byte
+	CapturePath   string
+	RefreshStatus func()
+	ClientMetrics MetricsExporter
+	DaemonVersion string
+	CliVersion    string
 }
 
 func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGenerator {
@@ -293,6 +322,11 @@ func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGen
 		logFileCount = 1
 	}
 
+	uiLogOpener := deps.UILogOpener
+	if uiLogOpener == nil {
+		uiLogOpener = openLogFile
+	}
+
 	return &BundleGenerator{
 		anonymizer: anonymize.NewAnonymizer(anonymize.DefaultAddresses()),
 
@@ -300,6 +334,8 @@ func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGen
 		statusRecorder: deps.StatusRecorder,
 		syncResponse:   deps.SyncResponse,
 		logPath:        deps.LogPath,
+		uiLogPath:      deps.UILogPath,
+		uiLogOpener:    uiLogOpener,
 		tempDir:        deps.TempDir,
 		statePath:      deps.StatePath,
 		cpuProfile:     deps.CPUProfile,
@@ -411,6 +447,10 @@ func (g *BundleGenerator) createArchive() error {
 		log.Errorf("failed to add logs to debug bundle: %v", err)
 	}
 
+	if err := g.addUILog(); err != nil {
+		log.Errorf("failed to add UI log to debug bundle: %v", err)
+	}
+
 	if err := g.addUpdateLogs(); err != nil {
 		log.Errorf("failed to add updater logs: %v", err)
 	}
@@ -466,7 +506,6 @@ func (g *BundleGenerator) addStatus() error {
 
 		fullStatus := g.statusRecorder.GetFullStatus()
 		protoFullStatus := nbstatus.ToProtoFullStatus(fullStatus)
-		protoFullStatus.Events = g.statusRecorder.GetEventHistory()
 		overview := nbstatus.ConvertToStatusOutputOverview(protoFullStatus, nbstatus.ConvertOptions{
 			Anonymize:     g.anonymize,
 			ProfileName:   profName,
@@ -663,6 +702,7 @@ func (g *BundleGenerator) addCommonConfigFields(configContent *strings.Builder) 
 	configContent.WriteString(fmt.Sprintf("BlockLANAccess: %v\n", g.internalConfig.BlockLANAccess))
 	configContent.WriteString(fmt.Sprintf("BlockInbound: %v\n", g.internalConfig.BlockInbound))
 	configContent.WriteString(fmt.Sprintf("DisableIPv6: %v\n", g.internalConfig.DisableIPv6))
+	configContent.WriteString(fmt.Sprintf("SyncMessageVersion: %v\n", g.internalConfig.SyncMessageVersion))
 
 	if g.internalConfig.DisableNotifications != nil {
 		configContent.WriteString(fmt.Sprintf("DisableNotifications: %v\n", *g.internalConfig.DisableNotifications))
@@ -681,7 +721,7 @@ func (g *BundleGenerator) addCommonConfigFields(configContent *strings.Builder) 
 		configContent.WriteString(fmt.Sprintf("ClientCertKeyPath: %s\n", g.internalConfig.ClientCertKeyPath))
 	}
 
-	configContent.WriteString(fmt.Sprintf("LazyConnectionEnabled: %v\n", g.internalConfig.LazyConnectionEnabled))
+	configContent.WriteString(fmt.Sprintf("LazyConnection: %q\n", g.internalConfig.LazyConnection))
 	configContent.WriteString(fmt.Sprintf("MTU: %d\n", g.internalConfig.MTU))
 }
 
@@ -982,11 +1022,11 @@ func (g *BundleGenerator) addLogfile() error {
 
 	logDir := filepath.Dir(g.logPath)
 
-	if err := g.addSingleLogfile(g.logPath, clientLogFile); err != nil {
+	if err := g.addSingleLogfile(openLogFile, g.logPath, clientLogFile); err != nil {
 		return fmt.Errorf("add client log file to zip: %w", err)
 	}
 
-	g.addRotatedLogFiles(logDir)
+	g.addRotatedLogFiles(openLogFile, logDir, clientLogPrefix)
 
 	stdErrLogPath := filepath.Join(logDir, errorLogFile)
 	stdoutLogPath := filepath.Join(logDir, stdoutLogFile)
@@ -995,20 +1035,39 @@ func (g *BundleGenerator) addLogfile() error {
 		stdoutLogPath = darwinStdoutLogPath
 	}
 
-	if err := g.addSingleLogfile(stdErrLogPath, errorLogFile); err != nil {
+	if err := g.addSingleLogfile(openLogFile, stdErrLogPath, errorLogFile); err != nil {
 		log.Warnf("Failed to add %s to zip: %v", errorLogFile, err)
 	}
 
-	if err := g.addSingleLogfile(stdoutLogPath, stdoutLogFile); err != nil {
+	if err := g.addSingleLogfile(openLogFile, stdoutLogPath, stdoutLogFile); err != nil {
 		log.Warnf("Failed to add %s to zip: %v", stdoutLogFile, err)
 	}
 
 	return nil
 }
 
+// addUILog adds the desktop UI's gui-client.log (and its rotated siblings) to
+// the bundle. The path is reported by the UI via RegisterUILog; empty when no
+// UI registered one (e.g. headless / server). Missing file is non-fatal — the
+// UI only writes it while the daemon is in debug, so it's often absent.
+func (g *BundleGenerator) addUILog() error {
+	if g.uiLogPath == "" {
+		log.Debugf("no UI log path registered, skipping in debug bundle")
+		return nil
+	}
+
+	if err := g.addSingleLogfile(g.uiLogOpener, g.uiLogPath, configs.UILogFile); err != nil {
+		return fmt.Errorf("add UI log file to zip: %w", err)
+	}
+
+	g.addRotatedLogFiles(g.uiLogOpener, filepath.Dir(g.uiLogPath), uiLogPrefix)
+
+	return nil
+}
+
 // addSingleLogfile adds a single log file to the archive
-func (g *BundleGenerator) addSingleLogfile(logPath, targetName string) error {
-	logFile, err := os.Open(logPath)
+func (g *BundleGenerator) addSingleLogfile(open LogOpener, logPath, targetName string) error {
+	logFile, err := open(logPath)
 	if err != nil {
 		return fmt.Errorf("open log file %s: %w", targetName, err)
 	}
@@ -1033,8 +1092,8 @@ func (g *BundleGenerator) addSingleLogfile(logPath, targetName string) error {
 }
 
 // addSingleLogFileGz adds a single gzipped log file to the archive
-func (g *BundleGenerator) addSingleLogFileGz(logPath, targetName string) error {
-	f, err := os.Open(logPath)
+func (g *BundleGenerator) addSingleLogFileGz(open LogOpener, logPath, targetName string) error {
+	f, err := open(logPath)
 	if err != nil {
 		return fmt.Errorf("open gz log file %s: %w", targetName, err)
 	}
@@ -1078,14 +1137,16 @@ func (g *BundleGenerator) addSingleLogFileGz(logPath, targetName string) error {
 	return nil
 }
 
-// addRotatedLogFiles adds rotated log files to the bundle based on logFileCount
-func (g *BundleGenerator) addRotatedLogFiles(logDir string) {
+// addRotatedLogFiles adds rotated log files to the bundle based on logFileCount.
+// prefix is the base log name without extension (e.g. "client", "gui-client");
+// the glob matches both files rotated by us and by logrotate on linux.
+func (g *BundleGenerator) addRotatedLogFiles(open LogOpener, logDir, prefix string) {
 	if g.logFileCount == 0 {
 		return
 	}
 
-	// This regex will match both logs rotated by us and logrotate on linux
-	pattern := filepath.Join(logDir, "client*.log.*")
+	// This pattern matches both logs rotated by us and logrotate on linux
+	pattern := filepath.Join(logDir, prefix+"*.log.*")
 	files, err := filepath.Glob(pattern)
 	if err != nil {
 		log.Warnf("failed to glob rotated logs: %v", err)
@@ -1119,9 +1180,9 @@ func (g *BundleGenerator) addRotatedLogFiles(logDir string) {
 	for i := 0; i < maxFiles; i++ {
 		name := filepath.Base(files[i])
 		if strings.HasSuffix(name, ".gz") {
-			err = g.addSingleLogFileGz(files[i], name)
+			err = g.addSingleLogFileGz(open, files[i], name)
 		} else {
-			err = g.addSingleLogfile(files[i], name)
+			err = g.addSingleLogfile(open, files[i], name)
 		}
 		if err != nil {
 			log.Warnf("failed to add rotated log %s: %v", name, err)

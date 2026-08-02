@@ -13,7 +13,6 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
-	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/auth"
@@ -161,13 +160,19 @@ func (c *Client) Run(fd int32, interfaceName string, envList *EnvList) error {
 	defer c.ctxCancel()
 	c.ctxCancelLock.Unlock()
 
-	auth := NewAuthWithConfig(ctx, cfg)
-	err = auth.LoginSync()
-	if err != nil {
-		return err
-	}
-
-	log.Infof("Auth successful")
+	// No login pre-flight here. The engine's own loginToManagement (connect.go) performs
+	// the authoritative Login immediately before the first Sync, so a LoginSync() call at
+	// this point only duplicated it — costing two extra Login RPCs (IsLoginRequired +
+	// Login) on every engine start, since IsLoginRequired is itself a full Login RPC.
+	//
+	// Auth failures still reach the caller through the engine path: loginToManagement
+	// returns PermissionDenied, which marks the shared status recorder
+	// (MarkManagementDisconnected) and fires ClientStop → onDisconnected, where
+	// IsLoginRequiredCached() reports login-required. The error is also returned out of Run().
+	//
+	// A pre-flight was also actively harmful when the server is unreachable: its 2-minute
+	// backoff blocked the start and then reported "login required" for what was really a
+	// timeout. The engine instead keeps retrying and recovers when the server returns.
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
 	c.onHostDnsFn = func([]string) {}
@@ -236,6 +241,9 @@ func (c *Client) DebugBundle(anonymize bool) (string, error) {
 		deps.SyncResponse = resp
 
 		if e := cc.Engine(); e != nil {
+			deps.RefreshStatus = func() {
+				e.RunHealthProbes(context.Background(), true)
+			}
 			if cm := e.GetClientMetrics(); cm != nil {
 				deps.ClientMetrics = cm
 			}
@@ -263,7 +271,7 @@ func (c *Client) DebugBundle(anonymize bool) (string, error) {
 	uploadCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	key, err := debug.UploadDebugBundle(uploadCtx, types.DefaultBundleURL, cfg.ManagementURL.String(), path)
+	key, err := debug.UploadDebugBundle(uploadCtx, types.DefaultBundleURL, cfg.ManagementURL.String(), path, false)
 	if err != nil {
 		return "", fmt.Errorf("upload debug bundle: %w", err)
 	}
@@ -637,23 +645,18 @@ func (c *Client) SelectRoute(id string) error {
 	}
 
 	routeManager := engine.GetRouteManager()
-	routeSelector := routeManager.GetRouteSelector()
 	if id == "All" {
 		log.Debugf("select all routes")
-		routeSelector.SelectAllRoutes()
-	} else {
-		log.Debugf("select route with id: %s", id)
-		routes := toNetIDs([]string{id})
-		routesMap := routeManager.GetClientRoutesWithNetID()
-		routes = route.ExpandV6ExitPairs(routes, routesMap)
-		if err := routeSelector.SelectRoutes(routes, true, maps.Keys(routesMap)); err != nil {
-			log.Debugf("error when selecting routes: %s", err)
-			return fmt.Errorf("select routes: %w", err)
-		}
+		routeManager.SelectAllRoutes()
+		return nil
 	}
-	routeManager.TriggerSelection(routeManager.GetClientRoutes())
-	return nil
 
+	log.Debugf("select route with id: %s", id)
+	if err := routeManager.SelectRoutes(toNetIDs([]string{id}), true); err != nil {
+		log.Debugf("error when selecting routes: %s", err)
+		return err
+	}
+	return nil
 }
 
 func (c *Client) DeselectRoute(id string) error {
@@ -667,21 +670,17 @@ func (c *Client) DeselectRoute(id string) error {
 	}
 
 	routeManager := engine.GetRouteManager()
-	routeSelector := routeManager.GetRouteSelector()
 	if id == "All" {
 		log.Debugf("deselect all routes")
-		routeSelector.DeselectAllRoutes()
-	} else {
-		log.Debugf("deselect route with id: %s", id)
-		routes := toNetIDs([]string{id})
-		routesMap := routeManager.GetClientRoutesWithNetID()
-		routes = route.ExpandV6ExitPairs(routes, routesMap)
-		if err := routeSelector.DeselectRoutes(routes, maps.Keys(routesMap)); err != nil {
-			log.Debugf("error when deselecting routes: %s", err)
-			return fmt.Errorf("deselect routes: %w", err)
-		}
+		routeManager.DeselectAllRoutes()
+		return nil
 	}
-	routeManager.TriggerSelection(routeManager.GetClientRoutes())
+
+	log.Debugf("deselect route with id: %s", id)
+	if err := routeManager.DeselectRoutes(toNetIDs([]string{id})); err != nil {
+		log.Debugf("error when deselecting routes: %s", err)
+		return err
+	}
 	return nil
 }
 

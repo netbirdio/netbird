@@ -321,6 +321,10 @@ func (am *DefaultAccountManager) DeleteUser(ctx context.Context, accountID, init
 		return err
 	}
 
+	if targetUser.AccountID != accountID {
+		return status.NewUserNotFoundError(targetUserID)
+	}
+
 	if targetUser.Role == types.UserRoleOwner {
 		return status.NewOwnerDeletePermissionError()
 	}
@@ -675,7 +679,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 	}
 
 	if len(peersToExpire) > 0 {
-		if err := am.expireAndUpdatePeers(ctx, accountID, peersToExpire); err != nil {
+		if err := am.expireAndUpdatePeers(ctx, accountID, peersToExpire, peerExpirationUserBlocked); err != nil {
 			log.WithContext(ctx).Errorf("failed update expired peers: %s", err)
 			return nil, err
 		}
@@ -1059,8 +1063,8 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 		if err != nil {
 			return nil, err
 		}
-		log.WithContext(ctx).Debugf("Got %d users from ExternalCache for account %s", len(usersFromIntegration), accountID)
-		log.WithContext(ctx).Debugf("Got %d users from InternalCache for account %s", len(queriedUsers), accountID)
+		log.WithContext(ctx).Tracef("Got %d users from ExternalCache for account %s", len(usersFromIntegration), accountID)
+		log.WithContext(ctx).Tracef("Got %d users from InternalCache for account %s", len(queriedUsers), accountID)
 		queriedUsers = append(queriedUsers, usersFromIntegration...)
 	}
 
@@ -1118,7 +1122,7 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 }
 
 // expireAndUpdatePeers expires all peers of the given user and updates them in the account
-func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accountID string, peers []*nbpeer.Peer) error {
+func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accountID string, peers []*nbpeer.Peer, reason peerExpirationReason) error {
 	log.WithContext(ctx).Debugf("Expiring %d peers for account %s", len(peers), accountID)
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
@@ -1145,10 +1149,12 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 		if err := am.Store.SavePeerStatus(ctx, accountID, peer.ID, *peer.Status); err != nil {
 			return err
 		}
+		meta := peer.EventMeta(dnsDomain)
+		meta["reason"] = string(reason)
 		am.StoreEvent(
 			ctx,
 			peer.UserID, peer.ID, accountID,
-			activity.PeerLoginExpired, peer.EventMeta(dnsDomain),
+			activity.PeerLoginExpired, meta,
 		)
 	}
 
@@ -1847,12 +1853,17 @@ func (am *DefaultAccountManager) DeleteUserInvite(ctx context.Context, accountID
 
 const minPasswordLength = 8
 
-// validatePassword checks password strength requirements:
+// validatePassword checks password strength requirements.
+func validatePassword(password string) error {
+	return ValidatePassword(password)
+}
+
+// ValidatePassword checks password strength requirements:
 // - Minimum 8 characters
 // - At least 1 digit
 // - At least 1 uppercase letter
 // - At least 1 special character
-func validatePassword(password string) error {
+func ValidatePassword(password string) error {
 	if len(password) < minPasswordLength {
 		return errors.New("password must be at least 8 characters long")
 	}

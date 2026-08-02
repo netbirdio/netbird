@@ -242,6 +242,35 @@ func TestWireguardPortDefaultVsExplicit(t *testing.T) {
 	}
 }
 
+func TestUpdateConfigServerSSHAllowedNotSet(t *testing.T) {
+	// Configs written before ServerSSHAllowed was introduced lack the field and
+	// unmarshal to nil. Supplying the SSH server flag on top of such a config must
+	// apply the value instead of panicking on a nil pointer dereference.
+	tests := []struct {
+		name  string
+		input *bool
+		want  bool
+	}{
+		{"enable", util.True(), true},
+		{"disable", util.False(), false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			configPath := filepath.Join(t.TempDir(), "config.json")
+			require.NoError(t, os.WriteFile(configPath, []byte("{}"), 0600))
+
+			config, err := UpdateConfig(ConfigInput{
+				ConfigPath:       configPath,
+				ServerSSHAllowed: tt.input,
+			})
+			require.NoError(t, err)
+			require.NotNil(t, config.ServerSSHAllowed, "ServerSSHAllowed should be set from input")
+			assert.Equal(t, tt.want, *config.ServerSSHAllowed)
+		})
+	}
+}
+
 func TestUpdateOldManagementURL(t *testing.T) {
 	origProber := newMgmProber
 	newMgmProber = func(_ context.Context, _ string, _ wgtypes.Key, _ bool) (mgmProber, error) {
