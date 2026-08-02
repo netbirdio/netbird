@@ -9,7 +9,6 @@ import (
 	"net"
 	"os"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -17,8 +16,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	cryptossh "golang.org/x/crypto/ssh"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/netbirdio/netbird/client/internal/daemonaddr"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
@@ -55,8 +54,8 @@ type SSHProxy struct {
 }
 
 func New(daemonAddr, targetHost string, targetPort int, stderr io.Writer, browserOpener func(string) error) (*SSHProxy, error) {
-	grpcAddr := strings.TrimPrefix(daemonAddr, "tcp://")
-	grpcConn, err := grpc.NewClient(grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	target, opts := daemonaddr.DialTarget(daemonAddr)
+	grpcConn, err := grpc.NewClient(target, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("connect to daemon: %w", err)
 	}

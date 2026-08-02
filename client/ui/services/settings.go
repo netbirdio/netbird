@@ -7,6 +7,10 @@ import (
 	"fmt"
 	"reflect"
 
+	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/internal/daemonaddr"
+	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/netbirdio/netbird/client/proto"
 )
 
@@ -37,6 +41,19 @@ type Features struct {
 type Restrictions struct {
 	MDM      MDMFields `json:"mdm"`
 	Features Features  `json:"features"`
+}
+
+// Privilege tells the frontend whether this process may perform the changes the
+// daemon restricts to root/administrator, and carries the command for each so a
+// disabled control can show the way to do it.
+type Privilege struct {
+	Privileged bool `json:"privileged"`
+	// Actor names what the operation requires ("root", "administrator privileges").
+	Actor string `json:"actor"`
+	// Commands equivalent to the settings the daemon guards, ready to copy.
+	AllowSSHServer string `json:"allowSshServer"`
+	EnableSSHRoot  string `json:"enableSshRoot"`
+	DisableSSHAuth string `json:"disableSshAuth"`
 }
 
 type ConfigParams struct {
@@ -106,11 +123,19 @@ type SetConfigParams struct {
 }
 
 type Settings struct {
-	conn DaemonConn
+	conn       DaemonConn
+	classifier errorClassifier
+	// daemonAddr is where the daemon listens, used to tell whether it runs as
+	// this user and would therefore authorize us: see Privilege.
+	daemonAddr string
 }
 
-func NewSettings(conn DaemonConn) *Settings {
-	return &Settings{conn: conn}
+func NewSettings(conn DaemonConn, translator ErrorTranslator, prefs LanguagePreference, daemonAddr string) *Settings {
+	return &Settings{
+		conn:       conn,
+		classifier: errorClassifier{translator: translator, prefs: prefs},
+		daemonAddr: daemonAddr,
+	}
 }
 
 func (s *Settings) GetConfig(ctx context.Context, p ConfigParams) (Config, error) {
@@ -189,8 +214,47 @@ func (s *Settings) SetConfig(ctx context.Context, p SetConfigParams) error {
 		DisableSSHAuth:                p.DisableSSHAuth,
 		SshJWTCacheTTL:                p.SSHJWTCacheTTL,
 	}
-	_, err = cli.SetConfig(ctx, req)
-	return err
+	if _, err := cli.SetConfig(ctx, req); err != nil {
+		// Classified so the frontend gets the daemon's guidance instead of the
+		// gRPC envelope, which is what a refused privileged change looks like.
+		return s.classifier.classify(err)
+	}
+	return nil
+}
+
+// Privilege reports whether this UI process could carry out the changes the
+// daemon restricts to root/administrator, and the command that performs the one
+// users hit in the SSH settings. It applies the daemon's own rule to what it can
+// see locally, so the frontend can present those controls as unavailable up front
+// instead of letting a save fail. No daemon round-trip, so it also works while the
+// daemon is down.
+//
+// Being root or an elevated administrator is one way. The other is running as the
+// daemon's own user while the daemon is unprivileged, which the daemon accepts
+// because such a caller can already rewrite the config it reads; that is the
+// rootless-container and Windows netstack-mode case, and it is read from the
+// ownership of the socket or pipe the daemon created.
+func (s *Settings) Privilege() Privilege {
+	id, err := ipcauth.CurrentProcessIdentity()
+	if err != nil {
+		// Fail closed: report unprivileged, which only ever disables controls.
+		log.Warnf("cannot read this process's identity, treating it as unprivileged: %v", err)
+		return newPrivilege(false)
+	}
+	if id.IsPrivileged() {
+		return newPrivilege(true)
+	}
+	return newPrivilege(daemonaddr.DaemonRunsAsSelf(s.daemonAddr))
+}
+
+func newPrivilege(privileged bool) Privilege {
+	return Privilege{
+		Privileged:     privileged,
+		Actor:          ipcauth.PrivilegedActor(),
+		AllowSSHServer: ipcauth.UpCommand("--allow-server-ssh"),
+		EnableSSHRoot:  ipcauth.UpCommand("--enable-ssh-root"),
+		DisableSSHAuth: ipcauth.UpCommand("--disable-ssh-auth"),
+	}
 }
 
 func (s *Settings) GetRestrictions(ctx context.Context) (Restrictions, error) {
