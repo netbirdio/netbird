@@ -11,17 +11,32 @@ import (
 	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
-// TestSettingsHandler_GetUnbootstrappedReturns404 pins the OpenAPI contract:
-// an account with no settings row answers a plain 404, never 200 with a
-// null/zero body, so API clients can rely on the status code alone.
-func TestSettingsHandler_GetUnbootstrappedReturns404(t *testing.T) {
+// TestSettingsHandler_GetUnbootstrappedReturnsDefaults pins the settings-read
+// convention shared with the account and DNS settings endpoints: settings
+// always read as a JSON object. Before bootstrap that object carries the
+// defaults with an empty cluster/subdomain/endpoint (the "not bootstrapped"
+// signal) and no timestamps — never a 404 and never the legacy null body.
+func TestSettingsHandler_GetUnbootstrappedReturnsDefaults(t *testing.T) {
 	f := newAgentNetworkHandlerFixture(t)
 
 	rec := f.do(t, http.MethodGet, "/agent-network/settings", "")
-	assert.Equal(t, http.StatusNotFound, rec.Code,
-		"unbootstrapped account must read as 404: got %d body=%s", rec.Code, rec.Body.String())
-	assert.NotEqual(t, "null", trimSpace(rec.Body.String()),
+	require.Equal(t, http.StatusOK, rec.Code,
+		"unbootstrapped account must read as 200 with defaults: got %d body=%s", rec.Code, rec.Body.String())
+	require.NotEqual(t, "null", trimSpace(rec.Body.String()),
 		"the legacy 200+null shape must not come back")
+
+	var got api.AgentNetworkSettings
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	assert.Empty(t, got.Cluster, "cluster must be empty until bootstrapped")
+	assert.Empty(t, got.Subdomain, "subdomain must be empty until bootstrapped")
+	assert.Empty(t, got.Endpoint, "endpoint must be empty until bootstrapped, not a bare dot")
+	assert.True(t, got.EnableLogCollection, "defaults must show log collection on, matching bootstrap")
+	assert.False(t, got.EnablePromptCollection, "defaults must show prompt collection off")
+	assert.False(t, got.RedactPii, "defaults must show redaction off")
+	require.NotNil(t, got.AccessLogRetentionDays)
+	assert.Equal(t, 30, *got.AccessLogRetentionDays, "defaults must show the bootstrap retention")
+	assert.Nil(t, got.CreatedAt, "no timestamps before a row exists")
+	assert.Nil(t, got.UpdatedAt, "no timestamps before a row exists")
 }
 
 // TestSettingsHandler_PutBootstrapsWithCluster covers the settings-first

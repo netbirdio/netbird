@@ -2335,16 +2335,16 @@ type AgentNetworkProviderRequest struct {
 	// Enabled Whether the provider is enabled. Defaults to true on create.
 	Enabled *bool `json:"enabled,omitempty"`
 
-	// ExtraValues Operator-typed values for catalog-declared extra headers (see AgentNetworkProvider.extra_values). When present on a request, the whole map replaces the stored values; when omitted the stored values are left unchanged. Empty strings drop the corresponding key.
+	// ExtraValues Operator-typed values for catalog-declared extra headers (see AgentNetworkProvider.extra_values). The request's map replaces the stored values; empty strings drop the corresponding key.
 	ExtraValues *map[string]string `json:"extra_values,omitempty"`
 
-	// IdentityHeaderGroups Wire header name for the caller's groups CSV. See AgentNetworkProvider.identity_header_groups. Same omit / empty semantics as `identity_header_user_id`.
+	// IdentityHeaderGroups Wire header name for the caller's groups CSV. See AgentNetworkProvider.identity_header_groups. Same semantics as `identity_header_user_id`.
 	IdentityHeaderGroups *string `json:"identity_header_groups,omitempty"`
 
-	// IdentityHeaderUserId Wire header name for the caller's display identity. See AgentNetworkProvider.identity_header_user_id. When omitted on a request, the stored value is left unchanged; pass an empty string explicitly to clear it (which disables stamping for this dimension).
+	// IdentityHeaderUserId Wire header name for the caller's display identity. See AgentNetworkProvider.identity_header_user_id. Empty or omitted disables stamping for this dimension.
 	IdentityHeaderUserId *string `json:"identity_header_user_id,omitempty"`
 
-	// MetadataDisabled Disable identity metadata injection (the caller's user + authorizing group) for this provider. Defaults to false (metadata is injected). When omitted on update, the stored value is left unchanged.
+	// MetadataDisabled Disable identity metadata injection (the caller's user + authorizing group) for this provider. Defaults to false (metadata is injected).
 	MetadataDisabled *bool `json:"metadata_disabled,omitempty"`
 
 	// Models Models exposed through this endpoint, with the operator's per-1k input/output prices. Empty means all catalog models are allowed at catalog prices.
@@ -2356,22 +2356,22 @@ type AgentNetworkProviderRequest struct {
 	// ProviderId Catalog identifier for the upstream AI provider (e.g. openai_api, anthropic_api, azure_openai_api, bedrock_api, vertex_ai_api, mistral_api, custom).
 	ProviderId string `json:"provider_id"`
 
-	// SkipTlsVerification Skip upstream TLS certificate verification when the proxy dials this provider's URL. For self-hosted / internal gateways behind a private or self-signed certificate. Defaults to false. When omitted on update, the stored value is left unchanged.
+	// SkipTlsVerification Skip upstream TLS certificate verification when the proxy dials this provider's URL. For self-hosted / internal gateways behind a private or self-signed certificate. Defaults to false.
 	SkipTlsVerification *bool `json:"skip_tls_verification,omitempty"`
 
 	// UpstreamUrl Full upstream URL (with scheme) that NetBird forwards traffic to.
 	UpstreamUrl string `json:"upstream_url"`
 }
 
-// AgentNetworkSettings Per-account Agent Network gateway settings. One row per account; cluster and subdomain are auto-assigned on first provider create and immutable thereafter.
+// AgentNetworkSettings Per-account Agent Network gateway settings. One row per account; cluster and subdomain are assigned at bootstrap and immutable thereafter. Before bootstrap the account reads as the default values with empty cluster, subdomain and endpoint.
 type AgentNetworkSettings struct {
 	// AccessLogRetentionDays Days to retain full access-log rows; older rows are swept. 0 or less means keep indefinitely. Usage records are retained independently.
 	AccessLogRetentionDays *int `json:"access_log_retention_days,omitempty"`
 
-	// Cluster Address of the NetBird proxy cluster fronting this account's agent-network endpoint.
+	// Cluster Address of the NetBird proxy cluster fronting this account's agent-network endpoint. Empty until the account is bootstrapped.
 	Cluster string `json:"cluster"`
 
-	// CreatedAt Timestamp when the settings row was created.
+	// CreatedAt Timestamp when the settings row was created. Absent until the account is bootstrapped.
 	CreatedAt *time.Time `json:"created_at,omitempty"`
 
 	// EnableLogCollection Whether per-request access-log entries are collected for this account's agent-network traffic.
@@ -2380,16 +2380,16 @@ type AgentNetworkSettings struct {
 	// EnablePromptCollection Master switch for request/response prompt capture. Capture runs only when this is on AND a policy guardrail also enables it.
 	EnablePromptCollection bool `json:"enable_prompt_collection"`
 
-	// Endpoint Bare hostname agents call for this account, computed as `<subdomain>.<cluster>`.
+	// Endpoint Bare hostname agents call for this account, computed as `<subdomain>.<cluster>`. Empty until the account is bootstrapped.
 	Endpoint string `json:"endpoint"`
 
 	// RedactPii Whether captured prompts have PII redacted. Effective redaction is the OR of this and any policy guardrail's redact setting.
 	RedactPii bool `json:"redact_pii"`
 
-	// Subdomain Auto-generated DNS-safe label that prefixes the cluster to form the agent-network endpoint.
+	// Subdomain Auto-generated DNS-safe label that prefixes the cluster to form the agent-network endpoint. Empty until the account is bootstrapped.
 	Subdomain string `json:"subdomain"`
 
-	// UpdatedAt Timestamp when the settings row was last updated.
+	// UpdatedAt Timestamp when the settings row was last updated. Absent until the account is bootstrapped.
 	UpdatedAt *time.Time `json:"updated_at,omitempty"`
 }
 

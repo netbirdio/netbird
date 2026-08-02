@@ -77,9 +77,9 @@ func (a *AgentNetworkAPI) CreateProvider(ctx context.Context, request api.PostAp
 	return &ret, err
 }
 
-// UpdateProvider updates an Agent Network provider. Omitted optional fields
-// (api_key, models, extra_values, toggles, identity headers) keep their
-// stored values.
+// UpdateProvider updates an Agent Network provider. The request replaces the
+// provider's mutable state; only an omitted api_key keeps the stored key
+// (secrets are never required to round-trip).
 func (a *AgentNetworkAPI) UpdateProvider(ctx context.Context, providerID string, request api.PutApiAgentNetworkProvidersProviderIdJSONRequestBody) (*api.AgentNetworkProvider, error) {
 	requestBytes, err := json.Marshal(request)
 	if err != nil {
@@ -330,13 +330,13 @@ func (a *AgentNetworkAPI) DeleteBudgetRule(ctx context.Context, ruleID string) e
 }
 
 // GetSettings gets the account's Agent Network gateway settings (cluster,
-// subdomain, endpoint, collection toggles). Returns an APIError with
-// StatusCode 404 (matchable via IsNotFound) when the account has not been
-// bootstrapped yet — bootstrap via UpdateSettings with a cluster, or by
-// creating the first provider with bootstrap_cluster set. Management servers
-// prior to the 404 contract answered 200 with a JSON null body in that case;
-// that legacy shape is translated to the same 404 APIError here so callers
-// only ever branch on IsNotFound.
+// subdomain, endpoint, collection toggles). An account that has not been
+// bootstrapped yet — via UpdateSettings with a cluster, or by creating the
+// first provider with bootstrap_cluster set — reads as the defaults with an
+// empty Cluster, Subdomain and Endpoint. Management servers prior to that
+// contract answered 200 with a JSON null body instead; that legacy shape is
+// translated to an APIError matchable via IsNotFound rather than fabricating
+// defaults the server never stated.
 func (a *AgentNetworkAPI) GetSettings(ctx context.Context) (*api.AgentNetworkSettings, error) {
 	resp, err := a.c.NewRequest(ctx, "GET", "/api/agent-network/settings", nil, nil)
 	if err != nil {

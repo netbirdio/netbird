@@ -404,24 +404,45 @@ func TestAgentNetwork_GetSettings_200(t *testing.T) {
 	})
 }
 
-func TestAgentNetwork_GetSettings_404(t *testing.T) {
+// TestAgentNetwork_GetSettings_UnbootstrappedDefaults pins the settings-read
+// contract: an unbootstrapped account answers 200 with the defaults and empty
+// cluster/subdomain/endpoint, which the client passes through untouched.
+func TestAgentNetwork_GetSettings_UnbootstrappedDefaults(t *testing.T) {
 	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/agent-network/settings", func(w http.ResponseWriter, r *http.Request) {
-			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "agent network settings not found", Code: 404})
-			w.WriteHeader(404)
+			retBytes, _ := json.Marshal(api.AgentNetworkSettings{
+				EnableLogCollection:    true,
+				AccessLogRetentionDays: ptr(30),
+			})
+			_, err := w.Write(retBytes)
+			require.NoError(t, err)
+		})
+		ret, err := c.AgentNetwork.GetSettings(context.Background())
+		require.NoError(t, err)
+		assert.Empty(t, ret.Endpoint, "empty endpoint is the not-bootstrapped signal")
+		assert.True(t, ret.EnableLogCollection, "defaults must pass through")
+	})
+}
+
+func TestAgentNetwork_GetSettings_Err(t *testing.T) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
+		mux.HandleFunc("/api/agent-network/settings", func(w http.ResponseWriter, r *http.Request) {
+			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "no", Code: 403})
+			w.WriteHeader(403)
 			_, err := w.Write(retBytes)
 			require.NoError(t, err)
 		})
 		_, err := c.AgentNetwork.GetSettings(context.Background())
 		require.Error(t, err)
-		assert.True(t, rest.IsNotFound(err), "unbootstrapped settings must be matchable via IsNotFound")
+		assert.Equal(t, "no", err.Error())
 	})
 }
 
 // TestAgentNetwork_GetSettings_LegacyNullBody pins the compatibility shim for
-// management servers that answered 200 with a JSON null body before the 404
-// contract: the client must translate that shape into the same IsNotFound
-// error instead of returning a bogus zero-valued settings object.
+// management servers that answered 200 with a JSON null body before the
+// defaults contract: the client translates that shape into an IsNotFound
+// error instead of returning a bogus zero-valued settings object or
+// fabricating defaults the server never stated.
 func TestAgentNetwork_GetSettings_LegacyNullBody(t *testing.T) {
 	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/agent-network/settings", func(w http.ResponseWriter, r *http.Request) {

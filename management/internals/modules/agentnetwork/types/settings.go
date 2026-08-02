@@ -43,18 +43,34 @@ type Settings struct {
 // schema cohesive.
 func (Settings) TableName() string { return "agent_network_settings" }
 
+// DefaultSettings returns the settings an account observes before its row is
+// bootstrapped: log collection on with the default retention, everything else
+// off, and no cluster/subdomain assigned yet. Bootstrap persists exactly these
+// values plus the assigned cluster and subdomain, so the pre-bootstrap read
+// and the freshly bootstrapped row agree.
+func DefaultSettings(accountID string) *Settings {
+	return &Settings{
+		AccountID:              accountID,
+		EnableLogCollection:    true,
+		AccessLogRetentionDays: DefaultAccessLogRetentionDays,
+	}
+}
+
 // Endpoint returns the bare hostname agents reach this account at:
-// `<subdomain>.<cluster>`.
+// `<subdomain>.<cluster>`. Empty until both halves are assigned at bootstrap.
 func (s *Settings) Endpoint() string {
+	if s.Cluster == "" || s.Subdomain == "" {
+		return ""
+	}
 	return s.Subdomain + "." + s.Cluster
 }
 
-// ToAPIResponse renders the settings as the API representation.
+// ToAPIResponse renders the settings as the API representation. The
+// timestamps are omitted while zero — a default (not yet bootstrapped) view
+// has no persisted row to date.
 func (s *Settings) ToAPIResponse() *api.AgentNetworkSettings {
-	created := s.CreatedAt
-	updated := s.UpdatedAt
 	retention := s.AccessLogRetentionDays
-	return &api.AgentNetworkSettings{
+	resp := &api.AgentNetworkSettings{
 		Cluster:                s.Cluster,
 		Subdomain:              s.Subdomain,
 		Endpoint:               s.Endpoint(),
@@ -62,9 +78,16 @@ func (s *Settings) ToAPIResponse() *api.AgentNetworkSettings {
 		EnablePromptCollection: s.EnablePromptCollection,
 		RedactPii:              s.RedactPii,
 		AccessLogRetentionDays: &retention,
-		CreatedAt:              &created,
-		UpdatedAt:              &updated,
 	}
+	if !s.CreatedAt.IsZero() {
+		created := s.CreatedAt
+		resp.CreatedAt = &created
+	}
+	if !s.UpdatedAt.IsZero() {
+		updated := s.UpdatedAt
+		resp.UpdatedAt = &updated
+	}
+	return resp
 }
 
 // FromAPIRequest applies the request onto the receiver. The mutable

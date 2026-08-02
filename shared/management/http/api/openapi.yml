@@ -5224,7 +5224,7 @@ components:
         extra_values:
           type: object
           description: |
-            Operator-typed values for catalog-declared extra headers (see AgentNetworkProvider.extra_values). When present on a request, the whole map replaces the stored values; when omitted the stored values are left unchanged. Empty strings drop the corresponding key.
+            Operator-typed values for catalog-declared extra headers (see AgentNetworkProvider.extra_values). The request's map replaces the stored values; empty strings drop the corresponding key.
           additionalProperties:
             type: string
           example:
@@ -5232,12 +5232,12 @@ components:
         identity_header_user_id:
           type: string
           description: |
-            Wire header name for the caller's display identity. See AgentNetworkProvider.identity_header_user_id. When omitted on a request, the stored value is left unchanged; pass an empty string explicitly to clear it (which disables stamping for this dimension).
+            Wire header name for the caller's display identity. See AgentNetworkProvider.identity_header_user_id. Empty or omitted disables stamping for this dimension.
           example: "x-bf-dim-netbird_user_id"
         identity_header_groups:
           type: string
           description: |
-            Wire header name for the caller's groups CSV. See AgentNetworkProvider.identity_header_groups. Same omit / empty semantics as `identity_header_user_id`.
+            Wire header name for the caller's groups CSV. See AgentNetworkProvider.identity_header_groups. Same semantics as `identity_header_user_id`.
           example: "x-bf-dim-netbird_groups"
         enabled:
           type: boolean
@@ -5245,11 +5245,11 @@ components:
           example: true
         skip_tls_verification:
           type: boolean
-          description: Skip upstream TLS certificate verification when the proxy dials this provider's URL. For self-hosted / internal gateways behind a private or self-signed certificate. Defaults to false. When omitted on update, the stored value is left unchanged.
+          description: Skip upstream TLS certificate verification when the proxy dials this provider's URL. For self-hosted / internal gateways behind a private or self-signed certificate. Defaults to false.
           example: false
         metadata_disabled:
           type: boolean
-          description: Disable identity metadata injection (the caller's user + authorizing group) for this provider. Defaults to false (metadata is injected). When omitted on update, the stored value is left unchanged.
+          description: Disable identity metadata injection (the caller's user + authorizing group) for this provider. Defaults to false (metadata is injected).
           example: false
       required:
         - provider_id
@@ -6193,19 +6193,19 @@ components:
         - cache_cost_usd
     AgentNetworkSettings:
       type: object
-      description: Per-account Agent Network gateway settings. One row per account; cluster and subdomain are auto-assigned on first provider create and immutable thereafter.
+      description: Per-account Agent Network gateway settings. One row per account; cluster and subdomain are assigned at bootstrap and immutable thereafter. Before bootstrap the account reads as the default values with empty cluster, subdomain and endpoint.
       properties:
         cluster:
           type: string
-          description: Address of the NetBird proxy cluster fronting this account's agent-network endpoint.
+          description: Address of the NetBird proxy cluster fronting this account's agent-network endpoint. Empty until the account is bootstrapped.
           example: "eu.proxy.netbird.io"
         subdomain:
           type: string
-          description: Auto-generated DNS-safe label that prefixes the cluster to form the agent-network endpoint.
+          description: Auto-generated DNS-safe label that prefixes the cluster to form the agent-network endpoint. Empty until the account is bootstrapped.
           example: "violet"
         endpoint:
           type: string
-          description: Bare hostname agents call for this account, computed as `<subdomain>.<cluster>`.
+          description: Bare hostname agents call for this account, computed as `<subdomain>.<cluster>`. Empty until the account is bootstrapped.
           example: "violet.eu.proxy.netbird.io"
         enable_log_collection:
           type: boolean
@@ -6226,13 +6226,13 @@ components:
         created_at:
           type: string
           format: date-time
-          description: Timestamp when the settings row was created.
+          description: Timestamp when the settings row was created. Absent until the account is bootstrapped.
           readOnly: true
           example: "2026-04-26T10:30:00Z"
         updated_at:
           type: string
           format: date-time
-          description: Timestamp when the settings row was last updated.
+          description: Timestamp when the settings row was last updated. Absent until the account is bootstrapped.
           readOnly: true
           example: "2026-04-26T10:30:00Z"
       required:
@@ -6242,8 +6242,6 @@ components:
         - enable_log_collection
         - enable_prompt_collection
         - redact_pii
-        - created_at
-        - updated_at
     AgentNetworkSettingsRequest:
       type: object
       description: Account-level Agent Network settings update. The request replaces every mutable field. `cluster` additionally bootstraps the per-account settings row when the account does not have one yet; the subdomain is always server-assigned.
@@ -13696,7 +13694,7 @@ paths:
   /api/agent-network/settings:
     get:
       summary: Retrieve Agent Network settings
-      description: Returns the per-account Agent Network gateway settings (cluster, subdomain, endpoint). Returns 404 when the account has not been bootstrapped yet — settings are bootstrapped on first provider create (`bootstrap_cluster`) or via PUT with `cluster`.
+      description: Returns the per-account Agent Network gateway settings (cluster, subdomain, endpoint). Before the account is bootstrapped — on first provider create (`bootstrap_cluster`) or via PUT with `cluster` — the response carries the default values with empty cluster, subdomain and endpoint.
       tags: [ Agent Network ]
       security:
         - BearerAuth: [ ]
@@ -13712,8 +13710,6 @@ paths:
           "$ref": "#/components/responses/requires_authentication"
         '403':
           "$ref": "#/components/responses/forbidden"
-        '404':
-          "$ref": "#/components/responses/not_found"
         '500':
           "$ref": "#/components/responses/internal_error"
     put:

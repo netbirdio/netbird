@@ -636,14 +636,23 @@ func (m *managerImpl) validateProviderRefs(ctx context.Context, accountID string
 	return nil
 }
 
-// GetSettings returns the agent-network settings row for the account.
-// Returns the underlying status.NotFound when no row has been
-// bootstrapped yet (i.e. the account has no providers).
+// GetSettings returns the agent-network settings row for the account. When no
+// row has been bootstrapped yet, the defaults are returned (without
+// persisting) with cluster and subdomain empty — settings always read as an
+// object, like the account and DNS settings endpoints.
 func (m *managerImpl) GetSettings(ctx context.Context, accountID, userID string) (*types.Settings, error) {
 	if err := m.requirePermission(ctx, accountID, userID, operations.Read); err != nil {
 		return nil, err
 	}
-	return m.store.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, accountID)
+	settings, err := m.store.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, accountID)
+	switch {
+	case err == nil:
+		return settings, nil
+	case isNotFound(err):
+		return types.DefaultSettings(accountID), nil
+	default:
+		return nil, err
+	}
 }
 
 // bootstrapSettingsIfNeeded creates the per-account agent-network
@@ -688,17 +697,11 @@ func (m *managerImpl) bootstrapSettingsIfNeeded(ctx context.Context, accountID, 
 	m.labelRngMu.Unlock()
 
 	now := time.Now().UTC()
-	settings := &types.Settings{
-		AccountID: accountID,
-		Cluster:   providerCluster,
-		Subdomain: subdomain,
-		// Logs on by default; usage is collected regardless. Retention bounds
-		// how long full log rows are kept.
-		EnableLogCollection:    true,
-		AccessLogRetentionDays: types.DefaultAccessLogRetentionDays,
-		CreatedAt:              now,
-		UpdatedAt:              now,
-	}
+	settings := types.DefaultSettings(accountID)
+	settings.Cluster = providerCluster
+	settings.Subdomain = subdomain
+	settings.CreatedAt = now
+	settings.UpdatedAt = now
 	if err := m.store.SaveAgentNetworkSettings(ctx, settings); err != nil {
 		return nil, fmt.Errorf("save agent network settings: %w", err)
 	}
@@ -902,8 +905,8 @@ func (*mockManager) UpdateBudgetRule(_ context.Context, _ string, r *types.Accou
 
 func (*mockManager) DeleteBudgetRule(_ context.Context, _, _, _ string) error { return nil }
 
-func (*mockManager) GetSettings(_ context.Context, _, _ string) (*types.Settings, error) {
-	return nil, status.Errorf(status.NotFound, "agent network settings not found")
+func (*mockManager) GetSettings(_ context.Context, accountID, _ string) (*types.Settings, error) {
+	return types.DefaultSettings(accountID), nil
 }
 
 func (*mockManager) UpdateSettings(_ context.Context, _ string, s *types.Settings) (*types.Settings, error) {

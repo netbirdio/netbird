@@ -48,10 +48,9 @@ func (h *handler) updateSettings(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, updated.ToAPIResponse())
 }
 
-// getSettings returns the account's agent-network settings. Freshly-onboarded
-// accounts have no settings row until a provider create (or a settings PUT
-// with a cluster) bootstraps one; per the OpenAPI contract that reads as a
-// plain 404.
+// getSettings returns the account's agent-network settings. Accounts that
+// haven't been bootstrapped yet read as the defaults with an empty cluster,
+// subdomain and endpoint; the manager synthesises that view.
 func (h *handler) getSettings(w http.ResponseWriter, r *http.Request) {
 	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
 	if err != nil {
