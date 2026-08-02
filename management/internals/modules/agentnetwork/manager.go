@@ -554,19 +554,38 @@ func (m *managerImpl) DeleteBudgetRule(ctx context.Context, accountID, userID, r
 	return nil
 }
 
-// UpdateSettings applies the mutable account-level settings — the collection
-// toggles — onto the existing row. Cluster and Subdomain are immutable and are
-// preserved from the persisted row regardless of the input. Because the
-// collection toggles change the synthesised service config (prompt-capture
-// gating, access-log emission), a reconcile is triggered so the proxy and peer
-// network maps converge on the new state.
+// UpdateSettings replaces the mutable account-level settings — the collection
+// toggles and retention — on the account's row. When the account has no
+// settings row yet, a non-empty settings.Cluster bootstraps one (same path as
+// first provider create); without it the update fails with NotFound. On an
+// existing row the cluster and subdomain are immutable: a differing
+// settings.Cluster is rejected rather than silently ignored so callers never
+// observe a value other than what they sent. Because the collection toggles
+// change the synthesised service config (prompt-capture gating, access-log
+// emission), a reconcile is triggered so the proxy and peer network maps
+// converge on the new state.
 func (m *managerImpl) UpdateSettings(ctx context.Context, userID string, settings *types.Settings) (*types.Settings, error) {
 	if err := m.requirePermission(ctx, settings.AccountID, userID, operations.Update); err != nil {
 		return nil, err
 	}
 
+	requestedCluster := strings.TrimSpace(settings.Cluster)
+
 	existing, err := m.store.GetAgentNetworkSettings(ctx, store.LockingStrengthUpdate, settings.AccountID)
-	if err != nil {
+	switch {
+	case err == nil:
+		if requestedCluster != "" && requestedCluster != existing.Cluster {
+			return nil, status.Errorf(status.InvalidArgument, "cluster is immutable once assigned (current: %s)", existing.Cluster)
+		}
+	case isNotFound(err):
+		if requestedCluster == "" {
+			return nil, status.Errorf(status.NotFound, "agent network settings have not been bootstrapped yet; pass cluster to bootstrap them, or create a provider with bootstrap_cluster set")
+		}
+		existing, err = m.bootstrapSettingsIfNeeded(ctx, settings.AccountID, requestedCluster)
+		if err != nil {
+			return nil, err
+		}
+	default:
 		return nil, fmt.Errorf("get agent network settings: %w", err)
 	}
 
@@ -588,6 +607,12 @@ func (m *managerImpl) UpdateSettings(ctx context.Context, userID string, setting
 	m.reconcile(ctx, settings.AccountID)
 
 	return existing, nil
+}
+
+// isNotFound reports whether err is a status.NotFound error.
+func isNotFound(err error) bool {
+	var sErr *status.Error
+	return errors.As(err, &sErr) && sErr.Type() == status.NotFound
 }
 
 // validateProviderRefs ensures every destination provider id refers to a

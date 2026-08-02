@@ -5149,12 +5149,12 @@ components:
         identity_header_user_id:
           type: string
           description: |
-            Wire header name the proxy stamps with the caller's display identity (user email or peer name) when the catalog entry's HeaderPair is `customizable`. Empty disables stamping for this dimension. Ignored when the catalog entry has a fixed HeaderPair (e.g. LiteLLM, Portkey). Used today by Bifrost: typical values are `x-bf-lh-netbird_user_id` (always-on log metadata) or `x-bf-dim-netbird_user_id` (Prometheus / OTEL — requires the label to be pre-declared in the gateway's `client.prometheus_labels` config).
+            Wire header name the proxy stamps with the caller's display identity (user email or peer name) when the catalog entry's HeaderPair is `customizable`. Always present in responses; empty disables stamping for this dimension. Ignored when the catalog entry has a fixed HeaderPair (e.g. LiteLLM, Portkey). Used today by Bifrost: typical values are `x-bf-lh-netbird_user_id` (always-on log metadata) or `x-bf-dim-netbird_user_id` (Prometheus / OTEL — requires the label to be pre-declared in the gateway's `client.prometheus_labels` config).
           example: "x-bf-dim-netbird_user_id"
         identity_header_groups:
           type: string
           description: |
-            Wire header name the proxy stamps with the caller's NetBird groups as a comma-separated list (sorted) when the catalog entry's HeaderPair is `customizable`. Empty disables stamping for this dimension. Same per-catalog semantics as `identity_header_user_id`.
+            Wire header name the proxy stamps with the caller's NetBird groups as a comma-separated list (sorted) when the catalog entry's HeaderPair is `customizable`. Always present in responses; empty disables stamping for this dimension. Same per-catalog semantics as `identity_header_user_id`.
           example: "x-bf-dim-netbird_groups"
         enabled:
           type: boolean
@@ -5186,6 +5186,8 @@ components:
         - name
         - upstream_url
         - models
+        - identity_header_user_id
+        - identity_header_groups
         - enabled
         - skip_tls_verification
         - metadata_disabled
@@ -5222,7 +5224,7 @@ components:
         extra_values:
           type: object
           description: |
-            Operator-typed values for catalog-declared extra headers (see AgentNetworkProvider.extra_values). When present on a request, the whole map replaces the stored values. Empty strings drop the corresponding key.
+            Operator-typed values for catalog-declared extra headers (see AgentNetworkProvider.extra_values). When present on a request, the whole map replaces the stored values; when omitted the stored values are left unchanged. Empty strings drop the corresponding key.
           additionalProperties:
             type: string
           example:
@@ -6244,8 +6246,12 @@ components:
         - updated_at
     AgentNetworkSettingsRequest:
       type: object
-      description: Mutable account-level Agent Network settings. Cluster and subdomain are immutable and not accepted here.
+      description: Account-level Agent Network settings update. The request replaces every mutable field. `cluster` additionally bootstraps the per-account settings row when the account does not have one yet; the subdomain is always server-assigned.
       properties:
+        cluster:
+          type: string
+          description: Address of the NetBird proxy cluster fronting this account's agent-network endpoint. When the account has no settings row yet, providing it bootstraps the row (assigning the subdomain that forms the agent endpoint). The cluster is immutable once assigned — later updates must omit it or send the assigned value; any other value is rejected.
+          example: "eu.proxy.netbird.io"
         enable_log_collection:
           type: boolean
           description: Whether per-request access-log entries are collected for this account's agent-network traffic.
@@ -13690,7 +13696,7 @@ paths:
   /api/agent-network/settings:
     get:
       summary: Retrieve Agent Network settings
-      description: Returns the per-account Agent Network gateway settings (cluster, subdomain, endpoint). Returns 404 when no provider has been created yet — settings are lazily bootstrapped on first provider create.
+      description: Returns the per-account Agent Network gateway settings (cluster, subdomain, endpoint). Returns 404 when the account has not been bootstrapped yet — settings are bootstrapped on first provider create (`bootstrap_cluster`) or via PUT with `cluster`.
       tags: [ Agent Network ]
       security:
         - BearerAuth: [ ]
@@ -13712,7 +13718,7 @@ paths:
           "$ref": "#/components/responses/internal_error"
     put:
       summary: Update Agent Network settings
-      description: Updates the mutable account-level Agent Network settings (collection toggles). Cluster and subdomain are immutable and ignored if sent. Returns 404 when settings have not been bootstrapped (no provider created yet).
+      description: Updates the account-level Agent Network settings; the request replaces every mutable field (collection toggles and retention). When the account has no settings row yet, providing `cluster` bootstraps it (assigning the subdomain that forms the agent endpoint); without `cluster` the request returns 404. Sending a `cluster` different from the assigned one is rejected (the cluster is immutable once assigned). The subdomain is always server-assigned and immutable.
       tags: [ Agent Network ]
       security:
         - BearerAuth: [ ]
@@ -13738,6 +13744,8 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '404':
           "$ref": "#/components/responses/not_found"
+        '422':
+          "$ref": "#/components/responses/validation_failed"
         '500':
           "$ref": "#/components/responses/internal_error"
   /api/agent-network/budget-rules:

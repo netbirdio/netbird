@@ -193,10 +193,19 @@ func (h *handler) updateProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	provider := &types.Provider{
-		ID:        providerID,
-		AccountID: userAuth.AccountId,
+	// Overlay the request onto the stored row so omitted optional fields
+	// (models, extra_values, toggles, identity headers) keep their persisted
+	// values instead of silently resetting to zero — FromAPIRequest's
+	// nil-gating only works against the existing state.
+	existing, err := h.manager.GetProvider(r.Context(), userAuth.AccountId, userAuth.UserId, providerID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
 	}
+	provider := existing.Copy()
+	// Blank the key so it is set only when the caller rotates it; the manager
+	// preserves the stored key for an empty value.
+	provider.APIKey = ""
 	provider.FromAPIRequest(&req)
 
 	updated, err := h.manager.UpdateProvider(r.Context(), userAuth.UserId, provider)

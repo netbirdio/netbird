@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -11,19 +10,20 @@ import (
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
-	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 // addSettingsEndpoints registers the Agent Network settings routes. The
-// settings row is bootstrapped server-side on first provider create; GET reads
-// it and PUT updates the mutable collection toggles (cluster/subdomain stay
-// immutable).
+// settings row is bootstrapped server-side on first provider create or on the
+// first PUT carrying a cluster; GET reads it and PUT applies a partial update
+// of the mutable collection toggles (cluster/subdomain stay immutable).
 func (h *handler) addSettingsEndpoints(router *mux.Router) {
 	router.HandleFunc("/agent-network/settings", h.getSettings).Methods("GET", "OPTIONS")
 	router.HandleFunc("/agent-network/settings", h.updateSettings).Methods("PUT", "OPTIONS")
 }
 
-// updateSettings applies the collection toggles to the account's settings row.
+// updateSettings replaces the mutable settings fields on the account's row.
+// A request carrying a cluster bootstraps the row when the account doesn't
+// have one yet.
 func (h *handler) updateSettings(w http.ResponseWriter, r *http.Request) {
 	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
 	if err != nil {
@@ -48,11 +48,10 @@ func (h *handler) updateSettings(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, updated.ToAPIResponse())
 }
 
-// getSettings returns the account's agent-network settings. The settings
-// row is bootstrapped on first provider create, so freshly-onboarded
-// accounts have nothing to read. Rather than 404-ing in that case (which
-// the dashboard would have to special-case), return a JSON null with 200
-// so consumers can branch on the body alone.
+// getSettings returns the account's agent-network settings. Freshly-onboarded
+// accounts have no settings row until a provider create (or a settings PUT
+// with a cluster) bootstraps one; per the OpenAPI contract that reads as a
+// plain 404.
 func (h *handler) getSettings(w http.ResponseWriter, r *http.Request) {
 	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
 	if err != nil {
@@ -62,11 +61,6 @@ func (h *handler) getSettings(w http.ResponseWriter, r *http.Request) {
 
 	settings, err := h.manager.GetSettings(r.Context(), userAuth.AccountId, userAuth.UserId)
 	if err != nil {
-		var sErr *status.Error
-		if errors.As(err, &sErr) && sErr.Type() == status.NotFound {
-			util.WriteJSONObject(r.Context(), w, nil)
-			return
-		}
 		util.WriteError(r.Context(), err, w)
 		return
 	}

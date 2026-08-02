@@ -1,6 +1,7 @@
 package types
 
 import (
+	"strings"
 	"time"
 
 	"github.com/netbirdio/netbird/shared/management/http/api"
@@ -66,9 +67,15 @@ func (s *Settings) ToAPIResponse() *api.AgentNetworkSettings {
 	}
 }
 
-// FromAPIRequest applies the mutable settings fields from the request. Cluster
-// and Subdomain are immutable and intentionally not touched here.
+// FromAPIRequest applies the request onto the receiver. The mutable
+// collection fields are always replaced with the request values. Cluster
+// participates only in bootstrap and the immutability check (see
+// Manager.UpdateSettings); Subdomain is server-assigned and never taken
+// from a request.
 func (s *Settings) FromAPIRequest(req *api.AgentNetworkSettingsRequest) {
+	if req.Cluster != nil {
+		s.Cluster = strings.TrimSpace(*req.Cluster)
+	}
 	s.EnableLogCollection = req.EnableLogCollection
 	s.EnablePromptCollection = req.EnablePromptCollection
 	s.RedactPii = req.RedactPii
