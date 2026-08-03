@@ -41,6 +41,7 @@ func (n *Notifier) SetInitialClientRoutes(initialRoutes []*route.Route, routesFo
 // SetFakeIPRoutes stores the fake IP routes to be included in every TUN rebuild.
 func (n *Notifier) SetFakeIPRoutes(routes []*route.Route) {
 	n.fakeIPRoutes = routes
+	n.notify()
 }
 
 func (n *Notifier) OnNewRoutes(idMap route.HAMap) {
@@ -78,9 +79,7 @@ func (n *Notifier) notify() {
 
 	routeStrings := n.routesToStrings(allRoutes)
 	sort.Strings(routeStrings)
-	go func(l listener.NetworkChangeListener) {
-		l.OnNetworkChanged(strings.Join(routeStrings, ","))
-	}(n.listener)
+	n.listener.OnNetworkChanged(strings.Join(routeStrings, ","))
 }
 
 func filterStatic(routes []*route.Route) []*route.Route {
@@ -102,16 +101,11 @@ func (n *Notifier) routesToStrings(routes []*route.Route) []string {
 }
 
 func (n *Notifier) hasRouteDiff(a []*route.Route, b []*route.Route) bool {
-	slices.SortFunc(a, func(x, y *route.Route) int {
-		return strings.Compare(x.NetString(), y.NetString())
-	})
-	slices.SortFunc(b, func(x, y *route.Route) int {
-		return strings.Compare(x.NetString(), y.NetString())
-	})
-
-	return !slices.EqualFunc(a, b, func(x, y *route.Route) bool {
-		return x.NetString() == y.NetString()
-	})
+	as := n.routesToStrings(a)
+	bs := n.routesToStrings(b)
+	sort.Strings(as)
+	sort.Strings(bs)
+	return !slices.Equal(as, bs)
 }
 
 func (n *Notifier) GetInitialRouteRanges() []string {
