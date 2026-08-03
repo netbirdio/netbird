@@ -116,45 +116,46 @@ func SynthesizeServicesForCluster(ctx context.Context, s store.Store, clusterAdd
 }
 
 // SynthesizeServiceForDomain resolves a single agent-network service by its
-// public endpoint domain. It lists the (few) settings rows on the domain's
-// cluster, matches the one whose endpoint equals the domain, and synthesises
-// only that account — avoiding full per-account synthesis for every tenant on
-// the cluster, which is what auth/session paths previously paid. Returns nil
-// (no error) when no account owns the domain.
+// endpoint hostname. Both endpoint shapes put the account's label in the first
+// DNS label — <subdomain>.<cluster> and <subdomain>.<zone> — and the label is
+// globally unique, so this is a single indexed lookup for either shape. It
+// synthesises only the owning account rather than every tenant on a cluster,
+// which is what auth/session paths previously paid. Returns nil (no error) when
+// no account owns the hostname.
 func SynthesizeServiceForDomain(ctx context.Context, s store.Store, domain string) (*rpservice.Service, error) {
 	domain = strings.TrimSpace(domain)
-	cluster := clusterFromDomain(domain)
-	if domain != "" && cluster != "" {
-		settingsRows, err := s.GetAgentNetworkSettingsByCluster(ctx, store.LockingStrengthNone, cluster)
-		if err != nil {
-			return nil, fmt.Errorf("list agent network settings on cluster: %w", err)
-		}
-		for _, settings := range settingsRows {
-			if settings == nil || settings.Endpoint() != domain {
-				continue
-			}
-			services, serr := SynthesizeServices(ctx, s, settings.AccountID)
-			if serr != nil {
-				return nil, serr
-			}
-			for _, svc := range services {
-				if svc != nil && svc.Domain == domain {
-					return svc, nil
-				}
-			}
-			break
-		}
+	subdomain, _, found := strings.Cut(domain, ".")
+	if !found || subdomain == "" {
+		return nil, nil //nolint:nilnil // no label to resolve: not an owned endpoint
 	}
-	return nil, nil //nolint:nilnil // optional lookup: no account owns the domain
-}
 
-// clusterFromDomain returns the cluster portion of an endpoint domain (every
-// label after the first).
-func clusterFromDomain(domain string) string {
-	if i := strings.IndexByte(domain, '.'); i >= 0 {
-		return domain[i+1:]
+	settings, err := s.GetAgentNetworkSettingsBySubdomain(ctx, store.LockingStrengthNone, subdomain)
+	if err != nil {
+		var sErr *status.Error
+		if errors.As(err, &sErr) && sErr.Type() == status.NotFound {
+			return nil, nil //nolint:nilnil // no account owns the label
+		}
+		// A real store failure must surface: the caller treats nil as "not an
+		// agent-network endpoint" and would silently mask a database error.
+		return nil, fmt.Errorf("get agent network settings by subdomain: %w", err)
 	}
-	return ""
+
+	// The label is unique but the parent is not implied by it: a row owning
+	// "brave-otter" does not own "brave-otter.some-other.zone".
+	if settings.Endpoint() != domain {
+		return nil, nil //nolint:nilnil // label matched a different endpoint
+	}
+
+	services, err := SynthesizeServices(ctx, s, settings.AccountID)
+	if err != nil {
+		return nil, err
+	}
+	for _, svc := range services {
+		if svc != nil && svc.Domain == domain {
+			return svc, nil
+		}
+	}
+	return nil, nil //nolint:nilnil // owner found but it emits no service
 }
 
 // SynthesizeServices builds the in-memory reverse-proxy service that

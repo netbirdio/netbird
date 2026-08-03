@@ -1716,6 +1716,21 @@ func (mr *MockStoreMockRecorder) GetAgentNetworkSettingsByCluster(ctx, lockStren
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAgentNetworkSettingsByCluster", reflect.TypeOf((*MockStore)(nil).GetAgentNetworkSettingsByCluster), ctx, lockStrength, cluster)
 }
 
+// GetAgentNetworkSettingsBySubdomain mocks base method.
+func (m *MockStore) GetAgentNetworkSettingsBySubdomain(ctx context.Context, lockStrength LockingStrength, subdomain string) (*types.Settings, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAgentNetworkSettingsBySubdomain", ctx, lockStrength, subdomain)
+	ret0, _ := ret[0].(*types.Settings)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAgentNetworkSettingsBySubdomain indicates an expected call of GetAgentNetworkSettingsBySubdomain.
+func (mr *MockStoreMockRecorder) GetAgentNetworkSettingsBySubdomain(ctx, lockStrength, subdomain interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAgentNetworkSettingsBySubdomain", reflect.TypeOf((*MockStore)(nil).GetAgentNetworkSettingsBySubdomain), ctx, lockStrength, subdomain)
+}
+
 // GetAgentNetworkUsageRows mocks base method.
 func (m *MockStore) GetAgentNetworkUsageRows(ctx context.Context, lockStrength LockingStrength, accountID string, filter types.AgentNetworkAccessLogFilter) ([]*types.AgentNetworkUsage, error) {
 	m.ctrl.T.Helper()

@@ -334,6 +334,30 @@ func (s *SqlStore) GetAgentNetworkSettingsByCluster(ctx context.Context, lockStr
 	return settings, nil
 }
 
+// GetAgentNetworkSettingsBySubdomain returns the settings row that owns the
+// given subdomain label. The label is globally unique (enforced by
+// idx_agent_network_settings_subdomain_unique), so at most one row can match,
+// which makes this an indexed point lookup rather than a scan.
+func (s *SqlStore) GetAgentNetworkSettingsBySubdomain(ctx context.Context, lockStrength LockingStrength, subdomain string) (*agentNetworkTypes.Settings, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var settings agentNetworkTypes.Settings
+	result := tx.Take(&settings, "subdomain = ?", subdomain)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "agent network settings for subdomain %s not found", subdomain)
+		}
+
+		log.WithContext(ctx).Errorf("failed to get agent network settings by subdomain from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get agent network settings by subdomain from store")
+	}
+
+	return &settings, nil
+}
+
 // SaveAgentNetworkSettings upserts the per-account Agent Network
 // settings row.
 func (s *SqlStore) SaveAgentNetworkSettings(ctx context.Context, settings *agentNetworkTypes.Settings) error {

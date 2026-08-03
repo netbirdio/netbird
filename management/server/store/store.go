@@ -361,6 +361,7 @@ type Store interface {
 	GetAgentNetworkSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*agentNetworkTypes.Settings, error)
 	GetAllAgentNetworkSettings(ctx context.Context, lockStrength LockingStrength) ([]*agentNetworkTypes.Settings, error)
 	GetAgentNetworkSettingsByCluster(ctx context.Context, lockStrength LockingStrength, cluster string) ([]*agentNetworkTypes.Settings, error)
+	GetAgentNetworkSettingsBySubdomain(ctx context.Context, lockStrength LockingStrength, subdomain string) (*agentNetworkTypes.Settings, error)
 	SaveAgentNetworkSettings(ctx context.Context, settings *agentNetworkTypes.Settings) error
 	CreateAgentNetworkSettings(ctx context.Context, settings *agentNetworkTypes.Settings) error
 	IncrementAgentNetworkConsumption(ctx context.Context, accountID string, kind agentNetworkTypes.ConsumptionDimension, dimID string, windowSeconds int64, windowStart time.Time, tokensIn, tokensOut int64, costUSD float64) error
