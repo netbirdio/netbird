@@ -31,7 +31,7 @@ type NetworkMapDBStore interface {
 	GetNetwork(ctx context.Context, accountId string) (nmdata.Network, error)
 	GetAppliedZoneCandidates(ctx context.Context, accountId string) ([]networkmap.AppliedZoneCandidate, error)
 	GetAccountSettings(ctx context.Context, accountId string) (nmdata.AccountSettingsInfo, error)
-	GetPostureChecks(ctx context.Context, accountId string) ([]nmdata.PostureChecks, error)
+	GetPostureChecks(ctx context.Context, accountId string) ([]nmdata.PostureChecks, map[string]string, error)
 	GetNetworkMapData(ctx context.Context, accountId string) (*networkmap.NetworkMapData, error)
 	GetAllowedUsers(ctx context.Context, accountId string) (map[string]struct{}, map[string][]string, error)
 	GetDnsSettings(ctx context.Context, accountId string) (nmdata.DNSSettings, error)

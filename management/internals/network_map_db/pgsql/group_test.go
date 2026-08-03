@@ -241,8 +241,9 @@ func TestGetPostureChecks(t *testing.T) {
 	//	err = loadSQL(ctx, s.pool, initDb)
 	//assert.NoError(t, err)
 
-	checks, err := s.GetPostureChecks(ctx, "cdfcks2t2r9s73a58us0") //"ckd7ee2fic3c73dtendg")
+	checks, idx, err := s.GetPostureChecks(ctx, "cdfcks2t2r9s73a58us0") //"ckd7ee2fic3c73dtendg")
 	assert.NoError(t, err)
+	assert.NotEmpty(t, idx)
 
 	fmt.Print(checks)
 	// assert.Contains(t,
