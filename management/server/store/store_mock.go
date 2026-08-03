@@ -268,6 +268,20 @@ func (mr *MockStoreMockRecorder) CreateAgentNetworkAccessLog(ctx, entry, groups 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateAgentNetworkAccessLog", reflect.TypeOf((*MockStore)(nil).CreateAgentNetworkAccessLog), ctx, entry, groups)
 }
 
+// CreateAgentNetworkSettings mocks base method.
+func (m *MockStore) CreateAgentNetworkSettings(ctx context.Context, settings *types.Settings) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateAgentNetworkSettings", ctx, settings)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateAgentNetworkSettings indicates an expected call of CreateAgentNetworkSettings.
+func (mr *MockStoreMockRecorder) CreateAgentNetworkSettings(ctx, settings interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateAgentNetworkSettings", reflect.TypeOf((*MockStore)(nil).CreateAgentNetworkSettings), ctx, settings)
+}
+
 // CreateAgentNetworkUsage mocks base method.
 func (m *MockStore) CreateAgentNetworkUsage(ctx context.Context, usage *types.AgentNetworkUsage, groups []types.AgentNetworkUsageGroup) error {
 	m.ctrl.T.Helper()

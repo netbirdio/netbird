@@ -346,6 +346,21 @@ func (s *SqlStore) SaveAgentNetworkSettings(ctx context.Context, settings *agent
 	return nil
 }
 
+// CreateAgentNetworkSettings inserts a new settings row.
+//
+// Unlike SaveAgentNetworkSettings (an upsert) this is a plain INSERT, and it
+// returns the driver error unwrapped. Both properties are required by the
+// subdomain allocator: it relies on the unique index rejecting a duplicate
+// label, and on being able to recognise that rejection so it can retry with a
+// fresh label instead of surfacing an error.
+func (s *SqlStore) CreateAgentNetworkSettings(ctx context.Context, settings *agentNetworkTypes.Settings) error {
+	if err := s.db.Create(settings).Error; err != nil {
+		log.WithContext(ctx).Debugf("failed to create agent network settings: %v", err)
+		return err
+	}
+	return nil
+}
+
 // IncrementAgentNetworkConsumption atomically upserts the consumption
 // row keyed on (account, dim_kind, dim_id, window_seconds, window_start)
 // and adds the supplied deltas. Concurrent calls from multiple proxy

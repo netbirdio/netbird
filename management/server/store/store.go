@@ -362,6 +362,7 @@ type Store interface {
 	GetAllAgentNetworkSettings(ctx context.Context, lockStrength LockingStrength) ([]*agentNetworkTypes.Settings, error)
 	GetAgentNetworkSettingsByCluster(ctx context.Context, lockStrength LockingStrength, cluster string) ([]*agentNetworkTypes.Settings, error)
 	SaveAgentNetworkSettings(ctx context.Context, settings *agentNetworkTypes.Settings) error
+	CreateAgentNetworkSettings(ctx context.Context, settings *agentNetworkTypes.Settings) error
 	IncrementAgentNetworkConsumption(ctx context.Context, accountID string, kind agentNetworkTypes.ConsumptionDimension, dimID string, windowSeconds int64, windowStart time.Time, tokensIn, tokensOut int64, costUSD float64) error
 	IncrementAgentNetworkConsumptionBatch(ctx context.Context, accountID string, keys []agentNetworkTypes.ConsumptionKey, tokensIn, tokensOut int64, costUSD float64) error
 	GetAgentNetworkConsumption(ctx context.Context, lockStrength LockingStrength, accountID string, kind agentNetworkTypes.ConsumptionDimension, dimID string, windowSeconds int64, windowStart time.Time) (*agentNetworkTypes.Consumption, error)
@@ -657,6 +658,22 @@ func getMigrationsPostAuto(ctx context.Context) []migrationFunc {
 		},
 		func(db *gorm.DB) error {
 			return migration.FoldCostAggregatesIntoBuckets[agentNetworkTypes.AgentNetworkUsage](ctx, db)
+		},
+		func(db *gorm.DB) error {
+			// Enforce globally-unique agent-network subdomains.
+			//
+			// Uniqueness used to be per-cluster and advisory (a pre-read
+			// "taken" set with no DB constraint). Once the endpoint hangs off a
+			// shared zone the label must be unique across that whole zone, and
+			// the allocator depends on the database rejecting duplicates so it
+			// can retry with a fresh label.
+			//
+			// The pre-existing idx_agent_network_settings_cluster_subdomain is
+			// left in place: it is non-unique and indexes subdomain alone
+			// (Cluster carries no tag), so it neither conflicts nor suffices.
+			return migration.CreateIndexIfNotExists[agentNetworkTypes.Settings](
+				ctx, db, "idx_agent_network_settings_subdomain_unique", "subdomain",
+			)
 		},
 	}
 }
