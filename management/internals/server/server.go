@@ -68,6 +68,11 @@ type BaseServer struct {
 
 	proxyAuthClose func()
 
+	// grpcExtensions holds additional gRPC services, interceptors, and shutdown
+	// hooks registered by external modules via RegisterGRPCExtension. Populated
+	// during boot (single-threaded), consumed by GRPCServer() and Stop().
+	grpcExtensions []GRPCExtension
+
 	listener    net.Listener
 	certManager *autocert.Manager
 	update      *version.Update
@@ -257,6 +262,7 @@ func (s *BaseServer) Stop() error {
 		s.proxyAuthClose()
 		s.proxyAuthClose = nil
 	}
+	runExtensionShutdownHooks(ctx, s.grpcExtensions)
 	_ = s.Store().Close(ctx)
 	_ = s.EventStore().Close(ctx)
 	if s.update != nil {
