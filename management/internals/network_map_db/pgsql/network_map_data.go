@@ -62,7 +62,7 @@ func (pg *PgStore) GetNetworkMapData(ctx context.Context, accountId string) (*ne
 	if err != nil {
 		return rollbackAndReturnError(ctx, tx, err)
 	}
-	allowedUserIds, err := GetGetAllowedUserIdsViaPgxConnection(ctx, tx.Conn(), accountId)
+	allowedUserIds, groupsToUserIds, err := GetAllowedUsersViaPgxConnection(ctx, tx.Conn(), accountId)
 	if err != nil {
 		return rollbackAndReturnError(ctx, tx, err)
 	}
@@ -109,6 +109,7 @@ func (pg *PgStore) GetNetworkMapData(ctx context.Context, accountId string) (*ne
 		NetworkResources:     toSliceOfPtrs(networkResources),
 		PostureChecks:        toMap(postureChecks, func(pc nmdata.PostureChecks) string { return pc.ID }),
 		AllowedUserIDs:       allowedUserIds,
+		GroupIDToUserIDs:     groupsToUserIds,
 		NetworkXIDToPublicID: networkXIDToPublicID, // TODO (dmitri) maybe we can switch to public ids everywhere?
 	}
 

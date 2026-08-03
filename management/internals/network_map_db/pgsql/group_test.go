@@ -262,7 +262,8 @@ func TestGetGetAllowedUserIds(t *testing.T) {
 	//	err = loadSQL(ctx, s.pool, initDb)
 	//assert.NoError(t, err)
 
-	ids, err := s.GetAllowedUserIds(ctx, "cus73sbl0ubs73cfoo90") //"ckd7ee2fic3c73dtendg")
+	userIds, groupToUserIds, err := s.GetAllowedUsers(ctx, "cus73sbl0ubs73cfoo90") //"ckd7ee2fic3c73dtendg")
 	assert.NoError(t, err)
-	assert.NotEmpty(t, ids)
+	assert.NotEmpty(t, userIds)
+	assert.NotEmpty(t, groupToUserIds)
 }
