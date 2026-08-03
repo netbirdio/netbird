@@ -555,9 +555,12 @@ jobs:
       - name: Install wails3 CLI
         # Version derived from go.mod so the binding generator always matches
         # the wails runtime the binary links against.
+        # -tags gtk3: the CLI links the wails runtime's cgo packages, and the
+        # default tags request gtk4/webkitgtk-6.0 pkg-config entries that do
+        # not exist on ubuntu-22.04.
         run: |
           WAILS_VERSION=$(go list -m -f '{{.Version}}' github.com/wailsapp/wails/v3)
-          go install github.com/wailsapp/wails/v3/cmd/wails3@$WAILS_VERSION
+          go install -tags gtk3 github.com/wailsapp/wails/v3/cmd/wails3@$WAILS_VERSION
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@5daf1e915a5f0af01ddbcd89a43b8061ff4f1a89 # v7.2.2

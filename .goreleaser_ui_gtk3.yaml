@@ -8,7 +8,10 @@ before:
     # Bindings are gitignored; regenerate before the frontend build so
     # the @wailsio/runtime Vite plugin can resolve them (vite refuses to
     # build without them).
-    - sh -c 'cd client/ui && wails3 generate bindings -clean=true -ts'
+    # -f '-tags gtk3': the generator type-checks client/ui, whose cgo imports
+    # would otherwise resolve gtk4/webkitgtk-6.0 pkg-config entries that do
+    # not exist on ubuntu-22.04.
+    - sh -c 'cd client/ui && wails3 generate bindings -clean=true -ts -f "-tags gtk3"'
     - sh -c 'cd client/ui/frontend && pnpm install --frozen-lockfile && pnpm build'
 
 builds:
