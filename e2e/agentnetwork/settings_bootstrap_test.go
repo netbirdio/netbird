@@ -60,29 +60,55 @@ func TestSettingsBootstrapViaPut(t *testing.T) {
 	requireClientError(t, err)
 
 	// A PUT carrying a cluster bootstraps the account and applies the
-	// mutable fields from the same request.
+	// mutable fields from the same request. Every toggle is set away from
+	// its bootstrap default so each assertion can actually fail.
 	const cluster = "e2e.bootstrap.netbird.selfhosted"
 	bootstrapped, err := fresh.UpdateSettings(ctx, api.AgentNetworkSettingsRequest{
 		Cluster:                ptr(cluster),
-		EnableLogCollection:    true,
+		EnableLogCollection:    false,
 		EnablePromptCollection: true,
-		RedactPii:              false,
+		RedactPii:              true,
 	})
 	require.NoError(t, err, "bootstrap settings via PUT must succeed")
 	assert.Equal(t, cluster, bootstrapped.Cluster, "cluster must be pinned from the request")
 	require.NotEmpty(t, bootstrapped.Subdomain, "subdomain must be assigned at bootstrap")
 	assert.Equal(t, bootstrapped.Subdomain+"."+cluster, bootstrapped.Endpoint, "endpoint must combine subdomain and cluster")
-	assert.True(t, bootstrapped.EnablePromptCollection, "toggle from the bootstrap request must apply")
+	assert.False(t, bootstrapped.EnableLogCollection, "log collection from the bootstrap request must override the default")
+	assert.True(t, bootstrapped.EnablePromptCollection, "prompt collection from the bootstrap request must apply")
+	assert.True(t, bootstrapped.RedactPii, "redact toggle from the bootstrap request must apply")
 
-	// The row is persisted and the cluster immutable: reads agree, and a
-	// different cluster is rejected rather than silently ignored.
+	// The row is persisted: an independent read agrees on every field.
 	after, err := fresh.GetSettings(ctx)
 	require.NoError(t, err, "get settings after bootstrap must succeed")
 	assert.Equal(t, bootstrapped.Endpoint, after.Endpoint, "bootstrap must persist across reads")
+	assert.Equal(t, bootstrapped.EnableLogCollection, after.EnableLogCollection, "log collection must persist")
+	assert.Equal(t, bootstrapped.EnablePromptCollection, after.EnablePromptCollection, "prompt collection must persist")
+	assert.Equal(t, bootstrapped.RedactPii, after.RedactPii, "redact toggle must persist")
 
+	// Once bootstrapped, later updates may omit the cluster entirely.
+	persisted, err := fresh.UpdateSettings(ctx, api.AgentNetworkSettingsRequest{
+		EnableLogCollection:    true,
+		EnablePromptCollection: false,
+		RedactPii:              true,
+	})
+	require.NoError(t, err, "post-bootstrap update without cluster must succeed")
+	assert.Equal(t, cluster, persisted.Cluster, "omitted cluster must keep the pinned value")
+	assert.True(t, persisted.EnableLogCollection, "post-bootstrap toggle must apply")
+	assert.False(t, persisted.EnablePromptCollection, "post-bootstrap toggle must apply")
+
+	// The cluster is immutable: a different value is rejected rather than
+	// silently ignored, and the rejected update must not disturb anything.
 	_, err = fresh.UpdateSettings(ctx, api.AgentNetworkSettingsRequest{
 		Cluster:             ptr("other.cluster.invalid"),
-		EnableLogCollection: true,
+		EnableLogCollection: false,
 	})
 	requireClientError(t, err)
+
+	final, err := fresh.GetSettings(ctx)
+	require.NoError(t, err, "get settings after the rejected cluster change must succeed")
+	assert.Equal(t, persisted.Cluster, final.Cluster, "rejected update must not change the cluster")
+	assert.Equal(t, persisted.Endpoint, final.Endpoint, "rejected update must not change the endpoint")
+	assert.Equal(t, persisted.EnableLogCollection, final.EnableLogCollection, "rejected update must not apply its toggles")
+	assert.Equal(t, persisted.EnablePromptCollection, final.EnablePromptCollection, "rejected update must not apply its toggles")
+	assert.Equal(t, persisted.RedactPii, final.RedactPii, "rejected update must not apply its toggles")
 }
