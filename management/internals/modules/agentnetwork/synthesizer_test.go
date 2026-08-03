@@ -1246,3 +1246,99 @@ func TestSynthesizeServices_EmptyAPIKey_FailsClosed(t *testing.T) {
 	require.Error(t, err, "synthesis must refuse a provider with no api key")
 	assert.Contains(t, err.Error(), "no api key", "error must surface the missing credential")
 }
+
+// TestBuildAccountService_ProxyClusterFollowsServingProxyAddress — the whole
+// point of the column: the synthesized service must advertise the private
+// proxy's address, because that value is what mesh-DNS peer selection and the
+// connect-snapshot filter both join on. TargetId must NOT move with it — it
+// names the noop placeholder target and is out of scope (see the note above).
+func TestBuildAccountService_ProxyClusterFollowsServingProxyAddress(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockStore := store.NewMockStore(ctrl)
+
+	settings := &types.Settings{
+		AccountID:           testAccountID,
+		Cluster:             testCluster,
+		Zone:                "gateway.netbird.ai",
+		Subdomain:           "brave-otter",
+		ServingProxyAddress: "brave-otter.gateway.netbird.ai",
+	}
+	provider := newSynthTestProvider()
+	policy := newSynthTestPolicy(provider.ID, "grp-eng", "")
+
+	expectSynthBaseInputs(mockStore, ctx, settings,
+		[]*types.Provider{provider},
+		[]*types.Policy{policy},
+		[]*types.Guardrail{})
+
+	services, err := SynthesizeServices(ctx, mockStore, testAccountID)
+	require.NoError(t, err)
+	require.Len(t, services, 1)
+
+	svc := services[0]
+	assert.Equal(t, "brave-otter.gateway.netbird.ai", svc.ProxyCluster,
+		"ProxyCluster must advertise the private proxy's address once ServingProxyAddress is set")
+	require.Len(t, svc.Targets, 1)
+	assert.Equal(t, testCluster, svc.Targets[0].TargetId,
+		"TargetId is the noop placeholder target and must stay pinned to the shared cluster, not the serving proxy")
+}
+
+// TestSynthesizeServicesForCluster_ExcludesPrivatelyServedTenant — a tenant
+// moved to a private proxy must drop out of the SHARED proxy's connect
+// snapshot, or both proxies would serve it. The existing
+// `svc.ProxyCluster == clusterAddr` filter does this for free once ProxyCluster
+// is the tenant hostname; this test proves the handoff rather than assuming it.
+func TestSynthesizeServicesForCluster_ExcludesPrivatelyServedTenant(t *testing.T) {
+	ctx := context.Background()
+
+	provider := newSynthTestProvider()
+	policy := newSynthTestPolicy(provider.ID, "grp-eng", "")
+
+	privatelyServed := &types.Settings{
+		AccountID:           testAccountID,
+		Cluster:             testCluster,
+		Subdomain:           testSubdomain,
+		ServingProxyAddress: "brave-otter.gateway.netbird.ai",
+	}
+
+	t.Run("privately served tenant is excluded from the shared cluster snapshot", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		mockStore := store.NewMockStore(ctrl)
+
+		mockStore.EXPECT().
+			GetAgentNetworkSettingsByCluster(ctx, store.LockingStrengthNone, testCluster).
+			Return([]*types.Settings{privatelyServed}, nil)
+		expectSynthBaseInputs(mockStore, ctx, privatelyServed,
+			[]*types.Provider{provider}, []*types.Policy{policy}, []*types.Guardrail{})
+
+		services, err := SynthesizeServicesForCluster(ctx, mockStore, testCluster)
+		require.NoError(t, err)
+		assert.Empty(t, services, "a tenant served by a private proxy must not appear in the shared cluster's snapshot")
+	})
+
+	t.Run("clearing ServingProxyAddress makes the tenant reappear", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		mockStore := store.NewMockStore(ctrl)
+
+		sharedAgain := &types.Settings{
+			AccountID: testAccountID,
+			Cluster:   testCluster,
+			Subdomain: testSubdomain,
+		}
+
+		mockStore.EXPECT().
+			GetAgentNetworkSettingsByCluster(ctx, store.LockingStrengthNone, testCluster).
+			Return([]*types.Settings{sharedAgain}, nil)
+		expectSynthBaseInputs(mockStore, ctx, sharedAgain,
+			[]*types.Provider{provider}, []*types.Policy{policy}, []*types.Guardrail{})
+
+		services, err := SynthesizeServicesForCluster(ctx, mockStore, testCluster)
+		require.NoError(t, err)
+		require.Len(t, services, 1, "clearing ServingProxyAddress must return the tenant to the shared cluster's snapshot")
+		assert.Equal(t, testCluster, services[0].ProxyCluster)
+	})
+}

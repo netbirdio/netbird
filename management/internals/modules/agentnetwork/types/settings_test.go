@@ -29,3 +29,17 @@ func TestToAPIResponse_ExposesZoneAndDerivedEndpoint(t *testing.T) {
 	resp := s.ToAPIResponse()
 	assert.Equal(t, "brave-otter.gateway.netbird.ai", resp.Endpoint)
 }
+
+// TestServingProxy_PrefersColumnOverCluster — a provisioned tenant is served by
+// its own proxy, whose address is its hostname, not the shared cluster.
+func TestServingProxy_PrefersColumnOverCluster(t *testing.T) {
+	s := &Settings{Cluster: "eu.proxy.netbird.io", ServingProxyAddress: "brave-otter.gateway.netbird.ai"}
+	assert.Equal(t, "brave-otter.gateway.netbird.ai", s.ServingProxy())
+}
+
+// TestServingProxy_FallsBackToCluster is the compatibility guarantee: every
+// existing row, and every self-hosted deployment, is served by the shared proxy.
+func TestServingProxy_FallsBackToCluster(t *testing.T) {
+	s := &Settings{Cluster: "eu.proxy.netbird.io"}
+	assert.Equal(t, "eu.proxy.netbird.io", s.ServingProxy())
+}

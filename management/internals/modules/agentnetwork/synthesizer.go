@@ -935,6 +935,12 @@ func buildAccountService(
 	middlewares []rpservice.MiddlewareConfig,
 	sessionPriv, sessionPub string,
 ) *rpservice.Service {
+	// The proxy that serves this tenant — a dedicated proxy when one has been
+	// assigned, else the shared cluster. This is the value mesh-DNS peer
+	// selection and the connect-snapshot filter both join on.
+	servingProxy := settings.ServingProxy()
+	// The shared cluster address remains the placeholder target's ID; only the
+	// advertised proxy address follows ServingProxy().
 	cluster := settings.Cluster
 	domain := settings.Endpoint()
 	serviceID := SynthesizedServiceIDPrefix + accountID
@@ -944,7 +950,7 @@ func buildAccountService(
 		AccountID:    accountID,
 		Name:         "agent-network-" + accountID,
 		Domain:       domain,
-		ProxyCluster: cluster,
+		ProxyCluster: servingProxy,
 		DNSZone:      settings.Zone, // empty for legacy rows → unchanged behavior
 		Mode:         rpservice.ModeHTTP,
 		Enabled:      true,

@@ -385,6 +385,24 @@ func (s *SqlStore) CreateAgentNetworkSettings(ctx context.Context, settings *age
 	return nil
 }
 
+// SetAgentNetworkServingProxyAddress points the account's gateway at a specific
+// serving proxy, or clears it (address == "") to return the account to the
+// shared proxy. Scoped to the one column on purpose: this runs concurrently
+// with unrelated settings updates, and a full-row upsert would clobber them.
+func (s *SqlStore) SetAgentNetworkServingProxyAddress(ctx context.Context, accountID, address string) error {
+	result := s.db.Model(&agentNetworkTypes.Settings{}).
+		Where("account_id = ?", accountID).
+		Update("serving_proxy_address", address)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to set agent network serving proxy address: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to set agent network serving proxy address")
+	}
+	if result.RowsAffected == 0 {
+		return status.Errorf(status.NotFound, "agent network settings for account %s not found", accountID)
+	}
+	return nil
+}
+
 // IncrementAgentNetworkConsumption atomically upserts the consumption
 // row keyed on (account, dim_kind, dim_id, window_seconds, window_start)
 // and adds the supplied deltas. Concurrent calls from multiple proxy

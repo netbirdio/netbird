@@ -364,8 +364,9 @@ func (a *Account) privateServiceDomainZone(svc *service.Service) string {
 	// explicitly: it is server config, so it matches neither the serving
 	// proxy's address nor any per-account custom-domain row. Checked first so
 	// the apex stays the zone even once ProxyCluster becomes the tenant
-	// hostname itself (a private managed proxy), which would otherwise make the
-	// apex the full hostname and churn the client's zone set on cutover.
+	// hostname itself (which happens when a dedicated per-account proxy serves
+	// it), which would otherwise make the apex the full hostname and churn the
+	// client's zone set when a tenant moves between proxies.
 	if svc.DNSZone != "" && domainFromSuffix(svc.Domain, svc.DNSZone) {
 		return svc.DNSZone
 	}

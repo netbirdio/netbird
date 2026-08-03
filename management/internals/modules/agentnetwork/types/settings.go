@@ -11,9 +11,11 @@ import (
 // the long-term aggregate and are retained independently.
 const DefaultAccessLogRetentionDays = 30
 
-// Settings is the per-account agent-network configuration row. One
-// row per account. Cluster + Subdomain are immutable once written and
-// produce the public endpoint agents call (`<subdomain>.<cluster>`).
+// Settings is the per-account agent-network configuration row. One row per
+// account. The public endpoint agents call is `<subdomain>.<zone>` when a
+// zone is set, else `<subdomain>.<cluster>`. Cluster, Subdomain and Zone are
+// immutable once written; ServingProxyAddress is the one mutable column,
+// naming which proxy currently serves the account.
 type Settings struct {
 	AccountID string `gorm:"primaryKey"`
 	Cluster   string
@@ -26,6 +28,20 @@ type Settings struct {
 	// which embeds the serving proxy. Existing rows and any deployment that
 	// configures no zone keep that behaviour unchanged.
 	Zone string
+
+	// ServingProxyAddress is the address of the proxy currently serving this
+	// account's gateway. Empty means the account is served by the shared proxy
+	// at Cluster; set means a dedicated proxy serves it, and the value is that
+	// proxy's address — for a per-account proxy, the account's own gateway
+	// hostname.
+	//
+	// This is the only mutable column on this row. Cluster, Subdomain and Zone
+	// are fixed once written, but moving an account onto a dedicated proxy — and
+	// moving it back — is exactly one write here. Nothing in this repository
+	// writes it: it is set by whatever external process assigns dedicated
+	// proxies, and its zero value preserves existing behaviour for every current
+	// row and every deployment that assigns none.
+	ServingProxyAddress string
 
 	// Account-level collection controls sourced by the synthesizer.
 	// EnableLogCollection gates the per-request access-log trail and defaults
@@ -62,6 +78,17 @@ func (s *Settings) Endpoint() string {
 		return s.Subdomain + "." + s.Zone
 	}
 	return s.Subdomain + "." + s.Cluster
+}
+
+// ServingProxy returns the address of the proxy that serves this account's
+// gateway: the dedicated proxy when one has been assigned, otherwise the shared
+// cluster. This is the value the synthesized service advertises as
+// ProxyCluster, which is what mesh-DNS peer selection joins on.
+func (s *Settings) ServingProxy() string {
+	if s.ServingProxyAddress != "" {
+		return s.ServingProxyAddress
+	}
+	return s.Cluster
 }
 
 // ToAPIResponse renders the settings as the API representation.

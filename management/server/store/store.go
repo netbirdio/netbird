@@ -364,6 +364,7 @@ type Store interface {
 	GetAgentNetworkSettingsBySubdomain(ctx context.Context, lockStrength LockingStrength, subdomain string) (*agentNetworkTypes.Settings, error)
 	SaveAgentNetworkSettings(ctx context.Context, settings *agentNetworkTypes.Settings) error
 	CreateAgentNetworkSettings(ctx context.Context, settings *agentNetworkTypes.Settings) error
+	SetAgentNetworkServingProxyAddress(ctx context.Context, accountID, address string) error
 	IncrementAgentNetworkConsumption(ctx context.Context, accountID string, kind agentNetworkTypes.ConsumptionDimension, dimID string, windowSeconds int64, windowStart time.Time, tokensIn, tokensOut int64, costUSD float64) error
 	IncrementAgentNetworkConsumptionBatch(ctx context.Context, accountID string, keys []agentNetworkTypes.ConsumptionKey, tokensIn, tokensOut int64, costUSD float64) error
 	GetAgentNetworkConsumption(ctx context.Context, lockStrength LockingStrength, accountID string, kind agentNetworkTypes.ConsumptionDimension, dimID string, windowSeconds int64, windowStart time.Time) (*agentNetworkTypes.Consumption, error)

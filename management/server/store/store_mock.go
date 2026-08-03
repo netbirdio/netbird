@@ -3666,6 +3666,20 @@ func (mr *MockStoreMockRecorder) SaveUsers(ctx, users interface{}) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveUsers", reflect.TypeOf((*MockStore)(nil).SaveUsers), ctx, users)
 }
 
+// SetAgentNetworkServingProxyAddress mocks base method.
+func (m *MockStore) SetAgentNetworkServingProxyAddress(ctx context.Context, accountID, address string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetAgentNetworkServingProxyAddress", ctx, accountID, address)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetAgentNetworkServingProxyAddress indicates an expected call of SetAgentNetworkServingProxyAddress.
+func (mr *MockStoreMockRecorder) SetAgentNetworkServingProxyAddress(ctx, accountID, address interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetAgentNetworkServingProxyAddress", reflect.TypeOf((*MockStore)(nil).SetAgentNetworkServingProxyAddress), ctx, accountID, address)
+}
+
 // SetFieldEncrypt mocks base method.
 func (m *MockStore) SetFieldEncrypt(enc *crypt.FieldEncrypt) {
 	m.ctrl.T.Helper()
