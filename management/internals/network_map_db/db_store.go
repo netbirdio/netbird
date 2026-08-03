@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/shared/management/networkmap"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
@@ -19,9 +20,9 @@ const (
 )
 
 type NetworkMapDBStore interface {
-	GetGroups(ctx context.Context, accountId string) ([]nmdata.Group, map[string][]*nmdata.Group, error)
+	GetGroups(ctx context.Context, accountId string) ([]nmdata.Group, map[string]map[string]any, error)
 	GetPeers(ctx context.Context, accountId string) ([]nmdata.Peer, error)
-	GetPolicies(ctx context.Context, accountId string) ([]nmdata.Policy, error)
+	GetPolicies(ctx context.Context, accountId string) ([]nmdata.Policy, map[string]map[string]any, map[string]map[string]any, error)
 	GetRoutes(ctx context.Context, accountId string) ([]nmdata.Route, error)
 	GetNameServerGroups(ctx context.Context, accountId string) ([]nmdata.NameServerGroup, error)
 	GetNetworkResources(ctx context.Context, accountId string) ([]nmdata.NetworkResource, error)
@@ -34,7 +35,8 @@ type NetworkMapDBStore interface {
 }
 
 type NetworkMapDBStoreImpl struct {
-	store NetworkMapDBStore
+	store                   NetworkMapDBStore
+	integratedPeerValidator integrated_validator.IntegratedValidator
 }
 
 func FromSqlTypesToSharedTypes(src reflect.Value, dst reflect.Value) error {

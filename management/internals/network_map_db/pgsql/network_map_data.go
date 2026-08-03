@@ -22,7 +22,7 @@ func (pg *PgStore) GetNetworkMapData(ctx context.Context, accountId string) (*ne
 	// if err != nil {
 	// 	return rollbackAndReturnError(ctx, tx, err)
 	// }
-	groups, netResourceToGroups, err := GetGroupsViaPgxConnection(ctx, tx.Conn(), accountId)
+	groups, resourceToGroupIdx, err := GetGroupsViaPgxConnection(ctx, tx.Conn(), accountId)
 	if err != nil {
 		return rollbackAndReturnError(ctx, tx, err)
 	}
@@ -46,7 +46,7 @@ func (pg *PgStore) GetNetworkMapData(ctx context.Context, accountId string) (*ne
 	if err != nil {
 		return rollbackAndReturnError(ctx, tx, err)
 	}
-	policies, err := GetPoliciesViaPgxConnection(ctx, tx.Conn(), accountId)
+	policies, policyToDestinationResourceIdx, policyToDestinationGroupIdx, err := GetPoliciesViaPgxConnection(ctx, tx.Conn(), accountId)
 	if err != nil {
 		return rollbackAndReturnError(ctx, tx, err)
 	}
@@ -63,6 +63,31 @@ func (pg *PgStore) GetNetworkMapData(ctx context.Context, accountId string) (*ne
 		return rollbackAndReturnError(ctx, tx, err)
 	}
 
+	resourcePolicies := make(map[string][]*nmdata.Policy)
+	for _, resource := range networkResources {
+		if !resource.Enabled {
+			continue
+		}
+		networkResourceGroups := resourceToGroupIdx[resource.ID]
+		for _, policy := range policies {
+			if !policy.Enabled {
+				continue
+			}
+			if _, ok := policyToDestinationResourceIdx[policy.ID][resource.ID]; ok {
+				resourcePolicies[resource.ID] = append(resourcePolicies[resource.ID], &policy) // TODO (dmitri) maybe use public id?
+				break
+			}
+			if groupIds, ok := policyToDestinationGroupIdx[policy.ID]; ok {
+				for networkResourceGroup := range networkResourceGroups {
+					if _, ok := groupIds[networkResourceGroup]; ok {
+						resourcePolicies[resource.ID] = append(resourcePolicies[resource.ID], &policy)
+						break
+					}
+				}
+			}
+		}
+	}
+
 	err = tx.Commit(ctx)
 	if err != nil {
 		// TODO log and ignore?
@@ -73,6 +98,7 @@ func (pg *PgStore) GetNetworkMapData(ctx context.Context, accountId string) (*ne
 		Peers:                toMap(peers, func(p nmdata.Peer) string { return p.ID }),
 		Groups:               toMap(groups, func(g nmdata.Group) string { return g.PublicID }),
 		Policies:             toSliceOfPtrs(policies),
+		ResourcePolicies:     resourcePolicies,
 		Routes:               toSliceOfPtrs(routes),
 		Routers:              routers,
 		NameServerGroups:     toSliceOfPtrs(nsGroups),

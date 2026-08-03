@@ -22,32 +22,34 @@ const (
 	`
 )
 
-func (pg *PgStore) GetPolicies(ctx context.Context, accountId string) ([]nmdata.Policy, error) {
+func (pg *PgStore) GetPolicies(ctx context.Context, accountId string) ([]nmdata.Policy, map[string]map[string]any, map[string]map[string]any, error) {
 	c, err := pg.Pool.Acquire(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 	return GetPoliciesViaPgxConnection(ctx, c.Conn(), accountId)
 }
 
-func GetPoliciesViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId string) ([]nmdata.Policy, error) {
+func GetPoliciesViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId string) ([]nmdata.Policy, map[string]map[string]any, map[string]map[string]any, error) {
 	rows, err := con.Query(ctx, GetPoliciesQuery, accountId)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 
 	policies, err := pgx.CollectRows(rows, pgx.RowToStructByName[policy])
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 
 	toret := make([]nmdata.Policy, 0, len(policies))
+	policyToDestinationResourceIdx := make(map[string]map[string]any) // policy id to destination resource id
+	policyToDestinationGroupIdx := make(map[string]map[string]any)    // policy id to destination group id
 	for _, p := range policies {
 		policy := nmdata.Policy{}
 		err := networkmapdb.FromSqlTypesToSharedTypes(
 			reflect.ValueOf(&p), reflect.ValueOf(&policy))
 		if err != nil {
-			return nil, err
+			return nil, nil, nil, err
 		}
 
 		var policyRule *nmdata.PolicyRule
@@ -75,43 +77,55 @@ func GetPoliciesViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId s
 		if len(p.Sources) > 0 {
 			err := json.Unmarshal([]byte(p.Sources), &pr().Sources)
 			if err != nil {
-				return toret, err
+				return toret, nil, nil, err
 			}
 		}
 		if len(p.Destinations) > 0 {
 			err := json.Unmarshal([]byte(p.Destinations), &pr().Destinations)
 			if err != nil {
-				return toret, err
+				return toret, nil, nil, err
+			}
+
+			for _, dst := range pr().Destinations {
+				if _, ok := policyToDestinationGroupIdx[p.ID]; !ok {
+					policyToDestinationGroupIdx[p.ID] = make(map[string]any)
+				}
+				policyToDestinationGroupIdx[p.ID][dst] = struct{}{}
 			}
 		}
 		if len(p.SourceResource) > 0 {
 			err := json.Unmarshal([]byte(p.SourceResource), &pr().SourceResource)
 			if err != nil {
-				return toret, err
+				return toret, nil, nil, err
 			}
 		}
 		if len(p.DestinationResource) > 0 {
 			err := json.Unmarshal([]byte(p.DestinationResource), &pr().DestinationResource)
 			if err != nil {
-				return toret, err
+				return toret, nil, nil, err
 			}
+
+			if _, ok := policyToDestinationResourceIdx[p.ID]; !ok {
+				policyToDestinationResourceIdx[p.ID] = make(map[string]any)
+			}
+			policyToDestinationResourceIdx[p.ID][pr().DestinationResource.ID] = struct{}{}
 		}
 		if len(p.Ports) > 0 {
 			err := json.Unmarshal([]byte(p.Ports), &pr().Ports)
 			if err != nil {
-				return toret, err
+				return toret, nil, nil, err
 			}
 		}
 		if len(p.PortRanges) > 0 {
 			err := json.Unmarshal([]byte(p.PortRanges), &pr().PortRanges)
 			if err != nil {
-				return toret, err
+				return toret, nil, nil, err
 			}
 		}
 		if len(p.AuthorizedGroups) > 0 {
 			err := json.Unmarshal([]byte(p.AuthorizedGroups), &pr().AuthorizedGroups)
 			if err != nil {
-				return toret, err
+				return toret, nil, nil, err
 			}
 		}
 		if p.AuthorizedUser.Valid {
@@ -127,7 +141,7 @@ func GetPoliciesViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId s
 		toret = append(toret, policy)
 	}
 
-	return toret, err
+	return toret, policyToDestinationResourceIdx, policyToDestinationGroupIdx, err
 }
 
 type policy struct {
