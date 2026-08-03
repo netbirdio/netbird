@@ -65,6 +65,7 @@ func GetNetworkRoutersViaPgxConnection(ctx context.Context, con *pgx.Conn, accou
 		}
 		if router.Peer.String != "" {
 			toret[networkId][router.Peer.String] = &nmdatarouter
+			continue
 		}
 		for _, peerId := range router.PeersViaGroups {
 			toret[networkId][peerId] = &nmdatarouter

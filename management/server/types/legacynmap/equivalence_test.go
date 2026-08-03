@@ -545,17 +545,18 @@ func describeDivergence(legacy, updated *proto.NetworkMap, accountID, peerID str
 	lens := []struct {
 		field string
 		a, b  int
+		diff  func() string
 	}{
-		{"RemotePeers", len(legacy.RemotePeers), len(updated.RemotePeers)},
-		{"OfflinePeers", len(legacy.OfflinePeers), len(updated.OfflinePeers)},
-		{"Routes", len(legacy.Routes), len(updated.Routes)},
-		{"FirewallRules", len(legacy.FirewallRules), len(updated.FirewallRules)},
-		{"RoutesFirewallRules", len(legacy.RoutesFirewallRules), len(updated.RoutesFirewallRules)},
-		{"ForwardingRules", len(legacy.ForwardingRules), len(updated.ForwardingRules)},
+		{"RemotePeers", len(legacy.RemotePeers), len(updated.RemotePeers), func() string { return diffLists(legacy.RemotePeers, updated.RemotePeers) }},
+		{"OfflinePeers", len(legacy.OfflinePeers), len(updated.OfflinePeers), func() string { return diffLists(legacy.OfflinePeers, updated.OfflinePeers) }},
+		{"Routes", len(legacy.Routes), len(updated.Routes), func() string { return diffLists(legacy.Routes, updated.Routes) }},
+		{"FirewallRules", len(legacy.FirewallRules), len(updated.FirewallRules), func() string { return diffLists(legacy.FirewallRules, updated.FirewallRules) }},
+		{"RoutesFirewallRules", len(legacy.RoutesFirewallRules), len(updated.RoutesFirewallRules), func() string { return diffLists(legacy.RoutesFirewallRules, updated.RoutesFirewallRules) }},
+		{"ForwardingRules", len(legacy.ForwardingRules), len(updated.ForwardingRules), func() string { return diffLists(legacy.ForwardingRules, updated.ForwardingRules) }},
 	}
 	for _, l := range lens {
 		if l.a != l.b {
-			return prefix + " field=" + l.field + " legacy_len=" + strconv.Itoa(l.a) + " new_len=" + strconv.Itoa(l.b)
+			return prefix + " field=" + l.field + " legacy_len=" + strconv.Itoa(l.a) + " new_len=" + strconv.Itoa(l.b) + l.diff()
 		}
 	}
 
@@ -592,6 +593,39 @@ func describeDivergence(legacy, updated *proto.NetworkMap, accountID, peerID str
 		return prefix + " field=Serial legacy=" + strconv.FormatUint(legacy.Serial, 10) + " new=" + strconv.FormatUint(updated.Serial, 10)
 	}
 	return prefix + " (repeated fields equal element-wise — scalar/oneof mismatch)"
+}
+
+// diffLists reports the multiset difference of two repeated proto fields, so a
+// length mismatch shows which elements each side is missing.
+func diffLists[M goproto.Message](legacy, updated []M) string {
+	counts := make(map[string]int)
+	for _, m := range legacy {
+		counts[prototext.MarshalOptions{}.Format(m)]++
+	}
+	for _, m := range updated {
+		counts[prototext.MarshalOptions{}.Format(m)]--
+	}
+
+	var onlyLegacy, onlyNew []string
+	for k, c := range counts {
+		for ; c > 0; c-- {
+			onlyLegacy = append(onlyLegacy, k)
+		}
+		for ; c < 0; c++ {
+			onlyNew = append(onlyNew, k)
+		}
+	}
+	slices.Sort(onlyLegacy)
+	slices.Sort(onlyNew)
+
+	var b strings.Builder
+	for _, k := range onlyLegacy {
+		b.WriteString("\n  only_legacy: " + k)
+	}
+	for _, k := range onlyNew {
+		b.WriteString("\n  only_new: " + k)
+	}
+	return b.String()
 }
 
 func protoStr(m goproto.Message) string {
