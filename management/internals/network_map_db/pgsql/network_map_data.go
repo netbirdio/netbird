@@ -62,6 +62,10 @@ func (pg *PgStore) GetNetworkMapData(ctx context.Context, accountId string) (*ne
 	if err != nil {
 		return rollbackAndReturnError(ctx, tx, err)
 	}
+	allowedUserIds, err := GetGetAllowedUserIdsViaPgxConnection(ctx, tx.Conn(), accountId)
+	if err != nil {
+		return rollbackAndReturnError(ctx, tx, err)
+	}
 
 	resourcePolicies := make(map[string][]*nmdata.Policy)
 	for _, resource := range networkResources {
@@ -104,6 +108,7 @@ func (pg *PgStore) GetNetworkMapData(ctx context.Context, accountId string) (*ne
 		NameServerGroups:     toSliceOfPtrs(nsGroups),
 		NetworkResources:     toSliceOfPtrs(networkResources),
 		PostureChecks:        toMap(postureChecks, func(pc nmdata.PostureChecks) string { return pc.ID }),
+		AllowedUserIDs:       allowedUserIds,
 		NetworkXIDToPublicID: networkXIDToPublicID, // TODO (dmitri) maybe we can switch to public ids everywhere?
 	}
 

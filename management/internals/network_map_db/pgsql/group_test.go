@@ -3,13 +3,11 @@ package networkmap_pgsql
 import (
 	"context"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
 	_ "embed"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/stretchr/testify/assert"
 )
@@ -59,7 +57,7 @@ func TestGetPeers(t *testing.T) {
 	// )
 }
 
-func TestGetPolocies(t *testing.T) {
+func TestGetPolicies(t *testing.T) {
 	ctx := context.TODO()
 
 	s, err := NewPostgresqlStore(ctx, "postgresql://root:netbird@localhost:5432/netbird")
@@ -256,18 +254,15 @@ func TestGetPostureChecks(t *testing.T) {
 	// )
 }
 
-func loadSQL(ctx context.Context, pool *pgxpool.Pool, initdb string) error {
-	queries := strings.Split(string(initdb), ";")
+func TestGetGetAllowedUserIds(t *testing.T) {
+	ctx := context.TODO()
 
-	for _, query := range queries {
-		query = strings.TrimSpace(query)
-		if query != "" {
-			_, err := pool.Query(ctx, query)
-			if err != nil {
-				return err
-			}
-		}
-	}
+	s, err := NewPostgresqlStore(ctx, "postgresql://root:netbird@localhost:5432/netbird")
+	assert.NoError(t, err)
+	//	err = loadSQL(ctx, s.pool, initDb)
+	//assert.NoError(t, err)
 
-	return nil
+	ids, err := s.GetAllowedUserIds(ctx, "cus73sbl0ubs73cfoo90") //"ckd7ee2fic3c73dtendg")
+	assert.NoError(t, err)
+	assert.NotEmpty(t, ids)
 }
