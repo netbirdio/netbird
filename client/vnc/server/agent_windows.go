@@ -462,14 +462,40 @@ func createKillOnCloseJob() (windows.Handle, error) {
 // SE_TCB_NAME is missing) it surfaces a distinct error so the daemon
 // can reject the connection with a meaningful message instead of timing
 // out the proxy dial.
-func (m *sessionManager) Resolve(_ context.Context) (string, string, uint32, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.socketPath == "" {
-		return "", "", 0, errAgentNotReady
+func (m *sessionManager) Resolve(ctx context.Context) (string, string, uint32, error) {
+	deadline := time.NewTimer(agentResolveWait)
+	defer deadline.Stop()
+	poll := time.NewTicker(250 * time.Millisecond)
+	defer poll.Stop()
+
+	for {
+		m.mu.Lock()
+		socketPath, token := m.socketPath, m.authToken
+		m.mu.Unlock()
+		if socketPath != "" {
+			return socketPath, token, 0, nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return "", "", 0, ctx.Err()
+		case <-m.done:
+			return "", "", 0, errAgentNotReady
+		case <-deadline.C:
+			return "", "", 0, errAgentNotReady
+		case <-poll.C:
+		}
 	}
-	return m.socketPath, m.authToken, 0, nil
 }
+
+// agentResolveWait bounds how long a connection waits for an agent to appear.
+// Signing in replaces the agent, and the manager only publishes a socket once
+// the new one is listening, so there is a window with nothing to hand out.
+// Failing instantly there is what made a sign-in look like "the peer cannot
+// capture its screen": the wait turns it into a pause instead. Windows session
+// initialisation is the slow part, so this is generous compared with the
+// manager's own tick.
+const agentResolveWait = 30 * time.Second
 
 var errAgentNotReady = errors.New("VNC agent not running yet")
 
