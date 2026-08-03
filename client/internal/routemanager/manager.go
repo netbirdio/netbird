@@ -8,7 +8,6 @@ import (
 	"net/netip"
 	"net/url"
 	"runtime"
-	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -16,7 +15,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
@@ -63,7 +61,6 @@ type Manager interface {
 	GetActiveClientRoutes() route.HAMap
 	GetClientRoutesWithNetID() map[route.NetID][]*route.Route
 	SetRouteChangeListener(listener listener.NetworkChangeListener)
-	InitialRouteRange() []string
 	CurrentRouteRange() []string
 	SetFirewall(firewall.Manager) error
 	SetDNSForwarderPort(port uint16)
@@ -78,10 +75,8 @@ type ManagerConfig struct {
 	WGInterface         iface.WGIface
 	StatusRecorder      *peer.Status
 	RelayManager        *relayClient.Manager
-	InitialRoutes       []*route.Route
 	StateManager        *statemanager.Manager
 	DNSServer           dns.Server
-	DNSFeatureFlag      bool
 	PeerStore           *peerstore.Store
 	DisableClientRoutes bool
 	DisableServerRoutes bool
@@ -151,50 +146,12 @@ func NewManager(config ManagerConfig) *DefaultManager {
 	useNoop := netstack.IsEnabled() || config.DisableClientRoutes
 	dm.setupRefCounters(useNoop)
 
-	// don't proceed with client routes if it is disabled
-	if config.DisableClientRoutes {
-		return dm
-	}
-
-	if runtime.GOOS == "android" {
-		dm.setupAndroidRoutes(config)
-	}
 	return dm
 }
-func (m *DefaultManager) setupAndroidRoutes(config ManagerConfig) {
-	cr := m.initialClientRoutes(config.InitialRoutes)
 
-	routesForComparison := slices.Clone(cr)
-
-	if config.DNSFeatureFlag {
-		cr = append(cr, m.enableFakeIPRoutes()...)
-	}
-
-	m.notifier.SetInitialClientRoutes(cr, routesForComparison)
-}
-
-func (m *DefaultManager) enableFakeIPRoutes() []*route.Route {
+func (m *DefaultManager) enableFakeIPRoutes() {
 	m.fakeIPManager = fakeip.NewManager()
-
-	v4ID := uuid.NewString()
-	fakeIPRoute := &route.Route{
-		ID:          route.ID(v4ID),
-		Network:     m.fakeIPManager.GetFakeIPBlock(),
-		NetID:       route.NetID(v4ID),
-		Peer:        m.pubKey,
-		NetworkType: route.IPv4Network,
-	}
-	v6ID := uuid.NewString()
-	fakeIPv6Route := &route.Route{
-		ID:          route.ID(v6ID),
-		Network:     m.fakeIPManager.GetFakeIPv6Block(),
-		NetID:       route.NetID(v6ID),
-		Peer:        m.pubKey,
-		NetworkType: route.IPv6Network,
-	}
-	fakeRoutes := []*route.Route{fakeIPRoute, fakeIPv6Route}
 	m.notifier.NotifyRouteChange()
-	return fakeRoutes
 }
 
 func (m *DefaultManager) setupRefCounters(useNoop bool) {
@@ -510,11 +467,6 @@ func (m *DefaultManager) SetRouteChangeListener(listener listener.NetworkChangeL
 	m.notifier.SetListener(listener)
 }
 
-// InitialRouteRange return the list of initial routes. It used by mobile systems
-func (m *DefaultManager) InitialRouteRange() []string {
-	return m.notifier.GetInitialRouteRanges()
-}
-
 // CurrentRouteRange returns the current TUN route list. It is used by mobile systems
 func (m *DefaultManager) CurrentRouteRange() []string {
 	m.mux.Lock()
@@ -736,16 +688,6 @@ func (m *DefaultManager) ClassifyRoutes(newRoutes []*route.Route) (map[route.ID]
 	}
 
 	return newServerRoutesMap, newClientRoutesIDMap
-}
-
-func (m *DefaultManager) initialClientRoutes(initialRoutes []*route.Route) []*route.Route {
-	_, crMap := m.ClassifyRoutes(initialRoutes)
-	rs := make([]*route.Route, 0, len(crMap))
-	for _, routes := range crMap {
-		rs = append(rs, routes...)
-	}
-
-	return rs
 }
 
 func isRouteSupported(route *route.Route) bool {
