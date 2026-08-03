@@ -374,7 +374,65 @@ render_enterprise_config() {
 # Execution steps
 # ---------------------------------------------------------------------------
 
-resolve_data_volume() {
+combined_container_id() {
+  $DOCKER_COMPOSE_COMMAND ps -aq "$COMBINED_SERVICE" 2>/dev/null | head -1
+}
+
+container_data_mount() {
+  local container="$1"
+  [[ -n "$container" ]] || return 0
+  docker inspect "$container" --format \
+    '{{range .Mounts}}{{if eq .Destination "/var/lib/netbird"}}{{if .Name}}{{.Name}}{{else}}{{.Source}}{{end}}{{end}}{{end}}' 2>/dev/null
+}
+
+# The name comes from the container, so `-v` cannot invent an empty volume here.
+data_dir_is_empty() {
+  local src="$1"
+  if [[ "$src" == /* ]]; then
+    [[ -z "$(ls -A "$src" 2>/dev/null)" ]]
+    return
+  fi
+  docker volume inspect "$src" &> /dev/null || return 0
+  [[ -z "$(docker run --rm -v "${src}:/d:ro" busybox sh -c 'ls -A /d' 2>/dev/null)" ]]
+}
+
+check_data_directory() {
+  [[ "$MIGRATE_POSTGRES" == "yes" ]] || return 0
+
+  local container
+  container=$(combined_container_id)
+  if [[ -z "$container" ]]; then
+    echo "" > /dev/stderr
+    echo "No container found for service '$COMBINED_SERVICE'." > /dev/stderr
+    echo "The migration backs up the store by copying it out of that container," > /dev/stderr
+    echo "so it has to exist. Start the deployment and re-run:" > /dev/stderr
+    echo "  $DOCKER_COMPOSE_COMMAND up -d" > /dev/stderr
+    exit 1
+  fi
+
+  local src
+  src=$(container_data_mount "$container")
+  if [[ -z "$src" ]]; then
+    echo "" > /dev/stderr
+    echo "The '$COMBINED_SERVICE' container has nothing mounted at /var/lib/netbird." > /dev/stderr
+    echo "Cannot locate the NetBird store to back it up." > /dev/stderr
+    exit 1
+  fi
+
+  if data_dir_is_empty "$src"; then
+    echo "" > /dev/stderr
+    echo "The NetBird data directory is empty:" > /dev/stderr
+    echo "  $src" > /dev/stderr
+    echo "There is nothing to migrate. Check that you are running this from the" > /dev/stderr
+    echo "deployment directory of the NetBird install you mean to migrate." > /dev/stderr
+    exit 1
+  fi
+
+  echo "  Data directory:   $src"
+}
+
+# Only for the Postgres volume, which has no container to read it off yet.
+resolve_compose_volume() {
   local short="$1"
   local actual
   # Resolve project-prefixed volume name from Docker Compose config first.
@@ -404,18 +462,21 @@ resolve_data_volume() {
 backup_sqlite() {
   BACKUP_DIR="$(pwd)/backups/sqlite-pre-enterprise-$(date +%Y%m%d-%H%M%S)"
   mkdir -p "$BACKUP_DIR"
-  local data_volume_actual
-  data_volume_actual=$(resolve_data_volume "$DATA_VOLUME")
-  echo "Backing up SQLite store from volume '$data_volume_actual' to $BACKUP_DIR ..."
-  docker run --rm \
-    -v "${data_volume_actual}:/var/lib/netbird:ro" \
-    -v "${BACKUP_DIR}:/backup" \
-    busybox \
-    sh -c 'cp -a /var/lib/netbird/. /backup/ 2>/dev/null || true'
+
+  local container
+  container=$(combined_container_id)
+  if [[ -z "$container" ]]; then
+    echo "  ⚠ No container found for '$COMBINED_SERVICE' — cannot back up the store." > /dev/stderr
+    exit 1
+  fi
+
+  echo "Backing up the NetBird store to $BACKUP_DIR ..."
+  docker cp "${container}:/var/lib/netbird/." "$BACKUP_DIR/"
+
   local copied
   copied=$(find "$BACKUP_DIR" -mindepth 1 | head -1)
   if [[ -z "$copied" ]]; then
-    echo "  ⚠ Backup directory is empty — the volume '$data_volume_actual' didn't contain data. Aborting." > /dev/stderr
+    echo "  ⚠ Backup directory is empty — /var/lib/netbird held no data. Aborting." > /dev/stderr
     exit 1
   fi
   echo "  done"
@@ -482,7 +543,7 @@ rollback() {
   # knows about the Postgres volume.
   local pg_volume="$PG_VOLUME_NAME"
   if [[ -z "$pg_volume" ]] && [[ "$MIGRATE_POSTGRES" == "yes" ]]; then
-    pg_volume=$(resolve_data_volume "netbird_postgres" 2>/dev/null || true)
+    pg_volume=$(resolve_compose_volume "netbird_postgres" 2>/dev/null || true)
   fi
 
   echo ""
@@ -659,6 +720,7 @@ init_migration() {
     echo "Step 3 (traffic flow) skipped — requires Postgres."
   fi
 
+  check_data_directory
   check_stale_postgres_volume
 }
 
@@ -722,10 +784,15 @@ apply_changes() {
 
   if [[ "$MIGRATE_POSTGRES" == "yes" ]]; then
     echo ""
-    echo "Stopping existing services (volumes preserved) ..."
-    $DOCKER_COMPOSE_COMMAND down
+    # Stop, but keep the containers: the backup reads the store out of one.
+    echo "Stopping services so the store is quiescent ..."
+    $DOCKER_COMPOSE_COMMAND stop
 
     backup_sqlite
+
+    echo ""
+    echo "Removing stopped containers (volumes preserved) ..."
+    $DOCKER_COMPOSE_COMMAND down
 
     echo ""
     echo "Starting Postgres ..."
@@ -785,16 +852,18 @@ print_summary() {
   echo "──────────────────────────────────────────────────────────────────────"
   echo " To revert"
   echo "──────────────────────────────────────────────────────────────────────"
-  echo "  $DOCKER_COMPOSE_COMMAND down"
   if [[ "$MIGRATE_POSTGRES" == "yes" ]]; then
-    # Resolve project-prefixed volume names now (before override is removed).
-    local pg_volume data_volume_actual
-    pg_volume=$(resolve_data_volume "netbird_postgres")
-    data_volume_actual=$(resolve_data_volume "$DATA_VOLUME")
-    echo "  # Remove the Postgres volume FIRST, before deleting the override file:"
-    echo "  docker volume rm $pg_volume"
+    # Resolve the project-prefixed volume name now, before the override is gone.
+    local pg_volume
+    pg_volume=$(resolve_compose_volume "netbird_postgres")
+    echo "  # Stop, but keep the containers so the store can be copied back in:"
+    echo "  $DOCKER_COMPOSE_COMMAND stop"
     echo "  # Restore SQLite from the backup created during this run:"
-    echo "  docker run --rm -v ${data_volume_actual}:/var/lib/netbird -v ${BACKUP_DIR}:/backup busybox sh -c 'cp -a /backup/. /var/lib/netbird/'"
+    echo "  docker cp ${BACKUP_DIR}/. \$($DOCKER_COMPOSE_COMMAND ps -aq $COMBINED_SERVICE):/var/lib/netbird/"
+    echo "  $DOCKER_COMPOSE_COMMAND down"
+    echo "  docker volume rm $pg_volume"
+  else
+    echo "  $DOCKER_COMPOSE_COMMAND down"
   fi
   echo "  rm -f $OVERRIDE_FILE $ENTERPRISE_CONFIG_FILE"
   if [[ "$ENV_EXISTED" == "yes" ]] && [[ -f "$ENV_BACKUP" ]]; then
