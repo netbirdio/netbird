@@ -116,6 +116,14 @@ func TestWithMultipleFields(t *testing.T) {
 	}, dst)
 }
 
+func TestEmptyPublicIdsFilled(t *testing.T) {
+	src := withEmptyPublicIds{}
+	dst := emptyPublicIdTarget{}
+	assert.NoError(t, networkmapdb.FromSqlTypesToSharedTypes(reflect.ValueOf(&src), reflect.ValueOf(&dst)))
+	assert.NotEmpty(t, dst.PublicID)
+	assert.NotEmpty(t, dst.PublicId)
+}
+
 type withNullString struct {
 	Name sql.NullString
 }
@@ -198,4 +206,14 @@ type nullableTimePointerTarget struct {
 
 type withStringSlice struct {
 	Field []string
+}
+
+type withEmptyPublicIds struct {
+	PublicID sql.NullString
+	PublicId sql.NullString
+}
+
+type emptyPublicIdTarget struct {
+	PublicID string
+	PublicId string
 }

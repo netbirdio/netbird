@@ -11,6 +11,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/shared/management/networkmap"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
+	"github.com/rs/xid"
 )
 
 const (
@@ -78,6 +79,9 @@ func FromSqlTypesToSharedTypes(src reflect.Value, dst reflect.Value) error {
 			s := srcField.Interface().(sql.NullString)
 			if s.Valid {
 				dstField.SetString(s.String)
+			}
+			if (dstFieldName == "PublicId" || dstFieldName == "PublicID") && s.String == "" {
+				dstField.SetString(xid.New().String()) // TODO (dmitri) this needs to be removed to support delta updates
 			}
 		case "sql.NullTime":
 			s := srcField.Interface().(sql.NullTime)
