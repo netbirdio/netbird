@@ -178,6 +178,11 @@ func (m *managerImpl) CreateProvider(ctx context.Context, userID string, provide
 	if err := m.requirePermission(ctx, provider.AccountID, userID, modules.AgentNetworkProviders, operations.Create); err != nil {
 		return nil, err
 	}
+	if strings.TrimSpace(bootstrapCluster) != "" {
+		if err := m.requireSettingsBootstrapPermission(ctx, provider.AccountID, userID); err != nil {
+			return nil, err
+		}
+	}
 
 	// An empty api_key would silently produce a synthesised service
 	// that 401s on every upstream request. Surface the misconfiguration
@@ -627,6 +632,22 @@ func (m *managerImpl) GetSettings(ctx context.Context, accountID, userID string)
 // the subdomain is picked from the curated wordlist avoiding
 // collisions on the same cluster. Idempotent: if a row already exists
 // it is returned untouched and the hint is ignored.
+// requireSettingsBootstrapPermission gates the one-time settings bootstrap a
+// first provider create performs. Pinning the account's cluster and subdomain
+// is a settings write, so it needs the settings permission on top of the
+// provider one. No-op once the settings row exists.
+func (m *managerImpl) requireSettingsBootstrapPermission(ctx context.Context, accountID, userID string) error {
+	_, err := m.store.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, accountID)
+	if err == nil {
+		return nil
+	}
+	var sErr *status.Error
+	if !errors.As(err, &sErr) || sErr.Type() != status.NotFound {
+		return fmt.Errorf("get agent network settings: %w", err)
+	}
+	return m.requirePermission(ctx, accountID, userID, modules.AgentNetworkSettings, operations.Create)
+}
+
 func (m *managerImpl) bootstrapSettingsIfNeeded(ctx context.Context, accountID, providerCluster string) (*types.Settings, error) {
 	if accountID == "" {
 		return nil, fmt.Errorf("bootstrap settings: account id is required")
