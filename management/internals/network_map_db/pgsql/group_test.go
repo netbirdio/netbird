@@ -281,3 +281,29 @@ func TestGetDnsSettings(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotEmpty(t, set.DisabledManagementGroups)
 }
+
+func TestGetDomains(t *testing.T) {
+	ctx := context.TODO()
+
+	s, err := NewPostgresqlStore(ctx, "postgresql://root:netbird@localhost:5432/netbird")
+	assert.NoError(t, err)
+	//	err = loadSQL(ctx, s.pool, initDb)
+	//assert.NoError(t, err)
+
+	domains, err := s.GetDomains(ctx, "d8f79r2fadhs73c6uc0g") //"ckd7ee2fic3c73dtendg")
+	assert.NoError(t, err)
+	assert.NotEmpty(t, domains)
+}
+
+func TestGetServices(t *testing.T) {
+	ctx := context.TODO()
+
+	s, err := NewPostgresqlStore(ctx, "postgresql://root:netbird@localhost:5432/netbird")
+	assert.NoError(t, err)
+	//	err = loadSQL(ctx, s.pool, initDb)
+	//assert.NoError(t, err)
+
+	svcs, err := s.GetPrivateServices(ctx, "d7jlh32fadhs73btp9u0") //"d6snsejl0ubs738s3f40") //"ckd7ee2fic3c73dtendg")
+	assert.NoError(t, err)
+	assert.NotEmpty(t, svcs)
+}

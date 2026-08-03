@@ -2,14 +2,13 @@ package networkmap_pgsql
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/jackc/pgx/v5"
 )
 
 const (
 	GetAllowedUserIdsQuery = `
-	select id, auto_groups
+	select id, array (select json_array_elements_text(auto_groups::json)) as auto_groups 
 	from users
 	where account_id=$1 and not blocked and not is_service_user
 	`
@@ -38,12 +37,7 @@ func GetAllowedUsersViaPgxConnection(ctx context.Context, con *pgx.Conn, account
 	groupIdToUserIds := make(map[string][]string)
 	for _, user := range users {
 		userIdIdx[user.ID] = struct{}{}
-
-		var groupIds []string
-		if err := json.Unmarshal(user.AutoGroups, &groupIds); err != nil {
-			return nil, nil, err
-		}
-		for _, groupId := range groupIds {
+		for _, groupId := range user.AutoGroups {
 			groupIdToUserIds[groupId] = append(groupIdToUserIds[groupId], user.ID)
 		}
 	}
@@ -53,5 +47,5 @@ func GetAllowedUsersViaPgxConnection(ctx context.Context, con *pgx.Conn, account
 
 type user struct {
 	ID         string
-	AutoGroups json.RawMessage
+	AutoGroups []string
 }

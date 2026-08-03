@@ -22,7 +22,7 @@ const (
 	`
 )
 
-func (pg *PgStore) GetPeers(ctx context.Context, accountId string) ([]nmdata.Peer, map[string]*nmdata.Peer, error) {
+func (pg *PgStore) GetPeers(ctx context.Context, accountId string) ([]nmdata.Peer, map[string][]*nmdata.Peer, error) {
 	c, err := pg.Pool.Acquire(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -30,7 +30,7 @@ func (pg *PgStore) GetPeers(ctx context.Context, accountId string) ([]nmdata.Pee
 	return GetPeersViaPgxConnection(ctx, c.Conn(), accountId)
 }
 
-func GetPeersViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId string) ([]nmdata.Peer, map[string]*nmdata.Peer, error) {
+func GetPeersViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId string) ([]nmdata.Peer, map[string][]*nmdata.Peer, error) {
 	rows, err := con.Query(ctx, GetPeersQuery, accountId)
 	if err != nil {
 		return nil, nil, err
@@ -42,7 +42,7 @@ func GetPeersViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId stri
 	}
 
 	toret := make([]nmdata.Peer, 0, len(peers))
-	clusterToPeerIdx := make(map[string]*nmdata.Peer)
+	clusterToPeerIdx := make(map[string][]*nmdata.Peer)
 	for _, p := range peers {
 		dp := nmdata.Peer{}
 		err := networkmapdb.FromSqlTypesToSharedTypes(
@@ -55,7 +55,7 @@ func GetPeersViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId stri
 			dp.ProxyMeta.Embedded = p.ProxyMetaEmbedded.Bool
 		}
 		if dp.ProxyMeta.Embedded {
-			clusterToPeerIdx[p.ProxyMetaCluster.String] = &dp
+			clusterToPeerIdx[p.ProxyMetaCluster.String] = append(clusterToPeerIdx[p.ProxyMetaCluster.String], &dp)
 		}
 		if p.MetaWtVersion.Valid {
 			dp.Meta.WtVersion = p.MetaWtVersion.String

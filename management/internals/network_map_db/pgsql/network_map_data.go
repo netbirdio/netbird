@@ -2,6 +2,7 @@ package networkmap_pgsql
 
 import (
 	"context"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/netbirdio/netbird/shared/management/networkmap"
@@ -42,7 +43,7 @@ func (pg *PgStore) GetNetworkMapData(ctx context.Context, accountId string) (*ne
 	if err != nil {
 		return rollbackAndReturnError(ctx, tx, err)
 	}
-	peers, _, err := GetPeersViaPgxConnection(ctx, tx.Conn(), accountId)
+	peers, proxyPeers, err := GetPeersViaPgxConnection(ctx, tx.Conn(), accountId)
 	if err != nil {
 		return rollbackAndReturnError(ctx, tx, err)
 	}
@@ -67,6 +68,14 @@ func (pg *PgStore) GetNetworkMapData(ctx context.Context, accountId string) (*ne
 		return rollbackAndReturnError(ctx, tx, err)
 	}
 	dnsSettings, err := GetDnsSettingsViaPgxConnection(ctx, tx.Conn(), accountId)
+	if err != nil {
+		return rollbackAndReturnError(ctx, tx, err)
+	}
+	// domains, err := GetDomainsViaPgxConnection(ctx, tx.Conn(), accountId)
+	// if err != nil {
+	// 	return rollbackAndReturnError(ctx, tx, err)
+	// }
+	services, err := GetPrivateServicesViaPgxConnection(ctx, tx.Conn(), accountId)
 	if err != nil {
 		return rollbackAndReturnError(ctx, tx, err)
 	}
@@ -144,4 +153,54 @@ func toSliceOfPtrs[T any](all []T) []*T {
 		toret = append(toret, &t)
 	}
 	return toret
+}
+
+func serviceDomainZone(svc service, ds []domain) string {
+	if domainFromSuffix(svc.Domain.String, svc.ProxyCluster.String) {
+		return svc.ProxyCluster.String
+	}
+
+	var zoneName string
+	for _, domain := range ds {
+		if domain.TargetCluster.String != svc.ProxyCluster.String {
+			continue
+		}
+		if domainFromSuffix(svc.Domain.String, domain.Domain.String) && len(domain.Domain.String) > len(zoneName) {
+			zoneName = domain.Domain.String
+		}
+	}
+
+	return zoneName
+}
+
+func domainFromSuffix(domain, suffix string) bool {
+	if suffix == "" {
+		return false
+	}
+	return domain == suffix || strings.HasSuffix(domain, "."+suffix)
+}
+
+func buildPrivateServiceCandidates(svcs []service, domains []domain, proxyPeersByCluster map[string][]*nmdata.Peer) []networkmap.PrivateServiceCandidate {
+	var out []networkmap.PrivateServiceCandidate
+
+	if len(proxyPeersByCluster) == 0 {
+		return out
+	}
+
+	for _, svc := range svcs {
+		if len(svc.AccessGroups) == 0 {
+			continue
+		}
+
+		domainZone := serviceDomainZone(svc, domains)
+		if domainZone == "" {
+			continue
+		}
+
+		for _, proxyPeer := range proxyPeersByCluster[svc.ProxyCluster.String] {
+			if !proxyPeer.IP.IsValid() {
+				continue
+			}
+		}
+	}
 }
