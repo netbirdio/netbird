@@ -36,11 +36,11 @@
         "description": "Tray status: the authenticated session expired; the user must sign in again."
     },
     "tray.session.expiresIn": {
-        "message": "Сеанс закінчиться через {remaining}",
+        "message": "До завершення сеансу: {remaining}",
         "description": "Tray row showing time left before the session expires. {remaining} is a human-readable duration such as '5 minutes', built from the tray.session.unit.* strings. Keep {remaining} unchanged."
     },
     "tray.session.unit.lessThanMinute": {
-        "message": "Залишилося менше хвилини",
+        "message": "менше хв.",
         "description": "Duration fragment substituted into {remaining} (see tray.session.expiresIn). Used when under one minute remains."
     },
     "tray.session.unit.minute": {
@@ -48,15 +48,15 @@
         "description": "Duration fragment for exactly one minute, substituted into {remaining}."
     },
     "tray.session.unit.minutes": {
-        "message": "{count} хвилин",
+        "message": "{count} хв.",
         "description": "Duration fragment for several minutes, substituted into {remaining}. {count} is the number of minutes; keep {count}."
     },
     "tray.session.unit.hour": {
-        "message": "1 годину",
+        "message": "1 год.",
         "description": "Duration fragment for exactly one hour, substituted into {remaining}."
     },
     "tray.session.unit.hours": {
-        "message": "{count} годин",
+        "message": "{count} год.",
         "description": "Duration fragment for several hours. {count} is the number of hours; keep {count}."
     },
     "tray.session.unit.day": {
@@ -64,7 +64,7 @@
         "description": "Duration fragment for exactly one day, substituted into {remaining}."
     },
     "tray.session.unit.days": {
-        "message": "{count} днів",
+        "message": "{count} дн.",
         "description": "Duration fragment for several days. {count} is the number of days; keep {count}."
     },
     "tray.menu.open": {
@@ -160,7 +160,7 @@
         "description": "Body of the update-available desktop notification. {version} is the new version number; keep it."
     },
     "notify.update.enforcedSuffix": {
-        "message": " Ваш адміністратор вимагає встановити це оновлення",
+        "message": " Ваш адміністратор вимагає встановити це оновлення.",
         "description": "Sentence appended to the update notification body when the admin has made the update mandatory. Note the leading space — keep it."
     },
     "notify.error.title": {
@@ -208,7 +208,7 @@
         "description": "Action button on the session-expiry notification that renews the session. Keep short."
     },
     "notify.sessionWarning.dismiss": {
-        "message": "Відхилити",
+        "message": "Закрити",
         "description": "Action button on the session-expiry notification that dismisses it. Keep short."
     },
     "notify.sessionWarning.failed": {
@@ -220,15 +220,15 @@
         "description": "Title of the notification confirming the session was renewed."
     },
     "notify.sessionWarning.successBody": {
-        "message": "Ваш сеанс успішно оновлено.",
+        "message": "Ваш сеанс успішно продовжено.",
         "description": "Body of the notification confirming the session was renewed."
     },
     "notify.sessionDeadlineRejected.title": {
-        "message": "Кінцевий термін сеансу відхилено",
+        "message": "Недійсний термін дії сеансу",
         "description": "Title of the notification shown when the server sent an invalid session deadline."
     },
     "notify.sessionDeadlineRejected.body": {
-        "message": "Сервер надіслав недійсний термін дії сеансу. Будь ласка, увійдіть знову",
+        "message": "Сервер надіслав недійсний термін дії сеансу. Будь ласка, увійдіть знову.",
         "description": "Body explaining the server sent an invalid session deadline and the user must sign in again."
     },
     "notify.mdm.policyApplied.title": {
@@ -236,7 +236,7 @@
         "description": "Title of the desktop notification shown when an MDM (IT-managed) policy changed the daemon configuration at runtime."
     },
     "notify.mdm.policyApplied.body": {
-        "message": "Конфігурацію NetBird оновлено відповідно до політики вашої організації",
+        "message": "Конфігурацію NetBird оновлено відповідно до політики вашої організації.",
         "description": "Body of the MDM policy-applied notification, telling the user their settings were changed by their organization's device-management policy."
     },
     "common.cancel": {
@@ -420,7 +420,7 @@
         "description": "Accessibility label for the per-profile kebab (⋯) menu."
     },
     "profile.selector.deregister": {
-        "message": "Вийти з акаунту",
+        "message": "Вийти з профілю",
         "description": "Per-profile menu action: deregister (sign out of the profile but keep it)."
     },
     "profile.selector.delete": {
@@ -456,7 +456,7 @@
         "description": "Helper text under the profile-name field."
     },
     "profile.dialog.placeholder": {
-        "message": "наприклад Робота",
+        "message": "наприклад, Робота",
         "description": "Example placeholder shown in the profile-name field. 'Work' is a sample value; translate it to a natural example."
     },
     "profile.dialog.submit": {
@@ -464,11 +464,11 @@
         "description": "Submit button on the add-profile dialog. Keep short."
     },
     "profile.dialog.required": {
-        "message": "Будь ласка, введіть назву профілю, наприклад робота, дім",
+        "message": "Будь ласка, введіть назву профілю, наприклад, «Робота» або «Дім».",
         "description": "Validation message shown when the profile name is empty. The examples (work, home) may be localized."
     },
     "profile.dialog.managementHelp": {
-        "message": "Використовуєте NetBird Cloud чи ваш власний сервер.",
+        "message": "Використовуйте NetBird Cloud або власний сервер.",
         "description": "Helper text noting the profile can use NetBird Cloud or a self-hosted server."
     },
     "profile.dialog.urlUnreachable": {
@@ -628,7 +628,7 @@
         "description": "Section heading on the Profiles settings tab."
     },
     "settings.profiles.intro": {
-        "message": "Використовуйте кілька ідентичностей NetBird одночасно, наприклад, робочий та особистий облікові записи або різні сервери керування. Додавайте, виходьте або видаляйте профілі нижче.",
+        "message": "Використовуйте кілька профілів NetBird одночасно, наприклад, робочий та особистий облікові записи або різні сервери керування. Додавайте профілі, виходьте з них або видаляйте їх нижче.",
         "description": "Intro paragraph on the Profiles settings tab explaining what profiles are for."
     },
     "settings.profiles.addProfile": {
@@ -776,7 +776,7 @@
         "description": "Validation message for an invalid management-server URL. The example URL stays as-is."
     },
     "settings.general.management.urlUnreachable": {
-        "message": "Не вдалося підключитися до цього сервера. Перевірте URL-адресу або збережіть, якщо ви впевнені, що вона правильна.",
+        "message": "Не вдалося підключитися до цього сервера. Перевірте URL-адресу або все одно збережіть зміни, якщо ви впевнені, що вона правильна.",
         "description": "Soft warning when the management URL couldn't be reached; the user may save anyway."
     },
     "settings.general.management.switchCloudTitle": {
@@ -784,7 +784,7 @@
         "description": "Confirmation-dialog title for switching to NetBird Cloud."
     },
     "settings.general.management.switchCloudMessage": {
-        "message": "Це відключить ваш self-hosted сервер.\nВам може знадобитися увійти знову.",
+        "message": "Це від’єднає вас від self-hosted сервера.\nВам може знадобитися увійти знову.",
         "description": "Confirmation body warning the self-hosted server will be disconnected. Contains a line break (\\n) — keep it."
     },
     "settings.general.management.switchCloudConfirm": {
@@ -792,7 +792,7 @@
         "description": "Confirm button for switching to Cloud. Keep short."
     },
     "settings.network.section.connectivity": {
-        "message": "З'єднання",
+        "message": "Підключення",
         "description": "Section heading for connectivity options on the Network tab."
     },
     "settings.network.section.routingDns": {
@@ -804,7 +804,7 @@
         "description": "Toggle label: reconnect automatically on network change."
     },
     "settings.network.monitor.help": {
-        "message": "Відстежувати мережу і автоматично перепідключатися при таких змінах, як перемикання Wi-Fi, Ethernet або вихід з режиму сну.",
+        "message": "Відстежувати мережу й автоматично перепідключатися у разі таких змін, як перемикання Wi-Fi, зміна Ethernet-підключення або вихід із режиму сну.",
         "description": "Helper text for the network-change reconnect toggle."
     },
     "settings.network.dns.label": {
@@ -812,7 +812,7 @@
         "description": "Toggle label: enable DNS. 'DNS' — keep acronym."
     },
     "settings.network.dns.help": {
-        "message": "Застосовувати налаштування DNS, якими керує NetBird, до локального DNS-розв'язувача.",
+        "message": "Застосовувати налаштування DNS, якими керує NetBird, до локального DNS-розв’язувача хоста.",
         "description": "Helper text for the enable-DNS toggle."
     },
     "settings.network.clientRoutes.label": {
@@ -876,7 +876,7 @@
         "description": "Toggle label: enable permissive mode (for quantum-resistance)."
     },
     "settings.security.rosenpassPermissive.help": {
-        "message": "Дозволити підключення до пірів без підтримки квантової стійкості.",
+        "message": "Дозволити підключення до пірів без підтримки постквантової стійкості.",
         "description": "Helper text for permissive mode (allow peers without quantum-resistance support)."
     },
     "settings.ssh.section.server": {
@@ -920,7 +920,7 @@
         "description": "Toggle label: local port forwarding."
     },
     "settings.ssh.localForward.help": {
-        "message": "Дозволити пірам, що підключаються, тунелювати локальні порти до сервісів, доступних з цього хоста.",
+        "message": "Дозволити пірам, що підключаються, переспрямовувати локальні порти до сервісів, доступних із цього хоста.",
         "description": "Helper text for local port forwarding."
     },
     "settings.ssh.remoteForward.label": {
@@ -928,7 +928,7 @@
         "description": "Toggle label: remote port forwarding."
     },
     "settings.ssh.remoteForward.help": {
-        "message": "Дозволити підключеним пірам відкривати на цьому хості порти з переспрямуванням на свої машини.",
+        "message": "Дозволити підключеним пірам відкривати порти на цьому хості з переспрямуванням на свої машини.",
         "description": "Helper text for remote port forwarding."
     },
     "settings.ssh.jwt.label": {
@@ -944,11 +944,11 @@
         "description": "Label for the JWT cache time-to-live field. 'JWT' and 'TTL' — keep acronyms."
     },
     "settings.ssh.jwtTtl.help": {
-        "message": "Як довго цей клієнт кешує JWT перед повторним запитом для вихідних SSH-з'єднань. Встановіть 0, щоб вимкнути кешування та проходити автентифікацію при кожному підключенні.",
+        "message": "Як довго цей клієнт кешує JWT перед повторним запитом для вихідних SSH-з’єднань. Встановіть 0, щоб вимкнути кешування та проходити автентифікацію при кожному підключенні.",
         "description": "Helper text for the JWT cache TTL; mentions setting 0 to disable caching."
     },
     "settings.ssh.jwtTtl.suffix": {
-        "message": "Секунд(и)",
+        "message": "сек.",
         "description": "Unit suffix shown after the JWT TTL number field. The '(s)' marks an optional plural."
     },
     "settings.advanced.section.interface": {
@@ -992,11 +992,11 @@
         "description": "Validation message for the MTU range. {min} and {max} are numbers; keep them."
     },
     "settings.advanced.psk.label": {
-        "message": "Попередньо узгоджений ключ",
+        "message": "Pre-shared Key",
         "description": "Field label: Pre-shared Key."
     },
     "settings.advanced.psk.help": {
-        "message": "Додатковий PSK WireGuard для додаткового симетричного шифрування. Це не те саме, що NetBird Setup Key. Ви зможете обмінюватися даними лише з тими пірами, які використовують такий самий попередньо узгоджений ключ.",
+        "message": "Додатковий PSK WireGuard для симетричного шифрування. Це не те саме, що NetBird Setup Key. Ви зможете обмінюватися даними лише з тими пірами, які використовують такий самий попередньо узгоджений ключ.",
         "description": "Helper text for the WireGuard PSK. 'WireGuard', 'PSK', and 'NetBird Setup Key' are product/technical terms — keep them."
     },
     "settings.troubleshooting.section.title": {
@@ -1004,11 +1004,11 @@
         "description": "Section heading: Debug bundle."
     },
     "settings.troubleshooting.anonymize.label": {
-        "message": "Анонімізувати конфіденційну інформацію",
+        "message": "Анонімізувати чутливу інформацію",
         "description": "Toggle label: anonymize sensitive information in the bundle."
     },
     "settings.troubleshooting.anonymize.help": {
-        "message": "Приховує публічні IP-адреси та не пов'язані з NetBird домени з журналів.",
+        "message": "Приховує публічні IP-адреси та домени, не пов’язані з NetBird, у журналах.",
         "description": "Helper text for anonymizing logs (hides public IPs and non-NetBird domains)."
     },
     "settings.troubleshooting.systemInfo.label": {
@@ -1024,7 +1024,7 @@
         "description": "Toggle label: upload the bundle to NetBird servers."
     },
     "settings.troubleshooting.upload.help": {
-        "message": "Надає ключ завантаження, який можна передати службі підтримки NetBird.",
+        "message": "Створює ключ завантаження, який можна передати службі підтримки NetBird.",
         "description": "Helper text for uploading the bundle."
     },
     "settings.troubleshooting.trace.label": {
@@ -1032,7 +1032,7 @@
         "description": "Toggle label: raise daemon log level to TRACE while the bundle is built. 'TRACE' is a log level."
     },
     "settings.troubleshooting.trace.help": {
-        "message": "Підвищує рівень логування до TRACE та відновлює його після завершення.",
+        "message": "Підвищує рівень журналювання до TRACE на час створення архіву та відновлює його після завершення.",
         "description": "Helper text for the trace toggle. 'TRACE' is a log level — keep as-is."
     },
     "settings.troubleshooting.capture.label": {
@@ -1048,7 +1048,7 @@
         "description": "Toggle label: capture packets to a .pcap during the capture session."
     },
     "settings.troubleshooting.packets.help": {
-        "message": "Зберігає файл .pcap з мережевим трафіком під час вікна захоплення.",
+        "message": "Зберігає файл .pcap із мережевим трафіком протягом сеансу захоплення.",
         "description": "Helper text for the packet recording toggle. '.pcap' is a file extension — keep it."
     },
     "settings.troubleshooting.duration.label": {
@@ -1060,7 +1060,7 @@
         "description": "Helper text for the capture duration."
     },
     "settings.troubleshooting.duration.suffix": {
-        "message": "Хвилин(и)",
+        "message": "хв.",
         "description": "Unit suffix after the duration field. The '(s)' marks an optional plural."
     },
     "settings.troubleshooting.create": {
@@ -1068,7 +1068,7 @@
         "description": "Button to create the debug bundle. Keep short."
     },
     "settings.troubleshooting.progress.description": {
-        "message": "Збір журналів, даних про систему та стану підключення. Зазвичай це займає хвилину. Ви можете продовжувати використовувати NetBird або закрити вікно налаштувань, поки процес триває.",
+        "message": "Збір журналів, даних про систему та інформації про стан підключення. Зазвичай це займає хвилину. Ви можете продовжувати використовувати NetBird або закрити вікно налаштувань, поки процес триває.",
         "description": "Status text shown while the debug bundle is being collected; reassures the user they can keep using NetBird or close Settings meanwhile."
     },
     "settings.troubleshooting.cancelling": {
@@ -1188,7 +1188,7 @@
         "description": "Community link: Documentation."
     },
     "settings.about.community.feedback": {
-        "message": "Зворотний зв'язок",
+        "message": "Зворотний зв’язок",
         "description": "Community link: Feedback."
     },
     "update.banner.message": {
@@ -1380,7 +1380,7 @@
         "description": "Heading on the first onboarding step, pointing the user to the tray icon. Shown on Windows and Linux; macOS uses welcome.titleMac."
     },
     "welcome.titleMac": {
-        "message": "Шукайте NetBird у рядку меню",
+        "message": "Знайдіть NetBird у рядку меню.",
         "description": "Heading on the first onboarding step on macOS, pointing the user to the menu bar icon. Use your language's Apple term for the macOS menu bar."
     },
     "welcome.description": {
@@ -1444,7 +1444,7 @@
         "description": "Status shown while checking the server URL. Ends with an ellipsis."
     },
     "browserLogin.title": {
-        "message": "Завершіть вхід у вашому браузері",
+        "message": "Завершіть вхід у браузері",
         "description": "Heading telling the user to finish signing in via their browser."
     },
     "browserLogin.notSeeing": {
@@ -1460,7 +1460,7 @@
         "description": "Error-dialog title when the browser couldn't be opened."
     },
     "sessionExpiration.title": {
-        "message": "Термін дії сеансу скоро закінчиться",
+        "message": "Термін дії сеансу невдовзі закінчиться",
         "description": "Heading warning the session will expire soon."
     },
     "sessionExpiration.titleLater": {
@@ -1468,7 +1468,7 @@
         "description": "Alternate, less-urgent heading: the session will expire."
     },
     "sessionExpiration.description": {
-        "message": "Цей пристрій скоро буде відключено. Поновіть сеанс, увійшовши через браузер.",
+        "message": "Цей пристрій невдовзі буде відключено. Поновіть сеанс, увійшовши через браузер.",
         "description": "Body warning the device will disconnect soon; renew via a browser sign-in."
     },
     "sessionExpiration.descriptionLater": {
@@ -1508,7 +1508,7 @@
         "description": "Error-dialog title when logging out fails."
     },
     "peers.search.placeholder": {
-        "message": "Пошук за ім'ям або IP",
+        "message": "Пошук за ім’ям або IP",
         "description": "Placeholder in the peers search field."
     },
     "peers.filter.all": {
@@ -1736,7 +1736,7 @@
         "description": "Title of the overlay shown when the NetBird client (daemon) is too old to drive this UI."
     },
     "daemon.outdated.description": {
-        "message": "Новий GUI несумісний зі старою версією клієнта NetBird. Оновіть клієнт, щоб використовувати нову програму.",
+        "message": "Новий графічний інтерфейс несумісний зі старою версією клієнта NetBird. Оновіть клієнт, щоб використовувати нову програму.",
         "description": "Body of the daemon-outdated overlay explaining that the GUI is newer than the client and the client must be updated."
     },
     "daemon.outdated.download": {
