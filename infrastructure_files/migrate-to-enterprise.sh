@@ -15,7 +15,11 @@ set -o pipefail
 #   2. Postgres migration — add Postgres, migrate SQLite data via migrate-store.
 #   3. Traffic flow       — add NATS + flow-enricher + flow-receiver.
 #
-# To revert:
+# If any step fails once the stack has been touched, the script rolls itself
+# back automatically: generated files are removed, the Postgres volume this run
+# created is dropped, and the original deployment is started again.
+#
+# To revert a successful migration:
 #   docker compose down
 #   rm -f docker-compose.override.yml config.yaml.enterprise
 #   # If Postgres migration was done, also restore the SQLite backup printed
@@ -24,6 +28,15 @@ set -o pipefail
 
 OVERRIDE_FILE="docker-compose.override.yml"
 ENTERPRISE_CONFIG_FILE="config.yaml.enterprise"
+
+# Rollback bookkeeping. ROLLBACK_STATE flips to "armed" the moment the script
+# starts mutating the deployment, and back to "disarmed" once the migration has
+# completed successfully.
+ROLLBACK_STATE="disarmed"
+ENV_EXISTED="unknown"
+ENV_BACKUP=""
+PG_VOLUME_NAME=""
+BACKUP_DIR=""
 
 NETBIRD_EULA_URL="https://netbird.io/self-hosted-EULA"
 
@@ -415,6 +428,110 @@ run_migrate_store() {
 }
 
 # ---------------------------------------------------------------------------
+# Rollback — a failed run must not leave the operator with a stopped stack and
+# half-written artifacts.
+# ---------------------------------------------------------------------------
+
+# Resolve the name Compose would give the Postgres volume before the override
+# exists, so a leftover volume can be spotted up front.
+postgres_volume_name() {
+  local project
+  project=$($DOCKER_COMPOSE_COMMAND config 2>/dev/null | yq eval '.name // ""' - 2>/dev/null)
+  if [[ -z "$project" ]] || [[ "$project" == "null" ]]; then
+    return
+  fi
+  echo "${project}_netbird_postgres"
+}
+
+# Postgres skips initdb when its data directory is non-empty, so a volume left
+# behind by an interrupted run would keep the old password and old contents,
+# and migrate-store would fail against it.
+check_stale_postgres_volume() {
+  [[ "$MIGRATE_POSTGRES" == "yes" ]] || return 0
+
+  PG_VOLUME_NAME=$(postgres_volume_name)
+  [[ -n "$PG_VOLUME_NAME" ]] || return 0
+  docker volume inspect "$PG_VOLUME_NAME" &> /dev/null || return 0
+
+  echo ""
+  echo "  ⚠  A Postgres volume from an earlier attempt already exists:"
+  echo "       $PG_VOLUME_NAME"
+  echo "     Postgres does not re-initialise a non-empty data directory, so the"
+  echo "     migration would run against stale credentials and stale data."
+  local remove
+  remove=$(read_yes_no "  Remove it and continue?" "y")
+  if [[ "$remove" != "yes" ]]; then
+    echo "" > /dev/stderr
+    echo "Aborted. Remove it manually with: docker volume rm $PG_VOLUME_NAME" > /dev/stderr
+    exit 1
+  fi
+  docker volume rm "$PG_VOLUME_NAME" > /dev/null
+  echo "  Removed."
+}
+
+# Undo whatever this run changed and start the previous deployment again.
+rollback() {
+  ROLLBACK_STATE="done"
+
+  echo ""
+  echo "──────────────────────────────────────────────────────────────────────"
+  echo " Migration failed — restoring the previous deployment"
+  echo "──────────────────────────────────────────────────────────────────────"
+
+  # Resolve while the override is still present; without it Compose no longer
+  # knows about the Postgres volume.
+  local pg_volume="$PG_VOLUME_NAME"
+  if [[ -z "$pg_volume" ]] && [[ "$MIGRATE_POSTGRES" == "yes" ]]; then
+    pg_volume=$(resolve_data_volume "netbird_postgres" 2>/dev/null || true)
+  fi
+
+  echo ""
+  echo "Stopping services ..."
+  $DOCKER_COMPOSE_COMMAND down || true
+
+  echo "Removing generated files ..."
+  rm -f "$OVERRIDE_FILE" "$ENTERPRISE_CONFIG_FILE"
+
+  # Restore .env to exactly what it was, or remove it if this run created it.
+  if [[ "$ENV_EXISTED" == "yes" ]] && [[ -f "$ENV_BACKUP" ]]; then
+    mv -f "$ENV_BACKUP" .env
+  elif [[ "$ENV_EXISTED" == "no" ]]; then
+    rm -f .env
+  fi
+
+  # Only ever the volume this run created — never the NetBird data volume.
+  if [[ -n "$pg_volume" ]] && [[ "$pg_volume" != "null" ]]; then
+    echo "Removing Postgres volume $pg_volume ..."
+    docker volume rm "$pg_volume" &> /dev/null || true
+  fi
+
+  echo "Starting the previous deployment ..."
+  if ! $DOCKER_COMPOSE_COMMAND up -d; then
+    echo ""
+    echo "  ⚠ Could not start the previous deployment automatically." > /dev/stderr
+    echo "    Run: $DOCKER_COMPOSE_COMMAND up -d" > /dev/stderr
+  fi
+
+  echo ""
+  echo "Rolled back. Your docker-compose.yml, config.yaml and the NetBird data"
+  echo "volume were never modified."
+  if [[ -n "$BACKUP_DIR" ]] && [[ -d "$BACKUP_DIR" ]]; then
+    echo "The SQLite backup taken during this run is kept at:"
+    echo "  $BACKUP_DIR"
+  fi
+  echo "──────────────────────────────────────────────────────────────────────"
+}
+
+on_exit() {
+  local code=$?
+  trap - EXIT
+  if [[ $code -ne 0 ]] && [[ "$ROLLBACK_STATE" == "armed" ]]; then
+    rollback
+  fi
+  exit $code
+}
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -541,9 +658,14 @@ init_migration() {
     ENABLE_FLOW="no"
     echo "Step 3 (traffic flow) skipped — requires Postgres."
   fi
+
+  check_stale_postgres_volume
 }
 
 apply_changes() {
+  # From here on a failure must roll the deployment back.
+  ROLLBACK_STATE="armed"
+
   echo ""
   echo "Writing $OVERRIDE_FILE ..."
   install -m 644 /dev/null "$OVERRIDE_FILE"
@@ -564,6 +686,14 @@ apply_changes() {
   # picks it up automatically.
   echo "Writing .env additions (mode 600) ..."
   local ENV_FILE=".env"
+  # Snapshot the operator's .env so a rollback can restore it byte for byte.
+  if [[ -f "$ENV_FILE" ]]; then
+    ENV_EXISTED="yes"
+    ENV_BACKUP="${ENV_FILE}.pre-enterprise-$(date +%Y%m%d-%H%M%S)"
+    cp -p "$ENV_FILE" "$ENV_BACKUP"
+  else
+    ENV_EXISTED="no"
+  fi
   touch "$ENV_FILE"
   chmod 600 "$ENV_FILE"
   {
@@ -626,6 +756,9 @@ apply_changes() {
 
   echo ""
   echo "Migration complete."
+
+  # Nothing left to undo.
+  ROLLBACK_STATE="disarmed"
 }
 
 print_summary() {
@@ -643,6 +776,7 @@ print_summary() {
   echo "    $OVERRIDE_FILE"
   [[ "$MIGRATE_POSTGRES" == "yes" ]] && echo "    $ENTERPRISE_CONFIG_FILE"
   echo "    .env  (license key + secrets, mode 600)"
+  [[ "$ENV_EXISTED" == "yes" ]] && [[ -f "$ENV_BACKUP" ]] && echo "    $ENV_BACKUP  (.env as it was before this run)"
   [[ "$MIGRATE_POSTGRES" == "yes" ]] && echo "    backups/sqlite-pre-enterprise-*/  (SQLite backup)"
   echo ""
   echo " Tail logs:"
@@ -663,7 +797,13 @@ print_summary() {
     echo "  docker run --rm -v ${data_volume_actual}:/var/lib/netbird -v ${BACKUP_DIR}:/backup busybox sh -c 'cp -a /backup/. /var/lib/netbird/'"
   fi
   echo "  rm -f $OVERRIDE_FILE $ENTERPRISE_CONFIG_FILE"
-  echo "  # Remove migrate-to-enterprise.sh additions from .env (search for the timestamp marker)"
+  if [[ "$ENV_EXISTED" == "yes" ]] && [[ -f "$ENV_BACKUP" ]]; then
+    echo "  mv $ENV_BACKUP .env   # restores .env as it was before this run"
+  elif [[ "$ENV_EXISTED" == "no" ]]; then
+    echo "  rm -f .env   # created by this run"
+  else
+    echo "  # Remove migrate-to-enterprise.sh additions from .env (search for the timestamp marker)"
+  fi
   echo "  $DOCKER_COMPOSE_COMMAND up -d"
   echo "──────────────────────────────────────────────────────────────────────"
 }
@@ -671,6 +811,10 @@ print_summary() {
 # ---------------------------------------------------------------------------
 # Run
 # ---------------------------------------------------------------------------
+
+trap on_exit EXIT
+# Turn signals into a normal exit so the EXIT trap can roll back.
+trap 'exit 130' INT TERM
 
 init_migration
 apply_changes
