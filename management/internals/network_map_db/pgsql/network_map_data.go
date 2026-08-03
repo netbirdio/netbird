@@ -198,6 +198,9 @@ func buildPrivateServiceCandidates(svcs []service, domains []domain, proxyPeersB
 	}
 
 	for _, svc := range svcs {
+		if !svc.Enabled.Bool || !svc.Private.Bool {
+			continue
+		}
 		if len(svc.AccessGroups) == 0 {
 			continue
 		}
