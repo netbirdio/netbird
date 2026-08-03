@@ -44,7 +44,7 @@
         "description": "Duration fragment substituted into {remaining} (see tray.session.expiresIn). Used when under one minute remains."
     },
     "tray.session.unit.minute": {
-        "message": "1 хвилина",
+        "message": "1 хвилину",
         "description": "Duration fragment for exactly one minute, substituted into {remaining}."
     },
     "tray.session.unit.minutes": {
@@ -52,7 +52,7 @@
         "description": "Duration fragment for several minutes, substituted into {remaining}. {count} is the number of minutes; keep {count}."
     },
     "tray.session.unit.hour": {
-        "message": "1 година",
+        "message": "1 годину",
         "description": "Duration fragment for exactly one hour, substituted into {remaining}."
     },
     "tray.session.unit.hours": {
@@ -228,7 +228,7 @@
         "description": "Title of the notification shown when the server sent an invalid session deadline."
     },
     "notify.sessionDeadlineRejected.body": {
-        "message": "Сервер надіслав недійсний дедлайн сеансу. Будь ласка, увійдіть знову.",
+        "message": "Сервер надіслав недійсний термін дії сеансу. Будь ласка, увійдіть знову",
         "description": "Body explaining the server sent an invalid session deadline and the user must sign in again."
     },
     "notify.mdm.policyApplied.title": {
@@ -264,7 +264,7 @@
         "description": "Generic Copy button label (copy to clipboard). Keep short."
     },
     "common.togglePasswordVisibility": {
-        "message": "Показати/Сховати пароль",
+        "message": "Показати/сховати пароль",
         "description": "Accessibility label for the show/hide button inside a password field."
     },
     "common.increase": {
@@ -304,7 +304,7 @@
         "description": "The product name. Brand — do not translate."
     },
     "common.noResults.title": {
-        "message": "Не вдалося знайти результати",
+        "message": "Результатів не знайдено",
         "description": "Title of the empty state shown when a search or filter returns nothing."
     },
     "common.noResults.description": {
@@ -388,7 +388,7 @@
         "description": "Accessibility label / tooltip for the gear icon that opens Settings."
     },
     "header.togglePanel": {
-        "message": "Показати/Сховати бічну панель",
+        "message": "Показати/сховати бічну панель",
         "description": "Accessibility label / tooltip for the button that shows or hides the side panel."
     },
     "profile.selector.loading": {
@@ -472,7 +472,7 @@
         "description": "Helper text noting the profile can use NetBird Cloud or a self-hosted server."
     },
     "profile.dialog.urlUnreachable": {
-        "message": "Не вдалося підключитися до цього сервера. Перевірте URL-адресу, або додайте профіль, якщо ви впевнені, що вона правильна.",
+        "message": "Не вдалося підключитися до цього сервера. Перевірте URL-адресу або додайте профіль, якщо ви впевнені, що вона правильна.",
         "description": "Soft warning when the entered server URL couldn't be reached; the user may add the profile anyway."
     },
     "header.menu.settings": {
@@ -628,7 +628,7 @@
         "description": "Section heading on the Profiles settings tab."
     },
     "settings.profiles.intro": {
-        "message": "Використовуйте кілька ідентичностей NetBird одночасно, наприклад, робочий та особистий акаунти, або різні сервери керування. Додавайте, виходьте або видаляйте профілі нижче.",
+        "message": "Використовуйте кілька ідентичностей NetBird одночасно, наприклад, робочий та особистий облікові записи або різні сервери керування. Додавайте, виходьте або видаляйте профілі нижче.",
         "description": "Intro paragraph on the Profiles settings tab explaining what profiles are for."
     },
     "settings.profiles.addProfile": {
@@ -664,7 +664,7 @@
         "description": "Accessibility label for the Settings page's side navigation (list of section tabs)."
     },
     "settings.tabs.general": {
-        "message": "Загальна",
+        "message": "Загальні",
         "description": "Settings tab label: General. Keep short."
     },
     "settings.tabs.network": {
@@ -756,7 +756,7 @@
         "description": "Label for the management-server selector."
     },
     "settings.general.management.help": {
-        "message": "Підключайтеся до NetBird Cloud або власного self-hosted сервера керування. Зміни призведуть до перепідключення клієнта.",
+        "message": "Підключайтеся до NetBird Cloud або власного сервера керування. Зміни призведуть до перепідключення клієнта.",
         "description": "Helper text explaining Cloud vs self-hosted management server; warns that changes reconnect the client."
     },
     "settings.general.management.cloud": {
@@ -772,11 +772,11 @@
         "description": "Example URL placeholder for the self-hosted server field. It is a sample URL — do not translate the URL itself."
     },
     "settings.general.management.urlError": {
-        "message": "Будь ласка, введіть дійсну URL-адресу, наприклад, https://netbird.selfhosted.com:443",
+        "message": "Будь ласка, введіть дійсну URL-адресу, наприклад: https://netbird.selfhosted.com:443",
         "description": "Validation message for an invalid management-server URL. The example URL stays as-is."
     },
     "settings.general.management.urlUnreachable": {
-        "message": "Не вдалося підключитися до цього сервера. Перевірте URL-адресу, або збережіть, якщо ви впевнені, що вона правильна.",
+        "message": "Не вдалося підключитися до цього сервера. Перевірте URL-адресу або збережіть, якщо ви впевнені, що вона правильна.",
         "description": "Soft warning when the management URL couldn't be reached; the user may save anyway."
     },
     "settings.general.management.switchCloudTitle": {
@@ -812,7 +812,7 @@
         "description": "Toggle label: enable DNS. 'DNS' — keep acronym."
     },
     "settings.network.dns.help": {
-        "message": "Застосовувати налаштування DNS, якими керує NetBird, до локального розв'язувача (резолвера).",
+        "message": "Застосовувати налаштування DNS, якими керує NetBird, до локального DNS-розв'язувача.",
         "description": "Helper text for the enable-DNS toggle."
     },
     "settings.network.clientRoutes.label": {
@@ -864,7 +864,7 @@
         "description": "Helper text for blocking LAN access."
     },
     "settings.security.rosenpass.label": {
-        "message": "Увімкнути квантову стійкість",
+        "message": "Увімкнути постквантову стійкість",
         "description": "Toggle label: enable quantum-resistance."
     },
     "settings.security.rosenpass.help": {
@@ -904,7 +904,7 @@
         "description": "Toggle label: allow root login over SSH. 'root' is the Unix superuser account — keep as-is."
     },
     "settings.ssh.root.help": {
-        "message": "Дозволити пірам входити як користувач root. Вимкніть, щоб вимагати непривілейований акаунт.",
+        "message": "Дозволити пірам входити як користувач root. Вимкніть, щоб вимагати непривілейований обліковий запис.",
         "description": "Helper text for allowing root login."
     },
     "settings.ssh.sftp.label": {
@@ -928,7 +928,7 @@
         "description": "Toggle label: remote port forwarding."
     },
     "settings.ssh.remoteForward.help": {
-        "message": "Дозволити пірам, що підключаються, відкривати порти на цьому хості назад на свою машину.",
+        "message": "Дозволити підключеним пірам відкривати на цьому хості порти з переспрямуванням на свої машини.",
         "description": "Helper text for remote port forwarding."
     },
     "settings.ssh.jwt.label": {
@@ -968,7 +968,7 @@
         "description": "Validation message for the interface name (allowed characters)."
     },
     "settings.advanced.interfaceName.errorMac": {
-        "message": "Повинно починатися з \"utun\", за яким слідує число (наприклад, utun100).",
+        "message": "Повинно починатися з \"utun\", після якого має йти число (наприклад, utun100).",
         "description": "Validation message specific to macOS, where the name must start with 'utun' followed by a number. Keep 'utun' and the example."
     },
     "settings.advanced.port.label": {
@@ -1028,7 +1028,7 @@
         "description": "Helper text for uploading the bundle."
     },
     "settings.troubleshooting.trace.label": {
-        "message": "Увімкнути логи рівня TRACE",
+        "message": "Увімкнути журнали рівня TRACE",
         "description": "Toggle label: raise daemon log level to TRACE while the bundle is built. 'TRACE' is a log level."
     },
     "settings.troubleshooting.trace.help": {
@@ -1040,7 +1040,7 @@
         "description": "Toggle label: open a capture session — reconnect NetBird, wait a duration, optionally record packets."
     },
     "settings.troubleshooting.capture.help": {
-        "message": "Перепідключається та чекає, щоб ви могли відтворити проблему.",
+        "message": "Перепідключає NetBird і чекає, щоб ви могли відтворити проблему.",
         "description": "Helper text for the master Capture Session toggle."
     },
     "settings.troubleshooting.packets.label": {
@@ -1068,7 +1068,7 @@
         "description": "Button to create the debug bundle. Keep short."
     },
     "settings.troubleshooting.progress.description": {
-        "message": "Збір журналів, даних про систему та стану підключення. Зазвичай це займає хвилину. Ви можете продовжувати використовувати NetBird або закрити вікно налаштувань, поки процес завершується.",
+        "message": "Збір журналів, даних про систему та стану підключення. Зазвичай це займає хвилину. Ви можете продовжувати використовувати NetBird або закрити вікно налаштувань, поки процес триває.",
         "description": "Status text shown while the debug bundle is being collected; reassures the user they can keep using NetBird or close Settings meanwhile."
     },
     "settings.troubleshooting.cancelling": {
@@ -1104,7 +1104,7 @@
         "description": "Button to reveal the bundle file in the OS file manager."
     },
     "settings.troubleshooting.uploadFailedWithReason": {
-        "message": "Помилка завантаження: {reason} Архів все одно збережено локально.",
+        "message": "Помилка завантаження: {reason}. Архів все одно збережено локально.",
         "description": "Shown when upload failed but the bundle was saved locally. {reason} is the server error text; keep it."
     },
     "settings.troubleshooting.uploadFailed": {
@@ -1272,7 +1272,7 @@
         "description": "Install-progress window error title: the update couldn't be installed."
     },
     "update.overlay.error.failDescription": {
-        "message": "Оновлення до {target} не вдалося встановити.",
+        "message": "Не вдалося встановити оновлення до {target}.",
         "description": "Install-progress window error body for a failed install. {target} is the target-version label; keep it."
     },
     "update.overlay.error.unknownMessage": {
@@ -1296,7 +1296,7 @@
         "description": "Error-dialog title when starting the update fails."
     },
     "update.page.versionLine": {
-        "message": "Оновлення клієнта до: {version}.",
+        "message": "Оновлення клієнта до версії {version}.",
         "description": "Install-progress window text naming the target version. {version} is the version number; keep it."
     },
     "update.page.versionLineGeneric": {
@@ -1304,7 +1304,7 @@
         "description": "Install-progress text used when the target version isn't known."
     },
     "update.page.outdated": {
-        "message": "Ваша версія клієнта старіша за версію для автооновлення, вказану в Management.",
+        "message": "Ваша версія клієнта старіша за версію для автооновлення, задану в Management.",
         "description": "Note that the client is older than the auto-update version set in Management. 'Management' = the NetBird management server / console."
     },
     "update.page.status.running": {
@@ -1388,7 +1388,7 @@
         "description": "Body of the first onboarding step explaining the tray icon. Shown on Windows and Linux; macOS uses welcome.descriptionMac."
     },
     "welcome.descriptionMac": {
-        "message": "NetBird працює у вашому рядку меню. Натисніть на іконку, щоб підключитися, змінити профіль або відкрити налаштування.",
+        "message": "NetBird працює в рядку меню. Натисніть на іконку, щоб підключитися, змінити профіль або відкрити налаштування.",
         "description": "Body of the first onboarding step on macOS explaining the menu bar icon. Use your language's Apple term for the macOS menu bar."
     },
     "welcome.continue": {
@@ -1412,7 +1412,7 @@
         "description": "Option title: NetBird Cloud. Brand — do not translate 'NetBird Cloud'."
     },
     "welcome.management.cloud.description": {
-        "message": "Використовуйте наш власний сервіс. Налаштування не потрібне.",
+        "message": "Використовуйте наш хмарний сервіс. Налаштування не потрібне.",
         "description": "Option body for NetBird Cloud (hosted service, no setup required)."
     },
     "welcome.management.selfHosted.title": {
@@ -1432,7 +1432,7 @@
         "description": "Example URL placeholder. Sample URL — do not translate it."
     },
     "welcome.management.urlInvalid": {
-        "message": "Будь ласка, введіть дійсну URL-адресу, наприклад, https://netbird.selfhosted.com:443",
+        "message": "Будь ласка, введіть дійсну URL-адресу, наприклад: https://netbird.selfhosted.com:443",
         "description": "Validation message for an invalid URL. The example URL stays as-is."
     },
     "welcome.management.urlUnreachable": {
@@ -1464,7 +1464,7 @@
         "description": "Heading warning the session will expire soon."
     },
     "sessionExpiration.titleLater": {
-        "message": "Дія вашого сеансу закінчиться",
+        "message": "Термін дії вашого сеансу закінчиться",
         "description": "Alternate, less-urgent heading: the session will expire."
     },
     "sessionExpiration.description": {
@@ -1476,7 +1476,7 @@
         "description": "Body for the less-urgent variant; a browser sign-in keeps the device connected."
     },
     "sessionExpiration.stay": {
-        "message": "Поновити сеанс",
+        "message": "Продовжити сеанс",
         "description": "Button to renew the session (keep connected). Keep short."
     },
     "sessionExpiration.authenticate": {
@@ -1504,7 +1504,7 @@
         "description": "Error-dialog title when extending the session fails."
     },
     "sessionExpiration.logoutFailedTitle": {
-        "message": "Помилка входу",
+        "message": "Помилка виходу",
         "description": "Error-dialog title when logging out fails."
     },
     "peers.search.placeholder": {
@@ -1760,7 +1760,7 @@
         "description": "Error: the session expired; sign in again."
     },
     "error.invalid_setup_key": {
-        "message": "Ключ налаштування Setup Key відсутній або недійсний.",
+        "message": "Setup Key відсутній або недійсний.",
         "description": "Error: the setup key is missing or invalid. 'setup key' is a NetBird term."
     },
     "error.permission_denied": {
