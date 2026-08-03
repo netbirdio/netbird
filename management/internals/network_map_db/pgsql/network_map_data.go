@@ -14,10 +14,10 @@ func (pg *PgStore) GetNetworkMapData(ctx context.Context, accountId string) (*ne
 		return nil, err
 	}
 
-	// acctSettings, err := GetAccountSettingsViaPgxConnection(ctx, tx.Conn(), accountId)
-	// if err != nil {
-	// 	return rollbackAndReturnError(ctx, tx, err)
-	// }
+	acctSettings, err := GetAccountSettingsViaPgxConnection(ctx, tx.Conn(), accountId)
+	if err != nil {
+		return rollbackAndReturnError(ctx, tx, err)
+	}
 	// dnsZones, err := GetAccountZonesViaPgxConnection(ctx, tx.Conn(), accountId)
 	// if err != nil {
 	// 	return rollbackAndReturnError(ctx, tx, err)
@@ -98,6 +98,7 @@ func (pg *PgStore) GetNetworkMapData(ctx context.Context, accountId string) (*ne
 	}
 
 	toret := networkmap.NetworkMapData{
+		AccountSettings:      &acctSettings,
 		Network:              &network,
 		Peers:                toMap(peers, func(p nmdata.Peer) string { return p.ID }),
 		Groups:               toMap(groups, func(g nmdata.Group) string { return g.PublicID }),
