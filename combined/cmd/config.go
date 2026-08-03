@@ -83,6 +83,7 @@ type ServerConfig struct {
 // AgentNetworkConfig contains agent-network (LLM gateway) configuration.
 type AgentNetworkConfig struct {
 	PricingDefaultsFile string `yaml:"pricingDefaultsFile"`
+	Zone                string `yaml:"zone"`
 }
 
 // TLSConfig contains TLS/HTTPS settings
@@ -732,6 +733,7 @@ func (c *CombinedConfig) ToManagementConfig() (*nbconfig.Config, error) {
 		PerAccountHighestSupportedSyncMessageVersion: c.Server.PerAccountSupportedSyncMessageVersions,
 		AgentNetwork: nbconfig.AgentNetwork{
 			PricingDefaultsFile: c.Server.AgentNetwork.PricingDefaultsFile,
+			Zone:                c.Server.AgentNetwork.Zone,
 		},
 	}, nil
 }

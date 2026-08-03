@@ -234,7 +234,9 @@ func TestBootstrapSettings_ConcurrentBootstrapReturnsWinnersRow(t *testing.T) {
 			Return(nil, status.Errorf(status.NotFound, "agent network settings not found")),
 		// The insert loses the race. The message shape is the sqlite wording
 		// for a primary-key violation on account_id (not the subdomain
-		// index), per the review finding this test locks down.
+		// index); this test locks down that the retry path recognizes that
+		// shape as a race loss and re-reads the winner's row, rather than
+		// misclassifying it as a subdomain conflict.
 		mockStore.EXPECT().
 			ExecuteInTransaction(gomock.Any(), gomock.Any()).
 			DoAndReturn(func(_ context.Context, f func(store.Store) error) error {
@@ -258,4 +260,37 @@ func TestBootstrapSettings_ConcurrentBootstrapReturnsWinnersRow(t *testing.T) {
 	require.NoError(t, err, "losing the same-account race must not surface as an error")
 	require.NotNil(t, settings)
 	assert.Same(t, winner, settings, "the loser must return the concurrent winner's row, not retry past it")
+}
+
+// TestBootstrapSettings_NonRetryableErrorFailsImmediately guards the
+// isUniqueConstraintError branch itself: a regression that dropped that check
+// and retried on every ExecuteInTransaction error would leave every other test
+// in this file green, because none of them feed the loop a non-collision
+// failure. A generic store error must surface immediately, wrapped, and must
+// not be retried — asserting ExecuteInTransaction was called exactly once is
+// what proves the loop didn't retry.
+func TestBootstrapSettings_NonRetryableErrorFailsImmediately(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+
+	mockStore.EXPECT().
+		GetAgentNetworkSettings(gomock.Any(), store.LockingStrengthNone, "account1").
+		Return(nil, status.Errorf(status.NotFound, "agent network settings not found"))
+
+	mockStore.EXPECT().
+		ExecuteInTransaction(gomock.Any(), gomock.Any()).
+		Return(errors.New("connection refused")).
+		Times(1)
+
+	m := &managerImpl{
+		store:    mockStore,
+		labelRng: rand.New(rand.NewSource(5)),
+	}
+
+	settings, err := m.bootstrapSettingsIfNeeded(ctx, "account1", "cluster1.example.com")
+	require.Error(t, err, "a non-collision store error must surface, not be swallowed")
+	assert.Nil(t, settings)
+	assert.Contains(t, err.Error(), "create agent network settings",
+		"the non-retryable error must be wrapped and returned, not retried past")
 }

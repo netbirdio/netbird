@@ -672,6 +672,12 @@ func getMigrationsPostAuto(ctx context.Context) []migrationFunc {
 			// The pre-existing idx_agent_network_settings_cluster_subdomain is
 			// left in place: it is non-unique and indexes subdomain alone
 			// (Cluster carries no tag), so it neither conflicts nor suffices.
+			// It must also stay for a second, load-bearing reason on mysql:
+			// its gorm:"index:" tag on the Subdomain field is what makes gorm
+			// size that column as varchar(191) instead of longtext. mysql
+			// cannot put a longtext column in a unique index at all, so
+			// dropping this "redundant" index as unneeded would silently
+			// break the migration above on that dialect.
 			return migration.CreateIndexIfNotExists[agentNetworkTypes.Settings](
 				ctx, db, "idx_agent_network_settings_subdomain_unique", "subdomain",
 			)

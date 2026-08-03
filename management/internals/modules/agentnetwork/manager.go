@@ -690,13 +690,9 @@ func (m *managerImpl) bootstrapSettingsIfNeeded(ctx context.Context, accountID, 
 		return nil, fmt.Errorf("get agent network settings: %w", err)
 	}
 
-	// Allocate a subdomain and insert in one transaction, retrying on a unique
-	// violation. This replaces a read-then-write over a pre-computed "taken"
-	// set, which had three defects: the set was per-cluster (wrong once the
-	// endpoint hangs off a shared zone), the read and the write were not
-	// atomic, and the exhaustion fallback appended accountID[:4] — constant for
-	// every account created within the same ~68 minutes — with no retry and no
-	// uniqueness check, so two such accounts could be handed the same label.
+	// Labels must be unique across the whole zone; the database's unique index
+	// enforces that, and the loop below retries with a fresh label whenever an
+	// attempt is rejected.
 	now := time.Now().UTC()
 	settings := &types.Settings{
 		AccountID:              accountID,
@@ -723,6 +719,10 @@ func (m *managerImpl) bootstrapSettingsIfNeeded(ctx context.Context, accountID, 
 				accountID)
 		}
 
+		// Each attempt gets its own transaction wrapping a single INSERT: on
+		// postgres a failed statement poisons the enclosing transaction, so a
+		// fresh transaction per attempt is what makes the retry loop work on
+		// that dialect at all.
 		err := m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 			return transaction.CreateAgentNetworkSettings(ctx, settings)
 		})

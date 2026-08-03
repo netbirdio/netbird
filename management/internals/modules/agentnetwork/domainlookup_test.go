@@ -100,7 +100,12 @@ func TestSynthesizeServiceForDomain_UnknownLabel(t *testing.T) {
 }
 
 // TestSynthesizeServiceForDomain_DegenerateInput — empty and single-label
-// hostnames have no subdomain to look up and must not reach the store.
+// hostnames have no dot to cut a subdomain label from, so they resolve to no
+// service, same as any other unowned hostname. The early-return guard that
+// catches them is an optimisation (it skips a store round trip that would
+// only miss anyway), not what makes this case correct — "" and "localhost"
+// would still come back nil, nil even without it, via the same not-found
+// fallthrough TestSynthesizeServiceForDomain_UnknownLabel exercises.
 func TestSynthesizeServiceForDomain_DegenerateInput(t *testing.T) {
 	ctx := context.Background()
 	s, cleanup, err := store.NewTestStoreFromSQL(ctx, "", t.TempDir())

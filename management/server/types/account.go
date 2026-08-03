@@ -254,6 +254,7 @@ func (a *Account) SynthesizePrivateServiceZones(peerID string) []nbdns.CustomZon
 
 	peerGroups := a.GetPeerGroups(peerID)
 	zonesByApex := map[string]*nbdns.CustomZone{}
+	var skippedNoZoneApex []string
 
 	for _, svc := range a.Services {
 		if svc == nil || !svc.Enabled || !svc.Private {
@@ -275,9 +276,12 @@ func (a *Account) SynthesizePrivateServiceZones(peerID string) []nbdns.CustomZon
 			// This service passed every gate above (enabled, private,
 			// AccessGroups, connected proxy peers) and would otherwise have
 			// emitted a record, but its domain matches neither its DNSZone,
-			// its ProxyCluster, nor any validated custom-domain row.
-			log.Debugf("private-zone synth: svc %s domain=%s cluster=%s dns_zone=%q has no matching zone apex, skipping",
-				svc.ID, svc.Domain, svc.ProxyCluster, svc.DNSZone)
+			// its ProxyCluster, nor any validated custom-domain row. Collected
+			// rather than logged here — this runs per peer x per service, and
+			// logging inline here would reintroduce the per-peer noise the
+			// "0 zones" diagnostic below deliberately avoids.
+			skippedNoZoneApex = append(skippedNoZoneApex,
+				fmt.Sprintf("%s(domain=%s cluster=%s dns_zone=%q)", svc.ID, svc.Domain, svc.ProxyCluster, svc.DNSZone))
 			continue
 		}
 
@@ -330,6 +334,10 @@ func (a *Account) SynthesizePrivateServiceZones(peerID string) []nbdns.CustomZon
 			log.Debugf("private-zone synth: svc %s domain=%s cluster=%s emitted_zero proxy_peers=%d all_disconnected=%d (firewall would still fire)",
 				svc.ID, svc.Domain, svc.ProxyCluster, len(proxyPeers), skippedDisconnected)
 		}
+	}
+	if len(skippedNoZoneApex) > 0 {
+		log.Debugf("private-zone synth: peer %s account %s skipped %d service(s) with no matching zone apex: %s",
+			peerID, a.Id, len(skippedNoZoneApex), strings.Join(skippedNoZoneApex, ", "))
 	}
 
 	out := make([]nbdns.CustomZone, 0, len(zonesByApex))

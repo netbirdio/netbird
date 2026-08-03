@@ -6,7 +6,7 @@
 // hand-checked to avoid offensive, brand, or region-specific terms.
 package labelgen
 
-// words is the pool PickUnique selects from. The slice is intentionally
+// words is the pool PickTuple draws its noun from. The slice is intentionally
 // not sorted — random picks distribute across the list naturally.
 var words = []string{
 	"acorn", "adobe", "agate", "alder", "almond", "alpine", "amber", "amethyst",

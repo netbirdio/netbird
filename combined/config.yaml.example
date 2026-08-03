@@ -147,3 +147,11 @@ server:
   #   # is re-read periodically (mtime poll). An explicitly configured path that
   #   # fails to load fails startup; runtime reload errors keep the previous table.
   #   pricingDefaultsFile: "pricing.yaml"
+  #
+  #   # Parent DNS zone that Agent Network gateway endpoints are allocated
+  #   # under, producing <subdomain>.<zone>. Empty (the default) preserves the
+  #   # legacy behaviour of deriving the endpoint from the serving cluster, so
+  #   # self-hosted deployments are unaffected. Captured onto each settings row
+  #   # when that row is created; changing it later does not move existing
+  #   # tenants.
+  #   zone: "gateway.example.com"

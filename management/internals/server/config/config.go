@@ -67,15 +67,6 @@ type Config struct {
 	HighestSupportedSyncMessageVersion *int
 
 	PerAccountHighestSupportedSyncMessageVersion map[string]int
-
-	// AgentNetworkZone is the parent DNS zone that Agent Network gateway
-	// endpoints are allocated under, producing <subdomain>.<zone>.
-	//
-	// Empty (the default) preserves the legacy behaviour of deriving the
-	// endpoint from the serving cluster, so self-hosted deployments are
-	// unaffected. It is captured onto each settings row when that row is
-	// created; changing it later does not move existing tenants.
-	AgentNetworkZone string
 }
 
 // GetAuthAudiences returns the audience from the http config and device authorization flow config
@@ -213,6 +204,15 @@ type AgentNetwork struct {
 	// prefill with). An explicitly configured path that fails to load
 	// fails startup; runtime reload errors keep the previous table.
 	PricingDefaultsFile string
+
+	// Zone is the parent DNS zone that Agent Network gateway endpoints are
+	// allocated under, producing <subdomain>.<zone>.
+	//
+	// Empty (the default) preserves the legacy behaviour of deriving the
+	// endpoint from the serving cluster, so self-hosted deployments are
+	// unaffected. It is captured onto each settings row when that row is
+	// created; changing it later does not move existing tenants.
+	Zone string
 }
 
 // ReverseProxy contains reverse proxy configuration in front of management.
