@@ -133,7 +133,7 @@ type managerImpl struct {
 	reconcileMu    sync.Mutex
 	reconcileCache map[string]map[string]*proto.ProxyMapping
 
-	// labelRngMu guards labelRng. PickUnique consumes math/rand.Source
+	// labelRngMu guards labelRng. PickTuple consumes math/rand.Source
 	// state; concurrent provider creates would otherwise race.
 	labelRngMu sync.Mutex
 	labelRng   *rand.Rand
@@ -307,6 +307,22 @@ func (m *managerImpl) DeleteProvider(ctx context.Context, accountID, userID, pro
 	m.reconcile(ctx, accountID)
 
 	return nil
+}
+
+// isUniqueConstraintError reports whether err is a duplicate-key rejection.
+//
+// The equivalent helper in management/server is unexported, so it cannot be
+// reused from here; this is a deliberate duplicate rather than a new dependency
+// on that package for a single three-line matcher. Keep the two in sync if a
+// dialect is added.
+func isUniqueConstraintError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "(SQLSTATE 23505)") || // postgres
+		strings.Contains(msg, "Error 1062 (23000)") || // mysql
+		strings.Contains(msg, "UNIQUE constraint failed") // sqlite
 }
 
 func pluralize(n int, singular, plural string) string {
@@ -632,12 +648,6 @@ func (m *managerImpl) GetSettings(ctx context.Context, accountID, userID string)
 	return m.store.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, accountID)
 }
 
-// bootstrapSettingsIfNeeded creates the per-account agent-network
-// settings row when missing. The cluster comes from the create-time
-// hint the dashboard sends (auto-picked from the active cluster list);
-// the subdomain is picked from the curated wordlist avoiding
-// collisions on the same cluster. Idempotent: if a row already exists
-// it is returned untouched and the hint is ignored.
 // requireSettingsBootstrapPermission gates the one-time settings bootstrap a
 // first provider create performs. Pinning the account's cluster and subdomain
 // is a settings write, so it needs the settings permission on top of the
@@ -654,6 +664,15 @@ func (m *managerImpl) requireSettingsBootstrapPermission(ctx context.Context, ac
 	return m.requirePermission(ctx, accountID, userID, modules.AgentNetworkSettings, operations.Create)
 }
 
+// maxSubdomainAllocationAttempts bounds the allocate-and-insert retry loop in
+// bootstrapSettingsIfNeeded. Package-level (rather than function-local) so
+// tests can assert on the exhaustion path without duplicating the literal.
+const maxSubdomainAllocationAttempts = 10
+
+// bootstrapSettingsIfNeeded creates the per-account agent-network settings
+// row when missing, allocating a subdomain unique across the whole zone.
+// Idempotent: if a row already exists it is returned untouched and the
+// cluster hint is ignored.
 func (m *managerImpl) bootstrapSettingsIfNeeded(ctx context.Context, accountID, providerCluster string) (*types.Settings, error) {
 	if accountID == "" {
 		return nil, fmt.Errorf("bootstrap settings: account id is required")
@@ -671,40 +690,66 @@ func (m *managerImpl) bootstrapSettingsIfNeeded(ctx context.Context, accountID, 
 		return nil, fmt.Errorf("get agent network settings: %w", err)
 	}
 
-	siblings, err := m.store.GetAgentNetworkSettingsByCluster(ctx, store.LockingStrengthNone, providerCluster)
-	if err != nil {
-		return nil, fmt.Errorf("list agent network settings on cluster: %w", err)
-	}
-	taken := make(map[string]struct{}, len(siblings))
-	for _, s := range siblings {
-		taken[s.Subdomain] = struct{}{}
-	}
-
-	suffix := accountID
-	if len(suffix) > 4 {
-		suffix = suffix[:4]
-	}
-
-	m.labelRngMu.Lock()
-	subdomain := labelgen.PickUnique(m.labelRng, taken, suffix)
-	m.labelRngMu.Unlock()
-
+	// Allocate a subdomain and insert in one transaction, retrying on a unique
+	// violation. This replaces a read-then-write over a pre-computed "taken"
+	// set, which had three defects: the set was per-cluster (wrong once the
+	// endpoint hangs off a shared zone), the read and the write were not
+	// atomic, and the exhaustion fallback appended accountID[:4] — constant for
+	// every account created within the same ~68 minutes — with no retry and no
+	// uniqueness check, so two such accounts could be handed the same label.
 	now := time.Now().UTC()
 	settings := &types.Settings{
-		AccountID: accountID,
-		Cluster:   providerCluster,
-		Subdomain: subdomain,
-		// Logs on by default; usage is collected regardless. Retention bounds
-		// how long full log rows are kept.
+		AccountID:              accountID,
+		Cluster:                providerCluster,
+		Zone:                   m.zone,
 		EnableLogCollection:    true,
 		AccessLogRetentionDays: types.DefaultAccessLogRetentionDays,
 		CreatedAt:              now,
 		UpdatedAt:              now,
 	}
-	if err := m.store.SaveAgentNetworkSettings(ctx, settings); err != nil {
-		return nil, fmt.Errorf("save agent network settings: %w", err)
+
+	for attempt := 1; attempt <= maxSubdomainAllocationAttempts; attempt++ {
+		m.labelRngMu.Lock()
+		settings.Subdomain = labelgen.PickTuple(m.labelRng)
+		m.labelRngMu.Unlock()
+
+		if settings.Subdomain == "" {
+			// Only reachable if either word pool were emptied; a database
+			// insert of an empty subdomain would collide with the unique
+			// index in a confusing way and produce a broken endpoint like
+			// ".gateway.example". Fail loudly instead of looping or inserting.
+			return nil, fmt.Errorf(
+				"allocate agent network subdomain for account %s: label generator returned an empty label",
+				accountID)
+		}
+
+		err := m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+			return transaction.CreateAgentNetworkSettings(ctx, settings)
+		})
+		if err == nil {
+			return settings, nil
+		}
+		if isUniqueConstraintError(err) {
+			// A concurrent bootstrap for this account may have won the race: the
+			// pre-check above is outside the transaction, and the settings PK is
+			// account_id, so the loser's insert fails on the primary key rather
+			// than the subdomain index. Re-read before assuming the label was
+			// taken, so a same-account race resolves immediately instead of
+			// burning every remaining attempt on the same primary-key conflict.
+			if existing, getErr := m.store.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, accountID); getErr == nil {
+				return existing, nil
+			}
+			log.WithContext(ctx).Tracef(
+				"agent-network subdomain %q taken, retrying (attempt %d/%d)",
+				settings.Subdomain, attempt, maxSubdomainAllocationAttempts)
+			continue
+		}
+		return nil, fmt.Errorf("create agent network settings: %w", err)
 	}
-	return settings, nil
+
+	return nil, fmt.Errorf(
+		"allocate agent network subdomain for account %s: %d attempts exhausted",
+		accountID, maxSubdomainAllocationAttempts)
 }
 
 // ListConsumption returns every consumption row recorded for the
