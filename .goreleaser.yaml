@@ -273,8 +273,8 @@ dockers_v2:
        - netbirdio/netbird
        - ghcr.io/netbirdio/netbird
      tags:
-       - "v{{ .Version }}-rootless"
-       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}latest{{ end }}"
+       - "{{ .Version }}-rootless"
+       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}rootless-latest{{ end }}"
      dockerfile: client/Dockerfile-rootless
      extra_files:
        - client/netbird-entrypoint.sh

@@ -10,19 +10,20 @@ import (
 
 // UpdateChannelMetrics represents all metrics related to the UpdateChannel
 type UpdateChannelMetrics struct {
-	createChannelDurationMicro        metric.Int64Histogram
-	closeChannelDurationMicro         metric.Int64Histogram
-	closeChannelsDurationMicro        metric.Int64Histogram
-	closeChannels                     metric.Int64Histogram
-	sendUpdateDurationMicro           metric.Int64Histogram
-	getAllConnectedPeersDurationMicro metric.Int64Histogram
-	getAllConnectedPeers              metric.Int64Histogram
-	hasChannelDurationMicro           metric.Int64Histogram
-	calcPostureChecksDurationMicro    metric.Int64Histogram
-	calcPeerNetworkMapDurationMs      metric.Int64Histogram
-	mergeNetworkMapDurationMicro      metric.Int64Histogram
-	toSyncResponseDurationMicro       metric.Int64Histogram
-	ctx                               context.Context
+	createChannelDurationMicro           metric.Int64Histogram
+	closeChannelDurationMicro            metric.Int64Histogram
+	closeChannelsDurationMicro           metric.Int64Histogram
+	closeChannels                        metric.Int64Histogram
+	sendUpdateDurationMicro              metric.Int64Histogram
+	getAllConnectedPeersDurationMicro    metric.Int64Histogram
+	getAllConnectedPeers                 metric.Int64Histogram
+	hasChannelDurationMicro              metric.Int64Histogram
+	calcPostureChecksDurationMicro       metric.Int64Histogram
+	calcPeerNetworkMapDurationMs         metric.Int64Histogram
+	mergeNetworkMapDurationMicro         metric.Int64Histogram
+	toSyncResponseDurationMicro          metric.Int64Histogram
+	toComponentSyncResponseDurationMicro metric.Int64Histogram
+	ctx                                  context.Context
 }
 
 // NewUpdateChannelMetrics creates an instance of UpdateChannel
@@ -125,20 +126,29 @@ func NewUpdateChannelMetrics(ctx context.Context, meter metric.Meter) (*UpdateCh
 		return nil, err
 	}
 
+	toComponentSyncResponseDurationMicro, err := meter.Int64Histogram("management.updatechannel.tocomponentsyncresponse.duration.micro",
+		metric.WithUnit("microseconds"),
+		metric.WithDescription("Duration of how long it takes to convert components to component sync response"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &UpdateChannelMetrics{
-		createChannelDurationMicro:        createChannelDurationMicro,
-		closeChannelDurationMicro:         closeChannelDurationMicro,
-		closeChannelsDurationMicro:        closeChannelsDurationMicro,
-		closeChannels:                     closeChannels,
-		sendUpdateDurationMicro:           sendUpdateDurationMicro,
-		getAllConnectedPeersDurationMicro: getAllConnectedPeersDurationMicro,
-		getAllConnectedPeers:              getAllConnectedPeers,
-		hasChannelDurationMicro:           hasChannelDurationMicro,
-		calcPostureChecksDurationMicro:    calcPostureChecksDurationMicro,
-		calcPeerNetworkMapDurationMs:      calcPeerNetworkMapDurationMs,
-		mergeNetworkMapDurationMicro:      mergeNetworkMapDurationMicro,
-		toSyncResponseDurationMicro:       toSyncResponseDurationMicro,
-		ctx:                               ctx,
+		createChannelDurationMicro:           createChannelDurationMicro,
+		closeChannelDurationMicro:            closeChannelDurationMicro,
+		closeChannelsDurationMicro:           closeChannelsDurationMicro,
+		closeChannels:                        closeChannels,
+		sendUpdateDurationMicro:              sendUpdateDurationMicro,
+		getAllConnectedPeersDurationMicro:    getAllConnectedPeersDurationMicro,
+		getAllConnectedPeers:                 getAllConnectedPeers,
+		hasChannelDurationMicro:              hasChannelDurationMicro,
+		calcPostureChecksDurationMicro:       calcPostureChecksDurationMicro,
+		calcPeerNetworkMapDurationMs:         calcPeerNetworkMapDurationMs,
+		mergeNetworkMapDurationMicro:         mergeNetworkMapDurationMicro,
+		toSyncResponseDurationMicro:          toSyncResponseDurationMicro,
+		toComponentSyncResponseDurationMicro: toComponentSyncResponseDurationMicro,
+		ctx:                                  ctx,
 	}, nil
 }
 
@@ -192,4 +202,8 @@ func (metrics *UpdateChannelMetrics) CountMergeNetworkMapDuration(duration time.
 
 func (metrics *UpdateChannelMetrics) CountToSyncResponseDuration(duration time.Duration) {
 	metrics.toSyncResponseDurationMicro.Record(metrics.ctx, duration.Microseconds())
+}
+
+func (metrics *UpdateChannelMetrics) CountToComponentSyncResponseDuration(duration time.Duration) {
+	metrics.toComponentSyncResponseDurationMicro.Record(metrics.ctx, duration.Microseconds())
 }

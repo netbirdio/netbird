@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 
 	"github.com/netbirdio/netbird/shared/management/http/api"
 )
@@ -72,6 +73,13 @@ func (c *Combined) ListProviders(ctx context.Context) ([]api.AgentNetworkProvide
 // DeleteProvider removes a provider by id.
 func (c *Combined) DeleteProvider(ctx context.Context, id string) error {
 	return anDelete(ctx, c, "/api/agent-network/providers/"+id)
+}
+
+// UpdateProvider replaces a provider by id (PUT). The API key may be omitted on
+// the request to keep the stored one; Models replaces the enumerated list, so
+// this is the path a test uses to change a model's price mid-run.
+func (c *Combined) UpdateProvider(ctx context.Context, id string, req api.AgentNetworkProviderRequest) (api.AgentNetworkProvider, error) {
+	return anRequest[api.AgentNetworkProvider](ctx, c, http.MethodPut, "/api/agent-network/providers/"+id, req)
 }
 
 // SetProviderEnabled toggles a provider's enabled flag, preserving its other
@@ -138,4 +146,17 @@ func (c *Combined) ListConsumption(ctx context.Context) ([]api.AgentNetworkConsu
 // flattened per-request rows the proxy ships and management ingests).
 func (c *Combined) ListAccessLogs(ctx context.Context) (api.AgentNetworkAccessLogsResponse, error) {
 	return anRequest[api.AgentNetworkAccessLogsResponse](ctx, c, http.MethodGet, "/api/agent-network/access-logs", nil)
+}
+
+// ListAccessLogsFiltered returns the access-log page narrowed by the given
+// query parameters (e.g. model=..., session_id=..., provider_id=...). This
+// exercises management's server-side filtering rather than filtering client
+// side, so a row that is ingested but not indexed under the filtered column
+// surfaces as an empty page.
+func (c *Combined) ListAccessLogsFiltered(ctx context.Context, query url.Values) (api.AgentNetworkAccessLogsResponse, error) {
+	path := "/api/agent-network/access-logs"
+	if encoded := query.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+	return anRequest[api.AgentNetworkAccessLogsResponse](ctx, c, http.MethodGet, path, nil)
 }

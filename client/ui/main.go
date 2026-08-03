@@ -96,7 +96,6 @@ func main() {
 		}
 	})
 
-	settings := services.NewSettings(conn)
 	profiles := services.NewProfiles(conn)
 	// updater.Holder owns the typed update State; DaemonFeed feeds it and the
 	// Update service is a thin Wails-bound facade over it plus the install RPCs.
@@ -117,6 +116,7 @@ func main() {
 	bundle, prefStore, localizer := buildI18n(app)
 
 	// After bundle + prefStore: both are used to localise daemon errors.
+	settings := services.NewSettings(conn, bundle, prefStore, daemonAddr)
 	connection := services.NewConnection(conn, bundle, prefStore)
 	profileSwitcher := services.NewProfileSwitcher(profiles, connection, daemonFeed)
 	// authsession.Session owns the full extend + dismiss surface the tray
@@ -281,6 +281,9 @@ func newApplication(onSecondInstance func()) *application.App {
 		Linux: application.LinuxOptions{
 			ProgramName: "netbird",
 		},
+		Windows: application.WindowsOptions{
+			WndProcInterceptor: endSessionInterceptor(),
+		},
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID: "io.netbird.ui",
 			OnSecondInstanceLaunch: func(_ application.SecondInstanceData) {
@@ -367,6 +370,9 @@ func newMainWindow(app *application.App, prefStore *preferences.Store) *applicat
 
 	// Hide instead of quit on close; "really quit" is reached via tray -> Quit.
 	window.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
+		if services.ShuttingDown() {
+			return
+		}
 		e.Cancel()
 		window.Hide()
 	})

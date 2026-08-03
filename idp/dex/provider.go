@@ -20,7 +20,6 @@ import (
 	"github.com/dexidp/dex/server"
 	"github.com/dexidp/dex/server/signer"
 	"github.com/dexidp/dex/storage"
-	"github.com/dexidp/dex/storage/sql"
 	"github.com/go-jose/go-jose/v4"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
@@ -41,7 +40,7 @@ type Config struct {
 	GRPCAddr string
 }
 
-const localConnectorID = "local"
+const LocalConnectorID = "local"
 
 // Provider wraps a Dex server
 type Provider struct {
@@ -79,7 +78,7 @@ func NewProvider(ctx context.Context, config *Config) (*Provider, error) {
 
 	// Initialize SQLite storage
 	dbPath := filepath.Join(config.DataDir, "oidc.db")
-	sqliteConfig := &sql.SQLite3{File: dbPath}
+	sqliteConfig := newSQLite3(dbPath)
 	stor, err := sqliteConfig.Open(logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open storage: %w", err)
@@ -495,18 +494,60 @@ func (p *Provider) Storage() storage.Storage {
 	return p.storage
 }
 
+// SetClientsMFAChain updates the MFAChain field on OAuth2 clients in Dex storage.
+// Pass a non-empty slice (e.g. []string{"default-totp"}) to enable MFA, or nil to disable it.
+func SetClientsMFAChain(ctx context.Context, st storage.Storage, clientIDs []string, mfaChain []string) error {
+	previousChains := make(map[string][]string, len(clientIDs))
+	for _, clientID := range clientIDs {
+		client, err := st.GetClient(ctx, clientID)
+		if err != nil {
+			return fmt.Errorf("failed to get client %s before MFA chain update: %w", clientID, err)
+		}
+		previousChains[clientID] = cloneMFAChain(client.MFAChain)
+	}
+
+	updatedClientIDs := make([]string, 0, len(clientIDs))
+	for _, clientID := range clientIDs {
+		if err := st.UpdateClient(ctx, clientID, func(old storage.Client) (storage.Client, error) {
+			old.MFAChain = cloneMFAChain(mfaChain)
+			return old, nil
+		}); err != nil {
+			if rollbackErr := rollbackClientsMFAChain(ctx, st, updatedClientIDs, previousChains); rollbackErr != nil {
+				return fmt.Errorf("failed to update MFA chain on client %s: %w (also failed to roll back previous MFA chains: %v)", clientID, err, rollbackErr)
+			}
+			return fmt.Errorf("failed to update MFA chain on client %s: %w", clientID, err)
+		}
+		updatedClientIDs = append(updatedClientIDs, clientID)
+	}
+	return nil
+}
+
+func rollbackClientsMFAChain(ctx context.Context, st storage.Storage, clientIDs []string, previousChains map[string][]string) error {
+	var rollbackErrs []error
+	for i := len(clientIDs) - 1; i >= 0; i-- {
+		clientID := clientIDs[i]
+		previousChain := cloneMFAChain(previousChains[clientID])
+		if err := st.UpdateClient(ctx, clientID, func(old storage.Client) (storage.Client, error) {
+			old.MFAChain = previousChain
+			return old, nil
+		}); err != nil {
+			rollbackErrs = append(rollbackErrs, fmt.Errorf("client %s: %w", clientID, err))
+		}
+	}
+	return errors.Join(rollbackErrs...)
+}
+
+func cloneMFAChain(chain []string) []string {
+	if chain == nil {
+		return nil
+	}
+	return append([]string(nil), chain...)
+}
+
 // SetClientsMFAChain updates the MFAChain field on the dashboard and CLI OAuth2 clients.
 // Pass a non-empty slice (e.g. []string{"default-totp"}) to enable MFA, or nil to disable it.
 func (p *Provider) SetClientsMFAChain(ctx context.Context, clientIDs []string, mfaChain []string) error {
-	for _, clientID := range clientIDs {
-		if err := p.storage.UpdateClient(ctx, clientID, func(old storage.Client) (storage.Client, error) {
-			old.MFAChain = mfaChain
-			return old, nil
-		}); err != nil {
-			return fmt.Errorf("failed to update MFA chain on client %s: %w", clientID, err)
-		}
-	}
-	return nil
+	return SetClientsMFAChain(ctx, p.storage, clientIDs, mfaChain)
 }
 
 // Handler returns the Dex server as an http.Handler for embedding in another server.
@@ -546,7 +587,7 @@ func (p *Provider) CreateUser(ctx context.Context, email, username, password str
 
 	// Encode the user ID in Dex's format: base64(protobuf{user_id, connector_id})
 	// This matches the format Dex uses in JWT tokens
-	encodedID := EncodeDexUserID(userID, localConnectorID)
+	encodedID := EncodeDexUserID(userID, LocalConnectorID)
 	return encodedID, nil
 }
 
@@ -625,7 +666,7 @@ func DecodeDexUserID(encodedID string) (userID, connectorID string, err error) {
 // local password connector.
 func IsLocalUserID(encodedID string) bool {
 	_, connectorID, err := DecodeDexUserID(encodedID)
-	return err == nil && connectorID == localConnectorID
+	return err == nil && connectorID == LocalConnectorID
 }
 
 // GetUser returns a user by email

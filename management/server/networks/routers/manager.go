@@ -104,6 +104,8 @@ func (m *managerImpl) CreateRouter(ctx context.Context, userID string, router *t
 
 		router.ID = xid.New().String()
 
+		router.PublicID = xid.New().String()
+
 		err = transaction.CreateNetworkRouter(ctx, router)
 		if err != nil {
 			return fmt.Errorf("failed to create network router: %w", err)
@@ -198,6 +200,11 @@ func (m *managerImpl) updateRouterInTransaction(ctx context.Context, transaction
 	if existing.NetworkID != router.NetworkID {
 		return nil, nil, affectedpeers.Change{}, status.NewRouterNotPartOfNetworkError(router.ID, router.NetworkID)
 	}
+
+	// Preserve PublicID from the existing router so the upstream
+	// UpdateNetworkRouter (which does Updates(router) with Select("*"))
+	// doesn't clobber it with the request's zero value.
+	router.PublicID = existing.PublicID
 
 	if err = transaction.UpdateNetworkRouter(ctx, router); err != nil {
 		return nil, nil, affectedpeers.Change{}, fmt.Errorf("failed to update network router: %w", err)

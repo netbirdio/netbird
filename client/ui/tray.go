@@ -30,9 +30,10 @@ const (
 
 	statusError = "Error"
 
-	urlGitHubRepo     = "https://github.com/netbirdio/netbird"
-	urlGitHubReleases = "https://github.com/netbirdio/netbird/releases/latest"
-	urlDocs           = "https://docs.netbird.io"
+	quitDownTimeout = 5 * time.Second
+
+	urlGitHubRepo = "https://github.com/netbirdio/netbird"
+	urlDocs       = "https://docs.netbird.io"
 )
 
 // TrayServices bundles the services the tray menu needs, grouped so NewTray
@@ -315,8 +316,7 @@ func (t *Tray) relayoutMenu() {
 		if sessionDeadline.IsZero() {
 			t.sessionExpiresItem.SetHidden(true)
 		} else {
-			remaining := t.formatSessionRemaining(time.Until(sessionDeadline))
-			t.sessionExpiresItem.SetLabel(t.loc.T("tray.session.expiresIn", "remaining", remaining))
+			t.sessionExpiresItem.SetLabel(t.sessionRowLabel(sessionDeadline))
 			t.sessionExpiresItem.SetHidden(false)
 		}
 	}
@@ -446,9 +446,27 @@ func (t *Tray) buildMenu() *application.Menu {
 	menu.AddSeparator()
 	menu.Add(t.loc.T("tray.menu.quit")).
 		SetAccelerator("CmdOrCtrl+Q").
-		OnClick(func(*application.Context) { t.app.Quit() })
+		OnClick(func(*application.Context) { t.handleQuit() })
 
 	return menu
+}
+
+func (t *Tray) handleQuit() {
+	services.BeginShutdown()
+	t.profileMu.Lock()
+	if t.switchCancel != nil {
+		t.switchCancel()
+		t.switchCancel = nil
+	}
+	t.profileMu.Unlock()
+	t.svc.DaemonFeed.CancelProfileSwitch()
+
+	ctx, cancel := context.WithTimeout(context.Background(), quitDownTimeout)
+	defer cancel()
+	if err := t.svc.Connection.Down(ctx); err != nil {
+		log.Errorf("disconnect on quit: %v", err)
+	}
+	t.app.Quit()
 }
 
 // handleConnect receives the clicked item from the buildMenu closure —

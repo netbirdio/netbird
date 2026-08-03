@@ -51,7 +51,7 @@ func autostartDisabledByMDM(policy *mdm.Policy) bool {
 // netbirdFootprintExists reports whether the machine already carries NetBird
 // daemon config or state, meaning this is not a genuinely fresh install. It is
 // the update-safety gate for the autostart default: upgrading users always
-// have a footprint, so an update can never trigger a login-item write.
+// have a footprint, so an update can never trigger a autostart entry write.
 func netbirdFootprintExists() bool {
 	candidates := []string{
 		profilemanager.DefaultConfigPath,
@@ -69,9 +69,23 @@ func netbirdFootprintExists() bool {
 // applyAutostartDefault runs the one-time launch-on-login default for genuinely
 // fresh installs. The autostartInitialized marker is persisted before any
 // enable attempt so a crash mid-flow degrades to "never enabled" instead of
-// retrying login-item writes on every launch. A user's later disable in
+// retrying autostart entry writes on every launch. A user's later disable in
 // Settings is never overridden: the marker guarantees at-most-once, ever.
 func applyAutostartDefault(ctx context.Context, autostart *services.Autostart, prefs *preferences.Store, prefsFileExisted bool) {
+	mdmDisabled := autostartDisabledByMDM(mdm.LoadPolicy())
+
+	if mdmDisabled {
+		if enabled, err := autostart.IsEnabled(ctx); err != nil {
+			log.Warnf("MDM disableAutostart: read autostart state: %v", err)
+		} else if enabled {
+			if err := autostart.SetEnabled(ctx, false); err != nil {
+				log.Warnf("MDM disableAutostart: force off failed: %v", err)
+			} else {
+				log.Info("MDM disableAutostart enforced: autostart turned off")
+			}
+		}
+	}
+
 	priorFootprint := netbirdFootprintExists() || prefsFileExisted
 
 	if prefs.Get().AutostartInitialized {
@@ -84,7 +98,7 @@ func applyAutostartDefault(ctx context.Context, autostart *services.Autostart, p
 
 	state := autostartDefaultState{
 		supported:    autostart.Supported(ctx),
-		mdmDisabled:  autostartDisabledByMDM(mdm.LoadPolicy()),
+		mdmDisabled:  mdmDisabled,
 		priorInstall: priorFootprint,
 	}
 	enable, reason := shouldEnableAutostartDefault(state)
