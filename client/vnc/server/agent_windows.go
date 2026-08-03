@@ -43,6 +43,7 @@ var (
 	procCreateJobObjectW             = kernel32.NewProc("CreateJobObjectW")
 	procSetInformationJobObject      = kernel32.NewProc("SetInformationJobObject")
 	procAssignProcessToJobObject     = kernel32.NewProc("AssignProcessToJobObject")
+	procIsProcessInJob               = kernel32.NewProc("IsProcessInJob")
 	procSetTokenInformation          = advapi32.NewProc("SetTokenInformation")
 	procCreateEnvironmentBlock       = userenv.NewProc("CreateEnvironmentBlock")
 	procDestroyEnvironmentBlock      = userenv.NewProc("DestroyEnvironmentBlock")
@@ -323,7 +324,13 @@ func spawnAgentInSession(sessionID uint32, socketPath, authToken string, jobHand
 	if jobHandle != 0 {
 		r, _, e := procAssignProcessToJobObject.Call(uintptr(jobHandle), uintptr(pi.Process))
 		if r == 0 {
-			log.Warnf("assign agent to job object: %v (orphan possible on service crash)", e)
+			// Report the job state of both ends: assignment is refused when the
+			// child already belongs to a job that will not accept ours, which is
+			// the difference between a breakaway that did not happen and a
+			// rights problem on the handles.
+			log.Warnf("assign agent to job object: %v (orphan possible on service crash); "+
+				"daemon in a job: %s, agent in a job: %s",
+				e, describeInJob(windows.CurrentProcess()), describeInJob(pi.Process))
 		}
 	}
 
@@ -402,6 +409,21 @@ func newSessionManager() *sessionManager {
 		m.jobHandle = h
 	}
 	return m
+}
+
+// describeInJob reports whether a process belongs to any job object, for the
+// diagnostic on a failed assignment. Returns the error text when the query
+// itself fails, since that is equally informative there.
+func describeInJob(h windows.Handle) string {
+	var inJob int32
+	r, _, e := procIsProcessInJob.Call(uintptr(h), 0, uintptr(unsafe.Pointer(&inJob)))
+	if r == 0 {
+		return fmt.Sprintf("unknown (%v)", e)
+	}
+	if inJob != 0 {
+		return "yes"
+	}
+	return "no"
 }
 
 // createKillOnCloseJob returns a Job Object configured so that closing its
