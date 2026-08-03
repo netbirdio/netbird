@@ -1251,7 +1251,8 @@ func TestSynthesizeServices_EmptyAPIKey_FailsClosed(t *testing.T) {
 // point of the column: the synthesized service must advertise the private
 // proxy's address, because that value is what mesh-DNS peer selection and the
 // connect-snapshot filter both join on. TargetId must NOT move with it — it
-// names the noop placeholder target and is out of scope (see the note above).
+// identifies the placeholder target the router rewrites per request, and only
+// the advertised proxy address follows ServingProxy().
 func TestBuildAccountService_ProxyClusterFollowsServingProxyAddress(t *testing.T) {
 	ctx := context.Background()
 	ctrl := gomock.NewController(t)
