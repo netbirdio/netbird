@@ -135,6 +135,11 @@ type Server struct {
 	updateManager *updater.Manager
 
 	jwtCache *jwtCache
+
+	// loginAttemptFn stands in for the Management login round trip. Tests set
+	// it to drive the login outcomes that need a server on the other end;
+	// production leaves it nil, and every login goes through loginAttempt.
+	loginAttemptFn func(ctx context.Context, setupKey, jwtToken string) (internal.StatusType, error)
 }
 
 type oauthAuthFlow struct {
@@ -370,7 +375,19 @@ func (s *Server) connectionGoroutineRunning() bool {
 	}
 }
 
-// loginAttempt attempts to login using the provided information. it returns a status in case something fails
+// attemptLogin runs a login round trip against Management, or the stand-in a
+// test installed in place of it.
+func (s *Server) attemptLogin(ctx context.Context, setupKey, jwtToken string) (internal.StatusType, error) {
+	if s.loginAttemptFn != nil {
+		return s.loginAttemptFn(ctx, setupKey, jwtToken)
+	}
+	return s.loginAttempt(ctx, setupKey, jwtToken)
+}
+
+// loginAttempt attempts to login using the provided information. It returns
+// StatusNeedsLogin when Management refused the peer's credentials and
+// StatusLoginFailed for every other failure, so callers can tell an
+// authentication decision apart from a login that never got made.
 func (s *Server) loginAttempt(ctx context.Context, setupKey, jwtToken string) (internal.StatusType, error) {
 	authClient, err := auth.NewAuth(ctx, s.config.PrivateKey, s.config.ManagementURL, s.config)
 	if err != nil {
@@ -623,9 +640,21 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	s.config = config
 	s.mutex.Unlock()
 
-	if _, err := s.loginAttempt(ctx, "", ""); err == nil {
+	loginStatus, err := s.attemptLogin(ctx, "", "")
+	if err == nil {
 		state.Set(internal.StatusIdle)
 		return &proto.LoginResponse{}, nil
+	}
+
+	// Only an authentication refusal means the peer has to (re-)authenticate.
+	// Any other failure leaves the login undecided: Management unreachable, a
+	// restart mid-request, an internal error. Those are returned for the caller
+	// to retry, because turning them into an SSO prompt asks the user to solve
+	// something that is not theirs to solve, and a browser login cannot succeed
+	// while Management is unreachable anyway.
+	if loginStatus != internal.StatusNeedsLogin {
+		state.Set(loginStatus)
+		return nil, err
 	}
 
 	if msg.SetupKey == "" {
@@ -684,7 +713,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	// which returns NeedsLogin and parks on the browser leg.
 	state.Set(internal.StatusConnecting)
 
-	if loginStatus, err := s.loginAttempt(ctx, msg.SetupKey, ""); err != nil {
+	if loginStatus, err := s.attemptLogin(ctx, msg.SetupKey, ""); err != nil {
 		state.Set(loginStatus)
 		return nil, err
 	}
@@ -839,7 +868,7 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 	s.oauthAuthFlow.expiresAt = time.Now()
 	s.mutex.Unlock()
 
-	if loginStatus, err := s.loginAttempt(ctx, "", tokenInfo.GetTokenToUse()); err != nil {
+	if loginStatus, err := s.attemptLogin(ctx, "", tokenInfo.GetTokenToUse()); err != nil {
 		state.Set(loginStatus)
 		return nil, err
 	}
