@@ -276,7 +276,7 @@ func TestToNetbirdConfig_RelayInvariant(t *testing.T) {
 	settings := &types.Settings{MetricsPushEnabled: true}
 
 	t.Run("nil server config returns nil config", func(t *testing.T) {
-		nbCfg := toNetbirdConfig(nil, nil, nil, nil, settings)
+		nbCfg := toNetbirdConfig(nil, nil, nil, nil, types.TwinAccountSettings(settings))
 		assert.Nil(t, nbCfg, "fan-out updates must not carry a partial NetbirdConfig even when settings are present")
 	})
 
@@ -291,7 +291,7 @@ func TestToNetbirdConfig_RelayInvariant(t *testing.T) {
 		}
 		relayToken := &Token{Payload: "token-payload", Signature: "token-signature"}
 
-		nbCfg := toNetbirdConfig(cfg, nil, relayToken, nil, settings)
+		nbCfg := toNetbirdConfig(cfg, nil, relayToken, nil, types.TwinAccountSettings(settings))
 		require.NotNil(t, nbCfg)
 		require.NotNil(t, nbCfg.Relay, "non-nil NetbirdConfig must include the relay section")
 		assert.Equal(t, cfg.Relay.Addresses, nbCfg.Relay.Urls, "relay URLs should match the server config")

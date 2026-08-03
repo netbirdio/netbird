@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hashicorp/go-multierror"
 	"github.com/miekg/dns"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
@@ -26,6 +25,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
+	"github.com/netbirdio/netbird/shared/management/networkmap"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -380,94 +381,11 @@ func peerInDistributionGroups(peerGroups LookupMap, distributionGroups []string)
 }
 
 func (a *Account) GetPeersCustomZone(ctx context.Context, dnsDomain string) nbdns.CustomZone {
-	var merr *multierror.Error
-
-	if dnsDomain == "" {
-		log.WithContext(ctx).Error("no dns domain is set, returning empty zone")
-		return nbdns.CustomZone{}
+	twins := make(map[string]*nmdata.Peer, len(a.Peers))
+	for id, p := range a.Peers {
+		twins[id] = twinPeer(p)
 	}
-
-	customZone := nbdns.CustomZone{
-		Domain:  dns.Fqdn(dnsDomain),
-		Records: make([]nbdns.SimpleRecord, 0, len(a.Peers)),
-	}
-
-	domainSuffix := "." + dnsDomain
-
-	ipv6AllowedPeers := a.peerIPv6AllowedSet()
-
-	var sb strings.Builder
-	for _, peer := range a.Peers {
-		if peer.DNSLabel == "" {
-			merr = multierror.Append(merr, fmt.Errorf("peer %s has an empty DNS label", peer.Name))
-			continue
-		}
-
-		sb.Grow(len(peer.DNSLabel) + len(domainSuffix))
-		sb.WriteString(peer.DNSLabel)
-		sb.WriteString(domainSuffix)
-
-		fqdn := sb.String()
-		customZone.Records = append(customZone.Records, nbdns.SimpleRecord{
-			Name:  fqdn,
-			Type:  int(dns.TypeA),
-			Class: nbdns.DefaultClass,
-			TTL:   defaultTTL,
-			RData: peer.IP.String(),
-		})
-		// Only advertise AAAA for peers that have a valid IPv6, whose client supports it,
-		// and that belong to an IPv6-enabled group. Old clients don't configure v6 on their
-		// WireGuard interface, so resolving their AAAA causes connections to hang.
-		// Capability changes (client upgrade/downgrade, --disable-ipv6 toggle) propagate
-		// to other peers via SyncPeer/LoginPeer regardless of version change, so AAAA
-		// records refresh when a peer first reports the IPv6 overlay capability.
-		_, peerAllowed := ipv6AllowedPeers[peer.ID]
-		hasIPv6 := peer.IPv6.IsValid() && peer.SupportsIPv6() && peerAllowed
-		if hasIPv6 {
-			customZone.Records = append(customZone.Records, nbdns.SimpleRecord{
-				Name:  fqdn,
-				Type:  int(dns.TypeAAAA),
-				Class: nbdns.DefaultClass,
-				TTL:   defaultTTL,
-				RData: peer.IPv6.String(),
-			})
-		}
-		sb.Reset()
-
-		for _, extraLabel := range peer.ExtraDNSLabels {
-			sb.Grow(len(extraLabel) + len(domainSuffix))
-			sb.WriteString(extraLabel)
-			sb.WriteString(domainSuffix)
-
-			extraFqdn := sb.String()
-			customZone.Records = append(customZone.Records, nbdns.SimpleRecord{
-				Name:  extraFqdn,
-				Type:  int(dns.TypeA),
-				Class: nbdns.DefaultClass,
-				TTL:   defaultTTL,
-				RData: peer.IP.String(),
-			})
-			if hasIPv6 {
-				customZone.Records = append(customZone.Records, nbdns.SimpleRecord{
-					Name:  extraFqdn,
-					Type:  int(dns.TypeAAAA),
-					Class: nbdns.DefaultClass,
-					TTL:   defaultTTL,
-					RData: peer.IPv6.String(),
-				})
-			}
-			sb.Reset()
-		}
-
-	}
-
-	go func() {
-		if merr != nil {
-			log.WithContext(ctx).Errorf("error generating custom zone for account %s: %v", a.Id, merr)
-		}
-	}()
-
-	return customZone
+	return fromTwinCustomZone(networkmap.PeersCustomZone(ctx, a.Id, dnsDomain, twins, a.peerIPv6AllowedSet()))
 }
 
 // GetExpiredPeers returns peers that have been expired
