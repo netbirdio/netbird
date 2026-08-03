@@ -900,6 +900,10 @@ func (c *Controller) GetValidatedPeerWithComponents(ctx context.Context, isRequi
 		return peer, &types.NetworkMapComponents{Network: types.TwinNetwork(network)}, nil, nil, 0, nil
 	}
 
+	if nmData := c.getNetworkMapData(ctx, accountID); nmData != nil {
+		return c.getValidatedPeerWithComponentsFromData(ctx, accountID, peer, nmData)
+	}
+
 	account, err := c.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
 	if err != nil {
 		return nil, nil, nil, nil, 0, err
@@ -942,6 +946,21 @@ func (c *Controller) GetValidatedPeerWithComponents(ctx context.Context, isRequi
 	dnsFwdPort := computeForwarderPort(maps.Values(account.Peers), network_map.DnsForwarderPortMinVersion)
 
 	return peer, components, proxyNetworkMaps[peer.ID], postureChecks, dnsFwdPort, nil
+}
+
+// getValidatedPeerWithComponentsFromData is the account-free variant of
+// GetValidatedPeerWithComponents. The proxy network map fragment is omitted
+// like on the other nmdata paths.
+func (c *Controller) getValidatedPeerWithComponentsFromData(ctx context.Context, accountID string, peer *nbpeer.Peer, nmData *networkmap.NetworkMapData) (*nbpeer.Peer, *types.NetworkMapComponents, *types.NetworkMap, []*posture.Checks, int64, error) {
+	postureChecks := peerPostureChecksFromData(nmData, peer.ID)
+
+	dnsDomain := c.getDNSDomainFromData(nmData.AccountSettings)
+	peersCustomZone := networkmap.PeersCustomZone(ctx, accountID, dnsDomain, nmData.Peers, ipv6AllowedPeersFromData(nmData))
+
+	components := nmData.GetPeerNetworkMapComponents(peer.ID, peersCustomZone)
+	dnsFwdPort := computeForwarderPortFromData(nmData.Peers, network_map.DnsForwarderPortMinVersion)
+
+	return peer, components, nil, postureChecks, dnsFwdPort, nil
 }
 
 // BufferUpdateAffectedPeers accumulates peer IDs and flushes them after the buffer interval.
@@ -1055,6 +1074,10 @@ func (c *Controller) GetValidatedPeerWithMap(ctx context.Context, isRequiresAppr
 		return emptyMap, nil, 0, nil
 	}
 
+	if nmData := c.getNetworkMapData(ctx, accountID); nmData != nil {
+		return c.getValidatedPeerWithMapFromData(ctx, accountID, peerID, nmData)
+	}
+
 	account, err := c.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
 	if err != nil {
 		return nil, nil, 0, err
@@ -1098,6 +1121,21 @@ func (c *Controller) GetValidatedPeerWithMap(ctx context.Context, isRequiresAppr
 	}
 
 	dnsFwdPort := computeForwarderPort(maps.Values(account.Peers), network_map.DnsForwarderPortMinVersion)
+
+	return networkMap, postureChecks, dnsFwdPort, nil
+}
+
+// getValidatedPeerWithMapFromData is the account-free variant of
+// GetValidatedPeerWithMap. The proxy network map fragment is omitted like on
+// the other nmdata paths.
+func (c *Controller) getValidatedPeerWithMapFromData(ctx context.Context, accountID string, peerID string, nmData *networkmap.NetworkMapData) (*types.NetworkMap, []*posture.Checks, int64, error) {
+	postureChecks := peerPostureChecksFromData(nmData, peerID)
+
+	dnsDomain := c.getDNSDomainFromData(nmData.AccountSettings)
+	peersCustomZone := networkmap.PeersCustomZone(ctx, accountID, dnsDomain, nmData.Peers, ipv6AllowedPeersFromData(nmData))
+
+	networkMap := networkMapFromData(ctx, nmData, peerID, peersCustomZone)
+	dnsFwdPort := computeForwarderPortFromData(nmData.Peers, network_map.DnsForwarderPortMinVersion)
 
 	return networkMap, postureChecks, dnsFwdPort, nil
 }
