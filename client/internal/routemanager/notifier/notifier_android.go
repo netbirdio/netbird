@@ -41,6 +41,7 @@ func (n *Notifier) SetInitialClientRoutes(initialRoutes []*route.Route, routesFo
 // SetFakeIPRoutes stores the fake IP routes to be included in every TUN rebuild.
 func (n *Notifier) SetFakeIPRoutes(routes []*route.Route) {
 	n.fakeIPRoutes = routes
+	n.notify()
 }
 
 func (n *Notifier) OnNewRoutes(idMap route.HAMap) {
