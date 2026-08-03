@@ -423,6 +423,39 @@ func TestSynthesizePrivateServiceZones_MixedClusterCustomAndPublic(t *testing.T)
 		"only the 4 private custom services surface in the custom zone (public one excluded)")
 }
 
+// TestSynthesizePrivateServiceZones_ZoneBasedEndpoint_UsesZoneApex — a
+// zone-based tenant still served by the SHARED proxy has a hostname whose
+// parent is the zone, matching neither ProxyCluster nor any validated
+// custom-domain row. Without DNSZone the apex resolves to "" and the service is
+// skipped entirely, so the tenant's endpoint resolves to nothing.
+func TestSynthesizePrivateServiceZones_ZoneBasedEndpoint_UsesZoneApex(t *testing.T) {
+	account := privateZoneTestAccount(t)
+	svc := account.Services[0]
+	svc.Domain = "brave-otter.gateway.netbird.ai"
+	svc.DNSZone = "gateway.netbird.ai"
+	// ProxyCluster stays the shared cluster address — the pre-private cohort.
+
+	zones := account.SynthesizePrivateServiceZones("user-peer")
+	require.Len(t, zones, 1, "a zone-based endpoint must still produce one zone")
+	assert.Equal(t, "gateway.netbird.ai.", zones[0].Domain, "apex must be the placement-free zone, not the cluster")
+	require.Len(t, zones[0].Records, 1)
+	assert.Equal(t, "brave-otter.gateway.netbird.ai.", zones[0].Records[0].Name)
+	assert.Equal(t, "100.64.0.99", zones[0].Records[0].RData, "still points at the serving proxy peer")
+}
+
+// TestSynthesizePrivateServiceZones_UnvalidatedDomain_StillSkipped locks the
+// scope of the fix: a service matching no cluster suffix, no validated custom
+// domain, AND carrying no DNSZone must keep resolving to nothing. A blanket
+// "use the parent domain" fallback would hand it mesh DNS and bypass domain
+// validation.
+func TestSynthesizePrivateServiceZones_UnvalidatedDomain_StillSkipped(t *testing.T) {
+	account := privateZoneTestAccount(t)
+	account.Services[0].Domain = "api.unvalidated.example.com"
+
+	zones := account.SynthesizePrivateServiceZones("user-peer")
+	assert.Empty(t, zones, "no cluster suffix, no validated Domains row, no DNSZone → no records")
+}
+
 // recordNames returns the record names of a zone for order-independent assertions.
 func recordNames(zone nbdns.CustomZone) []string {
 	names := make([]string, 0, len(zone.Records))

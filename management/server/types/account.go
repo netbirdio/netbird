@@ -272,6 +272,12 @@ func (a *Account) SynthesizePrivateServiceZones(peerID string) []nbdns.CustomZon
 
 		serviceDomainZone := a.privateServiceDomainZone(svc)
 		if serviceDomainZone == "" {
+			// This service passed every gate above (enabled, private,
+			// AccessGroups, connected proxy peers) and would otherwise have
+			// emitted a record, but its domain matches neither its DNSZone,
+			// its ProxyCluster, nor any validated custom-domain row.
+			log.Debugf("private-zone synth: svc %s domain=%s cluster=%s dns_zone=%q has no matching zone apex, skipping",
+				svc.ID, svc.Domain, svc.ProxyCluster, svc.DNSZone)
 			continue
 		}
 
@@ -344,8 +350,18 @@ func (a *Account) SynthesizePrivateServiceZones(peerID string) []nbdns.CustomZon
 }
 
 // privateServiceDomainZone returns the DNS zone name for the given private service domain by
-// looking at the proxy cluster domain then the custom domains.
+// checking its DNSZone, then the proxy cluster domain, then the custom domains.
 func (a *Account) privateServiceDomainZone(svc *service.Service) string {
+	// Placement-free endpoints (<subdomain>.<zone>) carry their zone
+	// explicitly: it is server config, so it matches neither the serving
+	// proxy's address nor any per-account custom-domain row. Checked first so
+	// the apex stays the zone even once ProxyCluster becomes the tenant
+	// hostname itself (a private managed proxy), which would otherwise make the
+	// apex the full hostname and churn the client's zone set on cutover.
+	if svc.DNSZone != "" && domainFromSuffix(svc.Domain, svc.DNSZone) {
+		return svc.DNSZone
+	}
+
 	if domainFromSuffix(svc.Domain, svc.ProxyCluster) {
 		return svc.ProxyCluster
 	}

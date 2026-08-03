@@ -945,6 +945,7 @@ func buildAccountService(
 		Name:         "agent-network-" + accountID,
 		Domain:       domain,
 		ProxyCluster: cluster,
+		DNSZone:      settings.Zone, // empty for legacy rows → unchanged behavior
 		Mode:         rpservice.ModeHTTP,
 		Enabled:      true,
 		Private:      true,

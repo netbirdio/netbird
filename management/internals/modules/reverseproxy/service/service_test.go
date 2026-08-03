@@ -1215,6 +1215,17 @@ func TestService_Copy_RoundtripsPrivate(t *testing.T) {
 	assert.Equal(t, []string{"grp-admins", "grp-ops"}, svc.AccessGroups)
 }
 
+// TestServiceCopy_PreservesDNSZone — DNSZone is in-memory only, so it is easy
+// to omit from Copy()'s explicit field list; if it is dropped, a copied
+// account silently loses its zone apex and the tenant's endpoint resolves to
+// nothing.
+func TestServiceCopy_PreservesDNSZone(t *testing.T) {
+	svc := &Service{Domain: "brave-otter.gateway.netbird.ai", DNSZone: "gateway.netbird.ai"}
+	cp := svc.Copy()
+	require.NotNil(t, cp)
+	assert.Equal(t, "gateway.netbird.ai", cp.DNSZone)
+}
+
 func TestService_APIRoundtrip_Private(t *testing.T) {
 	enabled := true
 	private := true

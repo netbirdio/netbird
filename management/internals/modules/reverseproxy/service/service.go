@@ -255,6 +255,13 @@ type Service struct {
 	Private bool
 	// AccessGroups is the group ID allowlist for inbound peers on private services. Mutually exclusive with bearer SSO.
 	AccessGroups []string `json:"access_groups,omitempty" gorm:"serializer:json"`
+	// DNSZone is the parent zone a private service's synthesized mesh A record
+	// hangs under, for the case where that zone cannot be derived from
+	// ProxyCluster or a validated custom domain — i.e. placement-free
+	// agent-network endpoints, which are <subdomain>.<zone>. In-memory only:
+	// set by the agent-network synthesizer on services it builds per read,
+	// never stored and never exposed on the API or the proxy wire.
+	DNSZone string `gorm:"-" json:"-"`
 }
 
 // InitNewRecord generates a new unique ID and resets metadata for a newly created
@@ -1412,6 +1419,7 @@ func (s *Service) Copy() *Service {
 		PortAutoAssigned:  s.PortAutoAssigned,
 		Private:           s.Private,
 		AccessGroups:      accessGroups,
+		DNSZone:           s.DNSZone,
 	}
 }
 
