@@ -24,8 +24,15 @@ type Peer struct {
 	LastLogin              *time.Time
 	IP                     netip.Addr
 	IPv6                   netip.Addr
+	RequiresApproval       bool
 	Meta                   PeerSystemMeta
+	ProxyMeta              ProxyMeta
 	Location               PeerLocation
+}
+
+// ProxyMeta is the slim twin of peer.ProxyMeta.
+type ProxyMeta struct {
+	Embedded bool
 }
 
 // PeerSystemMeta is the slim twin of peer.PeerSystemMeta.

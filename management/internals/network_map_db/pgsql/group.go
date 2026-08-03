@@ -56,7 +56,7 @@ func GetGroupsViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId str
 			if _, ok := resourceToGroupIdx[resource.ID]; !ok {
 				resourceToGroupIdx[resource.ID] = make(map[string]any)
 			}
-			resourceToGroupIdx[resource.ID][g.Id] = struct{}{}
+			resourceToGroupIdx[resource.ID][g.ID] = struct{}{}
 		}
 	}
 
@@ -64,7 +64,7 @@ func GetGroupsViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId str
 }
 
 type group struct {
-	Id        string `nmap:"skip"`
+	ID        string
 	Name      sql.NullString
 	PublicID  sql.NullString
 	Resources json.RawMessage
