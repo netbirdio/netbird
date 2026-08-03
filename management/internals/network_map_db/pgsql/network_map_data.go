@@ -2,6 +2,7 @@ package networkmap_pgsql
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -18,59 +19,59 @@ func (pg *PgStore) GetNetworkMapData(ctx context.Context, accountId string) (*ne
 
 	acctSettings, err := GetAccountSettingsViaPgxConnection(ctx, tx.Conn(), accountId)
 	if err != nil {
-		return rollbackAndReturnError(ctx, tx, err)
+		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get account settings: %w", err))
 	}
 	dnsZones, err := GetAppliedZoneCandidatesViaPgxConnection(ctx, tx.Conn(), accountId)
 	if err != nil {
-		return rollbackAndReturnError(ctx, tx, err)
+		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get applied zone candidates: %w", err))
 	}
 	groups, resourceToGroupIdx, err := GetGroupsViaPgxConnection(ctx, tx.Conn(), accountId)
 	if err != nil {
-		return rollbackAndReturnError(ctx, tx, err)
+		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get groups: %w", err))
 	}
 	nsGroups, err := GetNameServerGroupsViaPgxConnection(ctx, tx.Conn(), accountId)
 	if err != nil {
-		return rollbackAndReturnError(ctx, tx, err)
+		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get nameserver groups: %w", err))
 	}
 	networkResources, err := GetNetworkResourcesViaPgxConnection(ctx, tx.Conn(), accountId)
 	if err != nil {
-		return rollbackAndReturnError(ctx, tx, err)
+		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get network resources: %w", err))
 	}
 	routers, err := GetNetworkRoutersViaPgxConnection(ctx, tx.Conn(), accountId)
 	if err != nil {
-		return rollbackAndReturnError(ctx, tx, err)
+		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get network routers: %w", err))
 	}
 	network, err := GetNetworkViaPgxConnection(ctx, tx.Conn(), accountId)
 	if err != nil {
-		return rollbackAndReturnError(ctx, tx, err)
+		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get network: %w", err))
 	}
 	peers, proxyPeers, err := GetPeersViaPgxConnection(ctx, tx.Conn(), accountId)
 	if err != nil {
-		return rollbackAndReturnError(ctx, tx, err)
+		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get peers: %w", err))
 	}
 	policies, policyToDestinationResourceIdx, policyToDestinationGroupIdx, err := GetPoliciesViaPgxConnection(ctx, tx.Conn(), accountId)
 	if err != nil {
-		return rollbackAndReturnError(ctx, tx, err)
+		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get policies: %w", err))
 	}
 	postureChecks, postureCheckXIDToPublicID, err := GetPostureChecksViaPgxConnection(ctx, tx.Conn(), accountId)
 	if err != nil {
-		return rollbackAndReturnError(ctx, tx, err)
+		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get posture checks: %w", err))
 	}
 	routes, err := GetRoutesViaPgxConnection(ctx, tx.Conn(), accountId)
 	if err != nil {
-		return rollbackAndReturnError(ctx, tx, err)
+		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get routes: %w", err))
 	}
 	networkXIDToPublicID, err := GetNetworkXIDToPublicIdMapViaPgxConnection(ctx, tx.Conn(), accountId)
 	if err != nil {
-		return rollbackAndReturnError(ctx, tx, err)
+		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get network xid to public id map: %w", err))
 	}
 	allowedUserIds, groupsToUserIds, err := GetAllowedUsersViaPgxConnection(ctx, tx.Conn(), accountId)
 	if err != nil {
-		return rollbackAndReturnError(ctx, tx, err)
+		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get allowed users: %w", err))
 	}
 	dnsSettings, err := GetDnsSettingsViaPgxConnection(ctx, tx.Conn(), accountId)
 	if err != nil {
-		return rollbackAndReturnError(ctx, tx, err)
+		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get dns settings: %w", err))
 	}
 	domains, err := GetDomainsViaPgxConnection(ctx, tx.Conn(), accountId)
 	if err != nil {
