@@ -18,10 +18,10 @@ func (pg *PgStore) GetNetworkMapData(ctx context.Context, accountId string) (*ne
 	if err != nil {
 		return rollbackAndReturnError(ctx, tx, err)
 	}
-	// dnsZones, err := GetAccountZonesViaPgxConnection(ctx, tx.Conn(), accountId)
-	// if err != nil {
-	// 	return rollbackAndReturnError(ctx, tx, err)
-	// }
+	dnsZones, err := GetAppliedZoneCandidatesViaPgxConnection(ctx, tx.Conn(), accountId)
+	if err != nil {
+		return rollbackAndReturnError(ctx, tx, err)
+	}
 	groups, resourceToGroupIdx, err := GetGroupsViaPgxConnection(ctx, tx.Conn(), accountId)
 	if err != nil {
 		return rollbackAndReturnError(ctx, tx, err)
@@ -102,21 +102,22 @@ func (pg *PgStore) GetNetworkMapData(ctx context.Context, accountId string) (*ne
 	}
 
 	toret := networkmap.NetworkMapData{
-		AccountSettings:      &acctSettings,
-		DNSSettings:          &dnsSettings,
-		Network:              &network,
-		Peers:                toMap(peers, func(p nmdata.Peer) string { return p.ID }),
-		Groups:               toMap(groups, func(g nmdata.Group) string { return g.PublicID }),
-		Policies:             toSliceOfPtrs(policies),
-		ResourcePolicies:     resourcePolicies,
-		Routes:               toSliceOfPtrs(routes),
-		Routers:              routers,
-		NameServerGroups:     toSliceOfPtrs(nsGroups),
-		NetworkResources:     toSliceOfPtrs(networkResources),
-		PostureChecks:        toMap(postureChecks, func(pc nmdata.PostureChecks) string { return pc.ID }),
-		AllowedUserIDs:       allowedUserIds,
-		GroupIDToUserIDs:     groupsToUserIds,
-		NetworkXIDToPublicID: networkXIDToPublicID, // TODO (dmitri) maybe we can switch to public ids everywhere?
+		AccountSettings:       &acctSettings,
+		DNSSettings:           &dnsSettings,
+		Network:               &network,
+		Peers:                 toMap(peers, func(p nmdata.Peer) string { return p.ID }),
+		Groups:                toMap(groups, func(g nmdata.Group) string { return g.PublicID }),
+		Policies:              toSliceOfPtrs(policies),
+		ResourcePolicies:      resourcePolicies,
+		Routes:                toSliceOfPtrs(routes),
+		Routers:               routers,
+		NameServerGroups:      toSliceOfPtrs(nsGroups),
+		NetworkResources:      toSliceOfPtrs(networkResources),
+		PostureChecks:         toMap(postureChecks, func(pc nmdata.PostureChecks) string { return pc.ID }),
+		AllowedUserIDs:        allowedUserIds,
+		GroupIDToUserIDs:      groupsToUserIds,
+		NetworkXIDToPublicID:  networkXIDToPublicID, // TODO (dmitri) maybe we can switch to public ids everywhere?
+		AppliedZoneCandidates: dnsZones,
 	}
 
 	return &toret, nil

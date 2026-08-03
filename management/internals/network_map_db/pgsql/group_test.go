@@ -200,7 +200,7 @@ func TestGetAccountZones(t *testing.T) {
 	//	err = loadSQL(ctx, s.pool, initDb)
 	//assert.NoError(t, err)
 
-	zones, err := s.GetAccountZones(ctx, "d4g66rjl0ubs73b2q3b0") //"ckd7ee2fic3c73dtendg")
+	zones, err := s.GetAppliedZoneCandidates(ctx, "d4g66rjl0ubs73b2q3b0") //"ckd7ee2fic3c73dtendg")
 	assert.NoError(t, err)
 
 	fmt.Print(zones)

@@ -29,7 +29,7 @@ type NetworkMapDBStore interface {
 	GetNetworkResources(ctx context.Context, accountId string) ([]nmdata.NetworkResource, error)
 	GetNetworkRouters(ctx context.Context, accountId string) (map[string]map[string]*nmdata.NetworkRouter, error)
 	GetNetwork(ctx context.Context, accountId string) (nmdata.Network, error)
-	GetAccountZones(ctx context.Context, accountId string) ([]nmdata.CustomZone, error)
+	GetAppliedZoneCandidates(ctx context.Context, accountId string) ([]networkmap.AppliedZoneCandidate, error)
 	GetAccountSettings(ctx context.Context, accountId string) (nmdata.AccountSettingsInfo, error)
 	GetPostureChecks(ctx context.Context, accountId string) ([]nmdata.PostureChecks, error)
 	GetNetworkMapData(ctx context.Context, accountId string) (*networkmap.NetworkMapData, error)
