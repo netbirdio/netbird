@@ -65,7 +65,7 @@ func (nmd *NetworkMapData) GetPeerNetworkMapComponents(peerID string, peersCusto
 	components.Routes = relevantRoutes
 	components.AllDNSRecords = filterDNSRecordsByPeers(peersCustomZone.Records, relevantPeers, peer.SupportsIPv6() && peer.IPv6.IsValid())
 
-	peerGroups := nmd.getPeerGroups(peerID)
+	peerGroups := nmd.GetPeerGroups(peerID)
 	components.AccountZones = nmd.appliedZones(peerGroups)
 	components.AccountZones = append(components.AccountZones, nmd.privateServiceZones(peerGroups)...)
 
@@ -473,7 +473,7 @@ func (nmd *NetworkMapData) getPostureValidPeersSaveFailed(inputPeers []string, p
 	return dest
 }
 
-func (nmd *NetworkMapData) getPeerGroups(peerID string) map[string]struct{} {
+func (nmd *NetworkMapData) GetPeerGroups(peerID string) map[string]struct{} {
 	groups := make(map[string]struct{})
 	for groupID, group := range nmd.Groups {
 		if slices.Contains(group.Peers, peerID) {

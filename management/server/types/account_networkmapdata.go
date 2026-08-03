@@ -45,14 +45,7 @@ func (a *Account) toNetworkMapData(
 		nmd.Network = TwinNetwork(a.Network)
 	}
 	nmd.DNSSettings = &nmdata.DNSSettings{DisabledManagementGroups: a.DNSSettings.DisabledManagementGroups}
-	if a.Settings != nil {
-		nmd.AccountSettings = &nmdata.AccountSettingsInfo{
-			PeerLoginExpirationEnabled:      a.Settings.PeerLoginExpirationEnabled,
-			PeerLoginExpiration:             a.Settings.PeerLoginExpiration,
-			PeerInactivityExpirationEnabled: a.Settings.PeerInactivityExpirationEnabled,
-			PeerInactivityExpiration:        a.Settings.PeerInactivityExpiration,
-		}
-	}
+	nmd.AccountSettings = TwinAccountSettings(a.Settings)
 
 	for id, p := range a.Peers {
 		nmd.Peers[id] = twinPeer(p)
@@ -145,15 +138,17 @@ func twinPeer(p *nbpeer.Peer) *nmdata.Peer {
 		IP:                     p.IP,
 		IPv6:                   p.IPv6,
 		RequiresApproval:       p.Status != nil && p.Status.RequiresApproval,
+		ExtraDNSLabels:         p.ExtraDNSLabels,
 		ProxyMeta:              nmdata.ProxyMeta{Embedded: p.ProxyMeta.Embedded},
 		Meta: nmdata.PeerSystemMeta{
-			WtVersion:        p.Meta.WtVersion,
-			GoOS:             p.Meta.GoOS,
-			OSVersion:        p.Meta.OSVersion,
-			KernelVersion:    p.Meta.KernelVersion,
-			NetworkAddresses: networkAddresses,
-			Files:            files,
-			Capabilities:     p.Meta.Capabilities,
+			WtVersion:          p.Meta.WtVersion,
+			GoOS:               p.Meta.GoOS,
+			OSVersion:          p.Meta.OSVersion,
+			KernelVersion:      p.Meta.KernelVersion,
+			NetworkAddresses:   networkAddresses,
+			Files:              files,
+			Capabilities:       p.Meta.Capabilities,
+			SyncMessageVersion: p.Meta.SyncMessageVersion,
 			Flags: nmdata.Flags{
 				ServerSSHAllowed: p.Meta.Flags.ServerSSHAllowed,
 				DisableIPv6:      p.Meta.Flags.DisableIPv6,
@@ -508,7 +503,50 @@ func (a *Account) buildPrivateServiceCandidates() []networkmap.PrivateServiceCan
 	return out
 }
 
-func toTwinCustomZone(z nbdns.CustomZone) nmdata.CustomZone {
+// TwinAccountSettings converts real account settings to the slim nmdata twin.
+// Exported for callers of the twin-based sync response builders.
+func TwinAccountSettings(s *Settings) *nmdata.AccountSettingsInfo {
+	if s == nil {
+		return nil
+	}
+	return &nmdata.AccountSettingsInfo{
+		PeerLoginExpirationEnabled:      s.PeerLoginExpirationEnabled,
+		PeerLoginExpiration:             s.PeerLoginExpiration,
+		PeerInactivityExpirationEnabled: s.PeerInactivityExpirationEnabled,
+		PeerInactivityExpiration:        s.PeerInactivityExpiration,
+		DNSDomain:                       s.DNSDomain,
+		IPv6EnabledGroups:               s.IPv6EnabledGroups,
+		RoutingPeerDNSResolutionEnabled: s.RoutingPeerDNSResolutionEnabled,
+		LazyConnectionEnabled:           s.LazyConnectionEnabled,
+		AutoUpdateVersion:               s.AutoUpdateVersion,
+		AutoUpdateAlways:                s.AutoUpdateAlways,
+		MetricsPushEnabled:              s.MetricsPushEnabled,
+	}
+}
+
+func fromTwinCustomZone(z nmdata.CustomZone) nbdns.CustomZone {
+	records := make([]nbdns.SimpleRecord, 0, len(z.Records))
+	for _, r := range z.Records {
+		records = append(records, nbdns.SimpleRecord{
+			Name:  r.Name,
+			Type:  r.Type,
+			Class: r.Class,
+			TTL:   r.TTL,
+			RData: r.RData,
+		})
+	}
+	return nbdns.CustomZone{
+		Domain:               z.Domain,
+		Records:              records,
+		SearchDomainDisabled: z.SearchDomainDisabled,
+		NonAuthoritative:     z.NonAuthoritative,
+	}
+}
+
+// TwinCustomZone converts a real DNS custom zone to its slim nmdata twin.
+// Exported for the network-map controller's DB-store path, which feeds real
+// zones into the twin-based components calculation.
+func TwinCustomZone(z nbdns.CustomZone) nmdata.CustomZone {
 	records := make([]nmdata.SimpleRecord, 0, len(z.Records))
 	for _, r := range z.Records {
 		records = append(records, nmdata.SimpleRecord{

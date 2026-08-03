@@ -13,9 +13,9 @@ import (
 
 const (
 	GetPeersQuery = `
-	select id, key, ssh_key, dns_label, user_id, ssh_enabled, login_expiration_enabled, last_login, ip, ipv6,
+	select id, key, ssh_key, dns_label, extra_dns_labels, user_id, ssh_enabled, login_expiration_enabled, last_login, ip, ipv6,
 	peer_status_requires_approval, proxy_meta_embedded, proxy_meta_cluster,
-	meta_wt_version, meta_go_os, meta_os_version, meta_kernel_version, meta_network_addresses, meta_files, meta_capabilities, meta_flags,
+	meta_wt_version, meta_go_os, meta_os_version, meta_kernel_version, meta_network_addresses, meta_files, meta_capabilities, meta_flags, meta_sync_message_version,
 	location_country_code, location_city_name, location_connection_ip
 	from peers
 	where account_id = $1
@@ -59,6 +59,9 @@ func GetPeersViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId stri
 		}
 		if p.MetaWtVersion.Valid {
 			dp.Meta.WtVersion = p.MetaWtVersion.String
+		}
+		if p.MetaSyncMessageVersion.Valid {
+			dp.Meta.SyncMessageVersion = int(p.MetaSyncMessageVersion.Int64)
 		}
 		if p.MetaGoOS.Valid {
 			dp.Meta.GoOS = p.MetaGoOS.String
@@ -105,6 +108,8 @@ func GetPeersViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId stri
 				return toret, nil, err
 			}
 		}
+
+		toret = append(toret, dp)
 	}
 
 	return toret, clusterToPeerIdx, nil
@@ -116,6 +121,7 @@ type peer struct {
 	Key                        sql.NullString
 	SSHKey                     sql.NullString
 	DNSLabel                   sql.NullString
+	ExtraDNSLabels             json.RawMessage
 	UserID                     sql.NullString
 	LastLogin                  sql.NullTime
 	SSHEnabled                 sql.NullBool
@@ -134,6 +140,7 @@ type peer struct {
 	MetaGoOS                   sql.NullString  `nmap:"skip"`
 	MetaOSVersion              sql.NullString  `nmap:"skip"`
 	MetaKernelVersion          sql.NullString  `nmap:"skip"`
+	MetaSyncMessageVersion     sql.NullInt64   `nmap:"skip"`
 	LocationCountryCode        sql.NullString  `nmap:"skip"`
 	LocationCityName           sql.NullString  `nmap:"skip"`
 }

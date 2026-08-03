@@ -5,7 +5,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
@@ -18,10 +17,10 @@ func TestComputeSSHEnabledForPeer(t *testing.T) {
 	const targetPeerID = "target"
 	const targetGroupID = "g_dst"
 
-	mkComponents := func(rule *nmdata.PolicyRule, sshEnabled bool) (*types.NetworkMapComponents, *nbpeer.Peer) {
-		peer := &nbpeer.Peer{ID: targetPeerID, SSHEnabled: sshEnabled}
+	mkComponents := func(rule *nmdata.PolicyRule, sshEnabled bool) (*types.NetworkMapComponents, *nmdata.Peer) {
+		peer := &nmdata.Peer{ID: targetPeerID, SSHEnabled: sshEnabled}
 		return &types.NetworkMapComponents{
-			Peers:  map[string]*nmdata.Peer{targetPeerID: types.TwinPeer(peer)},
+			Peers:  map[string]*nmdata.Peer{targetPeerID: peer},
 			Groups: map[string]*nmdata.Group{targetGroupID: {Name: "dst", Peers: []string{targetPeerID}}},
 			Policies: []*nmdata.Policy{{
 				ID:      "p",
@@ -156,7 +155,7 @@ func TestComputeSSHEnabledForPeer(t *testing.T) {
 // belt-and-suspenders presence guard mirroring Calculate's
 // getAllPeersFromGroups invariant.
 func TestComputeSSHEnabledForPeer_TargetMissingFromComponents(t *testing.T) {
-	peer := &nbpeer.Peer{ID: "missing", SSHEnabled: true}
+	peer := &nmdata.Peer{ID: "missing", SSHEnabled: true}
 	c := &types.NetworkMapComponents{
 		Peers: map[string]*nmdata.Peer{}, // target peer NOT present
 		Groups: map[string]*nmdata.Group{
@@ -179,6 +178,6 @@ func TestComputeSSHEnabledForPeer_TargetMissingFromComponents(t *testing.T) {
 // exported indirectly via ToComponentSyncResponse and may receive nil
 // components on graceful-degrade paths.
 func TestComputeSSHEnabledForPeer_NilInputs(t *testing.T) {
-	assert.False(t, computeSSHEnabledForPeer(nil, &nbpeer.Peer{ID: "x"}))
+	assert.False(t, computeSSHEnabledForPeer(nil, &nmdata.Peer{ID: "x"}))
 	assert.False(t, computeSSHEnabledForPeer(&types.NetworkMapComponents{}, nil))
 }
