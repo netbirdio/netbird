@@ -152,7 +152,7 @@ func toMap[T any](all []T, id func(t T) string) map[string]*T {
 }
 
 func toSliceOfPtrs[T any](all []T) []*T {
-	toret := make([]*T, len(all))
+	toret := make([]*T, 0, len(all))
 	for _, t := range all {
 		toret = append(toret, &t)
 	}
