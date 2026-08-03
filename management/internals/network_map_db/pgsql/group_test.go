@@ -43,8 +43,9 @@ func TestGetPeers(t *testing.T) {
 	//	err = loadSQL(ctx, s.pool, initDb)
 	//assert.NoError(t, err)
 
-	peers, err := s.GetPeers(ctx, "ck7bnf2t2r9s739pkug0") //"ckd7ee2fic3c73dtendg")
+	peers, clusterToPeerIdx, err := s.GetPeers(ctx, "d8pqjvbl0ubs73e8cjkg") //"ckd7ee2fic3c73dtendg")
 	assert.NoError(t, err)
+	assert.NotEmpty(t, clusterToPeerIdx)
 
 	fmt.Print(peers)
 	// assert.Contains(t,

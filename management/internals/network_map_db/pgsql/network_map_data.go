@@ -42,7 +42,7 @@ func (pg *PgStore) GetNetworkMapData(ctx context.Context, accountId string) (*ne
 	if err != nil {
 		return rollbackAndReturnError(ctx, tx, err)
 	}
-	peers, err := GetPeersViaPgxConnection(ctx, tx.Conn(), accountId)
+	peers, _, err := GetPeersViaPgxConnection(ctx, tx.Conn(), accountId)
 	if err != nil {
 		return rollbackAndReturnError(ctx, tx, err)
 	}

@@ -14,7 +14,7 @@ import (
 const (
 	GetPeersQuery = `
 	select id, key, ssh_key, dns_label, user_id, ssh_enabled, login_expiration_enabled, last_login, ip, ipv6,
-	peer_status_requires_approval, proxy_meta_embedded,
+	peer_status_requires_approval, proxy_meta_embedded, proxy_meta_cluster,
 	meta_wt_version, meta_go_os, meta_os_version, meta_kernel_version, meta_network_addresses, meta_files, meta_capabilities, meta_flags,
 	location_country_code, location_city_name, location_connection_ip
 	from peers
@@ -22,36 +22,40 @@ const (
 	`
 )
 
-func (pg *PgStore) GetPeers(ctx context.Context, accountId string) ([]nmdata.Peer, error) {
+func (pg *PgStore) GetPeers(ctx context.Context, accountId string) ([]nmdata.Peer, map[string]*nmdata.Peer, error) {
 	c, err := pg.Pool.Acquire(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	return GetPeersViaPgxConnection(ctx, c.Conn(), accountId)
 }
 
-func GetPeersViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId string) ([]nmdata.Peer, error) {
+func GetPeersViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId string) ([]nmdata.Peer, map[string]*nmdata.Peer, error) {
 	rows, err := con.Query(ctx, GetPeersQuery, accountId)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	peers, err := pgx.CollectRows(rows, pgx.RowToStructByName[peer])
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	toret := make([]nmdata.Peer, 0, len(peers))
+	clusterToPeerIdx := make(map[string]*nmdata.Peer)
 	for _, p := range peers {
 		dp := nmdata.Peer{}
 		err := networkmapdb.FromSqlTypesToSharedTypes(
 			reflect.ValueOf(&p), reflect.ValueOf(&dp))
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		if p.ProxyMetaEmbedded.Valid {
 			dp.ProxyMeta.Embedded = p.ProxyMetaEmbedded.Bool
+		}
+		if dp.ProxyMeta.Embedded {
+			clusterToPeerIdx[p.ProxyMetaCluster.String] = &dp
 		}
 		if p.MetaWtVersion.Valid {
 			dp.Meta.WtVersion = p.MetaWtVersion.String
@@ -74,36 +78,36 @@ func GetPeersViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId stri
 		if p.LocationConnectionIp != nil {
 			err := json.Unmarshal(p.LocationConnectionIp, &dp.Location.ConnectionIP)
 			if err != nil {
-				return toret, err
+				return toret, nil, err
 			}
 		}
 		if p.MetaFiles != nil {
 			err := json.Unmarshal(p.MetaFiles, &dp.Meta.Files)
 			if err != nil {
-				return toret, err
+				return toret, nil, err
 			}
 		}
 		if p.MetaCapabilities != nil {
 			err := json.Unmarshal(p.MetaCapabilities, &dp.Meta.Capabilities)
 			if err != nil {
-				return toret, err
+				return toret, nil, err
 			}
 		}
 		if p.MetaFlags != nil {
 			err := json.Unmarshal(p.MetaFlags, &dp.Meta.Flags)
 			if err != nil {
-				return toret, err
+				return toret, nil, err
 			}
 		}
 		if p.MetaNetworkAddresses != nil {
 			err := json.Unmarshal(p.MetaNetworkAddresses, &dp.Meta.NetworkAddresses)
 			if err != nil {
-				return toret, err
+				return toret, nil, err
 			}
 		}
 	}
 
-	return toret, nil
+	return toret, clusterToPeerIdx, nil
 }
 
 // TODO add support for creating struct fields from denormalized fields
@@ -116,8 +120,9 @@ type peer struct {
 	LastLogin                  sql.NullTime
 	SSHEnabled                 sql.NullBool
 	LoginExpirationEnabled     sql.NullBool
-	PeerStatusRequiresApproval sql.NullBool `nmap:"mapTo=RequiresApproval"`
-	ProxyMetaEmbedded          sql.NullBool `nmap:"skip"`
+	PeerStatusRequiresApproval sql.NullBool   `nmap:"map_to:RequiresApproval"`
+	ProxyMetaEmbedded          sql.NullBool   `nmap:"skip"`
+	ProxyMetaCluster           sql.NullString `nmap:"skip"`
 	IP                         json.RawMessage
 	IPv6                       json.RawMessage
 	LocationConnectionIp       json.RawMessage `nmap:"skip"`
