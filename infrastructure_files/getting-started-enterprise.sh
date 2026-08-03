@@ -428,7 +428,8 @@ render_compose_common() {
       - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
       - "--entrypoints.websecure.allowACMEByPass=true"
-      # Disable timeouts for long-lived gRPC streams and relay WebSockets
+      # readTimeout bounds the whole request, and gRPC streams / relay WebSockets
+      # never end one. Entrypoint-wide is the only scope Traefik offers here.
       - "--entrypoints.websecure.transport.respondingTimeouts.readTimeout=0"
       - "--entrypoints.websecure.transport.respondingTimeouts.writeTimeout=0"
       - "--entrypoints.websecure.transport.respondingTimeouts.idleTimeout=0"

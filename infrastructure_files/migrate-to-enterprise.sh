@@ -555,9 +555,9 @@ rollback() {
 
   # Restore .env to exactly what it was, or remove it if this run created it.
   if [[ "$ENV_EXISTED" == "yes" ]] && [[ -f "$ENV_BACKUP" ]]; then
-    mv -f "$ENV_BACKUP" .env
+    mv -f "$ENV_BACKUP" .env || echo "  ⚠ Could not restore .env from $ENV_BACKUP." > /dev/stderr
   elif [[ "$ENV_EXISTED" == "no" ]]; then
-    rm -f .env
+    rm -f .env || true
   fi
 
   # Only ever the volume this run created — never the NetBird data volume.
