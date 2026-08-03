@@ -337,15 +337,30 @@ func decodeMonoCursor(hbmMask windows.Handle) (*image.RGBA, error) {
 	img := image.NewRGBA(image.Rect(0, 0, int(w), int(h)))
 	for y := int32(0); y < h; y++ {
 		for x := int32(0); x < w; x++ {
-			and := data[(y*w+x)*4]
-			xor := data[((y+h)*w+x)*4]
+			and := data[(y*w+x)*4] != 0
+			xor := data[((y+h)*w+x)*4] != 0
 			di := (y*w + x) * 4
-			if and != 0 {
+
+			// The two halves of the mask encode four states:
+			//
+			//	AND=0 XOR=0  black
+			//	AND=0 XOR=1  white
+			//	AND=1 XOR=0  transparent
+			//	AND=1 XOR=1  inverts whatever is on screen
+			//
+			// The cursor pseudo-encoding has no inversion, and the text
+			// caret (IDC_IBEAM) is drawn almost entirely from inverted
+			// pixels, which is how it stays legible over both light and dark
+			// text. Reading them as transparent left it invisible while
+			// every other stock cursor rendered, so they are drawn black
+			// here: that is what the other VNC servers settle on, and text
+			// fields are light far more often than not.
+			if and && !xor {
 				img.Pix[di+3] = 0
 				continue
 			}
 			c := byte(0)
-			if xor != 0 {
+			if !and && xor {
 				c = 255
 			}
 			img.Pix[di+0] = c
