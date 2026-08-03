@@ -24,13 +24,13 @@ import (
 
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/formatter/hook"
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	accesslogsmanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs/manager"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/activity"
 	activitystore "github.com/netbirdio/netbird/management/server/activity/store"
-	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
 	nbhttp "github.com/netbirdio/netbird/management/server/http"
@@ -184,6 +184,10 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 			grpc.ChainStreamInterceptor(realip.StreamServerInterceptorOpts(realipOpts...), streamInterceptor, proxyStream),
 		}
 
+		// Append interceptors contributed by registered gRPC extensions. These
+		// run after the built-in chain (ChainUnaryInterceptor is additive).
+		gRPCOpts = appendExtensionInterceptors(gRPCOpts, s.grpcExtensions)
+
 		if s.Config.HttpConfig.LetsEncryptDomain != "" {
 			certManager, err := encryption.CreateCertManager(s.Config.Datadir, s.Config.HttpConfig.LetsEncryptDomain)
 			if err != nil {
@@ -214,6 +218,9 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 
 		mgmtProto.RegisterProxyServiceServer(gRPCAPIHandler, s.ReverseProxyGRPCServer())
 		log.Info("ProxyService registered on gRPC server")
+
+		// Register services contributed by external modules via the extension seam.
+		registerExtensions(gRPCAPIHandler, s.grpcExtensions)
 
 		return gRPCAPIHandler
 	})
