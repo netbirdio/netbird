@@ -167,7 +167,7 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 		return nil
 	}
 
-	approvedPeersMap, err := c.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
+	approvedPeersMap, err := c.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, types.TwinGroups(maps.Values(account.Groups)), types.TwinPeers(maps.Values(account.Peers)), account.Settings.Extra)
 	if err != nil {
 		return fmt.Errorf("failed to get validate peers: %v", err)
 	}
@@ -340,7 +340,7 @@ func (c *Controller) sendUpdateForAffectedPeers(ctx context.Context, accountID s
 
 	log.WithContext(ctx).Tracef("sendUpdateForAffectedPeers: sending network map to %d connected peers", len(peersToUpdate))
 
-	approvedPeersMap, err := c.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
+	approvedPeersMap, err := c.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, types.TwinGroups(maps.Values(account.Groups)), types.TwinPeers(maps.Values(account.Peers)), account.Settings.Extra)
 	if err != nil {
 		return fmt.Errorf("failed to get validate peers: %v", err)
 	}
@@ -504,7 +504,7 @@ func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, pe
 		return fmt.Errorf("peer %s doesn't exists in account %s", peerId, accountId)
 	}
 
-	approvedPeersMap, err := c.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
+	approvedPeersMap, err := c.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, types.TwinGroups(maps.Values(account.Groups)), types.TwinPeers(maps.Values(account.Peers)), account.Settings.Extra)
 	if err != nil {
 		return fmt.Errorf("failed to get validated peers: %v", err)
 	}
@@ -651,7 +651,7 @@ func (c *Controller) GetValidatedPeerWithComponents(ctx context.Context, isRequi
 
 	c.injectAllProxyPolicies(ctx, account)
 
-	approvedPeersMap, err := c.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
+	approvedPeersMap, err := c.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, types.TwinGroups(maps.Values(account.Groups)), types.TwinPeers(maps.Values(account.Peers)), account.Settings.Extra)
 	if err != nil {
 		return nil, nil, nil, nil, 0, err
 	}
@@ -806,7 +806,7 @@ func (c *Controller) GetValidatedPeerWithMap(ctx context.Context, isRequiresAppr
 
 	c.injectAllProxyPolicies(ctx, account)
 
-	approvedPeersMap, err := c.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
+	approvedPeersMap, err := c.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, types.TwinGroups(maps.Values(account.Groups)), types.TwinPeers(maps.Values(account.Peers)), account.Settings.Extra)
 	if err != nil {
 		return nil, nil, 0, err
 	}
@@ -1055,7 +1055,7 @@ func (c *Controller) GetNetworkMap(ctx context.Context, peerID string) (*types.N
 		groups[groupID] = group.Peers
 	}
 
-	validatedPeers, err := c.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
+	validatedPeers, err := c.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, types.TwinGroups(maps.Values(account.Groups)), types.TwinPeers(maps.Values(account.Peers)), account.Settings.Extra)
 	if err != nil {
 		return nil, err
 	}

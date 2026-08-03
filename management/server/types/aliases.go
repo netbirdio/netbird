@@ -84,7 +84,7 @@ func CalculateNetworkMapFromComponents(ctx context.Context, components *NetworkM
 }
 
 func GenerateRouteFirewallRules(ctx context.Context, route *nbroute.Route, rule *PolicyRule, groupPeers []*nbpeer.Peer, direction int, includeIPv6 bool) []*RouteFirewallRule {
-	return sharedtypes.GenerateRouteFirewallRules(ctx, twinRoute(route), twinRule(rule), twinPeers(groupPeers), direction, includeIPv6)
+	return sharedtypes.GenerateRouteFirewallRules(ctx, twinRoute(route), twinRule(rule), TwinPeers(groupPeers), direction, includeIPv6)
 }
 
 func AllocateIPv6Subnet(r *rand.Rand) net.IPNet {

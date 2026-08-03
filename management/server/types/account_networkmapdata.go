@@ -144,6 +144,8 @@ func twinPeer(p *nbpeer.Peer) *nmdata.Peer {
 		LastLogin:              p.LastLogin,
 		IP:                     p.IP,
 		IPv6:                   p.IPv6,
+		RequiresApproval:       p.Status != nil && p.Status.RequiresApproval,
+		ProxyMeta:              nmdata.ProxyMeta{Embedded: p.ProxyMeta.Embedded},
 		Meta: nmdata.PeerSystemMeta{
 			WtVersion:        p.Meta.WtVersion,
 			GoOS:             p.Meta.GoOS,
@@ -171,10 +173,20 @@ func TwinPeer(p *nbpeer.Peer) *nmdata.Peer {
 	return twinPeer(p)
 }
 
-func twinPeers(peers []*nbpeer.Peer) []*nmdata.Peer {
+// TwinPeers converts real peers to their slim nmdata twins.
+func TwinPeers(peers []*nbpeer.Peer) []*nmdata.Peer {
 	out := make([]*nmdata.Peer, len(peers))
 	for i, p := range peers {
 		out[i] = twinPeer(p)
+	}
+	return out
+}
+
+// TwinGroups converts real groups to their slim nmdata twins.
+func TwinGroups(groups []*Group) []*nmdata.Group {
+	out := make([]*nmdata.Group, len(groups))
+	for i, g := range groups {
+		out[i] = twinGroup(g)
 	}
 	return out
 }
@@ -184,6 +196,7 @@ func twinGroup(g *Group) *nmdata.Group {
 		return nil
 	}
 	return &nmdata.Group{
+		ID:       g.ID,
 		Name:     g.Name,
 		PublicID: g.PublicID,
 		Peers:    g.Peers,

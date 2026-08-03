@@ -14,7 +14,8 @@ import (
 const (
 	GetPeersQuery = `
 	select id, key, ssh_key, dns_label, user_id, ssh_enabled, login_expiration_enabled, last_login, ip, ipv6,
-	meta_wt_version, meta_go_os, meta_os_version, meta_kernel_version, meta_network_addresses, meta_files, meta_capabilities, meta_flags, 
+	peer_status_requires_approval, proxy_meta_embedded,
+	meta_wt_version, meta_go_os, meta_os_version, meta_kernel_version, meta_network_addresses, meta_files, meta_capabilities, meta_flags,
 	location_country_code, location_city_name, location_connection_ip
 	from peers
 	where account_id = $1
@@ -49,6 +50,9 @@ func GetPeersViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId stri
 			return nil, err
 		}
 
+		if p.ProxyMetaEmbedded.Valid {
+			dp.ProxyMeta.Embedded = p.ProxyMetaEmbedded.Bool
+		}
 		if p.MetaWtVersion.Valid {
 			dp.Meta.WtVersion = p.MetaWtVersion.String
 		}
@@ -104,25 +108,27 @@ func GetPeersViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId stri
 
 // TODO add support for creating struct fields from denormalized fields
 type peer struct {
-	ID                     string
-	Key                    sql.NullString
-	SSHKey                 sql.NullString
-	DNSLabel               sql.NullString
-	UserID                 sql.NullString
-	LastLogin              sql.NullTime
-	SSHEnabled             sql.NullBool
-	LoginExpirationEnabled sql.NullBool
-	IP                     json.RawMessage
-	IPv6                   json.RawMessage
-	LocationConnectionIp   json.RawMessage `nmap:"skip"`
-	MetaFiles              json.RawMessage `nmap:"skip"`
-	MetaCapabilities       json.RawMessage `nmap:"skip"`
-	MetaFlags              json.RawMessage `nmap:"skip"`
-	MetaNetworkAddresses   json.RawMessage `nmap:"skip"`
-	MetaWtVersion          sql.NullString  `nmap:"skip"`
-	MetaGoOS               sql.NullString  `nmap:"skip"`
-	MetaOSVersion          sql.NullString  `nmap:"skip"`
-	MetaKernelVersion      sql.NullString  `nmap:"skip"`
-	LocationCountryCode    sql.NullString  `nmap:"skip"`
-	LocationCityName       sql.NullString  `nmap:"skip"`
+	ID                         string
+	Key                        sql.NullString
+	SSHKey                     sql.NullString
+	DNSLabel                   sql.NullString
+	UserID                     sql.NullString
+	LastLogin                  sql.NullTime
+	SSHEnabled                 sql.NullBool
+	LoginExpirationEnabled     sql.NullBool
+	PeerStatusRequiresApproval sql.NullBool `nmap:"mapTo=RequiresApproval"`
+	ProxyMetaEmbedded          sql.NullBool `nmap:"skip"`
+	IP                         json.RawMessage
+	IPv6                       json.RawMessage
+	LocationConnectionIp       json.RawMessage `nmap:"skip"`
+	MetaFiles                  json.RawMessage `nmap:"skip"`
+	MetaCapabilities           json.RawMessage `nmap:"skip"`
+	MetaFlags                  json.RawMessage `nmap:"skip"`
+	MetaNetworkAddresses       json.RawMessage `nmap:"skip"`
+	MetaWtVersion              sql.NullString  `nmap:"skip"`
+	MetaGoOS                   sql.NullString  `nmap:"skip"`
+	MetaOSVersion              sql.NullString  `nmap:"skip"`
+	MetaKernelVersion          sql.NullString  `nmap:"skip"`
+	LocationCountryCode        sql.NullString  `nmap:"skip"`
+	LocationCityName           sql.NullString  `nmap:"skip"`
 }
