@@ -18,6 +18,14 @@ type Settings struct {
 	AccountID string `gorm:"primaryKey"`
 	Cluster   string
 	Subdomain string `gorm:"index:idx_agent_network_settings_cluster_subdomain"`
+	// Zone is the placement-independent parent zone the endpoint lives under,
+	// captured from server config when the row is allocated. Immutable, like
+	// Cluster and Subdomain.
+	//
+	// Empty means "legacy": the endpoint falls back to <subdomain>.<cluster>,
+	// which embeds the serving proxy. Existing rows and any deployment that
+	// configures no zone keep that behaviour unchanged.
+	Zone string
 
 	// Account-level collection controls sourced by the synthesizer.
 	// EnableLogCollection gates the per-request access-log trail and defaults
@@ -42,9 +50,17 @@ type Settings struct {
 // schema cohesive.
 func (Settings) TableName() string { return "agent_network_settings" }
 
-// Endpoint returns the bare hostname agents reach this account at:
-// `<subdomain>.<cluster>`.
+// Endpoint returns the bare hostname agents reach this account at.
+//
+// With a Zone set this is `<subdomain>.<zone>` — deliberately independent of
+// which proxy serves the account, so moving between a shared and a private
+// proxy (or between clusters) is a DNS change only and never alters the
+// tenant's address. With no Zone it falls back to the legacy
+// `<subdomain>.<cluster>` form.
 func (s *Settings) Endpoint() string {
+	if s.Zone != "" {
+		return s.Subdomain + "." + s.Zone
+	}
 	return s.Subdomain + "." + s.Cluster
 }
 
