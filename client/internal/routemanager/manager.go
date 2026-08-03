@@ -165,29 +165,34 @@ func (m *DefaultManager) setupAndroidRoutes(config ManagerConfig) {
 	routesForComparison := slices.Clone(cr)
 
 	if config.DNSFeatureFlag {
-		m.fakeIPManager = fakeip.NewManager()
-
-		v4ID := uuid.NewString()
-		fakeIPRoute := &route.Route{
-			ID:          route.ID(v4ID),
-			Network:     m.fakeIPManager.GetFakeIPBlock(),
-			NetID:       route.NetID(v4ID),
-			Peer:        m.pubKey,
-			NetworkType: route.IPv4Network,
-		}
-		v6ID := uuid.NewString()
-		fakeIPv6Route := &route.Route{
-			ID:          route.ID(v6ID),
-			Network:     m.fakeIPManager.GetFakeIPv6Block(),
-			NetID:       route.NetID(v6ID),
-			Peer:        m.pubKey,
-			NetworkType: route.IPv6Network,
-		}
-		cr = append(cr, fakeIPRoute, fakeIPv6Route)
-		m.notifier.SetFakeIPRoutes([]*route.Route{fakeIPRoute, fakeIPv6Route})
+		cr = append(cr, m.enableFakeIPRoutes()...)
 	}
 
 	m.notifier.SetInitialClientRoutes(cr, routesForComparison)
+}
+
+func (m *DefaultManager) enableFakeIPRoutes() []*route.Route {
+	m.fakeIPManager = fakeip.NewManager()
+
+	v4ID := uuid.NewString()
+	fakeIPRoute := &route.Route{
+		ID:          route.ID(v4ID),
+		Network:     m.fakeIPManager.GetFakeIPBlock(),
+		NetID:       route.NetID(v4ID),
+		Peer:        m.pubKey,
+		NetworkType: route.IPv4Network,
+	}
+	v6ID := uuid.NewString()
+	fakeIPv6Route := &route.Route{
+		ID:          route.ID(v6ID),
+		Network:     m.fakeIPManager.GetFakeIPv6Block(),
+		NetID:       route.NetID(v6ID),
+		Peer:        m.pubKey,
+		NetworkType: route.IPv6Network,
+	}
+	fakeRoutes := []*route.Route{fakeIPRoute, fakeIPv6Route}
+	m.notifier.SetFakeIPRoutes(fakeRoutes)
+	return fakeRoutes
 }
 
 func (m *DefaultManager) setupRefCounters(useNoop bool) {
@@ -464,6 +469,9 @@ func (m *DefaultManager) UpdateRoutes(
 
 	var merr *multierror.Error
 	if !m.disableClientRoutes {
+		if runtime.GOOS == "android" && useNewDNSRoute && m.fakeIPManager == nil {
+			m.enableFakeIPRoutes()
+		}
 
 		// Update route selector based on management server's isSelected status
 		m.updateRouteSelectorFromManagement(clientRoutes)
