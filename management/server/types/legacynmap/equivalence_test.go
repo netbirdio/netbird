@@ -146,10 +146,10 @@ func checkAccount(ctx context.Context, t *testing.T, nmStore *networkmap_pgsql.P
 	// every peer counts as validated, matching the legacy side's map.
 	nmData.ValidatedPeers = validated
 	// The legacy side receives no account zones (main sourced them from the
-	// external zones manager), so the DB-sourced zone candidates must be dropped
-	// to keep the comparison surface identical.
+	// external zones manager), so the DB-sourced applied-zone candidates must be
+	// dropped to keep the comparison surface identical. PrivateServiceCandidates
+	// stay: all paths derive them from account/DB data.
 	nmData.AppliedZoneCandidates = nil
-	nmData.PrivateServiceCandidates = nil
 
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
