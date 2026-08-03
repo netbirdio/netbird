@@ -81,6 +81,10 @@ func (pg *PgStore) GetNetworkMapData(ctx context.Context, accountId string) (*ne
 	if err != nil {
 		return rollbackAndReturnError(ctx, tx, err)
 	}
+	proxyTargetedDomainResourceIDs, err := GetProxyTargetedDomainResourceIDsViaPgxConnection(ctx, tx.Conn(), accountId)
+	if err != nil {
+		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get proxy targeted domain resources: %w", err))
+	}
 
 	resourcePolicies := make(map[string][]*nmdata.Policy)
 	for _, resource := range networkResources {
@@ -131,6 +135,8 @@ func (pg *PgStore) GetNetworkMapData(ctx context.Context, accountId string) (*ne
 		AppliedZoneCandidates:     dnsZones,
 		PrivateServiceCandidates:  buildPrivateServiceCandidates(services, domains, proxyPeers),
 		PostureCheckXIDToPublicID: postureCheckXIDToPublicID,
+
+		ProxyTargetedDomainResourceIDs: proxyTargetedDomainResourceIDs,
 	}
 
 	return &toret, nil

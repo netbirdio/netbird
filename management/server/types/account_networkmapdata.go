@@ -108,6 +108,7 @@ func (a *Account) toNetworkMapData(
 		nmd.Routers[networkID] = twinInner
 	}
 
+	nmd.ProxyTargetedDomainResourceIDs = a.proxyTargetedDomainResourceIDs()
 	nmd.AppliedZoneCandidates = buildAppliedZoneCandidates(accountZones)
 	nmd.PrivateServiceCandidates = a.buildPrivateServiceCandidates()
 

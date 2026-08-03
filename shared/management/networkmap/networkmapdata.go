@@ -32,6 +32,11 @@ type NetworkMapData struct {
 	GroupIDToUserIDs          map[string][]string
 	DNSDomain                 string
 
+	// ProxyTargetedDomainResourceIDs is the account-level half of
+	// forcesRoutingPeerDNSResolution: domain network resources targeted by an
+	// enabled reverse-proxy service.
+	ProxyTargetedDomainResourceIDs map[string]struct{}
+
 	AppliedZoneCandidates    []AppliedZoneCandidate
 	PrivateServiceCandidates []PrivateServiceCandidate
 }

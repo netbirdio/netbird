@@ -13,6 +13,14 @@ const (
 	from services
 	where account_id=$1
 	`
+
+	GetProxyTargetedDomainResourcesQuery = `
+	select t.target_id
+	from targets as t
+	join services as s on s.id = t.service_id
+	where s.account_id=$1 and s.enabled and not coalesce(s.terminated, false)
+	and t.enabled and t.target_type='domain' and t.target_id is not null
+	`
 )
 
 func (pg *PgStore) GetPrivateServices(ctx context.Context, accountId string) ([]service, error) {
@@ -30,6 +38,24 @@ func GetPrivateServicesViaPgxConnection(ctx context.Context, conn *pgx.Conn, acc
 	}
 
 	return pgx.CollectRows(rows, pgx.RowToStructByName[service])
+}
+
+func GetProxyTargetedDomainResourceIDsViaPgxConnection(ctx context.Context, conn *pgx.Conn, accountId string) (map[string]struct{}, error) {
+	rows, err := conn.Query(ctx, GetProxyTargetedDomainResourcesQuery, accountId)
+	if err != nil {
+		return nil, err
+	}
+
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, err
+	}
+
+	toret := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		toret[id] = struct{}{}
+	}
+	return toret, nil
 }
 
 type service struct {
