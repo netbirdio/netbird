@@ -25,6 +25,7 @@ type Peer struct {
 	IP                     netip.Addr
 	IPv6                   netip.Addr
 	RequiresApproval       bool
+	ExtraDNSLabels         []string
 	Meta                   PeerSystemMeta
 	ProxyMeta              ProxyMeta
 	Location               PeerLocation
@@ -37,14 +38,15 @@ type ProxyMeta struct {
 
 // PeerSystemMeta is the slim twin of peer.PeerSystemMeta.
 type PeerSystemMeta struct {
-	WtVersion        string
-	GoOS             string
-	OSVersion        string
-	KernelVersion    string
-	NetworkAddresses []NetworkAddress
-	Files            []File
-	Capabilities     []int32
-	Flags            Flags
+	WtVersion          string
+	GoOS               string
+	OSVersion          string
+	KernelVersion      string
+	NetworkAddresses   []NetworkAddress
+	Files              []File
+	Capabilities       []int32
+	Flags              Flags
+	SyncMessageVersion int
 }
 
 // Flags is the slim twin of peer.Flags.
@@ -99,6 +101,18 @@ func (p *Peer) GetLastLogin() time.Time {
 		return *p.LastLogin
 	}
 	return time.Time{}
+}
+
+// SessionExpiresAt mirrors peer.Peer.SessionExpiresAt.
+func (p *Peer) SessionExpiresAt(accountExpirationEnabled bool, expiresIn time.Duration) time.Time {
+	if !accountExpirationEnabled || !p.AddedWithSSOLogin() || !p.LoginExpirationEnabled {
+		return time.Time{}
+	}
+	last := p.GetLastLogin()
+	if last.IsZero() {
+		return time.Time{}
+	}
+	return last.Add(expiresIn).UTC()
 }
 
 func (p *Peer) LoginExpired(expiresIn time.Duration) (bool, time.Duration) {

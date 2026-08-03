@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"net/http"
 	"net/netip"
+	"os"
 	"slices"
 	"time"
 
@@ -24,13 +25,15 @@ import (
 
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/formatter/hook"
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	accesslogsmanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs/manager"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
+	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
+	networkmap_pgsql "github.com/netbirdio/netbird/management/internals/network_map_db/pgsql"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/activity"
 	activitystore "github.com/netbirdio/netbird/management/server/activity/store"
-	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
 	nbhttp "github.com/netbirdio/netbird/management/server/http"
@@ -93,6 +96,22 @@ func (s *BaseServer) Store() store.Store {
 				log.Fatalf("failed to create field encryptor: %v", err)
 			}
 			store.SetFieldEncrypt(fieldEncrypt)
+		}
+
+		return store
+	})
+}
+
+func (s *BaseServer) NetworkMapStore() networkmapdb.NetworkMapDBStore {
+	return Create(s, func() networkmapdb.NetworkMapDBStore {
+		dsn := os.Getenv("NETBIRD_NMAP_STORE_DSN") // Todo: this needs to be hoocked up properly
+		if dsn == "" {
+			return nil
+		}
+
+		store, err := networkmap_pgsql.NewPostgresqlStore(context.Background(), dsn)
+		if err != nil {
+			log.Fatalf("failed to create network map store: %v", err)
 		}
 
 		return store
