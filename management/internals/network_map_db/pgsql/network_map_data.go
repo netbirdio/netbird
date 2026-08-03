@@ -94,7 +94,7 @@ func (pg *PgStore) GetNetworkMapData(ctx context.Context, accountId string) (*ne
 			}
 			if _, ok := policyToDestinationResourceIdx[policy.ID][resource.ID]; ok {
 				resourcePolicies[resource.ID] = append(resourcePolicies[resource.ID], &policy) // TODO (dmitri) maybe use public id?
-				break
+				continue
 			}
 			if groupIds, ok := policyToDestinationGroupIdx[policy.ID]; ok {
 				for networkResourceGroup := range networkResourceGroups {
