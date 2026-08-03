@@ -8,10 +8,13 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/rs/xid"
+	"golang.org/x/exp/maps"
+
+	"github.com/netbirdio/management-integrations/integrations"
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/shared/management/networkmap"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
-	"github.com/rs/xid"
 )
 
 const (
@@ -40,6 +43,34 @@ type NetworkMapDBStore interface {
 type NetworkMapDBStoreImpl struct {
 	store                   NetworkMapDBStore
 	integratedPeerValidator integrated_validator.IntegratedValidator
+	extraSettingsManager    integrations.Manager
+}
+
+func NewNetworkMapDBStoreImpl(store NetworkMapDBStore, integratedPeerValidator integrated_validator.IntegratedValidator, extraSettingsManager integrations.Manager) *NetworkMapDBStoreImpl {
+	return &NetworkMapDBStoreImpl{
+		store:                   store,
+		integratedPeerValidator: integratedPeerValidator,
+		extraSettingsManager:    extraSettingsManager,
+	}
+}
+
+func (s *NetworkMapDBStoreImpl) GetNetworkMapData(ctx context.Context, accountId string) (*networkmap.NetworkMapData, error) {
+	nmdata, err := s.store.GetNetworkMapData(ctx, accountId)
+	if err != nil {
+		return nil, err
+	}
+
+	extraSettings, err := s.extraSettingsManager.GetExtraSettings(ctx, accountId)
+	if err != nil {
+		return nil, err
+	}
+
+	nmdata.ValidatedPeers, err = s.integratedPeerValidator.GetValidatedPeers(ctx, accountId, maps.Values(nmdata.Groups), maps.Values(nmdata.Peers), extraSettings)
+	if err != nil {
+		return nil, err
+	}
+
+	return nmdata, nil
 }
 
 func FromSqlTypesToSharedTypes(src reflect.Value, dst reflect.Value) error {
