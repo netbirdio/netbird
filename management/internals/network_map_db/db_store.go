@@ -34,6 +34,7 @@ type NetworkMapDBStore interface {
 	GetPostureChecks(ctx context.Context, accountId string) ([]nmdata.PostureChecks, error)
 	GetNetworkMapData(ctx context.Context, accountId string) (*networkmap.NetworkMapData, error)
 	GetAllowedUsers(ctx context.Context, accountId string) (map[string]struct{}, map[string][]string, error)
+	GetDnsSettings(ctx context.Context, accountId string) (nmdata.DNSSettings, error)
 }
 
 type NetworkMapDBStoreImpl struct {

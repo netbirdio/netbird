@@ -66,6 +66,10 @@ func (pg *PgStore) GetNetworkMapData(ctx context.Context, accountId string) (*ne
 	if err != nil {
 		return rollbackAndReturnError(ctx, tx, err)
 	}
+	dnsSettings, err := GetDnsSettingsViaPgxConnection(ctx, tx.Conn(), accountId)
+	if err != nil {
+		return rollbackAndReturnError(ctx, tx, err)
+	}
 
 	resourcePolicies := make(map[string][]*nmdata.Policy)
 	for _, resource := range networkResources {
@@ -99,6 +103,7 @@ func (pg *PgStore) GetNetworkMapData(ctx context.Context, accountId string) (*ne
 
 	toret := networkmap.NetworkMapData{
 		AccountSettings:      &acctSettings,
+		DNSSettings:          &dnsSettings,
 		Network:              &network,
 		Peers:                toMap(peers, func(p nmdata.Peer) string { return p.ID }),
 		Groups:               toMap(groups, func(g nmdata.Group) string { return g.PublicID }),

@@ -254,7 +254,7 @@ func TestGetPostureChecks(t *testing.T) {
 	// )
 }
 
-func TestGetGetAllowedUserIds(t *testing.T) {
+func TestGetAllowedUserIds(t *testing.T) {
 	ctx := context.TODO()
 
 	s, err := NewPostgresqlStore(ctx, "postgresql://root:netbird@localhost:5432/netbird")
@@ -266,4 +266,17 @@ func TestGetGetAllowedUserIds(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotEmpty(t, userIds)
 	assert.NotEmpty(t, groupToUserIds)
+}
+
+func TestGetDnsSettings(t *testing.T) {
+	ctx := context.TODO()
+
+	s, err := NewPostgresqlStore(ctx, "postgresql://root:netbird@localhost:5432/netbird")
+	assert.NoError(t, err)
+	//	err = loadSQL(ctx, s.pool, initDb)
+	//assert.NoError(t, err)
+
+	set, err := s.GetDnsSettings(ctx, "ckvdmrqfic3c739ihh5g") //"ckd7ee2fic3c73dtendg")
+	assert.NoError(t, err)
+	assert.NotEmpty(t, set.DisabledManagementGroups)
 }
