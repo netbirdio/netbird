@@ -30,11 +30,11 @@ const (
 // handleSessionExpired notifies and brings the window forward so the frontend's /login route drives renewal.
 func (t *Tray) handleSessionExpired() {
 	t.notify(t.loc.T("notify.sessionExpired.title"), t.loc.T("notify.sessionExpired.body"), notifyIDSessionExpired)
-	if t.window != nil {
-		t.window.SetURL("/#/login")
-		t.window.Show()
-		t.window.Focus()
+	if t.window == nil {
+		return
 	}
+	t.window.SetURL("/#/login")
+	t.showMainWindow()
 }
 
 // applySessionExpiry refreshes the cached SSO deadline and reports whether it changed.
@@ -310,8 +310,7 @@ func (t *Tray) openSessionExtendFlow() {
 	if seconds <= 0 {
 		if t.window != nil {
 			t.window.SetURL("/#/login")
-			t.window.Show()
-			t.window.Focus()
+			t.showMainWindow()
 		}
 		return
 	}

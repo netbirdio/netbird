@@ -5,18 +5,8 @@ package main
 import (
 	"strings"
 
-	"github.com/wailsapp/wails/v3/pkg/application"
-
 	"github.com/netbirdio/netbird/client/ui/services"
 )
-
-func (t *Tray) onStatusEvent(ev *application.CustomEvent) {
-	st, ok := ev.Data.(services.Status)
-	if !ok {
-		return
-	}
-	t.applyStatus(st)
-}
 
 // applyStatus repaints the tray from a daemon snapshot. Icon refresh is skipped
 // when no icon-relevant input changed: the daemon emits rapid SubscribeStatus
