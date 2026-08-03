@@ -516,14 +516,17 @@ jobs:
           go-version-file: "go.mod"
           cache: false
       - name: Cache Go modules
-        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
+        # Restore-only from the release_ui cache written by trusted runs; the
+        # module cache is identical (same go.sum) and stale build-cache
+        # entries just miss.
+        uses: actions/cache/restore@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
         with:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: ${{ runner.os }}-ui-gtk3-go-releaser-${{ hashFiles('**/go.sum') }}
+          key: ${{ runner.os }}-ui-go-releaser-${{ hashFiles('**/go.sum') }}
           restore-keys: |
-            ${{ runner.os }}-ui-gtk3-go-releaser-
+            ${{ runner.os }}-ui-go-releaser-
 
       - name: Install modules
         run: go mod tidy
@@ -532,7 +535,7 @@ jobs:
         run: git --no-pager diff --exit-code
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
 
