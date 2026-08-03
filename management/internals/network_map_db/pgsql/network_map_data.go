@@ -117,7 +117,7 @@ func (pg *PgStore) GetNetworkMapData(ctx context.Context, accountId string) (*ne
 		DNSSettings:               &dnsSettings,
 		Network:                   &network,
 		Peers:                     toMap(peers, func(p nmdata.Peer) string { return p.ID }),
-		Groups:                    toMap(groups, func(g nmdata.Group) string { return g.PublicID }),
+		Groups:                    toMap(groups, func(g nmdata.Group) string { return g.ID }),
 		Policies:                  toSliceOfPtrs(policies),
 		ResourcePolicies:          resourcePolicies,
 		Routes:                    toSliceOfPtrs(routes),
