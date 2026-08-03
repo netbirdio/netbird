@@ -14,7 +14,7 @@ import (
 const (
 	GetPeersQuery = `
 	select id, key, ssh_key, dns_label, extra_dns_labels, user_id, ssh_enabled, login_expiration_enabled, last_login, ip, ipv6,
-	peer_status_requires_approval, proxy_meta_embedded, proxy_meta_cluster,
+	peer_status_requires_approval, peer_status_connected, proxy_meta_embedded, proxy_meta_cluster,
 	meta_wt_version, meta_go_os, meta_os_version, meta_kernel_version, meta_network_addresses, meta_files, meta_capabilities, meta_flags, meta_sync_message_version,
 	location_country_code, location_city_name, location_connection_ip
 	from peers
@@ -54,7 +54,8 @@ func GetPeersViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId stri
 		if p.ProxyMetaEmbedded.Valid {
 			dp.ProxyMeta.Embedded = p.ProxyMetaEmbedded.Bool
 		}
-		if dp.ProxyMeta.Embedded {
+		// This is only used to build private service candidates, not connected peers are skipped
+		if dp.ProxyMeta.Embedded && p.PeerStatusConnected.Bool {
 			clusterToPeerIdx[p.ProxyMetaCluster.String] = append(clusterToPeerIdx[p.ProxyMetaCluster.String], &dp)
 		}
 		if p.MetaWtVersion.Valid {
@@ -126,6 +127,7 @@ type peer struct {
 	LastLogin                  sql.NullTime
 	SSHEnabled                 sql.NullBool
 	LoginExpirationEnabled     sql.NullBool
+	PeerStatusConnected        sql.NullBool   `nmap:"skip"`
 	PeerStatusRequiresApproval sql.NullBool   `nmap:"map_to:RequiresApproval"`
 	ProxyMetaEmbedded          sql.NullBool   `nmap:"skip"`
 	ProxyMetaCluster           sql.NullString `nmap:"skip"`

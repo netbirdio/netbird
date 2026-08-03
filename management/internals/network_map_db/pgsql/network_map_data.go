@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/miekg/dns"
 	"github.com/netbirdio/netbird/shared/management/networkmap"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
@@ -71,10 +72,10 @@ func (pg *PgStore) GetNetworkMapData(ctx context.Context, accountId string) (*ne
 	if err != nil {
 		return rollbackAndReturnError(ctx, tx, err)
 	}
-	// domains, err := GetDomainsViaPgxConnection(ctx, tx.Conn(), accountId)
-	// if err != nil {
-	// 	return rollbackAndReturnError(ctx, tx, err)
-	// }
+	domains, err := GetDomainsViaPgxConnection(ctx, tx.Conn(), accountId)
+	if err != nil {
+		return rollbackAndReturnError(ctx, tx, err)
+	}
 	services, err := GetPrivateServicesViaPgxConnection(ctx, tx.Conn(), accountId)
 	if err != nil {
 		return rollbackAndReturnError(ctx, tx, err)
@@ -111,22 +112,23 @@ func (pg *PgStore) GetNetworkMapData(ctx context.Context, accountId string) (*ne
 	}
 
 	toret := networkmap.NetworkMapData{
-		AccountSettings:       &acctSettings,
-		DNSSettings:           &dnsSettings,
-		Network:               &network,
-		Peers:                 toMap(peers, func(p nmdata.Peer) string { return p.ID }),
-		Groups:                toMap(groups, func(g nmdata.Group) string { return g.PublicID }),
-		Policies:              toSliceOfPtrs(policies),
-		ResourcePolicies:      resourcePolicies,
-		Routes:                toSliceOfPtrs(routes),
-		Routers:               routers,
-		NameServerGroups:      toSliceOfPtrs(nsGroups),
-		NetworkResources:      toSliceOfPtrs(networkResources),
-		PostureChecks:         toMap(postureChecks, func(pc nmdata.PostureChecks) string { return pc.ID }),
-		AllowedUserIDs:        allowedUserIds,
-		GroupIDToUserIDs:      groupsToUserIds,
-		NetworkXIDToPublicID:  networkXIDToPublicID, // TODO (dmitri) maybe we can switch to public ids everywhere?
-		AppliedZoneCandidates: dnsZones,
+		AccountSettings:          &acctSettings,
+		DNSSettings:              &dnsSettings,
+		Network:                  &network,
+		Peers:                    toMap(peers, func(p nmdata.Peer) string { return p.ID }),
+		Groups:                   toMap(groups, func(g nmdata.Group) string { return g.PublicID }),
+		Policies:                 toSliceOfPtrs(policies),
+		ResourcePolicies:         resourcePolicies,
+		Routes:                   toSliceOfPtrs(routes),
+		Routers:                  routers,
+		NameServerGroups:         toSliceOfPtrs(nsGroups),
+		NetworkResources:         toSliceOfPtrs(networkResources),
+		PostureChecks:            toMap(postureChecks, func(pc nmdata.PostureChecks) string { return pc.ID }),
+		AllowedUserIDs:           allowedUserIds,
+		GroupIDToUserIDs:         groupsToUserIds,
+		NetworkXIDToPublicID:     networkXIDToPublicID, // TODO (dmitri) maybe we can switch to public ids everywhere?
+		AppliedZoneCandidates:    dnsZones,
+		PrivateServiceCandidates: buildPrivateServiceCandidates(services, domains, proxyPeers),
 	}
 
 	return &toret, nil
@@ -197,10 +199,33 @@ func buildPrivateServiceCandidates(svcs []service, domains []domain, proxyPeersB
 			continue
 		}
 
+		var records []nmdata.SimpleRecord
 		for _, proxyPeer := range proxyPeersByCluster[svc.ProxyCluster.String] {
 			if !proxyPeer.IP.IsValid() {
 				continue
 			}
+			records = append(records, nmdata.SimpleRecord{
+				Name:  dns.Fqdn(svc.Domain.String),
+				Type:  int(dns.TypeA),
+				Class: "IN",
+				TTL:   5,
+				RData: proxyPeer.IP.String(),
+			})
 		}
+		if len(records) == 0 {
+			continue
+		}
+
+		out = append(out, networkmap.PrivateServiceCandidate{
+			AccessGroups: svc.AccessGroups,
+			Zone: nmdata.CustomZone{
+				Domain:               dns.Fqdn(domainZone),
+				Records:              records,
+				NonAuthoritative:     true,
+				SearchDomainDisabled: true,
+			},
+		})
 	}
+
+	return out
 }

@@ -23,7 +23,7 @@ func (pg *PgStore) GetNetworks(ctx context.Context, accountId string) ([]network
 }
 
 func GetNetworksViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId string) ([]network, error) {
-	rows, err := con.Query(ctx, GetGroupsQuery, accountId)
+	rows, err := con.Query(ctx, GetNetworksQuery, accountId)
 	if err != nil {
 		return nil, err
 	}

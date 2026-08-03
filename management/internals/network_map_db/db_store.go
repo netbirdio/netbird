@@ -22,7 +22,7 @@ const (
 
 type NetworkMapDBStore interface {
 	GetGroups(ctx context.Context, accountId string) ([]nmdata.Group, map[string]map[string]any, error)
-	GetPeers(ctx context.Context, accountId string) ([]nmdata.Peer, map[string]*nmdata.Peer, error)
+	GetPeers(ctx context.Context, accountId string) ([]nmdata.Peer, map[string][]*nmdata.Peer, error)
 	GetPolicies(ctx context.Context, accountId string) ([]nmdata.Policy, map[string]map[string]any, map[string]map[string]any, error)
 	GetRoutes(ctx context.Context, accountId string) ([]nmdata.Route, error)
 	GetNameServerGroups(ctx context.Context, accountId string) ([]nmdata.NameServerGroup, error)
