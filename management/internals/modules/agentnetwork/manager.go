@@ -86,12 +86,17 @@ type Manager interface {
 
 // PolicySelectionInput is the per-request selection envelope. The
 // proxy populates it from CapturedData (account, user, groups) plus
-// the provider llm_router resolved.
+// the provider llm_router resolved and the model it extracted.
 type PolicySelectionInput struct {
 	AccountID  string
 	UserID     string
 	GroupIDs   []string
 	ProviderID string
+	// Model is the already-normalised upstream model id the proxy extracted
+	// (parser strips Bedrock region/version, Vertex @version), so a
+	// case-insensitive compare suffices. Empty = undetermined → not permitted
+	// (fail closed).
+	Model string
 }
 
 // PolicySelectionResult names the policy that "pays" for this request

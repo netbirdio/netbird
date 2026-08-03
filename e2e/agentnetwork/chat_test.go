@@ -9,11 +9,237 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 
 	"github.com/netbirdio/netbird/e2e/harness"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 )
+
+// per1k is a model's published USD rates per 1k tokens. read is the prompt-cache read rate
+// (OpenAI: the cached-input discount rate); write is the cache-creation rate where one exists.
+type per1k struct{ in, out, read, write float64 }
+
+// publishedPer1k hardcodes the vendors' PUBLISHED rates for the models the live matrix can drive,
+// keyed by the normalized model id the proxy stamps. Deliberately independent of NetBird's own
+// default pricing table so a wrong default rate or a broken normalization fails the run.
+//
+// These rates are also what providerRequest registers as the operator's per-model prices. Since
+// management now ships operator prices to the cost meter as a per-provider-record table that is
+// consulted BEFORE the surface defaults, registering the published rate is what keeps this matrix
+// asserting vendor rates — and exercises the per-record path at the same time.
+var publishedPer1k = map[string]per1k{
+	"gpt-4o-mini":                 {0.00015, 0.0006, 0.000075, 0},
+	"gpt-4o":                      {0.0025, 0.01, 0.00125, 0},
+	"claude-haiku-4-5":            {0.001, 0.005, 0.0001, 0.00125},
+	"claude-sonnet-4-5":           {0.003, 0.015, 0.0003, 0.00375},
+	"claude-sonnet-4-6":           {0.003, 0.015, 0.0003, 0.00375},
+	"kimi-k3":                     {0.003, 0.015, 0.0003, 0.003}, // no published write rate: bills at the input rate
+	"anthropic.claude-haiku-4-5":  {0.001, 0.005, 0.0001, 0.00125},
+	"anthropic.claude-sonnet-4-5": {0.003, 0.015, 0.0003, 0.00375},
+	"anthropic.claude-sonnet-4-6": {0.003, 0.015, 0.0003, 0.00375},
+	// Gateway-prefixed ids (Vercel AI Gateway, OpenRouter). A gateway model is not in
+	// NetBird's default table, so before operator pricing it could only be recorded at
+	// cost 0. The operator names it and prices it — at the underlying vendor's published
+	// rate, which is what the gateway charges through — so these rows are now priced.
+	"openai/gpt-4o-mini": {0.00015, 0.0006, 0.000075, 0},
+	"openai/gpt-4o":      {0.0025, 0.01, 0.00125, 0},
+}
+
+// rawCostVerificationSQL is the operator-facing double-check, run straight against the management
+// sqlite store: recompute each usage row's expected total and cache cost from its own persisted
+// token buckets and hardcoded published rates. OpenAI counts cached tokens as a subset of input;
+// Anthropic-shape providers count cache buckets additively.
+//
+// The rate rows must stay in sync with publishedPer1k — they are the same vendor rates the matrix
+// registers as operator prices. The join is on model, so rows written by other tests in this
+// package (which price their own made-up model ids) are simply not covered here.
+const rawCostVerificationSQL = `
+WITH rates(model, in_rate, out_rate, read_rate, write_rate) AS (
+  VALUES
+    ('gpt-4o-mini',                 0.00015, 0.0006, 0.000075, 0.0),
+    ('gpt-4o',                      0.0025,  0.01,   0.00125,  0.0),
+    ('claude-haiku-4-5',            0.001,   0.005,  0.0001,   0.00125),
+    ('claude-sonnet-4-5',           0.003,   0.015,  0.0003,   0.00375),
+    ('claude-sonnet-4-6',           0.003,   0.015,  0.0003,   0.00375),
+    ('kimi-k3',                     0.003,   0.015,  0.0003,   0.003),
+    ('anthropic.claude-haiku-4-5',  0.001,   0.005,  0.0001,   0.00125),
+    ('anthropic.claude-sonnet-4-5', 0.003,   0.015,  0.0003,   0.00375),
+    ('anthropic.claude-sonnet-4-6', 0.003,   0.015,  0.0003,   0.00375),
+    ('openai/gpt-4o-mini',          0.00015, 0.0006, 0.000075, 0.0),
+    ('openai/gpt-4o',               0.0025,  0.01,   0.00125,  0.0)
+)
+SELECT
+  u.provider,
+  u.model,
+  u.input_tokens,
+  u.output_tokens,
+  u.cached_input_tokens,
+  u.cache_creation_tokens,
+  u.input_cost_usd,
+  u.cached_input_cost_usd,
+  u.cache_creation_cost_usd,
+  u.output_cost_usd,
+  -- No cost_usd / cache_cost_usd columns are stored: both are derived from the
+  -- four per-bucket columns above, exactly as the API renders them.
+  (u.input_cost_usd + u.cached_input_cost_usd + u.cache_creation_cost_usd + u.output_cost_usd) AS cost_usd,
+  (u.cached_input_cost_usd + u.cache_creation_cost_usd) AS cache_cost_usd,
+  CASE WHEN u.provider = 'openai' THEN
+    (u.input_tokens - MIN(u.cached_input_tokens, u.input_tokens))*r.in_rate/1000.0
+  ELSE
+    u.input_tokens*r.in_rate/1000.0
+  END AS expected_input,
+  CASE WHEN u.provider = 'openai' THEN
+    MIN(u.cached_input_tokens, u.input_tokens)*r.read_rate/1000.0
+  ELSE
+    u.cached_input_tokens*r.read_rate/1000.0
+  END AS expected_cached_input,
+  CASE WHEN u.provider = 'openai' THEN
+    0.0
+  ELSE
+    u.cache_creation_tokens*r.write_rate/1000.0
+  END AS expected_cache_creation,
+  u.output_tokens*r.out_rate/1000.0 AS expected_output,
+  CASE WHEN u.provider = 'openai' THEN
+    (u.input_tokens - MIN(u.cached_input_tokens, u.input_tokens))*r.in_rate/1000.0
+      + MIN(u.cached_input_tokens, u.input_tokens)*r.read_rate/1000.0
+      + u.output_tokens*r.out_rate/1000.0
+  ELSE
+    u.input_tokens*r.in_rate/1000.0 + u.cached_input_tokens*r.read_rate/1000.0
+      + u.cache_creation_tokens*r.write_rate/1000.0 + u.output_tokens*r.out_rate/1000.0
+  END AS expected_total,
+  CASE WHEN u.provider = 'openai' THEN
+    MIN(u.cached_input_tokens, u.input_tokens)*r.read_rate/1000.0
+  ELSE
+    u.cached_input_tokens*r.read_rate/1000.0 + u.cache_creation_tokens*r.write_rate/1000.0
+  END AS expected_cache
+FROM agent_network_request_usage u
+JOIN rates r ON r.model = u.model
+ORDER BY u.timestamp`
+
+// verifyUsageRowsSQL re-checks every persisted usage row directly in the management sqlite store,
+// bypassing the API path — the same audit an operator can run on a production store.db.
+func verifyUsageRowsSQL(t *testing.T, srv *harness.Combined) {
+	t.Helper()
+
+	dbPath, err := srv.SnapshotStoreDB(t.TempDir())
+	require.NoError(t, err, "snapshot management sqlite store")
+
+	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
+	require.NoError(t, err, "open store snapshot")
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	defer func() { _ = sqlDB.Close() }()
+
+	rows, err := db.Raw(rawCostVerificationSQL).Rows()
+	require.NoError(t, err, "run raw cost verification query")
+	defer func() { _ = rows.Close() }()
+
+	verified := 0
+	for rows.Next() {
+		var provider, model string
+		var inTok, outTok, readTok, writeTok int64
+		var inCost, cachedInCost, cacheCreateCost, outCost, cost, cacheCost float64
+		var wantInput, wantCachedInput, wantCacheCreation, wantOutput, wantTotal, wantCache float64
+		require.NoError(t, rows.Scan(&provider, &model, &inTok, &outTok, &readTok, &writeTok,
+			&inCost, &cachedInCost, &cacheCreateCost, &outCost, &cost, &cacheCost,
+			&wantInput, &wantCachedInput, &wantCacheCreation, &wantOutput, &wantTotal, &wantCache), "scan usage row")
+		t.Logf("[sql] %s/%s: in=%d out=%d cache_read=%d cache_write=%d stored in/cached/create/out=$%.6f/$%.6f/$%.6f/$%.6f total=$%.6f cache=$%.6f expected total=$%.6f cache=$%.6f",
+			provider, model, inTok, outTok, readTok, writeTok,
+			inCost, cachedInCost, cacheCreateCost, outCost, cost, cacheCost, wantTotal, wantCache)
+		assert.InDeltaf(t, wantInput, inCost, 1e-6, "stored input_cost_usd for %s/%s must match the published-rate recompute", provider, model)
+		assert.InDeltaf(t, wantCachedInput, cachedInCost, 1e-6, "stored cached_input_cost_usd for %s/%s must match the published-rate recompute", provider, model)
+		assert.InDeltaf(t, wantCacheCreation, cacheCreateCost, 1e-6, "stored cache_creation_cost_usd for %s/%s must match the published-rate recompute", provider, model)
+		assert.InDeltaf(t, wantOutput, outCost, 1e-6, "stored output_cost_usd for %s/%s must match the published-rate recompute", provider, model)
+		assert.InDeltaf(t, wantTotal, cost, 1e-6, "derived cost_usd for %s/%s must match the published-rate recompute", provider, model)
+		assert.InDeltaf(t, wantCache, cacheCost, 1e-6, "derived cache_cost_usd for %s/%s must match the published-rate recompute", provider, model)
+		assert.InDeltaf(t, inCost+cachedInCost+cacheCreateCost+outCost, cost, 1e-9,
+			"stored buckets must sum to the derived cost_usd for %s/%s", provider, model)
+		verified++
+	}
+	require.NoError(t, rows.Err(), "iterate usage rows")
+	require.Positive(t, verified, "raw SQL check must cover at least one usage row")
+	t.Logf("[sql] verified %d usage rows in store.db against published rates", verified)
+
+	// Gateway-prefixed model ids are absent from NetBird's default pricing table, so they are
+	// priced only because the operator registered and priced them on the provider record. Assert
+	// they are priced (not silently 0) — the join above already checked the exact figures for the
+	// ones this matrix drives. A gateway row at cost 0 means the per-record table never reached
+	// the cost meter, which is the regression this guards.
+	gwRows, err := db.Raw(`SELECT model,
+	  (input_cost_usd + cached_input_cost_usd + cache_creation_cost_usd + output_cost_usd) AS cost_usd
+	  FROM agent_network_request_usage WHERE model LIKE '%/%'`).Rows()
+	require.NoError(t, err, "query gateway-prefixed usage rows")
+	defer func() { _ = gwRows.Close() }()
+	for gwRows.Next() {
+		var model string
+		var cost float64
+		require.NoError(t, gwRows.Scan(&model, &cost), "scan gateway usage row")
+		t.Logf("[sql] gateway %s: stored=$%.6f (priced from the operator's per-record rate)", model, cost)
+		assert.Positivef(t, cost, "gateway-prefixed model %q is priced on the provider record, so its cost must be > 0", model)
+	}
+	require.NoError(t, gwRows.Err(), "iterate gateway usage rows")
+}
+
+// validateAccessLogCost recomputes a live access-log row's expected total and cache cost from the
+// published per-1k rates and the row's persisted token buckets, and asserts both stored values.
+// Gateway-prefixed model ids the proxy deliberately does not price must store cost 0.
+func validateAccessLogCost(t *testing.T, pc providerCase, row api.AgentNetworkAccessLog) {
+	t.Helper()
+	model := catalogModel(pc)
+	provider := ""
+	if row.Provider != nil {
+		provider = *row.Provider
+	}
+	t.Logf("[cost] %s: provider=%s model=%s in=%d out=%d total=%d cache_read=%d cache_write=%d cost=$%.6f cache_cost=$%.6f",
+		pc.name, provider, model, row.InputTokens, row.OutputTokens, row.TotalTokens,
+		row.CachedInputTokens, row.CacheCreationTokens, row.CostUsd, row.CacheCostUsd)
+
+	rates, known := publishedPer1k[model]
+	if !known {
+		t.Logf("[cost] %s: no published rate on file for model %q (env-overridden?); skipping cost validation", pc.name, model)
+		return
+	}
+
+	// input_tokens may legitimately be 0: Moonshot/Kimi reports fully cached prompts under the cache
+	// buckets only. Output and total must always be present on a priced row.
+	require.Positive(t, row.OutputTokens, "priced row must carry output tokens")
+	require.Positive(t, row.TotalTokens, "priced row must carry total tokens")
+
+	var wantInput, wantCachedInput, wantCacheCreation float64
+	if provider == "openai" {
+		cached := min(row.CachedInputTokens, row.InputTokens) // cached is a subset of input
+		wantInput = float64(row.InputTokens-cached) / 1000 * rates.in
+		wantCachedInput = float64(cached) / 1000 * rates.read
+		// OpenAI has no cache-write bucket; wantCacheCreation stays 0.
+	} else {
+		// Anthropic / Bedrock shape: cache buckets are additive to input_tokens.
+		wantInput = float64(row.InputTokens) / 1000 * rates.in
+		wantCachedInput = float64(row.CachedInputTokens) / 1000 * rates.read
+		wantCacheCreation = float64(row.CacheCreationTokens) / 1000 * rates.write
+	}
+	wantOutput := float64(row.OutputTokens) / 1000 * rates.out
+	wantCache := wantCachedInput + wantCacheCreation
+	wantTotal := wantInput + wantCache + wantOutput
+
+	t.Logf("[cost] %s: expecting input=$%.6f cached_input=$%.6f cache_creation=$%.6f output=$%.6f total=$%.6f cache=$%.6f from published rates",
+		pc.name, wantInput, wantCachedInput, wantCacheCreation, wantOutput, wantTotal, wantCache)
+	assert.InDeltaf(t, wantInput, row.InputCostUsd, 1e-6, "stored input_cost_usd for %s (%s)", pc.name, model)
+	assert.InDeltaf(t, wantCachedInput, row.CachedInputCostUsd, 1e-6, "stored cached_input_cost_usd for %s (%s)", pc.name, model)
+	assert.InDeltaf(t, wantCacheCreation, row.CacheCreationCostUsd, 1e-6, "stored cache_creation_cost_usd for %s (%s)", pc.name, model)
+	assert.InDeltaf(t, wantOutput, row.OutputCostUsd, 1e-6, "stored output_cost_usd for %s (%s)", pc.name, model)
+	assert.InDeltaf(t, wantTotal, row.CostUsd, 1e-6, "derived cost_usd for %s (%s)", pc.name, model)
+	assert.InDeltaf(t, wantCache, row.CacheCostUsd, 1e-6, "derived cache_cost_usd for %s (%s)", pc.name, model)
+
+	// The aggregates must be exactly the sum of the stored components, not an
+	// independently-computed figure that could drift from the breakdown.
+	assert.InDeltaf(t, row.InputCostUsd+row.CachedInputCostUsd+row.CacheCreationCostUsd+row.OutputCostUsd,
+		row.CostUsd, 1e-9, "stored buckets must sum to the derived cost_usd for %s (%s)", pc.name, model)
+	assert.InDeltaf(t, row.CachedInputCostUsd+row.CacheCreationCostUsd,
+		row.CacheCostUsd, 1e-9, "stored cache buckets must sum to the derived cache_cost_usd for %s (%s)", pc.name, model)
+}
 
 // providerCase is one entry in the live provider matrix. The same scenario runs
 // for every available provider; availability is keyed off env vars so the suite
@@ -116,12 +342,12 @@ func availableProviders() []providerCase {
 		if region == "" {
 			region = "eu-central-1"
 		}
-		// A valid Bedrock inference-profile id (region prefix + date + version),
-		// overridable per account. `global.` profiles can be invoked from any
-		// region; set AWS_BEDROCK_MODEL to match the enabled profile for the token.
+		// A valid Bedrock inference-profile id, overridable per account (AWS_BEDROCK_MODEL, also the
+		// workflow's bedrock_model dispatch input). `global.` profiles work from any region. Defaults to
+		// Sonnet 4.6, whose id convention dropped the -YYYYMMDD-v1:0 suffix that Haiku 4.5 still carries.
 		model := os.Getenv("AWS_BEDROCK_MODEL")
 		if model == "" {
-			model = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+			model = "global.anthropic.claude-sonnet-4-6"
 		}
 		ps = append(ps, providerCase{name: "bedrock", catalogID: "bedrock_api", upstream: "https://bedrock-runtime." + region + ".amazonaws.com", apiKey: k, model: model, kind: harness.WireBedrock})
 	}
@@ -129,8 +355,17 @@ func availableProviders() []providerCase {
 }
 
 // providerRequest builds a create request for a matrix provider: enabled, with
-// a uniquely-priced model for body-routed providers and none for the
-// path-routed Vertex (whose model lives in the request path).
+// its model registered at the vendor's published rates for body-routed
+// providers, and no models for the path-routed Vertex (whose model lives in the
+// request path, so it prices from the defaults table management ships).
+//
+// The registered rates matter: management synthesizes them into the cost
+// meter's per-provider-record table, which is consulted before the surface
+// defaults, so these are the rates the proxy actually bills with. Registering
+// the published rate keeps the cost assertions vendor-anchored while covering
+// the operator-pricing path. A model with no published rate on file (an
+// env-overridden Bedrock profile) falls back to a nominal rate, and
+// validateAccessLogCost skips its cost check.
 func providerRequest(pc providerCase) api.AgentNetworkProviderRequest {
 	req := api.AgentNetworkProviderRequest{
 		Name:        pc.name,
@@ -148,9 +383,23 @@ func providerRequest(pc providerCase) api.AgentNetworkProviderRequest {
 		if pc.kind == harness.WireBedrock {
 			modelID = catalogModel(pc)
 		}
-		req.Models = &[]api.AgentNetworkProviderModel{
-			{Id: modelID, InputPer1k: 0.001, OutputPer1k: 0.002},
+		model := api.AgentNetworkProviderModel{Id: modelID, InputPer1k: 0.001, OutputPer1k: 0.002}
+		if rates, known := publishedPer1k[catalogModel(pc)]; known {
+			model.InputPer1k = rates.in
+			model.OutputPer1k = rates.out
+			// Pin the cache rates too, rather than letting them inherit from the
+			// defaults table: a gateway-prefixed id has no default entry to
+			// inherit from, and an unset rate bills that bucket at the input
+			// rate, which would not match the published-rate recompute.
+			if rates.read > 0 {
+				model.CachedInputPer1k = ptr(rates.read) // OpenAI shape
+				model.CacheReadPer1k = ptr(rates.read)   // Anthropic / Bedrock shape
+			}
+			if rates.write > 0 {
+				model.CacheCreationPer1k = ptr(rates.write)
+			}
 		}
+		req.Models = &[]api.AgentNetworkProviderModel{model}
 	}
 	return req
 }
@@ -257,6 +506,10 @@ func TestProvidersMatrix(t *testing.T) {
 			// session id and confirm the marker propagated end-to-end.
 			sessionID := "e2e-session-" + pc.name
 
+			// A long-form prompt so completions carry realistic token counts for cost validation;
+			// max_tokens in the harness bodies (2048) lets the full answer through.
+			const matrixPrompt = "explain GitHub workflow in 1000 words"
+
 			// Retry briefly to absorb tunnel/DNS jitter on the first call.
 			var code int
 			var body string
@@ -267,11 +520,11 @@ func TestProvidersMatrix(t *testing.T) {
 				var cerr error
 				switch pc.kind {
 				case harness.WireVertex:
-					c, b, cerr = cl.Vertex(ctx, settings.Endpoint, proxyIP, pc.project, pc.region, pc.model, "Reply with exactly: pong", sessionID)
+					c, b, cerr = cl.Vertex(ctx, settings.Endpoint, proxyIP, pc.project, pc.region, pc.model, matrixPrompt, sessionID)
 				case harness.WireBedrock:
-					c, b, cerr = cl.Bedrock(ctx, settings.Endpoint, proxyIP, pc.model, "Reply with exactly: pong", sessionID)
+					c, b, cerr = cl.Bedrock(ctx, settings.Endpoint, proxyIP, pc.model, matrixPrompt, sessionID)
 				default:
-					c, b, cerr = cl.ChatPrefixed(ctx, settings.Endpoint, proxyIP, pc.pathPrefix, pc.kind, pc.model, "Reply with exactly: pong", sessionID)
+					c, b, cerr = cl.ChatPrefixed(ctx, settings.Endpoint, proxyIP, pc.pathPrefix, pc.kind, pc.model, matrixPrompt, sessionID)
 				}
 				if cerr == nil {
 					code, body = c, b
@@ -290,6 +543,7 @@ func TestProvidersMatrix(t *testing.T) {
 
 			// The session id sent as x-session-id must round-trip into the
 			// access-log row for this provider.
+			var row api.AgentNetworkAccessLog
 			require.Eventually(t, func() bool {
 				logs, lerr := srv.ListAccessLogs(ctx)
 				if lerr != nil {
@@ -297,11 +551,15 @@ func TestProvidersMatrix(t *testing.T) {
 				}
 				for _, r := range logs.Data {
 					if r.SessionId != nil && *r.SessionId == sessionID {
+						row = r
 						return true
 					}
 				}
 				return false
 			}, 30*time.Second, 2*time.Second, "session id %q must be recorded in an access-log row for %s", sessionID, pc.name)
+
+			// Stored total and cache cost must match the published rates applied to the row's buckets.
+			validateAccessLogCost(t, pc, row)
 		})
 	}
 
@@ -322,4 +580,7 @@ func TestProvidersMatrix(t *testing.T) {
 		}
 		return false
 	}, 60*time.Second, 3*time.Second, "consumption must be recorded with positive token counts after live traffic")
+
+	// Final raw-SQL audit: bypass the API and re-verify every persisted usage row in the store.
+	verifyUsageRowsSQL(t, srv)
 }

@@ -5,6 +5,13 @@ on:
   schedule:
     - cron: "0 3 * * *"
   workflow_dispatch:
+    inputs:
+      bedrock_model:
+        description: >-
+          Bedrock inference-profile id to drive the matrix with, exactly as
+          AWS issues it. Leave empty for the Sonnet 4.6 default.
+        required: false
+        default: ""
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -62,6 +69,8 @@ jobs:
           CLOUDFLARE_TOKEN: ${{ secrets.E2E_CLOUDFLARE_TOKEN }}
           AWS_BEARER_TOKEN_BEDROCK: ${{ secrets.E2E_AWS_BEARER_TOKEN_BEDROCK }}
           AWS_REGION: ${{ secrets.E2E_AWS_REGION }}
+          # Bedrock model override: dispatch input wins, then the repo variable, else the test default.
+          AWS_BEDROCK_MODEL: ${{ inputs.bedrock_model || vars.E2E_AWS_BEDROCK_MODEL }}
           # Vertex (Anthropic-on-Vertex): SA + project required; region defaults
           # to "global", model to a pinned claude snapshot.
           GOOGLE_VERTEX_SA_BASE64: ${{ secrets.E2E_GOOGLE_VERTEX_SA_BASE64 }}
