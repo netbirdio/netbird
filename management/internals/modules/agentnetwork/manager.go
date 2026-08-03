@@ -122,6 +122,10 @@ type managerImpl struct {
 	permissionsManager permissions.Manager
 	proxyController    proxy.Controller
 
+	// zone is the parent DNS zone stamped onto newly allocated settings rows.
+	// Empty keeps the legacy <subdomain>.<cluster> endpoint form.
+	zone string
+
 	// reconcileCache holds the last set of synthesised proxy mappings
 	// per account so reconcile can emit precise Create/Update/Delete
 	// updates instead of a full re-push on every mutation. Keyed by
@@ -145,12 +149,14 @@ func NewManager(
 	permissionsManager permissions.Manager,
 	accountManager account.Manager,
 	proxyController proxy.Controller,
+	zone string,
 ) Manager {
 	return &managerImpl{
 		store:              store,
 		accountManager:     accountManager,
 		permissionsManager: permissionsManager,
 		proxyController:    proxyController,
+		zone:               zone,
 		reconcileCache:     make(map[string]map[string]*proto.ProxyMapping),
 		labelRng:           rand.New(rand.NewSource(time.Now().UnixNano())),
 	}

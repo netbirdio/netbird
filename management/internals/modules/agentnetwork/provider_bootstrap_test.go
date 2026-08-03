@@ -48,7 +48,7 @@ func newBootstrapFixture(t *testing.T) *bootstrapFixture {
 	accounts.EXPECT().BufferUpdateAccountPeers(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 	return &bootstrapFixture{
-		manager: NewManager(st, perms, accounts, nil),
+		manager: NewManager(st, perms, accounts, nil, ""),
 		store:   st,
 		perms:   perms,
 	}

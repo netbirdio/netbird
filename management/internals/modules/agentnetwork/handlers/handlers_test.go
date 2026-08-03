@@ -61,7 +61,7 @@ func newAgentNetworkHandlerFixture(t *testing.T) *agentNetworkHandlerFixture {
 		Return(true, context.Background(), nil).
 		AnyTimes()
 
-	manager := agentnetwork.NewManager(st, perms, nil, nil)
+	manager := agentnetwork.NewManager(st, perms, nil, nil, "")
 	h := &handler{manager: manager}
 
 	router := mux.NewRouter()

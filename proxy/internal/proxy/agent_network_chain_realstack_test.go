@@ -102,7 +102,7 @@ func TestReverseProxy_AgentNetworkRequest_FullChain(t *testing.T) {
 	require.NoError(t, err, "real sqlite test store must come up")
 	t.Cleanup(cleanup)
 
-	anMgr := agentnetwork.NewManager(st, nil, nil, nil)
+	anMgr := agentnetwork.NewManager(st, nil, nil, nil, "")
 	server := &mgmtgrpc.ProxyServiceServer{}
 	server.SetAgentNetworkLimitsService(anMgr)
 

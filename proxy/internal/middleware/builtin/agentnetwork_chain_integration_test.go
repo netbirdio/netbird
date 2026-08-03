@@ -53,7 +53,7 @@ func newChainIntegration(t *testing.T) *chainIntegrationFixture {
 	require.NoError(t, err)
 	t.Cleanup(cleanUp)
 
-	manager := agentnetwork.NewManager(st, nil, nil, nil)
+	manager := agentnetwork.NewManager(st, nil, nil, nil, "")
 
 	server := &mgmtgrpc.ProxyServiceServer{}
 	server.SetAgentNetworkLimitsService(manager)

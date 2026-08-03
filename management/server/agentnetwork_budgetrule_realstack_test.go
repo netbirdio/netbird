@@ -30,7 +30,7 @@ func TestAgentNetwork_BudgetRuleCRUD_RealManager(t *testing.T) {
 	account := newAccountWithId(ctx, accountID, adminUserID, "agent-net.test", "", "", false)
 	require.NoError(t, am.Store.SaveAccount(ctx, account), "SaveAccount must succeed")
 
-	mgr := agentnetwork.NewManager(am.Store, permissions.NewManager(am.Store), am, nil)
+	mgr := agentnetwork.NewManager(am.Store, permissions.NewManager(am.Store), am, nil, "")
 
 	created, err := mgr.CreateBudgetRule(ctx, adminUserID, &agenttypes.AccountBudgetRule{
 		AccountID:    accountID,
@@ -82,7 +82,7 @@ func TestAgentNetwork_UpdateSettings_PreservesImmutableAndTogglesCollection(t *t
 	account := newAccountWithId(ctx, accountID, adminUserID, "agent-net.test", "", "", false)
 	require.NoError(t, am.Store.SaveAccount(ctx, account), "SaveAccount must succeed")
 
-	mgr := agentnetwork.NewManager(am.Store, permissions.NewManager(am.Store), am, nil)
+	mgr := agentnetwork.NewManager(am.Store, permissions.NewManager(am.Store), am, nil, "")
 
 	// Creating a provider bootstraps the settings row (cluster + subdomain).
 	_, err = mgr.CreateProvider(ctx, adminUserID, &agenttypes.Provider{

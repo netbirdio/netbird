@@ -90,7 +90,7 @@ func TestAgentNetwork_ProviderCRUD_FansOutToProxyAndClientPeers(t *testing.T) {
 	// Real agentnetwork manager wired to the real account manager. proxyController
 	// is nil (no gRPC cluster fan-out here) — the reconcile still fires
 	// UpdateAccountPeers, which is the path under test.
-	agentMgr := agentnetwork.NewManager(am.Store, permissions.NewManager(am.Store), am, nil)
+	agentMgr := agentnetwork.NewManager(am.Store, permissions.NewManager(am.Store), am, nil, "")
 
 	provider, err := agentMgr.CreateProvider(ctx, adminUserID, &agenttypes.Provider{
 		AccountID:   accountID,
