@@ -91,6 +91,8 @@ test_community_installer() (
 
   require_nonempty "community session cookie key" "$session_key"
   require_equal "community decoded key length" 32 "$(decoded_key_length "$session_key")"
+  require_nonempty "community datastore key" "$datastore_key"
+  require_equal "community decoded datastore key length" 32 "$(decoded_key_length "$datastore_key")"
   require_distinct "community session and datastore keys" "$session_key" "$datastore_key"
   require_equal "community config mode" 600 "$(file_mode config.yaml)"
 )
@@ -119,6 +121,8 @@ test_enterprise_installer() (
 
   require_nonempty "enterprise session cookie key" "$session_key"
   require_equal "enterprise decoded key length" 32 "$(decoded_key_length "$session_key")"
+  require_nonempty "enterprise datastore key" "$datastore_key"
+  require_equal "enterprise decoded datastore key length" 32 "$(decoded_key_length "$datastore_key")"
   require_distinct "enterprise session and datastore keys" "$session_key" "$datastore_key"
   require_equal "enterprise config mode" 600 "$(file_mode config.yaml)"
 )
