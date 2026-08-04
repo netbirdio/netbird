@@ -229,6 +229,10 @@ func (s *ICEBind) createReceiverFn(pc wgConn.BatchReader, conn *net.UDPConn, rxO
 				if err != nil {
 					log.Debugf("failed to handle STUN packet from %s: %v", msg.Addr, err)
 				}
+				// WireGuard reuses sizes and eps across reads and only skips a slot whose size is
+				// below the minimum message size. Leaving a consumed slot untouched makes it
+				// process this buffer again under the previous packet's length and endpoint.
+				sizes[i] = 0
 				continue
 			}
 			sizes[i] = msg.N
@@ -366,12 +370,12 @@ func putMessages(msgs *[]ipv6.Message, msgsPool *sync.Pool) {
 // isWireGuardMsg reports whether the packet carries a WireGuard message header: a little-endian
 // uint32 message type in the range 1..4, which leaves the three bytes following the type byte zero.
 //
-// No STUN message can take that shape. The low byte of a STUN message type holds method and class
-// bits and is non-zero for every method (Binding is 0x0001, 0x0101, 0x0111, 0x0011), so the two
-// framings are disjoint and this test is exact rather than heuristic. That matters because
-// stun.IsMessage only looks at the magic cookie, which in a WireGuard message overlaps the receiver
-// index: a session whose index happens to equal the cookie would otherwise have all of its inbound
-// data misrouted to the STUN handler until the next rekey.
+// No STUN message that ICE exchanges can take that shape. The low byte of a STUN message type holds
+// the bottom method bits and a class bit, and it is non-zero for Binding (0x0001, 0x0101, 0x0111,
+// 0x0011) and for every other method pion implements, so the two framings do not overlap. That
+// matters because stun.IsMessage only looks at the magic cookie, which in a WireGuard message
+// overlaps the receiver index: a session whose index happens to equal the cookie would otherwise
+// have all of its inbound data misrouted to the STUN handler until the next rekey.
 func isWireGuardMsg(pkt []byte) bool {
 	if len(pkt) < 4 {
 		return false

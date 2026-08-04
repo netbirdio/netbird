@@ -6,10 +6,13 @@ import (
 	"encoding/binary"
 	"net"
 	"testing"
+	"time"
 
 	"github.com/pion/stun/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/net/ipv4"
+	wgConn "golang.zx2c4.com/wireguard/conn"
 )
 
 // magicCookieBytes is the STUN magic cookie as it appears on the wire. In a WireGuard message the
@@ -128,6 +131,39 @@ func TestFilterOutStunMessages_IgnoresBytesBeyondPacket(t *testing.T) {
 	filtered, err := bind.filterOutStunMessages(buffers, 2, &net.UDPAddr{})
 	assert.NoError(t, err)
 	assert.False(t, filtered, "a 2 byte packet must not be classified from stale buffer bytes")
+}
+
+// TestReceiveFn_ClearsSizeOfConsumedPacket covers the accounting WireGuard relies on: sizes is
+// reused across reads, so a slot whose packet was consumed as STUN must be reported as empty.
+// Otherwise WireGuard reprocesses the same buffer under the previous packet's length, which for a
+// WireGuard-shaped packet means it is handled twice.
+func TestReceiveFn_ClearsSizeOfConsumedPacket(t *testing.T) {
+	conn := listenUDP(t, "udp4", "127.0.0.1:0")
+	defer conn.Close()
+
+	recvFn := receiverCreator{setupICEBind(t)}.CreateReceiverFn(
+		ipv4.NewPacketConn(conn), conn, false, createMsgPool(),
+	)
+
+	msg, err := stun.Build(stun.BindingRequest, stun.TransactionID, stun.Fingerprint)
+	require.NoError(t, err)
+
+	sender := listenUDP(t, "udp4", "127.0.0.1:0")
+	defer sender.Close()
+	_, err = sender.WriteTo(msg.Raw, conn.LocalAddr())
+	require.NoError(t, err)
+
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(3*time.Second)))
+
+	bufs := [][]byte{make([]byte, 1500)}
+	// A leftover size from an earlier read, which is what makes the missing reset observable.
+	sizes := []int{148}
+	eps := make([]wgConn.Endpoint, 1)
+
+	n, err := recvFn(bufs, sizes, eps)
+	require.NoError(t, err)
+	require.Equal(t, 1, n)
+	assert.Zero(t, sizes[0], "consumed STUN packet must not leave a size behind for WireGuard")
 }
 
 func TestIsTransportPkg(t *testing.T) {
