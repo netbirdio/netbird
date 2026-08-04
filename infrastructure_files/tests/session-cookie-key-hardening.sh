@@ -29,10 +29,12 @@ file_mode() {
   fi
 }
 
-yaml_value() {
-  local key=$1
-  local file=$2
-  sed -n "s/^[[:space:]]*${key}: \"\\(.*\\)\"/\\1/p" "$file"
+yaml_section_value() {
+  local section=$1
+  local key=$2
+  local file=$3
+  sed -n "/^  ${section}:$/,/^  [[:alnum:]_].*:$/p" "$file" |
+    sed -n "s/^    ${key}: \"\\(.*\\)\"/\\1/p"
 }
 
 require_nonempty() {
@@ -84,8 +86,8 @@ test_community_installer() (
   cd "$test_root/community"
   generate_configuration_files
 
-  session_key=$(yaml_value sessionCookieEncryptionKey config.yaml)
-  datastore_key=$(yaml_value encryptionKey config.yaml)
+  session_key=$(yaml_section_value auth sessionCookieEncryptionKey config.yaml)
+  datastore_key=$(yaml_section_value store encryptionKey config.yaml)
 
   require_nonempty "community session cookie key" "$session_key"
   require_equal "community decoded key length" 32 "$(decoded_key_length "$session_key")"
@@ -112,8 +114,8 @@ test_enterprise_installer() (
   cd "$test_root/enterprise"
   init_environment >/dev/null
 
-  session_key=$(yaml_value sessionCookieEncryptionKey config.yaml)
-  datastore_key=$(yaml_value encryptionKey config.yaml)
+  session_key=$(yaml_section_value auth sessionCookieEncryptionKey config.yaml)
+  datastore_key=$(yaml_section_value store encryptionKey config.yaml)
 
   require_nonempty "enterprise session cookie key" "$session_key"
   require_equal "enterprise decoded key length" 32 "$(decoded_key_length "$session_key")"
