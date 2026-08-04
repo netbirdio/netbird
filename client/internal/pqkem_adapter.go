@@ -54,12 +54,22 @@ type pqHandshaker struct {
 	mgr *pqkem.Manager
 }
 
+// announcedPort is the PQ data-path port to advertise to peers. It is omitted (0) when
+// the manager is on DefaultPort, since peers assume the default when no port is sent;
+// only a non-default (collision-forced) port is announced explicitly.
+func (p pqHandshaker) announcedPort() int {
+	if port := p.mgr.LocalPort(); port != DefaultPort {
+		return port
+	}
+	return 0
+}
+
 func (p pqHandshaker) OfferPayload(remoteKey string) ([]byte, int) {
 	payload, err := p.mgr.SignalOffer(pqkem.RemoteID(remoteKey))
 	if err != nil {
 		log.Warnf("pqkem: build offer for %s: %v", remoteKey, err)
 	}
-	return payload, p.mgr.LocalPort()
+	return payload, p.announcedPort()
 }
 
 func (p pqHandshaker) AnswerPayload(remoteKey string, recvOffer []byte) ([]byte, int) {
@@ -72,13 +82,13 @@ func (p pqHandshaker) AnswerPayload(remoteKey string, recvOffer []byte) ([]byte,
 		if !p.mgr.IsInitiator(pqkem.RemoteID(remoteKey)) {
 			p.mgr.MarkNonCapable(pqkem.RemoteID(remoteKey))
 		}
-		return nil, p.mgr.LocalPort()
+		return nil, p.announcedPort()
 	}
 	payload, err := p.mgr.SignalOnOffer(pqkem.RemoteID(remoteKey), recvOffer)
 	if err != nil {
 		log.Warnf("pqkem: build answer for %s: %v", remoteKey, err)
 	}
-	return payload, p.mgr.LocalPort()
+	return payload, p.announcedPort()
 }
 
 func (p pqHandshaker) OnAnswer(remoteKey string, recvAnswer []byte) {
@@ -107,14 +117,20 @@ func (p pqHandshaker) PSK(remoteKey string) (wgtypes.Key, bool) {
 	return wgtypes.Key(psk), true
 }
 
-// SetRemoteAddr registers the peer's data-path endpoint (overlay IP + pq UDP port)
-// learned from signalling. Sends only ever fire once the tunnel is up (clocked by
-// OnDataPathRekeyed), so registering here is safe even before connection-up.
+// SetRemoteAddr registers the peer's data-path endpoint learned from signalling. A
+// zero port means the peer omitted it (it is on DefaultPort), so we resolve it here —
+// DefaultPort lives in this package, not in peer. Sends only ever fire once the tunnel
+// is up (clocked by OnDataPathRekeyed), so registering here is safe even before
+// connection-up.
 func (p pqHandshaker) SetRemoteAddr(remoteKey string, addr netip.AddrPort) {
-	if !addr.IsValid() || addr.Port() == 0 {
+	if !addr.Addr().IsValid() {
 		return
 	}
-	p.mgr.AddPeer(pqkem.RemoteID(remoteKey), addr)
+	port := addr.Port()
+	if port == 0 {
+		port = DefaultPort
+	}
+	p.mgr.AddPeer(pqkem.RemoteID(remoteKey), netip.AddrPortFrom(addr.Addr(), port))
 }
 
 // OnDataPathRekeyed clocks the next chained PSK rotation on a fresh WG handshake.
