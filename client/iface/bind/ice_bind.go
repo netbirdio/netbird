@@ -22,6 +22,15 @@ import (
 	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
+const (
+	// wgMsgTypeHandshakeInitiation is the lowest WireGuard message type.
+	wgMsgTypeHandshakeInitiation uint32 = 1
+	// wgMsgTypeTransport is the highest WireGuard message type.
+	wgMsgTypeTransport uint32 = 4
+	// wgKeepaliveSize is the size of a WireGuard transport message with an empty payload.
+	wgKeepaliveSize = 32
+)
+
 type receiverCreator struct {
 	iceBind *ICEBind
 }
@@ -216,8 +225,10 @@ func (s *ICEBind) createReceiverFn(pc wgConn.BatchReader, conn *net.UDPConn, rxO
 		for i := 0; i < numMsgs; i++ {
 			msg := &(*msgs)[i]
 
-			// todo: handle err
-			if ok, _ := s.filterOutStunMessages(msg.Buffers, msg.N, msg.Addr); ok {
+			if ok, err := s.filterOutStunMessages(msg.Buffers, msg.N, msg.Addr); ok {
+				if err != nil {
+					log.Debugf("failed to handle STUN packet from %s: %v", msg.Addr, err)
+				}
 				continue
 			}
 			sizes[i] = msg.N
@@ -271,11 +282,16 @@ func (s *ICEBind) createOrUpdateMux() {
 
 func (s *ICEBind) filterOutStunMessages(buffers [][]byte, n int, addr net.Addr) (bool, error) {
 	for i := range buffers {
-		if !stun.IsMessage(buffers[i]) {
+		if n > len(buffers[i]) {
+			continue
+		}
+		pkt := buffers[i][:n]
+
+		if isWireGuardMsg(pkt) || !stun.IsMessage(pkt) {
 			continue
 		}
 
-		msg, err := s.parseSTUNMessage(buffers[i][:n])
+		msg, err := s.parseSTUNMessage(pkt)
 		if err != nil {
 			buffers[i] = []byte{}
 			return true, err
@@ -347,18 +363,31 @@ func putMessages(msgs *[]ipv6.Message, msgsPool *sync.Pool) {
 	msgsPool.Put(msgs)
 }
 
+// isWireGuardMsg reports whether the packet carries a WireGuard message header: a little-endian
+// uint32 message type in the range 1..4, which leaves the three bytes following the type byte zero.
+//
+// No STUN message can take that shape. The low byte of a STUN message type holds method and class
+// bits and is non-zero for every method (Binding is 0x0001, 0x0101, 0x0111, 0x0011), so the two
+// framings are disjoint and this test is exact rather than heuristic. That matters because
+// stun.IsMessage only looks at the magic cookie, which in a WireGuard message overlaps the receiver
+// index: a session whose index happens to equal the cookie would otherwise have all of its inbound
+// data misrouted to the STUN handler until the next rekey.
+func isWireGuardMsg(pkt []byte) bool {
+	if len(pkt) < 4 {
+		return false
+	}
+
+	msgType := binary.LittleEndian.Uint32(pkt[:4])
+	return msgType >= wgMsgTypeHandshakeInitiation && msgType <= wgMsgTypeTransport
+}
+
+// isTransportPkg reports whether the packet is WireGuard transport data carrying a payload, which
+// is what counts as peer activity. Keepalives hold no payload and are exactly wgKeepaliveSize.
 func isTransportPkg(buffers [][]byte, n int) bool {
-	// The first buffer should contain at least 4 bytes for type
-	if len(buffers[0]) < 4 {
-		return true
+	if n < 4 || n > len(buffers[0]) {
+		return false
 	}
 
-	// WireGuard packet type is a little-endian uint32 at start
-	packetType := binary.LittleEndian.Uint32(buffers[0][:4])
-
-	// Check if packetType matches known WireGuard message types
-	if packetType == 4 && n > 32 {
-		return true
-	}
-	return false
+	msgType := binary.LittleEndian.Uint32(buffers[0][:4])
+	return msgType == wgMsgTypeTransport && n > wgKeepaliveSize
 }
