@@ -46,7 +46,7 @@ type NetworkMapDBStoreImpl struct {
 	extraSettingsManager    settings.Manager
 }
 
-func NewNetworkMapDBStoreImpl(store NetworkMapDBStore, integratedPeerValidator integrated_validator.IntegratedValidator, extraSettingsManager integrations.Manager) *NetworkMapDBStoreImpl {
+func NewNetworkMapDBStoreImpl(store NetworkMapDBStore, integratedPeerValidator integrated_validator.IntegratedValidator, extraSettingsManager settings.Manager) *NetworkMapDBStoreImpl {
 	return &NetworkMapDBStoreImpl{
 		store:                   store,
 		integratedPeerValidator: integratedPeerValidator,

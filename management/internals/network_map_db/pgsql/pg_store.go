@@ -23,7 +23,7 @@ type PgStore struct {
 }
 
 func NewPostgresqlStore(ctx context.Context, dsn string) (*PgStore, error) {
-	pool, err := connectToPgDb(context.Background(), dsn)
+	pool, err := connectToPgDb(ctx, dsn)
 	if err != nil {
 		return nil, err
 	}
