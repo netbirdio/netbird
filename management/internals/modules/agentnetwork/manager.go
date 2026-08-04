@@ -207,7 +207,7 @@ func (m *managerImpl) CreateProvider(ctx context.Context, userID string, provide
 	}
 
 	if strings.TrimSpace(bootstrapCluster) != "" {
-		if _, err := m.bootstrapSettingsIfNeeded(ctx, provider.AccountID, bootstrapCluster); err != nil {
+		if _, err := m.bootstrapSettingsIfNeeded(ctx, m.store, provider.AccountID, bootstrapCluster); err != nil {
 			// The provider create has already succeeded; logging the
 			// bootstrap miss matches the plan's PoC behaviour. The synth
 			// path treats a missing settings row as a no-op, and the next
@@ -559,40 +559,83 @@ func (m *managerImpl) DeleteBudgetRule(ctx context.Context, accountID, userID, r
 	return nil
 }
 
-// UpdateSettings applies the mutable account-level settings — the collection
-// toggles — onto the existing row. Cluster and Subdomain are immutable and are
-// preserved from the persisted row regardless of the input. Because the
-// collection toggles change the synthesised service config (prompt-capture
-// gating, access-log emission), a reconcile is triggered so the proxy and peer
-// network maps converge on the new state.
+// UpdateSettings replaces the mutable account-level settings — the collection
+// toggles and retention — on the account's row. When the account has no
+// settings row yet, a non-empty settings.Cluster bootstraps one (same path as
+// first provider create); without it the update fails with NotFound. On an
+// existing row the cluster and subdomain are immutable: a differing
+// settings.Cluster is rejected rather than silently ignored so callers never
+// observe a value other than what they sent. Because the collection toggles
+// change the synthesised service config (prompt-capture gating, access-log
+// emission), a reconcile is triggered so the proxy and peer network maps
+// converge on the new state.
 func (m *managerImpl) UpdateSettings(ctx context.Context, userID string, settings *types.Settings) (*types.Settings, error) {
 	if err := m.requirePermission(ctx, settings.AccountID, userID, modules.AgentNetworkSettings, operations.Update); err != nil {
 		return nil, err
 	}
 
-	existing, err := m.store.GetAgentNetworkSettings(ctx, store.LockingStrengthUpdate, settings.AccountID)
+	requestedCluster := strings.TrimSpace(settings.Cluster)
+
+	// The row lock from LockingStrengthUpdate only holds for the duration of
+	// the surrounding transaction, so the read, the cluster-immutability
+	// check, and the save must share one — otherwise concurrent PUTs could
+	// interleave between them.
+	var updated *types.Settings
+	err := m.store.ExecuteInTransaction(ctx, func(tx store.Store) error {
+		existing, err := tx.GetAgentNetworkSettings(ctx, store.LockingStrengthUpdate, settings.AccountID)
+		switch {
+		case err == nil:
+			if requestedCluster != "" && requestedCluster != existing.Cluster {
+				return status.Errorf(status.InvalidArgument, "cluster is immutable once assigned (current: %s)", existing.Cluster)
+			}
+		case isNotFound(err):
+			if requestedCluster == "" {
+				return status.Errorf(status.NotFound, "agent network settings have not been bootstrapped yet; pass cluster to bootstrap them, or create a provider with bootstrap_cluster set")
+			}
+			// Bootstrapping pins the cluster and subdomain — a settings
+			// create on top of the update the caller already passed, matching
+			// the gate on the provider-create bootstrap path.
+			if err := m.requirePermission(ctx, settings.AccountID, userID, modules.AgentNetworkSettings, operations.Create); err != nil {
+				return err
+			}
+			existing, err = m.bootstrapSettingsIfNeeded(ctx, tx, settings.AccountID, requestedCluster)
+			if err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("get agent network settings: %w", err)
+		}
+
+		existing.EnableLogCollection = settings.EnableLogCollection
+		existing.EnablePromptCollection = settings.EnablePromptCollection
+		existing.RedactPii = settings.RedactPii
+		existing.AccessLogRetentionDays = settings.AccessLogRetentionDays
+		existing.UpdatedAt = time.Now().UTC()
+
+		if err := tx.SaveAgentNetworkSettings(ctx, existing); err != nil {
+			return fmt.Errorf("save agent network settings: %w", err)
+		}
+		updated = existing
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("get agent network settings: %w", err)
-	}
-
-	existing.EnableLogCollection = settings.EnableLogCollection
-	existing.EnablePromptCollection = settings.EnablePromptCollection
-	existing.RedactPii = settings.RedactPii
-	existing.AccessLogRetentionDays = settings.AccessLogRetentionDays
-	existing.UpdatedAt = time.Now().UTC()
-
-	if err := m.store.SaveAgentNetworkSettings(ctx, existing); err != nil {
-		return nil, fmt.Errorf("save agent network settings: %w", err)
+		return nil, err
 	}
 
 	m.accountManager.StoreEvent(ctx, userID, settings.AccountID, settings.AccountID, activity.AgentNetworkSettingsUpdated, map[string]any{
-		"log_collection":    existing.EnableLogCollection,
-		"prompt_collection": existing.EnablePromptCollection,
-		"redact_pii":        existing.RedactPii,
+		"log_collection":    updated.EnableLogCollection,
+		"prompt_collection": updated.EnablePromptCollection,
+		"redact_pii":        updated.RedactPii,
 	})
 	m.reconcile(ctx, settings.AccountID)
 
-	return existing, nil
+	return updated, nil
+}
+
+// isNotFound reports whether err is a status.NotFound error.
+func isNotFound(err error) bool {
+	var sErr *status.Error
+	return errors.As(err, &sErr) && sErr.Type() == status.NotFound
 }
 
 // validateProviderRefs ensures every destination provider id refers to a
@@ -616,22 +659,25 @@ func (m *managerImpl) validateProviderRefs(ctx context.Context, accountID string
 	return nil
 }
 
-// GetSettings returns the agent-network settings row for the account.
-// Returns the underlying status.NotFound when no row has been
-// bootstrapped yet (i.e. the account has no providers).
+// GetSettings returns the agent-network settings row for the account. When no
+// row has been bootstrapped yet, the defaults are returned (without
+// persisting) with cluster and subdomain empty — settings always read as an
+// object, like the account and DNS settings endpoints.
 func (m *managerImpl) GetSettings(ctx context.Context, accountID, userID string) (*types.Settings, error) {
 	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkSettings, operations.Read); err != nil {
 		return nil, err
 	}
-	return m.store.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, accountID)
+	settings, err := m.store.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, accountID)
+	switch {
+	case err == nil:
+		return settings, nil
+	case isNotFound(err):
+		return types.DefaultSettings(accountID), nil
+	default:
+		return nil, err
+	}
 }
 
-// bootstrapSettingsIfNeeded creates the per-account agent-network
-// settings row when missing. The cluster comes from the create-time
-// hint the dashboard sends (auto-picked from the active cluster list);
-// the subdomain is picked from the curated wordlist avoiding
-// collisions on the same cluster. Idempotent: if a row already exists
-// it is returned untouched and the hint is ignored.
 // requireSettingsBootstrapPermission gates the one-time settings bootstrap a
 // first provider create performs. Pinning the account's cluster and subdomain
 // is a settings write, so it needs the settings permission on top of the
@@ -641,14 +687,20 @@ func (m *managerImpl) requireSettingsBootstrapPermission(ctx context.Context, ac
 	if err == nil {
 		return nil
 	}
-	var sErr *status.Error
-	if !errors.As(err, &sErr) || sErr.Type() != status.NotFound {
+	if !isNotFound(err) {
 		return fmt.Errorf("get agent network settings: %w", err)
 	}
 	return m.requirePermission(ctx, accountID, userID, modules.AgentNetworkSettings, operations.Create)
 }
 
-func (m *managerImpl) bootstrapSettingsIfNeeded(ctx context.Context, accountID, providerCluster string) (*types.Settings, error) {
+// bootstrapSettingsIfNeeded creates the per-account agent-network
+// settings row when missing. The cluster comes from the create-time
+// hint the dashboard sends (auto-picked from the active cluster list);
+// the subdomain is picked from the curated wordlist avoiding
+// collisions on the same cluster. Idempotent: if a row already exists
+// it is returned untouched and the hint is ignored. st is the store to
+// operate on — pass the transaction store when calling from within one.
+func (m *managerImpl) bootstrapSettingsIfNeeded(ctx context.Context, st store.Store, accountID, providerCluster string) (*types.Settings, error) {
 	if accountID == "" {
 		return nil, fmt.Errorf("bootstrap settings: account id is required")
 	}
@@ -656,16 +708,15 @@ func (m *managerImpl) bootstrapSettingsIfNeeded(ctx context.Context, accountID, 
 		return nil, fmt.Errorf("bootstrap settings: provider cluster is required")
 	}
 
-	existing, err := m.store.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, accountID)
+	existing, err := st.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, accountID)
 	if err == nil {
 		return existing, nil
 	}
-	var sErr *status.Error
-	if !errors.As(err, &sErr) || sErr.Type() != status.NotFound {
+	if !isNotFound(err) {
 		return nil, fmt.Errorf("get agent network settings: %w", err)
 	}
 
-	siblings, err := m.store.GetAgentNetworkSettingsByCluster(ctx, store.LockingStrengthNone, providerCluster)
+	siblings, err := st.GetAgentNetworkSettingsByCluster(ctx, store.LockingStrengthNone, providerCluster)
 	if err != nil {
 		return nil, fmt.Errorf("list agent network settings on cluster: %w", err)
 	}
@@ -684,18 +735,12 @@ func (m *managerImpl) bootstrapSettingsIfNeeded(ctx context.Context, accountID, 
 	m.labelRngMu.Unlock()
 
 	now := time.Now().UTC()
-	settings := &types.Settings{
-		AccountID: accountID,
-		Cluster:   providerCluster,
-		Subdomain: subdomain,
-		// Logs on by default; usage is collected regardless. Retention bounds
-		// how long full log rows are kept.
-		EnableLogCollection:    true,
-		AccessLogRetentionDays: types.DefaultAccessLogRetentionDays,
-		CreatedAt:              now,
-		UpdatedAt:              now,
-	}
-	if err := m.store.SaveAgentNetworkSettings(ctx, settings); err != nil {
+	settings := types.DefaultSettings(accountID)
+	settings.Cluster = providerCluster
+	settings.Subdomain = subdomain
+	settings.CreatedAt = now
+	settings.UpdatedAt = now
+	if err := st.SaveAgentNetworkSettings(ctx, settings); err != nil {
 		return nil, fmt.Errorf("save agent network settings: %w", err)
 	}
 	return settings, nil
@@ -898,8 +943,8 @@ func (*mockManager) UpdateBudgetRule(_ context.Context, _ string, r *types.Accou
 
 func (*mockManager) DeleteBudgetRule(_ context.Context, _, _, _ string) error { return nil }
 
-func (*mockManager) GetSettings(_ context.Context, _, _ string) (*types.Settings, error) {
-	return nil, status.Errorf(status.NotFound, "agent network settings not found")
+func (*mockManager) GetSettings(_ context.Context, accountID, _ string) (*types.Settings, error) {
+	return types.DefaultSettings(accountID), nil
 }
 
 func (*mockManager) UpdateSettings(_ context.Context, _ string, s *types.Settings) (*types.Settings, error) {
