@@ -107,6 +107,7 @@ type Manager struct {
 	established map[RemoteID]bool           // peer has completed at least one exchange
 	failures    map[RemoteID]int            // consecutive rekey failures per peer
 	psks        map[RemoteID]PSK            // latest derived PSK per peer (pulled at WG peer-config time)
+	capable     map[RemoteID]bool           // peer runs the KEM (advertised a PQ port); false = known non-capable
 	peerAddrs   map[RemoteID]netip.AddrPort // remoteID -> data-path endpoint (send routing)
 	peersByAddr map[netip.AddrPort]RemoteID // reverse: source endpoint -> remoteID (inbound)
 	wait        sync.WaitGroup
@@ -133,6 +134,7 @@ func NewManager(localID LocalID, h CallbackHandler, logger *slog.Logger) *Manage
 		established:      make(map[RemoteID]bool),
 		failures:         make(map[RemoteID]int),
 		psks:             make(map[RemoteID]PSK),
+		capable:          make(map[RemoteID]bool),
 		peerAddrs:        make(map[RemoteID]netip.AddrPort),
 		peersByAddr:      make(map[netip.AddrPort]RemoteID),
 	}
@@ -184,7 +186,8 @@ func (m *Manager) trace(msg string, args ...any) {
 }
 
 // AddPeer registers where a peer's data-path messages are sent and received: its
-// overlay endpoint (IP:port).
+// overlay endpoint (IP:port). A peer that advertises a PQ endpoint is, by that fact,
+// running the KEM, so it is marked capable.
 func (m *Manager) AddPeer(remoteID RemoteID, endpoint netip.AddrPort) {
 	if !endpoint.IsValid() {
 		return
@@ -195,7 +198,33 @@ func (m *Manager) AddPeer(remoteID RemoteID, endpoint netip.AddrPort) {
 	}
 	m.peerAddrs[remoteID] = endpoint
 	m.peersByAddr[endpoint] = remoteID
+	m.capable[remoteID] = true
 	m.mu.Unlock()
+}
+
+// MarkNonCapable records that a peer does not run the KEM: it answered our offer with
+// no KEM material over signalling (the capability signal is the peer's payload, not its
+// optional data-path port). Any in-flight exchange is cancelled and further offers are
+// suppressed (see SignalOffer), so a non-PQ peer never drives the rekey-recovery storm.
+// An already-established peer is left untouched — a stray empty answer must not tear
+// down a working PQ session.
+func (m *Manager) MarkNonCapable(remoteID RemoteID) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.established[remoteID] {
+		return
+	}
+	if prev, ok := m.capable[remoteID]; ok && !prev {
+		return // already known non-capable, nothing to do
+	}
+	m.capable[remoteID] = false
+	if ex := m.exchanges[remoteID]; ex != nil {
+		if ex.cancel != nil {
+			ex.cancel()
+		}
+		delete(m.exchanges, remoteID)
+	}
+	m.trace("pqkem: peer advertises no PQ service — treating as non-capable, no KEM attempted", "peer", remoteID)
 }
 
 // RemovePeer stops any in-flight exchange for a peer and drops its state and routing.
@@ -210,6 +239,7 @@ func (m *Manager) RemovePeer(remoteID RemoteID) {
 	delete(m.established, remoteID)
 	delete(m.failures, remoteID)
 	delete(m.psks, remoteID)
+	delete(m.capable, remoteID)
 	if ep, ok := m.peerAddrs[remoteID]; ok {
 		delete(m.peersByAddr, ep)
 		delete(m.peerAddrs, remoteID)
@@ -246,6 +276,10 @@ func (m *Manager) SignalOffer(remoteID RemoteID) ([]byte, error) {
 		return nil, nil
 	}
 	m.mu.Lock()
+	if capable, ok := m.capable[remoteID]; ok && !capable {
+		m.mu.Unlock()
+		return nil, nil // peer does not run the KEM; do not offer (avoids a failure/reoffer loop)
+	}
 	if ex := m.exchanges[remoteID]; ex != nil && ex.viaSignal && ex.state == stateAwaitingAnswer {
 		last := ex.lastSent
 		m.mu.Unlock()
