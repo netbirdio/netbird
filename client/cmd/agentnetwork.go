@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"strings"
 	"time"
 
@@ -82,6 +84,13 @@ func fetchAgentNetworkSetup(ctx context.Context) (*mgmProto.AgentNetworkSetupRes
 	}
 	config, err := profilemanager.ReadConfig(configFilePath)
 	if err != nil {
+		// The default profile config (and its WireGuard key) is owned by
+		// root; dialing management directly therefore needs the same
+		// elevation the daemon has. Point at sudo instead of surfacing a
+		// bare permission error.
+		if errors.Is(err, fs.ErrPermission) {
+			return nil, fmt.Errorf("reading profile %s requires elevated permissions — re-run with sudo", configFilePath)
+		}
 		return nil, fmt.Errorf("read config file %s: %v (run 'netbird up' first)", configFilePath, err)
 	}
 
