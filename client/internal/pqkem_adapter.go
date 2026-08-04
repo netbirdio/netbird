@@ -64,6 +64,14 @@ func (p pqHandshaker) OfferPayload(remoteKey string) ([]byte, int) {
 
 func (p pqHandshaker) AnswerPayload(remoteKey string, recvOffer []byte) ([]byte, int) {
 	if len(recvOffer) == 0 {
+		// Capability signal (responder side): the KEM offer flows initiator->responder,
+		// so if we are the responder for this peer (it is the KEM initiator by role) an
+		// empty offer means it does not run the KEM. If we are the initiator, an empty
+		// offer is normal — the peer is the responder and puts its material in the
+		// answer — so we must not flag it.
+		if !p.mgr.IsInitiator(pqkem.RemoteID(remoteKey)) {
+			p.mgr.MarkNonCapable(pqkem.RemoteID(remoteKey))
+		}
 		return nil, p.mgr.LocalPort()
 	}
 	payload, err := p.mgr.SignalOnOffer(pqkem.RemoteID(remoteKey), recvOffer)
@@ -75,6 +83,14 @@ func (p pqHandshaker) AnswerPayload(remoteKey string, recvOffer []byte) ([]byte,
 
 func (p pqHandshaker) OnAnswer(remoteKey string, recvAnswer []byte) {
 	if len(recvAnswer) == 0 {
+		// Capability signal (initiator side): the KEM answer flows responder->initiator,
+		// so an empty answer to our offer means the peer does not run the KEM — mark it
+		// non-capable to stop offering (no failure/reoffer storm). Only meaningful when
+		// we are the initiator: as the responder we also receive an (empty) answer to
+		// our own non-KEM offer from a perfectly capable peer, which must not be flagged.
+		if p.mgr.IsInitiator(pqkem.RemoteID(remoteKey)) {
+			p.mgr.MarkNonCapable(pqkem.RemoteID(remoteKey))
+		}
 		return
 	}
 	if err := p.mgr.SignalOnAnswer(pqkem.RemoteID(remoteKey), recvAnswer); err != nil {
