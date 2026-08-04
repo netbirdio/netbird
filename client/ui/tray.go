@@ -34,8 +34,9 @@ const (
 	quitDownTimeout = 5 * time.Second
 	// Matches DaemonFeed's suppression window; a daemon that never answers Down
 	// would otherwise grey the Reconnect entry out for the rest of the session.
-	reconnectTimeout     = 30 * time.Second
-	statusRefreshTimeout = 5 * time.Second
+	reconnectTimeout       = 30 * time.Second
+	statusRefreshTimeout   = 5 * time.Second
+	reconnectUnwindTimeout = 2 * time.Second
 
 	urlGitHubRepo = "https://github.com/netbirdio/netbird"
 	urlDocs       = "https://docs.netbird.io"
@@ -96,8 +97,10 @@ type Tray struct {
 	// reconnectCancel is non-nil while the Reconnect round trip is in flight: it
 	// blocks a second click and lets Disconnect and quit abort the queued Up.
 	// SetEnabled(false) cannot do that; buildMenu recreates the item on relayout.
+	// reconnectDone closes when the round trip has unwound.
 	reconnectMu     sync.Mutex
 	reconnectCancel context.CancelFunc
+	reconnectDone   chan struct{}
 
 	// statusMu guards the daemon-status core mirrored on the tray. One mutex
 	// covers these fields because applyStatus writes them together on every
@@ -477,7 +480,7 @@ func (t *Tray) buildMenu() *application.Menu {
 
 func (t *Tray) handleQuit() {
 	services.BeginShutdown()
-	t.cancelReconnect()
+	t.waitReconnectDone(t.cancelReconnect())
 	t.profileMu.Lock()
 	if t.switchCancel != nil {
 		t.switchCancel()
@@ -538,7 +541,7 @@ func (t *Tray) handleConnect(upItem *application.MenuItem) {
 func (t *Tray) handleDisconnect(downItem *application.MenuItem) {
 	downItem.SetEnabled(false)
 	// A Reconnect mid-flight would otherwise finish its Up behind this Down.
-	t.cancelReconnect()
+	reconnectDone := t.cancelReconnect()
 	t.profileMu.Lock()
 	if t.switchCancel != nil {
 		t.switchCancel()
@@ -547,6 +550,7 @@ func (t *Tray) handleDisconnect(downItem *application.MenuItem) {
 	t.profileMu.Unlock()
 	t.svc.DaemonFeed.CancelProfileSwitch()
 	go func() {
+		t.waitReconnectDone(reconnectDone)
 		if err := t.svc.Connection.Down(context.Background()); err != nil {
 			log.Errorf("disconnect: %v", err)
 			t.notifyError(t.loc.T("notify.error.disconnect"))
@@ -622,28 +626,51 @@ func (t *Tray) beginReconnect() (context.Context, bool) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), reconnectTimeout)
 	t.reconnectCancel = cancel
+	t.reconnectDone = make(chan struct{})
 	return ctx, true
 }
 
+// endReconnect releases the slot. It closes the done channel before the caller
+// repaints, so a waiter is never parked behind a relayout that may need the UI
+// thread it is holding.
 func (t *Tray) endReconnect() {
 	t.reconnectMu.Lock()
 	cancel := t.reconnectCancel
+	done := t.reconnectDone
 	t.reconnectCancel = nil
+	t.reconnectDone = nil
 	t.reconnectMu.Unlock()
 	if cancel != nil {
 		cancel()
 	}
+	if done != nil {
+		close(done)
+	}
 }
 
-// cancelReconnect aborts an in-flight round trip so the Up queued behind it
-// cannot undo the Down that Disconnect and quit send. endReconnect clears the
-// slot once the round trip unwinds.
-func (t *Tray) cancelReconnect() {
+// cancelReconnect aborts an in-flight round trip and returns a channel that
+// closes once it has unwound, or nil when none was running. Callers sending
+// their own Down must wait on it: a cancel landing inside the Up RPC does not
+// unsend that Up, so an unsynchronised Down can still be overtaken by it.
+func (t *Tray) cancelReconnect() <-chan struct{} {
 	t.reconnectMu.Lock()
 	cancel := t.reconnectCancel
+	done := t.reconnectDone
 	t.reconnectMu.Unlock()
 	if cancel != nil {
 		cancel()
+	}
+	return done
+}
+
+func (t *Tray) waitReconnectDone(done <-chan struct{}) {
+	if done == nil {
+		return
+	}
+	select {
+	case <-done:
+	case <-time.After(reconnectUnwindTimeout):
+		log.Warnf("reconnect did not unwind in %s, continuing", reconnectUnwindTimeout)
 	}
 }
 

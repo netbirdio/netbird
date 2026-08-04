@@ -166,7 +166,7 @@ func (t *Tray) fillProfileSubmenu() {
 func (t *Tray) switchProfile(handle, display string) {
 	// The switch performs its own Down and Up; an in-flight reconnect would
 	// race a second Up in and leave the winning profile undefined.
-	t.cancelReconnect()
+	reconnectDone := t.cancelReconnect()
 	t.profileMu.Lock()
 	if t.switchCancel != nil {
 		t.switchCancel()
@@ -176,6 +176,7 @@ func (t *Tray) switchProfile(handle, display string) {
 	t.profileMu.Unlock()
 
 	go func() {
+		t.waitReconnectDone(reconnectDone)
 		username, err := t.svc.Profiles.Username()
 		if err != nil {
 			log.Errorf("tray switchProfile: get current user: %v", err)
