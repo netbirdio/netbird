@@ -270,7 +270,7 @@ func policiesForNetworkResource(resourceId string, allPolicies []*nmdata.Policy,
 
 	networkResourceGroups := networkResourceGroups(resourceId, groups)
 	for _, p := range allPolicies {
-		if p == nil || !p.Enabled {
+		if p == nil || !p.Enabled || len(p.Rules) == 0 {
 			continue
 		}
 
