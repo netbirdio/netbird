@@ -182,9 +182,11 @@ func (h *Handshaker) Listen(ctx context.Context) {
 // pqRegisterEndpoint feeds the post-quantum handshaker the peer's data-path endpoint
 // (its WG overlay IP plus the advertised pq UDP port) learned from a remote offer/answer.
 func (h *Handshaker) pqRegisterEndpoint(remotePort int) {
-	if h.config.PQ == nil || remotePort <= 0 || remotePort > 65535 || len(h.config.WgConfig.AllowedIps) == 0 {
+	if h.config.PQ == nil || remotePort < 0 || remotePort > 65535 || len(h.config.WgConfig.AllowedIps) == 0 {
 		return
 	}
+	// remotePort may be 0 (the peer omitted it, meaning the default port); the adapter
+	// resolves 0 to DefaultPort.
 	addr := netip.AddrPortFrom(h.config.WgConfig.AllowedIps[0].Addr(), uint16(remotePort))
 	h.config.PQ.SetRemoteAddr(h.config.Key, addr)
 }
