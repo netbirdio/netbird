@@ -5149,12 +5149,12 @@ components:
         identity_header_user_id:
           type: string
           description: |
-            Wire header name the proxy stamps with the caller's display identity (user email or peer name) when the catalog entry's HeaderPair is `customizable`. Empty disables stamping for this dimension. Ignored when the catalog entry has a fixed HeaderPair (e.g. LiteLLM, Portkey). Used today by Bifrost: typical values are `x-bf-lh-netbird_user_id` (always-on log metadata) or `x-bf-dim-netbird_user_id` (Prometheus / OTEL — requires the label to be pre-declared in the gateway's `client.prometheus_labels` config).
+            Wire header name the proxy stamps with the caller's display identity (user email or peer name) when the catalog entry's HeaderPair is `customizable`. Always present in responses; empty disables stamping for this dimension. Ignored when the catalog entry has a fixed HeaderPair (e.g. LiteLLM, Portkey). Used today by Bifrost: typical values are `x-bf-lh-netbird_user_id` (always-on log metadata) or `x-bf-dim-netbird_user_id` (Prometheus / OTEL — requires the label to be pre-declared in the gateway's `client.prometheus_labels` config).
           example: "x-bf-dim-netbird_user_id"
         identity_header_groups:
           type: string
           description: |
-            Wire header name the proxy stamps with the caller's NetBird groups as a comma-separated list (sorted) when the catalog entry's HeaderPair is `customizable`. Empty disables stamping for this dimension. Same per-catalog semantics as `identity_header_user_id`.
+            Wire header name the proxy stamps with the caller's NetBird groups as a comma-separated list (sorted) when the catalog entry's HeaderPair is `customizable`. Always present in responses; empty disables stamping for this dimension. Same per-catalog semantics as `identity_header_user_id`.
           example: "x-bf-dim-netbird_groups"
         enabled:
           type: boolean
@@ -5186,6 +5186,8 @@ components:
         - name
         - upstream_url
         - models
+        - identity_header_user_id
+        - identity_header_groups
         - enabled
         - skip_tls_verification
         - metadata_disabled
@@ -5222,7 +5224,7 @@ components:
         extra_values:
           type: object
           description: |
-            Operator-typed values for catalog-declared extra headers (see AgentNetworkProvider.extra_values). When present on a request, the whole map replaces the stored values. Empty strings drop the corresponding key.
+            Operator-typed values for catalog-declared extra headers (see AgentNetworkProvider.extra_values). The request's map replaces the stored values; empty strings drop the corresponding key.
           additionalProperties:
             type: string
           example:
@@ -5230,12 +5232,12 @@ components:
         identity_header_user_id:
           type: string
           description: |
-            Wire header name for the caller's display identity. See AgentNetworkProvider.identity_header_user_id. When omitted on a request, the stored value is left unchanged; pass an empty string explicitly to clear it (which disables stamping for this dimension).
+            Wire header name for the caller's display identity. See AgentNetworkProvider.identity_header_user_id. Empty or omitted disables stamping for this dimension.
           example: "x-bf-dim-netbird_user_id"
         identity_header_groups:
           type: string
           description: |
-            Wire header name for the caller's groups CSV. See AgentNetworkProvider.identity_header_groups. Same omit / empty semantics as `identity_header_user_id`.
+            Wire header name for the caller's groups CSV. See AgentNetworkProvider.identity_header_groups. Same semantics as `identity_header_user_id`.
           example: "x-bf-dim-netbird_groups"
         enabled:
           type: boolean
@@ -5243,11 +5245,11 @@ components:
           example: true
         skip_tls_verification:
           type: boolean
-          description: Skip upstream TLS certificate verification when the proxy dials this provider's URL. For self-hosted / internal gateways behind a private or self-signed certificate. Defaults to false. When omitted on update, the stored value is left unchanged.
+          description: Skip upstream TLS certificate verification when the proxy dials this provider's URL. For self-hosted / internal gateways behind a private or self-signed certificate. Defaults to false.
           example: false
         metadata_disabled:
           type: boolean
-          description: Disable identity metadata injection (the caller's user + authorizing group) for this provider. Defaults to false (metadata is injected). When omitted on update, the stored value is left unchanged.
+          description: Disable identity metadata injection (the caller's user + authorizing group) for this provider. Defaults to false (metadata is injected).
           example: false
       required:
         - provider_id
@@ -5271,6 +5273,21 @@ components:
           format: double
           description: Cost per 1k output tokens, in USD.
           example: 0.0006
+        cached_input_per_1k:
+          type: number
+          format: double
+          description: OpenAI-shape cache rate — cost per 1k cached prompt tokens (a subset of input tokens), in USD. Omitted means inherit NetBird's default rate for this model when one exists; 0 means no discount (cached tokens bill at input_per_1k).
+          example: 0.000075
+        cache_read_per_1k:
+          type: number
+          format: double
+          description: Anthropic-shape cache rate — cost per 1k cache-read tokens (additive to input tokens), in USD. Omitted means inherit NetBird's default rate for this model when one exists; 0 means cache reads bill at input_per_1k.
+          example: 0.0003
+        cache_creation_per_1k:
+          type: number
+          format: double
+          description: Anthropic-shape cache rate — cost per 1k cache-creation tokens (additive to input tokens), in USD. Omitted means inherit NetBird's default rate for this model when one exists; 0 means cache writes bill at input_per_1k.
+          example: 0.00375
       required:
         - id
         - input_per_1k
@@ -5296,6 +5313,21 @@ components:
           format: double
           description: Output token price per 1k tokens, in USD.
           example: 0.015
+        cached_input_per_1k:
+          type: number
+          format: double
+          description: OpenAI-shape cache rate — default cost per 1k cached prompt tokens (a subset of input tokens), in USD. Absent when the model has no cached-input discount.
+          example: 0.000075
+        cache_read_per_1k:
+          type: number
+          format: double
+          description: Anthropic-shape cache rate — default cost per 1k cache-read tokens (additive to input tokens), in USD. Absent when the model has no cache-read rate.
+          example: 0.0003
+        cache_creation_per_1k:
+          type: number
+          format: double
+          description: Anthropic-shape cache rate — default cost per 1k cache-creation tokens (additive to input tokens), in USD. Absent when the model has no cache-creation rate.
+          example: 0.00375
         context_window:
           type: integer
           description: Maximum context window in tokens.
@@ -5354,6 +5386,13 @@ components:
             $ref: '#/components/schemas/AgentNetworkCatalogExtraHeader'
         identity_injection:
           $ref: '#/components/schemas/AgentNetworkCatalogIdentityInjection'
+        pricing_surfaces:
+          type: array
+          description: |
+            Cost-meter pricing surfaces this provider's traffic is metered under ("openai", "anthropic", "bedrock"). Tells the dashboard which cache-rate fields apply to this provider's models: "openai" → cached_input_per_1k (cached prompt tokens are a subset of input); "anthropic"/"bedrock" → cache_read_per_1k + cache_creation_per_1k (additive buckets). Absent/empty for gateway and custom entries, whose upstream shape NetBird cannot know ahead of time — surface all cache fields for those.
+          items:
+            type: string
+          example: ["openai"]
         models:
           type: array
           description: Catalog models available for this provider.
@@ -6154,19 +6193,19 @@ components:
         - cache_cost_usd
     AgentNetworkSettings:
       type: object
-      description: Per-account Agent Network gateway settings. One row per account; cluster and subdomain are auto-assigned on first provider create and immutable thereafter.
+      description: Per-account Agent Network gateway settings. One row per account; cluster and subdomain are assigned at bootstrap and immutable thereafter. Before bootstrap the account reads as the default values with empty cluster, subdomain and endpoint.
       properties:
         cluster:
           type: string
-          description: Address of the NetBird proxy cluster fronting this account's agent-network endpoint.
+          description: Address of the NetBird proxy cluster fronting this account's agent-network endpoint. Empty until the account is bootstrapped.
           example: "eu.proxy.netbird.io"
         subdomain:
           type: string
-          description: Auto-generated DNS-safe label that prefixes the cluster to form the agent-network endpoint.
+          description: Auto-generated DNS-safe label that prefixes the cluster to form the agent-network endpoint. Empty until the account is bootstrapped.
           example: "violet"
         endpoint:
           type: string
-          description: Bare hostname agents call for this account, computed as `<subdomain>.<cluster>`.
+          description: Bare hostname agents call for this account, computed as `<subdomain>.<cluster>`. Empty until the account is bootstrapped.
           example: "violet.eu.proxy.netbird.io"
         enable_log_collection:
           type: boolean
@@ -6187,13 +6226,13 @@ components:
         created_at:
           type: string
           format: date-time
-          description: Timestamp when the settings row was created.
+          description: Timestamp when the settings row was created. Absent until the account is bootstrapped.
           readOnly: true
           example: "2026-04-26T10:30:00Z"
         updated_at:
           type: string
           format: date-time
-          description: Timestamp when the settings row was last updated.
+          description: Timestamp when the settings row was last updated. Absent until the account is bootstrapped.
           readOnly: true
           example: "2026-04-26T10:30:00Z"
       required:
@@ -6203,12 +6242,14 @@ components:
         - enable_log_collection
         - enable_prompt_collection
         - redact_pii
-        - created_at
-        - updated_at
     AgentNetworkSettingsRequest:
       type: object
-      description: Mutable account-level Agent Network settings. Cluster and subdomain are immutable and not accepted here.
+      description: Account-level Agent Network settings update. The request replaces every mutable field. `cluster` additionally bootstraps the per-account settings row when the account does not have one yet; the subdomain is always server-assigned.
       properties:
+        cluster:
+          type: string
+          description: Address of the NetBird proxy cluster fronting this account's agent-network endpoint. When the account has no settings row yet, providing it bootstraps the row (assigning the subdomain that forms the agent endpoint). The cluster is immutable once assigned — later updates must omit it or send the assigned value; any other value is rejected.
+          example: "eu.proxy.netbird.io"
         enable_log_collection:
           type: boolean
           description: Whether per-request access-log entries are collected for this account's agent-network traffic.
@@ -13653,7 +13694,7 @@ paths:
   /api/agent-network/settings:
     get:
       summary: Retrieve Agent Network settings
-      description: Returns the per-account Agent Network gateway settings (cluster, subdomain, endpoint). Returns 404 when no provider has been created yet — settings are lazily bootstrapped on first provider create.
+      description: Returns the per-account Agent Network gateway settings (cluster, subdomain, endpoint). Before the account is bootstrapped — on first provider create (`bootstrap_cluster`) or via PUT with `cluster` — the response carries the default values with empty cluster, subdomain and endpoint.
       tags: [ Agent Network ]
       security:
         - BearerAuth: [ ]
@@ -13669,13 +13710,11 @@ paths:
           "$ref": "#/components/responses/requires_authentication"
         '403':
           "$ref": "#/components/responses/forbidden"
-        '404':
-          "$ref": "#/components/responses/not_found"
         '500':
           "$ref": "#/components/responses/internal_error"
     put:
       summary: Update Agent Network settings
-      description: Updates the mutable account-level Agent Network settings (collection toggles). Cluster and subdomain are immutable and ignored if sent. Returns 404 when settings have not been bootstrapped (no provider created yet).
+      description: Updates the account-level Agent Network settings; the request replaces every mutable field (collection toggles and retention). When the account has no settings row yet, providing `cluster` bootstraps it (assigning the subdomain that forms the agent endpoint); without `cluster` the request returns 404. Sending a `cluster` different from the assigned one is rejected (the cluster is immutable once assigned). The subdomain is always server-assigned and immutable.
       tags: [ Agent Network ]
       security:
         - BearerAuth: [ ]
@@ -13701,6 +13740,8 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '404':
           "$ref": "#/components/responses/not_found"
+        '422':
+          "$ref": "#/components/responses/validation_failed"
         '500':
           "$ref": "#/components/responses/internal_error"
   /api/agent-network/budget-rules:
