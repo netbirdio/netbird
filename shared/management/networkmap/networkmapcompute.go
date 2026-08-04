@@ -484,6 +484,9 @@ func (nmd *NetworkMapData) getPostureValidPeersSaveFailed(inputPeers []string, p
 			dest = append(dest, peerID)
 			continue
 		}
+		if pname == "" {
+			continue
+		}
 		if _, ok := (*postureFailedPeers)[pname]; !ok {
 			(*postureFailedPeers)[pname] = make(map[string]struct{})
 		}
