@@ -79,7 +79,7 @@ type networkrouter struct {
 	PublicID       sql.NullString
 	NetworkID      sql.NullString `nmap:"skip"`
 	Peer           sql.NullString `nmap:"skip"`
-	PeersViaGroups []string       `nmap:"skip"`
+	PeersViaGroups []string       `nmap:"map_to:PeerGroups"`
 	Masquerade     sql.NullBool
 	Metric         sql.NullInt64
 	Enabled        sql.NullBool

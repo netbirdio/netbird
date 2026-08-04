@@ -23,36 +23,36 @@ func TestGetGroups(t *testing.T) {
 	assert.NoError(t, err)
 
 	_, err = s.Pool.Query(ctx,
-		"insert into groups (id, account_id, name, resources, public_id) VALUES('test-group-id-1',$1,'test-group-1', '[{\"ID\":\"host-id-1\",\"Type\":\"host\"}]','public-id-1')", acctId)
+		"insert into groups (id, account_id, name, resources, public_id) VALUES('g1-test-group-id-1',$1,'test-group-1', '[{\"ID\":\"host-id-1\",\"Type\":\"host\"}]','public-id-1')", acctId)
 	assert.NoError(t, err)
 	_, err = s.Pool.Query(ctx,
-		"insert into groups (id, account_id, name, resources, public_id) VALUES('test-group-id-2',$1,'test-group-2', '[{\"ID\":\"subnet-id-1\",\"Type\":\"subnet\"}, {\"ID\":\"host-id-2\",\"Type\":\"host\"}]','public-id-2')", acctId)
+		"insert into groups (id, account_id, name, resources, public_id) VALUES('g1-test-group-id-2',$1,'test-group-2', '[{\"ID\":\"subnet-id-1\",\"Type\":\"subnet\"}, {\"ID\":\"host-id-2\",\"Type\":\"host\"}]','public-id-2')", acctId)
 	assert.NoError(t, err)
 	_, err = s.Pool.Query(ctx,
-		"insert into group_peers (peer_id, group_id) VALUES('peer-id-1','test-group-id-1')")
+		"insert into group_peers (peer_id, group_id) VALUES('peer-id-1','g1-test-group-id-1')")
 	assert.NoError(t, err)
 	_, err = s.Pool.Query(ctx,
-		"insert into group_peers (peer_id, group_id) VALUES('peer-id-2','test-group-id-2')")
+		"insert into group_peers (peer_id, group_id) VALUES('peer-id-2','g1-test-group-id-2')")
 	assert.NoError(t, err)
 	_, err = s.Pool.Query(ctx,
-		"insert into group_peers (peer_id, group_id) VALUES('peer-id-3','test-group-id-2')")
+		"insert into group_peers (peer_id, group_id) VALUES('peer-id-3','g1-test-group-id-2')")
 	assert.NoError(t, err)
 
 	groups, resourceToGroupIdx, err := s.GetGroups(ctx, acctId)
 	assert.NoError(t, err)
 	assert.Contains(t,
 		groups,
-		nmdata.Group{ID: "test-group-id-1", Name: "test-group-1", PublicID: "public-id-1", Resources: []nmdata.Resource{{ID: "host-id-1", Type: "host"}}, Peers: []string{"peer-id-1"}},
+		nmdata.Group{ID: "g1-test-group-id-1", Name: "test-group-1", PublicID: "public-id-1", Resources: []nmdata.Resource{{ID: "host-id-1", Type: "host"}}, Peers: []string{"peer-id-1"}},
 	)
-	assert.NotNil(t, resourceToGroupIdx["host-id-1"]["test-group-id-1"])
+	assert.NotNil(t, resourceToGroupIdx["host-id-1"]["g1-test-group-id-1"])
 	assert.Contains(t,
 		groups,
-		nmdata.Group{ID: "test-group-id-2", Name: "test-group-2", PublicID: "public-id-2",
+		nmdata.Group{ID: "g1-test-group-id-2", Name: "test-group-2", PublicID: "public-id-2",
 			Resources: []nmdata.Resource{{ID: "subnet-id-1", Type: "subnet"}, {ID: "host-id-2", Type: "host"}},
 			Peers:     []string{"peer-id-2", "peer-id-3"}},
 	)
-	assert.NotNil(t, resourceToGroupIdx["host-id-2"]["test-group-id-2"])
-	assert.NotNil(t, resourceToGroupIdx["subnet-id-1"]["test-group-id-2"])
+	assert.NotNil(t, resourceToGroupIdx["host-id-2"]["g1-test-group-id-2"])
+	assert.NotNil(t, resourceToGroupIdx["subnet-id-1"]["g1-test-group-id-2"])
 }
 
 // Verify handling of empty fields in groups table
@@ -72,7 +72,7 @@ func TestGetGroupsWithoutExpectedFields(t *testing.T) {
 	assert.NoError(t, err)
 
 	_, err = s.Pool.Query(ctx,
-		"insert into groups (id, account_id) VALUES('test-group-id-1',$1)", acctId)
+		"insert into groups (id, account_id) VALUES('g2-test-group-id-1',$1)", acctId)
 	assert.NoError(t, err)
 
 	groups, _, err := s.GetGroups(ctx, acctId)
