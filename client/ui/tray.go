@@ -93,9 +93,8 @@ type Tray struct {
 	updater *trayUpdater
 
 	// reconnectCancel is non-nil while the Reconnect round trip is in flight: it
-	// keeps a second click from sending a Down into the in-flight Up, and lets
-	// Disconnect/quit abort that Up. The click-time SetEnabled(false) can't do
-	// the former — buildMenu recreates the item on every relayout.
+	// blocks a second click and lets Disconnect and quit abort the queued Up.
+	// SetEnabled(false) cannot do that; buildMenu recreates the item on relayout.
 	reconnectMu     sync.Mutex
 	reconnectCancel context.CancelFunc
 
@@ -555,14 +554,13 @@ func (t *Tray) handleDisconnect(downItem *application.MenuItem) {
 	}()
 }
 
-// handleReconnect drives the Reconnect entry. BeginProfileSwitch supplies the
-// transitional paint — the optimistic Connecting, the suppressed teardown blink,
-// and the login-watch that opens browser-login if the Up lands in NeedsLogin —
-// because a reconnect is the same Down → Up a profile switch performs.
-// Receives the clicked item from the buildMenu closure (see handleConnect).
+// handleReconnect drives the Reconnect entry, reusing BeginProfileSwitch for the
+// transitional paint and the SSO login-watch: a reconnect is the same Down then
+// Up a profile switch performs. Receives the clicked item from the buildMenu
+// closure (see handleConnect).
 func (t *Tray) handleReconnect(reconnectItem *application.MenuItem) {
-	// A switch is already a Down → Up, and cancelling one midway can leave the
-	// daemon and the CLI's on-disk profile state disagreeing.
+	// A switch is already a Down then Up, and cancelling one midway can leave
+	// the daemon and the CLI's on-disk profile state disagreeing.
 	t.profileMu.Lock()
 	switching := t.switchCancel != nil
 	t.profileMu.Unlock()

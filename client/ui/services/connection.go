@@ -182,9 +182,9 @@ func (s *Connection) WaitSSOLoginAndUp(ctx context.Context, wait WaitSSOParams, 
 }
 
 // Reconnect tears the session down and brings it straight back up. Down is
-// synchronous, so Up follows only once the teardown is done; a failed Down or a
-// ctx cancelled between the legs aborts, so neither stacks an Up on a session
-// that is still up nor undoes a Disconnect that raced the round trip.
+// synchronous, so Up follows only once the teardown finished. A failed Down, or
+// a ctx cancelled between the legs, aborts: neither stacks an Up on a session
+// that is still up, nor undoes a Disconnect that raced the round trip.
 func (s *Connection) Reconnect(ctx context.Context) error {
 	if err := s.Down(ctx); err != nil {
 		return fmt.Errorf("down: %w", err)
