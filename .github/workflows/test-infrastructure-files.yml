@@ -258,7 +258,13 @@ jobs:
           persist-credentials: false
 
       - name: Verify fresh-install session cookie key hardening
-        run: bash infrastructure_files/tests/session-cookie-key-hardening.sh
+        run: |
+          grep -Fxq '  SESSION_COOKIE_ENCRYPTION_KEY=$(openssl rand -base64 32)' infrastructure_files/getting-started.sh
+          grep -Fxq '    sessionCookieEncryptionKey: "$SESSION_COOKIE_ENCRYPTION_KEY"' infrastructure_files/getting-started.sh
+          grep -Fxq '  install -m 600 /dev/null config.yaml' infrastructure_files/getting-started.sh
+          grep -Fxq '  openssl rand -base64 32' infrastructure_files/getting-started-enterprise.sh
+          grep -Fxq '  NETBIRD_SESSION_COOKIE_ENCRYPTION_KEY=$(rand_b64_key)' infrastructure_files/getting-started-enterprise.sh
+          grep -Fxq '    sessionCookieEncryptionKey: "${NETBIRD_SESSION_COOKIE_ENCRYPTION_KEY}"' infrastructure_files/getting-started-enterprise.sh
 
       - name: Verify Dex retirement notice
         run: |
