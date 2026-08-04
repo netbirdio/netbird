@@ -7,7 +7,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc"
 
 	"github.com/netbirdio/netbird/client/proto"
@@ -53,16 +53,17 @@ func TestConnectionReconnectSendsDownThenUp(t *testing.T) {
 	client := &fakeDaemonClient{}
 	conn := NewConnection(fakeDaemonConn{client: client}, nil, nil)
 
-	require.NoError(t, conn.Reconnect(context.Background()))
-	require.Equal(t, []string{"down", "up"}, client.calls)
+	assert.NoError(t, conn.Reconnect(context.Background()))
+	assert.Equal(t, []string{"down", "up"}, client.calls,
+		"Reconnect must send Down before Up")
 }
 
 func TestConnectionReconnectFailedDownSkipsUp(t *testing.T) {
 	client := &fakeDaemonClient{downErr: errors.New("teardown refused")}
 	conn := NewConnection(fakeDaemonConn{client: client}, nil, nil)
 
-	require.Error(t, conn.Reconnect(context.Background()))
-	require.Equal(t, []string{"down"}, client.calls,
+	assert.Error(t, conn.Reconnect(context.Background()))
+	assert.Equal(t, []string{"down"}, client.calls,
 		"Up must not stack on a session that is still up")
 }
 
@@ -74,6 +75,8 @@ func TestConnectionReconnectCancelDuringDownSkipsUp(t *testing.T) {
 	client := &fakeDaemonClient{onDown: cancel}
 	conn := NewConnection(fakeDaemonConn{client: client}, nil, nil)
 
-	require.ErrorIs(t, conn.Reconnect(ctx), context.Canceled)
-	require.Equal(t, []string{"down"}, client.calls)
+	assert.ErrorIs(t, conn.Reconnect(ctx), context.Canceled,
+		"Reconnect must surface the cancellation")
+	assert.Equal(t, []string{"down"}, client.calls,
+		"a cancel mid-teardown must not be followed by Up")
 }

@@ -34,7 +34,8 @@ const (
 	quitDownTimeout = 5 * time.Second
 	// Matches DaemonFeed's suppression window; a daemon that never answers Down
 	// would otherwise grey the Reconnect entry out for the rest of the session.
-	reconnectTimeout = 30 * time.Second
+	reconnectTimeout     = 30 * time.Second
+	statusRefreshTimeout = 5 * time.Second
 
 	urlGitHubRepo = "https://github.com/netbirdio/netbird"
 	urlDocs       = "https://docs.netbird.io"
@@ -599,9 +600,13 @@ func (t *Tray) handleReconnect(reconnectItem *application.MenuItem) {
 			// pushes only on state changes, so nothing would clear the
 			// optimistic Connecting.
 			t.svc.DaemonFeed.CancelProfileSwitch()
-			if st, serr := t.svc.DaemonFeed.Get(context.Background()); serr == nil {
+			sctx, scancel := context.WithTimeout(context.Background(), statusRefreshTimeout)
+			if st, serr := t.svc.DaemonFeed.Get(sctx); serr == nil {
 				t.applyStatus(st)
+			} else {
+				log.Debugf("reconnect: status refresh: %v", serr)
 			}
+			scancel()
 			t.notifyError(t.loc.T("notify.error.reconnect"))
 		}
 		// reconnectItem is detached by now, so the row comes back via relayout.

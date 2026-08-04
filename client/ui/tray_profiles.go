@@ -164,6 +164,9 @@ func (t *Tray) fillProfileSubmenu() {
 // it precisely even when display names collide. display is used only for the
 // failure notification.
 func (t *Tray) switchProfile(handle, display string) {
+	// The switch performs its own Down and Up; an in-flight reconnect would
+	// race a second Up in and leave the winning profile undefined.
+	t.cancelReconnect()
 	t.profileMu.Lock()
 	if t.switchCancel != nil {
 		t.switchCancel()
