@@ -690,13 +690,13 @@
         "message": "Lokalne przekierowanie portów"
     },
     "settings.ssh.localForward.help": {
-        "message": "Zezwalaj łączącym się urządzeniom tunelować swoje lokalne porty do usług dostępnych z tego hosta."
+        "message": "Zezwalaj łączącym się urządzeniom na tunelowanie swoich lokalnych portów do usług dostępnych z tego hosta."
     },
     "settings.ssh.remoteForward.label": {
         "message": "Zdalne przekierowanie portów"
     },
     "settings.ssh.remoteForward.help": {
-        "message": "Zezwalaj łączącym się urządzeniom udostępniać na tym hoście porty prowadzące do ich własnych maszyn."
+        "message": "Zezwalaj łączącym się urządzeniom na udostępnianie na tym hoście portów prowadzących do ich własnych maszyn."
     },
     "settings.ssh.jwt.label": {
         "message": "Włącz uwierzytelnianie JWT"
