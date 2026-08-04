@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,6 +25,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/netbirdio/netbird/encryption"
+	agentnetworkpricing "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/pricing"
 	mgmtServer "github.com/netbirdio/netbird/management/internals/server"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -286,6 +288,11 @@ func (s *serverInstances) createManagementServer(ctx context.Context, cfg *Combi
 	if err := EnsureEncryptionKey(ctx, mgmtConfig); err != nil {
 		cleanupSTUNListeners(s.stunListeners)
 		return fmt.Errorf("failed to ensure encryption key: %w", err)
+	}
+
+	if err := loadAgentNetworkPricing(ctx, mgmtConfig); err != nil {
+		cleanupSTUNListeners(s.stunListeners)
+		return fmt.Errorf("failed to load agent-network pricing defaults: %w", err)
 	}
 
 	LogConfigInfo(mgmtConfig)
@@ -623,6 +630,32 @@ func handleRelayWebSocket(w http.ResponseWriter, r *http.Request, acceptFn func(
 	acceptFn(conn)
 }
 
+// loadAgentNetworkPricing loads the management-side LLM pricing defaults
+// file for the combined server and starts its periodic reloader. An
+// explicitly configured PricingDefaultsFile is required to load (a typo
+// must fail startup rather than silently bill with built-ins the operator
+// believes they replaced); a relative path is resolved against the data
+// directory so a bare filename like "pricing.yaml" lands in the datadir
+// alongside the store. With no path configured, <datadir>/<DefaultFileName>
+// is probed and may be absent (compiled-in defaults serve).
+func loadAgentNetworkPricing(ctx context.Context, mgmtConfig *nbconfig.Config) error {
+	pricingPath := mgmtConfig.AgentNetwork.PricingDefaultsFile
+	required := pricingPath != ""
+	if !required {
+		pricingPath = agentnetworkpricing.DefaultFileName
+	}
+	if !filepath.IsAbs(pricingPath) {
+		pricingPath = filepath.Join(mgmtConfig.Datadir, pricingPath)
+	}
+
+	log.Infof("loading agent-network pricing defaults from %s (required: %v)", pricingPath, required)
+	if err := agentnetworkpricing.LoadFile(pricingPath, required); err != nil {
+		return err
+	}
+	agentnetworkpricing.StartReloader(ctx, agentnetworkpricing.ReloadInterval)
+	return nil
+}
+
 // logConfig prints all configuration parameters for debugging
 func logConfig(cfg *CombinedConfig) {
 	log.Info("=== Configuration ===")
@@ -698,6 +731,25 @@ func logManagementConfig(cfg *CombinedConfig) {
 	if len(cfg.Management.Relays.Addresses) > 0 {
 		log.Infof("    Relay addresses: %v", cfg.Management.Relays.Addresses)
 		log.Infof("    Relay credentials TTL: %s", cfg.Management.Relays.CredentialsTTL)
+	}
+
+	logAgentNetworkConfig(cfg)
+}
+
+func logAgentNetworkConfig(cfg *CombinedConfig) {
+	log.Info("  Agent Network:")
+	pricingPath := cfg.Server.AgentNetwork.PricingDefaultsFile
+	configured := pricingPath != ""
+	if !configured {
+		pricingPath = agentnetworkpricing.DefaultFileName
+	}
+	if !filepath.IsAbs(pricingPath) {
+		pricingPath = filepath.Join(cfg.Management.DataDir, pricingPath)
+	}
+	if configured {
+		log.Infof("    Pricing defaults file: %s", pricingPath)
+	} else {
+		log.Infof("    Pricing defaults file: %s (default, optional)", pricingPath)
 	}
 }
 

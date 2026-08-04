@@ -102,11 +102,20 @@ func TestAgentNetwork_UpdateSettings_PreservesImmutableAndTogglesCollection(t *t
 	require.NotEmpty(t, before.Subdomain, "subdomain pinned at bootstrap")
 	assert.False(t, before.EnablePromptCollection, "prompt collection defaults off")
 
-	// Attempt to flip toggles AND smuggle a different cluster/subdomain — the
-	// immutable fields must be ignored.
+	// A cluster different from the one pinned at bootstrap must be rejected
+	// outright — never silently swapped or ignored.
+	_, err = mgr.UpdateSettings(ctx, adminUserID, &agenttypes.Settings{
+		AccountID:           accountID,
+		Cluster:             "attacker.cluster",
+		EnableLogCollection: true,
+	})
+	require.Error(t, err, "UpdateSettings with a mismatched cluster must fail")
+
+	// Flipping the toggles works with the pinned cluster echoed back (and
+	// with it omitted); the subdomain is never taken from the request.
 	updated, err := mgr.UpdateSettings(ctx, adminUserID, &agenttypes.Settings{
 		AccountID:              accountID,
-		Cluster:                "attacker.cluster",
+		Cluster:                clusterAddr,
 		Subdomain:              "evil",
 		EnableLogCollection:    true,
 		EnablePromptCollection: true,
