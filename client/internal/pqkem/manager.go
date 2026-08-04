@@ -186,8 +186,9 @@ func (m *Manager) trace(msg string, args ...any) {
 }
 
 // AddPeer registers where a peer's data-path messages are sent and received: its
-// overlay endpoint (IP:port). A peer that advertises a PQ endpoint is, by that fact,
-// running the KEM, so it is marked capable.
+// overlay endpoint (IP:port). This is pure routing and says nothing about capability —
+// PQ capability is decided solely from the peer's KEM payload (see processOffer /
+// processAnswer / MarkNonCapable), never from an endpoint or port.
 func (m *Manager) AddPeer(remoteID RemoteID, endpoint netip.AddrPort) {
 	if !endpoint.IsValid() {
 		return
@@ -198,7 +199,6 @@ func (m *Manager) AddPeer(remoteID RemoteID, endpoint netip.AddrPort) {
 	}
 	m.peerAddrs[remoteID] = endpoint
 	m.peersByAddr[endpoint] = remoteID
-	m.capable[remoteID] = true
 	m.mu.Unlock()
 }
 
