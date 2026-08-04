@@ -34,4 +34,8 @@ type Client interface {
 	CreateExpose(ctx context.Context, req ExposeRequest) (*ExposeResponse, error)
 	RenewExpose(ctx context.Context, domain string) error
 	StopExpose(ctx context.Context, domain string) error
+	// GetAgentNetworkSetup returns the Agent Network connection info the
+	// calling peer's groups authorize: proxy endpoint plus effective
+	// providers and models.
+	GetAgentNetworkSetup(ctx context.Context) (*proto.AgentNetworkSetupResponse, error)
 }

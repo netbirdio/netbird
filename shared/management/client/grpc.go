@@ -914,6 +914,38 @@ func (c *GrpcClient) StopExpose(ctx context.Context, domain string) error {
 	return err
 }
 
+// GetAgentNetworkSetup asks the management server for the Agent Network
+// connection info the calling peer's groups authorize.
+func (c *GrpcClient) GetAgentNetworkSetup(ctx context.Context) (*proto.AgentNetworkSetupResponse, error) {
+	serverPubKey, err := c.getServerPublicKey()
+	if err != nil {
+		return nil, err
+	}
+
+	encReq, err := encryption.EncryptMessage(*serverPubKey, c.key, &proto.AgentNetworkSetupRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("encrypt agent network setup request: %w", err)
+	}
+
+	mgmCtx, cancel := context.WithTimeout(ctx, ConnectTimeout)
+	defer cancel()
+
+	resp, err := c.realClient.GetAgentNetworkSetup(mgmCtx, &proto.EncryptedMessage{
+		WgPubKey: c.key.PublicKey().String(),
+		Body:     encReq,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	setupResp := &proto.AgentNetworkSetupResponse{}
+	if err := encryption.DecryptMessage(*serverPubKey, c.key, resp.Body, setupResp); err != nil {
+		return nil, fmt.Errorf("decrypt agent network setup response: %w", err)
+	}
+
+	return setupResp, nil
+}
+
 func fromProtoExposeResponse(resp *proto.ExposeServiceResponse) *ExposeResponse {
 	return &ExposeResponse{
 		ServiceName:      resp.ServiceName,

@@ -171,6 +171,9 @@ func init() {
 	rootCmd.AddCommand(debugCmd)
 	rootCmd.AddCommand(profileCmd)
 	rootCmd.AddCommand(exposeCmd)
+	rootCmd.AddCommand(agentNetworkCmd)
+	agentNetworkCmd.AddCommand(agentNetworkLsCmd)
+	agentNetworkCmd.AddCommand(agentNetworkEnvCmd)
 
 	networksCMD.AddCommand(routesListCmd)
 	networksCMD.AddCommand(routesSelectCmd, routesDeselectCmd)
