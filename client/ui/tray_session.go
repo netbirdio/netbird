@@ -27,11 +27,10 @@ const (
 	finalWarningCountdownSeconds = 120
 )
 
-// handleSessionExpired notifies and brings the window forward so the frontend's /login route drives renewal.
+// handleSessionExpired notifies and brings the window forward so the user can reconnect.
 func (t *Tray) handleSessionExpired() {
 	t.notify(t.loc.T("notify.sessionExpired.title"), t.loc.T("notify.sessionExpired.body"), notifyIDSessionExpired)
 	if t.window != nil {
-		t.window.SetURL("/#/login")
 		t.window.Show()
 		t.window.Focus()
 	}
