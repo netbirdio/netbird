@@ -11,8 +11,8 @@ import (
 	"github.com/rs/xid"
 	"golang.org/x/exp/maps"
 
-	"github.com/netbirdio/management-integrations/integrations"
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
+	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/shared/management/networkmap"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
@@ -43,7 +43,7 @@ type NetworkMapDBStore interface {
 type NetworkMapDBStoreImpl struct {
 	store                   NetworkMapDBStore
 	integratedPeerValidator integrated_validator.IntegratedValidator
-	extraSettingsManager    integrations.Manager
+	extraSettingsManager    settings.Manager
 }
 
 func NewNetworkMapDBStoreImpl(store NetworkMapDBStore, integratedPeerValidator integrated_validator.IntegratedValidator, extraSettingsManager integrations.Manager) *NetworkMapDBStoreImpl {
