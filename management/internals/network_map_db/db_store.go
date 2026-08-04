@@ -8,7 +8,6 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/shared/management/networkmap"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/rs/xid"
@@ -38,8 +37,7 @@ type NetworkMapDBStore interface {
 }
 
 type NetworkMapDBStoreImpl struct {
-	store                   NetworkMapDBStore
-	integratedPeerValidator integrated_validator.IntegratedValidator
+	store NetworkMapDBStore
 }
 
 func FromSqlTypesToSharedTypes(src reflect.Value, dst reflect.Value) error {
