@@ -108,6 +108,7 @@ func (m *Manager) processOffer(remoteID RemoteID, o *OfferMsg) ([]byte, error) {
 	ex.lastSent = raw
 	ex.pendingPSK = psk
 	m.psks[remoteID] = psk
+	m.capable[remoteID] = true // a real KEM offer proves the peer runs the exchange
 	m.mu.Unlock()
 
 	m.trace("pqkem: new PSK derived", "peer", remoteID, "exchange", idHex(o.ExchangeID), "role", "responder", "psk_fp", pskFingerprint(psk))
@@ -153,6 +154,7 @@ func (m *Manager) processAnswer(remoteID RemoteID, a *AnswerMsg) error {
 	m.established[remoteID] = true
 	m.failures[remoteID] = 0
 	m.psks[remoteID] = psk
+	m.capable[remoteID] = true // a real KEM answer proves the peer runs the exchange
 	m.mu.Unlock()
 
 	m.trace("pqkem: new PSK derived", "peer", remoteID, "exchange", idHex(a.ExchangeID), "role", "initiator", "psk_fp", pskFingerprint(psk))
