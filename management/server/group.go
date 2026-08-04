@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 
+	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 
@@ -744,6 +745,10 @@ func validateDeleteGroup(ctx context.Context, transaction store.Store, group *ty
 		return &GroupLinkError{"network router", linkedRouter.ID}
 	}
 
+	if isLinked, linkedPolicy := isGroupLinkedToAgentNetworkPolicy(ctx, transaction, group.AccountID, group.ID); isLinked {
+		return &GroupLinkError{"agent network policy", linkedPolicy.Name}
+	}
+
 	return checkGroupLinkedToSettings(ctx, transaction, group)
 }
 
@@ -870,6 +875,26 @@ func isGroupLinkedToNetworkRouter(ctx context.Context, transaction store.Store, 
 	for _, router := range routers {
 		if slices.Contains(router.PeerGroups, groupID) {
 			return true, router
+		}
+	}
+	return false, nil
+}
+
+// isGroupLinkedToAgentNetworkPolicy checks if a group is used as a source group by any
+// agent network policy in the account.
+func isGroupLinkedToAgentNetworkPolicy(ctx context.Context, transaction store.Store, accountID string, groupID string) (bool, *agentNetworkTypes.Policy) {
+	policies, err := transaction.GetAccountAgentNetworkPolicies(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("error retrieving agent network policies while checking group linkage: %v", err)
+		return false, nil
+	}
+
+	for _, policy := range policies {
+		if policy == nil {
+			continue
+		}
+		if slices.Contains(policy.SourceGroups, groupID) {
+			return true, policy
 		}
 	}
 	return false, nil

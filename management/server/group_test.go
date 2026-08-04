@@ -18,6 +18,7 @@ import (
 	"golang.org/x/exp/maps"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/networks"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
@@ -125,6 +126,11 @@ func TestDefaultAccountManager_DeleteGroup(t *testing.T) {
 			"grp-for-integration",
 			"only service users with admin power can delete integration group",
 		},
+		{
+			"agent network policy",
+			"grp-for-agent-network-policy",
+			"agent network policy",
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -217,6 +223,11 @@ func TestDefaultAccountManager_DeleteGroups(t *testing.T) {
 			name:            "integration",
 			groupIDs:        []string{"grp-for-integration"},
 			expectedReasons: []string{"only service users with admin power can delete integration group"},
+		},
+		{
+			name:            "agent network policy",
+			groupIDs:        []string{"grp-for-agent-network-policy"},
+			expectedReasons: []string{"agent network policy"},
 		},
 		{
 			name:            "successfully delete multiple groups",
@@ -406,6 +417,14 @@ func initTestGroupAccount(am *DefaultAccountManager) (*DefaultAccountManager, *t
 		Peers:     make([]string, 0),
 	}
 
+	groupForAgentNetworkPolicy := &types.Group{
+		ID:        "grp-for-agent-network-policy",
+		AccountID: "account-id",
+		Name:      "Group for agent network policies",
+		Issued:    types.GroupIssuedAPI,
+		Peers:     make([]string, 0),
+	}
+
 	routeResource := &route.Route{
 		ID:     "example route",
 		Groups: []string{groupForRoute.ID},
@@ -461,6 +480,18 @@ func initTestGroupAccount(am *DefaultAccountManager) (*DefaultAccountManager, *t
 	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForSetupKeys)
 	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForUsers)
 	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForIntegration)
+	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForAgentNetworkPolicy)
+
+	agentNetworkPolicy := &agentNetworkTypes.Policy{
+		ID:           "example agent network policy",
+		AccountID:    accountID,
+		Name:         "Example agent network policy",
+		Enabled:      true,
+		SourceGroups: []string{groupForAgentNetworkPolicy.ID},
+	}
+	if err := am.Store.SaveAgentNetworkPolicy(context.Background(), agentNetworkPolicy); err != nil {
+		return nil, nil, err
+	}
 
 	acc, err := am.Store.GetAccount(context.Background(), account.Id)
 	if err != nil {
