@@ -186,10 +186,10 @@ type Conn struct {
 	// transport is up.
 	pendingFirstPacket []byte
 
-	// pqBlockingKey is a per-conn random sentinel PSK used in PQ strict mode to fail
-	// closed: it is programmed until the real ML-KEM PSK is derived, so no session can
-	// form on a non-PQ key. Per-conn random so two strict peers never match by chance.
-	pqBlockingKey *wgtypes.Key
+	// pqStrictSentinelKey is a per-conn random sentinel PSK used in PQ strict mode to
+	// fail closed: it is programmed until the real ML-KEM PSK is derived, so no session
+	// can form on a non-PQ key. Per-conn random so two strict peers never match by chance.
+	pqStrictSentinelKey *wgtypes.Key
 }
 
 // injectPendingFirstPacket replays the captured handshake through the proxy if present, else
@@ -251,7 +251,7 @@ func NewConn(config ConnConfig, services ServiceDependencies) (*Conn, error) {
 		if k, err := wgtypes.GenerateKey(); err != nil {
 			connLog.Errorf("pqkem: failed to generate strict-mode sentinel key, strict fail-closed disabled for this peer: %v", err)
 		} else {
-			conn.pqBlockingKey = &k
+			conn.pqStrictSentinelKey = &k
 		}
 	}
 
@@ -1094,13 +1094,13 @@ func (conn *Conn) presharedKey(remoteRosenpassKey []byte) *wgtypes.Key {
 		if psk, ok := conn.config.PQ.PSK(conn.config.Key); ok {
 			return &psk
 		}
-		if conn.config.PQStrict && conn.pqBlockingKey != nil {
+		if conn.config.PQStrict && conn.pqStrictSentinelKey != nil {
 			// Fail closed: program a non-matching sentinel so no session forms on a
 			// non-PQ key until the ML-KEM exchange derives the real PSK (pushed via
 			// SetPresharedKey once it converges). "pending" — turns into a "stuck"
 			// warning from the manager if the exchange keeps failing (see raiseFailure).
 			conn.Log.Debugf("pqkem: strict mode — no PQ PSK yet, blocking peer traffic until the ML-KEM exchange converges")
-			return conn.pqBlockingKey
+			return conn.pqStrictSentinelKey
 		}
 	}
 
