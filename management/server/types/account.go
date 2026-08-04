@@ -978,34 +978,6 @@ func (a *Account) GetPeerConnectionResources(ctx context.Context, peer *nbpeer.P
 	return peers, fwRules, authorizedUsers, sshEnabled
 }
 
-// forcesRoutingPeerDNSResolution reports whether the given peer must run
-// routing-peer DNS resolution regardless of the account-global
-// RoutingPeerDNSResolutionEnabled setting. It returns true when the peer is a
-// router for a domain network resource that is targeted by an enabled
-// reverse-proxy service, so the peer's DNS forwarder starts and can resolve
-// the target for the embedded proxy peers. Embedded proxy peers themselves are
-// handled at PeerConfig build time.
-func (a *Account) forcesRoutingPeerDNSResolution(peerID string, routers map[string]map[string]*routerTypes.NetworkRouter) bool {
-	targeted := a.proxyTargetedDomainResourceIDs()
-	if len(targeted) == 0 {
-		return false
-	}
-
-	for _, resource := range a.NetworkResources {
-		if resource == nil || !resource.Enabled || resource.Type != resourceTypes.Domain {
-			continue
-		}
-		if _, ok := targeted[resource.ID]; !ok {
-			continue
-		}
-		if _, isRouter := routers[resource.NetworkID][peerID]; isRouter {
-			return true
-		}
-	}
-
-	return false
-}
-
 // proxyTargetedDomainResourceIDs returns the set of domain network resource IDs
 // targeted by an enabled, non-terminated reverse-proxy service.
 func (a *Account) proxyTargetedDomainResourceIDs() map[string]struct{} {

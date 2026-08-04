@@ -86,11 +86,13 @@ func GetPoliciesViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId s
 				return toret, nil, nil, err
 			}
 
-			for _, dst := range pr().Destinations {
-				if _, ok := policyToDestinationGroupIdx[p.ID]; !ok {
-					policyToDestinationGroupIdx[p.ID] = make(map[string]any)
+			if p.RuleEnabled.Valid && p.RuleEnabled.Bool {
+				for _, dst := range pr().Destinations {
+					if _, ok := policyToDestinationGroupIdx[p.ID]; !ok {
+						policyToDestinationGroupIdx[p.ID] = make(map[string]any)
+					}
+					policyToDestinationGroupIdx[p.ID][dst] = struct{}{}
 				}
-				policyToDestinationGroupIdx[p.ID][dst] = struct{}{}
 			}
 		}
 		if len(p.SourceResource) > 0 {
@@ -105,10 +107,12 @@ func GetPoliciesViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId s
 				return toret, nil, nil, err
 			}
 
-			if _, ok := policyToDestinationResourceIdx[p.ID]; !ok {
-				policyToDestinationResourceIdx[p.ID] = make(map[string]any)
+			if p.RuleEnabled.Valid && p.RuleEnabled.Bool {
+				if _, ok := policyToDestinationResourceIdx[p.ID]; !ok {
+					policyToDestinationResourceIdx[p.ID] = make(map[string]any)
+				}
+				policyToDestinationResourceIdx[p.ID][pr().DestinationResource.ID] = struct{}{}
 			}
-			policyToDestinationResourceIdx[p.ID][pr().DestinationResource.ID] = struct{}{}
 		}
 		if len(p.Ports) > 0 {
 			err := json.Unmarshal([]byte(p.Ports), &pr().Ports)

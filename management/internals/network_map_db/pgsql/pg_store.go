@@ -7,8 +7,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
-	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
-	"github.com/netbirdio/netbird/management/server/settings"
 )
 
 const (
@@ -21,9 +19,7 @@ const (
 var _ networkmapdb.NetworkMapDBStore = &PgStore{}
 
 type PgStore struct {
-	Pool                    *pgxpool.Pool
-	integratedPeerValidator integrated_validator.IntegratedValidator
-	settingsManager         settings.Manager
+	Pool *pgxpool.Pool
 }
 
 func NewPostgresqlStore(ctx context.Context, dsn string) (*PgStore, error) {

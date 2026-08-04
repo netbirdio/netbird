@@ -102,8 +102,8 @@ func (s *BaseServer) Store() store.Store {
 	})
 }
 
-func (s *BaseServer) NetworkMapStore() networkmapdb.NetworkMapDBStore {
-	return Create(s, func() networkmapdb.NetworkMapDBStore {
+func (s *BaseServer) NetworkMapStore() *networkmapdb.NetworkMapDBStoreImpl {
+	return Create(s, func() *networkmapdb.NetworkMapDBStoreImpl {
 		dsn := os.Getenv("NETBIRD_NMAP_STORE_DSN") // Todo: this needs to be hoocked up properly
 		if dsn == "" {
 			return nil
@@ -114,7 +114,7 @@ func (s *BaseServer) NetworkMapStore() networkmapdb.NetworkMapDBStore {
 			log.Fatalf("failed to create network map store: %v", err)
 		}
 
-		return store
+		return networkmapdb.NewNetworkMapDBStoreImpl(store, s.IntegratedValidator(), s.SettingsManager())
 	})
 }
 

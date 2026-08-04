@@ -81,11 +81,10 @@ func (pg *PgStore) GetNetworkMapData(ctx context.Context, accountId string) (*ne
 	if err != nil {
 		return rollbackAndReturnError(ctx, tx, err)
 	}
-	extraSettings, err := pg.settingsManager.GetExtraSettings(ctx, accountId)
+	proxyTargetedDomainResourceIDs, err := GetProxyTargetedDomainResourceIDsViaPgxConnection(ctx, tx.Conn(), accountId)
 	if err != nil {
-		return rollbackAndReturnError(ctx, tx, err)
+		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get proxy targeted domain resources: %w", err))
 	}
-	validatedPeers, err := pg.integratedPeerValidator.GetValidatedPeers(ctx, accountId, toSliceOfPtrs(groups), toSliceOfPtrs(peers), extraSettings)
 
 	resourcePolicies := make(map[string][]*nmdata.Policy)
 	for _, resource := range networkResources {
@@ -99,7 +98,7 @@ func (pg *PgStore) GetNetworkMapData(ctx context.Context, accountId string) (*ne
 			}
 			if _, ok := policyToDestinationResourceIdx[policy.ID][resource.ID]; ok {
 				resourcePolicies[resource.ID] = append(resourcePolicies[resource.ID], &policy) // TODO (dmitri) maybe use public id?
-				break
+				continue
 			}
 			if groupIds, ok := policyToDestinationGroupIdx[policy.ID]; ok {
 				for networkResourceGroup := range networkResourceGroups {
@@ -118,25 +117,25 @@ func (pg *PgStore) GetNetworkMapData(ctx context.Context, accountId string) (*ne
 	}
 
 	toret := networkmap.NetworkMapData{
-		AccountSettings:           &acctSettings,
-		DNSSettings:               &dnsSettings,
-		Network:                   &network,
-		Peers:                     toMap(peers, func(p nmdata.Peer) string { return p.ID }),
-		ValidatedPeers:            validatedPeers,
-		Groups:                    toMap(groups, func(g nmdata.Group) string { return g.PublicID }),
-		Policies:                  toSliceOfPtrs(policies),
-		ResourcePolicies:          resourcePolicies,
-		Routes:                    toSliceOfPtrs(routes),
-		Routers:                   routers,
-		NameServerGroups:          toSliceOfPtrs(nsGroups),
-		NetworkResources:          toSliceOfPtrs(networkResources),
-		PostureChecks:             toMap(postureChecks, func(pc nmdata.PostureChecks) string { return pc.ID }),
-		AllowedUserIDs:            allowedUserIds,
-		GroupIDToUserIDs:          groupsToUserIds,
-		NetworkXIDToPublicID:      networkXIDToPublicID, // TODO (dmitri) maybe we can switch to public ids everywhere?
-		AppliedZoneCandidates:     dnsZones,
-		PrivateServiceCandidates:  buildPrivateServiceCandidates(services, domains, proxyPeers),
-		PostureCheckXIDToPublicID: postureCheckXIDToPublicID,
+		AccountSettings:                &acctSettings,
+		DNSSettings:                    &dnsSettings,
+		Network:                        &network,
+		Peers:                          toMap(peers, func(p nmdata.Peer) string { return p.ID }),
+		Groups:                         toMap(groups, func(g nmdata.Group) string { return g.ID }),
+		Policies:                       toSliceOfPtrs(policies),
+		ResourcePolicies:               resourcePolicies,
+		Routes:                         toSliceOfPtrs(routes),
+		Routers:                        routers,
+		NameServerGroups:               toSliceOfPtrs(nsGroups),
+		NetworkResources:               toSliceOfPtrs(networkResources),
+		PostureChecks:                  toMap(postureChecks, func(pc nmdata.PostureChecks) string { return pc.ID }),
+		AllowedUserIDs:                 allowedUserIds,
+		GroupIDToUserIDs:               groupsToUserIds,
+		NetworkXIDToPublicID:           networkXIDToPublicID, // TODO (dmitri) maybe we can switch to public ids everywhere?
+		AppliedZoneCandidates:          dnsZones,
+		PrivateServiceCandidates:       buildPrivateServiceCandidates(services, domains, proxyPeers),
+		PostureCheckXIDToPublicID:      postureCheckXIDToPublicID,
+		ProxyTargetedDomainResourceIDs: proxyTargetedDomainResourceIDs,
 	}
 
 	return &toret, nil
@@ -158,7 +157,7 @@ func toMap[T any](all []T, id func(t T) string) map[string]*T {
 }
 
 func toSliceOfPtrs[T any](all []T) []*T {
-	toret := make([]*T, len(all))
+	toret := make([]*T, 0, len(all))
 	for _, t := range all {
 		toret = append(toret, &t)
 	}
@@ -198,6 +197,9 @@ func buildPrivateServiceCandidates(svcs []service, domains []domain, proxyPeersB
 	}
 
 	for _, svc := range svcs {
+		if !svc.Enabled.Bool || !svc.Private.Bool {
+			continue
+		}
 		if len(svc.AccessGroups) == 0 {
 			continue
 		}

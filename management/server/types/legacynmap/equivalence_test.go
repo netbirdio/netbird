@@ -3,10 +3,14 @@
 // Main-vs-branch equivalence check. For every peer of every account in a real
 // Postgres copy it computes the client-facing proto.NetworkMap twice:
 //
-//   - legacy path: main's Account → NetworkMapComponents → Calculate → proto
+//   - legacy path:  main's Account → NetworkMapComponents → Calculate → proto
 //     (the frozen copy in this package)
-//   - new path:    this branch's Account → NetworkMapData → components →
-//     Calculate → ToSyncResponse → proto
+//   - store path:   the pgsql nmdata store's NetworkMapData → components →
+//     Calculate → ToSyncResponse → proto (no Account involved)
+//   - account path: Account → toNetworkMapData twins → components → Calculate
+//     → ToSyncResponse → proto (the in-memory builder, no store queries)
+//
+// Both new paths are checked against the legacy proto.
 //
 // proto.NetworkMap is generated code identical in both trees, which is what
 // makes it the one usable comparison surface — the intermediate Go types differ
@@ -47,10 +51,12 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller/cache"
+	networkmap_pgsql "github.com/netbirdio/netbird/management/internals/network_map_db/pgsql"
 	mgmtgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/types/legacynmap"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -62,7 +68,6 @@ const (
 type equivStats struct {
 	accounts     int
 	peersChecked int
-	skippedNilNM int
 }
 
 func TestNetworkMapProtoEquivalence(t *testing.T) {
@@ -81,6 +86,10 @@ func TestNetworkMapProtoEquivalence(t *testing.T) {
 	require.NoError(t, err, "connect to postgres")
 	t.Cleanup(func() { testStore.Close(ctx) })
 
+	nmStore, err := networkmap_pgsql.NewPostgresqlStore(ctx, dsn)
+	require.NoError(t, err, "connect nmdata store")
+	t.Cleanup(func() { nmStore.Pool.Close() })
+
 	accountIDs := equivAccountIDs(t, dsn)
 	require.NotEmpty(t, accountIDs, "no accounts selected")
 
@@ -94,7 +103,7 @@ func TestNetworkMapProtoEquivalence(t *testing.T) {
 			continue
 		}
 
-		checkAccount(ctx, t, account, maxPeers, stats)
+		checkAccount(ctx, t, nmStore, account, maxPeers, stats)
 
 		account = nil
 		debug.FreeOSMemory()
@@ -106,18 +115,21 @@ func TestNetworkMapProtoEquivalence(t *testing.T) {
 		}
 	}
 
-	t.Logf("equivalence: accounts=%d peers_checked=%d skipped_nil_nm=%d — no divergence",
-		stats.accounts, stats.peersChecked, stats.skippedNilNM)
+	t.Logf("equivalence: accounts=%d peers_checked=%d — no divergence",
+		stats.accounts, stats.peersChecked)
 }
 
 // checkAccount compares both paths for every peer of one account. Nothing is
 // retained across peers, so memory stays flat within an account.
-func checkAccount(ctx context.Context, t *testing.T, account *types.Account, maxPeers int, stats *equivStats) {
+func checkAccount(ctx context.Context, t *testing.T, nmStore *networkmap_pgsql.PgStore, account *types.Account, maxPeers int, stats *equivStats) {
 	t.Helper()
 
 	if len(account.Peers) == 0 {
 		return
 	}
+
+	nmData, err := nmStore.GetNetworkMapData(ctx, account.Id)
+	require.NoError(t, err, "account %s: nmdata store load", account.Id)
 
 	validated := make(map[string]struct{}, len(account.Peers))
 	peerIDs := make([]string, 0, len(account.Peers))
@@ -129,6 +141,15 @@ func checkAccount(ctx context.Context, t *testing.T, account *types.Account, max
 	if maxPeers > 0 && len(peerIDs) > maxPeers {
 		peerIDs = peerIDs[:maxPeers]
 	}
+
+	// Production fills ValidatedPeers via the integrated-validator wrapper; here
+	// every peer counts as validated, matching the legacy side's map.
+	nmData.ValidatedPeers = validated
+	// The legacy side receives no account zones (main sourced them from the
+	// external zones manager), so the DB-sourced applied-zone candidates must be
+	// dropped to keep the comparison surface identical. PrivateServiceCandidates
+	// stay: all paths derive them from account/DB data.
+	nmData.AppliedZoneCandidates = nil
 
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
@@ -144,18 +165,32 @@ func checkAccount(ctx context.Context, t *testing.T, account *types.Account, max
 		if peer == nil {
 			continue
 		}
+		dataPeer := nmData.Peers[peerID]
+		if dataPeer == nil {
+			t.Fatalf("after %d peers: account=%s peer=%s present in account store, missing in nmdata store", stats.peersChecked, account.Id, peerID)
+		}
 
-		// NEW PATH — this branch, through the production conversion.
-		newNM := account.GetPeerNetworkMapFromComponents(
+		// STORE PATH — nmdata store through the production computation, mirroring
+		// the controller's networkMapFromData.
+		components := nmData.GetPeerNetworkMapComponents(peerID, nmdata.CustomZone{})
+		storeNM := &types.NetworkMap{Network: components.Network}
+		if !components.IsEmpty() {
+			storeNM = types.CalculateNetworkMapFromComponents(ctx, components)
+		}
+		// A separate cache per side: sharing one would let the first path
+		// populate entries the second then reuses, which can mask a real diff.
+		storeProto := mgmtgrpc.ToSyncResponse(
+			ctx, nil, nil, nil, dataPeer, nil, nil, storeNM, equivDNSName, nil,
+			&cache.DNSConfigCache{}, nmData.AccountSettings, settings.Extra, nil, 0,
+		).NetworkMap
+
+		// ACCOUNT PATH — Account → toNetworkMapData twins → components.
+		acctNM := account.GetPeerNetworkMapFromComponents(
 			ctx, peerID, nbdns.CustomZone{}, nil, validated, resourcePolicies, routers, nil, groupUsers,
 		)
-		if newNM == nil {
-			stats.skippedNilNM++
-			continue
-		}
-		newProto := mgmtgrpc.ToSyncResponse(
-			ctx, nil, nil, nil, peer, nil, nil, newNM, equivDNSName, nil,
-			&cache.DNSConfigCache{}, settings, settings.Extra, nil, 0,
+		acctProto := mgmtgrpc.ToSyncResponse(
+			ctx, nil, nil, nil, types.TwinPeer(peer), nil, nil, acctNM, equivDNSName, nil,
+			&cache.DNSConfigCache{}, types.TwinAccountSettings(settings), settings.Extra, nil, 0,
 		).NetworkMap
 
 		// LEGACY PATH — main's frozen copy.
@@ -165,18 +200,20 @@ func checkAccount(ctx context.Context, t *testing.T, account *types.Account, max
 		if legacyNM == nil {
 			t.Fatalf("after %d peers: account=%s peer=%s legacy NetworkMap nil, new non-nil", stats.peersChecked, account.Id, peerID)
 		}
-		// A separate cache per side: sharing one would let the first path
-		// populate entries the second then reuses, which can mask a real diff.
 		legacyProto := legacynmap.ToProtoNetworkMap(
 			ctx, peer, legacyNM, equivDNSName, settings, nil, &cache.DNSConfigCache{}, 0,
 		)
 
 		canonicalize(legacyProto)
-		canonicalize(newProto)
+		canonicalize(storeProto)
+		canonicalize(acctProto)
 		stats.peersChecked++
 
-		if !goproto.Equal(legacyProto, newProto) {
-			t.Fatalf("after %d peers: %s", stats.peersChecked, describeDivergence(legacyProto, newProto, account.Id, peerID))
+		if !goproto.Equal(legacyProto, storeProto) {
+			t.Fatalf("after %d peers: store path: %s", stats.peersChecked, describeDivergence(legacyProto, storeProto, account.Id, peerID))
+		}
+		if !goproto.Equal(legacyProto, acctProto) {
+			t.Fatalf("after %d peers: account path: %s", stats.peersChecked, describeDivergence(legacyProto, acctProto, account.Id, peerID))
 		}
 	}
 }
@@ -508,17 +545,18 @@ func describeDivergence(legacy, updated *proto.NetworkMap, accountID, peerID str
 	lens := []struct {
 		field string
 		a, b  int
+		diff  func() string
 	}{
-		{"RemotePeers", len(legacy.RemotePeers), len(updated.RemotePeers)},
-		{"OfflinePeers", len(legacy.OfflinePeers), len(updated.OfflinePeers)},
-		{"Routes", len(legacy.Routes), len(updated.Routes)},
-		{"FirewallRules", len(legacy.FirewallRules), len(updated.FirewallRules)},
-		{"RoutesFirewallRules", len(legacy.RoutesFirewallRules), len(updated.RoutesFirewallRules)},
-		{"ForwardingRules", len(legacy.ForwardingRules), len(updated.ForwardingRules)},
+		{"RemotePeers", len(legacy.RemotePeers), len(updated.RemotePeers), func() string { return diffLists(legacy.RemotePeers, updated.RemotePeers) }},
+		{"OfflinePeers", len(legacy.OfflinePeers), len(updated.OfflinePeers), func() string { return diffLists(legacy.OfflinePeers, updated.OfflinePeers) }},
+		{"Routes", len(legacy.Routes), len(updated.Routes), func() string { return diffLists(legacy.Routes, updated.Routes) }},
+		{"FirewallRules", len(legacy.FirewallRules), len(updated.FirewallRules), func() string { return diffLists(legacy.FirewallRules, updated.FirewallRules) }},
+		{"RoutesFirewallRules", len(legacy.RoutesFirewallRules), len(updated.RoutesFirewallRules), func() string { return diffLists(legacy.RoutesFirewallRules, updated.RoutesFirewallRules) }},
+		{"ForwardingRules", len(legacy.ForwardingRules), len(updated.ForwardingRules), func() string { return diffLists(legacy.ForwardingRules, updated.ForwardingRules) }},
 	}
 	for _, l := range lens {
 		if l.a != l.b {
-			return prefix + " field=" + l.field + " legacy_len=" + strconv.Itoa(l.a) + " new_len=" + strconv.Itoa(l.b)
+			return prefix + " field=" + l.field + " legacy_len=" + strconv.Itoa(l.a) + " new_len=" + strconv.Itoa(l.b) + l.diff()
 		}
 	}
 
@@ -555,6 +593,39 @@ func describeDivergence(legacy, updated *proto.NetworkMap, accountID, peerID str
 		return prefix + " field=Serial legacy=" + strconv.FormatUint(legacy.Serial, 10) + " new=" + strconv.FormatUint(updated.Serial, 10)
 	}
 	return prefix + " (repeated fields equal element-wise — scalar/oneof mismatch)"
+}
+
+// diffLists reports the multiset difference of two repeated proto fields, so a
+// length mismatch shows which elements each side is missing.
+func diffLists[M goproto.Message](legacy, updated []M) string {
+	counts := make(map[string]int)
+	for _, m := range legacy {
+		counts[prototext.MarshalOptions{}.Format(m)]++
+	}
+	for _, m := range updated {
+		counts[prototext.MarshalOptions{}.Format(m)]--
+	}
+
+	var onlyLegacy, onlyNew []string
+	for k, c := range counts {
+		for ; c > 0; c-- {
+			onlyLegacy = append(onlyLegacy, k)
+		}
+		for ; c < 0; c++ {
+			onlyNew = append(onlyNew, k)
+		}
+	}
+	slices.Sort(onlyLegacy)
+	slices.Sort(onlyNew)
+
+	var b strings.Builder
+	for _, k := range onlyLegacy {
+		b.WriteString("\n  only_legacy: " + k)
+	}
+	for _, k := range onlyNew {
+		b.WriteString("\n  only_new: " + k)
+	}
+	return b.String()
 }
 
 func protoStr(m goproto.Message) string {

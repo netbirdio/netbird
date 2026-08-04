@@ -49,6 +49,10 @@ func GetAppliedZoneCandidatesViaPgxConnection(ctx context.Context, conn *pgx.Con
 	toret := make([]networkmap.AppliedZoneCandidate, 0, len(zones))
 	currentZoneId := ""
 	for _, z := range zones {
+		if !z.RecordType.Valid {
+			continue
+		}
+
 		zone := nmdata.CustomZone{}
 		err := networkmapdb.FromSqlTypesToSharedTypes(
 			reflect.ValueOf(&z), reflect.ValueOf(&zone))
@@ -61,33 +65,28 @@ func GetAppliedZoneCandidatesViaPgxConnection(ctx context.Context, conn *pgx.Con
 			return nil, err
 		}
 
+		if z.Id != currentZoneId {
+			zone.Records = []nmdata.SimpleRecord{}
+			toret = append(toret, appliedZoneCandidateFromZone(zone, distributionGroups))
+			currentZoneId = z.Id
+		}
+
 		rtype, rdata, err := recordTypeAndRdata(z.RecordType.String, z.RecordRData.String)
 		if err != nil {
+			if errors.Is(err, DnsUnsupportedRecordTypeError) {
+				continue
+			}
 			return nil, err
 		}
-		record := nmdata.SimpleRecord{
+
+		lastZone := &toret[len(toret)-1]
+		lastZone.Zone.Records = append(lastZone.Zone.Records, nmdata.SimpleRecord{
 			Name:  z.RecordName.String,
 			Class: z.RecordClass.String,
 			TTL:   int(z.RecordTTL.Int64),
 			RData: rdata,
 			Type:  rtype,
-		}
-		zone.Records = []nmdata.SimpleRecord{record}
-
-		if len(toret) == 0 {
-			toret = append(toret, appliedZoneCandidateFromZone(zone, distributionGroups))
-			currentZoneId = z.Id
-			continue
-		}
-
-		if z.Id == currentZoneId {
-			lastZone := &toret[len(toret)-1]
-			lastZone.Zone.Records = append(lastZone.Zone.Records, record)
-			continue
-		}
-
-		toret = append(toret, appliedZoneCandidateFromZone(zone, distributionGroups))
-		currentZoneId = z.Id
+		})
 	}
 	return toret, nil
 }

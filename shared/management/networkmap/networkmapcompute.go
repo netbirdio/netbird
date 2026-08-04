@@ -17,37 +17,42 @@ type sshRequirements struct {
 // exactly, operating on nmdata twins throughout — no Account reference and no
 // twin↔real conversion, since the produced components hold twins.
 func (nmd *NetworkMapData) GetPeerNetworkMapComponents(peerID string, peersCustomZone nmdata.CustomZone) *types.NetworkMapComponents {
+	forceRoutingPeerDNS := nmd.forcesRoutingPeerDNSResolution(peerID)
+
 	peer := nmd.Peers[peerID]
 	if peer == nil {
 		return types.EmptyNetworkMapComponents(&types.NetworkMapComponents{
-			PeerID:  peerID,
-			Network: nmd.Network,
-			Peers:   map[string]*nmdata.Peer{peerID: peer},
+			PeerID:                        peerID,
+			Network:                       nmd.Network,
+			Peers:                         map[string]*nmdata.Peer{peerID: peer},
+			ForceRoutingPeerDNSResolution: forceRoutingPeerDNS,
 		})
 	}
 
 	if _, ok := nmd.ValidatedPeers[peerID]; !ok {
 		return types.EmptyNetworkMapComponents(&types.NetworkMapComponents{
-			PeerID:  peerID,
-			Network: nmd.Network,
-			Peers:   map[string]*nmdata.Peer{peerID: peer},
+			PeerID:                        peerID,
+			Network:                       nmd.Network,
+			Peers:                         map[string]*nmdata.Peer{peerID: peer},
+			ForceRoutingPeerDNSResolution: forceRoutingPeerDNS,
 		})
 	}
 
 	components := &types.NetworkMapComponents{
-		PeerID:                    peerID,
-		Network:                   nmd.Network,
-		AccountSettings:           nmd.AccountSettings,
-		DNSSettings:               nmd.DNSSettings,
-		CustomZoneDomain:          peersCustomZone.Domain,
-		NameServerGroups:          make([]*nmdata.NameServerGroup, 0),
-		ResourcePoliciesMap:       make(map[string][]*nmdata.Policy),
-		RoutersMap:                make(map[string]map[string]*nmdata.NetworkRouter),
-		NetworkResources:          make([]*nmdata.NetworkResource, 0),
-		PostureFailedPeers:        make(map[string]map[string]struct{}, len(nmd.PostureChecks)),
-		RouterPeers:               make(map[string]*nmdata.Peer),
-		NetworkXIDToPublicID:      nmd.NetworkXIDToPublicID,
-		PostureCheckXIDToPublicID: nmd.PostureCheckXIDToPublicID,
+		PeerID:                        peerID,
+		Network:                       nmd.Network,
+		AccountSettings:               nmd.AccountSettings,
+		DNSSettings:                   nmd.DNSSettings,
+		CustomZoneDomain:              peersCustomZone.Domain,
+		NameServerGroups:              make([]*nmdata.NameServerGroup, 0),
+		ResourcePoliciesMap:           make(map[string][]*nmdata.Policy),
+		RoutersMap:                    make(map[string]map[string]*nmdata.NetworkRouter),
+		NetworkResources:              make([]*nmdata.NetworkResource, 0),
+		PostureFailedPeers:            make(map[string]map[string]struct{}, len(nmd.PostureChecks)),
+		RouterPeers:                   make(map[string]*nmdata.Peer),
+		NetworkXIDToPublicID:          nmd.NetworkXIDToPublicID,
+		PostureCheckXIDToPublicID:     nmd.PostureCheckXIDToPublicID,
+		ForceRoutingPeerDNSResolution: forceRoutingPeerDNS,
 	}
 
 	relevantPeers, relevantGroups, relevantPolicies, relevantRoutes, sshReqs := nmd.getPeersGroupsPoliciesRoutes(peerID, peer.SSHEnabled, &components.PostureFailedPeers)
@@ -471,6 +476,31 @@ func (nmd *NetworkMapData) getPostureValidPeersSaveFailed(inputPeers []string, p
 		(*postureFailedPeers)[pname][peerID] = struct{}{}
 	}
 	return dest
+}
+
+// forcesRoutingPeerDNSResolution reports whether the given peer must run
+// routing-peer DNS resolution regardless of the account-global
+// RoutingPeerDNSResolutionEnabled setting: true when the peer routes a domain
+// network resource targeted by an enabled reverse-proxy service, so the peer's
+// DNS forwarder starts and can resolve the target for the embedded proxy peers.
+func (nmd *NetworkMapData) forcesRoutingPeerDNSResolution(peerID string) bool {
+	if len(nmd.ProxyTargetedDomainResourceIDs) == 0 {
+		return false
+	}
+
+	for _, resource := range nmd.NetworkResources {
+		if resource == nil || !resource.Enabled || resource.Type != string(types.ResourceTypeDomain) {
+			continue
+		}
+		if _, ok := nmd.ProxyTargetedDomainResourceIDs[resource.ID]; !ok {
+			continue
+		}
+		if _, isRouter := nmd.Routers[resource.NetworkID][peerID]; isRouter {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (nmd *NetworkMapData) GetPeerGroups(peerID string) map[string]struct{} {
