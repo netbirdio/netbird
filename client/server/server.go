@@ -652,7 +652,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	// to retry, because turning them into an SSO prompt asks the user to solve
 	// something that is not theirs to solve, and a browser login cannot succeed
 	// while Management is unreachable anyway.
-	if loginStatus != internal.StatusNeedsLogin {
+	if loginStatus != internal.StatusNeedsLogin && loginStatus != internal.StatusLoginFailed {
 		state.Set(loginStatus)
 		return nil, err
 	}
