@@ -1,22 +1,15 @@
 package cmd
 
 import (
-	"context"
-	"errors"
 	"fmt"
-	"io/fs"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 
-	"github.com/netbirdio/netbird/client/internal/profilemanager"
-	mgm "github.com/netbirdio/netbird/shared/management/client"
-	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/client/proto"
 )
 
 // agentNetworkAuthToken is the placeholder credential exported for
@@ -26,8 +19,9 @@ import (
 const agentNetworkAuthToken = "netbird"
 
 var (
-	agentNetworkModelFlag string
-	agentNetworkJSONFlag  bool
+	agentNetworkProviderFlag string
+	agentNetworkModelFlag    string
+	agentNetworkJSONFlag     bool
 )
 
 var agentNetworkCmd = &cobra.Command{
@@ -48,88 +42,48 @@ var agentNetworkLsCmd = &cobra.Command{
 var agentNetworkEnvCmd = &cobra.Command{
 	Use:   "env",
 	Short: "Print shell export lines that point AI tools at the Agent Network",
-	Long: `Print POSIX shell export lines (ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN, and
-ANTHROPIC_MODEL when unambiguous) that configure Anthropic-compatible AI tools, such as
-Claude Code, to use the Agent Network proxy. Apply them to the current shell with:
+	Long: `Print POSIX shell export lines that configure AI tools to use the Agent Network proxy.
+The variables depend on the provider's API shape — Anthropic API, AWS Bedrock, Google Vertex AI,
+and OpenAI-compatible providers each get the environment their tools expect (for Claude Code,
+following its LLM-gateway configuration). Apply them to the current shell with:
 
   eval "$(netbird agent-network env)"
 
-When several models are allowed, none is exported — pass --model to pin one.`,
-	Example: "  eval \"$(netbird agent-network env)\"\n  eval \"$(netbird agent-network env --model claude-sonnet-4-5)\"",
+When several providers are authorized, pass --provider to pick one; when several models are
+allowed, pass --model to pin one — nothing is ever guessed.`,
+	Example: "  eval \"$(netbird agent-network env)\"\n  eval \"$(netbird agent-network env --provider 'Bedrock prod' --model anthropic.claude-sonnet-4-5)\"",
 	RunE:    agentNetworkEnv,
 }
 
 func init() {
 	agentNetworkLsCmd.PersistentFlags().BoolVar(&agentNetworkJSONFlag, "json", false, "output the setup as JSON")
-	agentNetworkEnvCmd.PersistentFlags().StringVar(&agentNetworkModelFlag, "model", "", "model to export as ANTHROPIC_MODEL (required when several models are allowed)")
+	agentNetworkEnvCmd.PersistentFlags().StringVar(&agentNetworkProviderFlag, "provider", "", "provider to configure, by name or catalog id (required when several are authorized)")
+	agentNetworkEnvCmd.PersistentFlags().StringVar(&agentNetworkModelFlag, "model", "", "model to export (required when several models are allowed)")
 }
 
-// fetchAgentNetworkSetup dials the management server directly with the
-// active profile's WireGuard key — the same credential and path every
-// other peer RPC uses — and asks for the caller-scoped setup. No daemon
-// involvement: the request is read-only and needs no tunnel state.
-func fetchAgentNetworkSetup(ctx context.Context) (*mgmProto.AgentNetworkSetupResponse, error) {
-	pm := profilemanager.NewProfileManager()
-	activeProf, err := pm.GetActiveProfile()
+// fetchAgentNetworkSetup asks the daemon for the caller-scoped Agent
+// Network setup. The daemon relays the request to management over its
+// existing peer connection, so no elevated permissions are needed.
+func fetchAgentNetworkSetup(cmd *cobra.Command) (*proto.GetAgentNetworkSetupResponse, error) {
+	conn, err := getClient(cmd)
 	if err != nil {
-		return nil, fmt.Errorf("get active profile: %v", err)
+		return nil, err
 	}
-	if activeProf == nil {
-		return nil, fmt.Errorf("active profile not found, please run 'netbird up' first")
-	}
+	defer conn.Close()
 
-	configFilePath, err := activeProf.FilePath()
+	client := proto.NewDaemonServiceClient(conn)
+	setup, err := client.GetAgentNetworkSetup(cmd.Context(), &proto.GetAgentNetworkSetupRequest{})
 	if err != nil {
-		return nil, fmt.Errorf("get active profile file path: %v", err)
-	}
-	config, err := profilemanager.ReadConfig(configFilePath)
-	if err != nil {
-		// The default profile config (and its WireGuard key) is owned by
-		// root; dialing management directly therefore needs the same
-		// elevation the daemon has. Point at sudo instead of surfacing a
-		// bare permission error.
-		if errors.Is(err, fs.ErrPermission) {
-			return nil, fmt.Errorf("reading profile %s requires elevated permissions — re-run with sudo", configFilePath)
+		if s, ok := status.FromError(err); ok && s.Code() == codes.Unimplemented {
+			return nil, fmt.Errorf("the running daemon does not support agent-network commands — update the NetBird daemon and restart the service")
 		}
-		return nil, fmt.Errorf("read config file %s: %v (run 'netbird up' first)", configFilePath, err)
-	}
-
-	privateKey, err := wgtypes.ParseKey(config.PrivateKey)
-	if err != nil {
-		return nil, fmt.Errorf("parse profile private key: %v", err)
-	}
-
-	mgmCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	tlsEnabled := config.ManagementURL.Scheme == "https"
-	mgmClient, err := mgm.NewClient(mgmCtx, config.ManagementURL.Host, privateKey, tlsEnabled)
-	if err != nil {
-		return nil, fmt.Errorf("connect to management service %s: %v", config.ManagementURL.String(), err)
-	}
-	defer func() {
-		_ = mgmClient.Close()
-	}()
-
-	setup, err := mgmClient.GetAgentNetworkSetup(mgmCtx)
-	if err != nil {
-		if s, ok := status.FromError(err); ok {
-			switch s.Code() {
-			case codes.PermissionDenied:
-				return nil, fmt.Errorf("this peer is not registered with the management service at %s — run 'netbird up' first", config.ManagementURL.String())
-			case codes.Unimplemented:
-				return nil, fmt.Errorf("the management server at %s does not implement the agent-network setup RPC — the process answering runs a build without it.\n"+
-					"Verify the running binary contains the RPC: grep -ac GetAgentNetworkSetup <path-to-server-binary> (0 = built without it),\n"+
-					"and that this URL actually reaches the server you rebuilt", config.ManagementURL.String())
-			}
-		}
-		return nil, fmt.Errorf("get agent network setup from %s: %v", config.ManagementURL.String(), err)
+		return nil, fmt.Errorf("get agent network setup: %v", status.Convert(err).Message())
 	}
 	return setup, nil
 }
 
 func agentNetworkLs(cmd *cobra.Command, _ []string) error {
-	setup, err := fetchAgentNetworkSetup(cmd.Context())
+	setup, err := fetchAgentNetworkSetup(cmd)
 	if err != nil {
 		return err
 	}
@@ -165,7 +119,7 @@ func agentNetworkLs(cmd *cobra.Command, _ []string) error {
 		}
 	}
 	cmd.Println()
-	cmd.Println("To configure Anthropic-compatible tools in the current shell: eval \"$(netbird agent-network env)\"")
+	cmd.Println("To configure an AI tool in the current shell: eval \"$(netbird agent-network env)\"")
 	return nil
 }
 
@@ -179,7 +133,7 @@ func printModels(cmd *cobra.Command, models []string) {
 	}
 }
 
-func providerFlavorLabel(p *mgmProto.AgentNetworkProviderInfo) string {
+func providerFlavorLabel(p *proto.AgentNetworkProvider) string {
 	if p.ApiFlavor == "" {
 		return p.CatalogId
 	}
@@ -187,7 +141,7 @@ func providerFlavorLabel(p *mgmProto.AgentNetworkProviderInfo) string {
 }
 
 func agentNetworkEnv(cmd *cobra.Command, _ []string) error {
-	setup, err := fetchAgentNetworkSetup(cmd.Context())
+	setup, err := fetchAgentNetworkSetup(cmd)
 	if err != nil {
 		return err
 	}
@@ -199,76 +153,168 @@ func agentNetworkEnv(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	cmd.Printf("export ANTHROPIC_BASE_URL=%s\n", shellQuote(setup.Endpoint))
-	cmd.Printf("export ANTHROPIC_AUTH_TOKEN=%s\n", shellQuote(agentNetworkAuthToken))
-
-	model, note, err := resolveAgentNetworkModel(setup, agentNetworkModelFlag)
+	lines, err := buildAgentNetworkEnv(setup, agentNetworkProviderFlag, agentNetworkModelFlag)
 	if err != nil {
 		return err
 	}
-	if model != "" {
-		cmd.Printf("export ANTHROPIC_MODEL=%s\n", shellQuote(model))
-	}
-	for _, line := range note {
-		cmd.Printf("# %s\n", sanitizeOutput(line))
+	for _, line := range lines {
+		cmd.Println(line)
 	}
 	return nil
 }
 
-// resolveAgentNetworkModel picks the model to export from the
-// Anthropic-flavor providers' effective model sets. A model is never
-// guessed: --model wins (validated against the allowed set), a single
-// allowed model is used, and anything ambiguous is returned as comment
-// lines instead of an export.
-func resolveAgentNetworkModel(setup *mgmProto.AgentNetworkSetupResponse, flagModel string) (string, []string, error) {
-	allowAny := false
-	var models []string
-	seen := make(map[string]struct{})
-	for _, p := range setup.Providers {
-		if p.ApiFlavor != "anthropic" {
-			continue
+// buildAgentNetworkEnv renders the export lines for one selected
+// provider. Nothing is guessed: an ambiguous provider or model choice
+// comes back as comment lines instead of exports, and an invalid
+// --provider/--model is an error.
+func buildAgentNetworkEnv(setup *proto.GetAgentNetworkSetupResponse, providerFlag, modelFlag string) ([]string, error) {
+	provider, choiceLines, err := selectAgentNetworkProvider(setup.Providers, providerFlag)
+	if err != nil {
+		return nil, err
+	}
+	if provider == nil {
+		return choiceLines, nil
+	}
+
+	model, modelNotes, err := resolveAgentNetworkModel(provider, modelFlag)
+	if err != nil {
+		return nil, err
+	}
+
+	var lines []string
+	switch {
+	case provider.CatalogId == "bedrock_api":
+		// Claude Code's Bedrock-format gateway configuration: the proxy
+		// routes native Bedrock paths and injects the AWS credentials, so
+		// client-side signing is skipped.
+		lines = append(lines,
+			exportLine("CLAUDE_CODE_USE_BEDROCK", "1"),
+			exportLine("ANTHROPIC_BEDROCK_BASE_URL", setup.Endpoint),
+			exportLine("CLAUDE_CODE_SKIP_BEDROCK_AUTH", "1"),
+		)
+		if model != "" {
+			lines = append(lines, exportLine("ANTHROPIC_MODEL", model))
 		}
-		if p.AllModelsAllowed {
-			allowAny = true
+	case provider.CatalogId == "vertex_ai_api":
+		// Claude Code's Vertex-format gateway configuration. Vertex
+		// requests carry the GCP project and region in the URL path, which
+		// the proxy forwards to the upstream — those two values belong to
+		// the operator's GCP setup and must come from the administrator.
+		lines = append(lines,
+			exportLine("CLAUDE_CODE_USE_VERTEX", "1"),
+			exportLine("ANTHROPIC_VERTEX_BASE_URL", setup.Endpoint),
+			exportLine("CLAUDE_CODE_SKIP_VERTEX_AUTH", "1"),
+		)
+		if model != "" {
+			lines = append(lines, exportLine("ANTHROPIC_MODEL", model))
 		}
-		for _, m := range p.Models {
-			key := strings.ToLower(strings.TrimSpace(m))
-			if key == "" {
-				continue
+		lines = append(lines,
+			comment("Vertex requests carry your operator's GCP project and region in the URL."),
+			comment("Ask your administrator for the values, then export:"),
+			comment("  export ANTHROPIC_VERTEX_PROJECT_ID=<project>"),
+			comment("  export CLOUD_ML_REGION=<region>"),
+		)
+	case provider.ApiFlavor == "anthropic":
+		lines = append(lines,
+			exportLine("ANTHROPIC_BASE_URL", setup.Endpoint),
+			exportLine("ANTHROPIC_AUTH_TOKEN", agentNetworkAuthToken),
+		)
+		if model != "" {
+			lines = append(lines, exportLine("ANTHROPIC_MODEL", model))
+		}
+	case provider.ApiFlavor == "openai":
+		lines = append(lines,
+			exportLine("OPENAI_BASE_URL", setup.Endpoint),
+			exportLine("OPENAI_API_KEY", agentNetworkAuthToken),
+		)
+		if model != "" {
+			lines = append(lines, comment(fmt.Sprintf("Configure your tool to use model %s.", model)))
+		}
+	default:
+		lines = append(lines,
+			comment(fmt.Sprintf("Provider %s (%s) is dispatched by URL path; no standard environment", provider.Name, provider.CatalogId)),
+			comment("variables apply. Point your tool at the endpoint below (auth token: netbird):"),
+			comment("  "+setup.Endpoint),
+		)
+	}
+
+	for _, note := range modelNotes {
+		lines = append(lines, comment(note))
+	}
+	return lines, nil
+}
+
+// selectAgentNetworkProvider picks the provider to configure. An
+// explicit --provider matches the operator label or catalog id
+// (case-insensitive); with no flag a single authorized provider is
+// used, and several come back as comment lines asking for the flag.
+func selectAgentNetworkProvider(providers []*proto.AgentNetworkProvider, providerFlag string) (*proto.AgentNetworkProvider, []string, error) {
+	if providerFlag != "" {
+		wanted := strings.ToLower(strings.TrimSpace(providerFlag))
+		for _, p := range providers {
+			if strings.ToLower(strings.TrimSpace(p.Name)) == wanted || strings.ToLower(p.CatalogId) == wanted {
+				return p, nil, nil
 			}
-			if _, dup := seen[key]; dup {
-				continue
+		}
+		names := make([]string, 0, len(providers))
+		for _, p := range providers {
+			names = append(names, fmt.Sprintf("%s (%s)", p.Name, p.CatalogId))
+		}
+		return nil, nil, fmt.Errorf("provider %q is not authorized for this peer — available: %s", providerFlag, strings.Join(names, ", "))
+	}
+
+	if len(providers) == 1 {
+		return providers[0], nil, nil
+	}
+
+	lines := []string{comment("Multiple providers are authorized — none configured. Re-run with --provider to pick one:")}
+	for _, p := range providers {
+		lines = append(lines, comment(fmt.Sprintf("  netbird agent-network env --provider %q   (%s)", p.Name, providerFlavorLabel(p))))
+	}
+	return nil, lines, nil
+}
+
+// resolveAgentNetworkModel picks the model for the selected provider. A
+// model is never guessed: --model wins (validated against the allowed
+// set), a single allowed model is used, and anything ambiguous is
+// returned as note lines instead.
+func resolveAgentNetworkModel(provider *proto.AgentNetworkProvider, modelFlag string) (string, []string, error) {
+	if modelFlag != "" {
+		if provider.AllModelsAllowed {
+			return modelFlag, nil, nil
+		}
+		wanted := strings.ToLower(strings.TrimSpace(modelFlag))
+		for _, m := range provider.Models {
+			if strings.ToLower(strings.TrimSpace(m)) == wanted {
+				return modelFlag, nil, nil
 			}
-			seen[key] = struct{}{}
-			models = append(models, strings.TrimSpace(m))
 		}
+		return "", nil, fmt.Errorf("model %q is not allowed on provider %s — run 'netbird agent-network ls' to see the allowed models", modelFlag, provider.Name)
 	}
 
-	if flagModel != "" {
-		if allowAny {
-			return flagModel, nil, nil
-		}
-		if _, ok := seen[strings.ToLower(strings.TrimSpace(flagModel))]; !ok {
-			return "", nil, fmt.Errorf("model %q is not in the allowed model list — run 'netbird agent-network ls' to see it", flagModel)
-		}
-		return flagModel, nil, nil
+	if len(provider.Models) == 1 && !provider.AllModelsAllowed {
+		return provider.Models[0], nil, nil
+	}
+	if len(provider.Models) == 0 && provider.AllModelsAllowed {
+		return "", []string{"Any model is allowed; pass --model to pin one."}, nil
 	}
 
-	if len(models) == 0 && !allowAny {
-		return "", []string{"No Anthropic-flavor provider is authorized for this peer; ANTHROPIC_MODEL not exported."}, nil
+	notes := []string{"Multiple models are allowed — none exported. Re-run with --model to pin one:"}
+	for _, m := range provider.Models {
+		notes = append(notes, "  "+m)
 	}
-	if len(models) == 1 && !allowAny {
-		return models[0], nil, nil
+	if provider.AllModelsAllowed {
+		notes = append(notes, "  (any other model the provider serves)")
 	}
+	return "", notes, nil
+}
 
-	note := []string{"Multiple models are allowed — none exported. Re-run with --model to pin one:"}
-	for _, m := range models {
-		note = append(note, "  "+m)
-	}
-	if allowAny {
-		note = append(note, "  (any other model the provider serves)")
-	}
-	return "", note, nil
+func exportLine(name, value string) string {
+	return fmt.Sprintf("export %s=%s", name, shellQuote(value))
+}
+
+func comment(text string) string {
+	return "# " + sanitizeOutput(text)
 }
 
 // shellQuote single-quotes a value for safe use in an eval'd export

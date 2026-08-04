@@ -156,6 +156,12 @@ service DaemonService {
   // only cares whether the daemon implements it: an Unimplemented response
   // means the daemon predates this UI and is too old to drive it.
   rpc WailsUIReady(WailsUIReadyRequest) returns (WailsUIReadyResponse) {}
+
+  // GetAgentNetworkSetup returns the Agent Network connection info this
+  // peer's groups authorize: proxy endpoint plus effective providers and
+  // models. The daemon relays the request to management over its existing
+  // peer connection, so unprivileged CLI callers get a caller-scoped answer.
+  rpc GetAgentNetworkSetup(GetAgentNetworkSetupRequest) returns (GetAgentNetworkSetupResponse) {}
 }
 
 
@@ -1050,3 +1056,31 @@ message StartBundleCaptureRequest {
 message StartBundleCaptureResponse {}
 message StopBundleCaptureRequest {}
 message StopBundleCaptureResponse {}
+
+message GetAgentNetworkSetupRequest {}
+
+message GetAgentNetworkSetupResponse {
+  // configured is false when the account has no Agent Network set up or
+  // this peer's groups authorize none of it.
+  bool configured = 1;
+  // endpoint is the account's proxy base URL, reachable over the NetBird
+  // tunnel only. Empty when configured is false.
+  string endpoint = 2;
+  repeated AgentNetworkProvider providers = 3;
+}
+
+message AgentNetworkProvider {
+  // name is the operator-assigned provider label, e.g. "Bedrock prod".
+  string name = 1;
+  // catalog_id names the provider type, e.g. "anthropic_api", "bedrock_api".
+  string catalog_id = 2;
+  // api_flavor is the request-body shape the provider speaks ("anthropic",
+  // "openai"); empty when the proxy dispatches it by URL path instead.
+  string api_flavor = 3;
+  // all_models_allowed is true when no model allowlist restricts this
+  // provider for the caller.
+  bool all_models_allowed = 4;
+  // models is the effective model allowlist (or the declared/catalog models
+  // when all_models_allowed is true).
+  repeated string models = 5;
+}

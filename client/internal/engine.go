@@ -2200,6 +2200,19 @@ func (e *Engine) GetExposeManager() *expose.Manager {
 	return e.exposeManager
 }
 
+// GetAgentNetworkSetup asks the management server for the Agent Network
+// connection info this peer's groups authorize, over the engine's
+// existing management connection.
+func (e *Engine) GetAgentNetworkSetup(ctx context.Context) (*mgmProto.AgentNetworkSetupResponse, error) {
+	e.syncMsgMux.Lock()
+	mgmClient := e.mgmClient
+	e.syncMsgMux.Unlock()
+	if mgmClient == nil {
+		return nil, errors.New("management client not available")
+	}
+	return mgmClient.GetAgentNetworkSetup(ctx)
+}
+
 // IsBlockInbound returns whether inbound connections are blocked.
 func (e *Engine) IsBlockInbound() bool {
 	return e.config.BlockInbound
