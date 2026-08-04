@@ -560,7 +560,14 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	publicKey := e.config.WgPrivateKey.PublicKey()
 	e.flowManager = netflow.NewManager(e.wgInterface, publicKey[:], e.statusRecorder)
 
-	if e.config.RosenpassEnabled {
+	// Rosenpass and ML-KEM are mutually exclusive post-quantum providers: both
+	// program the same WireGuard PSK, so running them together would race on
+	// SetPresharedKey. ML-KEM (NB_ENABLE_PQ_MLKEM) takes precedence; when it is
+	// enabled Rosenpass is skipped even if configured on.
+	if e.config.RosenpassEnabled && pqkem.Enabled() {
+		log.Warnf("rosenpass and ML-KEM post-quantum are mutually exclusive; ML-KEM is enabled, so rosenpass is disabled")
+	}
+	if e.config.RosenpassEnabled && !pqkem.Enabled() {
 		log.Infof("rosenpass is enabled")
 		if e.config.RosenpassPermissive {
 			log.Infof("running rosenpass in permissive mode")
@@ -650,7 +657,9 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	}
 
 	// Start the ML-KEM PQ manager after the interface is up so its dedicated UDP
-	// transport can bind on the WG overlay IP.
+	// transport can bind on the WG overlay IP. ML-KEM takes precedence over
+	// Rosenpass (see the mutual-exclusion note at rosenpass startup above), so
+	// when it is enabled rosenpass has already been skipped.
 	if pqkem.Enabled() {
 		tr, pqErr := newPQTransport(e.config.WgAddr.IP)
 		if pqErr != nil {
