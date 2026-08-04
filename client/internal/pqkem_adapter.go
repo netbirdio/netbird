@@ -26,7 +26,7 @@ type pqCallbackHandler struct {
 }
 
 // OnNewPSKReady programs the freshly derived PSK for the peer (updateOnly: a no-op
-// if the peer is not present, mirroring Rosenpass). remoteID is the peer's WG pubkey.
+// if the peer is not present, mirroring Rosenpass).
 func (h pqCallbackHandler) OnNewPSKReady(remoteID pqkem.RemoteID, psk pqkem.PSK) error {
 	// updateOnly: applies to an already-configured peer (rotation). At bootstrap the
 	// peer is not configured yet, so this is a no-op there and the PSK is instead

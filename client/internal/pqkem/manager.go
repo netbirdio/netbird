@@ -139,7 +139,7 @@ func NewManager(localID LocalID, h CallbackHandler, logger *slog.Logger) *Manage
 }
 
 // Start installs the data-path transport and begins its inbound delivery. The Manager
-// owns it from here; Stop closes it. Start/Stop are the transport lifecycle pair.
+// owns it from here; Stop closes it.
 func (m *Manager) Start(t Transport) {
 	m.mu.Lock()
 	m.transport = t
@@ -184,7 +184,7 @@ func (m *Manager) trace(msg string, args ...any) {
 }
 
 // AddPeer registers where a peer's data-path messages are sent and received: its
-// overlay endpoint (IP:port). Re-adding updates the endpoint.
+// overlay endpoint (IP:port).
 func (m *Manager) AddPeer(remoteID RemoteID, endpoint netip.AddrPort) {
 	if !endpoint.IsValid() {
 		return
@@ -322,14 +322,12 @@ func (m *Manager) OnDataPathMessage(remoteID RemoteID, raw []byte) error {
 	}
 }
 
-// OnDataPathRekeyed notifies that the peer's data path is up and freshly keyed with
-// the latest PSK (fired on first establishment AND every rekey). If we are the
-// initiator that just derived a PSK, it chains the next exchange: a fresh offer over
-// the data path that acknowledges the just-completed one (its arrival under the new
-// key proves to the responder that the key works).
-// OnDataPathRekeyed clocks the next chained PSK rotation on a fresh data-path rekey.
-// sinceActivity is how long ago the peer last exchanged real user data; when it
-// exceeds rotationActivityWindow the tunnel is treated as idle and rotation is
+// OnDataPathRekeyed clocks the next chained PSK rotation on a fresh data-path rekey
+// (fired on first establishment AND every rekey). If we are the initiator that just
+// derived a PSK, it chains the next exchange: a fresh offer over the data path that
+// acknowledges the just-completed one (its arrival under the new key proves to the
+// responder the key works). sinceActivity is how long ago the peer last exchanged real
+// user data; past rotationActivityWindow the tunnel is treated as idle and rotation is
 // skipped — an idle tunnel has nothing to protect, and rotating would emit data-path
 // traffic that keeps the peer artificially active (see conn.onWGCheckSuccess).
 func (m *Manager) OnDataPathRekeyed(remoteID RemoteID, sinceActivity time.Duration) {
