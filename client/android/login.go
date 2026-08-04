@@ -35,13 +35,28 @@ type Auth struct {
 	cfgPath string
 }
 
-// NewAuth instantiate Auth struct and validate the management URL
+// NewAuth instantiate Auth struct and validate the management URL.
+//
+// The config is read from cfgPath instead of being built from scratch, because a
+// successful login writes the whole struct back to that file: a config that did
+// not start from the stored one silently drops every field it never knew about.
+// The profile's display Name is the visible casualty — ConfigInput cannot carry
+// it, so enrolling a freshly added profile with a setup key would blank the name
+// the user had just typed. Only fall back to a fresh in-memory config when there
+// is no file to read, mirroring what the iOS binding already does.
 func NewAuth(cfgPath string, mgmURL string) (*Auth, error) {
 	inputCfg := profilemanager.ConfigInput{
+		ConfigPath:    cfgPath,
 		ManagementURL: mgmURL,
 	}
 
-	cfg, err := profilemanager.CreateInMemoryConfig(inputCfg)
+	var cfg *profilemanager.Config
+	var err error
+	if cfgPath != "" {
+		cfg, err = profilemanager.UpdateOrCreateConfig(inputCfg)
+	} else {
+		cfg, err = profilemanager.CreateInMemoryConfig(inputCfg)
+	}
 	if err != nil {
 		return nil, err
 	}
