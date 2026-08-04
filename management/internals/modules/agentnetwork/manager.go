@@ -82,6 +82,11 @@ type Manager interface {
 	RecordAccountBudgetUsage(ctx context.Context, accountID, userID string, groupIDs []string, tokensIn, tokensOut int64, costUSD float64) error
 	RecordUsage(ctx context.Context, in RecordUsageInput) error
 	SelectPolicyForRequest(ctx context.Context, in PolicySelectionInput) (*PolicySelectionResult, error)
+
+	// GetSetupForPeer returns the Agent Network connection info the peer's
+	// groups authorize (endpoint, providers, effective models). Caller-scoped
+	// by design — no user permission gate; see the implementation.
+	GetSetupForPeer(ctx context.Context, accountID, peerID string) (*types.EffectiveSetup, error)
 }
 
 // PolicySelectionInput is the per-request selection envelope. The

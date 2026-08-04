@@ -87,6 +87,9 @@ type Server struct {
 
 	reverseProxyManager rpservice.Manager
 	reverseProxyMu      sync.RWMutex
+
+	agentNetworkSetup   AgentNetworkSetupService
+	agentNetworkSetupMu sync.RWMutex
 }
 
 // NewServer creates a new Management server

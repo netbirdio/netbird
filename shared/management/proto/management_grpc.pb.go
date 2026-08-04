@@ -65,6 +65,12 @@ type ManagementServiceClient interface {
 	RenewExpose(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*EncryptedMessage, error)
 	// StopExpose terminates an active expose session
 	StopExpose(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*EncryptedMessage, error)
+	// GetAgentNetworkSetup returns the Agent Network connection info the
+	// calling peer's groups authorize: proxy endpoint plus effective
+	// providers and models. Caller-scoped by the peer's WireGuard key.
+	// EncryptedMessage of the request has a body of AgentNetworkSetupRequest.
+	// EncryptedMessage of the response has a body of AgentNetworkSetupResponse.
+	GetAgentNetworkSetup(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*EncryptedMessage, error)
 }
 
 type managementServiceClient struct {
@@ -237,6 +243,15 @@ func (c *managementServiceClient) StopExpose(ctx context.Context, in *EncryptedM
 	return out, nil
 }
 
+func (c *managementServiceClient) GetAgentNetworkSetup(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*EncryptedMessage, error) {
+	out := new(EncryptedMessage)
+	err := c.cc.Invoke(ctx, "/management.ManagementService/GetAgentNetworkSetup", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ManagementServiceServer is the server API for ManagementService service.
 // All implementations must embed UnimplementedManagementServiceServer
 // for forward compatibility
@@ -288,6 +303,12 @@ type ManagementServiceServer interface {
 	RenewExpose(context.Context, *EncryptedMessage) (*EncryptedMessage, error)
 	// StopExpose terminates an active expose session
 	StopExpose(context.Context, *EncryptedMessage) (*EncryptedMessage, error)
+	// GetAgentNetworkSetup returns the Agent Network connection info the
+	// calling peer's groups authorize: proxy endpoint plus effective
+	// providers and models. Caller-scoped by the peer's WireGuard key.
+	// EncryptedMessage of the request has a body of AgentNetworkSetupRequest.
+	// EncryptedMessage of the response has a body of AgentNetworkSetupResponse.
+	GetAgentNetworkSetup(context.Context, *EncryptedMessage) (*EncryptedMessage, error)
 	mustEmbedUnimplementedManagementServiceServer()
 }
 
@@ -333,6 +354,9 @@ func (UnimplementedManagementServiceServer) RenewExpose(context.Context, *Encryp
 }
 func (UnimplementedManagementServiceServer) StopExpose(context.Context, *EncryptedMessage) (*EncryptedMessage, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method StopExpose not implemented")
+}
+func (UnimplementedManagementServiceServer) GetAgentNetworkSetup(context.Context, *EncryptedMessage) (*EncryptedMessage, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetAgentNetworkSetup not implemented")
 }
 func (UnimplementedManagementServiceServer) mustEmbedUnimplementedManagementServiceServer() {}
 
@@ -592,6 +616,24 @@ func _ManagementService_StopExpose_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ManagementService_GetAgentNetworkSetup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EncryptedMessage)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ManagementServiceServer).GetAgentNetworkSetup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/management.ManagementService/GetAgentNetworkSetup",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ManagementServiceServer).GetAgentNetworkSetup(ctx, req.(*EncryptedMessage))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ManagementService_ServiceDesc is the grpc.ServiceDesc for ManagementService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -642,6 +684,10 @@ var ManagementService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "StopExpose",
 			Handler:    _ManagementService_StopExpose_Handler,
+		},
+		{
+			MethodName: "GetAgentNetworkSetup",
+			Handler:    _ManagementService_GetAgentNetworkSetup_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

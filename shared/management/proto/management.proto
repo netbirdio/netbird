@@ -68,6 +68,13 @@ service ManagementService {
 
   // StopExpose terminates an active expose session
   rpc StopExpose(EncryptedMessage) returns (EncryptedMessage) {}
+
+  // GetAgentNetworkSetup returns the Agent Network connection info the
+  // calling peer's groups authorize: proxy endpoint plus effective
+  // providers and models. Caller-scoped by the peer's WireGuard key.
+  // EncryptedMessage of the request has a body of AgentNetworkSetupRequest.
+  // EncryptedMessage of the response has a body of AgentNetworkSetupResponse.
+  rpc GetAgentNetworkSetup(EncryptedMessage) returns (EncryptedMessage) {}
 }
 
 message EncryptedMessage {
@@ -1206,4 +1213,35 @@ message UserIDList {
 // NetworkMapComponentsFull.posture_failed_peers.
 message PeerIndexSet {
   repeated uint32 peer_indexes = 1;
+}
+
+message AgentNetworkSetupRequest {}
+
+message AgentNetworkSetupResponse {
+  // configured is false when the account has no Agent Network set up or
+  // the calling peer's groups authorize none of it — the two cases are
+  // deliberately indistinguishable.
+  bool configured = 1;
+  // endpoint is the account's proxy base URL, e.g.
+  // "https://calm-otter.proxy.example.com". Reachable over the NetBird
+  // tunnel only. Empty when configured is false.
+  string endpoint = 2;
+  repeated AgentNetworkProviderInfo providers = 3;
+}
+
+message AgentNetworkProviderInfo {
+  // name is the operator-assigned provider label, e.g. "Bedrock prod".
+  string name = 1;
+  // catalog_id names the catalog entry, e.g. "anthropic_api", "bedrock_api".
+  string catalog_id = 2;
+  // api_flavor is the request-body shape the provider speaks ("anthropic",
+  // "openai"); empty when the proxy dispatches it by URL path instead.
+  string api_flavor = 3;
+  // all_models_allowed is true when no model allowlist restricts this
+  // provider for the caller; models then lists the declared/catalog models
+  // as a courtesy (possibly none for gateway-style providers).
+  bool all_models_allowed = 4;
+  // models is the effective model allowlist for the caller (or the
+  // declared/catalog models when all_models_allowed is true).
+  repeated string models = 5;
 }
