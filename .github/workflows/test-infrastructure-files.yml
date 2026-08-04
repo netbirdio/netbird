@@ -257,6 +257,9 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Verify fresh-install session cookie key hardening
+        run: bash infrastructure_files/tests/session-cookie-key-hardening.sh
+
       - name: Verify Dex retirement notice
         run: |
           if infrastructure_files/getting-started-with-dex.sh >stdout.txt 2>stderr.txt; then
