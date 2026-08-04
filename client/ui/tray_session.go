@@ -308,11 +308,7 @@ func (t *Tray) openSessionExtendFlow() {
 	}
 	seconds := int(time.Until(deadline).Seconds())
 	if seconds <= 0 {
-		if t.window != nil {
-			t.window.SetURL("/#/login")
-			t.window.Show()
-			t.window.Focus()
-		}
+		t.app.Event.Emit(services.EventTriggerLogin)
 		return
 	}
 	if t.svc.WindowManager == nil {
