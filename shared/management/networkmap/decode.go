@@ -1,6 +1,7 @@
 package networkmap
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"net"
@@ -13,7 +14,7 @@ import (
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/shared/management/domain"
-	nmdata "github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/management/types"
 )
@@ -25,7 +26,7 @@ import (
 // ID scheme on the client side:
 //
 //	Peers              base64(wg_pub_key)          // stable across snapshots
-func DecodeEnvelope(env *proto.NetworkMapEnvelope) (*types.NetworkMapComponents, error) {
+func DecodeEnvelope(ctx context.Context, env *proto.NetworkMapEnvelope) (*types.NetworkMapComponents, error) {
 	full := env.GetFull()
 	if full == nil {
 		return nil, fmt.Errorf("envelope has no Full payload")
@@ -104,7 +105,12 @@ func DecodeEnvelope(env *proto.NetworkMapEnvelope) (*types.NetworkMapComponents,
 			var toret []nmdata.Resource
 
 			for _, r := range gc.Resources {
-				toret = append(toret, resourceFromProto(r, peerIDByIndex))
+				res := resourceFromProto(r, peerIDByIndex)
+				if res == (nmdata.Resource{}) {
+					log.WithContext(ctx).Warnf("skipping invalid resource in group compact: %s", r.ResourceId)
+					continue
+				}
+				toret = append(toret, res)
 			}
 
 			return toret
