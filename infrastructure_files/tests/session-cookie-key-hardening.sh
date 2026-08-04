@@ -9,7 +9,10 @@ trap 'rm -rf "$test_root"' EXIT
 source_without_main() {
   local source_file=$1
   local destination_file=$2
-  sed '$d' "$source_file" > "$destination_file"
+  local entrypoint_count
+  entrypoint_count=$(awk '/^[[:space:]]*init_environment[[:space:]]*$/ { count++ } END { print count + 0 }' "$source_file")
+  require_equal "$source_file entrypoint count" 1 "$entrypoint_count"
+  awk '!/^[[:space:]]*init_environment[[:space:]]*$/' "$source_file" > "$destination_file"
   # shellcheck disable=SC1090
   source "$destination_file"
 }
