@@ -6,7 +6,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/networkmap"
-	nmdata "github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -215,7 +215,9 @@ func (e *componentEncoder) encodeGroups() []*proto.GroupCompact {
 		groupCompactResources := func() []*proto.ResourceCompact {
 			var toret []*proto.ResourceCompact
 			for _, r := range g.Resources {
-				toret = append(toret, e.resourceToProto(r))
+				if pr := e.resourceToProto(r); pr != nil {
+					toret = append(toret, pr)
+				}
 			}
 			return toret
 		}
