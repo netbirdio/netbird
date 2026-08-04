@@ -216,6 +216,7 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 			serviceMgr.StartExposeReaper(context.Background())
 		}
 		mgmtProto.RegisterManagementServiceServer(gRPCAPIHandler, srv)
+		log.Info("ManagementService registered on gRPC server (agent-network setup RPC available)")
 
 		mgmtProto.RegisterProxyServiceServer(gRPCAPIHandler, s.ReverseProxyGRPCServer())
 		log.Info("ProxyService registered on gRPC server")

@@ -104,10 +104,17 @@ func fetchAgentNetworkSetup(ctx context.Context) (*mgmProto.AgentNetworkSetupRes
 
 	setup, err := mgmClient.GetAgentNetworkSetup(mgmCtx)
 	if err != nil {
-		if s, ok := status.FromError(err); ok && s.Code() == codes.PermissionDenied {
-			return nil, fmt.Errorf("this peer is not registered with the management service — run 'netbird up' first")
+		if s, ok := status.FromError(err); ok {
+			switch s.Code() {
+			case codes.PermissionDenied:
+				return nil, fmt.Errorf("this peer is not registered with the management service at %s — run 'netbird up' first", config.ManagementURL.String())
+			case codes.Unimplemented:
+				return nil, fmt.Errorf("the management server at %s does not implement the agent-network setup RPC — the process answering runs a build without it.\n"+
+					"Verify the running binary contains the RPC: grep -ac GetAgentNetworkSetup <path-to-server-binary> (0 = built without it),\n"+
+					"and that this URL actually reaches the server you rebuilt", config.ManagementURL.String())
+			}
 		}
-		return nil, fmt.Errorf("get agent network setup: %v", err)
+		return nil, fmt.Errorf("get agent network setup from %s: %v", config.ManagementURL.String(), err)
 	}
 	return setup, nil
 }
