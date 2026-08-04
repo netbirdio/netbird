@@ -22,7 +22,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
-	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -123,11 +122,10 @@ type managerImpl struct {
 	proxyController    proxy.Controller
 
 	// reconcileCache holds the last set of synthesised proxy mappings
-	// per account so reconcile can emit precise Create/Update/Delete
-	// updates instead of a full re-push on every mutation. Keyed by
-	// accountID, then by synthesised service ID.
+	// per account, each paired with the proxy that served it, so a change
+	// of serving proxy can be diffed without re-deriving it.
 	reconcileMu    sync.Mutex
-	reconcileCache map[string]map[string]*proto.ProxyMapping
+	reconcileCache map[string]map[string]syntheticMapping
 
 	// labelRngMu guards labelRng. PickUnique consumes math/rand.Source
 	// state; concurrent provider creates would otherwise race.
@@ -151,7 +149,7 @@ func NewManager(
 		accountManager:     accountManager,
 		permissionsManager: permissionsManager,
 		proxyController:    proxyController,
-		reconcileCache:     make(map[string]map[string]*proto.ProxyMapping),
+		reconcileCache:     make(map[string]map[string]syntheticMapping),
 		labelRng:           rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 }

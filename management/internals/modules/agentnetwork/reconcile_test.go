@@ -21,7 +21,7 @@ func newReconcileMgr(t *testing.T, ctrl *gomock.Controller) (*managerImpl, *stor
 	return &managerImpl{
 		store:           mockStore,
 		proxyController: mockProxy,
-		reconcileCache:  make(map[string]map[string]*proto.ProxyMapping),
+		reconcileCache:  make(map[string]map[string]syntheticMapping),
 	}, mockStore, mockProxy
 }
 
@@ -196,7 +196,7 @@ func TestReconcile_PolicyRemoved_EmitsDelete(t *testing.T) {
 func TestReconcile_NilProxyController_NoOp(t *testing.T) {
 	ctx := context.Background()
 	mgr := &managerImpl{
-		reconcileCache: make(map[string]map[string]*proto.ProxyMapping),
+		reconcileCache: make(map[string]map[string]syntheticMapping),
 	}
 	// Must not panic; must not query the store.
 	mgr.reconcile(ctx, "acct-1")
@@ -212,21 +212,74 @@ func TestReconcile_EmptyAccountID_NoOp(t *testing.T) {
 	mgr.reconcile(ctx, "")
 }
 
-func TestClusterFromMapping(t *testing.T) {
-	tests := []struct {
-		name   string
-		domain string
-		want   string
-	}{
-		{"simple", "openai.eu.proxy.netbird.io", "eu.proxy.netbird.io"},
-		{"deeply nested", "a.b.c.d", "b.c.d"},
-		{"no dot", "openai", ""},
-		{"empty", "", ""},
+// TestDiffMappings_ServingProxyChange — when the proxy serving an account
+// changes, the same service ID must be deleted on the old proxy and created on
+// the new one. The cluster cannot be recovered from the mapping's domain: with a
+// placement-free endpoint the domain does not change at all when the serving
+// proxy does, so a domain-derived cluster sees no change and emits a plain
+// update, addressed to a proxy that does not exist.
+func TestDiffMappings_ServingProxyChange(t *testing.T) {
+	previous := map[string]syntheticMapping{
+		"svc-1": {
+			mapping: &proto.ProxyMapping{Id: "svc-1", AccountId: "acct-1", Domain: "brave-otter.gateway.example.com"},
+			cluster: "proxy.example.com",
+		},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := clusterFromMapping(&proto.ProxyMapping{Domain: tt.domain})
-			assert.Equal(t, tt.want, got)
-		})
+	current := map[string]syntheticMapping{
+		"svc-1": {
+			mapping: &proto.ProxyMapping{Id: "svc-1", AccountId: "acct-1", Domain: "brave-otter.gateway.example.com"},
+			cluster: "brave-otter.gateway.example.com",
+		},
 	}
+
+	creates, updates, deletes := diffMappings(previous, current)
+
+	require.Len(t, deletes, 1, "the old proxy must be told to drop the mapping")
+	assert.Equal(t, "proxy.example.com", deletes[0].cluster)
+	require.Len(t, creates, 1, "the new proxy must be told to add it")
+	assert.Equal(t, "brave-otter.gateway.example.com", creates[0].cluster)
+	assert.Empty(t, updates, "a serving-proxy move is a delete plus a create, not an update")
+}
+
+// TestDiffMappings_UnchangedClusterIsAnUpdate keeps the ordinary path: same
+// service, same proxy, changed contents.
+func TestDiffMappings_UnchangedClusterIsAnUpdate(t *testing.T) {
+	previous := map[string]syntheticMapping{
+		"svc-1": {
+			mapping: &proto.ProxyMapping{Id: "svc-1", AccountId: "acct-1", Domain: "otter.proxy.example.com"},
+			cluster: "proxy.example.com",
+		},
+	}
+	current := map[string]syntheticMapping{
+		"svc-1": {
+			mapping: &proto.ProxyMapping{Id: "svc-1", AccountId: "acct-1", Domain: "otter.proxy.example.com"},
+			cluster: "proxy.example.com",
+		},
+	}
+
+	creates, updates, deletes := diffMappings(previous, current)
+
+	assert.Empty(t, creates)
+	assert.Empty(t, deletes)
+	require.Len(t, updates, 1)
+	assert.Equal(t, "proxy.example.com", updates[0].cluster)
+}
+
+// TestDiffMappings_RemovedServiceIsDeletedOnItsOwnCluster — a service that has
+// gone away is deleted on the cluster it was last served by, which is recorded
+// rather than re-derived.
+func TestDiffMappings_RemovedServiceIsDeletedOnItsOwnCluster(t *testing.T) {
+	previous := map[string]syntheticMapping{
+		"svc-1": {
+			mapping: &proto.ProxyMapping{Id: "svc-1", AccountId: "acct-1", Domain: "brave-otter.gateway.example.com"},
+			cluster: "brave-otter.gateway.example.com",
+		},
+	}
+
+	creates, updates, deletes := diffMappings(previous, map[string]syntheticMapping{})
+
+	assert.Empty(t, creates)
+	assert.Empty(t, updates)
+	require.Len(t, deletes, 1)
+	assert.Equal(t, "brave-otter.gateway.example.com", deletes[0].cluster)
 }
