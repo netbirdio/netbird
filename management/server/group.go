@@ -7,6 +7,7 @@ import (
 	"slices"
 
 	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 
@@ -745,6 +746,10 @@ func validateDeleteGroup(ctx context.Context, transaction store.Store, group *ty
 		return &GroupLinkError{"network router", linkedRouter.ID}
 	}
 
+	if isLinked, linkedService := isGroupLinkedToReverseProxyService(ctx, transaction, group.AccountID, group.ID); isLinked {
+		return &GroupLinkError{"reverse proxy service", linkedService.Domain}
+	}
+
 	if isLinked, linkedPolicy := isGroupLinkedToAgentNetworkPolicy(ctx, transaction, group.AccountID, group.ID); isLinked {
 		return &GroupLinkError{"agent network policy", linkedPolicy.Name}
 	}
@@ -875,6 +880,26 @@ func isGroupLinkedToNetworkRouter(ctx context.Context, transaction store.Store, 
 	for _, router := range routers {
 		if slices.Contains(router.PeerGroups, groupID) {
 			return true, router
+		}
+	}
+	return false, nil
+}
+
+// isGroupLinkedToReverseProxyService checks if a group is used as an access group
+// of a private reverse proxy service or as a bearer-auth distribution group.
+func isGroupLinkedToReverseProxyService(ctx context.Context, transaction store.Store, accountID string, groupID string) (bool, *service.Service) {
+	services, err := transaction.GetAccountServices(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("error retrieving reverse proxy services while checking group linkage: %v", err)
+		return false, nil
+	}
+
+	for _, svc := range services {
+		if svc.Private && slices.Contains(svc.AccessGroups, groupID) {
+			return true, svc
+		}
+		if svc.Auth.BearerAuth != nil && svc.Auth.BearerAuth.Enabled && slices.Contains(svc.Auth.BearerAuth.DistributionGroups, groupID) {
+			return true, svc
 		}
 	}
 	return false, nil
