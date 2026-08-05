@@ -164,7 +164,7 @@ func toSliceOfPtrs[T any](all []T) []*T {
 	return toret
 }
 
-func serviceDomainZone(svc service, ds []domain) string {
+func serviceDomainZone(svc service, ds []Domain) string {
 	if domainFromSuffix(svc.Domain.String, svc.ProxyCluster.String) {
 		return svc.ProxyCluster.String
 	}
@@ -189,7 +189,7 @@ func domainFromSuffix(domain, suffix string) bool {
 	return domain == suffix || strings.HasSuffix(domain, "."+suffix)
 }
 
-func buildPrivateServiceCandidates(svcs []service, domains []domain, proxyPeersByCluster map[string][]*nmdata.Peer) []networkmap.PrivateServiceCandidate {
+func buildPrivateServiceCandidates(svcs []service, domains []Domain, proxyPeersByCluster map[string][]*nmdata.Peer) []networkmap.PrivateServiceCandidate {
 	var out []networkmap.PrivateServiceCandidate
 
 	if len(proxyPeersByCluster) == 0 {
