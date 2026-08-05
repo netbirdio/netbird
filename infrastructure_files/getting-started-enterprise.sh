@@ -455,11 +455,13 @@ render_compose_common() {
       # every router referencing it whenever that container restarts.
       - traefik.http.middlewares.nb-security.headers.stsSeconds=3600
       - traefik.http.middlewares.nb-security.headers.stsIncludeSubdomains=true
-      - traefik.http.middlewares.nb-security.headers.stsPreload=true
       - traefik.http.middlewares.nb-security.headers.contentTypeNosniff=true
       - traefik.http.middlewares.nb-security.headers.browserXssFilter=true
       - traefik.http.middlewares.nb-security.headers.referrerPolicy=strict-origin-when-cross-origin
       - traefik.http.middlewares.nb-security.headers.customResponseHeaders.X-Frame-Options=SAMEORIGIN
+      # Empty value strips the header. Only the dashboard's nginx sets one; the
+      # server emits none. Do not quote it — "" would send a literal Server: "".
+      - traefik.http.middlewares.nb-security.headers.customResponseHeaders.Server=
 
   dashboard:
     <<: *default
