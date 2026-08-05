@@ -188,6 +188,10 @@ func (p *ProxyWrapper) Pause() {
 }
 
 func (p *ProxyWrapper) RedirectAs(endpoint *net.UDPAddr) {
+	if p.remoteConn == nil {
+		return
+	}
+
 	if endpoint == nil || endpoint.IP == nil {
 		log.Errorf("failed to start package redirection, endpoint is nil")
 		return
@@ -214,6 +218,12 @@ func (p *ProxyWrapper) RedirectAs(endpoint *net.UDPAddr) {
 
 	p.headerCurrentUsed = header
 	p.rawConn = p.selectRawConn(header)
+
+	// start here (not only in Work) so the first packet already carries the rewritten headers
+	if !p.isStarted {
+		p.isStarted = true
+		go p.proxyToLocal(p.ctx)
+	}
 
 	p.pausedCond.Signal()
 	p.pausedCond.L.Unlock()

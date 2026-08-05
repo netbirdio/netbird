@@ -134,6 +134,9 @@ type Conn struct {
 	wgProxyRelay wgproxy.Proxy
 	handshaker   *Handshaker
 
+	// endpoint of the active ICE path, for redirecting a later relay conn. Guarded by mu.
+	iceWgEndpoint *net.UDPAddr
+
 	guard *guard.Guard
 	wg    sync.WaitGroup
 
@@ -470,6 +473,7 @@ func (conn *Conn) onICEConnectionIsReady(priority conntype.ConnPriority, iceConn
 		conn.handleConfigurationFailure(err, wgProxy)
 		return
 	}
+	conn.iceWgEndpoint = ep
 	wgConfigWorkaround()
 
 	if conn.wgProxyRelay != nil {
@@ -494,6 +498,8 @@ func (conn *Conn) onICEStateDisconnected(sessionChanged bool) {
 	}
 
 	conn.Log.Tracef("ICE connection state changed to disconnected")
+
+	conn.iceWgEndpoint = nil
 
 	if conn.wgProxyICE != nil {
 		if err := conn.wgProxyICE.CloseConn(); err != nil {
@@ -577,6 +583,17 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 	if conn.isICEActive() {
 		conn.Log.Debugf("do not switch to relay because current priority is: %s", conn.currentConnPriority.String())
 		conn.setRelayedProxy(wgProxy)
+
+		// The remote may already be sending WireGuard traffic over the relay;
+		// keep consuming it, attributed to the ICE endpoint. Work() would
+		// attribute it to the relayed fake address and WireGuard would roam there.
+		if ep := conn.iceWgEndpoint; ep != nil {
+			conn.Log.Debugf("redirect packets from relayed conn to WireGuard as %s", ep)
+			wgProxy.RedirectAs(ep)
+		} else {
+			conn.Log.Warnf("ICE is active but its wg endpoint is unknown, leaving relayed proxy parked")
+		}
+
 		conn.statusRelay.SetConnected()
 		conn.updateRelayStatus(rci.relayedConn.RemoteAddr().String(), rci.rosenpassPubKey, time.Now())
 		return

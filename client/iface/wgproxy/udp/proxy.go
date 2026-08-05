@@ -123,6 +123,10 @@ func (p *WGUDPProxy) Pause() {
 
 // RedirectAs start to use the fake sourced raw socket as package sender
 func (p *WGUDPProxy) RedirectAs(endpoint *net.UDPAddr) {
+	if p.remoteConn == nil {
+		return
+	}
+
 	p.pausedCond.L.Lock()
 	defer func() {
 		p.pausedCond.Signal()
@@ -145,6 +149,13 @@ func (p *WGUDPProxy) RedirectAs(endpoint *net.UDPAddr) {
 	}
 	p.srcFakerConn = srcFakerConn
 	p.sendPkg = p.srcFakerConn.SendPkg
+
+	// start here (not only in Work) so the first packet already carries the faked source
+	if !p.isStarted {
+		p.isStarted = true
+		go p.proxyToRemote(p.ctx)
+		go p.proxyToLocal(p.ctx)
+	}
 }
 
 // InjectPacket writes b to the remote peer over the underlying transport.

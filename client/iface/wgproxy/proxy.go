@@ -12,9 +12,10 @@ type Proxy interface {
 	Work()                      // Work start or resume the proxy
 	Pause()                     // Pause to forward the packages from remote connection to WireGuard. The opposite way still works.
 
-	//RedirectAs resume the forwarding the packages from relayed connection to WireGuard interface if it was paused
-	//and rewrite the src address to the endpoint address.
-	//With this logic can avoid the package loss from relayed connections.
+	//RedirectAs forwards the packages from the relayed connection to the WireGuard interface
+	//with the src address rewritten to the endpoint address, starting the proxy if needed and
+	//resuming it if it was paused. Never delivers a packet with the relayed fake address —
+	//WireGuard would roam to it.
 	RedirectAs(endpoint *net.UDPAddr)
 	CloseConn() error
 	SetDisconnectListener(disconnected func())

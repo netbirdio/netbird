@@ -114,6 +114,10 @@ func (p *ProxyBind) Pause() {
 }
 
 func (p *ProxyBind) RedirectAs(endpoint *net.UDPAddr) {
+	if p.remoteConn == nil {
+		return
+	}
+
 	ep, err := addrToEndpoint(endpoint)
 	if err != nil {
 		log.Errorf("failed to start package redirection: %v", err)
@@ -124,6 +128,12 @@ func (p *ProxyBind) RedirectAs(endpoint *net.UDPAddr) {
 	p.paused = false
 
 	p.wgCurrentUsed = ep
+
+	// start here (not only in Work) so the first packet already carries the redirected address
+	if !p.isStarted {
+		p.isStarted = true
+		go p.proxyToLocal(p.ctx)
+	}
 
 	p.pausedCond.Signal()
 	p.pausedCond.L.Unlock()
