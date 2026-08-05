@@ -1134,7 +1134,7 @@ func (s *DefaultServer) projectHealthy(p *nsGroupProj, servers []netip.AddrPort)
 		proto.SystemEvent_INFO,
 		proto.SystemEvent_DNS,
 		"Nameserver group recovered",
-		"DNS servers are reachable again.",
+		proto.NewUserMessage(proto.UserMsgDNSRecovered),
 		map[string]string{"upstreams": joinAddrPorts(servers)},
 	)
 	p.warningActive = false
@@ -1157,7 +1157,7 @@ func (s *DefaultServer) projectUnhealthy(p *nsGroupProj, servers []netip.AddrPor
 			proto.SystemEvent_WARNING,
 			proto.SystemEvent_DNS,
 			"Nameserver group unreachable",
-			"Unable to reach one or more DNS servers. This might affect your ability to connect to some services.",
+			proto.NewUserMessage(proto.UserMsgDNSUnreachable),
 			map[string]string{"upstreams": joinAddrPorts(servers)},
 		)
 		p.warningActive = true
