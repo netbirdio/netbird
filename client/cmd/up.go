@@ -499,6 +499,13 @@ func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, pro
 		req.DisableIpv6 = &disableIPv6
 	}
 
+	if cmd.Flag(enableLocalMetricsFlag).Changed {
+		req.EnableLocalMetrics = &localMetricsEnabled
+	}
+	if cmd.Flag(localMetricsAddressFlag).Changed {
+		req.LocalMetricsAddress = &localMetricsAddr
+	}
+
 	return &req
 }
 
@@ -616,6 +623,14 @@ func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configFil
 		ic.DisableIPv6 = &disableIPv6
 	}
 
+	if cmd.Flag(enableLocalMetricsFlag).Changed {
+		ic.LocalMetricsEnabled = &localMetricsEnabled
+	}
+
+	if cmd.Flag(localMetricsAddressFlag).Changed {
+		ic.LocalMetricsAddress = &localMetricsAddr
+	}
+
 	return &ic, nil
 }
 
@@ -676,6 +691,14 @@ func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte
 
 	if cmd.Flag(disableAutoConnectFlag).Changed {
 		loginRequest.DisableAutoConnect = &autoConnectDisabled
+	}
+
+	if cmd.Flag(enableLocalMetricsFlag).Changed {
+		loginRequest.EnableLocalMetrics = &localMetricsEnabled
+	}
+
+	if cmd.Flag(localMetricsAddressFlag).Changed {
+		loginRequest.LocalMetricsAddress = &localMetricsAddr
 	}
 
 	if cmd.Flag(interfaceNameFlag).Changed {
