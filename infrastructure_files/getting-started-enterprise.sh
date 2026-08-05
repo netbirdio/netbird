@@ -449,6 +449,19 @@ render_compose_common() {
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - netbird_traefik_letsencrypt:/letsencrypt
+    labels:
+      - traefik.enable=true
+      # Shared security headers, referenced by every NetBird router below. A
+      # label-declared middleware only exists while its container runs, so this
+      # lives on Traefik itself: declaring it on an app container would drop
+      # every router referencing it whenever that container restarts.
+      - traefik.http.middlewares.nb-security.headers.stsSeconds=3600
+      - traefik.http.middlewares.nb-security.headers.stsIncludeSubdomains=true
+      - traefik.http.middlewares.nb-security.headers.stsPreload=true
+      - traefik.http.middlewares.nb-security.headers.contentTypeNosniff=true
+      - traefik.http.middlewares.nb-security.headers.browserXssFilter=true
+      - traefik.http.middlewares.nb-security.headers.referrerPolicy=strict-origin-when-cross-origin
+      - traefik.http.middlewares.nb-security.headers.customResponseHeaders.X-Frame-Options=SAMEORIGIN
 
   dashboard:
     <<: *default
@@ -457,14 +470,6 @@ render_compose_common() {
     networks: [netbird]
     labels:
       - traefik.enable=true
-      # Shared security headers, referenced by every NetBird router below
-      - traefik.http.middlewares.nb-security.headers.stsSeconds=3600
-      - traefik.http.middlewares.nb-security.headers.stsIncludeSubdomains=true
-      - traefik.http.middlewares.nb-security.headers.stsPreload=true
-      - traefik.http.middlewares.nb-security.headers.contentTypeNosniff=true
-      - traefik.http.middlewares.nb-security.headers.browserXssFilter=true
-      - traefik.http.middlewares.nb-security.headers.referrerPolicy=strict-origin-when-cross-origin
-      - traefik.http.middlewares.nb-security.headers.customResponseHeaders.X-Frame-Options=SAMEORIGIN
       # Dashboard catch-all: lowest priority so every route below wins
       - traefik.http.routers.netbird-dashboard.rule=Host(`${NETBIRD_DOMAIN}`)
       - traefik.http.routers.netbird-dashboard.entrypoints=websecure
