@@ -14,6 +14,7 @@ import (
 	gstatus "google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/internal/elevate"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/util"
 )
@@ -64,6 +65,11 @@ var guardedFields = []guardedField{
 		usage: "Management server the profile registers with.",
 		read:  func(p GuardedSettings) (string, bool) { return p.ManagementURL, p.ManagementURL != "" },
 		write: func(req *proto.SetConfigRequest, value string) error {
+			// Parsed with the config layer's own parser, so what the elevated run
+			// accepts cannot drift from what the daemon would store.
+			if _, err := profilemanager.ParseServiceURL("Management URL", value); err != nil {
+				return err
+			}
 			req.ManagementUrl = value
 			return nil
 		},

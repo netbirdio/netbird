@@ -21,6 +21,10 @@ contents:
     dst: "/usr/local/bin/netbird-ui"
   - src: "./build/appicon.png"
     dst: "/usr/share/icons/hicolor/128x128/apps/netbird-ui.png"
+  # The name the polkit action's icon_name refers to, which the released packages
+  # install as /usr/share/pixmaps/netbird.png.
+  - src: "./build/appicon.png"
+    dst: "/usr/share/icons/hicolor/128x128/apps/netbird.png"
   - src: "./build/linux/netbird-ui.desktop"
     dst: "/usr/share/applications/netbird-ui.desktop"
   # Names the polkit action for the elevation prompt the app raises when an

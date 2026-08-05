@@ -16,11 +16,9 @@ import (
 )
 
 // The command line of the one-shot mode this binary runs itself in, elevated, to
-// apply a setting the daemon restricts to root/administrator. Named here, next to
-// the code that builds the arguments; parsed by runPrivilegedSettings in the main
-// package. The setting flags deliberately spell the same words as `netbird up`,
-// so what the user is shown as a command and what runs behind the prompt read
-// alike.
+// apply a setting the daemon restricts to root/administrator. The setting flags
+// spell the same words as `netbird up`, so the command a user is shown and what
+// runs behind the prompt read alike. Parsed in oneshot.go.
 const (
 	FlagApplyPrivilegedSettings = "apply-privileged-settings"
 	FlagDaemonAddr              = "daemon-addr"
@@ -39,17 +37,14 @@ const (
 	CodeElevationFailed      = "elevation_failed"
 )
 
-// elevationTimeout bounds the wait for a prompt and the change behind it, so an
-// authentication dialog nobody ever answers does not leave the control it belongs
-// to disabled for the rest of the session. Long enough to find a password manager,
-// and no shorter than the platforms' own prompt timeouts (Windows gives up on its
-// consent dialog after two minutes by itself).
+// elevationTimeout bounds the wait for a prompt and the change behind it, so a
+// dialog nobody answers does not leave its control disabled for the session. Long
+// enough to find a password manager, and no shorter than the platforms' own prompt
+// timeouts: Windows gives up on its consent dialog after two minutes by itself.
 //
-// How much it can actually interrupt differs. On Linux the prompt is a child
-// process and is killed with the context; on Windows the wait for it is
-// interruptible. On macOS the dialog belongs to Security.framework, which offers no
-// way to withdraw the request, so there the timeout only stops us waiting — the
-// system's own dialog timeout is what ends it.
+// It always ends our waiting, and not always the prompt: Security.framework offers
+// no way to withdraw a request, so on macOS the system's own timeout is what closes
+// the dialog.
 const elevationTimeout = 5 * time.Minute
 
 // elevator raises the platform's privilege prompt and runs the change behind it.
@@ -141,11 +136,9 @@ func (s *Settings) SetGuardedSettings(ctx context.Context, p GuardedSettings) (S
 	ctx, cancel := context.WithTimeout(ctx, elevationTimeout)
 	defer cancel()
 
-	// Both ends of it: when the prompt went up, and what came of it. These are
-	// changes that hand out shells on this host, so the log should say who was
-	// asked and when, and it is also the only account of a prompt that was slow to
-	// appear or never answered. The daemon records the change itself, against the
-	// identity it authorized.
+	// These changes hand out shells on this host, so both ends are logged: when the
+	// prompt went up, and what came of it. It is also the only account of a prompt
+	// that was slow to appear or never answered.
 	log.Infof("asking for privileges to apply %s", guardedSummary(p))
 
 	if err := s.elevator.Run(ctx, args...); err != nil {

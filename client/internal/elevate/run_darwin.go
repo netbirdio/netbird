@@ -2,6 +2,7 @@ package elevate
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
@@ -49,11 +50,9 @@ import (
 // runs under guard, which turns a panic out of the FFI layer into that same
 // fallback.
 //
-// One thing that is not optional: the elevated process must be signed with the
-// hardened runtime, which is what stops DYLD_INSERT_LIBRARIES in the environment
-// the trampoline passes on from loading somebody's library into a root process. The
-// released app is signed and notarised, so it is; see also trustedSelf, which
-// refuses to elevate an executable others can write.
+// The trampoline passes on the environment it was given, so what it starts as root
+// must be an executable this user's peers cannot influence: that is what
+// trustedSelf refuses, and what signing the binary settles for the loader.
 
 const (
 	securityFramework = "/System/Library/Frameworks/Security.framework/Security"
@@ -281,6 +280,13 @@ func execute(ctx context.Context, authorization uintptr, self string, args []str
 	if err != nil {
 		return err
 	}
+	return checkApplied(out)
+}
+
+// checkApplied reads the one-shot's report, which stands in for the exit status
+// there is no way to ask for here. A run that said nothing did not apply the
+// change, whatever else went on.
+func checkApplied(out string) error {
 	if !strings.Contains(out, AppliedMarker) {
 		return fmt.Errorf("elevated netbird did not report the change as applied: %s", firstLine(out))
 	}
@@ -310,7 +316,16 @@ func readPipe(ctx context.Context, pipe uintptr) (string, error) {
 		if n > 0 {
 			out.Write(buf[:n])
 		}
-		if n <= 0 || err != nil {
+		switch {
+		case errors.Is(err, syscall.EINTR):
+			// A signal landed mid-read, which says nothing about the tool.
+			continue
+		case err != nil:
+			log.Debugf("read the elevated process's output: %v", err)
+			return out.String(), nil
+		case n <= 0:
+			// End of file: the tool closed the pipe, which is how it exiting
+			// reaches us.
 			return out.String(), nil
 		}
 	}
@@ -341,15 +356,4 @@ func cString(pinner *runtime.Pinner, s string) *byte {
 	b := append([]byte(s), 0)
 	pinner.Pin(&b[0])
 	return &b[0]
-}
-
-func firstLine(s string) string {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return "no output"
-	}
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		return s[:i]
-	}
-	return s
 }

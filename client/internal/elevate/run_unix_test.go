@@ -4,12 +4,14 @@ package elevate
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // fakePkexec puts a pkexec on PATH that exits with the given code, so the
@@ -20,9 +22,7 @@ func fakePkexec(t *testing.T, exitCode int, stderr string) {
 
 	dir := t.TempDir()
 	script := fmt.Sprintf("#!/bin/sh\necho %s >&2\nexit %d\n", shellQuote(stderr), exitCode)
-	if err := os.WriteFile(filepath.Join(dir, "pkexec"), []byte(script), 0o700); err != nil {
-		t.Fatalf("write fake pkexec: %v", err)
-	}
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "pkexec"), []byte(script), 0o700), "write the fake pkexec")
 	t.Setenv("PATH", dir)
 }
 
@@ -59,6 +59,15 @@ func TestRunMapsPkexecExitCodes(t *testing.T) {
 			stderr:   "Error creating textual authentication agent: Error opening current controlling terminal for the process (`/dev/tty'): No such device or address",
 			wantErr:  ErrUnavailable,
 		},
+		{
+			// And the same status again once the authorization succeeded and
+			// pkexec could not run what it had been authorized to run. Reading
+			// that as a refusal would revert the control in silence on a host
+			// where elevation is broken.
+			name:     "authorized but not runnable",
+			exitCode: exitNotAuthorized,
+			stderr:   "Error executing command as another user: No such file or directory",
+		},
 	}
 
 	for _, tt := range tests {
@@ -66,14 +75,15 @@ func TestRunMapsPkexecExitCodes(t *testing.T) {
 			fakePkexec(t, tt.exitCode, tt.stderr)
 
 			err := run(context.Background(), "/nonexistent/netbird-ui", []string{"--flag"})
-			if tt.wantErr == nil {
-				if err != nil {
-					t.Fatalf("run() = %v, want nil", err)
-				}
-				return
-			}
-			if !errors.Is(err, tt.wantErr) {
-				t.Fatalf("run() = %v, want %v", err, tt.wantErr)
+			switch {
+			case tt.wantErr != nil:
+				require.ErrorIs(t, err, tt.wantErr, "exit %d said %q", tt.exitCode, tt.stderr)
+			case tt.exitCode == 0:
+				require.NoError(t, err, "a pkexec that exited cleanly applied the change")
+			default:
+				require.Error(t, err, "exit %d said %q", tt.exitCode, tt.stderr)
+				assert.NotErrorIs(t, err, ErrDeclined, "not the user's answer")
+				assert.NotErrorIs(t, err, ErrUnavailable, "not a missing mechanism")
 			}
 		})
 	}
@@ -85,21 +95,16 @@ func TestRunReportsOneShotFailure(t *testing.T) {
 	fakePkexec(t, 3, "the one-shot said no")
 
 	err := run(context.Background(), "/nonexistent/netbird-ui", nil)
-	if err == nil {
-		t.Fatal("run() = nil, want an error")
-	}
-	if errors.Is(err, ErrDeclined) || errors.Is(err, ErrUnavailable) {
-		t.Fatalf("run() = %v, want a plain failure", err)
-	}
+
+	require.Error(t, err, "a one-shot that failed is not a prompt that was answered")
+	assert.NotErrorIs(t, err, ErrDeclined, "not the user's answer")
+	assert.NotErrorIs(t, err, ErrUnavailable, "not a missing mechanism")
 }
 
 func TestRunWithoutPkexecIsUnavailable(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 
-	if err := run(context.Background(), "/nonexistent/netbird-ui", nil); !errors.Is(err, ErrUnavailable) {
-		t.Fatalf("run() = %v, want ErrUnavailable", err)
-	}
-	if mechanismAvailable() {
-		t.Error("mechanismAvailable() = true without pkexec on PATH")
-	}
+	err := run(context.Background(), "/nonexistent/netbird-ui", nil)
+	require.ErrorIs(t, err, ErrUnavailable, "no pkexec means no mechanism")
+	assert.False(t, mechanismAvailable(), "mechanismAvailable without pkexec on PATH")
 }

@@ -1,6 +1,10 @@
 package daemonaddr
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func TestCarriesIdentity(t *testing.T) {
 	tests := []struct {
@@ -19,9 +23,7 @@ func TestCarriesIdentity(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.addr, func(t *testing.T) {
-			if got := CarriesIdentity(tt.addr); got != tt.want {
-				t.Errorf("CarriesIdentity(%q) = %v, want %v", tt.addr, got, tt.want)
-			}
+			assert.Equal(t, tt.want, CarriesIdentity(tt.addr), "address %q", tt.addr)
 		})
 	}
 }

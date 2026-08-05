@@ -24,12 +24,16 @@ const (
 	exitNotAuthorized = 127
 )
 
-// noAgentMarkers appear in pkexec's own complaint when it had no way to ask: no
-// agent registered for the session, and no controlling terminal for the textual
-// agent it falls back to. That is the one outcome behind exitNotAuthorized worth a
-// message, so it has to be told from a plain refusal, and the only thing that tells
-// them apart is what pkexec says about itself. Read with LC_ALL=C so the words are
-// the ones written here.
+// exitNotAuthorized covers three different endings that only pkexec's own words
+// tell apart, so they are matched here. Read with LC_ALL=C so the words are the
+// ones written below.
+//
+// refusedMarker is a refusal: the user said no, gave up on the password, or holds
+// an account that may not elevate at all.
+const refusedMarker = "Not authorized"
+
+// noAgentMarkers say pkexec had no way to ask: no agent registered for the
+// session, and no controlling terminal for the textual agent it falls back to.
 var noAgentMarkers = []string{"authentication agent", "controlling terminal"}
 
 // run asks polkit to run self as root. pkexec hands the request to the session's
@@ -67,21 +71,34 @@ func run(ctx context.Context, self string, args []string) error {
 	// that is not the first thing printed still has to be recognised, and reading
 	// it as a refusal would swallow it.
 	full := stderr.String()
-	out := message(full)
+	out := firstLine(full)
 
 	switch exitErr.ExitCode() {
 	case exitDismissed:
 		return ErrDeclined
 	case exitNotAuthorized:
-		if hasAny(full, noAgentMarkers) {
-			return fmt.Errorf("%w: polkit had no way to ask: %s", ErrUnavailable, out)
-		}
-		// polkit asked and was not satisfied. Overwhelmingly that is the user
-		// saying no, which needs no message; that an account barred from
+		return notAuthorized(full, out)
+	default:
+		return fmt.Errorf("elevated netbird exited with %d: %s", exitErr.ExitCode(), out)
+	}
+}
+
+// notAuthorized sorts out the three endings pkexec reports as exitNotAuthorized.
+//
+// It also returns that code when the authorization succeeded and it then could
+// not run the program, so a refusal has to be recognised rather than assumed:
+// reading every one of these as "the user said no" would revert the control in
+// silence on a host where elevation is broken.
+func notAuthorized(full, out string) error {
+	switch {
+	case hasAny(full, noAgentMarkers):
+		return fmt.Errorf("%w: polkit had no way to ask: %s", ErrUnavailable, out)
+	case out == noOutput, strings.Contains(full, refusedMarker):
+		// The user said no, which needs no message; that an account barred from
 		// elevating altogether lands here too is why the reason is kept.
 		return fmt.Errorf("%w: %s", ErrDeclined, out)
 	default:
-		return fmt.Errorf("elevated netbird exited with %d: %s", exitErr.ExitCode(), out)
+		return fmt.Errorf("pkexec could not run elevated netbird: %s", out)
 	}
 }
 
@@ -97,16 +114,4 @@ func hasAny(s string, markers []string) bool {
 func mechanismAvailable() bool {
 	_, err := exec.LookPath("pkexec")
 	return err == nil
-}
-
-// message trims a captured stderr to something that reads in one line.
-func message(s string) string {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return "no output"
-	}
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		return s[:i]
-	}
-	return s
 }

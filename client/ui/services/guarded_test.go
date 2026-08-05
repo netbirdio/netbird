@@ -23,6 +23,10 @@ import (
 // elevation is worth offering at all: see Settings.canElevate.
 const testDaemonAddr = "unix:///var/run/netbird.sock"
 
+// storedManagementURL is what the stub daemon already holds, so that a request
+// naming a different one is a change: see Settings.guardedChanges.
+const storedManagementURL = "https://stored.example.com"
+
 // stubElevator stands in for the platform's prompt: it records what would have run
 // and answers with a fixed outcome.
 type stubElevator struct {
@@ -38,12 +42,15 @@ func (e *stubElevator) Run(_ context.Context, args ...string) error {
 
 func (e *stubElevator) Available() bool { return e.available }
 
-// stubDaemon implements only the RPC under test. The embedded interface is nil, so
+// stubDaemon implements only the RPCs under test. The embedded interface is nil, so
 // any other call panics rather than passing quietly.
 type stubDaemon struct {
 	proto.DaemonServiceClient
 	setConfig func(*proto.SetConfigRequest) error
-	requests  []*proto.SetConfigRequest
+	// stored is what GetConfig reports, which is what a refused request's guarded
+	// settings are compared against.
+	stored   *proto.GetConfigResponse
+	requests []*proto.SetConfigRequest
 }
 
 func (d *stubDaemon) SetConfig(_ context.Context, in *proto.SetConfigRequest, _ ...grpc.CallOption) (*proto.SetConfigResponse, error) {
@@ -52,6 +59,10 @@ func (d *stubDaemon) SetConfig(_ context.Context, in *proto.SetConfigRequest, _ 
 		return nil, err
 	}
 	return &proto.SetConfigResponse{}, nil
+}
+
+func (d *stubDaemon) GetConfig(_ context.Context, _ *proto.GetConfigRequest, _ ...grpc.CallOption) (*proto.GetConfigResponse, error) {
+	return d.stored, nil
 }
 
 type stubConn struct{ client proto.DaemonServiceClient }
@@ -84,12 +95,14 @@ func settingsWithElevation(t *testing.T, outcome error) (*Settings, *stubElevato
 }
 
 // settingsRefusingOnce returns a Settings whose daemon refuses the first SetConfig
-// for want of privileges and accepts anything after it.
+// for want of privileges and accepts anything after it. Its stored config holds
+// another management server and no SSH grants, so a request naming either is a
+// change rather than a restatement.
 func settingsRefusingOnce(t *testing.T, elev *stubElevator) (*Settings, *stubDaemon) {
 	t.Helper()
 
 	refusal := privilegeRefusal(t)
-	daemon := &stubDaemon{}
+	daemon := &stubDaemon{stored: &proto.GetConfigResponse{ManagementUrl: storedManagementURL}}
 	daemon.setConfig = func(*proto.SetConfigRequest) error {
 		if len(daemon.requests) == 1 {
 			return refusal
@@ -273,6 +286,52 @@ func TestSetConfigReportsTheRefusalWhenItCannotElevate(t *testing.T) {
 	assert.Contains(t, clientErr.Command, "netbird up -m https://mgmt.example.com",
 		"the daemon's own command")
 	assert.Empty(t, elev.calls, "no prompt where there is none to raise")
+}
+
+// One authorization must buy only the change the user made. A settings form
+// submits every field it holds, so most of a refused request restates what the
+// daemon already has, and elevating those too would apply a guarded setting the
+// user never touched — a value gone stale since the form loaded above all.
+func TestSetConfigElevatesOnlyTheGuardedSettingsThatChange(t *testing.T) {
+	elev := &stubElevator{available: true}
+	s, _ := settingsRefusingOnce(t, elev)
+
+	on, off := true, false
+	_, err := s.SetConfig(context.Background(), SetConfigParams{
+		ProfileName:      "default",
+		ManagementURL:    storedManagementURL,
+		ServerSSHAllowed: &off,
+		EnableSSHRoot:    &off,
+		DisableSSHAuth:   &on,
+	})
+	require.NoError(t, err)
+
+	require.Len(t, elev.calls, 1, "one prompt")
+	args := elev.calls[0]
+	assert.Contains(t, args, "--"+FlagDisableSSHAuth+"=true", "the setting that changes")
+	assert.NotContains(t, args, "--"+FlagManagementURL+"="+storedManagementURL,
+		"a management URL the daemon already holds")
+	assert.NotContains(t, args, "--"+FlagAllowServerSSH+"=false", "a setting already off")
+	assert.NotContains(t, args, "--"+FlagEnableSSHRoot+"=false", "a setting already off")
+}
+
+// A request that changes no guarded setting has nothing an elevated run could
+// apply, so the refusal must have come from somewhere a prompt cannot reach.
+func TestSetConfigDoesNotElevateWhenNoGuardedSettingChanges(t *testing.T) {
+	elev := &stubElevator{available: true}
+	s, _ := settingsRefusingOnce(t, elev)
+
+	off := false
+	_, err := s.SetConfig(context.Background(), SetConfigParams{
+		ProfileName:      "default",
+		ManagementURL:    storedManagementURL,
+		ServerSSHAllowed: &off,
+	})
+
+	var clientErr *ClientError
+	require.ErrorAs(t, err, &clientErr)
+	assert.Equal(t, "privilege_required", clientErr.Code, "error code")
+	assert.Empty(t, elev.calls, "no prompt for a change nobody made")
 }
 
 // A refusal with nothing in the request the one-shot could apply: the daemon

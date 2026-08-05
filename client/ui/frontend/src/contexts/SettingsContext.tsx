@@ -69,6 +69,12 @@ const useSettingsState = () => {
     const [guiVersion, setGuiVersion] = useState<string>("—");
     const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const loadedRef = useRef<LoadedConfig | null>(null);
+    // Set when the daemon's config changed while a save was pending, so the read
+    // that was skipped to protect the pending edit happens once it is through.
+    // Without it the form keeps values the daemon no longer has and the next save
+    // submits them, which for a guarded setting means asking the user to authorize
+    // a change they never made.
+    const reloadOwed = useRef(false);
 
     useEffect(() => {
         loadedRef.current = loaded;
@@ -79,6 +85,7 @@ const useSettingsState = () => {
     // update the daemon then rejected.
     const reload = useCallback(
         async (profileName: string) => {
+            reloadOwed.current = false;
             try {
                 const data = await SettingsSvc.GetConfig({ profileName, username });
                 setLoaded({ profileName, data });
@@ -100,7 +107,12 @@ const useSettingsState = () => {
                     username,
                 });
                 if (cancelled) return;
-                if (saveTimer.current) return;
+                // A pending edit outranks the daemon's copy until it is saved, so
+                // the read is owed rather than dropped: see reloadOwed.
+                if (saveTimer.current) {
+                    reloadOwed.current = true;
+                    return;
+                }
                 setLoaded({ profileName: activeProfileId, data });
             } catch (e) {
                 if (cancelled || !showError) return;
@@ -155,7 +167,7 @@ const useSettingsState = () => {
                 });
                 // The change needed authorization and the user said no, so the
                 // optimistic update is wrong. Nothing to report: they know.
-                if (declined) {
+                if (declined || reloadOwed.current) {
                     await reload(profileName);
                 }
             } catch (e) {

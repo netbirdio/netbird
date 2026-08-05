@@ -3,6 +3,7 @@
 package services
 
 import (
+	"flag"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -123,44 +124,28 @@ func TestPrivilegedRequestRejectsAnUnparseableValue(t *testing.T) {
 }
 
 // parseRendered puts the settings through both ends: rendered as the arguments the
-// elevated process is given, then parsed as that process parses them.
+// elevated process is given, then parsed by a flag set registered from the same
+// table, which is what the one-shot itself parses them with. Anything hand-rolled
+// here would pin down a parser nothing uses.
 func parseRendered(t *testing.T, p GuardedSettings) *proto.SetConfigRequest {
 	t.Helper()
 
 	rendered := guardedSettings(p)
 	require.NotEmpty(t, rendered, "nothing rendered for %+v", p)
 
-	values := make([]fieldValue, len(guardedFields))
+	args := make([]string, 0, len(rendered))
 	for _, setting := range rendered {
-		flag, value, found := splitFlag(setting.arg)
-		require.True(t, found, "rendered %q without a value", setting.arg)
-
-		matched := false
-		for i, field := range guardedFields {
-			if field.flag != flag {
-				continue
-			}
-			require.NoError(t, values[i].Set(value))
-			matched = true
-		}
-		require.True(t, matched, "rendered %q, which no field claims", setting.arg)
+		args = append(args, setting.arg)
 	}
+
+	fs := flag.NewFlagSet(t.Name(), flag.ContinueOnError)
+	values := make([]fieldValue, len(guardedFields))
+	for i, field := range guardedFields {
+		fs.Var(&values[i], field.flag, field.usage)
+	}
+	require.NoError(t, fs.Parse(args), "the one-shot's own flag set must accept %v", args)
 
 	req, err := privilegedRequest(p.ProfileName, p.Username, values)
 	require.NoError(t, err)
 	return req
-}
-
-// splitFlag takes "--name=value" apart the way the flag package does.
-func splitFlag(arg string) (name, value string, found bool) {
-	trimmed := arg
-	for len(trimmed) > 0 && trimmed[0] == '-' {
-		trimmed = trimmed[1:]
-	}
-	for i := 0; i < len(trimmed); i++ {
-		if trimmed[i] == '=' {
-			return trimmed[:i], trimmed[i+1:], true
-		}
-	}
-	return trimmed, "", false
 }

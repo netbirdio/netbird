@@ -3,16 +3,17 @@ package elevate
 import (
 	"errors"
 	"runtime"
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-// The framework has to load and the symbols has to resolve, or nothing else here
+// The framework has to load and the symbols have to resolve, or nothing else here
 // means anything.
 func TestSecurityFrameworkLoads(t *testing.T) {
-	if err := load(); err != nil {
-		t.Fatalf("load() = %v, want the framework to open", err)
-	}
+	require.NoError(t, load(), "Security.framework must open")
+
 	for name, fn := range map[string]any{
 		"AuthorizationCreate":                authorizationCreate,
 		"AuthorizationExecuteWithPrivileges": authorizationExecuteWithPrivileges,
@@ -20,9 +21,7 @@ func TestSecurityFrameworkLoads(t *testing.T) {
 		"fileno":                             fileno,
 		"fclose":                             fclose,
 	} {
-		if fn == nil {
-			t.Errorf("%s did not resolve", name)
-		}
+		assert.NotNil(t, fn, "%s must resolve", name)
 	}
 }
 
@@ -40,10 +39,7 @@ func TestAuthorizationCreateWithoutInteraction(t *testing.T) {
 
 	rights := itemSet(&pinner, authorizationItem{name: cString(&pinner, rightExecute)})
 	environment := itemSet(&pinner, promptItem(&pinner))
-
-	if got := rights.count; got != 1 {
-		t.Fatalf("rights.count = %d, want 1: the struct layout is wrong", got)
-	}
+	require.EqualValues(t, 1, rights.count, "the rights struct layout must match the C one")
 
 	var authorization uintptr
 	status := authorizationCreate(rights, environment, flagDefaults|flagExtendRights, &authorization)
@@ -55,7 +51,7 @@ func TestAuthorizationCreateWithoutInteraction(t *testing.T) {
 	case errAuthorizationDenied, errAuthorizationInteractionNotAllowed:
 		// The expected answers when nobody may be asked.
 	default:
-		t.Fatalf("AuthorizationCreate returned OSStatus %d, want a known one", status)
+		require.Failf(t, "unknown OSStatus", "AuthorizationCreate returned %d, want a status we recognise", status)
 	}
 }
 
@@ -75,22 +71,22 @@ func TestAuthorizeUnknownRightIsNotDeclined(t *testing.T) {
 	status := authorizationCreate(rights, nil, flagDefaults|flagExtendRights, &authorization)
 	if status == errAuthorizationSuccess {
 		authorizationFree(authorization, flagDestroyRights)
-		t.Fatal("a right that does not exist was granted")
 	}
+	assert.NotEqual(t, int32(errAuthorizationSuccess), status, "a right that does not exist must not be granted")
 }
 
 func TestMechanismAvailable(t *testing.T) {
-	if !mechanismAvailable() {
-		t.Error("mechanismAvailable() = false on macOS, where the trampoline always exists")
-	}
+	assert.True(t, mechanismAvailable(), "the trampoline exists on every macOS")
 }
 
 // The one-shot's report is what stands in for an exit status here, so a run that
 // says nothing must not read as success.
-func TestExecuteRequiresTheAppliedMarker(t *testing.T) {
-	if !strings.Contains(AppliedMarker, "netbird") {
-		t.Errorf("AppliedMarker = %q, want something the one-shot would not print by accident", AppliedMarker)
-	}
+func TestCheckApplied(t *testing.T) {
+	require.NoError(t, checkApplied(AppliedMarker+"\n"), "the report the one-shot prints")
+	require.NoError(t, checkApplied("some warning\n"+AppliedMarker+"\n"), "the report after other output")
+
+	assert.Error(t, checkApplied(""), "a run that printed nothing did not apply the change")
+	assert.Error(t, checkApplied("dyld: library not loaded\n"), "output that is not the report")
 }
 
 // A panic out of the FFI layer has to reach the caller as "no mechanism", which is
@@ -100,42 +96,16 @@ func TestGuardTurnsAPanicIntoUnavailable(t *testing.T) {
 		panic("purego: signature it cannot map")
 	})
 
-	if !errors.Is(err, ErrUnavailable) {
-		t.Fatalf("guard() = %v, want it to be ErrUnavailable", err)
-	}
-	if !strings.Contains(err.Error(), "pretending to call something") {
-		t.Errorf("guard() = %v, want it to name what panicked", err)
-	}
+	require.ErrorIs(t, err, ErrUnavailable, "a panic must read as a missing mechanism")
+	assert.Contains(t, err.Error(), "pretending to call something", "what panicked")
 }
 
+// guard wraps every darwin path, so what a caller switches on has to survive it.
 func TestGuardPassesErrorsThrough(t *testing.T) {
 	sentinel := errors.New("the call itself failed")
-	if err := guard("calling", func() error { return sentinel }); !errors.Is(err, sentinel) {
-		t.Errorf("guard() = %v, want the error it was given", err)
-	}
-	if err := guard("calling", func() error { return nil }); err != nil {
-		t.Errorf("guard() = %v, want nil", err)
-	}
-}
-
-func TestFirstLine(t *testing.T) {
-	tests := []struct{ in, want string }{
-		{in: "", want: "no output"},
-		{in: "  \n ", want: "no output"},
-		{in: "one line", want: "one line"},
-		{in: "first\nsecond", want: "first"},
-	}
-	for _, tt := range tests {
-		if got := firstLine(tt.in); got != tt.want {
-			t.Errorf("firstLine(%q) = %q, want %q", tt.in, got, tt.want)
-		}
-	}
-}
-
-// Declined has to stay distinguishable after wrapping, which is what the callers
-// switch on.
-func TestErrDeclinedSurvivesWrapping(t *testing.T) {
-	if !errors.Is(errors.Join(ErrDeclined), ErrDeclined) {
-		t.Error("ErrDeclined does not match itself through errors.Is")
-	}
+	assert.ErrorIs(t, guard("calling", func() error { return sentinel }), sentinel,
+		"the error it was given")
+	assert.ErrorIs(t, guard("calling", func() error { return ErrDeclined }), ErrDeclined,
+		"a declined prompt stays declined")
+	assert.NoError(t, guard("calling", func() error { return nil }), "a call that worked")
 }

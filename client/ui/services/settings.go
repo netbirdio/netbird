@@ -252,13 +252,10 @@ func (s *Settings) setConfigElevated(ctx context.Context, p SetConfigParams, req
 		return SaveOutcome{}, s.classifier.classify(refusal)
 	}
 
-	guarded := GuardedSettings{
-		ProfileName:      p.ProfileName,
-		Username:         p.Username,
-		ManagementURL:    p.ManagementURL,
-		ServerSSHAllowed: p.ServerSSHAllowed,
-		EnableSSHRoot:    p.EnableSSHRoot,
-		DisableSSHAuth:   p.DisableSSHAuth,
+	guarded, err := s.guardedChanges(ctx, p)
+	if err != nil {
+		log.Warnf("cannot tell which guarded settings this request changes: %v", err)
+		return SaveOutcome{}, s.classifier.classify(refusal)
 	}
 	if len(guardedSettings(guarded)) == 0 {
 		// Refused over something no prompt can settle, such as a control channel
@@ -279,6 +276,33 @@ func (s *Settings) setConfigElevated(ctx context.Context, p SetConfigParams, req
 		return SaveOutcome{}, s.classifier.classify(err)
 	}
 	return SaveOutcome{}, nil
+}
+
+// guardedChanges is the guarded part of a request, reduced to what it actually
+// changes.
+//
+// A settings form submits every field it holds, so a request restates values the
+// daemon already has. Carrying those into the elevated run would spend one
+// authorization on more than the user asked for, and a value that has gone stale
+// since the form was loaded would spend it on something they never asked about.
+func (s *Settings) guardedChanges(ctx context.Context, p SetConfigParams) (GuardedSettings, error) {
+	stored, err := s.GetConfig(ctx, ConfigParams{ProfileName: p.ProfileName, Username: p.Username})
+	if err != nil {
+		return GuardedSettings{}, fmt.Errorf("read the stored config: %w", err)
+	}
+
+	guarded := GuardedSettings{
+		ProfileName:      p.ProfileName,
+		Username:         p.Username,
+		ServerSSHAllowed: changedFlag(p.ServerSSHAllowed, stored.ServerSSHAllowed),
+		EnableSSHRoot:    changedFlag(p.EnableSSHRoot, stored.EnableSSHRoot),
+		DisableSSHAuth:   changedFlag(p.DisableSSHAuth, stored.DisableSSHAuth),
+	}
+	// An empty URL leaves the setting alone, which is the daemon's rule too.
+	if p.ManagementURL != "" && p.ManagementURL != stored.ManagementURL {
+		guarded.ManagementURL = p.ManagementURL
+	}
+	return guarded, nil
 }
 
 // Privilege reports whether this UI process could carry out the changes the
@@ -361,6 +385,15 @@ func (s *Settings) GetRestrictions(ctx context.Context) (Restrictions, error) {
 	applyMDMRestrictions(&r.MDM, cfgResp)
 	r.MDM.DisableAdvancedView = featResp.GetDisableAdvancedView()
 	return r, nil
+}
+
+// changedFlag returns requested only when it differs from what is stored, so a
+// setting the request merely restates is left out of the elevated run.
+func changedFlag(requested *bool, stored bool) *bool {
+	if requested == nil || *requested == stored {
+		return nil
+	}
+	return requested
 }
 
 func applyMDMRestrictions(mdm *MDMFields, cfgResp *proto.GetConfigResponse) {

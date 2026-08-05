@@ -3,6 +3,7 @@
 package elevate
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"os"
@@ -10,10 +11,15 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"syscall"
 
 	log "github.com/sirupsen/logrus"
 )
+
+// groupFile lists which accounts are in which group, for the membership a user
+// private group's name does not state: see groupHasOtherMembers.
+const groupFile = "/etc/group"
 
 // checkOnlyOwnerWritable reports an error unless path, and every directory leading
 // to it, is owned by either root or this user and writable by nobody who could not
@@ -73,12 +79,11 @@ func writeBitsAllow(path string, perm os.FileMode, sticky, groupAllowed bool) er
 // groupWriteAllowed reports whether a group's write access to a file owned by uid
 // puts it in reach of anyone who could not already act as that owner.
 //
-// Two ways it does not. A group in adminWriteGIDs is the set of accounts that can
-// answer the elevation prompt anyway. And a user private group, whose name is its
-// only member's, is how Debian, Ubuntu and Fedora ship: their default umask of 002
-// makes a home directory and everything built in it group-writable, so refusing
-// that would mean refusing every build that is not installed from a package, for a
-// group nobody else is in.
+// Two ways it does not. A group in adminWriteGIDs holds the accounts that can
+// answer the elevation prompt anyway. And a user private group is how Debian,
+// Ubuntu and Fedora ship: their umask of 002 makes a home directory and
+// everything built in it group-writable, so refusing that would refuse every
+// build not installed from a package.
 func groupWriteAllowed(uid, gid uint32) bool {
 	if slices.Contains(adminWriteGIDs, gid) {
 		return true
@@ -94,5 +99,48 @@ func groupWriteAllowed(uid, gid uint32) bool {
 		log.Debugf("cannot look up uid %d, treating its group as shared: %v", uid, err)
 		return false
 	}
-	return group.Name == owner.Username
+
+	if group.Name != owner.Username {
+		return false
+	}
+	return !groupHasOtherMembers(groupFile, group.Name, owner.Username)
+}
+
+// groupHasOtherMembers reports whether the group lists a member besides owner.
+//
+// Sharing the owner's name is what a user private group is recognised by, and it
+// says nothing about who is in it: a group that has since gained a member is
+// still named that way, and that member can write whatever the group can. So the
+// membership is read rather than assumed. A group this file does not describe,
+// because it comes from LDAP or another NSS source, cannot be answered here and
+// leaves the name as the only thing to go on.
+func groupHasOtherMembers(path, name, owner string) bool {
+	file, err := os.Open(path)
+	if err != nil {
+		log.Debugf("cannot read %s for the members of group %q: %v", path, name, err)
+		return false
+	}
+	defer func() {
+		if err := file.Close(); err != nil {
+			log.Debugf("close %s: %v", path, err)
+		}
+	}()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		// name:password:gid:member,member
+		fields := strings.Split(scanner.Text(), ":")
+		if len(fields) < 4 || fields[0] != name {
+			continue
+		}
+		for member := range strings.SplitSeq(fields[3], ",") {
+			if member != "" && member != owner {
+				return true
+			}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		log.Debugf("read %s: %v", path, err)
+	}
+	return false
 }
