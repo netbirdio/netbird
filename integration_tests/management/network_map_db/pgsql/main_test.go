@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/stretchr/testify/assert"
 
 	log "github.com/sirupsen/logrus"
 	"gorm.io/driver/postgres"
@@ -24,7 +26,10 @@ import (
 //go:embed base_data.sql
 var baseData string
 
-var dsn string
+var (
+	dsn     string
+	pgstore *networkmap_pgsql.PgStore
+)
 
 func TestMain(m *testing.M) {
 	_, tmpdsn, err := testutil.CreatePostgresTestContainer()
@@ -74,6 +79,11 @@ func TestMain(m *testing.M) {
 		if _, err := s.Pool.Exec(ctx, query); err != nil {
 			log.Fatalf("error initializing db: %s", err.Error())
 		}
+	}
+
+	pgstore, err = networkmap_pgsql.NewPostgresqlStore(ctx, dsn)
+	if err != nil {
+		log.Fatalf("error creating pg store %v", err.Error())
 	}
 
 	code := m.Run()
@@ -129,4 +139,11 @@ func createRandomDB(dsn string, db *gorm.DB) (string, func(), error) {
 func replaceDBName(dsn, newDBName string) string {
 	re := regexp.MustCompile(`(?P<pre>[:/@])(?P<dbname>[^/?]+)(?P<post>\?|$)`)
 	return re.ReplaceAllString(dsn, `${pre}`+newDBName+`${post}`)
+}
+
+func conn(t *testing.T, ctx context.Context) *pgx.Conn {
+	t.Helper()
+	c, err := pgstore.Pool.Acquire(ctx)
+	assert.NoError(t, err)
+	return c.Conn()
 }

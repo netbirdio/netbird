@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestGetNetworks(t *testing.T) {
+func TestGetNetwork(t *testing.T) {
 	ctx := context.TODO()
 
 	s, err := networkmap_pgsql.NewPostgresqlStore(ctx, dsn)
