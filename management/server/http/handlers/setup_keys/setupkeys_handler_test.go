@@ -135,6 +135,15 @@ func TestSetupKeysHandlers(t *testing.T) {
 			expectedSetupKey: expectedNewKey,
 		},
 		{
+			name:        "Create Setup Key With Negative Usage Limit",
+			requestType: http.MethodPost,
+			requestPath: "/api/setup-keys",
+			requestBody: bytes.NewBuffer(
+				[]byte(fmt.Sprintf("{\"name\":\"%s\",\"type\":\"%s\",\"expires_in\":86400,\"usage_limit\":-1}", newSetupKey.Name, newSetupKey.Type))),
+			expectedStatus: http.StatusUnprocessableEntity,
+			expectedBody:   false,
+		},
+		{
 			name:        "Update Setup Key",
 			requestType: http.MethodPut,
 			requestPath: "/api/setup-keys/" + defaultSetupKey.Id,
