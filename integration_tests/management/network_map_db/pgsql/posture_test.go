@@ -30,12 +30,17 @@ func TestGetPostureChecks(t *testing.T) {
 		  "GeoLocationCheck":{"Locations":[{"CountryCode":"US","CityName":"Harker Heights"}],"Action":"allow"},
 		  "PeerNetworkRangeCheck":{"Action":"allow","Ranges":["0.0.0.0/0"]}}')`)
 	assert.NoError(t, err)
+	_, err = pgstore.Pool.Query(ctx,
+		`insert into posture_checks (id, account_id, public_id, checks)
+		VALUES('posturecheck-3','account-1','posturecheck-3-public', null)`)
+	assert.NoError(t, err)
 
 	postureChecks, idToPublicIDIdx, err := networkmap_pgsql.GetPostureChecksViaPgxConnection(ctx, conn(t, ctx), "account-1")
 	assert.NoError(t, err)
 	assert.Equal(t, idToPublicIDIdx, map[string]string{
 		"posturecheck-1": "posturecheck-1-public",
 		"posturecheck-2": "posturecheck-2-public",
+		"posturecheck-3": "posturecheck-3-public",
 	})
 	assert.Contains(t, postureChecks, nmdata.PostureChecks{
 		ID: "posturecheck-1",
@@ -53,4 +58,6 @@ func TestGetPostureChecks(t *testing.T) {
 			GeoLocationCheck:      &nmdata.GeoLocationCheck{Locations: []nmdata.GeoLocation{{CountryCode: "US", CityName: "Harker Heights"}}, Action: "allow"},
 			PeerNetworkRangeCheck: &nmdata.PeerNetworkRangeCheck{Action: "allow", Ranges: []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")}},
 		}})
+	assert.Contains(t, postureChecks, nmdata.PostureChecks{
+		ID: "posturecheck-3"})
 }
