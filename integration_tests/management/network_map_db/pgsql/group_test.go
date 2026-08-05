@@ -6,7 +6,6 @@ import (
 
 	networkmap_pgsql "github.com/netbirdio/netbird/management/internals/network_map_db/pgsql"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
-	"github.com/rs/xid"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -46,17 +45,14 @@ func TestGetGroupsWithoutExpectedFields(t *testing.T) {
 	s, err := networkmap_pgsql.NewPostgresqlStore(ctx, dsn)
 	assert.NoError(t, err)
 
-	acctId := xid.New().String()
+	execQuery(t, ctx,
+		"insert into accounts (id) VALUES('random-id')")
 
-	_, err = s.Pool.Exec(ctx,
-		"insert into accounts (id) VALUES($1)", acctId)
+	execQuery(t, ctx,
+		"insert into groups (id, account_id) VALUES('g2-test-group-id-1','random-id')")
 	assert.NoError(t, err)
 
-	_, err = s.Pool.Exec(ctx,
-		"insert into groups (id, account_id) VALUES('g2-test-group-id-1',$1)", acctId)
-	assert.NoError(t, err)
-
-	groups, _, err := s.GetGroups(ctx, acctId)
+	groups, _, err := s.GetGroups(ctx, "random-id")
 	assert.NoError(t, err)
 	assert.Len(t, groups, 1)
 	assert.NotEmpty(t, groups[0].PublicID)

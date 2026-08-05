@@ -11,38 +11,32 @@ import (
 func TestGetAllowedUsers(t *testing.T) {
 	ctx := context.TODO()
 
-	_, err := pgstore.Pool.Query(ctx,
+	execQuery(t, ctx,
 		`insert into users (id, name, account_id, auto_groups, blocked, is_service_user)
 		VALUES('user-1','user-1','account-1','["group-one-resource-id"]',false,false)`)
-	assert.NoError(t, err)
-	_, err = pgstore.Pool.Query(ctx,
+	execQuery(t, ctx,
 		`insert into users (id, name, account_id, auto_groups, blocked, is_service_user)
 		VALUES('user-2','user-2','account-1','["group-one-resource-id","group-two-resources-id"]',false,false)`)
-	assert.NoError(t, err)
-	_, err = pgstore.Pool.Query(ctx,
+	execQuery(t, ctx,
 		`insert into users (id, name, account_id, auto_groups, blocked, is_service_user)
 		VALUES('user-3','user-3','account-1','["group-two-resources-id"]',false,false)`)
 	// shouldn't be included as it's blocked
-	_, err = pgstore.Pool.Query(ctx,
+	execQuery(t, ctx,
 		`insert into users (id, name, account_id, auto_groups, blocked, is_service_user)
-		VALUES('user-3','user-3','account-1','["group-two-resources-id"]',true,false)`)
-	assert.NoError(t, err)
+		VALUES('user-4','user-4','account-1','["group-two-resources-id"]',true,false)`)
 	// shouldn't be included as it's a service_user
-	_, err = pgstore.Pool.Query(ctx,
+	execQuery(t, ctx,
 		`insert into users (id, name, account_id, auto_groups, blocked, is_service_user)
-		VALUES('user-3','user-3','account-1','["group-two-resources-id"]',false,true)`)
-	_, err = pgstore.Pool.Query(ctx,
+		VALUES('user-5','user-5','account-1','["group-two-resources-id"]',false,true)`)
+	execQuery(t, ctx,
 		`insert into groups (id, name, account_id)
 		VALUES('all-group-1','All','account-1')`)
-	assert.NoError(t, err)
-	_, err = pgstore.Pool.Query(ctx,
+	execQuery(t, ctx,
 		`insert into groups (id, name, account_id)
 		VALUES('all-group-2','All','account-1')`)
-	assert.NoError(t, err)
-	_, err = pgstore.Pool.Query(ctx,
+	execQuery(t, ctx,
 		`insert into groups (id, name, account_id)
 		VALUES('all-group-3','All','account-1')`)
-	assert.NoError(t, err)
 
 	userIdx, groupIdToUserIds, err := networkmap_pgsql.GetAllowedUsersViaPgxConnection(ctx, conn(t, ctx), "account-1")
 	assert.NoError(t, err)

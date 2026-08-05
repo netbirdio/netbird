@@ -138,12 +138,15 @@ func FromSqlTypesToSharedTypes(src reflect.Value, dst reflect.Value) error {
 			}
 		case "json.RawMessage":
 			s := srcField.Interface().(json.RawMessage)
+			if len(s) == 0 {
+				continue
+			}
 			if err := json.Unmarshal(s, dstField.Addr().Interface()); err != nil {
 				return err
 			}
 		case "[]string":
 			if srcField.IsNil() {
-				return nil
+				continue
 			}
 			dstv := reflect.MakeSlice(dstField.Type(), srcField.Len(), srcField.Cap())
 			reflect.Copy(dstv, srcField)

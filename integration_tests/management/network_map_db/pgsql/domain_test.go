@@ -12,18 +12,15 @@ import (
 func TestGetDomains(t *testing.T) {
 	ctx := context.TODO()
 
-	_, err := pgstore.Pool.Exec(ctx,
+	execQuery(t, ctx,
 		`insert into domains (id, account_id, domain, target_cluster)
 		VALUES('domain-1','account-1','test-1.com','target-1.cluster.local')`)
-	assert.NoError(t, err)
-	_, err = pgstore.Pool.Exec(ctx,
+	execQuery(t, ctx,
 		`insert into domains (id, account_id, domain, target_cluster)
 		VALUES('domain-2','account-1','test-2.com','target-2.cluster.local')`)
-	assert.NoError(t, err)
-	_, err = pgstore.Pool.Exec(ctx,
+	execQuery(t, ctx,
 		`insert into domains (id, account_id, domain, target_cluster)
 		VALUES('domain-3','account-1',null,null)`)
-	assert.NoError(t, err)
 
 	domains, err := pgstore.GetDomains(ctx, "account-1")
 	assert.NoError(t, err)

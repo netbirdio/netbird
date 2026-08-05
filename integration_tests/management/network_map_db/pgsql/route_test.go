@@ -14,29 +14,26 @@ import (
 func TestGetRoutes(t *testing.T) {
 	ctx := context.TODO()
 
-	_, err := pgstore.Pool.Exec(ctx,
+	execQuery(t, ctx,
 		`insert into routes (id, account_id, public_id, network, domains, keep_route, net_id, description,
 	                         peer, peer_groups, network_type, masquerade, metric, enabled, 
 	                         groups, access_control_groups, skip_auto_apply)
 		VALUES('route-1','account-1','route-1-public','"172.0.0.0/16"','["test-1.com"]',true,'route-1-net-id','route-1',
 		        'peer-id-1','["group-one-resource-id"]',1,true,9999,true,
 				'["group-one-resource-id"]','["group-one-resource-id"]',false)`)
-	assert.NoError(t, err)
-	_, err = pgstore.Pool.Exec(ctx,
+	execQuery(t, ctx,
 		`insert into routes (id, account_id, public_id, network, domains, keep_route, net_id, description,
 	                         peer, peer_groups, network_type, masquerade, metric, enabled, 
 	                         groups, access_control_groups, skip_auto_apply)
 		VALUES('route-2','account-1','route-2-public','"172.10.0.0/16"','["test-1.com","test-2.com"]',true,'route-2-net-id','route-2',
 		        'peer-id-2','["group-two-resources-id"]',1,true,9999,true,
 				'["group-two-resources-id"]','["group-two-resources-id"]',false)`)
-	assert.NoError(t, err)
-	_, err = pgstore.Pool.Exec(ctx,
+	execQuery(t, ctx,
 		`insert into routes (id, account_id, public_id, network, domains, keep_route, net_id, description,
 	                         peer, peer_groups, network_type, masquerade, metric, enabled, 
 	                         groups, access_control_groups, skip_auto_apply)
 		VALUES('route-3','account-1','route-3-public',null,null,null,null,'route-3',
 		        null,null,null,null,null,null,null,null,null)`)
-	assert.NoError(t, err)
 
 	routes, err := networkmap_pgsql.GetRoutesViaPgxConnection(ctx, conn(t, ctx), "account-1")
 	assert.NoError(t, err)

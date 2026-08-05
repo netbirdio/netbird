@@ -147,3 +147,9 @@ func conn(t *testing.T, ctx context.Context) *pgx.Conn {
 	assert.NoError(t, err)
 	return c.Conn()
 }
+
+func execQuery(t *testing.T, ctx context.Context, q string) {
+	t.Helper()
+	_, err := pgstore.Pool.Exec(ctx, q)
+	assert.NoError(t, err)
+}

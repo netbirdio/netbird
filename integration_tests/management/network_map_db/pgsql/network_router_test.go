@@ -15,14 +15,12 @@ func TestGetNetworkRouters(t *testing.T) {
 	s, err := networkmap_pgsql.NewPostgresqlStore(ctx, dsn)
 	assert.NoError(t, err)
 
-	_, err = s.Pool.Exec(ctx,
+	execQuery(t, ctx,
 		`insert into network_routers (id, account_id, public_id, peer, network_id, masquerade, metric, enabled, peer_groups)
 		VALUES('test-nr-id-1','account-1','public-id-1','peer-id-1','network-id-1',TRUE,999,TRUE,'["group-one-resource-id"]')`)
-	assert.NoError(t, err)
-	_, err = s.Pool.Exec(ctx,
+	execQuery(t, ctx,
 		`insert into network_routers (id, account_id, public_id, peer, network_id, masquerade, metric, enabled, peer_groups)
 		VALUES('test-nr-id-2','account-1','public-id-2','','network-id-2',TRUE,333,TRUE,'["group-two-resources-id","group-no-resources-id"]')`)
-	assert.NoError(t, err)
 
 	routers, err := s.GetNetworkRouters(ctx, "account-1")
 	assert.NoError(t, err)
