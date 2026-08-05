@@ -140,6 +140,8 @@ type Server struct {
 	// it to drive the login outcomes that need a server on the other end;
 	// production leaves it nil, and every login goes through loginAttempt.
 	loginAttemptFn func(ctx context.Context, setupKey, jwtToken string) (internal.StatusType, error)
+
+	isLoginRequiredFn func(ctx context.Context) (bool, error)
 }
 
 type oauthAuthFlow struct {
@@ -382,6 +384,21 @@ func (s *Server) attemptLogin(ctx context.Context, setupKey, jwtToken string) (i
 		return s.loginAttemptFn(ctx, setupKey, jwtToken)
 	}
 	return s.loginAttempt(ctx, setupKey, jwtToken)
+}
+
+func (s *Server) isLoginRequired(ctx context.Context) (bool, error) {
+	if s.isLoginRequiredFn != nil {
+		return s.isLoginRequiredFn(ctx)
+	}
+
+	authClient, err := auth.NewAuth(ctx, s.config.PrivateKey, s.config.ManagementURL, s.config)
+	if err != nil {
+		log.Errorf("failed to create auth client: %v", err)
+		return false, err
+	}
+	defer authClient.Close()
+
+	return authClient.IsLoginRequired(ctx)
 }
 
 // loginAttempt attempts to login using the provided information. It returns
@@ -640,21 +657,21 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	s.config = config
 	s.mutex.Unlock()
 
-	loginStatus, err := s.attemptLogin(ctx, "", "")
-	if err == nil {
-		state.Set(internal.StatusIdle)
-		return &proto.LoginResponse{}, nil
-	}
-
-	// Only an authentication refusal means the peer has to (re-)authenticate.
-	// Any other failure leaves the login undecided: Management unreachable, a
+	// A probe that errors leaves the login undecided: Management unreachable, a
 	// restart mid-request, an internal error. Those are returned for the caller
 	// to retry, because turning them into an SSO prompt asks the user to solve
 	// something that is not theirs to solve, and a browser login cannot succeed
-	// while Management is unreachable anyway.
-	if loginStatus != internal.StatusNeedsLogin {
-		state.Set(loginStatus)
+	// while Management is unreachable anyway. Only Management refusing the
+	// peer's key is a decision, and IsLoginRequired reports that as
+	// needsLogin=true rather than an error.
+	needsLogin, err := s.isLoginRequired(ctx)
+	if err != nil {
+		state.Set(internal.StatusLoginFailed)
 		return nil, err
+	}
+	if !needsLogin {
+		state.Set(internal.StatusIdle)
+		return &proto.LoginResponse{}, nil
 	}
 
 	if msg.SetupKey == "" {
@@ -1797,6 +1814,9 @@ func (s *Server) RequestExtendAuthSession(
 	}
 	if connectClient == nil {
 		return nil, gstatus.Errorf(codes.FailedPrecondition, "client is not running")
+	}
+	if connectClient.Engine() == nil {
+		return nil, gstatus.Errorf(codes.FailedPrecondition, "session can no longer be extended, log in again to reconnect")
 	}
 
 	hint := ""
