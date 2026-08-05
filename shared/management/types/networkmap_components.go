@@ -12,7 +12,6 @@ import (
 
 	"github.com/netbirdio/netbird/client/ssh/auth"
 	nbdns "github.com/netbirdio/netbird/dns"
-	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
@@ -868,7 +867,7 @@ func (c *NetworkMapComponents) networkResourceToRoute(resource *nmdata.NetworkRe
 		Description: resource.Description,
 	}
 
-	if resource.Type == string(resourceTypes.Host) || resource.Type == string(resourceTypes.Subnet) {
+	if resource.Type == string(ResourceTypeHost) || resource.Type == string(ResourceTypeSubnet) {
 		r.Network = resource.Prefix
 
 		r.NetworkType = nmdata.NetworkTypeIPv4
@@ -877,7 +876,7 @@ func (c *NetworkMapComponents) networkResourceToRoute(resource *nmdata.NetworkRe
 		}
 	}
 
-	if resource.Type == string(resourceTypes.Domain) {
+	if resource.Type == string(ResourceTypeDomain) {
 		domainList, err := domain.FromStringList([]string{resource.Domain})
 		if err == nil {
 			r.Domains = domainList

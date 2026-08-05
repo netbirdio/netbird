@@ -12,7 +12,6 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/netbirdio/netbird/shared/management/proto"
@@ -122,7 +121,7 @@ func DecodeEnvelope(ctx context.Context, env *proto.NetworkMapEnvelope) (*types.
 			Resources: fromCompactResources(),
 		}
 		if gc.IsAll {
-			group.Name = types.GroupAllName
+			group.Name = nmdata.GroupAllName
 		}
 		c.Groups[groupID] = group
 	}
@@ -327,10 +326,10 @@ func decodeAccountSettings(as *proto.AccountSettingsCompact) *nmdata.AccountSett
 func decodePeerCompact(pc *proto.PeerCompact, peerID string) *nmdata.Peer {
 	var caps []int32
 	if pc.SupportsSourcePrefixes {
-		caps = append(caps, nbpeer.PeerCapabilitySourcePrefixes)
+		caps = append(caps, nmdata.PeerCapabilitySourcePrefixes)
 	}
 	if pc.SupportsIpv6 {
-		caps = append(caps, nbpeer.PeerCapabilityIPv6Overlay)
+		caps = append(caps, nmdata.PeerCapabilityIPv6Overlay)
 	}
 	peer := &nmdata.Peer{
 		ID:                     peerID,

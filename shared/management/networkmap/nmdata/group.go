@@ -2,7 +2,9 @@ package nmdata
 
 import "slices"
 
-const groupAllName = "All"
+// GroupAllName is the reserved name of the default group that contains every
+// peer in an account.
+const GroupAllName = "All"
 
 // Group is the slim twin of types.Group.
 type Group struct {
@@ -14,7 +16,7 @@ type Group struct {
 }
 
 func (g *Group) IsGroupAll() bool {
-	return g.Name == groupAllName
+	return g.Name == GroupAllName
 }
 
 func (g *Group) Copy() *Group {

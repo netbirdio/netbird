@@ -1,8 +1,8 @@
 package types
 
 import (
-	"github.com/netbirdio/netbird/management/server/integration_reference"
-	"github.com/netbirdio/netbird/management/server/networks/resources/types"
+	"github.com/netbirdio/netbird/shared/management/integration_reference"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
 
 const (
@@ -68,7 +68,7 @@ func (g *Group) EventMeta() map[string]any {
 	return map[string]any{"name": g.Name}
 }
 
-func (g *Group) EventMetaResource(resource *types.NetworkResource) map[string]any {
+func (g *Group) EventMetaResource(resource *nmdata.NetworkResource) map[string]any {
 	return map[string]any{"name": g.Name, "id": g.ID, "resource_name": resource.Name, "resource_id": resource.ID, "resource_type": resource.Type}
 }
 

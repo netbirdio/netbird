@@ -3,7 +3,6 @@ package types
 import (
 	"strconv"
 
-	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/netbirdio/netbird/version"
 )
@@ -24,28 +23,6 @@ type supportedFeatures struct {
 }
 
 type LookupMap map[string]struct{}
-
-func PolicyRuleImpliesLegacySSH(rule *PolicyRule) bool {
-	return rule.Protocol == PolicyRuleProtocolALL || (rule.Protocol == PolicyRuleProtocolTCP && (portsIncludesSSH(rule.Ports) || portRangeIncludesSSH(rule.PortRanges)))
-}
-
-func portRangeIncludesSSH(portRanges []RulePortRange) bool {
-	for _, pr := range portRanges {
-		if (pr.Start <= defaultSSHPortNumber && pr.End >= defaultSSHPortNumber) || (pr.Start <= nativeSSHPortNumber && pr.End >= nativeSSHPortNumber) {
-			return true
-		}
-	}
-	return false
-}
-
-func portsIncludesSSH(ports []string) bool {
-	for _, port := range ports {
-		if port == defaultSSHPortString || port == nativeSSHPortString {
-			return true
-		}
-	}
-	return false
-}
 
 // ExpandPortsAndRanges expands Ports and PortRanges of a rule into individual firewall rules.
 func ExpandPortsAndRanges(base FirewallRule, rule *nmdata.PolicyRule, peer *nmdata.Peer) []*FirewallRule {
@@ -117,13 +94,13 @@ func peerSupportedFirewallFeatures(peerVer string) supportedFeatures {
 
 	var features supportedFeatures
 
-	meetMinVer, err := posture.MeetsMinVersion(firewallRuleMinNativeSSHVer, peerVer)
+	meetMinVer, err := version.MeetsMinVersion(firewallRuleMinNativeSSHVer, peerVer)
 	features.nativeSSH = err == nil && meetMinVer
 
 	if features.nativeSSH {
 		features.portRanges = true
 	} else {
-		meetMinVer, err = posture.MeetsMinVersion(firewallRuleMinPortRangesVer, peerVer)
+		meetMinVer, err = version.MeetsMinVersion(firewallRuleMinPortRangesVer, peerVer)
 		features.portRanges = err == nil && meetMinVer
 	}
 
