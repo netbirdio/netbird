@@ -701,8 +701,13 @@ server:
     cliRedirectURIs:
       - "http://localhost:53000/"
 
-  # Trust X-Forwarded-* only from the Traefik container's static address.
+  # Trust X-Forwarded-* only from the Traefik container's static address. Both
+  # keys must stay in step with the ipv4_address pinned in docker-compose.yml:
+  # trustedPeers decides whether forwarded headers are read at all, and leaving
+  # it unset falls back to 0.0.0.0/0.
   reverseProxy:
+    trustedPeers:
+      - "${TRAEFIK_IP}/32"
     trustedHTTPProxies:
       - "${TRAEFIK_IP}/32"
 
