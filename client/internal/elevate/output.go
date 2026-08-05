@@ -6,7 +6,6 @@ import "strings"
 // said still reads as a sentence.
 const noOutput = "no output"
 
-// firstLine trims captured output to something that reads in one line.
 func firstLine(s string) string {
 	s = strings.TrimSpace(s)
 	if s == "" {
