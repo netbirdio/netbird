@@ -401,9 +401,6 @@
     "networks.bulk.label": {
         "message": "Alle sichtbaren Ressourcen umschalten"
     },
-    "settings.nav.label": {
-        "message": "Einstellungsbereiche"
-    },
     "profile.switch.title": {
         "message": "Zu Profil \"{name}\" wechseln?"
     },
@@ -496,6 +493,9 @@
     },
     "settings.error.debugBundleTitle": {
         "message": "Debug-Paket fehlgeschlagen"
+    },
+    "settings.nav.label": {
+        "message": "Einstellungsbereiche"
     },
     "settings.tabs.general": {
         "message": "Allgemein"
@@ -1330,5 +1330,29 @@
     },
     "error.unknown": {
         "message": "Vorgang fehlgeschlagen."
+    },
+    "error.elevation_unavailable": {
+        "message": "NetBird konnte auf diesem System nicht die nötigen Rechte anfordern. Führen Sie stattdessen dies aus:"
+    },
+    "error.elevation_failed": {
+        "message": "Die Änderung konnte mit erhöhten Rechten nicht angewendet werden. Führen Sie stattdessen dies aus:"
+    },
+    "settings.ssh.privilege.actorRoot": {
+        "message": "root-Rechte"
+    },
+    "settings.ssh.privilege.actorAdministrator": {
+        "message": "Administratorrechte"
+    },
+    "settings.ssh.privilege.hint": {
+        "message": "Erfordert {actor}. Führen Sie stattdessen dies aus:"
+    },
+    "settings.ssh.privilege.oneWay": {
+        "message": "Sie können dies deaktivieren, zum erneuten Aktivieren sind {actor} erforderlich."
+    },
+    "settings.ssh.privilege.oneWayInverted": {
+        "message": "Sie können dies aktivieren, zum erneuten Deaktivieren sind {actor} erforderlich."
+    },
+    "settings.ssh.privilege.authorizePending": {
+        "message": "Warten auf Autorisierung…"
     }
 }

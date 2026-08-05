@@ -22,12 +22,18 @@ const logSaveError = (err: unknown) => console.error("[SettingsContext] save fai
 
 export type AutostartState = { supported: boolean; enabled: boolean };
 
+// GuardedField is a setting the daemon only accepts from root/administrator.
+// Turning one on goes through saveGuardedField, which asks the operating system
+// for the privileges rather than sending a request that would be refused.
+export type GuardedField = "serverSshAllowed" | "enableSshRoot" | "disableSshAuth";
+
 type SettingsContextValue = {
     config: Config;
     guiVersion: string;
     setField: <K extends keyof Config>(k: K, v: Config[K]) => void;
     saveField: <K extends keyof Config>(k: K, v: Config[K]) => Promise<void>;
     saveFields: (partial: Partial<Config>, opts?: { preSharedKey?: string }) => Promise<void>;
+    saveGuardedField: (k: GuardedField, v: boolean) => Promise<void>;
     saveNow: () => Promise<void>;
 };
 
@@ -141,12 +147,17 @@ const useSettingsState = () => {
         async (profileName: string, next: Config, preSharedKey?: string) => {
             const preSharedKeyWrite = preSharedKey === undefined ? {} : { preSharedKey };
             try {
-                await SettingsSvc.SetConfig({
+                const { declined } = await SettingsSvc.SetConfig({
                     ...next,
                     ...preSharedKeyWrite,
                     profileName,
                     username,
                 });
+                // The change needed authorization and the user said no, so the
+                // optimistic update is wrong. Nothing to report: they know.
+                if (declined) {
+                    await reload(profileName);
+                }
             } catch (e) {
                 // The optimistic update is wrong now: the daemon refused it
                 // (a change that needs elevated privileges, an MDM-managed
@@ -206,6 +217,59 @@ const useSettingsState = () => {
         [loaded, save],
     );
 
+    // saveGuardedField applies a setting the daemon restricts to
+    // root/administrator by having the Go side run the app again under the
+    // platform's elevation prompt (UAC, the macOS authentication dialog, polkit).
+    // The prompt is the user's, so the call is made straight from their gesture
+    // and never from the debounce.
+    const saveGuardedField = useCallback(
+        async (k: GuardedField, v: boolean) => {
+            const cur = loadedRef.current;
+            if (!cur) return;
+
+            // Flush what the debounce still owes, before the optimistic update
+            // below joins it: a later save carrying the guarded value would be
+            // refused, and its error dialog would be the second one for a change
+            // the user already authorized.
+            if (saveTimer.current) {
+                clearTimeout(saveTimer.current);
+                saveTimer.current = null;
+                await save(cur.profileName, cur.data);
+            }
+
+            const next: LoadedConfig = {
+                profileName: cur.profileName,
+                data: { ...cur.data, [k]: v },
+            };
+            loadedRef.current = next;
+            setLoaded(next);
+
+            try {
+                await SettingsSvc.SetGuardedSettings({
+                    profileName: cur.profileName,
+                    username,
+                    [k]: v,
+                });
+            } catch (e) {
+                // The daemon is authoritative either way, so re-read before
+                // reporting. A declined prompt is not an error and does not come
+                // through here at all; this is a prompt that could not be raised,
+                // which carries the command that would have done it.
+                await reload(cur.profileName);
+                await errorDialog({
+                    Title: i18next.t("settings.error.saveTitle"),
+                    Message: errorMessage(e),
+                    Command: errorCommand(e),
+                });
+                return;
+            }
+            // Either the change went through or the user declined it. The daemon
+            // says which.
+            await reload(cur.profileName);
+        },
+        [username, save, reload],
+    );
+
     const saveFields = useCallback(
         async (partial: Partial<Config>, opts?: { preSharedKey?: string }) => {
             if (!loaded) return;
@@ -225,15 +289,27 @@ const useSettingsState = () => {
         [loaded, save],
     );
 
-    return { config: loaded?.data ?? null, guiVersion, setField, saveField, saveFields, saveNow };
+    return {
+        config: loaded?.data ?? null,
+        guiVersion,
+        setField,
+        saveField,
+        saveFields,
+        saveGuardedField,
+        saveNow,
+    };
 };
 
 export const SettingsProvider = ({ children }: { children: ReactNode }) => {
-    const { config, guiVersion, setField, saveField, saveFields, saveNow } = useSettingsState();
+    const { config, guiVersion, setField, saveField, saveFields, saveGuardedField, saveNow } =
+        useSettingsState();
 
     const value = useMemo<SettingsContextValue | null>(
-        () => (config ? { config, guiVersion, setField, saveField, saveFields, saveNow } : null),
-        [config, guiVersion, setField, saveField, saveFields, saveNow],
+        () =>
+            config
+                ? { config, guiVersion, setField, saveField, saveFields, saveGuardedField, saveNow }
+                : null,
+        [config, guiVersion, setField, saveField, saveFields, saveGuardedField, saveNow],
     );
 
     if (!value) {

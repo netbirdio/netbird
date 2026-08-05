@@ -401,9 +401,6 @@
     "networks.bulk.label": {
         "message": "Activer/désactiver toutes les ressources visibles"
     },
-    "settings.nav.label": {
-        "message": "Sections des paramètres"
-    },
     "profile.switch.title": {
         "message": "Basculer vers le profil « {name} » ?"
     },
@@ -496,6 +493,9 @@
     },
     "settings.error.debugBundleTitle": {
         "message": "Échec du lot de diagnostic"
+    },
+    "settings.nav.label": {
+        "message": "Sections des paramètres"
     },
     "settings.tabs.general": {
         "message": "Général"
@@ -1330,5 +1330,29 @@
     },
     "error.unknown": {
         "message": "L’opération a échoué."
+    },
+    "error.elevation_unavailable": {
+        "message": "NetBird n’a pas pu demander à ce système les privilèges nécessaires. Exécutez plutôt ceci :"
+    },
+    "error.elevation_failed": {
+        "message": "La modification n’a pas pu être appliquée avec des privilèges élevés. Exécutez plutôt ceci :"
+    },
+    "settings.ssh.privilege.actorRoot": {
+        "message": "les privilèges root"
+    },
+    "settings.ssh.privilege.actorAdministrator": {
+        "message": "les privilèges administrateur"
+    },
+    "settings.ssh.privilege.hint": {
+        "message": "Nécessite {actor}. Exécutez plutôt ceci :"
+    },
+    "settings.ssh.privilege.oneWay": {
+        "message": "Vous pouvez le désactiver, mais le réactiver nécessite {actor}."
+    },
+    "settings.ssh.privilege.oneWayInverted": {
+        "message": "Vous pouvez l’activer, mais le désactiver de nouveau nécessite {actor}."
+    },
+    "settings.ssh.privilege.authorizePending": {
+        "message": "En attente de l’autorisation…"
     }
 }

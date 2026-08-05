@@ -401,9 +401,6 @@
     "networks.bulk.label": {
         "message": "Összes látható erőforrás be/ki"
     },
-    "settings.nav.label": {
-        "message": "Beállítások szakaszai"
-    },
     "profile.switch.title": {
         "message": "Váltás a(z) \"{name}\" profilra?"
     },
@@ -496,6 +493,9 @@
     },
     "settings.error.debugBundleTitle": {
         "message": "Hibakeresési csomag sikertelen"
+    },
+    "settings.nav.label": {
+        "message": "Beállítások szakaszai"
     },
     "settings.tabs.general": {
         "message": "Általános"
@@ -1330,5 +1330,29 @@
     },
     "error.unknown": {
         "message": "A művelet meghiúsult."
+    },
+    "error.elevation_unavailable": {
+        "message": "A NetBird nem tudta bekérni a rendszertől a szükséges jogosultságokat. Futtassa inkább ezt:"
+    },
+    "error.elevation_failed": {
+        "message": "A módosítást emelt szintű jogosultságokkal sem sikerült alkalmazni. Futtassa inkább ezt:"
+    },
+    "settings.ssh.privilege.actorRoot": {
+        "message": "root jogosultság"
+    },
+    "settings.ssh.privilege.actorAdministrator": {
+        "message": "rendszergazdai jogosultság"
+    },
+    "settings.ssh.privilege.hint": {
+        "message": "{actor} szükséges hozzá. Futtassa inkább ezt:"
+    },
+    "settings.ssh.privilege.oneWay": {
+        "message": "Kikapcsolhatja, de a visszakapcsolásához {actor} szükséges."
+    },
+    "settings.ssh.privilege.oneWayInverted": {
+        "message": "Bekapcsolhatja, de az ismételt kikapcsolásához {actor} szükséges."
+    },
+    "settings.ssh.privilege.authorizePending": {
+        "message": "Várakozás az engedélyezésre…"
     }
 }

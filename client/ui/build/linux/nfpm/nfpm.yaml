@@ -23,6 +23,11 @@ contents:
     dst: "/usr/share/icons/hicolor/128x128/apps/netbird-ui.png"
   - src: "./build/linux/netbird-ui.desktop"
     dst: "/usr/share/applications/netbird-ui.desktop"
+  # Names the polkit action for the elevation prompt the app raises when an
+  # unprivileged user changes a privileged setting; without it the dialog shows a
+  # raw command line.
+  - src: "./build/linux/polkit/io.netbird.settings.policy"
+    dst: "/usr/share/polkit-1/actions/io.netbird.settings.policy"
 
 # Default dependencies for the GTK4 + WebKitGTK 6.0 stack (Ubuntu 24.04+ / Debian 13+)
 depends:
