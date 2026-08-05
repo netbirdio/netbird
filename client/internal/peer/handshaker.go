@@ -138,17 +138,21 @@ func (h *Handshaker) Listen(ctx context.Context) {
 
 			h.pqRegisterEndpoint(remoteOfferAnswer.MlkemPort)
 
+			// Derive+store the KEM PSK (inside sendAnswer's AnswerPayload) BEFORE bringing
+			// up the connection: the relay/ICE workers configure the WG endpoint, which
+			// pulls the PSK for the first handshake. Notifying them first would race the
+			// KEM exchange and hand the first handshake a not-yet-derived key.
+			if err := h.sendAnswer(&remoteOfferAnswer); err != nil {
+				h.log.Errorf("failed to send remote offer confirmation: %s", err)
+				continue
+			}
+
 			if h.relayListener != nil {
 				h.relayListener.Notify(&remoteOfferAnswer)
 			}
 
 			if h.iceListener != nil && h.RemoteICESupported() {
 				h.iceListener(&remoteOfferAnswer)
-			}
-
-			if err := h.sendAnswer(&remoteOfferAnswer); err != nil {
-				h.log.Errorf("failed to send remote offer confirmation: %s", err)
-				continue
 			}
 		case remoteOfferAnswer := <-h.remoteAnswerCh:
 			h.log.Infof("received answer, running version %s, remote WireGuard listen port %d, session id: %s, remote ICE supported: %t", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort, remoteOfferAnswer.SessionIDString(), remoteOfferAnswer.hasICECredentials())
@@ -162,16 +166,19 @@ func (h *Handshaker) Listen(ctx context.Context) {
 
 			h.pqRegisterEndpoint(remoteOfferAnswer.MlkemPort)
 
+			// Feed the KEM answer (derive+store PSK) BEFORE bringing up the connection so
+			// the WG endpoint config pulls the real PSK for the first handshake instead of
+			// racing ahead of the KEM exchange.
+			if h.config.PQ != nil {
+				h.config.PQ.OnAnswer(h.config.Key, remoteOfferAnswer.MlkemPayload)
+			}
+
 			if h.relayListener != nil {
 				h.relayListener.Notify(&remoteOfferAnswer)
 			}
 
 			if h.iceListener != nil && h.RemoteICESupported() {
 				h.iceListener(&remoteOfferAnswer)
-			}
-
-			if h.config.PQ != nil {
-				h.config.PQ.OnAnswer(h.config.Key, remoteOfferAnswer.MlkemPayload)
 			}
 		case <-ctx.Done():
 			h.log.Infof("stop listening for remote offers and answers")
