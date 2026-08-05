@@ -11,11 +11,11 @@ const (
 	GetDomainsQuery = `
 	select domain, target_cluster
 	from domains
-	where account_id=$1
+	where account_id=$1 and domain<>'' and target_cluster<>''
 	`
 )
 
-func (pg *PgStore) GetDomains(ctx context.Context, accountId string) ([]domain, error) {
+func (pg *PgStore) GetDomains(ctx context.Context, accountId string) ([]Domain, error) {
 	c, err := pg.Pool.Acquire(ctx)
 	if err != nil {
 		return nil, err
@@ -23,16 +23,16 @@ func (pg *PgStore) GetDomains(ctx context.Context, accountId string) ([]domain, 
 	return GetDomainsViaPgxConnection(ctx, c.Conn(), accountId)
 }
 
-func GetDomainsViaPgxConnection(ctx context.Context, conn *pgx.Conn, accountId string) ([]domain, error) {
+func GetDomainsViaPgxConnection(ctx context.Context, conn *pgx.Conn, accountId string) ([]Domain, error) {
 	rows, err := conn.Query(ctx, GetDomainsQuery, accountId)
 	if err != nil {
 		return nil, err
 	}
 
-	return pgx.CollectRows(rows, pgx.RowToStructByName[domain])
+	return pgx.CollectRows(rows, pgx.RowToStructByName[Domain])
 }
 
-type domain struct {
+type Domain struct {
 	Domain        sql.NullString
 	TargetCluster sql.NullString
 }
