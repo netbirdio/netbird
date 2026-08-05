@@ -655,6 +655,7 @@ EOF
 
 networks:
   netbird:
+    name: netbird
     driver: bridge
     ipam:
       config:
