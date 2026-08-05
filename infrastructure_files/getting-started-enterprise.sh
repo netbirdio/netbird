@@ -429,9 +429,10 @@ render_compose_common() {
       - "--entrypoints.websecure.address=:443"
       - "--entrypoints.websecure.allowACMEByPass=true"
       # readTimeout bounds the whole request, and gRPC streams / relay WebSockets
-      # never end one. Entrypoint-wide is the only scope Traefik offers here.
+      # never end one; idleTimeout would close the keep-alive connection they
+      # are reused over. Entrypoint-wide is the only scope Traefik offers here.
+      # writeTimeout is left alone: it already defaults to 0.
       - "--entrypoints.websecure.transport.respondingTimeouts.readTimeout=0"
-      - "--entrypoints.websecure.transport.respondingTimeouts.writeTimeout=0"
       - "--entrypoints.websecure.transport.respondingTimeouts.idleTimeout=0"
       # HTTP to HTTPS redirect
       - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
@@ -440,9 +441,6 @@ render_compose_common() {
       - "--certificatesresolvers.letsencrypt.acme.email=${NETBIRD_LETSENCRYPT_EMAIL}"
       - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
       - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
-      # gRPC transport settings
-      - "--serverstransport.forwardingtimeouts.responseheadertimeout=0s"
-      - "--serverstransport.forwardingtimeouts.idleconntimeout=0s"
     ports:
       - '443:443'
       - '80:80'
