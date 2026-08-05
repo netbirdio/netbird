@@ -16,17 +16,17 @@ func TestProfileAccountPathFor(t *testing.T) {
 		{
 			name:       "default profile",
 			configPath: "/data/data/io.netbird.client/files/netbird.cfg",
-			want:       "/data/data/io.netbird.client/files/netbird.account.json",
+			want:       filepath.FromSlash("/data/data/io.netbird.client/files/netbird.account.json"),
 		},
 		{
 			name:       "id profile",
 			configPath: "/data/data/io.netbird.client/files/profiles/4c5f5c8198c3989cffb5b5394f5a7ae0.json",
-			want:       "/data/data/io.netbird.client/files/profiles/4c5f5c8198c3989cffb5b5394f5a7ae0.account.json",
+			want:       filepath.FromSlash("/data/data/io.netbird.client/files/profiles/4c5f5c8198c3989cffb5b5394f5a7ae0.account.json"),
 		},
 		{
 			name:       "legacy name-keyed profile is handled the same way",
 			configPath: "/data/data/io.netbird.client/files/profiles/work.json",
-			want:       "/data/data/io.netbird.client/files/profiles/work.account.json",
+			want:       filepath.FromSlash("/data/data/io.netbird.client/files/profiles/work.account.json"),
 		},
 		{
 			name:       "empty path is rejected",

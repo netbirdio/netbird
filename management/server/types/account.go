@@ -1707,14 +1707,34 @@ func (a *Account) injectPrivateServicePolicies(svc *service.Service, proxyPeers 
 	if len(proxyPeers) == 0 {
 		return
 	}
+	// A service's AccessGroups can name groups that no longer exist — persisted
+	// services and the agent-network synthesiser both carry the ids verbatim from
+	// their own state. An unresolvable source authorises nothing, so drop it here
+	// rather than let the network-map assembly resolve it to a nil group.
+	sources := a.existingGroupIDs(svc.AccessGroups)
+	if len(sources) == 0 {
+		return
+	}
 	for _, proxyPeer := range proxyPeers {
-		a.Policies = append(a.Policies, a.createPrivateServicePolicy(svc, proxyPeer))
+		a.Policies = append(a.Policies, a.createPrivateServicePolicy(svc, proxyPeer, sources))
 	}
 }
 
-func (a *Account) createPrivateServicePolicy(svc *service.Service, proxyPeer *nbpeer.Peer) *Policy {
+// existingGroupIDs returns the subset of groupIDs that resolve to a group in the account,
+// preserving the input order.
+func (a *Account) existingGroupIDs(groupIDs []string) []string {
+	out := make([]string, 0, len(groupIDs))
+	for _, groupID := range groupIDs {
+		if _, ok := a.Groups[groupID]; ok {
+			out = append(out, groupID)
+		}
+	}
+	return out
+}
+
+func (a *Account) createPrivateServicePolicy(svc *service.Service, proxyPeer *nbpeer.Peer, accessGroups []string) *Policy {
 	policyID := fmt.Sprintf("private-access-%s-%s", svc.ID, proxyPeer.ID)
-	sources := append([]string(nil), svc.AccessGroups...)
+	sources := append([]string(nil), accessGroups...)
 	return &Policy{
 		ID:      policyID,
 		Name:    fmt.Sprintf("Private Access to %s", svc.Name),

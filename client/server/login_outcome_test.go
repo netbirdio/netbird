@@ -8,8 +8,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc/codes"
-	gstatus "google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/proto"
@@ -27,9 +25,9 @@ func TestLogin_ManagementUnreachableIsReturnedInsteadOfDemandingSSO(t *testing.T
 
 	unreachable := errors.New("create connection: dial context: context deadline exceeded")
 	attempts := 0
-	s.loginAttemptFn = func(context.Context, string, string) (internal.StatusType, error) {
+	s.isLoginRequiredFn = func(context.Context) (bool, error) {
 		attempts++
-		return internal.StatusLoginFailed, unreachable
+		return false, unreachable
 	}
 
 	resp, err := s.Login(userCtx(), &proto.LoginRequest{Username: &username})
@@ -55,20 +53,43 @@ func TestLogin_AuthRefusalStartsSSOFlow(t *testing.T) {
 	s.rootCtx = internal.CtxInitState(context.Background())
 	breakProfilePrivateKey(t, cfgPath)
 
-	refused := gstatus.Error(codes.PermissionDenied, "peer is not registered")
-	s.loginAttemptFn = func(context.Context, string, string) (internal.StatusType, error) {
-		return internal.StatusNeedsLogin, refused
+	s.isLoginRequiredFn = func(context.Context) (bool, error) {
+		return true, nil
 	}
 
 	_, err := s.Login(userCtx(), &proto.LoginRequest{Username: &username})
 	require.Error(t, err)
-	require.NotErrorIs(t, err, refused,
-		"the refusal was handed back to the caller instead of starting the SSO flow")
 
 	status, stateErr := internal.CtxGetState(s.rootCtx).Status()
 	require.NoError(t, stateErr)
 	require.Equal(t, internal.StatusLoginFailed, status,
 		"the SSO flow setup was never reached with the broken key")
+}
+
+func TestLogin_SetupKeyStillRunsWhenPeerNeedsLogin(t *testing.T) {
+	s, _, _, username, _ := setupServerWithProfile(t)
+	s.rootCtx = internal.CtxInitState(context.Background())
+
+	s.isLoginRequiredFn = func(context.Context) (bool, error) {
+		return true, nil
+	}
+
+	var keysTried []string
+	s.loginAttemptFn = func(_ context.Context, setupKey, _ string) (internal.StatusType, error) {
+		keysTried = append(keysTried, setupKey)
+		return "", nil
+	}
+
+	setupKey := "A2C8E32F-AEB2-4B45-8FD3-8A0C1B2D3E4F"
+	resp, err := s.Login(userCtx(), &proto.LoginRequest{Username: &username, SetupKey: setupKey})
+	require.NoError(t, err, "the probe's outcome leaked out as the login result")
+	require.NotNil(t, resp)
+	require.Equal(t, []string{setupKey}, keysTried, "the setup key never reached the login attempt")
+	require.Nil(t, s.oauthAuthFlow.flow, "a setup-key login started an SSO flow")
+
+	status, err := internal.CtxGetState(s.rootCtx).Status()
+	require.NoError(t, err)
+	require.Equal(t, internal.StatusIdle, status)
 }
 
 // breakProfilePrivateKey replaces the profile's private key with an unparseable
