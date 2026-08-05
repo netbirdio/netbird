@@ -126,11 +126,16 @@ func (s *Settings) SetGuardedSettings(ctx context.Context, p GuardedSettings) (S
 		}
 	}
 
+	// The elevated run has no window and, on Linux, an environment pkexec has
+	// cleared, so what it writes to stderr is all there is to go on. It follows
+	// this process's level so that starting the app with --log-level debug says
+	// something about the run behind the prompt too.
 	args := append([]string{
 		"--" + FlagApplyPrivilegedSettings,
 		"--" + FlagDaemonAddr, s.daemonAddr,
 		"--" + FlagProfile, p.ProfileName,
 		"--" + FlagUser, p.Username,
+		"--" + FlagLogLevel, log.GetLevel().String(),
 	}, oneShotArgs(settings)...)
 
 	ctx, cancel := context.WithTimeout(ctx, elevationTimeout)

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"testing"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
@@ -129,10 +130,15 @@ func TestSetGuardedSettingsPassesOnlyTheChangedSettings(t *testing.T) {
 		"--" + FlagDaemonAddr, testDaemonAddr,
 		"--" + FlagProfile, "work",
 		"--" + FlagUser, "vma",
+		"--" + FlagLogLevel, log.GetLevel().String(),
 		"--" + FlagEnableSSHRoot + "=true",
 	}
 	require.Len(t, elev.calls, 1, "one prompt for one change")
 	assert.Equal(t, want, elev.calls[0], "elevated arguments")
+
+	// argv[1] is what the polkit action is pinned to, so the marker has to stay
+	// first however the rest of the line grows.
+	assert.Equal(t, "--"+FlagApplyPrivilegedSettings, elev.calls[0][0], "the flag polkit matches on")
 }
 
 // Turning a setting off has to be as explicit as turning it on: a bare flag would
