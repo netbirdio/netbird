@@ -15,7 +15,7 @@ import (
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
 
-var DnsUnsupportedRecordTypeError = errors.New("unsupported record type")
+var ErrDnsUnsupportedRecordType = errors.New("unsupported record type")
 
 const (
 	GetAccountZonesQuery = `
@@ -73,7 +73,7 @@ func GetAppliedZoneCandidatesViaPgxConnection(ctx context.Context, conn *pgx.Con
 
 		rtype, rdata, err := recordTypeAndRdata(z.RecordType.String, z.RecordRData.String)
 		if err != nil {
-			if errors.Is(err, DnsUnsupportedRecordTypeError) {
+			if errors.Is(err, ErrDnsUnsupportedRecordType) {
 				continue
 			}
 			return nil, err
@@ -112,7 +112,7 @@ func recordTypeAndRdata(t, rdata string) (int, string, error) {
 	case "CNAME":
 		return int(dns.TypeCNAME), dns.Fqdn(rdata), nil
 	default:
-		return 0, "", fmt.Errorf("record type: %s %w", t, DnsUnsupportedRecordTypeError)
+		return 0, "", fmt.Errorf("record type: %s %w", t, ErrDnsUnsupportedRecordType)
 	}
 }
 

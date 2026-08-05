@@ -14,7 +14,7 @@ import (
 func TestGetRoutes(t *testing.T) {
 	ctx := context.TODO()
 
-	_, err := pgstore.Pool.Query(ctx,
+	_, err := pgstore.Pool.Exec(ctx,
 		`insert into routes (id, account_id, public_id, network, domains, keep_route, net_id, description,
 	                         peer, peer_groups, network_type, masquerade, metric, enabled, 
 	                         groups, access_control_groups, skip_auto_apply)
@@ -22,7 +22,7 @@ func TestGetRoutes(t *testing.T) {
 		        'peer-id-1','["group-one-resource-id"]',1,true,9999,true,
 				'["group-one-resource-id"]','["group-one-resource-id"]',false)`)
 	assert.NoError(t, err)
-	_, err = pgstore.Pool.Query(ctx,
+	_, err = pgstore.Pool.Exec(ctx,
 		`insert into routes (id, account_id, public_id, network, domains, keep_route, net_id, description,
 	                         peer, peer_groups, network_type, masquerade, metric, enabled, 
 	                         groups, access_control_groups, skip_auto_apply)
@@ -30,7 +30,7 @@ func TestGetRoutes(t *testing.T) {
 		        'peer-id-2','["group-two-resources-id"]',1,true,9999,true,
 				'["group-two-resources-id"]','["group-two-resources-id"]',false)`)
 	assert.NoError(t, err)
-	_, err = pgstore.Pool.Query(ctx,
+	_, err = pgstore.Pool.Exec(ctx,
 		`insert into routes (id, account_id, public_id, network, domains, keep_route, net_id, description,
 	                         peer, peer_groups, network_type, masquerade, metric, enabled, 
 	                         groups, access_control_groups, skip_auto_apply)

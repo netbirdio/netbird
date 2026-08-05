@@ -7,6 +7,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/miekg/dns"
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/shared/management/networkmap"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
@@ -111,9 +113,8 @@ func (pg *PgStore) GetNetworkMapData(ctx context.Context, accountId string) (*ne
 		}
 	}
 
-	err = tx.Commit(ctx)
-	if err != nil {
-		// TODO log and ignore?
+	if err = tx.Commit(ctx); err != nil {
+		log.WithContext(ctx).Warnf("failed to commit network map read transaction: %v", err)
 	}
 
 	toret := networkmap.NetworkMapData{
@@ -143,7 +144,7 @@ func (pg *PgStore) GetNetworkMapData(ctx context.Context, accountId string) (*ne
 
 func rollbackAndReturnError(ctx context.Context, tx pgx.Tx, err error) (*networkmap.NetworkMapData, error) {
 	if errr := tx.Rollback(ctx); errr != nil {
-		// TODO log and ignore?
+		log.WithContext(ctx).Warnf("failed to rollback network map read transaction: %v", errr)
 	}
 	return nil, err
 }

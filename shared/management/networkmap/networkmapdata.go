@@ -9,7 +9,7 @@ import (
 // fresh nmdata twin types. A builder converts an Account into a NetworkMapData
 // once per account; the per-peer components calculation then runs on this twin
 // with no reference back to the Account.
-type NetworkMapData struct {
+type NetworkMapData struct { //nolint:revive // established name across the codebase
 	Peers            map[string]*nmdata.Peer
 	Groups           map[string]*nmdata.Group
 	Policies         []*nmdata.Policy
