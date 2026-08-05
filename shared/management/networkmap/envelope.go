@@ -36,7 +36,7 @@ type EnvelopeResult struct {
 // dnsName is the account's DNS domain ("netbird.cloud" etc.); used when
 // rebuilding the per-peer FQDNs that proto.RemotePeerConfig carries.
 func EnvelopeToNetworkMap(ctx context.Context, env *proto.NetworkMapEnvelope, localPeerKey, dnsName string) (*EnvelopeResult, error) {
-	components, err := DecodeEnvelope(env)
+	components, err := DecodeEnvelope(ctx, env)
 	if err != nil {
 		return nil, fmt.Errorf("decode envelope: %w", err)
 	}

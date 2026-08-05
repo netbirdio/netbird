@@ -19,9 +19,10 @@ func (g *Group) IsGroupAll() bool {
 
 func (g *Group) Copy() *Group {
 	return &Group{
-		ID:       g.ID,
-		Name:     g.Name,
-		PublicID: g.PublicID,
-		Peers:    slices.Clone(g.Peers),
+		ID:        g.ID,
+		Name:      g.Name,
+		PublicID:  g.PublicID,
+		Peers:     slices.Clone(g.Peers),
+		Resources: slices.Clone(g.Resources),
 	}
 }

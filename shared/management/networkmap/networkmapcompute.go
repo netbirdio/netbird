@@ -234,14 +234,20 @@ func (nmd *NetworkMapData) getPeersGroupsPoliciesRoutes(
 		}
 
 		for _, groupID := range r.PeerGroups {
-			relevantGroupIDs[groupID] = nmd.Groups[groupID]
+			if g := nmd.Groups[groupID]; g != nil {
+				relevantGroupIDs[groupID] = g
+			}
 		}
 		for _, groupID := range r.Groups {
-			relevantGroupIDs[groupID] = nmd.Groups[groupID]
+			if g := nmd.Groups[groupID]; g != nil {
+				relevantGroupIDs[groupID] = g
+			}
 		}
 		if r.Enabled {
 			for _, groupID := range r.AccessControlGroups {
-				relevantGroupIDs[groupID] = nmd.Groups[groupID]
+				if g := nmd.Groups[groupID]; g != nil {
+					relevantGroupIDs[groupID] = g
+				}
 				routeAccessControlGroups[groupID] = struct{}{}
 			}
 		}
@@ -289,10 +295,14 @@ func (nmd *NetworkMapData) getPeersGroupsPoliciesRoutes(
 					if _, needed := routeAccessControlGroups[destGroupID]; needed {
 						policyRelevant = true
 						for _, srcGroupID := range rule.Sources {
-							relevantGroupIDs[srcGroupID] = nmd.Groups[srcGroupID]
+							if g := nmd.Groups[srcGroupID]; g != nil {
+								relevantGroupIDs[srcGroupID] = g
+							}
 						}
 						for _, dstGroupID := range rule.Destinations {
-							relevantGroupIDs[dstGroupID] = nmd.Groups[dstGroupID]
+							if g := nmd.Groups[dstGroupID]; g != nil {
+								relevantGroupIDs[dstGroupID] = g
+							}
 						}
 						break
 					}
@@ -326,7 +336,9 @@ func (nmd *NetworkMapData) getPeersGroupsPoliciesRoutes(
 					relevantPeerIDs[pid] = nmd.Peers[pid]
 				}
 				for _, dstGroupID := range rule.Destinations {
-					relevantGroupIDs[dstGroupID] = nmd.Groups[dstGroupID]
+					if g := nmd.Groups[dstGroupID]; g != nil {
+						relevantGroupIDs[dstGroupID] = g
+					}
 				}
 			}
 
@@ -336,7 +348,9 @@ func (nmd *NetworkMapData) getPeersGroupsPoliciesRoutes(
 					relevantPeerIDs[pid] = nmd.Peers[pid]
 				}
 				for _, srcGroupID := range rule.Sources {
-					relevantGroupIDs[srcGroupID] = nmd.Groups[srcGroupID]
+					if g := nmd.Groups[srcGroupID]; g != nil {
+						relevantGroupIDs[srcGroupID] = g
+					}
 				}
 
 				if rule.Protocol == string(types.PolicyRuleProtocolNetbirdSSH) {
@@ -468,6 +482,9 @@ func (nmd *NetworkMapData) getPostureValidPeersSaveFailed(inputPeers []string, p
 		valid, pname := nmd.validatePostureChecksOnPeerGetFailed(postureChecksIDs, peerID)
 		if valid {
 			dest = append(dest, peerID)
+			continue
+		}
+		if pname == "" {
 			continue
 		}
 		if _, ok := (*postureFailedPeers)[pname]; !ok {
