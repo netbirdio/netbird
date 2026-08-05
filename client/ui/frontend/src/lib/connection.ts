@@ -43,7 +43,12 @@ function buildSsoCancelPromise(state: SsoState, signal?: AbortSignal): Promise<v
 }
 
 async function runSsoLogin(
-    result: { verificationUri: string; verificationUriComplete: string; userCode: string },
+    result: {
+        verificationUri: string;
+        verificationUriComplete: string;
+        userCode: string;
+        profileId: string;
+    },
     state: SsoState,
     signal?: AbortSignal,
 ): Promise<void> {
@@ -56,7 +61,7 @@ async function runSsoLogin(
     // suspended, so a frontend-driven Up (a promise continuation) would not
     // fire until the user woke the window (e.g. hovering the tray icon).
     const waitPromise = Connection.WaitSSOLoginAndUp(
-        { userCode: result.userCode, hostname: "" },
+        { userCode: result.userCode, hostname: "", profileId: result.profileId },
         { profileName: "", username: "" },
     );
 

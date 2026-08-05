@@ -4,17 +4,26 @@ package main
 
 // bindTrayClick wires the tray icon's left-click handler on Linux.
 //
-// Both Linux click paths converge on Wails' linuxSystemTray.Activate, which
-// fires the registered clickHandler:
-//   - Real SNI hosts (KDE Plasma, Waybar, GNOME Shell + AppIndicator) invoke
-//     org.kde.StatusNotifierItem.Activate over D-Bus on left-click.
-//   - The in-process StatusNotifierWatcher + XEmbed host used on minimal WMs
-//     (Fluxbox, i3, dwm, OpenBox) maps a Button1 press to that same Activate
-//     call itself (xembed_host_linux.go), so it routes through the same hook.
-// Registering OnClick here therefore covers both paths with one handler — no
-// changes to the watcher or XEmbed C code are needed. Left-click now opens the
-// main window; right-click still opens the menu via Wails' default
-// SecondaryActivate→OpenMenu handler (and the XEmbed GTK popup on minimal WMs).
+// Expected behaviour per tray host:
+//
+//	Host                           Left click              Right click
+//	KDE Plasma, Waybar             main window (Activate)  menu (host-rendered)
+//	GNOME Shell + AppIndicator     menu only               menu only
+//	Minimal WMs via XEmbed host    main window (Activate)  XEmbed GTK popup
+//
+// OnClick fires only on org.kde.StatusNotifierItem.Activate — a real left
+// click. KDE/Waybar send it over D-Bus; the in-process XEmbed host
+// (xembed_host_linux.go) maps a Button1 press to the same Activate call.
+//
+// GNOME Shell + AppIndicator never sends Activate: it renders the dbusmenu
+// on ANY click and only reports the menu opening via dbusmenu
+// Event("opened"). Upstream Wails treated that event as a click, so on GNOME
+// both buttons raised the main window on top of the menu, and on KDE/Waybar
+// a right click raised it over the freshly opened menu. The netbirdio/wails
+// fork (go.mod replace) drops that heuristic: a menu open never fires
+// OnClick. On GNOME the main window is reached via the "Open NetBird" menu
+// entry; left-click-opens-window is not achievable there anyway, since the
+// host always opens the menu itself.
 //
 // We do NOT register OnDoubleClick: Wails' Linux SNI backend never fires it
 // (unlike Windows). And we deliberately skip AttachWindow — it plus Wails3's

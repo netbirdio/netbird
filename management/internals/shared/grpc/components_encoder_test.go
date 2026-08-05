@@ -587,8 +587,19 @@ func TestEncodeNetworkMapEnvelope_ResourceOnlyPolicyShippedAndIndexed(t *testing
 	require.Len(t, full.Policies, 2, "encoded policies must include both peer-traffic and resource-only")
 
 	policyByID := map[string]*proto.PolicyCompact{}
+	policyIds := make([]string, 0)
+	for _, p := range full.Policies {
+		policyByID[p.Id] = p
+		policyIds = append(policyIds, p.Id)
+	}
 	require.Contains(t, policyByID, "10", "original peer-traffic policy id 10")
 	require.Contains(t, policyByID, "99", "resource-only policy id 99")
+
+	require.Contains(t, full.ResourcePoliciesMap, "77")
+	ids := full.ResourcePoliciesMap["77"].Ids
+	require.Len(t, ids, 2)
+	assert.ElementsMatch(t, policyIds, ids,
+		"resource policies map must reference both wire policy indexes")
 }
 
 func TestEncodeNetworkMapEnvelope_NameServerGroups(t *testing.T) {
@@ -772,6 +783,9 @@ func TestEncodeNetworkMapEnvelope_NilComponentsGracefulDegrade(t *testing.T) {
 	assert.Equal(t, "netbird.cloud", full.DnsDomain)
 	assert.Len(t, full.Peers, 1)
 	assert.Empty(t, full.Policies)
+	require.NotNil(t, full.Network, "client runs Calculate() over the envelope and dereferences Network unconditionally; a nil here would crash the receiver")
+	assert.Equal(t, "net-empty", full.Network.Identifier)
+	assert.Equal(t, uint64(9), full.Serial)
 }
 
 func TestEncodeNetworkMapEnvelope_AccountSettingsAlwaysEmitted(t *testing.T) {
@@ -790,6 +804,12 @@ func TestEncodeNetworkMapEnvelope_AccountSettingsAlwaysEmitted(t *testing.T) {
 func emptyNetworkMapComponents() *types.NetworkMapComponents {
 	return types.EmptyNetworkMapComponents(
 		&types.NetworkMapComponents{
-			PeerID: "peer-id", Peers: map[string]*nmdata.Peer{"peer-id": {}}},
+			PeerID: "peer-id", Peers: map[string]*nmdata.Peer{"peer-id": {}},
+			Network: &nmdata.Network{
+				Identifier: "net-empty",
+				Net:        net.IPNet{IP: net.IP{100, 64, 0, 0}, Mask: net.CIDRMask(10, 32)},
+				Serial:     9,
+			},
+		},
 	)
 }

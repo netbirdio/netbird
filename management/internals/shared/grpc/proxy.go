@@ -29,6 +29,7 @@ import (
 
 	"github.com/netbirdio/netbird/shared/management/domain"
 
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
@@ -36,7 +37,6 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/sessionkey"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/users"
 	proxyauth "github.com/netbirdio/netbird/proxy/auth"
@@ -285,6 +285,7 @@ func (s *ProxyServiceServer) CheckLLMPolicyLimits(ctx context.Context, req *prot
 		UserID:     req.GetUserId(),
 		GroupIDs:   req.GetGroupIds(),
 		ProviderID: req.GetProviderId(),
+		Model:      req.GetModel(),
 	})
 	if err != nil {
 		log.WithContext(ctx).Errorf("select policy for request: %v", err)

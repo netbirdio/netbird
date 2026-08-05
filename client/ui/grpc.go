@@ -5,14 +5,13 @@ package main
 import (
 	"fmt"
 	"runtime"
-	"strings"
 	"sync"
 	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
-	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/netbirdio/netbird/client/internal/daemonaddr"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/ui/desktop"
 )
@@ -36,9 +35,10 @@ func (c *Conn) Client() (proto.DaemonServiceClient, error) {
 		return c.client, nil
 	}
 
-	cc, err := grpc.NewClient(
-		strings.TrimPrefix(c.addr, "tcp://"),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	// Lazy on purpose: grpc.NewClient does not connect here, so a daemon that
+	// is down surfaces as a per-RPC Unavailable instead of blocking the UI.
+	target, opts := daemonaddr.DialTarget(daemonaddr.ResolveDaemonAddr(c.addr))
+	opts = append(opts,
 		grpc.WithUserAgent(desktop.GetUIUserAgent()),
 		// Cap reconnect backoff at 5s; gRPC's default 120s MaxDelay would
 		// leave the UI waiting 30-60s to notice a freshly-started daemon.
@@ -51,6 +51,8 @@ func (c *Conn) Client() (proto.DaemonServiceClient, error) {
 			},
 		}),
 	)
+
+	cc, err := grpc.NewClient(target, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("dial daemon: %w", err)
 	}
@@ -58,10 +60,12 @@ func (c *Conn) Client() (proto.DaemonServiceClient, error) {
 	return c.client, nil
 }
 
-// DaemonAddr returns the default daemon gRPC address: a Unix socket on Linux/macOS, TCP loopback on Windows.
+// DaemonAddr returns the default daemon gRPC address: a Unix socket on
+// Linux/macOS, a named pipe on Windows. The pipe carries the caller's token,
+// which loopback TCP does not, so the daemon can tell who is calling.
 func DaemonAddr() string {
 	if runtime.GOOS == "windows" {
-		return "tcp://127.0.0.1:41731"
+		return daemonaddr.WindowsPipeAddr
 	}
 	return "unix:///var/run/netbird.sock"
 }

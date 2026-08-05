@@ -38,7 +38,11 @@ type Proxy struct {
 // network, registered via the given account proxy token and serving the
 // AgentNetworkCluster over a self-signed wildcard cert. It does not wait for
 // peer connectivity — callers poll management for the proxy peer.
-func StartProxy(ctx context.Context, c *Combined, proxyToken string) (*Proxy, error) {
+// StartProxy launches the reverse-proxy container. Optional envOverrides are
+// merged into the container environment after the defaults, so callers can set
+// or override any NB_PROXY_* var (e.g. NB_PROXY_TUNNEL_CACHE_TTL for tests that
+// need a short authorization-cache window).
+func StartProxy(ctx context.Context, c *Combined, proxyToken string, envOverrides ...map[string]string) (*Proxy, error) {
 	root, err := repoRoot()
 	if err != nil {
 		return nil, err
@@ -91,6 +95,12 @@ func StartProxy(ctx context.Context, c *Combined, proxyToken string) (*Proxy, er
 			hc.CapAdd = append(hc.CapAdd, "NET_ADMIN", "SYS_ADMIN", "SYS_RESOURCE", "NET_BIND_SERVICE")
 		},
 		WaitingFor: wait.ForLog("Initial mapping sync complete").WithStartupTimeout(90 * time.Second),
+	}
+
+	for _, ov := range envOverrides {
+		for k, v := range ov {
+			req.Env[k] = v
+		}
 	}
 
 	ctr, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{

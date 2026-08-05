@@ -60,6 +60,8 @@ func EncodeNetworkMapEnvelope(in ComponentsEnvelopeInput) *proto.NetworkMapEnvel
 		return &proto.NetworkMapEnvelope{
 			Payload: &proto.NetworkMapEnvelope_Full{
 				Full: &proto.NetworkMapComponentsFull{
+					Serial:     networkSerial(c.Network),
+					Network:    toAccountNetwork(c.Network),
 					PeerConfig: in.PeerConfig,
 					// components.Peers always contains the target peer
 					Peers:            []*proto.PeerCompact{toPeerCompact(c.Peers[c.PeerID])},

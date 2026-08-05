@@ -290,15 +290,17 @@ func policiesForNetworkResource(resourceId string, allPolicies []*nmdata.Policy,
 	return toret
 }
 
+// decodeAccountNetwork never returns nil — Calculate() dereferences
+// c.Network unconditionally, and servers that predate the fix omit the field
+// entirely from the empty-components envelope.
 func decodeAccountNetwork(an *proto.AccountNetwork) *nmdata.Network {
+	n := &nmdata.Network{}
 	if an == nil {
-		return nil
+		return n
 	}
-	n := &nmdata.Network{
-		Identifier: an.Identifier,
-		Dns:        an.Dns,
-		Serial:     int64(an.Serial),
-	}
+	n.Identifier = an.Identifier
+	n.Dns = an.Dns
+	n.Serial = int64(an.Serial)
 	if an.NetCidr != "" {
 		if _, ipnet, err := net.ParseCIDR(an.NetCidr); err == nil && ipnet != nil {
 			n.Net = *ipnet
