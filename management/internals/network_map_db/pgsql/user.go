@@ -14,7 +14,7 @@ const (
 	`
 
 	GetAllGroupIdQuery = `
-	select id from groups
+	select array_agg(id) from groups
 	where account_id=$1 and name='All'
 	`
 )
@@ -42,13 +42,9 @@ func GetAllowedUsersViaPgxConnection(ctx context.Context, con *pgx.Conn, account
 	if err != nil {
 		return nil, nil, err
 	}
-	allGroupIds, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	allGroupIds, err := pgx.CollectOneRow(rows, pgx.RowTo[[]string])
 	if err != nil {
 		return nil, nil, err
-	}
-	allGroupId := ""
-	if len(allGroupIds) > 0 {
-		allGroupId = allGroupIds[0]
 	}
 
 	userIdIdx := make(map[string]struct{})
@@ -58,8 +54,8 @@ func GetAllowedUsersViaPgxConnection(ctx context.Context, con *pgx.Conn, account
 		for _, groupId := range user.AutoGroups {
 			groupIdToUserIds[groupId] = append(groupIdToUserIds[groupId], user.ID)
 		}
-		if allGroupId != "" {
-			groupIdToUserIds[allGroupId] = append(groupIdToUserIds[allGroupId], user.ID)
+		for _, allgid := range allGroupIds {
+			groupIdToUserIds[allgid] = append(groupIdToUserIds[allgid], user.ID)
 		}
 	}
 
