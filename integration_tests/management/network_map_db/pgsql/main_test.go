@@ -2,6 +2,7 @@ package networkmap_pgsql
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
 	"os"
 	"regexp"
@@ -15,9 +16,13 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
+	networkmap_pgsql "github.com/netbirdio/netbird/management/internals/network_map_db/pgsql"
 	gormstore "github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/testutil"
 )
+
+//go:embed base_data.sql
+var baseData string
 
 var dsn string
 
@@ -57,6 +62,18 @@ func TestMain(m *testing.M) {
 	_, err = gormstore.NewPostgresqlStoreForTests(context.TODO(), dsn, nil, false)
 	if err != nil {
 		log.Fatalf("error running migrations %v", err)
+	}
+
+	ctx := context.TODO()
+	s, err := networkmap_pgsql.NewPostgresqlStore(ctx, dsn)
+	if err != nil {
+		log.Fatal("error creating postgres store %w", err)
+	}
+
+	for _, query := range strings.Split(baseData, ";") {
+		if _, err := s.Pool.Exec(ctx, query); err != nil {
+			log.Fatalf("error initializing db: %s", err.Error())
+		}
 	}
 
 	code := m.Run()

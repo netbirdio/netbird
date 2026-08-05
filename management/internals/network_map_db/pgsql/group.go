@@ -17,7 +17,7 @@ const (
 	(
 	  select array_agg(group_peers.peer_id)
       from group_peers
-	  where group_peers.group_id = groups.id
+	  where group_peers.group_id = groups.id and group_peers.account_id=$1
 	) as peers
 	from groups where account_id=$1
 	`
