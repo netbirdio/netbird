@@ -41,6 +41,10 @@ func rowToDnsSettings(row pgx.CollectableRow) (nmdata.DNSSettings, error) {
 		return value, err
 	}
 
+	if settings == nil {
+		return nmdata.DNSSettings{}, nil
+	}
+
 	if err := json.Unmarshal(settings, &value.DisabledManagementGroups); err != nil {
 		return value, err
 	}
