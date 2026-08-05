@@ -271,6 +271,11 @@ func (m *Manager) Stop() {
 // remoteID (bootstrap). It returns (nil, nil) when the local peer is not the
 // initiator. It is idempotent for an in-flight bootstrap: a repeat call returns the
 // same offer rather than starting a new exchange.
+//
+// A signal re-negotiation always re-bootstraps (fresh exchange): the remote may have
+// restarted and lost its PSK, so reusing a locally frozen one would desync. The derived
+// PSK still survives idle in the manager (dropped only on account-level peer removal),
+// so a pure lazy wake with no re-negotiation reuses it via the conn's WG-config pull.
 func (m *Manager) SignalOffer(remoteID RemoteID) ([]byte, error) {
 	if !m.IsInitiator(remoteID) {
 		return nil, nil

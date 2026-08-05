@@ -58,7 +58,8 @@ func TestManager_EstablishedPeerNotDowngraded(t *testing.T) {
 
 	dB.MarkNonCapable("aaaa") // stray zero after establishment
 
-	offer, err := dB.SignalOffer("aaaa")
-	require.NoError(t, err)
-	require.NotNil(t, offer, "an established peer must keep running the KEM despite a stray zero")
+	// The peer keeps its derived PSK (MarkNonCapable is a no-op once established).
+	psk, ok := dB.PSK("aaaa")
+	require.True(t, ok, "an established peer must keep its PSK despite a stray zero")
+	require.NotEqual(t, PSK{}, psk)
 }
