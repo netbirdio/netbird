@@ -23,7 +23,7 @@ const (
 	`
 )
 
-func (pg *PgStore) GetPrivateServices(ctx context.Context, accountId string) ([]service, error) {
+func (pg *PgStore) GetPrivateServices(ctx context.Context, accountId string) ([]Service, error) {
 	c, err := pg.Pool.Acquire(ctx)
 	if err != nil {
 		return nil, err
@@ -31,13 +31,13 @@ func (pg *PgStore) GetPrivateServices(ctx context.Context, accountId string) ([]
 	return GetPrivateServicesViaPgxConnection(ctx, c.Conn(), accountId)
 }
 
-func GetPrivateServicesViaPgxConnection(ctx context.Context, conn *pgx.Conn, accountId string) ([]service, error) {
+func GetPrivateServicesViaPgxConnection(ctx context.Context, conn *pgx.Conn, accountId string) ([]Service, error) {
 	rows, err := conn.Query(ctx, GetServicesQuery, accountId)
 	if err != nil {
 		return nil, err
 	}
 
-	return pgx.CollectRows(rows, pgx.RowToStructByName[service])
+	return pgx.CollectRows(rows, pgx.RowToStructByName[Service])
 }
 
 func GetProxyTargetedDomainResourceIDsViaPgxConnection(ctx context.Context, conn *pgx.Conn, accountId string) (map[string]struct{}, error) {
@@ -58,7 +58,7 @@ func GetProxyTargetedDomainResourceIDsViaPgxConnection(ctx context.Context, conn
 	return toret, nil
 }
 
-type service struct {
+type Service struct {
 	Enabled      sql.NullBool
 	Private      sql.NullBool
 	AccessGroups []string
