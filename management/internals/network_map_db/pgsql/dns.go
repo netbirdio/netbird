@@ -19,7 +19,7 @@ var ErrDnsUnsupportedRecordType = errors.New("unsupported record type")
 
 const (
 	GetAccountZonesQuery = `
-	select zones.id as id, domain, enable_search_domain as search_domain_disabled, distribution_groups,
+	select zones.id as id, domain, not enable_search_domain as search_domain_disabled, distribution_groups,
 	r.name as record_name, r.type as record_type, 'IN' record_class, r.ttl as record_ttl, r.content as record_rdata
 	from zones
 	left join records as r on r.zone_id = zones.id 
