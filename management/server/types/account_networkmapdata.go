@@ -87,7 +87,7 @@ func (a *Account) toNetworkMapData(
 		nmd.NameServerGroups = append(nmd.NameServerGroups, twinNSG(nsg))
 	}
 	for _, res := range a.NetworkResources {
-		nmd.NetworkResources = append(nmd.NetworkResources, twinNetworkResource(res))
+		nmd.NetworkResources = append(nmd.NetworkResources, TwinNetworkResource(res))
 	}
 	for _, pc := range a.PostureChecks {
 		if pc != nil {
@@ -274,7 +274,7 @@ func TwinRoute(r *nbroute.Route) *nmdata.Route {
 	return twinRoute(r)
 }
 
-func twinNetworkResource(r *resourceTypes.NetworkResource) *nmdata.NetworkResource {
+func TwinNetworkResource(r *resourceTypes.NetworkResource) *nmdata.NetworkResource {
 	if r == nil {
 		return nil
 	}

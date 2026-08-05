@@ -13,13 +13,14 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/shared/management/http/api"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
 
 // Peer capability constants mirror the proto enum values.
 const (
-	PeerCapabilitySourcePrefixes      int32 = 1
-	PeerCapabilityIPv6Overlay         int32 = 2
-	PeerCapabilityComponentNetworkMap int32 = 3
+	PeerCapabilitySourcePrefixes      = nmdata.PeerCapabilitySourcePrefixes
+	PeerCapabilityIPv6Overlay         = nmdata.PeerCapabilityIPv6Overlay
+	PeerCapabilityComponentNetworkMap = nmdata.PeerCapabilityComponentNetworkMap
 )
 
 // Peer represents a machine connected to the network.

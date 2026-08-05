@@ -7,9 +7,11 @@ import (
 	"time"
 )
 
+// Peer capability constants mirror the proto enum values.
 const (
-	peerCapabilitySourcePrefixes int32 = 1
-	peerCapabilityIPv6Overlay    int32 = 2
+	PeerCapabilitySourcePrefixes      int32 = 1
+	PeerCapabilityIPv6Overlay         int32 = 2
+	PeerCapabilityComponentNetworkMap int32 = 3
 )
 
 // Peer is the slim twin of peer.Peer.
@@ -78,11 +80,11 @@ func (p *Peer) HasCapability(capability int32) bool {
 }
 
 func (p *Peer) SupportsIPv6() bool {
-	return !p.Meta.Flags.DisableIPv6 && p.HasCapability(peerCapabilityIPv6Overlay)
+	return !p.Meta.Flags.DisableIPv6 && p.HasCapability(PeerCapabilityIPv6Overlay)
 }
 
 func (p *Peer) SupportsSourcePrefixes() bool {
-	return p.HasCapability(peerCapabilitySourcePrefixes)
+	return p.HasCapability(PeerCapabilitySourcePrefixes)
 }
 
 func (p *Peer) AddedWithSSOLogin() bool {

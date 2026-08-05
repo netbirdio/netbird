@@ -21,14 +21,14 @@ import (
 type (
 	Account = types.Account
 
-	DNSSettings       = sharedtypes.DNSSettings
+	DNSSettings       = types.DNSSettings
 	FirewallRule      = sharedtypes.FirewallRule
 	ForwardingRule    = sharedtypes.ForwardingRule
-	Group             = sharedtypes.Group
-	Network           = sharedtypes.Network
-	Policy            = sharedtypes.Policy
-	PolicyRule        = sharedtypes.PolicyRule
-	Resource          = sharedtypes.Resource
+	Group             = types.Group
+	Network           = types.Network
+	Policy            = types.Policy
+	PolicyRule        = types.PolicyRule
+	Resource          = types.Resource
 	RulePortRange     = sharedtypes.RulePortRange
 	RouteFirewallRule = sharedtypes.RouteFirewallRule
 )
