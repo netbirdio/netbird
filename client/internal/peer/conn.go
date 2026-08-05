@@ -959,12 +959,10 @@ func (conn *Conn) recordConnectionMetrics() {
 	priority := conn.currentConnPriority
 	conn.mu.Unlock()
 
-	var connType metrics.ConnectionType
-	switch priority {
-	case conntype.Relay:
-		connType = metrics.ConnectionTypeRelay
-	default:
-		connType = metrics.ConnectionTypeICE
+	connType := metricsConnType(priority)
+	if connType == metrics.ConnectionTypeUnknown {
+		conn.Log.Debugf("skip connection metrics, no transport is active (priority %s)", priority)
+		return
 	}
 
 	// Record metrics with timestamps - duration calculation happens in metrics package
@@ -1064,4 +1062,17 @@ func boolToConnStatus(connected bool) guard.ConnStatus {
 		return guard.ConnStatusConnected
 	}
 	return guard.ConnStatusDisconnected
+}
+
+func metricsConnType(priority conntype.ConnPriority) metrics.ConnectionType {
+	switch priority {
+	case conntype.Relay:
+		return metrics.ConnectionTypeRelay
+	case conntype.ICETurn:
+		return metrics.ConnectionTypeICETurn
+	case conntype.ICEP2P:
+		return metrics.ConnectionTypeICEP2P
+	default:
+		return metrics.ConnectionTypeUnknown
+	}
 }
