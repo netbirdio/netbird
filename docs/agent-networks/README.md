@@ -27,6 +27,7 @@ docs/agent-networks/
 ├── README.md                              # you are here
 ├── 00-overview.md                         # feature summary + module map
 ├── 01-end-to-end-flows.md                 # cross-module mermaid diagrams
+├── 60-qa-test-cases.md                    # QA test-case catalogue (manual + automatable)
 └── modules/
     ├── 10-shared-api.md                   # proto + OpenAPI wire contracts
     ├── 20-management-store.md             # SQL persistence layer
