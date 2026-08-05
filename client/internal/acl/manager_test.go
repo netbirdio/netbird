@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/client/firewall"
+	fwmanager "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/acl/mocks"
@@ -77,9 +78,9 @@ func TestDefaultManager(t *testing.T) {
 	})
 
 	t.Run("add extra rules", func(t *testing.T) {
-		existedPairs := map[string]struct{}{}
+		existedPairs := map[fwmanager.RuleID]struct{}{}
 		for id := range acl.peerRulesPairs {
-			existedPairs[id.ID()] = struct{}{}
+			existedPairs[id] = struct{}{}
 		}
 
 		// remove first rule
@@ -106,7 +107,7 @@ func TestDefaultManager(t *testing.T) {
 		// check that old rule was removed
 		previousCount := 0
 		for id := range acl.peerRulesPairs {
-			if _, ok := existedPairs[id.ID()]; ok {
+			if _, ok := existedPairs[id]; ok {
 				previousCount++
 			}
 		}
