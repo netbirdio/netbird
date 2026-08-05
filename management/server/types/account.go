@@ -31,7 +31,6 @@ import (
 )
 
 const (
-	defaultTTL = 300
 	// privateServiceDNSRecordTTL is short so proxy-peer changes propagate quickly to clients.
 	privateServiceDNSRecordTTL      = 5
 	DefaultPeerLoginExpiration      = 24 * time.Hour

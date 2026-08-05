@@ -2,7 +2,6 @@ package networkmap_pgsql
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -20,7 +19,7 @@ func TestGetGroups(t *testing.T) {
 	//	err = loadSQL(ctx, s.pool, initDb)
 	//assert.NoError(t, err)
 
-	_, err = s.Pool.Query(ctx, "insert into groups (id, account_id, name, resources, public_id) VALUES('test-group-id-1','ck7bnf2t2r9s739pkug0','test-group-1', '[{\"ID\":\"cui7q2jl0ubs73d8qpi0\",\"Type\":\"host\"}]','public-id-1')")
+	_, err = s.Pool.Exec(ctx, "insert into groups (id, account_id, name, resources, public_id) VALUES('test-group-id-1','ck7bnf2t2r9s739pkug0','test-group-1', '[{\"ID\":\"cui7q2jl0ubs73d8qpi0\",\"Type\":\"host\"}]','public-id-1')")
 	assert.NoError(t, err)
 
 	groups, _, err := s.GetGroups(ctx, "ck7bnf2t2r9s739pkug0") //"ckd7ee2fic3c73dtendg")
@@ -47,7 +46,7 @@ func TestGetPeers(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotEmpty(t, clusterToPeerIdx)
 
-	fmt.Print(peers)
+	t.Log(peers)
 	// assert.Contains(t,
 	// 	groups,
 	// 	nmdata.Group{Name: "test-group-1", PublicID: "public-id-1", Resources: []nmdata.Resource{{ID: "cui7q2jl0ubs73d8qpi0", Type: "host"}}},
@@ -71,7 +70,7 @@ func TestGetPolicies(t *testing.T) {
 	assert.NotEmpty(t, idx1)
 	assert.NotEmpty(t, idx2)
 
-	fmt.Print(peers)
+	t.Log(peers)
 	// assert.Contains(t,
 	// 	groups,
 	// 	nmdata.Group{Name: "test-group-1", PublicID: "public-id-1", Resources: []nmdata.Resource{{ID: "cui7q2jl0ubs73d8qpi0", Type: "host"}}},
@@ -93,7 +92,7 @@ func TestGetRoutes(t *testing.T) {
 	peers, err := s.GetRoutes(ctx, "csg5iabl0ubs7398nf1g") //"ckd7ee2fic3c73dtendg")
 	assert.NoError(t, err)
 
-	fmt.Print(peers)
+	t.Log(peers)
 	// assert.Contains(t,
 	// 	groups,
 	// 	nmdata.Group{Name: "test-group-1", PublicID: "public-id-1", Resources: []nmdata.Resource{{ID: "cui7q2jl0ubs73d8qpi0", Type: "host"}}},
@@ -115,7 +114,7 @@ func TestGetNSGroups(t *testing.T) {
 	groups, err := s.GetNameServerGroups(ctx, "cl3h77qfic3c738mkja0") //"ckd7ee2fic3c73dtendg")
 	assert.NoError(t, err)
 
-	fmt.Print(groups)
+	t.Log(groups)
 	// assert.Contains(t,
 	// 	groups,
 	// 	nmdata.Group{Name: "test-group-1", PublicID: "public-id-1", Resources: []nmdata.Resource{{ID: "cui7q2jl0ubs73d8qpi0", Type: "host"}}},
@@ -137,7 +136,7 @@ func TestGetNetworkResources(t *testing.T) {
 	res, err := s.GetNetworkResources(ctx, "cag86v2t2r9s73d0416g") //"ckd7ee2fic3c73dtendg")
 	assert.NoError(t, err)
 
-	fmt.Print(res)
+	t.Log(res)
 	// assert.Contains(t,
 	// 	groups,
 	// 	nmdata.Group{Name: "test-group-1", PublicID: "public-id-1", Resources: []nmdata.Resource{{ID: "cui7q2jl0ubs73d8qpi0", Type: "host"}}},
@@ -160,7 +159,7 @@ func TestGetNetworkRouters(t *testing.T) {
 	res, err := GetNetworkRoutersViaPgxConnection(ctx, c.Conn(), "d29f99jl0ubs73cm8ce0") //"ckd7ee2fic3c73dtendg")
 	assert.NoError(t, err)
 
-	fmt.Print(res)
+	t.Log(res)
 	// assert.Contains(t,
 	// 	groups,
 	// 	nmdata.Group{Name: "test-group-1", PublicID: "public-id-1", Resources: []nmdata.Resource{{ID: "cui7q2jl0ubs73d8qpi0", Type: "host"}}},
@@ -182,7 +181,7 @@ func TestGetNetwork(t *testing.T) {
 	n, err := s.GetNetwork(ctx, "d29f99jl0ubs73cm8ce0") //"ckd7ee2fic3c73dtendg")
 	assert.NoError(t, err)
 
-	fmt.Print(n)
+	t.Log(n)
 	// assert.Contains(t,
 	// 	groups,
 	// 	nmdata.Group{Name: "test-group-1", PublicID: "public-id-1", Resources: []nmdata.Resource{{ID: "cui7q2jl0ubs73d8qpi0", Type: "host"}}},
@@ -204,7 +203,7 @@ func TestGetAccountZones(t *testing.T) {
 	zones, err := s.GetAppliedZoneCandidates(ctx, "d4g66rjl0ubs73b2q3b0") //"ckd7ee2fic3c73dtendg")
 	assert.NoError(t, err)
 
-	fmt.Print(zones)
+	t.Log(zones)
 	// assert.Contains(t,
 	// 	groups,
 	// 	nmdata.Group{Name: "test-group-1", PublicID: "public-id-1", Resources: []nmdata.Resource{{ID: "cui7q2jl0ubs73d8qpi0", Type: "host"}}},
@@ -245,7 +244,7 @@ func TestGetPostureChecks(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotEmpty(t, idx)
 
-	fmt.Print(checks)
+	t.Log(checks)
 	// assert.Contains(t,
 	// 	groups,
 	// 	nmdata.Group{Name: "test-group-1", PublicID: "public-id-1", Resources: []nmdata.Resource{{ID: "cui7q2jl0ubs73d8qpi0", Type: "host"}}},

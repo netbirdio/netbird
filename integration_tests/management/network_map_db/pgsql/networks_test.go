@@ -11,10 +11,10 @@ import (
 func TestGetNetworks(t *testing.T) {
 	ctx := context.TODO()
 
-	_, err := pgstore.Pool.Query(ctx,
+	_, err := pgstore.Pool.Exec(ctx,
 		`insert into networks (id, account_id, public_id) VALUES('network-1','account-1','network-1-public')`)
 	assert.NoError(t, err)
-	_, err = pgstore.Pool.Query(ctx,
+	_, err = pgstore.Pool.Exec(ctx,
 		`insert into networks (id, account_id, public_id) VALUES('network-2','account-1','network-2-public')`)
 	assert.NoError(t, err)
 

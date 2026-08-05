@@ -18,7 +18,7 @@ func TestRecordTypeAndRdata(t *testing.T) {
 		{recordType: "AAAA", expectedRecordType: 28, rdata: "test.com", expectedRdata: "test.com", expectedErr: nil},
 		{recordType: "CNAME", expectedRecordType: 5, rdata: "test.com", expectedRdata: "test.com.", expectedErr: nil},
 		{recordType: "CNAME", expectedRecordType: 5, rdata: "test.com.", expectedRdata: "test.com.", expectedErr: nil},
-		{recordType: "TypeMX", expectedErr: DnsUnsupportedRecordTypeError},
+		{recordType: "TypeMX", expectedErr: ErrDnsUnsupportedRecordType},
 	}
 
 	for _, tt := range tests {
@@ -26,7 +26,7 @@ func TestRecordTypeAndRdata(t *testing.T) {
 			recordType, rdata, err := recordTypeAndRdata(tt.recordType, tt.rdata)
 
 			if tt.expectedErr != nil {
-				assert.ErrorIs(t, err, DnsUnsupportedRecordTypeError)
+				assert.ErrorIs(t, err, ErrDnsUnsupportedRecordType)
 				return
 			}
 

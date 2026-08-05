@@ -13,15 +13,15 @@ import (
 func TestGetNameServerGroups(t *testing.T) {
 	ctx := context.TODO()
 
-	_, err := pgstore.Pool.Query(ctx,
+	_, err := pgstore.Pool.Exec(ctx,
 		`insert into name_server_groups (id, public_id, name, description, name_servers, groups, domains, enabled, search_domains_enabled, "primary", account_id)
 		VALUES('nsgroup-1','nsgroup-1-public','nsgroup-1','nsgroup-1','[{"IP":"192.168.31.2","NSType":1,"Port":53}]','["group-one-resource-id"]','["test-1.com"]',TRUE,FALSE,TRUE,'account-1')`)
 	assert.NoError(t, err)
-	_, err = pgstore.Pool.Query(ctx,
+	_, err = pgstore.Pool.Exec(ctx,
 		`insert into name_server_groups (id, public_id, name, description, name_servers, groups, domains, enabled, search_domains_enabled,"primary",account_id)
 		VALUES('nsgroup-2','nsgroup-2-public','nsgroup-2','nsgroup-2','[{"IP":"192.168.32.3","NSType":1,"Port":53}]','["group-one-resource-id","group-no-resources-id"]','["test-1.com","test-2.com"]',TRUE,FALSE,TRUE,'account-1')`)
 	assert.NoError(t, err)
-	_, err = pgstore.Pool.Query(ctx,
+	_, err = pgstore.Pool.Exec(ctx,
 		`insert into name_server_groups (id, public_id, name, description, name_servers, groups, domains, enabled, search_domains_enabled,"primary",account_id)
 		VALUES('nsgroup-3','nsgroup-3-public',null,null,null,null,null,TRUE,FALSE,FALSE,'account-1')`)
 	assert.NoError(t, err)

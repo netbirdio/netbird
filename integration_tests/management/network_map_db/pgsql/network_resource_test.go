@@ -16,15 +16,18 @@ func TestGetNetworkResources(t *testing.T) {
 	s, err := networkmap_pgsql.NewPostgresqlStore(ctx, dsn)
 	assert.NoError(t, err)
 
-	_, err = s.Pool.Query(ctx,
+	_, err = s.Pool.Exec(ctx,
 		`insert into network_resources (id, account_id, network_id, public_id, name, description, type, domain, prefix, enabled)
 		VALUES('net-resource-1','account-1','network-1','net-resource-public-1','network-resource-1','network-resource-1','subnet','','"10.0.0.0/16"',TRUE)`)
-	_, err = s.Pool.Query(ctx,
+	assert.NoError(t, err)
+	_, err = s.Pool.Exec(ctx,
 		`insert into network_resources (id, account_id, network_id, public_id, name, description, type, domain, prefix, enabled)
 		VALUES('net-resource-2','account-1','network-2','net-resource-public-2','network-resource-2','network-resource-2','domain','test.com','',TRUE)`)
-	_, err = s.Pool.Query(ctx,
+	assert.NoError(t, err)
+	_, err = s.Pool.Exec(ctx,
 		`insert into network_resources (id, account_id, network_id, public_id, name, description, type, domain, prefix, enabled)
 		VALUES('net-resource-3','account-1','network-3','net-resource-public-3','network-resource-3','network-resource-3','host','','"10.0.0.1/32"',TRUE)`)
+	assert.NoError(t, err)
 
 	resources, err := s.GetNetworkResources(ctx, "account-1")
 	assert.NoError(t, err)

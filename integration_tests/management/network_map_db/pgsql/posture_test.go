@@ -13,7 +13,7 @@ import (
 func TestGetPostureChecks(t *testing.T) {
 	ctx := context.TODO()
 
-	_, err := pgstore.Pool.Query(ctx,
+	_, err := pgstore.Pool.Exec(ctx,
 		`insert into posture_checks (id, account_id, public_id, checks)
 		VALUES('posturecheck-1','account-1','posturecheck-1-public',
 		'{"NBVersionCheck":{"MinVersion":"0.25.0"},
@@ -22,7 +22,7 @@ func TestGetPostureChecks(t *testing.T) {
 		  "PeerNetworkRangeCheck":{"Action":"deny","Ranges":["192.168.0.1/24"]}}')`)
 	assert.NoError(t, err)
 
-	_, err = pgstore.Pool.Query(ctx,
+	_, err = pgstore.Pool.Exec(ctx,
 		`insert into posture_checks (id, account_id, public_id, checks)
 		VALUES('posturecheck-2','account-1','posturecheck-2-public',
 		'{"NBVersionCheck":{"MinVersion":"0.25.0"},
@@ -30,7 +30,7 @@ func TestGetPostureChecks(t *testing.T) {
 		  "GeoLocationCheck":{"Locations":[{"CountryCode":"US","CityName":"Harker Heights"}],"Action":"allow"},
 		  "PeerNetworkRangeCheck":{"Action":"allow","Ranges":["0.0.0.0/0"]}}')`)
 	assert.NoError(t, err)
-	_, err = pgstore.Pool.Query(ctx,
+	_, err = pgstore.Pool.Exec(ctx,
 		`insert into posture_checks (id, account_id, public_id, checks)
 		VALUES('posturecheck-3','account-1','posturecheck-3-public', null)`)
 	assert.NoError(t, err)

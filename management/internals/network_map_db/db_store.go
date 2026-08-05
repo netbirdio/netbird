@@ -23,7 +23,7 @@ const (
 	NMAP_MAP_TO     = "map_to"
 )
 
-type NetworkMapDBStore interface {
+type NetworkMapDBStore interface { //nolint:revive // established name across the codebase
 	GetGroups(ctx context.Context, accountId string) ([]nmdata.Group, map[string]map[string]any, error)
 	GetPeers(ctx context.Context, accountId string) ([]nmdata.Peer, map[string][]*nmdata.Peer, error)
 	GetPolicies(ctx context.Context, accountId string) ([]nmdata.Policy, map[string]map[string]any, map[string]map[string]any, error)
@@ -40,7 +40,7 @@ type NetworkMapDBStore interface {
 	GetDnsSettings(ctx context.Context, accountId string) (nmdata.DNSSettings, error)
 }
 
-type NetworkMapDBStoreImpl struct {
+type NetworkMapDBStoreImpl struct { //nolint:revive // established name across the codebase
 	store                   NetworkMapDBStore
 	integratedPeerValidator integrated_validator.IntegratedValidator
 	extraSettingsManager    settings.Manager
@@ -138,7 +138,9 @@ func FromSqlTypesToSharedTypes(src reflect.Value, dst reflect.Value) error {
 			}
 		case "json.RawMessage":
 			s := srcField.Interface().(json.RawMessage)
-			json.Unmarshal(s, dstField.Addr().Interface())
+			if err := json.Unmarshal(s, dstField.Addr().Interface()); err != nil {
+				return err
+			}
 		case "[]string":
 			if srcField.IsNil() {
 				return nil

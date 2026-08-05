@@ -48,7 +48,7 @@ func TestGetGroupsWithoutExpectedFields(t *testing.T) {
 
 	acctId := xid.New().String()
 
-	_, err = s.Pool.Query(ctx,
+	_, err = s.Pool.Exec(ctx,
 		"insert into accounts (id) VALUES($1)", acctId)
 	assert.NoError(t, err)
 
