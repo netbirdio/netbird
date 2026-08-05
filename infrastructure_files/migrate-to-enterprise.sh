@@ -386,14 +386,20 @@ container_data_mount() {
 }
 
 # The name comes from the container, so `-v` cannot invent an empty volume here.
-data_dir_is_empty() {
-  local src="$1"
+# 0 = empty, 1 = holds data, 2 = could not determine. A failed listing must not
+# be reported as empty: that would abort a healthy migration over a pull error
+# or an unreadable bind mount.
+data_dir_state() {
+  local src="$1" out
   if [[ "$src" == /* ]]; then
-    [[ -z "$(ls -A "$src" 2>/dev/null)" ]]
-    return
+    [[ -d "$src" ]] || return 2
+    out=$(ls -A "$src" 2>/dev/null) || return 2
+  else
+    docker volume inspect "$src" &> /dev/null || return 0
+    out=$(docker run --rm -v "${src}:/d:ro" busybox sh -c 'ls -A /d' 2>/dev/null) || return 2
   fi
-  docker volume inspect "$src" &> /dev/null || return 0
-  [[ -z "$(docker run --rm -v "${src}:/d:ro" busybox sh -c 'ls -A /d' 2>/dev/null)" ]]
+  [[ -z "$out" ]] && return 0
+  return 1
 }
 
 check_data_directory() {
@@ -419,13 +425,19 @@ check_data_directory() {
     exit 1
   fi
 
-  if data_dir_is_empty "$src"; then
+  local state=0
+  data_dir_state "$src" || state=$?
+  if [[ $state -eq 0 ]]; then
     echo "" > /dev/stderr
     echo "The NetBird data directory is empty:" > /dev/stderr
     echo "  $src" > /dev/stderr
     echo "There is nothing to migrate. Check that you are running this from the" > /dev/stderr
     echo "deployment directory of the NetBird install you mean to migrate." > /dev/stderr
     exit 1
+  fi
+  if [[ $state -eq 2 ]]; then
+    echo "  ⚠ Could not read $src to confirm it holds data — continuing." > /dev/stderr
+    echo "    The backup step still fails loudly if it turns out to be empty." > /dev/stderr
   fi
 
   echo "  Data directory:   $src"
@@ -495,13 +507,31 @@ run_migrate_store() {
 
 # Resolve the name Compose would give the Postgres volume before the override
 # exists, so a leftover volume can be spotted up front.
+compose_project_name() {
+  local container project
+  container=$($DOCKER_COMPOSE_COMMAND ps -aq 2>/dev/null | head -1)
+  if [[ -n "$container" ]]; then
+    project=$(docker inspect "$container" \
+      --format '{{index .Config.Labels "com.docker.compose.project"}}' 2>/dev/null)
+    if [[ -n "$project" ]]; then
+      echo "$project"
+      return 0
+    fi
+  fi
+  project=$($DOCKER_COMPOSE_COMMAND config 2>/dev/null | yq eval '.name // ""' - 2>/dev/null)
+  if [[ -n "$project" ]] && [[ "$project" != "null" ]]; then
+    echo "$project"
+  fi
+  return 0
+}
+
 postgres_volume_name() {
   local project
-  project=$($DOCKER_COMPOSE_COMMAND config 2>/dev/null | yq eval '.name // ""' - 2>/dev/null)
-  if [[ -z "$project" ]] || [[ "$project" == "null" ]]; then
-    return
+  project=$(compose_project_name)
+  if [[ -n "$project" ]]; then
+    echo "${project}_netbird_postgres"
   fi
-  echo "${project}_netbird_postgres"
+  return 0
 }
 
 # Postgres skips initdb when its data directory is non-empty, so a volume left
@@ -511,7 +541,14 @@ check_stale_postgres_volume() {
   [[ "$MIGRATE_POSTGRES" == "yes" ]] || return 0
 
   PG_VOLUME_NAME=$(postgres_volume_name)
-  [[ -n "$PG_VOLUME_NAME" ]] || return 0
+  if [[ -z "$PG_VOLUME_NAME" ]]; then
+    echo ""
+    echo "  ⚠ Could not determine the Compose project name, so a Postgres volume"
+    echo "    left over from an earlier attempt cannot be checked for. If a"
+    echo "    previous run failed, remove it before continuing:"
+    echo "      docker volume ls | grep netbird_postgres"
+    return 0
+  fi
   docker volume inspect "$PG_VOLUME_NAME" &> /dev/null || return 0
 
   echo ""
@@ -543,7 +580,7 @@ rollback() {
   # knows about the Postgres volume.
   local pg_volume="$PG_VOLUME_NAME"
   if [[ -z "$pg_volume" ]] && [[ "$MIGRATE_POSTGRES" == "yes" ]]; then
-    pg_volume=$(resolve_compose_volume "netbird_postgres" 2>/dev/null || true)
+    pg_volume=$(postgres_volume_name)
   fi
 
   echo ""
