@@ -1774,5 +1774,17 @@
     "error.unknown": {
         "message": "Operation failed.",
         "description": "Generic fallback error message used when no specific error applies."
+    },
+    "settings.ssh.privilege.hint": {
+        "message": "Requires {actor}. Run this instead:",
+        "description": "Help text under an SSH setting the user cannot change: it needs elevated privileges. {actor} is 'root' on Linux/macOS or 'administrator privileges' on Windows. Followed by a copyable command."
+    },
+    "settings.ssh.privilege.oneWay": {
+        "message": "You can switch this off, but switching it back on needs {actor}:",
+        "description": "Warning under an SSH setting an unprivileged user may disable but not re-enable. {actor} is 'root' on Linux/macOS or 'administrator privileges' on Windows. Followed by a copyable command."
+    },
+    "settings.ssh.privilege.oneWayInverted": {
+        "message": "You can switch this on, but switching it back off needs {actor}:",
+        "description": "Warning under the SSH authentication setting, which an unprivileged user may re-enable but not disable again. {actor} is 'root' on Linux/macOS or 'administrator privileges' on Windows. Followed by a copyable command."
     }
 }

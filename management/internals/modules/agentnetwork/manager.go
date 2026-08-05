@@ -86,12 +86,17 @@ type Manager interface {
 
 // PolicySelectionInput is the per-request selection envelope. The
 // proxy populates it from CapturedData (account, user, groups) plus
-// the provider llm_router resolved.
+// the provider llm_router resolved and the model it extracted.
 type PolicySelectionInput struct {
 	AccountID  string
 	UserID     string
 	GroupIDs   []string
 	ProviderID string
+	// Model is the already-normalised upstream model id the proxy extracted
+	// (parser strips Bedrock region/version, Vertex @version), so a
+	// case-insensitive compare suffices. Empty = undetermined → not permitted
+	// (fail closed).
+	Model string
 }
 
 // PolicySelectionResult names the policy that "pays" for this request
@@ -152,14 +157,14 @@ func NewManager(
 }
 
 func (m *managerImpl) GetAllProviders(ctx context.Context, accountID, userID string) ([]*types.Provider, error) {
-	if err := m.requirePermission(ctx, accountID, userID, operations.Read); err != nil {
+	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkProviders, operations.Read); err != nil {
 		return nil, err
 	}
 	return m.store.GetAccountAgentNetworkProviders(ctx, store.LockingStrengthNone, accountID)
 }
 
 func (m *managerImpl) GetProvider(ctx context.Context, accountID, userID, providerID string) (*types.Provider, error) {
-	if err := m.requirePermission(ctx, accountID, userID, operations.Read); err != nil {
+	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkProviders, operations.Read); err != nil {
 		return nil, err
 	}
 	return m.store.GetAgentNetworkProviderByID(ctx, store.LockingStrengthNone, accountID, providerID)
@@ -170,8 +175,13 @@ func (m *managerImpl) GetProvider(ctx context.Context, accountID, userID, provid
 // been created yet; otherwise it is ignored (the cluster is pinned on
 // Settings and every provider in the account routes through it).
 func (m *managerImpl) CreateProvider(ctx context.Context, userID string, provider *types.Provider, bootstrapCluster string) (*types.Provider, error) {
-	if err := m.requirePermission(ctx, provider.AccountID, userID, operations.Create); err != nil {
+	if err := m.requirePermission(ctx, provider.AccountID, userID, modules.AgentNetworkProviders, operations.Create); err != nil {
 		return nil, err
+	}
+	if strings.TrimSpace(bootstrapCluster) != "" {
+		if err := m.requireSettingsBootstrapPermission(ctx, provider.AccountID, userID); err != nil {
+			return nil, err
+		}
 	}
 
 	// An empty api_key would silently produce a synthesised service
@@ -197,7 +207,7 @@ func (m *managerImpl) CreateProvider(ctx context.Context, userID string, provide
 	}
 
 	if strings.TrimSpace(bootstrapCluster) != "" {
-		if _, err := m.bootstrapSettingsIfNeeded(ctx, provider.AccountID, bootstrapCluster); err != nil {
+		if _, err := m.bootstrapSettingsIfNeeded(ctx, m.store, provider.AccountID, bootstrapCluster); err != nil {
 			// The provider create has already succeeded; logging the
 			// bootstrap miss matches the plan's PoC behaviour. The synth
 			// path treats a missing settings row as a no-op, and the next
@@ -213,7 +223,7 @@ func (m *managerImpl) CreateProvider(ctx context.Context, userID string, provide
 }
 
 func (m *managerImpl) UpdateProvider(ctx context.Context, userID string, provider *types.Provider) (*types.Provider, error) {
-	if err := m.requirePermission(ctx, provider.AccountID, userID, operations.Update); err != nil {
+	if err := m.requirePermission(ctx, provider.AccountID, userID, modules.AgentNetworkProviders, operations.Update); err != nil {
 		return nil, err
 	}
 
@@ -252,7 +262,7 @@ func (m *managerImpl) UpdateProvider(ctx context.Context, userID string, provide
 }
 
 func (m *managerImpl) DeleteProvider(ctx context.Context, accountID, userID, providerID string) error {
-	if err := m.requirePermission(ctx, accountID, userID, operations.Delete); err != nil {
+	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkProviders, operations.Delete); err != nil {
 		return err
 	}
 
@@ -301,21 +311,21 @@ func pluralize(n int, singular, plural string) string {
 }
 
 func (m *managerImpl) GetAllPolicies(ctx context.Context, accountID, userID string) ([]*types.Policy, error) {
-	if err := m.requirePermission(ctx, accountID, userID, operations.Read); err != nil {
+	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkPolicies, operations.Read); err != nil {
 		return nil, err
 	}
 	return m.store.GetAccountAgentNetworkPolicies(ctx, store.LockingStrengthNone, accountID)
 }
 
 func (m *managerImpl) GetPolicy(ctx context.Context, accountID, userID, policyID string) (*types.Policy, error) {
-	if err := m.requirePermission(ctx, accountID, userID, operations.Read); err != nil {
+	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkPolicies, operations.Read); err != nil {
 		return nil, err
 	}
 	return m.store.GetAgentNetworkPolicyByID(ctx, store.LockingStrengthNone, accountID, policyID)
 }
 
 func (m *managerImpl) CreatePolicy(ctx context.Context, userID string, policy *types.Policy) (*types.Policy, error) {
-	if err := m.requirePermission(ctx, policy.AccountID, userID, operations.Create); err != nil {
+	if err := m.requirePermission(ctx, policy.AccountID, userID, modules.AgentNetworkPolicies, operations.Create); err != nil {
 		return nil, err
 	}
 
@@ -341,7 +351,7 @@ func (m *managerImpl) CreatePolicy(ctx context.Context, userID string, policy *t
 }
 
 func (m *managerImpl) UpdatePolicy(ctx context.Context, userID string, policy *types.Policy) (*types.Policy, error) {
-	if err := m.requirePermission(ctx, policy.AccountID, userID, operations.Update); err != nil {
+	if err := m.requirePermission(ctx, policy.AccountID, userID, modules.AgentNetworkPolicies, operations.Update); err != nil {
 		return nil, err
 	}
 
@@ -368,7 +378,7 @@ func (m *managerImpl) UpdatePolicy(ctx context.Context, userID string, policy *t
 }
 
 func (m *managerImpl) DeletePolicy(ctx context.Context, accountID, userID, policyID string) error {
-	if err := m.requirePermission(ctx, accountID, userID, operations.Delete); err != nil {
+	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkPolicies, operations.Delete); err != nil {
 		return err
 	}
 
@@ -388,21 +398,21 @@ func (m *managerImpl) DeletePolicy(ctx context.Context, accountID, userID, polic
 }
 
 func (m *managerImpl) GetAllGuardrails(ctx context.Context, accountID, userID string) ([]*types.Guardrail, error) {
-	if err := m.requirePermission(ctx, accountID, userID, operations.Read); err != nil {
+	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkGuardrails, operations.Read); err != nil {
 		return nil, err
 	}
 	return m.store.GetAccountAgentNetworkGuardrails(ctx, store.LockingStrengthNone, accountID)
 }
 
 func (m *managerImpl) GetGuardrail(ctx context.Context, accountID, userID, guardrailID string) (*types.Guardrail, error) {
-	if err := m.requirePermission(ctx, accountID, userID, operations.Read); err != nil {
+	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkGuardrails, operations.Read); err != nil {
 		return nil, err
 	}
 	return m.store.GetAgentNetworkGuardrailByID(ctx, store.LockingStrengthNone, accountID, guardrailID)
 }
 
 func (m *managerImpl) CreateGuardrail(ctx context.Context, userID string, guardrail *types.Guardrail) (*types.Guardrail, error) {
-	if err := m.requirePermission(ctx, guardrail.AccountID, userID, operations.Create); err != nil {
+	if err := m.requirePermission(ctx, guardrail.AccountID, userID, modules.AgentNetworkGuardrails, operations.Create); err != nil {
 		return nil, err
 	}
 
@@ -424,7 +434,7 @@ func (m *managerImpl) CreateGuardrail(ctx context.Context, userID string, guardr
 }
 
 func (m *managerImpl) UpdateGuardrail(ctx context.Context, userID string, guardrail *types.Guardrail) (*types.Guardrail, error) {
-	if err := m.requirePermission(ctx, guardrail.AccountID, userID, operations.Update); err != nil {
+	if err := m.requirePermission(ctx, guardrail.AccountID, userID, modules.AgentNetworkGuardrails, operations.Update); err != nil {
 		return nil, err
 	}
 
@@ -447,7 +457,7 @@ func (m *managerImpl) UpdateGuardrail(ctx context.Context, userID string, guardr
 }
 
 func (m *managerImpl) DeleteGuardrail(ctx context.Context, accountID, userID, guardrailID string) error {
-	if err := m.requirePermission(ctx, accountID, userID, operations.Delete); err != nil {
+	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkGuardrails, operations.Delete); err != nil {
 		return err
 	}
 
@@ -468,7 +478,7 @@ func (m *managerImpl) DeleteGuardrail(ctx context.Context, accountID, userID, gu
 
 // GetAllBudgetRules returns every account-level budget rule for the account.
 func (m *managerImpl) GetAllBudgetRules(ctx context.Context, accountID, userID string) ([]*types.AccountBudgetRule, error) {
-	if err := m.requirePermission(ctx, accountID, userID, operations.Read); err != nil {
+	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkBudgets, operations.Read); err != nil {
 		return nil, err
 	}
 	return m.store.GetAccountAgentNetworkBudgetRules(ctx, store.LockingStrengthNone, accountID)
@@ -476,7 +486,7 @@ func (m *managerImpl) GetAllBudgetRules(ctx context.Context, accountID, userID s
 
 // GetBudgetRule returns a single account-level budget rule.
 func (m *managerImpl) GetBudgetRule(ctx context.Context, accountID, userID, ruleID string) (*types.AccountBudgetRule, error) {
-	if err := m.requirePermission(ctx, accountID, userID, operations.Read); err != nil {
+	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkBudgets, operations.Read); err != nil {
 		return nil, err
 	}
 	return m.store.GetAgentNetworkBudgetRuleByID(ctx, store.LockingStrengthNone, accountID, ruleID)
@@ -486,7 +496,7 @@ func (m *managerImpl) GetBudgetRule(ctx context.Context, accountID, userID, rule
 // enforced at request time (CheckLLMPolicyLimits), not baked into the synth
 // proxy config, so no reconcile is needed.
 func (m *managerImpl) CreateBudgetRule(ctx context.Context, userID string, rule *types.AccountBudgetRule) (*types.AccountBudgetRule, error) {
-	if err := m.requirePermission(ctx, rule.AccountID, userID, operations.Create); err != nil {
+	if err := m.requirePermission(ctx, rule.AccountID, userID, modules.AgentNetworkBudgets, operations.Create); err != nil {
 		return nil, err
 	}
 
@@ -508,7 +518,7 @@ func (m *managerImpl) CreateBudgetRule(ctx context.Context, userID string, rule 
 
 // UpdateBudgetRule updates an existing account-level budget rule.
 func (m *managerImpl) UpdateBudgetRule(ctx context.Context, userID string, rule *types.AccountBudgetRule) (*types.AccountBudgetRule, error) {
-	if err := m.requirePermission(ctx, rule.AccountID, userID, operations.Update); err != nil {
+	if err := m.requirePermission(ctx, rule.AccountID, userID, modules.AgentNetworkBudgets, operations.Update); err != nil {
 		return nil, err
 	}
 
@@ -531,7 +541,7 @@ func (m *managerImpl) UpdateBudgetRule(ctx context.Context, userID string, rule 
 
 // DeleteBudgetRule removes an account-level budget rule.
 func (m *managerImpl) DeleteBudgetRule(ctx context.Context, accountID, userID, ruleID string) error {
-	if err := m.requirePermission(ctx, accountID, userID, operations.Delete); err != nil {
+	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkBudgets, operations.Delete); err != nil {
 		return err
 	}
 
@@ -549,40 +559,83 @@ func (m *managerImpl) DeleteBudgetRule(ctx context.Context, accountID, userID, r
 	return nil
 }
 
-// UpdateSettings applies the mutable account-level settings — the collection
-// toggles — onto the existing row. Cluster and Subdomain are immutable and are
-// preserved from the persisted row regardless of the input. Because the
-// collection toggles change the synthesised service config (prompt-capture
-// gating, access-log emission), a reconcile is triggered so the proxy and peer
-// network maps converge on the new state.
+// UpdateSettings replaces the mutable account-level settings — the collection
+// toggles and retention — on the account's row. When the account has no
+// settings row yet, a non-empty settings.Cluster bootstraps one (same path as
+// first provider create); without it the update fails with NotFound. On an
+// existing row the cluster and subdomain are immutable: a differing
+// settings.Cluster is rejected rather than silently ignored so callers never
+// observe a value other than what they sent. Because the collection toggles
+// change the synthesised service config (prompt-capture gating, access-log
+// emission), a reconcile is triggered so the proxy and peer network maps
+// converge on the new state.
 func (m *managerImpl) UpdateSettings(ctx context.Context, userID string, settings *types.Settings) (*types.Settings, error) {
-	if err := m.requirePermission(ctx, settings.AccountID, userID, operations.Update); err != nil {
+	if err := m.requirePermission(ctx, settings.AccountID, userID, modules.AgentNetworkSettings, operations.Update); err != nil {
 		return nil, err
 	}
 
-	existing, err := m.store.GetAgentNetworkSettings(ctx, store.LockingStrengthUpdate, settings.AccountID)
+	requestedCluster := strings.TrimSpace(settings.Cluster)
+
+	// The row lock from LockingStrengthUpdate only holds for the duration of
+	// the surrounding transaction, so the read, the cluster-immutability
+	// check, and the save must share one — otherwise concurrent PUTs could
+	// interleave between them.
+	var updated *types.Settings
+	err := m.store.ExecuteInTransaction(ctx, func(tx store.Store) error {
+		existing, err := tx.GetAgentNetworkSettings(ctx, store.LockingStrengthUpdate, settings.AccountID)
+		switch {
+		case err == nil:
+			if requestedCluster != "" && requestedCluster != existing.Cluster {
+				return status.Errorf(status.InvalidArgument, "cluster is immutable once assigned (current: %s)", existing.Cluster)
+			}
+		case isNotFound(err):
+			if requestedCluster == "" {
+				return status.Errorf(status.NotFound, "agent network settings have not been bootstrapped yet; pass cluster to bootstrap them, or create a provider with bootstrap_cluster set")
+			}
+			// Bootstrapping pins the cluster and subdomain — a settings
+			// create on top of the update the caller already passed, matching
+			// the gate on the provider-create bootstrap path.
+			if err := m.requirePermission(ctx, settings.AccountID, userID, modules.AgentNetworkSettings, operations.Create); err != nil {
+				return err
+			}
+			existing, err = m.bootstrapSettingsIfNeeded(ctx, tx, settings.AccountID, requestedCluster)
+			if err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("get agent network settings: %w", err)
+		}
+
+		existing.EnableLogCollection = settings.EnableLogCollection
+		existing.EnablePromptCollection = settings.EnablePromptCollection
+		existing.RedactPii = settings.RedactPii
+		existing.AccessLogRetentionDays = settings.AccessLogRetentionDays
+		existing.UpdatedAt = time.Now().UTC()
+
+		if err := tx.SaveAgentNetworkSettings(ctx, existing); err != nil {
+			return fmt.Errorf("save agent network settings: %w", err)
+		}
+		updated = existing
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("get agent network settings: %w", err)
-	}
-
-	existing.EnableLogCollection = settings.EnableLogCollection
-	existing.EnablePromptCollection = settings.EnablePromptCollection
-	existing.RedactPii = settings.RedactPii
-	existing.AccessLogRetentionDays = settings.AccessLogRetentionDays
-	existing.UpdatedAt = time.Now().UTC()
-
-	if err := m.store.SaveAgentNetworkSettings(ctx, existing); err != nil {
-		return nil, fmt.Errorf("save agent network settings: %w", err)
+		return nil, err
 	}
 
 	m.accountManager.StoreEvent(ctx, userID, settings.AccountID, settings.AccountID, activity.AgentNetworkSettingsUpdated, map[string]any{
-		"log_collection":    existing.EnableLogCollection,
-		"prompt_collection": existing.EnablePromptCollection,
-		"redact_pii":        existing.RedactPii,
+		"log_collection":    updated.EnableLogCollection,
+		"prompt_collection": updated.EnablePromptCollection,
+		"redact_pii":        updated.RedactPii,
 	})
 	m.reconcile(ctx, settings.AccountID)
 
-	return existing, nil
+	return updated, nil
+}
+
+// isNotFound reports whether err is a status.NotFound error.
+func isNotFound(err error) bool {
+	var sErr *status.Error
+	return errors.As(err, &sErr) && sErr.Type() == status.NotFound
 }
 
 // validateProviderRefs ensures every destination provider id refers to a
@@ -606,14 +659,38 @@ func (m *managerImpl) validateProviderRefs(ctx context.Context, accountID string
 	return nil
 }
 
-// GetSettings returns the agent-network settings row for the account.
-// Returns the underlying status.NotFound when no row has been
-// bootstrapped yet (i.e. the account has no providers).
+// GetSettings returns the agent-network settings row for the account. When no
+// row has been bootstrapped yet, the defaults are returned (without
+// persisting) with cluster and subdomain empty — settings always read as an
+// object, like the account and DNS settings endpoints.
 func (m *managerImpl) GetSettings(ctx context.Context, accountID, userID string) (*types.Settings, error) {
-	if err := m.requirePermission(ctx, accountID, userID, operations.Read); err != nil {
+	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkSettings, operations.Read); err != nil {
 		return nil, err
 	}
-	return m.store.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, accountID)
+	settings, err := m.store.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, accountID)
+	switch {
+	case err == nil:
+		return settings, nil
+	case isNotFound(err):
+		return types.DefaultSettings(accountID), nil
+	default:
+		return nil, err
+	}
+}
+
+// requireSettingsBootstrapPermission gates the one-time settings bootstrap a
+// first provider create performs. Pinning the account's cluster and subdomain
+// is a settings write, so it needs the settings permission on top of the
+// provider one. No-op once the settings row exists.
+func (m *managerImpl) requireSettingsBootstrapPermission(ctx context.Context, accountID, userID string) error {
+	_, err := m.store.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, accountID)
+	if err == nil {
+		return nil
+	}
+	if !isNotFound(err) {
+		return fmt.Errorf("get agent network settings: %w", err)
+	}
+	return m.requirePermission(ctx, accountID, userID, modules.AgentNetworkSettings, operations.Create)
 }
 
 // bootstrapSettingsIfNeeded creates the per-account agent-network
@@ -621,8 +698,9 @@ func (m *managerImpl) GetSettings(ctx context.Context, accountID, userID string)
 // hint the dashboard sends (auto-picked from the active cluster list);
 // the subdomain is picked from the curated wordlist avoiding
 // collisions on the same cluster. Idempotent: if a row already exists
-// it is returned untouched and the hint is ignored.
-func (m *managerImpl) bootstrapSettingsIfNeeded(ctx context.Context, accountID, providerCluster string) (*types.Settings, error) {
+// it is returned untouched and the hint is ignored. st is the store to
+// operate on — pass the transaction store when calling from within one.
+func (m *managerImpl) bootstrapSettingsIfNeeded(ctx context.Context, st store.Store, accountID, providerCluster string) (*types.Settings, error) {
 	if accountID == "" {
 		return nil, fmt.Errorf("bootstrap settings: account id is required")
 	}
@@ -630,16 +708,15 @@ func (m *managerImpl) bootstrapSettingsIfNeeded(ctx context.Context, accountID, 
 		return nil, fmt.Errorf("bootstrap settings: provider cluster is required")
 	}
 
-	existing, err := m.store.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, accountID)
+	existing, err := st.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, accountID)
 	if err == nil {
 		return existing, nil
 	}
-	var sErr *status.Error
-	if !errors.As(err, &sErr) || sErr.Type() != status.NotFound {
+	if !isNotFound(err) {
 		return nil, fmt.Errorf("get agent network settings: %w", err)
 	}
 
-	siblings, err := m.store.GetAgentNetworkSettingsByCluster(ctx, store.LockingStrengthNone, providerCluster)
+	siblings, err := st.GetAgentNetworkSettingsByCluster(ctx, store.LockingStrengthNone, providerCluster)
 	if err != nil {
 		return nil, fmt.Errorf("list agent network settings on cluster: %w", err)
 	}
@@ -658,18 +735,12 @@ func (m *managerImpl) bootstrapSettingsIfNeeded(ctx context.Context, accountID, 
 	m.labelRngMu.Unlock()
 
 	now := time.Now().UTC()
-	settings := &types.Settings{
-		AccountID: accountID,
-		Cluster:   providerCluster,
-		Subdomain: subdomain,
-		// Logs on by default; usage is collected regardless. Retention bounds
-		// how long full log rows are kept.
-		EnableLogCollection:    true,
-		AccessLogRetentionDays: types.DefaultAccessLogRetentionDays,
-		CreatedAt:              now,
-		UpdatedAt:              now,
-	}
-	if err := m.store.SaveAgentNetworkSettings(ctx, settings); err != nil {
+	settings := types.DefaultSettings(accountID)
+	settings.Cluster = providerCluster
+	settings.Subdomain = subdomain
+	settings.CreatedAt = now
+	settings.UpdatedAt = now
+	if err := st.SaveAgentNetworkSettings(ctx, settings); err != nil {
 		return nil, fmt.Errorf("save agent network settings: %w", err)
 	}
 	return settings, nil
@@ -680,7 +751,7 @@ func (m *managerImpl) bootstrapSettingsIfNeeded(ctx context.Context, accountID, 
 // counter view; permission gate is the same Read role that gates
 // every other agent-network surface.
 func (m *managerImpl) ListConsumption(ctx context.Context, accountID, userID string) ([]*types.Consumption, error) {
-	if err := m.requirePermission(ctx, accountID, userID, operations.Read); err != nil {
+	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkUsage, operations.Read); err != nil {
 		return nil, err
 	}
 	return m.store.ListAgentNetworkConsumption(ctx, store.LockingStrengthNone, accountID)
@@ -689,7 +760,7 @@ func (m *managerImpl) ListConsumption(ctx context.Context, accountID, userID str
 // ListAccessLogs returns a paginated, server-side-filtered page of
 // agent-network access logs plus the total count matching the filter.
 func (m *managerImpl) ListAccessLogs(ctx context.Context, accountID, userID string, filter types.AgentNetworkAccessLogFilter) ([]*types.AgentNetworkAccessLog, int64, error) {
-	if err := m.requirePermission(ctx, accountID, userID, operations.Read); err != nil {
+	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkLogs, operations.Read); err != nil {
 		return nil, 0, err
 	}
 	return m.store.GetAgentNetworkAccessLogs(ctx, store.LockingStrengthNone, accountID, filter)
@@ -699,7 +770,7 @@ func (m *managerImpl) ListAccessLogs(ctx context.Context, accountID, userID stri
 // agent-network access logs grouped by session, plus the total number of
 // sessions matching the filter.
 func (m *managerImpl) ListAccessLogSessions(ctx context.Context, accountID, userID string, filter types.AgentNetworkAccessLogFilter) ([]*types.AgentNetworkAccessLogSession, int64, error) {
-	if err := m.requirePermission(ctx, accountID, userID, operations.Read); err != nil {
+	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkLogs, operations.Read); err != nil {
 		return nil, 0, err
 	}
 	return m.store.GetAgentNetworkAccessLogSessions(ctx, store.LockingStrengthNone, accountID, filter)
@@ -708,7 +779,7 @@ func (m *managerImpl) ListAccessLogSessions(ctx context.Context, accountID, user
 // GetUsageOverview returns the filtered usage rows aggregated into time buckets
 // at the requested granularity, oldest-first.
 func (m *managerImpl) GetUsageOverview(ctx context.Context, accountID, userID string, filter types.AgentNetworkAccessLogFilter, granularity types.UsageGranularity) ([]*types.AgentNetworkUsageBucket, error) {
-	if err := m.requirePermission(ctx, accountID, userID, operations.Read); err != nil {
+	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkUsage, operations.Read); err != nil {
 		return nil, err
 	}
 	rows, err := m.store.GetAgentNetworkUsageRows(ctx, store.LockingStrengthNone, accountID, filter)
@@ -782,8 +853,8 @@ func (m *managerImpl) RecordConsumption(ctx context.Context, accountID string, k
 	return m.store.IncrementAgentNetworkConsumption(ctx, accountID, kind, dimID, windowSeconds, windowStart, tokensIn, tokensOut, costUSD)
 }
 
-func (m *managerImpl) requirePermission(ctx context.Context, accountID, userID string, op operations.Operation) error {
-	ok, _, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.AgentNetwork, op)
+func (m *managerImpl) requirePermission(ctx context.Context, accountID, userID string, module modules.Module, op operations.Operation) error {
+	ok, _, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, module, op)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}
@@ -872,8 +943,8 @@ func (*mockManager) UpdateBudgetRule(_ context.Context, _ string, r *types.Accou
 
 func (*mockManager) DeleteBudgetRule(_ context.Context, _, _, _ string) error { return nil }
 
-func (*mockManager) GetSettings(_ context.Context, _, _ string) (*types.Settings, error) {
-	return nil, status.Errorf(status.NotFound, "agent network settings not found")
+func (*mockManager) GetSettings(_ context.Context, accountID, _ string) (*types.Settings, error) {
+	return types.DefaultSettings(accountID), nil
 }
 
 func (*mockManager) UpdateSettings(_ context.Context, _ string, s *types.Settings) (*types.Settings, error) {

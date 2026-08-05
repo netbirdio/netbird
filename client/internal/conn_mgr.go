@@ -385,11 +385,20 @@ func inactivityThresholdEnv() *time.Duration {
 		return nil
 	}
 
-	parsedMinutes, err := strconv.Atoi(envValue)
-	if err != nil || parsedMinutes <= 0 {
-		return nil
+	// Documented format: a Go duration such as "30m" or "1h".
+	if d, err := time.ParseDuration(envValue); err == nil {
+		if d <= 0 {
+			return nil
+		}
+		return &d
 	}
 
-	d := time.Duration(parsedMinutes) * time.Minute
-	return &d
+	// Backwards compatibility: a bare integer used to be interpreted as minutes.
+	if parsedMinutes, err := strconv.Atoi(envValue); err == nil && parsedMinutes > 0 {
+		d := time.Duration(parsedMinutes) * time.Minute
+		return &d
+	}
+
+	log.Warnf("invalid %s value %q: expected a Go duration such as 30m or 1h", lazyconn.EnvInactivityThreshold, envValue)
+	return nil
 }

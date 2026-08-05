@@ -18,10 +18,10 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
 
-	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
-	mgmtgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
+	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
+	mgmtgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/proxy/internal/middleware"
 	"github.com/netbirdio/netbird/proxy/internal/middleware/bodytap"
@@ -134,14 +134,18 @@ func TestReverseProxy_AgentNetworkRequest_FullChain(t *testing.T) {
 		RedactPii:              true,
 	}))
 	require.NoError(t, st.SaveAgentNetworkProvider(ctx, &agentNetworkTypes.Provider{
-		ID:                providerID,
-		AccountID:         testAccountID,
-		ProviderID:        "openai_api",
-		Name:              "openai-fullchain-test",
-		UpstreamURL:       upstream.URL, // router rewrites to this
-		APIKey:            "sk-test",
-		Enabled:           true,
-		Models:            []agentNetworkTypes.ProviderModel{{ID: "gpt-5.4"}},
+		ID:          providerID,
+		AccountID:   testAccountID,
+		ProviderID:  "openai_api",
+		Name:        "openai-fullchain-test",
+		UpstreamURL: upstream.URL, // router rewrites to this
+		APIKey:      "sk-test",
+		Enabled:     true,
+		// Operator-pinned prices deliberately differ from the catalog's
+		// gpt-5.4 rates (0.0025/0.015) so the cost assertion below proves
+		// the per-provider-record price — not the default table — billed
+		// this request: stored price → synth → wire → cost_meter.
+		Models:            []agentNetworkTypes.ProviderModel{{ID: "gpt-5.4", InputPer1k: 0.004, OutputPer1k: 0.02}},
 		SessionPrivateKey: "priv",
 		SessionPublicKey:  "pub",
 	}))
@@ -176,7 +180,7 @@ func TestReverseProxy_AgentNetworkRequest_FullChain(t *testing.T) {
 
 	// ---- 5. Wire the middleware framework — same registry the proxy uses
 	// in production, configured with our bufconn-backed management client.
-	mwbuiltin.Configure(ctx, t.TempDir(), nil, testLogger, mgmtClient)
+	mwbuiltin.Configure(ctx, nil, testLogger, mgmtClient)
 	registry := mwbuiltin.DefaultRegistry()
 	mwMetrics, err := middleware.NewMetrics(nil)
 	require.NoError(t, err)
@@ -283,13 +287,23 @@ func TestReverseProxy_AgentNetworkRequest_FullChain(t *testing.T) {
 			if r.DimensionKind == agentNetworkTypes.DimensionGroup &&
 				r.DimensionID == adminGroupID &&
 				r.WindowSeconds == 60 &&
-				r.TokensInput+r.TokensOutput > 0 {
+				r.TokensInput+r.TokensOutput > 0 &&
+				r.CostUSD > 0 {
 				return true
 			}
 		}
 		return false
 	}, 5*time.Second, 50*time.Millisecond,
-		"Admins group consumption row must increment via the response leg — if this fails the proxy's respInput dropped UserGroups again or the parser/recorder wiring is broken")
+		"Admins group consumption row must increment via the response leg WITH a non-zero cost — a zero cost means the operator's stored price never reached cost_meter (synth → wire → per-record lookup broken)")
+
+	// 8a-cost. Exact cost from the OPERATOR's stored price, not the catalog
+	// default: 12 prompt tokens × 0.004/1k + 40 completion tokens × 0.02/1k
+	// = 0.000048 + 0.0008 = 0.000848. With catalog rates it would be 0.00063
+	// — this assertion distinguishes the two, closing the loop on the whole
+	// dynamic-pricing feature (dashboard save → synth → gRPC wire →
+	// llm.resolved_provider_id lookup → billing).
+	assert.Equal(t, "0.000848000", cd.GetMetadata()["cost.usd_total"],
+		"cost must be computed from the provider record's operator-pinned price")
 
 	// 8b. Both the captured prompt and the captured completion are
 	// redacted — proves the synth threads redact_pii=true into BOTH parser
