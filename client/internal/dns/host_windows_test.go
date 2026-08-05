@@ -94,9 +94,6 @@ func TestNRPTEntriesCleanupOnConfigChange(t *testing.T) {
 	assert.False(t, exists, "NRPT rule 2 should NOT exist after reducing to 75 domains")
 }
 
-// TestNRPTCatchAllRule verifies that a catch-all NRPT rule is installed only
-// when our resolver is the primary one, that it points at our resolver, and
-// that it is removed again when the config stops being primary or is restored.
 func TestNRPTCatchAllRule(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping registry integration test in short mode")
@@ -127,13 +124,11 @@ func TestNRPTCatchAllRule(t *testing.T) {
 		Domains:  []DomainConfig{{Domain: "example.com", MatchOnly: true}},
 	}
 
-	// Match-only config: no catch-all, the OS keeps resolving everything else.
 	require.NoError(t, cfg.applyDNSConfig(matchOnly, nil))
 	exists, err := registryKeyExists(dnsPolicyConfigCatchAllPath)
 	require.NoError(t, err)
 	assert.False(t, exists, "catch-all rule should not exist for a match-only config")
 
-	// Primary config: catch-all rule for the root namespace, pointing at us.
 	require.NoError(t, cfg.applyDNSConfig(primary, nil))
 	exists, err = registryKeyExists(dnsPolicyConfigCatchAllPath)
 	require.NoError(t, err)
@@ -155,14 +150,11 @@ func TestNRPTCatchAllRule(t *testing.T) {
 	assert.EqualValues(t, dnsPolicyConfigConfigOptionsValue, opts)
 	k.Close()
 
-	// Dropping back to match-only must remove it, otherwise every query would
-	// keep going to an address we no longer serve.
 	require.NoError(t, cfg.applyDNSConfig(matchOnly, nil))
 	exists, err = registryKeyExists(dnsPolicyConfigCatchAllPath)
 	require.NoError(t, err)
 	assert.False(t, exists, "catch-all rule should be removed when RouteAll is cleared")
 
-	// Same on restore.
 	require.NoError(t, cfg.applyDNSConfig(primary, nil))
 	require.NoError(t, cfg.restoreHostDNS())
 	exists, err = registryKeyExists(dnsPolicyConfigCatchAllPath)
@@ -170,7 +162,6 @@ func TestNRPTCatchAllRule(t *testing.T) {
 	assert.False(t, exists, "catch-all rule should be removed on restore")
 }
 
-// TestNRPTCatchAllRuleDisabledByEnv verifies the kill switch.
 func TestNRPTCatchAllRuleDisabledByEnv(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping registry integration test in short mode")

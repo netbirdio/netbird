@@ -41,7 +41,6 @@ const (
 	dnsPolicyConfigCatchAllPath    = `SYSTEM\CurrentControlSet\Services\Dnscache\Parameters\DnsPolicyConfig\NetBird-CatchAll`
 	gpoDnsPolicyConfigCatchAllPath = gpoDnsPolicyRoot + `\NetBird-CatchAll`
 
-	// nrptCatchAllNamespace is the NRPT namespace that matches every name.
 	nrptCatchAllNamespace = "."
 
 	// envDisableCatchAllNRPT turns off the catch-all NRPT rule, restoring the
@@ -406,21 +405,6 @@ func (r *registryConfigurator) addDNSMatchPolicy(domains []string, ip netip.Addr
 	return ruleIndex, nil
 }
 
-// addDNSCatchAllPolicy installs an NRPT rule for the root namespace, making our
-// resolver the only one the OS consults.
-//
-// Setting NameServer on the WG adapter is not enough: Windows queries the
-// resolvers of every adapter in parallel and takes the first answer that comes
-// back (smart multi-homed name resolution). That both leaks every question to
-// the local network's resolver and makes the winner non-deterministic, so a
-// resolver other than ours can answer for a name we are authoritative for. NRPT
-// is evaluated before adapter selection and restricts a matched namespace to the
-// servers listed in the rule, which removes the race for every name.
-//
-// Exclusive by design: there is no fallback to the OS resolvers here. The
-// ordered fallback to the pre-takeover nameservers lives inside our own
-// resolver (see registerFallback / PriorityFallback), so the walk stays under
-// our control instead of being decided by whichever answer arrives first.
 func (r *registryConfigurator) addDNSCatchAllPolicy(ip netip.Addr) error {
 	if parseBoolEnv(envDisableCatchAllNRPT) {
 		log.Infof("%s is set, not forcing all DNS queries through %s", envDisableCatchAllNRPT, ip)
@@ -586,9 +570,6 @@ func (r *registryConfigurator) removeDNSMatchPolicies() error {
 		merr = multierror.Append(merr, fmt.Errorf("remove GPO base entry: %w", err))
 	}
 
-	// Removed unconditionally: the rule needs no bookkeeping to find, and a
-	// leftover catch-all would send every query to an address we no longer
-	// serve. Absent keys are not an error.
 	if err := removeRegistryKeyFromDNSPolicyConfig(dnsPolicyConfigCatchAllPath); err != nil {
 		merr = multierror.Append(merr, fmt.Errorf("remove local catch-all entry: %w", err))
 	}
