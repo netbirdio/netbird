@@ -52,7 +52,7 @@ func TestGetGroupsWithoutExpectedFields(t *testing.T) {
 		"insert into accounts (id) VALUES($1)", acctId)
 	assert.NoError(t, err)
 
-	_, err = s.Pool.Query(ctx,
+	_, err = s.Pool.Exec(ctx,
 		"insert into groups (id, account_id) VALUES('g2-test-group-id-1',$1)", acctId)
 	assert.NoError(t, err)
 
