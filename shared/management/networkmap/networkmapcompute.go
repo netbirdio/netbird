@@ -199,12 +199,9 @@ func (nmd *NetworkMapData) getPeersGroupsPoliciesRoutes(
 
 	relevantPeerIDs[peerID] = nmd.Peers[peerID]
 
-	peerGroupSet := make(map[string]struct{}, 8)
-	for groupID, group := range nmd.Groups {
-		if slices.Contains(group.Peers, peerID) {
-			relevantGroupIDs[groupID] = group
-			peerGroupSet[groupID] = struct{}{}
-		}
+	peerGroupSet := nmd.GetPeerGroups(peerID)
+	for groupID := range peerGroupSet {
+		relevantGroupIDs[groupID] = nmd.Groups[groupID]
 	}
 
 	routeAccessControlGroups := make(map[string]struct{})
@@ -520,14 +517,32 @@ func (nmd *NetworkMapData) forcesRoutingPeerDNSResolution(peerID string) bool {
 	return false
 }
 
+// GetPeerGroups returns the set of group IDs the peer belongs to. The
+// underlying peer→groups index is built once per NetworkMapData and the
+// returned set is shared — callers must not mutate it.
 func (nmd *NetworkMapData) GetPeerGroups(peerID string) map[string]struct{} {
-	groups := make(map[string]struct{})
-	for groupID, group := range nmd.Groups {
-		if slices.Contains(group.Peers, peerID) {
-			groups[groupID] = struct{}{}
+	nmd.peerGroupsOnce.Do(func() {
+		idx := make(map[string]map[string]struct{}, len(nmd.Peers))
+		for groupID, group := range nmd.Groups {
+			if group == nil {
+				continue
+			}
+			for _, pid := range group.Peers {
+				set, ok := idx[pid]
+				if !ok {
+					set = make(map[string]struct{})
+					idx[pid] = set
+				}
+				set[groupID] = struct{}{}
+			}
 		}
+		nmd.peerGroupsIdx = idx
+	})
+
+	if set, ok := nmd.peerGroupsIdx[peerID]; ok {
+		return set
 	}
-	return groups
+	return map[string]struct{}{}
 }
 
 func (nmd *NetworkMapData) getUniquePeerIDsFromGroupsIDs(groups []string) []string {
