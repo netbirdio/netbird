@@ -37,9 +37,13 @@ var (
 	cfDataGetBytePtr             func(uintptr) uintptr
 	cfRelease                    func(uintptr)
 	cgRequestScreenCaptureAccess func() bool
-	cgEventCreate                func(uintptr) uintptr
-	cgEventGetLocation           func(uintptr) cgPoint
-	darwinCaptureReady           bool
+	// cgPreflightScreenCaptureAccess reads the decision without prompting. Kept
+	// for the diagnostic in RequestScreenRecording until it is known whether it
+	// can be trusted in the agent.
+	cgPreflightScreenCaptureAccess func() bool
+	cgEventCreate                  func(uintptr) uintptr
+	cgEventGetLocation             func(uintptr) cgPoint
+	darwinCaptureReady             bool
 )
 
 // cgPoint mirrors CoreGraphics CGPoint: two doubles, 16 bytes, returned
@@ -77,12 +81,15 @@ func initDarwinCapture() {
 		purego.RegisterLibFunc(&cfDataGetBytePtr, cf, "CFDataGetBytePtr")
 		purego.RegisterLibFunc(&cfRelease, cf, "CFRelease")
 
-		// CGRequestScreenCaptureAccess (macOS 11+) prompts on first call and
-		// is a cheap no-op once granted. The Preflight companion is unreliable
-		// on Sequoia (returns false even when access is granted), so we drive
-		// the permission flow from actual capture failures instead.
+		// CGRequestScreenCaptureAccess (macOS 11+) raises its dialog on the first
+		// call in a process and reports the decision as it stands, without waiting
+		// for the user. Its Preflight companion never prompts but has a reputation
+		// for lying on Sequoia, see RequestScreenRecording.
 		if sym, err := purego.Dlsym(cg, "CGRequestScreenCaptureAccess"); err == nil {
 			purego.RegisterFunc(&cgRequestScreenCaptureAccess, sym)
+		}
+		if sym, err := purego.Dlsym(cg, "CGPreflightScreenCaptureAccess"); err == nil {
+			purego.RegisterFunc(&cgPreflightScreenCaptureAccess, sym)
 		}
 		// CGEventCreate / CGEventGetLocation feed the cursor position used
 		// by remote-cursor compositing. Optional; absence reports as a
@@ -114,52 +121,52 @@ type CGCapturer struct {
 	cursor     *cgCursor
 }
 
-// PrimeScreenCapturePermission triggers the macOS Screen Recording
-// permission prompt without creating a full capturer. The platform wiring
-// calls this at VNC-server enable time so the user sees the prompt the
-// moment they turn the feature on. CGRequestScreenCaptureAccess is a
-// no-op when the grant already exists, so calling it on every enable is
-// cheap and safe.
-func PrimeScreenCapturePermission() {
+// RequestScreenRecording asks the console user for Screen Recording and reports
+// whether it is granted. Called once at agent startup, which is the only place it
+// can work: TCC prompts at most once in the lifetime of a process, and the daemon
+// is a LaunchDaemon, where a request for a user-scope service is dropped without
+// ever showing a dialog.
+//
+// Capture cannot stand in for this check. Without the permission
+// CGDisplayCreateImage still succeeds and returns the desktop picture with every
+// window missing, so a failing capture is not how a missing grant shows up, and a
+// successful one is no proof of having it.
+//
+// The call returns the decision as it stands and raises its dialog in the
+// background, so the answer it reports is the state before the user gets a say. A
+// grant takes effect immediately, so the session the dialog interrupted goes on to
+// show the real screen without needing a new process.
+//
+// It deliberately does not open System Settings when the answer is no. The dialog
+// is still on screen at that point, and putting the pane up alongside it leaves
+// two things competing for one decision. A dismissed dialog needs no fallback
+// either: the agent is recycled per connection, so the next one asks again.
+func RequestScreenRecording() bool {
 	initDarwinCapture()
-	if !darwinCaptureReady {
-		return
-	}
-	if cgRequestScreenCaptureAccess != nil {
-		cgRequestScreenCaptureAccess()
-	}
-}
-
-// notifyScreenRecordingMissing nudges the user once per agent process to
-// approve Screen Recording. The capturer init retries on backoff when the
-// grant is missing; without the sync.Once we would reopen System Settings
-// every tick and flood the daemon log with the same warning.
-var screenRecordingNotifyOnce sync.Once
-
-func notifyScreenRecordingMissing() {
-	screenRecordingNotifyOnce.Do(func() {
-		if cgRequestScreenCaptureAccess != nil {
-			cgRequestScreenCaptureAccess()
-		}
+	if !darwinCaptureReady || cgRequestScreenCaptureAccess == nil {
+		// Nothing to ask with, so Settings is the only route left.
 		openPrivacyPane("Privacy_ScreenCapture")
-		log.Warn("Screen Recording permission not granted. " +
-			"Opened System Settings > Privacy & Security > Screen Recording; enable netbird and restart.")
-	})
+		log.Warn("cannot ask for Screen Recording permission on this macOS. " +
+			"Opened System Settings > Privacy & Security > Screen Recording; enable netbird there.")
+		return false
+	}
+	// Read the silent check first: the request below can change what it reports.
+	// Logged to settle whether it can be trusted here, in the console-user agent,
+	// having proven unreliable in the daemon where the request is dropped outright.
+	preflight := "unavailable"
+	if cgPreflightScreenCaptureAccess != nil {
+		preflight = strconv.FormatBool(cgPreflightScreenCaptureAccess())
+	}
+
+	granted := cgRequestScreenCaptureAccess()
+	log.Infof("Screen Recording: granted=%v (preflight reported %s)", granted, preflight)
+	if !granted {
+		log.Warn("Screen Recording permission not granted, the screen shows no windows until it is")
+	}
+	return granted
 }
 
 // NewCGCapturer creates a screen capturer for the main display.
-// screenCaptureWorking records that a real capture succeeded, which is the only
-// trustworthy signal that Screen Recording is granted: CGPreflight lies on
-// Sequoia. The input side waits for this before asking for Accessibility, so the
-// two permission panes never compete (macOS shows one at a time, and losing the
-// Screen Recording pane is the worse outcome: without it there is no picture).
-var screenCaptureWorking atomic.Bool
-
-// ScreenCaptureWorking reports whether a capture has succeeded in this process.
-func ScreenCaptureWorking() bool {
-	return screenCaptureWorking.Load()
-}
-
 func NewCGCapturer() (*CGCapturer, error) {
 	initDarwinCapture()
 	if !darwinCaptureReady {
@@ -171,10 +178,8 @@ func NewCGCapturer() (*CGCapturer, error) {
 
 	img, err := c.Capture()
 	if err != nil {
-		notifyScreenRecordingMissing()
 		return nil, fmt.Errorf("probe capture: %w", err)
 	}
-	screenCaptureWorking.Store(true)
 	nativeW := img.Rect.Dx()
 	nativeH := img.Rect.Dy()
 	c.hasHash = false
@@ -475,8 +480,8 @@ func convertBGRAToRGBA(dst []byte, dstStride int, src []byte, srcStride, w, h in
 // window so concurrent sessions coalesce into one capture.
 //
 // The capturer is allocated lazily on first use and released when all
-// clients disconnect. Init is retried with backoff because the user may
-// grant Screen Recording permission while the server is already running.
+// clients disconnect. Init is retried with backoff because a display can be
+// momentarily unable to hand out a frame, on a mode change or a display switch.
 type MacPoller struct {
 	mu sync.Mutex
 
@@ -493,8 +498,8 @@ type MacPoller struct {
 }
 
 // macInitRetryBackoffFor returns the delay we wait between init attempts
-// after consecutive failures. Screen Recording permission is a one-shot
-// user grant, so after several failures we back off aggressively.
+// after consecutive failures. Repeated failures mean the display is not coming
+// back on its own, so we back off aggressively rather than spin.
 func macInitRetryBackoffFor(fails int) time.Duration {
 	switch {
 	case fails > 15:

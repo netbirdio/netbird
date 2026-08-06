@@ -536,6 +536,12 @@ const agentResolveWait = 30 * time.Second
 
 var errAgentNotReady = errors.New("VNC agent not running yet")
 
+// Release is a no-op here. The agent's lifetime follows the console session
+// rather than individual connections: Windows has no per-process permission
+// state to re-read, and CreateProcessAsUser into the console session is far too
+// expensive to repeat per connection.
+func (m *sessionManager) Release() {}
+
 // Stop signals the session manager to exit its polling loop and closes the
 // Job Object handle, which Windows uses as the trigger to terminate every
 // agent process this manager spawned.

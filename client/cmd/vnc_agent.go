@@ -74,6 +74,8 @@ var vncAgentCmd = &cobra.Command{
 			log.Debugf("chmod %s: %v", vncAgentSocket, err)
 		}
 
+		ctx := cmd.Context()
+
 		capturer, injector, err := newAgentResources()
 		if err != nil {
 			_ = ln.Close()
@@ -87,12 +89,12 @@ var vncAgentCmd = &cobra.Command{
 			Listener:      ln,
 		})
 
-		if err := srv.Start(cmd.Context(), netip.AddrPort{}, netip.Prefix{}); err != nil {
+		if err := srv.Start(ctx, netip.AddrPort{}, netip.Prefix{}); err != nil {
 			return fmt.Errorf("start vnc server: %w", err)
 		}
 		log.Infof("vnc-agent listening on %s, ready", vncAgentSocket)
 
-		<-cmd.Context().Done()
+		<-ctx.Done()
 		log.Info("vnc-agent context cancelled, shutting down")
 		return srv.Stop()
 	},

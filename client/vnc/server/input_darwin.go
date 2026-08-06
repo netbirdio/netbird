@@ -82,6 +82,13 @@ var (
 	// CGEventCreateScrollWheelEvent is variadic, call via SyscallN.
 	cgEventCreateScrollWheelEventAddr uintptr
 
+	// CGPreflight/RequestPostEventAccess (macOS 10.15+) read and ask for
+	// kTCCServicePostEvent, which is the service that actually governs
+	// CGEventPost. The AX calls below read kTCCServiceAccessibility, a different
+	// decision that can disagree with whether injected events land.
+	cgPreflightPostEventAccess func() bool
+	cgRequestPostEventAccess   func() bool
+
 	axIsProcessTrusted func() bool
 	// axIsProcessTrustedWithOptions takes a CFDictionary; when the dict's
 	// kAXTrustedCheckOptionPrompt key is true, macOS shows the native
@@ -146,6 +153,13 @@ func initDarwinInput() {
 		sym, err := purego.Dlsym(cg, "CGEventCreateScrollWheelEvent")
 		if err == nil {
 			cgEventCreateScrollWheelEventAddr = sym
+		}
+
+		if sym, err := purego.Dlsym(cg, "CGPreflightPostEventAccess"); err == nil {
+			purego.RegisterFunc(&cgPreflightPostEventAccess, sym)
+		}
+		if sym, err := purego.Dlsym(cg, "CGRequestPostEventAccess"); err == nil {
+			purego.RegisterFunc(&cgRequestPostEventAccess, sym)
 		}
 
 		if ax, err := purego.Dlopen("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices", purego.RTLD_NOW|purego.RTLD_GLOBAL); err == nil {
@@ -302,9 +316,14 @@ type MacInputInjector struct {
 	// field on each posted event, not from event timing.
 	clickCount [5]int64
 	clickAt    [5]time.Time
-	// axAsked is set once the Accessibility request has been made, so the
-	// per-event check is one atomic load.
-	axAsked atomic.Bool
+	// axDone is set once there is nothing left to ask, so the per-event check on
+	// the hot path is a single atomic load.
+	axDone atomic.Bool
+	// axNextTry is when the cold path may run again, and axAsks counts the asks
+	// made so far. Input arrives continuously, so the cold path is paced by time
+	// rather than by event count.
+	axNextTry atomic.Int64
+	axAsks    atomic.Int32
 }
 
 // NewMacInputInjector creates a macOS input injector.
@@ -313,9 +332,13 @@ func NewMacInputInjector() (*MacInputInjector, error) {
 	if !darwinInputReady {
 		return nil, fmt.Errorf("CoreGraphics not available for input injection")
 	}
-	logAccessibilityStatus()
-
 	m := &MacInputInjector{}
+	if postEventAllowed() {
+		m.axDone.Store(true)
+	} else {
+		log.Info("input permission not granted yet, asking when input arrives")
+	}
+
 	if path, err := exec.LookPath("pbcopy"); err == nil {
 		m.pbcopyPath = path
 	}
@@ -332,46 +355,93 @@ func NewMacInputInjector() (*MacInputInjector, error) {
 	return m, nil
 }
 
-// logAccessibilityStatus reports Accessibility state without prompting. Asking
-// here would put the Accessibility pane on screen the moment a session starts,
-// on top of the Screen Recording request, and macOS shows only one pane at a
-// time: the Accessibility one wins and the more important request is buried.
-// The ask happens on the first input instead, see ensureAccessibility.
-func logAccessibilityStatus() {
-	if axIsProcessTrusted != nil && !axIsProcessTrusted() {
-		log.Info("Accessibility permission not granted yet; asking on the first input event")
-	}
-}
-
-// ensureAccessibility asks for Accessibility at most once per process, on the
-// first input that is actually delivered. Injection happens per event, so the
-// common path has to be a single atomic load.
+// ensureAccessibility asks for Accessibility while input is being delivered and
+// the permission is missing. Injection happens per event, so the common path has
+// to be a single atomic load.
 func (m *MacInputInjector) ensureAccessibility() {
-	if m.axAsked.Load() {
+	if m.axDone.Load() {
 		return
 	}
 	m.askAccessibility()
 }
 
+const (
+	// axAskRetry is how long to leave between asks. macOS shows one permission
+	// dialog at a time, and the Screen Recording one raised at agent start is
+	// usually still up when the first input arrives, so the first ask is often
+	// dropped without a trace. Asking again is the only way to land it, since
+	// nothing in this process can observe either the dialog or the answer.
+	axAskRetry = 8 * time.Second
+	// axMaxAsks bounds that, so a user who wants neither is left alone. A later
+	// connection asks again from a fresh process anyway.
+	axMaxAsks = 3
+)
+
+// postEventAllowed reports whether injected events are allowed to land, reading
+// kTCCServicePostEvent without prompting. This is the decision CGEventPost is
+// judged by.
+//
+// The fallback is for hosts predating the call, where Accessibility was the gate.
+// It is deliberately not used anywhere else: AXIsProcessTrusted has the side
+// effect of filing the caller in the Accessibility list with the box unchecked,
+// and a decision on file, even that one, stops macOS from ever showing the dialog.
+func postEventAllowed() bool {
+	if cgPreflightPostEventAccess == nil {
+		return axProcessTrusted()
+	}
+	return cgPreflightPostEventAccess()
+}
+
+// axProcessTrusted reads the Accessibility state without prompting, and registers
+// the caller in the Accessibility list as a side effect. A host whose symbols
+// failed to load counts as trusted: nothing can be asked or checked there.
+func axProcessTrusted() bool {
+	if axIsProcessTrusted == nil {
+		return true
+	}
+	return axIsProcessTrusted()
+}
+
 // askAccessibility is the cold path of ensureAccessibility.
 //
-// It waits for a capture to have succeeded before prompting: Screen Recording is
-// the permission a session cannot do without, and requesting Accessibility while
-// that pane is open replaces it. A session that never captures never gets here,
-// which is the right outcome, since input on a black screen is not useful.
+// The asks are blind. TCC answers at most once in the lifetime of a process, and
+// the reads do not follow along either: both the post-event and the screen-capture
+// preflight keep reporting the state the process started with, so a grant made
+// during a session is invisible here. That rules out waiting for the Screen
+// Recording question to be settled, and leaves repeating the ask as the only way
+// to catch the moment its dialog goes away. System Settings is not opened on the
+// way: the dialog carries that button itself.
 func (m *MacInputInjector) askAccessibility() {
-	if !ScreenCaptureWorking() {
+	now := time.Now()
+	if now.UnixNano() < m.axNextTry.Load() {
 		return
 	}
-	if !m.axAsked.CompareAndSwap(false, true) {
+	m.axNextTry.Store(now.Add(axAskRetry).UnixNano())
+	if m.axAsks.Add(1) >= axMaxAsks {
+		m.axDone.Store(true)
+	}
+
+	// AXIsProcessTrustedWithOptions is what actually puts the dialog on screen.
+	// CGRequestPostEventAccess asks about the right service but returns silently
+	// for a process like this one, so it is only the fallback. Neither prompts
+	// when the permission is already there, so this cannot produce a stray dialog.
+	switch {
+	case axIsProcessTrustedWithOptions != nil:
+		if axProcessIsTrusted() {
+			return
+		}
+	case cgRequestPostEventAccess != nil:
+		if cgRequestPostEventAccess() {
+			return
+		}
+	default:
+		// Nothing here can prompt, so Settings is the only route.
+		openPrivacyPane("Privacy_Accessibility")
+		log.Warn("cannot ask for input permission on this macOS. Opened System Settings > " +
+			"Privacy & Security > Accessibility; enable netbird there.")
 		return
 	}
-	if axProcessIsTrusted() {
-		return
-	}
-	log.Warn("Accessibility permission not granted. Input injection will not work. " +
-		"Approve the prompt or grant in System Settings > Privacy & Security > Accessibility.")
-	openPrivacyPane("Privacy_Accessibility")
+	log.Warn("asked for input permission; granting it makes remote input work right away")
 }
 
 // axProcessIsTrusted asks macOS whether netbird has Accessibility access,
