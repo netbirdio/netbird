@@ -4,8 +4,58 @@ set -x
 
 LOG_FILE=/var/log/netbird/client_pre_install.log
 AGENT=/usr/local/bin/netbird
+UI_PROCESS=netbird-ui
 
 mkdir -p /var/log/netbird/
+
+# wait_for_ui_exit polls for up to $1 seconds, returning 0 as soon as no UI
+# process is left and 1 if one is still running when the time is up.
+wait_for_ui_exit() {
+    waited=0
+    while [ "$waited" -lt "$1" ]; do
+        pgrep -x "$UI_PROCESS" > /dev/null 2>&1 || return 0
+        sleep 1
+        waited=$((waited + 1))
+    done
+    return 1
+}
+
+# quit_ui stops a running UI so the app bundle can be replaced underneath it.
+# The installer runs as root outside the console user's GUI session, so the
+# quit Apple event has to be sent from inside that session; sending it straight
+# from here always fails with -600. A UI process that survives the install keeps
+# serving the old binary until it is quit by hand, so anything still alive after
+# the quit request is signalled.
+quit_ui() {
+    console_user=$(stat -f%Su /dev/console 2>/dev/null)
+    case "$console_user" in
+        ""|root|loginwindow|_mbsetupuser)
+            echo "No active GUI user session (console user: '${console_user:-none}'); skipping the quit request."
+            ;;
+        *)
+            uid=$(id -u "$console_user" 2>/dev/null)
+            if [ -z "$uid" ]; then
+                echo "Could not resolve uid for console user '$console_user'; skipping the quit request."
+            else
+                echo "Asking the NetBird UI to quit as console user $console_user (uid $uid)."
+                launchctl asuser "$uid" sudo -u "$console_user" -H osascript -e 'quit app "NetBird"' || true
+            fi
+            ;;
+    esac
+
+    if wait_for_ui_exit 10; then
+        return 0
+    fi
+
+    echo "NetBird UI still running after the quit request; terminating it."
+    pkill -x "$UI_PROCESS" || true
+    if wait_for_ui_exit 3; then
+        return 0
+    fi
+
+    echo "NetBird UI ignored SIGTERM; killing it."
+    pkill -KILL -x "$UI_PROCESS" || true
+}
 
 {
     # check if it was installed with brew
@@ -15,10 +65,9 @@ mkdir -p /var/log/netbird/
         echo "NetBird has been installed with Brew. Please use Brew to update the package."
         exit 1
     fi
-    osascript -e 'quit app "Netbird"' || true
+    quit_ui
     $AGENT service stop || true
 
     echo "Preinstall complete"
     exit 0 # all good
 } &> $LOG_FILE
-
