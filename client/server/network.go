@@ -170,7 +170,7 @@ func (s *Server) SelectNetworks(_ context.Context, req *proto.SelectNetworksRequ
 		proto.SystemEvent_INFO,
 		proto.SystemEvent_SYSTEM,
 		"Network selection changed",
-		"",
+		nil,
 		map[string]string{
 			"networks": strings.Join(req.GetNetworkIDs(), ", "),
 			"append":   fmt.Sprint(req.GetAppend()),
@@ -214,7 +214,7 @@ func (s *Server) DeselectNetworks(_ context.Context, req *proto.SelectNetworksRe
 		proto.SystemEvent_INFO,
 		proto.SystemEvent_SYSTEM,
 		"Network deselection changed",
-		"",
+		nil,
 		map[string]string{
 			"networks": strings.Join(req.GetNetworkIDs(), ", "),
 			"append":   fmt.Sprint(req.GetAppend()),
@@ -232,4 +232,3 @@ func toNetIDs(routes []string) []route.NetID {
 	}
 	return netIDs
 }
-

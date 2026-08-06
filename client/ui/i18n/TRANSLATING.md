@@ -40,6 +40,12 @@ i18n/locales/<code>/common.json  a target — message only
 
 Chrome-extension JSON, each key → `{ "message", "description" }`. You translate the **`message`**.
 
+The `event.*` keys are a special group: the background service names them when it
+publishes a notification, and the app looks them up here. Their names are part of
+a Go↔JSON contract (`client/proto/usermsg.go`), so they are even less renameable
+than the rest — and a missing one shows the user English. Tests fail the build if
+any locale drops one.
+
 | ✅ Do | ❌ Don't |
 |---|---|
 | Keep **every key** from `en`, in the same order | Translate, rename, reorder, drop, or add keys (they're identifiers; the set grows over time) |
