@@ -420,6 +420,13 @@ func TestServer_PortConflictHandling(t *testing.T) {
 
 func TestServer_IsPrivilegedUser(t *testing.T) {
 
+	// Windows classification depends on account SIDs and group membership, and
+	// the accounts involved carry localized, renameable names. It is covered by
+	// TestIsWindowsAccountPrivileged, which resolves them from well-known SIDs.
+	if runtime.GOOS == "windows" {
+		t.Skip("covered by TestIsWindowsAccountPrivileged")
+	}
+
 	tests := []struct {
 		username    string
 		expected    bool
@@ -440,39 +447,11 @@ func TestServer_IsPrivilegedUser(t *testing.T) {
 			expected:    false,
 			description: "empty username should not be privileged",
 		},
-	}
-
-	// Add Windows-specific tests
-	if runtime.GOOS == "windows" {
-		tests = append(tests, []struct {
-			username    string
-			expected    bool
-			description string
-		}{
-			{
-				username:    "Administrator",
-				expected:    true,
-				description: "Administrator should be considered privileged on Windows",
-			},
-			{
-				username:    "administrator",
-				expected:    true,
-				description: "administrator should be considered privileged on Windows (case insensitive)",
-			},
-		}...)
-	} else {
-		// On non-Windows systems, Administrator should not be privileged
-		tests = append(tests, []struct {
-			username    string
-			expected    bool
-			description string
-		}{
-			{
-				username:    "Administrator",
-				expected:    false,
-				description: "Administrator should not be privileged on non-Windows systems",
-			},
-		}...)
+		{
+			username:    "Administrator",
+			expected:    false,
+			description: "Administrator should not be privileged on non-Windows systems",
+		},
 	}
 
 	for _, tt := range tests {
