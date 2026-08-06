@@ -137,6 +137,24 @@ func (h *Handshaker) Listen(ctx context.Context) {
 
 			h.pqRegisterEndpoint(remoteOfferAnswer.MlkemPort)
 
+			// Post-quantum: the KEM material rides only the controller's offer, so the two
+			// peers derive a single shared PSK (a bidirectional KEM would yield two
+			// different PSKs and WireGuard would pick misaligned ones). If we are the
+			// controller and receive the responder's (KEM-less) offer, we must NOT let
+			// that KEM-less transaction drive the connection: it would bring WireGuard up
+			// on a pre-PQ key before the KEM completes (the race). Instead we reply with
+			// OUR offer, which carries the KEM, so the only transaction that establishes
+			// the tunnel is the one that also derives the PSK. This also guarantees a
+			// responder-initiated wake still triggers a KEM offer (no stuck responder).
+			// The re-offer reuses our stable ICE session id, so the peer dedups repeats.
+			if h.config.PQ != nil && isController(h.config) {
+				h.log.Debugf("pqkem: controller received a responder offer, replying with our KEM offer instead of an answer")
+				if err := h.sendOffer(); err != nil {
+					h.log.Errorf("failed to send KEM offer in response to peer offer: %s", err)
+				}
+				continue
+			}
+
 			// Derive+store the KEM PSK (inside sendAnswer's AnswerPayload) BEFORE bringing
 			// up the connection: the relay/ICE workers configure the WG endpoint, which
 			// pulls the PSK for the first handshake. Notifying them first would race the
