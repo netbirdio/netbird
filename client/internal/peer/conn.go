@@ -738,35 +738,6 @@ func (conn *Conn) RequestReoffer() {
 	}
 }
 
-// ForcePQRehandshake makes WireGuard adopt a freshly bootstrapped post-quantum PSK on
-// an already-up session. The KEM exchange can complete after the WG endpoint was
-// configured (a race between the KEM and the relay/ICE connection coming up), so the
-// live session may be keyed with a pre-PQ key (the strict sentinel, or the ordinary
-// key in permissive mode); SetPresharedKey only updates config, not the running
-// session. Removing and re-adding the peer forces a fresh handshake that uses the real
-// PSK. No-op if not connected yet (the upcoming endpoint config will pull the PSK) or
-// if no PSK exists (a non-PQ peer stays fail-closed).
-func (conn *Conn) ForcePQRehandshake() {
-	conn.mu.Lock()
-	defer conn.mu.Unlock()
-
-	if conn.ctx.Err() != nil || conn.config.PQ == nil {
-		return
-	}
-	psk, ok := conn.config.PQ.PSK(conn.config.Key)
-	if !ok {
-		return
-	}
-	if conn.currentConnPriority == conntype.None {
-		return
-	}
-	conn.Log.Debugf("pqkem: bootstrap PSK ready, forcing WireGuard re-handshake to adopt it")
-	wgPsk := wgtypes.Key(psk)
-	if err := conn.endpointUpdater.ForceRehandshake(&wgPsk); err != nil {
-		conn.Log.Warnf("pqkem: force re-handshake failed: %v", err)
-	}
-}
-
 func (conn *Conn) onWGDisconnected(watcherCtx context.Context) {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()

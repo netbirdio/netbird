@@ -10,8 +10,8 @@ import (
 
 type pqNoopHandler struct{}
 
-func (pqNoopHandler) OnNewPSKReady(pqkem.RemoteID, pqkem.PSK, bool) error { return nil }
-func (pqNoopHandler) OnRekeyFailed(pqkem.RemoteID) error                  { return nil }
+func (pqNoopHandler) OnNewPSKReady(pqkem.RemoteID, pqkem.PSK) error { return nil }
+func (pqNoopHandler) OnRekeyFailed(pqkem.RemoteID) error            { return nil }
 
 // TestPQAdapter_CapabilityRoleAware locks the role-aware capability signal: the KEM
 // payload only flows initiator-offer -> responder-answer, so an empty message in the
