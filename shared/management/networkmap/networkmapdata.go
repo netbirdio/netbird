@@ -1,6 +1,8 @@
 package networkmap
 
 import (
+	"sync"
+
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
 
@@ -39,6 +41,9 @@ type NetworkMapData struct { //nolint:revive // established name across the code
 
 	AppliedZoneCandidates    []AppliedZoneCandidate
 	PrivateServiceCandidates []PrivateServiceCandidate
+
+	peerGroupsOnce sync.Once
+	peerGroupsIdx  map[string]map[string]struct{}
 }
 
 // AppliedZoneCandidate is an account-level custom DNS zone reduced to the

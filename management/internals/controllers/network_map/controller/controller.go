@@ -321,12 +321,12 @@ func (c *Controller) sendUpdateAccountPeersFromData(ctx context.Context, account
 // sendUpdateForAffectedPeersFromData is the account-free variant of
 // sendUpdateForAffectedPeers.
 func (c *Controller) sendUpdateForAffectedPeersFromData(ctx context.Context, accountID string, peerIDs []string, nmData *networkmap.NetworkMapData) error {
-	affected := make(map[string]struct{}, len(peerIDs))
-	for _, id := range peerIDs {
-		affected[id] = struct{}{}
+	if len(peerIDs) == 0 {
+		log.WithContext(ctx).Tracef("sendUpdateForAffectedPeersFromData: no affected peers")
+		return nil
 	}
 
-	peersToUpdate := c.connectedPeersFromData(nmData, affected)
+	peersToUpdate := c.connectedPeersFromData(nmData, peerIDs)
 	if len(peersToUpdate) == 0 {
 		log.WithContext(ctx).Tracef("sendUpdateForAffectedPeersFromData: no peers to update (affected peers not found in data or no channels)")
 		return nil
@@ -337,15 +337,27 @@ func (c *Controller) sendUpdateForAffectedPeersFromData(ctx context.Context, acc
 	return c.sendUpdatesFromData(ctx, accountID, nmData, peersToUpdate, nil)
 }
 
-func (c *Controller) connectedPeersFromData(nmData *networkmap.NetworkMapData, affected map[string]struct{}) []*nmdata.Peer {
-	var result []*nmdata.Peer
-	for _, peer := range nmData.Peers {
-		if affected != nil {
-			if _, ok := affected[peer.ID]; !ok {
-				continue
+// connectedPeersFromData returns the peers with an open update channel. An
+// empty affected list means all peers; a non-empty list restricts the result
+// to those peer IDs.
+func (c *Controller) connectedPeersFromData(nmData *networkmap.NetworkMapData, affected []string) []*nmdata.Peer {
+	if len(affected) == 0 {
+		result := make([]*nmdata.Peer, 0, len(nmData.Peers))
+		for _, peer := range nmData.Peers {
+			if c.peersUpdateManager.HasChannel(peer.ID) {
+				result = append(result, peer)
 			}
 		}
-		if c.peersUpdateManager.HasChannel(peer.ID) {
+		return result
+	}
+
+	result := make([]*nmdata.Peer, 0, len(affected))
+	for _, peerID := range affected {
+		peer := nmData.Peers[peerID]
+		if peer == nil {
+			continue
+		}
+		if c.peersUpdateManager.HasChannel(peerID) {
 			result = append(result, peer)
 		}
 	}
