@@ -85,6 +85,10 @@ type PQHandshaker interface {
 	// OfferPayload returns the KEM offer to embed in an outgoing offer (nil if this
 	// peer is not the KEM initiator) and the local PQ data-path port to announce.
 	OfferPayload(remoteKey string) (payload []byte, port int)
+	// ShouldSendBootstrapOffer reports whether, as the controller, we should reply to a
+	// received responder offer with our own KEM offer (true only when no exchange is
+	// already in flight — so we kick the KEM once and ignore further offers).
+	ShouldSendBootstrapOffer(remoteKey string) bool
 	// AnswerPayload processes a received KEM offer (nil if absent) and returns the KEM
 	// answer to embed in the outgoing answer (nil if none) and the local PQ port.
 	AnswerPayload(remoteKey string, recvOffer []byte) (payload []byte, port int)
