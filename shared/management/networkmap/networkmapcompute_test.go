@@ -468,20 +468,20 @@ func TestGetPeerNetworkMapComponents_PeerResourceRules(t *testing.T) {
 
 	t.Run("source resource peer bypasses posture checks", func(t *testing.T) {
 		target := newPeer(targetID, 1)
-		failer := newPeer("peer-failer", 2)
-		failer.Meta.WtVersion = failingVersion
-		nmd := newNMD(target, failer)
+		failing := newPeer("peer-failing", 2)
+		failing.Meta.WtVersion = failingVersion
+		nmd := newNMD(target, failing)
 		addVersionCheck(nmd, "pc-1", postureMinVersion)
 		addGroup(nmd, "g-dst", targetID)
 		rule := newRule(nil, []string{"g-dst"})
-		rule.SourceResource = peerResource(failer.ID)
+		rule.SourceResource = peerResource(failing.ID)
 		p := newPolicy("p-1", rule)
 		p.SourcePostureChecks = []string{"pc-1"}
 		nmd.Policies = []*nmdata.Policy{p}
 
 		c := compute(nmd, targetID)
 
-		assert.ElementsMatch(t, []string{targetID, failer.ID}, peerIDSet(c.Peers))
+		assert.ElementsMatch(t, []string{targetID, failing.ID}, peerIDSet(c.Peers))
 		assert.Empty(t, c.PostureFailedPeers)
 	})
 
@@ -548,14 +548,14 @@ func TestGetPeerNetworkMapComponents_MultiGroupSources(t *testing.T) {
 	target := newPeer(targetID, 1)
 	dup := newPeer("peer-dup", 2)
 	unval := newPeer("peer-unval", 3)
-	failer := newPeer("peer-failer", 4)
-	failer.Meta.WtVersion = failingVersion
+	failing := newPeer("peer-failing", 4)
+	failing.Meta.WtVersion = failingVersion
 	solo := newPeer("peer-solo", 5)
-	nmd := newNMD(target, dup, unval, failer, solo)
+	nmd := newNMD(target, dup, unval, failing, solo)
 	delete(nmd.ValidatedPeers, unval.ID)
 	addVersionCheck(nmd, "pc-1", postureMinVersion)
 	addGroup(nmd, "g-1", targetID, dup.ID, unval.ID, "peer-deleted")
-	addGroup(nmd, "g-2", dup.ID, failer.ID, solo.ID)
+	addGroup(nmd, "g-2", dup.ID, failing.ID, solo.ID)
 	addGroup(nmd, "g-tgt", targetID)
 	p := newPolicy("p-1", newRule([]string{"g-1", "g-2"}, []string{"g-tgt"}))
 	p.SourcePostureChecks = []string{"pc-1"}
@@ -566,17 +566,17 @@ func TestGetPeerNetworkMapComponents_MultiGroupSources(t *testing.T) {
 	assert.Equal(t, []string{"p-1"}, policyIDs(c.Policies))
 	assert.ElementsMatch(t, []string{targetID, dup.ID, solo.ID}, peerIDSet(c.Peers))
 	assert.Empty(t, c.PostureFailedPeers,
-		"failer is not otherwise connected, so its failure record is pruned")
+		"failing is not otherwise connected, so its failure record is pruned")
 }
 
 func TestGetPeerNetworkMapComponents_PostureChecks(t *testing.T) {
 	t.Run("failing source peer excluded without orphan failure record", func(t *testing.T) {
 		target := newPeer(targetID, 1)
-		failer := newPeer("peer-failer", 2)
-		failer.Meta.WtVersion = failingVersion
-		nmd := newNMD(target, failer)
+		failing := newPeer("peer-failing", 2)
+		failing.Meta.WtVersion = failingVersion
+		nmd := newNMD(target, failing)
 		addVersionCheck(nmd, "pc-1", postureMinVersion)
-		addGroup(nmd, "g-src", failer.ID)
+		addGroup(nmd, "g-src", failing.ID)
 		addGroup(nmd, "g-dst", targetID)
 		p := newPolicy("p-1", newRule([]string{"g-src"}, []string{"g-dst"}))
 		p.SourcePostureChecks = []string{"pc-1"}
@@ -592,11 +592,11 @@ func TestGetPeerNetworkMapComponents_PostureChecks(t *testing.T) {
 
 	t.Run("failure recorded when peer is connected via another policy", func(t *testing.T) {
 		target := newPeer(targetID, 1)
-		failer := newPeer("peer-failer", 2)
-		failer.Meta.WtVersion = failingVersion
-		nmd := newNMD(target, failer)
+		failing := newPeer("peer-failing", 2)
+		failing.Meta.WtVersion = failingVersion
+		nmd := newNMD(target, failing)
 		addVersionCheck(nmd, "pc-1", postureMinVersion)
-		addGroup(nmd, "g-src", failer.ID)
+		addGroup(nmd, "g-src", failing.ID)
 		addGroup(nmd, "g-dst", targetID)
 		checked := newPolicy("p-checked", newRule([]string{"g-src"}, []string{"g-dst"}))
 		checked.SourcePostureChecks = []string{"pc-1"}
@@ -605,25 +605,25 @@ func TestGetPeerNetworkMapComponents_PostureChecks(t *testing.T) {
 
 		c := compute(nmd, targetID)
 
-		assert.ElementsMatch(t, []string{targetID, failer.ID}, peerIDSet(c.Peers))
-		assert.Equal(t, map[string]map[string]struct{}{"pc-1": {failer.ID: {}}}, c.PostureFailedPeers)
+		assert.ElementsMatch(t, []string{targetID, failing.ID}, peerIDSet(c.Peers))
+		assert.Equal(t, map[string]map[string]struct{}{"pc-1": {failing.ID: {}}}, c.PostureFailedPeers)
 	})
 
 	t.Run("destination peers bypass source posture checks", func(t *testing.T) {
 		target := newPeer(targetID, 1)
-		failer := newPeer("peer-failer", 2)
-		failer.Meta.WtVersion = failingVersion
-		nmd := newNMD(target, failer)
+		failing := newPeer("peer-failing", 2)
+		failing.Meta.WtVersion = failingVersion
+		nmd := newNMD(target, failing)
 		addVersionCheck(nmd, "pc-1", postureMinVersion)
 		addGroup(nmd, "g-src", targetID)
-		addGroup(nmd, "g-dst", failer.ID)
+		addGroup(nmd, "g-dst", failing.ID)
 		p := newPolicy("p-1", newRule([]string{"g-src"}, []string{"g-dst"}))
 		p.SourcePostureChecks = []string{"pc-1"}
 		nmd.Policies = []*nmdata.Policy{p}
 
 		c := compute(nmd, targetID)
 
-		assert.ElementsMatch(t, []string{targetID, failer.ID}, peerIDSet(c.Peers))
+		assert.ElementsMatch(t, []string{targetID, failing.ID}, peerIDSet(c.Peers))
 		assert.Empty(t, c.PostureFailedPeers)
 	})
 
@@ -648,11 +648,11 @@ func TestGetPeerNetworkMapComponents_PostureChecks(t *testing.T) {
 
 	t.Run("failure keyed by the first failing check", func(t *testing.T) {
 		target := newPeer(targetID, 1)
-		failer := newPeer("peer-failer", 2)
-		nmd := newNMD(target, failer)
+		failing := newPeer("peer-failing", 2)
+		nmd := newNMD(target, failing)
 		addVersionCheck(nmd, "pc-pass", postureMinVersion)
 		addVersionCheck(nmd, "pc-fail", "2.0.0")
-		addGroup(nmd, "g-src", failer.ID)
+		addGroup(nmd, "g-src", failing.ID)
 		addGroup(nmd, "g-dst", targetID)
 		checked := newPolicy("p-checked", newRule([]string{"g-src"}, []string{"g-dst"}))
 		checked.SourcePostureChecks = []string{"pc-pass", "pc-fail"}
@@ -661,7 +661,7 @@ func TestGetPeerNetworkMapComponents_PostureChecks(t *testing.T) {
 
 		c := compute(nmd, targetID)
 
-		assert.Equal(t, map[string]map[string]struct{}{"pc-fail": {failer.ID: {}}}, c.PostureFailedPeers,
+		assert.Equal(t, map[string]map[string]struct{}{"pc-fail": {failing.ID: {}}}, c.PostureFailedPeers,
 			"the record must be keyed by the failing check, not the first listed")
 	})
 
@@ -1391,13 +1391,13 @@ func TestGetPeerNetworkMapComponents_StoreImmutableAndDeterministic(t *testing.T
 	build := func() *networkmap.NetworkMapData {
 		target := newPeer(targetID, 1)
 		src := newPeer("peer-src", 2)
-		failer := newPeer("peer-failer", 3)
-		failer.Meta.WtVersion = failingVersion
+		failing := newPeer("peer-failing", 3)
+		failing.Meta.WtVersion = failingVersion
 		router := newPeer("peer-router", 4)
 		resRouter := newPeer("peer-res-router", 5)
-		nmd := newNMD(target, src, failer, router, resRouter)
+		nmd := newNMD(target, src, failing, router, resRouter)
 		addVersionCheck(nmd, "pc-1", postureMinVersion)
-		addGroup(nmd, "g-src", src.ID, failer.ID)
+		addGroup(nmd, "g-src", src.ID, failing.ID)
 		addGroup(nmd, "g-dst", targetID, src.ID)
 		addGroup(nmd, "g-dist", targetID, src.ID)
 		addGroup(nmd, "g-auth", src.ID)
