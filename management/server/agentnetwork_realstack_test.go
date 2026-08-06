@@ -92,6 +92,9 @@ func TestAgentNetwork_ProviderCRUD_FansOutToProxyAndClientPeers(t *testing.T) {
 	// UpdateAccountPeers, which is the path under test.
 	agentMgr := agentnetwork.NewManager(am.Store, permissions.NewManager(am.Store), am, nil)
 
+	_, err = agentMgr.CreateSettings(ctx, adminUserID, agenttypes.DefaultSettings(accountID), clusterAddr, "")
+	require.NoError(t, err, "CreateSettings must bootstrap the endpoint")
+
 	provider, err := agentMgr.CreateProvider(ctx, adminUserID, &agenttypes.Provider{
 		AccountID:   accountID,
 		ProviderID:  "openai_api",
@@ -100,7 +103,7 @@ func TestAgentNetwork_ProviderCRUD_FansOutToProxyAndClientPeers(t *testing.T) {
 		APIKey:      "sk-test-key",
 		Enabled:     true,
 		Models:      []agenttypes.ProviderModel{{ID: "gpt-5.4"}},
-	}, clusterAddr)
+	})
 	require.NoError(t, err, "CreateProvider must succeed")
 
 	policy, err := agentMgr.CreatePolicy(ctx, adminUserID, &agenttypes.Policy{

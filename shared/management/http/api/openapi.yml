@@ -5208,10 +5208,6 @@ components:
           type: string
           description: Full upstream URL (with scheme) that NetBird forwards traffic to.
           example: "https://api.openai.com"
-        bootstrap_cluster:
-          type: string
-          description: Proxy cluster used to bootstrap the per-account agent-network endpoint when the first provider is created. Ignored on subsequent creates and on updates because the cluster is pinned on the account-level Settings row.
-          example: "eu.proxy.netbird.io"
         api_key:
           type: string
           description: Upstream provider API key. Sealed at rest on the management server and never returned in responses. Required on create; optional on update (omit to keep the existing key).
@@ -6193,20 +6189,20 @@ components:
         - cache_cost_usd
     AgentNetworkSettings:
       type: object
-      description: Per-account Agent Network gateway settings. One row per account; cluster and subdomain are assigned at bootstrap and immutable thereafter. Before bootstrap the account reads as the default values with empty cluster, subdomain and endpoint.
+      description: Per-account Agent Network gateway settings. One row per account; endpoint and proxy_address are assigned at bootstrap (POST) and immutable thereafter. Before bootstrap the account reads as the default values with empty endpoint and proxy_address.
       properties:
-        cluster:
-          type: string
-          description: Address of the NetBird proxy cluster fronting this account's agent-network endpoint. Empty until the account is bootstrapped.
-          example: "eu.proxy.netbird.io"
-        subdomain:
-          type: string
-          description: Auto-generated DNS-safe label that prefixes the cluster to form the agent-network endpoint. Empty until the account is bootstrapped.
-          example: "violet"
         endpoint:
           type: string
-          description: Bare hostname agents call for this account, computed as `<subdomain>.<cluster>`. Empty until the account is bootstrapped.
-          example: "violet.eu.proxy.netbird.io"
+          description: Bare hostname agents call for this account. Empty until the account is bootstrapped.
+          example: "brave-otter.eu.proxy.netbird.io"
+        proxy_address:
+          type: string
+          description: Declared cluster address of the proxy serving this account's gateway. Equal to `endpoint` when a dedicated proxy serves the account; otherwise the endpoint's immediate parent (a shared cluster the endpoint hangs one label beneath). Empty until the account is bootstrapped.
+          example: "eu.proxy.netbird.io"
+        dedicated:
+          type: boolean
+          description: Whether the account's gateway is served by a proxy dedicated to it (endpoint equals proxy_address).
+          example: false
         enable_log_collection:
           type: boolean
           description: Whether per-request access-log entries are collected for this account's agent-network traffic.
@@ -6236,20 +6232,44 @@ components:
           readOnly: true
           example: "2026-04-26T10:30:00Z"
       required:
-        - cluster
-        - subdomain
         - endpoint
+        - proxy_address
+        - dedicated
         - enable_log_collection
         - enable_prompt_collection
         - redact_pii
+    AgentNetworkSettingsCreateRequest:
+      type: object
+      description: Bootstraps the per-account Agent Network settings row, assigning the account's immutable endpoint. Exactly one of `proxy_address` and `endpoint` must be provided. `proxy_address` requests a labeled endpoint — the server allocates a label and the endpoint becomes `<label>.<proxy_address>`, served by whichever proxy declares that parent address. `endpoint` claims the given hostname itself as a self-addressed (dedicated) endpoint, served only by a proxy declaring exactly that address — the claim is legitimate before the proxy exists (address-first). Collection toggles may ride along; omitted toggles take their defaults.
+      properties:
+        proxy_address:
+          type: string
+          description: Cluster address to allocate a labeled endpoint beneath. Mutually exclusive with `endpoint`.
+          example: "eu.proxy.netbird.io"
+        endpoint:
+          type: string
+          description: Hostname to claim as the account's self-addressed (dedicated) endpoint. Mutually exclusive with `proxy_address`. Rejected when another account already holds it.
+          example: "brave-otter.gateway.example.com"
+        enable_log_collection:
+          type: boolean
+          description: Whether per-request access-log entries are collected for this account's agent-network traffic. Defaults to true.
+          example: true
+        enable_prompt_collection:
+          type: boolean
+          description: Master switch for request/response prompt capture. Defaults to false.
+          example: false
+        redact_pii:
+          type: boolean
+          description: Whether captured prompts have PII redacted. Defaults to false.
+          example: false
+        access_log_retention_days:
+          type: integer
+          description: Days to retain full access-log rows; older rows are swept. 0 or less means keep indefinitely. Defaults to 30.
+          example: 30
     AgentNetworkSettingsRequest:
       type: object
-      description: Account-level Agent Network settings update. The request replaces every mutable field. `cluster` additionally bootstraps the per-account settings row when the account does not have one yet; the subdomain is always server-assigned.
+      description: Account-level Agent Network settings update. The request replaces every mutable field (the collection toggles and retention). The endpoint and proxy address are assigned at bootstrap (POST) and are not part of this schema.
       properties:
-        cluster:
-          type: string
-          description: Address of the NetBird proxy cluster fronting this account's agent-network endpoint. When the account has no settings row yet, providing it bootstraps the row (assigning the subdomain that forms the agent endpoint). The cluster is immutable once assigned — later updates must omit it or send the assigned value; any other value is rejected.
-          example: "eu.proxy.netbird.io"
         enable_log_collection:
           type: boolean
           description: Whether per-request access-log entries are collected for this account's agent-network traffic.
@@ -13694,7 +13714,7 @@ paths:
   /api/agent-network/settings:
     get:
       summary: Retrieve Agent Network settings
-      description: Returns the per-account Agent Network gateway settings (cluster, subdomain, endpoint). Before the account is bootstrapped — on first provider create (`bootstrap_cluster`) or via PUT with `cluster` — the response carries the default values with empty cluster, subdomain and endpoint.
+      description: Returns the per-account Agent Network gateway settings (endpoint, proxy address, collection toggles). Before the account is bootstrapped via POST, the response carries the default values with an empty endpoint and proxy address.
       tags: [ Agent Network ]
       security:
         - BearerAuth: [ ]
@@ -13712,9 +13732,41 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
+    post:
+      summary: Bootstrap Agent Network settings
+      description: Creates the per-account Agent Network settings row and allocates the account's endpoint. Exactly one of `proxy_address` (labeled endpoint under that cluster; the server allocates the label) and `endpoint` (self-addressed dedicated endpoint, claimed verbatim) must be provided. The endpoint and proxy address are immutable once assigned. Returns 409 when the account already has a settings row.
+      tags: [ Agent Network ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      requestBody:
+        description: Settings bootstrap request
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentNetworkSettingsCreateRequest'
+      responses:
+        '200':
+          description: The freshly bootstrapped Agent Network settings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentNetworkSettings'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '409':
+          "$ref": "#/components/responses/conflict"
+        '422':
+          "$ref": "#/components/responses/validation_failed"
+        '500':
+          "$ref": "#/components/responses/internal_error"
     put:
       summary: Update Agent Network settings
-      description: Updates the account-level Agent Network settings; the request replaces every mutable field (collection toggles and retention). When the account has no settings row yet, providing `cluster` bootstraps it (assigning the subdomain that forms the agent endpoint); without `cluster` the request returns 404. Sending a `cluster` different from the assigned one is rejected (the cluster is immutable once assigned). The subdomain is always server-assigned and immutable.
+      description: Updates the account-level Agent Network settings; the request replaces every mutable field (collection toggles and retention). Returns 404 when the account has no settings row yet — bootstrap it with POST first. The endpoint and proxy address are assigned at bootstrap and are not part of the update schema.
       tags: [ Agent Network ]
       security:
         - BearerAuth: [ ]
