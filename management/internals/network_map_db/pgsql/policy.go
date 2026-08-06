@@ -13,7 +13,7 @@ import (
 
 const (
 	GetPoliciesQuery = `
-	select p.id, p.public_id, p.enabled, p.source_posture_checks, pr.enabled as rule_enabled, pr.action, pr.protocol, pr.bidirectional, 
+	select p.id, p.public_id, p.enabled, array (select json_array_elements_text(p.source_posture_checks::json)) as source_posture_checks, pr.enabled as rule_enabled, pr.action, pr.protocol, pr.bidirectional, 
 	pr.sources, pr.destinations, pr.source_resource, pr.destination_resource, pr.ports, pr.port_ranges,
 	pr.authorized_groups, pr.authorized_user
 	from policies as p
@@ -151,7 +151,7 @@ func GetPoliciesViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId s
 type policy struct {
 	ID                  string
 	PublicID            sql.NullString
-	SourcePostureChecks json.RawMessage
+	SourcePostureChecks []string
 	Enabled             sql.NullBool
 	RuleEnabled         sql.NullBool    `nmap:"skip"`
 	Bidirectional       sql.NullBool    `nmap:"skip"`
