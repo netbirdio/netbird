@@ -291,9 +291,10 @@ reviewer can jump straight to the rule.
 7. **Avoid LLM-slop tells:** em dashes, hedging narration, restating the diff in
    prose, trailing summaries. Defaults, not absolute bans. Applies to code,
    comments, commit messages, and PR descriptions alike.
-8. **Concurrency: do a two-pass race analysis after every change** that adds
-   shared state. Guard maps and slices with a mutex, keep critical sections
-   short, and run `go test -race` on the touched packages. See
+8. **Concurrency: do a two-pass race analysis after every change** that touches
+   shared state, including reads of existing maps and slices. Guard them with a
+   mutex (or an atomic or channel where that fits better), keep critical
+   sections short, and run `go test -race` on the touched packages. See
    [Concurrency and lifecycle](#concurrency-and-lifecycle) for the failure modes
    to check for.
 9. **Cross-platform builds must keep working.** The agent targets Linux, macOS,
@@ -319,8 +320,8 @@ type AccountID string
 func (r *Router) RemoveRoute(host SNIHost, svcID ServiceID) { ... }
 
 // Proto boundary: convert once, on the way in and on the way out
-svcID := types.ServiceID(mapping.GetId())
-req.ServiceId = string(serviceID)
+svcID := ServiceID(mapping.GetId())
+req.ServiceId = string(svcID)
 ```
 
 - **IP addresses are `netip.Addr`**, not `string` and not `net.IP`. Parse at the
@@ -370,17 +371,19 @@ modes.
 
 - **`Stop`/`Close` must be idempotent** — guard on an already-stopped flag or a
   nil cancel — and must release the state they guarded. Clear maps and caches;
-  a cancelled goroutine holding a live map still pins that memory, and a nil map
-  makes accidental post-close use fail loudly instead of silently.
+  a cancelled goroutine holding a live map still pins that memory. Note that a
+  nil map only panics on writes; reads and iteration behave like an empty map,
+  so where post-close use must be rejected, check the stopped flag explicitly.
 - **Publish coupled state only after every fallible step succeeds.** When several
   fields form an invariant, build them into locals and assign them to the receiver
   at the end. Assigning as you go leaves the object half-initialized when a later
   step fails, so a readiness predicate reports ready while a coupled field is nil.
   If an earlier step already had an external side effect — a created chain, an
   opened handle, an inserted rule — roll it back before returning the error.
-- **Close what you own on constructor error paths.** Once a constructor has
-  started a goroutine, ticker, or watcher, every later error path must close it.
-  The object is never returned, so its `Close` will never run.
+- **Clean up what you own on constructor error paths.** Once a constructor has
+  started something, every later error path must undo it: cancel a goroutine and
+  wait for it to exit, stop a ticker, close a watcher. The object is never
+  returned, so its `Close` will never run.
 - **A failed `Start` must undo everything it started.** When a component brings up
   several subsystems in sequence — connection manager, watchers, routing, DNS,
   flow, persisted state — a failure partway through has to tear down the ones
@@ -582,8 +585,10 @@ up, and the 250-character budget does not apply to them.
 - **Use `t.Setenv`** rather than `os.Setenv` so the previous value is restored on
   cleanup. To test the unset case, call `t.Setenv` first to register the restore,
   then `os.Unsetenv`.
-- **Prefer `t.Cleanup` over `defer`** in any test with subtests: `defer` runs
-  before the subtests finish.
+- **Prefer `t.Cleanup` over `defer`** in any test with parallel subtests: the
+  parent function returns, running its `defer`s, while parallel subtests are
+  still suspended. Sequential subtests finish inside `t.Run`, so `defer` is safe
+  there, but `t.Cleanup` works in both cases.
 - **Explanatory comments in tests are welcome.** Describe the scenario being set
   up; the comment budget below does not apply to them.
 
