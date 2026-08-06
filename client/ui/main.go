@@ -14,7 +14,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
-	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 
 	"github.com/netbirdio/netbird/client/ui/authsession"
 	"github.com/netbirdio/netbird/client/ui/i18n"
@@ -63,7 +62,7 @@ type registeredServices struct {
 	profiles        *services.Profiles
 	update          *services.Update
 	daemonFeed      *services.DaemonFeed
-	notifier        *notifications.NotificationService
+	notifier        *Notifier
 	compat          *services.Compat
 	profileSwitcher *services.ProfileSwitcher
 	bundle          *i18n.Bundle
@@ -102,7 +101,7 @@ func main() {
 	updaterHolder := updater.NewHolder(app.Event)
 	update := services.NewUpdate(conn, updaterHolder)
 	daemonFeed := services.NewDaemonFeed(conn, app.Event, updaterHolder, debugLog)
-	notifier := notifications.New()
+	notifier := newNotifier()
 	compat := services.NewCompat(conn)
 	// macOS shows no toast until permission is requested. Run it after
 	// ApplicationStarted so the notifier's Startup has initialised the
@@ -210,7 +209,7 @@ func main() {
 // requestNotificationAuthorization prompts for macOS notification permission.
 // The request blocks until the user responds (up to 3 minutes), so callers run
 // it in a goroutine. No-op on Linux/Windows.
-func requestNotificationAuthorization(notifier *notifications.NotificationService) {
+func requestNotificationAuthorization(notifier *Notifier) {
 	authorized, err := notifier.CheckNotificationAuthorization()
 	if err != nil {
 		logrus.Debugf("check notification authorization: %v", err)
