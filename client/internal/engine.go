@@ -680,6 +680,14 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 						conn.RequestReoffer()
 					}
 				},
+				// On a freshly bootstrapped PSK, force the peer's WireGuard session to
+				// re-handshake so it adopts the PSK even if the tunnel already came up on
+				// a pre-PQ key (KEM-vs-endpoint-config race).
+				rehandshake: func(remoteKey string) {
+					if conn, ok := e.peerStore.PeerConn(remoteKey); ok {
+						conn.ForcePQRehandshake()
+					}
+				},
 			}
 			e.pqkemManager = pqkem.NewManager(pqkem.LocalID(publicKey.String()), cbHandler, pqkem.NewLogger())
 			e.pqkemManager.Start(tr)
