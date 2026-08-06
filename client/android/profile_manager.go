@@ -13,18 +13,17 @@ import (
 )
 
 const (
-	// Android-specific config filename (different from desktop default.json)
-	defaultConfigFilename = "netbird.cfg"
-	// Subdirectory for non-default profiles (must match Java Preferences.java)
-	profilesSubdir = "profiles"
 	// Android uses a single user context per app (non-empty username required by ServiceManager)
 	androidUsername = "android"
 )
 
 // Profile represents a profile for gomobile
 type Profile struct {
-	ID       string
-	Name     string
+	ID   string
+	Name string
+	// Email is the account this profile last logged in with, "" if it never
+	// completed an SSO login or was logged out. See profile_state.go.
+	Email    string
 	IsActive bool
 }
 
@@ -101,6 +100,7 @@ func (pm *ProfileManager) ListProfiles() (*ProfileArray, error) {
 		profiles = append(profiles, &Profile{
 			ID:       p.ID.String(),
 			Name:     p.Name,
+			Email:    pm.profileEmail(p.ID.String()),
 			IsActive: p.IsActive,
 		})
 	}
@@ -123,7 +123,22 @@ func (pm *ProfileManager) GetActiveProfile() (*Profile, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve active profile %q: %w", activeState.ID, err)
 	}
-	return &Profile{ID: prof.ID.String(), Name: prof.Name, IsActive: true}, nil
+	return &Profile{
+		ID:       prof.ID.String(),
+		Name:     prof.Name,
+		Email:    pm.profileEmail(prof.ID.String()),
+		IsActive: true,
+	}, nil
+}
+
+// profileEmail returns the account email recorded for a profile. Display-only, so
+// an unresolvable path degrades to "" rather than an error.
+func (pm *ProfileManager) profileEmail(id string) string {
+	configPath, err := pm.getProfileConfigPath(id)
+	if err != nil {
+		return ""
+	}
+	return readProfileEmail(configPath)
 }
 
 // SwitchProfile switches to a different profile
@@ -183,6 +198,11 @@ func (pm *ProfileManager) LogoutProfile(id string) error {
 	// Save config using internal profilemanager
 	if err := profilemanager.WriteOutConfig(configPath, config); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
+	}
+
+	// Not fatal: a stale hint costs an account switch, not the logout itself.
+	if err := removeProfileEmail(configPath); err != nil {
+		log.Warnf("failed to clear stored account email for profile %s: %v", id, err)
 	}
 
 	log.Infof("logged out from profile: %s", id)

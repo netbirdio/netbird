@@ -11,6 +11,7 @@ import { ManagementServerSwitch } from "@/components/ManagementServerSwitch.tsx"
 import { ManagementMode, useManagementUrl } from "@/hooks/useManagementUrl.ts";
 import { LanguagePicker } from "@/components/LanguagePicker.tsx";
 import { useRestrictions } from "@/contexts/RestrictionsContext.tsx";
+import { useKeepConnectedOnQuit } from "@/hooks/useKeepConnectedOnQuit.ts";
 
 export function SettingsGeneral() {
     const { t } = useTranslation();
@@ -19,6 +20,7 @@ export function SettingsGeneral() {
     const { mode, setMode, setUrl, displayUrl, showError, canSave, save, checking, unreachable } =
         useManagementUrl();
     const { mdm, features } = useRestrictions();
+    const { keepConnected, setKeepConnectedOnQuit } = useKeepConnectedOnQuit();
 
     const inputRef = useRef<HTMLInputElement>(null);
     const managementUrlId = useId();
@@ -57,6 +59,15 @@ export function SettingsGeneral() {
                         helpText={t("settings.general.autostart.help")}
                     />
                 )}
+                <FancyToggleSwitch
+                    value={keepConnected ?? false}
+                    onChange={(v) => {
+                        void setKeepConnectedOnQuit(v);
+                    }}
+                    loading={keepConnected === null}
+                    label={t("settings.general.keepConnectedOnQuit.label")}
+                    helpText={t("settings.general.keepConnectedOnQuit.help")}
+                />
             </SectionGroup>
 
             {!mdm.managementURL && !features.disableUpdateSettings && (
