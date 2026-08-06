@@ -7,6 +7,7 @@ import (
 
 	"github.com/eko/gocache/lib/v4/store"
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	testcontainersredis "github.com/testcontainers/testcontainers-go/modules/redis"
 
@@ -45,9 +46,7 @@ func newRedisStore(t *testing.T) cache.Store {
 func TestRedisStoreConnectionFailure(t *testing.T) {
 	t.Setenv(cache.RedisStoreEnvVar, "redis://127.0.0.1:6379")
 	_, err := cache.NewStore(context.Background(), 10*time.Millisecond, 30*time.Millisecond, 100)
-	if err == nil {
-		t.Fatal("getting redis cache store should return error")
-	}
+	require.Error(t, err, "getting redis cache store should return error")
 }
 
 func TestRedisStoreConnectionSuccess(t *testing.T) {
@@ -57,37 +56,24 @@ func TestRedisStoreConnectionSuccess(t *testing.T) {
 
 	key, value := "testing", "tested"
 	err := redisStore.Set(ctx, key, value, store.WithExpiration(100*time.Millisecond))
-	if err != nil {
-		t.Errorf("couldn't set testing data: %s", err)
-	}
+	assert.NoError(t, err, "couldn't set testing data")
+
 	result, err := redisStore.Get(ctx, key)
-	if err != nil {
-		t.Errorf("couldn't get testing data: %s", err)
-	}
-	if value != result.(string) {
-		t.Errorf("value returned doesn't match testing data, got %s, expected %s", result, value)
-	}
+	assert.NoError(t, err, "couldn't get testing data")
+	assert.Equal(t, value, result, "value returned doesn't match testing data")
 
 	options, err := redis.ParseURL(redisURL)
-	if err != nil {
-		t.Errorf("parsing redis cache url: %s", err)
-	}
+	require.NoError(t, err, "parsing redis cache url")
 
 	redisClient := redis.NewClient(options)
-	r, e := redisClient.Get(ctx, key).Result()
-	if e != nil {
-		t.Errorf("couldn't get testing data from redis: %s", e)
-	}
-	if value != r {
-		t.Errorf("value returned from redis doesn't match testing data, got %s, expected %s", r, value)
-	}
+	r, err := redisClient.Get(ctx, key).Result()
+	assert.NoError(t, err, "couldn't get testing data from redis")
+	assert.Equal(t, value, r, "value returned from redis doesn't match testing data")
 
 	// test expiration
 	time.Sleep(300 * time.Millisecond)
 	_, err = redisStore.Get(ctx, key)
-	if err == nil {
-		t.Error("value should not be found")
-	}
+	assert.Error(t, err, "value should not be found")
 }
 
 func TestRedisStoreSetNX(t *testing.T) {
@@ -96,7 +82,7 @@ func TestRedisStoreSetNX(t *testing.T) {
 	redisStore, secondRedisStore := newRedisStore(t), newRedisStore(t)
 
 	const (
-		key   = "atomic"
+		key   = "conditional"
 		value = "tested"
 	)
 
@@ -118,28 +104,19 @@ func TestRedisStoreSetNX(t *testing.T) {
 	created := 0
 	for range 2 {
 		result := <-results
-		if result.err != nil {
-			t.Fatalf("atomic redis set failed: %s", result.err)
-		}
+		require.NoError(t, result.err, "conditional redis set failed")
 		if result.created {
 			created++
 		}
 	}
-	if created != 1 {
-		t.Fatalf("expected exactly one redis client to create the entry, got %d", created)
-	}
+	require.Equal(t, 1, created, "expected exactly one redis client to create the entry")
 
 	options, err := redis.ParseURL(redisURL)
-	if err != nil {
-		t.Fatalf("parsing redis cache url: %s", err)
-	}
+	require.NoError(t, err, "parsing redis cache url")
+
 	ttl, err := redis.NewClient(options).PTTL(ctx, key).Result()
-	if err != nil {
-		t.Fatalf("couldn't read atomic entry TTL: %s", err)
-	}
-	if ttl <= 0 {
-		t.Fatalf("atomic entry should have a positive TTL, got %s", ttl)
-	}
+	require.NoError(t, err, "couldn't read entry TTL")
+	require.Positive(t, ttl, "created entry should have a positive TTL")
 }
 
 func TestRedisStoreGetDel(t *testing.T) {
@@ -155,9 +132,8 @@ func TestRedisStoreGetDel(t *testing.T) {
 	t.Run("exactly one caller across independent clients consumes the key", func(t *testing.T) {
 		// A generous TTL: the key is consumed explicitly, so expiry racing the
 		// concurrent callers would only make the test flaky on a loaded runner.
-		if err := redisStore.Set(ctx, key, value, store.WithExpiration(time.Minute)); err != nil {
-			t.Fatalf("couldn't set value to consume: %s", err)
-		}
+		err := redisStore.Set(ctx, key, value, store.WithExpiration(time.Minute))
+		require.NoError(t, err, "couldn't set value to consume")
 
 		assertGetDelConsumedOnce(ctx, t, []cache.Store{redisStore, secondRedisStore}, key, value)
 		assertGetDelMisses(ctx, t, secondRedisStore, key)
@@ -168,9 +144,8 @@ func TestRedisStoreGetDel(t *testing.T) {
 	})
 
 	t.Run("expired key is not found", func(t *testing.T) {
-		if err := redisStore.Set(ctx, key, value, store.WithExpiration(50*time.Millisecond)); err != nil {
-			t.Fatalf("couldn't set value to consume: %s", err)
-		}
+		err := redisStore.Set(ctx, key, value, store.WithExpiration(50*time.Millisecond))
+		require.NoError(t, err, "couldn't set value to consume")
 
 		time.Sleep(100 * time.Millisecond)
 		assertGetDelMisses(ctx, t, redisStore, key)
