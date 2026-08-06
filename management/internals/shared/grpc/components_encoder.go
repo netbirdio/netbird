@@ -631,6 +631,9 @@ func (e *componentEncoder) encodeResourcePoliciesMap(rpm map[string][]*nmdata.Po
 		}
 		ids := make([]string, 0, len(policies))
 		for _, pol := range policies {
+			if pol == nil {
+				continue
+			}
 			ids = append(ids, pol.PublicID)
 		}
 		if len(ids) == 0 {

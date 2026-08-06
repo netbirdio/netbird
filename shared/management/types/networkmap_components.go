@@ -217,12 +217,12 @@ func (c *NetworkMapComponents) getPeerConnectionResources(targetPeerID string) (
 	sshEnabled := false
 
 	for _, policy := range c.Policies {
-		if !policy.Enabled {
+		if policy == nil || !policy.Enabled {
 			continue
 		}
 
 		for _, rule := range policy.Rules {
-			if !rule.Enabled {
+			if rule == nil || !rule.Enabled {
 				continue
 			}
 
@@ -707,7 +707,13 @@ func (c *NetworkMapComponents) getAllRoutePoliciesFromGroups(accessControlGroups
 	routePolicies := make([]*nmdata.Policy, 0)
 	for _, groupID := range accessControlGroups {
 		for _, policy := range c.Policies {
+			if policy == nil {
+				continue
+			}
 			for _, rule := range policy.Rules {
+				if rule == nil {
+					continue
+				}
 				if slices.Contains(rule.Destinations, groupID) {
 					routePolicies = append(routePolicies, policy)
 				}
@@ -721,12 +727,12 @@ func (c *NetworkMapComponents) getAllRoutePoliciesFromGroups(accessControlGroups
 func (c *NetworkMapComponents) getRouteFirewallRules(ctx context.Context, peerID string, policies []*nmdata.Policy, route *nmdata.Route, distributionPeers map[string]struct{}, includeIPv6 bool) []*RouteFirewallRule {
 	var fwRules []*RouteFirewallRule
 	for _, policy := range policies {
-		if !policy.Enabled {
+		if policy == nil || !policy.Enabled {
 			continue
 		}
 
 		for _, rule := range policy.Rules {
-			if !rule.Enabled {
+			if rule == nil || !rule.Enabled {
 				continue
 			}
 
@@ -813,6 +819,9 @@ func (c *NetworkMapComponents) processResourcePolicies(
 	var routes []*nmdata.Route
 
 	for _, policy := range c.ResourcePoliciesMap[resource.ID] {
+		if policy == nil || len(policy.Rules) == 0 || policy.Rules[0] == nil {
+			continue
+		}
 		peers := c.getResourcePolicyPeers(policy)
 		if addSourcePeers {
 			for _, pID := range c.getPostureValidPeers(peers, policy.SourcePostureChecks) {
@@ -930,7 +939,13 @@ func (c *NetworkMapComponents) getPoliciesSourcePeers(policies []*nmdata.Policy)
 	sourcePeers := make(map[string]struct{})
 
 	for _, policy := range policies {
+		if policy == nil {
+			continue
+		}
 		for _, rule := range policy.Rules {
+			if rule == nil {
+				continue
+			}
 			for _, sourceGroup := range rule.Sources {
 				group := c.GetGroupInfo(sourceGroup)
 				if group == nil {

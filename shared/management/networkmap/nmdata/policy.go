@@ -50,11 +50,14 @@ type Resource struct {
 }
 
 func (p *Policy) SourceGroups() []string {
-	if len(p.Rules) == 1 {
+	if len(p.Rules) == 1 && p.Rules[0] != nil {
 		return p.Rules[0].Sources
 	}
 	groups := make(map[string]struct{}, len(p.Rules))
 	for _, rule := range p.Rules {
+		if rule == nil {
+			continue
+		}
 		for _, source := range rule.Sources {
 			groups[source] = struct{}{}
 		}
