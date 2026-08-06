@@ -16,6 +16,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/ui/authsession"
 	"github.com/netbirdio/netbird/client/ui/i18n"
+	"github.com/netbirdio/netbird/client/ui/preferences"
 	"github.com/netbirdio/netbird/client/ui/services"
 	"github.com/netbirdio/netbird/version"
 )
@@ -50,8 +51,9 @@ type TrayServices struct {
 	WindowManager   *services.WindowManager
 	// Session is bound to authsession directly because the services wrapper
 	// only re-exposes the React subset.
-	Session   *authsession.Session
-	Localizer *Localizer
+	Session     *authsession.Session
+	Localizer   *Localizer
+	Preferences *preferences.Store
 }
 
 type Tray struct {
@@ -461,10 +463,12 @@ func (t *Tray) handleQuit() {
 	t.profileMu.Unlock()
 	t.svc.DaemonFeed.CancelProfileSwitch()
 
-	ctx, cancel := context.WithTimeout(context.Background(), quitDownTimeout)
-	defer cancel()
-	if err := t.svc.Connection.Down(ctx); err != nil {
-		log.Errorf("disconnect on quit: %v", err)
+	if t.svc.Preferences == nil || !t.svc.Preferences.Get().KeepConnectedOnQuit {
+		ctx, cancel := context.WithTimeout(context.Background(), quitDownTimeout)
+		defer cancel()
+		if err := t.svc.Connection.Down(ctx); err != nil {
+			log.Errorf("disconnect on quit: %v", err)
+		}
 	}
 	t.app.Quit()
 }
