@@ -112,8 +112,14 @@ func enableSoftwareSAS() {
 	defer sasStateMu.Unlock()
 
 	if !savedSASState.captured {
-		prev, _, err := key.GetIntegerValue("SoftwareSASGeneration")
+		prev, valType, err := key.GetIntegerValue("SoftwareSASGeneration")
 		switch {
+		case err == nil && valType != registry.DWORD:
+			// Restoring writes a DWORD, so anything else would come back with a
+			// different type than the administrator set, even when the number
+			// itself fits.
+			log.Warnf("SoftwareSASGeneration has registry type %d rather than DWORD, leaving it alone", valType)
+			return
 		case err == nil && prev > math.MaxUint32:
 			// A DWORD is what the policy takes, so a wider value is not ours to
 			// narrow and restore.
