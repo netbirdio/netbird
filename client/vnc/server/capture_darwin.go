@@ -148,6 +148,18 @@ func notifyScreenRecordingMissing() {
 }
 
 // NewCGCapturer creates a screen capturer for the main display.
+// screenCaptureWorking records that a real capture succeeded, which is the only
+// trustworthy signal that Screen Recording is granted: CGPreflight lies on
+// Sequoia. The input side waits for this before asking for Accessibility, so the
+// two permission panes never compete (macOS shows one at a time, and losing the
+// Screen Recording pane is the worse outcome: without it there is no picture).
+var screenCaptureWorking atomic.Bool
+
+// ScreenCaptureWorking reports whether a capture has succeeded in this process.
+func ScreenCaptureWorking() bool {
+	return screenCaptureWorking.Load()
+}
+
 func NewCGCapturer() (*CGCapturer, error) {
 	initDarwinCapture()
 	if !darwinCaptureReady {
@@ -162,6 +174,7 @@ func NewCGCapturer() (*CGCapturer, error) {
 		notifyScreenRecordingMissing()
 		return nil, fmt.Errorf("probe capture: %w", err)
 	}
+	screenCaptureWorking.Store(true)
 	nativeW := img.Rect.Dx()
 	nativeH := img.Rect.Dy()
 	c.hasHash = false

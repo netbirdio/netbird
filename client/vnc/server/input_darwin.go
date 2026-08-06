@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unsafe"
 
@@ -301,6 +302,9 @@ type MacInputInjector struct {
 	// field on each posted event, not from event timing.
 	clickCount [5]int64
 	clickAt    [5]time.Time
+	// axAsked is set once the Accessibility request has been made, so the
+	// per-event check is one atomic load.
+	axAsked atomic.Bool
 }
 
 // NewMacInputInjector creates a macOS input injector.
@@ -309,7 +313,7 @@ func NewMacInputInjector() (*MacInputInjector, error) {
 	if !darwinInputReady {
 		return nil, fmt.Errorf("CoreGraphics not available for input injection")
 	}
-	checkMacPermissions()
+	logAccessibilityStatus()
 
 	m := &MacInputInjector{}
 	if path, err := exec.LookPath("pbcopy"); err == nil {
@@ -328,18 +332,46 @@ func NewMacInputInjector() (*MacInputInjector, error) {
 	return m, nil
 }
 
-// checkMacPermissions probes Accessibility access. Prefers the prompting
-// variant of AXIsProcessTrusted: when the process is not yet trusted,
-// macOS shows its native "would like to control your computer" dialog
-// with an "Open System Settings" button. The silent variant is the
-// fallback when the prompting symbol or its CF dictionary plumbing
-// couldn't be loaded.
-func checkMacPermissions() {
-	if !axProcessIsTrusted() {
-		log.Warn("Accessibility permission not granted. Input injection will not work. " +
-			"Approve the prompt or grant in System Settings > Privacy & Security > Accessibility.")
-		openPrivacyPane("Privacy_Accessibility")
+// logAccessibilityStatus reports Accessibility state without prompting. Asking
+// here would put the Accessibility pane on screen the moment a session starts,
+// on top of the Screen Recording request, and macOS shows only one pane at a
+// time: the Accessibility one wins and the more important request is buried.
+// The ask happens on the first input instead, see ensureAccessibility.
+func logAccessibilityStatus() {
+	if axIsProcessTrusted != nil && !axIsProcessTrusted() {
+		log.Info("Accessibility permission not granted yet; asking on the first input event")
 	}
+}
+
+// ensureAccessibility asks for Accessibility at most once per process, on the
+// first input that is actually delivered. Injection happens per event, so the
+// common path has to be a single atomic load.
+func (m *MacInputInjector) ensureAccessibility() {
+	if m.axAsked.Load() {
+		return
+	}
+	m.askAccessibility()
+}
+
+// askAccessibility is the cold path of ensureAccessibility.
+//
+// It waits for a capture to have succeeded before prompting: Screen Recording is
+// the permission a session cannot do without, and requesting Accessibility while
+// that pane is open replaces it. A session that never captures never gets here,
+// which is the right outcome, since input on a black screen is not useful.
+func (m *MacInputInjector) askAccessibility() {
+	if !ScreenCaptureWorking() {
+		return
+	}
+	if !m.axAsked.CompareAndSwap(false, true) {
+		return
+	}
+	if axProcessIsTrusted() {
+		return
+	}
+	log.Warn("Accessibility permission not granted. Input injection will not work. " +
+		"Approve the prompt or grant in System Settings > Privacy & Security > Accessibility.")
+	openPrivacyPane("Privacy_Accessibility")
 }
 
 // axProcessIsTrusted asks macOS whether netbird has Accessibility access,
@@ -384,6 +416,7 @@ func openPrivacyPane(pane string) {
 
 // InjectKey simulates a key press or release.
 func (m *MacInputInjector) InjectKey(keysym uint32, down bool) {
+	m.ensureAccessibility()
 	wakeDisplay()
 	src := ensureEventSource()
 	if src == 0 {
@@ -401,6 +434,7 @@ func (m *MacInputInjector) InjectKey(keysym uint32, down bool) {
 // entirely different scheme from PC AT scancodes, so the table is the
 // authoritative bridge. On miss we fall back to the keysym path.
 func (m *MacInputInjector) InjectKeyScancode(scancode, keysym uint32, down bool) {
+	m.ensureAccessibility()
 	wakeDisplay()
 	src := ensureEventSource()
 	if src == 0 {
@@ -491,6 +525,7 @@ func isFnShiftedKeycode(keycode uint16) bool {
 
 // InjectPointer simulates mouse movement and button events.
 func (m *MacInputInjector) InjectPointer(buttonMask uint16, px, py, serverW, serverH int) {
+	m.ensureAccessibility()
 	wakeDisplay()
 	if serverW == 0 || serverH == 0 {
 		return
