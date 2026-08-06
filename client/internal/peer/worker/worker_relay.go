@@ -1,4 +1,4 @@
-package peer
+package worker
 
 import (
 	"context"
@@ -10,22 +10,23 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/internal/peer/signaling"
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 )
 
 type RelayConnInfo struct {
-	relayedConn     net.Conn
-	rosenpassPubKey []byte
-	rosenpassAddr   string
+	RelayedConn     net.Conn
+	RosenpassPubKey []byte
+	RosenpassAddr   string
 }
 
 type WorkerRelay struct {
-	peerCtx      context.Context
-	log          *log.Entry
-	isController bool
-	config       ConnConfig
-	conn         *Conn
-	relayManager *relayClient.Manager
+	log            *log.Entry
+	key            string
+	isController   bool
+	onConnReady    func(RelayConnInfo)
+	onDisconnected func()
+	relayManager   *relayClient.Manager
 
 	relayedConn net.Conn
 	relayLock   sync.Mutex
@@ -33,19 +34,19 @@ type WorkerRelay struct {
 	relaySupportedOnRemotePeer atomic.Bool
 }
 
-func NewWorkerRelay(ctx context.Context, log *log.Entry, ctrl bool, config ConnConfig, conn *Conn, relayManager *relayClient.Manager) *WorkerRelay {
+func NewWorkerRelay(log *log.Entry, key string, isController bool, onConnReady func(RelayConnInfo), onDisconnected func(), relayManager *relayClient.Manager) *WorkerRelay {
 	r := &WorkerRelay{
-		peerCtx:      ctx,
-		log:          log,
-		isController: ctrl,
-		config:       config,
-		conn:         conn,
-		relayManager: relayManager,
+		log:            log,
+		key:            key,
+		isController:   isController,
+		onConnReady:    onConnReady,
+		onDisconnected: onDisconnected,
+		relayManager:   relayManager,
 	}
 	return r
 }
 
-func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
+func (w *WorkerRelay) OnNewOffer(ctx context.Context, remoteOfferAnswer *signaling.OfferAnswer) {
 	if !w.isRelaySupported(remoteOfferAnswer) {
 		w.log.Infof("Relay is not supported by remote peer")
 		w.relaySupportedOnRemotePeer.Store(false)
@@ -66,7 +67,7 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 		serverIP = remoteOfferAnswer.RelaySrvIP
 	}
 
-	relayedConn, err := w.relayManager.OpenConn(w.peerCtx, srv, w.config.Key, serverIP)
+	relayedConn, err := w.relayManager.OpenConn(ctx, srv, w.key, serverIP)
 	if err != nil {
 		if errors.Is(err, relayClient.ErrConnAlreadyExists) {
 			w.log.Debugf("handled offer by reusing existing relay connection")
@@ -88,10 +89,10 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	}
 
 	w.log.Debugf("peer conn opened via Relay: %s", srv)
-	go w.conn.onRelayConnectionIsReady(RelayConnInfo{
-		relayedConn:     relayedConn,
-		rosenpassPubKey: remoteOfferAnswer.RosenpassPubKey,
-		rosenpassAddr:   remoteOfferAnswer.RosenpassAddr,
+	w.onConnReady(RelayConnInfo{
+		RelayedConn:     relayedConn,
+		RosenpassPubKey: remoteOfferAnswer.RosenpassPubKey,
+		RosenpassAddr:   remoteOfferAnswer.RosenpassAddr,
 	})
 }
 
@@ -119,7 +120,7 @@ func (w *WorkerRelay) CloseConn() {
 	}
 }
 
-func (w *WorkerRelay) isRelaySupported(answer *OfferAnswer) bool {
+func (w *WorkerRelay) isRelaySupported(answer *signaling.OfferAnswer) bool {
 	if !w.relayManager.HasRelayAddress() {
 		return false
 	}
@@ -134,5 +135,5 @@ func (w *WorkerRelay) preferredRelayServer(myRelayAddress, remoteRelayAddress st
 }
 
 func (w *WorkerRelay) onRelayClientDisconnected() {
-	go w.conn.onRelayDisconnected()
+	w.onDisconnected()
 }

@@ -1,4 +1,4 @@
-package peer
+package wg_watcher
 
 import (
 	"context"
@@ -9,6 +9,8 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/iface/configurer"
+	"github.com/netbirdio/netbird/client/internal/peer/state_dump"
+	"github.com/netbirdio/netbird/client/internal/peer/status"
 )
 
 type MocWgIface struct {
@@ -56,7 +58,7 @@ func TestWGWatcher_CheckSuccessCallback(t *testing.T) {
 	// platforms with coarse clock resolution (Windows), where two time.Now() calls
 	// microseconds apart can return the same instant and read as a timed-out handshake.
 	stats := &mockHandshakeStats{handshake: time.Now().Add(-time.Hour)}
-	watcher := NewWGWatcher(mlog, stats, "", newStateDump("peer", mlog, &Status{}))
+	watcher := NewWGWatcher(mlog, stats, "", state_dump.NewStateDump("peer", mlog, &status.Recorder{}))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -65,14 +67,18 @@ func TestWGWatcher_CheckSuccessCallback(t *testing.T) {
 
 	firstHandshake := make(chan struct{}, 1)
 	checkSuccess := make(chan struct{}, 1)
-	go watcher.EnableWgWatcher(ctx, time.Now(), func() {}, func(when time.Time) {
-		firstHandshake <- struct{}{}
-	}, func() {
-		select {
-		case checkSuccess <- struct{}{}:
-		default:
-		}
-	})
+	watcherDone := make(chan struct{})
+	go func() {
+		defer close(watcherDone)
+		watcher.EnableWgWatcher(ctx, time.Now(), func() {}, func(when time.Time) {
+			firstHandshake <- struct{}{}
+		}, func() {
+			select {
+			case checkSuccess <- struct{}{}:
+			default:
+			}
+		})
+	}()
 
 	stats.advance()
 
@@ -87,6 +93,11 @@ func TestWGWatcher_CheckSuccessCallback(t *testing.T) {
 		t.Errorf("first-handshake callback must not fire for a non-zero baseline")
 	default:
 	}
+
+	// Wait for the watcher goroutine to exit so it cannot race with other
+	// tests mutating the package-level check timing variables.
+	cancel()
+	<-watcherDone
 }
 
 func TestWGWatcher_EnableWgWatcher(t *testing.T) {
@@ -95,7 +106,7 @@ func TestWGWatcher_EnableWgWatcher(t *testing.T) {
 
 	mlog := log.WithField("peer", "tet")
 	mocWgIface := &MocWgIface{}
-	watcher := NewWGWatcher(mlog, mocWgIface, "", newStateDump("peer", mlog, &Status{}))
+	watcher := NewWGWatcher(mlog, mocWgIface, "", state_dump.NewStateDump("peer", mlog, &status.Recorder{}))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -127,7 +138,7 @@ func TestWGWatcher_ReEnable(t *testing.T) {
 
 	mlog := log.WithField("peer", "tet")
 	mocWgIface := &MocWgIface{}
-	watcher := NewWGWatcher(mlog, mocWgIface, "", newStateDump("peer", mlog, &Status{}))
+	watcher := NewWGWatcher(mlog, mocWgIface, "", state_dump.NewStateDump("peer", mlog, &status.Recorder{}))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	watcher.PrepareInitialHandshake()

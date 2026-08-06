@@ -1,4 +1,4 @@
-package peer
+package wg_watcher
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/iface/configurer"
+	"github.com/netbirdio/netbird/client/internal/peer/state_dump"
 )
 
 const (
@@ -29,7 +30,7 @@ type WGWatcher struct {
 	log           *log.Entry
 	wgIfaceStater WGInterfaceStater
 	peerKey       string
-	stateDump     *stateDump
+	stateDump     *state_dump.StateDump
 
 	// initialHandshake is not thread-safe; never call PrepareInitialHandshake and EnableWgWatcher concurrently.
 	initialHandshake time.Time
@@ -37,7 +38,7 @@ type WGWatcher struct {
 	resetCh chan struct{}
 }
 
-func NewWGWatcher(log *log.Entry, wgIfaceStater WGInterfaceStater, peerKey string, stateDump *stateDump) *WGWatcher {
+func NewWGWatcher(log *log.Entry, wgIfaceStater WGInterfaceStater, peerKey string, stateDump *state_dump.StateDump) *WGWatcher {
 	return &WGWatcher{
 		log:           log,
 		wgIfaceStater: wgIfaceStater,

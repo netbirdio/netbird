@@ -1,4 +1,4 @@
-package conntype
+package worker
 
 import (
 	"fmt"

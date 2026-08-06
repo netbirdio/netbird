@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pion/ice/v4"
@@ -17,11 +18,14 @@ import (
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
 	"github.com/netbirdio/netbird/client/internal/metrics"
-	"github.com/netbirdio/netbird/client/internal/peer/conntype"
-	"github.com/netbirdio/netbird/client/internal/peer/dispatcher"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/peer/id"
+	"github.com/netbirdio/netbird/client/internal/peer/metricsstages"
+	"github.com/netbirdio/netbird/client/internal/peer/signaling"
+	"github.com/netbirdio/netbird/client/internal/peer/state_dump"
+	"github.com/netbirdio/netbird/client/internal/peer/status"
+	"github.com/netbirdio/netbird/client/internal/peer/wg_watcher"
 	"github.com/netbirdio/netbird/client/internal/peer/worker"
 	"github.com/netbirdio/netbird/client/internal/portforward"
 	"github.com/netbirdio/netbird/client/internal/rosenpass"
@@ -35,6 +39,14 @@ import (
 // considered desynced and gets reset.
 const wgTimeoutEscalationThreshold = 3
 
+type WGIface interface {
+	UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error
+	RemovePeer(peerKey string) error
+	GetStats() (map[string]configurer.WGStats, error)
+	GetProxy() wgproxy.Proxy
+	RemoveEndpointAddress(key string) error
+}
+
 // MetricsRecorder is an interface for recording peer connection metrics
 type MetricsRecorder interface {
 	RecordConnectionStages(
@@ -47,12 +59,11 @@ type MetricsRecorder interface {
 }
 
 type ServiceDependencies struct {
-	StatusRecorder     *Status
-	Signaler           *Signaler
+	StatusRecorder     *status.Recorder
+	Signaler           *signaling.Signaler
 	IFaceDiscover      stdnet.ExternalIFaceDiscover
 	RelayManager       *relayClient.Manager
 	SrWatcher          *guard.SRWatcher
-	PeerConnDispatcher *dispatcher.ConnectionDispatcher
 	PortForwardManager *portforward.Manager
 	MetricsRecorder    MetricsRecorder
 }
@@ -95,14 +106,24 @@ type ConnConfig struct {
 	ICEConfig icemaker.Config
 }
 
+func (c ConnConfig) IsController() bool {
+	return c.LocalKey > c.Key
+}
+
+// Conn represents a connection to a remote peer. All mutable connection state
+// is owned by a single event loop goroutine started in Open; external callers
+// and the transport workers communicate with the loop by posting events into
+// a non-blocking mailbox.
 type Conn struct {
-	Log                *log.Entry
+	Log *log.Entry
+	// mu guards the open/close lifecycle (opened, loopDone). Everything else
+	// is either immutable after construction or owned by the event loop.
 	mu                 sync.Mutex
 	ctx                context.Context
 	ctxCancel          context.CancelFunc
 	config             ConnConfig
-	statusRecorder     *Status
-	signaler           *Signaler
+	statusRecorder     *status.Recorder
+	signaler           *signaling.Signaler
 	iFaceDiscover      stdnet.ExternalIFaceDiscover
 	relayManager       *relayClient.Manager
 	srWatcher          *guard.SRWatcher
@@ -112,19 +133,30 @@ type Conn struct {
 	onDisconnected                            func(remotePeer string)
 	rosenpassInitializedPresharedKeyValidator func(peerKey string) bool
 
-	statusRelay         *worker.AtomicWorkerStatus
-	statusICE           *worker.AtomicWorkerStatus
-	currentConnPriority conntype.ConnPriority
+	statusRelay         *AtomicWorkerStatus
+	statusICE           *AtomicWorkerStatus
+	currentConnPriority worker.ConnPriority
 	opened              bool // this flag is used to prevent close in case of not opened connection
 
-	workerICE   *WorkerICE
-	workerRelay *WorkerRelay
+	// mailbox delivers events to the event loop of the current open
+	// generation; a nil pointer or a closed mailbox rejects the post.
+	mailbox  atomic.Pointer[mailbox]
+	loopDone chan struct{}
 
-	wgWatcher       *WGWatcher
+	workerICE   *worker.ICE
+	workerRelay *worker.WorkerRelay
+
+	// relayDialInFlight and pendingRelayOffer serialize the blocking relay
+	// dials spawned by the event loop, keeping only the newest offer while a
+	// dial is running.
+	relayDialInFlight bool
+	pendingRelayOffer *signaling.OfferAnswer
+
+	wgWatcher       *wg_watcher.WGWatcher
 	wgWatcherWg     sync.WaitGroup
 	wgWatcherCancel context.CancelFunc
 	// wgTimeouts counts consecutive WireGuard handshake timeouts without a
-	// successful handshake in between. Guarded by mu.
+	// successful handshake in between. Owned by the event loop.
 	wgTimeouts int
 
 	// used to store the remote Rosenpass key for Relayed connection in case of connection update from ice
@@ -132,52 +164,23 @@ type Conn struct {
 
 	wgProxyICE   wgproxy.Proxy
 	wgProxyRelay wgproxy.Proxy
-	handshaker   *Handshaker
+	handshaker   *signaling.Handshaker
 
 	guard *guard.Guard
 	wg    sync.WaitGroup
 
 	// debug purpose
-	dumpState *stateDump
+	dumpState *state_dump.StateDump
 
 	endpointUpdater *EndpointUpdater
 
 	// Connection stage timestamps for metrics
 	metricsRecorder MetricsRecorder
-	metricsStages   *MetricsStages
+	metricsStages   *metricsstages.MetricsStages
 
 	// pendingFirstPacket is the lazyconn-captured handshake init, replayed once the real
 	// transport is up.
 	pendingFirstPacket []byte
-}
-
-// injectPendingFirstPacket replays the captured handshake through the proxy if present, else
-// directly through the ICE conn. The packet is cleared only after a successful write, so a failed
-// or transport-less attempt leaves it available for a later reinjection. Caller must hold conn.mu.
-func (conn *Conn) injectPendingFirstPacket(proxy wgproxy.Proxy, directConn net.Conn) {
-	pkt := conn.pendingFirstPacket
-	if len(pkt) == 0 {
-		return
-	}
-
-	switch {
-	case proxy != nil:
-		if err := proxy.InjectPacket(pkt); err != nil {
-			conn.Log.Debugf("failed to reinject captured first packet via proxy: %v", err)
-			return
-		}
-	case directConn != nil:
-		if _, err := directConn.Write(pkt); err != nil {
-			conn.Log.Debugf("failed to reinject captured first packet via direct conn: %v", err)
-			return
-		}
-	default:
-		conn.Log.Debugf("no transport available to reinject captured first packet")
-		return
-	}
-
-	conn.pendingFirstPacket = nil
-	conn.Log.Debugf("reinjected captured first packet (%d bytes)", len(pkt))
 }
 
 // NewConn creates a new not opened Conn to the remote peer.
@@ -189,7 +192,7 @@ func NewConn(config ConnConfig, services ServiceDependencies) (*Conn, error) {
 
 	connLog := log.WithField("peer", config.Key)
 
-	dumpState := newStateDump(config.Key, connLog, services.StatusRecorder)
+	dumpState := state_dump.NewStateDump(config.Key, connLog, services.StatusRecorder)
 	var conn = &Conn{
 		Log:                connLog,
 		config:             config,
@@ -199,10 +202,10 @@ func NewConn(config ConnConfig, services ServiceDependencies) (*Conn, error) {
 		relayManager:       services.RelayManager,
 		srWatcher:          services.SrWatcher,
 		portForwardManager: services.PortForwardManager,
-		statusRelay:        worker.NewAtomicStatus(),
-		statusICE:          worker.NewAtomicStatus(),
+		statusRelay:        NewAtomicStatus(),
+		statusICE:          NewAtomicStatus(),
 		dumpState:          dumpState,
-		endpointUpdater:    NewEndpointUpdater(connLog, config.WgConfig, isController(config)),
+		endpointUpdater:    NewEndpointUpdater(connLog, config.WgConfig, config.IsController()),
 		metricsRecorder:    services.MetricsRecorder,
 	}
 
@@ -231,64 +234,76 @@ func (conn *Conn) open(engineCtx context.Context, firstPacket []byte) error {
 	}
 
 	// Allocate new metrics stages so old goroutines don't corrupt new state
-	conn.metricsStages = &MetricsStages{}
+	conn.metricsStages = &metricsstages.MetricsStages{}
 
 	conn.ctx, conn.ctxCancel = context.WithCancel(engineCtx)
 
-	conn.workerRelay = NewWorkerRelay(conn.ctx, conn.Log, isController(conn.config), conn.config, conn, conn.relayManager)
+	conn.workerRelay = worker.NewWorkerRelay(conn.Log, conn.config.Key, conn.config.IsController(), conn.onRelayConnectionIsReady, conn.onRelayDisconnected, conn.relayManager)
 
-	forceRelay := IsForceRelayed()
-	if !forceRelay {
+	if !IsForceRelayed() {
 		relayIsSupportedLocally := conn.workerRelay.RelayIsSupportedLocally()
-		workerICE, err := NewWorkerICE(conn.ctx, conn.Log, conn.config, conn, conn.signaler, conn.iFaceDiscover, conn.statusRecorder, relayIsSupportedLocally)
+		workerICE, err := worker.NewICE(conn.Log, conn.config.Key, conn.config.ICEConfig, conn.config.IsController(), conn.onICEConnectionIsReady, conn.onICEStateDisconnected, worker.ICEDependencies{
+			Signaler:           conn.signaler,
+			IFaceDiscover:      conn.iFaceDiscover,
+			StatusRecorder:     conn.statusRecorder,
+			PortForwardManager: conn.portForwardManager,
+		}, relayIsSupportedLocally)
 		if err != nil {
 			return err
 		}
 		conn.workerICE = workerICE
 	}
 
-	conn.handshaker = NewHandshaker(conn.Log, conn.config, conn.signaler, conn.workerICE, conn.workerRelay, conn.metricsStages)
-
-	conn.handshaker.AddRelayListener(conn.workerRelay.OnNewOffer)
-	if !forceRelay {
-		conn.handshaker.AddICEListener(conn.workerICE.OnNewOffer)
+	var iceWorker signaling.ICEWorker
+	if conn.workerICE != nil {
+		iceWorker = conn.workerICE
 	}
+	conn.handshaker = signaling.NewHandshaker(conn.Log, signaling.Config{
+		Key:             conn.config.Key,
+		LocalWgPort:     conn.config.LocalWgPort,
+		RosenpassPubKey: conn.config.RosenpassConfig.PubKey,
+		RosenpassAddr:   conn.config.RosenpassConfig.Addr,
+	}, conn.signaler, iceWorker, conn.relayManager)
 
 	conn.guard = guard.NewGuard(conn.Log, conn.isConnectedOnAllWay, conn.config.Timeout, conn.srWatcher)
 
-	conn.wg.Add(1)
-	go func() {
-		defer conn.wg.Done()
-		conn.handshaker.Listen(conn.ctx)
-	}()
-	go conn.dumpState.Start(conn.ctx)
+	conn.relayDialInFlight = false
+	conn.pendingRelayOffer = nil
+	if len(firstPacket) > 0 {
+		conn.pendingFirstPacket = slices.Clone(firstPacket)
+	}
 
-	peerState := State{
+	peerState := status.State{
 		PubKey:           conn.config.Key,
 		ConnStatusUpdate: time.Now(),
-		ConnStatus:       StatusConnecting,
+		ConnStatus:       status.StatusConnecting,
 		Mux:              new(sync.RWMutex),
 	}
 	if err := conn.statusRecorder.UpdatePeerState(peerState); err != nil {
 		conn.Log.Warnf("error while updating the state err: %v", err)
 	}
 
+	mb := newMailbox()
+	conn.loopDone = make(chan struct{})
+	conn.mailbox.Store(mb)
+
+	go conn.run(mb)
+	go conn.dumpState.Start(conn.ctx)
+
 	conn.wg.Add(1)
 	go func() {
 		defer conn.wg.Done()
 		conn.guard.Start(conn.ctx, conn.onGuardEvent)
 	}()
-	if len(firstPacket) > 0 {
-		conn.pendingFirstPacket = slices.Clone(firstPacket)
-	}
+
 	conn.opened = true
 	return nil
 }
 
-// Close closes this peer Conn issuing a close event to the Conn closeCh
+// Close closes this peer Conn. It posts a close event to the event loop and
+// blocks until the loop finished the teardown.
 func (conn *Conn) Close(signalToRemote bool) {
 	conn.mu.Lock()
-	defer conn.wgWatcherWg.Wait()
 	defer conn.mu.Unlock()
 
 	if !conn.opened {
@@ -296,66 +311,43 @@ func (conn *Conn) Close(signalToRemote bool) {
 		return
 	}
 
-	if signalToRemote {
-		if err := conn.signaler.SignalIdle(conn.config.Key); err != nil {
-			conn.Log.Errorf("failed to signal idle state to peer: %v", err)
-		}
+	done := make(chan struct{})
+	if conn.post(evClose{signalToRemote: signalToRemote, done: done}) {
+		<-done
+	} else {
+		<-conn.loopDone
 	}
-
-	conn.Log.Infof("close peer connection")
-	conn.ctxCancel()
-
-	if conn.wgWatcherCancel != nil {
-		conn.wgWatcherCancel()
-	}
-	conn.workerRelay.CloseConn()
-	if conn.workerICE != nil {
-		conn.workerICE.Close()
-	}
-
-	if conn.wgProxyRelay != nil {
-		err := conn.wgProxyRelay.CloseConn()
-		if err != nil {
-			conn.Log.Errorf("failed to close wg proxy for relay: %v", err)
-		}
-		conn.wgProxyRelay = nil
-	}
-
-	if conn.wgProxyICE != nil {
-		err := conn.wgProxyICE.CloseConn()
-		if err != nil {
-			conn.Log.Errorf("failed to close wg proxy for ice: %v", err)
-		}
-		conn.wgProxyICE = nil
-	}
-
-	if err := conn.endpointUpdater.RemoveWgPeer(); err != nil {
-		conn.Log.Errorf("failed to remove wg endpoint: %v", err)
-	}
-
-	if conn.evalStatus() == StatusConnected && conn.onDisconnected != nil {
-		conn.onDisconnected(conn.config.WgConfig.RemoteKey)
-	}
-
-	conn.setStatusToDisconnected()
 	conn.opened = false
-	conn.wg.Wait()
-	conn.Log.Infof("peer connection closed")
 }
 
-// OnRemoteAnswer handles an offer from the remote peer and returns true if the message was accepted, false otherwise
-// doesn't block, discards the message if connection wasn't ready
-func (conn *Conn) OnRemoteAnswer(answer OfferAnswer) {
+// OnRemoteOffer handles an offer from the remote peer. It never blocks; the
+// offer is coalesced in the mailbox and processed by the event loop, older
+// unprocessed offers are replaced by the newest one.
+func (conn *Conn) OnRemoteOffer(offer signaling.OfferAnswer) {
+	conn.dumpState.RemoteOffer()
+	conn.Log.Infof("OnRemoteOffer, on status ICE: %s, status Relay: %s", conn.statusICE, conn.statusRelay)
+	if !conn.post(evRemoteOffer{offer: offer}) {
+		conn.Log.Debugf("connection is not open, discarding remote offer")
+	}
+}
+
+// OnRemoteAnswer handles an answer from the remote peer. It never blocks; the
+// answer is coalesced in the mailbox and processed by the event loop.
+func (conn *Conn) OnRemoteAnswer(answer signaling.OfferAnswer) {
 	conn.dumpState.RemoteAnswer()
-	conn.Log.Infof("OnRemoteAnswer, priority: %s, status ICE: %s, status relay: %s", conn.currentConnPriority, conn.statusICE, conn.statusRelay)
-	conn.handshaker.OnRemoteAnswer(answer)
+	conn.Log.Infof("OnRemoteAnswer, on status ICE: %s, status Relay: %s", conn.statusICE, conn.statusRelay)
+	if !conn.post(evRemoteAnswer{answer: answer}) {
+		conn.Log.Debugf("connection is not open, discarding remote answer")
+	}
 }
 
-// OnRemoteCandidate Handles ICE connection Candidate provided by the remote peer.
+// OnRemoteCandidate handles an ICE connection candidate provided by the
+// remote peer. Candidates are queued in arrival order and applied by the
+// event loop.
 func (conn *Conn) OnRemoteCandidate(candidate ice.Candidate, haRoutes route.HAMap) {
 	conn.dumpState.RemoteCandidate()
-	if conn.workerICE != nil {
-		conn.workerICE.OnRemoteCandidate(candidate, haRoutes)
+	if !conn.post(evRemoteCandidate{candidate: candidate, haRoutes: haRoutes}) {
+		conn.Log.Debugf("connection is not open, discarding remote candidate")
 	}
 }
 
@@ -376,12 +368,6 @@ func (conn *Conn) SetRosenpassInitializedPresharedKeyValidator(handler func(peer
 	conn.rosenpassInitializedPresharedKeyValidator = handler
 }
 
-func (conn *Conn) OnRemoteOffer(offer OfferAnswer) {
-	conn.dumpState.RemoteOffer()
-	conn.Log.Infof("OnRemoteOffer, on status ICE: %s, status Relay: %s", conn.statusICE, conn.statusRelay)
-	conn.handshaker.OnRemoteOffer(offer)
-}
-
 // WgConfig returns the WireGuard config
 func (conn *Conn) WgConfig() WgConfig {
 	return conn.config.WgConfig
@@ -389,10 +375,7 @@ func (conn *Conn) WgConfig() WgConfig {
 
 // IsConnected returns true if the peer is connected
 func (conn *Conn) IsConnected() bool {
-	conn.mu.Lock()
-	defer conn.mu.Unlock()
-
-	return conn.evalStatus() == StatusConnected
+	return conn.evalStatus() == status.StatusConnected
 }
 
 func (conn *Conn) GetKey() string {
@@ -403,11 +386,240 @@ func (conn *Conn) ConnID() id.ConnID {
 	return id.ConnID(conn)
 }
 
-// configureConnection starts proxying traffic from/to local Wireguard and sets connection status to StatusConnected
-func (conn *Conn) onICEConnectionIsReady(priority conntype.ConnPriority, iceConnInfo ICEConnInfo) {
-	conn.mu.Lock()
-	defer conn.mu.Unlock()
+// AllowedIP returns the allowed IP of the remote peer
+func (conn *Conn) AllowedIP() netip.Addr {
+	return conn.config.WgConfig.AllowedIps[0].Addr()
+}
 
+func (conn *Conn) AgentVersionString() string {
+	return conn.config.AgentVersion
+}
+
+// post delivers an event to the event loop of the current open generation.
+// It reports false if the connection is not open.
+func (conn *Conn) post(ev event) bool {
+	mb := conn.mailbox.Load()
+	if mb == nil {
+		return false
+	}
+	return mb.post(ev)
+}
+
+// run is the Conn event loop. From the moment open returns until the teardown
+// it exclusively owns all mutable Conn state. It exits on an evClose event or
+// when the engine context is cancelled.
+func (conn *Conn) run(mb *mailbox) {
+	defer close(conn.loopDone)
+
+	for {
+		select {
+		case <-mb.wake:
+			evs := mb.drain()
+			for i, ev := range evs {
+				if c, ok := ev.(evClose); ok {
+					conn.teardown(mb, evs[i+1:], c.signalToRemote, c.done)
+					return
+				}
+				conn.handleEvent(ev)
+			}
+		case <-conn.ctx.Done():
+			conn.teardown(mb, nil, false, nil)
+			return
+		}
+	}
+}
+
+func (conn *Conn) handleEvent(ev event) {
+	if s, ok := ev.(staleableEvent); ok && s.isStale() {
+		return
+	}
+
+	switch e := ev.(type) {
+	case evRemoteOffer:
+		conn.handleRemoteOffer(&e.offer)
+	case evRemoteAnswer:
+		conn.handleRemoteAnswer(&e.answer)
+	case evRemoteCandidate:
+		conn.handleRemoteCandidate(e)
+	case evICEReady:
+		conn.handleICEReady(e.priority, e.info)
+	case evICEDown:
+		conn.handleICEDisconnected(e.sessionChanged)
+	case evRelayReady:
+		conn.handleRelayReady(e.info)
+	case evRelayDown:
+		conn.handleRelayDisconnected()
+	case evRelayDialDone:
+		conn.handleRelayDialDone()
+	case evWGTimeout:
+		conn.handleWGTimeout()
+	case evWGHandshake:
+		conn.handleWGHandshakeSuccess(e.when)
+	case evWGCheckOK:
+		conn.handleWGCheckSuccess()
+	case evGuardTick:
+		conn.handleGuardTick()
+	default:
+		conn.Log.Errorf("unhandled conn event type %T", ev)
+	}
+}
+
+// teardown closes the transports and releases every resource of the current
+// open generation. It runs exclusively on the event loop, either for an
+// evClose event or after engine context cancellation. Leftover events drained
+// together with the close are cleaned up alongside the ones still sitting in
+// the mailbox.
+func (conn *Conn) teardown(mb *mailbox, leftover []event, signalToRemote bool, done chan struct{}) {
+	if signalToRemote {
+		if err := conn.signaler.SignalIdle(conn.config.Key); err != nil {
+			conn.Log.Errorf("failed to signal idle state to peer: %v", err)
+		}
+	}
+
+	conn.Log.Infof("close peer connection")
+	conn.ctxCancel()
+
+	if conn.wgWatcherCancel != nil {
+		conn.wgWatcherCancel()
+		conn.wgWatcherCancel = nil
+	}
+	conn.workerRelay.CloseConn()
+	if conn.workerICE != nil {
+		conn.workerICE.Close()
+	}
+
+	if conn.wgProxyRelay != nil {
+		if err := conn.wgProxyRelay.CloseConn(); err != nil {
+			conn.Log.Errorf("failed to close wg proxy for relay: %v", err)
+		}
+		conn.wgProxyRelay = nil
+	}
+
+	if conn.wgProxyICE != nil {
+		if err := conn.wgProxyICE.CloseConn(); err != nil {
+			conn.Log.Errorf("failed to close wg proxy for ice: %v", err)
+		}
+		conn.wgProxyICE = nil
+	}
+
+	if err := conn.endpointUpdater.RemoveWgPeer(); err != nil {
+		conn.Log.Errorf("failed to remove wg endpoint: %v", err)
+	}
+
+	if conn.evalStatus() == status.StatusConnected && conn.onDisconnected != nil {
+		conn.onDisconnected(conn.config.WgConfig.RemoteKey)
+	}
+
+	conn.setStatusToDisconnected()
+	conn.wgWatcherWg.Wait()
+	conn.wg.Wait()
+
+	conn.releaseEvents(leftover)
+	conn.releaseEvents(mb.closeAndDrain())
+	if done != nil {
+		close(done)
+	}
+	conn.Log.Infof("peer connection closed")
+}
+
+// releaseEvents cleans up events that will never be processed because the
+// event loop is shutting down.
+func (conn *Conn) releaseEvents(evs []event) {
+	for _, ev := range evs {
+		switch e := ev.(type) {
+		case evRelayReady:
+			if err := e.info.RelayedConn.Close(); err != nil {
+				conn.Log.Warnf("failed to close unnecessary relayed connection: %v", err)
+			}
+		case evClose:
+			if e.done != nil {
+				close(e.done)
+			}
+		}
+	}
+}
+
+// handleRemoteOffer applies a remote offer on the event loop: refreshes the
+// remote ICE support state, dispatches the offer to the relay and ICE workers
+// and answers it.
+func (conn *Conn) handleRemoteOffer(offer *signaling.OfferAnswer) {
+	conn.Log.Infof("received offer, running version %s, remote WireGuard listen port %d, session id: %s, remote ICE supported: %t", offer.Version, offer.WgListenPort, offer.SessionIDString(), offer.HasICECredentials())
+
+	conn.metricsStages.RecordSignalingReceived()
+	conn.handshaker.UpdateRemoteICEState(offer)
+	conn.dispatchOfferToRelay(offer)
+	conn.dispatchOfferToICE(offer)
+
+	go func() {
+		if err := conn.handshaker.SendAnswer(); err != nil {
+			conn.Log.Errorf("failed to send remote offer confirmation: %s", err)
+		}
+	}()
+}
+
+// handleRemoteAnswer applies a remote answer on the event loop the same way
+// as an offer, without answering it.
+func (conn *Conn) handleRemoteAnswer(answer *signaling.OfferAnswer) {
+	conn.Log.Infof("received answer, running version %s, remote WireGuard listen port %d, session id: %s, remote ICE supported: %t", answer.Version, answer.WgListenPort, answer.SessionIDString(), answer.HasICECredentials())
+
+	conn.metricsStages.RecordSignalingReceived()
+	conn.handshaker.UpdateRemoteICEState(answer)
+	conn.dispatchOfferToRelay(answer)
+	conn.dispatchOfferToICE(answer)
+}
+
+func (conn *Conn) handleRemoteCandidate(e evRemoteCandidate) {
+	if conn.workerICE == nil {
+		return
+	}
+	conn.workerICE.OnRemoteCandidate(e.candidate, e.haRoutes)
+}
+
+func (conn *Conn) dispatchOfferToICE(offer *signaling.OfferAnswer) {
+	if conn.workerICE == nil || !conn.handshaker.RemoteICESupported() {
+		return
+	}
+	conn.workerICE.OnNewOffer(conn.ctx, offer)
+}
+
+// dispatchOfferToRelay runs the blocking relay dial on a helper goroutine. A
+// single dial is kept in flight; newer offers replace the pending one and the
+// newest is dispatched once the running dial reports completion.
+func (conn *Conn) dispatchOfferToRelay(offer *signaling.OfferAnswer) {
+	if conn.relayDialInFlight {
+		conn.pendingRelayOffer = offer
+		return
+	}
+	conn.relayDialInFlight = true
+
+	go func() {
+		conn.workerRelay.OnNewOffer(conn.ctx, offer)
+		conn.post(evRelayDialDone{})
+	}()
+}
+
+func (conn *Conn) handleRelayDialDone() {
+	conn.relayDialInFlight = false
+	if offer := conn.pendingRelayOffer; offer != nil {
+		conn.pendingRelayOffer = nil
+		conn.dispatchOfferToRelay(offer)
+	}
+}
+
+// handleGuardTick sends a new offer to restore connectivity; the signaling
+// I/O runs off the loop.
+func (conn *Conn) handleGuardTick() {
+	conn.dumpState.SendOffer()
+	go func() {
+		if err := conn.handshaker.SendOffer(); err != nil {
+			conn.Log.Errorf("failed to send offer: %v", err)
+		}
+	}()
+}
+
+// handleICEReady starts proxying traffic from/to local WireGuard and sets the
+// connection status to StatusConnected.
+func (conn *Conn) handleICEReady(priority worker.ConnPriority, iceConnInfo worker.ICEConnInfo) {
 	if conn.ctx.Err() != nil {
 		return
 	}
@@ -485,10 +697,9 @@ func (conn *Conn) onICEConnectionIsReady(priority conntype.ConnPriority, iceConn
 	conn.doOnConnected(iceConnInfo.RosenpassPubKey, iceConnInfo.RosenpassAddr, updateTime)
 }
 
-func (conn *Conn) onICEStateDisconnected(sessionChanged bool) {
-	conn.mu.Lock()
-	defer conn.mu.Unlock()
-
+// handleICEDisconnected switches back to the relay connection if available,
+// otherwise cleans up the WireGuard endpoint.
+func (conn *Conn) handleICEDisconnected(sessionChanged bool) {
 	if conn.ctx.Err() != nil {
 		return
 	}
@@ -517,16 +728,16 @@ func (conn *Conn) onICEStateDisconnected(sessionChanged bool) {
 			conn.Log.Errorf("failed to switch to relay conn: %v", err)
 		}
 
-		conn.currentConnPriority = conntype.Relay
+		conn.currentConnPriority = worker.Relay
 	} else {
-		conn.Log.Infof("ICE disconnected, do not switch to Relay. Reset priority to: %s", conntype.None.String())
-		conn.currentConnPriority = conntype.None
+		conn.Log.Infof("ICE disconnected, do not switch to Relay. Reset priority to: %s", worker.None.String())
+		conn.currentConnPriority = worker.None
 		if err := conn.config.WgConfig.WgInterface.RemoveEndpointAddress(conn.config.WgConfig.RemoteKey); err != nil {
 			conn.Log.Errorf("failed to remove wg endpoint: %v", err)
 		}
 	}
 
-	changed := conn.statusICE.Get() != worker.StatusDisconnected
+	changed := conn.statusICE.Get() != WorkerStatusDisconnected
 	if changed {
 		conn.guard.SetICEConnDisconnected()
 	}
@@ -534,11 +745,11 @@ func (conn *Conn) onICEStateDisconnected(sessionChanged bool) {
 
 	conn.disableWgWatcherIfNeeded()
 
-	if conn.currentConnPriority == conntype.None {
+	if conn.currentConnPriority == worker.None {
 		conn.metricsStages.Disconnected()
 	}
 
-	peerState := State{
+	peerState := status.State{
 		PubKey:           conn.config.Key,
 		ConnStatus:       conn.evalStatus(),
 		Relayed:          conn.isRelayed(),
@@ -549,12 +760,11 @@ func (conn *Conn) onICEStateDisconnected(sessionChanged bool) {
 	}
 }
 
-func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
-	conn.mu.Lock()
-	defer conn.mu.Unlock()
-
+// handleRelayReady sets up the WireGuard proxy for a freshly opened relayed
+// connection and activates it unless ICE has priority.
+func (conn *Conn) handleRelayReady(rci worker.RelayConnInfo) {
 	if conn.ctx.Err() != nil {
-		if err := rci.relayedConn.Close(); err != nil {
+		if err := rci.RelayedConn.Close(); err != nil {
 			conn.Log.Warnf("failed to close unnecessary relayed connection: %v", err)
 		}
 		return
@@ -563,7 +773,7 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 	conn.dumpState.RelayConnected()
 	conn.Log.Debugf("Relay connection has been established, setup the WireGuard")
 
-	wgProxy, err := conn.newProxy(rci.relayedConn)
+	wgProxy, err := conn.newProxy(rci.RelayedConn)
 	if err != nil {
 		conn.Log.Errorf("failed to add relayed net.Conn to local proxy: %v", err)
 		return
@@ -578,18 +788,18 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 		conn.Log.Debugf("do not switch to relay because current priority is: %s", conn.currentConnPriority.String())
 		conn.setRelayedProxy(wgProxy)
 		conn.statusRelay.SetConnected()
-		conn.updateRelayStatus(rci.relayedConn.RemoteAddr().String(), rci.rosenpassPubKey, time.Now())
+		conn.updateRelayStatus(rci.RelayedConn.RemoteAddr().String(), rci.RosenpassPubKey, time.Now())
 		return
 	}
 
-	controller := isController(conn.config)
+	controller := conn.config.IsController()
 
 	if controller {
 		wgProxy.Work()
 	}
 	updateTime := time.Now()
 	conn.enableWgWatcherIfNeeded(updateTime)
-	if err := conn.endpointUpdater.ConfigureWGEndpoint(wgProxy.EndpointAddr(), conn.presharedKey(rci.rosenpassPubKey)); err != nil {
+	if err := conn.endpointUpdater.ConfigureWGEndpoint(wgProxy.EndpointAddr(), conn.presharedKey(rci.RosenpassPubKey)); err != nil {
 		if err := wgProxy.CloseConn(); err != nil {
 			conn.Log.Warnf("Failed to close relay connection: %v", err)
 		}
@@ -604,32 +814,27 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 
 	conn.injectPendingFirstPacket(wgProxy, nil)
 
-	conn.rosenpassRemoteKey = rci.rosenpassPubKey
-	conn.currentConnPriority = conntype.Relay
+	conn.rosenpassRemoteKey = rci.RosenpassPubKey
+	conn.currentConnPriority = worker.Relay
 	conn.statusRelay.SetConnected()
 	conn.setRelayedProxy(wgProxy)
-	conn.updateRelayStatus(rci.relayedConn.RemoteAddr().String(), rci.rosenpassPubKey, updateTime)
+	conn.updateRelayStatus(rci.RelayedConn.RemoteAddr().String(), rci.RosenpassPubKey, updateTime)
 	conn.Log.Infof("start to communicate with peer via relay")
-	conn.doOnConnected(rci.rosenpassPubKey, rci.rosenpassAddr, updateTime)
+	conn.doOnConnected(rci.RosenpassPubKey, rci.RosenpassAddr, updateTime)
 }
 
-func (conn *Conn) onRelayDisconnected() {
-	conn.mu.Lock()
-	defer conn.mu.Unlock()
-	conn.handleRelayDisconnectedLocked()
-}
-
-// handleRelayDisconnectedLocked handles relay disconnection. Caller must hold conn.mu.
-func (conn *Conn) handleRelayDisconnectedLocked() {
+// handleRelayDisconnected cleans up the relayed transport and the WireGuard
+// endpoint if the relay was the active connection.
+func (conn *Conn) handleRelayDisconnected() {
 	if conn.ctx.Err() != nil {
 		return
 	}
 
 	conn.Log.Debugf("relay connection is disconnected")
 
-	if conn.currentConnPriority == conntype.Relay {
+	if conn.currentConnPriority == worker.Relay {
 		conn.Log.Debugf("clean up WireGuard config")
-		conn.currentConnPriority = conntype.None
+		conn.currentConnPriority = worker.None
 		if err := conn.config.WgConfig.WgInterface.RemoveEndpointAddress(conn.config.WgConfig.RemoteKey); err != nil {
 			conn.Log.Errorf("failed to remove wg endpoint: %v", err)
 		}
@@ -640,7 +845,7 @@ func (conn *Conn) handleRelayDisconnectedLocked() {
 		conn.wgProxyRelay = nil
 	}
 
-	changed := conn.statusRelay.Get() != worker.StatusDisconnected
+	changed := conn.statusRelay.Get() != WorkerStatusDisconnected
 	if changed {
 		conn.guard.SetRelayedConnDisconnected()
 	}
@@ -648,11 +853,11 @@ func (conn *Conn) handleRelayDisconnectedLocked() {
 
 	conn.disableWgWatcherIfNeeded()
 
-	if conn.currentConnPriority == conntype.None {
+	if conn.currentConnPriority == worker.None {
 		conn.metricsStages.Disconnected()
 	}
 
-	peerState := State{
+	peerState := status.State{
 		PubKey:           conn.config.Key,
 		ConnStatus:       conn.evalStatus(),
 		Relayed:          conn.isRelayed(),
@@ -663,19 +868,10 @@ func (conn *Conn) handleRelayDisconnectedLocked() {
 	}
 }
 
-func (conn *Conn) onGuardEvent() {
-	conn.dumpState.SendOffer()
-	if err := conn.handshaker.SendOffer(); err != nil {
-		conn.Log.Errorf("failed to send offer: %v", err)
-	}
-}
-
-func (conn *Conn) onWGDisconnected(watcherCtx context.Context) {
-	conn.mu.Lock()
-	defer conn.mu.Unlock()
-
-	// watcherCtx guards against a stale watcher tearing down a connection that already superseded it.
-	if conn.ctx.Err() != nil || watcherCtx.Err() != nil {
+// handleWGTimeout closes the active connection after a WireGuard handshake
+// timeout so the guard can trigger a reconnection.
+func (conn *Conn) handleWGTimeout() {
+	if conn.ctx.Err() != nil {
 		return
 	}
 
@@ -683,25 +879,25 @@ func (conn *Conn) onWGDisconnected(watcherCtx context.Context) {
 
 	// Close the active connection based on current priority
 	switch conn.currentConnPriority {
-	case conntype.Relay:
+	case worker.Relay:
 		conn.workerRelay.CloseConn()
-		conn.handleRelayDisconnectedLocked()
-	case conntype.ICEP2P, conntype.ICETurn:
+		conn.handleRelayDisconnected()
+	case worker.ICEP2P, worker.ICETurn:
 		conn.workerICE.Close()
 	default:
 		conn.Log.Debugf("No active connection to close on WG timeout")
 	}
 
-	conn.escalateWGTimeoutLocked()
+	conn.escalateWGTimeout()
 }
 
-// escalateWGTimeoutLocked resets the peer's rosenpass state after repeated
+// escalateWGTimeout resets the peer's rosenpass state after repeated
 // handshake timeouts. With rosenpass enabled, persistent timeouts mean the
 // preshared keys have desynced; the renewal exchange runs over the dead
 // tunnel and cannot resync them. Reporting the peer disconnected drops its
 // rosenpass state, so the next connection configuration programs the
-// rendezvous key and the tunnel can bootstrap again. Callers must hold mu.
-func (conn *Conn) escalateWGTimeoutLocked() {
+// rendezvous key and the tunnel can bootstrap again. Runs on the event loop.
+func (conn *Conn) escalateWGTimeout() {
 	if conn.config.RosenpassConfig.PubKey == nil {
 		return
 	}
@@ -716,8 +912,85 @@ func (conn *Conn) escalateWGTimeoutLocked() {
 	conn.onDisconnected(conn.config.WgConfig.RemoteKey)
 }
 
+func (conn *Conn) handleWGHandshakeSuccess(when time.Time) {
+	conn.metricsStages.RecordWGHandshakeSuccess(when)
+	conn.recordConnectionMetrics()
+}
+
+func (conn *Conn) handleWGCheckSuccess() {
+	conn.wgTimeouts = 0
+}
+
+func (conn *Conn) onICEConnectionIsReady(priority worker.ConnPriority, iceConnInfo worker.ICEConnInfo) {
+	conn.post(evICEReady{priority: priority, info: iceConnInfo})
+}
+
+func (conn *Conn) onICEStateDisconnected(sessionChanged bool) {
+	conn.post(evICEDown{sessionChanged: sessionChanged})
+}
+
+// onRelayConnectionIsReady closes the relayed connection when the event loop
+// is gone and nobody will take ownership of it.
+func (conn *Conn) onRelayConnectionIsReady(rci worker.RelayConnInfo) {
+	if conn.post(evRelayReady{info: rci}) {
+		return
+	}
+	if err := rci.RelayedConn.Close(); err != nil {
+		conn.Log.Warnf("failed to close unnecessary relayed connection: %v", err)
+	}
+}
+
+func (conn *Conn) onRelayDisconnected() {
+	conn.post(evRelayDown{})
+}
+
+func (conn *Conn) onGuardEvent() {
+	conn.post(evGuardTick{})
+}
+
+func (conn *Conn) onWGDisconnected(ctx context.Context) {
+	conn.post(evWGTimeout{ctx: ctx})
+}
+
+func (conn *Conn) onWGHandshakeSuccess(when time.Time) {
+	conn.post(evWGHandshake{when: when})
+}
+
+func (conn *Conn) onWGCheckSuccess() {
+	conn.post(evWGCheckOK{})
+}
+
+// injectPendingFirstPacket replays the captured handshake through the proxy if present, else
+// directly through the ICE conn. The packet is cleared only after a successful write, so a failed
+// or transport-less attempt leaves it available for a later reinjection. Runs on the event loop.
+func (conn *Conn) injectPendingFirstPacket(proxy wgproxy.Proxy, directConn net.Conn) {
+	pkt := conn.pendingFirstPacket
+	if len(pkt) == 0 {
+		return
+	}
+
+	switch {
+	case proxy != nil:
+		if err := proxy.InjectPacket(pkt); err != nil {
+			conn.Log.Debugf("failed to reinject captured first packet via proxy: %v", err)
+			return
+		}
+	case directConn != nil:
+		if _, err := directConn.Write(pkt); err != nil {
+			conn.Log.Debugf("failed to reinject captured first packet via direct conn: %v", err)
+			return
+		}
+	default:
+		conn.Log.Debugf("no transport available to reinject captured first packet")
+		return
+	}
+
+	conn.pendingFirstPacket = nil
+	conn.Log.Debugf("reinjected captured first packet (%d bytes)", len(pkt))
+}
+
 func (conn *Conn) updateRelayStatus(relayServerAddr string, rosenpassPubKey []byte, updateTime time.Time) {
-	peerState := State{
+	peerState := status.State{
 		PubKey:             conn.config.Key,
 		ConnStatusUpdate:   updateTime,
 		ConnStatus:         conn.evalStatus(),
@@ -732,8 +1005,8 @@ func (conn *Conn) updateRelayStatus(relayServerAddr string, rosenpassPubKey []by
 	}
 }
 
-func (conn *Conn) updateIceState(iceConnInfo ICEConnInfo, updateTime time.Time) {
-	peerState := State{
+func (conn *Conn) updateIceState(iceConnInfo worker.ICEConnInfo, updateTime time.Time) {
+	peerState := status.State{
 		PubKey:                     conn.config.Key,
 		ConnStatusUpdate:           updateTime,
 		ConnStatus:                 conn.evalStatus(),
@@ -754,11 +1027,11 @@ func (conn *Conn) updateIceState(iceConnInfo ICEConnInfo, updateTime time.Time) 
 func (conn *Conn) setStatusToDisconnected() {
 	conn.statusRelay.SetDisconnected()
 	conn.statusICE.SetDisconnected()
-	conn.currentConnPriority = conntype.None
+	conn.currentConnPriority = worker.None
 
-	peerState := State{
+	peerState := status.State{
 		PubKey:           conn.config.Key,
-		ConnStatus:       StatusIdle,
+		ConnStatus:       status.StatusIdle,
 		ConnStatusUpdate: time.Now(),
 		Mux:              new(sync.RWMutex),
 	}
@@ -787,19 +1060,19 @@ func (conn *Conn) doOnConnected(remoteRosenpassPubKey []byte, remoteRosenpassAdd
 
 func (conn *Conn) isRelayed() bool {
 	switch conn.currentConnPriority {
-	case conntype.Relay, conntype.ICETurn:
+	case worker.Relay, worker.ICETurn:
 		return true
 	default:
 		return false
 	}
 }
 
-func (conn *Conn) evalStatus() ConnStatus {
-	if conn.statusRelay.Get() == worker.StatusConnected || conn.statusICE.Get() == worker.StatusConnected {
-		return StatusConnected
+func (conn *Conn) evalStatus() status.ConnStatus {
+	if conn.statusRelay.Get() == WorkerStatusConnected || conn.statusICE.Get() == WorkerStatusConnected {
+		return status.StatusConnected
 	}
 
-	return StatusConnecting
+	return status.StatusConnecting
 }
 
 // isConnectedOnAllWay evaluates the overall connection status based on ICE and Relay transports.
@@ -825,29 +1098,25 @@ func (conn *Conn) isConnectedOnAllWay() (status guard.ConnStatus) {
 	return evalConnStatus(connStatusInputs{
 		forceRelay:          IsForceRelayed(),
 		peerUsesRelay:       conn.workerRelay.IsRelayConnectionSupportedWithPeer(),
-		relayConnected:      conn.statusRelay.Get() == worker.StatusConnected,
+		relayConnected:      conn.statusRelay.Get() == WorkerStatusConnected,
 		remoteSupportsICE:   conn.handshaker.RemoteICESupported(),
 		iceWorkerCreated:    iceWorkerCreated,
-		iceStatusConnecting: conn.statusICE.Get() != worker.StatusDisconnected,
+		iceStatusConnecting: conn.statusICE.Get() != WorkerStatusDisconnected,
 		iceInProgress:       iceInProgress,
 	})
 }
 
-// enableWgWatcherIfNeeded starts a fresh watcher instance per connection attempt, so its
-// lifecycle stays bound to conn.mu and enable/disable can't race an old goroutine's shutdown.
-// Caller must hold conn.mu.
 func (conn *Conn) enableWgWatcherIfNeeded(enabledTime time.Time) {
 	if conn.wgWatcher != nil {
 		return
 	}
 
-	watcher := NewWGWatcher(conn.Log, conn.config.WgConfig.WgInterface, conn.config.Key, conn.dumpState)
+	watcher := wg_watcher.NewWGWatcher(conn.Log, conn.config.WgConfig.WgInterface, conn.config.Key, conn.dumpState)
 	watcher.PrepareInitialHandshake()
 
 	wgWatcherCtx, wgWatcherCancel := context.WithCancel(conn.ctx)
 	conn.wgWatcher = watcher
 	conn.wgWatcherCancel = wgWatcherCancel
-
 	conn.wgWatcherWg.Add(1)
 	go func() {
 		defer conn.wgWatcherWg.Done()
@@ -856,11 +1125,8 @@ func (conn *Conn) enableWgWatcherIfNeeded(enabledTime time.Time) {
 	}()
 }
 
-// disableWgWatcherIfNeeded cancels and drops the watcher once no transport is active. It never
-// waits for the goroutine: the timeout path reentrantly calls back here under conn.mu, so
-// blocking would deadlock. Caller must hold conn.mu.
 func (conn *Conn) disableWgWatcherIfNeeded() {
-	if conn.currentConnPriority != conntype.None || conn.wgWatcher == nil {
+	if conn.currentConnPriority != worker.None || conn.wgWatcher == nil {
 		return
 	}
 	conn.wgWatcherCancel()
@@ -884,7 +1150,7 @@ func (conn *Conn) newProxy(remoteConn net.Conn) (wgproxy.Proxy, error) {
 }
 
 func (conn *Conn) resetEndpoint() {
-	if !isController(conn.config) {
+	if !conn.config.IsController() {
 		return
 	}
 	conn.Log.Infof("reset wg endpoint")
@@ -897,11 +1163,11 @@ func (conn *Conn) resetEndpoint() {
 }
 
 func (conn *Conn) isReadyToUpgrade() bool {
-	return conn.wgProxyRelay != nil && conn.currentConnPriority != conntype.Relay
+	return conn.wgProxyRelay != nil && conn.currentConnPriority != worker.Relay
 }
 
 func (conn *Conn) isICEActive() bool {
-	return (conn.currentConnPriority == conntype.ICEP2P || conn.currentConnPriority == conntype.ICETurn) && conn.statusICE.Get() == worker.StatusConnected
+	return (conn.currentConnPriority == worker.ICEP2P || conn.currentConnPriority == worker.ICETurn) && conn.statusICE.Get() == WorkerStatusConnected
 }
 
 func (conn *Conn) handleConfigurationFailure(err error, wgProxy wgproxy.Proxy) {
@@ -933,35 +1199,15 @@ func (conn *Conn) setRelayedProxy(proxy wgproxy.Proxy) {
 	conn.wgProxyRelay = proxy
 }
 
-// onWGHandshakeSuccess is called when the first WireGuard handshake is detected
-func (conn *Conn) onWGHandshakeSuccess(when time.Time) {
-	conn.metricsStages.RecordWGHandshakeSuccess(when)
-	conn.recordConnectionMetrics()
-}
-
-// onWGCheckSuccess is called for every watcher check that observed a fresh
-// handshake, including handshakes of connections that were already up when
-// the watcher started.
-func (conn *Conn) onWGCheckSuccess() {
-	conn.mu.Lock()
-	conn.wgTimeouts = 0
-	conn.mu.Unlock()
-}
-
 // recordConnectionMetrics records connection stage timestamps as metrics
 func (conn *Conn) recordConnectionMetrics() {
 	if conn.metricsRecorder == nil {
 		return
 	}
 
-	// Determine connection type based on current priority
-	conn.mu.Lock()
-	priority := conn.currentConnPriority
-	conn.mu.Unlock()
-
 	var connType metrics.ConnectionType
-	switch priority {
-	case conntype.Relay:
+	switch conn.currentConnPriority {
+	case worker.Relay:
 		connType = metrics.ConnectionTypeRelay
 	default:
 		connType = metrics.ConnectionTypeICE
@@ -975,15 +1221,6 @@ func (conn *Conn) recordConnectionMetrics() {
 		conn.metricsStages.IsReconnection(),
 		conn.metricsStages.GetTimestamps(),
 	)
-}
-
-// AllowedIP returns the allowed IP of the remote peer
-func (conn *Conn) AllowedIP() netip.Addr {
-	return conn.config.WgConfig.AllowedIps[0].Addr()
-}
-
-func (conn *Conn) AgentVersionString() string {
-	return conn.config.AgentVersion
 }
 
 func (conn *Conn) presharedKey(remoteRosenpassKey []byte) *wgtypes.Key {
@@ -1016,10 +1253,6 @@ func (conn *Conn) presharedKey(remoteRosenpassKey []byte) *wgtypes.Key {
 	}
 
 	return determKey
-}
-
-func isController(config ConnConfig) bool {
-	return config.LocalKey > config.Key
 }
 
 func isRosenpassEnabled(remoteRosenpassPubKey []byte) bool {

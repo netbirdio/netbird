@@ -1,4 +1,4 @@
-package peer
+package status
 
 import (
 	"testing"
