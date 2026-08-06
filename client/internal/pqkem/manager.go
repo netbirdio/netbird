@@ -285,7 +285,13 @@ func (m *Manager) SignalOffer(remoteID RemoteID) ([]byte, error) {
 		m.mu.Unlock()
 		return nil, nil // peer does not run the KEM; do not offer (avoids a failure/reoffer loop)
 	}
-	if ex := m.exchanges[remoteID]; ex != nil && ex.viaSignal && ex.state == stateAwaitingAnswer {
+	// Idempotent while a signalling bootstrap is in flight OR already derived a PSK but
+	// not yet chained a rotation (awaitingRekey): return the SAME offer instead of
+	// starting a new exchange. This matters when the controller both offers on its own
+	// guard AND re-offers in response to the responder's offer — without this, the
+	// second call would start a fresh exchange (a different PSK) and desync the peers.
+	if ex := m.exchanges[remoteID]; ex != nil && ex.viaSignal &&
+		(ex.state == stateAwaitingAnswer || ex.state == stateAwaitingRekey) {
 		last := ex.lastSent
 		m.mu.Unlock()
 		return last, nil
