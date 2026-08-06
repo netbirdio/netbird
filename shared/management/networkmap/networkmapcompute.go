@@ -75,7 +75,7 @@ func (nmd *NetworkMapData) GetPeerNetworkMapComponents(peerID string, peersCusto
 	components.AccountZones = append(components.AccountZones, nmd.privateServiceZones(peerGroups)...)
 
 	for _, nsGroup := range nmd.NameServerGroups {
-		if nsGroup.Enabled {
+		if nsGroup != nil && nsGroup.Enabled {
 			for _, gID := range nsGroup.Groups {
 				if _, found := relevantGroups[gID]; found {
 					components.NameServerGroups = append(components.NameServerGroups, nsGroup)
@@ -86,7 +86,7 @@ func (nmd *NetworkMapData) GetPeerNetworkMapComponents(peerID string, peersCusto
 	}
 
 	for _, resource := range nmd.NetworkResources {
-		if !resource.Enabled {
+		if resource == nil || !resource.Enabled {
 			continue
 		}
 
@@ -105,6 +105,9 @@ func (nmd *NetworkMapData) GetPeerNetworkMapComponents(peerID string, peersCusto
 		}
 
 		for _, policy := range policies {
+			if policy == nil || len(policy.Rules) == 0 || policy.Rules[0] == nil {
+				continue
+			}
 			if addSourcePeers {
 				var peers []string
 				if policy.Rules[0].SourceResource.Type == string(types.ResourceTypePeer) && policy.Rules[0].SourceResource.ID != "" {
@@ -144,6 +147,9 @@ func (nmd *NetworkMapData) GetPeerNetworkMapComponents(peerID string, peersCusto
 			}
 
 			for _, rule := range policy.Rules {
+				if rule == nil {
+					continue
+				}
 				for _, srcGroupID := range rule.Sources {
 					if g := nmd.Groups[srcGroupID]; g != nil {
 						if _, exists := components.Groups[srcGroupID]; !exists {
@@ -277,13 +283,13 @@ func (nmd *NetworkMapData) getPeersGroupsPoliciesRoutes(
 	}
 
 	for _, policy := range nmd.Policies {
-		if !policy.Enabled {
+		if policy == nil || !policy.Enabled {
 			continue
 		}
 
 		policyRelevant := false
 		for _, rule := range policy.Rules {
-			if !rule.Enabled {
+			if rule == nil || !rule.Enabled {
 				continue
 			}
 
