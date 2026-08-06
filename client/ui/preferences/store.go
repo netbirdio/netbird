@@ -246,6 +246,7 @@ func (s *Store) ExistedAtLoad() bool {
 func (s *Store) load() error {
 	if _, err := os.Stat(s.path); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
+			log.Infof("no ui preferences file at %s; using defaults", s.path)
 			return nil
 		}
 		return fmt.Errorf("stat preferences: %w", err)

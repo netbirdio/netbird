@@ -160,8 +160,19 @@ func TestSettingsRoundTrip(t *testing.T) {
 	assert.Equal(t, before.Cluster, flipped.Cluster, "cluster must be immutable across updates")
 	assert.Equal(t, before.Subdomain, flipped.Subdomain, "subdomain must be immutable across updates")
 
+	// A cluster different from the pinned one must be rejected; echoing the
+	// pinned one back is valid.
+	_, err = srv.UpdateSettings(ctx, api.AgentNetworkSettingsRequest{
+		Cluster:                ptr("attacker.cluster.invalid"),
+		EnableLogCollection:    before.EnableLogCollection,
+		EnablePromptCollection: before.EnablePromptCollection,
+		RedactPii:              before.RedactPii,
+	})
+	requireClientError(t, err)
+
 	// Restore the original toggles.
 	_, err = srv.UpdateSettings(ctx, api.AgentNetworkSettingsRequest{
+		Cluster:                ptr(before.Cluster),
 		EnableLogCollection:    before.EnableLogCollection,
 		EnablePromptCollection: before.EnablePromptCollection,
 		RedactPii:              before.RedactPii,

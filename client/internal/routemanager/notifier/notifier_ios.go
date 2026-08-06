@@ -29,11 +29,7 @@ func (n *Notifier) SetListener(listener listener.NetworkChangeListener) {
 	n.listener = listener
 }
 
-func (n *Notifier) SetInitialClientRoutes([]*route.Route, []*route.Route) {
-	// iOS doesn't care about initial routes
-}
-
-func (n *Notifier) SetFakeIPRoutes([]*route.Route) {
+func (n *Notifier) NotifyRouteChange() {
 	// Not used on iOS
 }
 

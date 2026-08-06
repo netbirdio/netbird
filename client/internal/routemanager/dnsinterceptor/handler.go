@@ -479,7 +479,7 @@ func (d *DnsInterceptor) removeDNATMappings(realPrefixes []netip.Prefix, logger 
 
 // internalDnatFw checks if the firewall supports internal DNAT
 func (d *DnsInterceptor) internalDnatFw() (internalDNATer, bool) {
-	if d.firewall == nil || runtime.GOOS != "android" {
+	if d.firewall == nil || d.fakeIPManager == nil || runtime.GOOS != "android" {
 		return nil, false
 	}
 	fw, ok := d.firewall.(internalDNATer)

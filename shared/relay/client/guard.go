@@ -156,9 +156,11 @@ func (g *Guard) notifyReconnected() {
 func (g *Guard) exponentTicker(ctx context.Context) *backoff.Ticker {
 	bo := backoff.WithContext(&backoff.ExponentialBackOff{
 		InitialInterval: 2 * time.Second,
-		Multiplier:      2,
-		MaxInterval:     g.maxBackoffInterval,
-		Clock:           backoff.SystemClock,
+		// Spreads the reconnects of every client that lost the same relay server.
+		RandomizationFactor: backoff.DefaultRandomizationFactor,
+		Multiplier:          2,
+		MaxInterval:         g.maxBackoffInterval,
+		Clock:               backoff.SystemClock,
 	}, ctx)
 
 	return backoff.NewTicker(bo)

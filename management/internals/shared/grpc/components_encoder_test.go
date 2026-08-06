@@ -758,6 +758,9 @@ func TestEncodeNetworkMapEnvelope_NilComponentsGracefulDegrade(t *testing.T) {
 	assert.Equal(t, "netbird.cloud", full.DnsDomain)
 	assert.Len(t, full.Peers, 1)
 	assert.Empty(t, full.Policies)
+	require.NotNil(t, full.Network, "client runs Calculate() over the envelope and dereferences Network unconditionally; a nil here would crash the receiver")
+	assert.Equal(t, "net-empty", full.Network.Identifier)
+	assert.Equal(t, uint64(9), full.Serial)
 }
 
 func TestEncodeNetworkMapEnvelope_AccountSettingsAlwaysEmitted(t *testing.T) {
@@ -776,6 +779,12 @@ func TestEncodeNetworkMapEnvelope_AccountSettingsAlwaysEmitted(t *testing.T) {
 func emptyNetworkMapComponents() *types.NetworkMapComponents {
 	return types.EmptyNetworkMapComponents(
 		&types.NetworkMapComponents{
-			PeerID: "peer-id", Peers: map[string]*types.ComponentPeer{"peer-id": {}}},
+			PeerID: "peer-id", Peers: map[string]*types.ComponentPeer{"peer-id": {}},
+			Network: &types.Network{
+				Identifier: "net-empty",
+				Net:        net.IPNet{IP: net.IP{100, 64, 0, 0}, Mask: net.CIDRMask(10, 32)},
+				Serial:     9,
+			},
+		},
 	)
 }

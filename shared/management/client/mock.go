@@ -94,11 +94,6 @@ func (m *MockClient) HealthCheck() error {
 	return m.HealthCheckFunc()
 }
 
-// GetNetworkMap mock implementation of GetNetworkMap from Client interface.
-func (m *MockClient) GetNetworkMap(_ *system.Info) (*proto.NetworkMap, error) {
-	return nil, nil
-}
-
 // GetServerURL mock implementation of GetServerURL from mgm.Client interface
 func (m *MockClient) GetServerURL() string {
 	if m.GetServerURLFunc == nil {

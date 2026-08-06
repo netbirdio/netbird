@@ -11,7 +11,7 @@ import { DialogHeading } from "@/components/dialog/DialogHeading";
 import { SquareIcon } from "@/components/SquareIcon";
 import { Connection, Profiles as ProfilesSvc, Session, WindowManager } from "@bindings/services";
 import { useAutoSizeWindow } from "@/hooks/useAutoSizeWindow";
-import { EVENT_BROWSER_LOGIN_CANCEL } from "@/lib/connection";
+import { EVENT_BROWSER_LOGIN_CANCEL, EVENT_TRIGGER_LOGIN } from "@/lib/connection";
 import { errorDialog, formatErrorMessage } from "@/lib/errors.ts";
 import { formatRemaining } from "@/lib/formatters";
 
@@ -131,6 +131,21 @@ export default function SessionExpirationDialog() {
         }
     }, [busy, t]);
 
+    const authenticate = useCallback(async () => {
+        if (busy) return;
+        setBusy(true);
+        try {
+            await Events.Emit(EVENT_TRIGGER_LOGIN);
+            await WindowManager.CloseSessionExpiration();
+        } catch (e) {
+            setBusy(false);
+            await errorDialog({
+                Title: t("connect.error.loginTitle"),
+                Message: formatErrorMessage(e),
+            });
+        }
+    }, [busy, t]);
+
     const logout = useCallback(async () => {
         if (busy) return;
         setBusy(true);
@@ -185,7 +200,7 @@ export default function SessionExpirationDialog() {
                     variant={"primary"}
                     size={"md"}
                     className={"w-full"}
-                    onClick={stay}
+                    onClick={expired ? authenticate : stay}
                     disabled={busy}
                 >
                     {expired ? t("sessionExpiration.authenticate") : t("sessionExpiration.stay")}

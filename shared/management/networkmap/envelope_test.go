@@ -292,6 +292,66 @@ func TestEnvelopeRoundTrip_AllGroupShortCircuitParity(t *testing.T) {
 		"client-side Calculate must connect the same remote peers as the server")
 }
 
+// TestEnvelopeToNetworkMap_EmptyComponents covers the graceful-degrade path
+// the server takes for a peer that is missing from the account or absent from
+// the validated-peers map. The legacy server short-circuited before
+// Calculate() and shipped a NetworkMap carrying only the account Network; the
+// components path runs Calculate() on the client instead, so the envelope must
+// carry Network or the client panics dereferencing a nil *types.Network.
+func TestEnvelopeToNetworkMap_EmptyComponents(t *testing.T) {
+	localPeerKey := randomWgKey(t)
+	c := types.EmptyNetworkMapComponents(&types.NetworkMapComponents{
+		PeerID: "peer-A",
+		Network: &types.Network{
+			Identifier: "net-empty",
+			Net:        net.IPNet{IP: net.IP{100, 64, 0, 0}, Mask: net.CIDRMask(10, 32)},
+			Serial:     7,
+		},
+		Peers: map[string]*types.ComponentPeer{
+			"peer-A": {ID: "peer-A", Key: localPeerKey, IP: netip.AddrFrom4([4]byte{100, 64, 0, 1})},
+		},
+	})
+
+	envelope := mgmtgrpc.EncodeNetworkMapEnvelope(mgmtgrpc.ComponentsEnvelopeInput{
+		Components: c,
+		DNSDomain:  "netbird.cloud",
+	})
+	require.NotNil(t, envelope.GetFull().Network, "empty envelope must carry the account Network")
+
+	wire, err := goproto.Marshal(envelope)
+	require.NoError(t, err, "marshal envelope")
+	var decoded proto.NetworkMapEnvelope
+	require.NoError(t, goproto.Unmarshal(wire, &decoded), "unmarshal envelope")
+
+	result, err := nbnetworkmap.EnvelopeToNetworkMap(context.Background(), &decoded, localPeerKey, "netbird.cloud")
+	require.NoError(t, err, "EnvelopeToNetworkMap must degrade gracefully on empty components")
+	require.Equal(t, uint64(7), result.NetworkMap.Serial)
+	require.Empty(t, result.NetworkMap.RemotePeers, "unvalidated peer connects to nobody")
+}
+
+// TestEnvelopeToNetworkMap_MissingNetwork simulates a server that omits
+// AccountNetwork from the envelope. Clients must degrade rather than panic, so
+// they survive talking to a management server that predates the encoder fix.
+func TestEnvelopeToNetworkMap_MissingNetwork(t *testing.T) {
+	c, localPeerKey := buildSmokeComponents(t)
+
+	envelope := mgmtgrpc.EncodeNetworkMapEnvelope(mgmtgrpc.ComponentsEnvelopeInput{
+		Components: c,
+		DNSDomain:  "netbird.cloud",
+	})
+	envelope.GetFull().Network = nil
+
+	wire, err := goproto.Marshal(envelope)
+	require.NoError(t, err, "marshal envelope")
+	var decoded proto.NetworkMapEnvelope
+	require.NoError(t, goproto.Unmarshal(wire, &decoded), "unmarshal envelope")
+
+	result, err := nbnetworkmap.EnvelopeToNetworkMap(context.Background(), &decoded, localPeerKey, "netbird.cloud")
+	require.NoError(t, err, "a missing AccountNetwork must not panic the client")
+	require.NotNil(t, result.Components.Network)
+	require.NotEmpty(t, result.NetworkMap.RemotePeers, "the rest of the snapshot stays usable")
+}
+
 // buildSmokeComponents returns a minimal NetworkMapComponents (2 peers, 1
 // group, 1 allow policy) plus the receiving peer's WG public key. Sufficient
 // to validate the encode → marshal → decode → Calculate pipeline produces

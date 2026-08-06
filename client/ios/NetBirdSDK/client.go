@@ -158,13 +158,19 @@ func (c *Client) Run(fd int32, interfaceName string, envList *EnvList) error {
 	defer c.ctxCancel()
 	c.ctxCancelLock.Unlock()
 
-	auth := NewAuthWithConfig(ctx, cfg)
-	err = auth.LoginSync()
-	if err != nil {
-		return err
-	}
-
-	log.Infof("Auth successful")
+	// No login pre-flight here. The engine's own loginToManagement (connect.go) performs
+	// the authoritative Login immediately before the first Sync, so a LoginSync() call at
+	// this point only duplicated it — costing two extra Login RPCs (IsLoginRequired +
+	// Login) on every engine start, since IsLoginRequired is itself a full Login RPC.
+	//
+	// Auth failures still reach the caller through the engine path: loginToManagement
+	// returns PermissionDenied, which marks the shared status recorder
+	// (MarkManagementDisconnected) and fires ClientStop → onDisconnected, where
+	// IsLoginRequiredCached() reports login-required. The error is also returned out of Run().
+	//
+	// A pre-flight was also actively harmful when the server is unreachable: its 2-minute
+	// backoff blocked the start and then reported "login required" for what was really a
+	// timeout. The engine instead keeps retrying and recovers when the server returns.
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
 	c.onHostDnsFn = func([]string) {}

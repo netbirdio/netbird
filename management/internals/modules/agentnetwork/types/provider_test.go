@@ -77,3 +77,41 @@ func TestProvider_MetadataDisabled_RoundTrip(t *testing.T) {
 	assert.False(t, p.MetadataDisabled, "explicit false must clear metadata_disabled")
 	assert.False(t, p.ToAPIResponse().MetadataDisabled, "response must reflect the cleared value")
 }
+
+// TestProvider_IdentityHeaders_AlwaysOnWire pins that the identity header
+// fields are always present in the API response — an explicitly cleared
+// ("") header must round-trip as "" rather than vanish, so API consumers
+// (e.g. the Terraform provider) never observe a value other than the one
+// they wrote.
+func TestProvider_IdentityHeaders_AlwaysOnWire(t *testing.T) {
+	set := "x-bf-dim-netbird_user_id"
+	empty := ""
+
+	base := func() *api.AgentNetworkProviderRequest {
+		return &api.AgentNetworkProviderRequest{
+			ProviderId:  "custom",
+			Name:        "bifrost",
+			UpstreamUrl: "https://bifrost.internal",
+		}
+	}
+
+	p := NewProvider("acc-1")
+	resp := p.ToAPIResponse()
+	assert.Equal(t, "", resp.IdentityHeaderUserId, "unset header must surface as empty string, not be omitted")
+	assert.Equal(t, "", resp.IdentityHeaderGroups, "unset header must surface as empty string, not be omitted")
+
+	req := base()
+	req.IdentityHeaderUserId = &set
+	p.FromAPIRequest(req)
+	assert.Equal(t, set, p.ToAPIResponse().IdentityHeaderUserId, "configured header must round-trip")
+
+	// Omitting the field preserves it.
+	p.FromAPIRequest(base())
+	assert.Equal(t, set, p.ToAPIResponse().IdentityHeaderUserId, "omitted header must preserve the stored value")
+
+	// An explicit "" clears it AND stays visible on the wire.
+	req = base()
+	req.IdentityHeaderUserId = &empty
+	p.FromAPIRequest(req)
+	assert.Equal(t, "", p.ToAPIResponse().IdentityHeaderUserId, "cleared header must round-trip as empty string")
+}

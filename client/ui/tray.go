@@ -44,7 +44,7 @@ type TrayServices struct {
 	Profiles        *services.Profiles
 	Networks        *services.Networks
 	DaemonFeed      *services.DaemonFeed
-	Notifier        *notifications.NotificationService
+	Notifier        *Notifier
 	Update          *services.Update
 	ProfileSwitcher *services.ProfileSwitcher
 	WindowManager   *services.WindowManager

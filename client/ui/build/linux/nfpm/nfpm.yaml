@@ -26,17 +26,17 @@ contents:
 
 # Default dependencies for the GTK4 + WebKitGTK 6.0 stack (Ubuntu 24.04+ / Debian 13+)
 depends:
-  - libgtk-4-1
+  - libgtk-4-1 (>= 4.14)
   - libwebkitgtk-6.0-4
   - xdg-utils
 
 # Distribution-specific overrides for different package formats
 overrides:
-  # RPM packages for Fedora / RHEL / AlmaLinux / Rocky Linux
+  # RPM packages for Fedora / RHEL / AlmaLinux / Rocky Linux / openSUSE
   rpm:
     depends:
-      - gtk4
-      - webkitgtk6.0
+      - (gtk4 >= 4.14 or libgtk-4-1 >= 4.14)
+      - (webkitgtk6.0 or libwebkitgtk-6_0-4)
       - xdg-utils
 
   # Arch Linux packages
