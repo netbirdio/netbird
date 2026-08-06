@@ -1815,6 +1815,9 @@ func (s *Server) RequestExtendAuthSession(
 	if connectClient == nil {
 		return nil, gstatus.Errorf(codes.FailedPrecondition, "client is not running")
 	}
+	if connectClient.Engine() == nil {
+		return nil, gstatus.Errorf(codes.FailedPrecondition, "session can no longer be extended, log in again to reconnect")
+	}
 
 	hint := ""
 	if msg.Hint != nil {
