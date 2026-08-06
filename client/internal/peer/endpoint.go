@@ -20,10 +20,13 @@ type EndpointUpdater struct {
 	wgConfig  WgConfig
 	initiator bool
 
-	// mu protects cancelFunc
+	// mu protects cancelFunc and lastEndpoint
 	mu         sync.Mutex
 	cancelFunc func()
 	updateWg   sync.WaitGroup
+	// lastEndpoint is the most recent non-nil endpoint applied to the peer, used to
+	// re-add it on a forced re-handshake (ForceRehandshake).
+	lastEndpoint *net.UDPAddr
 }
 
 func NewEndpointUpdater(log *logrus.Entry, wgConfig WgConfig, initiator bool) *EndpointUpdater {
@@ -38,6 +41,10 @@ func (e *EndpointUpdater) ConfigureWGEndpoint(addr *net.UDPAddr, presharedKey *w
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
+	if addr != nil {
+		e.lastEndpoint = addr
+	}
+
 	if e.initiator {
 		e.log.Debugf("configure up WireGuard as initiator")
 		return e.configureAsInitiator(addr, presharedKey)
@@ -51,10 +58,34 @@ func (e *EndpointUpdater) SwitchWGEndpoint(addr *net.UDPAddr, presharedKey *wgty
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
+	if addr != nil {
+		e.lastEndpoint = addr
+	}
+
 	// prevent to run new update while cancel the previous update
 	e.waitForCloseTheDelayedUpdate()
 
 	return e.updateWireGuardPeer(addr, presharedKey)
+}
+
+// ForceRehandshake removes and re-adds the peer so WireGuard drops the current session
+// and negotiates a fresh one with the given PSK. Used when a post-quantum PSK is
+// bootstrapped after the session already came up on a pre-PQ key. No-op if no endpoint
+// has been applied yet (the pending config will pull the PSK itself).
+func (e *EndpointUpdater) ForceRehandshake(presharedKey *wgtypes.Key) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if e.lastEndpoint == nil {
+		return nil
+	}
+	// Cancel any pending delayed responder update: it carries the stale pre-PQ key and
+	// would otherwise re-poison the session after we reset it.
+	e.waitForCloseTheDelayedUpdate()
+	if err := e.wgConfig.WgInterface.RemovePeer(e.wgConfig.RemoteKey); err != nil {
+		return err
+	}
+	return e.updateWireGuardPeer(e.lastEndpoint, presharedKey)
 }
 
 func (e *EndpointUpdater) RemoveWgPeer() error {
