@@ -3,17 +3,27 @@ package peer
 import (
 	"context"
 	"fmt"
+	"io"
+	"net"
+	"net/netip"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/configurer"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/wgproxy"
+	"github.com/netbirdio/netbird/client/internal/peer/conntype"
 	"github.com/netbirdio/netbird/client/internal/peer/dispatcher"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	"github.com/netbirdio/netbird/client/internal/peer/ice"
+	"github.com/netbirdio/netbird/client/internal/peer/worker"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/util"
 )
@@ -385,4 +395,161 @@ func TestConn_onWGDisconnected_NoEscalationWithoutRosenpass(t *testing.T) {
 		conn.onWGDisconnected(conn.ctx)
 	}
 	assert.Empty(t, disconnected, "escalation must be limited to rosenpass connections")
+}
+
+type mockCycleWGIface struct {
+	updatePeerCalls     atomic.Int32
+	removeEndpointCalls atomic.Int32
+}
+
+func (m *mockCycleWGIface) UpdatePeer(string, []netip.Prefix, time.Duration, *net.UDPAddr, *wgtypes.Key) error {
+	m.updatePeerCalls.Add(1)
+	return nil
+}
+func (m *mockCycleWGIface) RemovePeer(string) error { return nil }
+func (m *mockCycleWGIface) GetStats() (map[string]configurer.WGStats, error) {
+	return map[string]configurer.WGStats{}, nil
+}
+func (m *mockCycleWGIface) GetProxy() wgproxy.Proxy { return nil }
+func (m *mockCycleWGIface) Address() wgaddr.Address { return wgaddr.Address{} }
+func (m *mockCycleWGIface) RemoveEndpointAddress(string) error {
+	m.removeEndpointCalls.Add(1)
+	return nil
+}
+
+// fakeRemoteConn is a minimal net.Conn with UDP-shaped addresses so the
+// non-relayed ICE-ready path can resolve an endpoint.
+type fakeRemoteConn struct{}
+
+func (fakeRemoteConn) Read([]byte) (int, error)         { return 0, io.EOF }
+func (fakeRemoteConn) Write(b []byte) (int, error)      { return len(b), nil }
+func (fakeRemoteConn) Close() error                     { return nil }
+func (fakeRemoteConn) LocalAddr() net.Addr              { return &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1} }
+func (fakeRemoteConn) RemoteAddr() net.Addr             { return &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 2} }
+func (fakeRemoteConn) SetDeadline(time.Time) error      { return nil }
+func (fakeRemoteConn) SetReadDeadline(time.Time) error  { return nil }
+func (fakeRemoteConn) SetWriteDeadline(time.Time) error { return nil }
+
+// newCycleTestConn builds a Conn the way the callback-level tests need it:
+// liveCtx plays the role of the CURRENT cycle's conn.ctx.
+func newCycleTestConn(t *testing.T, liveCtx context.Context, iface WGIface) *Conn {
+	t.Helper()
+	cfg := ConnConfig{
+		Key:      "LLHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
+		LocalKey: "RRHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
+		WgConfig: WgConfig{
+			RemoteKey:   "LLHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
+			WgInterface: iface,
+		},
+	}
+	logEntry := log.WithField("peer", cfg.Key)
+	statusRecorder := NewRecorder("https://mgm")
+	return &Conn{
+		ctx:             liveCtx,
+		config:          cfg,
+		Log:             logEntry,
+		statusICE:       worker.NewAtomicStatus(),
+		statusRelay:     worker.NewAtomicStatus(),
+		statusRecorder:  statusRecorder,
+		metricsStages:   &MetricsStages{},
+		dumpState:       newStateDump(cfg.Key, logEntry, statusRecorder),
+		endpointUpdater: NewEndpointUpdater(logEntry, cfg.WgConfig, isController(cfg)),
+		guard: guard.NewGuard(logEntry, func() guard.ConnStatus { return guard.ConnStatusConnected },
+			time.Second, guard.NewSRWatcher(nil, nil, nil, connConf.ICEConfig)),
+	}
+}
+
+// staleCycleCtx returns a cancelled context standing in for a closed
+// previous connection cycle.
+func staleCycleCtx() context.Context {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	return ctx
+}
+
+// TestConn_onICEStateDisconnected_IgnoresStaleCycle: a disconnect callback
+// from a previous connection cycle (its cycle context is cancelled) must not
+// tear down the state of the current cycle, while the same callback from the
+// live cycle still must.
+func TestConn_onICEStateDisconnected_IgnoresStaleCycle(t *testing.T) {
+	liveCtx, liveCancel := context.WithCancel(context.Background())
+	defer liveCancel()
+
+	iface := &mockCycleWGIface{}
+	conn := newCycleTestConn(t, liveCtx, iface)
+	conn.statusICE.SetConnected()
+	conn.currentConnPriority = conntype.ICEP2P
+
+	conn.onICEStateDisconnected(staleCycleCtx(), false)
+
+	assert.Equal(t, worker.StatusConnected, conn.statusICE.Get(), "stale callback must not touch live ICE status")
+	assert.Equal(t, conntype.ICEP2P, conn.currentConnPriority, "stale callback must not reset live priority")
+	assert.EqualValues(t, 0, iface.removeEndpointCalls.Load(), "stale callback must not remove the live endpoint")
+
+	// Control: the same callback from the live cycle must still tear down.
+	conn.onICEStateDisconnected(liveCtx, false)
+	assert.Equal(t, worker.StatusDisconnected, conn.statusICE.Get())
+	assert.Equal(t, conntype.None, conn.currentConnPriority)
+	assert.EqualValues(t, 1, iface.removeEndpointCalls.Load())
+}
+
+// TestConn_onICEConnectionIsReady_IgnoresStaleCycle: a success callback from
+// a previous cycle must not configure the WireGuard endpoint of the current
+// cycle to a dead connection.
+func TestConn_onICEConnectionIsReady_IgnoresStaleCycle(t *testing.T) {
+	liveCtx, liveCancel := context.WithCancel(context.Background())
+	defer liveCancel()
+
+	iface := &mockCycleWGIface{}
+	conn := newCycleTestConn(t, liveCtx, iface)
+
+	conn.onICEConnectionIsReady(staleCycleCtx(), conntype.ICEP2P, ICEConnInfo{RemoteConn: fakeRemoteConn{}})
+
+	assert.NotEqual(t, worker.StatusConnected, conn.statusICE.Get(), "stale ready callback must not mark ICE connected")
+	assert.Equal(t, conntype.None, conn.currentConnPriority, "stale ready callback must not raise the priority")
+	assert.EqualValues(t, 0, iface.updatePeerCalls.Load(), "stale ready callback must not configure the WG endpoint")
+	assert.Nil(t, conn.wgWatcher, "stale ready callback must not start a watcher")
+}
+
+// TestConn_onRelayDisconnected_IgnoresStaleCycle mirrors the ICE disconnect
+// test for the relay path (relay-manager close listeners outlive the cycle).
+func TestConn_onRelayDisconnected_IgnoresStaleCycle(t *testing.T) {
+	liveCtx, liveCancel := context.WithCancel(context.Background())
+	defer liveCancel()
+
+	iface := &mockCycleWGIface{}
+	conn := newCycleTestConn(t, liveCtx, iface)
+	conn.statusRelay.SetConnected()
+	conn.currentConnPriority = conntype.Relay
+
+	conn.onRelayDisconnected(staleCycleCtx())
+
+	assert.Equal(t, worker.StatusConnected, conn.statusRelay.Get(), "stale callback must not touch live relay status")
+	assert.Equal(t, conntype.Relay, conn.currentConnPriority)
+	assert.EqualValues(t, 0, iface.removeEndpointCalls.Load())
+
+	// Control: live cycle still tears down.
+	conn.onRelayDisconnected(liveCtx)
+	assert.Equal(t, worker.StatusDisconnected, conn.statusRelay.Get())
+	assert.Equal(t, conntype.None, conn.currentConnPriority)
+	assert.EqualValues(t, 1, iface.removeEndpointCalls.Load())
+}
+
+// TestConn_onRelayConnectionIsReady_IgnoresStaleCycle: a stale relay-ready
+// callback must close the relayed connection and leave the state untouched.
+func TestConn_onRelayConnectionIsReady_IgnoresStaleCycle(t *testing.T) {
+	liveCtx, liveCancel := context.WithCancel(context.Background())
+	defer liveCancel()
+
+	iface := &mockCycleWGIface{}
+	conn := newCycleTestConn(t, liveCtx, iface)
+
+	c1, c2 := net.Pipe()
+	defer c2.Close()
+
+	conn.onRelayConnectionIsReady(staleCycleCtx(), RelayConnInfo{relayedConn: c1})
+
+	assert.NotEqual(t, worker.StatusConnected, conn.statusRelay.Get(), "stale relay-ready must not mark relay connected")
+	_, err := c2.Write([]byte{0x1})
+	assert.ErrorIs(t, err, io.ErrClosedPipe, "stale relay conn must be closed")
 }
