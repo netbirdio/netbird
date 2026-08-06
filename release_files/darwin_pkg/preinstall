@@ -20,34 +20,42 @@ wait_for_ui_exit() {
     return 1
 }
 
-# quit_ui stops a running UI so the app bundle can be replaced underneath it.
-# The installer runs as root outside the console user's GUI session, so the
-# quit Apple event has to be sent from inside that session; sending it straight
-# from here always fails with -600. A UI process that survives the install keeps
-# serving the old binary until it is quit by hand, so anything still alive after
-# the quit request is signalled.
-quit_ui() {
+# request_ui_quit asks the UI to quit from inside the console user's session and
+# reports whether the request could be sent at all. The installer runs as root
+# outside that session, so a quit Apple event sent straight from here always
+# fails with -600.
+request_ui_quit() {
     console_user=$(stat -f%Su /dev/console 2>/dev/null)
     case "$console_user" in
         ""|root|loginwindow|_mbsetupuser)
             echo "No active GUI user session (console user: '${console_user:-none}'); skipping the quit request."
-            ;;
-        *)
-            uid=$(id -u "$console_user" 2>/dev/null)
-            if [ -z "$uid" ]; then
-                echo "Could not resolve uid for console user '$console_user'; skipping the quit request."
-            else
-                echo "Asking the NetBird UI to quit as console user $console_user (uid $uid)."
-                launchctl asuser "$uid" sudo -u "$console_user" -H osascript -e 'quit app "NetBird"' || true
-            fi
+            return 1
             ;;
     esac
 
-    if wait_for_ui_exit 10; then
+    uid=$(id -u "$console_user" 2>/dev/null)
+    if [ -z "$uid" ]; then
+        echo "Could not resolve uid for console user '$console_user'; skipping the quit request."
+        return 1
+    fi
+
+    echo "Asking the NetBird UI to quit as console user $console_user (uid $uid)."
+    launchctl asuser "$uid" sudo -u "$console_user" -H osascript -e 'quit app "NetBird"' || true
+}
+
+# quit_ui stops a running UI so the app bundle can be replaced underneath it. A
+# UI process that survives the install keeps serving the old binary until it is
+# quit by hand, so anything still running once the quit request is out of the
+# way is signalled. Waiting for a graceful exit only makes sense when a quit
+# request was actually sent.
+quit_ui() {
+    if request_ui_quit && wait_for_ui_exit 10; then
         return 0
     fi
 
-    echo "NetBird UI still running after the quit request; terminating it."
+    pgrep -x "$UI_PROCESS" > /dev/null 2>&1 || return 0
+
+    echo "NetBird UI still running; terminating it."
     pkill -x "$UI_PROCESS" || true
     if wait_for_ui_exit 3; then
         return 0
