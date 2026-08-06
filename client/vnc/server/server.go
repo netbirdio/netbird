@@ -897,7 +897,11 @@ func (s *Server) handleConnection(conn net.Conn) {
 	}
 	ok, agentViewOnly := s.verifyAgentToken(conn, connLog)
 	if !ok {
-		connLog.Info("VNC connection rejected: agent token check failed")
+		// Reported there already, at a level that tells a liveness probe apart
+		// from a bad token. The daemon dials the agent socket to wait for it to
+		// come up, so this fires on every spawn and is not a rejection worth
+		// putting in front of anyone.
+		connLog.Debug("VNC connection rejected: agent token check failed")
 		return
 	}
 	header, err := s.readConnectionHeader(conn)

@@ -9,12 +9,12 @@ import (
 )
 
 func newAgentResources() (vncserver.ScreenCapturer, vncserver.InputInjector, error) {
-	// Ask for Screen Recording here and nowhere else: this process runs as the
-	// console user, which is what TCC requires for a user-scope service, and it
-	// is the point where somebody is demonstrably trying to view the screen.
-	// Granting it also requires the capturing process to restart, which comes
-	// for free since the agent is respawned per session.
-	vncserver.PrimeScreenCapturePermission()
+	// Ask for Screen Recording here and nowhere else. This process runs as the
+	// console user, which TCC requires for a user-scope service, and it is fresh
+	// per connection, which is what makes the dialog appear at all: TCC shows it
+	// once per process. The request blocks until the user answers, so it also
+	// keeps the Accessibility ask that follows the first input out of its way.
+	vncserver.RequestScreenRecording()
 
 	capturer := vncserver.NewMacPoller()
 	injector, err := vncserver.NewMacInputInjector()

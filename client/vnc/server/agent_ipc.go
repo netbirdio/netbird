@@ -90,6 +90,7 @@ func (s *Server) handleServiceConnection(conn net.Conn, sa sessionAgent) {
 		authedLog.Warnf("VNC connection rejected: agent unavailable: %v", err)
 		return
 	}
+	defer sa.Release()
 
 	var initiator string
 	if s.authorizer != nil {
