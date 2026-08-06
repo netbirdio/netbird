@@ -24,11 +24,13 @@ const (
 	DefaultStoreMaxConn = 1000
 )
 
-// Store extends the shared cache interface with atomic insertion support.
+// Store extends the shared cache interface with conditional and consuming operations.
 type Store interface {
 	store.StoreInterface
-	// SetNX atomically stores a value with a TTL only when the key does not exist.
+	// SetNX stores a value with a TTL only when the key does not exist.
 	SetNX(ctx context.Context, key, value string, ttl time.Duration) (bool, error)
+	// GetDel reads a value and removes it, so only one caller can consume a key.
+	GetDel(ctx context.Context, key string) (value string, found bool, err error)
 }
 
 // NewStore creates a new cache store with the given max timeout and cleanup interval. It checks for the environment Variable RedisStoreEnvVar

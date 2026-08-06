@@ -2,6 +2,8 @@ package cache
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"time"
 
 	"github.com/eko/gocache/lib/v4/store"
@@ -12,6 +14,7 @@ import (
 type goCacheStore struct {
 	store.StoreInterface
 	client *gocache.Cache
+	mu     sync.Mutex
 }
 
 func newMemoryStore(maxTimeout, cleanupInterval time.Duration) Store {
@@ -25,7 +28,24 @@ func newMemoryStore(maxTimeout, cleanupInterval time.Duration) Store {
 func (s *goCacheStore) SetNX(_ context.Context, key, value string, ttl time.Duration) (bool, error) {
 	// Add only returns an error when a non-expired entry already exists.
 	if err := s.client.Add(key, value, ttl); err != nil {
-		return false, nil
+		return false, nil //nolint:nilerr
 	}
 	return true, nil
+}
+
+func (s *goCacheStore) GetDel(_ context.Context, key string) (string, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	value, found := s.client.Get(key)
+	if !found {
+		return "", false, nil
+	}
+	s.client.Delete(key)
+
+	str, ok := value.(string)
+	if !ok {
+		return "", false, fmt.Errorf("cached value is %T, not a string", value)
+	}
+	return str, true, nil
 }

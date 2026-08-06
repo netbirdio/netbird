@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"time"
@@ -48,4 +49,15 @@ func getRedisStore(ctx context.Context, redisEnvAddr string, maxConn int) (Store
 
 func (s *redisStore) SetNX(ctx context.Context, key, value string, ttl time.Duration) (bool, error) {
 	return s.client.SetNX(ctx, key, value, ttl).Result()
+}
+
+func (s *redisStore) GetDel(ctx context.Context, key string) (string, bool, error) {
+	value, err := s.client.GetDel(ctx, key).Result()
+	if errors.Is(err, redis.Nil) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return value, true, nil
 }

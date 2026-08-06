@@ -47,3 +47,44 @@ func TestMemoryStore(t *testing.T) {
 		t.Error("value should not be found")
 	}
 }
+
+func TestMemoryStoreGetDel(t *testing.T) {
+	ctx := context.Background()
+	newStore := func(t *testing.T) cache.Store {
+		t.Helper()
+		memStore, err := cache.NewStore(ctx, time.Minute, time.Minute, 100)
+		if err != nil {
+			t.Fatalf("couldn't create memory store: %s", err)
+		}
+		return memStore
+	}
+
+	const (
+		key   = "consume"
+		value = "verifier"
+	)
+
+	t.Run("exactly one concurrent caller consumes the key", func(t *testing.T) {
+		memStore := newStore(t)
+		if err := memStore.Set(ctx, key, value); err != nil {
+			t.Fatalf("couldn't set testing data: %s", err)
+		}
+
+		assertGetDelConsumedOnce(ctx, t, []cache.Store{memStore}, key, value)
+		assertGetDelMisses(ctx, t, memStore, key)
+	})
+
+	t.Run("missing key is not an error", func(t *testing.T) {
+		assertGetDelMisses(ctx, t, newStore(t), "never-set")
+	})
+
+	t.Run("expired key is not found", func(t *testing.T) {
+		memStore := newStore(t)
+		if _, err := memStore.SetNX(ctx, key, value, 50*time.Millisecond); err != nil {
+			t.Fatalf("couldn't set testing data: %s", err)
+		}
+
+		time.Sleep(100 * time.Millisecond)
+		assertGetDelMisses(ctx, t, memStore, key)
+	})
+}
