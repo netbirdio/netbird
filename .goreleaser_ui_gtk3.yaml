@@ -45,7 +45,9 @@ archives:
 nfpms:
   # Same package_name as the GTK4 packages -- the two are mutually-exclusive
   # alternatives served from separate repo paths (see uploads below); a given
-  # distro points at exactly one of them.
+  # distro points at exactly one of them. The file names must still differ:
+  # the Debian pool is shared storage keyed by file name, so a default-named
+  # gtk3 .deb would overwrite the stable one.
   - maintainer: Netbird <dev@netbird.io>
     description: Netbird client UI.
     homepage: https://netbird.io/
@@ -53,6 +55,7 @@ nfpms:
     vendor: NetBird
     id: netbird_ui_deb_gtk3
     package_name: netbird-ui
+    file_name_template: "{{ .PackageName }}-gtk3_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     builds:
       - netbird-ui-gtk3
     formats:
@@ -76,6 +79,7 @@ nfpms:
     vendor: NetBird
     id: netbird_ui_rpm_gtk3
     package_name: netbird-ui
+    file_name_template: "{{ .PackageName }}-gtk3_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     builds:
       - netbird-ui-gtk3
     formats:
