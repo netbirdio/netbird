@@ -2329,9 +2329,6 @@ type AgentNetworkProviderRequest struct {
 	// ApiKey Upstream provider API key. Sealed at rest on the management server and never returned in responses. Required on create; optional on update (omit to keep the existing key).
 	ApiKey *string `json:"api_key,omitempty"`
 
-	// BootstrapCluster Proxy cluster used to bootstrap the per-account agent-network endpoint when the first provider is created. Ignored on subsequent creates and on updates because the cluster is pinned on the account-level Settings row.
-	BootstrapCluster *string `json:"bootstrap_cluster,omitempty"`
-
 	// Enabled Whether the provider is enabled. Defaults to true on create.
 	Enabled *bool `json:"enabled,omitempty"`
 
@@ -2363,16 +2360,16 @@ type AgentNetworkProviderRequest struct {
 	UpstreamUrl string `json:"upstream_url"`
 }
 
-// AgentNetworkSettings Per-account Agent Network gateway settings. One row per account; cluster and subdomain are assigned at bootstrap and immutable thereafter. Before bootstrap the account reads as the default values with empty cluster, subdomain and endpoint.
+// AgentNetworkSettings Per-account Agent Network gateway settings. One row per account; endpoint and proxy_address are assigned at bootstrap (POST) and immutable thereafter. Before bootstrap the account reads as the default values with empty endpoint and proxy_address.
 type AgentNetworkSettings struct {
 	// AccessLogRetentionDays Days to retain full access-log rows; older rows are swept. 0 or less means keep indefinitely. Usage records are retained independently.
 	AccessLogRetentionDays *int `json:"access_log_retention_days,omitempty"`
 
-	// Cluster Address of the NetBird proxy cluster fronting this account's agent-network endpoint. Empty until the account is bootstrapped.
-	Cluster string `json:"cluster"`
-
 	// CreatedAt Timestamp when the settings row was created. Absent until the account is bootstrapped.
 	CreatedAt *time.Time `json:"created_at,omitempty"`
+
+	// Dedicated Whether the account's gateway is served by a proxy dedicated to it (endpoint equals proxy_address).
+	Dedicated bool `json:"dedicated"`
 
 	// EnableLogCollection Whether per-request access-log entries are collected for this account's agent-network traffic.
 	EnableLogCollection bool `json:"enable_log_collection"`
@@ -2380,26 +2377,44 @@ type AgentNetworkSettings struct {
 	// EnablePromptCollection Master switch for request/response prompt capture. Capture runs only when this is on AND a policy guardrail also enables it.
 	EnablePromptCollection bool `json:"enable_prompt_collection"`
 
-	// Endpoint Bare hostname agents call for this account, computed as `<subdomain>.<cluster>`. Empty until the account is bootstrapped.
+	// Endpoint Bare hostname agents call for this account. Empty until the account is bootstrapped.
 	Endpoint string `json:"endpoint"`
+
+	// ProxyAddress Declared cluster address of the proxy serving this account's gateway. Equal to `endpoint` when a dedicated proxy serves the account; otherwise the endpoint's immediate parent (a shared cluster the endpoint hangs one label beneath). Empty until the account is bootstrapped.
+	ProxyAddress string `json:"proxy_address"`
 
 	// RedactPii Whether captured prompts have PII redacted. Effective redaction is the OR of this and any policy guardrail's redact setting.
 	RedactPii bool `json:"redact_pii"`
-
-	// Subdomain Auto-generated DNS-safe label that prefixes the cluster to form the agent-network endpoint. Empty until the account is bootstrapped.
-	Subdomain string `json:"subdomain"`
 
 	// UpdatedAt Timestamp when the settings row was last updated. Absent until the account is bootstrapped.
 	UpdatedAt *time.Time `json:"updated_at,omitempty"`
 }
 
-// AgentNetworkSettingsRequest Account-level Agent Network settings update. The request replaces every mutable field. `cluster` additionally bootstraps the per-account settings row when the account does not have one yet; the subdomain is always server-assigned.
+// AgentNetworkSettingsCreateRequest Bootstraps the per-account Agent Network settings row, assigning the account's immutable endpoint. Exactly one of `proxy_address` and `endpoint` must be provided. `proxy_address` requests a labeled endpoint — the server allocates a label and the endpoint becomes `<label>.<proxy_address>`, served by whichever proxy declares that parent address. `endpoint` claims the given hostname itself as a self-addressed (dedicated) endpoint, served only by a proxy declaring exactly that address — the claim is legitimate before the proxy exists (address-first). Collection toggles may ride along; omitted toggles take their defaults.
+type AgentNetworkSettingsCreateRequest struct {
+	// AccessLogRetentionDays Days to retain full access-log rows; older rows are swept. 0 or less means keep indefinitely. Defaults to 30.
+	AccessLogRetentionDays *int `json:"access_log_retention_days,omitempty"`
+
+	// EnableLogCollection Whether per-request access-log entries are collected for this account's agent-network traffic. Defaults to true.
+	EnableLogCollection *bool `json:"enable_log_collection,omitempty"`
+
+	// EnablePromptCollection Master switch for request/response prompt capture. Defaults to false.
+	EnablePromptCollection *bool `json:"enable_prompt_collection,omitempty"`
+
+	// Endpoint Hostname to claim as the account's self-addressed (dedicated) endpoint. Mutually exclusive with `proxy_address`. Rejected when another account already holds it.
+	Endpoint *string `json:"endpoint,omitempty"`
+
+	// ProxyAddress Cluster address to allocate a labeled endpoint beneath. Mutually exclusive with `endpoint`.
+	ProxyAddress *string `json:"proxy_address,omitempty"`
+
+	// RedactPii Whether captured prompts have PII redacted. Defaults to false.
+	RedactPii *bool `json:"redact_pii,omitempty"`
+}
+
+// AgentNetworkSettingsRequest Account-level Agent Network settings update. The request replaces every mutable field (the collection toggles and retention). The endpoint and proxy address are assigned at bootstrap (POST) and are not part of this schema.
 type AgentNetworkSettingsRequest struct {
 	// AccessLogRetentionDays Days to retain full access-log rows; older rows are swept. 0 or less means keep indefinitely.
 	AccessLogRetentionDays *int `json:"access_log_retention_days,omitempty"`
-
-	// Cluster Address of the NetBird proxy cluster fronting this account's agent-network endpoint. When the account has no settings row yet, providing it bootstraps the row (assigning the subdomain that forms the agent endpoint). The cluster is immutable once assigned — later updates must omit it or send the assigned value; any other value is rejected.
-	Cluster *string `json:"cluster,omitempty"`
 
 	// EnableLogCollection Whether per-request access-log entries are collected for this account's agent-network traffic.
 	EnableLogCollection bool `json:"enable_log_collection"`
@@ -6175,6 +6190,9 @@ type PostApiAgentNetworkProvidersJSONRequestBody = AgentNetworkProviderRequest
 
 // PutApiAgentNetworkProvidersProviderIdJSONRequestBody defines body for PutApiAgentNetworkProvidersProviderId for application/json ContentType.
 type PutApiAgentNetworkProvidersProviderIdJSONRequestBody = AgentNetworkProviderRequest
+
+// PostApiAgentNetworkSettingsJSONRequestBody defines body for PostApiAgentNetworkSettings for application/json ContentType.
+type PostApiAgentNetworkSettingsJSONRequestBody = AgentNetworkSettingsCreateRequest
 
 // PutApiAgentNetworkSettingsJSONRequestBody defines body for PutApiAgentNetworkSettings for application/json ContentType.
 type PutApiAgentNetworkSettingsJSONRequestBody = AgentNetworkSettingsRequest

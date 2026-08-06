@@ -52,9 +52,9 @@ func newReconcileTestPolicy(providerID, sourceGroupID string) *types.Policy {
 
 func newReconcileTestSettings() *types.Settings {
 	return &types.Settings{
-		AccountID: "acct-1",
-		Cluster:   "eu.proxy.netbird.io",
-		Subdomain: "violet",
+		AccountID:    "acct-1",
+		Domain:       "violet.eu.proxy.netbird.io",
+		ProxyAddress: "eu.proxy.netbird.io",
 	}
 }
 

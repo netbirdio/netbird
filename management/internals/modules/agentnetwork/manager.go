@@ -47,7 +47,7 @@ func ensureSessionKeys(p *types.Provider) error {
 type Manager interface {
 	GetAllProviders(ctx context.Context, accountID, userID string) ([]*types.Provider, error)
 	GetProvider(ctx context.Context, accountID, userID, providerID string) (*types.Provider, error)
-	CreateProvider(ctx context.Context, userID string, provider *types.Provider, bootstrapCluster string) (*types.Provider, error)
+	CreateProvider(ctx context.Context, userID string, provider *types.Provider) (*types.Provider, error)
 	UpdateProvider(ctx context.Context, userID string, provider *types.Provider) (*types.Provider, error)
 	DeleteProvider(ctx context.Context, accountID, userID, providerID string) error
 
@@ -70,6 +70,7 @@ type Manager interface {
 	DeleteBudgetRule(ctx context.Context, accountID, userID, ruleID string) error
 
 	GetSettings(ctx context.Context, accountID, userID string) (*types.Settings, error)
+	CreateSettings(ctx context.Context, userID string, settings *types.Settings, proxyAddress, endpoint string) (*types.Settings, error)
 	UpdateSettings(ctx context.Context, userID string, settings *types.Settings) (*types.Settings, error)
 
 	ListConsumption(ctx context.Context, accountID, userID string) ([]*types.Consumption, error)
@@ -168,18 +169,13 @@ func (m *managerImpl) GetProvider(ctx context.Context, accountID, userID, provid
 	return m.store.GetAgentNetworkProviderByID(ctx, store.LockingStrengthNone, accountID, providerID)
 }
 
-// CreateProvider persists a new provider for the account. bootstrapCluster
-// is used only when the per-account agent-network Settings row hasn't
-// been created yet; otherwise it is ignored (the cluster is pinned on
-// Settings and every provider in the account routes through it).
-func (m *managerImpl) CreateProvider(ctx context.Context, userID string, provider *types.Provider, bootstrapCluster string) (*types.Provider, error) {
+// CreateProvider persists a new provider for the account. Providers have no
+// settings side effects: the account's endpoint is bootstrapped separately and
+// explicitly via CreateSettings, and every provider in the account routes
+// through it.
+func (m *managerImpl) CreateProvider(ctx context.Context, userID string, provider *types.Provider) (*types.Provider, error) {
 	if err := m.requirePermission(ctx, provider.AccountID, userID, modules.AgentNetworkProviders, operations.Create); err != nil {
 		return nil, err
-	}
-	if strings.TrimSpace(bootstrapCluster) != "" {
-		if err := m.requireSettingsBootstrapPermission(ctx, provider.AccountID, userID); err != nil {
-			return nil, err
-		}
 	}
 
 	// An empty api_key would silently produce a synthesised service
@@ -202,16 +198,6 @@ func (m *managerImpl) CreateProvider(ctx context.Context, userID string, provide
 
 	if err := m.store.SaveAgentNetworkProvider(ctx, provider); err != nil {
 		return nil, fmt.Errorf("save agent network provider: %w", err)
-	}
-
-	if strings.TrimSpace(bootstrapCluster) != "" {
-		if _, err := m.bootstrapSettingsIfNeeded(ctx, m.store, provider.AccountID, bootstrapCluster); err != nil {
-			// The provider create has already succeeded; logging the
-			// bootstrap miss matches the plan's PoC behaviour. The synth
-			// path treats a missing settings row as a no-op, and the next
-			// provider create retries the bootstrap.
-			log.WithContext(ctx).Debugf("agent-network bootstrap settings for account %s on cluster %s: %v", provider.AccountID, bootstrapCluster, err)
-		}
 	}
 
 	m.accountManager.StoreEvent(ctx, userID, provider.ID, provider.AccountID, activity.AgentNetworkProviderCreated, provider.EventMeta())
@@ -558,48 +544,28 @@ func (m *managerImpl) DeleteBudgetRule(ctx context.Context, accountID, userID, r
 }
 
 // UpdateSettings replaces the mutable account-level settings — the collection
-// toggles and retention — on the account's row. When the account has no
-// settings row yet, a non-empty settings.Cluster bootstraps one (same path as
-// first provider create); without it the update fails with NotFound. On an
-// existing row the cluster and subdomain are immutable: a differing
-// settings.Cluster is rejected rather than silently ignored so callers never
-// observe a value other than what they sent. Because the collection toggles
-// change the synthesised service config (prompt-capture gating, access-log
-// emission), a reconcile is triggered so the proxy and peer network maps
-// converge on the new state.
+// toggles and retention — on the account's row. The identity fields (Domain,
+// ProxyAddress) are assigned at bootstrap (CreateSettings) and are not part of
+// the update surface at all; when the account has no settings row yet the
+// update fails with NotFound. Because the collection toggles change the
+// synthesised service config (prompt-capture gating, access-log emission), a
+// reconcile is triggered so the proxy and peer network maps converge on the
+// new state.
 func (m *managerImpl) UpdateSettings(ctx context.Context, userID string, settings *types.Settings) (*types.Settings, error) {
 	if err := m.requirePermission(ctx, settings.AccountID, userID, modules.AgentNetworkSettings, operations.Update); err != nil {
 		return nil, err
 	}
 
-	requestedCluster := strings.TrimSpace(settings.Cluster)
-
 	// The row lock from LockingStrengthUpdate only holds for the duration of
-	// the surrounding transaction, so the read, the cluster-immutability
-	// check, and the save must share one — otherwise concurrent PUTs could
-	// interleave between them.
+	// the surrounding transaction, so the read and the save must share one —
+	// otherwise concurrent PUTs could interleave between them.
 	var updated *types.Settings
 	err := m.store.ExecuteInTransaction(ctx, func(tx store.Store) error {
 		existing, err := tx.GetAgentNetworkSettings(ctx, store.LockingStrengthUpdate, settings.AccountID)
 		switch {
 		case err == nil:
-			if requestedCluster != "" && requestedCluster != existing.Cluster {
-				return status.Errorf(status.InvalidArgument, "cluster is immutable once assigned (current: %s)", existing.Cluster)
-			}
 		case isNotFound(err):
-			if requestedCluster == "" {
-				return status.Errorf(status.NotFound, "agent network settings have not been bootstrapped yet; pass cluster to bootstrap them, or create a provider with bootstrap_cluster set")
-			}
-			// Bootstrapping pins the cluster and subdomain — a settings
-			// create on top of the update the caller already passed, matching
-			// the gate on the provider-create bootstrap path.
-			if err := m.requirePermission(ctx, settings.AccountID, userID, modules.AgentNetworkSettings, operations.Create); err != nil {
-				return err
-			}
-			existing, err = m.bootstrapSettingsIfNeeded(ctx, tx, settings.AccountID, requestedCluster)
-			if err != nil {
-				return err
-			}
+			return status.Errorf(status.NotFound, "agent network settings have not been bootstrapped yet; POST /api/agent-network/settings to bootstrap them")
 		default:
 			return fmt.Errorf("get agent network settings: %w", err)
 		}
@@ -676,72 +642,160 @@ func (m *managerImpl) GetSettings(ctx context.Context, accountID, userID string)
 	}
 }
 
-// requireSettingsBootstrapPermission gates the one-time settings bootstrap a
-// first provider create performs. Pinning the account's cluster and subdomain
-// is a settings write, so it needs the settings permission on top of the
-// provider one. No-op once the settings row exists.
-func (m *managerImpl) requireSettingsBootstrapPermission(ctx context.Context, accountID, userID string) error {
-	_, err := m.store.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, accountID)
-	if err == nil {
-		return nil
-	}
-	if !isNotFound(err) {
-		return fmt.Errorf("get agent network settings: %w", err)
-	}
-	return m.requirePermission(ctx, accountID, userID, modules.AgentNetworkSettings, operations.Create)
-}
+// maxDomainAllocationAttempts bounds the label search when bootstrapping a
+// labeled endpoint. Package-level (rather than function-local) so tests can
+// assert on the exhaustion path without duplicating the literal.
+const maxDomainAllocationAttempts = 10
 
-// bootstrapSettingsIfNeeded creates the per-account agent-network
-// settings row when missing. The cluster comes from the create-time
-// hint the dashboard sends (auto-picked from the active cluster list);
-// the subdomain is picked from the curated wordlist avoiding
-// collisions on the same cluster. Idempotent: if a row already exists
-// it is returned untouched and the hint is ignored. st is the store to
-// operate on — pass the transaction store when calling from within one.
-func (m *managerImpl) bootstrapSettingsIfNeeded(ctx context.Context, st store.Store, accountID, providerCluster string) (*types.Settings, error) {
-	if accountID == "" {
-		return nil, fmt.Errorf("bootstrap settings: account id is required")
+// CreateSettings bootstraps the per-account settings row, assigning the
+// account's immutable endpoint. Exactly one of proxyAddress and endpoint must
+// be non-empty: proxyAddress allocates a labeled endpoint one label beneath
+// the given cluster address; endpoint claims the given hostname verbatim as a
+// self-addressed (dedicated) endpoint — a legitimate claim before any proxy
+// declares the address (address-first). settings carries the account ID and
+// the initial collection toggles; its identity fields are assigned here.
+func (m *managerImpl) CreateSettings(ctx context.Context, userID string, settings *types.Settings, proxyAddress, endpoint string) (*types.Settings, error) {
+	if settings == nil || settings.AccountID == "" {
+		return nil, status.Errorf(status.InvalidArgument, "account id is required")
 	}
-	if strings.TrimSpace(providerCluster) == "" {
-		return nil, fmt.Errorf("bootstrap settings: provider cluster is required")
+	if err := m.requirePermission(ctx, settings.AccountID, userID, modules.AgentNetworkSettings, operations.Create); err != nil {
+		return nil, err
 	}
 
-	existing, err := st.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, accountID)
-	if err == nil {
-		return existing, nil
+	hasProxyAddress := strings.TrimSpace(proxyAddress) != ""
+	hasEndpoint := strings.TrimSpace(endpoint) != ""
+	if hasProxyAddress == hasEndpoint {
+		return nil, status.Errorf(status.InvalidArgument, "exactly one of proxy_address and endpoint is required")
 	}
-	if !isNotFound(err) {
+
+	// Fail fast on an existing row for a clean 409; the insert below stays
+	// the authority against concurrent bootstraps (the primary key wins).
+	if _, err := m.store.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, settings.AccountID); err == nil {
+		return nil, status.Errorf(status.AlreadyExists, "agent network settings already bootstrapped for account %s", settings.AccountID)
+	} else if !isNotFound(err) {
 		return nil, fmt.Errorf("get agent network settings: %w", err)
 	}
 
-	siblings, err := st.GetAgentNetworkSettingsByCluster(ctx, store.LockingStrengthNone, providerCluster)
-	if err != nil {
-		return nil, fmt.Errorf("list agent network settings on cluster: %w", err)
-	}
-	taken := make(map[string]struct{}, len(siblings))
-	for _, s := range siblings {
-		taken[s.Subdomain] = struct{}{}
-	}
-
-	suffix := accountID
-	if len(suffix) > 4 {
-		suffix = suffix[:4]
-	}
-
-	m.labelRngMu.Lock()
-	subdomain := labelgen.PickUnique(m.labelRng, taken, suffix)
-	m.labelRngMu.Unlock()
-
 	now := time.Now().UTC()
-	settings := types.DefaultSettings(accountID)
-	settings.Cluster = providerCluster
-	settings.Subdomain = subdomain
 	settings.CreatedAt = now
 	settings.UpdatedAt = now
-	if err := st.SaveAgentNetworkSettings(ctx, settings); err != nil {
-		return nil, fmt.Errorf("save agent network settings: %w", err)
+
+	var err error
+	if hasEndpoint {
+		err = m.bootstrapSelfAddressed(ctx, settings, endpoint)
+	} else {
+		err = m.bootstrapLabeled(ctx, settings, proxyAddress)
 	}
+	if err != nil {
+		return nil, err
+	}
+
+	m.accountManager.StoreEvent(ctx, userID, settings.AccountID, settings.AccountID, activity.AgentNetworkSettingsUpdated, map[string]any{
+		"bootstrapped": true,
+		"endpoint":     settings.Domain,
+		"dedicated":    settings.Dedicated(),
+	})
+	m.reconcile(ctx, settings.AccountID)
+
 	return settings, nil
+}
+
+// bootstrapSelfAddressed claims the given hostname as the account's endpoint,
+// served only by a proxy declaring exactly that address (Domain ==
+// ProxyAddress). The domain unique index is the arbiter of availability.
+func (m *managerImpl) bootstrapSelfAddressed(ctx context.Context, settings *types.Settings, endpoint string) error {
+	hostname, err := types.NormalizeHostname(endpoint)
+	if err != nil {
+		return status.Errorf(status.InvalidArgument, "invalid endpoint: %s", err)
+	}
+
+	settings.Domain = hostname
+	settings.ProxyAddress = hostname
+	if err := m.store.CreateAgentNetworkSettings(ctx, settings); err != nil {
+		if isUniqueConstraintError(err) {
+			// The violation is either the account primary key (a concurrent
+			// bootstrap for the same account won) or the domain index
+			// (another account holds the hostname). Distinguish by re-read.
+			if _, getErr := m.store.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, settings.AccountID); getErr == nil {
+				return status.Errorf(status.AlreadyExists, "agent network settings already bootstrapped for account %s", settings.AccountID)
+			}
+			return status.Errorf(status.AlreadyExists, "endpoint %s is already taken", hostname)
+		}
+		return fmt.Errorf("create agent network settings: %w", err)
+	}
+	return nil
+}
+
+// bootstrapLabeled allocates a labeled endpoint one label beneath the given
+// cluster address: Domain = <label>.<proxyAddress>, served by whichever proxy
+// declares the parent. Labels are adjective-noun tuples; a candidate is
+// checked by read and the domain unique index stays the authority, so a
+// concurrent allocation of the same tuple surfaces as a unique violation and
+// another tuple is drawn.
+func (m *managerImpl) bootstrapLabeled(ctx context.Context, settings *types.Settings, proxyAddress string) error {
+	parent, err := types.NormalizeHostname(proxyAddress)
+	if err != nil {
+		return status.Errorf(status.InvalidArgument, "invalid proxy_address: %s", err)
+	}
+
+	for attempt := 1; attempt <= maxDomainAllocationAttempts; attempt++ {
+		m.labelRngMu.Lock()
+		label := labelgen.PickTuple(m.labelRng)
+		m.labelRngMu.Unlock()
+		if label == "" {
+			// Only reachable if either word pool were emptied. An empty label
+			// would produce a broken endpoint like ".example.com", so fail
+			// loudly rather than looping or inserting.
+			return fmt.Errorf("allocate agent network endpoint for account %s: label generator returned an empty label", settings.AccountID)
+		}
+
+		candidate, err := types.NormalizeHostname(label + "." + parent)
+		if err != nil {
+			return status.Errorf(status.InvalidArgument, "proxy_address leaves no room for a label: %s", err)
+		}
+
+		_, err = m.store.GetAgentNetworkSettingsByDomain(ctx, store.LockingStrengthNone, candidate)
+		if err == nil {
+			log.WithContext(ctx).Tracef("agent-network endpoint %q taken, retrying (attempt %d/%d)", candidate, attempt, maxDomainAllocationAttempts)
+			continue
+		}
+		if !isNotFound(err) {
+			return fmt.Errorf("check agent network endpoint availability: %w", err)
+		}
+
+		settings.Domain = candidate
+		settings.ProxyAddress = parent
+		if err := m.store.CreateAgentNetworkSettings(ctx, settings); err != nil {
+			if isUniqueConstraintError(err) {
+				// A concurrent bootstrap for the same account may have won on
+				// the primary key — return the conflict. A lost race on the
+				// domain index just means the tuple was taken between the
+				// read and the insert: draw another.
+				if _, getErr := m.store.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, settings.AccountID); getErr == nil {
+					return status.Errorf(status.AlreadyExists, "agent network settings already bootstrapped for account %s", settings.AccountID)
+				}
+				log.WithContext(ctx).Tracef("agent-network endpoint %q lost an allocation race, retrying (attempt %d/%d)", candidate, attempt, maxDomainAllocationAttempts)
+				continue
+			}
+			return fmt.Errorf("create agent network settings: %w", err)
+		}
+		return nil
+	}
+
+	return fmt.Errorf("allocate agent network endpoint for account %s: %d attempts exhausted", settings.AccountID, maxDomainAllocationAttempts)
+}
+
+// isUniqueConstraintError reports whether err is a database unique-constraint
+// violation, matched on the driver message because CreateAgentNetworkSettings
+// deliberately returns the driver error unwrapped.
+func isUniqueConstraintError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "(SQLSTATE 23505)") || // postgres
+		strings.Contains(msg, "Error 1062 (23000)") || // mysql
+		strings.Contains(msg, "UNIQUE constraint failed") // sqlite
 }
 
 // ListConsumption returns every consumption row recorded for the
@@ -877,7 +931,7 @@ func (*mockManager) GetProvider(_ context.Context, _, _, _ string) (*types.Provi
 	return &types.Provider{}, nil
 }
 
-func (*mockManager) CreateProvider(_ context.Context, _ string, p *types.Provider, _ string) (*types.Provider, error) {
+func (*mockManager) CreateProvider(_ context.Context, _ string, p *types.Provider) (*types.Provider, error) {
 	return p, nil
 }
 
@@ -943,6 +997,17 @@ func (*mockManager) DeleteBudgetRule(_ context.Context, _, _, _ string) error { 
 
 func (*mockManager) GetSettings(_ context.Context, accountID, _ string) (*types.Settings, error) {
 	return types.DefaultSettings(accountID), nil
+}
+
+func (*mockManager) CreateSettings(_ context.Context, _ string, s *types.Settings, proxyAddress, endpoint string) (*types.Settings, error) {
+	if endpoint != "" {
+		s.Domain = endpoint
+		s.ProxyAddress = endpoint
+	} else {
+		s.Domain = "mock." + proxyAddress
+		s.ProxyAddress = proxyAddress
+	}
+	return s, nil
 }
 
 func (*mockManager) UpdateSettings(_ context.Context, _ string, s *types.Settings) (*types.Settings, error) {

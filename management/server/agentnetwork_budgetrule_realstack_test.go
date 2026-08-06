@@ -68,7 +68,8 @@ func TestAgentNetwork_BudgetRuleCRUD_RealManager(t *testing.T) {
 
 // TestAgentNetwork_UpdateSettings_PreservesImmutableAndTogglesCollection is the
 // GC-1 guard for UpdateSettings: it must apply the collection toggles while
-// preserving the immutable Cluster/Subdomain pinned at bootstrap.
+// preserving the immutable Domain/ProxyAddress assigned at bootstrap — the
+// identity fields are not part of the update surface at all.
 func TestAgentNetwork_UpdateSettings_PreservesImmutableAndTogglesCollection(t *testing.T) {
 	am, _, err := createManager(t)
 	require.NoError(t, err, "createManager must succeed")
@@ -84,7 +85,14 @@ func TestAgentNetwork_UpdateSettings_PreservesImmutableAndTogglesCollection(t *t
 
 	mgr := agentnetwork.NewManager(am.Store, permissions.NewManager(am.Store), am, nil)
 
-	// Creating a provider bootstraps the settings row (cluster + subdomain).
+	// Bootstrap is an explicit settings create; providers have no settings
+	// side effects anymore.
+	before, err := mgr.CreateSettings(ctx, adminUserID, agenttypes.DefaultSettings(accountID), clusterAddr, "")
+	require.NoError(t, err, "CreateSettings must bootstrap the row")
+	require.Equal(t, clusterAddr, before.ProxyAddress, "proxy address pinned at bootstrap")
+	require.NotEmpty(t, before.Domain, "endpoint allocated at bootstrap")
+	assert.False(t, before.EnablePromptCollection, "prompt collection defaults off")
+
 	_, err = mgr.CreateProvider(ctx, adminUserID, &agenttypes.Provider{
 		AccountID:   accountID,
 		ProviderID:  "openai_api",
@@ -93,43 +101,30 @@ func TestAgentNetwork_UpdateSettings_PreservesImmutableAndTogglesCollection(t *t
 		APIKey:      "sk-test",
 		Enabled:     true,
 		Models:      []agenttypes.ProviderModel{{ID: "gpt-5.4"}},
-	}, clusterAddr)
-	require.NoError(t, err, "CreateProvider must bootstrap settings")
-
-	before, err := mgr.GetSettings(ctx, accountID, adminUserID)
-	require.NoError(t, err, "GetSettings must succeed after bootstrap")
-	require.Equal(t, clusterAddr, before.Cluster, "cluster pinned at bootstrap")
-	require.NotEmpty(t, before.Subdomain, "subdomain pinned at bootstrap")
-	assert.False(t, before.EnablePromptCollection, "prompt collection defaults off")
-
-	// A cluster different from the one pinned at bootstrap must be rejected
-	// outright — never silently swapped or ignored.
-	_, err = mgr.UpdateSettings(ctx, adminUserID, &agenttypes.Settings{
-		AccountID:           accountID,
-		Cluster:             "attacker.cluster",
-		EnableLogCollection: true,
 	})
-	require.Error(t, err, "UpdateSettings with a mismatched cluster must fail")
+	require.NoError(t, err, "CreateProvider must succeed")
 
-	// Flipping the toggles works with the pinned cluster echoed back (and
-	// with it omitted); the subdomain is never taken from the request.
+	// Flipping the toggles works; identity fields set on the request value
+	// are ignored by FromAPIRequest/UpdateSettings by construction, but even
+	// a hand-rolled Settings value cannot smuggle them into the row.
 	updated, err := mgr.UpdateSettings(ctx, adminUserID, &agenttypes.Settings{
 		AccountID:              accountID,
-		Cluster:                clusterAddr,
-		Subdomain:              "evil",
+		Domain:                 "evil.example.com",
+		ProxyAddress:           "attacker.cluster",
 		EnableLogCollection:    true,
 		EnablePromptCollection: true,
 		RedactPii:              true,
 	})
 	require.NoError(t, err, "UpdateSettings must succeed")
-	assert.Equal(t, before.Cluster, updated.Cluster, "cluster is immutable and must be preserved")
-	assert.Equal(t, before.Subdomain, updated.Subdomain, "subdomain is immutable and must be preserved")
+	assert.Equal(t, before.Domain, updated.Domain, "domain is immutable and must be preserved")
+	assert.Equal(t, before.ProxyAddress, updated.ProxyAddress, "proxy address is immutable and must be preserved")
 	assert.True(t, updated.EnableLogCollection, "log collection toggle must apply")
 	assert.True(t, updated.EnablePromptCollection, "prompt collection toggle must apply")
 	assert.True(t, updated.RedactPii, "redact toggle must apply")
 
 	reloaded, err := am.Store.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, accountID)
 	require.NoError(t, err)
-	assert.Equal(t, before.Cluster, reloaded.Cluster, "persisted cluster unchanged")
+	assert.Equal(t, before.Domain, reloaded.Domain, "persisted domain unchanged")
+	assert.Equal(t, before.ProxyAddress, reloaded.ProxyAddress, "persisted proxy address unchanged")
 	assert.True(t, reloaded.EnablePromptCollection, "persisted prompt collection toggled on")
 }

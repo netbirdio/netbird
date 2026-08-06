@@ -268,6 +268,20 @@ func (mr *MockStoreMockRecorder) CreateAgentNetworkAccessLog(ctx, entry, groups 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateAgentNetworkAccessLog", reflect.TypeOf((*MockStore)(nil).CreateAgentNetworkAccessLog), ctx, entry, groups)
 }
 
+// CreateAgentNetworkSettings mocks base method.
+func (m *MockStore) CreateAgentNetworkSettings(ctx context.Context, settings *types.Settings) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateAgentNetworkSettings", ctx, settings)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateAgentNetworkSettings indicates an expected call of CreateAgentNetworkSettings.
+func (mr *MockStoreMockRecorder) CreateAgentNetworkSettings(ctx, settings interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateAgentNetworkSettings", reflect.TypeOf((*MockStore)(nil).CreateAgentNetworkSettings), ctx, settings)
+}
+
 // CreateAgentNetworkUsage mocks base method.
 func (m *MockStore) CreateAgentNetworkUsage(ctx context.Context, usage *types.AgentNetworkUsage, groups []types.AgentNetworkUsageGroup) error {
 	m.ctrl.T.Helper()
@@ -1687,19 +1701,34 @@ func (mr *MockStoreMockRecorder) GetAgentNetworkSettings(ctx, lockStrength, acco
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAgentNetworkSettings", reflect.TypeOf((*MockStore)(nil).GetAgentNetworkSettings), ctx, lockStrength, accountID)
 }
 
-// GetAgentNetworkSettingsByCluster mocks base method.
-func (m *MockStore) GetAgentNetworkSettingsByCluster(ctx context.Context, lockStrength LockingStrength, cluster string) ([]*types.Settings, error) {
+// GetAgentNetworkSettingsByDomain mocks base method.
+func (m *MockStore) GetAgentNetworkSettingsByDomain(ctx context.Context, lockStrength LockingStrength, domain string) (*types.Settings, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetAgentNetworkSettingsByCluster", ctx, lockStrength, cluster)
+	ret := m.ctrl.Call(m, "GetAgentNetworkSettingsByDomain", ctx, lockStrength, domain)
+	ret0, _ := ret[0].(*types.Settings)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAgentNetworkSettingsByDomain indicates an expected call of GetAgentNetworkSettingsByDomain.
+func (mr *MockStoreMockRecorder) GetAgentNetworkSettingsByDomain(ctx, lockStrength, domain interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAgentNetworkSettingsByDomain", reflect.TypeOf((*MockStore)(nil).GetAgentNetworkSettingsByDomain), ctx, lockStrength, domain)
+}
+
+// GetAgentNetworkSettingsByProxyAddress mocks base method.
+func (m *MockStore) GetAgentNetworkSettingsByProxyAddress(ctx context.Context, lockStrength LockingStrength, proxyAddress string) ([]*types.Settings, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAgentNetworkSettingsByProxyAddress", ctx, lockStrength, proxyAddress)
 	ret0, _ := ret[0].([]*types.Settings)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// GetAgentNetworkSettingsByCluster indicates an expected call of GetAgentNetworkSettingsByCluster.
-func (mr *MockStoreMockRecorder) GetAgentNetworkSettingsByCluster(ctx, lockStrength, cluster interface{}) *gomock.Call {
+// GetAgentNetworkSettingsByProxyAddress indicates an expected call of GetAgentNetworkSettingsByProxyAddress.
+func (mr *MockStoreMockRecorder) GetAgentNetworkSettingsByProxyAddress(ctx, lockStrength, proxyAddress interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAgentNetworkSettingsByCluster", reflect.TypeOf((*MockStore)(nil).GetAgentNetworkSettingsByCluster), ctx, lockStrength, cluster)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAgentNetworkSettingsByProxyAddress", reflect.TypeOf((*MockStore)(nil).GetAgentNetworkSettingsByProxyAddress), ctx, lockStrength, proxyAddress)
 }
 
 // GetAgentNetworkUsageRows mocks base method.
