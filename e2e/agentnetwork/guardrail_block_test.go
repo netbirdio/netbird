@@ -116,12 +116,11 @@ func runPathRoutedGuardrailCase(t *testing.T, tc pathRoutedGuardrailCase) {
 	// a GCP token. Bootstraps the cluster if it isn't already.
 	staticKey := "static-e2e-token"
 	prov, err := srv.CreateProvider(ctx, api.AgentNetworkProviderRequest{
-		Name:             tc.name,
-		ProviderId:       tc.catalogID,
-		UpstreamUrl:      vllm.URL,
-		ApiKey:           &staticKey,
-		Enabled:          ptr(true),
-		BootstrapCluster: ptr(harness.AgentNetworkCluster),
+		Name:        tc.name,
+		ProviderId:  tc.catalogID,
+		UpstreamUrl: vllm.URL,
+		ApiKey:      &staticKey,
+		Enabled:     ptr(true),
 	})
 	require.NoError(t, err, "create %s provider", tc.name)
 	t.Cleanup(func() { _ = srv.DeleteProvider(context.Background(), prov.Id) })

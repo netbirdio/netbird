@@ -57,10 +57,9 @@ func (a *AgentNetworkAPI) GetProvider(ctx context.Context, providerID string) (*
 	return &ret, err
 }
 
-// CreateProvider creates a new Agent Network provider. Set
-// request.BootstrapCluster on the account's first provider to bootstrap the
-// per-account gateway endpoint (alternatively bootstrap via UpdateSettings
-// with a cluster).
+// CreateProvider creates a new Agent Network provider. Providers have no
+// settings side effects — bootstrap the account's gateway endpoint separately
+// via CreateSettings.
 func (a *AgentNetworkAPI) CreateProvider(ctx context.Context, request api.PostApiAgentNetworkProvidersJSONRequestBody) (*api.AgentNetworkProvider, error) {
 	requestBytes, err := json.Marshal(request)
 	if err != nil {
@@ -329,14 +328,13 @@ func (a *AgentNetworkAPI) DeleteBudgetRule(ctx context.Context, ruleID string) e
 	return nil
 }
 
-// GetSettings gets the account's Agent Network gateway settings (cluster,
-// subdomain, endpoint, collection toggles). An account that has not been
-// bootstrapped yet — via UpdateSettings with a cluster, or by creating the
-// first provider with bootstrap_cluster set — reads as the defaults with an
-// empty Cluster, Subdomain and Endpoint. Management servers prior to that
-// contract answered 200 with a JSON null body instead; that legacy shape is
-// translated to an APIError matchable via IsNotFound rather than fabricating
-// defaults the server never stated.
+// GetSettings gets the account's Agent Network gateway settings (endpoint,
+// proxy address, collection toggles). An account that has not been
+// bootstrapped yet — via CreateSettings — reads as the defaults with an empty
+// Endpoint and ProxyAddress. Management servers prior to that contract
+// answered 200 with a JSON null body instead; that legacy shape is translated
+// to an APIError matchable via IsNotFound rather than fabricating defaults
+// the server never stated.
 func (a *AgentNetworkAPI) GetSettings(ctx context.Context) (*api.AgentNetworkSettings, error) {
 	resp, err := a.c.NewRequest(ctx, "GET", "/api/agent-network/settings", nil, nil)
 	if err != nil {
@@ -359,11 +357,32 @@ func (a *AgentNetworkAPI) GetSettings(ctx context.Context) (*api.AgentNetworkSet
 	return &ret, nil
 }
 
+// CreateSettings bootstraps the account's Agent Network settings row,
+// assigning the immutable endpoint. Exactly one of request.ProxyAddress
+// (labeled endpoint beneath that cluster; the server allocates the label) and
+// request.Endpoint (self-addressed dedicated endpoint, claimed verbatim) must
+// be set. Returns a conflict when the account already has a settings row.
+func (a *AgentNetworkAPI) CreateSettings(ctx context.Context, request api.PostApiAgentNetworkSettingsJSONRequestBody) (*api.AgentNetworkSettings, error) {
+	requestBytes, err := json.Marshal(request)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := a.c.NewRequest(ctx, "POST", "/api/agent-network/settings", bytes.NewReader(requestBytes), nil)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
+	ret, err := parseResponse[api.AgentNetworkSettings](resp)
+	return &ret, err
+}
+
 // UpdateSettings updates the account's Agent Network settings; the request
-// replaces every mutable field (collection toggles and retention). Setting
-// request.Cluster bootstraps the settings row when the account does not have
-// one yet; on a bootstrapped account it must match the assigned cluster (or
-// be nil) and any other value is rejected — the cluster is immutable.
+// replaces every mutable field (collection toggles and retention). The
+// endpoint and proxy address are assigned at bootstrap (CreateSettings) and
+// are not part of the update schema. Returns not-found until the account is
+// bootstrapped.
 func (a *AgentNetworkAPI) UpdateSettings(ctx context.Context, request api.PutApiAgentNetworkSettingsJSONRequestBody) (*api.AgentNetworkSettings, error) {
 	requestBytes, err := json.Marshal(request)
 	if err != nil {

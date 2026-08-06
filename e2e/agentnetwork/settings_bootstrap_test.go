@@ -4,6 +4,7 @@ package agentnetwork
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -14,7 +15,8 @@ import (
 )
 
 // harnessStartFresh boots a dedicated combined server with its own fresh
-// account and registers its teardown on t.
+// account and registers its teardown on t. Unlike the shared srv, the fresh
+// account has NOT had its agent-network endpoint bootstrapped.
 func harnessStartFresh(ctx context.Context, t *testing.T) (*harness.Combined, error) {
 	t.Helper()
 	fresh, err := harness.StartCombined(ctx)
@@ -28,16 +30,16 @@ func harnessStartFresh(ctx context.Context, t *testing.T) (*harness.Combined, er
 	return fresh, nil
 }
 
-// TestSettingsBootstrapViaPut covers the settings-first bootstrap path on an
+// TestSettingsBootstrapViaPost covers the explicit bootstrap contract on an
 // account that has never been bootstrapped: the GET reads as the defaults
-// with an empty cluster/subdomain/endpoint, a PUT without a cluster has
-// nothing to pin and fails, and a PUT carrying a cluster creates the row and
-// pins it immutably. The shared srv cannot provide that starting state (any
-// provider-creating test bootstraps it, and test order is deliberately not
-// relied on), so this boots a dedicated combined server — the image is
-// already built and cached by TestMain's StartCombined, so the extra cost is
-// one container start.
-func TestSettingsBootstrapViaPut(t *testing.T) {
+// with an empty endpoint/proxy_address, a PUT has no row to update and fails,
+// and a POST creates the row and assigns the immutable endpoint — labeled
+// beneath a proxy address here, with the toggle overrides from the same
+// request applied. The shared srv cannot provide that starting state
+// (TestMain bootstraps it), so this boots a dedicated combined server — the
+// image is already built and cached by TestMain's StartCombined, so the extra
+// cost is one container start.
+func TestSettingsBootstrapViaPost(t *testing.T) {
 	ctx := context.Background()
 
 	fresh, err := harnessStartFresh(ctx, t)
@@ -47,32 +49,34 @@ func TestSettingsBootstrapViaPut(t *testing.T) {
 	// as an error and not as a null body.
 	before, err := fresh.GetSettings(ctx)
 	require.NoError(t, err, "get settings on a fresh account must succeed")
-	assert.Empty(t, before.Cluster, "cluster must be empty before bootstrap")
-	assert.Empty(t, before.Subdomain, "subdomain must be empty before bootstrap")
-	assert.Empty(t, before.Endpoint, "endpoint must be empty before bootstrap, not a bare dot")
+	assert.Empty(t, before.Endpoint, "endpoint must be empty before bootstrap")
+	assert.Empty(t, before.ProxyAddress, "proxy address must be empty before bootstrap")
+	assert.False(t, before.Dedicated, "an unbootstrapped account has no serving shape")
 	assert.True(t, before.EnableLogCollection, "defaults must show log collection on, matching bootstrap")
 	assert.False(t, before.EnablePromptCollection, "defaults must show prompt collection off")
 
-	// A PUT without a cluster has nothing to pin the account to.
+	// A PUT has no row to update yet — bootstrap is the explicit POST.
 	_, err = fresh.UpdateSettings(ctx, api.AgentNetworkSettingsRequest{
 		EnableLogCollection: true,
 	})
 	requireClientError(t, err)
 
-	// A PUT carrying a cluster bootstraps the account and applies the
-	// mutable fields from the same request. Every toggle is set away from
-	// its bootstrap default so each assertion can actually fail.
+	// A POST with a proxy address bootstraps a labeled endpoint and applies
+	// the toggles from the same request. Every toggle is set away from its
+	// bootstrap default so each assertion can actually fail.
 	const cluster = "e2e.bootstrap.netbird.selfhosted"
-	bootstrapped, err := fresh.UpdateSettings(ctx, api.AgentNetworkSettingsRequest{
-		Cluster:                ptr(cluster),
-		EnableLogCollection:    false,
-		EnablePromptCollection: true,
-		RedactPii:              true,
+	bootstrapped, err := fresh.CreateSettings(ctx, api.AgentNetworkSettingsCreateRequest{
+		ProxyAddress:           ptr(cluster),
+		EnableLogCollection:    ptr(false),
+		EnablePromptCollection: ptr(true),
+		RedactPii:              ptr(true),
 	})
-	require.NoError(t, err, "bootstrap settings via PUT must succeed")
-	assert.Equal(t, cluster, bootstrapped.Cluster, "cluster must be pinned from the request")
-	require.NotEmpty(t, bootstrapped.Subdomain, "subdomain must be assigned at bootstrap")
-	assert.Equal(t, bootstrapped.Subdomain+"."+cluster, bootstrapped.Endpoint, "endpoint must combine subdomain and cluster")
+	require.NoError(t, err, "bootstrap settings via POST must succeed")
+	assert.Equal(t, cluster, bootstrapped.ProxyAddress, "proxy address must be pinned from the request")
+	require.NotEmpty(t, bootstrapped.Endpoint, "endpoint must be assigned at bootstrap")
+	assert.True(t, strings.HasSuffix(bootstrapped.Endpoint, "."+cluster),
+		"labeled endpoint must hang one label beneath the proxy address: %s", bootstrapped.Endpoint)
+	assert.False(t, bootstrapped.Dedicated, "a labeled pin is not dedicated")
 	assert.False(t, bootstrapped.EnableLogCollection, "log collection from the bootstrap request must override the default")
 	assert.True(t, bootstrapped.EnablePromptCollection, "prompt collection from the bootstrap request must apply")
 	assert.True(t, bootstrapped.RedactPii, "redact toggle from the bootstrap request must apply")
@@ -85,30 +89,50 @@ func TestSettingsBootstrapViaPut(t *testing.T) {
 	assert.Equal(t, bootstrapped.EnablePromptCollection, after.EnablePromptCollection, "prompt collection must persist")
 	assert.Equal(t, bootstrapped.RedactPii, after.RedactPii, "redact toggle must persist")
 
-	// Once bootstrapped, later updates may omit the cluster entirely.
+	// Once bootstrapped, PUT updates the toggles; the identity fields are not
+	// part of its schema and survive by construction.
 	persisted, err := fresh.UpdateSettings(ctx, api.AgentNetworkSettingsRequest{
 		EnableLogCollection:    true,
 		EnablePromptCollection: false,
 		RedactPii:              true,
 	})
-	require.NoError(t, err, "post-bootstrap update without cluster must succeed")
-	assert.Equal(t, cluster, persisted.Cluster, "omitted cluster must keep the pinned value")
+	require.NoError(t, err, "post-bootstrap update must succeed")
+	assert.Equal(t, bootstrapped.Endpoint, persisted.Endpoint, "endpoint must survive updates untouched")
+	assert.Equal(t, cluster, persisted.ProxyAddress, "proxy address must survive updates untouched")
 	assert.True(t, persisted.EnableLogCollection, "post-bootstrap toggle must apply")
 	assert.False(t, persisted.EnablePromptCollection, "post-bootstrap toggle must apply")
 
-	// The cluster is immutable: a different value is rejected rather than
-	// silently ignored, and the rejected update must not disturb anything.
-	_, err = fresh.UpdateSettings(ctx, api.AgentNetworkSettingsRequest{
-		Cluster:             ptr("other.cluster.invalid"),
-		EnableLogCollection: false,
+	// The endpoint is immutable: a second bootstrap is rejected as a
+	// conflict, and the rejected create must not disturb anything.
+	_, err = fresh.CreateSettings(ctx, api.AgentNetworkSettingsCreateRequest{
+		Endpoint: ptr("other.cluster.invalid"),
 	})
 	requireClientError(t, err)
 
 	final, err := fresh.GetSettings(ctx)
-	require.NoError(t, err, "get settings after the rejected cluster change must succeed")
-	assert.Equal(t, persisted.Cluster, final.Cluster, "rejected update must not change the cluster")
-	assert.Equal(t, persisted.Endpoint, final.Endpoint, "rejected update must not change the endpoint")
-	assert.Equal(t, persisted.EnableLogCollection, final.EnableLogCollection, "rejected update must not apply its toggles")
-	assert.Equal(t, persisted.EnablePromptCollection, final.EnablePromptCollection, "rejected update must not apply its toggles")
-	assert.Equal(t, persisted.RedactPii, final.RedactPii, "rejected update must not apply its toggles")
+	require.NoError(t, err, "get settings after the rejected bootstrap must succeed")
+	assert.Equal(t, persisted.Endpoint, final.Endpoint, "rejected bootstrap must not change the endpoint")
+	assert.Equal(t, persisted.ProxyAddress, final.ProxyAddress, "rejected bootstrap must not change the proxy address")
+	assert.Equal(t, persisted.EnableLogCollection, final.EnableLogCollection, "rejected bootstrap must not apply its toggles")
+	assert.Equal(t, persisted.EnablePromptCollection, final.EnablePromptCollection, "rejected bootstrap must not apply its toggles")
+	assert.Equal(t, persisted.RedactPii, final.RedactPii, "rejected bootstrap must not apply its toggles")
+}
+
+// TestSettingsBootstrapSelfAddressed covers the dedicated shape end to end:
+// a POST carrying an endpoint claims the hostname verbatim, the proxy address
+// equals it, and the pin reads as dedicated — the address-first flow a
+// self-hosted operator uses before deploying the proxy that will declare it.
+func TestSettingsBootstrapSelfAddressed(t *testing.T) {
+	ctx := context.Background()
+
+	fresh, err := harnessStartFresh(ctx, t)
+	require.NoError(t, err, "start dedicated combined server")
+
+	created, err := fresh.CreateSettings(ctx, api.AgentNetworkSettingsCreateRequest{
+		Endpoint: ptr("gw.e2e.netbird.selfhosted"),
+	})
+	require.NoError(t, err, "self-addressed bootstrap must succeed")
+	assert.Equal(t, "gw.e2e.netbird.selfhosted", created.Endpoint, "endpoint must be claimed verbatim")
+	assert.Equal(t, created.Endpoint, created.ProxyAddress, "self-addressed: proxy address is the endpoint")
+	assert.True(t, created.Dedicated, "a self-addressed pin is dedicated")
 }
