@@ -59,8 +59,8 @@ type UIPreferences struct {
 	// and is never reset, so the default-on flow runs at most once, ever.
 	AutostartInitialized bool `json:"autostartInitialized"`
 	// KeepConnectedOnQuit leaves the daemon connected when the GUI quits.
-	// Phrased negatively so the zero value preserves the historical
-	// disconnect-on-quit behaviour for preference files written before it existed.
+	// Its false zero value preserves the historical disconnect-on-quit
+	// behaviour for preference files written before the field existed.
 	KeepConnectedOnQuit bool `json:"keepConnectedOnQuit"`
 }
 
