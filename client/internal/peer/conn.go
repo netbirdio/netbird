@@ -823,13 +823,14 @@ func (conn *Conn) isConnectedOnAllWay() (status guard.ConnStatus) {
 	}
 
 	return evalConnStatus(connStatusInputs{
-		forceRelay:          IsForceRelayed(),
-		peerUsesRelay:       conn.workerRelay.IsRelayConnectionSupportedWithPeer(),
-		relayConnected:      conn.statusRelay.Get() == worker.StatusConnected,
-		remoteSupportsICE:   conn.handshaker.RemoteICESupported(),
-		iceWorkerCreated:    iceWorkerCreated,
-		iceStatusConnecting: conn.statusICE.Get() != worker.StatusDisconnected,
-		iceInProgress:       iceInProgress,
+		forceRelay:              IsForceRelayed(),
+		peerUsesRelay:           conn.workerRelay.IsRelayConnectionSupportedWithPeer(),
+		relayConnected:          conn.statusRelay.Get() == worker.StatusConnected,
+		relayTransportConnected: conn.workerRelay.IsTransportConnected(),
+		remoteSupportsICE:       conn.handshaker.RemoteICESupported(),
+		iceWorkerCreated:        iceWorkerCreated,
+		iceStatusConnecting:     conn.statusICE.Get() != worker.StatusDisconnected,
+		iceInProgress:           iceInProgress,
 	})
 }
 
@@ -1053,6 +1054,9 @@ func evalConnStatus(in connStatusInputs) guard.ConnStatus {
 		return guard.ConnStatusConnected
 	case relayUsedAndUp:
 		// Relay is up but ICE is down — partially connected.
+		return guard.ConnStatusPartiallyConnected
+	case iceUp && !in.relayTransportConnected:
+		// ICE is up and the shared relay transport is down — offers cannot restore it.
 		return guard.ConnStatusPartiallyConnected
 	default:
 		return guard.ConnStatusDisconnected
