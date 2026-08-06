@@ -67,7 +67,7 @@ func (m *Manager) startExchange(remoteID RemoteID, viaSignal bool, ackID Exchang
 // (that offer riding the data path under the freshly adopted key proves it worked),
 // then derives the PSK for the new offer, commits it optimistically, and returns the
 // framed answer. A duplicate offer returns the cached answer without re-deriving.
-func (m *Manager) processOffer(remoteID RemoteID, o *OfferMsg, viaSignal bool) ([]byte, error) {
+func (m *Manager) processOffer(remoteID RemoteID, o *OfferMsg) ([]byte, error) {
 	m.trace("pqkem: offer received", "peer", remoteID, "exchange", idHex(o.ExchangeID), "acks", idHex(o.AckID))
 
 	if o.AckID != (ExchangeID{}) {
@@ -114,7 +114,7 @@ func (m *Manager) processOffer(remoteID RemoteID, o *OfferMsg, viaSignal bool) (
 	m.trace("pqkem: new PSK derived", "peer", remoteID, "exchange", idHex(o.ExchangeID), "role", "responder", "psk_fp", pskFingerprint(psk))
 
 	// Commit optimistically so our data path can rekey to the new PSK.
-	if err := m.cbHandler.OnNewPSKReady(remoteID, psk, viaSignal); err != nil {
+	if err := m.cbHandler.OnNewPSKReady(remoteID, psk); err != nil {
 		return nil, err
 	}
 	m.trace("pqkem: answer sent", "peer", remoteID, "exchange", idHex(o.ExchangeID))
@@ -125,7 +125,7 @@ func (m *Manager) processOffer(remoteID RemoteID, o *OfferMsg, viaSignal bool) (
 // stateAwaitingRekey; the next offer (chained from OnDataPathRekeyed) will acknowledge
 // this exchange. Only valid in stateAwaitingAnswer; advancing the state under the
 // lock makes a concurrent/duplicate answer bail.
-func (m *Manager) processAnswer(remoteID RemoteID, a *AnswerMsg, viaSignal bool) error {
+func (m *Manager) processAnswer(remoteID RemoteID, a *AnswerMsg) error {
 	m.mu.Lock()
 	ex := m.exchanges[remoteID]
 	if ex == nil || ex.id != a.ExchangeID || ex.state != stateAwaitingAnswer {
@@ -159,7 +159,7 @@ func (m *Manager) processAnswer(remoteID RemoteID, a *AnswerMsg, viaSignal bool)
 
 	m.trace("pqkem: new PSK derived", "peer", remoteID, "exchange", idHex(a.ExchangeID), "role", "initiator", "psk_fp", pskFingerprint(psk))
 
-	return m.cbHandler.OnNewPSKReady(remoteID, psk, viaSignal)
+	return m.cbHandler.OnNewPSKReady(remoteID, psk)
 }
 
 // ackConverged (responder) records convergence of the exchange named by ackID: a

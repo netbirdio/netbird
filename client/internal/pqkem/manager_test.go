@@ -65,7 +65,7 @@ type fakeWG struct {
 
 func newFakeWG() *fakeWG { return &fakeWG{psks: map[RemoteID]PSK{}} }
 
-func (f *fakeWG) OnNewPSKReady(remoteID RemoteID, psk PSK, bootstrap bool) error {
+func (f *fakeWG) OnNewPSKReady(remoteID RemoteID, psk PSK) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.psks[remoteID] = psk
