@@ -100,6 +100,14 @@ nfpms:
       signature:
         key_file: '{{ if index .Env "GPG_RPM_KEY_FILE" }}{{ .Env.GPG_RPM_KEY_FILE }}{{ end }}'
 
+# The GTK4 UI job shares project_name, so the default checksum file name would
+# collide with it on the shared GitHub release.
+checksum:
+  name_template: "{{ .ProjectName }}_gtk3_checksums.txt"
+
+changelog:
+  disable: true
+
 uploads:
   # The gtk3 packages reuse the netbird-ui package name, so they live in
   # dedicated repo paths (deb distribution `gtk3`, yum path `yum-gtk3`) that
