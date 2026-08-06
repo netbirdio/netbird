@@ -47,9 +47,9 @@ var (
 	}
 
 	testAgentNetworkSettings = api.AgentNetworkSettings{
-		Cluster:                "eu.proxy.netbird.io",
-		Subdomain:              "violet",
 		Endpoint:               "violet.eu.proxy.netbird.io",
+		ProxyAddress:           "eu.proxy.netbird.io",
+		Dedicated:              false,
 		EnableLogCollection:    true,
 		AccessLogRetentionDays: ptr(30),
 	}
@@ -120,18 +120,15 @@ func TestAgentNetwork_CreateProvider_200(t *testing.T) {
 			var req api.PostApiAgentNetworkProvidersJSONRequestBody
 			require.NoError(t, json.Unmarshal(reqBytes, &req))
 			assert.Equal(t, "OpenAI", req.Name)
-			require.NotNil(t, req.BootstrapCluster)
-			assert.Equal(t, "eu.proxy.netbird.io", *req.BootstrapCluster)
 			retBytes, _ := json.Marshal(testAgentNetworkProvider)
 			_, err = w.Write(retBytes)
 			require.NoError(t, err)
 		})
 		ret, err := c.AgentNetwork.CreateProvider(context.Background(), api.PostApiAgentNetworkProvidersJSONRequestBody{
-			ProviderId:       "openai_api",
-			Name:             "OpenAI",
-			UpstreamUrl:      "https://api.openai.com",
-			ApiKey:           ptr("sk-test"),
-			BootstrapCluster: ptr("eu.proxy.netbird.io"),
+			ProviderId:  "openai_api",
+			Name:        "OpenAI",
+			UpstreamUrl: "https://api.openai.com",
+			ApiKey:      ptr("sk-test"),
 		})
 		require.NoError(t, err)
 		assert.Equal(t, testAgentNetworkProvider, *ret)
@@ -456,6 +453,45 @@ func TestAgentNetwork_GetSettings_LegacyNullBody(t *testing.T) {
 	})
 }
 
+func TestAgentNetwork_CreateSettings_200(t *testing.T) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
+		mux.HandleFunc("/api/agent-network/settings", func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, "POST", r.Method)
+			reqBytes, err := io.ReadAll(r.Body)
+			require.NoError(t, err)
+			var req api.PostApiAgentNetworkSettingsJSONRequestBody
+			require.NoError(t, json.Unmarshal(reqBytes, &req))
+			require.NotNil(t, req.ProxyAddress, "proxy address must be on the wire")
+			assert.Equal(t, "eu.proxy.netbird.io", *req.ProxyAddress)
+			assert.Nil(t, req.Endpoint, "endpoint must stay off the wire for a labeled bootstrap")
+			retBytes, _ := json.Marshal(testAgentNetworkSettings)
+			_, err = w.Write(retBytes)
+			require.NoError(t, err)
+		})
+		ret, err := c.AgentNetwork.CreateSettings(context.Background(), api.PostApiAgentNetworkSettingsJSONRequestBody{
+			ProxyAddress: ptr("eu.proxy.netbird.io"),
+		})
+		require.NoError(t, err)
+		assert.Equal(t, testAgentNetworkSettings, *ret)
+	})
+}
+
+func TestAgentNetwork_CreateSettings_Conflict(t *testing.T) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
+		mux.HandleFunc("/api/agent-network/settings", func(w http.ResponseWriter, r *http.Request) {
+			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "agent network settings already bootstrapped for account acct1", Code: 409})
+			w.WriteHeader(409)
+			_, err := w.Write(retBytes)
+			require.NoError(t, err)
+		})
+		_, err := c.AgentNetwork.CreateSettings(context.Background(), api.PostApiAgentNetworkSettingsJSONRequestBody{
+			Endpoint: ptr("gw.example.com"),
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "already bootstrapped")
+	})
+}
+
 func TestAgentNetwork_UpdateSettings_200(t *testing.T) {
 	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/agent-network/settings", func(w http.ResponseWriter, r *http.Request) {
@@ -464,15 +500,12 @@ func TestAgentNetwork_UpdateSettings_200(t *testing.T) {
 			require.NoError(t, err)
 			var req api.PutApiAgentNetworkSettingsJSONRequestBody
 			require.NoError(t, json.Unmarshal(reqBytes, &req))
-			require.NotNil(t, req.Cluster, "bootstrap cluster must be on the wire")
-			assert.Equal(t, "eu.proxy.netbird.io", *req.Cluster)
 			assert.True(t, req.EnableLogCollection)
 			retBytes, _ := json.Marshal(testAgentNetworkSettings)
 			_, err = w.Write(retBytes)
 			require.NoError(t, err)
 		})
 		ret, err := c.AgentNetwork.UpdateSettings(context.Background(), api.PutApiAgentNetworkSettingsJSONRequestBody{
-			Cluster:             ptr("eu.proxy.netbird.io"),
 			EnableLogCollection: true,
 		})
 		require.NoError(t, err)
@@ -483,15 +516,15 @@ func TestAgentNetwork_UpdateSettings_200(t *testing.T) {
 func TestAgentNetwork_UpdateSettings_Err(t *testing.T) {
 	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/agent-network/settings", func(w http.ResponseWriter, r *http.Request) {
-			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "cluster is immutable once assigned (current: eu.proxy.netbird.io)", Code: 422})
-			w.WriteHeader(422)
+			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "agent network settings have not been bootstrapped yet; POST /api/agent-network/settings to bootstrap them", Code: 404})
+			w.WriteHeader(404)
 			_, err := w.Write(retBytes)
 			require.NoError(t, err)
 		})
 		_, err := c.AgentNetwork.UpdateSettings(context.Background(), api.PutApiAgentNetworkSettingsJSONRequestBody{
-			Cluster: ptr("us.proxy.netbird.io"),
+			EnableLogCollection: true,
 		})
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "immutable")
+		assert.True(t, rest.IsNotFound(err), "an unbootstrapped account must surface as IsNotFound")
 	})
 }

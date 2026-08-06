@@ -63,13 +63,12 @@ func TestGuardrailMultiPolicyModelAllowlist(t *testing.T) {
 	// pRestricted declares the two guardrailed models so routing is deterministic
 	// (model -> provider). Created first, so it carries the bootstrap cluster.
 	pRestricted, err := srv.CreateProvider(ctx, api.AgentNetworkProviderRequest{
-		Name:             "restricted",
-		ProviderId:       "openai_api",
-		UpstreamUrl:      vllm.URL,
-		ApiKey:           &staticKey,
-		Enabled:          ptr(true),
-		Models:           models(modelSelected, modelOther),
-		BootstrapCluster: ptr(harness.AgentNetworkCluster),
+		Name:        "restricted",
+		ProviderId:  "openai_api",
+		UpstreamUrl: vllm.URL,
+		ApiKey:      &staticKey,
+		Enabled:     ptr(true),
+		Models:      models(modelSelected, modelOther),
 	})
 	require.NoError(t, err, "create restricted provider")
 	t.Cleanup(func() { _ = srv.DeleteProvider(context.Background(), pRestricted.Id) })

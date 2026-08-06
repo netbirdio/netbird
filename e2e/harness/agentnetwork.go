@@ -126,8 +126,16 @@ func (c *Combined) DeleteGuardrail(ctx context.Context, id string) error {
 	return anDelete(ctx, c, "/api/agent-network/guardrails/"+id)
 }
 
-// GetSettings returns the account's agent-network settings row. It exists only
-// after the first provider create bootstraps it.
+// CreateSettings bootstraps the account's agent-network settings row,
+// assigning the immutable endpoint. Exactly one of req.ProxyAddress (labeled
+// endpoint beneath that cluster) and req.Endpoint (self-addressed dedicated
+// endpoint) must be set; a second bootstrap returns a conflict.
+func (c *Combined) CreateSettings(ctx context.Context, req api.AgentNetworkSettingsCreateRequest) (api.AgentNetworkSettings, error) {
+	return anRequest[api.AgentNetworkSettings](ctx, c, http.MethodPost, "/api/agent-network/settings", req)
+}
+
+// GetSettings returns the account's agent-network settings row. Before the
+// CreateSettings bootstrap it reads as the defaults with an empty endpoint.
 func (c *Combined) GetSettings(ctx context.Context) (api.AgentNetworkSettings, error) {
 	return anRequest[api.AgentNetworkSettings](ctx, c, http.MethodGet, "/api/agent-network/settings", nil)
 }
