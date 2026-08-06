@@ -153,3 +153,14 @@ func execQuery(t *testing.T, ctx context.Context, q string) {
 	_, err := pgstore.Pool.Exec(ctx, q)
 	assert.NoError(t, err)
 }
+
+// use to parse time in time.RFC3339Nano format
+// returns the time in the local time zone, as that's what being returned from sql queries
+func mustParseTime(t string) *time.Time {
+	tt, err := time.Parse(time.RFC3339Nano, t)
+	if err != nil {
+		panic(err)
+	}
+	local := tt.Local()
+	return &local
+}
