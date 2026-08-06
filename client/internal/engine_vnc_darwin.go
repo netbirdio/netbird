@@ -12,11 +12,10 @@ import (
 
 func newPlatformVNC() (vncserver.ScreenCapturer, vncserver.InputInjector, bool) {
 	capturer := vncserver.NewMacPoller()
-	// Prompt for Screen Recording at server-enable time rather than first
-	// client-connect. The native prompt is far easier for users to act on
-	// in the moment they toggled VNC on than later when "the screen looks
-	// like wallpaper" would otherwise be the only clue.
-	vncserver.PrimeScreenCapturePermission()
+	// No permission request here. Screen Recording is a user-scope TCC service,
+	// so a request from this process is dropped when it runs as a LaunchDaemon:
+	// no prompt appears and NetBird never even shows up in the Screen Recording
+	// list. The per-user agent asks instead, see newAgentResources.
 	injector, err := vncserver.NewMacInputInjector()
 	if err != nil {
 		log.Debugf("VNC: macOS input injector: %v", err)
