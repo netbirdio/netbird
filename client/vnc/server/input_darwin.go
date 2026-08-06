@@ -47,11 +47,25 @@ const (
 	// letter is treated as a menu accelerator.
 	kCGEventFlagMaskSecondaryFn uint64 = 0x00800000
 
+	// The modifier bits macOS reads off an event to decide what a keystroke
+	// means. A synthesised key event carries its own modifier state: pressing
+	// the Shift keycode first does not shift the key that follows, which is why
+	// every posted event has to spell its modifiers out.
+	kCGEventFlagMaskAlphaShift uint64 = 0x00010000
+	kCGEventFlagMaskShift      uint64 = 0x00020000
+	kCGEventFlagMaskControl    uint64 = 0x00040000
+	kCGEventFlagMaskAlternate  uint64 = 0x00080000
+	kCGEventFlagMaskCommand    uint64 = 0x00100000
+
 	// kCGMouseEventClickState (event field 1) tells macOS how many
 	// consecutive clicks of this button have happened. Without it, a
 	// double click looks like two independent single clicks and apps
 	// never see the dblclick (window-bar maximize, text word-select, ...).
 	kCGMouseEventClickState int32 = 1
+
+	// kCGKeyboardEventKeycode (event field 9) names the physical key on a
+	// flagsChanged event, which is how apps tell left Shift from right.
+	kCGKeyboardEventKeycode int32 = 9
 
 	// doubleClickWindow is the upper bound on the gap between two
 	// down events that still counts as a multi-click. macOS reads the
@@ -324,6 +338,9 @@ type MacInputInjector struct {
 	// rather than by event count.
 	axNextTry atomic.Int64
 	axAsks    atomic.Int32
+	// modifiers is the CGEventFlags state the remote client has built up with
+	// its modifier key events, stamped onto everything posted afterwards.
+	modifiers atomic.Uint64
 }
 
 // NewMacInputInjector creates a macOS input injector.
@@ -527,25 +544,76 @@ func (m *MacInputInjector) InjectKeyScancode(scancode, keysym uint32, down bool)
 // active" for the next key (e.g. the next letter activates a menu
 // accelerator).
 func (m *MacInputInjector) postMacKey(src uintptr, keycode uint16, down bool) {
+	if bit, ok := modifierFlagFor(keycode); ok {
+		m.postModifier(src, keycode, down, bit)
+		return
+	}
+
 	fnShifted := isFnShiftedKeycode(keycode)
 	if fnShifted && down {
 		postFnFlagsChanged(src, true)
 	}
-	event := cgEventCreateKeyboardEvent(src, keycode, down)
-	if event == 0 {
-		if fnShifted && !down {
-			postFnFlagsChanged(src, false)
-		}
-		return
+	flags := m.modifiers.Load()
+	if fnShifted {
+		flags |= kCGEventFlagMaskSecondaryFn
 	}
-	if fnShifted && cgEventSetFlags != nil {
-		cgEventSetFlags(event, kCGEventFlagMaskSecondaryFn)
-	}
-	cgEventPost(kCGHIDEventTap, event)
-	cfRelease(event)
+	m.postKeyEvent(src, keycode, down, flags)
 	if fnShifted && !down {
 		postFnFlagsChanged(src, false)
 	}
+}
+
+// postModifier records the new modifier state and reports it the way hardware
+// does, as a flagsChanged event rather than a keystroke. Apps read the modifier
+// bits off each event they receive, so the state has to be attached to
+// everything posted afterwards, which is what m.modifiers is for.
+func (m *MacInputInjector) postModifier(src uintptr, keycode uint16, down bool, bit uint64) {
+	var flags uint64
+	for {
+		old := m.modifiers.Load()
+		flags = old | bit
+		if !down {
+			flags = old &^ bit
+		}
+		if m.modifiers.CompareAndSwap(old, flags) {
+			break
+		}
+	}
+
+	if cgEventCreateForInput == nil || cgEventSetType == nil || cgEventSetFlags == nil {
+		// No way to synthesise the transition, so fall back to the keystroke.
+		m.postKeyEvent(src, keycode, down, flags)
+		return
+	}
+	event := cgEventCreateForInput(src)
+	if event == 0 {
+		return
+	}
+	cgEventSetType(event, kCGEventFlagsChanged)
+	// The keycode tells apps which physical key moved; several read it to tell
+	// left from right.
+	if cgEventSetIntegerValueField != nil {
+		cgEventSetIntegerValueField(event, kCGKeyboardEventKeycode, int64(keycode))
+	}
+	cgEventSetFlags(event, flags)
+	cgEventPost(kCGHIDEventTap, event)
+	cfRelease(event)
+}
+
+// postKeyEvent posts one key event carrying exactly the given modifiers. The
+// flags are always set, including when empty: the event source is the combined
+// session state, so an event left alone inherits whatever the local user happens
+// to be holding down.
+func (m *MacInputInjector) postKeyEvent(src uintptr, keycode uint16, down bool, flags uint64) {
+	event := cgEventCreateKeyboardEvent(src, keycode, down)
+	if event == 0 {
+		return
+	}
+	if cgEventSetFlags != nil {
+		cgEventSetFlags(event, flags)
+	}
+	cgEventPost(kCGHIDEventTap, event)
+	cfRelease(event)
 }
 
 // postFnFlagsChanged emits a synthetic Fn modifier transition so the
@@ -774,14 +842,13 @@ func (m *MacInputInjector) TypeText(text string) {
 			break
 		}
 		count++
-		typeRune(src, r)
+		m.typeRune(src, r)
 	}
 }
 
 // typeRune emits the press/release events for a single ASCII rune, framing
 // the keystroke with Shift-down/up when required by the keysym.
-func typeRune(src uintptr, r rune) {
-	const shiftKey = uint16(0x38) // kVK_Shift
+func (m *MacInputInjector) typeRune(src uintptr, r rune) {
 	keysym, shift, ok := keysymForASCIIRune(r)
 	if !ok {
 		return
@@ -790,23 +857,15 @@ func typeRune(src uintptr, r rune) {
 	if keycode == 0xFFFF {
 		return
 	}
+	// The shift travels on the key event itself. Framing the keystroke with
+	// Shift key events instead leaves the letter unshifted, which is how pasted
+	// text used to arrive in lower case.
+	var flags uint64
 	if shift {
-		postKey(src, shiftKey, true)
+		flags = kCGEventFlagMaskShift
 	}
-	postKey(src, keycode, true)
-	postKey(src, keycode, false)
-	if shift {
-		postKey(src, shiftKey, false)
-	}
-}
-
-func postKey(src uintptr, keycode uint16, down bool) {
-	e := cgEventCreateKeyboardEvent(src, keycode, down)
-	if e == 0 {
-		return
-	}
-	cgEventPost(kCGHIDEventTap, e)
-	cfRelease(e)
+	m.postKeyEvent(src, keycode, true, flags)
+	m.postKeyEvent(src, keycode, false, flags)
 }
 
 // GetClipboard reads the macOS clipboard using pbpaste.
@@ -825,6 +884,23 @@ func (m *MacInputInjector) GetClipboard() string {
 // Close releases the idle-sleep assertion held for the injector's lifetime.
 func (m *MacInputInjector) Close() {
 	releasePreventIdleSleep()
+}
+
+// modifierFlagFor maps a modifier keycode to the CGEventFlags bit it controls.
+func modifierFlagFor(keycode uint16) (uint64, bool) {
+	switch keycode {
+	case 0x38, 0x3C: // Shift, Right Shift
+		return kCGEventFlagMaskShift, true
+	case 0x3B, 0x3E: // Control, Right Control
+		return kCGEventFlagMaskControl, true
+	case 0x3A, 0x3D: // Option, Right Option
+		return kCGEventFlagMaskAlternate, true
+	case 0x37, 0x36: // Command, Right Command
+		return kCGEventFlagMaskCommand, true
+	case 0x39: // Caps Lock
+		return kCGEventFlagMaskAlphaShift, true
+	}
+	return 0, false
 }
 
 func keysymToMacKeycode(keysym uint32) uint16 {
