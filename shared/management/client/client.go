@@ -22,7 +22,6 @@ type Client interface {
 	ExtendAuthSession(sysInfo *system.Info, jwtToken string) (*proto.ExtendAuthSessionResponse, error)
 	GetDeviceAuthorizationFlow() (*proto.DeviceAuthorizationFlow, error)
 	GetPKCEAuthorizationFlow() (*proto.PKCEAuthorizationFlow, error)
-	GetNetworkMap(sysInfo *system.Info) (*proto.NetworkMap, error)
 	GetServerURL() string
 	// IsHealthy returns the current connection status without blocking.
 	// Used by the engine to monitor connectivity in the background.
