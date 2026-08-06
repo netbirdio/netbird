@@ -1,3 +1,5 @@
+//go:build integration
+
 package networkmap_pgsql
 
 import (

@@ -1,3 +1,5 @@
+//go:build integration
+
 package networkmap_pgsql
 
 import (
@@ -7,6 +9,7 @@ import (
 	networkmap_pgsql "github.com/netbirdio/netbird/management/internals/network_map_db/pgsql"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGetGroups(t *testing.T) {
@@ -54,6 +57,6 @@ func TestGetGroupsWithoutExpectedFields(t *testing.T) {
 
 	groups, _, err := s.GetGroups(ctx, "random-id")
 	assert.NoError(t, err)
-	assert.Len(t, groups, 1)
+	require.Len(t, groups, 1)
 	assert.NotEmpty(t, groups[0].PublicID)
 }
