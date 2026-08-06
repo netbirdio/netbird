@@ -2,6 +2,7 @@
     "languages": [
         {"code": "en", "displayName": "English (US)", "englishName": "English (US)"},
         {"code": "de", "displayName": "Deutsch", "englishName": "German"},
+        {"code": "he", "displayName": "עברית", "englishName": "Hebrew"},
         {"code": "hu", "displayName": "Magyar", "englishName": "Hungarian"},
         {"code": "ru", "displayName": "Русский", "englishName": "Russian"},
         {"code": "es", "displayName": "Español", "englishName": "Spanish"},
