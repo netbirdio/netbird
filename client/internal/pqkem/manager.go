@@ -305,7 +305,7 @@ func (m *Manager) SignalOnOffer(remoteID RemoteID, offer []byte) ([]byte, error)
 	if typ != MsgOffer {
 		return nil, fmt.Errorf("expected offer from %s, got type %d", remoteID, typ)
 	}
-	return m.processOffer(remoteID, msg.(*OfferMsg), true)
+	return m.processOffer(remoteID, msg.(*OfferMsg))
 }
 
 // SignalOnAnswer processes a KEM answer the host extracted from an incoming answer.
@@ -318,7 +318,7 @@ func (m *Manager) SignalOnAnswer(remoteID RemoteID, answer []byte) error {
 	if typ != MsgAnswer {
 		return fmt.Errorf("expected answer from %s, got type %d", remoteID, typ)
 	}
-	return m.processAnswer(remoteID, msg.(*AnswerMsg), true)
+	return m.processAnswer(remoteID, msg.(*AnswerMsg))
 }
 
 // ---- Data path ----
@@ -346,7 +346,7 @@ func (m *Manager) OnDataPathMessage(remoteID RemoteID, raw []byte) error {
 	}
 	switch typ {
 	case MsgOffer:
-		answer, err := m.processOffer(remoteID, msg.(*OfferMsg), false)
+		answer, err := m.processOffer(remoteID, msg.(*OfferMsg))
 		if err != nil {
 			return err
 		}
@@ -355,7 +355,7 @@ func (m *Manager) OnDataPathMessage(remoteID RemoteID, raw []byte) error {
 		}
 		return m.pushDataPath(remoteID, answer)
 	case MsgAnswer:
-		return m.processAnswer(remoteID, msg.(*AnswerMsg), false)
+		return m.processAnswer(remoteID, msg.(*AnswerMsg))
 	default:
 		return fmt.Errorf("unhandled data-path message type %d from %s", typ, remoteID)
 	}

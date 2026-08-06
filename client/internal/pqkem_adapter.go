@@ -23,30 +23,16 @@ type pqCallbackHandler struct {
 	// reoffer re-bootstraps the KEM over Signal for a peer (a fresh signalling offer)
 	// to recover from a persistent data-path rekey failure. Nil disables recovery.
 	reoffer func(remoteKey string)
-	// rehandshake forces the peer's WireGuard session to adopt a freshly bootstrapped
-	// PSK (the live session may be up on a pre-PQ key). Nil disables it.
-	rehandshake func(remoteKey string)
 }
 
 // OnNewPSKReady programs the freshly derived PSK for the peer (updateOnly: a no-op
 // if the peer is not present, mirroring Rosenpass).
-func (h pqCallbackHandler) OnNewPSKReady(remoteID pqkem.RemoteID, psk pqkem.PSK, bootstrap bool) error {
+func (h pqCallbackHandler) OnNewPSKReady(remoteID pqkem.RemoteID, psk pqkem.PSK) error {
 	// updateOnly: applies to an already-configured peer (rotation). At bootstrap the
 	// peer is not configured yet, so this is a no-op there and the PSK is instead
 	// pulled at peer-config time (pqHandshaker.PSK / conn.presharedKey).
 	log.Tracef("pqkem: programming PSK for peer %s", remoteID)
-	if err := h.wg.SetPresharedKey(string(remoteID), wgtypes.Key(psk), true); err != nil {
-		return err
-	}
-	// A bootstrap PSK (initial setup or wake re-negotiation) may arrive after the
-	// WireGuard session already came up on a pre-PQ key (a race between the KEM
-	// exchange and the endpoint config). SetPresharedKey only updates config, not the
-	// live session, so force a re-handshake to actually adopt the PSK now. Rotations
-	// are left to WireGuard's next natural rekey.
-	if bootstrap && h.rehandshake != nil {
-		h.rehandshake(string(remoteID))
-	}
-	return nil
+	return h.wg.SetPresharedKey(string(remoteID), wgtypes.Key(psk), true)
 }
 
 // OnRekeyFailed reports a failed PQ (re)key convergence and re-bootstraps the KEM over
