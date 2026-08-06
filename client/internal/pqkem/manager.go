@@ -301,6 +301,24 @@ func (m *Manager) SignalOffer(remoteID RemoteID) ([]byte, error) {
 	return m.startExchange(remoteID, true, ExchangeID{})
 }
 
+// ShouldSendBootstrapOffer reports whether we should emit a fresh KEM offer to kick a
+// bootstrap for this peer. True only if we are the initiator, the peer is not known
+// non-capable, and no exchange is already in flight. The host uses this when it (as the
+// controller) receives the responder's offer: it replies with a KEM offer exactly once
+// to start the exchange, and ignores further responder offers while one is in flight,
+// avoiding an offer-per-offer runaway.
+func (m *Manager) ShouldSendBootstrapOffer(remoteID RemoteID) bool {
+	if !m.IsInitiator(remoteID) {
+		return false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if capable, ok := m.capable[remoteID]; ok && !capable {
+		return false
+	}
+	return m.exchanges[remoteID] == nil
+}
+
 // SignalOnOffer processes a KEM offer the host extracted from an incoming offer and
 // returns the KEM answer for the host to embed in its outgoing answer.
 func (m *Manager) SignalOnOffer(remoteID RemoteID, offer []byte) ([]byte, error) {

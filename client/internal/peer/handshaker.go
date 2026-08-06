@@ -149,9 +149,16 @@ func (h *Handshaker) Listen(ctx context.Context) {
 			// responder-initiated wake still triggers a KEM offer (no stuck responder).
 			// The re-offer reuses our stable ICE session id, so the peer dedups repeats.
 			if h.config.PQ != nil && isController(h.config) {
-				h.log.Debugf("pqkem: controller received a responder offer, replying with our KEM offer instead of an answer")
-				if err := h.sendOffer(); err != nil {
-					h.log.Errorf("failed to send KEM offer in response to peer offer: %s", err)
+				// Reply with our KEM offer exactly once, to kick the exchange. If one is
+				// already in flight, ignore this offer — re-sending on every responder
+				// offer would be an offer-per-offer runaway.
+				if h.config.PQ.ShouldSendBootstrapOffer(h.config.Key) {
+					h.log.Debugf("pqkem: controller received a responder offer, replying with our KEM offer instead of an answer")
+					if err := h.sendOffer(); err != nil {
+						h.log.Errorf("failed to send KEM offer in response to peer offer: %s", err)
+					}
+				} else {
+					h.log.Debugf("pqkem: controller received a responder offer but a KEM exchange is already in flight, ignoring")
 				}
 				continue
 			}
