@@ -72,6 +72,10 @@ func (p pqHandshaker) OfferPayload(remoteKey string) ([]byte, int) {
 	return payload, p.announcedPort()
 }
 
+func (p pqHandshaker) ShouldSendBootstrapOffer(remoteKey string) bool {
+	return p.mgr.ShouldSendBootstrapOffer(pqkem.RemoteID(remoteKey))
+}
+
 func (p pqHandshaker) AnswerPayload(remoteKey string, recvOffer []byte) ([]byte, int) {
 	if len(recvOffer) == 0 {
 		// Capability signal (responder side): the KEM offer flows initiator->responder,
