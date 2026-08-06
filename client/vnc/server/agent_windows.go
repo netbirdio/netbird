@@ -88,6 +88,11 @@ const (
 //  1. Active session with a user logged in (RDP user in session ≥2)
 //  2. Active session without a user (console at login screen)
 //  3. Console session ID
+//
+// noActiveSession is what the WTS APIs report when no session is attached to
+// the console, which is the state a headless or freshly booted machine sits in.
+const noActiveSession = uint32(0xFFFFFFFF)
+
 func getActiveSessionID() uint32 {
 	var sessionInfo uintptr
 	var count uint32
@@ -402,7 +407,7 @@ const (
 )
 
 func newSessionManager() *sessionManager {
-	m := &sessionManager{sessionID: ^uint32(0), done: make(chan struct{})}
+	m := &sessionManager{sessionID: noActiveSession, done: make(chan struct{})}
 	if h, err := createKillOnCloseJob(); err != nil {
 		log.Warnf("create job object for vnc-agent (orphan agents possible after crash): %v", err)
 	} else {
@@ -496,6 +501,16 @@ func (m *sessionManager) Resolve(ctx context.Context) (string, string, uint32, e
 		m.mu.Unlock()
 		if socketPath != "" {
 			return socketPath, token, 0, nil
+		}
+
+		// With no session on the console there is nothing to wait for: the
+		// manager will not spawn an agent, so say so now rather than after the
+		// deadline, and say it with the error the caller turns into a message
+		// about nobody being logged in. Queried live instead of read from the
+		// manager, whose sessionID starts out as the same sentinel and would
+		// make this fire during the first tick after startup.
+		if getActiveSessionID() == noActiveSession {
+			return "", "", 0, errNoConsoleUser
 		}
 
 		select {
@@ -622,7 +637,7 @@ func (m *sessionManager) scheduleNextSpawn(exitCode uint32, lifetime time.Durati
 // window has elapsed. Returns false to permanently stop the manager when the
 // service lacks the privileges needed to spawn cross-session.
 func (m *sessionManager) maybeSpawnAgent(sid uint32) bool {
-	if m.agentProc != 0 || sid == 0xFFFFFFFF || !time.Now().After(m.nextSpawnAt) {
+	if m.agentProc != 0 || sid == noActiveSession || !time.Now().After(m.nextSpawnAt) {
 		return true
 	}
 
