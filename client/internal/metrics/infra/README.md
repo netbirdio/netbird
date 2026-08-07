@@ -56,13 +56,32 @@ Measurement: `netbird_peer_connection`
 
 Tags:
 - `deployment_type`: "cloud" | "selfhosted" | "unknown"
-- `connection_type`: "ice" | "relay"
+- `connection_type`: "ice_p2p" | "ice_turn" | "relay" (see below)
 - `attempt_type`: "initial" | "reconnection"
 - `version`: NetBird version string
 - `os`: Operating system (linux, darwin, windows, android, ios, etc.)
 - `arch`: CPU architecture (amd64, arm64, etc.)
+- `peer_id`: anonymised peer identifier (truncated SHA-256 of the WireGuard public key)
+- `connection_pair_id`: deterministic identifier for the peer pair, identical on both sides
 
 **Note:** `SignalingReceived` is set when the first offer or answer arrives from the remote peer (in both initial and reconnection paths). It excludes the potentially unbounded wait for the remote peer to come online.
+
+#### `connection_type` values
+
+Derived from the connection priority (`conntype.ConnPriority`) by `metricsConnType` in `client/internal/peer/conn.go`:
+
+| Value | Priority | Traffic is |
+|-------|----------|------------|
+| `ice_p2p` | `ICEP2P` | direct peer-to-peer |
+| `ice_turn` | `ICETurn` | relayed, through a TURN server |
+| `relay` | `Relay` | relayed, through a NetBird relay |
+| `unknown` | `None` or unrecognised | no active transport — **the sample is not pushed** |
+
+**Direct traffic is `ice_p2p` only.** `ice_turn` is relayed despite being negotiated by ICE, matching `Conn.isRelayed`.
+
+`None` means no transport is active: not established yet, or reset after a relay drop or a peer-state reset. Such a sample cannot be attributed to a transport, so `recordConnectionMetrics` drops it instead of pushing it — `unknown` therefore never appears in the bucket. Connection counts are counts of connections whose transport was known at sampling time.
+
+**Samples recorded before 0.77 used a single `ice` value** which covered `ICEP2P`, `ICETurn` *and* `None`, so historical `ice` samples overstate direct connections by an unknown amount and must not be compared with `ice_p2p`.
 
 ### Sync Duration
 
