@@ -61,7 +61,7 @@ func TestGuardrailMultiPolicyModelAllowlist(t *testing.T) {
 	}
 
 	// pRestricted declares the two guardrailed models so routing is deterministic
-	// (model -> provider). Created first, so it carries the bootstrap cluster.
+	// (model -> provider).
 	pRestricted, err := srv.CreateProvider(ctx, api.AgentNetworkProviderRequest{
 		Name:        "restricted",
 		ProviderId:  "openai_api",

@@ -234,10 +234,12 @@ func TestDiffMappings_ServingProxyChange(t *testing.T) {
 
 	creates, updates, deletes := diffMappings(previous, current)
 
-	require.Len(t, deletes, 1, "the old proxy must be told to drop the mapping")
-	assert.Equal(t, "proxy.example.com", deletes[0].cluster)
-	require.Len(t, creates, 1, "the new proxy must be told to add it")
-	assert.Equal(t, "brave-otter.gateway.example.com", creates[0].cluster)
+	if assert.Len(t, deletes, 1, "the old proxy must be told to drop the mapping") {
+		assert.Equal(t, "proxy.example.com", deletes[0].cluster)
+	}
+	if assert.Len(t, creates, 1, "the new proxy must be told to add it") {
+		assert.Equal(t, "brave-otter.gateway.example.com", creates[0].cluster)
+	}
 	assert.Empty(t, updates, "a serving-proxy move is a delete plus a create, not an update")
 }
 
@@ -261,8 +263,9 @@ func TestDiffMappings_UnchangedClusterIsAnUpdate(t *testing.T) {
 
 	assert.Empty(t, creates)
 	assert.Empty(t, deletes)
-	require.Len(t, updates, 1)
-	assert.Equal(t, "proxy.example.com", updates[0].cluster)
+	if assert.Len(t, updates, 1) {
+		assert.Equal(t, "proxy.example.com", updates[0].cluster)
+	}
 }
 
 // TestDiffMappings_RemovedServiceIsDeletedOnItsOwnCluster — a service that has
@@ -280,6 +283,7 @@ func TestDiffMappings_RemovedServiceIsDeletedOnItsOwnCluster(t *testing.T) {
 
 	assert.Empty(t, creates)
 	assert.Empty(t, updates)
-	require.Len(t, deletes, 1)
-	assert.Equal(t, "brave-otter.gateway.example.com", deletes[0].cluster)
+	if assert.Len(t, deletes, 1) {
+		assert.Equal(t, "brave-otter.gateway.example.com", deletes[0].cluster)
+	}
 }

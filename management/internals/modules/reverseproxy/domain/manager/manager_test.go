@@ -220,7 +220,8 @@ func TestGetClusterAllowList_DedicatedGatewayAddressExcluded(t *testing.T) {
 	}
 	st := &stubStore{
 		getAgentNetworkSettingsFunc: func(_ context.Context, accountID string) (*agentnetworkTypes.Settings, error) {
-			assert.Equal(t, "acc-123", accountID)
+			assert.Equal(t, "acc-123", accountID,
+				"the exclusion must look up the requesting account's own settings")
 			return &agentnetworkTypes.Settings{
 				AccountID:    accountID,
 				Domain:       "brave-otter.gateway.example.com",
