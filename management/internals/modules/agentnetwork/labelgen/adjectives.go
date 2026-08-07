@@ -1,14 +1,12 @@
-// Package labelgen produces DNS-safe Agent Network subdomain labels.
-//
-// The adjective pool below pairs with the noun pool in words.go to form
-// `<adjective>-<noun>` labels. It is kept separate because words.go is almost
-// entirely nouns — drawing both halves from it produced unreadable pairs like
-// "millet-hammock". Entries are lowercase ASCII, 4-12 chars, free of hyphens
-// and digits, screened for offensive/brand/region-specific terms, and disjoint
-// from the noun pool (enforced by TestAdjectives_AreDisjointFromNouns).
 package labelgen
 
-// adjectives is the descriptor half of a generated label.
+// adjectives is the descriptor half of a generated label. It pairs with the
+// noun pool in words.go to form `<adjective>-<noun>` labels, and is kept
+// separate because words.go is almost entirely nouns — drawing both halves
+// from it produced unreadable pairs like "millet-hammock". Entries are
+// lowercase ASCII, 4-12 chars, free of hyphens and digits, screened for
+// offensive/brand/region-specific terms, and disjoint from the noun pool
+// (enforced by TestAdjectives_AreDisjointFromNouns).
 var adjectives = []string{
 	"able", "active", "adept", "agile", "airy", "alert", "amiable", "ample",
 	"ancient", "ardent", "artful", "astute", "balmy", "blithe", "bold", "bonny",
