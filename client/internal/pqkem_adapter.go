@@ -57,14 +57,17 @@ type pqHandshaker struct {
 // announcedPort is the PQ data-path port to advertise to peers. It is omitted (0) when
 // the manager is on DefaultPort, since peers assume the default when no port is sent;
 // only a non-default (collision-forced) port is announced explicitly.
-func (p pqHandshaker) announcedPort() int {
+func (p pqHandshaker) announcedPort() uint16 {
 	if port := p.mgr.LocalPort(); port != DefaultPort {
-		return port
+		return uint16(port)
 	}
 	return 0
 }
 
-func (p pqHandshaker) OfferPayload(remoteKey string) ([]byte, int) {
+// OfferPayload builds the KEM offer to attach to an outgoing signalling offer for the
+// peer, plus the data-path port to announce (0 when on DefaultPort). Payload is nil when
+// this side has no offer to send.
+func (p pqHandshaker) OfferPayload(remoteKey string) ([]byte, uint16) {
 	payload, err := p.mgr.SignalOffer(pqkem.RemoteID(remoteKey))
 	if err != nil {
 		log.Warnf("pqkem: build offer for %s: %v", remoteKey, err)
@@ -72,11 +75,16 @@ func (p pqHandshaker) OfferPayload(remoteKey string) ([]byte, int) {
 	return payload, p.announcedPort()
 }
 
+// ShouldSendBootstrapOffer reports whether the controller should reply to the peer's
+// KEM-less offer with its own bootstrap offer instead of an answer.
 func (p pqHandshaker) ShouldSendBootstrapOffer(remoteKey string) bool {
 	return p.mgr.ShouldSendBootstrapOffer(pqkem.RemoteID(remoteKey))
 }
 
-func (p pqHandshaker) AnswerPayload(remoteKey string, recvOffer []byte) ([]byte, int) {
+// AnswerPayload processes a received KEM offer (nil when absent) and returns the KEM
+// answer to attach to the outgoing signalling answer, plus the data-path port to announce
+// (0 when on DefaultPort). An empty offer is treated as a capability signal.
+func (p pqHandshaker) AnswerPayload(remoteKey string, recvOffer []byte) ([]byte, uint16) {
 	if len(recvOffer) == 0 {
 		// Capability signal (responder side): the KEM offer flows initiator->responder,
 		// so if we are the responder for this peer (it is the KEM initiator by role) an
@@ -95,6 +103,8 @@ func (p pqHandshaker) AnswerPayload(remoteKey string, recvOffer []byte) ([]byte,
 	return payload, p.announcedPort()
 }
 
+// OnAnswer feeds a received KEM answer (nil when absent) into the exchange. An empty
+// answer to our offer is treated as a capability signal on the initiator side.
 func (p pqHandshaker) OnAnswer(remoteKey string, recvAnswer []byte) {
 	if len(recvAnswer) == 0 {
 		// Capability signal (initiator side): the KEM answer flows responder->initiator,
