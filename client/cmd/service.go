@@ -30,6 +30,7 @@ var (
 	serviceEnvVars   []string
 	jsonSocket       string
 	enableJSONSocket bool
+	keepTunnel       bool
 )
 
 type program struct {
@@ -54,6 +55,7 @@ func init() {
 	}
 
 	serviceCmd.AddCommand(runCmd, startCmd, stopCmd, restartCmd, svcStatusCmd, installCmd, uninstallCmd, reconfigureCmd, resetParamsCmd)
+	stopCmd.Flags().BoolVar(&keepTunnel, "keep-tunnel", false, "Leave the OS-level WireGuard interface in place instead of destroying it. Intended for an in-place binary upgrade, where the next 'service start' reuses the interface instead of recreating it.")
 	serviceCmd.PersistentFlags().BoolVar(&profilesDisabled, "disable-profiles", false, "Disables profiles feature. If enabled, the client will not be able to change or edit any profile. To persist this setting, use: netbird service install --disable-profiles")
 	serviceCmd.PersistentFlags().BoolVar(&updateSettingsDisabled, "disable-update-settings", false, "Disables update settings feature. If enabled, the client will not be able to change or edit any settings. To persist this setting, use: netbird service install --disable-update-settings")
 	serviceCmd.PersistentFlags().BoolVar(&captureEnabled, "enable-capture", false, "Enables packet capture via 'netbird debug capture'. To persist, use: netbird service install --enable-capture")

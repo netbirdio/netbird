@@ -1193,12 +1193,12 @@ func (s *Server) SwitchProfile(callerCtx context.Context, msg *proto.SwitchProfi
 }
 
 // Down engine work in the daemon.
-func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownResponse, error) {
+func (s *Server) Down(ctx context.Context, req *proto.DownRequest) (*proto.DownResponse, error) {
 	s.mutex.Lock()
 
 	giveUpChan := s.clientGiveUpChan
 
-	if err := s.cleanupConnection(); err != nil {
+	if err := s.cleanupConnection(req.GetKeepInterface()); err != nil {
 		s.mutex.Unlock()
 		if errors.Is(err, ErrServiceNotUp) {
 			log.Debugf("Down called while service not up: %v", err)
@@ -1242,7 +1242,11 @@ func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownRes
 	return &proto.DownResponse{}, nil
 }
 
-func (s *Server) cleanupConnection() error {
+// cleanupConnection tears down the active connection. keepInterface, when
+// set, tells the engine to leave the OS-level WireGuard interface in place
+// instead of destroying it — only the service-stop path ahead of an in-place
+// binary upgrade sets this; Logout and a plain Down always tear it down.
+func (s *Server) cleanupConnection(keepInterface bool) error {
 	s.oauthAuthFlow = oauthAuthFlow{}
 
 	if s.actCancel == nil {
@@ -1262,6 +1266,10 @@ func (s *Server) cleanupConnection() error {
 	var engine *internal.Engine
 	if s.connectClient != nil {
 		engine = s.connectClient.Engine()
+	}
+
+	if keepInterface && engine != nil {
+		engine.SetKeepInterfaceOnStop(true)
 	}
 
 	s.actCancel()
@@ -1327,7 +1335,7 @@ func (s *Server) handleProfileLogout(ctx context.Context, msg *proto.LogoutReque
 
 	activeProf, _ := s.profileManager.GetActiveProfileState()
 	if activeProf != nil && activeProf.ID == resolved.ID {
-		if err := s.cleanupConnection(); err != nil && !errors.Is(err, ErrServiceNotUp) {
+		if err := s.cleanupConnection(false); err != nil && !errors.Is(err, ErrServiceNotUp) {
 			log.Errorf("failed to cleanup connection: %v", err)
 		}
 		state := internal.CtxGetState(s.rootCtx)
@@ -1356,7 +1364,7 @@ func (s *Server) handleActiveProfileLogout(ctx context.Context) (*proto.LogoutRe
 		return nil, err
 	}
 
-	if err := s.cleanupConnection(); err != nil && !errors.Is(err, ErrServiceNotUp) {
+	if err := s.cleanupConnection(false); err != nil && !errors.Is(err, ErrServiceNotUp) {
 		// todo review to update the status in case any type of error
 		log.Errorf("failed to cleanup connection: %v", err)
 		return nil, err

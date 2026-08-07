@@ -139,6 +139,12 @@ func (t *TunNetstackDevice) Close() error {
 	return nil
 }
 
+// CloseKeepInterface has no OS-level interface to preserve for a netstack
+// device, since it never creates one; it just closes.
+func (t *TunNetstackDevice) CloseKeepInterface() error {
+	return t.Close()
+}
+
 func (t *TunNetstackDevice) WgAddress() wgaddr.Address {
 	return t.address
 }

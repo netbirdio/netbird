@@ -150,6 +150,11 @@ func (t *WGTunDevice) Close() error {
 	return nil
 }
 
+// CloseKeepInterface has no OS-level interface to preserve on Android; it just closes.
+func (t *WGTunDevice) CloseKeepInterface() error {
+	return t.Close()
+}
+
 func (t *WGTunDevice) Device() *device.Device {
 	return t.device
 }

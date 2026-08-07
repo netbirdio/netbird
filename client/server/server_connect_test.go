@@ -97,7 +97,7 @@ func TestCleanupConnection_ClearsConnectClient(t *testing.T) {
 	s.connectClient = newDummyConnectClient(context.Background())
 	s.clientRunning = true
 
-	err := s.cleanupConnection()
+	err := s.cleanupConnection(false)
 	require.NoError(t, err)
 
 	assert.Nil(t, s.connectClient, "connectClient should be nil after cleanup")
@@ -149,7 +149,7 @@ func TestDownThenUp_StaleRunningChan(t *testing.T) {
 	// flips clientRunning to false (intent = down). The connectionGoroutineRunning state
 	// remains independent of intent — derived from clientGiveUpChan.
 	s.mutex.Lock()
-	err := s.cleanupConnection()
+	err := s.cleanupConnection(false)
 	s.mutex.Unlock()
 	require.NoError(t, err)
 

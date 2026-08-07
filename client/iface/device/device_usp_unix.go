@@ -115,6 +115,12 @@ func (t *TunDevice) Close() error {
 	return nil
 }
 
+// CloseKeepInterface has no OS-level interface to preserve for a userspace TUN
+// device, since the tun fd dies with the process regardless; it just closes.
+func (t *TunDevice) CloseKeepInterface() error {
+	return t.Close()
+}
+
 func (t *TunDevice) WgAddress() wgaddr.Address {
 	return t.address
 }

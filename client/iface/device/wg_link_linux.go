@@ -56,20 +56,32 @@ func (l *wgLink) recreate() error {
 		}
 	}
 
-	// remove if interface exists
 	if link != nil {
-		err = netlink.LinkDel(l)
-		if err != nil {
-			return err
+		if link.Type() == l.Type() {
+			// Reuse the existing wireguard link instead of deleting and
+			// recreating it: a kernel WireGuard interface can outlive the
+			// process that created it (see TunKernelDevice.CloseKeepInterface),
+			// so on a plain restart or an in-place binary upgrade the link
+			// from the previous run is very likely still there. Every
+			// subsequent step (assignAddr, setMTU, ConfigureInterface) fully
+			// reapplies its own state on top of it, so nothing is left stale.
+			log.Infof("interface %s already exists, reusing it", name)
+			return nil
+		}
+
+		log.Infof("interface %s already exists with a different type (%s), recreating it", name, link.Type())
+		if err := netlink.LinkDel(l); err != nil {
+			return fmt.Errorf("link del: %w", err)
 		}
 	}
 
 	log.Debugf("adding device: %s", name)
-	err = netlink.LinkAdd(l)
-	if os.IsExist(err) {
-		log.Infof("interface %s already exists. Will reuse.", name)
-	} else if err != nil {
-		return fmt.Errorf("link add: %w", err)
+	if err := netlink.LinkAdd(l); err != nil {
+		if os.IsExist(err) {
+			log.Infof("interface %s already exists. Will reuse.", name)
+		} else {
+			return fmt.Errorf("link add: %w", err)
+		}
 	}
 
 	return nil

@@ -1,14 +1,5 @@
 #!/bin/sh
 
-# Step 1, decide if we should use systemd or init/upstart
-use_systemctl="True"
-systemd_version=0
-if ! command -V systemctl >/dev/null 2>&1; then
-  use_systemctl="False"
-else
-    systemd_version=$(systemctl --version | head -1 | sed 's/systemd //g')
-fi
-
 cleanInstall() {
     printf "\033[32m Post Install of an clean install\033[0m\n"
     # Step 3 (clean install), enable the service in the proper way for this platform
@@ -18,10 +9,12 @@ cleanInstall() {
 
 upgrade() {
     printf "\033[32m Post Install of an upgrade\033[0m\n"
-    if [ "${use_systemctl}" = "True" ]; then
-      printf "\033[32m Stopping the service\033[0m\n"
-      systemctl stop netbird 2> /dev/null || true
-    fi
+    printf "\033[32m Stopping the service\033[0m\n"
+    # --keep-tunnel asks the (still-running, pre-upgrade) daemon to leave its
+    # kernel WireGuard interface in place instead of tearing it down, so the
+    # freshly installed service below can reuse it rather than rebuilding it.
+    # Falls back to a plain stop on a daemon that predates this flag.
+    /usr/bin/netbird service stop --keep-tunnel 2> /dev/null || /usr/bin/netbird service stop 2> /dev/null || true
     if [ -e /lib/systemd/system/netbird.service ]; then
       rm -f /lib/systemd/system/netbird.service
       systemctl daemon-reload
