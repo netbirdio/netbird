@@ -249,78 +249,44 @@ jobs:
           docker compose exec management ls -l /var/lib/netbird/ | grep -i GeoLite2-City_[0-9]*.mmdb
           docker compose exec management ls -l /var/lib/netbird/ | grep -i geonames_[0-9]*.db
 
-  test-getting-started-script:
+  test-legacy-getting-started-scripts:
     runs-on: ubuntu-latest
     steps:
-      - name: Install jq
-        run: sudo apt-get install -y jq
-
       - name: Checkout code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
 
-      - name: run script with Zitadel PostgreSQL
-        run: NETBIRD_DOMAIN=use-ip bash -x infrastructure_files/getting-started-with-zitadel.sh
-
-      - name: test Caddy file gen postgres
-        run: test -f Caddyfile
-
-      - name: test docker-compose file gen postgres
-        run: test -f docker-compose.yml
-
-      - name: test management.json file gen postgres
-        run: test -f management.json
-
-      - name: test turnserver.conf file gen postgres
+      - name: Verify fresh-install session cookie key hardening
         run: |
-          set -x
-          test -f turnserver.conf
-          grep external-ip turnserver.conf
+          grep -Fxq '  SESSION_COOKIE_ENCRYPTION_KEY=$(openssl rand -base64 32)' infrastructure_files/getting-started.sh
+          grep -Fxq '    sessionCookieEncryptionKey: "$SESSION_COOKIE_ENCRYPTION_KEY"' infrastructure_files/getting-started.sh
+          grep -Fxq '  install -m 600 /dev/null config.yaml' infrastructure_files/getting-started.sh
+          grep -Fxq '  openssl rand -base64 32' infrastructure_files/getting-started-enterprise.sh
+          grep -Fxq '  NETBIRD_SESSION_COOKIE_ENCRYPTION_KEY=$(rand_b64_key)' infrastructure_files/getting-started-enterprise.sh
+          grep -Fxq '    sessionCookieEncryptionKey: "${NETBIRD_SESSION_COOKIE_ENCRYPTION_KEY}"' infrastructure_files/getting-started-enterprise.sh
 
-      - name: test zitadel.env file gen postgres
-        run: test -f zitadel.env
-
-      - name: test dashboard.env file gen postgres
-        run: test -f dashboard.env
-
-      - name: test relay.env file gen postgres
-        run: test -f relay.env
-
-      - name: test zdb.env file gen postgres
-        run: test -f zdb.env
-
-      - name: Postgres run cleanup
+      - name: Verify Dex retirement notice
         run: |
-          docker compose down --volumes --rmi all
-          rm -rf docker-compose.yml Caddyfile zitadel.env dashboard.env machinekey/zitadel-admin-sa.token turnserver.conf management.json zdb.env
+          if infrastructure_files/getting-started-with-dex.sh >stdout.txt 2>stderr.txt; then
+            echo "Expected the retired Dex installer to fail"
+            exit 1
+          fi
+          test ! -s stdout.txt
+          grep -Fq "Dex support is not deprecated." stderr.txt
+          grep -Fq "https://docs.netbird.io/selfhosted/selfhosted-quickstart" stderr.txt
+          grep -Fq "https://docs.netbird.io/selfhosted/identity-providers/local" stderr.txt
+          grep -Fq "removed in NetBird v0.80" stderr.txt
 
-      - name: run script with Zitadel CockroachDB
-        run: bash -x infrastructure_files/getting-started-with-zitadel.sh
-        env:
-          NETBIRD_DOMAIN: use-ip
-          ZITADEL_DATABASE: cockroach
-
-      - name: test Caddy file gen CockroachDB
-        run: test -f Caddyfile
-
-      - name: test docker-compose file gen CockroachDB
-        run: test -f docker-compose.yml
-
-      - name: test management.json file gen CockroachDB
-        run: test -f management.json
-
-      - name: test turnserver.conf file gen CockroachDB
+      - name: Verify Zitadel retirement notice
         run: |
-          set -x
-          test -f turnserver.conf
-          grep external-ip turnserver.conf
-
-      - name: test zitadel.env file gen CockroachDB
-        run: test -f zitadel.env
-
-      - name: test dashboard.env file gen CockroachDB
-        run: test -f dashboard.env
-
-      - name: test relay.env file gen CockroachDB
-        run: test -f relay.env
+          if bash infrastructure_files/getting-started-with-zitadel.sh >stdout.txt 2>stderr.txt; then
+            echo "Expected the retired Zitadel installer to fail"
+            exit 1
+          fi
+          test ! -s stdout.txt
+          grep -Fq "Zitadel support and existing Zitadel deployments are not deprecated." stderr.txt
+          grep -Fq "https://docs.netbird.io/selfhosted/selfhosted-quickstart" stderr.txt
+          grep -Fq "https://docs.netbird.io/selfhosted/identity-providers/zitadel" stderr.txt
+          grep -Fq "https://docs.netbird.io/selfhosted/selfhosted-guide" stderr.txt
+          grep -Fq "removed in NetBird v0.80" stderr.txt

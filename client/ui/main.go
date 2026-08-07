@@ -14,7 +14,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
-	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 
 	"github.com/netbirdio/netbird/client/ui/authsession"
 	"github.com/netbirdio/netbird/client/ui/i18n"
@@ -63,7 +62,7 @@ type registeredServices struct {
 	profiles        *services.Profiles
 	update          *services.Update
 	daemonFeed      *services.DaemonFeed
-	notifier        *notifications.NotificationService
+	notifier        *Notifier
 	compat          *services.Compat
 	profileSwitcher *services.ProfileSwitcher
 	bundle          *i18n.Bundle
@@ -96,14 +95,13 @@ func main() {
 		}
 	})
 
-	settings := services.NewSettings(conn)
 	profiles := services.NewProfiles(conn)
 	// updater.Holder owns the typed update State; DaemonFeed feeds it and the
 	// Update service is a thin Wails-bound facade over it plus the install RPCs.
 	updaterHolder := updater.NewHolder(app.Event)
 	update := services.NewUpdate(conn, updaterHolder)
 	daemonFeed := services.NewDaemonFeed(conn, app.Event, updaterHolder, debugLog)
-	notifier := notifications.New()
+	notifier := newNotifier()
 	compat := services.NewCompat(conn)
 	// macOS shows no toast until permission is requested. Run it after
 	// ApplicationStarted so the notifier's Startup has initialised the
@@ -117,6 +115,7 @@ func main() {
 	bundle, prefStore, localizer := buildI18n(app)
 
 	// After bundle + prefStore: both are used to localise daemon errors.
+	settings := services.NewSettings(conn, bundle, prefStore, daemonAddr)
 	connection := services.NewConnection(conn, bundle, prefStore)
 	profileSwitcher := services.NewProfileSwitcher(profiles, connection, daemonFeed)
 	// authsession.Session owns the full extend + dismiss surface the tray
@@ -181,6 +180,7 @@ func main() {
 		WindowManager:   windowManager,
 		Session:         authSession,
 		Localizer:       localizer,
+		Preferences:     prefStore,
 	})
 	listenForShowSignal(context.Background(), tray)
 
@@ -210,7 +210,7 @@ func main() {
 // requestNotificationAuthorization prompts for macOS notification permission.
 // The request blocks until the user responds (up to 3 minutes), so callers run
 // it in a goroutine. No-op on Linux/Windows.
-func requestNotificationAuthorization(notifier *notifications.NotificationService) {
+func requestNotificationAuthorization(notifier *Notifier) {
 	authorized, err := notifier.CheckNotificationAuthorization()
 	if err != nil {
 		logrus.Debugf("check notification authorization: %v", err)

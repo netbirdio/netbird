@@ -1517,6 +1517,54 @@ func (a *Account) GetResourceRoutersMap() map[string]map[string]*routerTypes.Net
 	return routers
 }
 
+// forcesRoutingPeerDNSResolution reports whether the given peer must run
+// routing-peer DNS resolution regardless of the account-global
+// RoutingPeerDNSResolutionEnabled setting. It returns true when the peer is a
+// router for a domain network resource that is targeted by an enabled
+// reverse-proxy service, so the peer's DNS forwarder starts and can resolve
+// the target for the embedded proxy peers. Embedded proxy peers themselves are
+// handled at PeerConfig build time.
+func (a *Account) forcesRoutingPeerDNSResolution(peerID string, routers map[string]map[string]*routerTypes.NetworkRouter) bool {
+	targeted := a.proxyTargetedDomainResourceIDs()
+	if len(targeted) == 0 {
+		return false
+	}
+
+	for _, resource := range a.NetworkResources {
+		if resource == nil || !resource.Enabled || resource.Type != resourceTypes.Domain {
+			continue
+		}
+		if _, ok := targeted[resource.ID]; !ok {
+			continue
+		}
+		if _, isRouter := routers[resource.NetworkID][peerID]; isRouter {
+			return true
+		}
+	}
+
+	return false
+}
+
+// proxyTargetedDomainResourceIDs returns the set of domain network resource IDs
+// targeted by an enabled, non-terminated reverse-proxy service.
+func (a *Account) proxyTargetedDomainResourceIDs() map[string]struct{} {
+	ids := make(map[string]struct{})
+	for _, svc := range a.Services {
+		if svc == nil || !svc.Enabled || svc.Terminated {
+			continue
+		}
+		for _, target := range svc.Targets {
+			if target == nil || !target.Enabled {
+				continue
+			}
+			if target.TargetType == service.TargetTypeDomain {
+				ids[target.TargetId] = struct{}{}
+			}
+		}
+	}
+	return ids
+}
+
 // getPoliciesSourcePeers collects all unique peers from the source groups defined in the given policies.
 func getPoliciesSourcePeers(policies []*Policy, groups map[string]*Group) map[string]struct{} {
 	sourcePeers := make(map[string]struct{})
@@ -1659,14 +1707,34 @@ func (a *Account) injectPrivateServicePolicies(svc *service.Service, proxyPeers 
 	if len(proxyPeers) == 0 {
 		return
 	}
+	// A service's AccessGroups can name groups that no longer exist — persisted
+	// services and the agent-network synthesiser both carry the ids verbatim from
+	// their own state. An unresolvable source authorises nothing, so drop it here
+	// rather than let the network-map assembly resolve it to a nil group.
+	sources := a.existingGroupIDs(svc.AccessGroups)
+	if len(sources) == 0 {
+		return
+	}
 	for _, proxyPeer := range proxyPeers {
-		a.Policies = append(a.Policies, a.createPrivateServicePolicy(svc, proxyPeer))
+		a.Policies = append(a.Policies, a.createPrivateServicePolicy(svc, proxyPeer, sources))
 	}
 }
 
-func (a *Account) createPrivateServicePolicy(svc *service.Service, proxyPeer *nbpeer.Peer) *Policy {
+// existingGroupIDs returns the subset of groupIDs that resolve to a group in the account,
+// preserving the input order.
+func (a *Account) existingGroupIDs(groupIDs []string) []string {
+	out := make([]string, 0, len(groupIDs))
+	for _, groupID := range groupIDs {
+		if _, ok := a.Groups[groupID]; ok {
+			out = append(out, groupID)
+		}
+	}
+	return out
+}
+
+func (a *Account) createPrivateServicePolicy(svc *service.Service, proxyPeer *nbpeer.Peer, accessGroups []string) *Policy {
 	policyID := fmt.Sprintf("private-access-%s-%s", svc.ID, proxyPeer.ID)
-	sources := append([]string(nil), svc.AccessGroups...)
+	sources := append([]string(nil), accessGroups...)
 	return &Policy{
 		ID:      policyID,
 		Name:    fmt.Sprintf("Private Access to %s", svc.Name),

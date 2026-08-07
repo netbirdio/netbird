@@ -169,6 +169,27 @@ func (rm *AllowedIPsRefCounter) Flush() error {
 	return nberrors.FormatErrorOrNil(merr)
 }
 
+// ReapplyMatching calls apply for every prefix whose currently installed (active) peer satisfies
+// pred, holding the lock for the whole pass. It is used to re-push allowed IPs onto a peer whose
+// WireGuard entry was rebuilt (e.g. a lazy connection cycling idle->wake) without a matching
+// refcounter change, which would otherwise leave the prefix installed in the counter but missing
+// on the device. Only the active peer is considered — a prefix that lost its installed peer to a
+// failed swap is skipped here and reconciled by the next Increment/Decrement.
+func (rm *AllowedIPsRefCounter) ReapplyMatching(pred func(out string) bool, apply func(key netip.Prefix) error) error {
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+
+	var merr *multierror.Error
+	for prefix, e := range rm.entries {
+		if e.active != "" && pred(e.active) {
+			if err := apply(prefix); err != nil {
+				merr = multierror.Append(merr, err)
+			}
+		}
+	}
+	return nberrors.FormatErrorOrNil(merr)
+}
+
 // pickSurvivor deterministically selects a peer still referencing the prefix. WireGuard cannot do
 // multipath for a single prefix, so any surviving peer is a valid winner; the choice is made stable
 // (lowest peerKey) for predictable behavior and testability.

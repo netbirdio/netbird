@@ -92,7 +92,11 @@ func setupServerWithProfile(t *testing.T) (s *Server, ctx context.Context, profN
 		Username: currUser.Username,
 	}))
 
-	ctx = context.Background()
+	// The privileged-change gate reads the caller's kernel identity from the
+	// context, which a real caller gets from the daemon's transport credentials.
+	// This test drives the handler directly, so it stands in for a root caller;
+	// without an identity the gate would (correctly) refuse the SSH fields.
+	ctx = privilegedTestCtx()
 	s = New(ctx, "console", "", false, false, false, false)
 	return s, ctx, profName, currUser.Username, cfgPath
 }

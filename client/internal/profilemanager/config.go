@@ -757,6 +757,13 @@ func (config *Config) applyMDMPolicy(policy *mdm.Policy) {
 // appended for https or ":80" for http. The serviceName parameter is
 // used to contextualise error messages. On success returns the parsed
 // *url.URL; on failure returns a non-nil error.
+// ParseServiceURL normalises a service URL exactly as the config layer does when
+// it stores one, so callers comparing a requested URL against a stored one do not
+// have to reimplement the scheme validation and default-port handling.
+func ParseServiceURL(serviceName, serviceURL string) (*url.URL, error) {
+	return parseURL(serviceName, serviceURL)
+}
+
 func parseURL(serviceName, serviceURL string) (*url.URL, error) {
 	parsedMgmtURL, err := url.ParseRequestURI(serviceURL)
 	if err != nil {

@@ -8,14 +8,13 @@ import (
 	"net/netip"
 	"net/url"
 	"runtime"
-	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
@@ -52,13 +51,17 @@ type Manager interface {
 	UpdateRoutes(updateSerial uint64, serverRoutes map[route.ID]*route.Route, clientRoutes route.HAMap, useNewDNSRoute bool) error
 	ClassifyRoutes(newRoutes []*route.Route) (map[route.ID]*route.Route, route.HAMap)
 	TriggerSelection(route.HAMap)
+	SelectRoutes(ids []route.NetID, appendRoute bool) error
+	DeselectRoutes(ids []route.NetID) error
+	SelectAllRoutes()
+	DeselectAllRoutes()
 	GetRouteSelector() *routeselector.RouteSelector
 	GetClientRoutes() route.HAMap
 	GetSelectedClientRoutes() route.HAMap
 	GetActiveClientRoutes() route.HAMap
 	GetClientRoutesWithNetID() map[route.NetID][]*route.Route
 	SetRouteChangeListener(listener listener.NetworkChangeListener)
-	InitialRouteRange() []string
+	CurrentRouteRange() []string
 	SetFirewall(firewall.Manager) error
 	SetDNSForwarderPort(port uint16)
 	ReconcilePeerAllowedIPs(peerKey string) error
@@ -72,10 +75,8 @@ type ManagerConfig struct {
 	WGInterface         iface.WGIface
 	StatusRecorder      *peer.Status
 	RelayManager        *relayClient.Manager
-	InitialRoutes       []*route.Route
 	StateManager        *statemanager.Manager
 	DNSServer           dns.Server
-	DNSFeatureFlag      bool
 	PeerStore           *peerstore.Store
 	DisableClientRoutes bool
 	DisableServerRoutes bool
@@ -145,45 +146,12 @@ func NewManager(config ManagerConfig) *DefaultManager {
 	useNoop := netstack.IsEnabled() || config.DisableClientRoutes
 	dm.setupRefCounters(useNoop)
 
-	// don't proceed with client routes if it is disabled
-	if config.DisableClientRoutes {
-		return dm
-	}
-
-	if runtime.GOOS == "android" {
-		dm.setupAndroidRoutes(config)
-	}
 	return dm
 }
-func (m *DefaultManager) setupAndroidRoutes(config ManagerConfig) {
-	cr := m.initialClientRoutes(config.InitialRoutes)
 
-	routesForComparison := slices.Clone(cr)
-
-	if config.DNSFeatureFlag {
-		m.fakeIPManager = fakeip.NewManager()
-
-		v4ID := uuid.NewString()
-		fakeIPRoute := &route.Route{
-			ID:          route.ID(v4ID),
-			Network:     m.fakeIPManager.GetFakeIPBlock(),
-			NetID:       route.NetID(v4ID),
-			Peer:        m.pubKey,
-			NetworkType: route.IPv4Network,
-		}
-		v6ID := uuid.NewString()
-		fakeIPv6Route := &route.Route{
-			ID:          route.ID(v6ID),
-			Network:     m.fakeIPManager.GetFakeIPv6Block(),
-			NetID:       route.NetID(v6ID),
-			Peer:        m.pubKey,
-			NetworkType: route.IPv6Network,
-		}
-		cr = append(cr, fakeIPRoute, fakeIPv6Route)
-		m.notifier.SetFakeIPRoutes([]*route.Route{fakeIPRoute, fakeIPv6Route})
-	}
-
-	m.notifier.SetInitialClientRoutes(cr, routesForComparison)
+func (m *DefaultManager) enableFakeIPRoutes() {
+	m.fakeIPManager = fakeip.NewManager()
+	m.notifier.NotifyRouteChange()
 }
 
 func (m *DefaultManager) setupRefCounters(useNoop bool) {
@@ -460,6 +428,9 @@ func (m *DefaultManager) UpdateRoutes(
 
 	var merr *multierror.Error
 	if !m.disableClientRoutes {
+		if runtime.GOOS == "android" && useNewDNSRoute && m.fakeIPManager == nil {
+			m.enableFakeIPRoutes()
+		}
 
 		// Update route selector based on management server's isSelected status
 		m.updateRouteSelectorFromManagement(clientRoutes)
@@ -496,9 +467,32 @@ func (m *DefaultManager) SetRouteChangeListener(listener listener.NetworkChangeL
 	m.notifier.SetListener(listener)
 }
 
-// InitialRouteRange return the list of initial routes. It used by mobile systems
-func (m *DefaultManager) InitialRouteRange() []string {
-	return m.notifier.GetInitialRouteRanges()
+// CurrentRouteRange returns the current TUN route list. It is used by mobile systems
+func (m *DefaultManager) CurrentRouteRange() []string {
+	m.mux.Lock()
+	defer m.mux.Unlock()
+
+	if m.disableClientRoutes {
+		return nil
+	}
+
+	filtered := m.routeSelector.FilterSelectedExitNodes(m.clientRoutes)
+	var nets []string
+	for _, routes := range filtered {
+		for _, r := range routes {
+			if r.IsDynamic() {
+				continue
+			}
+			nets = append(nets, r.NetString())
+		}
+	}
+
+	if m.fakeIPManager != nil {
+		nets = append(nets, m.fakeIPManager.GetFakeIPBlock().String(), m.fakeIPManager.GetFakeIPv6Block().String())
+	}
+
+	sort.Strings(nets)
+	return nets
 }
 
 // GetRouteSelector returns the route selector
@@ -696,16 +690,6 @@ func (m *DefaultManager) ClassifyRoutes(newRoutes []*route.Route) (map[route.ID]
 	return newServerRoutesMap, newClientRoutesIDMap
 }
 
-func (m *DefaultManager) initialClientRoutes(initialRoutes []*route.Route) []*route.Route {
-	_, crMap := m.ClassifyRoutes(initialRoutes)
-	rs := make([]*route.Route, 0, len(crMap))
-	for _, routes := range crMap {
-		rs = append(rs, routes...)
-	}
-
-	return rs
-}
-
 func isRouteSupported(route *route.Route) bool {
 	if netstack.IsEnabled() || !nbnet.CustomRoutingDisabled() || route.IsDynamic() {
 		return true
@@ -800,7 +784,7 @@ func (m *DefaultManager) collectExitNodeInfo(clientRoutes route.HAMap) exitNodeI
 	var info exitNodeInfo
 
 	for haID, routes := range clientRoutes {
-		if !m.isExitNodeRoute(routes) {
+		if !isExitNodeRoutes(routes) {
 			continue
 		}
 
@@ -818,13 +802,6 @@ func (m *DefaultManager) collectExitNodeInfo(clientRoutes route.HAMap) exitNodeI
 	}
 
 	return info
-}
-
-func (m *DefaultManager) isExitNodeRoute(routes []*route.Route) bool {
-	if len(routes) == 0 {
-		return false
-	}
-	return route.IsV4DefaultRoute(routes[0].Network) || route.IsV6DefaultRoute(routes[0].Network)
 }
 
 func (m *DefaultManager) categorizeUserSelection(netID route.NetID, info *exitNodeInfo) {
