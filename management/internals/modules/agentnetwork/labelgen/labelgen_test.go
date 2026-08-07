@@ -1,7 +1,7 @@
 package labelgen
 
 import (
-	"math/rand"
+	"slices"
 	"strings"
 	"testing"
 
@@ -9,19 +9,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestPickUnique_DeterministicWithSeededRng locks the property the
-// caller relies on: same seed + same taken set → same pick. Without
-// that, the bootstrap flow can't reproduce a label across retries.
-func TestPickUnique_DeterministicWithSeededRng(t *testing.T) {
-	taken := map[string]struct{}{}
+// TestPickUnique_ReturnsWordFromPool confirms a pick against an empty
+// taken set is always drawn verbatim from the wordlist.
+func TestPickUnique_ReturnsWordFromPool(t *testing.T) {
+	got := PickUnique(map[string]struct{}{}, "abcd")
 
-	rngA := rand.New(rand.NewSource(42))
-	rngB := rand.New(rand.NewSource(42))
-
-	a := PickUnique(rngA, taken, "abcd")
-	b := PickUnique(rngB, taken, "abcd")
-
-	assert.Equal(t, a, b, "Same seed and taken set must produce identical pick")
+	assert.True(t, slices.Contains(uniqueWords(), got), "Pick %q must be drawn from the wordlist", got)
 }
 
 // TestPickUnique_AvoidsTakenWordsWhenMostAreReserved seeds taken with
@@ -46,8 +39,7 @@ func TestPickUnique_AvoidsTakenWordsWhenMostAreReserved(t *testing.T) {
 		taken[w] = struct{}{}
 	}
 
-	rng := rand.New(rand.NewSource(7))
-	got := PickUnique(rng, taken, "abcd")
+	got := PickUnique(taken, "abcd")
 
 	_, isFree := free[got]
 	assert.True(t, isFree, "PickUnique must return one of the free words; got %q", got)
@@ -65,8 +57,7 @@ func TestPickUnique_FallsBackWhenAllReserved(t *testing.T) {
 		taken[w] = struct{}{}
 	}
 
-	rng := rand.New(rand.NewSource(99))
-	got := PickUnique(rng, taken, "abcd")
+	got := PickUnique(taken, "abcd")
 
 	assert.True(t, strings.HasSuffix(got, "-abcd"), "Exhausted pool must produce <word>-<suffix>; got %q", got)
 
