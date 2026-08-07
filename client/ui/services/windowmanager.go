@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 
@@ -28,6 +29,10 @@ const EventBrowserLoginCancel = "browser-login:cancel"
 
 // EventSettingsOpen tells the mounted settings window which tab to show.
 const EventSettingsOpen = "netbird:settings:open"
+
+const EventWindowPainted = "netbird:window-painted"
+
+const paintedFallback = 2 * time.Second
 
 var WindowBackgroundColour = application.NewRGB(24, 26, 29) // bg-nb-gray-950
 
@@ -94,9 +99,6 @@ func DialogWindowOptions(name, title, url string, linuxIcon []byte) application.
 	}
 }
 
-// WindowManager owns the auxiliary windows (main is created in main.go). Settings is created
-// eagerly and hidden on close to keep React state; the rest are created on open, destroyed on
-// close, so the macOS dock-reopen handler finds no hidden window to resurrect.
 type WindowManager struct {
 	app               *application.App
 	mainWindow        *application.WebviewWindow
@@ -112,15 +114,29 @@ type WindowManager struct {
 	// hiddenForLogin holds windows hidden while the BrowserLogin popup is open, restored on close.
 	hiddenForLogin []application.Window
 	mu             sync.Mutex
+	newMain        func() *application.WebviewWindow
+	ready          map[uint]bool
+	showPending    map[uint]bool
+	pendingTab     map[uint]string
+	fallbackTimers map[uint]*time.Timer
 	// recenterOnShow is set only on the minimal-WM/XEmbed path, where the WM neither centers nor
 	// restores position; nil on full desktops so re-centering can't fight a user-moved window.
 	recenterOnShow func() bool
 }
 
-// NewWindowManager wires the manager to the main app; translator/prefs may be nil (tests). The
-// Settings window is created here (hidden) so the first OpenSettings is instant.
 func NewWindowManager(app *application.App, mainWindow *application.WebviewWindow, translator ErrorTranslator, prefs LanguagePreference, linuxIcon []byte) *WindowManager {
-	s := &WindowManager{app: app, mainWindow: mainWindow, translator: translator, prefs: prefs, linuxIcon: linuxIcon}
+	s := &WindowManager{
+		app:            app,
+		mainWindow:     mainWindow,
+		translator:     translator,
+		prefs:          prefs,
+		linuxIcon:      linuxIcon,
+		ready:          map[uint]bool{},
+		showPending:    map[uint]bool{},
+		pendingTab:     map[uint]string{},
+		fallbackTimers: map[uint]*time.Timer{},
+	}
+	s.watchPainted()
 	// Re-title live windows on language flip. Wired internally so the binding generator
 	// doesn't try to expose the interface param.
 	if sub, ok := prefs.(LanguageSubscriber); ok && sub != nil {
@@ -136,7 +152,11 @@ func NewWindowManager(app *application.App, mainWindow *application.WebviewWindo
 			}
 		}()
 	}
-	s.settings = app.Window.NewWithOptions(application.WebviewWindowOptions{
+	return s
+}
+
+func (s *WindowManager) newSettingsWindow() *application.WebviewWindow {
+	w := s.app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:                "settings",
 		Title:               s.title("window.title.settings"),
 		Width:               900,
@@ -150,18 +170,15 @@ func NewWindowManager(app *application.App, mainWindow *application.WebviewWindo
 		URL:                 "/#/settings",
 		Mac:                 AppleMacOSAppearanceOptions(),
 		Windows:             MicrosoftWindowsAppearanceOptions(),
-		Linux:               LinuxAppearanceOptions(linuxIcon),
+		Linux:               LinuxAppearanceOptions(s.linuxIcon),
 	})
-	// Hide (not destroy) on close to keep React state; reset to General for a flash-free reopen.
-	s.settings.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
-		if ShuttingDown() {
-			return
-		}
-		e.Cancel()
-		s.app.Event.Emit(EventSettingsOpen, "general")
-		s.settings.Hide()
+	w.RegisterHook(events.Common.WindowClosing, func(_ *application.WindowEvent) {
+		s.mu.Lock()
+		s.settings = nil
+		s.forgetWindowLocked(w)
+		s.mu.Unlock()
 	})
-	return s
+	return w
 }
 
 // OpenSettings shows the settings window on tab (empty → General), switching tab via
@@ -171,11 +188,23 @@ func (s *WindowManager) OpenSettings(tab string) {
 	if target == "" {
 		target = "general"
 	}
-	s.app.Event.Emit(EventSettingsOpen, target)
-	s.settings.Show()
-	s.settings.Focus()
-	// Re-center (minimal-WM only; see centerWhenReady).
-	s.centerWhenReady(s.settings)
+
+	s.mu.Lock()
+	fresh := s.settings == nil
+	if fresh {
+		s.settings = s.newSettingsWindow()
+		s.armReady(s.settings)
+	}
+	w := s.settings
+	if fresh {
+		s.pendingTab[w.ID()] = target
+	}
+	s.mu.Unlock()
+
+	if !fresh {
+		s.app.Event.Emit(EventSettingsOpen, target)
+	}
+	s.showWhenReady(w)
 }
 
 // OpenBrowserLogin shows the SSO popup, creating it on first use.
@@ -440,13 +469,150 @@ func (s *WindowManager) OpenMain() {
 // ShowMain brings the main window forward (re-centering on minimal WMs). The single entry
 // point every surface (tray, SIGUSR1, welcome) should use so centering applies uniformly.
 func (s *WindowManager) ShowMain() {
-	if s.mainWindow == nil {
+	s.showWhenReady(s.MainWindow())
+}
+
+func (s *WindowManager) MainWindow() *application.WebviewWindow {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.mainWindow == nil && s.newMain != nil {
+		s.mainWindow = s.newMain()
+		s.armReady(s.mainWindow)
+	}
+	return s.mainWindow
+}
+
+func (s *WindowManager) armReady(w *application.WebviewWindow) {
+	if w == nil {
 		return
 	}
-	s.mainWindow.Show()
-	s.mainWindow.Focus()
-	// Re-center (minimal-WM only; see centerWhenReady).
-	s.centerWhenReady(s.mainWindow)
+	w.RegisterHook(events.Common.WindowRuntimeReady, func(_ *application.WindowEvent) {
+		timer := time.AfterFunc(paintedFallback, func() {
+			log.Warnf("window %q never reported a first render, showing it anyway", w.Name())
+			s.markReady(w)
+		})
+		s.mu.Lock()
+		s.fallbackTimers[w.ID()] = timer
+		s.mu.Unlock()
+	})
+}
+
+func (s *WindowManager) watchPainted() {
+	s.app.Event.On(EventWindowPainted, func(e *application.CustomEvent) {
+		if w := s.windowByName(e.Sender); w != nil {
+			s.markReady(w)
+		}
+	})
+}
+
+func (s *WindowManager) forgetWindowLocked(w *application.WebviewWindow) {
+	if w == nil {
+		return
+	}
+
+	id := w.ID()
+	if timer := s.fallbackTimers[id]; timer != nil {
+		timer.Stop()
+	}
+	delete(s.fallbackTimers, id)
+	delete(s.ready, id)
+	delete(s.showPending, id)
+	delete(s.pendingTab, id)
+
+	kept := s.hiddenForLogin[:0]
+	for _, hidden := range s.hiddenForLogin {
+		if hidden != application.Window(w) {
+			kept = append(kept, hidden)
+		}
+	}
+	s.hiddenForLogin = kept
+}
+
+func (s *WindowManager) windowByName(name string) *application.WebviewWindow {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	switch name {
+	case "main":
+		return s.mainWindow
+	case "settings":
+		return s.settings
+	default:
+		return nil
+	}
+}
+
+func (s *WindowManager) markReady(w *application.WebviewWindow) {
+	id := w.ID()
+	s.mu.Lock()
+	already := s.ready[id]
+	s.ready[id] = true
+	wanted := s.showPending[id]
+	tab, hasTab := s.pendingTab[id]
+	if timer := s.fallbackTimers[id]; timer != nil {
+		timer.Stop()
+		delete(s.fallbackTimers, id)
+	}
+	delete(s.showPending, id)
+	delete(s.pendingTab, id)
+	s.mu.Unlock()
+
+	if already {
+		return
+	}
+
+	if hasTab {
+		s.app.Event.Emit(EventSettingsOpen, tab)
+	}
+
+	if wanted {
+		s.showNow(w)
+	}
+}
+
+func (s *WindowManager) showWhenReady(w *application.WebviewWindow) {
+	if w == nil {
+		return
+	}
+
+	id := w.ID()
+	s.mu.Lock()
+	ready := s.ready[id]
+	if !ready {
+		s.showPending[id] = true
+	}
+	s.mu.Unlock()
+
+	if ready {
+		s.showNow(w)
+	}
+}
+
+func (s *WindowManager) showNow(w *application.WebviewWindow) {
+	w.Show()
+	w.Focus()
+	s.centerWhenReady(w)
+}
+
+func (s *WindowManager) ShowMainAt(url string) {
+	w := s.MainWindow()
+	if w == nil {
+		return
+	}
+	w.SetURL(url)
+	s.showWhenReady(w)
+}
+
+func (s *WindowManager) SetMainFactory(f func() *application.WebviewWindow) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.newMain = f
+}
+
+func (s *WindowManager) ForgetMain() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.forgetWindowLocked(s.mainWindow)
+	s.mainWindow = nil
 }
 
 // SetRecenterOnShow installs the recenterOnShow predicate (see the field).
