@@ -32,7 +32,7 @@ func TestConcurrency_RecoversViaResignalAfterDataPathBreak(t *testing.T) {
 
 	// Data path breaks: the rotation can no longer converge -> OnRekeyFailed.
 	lbB.drop.Store(true)
-	_, err := dB.startExchange("aaaa", false, ExchangeID{})
+	_, err := dB.startExchangeTest("aaaa", false, ExchangeID{})
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return failedCount(wgB) >= 1 }, time.Second, 5*time.Millisecond)
 

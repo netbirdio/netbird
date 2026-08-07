@@ -65,6 +65,14 @@ type fakeWG struct {
 
 func newFakeWG() *fakeWG { return &fakeWG{psks: map[RemoteID]PSK{}} }
 
+// startExchangeTest drives startExchangeLocked with the lock held, for tests that kick an
+// exchange directly (production callers hold m.mu across their idempotency check).
+func (m *Manager) startExchangeTest(remoteID RemoteID, viaSignal bool, ackID ExchangeID) ([]byte, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.startExchangeLocked(remoteID, viaSignal, ackID)
+}
+
 func (f *fakeWG) OnNewPSKReady(remoteID RemoteID, psk PSK) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
