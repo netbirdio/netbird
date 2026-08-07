@@ -250,7 +250,12 @@ func (m *Manager) RemovePeer(remoteID RemoteID) {
 // Stop cancels all in-flight exchanges, closes the transport, and waits for the
 // exchange goroutines to exit.
 func (m *Manager) Stop() {
+	// Cancel the root context under the lock, before Wait: startExchangeLocked checks
+	// rootCtx.Err() under the same lock before it Adds to the wait group, so once Stop
+	// has cancelled here no new Add can race Wait.
+	m.mu.Lock()
 	m.rootCancel()
+	m.mu.Unlock()
 	m.wait.Wait()
 	m.mu.Lock()
 	t := m.transport
@@ -296,9 +301,11 @@ func (m *Manager) SignalOffer(remoteID RemoteID) ([]byte, error) {
 		m.mu.Unlock()
 		return last, nil
 	}
+	// Hold the lock across the check above and the install so a concurrent SignalOffer
+	// for the same peer can't also start an exchange. bootstrap offer acks nothing.
+	raw, err := m.startExchangeLocked(remoteID, true, ExchangeID{})
 	m.mu.Unlock()
-	// bootstrap offer acknowledges nothing (zero AckID).
-	return m.startExchange(remoteID, true, ExchangeID{})
+	return raw, err
 }
 
 // ShouldSendBootstrapOffer reports whether we should emit a fresh KEM offer to kick a
@@ -402,17 +409,17 @@ func (m *Manager) OnDataPathRekeyed(remoteID RemoteID, sinceActivity time.Durati
 	m.mu.Lock()
 	ex := m.exchanges[remoteID]
 	chain := ex != nil && ex.state == stateAwaitingRekey
-	var ackID ExchangeID
-	if chain {
-		ackID = ex.id
-	}
-	m.mu.Unlock()
-
-	m.trace("pqkem: data-path rekey signal", "peer", remoteID, "chaining", chain)
 	if !chain {
+		m.mu.Unlock()
+		m.trace("pqkem: data-path rekey signal", "peer", remoteID, "chaining", false)
 		return
 	}
-	offer, err := m.startExchange(remoteID, false, ackID)
+	// Hold the lock across the awaitingRekey check and the install so two rekey clocks
+	// can't each start a chained exchange for the same peer.
+	offer, err := m.startExchangeLocked(remoteID, false, ex.id)
+	m.mu.Unlock()
+
+	m.trace("pqkem: data-path rekey signal", "peer", remoteID, "chaining", true)
 	if err != nil {
 		m.logger.Error("pqkem: chain offer failed to start", "peer", remoteID, "err", err)
 		return

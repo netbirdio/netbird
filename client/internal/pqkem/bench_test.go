@@ -19,8 +19,14 @@ func BenchmarkX25519Keygen(b *testing.B) {
 
 func BenchmarkX25519ECDH(b *testing.B) {
 	c := ecdh.X25519()
-	a, _ := c.GenerateKey(rand.Reader)
-	p, _ := c.GenerateKey(rand.Reader)
+	a, err := c.GenerateKey(rand.Reader)
+	if err != nil {
+		b.Fatal(err)
+	}
+	p, err := c.GenerateKey(rand.Reader)
+	if err != nil {
+		b.Fatal(err)
+	}
 	pub := p.PublicKey()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -39,7 +45,10 @@ func BenchmarkMLKEMKeygen(b *testing.B) {
 }
 
 func BenchmarkMLKEMEncaps(b *testing.B) {
-	dk, _ := mlkem.GenerateKey768()
+	dk, err := mlkem.GenerateKey768()
+	if err != nil {
+		b.Fatal(err)
+	}
 	ek := dk.EncapsulationKey()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -48,7 +57,10 @@ func BenchmarkMLKEMEncaps(b *testing.B) {
 }
 
 func BenchmarkMLKEMDecaps(b *testing.B) {
-	dk, _ := mlkem.GenerateKey768()
+	dk, err := mlkem.GenerateKey768()
+	if err != nil {
+		b.Fatal(err)
+	}
 	_, ct := dk.EncapsulationKey().Encapsulate()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

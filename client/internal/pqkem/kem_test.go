@@ -33,17 +33,34 @@ func TestExchange_PSKBoundToPeerIdentities(t *testing.T) {
 	init, err := NewInitiator()
 	require.NoError(t, err)
 
-	// responder computes with the honest pair...
-	_, pskHonest, err := Respond(init.Offer(), Binding{LocalID: wgB, RemoteID: wgA})
+	answer, _, err := Respond(init.Offer(), Binding{LocalID: wgB, RemoteID: wgA})
 	require.NoError(t, err)
 
-	// ...a second responder run with a different peer identity yields a different PSK,
-	// even though the KEM material would otherwise combine identically.
+	// Finish twice over the SAME KEM material (same offer/answer/secrets), changing only
+	// the peer identity binding: the differing PSK is attributable to the binding alone.
+	pskHonest, err := init.Finish(answer, Binding{LocalID: wgA, RemoteID: wgB})
+	require.NoError(t, err)
+
 	wgC := []byte("peer-C-wireguard-pubkey-32bytes!")
-	_, pskWrong, err := Respond(init.Offer(), Binding{LocalID: wgC, RemoteID: wgA})
+	pskWrong, err := init.Finish(answer, Binding{LocalID: wgA, RemoteID: wgC})
 	require.NoError(t, err)
 
 	require.NotEqual(t, pskHonest, pskWrong, "PSK must be bound to the peer pair")
+}
+
+func TestExchange_RejectsEmptyBinding(t *testing.T) {
+	init, err := NewInitiator()
+	require.NoError(t, err)
+	answer, _, err := Respond(init.Offer(), Binding{LocalID: wgB, RemoteID: wgA})
+	require.NoError(t, err)
+
+	// A PSK not bound to both identities could be transplanted to another peer pair.
+	_, err = init.Finish(answer, Binding{})
+	require.Error(t, err, "empty binding must be rejected")
+	_, err = init.Finish(answer, Binding{LocalID: wgA})
+	require.Error(t, err, "missing RemoteID must be rejected")
+	_, _, err = Respond(init.Offer(), Binding{RemoteID: wgA})
+	require.Error(t, err, "missing LocalID must be rejected")
 }
 
 func TestExchange_RejectsMalformedMessages(t *testing.T) {
