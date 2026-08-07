@@ -818,3 +818,43 @@ func TestMigrateAgentNetworkSettingsToDomain_FailsOnUnmigratableRow(t *testing.T
 	require.Error(t, err, "a row with no identity to derive an endpoint from must fail the migration")
 	assert.Contains(t, err.Error(), "resolve them manually", "the error must tell the operator what to do")
 }
+
+// partialAgentNetworkSettings models the one non-atomic state a MySQL run can
+// be interrupted in: DDL auto-commits there, so a crash between the two legacy
+// column drops leaves subdomain behind while cluster (and the completed
+// backfill) are already committed.
+type partialAgentNetworkSettings struct {
+	AccountID    string `gorm:"primaryKey"`
+	Subdomain    string
+	Domain       string `gorm:"type:varchar(255)"`
+	ProxyAddress string `gorm:"type:varchar(255)"`
+}
+
+func (partialAgentNetworkSettings) TableName() string { return "agent_network_settings" }
+
+// TestMigrateAgentNetworkSettingsToDomain_ResumesAfterPartialDrop pins MySQL
+// resumability: a rerun over the interrupted state must remove the leftover
+// subdomain column without re-running the backfill (the cluster column that
+// feeds it is gone) and without touching the migrated values.
+func TestMigrateAgentNetworkSettingsToDomain_ResumesAfterPartialDrop(t *testing.T) {
+	ctx := context.Background()
+	db := setupDatabase(t)
+	require.NoError(t, db.Migrator().DropTable(&partialAgentNetworkSettings{}))
+	require.NoError(t, db.AutoMigrate(&partialAgentNetworkSettings{}))
+	require.NoError(t, db.Create(&partialAgentNetworkSettings{
+		AccountID: "acct-1", Subdomain: "violet",
+		Domain: "violet.eu.proxy.netbird.io", ProxyAddress: "eu.proxy.netbird.io",
+	}).Error)
+
+	require.NoError(t, migration.MigrateAgentNetworkSettingsToDomain(ctx, db),
+		"a rerun over a partially-dropped schema must resume, not error")
+
+	migrator := db.Migrator()
+	assert.False(t, migrator.HasColumn(&partialAgentNetworkSettings{}, "subdomain"),
+		"the leftover legacy column must be dropped on resume")
+
+	var row agentNetworkTypes.Settings
+	require.NoError(t, db.First(&row, "account_id = ?", "acct-1").Error)
+	assert.Equal(t, "violet.eu.proxy.netbird.io", row.Domain, "migrated values must be untouched")
+	assert.Equal(t, "eu.proxy.netbird.io", row.ProxyAddress, "migrated values must be untouched")
+}
