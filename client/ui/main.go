@@ -95,6 +95,10 @@ func main() {
 		}
 	})
 
+	// Debug patch, not for release: dumps heap/goroutine profiles and the
+	// process tree to /tmp/nbgui for the memory consumption investigation.
+	startMemProfiler(app)
+
 	profiles := services.NewProfiles(conn)
 	// updater.Holder owns the typed update State; DaemonFeed feeds it and the
 	// Update service is a thin Wails-bound facade over it plus the install RPCs.
