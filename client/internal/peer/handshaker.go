@@ -126,89 +126,97 @@ func (h *Handshaker) Listen(ctx context.Context) {
 	for {
 		select {
 		case remoteOfferAnswer := <-h.remoteOffersCh:
-			h.log.Infof("received offer, running version %s, remote WireGuard listen port %d, session id: %s, remote ICE supported: %t", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort, remoteOfferAnswer.SessionIDString(), remoteOfferAnswer.hasICECredentials())
-
-			// Record signaling received for reconnection attempts
-			if h.metricsStages != nil {
-				h.metricsStages.RecordSignalingReceived()
-			}
-
-			h.updateRemoteICEState(&remoteOfferAnswer)
-
-			h.pqRegisterEndpoint(remoteOfferAnswer.MlkemPort)
-
-			// Post-quantum: the KEM material rides only the controller's offer, so the two
-			// peers derive a single shared PSK (a bidirectional KEM would yield two
-			// different PSKs and WireGuard would pick misaligned ones). If we are the
-			// controller and receive the responder's (KEM-less) offer, we must NOT let
-			// that KEM-less transaction drive the connection: it would bring WireGuard up
-			// on a pre-PQ key before the KEM completes (the race). Instead we reply with
-			// OUR offer, which carries the KEM, so the only transaction that establishes
-			// the tunnel is the one that also derives the PSK. This also guarantees a
-			// responder-initiated wake still triggers a KEM offer (no stuck responder).
-			// The re-offer reuses our stable ICE session id, so the peer dedups repeats.
-			if h.config.PQ != nil && isController(h.config) {
-				// Reply with our KEM offer exactly once, to kick the exchange. If one is
-				// already in flight, ignore this offer — re-sending on every responder
-				// offer would be an offer-per-offer runaway.
-				if h.config.PQ.ShouldSendBootstrapOffer(h.config.Key) {
-					h.log.Debugf("pqkem: controller received a responder offer, replying with our KEM offer instead of an answer")
-					if err := h.sendOffer(); err != nil {
-						h.log.Errorf("failed to send KEM offer in response to peer offer: %s", err)
-					}
-				} else {
-					h.log.Debugf("pqkem: controller received a responder offer but a KEM exchange is already in flight, ignoring")
-				}
-				continue
-			}
-
-			// Derive+store the KEM PSK (inside sendAnswer's AnswerPayload) BEFORE bringing
-			// up the connection: the relay/ICE workers configure the WG endpoint, which
-			// pulls the PSK for the first handshake. Notifying them first would race the
-			// KEM exchange and hand the first handshake a not-yet-derived key.
-			if err := h.sendAnswer(&remoteOfferAnswer); err != nil {
-				h.log.Errorf("failed to send remote offer confirmation: %s", err)
-				continue
-			}
-
-			if h.relayListener != nil {
-				h.relayListener.Notify(&remoteOfferAnswer)
-			}
-
-			if h.iceListener != nil && h.RemoteICESupported() {
-				h.iceListener(&remoteOfferAnswer)
-			}
+			h.handleRemoteOffer(remoteOfferAnswer)
 		case remoteOfferAnswer := <-h.remoteAnswerCh:
-			h.log.Infof("received answer, running version %s, remote WireGuard listen port %d, session id: %s, remote ICE supported: %t", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort, remoteOfferAnswer.SessionIDString(), remoteOfferAnswer.hasICECredentials())
-
-			// Record signaling received for reconnection attempts
-			if h.metricsStages != nil {
-				h.metricsStages.RecordSignalingReceived()
-			}
-
-			h.updateRemoteICEState(&remoteOfferAnswer)
-
-			h.pqRegisterEndpoint(remoteOfferAnswer.MlkemPort)
-
-			// Feed the KEM answer (derive+store PSK) BEFORE bringing up the connection so
-			// the WG endpoint config pulls the real PSK for the first handshake instead of
-			// racing ahead of the KEM exchange.
-			if h.config.PQ != nil {
-				h.config.PQ.OnAnswer(h.config.Key, remoteOfferAnswer.MlkemPayload)
-			}
-
-			if h.relayListener != nil {
-				h.relayListener.Notify(&remoteOfferAnswer)
-			}
-
-			if h.iceListener != nil && h.RemoteICESupported() {
-				h.iceListener(&remoteOfferAnswer)
-			}
+			h.handleRemoteAnswer(remoteOfferAnswer)
 		case <-ctx.Done():
 			h.log.Infof("stop listening for remote offers and answers")
 			return
 		}
 	}
+}
+
+// onSignalReceived runs the common preamble for a received offer/answer: record the
+// signalling metric, refresh the remote ICE state, and register the peer's post-quantum
+// data-path endpoint learned from the message.
+func (h *Handshaker) onSignalReceived(remoteOfferAnswer *OfferAnswer) {
+	if h.metricsStages != nil {
+		h.metricsStages.RecordSignalingReceived()
+	}
+	h.updateRemoteICEState(remoteOfferAnswer)
+	h.pqRegisterEndpoint(remoteOfferAnswer.MlkemPort)
+}
+
+// notifyListeners hands the offer/answer to the relay and ICE workers so they bring the
+// connection up.
+func (h *Handshaker) notifyListeners(remoteOfferAnswer *OfferAnswer) {
+	if h.relayListener != nil {
+		h.relayListener.Notify(remoteOfferAnswer)
+	}
+	if h.iceListener != nil && h.RemoteICESupported() {
+		h.iceListener(remoteOfferAnswer)
+	}
+}
+
+func (h *Handshaker) handleRemoteOffer(remoteOfferAnswer OfferAnswer) {
+	h.log.Infof("received offer, running version %s, remote WireGuard listen port %d, session id: %s, remote ICE supported: %t", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort, remoteOfferAnswer.SessionIDString(), remoteOfferAnswer.hasICECredentials())
+	h.onSignalReceived(&remoteOfferAnswer)
+
+	// If we are the controller running the KEM, a responder's offer is handled by
+	// replying with our own KEM offer, not by answering it (see pqControllerReoffer).
+	if h.pqControllerReoffer() {
+		return
+	}
+
+	// Derive+store the KEM PSK (inside sendAnswer's AnswerPayload) BEFORE bringing up the
+	// connection: the relay/ICE workers configure the WG endpoint, which pulls the PSK
+	// for the first handshake. Notifying them first would race the KEM exchange and hand
+	// the first handshake a not-yet-derived key.
+	if err := h.sendAnswer(&remoteOfferAnswer); err != nil {
+		h.log.Errorf("failed to send remote offer confirmation: %s", err)
+		return
+	}
+	h.notifyListeners(&remoteOfferAnswer)
+}
+
+func (h *Handshaker) handleRemoteAnswer(remoteOfferAnswer OfferAnswer) {
+	h.log.Infof("received answer, running version %s, remote WireGuard listen port %d, session id: %s, remote ICE supported: %t", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort, remoteOfferAnswer.SessionIDString(), remoteOfferAnswer.hasICECredentials())
+	h.onSignalReceived(&remoteOfferAnswer)
+
+	// Feed the KEM answer (derive+store PSK) BEFORE bringing up the connection so the WG
+	// endpoint config pulls the real PSK for the first handshake instead of racing ahead
+	// of the KEM exchange.
+	if h.config.PQ != nil {
+		h.config.PQ.OnAnswer(h.config.Key, remoteOfferAnswer.MlkemPayload)
+	}
+	h.notifyListeners(&remoteOfferAnswer)
+}
+
+// pqControllerReoffer handles a responder's offer when we are the controller running the
+// KEM. The KEM material rides only the controller's offer, so the two peers derive a
+// single shared PSK (a bidirectional KEM would yield two different PSKs and WireGuard
+// would pick misaligned ones). Rather than answer the responder's (KEM-less) offer —
+// which would bring WireGuard up on a pre-PQ key before the KEM completes — we reply with
+// our own KEM offer, so the only transaction that establishes the tunnel is the one that
+// also derives the PSK. It also guarantees a responder-initiated wake still triggers a
+// KEM offer (no stuck responder). Sent exactly once per exchange; further offers while
+// one is in flight are ignored (re-sending on every responder offer would be a runaway).
+// The re-offer reuses our stable ICE session id, so the peer dedups repeats.
+//
+// Returns true when it took ownership of the offer (the caller must not answer it).
+func (h *Handshaker) pqControllerReoffer() bool {
+	if h.config.PQ == nil || !isController(h.config) {
+		return false
+	}
+	if h.config.PQ.ShouldSendBootstrapOffer(h.config.Key) {
+		h.log.Debugf("pqkem: controller received a responder offer, replying with our KEM offer instead of an answer")
+		if err := h.sendOffer(); err != nil {
+			h.log.Errorf("failed to send KEM offer in response to peer offer: %s", err)
+		}
+	} else {
+		h.log.Debugf("pqkem: controller received a responder offer but a KEM exchange is already in flight, ignoring")
+	}
+	return true
 }
 
 // pqRegisterEndpoint feeds the post-quantum handshaker the peer's data-path endpoint
