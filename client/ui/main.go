@@ -80,11 +80,6 @@ func init() {
 
 func main() {
 	daemonAddr, userSetLogFile := parseFlagsAndInitLog()
-
-	// Debug patch, not for release: dumps heap/goroutine profiles to
-	// /tmp/nbgui for the memory consumption investigation.
-	startMemProfiler()
-
 	conn := NewConn(daemonAddr)
 
 	// Without --log-file, the GUI manages a gui-client.log that follows the
@@ -99,6 +94,10 @@ func main() {
 			tray.ShowWindow()
 		}
 	})
+
+	// Debug patch, not for release: dumps heap/goroutine profiles and the
+	// process tree to /tmp/nbgui for the memory consumption investigation.
+	startMemProfiler(app)
 
 	profiles := services.NewProfiles(conn)
 	// updater.Holder owns the typed update State; DaemonFeed feeds it and the
