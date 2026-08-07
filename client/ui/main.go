@@ -95,6 +95,10 @@ func main() {
 		}
 	})
 
+	// Debug patch, not for release: dumps heap/goroutine profiles and the
+	// process tree to /tmp/nbgui for the memory consumption investigation.
+	startMemProfiler(app)
+
 	profiles := services.NewProfiles(conn)
 	// updater.Holder owns the typed update State; DaemonFeed feeds it and the
 	// Update service is a thin Wails-bound facade over it plus the install RPCs.
@@ -139,13 +143,11 @@ func main() {
 		prefStore:       prefStore,
 	})
 
-	window := newMainWindow(app, prefStore)
-
-	// Settings is created eagerly (hidden) so the first gear click paints
-	// instantly and React keeps per-tab state across reopens. The other
-	// auxiliary windows stay lazy + destroy-on-close so Wails's macOS
-	// dock-reopen handler can't resurrect them.
-	windowManager := services.NewWindowManager(app, window, bundle, prefStore, iconWindow)
+	windowManager := services.NewWindowManager(app, nil, bundle, prefStore, iconWindow)
+	windowManager.SetMainFactory(func() *application.WebviewWindow {
+		return newMainWindow(app, prefStore, windowManager)
+	})
+	registerDockReopenHook(app, windowManager)
 	// Minimal WMs (XEmbed-tray path) neither center small windows nor restore
 	// position across hide -> show, dropping them top-left. Gate Go-side
 	// re-centering on that environment; nil leaves placement to the WM on full
@@ -168,7 +170,7 @@ func main() {
 	// RegisterStatusNotifierItem hits a watcher we control.
 	startStatusNotifierWatcher()
 
-	tray = NewTray(app, window, TrayServices{
+	tray = NewTray(app, nil, TrayServices{
 		Connection:      connection,
 		Settings:        settings,
 		Profiles:        profiles,
@@ -338,9 +340,7 @@ func registerServices(app *application.App, conn *Conn, s registeredServices) {
 	app.RegisterService(application.NewService(s.compat))
 }
 
-// newMainWindow creates the hidden main window, sized to the user's last view
-// mode, and installs the hide-on-close and macOS dock-reopen hooks.
-func newMainWindow(app *application.App, prefStore *preferences.Store) *application.WebviewWindow {
+func newMainWindow(app *application.App, prefStore *preferences.Store, wm *services.WindowManager) *application.WebviewWindow {
 	// Width matches the last view mode so Advanced-mode users don't see the
 	// window pop from 380px to 900px on launch. Height is mode-agnostic.
 	initialWidth := 380
@@ -368,29 +368,25 @@ func newMainWindow(app *application.App, prefStore *preferences.Store) *applicat
 		},
 	})
 
-	// Hide instead of quit on close; "really quit" is reached via tray -> Quit.
-	window.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
+	window.RegisterHook(events.Common.WindowClosing, func(_ *application.WindowEvent) {
 		if services.ShuttingDown() {
 			return
 		}
-		e.Cancel()
-		window.Hide()
+		wm.ForgetMain()
 	})
 
-	// On macOS, Wails' default applicationShouldHandleReopen handler Show()s
-	// every hidden window on dock-icon click, resurrecting hide-on-close
-	// surfaces like Settings. Cancel it in a hook (hooks run before listeners)
-	// and show only the main window. No-op elsewhere — the event never fires.
-	if runtime.GOOS == "darwin" {
-		app.Event.RegisterApplicationEventHook(events.Mac.ApplicationShouldHandleReopen, func(e *application.ApplicationEvent) {
-			e.Cancel()
-			if e.Context().HasVisibleWindows() {
-				return
-			}
-			window.Show()
-			window.Focus()
-		})
-	}
-
 	return window
+}
+
+func registerDockReopenHook(app *application.App, wm *services.WindowManager) {
+	if runtime.GOOS != "darwin" {
+		return
+	}
+	app.Event.RegisterApplicationEventHook(events.Mac.ApplicationShouldHandleReopen, func(e *application.ApplicationEvent) {
+		e.Cancel()
+		if e.Context().HasVisibleWindows() {
+			return
+		}
+		wm.ShowMain()
+	})
 }
