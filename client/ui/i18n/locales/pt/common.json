@@ -401,9 +401,6 @@
     "networks.bulk.label": {
         "message": "Alternar todos os recursos visíveis"
     },
-    "settings.nav.label": {
-        "message": "Seções das configurações"
-    },
     "profile.switch.title": {
         "message": "Alternar perfil para \"{name}\"?"
     },
@@ -496,6 +493,9 @@
     },
     "settings.error.debugBundleTitle": {
         "message": "Falha no pacote de depuração"
+    },
+    "settings.nav.label": {
+        "message": "Seções das configurações"
     },
     "settings.tabs.general": {
         "message": "Geral"
@@ -1338,5 +1338,29 @@
     },
     "error.unknown": {
         "message": "A operação falhou."
+    },
+    "error.elevation_unavailable": {
+        "message": "O NetBird não conseguiu solicitar a este sistema os privilégios necessários. Execute isto em vez disso:"
+    },
+    "error.elevation_failed": {
+        "message": "Não foi possível aplicar a alteração com privilégios elevados. Execute isto em vez disso:"
+    },
+    "settings.ssh.privilege.actorRoot": {
+        "message": "privilégios de root"
+    },
+    "settings.ssh.privilege.actorAdministrator": {
+        "message": "privilégios de administrador"
+    },
+    "settings.ssh.privilege.hint": {
+        "message": "Requer {actor}. Execute isto em vez disso:"
+    },
+    "settings.ssh.privilege.oneWay": {
+        "message": "Você pode desativar isto, mas ativar novamente requer {actor}."
+    },
+    "settings.ssh.privilege.oneWayInverted": {
+        "message": "Você pode ativar isto, mas desativar novamente requer {actor}."
+    },
+    "settings.ssh.privilege.authorizePending": {
+        "message": "Aguardando a autorização…"
     }
 }

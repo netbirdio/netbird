@@ -401,9 +401,6 @@
     "networks.bulk.label": {
         "message": "切换所有可见资源"
     },
-    "settings.nav.label": {
-        "message": "设置部分"
-    },
     "profile.switch.title": {
         "message": "切换到配置文件“{name}”？"
     },
@@ -496,6 +493,9 @@
     },
     "settings.error.debugBundleTitle": {
         "message": "创建调试包失败"
+    },
+    "settings.nav.label": {
+        "message": "设置部分"
     },
     "settings.tabs.general": {
         "message": "常规"
@@ -1338,5 +1338,29 @@
     },
     "error.unknown": {
         "message": "操作失败。"
+    },
+    "error.elevation_unavailable": {
+        "message": "NetBird 无法向此系统请求所需的权限。请改为运行："
+    },
+    "error.elevation_failed": {
+        "message": "即使使用提升的权限也无法应用此更改。请改为运行："
+    },
+    "settings.ssh.privilege.actorRoot": {
+        "message": "root 权限"
+    },
+    "settings.ssh.privilege.actorAdministrator": {
+        "message": "管理员权限"
+    },
+    "settings.ssh.privilege.hint": {
+        "message": "需要{actor}。请改为运行："
+    },
+    "settings.ssh.privilege.oneWay": {
+        "message": "您可以关闭此项，但重新开启需要{actor}。"
+    },
+    "settings.ssh.privilege.oneWayInverted": {
+        "message": "您可以开启此项，但再次关闭需要{actor}。"
+    },
+    "settings.ssh.privilege.authorizePending": {
+        "message": "正在等待授权…"
     }
 }
