@@ -307,6 +307,14 @@ func (conn *Conn) Close(signalToRemote bool) {
 
 	if conn.wgWatcherCancel != nil {
 		conn.wgWatcherCancel()
+		// The Conn struct is reused across lazy deactivate/activate. ctxCancel above
+		// already stopped the watcher goroutine (its ctx derives from conn.ctx), but
+		// enableWgWatcherIfNeeded skips while conn.wgWatcher is non-nil — so a stale
+		// pointer here would leave the peer with no watcher after the next Open, and thus
+		// no WireGuard handshake-timeout detection once a lazy connection has idled and
+		// woken. Clear it so the next Open starts a fresh watcher.
+		conn.wgWatcher = nil
+		conn.wgWatcherCancel = nil
 	}
 	conn.workerRelay.CloseConn()
 	if conn.workerICE != nil {
