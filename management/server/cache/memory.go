@@ -33,6 +33,12 @@ func (s *goCacheStore) SetNX(_ context.Context, key, value string, ttl time.Dura
 	return true, nil
 }
 
+// GetDel reads the value under key and removes it. go-cache has no native read-and-delete
+// and releases its own lock between the two calls, so mu holds the pair together and no
+// value is consumed twice.
+//
+// Writes do not take mu: a Set landing mid-pair is lost, since GetDel returns the prior
+// value and deletes the new one. Callers must write a consumed key only once.
 func (s *goCacheStore) GetDel(_ context.Context, key string) (string, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

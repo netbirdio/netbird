@@ -64,12 +64,12 @@ func TestSessionStore_ConcurrentRegistrationAllowsOneCaller(t *testing.T) {
 		case errors.Is(err, ErrTokenAlreadyUsed):
 			alreadyUsed++
 		default:
-			require.NoError(t, err)
+			require.NoError(t, err, "concurrent registration returned an unexpected error")
 		}
 	}
 
-	assert.Equal(t, 1, succeeded)
-	assert.Equal(t, attempts-1, alreadyUsed)
+	assert.Equal(t, 1, succeeded, "exactly one concurrent caller should register the token")
+	assert.Equal(t, attempts-1, alreadyUsed, "every other caller should be rejected as already used")
 }
 
 func TestSessionStore_RegisterDifferentTokensAreIndependent(t *testing.T) {
@@ -119,8 +119,8 @@ func TestSessionStore_CacheErrorIsReturned(t *testing.T) {
 	s := NewSessionStore(failingTokenCache{err: cacheErr})
 
 	err := s.RegisterToken(context.Background(), "token", time.Now().Add(time.Hour))
-	require.Error(t, err)
-	assert.ErrorIs(t, err, cacheErr)
+	require.Error(t, err, "cache failure should be surfaced to the caller")
+	assert.ErrorIs(t, err, cacheErr, "cache error should be wrapped, not replaced")
 }
 
 func TestHashToken_StableAndDoesNotLeak(t *testing.T) {

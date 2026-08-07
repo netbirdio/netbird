@@ -42,7 +42,7 @@ func (s *SessionStore) RegisterToken(ctx context.Context, token string, expiresA
 	key := usedTokenKeyPrefix + hashToken(token)
 	created, err := s.cache.SetNX(ctx, key, usedTokenMarker, ttl)
 	if err != nil {
-		return fmt.Errorf("failed to store used token entry: %w", err)
+		return fmt.Errorf("store used token entry: %w", err)
 	}
 	if !created {
 		return ErrTokenAlreadyUsed
