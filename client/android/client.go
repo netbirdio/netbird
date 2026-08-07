@@ -301,6 +301,7 @@ func (c *Client) DebugBundle(platformFiles PlatformFiles, anonymize bool, anonym
 		InternalConfig: cfg,
 		StatusRecorder: c.recorder,
 		TempDir:        cacheDir,
+		StatePath:      platformFiles.StateFilePath(),
 	}
 
 	if cc != nil {
