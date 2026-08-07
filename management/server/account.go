@@ -1629,7 +1629,6 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 	var user *types.User
 	var change affectedpeers.Change
 	var snap *affectedpeers.Snapshot
-	var requiresAccountUpdate bool
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		user, err = transaction.GetUserByUserID(ctx, store.LockingStrengthNone, userAuth.UserId)
 		if err != nil {
@@ -1673,15 +1672,20 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 		// group -> user mapping even when no peer moves between groups.
 		change.UserGroupIDs = allGroupChanges
 
+		// The user's peers are the changed entity in every scenario the sync can
+		// produce — group membership, IPv6 assignment, SSH mappings — so they refresh
+		// together with every peer they can connect to, like on a regular peer update.
+		userPeers, err := transaction.GetUserPeers(ctx, store.LockingStrengthNone, userAuth.AccountId, userAuth.UserId)
+		if err != nil {
+			return fmt.Errorf("error getting user peers: %w", err)
+		}
+		for _, peer := range userPeers {
+			change.ChangedPeerIDs = append(change.ChangedPeerIDs, peer.ID)
+		}
+
 		// Propagate changes to peers if group propagation is enabled
 		if settings.GroupsPropagationEnabled {
-			peers, err := transaction.GetUserPeers(ctx, store.LockingStrengthNone, userAuth.AccountId, userAuth.UserId)
-			if err != nil {
-				return fmt.Errorf("error getting user peers: %w", err)
-			}
-
-			for _, peer := range peers {
-				change.OutputPeerIDs = append(change.OutputPeerIDs, peer.ID)
+			for _, peer := range userPeers {
 				for _, g := range addNewGroups {
 					if err := transaction.AddPeerToGroup(ctx, userAuth.AccountId, peer.ID, g); err != nil {
 						return fmt.Errorf("error adding peer %s to group %s: %w", peer.ID, g, err)
@@ -1695,10 +1699,6 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 			}
 
 			change.LinkGroups = allGroupChanges
-
-			// The reconciliation reassigns IPv6 addresses across the account, which
-			// every peer that can reach the reassigned ones observes.
-			requiresAccountUpdate = ipv6ReconcileNeeded(settings, allGroupChanges)
 
 			if err = am.reconcileIPv6ForGroupChanges(ctx, transaction, userAuth.AccountId, allGroupChanges); err != nil {
 				return fmt.Errorf("reconcile IPv6 for group changes: %w", err)
@@ -1747,12 +1747,6 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 			}
 			am.StoreEvent(ctx, user.Id, user.Id, userAuth.AccountId, activity.GroupRemovedFromUser, meta)
 		}
-	}
-
-	if requiresAccountUpdate {
-		log.WithContext(ctx).Tracef("user %s: JWT group membership changed, updating account peers", userAuth.UserId)
-		am.BufferUpdateAccountPeers(ctx, userAuth.AccountId, types.UpdateReason{Resource: types.UpdateResourceUser, Operation: types.UpdateOperationUpdate})
-		return nil
 	}
 
 	log.WithContext(ctx).Tracef("user %s: JWT group membership changed, updating affected peers", userAuth.UserId)
@@ -2456,10 +2450,7 @@ func (am *DefaultAccountManager) reconcileIPv6ForGroupChanges(ctx context.Contex
 }
 
 // ipv6ReconcileNeeded reports whether changes to the given groups trigger an IPv6
-// reconciliation. A reconciliation reassigns addresses across the whole account, and a
-// peer's address is visible to everyone that reaches it through any of its groups, so
-// callers that otherwise compute an affected-peers set must fall back to updating the
-// whole account.
+// reconciliation.
 func ipv6ReconcileNeeded(settings *types.Settings, groupIDs []string) bool {
 	for _, groupID := range groupIDs {
 		if slices.Contains(settings.IPv6EnabledGroups, groupID) {

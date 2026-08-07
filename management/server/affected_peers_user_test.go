@@ -107,7 +107,7 @@ func TestAffectedPeers_SaveUser_OnlyAffectedPeersUpdated(t *testing.T) {
 		assert.Equal(t, "renamed", user.Name)
 	})
 
-	t.Run("auto group change reassigning IPv6 refreshes the whole account", func(t *testing.T) {
+	t.Run("auto group change reassigning IPv6 refreshes the changed peers and their observers", func(t *testing.T) {
 		account, err := manager.Store.GetAccount(ctx, accountID)
 		require.NoError(t, err)
 		account.Settings.IPv6EnabledGroups = []string{"ug-v6"}
@@ -124,11 +124,11 @@ func TestAffectedPeers_SaveUser_OnlyAffectedPeersUpdated(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		// An IPv6 reassignment is visible to every peer that can reach the reassigned
-		// ones through any group, so peer3 refreshes even though it shares no policy.
+		// The reassigned peer refreshes with everyone it can reach: peer2 via the
+		// policy, but not peer3, which shares no group or policy with it.
 		peerShouldReceiveUpdate(t, updTarget)
 		peerShouldReceiveUpdate(t, upd2)
-		peerShouldReceiveUpdate(t, upd3)
+		peerShouldNotReceiveUpdate(t, upd3)
 	})
 
 	t.Run("unblocking a user refreshes only the SSH rule destinations", func(t *testing.T) {
