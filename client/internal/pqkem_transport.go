@@ -30,19 +30,15 @@ func newPQTransport(overlayIP netip.Addr) (*pqTransport, error) {
 	if !overlayIP.IsValid() {
 		return nil, fmt.Errorf("invalid overlay IP for pqkem transport")
 	}
-	// Unmap an IPv4-mapped IPv6 address so AsSlice() yields 4 bytes, and pick the UDP
-	// network matching the overlay family (a hardcoded "udp4" fails on a v6 overlay and
-	// on a mapped v4 whose AsSlice() is 16 bytes).
+	// The WG overlay always carries an IPv4 address (v6 is additive, never standalone),
+	// so the transport binds over IPv4. Unmap first so AsSlice() yields 4 bytes for an
+	// IPv4-mapped IPv6 address (a hardcoded "udp4" would otherwise fail on its 16 bytes).
 	overlayIP = overlayIP.Unmap()
-	network := "udp6"
-	if overlayIP.Is4() {
-		network = "udp4"
-	}
 	ip := net.IP(overlayIP.AsSlice())
-	conn, err := net.ListenUDP(network, &net.UDPAddr{IP: ip, Port: DefaultPort})
+	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: ip, Port: DefaultPort})
 	if err != nil {
 		log.Debugf("pqkem: default port %d unavailable on %s (%v), using an ephemeral port", DefaultPort, overlayIP, err)
-		conn, err = net.ListenUDP(network, &net.UDPAddr{IP: ip, Port: 0})
+		conn, err = net.ListenUDP("udp4", &net.UDPAddr{IP: ip, Port: 0})
 		if err != nil {
 			return nil, fmt.Errorf("bind pqkem udp on overlay %s: %w", overlayIP, err)
 		}

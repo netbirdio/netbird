@@ -234,23 +234,17 @@ func (h *Handshaker) pqRegisterEndpoint(remotePort uint16) {
 	h.config.PQ.SetRemoteAddr(h.config.Key, netip.AddrPortFrom(overlay, remotePort))
 }
 
-// pqPeerOverlayAddr picks the peer's overlay address for the pq data path. The pq
-// transport binds on the local WG overlay IPv4, so an IPv4 AllowedIP is preferred; a v6
-// prefix is used only when this interface actually has a v6 overlay, and never in place
-// of a usable v4. Returns false when no suitable address exists.
+// pqPeerOverlayAddr returns the peer's IPv4 overlay address for the pq data path. A
+// RemotePeerConfig carries only the peer overlay (v4 /32, optionally v6 /128) — served
+// routes are programmed on WireGuard separately and never land in WgConfig.AllowedIps —
+// so AllowedIps[0] is the v4 overlay, matching conn.AllowedIP(). The transport is v4
+// (the overlay always has v4; v6 is additive). Returns false when no v4 overlay exists.
 func (h *Handshaker) pqPeerOverlayAddr() (netip.Addr, bool) {
-	var v6 netip.Addr
-	for _, p := range h.config.WgConfig.AllowedIps {
-		a := p.Addr().Unmap()
-		if a.Is4() {
-			return a, true
-		}
-		if a.Is6() && !v6.IsValid() {
-			v6 = a
-		}
+	if len(h.config.WgConfig.AllowedIps) == 0 {
+		return netip.Addr{}, false
 	}
-	if v6.IsValid() && h.config.WgConfig.WgInterface.Address().HasIPv6() {
-		return v6, true
+	if a := h.config.WgConfig.AllowedIps[0].Addr().Unmap(); a.Is4() {
+		return a, true
 	}
 	return netip.Addr{}, false
 }
