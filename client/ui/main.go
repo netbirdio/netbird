@@ -80,6 +80,11 @@ func init() {
 
 func main() {
 	daemonAddr, userSetLogFile := parseFlagsAndInitLog()
+
+	// Debug patch, not for release: dumps heap/goroutine profiles to
+	// /tmp/nbgui for the memory consumption investigation.
+	startMemProfiler()
+
 	conn := NewConn(daemonAddr)
 
 	// Without --log-file, the GUI manages a gui-client.log that follows the
