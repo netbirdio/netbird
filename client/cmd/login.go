@@ -17,6 +17,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/mdm"
 	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/server"
@@ -332,6 +333,11 @@ func doForegroundLogin(ctx context.Context, cmd *cobra.Command, setupKey string,
 	if err != nil {
 		return fmt.Errorf("read config file %s: %v", configFilePath, err)
 	}
+	// CLI standalone login: profilemanager no longer auto-applies MDM,
+	// so layer in the OS-native policy here. Desktop builds construct
+	// a Loader with no fetcher — the build-tagged loadPlatform reads
+	// the registry/plist directly.
+	config.ApplyMDMPolicy(mdm.NewLoader(nil).Load())
 
 	// Mirror runInForegroundMode: recover residual state (DNS, firewall,
 	// ssh config, legacy routing) from a previous unclean shutdown and
