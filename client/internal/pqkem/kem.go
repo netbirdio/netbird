@@ -149,6 +149,11 @@ func Respond(offer []byte, b Binding) (answer []byte, psk PSK, err error) {
 // canonicalised peer identities, so the PSK cannot be transplanted to another peer
 // pair or a different exchange.
 func derivePSK(ssMLKEM, ssX, offer, answer []byte, b Binding) (PSK, error) {
+	// A PSK not bound to both peer identities could be transplanted to a different peer
+	// pair, so refuse to derive one from an empty binding.
+	if len(b.LocalID) == 0 || len(b.RemoteID) == 0 {
+		return PSK{}, fmt.Errorf("empty peer identity binding")
+	}
 	lo, hi := canonicalPair(b.LocalID, b.RemoteID)
 
 	ikm := make([]byte, 0, len(ssMLKEM)+len(ssX))

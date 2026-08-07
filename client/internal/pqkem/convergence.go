@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"time"
 )
 
@@ -22,7 +23,14 @@ func pskFingerprint(psk PSK) string {
 // bootstrap) and returns the framed offer for the caller to send — pushed over the
 // data path for a chained rekey, or handed to the host for signalling when viaSignal
 // is set. Any previous in-flight exchange for the peer is cancelled.
-func (m *Manager) startExchange(remoteID RemoteID, viaSignal bool, ackID ExchangeID) ([]byte, error) {
+// startExchangeLocked must be called with m.mu held: the caller's idempotency check and
+// the exchange install stay under one lock acquisition so two concurrent starts for the
+// same peer cannot both create an exchange. It also refuses to start (and to Add to the
+// wait group) once the manager is stopping, so it never races Manager.Stop's Wait.
+func (m *Manager) startExchangeLocked(remoteID RemoteID, viaSignal bool, ackID ExchangeID) ([]byte, error) {
+	if m.stopping {
+		return nil, fmt.Errorf("manager stopping")
+	}
 	init, err := NewInitiator()
 	if err != nil {
 		return nil, err
@@ -37,7 +45,6 @@ func (m *Manager) startExchange(remoteID RemoteID, viaSignal bool, ackID Exchang
 	}
 
 	ctx, cancel := context.WithCancel(m.rootCtx)
-	m.mu.Lock()
 	if old := m.exchanges[remoteID]; old != nil && old.cancel != nil {
 		old.cancel()
 	}
@@ -50,7 +57,6 @@ func (m *Manager) startExchange(remoteID RemoteID, viaSignal bool, ackID Exchang
 		initiator: init,
 		viaSignal: viaSignal,
 	}
-	m.mu.Unlock()
 
 	m.wait.Add(1)
 	go m.initiatorLoop(ctx, remoteID, id)
@@ -146,6 +152,18 @@ func (m *Manager) processAnswer(remoteID RemoteID, a *AnswerMsg) error {
 
 	psk, err := init.Finish(a.KEMAnswer, m.binding(remoteID))
 	if err != nil {
+		// The state already advanced to stateAwaitingRekey and the initiator was cleared,
+		// so initiatorLoop would exit its default branch without registering a failure —
+		// leaving the peer desynced (the responder committed its PSK in processOffer).
+		// Drop the exchange and raise the failure so recovery re-bootstraps.
+		m.mu.Lock()
+		if cur := m.exchanges[remoteID]; cur != nil && cur.id == a.ExchangeID {
+			delete(m.exchanges, remoteID)
+		}
+		initial := !m.established[remoteID]
+		fail := m.registerFailureLocked(remoteID)
+		m.mu.Unlock()
+		m.raiseFailure(remoteID, fail, initial)
 		return err
 	}
 
