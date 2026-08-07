@@ -1757,6 +1757,7 @@ func TestAccount_Copy(t *testing.T) {
 				AccountID: "account1",
 			},
 		},
+		PostureValidation: map[string]map[string]bool{"1": {"1": true}},
 	}
 	err := hasNilField(account)
 	if err != nil {
