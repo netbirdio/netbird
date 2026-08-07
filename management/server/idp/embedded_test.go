@@ -396,9 +396,7 @@ func TestResolveSessionCookieEncryptionKey(t *testing.T) {
 
 		key, err := resolveSessionCookieEncryptionKey("")
 		require.NoError(t, err)
-		decoded, decErr := base64.StdEncoding.DecodeString(key)
-		require.NoError(t, decErr)
-		assert.Len(t, decoded, 32)
+		assert.Len(t, []byte(key), 32)
 
 		// a second call generates a fresh key (per-process randomness, no fixed fallback)
 		key2, err := resolveSessionCookieEncryptionKey("")

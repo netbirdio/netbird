@@ -316,7 +316,7 @@ func resolveSessionCookieEncryptionKey(configuredKey string) (string, error) {
 			return "", fmt.Errorf("no session cookie encryption key configured and failed to generate an ephemeral one: %w", err)
 		}
 		log.Warn("embedded IdP: no session cookie encryption key configured; using an ephemeral random key. Sessions will NOT survive restarts. Set " + sessionCookieEncryptionKeyEnv + " (or auth.sessionCookieEncryptionKey) to a persistent 32-byte key.")
-		return base64.StdEncoding.EncodeToString(generated), nil
+		return string(generated), nil
 	}
 
 	if validSessionCookieEncryptionKeyLength(len([]byte(key))) {
