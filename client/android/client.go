@@ -15,6 +15,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	nbAnonymize "github.com/netbirdio/netbird/client/anonymize"
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/debug"
@@ -278,8 +279,10 @@ func (c *Client) GetTunSettings() (*TunSettings, error) {
 }
 
 // DebugBundle generates a debug bundle, uploads it, and returns the upload key.
-// It works both with and without a running engine.
-func (c *Client) DebugBundle(platformFiles PlatformFiles, anonymize bool) (string, error) {
+// It works both with and without a running engine. anonymizeLevel is "default"
+// or "strict"; strict also anonymizes internal IP ranges, peer names, and
+// WireGuard public keys, and implies anonymize.
+func (c *Client) DebugBundle(platformFiles PlatformFiles, anonymize bool, anonymizeLevel string) (string, error) {
 	cfg, cacheDir, cc := c.stateSnapshot()
 
 	// If the engine hasn't been started, load config from disk
@@ -298,6 +301,7 @@ func (c *Client) DebugBundle(platformFiles PlatformFiles, anonymize bool) (strin
 		InternalConfig: cfg,
 		StatusRecorder: c.recorder,
 		TempDir:        cacheDir,
+		StatePath:      platformFiles.StateFilePath(),
 	}
 
 	if cc != nil {
@@ -321,6 +325,7 @@ func (c *Client) DebugBundle(platformFiles PlatformFiles, anonymize bool) (strin
 		deps,
 		debug.BundleConfig{
 			Anonymize:         anonymize,
+			AnonymizeLevel:    nbAnonymize.ParseLevel(anonymizeLevel),
 			IncludeSystemInfo: true,
 		},
 	)
