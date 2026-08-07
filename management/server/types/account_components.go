@@ -629,7 +629,7 @@ func (a *Account) validatePostureChecksOnPeerGetFailed(ctx context.Context, sour
 // to direct evaluation.
 func (a *Account) PrecomputePostureValidation(ctx context.Context) {
 	if len(a.PostureChecks) == 0 {
-		a.postureValidation = nil
+		a.PostureValidation = nil
 		return
 	}
 
@@ -662,7 +662,7 @@ func (a *Account) PrecomputePostureValidation(ctx context.Context) {
 	for postureChecksID, peerIDs := range checkPeerIDs {
 		results[postureChecksID] = a.evaluatePostureChecksForPeers(ctx, postureChecksID, peerIDs)
 	}
-	a.postureValidation = results
+	a.PostureValidation = results
 }
 
 func (a *Account) evaluatePostureChecksForPeers(ctx context.Context, postureChecksID string, peerIDs map[string]struct{}) map[string]bool {
@@ -684,7 +684,7 @@ func (a *Account) evaluatePostureChecksForPeers(ctx context.Context, postureChec
 }
 
 func (a *Account) cachedPostureCheckResult(postureChecksID, peerID string) (bool, bool) {
-	results, ok := a.postureValidation[postureChecksID]
+	results, ok := a.PostureValidation[postureChecksID]
 	if !ok {
 		return false, false
 	}

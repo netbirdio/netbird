@@ -92,7 +92,7 @@ type Account struct {
 
 	ReverseProxyFreeDomainNonce string
 
-	postureValidation map[string]map[string]bool
+	PostureValidation map[string]map[string]bool `gorm:"-"`
 }
 
 // this class is used by gorm only
@@ -876,6 +876,7 @@ func (a *Account) Copy() *Account {
 		Services:               services,
 		Onboarding:             a.Onboarding,
 		Domains:                domains,
+		PostureValidation:      a.PostureValidation,
 	}
 }
 
