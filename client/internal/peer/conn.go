@@ -307,6 +307,8 @@ func (conn *Conn) Close(signalToRemote bool) {
 
 	if conn.wgWatcherCancel != nil {
 		conn.wgWatcherCancel()
+		conn.wgWatcher = nil
+		conn.wgWatcherCancel = nil
 	}
 	conn.workerRelay.CloseConn()
 	if conn.workerICE != nil {
