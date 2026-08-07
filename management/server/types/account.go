@@ -91,6 +91,8 @@ type Account struct {
 	Onboarding       AccountOnboarding                `gorm:"foreignKey:AccountID;references:id;constraint:OnDelete:CASCADE"`
 
 	ReverseProxyFreeDomainNonce string
+
+	postureValidation map[string]map[string]bool
 }
 
 // this class is used by gorm only
