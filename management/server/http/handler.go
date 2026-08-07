@@ -60,8 +60,34 @@ import (
 	"github.com/netbirdio/netbird/management/server/telemetry"
 )
 
+// CORSMiddleware returns a CORS handler restricted to allowedOrigins. When none are
+// configured it falls back to allowing any origin, preserving the behaviour of
+// deployments that serve the dashboard and the API on different origins.
+// AllowCredentials stays false: the API authenticates via the Authorization header
+// only, so there are no ambient credentials for a foreign origin to abuse.
+func CORSMiddleware(allowedOrigins []string) *cors.Cors {
+	if len(allowedOrigins) == 0 {
+		log.Warn("no CORS allowed origins configured, allowing any origin; set HttpConfig.CORSAllowedOrigins to the dashboard origin to restrict it")
+		return cors.AllowAll()
+	}
+
+	return cors.New(cors.Options{
+		AllowedOrigins: allowedOrigins,
+		AllowedMethods: []string{
+			http.MethodHead,
+			http.MethodGet,
+			http.MethodPost,
+			http.MethodPut,
+			http.MethodPatch,
+			http.MethodDelete,
+		},
+		AllowedHeaders:   []string{"Authorization", "Content-Type"},
+		AllowCredentials: false,
+	})
+}
+
 // NewAPIHandler creates the Management service HTTP API handler registering all the available endpoints.
-func NewAPIHandler(ctx context.Context, router *mux.Router, accountManager account.Manager, networksManager nbnetworks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager nbgroups.Manager, LocationManager geolocation.Geolocation, authManager auth.Manager, appMetrics telemetry.AppMetrics, permissionsManager permissions.Manager, settingsManager settings.Manager, zManager zones.Manager, rManager records.Manager, networkMapController network_map.Controller, idpManager idpmanager.Manager, serviceManager service.Manager, reverseProxyDomainManager *manager.Manager, reverseProxyAccessLogsManager accesslogs.Manager, proxyGRPCServer *nbgrpc.ProxyServiceServer, trustedHTTPProxies []netip.Prefix, rateLimiter *middleware.APIRateLimiter, isValidChildAccount middleware.IsValidChildAccountFunc, agentNetworkManager agentnetwork.Manager) (http.Handler, error) {
+func NewAPIHandler(ctx context.Context, router *mux.Router, accountManager account.Manager, networksManager nbnetworks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager nbgroups.Manager, LocationManager geolocation.Geolocation, authManager auth.Manager, appMetrics telemetry.AppMetrics, permissionsManager permissions.Manager, settingsManager settings.Manager, zManager zones.Manager, rManager records.Manager, networkMapController network_map.Controller, idpManager idpmanager.Manager, serviceManager service.Manager, reverseProxyDomainManager *manager.Manager, reverseProxyAccessLogsManager accesslogs.Manager, proxyGRPCServer *nbgrpc.ProxyServiceServer, trustedHTTPProxies []netip.Prefix, corsAllowedOrigins []string, rateLimiter *middleware.APIRateLimiter, isValidChildAccount middleware.IsValidChildAccountFunc, agentNetworkManager agentnetwork.Manager) (http.Handler, error) {
 
 	// Register bypass paths for unauthenticated endpoints
 	if err := bypass.AddBypassPath("/api/instance"); err != nil {
@@ -98,7 +124,7 @@ func NewAPIHandler(ctx context.Context, router *mux.Router, accountManager accou
 		isValidChildAccount,
 	)
 
-	corsMiddleware := cors.AllowAll()
+	corsMiddleware := CORSMiddleware(corsAllowedOrigins)
 
 	metricsMiddleware := appMetrics.HTTPMiddleware()
 
