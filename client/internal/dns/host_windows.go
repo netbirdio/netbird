@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io"
 	"net/netip"
+	"os"
 	"os/exec"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -35,6 +37,15 @@ const (
 	dnsPolicyConfigMatchPath    = `SYSTEM\CurrentControlSet\Services\Dnscache\Parameters\DnsPolicyConfig\NetBird-Match`
 	gpoDnsPolicyRoot            = `SOFTWARE\Policies\Microsoft\Windows NT\DNSClient\DnsPolicyConfig`
 	gpoDnsPolicyConfigMatchPath = gpoDnsPolicyRoot + `\NetBird-Match`
+
+	dnsPolicyConfigCatchAllPath    = `SYSTEM\CurrentControlSet\Services\Dnscache\Parameters\DnsPolicyConfig\NetBird-CatchAll`
+	gpoDnsPolicyConfigCatchAllPath = gpoDnsPolicyRoot + `\NetBird-CatchAll`
+
+	nrptCatchAllNamespace = "."
+
+	// envDisableCatchAllNRPT turns off the catch-all NRPT rule, restoring the
+	// previous behavior where the OS is free to query other adapters' resolvers.
+	envDisableCatchAllNRPT = "NB_DISABLE_DNS_CATCHALL_NRPT"
 
 	dnsPolicyConfigVersionKey           = "Version"
 	dnsPolicyConfigVersionValue         = 2
@@ -318,6 +329,12 @@ func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig, stateManager
 
 	r.updateState(stateManager)
 
+	if config.RouteAll {
+		if err := r.addDNSCatchAllPolicy(config.ServerIP); err != nil {
+			return fmt.Errorf("add dns catch-all policy: %w", err)
+		}
+	}
+
 	if err := r.updateSearchDomains(searchDomains); err != nil {
 		return fmt.Errorf("update search domains: %w", err)
 	}
@@ -386,6 +403,29 @@ func (r *registryConfigurator) addDNSMatchPolicy(domains []string, ip netip.Addr
 
 	log.Infof("added %d NRPT rules for %d domains", ruleIndex, len(domains))
 	return ruleIndex, nil
+}
+
+func (r *registryConfigurator) addDNSCatchAllPolicy(ip netip.Addr) error {
+	if parseBoolEnv(envDisableCatchAllNRPT) {
+		log.Infof("%s is set, not forcing all DNS queries through %s", envDisableCatchAllNRPT, ip)
+		return nil
+	}
+
+	if err := r.configureDNSPolicy(dnsPolicyConfigCatchAllPath, []string{nrptCatchAllNamespace}, ip); err != nil {
+		return fmt.Errorf("configure catch-all DNS policy: %w", err)
+	}
+
+	if r.gpo {
+		if err := r.configureDNSPolicy(gpoDnsPolicyConfigCatchAllPath, []string{nrptCatchAllNamespace}, ip); err != nil {
+			return fmt.Errorf("configure gpo catch-all DNS policy: %w", err)
+		}
+		if err := refreshGroupPolicy(); err != nil {
+			log.Warnf("failed to refresh group policy: %v", err)
+		}
+	}
+
+	log.Infof("added catch-all NRPT rule: all DNS queries now resolve exclusively through %s", ip)
+	return nil
 }
 
 func (r *registryConfigurator) configureDNSPolicy(policyPath string, domains []string, ip netip.Addr) error {
@@ -530,6 +570,14 @@ func (r *registryConfigurator) removeDNSMatchPolicies() error {
 		merr = multierror.Append(merr, fmt.Errorf("remove GPO base entry: %w", err))
 	}
 
+	if err := removeRegistryKeyFromDNSPolicyConfig(dnsPolicyConfigCatchAllPath); err != nil {
+		merr = multierror.Append(merr, fmt.Errorf("remove local catch-all entry: %w", err))
+	}
+
+	if err := removeRegistryKeyFromDNSPolicyConfig(gpoDnsPolicyConfigCatchAllPath); err != nil {
+		merr = multierror.Append(merr, fmt.Errorf("remove GPO catch-all entry: %w", err))
+	}
+
 	for i := 0; i < r.nrptEntryCount; i++ {
 		localPath := fmt.Sprintf("%s-%d", dnsPolicyConfigMatchPath, i)
 		gpoPath := fmt.Sprintf("%s-%d", gpoDnsPolicyConfigMatchPath, i)
@@ -592,6 +640,20 @@ func refreshGroupPolicy() error {
 	}
 
 	return nil
+}
+
+func parseBoolEnv(key string) bool {
+	val := os.Getenv(key)
+	if val == "" {
+		return false
+	}
+
+	parsed, err := strconv.ParseBool(val)
+	if err != nil {
+		log.Warnf("failed to parse %s=%q: %v", key, val, err)
+		return false
+	}
+	return parsed
 }
 
 func closer(closer io.Closer) {

@@ -94,6 +94,106 @@ func TestNRPTEntriesCleanupOnConfigChange(t *testing.T) {
 	assert.False(t, exists, "NRPT rule 2 should NOT exist after reducing to 75 domains")
 }
 
+func TestNRPTCatchAllRule(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping registry integration test in short mode")
+	}
+
+	defer cleanupRegistryKeys(t)
+	cleanupRegistryKeys(t)
+
+	testIP := netip.MustParseAddr("100.64.0.1")
+	testGUID := "{12345678-1234-1234-1234-123456789ABC}"
+	interfacePath := `SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\` + testGUID
+	testKey, _, err := registry.CreateKey(registry.LOCAL_MACHINE, interfacePath, registry.SET_VALUE)
+	require.NoError(t, err, "Should create test interface registry key")
+	testKey.Close()
+	defer func() {
+		_ = registry.DeleteKey(registry.LOCAL_MACHINE, interfacePath)
+	}()
+
+	cfg := &registryConfigurator{guid: testGUID}
+
+	matchOnly := HostDNSConfig{
+		ServerIP: testIP,
+		Domains:  []DomainConfig{{Domain: "example.com", MatchOnly: true}},
+	}
+	primary := HostDNSConfig{
+		ServerIP: testIP,
+		RouteAll: true,
+		Domains:  []DomainConfig{{Domain: "example.com", MatchOnly: true}},
+	}
+
+	require.NoError(t, cfg.applyDNSConfig(matchOnly, nil))
+	exists, err := registryKeyExists(dnsPolicyConfigCatchAllPath)
+	require.NoError(t, err)
+	assert.False(t, exists, "catch-all rule should not exist for a match-only config")
+
+	require.NoError(t, cfg.applyDNSConfig(primary, nil))
+	exists, err = registryKeyExists(dnsPolicyConfigCatchAllPath)
+	require.NoError(t, err)
+	require.True(t, exists, "catch-all rule should exist when RouteAll is set")
+
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, dnsPolicyConfigCatchAllPath, registry.QUERY_VALUE)
+	require.NoError(t, err)
+
+	names, _, err := k.GetStringsValue(dnsPolicyConfigNameKey)
+	require.NoError(t, err)
+	assert.Equal(t, []string{nrptCatchAllNamespace}, names, "catch-all rule should match the root namespace")
+
+	servers, _, err := k.GetStringValue(dnsPolicyConfigGenericDNSServersKey)
+	require.NoError(t, err)
+	assert.Equal(t, testIP.String(), servers, "catch-all rule should list only our resolver")
+
+	opts, _, err := k.GetIntegerValue(dnsPolicyConfigConfigOptionsKey)
+	require.NoError(t, err)
+	assert.EqualValues(t, dnsPolicyConfigConfigOptionsValue, opts)
+	k.Close()
+
+	require.NoError(t, cfg.applyDNSConfig(matchOnly, nil))
+	exists, err = registryKeyExists(dnsPolicyConfigCatchAllPath)
+	require.NoError(t, err)
+	assert.False(t, exists, "catch-all rule should be removed when RouteAll is cleared")
+
+	require.NoError(t, cfg.applyDNSConfig(primary, nil))
+	require.NoError(t, cfg.restoreHostDNS())
+	exists, err = registryKeyExists(dnsPolicyConfigCatchAllPath)
+	require.NoError(t, err)
+	assert.False(t, exists, "catch-all rule should be removed on restore")
+}
+
+func TestNRPTCatchAllRuleDisabledByEnv(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping registry integration test in short mode")
+	}
+
+	defer cleanupRegistryKeys(t)
+	cleanupRegistryKeys(t)
+
+	t.Setenv(envDisableCatchAllNRPT, "true")
+
+	testGUID := "{12345678-1234-1234-1234-123456789ABC}"
+	interfacePath := `SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\` + testGUID
+	testKey, _, err := registry.CreateKey(registry.LOCAL_MACHINE, interfacePath, registry.SET_VALUE)
+	require.NoError(t, err, "Should create test interface registry key")
+	testKey.Close()
+	defer func() {
+		_ = registry.DeleteKey(registry.LOCAL_MACHINE, interfacePath)
+	}()
+
+	cfg := &registryConfigurator{guid: testGUID}
+	config := HostDNSConfig{
+		ServerIP: netip.MustParseAddr("100.64.0.1"),
+		RouteAll: true,
+	}
+
+	require.NoError(t, cfg.applyDNSConfig(config, nil))
+
+	exists, err := registryKeyExists(dnsPolicyConfigCatchAllPath)
+	require.NoError(t, err)
+	assert.False(t, exists, "catch-all rule should not be installed when disabled by env")
+}
+
 func registryKeyExists(path string) (bool, error) {
 	k, err := registry.OpenKey(registry.LOCAL_MACHINE, path, registry.QUERY_VALUE)
 	if err != nil {
