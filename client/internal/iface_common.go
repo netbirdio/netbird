@@ -35,6 +35,7 @@ type wgIfaceBase interface {
 	AddAllowedIP(peerKey string, allowedIP netip.Prefix) error
 	RemoveAllowedIP(peerKey string, allowedIP netip.Prefix) error
 	Close() error
+	CloseKeepInterface() error
 	SetFilter(filter device.PacketFilter) error
 	GetFilter() device.PacketFilter
 	GetDevice() *device.FilteredDevice

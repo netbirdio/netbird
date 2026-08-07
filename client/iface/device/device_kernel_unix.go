@@ -120,6 +120,19 @@ func (t *TunKernelDevice) UpdateAddr(address wgaddr.Address) error {
 }
 
 func (t *TunKernelDevice) Close() error {
+	return t.close(true)
+}
+
+// CloseKeepInterface releases process-owned resources (UDP mux) like Close,
+// but leaves the kernel WireGuard link in place. A kernel link outlives the
+// process that created it, so a follow-up process can reuse it instead of
+// tearing it down and recreating it (see wgLink.recreate). Used when the
+// daemon is stopping ahead of an in-place binary upgrade.
+func (t *TunKernelDevice) CloseKeepInterface() error {
+	return t.close(false)
+}
+
+func (t *TunKernelDevice) close(closeLink bool) error {
 	if t.link == nil {
 		return nil
 	}
@@ -127,9 +140,11 @@ func (t *TunKernelDevice) Close() error {
 	t.ctxCancel()
 
 	var closErr error
-	if err := t.link.Close(); err != nil {
-		log.Debugf("failed to close link: %s", err)
-		closErr = err
+	if closeLink {
+		if err := t.link.Close(); err != nil {
+			log.Debugf("failed to close link: %s", err)
+			closErr = err
+		}
 	}
 
 	if t.udpMux != nil {

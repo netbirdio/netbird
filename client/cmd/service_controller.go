@@ -5,6 +5,8 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"runtime"
 	"time"
 
@@ -14,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 
+	"github.com/netbirdio/netbird/client/configs"
 	"github.com/netbirdio/netbird/client/internal/daemonaddr"
 	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/netbirdio/netbird/client/proto"
@@ -21,6 +24,31 @@ import (
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/util"
 )
+
+// keepTunnelMarkerFile signals to a running daemon's Stop handler that the
+// interface should be preserved. Written by 'service stop --keep-tunnel'
+// before it asks the service manager to stop the daemon, and consumed by
+// program.Stop() in the daemon process — the two are separate processes, so
+// this is the only way to pass the intent between them.
+const keepTunnelMarkerFile = "keep-interface"
+
+func keepTunnelMarkerPath() string {
+	return filepath.Join(configs.StateDir, keepTunnelMarkerFile)
+}
+
+// consumeKeepTunnelMarker reports whether a --keep-tunnel stop requested
+// preserving the WireGuard interface, clearing the marker so it doesn't leak
+// into a later, unrelated stop.
+func consumeKeepTunnelMarker() bool {
+	path := keepTunnelMarkerPath()
+	if _, err := os.Stat(path); err != nil {
+		return false
+	}
+	if err := os.Remove(path); err != nil {
+		log.Warnf("failed to remove keep-tunnel marker %s: %v", path, err)
+	}
+	return true
+}
 
 func validateJSONSocketFlags() error {
 	if serviceCmd.PersistentFlags().Changed("json-socket") && !enableJSONSocket {
@@ -57,6 +85,14 @@ func daemonServerOptions(network string) []grpc.ServerOption {
 func (p *program) Start(svc service.Service) error {
 	// Start should not block. Do the actual work async.
 	log.Info("starting NetBird service") //nolint
+
+	// Discard any stale keep-tunnel marker: it could only be left behind by a
+	// stop whose daemon didn't understand it (e.g. the pre-upgrade binary on
+	// the very first upgrade to a version that adds this flag) and is
+	// meaningless now that a new daemon is starting up.
+	if consumeKeepTunnelMarker() {
+		log.Warn("discarding a stale keep-tunnel marker from a previous stop")
+	}
 
 	if err := validateJSONSocketFlags(); err != nil {
 		return err
@@ -168,7 +204,7 @@ func (p *program) serve(daemonListener, jsonListener *socketListener) error {
 func (p *program) Stop(srv service.Service) error {
 	p.serverInstanceMu.Lock()
 	if p.serverInstance != nil {
-		in := new(proto.DownRequest)
+		in := &proto.DownRequest{KeepInterface: consumeKeepTunnelMarker()}
 		_, err := p.serverInstance.Down(p.ctx, in)
 		if err != nil {
 			log.Errorf("failed to stop daemon: %v", err)
@@ -290,6 +326,15 @@ var stopCmd = &cobra.Command{
 		s, err := setupServiceControlCommand(cmd, ctx, cancel, false)
 		if err != nil {
 			return err
+		}
+
+		if keepTunnel {
+			// The running daemon is a separate process from this CLI invocation,
+			// so the marker file is the only way to pass this intent to the
+			// Stop handler it runs when the service manager signals it.
+			if err := os.WriteFile(keepTunnelMarkerPath(), nil, 0600); err != nil {
+				return fmt.Errorf("write keep-tunnel marker: %w", err)
+			}
 		}
 
 		if err := s.Stop(); err != nil {
