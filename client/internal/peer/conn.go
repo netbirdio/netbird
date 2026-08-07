@@ -258,11 +258,13 @@ func NewConn(config ConnConfig, services ServiceDependencies) (*Conn, error) {
 	}
 
 	if config.PQ != nil && config.PQStrict {
-		if k, err := wgtypes.GenerateKey(); err != nil {
-			connLog.Errorf("pqkem: failed to generate strict-mode sentinel key, strict fail-closed disabled for this peer: %v", err)
-		} else {
-			conn.pqStrictSentinelKey = &k
+		// The sentinel is what makes strict mode fail closed; if we cannot generate it we
+		// must not fall back to a usable key, so fail creating the conn instead.
+		k, err := wgtypes.GenerateKey()
+		if err != nil {
+			return nil, fmt.Errorf("generate pqkem strict-mode sentinel key: %w", err)
 		}
+		conn.pqStrictSentinelKey = &k
 	}
 
 	return conn, nil
