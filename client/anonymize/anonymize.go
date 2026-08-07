@@ -43,6 +43,7 @@ func ParseLevel(s string) Level {
 	}
 }
 
+// String returns the wire form of the level: "default" or "strict".
 func (l Level) String() string {
 	if l >= LevelStrict {
 		return "strict"
@@ -67,17 +68,20 @@ var (
 type Anonymizer struct {
 	ipAnonymizer     map[netip.Addr]netip.Addr
 	domainAnonymizer map[string]string
-	labelAnonymizer  map[string]string
-	labelAnonymized  map[string]struct{}
-	labelCounter     uint32
-	macAnonymizer    map[string]string
-	macCounter       uint32
-	wgKeyAnonymizer  map[string]string
-	wgKeyAnonymized  map[string]struct{}
-	currentAnonIPv4  netip.Addr
-	currentAnonIPv6  netip.Addr
-	startAnonIPv4    netip.Addr
-	startAnonIPv6    netip.Addr
+	// domainOrder caches the keys of domainAnonymizer sorted longest-first
+	// for AnonymizeString; it is rebuilt when the map gains entries.
+	domainOrder     []string
+	labelAnonymizer map[string]string
+	labelAnonymized map[string]struct{}
+	labelCounter    uint32
+	macAnonymizer   map[string]string
+	macCounter      uint32
+	wgKeyAnonymizer map[string]string
+	wgKeyAnonymized map[string]struct{}
+	currentAnonIPv4 netip.Addr
+	currentAnonIPv6 netip.Addr
+	startAnonIPv4   netip.Addr
+	startAnonIPv6   netip.Addr
 
 	// LevelStrict also anonymizes internal ranges (RFC 1918, CGNAT,
 	// link-local), replacing them from the dedicated internal pools below so
@@ -136,6 +140,10 @@ func (a *Anonymizer) SetLevel(level Level) {
 }
 
 func (a *Anonymizer) AnonymizeIP(ip netip.Addr) netip.Addr {
+	// Normalize 4-in-6 addresses so ::ffff:192.168.1.1 classifies and maps
+	// like 192.168.1.1.
+	ip = ip.Unmap()
+
 	if ip.IsLoopback() ||
 		ip.IsUnspecified() ||
 		ip.IsMulticast() ||
@@ -393,19 +401,7 @@ func (a *Anonymizer) AnonymizeString(str string) string {
 	str = ipv4Regex.ReplaceAllStringFunc(str, a.AnonymizeIPString)
 	str = ipv6Regex.ReplaceAllStringFunc(str, a.AnonymizeIPString)
 
-	// Longest mappings first, so a full-FQDN mapping (strict level) is applied
-	// before the base-domain mapping it contains.
-	domains := make([]string, 0, len(a.domainAnonymizer))
-	for domain := range a.domainAnonymizer {
-		domains = append(domains, domain)
-	}
-	slices.SortFunc(domains, func(x, y string) int {
-		if d := len(y) - len(x); d != 0 {
-			return d
-		}
-		return strings.Compare(x, y)
-	})
-	for _, domain := range domains {
+	for _, domain := range a.sortedDomains() {
 		str = strings.ReplaceAll(str, domain, a.domainAnonymizer[domain])
 	}
 
@@ -423,6 +419,27 @@ func (a *Anonymizer) AnonymizeString(str string) string {
 	}
 
 	return str
+}
+
+// sortedDomains returns the domain mappings longest-first, so a full-FQDN
+// mapping (strict level) is applied before the base-domain mapping it
+// contains. The order is rebuilt only when domainAnonymizer has grown.
+func (a *Anonymizer) sortedDomains() []string {
+	if len(a.domainOrder) == len(a.domainAnonymizer) {
+		return a.domainOrder
+	}
+
+	a.domainOrder = a.domainOrder[:0]
+	for domain := range a.domainAnonymizer {
+		a.domainOrder = append(a.domainOrder, domain)
+	}
+	slices.SortFunc(a.domainOrder, func(x, y string) int {
+		if d := len(y) - len(x); d != 0 {
+			return d
+		}
+		return strings.Compare(x, y)
+	})
+	return a.domainOrder
 }
 
 // anonymizeMACsInString replaces MAC addresses matched by re, skipping

@@ -85,6 +85,9 @@ func TestAnonymizeIP_DefaultLevelInternalRanges(t *testing.T) {
 		// ULA is anonymized even at the default level: its random global ID
 		// uniquely fingerprints the network, unlike shared RFC 1918 space.
 		{"IPv6 ULA", "fd12:3456:789a::1", "2001:db8:ffff::"},
+		// 4-in-6 addresses classify like their unmapped IPv4 form.
+		{"4-in-6 RFC1918", "::ffff:192.168.1.1", "192.168.1.1"},
+		{"4-in-6 CGNAT", "::ffff:100.64.0.5", "100.64.0.5"},
 	}
 
 	for _, tc := range tests {
@@ -124,6 +127,7 @@ func TestAnonymizeIP_StrictLevel(t *testing.T) {
 		{"Well known split marker", "128.0.0.0", "128.0.0.0"},
 		{"In internal pool range", "198.18.0.3", "198.18.0.3"},
 		{"In public pool range", "198.51.100.0", "198.51.100.0"},
+		{"4-in-6 repeated RFC1918", "::ffff:192.168.1.1", "198.18.0.0"},
 	}
 
 	for _, tc := range tests {

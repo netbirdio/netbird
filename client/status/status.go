@@ -1013,7 +1013,6 @@ func anonymizeOverview(a *anonymize.Anonymizer, overview *OutputOverview) {
 	overview.SignalState.Error = a.AnonymizeString(overview.SignalState.Error)
 
 	overview.PubKey = a.AnonymizeWGKey(overview.PubKey)
-	overview.FQDN = a.AnonymizeDomain(overview.FQDN)
 	overview.IP = a.AnonymizeIPString(overview.IP)
 	overview.IPv6 = a.AnonymizeIPString(overview.IPv6)
 	for i, detail := range overview.Relays.Details {
@@ -1032,15 +1031,6 @@ func anonymizeOverview(a *anonymize.Anonymizer, overview *OutputOverview) {
 				overview.NSServerGroups[i].Servers[j] = fmt.Sprintf("%s:%s", a.AnonymizeIPString(host), port)
 			}
 		}
-	}
-
-	for i, event := range overview.Events {
-		event.Message = a.AnonymizeString(event.Message)
-		event.UserMessage = a.AnonymizeString(event.UserMessage)
-		for k, v := range event.Metadata {
-			event.Metadata[k] = a.AnonymizeString(v)
-		}
-		overview.Events[i] = event
 	}
 
 	for i, route := range overview.Networks {

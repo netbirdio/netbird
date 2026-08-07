@@ -54,7 +54,11 @@ func (g *BundleGenerator) toWGShowFormat(s *configurer.Stats) string {
 		if len(peer.AllowedIPs) > 0 {
 			var ipStrings []string
 			for _, ipnet := range peer.AllowedIPs {
-				ipStrings = append(ipStrings, ipnet.String())
+				ipStr := ipnet.String()
+				if g.anonymize {
+					ipStr = g.anonymizer.AnonymizeIPString(ipStr)
+				}
+				ipStrings = append(ipStrings, ipStr)
 			}
 			sb.WriteString(fmt.Sprintf("  allowed ips: %s\n", strings.Join(ipStrings, ", ")))
 		}
