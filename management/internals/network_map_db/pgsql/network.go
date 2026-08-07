@@ -19,16 +19,8 @@ const (
 	`
 )
 
-func (pg *PgStore) GetNetwork(ctx context.Context, accountId string) (nmdata.Network, error) {
-	c, err := pg.Pool.Acquire(ctx)
-	if err != nil {
-		return nmdata.Network{}, err
-	}
-	return GetNetworkViaPgxConnection(ctx, c.Conn(), accountId)
-}
-
-func GetNetworkViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId string) (nmdata.Network, error) {
-	rows, err := con.Query(ctx, GetNetworkQuery, accountId)
+func (pgc *PgStoreConn) GetNetwork(ctx context.Context, accountId string) (nmdata.Network, error) {
+	rows, err := pgc.Conn.Query(ctx, GetNetworkQuery, accountId)
 	if err != nil {
 		return nmdata.Network{}, err
 	}

@@ -26,16 +26,8 @@ const (
 // we also return a resource-to-group index.
 // an alternative is to add json indexes, query this directly. Not sure how expensive
 // json indexes are. TODO (dmitri) verify and maybe change the implementation here.
-func (pg *PgStore) GetGroups(ctx context.Context, accountId string) ([]nmdata.Group, map[string]map[string]any, error) {
-	c, err := pg.Pool.Acquire(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-	return GetGroupsViaPgxConnection(ctx, c.Conn(), accountId)
-}
-
-func GetGroupsViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId string) ([]nmdata.Group, map[string]map[string]any, error) {
-	rows, err := con.Query(ctx, GetGroupsQuery, accountId)
+func (pgc *PgStoreConn) GetGroups(ctx context.Context, accountId string) ([]nmdata.Group, map[string]map[string]any, error) {
+	rows, err := pgc.Conn.Query(ctx, GetGroupsQuery, accountId)
 	if err != nil {
 		return nil, nil, err
 	}

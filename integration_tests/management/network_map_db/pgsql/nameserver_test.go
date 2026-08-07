@@ -7,7 +7,6 @@ import (
 	"net/netip"
 	"testing"
 
-	networkmap_pgsql "github.com/netbirdio/netbird/management/internals/network_map_db/pgsql"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/stretchr/testify/assert"
 )
@@ -25,7 +24,7 @@ func TestGetNameServerGroups(t *testing.T) {
 		`insert into name_server_groups (id, public_id, name, description, name_servers, groups, domains, enabled, search_domains_enabled,"primary",account_id)
 		VALUES('nsgroup-3','nsgroup-3-public',null,null,null,null,null,TRUE,FALSE,FALSE,'account-1')`)
 
-	nsgroups, err := networkmap_pgsql.GetNameServerGroupsViaPgxConnection(ctx, conn(t, ctx), "account-1")
+	nsgroups, err := conn(t, ctx).GetNameServerGroups(ctx, "account-1")
 	assert.NoError(t, err)
 
 	assert.Contains(t, nsgroups, nmdata.NameServerGroup{

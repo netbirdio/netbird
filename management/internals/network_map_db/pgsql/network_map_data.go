@@ -9,6 +9,7 @@ import (
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 
+	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 	"github.com/netbirdio/netbird/shared/management/networkmap"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
@@ -19,71 +20,73 @@ func (pg *PgStore) GetNetworkMapData(ctx context.Context, accountId string) (*ne
 		return nil, err
 	}
 
-	acctSettings, err := GetAccountSettingsViaPgxConnection(ctx, tx.Conn(), accountId)
+	conn := pg.UsingConnection(tx.Conn())
+
+	acctSettings, err := conn.GetAccountSettings(ctx, accountId)
 	if err != nil {
 		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get account settings: %w", err))
 	}
-	dnsZones, err := GetAppliedZoneCandidatesViaPgxConnection(ctx, tx.Conn(), accountId)
+	dnsZones, err := conn.GetAppliedZoneCandidates(ctx, accountId)
 	if err != nil {
 		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get applied zone candidates: %w", err))
 	}
-	groups, resourceToGroupIdx, err := GetGroupsViaPgxConnection(ctx, tx.Conn(), accountId)
+	groups, resourceToGroupIdx, err := conn.GetGroups(ctx, accountId)
 	if err != nil {
 		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get groups: %w", err))
 	}
-	nsGroups, err := GetNameServerGroupsViaPgxConnection(ctx, tx.Conn(), accountId)
+	nsGroups, err := conn.GetNameServerGroups(ctx, accountId)
 	if err != nil {
 		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get nameserver groups: %w", err))
 	}
-	networkResources, err := GetNetworkResourcesViaPgxConnection(ctx, tx.Conn(), accountId)
+	networkResources, err := conn.GetNetworkResources(ctx, accountId)
 	if err != nil {
 		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get network resources: %w", err))
 	}
-	routers, err := GetNetworkRoutersViaPgxConnection(ctx, tx.Conn(), accountId)
+	routers, err := conn.GetNetworkRouters(ctx, accountId)
 	if err != nil {
 		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get network routers: %w", err))
 	}
-	network, err := GetNetworkViaPgxConnection(ctx, tx.Conn(), accountId)
+	network, err := conn.GetNetwork(ctx, accountId)
 	if err != nil {
 		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get network: %w", err))
 	}
-	peers, proxyPeers, err := GetPeersViaPgxConnection(ctx, tx.Conn(), accountId)
+	peers, proxyPeers, err := conn.GetPeers(ctx, accountId)
 	if err != nil {
 		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get peers: %w", err))
 	}
-	policies, policyToDestinationResourceIdx, policyToDestinationGroupIdx, err := GetPoliciesViaPgxConnection(ctx, tx.Conn(), accountId)
+	policies, policyToDestinationResourceIdx, policyToDestinationGroupIdx, err := conn.GetPolicies(ctx, accountId)
 	if err != nil {
 		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get policies: %w", err))
 	}
-	postureChecks, postureCheckXIDToPublicID, err := GetPostureChecksViaPgxConnection(ctx, tx.Conn(), accountId)
+	postureChecks, postureCheckXIDToPublicID, err := conn.GetPostureChecks(ctx, accountId)
 	if err != nil {
 		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get posture checks: %w", err))
 	}
-	routes, err := GetRoutesViaPgxConnection(ctx, tx.Conn(), accountId)
+	routes, err := conn.GetRoutes(ctx, accountId)
 	if err != nil {
 		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get routes: %w", err))
 	}
-	networkXIDToPublicID, err := GetNetworkXIDToPublicIdMapViaPgxConnection(ctx, tx.Conn(), accountId)
+	networkXIDToPublicID, err := conn.GetNetworkXIDToPublicIdMap(ctx, accountId)
 	if err != nil {
 		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get network xid to public id map: %w", err))
 	}
-	allowedUserIds, groupsToUserIds, err := GetAllowedUsersViaPgxConnection(ctx, tx.Conn(), accountId)
+	allowedUserIds, groupsToUserIds, err := conn.GetAllowedUsers(ctx, accountId)
 	if err != nil {
 		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get allowed users: %w", err))
 	}
-	dnsSettings, err := GetDnsSettingsViaPgxConnection(ctx, tx.Conn(), accountId)
+	dnsSettings, err := conn.GetDnsSettings(ctx, accountId)
 	if err != nil {
 		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get dns settings: %w", err))
 	}
-	domains, err := GetDomainsViaPgxConnection(ctx, tx.Conn(), accountId)
+	domains, err := conn.GetDomains(ctx, accountId)
 	if err != nil {
 		return rollbackAndReturnError(ctx, tx, err)
 	}
-	services, err := GetPrivateServicesViaPgxConnection(ctx, tx.Conn(), accountId)
+	services, err := conn.GetPrivateServices(ctx, accountId)
 	if err != nil {
 		return rollbackAndReturnError(ctx, tx, err)
 	}
-	proxyTargetedDomainResourceIDs, err := GetProxyTargetedDomainResourceIDsViaPgxConnection(ctx, tx.Conn(), accountId)
+	proxyTargetedDomainResourceIDs, err := conn.GetProxyTargetedDomainResourceIDs(ctx, accountId)
 	if err != nil {
 		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get proxy targeted domain resources: %w", err))
 	}
@@ -165,7 +168,7 @@ func toSliceOfPtrs[T any](all []T) []*T {
 	return toret
 }
 
-func serviceDomainZone(svc Service, ds []Domain) string {
+func serviceDomainZone(svc networkmapdb.Service, ds []networkmapdb.Domain) string {
 	if domainFromSuffix(svc.Domain.String, svc.ProxyCluster.String) {
 		return svc.ProxyCluster.String
 	}
@@ -190,7 +193,7 @@ func domainFromSuffix(domain, suffix string) bool {
 	return domain == suffix || strings.HasSuffix(domain, "."+suffix)
 }
 
-func buildPrivateServiceCandidates(svcs []Service, domains []Domain, proxyPeersByCluster map[string][]*nmdata.Peer) []networkmap.PrivateServiceCandidate {
+func buildPrivateServiceCandidates(svcs []networkmapdb.Service, domains []networkmapdb.Domain, proxyPeersByCluster map[string][]*nmdata.Peer) []networkmap.PrivateServiceCandidate {
 	var out []networkmap.PrivateServiceCandidate
 
 	if len(proxyPeersByCluster) == 0 {

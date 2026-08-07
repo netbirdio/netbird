@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	networkmap_pgsql "github.com/netbirdio/netbird/management/internals/network_map_db/pgsql"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/stretchr/testify/assert"
 )
@@ -21,7 +20,7 @@ func TestGetAccountSettings(t *testing.T) {
                       settings_lazy_connection_enabled, settings_auto_update_version, settings_auto_update_always, settings_metrics_push_enabled)
 		 values('account-3',null,null,null,null,null,null,null,null,null,null,null)`)
 
-	accountSettings, err := networkmap_pgsql.GetAccountSettingsViaPgxConnection(ctx, conn(t, ctx), "account-1")
+	accountSettings, err := conn(t, ctx).GetAccountSettings(ctx, "account-1")
 	assert.NoError(t, err)
 	assert.Equal(t, accountSettings, nmdata.AccountSettingsInfo{
 		PeerLoginExpirationEnabled:      true,
@@ -37,7 +36,7 @@ func TestGetAccountSettings(t *testing.T) {
 		MetricsPushEnabled:              false,
 	})
 
-	accountSettings, err = networkmap_pgsql.GetAccountSettingsViaPgxConnection(ctx, conn(t, ctx), "account-2")
+	accountSettings, err = conn(t, ctx).GetAccountSettings(ctx, "account-2")
 	assert.NoError(t, err)
 	assert.Equal(t, accountSettings, nmdata.AccountSettingsInfo{
 		PeerLoginExpirationEnabled:      true,
@@ -53,7 +52,7 @@ func TestGetAccountSettings(t *testing.T) {
 		MetricsPushEnabled:              false,
 	})
 
-	accountSettings, err = networkmap_pgsql.GetAccountSettingsViaPgxConnection(ctx, conn(t, ctx), "account-3")
+	accountSettings, err = conn(t, ctx).GetAccountSettings(ctx, "account-3")
 	assert.NoError(t, err)
 	assert.Equal(t, accountSettings, nmdata.AccountSettingsInfo{})
 }

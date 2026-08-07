@@ -22,16 +22,8 @@ const (
 	`
 )
 
-func (pg *PgStore) GetPeers(ctx context.Context, accountId string) ([]nmdata.Peer, map[string][]*nmdata.Peer, error) {
-	c, err := pg.Pool.Acquire(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-	return GetPeersViaPgxConnection(ctx, c.Conn(), accountId)
-}
-
-func GetPeersViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId string) ([]nmdata.Peer, map[string][]*nmdata.Peer, error) {
-	rows, err := con.Query(ctx, GetPeersQuery, accountId)
+func (pgc *PgStoreConn) GetPeers(ctx context.Context, accountId string) ([]nmdata.Peer, map[string][]*nmdata.Peer, error) {
+	rows, err := pgc.Conn.Query(ctx, GetPeersQuery, accountId)
 	if err != nil {
 		return nil, nil, err
 	}

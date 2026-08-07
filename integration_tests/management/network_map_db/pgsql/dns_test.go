@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/miekg/dns"
-	networkmap_pgsql "github.com/netbirdio/netbird/management/internals/network_map_db/pgsql"
 	"github.com/netbirdio/netbird/shared/management/networkmap"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/stretchr/testify/assert"
@@ -35,7 +34,7 @@ func TestGetAppliedZoneCandidatesViaPgxConnection(t *testing.T) {
 		`insert into records (id, account_id, zone_id, name, type, ttl, content)
 		VALUES('record-4','account-1','zone-2','test2.test-2.com','CNAME',1800,'test3.test-2.com')`)
 
-	zoneCandidates, err := networkmap_pgsql.GetAppliedZoneCandidatesViaPgxConnection(ctx, conn(t, ctx), "account-1")
+	zoneCandidates, err := conn(t, ctx).GetAppliedZoneCandidates(ctx, "account-1")
 	assert.NoError(t, err)
 
 	assert.Contains(t, zoneCandidates, networkmap.AppliedZoneCandidate{

@@ -19,16 +19,8 @@ const (
 	`
 )
 
-func (pg *PgStore) GetAllowedUsers(ctx context.Context, accountId string) (map[string]struct{}, map[string][]string, error) {
-	c, err := pg.Pool.Acquire(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-	return GetAllowedUsersViaPgxConnection(ctx, c.Conn(), accountId)
-}
-
-func GetAllowedUsersViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId string) (map[string]struct{}, map[string][]string, error) {
-	rows, err := con.Query(ctx, GetAllowedUserIdsQuery, accountId)
+func (pgc *PgStoreConn) GetAllowedUsers(ctx context.Context, accountId string) (map[string]struct{}, map[string][]string, error) {
+	rows, err := pgc.Conn.Query(ctx, GetAllowedUserIdsQuery, accountId)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -38,7 +30,7 @@ func GetAllowedUsersViaPgxConnection(ctx context.Context, con *pgx.Conn, account
 		return nil, nil, err
 	}
 
-	rows, err = con.Query(ctx, GetAllGroupIdQuery, accountId)
+	rows, err = pgc.Conn.Query(ctx, GetAllGroupIdQuery, accountId)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -7,7 +7,6 @@ import (
 	"net/netip"
 	"testing"
 
-	networkmap_pgsql "github.com/netbirdio/netbird/management/internals/network_map_db/pgsql"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/stretchr/testify/assert"
 )
@@ -34,7 +33,7 @@ func TestGetPostureChecks(t *testing.T) {
 		`insert into posture_checks (id, account_id, public_id, checks)
 		VALUES('posturecheck-3','account-1','posturecheck-3-public', null)`)
 
-	postureChecks, idToPublicIDIdx, err := networkmap_pgsql.GetPostureChecksViaPgxConnection(ctx, conn(t, ctx), "account-1")
+	postureChecks, idToPublicIDIdx, err := conn(t, ctx).GetPostureChecks(ctx, "account-1")
 	assert.NoError(t, err)
 	assert.Equal(t, idToPublicIDIdx, map[string]string{
 		"posturecheck-1": "posturecheck-1-public",

@@ -8,7 +8,6 @@ import (
 	"net"
 	"testing"
 
-	networkmap_pgsql "github.com/netbirdio/netbird/management/internals/network_map_db/pgsql"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/stretchr/testify/assert"
 )
@@ -16,10 +15,7 @@ import (
 func TestGetNetwork(t *testing.T) {
 	ctx := context.TODO()
 
-	s, err := networkmap_pgsql.NewPostgresqlStore(ctx, dsn)
-	assert.NoError(t, err)
-
-	network, err := s.GetNetwork(ctx, "account-1")
+	network, err := conn(t, ctx).GetNetwork(ctx, "account-1")
 	assert.NoError(t, err)
 	assert.Equal(t, network, nmdata.Network{
 		Identifier: "network-1",
@@ -28,7 +24,7 @@ func TestGetNetwork(t *testing.T) {
 		Serial:     1,
 	})
 
-	network, err = s.GetNetwork(ctx, "account-2")
+	network, err = conn(t, ctx).GetNetwork(ctx, "account-2")
 	assert.NoError(t, err)
 	assert.Equal(t, network, nmdata.Network{
 		Identifier: "network-2",

@@ -14,24 +14,16 @@ const (
 	`
 )
 
-func (pg *PgStore) GetNetworks(ctx context.Context, accountId string) ([]network, error) {
-	c, err := pg.Pool.Acquire(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return GetNetworksViaPgxConnection(ctx, c.Conn(), accountId)
-}
-
-func GetNetworksViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId string) ([]network, error) {
-	rows, err := con.Query(ctx, GetNetworksQuery, accountId)
+func (pgc *PgStoreConn) GetNetworks(ctx context.Context, accountId string) ([]network, error) {
+	rows, err := pgc.Conn.Query(ctx, GetNetworksQuery, accountId)
 	if err != nil {
 		return nil, err
 	}
 	return pgx.CollectRows(rows, pgx.RowToStructByName[network])
 }
 
-func GetNetworkXIDToPublicIdMapViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId string) (map[string]string, error) {
-	networks, err := GetNetworksViaPgxConnection(ctx, con, accountId)
+func (pgc *PgStoreConn) GetNetworkXIDToPublicIdMap(ctx context.Context, accountId string) (map[string]string, error) {
+	networks, err := pgc.GetNetworks(ctx, accountId)
 	if err != nil {
 		return nil, err
 	}

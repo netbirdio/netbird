@@ -21,16 +21,8 @@ const (
 	`
 )
 
-func (pg *PgStore) GetRoutes(ctx context.Context, accountId string) ([]nmdata.Route, error) {
-	c, err := pg.Pool.Acquire(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return GetRoutesViaPgxConnection(ctx, c.Conn(), accountId)
-}
-
-func GetRoutesViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId string) ([]nmdata.Route, error) {
-	rows, err := con.Query(ctx, GetRoutesQuery, accountId)
+func (pgc *PgStoreConn) GetRoutes(ctx context.Context, accountId string) ([]nmdata.Route, error) {
+	rows, err := pgc.Conn.Query(ctx, GetRoutesQuery, accountId)
 	if err != nil {
 		return nil, err
 	}

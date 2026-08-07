@@ -25,16 +25,8 @@ const (
 	`
 )
 
-func (pg *PgStore) GetNetworkRouters(ctx context.Context, accountId string) (map[string]map[string]*nmdata.NetworkRouter, error) {
-	c, err := pg.Pool.Acquire(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return GetNetworkRoutersViaPgxConnection(ctx, c.Conn(), accountId)
-}
-
-func GetNetworkRoutersViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId string) (map[string]map[string]*nmdata.NetworkRouter, error) {
-	rows, err := con.Query(ctx, GetNetworkRouterQuery, accountId)
+func (pgc *PgStoreConn) GetNetworkRouters(ctx context.Context, accountId string) (map[string]map[string]*nmdata.NetworkRouter, error) {
+	rows, err := pgc.Conn.Query(ctx, GetNetworkRouterQuery, accountId)
 	if err != nil {
 		return nil, err
 	}

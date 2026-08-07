@@ -19,16 +19,8 @@ const (
 	`
 )
 
-func (pg *PgStore) GetNameServerGroups(ctx context.Context, accountId string) ([]nmdata.NameServerGroup, error) {
-	c, err := pg.Pool.Acquire(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return GetNameServerGroupsViaPgxConnection(ctx, c.Conn(), accountId)
-}
-
-func GetNameServerGroupsViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId string) ([]nmdata.NameServerGroup, error) {
-	rows, err := con.Query(ctx, GetNameserversQuery, accountId)
+func (pgc *PgStoreConn) GetNameServerGroups(ctx context.Context, accountId string) ([]nmdata.NameServerGroup, error) {
+	rows, err := pgc.Conn.Query(ctx, GetNameserversQuery, accountId)
 	if err != nil {
 		return nil, err
 	}

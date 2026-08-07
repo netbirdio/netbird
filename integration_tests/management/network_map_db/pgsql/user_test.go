@@ -6,7 +6,6 @@ import (
 	"context"
 	"testing"
 
-	networkmap_pgsql "github.com/netbirdio/netbird/management/internals/network_map_db/pgsql"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -40,7 +39,7 @@ func TestGetAllowedUsers(t *testing.T) {
 		`insert into groups (id, name, account_id)
 		VALUES('all-group-3','All','account-1')`)
 
-	userIdx, groupIdToUserIds, err := networkmap_pgsql.GetAllowedUsersViaPgxConnection(ctx, conn(t, ctx), "account-1")
+	userIdx, groupIdToUserIds, err := conn(t, ctx).GetAllowedUsers(ctx, "account-1")
 	assert.NoError(t, err)
 
 	assert.Equal(t, userIdx, map[string]struct{}{

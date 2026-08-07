@@ -19,16 +19,8 @@ const (
 	`
 )
 
-func (pg *PgStore) GetPostureChecks(ctx context.Context, accountId string) ([]nmdata.PostureChecks, map[string]string, error) {
-	c, err := pg.Pool.Acquire(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-	return GetPostureChecksViaPgxConnection(ctx, c.Conn(), accountId)
-}
-
-func GetPostureChecksViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId string) ([]nmdata.PostureChecks, map[string]string, error) {
-	rows, err := con.Query(ctx, GetPostureChecksQuery, accountId)
+func (pgc *PgStoreConn) GetPostureChecks(ctx context.Context, accountId string) ([]nmdata.PostureChecks, map[string]string, error) {
+	rows, err := pgc.Conn.Query(ctx, GetPostureChecksQuery, accountId)
 	if err != nil {
 		return nil, nil, err
 	}

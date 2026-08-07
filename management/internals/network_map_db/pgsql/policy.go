@@ -22,16 +22,8 @@ const (
 	`
 )
 
-func (pg *PgStore) GetPolicies(ctx context.Context, accountId string) ([]nmdata.Policy, map[string]map[string]any, map[string]map[string]any, error) {
-	c, err := pg.Pool.Acquire(ctx)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	return GetPoliciesViaPgxConnection(ctx, c.Conn(), accountId)
-}
-
-func GetPoliciesViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId string) ([]nmdata.Policy, map[string]map[string]any, map[string]map[string]any, error) {
-	rows, err := con.Query(ctx, GetPoliciesQuery, accountId)
+func (pgc *PgStoreConn) GetPolicies(ctx context.Context, accountId string) ([]nmdata.Policy, map[string]map[string]any, map[string]map[string]any, error) {
+	rows, err := pgc.Conn.Query(ctx, GetPoliciesQuery, accountId)
 	if err != nil {
 		return nil, nil, nil, err
 	}

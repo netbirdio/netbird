@@ -24,7 +24,12 @@ const (
 )
 
 type NetworkMapDBStore interface { //nolint:revive // established name across the codebase
+	GetNetworkMapData(ctx context.Context, accountId string) (*networkmap.NetworkMapData, error)
+}
+
+type NetworkMapDBStoreConn interface { //nolint:revive // established name across the codebase
 	GetGroups(ctx context.Context, accountId string) ([]nmdata.Group, map[string]map[string]any, error)
+	GetDomains(ctx context.Context, accountId string) ([]Domain, error)
 	GetPeers(ctx context.Context, accountId string) ([]nmdata.Peer, map[string][]*nmdata.Peer, error)
 	GetPolicies(ctx context.Context, accountId string) ([]nmdata.Policy, map[string]map[string]any, map[string]map[string]any, error)
 	GetRoutes(ctx context.Context, accountId string) ([]nmdata.Route, error)
@@ -35,9 +40,24 @@ type NetworkMapDBStore interface { //nolint:revive // established name across th
 	GetAppliedZoneCandidates(ctx context.Context, accountId string) ([]networkmap.AppliedZoneCandidate, error)
 	GetAccountSettings(ctx context.Context, accountId string) (nmdata.AccountSettingsInfo, error)
 	GetPostureChecks(ctx context.Context, accountId string) ([]nmdata.PostureChecks, map[string]string, error)
-	GetNetworkMapData(ctx context.Context, accountId string) (*networkmap.NetworkMapData, error)
 	GetAllowedUsers(ctx context.Context, accountId string) (map[string]struct{}, map[string][]string, error)
 	GetDnsSettings(ctx context.Context, accountId string) (nmdata.DNSSettings, error)
+	GetNetworkXIDToPublicIdMap(ctx context.Context, accountId string) (map[string]string, error)
+	GetPrivateServices(ctx context.Context, accountId string) ([]Service, error)
+	GetProxyTargetedDomainResourceIDs(ctx context.Context, accountId string) (map[string]struct{}, error)
+}
+
+type Domain struct {
+	Domain        sql.NullString
+	TargetCluster sql.NullString
+}
+
+type Service struct {
+	Enabled      sql.NullBool
+	Private      sql.NullBool
+	AccessGroups []string
+	ProxyCluster sql.NullString
+	Domain       sql.NullString
 }
 
 type NetworkMapDBStoreImpl struct { //nolint:revive // established name across the codebase

@@ -7,7 +7,6 @@ import (
 	"net/netip"
 	"testing"
 
-	networkmap_pgsql "github.com/netbirdio/netbird/management/internals/network_map_db/pgsql"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/stretchr/testify/assert"
@@ -37,7 +36,7 @@ func TestGetRoutes(t *testing.T) {
 		VALUES('route-3','account-1','route-3-public',null,null,null,null,'route-3',
 		        null,null,null,null,null,null,null,null,null)`)
 
-	routes, err := networkmap_pgsql.GetRoutesViaPgxConnection(ctx, conn(t, ctx), "account-1")
+	routes, err := conn(t, ctx).GetRoutes(ctx, "account-1")
 	assert.NoError(t, err)
 	assert.Contains(t, routes, nmdata.Route{
 		ID:                  "route-1",

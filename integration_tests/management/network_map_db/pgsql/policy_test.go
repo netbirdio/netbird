@@ -6,7 +6,6 @@ import (
 	"context"
 	"testing"
 
-	networkmap_pgsql "github.com/netbirdio/netbird/management/internals/network_map_db/pgsql"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/stretchr/testify/assert"
 )
@@ -54,7 +53,7 @@ func TestGetPolicies(t *testing.T) {
 		 values('policy-4-rule-1','policy-4',false,null,null,null,null,'["group-two-resources-id"]',
 		        null,'{"ID":"domain-3","Type":"domain"}',null,null,null,null)`)
 
-	policies, policyToDestinationResourceIdx, policyToDestinationGroupIdx, err := networkmap_pgsql.GetPoliciesViaPgxConnection(ctx, conn(t, ctx), "account-1")
+	policies, policyToDestinationResourceIdx, policyToDestinationGroupIdx, err := conn(t, ctx).GetPolicies(ctx, "account-1")
 	assert.NoError(t, err)
 
 	assert.Contains(t, policies, nmdata.Policy{

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 )
@@ -22,6 +23,12 @@ type PgStore struct {
 	Pool *pgxpool.Pool
 }
 
+type PgStoreConn struct {
+	Conn *pgx.Conn
+}
+
+var _ networkmapdb.NetworkMapDBStoreConn = &PgStoreConn{}
+
 func NewPostgresqlStore(ctx context.Context, dsn string) (*PgStore, error) {
 	pool, err := connectToPgDb(ctx, dsn)
 	if err != nil {
@@ -29,6 +36,10 @@ func NewPostgresqlStore(ctx context.Context, dsn string) (*PgStore, error) {
 	}
 
 	return &PgStore{Pool: pool}, nil
+}
+
+func (p *PgStore) UsingConnection(c *pgx.Conn) networkmapdb.NetworkMapDBStoreConn {
+	return &PgStoreConn{Conn: c}
 }
 
 func connectToPgDb(ctx context.Context, dsn string) (*pgxpool.Pool, error) {

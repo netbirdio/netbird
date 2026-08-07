@@ -28,17 +28,8 @@ const (
 	`
 )
 
-func (pg *PgStore) GetAccountSettings(ctx context.Context, accountId string) (nmdata.AccountSettingsInfo, error) {
-	c, err := pg.Pool.Acquire(ctx)
-	if err != nil {
-		return nmdata.AccountSettingsInfo{}, err
-	}
-	return GetAccountSettingsViaPgxConnection(ctx, c.Conn(), accountId)
-
-}
-
-func GetAccountSettingsViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId string) (nmdata.AccountSettingsInfo, error) {
-	rows, err := con.Query(ctx, GetAccountSettingsQuery, accountId)
+func (pgc *PgStoreConn) GetAccountSettings(ctx context.Context, accountId string) (nmdata.AccountSettingsInfo, error) {
+	rows, err := pgc.Conn.Query(ctx, GetAccountSettingsQuery, accountId)
 	if err != nil {
 		return nmdata.AccountSettingsInfo{}, err
 	}

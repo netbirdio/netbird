@@ -19,16 +19,8 @@ const (
 	`
 )
 
-func (pg *PgStore) GetNetworkResources(ctx context.Context, accountId string) ([]nmdata.NetworkResource, error) {
-	c, err := pg.Pool.Acquire(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return GetNetworkResourcesViaPgxConnection(ctx, c.Conn(), accountId)
-}
-
-func GetNetworkResourcesViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId string) ([]nmdata.NetworkResource, error) {
-	rows, err := con.Query(ctx, GetNetworkResourcesQuery, accountId)
+func (pgc *PgStoreConn) GetNetworkResources(ctx context.Context, accountId string) ([]nmdata.NetworkResource, error) {
+	rows, err := pgc.Conn.Query(ctx, GetNetworkResourcesQuery, accountId)
 	if err != nil {
 		return nil, err
 	}

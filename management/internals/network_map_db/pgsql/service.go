@@ -2,9 +2,9 @@ package networkmap_pgsql
 
 import (
 	"context"
-	"database/sql"
 
 	"github.com/jackc/pgx/v5"
+	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 )
 
 const (
@@ -23,25 +23,17 @@ const (
 	`
 )
 
-func (pg *PgStore) GetPrivateServices(ctx context.Context, accountId string) ([]Service, error) {
-	c, err := pg.Pool.Acquire(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return GetPrivateServicesViaPgxConnection(ctx, c.Conn(), accountId)
-}
-
-func GetPrivateServicesViaPgxConnection(ctx context.Context, conn *pgx.Conn, accountId string) ([]Service, error) {
-	rows, err := conn.Query(ctx, GetServicesQuery, accountId)
+func (pgc *PgStoreConn) GetPrivateServices(ctx context.Context, accountId string) ([]networkmapdb.Service, error) {
+	rows, err := pgc.Conn.Query(ctx, GetServicesQuery, accountId)
 	if err != nil {
 		return nil, err
 	}
 
-	return pgx.CollectRows(rows, pgx.RowToStructByName[Service])
+	return pgx.CollectRows(rows, pgx.RowToStructByName[networkmapdb.Service])
 }
 
-func GetProxyTargetedDomainResourceIDsViaPgxConnection(ctx context.Context, conn *pgx.Conn, accountId string) (map[string]struct{}, error) {
-	rows, err := conn.Query(ctx, GetProxyTargetedDomainResourcesQuery, accountId)
+func (pgc *PgStoreConn) GetProxyTargetedDomainResourceIDs(ctx context.Context, accountId string) (map[string]struct{}, error) {
+	rows, err := pgc.Conn.Query(ctx, GetProxyTargetedDomainResourcesQuery, accountId)
 	if err != nil {
 		return nil, err
 	}
@@ -56,12 +48,4 @@ func GetProxyTargetedDomainResourceIDsViaPgxConnection(ctx context.Context, conn
 		toret[id] = struct{}{}
 	}
 	return toret, nil
-}
-
-type Service struct {
-	Enabled      sql.NullBool
-	Private      sql.NullBool
-	AccessGroups []string
-	ProxyCluster sql.NullString
-	Domain       sql.NullString
 }

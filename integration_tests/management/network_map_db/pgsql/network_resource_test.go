@@ -7,16 +7,12 @@ import (
 	"net/netip"
 	"testing"
 
-	networkmap_pgsql "github.com/netbirdio/netbird/management/internals/network_map_db/pgsql"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestGetNetworkResources(t *testing.T) {
 	ctx := context.TODO()
-
-	s, err := networkmap_pgsql.NewPostgresqlStore(ctx, dsn)
-	assert.NoError(t, err)
 
 	execQuery(t, ctx,
 		`insert into network_resources (id, account_id, network_id, public_id, name, description, type, domain, prefix, enabled)
@@ -28,7 +24,7 @@ func TestGetNetworkResources(t *testing.T) {
 		`insert into network_resources (id, account_id, network_id, public_id, name, description, type, domain, prefix, enabled)
 		VALUES('net-resource-3','account-1','network-3','net-resource-public-3','network-resource-3','network-resource-3','host','','"10.0.0.1/32"',TRUE)`)
 
-	resources, err := s.GetNetworkResources(ctx, "account-1")
+	resources, err := conn(t, ctx).GetNetworkResources(ctx, "account-1")
 	assert.NoError(t, err)
 
 	assert.Contains(t, resources, nmdata.NetworkResource{

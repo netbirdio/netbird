@@ -8,7 +8,6 @@ import (
 	"net/netip"
 	"testing"
 
-	networkmap_pgsql "github.com/netbirdio/netbird/management/internals/network_map_db/pgsql"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/stretchr/testify/assert"
 )
@@ -16,7 +15,7 @@ import (
 func TestGetPeers(t *testing.T) {
 	ctx := context.TODO()
 
-	peers, clusterToPeersIdx, err := networkmap_pgsql.GetPeersViaPgxConnection(ctx, conn(t, ctx), "account-1")
+	peers, clusterToPeersIdx, err := conn(t, ctx).GetPeers(ctx, "account-1")
 	assert.NoError(t, err)
 
 	// shouldn't be returned in the index, as it's not connected

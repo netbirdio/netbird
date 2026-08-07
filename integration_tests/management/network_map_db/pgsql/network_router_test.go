@@ -6,16 +6,12 @@ import (
 	"context"
 	"testing"
 
-	networkmap_pgsql "github.com/netbirdio/netbird/management/internals/network_map_db/pgsql"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestGetNetworkRouters(t *testing.T) {
 	ctx := context.TODO()
-
-	s, err := networkmap_pgsql.NewPostgresqlStore(ctx, dsn)
-	assert.NoError(t, err)
 
 	execQuery(t, ctx,
 		`insert into network_routers (id, account_id, public_id, peer, network_id, masquerade, metric, enabled, peer_groups)
@@ -24,7 +20,7 @@ func TestGetNetworkRouters(t *testing.T) {
 		`insert into network_routers (id, account_id, public_id, peer, network_id, masquerade, metric, enabled, peer_groups)
 		VALUES('test-nr-id-2','account-1','public-id-2','','network-id-2',TRUE,333,TRUE,'["group-two-resources-id","group-no-resources-id"]')`)
 
-	routers, err := s.GetNetworkRouters(ctx, "account-1")
+	routers, err := conn(t, ctx).GetNetworkRouters(ctx, "account-1")
 	assert.NoError(t, err)
 	assert.NotEmpty(t, routers)
 

@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	networkmap_pgsql "github.com/netbirdio/netbird/management/internals/network_map_db/pgsql"
+	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 )
 
 func TestGetPrivateServicesViaPgxConnection(t *testing.T) {
@@ -28,23 +28,23 @@ func TestGetPrivateServicesViaPgxConnection(t *testing.T) {
 		 values('service-3','account-1',null,null,null,null,null)`)
 	assert.NoError(t, err)
 
-	services, err := networkmap_pgsql.GetPrivateServicesViaPgxConnection(ctx, conn(t, ctx), "account-1")
+	services, err := conn(t, ctx).GetPrivateServices(ctx, "account-1")
 	assert.NoError(t, err)
-	assert.Contains(t, services, networkmap_pgsql.Service{
+	assert.Contains(t, services, networkmapdb.Service{
 		Enabled:      sql.NullBool{Bool: true, Valid: true},
 		Private:      sql.NullBool{Bool: true, Valid: true},
 		AccessGroups: []string{"group-one-resource-id"},
 		ProxyCluster: sql.NullString{String: "test-1.com", Valid: true},
 		Domain:       sql.NullString{String: "test-2.com", Valid: true},
 	})
-	assert.Contains(t, services, networkmap_pgsql.Service{
+	assert.Contains(t, services, networkmapdb.Service{
 		Enabled:      sql.NullBool{Bool: true, Valid: true},
 		Private:      sql.NullBool{Bool: true, Valid: true},
 		AccessGroups: []string{"group-one-resource-id", "group-two-resources-id"},
 		ProxyCluster: sql.NullString{String: "test-3.com", Valid: true},
 		Domain:       sql.NullString{String: "test-4.com", Valid: true},
 	})
-	assert.Contains(t, services, networkmap_pgsql.Service{
+	assert.Contains(t, services, networkmapdb.Service{
 		Enabled:      sql.NullBool{Bool: false, Valid: false},
 		Private:      sql.NullBool{Bool: false, Valid: false},
 		AccessGroups: []string{},
@@ -102,7 +102,7 @@ func TestGetProxyTargetedDomainResourceIDsViaPgxConnection(t *testing.T) {
 		`insert into targets (target_id, account_id, service_id, enabled, target_type)
 		 values(null,'account-1','service-4',true,'cluster')`)
 
-	servtargetedDomains, err := networkmap_pgsql.GetProxyTargetedDomainResourceIDsViaPgxConnection(ctx, conn(t, ctx), "account-1")
+	servtargetedDomains, err := conn(t, ctx).GetProxyTargetedDomainResourceIDs(ctx, "account-1")
 	assert.NoError(t, err)
 	assert.Equal(t, servtargetedDomains, map[string]struct{}{
 		"target-1": {},

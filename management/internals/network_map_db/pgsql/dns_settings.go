@@ -16,16 +16,8 @@ const (
 	`
 )
 
-func (pg *PgStore) GetDnsSettings(ctx context.Context, accountId string) (nmdata.DNSSettings, error) {
-	c, err := pg.Pool.Acquire(ctx)
-	if err != nil {
-		return nmdata.DNSSettings{}, err
-	}
-	return GetDnsSettingsViaPgxConnection(ctx, c.Conn(), accountId)
-}
-
-func GetDnsSettingsViaPgxConnection(ctx context.Context, con *pgx.Conn, accountId string) (nmdata.DNSSettings, error) {
-	rows, err := con.Query(ctx, GetDnsSettingsQuery, accountId)
+func (pgc *PgStoreConn) GetDnsSettings(ctx context.Context, accountId string) (nmdata.DNSSettings, error) {
+	rows, err := pgc.Conn.Query(ctx, GetDnsSettingsQuery, accountId)
 	if err != nil {
 		return nmdata.DNSSettings{}, err
 	}

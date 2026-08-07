@@ -27,16 +27,8 @@ const (
 	`
 )
 
-func (pg *PgStore) GetAppliedZoneCandidates(ctx context.Context, accountId string) ([]networkmap.AppliedZoneCandidate, error) {
-	c, err := pg.Pool.Acquire(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return GetAppliedZoneCandidatesViaPgxConnection(ctx, c.Conn(), accountId)
-}
-
-func GetAppliedZoneCandidatesViaPgxConnection(ctx context.Context, conn *pgx.Conn, accountId string) ([]networkmap.AppliedZoneCandidate, error) {
-	rows, err := conn.Query(ctx, GetAccountZonesQuery, accountId)
+func (pgc *PgStoreConn) GetAppliedZoneCandidates(ctx context.Context, accountId string) ([]networkmap.AppliedZoneCandidate, error) {
+	rows, err := pgc.Conn.Query(ctx, GetAccountZonesQuery, accountId)
 	if err != nil {
 		return nil, err
 	}

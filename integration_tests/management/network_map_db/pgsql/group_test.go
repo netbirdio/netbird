@@ -6,7 +6,6 @@ import (
 	"context"
 	"testing"
 
-	networkmap_pgsql "github.com/netbirdio/netbird/management/internals/network_map_db/pgsql"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -15,10 +14,7 @@ import (
 func TestGetGroups(t *testing.T) {
 	ctx := context.TODO()
 
-	s, err := networkmap_pgsql.NewPostgresqlStore(ctx, dsn)
-	assert.NoError(t, err)
-
-	groups, resourceToGroupIdx, err := s.GetGroups(ctx, "account-1")
+	groups, resourceToGroupIdx, err := conn(t, ctx).GetGroups(ctx, "account-1")
 	assert.NoError(t, err)
 	assert.Contains(t,
 		groups,
@@ -45,17 +41,13 @@ func TestGetGroups(t *testing.T) {
 func TestGetGroupsWithoutExpectedFields(t *testing.T) {
 	ctx := context.TODO()
 
-	s, err := networkmap_pgsql.NewPostgresqlStore(ctx, dsn)
-	assert.NoError(t, err)
-
 	execQuery(t, ctx,
 		"insert into accounts (id) VALUES('random-id')")
 
 	execQuery(t, ctx,
 		"insert into groups (id, account_id) VALUES('g2-test-group-id-1','random-id')")
-	assert.NoError(t, err)
 
-	groups, _, err := s.GetGroups(ctx, "random-id")
+	groups, _, err := conn(t, ctx).GetGroups(ctx, "random-id")
 	assert.NoError(t, err)
 	require.Len(t, groups, 1)
 	assert.NotEmpty(t, groups[0].PublicID)
