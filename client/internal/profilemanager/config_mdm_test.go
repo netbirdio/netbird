@@ -164,15 +164,11 @@ func TestApply_MDMLazyConnection(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			withMDMPolicy(t, mdm.NewPolicy(map[string]any{
+			cfg := configWithMDM(t, ConfigInput{
+				ConfigPath: filepath.Join(t.TempDir(), "config.json"),
+			}, mdm.NewPolicy(map[string]any{
 				mdm.KeyLazyConnection: c.raw,
 			}))
-
-			cfg, err := UpdateOrCreateConfig(ConfigInput{
-				ConfigPath: filepath.Join(t.TempDir(), "config.json"),
-			})
-			require.NoError(t, err)
-			require.NotNil(t, cfg)
 
 			assert.Equal(t, c.want, cfg.LazyConnection)
 			assert.True(t, cfg.Policy().HasKey(mdm.KeyLazyConnection))
