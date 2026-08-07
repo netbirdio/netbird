@@ -961,7 +961,6 @@ func (conn *Conn) recordConnectionMetrics() {
 
 	connType := metricsConnType(priority)
 	if connType == metrics.ConnectionTypeUnknown {
-		conn.Log.Debugf("skip connection metrics, no transport is active (priority %s)", priority)
 		return
 	}
 
