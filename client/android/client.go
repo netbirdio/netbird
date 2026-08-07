@@ -83,7 +83,6 @@ type Client struct {
 	connectClient *internal.ConnectClient
 	config        *profilemanager.Config
 	cacheDir      string
-<<<<<<< HEAD
 
 	// mdmLoader holds the per-Client MDM policy source. Set by
 	// SetMDMPolicyFetcher (called from the Kotlin side). Each Run
@@ -91,7 +90,7 @@ type Client struct {
 	// picks up the active overlay. Nil means "MDM enforcement off
 	// for this Client".
 	mdmLoader *mdm.Loader
-=======
+
 	// Identifies the running profile for the SSO login hint; see profile_state.go.
 	cfgPath string
 
@@ -112,7 +111,6 @@ type Client struct {
 
 	extendMu     sync.Mutex
 	extendCancel context.CancelFunc
->>>>>>> origin/main
 }
 
 func (c *Client) setState(cfg *profilemanager.Config, cacheDir string, cfgPath string, cc *internal.ConnectClient) {
