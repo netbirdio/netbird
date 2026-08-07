@@ -1629,6 +1629,7 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 	var user *types.User
 	var change affectedpeers.Change
 	var snap *affectedpeers.Snapshot
+	var requiresAccountUpdate bool
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		user, err = transaction.GetUserByUserID(ctx, store.LockingStrengthNone, userAuth.UserId)
 		if err != nil {
@@ -1668,6 +1669,9 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 		}
 
 		allGroupChanges := slices.Concat(addNewGroups, removeOldGroups)
+		// The user's auto-groups changed, so the SSH rules authorizing them ship a new
+		// group -> user mapping even when no peer moves between groups.
+		change.UserGroupIDs = allGroupChanges
 
 		// Propagate changes to peers if group propagation is enabled
 		if settings.GroupsPropagationEnabled {
@@ -1692,16 +1696,9 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 
 			change.LinkGroups = allGroupChanges
 
-			// An IPv6 reconcile can change the peers' addresses, which are visible
-			// through ALL their group memberships, so seed the full walk instead of
-			// folding the peers alone.
-			for _, g := range allGroupChanges {
-				if slices.Contains(settings.IPv6EnabledGroups, g) {
-					change.ChangedPeerIDs = change.OutputPeerIDs
-					change.OutputPeerIDs = nil
-					break
-				}
-			}
+			// The reconciliation reassigns IPv6 addresses across the account, which
+			// every peer that can reach the reassigned ones observes.
+			requiresAccountUpdate = ipv6ReconcileNeeded(settings, allGroupChanges)
 
 			if err = am.reconcileIPv6ForGroupChanges(ctx, transaction, userAuth.AccountId, allGroupChanges); err != nil {
 				return fmt.Errorf("reconcile IPv6 for group changes: %w", err)
@@ -1711,16 +1708,6 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 				return fmt.Errorf("error incrementing network serial: %w", err)
 			}
 		}
-
-		// The user->group mapping shipped to SSH destination peers (GroupIDToUserIDs)
-		// changed for these groups even without peer propagation, so the destinations
-		// of SSH rules authorizing them must refresh.
-		sshDistributionGroups, sshPeerIDs, err := sshAuthorizedGroupConsumers(ctx, transaction, userAuth.AccountId, allGroupChanges)
-		if err != nil {
-			return err
-		}
-		change.DistributionGroupIDs = sshDistributionGroups
-		change.OutputPeerIDs = append(change.OutputPeerIDs, sshPeerIDs...)
 
 		if snap, err = affectedpeers.Load(ctx, transaction, userAuth.AccountId, change); err != nil {
 			return err
@@ -1762,6 +1749,12 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 		}
 	}
 
+	if requiresAccountUpdate {
+		log.WithContext(ctx).Tracef("user %s: JWT group membership changed, updating account peers", userAuth.UserId)
+		am.BufferUpdateAccountPeers(ctx, userAuth.AccountId, types.UpdateReason{Resource: types.UpdateResourceUser, Operation: types.UpdateOperationUpdate})
+		return nil
+	}
+
 	log.WithContext(ctx).Tracef("user %s: JWT group membership changed, updating affected peers", userAuth.UserId)
 	bgCtx := context.WithoutCancel(ctx)
 	go func() {
@@ -1775,53 +1768,6 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 	}()
 
 	return nil
-}
-
-// sshAuthorizedGroupConsumers returns the destination groups and destination peers of
-// enabled SSH rules whose AuthorizedGroups reference any of the changed groups. Their
-// network maps carry the user->group mapping for those groups.
-func sshAuthorizedGroupConsumers(ctx context.Context, transaction store.Store, accountID string, changedGroupIDs []string) ([]string, []string, error) {
-	if len(changedGroupIDs) == 0 {
-		return nil, nil, nil
-	}
-
-	policies, err := transaction.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
-	if err != nil {
-		return nil, nil, fmt.Errorf("error getting account policies: %w", err)
-	}
-
-	changed := make(map[string]struct{}, len(changedGroupIDs))
-	for _, id := range changedGroupIDs {
-		changed[id] = struct{}{}
-	}
-
-	var groupIDs []string
-	var peerIDs []string
-	for _, policy := range policies {
-		if policy == nil || !policy.Enabled {
-			continue
-		}
-		for _, rule := range policy.Rules {
-			if !rule.Enabled || rule.Protocol != types.PolicyRuleProtocolNetbirdSSH {
-				continue
-			}
-			authorized := false
-			for groupID := range rule.AuthorizedGroups {
-				if _, ok := changed[groupID]; ok {
-					authorized = true
-					break
-				}
-			}
-			if !authorized {
-				continue
-			}
-			groupIDs = append(groupIDs, rule.Destinations...)
-			if rule.DestinationResource.Type == types.ResourceTypePeer && rule.DestinationResource.ID != "" {
-				peerIDs = append(peerIDs, rule.DestinationResource.ID)
-			}
-		}
-	}
-	return groupIDs, peerIDs, nil
 }
 
 // getAccountIDWithAuthorizationClaims retrieves an account ID using JWT Claims.
@@ -2502,28 +2448,25 @@ func (am *DefaultAccountManager) reconcileIPv6ForGroupChanges(ctx context.Contex
 		return fmt.Errorf("get account settings: %w", err)
 	}
 
-	if len(settings.IPv6EnabledGroups) == 0 {
-		return nil
-	}
-
-	enabledSet := make(map[string]struct{}, len(settings.IPv6EnabledGroups))
-	for _, gid := range settings.IPv6EnabledGroups {
-		enabledSet[gid] = struct{}{}
-	}
-
-	affected := false
-	for _, gid := range groupIDs {
-		if _, ok := enabledSet[gid]; ok {
-			affected = true
-			break
-		}
-	}
-
-	if !affected {
+	if !ipv6ReconcileNeeded(settings, groupIDs) {
 		return nil
 	}
 
 	return am.updatePeerIPv6Addresses(ctx, transaction, accountID, settings)
+}
+
+// ipv6ReconcileNeeded reports whether changes to the given groups trigger an IPv6
+// reconciliation. A reconciliation reassigns addresses across the whole account, and a
+// peer's address is visible to everyone that reaches it through any of its groups, so
+// callers that otherwise compute an affected-peers set must fall back to updating the
+// whole account.
+func ipv6ReconcileNeeded(settings *types.Settings, groupIDs []string) bool {
+	for _, groupID := range groupIDs {
+		if slices.Contains(settings.IPv6EnabledGroups, groupID) {
+			return true
+		}
+	}
+	return false
 }
 
 func (am *DefaultAccountManager) ensureIPv6Subnet(ctx context.Context, transaction store.Store, accountID string, settings *types.Settings, network *types.Network) error {

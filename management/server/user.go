@@ -593,7 +593,9 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 		return nil, err
 	}
 
-	var updateAccountPeers bool
+	var requiresAccountUpdate bool
+	var snaps []*affectedpeers.Snapshot
+	var changes []affectedpeers.Change
 	var peersToExpire []*nbpeer.Peer
 	var addUserEvents []func()
 	var usersToSave = make([]*types.User, 0, len(updates))
@@ -629,20 +631,26 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 		}
 
 		err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-			_, updatedUser, userPeersToExpire, userEvents, err := am.processUserUpdate(
+			effect, updatedUser, userPeersToExpire, userEvents, err := am.processUserUpdate(
 				ctx, transaction, groupsMap, accountID, initiatorUserID, initiatorUser, update, addIfNotExists, settings,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to process update for user %s: %w", update.Id, err)
 			}
 
-			updateAccountPeers = true
-
 			err = transaction.SaveUser(ctx, updatedUser)
 			if err != nil {
 				return fmt.Errorf("failed to save updated user %s: %w", update.Id, err)
 			}
 
+			snap, err := affectedpeers.Load(ctx, transaction, accountID, effect.change)
+			if err != nil {
+				return err
+			}
+
+			requiresAccountUpdate = requiresAccountUpdate || effect.requiresAccountUpdate
+			snaps = append(snaps, snap)
+			changes = append(changes, effect.change)
 			usersToSave = append(usersToSave, updatedUser)
 			addUserEvents = append(addUserEvents, userEvents...)
 			peersToExpire = append(peersToExpire, userPeersToExpire...)
@@ -683,11 +691,15 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 			log.WithContext(ctx).Errorf("failed update expired peers: %s", err)
 			return nil, err
 		}
-	} else if updateAccountPeers {
+	} else if len(usersToSave) > 0 {
 		if err = am.Store.IncrementNetworkSerial(ctx, accountID); err != nil {
 			return nil, fmt.Errorf("failed to increment network serial: %w", err)
 		}
-		am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceUser, Operation: types.UpdateOperationUpdate})
+		if requiresAccountUpdate {
+			am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceUser, Operation: types.UpdateOperationUpdate})
+		} else {
+			go am.dispatchAffected(ctx, accountID, snaps, changes)
+		}
 	}
 
 	return updatedUsersInfo, globalErr
@@ -758,20 +770,31 @@ func (am *DefaultAccountManager) prepareUserUpdateEvents(ctx context.Context, ac
 	return eventsToStore
 }
 
+// userUpdateEffect describes how a user update has to reach peers. Users only enter a
+// network map through the SSH rules, so the change resolves to those rules' peers —
+// except when the update triggers an IPv6 reconciliation, which reassigns addresses
+// across the account and so has to reach everyone.
+type userUpdateEffect struct {
+	change                affectedpeers.Change
+	requiresAccountUpdate bool
+}
+
 func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transaction store.Store, groupsMap map[string]*types.Group,
-	accountID, initiatorUserId string, initiatorUser, update *types.User, addIfNotExists bool, settings *types.Settings) (bool, *types.User, []*nbpeer.Peer, []func(), error) {
+	accountID, initiatorUserId string, initiatorUser, update *types.User, addIfNotExists bool, settings *types.Settings) (userUpdateEffect, *types.User, []*nbpeer.Peer, []func(), error) {
+
+	var effect userUpdateEffect
 
 	if update == nil {
-		return false, nil, nil, nil, status.Errorf(status.InvalidArgument, "provided user update is nil")
+		return effect, nil, nil, nil, status.Errorf(status.InvalidArgument, "provided user update is nil")
 	}
 
 	oldUser, isNewUser, err := getUserOrCreateIfNotExists(ctx, transaction, accountID, update, addIfNotExists)
 	if err != nil {
-		return false, nil, nil, nil, err
+		return effect, nil, nil, nil, err
 	}
 
 	if err := validateUserUpdate(groupsMap, initiatorUser, oldUser, update); err != nil {
-		return false, nil, nil, nil, err
+		return effect, nil, nil, nil, err
 	}
 
 	// only auto groups, revoked status, and integration reference can be updated for now
@@ -792,19 +815,34 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 	var transferredOwnerRole bool
 	result, err := handleOwnerRoleTransfer(ctx, transaction, initiatorUser, update)
 	if err != nil {
-		return false, nil, nil, nil, err
+		return effect, nil, nil, nil, err
 	}
 	transferredOwnerRole = result
 
 	userPeers, err := transaction.GetUserPeers(ctx, store.LockingStrengthNone, updatedUser.AccountID, update.Id)
 	if err != nil {
-		return false, nil, nil, nil, err
+		return effect, nil, nil, nil, err
 	}
 
 	var peersToExpire []*nbpeer.Peer
 
 	if !oldUser.IsBlocked() && update.IsBlocked() {
 		peersToExpire = userPeers
+	}
+
+	// A user reaches a peer's network map only through the SSH rules: as part of a
+	// group -> user mapping, and as part of the account's allowed-user set. Creating,
+	// blocking or unblocking a user adds it to or removes it from both, so every group
+	// it maps into changes — including the All group that holds every active user.
+	// Otherwise only the auto-groups it joined or left do.
+	if isNewUser || oldUser.IsBlocked() != updatedUser.IsBlocked() {
+		effect.change.AllowedUsersChanged = true
+		effect.change.UserGroupIDs = slices.Concat(oldUser.AutoGroups, updatedUser.AutoGroups, allGroupIDs(groupsMap))
+	} else {
+		effect.change.UserGroupIDs = slices.Concat(
+			util.Difference(oldUser.AutoGroups, updatedUser.AutoGroups),
+			util.Difference(updatedUser.AutoGroups, oldUser.AutoGroups),
+		)
 	}
 
 	var removedGroups, addedGroups []string
@@ -814,26 +852,47 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 		for _, peer := range userPeers {
 			for _, groupID := range removedGroups {
 				if err := transaction.RemovePeerFromGroup(ctx, peer.ID, groupID); err != nil {
-					return false, nil, nil, nil, fmt.Errorf("failed to remove peer %s from group %s: %w", peer.ID, groupID, err)
+					return effect, nil, nil, nil, fmt.Errorf("failed to remove peer %s from group %s: %w", peer.ID, groupID, err)
 				}
 			}
 			for _, groupID := range addedGroups {
 				if err := transaction.AddPeerToGroup(ctx, accountID, peer.ID, groupID); err != nil {
-					return false, nil, nil, nil, fmt.Errorf("failed to add peer %s to group %s: %w", peer.ID, groupID, err)
+					return effect, nil, nil, nil, fmt.Errorf("failed to add peer %s to group %s: %w", peer.ID, groupID, err)
 				}
 			}
 		}
 
 		allGroupChanges := slices.Concat(removedGroups, addedGroups)
+		if len(allGroupChanges) > 0 {
+			effect.change.LinkGroups = allGroupChanges
+			for _, peer := range userPeers {
+				effect.change.OutputPeerIDs = append(effect.change.OutputPeerIDs, peer.ID)
+			}
+		}
+
+		// The reconciliation reassigns IPv6 addresses across the account, which every
+		// peer that can reach the reassigned ones observes.
+		effect.requiresAccountUpdate = ipv6ReconcileNeeded(settings, allGroupChanges)
+
 		if err := am.reconcileIPv6ForGroupChanges(ctx, transaction, accountID, allGroupChanges); err != nil {
-			return false, nil, nil, nil, fmt.Errorf("reconcile IPv6 for group changes: %w", err)
+			return effect, nil, nil, nil, fmt.Errorf("reconcile IPv6 for group changes: %w", err)
 		}
 	}
 
-	updateAccountPeers := len(userPeers) > 0
 	userEventsToAdd := am.prepareUserUpdateEvents(ctx, updatedUser.AccountID, initiatorUserId, oldUser, updatedUser, transferredOwnerRole, isNewUser, removedGroups, addedGroups, transaction)
 
-	return updateAccountPeers, updatedUser, peersToExpire, userEventsToAdd, nil
+	return effect, updatedUser, peersToExpire, userEventsToAdd, nil
+}
+
+// allGroupIDs returns the ID of the account's All group, which every active user maps
+// into, as a slice so callers can concatenate it.
+func allGroupIDs(groupsMap map[string]*types.Group) []string {
+	for _, group := range groupsMap {
+		if group.IsGroupAll() {
+			return []string{group.ID}
+		}
+	}
+	return nil
 }
 
 // getUserOrCreateIfNotExists retrieves the existing user or creates a new one if it doesn't exist.
