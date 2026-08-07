@@ -665,8 +665,8 @@
               "overrides": [
                 {
                   "matcher": {
-                    "id": "byName",
-                    "options": "C {__name__=\"management_updatechannel_create_duration_micro_sum\", closed=\"true\", environment=\"production\", host=\"management\", instance=\"localhost:8081\", job=\"prometheus.scrape.local\"}"
+                    "id": "byFrameRefID",
+                    "options": "C"
                   },
                   "properties": [
                     {
@@ -4256,7 +4256,7 @@
                     "spec": {
                       "direction": "backward",
                       "editorMode": "code",
-                      "expr": "sort_desc(\ntopk(\n    20,\n    sum by (peerID) (\n      count_over_time(\n        {instance=\"api.prod.netbird.io\"} |= \"Sync: took\" | regexp `peerID:\\s(?P<peerID>[^,\\]]+)` [$__range]\n      )\n    )\n)\n)",
+                      "expr": "sort_desc(\ntopk(\n    20,\n    sum by (peerID) (\n      count_over_time(\n        {job=\"$log_job\"} |= \"Sync took\" | regexp `peerID:\\s(?P<peerID>[^,\\]]+)` [$__range]\n      )\n    )\n)\n)",
                       "queryType": "instant"
                     },
                     "version": "v0"
@@ -4287,7 +4287,7 @@
             ]
           }
         },
-        "description": "Top 20 peers by number of Sync log lines in the selected range, parsed out of the management logs to find individual peers stuck in a reconnect loop. The query pins one instance and matches the log text 'Sync: took'; current management code logs 'Sync took', so the filter needs updating for recent versions.",
+        "description": "Top 20 peers by number of Sync log lines in the selected range, parsed out of the management logs to find individual peers stuck in a reconnect loop. Pick the log stream with the `log stream` variable; the query matches the `Sync took` debug line, so management must run at debug level for this panel to have data.",
         "id": 50,
         "links": [],
         "title": "Highest Syncs by peer key",
@@ -6251,10 +6251,10 @@
                     "spec": {
                       "disableTextWrap": false,
                       "editorMode": "code",
-                      "expr": "process_resident_memory_bytes{job=~\"$job\", instance=~\"$instance\", host=~\"nats-2-prod|nats-1-prod\"}",
+                      "expr": "process_resident_memory_bytes{job=~\"$job\", instance=~\"$instance\"}",
                       "fullMetaSearch": false,
                       "includeNullMetadata": true,
-                      "legendFormat": "{{host}}",
+                      "legendFormat": "{{instance}}",
                       "range": true,
                       "useBackend": false
                     },
@@ -6268,7 +6268,7 @@
             "transformations": []
           }
         },
-        "description": "Resident memory of the NATS processes. The host filter is hardcoded to nats-1-prod/nats-2-prod and needs adjusting for other deployments.",
+        "description": "Resident memory of the scraped processes. process_resident_memory_bytes is exposed by every Go/Prometheus process, so narrow the job and instance variables to the NATS nodes to read this panel as NATS memory.",
         "id": 83,
         "links": [],
         "title": "NATS memory consumption",
@@ -8720,6 +8720,42 @@
             "qryType": 1,
             "query": "label_values(up{job=~\"$job\"},instance)",
             "refId": "PrometheusVariableQueryEditor-VariableQuery"
+          },
+          "version": "v0"
+        },
+        "refresh": "onDashboardLoad",
+        "regex": "",
+        "regexApplyTo": "value",
+        "skipUrlSync": false,
+        "sort": "alphabeticalAsc"
+      }
+    },
+    {
+      "kind": "QueryVariable",
+      "spec": {
+        "allowCustomValue": true,
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "definition": "label_values(job)",
+        "description": "Loki stream carrying the management logs (adjust the label if your setup does not use `job`).",
+        "hide": "dontHide",
+        "includeAll": false,
+        "label": "log stream",
+        "multi": false,
+        "name": "log_job",
+        "options": [],
+        "query": {
+          "datasource": {
+            "name": "${logs_datasource}"
+          },
+          "group": "loki",
+          "kind": "DataQuery",
+          "spec": {
+            "label": "job",
+            "refId": "LokiVariableQueryEditor-VariableQuery",
+            "type": 1
           },
           "version": "v0"
         },
