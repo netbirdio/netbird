@@ -133,3 +133,42 @@ func TestSqlStore_GetAccount_ServiceTargetOptionsRoundtrip(t *testing.T) {
 		assert.True(t, tg.Options.DisableAccessLog, "options disable access log")
 	})
 }
+
+// Restrictions are stored as a JSON blob, and the Postgres read path lists
+// columns by hand: a mode that is not read there is silently off on Postgres
+// while working in SQLite dev.
+func TestSqlStore_GetAccount_ServiceRestrictionsRoundtrip(t *testing.T) {
+	if os.Getenv("CI") == "true" && (runtime.GOOS == "darwin" || runtime.GOOS == "windows") {
+		t.Skip("skip CI tests on darwin and windows")
+	}
+
+	runTestForAllEngines(t, "", func(t *testing.T, store Store) {
+		ctx := context.Background()
+		account := newAccountWithId(ctx, "account_svc_restrictions", "testuser", "")
+		require.NoError(t, store.SaveAccount(ctx, account))
+
+		svc := &rpservice.Service{
+			ID:        "svc-restrictions",
+			AccountID: account.Id,
+			Name:      "restricted-svc",
+			Domain:    "restricted.example",
+			Enabled:   true,
+			Mode:      rpservice.ModeHTTP,
+			Restrictions: rpservice.AccessRestrictions{
+				AllowedCIDRs: []string{"203.0.113.0/24"},
+				CrowdSecMode: "observe",
+				AppSecMode:   "enforce",
+			},
+		}
+		require.NoError(t, store.CreateService(ctx, svc))
+
+		loaded, err := store.GetAccount(ctx, account.Id)
+		require.NoError(t, err)
+		require.Len(t, loaded.Services, 1)
+
+		got := loaded.Services[0].Restrictions
+		assert.Equal(t, []string{"203.0.113.0/24"}, got.AllowedCIDRs, "restrictions allowed CIDRs")
+		assert.Equal(t, "observe", got.CrowdSecMode, "restrictions crowdsec mode")
+		assert.Equal(t, "enforce", got.AppSecMode, "restrictions appsec mode")
+	})
+}

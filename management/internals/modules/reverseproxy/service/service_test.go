@@ -26,6 +26,17 @@ func validProxy() *Service {
 	}
 }
 
+// validL4Proxy returns a service that passes validation in one of the L4 modes.
+func validL4Proxy(mode string) *Service {
+	rp := validProxy()
+	rp.Mode = mode
+	rp.ListenPort = 9000
+	rp.Targets = []*Target{
+		{TargetId: "peer-1", TargetType: TargetTypePeer, Host: "10.0.0.1", Port: 5432, Protocol: mode, Enabled: true},
+	}
+	return rp
+}
+
 func TestValidate_Valid(t *testing.T) {
 	require.NoError(t, validProxy().Validate())
 }
@@ -1314,4 +1325,69 @@ func TestValidate_Private_RejectsNonHTTPMode(t *testing.T) {
 		Enabled:    true,
 	}}
 	assert.ErrorContains(t, rp.Validate(), "HTTP")
+}
+
+func TestRestrictions_AppSecMode_RoundTrip(t *testing.T) {
+	mode := api.AccessRestrictionsAppsecModeEnforce
+	apiIn := &api.AccessRestrictions{AppsecMode: &mode}
+
+	model, err := restrictionsFromAPI(apiIn)
+	require.NoError(t, err)
+	assert.Equal(t, "enforce", model.AppSecMode)
+
+	// appsec_mode alone must keep the restrictions object alive on both the API
+	// and proto legs: it is meaningful without any CIDR or country entry.
+	apiOut := restrictionsToAPI(model)
+	require.NotNil(t, apiOut, "appsec_mode alone must not collapse the restrictions to nil")
+	require.NotNil(t, apiOut.AppsecMode)
+	assert.Equal(t, api.AccessRestrictionsAppsecModeEnforce, *apiOut.AppsecMode)
+
+	protoOut := restrictionsToProto(model)
+	require.NotNil(t, protoOut, "appsec_mode alone must reach the proxy")
+	assert.Equal(t, "enforce", protoOut.AppsecMode)
+}
+
+func TestRestrictions_AppSecMode_EmptyIsOmitted(t *testing.T) {
+	model, err := restrictionsFromAPI(&api.AccessRestrictions{
+		AllowedCidrs: &[]string{"203.0.113.0/24"},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, model.AppSecMode)
+
+	apiOut := restrictionsToAPI(model)
+	require.NotNil(t, apiOut)
+	assert.Nil(t, apiOut.AppsecMode, "empty appsec_mode is omitted from the API response")
+}
+
+func TestRestrictions_AppSecMode_CopyIsDeep(t *testing.T) {
+	original := AccessRestrictions{AppSecMode: "observe", CrowdSecMode: "enforce"}
+	assert.Equal(t, original, original.Copy(), "Copy must carry every mode field")
+}
+
+func TestValidate_RejectsInvalidAppSecMode(t *testing.T) {
+	rp := validProxy()
+	rp.Restrictions = AccessRestrictions{AppSecMode: "sometimes"}
+	assert.ErrorContains(t, rp.Validate(), "appsec_mode")
+}
+
+func TestValidate_RejectsAppSecOnL4Modes(t *testing.T) {
+	// AppSec inspects HTTP requests, so the L4 modes cannot honor it. Accepting
+	// the field there would report protection that never runs.
+	for _, mode := range []string{ModeTCP, ModeUDP, ModeTLS} {
+		t.Run(mode, func(t *testing.T) {
+			rp := validL4Proxy(mode)
+			rp.Restrictions = AccessRestrictions{AppSecMode: "enforce"}
+			assert.ErrorContains(t, rp.Validate(), "appsec_mode is only supported for HTTP services")
+		})
+	}
+}
+
+func TestValidate_AllowsAppSecOffOnL4Modes(t *testing.T) {
+	for _, mode := range []string{ModeTCP, ModeUDP, ModeTLS} {
+		t.Run(mode, func(t *testing.T) {
+			rp := validL4Proxy(mode)
+			rp.Restrictions = AccessRestrictions{AppSecMode: "off"}
+			require.NoError(t, rp.Validate(), "an explicit off must not be rejected on L4 services")
+		})
+	}
 }

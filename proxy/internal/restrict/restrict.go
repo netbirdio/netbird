@@ -50,6 +50,37 @@ const (
 	CrowdSecObserve CrowdSecMode = "observe"
 )
 
+// AppSecMode is the per-service CrowdSec AppSec (WAF) enforcement mode.
+type AppSecMode string
+
+const (
+	// AppSecOff disables request inspection.
+	AppSecOff AppSecMode = ""
+	// AppSecEnforce blocks requests the engine flags, and fails closed when the
+	// engine is unreachable.
+	AppSecEnforce AppSecMode = "enforce"
+	// AppSecObserve records the verdict without blocking.
+	AppSecObserve AppSecMode = "observe"
+)
+
+// ParseAppSecMode maps a wire value to an AppSecMode. Unrecognized values map
+// to AppSecOff so a typo never turns inspection into an unintended block.
+func ParseAppSecMode(s string) AppSecMode {
+	switch AppSecMode(s) {
+	case AppSecEnforce:
+		return AppSecEnforce
+	case AppSecObserve:
+		return AppSecObserve
+	default:
+		return AppSecOff
+	}
+}
+
+// Enabled reports whether the mode asks for request inspection.
+func (m AppSecMode) Enabled() bool {
+	return m == AppSecEnforce || m == AppSecObserve
+}
+
 // Filter evaluates IP restrictions. CIDR checks are performed first
 // (cheap), followed by country lookups (more expensive) only when needed.
 type Filter struct {
@@ -146,6 +177,13 @@ const (
 	// DenyCrowdSecUnavailable indicates enforce mode but the bouncer has not
 	// completed its initial sync.
 	DenyCrowdSecUnavailable
+	// DenyAppSecBan indicates a CrowdSec AppSec "ban" remediation.
+	DenyAppSecBan
+	// DenyAppSecCaptcha indicates a CrowdSec AppSec "captcha" remediation.
+	DenyAppSecCaptcha
+	// DenyAppSecUnavailable indicates enforce mode but the AppSec engine could
+	// not produce a verdict (unreachable, timed out, or it rejected the call).
+	DenyAppSecUnavailable
 )
 
 // String returns the deny reason string matching the HTTP auth mechanism names.
@@ -167,6 +205,12 @@ func (v Verdict) String() string {
 		return "crowdsec_throttle"
 	case DenyCrowdSecUnavailable:
 		return "crowdsec_unavailable"
+	case DenyAppSecBan:
+		return "appsec_ban"
+	case DenyAppSecCaptcha:
+		return "appsec_captcha"
+	case DenyAppSecUnavailable:
+		return "appsec_unavailable"
 	default:
 		return "unknown"
 	}
@@ -176,6 +220,16 @@ func (v Verdict) String() string {
 func (v Verdict) IsCrowdSec() bool {
 	switch v {
 	case DenyCrowdSecBan, DenyCrowdSecCaptcha, DenyCrowdSecThrottle, DenyCrowdSecUnavailable:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsAppSec returns true when the verdict originates from an AppSec inspection.
+func (v Verdict) IsAppSec() bool {
+	switch v {
+	case DenyAppSecBan, DenyAppSecCaptcha, DenyAppSecUnavailable:
 		return true
 	default:
 		return false

@@ -240,6 +240,10 @@ func (m *testProxyManager) ClusterSupportsCrowdSec(_ context.Context, _ string) 
 	return nil
 }
 
+func (m *testProxyManager) ClusterSupportsAppSec(_ context.Context, _ string) *bool {
+	return nil
+}
+
 func (m *testProxyManager) ClusterSupportsPrivate(_ context.Context, _ string) *bool {
 	return nil
 }
@@ -562,16 +566,11 @@ func TestIntegration_ProxyConnection_ReconnectDoesNotDuplicateState(t *testing.T
 				addMappingCalls.Add(1)
 
 				// Apply to real auth middleware (idempotent)
-				err := authMw.AddDomain(
-					mapping.GetDomain(),
-					nil,
-					"",
-					0,
-					proxytypes.AccountID(mapping.GetAccountId()),
-					proxytypes.ServiceID(mapping.GetId()),
-					nil,
-					mapping.GetPrivate(),
-				)
+				err := authMw.AddDomain(mapping.GetDomain(), auth.DomainSettings{
+					AccountID: proxytypes.AccountID(mapping.GetAccountId()),
+					ServiceID: proxytypes.ServiceID(mapping.GetId()),
+					Private:   mapping.GetPrivate(),
+				})
 				require.NoError(t, err)
 
 				// Apply to real proxy (idempotent)

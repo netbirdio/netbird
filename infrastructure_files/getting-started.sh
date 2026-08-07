@@ -228,6 +228,8 @@ read_enable_crowdsec() {
   echo "CrowdSec checks client IPs against a community threat intelligence database" > /dev/stderr
   echo "and blocks known malicious sources before they reach your services." > /dev/stderr
   echo "A local CrowdSec LAPI container will be added to your deployment." > /dev/stderr
+  echo "It also enables the AppSec (WAF) endpoint, so services can inspect HTTP" > /dev/stderr
+  echo "requests for exploits. Both stay off per service until you enable them." > /dev/stderr
   echo -n "Enable CrowdSec? [y/N]: " > /dev/stderr
   read -r CHOICE < /dev/tty
 
@@ -498,7 +500,8 @@ generate_configuration_files() {
         # TCP ServersTransport for PROXY protocol v2 to the proxy backend
         render_traefik_dynamic > traefik-dynamic.yaml
         if [[ "$ENABLE_CROWDSEC" == "true" ]]; then
-          mkdir -p crowdsec
+          mkdir -p crowdsec/acquis.d
+          render_crowdsec_appsec_acquis > crowdsec/acquis.d/appsec.yaml
         fi
       fi
       ;;
@@ -530,6 +533,23 @@ generate_configuration_files() {
   render_dashboard_env > dashboard.env
   install -m 600 /dev/null config.yaml
   render_combined_yaml >> config.yaml
+  return 0
+}
+
+# The AppSec (WAF) listener only exists if an appsec acquisition datasource is
+# configured. One datasource is one listener carrying one merged rule set: the
+# protocol has no rule-set selector, so per-service rule variation would need
+# either a second datasource on another port or pre_eval hooks filtering on
+# req.Host.
+render_crowdsec_appsec_acquis() {
+  cat <<EOF
+source: appsec
+listen_addr: 0.0.0.0:7422
+appsec_configs:
+  - crowdsecurity/appsec-default
+labels:
+  type: appsec
+EOF
   return 0
 }
 
@@ -744,7 +764,11 @@ render_docker_compose_traefik_builtin() {
     restart: unless-stopped
     networks: [netbird]
     environment:
-      COLLECTIONS: crowdsecurity/linux
+      # appsec-generic-rules is required alongside appsec-virtual-patching:
+      # the appsec-default config references crowdsecurity/generic-* and
+      # crowdsecurity/experimental-*, which only that collection provides, and
+      # the engine exits at startup if they are missing.
+      COLLECTIONS: crowdsecurity/linux crowdsecurity/appsec-virtual-patching crowdsecurity/appsec-generic-rules
     volumes:
       - ./crowdsec:/etc/crowdsec
       - crowdsec_db:/var/lib/crowdsec/data
@@ -1010,6 +1034,11 @@ EOF
     cat <<EOF
 NB_PROXY_CROWDSEC_API_URL=http://crowdsec:8080
 NB_PROXY_CROWDSEC_API_KEY=$CROWDSEC_BOUNCER_KEY
+# AppSec (WAF) request inspection. Separate endpoint from the LAPI above and
+# validated with the same bouncer key. Setting it makes the proxy advertise the
+# AppSec capability, which is what lets a service select appsec_mode; nothing is
+# inspected until a service opts in.
+NB_PROXY_CROWDSEC_APPSEC_URL=http://crowdsec:7422/
 EOF
   fi
 
