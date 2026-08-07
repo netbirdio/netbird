@@ -40,7 +40,7 @@ const (
 // that acknowledges nothing, i.e. the first exchange of a connection).
 type ExchangeID [ExchangeIDSize]byte
 
-// OfferMsg carries the initiator's public material (X25519 pub ‖ ML-KEM encap key)
+// OfferMsg carries the initiator's public material (ML-KEM encap key ‖ X25519 pub)
 // and AckID, the id of the previous exchange this offer acknowledges (zero if none).
 type OfferMsg struct {
 	ExchangeID ExchangeID
