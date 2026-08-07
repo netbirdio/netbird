@@ -255,8 +255,8 @@ func TestConn_presharedKey(t *testing.T) {
 			}
 			conn2.config.RosenpassConfig.PermissiveMode = test.conn2Permissive
 
-			conn1PresharedKey := conn1.presharedKey(conn2.config.RosenpassConfig.PubKey)
-			conn2PresharedKey := conn2.presharedKey(conn1.config.RosenpassConfig.PubKey)
+			conn1PresharedKey := conn1.presharedKey(conn2.config.RosenpassConfig.PubKey, nil)
+			conn2PresharedKey := conn2.presharedKey(conn1.config.RosenpassConfig.PubKey, nil)
 
 			if test.conn1ExpectedInitialKey {
 				if conn1PresharedKey == nil {
@@ -294,14 +294,14 @@ func TestConn_presharedKey_RosenpassManaged(t *testing.T) {
 	// When Rosenpass has already initialized the PSK for this peer,
 	// presharedKey must return nil to avoid UpdatePeer overwriting it.
 	conn.rosenpassInitializedPresharedKeyValidator = func(peerKey string) bool { return true }
-	if k := conn.presharedKey([]byte("remote")); k != nil {
+	if k := conn.presharedKey([]byte("remote"), nil); k != nil {
 		t.Fatalf("expected nil presharedKey when Rosenpass manages PSK, got %v", k)
 	}
 
 	// When Rosenpass hasn't taken over yet, presharedKey should provide
 	// a non-nil initial key (deterministic or from NetBird PSK).
 	conn.rosenpassInitializedPresharedKeyValidator = func(peerKey string) bool { return false }
-	if k := conn.presharedKey([]byte("remote")); k == nil {
+	if k := conn.presharedKey([]byte("remote"), nil); k == nil {
 		t.Fatalf("expected non-nil presharedKey before Rosenpass manages PSK")
 	}
 }

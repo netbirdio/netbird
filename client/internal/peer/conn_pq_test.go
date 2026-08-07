@@ -53,10 +53,12 @@ func TestConn_presharedKey_PQ(t *testing.T) {
 			c.config.PQ = fakePQ{psk: derivedPSK, ok: true}
 			c.config.PQStrict = strict
 			if strict {
-				sentinel, _ := wgtypes.GenerateKey()
+				sentinel, err := wgtypes.GenerateKey()
+				require.NoError(t, err)
 				c.pqStrictSentinelKey = &sentinel
 			}
-			got := c.presharedKey(nil)
+			pqPSK, _ := c.pqPSK()
+			got := c.presharedKey(nil, pqPSK)
 			require.NotNil(t, got)
 			require.Equal(t, derivedPSK, *got, "the derived PQ PSK must win (strict=%v)", strict)
 		}
@@ -66,7 +68,8 @@ func TestConn_presharedKey_PQ(t *testing.T) {
 		c := newConn()
 		c.config.PQ = fakePQ{ok: false}
 		c.config.PQStrict = false
-		got := c.presharedKey(nil)
+		pqPSK, _ := c.pqPSK()
+		got := c.presharedKey(nil, pqPSK)
 		require.NotNil(t, got, "non-strict must not block")
 		require.Equal(t, nbPSK, *got, "non-strict falls through to the NetBird PSK, not a sentinel")
 	})
@@ -78,7 +81,8 @@ func TestConn_presharedKey_PQ(t *testing.T) {
 		c.config.PQ = fakePQ{ok: false}
 		c.config.PQStrict = true
 		c.pqStrictSentinelKey = &sentinel
-		got := c.presharedKey(nil)
+		pqPSK, _ := c.pqPSK()
+		got := c.presharedKey(nil, pqPSK)
 		require.NotNil(t, got)
 		require.Equal(t, sentinel, *got, "strict must return the blocking sentinel")
 		require.NotEqual(t, nbPSK, *got, "the sentinel must not be the ordinary key")
