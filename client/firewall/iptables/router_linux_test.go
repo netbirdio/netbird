@@ -59,6 +59,16 @@ func TestIptablesManager_RestoreOrCreateContainers(t *testing.T) {
 	exists, err = manager.iptablesClient.Exists(tableMangle, chainPREROUTING, "-j", chainRTPRE)
 	require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableMangle, chainPREROUTING)
 	require.True(t, exists, "prerouting jump rule should exist")
+	require.Equal(t, []string{
+		"-m", "connmark", "--mark", fmt.Sprintf("%#x", nbnet.PreroutingFwmarkMasquerade),
+		"!", "-o", "lo",
+		"-j", routingFinalNatJump,
+	}, manager.rules["static-nat-outbound"])
+	require.Equal(t, []string{
+		"-m", "connmark", "--mark", fmt.Sprintf("%#x", nbnet.PreroutingFwmarkMasqueradeReturn),
+		"-o", ifaceMock.Name(),
+		"-j", routingFinalNatJump,
+	}, manager.rules["static-nat-return"])
 
 	pair := firewall.RouterPair{
 		ID:          "abc",
@@ -102,7 +112,7 @@ func TestIptablesManager_AddNatRule(t *testing.T) {
 				"--ctstate", "NEW",
 				"-s", testCase.InputPair.Source.String(),
 				"-d", testCase.InputPair.Destination.String(),
-				"-j", "MARK", "--set-mark",
+				"-j", "CONNMARK", "--set-mark",
 				fmt.Sprintf("%#x", nbnet.PreroutingFwmarkMasquerade),
 			}
 
@@ -128,7 +138,7 @@ func TestIptablesManager_AddNatRule(t *testing.T) {
 				"--ctstate", "NEW",
 				"-s", inversePair.Source.String(),
 				"-d", inversePair.Destination.String(),
-				"-j", "MARK", "--set-mark",
+				"-j", "CONNMARK", "--set-mark",
 				fmt.Sprintf("%#x", nbnet.PreroutingFwmarkMasqueradeReturn),
 			}
 
@@ -177,7 +187,7 @@ func TestIptablesManager_RemoveNatRule(t *testing.T) {
 				"--ctstate", "NEW",
 				"-s", testCase.InputPair.Source.String(),
 				"-d", testCase.InputPair.Destination.String(),
-				"-j", "MARK", "--set-mark",
+				"-j", "CONNMARK", "--set-mark",
 				fmt.Sprintf("%#x", nbnet.PreroutingFwmarkMasquerade),
 			}
 
@@ -197,7 +207,7 @@ func TestIptablesManager_RemoveNatRule(t *testing.T) {
 				"--ctstate", "NEW",
 				"-s", inversePair.Source.String(),
 				"-d", inversePair.Destination.String(),
-				"-j", "MARK", "--set-mark",
+				"-j", "CONNMARK", "--set-mark",
 				fmt.Sprintf("%#x", nbnet.PreroutingFwmarkMasqueradeReturn),
 			}
 
