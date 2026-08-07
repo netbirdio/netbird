@@ -2,6 +2,7 @@ package idp
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -304,7 +305,18 @@ func resolveSessionCookieEncryptionKey(configuredKey string) (string, error) {
 		key = strings.TrimSpace(os.Getenv(sessionCookieEncryptionKeyEnv))
 	}
 	if key == "" {
-		return "", nil
+		// No key configured: dex stores session cookies as PLAIN marshaled
+		// protobuf (userID + connectorID + nonce) when the encryption key is
+		// empty, so anyone who can read or predict a user ID can forge a
+		// session cookie without knowing any secret. Generate an ephemeral
+		// key instead of running unencrypted. Trade-off: sessions invalidate
+		// on restart until a persistent key is configured.
+		generated := make([]byte, 32)
+		if _, err := rand.Read(generated); err != nil {
+			return "", fmt.Errorf("no session cookie encryption key configured and failed to generate an ephemeral one: %w", err)
+		}
+		log.Warn("embedded IdP: no session cookie encryption key configured; using an ephemeral random key. Sessions will NOT survive restarts. Set " + sessionCookieEncryptionKeyEnv + " (or auth.sessionCookieEncryptionKey) to a persistent 32-byte key.")
+		return base64.StdEncoding.EncodeToString(generated), nil
 	}
 
 	if validSessionCookieEncryptionKeyLength(len([]byte(key))) {
