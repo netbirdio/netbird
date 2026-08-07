@@ -61,14 +61,14 @@ func TestManager_RekeyToleratesKFailures(t *testing.T) {
 
 	// K-1 data-path rekeys must NOT raise OnRekeyFailed.
 	for i := 0; i < DefaultMaxRekeyFailures-1; i++ {
-		_, err := dB.startExchange("aaaa", false, ExchangeID{})
+		_, err := dB.startExchangeTest("aaaa", false, ExchangeID{})
 		require.NoError(t, err)
 		time.Sleep(50 * time.Millisecond)
 	}
 	require.Equal(t, 0, failedCount(wgB), "no failure before K attempts")
 
 	// The K-th failure raises it once.
-	_, err := dB.startExchange("aaaa", false, ExchangeID{})
+	_, err := dB.startExchangeTest("aaaa", false, ExchangeID{})
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return failedCount(wgB) == 1 }, time.Second, 5*time.Millisecond)
 }

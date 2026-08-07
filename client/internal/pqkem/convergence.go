@@ -28,7 +28,7 @@ func pskFingerprint(psk PSK) string {
 // same peer cannot both create an exchange. It also refuses to start (and to Add to the
 // wait group) once the manager is stopping, so it never races Manager.Stop's Wait.
 func (m *Manager) startExchangeLocked(remoteID RemoteID, viaSignal bool, ackID ExchangeID) ([]byte, error) {
-	if m.stopping {
+	if m.rootCtx.Err() != nil {
 		return nil, fmt.Errorf("manager stopping")
 	}
 	init, err := NewInitiator()
