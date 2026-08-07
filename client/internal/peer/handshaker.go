@@ -47,7 +47,7 @@ type OfferAnswer struct {
 
 	// MlkemPort is the peer's ML-KEM PQ service UDP port (bound on its WG overlay
 	// IP) where data-path rekey messages are sent. Zero when not running the exchange.
-	MlkemPort int
+	MlkemPort uint16
 
 	// relay server address
 	RelaySrvAddress string
@@ -221,14 +221,38 @@ func (h *Handshaker) pqControllerReoffer() bool {
 
 // pqRegisterEndpoint feeds the post-quantum handshaker the peer's data-path endpoint
 // (its WG overlay IP plus the advertised pq UDP port) learned from a remote offer/answer.
-func (h *Handshaker) pqRegisterEndpoint(remotePort int) {
-	if h.config.PQ == nil || remotePort < 0 || remotePort > 65535 || len(h.config.WgConfig.AllowedIps) == 0 {
+func (h *Handshaker) pqRegisterEndpoint(remotePort uint16) {
+	if h.config.PQ == nil {
+		return
+	}
+	overlay, ok := h.pqPeerOverlayAddr()
+	if !ok {
 		return
 	}
 	// remotePort may be 0 (the peer omitted it, meaning the default port); the adapter
 	// resolves 0 to DefaultPort.
-	addr := netip.AddrPortFrom(h.config.WgConfig.AllowedIps[0].Addr(), uint16(remotePort))
-	h.config.PQ.SetRemoteAddr(h.config.Key, addr)
+	h.config.PQ.SetRemoteAddr(h.config.Key, netip.AddrPortFrom(overlay, remotePort))
+}
+
+// pqPeerOverlayAddr picks the peer's overlay address for the pq data path. The pq
+// transport binds on the local WG overlay IPv4, so an IPv4 AllowedIP is preferred; a v6
+// prefix is used only when this interface actually has a v6 overlay, and never in place
+// of a usable v4. Returns false when no suitable address exists.
+func (h *Handshaker) pqPeerOverlayAddr() (netip.Addr, bool) {
+	var v6 netip.Addr
+	for _, p := range h.config.WgConfig.AllowedIps {
+		a := p.Addr().Unmap()
+		if a.Is4() {
+			return a, true
+		}
+		if a.Is6() && !v6.IsValid() {
+			v6 = a
+		}
+	}
+	if v6.IsValid() && h.config.WgConfig.WgInterface.Address().HasIPv6() {
+		return v6, true
+	}
+	return netip.Addr{}, false
 }
 
 func (h *Handshaker) SendOffer() error {

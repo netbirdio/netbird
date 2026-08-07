@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"math/rand"
 	"net"
 	"net/netip"
@@ -3038,6 +3039,13 @@ func convertToOfferAnswer(msg *sProto.Message) (*peer.OfferAnswer, error) {
 
 	relayIP := decodeRelayIP(msg.GetBody().GetRelayServerIP())
 
+	// Ports are uint16 internally; the proto widens them to uint32, so validate the
+	// range before narrowing (a value that does not fit is a malformed message).
+	mlkemPort := msg.GetBody().GetMlkemPort()
+	if mlkemPort > math.MaxUint16 {
+		return nil, fmt.Errorf("invalid ML-KEM port %d in signalling message", mlkemPort)
+	}
+
 	offerAnswer := peer.OfferAnswer{
 		IceCredentials: peer.IceCredentials{
 			UFrag: remoteCred.UFrag,
@@ -3048,7 +3056,7 @@ func convertToOfferAnswer(msg *sProto.Message) (*peer.OfferAnswer, error) {
 		RosenpassPubKey: rosenpassPubKey,
 		RosenpassAddr:   rosenpassAddr,
 		MlkemPayload:    msg.GetBody().GetMlkemPayload(),
-		MlkemPort:       int(msg.GetBody().GetMlkemPort()),
+		MlkemPort:       uint16(mlkemPort),
 		RelaySrvAddress: msg.GetBody().GetRelayServerAddress(),
 		RelaySrvIP:      relayIP,
 		SessionID:       sessionID,

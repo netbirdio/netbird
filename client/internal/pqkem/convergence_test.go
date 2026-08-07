@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -36,7 +37,7 @@ func TestManager_InitialTimeoutFailsImmediately(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, offer)
 
-	require.Eventually(t, func() bool { return failedCount(wg) == 1 }, time.Second, 5*time.Millisecond)
+	assert.Eventually(t, func() bool { return failedCount(wg) == 1 }, time.Second, 5*time.Millisecond)
 }
 
 func TestManager_RekeyToleratesKFailures(t *testing.T) {
@@ -65,10 +66,10 @@ func TestManager_RekeyToleratesKFailures(t *testing.T) {
 		require.NoError(t, err)
 		time.Sleep(50 * time.Millisecond)
 	}
-	require.Equal(t, 0, failedCount(wgB), "no failure before K attempts")
+	assert.Equal(t, 0, failedCount(wgB), "no failure before K attempts")
 
 	// The K-th failure raises it once.
 	_, err := dB.startExchangeTest("aaaa", false, ExchangeID{})
 	require.NoError(t, err)
-	require.Eventually(t, func() bool { return failedCount(wgB) == 1 }, time.Second, 5*time.Millisecond)
+	assert.Eventually(t, func() bool { return failedCount(wgB) == 1 }, time.Second, 5*time.Millisecond)
 }

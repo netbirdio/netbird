@@ -3,6 +3,7 @@ package pqkem
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -19,8 +20,8 @@ func TestManager_NonCapablePeerNotOffered(t *testing.T) {
 
 	offer, err := d.SignalOffer("aaaa")
 	require.NoError(t, err)
-	require.Nil(t, offer, "a non-capable peer must not be offered a KEM exchange")
-	require.Empty(t, wg.failed, "a non-capable peer must not raise a rekey failure")
+	assert.Nil(t, offer, "a non-capable peer must not be offered a KEM exchange")
+	assert.Empty(t, wg.failed, "a non-capable peer must not raise a rekey failure")
 }
 
 // TestManager_MarkNonCapableCancelsInFlight: if we start an exchange with a peer whose
@@ -42,8 +43,8 @@ func TestManager_MarkNonCapableCancelsInFlight(t *testing.T) {
 
 	next, err := d.SignalOffer("aaaa")
 	require.NoError(t, err)
-	require.Nil(t, next, "after learning non-capability the peer is no longer offered")
-	require.Empty(t, wg.failed, "cancelling an in-flight exchange must not raise a failure")
+	assert.Nil(t, next, "after learning non-capability the peer is no longer offered")
+	assert.Empty(t, wg.failed, "cancelling an in-flight exchange must not raise a failure")
 }
 
 // TestManager_EstablishedPeerNotDowngraded: a stray zero-port observation must not tear
@@ -60,6 +61,6 @@ func TestManager_EstablishedPeerNotDowngraded(t *testing.T) {
 
 	// The peer keeps its derived PSK (MarkNonCapable is a no-op once established).
 	psk, ok := dB.PSK("aaaa")
-	require.True(t, ok, "an established peer must keep its PSK despite a stray zero")
-	require.NotEqual(t, PSK{}, psk)
+	assert.True(t, ok, "an established peer must keep its PSK despite a stray zero")
+	assert.NotEqual(t, PSK{}, psk)
 }
