@@ -658,6 +658,11 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	if pqkem.Enabled() {
 		tr, pqErr := newPQTransport(e.config.WgAddr.IP)
 		if pqErr != nil {
+			// In strict mode the peer must fail closed; silently continuing without the PQ
+			// exchange would hand out classic tunnels, so treat the bind failure as fatal.
+			if pqkem.Strict() {
+				return fmt.Errorf("pqkem: strict mode enabled but transport bind failed: %w", pqErr)
+			}
 			log.Errorf("pqkem: transport bind failed, exchange disabled: %v", pqErr)
 		} else {
 			cbHandler := pqCallbackHandler{
