@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hashicorp/go-multierror"
 	"github.com/miekg/dns"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
@@ -18,8 +17,6 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	proxydomain "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
-	"github.com/netbirdio/netbird/management/internals/modules/zones"
-	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
@@ -28,11 +25,12 @@ import (
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
+	"github.com/netbirdio/netbird/shared/management/networkmap"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 const (
-	defaultTTL = 300
 	// privateServiceDNSRecordTTL is short so proxy-peer changes propagate quickly to clients.
 	privateServiceDNSRecordTTL      = 5
 	DefaultPeerLoginExpiration      = 24 * time.Hour
@@ -382,94 +380,11 @@ func peerInDistributionGroups(peerGroups LookupMap, distributionGroups []string)
 }
 
 func (a *Account) GetPeersCustomZone(ctx context.Context, dnsDomain string) nbdns.CustomZone {
-	var merr *multierror.Error
-
-	if dnsDomain == "" {
-		log.WithContext(ctx).Error("no dns domain is set, returning empty zone")
-		return nbdns.CustomZone{}
+	twins := make(map[string]*nmdata.Peer, len(a.Peers))
+	for id, p := range a.Peers {
+		twins[id] = twinPeer(p)
 	}
-
-	customZone := nbdns.CustomZone{
-		Domain:  dns.Fqdn(dnsDomain),
-		Records: make([]nbdns.SimpleRecord, 0, len(a.Peers)),
-	}
-
-	domainSuffix := "." + dnsDomain
-
-	ipv6AllowedPeers := a.peerIPv6AllowedSet()
-
-	var sb strings.Builder
-	for _, peer := range a.Peers {
-		if peer.DNSLabel == "" {
-			merr = multierror.Append(merr, fmt.Errorf("peer %s has an empty DNS label", peer.Name))
-			continue
-		}
-
-		sb.Grow(len(peer.DNSLabel) + len(domainSuffix))
-		sb.WriteString(peer.DNSLabel)
-		sb.WriteString(domainSuffix)
-
-		fqdn := sb.String()
-		customZone.Records = append(customZone.Records, nbdns.SimpleRecord{
-			Name:  fqdn,
-			Type:  int(dns.TypeA),
-			Class: nbdns.DefaultClass,
-			TTL:   defaultTTL,
-			RData: peer.IP.String(),
-		})
-		// Only advertise AAAA for peers that have a valid IPv6, whose client supports it,
-		// and that belong to an IPv6-enabled group. Old clients don't configure v6 on their
-		// WireGuard interface, so resolving their AAAA causes connections to hang.
-		// Capability changes (client upgrade/downgrade, --disable-ipv6 toggle) propagate
-		// to other peers via SyncPeer/LoginPeer regardless of version change, so AAAA
-		// records refresh when a peer first reports the IPv6 overlay capability.
-		_, peerAllowed := ipv6AllowedPeers[peer.ID]
-		hasIPv6 := peer.IPv6.IsValid() && peer.SupportsIPv6() && peerAllowed
-		if hasIPv6 {
-			customZone.Records = append(customZone.Records, nbdns.SimpleRecord{
-				Name:  fqdn,
-				Type:  int(dns.TypeAAAA),
-				Class: nbdns.DefaultClass,
-				TTL:   defaultTTL,
-				RData: peer.IPv6.String(),
-			})
-		}
-		sb.Reset()
-
-		for _, extraLabel := range peer.ExtraDNSLabels {
-			sb.Grow(len(extraLabel) + len(domainSuffix))
-			sb.WriteString(extraLabel)
-			sb.WriteString(domainSuffix)
-
-			extraFqdn := sb.String()
-			customZone.Records = append(customZone.Records, nbdns.SimpleRecord{
-				Name:  extraFqdn,
-				Type:  int(dns.TypeA),
-				Class: nbdns.DefaultClass,
-				TTL:   defaultTTL,
-				RData: peer.IP.String(),
-			})
-			if hasIPv6 {
-				customZone.Records = append(customZone.Records, nbdns.SimpleRecord{
-					Name:  extraFqdn,
-					Type:  int(dns.TypeAAAA),
-					Class: nbdns.DefaultClass,
-					TTL:   defaultTTL,
-					RData: peer.IPv6.String(),
-				})
-			}
-			sb.Reset()
-		}
-
-	}
-
-	go func() {
-		if merr != nil {
-			log.WithContext(ctx).Errorf("error generating custom zone for account %s: %v", a.Id, merr)
-		}
-	}()
-
-	return customZone
+	return fromTwinCustomZone(networkmap.PeersCustomZone(ctx, a.Id, dnsDomain, twins, a.peerIPv6AllowedSet()))
 }
 
 // GetExpiredPeers returns peers that have been expired
@@ -1062,6 +977,26 @@ func (a *Account) GetPeerConnectionResources(ctx context.Context, peer *nbpeer.P
 	return peers, fwRules, authorizedUsers, sshEnabled
 }
 
+// proxyTargetedDomainResourceIDs returns the set of domain network resource IDs
+// targeted by an enabled, non-terminated reverse-proxy service.
+func (a *Account) proxyTargetedDomainResourceIDs() map[string]struct{} {
+	ids := make(map[string]struct{})
+	for _, svc := range a.Services {
+		if svc == nil || !svc.Enabled || svc.Terminated {
+			continue
+		}
+		for _, target := range svc.Targets {
+			if target == nil || !target.Enabled {
+				continue
+			}
+			if target.TargetType == service.TargetTypeDomain {
+				ids[target.TargetId] = struct{}{}
+			}
+		}
+	}
+	return ids
+}
+
 func (a *Account) getAllowedUserIDs() map[string]struct{} {
 	users := make(map[string]struct{})
 	for _, nbUser := range a.Users {
@@ -1082,7 +1017,6 @@ func (a *Account) connResourcesGenerator(ctx context.Context, targetPeer *nbpeer
 	peersExists := make(map[string]struct{})
 	rules := make([]*FirewallRule, 0)
 	peers := make([]*nbpeer.Peer, 0)
-	targetComponent := targetPeer.ToComponent()
 
 	return func(rule *PolicyRule, groupPeers []*nbpeer.Peer, direction int) {
 			for _, peer := range groupPeers {
@@ -1118,10 +1052,10 @@ func (a *Account) connResourcesGenerator(ctx context.Context, targetPeer *nbpeer
 				if len(rule.Ports) == 0 && len(rule.PortRanges) == 0 {
 					rules = append(rules, &fr)
 				} else {
-					rules = append(rules, ExpandPortsAndRanges(fr, rule, targetComponent)...)
+					rules = append(rules, ExpandPortsAndRanges(fr, rule, targetPeer)...)
 				}
 
-				rules = AppendIPv6FirewallRule(rules, rulesExists, peer.ToComponent(), targetComponent, rule, FirewallRuleContext{
+				rules = AppendIPv6FirewallRule(rules, rulesExists, peer, targetPeer, rule, FirewallRuleContext{
 					Direction:   direction,
 					DirStr:      strconv.Itoa(direction),
 					ProtocolStr: string(protocol),
@@ -1281,7 +1215,7 @@ func (a *Account) getRouteFirewallRules(ctx context.Context, peerID string, poli
 	return fwRules
 }
 
-func (a *Account) getRulePeers(rule *PolicyRule, postureChecks []string, peerID string, distributionPeers map[string]struct{}, validatedPeersMap map[string]struct{}) []*ComponentPeer {
+func (a *Account) getRulePeers(rule *PolicyRule, postureChecks []string, peerID string, distributionPeers map[string]struct{}, validatedPeersMap map[string]struct{}) []*nbpeer.Peer {
 	distPeersWithPolicy := make(map[string]struct{})
 	for _, id := range rule.Sources {
 		group := a.Groups[id]
@@ -1308,13 +1242,13 @@ func (a *Account) getRulePeers(rule *PolicyRule, postureChecks []string, peerID 
 		}
 	}
 
-	distributionGroupPeers := make([]*ComponentPeer, 0, len(distPeersWithPolicy))
+	distributionGroupPeers := make([]*nbpeer.Peer, 0, len(distPeersWithPolicy))
 	for pID := range distPeersWithPolicy {
 		peer := a.Peers[pID]
 		if peer == nil {
 			continue
 		}
-		distributionGroupPeers = append(distributionGroupPeers, peer.ToComponent())
+		distributionGroupPeers = append(distributionGroupPeers, peer)
 	}
 	return distributionGroupPeers
 }
@@ -1515,54 +1449,6 @@ func (a *Account) GetResourceRoutersMap() map[string]map[string]*routerTypes.Net
 	}
 
 	return routers
-}
-
-// forcesRoutingPeerDNSResolution reports whether the given peer must run
-// routing-peer DNS resolution regardless of the account-global
-// RoutingPeerDNSResolutionEnabled setting. It returns true when the peer is a
-// router for a domain network resource that is targeted by an enabled
-// reverse-proxy service, so the peer's DNS forwarder starts and can resolve
-// the target for the embedded proxy peers. Embedded proxy peers themselves are
-// handled at PeerConfig build time.
-func (a *Account) forcesRoutingPeerDNSResolution(peerID string, routers map[string]map[string]*routerTypes.NetworkRouter) bool {
-	targeted := a.proxyTargetedDomainResourceIDs()
-	if len(targeted) == 0 {
-		return false
-	}
-
-	for _, resource := range a.NetworkResources {
-		if resource == nil || !resource.Enabled || resource.Type != resourceTypes.Domain {
-			continue
-		}
-		if _, ok := targeted[resource.ID]; !ok {
-			continue
-		}
-		if _, isRouter := routers[resource.NetworkID][peerID]; isRouter {
-			return true
-		}
-	}
-
-	return false
-}
-
-// proxyTargetedDomainResourceIDs returns the set of domain network resource IDs
-// targeted by an enabled, non-terminated reverse-proxy service.
-func (a *Account) proxyTargetedDomainResourceIDs() map[string]struct{} {
-	ids := make(map[string]struct{})
-	for _, svc := range a.Services {
-		if svc == nil || !svc.Enabled || svc.Terminated {
-			continue
-		}
-		for _, target := range svc.Targets {
-			if target == nil || !target.Enabled {
-				continue
-			}
-			if target.TargetType == service.TargetTypeDomain {
-				ids[target.TargetId] = struct{}{}
-			}
-		}
-	}
-	return ids
 }
 
 // getPoliciesSourcePeers collects all unique peers from the source groups defined in the given policies.
@@ -1866,67 +1752,4 @@ func filterZoneRecordsForPeers(peer *nbpeer.Peer, customZone nbdns.CustomZone, p
 	}
 
 	return filteredRecords
-}
-
-// filterPeerAppliedZones filters account zones based on the peer's group membership
-func filterPeerAppliedZones(ctx context.Context, accountZones []*zones.Zone, peerGroups LookupMap) []nbdns.CustomZone {
-	var customZones []nbdns.CustomZone
-
-	if len(peerGroups) == 0 {
-		return customZones
-	}
-
-	for _, zone := range accountZones {
-		if !zone.Enabled || len(zone.Records) == 0 {
-			continue
-		}
-
-		hasAccess := false
-		for _, distGroupID := range zone.DistributionGroups {
-			if _, found := peerGroups[distGroupID]; found {
-				hasAccess = true
-				break
-			}
-		}
-
-		if !hasAccess {
-			continue
-		}
-
-		simpleRecords := make([]nbdns.SimpleRecord, 0, len(zone.Records))
-		for _, record := range zone.Records {
-			var recordType int
-			rData := record.Content
-
-			switch record.Type {
-			case records.RecordTypeA:
-				recordType = int(dns.TypeA)
-			case records.RecordTypeAAAA:
-				recordType = int(dns.TypeAAAA)
-			case records.RecordTypeCNAME:
-				recordType = int(dns.TypeCNAME)
-				rData = dns.Fqdn(record.Content)
-			default:
-				log.WithContext(ctx).Warnf("unknown DNS record type %s for record %s", record.Type, record.ID)
-				continue
-			}
-
-			simpleRecords = append(simpleRecords, nbdns.SimpleRecord{
-				Name:  dns.Fqdn(record.Name),
-				Type:  recordType,
-				Class: nbdns.DefaultClass,
-				TTL:   record.TTL,
-				RData: rData,
-			})
-		}
-
-		customZones = append(customZones, nbdns.CustomZone{
-			Domain:               dns.Fqdn(zone.Domain),
-			Records:              simpleRecords,
-			SearchDomainDisabled: !zone.EnableSearchDomain,
-			NonAuthoritative:     true,
-		})
-	}
-
-	return customZones
 }

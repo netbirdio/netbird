@@ -20,7 +20,7 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"net/netip"
 
-	nbroute "github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/management/types"
 	"github.com/netbirdio/netbird/shared/netiputil"
@@ -28,7 +28,7 @@ import (
 )
 
 // ToProtocolRoutes converts a slice of typed routes to their proto form.
-func ToProtocolRoutes(routes []*nbroute.Route) []*proto.Route {
+func ToProtocolRoutes(routes []*nmdata.Route) []*proto.Route {
 	protoRoutes := make([]*proto.Route, 0, len(routes))
 	for _, r := range routes {
 		protoRoutes = append(protoRoutes, ToProtocolRoute(r))
@@ -37,7 +37,7 @@ func ToProtocolRoutes(routes []*nbroute.Route) []*proto.Route {
 }
 
 // ToProtocolRoute converts one typed route to its proto form.
-func ToProtocolRoute(route *nbroute.Route) *proto.Route {
+func ToProtocolRoute(route *nmdata.Route) *proto.Route {
 	return &proto.Route{
 		ID:            string(route.ID),
 		NetID:         string(route.NetID),
@@ -273,7 +273,7 @@ func ToProtocolDNSConfig(update nbdns.Config, cache DNSConfigCache, forwardPort 
 
 // AppendRemotePeerConfig appends typed peers as proto.RemotePeerConfig
 // entries to dst and returns the result.
-func AppendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*types.ComponentPeer, dnsName string, includeIPv6 bool) []*proto.RemotePeerConfig {
+func AppendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*nmdata.Peer, dnsName string, includeIPv6 bool) []*proto.RemotePeerConfig {
 	for _, rPeer := range peers {
 		allowedIPs := []string{rPeer.IP.String() + "/32"}
 		if includeIPv6 && rPeer.IPv6.IsValid() {
@@ -284,7 +284,7 @@ func AppendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*types.Compon
 			AllowedIps:   allowedIPs,
 			SshConfig:    &proto.SSHConfig{SshPubKey: []byte(rPeer.SSHKey)},
 			Fqdn:         rPeer.FQDN(dnsName),
-			AgentVersion: rPeer.AgentVersion,
+			AgentVersion: rPeer.Meta.WtVersion,
 		})
 	}
 	return dst

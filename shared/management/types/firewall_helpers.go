@@ -3,6 +3,7 @@ package types
 import (
 	"strconv"
 
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -23,31 +24,9 @@ type supportedFeatures struct {
 
 type LookupMap map[string]struct{}
 
-func PolicyRuleImpliesLegacySSH(rule *PolicyRule) bool {
-	return rule.Protocol == PolicyRuleProtocolALL || (rule.Protocol == PolicyRuleProtocolTCP && (portsIncludesSSH(rule.Ports) || portRangeIncludesSSH(rule.PortRanges)))
-}
-
-func portRangeIncludesSSH(portRanges []RulePortRange) bool {
-	for _, pr := range portRanges {
-		if (pr.Start <= defaultSSHPortNumber && pr.End >= defaultSSHPortNumber) || (pr.Start <= nativeSSHPortNumber && pr.End >= nativeSSHPortNumber) {
-			return true
-		}
-	}
-	return false
-}
-
-func portsIncludesSSH(ports []string) bool {
-	for _, port := range ports {
-		if port == defaultSSHPortString || port == nativeSSHPortString {
-			return true
-		}
-	}
-	return false
-}
-
 // ExpandPortsAndRanges expands Ports and PortRanges of a rule into individual firewall rules.
-func ExpandPortsAndRanges(base FirewallRule, rule *PolicyRule, peer *ComponentPeer) []*FirewallRule {
-	features := peerSupportedFirewallFeatures(peer.AgentVersion)
+func ExpandPortsAndRanges(base FirewallRule, rule *nmdata.PolicyRule, peer *nmdata.Peer) []*FirewallRule {
+	features := peerSupportedFirewallFeatures(peer.Meta.WtVersion)
 
 	var expanded []*FirewallRule
 
@@ -64,7 +43,7 @@ func ExpandPortsAndRanges(base FirewallRule, rule *PolicyRule, peer *ComponentPe
 		fr := base
 
 		if features.portRanges {
-			fr.PortRange = portRange
+			fr.PortRange = RulePortRange{Start: portRange.Start, End: portRange.End}
 		} else {
 			if portRange.Start != portRange.End {
 				continue
@@ -74,7 +53,7 @@ func ExpandPortsAndRanges(base FirewallRule, rule *PolicyRule, peer *ComponentPe
 		expanded = append(expanded, &fr)
 	}
 
-	if shouldCheckRulesForNativeSSH(features.nativeSSH, rule, peer) || rule.Protocol == PolicyRuleProtocolNetbirdSSH {
+	if shouldCheckRulesForNativeSSH(features.nativeSSH, rule, peer) || rule.Protocol == string(PolicyRuleProtocolNetbirdSSH) {
 		expanded = addNativeSSHRule(base, expanded)
 	}
 
@@ -104,8 +83,8 @@ func isPortInRule(portString string, portInt uint16, rule *FirewallRule) bool {
 	return rule.Port == portString || (rule.PortRange.Start <= portInt && portInt <= rule.PortRange.End)
 }
 
-func shouldCheckRulesForNativeSSH(supportsNative bool, rule *PolicyRule, peer *ComponentPeer) bool {
-	return supportsNative && peer.SSHEnabled && peer.ServerSSHAllowed && rule.Protocol == PolicyRuleProtocolTCP
+func shouldCheckRulesForNativeSSH(supportsNative bool, rule *nmdata.PolicyRule, peer *nmdata.Peer) bool {
+	return supportsNative && peer.SSHEnabled && peer.Meta.Flags.ServerSSHAllowed && rule.Protocol == string(PolicyRuleProtocolTCP)
 }
 
 func peerSupportedFirewallFeatures(peerVer string) supportedFeatures {

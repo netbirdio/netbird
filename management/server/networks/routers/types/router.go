@@ -7,7 +7,6 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/networks/types"
 	"github.com/netbirdio/netbird/shared/management/http/api"
-	sharedTypes "github.com/netbirdio/netbird/shared/management/types"
 )
 
 type NetworkRouter struct {
@@ -20,36 +19,6 @@ type NetworkRouter struct {
 	Masquerade bool
 	Metric     int
 	Enabled    bool
-}
-
-// ToComponent converts the router to its self-contained components
-// representation. Returns nil for a nil router.
-func (n *NetworkRouter) ToComponent() *sharedTypes.ComponentRouter {
-	if n == nil {
-		return nil
-	}
-	return &sharedTypes.ComponentRouter{
-		NetworkID:  n.NetworkID,
-		PublicID:   n.PublicID,
-		Peer:       n.Peer,
-		PeerGroups: n.PeerGroups,
-		Masquerade: n.Masquerade,
-		Metric:     n.Metric,
-		Enabled:    n.Enabled,
-	}
-}
-
-// ToComponentMap converts a peer-keyed router map to its components
-// representation.
-func ToComponentMap(routers map[string]*NetworkRouter) map[string]*sharedTypes.ComponentRouter {
-	if routers == nil {
-		return nil
-	}
-	out := make(map[string]*sharedTypes.ComponentRouter, len(routers))
-	for id, r := range routers {
-		out[id] = r.ToComponent()
-	}
-	return out
 }
 
 func NewNetworkRouter(accountID string, networkID string, peer string, peerGroups []string, masquerade bool, metric int, enabled bool) (*NetworkRouter, error) {

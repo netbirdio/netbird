@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"net/http"
 	"net/netip"
+	"os"
 	"slices"
 	"time"
 
@@ -28,6 +29,8 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	accesslogsmanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs/manager"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
+	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
+	networkmap_pgsql "github.com/netbirdio/netbird/management/internals/network_map_db/pgsql"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/activity"
 	activitystore "github.com/netbirdio/netbird/management/server/activity/store"
@@ -96,6 +99,22 @@ func (s *BaseServer) Store() store.Store {
 		}
 
 		return store
+	})
+}
+
+func (s *BaseServer) NetworkMapStore() *networkmapdb.NetworkMapDBStoreImpl {
+	return Create(s, func() *networkmapdb.NetworkMapDBStoreImpl {
+		dsn := os.Getenv("NETBIRD_NMAP_STORE_DSN") // Todo: this needs to be hoocked up properly
+		if dsn == "" {
+			return nil
+		}
+
+		store, err := networkmap_pgsql.NewPostgresqlStore(context.Background(), dsn)
+		if err != nil {
+			log.Fatalf("failed to create network map store: %v", err)
+		}
+
+		return networkmapdb.NewNetworkMapDBStoreImpl(store, s.IntegratedValidator(), s.SettingsManager())
 	})
 }
 

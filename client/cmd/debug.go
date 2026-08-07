@@ -27,8 +27,8 @@ import (
 const errCloseConnection = "Failed to close connection: %v"
 
 var (
-	logFileCount        uint32
-	systemInfoFlag      bool
+	logFileCount             uint32
+	systemInfoFlag           bool
 	uploadBundleFlag         bool
 	uploadBundleURLFlag      string
 	uploadBundleInsecureFlag bool

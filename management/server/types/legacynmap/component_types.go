@@ -1,4 +1,6 @@
-package types
+//go:build nmapequiv
+
+package legacynmap
 
 import (
 	"net/netip"
