@@ -490,8 +490,8 @@ github.com/netbirdio/service v0.0.0-20240911161631-f62744f42502 h1:3tHlFmhTdX9ax
 github.com/netbirdio/service v0.0.0-20240911161631-f62744f42502/go.mod h1:CIMRFEJVL+0DS1a3Nx06NaMn4Dz63Ng6O7dl0qH0zVM=
 github.com/netbirdio/signal-dispatcher/dispatcher v0.0.0-20250805121659-6b4ac470ca45 h1:ujgviVYmx243Ksy7NdSwrdGPSRNE3pb8kEDSpH0QuAQ=
 github.com/netbirdio/signal-dispatcher/dispatcher v0.0.0-20250805121659-6b4ac470ca45/go.mod h1:5/sjFmLb8O96B5737VCqhHyGRzNFIaN/Bu7ZodXc3qQ=
-github.com/netbirdio/wails/v3 v3.0.0-beta.3.0.20260803205919-ad21e92381f4 h1:UKztc3QjWvzU5DZk+uYaOWN0x62NSe/pkxuPvzqZIy4=
-github.com/netbirdio/wails/v3 v3.0.0-beta.3.0.20260803205919-ad21e92381f4/go.mod h1:BzATbK71VFikMMMCo434wAi0QcaI03P+xeaWgDvQvjw=
+github.com/netbirdio/wails/v3 v3.0.0-beta.3.0.20260807055527-fc03f984d701 h1:QL9nupfRom0L9jcY7N9l/Bc6QK2PtC6pHzC+ftpTqpw=
+github.com/netbirdio/wails/v3 v3.0.0-beta.3.0.20260807055527-fc03f984d701/go.mod h1:BzATbK71VFikMMMCo434wAi0QcaI03P+xeaWgDvQvjw=
 github.com/netbirdio/wireguard-go v0.0.0-20260628102922-2834bebf6c1a h1:3CWK+yTvRKOcC0Q8VCTGy4l60TEb27CQVS7LkMxwjmw=
 github.com/netbirdio/wireguard-go v0.0.0-20260628102922-2834bebf6c1a/go.mod h1:rpwXGsirqLqN2L0JDJQlwOboGHmptD5ZD6T2VmcqhTw=
 github.com/nxadm/tail v1.4.4/go.mod h1:kenIhsEOeOJmVchQTgglprH7qJGnHDVpk1VPCcaMI8A=
