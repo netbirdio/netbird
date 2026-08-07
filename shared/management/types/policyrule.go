@@ -88,6 +88,19 @@ type PolicyRule struct {
 
 	// AuthorizedUser is a list of userIDs that are authorized to access local resources via ssh
 	AuthorizedUser string
+
+	// SessionPubKey is the base64 X25519 public key used with Noise_IK to
+	// bind a VNC session to the AuthorizedUser. Set together with
+	// AuthorizedUser when the rule was created via temporary-access for a
+	// VNC scope; empty otherwise.
+	SessionPubKey string
+
+	// SessionDisplayName is a human-readable label for the user the
+	// SessionPubKey was issued to (typically display name, falling back
+	// to email or user id). The daemon surfaces it on the host's
+	// per-connection approval prompt so the user being asked can
+	// recognise who is requesting access.
+	SessionDisplayName string
 }
 
 // Copy returns a copy of a policy rule
@@ -109,6 +122,8 @@ func (pm *PolicyRule) Copy() *PolicyRule {
 		PortRanges:          make([]RulePortRange, len(pm.PortRanges)),
 		AuthorizedGroups:    make(map[string][]string, len(pm.AuthorizedGroups)),
 		AuthorizedUser:      pm.AuthorizedUser,
+		SessionPubKey:       pm.SessionPubKey,
+		SessionDisplayName:  pm.SessionDisplayName,
 	}
 	copy(rule.Destinations, pm.Destinations)
 	copy(rule.Sources, pm.Sources)
@@ -136,7 +151,9 @@ func (pm *PolicyRule) Equal(other *PolicyRule) bool {
 		pm.Protocol != other.Protocol ||
 		pm.SourceResource != other.SourceResource ||
 		pm.DestinationResource != other.DestinationResource ||
-		pm.AuthorizedUser != other.AuthorizedUser {
+		pm.AuthorizedUser != other.AuthorizedUser ||
+		pm.SessionPubKey != other.SessionPubKey ||
+		pm.SessionDisplayName != other.SessionDisplayName {
 		return false
 	}
 

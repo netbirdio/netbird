@@ -26,40 +26,51 @@ import (
 //     daemon's SSH server into a root (or unauthenticated) shell.
 //   - Enabling the SSH server at all is what makes the above reachable, and a
 //     profile the caller owns is not a privilege they hold.
-//   - While the SSH server is enabled, repointing the profile at another
-//     management identity hands SSH authorization decisions, including which
-//     keys and users are accepted, to whoever controls that identity. Changing
-//     the management URL and deregistering the peer are both ways to do that.
+//   - Enabling the VNC server exposes the console session, which on a
+//     multi-user host belongs to another user, and disabling its approval
+//     prompt removes that user's only say in it.
+//   - While a remote-access server (SSH or VNC) is enabled, repointing the
+//     profile at another management identity hands authorization decisions,
+//     including which keys and users are accepted, to whoever controls that
+//     identity. Changing the management URL and deregistering the peer are both
+//     ways to do that.
 //
 // Everything else stays unauthenticated, so this is not an authorization model:
-// it only refuses the changes that would let a local user become root. A caller
-// whose identity cannot be established is refused as well.
+// it only refuses the changes that would let a local user become root, or reach
+// another user's desktop. A caller whose identity cannot be established is
+// refused as well.
 
 // privilegedConfigChange is the subset of a config request that crosses the
 // user-to-root boundary. Fields are nil or empty when the request leaves them
 // untouched.
 type privilegedConfigChange struct {
-	managementURL    string
-	serverSSHAllowed *bool
-	enableSSHRoot    *bool
-	disableSSHAuth   *bool
+	managementURL      string
+	serverSSHAllowed   *bool
+	enableSSHRoot      *bool
+	disableSSHAuth     *bool
+	serverVNCAllowed   *bool
+	disableVNCApproval *bool
 }
 
 func privilegedChangeFromSetConfig(msg *proto.SetConfigRequest) privilegedConfigChange {
 	return privilegedConfigChange{
-		managementURL:    msg.GetManagementUrl(),
-		serverSSHAllowed: msg.ServerSSHAllowed,
-		enableSSHRoot:    msg.EnableSSHRoot,
-		disableSSHAuth:   msg.DisableSSHAuth,
+		managementURL:      msg.GetManagementUrl(),
+		serverSSHAllowed:   msg.ServerSSHAllowed,
+		enableSSHRoot:      msg.EnableSSHRoot,
+		disableSSHAuth:     msg.DisableSSHAuth,
+		serverVNCAllowed:   msg.ServerVNCAllowed,
+		disableVNCApproval: msg.DisableVNCApproval,
 	}
 }
 
 func privilegedChangeFromLogin(msg *proto.LoginRequest) privilegedConfigChange {
 	return privilegedConfigChange{
-		managementURL:    msg.GetManagementUrl(),
-		serverSSHAllowed: msg.ServerSSHAllowed,
-		enableSSHRoot:    msg.EnableSSHRoot,
-		disableSSHAuth:   msg.DisableSSHAuth,
+		managementURL:      msg.GetManagementUrl(),
+		serverSSHAllowed:   msg.ServerSSHAllowed,
+		enableSSHRoot:      msg.EnableSSHRoot,
+		disableSSHAuth:     msg.DisableSSHAuth,
+		serverVNCAllowed:   msg.ServerVNCAllowed,
+		disableVNCApproval: msg.DisableVNCApproval,
 	}
 }
 
@@ -83,15 +94,21 @@ func requirePrivilegeForConfigChange(ctx context.Context, stored *profilemanager
 		return denyPrivileged(ctx, "enabling the NetBird SSH server", ipcauth.UpCommand("--allow-server-ssh"))
 	}
 
-	// Only guard the management binding while the SSH server is enabled: that is
-	// when the management identity decides who may open a shell here.
-	if !sshServerEnabled(stored) {
+	if err := requirePrivilegeForVNCChange(ctx, stored, change); err != nil {
+		return err
+	}
+
+	// Only guard the management binding while a remote-access server is enabled:
+	// that is when the management identity decides who may open a shell or reach
+	// the desktop here.
+	server, enabled := enabledRemoteAccessServer(stored)
+	if !enabled {
 		return nil
 	}
 
 	if change.managementURL != "" && !sameManagementURL(stored.ManagementURL, change.managementURL) {
 		return denyPrivileged(ctx,
-			"changing the management URL while the NetBird SSH server is enabled",
+			fmt.Sprintf("changing the management URL while the NetBird %s server is enabled", server),
 			ipcauth.UpCommand("-m "+change.managementURL))
 	}
 
@@ -99,20 +116,21 @@ func requirePrivilegeForConfigChange(ctx context.Context, stored *profilemanager
 }
 
 // requirePrivilegeForDeregistration refuses to deregister the peer from the
-// management server when the caller is not privileged and the profile has the
-// SSH server enabled. Deregistering frees the peer's key to be registered
-// against another management identity, which is the same handover the
+// management server when the caller is not privileged and the profile has a
+// remote-access server enabled. Deregistering frees the peer's key to be
+// registered against another management identity, which is the same handover the
 // management URL check refuses.
 //
 // Callers that treat deregistration as best-effort (profile removal) continue
 // without it; callers that were asked to deregister surface the error.
 func requirePrivilegeForDeregistration(ctx context.Context, cfg *profilemanager.Config) error {
-	if !sshServerEnabled(cfg) {
+	server, enabled := enabledRemoteAccessServer(cfg)
+	if !enabled {
 		return nil
 	}
 
 	return denyPrivileged(ctx,
-		"deregistering this peer while the NetBird SSH server is enabled",
+		fmt.Sprintf("deregistering this peer while the NetBird %s server is enabled", server),
 		ipcauth.ElevatedCommand("netbird logout"))
 }
 

@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	nbroute "github.com/netbirdio/netbird/route"
 	sharedtypes "github.com/netbirdio/netbird/shared/management/types"
 )
@@ -60,6 +61,10 @@ type NetworkMapComponentsCompact = sharedtypes.NetworkMapComponentsCompact
 type LookupMap = sharedtypes.LookupMap
 type FirewallRuleContext = sharedtypes.FirewallRuleContext
 
+type PeerConnResolveState = sharedtypes.PeerConnResolveState
+type RuleAuthCallbacks = sharedtypes.RuleAuthCallbacks
+type VNCSessionPubKey = sharedtypes.VNCSessionPubKey
+
 const GroupAllName = sharedtypes.GroupAllName
 
 // Function forwarders preserve types.X(...) call sites that previously
@@ -68,6 +73,30 @@ const GroupAllName = sharedtypes.GroupAllName
 
 func PolicyRuleImpliesLegacySSH(rule *PolicyRule) bool {
 	return sharedtypes.PolicyRuleImpliesLegacySSH(rule)
+}
+
+func NewPeerConnResolveState() *PeerConnResolveState {
+	return sharedtypes.NewPeerConnResolveState()
+}
+
+func ApplyResolvedRuleToState(rule *PolicyRule, sourcePeers, destPeers []*nbpeer.Peer, peerInSources, peerInDestinations, targetPeerSSHEnabled bool, generateResources func(*PolicyRule, []*nbpeer.Peer, int), cb RuleAuthCallbacks, state *PeerConnResolveState) {
+	sharedtypes.ApplyResolvedRuleToState(rule, sourcePeers, destPeers, peerInSources, peerInDestinations, targetPeerSSHEnabled, generateResources, cb, state)
+}
+
+func MergeAuthorizedGroupUsers(ctx context.Context, authorizedGroups map[string][]string, groupIDToUserIDs map[string][]string, target map[string]map[string]struct{}) {
+	sharedtypes.MergeAuthorizedGroupUsers(ctx, authorizedGroups, groupIDToUserIDs, target)
+}
+
+func EnsureWildcardUser(target map[string]map[string]struct{}, authorizedUser string) {
+	sharedtypes.EnsureWildcardUser(target, authorizedUser)
+}
+
+func MergeWildcardUsers(dst map[string]map[string]struct{}, users map[string]struct{}) {
+	sharedtypes.MergeWildcardUsers(dst, users)
+}
+
+func NormalizePolicyRuleProtocol(rule *PolicyRule) (*PolicyRule, PolicyRuleProtocolType) {
+	return sharedtypes.NormalizePolicyRuleProtocol(rule)
 }
 
 func ExpandPortsAndRanges(base FirewallRule, rule *PolicyRule, peer *ComponentPeer) []*FirewallRule {
@@ -133,6 +162,7 @@ const (
 	PolicyRuleProtocolUDP        = sharedtypes.PolicyRuleProtocolUDP
 	PolicyRuleProtocolICMP       = sharedtypes.PolicyRuleProtocolICMP
 	PolicyRuleProtocolNetbirdSSH = sharedtypes.PolicyRuleProtocolNetbirdSSH
+	PolicyRuleProtocolNetbirdVNC = sharedtypes.PolicyRuleProtocolNetbirdVNC
 )
 
 const (

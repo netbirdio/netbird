@@ -142,6 +142,7 @@ type Flags struct {
 	RosenpassEnabled    bool
 	RosenpassPermissive bool
 	ServerSSHAllowed    bool
+	ServerVNCAllowed    bool
 
 	DisableClientRoutes bool
 	DisableServerRoutes bool
@@ -602,6 +603,7 @@ func (f Flags) isEqual(other Flags) bool {
 	return f.RosenpassEnabled == other.RosenpassEnabled &&
 		f.RosenpassPermissive == other.RosenpassPermissive &&
 		f.ServerSSHAllowed == other.ServerSSHAllowed &&
+		f.ServerVNCAllowed == other.ServerVNCAllowed &&
 		f.DisableClientRoutes == other.DisableClientRoutes &&
 		f.DisableServerRoutes == other.DisableServerRoutes &&
 		f.DisableDNS == other.DisableDNS &&
