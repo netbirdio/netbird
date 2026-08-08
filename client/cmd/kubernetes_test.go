@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -8,9 +10,36 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/netbirdio/netbird/client/proto"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 )
+
+type testAddressResolver map[string][]string
+
+func (r testAddressResolver) LookupAddr(_ context.Context, addr string) ([]string, error) {
+	fqdns, ok := r[addr]
+	if !ok {
+		return nil, errors.New("no such host")
+	}
+	return fqdns, nil
+}
+
+func TestGetKubernetesClustersSkipsPeersWithoutPTRRecords(t *testing.T) {
+	t.Parallel()
+
+	peers := []*proto.PeerState{
+		{IP: "100.96.6.73"},
+		{IP: "100.96.72.123"},
+	}
+	resolver := testAddressResolver{
+		"100.96.72.123": {"regular-peer.netbird.selfhosted."},
+	}
+
+	kcs, err := getKubernetesClustersWithResolver(t.Context(), peers, "", resolver)
+	require.NoError(t, err)
+	require.Empty(t, kcs)
+}
 
 func TestFingerprintClusters(t *testing.T) {
 	t.Parallel()
