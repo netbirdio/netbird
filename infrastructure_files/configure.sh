@@ -178,7 +178,7 @@ if [[ "$NETBIRD_DISABLE_LETSENCRYPT" == "true" ]]; then
   echo "- $NETBIRD_DASHBOARD_ENDPOINT -http-> dashboard:80"
   echo "- $NETBIRD_MGMT_API_ENDPOINT/api -http-> management:$NETBIRD_MGMT_API_PORT"
   echo "- $NETBIRD_MGMT_API_ENDPOINT/management.ManagementService/ -grpc-> management:$NETBIRD_MGMT_API_PORT"
-  echo "- $NETBIRD_SIGNAL_ENDPOINT/signalexchange.SignalExchange/ -grpc-> signal:80"
+  echo "- $NETBIRD_SIGNAL_ENDPOINT/signalexchange.SignalExchange/ -grpc-> signal:10000"
   echo "- $NETBIRD_RELAY_ENDPOINT/ -http-> relay:33080"
   echo "You most likely also have to change NETBIRD_MGMT_API_ENDPOINT in base.setup.env and port-mappings in docker-compose.yml.tmpl and rerun this script."
   echo " The target of the forwards depends on your setup. Beware of the gRPC protocol instead of http for management and signal!"
