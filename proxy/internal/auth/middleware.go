@@ -644,7 +644,13 @@ func wasCredentialSubmitted(r *http.Request, method auth.Method) bool {
 
 // AddDomain registers authentication schemes for the given domain. With schemes a valid session public key is required.
 // private=true forces ValidateTunnelPeer enforcement (403 on failure) regardless of the schemes list.
-func (mw *Middleware) AddDomain(domain string, schemes []Scheme, publicKeyB64 string, expiration time.Duration, accountID types.AccountID, serviceID types.ServiceID, ipRestrictions *restrict.Filter, private bool) error {
+// domainValidated carries management's ownership verdict for the domain; a domain
+// that failed it is never registered, so requests for it find no route.
+func (mw *Middleware) AddDomain(domain string, schemes []Scheme, publicKeyB64 string, expiration time.Duration, accountID types.AccountID, serviceID types.ServiceID, ipRestrictions *restrict.Filter, private, domainValidated bool) error {
+	if !domainValidated {
+		return fmt.Errorf("domain %s is not validated", domain)
+	}
+
 	if len(schemes) == 0 {
 		mw.domainsMux.Lock()
 		defer mw.domainsMux.Unlock()

@@ -655,6 +655,10 @@ func (d *testClusterDeriver) GetClusterDomains() []string {
 	return d.domains
 }
 
+func (d *testClusterDeriver) IsDomainValidated(_ context.Context, _, _ string) bool {
+	return true
+}
+
 const (
 	testAccountID = "test-account"
 	testPeerID    = "test-peer-1"

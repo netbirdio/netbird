@@ -1,5 +1,7 @@
 package domain
 
+import "time"
+
 type Type string
 
 const (
@@ -8,12 +10,18 @@ const (
 )
 
 type Domain struct {
-	ID            string `gorm:"unique;primaryKey;autoIncrement"`
-	Domain        string `gorm:"unique"` // Domain records must be unique, this avoids domain reuse across accounts.
-	AccountID     string `gorm:"index"`
+	ID string `gorm:"unique;primaryKey;autoIncrement"`
+	// A claim is unique per account only. Global uniqueness applies once a row
+	// is validated and is enforced by the manager, because proving control of
+	// the DNS zone is what decides which account may serve the hostname.
+	Domain        string `gorm:"uniqueIndex:idx_domains_account_id_domain,priority:2"`
+	AccountID     string `gorm:"index;uniqueIndex:idx_domains_account_id_domain,priority:1"`
 	TargetCluster string // The proxy cluster this domain should be validated against
 	Type          Type   `gorm:"-"`
 	Validated     bool
+	// ClaimedAt is when the account last staked its claim on the domain. It
+	// bounds how long an unvalidated row may hold the name.
+	ClaimedAt time.Time
 	// SupportsCustomPorts is populated at query time for free domains from the
 	// proxy cluster capabilities. Not persisted.
 	SupportsCustomPorts *bool `gorm:"-"`

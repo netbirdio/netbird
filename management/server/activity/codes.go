@@ -281,6 +281,10 @@ const (
 	// AccountMetricsPushDisabled indicates that a user disabled metrics push for the account
 	AccountMetricsPushDisabled Activity = 141
 
+	// DomainInvalidated indicates that a custom domain stopped pointing at its
+	// target cluster and was marked unvalidated
+	DomainInvalidated Activity = 142
+
 	AccountDeleted Activity = 99999
 )
 
@@ -457,9 +461,10 @@ var activityMap = map[Activity]Code{
 	AccountMetricsPushEnabled:  {"Account metrics push enabled", "account.setting.metrics.push.enable"},
 	AccountMetricsPushDisabled: {"Account metrics push disabled", "account.setting.metrics.push.disable"},
 
-	DomainAdded:     {"Domain added", "domain.add"},
-	DomainDeleted:   {"Domain deleted", "domain.delete"},
-	DomainValidated: {"Domain validated", "domain.validate"},
+	DomainAdded:       {"Domain added", "domain.add"},
+	DomainDeleted:     {"Domain deleted", "domain.delete"},
+	DomainValidated:   {"Domain validated", "domain.validate"},
+	DomainInvalidated: {"Domain invalidated", "domain.invalidate"},
 }
 
 // StringCode returns a string code of the activity

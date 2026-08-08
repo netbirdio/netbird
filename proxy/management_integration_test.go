@@ -148,6 +148,7 @@ func setupIntegrationTest(t *testing.T) *integrationTestSetup {
 	// Use store-backed service manager
 	svcMgr := &storeBackedServiceManager{store: testStore, tokenStore: tokenStore}
 	proxyService.SetServiceManager(svcMgr)
+	proxyService.SetDomainValidator(testDomainValidator{})
 
 	proxyController := &testProxyController{}
 	proxyService.SetProxyController(proxyController)
@@ -262,6 +263,14 @@ func (m *testProxyManager) IsClusterAddressAvailable(_ context.Context, _, _ str
 
 func (m *testProxyManager) DeleteAccountCluster(_ context.Context, _, _ string) error {
 	return nil
+}
+
+// testDomainValidator accepts every domain. These suites exercise mapping
+// delivery, not domain ownership, which has its own coverage in management.
+type testDomainValidator struct{}
+
+func (testDomainValidator) IsDomainValidated(_ context.Context, _, _ string) bool {
+	return true
 }
 
 // testProxyController is a mock implementation of rpservice.ProxyController for testing.
@@ -571,6 +580,7 @@ func TestIntegration_ProxyConnection_ReconnectDoesNotDuplicateState(t *testing.T
 					proxytypes.ServiceID(mapping.GetId()),
 					nil,
 					mapping.GetPrivate(),
+					mapping.GetDomainValidated(),
 				)
 				require.NoError(t, err)
 

@@ -370,7 +370,10 @@ func (s *Service) ToAPIResponse() *api.Service {
 }
 
 // ToProtoMapping converts the service into the wire format the proxy consumes.
-func (s *Service) ToProtoMapping(operation Operation, authToken string, oidcConfig proxy.OIDCValidationConfig) *proto.ProxyMapping {
+// domainValidated tells the proxy whether the account is allowed to serve the
+// service's domain; it is a required argument rather than a struct field so
+// every producer of a mapping has to answer the question.
+func (s *Service) ToProtoMapping(operation Operation, authToken string, oidcConfig proxy.OIDCValidationConfig, domainValidated bool) *proto.ProxyMapping {
 	pathMappings := s.buildPathMappings()
 
 	auth := &proto.Authentication{
@@ -412,6 +415,7 @@ func (s *Service) ToProtoMapping(operation Operation, authToken string, oidcConf
 		Mode:             s.Mode,
 		ListenPort:       int32(s.ListenPort), //nolint:gosec
 		Private:          s.Private,
+		DomainValidated:  domainValidated,
 	}
 
 	if r := restrictionsToProto(s.Restrictions); r != nil {

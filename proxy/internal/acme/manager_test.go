@@ -24,7 +24,7 @@ import (
 func TestHostPolicy(t *testing.T) {
 	mgr, err := NewManager(ManagerConfig{CertDir: t.TempDir(), ACMEURL: "https://acme.example.com/directory"}, nil, nil, nil)
 	require.NoError(t, err)
-	mgr.AddDomain("example.com", types.AccountID("acc1"), types.ServiceID("rp1"))
+	mgr.AddDomain("example.com", types.AccountID("acc1"), types.ServiceID("rp1"), true)
 
 	// Wait for the background prefetch goroutine to finish so the temp dir
 	// can be cleaned up without a race.
@@ -94,8 +94,8 @@ func TestDomainStates(t *testing.T) {
 
 	// AddDomain starts as pending, then the prefetch goroutine will fail
 	// (no real ACME server) and transition to failed.
-	mgr.AddDomain("a.example.com", types.AccountID("acc1"), types.ServiceID("rp1"))
-	mgr.AddDomain("b.example.com", types.AccountID("acc1"), types.ServiceID("rp1"))
+	mgr.AddDomain("a.example.com", types.AccountID("acc1"), types.ServiceID("rp1"), true)
+	mgr.AddDomain("b.example.com", types.AccountID("acc1"), types.ServiceID("rp1"), true)
 
 	assert.Equal(t, 2, mgr.TotalDomains(), "two domains registered")
 
@@ -211,12 +211,12 @@ func TestWildcardAddDomainSkipsACME(t *testing.T) {
 	require.NoError(t, err)
 
 	// Add a wildcard-matching domain — should be immediately ready.
-	mgr.AddDomain("foo.example.com", types.AccountID("acc1"), types.ServiceID("svc1"))
+	mgr.AddDomain("foo.example.com", types.AccountID("acc1"), types.ServiceID("svc1"), true)
 	assert.Equal(t, 0, mgr.PendingCerts(), "wildcard domain should not be pending")
 	assert.Equal(t, []string{"foo.example.com"}, mgr.ReadyDomains())
 
 	// Add a non-wildcard domain — should go through ACME (pending then failed).
-	mgr.AddDomain("other.net", types.AccountID("acc2"), types.ServiceID("svc2"))
+	mgr.AddDomain("other.net", types.AccountID("acc2"), types.ServiceID("svc2"), true)
 	assert.Equal(t, 2, mgr.TotalDomains())
 
 	// Wait for the ACME prefetch to fail.
@@ -236,7 +236,7 @@ func TestWildcardGetCertificate(t *testing.T) {
 	mgr, err := NewManager(ManagerConfig{CertDir: acmeDir, ACMEURL: "https://acme.example.com/directory", WildcardDir: wcDir}, nil, nil, nil)
 	require.NoError(t, err)
 
-	mgr.AddDomain("foo.example.com", types.AccountID("acc1"), types.ServiceID("svc1"))
+	mgr.AddDomain("foo.example.com", types.AccountID("acc1"), types.ServiceID("svc1"), true)
 
 	// GetCertificate for a wildcard-matching domain should return the static cert.
 	cert, err := mgr.GetCertificate(&tls.ClientHelloInfo{ServerName: "foo.example.com"})
@@ -257,8 +257,8 @@ func TestMultipleWildcards(t *testing.T) {
 	assert.ElementsMatch(t, []string{"*.example.com", "*.other.org"}, mgr.WildcardPatterns())
 
 	// Both wildcards should resolve.
-	mgr.AddDomain("foo.example.com", types.AccountID("acc1"), types.ServiceID("svc1"))
-	mgr.AddDomain("bar.other.org", types.AccountID("acc2"), types.ServiceID("svc2"))
+	mgr.AddDomain("foo.example.com", types.AccountID("acc1"), types.ServiceID("svc1"), true)
+	mgr.AddDomain("bar.other.org", types.AccountID("acc2"), types.ServiceID("svc2"), true)
 
 	assert.Equal(t, 0, mgr.PendingCerts())
 	assert.ElementsMatch(t, []string{"foo.example.com", "bar.other.org"}, mgr.ReadyDomains())
@@ -273,7 +273,7 @@ func TestMultipleWildcards(t *testing.T) {
 	assert.Contains(t, cert2.Leaf.DNSNames, "*.other.org")
 
 	// Non-matching domain falls through to ACME.
-	mgr.AddDomain("custom.net", types.AccountID("acc3"), types.ServiceID("svc3"))
+	mgr.AddDomain("custom.net", types.AccountID("acc3"), types.ServiceID("svc3"), true)
 	assert.Eventually(t, func() bool {
 		return mgr.PendingCerts() == 0
 	}, 30*time.Second, 100*time.Millisecond)
@@ -303,4 +303,20 @@ func TestNoWildcardDir(t *testing.T) {
 	mgr, err := NewManager(ManagerConfig{CertDir: t.TempDir(), ACMEURL: "https://acme.example.com/directory"}, nil, nil, nil)
 	require.NoError(t, err)
 	assert.Empty(t, mgr.WildcardPatterns())
+}
+
+// An unvalidated domain must not be registered and must not start an ACME
+// order: the account has not proven it controls the name, and every order
+// consumes the cluster's shared issuance rate limit.
+func TestAddDomain_RefusesUnvalidatedDomain(t *testing.T) {
+	mgr, err := NewManager(ManagerConfig{CertDir: t.TempDir(), ACMEURL: "https://acme.example.com/directory"}, nil, nil, nil)
+	require.NoError(t, err)
+
+	wildcardHit := mgr.AddDomain("unproven.example.com", types.AccountID("acc1"), types.ServiceID("svc1"), false)
+
+	assert.False(t, wildcardHit, "an unvalidated domain is never certificate-ready")
+	assert.Equal(t, 0, mgr.PendingCerts(), "no certificate order should be started")
+
+	err = mgr.hostPolicy(context.Background(), "unproven.example.com")
+	assert.Error(t, err, "the host policy must not accept an unvalidated domain")
 }

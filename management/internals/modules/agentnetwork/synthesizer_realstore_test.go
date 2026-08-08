@@ -76,7 +76,7 @@ func TestSynthesizeServices_RealStore_SurvivesStatusToggle(t *testing.T) {
 		assert.True(t, svc.Private, "%s: synth service must be Private after store round-trip", stage)
 		assert.Equal(t, []string{"grp-eng"}, svc.AccessGroups, "%s: AccessGroups must survive the round-trip", stage)
 
-		m := svc.ToProtoMapping(rpservice.Update, "", rpproxy.OIDCValidationConfig{})
+		m := svc.ToProtoMapping(rpservice.Update, "", rpproxy.OIDCValidationConfig{}, true)
 		assert.True(t, m.GetPrivate(), "%s: proto mapping Private must be true (proxy gates tunnel-peer auth on it)", stage)
 
 		cfg := decodeServiceRouterConfig(t, svc)

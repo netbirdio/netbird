@@ -294,7 +294,9 @@ type Store interface {
 	GetCustomDomain(ctx context.Context, accountID string, domainID string) (*domain.Domain, error)
 	ListFreeDomains(ctx context.Context, accountID string) ([]string, error)
 	ListCustomDomains(ctx context.Context, accountID string) ([]*domain.Domain, error)
-	CreateCustomDomain(ctx context.Context, accountID string, domainName string, targetCluster string, validated bool) (*domain.Domain, error)
+	ListCustomDomainsByName(ctx context.Context, domainName string) ([]*domain.Domain, error)
+	ListAllCustomDomains(ctx context.Context) ([]*domain.Domain, error)
+	CreateCustomDomain(ctx context.Context, accountID string, domainName string, targetCluster string, validated bool, claimedAt time.Time) (*domain.Domain, error)
 	UpdateCustomDomain(ctx context.Context, accountID string, d *domain.Domain) (*domain.Domain, error)
 	DeleteCustomDomain(ctx context.Context, accountID string, domainID string) error
 
@@ -584,6 +586,12 @@ func getMigrationsPreAuto(ctx context.Context) []migrationFunc {
 		func(db *gorm.DB) error {
 			return migration.CleanupOrphanedResources[domain.Domain, types.Account](ctx, db, "account_id")
 		},
+		// Runs pre-auto because dropping the constraint rebuilds the table on
+		// SQLite, which discards the table's indexes. AutoMigrate then recreates
+		// them together with the per-account unique index.
+		func(db *gorm.DB) error {
+			return migration.DropUniqueConstraint[domain.Domain](ctx, db, "uni_domains_domain")
+		},
 		func(db *gorm.DB) error {
 			return migration.BackfillPublicIDs[types.Policy](ctx, db)
 		},
@@ -657,6 +665,12 @@ func getMigrationsPostAuto(ctx context.Context) []migrationFunc {
 		},
 		func(db *gorm.DB) error {
 			return migration.FoldCostAggregatesIntoBuckets[agentNetworkTypes.AgentNetworkUsage](ctx, db)
+		},
+		// Rows written before claims were timed have no claim date, which would
+		// exempt them from claim expiry forever. Dating them from the upgrade
+		// gives every pre-existing unvalidated claim a full window to validate.
+		func(db *gorm.DB) error {
+			return migration.MigrateNewField[domain.Domain](ctx, db, "claimed_at", time.Now().UTC())
 		},
 	}
 }

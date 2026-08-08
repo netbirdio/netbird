@@ -50,7 +50,9 @@ func (m *managerImpl) reconcile(ctx context.Context, accountID string) {
 		if svc == nil || svc.ID == "" {
 			continue
 		}
-		current[svc.ID] = svc.ToProtoMapping(rpservice.Update, "", oidcCfg)
+		// Synthesised gateways live on the cluster's own domain, which the
+		// account never has to prove it owns.
+		current[svc.ID] = svc.ToProtoMapping(rpservice.Update, "", oidcCfg, true)
 	}
 
 	m.reconcileMu.Lock()

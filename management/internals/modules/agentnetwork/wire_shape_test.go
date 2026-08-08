@@ -40,7 +40,7 @@ func TestSynthesizedService_WireShape(t *testing.T) {
 	require.Len(t, services, 1)
 
 	svc := services[0]
-	mapping := svc.ToProtoMapping(rpservice.Create, "test-token", proxy.OIDCValidationConfig{})
+	mapping := svc.ToProtoMapping(rpservice.Create, "test-token", proxy.OIDCValidationConfig{}, true)
 
 	// Identifiers — account-scoped service ID, settings-derived domain.
 	assert.Equal(t, "agent-net-svc-acct-1", mapping.GetId(), "stable account-scoped virtual service ID")

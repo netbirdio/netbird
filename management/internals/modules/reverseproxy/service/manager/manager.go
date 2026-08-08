@@ -27,6 +27,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -71,10 +72,12 @@ func portFromEnv(key string, fallback uint16) uint16 {
 
 const unknownHostPlaceholder = "unknown"
 
-// ClusterDeriver derives the proxy cluster from a domain.
+// ClusterDeriver derives the proxy cluster from a domain and reports whether
+// the account is allowed to serve it.
 type ClusterDeriver interface {
 	DeriveClusterFromDomain(ctx context.Context, accountID, domain string) (string, error)
 	GetClusterDomains() []string
+	IsDomainValidated(ctx context.Context, accountID, domain string) bool
 }
 
 // CapabilityProvider queries proxy cluster capabilities from the database.
@@ -266,11 +269,26 @@ func (m *Manager) CreateService(ctx context.Context, accountID, userID string, s
 		return nil, fmt.Errorf("failed to replace host by lookup for service %s: %w", s.ID, err)
 	}
 
-	m.proxyController.SendServiceUpdateToCluster(ctx, accountID, s.ToProtoMapping(service.Create, "", m.proxyController.GetOIDCValidationConfig()), s.ProxyCluster)
+	m.proxyController.SendServiceUpdateToCluster(ctx, accountID, m.protoMapping(ctx, service.Create, s, m.proxyController.GetOIDCValidationConfig()), s.ProxyCluster)
 
 	m.accountManager.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceService, Operation: types.UpdateOperationCreate})
 
 	return s, nil
+}
+
+// protoMapping renders a service into the wire form the proxy consumes,
+// resolving whether the account may currently serve the service's domain.
+func (m *Manager) protoMapping(ctx context.Context, operation service.Operation, s *service.Service, oidcCfg proxy.OIDCValidationConfig) *proto.ProxyMapping {
+	return s.ToProtoMapping(operation, "", oidcCfg, m.domainValidated(ctx, s))
+}
+
+// domainValidated reports whether the service's domain may be served. Without a
+// cluster deriver there is nothing that can answer the question, so it denies.
+func (m *Manager) domainValidated(ctx context.Context, s *service.Service) bool {
+	if m.clusterDeriver == nil {
+		return false
+	}
+	return m.clusterDeriver.IsDomainValidated(ctx, s.AccountID, s.Domain)
 }
 
 func (m *Manager) initializeServiceForCreate(ctx context.Context, accountID string, service *service.Service) error {
@@ -606,16 +624,19 @@ func (m *Manager) resolveEffectiveCluster(ctx context.Context, accountID string,
 		return existing.ProxyCluster, nil
 	}
 
-	if m.clusterDeriver != nil {
-		derived, err := m.clusterDeriver.DeriveClusterFromDomain(ctx, accountID, svc.Domain)
-		if err != nil {
-			log.WithError(err).Warnf("could not derive cluster from domain %s", svc.Domain)
-		} else {
-			return derived, nil
-		}
+	if m.clusterDeriver == nil {
+		return existing.ProxyCluster, nil
 	}
 
-	return existing.ProxyCluster, nil
+	// Falling back to the old cluster here would let an update move a service
+	// onto a domain the account has not proven it owns, bypassing the same
+	// check creation makes.
+	derived, err := m.clusterDeriver.DeriveClusterFromDomain(ctx, accountID, svc.Domain)
+	if err != nil {
+		return "", status.Errorf(status.PreconditionFailed, "could not derive cluster from domain %s: %v", svc.Domain, err)
+	}
+
+	return derived, nil
 }
 
 func (m *Manager) executeServiceUpdate(ctx context.Context, transaction store.Store, accountID string, service *service.Service, updateInfo *serviceUpdateInfo, customPorts *bool, effectiveCluster string) error {
@@ -786,14 +807,14 @@ func (m *Manager) sendServiceUpdateNotifications(ctx context.Context, accountID 
 
 	switch {
 	case updateInfo.domainChanged || updateInfo.oldCluster != s.ProxyCluster:
-		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, s.ToProtoMapping(service.Delete, "", oidcCfg), updateInfo.oldCluster)
-		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, s.ToProtoMapping(service.Create, "", oidcCfg), s.ProxyCluster)
+		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, m.protoMapping(ctx, service.Delete, s, oidcCfg), updateInfo.oldCluster)
+		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, m.protoMapping(ctx, service.Create, s, oidcCfg), s.ProxyCluster)
 	case !s.Enabled && updateInfo.serviceEnabledChanged:
-		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, s.ToProtoMapping(service.Delete, "", oidcCfg), s.ProxyCluster)
+		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, m.protoMapping(ctx, service.Delete, s, oidcCfg), s.ProxyCluster)
 	case s.Enabled && updateInfo.serviceEnabledChanged:
-		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, s.ToProtoMapping(service.Create, "", oidcCfg), s.ProxyCluster)
+		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, m.protoMapping(ctx, service.Create, s, oidcCfg), s.ProxyCluster)
 	default:
-		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, s.ToProtoMapping(service.Update, "", oidcCfg), s.ProxyCluster)
+		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, m.protoMapping(ctx, service.Update, s, oidcCfg), s.ProxyCluster)
 	}
 }
 
@@ -893,7 +914,7 @@ func (m *Manager) DeleteService(ctx context.Context, accountID, userID, serviceI
 
 	m.accountManager.StoreEvent(ctx, userID, serviceID, accountID, activity.ServiceDeleted, s.EventMeta())
 
-	m.proxyController.SendServiceUpdateToCluster(ctx, accountID, s.ToProtoMapping(service.Delete, "", m.proxyController.GetOIDCValidationConfig()), s.ProxyCluster)
+	m.proxyController.SendServiceUpdateToCluster(ctx, accountID, m.protoMapping(ctx, service.Delete, s, m.proxyController.GetOIDCValidationConfig()), s.ProxyCluster)
 
 	m.accountManager.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceService, Operation: types.UpdateOperationDelete})
 
@@ -937,7 +958,7 @@ func (m *Manager) DeleteAllServices(ctx context.Context, accountID, userID strin
 
 	for _, svc := range services {
 		m.accountManager.StoreEvent(ctx, userID, svc.ID, accountID, activity.ServiceDeleted, svc.EventMeta())
-		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, svc.ToProtoMapping(service.Delete, "", oidcCfg), svc.ProxyCluster)
+		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, m.protoMapping(ctx, service.Delete, svc, oidcCfg), svc.ProxyCluster)
 	}
 
 	m.accountManager.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceService, Operation: types.UpdateOperationDelete})
@@ -994,7 +1015,7 @@ func (m *Manager) ReloadService(ctx context.Context, accountID, serviceID string
 		return fmt.Errorf("failed to replace host by lookup for service %s: %w", s.ID, err)
 	}
 
-	m.proxyController.SendServiceUpdateToCluster(ctx, accountID, s.ToProtoMapping(service.Update, "", m.proxyController.GetOIDCValidationConfig()), s.ProxyCluster)
+	m.proxyController.SendServiceUpdateToCluster(ctx, accountID, m.protoMapping(ctx, service.Update, s, m.proxyController.GetOIDCValidationConfig()), s.ProxyCluster)
 
 	m.accountManager.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceService, Operation: types.UpdateOperationUpdate})
 
@@ -1014,7 +1035,7 @@ func (m *Manager) ReloadAllServicesForAccount(ctx context.Context, accountID str
 		if err != nil {
 			return fmt.Errorf("failed to replace host by lookup for service %s: %w", s.ID, err)
 		}
-		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, s.ToProtoMapping(service.Update, "", oidcCfg), s.ProxyCluster)
+		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, m.protoMapping(ctx, service.Update, s, oidcCfg), s.ProxyCluster)
 	}
 
 	return nil
@@ -1183,7 +1204,7 @@ func (m *Manager) CreateServiceFromPeer(ctx context.Context, accountID, peerID s
 		return nil, fmt.Errorf("replace host by lookup for service %s: %w", svc.ID, err)
 	}
 
-	m.proxyController.SendServiceUpdateToCluster(ctx, accountID, svc.ToProtoMapping(service.Create, "", m.proxyController.GetOIDCValidationConfig()), svc.ProxyCluster)
+	m.proxyController.SendServiceUpdateToCluster(ctx, accountID, m.protoMapping(ctx, service.Create, svc, m.proxyController.GetOIDCValidationConfig()), svc.ProxyCluster)
 	m.accountManager.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceService, Operation: types.UpdateOperationCreate})
 
 	serviceURL := "https://" + svc.Domain
@@ -1298,7 +1319,7 @@ func (m *Manager) deletePeerService(ctx context.Context, accountID, peerID, serv
 
 	m.accountManager.StoreEvent(ctx, peerID, serviceID, accountID, activityCode, meta)
 
-	m.proxyController.SendServiceUpdateToCluster(ctx, accountID, svc.ToProtoMapping(service.Delete, "", m.proxyController.GetOIDCValidationConfig()), svc.ProxyCluster)
+	m.proxyController.SendServiceUpdateToCluster(ctx, accountID, m.protoMapping(ctx, service.Delete, svc, m.proxyController.GetOIDCValidationConfig()), svc.ProxyCluster)
 
 	m.accountManager.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceService, Operation: types.UpdateOperationDelete})
 
@@ -1354,7 +1375,7 @@ func (m *Manager) deleteExpiredPeerService(ctx context.Context, accountID, peerI
 
 	meta := addPeerInfoToEventMeta(svc.EventMeta(), peer)
 	m.accountManager.StoreEvent(ctx, peerID, serviceID, accountID, activity.PeerServiceExposeExpired, meta)
-	m.proxyController.SendServiceUpdateToCluster(ctx, accountID, svc.ToProtoMapping(service.Delete, "", m.proxyController.GetOIDCValidationConfig()), svc.ProxyCluster)
+	m.proxyController.SendServiceUpdateToCluster(ctx, accountID, m.protoMapping(ctx, service.Delete, svc, m.proxyController.GetOIDCValidationConfig()), svc.ProxyCluster)
 	m.accountManager.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceService, Operation: types.UpdateOperationDelete})
 
 	return nil

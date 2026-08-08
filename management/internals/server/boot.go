@@ -231,6 +231,7 @@ func (s *BaseServer) ReverseProxyGRPCServer() *nbgrpc.ProxyServiceServer {
 		proxyService := nbgrpc.NewProxyServiceServer(s.AccessLogsManager(), s.ProxyTokenStore(), s.PKCEVerifierStore(), s.proxyOIDCConfig(), s.PeersManager(), s.UsersManager(), s.IdpManager(), s.ProxyManager(), s.Store())
 		s.AfterInit(func(s *BaseServer) {
 			proxyService.SetServiceManager(s.ServiceManager())
+			proxyService.SetDomainValidator(s.ReverseProxyDomainManager())
 			proxyService.SetProxyController(s.ServiceProxyController())
 			proxyService.SetAgentNetworkSynthesizer(newAgentNetworkSynthesizer(s.Store()))
 			proxyService.SetAgentNetworkLimitsService(s.AgentNetworkManager())

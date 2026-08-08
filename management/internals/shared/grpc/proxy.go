@@ -29,6 +29,7 @@ import (
 
 	"github.com/netbirdio/netbird/shared/management/domain"
 
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
@@ -36,7 +37,6 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/sessionkey"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/users"
 	proxyauth "github.com/netbirdio/netbird/proxy/auth"
@@ -71,6 +71,13 @@ type AgentNetworkSynthesizer interface {
 	SynthesizeServiceForDomain(ctx context.Context, domain string) (*rpservice.Service, error)
 }
 
+// DomainValidator reports whether an account is allowed to serve a domain:
+// free cluster domains always, custom domains only once their CNAME ownership
+// check has passed.
+type DomainValidator interface {
+	IsDomainValidated(ctx context.Context, accountID, domain string) bool
+}
+
 // AgentNetworkLimitsService is the minimal slice of agentnetwork.Manager the
 // gRPC layer needs for CheckLLMPolicyLimits + RecordLLMUsage — kept narrow so
 // the grpc package doesn't take a hard import on the full manager.
@@ -99,6 +106,11 @@ type ProxyServiceServer struct {
 	// and the post-flight consumption write (RecordLLMUsage). Optional — when
 	// nil both RPCs return Unimplemented.
 	agentNetworkLimits AgentNetworkLimitsService
+	// domainValidator answers whether an account may serve a given domain.
+	// Optional only in the sense that partial wiring must not panic: while
+	// unset the snapshot marks every mapping unvalidated and the proxy drops it.
+	domainValidator DomainValidator
+
 	// ProxyController for service updates and cluster management
 	proxyController proxy.Controller
 
@@ -236,6 +248,15 @@ func (s *ProxyServiceServer) SetServiceManager(manager rpservice.Manager) {
 	s.serviceManager = manager
 }
 
+// SetDomainValidator wires the source of truth for domain ownership. Must be
+// called before serving, otherwise every snapshot ships mappings the proxy
+// refuses to route.
+func (s *ProxyServiceServer) SetDomainValidator(validator DomainValidator) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.domainValidator = validator
+}
+
 // SetAgentNetworkSynthesizer wires the agent-network service synthesiser.
 // Optional — when nil the snapshot path skips agent-network synthesis. The
 // modules layer injects this after both the proxy server and the agent-network
@@ -260,6 +281,12 @@ func (s *ProxyServiceServer) agentNetworkSynthesizer() AgentNetworkSynthesizer {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.agentNetworkSynth
+}
+
+func (s *ProxyServiceServer) domainValidatorRef() DomainValidator {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.domainValidator
 }
 
 // CheckLLMPolicyLimits is the pre-flight policy gate the proxy calls before
@@ -795,6 +822,14 @@ func (s *ProxyServiceServer) snapshotServiceMappings(ctx context.Context, conn *
 	}
 
 	oidcCfg := s.GetOIDCValidationConfig()
+	validator := s.domainValidatorRef()
+	if validator == nil {
+		log.WithContext(ctx).Error("domain validator is not wired, snapshot mappings will be rejected by the proxy")
+	}
+	// One verdict per distinct domain: a snapshot can carry many services and
+	// the lookup hits the store.
+	validated := make(map[string]bool)
+
 	var mappings []*proto.ProxyMapping
 	for _, service := range services {
 		if !service.Enabled || service.ProxyCluster == "" || service.ProxyCluster != conn.address {
@@ -807,7 +842,14 @@ func (s *ProxyServiceServer) snapshotServiceMappings(ctx context.Context, conn *
 			continue
 		}
 
-		m := service.ToProtoMapping(rpservice.Create, "", oidcCfg)
+		key := service.AccountID + "\x00" + service.Domain
+		ok, seen := validated[key]
+		if !seen {
+			ok = validator != nil && validator.IsDomainValidated(ctx, service.AccountID, service.Domain)
+			validated[key] = ok
+		}
+
+		m := service.ToProtoMapping(rpservice.Create, "", oidcCfg, ok)
 		if !proxyAcceptsMapping(conn, m) {
 			continue
 		}
@@ -1164,6 +1206,7 @@ func shallowCloneMapping(m *proto.ProxyMapping) *proto.ProxyMapping {
 		ListenPort:         m.ListenPort,
 		AccessRestrictions: m.AccessRestrictions,
 		Private:            m.Private,
+		DomainValidated:    m.DomainValidated,
 	}
 }
 

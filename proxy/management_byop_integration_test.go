@@ -132,6 +132,7 @@ func setupBYOPIntegrationTest(t *testing.T) *byopTestSetup {
 
 	svcMgr := &storeBackedServiceManager{store: testStore, tokenStore: tokenStore}
 	proxyService.SetServiceManager(svcMgr)
+	proxyService.SetDomainValidator(testDomainValidator{})
 
 	proxyController := &testProxyController{}
 	proxyService.SetProxyController(proxyController)

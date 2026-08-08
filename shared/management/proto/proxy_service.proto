@@ -226,6 +226,10 @@ message ProxyMapping {
   AccessRestrictions access_restrictions = 12;
   // NetBird-only: the proxy MUST call ValidateTunnelPeer and fail closed; operator auth schemes are bypassed.
   bool private = 13;
+  // Management asserts the account is allowed to serve this domain: a free
+  // cluster domain, or a custom domain whose CNAME ownership check passed. The
+  // proxy MUST NOT route traffic or order a certificate when this is false.
+  bool domain_validated = 14;
 }
 
 // SendAccessLogRequest consists of one or more AccessLogs from a Proxy.

@@ -1646,6 +1646,13 @@ func (s *Server) modifyMapping(ctx context.Context, mapping *proto.ProxyMapping)
 // setupMappingRoutes configures the appropriate routes or relays for the given
 // service mapping based on its mode. The NetBird peer must already exist.
 func (s *Server) setupMappingRoutes(ctx context.Context, mapping *proto.ProxyMapping) error {
+	// Management owns domain ownership validation; the proxy refuses the
+	// mapping outright so a regression there cannot make this process serve a
+	// hostname, or order a certificate for one, that nobody proved they own.
+	if !mapping.GetDomainValidated() {
+		return fmt.Errorf("domain %q is not validated", mapping.GetDomain())
+	}
+
 	switch types.ServiceMode(mapping.GetMode()) {
 	case types.ServiceModeTCP:
 		return s.setupTCPMapping(ctx, mapping)
@@ -1670,7 +1677,7 @@ func (s *Server) setupHTTPMapping(ctx context.Context, mapping *proto.ProxyMappi
 
 	var wildcardHit bool
 	if s.acme != nil {
-		wildcardHit = s.acme.AddDomain(d, accountID, svcID)
+		wildcardHit = s.acme.AddDomain(d, accountID, svcID, mapping.GetDomainValidated())
 	} else {
 		wildcardHit = s.staticCertCovers(d)
 	}
@@ -2070,7 +2077,7 @@ func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping)
 	s.warnIfGeoUnavailable(mapping.GetDomain(), mapping.GetAccessRestrictions())
 
 	maxSessionAge := time.Duration(mapping.GetAuth().GetMaxSessionAgeSeconds()) * time.Second
-	if err := s.auth.AddDomain(mapping.GetDomain(), schemes, mapping.GetAuth().GetSessionKey(), maxSessionAge, accountID, svcID, ipRestrictions, mapping.GetPrivate()); err != nil {
+	if err := s.auth.AddDomain(mapping.GetDomain(), schemes, mapping.GetAuth().GetSessionKey(), maxSessionAge, accountID, svcID, ipRestrictions, mapping.GetPrivate(), mapping.GetDomainValidated()); err != nil {
 		return fmt.Errorf("auth setup for domain %s: %w", mapping.GetDomain(), err)
 	}
 	m := s.protoToMapping(ctx, mapping)

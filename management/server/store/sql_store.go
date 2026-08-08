@@ -5658,7 +5658,32 @@ func (s *SqlStore) ListCustomDomains(ctx context.Context, accountID string) ([]*
 	return domains, nil
 }
 
-func (s *SqlStore) CreateCustomDomain(ctx context.Context, accountID string, domainName string, targetCluster string, validated bool) (*domain.Domain, error) {
+// ListCustomDomainsByName returns every custom domain row holding the given
+// name, across all accounts.
+func (s *SqlStore) ListCustomDomainsByName(ctx context.Context, domainName string) ([]*domain.Domain, error) {
+	var domains []*domain.Domain
+	result := s.db.Find(&domains, "domain = ?", domainName)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get reverse proxy custom domains by name from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get reverse proxy custom domains from store")
+	}
+
+	return domains, nil
+}
+
+// ListAllCustomDomains returns every custom domain row in the store.
+func (s *SqlStore) ListAllCustomDomains(ctx context.Context) ([]*domain.Domain, error) {
+	var domains []*domain.Domain
+	result := s.db.Find(&domains)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get all reverse proxy custom domains from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get reverse proxy custom domains from store")
+	}
+
+	return domains, nil
+}
+
+func (s *SqlStore) CreateCustomDomain(ctx context.Context, accountID string, domainName string, targetCluster string, validated bool, claimedAt time.Time) (*domain.Domain, error) {
 	newDomain := &domain.Domain{
 		ID:            xid.New().String(), // Generate our own ID because gorm doesn't always configure the database to handle this for us.
 		Domain:        domainName,
@@ -5666,9 +5691,18 @@ func (s *SqlStore) CreateCustomDomain(ctx context.Context, accountID string, dom
 		TargetCluster: targetCluster,
 		Type:          domain.TypeCustom,
 		Validated:     validated,
+		ClaimedAt:     claimedAt,
 	}
 	result := s.db.Create(newDomain)
 	if result.Error != nil {
+		// The account/domain unique index is the backstop for a create that
+		// races the manager's pre-check. Report it as a conflict rather than
+		// letting a constraint violation surface as an internal error.
+		var count int64
+		if err := s.db.Model(&domain.Domain{}).Where("account_id = ? AND domain = ?", accountID, domainName).Count(&count).Error; err == nil && count > 0 {
+			return nil, status.Errorf(status.AlreadyExists, "domain is already registered")
+		}
+
 		log.WithContext(ctx).Errorf("failed to create reverse proxy custom domain to store: %v", result.Error)
 		return nil, status.Errorf(status.Internal, "failed to create reverse proxy custom domain to store")
 	}

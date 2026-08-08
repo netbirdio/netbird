@@ -381,6 +381,38 @@ func DropIndex[T any](ctx context.Context, db *gorm.DB, indexName string) error 
 	return nil
 }
 
+// DropUniqueConstraint removes a single-column unique constraint that a model
+// no longer declares. Dialects disagree on how such a constraint is stored:
+// SQLite and Postgres keep it as a table constraint, MySQL exposes it as an
+// index, so both are attempted before giving up.
+func DropUniqueConstraint[T any](ctx context.Context, db *gorm.DB, constraintName string) error {
+	var model T
+
+	if !db.Migrator().HasTable(&model) {
+		log.WithContext(ctx).Debugf("table for %T does not exist, no migration needed", model)
+		return nil
+	}
+
+	if db.Migrator().HasConstraint(&model, constraintName) {
+		if err := db.Migrator().DropConstraint(&model, constraintName); err != nil {
+			return fmt.Errorf("drop constraint %s: %w", constraintName, err)
+		}
+		log.WithContext(ctx).Infof("dropped unique constraint %s from table %T", constraintName, model)
+		return nil
+	}
+
+	if db.Migrator().HasIndex(&model, constraintName) {
+		if err := db.Migrator().DropIndex(&model, constraintName); err != nil {
+			return fmt.Errorf("drop index %s: %w", constraintName, err)
+		}
+		log.WithContext(ctx).Infof("dropped unique index %s from table %T", constraintName, model)
+		return nil
+	}
+
+	log.WithContext(ctx).Debugf("unique constraint %s does not exist on table %T, no migration needed", constraintName, model)
+	return nil
+}
+
 func CreateIndexIfNotExists[T any](ctx context.Context, db *gorm.DB, indexName string, columns ...string) error {
 	var model T
 

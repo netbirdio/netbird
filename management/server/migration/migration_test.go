@@ -17,6 +17,7 @@ import (
 	"gorm.io/gorm"
 
 	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
 	"github.com/netbirdio/netbird/management/server/migration"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/testutil"
@@ -735,4 +736,84 @@ func TestFoldCostAggregatesIntoBuckets_SkipsAlreadyMigrated(t *testing.T) {
 	assert.InDelta(t, 0.003, row.CacheCreationCostUSD, 1e-9)
 	assert.InDelta(t, 0.004, row.OutputCostUSD, 1e-9)
 	assert.InDelta(t, 0.01, row.TotalCostUSD(), 1e-9, "derived total sums the four buckets")
+}
+
+// legacyDomain mirrors the domains table as it was before claims became
+// per-account: the domain column carries a global unique constraint and there
+// is no claim date.
+type legacyDomain struct {
+	ID            string `gorm:"unique;primaryKey"`
+	Domain        string `gorm:"unique"`
+	AccountID     string `gorm:"index"`
+	TargetCluster string
+	Validated     bool
+}
+
+func (legacyDomain) TableName() string { return "domains" }
+
+// A database carrying an unvalidated row that blocks the name for everyone must
+// come out of the migration with that row dated and the name claimable by other
+// accounts, while duplicates within one account stay rejected.
+func TestDomainUniquenessMigration_WithBlockingUnvalidatedRow(t *testing.T) {
+	ctx := context.Background()
+	db := setupDatabase(t)
+	t.Cleanup(func() {
+		require.NoError(t, db.Migrator().DropTable("domains"))
+	})
+
+	require.NoError(t, db.AutoMigrate(&legacyDomain{}), "failed to create the legacy domains table")
+
+	require.NoError(t, db.Create(&legacyDomain{
+		ID:            "dom-1",
+		Domain:        "shared.example.com",
+		AccountID:     "account-a",
+		TargetCluster: "eu.proxy.test",
+	}).Error)
+
+	blocked := db.Create(&legacyDomain{
+		ID:        "dom-2",
+		Domain:    "shared.example.com",
+		AccountID: "account-b",
+	}).Error
+	require.Error(t, blocked, "the legacy schema must block the second account, otherwise this test proves nothing")
+
+	require.NoError(t, migration.DropUniqueConstraint[domain.Domain](ctx, db, "uni_domains_domain"))
+	require.NoError(t, db.AutoMigrate(&domain.Domain{}))
+
+	migratedAt := time.Now().UTC()
+	require.NoError(t, migration.MigrateNewField[domain.Domain](ctx, db, "claimed_at", migratedAt))
+
+	var existing domain.Domain
+	require.NoError(t, db.Take(&existing, "id = ?", "dom-1").Error)
+	assert.False(t, existing.ClaimedAt.IsZero(), "the pre-existing claim must be dated so it can expire")
+
+	require.NoError(t, db.Create(&domain.Domain{
+		ID:        "dom-3",
+		Domain:    "shared.example.com",
+		AccountID: "account-b",
+	}).Error, "another account must be able to claim a name nobody has validated")
+
+	duplicate := db.Create(&domain.Domain{
+		ID:        "dom-4",
+		Domain:    "shared.example.com",
+		AccountID: "account-a",
+	}).Error
+	assert.Error(t, duplicate, "an account must not hold the same domain twice")
+}
+
+// The migration is a no-op on a database that never had the global constraint.
+func TestDomainUniquenessMigration_Idempotent(t *testing.T) {
+	ctx := context.Background()
+	db := setupDatabase(t)
+	t.Cleanup(func() {
+		require.NoError(t, db.Migrator().DropTable("domains"))
+	})
+
+	require.NoError(t, db.AutoMigrate(&domain.Domain{}))
+
+	require.NoError(t, migration.DropUniqueConstraint[domain.Domain](ctx, db, "uni_domains_domain"))
+	require.NoError(t, migration.DropUniqueConstraint[domain.Domain](ctx, db, "uni_domains_domain"))
+
+	require.NoError(t, db.Create(&domain.Domain{ID: "dom-1", Domain: "a.example.com", AccountID: "account-a"}).Error)
+	require.NoError(t, db.Create(&domain.Domain{ID: "dom-2", Domain: "a.example.com", AccountID: "account-b"}).Error)
 }

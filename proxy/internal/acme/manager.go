@@ -299,11 +299,21 @@ func (mgr *Manager) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate
 // static wildcard certificate) and the method returns true. All other
 // domains go through ACME prefetch and the method returns false.
 //
+// domainValidated carries management's ownership verdict for the domain. A
+// domain that failed it is not registered and no order is placed: an ACME
+// order for a name the account has not proven it controls burns the cluster's
+// issuance rate limit and would hand out a certificate for someone else's host.
+//
 // When AddDomain returns true the caller is responsible for sending any
 // certificate-ready notifications after the surrounding operation (e.g.
 // mapping update) has committed successfully.
-func (mgr *Manager) AddDomain(d domain.Domain, accountID types.AccountID, serviceID types.ServiceID) (wildcardHit bool) {
+func (mgr *Manager) AddDomain(d domain.Domain, accountID types.AccountID, serviceID types.ServiceID, domainValidated bool) (wildcardHit bool) {
 	name := d.PunycodeString()
+
+	if !domainValidated {
+		mgr.logger.Warnf("refusing certificate management for unvalidated domain %q", name)
+		return false
+	}
 	if e := mgr.findWildcardEntry(name); e != nil {
 		mgr.mu.Lock()
 		mgr.domains[d] = &domainInfo{

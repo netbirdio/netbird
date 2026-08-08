@@ -34,7 +34,7 @@ func TestSynthesizeServices_RealStore_LogCollectionOff_SuppressesAccessLog(t *te
 	assert.True(t, services[0].Targets[0].Options.DisableAccessLog,
 		"EnableLogCollection=false (default) must produce DisableAccessLog=true on the synth target")
 
-	mapping := services[0].ToProtoMapping(rpservice.Update, "", rpproxy.OIDCValidationConfig{})
+	mapping := services[0].ToProtoMapping(rpservice.Update, "", rpproxy.OIDCValidationConfig{}, true)
 	require.NotEmpty(t, mapping.GetPath(), "proto mapping must carry a path")
 	assert.True(t, mapping.GetPath()[0].GetOptions().GetDisableAccessLog(),
 		"proto mapping must propagate DisableAccessLog=true so the proxy suppresses access-log emission")
@@ -63,7 +63,7 @@ func TestSynthesizeServices_RealStore_LogCollectionOn_PermitsAccessLog(t *testin
 	assert.False(t, services[0].Targets[0].Options.DisableAccessLog,
 		"EnableLogCollection=true must leave DisableAccessLog=false on the synth target")
 
-	mapping := services[0].ToProtoMapping(rpservice.Update, "", rpproxy.OIDCValidationConfig{})
+	mapping := services[0].ToProtoMapping(rpservice.Update, "", rpproxy.OIDCValidationConfig{}, true)
 	require.NotEmpty(t, mapping.GetPath(), "proto mapping must carry a path")
 	assert.False(t, mapping.GetPath()[0].GetOptions().GetDisableAccessLog(),
 		"proto mapping must propagate DisableAccessLog=false so access-log emission stays on")

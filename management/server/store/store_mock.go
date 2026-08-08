@@ -283,18 +283,18 @@ func (mr *MockStoreMockRecorder) CreateAgentNetworkUsage(ctx, usage, groups inte
 }
 
 // CreateCustomDomain mocks base method.
-func (m *MockStore) CreateCustomDomain(ctx context.Context, accountID, domainName, targetCluster string, validated bool) (*domain.Domain, error) {
+func (m *MockStore) CreateCustomDomain(ctx context.Context, accountID, domainName, targetCluster string, validated bool, claimedAt time.Time) (*domain.Domain, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateCustomDomain", ctx, accountID, domainName, targetCluster, validated)
+	ret := m.ctrl.Call(m, "CreateCustomDomain", ctx, accountID, domainName, targetCluster, validated, claimedAt)
 	ret0, _ := ret[0].(*domain.Domain)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // CreateCustomDomain indicates an expected call of CreateCustomDomain.
-func (mr *MockStoreMockRecorder) CreateCustomDomain(ctx, accountID, domainName, targetCluster, validated interface{}) *gomock.Call {
+func (mr *MockStoreMockRecorder) CreateCustomDomain(ctx, accountID, domainName, targetCluster, validated, claimedAt interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateCustomDomain", reflect.TypeOf((*MockStore)(nil).CreateCustomDomain), ctx, accountID, domainName, targetCluster, validated)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateCustomDomain", reflect.TypeOf((*MockStore)(nil).CreateCustomDomain), ctx, accountID, domainName, targetCluster, validated, claimedAt)
 }
 
 // CreateDNSRecord mocks base method.
@@ -3073,6 +3073,21 @@ func (mr *MockStoreMockRecorder) ListAgentNetworkConsumption(ctx, lockStrength, 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAgentNetworkConsumption", reflect.TypeOf((*MockStore)(nil).ListAgentNetworkConsumption), ctx, lockStrength, accountID)
 }
 
+// ListAllCustomDomains mocks base method.
+func (m *MockStore) ListAllCustomDomains(ctx context.Context) ([]*domain.Domain, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListAllCustomDomains", ctx)
+	ret0, _ := ret[0].([]*domain.Domain)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListAllCustomDomains indicates an expected call of ListAllCustomDomains.
+func (mr *MockStoreMockRecorder) ListAllCustomDomains(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAllCustomDomains", reflect.TypeOf((*MockStore)(nil).ListAllCustomDomains), ctx)
+}
+
 // ListCustomDomains mocks base method.
 func (m *MockStore) ListCustomDomains(ctx context.Context, accountID string) ([]*domain.Domain, error) {
 	m.ctrl.T.Helper()
@@ -3086,6 +3101,21 @@ func (m *MockStore) ListCustomDomains(ctx context.Context, accountID string) ([]
 func (mr *MockStoreMockRecorder) ListCustomDomains(ctx, accountID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListCustomDomains", reflect.TypeOf((*MockStore)(nil).ListCustomDomains), ctx, accountID)
+}
+
+// ListCustomDomainsByName mocks base method.
+func (m *MockStore) ListCustomDomainsByName(ctx context.Context, domainName string) ([]*domain.Domain, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListCustomDomainsByName", ctx, domainName)
+	ret0, _ := ret[0].([]*domain.Domain)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListCustomDomainsByName indicates an expected call of ListCustomDomainsByName.
+func (mr *MockStoreMockRecorder) ListCustomDomainsByName(ctx, domainName interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListCustomDomainsByName", reflect.TypeOf((*MockStore)(nil).ListCustomDomainsByName), ctx, domainName)
 }
 
 // ListFreeDomains mocks base method.

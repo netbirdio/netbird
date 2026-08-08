@@ -62,9 +62,9 @@ func assertGetAccountLoadsCustomDomains(t *testing.T, store Store) {
 	accountID := "acct-custom-domains"
 	require.NoError(t, store.SaveAccount(ctx, newAccountWithId(ctx, accountID, "user-1", "")))
 
-	_, err := store.CreateCustomDomain(ctx, accountID, "example.com", "eu.proxy.netbird.io", true)
+	_, err := store.CreateCustomDomain(ctx, accountID, "example.com", "eu.proxy.netbird.io", true, time.Now().UTC())
 	require.NoError(t, err, "creating the first custom domain must succeed")
-	_, err = store.CreateCustomDomain(ctx, accountID, "apps.acme.io", "us.proxy.netbird.io", false)
+	_, err = store.CreateCustomDomain(ctx, accountID, "apps.acme.io", "us.proxy.netbird.io", false, time.Now().UTC())
 	require.NoError(t, err, "creating the second custom domain must succeed")
 
 	account, err := store.GetAccount(ctx, accountID)

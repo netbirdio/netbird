@@ -238,7 +238,7 @@ func TestToProtoMapping_TargetOptions(t *testing.T) {
 			},
 		},
 	}
-	pm := rp.ToProtoMapping(Create, "token", proxy.OIDCValidationConfig{})
+	pm := rp.ToProtoMapping(Create, "token", proxy.OIDCValidationConfig{}, true)
 	require.Len(t, pm.Path, 1)
 
 	opts := pm.Path[0].Options
@@ -266,7 +266,7 @@ func TestToProtoMapping_NoOptionsWhenDefault(t *testing.T) {
 			},
 		},
 	}
-	pm := rp.ToProtoMapping(Create, "token", proxy.OIDCValidationConfig{})
+	pm := rp.ToProtoMapping(Create, "token", proxy.OIDCValidationConfig{}, true)
 	require.Len(t, pm.Path, 1)
 	assert.Nil(t, pm.Path[0].Options, "options should be nil when all defaults")
 }
@@ -447,7 +447,7 @@ func TestToProtoMapping_PortInTargetURL(t *testing.T) {
 					},
 				},
 			}
-			pm := rp.ToProtoMapping(Create, "token", oidcConfig)
+			pm := rp.ToProtoMapping(Create, "token", oidcConfig, true)
 			require.Len(t, pm.Path, 1, "should have one path mapping")
 			assert.Equal(t, tt.wantTarget, pm.Path[0].Target)
 		})
@@ -464,7 +464,7 @@ func TestToProtoMapping_DisabledTargetSkipped(t *testing.T) {
 			{TargetId: "peer-2", TargetType: TargetTypePeer, Host: "10.0.0.2", Port: 9090, Protocol: "http", Enabled: true},
 		},
 	}
-	pm := rp.ToProtoMapping(Create, "token", proxy.OIDCValidationConfig{})
+	pm := rp.ToProtoMapping(Create, "token", proxy.OIDCValidationConfig{}, true)
 	require.Len(t, pm.Path, 1)
 	assert.Equal(t, "http://10.0.0.2:9090/", pm.Path[0].Target)
 }
@@ -481,7 +481,7 @@ func TestToProtoMapping_OperationTypes(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(string(tt.op), func(t *testing.T) {
-			pm := rp.ToProtoMapping(tt.op, "", proxy.OIDCValidationConfig{})
+			pm := rp.ToProtoMapping(tt.op, "", proxy.OIDCValidationConfig{}, true)
 			assert.Equal(t, tt.want, pm.Type)
 		})
 	}
