@@ -119,7 +119,20 @@ type kubernetesCluster struct {
 	version string
 }
 
+type addressResolver interface {
+	LookupAddr(ctx context.Context, addr string) ([]string, error)
+}
+
 func getKubernetesClusters(ctx context.Context, peers []*proto.PeerState, nameFilter string) ([]kubernetesCluster, error) {
+	resolver := &net.Resolver{
+		// Required so both DNS records are returned.
+		// https://github.com/golang/go/issues/17093
+		PreferGo: true,
+	}
+	return getKubernetesClustersWithResolver(ctx, peers, nameFilter, resolver)
+}
+
+func getKubernetesClustersWithResolver(ctx context.Context, peers []*proto.PeerState, nameFilter string, resolver addressResolver) ([]kubernetesCluster, error) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = &tls.Config{
 		InsecureSkipVerify: true,
@@ -127,18 +140,14 @@ func getKubernetesClusters(ctx context.Context, peers []*proto.PeerState, nameFi
 	httpClient := &http.Client{
 		Transport: transport,
 	}
-	resolver := net.Resolver{
-		// Required so both DNS records are returned.
-		// https://github.com/golang/go/issues/17093
-		PreferGo: true,
-	}
 
 	kcs := []kubernetesCluster{}
 	attempted := map[string]struct{}{}
 	for _, peer := range peers {
 		fqdns, err := resolver.LookupAddr(ctx, peer.IP)
 		if err != nil {
-			return nil, err
+			log.Debugf("could not resolve peer %s: %v", peer.IP, err)
+			continue
 		}
 		for _, fqdn := range fqdns {
 			if _, ok := attempted[fqdn]; ok {
