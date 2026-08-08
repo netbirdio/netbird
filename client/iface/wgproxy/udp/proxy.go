@@ -16,6 +16,7 @@ import (
 	cerrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/iface/bufsize"
 	"github.com/netbirdio/netbird/client/iface/wgproxy/listener"
+	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
 // WGUDPProxy proxies
@@ -63,6 +64,8 @@ func (p *WGUDPProxy) AddTurnConn(ctx context.Context, _ *net.UDPAddr, remoteConn
 		log.Errorf("failed dialing to local Wireguard port %s", err)
 		return err
 	}
+
+	nbnet.SizeRelaySocketBuffers(localConn)
 
 	p.ctx, p.cancel = context.WithCancel(ctx)
 	p.localConn = localConn

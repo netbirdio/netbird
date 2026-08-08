@@ -61,6 +61,10 @@ func (d Dialer) Dial(ctx context.Context, address, serverName string) (net.Conn,
 	if err != nil {
 		return nil, fmt.Errorf("listen udp: %w", err)
 	}
+	// quic.Dial takes ownership of this socket but leaves its buffers at the OS
+	// default; size it so a busy relay path does not drop datagrams on a full
+	// kernel buffer.
+	nbnet.SizeRelaySocketBuffers(udpConn)
 
 	udpAddr, err := net.ResolveUDPAddr("udp", quicURL)
 	if err != nil {
