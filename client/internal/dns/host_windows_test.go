@@ -8,6 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/windows/registry"
+
+	"github.com/netbirdio/netbird/client/internal/dns/dnsfw"
 )
 
 // TestNRPTEntriesCleanupOnConfigChange tests that old NRPT entries are properly cleaned up
@@ -34,8 +36,9 @@ func TestNRPTEntriesCleanupOnConfigChange(t *testing.T) {
 	}()
 
 	cfg := &registryConfigurator{
-		guid: testGUID,
-		gpo:  false,
+		guid:        testGUID,
+		gpo:         false,
+		dnsFirewall: dnsfw.New(),
 	}
 
 	// Create 125 domains which will result in 3 NRPT rules (50+50+25)
@@ -134,8 +137,9 @@ func TestNRPTDomainBatching(t *testing.T) {
 	}()
 
 	cfg := &registryConfigurator{
-		guid: testGUID,
-		gpo:  false,
+		guid:        testGUID,
+		gpo:         false,
+		dnsFirewall: dnsfw.New(),
 	}
 
 	testCases := []struct {
