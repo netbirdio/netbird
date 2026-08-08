@@ -2,6 +2,7 @@ package messages
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
 )
@@ -31,6 +32,12 @@ const (
 	MsgTypePeersOnline          = 10
 	MsgTypePeersWentOffline     = 11
 
+	// MsgTypeTransportBatch carries several packets destined to the same peer in
+	// one frame, so one WS/TLS record + one TCP syscall replaces one per packet.
+	// It shares the transport header (dest peerID at offsetTransportID), so the
+	// relay routes it via the same opaque forward path as MsgTypeTransport.
+	MsgTypeTransportBatch = 12
+
 	// base size of the message
 	sizeOfVersionByte = 1
 	sizeOfMsgType     = 1
@@ -47,6 +54,10 @@ const (
 	headerSizeTransport      = peerIDSize
 	offsetTransportID        = sizeOfProtoHeader
 	headerTotalSizeTransport = sizeOfProtoHeader + headerSizeTransport
+
+	// transport batch: header is identical to transport, followed by repeated
+	// [uint16 length][payload] entries.
+	sizeOfBatchLenPrefix = 2
 )
 
 var (
@@ -72,6 +83,8 @@ func (m MsgType) String() string {
 		return "auth response"
 	case MsgTypeTransport:
 		return "transport"
+	case MsgTypeTransportBatch:
+		return "transport batch"
 	case MsgTypeClose:
 		return "close"
 	case MsgTypeHealthCheck:
@@ -112,6 +125,7 @@ func DetermineClientMessageType(msg []byte) (MsgType, error) {
 	case
 		MsgTypeAuth,
 		MsgTypeTransport,
+		MsgTypeTransportBatch,
 		MsgTypeClose,
 		MsgTypeHealthCheck,
 		MsgTypeSubscribePeerState,
@@ -133,6 +147,7 @@ func DetermineServerMessageType(msg []byte) (MsgType, error) {
 	case
 		MsgTypeAuthResponse,
 		MsgTypeTransport,
+		MsgTypeTransportBatch,
 		MsgTypeClose,
 		MsgTypeHealthCheck,
 		MsgTypePeersOnline,
@@ -238,6 +253,58 @@ func UnmarshalTransportMsg(buf []byte) (*PeerID, []byte, error) {
 	var peerID PeerID
 	copy(peerID[:], buf[offsetTransportID:offsetEnd])
 	return &peerID, buf[headerTotalSizeTransport:], nil
+}
+
+// TransportBatchHeader returns a fresh batch frame containing only the header
+// (version, MsgTypeTransportBatch, dest peerID). Callers append packed payloads
+// with AppendBatchPayload. The header matches the transport header, so the relay
+// routes the frame through the same opaque forward path.
+func TransportBatchHeader(peerID PeerID) []byte {
+	h := make([]byte, headerTotalSizeTransport, MaxMessageSize)
+	h[0] = byte(CurrentProtocolVersion)
+	h[1] = byte(MsgTypeTransportBatch)
+	copy(h[offsetTransportID:], peerID[:])
+	return h
+}
+
+// AppendBatchPayload appends a [uint16 length][payload] entry to a batch frame
+// and returns the extended frame. It reports whether the payload fits a uint16
+// length (WireGuard packets always do); an oversized payload is not appended.
+func AppendBatchPayload(frame, payload []byte) ([]byte, bool) {
+	if len(payload) > 0xFFFF {
+		return frame, false
+	}
+	var lp [sizeOfBatchLenPrefix]byte
+	binary.BigEndian.PutUint16(lp[:], uint16(len(payload)))
+	frame = append(frame, lp[:]...)
+	return append(frame, payload...), true
+}
+
+// UnmarshalTransportBatch extracts the peerID and each packed payload from a
+// batch frame. The returned payload slices alias buf.
+func UnmarshalTransportBatch(buf []byte) (*PeerID, [][]byte, error) {
+	if len(buf) < headerTotalSizeTransport {
+		return nil, nil, ErrInvalidMessageLength
+	}
+
+	const offsetEnd = offsetTransportID + peerIDSize
+	var peerID PeerID
+	copy(peerID[:], buf[offsetTransportID:offsetEnd])
+
+	var payloads [][]byte
+	for off := headerTotalSizeTransport; off < len(buf); {
+		if off+sizeOfBatchLenPrefix > len(buf) {
+			return nil, nil, ErrInvalidMessageLength
+		}
+		l := int(binary.BigEndian.Uint16(buf[off:]))
+		off += sizeOfBatchLenPrefix
+		if off+l > len(buf) {
+			return nil, nil, ErrInvalidMessageLength
+		}
+		payloads = append(payloads, buf[off:off+l])
+		off += l
+	}
+	return &peerID, payloads, nil
 }
 
 // UnmarshalTransportID extracts the peerID from the transport message.
