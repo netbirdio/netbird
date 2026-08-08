@@ -361,6 +361,26 @@ func createTestAccountsAndUsers(t *testing.T, ctx context.Context, testStore sto
 	}
 	require.NoError(t, testStore.SaveUser(ctx, allowedUser))
 
+	// A second tenant, whose users must never be issued a token signed with
+	// the first tenant's service session key.
+	otherAccount := &types.Account{
+		Id:                     "otherAccountId",
+		Domain:                 "other.com",
+		DomainCategory:         "private",
+		IsDomainPrimaryAccount: true,
+		CreatedAt:              time.Now(),
+	}
+	require.NoError(t, testStore.SaveAccount(ctx, otherAccount))
+
+	otherAccountUser := &types.User{
+		Id:        "otherAccountUserId",
+		AccountID: "otherAccountId",
+		Role:      types.UserRoleUser,
+		CreatedAt: time.Now(),
+		Issued:    "api",
+	}
+	require.NoError(t, testStore.SaveUser(ctx, otherAccountUser))
+
 	// A user awaiting approval is stored as blocked and pending approval, and
 	// carries the same group membership as the approved one.
 	pendingUser := &types.User{
@@ -537,6 +557,12 @@ func TestAuthCallback_UserDeniedByAccountStatus(t *testing.T) {
 		{
 			name:            "unknown to management",
 			subject:         "userMissingFromStoreId",
+			expectErrorDesc: "Service configuration error",
+		},
+		{
+			// The account topology stays out of the browser-visible message.
+			name:            "belongs to another account",
+			subject:         "otherAccountUserId",
 			expectErrorDesc: "Service configuration error",
 		},
 	}

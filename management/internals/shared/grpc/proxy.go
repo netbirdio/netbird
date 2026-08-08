@@ -1647,6 +1647,18 @@ func (s *ProxyServiceServer) GenerateSessionToken(ctx context.Context, domain, u
 		return "", fmt.Errorf("get user %s: %w", userID, err)
 	}
 
+	if user == nil {
+		return "", fmt.Errorf("get user %s: %w", userID, errUserUnresolved)
+	}
+
+	// Bind the OIDC identity to the service's account before signing anything
+	// with that service's session key. The proxy validates an installed cookie
+	// locally against the service public key, so a token minted for a user of
+	// another account would be honoured without a management round-trip.
+	if user.AccountID != service.AccountID {
+		return "", fmt.Errorf("user %s does not belong to the service account", userID)
+	}
+
 	if _, err := checkUserStatus(user); err != nil {
 		return "", fmt.Errorf("session token for user %s: %w", userID, err)
 	}
