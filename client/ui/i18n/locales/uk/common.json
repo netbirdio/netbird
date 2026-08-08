@@ -551,6 +551,12 @@
     "settings.general.autostart.errorTitle": {
         "message": "Помилка зміни автозапуску"
     },
+    "settings.general.keepConnectedOnQuit.label": {
+        "message": "Залишатися підключеним після виходу"
+    },
+    "settings.general.keepConnectedOnQuit.help": {
+        "message": "Підключення залишатиметься активним у фоновому режимі після закриття NetBird. Воно буде розірвано лише тоді, коли ви відключите його самостійно."
+    },
     "settings.general.language.label": {
         "message": "Мова інтерфейсу"
     },
@@ -570,10 +576,10 @@
         "message": "Підключайтеся до NetBird Cloud або власного сервера керування. Зміни призведуть до перепідключення клієнта."
     },
     "settings.general.management.cloud": {
-        "message": "Cloud"
+        "message": "Хмара"
     },
     "settings.general.management.selfHosted": {
-        "message": "Self-hosted"
+        "message": "Власний сервер"
     },
     "settings.general.management.urlPlaceholder": {
         "message": "https://netbird.selfhosted.com:443"
@@ -588,7 +594,7 @@
         "message": "Перемкнутися на NetBird Cloud?"
     },
     "settings.general.management.switchCloudMessage": {
-        "message": "Це відключить вас від self-hosted сервера.\nВам може знадобитися увійти знову."
+        "message": "Це відключить вас від власного сервера.\nВам може знадобитися увійти знову."
     },
     "settings.general.management.switchCloudConfirm": {
         "message": "Перемкнутися на Cloud"
