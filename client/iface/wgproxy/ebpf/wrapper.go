@@ -8,15 +8,34 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"sync"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/net/ipv4"
 
 	"github.com/netbirdio/netbird/client/iface/bufsize"
 	"github.com/netbirdio/netbird/client/iface/wgproxy/listener"
 )
+
+// injectBatchSize bounds how many relayed packets are drained and injected into
+// the local WireGuard socket per sendmmsg. Matches wireguard-go's IdealBatchSize.
+const injectBatchSize = 128
+
+// batchReader is the optional interface a relay conn implements to hand several
+// packets over in one call (satisfied structurally by the relay client *Conn).
+type batchReader interface {
+	ReadBatch(bufs [][]byte, sizes []int) (n int, err error)
+}
+
+// batchWriteConn is the subset of x/net ipv4/ipv6 PacketConn used to write a
+// batch of packets with one sendmmsg. ipv4.Message and ipv6.Message are the same
+// underlying type, so both PacketConns satisfy this with []ipv4.Message.
+type batchWriteConn interface {
+	WriteBatch(ms []ipv4.Message, flags int) (int, error)
+}
 
 var (
 	errIPv6ConnNotAvailable = errors.New("IPv6 endpoint but rawConnIPv6 is not available")
@@ -110,6 +129,11 @@ type ProxyWrapper struct {
 	pausedCond *sync.Cond
 	isStarted  bool
 
+	// batchInject enables draining several relayed packets and injecting them
+	// with one sendmmsg. Gated by NB_RELAY_INJECT_BATCH so the per-packet path
+	// stays the default until the batch path is proven in the field.
+	batchInject bool
+
 	closeListener *listener.CloseListener
 }
 
@@ -145,6 +169,7 @@ func (p *ProxyWrapper) AddTurnConn(ctx context.Context, _ *net.UDPAddr, remoteCo
 	p.wgRelayedEndpointAddr = addr
 	p.headers = headers
 	p.rawConn = p.selectRawConn(headers)
+	p.batchInject = os.Getenv("NB_RELAY_INJECT_BATCH") == "true"
 	return nil
 }
 
@@ -254,6 +279,13 @@ func (p *ProxyWrapper) CloseConn() error {
 func (p *ProxyWrapper) proxyToLocal(ctx context.Context) {
 	defer p.wgeBPFProxy.removeTurnConn(uint16(p.wgRelayedEndpointAddr.Port))
 
+	if p.batchInject {
+		if br, ok := p.remoteConn.(batchReader); ok {
+			p.proxyToLocalBatch(ctx, br)
+			return
+		}
+	}
+
 	buf := make([]byte, p.wgeBPFProxy.mtu+bufsize.WGBufferOverhead)
 	for {
 		n, err := p.readFromRemote(ctx, buf)
@@ -276,6 +308,105 @@ func (p *ProxyWrapper) proxyToLocal(ctx context.Context) {
 			log.Errorf("failed to write out turn pkg to local conn: %v", err)
 		}
 	}
+}
+
+// proxyToLocalBatch drains up to injectBatchSize relayed packets per wake and
+// injects them into the local WireGuard socket with a single sendmmsg. Blocks
+// for the first packet, then takes whatever is already queued, so a steady flow
+// batches while a sparse one still injects each packet immediately.
+func (p *ProxyWrapper) proxyToLocalBatch(ctx context.Context, br batchReader) {
+	bufSize := int(p.wgeBPFProxy.mtu) + bufsize.WGBufferOverhead
+	bufs := make([][]byte, injectBatchSize)
+	sizes := make([]int, injectBatchSize)
+	sbs := make([]gopacket.SerializeBuffer, injectBatchSize)
+	msgs := make([]ipv4.Message, injectBatchSize)
+	for i := range bufs {
+		bufs[i] = make([]byte, bufSize)
+		sbs[i] = gopacket.NewSerializeBuffer()
+		msgs[i].Buffers = make([][]byte, 1)
+	}
+
+	for {
+		n, err := br.ReadBatch(bufs, sizes)
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			p.closeListener.Notify()
+			if !errors.Is(err, io.EOF) && !errors.Is(err, net.ErrClosed) {
+				log.Errorf("failed to read batch from turn conn (endpoint: :%d): %s", p.wgRelayedEndpointAddr.Port, err)
+			}
+			return
+		}
+
+		p.pausedCond.L.Lock()
+		for p.paused {
+			p.pausedCond.Wait()
+		}
+		header := p.headerCurrentUsed
+		batchConn := p.selectBatchConn(header)
+		werr := p.sendBatch(header, batchConn, bufs, sizes, n, sbs, msgs)
+		p.pausedCond.L.Unlock()
+
+		if werr != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			log.Errorf("failed to write out turn batch to local conn: %v", werr)
+		}
+	}
+}
+
+// sendBatch serializes n packets (each into its own reused buffer, since lengths
+// and checksums differ) and writes them with one or more WriteBatch calls.
+func (p *ProxyWrapper) sendBatch(header *PacketHeaders, batchConn batchWriteConn, bufs [][]byte, sizes []int, n int, sbs []gopacket.SerializeBuffer, msgs []ipv4.Message) error {
+	if batchConn == nil {
+		return errors.New("batch conn not available")
+	}
+	dstAddr := &net.IPAddr{IP: header.localHostAddr}
+	for i := 0; i < n; i++ {
+		payload := gopacket.Payload(bufs[i][:sizes[i]])
+		if err := gopacket.SerializeLayers(sbs[i], serializeOpts, header.ipH, header.udpH, payload); err != nil {
+			return fmt.Errorf("serialize layers: %w", err)
+		}
+		msgs[i].Buffers[0] = sbs[i].Bytes()
+		msgs[i].Addr = dstAddr
+		msgs[i].N = 0
+	}
+
+	var werr error
+	for off := 0; off < n; {
+		w, err := batchConn.WriteBatch(msgs[off:n], 0)
+		if err != nil {
+			werr = err
+			break
+		}
+		if w <= 0 {
+			werr = fmt.Errorf("write batch made no progress at %d/%d", off, n)
+			break
+		}
+		off += w
+	}
+
+	for i := 0; i < n; i++ {
+		if err := sbs[i].Clear(); err != nil {
+			log.Errorf("failed to clear layer buffer: %s", err)
+		}
+	}
+	return werr
+}
+
+func (p *ProxyWrapper) selectBatchConn(header *PacketHeaders) batchWriteConn {
+	if header.isIPv4 {
+		if p.wgeBPFProxy.batchConnIPv4 == nil {
+			return nil
+		}
+		return p.wgeBPFProxy.batchConnIPv4
+	}
+	if p.wgeBPFProxy.batchConnIPv6 == nil {
+		return nil
+	}
+	return p.wgeBPFProxy.batchConnIPv6
 }
 
 func (p *ProxyWrapper) readFromRemote(ctx context.Context, buf []byte) (int, error) {
