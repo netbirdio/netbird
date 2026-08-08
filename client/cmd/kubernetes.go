@@ -145,14 +145,8 @@ func getKubernetesClustersWithResolver(ctx context.Context, peers []*proto.PeerS
 	kcs := []kubernetesCluster{}
 	attempted := map[string]struct{}{}
 	for _, peer := range peers {
-		peerAddr, err := netip.ParseAddr(peer.IP)
-		if err != nil {
-			log.Debugf("could not parse peer IP %s: %v", peer.IP, err)
-			continue
-		}
-		fqdns, err := resolver.LookupAddr(ctx, peerAddr.Unmap().String())
-		if err != nil {
-			log.Debugf("could not resolve peer %s: %v", peer.IP, err)
+		fqdns := lookupPeerFQDNs(ctx, resolver, peer)
+		if len(fqdns) == 0 {
 			continue
 		}
 		for _, fqdn := range fqdns {
@@ -187,6 +181,20 @@ func getKubernetesClustersWithResolver(ctx context.Context, peers []*proto.PeerS
 		}
 	}
 	return kcs, nil
+}
+
+func lookupPeerFQDNs(ctx context.Context, resolver addressResolver, peer *proto.PeerState) []string {
+	peerAddr, err := netip.ParseAddr(peer.IP)
+	if err != nil {
+		log.Debugf("could not parse peer IP %s: %v", peer.IP, err)
+		return nil
+	}
+	fqdns, err := resolver.LookupAddr(ctx, peerAddr.Unmap().String())
+	if err != nil {
+		log.Debugf("could not resolve peer %s: %v", peer.IP, err)
+		return nil
+	}
+	return fqdns
 }
 
 func fingerprintClusters(ctx context.Context, httpClient *http.Client, fqdn string) (*url.URL, string, error) {
