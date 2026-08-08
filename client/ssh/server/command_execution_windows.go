@@ -370,11 +370,6 @@ func (s *Server) detectSuPtySupport(context.Context) bool {
 	return false
 }
 
-// detectUtilLinuxLogin always returns false on Windows
-func (s *Server) detectUtilLinuxLogin(context.Context) bool {
-	return false
-}
-
 // executeCommandWithPty executes a command with PTY allocation on Windows using ConPty
 func (s *Server) executeCommandWithPty(logger *log.Entry, session ssh.Session, _ *exec.Cmd, privilegeResult PrivilegeCheckResult, ptyReq ssh.Pty, _ <-chan ssh.Window) bool {
 	localUser := privilegeResult.User
