@@ -5658,6 +5658,23 @@ func (s *SqlStore) ListCustomDomains(ctx context.Context, accountID string) ([]*
 	return domains, nil
 }
 
+// GetCustomDomainByName returns the custom domain row holding the given name,
+// regardless of which account owns it.
+func (s *SqlStore) GetCustomDomainByName(ctx context.Context, domainName string) (*domain.Domain, error) {
+	customDomain := &domain.Domain{}
+	result := s.db.Take(customDomain, "domain = ?", domainName)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "custom domain %s not found", domainName)
+		}
+
+		log.WithContext(ctx).Errorf("failed to get custom domain by name from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get custom domain from store")
+	}
+
+	return customDomain, nil
+}
+
 func (s *SqlStore) CreateCustomDomain(ctx context.Context, accountID string, domainName string, targetCluster string, validated bool) (*domain.Domain, error) {
 	newDomain := &domain.Domain{
 		ID:            xid.New().String(), // Generate our own ID because gorm doesn't always configure the database to handle this for us.
