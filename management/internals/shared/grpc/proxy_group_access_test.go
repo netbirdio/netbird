@@ -667,6 +667,7 @@ func TestValidateTunnelPeerOwnerStatus(t *testing.T) {
 		peerUserID         string
 		owner              *types.User
 		expectDeniedReason string
+		expectEmail        string
 	}{
 		{
 			name:       "active owner allowed",
@@ -689,6 +690,16 @@ func TestValidateTunnelPeerOwnerStatus(t *testing.T) {
 			name:       "unlinked machine peer stays allowed",
 			peerUserID: "",
 			owner:      &types.User{Id: userID, AccountID: accountID, Blocked: true},
+		},
+		{
+			// The user lookup is not account-scoped, so a peer row pointing at
+			// another account's user must not resolve into an owner: the peer is
+			// denied and the foreign email never reaches the response.
+			name:               "owner in another account denied and not disclosed",
+			peerUserID:         userID,
+			owner:              &types.User{Id: userID, AccountID: "otherAccount", Email: "foreign@example.com"},
+			expectDeniedReason: deniedReasonUserNotFound,
+			expectEmail:        peerName,
 		},
 	}
 
@@ -717,6 +728,10 @@ func TestValidateTunnelPeerOwnerStatus(t *testing.T) {
 			assert.Equal(t, tt.expectDeniedReason == "", resp.GetValid(), "unexpected access decision")
 			if tt.expectDeniedReason != "" {
 				assert.Empty(t, resp.GetSessionToken(), "a denied peer must not receive a session token")
+			}
+
+			if tt.expectEmail != "" {
+				assert.Equal(t, tt.expectEmail, resp.GetUserEmail(), "unexpected identity on the response")
 			}
 
 			// The status gate and the identity resolution share one lookup;

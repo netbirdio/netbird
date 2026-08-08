@@ -1998,7 +1998,7 @@ func (s *ProxyServiceServer) ValidateTunnelPeer(ctx context.Context, req *proto.
 	}
 
 	groupIDs, groupNames := pairGroupIDsAndNames(peerGroups)
-	owner := s.resolvePeerOwner(ctx, peer)
+	owner := s.resolvePeerOwner(ctx, peer, service.AccountID)
 	principalID, displayIdentity := s.getTunnelPeerInfo(ctx, domain, service, peer, owner)
 
 	if reason := peerOwnerDeniedReason(peer, owner); reason != "" {
@@ -2053,7 +2053,7 @@ func (s *ProxyServiceServer) ValidateTunnelPeer(ctx context.Context, req *proto.
 // Unlinked peers (machine agents) have no owner. A lookup that fails returns
 // nil rather than an error: both callers treat an unresolved owner the same
 // way, and neither may trust one it could not read.
-func (s *ProxyServiceServer) resolvePeerOwner(ctx context.Context, peer *peer.Peer) *types.User {
+func (s *ProxyServiceServer) resolvePeerOwner(ctx context.Context, peer *peer.Peer, accountID string) *types.User {
 	if peer.UserID == "" {
 		return nil
 	}
@@ -2061,6 +2061,15 @@ func (s *ProxyServiceServer) resolvePeerOwner(ctx context.Context, peer *peer.Pe
 	user, err := s.usersManager.GetUser(ctx, peer.UserID)
 	if err != nil {
 		log.WithContext(ctx).Debugf("ValidateTunnelPeer: look up owner %s of peer %s: %v", peer.UserID, peer.ID, err)
+		return nil
+	}
+
+	// The lookup is by user ID alone, so a peer row pointing outside the
+	// service's account would otherwise resolve a foreign user. Leave the owner
+	// unresolved instead: the gate denies it, and neither the response nor the
+	// minted token carries an identity from another account.
+	if !sameAccount(user.AccountID, accountID) {
+		log.WithContext(ctx).Debugf("ValidateTunnelPeer: owner %s of peer %s belongs to another account", peer.UserID, peer.ID)
 		return nil
 	}
 
