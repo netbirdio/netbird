@@ -316,6 +316,8 @@ func (mw *Middleware) handleOAuthCallbackError(w http.ResponseWriter, r *http.Re
 
 // forwardWithSessionCookie checks for a valid session cookie and, if found,
 // sets the user identity on the request context and forwards to the next handler.
+// OIDC cookies are revalidated via management ValidateSession so blocked/pending
+// users (and stale group membership) cannot ride a previously minted JWT until TTL.
 func (mw *Middleware) forwardWithSessionCookie(w http.ResponseWriter, r *http.Request, host string, config DomainConfig, next http.Handler) bool {
 	cookie, err := r.Cookie(auth.SessionCookieName)
 	if err != nil {
@@ -325,6 +327,36 @@ func (mw *Middleware) forwardWithSessionCookie(w http.ResponseWriter, r *http.Re
 	if err != nil {
 		return false
 	}
+
+	if method == string(auth.MethodOIDC) && mw.sessionValidator != nil {
+		result, err := mw.validateSessionToken(r.Context(), host, cookie.Value, config.SessionPublicKey, auth.MethodOIDC)
+		if err != nil {
+			if errors.Is(err, errValidationUnavailable) {
+				http.Error(w, "authentication service unavailable", http.StatusBadGateway)
+				return true
+			}
+			clearSessionCookie(w)
+			return false
+		}
+		if !result.Valid {
+			mw.logger.WithFields(log.Fields{
+				"domain":        host,
+				"denied_reason": result.DeniedReason,
+				"user_id":       result.UserID,
+			}).Debug("Session cookie validation denied")
+			clearSessionCookie(w)
+			return false
+		}
+		userID = result.UserID
+		email = result.UserEmail
+		if len(result.Groups) > 0 {
+			groups = result.Groups
+		}
+		if len(result.GroupNames) > 0 {
+			groupNames = result.GroupNames
+		}
+	}
+
 	if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
 		cd.SetUserID(userID)
 		cd.SetUserEmail(email)
@@ -334,6 +366,19 @@ func (mw *Middleware) forwardWithSessionCookie(w http.ResponseWriter, r *http.Re
 	}
 	next.ServeHTTP(w, r)
 	return true
+}
+
+// clearSessionCookie expires the proxy session cookie so a denied JWT cannot be replayed.
+func clearSessionCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     auth.SessionCookieName,
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+	})
 }
 
 // forwardWithTunnelPeer is the OIDC fast-path for requests originating on the
