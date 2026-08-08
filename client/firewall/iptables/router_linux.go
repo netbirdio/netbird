@@ -537,7 +537,6 @@ func (r *router) addPostroutingRules() error {
 	// First rule for outbound masquerade
 	rule1 := []string{
 		"-m", "mark", "--mark", fmt.Sprintf("%#x", nbnet.PreroutingFwmarkMasquerade),
-		"!", "-o", "lo",
 		"-j", routingFinalNatJump,
 	}
 	if err := r.iptablesClient.Append(tableNat, chainRTNAT, rule1...); err != nil {
