@@ -165,6 +165,10 @@ type AccessRestrictions struct {
 	AllowedCountries []string `json:"allowed_countries,omitempty" gorm:"serializer:json"`
 	BlockedCountries []string `json:"blocked_countries,omitempty" gorm:"serializer:json"`
 	CrowdSecMode     string   `json:"crowdsec_mode,omitempty" gorm:"serializer:json"`
+	// AllowMatch controls how the allowlists combine: "" or "all" require
+	// matching every allowlist (AND), "any" requires matching at least one (OR).
+	// Empty is treated as "all" for backward compatibility with existing records.
+	AllowMatch string `json:"allow_match,omitempty" gorm:"serializer:json"`
 }
 
 // Copy returns a deep copy of the AccessRestrictions.
@@ -175,6 +179,7 @@ func (r AccessRestrictions) Copy() AccessRestrictions {
 		AllowedCountries: slices.Clone(r.AllowedCountries),
 		BlockedCountries: slices.Clone(r.BlockedCountries),
 		CrowdSecMode:     r.CrowdSecMode,
+		AllowMatch:       r.AllowMatch,
 	}
 }
 
@@ -808,13 +813,19 @@ func restrictionsFromAPI(r *api.AccessRestrictions) (AccessRestrictions, error) 
 		}
 		res.CrowdSecMode = string(*r.CrowdsecMode)
 	}
+	if r.AllowMatch != nil {
+		if !r.AllowMatch.Valid() {
+			return AccessRestrictions{}, fmt.Errorf("invalid allow_match %q", *r.AllowMatch)
+		}
+		res.AllowMatch = string(*r.AllowMatch)
+	}
 	return res, nil
 }
 
 func restrictionsToAPI(r AccessRestrictions) *api.AccessRestrictions {
 	if len(r.AllowedCIDRs) == 0 && len(r.BlockedCIDRs) == 0 &&
 		len(r.AllowedCountries) == 0 && len(r.BlockedCountries) == 0 &&
-		r.CrowdSecMode == "" {
+		r.CrowdSecMode == "" && r.AllowMatch == "" {
 		return nil
 	}
 	res := &api.AccessRestrictions{}
@@ -834,13 +845,17 @@ func restrictionsToAPI(r AccessRestrictions) *api.AccessRestrictions {
 		mode := api.AccessRestrictionsCrowdsecMode(r.CrowdSecMode)
 		res.CrowdsecMode = &mode
 	}
+	if r.AllowMatch != "" {
+		match := api.AccessRestrictionsAllowMatch(r.AllowMatch)
+		res.AllowMatch = &match
+	}
 	return res
 }
 
 func restrictionsToProto(r AccessRestrictions) *proto.AccessRestrictions {
 	if len(r.AllowedCIDRs) == 0 && len(r.BlockedCIDRs) == 0 &&
 		len(r.AllowedCountries) == 0 && len(r.BlockedCountries) == 0 &&
-		r.CrowdSecMode == "" {
+		r.CrowdSecMode == "" && r.AllowMatch == "" {
 		return nil
 	}
 	return &proto.AccessRestrictions{
@@ -849,6 +864,7 @@ func restrictionsToProto(r AccessRestrictions) *proto.AccessRestrictions {
 		AllowedCountries: r.AllowedCountries,
 		BlockedCountries: r.BlockedCountries,
 		CrowdsecMode:     r.CrowdSecMode,
+		AllowMatch:       r.AllowMatch,
 	}
 }
 
@@ -1242,8 +1258,20 @@ func validateCrowdSecMode(mode string) error {
 	}
 }
 
+func validateAllowMatch(mode string) error {
+	switch mode {
+	case "", "all", "any":
+		return nil
+	default:
+		return fmt.Errorf("allow_match %q is invalid", mode)
+	}
+}
+
 func validateAccessRestrictions(r *AccessRestrictions) error {
 	if err := validateCrowdSecMode(r.CrowdSecMode); err != nil {
+		return err
+	}
+	if err := validateAllowMatch(r.AllowMatch); err != nil {
 		return err
 	}
 
