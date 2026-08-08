@@ -119,11 +119,13 @@ func (m *mockReverseProxyManager) GetClusters(_ context.Context, _, _ string) ([
 }
 
 type mockUsersManager struct {
-	users map[string]*types.User
-	err   error
+	users        map[string]*types.User
+	err          error
+	getUserCalls int
 }
 
 func (m *mockUsersManager) GetUser(ctx context.Context, userID string) (*types.User, error) {
+	m.getUserCalls++
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -631,6 +633,16 @@ func TestValidateTunnelPeerUserEmailEnrichment(t *testing.T) {
 // TestDeniedReasonValues pins the wire values of the account status denied
 // reasons. The proxy logs them and operators filter access logs on them, so a
 // rename is a breaking change rather than an internal detail.
+// TestSameAccount pins the fail-closed behaviour of the account binding: an
+// unset account on either side must never compare equal into a grant.
+func TestSameAccount(t *testing.T) {
+	assert.True(t, sameAccount("account1", "account1"), "matching accounts should bind")
+	assert.False(t, sameAccount("account1", "account2"), "different accounts must not bind")
+	assert.False(t, sameAccount("", ""), "two unset accounts must not bind")
+	assert.False(t, sameAccount("account1", ""), "an unset service account must not bind")
+	assert.False(t, sameAccount("", "account1"), "an unset user account must not bind")
+}
+
 func TestDeniedReasonValues(t *testing.T) {
 	assert.Equal(t, "pending_approval", deniedReasonPendingApproval, "pending approval denied reason wire value")
 	assert.Equal(t, "user_blocked", deniedReasonUserBlocked, "blocked user denied reason wire value")
@@ -683,6 +695,7 @@ func TestValidateTunnelPeerOwnerStatus(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			svc := &service.Service{Domain: domain, AccountID: accountID}
+			usersManager := &mockUsersManager{users: map[string]*types.User{userID: tt.owner}}
 			server := &ProxyServiceServer{
 				serviceManager: &mockReverseProxyManager{
 					proxiesByAccount: map[string][]*service.Service{accountID: {svc}},
@@ -690,7 +703,7 @@ func TestValidateTunnelPeerOwnerStatus(t *testing.T) {
 				peersManager: &mockTunnelPeersManager{
 					peer: &peer.Peer{ID: peerID, Name: peerName, UserID: tt.peerUserID},
 				},
-				usersManager: &mockUsersManager{users: map[string]*types.User{userID: tt.owner}},
+				usersManager: usersManager,
 			}
 
 			resp, err := server.ValidateTunnelPeer(context.Background(), &proto.ValidateTunnelPeerRequest{
@@ -705,6 +718,14 @@ func TestValidateTunnelPeerOwnerStatus(t *testing.T) {
 			if tt.expectDeniedReason != "" {
 				assert.Empty(t, resp.GetSessionToken(), "a denied peer must not receive a session token")
 			}
+
+			// The status gate and the identity resolution share one lookup;
+			// an unlinked peer has no owner to look up at all.
+			wantLookups := 1
+			if tt.peerUserID == "" {
+				wantLookups = 0
+			}
+			assert.Equal(t, wantLookups, usersManager.getUserCalls, "owner must be resolved exactly once per request")
 		})
 	}
 }

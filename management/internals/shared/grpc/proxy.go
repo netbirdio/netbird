@@ -1623,6 +1623,13 @@ func userStatusDeniedReason(user *types.User) string {
 	return reason
 }
 
+// sameAccount reports whether a user belongs to a service's account. An empty
+// identifier on either side never matches: two unset accounts must not compare
+// equal into a grant.
+func sameAccount(userAccountID, serviceAccountID string) bool {
+	return userAccountID != "" && serviceAccountID != "" && userAccountID == serviceAccountID
+}
+
 // GenerateSessionToken creates a signed session JWT for the given domain and
 // user. The user's group memberships are embedded in the token so policy-aware
 // middlewares on the proxy can authorise without an extra management round-trip.
@@ -1655,7 +1662,7 @@ func (s *ProxyServiceServer) GenerateSessionToken(ctx context.Context, domain, u
 	// with that service's session key. The proxy validates an installed cookie
 	// locally against the service public key, so a token minted for a user of
 	// another account would be honoured without a management round-trip.
-	if user.AccountID != service.AccountID {
+	if !sameAccount(user.AccountID, service.AccountID) {
 		return "", fmt.Errorf("user %s does not belong to the service account", userID)
 	}
 
@@ -1779,7 +1786,7 @@ func (s *ProxyServiceServer) ValidateSession(ctx context.Context, req *proto.Val
 
 	// A user from another account gets a bare response: none of their identity
 	// belongs in an answer to a proxy serving a different account.
-	if user.AccountID != service.AccountID {
+	if !sameAccount(user.AccountID, service.AccountID) {
 		log.WithFields(log.Fields{
 			"domain":          domain,
 			"user_id":         userID,
@@ -1991,9 +1998,10 @@ func (s *ProxyServiceServer) ValidateTunnelPeer(ctx context.Context, req *proto.
 	}
 
 	groupIDs, groupNames := pairGroupIDsAndNames(peerGroups)
-	principalID, displayIdentity := s.getTunnelPeerInfo(ctx, domain, service, peer)
+	owner := s.resolvePeerOwner(ctx, peer)
+	principalID, displayIdentity := s.getTunnelPeerInfo(ctx, domain, service, peer, owner)
 
-	if reason := s.peerOwnerDeniedReason(ctx, peer); reason != "" {
+	if reason := peerOwnerDeniedReason(peer, owner); reason != "" {
 		log.WithFields(log.Fields{"domain": domain, "peer_id": peer.ID, "user_id": peer.UserID, "reason": reason}).Debug("ValidateTunnelPeer: owner status denies access")
 		return &proto.ValidateTunnelPeerResponse{
 			Valid:          false,
@@ -2040,28 +2048,46 @@ func (s *ProxyServiceServer) ValidateTunnelPeer(ctx context.Context, req *proto.
 	}, nil
 }
 
-// peerOwnerDeniedReason gates the mesh fast-path on the account status of the
-// peer's owning user, so a user blocked after registering a peer loses
-// mesh-origin access too. Unlinked peers (machine agents) have no owner to gate
-// on and stay first-class callers. An owner the store cannot resolve denies:
-// an unavailable lookup must not grant access.
-func (s *ProxyServiceServer) peerOwnerDeniedReason(ctx context.Context, peer *peer.Peer) string {
+// resolvePeerOwner returns the user a peer is linked to, once per request so
+// the status gate and the identity resolution below share a single lookup.
+// Unlinked peers (machine agents) have no owner. A lookup that fails returns
+// nil rather than an error: both callers treat an unresolved owner the same
+// way, and neither may trust one it could not read.
+func (s *ProxyServiceServer) resolvePeerOwner(ctx context.Context, peer *peer.Peer) *types.User {
 	if peer.UserID == "" {
-		return ""
+		return nil
 	}
 
 	user, err := s.usersManager.GetUser(ctx, peer.UserID)
 	if err != nil {
 		log.WithContext(ctx).Debugf("ValidateTunnelPeer: look up owner %s of peer %s: %v", peer.UserID, peer.ID, err)
+		return nil
+	}
+
+	return user
+}
+
+// peerOwnerDeniedReason gates the mesh fast-path on the account status of the
+// peer's owning user, so a user blocked after registering a peer loses
+// mesh-origin access too. Unlinked peers (machine agents) have no owner to gate
+// on and stay first-class callers. An owner the store cannot resolve denies:
+// an unavailable lookup must not grant access.
+func peerOwnerDeniedReason(peer *peer.Peer, owner *types.User) string {
+	if peer.UserID == "" {
+		return ""
+	}
+
+	if owner == nil {
 		return deniedReasonUserNotFound
 	}
 
-	return userStatusDeniedReason(user)
+	return userStatusDeniedReason(owner)
 }
 
 // getTunnelPeerInfo returns the principal ID and display name for a peer, e.g. a
-// user or peer ID, and peer name or user email.
-func (s *ProxyServiceServer) getTunnelPeerInfo(ctx context.Context, domain string, service *rpservice.Service, peer *peer.Peer) (string, string) {
+// user or peer ID, and peer name or user email. owner is the already-resolved
+// user the peer is linked to, or nil.
+func (s *ProxyServiceServer) getTunnelPeerInfo(ctx context.Context, domain string, service *rpservice.Service, peer *peer.Peer, owner *types.User) (string, string) {
 	// Resolve the principal: when the peer is linked to a user, the human is the
 	// principal so multiple peers owned by the same user share a single
 	// identity. Unlinked peers (machine agents) are their own principal keyed on
@@ -2078,10 +2104,10 @@ func (s *ProxyServiceServer) getTunnelPeerInfo(ctx context.Context, domain strin
 	principalID := peer.UserID
 	displayIdentity := peer.Name
 	// Stored column first (cheap, but often empty for OIDC-provisioned users).
-	if user, uerr := s.usersManager.GetUser(ctx, peer.UserID); uerr == nil && user != nil {
-		principalID = user.Id
-		if user.Email != "" {
-			displayIdentity = user.Email
+	if owner != nil {
+		principalID = owner.Id
+		if owner.Email != "" {
+			displayIdentity = owner.Email
 		}
 	}
 	// IdP enrichment wins when available — the stored email column is a
