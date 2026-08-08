@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -144,7 +145,12 @@ func getKubernetesClustersWithResolver(ctx context.Context, peers []*proto.PeerS
 	kcs := []kubernetesCluster{}
 	attempted := map[string]struct{}{}
 	for _, peer := range peers {
-		fqdns, err := resolver.LookupAddr(ctx, peer.IP)
+		peerAddr, err := netip.ParseAddr(peer.IP)
+		if err != nil {
+			log.Debugf("could not parse peer IP %s: %v", peer.IP, err)
+			continue
+		}
+		fqdns, err := resolver.LookupAddr(ctx, peerAddr.Unmap().String())
 		if err != nil {
 			log.Debugf("could not resolve peer %s: %v", peer.IP, err)
 			continue
