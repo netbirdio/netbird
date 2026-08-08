@@ -6290,6 +6290,7 @@ components:
         - enable_log_collection
         - enable_prompt_collection
         - redact_pii
+        - access_log_retention_days
     AgentNetworkBudgetRule:
       type: object
       description: Account-level budget rule. A limit-only rule bound to groups and/or users that applies across all policies as a min-wins ceiling. Empty targets means it applies to every caller.

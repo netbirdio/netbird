@@ -57,7 +57,8 @@ func TestSettingsBootstrapViaPost(t *testing.T) {
 
 	// A PUT has no row to update yet — bootstrap is the explicit POST.
 	_, err = fresh.UpdateSettings(ctx, api.AgentNetworkSettingsRequest{
-		EnableLogCollection: true,
+		EnableLogCollection:    true,
+		AccessLogRetentionDays: 30,
 	})
 	requireClientError(t, err)
 
@@ -95,8 +96,11 @@ func TestSettingsBootstrapViaPost(t *testing.T) {
 		EnableLogCollection:    true,
 		EnablePromptCollection: false,
 		RedactPii:              true,
+		AccessLogRetentionDays: 21,
 	})
 	require.NoError(t, err, "post-bootstrap update must succeed")
+	require.NotNil(t, persisted.AccessLogRetentionDays)
+	assert.Equal(t, 21, *persisted.AccessLogRetentionDays, "retention from the update must apply")
 	assert.Equal(t, bootstrapped.Endpoint, persisted.Endpoint, "endpoint must survive updates untouched")
 	assert.Equal(t, cluster, persisted.ProxyAddress, "proxy address must survive updates untouched")
 	assert.True(t, persisted.EnableLogCollection, "post-bootstrap toggle must apply")

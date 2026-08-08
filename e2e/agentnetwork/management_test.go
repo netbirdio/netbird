@@ -142,14 +142,21 @@ func TestSettingsRoundTrip(t *testing.T) {
 	require.NotEmpty(t, before.Endpoint, "settings must carry the bootstrapped endpoint")
 	require.NotEmpty(t, before.ProxyAddress, "settings must carry the bootstrapped proxy address")
 
+	require.NotNil(t, before.AccessLogRetentionDays, "bootstrapped settings must carry a retention")
+	beforeRetention := *before.AccessLogRetentionDays
+
 	flipped, err := srv.UpdateSettings(ctx, api.AgentNetworkSettingsRequest{
 		EnableLogCollection:    !before.EnableLogCollection,
 		EnablePromptCollection: !before.EnablePromptCollection,
 		RedactPii:              !before.RedactPii,
+		AccessLogRetentionDays: beforeRetention,
 	})
 	require.NoError(t, err, "update settings")
 	assert.Equal(t, !before.EnableLogCollection, flipped.EnableLogCollection, "log collection toggle must flip")
 	assert.Equal(t, !before.EnablePromptCollection, flipped.EnablePromptCollection, "prompt collection toggle must flip")
+	require.NotNil(t, flipped.AccessLogRetentionDays)
+	assert.Equal(t, beforeRetention, *flipped.AccessLogRetentionDays,
+		"retention sent unchanged must round-trip, not reset to the zero value")
 	assert.Equal(t, before.Endpoint, flipped.Endpoint, "endpoint must be immutable across updates")
 	assert.Equal(t, before.ProxyAddress, flipped.ProxyAddress, "proxy address must be immutable across updates")
 
@@ -165,6 +172,7 @@ func TestSettingsRoundTrip(t *testing.T) {
 		EnableLogCollection:    before.EnableLogCollection,
 		EnablePromptCollection: before.EnablePromptCollection,
 		RedactPii:              before.RedactPii,
+		AccessLogRetentionDays: beforeRetention,
 	})
 	require.NoError(t, err, "restore settings")
 }
