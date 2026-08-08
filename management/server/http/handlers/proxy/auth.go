@@ -130,14 +130,13 @@ func (h *AuthCallbackHandler) handleCallback(w http.ResponseWriter, r *http.Requ
 // the user can act on, while everything else stays generic so a lookup or
 // signing failure does not describe management internals to the browser.
 func sessionTokenErrorDescription(err error) string {
-	switch {
-	case errors.Is(err, nbgrpc.ErrUserPendingApproval):
+	if errors.Is(err, nbgrpc.ErrUserPendingApproval) {
 		return "Your account is pending approval by an administrator"
-	case errors.Is(err, nbgrpc.ErrUserBlocked):
-		return "Your account is blocked"
-	default:
-		return "Service configuration error"
 	}
+	if errors.Is(err, nbgrpc.ErrUserBlocked) {
+		return "Your account is blocked"
+	}
+	return "Service configuration error"
 }
 
 func extractUserIDFromToken(ctx context.Context, provider *oidc.Provider, config nbgrpc.ProxyOIDCConfig, token *oauth2.Token) string {

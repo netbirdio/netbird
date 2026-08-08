@@ -1732,10 +1732,7 @@ func (s *ProxyServiceServer) ValidateSession(ctx context.Context, req *proto.Val
 	sessionToken := req.GetSessionToken()
 
 	if domain == "" || sessionToken == "" {
-		return &proto.ValidateSessionResponse{
-			Valid:        false,
-			DeniedReason: "missing domain or session_token",
-		}, nil
+		return deniedSessionResponse("missing domain or session_token"), nil
 	}
 
 	service, err := s.getServiceByDomain(ctx, domain)
@@ -1745,40 +1742,16 @@ func (s *ProxyServiceServer) ValidateSession(ctx context.Context, req *proto.Val
 			"error":  err.Error(),
 		}).Debug("ValidateSession: service not found")
 		//nolint:nilerr
-		return &proto.ValidateSessionResponse{
-			Valid:        false,
-			DeniedReason: "service_not_found",
-		}, nil
+		return deniedSessionResponse("service_not_found"), nil
 	}
 
 	if err := enforceAccountScope(ctx, service.AccountID); err != nil {
 		return nil, err
 	}
 
-	pubKeyBytes, err := base64.StdEncoding.DecodeString(service.SessionPublicKey)
-	if err != nil {
-		log.WithFields(log.Fields{
-			"domain": domain,
-			"error":  err.Error(),
-		}).Error("ValidateSession: decode public key")
-		//nolint:nilerr
-		return &proto.ValidateSessionResponse{
-			Valid:        false,
-			DeniedReason: "invalid_service_config",
-		}, nil
-	}
-
-	userID, _, _, _, _, err := proxyauth.ValidateSessionJWT(sessionToken, domain, pubKeyBytes)
-	if err != nil {
-		log.WithFields(log.Fields{
-			"domain": domain,
-			"error":  err.Error(),
-		}).Debug("ValidateSession: invalid session token")
-		//nolint:nilerr
-		return &proto.ValidateSessionResponse{
-			Valid:        false,
-			DeniedReason: "invalid_token",
-		}, nil
+	userID, reason := sessionTokenSubject(domain, service, sessionToken)
+	if reason != "" {
+		return deniedSessionResponse(reason), nil
 	}
 
 	user, userGroups, err := s.usersManager.GetUserWithGroups(ctx, userID)
@@ -1789,12 +1762,11 @@ func (s *ProxyServiceServer) ValidateSession(ctx context.Context, req *proto.Val
 			"error":   err,
 		}).Debug("ValidateSession: user not found")
 		//nolint:nilerr
-		return &proto.ValidateSessionResponse{
-			Valid:        false,
-			DeniedReason: deniedReasonUserNotFound,
-		}, nil
+		return deniedSessionResponse(deniedReasonUserNotFound), nil
 	}
 
+	// A user from another account gets a bare response: none of their identity
+	// belongs in an answer to a proxy serving a different account.
 	if user.AccountID != service.AccountID {
 		log.WithFields(log.Fields{
 			"domain":          domain,
@@ -1802,43 +1774,17 @@ func (s *ProxyServiceServer) ValidateSession(ctx context.Context, req *proto.Val
 			"user_account":    user.AccountID,
 			"service_account": service.AccountID,
 		}).Debug("ValidateSession: user account mismatch")
-		//nolint:nilerr
-		return &proto.ValidateSessionResponse{
-			Valid:        false,
-			DeniedReason: "account_mismatch",
-		}, nil
+		return deniedSessionResponse("account_mismatch"), nil
 	}
 
-	if reason := userStatusDeniedReason(user); reason != "" {
-		log.WithFields(log.Fields{
-			"domain":  domain,
-			"user_id": userID,
-			"reason":  reason,
-		}).Debug("ValidateSession: user status denies access")
-		groupIDs, groupNames := pairGroupIDsAndNames(userGroups)
+	groupIDs, groupNames := pairGroupIDsAndNames(userGroups)
+
+	if reason := s.accountUserDeniedReason(domain, service, user); reason != "" {
 		return &proto.ValidateSessionResponse{
 			Valid:          false,
 			UserId:         user.Id,
 			UserEmail:      user.Email,
 			DeniedReason:   reason,
-			PeerGroupIds:   groupIDs,
-			PeerGroupNames: groupNames,
-		}, nil
-	}
-
-	if err := s.checkGroupAccess(service, user); err != nil {
-		log.WithFields(log.Fields{
-			"domain":  domain,
-			"user_id": userID,
-			"error":   err.Error(),
-		}).Debug("ValidateSession: access denied")
-		groupIDs, groupNames := pairGroupIDsAndNames(userGroups)
-		//nolint:nilerr
-		return &proto.ValidateSessionResponse{
-			Valid:          false,
-			UserId:         user.Id,
-			UserEmail:      user.Email,
-			DeniedReason:   "not_in_group",
 			PeerGroupIds:   groupIDs,
 			PeerGroupNames: groupNames,
 		}, nil
@@ -1850,7 +1796,6 @@ func (s *ProxyServiceServer) ValidateSession(ctx context.Context, req *proto.Val
 		"email":   user.Email,
 	}).Debug("ValidateSession: access granted")
 
-	groupIDs, groupNames := pairGroupIDsAndNames(userGroups)
 	return &proto.ValidateSessionResponse{
 		Valid:          true,
 		UserId:         user.Id,
@@ -1858,6 +1803,66 @@ func (s *ProxyServiceServer) ValidateSession(ctx context.Context, req *proto.Val
 		PeerGroupIds:   groupIDs,
 		PeerGroupNames: groupNames,
 	}, nil
+}
+
+// deniedSessionResponse builds a denial that carries no identity, for the
+// checks that run before a user of this service's account is resolved.
+func deniedSessionResponse(reason string) *proto.ValidateSessionResponse {
+	return &proto.ValidateSessionResponse{
+		Valid:        false,
+		DeniedReason: reason,
+	}
+}
+
+// sessionTokenSubject verifies the session token against the service's session
+// key and returns the user it was minted for, or the reason it cannot be
+// trusted.
+func sessionTokenSubject(domain string, service *rpservice.Service, sessionToken string) (userID, deniedReason string) {
+	pubKeyBytes, err := base64.StdEncoding.DecodeString(service.SessionPublicKey)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"domain": domain,
+			"error":  err.Error(),
+		}).Error("ValidateSession: decode public key")
+		return "", "invalid_service_config"
+	}
+
+	userID, _, _, _, _, err = proxyauth.ValidateSessionJWT(sessionToken, domain, pubKeyBytes)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"domain": domain,
+			"error":  err.Error(),
+		}).Debug("ValidateSession: invalid session token")
+		return "", "invalid_token"
+	}
+
+	return userID, ""
+}
+
+// accountUserDeniedReason gates a user of the service's own account, returning
+// an empty string when access is granted. Account status comes before group
+// membership: a user awaiting approval or blocked has no access regardless of
+// the groups they were auto-assigned.
+func (s *ProxyServiceServer) accountUserDeniedReason(domain string, service *rpservice.Service, user *types.User) string {
+	if reason := userStatusDeniedReason(user); reason != "" {
+		log.WithFields(log.Fields{
+			"domain":  domain,
+			"user_id": user.Id,
+			"reason":  reason,
+		}).Debug("ValidateSession: user status denies access")
+		return reason
+	}
+
+	if err := s.checkGroupAccess(service, user); err != nil {
+		log.WithFields(log.Fields{
+			"domain":  domain,
+			"user_id": user.Id,
+			"error":   err.Error(),
+		}).Debug("ValidateSession: access denied")
+		return "not_in_group"
+	}
+
+	return ""
 }
 
 func (s *ProxyServiceServer) getServiceByDomain(ctx context.Context, domain string) (*rpservice.Service, error) {

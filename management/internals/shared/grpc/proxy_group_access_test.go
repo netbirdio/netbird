@@ -559,7 +559,7 @@ func TestValidateTunnelPeerUserEmailEnrichment(t *testing.T) {
 			expectEmail:        "idp@example.com",
 			expectUserID:       userID,
 			expectIdPHit:       true,
-			expectDeniedReason: "user_not_found",
+			expectDeniedReason: deniedReasonUserNotFound,
 		},
 		{
 			name:         "unlinked peer uses peer name and never consults idp",
@@ -625,6 +625,15 @@ func TestValidateTunnelPeerUserEmailEnrichment(t *testing.T) {
 	}
 }
 
+// TestDeniedReasonValues pins the wire values of the account status denied
+// reasons. The proxy logs them and operators filter access logs on them, so a
+// rename is a breaking change rather than an internal detail.
+func TestDeniedReasonValues(t *testing.T) {
+	assert.Equal(t, "pending_approval", deniedReasonPendingApproval)
+	assert.Equal(t, "user_blocked", deniedReasonUserBlocked)
+	assert.Equal(t, "user_not_found", deniedReasonUserNotFound)
+}
+
 // TestValidateTunnelPeerOwnerStatus verifies that the mesh fast-path gates on
 // the account status of the peer's owning user. A peer whose owner was blocked
 // after the peer registered must lose access, while an unlinked machine peer
@@ -653,13 +662,13 @@ func TestValidateTunnelPeerOwnerStatus(t *testing.T) {
 			name:               "owner pending approval denied",
 			peerUserID:         userID,
 			owner:              &types.User{Id: userID, AccountID: accountID, Email: "user@example.com", Blocked: true, PendingApproval: true},
-			expectDeniedReason: "pending_approval",
+			expectDeniedReason: deniedReasonPendingApproval,
 		},
 		{
 			name:               "owner blocked after registering the peer denied",
 			peerUserID:         userID,
 			owner:              &types.User{Id: userID, AccountID: accountID, Email: "user@example.com", Blocked: true},
-			expectDeniedReason: "user_blocked",
+			expectDeniedReason: deniedReasonUserBlocked,
 		},
 		{
 			name:       "unlinked machine peer stays allowed",

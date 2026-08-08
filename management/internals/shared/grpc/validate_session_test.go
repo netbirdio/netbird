@@ -245,7 +245,7 @@ func TestValidateSession_PendingApprovalUserDenied(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.False(t, resp.Valid, "User pending approval should be denied")
-	assert.Equal(t, "pending_approval", resp.DeniedReason)
+	assert.Equal(t, deniedReasonPendingApproval, resp.DeniedReason)
 	assert.Equal(t, pendingUserID, resp.UserId)
 	assert.Equal(t, []string{"allowedGroupId"}, resp.GetPeerGroupIds(), "PeerGroupIds must mirror the resolved user's group memberships on denial")
 	assert.Equal(t, []string{"Allowed Group"}, resp.GetPeerGroupNames(), "PeerGroupNames must pair with PeerGroupIds on denial")
@@ -270,7 +270,7 @@ func TestValidateSession_PendingApprovalUserInAllUsersGroupDenied(t *testing.T) 
 
 	require.NoError(t, err)
 	assert.False(t, resp.Valid, "User pending approval should be denied even in the All Users group")
-	assert.Equal(t, "pending_approval", resp.DeniedReason)
+	assert.Equal(t, deniedReasonPendingApproval, resp.DeniedReason)
 	assert.Equal(t, pendingAllUsersID, resp.UserId)
 	assert.Equal(t, []string{allUsersGroupID}, resp.GetPeerGroupIds(), "PeerGroupIds must mirror the resolved user's group memberships on denial")
 }
@@ -293,7 +293,7 @@ func TestValidateSession_BlockedUserDenied(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.False(t, resp.Valid, "Blocked user should be denied")
-	assert.Equal(t, "user_blocked", resp.DeniedReason)
+	assert.Equal(t, deniedReasonUserBlocked, resp.DeniedReason)
 	assert.Equal(t, blockedUserID, resp.UserId)
 }
 
@@ -318,7 +318,7 @@ func TestValidateSession_UserAllowedAfterApproval(t *testing.T) {
 	resp, err := setup.proxyService.ValidateSession(ctx, req)
 	require.NoError(t, err)
 	require.False(t, resp.Valid, "User pending approval should be denied before approval")
-	assert.Equal(t, "pending_approval", resp.DeniedReason)
+	assert.Equal(t, deniedReasonPendingApproval, resp.DeniedReason)
 
 	user, err := setup.store.GetUserByUserID(ctx, store.LockingStrengthNone, pendingUserID)
 	require.NoError(t, err)
