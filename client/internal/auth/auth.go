@@ -213,11 +213,11 @@ func (a *Auth) Login(ctx context.Context, setupKey string, jwtToken string) (err
 				if setupKey != "" && jwtToken == "" && isPeerLoginExpired(err) {
 					err = errSetupKeyOnSSOExpiredPeer
 				}
-				isAuthError = isPermissionDenied(err)
+				isAuthError = isAuthenticationError(err)
 				return err
 			}
 		} else if err != nil {
-			isAuthError = isPermissionDenied(err)
+			isAuthError = isAuthenticationError(err)
 			return err
 		}
 
@@ -471,7 +471,7 @@ func (a *Auth) withRetry(ctx context.Context, operation func(client *mgm.GrpcCli
 }
 
 // isAuthenticationError checks if the error is an authentication-related error that should not be retried.
-// Returns true if the error is InvalidArgument or PermissionDenied, indicating that retrying won't help.
+// Returns true if retrying won't help without changing credentials or setup key.
 func isAuthenticationError(err error) bool {
 	if err == nil {
 		return false
@@ -480,7 +480,10 @@ func isAuthenticationError(err error) bool {
 	if !ok {
 		return false
 	}
-	return s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied
+	return s.Code() == codes.InvalidArgument ||
+		s.Code() == codes.PermissionDenied ||
+		s.Code() == codes.Unauthenticated ||
+		s.Code() == codes.NotFound
 }
 
 // isPermissionDenied checks if the error is a PermissionDenied error.
