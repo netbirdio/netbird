@@ -608,9 +608,12 @@ func TestValidateTunnelPeerUserEmailEnrichment(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, resp)
 			assert.Equal(t, tt.expectDeniedReason == "", resp.GetValid(), "unexpected access decision")
-			assert.Equal(t, tt.expectDeniedReason, resp.GetDeniedReason())
+			assert.Equal(t, tt.expectDeniedReason, resp.GetDeniedReason(), "unexpected denied reason")
 			assert.Equal(t, tt.expectEmail, resp.GetUserEmail())
 			assert.Equal(t, tt.expectUserID, resp.GetUserId())
+			if tt.expectDeniedReason != "" {
+				assert.Empty(t, resp.GetSessionToken(), "a denied peer must not receive a session token")
+			}
 
 			if idpMock != nil {
 				if tt.expectIdPHit {
@@ -629,9 +632,9 @@ func TestValidateTunnelPeerUserEmailEnrichment(t *testing.T) {
 // reasons. The proxy logs them and operators filter access logs on them, so a
 // rename is a breaking change rather than an internal detail.
 func TestDeniedReasonValues(t *testing.T) {
-	assert.Equal(t, "pending_approval", deniedReasonPendingApproval)
-	assert.Equal(t, "user_blocked", deniedReasonUserBlocked)
-	assert.Equal(t, "user_not_found", deniedReasonUserNotFound)
+	assert.Equal(t, "pending_approval", deniedReasonPendingApproval, "pending approval denied reason wire value")
+	assert.Equal(t, "user_blocked", deniedReasonUserBlocked, "blocked user denied reason wire value")
+	assert.Equal(t, "user_not_found", deniedReasonUserNotFound, "unresolved user denied reason wire value")
 }
 
 // TestValidateTunnelPeerOwnerStatus verifies that the mesh fast-path gates on
@@ -697,7 +700,7 @@ func TestValidateTunnelPeerOwnerStatus(t *testing.T) {
 
 			require.NoError(t, err)
 			require.NotNil(t, resp)
-			assert.Equal(t, tt.expectDeniedReason, resp.GetDeniedReason())
+			assert.Equal(t, tt.expectDeniedReason, resp.GetDeniedReason(), "unexpected denied reason")
 			assert.Equal(t, tt.expectDeniedReason == "", resp.GetValid(), "unexpected access decision")
 			if tt.expectDeniedReason != "" {
 				assert.Empty(t, resp.GetSessionToken(), "a denied peer must not receive a session token")

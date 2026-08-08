@@ -245,8 +245,8 @@ func TestValidateSession_PendingApprovalUserDenied(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.False(t, resp.Valid, "User pending approval should be denied")
-	assert.Equal(t, deniedReasonPendingApproval, resp.DeniedReason)
-	assert.Equal(t, pendingUserID, resp.UserId)
+	assert.Equal(t, deniedReasonPendingApproval, resp.DeniedReason, "Denied reason should name the pending approval state")
+	assert.Equal(t, pendingUserID, resp.UserId, "Denial should identify the user it applies to")
 	assert.Equal(t, []string{"allowedGroupId"}, resp.GetPeerGroupIds(), "PeerGroupIds must mirror the resolved user's group memberships on denial")
 	assert.Equal(t, []string{"Allowed Group"}, resp.GetPeerGroupNames(), "PeerGroupNames must pair with PeerGroupIds on denial")
 }
@@ -270,8 +270,8 @@ func TestValidateSession_PendingApprovalUserInAllUsersGroupDenied(t *testing.T) 
 
 	require.NoError(t, err)
 	assert.False(t, resp.Valid, "User pending approval should be denied even in the All Users group")
-	assert.Equal(t, deniedReasonPendingApproval, resp.DeniedReason)
-	assert.Equal(t, pendingAllUsersID, resp.UserId)
+	assert.Equal(t, deniedReasonPendingApproval, resp.DeniedReason, "Denied reason should name the pending approval state")
+	assert.Equal(t, pendingAllUsersID, resp.UserId, "Denial should identify the user it applies to")
 	assert.Equal(t, []string{allUsersGroupID}, resp.GetPeerGroupIds(), "PeerGroupIds must mirror the resolved user's group memberships on denial")
 }
 
@@ -293,8 +293,8 @@ func TestValidateSession_BlockedUserDenied(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.False(t, resp.Valid, "Blocked user should be denied")
-	assert.Equal(t, deniedReasonUserBlocked, resp.DeniedReason)
-	assert.Equal(t, blockedUserID, resp.UserId)
+	assert.Equal(t, deniedReasonUserBlocked, resp.DeniedReason, "Denied reason should name the blocked state")
+	assert.Equal(t, blockedUserID, resp.UserId, "Denial should identify the user it applies to")
 }
 
 // TestValidateSession_UserAllowedAfterApproval walks the same session token
@@ -318,7 +318,7 @@ func TestValidateSession_UserAllowedAfterApproval(t *testing.T) {
 	resp, err := setup.proxyService.ValidateSession(ctx, req)
 	require.NoError(t, err)
 	require.False(t, resp.Valid, "User pending approval should be denied before approval")
-	assert.Equal(t, deniedReasonPendingApproval, resp.DeniedReason)
+	assert.Equal(t, deniedReasonPendingApproval, resp.DeniedReason, "Denied reason should name the pending approval state")
 
 	user, err := setup.store.GetUserByUserID(ctx, store.LockingStrengthNone, pendingUserID)
 	require.NoError(t, err)
@@ -330,8 +330,8 @@ func TestValidateSession_UserAllowedAfterApproval(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, resp.Valid, "Approved user should be allowed access")
 	assert.Empty(t, resp.DeniedReason)
-	assert.Equal(t, pendingUserID, resp.UserId)
-	assert.Equal(t, []string{"allowedGroupId"}, resp.GetPeerGroupIds())
+	assert.Equal(t, pendingUserID, resp.UserId, "Approved user should be identified in the response")
+	assert.Equal(t, []string{"allowedGroupId"}, resp.GetPeerGroupIds(), "PeerGroupIds must mirror the approved user's group memberships")
 }
 
 func TestValidateSession_UserInDifferentAccount(t *testing.T) {
