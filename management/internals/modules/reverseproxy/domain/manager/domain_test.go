@@ -66,8 +66,8 @@ func TestExtractClusterFromFreeDomain(t *testing.T) {
 
 func TestExtractClusterFromCustomDomains(t *testing.T) {
 	customDomains := []*domain.Domain{
-		{Domain: "example.com", TargetCluster: "eu1.proxy.netbird.io"},
-		{Domain: "proxy.corp.io", TargetCluster: "us1.proxy.netbird.io"},
+		{Domain: "example.com", TargetCluster: "eu1.proxy.netbird.io", Validated: true},
+		{Domain: "proxy.corp.io", TargetCluster: "us1.proxy.netbird.io", Validated: true},
 	}
 
 	tests := []struct {
@@ -120,19 +120,49 @@ func TestExtractClusterFromCustomDomains(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			cluster, ok := extractClusterFromCustomDomains(tc.domain, customDomains)
-			assert.Equal(t, tc.wantOK, ok)
-			if ok {
-				assert.Equal(t, tc.wantVal, cluster)
+			cluster, match := extractClusterFromCustomDomains(tc.domain, customDomains)
+			if !tc.wantOK {
+				assert.Equal(t, customDomainNoMatch, match, "unrelated domain should not match any custom domain")
+				return
 			}
+			assert.Equal(t, customDomainValidated, match, "validated custom domain should resolve a cluster")
+			assert.Equal(t, tc.wantVal, cluster)
 		})
 	}
 }
 
+// An unvalidated row must never yield a cluster: the account has not shown it
+// controls the name, so no service may be bound to it.
+func TestExtractClusterFromCustomDomains_UnvalidatedDomainRefused(t *testing.T) {
+	customDomains := []*domain.Domain{
+		{Domain: "example.com", TargetCluster: "eu1.proxy.netbird.io", Validated: false},
+	}
+
+	for _, serviceDomain := range []string{"example.com", "app.example.com"} {
+		t.Run(serviceDomain, func(t *testing.T) {
+			cluster, match := extractClusterFromCustomDomains(serviceDomain, customDomains)
+			assert.Equal(t, customDomainUnvalidated, match, "unvalidated row must be reported as such")
+			assert.Empty(t, cluster, "unvalidated row must not resolve a cluster")
+		})
+	}
+}
+
+// A more specific unvalidated row must not shadow a validated parent domain.
+func TestExtractClusterFromCustomDomains_ValidatedParentWinsOverUnvalidatedChild(t *testing.T) {
+	customDomains := []*domain.Domain{
+		{Domain: "example.com", TargetCluster: "cluster-generic", Validated: true},
+		{Domain: "app.example.com", TargetCluster: "cluster-app", Validated: false},
+	}
+
+	cluster, match := extractClusterFromCustomDomains("app.example.com", customDomains)
+	assert.Equal(t, customDomainValidated, match)
+	assert.Equal(t, "cluster-generic", cluster, "validated parent domain should provide the cluster")
+}
+
 func TestExtractClusterFromCustomDomains_OverlappingDomains(t *testing.T) {
 	customDomains := []*domain.Domain{
-		{Domain: "example.com", TargetCluster: "cluster-generic"},
-		{Domain: "app.example.com", TargetCluster: "cluster-app"},
+		{Domain: "example.com", TargetCluster: "cluster-generic", Validated: true},
+		{Domain: "app.example.com", TargetCluster: "cluster-app", Validated: true},
 	}
 
 	tests := []struct {
@@ -164,8 +194,8 @@ func TestExtractClusterFromCustomDomains_OverlappingDomains(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			cluster, ok := extractClusterFromCustomDomains(tc.domain, customDomains)
-			assert.True(t, ok)
+			cluster, match := extractClusterFromCustomDomains(tc.domain, customDomains)
+			assert.Equal(t, customDomainValidated, match)
 			assert.Equal(t, tc.wantVal, cluster)
 		})
 	}
