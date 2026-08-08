@@ -102,17 +102,22 @@ func (s *Settings) ToAPIResponse() *api.AgentNetworkSettings {
 	return resp
 }
 
-// FromAPIRequest applies the update request onto the receiver: the mutable
-// collection fields are always replaced with the request values. The identity
-// fields (Domain, ProxyAddress) are assigned at bootstrap and are not part of
-// the update schema at all — immutability by shape, not by rejection.
+// FromAPIRequest applies the update request onto the receiver: every mutable
+// field is replaced with the request value. The identity fields (Domain,
+// ProxyAddress) are assigned at bootstrap and are not part of the update schema
+// at all — immutability by shape, not by rejection.
+//
+// All four fields are required by the schema, so none is presence-sensitive.
+// AccessLogRetentionDays in particular must stay required: the caller receives
+// a zero-valued Settings, and UpdateSettings copies each field onto the stored
+// row unconditionally, so an omitted value would be written as 0 — which the
+// API documents as "keep indefinitely". Making retention optional would
+// therefore let a client silently maximise log retention by leaving it out.
 func (s *Settings) FromAPIRequest(req *api.AgentNetworkSettingsRequest) {
 	s.EnableLogCollection = req.EnableLogCollection
 	s.EnablePromptCollection = req.EnablePromptCollection
 	s.RedactPii = req.RedactPii
-	if req.AccessLogRetentionDays != nil {
-		s.AccessLogRetentionDays = *req.AccessLogRetentionDays
-	}
+	s.AccessLogRetentionDays = req.AccessLogRetentionDays
 }
 
 // FromAPICreateRequest applies the optional collection toggles of a bootstrap

@@ -166,10 +166,9 @@ func TestSettingsHandler_PutBeforeBootstrapIs404(t *testing.T) {
 }
 
 // TestSettingsHandler_PutReplacesMutableFields pins the update contract shared
-// with the other PUT endpoints: the request replaces every mutable field, so a
-// toggle absent from the JSON lands as its zero value rather than being
-// preserved. The identity fields are not part of the PUT schema at all, so
-// the endpoint and proxy address survive updates by construction.
+// with the other PUT endpoints: the request replaces every mutable field, all
+// four of which the schema requires. The identity fields are not part of the
+// PUT schema at all, so the endpoint and proxy address survive by construction.
 func TestSettingsHandler_PutReplacesMutableFields(t *testing.T) {
 	f := newAgentNetworkHandlerFixture(t)
 
@@ -181,7 +180,7 @@ func TestSettingsHandler_PutReplacesMutableFields(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &before))
 
 	rec = f.do(t, http.MethodPut, "/agent-network/settings",
-		`{"enable_log_collection": true, "enable_prompt_collection": false, "redact_pii": false}`)
+		`{"enable_log_collection": true, "enable_prompt_collection": false, "redact_pii": false, "access_log_retention_days": 7}`)
 	require.Equal(t, http.StatusOK, rec.Code, "update PUT must succeed: %s", rec.Body.String())
 
 	var got api.AgentNetworkSettings
@@ -190,8 +189,36 @@ func TestSettingsHandler_PutReplacesMutableFields(t *testing.T) {
 	assert.False(t, got.EnablePromptCollection, "sent toggle must apply")
 	assert.False(t, got.RedactPii, "sent toggle must apply")
 	require.NotNil(t, got.AccessLogRetentionDays)
-	assert.Equal(t, 0, *got.AccessLogRetentionDays,
-		"retention absent from the request must land as the zero value — PUT replaces all mutable fields")
+	assert.Equal(t, 7, *got.AccessLogRetentionDays, "sent retention must apply")
 	assert.Equal(t, before.Endpoint, got.Endpoint, "endpoint must survive updates untouched")
 	assert.Equal(t, before.ProxyAddress, got.ProxyAddress, "proxy address must survive updates untouched")
+}
+
+// TestSettingsHandler_PutOmittedRetentionLandsAsZero documents a residual the
+// required-ness of access_log_retention_days does not remove. Marking the field
+// required changes the generated client type from *int to int, so a generated
+// client cannot omit it — but nothing validates OpenAPI required-ness at
+// runtime, so a hand-rolled body without the field still decodes as 0, which
+// the API documents as "keep indefinitely".
+//
+// That is the same latitude the three booleans already have, so it is left
+// consistent rather than special-cased. This test exists to make the gap
+// explicit: if request validation is ever added, this expectation is what
+// changes.
+func TestSettingsHandler_PutOmittedRetentionLandsAsZero(t *testing.T) {
+	f := newAgentNetworkHandlerFixture(t)
+
+	rec := f.do(t, http.MethodPost, "/agent-network/settings",
+		`{"proxy_address": "eu.proxy.netbird.io", "access_log_retention_days": 14}`)
+	require.Equal(t, http.StatusOK, rec.Code, "bootstrap POST must succeed: %s", rec.Body.String())
+
+	rec = f.do(t, http.MethodPut, "/agent-network/settings",
+		`{"enable_log_collection": true, "enable_prompt_collection": false, "redact_pii": false}`)
+	require.Equal(t, http.StatusOK, rec.Code, "update PUT must succeed: %s", rec.Body.String())
+
+	var got api.AgentNetworkSettings
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.NotNil(t, got.AccessLogRetentionDays)
+	assert.Equal(t, 0, *got.AccessLogRetentionDays,
+		"a non-conforming body that omits retention still replaces it with the zero value")
 }

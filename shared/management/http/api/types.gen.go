@@ -2414,7 +2414,7 @@ type AgentNetworkSettingsCreateRequest struct {
 // AgentNetworkSettingsRequest Account-level Agent Network settings update. The request replaces every mutable field (the collection toggles and retention). The endpoint and proxy address are assigned at bootstrap (POST) and are not part of this schema.
 type AgentNetworkSettingsRequest struct {
 	// AccessLogRetentionDays Days to retain full access-log rows; older rows are swept. 0 or less means keep indefinitely.
-	AccessLogRetentionDays *int `json:"access_log_retention_days,omitempty"`
+	AccessLogRetentionDays int `json:"access_log_retention_days"`
 
 	// EnableLogCollection Whether per-request access-log entries are collected for this account's agent-network traffic.
 	EnableLogCollection bool `json:"enable_log_collection"`
