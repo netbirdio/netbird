@@ -351,6 +351,64 @@ func TestValidateUserGroupAccess(t *testing.T) {
 			expectErr: false,
 		},
 		{
+			name:   "user pending approval denied despite group membership",
+			domain: "app.example.com",
+			userID: "user1",
+			proxiesByAccount: map[string][]*service.Service{
+				"account1": {{
+					Domain:    "app.example.com",
+					AccountID: "account1",
+					Auth: service.AuthConfig{
+						BearerAuth: &service.BearerAuthConfig{
+							Enabled:            true,
+							DistributionGroups: []string{"group1"},
+						},
+					},
+				}},
+			},
+			users: map[string]*types.User{
+				// The approval flow stores a pending user as blocked as well.
+				"user1": {Id: "user1", AccountID: "account1", AutoGroups: []string{"group1"}, Blocked: true, PendingApproval: true},
+			},
+			expectErr:    true,
+			expectErrMsg: "user pending approval",
+		},
+		{
+			name:   "blocked user denied despite group membership",
+			domain: "app.example.com",
+			userID: "user1",
+			proxiesByAccount: map[string][]*service.Service{
+				"account1": {{
+					Domain:    "app.example.com",
+					AccountID: "account1",
+					Auth: service.AuthConfig{
+						BearerAuth: &service.BearerAuthConfig{
+							Enabled:            true,
+							DistributionGroups: []string{"group1"},
+						},
+					},
+				}},
+			},
+			users: map[string]*types.User{
+				"user1": {Id: "user1", AccountID: "account1", AutoGroups: []string{"group1"}, Blocked: true},
+			},
+			expectErr:    true,
+			expectErrMsg: "user blocked",
+		},
+		{
+			name:   "blocked user denied on a service with no auth configured",
+			domain: "app.example.com",
+			userID: "user1",
+			proxiesByAccount: map[string][]*service.Service{
+				"account1": {{Domain: "app.example.com", AccountID: "account1", Auth: service.AuthConfig{}}},
+			},
+			users: map[string]*types.User{
+				"user1": {Id: "user1", AccountID: "account1", Blocked: true},
+			},
+			expectErr:    true,
+			expectErrMsg: "user blocked",
+		},
+		{
 			name:             "proxy manager error",
 			domain:           "app.example.com",
 			userID:           "user1",
@@ -421,17 +479,18 @@ func TestValidateTunnelPeerUserEmailEnrichment(t *testing.T) {
 	storedUserNoEmail := map[string]*types.User{userID: {Id: userID, AccountID: accountID, Email: ""}}
 
 	tests := []struct {
-		name         string
-		peerUserID   string
-		storedUsers  map[string]*types.User
-		storedErr    error
-		noIdP        bool
-		idpEmail     string
-		idpHasData   bool
-		idpErr       error
-		expectEmail  string
-		expectUserID string
-		expectIdPHit bool
+		name               string
+		peerUserID         string
+		storedUsers        map[string]*types.User
+		storedErr          error
+		noIdP              bool
+		idpEmail           string
+		idpHasData         bool
+		idpErr             error
+		expectEmail        string
+		expectUserID       string
+		expectIdPHit       bool
+		expectDeniedReason string
 	}{
 		{
 			name:         "idp email wins over stored email",
@@ -490,14 +549,17 @@ func TestValidateTunnelPeerUserEmailEnrichment(t *testing.T) {
 			expectIdPHit: true,
 		},
 		{
-			name:         "idp email when stored user missing keeps peer.UserID as principal",
-			peerUserID:   userID,
-			storedUsers:  map[string]*types.User{},
-			idpEmail:     "idp@example.com",
-			idpHasData:   true,
-			expectEmail:  "idp@example.com",
-			expectUserID: userID,
-			expectIdPHit: true,
+			// The identity still resolves from the IdP, but an owner the store
+			// cannot resolve denies the fast-path rather than granting it.
+			name:               "idp email when stored user missing keeps peer.UserID as principal",
+			peerUserID:         userID,
+			storedUsers:        map[string]*types.User{},
+			idpEmail:           "idp@example.com",
+			idpHasData:         true,
+			expectEmail:        "idp@example.com",
+			expectUserID:       userID,
+			expectIdPHit:       true,
+			expectDeniedReason: "user_not_found",
 		},
 		{
 			name:         "unlinked peer uses peer name and never consults idp",
@@ -545,7 +607,8 @@ func TestValidateTunnelPeerUserEmailEnrichment(t *testing.T) {
 
 			require.NoError(t, err)
 			require.NotNil(t, resp)
-			assert.True(t, resp.GetValid(), "expected access granted")
+			assert.Equal(t, tt.expectDeniedReason == "", resp.GetValid(), "unexpected access decision")
+			assert.Equal(t, tt.expectDeniedReason, resp.GetDeniedReason())
 			assert.Equal(t, tt.expectEmail, resp.GetUserEmail())
 			assert.Equal(t, tt.expectUserID, resp.GetUserId())
 
@@ -557,6 +620,78 @@ func TestValidateTunnelPeerUserEmailEnrichment(t *testing.T) {
 				} else {
 					assert.Equal(t, 0, idpMock.gotCalls, "expected IdP to not be consulted")
 				}
+			}
+		})
+	}
+}
+
+// TestValidateTunnelPeerOwnerStatus verifies that the mesh fast-path gates on
+// the account status of the peer's owning user. A peer whose owner was blocked
+// after the peer registered must lose access, while an unlinked machine peer
+// keeps it.
+func TestValidateTunnelPeerOwnerStatus(t *testing.T) {
+	const (
+		domain    = "app.example.com"
+		accountID = "account1"
+		peerID    = "peer1"
+		peerName  = "peer-display-name"
+		userID    = "user1"
+	)
+
+	tests := []struct {
+		name               string
+		peerUserID         string
+		owner              *types.User
+		expectDeniedReason string
+	}{
+		{
+			name:       "active owner allowed",
+			peerUserID: userID,
+			owner:      &types.User{Id: userID, AccountID: accountID, Email: "user@example.com"},
+		},
+		{
+			name:               "owner pending approval denied",
+			peerUserID:         userID,
+			owner:              &types.User{Id: userID, AccountID: accountID, Email: "user@example.com", Blocked: true, PendingApproval: true},
+			expectDeniedReason: "pending_approval",
+		},
+		{
+			name:               "owner blocked after registering the peer denied",
+			peerUserID:         userID,
+			owner:              &types.User{Id: userID, AccountID: accountID, Email: "user@example.com", Blocked: true},
+			expectDeniedReason: "user_blocked",
+		},
+		{
+			name:       "unlinked machine peer stays allowed",
+			peerUserID: "",
+			owner:      &types.User{Id: userID, AccountID: accountID, Blocked: true},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &service.Service{Domain: domain, AccountID: accountID}
+			server := &ProxyServiceServer{
+				serviceManager: &mockReverseProxyManager{
+					proxiesByAccount: map[string][]*service.Service{accountID: {svc}},
+				},
+				peersManager: &mockTunnelPeersManager{
+					peer: &peer.Peer{ID: peerID, Name: peerName, UserID: tt.peerUserID},
+				},
+				usersManager: &mockUsersManager{users: map[string]*types.User{userID: tt.owner}},
+			}
+
+			resp, err := server.ValidateTunnelPeer(context.Background(), &proto.ValidateTunnelPeerRequest{
+				Domain:   domain,
+				TunnelIp: "100.64.0.1",
+			})
+
+			require.NoError(t, err)
+			require.NotNil(t, resp)
+			assert.Equal(t, tt.expectDeniedReason, resp.GetDeniedReason())
+			assert.Equal(t, tt.expectDeniedReason == "", resp.GetValid(), "unexpected access decision")
+			if tt.expectDeniedReason != "" {
+				assert.Empty(t, resp.GetSessionToken(), "a denied peer must not receive a session token")
 			}
 		})
 	}

@@ -360,6 +360,31 @@ func createTestAccountsAndUsers(t *testing.T, ctx context.Context, testStore sto
 		Issued:     "api",
 	}
 	require.NoError(t, testStore.SaveUser(ctx, allowedUser))
+
+	// A user awaiting approval is stored as blocked and pending approval, and
+	// carries the same group membership as the approved one.
+	pendingUser := &types.User{
+		Id:              "pendingUserId",
+		AccountID:       "testAccountId",
+		Role:            types.UserRoleUser,
+		AutoGroups:      []string{"allowedGroupId"},
+		Blocked:         true,
+		PendingApproval: true,
+		CreatedAt:       time.Now(),
+		Issued:          "api",
+	}
+	require.NoError(t, testStore.SaveUser(ctx, pendingUser))
+
+	blockedUser := &types.User{
+		Id:         "blockedUserId",
+		AccountID:  "testAccountId",
+		Role:       types.UserRoleUser,
+		AutoGroups: []string{"allowedGroupId"},
+		Blocked:    true,
+		CreatedAt:  time.Now(),
+		Issued:     "api",
+	}
+	require.NoError(t, testStore.SaveUser(ctx, blockedUser))
 }
 
 // testServiceManager is a minimal implementation for testing.
@@ -488,6 +513,58 @@ func TestAuthCallback_UserAllowedToLogin(t *testing.T) {
 	require.Equal(t, "test-proxy.example.com", parsedLocation.Host)
 	require.NotEmpty(t, parsedLocation.Query().Get("session_token"), "Should include session token")
 	require.Empty(t, parsedLocation.Query().Get("error"), "Should not have error parameter")
+}
+
+// TestAuthCallback_UserDeniedByAccountStatus asserts that a user whose account
+// is pending approval or blocked never receives a session token from the OIDC
+// callback, and that the redirect carries a description the proxy can render.
+func TestAuthCallback_UserDeniedByAccountStatus(t *testing.T) {
+	tests := []struct {
+		name            string
+		subject         string
+		expectErrorDesc string
+	}{
+		{
+			name:            "pending approval",
+			subject:         "pendingUserId",
+			expectErrorDesc: "Your account is pending approval by an administrator",
+		},
+		{
+			name:            "blocked",
+			subject:         "blockedUserId",
+			expectErrorDesc: "Your account is blocked",
+		},
+		{
+			name:            "unknown to management",
+			subject:         "userMissingFromStoreId",
+			expectErrorDesc: "Service configuration error",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setup := setupAuthCallbackTest(t)
+			defer setup.cleanup()
+
+			setup.oidcServer.tokenSubject = tt.subject
+
+			state := createTestState(t, setup.proxyService, "https://test-proxy.example.com/dashboard")
+
+			req := httptest.NewRequest(http.MethodGet, "/reverse-proxy/callback?code=test-auth-code&state="+url.QueryEscape(state), nil)
+			rec := httptest.NewRecorder()
+
+			setup.router.ServeHTTP(rec, req)
+
+			require.Equal(t, http.StatusFound, rec.Code)
+
+			parsedLocation, err := url.Parse(rec.Header().Get("Location"))
+			require.NoError(t, err)
+
+			require.Empty(t, parsedLocation.Query().Get("session_token"), "Denied user must not receive a session token")
+			require.Equal(t, "access_denied", parsedLocation.Query().Get("error"))
+			require.Equal(t, tt.expectErrorDesc, parsedLocation.Query().Get("error_description"))
+		})
+	}
 }
 
 func TestAuthCallback_ProxyNotFound(t *testing.T) {

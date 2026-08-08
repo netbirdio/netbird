@@ -29,6 +29,7 @@ import (
 
 	"github.com/netbirdio/netbird/shared/management/domain"
 
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
@@ -36,7 +37,6 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/sessionkey"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/users"
 	proxyauth "github.com/netbirdio/netbird/proxy/auth"
@@ -1579,9 +1579,55 @@ func (s *ProxyServiceServer) ValidateState(state string) (verifier, redirectURL 
 	return verifier, redirectURL, nil
 }
 
+// Denied reasons reported to the proxy when access is refused because of the
+// account status of the user behind the request.
+const (
+	deniedReasonPendingApproval = "pending_approval"
+	deniedReasonUserBlocked     = "user_blocked"
+	deniedReasonUserNotFound    = "user_not_found"
+)
+
+var (
+	// ErrUserPendingApproval reports a user whose account still awaits approval
+	// by an administrator and may therefore not hold a proxy session.
+	ErrUserPendingApproval = errors.New("user pending approval")
+
+	// ErrUserBlocked reports a blocked user, who may not hold a proxy session.
+	ErrUserBlocked = errors.New("user blocked")
+
+	errUserUnresolved = errors.New("user could not be resolved")
+)
+
+// checkUserStatus reports whether the user's account status permits reverse
+// proxy access, returning the denied reason for the proxy access log together
+// with the sentinel error callers match on. A user awaiting approval is stored
+// as both pending and blocked, so the pending state is reported first: it is
+// the one an administrator can act on.
+func checkUserStatus(user *types.User) (string, error) {
+	switch {
+	case user == nil:
+		return deniedReasonUserNotFound, errUserUnresolved
+	case user.PendingApproval:
+		return deniedReasonPendingApproval, ErrUserPendingApproval
+	case user.IsBlocked():
+		return deniedReasonUserBlocked, ErrUserBlocked
+	default:
+		return "", nil
+	}
+}
+
+// userStatusDeniedReason returns the denied reason for callers that report a
+// decision rather than an error, and an empty string when the user may proceed.
+func userStatusDeniedReason(user *types.User) string {
+	reason, _ := checkUserStatus(user)
+	return reason
+}
+
 // GenerateSessionToken creates a signed session JWT for the given domain and
 // user. The user's group memberships are embedded in the token so policy-aware
 // middlewares on the proxy can authorise without an extra management round-trip.
+// A user the store cannot resolve, or whose account is pending approval or
+// blocked, gets no token at all, so the browser never receives a session cookie.
 func (s *ProxyServiceServer) GenerateSessionToken(ctx context.Context, domain, userID string, method proxyauth.Method) (string, error) {
 	service, err := s.getServiceByDomain(ctx, domain)
 	if err != nil {
@@ -1592,25 +1638,25 @@ func (s *ProxyServiceServer) GenerateSessionToken(ctx context.Context, domain, u
 		return "", fmt.Errorf("no session key configured for domain: %s", domain)
 	}
 
-	var (
-		email      string
-		groupIDs   []string
-		groupNames []string
-	)
-	if s.usersManager != nil {
-		user, userGroups, uerr := s.usersManager.GetUserWithGroups(ctx, userID)
-		if uerr != nil {
-			log.WithContext(ctx).Debugf("session token mint: lookup user %s: %v", userID, uerr)
-		} else if user != nil {
-			email = user.Email
-			groupIDs, groupNames = pairGroupIDsAndNames(userGroups)
-		}
+	if s.usersManager == nil {
+		return "", errors.New("users manager not configured")
 	}
+
+	user, userGroups, err := s.usersManager.GetUserWithGroups(ctx, userID)
+	if err != nil {
+		return "", fmt.Errorf("get user %s: %w", userID, err)
+	}
+
+	if _, err := checkUserStatus(user); err != nil {
+		return "", fmt.Errorf("session token for user %s: %w", userID, err)
+	}
+
+	groupIDs, groupNames := pairGroupIDsAndNames(userGroups)
 
 	return sessionkey.SignToken(
 		service.SessionPrivateKey,
 		userID,
-		email,
+		user.Email,
 		domain,
 		method,
 		groupIDs,
@@ -1626,6 +1672,10 @@ func (s *ProxyServiceServer) ValidateUserGroupAccess(ctx context.Context, domain
 	user, err := s.usersManager.GetUser(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("user not found: %s", userID)
+	}
+
+	if _, err := checkUserStatus(user); err != nil {
+		return fmt.Errorf("user %s denied access to domain %s: %w", userID, domain, err)
 	}
 
 	service, err := s.getAccountServiceByDomain(ctx, user.AccountID, domain)
@@ -1732,16 +1782,16 @@ func (s *ProxyServiceServer) ValidateSession(ctx context.Context, req *proto.Val
 	}
 
 	user, userGroups, err := s.usersManager.GetUserWithGroups(ctx, userID)
-	if err != nil {
+	if err != nil || user == nil {
 		log.WithFields(log.Fields{
 			"domain":  domain,
 			"user_id": userID,
-			"error":   err.Error(),
+			"error":   err,
 		}).Debug("ValidateSession: user not found")
 		//nolint:nilerr
 		return &proto.ValidateSessionResponse{
 			Valid:        false,
-			DeniedReason: "user_not_found",
+			DeniedReason: deniedReasonUserNotFound,
 		}, nil
 	}
 
@@ -1756,6 +1806,23 @@ func (s *ProxyServiceServer) ValidateSession(ctx context.Context, req *proto.Val
 		return &proto.ValidateSessionResponse{
 			Valid:        false,
 			DeniedReason: "account_mismatch",
+		}, nil
+	}
+
+	if reason := userStatusDeniedReason(user); reason != "" {
+		log.WithFields(log.Fields{
+			"domain":  domain,
+			"user_id": userID,
+			"reason":  reason,
+		}).Debug("ValidateSession: user status denies access")
+		groupIDs, groupNames := pairGroupIDsAndNames(userGroups)
+		return &proto.ValidateSessionResponse{
+			Valid:          false,
+			UserId:         user.Id,
+			UserEmail:      user.Email,
+			DeniedReason:   reason,
+			PeerGroupIds:   groupIDs,
+			PeerGroupNames: groupNames,
 		}, nil
 	}
 
@@ -1909,6 +1976,18 @@ func (s *ProxyServiceServer) ValidateTunnelPeer(ctx context.Context, req *proto.
 	groupIDs, groupNames := pairGroupIDsAndNames(peerGroups)
 	principalID, displayIdentity := s.getTunnelPeerInfo(ctx, domain, service, peer)
 
+	if reason := s.peerOwnerDeniedReason(ctx, peer); reason != "" {
+		log.WithFields(log.Fields{"domain": domain, "peer_id": peer.ID, "user_id": peer.UserID, "reason": reason}).Debug("ValidateTunnelPeer: owner status denies access")
+		return &proto.ValidateTunnelPeerResponse{
+			Valid:          false,
+			UserId:         principalID,
+			UserEmail:      displayIdentity,
+			DeniedReason:   reason,
+			PeerGroupIds:   groupIDs,
+			PeerGroupNames: groupNames,
+		}, nil
+	}
+
 	if err := checkPeerGroupAccess(service, groupIDs); err != nil {
 		log.WithFields(log.Fields{"domain": domain, "peer_id": peer.ID, "error": err.Error()}).Debug("ValidateTunnelPeer: access denied")
 		//nolint:nilerr
@@ -1942,6 +2021,25 @@ func (s *ProxyServiceServer) ValidateTunnelPeer(ctx context.Context, req *proto.
 		PeerGroupIds:   groupIDs,
 		PeerGroupNames: groupNames,
 	}, nil
+}
+
+// peerOwnerDeniedReason gates the mesh fast-path on the account status of the
+// peer's owning user, so a user blocked after registering a peer loses
+// mesh-origin access too. Unlinked peers (machine agents) have no owner to gate
+// on and stay first-class callers. An owner the store cannot resolve denies:
+// an unavailable lookup must not grant access.
+func (s *ProxyServiceServer) peerOwnerDeniedReason(ctx context.Context, peer *peer.Peer) string {
+	if peer.UserID == "" {
+		return ""
+	}
+
+	user, err := s.usersManager.GetUser(ctx, peer.UserID)
+	if err != nil {
+		log.WithContext(ctx).Debugf("ValidateTunnelPeer: look up owner %s of peer %s: %v", peer.UserID, peer.ID, err)
+		return deniedReasonUserNotFound
+	}
+
+	return userStatusDeniedReason(user)
 }
 
 // getTunnelPeerInfo returns the principal ID and display name for a peer, e.g. a
