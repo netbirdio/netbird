@@ -2411,7 +2411,7 @@ type AgentNetworkSettingsCreateRequest struct {
 	RedactPii *bool `json:"redact_pii,omitempty"`
 }
 
-// AgentNetworkSettingsRequest Account-level Agent Network settings update. The request replaces every mutable field (the collection toggles and retention). The endpoint and proxy address are assigned at bootstrap (POST) and are not part of this schema.
+// AgentNetworkSettingsRequest Account-level Agent Network settings update. Every field is required, matching the PUT convention of the other endpoints. The endpoint and proxy address are assigned at bootstrap (POST) and are immutable — the request must carry them unchanged, and a request carrying different values is rejected. To change them, delete the settings (DELETE, guarded) and bootstrap again; re-creating allocates a new endpoint.
 type AgentNetworkSettingsRequest struct {
 	// AccessLogRetentionDays Days to retain full access-log rows; older rows are swept. 0 or less means keep indefinitely.
 	AccessLogRetentionDays int `json:"access_log_retention_days"`
@@ -2421,6 +2421,12 @@ type AgentNetworkSettingsRequest struct {
 
 	// EnablePromptCollection Master switch for request/response prompt capture.
 	EnablePromptCollection bool `json:"enable_prompt_collection"`
+
+	// Endpoint The account's gateway endpoint hostname. Immutable — must match the assigned value; a different value is rejected.
+	Endpoint string `json:"endpoint"`
+
+	// ProxyAddress Declared cluster address of the proxy serving this account's gateway. Immutable — must match the assigned value; a different value is rejected.
+	ProxyAddress string `json:"proxy_address"`
 
 	// RedactPii Whether captured prompts have PII redacted.
 	RedactPii bool `json:"redact_pii"`

@@ -103,17 +103,22 @@ func (s *Settings) ToAPIResponse() *api.AgentNetworkSettings {
 }
 
 // FromAPIRequest applies the update request onto the receiver: every mutable
-// field is replaced with the request value. The identity fields (Domain,
-// ProxyAddress) are assigned at bootstrap and are not part of the update schema
-// at all — immutability by shape, not by rejection.
+// field is replaced with the request value, and the identity fields (Domain,
+// ProxyAddress) carry the request's echo of the assigned values. The identity
+// fields are never written to the stored row — UpdateSettings compares them
+// against it and rejects the request when they differ, so PUT keeps the
+// house convention of requiring every field while the endpoint and proxy
+// address stay immutable.
 //
-// All four fields are required by the schema, so none is presence-sensitive.
+// Every field is required by the schema, so none is presence-sensitive.
 // AccessLogRetentionDays in particular must stay required: the caller receives
 // a zero-valued Settings, and UpdateSettings copies each field onto the stored
 // row unconditionally, so an omitted value would be written as 0 — which the
 // API documents as "keep indefinitely". Making retention optional would
 // therefore let a client silently maximise log retention by leaving it out.
 func (s *Settings) FromAPIRequest(req *api.AgentNetworkSettingsRequest) {
+	s.Domain = req.Endpoint
+	s.ProxyAddress = req.ProxyAddress
 	s.EnableLogCollection = req.EnableLogCollection
 	s.EnablePromptCollection = req.EnablePromptCollection
 	s.RedactPii = req.RedactPii

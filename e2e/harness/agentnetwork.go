@@ -140,9 +140,17 @@ func (c *Combined) GetSettings(ctx context.Context) (api.AgentNetworkSettings, e
 	return anRequest[api.AgentNetworkSettings](ctx, c, http.MethodGet, "/api/agent-network/settings", nil)
 }
 
-// UpdateSettings applies the mutable collection toggles.
+// UpdateSettings applies the mutable collection toggles. The request must
+// echo the assigned endpoint and proxy address unchanged — the server rejects
+// a PUT that tries to change them.
 func (c *Combined) UpdateSettings(ctx context.Context, req api.AgentNetworkSettingsRequest) (api.AgentNetworkSettings, error) {
 	return anRequest[api.AgentNetworkSettings](ctx, c, http.MethodPut, "/api/agent-network/settings", req)
+}
+
+// DeleteSettings removes the account's settings row, releasing the endpoint.
+// Refused while providers exist or a proxy is actively serving the endpoint.
+func (c *Combined) DeleteSettings(ctx context.Context) error {
+	return anDelete(ctx, c, "/api/agent-network/settings")
 }
 
 // ListConsumption returns the account's consumption rows (possibly empty).

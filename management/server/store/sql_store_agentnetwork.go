@@ -386,6 +386,25 @@ func (s *SqlStore) SaveAgentNetworkSettings(ctx context.Context, settings *agent
 	return nil
 }
 
+// DeleteAgentNetworkSettings removes the per-account Agent Network settings
+// row, releasing the account's endpoint. Returns status.NotFound when no row
+// exists. The guards on the delete (no providers, no proxy actively serving
+// the endpoint) live in the manager, which runs this inside a transaction
+// after re-checking them under a row lock.
+func (s *SqlStore) DeleteAgentNetworkSettings(ctx context.Context, accountID string) error {
+	result := s.db.Delete(&agentNetworkTypes.Settings{}, "account_id = ?", accountID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to delete agent network settings from store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to delete agent network settings from store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.Errorf(status.NotFound, "agent network settings for account %s not found", accountID)
+	}
+
+	return nil
+}
+
 // IncrementAgentNetworkConsumption atomically upserts the consumption
 // row keyed on (account, dim_kind, dim_id, window_seconds, window_start)
 // and adds the supplied deltas. Concurrent calls from multiple proxy

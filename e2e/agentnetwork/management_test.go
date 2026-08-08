@@ -146,6 +146,8 @@ func TestSettingsRoundTrip(t *testing.T) {
 	beforeRetention := *before.AccessLogRetentionDays
 
 	flipped, err := srv.UpdateSettings(ctx, api.AgentNetworkSettingsRequest{
+		Endpoint:               before.Endpoint,
+		ProxyAddress:           before.ProxyAddress,
 		EnableLogCollection:    !before.EnableLogCollection,
 		EnablePromptCollection: !before.EnablePromptCollection,
 		RedactPii:              !before.RedactPii,
@@ -167,8 +169,22 @@ func TestSettingsRoundTrip(t *testing.T) {
 	})
 	requireClientError(t, err)
 
+	// The identity fields ride along on the PUT as a required echo: a request
+	// carrying a different endpoint is rejected without applying anything.
+	_, err = srv.UpdateSettings(ctx, api.AgentNetworkSettingsRequest{
+		Endpoint:               "other.cluster.invalid",
+		ProxyAddress:           before.ProxyAddress,
+		EnableLogCollection:    before.EnableLogCollection,
+		EnablePromptCollection: before.EnablePromptCollection,
+		RedactPii:              before.RedactPii,
+		AccessLogRetentionDays: beforeRetention,
+	})
+	requireClientError(t, err)
+
 	// Restore the original toggles.
 	_, err = srv.UpdateSettings(ctx, api.AgentNetworkSettingsRequest{
+		Endpoint:               before.Endpoint,
+		ProxyAddress:           before.ProxyAddress,
 		EnableLogCollection:    before.EnableLogCollection,
 		EnablePromptCollection: before.EnablePromptCollection,
 		RedactPii:              before.RedactPii,

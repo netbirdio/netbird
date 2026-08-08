@@ -501,11 +501,17 @@ func TestAgentNetwork_UpdateSettings_200(t *testing.T) {
 			var req api.PutApiAgentNetworkSettingsJSONRequestBody
 			require.NoError(t, json.Unmarshal(reqBytes, &req))
 			assert.True(t, req.EnableLogCollection)
+			assert.Equal(t, "brave-otter.eu.proxy.netbird.io", req.Endpoint,
+				"the identity echo must be on the wire")
+			assert.Equal(t, "eu.proxy.netbird.io", req.ProxyAddress,
+				"the identity echo must be on the wire")
 			retBytes, _ := json.Marshal(testAgentNetworkSettings)
 			_, err = w.Write(retBytes)
 			require.NoError(t, err)
 		})
 		ret, err := c.AgentNetwork.UpdateSettings(context.Background(), api.PutApiAgentNetworkSettingsJSONRequestBody{
+			Endpoint:            "brave-otter.eu.proxy.netbird.io",
+			ProxyAddress:        "eu.proxy.netbird.io",
 			EnableLogCollection: true,
 		})
 		require.NoError(t, err)
@@ -526,5 +532,30 @@ func TestAgentNetwork_UpdateSettings_Err(t *testing.T) {
 		})
 		require.Error(t, err)
 		assert.True(t, rest.IsNotFound(err), "an unbootstrapped account must surface as IsNotFound")
+	})
+}
+
+func TestAgentNetwork_DeleteSettings_200(t *testing.T) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
+		mux.HandleFunc("/api/agent-network/settings", func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, "DELETE", r.Method)
+			_, err := w.Write([]byte("{}"))
+			require.NoError(t, err)
+		})
+		require.NoError(t, c.AgentNetwork.DeleteSettings(context.Background()))
+	})
+}
+
+func TestAgentNetwork_DeleteSettings_Guarded(t *testing.T) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
+		mux.HandleFunc("/api/agent-network/settings", func(w http.ResponseWriter, r *http.Request) {
+			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "agent network settings cannot be deleted while 2 provider(s) exist; delete the providers first", Code: 412})
+			w.WriteHeader(412)
+			_, err := w.Write(retBytes)
+			require.NoError(t, err)
+		})
+		err := c.AgentNetwork.DeleteSettings(context.Background())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "cannot be deleted")
 	})
 }

@@ -14,13 +14,16 @@ import (
 
 // addSettingsEndpoints registers the Agent Network settings routes. POST
 // bootstraps the settings row, assigning the account's immutable endpoint;
-// GET reads it (defaults with an empty endpoint before bootstrap) and PUT
-// replaces the mutable collection toggles. The identity fields are not part
-// of the PUT schema — immutability by shape, not by rejection.
+// GET reads it (defaults with an empty endpoint before bootstrap); PUT
+// carries every field, replacing the mutable collection toggles and rejecting
+// any change to the identity fields; DELETE removes the row — guarded so it
+// stays a bootstrap-repair operation — releasing the endpoint for a fresh
+// bootstrap.
 func (h *handler) addSettingsEndpoints(router *mux.Router) {
 	router.HandleFunc("/agent-network/settings", h.getSettings).Methods("GET", "OPTIONS")
 	router.HandleFunc("/agent-network/settings", h.createSettings).Methods("POST", "OPTIONS")
 	router.HandleFunc("/agent-network/settings", h.updateSettings).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/agent-network/settings", h.deleteSettings).Methods("DELETE", "OPTIONS")
 }
 
 // createSettings bootstraps the account's settings row. Exactly one of
@@ -85,6 +88,24 @@ func (h *handler) updateSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	util.WriteJSONObject(r.Context(), w, updated.ToAPIResponse())
+}
+
+// deleteSettings removes the account's settings row, releasing the endpoint.
+// The manager refuses (412) while providers exist or a proxy is actively
+// serving the endpoint; a later POST bootstraps fresh, allocating a new
+// endpoint.
+func (h *handler) deleteSettings(w http.ResponseWriter, r *http.Request) {
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	if err := h.manager.DeleteSettings(r.Context(), userAuth.AccountId, userAuth.UserId); err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
 }
 
 // getSettings returns the account's agent-network settings. Accounts that
