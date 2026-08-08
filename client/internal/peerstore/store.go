@@ -108,6 +108,10 @@ func (s *Store) PeerConnOpenWithFirstPacket(ctx context.Context, pubKey string, 
 	}
 }
 
+// PeerConnIdle is invoked by the lazy-manager when a peer's idle timer
+// expires. The data path is suspended but the WG peer entry stays so
+// any AllowedIPs the route-manager has appended (advertised subnets for
+// a routing peer) survive the wake/sleep cycle.
 func (s *Store) PeerConnIdle(pubKey string) {
 	s.peerConnsMu.RLock()
 	defer s.peerConnsMu.RUnlock()
@@ -116,9 +120,12 @@ func (s *Store) PeerConnIdle(pubKey string) {
 	if !ok {
 		return
 	}
-	p.Close(true)
+	p.Close(true, true)
 }
 
+// PeerConnClose is invoked by the lazy-manager when a peer must be
+// closed without notifying the remote side (e.g. excluded from lazy on
+// re-evaluation). Same lazy-suspend semantics: keep the WG peer entry.
 func (s *Store) PeerConnClose(pubKey string) {
 	s.peerConnsMu.RLock()
 	defer s.peerConnsMu.RUnlock()
@@ -127,7 +134,7 @@ func (s *Store) PeerConnClose(pubKey string) {
 	if !ok {
 		return
 	}
-	p.Close(false)
+	p.Close(false, true)
 }
 
 func (s *Store) PeersPubKey() []string {
