@@ -90,9 +90,12 @@ func TestSettingsBootstrapViaPost(t *testing.T) {
 	assert.Equal(t, bootstrapped.EnablePromptCollection, after.EnablePromptCollection, "prompt collection must persist")
 	assert.Equal(t, bootstrapped.RedactPii, after.RedactPii, "redact toggle must persist")
 
-	// Once bootstrapped, PUT updates the toggles; the identity fields are not
-	// part of its schema and survive by construction.
+	// Once bootstrapped, PUT updates the toggles. The identity fields ride
+	// along as a required echo of the assigned values; a matching echo is
+	// accepted and never written.
 	persisted, err := fresh.UpdateSettings(ctx, api.AgentNetworkSettingsRequest{
+		Endpoint:               bootstrapped.Endpoint,
+		ProxyAddress:           bootstrapped.ProxyAddress,
 		EnableLogCollection:    true,
 		EnablePromptCollection: false,
 		RedactPii:              true,
@@ -106,8 +109,19 @@ func TestSettingsBootstrapViaPost(t *testing.T) {
 	assert.True(t, persisted.EnableLogCollection, "post-bootstrap toggle must apply")
 	assert.False(t, persisted.EnablePromptCollection, "post-bootstrap toggle must apply")
 
-	// The endpoint is immutable: a second bootstrap is rejected as a
-	// conflict, and the rejected create must not disturb anything.
+	// The endpoint is immutable: a PUT carrying a different endpoint is
+	// rejected, and a second bootstrap is rejected as a conflict. Neither
+	// rejected write may disturb anything.
+	_, err = fresh.UpdateSettings(ctx, api.AgentNetworkSettingsRequest{
+		Endpoint:               "other.cluster.invalid",
+		ProxyAddress:           persisted.ProxyAddress,
+		EnableLogCollection:    persisted.EnableLogCollection,
+		EnablePromptCollection: persisted.EnablePromptCollection,
+		RedactPii:              persisted.RedactPii,
+		AccessLogRetentionDays: 21,
+	})
+	requireClientError(t, err)
+
 	_, err = fresh.CreateSettings(ctx, api.AgentNetworkSettingsCreateRequest{
 		Endpoint: ptr("other.cluster.invalid"),
 	})
@@ -126,6 +140,9 @@ func TestSettingsBootstrapViaPost(t *testing.T) {
 // a POST carrying an endpoint claims the hostname verbatim, the proxy address
 // equals it, and the pin reads as dedicated — the address-first flow a
 // self-hosted operator uses before deploying the proxy that will declare it.
+// The tail covers the recovery path the guarded DELETE exists for: with no
+// providers and no proxy at the address, the claim can be released and a
+// fresh bootstrap succeeds — the fix for a typo'd immutable endpoint.
 func TestSettingsBootstrapSelfAddressed(t *testing.T) {
 	ctx := context.Background()
 
@@ -139,4 +156,24 @@ func TestSettingsBootstrapSelfAddressed(t *testing.T) {
 	assert.Equal(t, "gw.e2e.netbird.selfhosted", created.Endpoint, "endpoint must be claimed verbatim")
 	assert.Equal(t, created.Endpoint, created.ProxyAddress, "self-addressed: proxy address is the endpoint")
 	assert.True(t, created.Dedicated, "a self-addressed pin is dedicated")
+
+	// No providers exist and no proxy declares the address, so both delete
+	// guards are clear: the delete releases the claim and the account reads
+	// as unbootstrapped defaults again.
+	require.NoError(t, fresh.DeleteSettings(ctx), "guarded delete with both guards clear must succeed")
+
+	after, err := fresh.GetSettings(ctx)
+	require.NoError(t, err, "get settings after delete must succeed")
+	assert.Empty(t, after.Endpoint, "a deleted account must read as unbootstrapped")
+
+	// A second delete has nothing to remove.
+	requireClientError(t, fresh.DeleteSettings(ctx))
+
+	// Re-creating is a fresh bootstrap — the released hostname is free to be
+	// claimed again, or a different one chosen.
+	recreated, err := fresh.CreateSettings(ctx, api.AgentNetworkSettingsCreateRequest{
+		Endpoint: ptr("gw2.e2e.netbird.selfhosted"),
+	})
+	require.NoError(t, err, "bootstrap after delete must succeed")
+	assert.Equal(t, "gw2.e2e.netbird.selfhosted", recreated.Endpoint, "the fresh bootstrap claims the new hostname")
 }

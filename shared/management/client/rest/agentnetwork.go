@@ -379,10 +379,11 @@ func (a *AgentNetworkAPI) CreateSettings(ctx context.Context, request api.PostAp
 }
 
 // UpdateSettings updates the account's Agent Network settings; the request
-// replaces every mutable field (collection toggles and retention). The
-// endpoint and proxy address are assigned at bootstrap (CreateSettings) and
-// are not part of the update schema. Returns not-found until the account is
-// bootstrapped.
+// carries every field, replacing the mutable ones (collection toggles and
+// retention). The endpoint and proxy address are assigned at bootstrap
+// (CreateSettings) and immutable — the request must echo them unchanged, and
+// a request carrying different values is rejected. Returns not-found until
+// the account is bootstrapped.
 func (a *AgentNetworkAPI) UpdateSettings(ctx context.Context, request api.PutApiAgentNetworkSettingsJSONRequestBody) (*api.AgentNetworkSettings, error) {
 	requestBytes, err := json.Marshal(request)
 	if err != nil {
@@ -397,4 +398,20 @@ func (a *AgentNetworkAPI) UpdateSettings(ctx context.Context, request api.PutApi
 	}
 	ret, err := parseResponse[api.AgentNetworkSettings](resp)
 	return &ret, err
+}
+
+// DeleteSettings deletes the account's Agent Network settings row, releasing
+// the endpoint. The server refuses (precondition failed) while any provider
+// exists for the account or while a proxy is actively serving the endpoint.
+// Bootstrapping again afterwards allocates a new endpoint.
+func (a *AgentNetworkAPI) DeleteSettings(ctx context.Context) error {
+	resp, err := a.c.NewRequest(ctx, "DELETE", "/api/agent-network/settings", nil, nil)
+	if err != nil {
+		return err
+	}
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
+
+	return nil
 }

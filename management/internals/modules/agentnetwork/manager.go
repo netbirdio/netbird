@@ -72,6 +72,7 @@ type Manager interface {
 	GetSettings(ctx context.Context, accountID, userID string) (*types.Settings, error)
 	CreateSettings(ctx context.Context, userID string, settings *types.Settings, proxyAddress, endpoint string) (*types.Settings, error)
 	UpdateSettings(ctx context.Context, userID string, settings *types.Settings) (*types.Settings, error)
+	DeleteSettings(ctx context.Context, accountID, userID string) error
 
 	ListConsumption(ctx context.Context, accountID, userID string) ([]*types.Consumption, error)
 	ListAccessLogs(ctx context.Context, accountID, userID string, filter types.AgentNetworkAccessLogFilter) ([]*types.AgentNetworkAccessLog, int64, error)
@@ -545,12 +546,14 @@ func (m *managerImpl) DeleteBudgetRule(ctx context.Context, accountID, userID, r
 
 // UpdateSettings replaces the mutable account-level settings — the collection
 // toggles and retention — on the account's row. The identity fields (Domain,
-// ProxyAddress) are assigned at bootstrap (CreateSettings) and are not part of
-// the update surface at all; when the account has no settings row yet the
-// update fails with NotFound. Because the collection toggles change the
-// synthesised service config (prompt-capture gating, access-log emission), a
-// reconcile is triggered so the proxy and peer network maps converge on the
-// new state.
+// ProxyAddress) are assigned at bootstrap (CreateSettings) and immutable: the
+// request carries them, matching the PUT convention of every other endpoint,
+// but they are only compared against the stored row — a request carrying
+// different values is rejected, and the stored values are never overwritten.
+// When the account has no settings row yet the update fails with NotFound.
+// Because the collection toggles change the synthesised service config
+// (prompt-capture gating, access-log emission), a reconcile is triggered so
+// the proxy and peer network maps converge on the new state.
 func (m *managerImpl) UpdateSettings(ctx context.Context, userID string, settings *types.Settings) (*types.Settings, error) {
 	if err := m.requirePermission(ctx, settings.AccountID, userID, modules.AgentNetworkSettings, operations.Update); err != nil {
 		return nil, err
@@ -568,6 +571,16 @@ func (m *managerImpl) UpdateSettings(ctx context.Context, userID string, setting
 			return status.Errorf(status.NotFound, "agent network settings have not been bootstrapped yet; POST /api/agent-network/settings to bootstrap them")
 		default:
 			return fmt.Errorf("get agent network settings: %w", err)
+		}
+
+		// The identity echo is compared leniently (trimmed, case-insensitive):
+		// the stored values are normalized lowercase, and a client replaying a
+		// GET response must never be rejected over casing it didn't choose.
+		if !hostnamesEquivalent(settings.Domain, existing.Domain) {
+			return status.Errorf(status.InvalidArgument, "endpoint is immutable: it must match the assigned endpoint %q; delete the settings to release it and bootstrap again", existing.Domain)
+		}
+		if !hostnamesEquivalent(settings.ProxyAddress, existing.ProxyAddress) {
+			return status.Errorf(status.InvalidArgument, "proxy_address is immutable: it must match the assigned proxy address %q; delete the settings to release it and bootstrap again", existing.ProxyAddress)
 		}
 
 		existing.EnableLogCollection = settings.EnableLogCollection
@@ -594,6 +607,83 @@ func (m *managerImpl) UpdateSettings(ctx context.Context, userID string, setting
 	m.reconcile(ctx, settings.AccountID)
 
 	return updated, nil
+}
+
+// hostnamesEquivalent reports whether a caller-supplied hostname names the
+// same host as a stored (normalized, lowercase) one: equal after trimming and
+// case folding. No structural validation — an arbitrary mismatch and a
+// malformed value are both simply "not the assigned value".
+func hostnamesEquivalent(supplied, stored string) bool {
+	return strings.EqualFold(strings.TrimSpace(supplied), stored)
+}
+
+// DeleteSettings removes the account's settings row, releasing the endpoint.
+// Two guards make this a bootstrap-repair operation rather than a way to tear
+// down a serving gateway, both re-checked under the row lock:
+//
+//   - No Agent Network providers may exist for the account. Providers route
+//     through the endpoint; delete them first.
+//   - No proxy may be actively serving the endpoint — that is, no active proxy
+//     declares the endpoint hostname as its cluster address. This is the
+//     dedicated (self-addressed) shape's guard: the proxy at the address IS
+//     this account's gateway. A labeled endpoint hangs beneath a shared
+//     cluster's address, and with the account's providers already gone the
+//     shared proxy serves nothing of the account's, so the parent cluster
+//     being up does not block the delete.
+//
+// Bootstrapping again after a delete allocates fresh — the released hostname
+// is not reserved. That full-reset semantic is what gives clients that model
+// immutability as replace-on-change (e.g. Terraform's RequiresReplace) a real
+// path: tear down providers, delete, re-create.
+func (m *managerImpl) DeleteSettings(ctx context.Context, accountID, userID string) error {
+	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkSettings, operations.Delete); err != nil {
+		return err
+	}
+
+	var deleted *types.Settings
+	err := m.store.ExecuteInTransaction(ctx, func(tx store.Store) error {
+		existing, err := tx.GetAgentNetworkSettings(ctx, store.LockingStrengthUpdate, accountID)
+		switch {
+		case err == nil:
+		case isNotFound(err):
+			return status.Errorf(status.NotFound, "agent network settings have not been bootstrapped yet; there is nothing to delete")
+		default:
+			return fmt.Errorf("get agent network settings: %w", err)
+		}
+
+		providers, err := tx.GetAccountAgentNetworkProviders(ctx, store.LockingStrengthNone, accountID)
+		if err != nil {
+			return fmt.Errorf("get agent network providers: %w", err)
+		}
+		if len(providers) > 0 {
+			return status.Errorf(status.PreconditionFailed, "agent network settings cannot be deleted while %d provider(s) exist; delete the providers first", len(providers))
+		}
+
+		serving, err := tx.HasActiveProxyAtClusterAddress(ctx, existing.Domain)
+		if err != nil {
+			return fmt.Errorf("check for a proxy serving the endpoint: %w", err)
+		}
+		if serving {
+			return status.Errorf(status.PreconditionFailed, "agent network settings cannot be deleted while a proxy is actively serving the endpoint %q", existing.Domain)
+		}
+
+		if err := tx.DeleteAgentNetworkSettings(ctx, accountID); err != nil {
+			return fmt.Errorf("delete agent network settings: %w", err)
+		}
+		deleted = existing
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	m.accountManager.StoreEvent(ctx, userID, accountID, accountID, activity.AgentNetworkSettingsDeleted, map[string]any{
+		"endpoint":      deleted.Domain,
+		"proxy_address": deleted.ProxyAddress,
+	})
+	m.reconcile(ctx, accountID)
+
+	return nil
 }
 
 // isNotFound reports whether err is a status.NotFound error.
@@ -1013,6 +1103,8 @@ func (*mockManager) CreateSettings(_ context.Context, _ string, s *types.Setting
 func (*mockManager) UpdateSettings(_ context.Context, _ string, s *types.Settings) (*types.Settings, error) {
 	return s, nil
 }
+
+func (*mockManager) DeleteSettings(_ context.Context, _, _ string) error { return nil }
 
 func (*mockManager) ListConsumption(_ context.Context, _, _ string) ([]*types.Consumption, error) {
 	return nil, nil

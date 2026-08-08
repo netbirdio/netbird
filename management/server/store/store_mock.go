@@ -507,6 +507,20 @@ func (mr *MockStoreMockRecorder) DeleteAgentNetworkProvider(ctx, accountID, prov
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAgentNetworkProvider", reflect.TypeOf((*MockStore)(nil).DeleteAgentNetworkProvider), ctx, accountID, providerID)
 }
 
+// DeleteAgentNetworkSettings mocks base method.
+func (m *MockStore) DeleteAgentNetworkSettings(ctx context.Context, accountID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteAgentNetworkSettings", ctx, accountID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteAgentNetworkSettings indicates an expected call of DeleteAgentNetworkSettings.
+func (mr *MockStoreMockRecorder) DeleteAgentNetworkSettings(ctx, accountID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAgentNetworkSettings", reflect.TypeOf((*MockStore)(nil).DeleteAgentNetworkSettings), ctx, accountID)
+}
+
 // DeleteCustomDomain mocks base method.
 func (m *MockStore) DeleteCustomDomain(ctx context.Context, accountID, domainID string) error {
 	m.ctrl.T.Helper()
@@ -2983,6 +2997,21 @@ func (m *MockStore) GetZoneDNSRecordsByName(ctx context.Context, lockStrength Lo
 func (mr *MockStoreMockRecorder) GetZoneDNSRecordsByName(ctx, lockStrength, accountID, zoneID, name interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetZoneDNSRecordsByName", reflect.TypeOf((*MockStore)(nil).GetZoneDNSRecordsByName), ctx, lockStrength, accountID, zoneID, name)
+}
+
+// HasActiveProxyAtClusterAddress mocks base method.
+func (m *MockStore) HasActiveProxyAtClusterAddress(ctx context.Context, clusterAddress string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HasActiveProxyAtClusterAddress", ctx, clusterAddress)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// HasActiveProxyAtClusterAddress indicates an expected call of HasActiveProxyAtClusterAddress.
+func (mr *MockStoreMockRecorder) HasActiveProxyAtClusterAddress(ctx, clusterAddress interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasActiveProxyAtClusterAddress", reflect.TypeOf((*MockStore)(nil).HasActiveProxyAtClusterAddress), ctx, clusterAddress)
 }
 
 // IncrementAgentNetworkConsumption mocks base method.
