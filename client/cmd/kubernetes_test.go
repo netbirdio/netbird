@@ -16,10 +16,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type testAddressResolver map[string][]string
+type testAddressResolver struct {
+	records map[string][]string
+	lookups []string
+}
 
-func (r testAddressResolver) LookupAddr(_ context.Context, addr string) ([]string, error) {
-	fqdns, ok := r[addr]
+func (r *testAddressResolver) LookupAddr(_ context.Context, addr string) ([]string, error) {
+	r.lookups = append(r.lookups, addr)
+	fqdns, ok := r.records[addr]
 	if !ok {
 		return nil, errors.New("no such host")
 	}
@@ -34,13 +38,16 @@ func TestGetKubernetesClustersSkipsPeersWithoutPTRRecords(t *testing.T) {
 		{IP: "100.96.6.73"},
 		{IP: "::ffff:100.96.72.123"},
 	}
-	resolver := testAddressResolver{
-		"100.96.72.123": {"regular-peer.netbird.selfhosted."},
+	resolver := &testAddressResolver{
+		records: map[string][]string{
+			"100.96.72.123": {"regular-peer.netbird.selfhosted."},
+		},
 	}
 
 	kcs, err := getKubernetesClustersWithResolver(t.Context(), peers, "", resolver)
 	assert.NoError(t, err, "discovery should continue when peers have invalid IPs or missing PTR records")
 	assert.Empty(t, kcs, "discovery should ignore peers without Kubernetes proxy DNS names")
+	assert.Equal(t, []string{"100.96.6.73", "100.96.72.123"}, resolver.lookups, "discovery should continue after missing PTR records and normalize IPv4-mapped IPv6 addresses")
 }
 
 func TestFingerprintClusters(t *testing.T) {
