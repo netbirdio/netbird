@@ -125,6 +125,34 @@ func generateLongDomains(count int) []string {
 	return domains
 }
 
+func TestParseSystemDNSSettingsSkipsEmptyValues(t *testing.T) {
+	rawSettings := []byte(`
+<dictionary> {
+  DomainName : dlinkrouter
+  SearchDomains : <array> {
+    0 :
+    1 : corp.example
+  }
+  ServerAddresses : <array> {
+    0 :
+    1 : 0.0.0.0
+    2 : 192.168.100.1
+    3 : ::ffff:9.9.9.9
+    4 : not-an-ip
+  }
+}`)
+
+	settings, servers, err := parseSystemDNSSettings(rawSettings)
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"dlinkrouter", "corp.example"}, settings.Domains)
+	assert.Equal(t, netip.MustParseAddr("192.168.100.1"), settings.ServerIP)
+	assert.Equal(t, []netip.Addr{
+		netip.MustParseAddr("192.168.100.1"),
+		netip.MustParseAddr("9.9.9.9"),
+	}, servers)
+}
+
 // readDomainsFromKey reads the SupplementalMatchDomains array back from scutil for a given key.
 func readDomainsFromKey(t *testing.T, key string) []string {
 	t.Helper()
