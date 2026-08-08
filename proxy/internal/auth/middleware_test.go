@@ -264,6 +264,112 @@ func TestProtect_ValidSessionCookiePassesThrough(t *testing.T) {
 	assert.Equal(t, "authenticated", rec.Body.String())
 }
 
+// stubSessionStatusValidator drives ValidateSession for the OIDC cookie hot path.
+type stubSessionStatusValidator struct {
+	called bool
+	valid  bool
+}
+
+func (s *stubSessionStatusValidator) ValidateSession(_ context.Context, _ *proto.ValidateSessionRequest, _ ...grpc.CallOption) (*proto.ValidateSessionResponse, error) {
+	s.called = true
+	return &proto.ValidateSessionResponse{
+		Valid:     s.valid,
+		UserId:    "oidc-user",
+		UserEmail: "user@example.com",
+	}, nil
+}
+
+func (s *stubSessionStatusValidator) ValidateTunnelPeer(context.Context, *proto.ValidateTunnelPeerRequest, ...grpc.CallOption) (*proto.ValidateTunnelPeerResponse, error) {
+	return nil, errors.New("not used in this test")
+}
+
+func TestProtect_OIDCSessionCookieRevalidatedViaManagement(t *testing.T) {
+	validator := &stubSessionStatusValidator{valid: true}
+	mw := NewMiddleware(log.StandardLogger(), validator, nil)
+	kp := generateTestKeyPair(t)
+
+	scheme := &stubScheme{method: auth.MethodOIDC, promptID: "oidc"}
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil, false))
+
+	token, err := sessionkey.SignToken(kp.PrivateKey, "oidc-user", "user@example.com", "example.com", auth.MethodOIDC, nil, nil, time.Hour)
+	require.NoError(t, err)
+
+	var backendCalled bool
+	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		backendCalled = true
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: token})
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.True(t, validator.called, "OIDC cookie must call ValidateSession")
+	assert.True(t, backendCalled)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestProtect_OIDCSessionCookieDeniedClearsCookie(t *testing.T) {
+	validator := &stubSessionStatusValidator{valid: false}
+	mw := NewMiddleware(log.StandardLogger(), validator, nil)
+	kp := generateTestKeyPair(t)
+
+	scheme := &stubScheme{method: auth.MethodOIDC, promptID: "oidc"}
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil, false))
+
+	token, err := sessionkey.SignToken(kp.PrivateKey, "oidc-user", "user@example.com", "example.com", auth.MethodOIDC, nil, nil, time.Hour)
+	require.NoError(t, err)
+
+	var backendCalled bool
+	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		backendCalled = true
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: token})
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.True(t, validator.called, "OIDC cookie must call ValidateSession")
+	assert.False(t, backendCalled, "denied status must not reach the backend")
+	cleared := false
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == auth.SessionCookieName && c.MaxAge < 0 {
+			cleared = true
+		}
+	}
+	assert.True(t, cleared, "denied cookie must be cleared")
+}
+
+func TestProtect_PINSessionCookieSkipsValidateSession(t *testing.T) {
+	validator := &stubSessionStatusValidator{valid: false}
+	mw := NewMiddleware(log.StandardLogger(), validator, nil)
+	kp := generateTestKeyPair(t)
+
+	scheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil, false))
+
+	token, err := sessionkey.SignToken(kp.PrivateKey, "pin-user", "", "example.com", auth.MethodPIN, nil, nil, time.Hour)
+	require.NoError(t, err)
+
+	var backendCalled bool
+	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		backendCalled = true
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: token})
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.False(t, validator.called, "PIN cookies must not hit ValidateSession")
+	assert.True(t, backendCalled)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
 // TestProtect_SessionCookieGroupsPropagate verifies the cookie path lifts the
 // JWT's groups claim into CapturedData so policy-aware middlewares can
 // authorise without an extra management round-trip.
