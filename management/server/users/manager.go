@@ -3,6 +3,7 @@ package users
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -11,6 +12,9 @@ import (
 type Manager interface {
 	GetUser(ctx context.Context, userID string) (*types.User, error)
 	GetUserWithGroups(ctx context.Context, userID string) (*types.User, []*types.Group, error)
+	// RefreshLastLogin records an interactive login on the user without
+	// rewriting the rest of the row, keeping a newer stored timestamp.
+	RefreshLastLogin(ctx context.Context, accountID, userID string, loginAt time.Time) error
 }
 
 type managerImpl struct {
@@ -24,6 +28,10 @@ func NewManager(store store.Store) Manager {
 	return &managerImpl{
 		store: store,
 	}
+}
+
+func (m *managerImpl) RefreshLastLogin(ctx context.Context, accountID, userID string, loginAt time.Time) error {
+	return m.store.RefreshUserLastLogin(ctx, accountID, userID, loginAt)
 }
 
 func (m *managerImpl) GetUser(ctx context.Context, userID string) (*types.User, error) {
@@ -72,6 +80,10 @@ func (m *managerMock) GetUser(ctx context.Context, userID string) (*types.User, 
 	default:
 		return nil, errors.New("user not found")
 	}
+}
+
+func (m *managerMock) RefreshLastLogin(_ context.Context, _, _ string, _ time.Time) error {
+	return nil
 }
 
 func (m *managerMock) GetUserWithGroups(ctx context.Context, userID string) (*types.User, []*types.Group, error) {

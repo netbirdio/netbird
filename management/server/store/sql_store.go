@@ -599,6 +599,27 @@ func (s *SqlStore) ApproveAccountPeers(ctx context.Context, accountID string) (i
 	return int(result.RowsAffected), nil
 }
 
+// RefreshPeerLastSeen updates only peer_status_last_seen. Every other status
+// column is left untouched: peer_status_connected and
+// peer_status_session_started_at belong to the sync stream that owns the
+// session, and a blind write here would corrupt the fencing
+// MarkPeerConnectedIfNewerSession relies on.
+func (s *SqlStore) RefreshPeerLastSeen(ctx context.Context, accountID, peerID string, seenAt time.Time) error {
+	if seenAt.IsZero() {
+		return nil
+	}
+
+	result := s.db.WithContext(ctx).
+		Model(&nbpeer.Peer{}).
+		Where(accountAndIDQueryCondition, accountID, peerID).
+		Update("peer_status_last_seen", seenAt)
+	if result.Error != nil {
+		return status.Errorf(status.Internal, "refresh peer last seen: %v", result.Error)
+	}
+
+	return nil
+}
+
 // SaveUsers saves the given list of users to the database.
 func (s *SqlStore) SaveUsers(ctx context.Context, users []*types.User) error {
 	if len(users) == 0 {
@@ -2996,6 +3017,26 @@ func (s *SqlStore) SaveUserLastLogin(ctx context.Context, accountID, userID stri
 	if !lastLogin.IsZero() {
 		user.LastLogin = &lastLogin
 		return s.db.Save(&user).Error
+	}
+
+	return nil
+}
+
+// RefreshUserLastLogin updates only the last_login column, and only when it
+// moves the timestamp forward. A user who has never logged in has a NULL that
+// must also be written, so it counts as older than anything.
+func (s *SqlStore) RefreshUserLastLogin(ctx context.Context, accountID, userID string, loginAt time.Time) error {
+	if loginAt.IsZero() {
+		return nil
+	}
+
+	result := s.db.WithContext(ctx).
+		Model(&types.User{}).
+		Where(accountAndIDQueryCondition, accountID, userID).
+		Where("last_login IS NULL OR last_login < ?", loginAt).
+		Update("last_login", loginAt)
+	if result.Error != nil {
+		return status.Errorf(status.Internal, "refresh user last login: %v", result.Error)
 	}
 
 	return nil

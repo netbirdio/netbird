@@ -1672,7 +1672,7 @@ func (s *ProxyServiceServer) GenerateSessionToken(ctx context.Context, domain, u
 
 	groupIDs, groupNames := pairGroupIDsAndNames(userGroups)
 
-	return sessionkey.SignToken(
+	token, err := sessionkey.SignToken(
 		service.SessionPrivateKey,
 		userID,
 		user.Email,
@@ -1682,6 +1682,28 @@ func (s *ProxyServiceServer) GenerateSessionToken(ctx context.Context, domain, u
 		groupNames,
 		proxyauth.DefaultSessionExpiry,
 	)
+	if err != nil {
+		return "", err
+	}
+
+	s.recordUserLogin(ctx, service.AccountID, user)
+
+	return token, nil
+}
+
+// recordUserLogin marks a completed reverse proxy SSO login on the user. The
+// timestamp is what activity accounting reads to count someone who only ever
+// reaches proxy-protected services and never opens the dashboard. Service users
+// have no interactive login to record. A failure is logged and dropped: the
+// next login marks it again and no authorization decision reads it.
+func (s *ProxyServiceServer) recordUserLogin(ctx context.Context, accountID string, user *types.User) {
+	if user.IsServiceUser {
+		return
+	}
+
+	if err := s.usersManager.RefreshLastLogin(ctx, accountID, user.Id, time.Now().UTC()); err != nil {
+		log.WithContext(ctx).Debugf("record proxy login for user %s: %v", user.Id, err)
+	}
 }
 
 // ValidateUserGroupAccess checks if a user has access to a service.
@@ -2031,6 +2053,8 @@ func (s *ProxyServiceServer) ValidateTunnelPeer(ctx context.Context, req *proto.
 		return nil, err
 	}
 
+	s.recordPeerSeen(ctx, service.AccountID, peer)
+
 	log.WithFields(log.Fields{
 		"domain":       domain,
 		"tunnel_ip":    tunnelIPStr,
@@ -2046,6 +2070,33 @@ func (s *ProxyServiceServer) ValidateTunnelPeer(ctx context.Context, req *proto.
 		PeerGroupIds:   groupIDs,
 		PeerGroupNames: groupNames,
 	}, nil
+}
+
+// proxyPeerSeenInterval is how stale a peer's LastSeen must be before reaching
+// a private service refreshes it. Positive tunnel validations are cached on the
+// proxy for five minutes, so without a floor a busy peer would rewrite its row
+// all day; an hour still sits well inside the window activity accounting asks
+// about.
+const proxyPeerSeenInterval = time.Hour
+
+// recordPeerSeen marks a peer as seen when it reaches a private service over
+// the mesh, which is what lets its owner count as active. Peers that activity
+// accounting excludes are skipped rather than written for nothing, and so is a
+// peer already seen inside the interval — the row is in hand, so the throttle
+// costs nothing. A failure is logged and dropped: the next request marks it
+// again.
+func (s *ProxyServiceServer) recordPeerSeen(ctx context.Context, accountID string, peer *peer.Peer) {
+	if !peer.CountsTowardActivity() {
+		return
+	}
+
+	if peer.Status != nil && time.Since(peer.Status.LastSeen) < proxyPeerSeenInterval {
+		return
+	}
+
+	if err := s.peersManager.RefreshLastSeen(ctx, accountID, peer.ID, time.Now().UTC()); err != nil {
+		log.WithContext(ctx).Debugf("record proxy activity for peer %s: %v", peer.ID, err)
+	}
 }
 
 // resolvePeerOwner returns the user a peer is linked to, once per request so

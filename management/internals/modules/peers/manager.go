@@ -44,6 +44,8 @@ type Manager interface {
 	// to. Used by the proxy's auth path to authorise a request by the calling
 	// peer's group memberships.
 	GetPeerWithGroups(ctx context.Context, accountID, peerID string) (*peer.Peer, []*types.Group, error)
+	// RefreshLastSeen records that a peer was seen at seenAt.
+	RefreshLastSeen(ctx context.Context, accountID, peerID string, seenAt time.Time) error
 }
 
 type managerImpl struct {
@@ -126,6 +128,10 @@ func (m *managerImpl) GetPeerWithGroups(ctx context.Context, accountID, peerID s
 		return nil, nil, err
 	}
 	return p, groups, nil
+}
+
+func (m *managerImpl) RefreshLastSeen(ctx context.Context, accountID, peerID string, seenAt time.Time) error {
+	return m.store.RefreshPeerLastSeen(ctx, accountID, peerID, seenAt)
 }
 
 func (m *managerImpl) DeletePeers(ctx context.Context, accountID string, peerIDs []string, userID string, checkConnected bool) error {
