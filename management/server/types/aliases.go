@@ -2,7 +2,6 @@ package types
 
 import (
 	"context"
-	"math/rand"
 	"net"
 	"net/netip"
 
@@ -86,8 +85,8 @@ func GenerateRouteFirewallRules(ctx context.Context, route *nbroute.Route, rule 
 	return sharedtypes.GenerateRouteFirewallRules(ctx, route, rule, groupPeers, direction, includeIPv6)
 }
 
-func AllocateIPv6Subnet(r *rand.Rand) net.IPNet {
-	return sharedtypes.AllocateIPv6Subnet(r)
+func AllocateIPv6Subnet() net.IPNet {
+	return sharedtypes.AllocateIPv6Subnet()
 }
 
 func NewNetwork() *Network {
