@@ -611,12 +611,14 @@ func (s *SqlStore) ApproveAccountPeers(ctx context.Context, accountID string) (i
 //
 // staleBefore carries the caller's throttle into the same statement, so
 // concurrent requests for one peer collapse into a single write instead of
-// each racing on its own stale read.
+// each racing on its own stale read. The column is nullable — Status is an
+// embedded pointer, so a peer stored without one leaves it NULL — and NULL
+// loses every comparison, hence the explicit branch for a peer never seen.
 func (s *SqlStore) RefreshPeerLastSeen(ctx context.Context, accountID, peerID string, staleBefore time.Time) (bool, error) {
 	result := s.db.WithContext(ctx).
 		Model(&nbpeer.Peer{}).
 		Where(accountAndIDQueryCondition, accountID, peerID).
-		Where("peer_status_last_seen < ?", staleBefore).
+		Where("(peer_status_last_seen IS NULL OR peer_status_last_seen < ?)", staleBefore).
 		Update("peer_status_last_seen", gorm.Expr("CURRENT_TIMESTAMP"))
 	if result.Error != nil {
 		return false, status.Errorf(status.Internal, "refresh peer last seen: %v", result.Error)

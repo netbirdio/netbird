@@ -65,6 +65,26 @@ func TestRefreshPeerLastSeenHonoursCutoff(t *testing.T) {
 	assert.WithinDuration(t, stored, peer.Status.LastSeen.UTC(), time.Second, "last seen must be left where it was")
 }
 
+// TestRefreshPeerLastSeenRecordsNeverSeenPeer covers the nullable column. Status
+// is an embedded pointer, so a peer stored without one leaves last seen NULL,
+// and NULL loses the cutoff comparison — such a peer would never record its
+// first activity.
+func TestRefreshPeerLastSeenRecordsNeverSeenPeer(t *testing.T) {
+	ctx := context.Background()
+	store := newActivityTestStore(t)
+	stored := activityPeer(time.Time{})
+	stored.Status = nil
+	require.NoError(t, store.AddPeerToAccount(ctx, stored))
+
+	refreshed, err := store.RefreshPeerLastSeen(ctx, activityAccountID, "activityPeer", time.Now().UTC().Add(-time.Hour))
+	require.NoError(t, err)
+	assert.True(t, refreshed, "a peer that was never seen must record its first activity")
+
+	peer, err := store.GetPeerByID(ctx, LockingStrengthNone, activityAccountID, "activityPeer")
+	require.NoError(t, err)
+	assert.WithinDuration(t, time.Now().UTC(), peer.Status.LastSeen.UTC(), time.Minute, "last seen should be stamped at write time")
+}
+
 // TestRefreshPeerLastSeenLeavesSessionStateAlone pins the column boundary: the
 // connected flag and the session token belong to the sync stream that owns the
 // peer's session, and a blind write here would corrupt its fencing. This is why
