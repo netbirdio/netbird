@@ -3022,26 +3022,6 @@ func (s *SqlStore) SaveUserLastLogin(ctx context.Context, accountID, userID stri
 	return nil
 }
 
-// RefreshUserLastLogin updates only the last_login column, and only when it
-// moves the timestamp forward. A user who has never logged in has a NULL that
-// must also be written, so it counts as older than anything.
-func (s *SqlStore) RefreshUserLastLogin(ctx context.Context, accountID, userID string, loginAt time.Time) error {
-	if loginAt.IsZero() {
-		return nil
-	}
-
-	result := s.db.WithContext(ctx).
-		Model(&types.User{}).
-		Where(accountAndIDQueryCondition, accountID, userID).
-		Where("last_login IS NULL OR last_login < ?", loginAt).
-		Update("last_login", loginAt)
-	if result.Error != nil {
-		return status.Errorf(status.Internal, "refresh user last login: %v", result.Error)
-	}
-
-	return nil
-}
-
 func (s *SqlStore) GetPostureCheckByChecksDefinition(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error) {
 	definitionJSON, err := json.Marshal(checks)
 	if err != nil {

@@ -587,10 +587,6 @@ type testValidateSessionUsersManager struct {
 	store store.Store
 }
 
-func (m *testValidateSessionUsersManager) RefreshLastLogin(ctx context.Context, accountID, userID string, loginAt time.Time) error {
-	return m.store.RefreshUserLastLogin(ctx, accountID, userID, loginAt)
-}
-
 func (m *testValidateSessionUsersManager) GetUser(ctx context.Context, userID string) (*types.User, error) {
 	return m.store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
 }

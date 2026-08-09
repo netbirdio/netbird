@@ -3217,20 +3217,6 @@ func (mr *MockStoreMockRecorder) RefreshPeerLastSeen(ctx, accountID, peerID inte
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RefreshPeerLastSeen", reflect.TypeOf((*MockStore)(nil).RefreshPeerLastSeen), ctx, accountID, peerID)
 }
 
-// RefreshUserLastLogin mocks base method.
-func (m *MockStore) RefreshUserLastLogin(ctx context.Context, accountID, userID string, loginAt time.Time) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RefreshUserLastLogin", ctx, accountID, userID, loginAt)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// RefreshUserLastLogin indicates an expected call of RefreshUserLastLogin.
-func (mr *MockStoreMockRecorder) RefreshUserLastLogin(ctx, accountID, userID, loginAt interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RefreshUserLastLogin", reflect.TypeOf((*MockStore)(nil).RefreshUserLastLogin), ctx, accountID, userID, loginAt)
-}
-
 // RemovePeerFromAllGroups mocks base method.
 func (m *MockStore) RemovePeerFromAllGroups(ctx context.Context, peerID string) error {
 	m.ctrl.T.Helper()

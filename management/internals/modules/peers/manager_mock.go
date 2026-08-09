@@ -174,20 +174,6 @@ func (mr *MockManagerMockRecorder) GetPeersByGroupIDs(ctx, accountID, groupsIDs 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPeersByGroupIDs", reflect.TypeOf((*MockManager)(nil).GetPeersByGroupIDs), ctx, accountID, groupsIDs)
 }
 
-// RefreshLastSeen mocks base method.
-func (m *MockManager) RefreshLastSeen(ctx context.Context, accountID, peerID string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RefreshLastSeen", ctx, accountID, peerID)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// RefreshLastSeen indicates an expected call of RefreshLastSeen.
-func (mr *MockManagerMockRecorder) RefreshLastSeen(ctx, accountID, peerID interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RefreshLastSeen", reflect.TypeOf((*MockManager)(nil).RefreshLastSeen), ctx, accountID, peerID)
-}
-
 // SetAccountManager mocks base method.
 func (m *MockManager) SetAccountManager(accountManager account.Manager) {
 	m.ctrl.T.Helper()

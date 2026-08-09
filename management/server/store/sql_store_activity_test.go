@@ -31,76 +31,6 @@ func newActivityTestStore(t *testing.T) Store {
 	return store
 }
 
-func TestRefreshUserLastLogin(t *testing.T) {
-	ctx := context.Background()
-	base := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
-
-	tests := []struct {
-		name    string
-		stored  *time.Time
-		loginAt time.Time
-		expect  *time.Time
-	}{
-		{
-			// A user who has only ever reached proxy services has no login on
-			// record at all, and activity accounting skips those users.
-			name:    "never logged in gets the timestamp",
-			stored:  nil,
-			loginAt: base,
-			expect:  &base,
-		},
-		{
-			name:    "older timestamp moves forward",
-			stored:  ptrTime(base.Add(-2 * time.Hour)),
-			loginAt: base,
-			expect:  &base,
-		},
-		{
-			name:    "newer timestamp is left alone",
-			stored:  ptrTime(base.Add(time.Hour)),
-			loginAt: base,
-			expect:  ptrTime(base.Add(time.Hour)),
-		},
-		{
-			name:    "zero login is ignored",
-			stored:  ptrTime(base),
-			loginAt: time.Time{},
-			expect:  ptrTime(base),
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			store := newActivityTestStore(t)
-
-			require.NoError(t, store.SaveUser(ctx, &types.User{
-				Id:        "activityUser",
-				AccountID: activityAccountID,
-				Role:      types.UserRoleUser,
-				Issued:    "api",
-				LastLogin: tt.stored,
-				CreatedAt: base.Add(-24 * time.Hour),
-			}))
-
-			require.NoError(t, store.RefreshUserLastLogin(ctx, activityAccountID, "activityUser", tt.loginAt))
-
-			user, err := store.GetUserByUserID(ctx, LockingStrengthNone, "activityUser")
-			require.NoError(t, err)
-			require.NotNil(t, user.LastLogin, "user should have a login timestamp")
-			assert.WithinDuration(t, *tt.expect, user.LastLogin.UTC(), time.Second, "unexpected stored last login")
-		})
-	}
-}
-
-func TestRefreshUserLastLoginUnknownUserIsNotAnError(t *testing.T) {
-	ctx := context.Background()
-	store := newActivityTestStore(t)
-
-	// The write is best-effort telemetry on an auth path; a row that no longer
-	// exists must not surface as a failure to the caller.
-	assert.NoError(t, store.RefreshUserLastLogin(ctx, activityAccountID, "goneUser", time.Now().UTC()))
-}
-
 func TestRefreshPeerLastSeen(t *testing.T) {
 	ctx := context.Background()
 	store := newActivityTestStore(t)
@@ -117,7 +47,8 @@ func TestRefreshPeerLastSeen(t *testing.T) {
 
 // TestRefreshPeerLastSeenLeavesSessionStateAlone pins the column boundary: the
 // connected flag and the session token belong to the sync stream that owns the
-// peer's session, and a blind write here would corrupt its fencing.
+// peer's session, and a blind write here would corrupt its fencing. This is why
+// SavePeerStatus is not reused for an activity bump.
 func TestRefreshPeerLastSeenLeavesSessionStateAlone(t *testing.T) {
 	ctx := context.Background()
 	store := newActivityTestStore(t)
@@ -146,8 +77,4 @@ func activityPeer(lastSeen time.Time) *nbpeer.Peer {
 		DNSLabel:  "activity-peer",
 		Status:    &nbpeer.PeerStatus{LastSeen: lastSeen},
 	}
-}
-
-func ptrTime(t time.Time) *time.Time {
-	return &t
 }

@@ -123,20 +123,6 @@ type mockUsersManager struct {
 	users        map[string]*types.User
 	err          error
 	getUserCalls int
-	loginMarks   []loginMark
-}
-
-// loginMark records a RefreshLastLogin call so tests can assert what the proxy
-// wrote, rather than that it merely called something.
-type loginMark struct {
-	accountID string
-	userID    string
-	at        time.Time
-}
-
-func (m *mockUsersManager) RefreshLastLogin(_ context.Context, accountID, userID string, loginAt time.Time) error {
-	m.loginMarks = append(m.loginMarks, loginMark{accountID: accountID, userID: userID, at: loginAt})
-	return nil
 }
 
 func (m *mockUsersManager) GetUser(ctx context.Context, userID string) (*types.User, error) {
@@ -168,17 +154,36 @@ type mockTunnelPeersManager struct {
 	peerErr   error
 	groups    []*types.Group
 	groupsErr error
-	seenMarks []seenMark
 }
 
-// seenMark records a RefreshLastSeen call. The timestamp is the database's, so
-// there is nothing from the caller to assert beyond who was marked.
+// mockProxyStore records the activity writes the proxy makes so tests can
+// assert what was written, not merely that something was called.
+type mockProxyStore struct {
+	loginMarks []loginMark
+	seenMarks  []seenMark
+}
+
+type loginMark struct {
+	accountID string
+	userID    string
+	at        time.Time
+}
+
 type seenMark struct {
 	accountID string
 	peerID    string
 }
 
-func (m *mockTunnelPeersManager) RefreshLastSeen(_ context.Context, accountID, peerID string) error {
+func (m *mockProxyStore) IsProxyAccessTokenValid(_ context.Context, _ string) (bool, error) {
+	return true, nil
+}
+
+func (m *mockProxyStore) SaveUserLastLogin(_ context.Context, accountID, userID string, lastLogin time.Time) error {
+	m.loginMarks = append(m.loginMarks, loginMark{accountID: accountID, userID: userID, at: lastLogin})
+	return nil
+}
+
+func (m *mockProxyStore) RefreshPeerLastSeen(_ context.Context, accountID, peerID string) error {
 	m.seenMarks = append(m.seenMarks, seenMark{accountID: accountID, peerID: peerID})
 	return nil
 }
@@ -820,14 +825,15 @@ func TestValidateTunnelPeerRecordsActivity(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			peersManager := &mockTunnelPeersManager{peer: tt.peer}
+			proxyStore := &mockProxyStore{}
 			server := &ProxyServiceServer{
+				proxyStore: proxyStore,
 				serviceManager: &mockReverseProxyManager{
 					proxiesByAccount: map[string][]*service.Service{
 						accountID: {{Domain: domain, AccountID: accountID}},
 					},
 				},
-				peersManager: peersManager,
+				peersManager: &mockTunnelPeersManager{peer: tt.peer},
 				usersManager: &mockUsersManager{users: map[string]*types.User{}},
 			}
 
@@ -840,12 +846,12 @@ func TestValidateTunnelPeerRecordsActivity(t *testing.T) {
 			require.True(t, resp.GetValid(), "peer should be granted access")
 
 			if !tt.expectMark {
-				assert.Empty(t, peersManager.seenMarks, "peer should not have been marked seen")
+				assert.Empty(t, proxyStore.seenMarks, "peer should not have been marked seen")
 				return
 			}
 
-			require.Len(t, peersManager.seenMarks, 1, "peer should have been marked seen exactly once")
-			mark := peersManager.seenMarks[0]
+			require.Len(t, proxyStore.seenMarks, 1, "peer should have been marked seen exactly once")
+			mark := proxyStore.seenMarks[0]
 			assert.Equal(t, accountID, mark.accountID, "activity must be recorded against the service account")
 			assert.Equal(t, peerID, mark.peerID, "activity must be recorded against the calling peer")
 		})
@@ -860,16 +866,17 @@ func TestValidateTunnelPeerDeniedRecordsNoActivity(t *testing.T) {
 		accountID = "account1"
 	)
 
-	peersManager := &mockTunnelPeersManager{
-		peer: &peer.Peer{ID: "peer1", Name: "agent", UserID: "user1", Status: &peer.PeerStatus{LastSeen: time.Now().Add(-3 * time.Hour)}},
-	}
+	proxyStore := &mockProxyStore{}
 	server := &ProxyServiceServer{
+		proxyStore: proxyStore,
 		serviceManager: &mockReverseProxyManager{
 			proxiesByAccount: map[string][]*service.Service{
 				accountID: {{Domain: domain, AccountID: accountID}},
 			},
 		},
-		peersManager: peersManager,
+		peersManager: &mockTunnelPeersManager{
+			peer: &peer.Peer{ID: "peer1", Name: "agent", UserID: "user1", Status: &peer.PeerStatus{LastSeen: time.Now().Add(-3 * time.Hour)}},
+		},
 		// The owner is blocked, so the tunnel gate denies before the mint.
 		usersManager: &mockUsersManager{users: map[string]*types.User{
 			"user1": {Id: "user1", AccountID: accountID, Blocked: true},
@@ -883,7 +890,7 @@ func TestValidateTunnelPeerDeniedRecordsNoActivity(t *testing.T) {
 
 	require.NoError(t, err)
 	require.False(t, resp.GetValid(), "blocked owner should be denied")
-	assert.Empty(t, peersManager.seenMarks, "a denied peer must not be marked seen")
+	assert.Empty(t, proxyStore.seenMarks, "a denied peer must not be marked seen")
 }
 
 func TestGetAccountProxyByDomain(t *testing.T) {

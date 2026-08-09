@@ -61,6 +61,22 @@ type ProxyTokenChecker interface {
 	IsProxyAccessTokenValid(ctx context.Context, tokenID string) (bool, error)
 }
 
+// ProxyStore is the slice of the management store this service reaches
+// directly. It is declared here, and satisfied by the store, so the reverse
+// proxy owns the surface it needs instead of widening manager interfaces the
+// rest of management shares.
+type ProxyStore interface {
+	ProxyTokenChecker
+	// SaveUserLastLogin is the same write the dashboard and device login paths
+	// use, reused here so a proxy SSO sign-in lands in the one place activity
+	// accounting reads.
+	SaveUserLastLogin(ctx context.Context, accountID, userID string, lastLogin time.Time) error
+	// RefreshPeerLastSeen stamps only LastSeen. SavePeerStatus is not usable
+	// here: it rewrites the connected flag and session token from a caller
+	// snapshot, which would race the sync stream that owns them.
+	RefreshPeerLastSeen(ctx context.Context, accountID, peerID string) error
+}
+
 // ProxyServiceServer implements the ProxyService gRPC server
 // AgentNetworkSynthesizer produces in-memory reverse-proxy services from
 // Agent Network provider/policy state for the proxy snapshot path; synthesised
@@ -118,7 +134,7 @@ type ProxyServiceServer struct {
 	tokenStore *OneTimeTokenStore
 
 	// Checker for proxy access token validity
-	tokenChecker ProxyTokenChecker
+	proxyStore ProxyStore
 
 	// OIDC configuration for proxy authentication
 	oidcConfig ProxyOIDCConfig
@@ -189,7 +205,7 @@ func enforceAccountScope(ctx context.Context, requestAccountID string) error {
 }
 
 // NewProxyServiceServer creates a new proxy service server.
-func NewProxyServiceServer(accessLogMgr accesslogs.Manager, tokenStore *OneTimeTokenStore, pkceStore *PKCEVerifierStore, oidcConfig ProxyOIDCConfig, peersManager peers.Manager, usersManager users.Manager, idpManager idp.Manager, proxyMgr proxy.Manager, tokenChecker ProxyTokenChecker) *ProxyServiceServer {
+func NewProxyServiceServer(accessLogMgr accesslogs.Manager, tokenStore *OneTimeTokenStore, pkceStore *PKCEVerifierStore, oidcConfig ProxyOIDCConfig, peersManager peers.Manager, usersManager users.Manager, idpManager idp.Manager, proxyMgr proxy.Manager, proxyStore ProxyStore) *ProxyServiceServer {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &ProxyServiceServer{
 		accessLogManager:  accessLogMgr,
@@ -200,7 +216,7 @@ func NewProxyServiceServer(accessLogMgr accesslogs.Manager, tokenStore *OneTimeT
 		usersManager:      usersManager,
 		idpManager:        idpManager,
 		proxyManager:      proxyMgr,
-		tokenChecker:      tokenChecker,
+		proxyStore:        proxyStore,
 		snapshotBatchSize: snapshotBatchSizeFromEnv(),
 		cancel:            cancel,
 	}
@@ -695,8 +711,8 @@ func (s *ProxyServiceServer) heartbeat(ctx context.Context, conn *proxyConnectio
 				log.WithContext(ctx).Debugf("Failed to update proxy %s heartbeat: %v", p.ID, err)
 			}
 
-			if conn.tokenID != "" && s.tokenChecker != nil {
-				valid, err := s.tokenChecker.IsProxyAccessTokenValid(ctx, conn.tokenID)
+			if conn.tokenID != "" && s.proxyStore != nil {
+				valid, err := s.proxyStore.IsProxyAccessTokenValid(ctx, conn.tokenID)
 				if err != nil {
 					log.WithContext(ctx).Warnf("failed to check token validity for proxy %s: %v", conn.proxyID, err)
 					continue
@@ -1697,11 +1713,11 @@ func (s *ProxyServiceServer) GenerateSessionToken(ctx context.Context, domain, u
 // have no interactive login to record. A failure is logged and dropped: the
 // next login marks it again and no authorization decision reads it.
 func (s *ProxyServiceServer) recordUserLogin(ctx context.Context, accountID string, user *types.User) {
-	if user.IsServiceUser {
+	if s.proxyStore == nil || user.IsServiceUser {
 		return
 	}
 
-	if err := s.usersManager.RefreshLastLogin(ctx, accountID, user.Id, time.Now().UTC()); err != nil {
+	if err := s.proxyStore.SaveUserLastLogin(ctx, accountID, user.Id, time.Now().UTC()); err != nil {
 		log.WithContext(ctx).Debugf("record proxy login for user %s: %v", user.Id, err)
 	}
 }
@@ -2086,7 +2102,7 @@ const proxyPeerSeenInterval = time.Hour
 // costs nothing. A failure is logged and dropped: the next request marks it
 // again.
 func (s *ProxyServiceServer) recordPeerSeen(ctx context.Context, accountID string, peer *peer.Peer) {
-	if !peer.CountsTowardActivity() {
+	if s.proxyStore == nil || !peerCountsTowardActivity(peer) {
 		return
 	}
 
@@ -2094,9 +2110,17 @@ func (s *ProxyServiceServer) recordPeerSeen(ctx context.Context, accountID strin
 		return
 	}
 
-	if err := s.peersManager.RefreshLastSeen(ctx, accountID, peer.ID); err != nil {
+	if err := s.proxyStore.RefreshPeerLastSeen(ctx, accountID, peer.ID); err != nil {
 		log.WithContext(ctx).Debugf("record proxy activity for peer %s: %v", peer.ID, err)
 	}
+}
+
+// peerCountsTowardActivity reports whether the peer represents a device a
+// person actually runs. Embedded proxy peers are infrastructure and browser
+// (WASM) clients are ephemeral sessions, so activity accounting ignores both
+// and a write for them could never count.
+func peerCountsTowardActivity(peer *peer.Peer) bool {
+	return !peer.ProxyMeta.Embedded && peer.Meta.KernelVersion != "wasm"
 }
 
 // resolvePeerOwner returns the user a peer is linked to, once per request so

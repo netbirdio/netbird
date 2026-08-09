@@ -477,13 +477,6 @@ func sameMultiset[T comparable](a, b []T) bool {
 	return len(counts) == 0
 }
 
-// CountsTowardActivity reports whether the peer represents a device a person
-// actually runs. Embedded proxy peers are infrastructure and browser (WASM)
-// clients are ephemeral sessions, so activity accounting ignores both.
-func (p *Peer) CountsTowardActivity() bool {
-	return !p.ProxyMeta.Embedded && p.Meta.KernelVersion != "wasm"
-}
-
 // GetLastLogin returns the last login time of the peer.
 func (p *Peer) GetLastLogin() time.Time {
 	if p.LastLogin != nil {
