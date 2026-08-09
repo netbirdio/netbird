@@ -184,8 +184,10 @@ type Store interface {
 	// database clock like the other status writers. Connected and
 	// SessionStartedAt are left alone, so this never interferes with the
 	// session-ownership protocol MarkPeerConnectedIfNewerSession implements.
-	// Callers decide how often to call it; the store does not throttle.
-	RefreshPeerLastSeen(ctx context.Context, accountID, peerID string) error
+	// The write only lands when the stored LastSeen is older than
+	// staleBefore, which keeps a caller's throttle atomic under concurrent
+	// requests for the same peer. Returns true when the update happened.
+	RefreshPeerLastSeen(ctx context.Context, accountID, peerID string, staleBefore time.Time) (bool, error)
 	// MarkPeerDisconnectedIfSameSession sets the peer to disconnected and
 	// resets SessionStartedAt to zero, but only when the stored
 	// SessionStartedAt equals the given sessionStartedAt. LastSeen is

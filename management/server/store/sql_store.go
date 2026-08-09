@@ -608,16 +608,21 @@ func (s *SqlStore) ApproveAccountPeers(ctx context.Context, accountID string) (i
 // LastSeen comes from the database clock for the same reason it does there: a
 // Go-side timestamp is taken before the write and can land after a connect that
 // used CURRENT_TIMESTAMP, dragging the column backwards.
-func (s *SqlStore) RefreshPeerLastSeen(ctx context.Context, accountID, peerID string) error {
+//
+// staleBefore carries the caller's throttle into the same statement, so
+// concurrent requests for one peer collapse into a single write instead of
+// each racing on its own stale read.
+func (s *SqlStore) RefreshPeerLastSeen(ctx context.Context, accountID, peerID string, staleBefore time.Time) (bool, error) {
 	result := s.db.WithContext(ctx).
 		Model(&nbpeer.Peer{}).
 		Where(accountAndIDQueryCondition, accountID, peerID).
+		Where("peer_status_last_seen < ?", staleBefore).
 		Update("peer_status_last_seen", gorm.Expr("CURRENT_TIMESTAMP"))
 	if result.Error != nil {
-		return status.Errorf(status.Internal, "refresh peer last seen: %v", result.Error)
+		return false, status.Errorf(status.Internal, "refresh peer last seen: %v", result.Error)
 	}
 
-	return nil
+	return result.RowsAffected > 0, nil
 }
 
 // SaveUsers saves the given list of users to the database.

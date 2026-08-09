@@ -38,18 +38,23 @@ func (m *managerImpl) RecordUserLogin(ctx context.Context, accountID string, use
 }
 
 // RecordPeerSeen stamps LastSeen, the column a peer activates its owner
-// through. The throttle reads the peer the caller already holds, so a peer seen
-// inside the interval costs nothing to skip.
+// through. The peer the caller already holds answers the throttle without a
+// query, so a peer seen inside the interval costs nothing to skip; the same
+// cutoff goes to the store, which enforces it inside the UPDATE so concurrent
+// requests for one peer cannot each write off their own stale read.
 func (m *managerImpl) RecordPeerSeen(ctx context.Context, accountID string, peer *peer.Peer) error {
 	if peer == nil || !countsTowardActivity(peer) {
 		return nil
 	}
 
-	if peer.Status != nil && time.Since(peer.Status.LastSeen) < peerSeenInterval {
+	staleBefore := time.Now().UTC().Add(-peerSeenInterval)
+	if peer.Status != nil && peer.Status.LastSeen.After(staleBefore) {
 		return nil
 	}
 
-	return m.store.RefreshPeerLastSeen(ctx, accountID, peer.ID)
+	_, err := m.store.RefreshPeerLastSeen(ctx, accountID, peer.ID, staleBefore)
+
+	return err
 }
 
 // countsTowardActivity reports whether the peer represents a device a person

@@ -37,12 +37,32 @@ func TestRefreshPeerLastSeen(t *testing.T) {
 	stored := time.Now().UTC().Add(-3 * time.Hour)
 	require.NoError(t, store.AddPeerToAccount(ctx, activityPeer(stored)))
 
-	require.NoError(t, store.RefreshPeerLastSeen(ctx, activityAccountID, "activityPeer"))
+	refreshed, err := store.RefreshPeerLastSeen(ctx, activityAccountID, "activityPeer", time.Now().UTC().Add(-time.Hour))
+	require.NoError(t, err)
+	assert.True(t, refreshed, "a peer seen three hours ago is stale enough to refresh")
 
 	peer, err := store.GetPeerByID(ctx, LockingStrengthNone, activityAccountID, "activityPeer")
 	require.NoError(t, err)
 	assert.WithinDuration(t, time.Now().UTC(), peer.Status.LastSeen.UTC(), time.Minute, "last seen should be stamped at write time")
 	assert.True(t, peer.Status.LastSeen.After(stored), "last seen must move forward")
+}
+
+// TestRefreshPeerLastSeenHonoursCutoff covers the throttle the caller relies on:
+// two concurrent requests both read the same stale peer, but only the statement
+// that still finds LastSeen behind the cutoff writes.
+func TestRefreshPeerLastSeenHonoursCutoff(t *testing.T) {
+	ctx := context.Background()
+	store := newActivityTestStore(t)
+	stored := time.Now().UTC().Add(-10 * time.Minute)
+	require.NoError(t, store.AddPeerToAccount(ctx, activityPeer(stored)))
+
+	refreshed, err := store.RefreshPeerLastSeen(ctx, activityAccountID, "activityPeer", time.Now().UTC().Add(-time.Hour))
+	require.NoError(t, err)
+	assert.False(t, refreshed, "a peer seen inside the interval must not be written")
+
+	peer, err := store.GetPeerByID(ctx, LockingStrengthNone, activityAccountID, "activityPeer")
+	require.NoError(t, err)
+	assert.WithinDuration(t, stored, peer.Status.LastSeen.UTC(), time.Second, "last seen must be left where it was")
 }
 
 // TestRefreshPeerLastSeenLeavesSessionStateAlone pins the column boundary: the
@@ -58,7 +78,9 @@ func TestRefreshPeerLastSeenLeavesSessionStateAlone(t *testing.T) {
 	stored.Status.SessionStartedAt = 1234567890
 	require.NoError(t, store.AddPeerToAccount(ctx, stored))
 
-	require.NoError(t, store.RefreshPeerLastSeen(ctx, activityAccountID, "activityPeer"))
+	refreshed, err := store.RefreshPeerLastSeen(ctx, activityAccountID, "activityPeer", time.Now().UTC().Add(-time.Hour))
+	require.NoError(t, err)
+	require.True(t, refreshed, "the peer is stale enough to refresh")
 
 	peer, err := store.GetPeerByID(ctx, LockingStrengthNone, activityAccountID, "activityPeer")
 	require.NoError(t, err)

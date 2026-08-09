@@ -29,8 +29,9 @@ type loginWrite struct {
 }
 
 type seenWrite struct {
-	accountID string
-	peerID    string
+	accountID   string
+	peerID      string
+	staleBefore time.Time
 }
 
 func (s *recordingStore) SaveUserLastLogin(_ context.Context, accountID, userID string, lastLogin time.Time) error {
@@ -38,9 +39,9 @@ func (s *recordingStore) SaveUserLastLogin(_ context.Context, accountID, userID 
 	return nil
 }
 
-func (s *recordingStore) RefreshPeerLastSeen(_ context.Context, accountID, peerID string) error {
-	s.seen = append(s.seen, seenWrite{accountID: accountID, peerID: peerID})
-	return nil
+func (s *recordingStore) RefreshPeerLastSeen(_ context.Context, accountID, peerID string, staleBefore time.Time) (bool, error) {
+	s.seen = append(s.seen, seenWrite{accountID: accountID, peerID: peerID, staleBefore: staleBefore})
+	return true, nil
 }
 
 func TestRecordUserLogin(t *testing.T) {
@@ -140,6 +141,9 @@ func TestRecordPeerSeen(t *testing.T) {
 			require.Len(t, st.seen, 1, "exactly one activity write should have been recorded")
 			assert.Equal(t, "account1", st.seen[0].accountID, "activity must be recorded against the service account")
 			assert.Equal(t, tt.peer.ID, st.seen[0].peerID, "activity must be recorded against the calling peer")
+			assert.Equal(t, time.UTC, st.seen[0].staleBefore.Location(), "cutoffs are passed in UTC")
+			assert.WithinDuration(t, time.Now().UTC().Add(-peerSeenInterval), st.seen[0].staleBefore, time.Minute,
+				"the store must enforce the same interval the local check applies")
 		})
 	}
 }
