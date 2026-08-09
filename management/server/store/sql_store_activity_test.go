@@ -104,27 +104,15 @@ func TestRefreshUserLastLoginUnknownUserIsNotAnError(t *testing.T) {
 func TestRefreshPeerLastSeen(t *testing.T) {
 	ctx := context.Background()
 	store := newActivityTestStore(t)
-	require.NoError(t, store.AddPeerToAccount(ctx, activityPeer(time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC))))
-
-	seenAt := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
-	require.NoError(t, store.RefreshPeerLastSeen(ctx, activityAccountID, "activityPeer", seenAt))
-
-	peer, err := store.GetPeerByID(ctx, LockingStrengthNone, activityAccountID, "activityPeer")
-	require.NoError(t, err)
-	assert.WithinDuration(t, seenAt, peer.Status.LastSeen.UTC(), time.Second, "unexpected stored last seen")
-}
-
-func TestRefreshPeerLastSeenZeroIsIgnored(t *testing.T) {
-	ctx := context.Background()
-	store := newActivityTestStore(t)
-	stored := time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC)
+	stored := time.Now().UTC().Add(-3 * time.Hour)
 	require.NoError(t, store.AddPeerToAccount(ctx, activityPeer(stored)))
 
-	require.NoError(t, store.RefreshPeerLastSeen(ctx, activityAccountID, "activityPeer", time.Time{}))
+	require.NoError(t, store.RefreshPeerLastSeen(ctx, activityAccountID, "activityPeer"))
 
 	peer, err := store.GetPeerByID(ctx, LockingStrengthNone, activityAccountID, "activityPeer")
 	require.NoError(t, err)
-	assert.WithinDuration(t, stored, peer.Status.LastSeen.UTC(), time.Second, "a zero timestamp must not clear last seen")
+	assert.WithinDuration(t, time.Now().UTC(), peer.Status.LastSeen.UTC(), time.Minute, "last seen should be stamped at write time")
+	assert.True(t, peer.Status.LastSeen.After(stored), "last seen must move forward")
 }
 
 // TestRefreshPeerLastSeenLeavesSessionStateAlone pins the column boundary: the
@@ -139,12 +127,11 @@ func TestRefreshPeerLastSeenLeavesSessionStateAlone(t *testing.T) {
 	stored.Status.SessionStartedAt = 1234567890
 	require.NoError(t, store.AddPeerToAccount(ctx, stored))
 
-	seenAt := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
-	require.NoError(t, store.RefreshPeerLastSeen(ctx, activityAccountID, "activityPeer", seenAt))
+	require.NoError(t, store.RefreshPeerLastSeen(ctx, activityAccountID, "activityPeer"))
 
 	peer, err := store.GetPeerByID(ctx, LockingStrengthNone, activityAccountID, "activityPeer")
 	require.NoError(t, err)
-	assert.WithinDuration(t, seenAt, peer.Status.LastSeen.UTC(), time.Second, "last seen should move forward")
+	assert.WithinDuration(t, time.Now().UTC(), peer.Status.LastSeen.UTC(), time.Minute, "last seen should move forward")
 	assert.True(t, peer.Status.Connected, "connected flag must survive an activity write")
 	assert.Equal(t, int64(1234567890), peer.Status.SessionStartedAt, "session token must survive an activity write")
 }

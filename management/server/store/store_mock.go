@@ -3204,17 +3204,17 @@ func (mr *MockStoreMockRecorder) MarkProxyAccessTokenUsed(ctx, tokenID interface
 }
 
 // RefreshPeerLastSeen mocks base method.
-func (m *MockStore) RefreshPeerLastSeen(ctx context.Context, accountID, peerID string, seenAt time.Time) error {
+func (m *MockStore) RefreshPeerLastSeen(ctx context.Context, accountID, peerID string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RefreshPeerLastSeen", ctx, accountID, peerID, seenAt)
+	ret := m.ctrl.Call(m, "RefreshPeerLastSeen", ctx, accountID, peerID)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // RefreshPeerLastSeen indicates an expected call of RefreshPeerLastSeen.
-func (mr *MockStoreMockRecorder) RefreshPeerLastSeen(ctx, accountID, peerID, seenAt interface{}) *gomock.Call {
+func (mr *MockStoreMockRecorder) RefreshPeerLastSeen(ctx, accountID, peerID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RefreshPeerLastSeen", reflect.TypeOf((*MockStore)(nil).RefreshPeerLastSeen), ctx, accountID, peerID, seenAt)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RefreshPeerLastSeen", reflect.TypeOf((*MockStore)(nil).RefreshPeerLastSeen), ctx, accountID, peerID)
 }
 
 // RefreshUserLastLogin mocks base method.

@@ -2094,7 +2094,7 @@ func (s *ProxyServiceServer) recordPeerSeen(ctx context.Context, accountID strin
 		return
 	}
 
-	if err := s.peersManager.RefreshLastSeen(ctx, accountID, peer.ID, time.Now().UTC()); err != nil {
+	if err := s.peersManager.RefreshLastSeen(ctx, accountID, peer.ID); err != nil {
 		log.WithContext(ctx).Debugf("record proxy activity for peer %s: %v", peer.ID, err)
 	}
 }

@@ -171,15 +171,15 @@ type mockTunnelPeersManager struct {
 	seenMarks []seenMark
 }
 
-// seenMark records a RefreshLastSeen call.
+// seenMark records a RefreshLastSeen call. The timestamp is the database's, so
+// there is nothing from the caller to assert beyond who was marked.
 type seenMark struct {
 	accountID string
 	peerID    string
-	at        time.Time
 }
 
-func (m *mockTunnelPeersManager) RefreshLastSeen(_ context.Context, accountID, peerID string, seenAt time.Time) error {
-	m.seenMarks = append(m.seenMarks, seenMark{accountID: accountID, peerID: peerID, at: seenAt})
+func (m *mockTunnelPeersManager) RefreshLastSeen(_ context.Context, accountID, peerID string) error {
+	m.seenMarks = append(m.seenMarks, seenMark{accountID: accountID, peerID: peerID})
 	return nil
 }
 
@@ -848,8 +848,6 @@ func TestValidateTunnelPeerRecordsActivity(t *testing.T) {
 			mark := peersManager.seenMarks[0]
 			assert.Equal(t, accountID, mark.accountID, "activity must be recorded against the service account")
 			assert.Equal(t, peerID, mark.peerID, "activity must be recorded against the calling peer")
-			assert.Equal(t, time.UTC, mark.at.Location(), "timestamps are written in UTC")
-			assert.WithinDuration(t, time.Now().UTC(), mark.at, time.Minute, "seen timestamp should be now")
 		})
 	}
 }

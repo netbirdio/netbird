@@ -604,15 +604,15 @@ func (s *SqlStore) ApproveAccountPeers(ctx context.Context, accountID string) (i
 // peer_status_session_started_at belong to the sync stream that owns the
 // session, and a blind write here would corrupt the fencing
 // MarkPeerConnectedIfNewerSession relies on.
-func (s *SqlStore) RefreshPeerLastSeen(ctx context.Context, accountID, peerID string, seenAt time.Time) error {
-	if seenAt.IsZero() {
-		return nil
-	}
-
+//
+// LastSeen comes from the database clock for the same reason it does there: a
+// Go-side timestamp is taken before the write and can land after a connect that
+// used CURRENT_TIMESTAMP, dragging the column backwards.
+func (s *SqlStore) RefreshPeerLastSeen(ctx context.Context, accountID, peerID string) error {
 	result := s.db.WithContext(ctx).
 		Model(&nbpeer.Peer{}).
 		Where(accountAndIDQueryCondition, accountID, peerID).
-		Update("peer_status_last_seen", seenAt)
+		Update("peer_status_last_seen", gorm.Expr("CURRENT_TIMESTAMP"))
 	if result.Error != nil {
 		return status.Errorf(status.Internal, "refresh peer last seen: %v", result.Error)
 	}

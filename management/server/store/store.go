@@ -185,11 +185,12 @@ type Store interface {
 	// Returns true when the update happened, false when this stream lost
 	// the race against a newer session.
 	MarkPeerConnectedIfNewerSession(ctx context.Context, accountID, peerID string, newSessionStartedAt int64) (bool, error)
-	// RefreshPeerLastSeen records that a peer was seen at seenAt. Connected and
+	// RefreshPeerLastSeen records that a peer was just seen, stamping the
+	// database clock like the other status writers. Connected and
 	// SessionStartedAt are left alone, so this never interferes with the
 	// session-ownership protocol MarkPeerConnectedIfNewerSession implements.
 	// Callers decide how often to call it; the store does not throttle.
-	RefreshPeerLastSeen(ctx context.Context, accountID, peerID string, seenAt time.Time) error
+	RefreshPeerLastSeen(ctx context.Context, accountID, peerID string) error
 	// MarkPeerDisconnectedIfSameSession sets the peer to disconnected and
 	// resets SessionStartedAt to zero, but only when the stored
 	// SessionStartedAt equals the given sessionStartedAt. LastSeen is
