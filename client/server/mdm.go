@@ -301,6 +301,8 @@ func mdmManagedFieldConflicts(msg *proto.SetConfigRequest, policy *mdm.Policy) [
 		conflictBool(mdm.KeyDisableServerRoutes, msg.DisableServerRoutes),
 		conflictBool(mdm.KeyBlockInbound, msg.BlockInbound),
 		conflictInt64(mdm.KeyWireguardPort, msg.WireguardPort),
+		conflictBool(mdm.KeyEnableLocalMetrics, msg.EnableLocalMetrics),
+		conflictString(mdm.KeyLocalMetricsAddress, msg.GetLocalMetricsAddress()),
 	})
 }
 
@@ -346,7 +348,9 @@ func setConfigRequestHasConfigOverrides(msg *proto.SetConfigRequest) bool {
 		msg.EnableSSHLocalPortForwarding != nil ||
 		msg.EnableSSHRemotePortForwarding != nil ||
 		msg.DisableSSHAuth != nil ||
-		msg.SshJWTCacheTTL != nil
+		msg.SshJWTCacheTTL != nil ||
+		msg.EnableLocalMetrics != nil ||
+		msg.LocalMetricsAddress != nil
 }
 
 // loginRequestHasConfigOverrides reports whether the LoginRequest
@@ -381,7 +385,9 @@ func loginRequestHasConfigOverrides(msg *proto.LoginRequest) bool {
 		msg.BlockLanAccess != nil ||
 		msg.DisableNotifications != nil ||
 		len(msg.DnsLabels) > 0 || msg.CleanDNSLabels ||
-		msg.BlockInbound != nil
+		msg.BlockInbound != nil ||
+		msg.EnableLocalMetrics != nil ||
+		msg.LocalMetricsAddress != nil
 }
 
 // loginRequestMDMConflicts mirrors mdmManagedFieldConflicts but for the
@@ -422,6 +428,8 @@ func loginRequestMDMConflicts(msg *proto.LoginRequest, policy *mdm.Policy) []str
 		conflictBool(mdm.KeyDisableServerRoutes, msg.DisableServerRoutes),
 		conflictBool(mdm.KeyBlockInbound, msg.BlockInbound),
 		conflictInt64(mdm.KeyWireguardPort, msg.WireguardPort),
+		conflictBool(mdm.KeyEnableLocalMetrics, msg.EnableLocalMetrics),
+		conflictString(mdm.KeyLocalMetricsAddress, msg.GetLocalMetricsAddress()),
 	})
 }
 
