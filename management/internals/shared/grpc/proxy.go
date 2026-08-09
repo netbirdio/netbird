@@ -32,6 +32,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/activity"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/sessionkey"
@@ -59,22 +60,6 @@ type ProxyOIDCConfig struct {
 // ProxyTokenChecker checks whether a proxy access token is still valid.
 type ProxyTokenChecker interface {
 	IsProxyAccessTokenValid(ctx context.Context, tokenID string) (bool, error)
-}
-
-// ProxyStore is the slice of the management store this service reaches
-// directly. It is declared here, and satisfied by the store, so the reverse
-// proxy owns the surface it needs instead of widening manager interfaces the
-// rest of management shares.
-type ProxyStore interface {
-	ProxyTokenChecker
-	// SaveUserLastLogin is the same write the dashboard and device login paths
-	// use, reused here so a proxy SSO sign-in lands in the one place activity
-	// accounting reads.
-	SaveUserLastLogin(ctx context.Context, accountID, userID string, lastLogin time.Time) error
-	// RefreshPeerLastSeen stamps only LastSeen. SavePeerStatus is not usable
-	// here: it rewrites the connected flag and session token from a caller
-	// snapshot, which would race the sync stream that owns them.
-	RefreshPeerLastSeen(ctx context.Context, accountID, peerID string) error
 }
 
 // ProxyServiceServer implements the ProxyService gRPC server
@@ -130,11 +115,14 @@ type ProxyServiceServer struct {
 	// Manager for IdP-enriched user data (may be nil when no IdP is configured)
 	idpManager idp.Manager
 
+	// Manager that records reverse proxy usage for activity accounting
+	activityManager activity.Manager
+
 	// Store for one-time authentication tokens
 	tokenStore *OneTimeTokenStore
 
 	// Checker for proxy access token validity
-	proxyStore ProxyStore
+	tokenChecker ProxyTokenChecker
 
 	// OIDC configuration for proxy authentication
 	oidcConfig ProxyOIDCConfig
@@ -205,7 +193,7 @@ func enforceAccountScope(ctx context.Context, requestAccountID string) error {
 }
 
 // NewProxyServiceServer creates a new proxy service server.
-func NewProxyServiceServer(accessLogMgr accesslogs.Manager, tokenStore *OneTimeTokenStore, pkceStore *PKCEVerifierStore, oidcConfig ProxyOIDCConfig, peersManager peers.Manager, usersManager users.Manager, idpManager idp.Manager, proxyMgr proxy.Manager, proxyStore ProxyStore) *ProxyServiceServer {
+func NewProxyServiceServer(accessLogMgr accesslogs.Manager, tokenStore *OneTimeTokenStore, pkceStore *PKCEVerifierStore, oidcConfig ProxyOIDCConfig, peersManager peers.Manager, usersManager users.Manager, idpManager idp.Manager, proxyMgr proxy.Manager, tokenChecker ProxyTokenChecker) *ProxyServiceServer {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &ProxyServiceServer{
 		accessLogManager:  accessLogMgr,
@@ -216,7 +204,7 @@ func NewProxyServiceServer(accessLogMgr accesslogs.Manager, tokenStore *OneTimeT
 		usersManager:      usersManager,
 		idpManager:        idpManager,
 		proxyManager:      proxyMgr,
-		proxyStore:        proxyStore,
+		tokenChecker:      tokenChecker,
 		snapshotBatchSize: snapshotBatchSizeFromEnv(),
 		cancel:            cancel,
 	}
@@ -250,6 +238,13 @@ func (s *ProxyServiceServer) SetServiceManager(manager rpservice.Manager) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.serviceManager = manager
+}
+
+// SetActivityManager wires the manager that records reverse proxy usage.
+func (s *ProxyServiceServer) SetActivityManager(manager activity.Manager) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.activityManager = manager
 }
 
 // SetAgentNetworkSynthesizer wires the agent-network service synthesiser.
@@ -711,8 +706,8 @@ func (s *ProxyServiceServer) heartbeat(ctx context.Context, conn *proxyConnectio
 				log.WithContext(ctx).Debugf("Failed to update proxy %s heartbeat: %v", p.ID, err)
 			}
 
-			if conn.tokenID != "" && s.proxyStore != nil {
-				valid, err := s.proxyStore.IsProxyAccessTokenValid(ctx, conn.tokenID)
+			if conn.tokenID != "" && s.tokenChecker != nil {
+				valid, err := s.tokenChecker.IsProxyAccessTokenValid(ctx, conn.tokenID)
 				if err != nil {
 					log.WithContext(ctx).Warnf("failed to check token validity for proxy %s: %v", conn.proxyID, err)
 					continue
@@ -1707,17 +1702,14 @@ func (s *ProxyServiceServer) GenerateSessionToken(ctx context.Context, domain, u
 	return token, nil
 }
 
-// recordUserLogin marks a completed reverse proxy SSO login on the user. The
-// timestamp is what activity accounting reads to count someone who only ever
-// reaches proxy-protected services and never opens the dashboard. Service users
-// have no interactive login to record. A failure is logged and dropped: the
-// next login marks it again and no authorization decision reads it.
+// recordUserLogin hands the sign-in to the activity manager. The RPC must not
+// fail on it, so the error is logged and dropped here rather than returned.
 func (s *ProxyServiceServer) recordUserLogin(ctx context.Context, accountID string, user *types.User) {
-	if s.proxyStore == nil || user.IsServiceUser {
+	if s.activityManager == nil {
 		return
 	}
 
-	if err := s.proxyStore.SaveUserLastLogin(ctx, accountID, user.Id, time.Now().UTC()); err != nil {
+	if err := s.activityManager.RecordUserLogin(ctx, accountID, user); err != nil {
 		log.WithContext(ctx).Debugf("record proxy login for user %s: %v", user.Id, err)
 	}
 }
@@ -2088,39 +2080,16 @@ func (s *ProxyServiceServer) ValidateTunnelPeer(ctx context.Context, req *proto.
 	}, nil
 }
 
-// proxyPeerSeenInterval is how stale a peer's LastSeen must be before reaching
-// a private service refreshes it. Positive tunnel validations are cached on the
-// proxy for five minutes, so without a floor a busy peer would rewrite its row
-// all day; an hour still sits well inside the window activity accounting asks
-// about.
-const proxyPeerSeenInterval = time.Hour
-
-// recordPeerSeen marks a peer as seen when it reaches a private service over
-// the mesh, which is what lets its owner count as active. Peers that activity
-// accounting excludes are skipped rather than written for nothing, and so is a
-// peer already seen inside the interval — the row is in hand, so the throttle
-// costs nothing. A failure is logged and dropped: the next request marks it
-// again.
+// recordPeerSeen hands the mesh request to the activity manager. The RPC must
+// not fail on it, so the error is logged and dropped here rather than returned.
 func (s *ProxyServiceServer) recordPeerSeen(ctx context.Context, accountID string, peer *peer.Peer) {
-	if s.proxyStore == nil || !peerCountsTowardActivity(peer) {
+	if s.activityManager == nil {
 		return
 	}
 
-	if peer.Status != nil && time.Since(peer.Status.LastSeen) < proxyPeerSeenInterval {
-		return
-	}
-
-	if err := s.proxyStore.RefreshPeerLastSeen(ctx, accountID, peer.ID); err != nil {
+	if err := s.activityManager.RecordPeerSeen(ctx, accountID, peer); err != nil {
 		log.WithContext(ctx).Debugf("record proxy activity for peer %s: %v", peer.ID, err)
 	}
-}
-
-// peerCountsTowardActivity reports whether the peer represents a device a
-// person actually runs. Embedded proxy peers are infrastructure and browser
-// (WASM) clients are ephemeral sessions, so activity accounting ignores both
-// and a write for them could never count.
-func peerCountsTowardActivity(peer *peer.Peer) bool {
-	return !peer.ProxyMeta.Embedded && peer.Meta.KernelVersion != "wasm"
 }
 
 // resolvePeerOwner returns the user a peer is linked to, once per request so

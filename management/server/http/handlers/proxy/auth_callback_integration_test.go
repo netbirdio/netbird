@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
+	activitymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/activity/manager"
 	nbproxy "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
@@ -217,10 +218,11 @@ func setupAuthCallbackTest(t *testing.T) *testSetup {
 		usersManager,
 		nil,
 		nil,
-		testStore,
+		nil,
 	)
 
 	proxyService.SetServiceManager(&testServiceManager{store: testStore})
+	proxyService.SetActivityManager(activitymanager.NewManager(testStore))
 
 	handler := NewAuthCallbackHandler(proxyService, nil)
 

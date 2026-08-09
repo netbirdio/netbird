@@ -156,17 +156,11 @@ type mockTunnelPeersManager struct {
 	groupsErr error
 }
 
-// mockProxyStore records the activity writes the proxy makes so tests can
-// assert what was written, not merely that something was called.
-type mockProxyStore struct {
-	loginMarks []loginMark
-	seenMarks  []seenMark
-}
-
-type loginMark struct {
-	accountID string
-	userID    string
-	at        time.Time
+// mockActivityManager records what the RPC handed to the activity manager. The
+// policy (throttling, exclusions) is the manager's and is tested there; these
+// tests only pin which requests reach it.
+type mockActivityManager struct {
+	seenMarks []seenMark
 }
 
 type seenMark struct {
@@ -174,17 +168,12 @@ type seenMark struct {
 	peerID    string
 }
 
-func (m *mockProxyStore) IsProxyAccessTokenValid(_ context.Context, _ string) (bool, error) {
-	return true, nil
-}
-
-func (m *mockProxyStore) SaveUserLastLogin(_ context.Context, accountID, userID string, lastLogin time.Time) error {
-	m.loginMarks = append(m.loginMarks, loginMark{accountID: accountID, userID: userID, at: lastLogin})
+func (m *mockActivityManager) RecordUserLogin(_ context.Context, _ string, _ *types.User) error {
 	return nil
 }
 
-func (m *mockProxyStore) RefreshPeerLastSeen(_ context.Context, accountID, peerID string) error {
-	m.seenMarks = append(m.seenMarks, seenMark{accountID: accountID, peerID: peerID})
+func (m *mockActivityManager) RecordPeerSeen(_ context.Context, accountID string, peer *peer.Peer) error {
+	m.seenMarks = append(m.seenMarks, seenMark{accountID: accountID, peerID: peer.ID})
 	return nil
 }
 
@@ -778,10 +767,9 @@ func TestValidateTunnelPeerOwnerStatus(t *testing.T) {
 	}
 }
 
-// TestValidateTunnelPeerRecordsActivity covers the activity write on the mesh
-// fast-path: a peer reaching a private service is what lets its owner count as
-// active, but only peers that activity accounting actually counts are written,
-// and only once per interval.
+// TestValidateTunnelPeerRecordsActivity pins that a granted mesh request is
+// handed to the activity manager. Which of those the manager then writes is its
+// own decision, covered by its tests.
 func TestValidateTunnelPeerRecordsActivity(t *testing.T) {
 	const (
 		domain    = "app.example.com"
@@ -789,73 +777,31 @@ func TestValidateTunnelPeerRecordsActivity(t *testing.T) {
 		peerID    = "peer1"
 	)
 
-	tests := []struct {
-		name       string
-		peer       *peer.Peer
-		expectMark bool
-	}{
-		{
-			name:       "peer seen long ago is marked",
-			peer:       &peer.Peer{ID: peerID, Name: "agent", Status: &peer.PeerStatus{LastSeen: time.Now().Add(-3 * time.Hour)}},
-			expectMark: true,
+	activityManager := &mockActivityManager{}
+	server := &ProxyServiceServer{
+		activityManager: activityManager,
+		serviceManager: &mockReverseProxyManager{
+			proxiesByAccount: map[string][]*service.Service{
+				accountID: {{Domain: domain, AccountID: accountID}},
+			},
 		},
-		{
-			name:       "peer never seen is marked",
-			peer:       &peer.Peer{ID: peerID, Name: "agent", Status: &peer.PeerStatus{}},
-			expectMark: true,
+		peersManager: &mockTunnelPeersManager{
+			peer: &peer.Peer{ID: peerID, Name: "agent", Status: &peer.PeerStatus{LastSeen: time.Now().Add(-3 * time.Hour)}},
 		},
-		{
-			// The throttle. The peer row is already in hand, so a recently seen
-			// peer costs nothing to skip.
-			name:       "peer seen inside the interval is skipped",
-			peer:       &peer.Peer{ID: peerID, Name: "agent", Status: &peer.PeerStatus{LastSeen: time.Now().Add(-10 * time.Minute)}},
-			expectMark: false,
-		},
-		{
-			name:       "embedded proxy peer is skipped",
-			peer:       &peer.Peer{ID: peerID, Name: "embedded", ProxyMeta: peer.ProxyMeta{Embedded: true}, Status: &peer.PeerStatus{LastSeen: time.Now().Add(-3 * time.Hour)}},
-			expectMark: false,
-		},
-		{
-			name:       "browser client is skipped",
-			peer:       &peer.Peer{ID: peerID, Name: "browser", Meta: peer.PeerSystemMeta{KernelVersion: "wasm"}, Status: &peer.PeerStatus{LastSeen: time.Now().Add(-3 * time.Hour)}},
-			expectMark: false,
-		},
+		usersManager: &mockUsersManager{users: map[string]*types.User{}},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			proxyStore := &mockProxyStore{}
-			server := &ProxyServiceServer{
-				proxyStore: proxyStore,
-				serviceManager: &mockReverseProxyManager{
-					proxiesByAccount: map[string][]*service.Service{
-						accountID: {{Domain: domain, AccountID: accountID}},
-					},
-				},
-				peersManager: &mockTunnelPeersManager{peer: tt.peer},
-				usersManager: &mockUsersManager{users: map[string]*types.User{}},
-			}
+	resp, err := server.ValidateTunnelPeer(context.Background(), &proto.ValidateTunnelPeerRequest{
+		Domain:   domain,
+		TunnelIp: "100.64.0.1",
+	})
 
-			resp, err := server.ValidateTunnelPeer(context.Background(), &proto.ValidateTunnelPeerRequest{
-				Domain:   domain,
-				TunnelIp: "100.64.0.1",
-			})
+	require.NoError(t, err)
+	require.True(t, resp.GetValid(), "peer should be granted access")
 
-			require.NoError(t, err)
-			require.True(t, resp.GetValid(), "peer should be granted access")
-
-			if !tt.expectMark {
-				assert.Empty(t, proxyStore.seenMarks, "peer should not have been marked seen")
-				return
-			}
-
-			require.Len(t, proxyStore.seenMarks, 1, "peer should have been marked seen exactly once")
-			mark := proxyStore.seenMarks[0]
-			assert.Equal(t, accountID, mark.accountID, "activity must be recorded against the service account")
-			assert.Equal(t, peerID, mark.peerID, "activity must be recorded against the calling peer")
-		})
-	}
+	require.Len(t, activityManager.seenMarks, 1, "a granted peer should reach the activity manager once")
+	assert.Equal(t, accountID, activityManager.seenMarks[0].accountID, "activity must be attributed to the service account")
+	assert.Equal(t, peerID, activityManager.seenMarks[0].peerID, "activity must be attributed to the calling peer")
 }
 
 // TestValidateTunnelPeerDeniedRecordsNoActivity keeps the write on the granted
@@ -866,9 +812,9 @@ func TestValidateTunnelPeerDeniedRecordsNoActivity(t *testing.T) {
 		accountID = "account1"
 	)
 
-	proxyStore := &mockProxyStore{}
+	activityManager := &mockActivityManager{}
 	server := &ProxyServiceServer{
-		proxyStore: proxyStore,
+		activityManager: activityManager,
 		serviceManager: &mockReverseProxyManager{
 			proxiesByAccount: map[string][]*service.Service{
 				accountID: {{Domain: domain, AccountID: accountID}},
@@ -890,7 +836,7 @@ func TestValidateTunnelPeerDeniedRecordsNoActivity(t *testing.T) {
 
 	require.NoError(t, err)
 	require.False(t, resp.GetValid(), "blocked owner should be denied")
-	assert.Empty(t, proxyStore.seenMarks, "a denied peer must not be marked seen")
+	assert.Empty(t, activityManager.seenMarks, "a denied peer must not be marked seen")
 }
 
 func TestGetAccountProxyByDomain(t *testing.T) {
