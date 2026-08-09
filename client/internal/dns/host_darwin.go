@@ -48,6 +48,15 @@ const (
 	maxDomainBytesPerResolverEntry = 1500
 )
 
+// scutilDNSSection tracks the current DNS array being parsed from scutil output.
+type scutilDNSSection int
+
+const (
+	scutilDNSSectionNone scutilDNSSection = iota
+	scutilDNSSectionSearchDomains
+	scutilDNSSectionServerAddresses
+)
+
 type systemConfigurator struct {
 	createdKeys       map[string]struct{}
 	systemDNSSettings SystemDNSSettings
@@ -267,46 +276,8 @@ func (s *systemConfigurator) getSystemDNSSettings() (SystemDNSSettings, error) {
 		return SystemDNSSettings{}, fmt.Errorf("sending the command: %w", err)
 	}
 
-	var dnsSettings SystemDNSSettings
-	var serverAddresses []netip.Addr
-	inSearchDomainsArray := false
-	inServerAddressesArray := false
-
-	scanner := bufio.NewScanner(bytes.NewReader(b))
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		switch {
-		case strings.HasPrefix(line, "DomainName :"):
-			domainName := strings.TrimSpace(strings.Split(line, ":")[1])
-			dnsSettings.Domains = append(dnsSettings.Domains, domainName)
-		case line == "SearchDomains : <array> {":
-			inSearchDomainsArray = true
-			continue
-		case line == "ServerAddresses : <array> {":
-			inServerAddressesArray = true
-			continue
-		case line == "}":
-			inSearchDomainsArray = false
-			inServerAddressesArray = false
-		}
-
-		if inSearchDomainsArray {
-			searchDomain := strings.Split(line, " : ")[1]
-			dnsSettings.Domains = append(dnsSettings.Domains, searchDomain)
-		} else if inServerAddressesArray {
-			address := strings.Split(line, " : ")[1]
-			if ip, err := netip.ParseAddr(address); err == nil && !ip.IsUnspecified() {
-				ip = ip.Unmap()
-				serverAddresses = append(serverAddresses, ip)
-				// Prefer the first IPv4 server as ServerIP since our DNS listener is IPv4.
-				if !dnsSettings.ServerIP.IsValid() && ip.Is4() {
-					dnsSettings.ServerIP = ip
-				}
-			}
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
+	dnsSettings, serverAddresses, err := parseSystemDNSSettings(b)
+	if err != nil {
 		return dnsSettings, err
 	}
 
@@ -318,6 +289,105 @@ func (s *systemConfigurator) getSystemDNSSettings() (SystemDNSSettings, error) {
 	s.mu.Unlock()
 
 	return dnsSettings, nil
+}
+
+// parseSystemDNSSettings extracts DNS domains and nameservers from scutil output.
+func parseSystemDNSSettings(b []byte) (SystemDNSSettings, []netip.Addr, error) {
+	var dnsSettings SystemDNSSettings
+	var serverAddresses []netip.Addr
+	section := scutilDNSSectionNone
+
+	scanner := bufio.NewScanner(bytes.NewReader(b))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if updatedSection, ok := parseScutilDNSSection(line); ok {
+			section = updatedSection
+			continue
+		}
+
+		if parseDomainName(line, &dnsSettings) {
+			continue
+		}
+
+		switch section {
+		case scutilDNSSectionSearchDomains:
+			parseSearchDomain(line, &dnsSettings)
+		case scutilDNSSectionServerAddresses:
+			parseServerAddress(line, &dnsSettings, &serverAddresses)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return dnsSettings, nil, err
+	}
+
+	return dnsSettings, serverAddresses, nil
+}
+
+// parseScutilDNSSection identifies array section boundaries in scutil output.
+func parseScutilDNSSection(line string) (scutilDNSSection, bool) {
+	switch line {
+	case "SearchDomains : <array> {":
+		return scutilDNSSectionSearchDomains, true
+	case "ServerAddresses : <array> {":
+		return scutilDNSSectionServerAddresses, true
+	case "}":
+		return scutilDNSSectionNone, true
+	default:
+		return scutilDNSSectionNone, false
+	}
+}
+
+// parseDomainName appends the primary domain name when present.
+func parseDomainName(line string, dnsSettings *SystemDNSSettings) bool {
+	if !strings.HasPrefix(line, "DomainName :") {
+		return false
+	}
+	return appendScutilDomain(line, dnsSettings)
+}
+
+// parseSearchDomain appends a non-empty search domain array entry.
+func parseSearchDomain(line string, dnsSettings *SystemDNSSettings) bool {
+	return appendScutilDomain(line, dnsSettings)
+}
+
+// appendScutilDomain appends a non-empty scutil value to DNS domains.
+func appendScutilDomain(line string, dnsSettings *SystemDNSSettings) bool {
+	value, ok := parseScutilValue(line)
+	if !ok || value == "" {
+		return false
+	}
+	dnsSettings.Domains = append(dnsSettings.Domains, value)
+	return true
+}
+
+// parseServerAddress appends a valid nameserver and records the first IPv4 server.
+func parseServerAddress(line string, dnsSettings *SystemDNSSettings, serverAddresses *[]netip.Addr) bool {
+	address, ok := parseScutilValue(line)
+	if !ok || address == "" {
+		return false
+	}
+	ip, err := netip.ParseAddr(address)
+	if err != nil || ip.IsUnspecified() {
+		return false
+	}
+
+	ip = ip.Unmap()
+	*serverAddresses = append(*serverAddresses, ip)
+	// Prefer the first IPv4 server as ServerIP since our DNS listener is IPv4.
+	if !dnsSettings.ServerIP.IsValid() && ip.Is4() {
+		dnsSettings.ServerIP = ip
+	}
+	return true
+}
+
+// parseScutilValue returns the trimmed text after the first colon in a scutil line.
+func parseScutilValue(line string) (string, bool) {
+	_, value, ok := strings.Cut(line, ":")
+	if !ok {
+		return "", false
+	}
+	return strings.TrimSpace(value), true
 }
 
 func (s *systemConfigurator) getOriginalNameservers() []netip.Addr {
