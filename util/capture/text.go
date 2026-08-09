@@ -92,7 +92,7 @@ func (tw *TextWriter) writeTCP(timeStr string, dir Direction, info *packetInfo, 
 	// Protocol annotation
 	var annotation string
 	if plen > 0 {
-		annotation = annotatePayload(tcp.Payload)
+		annotation = annotatePayload(tcp.Payload, info.srcPort, info.dstPort)
 	}
 
 	if !tw.verbose {
@@ -365,8 +365,11 @@ func formatTCPOptions(opts []layers.TCPOption) string {
 
 // --- Protocol annotation ---
 
-// annotatePayload returns a protocol annotation string for known application protocols.
-func annotatePayload(payload []byte) string {
+// annotatePayload returns a protocol annotation string for known
+// application protocols. srcPort/dstPort enable port-tagged
+// annotations (e.g. NetBird VNC traffic) that can't be identified from
+// the payload alone.
+func annotatePayload(payload []byte, srcPort, dstPort uint16) string {
 	if len(payload) < 4 {
 		return ""
 	}
@@ -399,7 +402,169 @@ func annotatePayload(payload []byte) string {
 		}
 	}
 
+	// NetBird VNC: tag by port and try a few payload heuristics.
+	if isVNCPort(srcPort, dstPort) {
+		return ": " + annotateVNC(payload, srcPort, dstPort)
+	}
+
 	return ""
+}
+
+// isVNCPort mirrors client/vnc/ports.go. 5900 is the external port the
+// dashboard talks to, 25900 is the internal DNAT target, 15900 is the
+// legacy agent TCP port (agents now use Unix sockets, but historical
+// captures are still useful).
+func isVNCPort(src, dst uint16) bool {
+	return src == 5900 || dst == 5900 ||
+		src == 25900 || dst == 25900 ||
+		src == 15900 || dst == 15900
+}
+
+// annotateVNC inspects a payload assumed to be on a NetBird VNC port and
+// returns a short tag. The annotation is stateless and best-effort: we
+// don't track per-flow phase, so msg-type decoding only fires when the
+// length plausibly matches a known fixed-size RFB message.
+func annotateVNC(payload []byte, srcPort, dstPort uint16) string {
+	s := string(payload)
+
+	// Banner / control-plane recognitions match in either direction.
+	switch {
+	case strings.HasPrefix(s, "RFB 003."):
+		end := strings.IndexByte(s, '\n')
+		if end > 0 && end < 32 {
+			return "VNC " + strings.TrimSpace(s[:end])
+		}
+		return "VNC RFB"
+	case strings.Contains(s, "\x00NB-VIEW-ONLY\x00"):
+		return "VNC view-only announce"
+	case isVNCRejectPrefix(s):
+		if i := strings.IndexByte(s, ':'); i > 0 && i < 32 {
+			return "VNC reject " + s[:i]
+		}
+		return "VNC reject"
+	}
+
+	// Direction by port. Well-known VNC port is always on the server
+	// side; the other end is an ephemeral client port.
+	dstIsServer := isWellKnownVNCPort(dstPort)
+	srcIsServer := isWellKnownVNCPort(srcPort)
+	switch {
+	case dstIsServer && !srcIsServer:
+		return "VNC " + annotateVNCClientToServer(payload)
+	case srcIsServer && !dstIsServer:
+		return "VNC " + annotateVNCServerToClient(payload)
+	}
+	return "VNC"
+}
+
+func isWellKnownVNCPort(p uint16) bool {
+	return p == 5900 || p == 25900 || p == 15900
+}
+
+// annotateVNCClientToServer guesses what a client-bound payload contains.
+// First-packet path: looks for the NetBird connection header. RFB
+// message-type recognitions fire only when length matches the fixed
+// size for that type, to avoid mis-tagging Noise handshake bytes.
+func annotateVNCClientToServer(p []byte) string {
+	if len(p) >= 11 && (p[0] == 0 || p[0] == 1) {
+		// Connection header layout: mode(1) + u16 BE username length +
+		// username(N), then sessionID(4) + width(2) + height(2). Prefix is
+		// 3+N, full header 11+N.
+		userLen := int(binary.BigEndian.Uint16(p[1:3]))
+		if 11+userLen <= len(p) {
+			mode := "attach"
+			if p[0] == 1 {
+				mode = "session"
+			}
+			tag := fmt.Sprintf("connect mode=%s", mode)
+			if userLen > 0 && 3+userLen <= len(p) {
+				tag += fmt.Sprintf(" user(%s)", p[3:3+userLen])
+			}
+			return tag
+		}
+	}
+	switch {
+	case len(p) == 20 && p[0] == 0:
+		return "SetPixelFormat"
+	case p[0] == 2:
+		return "SetEncodings"
+	case len(p) == 10 && p[0] == 3:
+		return "FramebufferUpdateRequest"
+	case len(p) == 8 && p[0] == 4:
+		return "KeyEvent"
+	case (len(p) == 6 || len(p) == 7) && p[0] == 5:
+		return "PointerEvent"
+	case p[0] == 6:
+		return "ClientCutText"
+	case p[0] == 0xFC:
+		return "QEMUClientMsg"
+	}
+	return ""
+}
+
+// annotateVNCServerToClient guesses what a server-bound payload contains.
+// The security-failure path (numTypes=0 + 4-byte reasonLen + reason) is
+// recognised before FramebufferUpdate because both start with 0x00 and
+// the failure carries a self-describing length we can verify.
+func annotateVNCServerToClient(p []byte) string {
+	if reason, ok := matchRFBSecurityFailure(p); ok {
+		if code, _, found := strings.Cut(reason, ": "); found && isVNCRejectPrefix(reason) {
+			return "reject " + code
+		}
+		return "reject"
+	}
+	switch {
+	case len(p) >= 4 && p[0] == 0:
+		return "FramebufferUpdate"
+	case p[0] == 1:
+		return "SetColorMapEntries"
+	case len(p) == 1 && p[0] == 2:
+		return "Bell"
+	case p[0] == 3:
+		return "ServerCutText"
+	}
+	return ""
+}
+
+// matchRFBSecurityFailure recognises the RFB 3.8 security-result body the
+// server sends when authentication or session setup fails. Format:
+//
+//	byte 0  : 0x00 (security types count = 0 = failure)
+//	bytes 1-4: uint32 reason length
+//	bytes 5+: reason text
+//
+// Returns the reason text and ok=true when the length self-checks.
+func matchRFBSecurityFailure(p []byte) (string, bool) {
+	if len(p) < 5 || p[0] != 0 {
+		return "", false
+	}
+	reasonLen := int(p[1])<<24 | int(p[2])<<16 | int(p[3])<<8 | int(p[4])
+	if reasonLen <= 0 || reasonLen > 4096 || 5+reasonLen != len(p) {
+		return "", false
+	}
+	return string(p[5 : 5+reasonLen]), true
+}
+
+// vncRejectCodes mirrors the RejectCode* constants in
+// client/vnc/server/server.go. New codes should be added here too.
+var vncRejectCodes = [...]string{
+	"AUTH_FORBIDDEN",
+	"SESSION_ERROR",
+	"CAPTURER_ERROR",
+	"UNSUPPORTED",
+	"BAD_REQUEST",
+	"NO_CONSOLE_USER",
+	"APPROVAL_DENIED",
+	"NO_APPROVER",
+}
+
+func isVNCRejectPrefix(s string) bool {
+	for _, c := range vncRejectCodes {
+		if strings.HasPrefix(s, c+":") {
+			return true
+		}
+	}
+	return false
 }
 
 // annotateTLS returns a description for TLS handshake and alert records.

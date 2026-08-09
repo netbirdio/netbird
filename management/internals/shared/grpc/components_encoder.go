@@ -253,6 +253,8 @@ func (e *componentEncoder) encodePolicyRule(pol *types.Policy, r *types.PolicyRu
 		DestinationGroupIds:   e.groupPublicXids(r.Destinations),
 		AuthorizedUser:        r.AuthorizedUser,
 		AuthorizedGroups:      e.encodeAuthorizedGroups(r.AuthorizedGroups),
+		SessionPubKey:         r.SessionPubKey,
+		SessionDisplayName:    r.SessionDisplayName,
 		SourceResource:        e.resourceToProto(r.SourceResource),
 		DestinationResource:   e.resourceToProto(r.DestinationResource),
 		SourcePostureCheckIds: e.postureCheckSeqs(pol.SourcePostureChecks),

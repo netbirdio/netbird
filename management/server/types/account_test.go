@@ -1636,7 +1636,7 @@ func TestInjectPrivateServicePolicies_ProxyPeerGetsInboundRule(t *testing.T) {
 	}
 
 	proxyPeer := account.Peers["proxy-peer"]
-	aclPeers, firewallRules, _, _ := account.GetPeerConnectionResources(ctx, proxyPeer, validatedPeersMap, nil)
+	aclPeers, firewallRules, _, _, _, _ := account.GetPeerConnectionResources(ctx, proxyPeer, validatedPeersMap, nil)
 
 	var sawUserAsAclPeer bool
 	for _, p := range aclPeers {

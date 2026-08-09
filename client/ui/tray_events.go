@@ -42,6 +42,14 @@ func (t *Tray) onSystemEvent(ev *application.CustomEvent) {
 		}
 		return
 	}
+	// Inbound-connection approval prompts open a dedicated dialog instead of a
+	// toast. Handle before the message gate: the daemon auto-denies on its
+	// deadline, so a missing WindowManager fails closed.
+	if se.Category == "approval" {
+		t.openApproval(se)
+		return
+	}
+
 	// Session-warning and deadline-rejected events build their body locally from
 	// metadata; every other event needs a UserMessage.
 	isSessionWarning := se.Metadata[authsession.MetaWarning] == "true"
@@ -91,6 +99,30 @@ func (t *Tray) onSystemEvent(ev *application.CustomEvent) {
 		body += fmt.Sprintf(" ID: %s", id)
 	}
 	t.notify(eventTitle(se), body, notifyIDEvent+se.ID)
+}
+
+// openApproval opens the inbound-connection approval dialog from an APPROVAL
+// SystemEvent. request_id is daemon-issued; without it the prompt can't be
+// answered, so it's dropped and the daemon auto-denies on its deadline.
+func (t *Tray) openApproval(se services.SystemEvent) {
+	if t.svc.WindowManager == nil {
+		return
+	}
+	requestID := se.Metadata["request_id"]
+	if requestID == "" {
+		log.Warnf("approval event missing request_id: %v", se.Metadata)
+		return
+	}
+	t.svc.WindowManager.OpenApproval(services.ApprovalRequest{
+		RequestID:  requestID,
+		Kind:       se.Metadata["kind"],
+		Initiator:  se.Metadata["initiator"],
+		PeerName:   se.Metadata["peer_name"],
+		SourceIP:   se.Metadata["source_ip"],
+		Username:   se.Metadata["username"],
+		PeerPubKey: se.Metadata["peer_pubkey"],
+		ExpiresAt:  se.Metadata["expires_at"],
+	})
 }
 
 // eventTitle composes a notification title, e.g. "Critical: DNS", "Warning: Authentication".
