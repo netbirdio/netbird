@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -26,6 +27,13 @@ const (
 	sshDialTimeout      = 30 * time.Second
 	sshDetectionTimeout = 5 * time.Second
 )
+
+// PasswordRequiredMarker tells Java to prompt for a password and retry. It is
+// a string because gomobile flattens errors to their message, so a sentinel
+// value would not survive the binding.
+const PasswordRequiredMarker = "netbird-ssh-password-required"
+
+var errPasswordRequired = errors.New(PasswordRequiredMarker)
 
 // SSHTerminalListener receives SSH session events. It is implemented in Java.
 //
@@ -120,12 +128,47 @@ func (s *SSHClient) Connect(host string, port int, user, password string) error 
 		HostKeyCallback: hostKeyCallback,
 		Timeout:         sshDialTimeout,
 	}
-	return s.dialAndHandshake(host, port, clientConfig)
+	err = s.dialAndHandshake(host, port, clientConfig)
+
+	// A regular server may still accept a password, so let the caller ask for
+	// one instead of failing. NetBird servers never use a password, so a
+	// failure there is genuine.
+	if err != nil && serverType != detection.ServerTypeNetBirdJWT &&
+		serverType != detection.ServerTypeNetBirdNoJWT && isAuthFailure(err) {
+		return errPasswordRequired
+	}
+	if err != nil {
+		log.Infof("SSH: connect to %s:%d failed: %v", host, port, err)
+		return rootCause(err)
+	}
+	return nil
+}
+
+// isAuthFailure distinguishes credential rejection from dial, timeout and
+// host-key errors, which retrying with a password would not fix.
+func isAuthFailure(err error) bool {
+	if errors.Is(err, errPasswordRequired) {
+		return true
+	}
+	var partial *gossh.PartialSuccessError
+	if errors.As(err, &partial) {
+		return true
+	}
+	return strings.Contains(err.Error(), "unable to authenticate")
 }
 
 // StartSession requests a PTY and starts an interactive shell. Output from
 // the session is forwarded to the listener via OnData.
 func (s *SSHClient) StartSession(cols, rows int) error {
+	err := s.startSession(cols, rows)
+	if err != nil {
+		log.Infof("SSH: start session failed: %v", err)
+		return rootCause(err)
+	}
+	return nil
+}
+
+func (s *SSHClient) startSession(cols, rows int) error {
 	log.Debugf("SSH: starting session %dx%d", cols, rows)
 	s.mu.Lock()
 	sshClient := s.sshClient
@@ -286,7 +329,9 @@ func (s *SSHClient) buildAuth(cfg *profilemanager.Config, engine *internal.Engin
 			}))
 		}
 		if len(auths) == 0 {
-			return nil, nil, errors.New("no auth method available: provide a password or configure NetBird SSH key")
+			// Nothing to offer at all: ask for a password rather than failing,
+			// so the caller can retry once the user supplies one.
+			return nil, nil, errPasswordRequired
 		}
 		return auths, gossh.InsecureIgnoreHostKey(), nil // nolint:gosec // TOFU not yet implemented
 	}
@@ -314,6 +359,10 @@ func (s *SSHClient) requestJWTToken(cfg *profilemanager.Config) (string, error) 
 	}
 
 	go urlOpener.Open(flowInfo.VerificationURIComplete, flowInfo.UserCode)
+
+	// WaitToken blocks for as long as the browser round-trip takes, so say so
+	// rather than leaving the terminal blank.
+	s.notifyStatus("Waiting for browser authentication...")
 
 	tokenInfo, err := flow.WaitToken(ctx, flowInfo)
 	if err != nil {
@@ -375,12 +424,50 @@ func (s *SSHClient) readLoop(r io.Reader, name string) {
 			}
 		}
 		if err != nil {
-			if !errors.Is(err, io.EOF) {
-				log.Debugf("ssh %s read: %v", name, err)
+			// EOF is a normal shell exit, so report it without a reason.
+			if errors.Is(err, io.EOF) {
+				s.notifyClose("")
+				return
 			}
-			s.notifyClose(err.Error())
+			log.Debugf("ssh %s read: %v", name, err)
+			s.notifyClose(rootCause(err).Error())
 			return
 		}
+	}
+}
+
+// rootCause returns the innermost error of a %w chain, so the terminal shows
+// "i/o timeout" rather than every layer that added context on the way up.
+func rootCause(err error) error {
+	for {
+		// A joined error has no single root, so keep it as-is.
+		if _, ok := err.(interface{ Unwrap() []error }); ok {
+			return err
+		}
+		next := errors.Unwrap(err)
+		if next == nil {
+			return err
+		}
+		err = next
+	}
+}
+
+// Reset makes a closed client usable for another Connect: Close leaves the
+// one-shot guard set, and clearing it lets the same client back a reconnect.
+func (s *SSHClient) Reset() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.closed = false
+}
+
+// notifyStatus writes a progress line to the terminal through the normal
+// output path, so long steps are visible while nothing else is arriving.
+func (s *SSHClient) notifyStatus(text string) {
+	s.mu.Lock()
+	listener := s.listener
+	s.mu.Unlock()
+	if listener != nil {
+		listener.OnData([]byte("\r\n\x1b[33m" + text + "\x1b[0m\r\n"))
 	}
 }
 
