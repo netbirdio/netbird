@@ -61,8 +61,10 @@ func readRegistryValue(k registry.Key, name, canonical string, out map[string]an
 	}
 }
 
-// loadPlatformPolicy reads the MDM-managed configuration from the
-// Windows registry under HKLM\Software\Policies\NetBird. Returns:
+// loadPlatform reads the MDM-managed configuration from the Windows
+// registry under HKLM\Software\Policies\NetBird. The Loader's fetcher
+// field is unused on this platform — the registry is the
+// authoritative source. Returns:
 //   - (nil, nil)  when the key is absent (device not MDM-enrolled for NetBird)
 //   - (map, nil)  with N entries when N managed values are set (N may be 0)
 //   - (nil, err)  on open / enumerate registry errors
@@ -70,7 +72,13 @@ func readRegistryValue(k registry.Key, name, canonical string, out map[string]an
 // Per-value type coercion + skip-on-error is delegated to
 // readRegistryValue. Unknown value names are logged and skipped so a
 // malformed deployment does not block startup.
-func loadPlatformPolicy() (map[string]any, error) {
+func (l *Loader) loadPlatform() (map[string]any, error) {
+	// Honour the injected fetcher when present so tests (and any
+	// future non-Windows MDM channel) can short-circuit the registry
+	// read with a scripted policy.
+	if l != nil && l.fetcher != nil {
+		return l.fetcher.Fetch(), nil
+	}
 	k, err := registry.OpenKey(registry.LOCAL_MACHINE, policyRegistryPath, registry.QUERY_VALUE)
 	if err != nil {
 		if errors.Is(err, registry.ErrNotExist) {

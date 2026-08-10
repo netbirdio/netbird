@@ -22,6 +22,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/formatter"
 	"github.com/netbirdio/netbird/route"
@@ -90,6 +91,13 @@ type Client struct {
 	// preloadedConfig holds config loaded from JSON (used on tvOS where file writes are blocked)
 	preloadedConfig *profilemanager.Config
 
+	// mdmLoader holds the per-Client MDM policy source. Set by
+	// SetMDMPolicyFetcher (called from the Swift side at extension
+	// init). Each Run passes this loader to the resolved Config so
+	// applyMDMPolicy picks up the active overlay. Nil means "MDM
+	// enforcement off for this Client".
+	mdmLoader *mdm.Loader
+
 	stateMu       sync.RWMutex
 	connectClient *internal.ConnectClient
 	config        *profilemanager.Config
@@ -150,6 +158,7 @@ func (c *Client) Run(fd int32, interfaceName string, envList *EnvList) error {
 		if err != nil {
 			return err
 		}
+		c.applyMDMOverlay(cfg)
 	}
 	c.recorder.UpdateManagementAddress(cfg.ManagementURL.String())
 	c.recorder.UpdateRosenpass(cfg.RosenpassEnabled, cfg.RosenpassPermissive)
@@ -230,6 +239,7 @@ func (c *Client) DebugBundle(anonymize bool, anonymizeLevel string) (string, err
 				return "", fmt.Errorf("load config: %w", err)
 			}
 		}
+		c.applyMDMOverlay(cfg)
 	}
 
 	deps := debug.GeneratorDependencies{
@@ -380,6 +390,7 @@ func (c *Client) IsLoginRequired() bool {
 			// If we can't load config, assume login is required
 			return true
 		}
+		c.applyMDMOverlay(cfg)
 	}
 
 	if cfg == nil {
@@ -428,6 +439,7 @@ func (c *Client) LoginForMobile() string {
 		log.Errorf("LoginForMobile: failed to load config: %v", err)
 		return fmt.Sprintf("failed to load config: %v", err)
 	}
+	c.applyMDMOverlay(cfg)
 
 	oAuthFlow, err := auth.NewOAuthFlow(ctx, cfg, false, false, "")
 	if err != nil {

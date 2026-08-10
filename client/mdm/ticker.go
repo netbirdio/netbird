@@ -15,33 +15,33 @@ import (
 // instead, hence anticipating the ticker mechanism entirely.
 const DefaultReloadInterval = 1 * time.Minute
 
-// policyLoader is the indirection through which the ticker reads the
-// OS-native policy, both for the initial observation and on every tick.
-// Production points it at LoadPolicy; tests in this package override it to
-// feed a scripted sequence of policies without touching the real OS store.
-var policyLoader = LoadPolicy
-
-// Ticker periodically re-reads the OS-native MDM policy via LoadPolicy and
-// invokes the onChange callback (supplied to Run) whenever the observed
-// Policy diverges from the last observation (added / removed / changed
-// keys). Launch with Run from a goroutine; cancel the supplied context
-// to stop.
+// Ticker periodically re-reads the OS-native MDM policy via the
+// injected Loader and invokes the onChange callback (supplied to Run)
+// whenever the observed Policy diverges from the last observation
+// (added / removed / changed keys). Launch with Run from a goroutine;
+// cancel the supplied context to stop.
 type Ticker struct {
 	interval time.Duration
+	loader   *Loader
 	prev     *Policy
 }
 
 // NewTicker constructs a Ticker that will re-read the OS-native policy
-// every reloadInterval once Run is called.
-// The initial snapshot is populated by calling policyLoader at
+// every reloadInterval once Run is called. The Loader is injected so
+// the ticker doesn't depend on any package-level state — production
+// passes the daemon-owned Loader, tests pass a fake Loader (built with
+// a fake PolicyFetcher).
+//
+// The initial snapshot is populated by calling loader.Load() at
 // construction time so the first tick only fires
 // onChange when the policy actually changed since boot — without
 // this baseline the first tick would report every currently-managed
 // key as "added" and trigger a spurious engine restart.
-func NewTicker(reloadInterval time.Duration) *Ticker {
+func NewTicker(reloadInterval time.Duration, loader *Loader) *Ticker {
 	return &Ticker{
 		interval: reloadInterval,
-		prev:     policyLoader(),
+		loader:   loader,
+		prev:     loader.Load(),
 	}
 }
 
@@ -58,7 +58,7 @@ func (t *Ticker) Run(ctx context.Context, onChange func(prev, curr *Policy) erro
 			log.Info("MDM policy reload ticker stopped")
 			return
 		case <-tk.C:
-			curr := policyLoader()
+			curr := t.loader.Load()
 			if policiesEqual(t.prev, curr) {
 				continue
 			}
