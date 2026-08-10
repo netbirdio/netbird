@@ -1836,13 +1836,16 @@ func (r *router) DeleteDNATRule(rule firewall.Rule) error {
 		}
 	}
 
+	// Release the refcount only once the rules are gone from the kernel. On
+	// failure (including the refreshRulesMap error above) the rules and their
+	// map entries remain, keeping forwarding on until a retry removes them.
 	if merr == nil {
 		delete(r.rules, ruleKey+dnatSuffix)
 		delete(r.rules, ruleKey+snatSuffix)
-	}
 
-	if err := r.ipFwdState.ReleaseForwarding(r.af.tableFamily == nftables.TableFamilyIPv6); err != nil {
-		log.Errorf("%v", err)
+		if err := r.ipFwdState.ReleaseForwarding(r.af.tableFamily == nftables.TableFamilyIPv6); err != nil {
+			log.Errorf("%v", err)
+		}
 	}
 
 	return nberrors.FormatErrorOrNil(merr)

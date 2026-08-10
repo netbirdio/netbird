@@ -17,6 +17,13 @@ type IPForwardingState struct {
 	v4Count int
 	v6Count int
 
+	// routingV4/routingV6 track whether the routing path currently holds a
+	// reference, so repeated EnableRouting calls (one per network-map update)
+	// hold at most one reference per family and an unpaired DisableRouting
+	// can't release references held by DNAT rules.
+	routingV4 bool
+	routingV6 bool
+
 	wgIfaceName string
 	v6Saved     map[string]int
 }
@@ -31,6 +38,51 @@ func (f *IPForwardingState) Counts() (v4, v6 int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.v4Count, f.v6Count
+}
+
+// RequestRouting takes the forwarding references for the routing path. It is
+// idempotent: while routing already holds a reference, further calls don't
+// increment the refcounts. A v6 sysctl failure is logged and not returned so
+// it can't take down v4 routing (the sysctl may be unwritable, e.g. read-only
+// /proc/sys or IPv6 disabled on the kernel command line); v6 is retried on the
+// next call.
+func (f *IPForwardingState) RequestRouting(v6 bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if !f.routingV4 {
+		if err := f.requestV4(); err != nil {
+			return err
+		}
+		f.routingV4 = true
+	}
+
+	if !v6 || f.routingV6 {
+		return nil
+	}
+	if err := f.requestV6(); err != nil {
+		log.Warnf("enable IPv6 forwarding for routing: %v", err)
+		return nil
+	}
+	f.routingV6 = true
+	return nil
+}
+
+// ReleaseRouting releases the references RequestRouting holds. Calls without a
+// held reference are no-ops.
+func (f *IPForwardingState) ReleaseRouting() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.routingV4 {
+		f.routingV4 = false
+		f.releaseV4()
+	}
+	if f.routingV6 {
+		f.routingV6 = false
+		return f.releaseV6()
+	}
+	return nil
 }
 
 // RequestForwarding enables the family's forwarding sysctl on first request.
@@ -84,7 +136,17 @@ func (f *IPForwardingState) requestV6() error {
 			}
 			return fmt.Errorf("enable IPv6 forwarding: %w", err)
 		}
-		f.v6Saved = saved
+		// A failed restore on a previous release keeps its saved values; those
+		// are the true originals, so keep them over what this enable captured.
+		if f.v6Saved == nil {
+			f.v6Saved = saved
+		} else {
+			for k, v := range saved {
+				if _, ok := f.v6Saved[k]; !ok {
+					f.v6Saved[k] = v
+				}
+			}
+		}
 		log.Info("IPv6 forwarding enabled")
 	}
 	f.v6Count++
@@ -100,11 +162,13 @@ func (f *IPForwardingState) releaseV6() error {
 		return nil
 	}
 
-	saved := f.v6Saved
-	f.v6Saved = nil
-	if err := systemops.DisableV6IPForwarding(saved); err != nil {
+	// Keep the saved values on failure so a later release or enable/release
+	// cycle can still restore them; re-restoring an already-restored key is a
+	// no-op since the sysctl already holds the desired value.
+	if err := systemops.DisableV6IPForwarding(f.v6Saved); err != nil {
 		return fmt.Errorf("disable IPv6 forwarding: %w", err)
 	}
+	f.v6Saved = nil
 	log.Info("IPv6 forwarding disabled")
 	return nil
 }

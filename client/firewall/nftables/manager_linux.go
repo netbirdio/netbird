@@ -530,33 +530,12 @@ func (m *Manager) SetLogLevel(log.Level) {
 }
 
 func (m *Manager) EnableRouting() error {
-	if err := m.router.ipFwdState.RequestForwarding(false); err != nil {
-		return fmt.Errorf("enable IPv4 forwarding: %w", err)
-	}
 	// v6 only when the overlay actually has v6.
-	if m.router6 == nil {
-		return nil
-	}
-	if err := m.router.ipFwdState.RequestForwarding(true); err != nil {
-		if rerr := m.router.ipFwdState.ReleaseForwarding(false); rerr != nil {
-			log.Warnf("rollback v4 forwarding: %v", rerr)
-		}
-		return fmt.Errorf("enable IPv6 forwarding: %w", err)
-	}
-	return nil
+	return m.router.ipFwdState.RequestRouting(m.router6 != nil)
 }
 
 func (m *Manager) DisableRouting() error {
-	var merr *multierror.Error
-	if err := m.router.ipFwdState.ReleaseForwarding(false); err != nil {
-		merr = multierror.Append(merr, fmt.Errorf("disable IPv4 forwarding: %w", err))
-	}
-	if m.router6 != nil {
-		if err := m.router.ipFwdState.ReleaseForwarding(true); err != nil {
-			merr = multierror.Append(merr, fmt.Errorf("disable IPv6 forwarding: %w", err))
-		}
-	}
-	return nberrors.FormatErrorOrNil(merr)
+	return m.router.ipFwdState.ReleaseRouting()
 }
 
 // Flush rule/chain/set operations from the buffer

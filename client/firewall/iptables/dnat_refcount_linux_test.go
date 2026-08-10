@@ -1,3 +1,5 @@
+//go:build privileged
+
 package iptables
 
 import (
@@ -70,6 +72,44 @@ func iptDnatV6(port uint16) fw.ForwardRule {
 		TranslatedAddress: netip.MustParseAddr("fd00::2"),
 		TranslatedPort:    fw.Port{Values: []uint16{80}},
 	}
+}
+
+// TestIptablesRouting_RepeatedEnableSingleReference verifies that EnableRouting
+// (called on every network-map update) holds at most one reference per family
+// and a single DisableRouting drops both back to zero.
+func TestIptablesRouting_RepeatedEnableSingleReference(t *testing.T) {
+	m := newIptRefcountManager(t, true)
+	state := m.router.ipFwdState
+
+	require.NoError(t, m.EnableRouting(), "first enable")
+	require.NoError(t, m.EnableRouting(), "second enable")
+	require.NoError(t, m.EnableRouting(), "third enable")
+	v4, v6 := state.Counts()
+	require.Equal(t, 1, v4, "repeated enable holds a single v4 reference")
+	require.Equal(t, 1, v6, "repeated enable holds a single v6 reference")
+
+	require.NoError(t, m.DisableRouting(), "disable")
+	v4, v6 = state.Counts()
+	require.Equal(t, 0, v4, "single disable releases the v4 reference")
+	require.Equal(t, 0, v6, "single disable releases the v6 reference")
+}
+
+// TestIptablesRouting_DisableKeepsDNATReference verifies that an unpaired
+// DisableRouting does not release references held by active DNAT rules.
+func TestIptablesRouting_DisableKeepsDNATReference(t *testing.T) {
+	m := newIptRefcountManager(t, true)
+	state := m.router.ipFwdState
+
+	r1, err := m.AddDNATRule(iptDnatV6(9095))
+	require.NoError(t, err, "add v6 dnat")
+
+	require.NoError(t, m.DisableRouting(), "unpaired disable")
+	_, v6 := state.Counts()
+	require.Equal(t, 1, v6, "DNAT-held reference survives unpaired DisableRouting")
+
+	require.NoError(t, m.DeleteDNATRule(r1), "delete v6 dnat")
+	_, v6 = state.Counts()
+	require.Equal(t, 0, v6, "delete releases the DNAT reference")
 }
 
 // TestIptablesDNAT_RefcountBalancedV4 covers a Balanced Add/Delete pair on v4.

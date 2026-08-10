@@ -836,26 +836,32 @@ func (r *router) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
 
 	for key, ruleInfo := range rules {
 		if err := r.iptablesClient.Append(ruleInfo.table, ruleInfo.chain, ruleInfo.rule...); err != nil {
-			if rollbackErr := r.rollbackRules(rules); rollbackErr != nil {
-				log.Errorf("rollback failed: %v", rollbackErr)
-			}
+			r.cleanupFailedDNATAdd(rules)
 			return nil, fmt.Errorf("add rule %s: %w", key, err)
 		}
 		r.rules[key] = ruleInfo.rule
 	}
 
 	if err := r.ipFwdState.RequestForwarding(r.v6); err != nil {
-		if rollbackErr := r.rollbackRules(rules); rollbackErr != nil {
-			log.Errorf("rollback failed: %v", rollbackErr)
-		}
-		for key := range rules {
-			delete(r.rules, key)
-		}
+		r.cleanupFailedDNATAdd(rules)
 		return nil, fmt.Errorf("enable forwarding: %w", err)
 	}
 
 	r.updateState()
 	return rule, nil
+}
+
+// cleanupFailedDNATAdd removes the bookkeeping written by a partially applied
+// AddDNATRule before rolling back the kernel rules, so no entries remain that
+// never got a forwarding refcount. rollbackRules re-adds entries it failed to
+// remove from the kernel.
+func (r *router) cleanupFailedDNATAdd(rules map[string]ruleInfo) {
+	for key := range rules {
+		delete(r.rules, key)
+	}
+	if err := r.rollbackRules(rules); err != nil {
+		log.Errorf("rollback failed: %v", err)
+	}
 }
 
 func (r *router) rollbackRules(rules map[string]ruleInfo) error {

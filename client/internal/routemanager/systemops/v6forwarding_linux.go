@@ -19,6 +19,7 @@ const (
 	// acceptance on regardless, so RA-installed host defaults survive our
 	// v6 forwarding flip.
 	acceptRAInterfacePath  = "net.ipv6.conf.%s.accept_ra"
+	acceptRADefaultPath    = "net.ipv6.conf.default.accept_ra"
 	acceptRAProcPathFormat = "/proc/sys/net/ipv6/conf/%s/accept_ra"
 )
 
@@ -51,6 +52,10 @@ func DisableV6IPForwarding(saved map[string]int) error {
 }
 
 func bumpAcceptRA(saved map[string]int, wgIfaceName string) {
+	// Also bump conf.default so interfaces created while forwarding is on
+	// (hotplug, new Wi-Fi/dock) inherit accept_ra=2 and keep accepting RAs.
+	bumpAcceptRAKey(saved, acceptRADefaultPath)
+
 	interfaces, err := net.Interfaces()
 	if err != nil {
 		log.Warnf("list interfaces for accept_ra: %v", err)
@@ -65,18 +70,23 @@ func bumpAcceptRA(saved map[string]int, wgIfaceName string) {
 }
 
 func bumpAcceptRAForInterface(saved map[string]int, name string) {
-	key := fmt.Sprintf(acceptRAInterfacePath, name)
 	// Build procfs path from name, not the dotted key: VLAN names like eth0.100.
 	if _, err := os.Stat(fmt.Sprintf(acceptRAProcPathFormat, name)); err != nil {
 		return
 	}
+	bumpAcceptRAKey(saved, fmt.Sprintf(acceptRAInterfacePath, sysctl.EscapeInterfaceName(name)))
+}
+
+func bumpAcceptRAKey(saved map[string]int, key string) {
 	// onlyIfOne=true: leave admin overrides (0, 2) alone.
 	oldVal, err := sysctl.Set(key, 2, true)
 	if err != nil {
 		log.Warnf("bump %s: %v", key, err)
 		return
 	}
-	if oldVal != 2 {
+	// With onlyIfOne, a write only happened when the old value was 1; values
+	// left untouched (0, 2) must not be recorded for restore.
+	if oldVal == 1 {
 		saved[key] = oldVal
 	}
 }
