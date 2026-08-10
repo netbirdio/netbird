@@ -179,3 +179,17 @@ func CollectRowsForSqlite[T any](rows *sql.Rows) ([]T, error) {
 
 	return toret, nil
 }
+
+func ConvertAllToSharedTypes[T any, T1 any](allsrc []T) ([]T1, error) {
+	toret := make([]T1, 0, len(allsrc))
+	for _, src := range allsrc {
+		var dst T1
+		err := FromSqlTypesToSharedTypes(
+			reflect.ValueOf(&src), reflect.ValueOf(&dst))
+		if err != nil {
+			return nil, err
+		}
+		toret = append(toret, dst)
+	}
+	return toret, nil
+}
