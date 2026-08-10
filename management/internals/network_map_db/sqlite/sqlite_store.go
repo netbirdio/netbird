@@ -2,6 +2,7 @@ package networkmap_sqlite
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"path/filepath"
 	"runtime"
@@ -13,6 +14,8 @@ import (
 	"github.com/netbirdio/netbird/shared/management/networkmap"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
+
+var ErrNoRows = errors.New("no rows in result set")
 
 type SqliteStore struct {
 	Db *sql.DB
@@ -115,9 +118,6 @@ func (s *SqliteStoreConn) GetPostureChecks(ctx context.Context, accountId string
 }
 func (s *SqliteStoreConn) GetAllowedUsers(ctx context.Context, accountId string) (map[string]struct{}, map[string][]string, error) {
 	return nil, nil, nil
-}
-func (s *SqliteStoreConn) GetDnsSettings(ctx context.Context, accountId string) (nmdata.DNSSettings, error) {
-	return nmdata.DNSSettings{}, nil
 }
 func (s *SqliteStoreConn) GetNetworkXIDToPublicIdMap(ctx context.Context, accountId string) (map[string]string, error) {
 	return nil, nil

@@ -6,15 +6,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestGetDnsSettings(t *testing.T) {
-	if engine == string(types.SqliteStoreEngine) {
-		t.Skip()
-	}
 	ctx := context.TODO()
 
 	settings, err := conn(t, ctx).GetDnsSettings(ctx, "account-1")
