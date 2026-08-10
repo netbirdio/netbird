@@ -20,7 +20,9 @@ type ChecksDefinition struct {
 	ProcessCheck          *ProcessCheck
 }
 
-type postureCheck interface {
+// Check is the slim twin of posture.Check. It is sealed: only the check types
+// in this package implement it.
+type Check interface {
 	check(peer *Peer) (bool, error)
 }
 
@@ -28,7 +30,13 @@ type postureCheck interface {
 // mirrors the server posture path: a check returning (false, _) — including on
 // an evaluation error — fails the bundle.
 func (pc *PostureChecks) Passes(peer *Peer) bool {
-	for _, c := range pc.GetChecks() {
+	return PassesChecks(pc.GetChecks(), peer)
+}
+
+// PassesChecks is Passes over an already built check set, for callers that
+// evaluate many peers against the same bundle.
+func PassesChecks(checks []Check, peer *Peer) bool {
+	for _, c := range checks {
 		valid, _ := c.check(peer)
 		if !valid {
 			return false
@@ -38,8 +46,8 @@ func (pc *PostureChecks) Passes(peer *Peer) bool {
 }
 
 // GetChecks returns the initialized checks in the same order as posture.Checks.GetChecks.
-func (pc *PostureChecks) GetChecks() []postureCheck {
-	var checks []postureCheck
+func (pc *PostureChecks) GetChecks() []Check {
+	var checks []Check
 	if pc.Checks.NBVersionCheck != nil {
 		checks = append(checks, pc.Checks.NBVersionCheck)
 	}

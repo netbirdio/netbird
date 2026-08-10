@@ -372,6 +372,8 @@ func (c *Controller) sendUpdatesFromData(ctx context.Context, accountID string, 
 		return fmt.Errorf("failed to get flow enabled status: %v", err)
 	}
 
+	nmData.PrecomputePostureValidation()
+
 	dnsCache := &cache.DNSConfigCache{}
 	dnsDomain := c.getDNSDomainFromData(nmData.AccountSettings)
 	peersCustomZone := networkmap.PeersCustomZone(ctx, accountID, dnsDomain, nmData.Peers, ipv6AllowedPeersFromData(nmData))

@@ -465,6 +465,13 @@ func (nmd *NetworkMapData) validatePostureChecksOnPeerGetFailed(sourcePostureChe
 	}
 
 	for _, postureChecksID := range sourcePostureChecksID {
+		if valid, cached := nmd.cachedPostureCheckResult(postureChecksID, peerID); cached {
+			if !valid {
+				return false, postureChecksID
+			}
+			continue
+		}
+
 		postureChecks := nmd.PostureChecks[postureChecksID]
 		if postureChecks == nil {
 			continue
@@ -474,6 +481,76 @@ func (nmd *NetworkMapData) validatePostureChecksOnPeerGetFailed(sourcePostureChe
 		}
 	}
 	return true, ""
+}
+
+func (nmd *NetworkMapData) PrecomputePostureValidation() {
+	if len(nmd.PostureChecks) == 0 {
+		nmd.PostureValidation = nil
+		return
+	}
+
+	checkPeerIDs := make(map[string]map[string]struct{})
+	for _, policy := range nmd.Policies {
+		if policy == nil || !policy.Enabled || len(policy.SourcePostureChecks) == 0 {
+			continue
+		}
+
+		groupPeerIDs := nmd.getUniquePeerIDsFromGroupsIDs(policy.SourceGroups())
+		for _, postureChecksID := range policy.SourcePostureChecks {
+			set := checkPeerIDs[postureChecksID]
+			if set == nil {
+				set = make(map[string]struct{}, len(groupPeerIDs))
+				checkPeerIDs[postureChecksID] = set
+			}
+			for _, pid := range groupPeerIDs {
+				set[pid] = struct{}{}
+			}
+			for _, rule := range policy.Rules {
+				if rule == nil {
+					continue
+				}
+				if rule.SourceResource.Type == string(types.ResourceTypePeer) && rule.SourceResource.ID != "" {
+					set[rule.SourceResource.ID] = struct{}{}
+				}
+			}
+		}
+	}
+
+	results := make(map[string]map[string]bool, len(checkPeerIDs))
+	for postureChecksID, peerIDs := range checkPeerIDs {
+		results[postureChecksID] = nmd.evaluatePostureChecksForPeers(postureChecksID, peerIDs)
+	}
+	nmd.PostureValidation = results
+}
+
+func (nmd *NetworkMapData) evaluatePostureChecksForPeers(postureChecksID string, peerIDs map[string]struct{}) map[string]bool {
+	postureChecks := nmd.PostureChecks[postureChecksID]
+	if postureChecks == nil {
+		return nil
+	}
+
+	checks := postureChecks.GetChecks()
+	results := make(map[string]bool, len(peerIDs))
+	for peerID := range peerIDs {
+		peer := nmd.Peers[peerID]
+		if peer == nil {
+			continue
+		}
+		results[peerID] = nmdata.PassesChecks(checks, peer)
+	}
+	return results
+}
+
+func (nmd *NetworkMapData) cachedPostureCheckResult(postureChecksID, peerID string) (bool, bool) {
+	results, ok := nmd.PostureValidation[postureChecksID]
+	if !ok {
+		return false, false
+	}
+	if results == nil {
+		return true, true
+	}
+	valid, found := results[peerID]
+	return valid, found
 }
 
 func (nmd *NetworkMapData) getPostureValidPeersSaveFailed(inputPeers []string, postureChecksIDs []string, postureFailedPeers *map[string]map[string]struct{}) []string {
