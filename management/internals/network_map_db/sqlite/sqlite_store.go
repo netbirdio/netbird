@@ -11,7 +11,6 @@ import (
 	"database/sql"
 
 	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
-	"github.com/netbirdio/netbird/shared/management/networkmap"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
 
@@ -109,9 +108,6 @@ func (s *SqliteStoreConn) GetNetworkRouters(ctx context.Context, accountId strin
 }
 func (s *SqliteStoreConn) GetNetwork(ctx context.Context, accountId string) (nmdata.Network, error) {
 	return nmdata.Network{}, nil
-}
-func (s *SqliteStoreConn) GetAppliedZoneCandidates(ctx context.Context, accountId string) ([]networkmap.AppliedZoneCandidate, error) {
-	return nil, nil
 }
 func (s *SqliteStoreConn) GetPostureChecks(ctx context.Context, accountId string) ([]nmdata.PostureChecks, map[string]string, error) {
 	return nil, nil, nil

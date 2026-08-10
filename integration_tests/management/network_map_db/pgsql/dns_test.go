@@ -7,17 +7,12 @@ import (
 	"testing"
 
 	"github.com/miekg/dns"
-	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/networkmap"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestGetAppliedZoneCandidatesViaPgxConnection(t *testing.T) {
-	if engine == string(types.SqliteStoreEngine) {
-		t.Skip()
-	}
-
 	ctx := context.TODO()
 
 	execQuery(t, ctx,

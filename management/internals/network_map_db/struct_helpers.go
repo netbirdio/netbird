@@ -122,7 +122,8 @@ func FromSqlTypesToSharedTypes(src reflect.Value, dst reflect.Value) error {
 	return nil
 }
 
-func StructFields(src reflect.Value) []any {
+func StructFields(s any) []any {
+	src := reflect.ValueOf(s)
 	toret := make([]any, 0)
 	typ := src.Elem().Type()
 

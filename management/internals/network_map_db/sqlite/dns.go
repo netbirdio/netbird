@@ -1,9 +1,8 @@
-package networkmap_pgsql
+package networkmap_sqlite
 
 import (
 	"context"
 
-	"github.com/jackc/pgx/v5"
 	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 	"github.com/netbirdio/netbird/shared/management/networkmap"
 )
@@ -18,15 +17,21 @@ const (
 	`
 )
 
-func (pgc *PgStoreConn) GetAppliedZoneCandidates(ctx context.Context, accountId string) ([]networkmap.AppliedZoneCandidate, error) {
-	rows, err := pgc.Conn.Query(ctx, GetAccountZonesQuery, accountId)
+func (sc *SqliteStoreConn) GetAppliedZoneCandidates(ctx context.Context, accountId string) ([]networkmap.AppliedZoneCandidate, error) {
+	rows, err := sc.Conn.QueryContext(ctx, GetAccountZonesQuery, accountId)
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 
-	zones, err := pgx.CollectRows(rows, pgx.RowToStructByName[networkmapdb.Zone])
-	if err != nil {
-		return nil, err
+	zones := make([]networkmapdb.Zone, 0)
+	for rows.Next() {
+		z := networkmapdb.Zone{}
+		err := rows.Scan(networkmapdb.StructFields(&z)...)
+		if err != nil {
+			return nil, err
+		}
+		zones = append(zones, z)
 	}
 
 	return networkmapdb.ZonesToAppliedZoneCandidates(zones)

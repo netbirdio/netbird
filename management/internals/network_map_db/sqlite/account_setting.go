@@ -36,7 +36,7 @@ func (sc *SqliteStoreConn) GetAccountSettings(ctx context.Context, accountId str
 
 	rows.Next()
 	a := account{}
-	err = rows.Scan(networkmapdb.StructFields(reflect.ValueOf(&a))...)
+	err = rows.Scan(networkmapdb.StructFields(&a)...)
 	if err != nil {
 		return nmdata.AccountSettingsInfo{}, err
 	}
