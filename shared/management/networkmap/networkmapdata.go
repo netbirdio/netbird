@@ -25,6 +25,12 @@ type NetworkMapData struct { //nolint:revive // established name across the code
 
 	PostureChecks map[string]*nmdata.PostureChecks
 
+	// PostureValidation holds the precomputed posture-check results, keyed by
+	// posture check ID then peer ID. Filled by PrecomputePostureValidation; a
+	// present but nil inner map marks a check ID that resolves to no posture
+	// check, which the calc treats as passing.
+	PostureValidation map[string]map[string]bool
+
 	AllowedUserIDs            map[string]struct{}
 	NetworkXIDToPublicID      map[string]string
 	PostureCheckXIDToPublicID map[string]string

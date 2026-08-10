@@ -1475,6 +1475,126 @@ func TestGetPeerNetworkMapComponents_StoreImmutableAndDeterministic(t *testing.T
 	assert.Equal(t, first.GroupIDToUserIDs, second.GroupIDToUserIDs)
 }
 
+func TestPrecomputePostureValidation(t *testing.T) {
+	newFixture := func() *networkmap.NetworkMapData {
+		target := newPeer(targetID, 1)
+		srcPass := newPeer("peer-src-pass", 2)
+		srcFail := newPeer("peer-src-fail", 3)
+		srcFail.Meta.WtVersion = failingVersion
+		other := newPeer("peer-other", 4)
+		other.Meta.WtVersion = failingVersion
+
+		nmd := newNMD(target, srcPass, srcFail, other)
+		addVersionCheck(nmd, "pc-1", postureMinVersion)
+		addGroup(nmd, "g-src", srcPass.ID, srcFail.ID)
+		addGroup(nmd, "g-dst", targetID)
+		addGroup(nmd, "g-open", srcPass.ID, srcFail.ID, other.ID)
+
+		checked := newPolicy("p-checked", newRule([]string{"g-src"}, []string{"g-dst"}))
+		checked.SourcePostureChecks = []string{"pc-1"}
+		open := newPolicy("p-open", newRule([]string{"g-open"}, []string{"g-dst"}))
+		disabled := newPolicy("p-disabled", newRule([]string{"g-open"}, []string{"g-dst"}))
+		disabled.Enabled = false
+		disabled.SourcePostureChecks = []string{"pc-1"}
+		nmd.Policies = []*nmdata.Policy{checked, open, disabled}
+
+		return nmd
+	}
+
+	type snapshot struct {
+		peers              []string
+		postureFailedPeers map[string]map[string]struct{}
+	}
+	snapshotAll := func(nmd *networkmap.NetworkMapData) map[string]snapshot {
+		out := make(map[string]snapshot, len(nmd.Peers))
+		for peerID := range nmd.Peers {
+			c := compute(nmd, peerID)
+			out[peerID] = snapshot{peers: peerIDSet(c.Peers), postureFailedPeers: c.PostureFailedPeers}
+		}
+		return out
+	}
+
+	t.Run("memoized results match direct evaluation", func(t *testing.T) {
+		nmd := newFixture()
+		direct := snapshotAll(nmd)
+
+		nmd.PrecomputePostureValidation()
+		memoized := snapshotAll(nmd)
+
+		require.Len(t, memoized, len(direct))
+		for peerID, want := range direct {
+			assert.ElementsMatch(t, want.peers, memoized[peerID].peers, "visible peers changed for %s", peerID)
+			assert.Equal(t, want.postureFailedPeers, memoized[peerID].postureFailedPeers, "posture failures changed for %s", peerID)
+		}
+	})
+
+	t.Run("only source peers of enabled checked policies are evaluated", func(t *testing.T) {
+		nmd := newFixture()
+		nmd.PrecomputePostureValidation()
+
+		assert.Equal(t, map[string]map[string]bool{
+			"pc-1": {"peer-src-pass": true, "peer-src-fail": false},
+		}, nmd.PostureValidation)
+	})
+
+	t.Run("peer source resources are evaluated", func(t *testing.T) {
+		nmd := newFixture()
+		resourcePolicy := newPolicy("p-resource", newRule(nil, []string{"g-dst"}))
+		resourcePolicy.Rules[0].SourceResource = nmdata.Resource{ID: "peer-other", Type: string(nbtypes.ResourceTypePeer)}
+		resourcePolicy.SourcePostureChecks = []string{"pc-1"}
+		nmd.Policies = append(nmd.Policies, resourcePolicy)
+
+		nmd.PrecomputePostureValidation()
+
+		assert.Equal(t, map[string]bool{"peer-src-pass": true, "peer-src-fail": false, "peer-other": false},
+			nmd.PostureValidation["pc-1"])
+	})
+
+	t.Run("memoized result wins over direct evaluation", func(t *testing.T) {
+		nmd := newFixture()
+		nmd.PostureValidation = map[string]map[string]bool{
+			"pc-1": {"peer-src-pass": false, "peer-src-fail": true},
+		}
+
+		c := compute(nmd, targetID)
+
+		assert.Equal(t, map[string]map[string]struct{}{"pc-1": {"peer-src-pass": {}}}, c.PostureFailedPeers)
+	})
+
+	t.Run("no posture checks clears the memo", func(t *testing.T) {
+		nmd := newFixture()
+		nmd.PrecomputePostureValidation()
+		require.NotEmpty(t, nmd.PostureValidation)
+
+		nmd.PostureChecks = nil
+		nmd.PrecomputePostureValidation()
+
+		assert.Nil(t, nmd.PostureValidation)
+	})
+
+	t.Run("unresolvable check id memoized as passing", func(t *testing.T) {
+		nmd := newFixture()
+		nmd.Policies[0].SourcePostureChecks = []string{"pc-ghost"}
+		nmd.PrecomputePostureValidation()
+
+		require.Contains(t, nmd.PostureValidation, "pc-ghost")
+		assert.Nil(t, nmd.PostureValidation["pc-ghost"])
+
+		c := compute(nmd, targetID)
+		assert.ElementsMatch(t, []string{targetID, "peer-src-pass", "peer-src-fail", "peer-other"}, peerIDSet(c.Peers))
+		assert.Empty(t, c.PostureFailedPeers)
+	})
+
+	t.Run("peers missing from the memo fall back to direct evaluation", func(t *testing.T) {
+		nmd := newFixture()
+		nmd.PostureValidation = map[string]map[string]bool{"pc-1": {"peer-src-pass": true}}
+
+		c := compute(nmd, targetID)
+
+		assert.Equal(t, map[string]map[string]struct{}{"pc-1": {"peer-src-fail": {}}}, c.PostureFailedPeers)
+	})
+}
+
 func TestNetworkMapData_GetPeerGroups(t *testing.T) {
 	target := newPeer(targetID, 1)
 	other := newPeer("peer-other", 2)
