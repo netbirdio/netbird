@@ -45,10 +45,11 @@ const (
 	StatusCertificateFailed  Status = "certificate_failed"
 	StatusError              Status = "error"
 
-	TargetTypePeer   TargetType = "peer"
-	TargetTypeHost   TargetType = "host"
-	TargetTypeDomain TargetType = "domain"
-	TargetTypeSubnet TargetType = "subnet"
+	TargetTypePeer    TargetType = "peer"
+	TargetTypeHost    TargetType = "host"
+	TargetTypeDomain  TargetType = "domain"
+	TargetTypeSubnet  TargetType = "subnet"
+	TargetTypeCluster TargetType = "cluster"
 
 	SourcePermanent = "permanent"
 	SourceEphemeral = "ephemeral"
@@ -60,6 +61,56 @@ type TargetOptions struct {
 	SessionIdleTimeout time.Duration     `json:"session_idle_timeout,omitempty"`
 	PathRewrite        PathRewriteMode   `json:"path_rewrite,omitempty"`
 	CustomHeaders      map[string]string `gorm:"serializer:json" json:"custom_headers,omitempty"`
+	// DirectUpstream bypasses the proxy's embedded NetBird client and dials
+	// the target via the proxy host's network stack. Useful for upstreams
+	// reachable without WireGuard (public APIs, LAN services, localhost
+	// sidecars). Default false.
+	DirectUpstream bool `json:"direct_upstream,omitempty"`
+	// Middlewares carries per-target agent-network middleware configs. Empty
+	// for private and operator-defined services; populated only by the
+	// agent-network synthesizer.
+	Middlewares             []MiddlewareConfig `gorm:"serializer:json" json:"middlewares,omitempty"`
+	CaptureMaxRequestBytes  int64              `json:"capture_max_request_bytes,omitempty"`
+	CaptureMaxResponseBytes int64              `json:"capture_max_response_bytes,omitempty"`
+	CaptureContentTypes     []string           `gorm:"serializer:json" json:"capture_content_types,omitempty"`
+	// AgentNetwork marks targets synthesised from Agent Network state. The
+	// proxy uses it to gate agent-network-specific behaviour (access log
+	// tagging, observability, etc.).
+	AgentNetwork bool `json:"agent_network,omitempty"`
+	// DisableAccessLog suppresses the per-request access-log emission for this
+	// target. Defaults false to preserve access-log behaviour for every
+	// non-agent-network target. The agent-network synthesizer sets this true
+	// only when the account's EnableLogCollection toggle is off.
+	DisableAccessLog bool `json:"disable_access_log,omitempty"`
+}
+
+// MiddlewareSlot mirrors proto.MiddlewareSlot / middleware.Slot.
+type MiddlewareSlot string
+
+const (
+	MiddlewareSlotOnRequest  MiddlewareSlot = "on_request"
+	MiddlewareSlotOnResponse MiddlewareSlot = "on_response"
+	MiddlewareSlotTerminal   MiddlewareSlot = "terminal"
+)
+
+// MiddlewareFailMode mirrors proto.MiddlewareConfig_FailMode.
+type MiddlewareFailMode string
+
+const (
+	MiddlewareFailOpen   MiddlewareFailMode = "fail_open"
+	MiddlewareFailClosed MiddlewareFailMode = "fail_closed"
+)
+
+// MiddlewareConfig is the per-target configuration for a single
+// middleware instance. Mirrors proto.MiddlewareConfig.
+type MiddlewareConfig struct {
+	ID         string             `json:"id"`
+	Enabled    bool               `json:"enabled"`
+	Slot       MiddlewareSlot     `json:"slot"`
+	ConfigJSON []byte             `json:"config_json,omitempty"`
+	FailMode   MiddlewareFailMode `json:"fail_mode,omitempty"`
+	TimeoutMs  int32              `json:"timeout_ms,omitempty"`
+	CanMutate  bool               `json:"can_mutate"`
 }
 
 type Target struct {
@@ -67,7 +118,7 @@ type Target struct {
 	AccountID     string        `gorm:"index:idx_target_account;not null" json:"-"`
 	ServiceID     string        `gorm:"index:idx_service_targets;not null" json:"-"`
 	Path          *string       `json:"path,omitempty"`
-	Host          string        `json:"host"` // the Host field is only used for subnet targets, otherwise ignored
+	Host          string        `json:"host"`
 	Port          uint16        `gorm:"index:idx_target_port" json:"port"`
 	Protocol      string        `gorm:"index:idx_target_protocol" json:"protocol"`
 	TargetId      string        `gorm:"index:idx_target_id" json:"target_id"`
@@ -200,6 +251,10 @@ type Service struct {
 	Mode             string `gorm:"default:'http'"`
 	ListenPort       uint16
 	PortAutoAssigned bool
+	// Private marks the service as NetBird-only: auth via ValidateTunnelPeer against AccessGroups instead of SSO. HTTP-only.
+	Private bool
+	// AccessGroups is the group ID allowlist for inbound peers on private services. Mutually exclusive with bearer SSO.
+	AccessGroups []string `json:"access_groups,omitempty" gorm:"serializer:json"`
 }
 
 // InitNewRecord generates a new unique ID and resets metadata for a newly created
@@ -299,6 +354,12 @@ func (s *Service) ToAPIResponse() *api.Service {
 		Mode:               &mode,
 		ListenPort:         &listenPort,
 		PortAutoAssigned:   &s.PortAutoAssigned,
+		Private:            &s.Private,
+	}
+
+	if len(s.AccessGroups) > 0 {
+		groups := append([]string(nil), s.AccessGroups...)
+		resp.AccessGroups = &groups
 	}
 
 	if s.ProxyCluster != "" {
@@ -308,6 +369,7 @@ func (s *Service) ToAPIResponse() *api.Service {
 	return resp
 }
 
+// ToProtoMapping converts the service into the wire format the proxy consumes.
 func (s *Service) ToProtoMapping(operation Operation, authToken string, oidcConfig proxy.OIDCValidationConfig) *proto.ProxyMapping {
 	pathMappings := s.buildPathMappings()
 
@@ -349,6 +411,7 @@ func (s *Service) ToProtoMapping(operation Operation, authToken string, oidcConf
 		RewriteRedirects: s.RewriteRedirects,
 		Mode:             s.Mode,
 		ListenPort:       int32(s.ListenPort), //nolint:gosec
+		Private:          s.Private,
 	}
 
 	if r := restrictionsToProto(s.Restrictions); r != nil {
@@ -455,7 +518,8 @@ func pathRewriteToProto(mode PathRewriteMode) proto.PathRewriteMode {
 }
 
 func targetOptionsToAPI(opts TargetOptions) *api.ServiceTargetOptions {
-	if !opts.SkipTLSVerify && opts.RequestTimeout == 0 && opts.SessionIdleTimeout == 0 && opts.PathRewrite == "" && len(opts.CustomHeaders) == 0 {
+	if !opts.SkipTLSVerify && opts.RequestTimeout == 0 && opts.SessionIdleTimeout == 0 &&
+		opts.PathRewrite == "" && len(opts.CustomHeaders) == 0 && !opts.DirectUpstream {
 		return nil
 	}
 	apiOpts := &api.ServiceTargetOptions{}
@@ -477,22 +541,81 @@ func targetOptionsToAPI(opts TargetOptions) *api.ServiceTargetOptions {
 	if len(opts.CustomHeaders) > 0 {
 		apiOpts.CustomHeaders = &opts.CustomHeaders
 	}
+	if opts.DirectUpstream {
+		apiOpts.DirectUpstream = &opts.DirectUpstream
+	}
 	return apiOpts
 }
 
 func targetOptionsToProto(opts TargetOptions) *proto.PathTargetOptions {
-	if !opts.SkipTLSVerify && opts.PathRewrite == "" && opts.RequestTimeout == 0 && len(opts.CustomHeaders) == 0 {
+	if !opts.SkipTLSVerify && opts.PathRewrite == "" && opts.RequestTimeout == 0 &&
+		len(opts.CustomHeaders) == 0 && !opts.DirectUpstream &&
+		len(opts.Middlewares) == 0 && opts.CaptureMaxRequestBytes == 0 &&
+		opts.CaptureMaxResponseBytes == 0 && len(opts.CaptureContentTypes) == 0 &&
+		!opts.AgentNetwork && !opts.DisableAccessLog {
 		return nil
 	}
 	popts := &proto.PathTargetOptions{
-		SkipTlsVerify: opts.SkipTLSVerify,
-		PathRewrite:   pathRewriteToProto(opts.PathRewrite),
-		CustomHeaders: opts.CustomHeaders,
+		SkipTlsVerify:    opts.SkipTLSVerify,
+		PathRewrite:      pathRewriteToProto(opts.PathRewrite),
+		CustomHeaders:    opts.CustomHeaders,
+		DirectUpstream:   opts.DirectUpstream,
+		AgentNetwork:     opts.AgentNetwork,
+		DisableAccessLog: opts.DisableAccessLog,
 	}
 	if opts.RequestTimeout != 0 {
 		popts.RequestTimeout = durationpb.New(opts.RequestTimeout)
 	}
+	if len(opts.Middlewares) > 0 {
+		popts.Middlewares = middlewaresToProto(opts.Middlewares)
+	}
+	popts.CaptureMaxRequestBytes = opts.CaptureMaxRequestBytes
+	popts.CaptureMaxResponseBytes = opts.CaptureMaxResponseBytes
+	if len(opts.CaptureContentTypes) > 0 {
+		popts.CaptureContentTypes = append([]string(nil), opts.CaptureContentTypes...)
+	}
 	return popts
+}
+
+// middlewaresToProto converts the internal middleware slice to the proto
+// representation sent to the proxy via the mapping stream.
+func middlewaresToProto(in []MiddlewareConfig) []*proto.MiddlewareConfig {
+	out := make([]*proto.MiddlewareConfig, 0, len(in))
+	for _, m := range in {
+		pm := &proto.MiddlewareConfig{
+			Id:         m.ID,
+			Enabled:    m.Enabled,
+			Slot:       middlewareSlotToProto(m.Slot),
+			ConfigJson: append([]byte(nil), m.ConfigJSON...),
+			CanMutate:  m.CanMutate,
+			FailMode:   middlewareFailModeToProto(m.FailMode),
+		}
+		if m.TimeoutMs > 0 {
+			pm.Timeout = durationpb.New(time.Duration(m.TimeoutMs) * time.Millisecond)
+		}
+		out = append(out, pm)
+	}
+	return out
+}
+
+func middlewareSlotToProto(s MiddlewareSlot) proto.MiddlewareSlot {
+	switch s {
+	case MiddlewareSlotOnRequest:
+		return proto.MiddlewareSlot_MIDDLEWARE_SLOT_ON_REQUEST
+	case MiddlewareSlotOnResponse:
+		return proto.MiddlewareSlot_MIDDLEWARE_SLOT_ON_RESPONSE
+	case MiddlewareSlotTerminal:
+		return proto.MiddlewareSlot_MIDDLEWARE_SLOT_TERMINAL
+	default:
+		return proto.MiddlewareSlot_MIDDLEWARE_SLOT_UNSPECIFIED
+	}
+}
+
+func middlewareFailModeToProto(m MiddlewareFailMode) proto.MiddlewareConfig_FailMode {
+	if m == MiddlewareFailClosed {
+		return proto.MiddlewareConfig_FAIL_CLOSED
+	}
+	return proto.MiddlewareConfig_FAIL_OPEN
 }
 
 // l4TargetOptionsToProto converts L4-relevant target options to proto.
@@ -537,6 +660,9 @@ func targetOptionsFromAPI(idx int, o *api.ServiceTargetOptions) (TargetOptions, 
 	if o.CustomHeaders != nil {
 		opts.CustomHeaders = *o.CustomHeaders
 	}
+	if o.DirectUpstream != nil {
+		opts.DirectUpstream = *o.DirectUpstream
+	}
 	return opts, nil
 }
 
@@ -550,6 +676,14 @@ func (s *Service) FromAPIRequest(req *api.ServiceRequest, accountID string) erro
 	}
 	if req.ListenPort != nil {
 		s.ListenPort = uint16(*req.ListenPort) //nolint:gosec
+	}
+	if req.Private != nil {
+		s.Private = *req.Private
+	}
+	if req.AccessGroups != nil {
+		s.AccessGroups = append([]string(nil), *req.AccessGroups...)
+	} else {
+		s.AccessGroups = nil
 	}
 
 	targets, err := targetsFromAPI(accountID, req.Targets)
@@ -740,6 +874,9 @@ func (s *Service) Validate() error {
 	if err := validateAccessRestrictions(&s.Restrictions); err != nil {
 		return err
 	}
+	if err := s.validatePrivateRequirements(); err != nil {
+		return err
+	}
 
 	switch s.Mode {
 	case ModeHTTP:
@@ -751,6 +888,23 @@ func (s *Service) Validate() error {
 	default:
 		return fmt.Errorf("unsupported mode %q", s.Mode)
 	}
+}
+
+// validatePrivateRequirements enforces the private-service contract: HTTP mode, ≥1 access group, no bearer auth.
+func (s *Service) validatePrivateRequirements() error {
+	if !s.Private {
+		return nil
+	}
+	if s.Mode != "" && s.Mode != ModeHTTP {
+		return fmt.Errorf("private services only support HTTP mode, got %q", s.Mode)
+	}
+	if len(s.AccessGroups) == 0 {
+		return errors.New("private services require at least one access group")
+	}
+	if s.Auth.BearerAuth != nil && s.Auth.BearerAuth.Enabled {
+		return errors.New("private services cannot enable bearer auth (SSO): NetBird-only access and SSO are mutually exclusive")
+	}
+	return nil
 }
 
 func (s *Service) validateHTTPMode() error {
@@ -799,10 +953,20 @@ func (s *Service) validateHTTPTargets() error {
 	for i, target := range s.Targets {
 		switch target.TargetType {
 		case TargetTypePeer, TargetTypeHost, TargetTypeDomain:
-			// host field will be ignored
+			// Host is normally overwritten by replaceHostByLookup with the
+			// resolved peer IP / resource address; operator-supplied values
+			// are honored only when DirectUpstream is set. Validate the
+			// override here so misconfigured hosts fail fast at API time.
+			if err := validateDirectUpstreamHost(i, target); err != nil {
+				return err
+			}
 		case TargetTypeSubnet:
 			if target.Host == "" {
 				return fmt.Errorf("target %d has empty host but target_type is %q", i, target.TargetType)
+			}
+		case TargetTypeCluster:
+			if err := validateClusterTarget(i, target); err != nil {
+				return err
 			}
 		default:
 			return fmt.Errorf("target %d has invalid target_type %q", i, target.TargetType)
@@ -821,25 +985,71 @@ func (s *Service) validateHTTPTargets() error {
 	return nil
 }
 
+// validateClusterTarget cluster targets should not have empty hosts and should have direct upstream enabled.
+func validateClusterTarget(idx int, target *Target) error {
+	host := strings.TrimSpace(target.Host)
+	if host == "" {
+		return fmt.Errorf("target %d: has empty host", idx)
+	}
+	if !target.Options.DirectUpstream {
+		return fmt.Errorf("target %d: %s has direct upstream disabled", idx, target.Host)
+	}
+	return validateDirectUpstreamHost(idx, target)
+}
+
+// validateDirectUpstreamHost validates the operator-supplied Host on a
+// peer/host/domain target when DirectUpstream is set. Empty Host is
+// allowed — the lookup fills in the default peer IP / resource address.
+// Without DirectUpstream the Host value is silently overwritten by
+// replaceHostByLookup, so we don't validate it (preserves the historical
+// behaviour where APIs accepted any value and dropped it). Non-empty
+// Host with DirectUpstream must look like a hostname or IP and must
+// not carry a port (port lives on Target.Port).
+func validateDirectUpstreamHost(idx int, target *Target) error {
+	if !target.Options.DirectUpstream {
+		return nil
+	}
+	host := strings.TrimSpace(target.Host)
+	if host == "" {
+		return nil
+	}
+	if strings.ContainsAny(host, " \t/") {
+		return fmt.Errorf("target %d: host %q contains invalid characters", idx, host)
+	}
+	if _, _, err := net.SplitHostPort(host); err == nil {
+		return fmt.Errorf("target %d: host %q must not include a port (set target.port instead)", idx, host)
+	}
+	return nil
+}
+
 func (s *Service) validateL4Target(target *Target) error {
 	// L4 services have a single target; per-target disable is meaningless
 	// (use the service-level Enabled flag instead). Force it on so that
 	// buildPathMappings always includes the target in the proto.
 	target.Enabled = true
 
-	if target.Port == 0 {
-		return errors.New("target port is required for L4 services")
-	}
 	if target.TargetId == "" {
 		return errors.New("target_id is required for L4 services")
 	}
+	// Cluster targets resolve their upstream host:port from the target's
+	// own Host/Port fields just like the other L4 types — buildPathMappings
+	// emits net.JoinHostPort(target.Host, target.Port) for every L4
+	// target, so allowing port=0 here would let ":0" reach the proxy.
+	if target.Port == 0 {
+		return errors.New("target port is required for L4 services")
+	}
 	switch target.TargetType {
 	case TargetTypePeer, TargetTypeHost, TargetTypeDomain:
-		// OK
+		if err := validateDirectUpstreamHost(0, target); err != nil {
+			return err
+		}
 	case TargetTypeSubnet:
 		if target.Host == "" {
 			return errors.New("target host is required for subnet targets")
 		}
+	case TargetTypeCluster:
+		// target_id carries the cluster address; the proxy resolves
+		// the upstream at request time.
 	default:
 		return fmt.Errorf("invalid target_type %q for L4 service", target.TargetType)
 	}
@@ -1174,6 +1384,11 @@ func (s *Service) Copy() *Service {
 		}
 	}
 
+	var accessGroups []string
+	if len(s.AccessGroups) > 0 {
+		accessGroups = append([]string(nil), s.AccessGroups...)
+	}
+
 	return &Service{
 		ID:                s.ID,
 		AccountID:         s.AccountID,
@@ -1195,6 +1410,8 @@ func (s *Service) Copy() *Service {
 		Mode:              s.Mode,
 		ListenPort:        s.ListenPort,
 		PortAutoAssigned:  s.PortAutoAssigned,
+		Private:           s.Private,
+		AccessGroups:      accessGroups,
 	}
 }
 

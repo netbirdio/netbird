@@ -20,6 +20,7 @@ import (
 	recordsManager "github.com/netbirdio/netbird/management/internals/modules/zones/records/manager"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/account"
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/idp"
@@ -57,13 +58,7 @@ func (s *BaseServer) GeoLocationManager() geolocation.Geolocation {
 
 func (s *BaseServer) PermissionsManager() permissions.Manager {
 	return Create(s, func() permissions.Manager {
-		manager := integrations.InitPermissionsManager(s.Store(), s.Metrics().GetMeter())
-
-		s.AfterInit(func(s *BaseServer) {
-			manager.SetAccountManager(s.AccountManager())
-		})
-
-		return manager
+		return permissions.NewManager(s.Store())
 	})
 }
 
@@ -153,7 +148,6 @@ func (s *BaseServer) IdpManager() idp.Manager {
 			return idpManager
 		}
 
-
 		return nil
 	})
 }
@@ -201,6 +195,24 @@ func (s *BaseServer) NetworksManager() networks.Manager {
 	})
 }
 
+func (s *BaseServer) AgentNetworkManager() agentnetwork.Manager {
+	return Create(s, func() agentnetwork.Manager {
+		mgr := agentnetwork.NewManager(
+			s.Store(),
+			s.PermissionsManager(),
+			s.AccountManager(),
+			s.ServiceProxyController(),
+		)
+		// Sweep expired agent-network access logs per account retention,
+		// reusing the reverse-proxy cleanup interval config.
+		mgr.StartAccessLogCleanup(
+			context.Background(),
+			s.Config.ReverseProxy.AccessLogCleanupIntervalHours,
+		)
+		return mgr
+	})
+}
+
 func (s *BaseServer) ZonesManager() zones.Manager {
 	return Create(s, func() zones.Manager {
 		return zonesManager.NewManager(s.Store(), s.AccountManager(), s.PermissionsManager(), s.DNSDomain())
@@ -234,4 +246,8 @@ func (s *BaseServer) ReverseProxyDomainManager() *manager.Manager {
 		m := manager.NewManager(s.Store(), s.ProxyManager(), s.PermissionsManager(), s.AccountManager())
 		return &m
 	})
+}
+
+func (s *BaseServer) IsValidChildAccount(_ context.Context, _, _, _ string) bool {
+	return false
 }

@@ -36,6 +36,7 @@ type URLOpener interface {
 // Auth can register or login new client
 type Auth struct {
 	ctx     context.Context
+	cancel  context.CancelFunc
 	config  *profilemanager.Config
 	cfgPath string
 }
@@ -43,16 +44,42 @@ type Auth struct {
 // NewAuth instantiate Auth struct and validate the management URL
 func NewAuth(cfgPath string, mgmURL string) (*Auth, error) {
 	inputCfg := profilemanager.ConfigInput{
+		ConfigPath:    cfgPath,
 		ManagementURL: mgmURL,
 	}
 
-	cfg, err := profilemanager.CreateInMemoryConfig(inputCfg)
+	// Load the existing config when a config file is already present so an
+	// interactive re-login reuses the peer's persisted WireGuard private key
+	// (and thus its identity) instead of generating a fresh one. Generating a
+	// new key registers a brand-new peer on the management server on every
+	// re-auth (named after the fallback hostname). Only fall back to a fresh
+	// in-memory config for the first-time login when no config file exists yet.
+	// DirectUpdateOrCreateConfig uses non-atomic writes so it also works inside
+	// the tvOS App Group sandbox where atomic temp-file+rename is blocked.
+	var cfg *profilemanager.Config
+	var err error
+	if cfgPath != "" {
+		cfg, err = profilemanager.DirectUpdateOrCreateConfig(inputCfg)
+	} else {
+		cfg, err = profilemanager.CreateInMemoryConfig(inputCfg)
+	}
 	if err != nil {
 		return nil, err
 	}
 
+	// Use a cancellable context so Stop() can abort an in-progress interactive
+	// login. The PKCE flow's WaitToken blocks (and keeps its loopback HTTP server
+	// bound to a port) until the OAuth callback arrives or the flow expires;
+	// cancelling the context unblocks WaitToken, which then shuts that server down
+	// and frees the port for the next login attempt. iOS runs login in the main-app
+	// process (decoupled from the network extension), so without this the server
+	// lingers after the user dismisses the browser and the next connect stalls
+	// trying to bind the same port.
+	ctx, cancel := context.WithCancel(context.Background())
+
 	return &Auth{
-		ctx:     context.Background(),
+		ctx:     ctx,
+		cancel:  cancel,
 		config:  cfg,
 		cfgPath: cfgPath,
 	}, nil
@@ -60,9 +87,21 @@ func NewAuth(cfgPath string, mgmURL string) (*Auth, error) {
 
 // NewAuthWithConfig instantiate Auth based on existing config
 func NewAuthWithConfig(ctx context.Context, config *profilemanager.Config) *Auth {
+	ctx, cancel := context.WithCancel(ctx)
 	return &Auth{
 		ctx:    ctx,
+		cancel: cancel,
 		config: config,
+	}
+}
+
+// Stop aborts an in-progress interactive login started via Login/LoginWithDeviceName.
+// It cancels the auth context, which unblocks the PKCE WaitToken and shuts down its
+// loopback HTTP server, freeing the redirect port. Safe to call multiple times and
+// safe to call when no login is running.
+func (a *Auth) Stop() {
+	if a.cancel != nil {
+		a.cancel()
 	}
 }
 
@@ -183,17 +222,36 @@ func (a *Auth) Login(resultListener ErrListener, urlOpener URLOpener, forceDevic
 // LoginWithDeviceName performs interactive login with device authentication support
 // The deviceName parameter allows specifying a custom device name (required for tvOS)
 func (a *Auth) LoginWithDeviceName(resultListener ErrListener, urlOpener URLOpener, forceDeviceAuth bool, deviceName string) {
+	a.startLogin(resultListener, urlOpener, forceDeviceAuth, deviceName, false)
+}
+
+// LoginInteractive performs the same interactive login as LoginWithDeviceName but skips the
+// IsLoginRequired() pre-flight and goes straight to the browser / device-code flow.
+//
+// IsLoginRequired() is itself a full Login RPC against the management server, so when the
+// caller has ALREADY established that login is required it is a pure duplicate. On iOS the
+// main app decides to show the browser based on its own isLoginRequired() check and then
+// calls straight into this method, so re-asking the server would add another Login RPC to
+// every interactive login.
+//
+// Use LoginWithDeviceName when the auth state is unknown and a silent (browser-less) login
+// must still be possible; use this when the browser is going to be shown regardless.
+func (a *Auth) LoginInteractive(resultListener ErrListener, urlOpener URLOpener, forceDeviceAuth bool, deviceName string) {
+	a.startLogin(resultListener, urlOpener, forceDeviceAuth, deviceName, true)
+}
+
+func (a *Auth) startLogin(resultListener ErrListener, urlOpener URLOpener, forceDeviceAuth bool, deviceName string, skipLoginCheck bool) {
 	if resultListener == nil {
-		log.Errorf("LoginWithDeviceName: resultListener is nil")
+		log.Errorf("startLogin: resultListener is nil")
 		return
 	}
 	if urlOpener == nil {
-		log.Errorf("LoginWithDeviceName: urlOpener is nil")
+		log.Errorf("startLogin: urlOpener is nil")
 		resultListener.OnError(fmt.Errorf("urlOpener is nil"))
 		return
 	}
 	go func() {
-		err := a.login(urlOpener, forceDeviceAuth, deviceName)
+		err := a.login(urlOpener, forceDeviceAuth, deviceName, skipLoginCheck)
 		if err != nil {
 			resultListener.OnError(err)
 		} else {
@@ -202,7 +260,7 @@ func (a *Auth) LoginWithDeviceName(resultListener ErrListener, urlOpener URLOpen
 	}()
 }
 
-func (a *Auth) login(urlOpener URLOpener, forceDeviceAuth bool, deviceName string) error {
+func (a *Auth) login(urlOpener URLOpener, forceDeviceAuth bool, deviceName string, skipLoginCheck bool) error {
 	// Create context with device name if provided
 	ctx := a.ctx
 	if deviceName != "" {
@@ -216,10 +274,13 @@ func (a *Auth) login(urlOpener URLOpener, forceDeviceAuth bool, deviceName strin
 	}
 	defer authClient.Close()
 
-	// check if we need to generate JWT token
-	needsLogin, err := authClient.IsLoginRequired(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to check login requirement: %v", err)
+	// check if we need to generate JWT token (skipped when the caller already knows)
+	needsLogin := true
+	if !skipLoginCheck {
+		needsLogin, err = authClient.IsLoginRequired(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to check login requirement: %v", err)
+		}
 	}
 
 	jwtToken := ""

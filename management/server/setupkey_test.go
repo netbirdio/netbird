@@ -426,6 +426,10 @@ func TestSetupKeyAccountPeersUpdate(t *testing.T) {
 		updateManager.CloseChannel(context.Background(), peer1.ID)
 	})
 
+	// The setup policy above dispatches affected-peer updates asynchronously; drain
+	// any in-flight ones so the assertions only observe the setup-key operations.
+	settleAffectedUpdates(updMsg)
+
 	var setupKey *types.SetupKey
 
 	// Creating setup key should not update account peers and not send peer update

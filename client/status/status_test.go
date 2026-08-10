@@ -94,6 +94,7 @@ var resp = &proto.StatusResponse{
 			Ipv6:            "fd00::100",
 			PubKey:          "Some-Pub-Key",
 			KernelInterface: true,
+			WgPort:          51820,
 			Fqdn:            "some-localhost.awesome-domain.com",
 			Networks: []string{
 				"10.10.0.0/24",
@@ -210,6 +211,7 @@ var overview = OutputOverview{
 	IPv6:            "fd00::100",
 	PubKey:          "Some-Pub-Key",
 	KernelInterface: true,
+	WgPort:          51820,
 	FQDN:            "some-localhost.awesome-domain.com",
 	NSServerGroups: []NsServerGroupStateOutput{
 		{
@@ -369,6 +371,7 @@ func TestParsingToJSON(t *testing.T) {
           "netbirdIpv6": "fd00::100",
           "publicKey": "Some-Pub-Key",
           "usesKernelInterface": true,
+          "wireguardPort": 51820,
           "fqdn": "some-localhost.awesome-domain.com",
           "quantumResistance": false,
           "quantumResistancePermissive": false,
@@ -487,6 +490,7 @@ netbirdIp: 192.168.178.100/16
 netbirdIpv6: fd00::100
 publicKey: Some-Pub-Key
 usesKernelInterface: true
+wireguardPort: 51820
 fqdn: some-localhost.awesome-domain.com
 quantumResistance: false
 quantumResistancePermissive: false
@@ -579,12 +583,13 @@ FQDN: some-localhost.awesome-domain.com
 NetBird IP: 192.168.178.100/16
 NetBird IPv6: fd00::100
 Interface type: Kernel
+Wireguard port: %d
 Quantum resistance: false
 Lazy connection: false
 SSH Server: Disabled
 Networks: 10.10.0.0/24
 Peers count: 2/2 Connected
-`, lastConnectionUpdate1, lastHandshake1, lastConnectionUpdate2, lastHandshake2, runtime.GOOS, runtime.GOARCH, overview.CliVersion)
+`, lastConnectionUpdate1, lastHandshake1, lastConnectionUpdate2, lastHandshake2, runtime.GOOS, runtime.GOARCH, overview.CliVersion, overview.WgPort)
 
 	assert.Equal(t, expectedDetail, detail)
 }
@@ -604,6 +609,7 @@ FQDN: some-localhost.awesome-domain.com
 NetBird IP: 192.168.178.100/16
 NetBird IPv6: fd00::100
 Interface type: Kernel
+Wireguard port: 51820
 Quantum resistance: false
 Lazy connection: false
 SSH Server: Disabled
@@ -640,4 +646,61 @@ func TestTimeAgo(t *testing.T) {
 			assert.Equal(t, tc.expected, result, "Failed %s", tc.name)
 		})
 	}
+}
+
+func TestHumaniseDuration(t *testing.T) {
+	cases := []struct {
+		in   time.Duration
+		want string
+	}{
+		{0, "1s"},
+		{500 * time.Millisecond, "1s"},
+		{8 * time.Second, "8s"},
+		{59 * time.Second, "59s"},
+		{time.Minute, "1m"},
+		{47*time.Minute + 12*time.Second, "47m"},
+		{time.Hour, "1h"},
+		{2*time.Hour + 15*time.Minute, "2h 15m"},
+		{2 * time.Hour, "2h"},
+		{24 * time.Hour, "1d"},
+		{2*24*time.Hour + 3*time.Hour, "2d 3h"},
+	}
+	for _, tc := range cases {
+		got := HumaniseDuration(tc.in)
+		assert.Equal(t, tc.want, got, "input %s", tc.in)
+	}
+}
+
+func TestFormatRemainingDuration_Expired(t *testing.T) {
+	assert.Equal(t, "expired 3m ago", FormatRemainingDuration(-3*time.Minute))
+	assert.Equal(t, "expired 1s ago", FormatRemainingDuration(-500*time.Millisecond))
+}
+
+func TestSessionExpiresLineRendered(t *testing.T) {
+	in := overview // copy of the package-level fixture
+	deadline := time.Now().Add(2*time.Hour + 30*time.Minute).UTC()
+	in.SessionExpiresAt = &deadline
+
+	out := in.GeneralSummary(false, false, false, false)
+	assert.Contains(t, out, "Session expires: ")
+	assert.Contains(t, out, deadline.Format(time.RFC3339))
+	// 2h 30m drifts to "2h 29m" within 60s — match the family prefix.
+	assert.Contains(t, out, "(in 2h ")
+}
+
+func TestSessionExpiresLineOmittedWhenNil(t *testing.T) {
+	in := overview
+	in.SessionExpiresAt = nil
+	out := in.GeneralSummary(false, false, false, false)
+	assert.NotContains(t, out, "Session expires")
+}
+
+func TestMapRelaysTransport(t *testing.T) {
+	out := mapRelays([]*proto.RelayState{
+		{URI: "rels://relay.example:443", Available: true, Transport: "quic"},
+		{URI: "rels://relay2.example:443", Available: true, Transport: "ws"},
+	})
+	require.Len(t, out.Details, 2)
+	assert.Equal(t, "quic", out.Details[0].Transport)
+	assert.Equal(t, "ws", out.Details[1].Transport)
 }

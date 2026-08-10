@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -26,6 +27,55 @@ type resolver interface {
 	LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error)
 }
 
+// PeerConnectivity reports whether a tunnel IP belongs to a peer the
+// client knows about and whether that peer is currently connected. The
+// local resolver uses this to suppress A/AAAA answers whose RDATA points
+// at a disconnected peer (typical case: a synthesized private-service
+// record pointing at an embedded proxy peer that just went offline).
+//
+// known=false means the IP isn't in the local peerstore at all — the
+// record is left alone (it points at something outside our mesh, e.g.
+// a non-peer upstream).
+type PeerConnectivity interface {
+	IsConnectedByIP(ip netip.Addr) (known, connected bool)
+}
+
+// PeerActivator wakes lazy-connection peers on demand. The local resolver calls
+// it with the tunnel IPs an answer points at, so a peer that is idle (lazily
+// disconnected) starts connecting at DNS-resolution time rather than racing the
+// client's first request packet. nil disables warm-up.
+type PeerActivator interface {
+	// ActivatePeersByIP triggers wake-up for the peer(s) owning addrs and blocks
+	// until one is connected or ctx (a short per-query budget) expires. It is a
+	// fast no-op for unknown or already-connected addresses.
+	ActivatePeersByIP(ctx context.Context, addrs []netip.Addr)
+}
+
+const (
+	defaultLazyWarmupTimeout = 2 * time.Second
+	envLazyWarmupTimeout     = "NB_DNS_LAZY_WARMUP_TIMEOUT"
+)
+
+// lazyWarmupTimeoutFromEnv returns the per-query budget for waking a
+// lazy-connection peer a DNS answer points at. Tunable via
+// NB_DNS_LAZY_WARMUP_TIMEOUT (a Go duration). Parsed once at construction time.
+func lazyWarmupTimeoutFromEnv() time.Duration {
+	v := os.Getenv(envLazyWarmupTimeout)
+	if v == "" {
+		return defaultLazyWarmupTimeout
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		log.Warnf("invalid %s value %q, using default %s: %v", envLazyWarmupTimeout, v, defaultLazyWarmupTimeout, err)
+		return defaultLazyWarmupTimeout
+	}
+	if d <= 0 {
+		log.Warnf("non-positive %s value %q, using default %s", envLazyWarmupTimeout, v, defaultLazyWarmupTimeout)
+		return defaultLazyWarmupTimeout
+	}
+	return d
+}
+
 type Resolver struct {
 	mu      sync.RWMutex
 	records map[dns.Question][]dns.RR
@@ -33,6 +83,17 @@ type Resolver struct {
 	// zones maps zone domain -> NonAuthoritative (true = non-authoritative, user-created zone)
 	zones    map[domain.Domain]bool
 	resolver resolver
+	// peerConn, when non-nil, is consulted on every A/AAAA answer to
+	// drop records pointing at disconnected peers. nil disables the
+	// filter and preserves the legacy "return whatever is registered"
+	// behaviour for callers that never wire a status source.
+	peerConn PeerConnectivity
+	// peerActivator, when non-nil, is called at resolution time to warm the
+	// lazy connection to the peer(s) an answer points at. nil disables warm-up.
+	peerActivator PeerActivator
+	// warmupTimeout is the per-query budget for the lazy-connection warm-up
+	// wait, resolved from the environment once at construction time.
+	warmupTimeout time.Duration
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -41,12 +102,30 @@ type Resolver struct {
 func NewResolver() *Resolver {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Resolver{
-		records: make(map[dns.Question][]dns.RR),
-		domains: make(map[domain.Domain]struct{}),
-		zones:   make(map[domain.Domain]bool),
-		ctx:     ctx,
-		cancel:  cancel,
+		records:       make(map[dns.Question][]dns.RR),
+		domains:       make(map[domain.Domain]struct{}),
+		zones:         make(map[domain.Domain]bool),
+		warmupTimeout: lazyWarmupTimeoutFromEnv(),
+		ctx:           ctx,
+		cancel:        cancel,
 	}
+}
+
+// SetPeerConnectivity wires the per-IP connectivity check used to filter
+// out A/AAAA answers pointing at disconnected peers. Pass nil to disable.
+// Safe to call multiple times; the latest value wins.
+func (d *Resolver) SetPeerConnectivity(p PeerConnectivity) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.peerConn = p
+}
+
+// SetPeerActivator wires the DNS-time lazy-connection warm-up. Pass nil to
+// disable. Safe to call multiple times; the latest value wins.
+func (d *Resolver) SetPeerActivator(a PeerActivator) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.peerActivator = a
 }
 
 func (d *Resolver) MatchSubdomains() bool {
@@ -95,6 +174,10 @@ func (d *Resolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	replyMessage.RecursionAvailable = true
 
 	result := d.lookupRecords(logger, question)
+	// Warm before filtering: activation flips a lazily-idle target to connected,
+	// which then lets it survive the disconnected-peer filter below.
+	d.warmLazyPeers(question, result.records)
+	result.records = d.filterDisconnectedPeerAnswers(logger, question, result.records)
 	replyMessage.Authoritative = !result.hasExternalData
 	replyMessage.Answer = result.records
 	replyMessage.Rcode = d.determineRcode(question, result)
@@ -434,6 +517,113 @@ func (d *Resolver) logDNSError(logger *log.Entry, hostname string, qtype uint16,
 	} else {
 		logger.Debugf("DNS resolution failed for %s type %s: %v", hostname, qtypeName, err)
 	}
+}
+
+// filterDisconnectedPeerAnswers drops A/AAAA records whose RDATA matches
+// a known but disconnected peer. The synthesized private-service zones
+// emit one A record per connected proxy peer in a cluster; when a peer
+// goes offline, the server-side refresh removes the record from the
+// next netmap, but the client may still hold the previous netmap for a
+// short window. This filter is the local belt to that braces — even on
+// the stale netmap, the resolver hides the offline target.
+//
+// Records pointing at unknown IPs (outside the local peerstore, e.g.
+// non-mesh upstreams) are never dropped. Non-A/AAAA records pass
+// through untouched.
+//
+// Escape hatch: if filtering would leave the answer empty AND at least
+// one record was filtered, the original list is returned. Better to
+// hand the client a record that may not respond than NXDOMAIN it
+// completely when every proxy peer is offline (the upstream may still
+// be reachable some other way, or the peerstore may be stale).
+func (d *Resolver) filterDisconnectedPeerAnswers(logger *log.Entry, question dns.Question, records []dns.RR) []dns.RR {
+	if len(records) < 2 {
+		return records
+	}
+	d.mu.RLock()
+	checker := d.peerConn
+	d.mu.RUnlock()
+	if checker == nil {
+		return records
+	}
+
+	kept := make([]dns.RR, 0, len(records))
+	var dropped int
+	for _, rr := range records {
+		ip, ok := extractRecordAddr(rr)
+		if !ok {
+			kept = append(kept, rr)
+			continue
+		}
+		known, connected := checker.IsConnectedByIP(ip)
+		if known && !connected {
+			dropped++
+			continue
+		}
+		kept = append(kept, rr)
+	}
+	if dropped == 0 {
+		return records
+	}
+	if len(kept) == 0 {
+		logger.Debugf("all %d answers for %s point at disconnected peers; returning the original list", dropped, question.Name)
+		return records
+	}
+	logger.Tracef("dropped %d disconnected-peer answer(s) for %s, returning %d", dropped, question.Name, len(kept))
+	return kept
+}
+
+// warmLazyPeers triggers lazy-connection wake-up for the peers a resolved
+// answer points at and waits briefly for one to connect, so the caller's first
+// request doesn't race the connection establishment. Warm-up is scoped to
+// match-only (non-authoritative) zones — the synthesized private-service zones
+// and user-created zones whose records point at specific peers. The account's
+// peer zone is authoritative, so plain peer-name lookups never trigger warm-up;
+// otherwise resolving any peer's name would wake its idle connection, defeating
+// laziness mesh-wide. No-op when no activator is wired (lazy connections
+// disabled) or the answer carries no peer IPs.
+func (d *Resolver) warmLazyPeers(question dns.Question, records []dns.RR) {
+	if len(records) < 2 {
+		return
+	}
+	d.mu.RLock()
+	activator := d.peerActivator
+	var nonAuth, found bool
+	if activator != nil {
+		nonAuth, found = d.findZone(question.Name)
+	}
+	d.mu.RUnlock()
+	if activator == nil || !found || !nonAuth {
+		return
+	}
+
+	var addrs []netip.Addr
+	for _, rr := range records {
+		if addr, ok := extractRecordAddr(rr); ok {
+			addrs = append(addrs, addr)
+		}
+	}
+	if len(addrs) == 0 {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(d.ctx, d.warmupTimeout)
+	defer cancel()
+	activator.ActivatePeersByIP(ctx, addrs)
+}
+
+// extractRecordAddr returns the IP address carried by an A or AAAA record.
+// ok is false for any other record type or a record with no address.
+func extractRecordAddr(rr dns.RR) (netip.Addr, bool) {
+	switch r := rr.(type) {
+	case *dns.A:
+		addr, ok := netip.AddrFromSlice(r.A)
+		return addr.Unmap(), ok
+	case *dns.AAAA:
+		addr, ok := netip.AddrFromSlice(r.AAAA)
+		return addr.Unmap(), ok
+	}
+	return netip.Addr{}, false
 }
 
 // Update replaces all zones and their records

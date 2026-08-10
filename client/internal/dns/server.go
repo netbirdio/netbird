@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/netip"
 	"net/url"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -38,11 +39,15 @@ const (
 	// defaultWarningDelayBase is the starting grace window before a
 	// "Nameserver group unreachable" event fires for a group that's
 	// never been healthy and only has overlay upstreams with no
-	// Connected peer. Per-server and overridable; see warningDelayFor.
-	defaultWarningDelayBase = 30 * time.Second
+	// Connected peer. Per-server and overridable via envWarningDelay;
+	// see warningDelay.
+	defaultWarningDelayBase = 60 * time.Second
 	// warningDelayBonusCap caps the route-count bonus added to the
-	// base grace window. See warningDelayFor.
+	// base grace window. See warningDelay.
 	warningDelayBonusCap = 30 * time.Second
+	// envWarningDelay overrides defaultWarningDelayBase with a Go duration
+	// string (e.g. "90s", "2m"). Invalid or non-positive values are ignored.
+	envWarningDelay = "NB_DNS_HEALTH_WARNING_DELAY"
 )
 
 // errNoUsableNameservers signals that a merged-domain group has no usable
@@ -77,6 +82,7 @@ type Server interface {
 	PopulateManagementDomain(mgmtURL *url.URL) error
 	SetRouteSources(selected, active func() route.HAMap)
 	SetFirewall(Firewall)
+	SetPeerActivator(local.PeerActivator)
 }
 
 type nsGroupsByDomain struct {
@@ -135,7 +141,7 @@ type DefaultServer struct {
 	disableSys         bool
 	mux                sync.Mutex
 	service            service
-	dnsMuxMap          registeredHandlerMap
+	dnsMuxHandlers     []handlerWrapper
 	localResolver      *local.Resolver
 	wgInterface        WGIface
 	hostManager        hostManager
@@ -199,8 +205,6 @@ type handlerWrapper struct {
 	priority int
 }
 
-type registeredHandlerMap map[types.HandlerID]handlerWrapper
-
 // DefaultServerConfig holds configuration parameters for NewDefaultServer
 type DefaultServerConfig struct {
 	WgInterface    WGIface
@@ -248,7 +252,7 @@ func NewDefaultServerPermanentUpstream(
 	ds.hostsDNSHolder.set(hostsDnsList)
 	ds.permanent = true
 	ds.currentConfig = dnsConfigToHostDNSConfig(config, ds.service.RuntimeIP(), ds.service.RuntimePort())
-	ds.searchDomainNotifier = newNotifier(ds.SearchDomains())
+	ds.searchDomainNotifier = newNotifier(ds.searchDomains())
 	ds.searchDomainNotifier.setListener(listener)
 	setServerDns(ds)
 	return ds
@@ -289,7 +293,6 @@ func newDefaultServer(
 		service:           dnsService,
 		handlerChain:      handlerChain,
 		extraDomains:      make(map[domain.Domain]int),
-		dnsMuxMap:         make(registeredHandlerMap),
 		localResolver:     local.NewResolver(),
 		wgInterface:       wgInterface,
 		statusRecorder:    statusRecorder,
@@ -298,9 +301,14 @@ func newDefaultServer(
 		hostManager:       &noopHostConfigurator{},
 		mgmtCacheResolver: mgmtCacheResolver,
 		currentConfigHash: ^uint64(0), // Initialize to max uint64 to ensure first config is always applied
-		warningDelayBase:  defaultWarningDelayBase,
+		warningDelayBase:  warningDelayBaseFromEnv(),
 		healthRefresh:     make(chan struct{}, 1),
 	}
+	// Wire the local resolver against the peer status recorder so it can
+	// suppress A/AAAA answers that point at disconnected peers (typical
+	// case: synthesised private-service records pointing at an embedded
+	// proxy peer that just went offline).
+	defaultServer.localResolver.SetPeerConnectivity(localPeerConnectivity{statusRecorder})
 
 	// register with root zone, handler chain takes care of the routing
 	dnsService.RegisterMux(".", handlerChain)
@@ -323,7 +331,7 @@ func (s *DefaultServer) SetRouteSources(selected, active func() route.HAMap) {
 	type routeSettable interface {
 		setSelectedRoutes(func() route.HAMap)
 	}
-	for _, entry := range s.dnsMuxMap {
+	for _, entry := range s.dnsMuxHandlers {
 		if h, ok := entry.handler.(routeSettable); ok {
 			h.setSelectedRoutes(selected)
 		}
@@ -484,6 +492,13 @@ func (s *DefaultServer) SetFirewall(fw Firewall) {
 	}
 }
 
+// SetPeerActivator wires the DNS-time lazy-connection warm-up on the local
+// resolver. Injected after the connection manager exists (it does not at
+// DNS-server construction time). Pass nil to disable.
+func (s *DefaultServer) SetPeerActivator(a local.PeerActivator) {
+	s.localResolver.SetPeerActivator(a)
+}
+
 // Stop stops the server
 func (s *DefaultServer) Stop() {
 	s.ctxCancel()
@@ -587,6 +602,12 @@ func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) erro
 }
 
 func (s *DefaultServer) SearchDomains() []string {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+	return s.searchDomains()
+}
+
+func (s *DefaultServer) searchDomains() []string {
 	var searchDomains []string
 
 	for _, dConf := range s.currentConfig.Domains {
@@ -671,7 +692,7 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 	}()
 
 	if s.searchDomainNotifier != nil {
-		s.searchDomainNotifier.onNewSearchDomains(s.SearchDomains())
+		s.searchDomainNotifier.onNewSearchDomains(s.searchDomains())
 	}
 
 	s.updateNSGroupStates(update.NameServerGroups)
@@ -772,13 +793,24 @@ func (s *DefaultServer) applyHostConfig() {
 // context is released rather than leaked until GC.
 func (s *DefaultServer) registerFallback() {
 	originalNameservers := s.hostManager.getOriginalNameservers()
-	if len(originalNameservers) == 0 {
+
+	serverIP := s.service.RuntimeIP()
+	var servers []netip.AddrPort
+	for _, ns := range originalNameservers {
+		if ns == serverIP {
+			log.Debugf("skipping original nameserver %s as it is the same as the server IP %s", ns, serverIP)
+			continue
+		}
+		servers = append(servers, netip.AddrPortFrom(ns, DefaultPort))
+	}
+
+	if len(servers) == 0 {
 		log.Debugf("no fallback upstreams to register; clearing PriorityFallback handler")
 		s.clearFallback()
 		return
 	}
 
-	log.Infof("registering original nameservers %v as upstream handlers with priority %d", originalNameservers, PriorityFallback)
+	log.Infof("registering original nameservers %v as upstream handlers with priority %d", servers, PriorityFallback)
 
 	handler, err := newUpstreamResolver(
 		s.ctx,
@@ -792,11 +824,6 @@ func (s *DefaultServer) registerFallback() {
 		return
 	}
 	handler.selectedRoutes = s.selectedRoutes
-
-	var servers []netip.AddrPort
-	for _, ns := range originalNameservers {
-		servers = append(servers, netip.AddrPortFrom(ns, DefaultPort))
-	}
 	handler.addRace(servers)
 
 	prev := s.fallbackHandler
@@ -967,19 +994,23 @@ func (s *DefaultServer) usableNameServers(nameServers []nbdns.NameServer) []neti
 
 func (s *DefaultServer) updateMux(muxUpdates []handlerWrapper) {
 	// this will introduce a short period of time when the server is not able to handle DNS requests
-	for _, existing := range s.dnsMuxMap {
+	for _, existing := range s.dnsMuxHandlers {
 		s.deregisterHandler([]string{existing.domain}, existing.priority)
-		existing.handler.Stop()
+		// The local resolver is a persistent singleton shared by every custom
+		// zone and reused across config updates. Its chain registrations are
+		// per-config and must be deregistered, but Stop() cancels its lookup
+		// context (breaking external CNAME-target resolution) and clears its
+		// records, so it must not be torn down here.
+		if existing.handler != s.localResolver {
+			existing.handler.Stop()
+		}
 	}
-
-	muxUpdateMap := make(registeredHandlerMap)
 
 	for _, update := range muxUpdates {
 		s.registerHandler([]string{update.domain}, update.handler, update.priority)
-		muxUpdateMap[update.handler.ID()] = update
 	}
 
-	s.dnsMuxMap = muxUpdateMap
+	s.dnsMuxHandlers = muxUpdates
 }
 
 // updateNSGroupStates records the new group set and pokes the refresher.
@@ -1143,6 +1174,26 @@ func (s *DefaultServer) projectUnhealthy(p *nsGroupProj, servers []netip.AddrPor
 	return false
 }
 
+// warningDelayBaseFromEnv returns the base grace window, honoring
+// envWarningDelay when it holds a valid positive Go duration. Invalid or
+// non-positive values fall back to defaultWarningDelayBase.
+func warningDelayBaseFromEnv() time.Duration {
+	val := os.Getenv(envWarningDelay)
+	if val == "" {
+		return defaultWarningDelayBase
+	}
+	d, err := time.ParseDuration(val)
+	if err != nil {
+		log.Warnf("invalid %s value %q, using default %v: %v", envWarningDelay, val, defaultWarningDelayBase, err)
+		return defaultWarningDelayBase
+	}
+	if d <= 0 {
+		log.Warnf("%s must be positive, got %v, using default %v", envWarningDelay, d, defaultWarningDelayBase)
+		return defaultWarningDelayBase
+	}
+	return d
+}
+
 // warningDelay returns the grace window for the given selected-route
 // count. Scales gently: +1s per 100 routes, capped by
 // warningDelayBonusCap. Parallel handshakes mean handshake time grows
@@ -1193,7 +1244,7 @@ func (s *DefaultServer) groupHasImmediateUpstream(servers []netip.AddrPort, snap
 // in more than one handler.
 func (s *DefaultServer) collectUpstreamHealth() map[netip.AddrPort]UpstreamHealth {
 	merged := make(map[netip.AddrPort]UpstreamHealth)
-	for _, entry := range s.dnsMuxMap {
+	for _, entry := range s.dnsMuxHandlers {
 		reporter, ok := entry.handler.(upstreamHealthReporter)
 		if !ok {
 			continue
@@ -1385,4 +1436,26 @@ func (s *DefaultServer) PopulateManagementDomain(mgmtURL *url.URL) error {
 		return s.mgmtCacheResolver.PopulateFromConfig(s.ctx, mgmtURL)
 	}
 	return nil
+}
+
+// localPeerConnectivity adapts *peer.Status to local.PeerConnectivity so
+// the local resolver can ask "is this IP a known peer and is it
+// connected?" without taking on the peer package as a dependency.
+// A nil status recorder always reports known=false so the resolver
+// short-circuits to the legacy "return everything" path.
+type localPeerConnectivity struct {
+	status *peer.Status
+}
+
+// IsConnectedByIP looks the IP up in the peerstore and surfaces both
+// the known and connected bits. Used by Resolver.filterDisconnectedPeerAnswers.
+func (l localPeerConnectivity) IsConnectedByIP(ip netip.Addr) (known, connected bool) {
+	if l.status == nil {
+		return false, false
+	}
+	state, ok := l.status.PeerStateByIP(ip.String())
+	if !ok {
+		return false, false
+	}
+	return true, state.ConnStatus == peer.StatusConnected
 }

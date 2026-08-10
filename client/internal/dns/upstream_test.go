@@ -517,6 +517,78 @@ func TestUpstreamResolver_HealthTracking(t *testing.T) {
 	assert.NotContains(t, health, bad, "sibling upstream should not be queried when primary answers")
 }
 
+// TestUpstreamResolver_HealthTracking_ResponseMeansReachable verifies that an
+// upstream which answers with SERVFAIL or REFUSED is recorded as healthy:
+// those are per-question outcomes from a reachable server and must not mark
+// the upstream unhealthy. Only transport failures (timeouts) do.
+func TestUpstreamResolver_HealthTracking_ResponseMeansReachable(t *testing.T) {
+	a := netip.MustParseAddrPort("192.0.2.10:53")
+	b := netip.MustParseAddrPort("192.0.2.11:53")
+	timeoutErr := &net.OpError{Op: "read", Err: fmt.Errorf("i/o timeout")}
+
+	tests := []struct {
+		name        string
+		respA       mockUpstreamResponse
+		respB       mockUpstreamResponse
+		wantHealthy bool
+	}{
+		{
+			name:        "both SERVFAIL are reachable",
+			respA:       mockUpstreamResponse{msg: buildMockResponse(dns.RcodeServerFailure, "")},
+			respB:       mockUpstreamResponse{msg: buildMockResponse(dns.RcodeServerFailure, "")},
+			wantHealthy: true,
+		},
+		{
+			name:        "both REFUSED are reachable",
+			respA:       mockUpstreamResponse{msg: buildMockResponse(dns.RcodeRefused, "")},
+			respB:       mockUpstreamResponse{msg: buildMockResponse(dns.RcodeRefused, "")},
+			wantHealthy: true,
+		},
+		{
+			name:        "timeout marks unhealthy",
+			respA:       mockUpstreamResponse{err: timeoutErr},
+			respB:       mockUpstreamResponse{err: timeoutErr},
+			wantHealthy: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mockClient := &mockUpstreamResolverPerServer{
+				responses: map[string]mockUpstreamResponse{
+					a.String(): tc.respA,
+					b.String(): tc.respB,
+				},
+				rtt: time.Millisecond,
+			}
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			resolver := &upstreamResolverBase{
+				ctx:             ctx,
+				upstreamClient:  mockClient,
+				upstreamTimeout: UpstreamTimeout,
+			}
+			resolver.addRace([]netip.AddrPort{a, b})
+
+			responseWriter := &test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { return nil }}
+			resolver.ServeDNS(responseWriter, new(dns.Msg).SetQuestion("example.com.", dns.TypeA))
+
+			health := resolver.UpstreamHealth()
+			require.Contains(t, health, a, "primary upstream should have a health record")
+			if tc.wantHealthy {
+				assert.False(t, health[a].LastOk.IsZero(), "responding upstream should have LastOk set")
+				assert.True(t, health[a].LastFail.IsZero(), "responding upstream should not be marked failed")
+				assert.Empty(t, health[a].LastErr, "responding upstream should have no error")
+			} else {
+				assert.False(t, health[a].LastFail.IsZero(), "timed-out upstream should be marked failed")
+				assert.NotEmpty(t, health[a].LastErr, "timed-out upstream should record an error")
+			}
+		})
+	}
+}
+
 func TestFormatFailures(t *testing.T) {
 	testCases := []struct {
 		name     string
@@ -911,19 +983,6 @@ func TestEDEName(t *testing.T) {
 	assert.Equal(t, "DNSSEC Bogus", edeName(dns.ExtendedErrorCodeDNSBogus))
 	assert.Equal(t, "Signature Expired", edeName(dns.ExtendedErrorCodeSignatureExpired))
 	assert.Equal(t, "EDE 9999", edeName(9999), "unknown code falls back to numeric")
-}
-
-func TestStripOPT(t *testing.T) {
-	rm := &dns.Msg{
-		Extra: []dns.RR{
-			&dns.OPT{Hdr: dns.RR_Header{Name: ".", Rrtype: dns.TypeOPT}},
-			&dns.A{Hdr: dns.RR_Header{Name: "x.", Rrtype: dns.TypeA}, A: net.IPv4(1, 2, 3, 4)},
-		},
-	}
-	stripOPT(rm)
-	assert.Len(t, rm.Extra, 1, "OPT should be removed, A kept")
-	_, isOPT := rm.Extra[0].(*dns.OPT)
-	assert.False(t, isOPT, "remaining record must not be OPT")
 }
 
 func TestUpstreamResolver_NonRetryableEDEShortCircuits(t *testing.T) {

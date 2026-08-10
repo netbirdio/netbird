@@ -140,6 +140,7 @@ func setupIntegrationTest(t *testing.T) *integrationTestSetup {
 		oidcConfig,
 		nil,
 		usersManager,
+		nil,
 		proxyManager,
 		nil,
 	)
@@ -236,6 +237,10 @@ func (m *testProxyManager) ClusterRequireSubdomain(_ context.Context, _ string) 
 }
 
 func (m *testProxyManager) ClusterSupportsCrowdSec(_ context.Context, _ string) *bool {
+	return nil
+}
+
+func (m *testProxyManager) ClusterSupportsPrivate(_ context.Context, _ string) *bool {
 	return nil
 }
 
@@ -565,6 +570,7 @@ func TestIntegration_ProxyConnection_ReconnectDoesNotDuplicateState(t *testing.T
 					proxytypes.AccountID(mapping.GetAccountId()),
 					proxytypes.ServiceID(mapping.GetId()),
 					nil,
+					mapping.GetPrivate(),
 				)
 				require.NoError(t, err)
 

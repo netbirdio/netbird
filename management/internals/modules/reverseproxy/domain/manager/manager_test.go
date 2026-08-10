@@ -10,7 +10,7 @@ import (
 )
 
 type mockProxyManager struct {
-	getActiveClusterAddressesFunc          func(ctx context.Context) ([]string, error)
+	getActiveClusterAddressesFunc           func(ctx context.Context) ([]string, error)
 	getActiveClusterAddressesForAccountFunc func(ctx context.Context, accountID string) ([]string, error)
 }
 
@@ -37,6 +37,10 @@ func (m *mockProxyManager) ClusterRequireSubdomain(_ context.Context, _ string) 
 }
 
 func (m *mockProxyManager) ClusterSupportsCrowdSec(_ context.Context, _ string) *bool {
+	return nil
+}
+
+func (m *mockProxyManager) ClusterSupportsPrivate(_ context.Context, _ string) *bool {
 	return nil
 }
 
@@ -151,4 +155,3 @@ func TestGetClusterAllowList_PublicEmpty_BYOPOnly(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"byop.example.com"}, result)
 }
-

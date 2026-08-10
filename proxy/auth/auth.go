@@ -45,10 +45,14 @@ func ResolveProto(forwardedProto string, conn *tls.ConnectionState) string {
 	}
 }
 
-// ValidateSessionJWT validates a session JWT and returns the user ID and method.
-func ValidateSessionJWT(tokenString, domain string, publicKey ed25519.PublicKey) (userID, method string, err error) {
+// ValidateSessionJWT validates a session JWT and returns the user ID, the
+// user's email (when carried), the authentication method, any embedded
+// group memberships, and the parallel group display names. email,
+// groups, and groupNames may be empty for tokens minted before those
+// claims were introduced. groupNames pairs positionally with groups.
+func ValidateSessionJWT(tokenString, domain string, publicKey ed25519.PublicKey) (userID, email, method string, groups, groupNames []string, err error) {
 	if publicKey == nil {
-		return "", "", fmt.Errorf("no public key configured for domain")
+		return "", "", "", nil, nil, fmt.Errorf("no public key configured for domain")
 	}
 
 	token, err := jwt.Parse(tokenString, func(t *jwt.Token) (interface{}, error) {
@@ -58,20 +62,46 @@ func ValidateSessionJWT(tokenString, domain string, publicKey ed25519.PublicKey)
 		return publicKey, nil
 	}, jwt.WithAudience(domain), jwt.WithIssuer(SessionJWTIssuer))
 	if err != nil {
-		return "", "", fmt.Errorf("parse token: %w", err)
+		return "", "", "", nil, nil, fmt.Errorf("parse token: %w", err)
 	}
 
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok || !token.Valid {
-		return "", "", fmt.Errorf("invalid token claims")
+		return "", "", "", nil, nil, fmt.Errorf("invalid token claims")
 	}
 
 	sub, _ := claims.GetSubject()
 	if sub == "" {
-		return "", "", fmt.Errorf("missing subject claim")
+		return "", "", "", nil, nil, fmt.Errorf("missing subject claim")
 	}
 
 	methodClaim, _ := claims["method"].(string)
+	emailClaim, _ := claims["email"].(string)
+	groups = extractGroupsClaim(claims["groups"])
+	groupNames = extractGroupsClaim(claims["group_names"])
 
-	return sub, methodClaim, nil
+	return sub, emailClaim, methodClaim, groups, groupNames, nil
+}
+
+// extractGroupsClaim decodes the "groups" claim into a string slice. The JWT
+// library decodes JSON arrays as []interface{}, so we coerce element-wise
+// and skip non-string entries silently.
+func extractGroupsClaim(claim interface{}) []string {
+	raw, ok := claim.([]interface{})
+	if !ok {
+		return nil
+	}
+	if len(raw) == 0 {
+		return nil
+	}
+	groups := make([]string, 0, len(raw))
+	for _, v := range raw {
+		if s, ok := v.(string); ok && s != "" {
+			groups = append(groups, s)
+		}
+	}
+	if len(groups) == 0 {
+		return nil
+	}
+	return groups
 }

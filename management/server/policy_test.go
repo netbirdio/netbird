@@ -1319,12 +1319,14 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 		}
 	})
 
-	// Updating disabled policy with destination and source groups containing peers should not update account's peers
-	// or send peer update
+	// Updating disabled policy with destination and source groups containing peers should still update account's peers
+	// because affected peer resolution does not filter by policy enabled state
 	t.Run("updating disabled policy with source and destination groups with peers", func(t *testing.T) {
+		drainPeerUpdates(updMsg)
+
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg)
 			close(done)
 		}()
 
@@ -1335,8 +1337,8 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+		case <-time.After(peerUpdateTimeout):
+			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
 

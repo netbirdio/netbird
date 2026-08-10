@@ -9,12 +9,45 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
-	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/route"
 )
+
+// GetPeerNetworkMapResult dispatches to either the legacy-NetworkMap path or
+// the components path based on the peer's capability and the kill switch.
+// Capable peers (PeerCapabilityComponentNetworkMap) get the raw components
+// shape — the server skips Calculate() entirely for them, saving CPU
+// proportional to the number of capable peers in the account. Legacy peers
+// (or any peer when componentsDisabled is true) get the fully-expanded
+// NetworkMap as before.
+func (a *Account) GetPeerNetworkMapResult(
+	ctx context.Context,
+	peerID string,
+	componentsDisabled bool,
+	peersCustomZone nbdns.CustomZone,
+	accountZones []*zones.Zone,
+	validatedPeersMap map[string]struct{},
+	resourcePolicies map[string][]*Policy,
+	routers map[string]map[string]*routerTypes.NetworkRouter,
+	metrics *telemetry.AccountManagerMetrics,
+	groupIDToUserIDs map[string][]string,
+) PeerNetworkMapResult {
+	peer := a.Peers[peerID]
+	if !componentsDisabled && peer != nil && peer.SupportsComponentNetworkMap() {
+		components := a.GetPeerNetworkMapComponents(
+			ctx, peerID, peersCustomZone, accountZones, validatedPeersMap, resourcePolicies, routers, groupIDToUserIDs,
+		)
+		return PeerNetworkMapResult{Components: components}
+	}
+	return PeerNetworkMapResult{
+		NetworkMap: a.GetPeerNetworkMapFromComponents(
+			ctx, peerID, peersCustomZone, accountZones, validatedPeersMap, resourcePolicies, routers, metrics, groupIDToUserIDs,
+		),
+	}
+}
 
 func (a *Account) GetPeerNetworkMapFromComponents(
 	ctx context.Context,
@@ -40,8 +73,8 @@ func (a *Account) GetPeerNetworkMapFromComponents(
 		groupIDToUserIDs,
 	)
 
-	if components == nil {
-		return &NetworkMap{Network: a.Network.Copy()}
+	if components.IsEmpty() {
+		return &NetworkMap{Network: components.Network}
 	}
 
 	nm := CalculateNetworkMapFromComponents(ctx, components)
@@ -71,26 +104,56 @@ func (a *Account) GetPeerNetworkMapComponents(
 	routers map[string]map[string]*routerTypes.NetworkRouter,
 	groupIDToUserIDs map[string][]string,
 ) *NetworkMapComponents {
-
 	peer := a.Peers[peerID]
+	// this can never happen, things are very wrong if it did
+	// TODO (dmitri) maybe consider using invariants?
 	if peer == nil {
-		return nil
+		log.WithField("peer id", peerID).Error("NetworkMapComponents are computed for a peer missing from the account")
+		return EmptyNetworkMapComponents(&NetworkMapComponents{
+			PeerID:  peerID,
+			Network: a.Network.Copy(),
+			// must include the target peer as it's required on the client
+			Peers: map[string]*ComponentPeer{peerID: peer.ToComponent()},
+		})
 	}
 
 	if _, ok := validatedPeersMap[peerID]; !ok {
-		return nil
+		// Mirror legacy graceful-degrade: GetPeerNetworkMapFromComponents
+		// returns &NetworkMap{Network: a.Network.Copy()} when components is
+		// nil. Match that floor so the receiving client always sees the
+		// account Network identifier, not a fully-empty envelope.
+		return EmptyNetworkMapComponents(&NetworkMapComponents{
+			PeerID:  peerID,
+			Network: a.Network.Copy(),
+			// must include the target peer as it's required on the client
+			Peers: map[string]*ComponentPeer{peerID: peer.ToComponent()},
+		})
 	}
 
 	components := &NetworkMapComponents{
-		PeerID:              peerID,
-		Network:             a.Network.Copy(),
-		NameServerGroups:    make([]*nbdns.NameServerGroup, 0),
-		CustomZoneDomain:    peersCustomZone.Domain,
-		ResourcePoliciesMap: make(map[string][]*Policy),
-		RoutersMap:          make(map[string]map[string]*routerTypes.NetworkRouter),
-		NetworkResources:    make([]*resourceTypes.NetworkResource, 0),
-		PostureFailedPeers:  make(map[string]map[string]struct{}, len(a.PostureChecks)),
-		RouterPeers:         make(map[string]*nbpeer.Peer),
+		PeerID:                    peerID,
+		Network:                   a.Network.Copy(),
+		NameServerGroups:          make([]*nbdns.NameServerGroup, 0),
+		CustomZoneDomain:          peersCustomZone.Domain,
+		ResourcePoliciesMap:       make(map[string][]*Policy),
+		RoutersMap:                make(map[string]map[string]*ComponentRouter),
+		NetworkResources:          make([]*ComponentResource, 0),
+		PostureFailedPeers:        make(map[string]map[string]struct{}, len(a.PostureChecks)),
+		RouterPeers:               make(map[string]*ComponentPeer),
+		NetworkXIDToPublicID:      make(map[string]string, len(a.Networks)),
+		PostureCheckXIDToPublicID: make(map[string]string, len(a.PostureChecks)),
+
+		ForceRoutingPeerDNSResolution: a.forcesRoutingPeerDNSResolution(peerID, routers),
+	}
+	for _, n := range a.Networks {
+		if n != nil {
+			components.NetworkXIDToPublicID[n.ID] = n.PublicID
+		}
+	}
+	for _, pc := range a.PostureChecks {
+		if pc != nil {
+			components.PostureCheckXIDToPublicID[pc.ID] = pc.PublicID
+		}
 	}
 
 	components.AccountSettings = &AccountSettingsInfo{
@@ -102,6 +165,7 @@ func (a *Account) GetPeerNetworkMapComponents(
 
 	components.DNSSettings = &a.DNSSettings
 
+	// relevantPeers always contains the target peer (peerID)
 	relevantPeers, relevantGroups, relevantPolicies, relevantRoutes, sshReqs := a.getPeersGroupsPoliciesRoutes(ctx, peerID, peer.SSHEnabled, validatedPeersMap, &components.PostureFailedPeers)
 
 	if len(sshReqs.neededGroupIDs) > 0 {
@@ -112,13 +176,14 @@ func (a *Account) GetPeerNetworkMapComponents(
 	}
 
 	components.Peers = relevantPeers
-	components.Groups = relevantGroups
+	components.Groups = GroupsToComponent(relevantGroups)
 	components.Policies = relevantPolicies
 	components.Routes = relevantRoutes
 	components.AllDNSRecords = filterDNSRecordsByPeers(peersCustomZone.Records, relevantPeers, peer.SupportsIPv6() && peer.IPv6.IsValid())
 
 	peerGroups := a.GetPeerGroups(peerID)
 	components.AccountZones = filterPeerAppliedZones(ctx, accountZones, peerGroups)
+	components.AccountZones = append(components.AccountZones, a.SynthesizePrivateServiceZones(peerID)...)
 
 	for _, nsGroup := range a.NameServerGroups {
 		if nsGroup.Enabled {
@@ -160,7 +225,7 @@ func (a *Account) GetPeerNetworkMapComponents(
 				}
 				for _, pID := range a.getPostureValidPeersSaveFailed(peers, policy.SourcePostureChecks, validatedPeersMap, &components.PostureFailedPeers) {
 					if _, exists := components.Peers[pID]; !exists {
-						components.Peers[pID] = a.GetPeer(pID)
+						components.Peers[pID] = a.GetPeer(pID).ToComponent()
 					}
 				}
 			} else {
@@ -193,14 +258,14 @@ func (a *Account) GetPeerNetworkMapComponents(
 				for _, srcGroupID := range rule.Sources {
 					if g := a.Groups[srcGroupID]; g != nil {
 						if _, exists := components.Groups[srcGroupID]; !exists {
-							components.Groups[srcGroupID] = g
+							components.Groups[srcGroupID] = g.ToComponent()
 						}
 					}
 				}
 				for _, dstGroupID := range rule.Destinations {
 					if g := a.Groups[dstGroupID]; g != nil {
 						if _, exists := components.Groups[dstGroupID]; !exists {
-							components.Groups[dstGroupID] = g
+							components.Groups[dstGroupID] = g.ToComponent()
 						}
 					}
 				}
@@ -208,22 +273,29 @@ func (a *Account) GetPeerNetworkMapComponents(
 			components.ResourcePoliciesMap[resource.ID] = policies
 		}
 
-		components.RoutersMap[resource.NetworkID] = networkRoutingPeers
-		for peerIDKey := range networkRoutingPeers {
-			if p := a.Peers[peerIDKey]; p != nil {
-				if _, exists := components.RouterPeers[peerIDKey]; !exists {
-					components.RouterPeers[peerIDKey] = p
-				}
-				if _, exists := components.Peers[peerIDKey]; !exists {
-					if _, validated := validatedPeersMap[peerIDKey]; validated {
-						components.Peers[peerIDKey] = p
+		// Only expose router peers and the per-network routers_map when this
+		// target peer actually has access to the resource (either as a router
+		// itself or via a policy that includes it as a source). Without this
+		// gate, every peer's envelope was leaking router peers of every
+		// network in the account — accounts with many tenants/networks
+		// shipped tens of unrelated peers in `peers[]` and `routers_map`.
+		if addSourcePeers {
+			components.RoutersMap[resource.NetworkID] = routerTypes.ToComponentMap(networkRoutingPeers)
+			for peerIDKey := range networkRoutingPeers {
+				if p := a.Peers[peerIDKey]; p != nil {
+					cp := components.RouterPeers[peerIDKey]
+					if cp == nil {
+						cp = p.ToComponent()
+						components.RouterPeers[peerIDKey] = cp
+					}
+					if _, exists := components.Peers[peerIDKey]; !exists {
+						if _, validated := validatedPeersMap[peerIDKey]; validated {
+							components.Peers[peerIDKey] = cp
+						}
 					}
 				}
 			}
-		}
-
-		if addSourcePeers {
-			components.NetworkResources = append(components.NetworkResources, resource)
+			components.NetworkResources = append(components.NetworkResources, resource.ToComponent())
 		}
 	}
 
@@ -244,33 +316,97 @@ func (a *Account) getPeersGroupsPoliciesRoutes(
 	peerSSHEnabled bool,
 	validatedPeersMap map[string]struct{},
 	postureFailedPeers *map[string]map[string]struct{},
-) (map[string]*nbpeer.Peer, map[string]*Group, []*Policy, []*route.Route, sshRequirements) {
-	relevantPeerIDs := make(map[string]*nbpeer.Peer, len(a.Peers)/4)
+) (map[string]*ComponentPeer, map[string]*Group, []*Policy, []*route.Route, sshRequirements) {
+	relevantPeerIDs := make(map[string]*ComponentPeer, len(a.Peers)/4)
 	relevantGroupIDs := make(map[string]*Group, len(a.Groups)/4)
 	relevantPolicies := make([]*Policy, 0, len(a.Policies))
 	relevantRoutes := make([]*route.Route, 0, len(a.Routes))
 	sshReqs := sshRequirements{neededGroupIDs: make(map[string]struct{})}
 
-	relevantPeerIDs[peerID] = a.GetPeer(peerID)
+	relevantPeerIDs[peerID] = a.GetPeer(peerID).ToComponent()
 
+	peerGroupSet := make(map[string]struct{}, 8)
 	for groupID, group := range a.Groups {
 		if slices.Contains(group.Peers, peerID) {
 			relevantGroupIDs[groupID] = a.GetGroup(groupID)
+			peerGroupSet[groupID] = struct{}{}
 		}
 	}
 
 	routeAccessControlGroups := make(map[string]struct{})
 	for _, r := range a.Routes {
-		for _, groupID := range r.Groups {
+		if r == nil {
+			continue
+		}
+		relevant := r.Peer == peerID
+		if !relevant {
+			for _, groupID := range r.PeerGroups {
+				if _, ok := peerGroupSet[groupID]; ok {
+					relevant = true
+					break
+				}
+			}
+		}
+		if !relevant && r.Enabled {
+			for _, groupID := range r.Groups {
+				if _, ok := peerGroupSet[groupID]; ok {
+					relevant = true
+					break
+				}
+			}
+		}
+		if !relevant {
+			continue
+		}
+
+		for _, groupID := range r.PeerGroups {
 			relevantGroupIDs[groupID] = a.GetGroup(groupID)
 		}
-		for _, groupID := range r.PeerGroups {
+		for _, groupID := range r.Groups {
 			relevantGroupIDs[groupID] = a.GetGroup(groupID)
 		}
 		if r.Enabled {
 			for _, groupID := range r.AccessControlGroups {
 				relevantGroupIDs[groupID] = a.GetGroup(groupID)
 				routeAccessControlGroups[groupID] = struct{}{}
+			}
+		}
+
+		// Include route advertisers in relevantPeerIDs. The envelope
+		// encoder writes route.peer_index by looking up r.Peer in the
+		// shipped peers list; if the advertiser is policy-isolated from
+		// the target peer (no rule edge between them), it would otherwise
+		// be omitted and the decoder would fail to resolve r.Peer, leaving
+		// the client without a WG tunnel target for this route. Legacy
+		// NetworkMap.Routes shipped the WG public key inline, so the
+		// equivalence path doesn't surface this — but the dependency is
+		// real once a client actually tries to use the route.
+		// Gate by validatedPeersMap so non-validated advertisers stay out
+		// (matches the network-resource router behaviour at the bottom of
+		// this loop, and the legacy invariant that only validated peers
+		// reach a client's view).
+		if r.Peer != "" {
+			if _, ok := validatedPeersMap[r.Peer]; ok {
+				if p := a.GetPeer(r.Peer); p != nil {
+					relevantPeerIDs[r.Peer] = p.ToComponent()
+				}
+			}
+		}
+		for _, groupID := range r.PeerGroups {
+			g := a.GetGroup(groupID)
+			if g == nil {
+				continue
+			}
+			for _, pid := range g.Peers {
+				if _, exists := relevantPeerIDs[pid]; exists {
+					continue
+				}
+				if _, ok := validatedPeersMap[pid]; !ok {
+					continue
+				}
+				if p := a.GetPeer(pid); p != nil {
+					relevantPeerIDs[pid] = p.ToComponent()
+				}
 			}
 		}
 		relevantRoutes = append(relevantRoutes, r)
@@ -326,7 +462,9 @@ func (a *Account) getPeersGroupsPoliciesRoutes(
 			if peerInSources {
 				policyRelevant = true
 				for _, pid := range destinationPeers {
-					relevantPeerIDs[pid] = a.GetPeer(pid)
+					if _, exists := relevantPeerIDs[pid]; !exists {
+						relevantPeerIDs[pid] = a.GetPeer(pid).ToComponent()
+					}
 				}
 				for _, dstGroupID := range rule.Destinations {
 					relevantGroupIDs[dstGroupID] = a.GetGroup(dstGroupID)
@@ -336,7 +474,9 @@ func (a *Account) getPeersGroupsPoliciesRoutes(
 			if peerInDestinations {
 				policyRelevant = true
 				for _, pid := range sourcePeers {
-					relevantPeerIDs[pid] = a.GetPeer(pid)
+					if _, exists := relevantPeerIDs[pid]; !exists {
+						relevantPeerIDs[pid] = a.GetPeer(pid).ToComponent()
+					}
 				}
 				for _, srcGroupID := range rule.Sources {
 					relevantGroupIDs[srcGroupID] = a.GetGroup(srcGroupID)
@@ -352,7 +492,7 @@ func (a *Account) getPeersGroupsPoliciesRoutes(
 					default:
 						sshReqs.needAllowedUserIDs = true
 					}
-				} else if policyRuleImpliesLegacySSH(rule) && peerSSHEnabled {
+				} else if PolicyRuleImpliesLegacySSH(rule) && peerSSHEnabled {
 					sshReqs.needAllowedUserIDs = true
 				}
 			}
@@ -368,8 +508,8 @@ func (a *Account) getPeersGroupsPoliciesRoutes(
 func (a *Account) getPeersFromGroups(ctx context.Context, groups []string, peerID string, sourcePostureChecksIDs []string,
 	validatedPeersMap map[string]struct{}, postureFailedPeers *map[string]map[string]struct{}) ([]string, bool) {
 	peerInGroups := false
-	filteredPeerIDs := make([]string, 0, len(groups))
-	seenPeerIds := make(map[string]struct{}, len(groups))
+	var filteredPeerIDs []string
+	var seenPeerIds map[string]struct{}
 
 	for _, gid := range groups {
 		group := a.GetGroup(gid)
@@ -407,6 +547,17 @@ func (a *Account) getPeersFromGroups(ctx context.Context, groups []string, peerI
 				filteredPeerIDs = append(filteredPeerIDs, peer.ID)
 			}
 			return filteredPeerIDs, peerInGroups
+		}
+
+		if seenPeerIds == nil {
+			totalGroupPeers := 0
+			for _, g := range groups {
+				if grp := a.GetGroup(g); grp != nil {
+					totalGroupPeers += len(grp.Peers)
+				}
+			}
+			filteredPeerIDs = make([]string, 0, totalGroupPeers)
+			seenPeerIds = make(map[string]struct{}, totalGroupPeers)
 		}
 
 		for _, pid := range group.Peers {
@@ -451,19 +602,107 @@ func (a *Account) validatePostureChecksOnPeerGetFailed(ctx context.Context, sour
 	}
 
 	for _, postureChecksID := range sourcePostureChecksID {
+		if valid, cached := a.cachedPostureCheckResult(postureChecksID, peerID); cached {
+			if !valid {
+				return false, postureChecksID
+			}
+			continue
+		}
+
 		postureChecks := a.GetPostureChecks(postureChecksID)
 		if postureChecks == nil {
 			continue
 		}
 
-		for _, check := range postureChecks.GetChecks() {
-			isValid, _ := check.Check(ctx, *peer)
-			if !isValid {
-				return false, postureChecksID
-			}
+		if !peerPassesPostureChecks(ctx, postureChecks.GetChecks(), peer) {
+			return false, postureChecksID
 		}
 	}
 	return true, ""
+}
+
+// PrecomputePostureValidation evaluates every posture check referenced by an enabled
+// policy once against the peers of that policy's source groups and stores the results,
+// so the per-peer network map calculations that follow look them up instead of
+// re-evaluating checks for every peer pair. It must be called before the account is
+// shared across goroutines; lookups not covered by the precomputed results fall back
+// to direct evaluation.
+func (a *Account) PrecomputePostureValidation(ctx context.Context) {
+	if len(a.PostureChecks) == 0 {
+		a.PostureValidation = nil
+		return
+	}
+
+	checkPeerIDs := make(map[string]map[string]struct{})
+	for _, policy := range a.Policies {
+		if !policy.Enabled || len(policy.SourcePostureChecks) == 0 {
+			continue
+		}
+
+		peerIDs := a.getUniquePeerIDsFromGroupsIDs(ctx, policy.SourceGroups())
+		for _, rule := range policy.Rules {
+			if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
+				peerIDs = append(peerIDs, rule.SourceResource.ID)
+			}
+		}
+
+		for _, postureChecksID := range policy.SourcePostureChecks {
+			set := checkPeerIDs[postureChecksID]
+			if set == nil {
+				set = make(map[string]struct{}, len(peerIDs))
+				checkPeerIDs[postureChecksID] = set
+			}
+			for _, pid := range peerIDs {
+				set[pid] = struct{}{}
+			}
+		}
+	}
+
+	results := make(map[string]map[string]bool, len(checkPeerIDs))
+	for postureChecksID, peerIDs := range checkPeerIDs {
+		results[postureChecksID] = a.evaluatePostureChecksForPeers(ctx, postureChecksID, peerIDs)
+	}
+	a.PostureValidation = results
+}
+
+func (a *Account) evaluatePostureChecksForPeers(ctx context.Context, postureChecksID string, peerIDs map[string]struct{}) map[string]bool {
+	postureChecks := a.GetPostureChecks(postureChecksID)
+	if postureChecks == nil {
+		return nil
+	}
+
+	checks := postureChecks.GetChecks()
+	results := make(map[string]bool, len(peerIDs))
+	for peerID := range peerIDs {
+		peer, ok := a.Peers[peerID]
+		if !ok || peer == nil {
+			continue
+		}
+		results[peerID] = peerPassesPostureChecks(ctx, checks, peer)
+	}
+	return results
+}
+
+func (a *Account) cachedPostureCheckResult(postureChecksID, peerID string) (bool, bool) {
+	results, ok := a.PostureValidation[postureChecksID]
+	if !ok {
+		return false, false
+	}
+	if results == nil {
+		return true, true
+	}
+	valid, found := results[peerID]
+	return valid, found
+}
+
+func peerPassesPostureChecks(ctx context.Context, checks []posture.Check, peer *nbpeer.Peer) bool {
+	for _, check := range checks {
+		isValid, _ := check.Check(ctx, *peer)
+		if !isValid {
+			return false
+		}
+	}
+	return true
 }
 
 func (a *Account) getPostureValidPeersSaveFailed(inputPeers []string, postureChecksIDs []string, validatedPeersMap map[string]struct{}, postureFailedPeers *map[string]map[string]struct{}) []string {
@@ -485,7 +724,14 @@ func (a *Account) getPostureValidPeersSaveFailed(inputPeers []string, postureChe
 	return dest
 }
 
-func filterGroupPeers(groups *map[string]*Group, peers map[string]*nbpeer.Peer) {
+// filterGroupPeers trims each group's Peers slice to only those peers that
+// also appear in `peers`. Groups whose filtered list is empty are NOT
+// deleted from the map — they're kept so the components wire encoder can
+// still resolve seq references from routes/policies/access-control groups
+// that name them. Calculate() tolerates groups with empty Peers (the inner
+// loops simply iterate zero times), so retaining them is behaviourally a
+// no-op for the legacy path that consumes the same NetworkMapComponents.
+func filterGroupPeers(groups *map[string]*ComponentGroup, peers map[string]*ComponentPeer) {
 	for groupID, groupInfo := range *groups {
 		filteredPeers := make([]string, 0, len(groupInfo.Peers))
 		for _, pid := range groupInfo.Peers {
@@ -494,17 +740,15 @@ func filterGroupPeers(groups *map[string]*Group, peers map[string]*nbpeer.Peer) 
 			}
 		}
 
-		if len(filteredPeers) == 0 {
-			delete(*groups, groupID)
-		} else if len(filteredPeers) != len(groupInfo.Peers) {
-			ng := groupInfo.Copy()
+		if len(filteredPeers) != len(groupInfo.Peers) {
+			ng := *groupInfo
 			ng.Peers = filteredPeers
-			(*groups)[groupID] = ng
+			(*groups)[groupID] = &ng
 		}
 	}
 }
 
-func filterPostureFailedPeers(postureFailedPeers *map[string]map[string]struct{}, policies []*Policy, resourcePoliciesMap map[string][]*Policy, peers map[string]*nbpeer.Peer) {
+func filterPostureFailedPeers(postureFailedPeers *map[string]map[string]struct{}, policies []*Policy, resourcePoliciesMap map[string][]*Policy, peers map[string]*ComponentPeer) {
 	if len(*postureFailedPeers) == 0 {
 		return
 	}
@@ -539,7 +783,7 @@ func filterPostureFailedPeers(postureFailedPeers *map[string]map[string]struct{}
 	}
 }
 
-func filterDNSRecordsByPeers(records []nbdns.SimpleRecord, peers map[string]*nbpeer.Peer, includeIPv6 bool) []nbdns.SimpleRecord {
+func filterDNSRecordsByPeers(records []nbdns.SimpleRecord, peers map[string]*ComponentPeer, includeIPv6 bool) []nbdns.SimpleRecord {
 	if len(records) == 0 || len(peers) == 0 {
 		return nil
 	}

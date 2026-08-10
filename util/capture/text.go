@@ -13,6 +13,8 @@ import (
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/miekg/dns"
+
+	nbdns "github.com/netbirdio/netbird/dns"
 )
 
 // TextWriter writes human-readable one-line-per-packet summaries.
@@ -150,7 +152,7 @@ func (tw *TextWriter) writeUDP(timeStr string, dir Direction, info *packetInfo, 
 	plen := len(udp.Payload)
 
 	// DNS replaces the entire line format
-	if plen > 0 && isDNSPort(info.srcPort, info.dstPort) {
+	if plen > 0 && (isDNSPort(info.srcPort) || isDNSPort(info.dstPort)) {
 		if s := formatDNSPayload(udp.Payload); s != "" {
 			var verbose string
 			if tw.verbose {
@@ -561,8 +563,12 @@ func findSNIExtension(body []byte, pos int) string {
 	return ""
 }
 
-func isDNSPort(src, dst uint16) bool {
-	return src == 53 || dst == 53 || src == 5353 || dst == 5353
+func isDNSPort(p uint16) bool {
+	switch p {
+	case nbdns.DefaultDNSPort, nbdns.ForwarderClientPort, nbdns.ForwarderServerPort:
+		return true
+	}
+	return false
 }
 
 // formatDNSPayload parses DNS and returns a tcpdump-style summary.

@@ -405,48 +405,48 @@ func (h *Handler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	allowed, err := h.permissionsManager.ValidateUserPermissions(r.Context(), accountID, userID, modules.Peers, operations.Read)
+	allowed, ctx, err := h.permissionsManager.ValidateUserPermissions(r.Context(), accountID, userID, modules.Peers, operations.Read)
 	if err != nil {
-		util.WriteError(r.Context(), status.NewPermissionValidationError(err), w)
+		util.WriteError(ctx, status.NewPermissionValidationError(err), w)
 		return
 	}
 
-	account, err := h.accountManager.GetAccountByID(r.Context(), accountID, activity.SystemInitiator)
+	account, err := h.accountManager.GetAccountByID(ctx, accountID, activity.SystemInitiator)
 	if err != nil {
-		util.WriteError(r.Context(), err, w)
+		util.WriteError(ctx, err, w)
 		return
 	}
 
 	if !allowed && !userAuth.IsChild {
 		if account.Settings.RegularUsersViewBlocked {
-			util.WriteJSONObject(r.Context(), w, []api.AccessiblePeer{})
+			util.WriteJSONObject(ctx, w, []api.AccessiblePeer{})
 			return
 		}
 
 		peer, ok := account.Peers[peerID]
 		if !ok {
-			util.WriteError(r.Context(), status.Errorf(status.NotFound, "peer not found"), w)
+			util.WriteError(ctx, status.Errorf(status.NotFound, "peer not found"), w)
 			return
 		}
 
 		if peer.UserID != user.Id {
-			util.WriteJSONObject(r.Context(), w, []api.AccessiblePeer{})
+			util.WriteJSONObject(ctx, w, []api.AccessiblePeer{})
 			return
 		}
 	}
 
-	validPeers, _, err := h.accountManager.GetValidatedPeers(r.Context(), accountID)
+	validPeers, _, err := h.accountManager.GetValidatedPeers(ctx, accountID)
 	if err != nil {
-		log.WithContext(r.Context()).Errorf("failed to list approved peers: %v", err)
-		util.WriteError(r.Context(), fmt.Errorf("internal error"), w)
+		log.WithContext(ctx).Errorf("failed to list approved peers: %v", err)
+		util.WriteError(ctx, fmt.Errorf("internal error"), w)
 		return
 	}
 
 	dnsDomain := h.networkMapController.GetDNSDomain(account.Settings)
 
-	netMap := account.GetPeerNetworkMapFromComponents(r.Context(), peerID, dns.CustomZone{}, nil, validPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil, account.GetActiveGroupUsers())
+	netMap := account.GetPeerNetworkMapFromComponents(ctx, peerID, dns.CustomZone{}, nil, validPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil, account.GetActiveGroupUsers())
 
-	util.WriteJSONObject(r.Context(), w, toAccessiblePeers(netMap, dnsDomain))
+	util.WriteJSONObject(ctx, w, toAccessiblePeers(netMap, account.Peers, dnsDomain))
 }
 
 func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request) {
@@ -479,7 +479,7 @@ func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	peer, _, _, err := h.accountManager.AddPeer(r.Context(), userAuth.AccountId, "", userAuth.UserId, newPeer, true)
+	peer, _, _, _, err := h.accountManager.AddPeer(r.Context(), userAuth.AccountId, "", userAuth.UserId, newPeer, true)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -534,15 +534,20 @@ func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request) 
 	util.WriteJSONObject(r.Context(), w, resp)
 }
 
-func toAccessiblePeers(netMap *types.NetworkMap, dnsDomain string) []api.AccessiblePeer {
+// toAccessiblePeers rehydrates the calculated map's component peers into the
+// account's full peer objects, which carry the location/status/meta fields
+// the API response needs.
+func toAccessiblePeers(netMap *types.NetworkMap, accountPeers map[string]*nbpeer.Peer, dnsDomain string) []api.AccessiblePeer {
 	accessiblePeers := make([]api.AccessiblePeer, 0, len(netMap.Peers)+len(netMap.OfflinePeers))
-	for _, p := range netMap.Peers {
-		accessiblePeers = append(accessiblePeers, peerToAccessiblePeer(p, dnsDomain))
+	add := func(peers []*types.ComponentPeer) {
+		for _, p := range peers {
+			if peer := accountPeers[p.ID]; peer != nil {
+				accessiblePeers = append(accessiblePeers, peerToAccessiblePeer(peer, dnsDomain))
+			}
+		}
 	}
-
-	for _, p := range netMap.OfflinePeers {
-		accessiblePeers = append(accessiblePeers, peerToAccessiblePeer(p, dnsDomain))
-	}
+	add(netMap.Peers)
+	add(netMap.OfflinePeers)
 
 	return accessiblePeers
 }

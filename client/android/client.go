@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -56,6 +57,12 @@ type DnsReadyListener interface {
 	dns.ReadyListener
 }
 
+// TunSettings is a snapshot of the settings the TUN device is rebuilt with
+type TunSettings struct {
+	Routes        string
+	SearchDomains string
+}
+
 func init() {
 	formatter.SetLogcatFormatter(log.StandardLogger())
 }
@@ -75,13 +82,34 @@ type Client struct {
 	connectClient *internal.ConnectClient
 	config        *profilemanager.Config
 	cacheDir      string
+	// Identifies the running profile for the SSO login hint; see profile_state.go.
+	cfgPath string
+
+	stateChangeMu    sync.Mutex
+	stateChangeSubID string
+	eventSub         *peer.EventSubscription
+	// Closed to stop the watch goroutines from delivering buffered items to a
+	// listener that has been removed or replaced. See stopStateChangeWatchLocked.
+	stateChangeDone chan struct{}
+
+	// Latched "the server wants an interactive login": survives the engine
+	// restarts that replace the run loop's context state. See Client.Status.
+	// Guarded by loginRequiredMu together with loginCleared, which counts
+	// clears so a stale observation cannot re-latch over one.
+	loginRequiredMu sync.Mutex
+	loginRequired   bool
+	loginCleared    uint64
+
+	extendMu     sync.Mutex
+	extendCancel context.CancelFunc
 }
 
-func (c *Client) setState(cfg *profilemanager.Config, cacheDir string, cc *internal.ConnectClient) {
+func (c *Client) setState(cfg *profilemanager.Config, cacheDir string, cfgPath string, cc *internal.ConnectClient) {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
 	c.config = cfg
 	c.cacheDir = cacheDir
+	c.cfgPath = cfgPath
 	c.connectClient = cc
 }
 
@@ -89,6 +117,16 @@ func (c *Client) stateSnapshot() (*profilemanager.Config, string, *internal.Conn
 	c.stateMu.RLock()
 	defer c.stateMu.RUnlock()
 	return c.config, c.cacheDir, c.connectClient
+}
+
+// authSnapshot returns the config together with the path it was loaded from, in
+// one lock: the path identifies the profile whose account email backs the login
+// hint, so reading it separately could pair one profile's config with another's
+// hint when a profile switch lands in between.
+func (c *Client) authSnapshot() (*profilemanager.Config, string, *internal.ConnectClient) {
+	c.stateMu.RLock()
+	defer c.stateMu.RUnlock()
+	return c.config, c.cfgPath, c.connectClient
 }
 
 func (c *Client) getConnectClient() *internal.ConnectClient {
@@ -143,16 +181,21 @@ func (c *Client) Run(platformFiles PlatformFiles, urlOpener URLOpener, isAndroid
 	defer c.ctxCancel()
 	c.ctxCancelLock.Unlock()
 
-	auth := NewAuthWithConfig(ctx, cfg)
+	auth := NewAuthWithConfig(ctx, cfg, cfgFile)
 	err = auth.login(urlOpener, isAndroidTV)
 	if err != nil {
 		return err
 	}
-
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
 	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder)
-	c.setState(cfg, cacheDir, connectClient)
+	c.setState(cfg, cacheDir, cfgFile, connectClient)
+	// This path runs the interactive SSO flow, so reaching here means the peer
+	// is authenticated again — release the latch Status() reports from. Clear
+	// only once the fresh connect client is installed: until then Status()
+	// still reads the previous run's context state, which holds the NeedsLogin
+	// that prompted this login, and would re-latch what was just cleared.
+	c.clearLoginRequired()
 	return connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener, stateFile, cacheDir)
 }
 
@@ -187,7 +230,7 @@ func (c *Client) RunWithoutLogin(platformFiles PlatformFiles, dns *DNSList, dnsR
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
 	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder)
-	c.setState(cfg, cacheDir, connectClient)
+	c.setState(cfg, cacheDir, cfgFile, connectClient)
 	return connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener, stateFile, cacheDir)
 }
 
@@ -214,6 +257,24 @@ func (c *Client) RenewTun(fd int) error {
 	}
 
 	return e.RenewTun(fd)
+}
+
+func (c *Client) GetTunSettings() (*TunSettings, error) {
+	cc := c.getConnectClient()
+	if cc == nil {
+		return nil, fmt.Errorf("engine not running")
+	}
+
+	e := cc.Engine()
+	if e == nil {
+		return nil, fmt.Errorf("engine not initialized")
+	}
+
+	routes, searchDomains := e.TunSettings()
+	return &TunSettings{
+		Routes:        strings.Join(routes, ";"),
+		SearchDomains: strings.Join(searchDomains, ";"),
+	}, nil
 }
 
 // DebugBundle generates a debug bundle, uploads it, and returns the upload key.
@@ -247,6 +308,9 @@ func (c *Client) DebugBundle(platformFiles PlatformFiles, anonymize bool) (strin
 		deps.SyncResponse = resp
 
 		if e := cc.Engine(); e != nil {
+			deps.RefreshStatus = func() {
+				e.RunHealthProbes(context.Background(), true)
+			}
 			if cm := e.GetClientMetrics(); cm != nil {
 				deps.ClientMetrics = cm
 			}
@@ -274,7 +338,7 @@ func (c *Client) DebugBundle(platformFiles PlatformFiles, anonymize bool) (strin
 	uploadCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	key, err := debug.UploadDebugBundle(uploadCtx, types.DefaultBundleURL, cfg.ManagementURL.String(), path)
+	key, err := debug.UploadDebugBundle(uploadCtx, types.DefaultBundleURL, cfg.ManagementURL.String(), path, false)
 	if err != nil {
 		return "", fmt.Errorf("upload debug bundle: %w", err)
 	}
@@ -296,6 +360,13 @@ func (c *Client) SetInfoLogLevel() {
 // PeersList return with the list of the PeerInfos
 func (c *Client) PeersList() *PeerInfoArray {
 
+	// The recorder only caches transfer counters and handshake times; nothing
+	// refreshes them on its own, so without this they read as zero. The desktop
+	// daemon does the same before serving a full peer status.
+	if err := c.recorder.RefreshWireGuardStats(); err != nil {
+		log.Debugf("failed to refresh WireGuard stats: %v", err)
+	}
+
 	fullStatus := c.recorder.GetFullStatus()
 
 	peerInfos := make([]PeerInfo, len(fullStatus.Peers))
@@ -306,6 +377,20 @@ func (c *Client) PeersList() *PeerInfoArray {
 			FQDN:       p.FQDN,
 			ConnStatus: int(p.ConnStatus),
 			Routes:     PeerRoutes{routes: maps.Keys(p.GetRoutes())},
+
+			PubKey:                     p.PubKey,
+			Latency:                    formatDuration(p.Latency),
+			LatencyMs:                  p.Latency.Milliseconds(),
+			BytesRx:                    p.BytesRx,
+			BytesTx:                    p.BytesTx,
+			ConnStatusUpdate:           formatTime(p.ConnStatusUpdate),
+			Relayed:                    p.Relayed,
+			RosenpassEnabled:           p.RosenpassEnabled,
+			LastWireguardHandshake:     formatTime(p.LastWireguardHandshake),
+			LocalIceCandidateType:      p.LocalIceCandidateType,
+			RemoteIceCandidateType:     p.RemoteIceCandidateType,
+			LocalIceCandidateEndpoint:  p.LocalIceCandidateEndpoint,
+			RemoteIceCandidateEndpoint: p.RemoteIceCandidateEndpoint,
 		}
 		peerInfos[n] = pi
 	}
@@ -436,10 +521,6 @@ func (c *Client) RemoveConnectionListener() {
 	c.recorder.RemoveConnectionListener()
 }
 
-func (c *Client) toggleRoute(command routeCommand) error {
-	return command.toggleRoute()
-}
-
 func (c *Client) getRouteManager() (routemanager.Manager, error) {
 	client := c.getConnectClient()
 	if client == nil {
@@ -459,22 +540,22 @@ func (c *Client) getRouteManager() (routemanager.Manager, error) {
 	return manager, nil
 }
 
-func (c *Client) SelectRoute(route string) error {
+func (c *Client) SelectRoute(id string) error {
 	manager, err := c.getRouteManager()
 	if err != nil {
 		return err
 	}
 
-	return c.toggleRoute(selectRouteCommand{route: route, manager: manager})
+	return manager.SelectRoutes([]route.NetID{route.NetID(id)}, true)
 }
 
-func (c *Client) DeselectRoute(route string) error {
+func (c *Client) DeselectRoute(id string) error {
 	manager, err := c.getRouteManager()
 	if err != nil {
 		return err
 	}
 
-	return c.toggleRoute(deselectRouteCommand{route: route, manager: manager})
+	return manager.DeselectRoutes([]route.NetID{route.NetID(id)})
 }
 
 // getNetworkDomainsFromRoute extracts domains from a route and enriches each domain
@@ -508,4 +589,29 @@ func exportEnvList(list *EnvList) {
 			log.Errorf("could not set env variable %s: %v", k, err)
 		}
 	}
+}
+
+// formatDuration renders a duration for display, trimming the fractional part
+// to two digits so latencies read as "12.34ms" rather than "12.345678ms".
+func formatDuration(d time.Duration) string {
+	ds := d.String()
+	dotIndex := strings.Index(ds, ".")
+	if dotIndex == -1 {
+		return ds
+	}
+
+	endIndex := min(dotIndex+3, len(ds))
+
+	// Skip the remaining digits so only the unit suffix is appended back.
+	unitStart := endIndex
+	for unitStart < len(ds) && ds[unitStart] >= '0' && ds[unitStart] <= '9' {
+		unitStart++
+	}
+	return ds[:endIndex] + ds[unitStart:]
+}
+
+// formatTime renders a timestamp in UTC using a fixed layout. The zero time is
+// passed through as-is so the UI can recognise it and show "never" instead.
+func formatTime(t time.Time) string {
+	return t.UTC().Format("2006-01-02 15:04:05")
 }

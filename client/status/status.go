@@ -55,6 +55,10 @@ type ConvertOptions struct {
 	IPsFilter            map[string]struct{}
 	ConnectionTypeFilter string
 	ProfileName          string
+	// SessionExpiresAt is the absolute UTC instant at which the peer's SSO
+	// session expires. Zero when the peer is not SSO-tracked or login
+	// expiration is disabled. Sourced from StatusResponse.SessionExpiresAt.
+	SessionExpiresAt time.Time
 }
 
 type PeerStateDetailOutput struct {
@@ -98,6 +102,7 @@ type RelayStateOutputDetail struct {
 	URI       string `json:"uri" yaml:"uri"`
 	Available bool   `json:"available" yaml:"available"`
 	Error     string `json:"error" yaml:"error"`
+	Transport string `json:"transport,omitempty" yaml:"transport,omitempty"`
 }
 
 type RelayStateOutput struct {
@@ -143,6 +148,7 @@ type OutputOverview struct {
 	IPv6                    string                     `json:"netbirdIpv6,omitempty" yaml:"netbirdIpv6,omitempty"`
 	PubKey                  string                     `json:"publicKey" yaml:"publicKey"`
 	KernelInterface         bool                       `json:"usesKernelInterface" yaml:"usesKernelInterface"`
+	WgPort                  int                        `json:"wireguardPort" yaml:"wireguardPort"`
 	FQDN                    string                     `json:"fqdn" yaml:"fqdn"`
 	RosenpassEnabled        bool                       `json:"quantumResistance" yaml:"quantumResistance"`
 	RosenpassPermissive     bool                       `json:"quantumResistancePermissive" yaml:"quantumResistancePermissive"`
@@ -153,6 +159,11 @@ type OutputOverview struct {
 	LazyConnectionEnabled   bool                       `json:"lazyConnectionEnabled" yaml:"lazyConnectionEnabled"`
 	ProfileName             string                     `json:"profileName" yaml:"profileName"`
 	SSHServerState          SSHServerStateOutput       `json:"sshServer" yaml:"sshServer"`
+	// SessionExpiresAt is the absolute UTC instant at which the peer's SSO
+	// session expires. nil when the peer is not SSO-tracked or login
+	// expiration is disabled. Pointer (rather than zero-value time.Time) so
+	// JSON / YAML omit the field entirely with `,omitempty`.
+	SessionExpiresAt *time.Time `json:"sessionExpiresAt,omitempty" yaml:"sessionExpiresAt,omitempty"`
 }
 
 // ConvertToStatusOutputOverview converts protobuf status to the output overview.
@@ -187,6 +198,7 @@ func ConvertToStatusOutputOverview(pbFullStatus *proto.FullStatus, opts ConvertO
 		IPv6:                    pbFullStatus.GetLocalPeerState().GetIpv6(),
 		PubKey:                  pbFullStatus.GetLocalPeerState().GetPubKey(),
 		KernelInterface:         pbFullStatus.GetLocalPeerState().GetKernelInterface(),
+		WgPort:                  int(pbFullStatus.GetLocalPeerState().GetWgPort()),
 		FQDN:                    pbFullStatus.GetLocalPeerState().GetFqdn(),
 		RosenpassEnabled:        pbFullStatus.GetLocalPeerState().GetRosenpassEnabled(),
 		RosenpassPermissive:     pbFullStatus.GetLocalPeerState().GetRosenpassPermissive(),
@@ -197,6 +209,10 @@ func ConvertToStatusOutputOverview(pbFullStatus *proto.FullStatus, opts ConvertO
 		LazyConnectionEnabled:   pbFullStatus.GetLazyConnectionEnabled(),
 		ProfileName:             opts.ProfileName,
 		SSHServerState:          sshServerOverview,
+	}
+	if !opts.SessionExpiresAt.IsZero() {
+		t := opts.SessionExpiresAt
+		overview.SessionExpiresAt = &t
 	}
 
 	if opts.Anonymize {
@@ -217,7 +233,8 @@ func mapRelays(relays []*proto.RelayState) RelayStateOutput {
 			RelayStateOutputDetail{
 				URI:       relay.URI,
 				Available: available,
-				Error:     relay.GetError(),
+				Error:     relayErrorString(relay.GetError()),
+				Transport: relay.GetTransport(),
 			},
 		)
 
@@ -231,6 +248,12 @@ func mapRelays(relays []*proto.RelayState) RelayStateOutput {
 		Available: relaysAvailable,
 		Details:   relayStateDetail,
 	}
+}
+
+// relayErrorString flattens a newline-joined aggregated relay error onto a
+// single line for status output.
+func relayErrorString(s string) string {
+	return strings.ReplaceAll(s, "\n", "; ")
 }
 
 func mapNSGroups(servers []*proto.NSGroupState) []NsServerGroupStateOutput {
@@ -439,6 +462,8 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 					available = "Unavailable"
 					reason = fmt.Sprintf(", reason: %s", relay.Error)
 				}
+			} else if relay.Transport != "" {
+				available = fmt.Sprintf("%s via %s", available, relay.Transport)
 			}
 
 			relaysString += fmt.Sprintf("\n  [%s] is %s%s", relay.URI, available, reason)
@@ -535,6 +560,15 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 
 	peersCountString := fmt.Sprintf("%d/%d Connected", o.Peers.Connected, o.Peers.Total)
 
+	var sessionExpiryString string
+	if o.SessionExpiresAt != nil && !o.SessionExpiresAt.IsZero() {
+		sessionExpiryString = fmt.Sprintf(
+			"Session expires: %s (in %s)\n",
+			o.SessionExpiresAt.Format(time.RFC3339),
+			FormatRemainingDuration(time.Until(*o.SessionExpiresAt)),
+		)
+	}
+
 	var forwardingRulesString string
 	if o.NumberOfForwardingRules > 0 {
 		forwardingRulesString = fmt.Sprintf("Forwarding rules: %d\n", o.NumberOfForwardingRules)
@@ -545,6 +579,21 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 	goarm := ""
 	if goarch == "arm" {
 		goarm = fmt.Sprintf(" (ARMv%s)", os.Getenv("GOARM"))
+	}
+
+	daemonVersion := "N/A"
+	if o.DaemonVersion != "" {
+		daemonVersion = o.DaemonVersion
+	}
+
+	cliVersion := version.NetbirdVersion()
+	if o.CliVersion != "" {
+		cliVersion = o.CliVersion
+	}
+
+	wgPortString := "N/A"
+	if o.WgPort > 0 {
+		wgPortString = fmt.Sprintf("%d", o.WgPort)
 	}
 
 	summary := fmt.Sprintf(
@@ -560,15 +609,17 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 			"NetBird IP: %s\n"+
 			"%s"+
 			"Interface type: %s\n"+
+			"Wireguard port: %s\n"+
 			"Quantum resistance: %s\n"+
 			"Lazy connection: %s\n"+
 			"SSH Server: %s\n"+
 			"Networks: %s\n"+
 			"%s"+
+			"%s"+
 			"Peers count: %s\n",
 		fmt.Sprintf("%s/%s%s", goos, goarch, goarm),
-		o.DaemonVersion,
-		version.NetbirdVersion(),
+		daemonVersion,
+		cliVersion,
 		o.ProfileName,
 		managementConnString,
 		signalConnString,
@@ -578,11 +629,13 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 		interfaceIP,
 		ipv6Line,
 		interfaceTypeString,
+		wgPortString,
 		rosenpassEnabledStatus,
 		lazyConnectionEnabledStatus,
 		sshServerStatus,
 		networks,
 		forwardingRulesString,
+		sessionExpiryString,
 		peersCountString,
 	)
 	return summary
@@ -692,6 +745,8 @@ func ToProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 		}
 		pbFullStatus.DnsServers = append(pbFullStatus.DnsServers, pbDnsState)
 	}
+
+	pbFullStatus.Events = fullStatus.Events
 
 	return &pbFullStatus
 }
@@ -994,5 +1049,59 @@ func anonymizeOverview(a *anonymize.Anonymizer, overview *OutputOverview) {
 			overview.SSHServerState.Sessions[i].RemoteAddress = a.AnonymizeIPString(session.RemoteAddress)
 		}
 		overview.SSHServerState.Sessions[i].Command = a.AnonymizeString(session.Command)
+	}
+}
+
+// FormatRemainingDuration renders a time.Duration for the "Session expires"
+// line. Examples: "2h 15m", "47m 12s", "8s", "expired 3m ago".
+//
+// Granularity drops to seconds only under a minute, otherwise minutes are
+// the smallest unit shown — sub-minute precision is noise for a deadline
+// that's hours or days out.
+func FormatRemainingDuration(d time.Duration) string {
+	if d <= 0 {
+		return "expired " + HumaniseDuration(-d) + " ago"
+	}
+	return HumaniseDuration(d)
+}
+
+// HumaniseDuration renders a positive duration in compact form (e.g.
+// "2h 15m", "47m", "8s"). Exposed alongside FormatRemainingDuration so
+// callers that don't need the "expired … ago" wording can format
+// positive durations directly.
+func HumaniseDuration(d time.Duration) string {
+	if d < time.Minute {
+		s := int(d.Round(time.Second).Seconds())
+		if s < 1 {
+			s = 1
+		}
+		return fmt.Sprintf("%ds", s)
+	}
+
+	const (
+		day    = 24 * time.Hour
+		hour   = time.Hour
+		minute = time.Minute
+	)
+
+	days := int64(d / day)
+	d -= time.Duration(days) * day
+	hours := int64(d / hour)
+	d -= time.Duration(hours) * hour
+	minutes := int64(d / minute)
+
+	switch {
+	case days > 0:
+		if hours == 0 {
+			return fmt.Sprintf("%dd", days)
+		}
+		return fmt.Sprintf("%dd %dh", days, hours)
+	case hours > 0:
+		if minutes == 0 {
+			return fmt.Sprintf("%dh", hours)
+		}
+		return fmt.Sprintf("%dh %dm", hours, minutes)
+	default:
+		return fmt.Sprintf("%dm", minutes)
 	}
 }

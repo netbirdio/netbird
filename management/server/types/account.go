@@ -32,33 +32,16 @@ import (
 )
 
 const (
-	defaultTTL                      = 300
+	defaultTTL = 300
+	// privateServiceDNSRecordTTL is short so proxy-peer changes propagate quickly to clients.
+	privateServiceDNSRecordTTL      = 5
 	DefaultPeerLoginExpiration      = 24 * time.Hour
 	DefaultPeerInactivityExpiration = 10 * time.Minute
 
 	PublicCategory  = "public"
 	PrivateCategory = "private"
 	UnknownCategory = "unknown"
-
-	// firewallRuleMinPortRangesVer defines the minimum peer version that supports port range rules.
-	firewallRuleMinPortRangesVer = "0.48.0"
-	// firewallRuleMinNativeSSHVer defines the minimum peer version that supports native SSH features in the firewall rules.
-	firewallRuleMinNativeSSHVer = "0.60.0"
-
-	// nativeSSHPortString defines the default port number as a string used for native SSH connections; this port is used by clients when hijacking ssh connections.
-	nativeSSHPortString = "22022"
-	nativeSSHPortNumber = 22022
-	// defaultSSHPortString defines the standard SSH port number as a string, commonly used for default SSH connections.
-	defaultSSHPortString = "22"
-	defaultSSHPortNumber = 22
 )
-
-type supportedFeatures struct {
-	nativeSSH  bool
-	portRanges bool
-}
-
-type LookupMap map[string]struct{}
 
 // AccountMeta is a struct that contains a stripped down version of the Account object.
 // It doesn't carry any peers, groups, policies, or routes, etc. Just some metadata (e.g. ID, created by, created at, etc).
@@ -108,6 +91,8 @@ type Account struct {
 	Onboarding       AccountOnboarding                `gorm:"foreignKey:AccountID;references:id;constraint:OnDelete:CASCADE"`
 
 	ReverseProxyFreeDomainNonce string
+
+	PostureValidation map[string]map[string]bool `gorm:"-"`
 }
 
 // this class is used by gorm only
@@ -252,6 +237,150 @@ func getUniqueHostLabel(name string, peerLabels LookupMap) string {
 		}
 	}
 	return ""
+}
+
+// SynthesizePrivateServiceZones returns in-memory CustomZones with A records pointing each enabled private service the peer can reach at the cluster's proxy-peer IPs. One zone per cluster (multiple services share); records gated by AccessGroups.
+func (a *Account) SynthesizePrivateServiceZones(peerID string) []nbdns.CustomZone {
+	peer, ok := a.Peers[peerID]
+	if !ok || peer == nil {
+		return nil
+	}
+	if len(a.Services) == 0 {
+		return nil
+	}
+
+	proxyPeersByCluster := a.GetProxyPeers()
+	if len(proxyPeersByCluster) == 0 {
+		return nil
+	}
+
+	peerGroups := a.GetPeerGroups(peerID)
+	zonesByApex := map[string]*nbdns.CustomZone{}
+
+	for _, svc := range a.Services {
+		if svc == nil || !svc.Enabled || !svc.Private {
+			continue
+		}
+		if len(svc.AccessGroups) == 0 {
+			continue
+		}
+		if !peerInDistributionGroups(peerGroups, svc.AccessGroups) {
+			continue
+		}
+		proxyPeers := proxyPeersByCluster[svc.ProxyCluster]
+		if len(proxyPeers) == 0 {
+			continue
+		}
+
+		serviceDomainZone := a.privateServiceDomainZone(svc)
+		if serviceDomainZone == "" {
+			continue
+		}
+
+		zone, exists := zonesByApex[serviceDomainZone]
+		if !exists {
+			// NonAuthoritative makes this a match-only zone: queries for
+			// names without an explicit record fall through to the
+			// upstream resolver instead of returning NXDOMAIN. Without
+			// it, adding a single private service would black-hole every
+			// other name under the zone apex.
+			zone = &nbdns.CustomZone{
+				Domain:               dns.Fqdn(serviceDomainZone),
+				Records:              []nbdns.SimpleRecord{},
+				NonAuthoritative:     true,
+				SearchDomainDisabled: true,
+			}
+			zonesByApex[serviceDomainZone] = zone
+		}
+
+		emitted := 0
+		skippedDisconnected := 0
+		for _, p := range proxyPeers {
+			if p == nil || !p.IP.IsValid() {
+				continue
+			}
+			// Only emit a record when the proxy peer is actually
+			// connected. A disconnected proxy peer's tunnel IP won't
+			// answer; pointing DNS at it would produce a black hole
+			// for as long as the record is cached client-side.
+			if p.Status == nil || !p.Status.Connected {
+				skippedDisconnected++
+				continue
+			}
+			zone.Records = append(zone.Records, nbdns.SimpleRecord{
+				Name:  dns.Fqdn(svc.Domain),
+				Type:  int(dns.TypeA),
+				Class: nbdns.DefaultClass,
+				TTL:   privateServiceDNSRecordTTL,
+				RData: p.IP.String(),
+			})
+			emitted++
+		}
+		// Disagreement with the firewall path is the typical
+		// "domain doesn't reach client but firewall rules do"
+		// symptom: the synth service is otherwise fine, only the
+		// proxy peer's persisted Connected flag is wrong (most
+		// likely the connection reaper marked it disconnected even
+		// though the gRPC stream is alive).
+		if emitted == 0 && skippedDisconnected > 0 {
+			log.Debugf("private-zone synth: svc %s domain=%s cluster=%s emitted_zero proxy_peers=%d all_disconnected=%d (firewall would still fire)",
+				svc.ID, svc.Domain, svc.ProxyCluster, len(proxyPeers), skippedDisconnected)
+		}
+	}
+
+	out := make([]nbdns.CustomZone, 0, len(zonesByApex))
+	for _, zone := range zonesByApex {
+		if len(zone.Records) == 0 {
+			continue
+		}
+		out = append(out, *zone)
+	}
+	if len(out) == 0 && len(a.Services) > 0 {
+		// Targeted diagnostic for the "firewall yes, DNS no" divergence —
+		// fires only when services exist but synth returns zero zones,
+		// so accounts without private services produce no noise.
+		log.Debugf("private-zone synth: peer %s account %s returned 0 zones from %d candidate service(s)",
+			peerID, a.Id, len(a.Services))
+	}
+	return out
+}
+
+// privateServiceDomainZone returns the DNS zone name for the given private service domain by
+// looking at the proxy cluster domain then the custom domains.
+func (a *Account) privateServiceDomainZone(svc *service.Service) string {
+	if domainFromSuffix(svc.Domain, svc.ProxyCluster) {
+		return svc.ProxyCluster
+	}
+
+	// Longest matching custom domain wins
+	zoneName := ""
+	for _, d := range a.Domains {
+		if d == nil || d.TargetCluster != svc.ProxyCluster {
+			continue
+		}
+		if domainFromSuffix(svc.Domain, d.Domain) && len(d.Domain) > len(zoneName) {
+			zoneName = d.Domain
+		}
+	}
+	return zoneName
+}
+
+func domainFromSuffix(domain, suffix string) bool {
+	if suffix == "" {
+		return false
+	}
+	return domain == suffix || strings.HasSuffix(domain, "."+suffix)
+}
+
+// peerInDistributionGroups reports whether any of the peer's groups
+// matches the service's bearer-auth distribution_groups.
+func peerInDistributionGroups(peerGroups LookupMap, distributionGroups []string) bool {
+	for _, gid := range distributionGroups {
+		if _, ok := peerGroups[gid]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *Account) GetPeersCustomZone(ctx context.Context, dnsDomain string) nbdns.CustomZone {
@@ -747,6 +876,7 @@ func (a *Account) Copy() *Account {
 		Services:               services,
 		Onboarding:             a.Onboarding,
 		Domains:                domains,
+		PostureValidation:      a.PostureValidation,
 	}
 }
 
@@ -924,7 +1054,7 @@ func (a *Account) GetPeerConnectionResources(ctx context.Context, peer *nbpeer.P
 				default:
 					authorizedUsers[auth.Wildcard] = a.getAllowedUserIDs()
 				}
-			} else if peerInDestinations && policyRuleImpliesLegacySSH(rule) && peer.SSHEnabled {
+			} else if peerInDestinations && PolicyRuleImpliesLegacySSH(rule) && peer.SSHEnabled {
 				sshEnabled = true
 				authorizedUsers[auth.Wildcard] = a.getAllowedUserIDs()
 			}
@@ -955,6 +1085,7 @@ func (a *Account) connResourcesGenerator(ctx context.Context, targetPeer *nbpeer
 	peersExists := make(map[string]struct{})
 	rules := make([]*FirewallRule, 0)
 	peers := make([]*nbpeer.Peer, 0)
+	targetComponent := targetPeer.ToComponent()
 
 	return func(rule *PolicyRule, groupPeers []*nbpeer.Peer, direction int) {
 			for _, peer := range groupPeers {
@@ -990,15 +1121,15 @@ func (a *Account) connResourcesGenerator(ctx context.Context, targetPeer *nbpeer
 				if len(rule.Ports) == 0 && len(rule.PortRanges) == 0 {
 					rules = append(rules, &fr)
 				} else {
-					rules = append(rules, expandPortsAndRanges(fr, rule, targetPeer)...)
+					rules = append(rules, ExpandPortsAndRanges(fr, rule, targetComponent)...)
 				}
 
-				rules = appendIPv6FirewallRule(rules, rulesExists, peer, targetPeer, rule, firewallRuleContext{
-					direction:   direction,
-					dirStr:      strconv.Itoa(direction),
-					protocolStr: string(protocol),
-					actionStr:   string(rule.Action),
-					portsJoined: strings.Join(rule.Ports, ","),
+				rules = AppendIPv6FirewallRule(rules, rulesExists, peer.ToComponent(), targetComponent, rule, FirewallRuleContext{
+					Direction:   direction,
+					DirStr:      strconv.Itoa(direction),
+					ProtocolStr: string(protocol),
+					ActionStr:   string(rule.Action),
+					PortsJoined: strings.Join(rule.Ports, ","),
 				})
 			}
 		}, func() ([]*nbpeer.Peer, []*FirewallRule) {
@@ -1006,22 +1137,41 @@ func (a *Account) connResourcesGenerator(ctx context.Context, targetPeer *nbpeer
 		}
 }
 
-func policyRuleImpliesLegacySSH(rule *PolicyRule) bool {
-	return rule.Protocol == PolicyRuleProtocolALL || (rule.Protocol == PolicyRuleProtocolTCP && (portsIncludesSSH(rule.Ports) || portRangeIncludesSSH(rule.PortRanges)))
-}
+// PeerSSHEnabledFromPolicies is the network-map-free equivalent of the sshEnabled
+// determination in GetPeerConnectionResources / CalculateNetworkMapFromComponents.
+func PeerSSHEnabledFromPolicies(policies []*Policy, peerID string, peerGroupIDs map[string]struct{}, peerSSHEnabled bool) bool {
+	for _, policy := range policies {
+		if !policy.Enabled {
+			continue
+		}
 
-func portRangeIncludesSSH(portRanges []RulePortRange) bool {
-	for _, pr := range portRanges {
-		if (pr.Start <= defaultSSHPortNumber && pr.End >= defaultSSHPortNumber) || (pr.Start <= nativeSSHPortNumber && pr.End >= nativeSSHPortNumber) {
-			return true
+		for _, rule := range policy.Rules {
+			if !rule.Enabled {
+				continue
+			}
+
+			isSSHRule := rule.Protocol == PolicyRuleProtocolNetbirdSSH ||
+				(PolicyRuleImpliesLegacySSH(rule) && peerSSHEnabled)
+			if !isSSHRule {
+				continue
+			}
+
+			if ruleHasDestination(rule, peerID, peerGroupIDs) {
+				return true
+			}
 		}
 	}
+
 	return false
 }
 
-func portsIncludesSSH(ports []string) bool {
-	for _, port := range ports {
-		if port == defaultSSHPortString || port == nativeSSHPortString {
+func ruleHasDestination(rule *PolicyRule, peerID string, peerGroupIDs map[string]struct{}) bool {
+	if rule.DestinationResource.Type == ResourceTypePeer && rule.DestinationResource.ID != "" {
+		return rule.DestinationResource.ID == peerID
+	}
+
+	for _, groupID := range rule.Destinations {
+		if _, ok := peerGroupIDs[groupID]; ok {
 			return true
 		}
 	}
@@ -1127,14 +1277,14 @@ func (a *Account) getRouteFirewallRules(ctx context.Context, peerID string, poli
 			}
 
 			rulePeers := a.getRulePeers(rule, policy.SourcePostureChecks, peerID, distributionPeers, validatedPeersMap)
-			rules := generateRouteFirewallRules(ctx, route, rule, rulePeers, FirewallRuleDirectionIN, includeIPv6)
+			rules := GenerateRouteFirewallRules(ctx, route, rule, rulePeers, FirewallRuleDirectionIN, includeIPv6)
 			fwRules = append(fwRules, rules...)
 		}
 	}
 	return fwRules
 }
 
-func (a *Account) getRulePeers(rule *PolicyRule, postureChecks []string, peerID string, distributionPeers map[string]struct{}, validatedPeersMap map[string]struct{}) []*nbpeer.Peer {
+func (a *Account) getRulePeers(rule *PolicyRule, postureChecks []string, peerID string, distributionPeers map[string]struct{}, validatedPeersMap map[string]struct{}) []*ComponentPeer {
 	distPeersWithPolicy := make(map[string]struct{})
 	for _, id := range rule.Sources {
 		group := a.Groups[id]
@@ -1161,13 +1311,13 @@ func (a *Account) getRulePeers(rule *PolicyRule, postureChecks []string, peerID 
 		}
 	}
 
-	distributionGroupPeers := make([]*nbpeer.Peer, 0, len(distPeersWithPolicy))
+	distributionGroupPeers := make([]*ComponentPeer, 0, len(distPeersWithPolicy))
 	for pID := range distPeersWithPolicy {
 		peer := a.Peers[pID]
 		if peer == nil {
 			continue
 		}
-		distributionGroupPeers = append(distributionGroupPeers, peer)
+		distributionGroupPeers = append(distributionGroupPeers, peer.ToComponent())
 	}
 	return distributionGroupPeers
 }
@@ -1370,6 +1520,54 @@ func (a *Account) GetResourceRoutersMap() map[string]map[string]*routerTypes.Net
 	return routers
 }
 
+// forcesRoutingPeerDNSResolution reports whether the given peer must run
+// routing-peer DNS resolution regardless of the account-global
+// RoutingPeerDNSResolutionEnabled setting. It returns true when the peer is a
+// router for a domain network resource that is targeted by an enabled
+// reverse-proxy service, so the peer's DNS forwarder starts and can resolve
+// the target for the embedded proxy peers. Embedded proxy peers themselves are
+// handled at PeerConfig build time.
+func (a *Account) forcesRoutingPeerDNSResolution(peerID string, routers map[string]map[string]*routerTypes.NetworkRouter) bool {
+	targeted := a.proxyTargetedDomainResourceIDs()
+	if len(targeted) == 0 {
+		return false
+	}
+
+	for _, resource := range a.NetworkResources {
+		if resource == nil || !resource.Enabled || resource.Type != resourceTypes.Domain {
+			continue
+		}
+		if _, ok := targeted[resource.ID]; !ok {
+			continue
+		}
+		if _, isRouter := routers[resource.NetworkID][peerID]; isRouter {
+			return true
+		}
+	}
+
+	return false
+}
+
+// proxyTargetedDomainResourceIDs returns the set of domain network resource IDs
+// targeted by an enabled, non-terminated reverse-proxy service.
+func (a *Account) proxyTargetedDomainResourceIDs() map[string]struct{} {
+	ids := make(map[string]struct{})
+	for _, svc := range a.Services {
+		if svc == nil || !svc.Enabled || svc.Terminated {
+			continue
+		}
+		for _, target := range svc.Targets {
+			if target == nil || !target.Enabled {
+				continue
+			}
+			if target.TargetType == service.TargetTypeDomain {
+				ids[target.TargetId] = struct{}{}
+			}
+		}
+	}
+	return ids
+}
+
 // getPoliciesSourcePeers collects all unique peers from the source groups defined in the given policies.
 func getPoliciesSourcePeers(policies []*Policy, groups map[string]*Group) map[string]struct{} {
 	sourcePeers := make(map[string]struct{})
@@ -1498,6 +1696,73 @@ func (a *Account) injectServiceProxyPolicies(ctx context.Context, service *servi
 		a.injectTargetProxyPolicies(ctx, service, target, proxyPeers)
 	}
 
+	a.injectPrivateServicePolicies(service, proxyPeers)
+}
+
+// injectPrivateServicePolicies synthesises an in-memory ACL: AccessGroups → cluster proxy peers on TCP 80/443.
+func (a *Account) injectPrivateServicePolicies(svc *service.Service, proxyPeers []*nbpeer.Peer) {
+	if !svc.Private {
+		return
+	}
+	if len(svc.AccessGroups) == 0 {
+		return
+	}
+	if len(proxyPeers) == 0 {
+		return
+	}
+	// A service's AccessGroups can name groups that no longer exist — persisted
+	// services and the agent-network synthesiser both carry the ids verbatim from
+	// their own state. An unresolvable source authorises nothing, so drop it here
+	// rather than let the network-map assembly resolve it to a nil group.
+	sources := a.existingGroupIDs(svc.AccessGroups)
+	if len(sources) == 0 {
+		return
+	}
+	for _, proxyPeer := range proxyPeers {
+		a.Policies = append(a.Policies, a.createPrivateServicePolicy(svc, proxyPeer, sources))
+	}
+}
+
+// existingGroupIDs returns the subset of groupIDs that resolve to a group in the account,
+// preserving the input order.
+func (a *Account) existingGroupIDs(groupIDs []string) []string {
+	out := make([]string, 0, len(groupIDs))
+	for _, groupID := range groupIDs {
+		if _, ok := a.Groups[groupID]; ok {
+			out = append(out, groupID)
+		}
+	}
+	return out
+}
+
+func (a *Account) createPrivateServicePolicy(svc *service.Service, proxyPeer *nbpeer.Peer, accessGroups []string) *Policy {
+	policyID := fmt.Sprintf("private-access-%s-%s", svc.ID, proxyPeer.ID)
+	sources := append([]string(nil), accessGroups...)
+	return &Policy{
+		ID:      policyID,
+		Name:    fmt.Sprintf("Private Access to %s", svc.Name),
+		Enabled: true,
+		Rules: []*PolicyRule{
+			{
+				ID:       policyID,
+				PolicyID: policyID,
+				Name:     fmt.Sprintf("Allow access groups to reach %s", svc.Name),
+				Enabled:  true,
+				Sources:  sources,
+				DestinationResource: Resource{
+					ID:   proxyPeer.ID,
+					Type: ResourceTypePeer,
+				},
+				Bidirectional: false,
+				Protocol:      PolicyRuleProtocolTCP,
+				Action:        PolicyTrafficActionAccept,
+				PortRanges: []RulePortRange{
+					{Start: 80, End: 80},
+					{Start: 443, End: 443},
+				},
+			},
+		},
+	}
 }
 
 func (a *Account) injectTargetProxyPolicies(ctx context.Context, service *service.Service, target *service.Target, proxyPeers []*nbpeer.Peer) {
@@ -1571,96 +1836,6 @@ func (a *Account) createProxyPolicy(svc *service.Service, target *service.Target
 			},
 		},
 	}
-}
-
-// expandPortsAndRanges expands Ports and PortRanges of a rule into individual firewall rules
-func expandPortsAndRanges(base FirewallRule, rule *PolicyRule, peer *nbpeer.Peer) []*FirewallRule {
-	features := peerSupportedFirewallFeatures(peer.Meta.WtVersion)
-
-	var expanded []*FirewallRule
-
-	for _, port := range rule.Ports {
-		fr := base
-		fr.Port = port
-		expanded = append(expanded, &fr)
-	}
-
-	for _, portRange := range rule.PortRanges {
-		// prefer PolicyRule.Ports
-		if len(rule.Ports) > 0 {
-			break
-		}
-		fr := base
-
-		if features.portRanges {
-			fr.PortRange = portRange
-		} else {
-			// Peer doesn't support port ranges, only allow single-port ranges
-			if portRange.Start != portRange.End {
-				continue
-			}
-			fr.Port = strconv.FormatUint(uint64(portRange.Start), 10)
-		}
-		expanded = append(expanded, &fr)
-	}
-
-	if shouldCheckRulesForNativeSSH(features.nativeSSH, rule, peer) || rule.Protocol == PolicyRuleProtocolNetbirdSSH {
-		expanded = addNativeSSHRule(base, expanded)
-	}
-
-	return expanded
-}
-
-// addNativeSSHRule adds a native SSH rule (port 22022) to the expanded rules if the base rule has port 22 configured.
-func addNativeSSHRule(base FirewallRule, expanded []*FirewallRule) []*FirewallRule {
-	shouldAdd := false
-	for _, fr := range expanded {
-		if isPortInRule(nativeSSHPortString, 22022, fr) {
-			return expanded
-		}
-		if isPortInRule(defaultSSHPortString, 22, fr) {
-			shouldAdd = true
-		}
-	}
-	if !shouldAdd {
-		return expanded
-	}
-
-	fr := base
-	fr.Port = nativeSSHPortString
-	return append(expanded, &fr)
-}
-
-func isPortInRule(portString string, portInt uint16, rule *FirewallRule) bool {
-	return rule.Port == portString || (rule.PortRange.Start <= portInt && portInt <= rule.PortRange.End)
-}
-
-// shouldCheckRulesForNativeSSH determines whether specific policy rules should be checked for native SSH support.
-// While users can add the nativeSSHPortString, we look for cases when they used port 22 and based on SSH enabled
-// in both management and client, we indicate to add the native port.
-func shouldCheckRulesForNativeSSH(supportsNative bool, rule *PolicyRule, peer *nbpeer.Peer) bool {
-	return supportsNative && peer.SSHEnabled && peer.Meta.Flags.ServerSSHAllowed && rule.Protocol == PolicyRuleProtocolTCP
-}
-
-// peerSupportedFirewallFeatures checks if the peer version supports port ranges.
-func peerSupportedFirewallFeatures(peerVer string) supportedFeatures {
-	if strings.Contains(peerVer, "dev") {
-		return supportedFeatures{true, true}
-	}
-
-	var features supportedFeatures
-
-	meetMinVer, err := posture.MeetsMinVersion(firewallRuleMinNativeSSHVer, peerVer)
-	features.nativeSSH = err == nil && meetMinVer
-
-	if features.nativeSSH {
-		features.portRanges = true
-	} else {
-		meetMinVer, err = posture.MeetsMinVersion(firewallRuleMinPortRangesVer, peerVer)
-		features.portRanges = err == nil && meetMinVer
-	}
-
-	return features
 }
 
 // filterZoneRecordsForPeers filters DNS records to only include peers to connect.

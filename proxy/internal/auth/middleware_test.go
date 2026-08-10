@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/base64"
 	"errors"
 	"net/http"
@@ -23,6 +24,7 @@ import (
 	"github.com/netbirdio/netbird/proxy/auth"
 	"github.com/netbirdio/netbird/proxy/internal/proxy"
 	"github.com/netbirdio/netbird/proxy/internal/restrict"
+	"github.com/netbirdio/netbird/proxy/internal/types"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -62,7 +64,7 @@ func TestAddDomain_ValidKey(t *testing.T) {
 	kp := generateTestKeyPair(t)
 
 	scheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
-	err := mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil)
+	err := mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil, false)
 	require.NoError(t, err)
 
 	mw.domainsMux.RLock()
@@ -79,7 +81,7 @@ func TestAddDomain_EmptyKey(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
 
 	scheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
-	err := mw.AddDomain("example.com", []Scheme{scheme}, "", time.Hour, "", "", nil)
+	err := mw.AddDomain("example.com", []Scheme{scheme}, "", time.Hour, "", "", nil, false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid session public key size")
 
@@ -93,7 +95,7 @@ func TestAddDomain_InvalidBase64(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
 
 	scheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
-	err := mw.AddDomain("example.com", []Scheme{scheme}, "not-valid-base64!!!", time.Hour, "", "", nil)
+	err := mw.AddDomain("example.com", []Scheme{scheme}, "not-valid-base64!!!", time.Hour, "", "", nil, false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "decode session public key")
 
@@ -108,7 +110,7 @@ func TestAddDomain_WrongKeySize(t *testing.T) {
 
 	shortKey := base64.StdEncoding.EncodeToString([]byte("tooshort"))
 	scheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
-	err := mw.AddDomain("example.com", []Scheme{scheme}, shortKey, time.Hour, "", "", nil)
+	err := mw.AddDomain("example.com", []Scheme{scheme}, shortKey, time.Hour, "", "", nil, false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid session public key size")
 
@@ -121,7 +123,7 @@ func TestAddDomain_WrongKeySize(t *testing.T) {
 func TestAddDomain_NoSchemes_NoKeyRequired(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
 
-	err := mw.AddDomain("example.com", nil, "", time.Hour, "", "", nil)
+	err := mw.AddDomain("example.com", nil, "", time.Hour, "", "", nil, false)
 	require.NoError(t, err, "domains with no auth schemes should not require a key")
 
 	mw.domainsMux.RLock()
@@ -137,8 +139,8 @@ func TestAddDomain_OverwritesPreviousConfig(t *testing.T) {
 
 	scheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
 
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp1.PublicKey, time.Hour, "", "", nil))
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp2.PublicKey, 2*time.Hour, "", "", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp1.PublicKey, time.Hour, "", "", nil, false))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp2.PublicKey, 2*time.Hour, "", "", nil, false))
 
 	mw.domainsMux.RLock()
 	config := mw.domains["example.com"]
@@ -154,7 +156,7 @@ func TestRemoveDomain(t *testing.T) {
 	kp := generateTestKeyPair(t)
 
 	scheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil, false))
 
 	mw.RemoveDomain("example.com")
 
@@ -178,7 +180,7 @@ func TestProtect_UnknownDomainPassesThrough(t *testing.T) {
 
 func TestProtect_DomainWithNoSchemesPassesThrough(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
-	require.NoError(t, mw.AddDomain("example.com", nil, "", time.Hour, "", "", nil))
+	require.NoError(t, mw.AddDomain("example.com", nil, "", time.Hour, "", "", nil, false))
 
 	handler := mw.Protect(newPassthroughHandler())
 
@@ -195,7 +197,7 @@ func TestProtect_UnauthenticatedRequestIsBlocked(t *testing.T) {
 	kp := generateTestKeyPair(t)
 
 	scheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil, false))
 
 	var backendCalled bool
 	backend := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -216,7 +218,7 @@ func TestProtect_HostWithPortIsMatched(t *testing.T) {
 	kp := generateTestKeyPair(t)
 
 	scheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil, false))
 
 	var backendCalled bool
 	backend := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -237,9 +239,9 @@ func TestProtect_ValidSessionCookiePassesThrough(t *testing.T) {
 	kp := generateTestKeyPair(t)
 
 	scheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil, false))
 
-	token, err := sessionkey.SignToken(kp.PrivateKey, "test-user", "example.com", auth.MethodPIN, time.Hour)
+	token, err := sessionkey.SignToken(kp.PrivateKey, "test-user", "", "example.com", auth.MethodPIN, nil, nil, time.Hour)
 	require.NoError(t, err)
 
 	capturedData := proxy.NewCapturedData("")
@@ -262,15 +264,151 @@ func TestProtect_ValidSessionCookiePassesThrough(t *testing.T) {
 	assert.Equal(t, "authenticated", rec.Body.String())
 }
 
+// TestProtect_SessionCookieGroupsPropagate verifies the cookie path lifts the
+// JWT's groups claim into CapturedData so policy-aware middlewares can
+// authorise without an extra management round-trip.
+func TestProtect_SessionCookieGroupsPropagate(t *testing.T) {
+	mw := NewMiddleware(log.StandardLogger(), nil, nil)
+	kp := generateTestKeyPair(t)
+
+	scheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil, false))
+
+	groups := []string{"engineering", "sre"}
+	token, err := sessionkey.SignToken(kp.PrivateKey, "test-user", "", "example.com", auth.MethodPIN, groups, nil, time.Hour)
+	require.NoError(t, err)
+
+	capturedData := proxy.NewCapturedData("")
+	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cd := proxy.CapturedDataFromContext(r.Context())
+		require.NotNil(t, cd, "captured data must be present in request context")
+		assert.Equal(t, "test-user", cd.GetUserID())
+		assert.Equal(t, groups, cd.GetUserGroups(), "JWT groups claim must propagate to CapturedData")
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	req = req.WithContext(proxy.WithCapturedData(req.Context(), capturedData))
+	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: token})
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code, "request with valid groups-bearing cookie must succeed")
+	assert.Equal(t, groups, capturedData.GetUserGroups(), "CapturedData groups must be retained after handler completes")
+}
+
+// stubTunnelValidator implements SessionValidator for the tunnel-peer
+// path. ValidateTunnelPeer returns a fixed response so tests can assert
+// how the proxy maps it onto CapturedData, and records whether the
+// fast-path actually reached management.
+type stubTunnelValidator struct {
+	called bool
+	resp   *proto.ValidateTunnelPeerResponse
+}
+
+func (s *stubTunnelValidator) ValidateSession(context.Context, *proto.ValidateSessionRequest, ...grpc.CallOption) (*proto.ValidateSessionResponse, error) {
+	return nil, errors.New("not used in this test")
+}
+
+func (s *stubTunnelValidator) ValidateTunnelPeer(context.Context, *proto.ValidateTunnelPeerRequest, ...grpc.CallOption) (*proto.ValidateTunnelPeerResponse, error) {
+	s.called = true
+	return s.resp, nil
+}
+
+// TestProtect_PrivateService_TunnelPeerGroupsPropagate locks the agent-network
+// auth path end-to-end at the proxy edge: a Private service must route through
+// ValidateTunnelPeer and lift the returned peer_group_ids onto CapturedData so
+// the llm_router group-authorisation pass can see them. Regression guard for
+// the failure that surfaces downstream as llm_policy.no_authorised_provider —
+// i.e. a synthesised service that reaches the proxy without private=true (so
+// this path is skipped) leaves UserGroups empty and every request is denied.
+func TestProtect_PrivateService_TunnelPeerGroupsPropagate(t *testing.T) {
+	groups := []string{"grp-admins", "grp-users"}
+	names := []string{"Admins", "Users"}
+	validator := &stubTunnelValidator{resp: &proto.ValidateTunnelPeerResponse{
+		Valid:          true,
+		UserId:         "user-1",
+		UserEmail:      "user@example.com",
+		SessionToken:   "tunnel-session-token",
+		PeerGroupIds:   groups,
+		PeerGroupNames: names,
+	}}
+	mw := NewMiddleware(log.StandardLogger(), validator, nil)
+	kp := generateTestKeyPair(t)
+
+	// Private service: no operator schemes — auth gates solely on the tunnel peer.
+	require.NoError(t, mw.AddDomain("agent.example.com", nil, kp.PublicKey, time.Hour, "acct-1", "svc-1", nil, true))
+
+	cd := proxy.NewCapturedData("")
+	cd.SetClientIP(netip.MustParseAddr("100.90.1.14")) // CGNAT tunnel source
+
+	var seenGroups []string
+	var seenUser string
+	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c := proxy.CapturedDataFromContext(r.Context())
+		require.NotNil(t, c, "captured data must be present in request context")
+		seenGroups = c.GetUserGroups()
+		seenUser = c.GetUserID()
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	lookup := TunnelLookupFunc(func(_ netip.Addr) (PeerIdentity, bool) {
+		return PeerIdentity{}, true
+	})
+	req := httptest.NewRequest(http.MethodPost, "http://agent.example.com/v1/chat/completions", nil)
+	req.RemoteAddr = "100.90.1.14:5000"
+	req = req.WithContext(WithTunnelLookup(proxy.WithCapturedData(req.Context(), cd), lookup))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code, "private service must authorise a tunnel peer the validator accepts")
+	assert.Equal(t, groups, seenGroups, "ValidateTunnelPeer peer_group_ids must reach CapturedData.UserGroups for llm_router authorisation")
+	assert.Equal(t, "user-1", seenUser, "tunnel-peer principal must reach CapturedData")
+	assert.Equal(t, groups, cd.GetUserGroups(), "groups must persist on CapturedData after the handler returns")
+}
+
+// TestProtect_PrivateService_TunnelPeerDenied verifies the deny path: when
+// ValidateTunnelPeer rejects the peer, a Private service 403s and never reaches
+// the upstream handler (no fall-through to unauthenticated pass-through).
+func TestProtect_PrivateService_TunnelPeerDenied(t *testing.T) {
+	validator := &stubTunnelValidator{resp: &proto.ValidateTunnelPeerResponse{
+		Valid:        false,
+		DeniedReason: "not_in_group",
+	}}
+	mw := NewMiddleware(log.StandardLogger(), validator, nil)
+	kp := generateTestKeyPair(t)
+	require.NoError(t, mw.AddDomain("agent.example.com", nil, kp.PublicKey, time.Hour, "acct-1", "svc-1", nil, true))
+
+	cd := proxy.NewCapturedData("")
+	cd.SetClientIP(netip.MustParseAddr("100.90.1.14"))
+
+	reached := false
+	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reached = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	lookup := TunnelLookupFunc(func(_ netip.Addr) (PeerIdentity, bool) {
+		return PeerIdentity{}, true
+	})
+	req := httptest.NewRequest(http.MethodPost, "http://agent.example.com/v1/chat/completions", nil)
+	req.RemoteAddr = "100.90.1.14:5000"
+	req = req.WithContext(WithTunnelLookup(proxy.WithCapturedData(req.Context(), cd), lookup))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusForbidden, rec.Code, "private service must 403 when the tunnel peer is rejected")
+	assert.False(t, reached, "denied private request must not reach the upstream handler")
+}
+
 func TestProtect_ExpiredSessionCookieIsRejected(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
 	kp := generateTestKeyPair(t)
 
 	scheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil, false))
 
 	// Sign a token that expired 1 second ago.
-	token, err := sessionkey.SignToken(kp.PrivateKey, "test-user", "example.com", auth.MethodPIN, -time.Second)
+	token, err := sessionkey.SignToken(kp.PrivateKey, "test-user", "", "example.com", auth.MethodPIN, nil, nil, -time.Second)
 	require.NoError(t, err)
 
 	var backendCalled bool
@@ -293,10 +431,10 @@ func TestProtect_WrongDomainCookieIsRejected(t *testing.T) {
 	kp := generateTestKeyPair(t)
 
 	scheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil, false))
 
 	// Token signed for a different domain audience.
-	token, err := sessionkey.SignToken(kp.PrivateKey, "test-user", "other.com", auth.MethodPIN, time.Hour)
+	token, err := sessionkey.SignToken(kp.PrivateKey, "test-user", "", "other.com", auth.MethodPIN, nil, nil, time.Hour)
 	require.NoError(t, err)
 
 	var backendCalled bool
@@ -320,10 +458,10 @@ func TestProtect_WrongKeyCookieIsRejected(t *testing.T) {
 	kp2 := generateTestKeyPair(t)
 
 	scheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp1.PublicKey, time.Hour, "", "", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp1.PublicKey, time.Hour, "", "", nil, false))
 
 	// Token signed with a different private key.
-	token, err := sessionkey.SignToken(kp2.PrivateKey, "test-user", "example.com", auth.MethodPIN, time.Hour)
+	token, err := sessionkey.SignToken(kp2.PrivateKey, "test-user", "", "example.com", auth.MethodPIN, nil, nil, time.Hour)
 	require.NoError(t, err)
 
 	var backendCalled bool
@@ -345,7 +483,7 @@ func TestProtect_SchemeAuthRedirectsWithCookie(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
 	kp := generateTestKeyPair(t)
 
-	token, err := sessionkey.SignToken(kp.PrivateKey, "pin-user", "example.com", auth.MethodPIN, time.Hour)
+	token, err := sessionkey.SignToken(kp.PrivateKey, "pin-user", "", "example.com", auth.MethodPIN, nil, nil, time.Hour)
 	require.NoError(t, err)
 
 	scheme := &stubScheme{
@@ -357,7 +495,7 @@ func TestProtect_SchemeAuthRedirectsWithCookie(t *testing.T) {
 			return "", "pin", nil
 		},
 	}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil, false))
 
 	var backendCalled bool
 	backend := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -410,7 +548,7 @@ func TestProtect_FailedAuthDoesNotSetCookie(t *testing.T) {
 			return "", "pin", nil
 		},
 	}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil, false))
 
 	handler := mw.Protect(newPassthroughHandler())
 
@@ -427,7 +565,7 @@ func TestProtect_MultipleSchemes(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
 	kp := generateTestKeyPair(t)
 
-	token, err := sessionkey.SignToken(kp.PrivateKey, "password-user", "example.com", auth.MethodPassword, time.Hour)
+	token, err := sessionkey.SignToken(kp.PrivateKey, "password-user", "", "example.com", auth.MethodPassword, nil, nil, time.Hour)
 	require.NoError(t, err)
 
 	// First scheme (PIN) always fails, second scheme (password) succeeds.
@@ -446,7 +584,7 @@ func TestProtect_MultipleSchemes(t *testing.T) {
 			return "", "password", nil
 		},
 	}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{pinScheme, passwordScheme}, kp.PublicKey, time.Hour, "", "", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{pinScheme, passwordScheme}, kp.PublicKey, time.Hour, "", "", nil, false))
 
 	var backendCalled bool
 	backend := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -476,7 +614,7 @@ func TestProtect_InvalidTokenFromSchemeReturns400(t *testing.T) {
 			return "invalid-jwt-token", "", nil
 		},
 	}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil, false))
 
 	handler := mw.Protect(newPassthroughHandler())
 
@@ -500,7 +638,7 @@ func TestAddDomain_RandomBytes32NotEd25519(t *testing.T) {
 	key := base64.StdEncoding.EncodeToString(randomBytes)
 	scheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
 
-	err = mw.AddDomain("example.com", []Scheme{scheme}, key, time.Hour, "", "", nil)
+	err = mw.AddDomain("example.com", []Scheme{scheme}, key, time.Hour, "", "", nil, false)
 	require.NoError(t, err, "any 32-byte key should be accepted at registration time")
 }
 
@@ -509,10 +647,10 @@ func TestAddDomain_InvalidKeyDoesNotCorruptExistingConfig(t *testing.T) {
 	kp := generateTestKeyPair(t)
 
 	scheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil, false))
 
 	// Attempt to overwrite with an invalid key.
-	err := mw.AddDomain("example.com", []Scheme{scheme}, "bad", time.Hour, "", "", nil)
+	err := mw.AddDomain("example.com", []Scheme{scheme}, "bad", time.Hour, "", "", nil, false)
 	require.Error(t, err)
 
 	// The original valid config should still be intact.
@@ -536,7 +674,7 @@ func TestProtect_FailedPinAuthCapturesAuthMethod(t *testing.T) {
 			return "", "pin", nil
 		},
 	}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil, false))
 
 	capturedData := proxy.NewCapturedData("")
 	handler := mw.Protect(newPassthroughHandler())
@@ -563,7 +701,7 @@ func TestProtect_FailedPasswordAuthCapturesAuthMethod(t *testing.T) {
 			return "", "password", nil
 		},
 	}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil, false))
 
 	capturedData := proxy.NewCapturedData("")
 	handler := mw.Protect(newPassthroughHandler())
@@ -590,7 +728,7 @@ func TestProtect_NoCredentialsDoesNotCaptureAuthMethod(t *testing.T) {
 			return "", "pin", nil
 		},
 	}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil, false))
 
 	capturedData := proxy.NewCapturedData("")
 	handler := mw.Protect(newPassthroughHandler())
@@ -678,7 +816,7 @@ func TestCheckIPRestrictions_UnparseableAddress(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
 
 	err := mw.AddDomain("example.com", nil, "", 0, "acc1", "svc1",
-		restrict.ParseFilter(restrict.FilterConfig{AllowedCIDRs: []string{"10.0.0.0/8"}}))
+		restrict.ParseFilter(restrict.FilterConfig{AllowedCIDRs: []string{"10.0.0.0/8"}}), false)
 	require.NoError(t, err)
 
 	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -714,7 +852,7 @@ func TestCheckIPRestrictions_UsesCapturedDataClientIP(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
 
 	err := mw.AddDomain("example.com", nil, "", 0, "acc1", "svc1",
-		restrict.ParseFilter(restrict.FilterConfig{AllowedCIDRs: []string{"203.0.113.0/24"}}))
+		restrict.ParseFilter(restrict.FilterConfig{AllowedCIDRs: []string{"203.0.113.0/24"}}), false)
 	require.NoError(t, err)
 
 	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -755,7 +893,7 @@ func TestCheckIPRestrictions_NilGeoWithCountryRules(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
 
 	err := mw.AddDomain("example.com", nil, "", 0, "acc1", "svc1",
-		restrict.ParseFilter(restrict.FilterConfig{AllowedCountries: []string{"US"}}))
+		restrict.ParseFilter(restrict.FilterConfig{AllowedCountries: []string{"US"}}), false)
 	require.NoError(t, err)
 
 	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -770,6 +908,69 @@ func TestCheckIPRestrictions_NilGeoWithCountryRules(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, rr.Code, "country restrictions with nil geo must deny")
 }
 
+// TestCheckIPRestrictions_OverlayOriginSkipsCountryRules covers the
+// inbound (WG) listener path: requests stamped with WithOverlayOrigin
+// must skip country lookups, even when no geo database is configured.
+// Without this short-circuit the inbound flow would fail-closed for
+// every overlay request whenever country rules are configured.
+func TestCheckIPRestrictions_OverlayOriginSkipsCountryRules(t *testing.T) {
+	mw := NewMiddleware(log.StandardLogger(), nil, nil)
+
+	err := mw.AddDomain("example.com", nil, "", 0, "acc1", "svc1",
+		restrict.ParseFilter(restrict.FilterConfig{
+			AllowedCIDRs:     []string{"100.64.0.0/10"},
+			AllowedCountries: []string{"US"},
+		}), false)
+	require.NoError(t, err)
+
+	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	req.RemoteAddr = "100.64.5.6:5000"
+	req.Host = "example.com"
+	req = req.WithContext(types.WithOverlayOrigin(req.Context()))
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusOK, rr.Code,
+		"overlay-origin requests must not be denied by country rules they would fail without geo data")
+
+	// Sanity check: the same filter without the overlay flag denies (no geo,
+	// country allowlist active → DenyGeoUnavailable).
+	req2 := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	req2.RemoteAddr = "100.64.5.6:5000"
+	req2.Host = "example.com"
+	rr2 := httptest.NewRecorder()
+	handler.ServeHTTP(rr2, req2)
+	assert.Equal(t, http.StatusForbidden, rr2.Code,
+		"WAN-origin requests must still hit the full Check path and be denied without geo data")
+}
+
+// TestCheckIPRestrictions_OverlayOriginRespectsCIDR confirms CIDR
+// rules still apply on the overlay path so operators retain a way to
+// scope private services to specific peer subnets.
+func TestCheckIPRestrictions_OverlayOriginRespectsCIDR(t *testing.T) {
+	mw := NewMiddleware(log.StandardLogger(), nil, nil)
+
+	err := mw.AddDomain("example.com", nil, "", 0, "acc1", "svc1",
+		restrict.ParseFilter(restrict.FilterConfig{AllowedCIDRs: []string{"100.64.0.0/16"}}), false)
+	require.NoError(t, err)
+
+	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	req.RemoteAddr = "100.65.5.6:5000" // outside 100.64.0.0/16
+	req.Host = "example.com"
+	req = req.WithContext(types.WithOverlayOrigin(req.Context()))
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusForbidden, rr.Code,
+		"CIDR rules must still apply on the overlay path")
+}
+
 func TestProtect_OIDCOnlyRedirectsDirectly(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
 	kp := generateTestKeyPair(t)
@@ -781,11 +982,12 @@ func TestProtect_OIDCOnlyRedirectsDirectly(t *testing.T) {
 			return "", oidcURL, nil
 		},
 	}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil, false))
 
 	handler := mw.Protect(newPassthroughHandler())
 
-	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	req := httptest.NewRequest(http.MethodGet, "https://example.com/", nil)
+	req.TLS = &tls.ConnectionState{}
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -809,11 +1011,12 @@ func TestProtect_OIDCWithOtherMethodShowsLoginPage(t *testing.T) {
 			return "", "pin", nil
 		},
 	}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{oidcScheme, pinScheme}, kp.PublicKey, time.Hour, "", "", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{oidcScheme, pinScheme}, kp.PublicKey, time.Hour, "", "", nil, false))
 
 	handler := mw.Protect(newPassthroughHandler())
 
-	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	req := httptest.NewRequest(http.MethodGet, "https://example.com/", nil)
+	req.TLS = &tls.ConnectionState{}
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -834,7 +1037,7 @@ func (m *mockAuthenticator) Authenticate(ctx context.Context, in *proto.Authenti
 // returns a signed session token when the expected header value is provided.
 func newHeaderSchemeWithToken(t *testing.T, kp *sessionkey.KeyPair, headerName, expectedValue string) Header {
 	t.Helper()
-	token, err := sessionkey.SignToken(kp.PrivateKey, "header-user", "example.com", auth.MethodHeader, time.Hour)
+	token, err := sessionkey.SignToken(kp.PrivateKey, "header-user", "", "example.com", auth.MethodHeader, nil, nil, time.Hour)
 	require.NoError(t, err)
 
 	mock := &mockAuthenticator{fn: func(_ context.Context, req *proto.AuthenticateRequest) (*proto.AuthenticateResponse, error) {
@@ -852,7 +1055,7 @@ func TestProtect_HeaderAuth_ForwardsOnSuccess(t *testing.T) {
 	kp := generateTestKeyPair(t)
 
 	hdr := newHeaderSchemeWithToken(t, kp, "X-API-Key", "secret-key")
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{hdr}, kp.PublicKey, time.Hour, "acc1", "svc1", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{hdr}, kp.PublicKey, time.Hour, "acc1", "svc1", nil, false))
 
 	var backendCalled bool
 	capturedData := proxy.NewCapturedData("")
@@ -895,7 +1098,7 @@ func TestProtect_HeaderAuth_MissingHeaderFallsThrough(t *testing.T) {
 	hdr := newHeaderSchemeWithToken(t, kp, "X-API-Key", "secret-key")
 	// Also add a PIN scheme so we can verify fallthrough behavior.
 	pinScheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{hdr, pinScheme}, kp.PublicKey, time.Hour, "acc1", "svc1", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{hdr, pinScheme}, kp.PublicKey, time.Hour, "acc1", "svc1", nil, false))
 
 	handler := mw.Protect(newPassthroughHandler())
 
@@ -915,7 +1118,7 @@ func TestProtect_HeaderAuth_WrongValueReturns401(t *testing.T) {
 		return &proto.AuthenticateResponse{Success: false}, nil
 	}}
 	hdr := NewHeader(mock, "svc1", "acc1", "X-API-Key")
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{hdr}, kp.PublicKey, time.Hour, "acc1", "svc1", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{hdr}, kp.PublicKey, time.Hour, "acc1", "svc1", nil, false))
 
 	capturedData := proxy.NewCapturedData("")
 	handler := mw.Protect(newPassthroughHandler())
@@ -938,7 +1141,7 @@ func TestProtect_HeaderAuth_InfraErrorReturns502(t *testing.T) {
 		return nil, errors.New("gRPC unavailable")
 	}}
 	hdr := NewHeader(mock, "svc1", "acc1", "X-API-Key")
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{hdr}, kp.PublicKey, time.Hour, "acc1", "svc1", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{hdr}, kp.PublicKey, time.Hour, "acc1", "svc1", nil, false))
 
 	handler := mw.Protect(newPassthroughHandler())
 
@@ -955,7 +1158,7 @@ func TestProtect_HeaderAuth_SubsequentRequestUsesSessionCookie(t *testing.T) {
 	kp := generateTestKeyPair(t)
 
 	hdr := newHeaderSchemeWithToken(t, kp, "X-API-Key", "secret-key")
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{hdr}, kp.PublicKey, time.Hour, "acc1", "svc1", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{hdr}, kp.PublicKey, time.Hour, "acc1", "svc1", nil, false))
 
 	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -1006,7 +1209,7 @@ func TestProtect_HeaderAuth_MultipleValuesSameHeader(t *testing.T) {
 	mock := &mockAuthenticator{fn: func(_ context.Context, req *proto.AuthenticateRequest) (*proto.AuthenticateResponse, error) {
 		ha := req.GetHeaderAuth()
 		if ha != nil && accepted[ha.GetHeaderValue()] {
-			token, err := sessionkey.SignToken(kp.PrivateKey, "header-user", "example.com", auth.MethodHeader, time.Hour)
+			token, err := sessionkey.SignToken(kp.PrivateKey, "header-user", "", "example.com", auth.MethodHeader, nil, nil, time.Hour)
 			require.NoError(t, err)
 			return &proto.AuthenticateResponse{Success: true, SessionToken: token}, nil
 		}
@@ -1015,7 +1218,7 @@ func TestProtect_HeaderAuth_MultipleValuesSameHeader(t *testing.T) {
 
 	// Single Header scheme (as if one entry existed), but the mock checks both values.
 	hdr := NewHeader(mock, "svc1", "acc1", "Authorization")
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{hdr}, kp.PublicKey, time.Hour, "acc1", "svc1", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{hdr}, kp.PublicKey, time.Hour, "acc1", "svc1", nil, false))
 
 	var backendCalled bool
 	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -1058,4 +1261,146 @@ func TestProtect_HeaderAuth_MultipleValuesSameHeader(t *testing.T) {
 		assert.Equal(t, http.StatusUnauthorized, rec.Code)
 		assert.False(t, backendCalled, "unknown token should be rejected")
 	})
+}
+
+// TestProtect_OIDCOnPlainHTTP_BlockedWith400 verifies that when an OIDC
+// scheme is configured and the request arrived without TLS, the middleware
+// short-circuits with a 400 instead of dispatching to the IdP redirect.
+func TestProtect_OIDCOnPlainHTTP_BlockedWith400(t *testing.T) {
+	mw := NewMiddleware(log.StandardLogger(), nil, nil)
+	kp := generateTestKeyPair(t)
+
+	scheme := &stubScheme{
+		method: auth.MethodOIDC,
+		authFn: func(_ *http.Request) (string, string, error) {
+			return "", "https://idp.example.com/authorize", nil
+		},
+	}
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil, false))
+
+	handler := mw.Protect(newPassthroughHandler())
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code, "OIDC over plain HTTP should be rejected")
+	assert.Contains(t, rec.Body.String(), "OIDC requires TLS", "response body should explain the rejection")
+}
+
+// TestProtect_OIDCOverTLS_NotBlocked confirms the same configuration works
+// over TLS — the block only fires on plain HTTP.
+func TestProtect_OIDCOverTLS_NotBlocked(t *testing.T) {
+	mw := NewMiddleware(log.StandardLogger(), nil, nil)
+	kp := generateTestKeyPair(t)
+
+	scheme := &stubScheme{
+		method: auth.MethodOIDC,
+		authFn: func(_ *http.Request) (string, string, error) {
+			return "", "https://idp.example.com/authorize", nil
+		},
+	}
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil, false))
+
+	handler := mw.Protect(newPassthroughHandler())
+
+	req := httptest.NewRequest(http.MethodGet, "https://example.com/", nil)
+	req.TLS = &tls.ConnectionState{}
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusFound, rec.Code, "OIDC over TLS should redirect to IdP")
+}
+
+// TestProtect_NonOIDCSchemes_PlainHTTP_NotBlocked confirms that the OIDC
+// block only fires when an OIDC scheme is configured. PIN-only domains
+// pass through normally on plain HTTP.
+func TestProtect_NonOIDCSchemes_PlainHTTP_NotBlocked(t *testing.T) {
+	mw := NewMiddleware(log.StandardLogger(), nil, nil)
+	kp := generateTestKeyPair(t)
+
+	scheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil, false))
+
+	handler := mw.Protect(newPassthroughHandler())
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusUnauthorized, rec.Code, "PIN-only domain should serve the login page on plain HTTP")
+}
+
+// TestProtect_TunnelPeerFastPath_RequiresInboundMarker guards the
+// anti-spoof gate: a request with an RFC1918 source IP arriving on the
+// public listener (no TunnelLookupFromContext attached) must not be
+// allowed to take the tunnel-peer fast-path. Without this gate a public
+// client whose source IP happens to fall inside an RFC1918 range could
+// bypass the configured auth scheme by colliding with a known tunnel
+// IP.
+func TestProtect_TunnelPeerFastPath_RequiresInboundMarker(t *testing.T) {
+	validator := &stubTunnelValidator{
+		resp: &proto.ValidateTunnelPeerResponse{
+			Valid:        true,
+			SessionToken: "should-not-be-used",
+			UserId:       "user-1",
+		},
+	}
+	mw := NewMiddleware(log.StandardLogger(), validator, nil)
+	kp := generateTestKeyPair(t)
+
+	scheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil, false))
+
+	handler := mw.Protect(newPassthroughHandler())
+
+	// Request from an RFC1918 source IP on the public listener — no
+	// TunnelLookupFromContext attached. The fast-path must reject this
+	// and fall through to the PIN scheme (which renders 401 on plain
+	// HTTP for a non-authenticated request).
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	req.RemoteAddr = "100.64.0.5:5000"
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.False(t, validator.called,
+		"ValidateTunnelPeer must not be invoked when the request lacks the inbound TunnelLookup marker")
+	assert.Equal(t, http.StatusUnauthorized, rec.Code,
+		"without the inbound marker the request must fall through to the operator auth scheme")
+}
+
+// TestProtect_TunnelPeerFastPath_TakesPathWithInboundMarker verifies
+// the positive side: a request marked as overlay-origin (carrying the
+// TunnelLookup context value) and matching a tunnel-IP range does take
+// the fast-path and reach management.
+func TestProtect_TunnelPeerFastPath_TakesPathWithInboundMarker(t *testing.T) {
+	validator := &stubTunnelValidator{
+		resp: &proto.ValidateTunnelPeerResponse{
+			Valid:        true,
+			SessionToken: "tunnel-session-token",
+			UserId:       "user-1",
+		},
+	}
+	mw := NewMiddleware(log.StandardLogger(), validator, nil)
+	kp := generateTestKeyPair(t)
+
+	scheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil, false))
+
+	handler := mw.Protect(newPassthroughHandler())
+
+	lookup := TunnelLookupFunc(func(_ netip.Addr) (PeerIdentity, bool) {
+		return PeerIdentity{}, true
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	req.RemoteAddr = "100.64.0.5:5000"
+	req = req.WithContext(WithTunnelLookup(req.Context(), lookup))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.True(t, validator.called,
+		"ValidateTunnelPeer must run when the request carries the inbound TunnelLookup marker")
+	assert.Equal(t, http.StatusOK, rec.Code,
+		"a successful tunnel-peer validation must forward to the next handler")
 }
