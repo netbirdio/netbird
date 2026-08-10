@@ -4,7 +4,6 @@ package NetBirdSDK
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -97,6 +96,12 @@ func (s *SSHClient) SetURLOpener(opener URLOpener) {
 //     disabled (TOFU pending).
 //
 // The password parameter is only consulted for regular SSH servers.
+//
+// This is the only way to open a session, deliberately so: the JWT is a bearer
+// token, and detection is what proves the listener is a NetBird SSH service
+// before the token is offered to it. A peer whose NetBird SSH is disabled is
+// served by plain sshd and authenticates by key or password like any other
+// host, so it stays reachable without an OAuth round trip.
 func (s *SSHClient) Connect(host string, port int, user, password string) error {
 	cfg, cc := s.nb.sshState()
 	if cc == nil {
@@ -126,61 +131,32 @@ func (s *SSHClient) Connect(host string, port int, user, password string) error 
 		HostKeyCallback: hostKeyCallback,
 		Timeout:         sshDialTimeout,
 	}
-	return s.dialAndHandshake(host, port, clientConfig, wgDialer)
-}
-
-// ConnectNetBirdPeer connects to a peer that has SSH enabled in the NetBird
-// dashboard. It skips banner-based server detection and goes directly to JWT
-// authentication, which is what the NetBird web dashboard uses. Call this
-// instead of Connect when the target is a known NetBird peer.
-//
-// The urlOpener must be set via SetURLOpener before calling; the opener is
-// invoked so the user can complete the OAuth device-code flow in a browser.
-func (s *SSHClient) ConnectNetBirdPeer(host string, port int, user string) error {
-	cfg, cc := s.nb.sshState()
-	if cc == nil {
-		return errors.New("netbird client not running")
-	}
-	if cfg == nil {
-		return errors.New("netbird config not loaded")
-	}
-	engine := cc.Engine()
-	if engine == nil {
-		return errors.New("netbird engine not available")
-	}
-	_ = engine
-
-	wgDialer := makeWGDialer(cfg.WgIface, sshDialTimeout)
-
-	token, err := s.requestJWTToken(cfg)
-	if err != nil {
-		return err
-	}
-
-	clientConfig := &gossh.ClientConfig{
-		User:  user,
-		Auth:  []gossh.AuthMethod{gossh.Password(token)},
-		// WireGuard already guarantees we are talking to the correct peer
-		// (traffic can only reach 100.x.x.x via the authenticated tunnel),
-		// so an additional SSH host-key check against the management-plane
-		// registry is redundant and prone to stale-key mismatches.
-		HostKeyCallback: gossh.InsecureIgnoreHostKey(), //nolint:gosec
-		Timeout:         sshDialTimeout,
-	}
 	if err := s.dialAndHandshake(host, port, clientConfig, wgDialer); err != nil {
-		if strings.Contains(err.Error(), "no supported methods remain") ||
-			strings.Contains(err.Error(), "unable to authenticate") {
-			return fmt.Errorf("NetBird SSH authentication rejected.\n\n"+
-				"Checklist:\n"+
-				"  1. SSH is enabled for this peer in the NetBird dashboard\n"+
-				"  2. Your account is listed under SSH access for this peer\n"+
-				"  3. The OS username (%q) is mapped to your account\n\n"+
-				"If SSH access is not configured, use a regular password connection instead.\n\n"+
-				"Original: %w", user, err)
-		}
-		return err
+		return annotateAuthError(err, serverType, user)
 	}
 	return nil
+}
+
+// annotateAuthError adds NetBird-specific guidance to an authentication
+// failure, but only for a server that detection identified as NetBird-SSH.
+// There a rejection nearly always means the peer's dashboard SSH access is not
+// configured for this account, which the raw gossh error does not convey.
+func annotateAuthError(err error, serverType detection.ServerType, user string) error {
+	if !serverType.RequiresJWT() {
+		return err
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "no supported methods remain") &&
+		!strings.Contains(msg, "unable to authenticate") {
+		return err
+	}
+	return fmt.Errorf("NetBird SSH authentication rejected.\n\n"+
+		"Checklist:\n"+
+		"  1. SSH is enabled for this peer in the NetBird dashboard\n"+
+		"  2. Your account is listed under SSH access for this peer\n"+
+		"  3. The OS username (%q) is mapped to your account\n\n"+
+		"If SSH access is not configured, connect with a password instead.\n\n"+
+		"Original: %w", user, err)
 }
 
 // StartSession requests a PTY and starts an interactive shell. Output from
@@ -524,17 +500,6 @@ func makeWGDialer(wgIface string, timeout time.Duration) *net.Dialer {
 			return innerErr
 		},
 	}
-}
-
-// base64DecodeJWT decodes a base64url-encoded JWT segment (no padding required).
-func base64DecodeJWT(s string) ([]byte, error) {
-	switch len(s) % 4 {
-	case 2:
-		s += "=="
-	case 3:
-		s += "="
-	}
-	return base64.URLEncoding.DecodeString(s)
 }
 
 func closeQuiet(c io.Closer, label string) {
