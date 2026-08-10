@@ -61,6 +61,17 @@ type ProxyTokenChecker interface {
 	IsProxyAccessTokenValid(ctx context.Context, tokenID string) (bool, error)
 }
 
+// ProxyConnectAuthorizer authorizes a proxy's claim to the cluster address it
+// declares at connect time. Implementations are supplied by integrations; none
+// is installed by default, so every well-formed claim is authorized — the
+// declared address is otherwise only checked for availability. token is nil
+// when the connection carries no proxy access token. A returned status error
+// is sent to the proxy unchanged; any other error is wrapped as
+// PermissionDenied.
+type ProxyConnectAuthorizer interface {
+	AuthorizeProxyConnect(ctx context.Context, token *types.ProxyAccessToken, proxyID, address string) error
+}
+
 // ProxyServiceServer implements the ProxyService gRPC server
 // AgentNetworkSynthesizer produces in-memory reverse-proxy services from
 // Agent Network provider/policy state for the proxy snapshot path; synthesised
@@ -99,6 +110,9 @@ type ProxyServiceServer struct {
 	// and the post-flight consumption write (RecordLLMUsage). Optional — when
 	// nil both RPCs return Unimplemented.
 	agentNetworkLimits AgentNetworkLimitsService
+	// connectAuthorizer authorizes address claims at proxy connect time.
+	// Optional — when nil every well-formed claim is authorized.
+	connectAuthorizer ProxyConnectAuthorizer
 	// ProxyController for service updates and cluster management
 	proxyController proxy.Controller
 
@@ -260,6 +274,23 @@ func (s *ProxyServiceServer) agentNetworkSynthesizer() AgentNetworkSynthesizer {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.agentNetworkSynth
+}
+
+// SetProxyConnectAuthorizer wires the connect-time address-claim authorizer.
+// Optional — when nil (the default) every well-formed claim is authorized,
+// which is the behavior without the hook. The modules layer injects this
+// after the proxy server is constructed, like the other setters.
+func (s *ProxyServiceServer) SetProxyConnectAuthorizer(authorizer ProxyConnectAuthorizer) {
+	s.mu.Lock()
+	s.connectAuthorizer = authorizer
+	s.mu.Unlock()
+}
+
+// proxyConnectAuthorizer returns the connect authorizer under read lock.
+func (s *ProxyServiceServer) proxyConnectAuthorizer() ProxyConnectAuthorizer {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.connectAuthorizer
 }
 
 // CheckLLMPolicyLimits is the pre-flight policy gate the proxy calls before
@@ -446,8 +477,9 @@ func recvSyncInit(stream proto.ProxyService_SyncMappingsServer) (*proto.SyncMapp
 	return init, nil
 }
 
-// validateProxyConnect validates the proxy ID and address, and checks cluster
-// address availability for account-scoped tokens.
+// validateProxyConnect validates the proxy ID and address, checks cluster
+// address availability for account-scoped tokens, and finally consults the
+// connect authorizer (when installed) on the address claim.
 func (s *ProxyServiceServer) validateProxyConnect(proxyID, address string, ctx context.Context) (proxyConnectParams, error) {
 	if proxyID == "" {
 		return proxyConnectParams{}, status.Errorf(codes.InvalidArgument, "proxy_id is required")
@@ -464,6 +496,19 @@ func (s *ProxyServiceServer) validateProxyConnect(proxyID, address string, ctx c
 		}
 		if !available {
 			return proxyConnectParams{}, status.Errorf(codes.AlreadyExists, "cluster address %s is already in use", address)
+		}
+	}
+
+	// The authorizer runs last, outside the account-scoped branch, so it also
+	// sees management-wide and token-less connects. PermissionDenied keeps an
+	// authorization rejection distinguishable from the AlreadyExists address
+	// conflict above in proxy logs.
+	if authorizer := s.proxyConnectAuthorizer(); authorizer != nil {
+		if err := authorizer.AuthorizeProxyConnect(ctx, token, proxyID, address); err != nil {
+			if _, ok := status.FromError(err); ok {
+				return proxyConnectParams{}, err
+			}
+			return proxyConnectParams{}, status.Errorf(codes.PermissionDenied, "proxy connect not authorized: %v", err)
 		}
 	}
 
