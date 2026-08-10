@@ -31,10 +31,7 @@ func TestMain(m *testing.M) {
 	var cleanup func()
 	kind, _ := os.LookupEnv("NETBIRD_STORE_ENGINE")
 	switch kind {
-	case "":
-		engine = string(types.SqliteStoreEngine)
-		sqlitestore, cleanup = createSqliteTestStore(baseData)
-	case string(types.PostgresStoreEngine):
+	case "", string(types.PostgresStoreEngine):
 		engine = kind
 		pgstore, cleanup = createPGTestStore(baseData)
 	case string(types.SqliteStoreEngine):
