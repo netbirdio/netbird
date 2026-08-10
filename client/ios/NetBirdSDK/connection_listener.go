@@ -6,9 +6,9 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 )
 
-// Client state values delivered via ConnectionListener.OnStateChanged,
-// re-exported as basic constants so gomobile emits them into the generated
-// bindings. They mirror peer.ClientState*: append-only, never reorder.
+// Client state values, re-exported as basic constants so gomobile emits them
+// into the generated bindings. They mirror peer.ClientState*: append-only,
+// never reorder.
 const (
 	ClientStateDisconnected  = int(peer.ClientStateDisconnected)
 	ClientStateConnected     = int(peer.ClientStateConnected)
@@ -17,11 +17,13 @@ const (
 	ClientStateNoNetwork     = int(peer.ClientStateNoNetwork)
 )
 
-// ConnectionListener export internal Listener for mobile. It mirrors
-// peer.Listener with OnStateChanged taking a plain int (one of the
-// ClientState* constants), because gomobile cannot bind named types.
+// ConnectionListener export internal Listener for mobile.
+//
+// It intentionally lacks OnStateChanged for now: adding a method to a gomobile
+// interface breaks every Swift implementation, so the iOS app keeps building
+// against the legacy per-state callbacks. A follow-up will extend it together
+// with the app.
 type ConnectionListener interface {
-	OnStateChanged(state int)
 	OnConnected()
 	OnDisconnected()
 	OnConnecting()
@@ -31,11 +33,11 @@ type ConnectionListener interface {
 }
 
 // connectionListenerAdapter adapts the gomobile-facing ConnectionListener to
-// peer.Listener, converting the typed state to the int the binding carries.
+// peer.Listener.
 type connectionListenerAdapter struct {
 	ConnectionListener
 }
 
-func (a connectionListenerAdapter) OnStateChanged(state peer.ClientState) {
-	a.ConnectionListener.OnStateChanged(int(state))
-}
+// OnStateChanged is dropped on iOS until the app adopts the state callback;
+// the legacy per-state callbacks continue to fire.
+func (a connectionListenerAdapter) OnStateChanged(peer.ClientState) {}
