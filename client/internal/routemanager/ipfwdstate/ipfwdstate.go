@@ -28,6 +28,8 @@ type IPForwardingState struct {
 	v6Saved     map[string]int
 }
 
+// NewIPForwardingState returns a state tracker for the IP-forwarding sysctls.
+// wgIfaceName is excluded from the per-interface accept_ra handling.
 func NewIPForwardingState(wgIfaceName string) *IPForwardingState {
 	return &IPForwardingState{wgIfaceName: wgIfaceName}
 }
@@ -42,10 +44,10 @@ func (f *IPForwardingState) Counts() (v4, v6 int) {
 
 // RequestRouting takes the forwarding references for the routing path. It is
 // idempotent: while routing already holds a reference, further calls don't
-// increment the refcounts. A v6 sysctl failure is logged and not returned so
-// it can't take down v4 routing (the sysctl may be unwritable, e.g. read-only
-// /proc/sys or IPv6 disabled on the kernel command line); v6 is retried on the
-// next call.
+// increment the refcounts, and a v4-only request releases a previously held v6
+// reference. A v6 sysctl failure is logged and not returned so it can't take
+// down v4 routing (the sysctl may be unwritable, e.g. read-only /proc/sys or
+// IPv6 disabled on the kernel command line); v6 is retried on the next call.
 func (f *IPForwardingState) RequestRouting(v6 bool) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -57,7 +59,15 @@ func (f *IPForwardingState) RequestRouting(v6 bool) error {
 		f.routingV4 = true
 	}
 
-	if !v6 || f.routingV6 {
+	if !v6 {
+		if !f.routingV6 {
+			return nil
+		}
+		f.routingV6 = false
+		return f.releaseV6()
+	}
+
+	if f.routingV6 {
 		return nil
 	}
 	if err := f.requestV6(); err != nil {

@@ -893,26 +893,34 @@ func (r *router) DeleteDNATRule(rule firewall.Rule) error {
 	if dnatRule, exists := r.rules[ruleKey+dnatSuffix]; exists {
 		if err := r.iptablesClient.Delete(tableNat, chainRTRDR, dnatRule...); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("delete DNAT rule: %w", err))
+		} else {
+			delete(r.rules, ruleKey+dnatSuffix)
 		}
-		delete(r.rules, ruleKey+dnatSuffix)
 	}
 
 	if snatRule, exists := r.rules[ruleKey+snatSuffix]; exists {
 		if err := r.iptablesClient.Delete(tableNat, chainRTNAT, snatRule...); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("delete SNAT rule: %w", err))
+		} else {
+			delete(r.rules, ruleKey+snatSuffix)
 		}
-		delete(r.rules, ruleKey+snatSuffix)
 	}
 
 	if fwdRule, exists := r.rules[ruleKey+fwdSuffix]; exists {
 		if err := r.iptablesClient.Delete(tableFilter, chainRTFWDOUT, fwdRule...); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("delete forward rule: %w", err))
+		} else {
+			delete(r.rules, ruleKey+fwdSuffix)
 		}
-		delete(r.rules, ruleKey+fwdSuffix)
 	}
 
-	if err := r.ipFwdState.ReleaseForwarding(r.v6); err != nil {
-		log.Errorf("%v", err)
+	// Release the refcount only once all rules are gone from the kernel. On
+	// partial failure the failed entries stay in r.rules so a retry can remove
+	// them and release then.
+	if merr == nil {
+		if err := r.ipFwdState.ReleaseForwarding(r.v6); err != nil {
+			log.Errorf("%v", err)
+		}
 	}
 
 	r.updateState()
