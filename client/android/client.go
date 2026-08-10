@@ -33,6 +33,13 @@ import (
 	types "github.com/netbirdio/netbird/upload-server/types"
 )
 
+// AnonymizeLevelDefault and AnonymizeLevelStrict are the accepted
+// anonymizeLevel values for DebugBundle.
+const (
+	AnonymizeLevelDefault = nbAnonymize.LevelDefaultString
+	AnonymizeLevelStrict  = nbAnonymize.LevelStrictString
+)
+
 // ConnectionListener export internal Listener for mobile
 type ConnectionListener interface {
 	peer.Listener

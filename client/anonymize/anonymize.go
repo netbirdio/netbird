@@ -31,12 +31,19 @@ const (
 	LevelStrict
 )
 
+// LevelDefaultString and LevelStrictString are the wire forms of the levels,
+// for boundaries that pass levels as strings (flags, protos, mobile bindings).
+const (
+	LevelDefaultString = "default"
+	LevelStrictString  = "strict"
+)
+
 // ParseLevel maps s to a Level. Empty means LevelDefault; anything
 // unrecognized maps to LevelStrict so an unknown request never yields less
 // anonymization than intended.
 func ParseLevel(s string) Level {
 	switch strings.ToLower(s) {
-	case "", LevelDefault.String():
+	case "", LevelDefaultString:
 		return LevelDefault
 	default:
 		return LevelStrict
@@ -46,9 +53,9 @@ func ParseLevel(s string) Level {
 // String returns the wire form of the level: "default" or "strict".
 func (l Level) String() string {
 	if l >= LevelStrict {
-		return "strict"
+		return LevelStrictString
 	}
-	return "default"
+	return LevelDefaultString
 }
 
 // protectedDomains are NetBird-operated suffixes that stay recognizable in an
