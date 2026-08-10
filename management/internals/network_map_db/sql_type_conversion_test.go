@@ -1,4 +1,4 @@
-package networkmap_pgsql
+package networkmapdb
 
 import (
 	"database/sql"
@@ -7,26 +7,25 @@ import (
 	"testing"
 	"time"
 
-	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestNullStringSupport(t *testing.T) {
 	src := withNullString{Name: sql.NullString{String: "string", Valid: true}}
 	dst := withString{}
-	assert.NoError(t, networkmapdb.FromSqlTypesToSharedTypes(reflect.ValueOf(&src), reflect.ValueOf(&dst)))
+	assert.NoError(t, FromSqlTypesToSharedTypes(reflect.ValueOf(&src), reflect.ValueOf(&dst)))
 	assert.Equal(t, withString{Name: "string"}, dst)
 
 	src = withNullString{Name: sql.NullString{Valid: false}}
 	dst = withString{}
-	assert.NoError(t, networkmapdb.FromSqlTypesToSharedTypes(reflect.ValueOf(&src), reflect.ValueOf(&dst)))
+	assert.NoError(t, FromSqlTypesToSharedTypes(reflect.ValueOf(&src), reflect.ValueOf(&dst)))
 	assert.Equal(t, withString{Name: ""}, dst)
 }
 
 func TestNullBoolSupport(t *testing.T) {
 	src := withNullBool{TrueOrFalse: sql.NullBool{Bool: true, Valid: true}}
 	dst := withBool{}
-	assert.NoError(t, networkmapdb.FromSqlTypesToSharedTypes(reflect.ValueOf(&src), reflect.ValueOf(&dst)))
+	assert.NoError(t, FromSqlTypesToSharedTypes(reflect.ValueOf(&src), reflect.ValueOf(&dst)))
 	assert.Equal(t, withBool{TrueOrFalse: true}, dst)
 
 }
@@ -35,19 +34,19 @@ func TestRawJsonSupport(t *testing.T) {
 	jb, _ := json.Marshal(embeddedS{Name: "blob-name", SomeField: 1})
 	src := withRawJson{Blob: json.RawMessage(jb)}
 	dst := fromJson{}
-	assert.NoError(t, networkmapdb.FromSqlTypesToSharedTypes(reflect.ValueOf(&src), reflect.ValueOf(&dst)))
+	assert.NoError(t, FromSqlTypesToSharedTypes(reflect.ValueOf(&src), reflect.ValueOf(&dst)))
 	assert.Equal(t, fromJson{Blob: embeddedS{Name: "blob-name", SomeField: 1}}, dst)
 
 	src1 := withRawJson{}
 	dst1 := fromJson{}
-	assert.NoError(t, networkmapdb.FromSqlTypesToSharedTypes(reflect.ValueOf(&src1), reflect.ValueOf(&dst1)))
+	assert.NoError(t, FromSqlTypesToSharedTypes(reflect.ValueOf(&src1), reflect.ValueOf(&dst1)))
 	assert.Equal(t, fromJson{}, dst1)
 }
 
 func TestShouldSkipTag(t *testing.T) {
 	src5 := withSkipTag{Field: "shouldskip"}
 	dst5 := emptySkipTagTarget{}
-	assert.NoError(t, networkmapdb.FromSqlTypesToSharedTypes(reflect.ValueOf(&src5), reflect.ValueOf(&dst5)))
+	assert.NoError(t, FromSqlTypesToSharedTypes(reflect.ValueOf(&src5), reflect.ValueOf(&dst5)))
 	assert.Equal(t, emptySkipTagTarget{}, dst5)
 
 }
@@ -55,14 +54,14 @@ func TestShouldSkipTag(t *testing.T) {
 func TestMapToTag(t *testing.T) {
 	src6 := withMapToTag{Field: "fieldvalue"}
 	dst6 := mapToTagTarget{}
-	assert.NoError(t, networkmapdb.FromSqlTypesToSharedTypes(reflect.ValueOf(&src6), reflect.ValueOf(&dst6)))
+	assert.NoError(t, FromSqlTypesToSharedTypes(reflect.ValueOf(&src6), reflect.ValueOf(&dst6)))
 	assert.Equal(t, mapToTagTarget{AnotherField: "fieldvalue"}, dst6)
 }
 
 func TestNullableInt64Support(t *testing.T) {
 	src := withInt64{Field: sql.NullInt64{Int64: int64(1), Valid: true}}
 	dst := int64Target{}
-	assert.NoError(t, networkmapdb.FromSqlTypesToSharedTypes(reflect.ValueOf(&src), reflect.ValueOf(&dst)))
+	assert.NoError(t, FromSqlTypesToSharedTypes(reflect.ValueOf(&src), reflect.ValueOf(&dst)))
 	assert.Equal(t, int64Target{Field: 1}, dst)
 }
 
@@ -70,7 +69,7 @@ func TestNullableTimeSupport(t *testing.T) {
 	now := time.Now()
 	src := withNullableTime{Field: sql.NullTime{Time: now, Valid: true}}
 	dst := nullableTimeTarget{}
-	assert.NoError(t, networkmapdb.FromSqlTypesToSharedTypes(reflect.ValueOf(&src), reflect.ValueOf(&dst)))
+	assert.NoError(t, FromSqlTypesToSharedTypes(reflect.ValueOf(&src), reflect.ValueOf(&dst)))
 	assert.Equal(t, nullableTimeTarget{Field: now}, dst)
 }
 
@@ -78,21 +77,21 @@ func TestNullableTimePointerSupport(t *testing.T) {
 	now := time.Now()
 	src := withNullableTime{Field: sql.NullTime{Time: now, Valid: true}}
 	dst := nullableTimePointerTarget{}
-	assert.NoError(t, networkmapdb.FromSqlTypesToSharedTypes(reflect.ValueOf(&src), reflect.ValueOf(&dst)))
+	assert.NoError(t, FromSqlTypesToSharedTypes(reflect.ValueOf(&src), reflect.ValueOf(&dst)))
 	assert.Equal(t, nullableTimePointerTarget{Field: &now}, dst)
 }
 
 func TestStringSLiceSupport(t *testing.T) {
 	src := withStringSlice{Field: []string{"one"}}
 	dst := withStringSlice{}
-	assert.NoError(t, networkmapdb.FromSqlTypesToSharedTypes(reflect.ValueOf(&src), reflect.ValueOf(&dst)))
+	assert.NoError(t, FromSqlTypesToSharedTypes(reflect.ValueOf(&src), reflect.ValueOf(&dst)))
 	assert.Equal(t, withStringSlice{Field: []string{"one"}}, dst)
 }
 
 func TestNullStringSLiceSupport(t *testing.T) {
 	src := withStringSlice{}
 	dst := withStringSlice{}
-	assert.NoError(t, networkmapdb.FromSqlTypesToSharedTypes(reflect.ValueOf(&src), reflect.ValueOf(&dst)))
+	assert.NoError(t, FromSqlTypesToSharedTypes(reflect.ValueOf(&src), reflect.ValueOf(&dst)))
 	assert.Equal(t, withStringSlice{}, dst)
 }
 
@@ -106,7 +105,7 @@ func TestWithMultipleFields(t *testing.T) {
 		Field5: "another",
 	}
 	dst := multipleFieldsTarget{}
-	assert.NoError(t, networkmapdb.FromSqlTypesToSharedTypes(reflect.ValueOf(&src), reflect.ValueOf(&dst)))
+	assert.NoError(t, FromSqlTypesToSharedTypes(reflect.ValueOf(&src), reflect.ValueOf(&dst)))
 	assert.Equal(t, multipleFieldsTarget{
 		Field1: "aaa",
 		Field2: true,
@@ -119,7 +118,7 @@ func TestWithMultipleFields(t *testing.T) {
 func TestEmptyPublicIdsFilled(t *testing.T) {
 	src := withEmptyPublicIds{}
 	dst := emptyPublicIdTarget{}
-	assert.NoError(t, networkmapdb.FromSqlTypesToSharedTypes(reflect.ValueOf(&src), reflect.ValueOf(&dst)))
+	assert.NoError(t, FromSqlTypesToSharedTypes(reflect.ValueOf(&src), reflect.ValueOf(&dst)))
 	assert.NotEmpty(t, dst.PublicID)
 	assert.NotEmpty(t, dst.PublicId)
 }
@@ -130,7 +129,7 @@ func TestByteSliceSupport(t *testing.T) {
 		Field: []byte("[\"one\",\"two\",\"three\"]"),
 	}
 	dst := byteSliceTarget{}
-	assert.NoError(t, networkmapdb.FromSqlTypesToSharedTypes(reflect.ValueOf(&src), reflect.ValueOf(&dst)))
+	assert.NoError(t, FromSqlTypesToSharedTypes(reflect.ValueOf(&src), reflect.ValueOf(&dst)))
 	assert.Equal(t, []string{"one", "two", "three"}, dst.Field)
 }
 
@@ -139,7 +138,7 @@ func TestUint8SliceSupport(t *testing.T) {
 		Field: []uint8("[\"one\",\"two\",\"three\"]"),
 	}
 	dst := uint8SliceTarget{}
-	assert.NoError(t, networkmapdb.FromSqlTypesToSharedTypes(reflect.ValueOf(&src), reflect.ValueOf(&dst)))
+	assert.NoError(t, FromSqlTypesToSharedTypes(reflect.ValueOf(&src), reflect.ValueOf(&dst)))
 	assert.Equal(t, []string{"one", "two", "three"}, dst.Field)
 }
 
