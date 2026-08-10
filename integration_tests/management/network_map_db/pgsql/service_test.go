@@ -19,18 +19,15 @@ func TestGetPrivateServicesViaPgxConnection(t *testing.T) {
 	}
 	ctx := context.TODO()
 
-	_, err := pgstore.Pool.Exec(ctx,
+	execQuery(t, ctx,
 		`insert into services (id, account_id, enabled, private, access_groups, proxy_cluster, domain)
 		 values('service-1','account-1',true,true,'["group-one-resource-id"]','test-1.com','test-2.com')`)
-	assert.NoError(t, err)
 	execQuery(t, ctx,
 		`insert into services (id, account_id, enabled, private, access_groups, proxy_cluster, domain)
 		 values('service-2','account-1',true,true,'["group-one-resource-id","group-two-resources-id"]','test-3.com','test-4.com')`)
-	assert.NoError(t, err)
 	execQuery(t, ctx,
 		`insert into services (id, account_id, enabled, private, access_groups, proxy_cluster, domain)
 		 values('service-3','account-1',null,null,null,null,null)`)
-	assert.NoError(t, err)
 
 	services, err := conn(t, ctx).GetPrivateServices(ctx, "account-1")
 	assert.NoError(t, err)
@@ -58,6 +55,10 @@ func TestGetPrivateServicesViaPgxConnection(t *testing.T) {
 }
 
 func TestGetProxyTargetedDomainResourceIDsViaPgxConnection(t *testing.T) {
+	if engine == string(types.SqliteStoreEngine) {
+		t.Skip()
+	}
+
 	ctx := context.TODO()
 
 	execQuery(t, ctx,

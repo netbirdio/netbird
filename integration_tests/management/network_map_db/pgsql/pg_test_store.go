@@ -58,20 +58,15 @@ func createPGTestStore(baseData string) (*networkmap_pgsql.PgStore, func()) {
 	}
 
 	ctx := context.TODO()
-	s, err := networkmap_pgsql.NewPostgresqlStore(ctx, dsn)
+	pgstore, err := networkmap_pgsql.NewPostgresqlStore(ctx, dsn)
 	if err != nil {
 		log.Fatal("error creating postgres store %w", err)
 	}
 
 	for _, query := range strings.Split(baseData, ";") {
-		if _, err := s.Pool.Exec(ctx, query); err != nil {
+		if _, err := pgstore.Pool.Exec(ctx, query); err != nil {
 			log.Fatalf("error initializing db: %s", err.Error())
 		}
-	}
-
-	pgstore, err := networkmap_pgsql.NewPostgresqlStore(ctx, dsn)
-	if err != nil {
-		log.Fatalf("error creating pg store %v", err.Error())
 	}
 
 	return pgstore, cleanup

@@ -8,13 +8,26 @@ import (
 	"strings"
 
 	"database/sql"
+
+	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
+	"github.com/netbirdio/netbird/shared/management/networkmap"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
 
 type SqliteStore struct {
 	Db *sql.DB
 }
 
-func NewSqliteStore(ctx context.Context, storeFile, dataDir, dsn string) (*SqliteStore, error) {
+type sqliteInterface interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+type SqliteStoreConn struct {
+	Conn sqliteInterface
+}
+
+func NewSqliteStore(ctx context.Context, storeFile, dataDir string) (*SqliteStore, error) {
 	// storeFile := storeSqliteFileName
 	// if envFile, ok := os.LookupEnv("NB_STORE_ENGINE_SQLITE_FILE"); ok && envFile != "" {
 	// 	storeFile = envFile
@@ -51,9 +64,67 @@ func NewSqliteStore(ctx context.Context, storeFile, dataDir, dsn string) (*Sqlit
 		connStr += "?" + strings.Join(parts, "&")
 	}
 
-	db, err := sql.Open("sqlite3", "")
+	db, err := sql.Open("sqlite3", connStr)
 	if err != nil {
 		return nil, err
 	}
+
 	return &SqliteStore{Db: db}, nil
+}
+
+func (s *SqliteStore) WithTx(tx *sql.Tx) *SqliteStoreConn {
+	return &SqliteStoreConn{Conn: tx}
+}
+
+func (s *SqliteStore) UsingConn() *SqliteStoreConn {
+	return &SqliteStoreConn{Conn: s.Db}
+}
+
+func (s *SqliteStoreConn) GetGroups(ctx context.Context, accountId string) ([]nmdata.Group, map[string]map[string]any, error) {
+	return nil, nil, nil
+}
+func (s *SqliteStoreConn) GetDomains(ctx context.Context, accountId string) ([]networkmapdb.Domain, error) {
+	return nil, nil
+}
+func (s *SqliteStoreConn) GetPeers(ctx context.Context, accountId string) ([]nmdata.Peer, map[string][]*nmdata.Peer, error) {
+	return nil, nil, nil
+}
+func (s *SqliteStoreConn) GetPolicies(ctx context.Context, accountId string) ([]nmdata.Policy, map[string]map[string]any, map[string]map[string]any, error) {
+	return nil, nil, nil, nil
+}
+func (s *SqliteStoreConn) GetRoutes(ctx context.Context, accountId string) ([]nmdata.Route, error) {
+	return nil, nil
+}
+func (s *SqliteStoreConn) GetNameServerGroups(ctx context.Context, accountId string) ([]nmdata.NameServerGroup, error) {
+	return nil, nil
+}
+func (s *SqliteStoreConn) GetNetworkResources(ctx context.Context, accountId string) ([]nmdata.NetworkResource, error) {
+	return nil, nil
+}
+func (s *SqliteStoreConn) GetNetworkRouters(ctx context.Context, accountId string) (map[string]map[string]*nmdata.NetworkRouter, error) {
+	return nil, nil
+}
+func (s *SqliteStoreConn) GetNetwork(ctx context.Context, accountId string) (nmdata.Network, error) {
+	return nmdata.Network{}, nil
+}
+func (s *SqliteStoreConn) GetAppliedZoneCandidates(ctx context.Context, accountId string) ([]networkmap.AppliedZoneCandidate, error) {
+	return nil, nil
+}
+func (s *SqliteStoreConn) GetPostureChecks(ctx context.Context, accountId string) ([]nmdata.PostureChecks, map[string]string, error) {
+	return nil, nil, nil
+}
+func (s *SqliteStoreConn) GetAllowedUsers(ctx context.Context, accountId string) (map[string]struct{}, map[string][]string, error) {
+	return nil, nil, nil
+}
+func (s *SqliteStoreConn) GetDnsSettings(ctx context.Context, accountId string) (nmdata.DNSSettings, error) {
+	return nmdata.DNSSettings{}, nil
+}
+func (s *SqliteStoreConn) GetNetworkXIDToPublicIdMap(ctx context.Context, accountId string) (map[string]string, error) {
+	return nil, nil
+}
+func (s *SqliteStoreConn) GetPrivateServices(ctx context.Context, accountId string) ([]networkmapdb.Service, error) {
+	return nil, nil
+}
+func (s *SqliteStoreConn) GetProxyTargetedDomainResourceIDs(ctx context.Context, accountId string) (map[string]struct{}, error) {
+	return nil, nil
 }

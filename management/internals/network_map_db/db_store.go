@@ -21,6 +21,7 @@ const (
 	NMAP_STRUCT_TAG = "nmap"
 	NMAP_SKIP       = "skip"
 	NMAP_MAP_TO     = "map_to"
+	NMAP_JSON       = "json"
 )
 
 type NetworkMapDBStore interface { //nolint:revive // established name across the codebase
@@ -164,6 +165,14 @@ func FromSqlTypesToSharedTypes(src reflect.Value, dst reflect.Value) error {
 			if err := json.Unmarshal(s, dstField.Addr().Interface()); err != nil {
 				return err
 			}
+		case "[]byte", "[]uint8":
+			s := srcField.Interface().([]byte)
+			if _, ok := fieldTags[NMAP_JSON]; !ok || len(s) == 0 {
+				continue
+			}
+			if err := json.Unmarshal(s, dstField.Addr().Interface()); err != nil {
+				return err
+			}
 		case "[]string":
 			if srcField.IsNil() {
 				continue
@@ -175,6 +184,23 @@ func FromSqlTypesToSharedTypes(src reflect.Value, dst reflect.Value) error {
 	}
 
 	return nil
+}
+
+func StructFields(src reflect.Value) []any {
+	toret := make([]any, 0)
+	typ := src.Elem().Type()
+
+	for i := 0; i < typ.NumField(); i++ {
+		f := typ.Field(i)
+		if f.PkgPath != "" { // skip unexported fields
+			continue
+		}
+
+		srcField := src.Elem().Field(i)
+		toret = append(toret, srcField.Addr().Interface())
+	}
+
+	return toret
 }
 
 type fieldTag struct {

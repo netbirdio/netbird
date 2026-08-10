@@ -124,6 +124,25 @@ func TestEmptyPublicIdsFilled(t *testing.T) {
 	assert.NotEmpty(t, dst.PublicId)
 }
 
+// only []byte and []uint8 slices with "json" tag are being parsed
+func TestByteSliceSupport(t *testing.T) {
+	src := withByteSlice{
+		Field: []byte("[\"one\",\"two\",\"three\"]"),
+	}
+	dst := byteSliceTarget{}
+	assert.NoError(t, networkmapdb.FromSqlTypesToSharedTypes(reflect.ValueOf(&src), reflect.ValueOf(&dst)))
+	assert.Equal(t, []string{"one", "two", "three"}, dst.Field)
+}
+
+func TestUint8SliceSupport(t *testing.T) {
+	src := withUint8Slice{
+		Field: []uint8("[\"one\",\"two\",\"three\"]"),
+	}
+	dst := uint8SliceTarget{}
+	assert.NoError(t, networkmapdb.FromSqlTypesToSharedTypes(reflect.ValueOf(&src), reflect.ValueOf(&dst)))
+	assert.Equal(t, []string{"one", "two", "three"}, dst.Field)
+}
+
 type withNullString struct {
 	Name sql.NullString
 }
@@ -216,4 +235,20 @@ type withEmptyPublicIds struct {
 type emptyPublicIdTarget struct {
 	PublicID string
 	PublicId string
+}
+
+type withByteSlice struct {
+	Field []byte `nmap:"json"`
+}
+
+type byteSliceTarget struct {
+	Field []string
+}
+
+type withUint8Slice struct {
+	Field []byte `nmap:"json"`
+}
+
+type uint8SliceTarget struct {
+	Field []string
 }
