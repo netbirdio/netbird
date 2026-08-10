@@ -22,16 +22,10 @@ func (sc *SqliteStoreConn) GetAppliedZoneCandidates(ctx context.Context, account
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	zones := make([]networkmapdb.Zone, 0)
-	for rows.Next() {
-		z := networkmapdb.Zone{}
-		err := rows.Scan(networkmapdb.StructFields(&z)...)
-		if err != nil {
-			return nil, err
-		}
-		zones = append(zones, z)
+	zones, err := networkmapdb.CollectRowsForSqlite[networkmapdb.Zone](rows)
+	if err != nil {
+		return nil, err
 	}
 
 	return networkmapdb.ZonesToAppliedZoneCandidates(zones)

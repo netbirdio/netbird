@@ -85,9 +85,6 @@ func (s *SqliteStore) UsingConn() *SqliteStoreConn {
 func (s *SqliteStoreConn) GetGroups(ctx context.Context, accountId string) ([]nmdata.Group, map[string]map[string]any, error) {
 	return nil, nil, nil
 }
-func (s *SqliteStoreConn) GetDomains(ctx context.Context, accountId string) ([]networkmapdb.Domain, error) {
-	return nil, nil
-}
 func (s *SqliteStoreConn) GetPeers(ctx context.Context, accountId string) ([]nmdata.Peer, map[string][]*nmdata.Peer, error) {
 	return nil, nil, nil
 }

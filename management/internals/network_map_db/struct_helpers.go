@@ -10,6 +10,8 @@ import (
 	"github.com/rs/xid"
 )
 
+var ErrNoRows = errors.New("no rows in result set")
+
 const (
 	NMAP_STRUCT_TAG = "nmap"
 	NMAP_SKIP       = "skip"
@@ -138,4 +140,42 @@ func StructFields(s any) []any {
 	}
 
 	return toret
+}
+
+func CollectOneRowForSqlite[T any](rows *sql.Rows) (T, error) {
+	defer rows.Close()
+	var r T
+
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return r, err
+		}
+		return r, ErrNoRows
+	}
+	err := rows.Scan(StructFields(&r)...)
+	if err != nil {
+		return r, err
+	}
+
+	return r, nil
+}
+
+func CollectRowsForSqlite[T any](rows *sql.Rows) ([]T, error) {
+	defer rows.Close()
+	toret := make([]T, 0)
+
+	for rows.Next() {
+		var r T
+		err := rows.Scan(StructFields(&r)...)
+		if err != nil {
+			return nil, err
+		}
+		toret = append(toret, r)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return toret, nil
 }
