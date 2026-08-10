@@ -68,8 +68,10 @@ func TestAgentNetwork_BudgetRuleCRUD_RealManager(t *testing.T) {
 
 // TestAgentNetwork_UpdateSettings_PreservesImmutableAndTogglesCollection is the
 // GC-1 guard for UpdateSettings: it must apply the collection toggles while
-// preserving the immutable Domain/ProxyAddress assigned at bootstrap — the
-// identity fields are not part of the update surface at all.
+// preserving the immutable Domain/ProxyAddress assigned at bootstrap. The
+// request echoes the identity fields back — the PUT convention every other
+// endpoint follows — and a request echoing anything else is rejected outright
+// rather than quietly ignored.
 func TestAgentNetwork_UpdateSettings_PreservesImmutableAndTogglesCollection(t *testing.T) {
 	am, _, err := createManager(t)
 	require.NoError(t, err, "createManager must succeed")
@@ -104,16 +106,17 @@ func TestAgentNetwork_UpdateSettings_PreservesImmutableAndTogglesCollection(t *t
 	})
 	require.NoError(t, err, "CreateProvider must succeed")
 
-	// Flipping the toggles works; identity fields set on the request value
-	// are ignored by FromAPIRequest/UpdateSettings by construction, but even
-	// a hand-rolled Settings value cannot smuggle them into the row.
+	// Flipping the toggles works when the request echoes the assigned
+	// identity. Retention is echoed too: UpdateSettings takes it verbatim, so
+	// omitting it would zero the account's retention.
 	updated, err := mgr.UpdateSettings(ctx, adminUserID, &agenttypes.Settings{
 		AccountID:              accountID,
-		Domain:                 "evil.example.com",
-		ProxyAddress:           "attacker.cluster",
+		Domain:                 before.Domain,
+		ProxyAddress:           before.ProxyAddress,
 		EnableLogCollection:    true,
 		EnablePromptCollection: true,
 		RedactPii:              true,
+		AccessLogRetentionDays: before.AccessLogRetentionDays,
 	})
 	require.NoError(t, err, "UpdateSettings must succeed")
 	assert.Equal(t, before.Domain, updated.Domain, "domain is immutable and must be preserved")
@@ -121,6 +124,39 @@ func TestAgentNetwork_UpdateSettings_PreservesImmutableAndTogglesCollection(t *t
 	assert.True(t, updated.EnableLogCollection, "log collection toggle must apply")
 	assert.True(t, updated.EnablePromptCollection, "prompt collection toggle must apply")
 	assert.True(t, updated.RedactPii, "redact toggle must apply")
+	assert.Equal(t, before.AccessLogRetentionDays, updated.AccessLogRetentionDays, "echoed retention must survive")
+
+	// Neither identity field can be smuggled into the row: a hand-rolled
+	// Settings value carrying a different endpoint or proxy address is
+	// rejected, not silently ignored.
+	for _, tc := range []struct {
+		name         string
+		domain       string
+		proxyAddress string
+	}{
+		{name: "foreign endpoint", domain: "evil.example.com", proxyAddress: before.ProxyAddress},
+		{name: "foreign proxy address", domain: before.Domain, proxyAddress: "attacker.cluster"},
+		{name: "empty identity echo", domain: "", proxyAddress: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := mgr.UpdateSettings(ctx, adminUserID, &agenttypes.Settings{
+				AccountID:              accountID,
+				Domain:                 tc.domain,
+				ProxyAddress:           tc.proxyAddress,
+				EnableLogCollection:    false,
+				EnablePromptCollection: false,
+				RedactPii:              false,
+				AccessLogRetentionDays: before.AccessLogRetentionDays,
+			})
+			assert.Error(t, err, "a mismatched identity echo must be rejected")
+			assert.ErrorContains(t, err, "immutable", "the rejection must name the immutability rule")
+		})
+	}
+
+	// The rejected updates left the row exactly as the accepted one wrote it.
+	afterRejects, err := mgr.GetSettings(ctx, accountID, adminUserID)
+	require.NoError(t, err, "GetSettings must succeed")
+	assert.True(t, afterRejects.EnablePromptCollection, "a rejected update must not roll back the accepted toggles")
 
 	reloaded, err := am.Store.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, accountID)
 	require.NoError(t, err)
