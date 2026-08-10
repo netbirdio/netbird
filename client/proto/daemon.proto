@@ -546,6 +546,11 @@ message DebugBundleRequest {
   // untrusted TLS certificate. Restricted to privileged callers; for
   // self-hosted upload servers.
   bool uploadInsecure = 7;
+  // anonymizeLevel selects how much the anonymizer redacts: "default"
+  // (or empty) keeps internal IP ranges, "strict" also anonymizes them.
+  // Unknown values are treated as "strict". Only meaningful with anonymize;
+  // "strict" implies it.
+  string anonymizeLevel = 8;
 }
 
 message DebugBundleResponse {

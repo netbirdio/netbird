@@ -113,15 +113,14 @@ func runPathRoutedGuardrailCase(t *testing.T, tc pathRoutedGuardrailCase) {
 
 	// Catch-all provider (no models) so the router forwards any model; a static
 	// bearer key means the router injects a static auth header instead of minting
-	// a GCP token. Bootstraps the cluster if it isn't already.
+	// a GCP token.
 	staticKey := "static-e2e-token"
 	prov, err := srv.CreateProvider(ctx, api.AgentNetworkProviderRequest{
-		Name:             tc.name,
-		ProviderId:       tc.catalogID,
-		UpstreamUrl:      vllm.URL,
-		ApiKey:           &staticKey,
-		Enabled:          ptr(true),
-		BootstrapCluster: ptr(harness.AgentNetworkCluster),
+		Name:        tc.name,
+		ProviderId:  tc.catalogID,
+		UpstreamUrl: vllm.URL,
+		ApiKey:      &staticKey,
+		Enabled:     ptr(true),
 	})
 	require.NoError(t, err, "create %s provider", tc.name)
 	t.Cleanup(func() { _ = srv.DeleteProvider(context.Background(), prov.Id) })

@@ -115,7 +115,7 @@ func TestGuardrailPerGroupAllowlist_AllProviders(t *testing.T) {
 	staticKey := "static-e2e-token"
 	enabled := true
 
-	for i, c := range cases {
+	for _, c := range cases {
 		req := api.AgentNetworkProviderRequest{
 			Name:        "e2e-pergroup-" + c.name,
 			ProviderId:  c.catalogID,
@@ -123,9 +123,6 @@ func TestGuardrailPerGroupAllowlist_AllProviders(t *testing.T) {
 			ApiKey:      &staticKey,
 			Enabled:     ptr(true),
 			Models:      c.models,
-		}
-		if i == 0 {
-			req.BootstrapCluster = ptr(harness.AgentNetworkCluster)
 		}
 		prov, perr := srv.CreateProvider(ctx, req)
 		require.NoError(t, perr, "create provider %s", c.name)
@@ -283,13 +280,12 @@ func TestGuardrailMultiGroupUser(t *testing.T) {
 
 	// P1 — union scenario: two restricting policies, one per group.
 	p1, err := srv.CreateProvider(ctx, api.AgentNetworkProviderRequest{
-		Name:             "e2e-mg-union",
-		ProviderId:       "openai_api",
-		UpstreamUrl:      vllm.URL,
-		ApiKey:           &staticKey,
-		Enabled:          ptr(true),
-		Models:           priced(unionA, unionB, unionC),
-		BootstrapCluster: ptr(harness.AgentNetworkCluster),
+		Name:        "e2e-mg-union",
+		ProviderId:  "openai_api",
+		UpstreamUrl: vllm.URL,
+		ApiKey:      &staticKey,
+		Enabled:     ptr(true),
+		Models:      priced(unionA, unionB, unionC),
 	})
 	require.NoError(t, err, "create union provider")
 	t.Cleanup(func() { _ = srv.DeleteProvider(context.Background(), p1.Id) })

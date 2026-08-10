@@ -6340,6 +6340,30 @@ func (s *SqlStore) CountProxiesByAccountID(ctx context.Context, accountID string
 	return count, nil
 }
 
+// HasActiveProxyAtClusterAddress reports whether any proxy — shared or
+// account-scoped — is currently active at the given cluster address, using
+// the same connected-within-threshold window as the other active-proxy
+// queries. Backs the agent-network settings delete guard: settings cannot be
+// deleted while a proxy declares the endpoint hostname as its address.
+//
+// The comparison folds case on both sides: the caller passes a normalized
+// (lowercase) hostname, but proxies declare their cluster address verbatim
+// and Connect stores it unchanged, so on case-sensitive collations a proxy
+// declaring "GW.Example.com" would otherwise slip past the guard. Hostnames
+// are case-insensitive per RFC 4343; the guard must be too.
+func (s *SqlStore) HasActiveProxyAtClusterAddress(ctx context.Context, clusterAddress string) (bool, error) {
+	var count int64
+	result := s.db.
+		Model(&proxy.Proxy{}).
+		Where("LOWER(cluster_address) = LOWER(?) AND status = ? AND last_seen > ?", clusterAddress, proxy.StatusConnected, time.Now().Add(-proxyActiveThreshold)).
+		Count(&count)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to count active proxies at cluster address: %v", result.Error)
+		return false, status.Errorf(status.Internal, "failed to count active proxies at cluster address")
+	}
+	return count > 0, nil
+}
+
 func (s *SqlStore) IsClusterAddressConflicting(ctx context.Context, clusterAddress, accountID string) (bool, error) {
 	var count int64
 	result := s.db.
