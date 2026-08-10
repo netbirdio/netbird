@@ -19,6 +19,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	nbgrpc "github.com/netbirdio/netbird/client/grpc"
+	"github.com/netbirdio/netbird/client/netstate"
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/signal/proto"
@@ -65,6 +66,10 @@ type GrpcClient struct {
 	connStateCallback     ConnStateNotifier
 	connStateCallbackLock sync.RWMutex
 
+	// netState gates the Receive retry loop on OS-reported network
+	// availability; nil (the default) disables gating.
+	netState *netstate.State
+
 	onReconnectedListenerFn func()
 
 	decryptionWorker       *Worker
@@ -89,7 +94,16 @@ type GrpcClient struct {
 }
 
 // NewClient creates a new Signal client
-func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled bool) (*GrpcClient, error) {
+// ClientOption configures optional GrpcClient behavior.
+type ClientOption func(*GrpcClient)
+
+// WithNetworkState injects the OS network availability state that gates the
+// Receive retry loop; without it gating is disabled.
+func WithNetworkState(netState *netstate.State) ClientOption {
+	return func(c *GrpcClient) { c.netState = netState }
+}
+
+func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled bool, opts ...ClientOption) (*GrpcClient, error) {
 	var conn *grpc.ClientConn
 
 	operation := func() error {
@@ -109,7 +123,7 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 
 	log.Debugf("connected to Signal Service: %v", conn.Target())
 
-	return &GrpcClient{
+	c := &GrpcClient{
 		realClient:            proto.NewSignalExchangeClient(conn),
 		ctx:                   ctx,
 		signalConn:            conn,
@@ -117,7 +131,11 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 		mux:                   sync.Mutex{},
 		status:                StreamDisconnected,
 		connStateCallbackLock: sync.RWMutex{},
-	}, nil
+	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c, nil
 }
 
 func (c *GrpcClient) StreamConnected() bool {
@@ -168,6 +186,15 @@ func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Mes
 	var backOff = defaultBackoff(ctx)
 
 	operation := func() error {
+		// suspend reconnect attempts while the OS reports no usable network.
+		// Wait only errors on a cancelled context, which means shutdown, so
+		// stop the loop without reporting a failure.
+		if waited, err := c.netState.Wait(ctx); err != nil {
+			log.Debugf("signal connection context has been canceled while offline, this usually indicates shutdown")
+			return nil
+		} else if waited {
+			backOff.Reset()
+		}
 
 		c.notifyStreamDisconnected()
 

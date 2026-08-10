@@ -21,17 +21,13 @@ import (
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/netstate"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/formatter"
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	types "github.com/netbirdio/netbird/upload-server/types"
 )
-
-// ConnectionListener export internal Listener for mobile
-type ConnectionListener interface {
-	peer.Listener
-}
 
 // RouteListener export internal RouteListener for mobile
 type NetworkChangeListener interface {
@@ -79,6 +75,10 @@ type Client struct {
 	onHostDnsFn           func([]string)
 	dnsManager            dns.IosDnsManager
 	loginComplete         bool
+	// netState outlives engine restarts: it mirrors the OS connectivity, not
+	// the engine lifecycle. Run injects it into each new ConnectClient, which
+	// distributes it to every reconnection loop.
+	netState *netstate.State
 	// preloadedConfig holds config loaded from JSON (used on tvOS where file writes are blocked)
 	preloadedConfig *profilemanager.Config
 
@@ -101,6 +101,7 @@ func NewClient(cfgFile, stateFile, cacheDir, logFilePath, deviceName string, osV
 		ctxCancelLock:         &sync.Mutex{},
 		networkChangeListener: networkChangeListener,
 		dnsManager:            dnsManager,
+		netState:              netstate.New(),
 	}
 }
 
@@ -176,13 +177,23 @@ func (c *Client) Run(fd int32, interfaceName string, envList *EnvList) error {
 	c.onHostDnsFn = func([]string) {}
 	cfg.WgIface = interfaceName
 
-	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder)
+	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder, internal.WithNetworkState(c.netState))
 	c.setState(cfg, connectClient)
 	// Persist the latest sync response so DebugBundle can include the network
 	// map. On iOS this is backed by disk to keep it out of the constrained
 	// process memory (see the syncstore package).
 	connectClient.SetSyncResponsePersistence(true)
 	return connectClient.RunOniOS(fd, c.networkChangeListener, c.dnsManager, c.stateFile, c.cacheDir, c.logFilePath)
+}
+
+// SetNetworkAvailable feeds OS-reported network availability into the client
+// (e.g. from NWPathMonitor). While unavailable, the internal reconnect loops
+// suspend their attempts and the connection listener reports NoNetwork
+// instead of Connecting; when availability returns, the loops resume
+// immediately with a fresh backoff.
+func (c *Client) SetNetworkAvailable(available bool) {
+	c.netState.Set(available)
+	c.recorder.SetNetworkAvailable(available)
 }
 
 // Stop the internal client and free the resources
@@ -320,7 +331,7 @@ func (c *Client) GetStatusDetails() *StatusDetails {
 
 // SetConnectionListener set the network connection listener
 func (c *Client) SetConnectionListener(listener ConnectionListener) {
-	c.recorder.SetConnectionListener(listener)
+	c.recorder.SetConnectionListener(connectionListenerAdapter{listener})
 }
 
 // RemoveConnectionListener remove connection listener

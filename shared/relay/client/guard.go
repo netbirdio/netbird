@@ -7,6 +7,8 @@ import (
 
 	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/netstate"
 )
 
 const defaultMaxBackoffInterval = 60 * time.Second
@@ -22,14 +24,19 @@ type Guard struct {
 	// attempts.
 	maxBackoffInterval time.Duration
 
+	// netState gates reconnect attempts on OS-reported network availability;
+	// nil disables gating.
+	netState *netstate.State
+
 	// lastErr is the error from the most recent failed reconnect attempt,
 	// surfaced as the home relay status while disconnected.
 	lastErr atomic.Pointer[error]
 }
 
 // NewGuard creates a new guard for the relay client. A non-positive
-// maxBackoffInterval falls back to defaultMaxBackoffInterval.
-func NewGuard(sp *ServerPicker, maxBackoffInterval time.Duration) *Guard {
+// maxBackoffInterval falls back to defaultMaxBackoffInterval. A nil netState
+// disables network availability gating.
+func NewGuard(sp *ServerPicker, maxBackoffInterval time.Duration, netState *netstate.State) *Guard {
 	if maxBackoffInterval <= 0 {
 		maxBackoffInterval = defaultMaxBackoffInterval
 	}
@@ -38,6 +45,7 @@ func NewGuard(sp *ServerPicker, maxBackoffInterval time.Duration) *Guard {
 		OnReconnected:      make(chan struct{}, 1),
 		serverPicker:       sp,
 		maxBackoffInterval: maxBackoffInterval,
+		netState:           netState,
 	}
 	return g
 }
@@ -70,11 +78,21 @@ func (g *Guard) StartReconnectTrys(ctx context.Context, relayClient *Client) {
 
 	// start a ticker to pick a new server
 	ticker := g.exponentTicker(ctx)
-	defer ticker.Stop()
+	defer func() {
+		ticker.Stop()
+	}()
 
 	for {
 		select {
 		case <-ticker.C:
+			// suspend reconnect attempts while the OS reports no usable network
+			if waited, err := g.netState.Wait(ctx); err != nil {
+				return
+			} else if waited {
+				ticker.Stop()
+				ticker = g.exponentTicker(ctx)
+				continue
+			}
 			if err := g.retry(ctx); err != nil {
 				log.Errorf("failed to pick new Relay server: %s", err)
 				g.setLastError(err)
@@ -101,6 +119,13 @@ func (g *Guard) tryToQuickReconnect(parentCtx context.Context, rc *Client) bool 
 	}
 
 	if cancelled := waiteBeforeRetry(parentCtx); !cancelled {
+		return false
+	}
+
+	// Re-check after the wait: the disconnect that triggered this reconnect
+	// is often the first symptom of the network going away, so the
+	// availability flag typically arrives while we sleep here.
+	if !g.netState.IsOnline() {
 		return false
 	}
 

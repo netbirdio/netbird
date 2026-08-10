@@ -21,6 +21,7 @@ import (
 	"google.golang.org/grpc/connectivity"
 
 	nbgrpc "github.com/netbirdio/netbird/client/grpc"
+	"github.com/netbirdio/netbird/client/netstate"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/shared/management/domain"
@@ -61,6 +62,10 @@ type GrpcClient struct {
 	connStateCallback     ConnStateNotifier
 	connStateCallbackLock sync.RWMutex
 	serverURL             string
+
+	// netState gates the stream retry loop on OS-reported network
+	// availability; nil (the default) disables gating.
+	netState *netstate.State
 
 	// syncStreamErr holds the last Sync stream error, or nil while the stream
 	// is established and healthy. GetServerKey succeeds even when the peer
@@ -111,8 +116,17 @@ func MaxRecvMsgSize() int {
 	return size
 }
 
+// ClientOption configures optional GrpcClient behavior.
+type ClientOption func(*GrpcClient)
+
+// WithNetworkState injects the OS network availability state that gates the
+// stream retry loop; without it gating is disabled.
+func WithNetworkState(netState *netstate.State) ClientOption {
+	return func(c *GrpcClient) { c.netState = netState }
+}
+
 // NewClient creates a new client to Management service
-func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsEnabled bool) (*GrpcClient, error) {
+func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsEnabled bool, opts ...ClientOption) (*GrpcClient, error) {
 	var conn *grpc.ClientConn
 
 	var extraOpts []grpc.DialOption
@@ -138,14 +152,18 @@ func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsE
 
 	realClient := proto.NewManagementServiceClient(conn)
 
-	return &GrpcClient{
+	c := &GrpcClient{
 		key:                   ourPrivateKey,
 		realClient:            realClient,
 		ctx:                   ctx,
 		conn:                  conn,
 		connStateCallbackLock: sync.RWMutex{},
 		serverURL:             addr,
-	}, nil
+	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c, nil
 }
 
 // GetServerURL returns the management server URL
@@ -208,6 +226,16 @@ func (c *GrpcClient) withMgmtStream(
 ) error {
 	backOff := defaultBackoff(ctx)
 	operation := func() error {
+		// suspend reconnect attempts while the OS reports no usable network.
+		// Wait only errors on a cancelled context, which means shutdown, so
+		// stop the loop without reporting a failure.
+		if waited, err := c.netState.Wait(ctx); err != nil {
+			log.Debugf("management connection context has been canceled while offline, this usually indicates shutdown")
+			return nil
+		} else if waited {
+			backOff.Reset()
+		}
+
 		log.Debugf("management connection state %v", c.conn.GetState())
 		connState := c.conn.GetState()
 

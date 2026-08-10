@@ -25,17 +25,13 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/client/net"
+	"github.com/netbirdio/netbird/client/netstate"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/formatter"
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	types "github.com/netbirdio/netbird/upload-server/types"
 )
-
-// ConnectionListener export internal Listener for mobile
-type ConnectionListener interface {
-	peer.Listener
-}
 
 // TunAdapter export internal TunAdapter for mobile
 type TunAdapter interface {
@@ -77,6 +73,10 @@ type Client struct {
 	deviceName            string
 	uiVersion             string
 	networkChangeListener listener.NetworkChangeListener
+	// netState outlives engine restarts: it mirrors the OS connectivity, not
+	// the engine lifecycle. Run and RunWithoutLogin inject it into each new
+	// ConnectClient, which distributes it to every reconnection loop.
+	netState *netstate.State
 
 	stateMu       sync.RWMutex
 	connectClient *internal.ConnectClient
@@ -148,7 +148,17 @@ func NewClient(androidSDKVersion int, deviceName string, uiVersion string, tunAd
 		recorder:              peer.NewRecorder(""),
 		ctxCancelLock:         &sync.Mutex{},
 		networkChangeListener: networkChangeListener,
+		netState:              netstate.New(),
 	}
+}
+
+// SetNetworkAvailable feeds OS-reported network availability into the client.
+// While unavailable, the internal reconnect loops suspend their attempts and
+// the connection listener reports NoNetwork instead of Connecting; when
+// availability returns, the loops resume immediately with a fresh backoff.
+func (c *Client) SetNetworkAvailable(available bool) {
+	c.netState.Set(available)
+	c.recorder.SetNetworkAvailable(available)
 }
 
 // Run start the internal client. It is a blocker function
@@ -188,7 +198,7 @@ func (c *Client) Run(platformFiles PlatformFiles, urlOpener URLOpener, isAndroid
 	}
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
-	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder)
+	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder, internal.WithNetworkState(c.netState))
 	c.setState(cfg, cacheDir, cfgFile, connectClient)
 	// This path runs the interactive SSO flow, so reaching here means the peer
 	// is authenticated again — release the latch Status() reports from. Clear
@@ -229,7 +239,7 @@ func (c *Client) RunWithoutLogin(platformFiles PlatformFiles, dns *DNSList, dnsR
 
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
-	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder)
+	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder, internal.WithNetworkState(c.netState))
 	c.setState(cfg, cacheDir, cfgFile, connectClient)
 	return connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener, stateFile, cacheDir)
 }
@@ -513,7 +523,7 @@ func (c *Client) OnUpdatedHostDNS(list *DNSList) error {
 
 // SetConnectionListener set the network connection listener
 func (c *Client) SetConnectionListener(listener ConnectionListener) {
-	c.recorder.SetConnectionListener(listener)
+	c.recorder.SetConnectionListener(connectionListenerAdapter{listener})
 }
 
 // RemoveConnectionListener remove connection listener

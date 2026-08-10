@@ -6,6 +6,8 @@ import (
 
 	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/netstate"
 )
 
 // ConnStatus represents the connection state as seen by the guard.
@@ -31,20 +33,26 @@ type connStatusFunc func() ConnStatus
 // - Relayed connection disconnected
 // - ICE candidate changes
 type Guard struct {
-	log                     *log.Entry
-	isConnectedOnAllWay     connStatusFunc
-	timeout                 time.Duration
-	srWatcher               *SRWatcher
+	log                 *log.Entry
+	isConnectedOnAllWay connStatusFunc
+	timeout             time.Duration
+	srWatcher           *SRWatcher
+	// netState gates reconnect attempts on OS-reported network availability;
+	// nil disables gating.
+	netState                *netstate.State
 	relayedConnDisconnected chan struct{}
 	iCEConnDisconnected     chan struct{}
 }
 
-func NewGuard(log *log.Entry, isConnectedFn connStatusFunc, timeout time.Duration, srWatcher *SRWatcher) *Guard {
+// NewGuard creates a reconnection guard for a peer connection. A nil netState
+// disables network availability gating.
+func NewGuard(log *log.Entry, isConnectedFn connStatusFunc, timeout time.Duration, srWatcher *SRWatcher, netState *netstate.State) *Guard {
 	return &Guard{
 		log:                     log,
 		isConnectedOnAllWay:     isConnectedFn,
 		timeout:                 timeout,
 		srWatcher:               srWatcher,
+		netState:                netState,
 		relayedConnDisconnected: make(chan struct{}, 1),
 		iCEConnDisconnected:     make(chan struct{}, 1),
 	}
@@ -99,6 +107,12 @@ func (g *Guard) reconnectLoopWithRetry(ctx context.Context, callback func()) {
 	for {
 		select {
 		case <-tickerChannel:
+			// skip attempts while the OS reports no usable network; the ticker
+			// keeps running so other events remain responsive, and the guard
+			// resumes via the signal/relay reconnect events once network returns
+			if !g.netState.IsOnline() {
+				continue
+			}
 			switch g.isConnectedOnAllWay() {
 			case ConnStatusConnected:
 				// all good, nothing to do

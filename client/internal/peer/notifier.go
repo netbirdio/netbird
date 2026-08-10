@@ -4,31 +4,57 @@ import (
 	"sync"
 )
 
-const (
-	stateDisconnected = iota
-	stateConnected
-	stateConnecting
-	stateDisconnecting
-)
-
 type notifier struct {
 	serverStateLock    sync.Mutex
 	listenersLock      sync.Mutex
 	listener           Listener
 	currentClientState bool
-	lastNotification   int
+	lastNotification   ClientState
 	lastNumberOfPeers  int
 	lastFqdnAddress    string
 	lastIPAddress      string
+	networkAvailable   bool
 }
 
 func newNotifier() *notifier {
-	return &notifier{}
+	return &notifier{
+		networkAvailable: true,
+	}
+}
+
+// effectiveState maps the computed state to what listeners should see:
+// while the OS reports no usable network, "Connecting" would be a lie —
+// connection attempts are suspended — so it is reported as NoNetwork.
+// Caller must hold serverStateLock.
+func (n *notifier) effectiveState(state ClientState) ClientState {
+	if !n.networkAvailable && state == ClientStateConnecting {
+		return ClientStateNoNetwork
+	}
+	return state
+}
+
+// setNetworkAvailable records the OS network availability and re-notifies
+// the listener when the flag flips the effective state (Connecting <->
+// NoNetwork).
+func (n *notifier) setNetworkAvailable(available bool) {
+	n.serverStateLock.Lock()
+	if n.networkAvailable == available {
+		n.serverStateLock.Unlock()
+		return
+	}
+	previous := n.effectiveState(n.lastNotification)
+	n.networkAvailable = available
+	current := n.effectiveState(n.lastNotification)
+	n.serverStateLock.Unlock()
+
+	if previous != current {
+		n.notify(current)
+	}
 }
 
 func (n *notifier) setListener(listener Listener) {
 	n.serverStateLock.Lock()
-	lastNotification := n.lastNotification
+	lastNotification := n.effectiveState(n.lastNotification)
 	numOfPeers := n.lastNumberOfPeers
 	fqdnAddress := n.lastFqdnAddress
 	address := n.lastIPAddress
@@ -61,43 +87,45 @@ func (n *notifier) updateServerStates(mgmState bool, signalState bool) {
 	}
 
 	n.lastNotification = calculatedState
+	effective := n.effectiveState(calculatedState)
 	n.serverStateLock.Unlock()
 
-	n.notify(calculatedState)
+	n.notify(effective)
 }
 
 func (n *notifier) clientStart() {
 	n.serverStateLock.Lock()
 	n.currentClientState = true
-	n.lastNotification = stateConnecting
+	n.lastNotification = ClientStateConnecting
+	effective := n.effectiveState(ClientStateConnecting)
 	n.serverStateLock.Unlock()
 
-	n.notify(stateConnecting)
+	n.notify(effective)
 }
 
 func (n *notifier) clientStop() {
 	n.serverStateLock.Lock()
 	n.currentClientState = false
-	n.lastNotification = stateDisconnected
+	n.lastNotification = ClientStateDisconnected
 	n.serverStateLock.Unlock()
 
-	n.notify(stateDisconnected)
+	n.notify(ClientStateDisconnected)
 }
 
 func (n *notifier) clientTearDown() {
 	n.serverStateLock.Lock()
 	n.currentClientState = false
-	n.lastNotification = stateDisconnecting
+	n.lastNotification = ClientStateDisconnecting
 	n.serverStateLock.Unlock()
 
-	n.notify(stateDisconnecting)
+	n.notify(ClientStateDisconnecting)
 }
 
-func (n *notifier) isServerStateChanged(newState int) bool {
+func (n *notifier) isServerStateChanged(newState ClientState) bool {
 	return n.lastNotification != newState
 }
 
-func (n *notifier) notify(state int) {
+func (n *notifier) notify(state ClientState) {
 	n.listenersLock.Lock()
 	listener := n.listener
 	n.listenersLock.Unlock()
@@ -109,20 +137,20 @@ func (n *notifier) notify(state int) {
 	notifyListener(listener, state)
 }
 
-func (n *notifier) calculateState(managementConn, signalConn bool) int {
+func (n *notifier) calculateState(managementConn, signalConn bool) ClientState {
 	if managementConn && signalConn {
-		return stateConnected
+		return ClientStateConnected
 	}
 
 	if !managementConn && !signalConn && !n.currentClientState {
-		return stateDisconnected
+		return ClientStateDisconnected
 	}
 
-	if n.lastNotification == stateDisconnecting {
-		return stateDisconnecting
+	if n.lastNotification == ClientStateDisconnecting {
+		return ClientStateDisconnecting
 	}
 
-	return stateConnecting
+	return ClientStateConnecting
 }
 
 func (n *notifier) peerListChanged(numOfPeers int) {
@@ -159,15 +187,19 @@ func (n *notifier) localAddressChanged(fqdn, address string) {
 	listener.OnAddressChanged(fqdn, address)
 }
 
-func notifyListener(l Listener, state int) {
+func notifyListener(l Listener, state ClientState) {
+	// legacy per-state callbacks; NoNetwork is delivered only via
+	// OnStateChanged below
 	switch state {
-	case stateDisconnected:
+	case ClientStateDisconnected:
 		l.OnDisconnected()
-	case stateConnected:
+	case ClientStateConnected:
 		l.OnConnected()
-	case stateConnecting:
+	case ClientStateConnecting:
 		l.OnConnecting()
-	case stateDisconnecting:
+	case ClientStateDisconnecting:
 		l.OnDisconnecting()
 	}
+
+	l.OnStateChanged(state)
 }

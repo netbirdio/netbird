@@ -12,6 +12,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/netstate"
 	relayAuth "github.com/netbirdio/netbird/shared/relay/auth/hmac"
 )
 
@@ -65,6 +66,12 @@ func WithMaxBackoffInterval(d time.Duration) ManagerOption {
 	return func(m *Manager) { m.maxBackoffInterval = d }
 }
 
+// WithNetworkState injects the OS network availability state that gates the
+// reconnect guard; without it reconnect attempts are not gated.
+func WithNetworkState(netState *netstate.State) ManagerOption {
+	return func(m *Manager) { m.netState = netState }
+}
+
 // Manager is a manager for the relay client instances. It establishes one persistent connection to the given relay URL
 // and automatically reconnect to them in case disconnection.
 // The manager also manage temporary relay connection. If a client wants to communicate with a client on a
@@ -92,6 +99,7 @@ type Manager struct {
 
 	mtu                uint16
 	maxBackoffInterval time.Duration
+	netState           *netstate.State
 
 	cleanupInterval      time.Duration
 	keepUnusedServerTime time.Duration
@@ -129,7 +137,7 @@ func NewManager(ctx context.Context, serverURLs []string, peerID string, mtu uin
 		opt(m)
 	}
 	m.serverPicker.ServerURLs.Store(serverURLs)
-	m.reconnectGuard = NewGuard(m.serverPicker, m.maxBackoffInterval)
+	m.reconnectGuard = NewGuard(m.serverPicker, m.maxBackoffInterval, m.netState)
 	return m
 }
 
