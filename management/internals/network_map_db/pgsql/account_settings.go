@@ -2,11 +2,11 @@ package networkmap_pgsql
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
 
@@ -34,7 +34,7 @@ func (pgc *PgStoreConn) GetAccountSettings(ctx context.Context, accountId string
 		return nmdata.AccountSettingsInfo{}, err
 	}
 
-	settings, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[account])
+	settings, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[networkmapdb.Account])
 	if err != nil {
 		return nmdata.AccountSettingsInfo{}, err
 	}
@@ -58,18 +58,4 @@ func (pgc *PgStoreConn) GetAccountSettings(ctx context.Context, accountId string
 	}
 
 	return settingsInfo, nil
-}
-
-type account struct {
-	PeerLoginExpirationEnabled      sql.NullBool
-	PeerLoginExpiration             sql.NullInt64
-	PeerInactivityExpirationEnabled sql.NullBool
-	PeerInactivityExpiration        sql.NullInt64
-	DNSDomain                       sql.NullString
-	IPv6EnabledGroups               json.RawMessage
-	RoutingPeerDNSResolutionEnabled sql.NullBool
-	LazyConnectionEnabled           sql.NullBool
-	AutoUpdateVersion               sql.NullString
-	AutoUpdateAlways                sql.NullBool
-	MetricsPushEnabled              sql.NullBool
 }

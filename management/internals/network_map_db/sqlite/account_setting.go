@@ -2,7 +2,6 @@ package networkmap_sqlite
 
 import (
 	"context"
-	"database/sql"
 	"reflect"
 
 	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
@@ -33,7 +32,7 @@ func (sc *SqliteStoreConn) GetAccountSettings(ctx context.Context, accountId str
 		return nmdata.AccountSettingsInfo{}, err
 	}
 
-	a, err := networkmapdb.CollectOneRowForSqlite[account](rows)
+	a, err := networkmapdb.CollectOneRowForSqlite[networkmapdb.Account](rows)
 
 	settingsInfo := nmdata.AccountSettingsInfo{}
 	err = networkmapdb.FromSqlTypesToSharedTypes(reflect.ValueOf(&a), reflect.ValueOf(&settingsInfo))
@@ -42,18 +41,4 @@ func (sc *SqliteStoreConn) GetAccountSettings(ctx context.Context, accountId str
 	}
 
 	return settingsInfo, nil
-}
-
-type account struct {
-	PeerLoginExpirationEnabled      sql.NullBool
-	PeerLoginExpiration             sql.NullInt64
-	PeerInactivityExpirationEnabled sql.NullBool
-	PeerInactivityExpiration        sql.NullInt64
-	DNSDomain                       sql.NullString
-	IPv6EnabledGroups               []byte `nmap:"json"`
-	RoutingPeerDNSResolutionEnabled sql.NullBool
-	LazyConnectionEnabled           sql.NullBool
-	AutoUpdateVersion               sql.NullString
-	AutoUpdateAlways                sql.NullBool
-	MetricsPushEnabled              sql.NullBool
 }

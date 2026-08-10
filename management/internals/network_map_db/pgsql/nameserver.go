@@ -2,9 +2,6 @@ package networkmap_pgsql
 
 import (
 	"context"
-	"database/sql"
-	"encoding/json"
-	"reflect"
 
 	"github.com/jackc/pgx/v5"
 	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
@@ -25,33 +22,10 @@ func (pgc *PgStoreConn) GetNameServerGroups(ctx context.Context, accountId strin
 		return nil, err
 	}
 
-	nsgroups, err := pgx.CollectRows(rows, pgx.RowToStructByName[nameserverGroup])
+	nsgroups, err := pgx.CollectRows(rows, pgx.RowToStructByName[networkmapdb.NameserverGroup])
 	if err != nil {
 		return nil, err
 	}
 
-	toret := make([]nmdata.NameServerGroup, 0, len(nsgroups))
-	for _, nsg := range nsgroups {
-		group := nmdata.NameServerGroup{}
-		err := networkmapdb.FromSqlTypesToSharedTypes(
-			reflect.ValueOf(&nsg), reflect.ValueOf(&group))
-		if err != nil {
-			return nil, err
-		}
-		toret = append(toret, group)
-	}
-	return toret, nil
-}
-
-type nameserverGroup struct {
-	ID                   string
-	PublicID             sql.NullString
-	Name                 sql.NullString
-	Description          sql.NullString
-	NameServers          json.RawMessage
-	Groups               json.RawMessage
-	Primary              sql.NullBool
-	Domains              json.RawMessage
-	Enabled              sql.NullBool
-	SearchDomainsEnabled sql.NullBool
+	return networkmapdb.ConvertAllToSharedTypes[networkmapdb.NameserverGroup, nmdata.NameServerGroup](nsgroups)
 }

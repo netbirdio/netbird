@@ -2,7 +2,6 @@ package networkmap_sqlite
 
 import (
 	"context"
-	"database/sql"
 
 	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
@@ -22,23 +21,10 @@ func (sc *SqliteStoreConn) GetNameServerGroups(ctx context.Context, accountId st
 		return nil, err
 	}
 
-	nsgroups, err := networkmapdb.CollectRowsForSqlite[nameserverGroup](rows)
+	nsgroups, err := networkmapdb.CollectRowsForSqlite[networkmapdb.NameserverGroup](rows)
 	if err != nil {
 		return nil, err
 	}
 
-	return networkmapdb.ConvertAllToSharedTypes[nameserverGroup, nmdata.NameServerGroup](nsgroups)
-}
-
-type nameserverGroup struct {
-	ID                   string
-	PublicID             sql.NullString
-	Name                 sql.NullString
-	Description          sql.NullString
-	NameServers          []byte `nmap:"json"`
-	Groups               []byte `nmap:"json"`
-	Primary              sql.NullBool
-	Domains              []byte `nmap:"json"`
-	Enabled              sql.NullBool
-	SearchDomainsEnabled sql.NullBool
+	return networkmapdb.ConvertAllToSharedTypes[networkmapdb.NameserverGroup, nmdata.NameServerGroup](nsgroups)
 }

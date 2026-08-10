@@ -14,6 +14,20 @@ import (
 
 var ErrDnsUnsupportedRecordType = errors.New("unsupported record type")
 
+type Account struct {
+	PeerLoginExpirationEnabled      sql.NullBool
+	PeerLoginExpiration             sql.NullInt64
+	PeerInactivityExpirationEnabled sql.NullBool
+	PeerInactivityExpiration        sql.NullInt64
+	DNSDomain                       sql.NullString
+	IPv6EnabledGroups               []byte `nmap:"json"`
+	RoutingPeerDNSResolutionEnabled sql.NullBool
+	LazyConnectionEnabled           sql.NullBool
+	AutoUpdateVersion               sql.NullString
+	AutoUpdateAlways                sql.NullBool
+	MetricsPushEnabled              sql.NullBool
+}
+
 type Domain struct {
 	Domain        sql.NullString
 	TargetCluster sql.NullString
@@ -37,6 +51,32 @@ type Zone struct {
 	RecordClass          sql.NullString `nmap:"skip"`
 	RecordTTL            sql.NullInt64  `nmap:"skip"`
 	RecordRData          sql.NullString `nmap:"skip"`
+}
+
+type NameserverGroup struct {
+	ID                   string
+	PublicID             sql.NullString
+	Name                 sql.NullString
+	Description          sql.NullString
+	NameServers          []byte `nmap:"json"`
+	Groups               []byte `nmap:"json"`
+	Primary              sql.NullBool
+	Domains              []byte `nmap:"json"`
+	Enabled              sql.NullBool
+	SearchDomainsEnabled sql.NullBool
+}
+
+type Networkresource struct {
+	ID          string
+	NetworkID   sql.NullString
+	AccountID   sql.NullString
+	PublicID    sql.NullString
+	Name        sql.NullString
+	Description sql.NullString
+	Type        sql.NullString
+	Domain      sql.NullString
+	Prefix      []byte `nmap:"json"`
+	Enabled     sql.NullBool
 }
 
 func RecordTypeAndRdata(t, rdata string) (int, string, error) {
