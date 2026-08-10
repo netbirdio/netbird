@@ -20,6 +20,7 @@ import (
 
 	nbgrpc "github.com/netbirdio/netbird/client/grpc"
 	"github.com/netbirdio/netbird/client/netstate"
+	"github.com/netbirdio/netbird/client/netsweep"
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/signal/proto"
@@ -70,6 +71,9 @@ type GrpcClient struct {
 	// availability; nil (the default) disables gating.
 	netState *netstate.State
 
+	// sweeper cuts the transport connections on network change; nil disables it.
+	sweeper *netsweep.Sweeper
+
 	onReconnectedListenerFn func()
 
 	decryptionWorker       *Worker
@@ -93,7 +97,6 @@ type GrpcClient struct {
 	watchdogWg            sync.WaitGroup
 }
 
-// NewClient creates a new Signal client
 // ClientOption configures optional GrpcClient behavior.
 type ClientOption func(*GrpcClient)
 
@@ -103,12 +106,34 @@ func WithNetworkState(netState *netstate.State) ClientOption {
 	return func(c *GrpcClient) { c.netState = netState }
 }
 
-func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled bool, opts ...ClientOption) (*GrpcClient, error) {
-	var conn *grpc.ClientConn
+// WithSweeper injects the network change sweeper.
+func WithSweeper(sweeper *netsweep.Sweeper) ClientOption {
+	return func(c *GrpcClient) { c.sweeper = sweeper }
+}
 
+// NewClient creates a new Signal client
+func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled bool, opts ...ClientOption) (*GrpcClient, error) {
+	// Options apply before dialing: the sweeper must wrap the first connection too.
+	c := &GrpcClient{
+		ctx:                   ctx,
+		key:                   key,
+		mux:                   sync.Mutex{},
+		status:                StreamDisconnected,
+		connStateCallbackLock: sync.RWMutex{},
+	}
+	for _, opt := range opts {
+		opt(c)
+	}
+
+	var extraOpts []grpc.DialOption
+	if c.sweeper != nil {
+		extraOpts = append(extraOpts, nbgrpc.WithSweeper(c.sweeper))
+	}
+
+	var conn *grpc.ClientConn
 	operation := func() error {
 		var err error
-		conn, err = nbgrpc.CreateConnection(ctx, addr, tlsEnabled, wsproxy.SignalComponent)
+		conn, err = nbgrpc.CreateConnection(ctx, addr, tlsEnabled, wsproxy.SignalComponent, extraOpts...)
 		if err != nil {
 			return fmt.Errorf("create connection: %w", err)
 		}
@@ -123,18 +148,8 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 
 	log.Debugf("connected to Signal Service: %v", conn.Target())
 
-	c := &GrpcClient{
-		realClient:            proto.NewSignalExchangeClient(conn),
-		ctx:                   ctx,
-		signalConn:            conn,
-		key:                   key,
-		mux:                   sync.Mutex{},
-		status:                StreamDisconnected,
-		connStateCallbackLock: sync.RWMutex{},
-	}
-	for _, opt := range opts {
-		opt(c)
-	}
+	c.signalConn = conn
+	c.realClient = proto.NewSignalExchangeClient(conn)
 	return c, nil
 }
 

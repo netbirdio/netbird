@@ -39,6 +39,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/updater/installer"
 	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/client/netstate"
+	"github.com/netbirdio/netbird/client/netsweep"
 	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/ssh"
 	sshconfig "github.com/netbirdio/netbird/client/ssh/config"
@@ -76,6 +77,10 @@ type ConnectClient struct {
 	// availability. Nil (the default) disables gating; mobile platforms
 	// inject it via WithNetworkState.
 	netState *netstate.State
+
+	// sweeper cuts the management, signal and relay connections on network
+	// change; nil disables it.
+	sweeper *netsweep.Sweeper
 }
 
 // ConnectClientOption configures optional ConnectClient behavior.
@@ -85,6 +90,11 @@ type ConnectClientOption func(*ConnectClient)
 // reconnection loop; without it gating is disabled.
 func WithNetworkState(netState *netstate.State) ConnectClientOption {
 	return func(c *ConnectClient) { c.netState = netState }
+}
+
+// WithSweeper injects the network change sweeper.
+func WithSweeper(sweeper *netsweep.Sweeper) ConnectClientOption {
+	return func(c *ConnectClient) { c.sweeper = sweeper }
 }
 
 func NewConnectClient(
@@ -312,7 +322,8 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		}()
 
 		log.Debugf("connecting to the Management service %s", c.config.ManagementURL.Host)
-		mgmClient, err := mgm.NewClient(engineCtx, c.config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled, mgm.WithNetworkState(c.netState))
+		mgmClient, err := mgm.NewClient(engineCtx, c.config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled,
+			mgm.WithNetworkState(c.netState), mgm.WithSweeper(c.sweeper))
 		if err != nil {
 			// On daemon shutdown / Down() the parent context is cancelled
 			// and the dial fails with "context canceled". Wrapping that
@@ -387,7 +398,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		}()
 
 		// with the global Netbird config in hand connect (just a connection, no stream yet) Signal
-		signalClient, err := connectToSignal(engineCtx, loginResp.GetNetbirdConfig(), myPrivateKey, c.netState)
+		signalClient, err := connectToSignal(engineCtx, loginResp.GetNetbirdConfig(), myPrivateKey, c.netState, c.sweeper)
 		if err != nil {
 			log.Error(err)
 			return wrapErr(err)
@@ -424,7 +435,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		}
 
 		relayManager := relayClient.NewManager(engineCtx, relayURLs, myPrivateKey.PublicKey().String(), engineConfig.MTU,
-			relayClient.WithNetworkState(c.netState))
+			relayClient.WithNetworkState(c.netState), relayClient.WithSweeper(c.sweeper))
 		c.statusRecorder.SetRelayMgr(relayManager)
 		if len(relayURLs) > 0 {
 			if token != nil {
@@ -712,7 +723,7 @@ func selectMTU(localMTU uint16, peerMTU int32) uint16 {
 }
 
 // connectToSignal creates Signal Service client and established a connection
-func connectToSignal(ctx context.Context, wtConfig *mgmProto.NetbirdConfig, ourPrivateKey wgtypes.Key, netState *netstate.State) (*signal.GrpcClient, error) {
+func connectToSignal(ctx context.Context, wtConfig *mgmProto.NetbirdConfig, ourPrivateKey wgtypes.Key, netState *netstate.State, sweeper *netsweep.Sweeper) (*signal.GrpcClient, error) {
 	var sigTLSEnabled bool
 	if wtConfig.Signal.Protocol == mgmProto.HostConfig_HTTPS {
 		sigTLSEnabled = true
@@ -720,7 +731,8 @@ func connectToSignal(ctx context.Context, wtConfig *mgmProto.NetbirdConfig, ourP
 		sigTLSEnabled = false
 	}
 
-	signalClient, err := signal.NewClient(ctx, wtConfig.Signal.Uri, ourPrivateKey, sigTLSEnabled, signal.WithNetworkState(netState))
+	signalClient, err := signal.NewClient(ctx, wtConfig.Signal.Uri, ourPrivateKey, sigTLSEnabled,
+		signal.WithNetworkState(netState), signal.WithSweeper(sweeper))
 	if err != nil {
 		log.Errorf("error while connecting to the Signal Exchange Service %s: %s", wtConfig.Signal.Uri, err)
 		return nil, gstatus.Errorf(codes.FailedPrecondition, "failed connecting to Signal Service : %s", err)

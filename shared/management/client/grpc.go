@@ -22,6 +22,7 @@ import (
 
 	nbgrpc "github.com/netbirdio/netbird/client/grpc"
 	"github.com/netbirdio/netbird/client/netstate"
+	"github.com/netbirdio/netbird/client/netsweep"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/shared/management/domain"
@@ -66,6 +67,9 @@ type GrpcClient struct {
 	// netState gates the stream retry loop on OS-reported network
 	// availability; nil (the default) disables gating.
 	netState *netstate.State
+
+	// sweeper cuts the transport connections on network change; nil disables it.
+	sweeper *netsweep.Sweeper
 
 	// syncStreamErr holds the last Sync stream error, or nil while the stream
 	// is established and healthy. GetServerKey succeeds even when the peer
@@ -125,16 +129,34 @@ func WithNetworkState(netState *netstate.State) ClientOption {
 	return func(c *GrpcClient) { c.netState = netState }
 }
 
+// WithSweeper injects the network change sweeper.
+func WithSweeper(sweeper *netsweep.Sweeper) ClientOption {
+	return func(c *GrpcClient) { c.sweeper = sweeper }
+}
+
 // NewClient creates a new client to Management service
 func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsEnabled bool, opts ...ClientOption) (*GrpcClient, error) {
-	var conn *grpc.ClientConn
+	// Options apply before dialing: the sweeper must wrap the first connection too.
+	c := &GrpcClient{
+		key:                   ourPrivateKey,
+		ctx:                   ctx,
+		connStateCallbackLock: sync.RWMutex{},
+		serverURL:             addr,
+	}
+	for _, opt := range opts {
+		opt(c)
+	}
 
 	var extraOpts []grpc.DialOption
 	if maxSize := MaxRecvMsgSize(); maxSize > 0 {
 		extraOpts = append(extraOpts, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxSize)))
 		log.Infof("management gRPC max receive message size set to %d bytes", maxSize)
 	}
+	if c.sweeper != nil {
+		extraOpts = append(extraOpts, nbgrpc.WithSweeper(c.sweeper))
+	}
 
+	var conn *grpc.ClientConn
 	operation := func() error {
 		var err error
 		conn, err = nbgrpc.CreateConnection(ctx, addr, tlsEnabled, wsproxy.ManagementComponent, extraOpts...)
@@ -150,19 +172,8 @@ func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsE
 		return nil, err
 	}
 
-	realClient := proto.NewManagementServiceClient(conn)
-
-	c := &GrpcClient{
-		key:                   ourPrivateKey,
-		realClient:            realClient,
-		ctx:                   ctx,
-		conn:                  conn,
-		connStateCallbackLock: sync.RWMutex{},
-		serverURL:             addr,
-	}
-	for _, opt := range opts {
-		opt(c)
-	}
+	c.conn = conn
+	c.realClient = proto.NewManagementServiceClient(conn)
 	return c, nil
 }
 

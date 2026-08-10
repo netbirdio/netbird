@@ -14,6 +14,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/netsweep"
 	auth "github.com/netbirdio/netbird/shared/relay/auth/hmac"
 	"github.com/netbirdio/netbird/shared/relay/client/dialer"
 	netErr "github.com/netbirdio/netbird/shared/relay/client/dialer/net"
@@ -184,6 +185,10 @@ type Client struct {
 	// datagram-sized transport is avoided on subsequent connects. Shared via
 	// the manager.
 	transportFallback *transportFallback
+
+	// sweeper cuts the relay connection on network change; the read loop
+	// reports the disconnect and the guard reconnects. Shared via the manager.
+	sweeper *netsweep.Sweeper
 	// datagramFallbackTriggered guards a single fallback per connection so a
 	// burst of oversized datagrams triggers one reconnect, not many.
 	datagramFallbackTriggered atomic.Bool
@@ -393,6 +398,11 @@ func (c *Client) Close() error {
 }
 
 func (c *Client) connect(ctx context.Context) (*RelayAddr, error) {
+	// A sweep cancels this context, so a dial started on the old network
+	// aborts instead of waiting out its handshake timeout.
+	ctx, releaseDial := c.sweeper.WrapDialContext(ctx)
+	defer releaseDial()
+
 	mode := transportModeFromEnv()
 	dialers := c.getDialers(mode)
 
@@ -417,6 +427,7 @@ func (c *Client) connect(ctx context.Context) (*RelayAddr, error) {
 			return nil, fmt.Errorf("dial via FQDN: %w", err)
 		}
 	}
+	conn = c.sweeper.WrapConn(conn)
 	c.relayConn = conn
 	c.datagramFallbackTriggered.Store(false)
 	if tc, ok := conn.(transportConn); ok {

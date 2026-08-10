@@ -22,6 +22,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/netstate"
+	"github.com/netbirdio/netbird/client/netsweep"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/formatter"
 	"github.com/netbirdio/netbird/route"
@@ -79,6 +80,8 @@ type Client struct {
 	// the engine lifecycle. Run injects it into each new ConnectClient, which
 	// distributes it to every reconnection loop.
 	netState *netstate.State
+	// sweeper also outlives engine restarts; NotifyNetworkChange sweeps it.
+	sweeper *netsweep.Sweeper
 	// preloadedConfig holds config loaded from JSON (used on tvOS where file writes are blocked)
 	preloadedConfig *profilemanager.Config
 
@@ -102,6 +105,7 @@ func NewClient(cfgFile, stateFile, cacheDir, logFilePath, deviceName string, osV
 		networkChangeListener: networkChangeListener,
 		dnsManager:            dnsManager,
 		netState:              netstate.New(),
+		sweeper:               netsweep.New(),
 	}
 }
 
@@ -177,7 +181,8 @@ func (c *Client) Run(fd int32, interfaceName string, envList *EnvList) error {
 	c.onHostDnsFn = func([]string) {}
 	cfg.WgIface = interfaceName
 
-	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder, internal.WithNetworkState(c.netState))
+	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder,
+		internal.WithNetworkState(c.netState), internal.WithSweeper(c.sweeper))
 	c.setState(cfg, connectClient)
 	// Persist the latest sync response so DebugBundle can include the network
 	// map. On iOS this is backed by disk to keep it out of the constrained
@@ -194,6 +199,14 @@ func (c *Client) Run(fd int32, interfaceName string, envList *EnvList) error {
 func (c *Client) SetNetworkAvailable(available bool) {
 	c.netState.Set(available)
 	c.recorder.SetNetworkAvailable(available)
+}
+
+// NotifyNetworkChange cuts the management, signal and relay connections
+// after the OS switched networks, so the reconnect loops redial immediately
+// on the new one. The engine and the TUN device stay untouched.
+func (c *Client) NotifyNetworkChange() {
+	n := c.sweeper.Sweep()
+	log.Infof("network change: swept %d connections", n)
 }
 
 // Stop the internal client and free the resources

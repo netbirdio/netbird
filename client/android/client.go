@@ -26,6 +26,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/client/netstate"
+	"github.com/netbirdio/netbird/client/netsweep"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/formatter"
 	"github.com/netbirdio/netbird/route"
@@ -77,6 +78,9 @@ type Client struct {
 	// the engine lifecycle. Run and RunWithoutLogin inject it into each new
 	// ConnectClient, which distributes it to every reconnection loop.
 	netState *netstate.State
+
+	// sweeper also outlives engine restarts; NotifyNetworkChange sweeps it.
+	sweeper *netsweep.Sweeper
 
 	stateMu       sync.RWMutex
 	connectClient *internal.ConnectClient
@@ -149,6 +153,7 @@ func NewClient(androidSDKVersion int, deviceName string, uiVersion string, tunAd
 		ctxCancelLock:         &sync.Mutex{},
 		networkChangeListener: networkChangeListener,
 		netState:              netstate.New(),
+		sweeper:               netsweep.New(),
 	}
 }
 
@@ -159,6 +164,14 @@ func NewClient(androidSDKVersion int, deviceName string, uiVersion string, tunAd
 func (c *Client) SetNetworkAvailable(available bool) {
 	c.netState.Set(available)
 	c.recorder.SetNetworkAvailable(available)
+}
+
+// NotifyNetworkChange cuts the management, signal and relay connections
+// after the OS switched networks, so the reconnect loops redial immediately
+// on the new one. The engine and the TUN device stay untouched.
+func (c *Client) NotifyNetworkChange() {
+	n := c.sweeper.Sweep()
+	log.Infof("network change: swept %d connections", n)
 }
 
 // Run start the internal client. It is a blocker function
@@ -198,7 +211,8 @@ func (c *Client) Run(platformFiles PlatformFiles, urlOpener URLOpener, isAndroid
 	}
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
-	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder, internal.WithNetworkState(c.netState))
+	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder,
+		internal.WithNetworkState(c.netState), internal.WithSweeper(c.sweeper))
 	c.setState(cfg, cacheDir, cfgFile, connectClient)
 	// This path runs the interactive SSO flow, so reaching here means the peer
 	// is authenticated again — release the latch Status() reports from. Clear
@@ -239,7 +253,8 @@ func (c *Client) RunWithoutLogin(platformFiles PlatformFiles, dns *DNSList, dnsR
 
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
-	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder, internal.WithNetworkState(c.netState))
+	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder,
+		internal.WithNetworkState(c.netState), internal.WithSweeper(c.sweeper))
 	c.setState(cfg, cacheDir, cfgFile, connectClient)
 	return connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener, stateFile, cacheDir)
 }
