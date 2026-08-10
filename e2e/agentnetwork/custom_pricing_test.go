@@ -82,13 +82,12 @@ func provisionPricedProvider(t *testing.T, ctx context.Context, name string, mod
 	// need NOT be in the catalog — the operator names it and prices it here.
 	dummyKey := "sk-price-e2e"
 	prov, err := srv.CreateProvider(ctx, api.AgentNetworkProviderRequest{
-		Name:             name,
-		ProviderId:       "openai_api",
-		UpstreamUrl:      vllm.URL,
-		ApiKey:           &dummyKey,
-		Enabled:          ptr(true),
-		BootstrapCluster: ptr(harness.AgentNetworkCluster),
-		Models:           &models,
+		Name:        name,
+		ProviderId:  "openai_api",
+		UpstreamUrl: vllm.URL,
+		ApiKey:      &dummyKey,
+		Enabled:     ptr(true),
+		Models:      &models,
 	})
 	require.NoError(t, err, "create provider")
 	t.Cleanup(func() { _ = srv.DeleteProvider(context.Background(), prov.Id) })

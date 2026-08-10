@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/netbirdio/netbird/e2e/harness"
+	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
 // srv is the shared combined server for the package, ready (PAT-authenticated)
@@ -39,6 +40,15 @@ func run(m *testing.M) int {
 
 	if _, err := srv.Bootstrap(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "e2e: bootstrap admin PAT: %v\n", err)
+		return 1
+	}
+
+	// Bootstrap the account's agent-network endpoint once for the package:
+	// providers no longer have settings side effects, and every data-plane
+	// test expects the shared account pinned to the combined proxy cluster.
+	cluster := harness.AgentNetworkCluster
+	if _, err := srv.CreateSettings(ctx, api.AgentNetworkSettingsCreateRequest{ProxyAddress: &cluster}); err != nil {
+		fmt.Fprintf(os.Stderr, "e2e: bootstrap agent-network endpoint: %v\n", err)
 		return 1
 	}
 
