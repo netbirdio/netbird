@@ -13,10 +13,6 @@ import (
 )
 
 func TestGetGroups(t *testing.T) {
-	if engine == string(types.SqliteStoreEngine) {
-		t.Skip()
-	}
-
 	ctx := context.TODO()
 
 	groups, resourceToGroupIdx, err := conn(t, ctx).GetGroups(ctx, "account-1")
