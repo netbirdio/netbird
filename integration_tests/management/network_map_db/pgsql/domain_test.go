@@ -8,10 +8,15 @@ import (
 	"testing"
 
 	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestGetDomains(t *testing.T) {
+	if engine == string(types.SqliteStoreEngine) {
+		t.Skip()
+	}
+
 	ctx := context.TODO()
 
 	execQuery(t, ctx,

@@ -8,11 +8,15 @@ import (
 	"net/netip"
 	"testing"
 
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestGetPeers(t *testing.T) {
+	if engine == string(types.SqliteStoreEngine) {
+		t.Skip()
+	}
 	ctx := context.TODO()
 
 	peers, clusterToPeersIdx, err := conn(t, ctx).GetPeers(ctx, "account-1")

@@ -8,11 +8,15 @@ import (
 	"net"
 	"testing"
 
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestGetNetwork(t *testing.T) {
+	if engine == string(types.SqliteStoreEngine) {
+		t.Skip()
+	}
 	ctx := context.TODO()
 
 	network, err := conn(t, ctx).GetNetwork(ctx, "account-1")

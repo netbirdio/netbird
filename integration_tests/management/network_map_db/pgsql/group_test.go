@@ -6,12 +6,17 @@ import (
 	"context"
 	"testing"
 
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestGetGroups(t *testing.T) {
+	if engine == string(types.SqliteStoreEngine) {
+		t.Skip()
+	}
+
 	ctx := context.TODO()
 
 	groups, resourceToGroupIdx, err := conn(t, ctx).GetGroups(ctx, "account-1")
@@ -39,6 +44,9 @@ func TestGetGroups(t *testing.T) {
 // TODO (dmitri) PublicID should not be populated with delta updates,
 // which require stable PublicIDs
 func TestGetGroupsWithoutExpectedFields(t *testing.T) {
+	if engine == string(types.SqliteStoreEngine) {
+		t.Skip()
+	}
 	ctx := context.TODO()
 
 	execQuery(t, ctx,
