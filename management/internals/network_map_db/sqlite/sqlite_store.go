@@ -91,9 +91,6 @@ func (s *SqliteStoreConn) GetPolicies(ctx context.Context, accountId string) ([]
 func (s *SqliteStoreConn) GetRoutes(ctx context.Context, accountId string) ([]nmdata.Route, error) {
 	return nil, nil
 }
-func (s *SqliteStoreConn) GetNetworkRouters(ctx context.Context, accountId string) (map[string]map[string]*nmdata.NetworkRouter, error) {
-	return nil, nil
-}
 func (s *SqliteStoreConn) GetNetwork(ctx context.Context, accountId string) (nmdata.Network, error) {
 	return nmdata.Network{}, nil
 }
