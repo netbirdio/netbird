@@ -146,7 +146,7 @@ func (c *tunnelValidationCache) put(key tunnelCacheKey, resp *proto.ValidateTunn
 
 // removeKey drops the first occurrence of needle from order. The cache
 // uses small slices so a linear scan is cheaper than a map+slice combo.
-func removeKey(order []tunnelCacheKey, needle tunnelCacheKey) []tunnelCacheKey {
+func removeKey[T comparable](order []T, needle T) []T {
 	for i, k := range order {
 		if k == needle {
 			return append(order[:i], order[i+1:]...)

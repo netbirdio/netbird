@@ -18,11 +18,15 @@ const (
 	proxyAuthLimiterCleanup = 5 * time.Minute
 	// proxyAuthLimiterTTL is how long a limiter is kept after the last failure.
 	proxyAuthLimiterTTL = 15 * time.Minute
+
+	proxyAuthClientBurst = 30
 )
 
 // defaultProxyAuthFailureRate is the token replenishment rate for failed auth attempts.
 // One token every 12 seconds = 5 per minute.
 var defaultProxyAuthFailureRate = rate.Every(12 * time.Second)
+
+var defaultProxyAuthClientRate = rate.Limit(1)
 
 // clientIP identifies a client by its IP address for rate limiting purposes.
 type clientIP = string
@@ -37,6 +41,7 @@ type authFailureLimiter struct {
 	mu          sync.Mutex
 	limiters    map[clientIP]*limiterEntry
 	failureRate rate.Limit
+	burst       int
 	cancel      context.CancelFunc
 }
 
@@ -45,10 +50,19 @@ func newAuthFailureLimiter() *authFailureLimiter {
 }
 
 func newAuthFailureLimiterWithRate(failureRate rate.Limit) *authFailureLimiter {
+	return newAuthLimiter(failureRate, proxyAuthFailureBurst)
+}
+
+func newAuthClientLimiter() *authFailureLimiter {
+	return newAuthLimiter(defaultProxyAuthClientRate, proxyAuthClientBurst)
+}
+
+func newAuthLimiter(failureRate rate.Limit, burst int) *authFailureLimiter {
 	ctx, cancel := context.WithCancel(context.Background())
 	l := &authFailureLimiter{
 		limiters:    make(map[clientIP]*limiterEntry),
 		failureRate: failureRate,
+		burst:       burst,
 		cancel:      cancel,
 	}
 	go l.cleanupLoop(ctx)
@@ -77,7 +91,7 @@ func (l *authFailureLimiter) recordFailure(ip clientIP) {
 	entry, exists := l.limiters[ip]
 	if !exists {
 		entry = &limiterEntry{
-			limiter: rate.NewLimiter(l.failureRate, proxyAuthFailureBurst),
+			limiter: rate.NewLimiter(l.failureRate, l.burst),
 		}
 		l.limiters[ip] = entry
 	}

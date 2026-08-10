@@ -13,6 +13,7 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"strconv"
@@ -25,6 +26,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/shared/management/domain"
@@ -134,6 +136,10 @@ type ProxyServiceServer struct {
 	// initial snapshot delivery. Configurable via NB_PROXY_SNAPSHOT_BATCH_SIZE.
 	snapshotBatchSize int
 
+	authAttemptLimiter *authFailureLimiter
+	authClientLimiter  *authFailureLimiter
+	authFailureMAC     []byte
+
 	cancel context.CancelFunc
 }
 
@@ -204,6 +210,10 @@ func NewProxyServiceServer(accessLogMgr accesslogs.Manager, tokenStore *OneTimeT
 		snapshotBatchSize: snapshotBatchSizeFromEnv(),
 		cancel:            cancel,
 	}
+	s.authAttemptLimiter = newAuthFailureLimiter()
+	s.authClientLimiter = newAuthClientLimiter()
+	s.authFailureMAC = make([]byte, sha256.Size)
+	_, _ = rand.Read(s.authFailureMAC)
 	go s.cleanupStaleProxies(ctx)
 	return s
 }
@@ -1172,6 +1182,18 @@ func (s *ProxyServiceServer) Authenticate(ctx context.Context, req *proto.Authen
 		return nil, err
 	}
 
+	failureKey := s.authFailureKey(req)
+	limitFailures := failureKey != "" && s.authAttemptLimiter != nil && len(s.authFailureMAC) > 0
+	if limitFailures && s.authAttemptLimiter.isLimited(failureKey) {
+		return nil, status.Errorf(codes.ResourceExhausted, "too many failed authentication attempts for this credential, please try again later")
+	}
+
+	clientKey := s.authClientKey(ctx, req.GetId())
+	limitClient := clientKey != "" && s.authClientLimiter != nil
+	if limitClient && s.authClientLimiter.isLimited(clientKey) {
+		return nil, status.Errorf(codes.ResourceExhausted, "too many failed authentication attempts from this client, please try again later")
+	}
+
 	service, err := s.serviceManager.GetServiceByID(ctx, req.GetAccountId(), req.GetId())
 	if err != nil {
 		log.WithContext(ctx).Debugf("failed to get service from store: %v", err)
@@ -1179,6 +1201,14 @@ func (s *ProxyServiceServer) Authenticate(ctx context.Context, req *proto.Authen
 	}
 
 	authenticated, userId, method := s.authenticateRequest(ctx, req, service)
+	if !authenticated {
+		if limitFailures {
+			s.authAttemptLimiter.recordFailure(failureKey)
+		}
+		if limitClient {
+			s.authClientLimiter.recordFailure(clientKey)
+		}
+	}
 
 	// Non-OIDC schemes (PIN/Password/Header) authenticate against per-service
 	// secrets and have no user-level group context, so groups stay nil. Email
@@ -1192,6 +1222,40 @@ func (s *ProxyServiceServer) Authenticate(ctx context.Context, req *proto.Authen
 		Success:      authenticated,
 		SessionToken: token,
 	}, nil
+}
+
+func (s *ProxyServiceServer) authClientKey(ctx context.Context, serviceID string) string {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return ""
+	}
+	values := md.Get(proxyauth.ClientIPMetadataKey)
+	if len(values) == 0 {
+		return ""
+	}
+	addr, err := netip.ParseAddr(strings.TrimSpace(values[0]))
+	if err != nil {
+		return ""
+	}
+	return serviceID + "|" + addr.Unmap().String()
+}
+
+func (s *ProxyServiceServer) authFailureKey(req *proto.AuthenticateRequest) string {
+	var secret string
+	switch v := req.GetRequest().(type) {
+	case *proto.AuthenticateRequest_Pin:
+		secret = "pin|" + v.Pin.GetPin()
+	case *proto.AuthenticateRequest_Password:
+		secret = "password|" + v.Password.GetPassword()
+	case *proto.AuthenticateRequest_HeaderAuth:
+		secret = "header|" + v.HeaderAuth.GetHeaderName() + "|" + v.HeaderAuth.GetHeaderValue()
+	default:
+		return ""
+	}
+
+	mac := hmac.New(sha256.New, s.authFailureMAC)
+	mac.Write([]byte(secret))
+	return req.GetId() + "|" + hex.EncodeToString(mac.Sum(nil))
 }
 
 func (s *ProxyServiceServer) authenticateRequest(ctx context.Context, req *proto.AuthenticateRequest, service *rpservice.Service) (bool, string, proxyauth.Method) {
