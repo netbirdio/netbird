@@ -13751,6 +13751,7 @@ paths:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
       requestBody:
+        required: true
         description: Settings bootstrap request
         content:
           application/json:

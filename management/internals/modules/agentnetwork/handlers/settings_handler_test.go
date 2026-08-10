@@ -320,6 +320,11 @@ func TestSettingsHandler_DeleteBlockedByProviders(t *testing.T) {
 // row declaring the endpoint hostname as its cluster address, the dedicated
 // shape — the delete is refused with 412. A proxy that has disconnected no
 // longer blocks: the guard is about a live serving path, not history.
+//
+// The proxy declares its address with mixed casing on purpose: Connect
+// stores the declared address verbatim while the settings row is normalized
+// lowercase, and hostnames are case-insensitive, so the guard must match
+// across the casing difference rather than be sidestepped by it.
 func TestSettingsHandler_DeleteBlockedByActiveProxy(t *testing.T) {
 	f := newAgentNetworkHandlerFixture(t)
 
@@ -332,7 +337,7 @@ func TestSettingsHandler_DeleteBlockedByActiveProxy(t *testing.T) {
 	proxyRow := &rpproxy.Proxy{
 		ID:             "proxy-guard",
 		SessionID:      "sess-1",
-		ClusterAddress: endpoint,
+		ClusterAddress: "GW.Dedicated.Example.Com",
 		AccountID:      &accountID,
 		LastSeen:       now,
 		ConnectedAt:    &now,
@@ -355,16 +360,16 @@ func TestSettingsHandler_DeleteBlockedByActiveProxy(t *testing.T) {
 // TestSettingsHandler_DeleteReleasesEndpointForFreshBootstrap pins the
 // full-reset semantic that gives replace-on-change clients (e.g. Terraform's
 // RequiresReplace) a real path: with both guards clear the delete succeeds,
-// the account reads as the defaults again, and a fresh bootstrap allocates a
-// new endpoint rather than resurrecting the released one.
+// the account reads as the defaults again, and a fresh bootstrap draws a
+// fresh label. The released hostname is not reserved — a fresh draw may even
+// legitimately re-pick it — so the assertions check the new row's shape, not
+// that the label differs.
 func TestSettingsHandler_DeleteReleasesEndpointForFreshBootstrap(t *testing.T) {
 	f := newAgentNetworkHandlerFixture(t)
 
 	rec := f.do(t, http.MethodPost, "/agent-network/settings",
 		`{"proxy_address": "eu.proxy.netbird.io", "enable_prompt_collection": true}`)
 	require.Equal(t, http.StatusOK, rec.Code, "bootstrap POST must succeed: %s", rec.Body.String())
-	var first api.AgentNetworkSettings
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &first))
 
 	rec = f.do(t, http.MethodDelete, "/agent-network/settings", "")
 	require.Equal(t, http.StatusOK, rec.Code,
@@ -381,7 +386,10 @@ func TestSettingsHandler_DeleteReleasesEndpointForFreshBootstrap(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, "re-bootstrap after delete must succeed: %s", rec.Body.String())
 	var second api.AgentNetworkSettings
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &second))
-	require.NotEmpty(t, second.Endpoint)
-	assert.NotEqual(t, first.Endpoint, second.Endpoint,
-		"re-creating allocates a new endpoint; the released hostname is not reserved")
+	require.NotEmpty(t, second.Endpoint, "the fresh bootstrap must allocate an endpoint")
+	assert.True(t, strings.HasSuffix(second.Endpoint, ".eu.proxy.netbird.io"),
+		"the fresh endpoint must hang beneath the requested proxy address: %s", second.Endpoint)
+	assert.False(t, second.EnablePromptCollection,
+		"the fresh row must carry bootstrap defaults, not the deleted row's toggles")
+	assert.NotNil(t, second.CreatedAt, "the fresh row is persisted and carries timestamps")
 }
