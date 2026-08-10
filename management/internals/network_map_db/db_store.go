@@ -2,7 +2,6 @@ package networkmapdb
 
 import (
 	"context"
-	"database/sql"
 
 	"golang.org/x/exp/maps"
 
@@ -10,13 +9,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/shared/management/networkmap"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
-)
-
-const (
-	NMAP_STRUCT_TAG = "nmap"
-	NMAP_SKIP       = "skip"
-	NMAP_MAP_TO     = "map_to"
-	NMAP_JSON       = "json"
 )
 
 type NetworkMapDBStore interface { //nolint:revive // established name across the codebase
@@ -41,19 +33,6 @@ type NetworkMapDBStoreConn interface { //nolint:revive // established name acros
 	GetNetworkXIDToPublicIdMap(ctx context.Context, accountId string) (map[string]string, error)
 	GetPrivateServices(ctx context.Context, accountId string) ([]Service, error)
 	GetProxyTargetedDomainResourceIDs(ctx context.Context, accountId string) (map[string]struct{}, error)
-}
-
-type Domain struct {
-	Domain        sql.NullString
-	TargetCluster sql.NullString
-}
-
-type Service struct {
-	Enabled      sql.NullBool
-	Private      sql.NullBool
-	AccessGroups []string
-	ProxyCluster sql.NullString
-	Domain       sql.NullString
 }
 
 type NetworkMapDBStoreImpl struct { //nolint:revive // established name across the codebase

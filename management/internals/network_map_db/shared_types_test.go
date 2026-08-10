@@ -1,4 +1,4 @@
-package networkmap_pgsql
+package networkmapdb
 
 import (
 	"testing"
@@ -23,7 +23,7 @@ func TestRecordTypeAndRdata(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.recordType, func(t *testing.T) {
-			recordType, rdata, err := recordTypeAndRdata(tt.recordType, tt.rdata)
+			recordType, rdata, err := RecordTypeAndRdata(tt.recordType, tt.rdata)
 
 			if tt.expectedErr != nil {
 				assert.ErrorIs(t, err, ErrDnsUnsupportedRecordType)

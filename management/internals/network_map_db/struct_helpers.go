@@ -10,6 +10,13 @@ import (
 	"github.com/rs/xid"
 )
 
+const (
+	NMAP_STRUCT_TAG = "nmap"
+	NMAP_SKIP       = "skip"
+	NMAP_MAP_TO     = "map_to"
+	NMAP_JSON       = "json"
+)
+
 type fieldTag struct {
 	Key   string
 	Value string

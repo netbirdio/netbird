@@ -5,17 +5,13 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"reflect"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/miekg/dns"
 	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 	"github.com/netbirdio/netbird/shared/management/networkmap"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
-
-var ErrDnsUnsupportedRecordType = errors.New("unsupported record type")
 
 const (
 	GetAccountZonesQuery = `
@@ -63,9 +59,9 @@ func (pgc *PgStoreConn) GetAppliedZoneCandidates(ctx context.Context, accountId 
 			currentZoneId = z.Id
 		}
 
-		rtype, rdata, err := recordTypeAndRdata(z.RecordType.String, z.RecordRData.String)
+		rtype, rdata, err := networkmapdb.RecordTypeAndRdata(z.RecordType.String, z.RecordRData.String)
 		if err != nil {
-			if errors.Is(err, ErrDnsUnsupportedRecordType) {
+			if errors.Is(err, networkmapdb.ErrDnsUnsupportedRecordType) {
 				continue
 			}
 			return nil, err
@@ -93,19 +89,6 @@ type zone struct {
 	RecordClass          sql.NullString `nmap:"skip"`
 	RecordTTL            sql.NullInt64  `nmap:"skip"`
 	RecordRData          sql.NullString `nmap:"skip"`
-}
-
-func recordTypeAndRdata(t, rdata string) (int, string, error) {
-	switch t {
-	case "A":
-		return int(dns.TypeA), rdata, nil
-	case "AAAA":
-		return int(dns.TypeAAAA), rdata, nil
-	case "CNAME":
-		return int(dns.TypeCNAME), dns.Fqdn(rdata), nil
-	default:
-		return 0, "", fmt.Errorf("record type: %s %w", t, ErrDnsUnsupportedRecordType)
-	}
 }
 
 func appliedZoneCandidateFromZone(z nmdata.CustomZone, distributionGroups []string) networkmap.AppliedZoneCandidate {
