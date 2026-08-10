@@ -209,6 +209,17 @@ func (j *Job) ToStreamJobRequest() (*proto.JobRequest, error) {
 	}
 }
 
+// derefString returns the pointed-to string, or "" when the pointer is nil.
+// The bundle parameters carry anonymize_level and upload_url as optional
+// fields; an absent value maps to the empty proto string, which the client
+// resolves to its default.
+func derefString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
 func (j *Job) buildStreamBundleResponse() (*proto.JobRequest, error) {
 	var p api.BundleParameters
 	if err := json.Unmarshal(j.Workload.Parameters, &p); err != nil {
@@ -218,10 +229,12 @@ func (j *Job) buildStreamBundleResponse() (*proto.JobRequest, error) {
 		ID: []byte(j.ID),
 		WorkloadParameters: &proto.JobRequest_Bundle{
 			Bundle: &proto.BundleParameters{
-				BundleFor:     p.BundleFor,
-				BundleForTime: int64(p.BundleForTime),
-				LogFileCount:  int32(p.LogFileCount),
-				Anonymize:     p.Anonymize,
+				BundleFor:      p.BundleFor,
+				BundleForTime:  int64(p.BundleForTime),
+				LogFileCount:   int32(p.LogFileCount),
+				Anonymize:      p.Anonymize,
+				AnonymizeLevel: derefString(p.AnonymizeLevel),
+				UploadUrl:      derefString(p.UploadUrl),
 			},
 		},
 	}, nil

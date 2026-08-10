@@ -1393,7 +1393,7 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobR
 
 	waitFor := time.Duration(params.BundleForTime) * time.Minute
 
-	uploadKey, err := e.jobExecutor.BundleJob(e.ctx, bundleDeps, bundleJobParams, waitFor, e.config.ProfileConfig.ManagementURL.String())
+	uploadKey, err := e.jobExecutor.BundleJob(e.ctx, bundleDeps, bundleJobParams, waitFor, e.config.ProfileConfig.ManagementURL.String(), params.GetUploadUrl())
 	if err != nil {
 		return nil, err
 	}
