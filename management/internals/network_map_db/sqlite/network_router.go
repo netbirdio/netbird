@@ -25,7 +25,7 @@ func (sc *SqliteStoreConn) GetNetworkRouters(ctx context.Context, accountId stri
 		return nil, err
 	}
 
-	routers, err := networkmapdb.CollectRowsForSqlite[networkrouter](rows)
+	routers, err := CollectRowsForSqlite[networkrouter](rows)
 	if err != nil {
 		return nil, err
 	}

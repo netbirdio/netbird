@@ -11,7 +11,7 @@ const (
 	GetNameserversQuery = `
 	select id, public_id, name, description, name_servers, groups, "primary", domains, enabled, search_domains_enabled
 	from name_server_groups
-	where account_id=$1
+	where account_id=?
 	`
 )
 
@@ -21,7 +21,7 @@ func (sc *SqliteStoreConn) GetNameServerGroups(ctx context.Context, accountId st
 		return nil, err
 	}
 
-	nsgroups, err := networkmapdb.CollectRowsForSqlite[networkmapdb.NameserverGroup](rows)
+	nsgroups, err := CollectRowsForSqlite[networkmapdb.NameserverGroup](rows)
 	if err != nil {
 		return nil, err
 	}

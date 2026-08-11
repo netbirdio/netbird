@@ -142,44 +142,6 @@ func StructFields(s any) []any {
 	return toret
 }
 
-func CollectOneRowForSqlite[T any](rows *sql.Rows) (T, error) {
-	defer rows.Close()
-	var r T
-
-	if !rows.Next() {
-		if err := rows.Err(); err != nil {
-			return r, err
-		}
-		return r, ErrNoRows
-	}
-	err := rows.Scan(StructFields(&r)...)
-	if err != nil {
-		return r, err
-	}
-
-	return r, nil
-}
-
-func CollectRowsForSqlite[T any](rows *sql.Rows) ([]T, error) {
-	defer rows.Close()
-	toret := make([]T, 0)
-
-	for rows.Next() {
-		var r T
-		err := rows.Scan(StructFields(&r)...)
-		if err != nil {
-			return nil, err
-		}
-		toret = append(toret, r)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return toret, nil
-}
-
 func ConvertAllToSharedTypes[T any, T1 any](allsrc []T) ([]T1, error) {
 	toret := make([]T1, 0, len(allsrc))
 	for _, src := range allsrc {

@@ -22,7 +22,7 @@ const (
 	settings_auto_update_always as auto_update_always,
 	settings_metrics_push_enabled as metrics_push_enabled
 	from accounts
-	where id=$1
+	where id=?
 	`
 )
 
@@ -32,7 +32,7 @@ func (sc *SqliteStoreConn) GetAccountSettings(ctx context.Context, accountId str
 		return nmdata.AccountSettingsInfo{}, err
 	}
 
-	a, err := networkmapdb.CollectOneRowForSqlite[networkmapdb.Account](rows)
+	a, err := CollectOneRowForSqlite[networkmapdb.Account](rows)
 
 	settingsInfo := nmdata.AccountSettingsInfo{}
 	err = networkmapdb.FromSqlTypesToSharedTypes(reflect.ValueOf(&a), reflect.ValueOf(&settingsInfo))

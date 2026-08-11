@@ -82,6 +82,44 @@ func (s *SqliteStore) UsingConn() *SqliteStoreConn {
 	return &SqliteStoreConn{Conn: s.Db}
 }
 
+func CollectOneRowForSqlite[T any](rows *sql.Rows) (T, error) {
+	defer rows.Close()
+	var r T
+
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return r, err
+		}
+		return r, ErrNoRows
+	}
+	err := rows.Scan(networkmapdb.StructFields(&r)...)
+	if err != nil {
+		return r, err
+	}
+
+	return r, nil
+}
+
+func CollectRowsForSqlite[T any](rows *sql.Rows) ([]T, error) {
+	defer rows.Close()
+	toret := make([]T, 0)
+
+	for rows.Next() {
+		var r T
+		err := rows.Scan(networkmapdb.StructFields(&r)...)
+		if err != nil {
+			return nil, err
+		}
+		toret = append(toret, r)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return toret, nil
+}
+
 func (s *SqliteStoreConn) GetPeers(ctx context.Context, accountId string) ([]nmdata.Peer, map[string][]*nmdata.Peer, error) {
 	return nil, nil, nil
 }
@@ -90,9 +128,6 @@ func (s *SqliteStoreConn) GetPolicies(ctx context.Context, accountId string) ([]
 }
 func (s *SqliteStoreConn) GetRoutes(ctx context.Context, accountId string) ([]nmdata.Route, error) {
 	return nil, nil
-}
-func (s *SqliteStoreConn) GetNetwork(ctx context.Context, accountId string) (nmdata.Network, error) {
-	return nmdata.Network{}, nil
 }
 func (s *SqliteStoreConn) GetPostureChecks(ctx context.Context, accountId string) ([]nmdata.PostureChecks, map[string]string, error) {
 	return nil, nil, nil

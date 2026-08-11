@@ -13,7 +13,7 @@ const (
 	r.name as record_name, r.type as record_type, 'IN' record_class, r.ttl as record_ttl, r.content as record_rdata
 	from zones
 	left join records as r on r.zone_id = zones.id 
-	where zones.account_id=$1
+	where zones.account_id=?
 	`
 )
 
@@ -23,7 +23,7 @@ func (sc *SqliteStoreConn) GetAppliedZoneCandidates(ctx context.Context, account
 		return nil, err
 	}
 
-	zones, err := networkmapdb.CollectRowsForSqlite[networkmapdb.Zone](rows)
+	zones, err := CollectRowsForSqlite[networkmapdb.Zone](rows)
 	if err != nil {
 		return nil, err
 	}

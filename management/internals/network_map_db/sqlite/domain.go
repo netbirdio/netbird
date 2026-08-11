@@ -10,7 +10,7 @@ const (
 	GetDomainsQuery = `
 	select domain, target_cluster
 	from domains
-	where account_id=$1 and domain<>'' and target_cluster<>''
+	where account_id=? and domain<>'' and target_cluster<>''
 	`
 )
 
@@ -20,5 +20,5 @@ func (sc *SqliteStoreConn) GetDomains(ctx context.Context, accountId string) ([]
 		return nil, err
 	}
 
-	return networkmapdb.CollectRowsForSqlite[networkmapdb.Domain](rows)
+	return CollectRowsForSqlite[networkmapdb.Domain](rows)
 }

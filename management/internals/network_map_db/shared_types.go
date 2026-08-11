@@ -79,6 +79,14 @@ type Networkresource struct {
 	Enabled     sql.NullBool
 }
 
+type AccountNetwork struct {
+	Identifier sql.NullString
+	Net        []byte `nmap:"json"`
+	NetV6      []byte `nmap:"json"`
+	Dns        sql.NullString
+	Serial     sql.NullInt64
+}
+
 func RecordTypeAndRdata(t, rdata string) (int, string, error) {
 	switch t {
 	case "A":

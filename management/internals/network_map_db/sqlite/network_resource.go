@@ -11,7 +11,7 @@ const (
 	GetNetworkResourcesQuery = `
 	select id, network_id, account_id, public_id, name, description, type, domain, prefix, enabled
 	from network_resources
-	where account_id=$1
+	where account_id=?
 	`
 )
 
@@ -21,7 +21,7 @@ func (sc *SqliteStoreConn) GetNetworkResources(ctx context.Context, accountId st
 		return nil, err
 	}
 
-	netresorces, err := networkmapdb.CollectRowsForSqlite[networkmapdb.Networkresource](rows)
+	netresorces, err := CollectRowsForSqlite[networkmapdb.Networkresource](rows)
 	if err != nil {
 		return nil, err
 	}

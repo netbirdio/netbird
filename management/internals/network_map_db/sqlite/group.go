@@ -27,7 +27,7 @@ func (sc *SqliteStoreConn) GetGroups(ctx context.Context, accountId string) ([]n
 		return nil, nil, err
 	}
 
-	groups, err := networkmapdb.CollectRowsForSqlite[group](rows)
+	groups, err := CollectRowsForSqlite[group](rows)
 
 	toret := make([]nmdata.Group, 0, len(groups))
 	resourceToGroupIdx := make(map[string]map[string]any)

@@ -11,7 +11,7 @@ const (
 	GetDnsSettingsQuery = `
 	select dns_settings_disabled_management_groups
 	from accounts
-	where id=$1
+	where id=?
 	`
 )
 
