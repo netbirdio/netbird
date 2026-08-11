@@ -106,3 +106,15 @@ func (a *Account) GetPeerNetworkMapComponents(
 	nmd := a.toNetworkMapData(accountZones, validatedPeersMap, resourcePolicies, routers, groupIDToUserIDs)
 	return nmd.GetPeerNetworkMapComponents(peerID, TwinCustomZone(peersCustomZone))
 }
+
+// PrecomputePostureValidation evaluates every posture check referenced by an enabled
+// policy once and stores the results on the account, so the per-peer components
+// calculations that follow look them up instead of re-evaluating checks for every
+// peer pair. The evaluation itself runs on the twin store; every twin built from
+// this account afterwards inherits the results. It must be called before the
+// account is shared across goroutines.
+func (a *Account) PrecomputePostureValidation(ctx context.Context) {
+	nmd := a.toNetworkMapData(nil, nil, nil, nil, nil)
+	nmd.PrecomputePostureValidation()
+	a.PostureValidation = nmd.PostureValidation
+}

@@ -89,6 +89,8 @@ type Account struct {
 	Onboarding       AccountOnboarding                `gorm:"foreignKey:AccountID;references:id;constraint:OnDelete:CASCADE"`
 
 	ReverseProxyFreeDomainNonce string
+
+	PostureValidation map[string]map[string]bool `gorm:"-"`
 }
 
 // this class is used by gorm only
@@ -789,6 +791,7 @@ func (a *Account) Copy() *Account {
 		Services:               services,
 		Onboarding:             a.Onboarding,
 		Domains:                domains,
+		PostureValidation:      a.PostureValidation,
 	}
 }
 

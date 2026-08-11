@@ -28,7 +28,7 @@ func TestInfluxDBMetrics_RecordAndExport(t *testing.T) {
 		WgHandshakeSuccess: time.Now().Add(-1 * time.Second),
 	}
 
-	m.RecordConnectionStages(context.Background(), agentInfo, "pair123", ConnectionTypeICE, false, ts)
+	m.RecordConnectionStages(context.Background(), agentInfo, "pair123", ConnectionTypeICEP2P, false, ts)
 
 	var buf bytes.Buffer
 	err := m.Export(&buf)
@@ -60,7 +60,7 @@ func TestInfluxDBMetrics_ExportDeterministicFieldOrder(t *testing.T) {
 
 	// Record multiple times and verify consistent field order
 	for i := 0; i < 10; i++ {
-		m.RecordConnectionStages(context.Background(), agentInfo, "pair123", ConnectionTypeICE, false, ts)
+		m.RecordConnectionStages(context.Background(), agentInfo, "pair123", ConnectionTypeICEP2P, false, ts)
 	}
 
 	var buf bytes.Buffer

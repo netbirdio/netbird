@@ -36,6 +36,7 @@ func (a *Account) toNetworkMapData(
 		Routers:                   make(map[string]map[string]*nmdata.NetworkRouter, len(routers)),
 		ValidatedPeers:            validatedPeersMap,
 		GroupIDToUserIDs:          groupIDToUserIDs,
+		PostureValidation:         a.PostureValidation,
 		AllowedUserIDs:            a.getAllowedUserIDs(),
 		NetworkXIDToPublicID:      make(map[string]string, len(a.Networks)),
 		PostureCheckXIDToPublicID: make(map[string]string, len(a.PostureChecks)),
