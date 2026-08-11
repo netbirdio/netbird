@@ -400,8 +400,9 @@ func (c *Client) Close() error {
 func (c *Client) connect(ctx context.Context) (*RelayAddr, error) {
 	// A sweep cancels this context, so a dial started on the old network
 	// aborts instead of waiting out its handshake timeout.
-	ctx, releaseDial := c.sweeper.WrapDialContext(ctx)
-	defer releaseDial()
+	dial := c.sweeper.StartDial(ctx)
+	defer dial.Release()
+	ctx = dial.Ctx()
 
 	mode := transportModeFromEnv()
 	dialers := c.getDialers(mode)
@@ -433,7 +434,10 @@ func (c *Client) connect(ctx context.Context) (*RelayAddr, error) {
 		c.transport = tc.Protocol()
 	}
 
-	conn = c.sweeper.WrapConn(conn)
+	conn, err := dial.WrapConn(conn)
+	if err != nil {
+		return nil, fmt.Errorf("register connection: %w", err)
+	}
 	c.relayConn = conn
 	c.datagramFallbackTriggered.Store(false)
 

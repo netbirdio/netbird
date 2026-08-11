@@ -8,11 +8,17 @@ package netsweep
 
 import (
 	"context"
+	"errors"
 	"net"
 	"sync"
 
 	log "github.com/sirupsen/logrus"
 )
+
+// ErrSwept reports that a dial finished after a network change swept its
+// registration. The connection is already closed; the caller must treat it
+// as a failed dial and redial on the new network.
+var ErrSwept = errors.New("netsweep: connection swept by network change")
 
 // sweptConn deregisters itself from the sweeper when closed.
 type sweptConn struct {
@@ -31,7 +37,7 @@ func (c *sweptConn) Close() error {
 type Sweeper struct {
 	mu     sync.Mutex
 	conns  map[uint64]net.Conn
-	dials  map[uint64]context.CancelFunc
+	dials  map[uint64]*Dial
 	nextID uint64
 }
 
@@ -39,51 +45,94 @@ type Sweeper struct {
 func New() *Sweeper {
 	return &Sweeper{
 		conns: make(map[uint64]net.Conn),
-		dials: make(map[uint64]context.CancelFunc),
+		dials: make(map[uint64]*Dial),
 	}
 }
 
-// WrapConn registers conn and returns a wrapper that deregisters it on Close.
-func (s *Sweeper) WrapConn(conn net.Conn) net.Conn {
+// Dial tracks one dial from start to connection registration. It hands the
+// dialed connection to the sweeper atomically, so a sweep can never fall
+// between the dial finishing and the connection being registered.
+type Dial struct {
+	sweeper *Sweeper
+	ctx     context.Context
+	cancel  context.CancelFunc
+	id      uint64
+	done    bool // set by Sweep, WrapConn or Release; guarded by sweeper.mu
+}
+
+// StartDial registers an in-flight dial. Dial with Ctx, hand the result to
+// WrapConn, and Release the dial when the attempt is over, typically deferred.
+func (s *Sweeper) StartDial(ctx context.Context) *Dial {
 	if s == nil {
-		return conn
+		return &Dial{ctx: ctx}
+	}
+
+	ctx, cancel := context.WithCancel(ctx)
+	d := &Dial{sweeper: s, ctx: ctx, cancel: cancel}
+
+	s.mu.Lock()
+	d.id = s.nextID
+	s.nextID++
+	s.dials[d.id] = d
+	s.mu.Unlock()
+
+	return d
+}
+
+// Ctx returns the dial's context. Sweep cancels it, so a dial started on the
+// old network aborts instead of waiting out its handshake timeout.
+func (d *Dial) Ctx() context.Context {
+	return d.ctx
+}
+
+// WrapConn hands conn over to the sweeper. If a sweep ran since StartDial,
+// the connection belongs to the old network: it is closed and ErrSwept is
+// returned. Otherwise conn is registered against the next sweep and returned
+// wrapped, deregistering itself on Close. Call it once, before Release.
+func (d *Dial) WrapConn(conn net.Conn) (net.Conn, error) {
+	s := d.sweeper
+	if s == nil {
+		return conn, nil
 	}
 
 	s.mu.Lock()
+	if d.done {
+		s.mu.Unlock()
+		if err := conn.Close(); err != nil {
+			log.Debugf("swept dial close error: %v", err)
+		}
+		return nil, ErrSwept
+	}
+	d.done = true
+	delete(s.dials, d.id)
 	id := s.nextID
 	s.nextID++
 	s.conns[id] = conn
 	s.mu.Unlock()
 
-	return &sweptConn{Conn: conn, sweeper: s, id: id}
+	return &sweptConn{Conn: conn, sweeper: s, id: id}, nil
 }
 
-// WrapDialContext derives a context that Sweep cancels. The returned release
-// must be called when the dial finishes, typically deferred.
-func (s *Sweeper) WrapDialContext(ctx context.Context) (context.Context, context.CancelFunc) {
+// Release ends the dial's registration and cancels its context. It is
+// idempotent and safe after WrapConn, so callers can defer it.
+func (d *Dial) Release() {
+	s := d.sweeper
 	if s == nil {
-		return ctx, func() {}
+		return
 	}
-
-	ctx, cancel := context.WithCancel(ctx)
 
 	s.mu.Lock()
-	id := s.nextID
-	s.nextID++
-	s.dials[id] = cancel
+	d.done = true
+	delete(s.dials, d.id)
 	s.mu.Unlock()
 
-	release := func() {
-		s.mu.Lock()
-		delete(s.dials, id)
-		s.mu.Unlock()
-		cancel()
-	}
-	return ctx, release
+	d.cancel()
 }
 
 // Sweep closes every registered connection, aborts every in-flight dial, and
-// returns how many connections it closed.
+// returns how many connections it closed. A dial whose connection was not
+// yet handed to WrapConn is marked, so the late WrapConn closes it instead
+// of registering it.
 func (s *Sweeper) Sweep() int {
 	if s == nil {
 		return 0
@@ -93,13 +142,16 @@ func (s *Sweeper) Sweep() int {
 	conns := s.conns
 	dials := s.dials
 	s.conns = make(map[uint64]net.Conn)
-	s.dials = make(map[uint64]context.CancelFunc)
+	s.dials = make(map[uint64]*Dial)
+	for _, d := range dials {
+		d.done = true
+	}
 	s.mu.Unlock()
 
 	if len(dials) > 0 {
 		log.Debugf("aborting %d in-flight dials", len(dials))
-		for _, cancel := range dials {
-			cancel()
+		for _, d := range dials {
+			d.cancel()
 		}
 	}
 

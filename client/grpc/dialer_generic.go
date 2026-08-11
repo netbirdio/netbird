@@ -28,14 +28,14 @@ func WithCustomDialer(_ bool, _ string) grpc.DialOption {
 // dial options in order, so the later context dialer wins.
 func WithSweeper(sweeper *netsweep.Sweeper) grpc.DialOption {
 	return grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
-		ctx, releaseDial := sweeper.WrapDialContext(ctx)
-		defer releaseDial()
+		dial := sweeper.StartDial(ctx)
+		defer dial.Release()
 
-		conn, err := dialContext(ctx, addr)
+		conn, err := dialContext(dial.Ctx(), addr)
 		if err != nil {
 			return nil, err
 		}
-		return sweeper.WrapConn(conn), nil
+		return dial.WrapConn(conn)
 	})
 }
 
