@@ -3,9 +3,11 @@ package networkmap_pgsql
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 )
@@ -24,7 +26,12 @@ type PgStore struct {
 }
 
 type PgStoreConn struct {
-	Conn *pgx.Conn
+	Conn pgInterface
+}
+
+type pgInterface interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
 }
 
 var _ networkmapdb.NetworkMapDBStoreConn = &PgStoreConn{}
@@ -40,6 +47,30 @@ func NewPostgresqlStore(ctx context.Context, dsn string) (*PgStore, error) {
 
 func (p *PgStore) UsingConnection(c *pgx.Conn) networkmapdb.NetworkMapDBStoreConn {
 	return &PgStoreConn{Conn: c}
+}
+
+func (p *PgStore) BeginTx(ctx context.Context) (networkmapdb.NetworkMapDBStoreConn, error) {
+	tx, err := p.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return nil, err
+	}
+	return &PgStoreConn{Conn: tx}, nil
+}
+
+func (c *PgStoreConn) RollbackTx(ctx context.Context) error {
+	tx, ok := c.Conn.(pgx.Tx)
+	if !ok {
+		return fmt.Errorf("expected an pgx.Tx got %s", reflect.TypeOf(c.Conn).Kind())
+	}
+	return tx.Rollback(ctx)
+}
+
+func (c *PgStoreConn) CommitTx(ctx context.Context) error {
+	tx, ok := c.Conn.(pgx.Tx)
+	if !ok {
+		return fmt.Errorf("expected an sql.Tx got %s", reflect.TypeOf(c.Conn).Kind())
+	}
+	return tx.Commit(ctx)
 }
 
 func connectToPgDb(ctx context.Context, dsn string) (*pgxpool.Pool, error) {

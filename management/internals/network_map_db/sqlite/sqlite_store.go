@@ -3,8 +3,10 @@ package networkmap_sqlite
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/url"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 
@@ -73,8 +75,28 @@ func NewSqliteStore(ctx context.Context, storeFile, dataDir string) (*SqliteStor
 	return &SqliteStore{Db: db}, nil
 }
 
-func (s *SqliteStore) WithTx(tx *sql.Tx) *SqliteStoreConn {
-	return &SqliteStoreConn{Conn: tx}
+func (s *SqliteStore) BeginTx(ctx context.Context) (*SqliteStoreConn, error) {
+	tx, err := s.Db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true, Isolation: sql.LevelRepeatableRead})
+	if err != nil {
+		return nil, err
+	}
+	return &SqliteStoreConn{Conn: tx}, nil
+}
+
+func (sc *SqliteStoreConn) RollbackTx(ctx context.Context) error {
+	tx, ok := sc.Conn.(*sql.Tx)
+	if !ok {
+		return fmt.Errorf("expected an sql.Tx got %s", reflect.TypeOf(sc.Conn).Kind())
+	}
+	return tx.Rollback()
+}
+
+func (sc *SqliteStoreConn) CommitTx(ctx context.Context) error {
+	tx, ok := sc.Conn.(*sql.Tx)
+	if !ok {
+		return fmt.Errorf("expected an sql.Tx got %s", reflect.TypeOf(sc.Conn).Kind())
+	}
+	return tx.Commit()
 }
 
 func (s *SqliteStore) UsingConn() *SqliteStoreConn {

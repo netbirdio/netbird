@@ -3,8 +3,6 @@ package networkmapdb
 import (
 	"context"
 
-	"golang.org/x/exp/maps"
-
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/shared/management/networkmap"
@@ -12,7 +10,7 @@ import (
 )
 
 type NetworkMapDBStore interface { //nolint:revive // established name across the codebase
-	GetNetworkMapData(ctx context.Context, accountId string) (*networkmap.NetworkMapData, error)
+	BeginTx(ctx context.Context) (NetworkMapDBStoreConn, error)
 }
 
 type NetworkMapDBStoreConn interface { //nolint:revive // established name across the codebase
@@ -33,6 +31,9 @@ type NetworkMapDBStoreConn interface { //nolint:revive // established name acros
 	GetNetworkXIDToPublicIdMap(ctx context.Context, accountId string) (map[string]string, error)
 	GetPrivateServices(ctx context.Context, accountId string) ([]Service, error)
 	GetProxyTargetedDomainResourceIDs(ctx context.Context, accountId string) (map[string]struct{}, error)
+
+	CommitTx(ctx context.Context) error
+	RollbackTx(ctx context.Context) error
 }
 
 type NetworkMapDBStoreImpl struct { //nolint:revive // established name across the codebase
@@ -47,23 +48,4 @@ func NewNetworkMapDBStoreImpl(store NetworkMapDBStore, integratedPeerValidator i
 		integratedPeerValidator: integratedPeerValidator,
 		extraSettingsManager:    extraSettingsManager,
 	}
-}
-
-func (s *NetworkMapDBStoreImpl) GetNetworkMapData(ctx context.Context, accountId string) (*networkmap.NetworkMapData, error) {
-	nmdata, err := s.store.GetNetworkMapData(ctx, accountId)
-	if err != nil {
-		return nil, err
-	}
-
-	extraSettings, err := s.extraSettingsManager.GetExtraSettings(ctx, accountId)
-	if err != nil {
-		return nil, err
-	}
-
-	nmdata.ValidatedPeers, err = s.integratedPeerValidator.GetValidatedPeers(ctx, accountId, maps.Values(nmdata.Groups), maps.Values(nmdata.Peers), extraSettings)
-	if err != nil {
-		return nil, err
-	}
-
-	return nmdata, nil
 }
