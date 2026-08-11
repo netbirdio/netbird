@@ -132,7 +132,7 @@ func (s *SSHClient) Connect(host string, port int, user, password string) error 
 	}
 
 	serverType := detectServerType(host, port)
-	log.Infof("SSH server type for %s:%d: %s", host, port, serverType)
+	log.Debugf("SSH server type: %s", serverType)
 
 	authMethods, hostKeyCallback, err := s.buildAuth(cfg, engine, serverType, password)
 	if err != nil {
@@ -155,7 +155,6 @@ func (s *SSHClient) Connect(host string, port int, user, password string) error 
 		return errPasswordRequired
 	}
 	if err != nil {
-		log.Infof("SSH: connect to %s:%d failed: %v", host, port, err)
 		return rootCause(err)
 	}
 	return nil
@@ -414,8 +413,6 @@ func (s *SSHClient) requestJWTToken(cfg *profilemanager.Config) (string, error) 
 
 func (s *SSHClient) dialAndHandshake(host string, port int, clientConfig *gossh.ClientConfig) error {
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
-	log.Infof("SSH: connecting to %s as %s", addr, clientConfig.User)
-
 	ctx, cancel := context.WithTimeout(context.Background(), sshDialTimeout)
 	defer cancel()
 
@@ -438,7 +435,6 @@ func (s *SSHClient) dialAndHandshake(host string, port int, clientConfig *gossh.
 	listener := s.listener
 	s.mu.Unlock()
 
-	log.Infof("SSH: connected to %s", addr)
 	if listener != nil {
 		listener.OnConnected()
 	}
@@ -513,7 +509,7 @@ func detectServerType(host string, port int) detection.ServerType {
 	dialer := &net.Dialer{}
 	serverType, err := detection.DetectSSHServerType(ctx, dialer, host, port)
 	if err != nil {
-		log.Debugf("ssh: server detection for %s:%d failed: %v (assuming regular SSH)", host, port, err)
+		log.Debugf("ssh: server detection failed: %v (assuming regular SSH)", err)
 		return detection.ServerTypeRegular
 	}
 	return serverType
