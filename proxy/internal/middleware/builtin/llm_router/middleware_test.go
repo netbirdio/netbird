@@ -880,3 +880,28 @@ func TestRouter_EmptyModelsClaimsAnyModel(t *testing.T) {
 	resolved, _ := metaValue(t, out.Metadata, middleware.KeyLLMResolvedProviderID)
 	assert.Equal(t, "litellm", resolved)
 }
+
+// TestRouter_DatedAnthropicModelRoutes covers a client pinning a release
+// date on a model the operator registered undated. Exact matches still win,
+// so an operator who registers both dated releases keeps them distinct.
+func TestRouter_DatedAnthropicModelRoutes(t *testing.T) {
+	mw := New(Config{Providers: []ProviderRoute{{
+		ID:              "anthropic-prod",
+		Vendor:          "anthropic",
+		Models:          []string{"claude-sonnet-4-5"},
+		AllowedGroupIDs: []string{defaultTestGroup},
+		UpstreamScheme:  "https",
+		UpstreamHost:    "api.anthropic.com",
+	}}})
+
+	in := newInputWithModelAndURL("claude-sonnet-4-5-20250929", "/v1/messages")
+	in.Metadata = append(in.Metadata, middleware.KV{Key: middleware.KeyLLMProvider, Value: "anthropic"})
+
+	out, err := mw.Invoke(context.Background(), in)
+	require.NoError(t, err)
+	require.NotNil(t, out)
+	assert.Equal(t, middleware.DecisionAllow, out.Decision, "a dated id must route to the undated registration")
+	require.NotNil(t, out.Mutations)
+	require.NotNil(t, out.Mutations.RewriteUpstream)
+	assert.Equal(t, "api.anthropic.com", out.Mutations.RewriteUpstream.Host)
+}

@@ -46,6 +46,22 @@ func NormalizeBedrockModel(modelID string) string {
 	return bedrockVersionSuffix.ReplaceAllString(m, "")
 }
 
+// anthropicDateSuffix matches the trailing "-YYYYMMDD" release-date suffix
+// Anthropic appends to a pinned model id. No other vendor in the catalog
+// ends an id in eight consecutive digits, so the pattern is safe to apply
+// before a lookup regardless of surface.
+var anthropicDateSuffix = regexp.MustCompile(`-\d{8}$`)
+
+// NormalizeAnthropicModel strips the trailing release-date suffix from a
+// first-party Anthropic model id, e.g. "claude-sonnet-4-5-20250929" ->
+// "claude-sonnet-4-5", so a dated id a client pins matches the undated one
+// the operator registered. Callers try the verbatim id first and fall back
+// to this, so two dated releases of the same family stay distinct wherever
+// both are registered explicitly.
+func NormalizeAnthropicModel(modelID string) string {
+	return anthropicDateSuffix.ReplaceAllString(modelID, "")
+}
+
 // NormalizeVertexModel strips the "@version" suffix from a Vertex AI model id
 // (e.g. "claude-sonnet-4-5@20250929" -> "claude-sonnet-4-5") so it matches
 // the catalog/pricing key. Vertex publisher models are priced under their

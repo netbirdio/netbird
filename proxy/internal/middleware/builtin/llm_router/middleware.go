@@ -567,6 +567,12 @@ func routeClaimsModel(route ProviderRoute, model string) bool {
 		if route.Bedrock && llm.NormalizeBedrockModel(candidate) == model {
 			return true
 		}
+		// A client may pin a dated Anthropic id ("claude-sonnet-4-5-20250929")
+		// where the operator registered the undated one. Exact matches above
+		// win, so two dated releases stay distinct when both are registered.
+		if llm.NormalizeAnthropicModel(candidate) == llm.NormalizeAnthropicModel(model) {
+			return true
+		}
 	}
 	return false
 }

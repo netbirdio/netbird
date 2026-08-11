@@ -34,3 +34,21 @@ func TestNormalizeVertexModel(t *testing.T) {
 		require.Equal(t, want, NormalizeVertexModel(in), "normalize %q", in)
 	}
 }
+
+func TestNormalizeAnthropicModel(t *testing.T) {
+	cases := map[string]string{
+		"claude-sonnet-4-5-20250929": "claude-sonnet-4-5",
+		"claude-3-5-haiku-20241022":  "claude-3-5-haiku",
+		"claude-sonnet-5":            "claude-sonnet-5",
+		"claude-opus-4-8":            "claude-opus-4-8",
+		// Other vendors' ids must survive untouched: none of them end in
+		// eight consecutive digits.
+		"gpt-4o":                     "gpt-4o",
+		"gpt-4o-2024-08-06":          "gpt-4o-2024-08-06",
+		"anthropic.claude-haiku-4-5": "anthropic.claude-haiku-4-5",
+		"":                           "",
+	}
+	for in, want := range cases {
+		require.Equal(t, want, NormalizeAnthropicModel(in), "normalize %q", in)
+	}
+}
