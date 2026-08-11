@@ -130,8 +130,8 @@ func TestUpdateSettingsPreconditionSerializesConcurrentWriters(t *testing.T) {
 
 // TestUpdateSettingsUnconditionalIgnoresStaleness pins the back-compatibility
 // half: without a precondition the manager keeps last-write-wins, which is
-// what the dashboard relies on and what every client written before this
-// existed does.
+// what the dashboard relies on and what any client that predates conditional
+// requests does.
 func TestUpdateSettingsUnconditionalIgnoresStaleness(t *testing.T) {
 	ctx := context.Background()
 	f := newBootstrapFixture(t)

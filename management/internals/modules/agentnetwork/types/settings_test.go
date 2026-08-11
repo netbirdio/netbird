@@ -131,9 +131,9 @@ func TestSettings_ETagExclusions(t *testing.T) {
 // precision, the validator a bootstrap hands out never matches again and the
 // documented "conditional PUT without an intervening GET" is a permanent 412.
 //
-// Asserted here on the type rather than through a store, so it holds without
-// running the suite against every engine — which is what let this through the
-// first time, since sqlite preserves nanoseconds and every other test uses it.
+// Asserted on the type rather than through a store, so it holds without running
+// the suite against every engine. The sqlite test store preserves nanoseconds,
+// so a sqlite-only suite cannot observe the truncation at all.
 func TestSettings_ETagSurvivesTimestampTruncation(t *testing.T) {
 	inMemory := etagSettings()
 	require.NotZero(t, inMemory.CreatedAt.Nanosecond(), "the fixture must carry sub-second precision to prove anything")
