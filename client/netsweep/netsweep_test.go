@@ -93,7 +93,9 @@ func TestNilSweeperIsNoop(t *testing.T) {
 	assert.NoError(t, ctx.Err(), "nil sweeper must not cancel the dial context")
 }
 
-// connPair dials a loopback TCP connection against a throwaway listener.
+// connPair dials a loopback TCP connection and keeps the accepted peer open
+// until the test ends: a peer that closed early would make the connection
+// unreadable on its own, so a read error after the sweep would prove nothing.
 func connPair(t *testing.T) net.Conn {
 	t.Helper()
 
@@ -105,15 +107,26 @@ func connPair(t *testing.T) net.Conn {
 		}
 	})
 
+	accepted := make(chan net.Conn, 1)
 	go func() {
 		conn, err := l.Accept()
 		if err != nil {
+			close(accepted)
 			return
 		}
-		_ = conn.Close()
+		accepted <- conn
 	}()
 
 	conn, err := net.Dial("tcp", l.Addr().String())
 	require.NoError(t, err)
+
+	peer, ok := <-accepted
+	require.True(t, ok, "listener must accept the dialed connection")
+	t.Cleanup(func() {
+		if err := peer.Close(); err != nil {
+			t.Logf("peer close error: %v", err)
+		}
+	})
+
 	return conn
 }
