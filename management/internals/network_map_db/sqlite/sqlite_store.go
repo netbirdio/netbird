@@ -136,11 +136,11 @@ func (s *SqliteStoreConn) GetAllowedUsers(ctx context.Context, accountId string)
 	return nil, nil, nil
 }
 func (s *SqliteStoreConn) GetNetworkXIDToPublicIdMap(ctx context.Context, accountId string) (map[string]string, error) {
-	return nil, nil
+	return make(map[string]string), nil
 }
 func (s *SqliteStoreConn) GetPrivateServices(ctx context.Context, accountId string) ([]networkmapdb.Service, error) {
 	return nil, nil
 }
 func (s *SqliteStoreConn) GetProxyTargetedDomainResourceIDs(ctx context.Context, accountId string) (map[string]struct{}, error) {
-	return nil, nil
+	return make(map[string]struct{}), nil
 }

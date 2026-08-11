@@ -33,6 +33,9 @@ func (sc *SqliteStoreConn) GetAccountSettings(ctx context.Context, accountId str
 	}
 
 	a, err := CollectOneRowForSqlite[networkmapdb.Account](rows)
+	if err != nil {
+		return nmdata.AccountSettingsInfo{}, err
+	}
 
 	settingsInfo := nmdata.AccountSettingsInfo{}
 	err = networkmapdb.FromSqlTypesToSharedTypes(reflect.ValueOf(&a), reflect.ValueOf(&settingsInfo))
