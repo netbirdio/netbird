@@ -257,6 +257,12 @@ func parseVertexPath(reqPath string) (vertexRequest, bool) {
 	if c := strings.LastIndex(rest, ":"); c >= 0 {
 		model, action = rest[:c], rest[c+1:]
 	}
+	// Token counting hangs off the model as its own path segment
+	// (".../models/{model}/count-tokens:rawPredict"), so anything past the
+	// first "/" belongs to the method rather than the model id.
+	if slash := strings.Index(model, "/"); slash >= 0 {
+		model = model[:slash]
+	}
 	model = llm.NormalizeVertexModel(model)
 	if model == "" {
 		return vertexRequest{}, false

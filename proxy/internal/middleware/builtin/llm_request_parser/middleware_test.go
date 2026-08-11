@@ -441,3 +441,26 @@ func TestInvoke_NilInputAllows(t *testing.T) {
 	assert.Equal(t, middleware.DecisionAllow, out.Decision, "nil input still allows")
 	assert.Empty(t, out.Metadata, "nil input emits no metadata")
 }
+
+// TestParseVertexPath_CountTokensKeepsModel covers Vertex token counting,
+// where the method hangs off the model as its own path segment. Splitting
+// only on the final colon swallowed "/count-tokens" into the model id, so
+// the router saw a model no route could claim.
+func TestParseVertexPath_CountTokensKeepsModel(t *testing.T) {
+	cases := map[string]struct {
+		model  string
+		stream bool
+	}{
+		"/v1/projects/p/locations/global/publishers/anthropic/models/claude-sonnet-5:rawPredict":                       {model: "claude-sonnet-5"},
+		"/v1/projects/p/locations/global/publishers/anthropic/models/claude-sonnet-5:streamRawPredict":                 {model: "claude-sonnet-5", stream: true},
+		"/v1/projects/p/locations/global/publishers/anthropic/models/claude-sonnet-5/count-tokens:rawPredict":          {model: "claude-sonnet-5"},
+		"/v1/projects/p/locations/global/publishers/anthropic/models/claude-sonnet-5@20250929/count-tokens:rawPredict": {model: "claude-sonnet-5"},
+	}
+	for path, want := range cases {
+		vx, ok := parseVertexPath(path)
+		require.True(t, ok, "must parse %q", path)
+		assert.Equal(t, want.model, vx.model, "model for %q", path)
+		assert.Equal(t, want.stream, vx.stream, "stream flag for %q", path)
+		assert.Equal(t, "anthropic", vx.publisher, "publisher for %q", path)
+	}
+}
