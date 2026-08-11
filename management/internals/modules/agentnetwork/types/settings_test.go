@@ -11,8 +11,10 @@ import (
 
 // etagSettings is a fully populated settings row — every hashed field set to a
 // distinctive value — so a mutation test can flip exactly one thing at a time.
+// The timestamp carries sub-second precision on purpose: a whole-second value
+// would make the precision test below pass without proving anything.
 func etagSettings() *Settings {
-	created := time.Date(2026, 8, 11, 9, 30, 0, 0, time.UTC)
+	created := time.Date(2026, 8, 11, 9, 30, 0, 123456789, time.UTC)
 	return &Settings{
 		AccountID:              "acc-1",
 		Domain:                 "cool-otter.eu.proxy.netbird.io",
@@ -73,7 +75,7 @@ func TestSettings_ETagSensitivity(t *testing.T) {
 		{"prompt collection", func(s *Settings) { s.EnablePromptCollection = false }},
 		{"redact pii", func(s *Settings) { s.RedactPii = false }},
 		{"retention", func(s *Settings) { s.AccessLogRetentionDays = 14 }},
-		{"created at", func(s *Settings) { s.CreatedAt = s.CreatedAt.Add(time.Nanosecond) }},
+		{"created at", func(s *Settings) { s.CreatedAt = s.CreatedAt.Add(time.Second) }},
 		// Moving characters across the Domain/ProxyAddress boundary leaves
 		// the two fields' concatenation byte-identical, so this case passes
 		// only because the tuple is delimited.
@@ -118,6 +120,37 @@ func TestSettings_ETagExclusions(t *testing.T) {
 	touched := etagSettings()
 	touched.UpdatedAt = touched.UpdatedAt.Add(time.Hour)
 	assert.Equal(t, baseline, touched.ETag(), "a write that changed nothing must not move the validator")
+}
+
+// TestSettings_ETagSurvivesTimestampTruncation pins the store round-trip the
+// validator has to survive. A freshly bootstrapped row derives its validator
+// in memory, from a time.Time carrying nanoseconds; every later comparison
+// derives it from a row read back out of the store, and the engines truncate
+// on the way through — PostgreSQL to microseconds, MySQL DATETIME to whole
+// seconds without an fsp. If the hash is sensitive below its coarsest engine's
+// precision, the validator a bootstrap hands out never matches again and the
+// documented "conditional PUT without an intervening GET" is a permanent 412.
+//
+// Asserted here on the type rather than through a store, so it holds without
+// running the suite against every engine — which is what let this through the
+// first time, since sqlite preserves nanoseconds and every other test uses it.
+func TestSettings_ETagSurvivesTimestampTruncation(t *testing.T) {
+	inMemory := etagSettings()
+	require.NotZero(t, inMemory.CreatedAt.Nanosecond(), "the fixture must carry sub-second precision to prove anything")
+
+	for name, truncation := range map[string]time.Duration{
+		"postgres (microseconds)":  time.Microsecond,
+		"mysql (milliseconds)":     time.Millisecond,
+		"mysql datetime (seconds)": time.Second,
+	} {
+		t.Run(name, func(t *testing.T) {
+			roundTripped := etagSettings()
+			roundTripped.CreatedAt = roundTripped.CreatedAt.Truncate(truncation)
+
+			assert.Equal(t, inMemory.ETag(), roundTripped.ETag(),
+				"a validator derived before the write must still match one derived after reading the row back")
+		})
+	}
 }
 
 // TestSettings_ETagOfDefaults covers the pre-bootstrap view, which GET serves

@@ -98,6 +98,19 @@ const etagLength = 16
 // held across that gap would then authorize a write against what is really a
 // different resource. CreatedAt is what distinguishes the re-bootstrapped row.
 //
+// CreatedAt is hashed at whole-second precision because the validator has to
+// agree across a store round-trip. A freshly bootstrapped row derives its
+// validator in memory, from a time.Time carrying nanoseconds, while every
+// later comparison derives it from a row read back out of the store — and the
+// engines truncate: PostgreSQL to microseconds, MySQL DATETIME to whole
+// seconds without an fsp. At nanosecond precision the two never agree again,
+// so the validator a bootstrap hands out is permanently unusable. Seconds is
+// the floor every supported engine preserves. The cost is that a delete and
+// re-bootstrap within the same second, onto the same endpoint and the same
+// toggles, derives the same validator; a labeled bootstrap draws a fresh
+// random label, so that needs a self-addressed endpoint reclaimed inside one
+// second.
+//
 // Adding a field to Settings means deciding whether it belongs here; the
 // field-count guard in the tests is what forces that decision.
 func (s *Settings) ETag() string {
@@ -109,7 +122,7 @@ func (s *Settings) ETag() string {
 		s.EnablePromptCollection,
 		s.RedactPii,
 		s.AccessLogRetentionDays,
-		s.CreatedAt.UnixNano(),
+		s.CreatedAt.Unix(),
 	)
 	return hex.EncodeToString(h.Sum(nil))[:etagLength]
 }

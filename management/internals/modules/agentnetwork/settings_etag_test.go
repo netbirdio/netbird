@@ -79,12 +79,18 @@ func TestUpdateSettingsPreconditionSerializesConcurrentWriters(t *testing.T) {
 	// a diff and is about to write the whole object back would.
 	shared := created.ETag()
 
+	// noWrite is a retention value neither writer sends and the API would
+	// never store, so an assertion that lands on it is a test bug rather than
+	// a silently satisfied comparison. Zero would not do: the API documents 0
+	// as "keep indefinitely", so it is a value the row could legitimately hold.
+	const noWrite = -1
+
 	var (
-		wg     sync.WaitGroup
-		start  = make(chan struct{})
-		errs   = make([]error, 2)
-		wrote  = []int{7, 21}
-		winner = make([]int, 2)
+		wg       sync.WaitGroup
+		start    = make(chan struct{})
+		errs     = make([]error, 2)
+		wrote    = []int{7, 21}
+		returned = []int{noWrite, noWrite}
 	)
 	for i := range 2 {
 		wg.Add(1)
@@ -94,17 +100,19 @@ func TestUpdateSettingsPreconditionSerializesConcurrentWriters(t *testing.T) {
 			updated, err := f.manager.UpdateSettings(ctx, userID, updateFor(created, wrote[i]), ifMatch(t, shared))
 			errs[i] = err
 			if err == nil {
-				winner[i] = updated.AccessLogRetentionDays
+				returned[i] = updated.AccessLogRetentionDays
 			}
 		}()
 	}
 	close(start)
 	wg.Wait()
 
-	succeeded := 0
+	succeeded, winner := 0, noWrite
 	for i, err := range errs {
 		if err == nil {
 			succeeded++
+			winner = wrote[i]
+			assert.Equal(t, wrote[i], returned[i], "the winner's response must carry what it sent")
 			continue
 		}
 		assert.Truef(t, isPreconditionFailed(err),
@@ -115,7 +123,7 @@ func TestUpdateSettingsPreconditionSerializesConcurrentWriters(t *testing.T) {
 	// The row must carry the winner's value and nothing blended.
 	stored, err := f.store.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, accountID)
 	require.NoError(t, err, "the row must survive the race")
-	assert.Contains(t, winner, stored.AccessLogRetentionDays,
+	assert.Equal(t, winner, stored.AccessLogRetentionDays,
 		"the stored row must be exactly what the winning writer sent")
 	assert.NotEqual(t, shared, stored.ETag(), "the surviving row must derive a new validator")
 }

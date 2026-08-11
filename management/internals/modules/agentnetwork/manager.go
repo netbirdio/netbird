@@ -545,6 +545,13 @@ func (m *managerImpl) DeleteBudgetRule(ctx context.Context, accountID, userID, r
 	return nil
 }
 
+// stalePreconditionMsg is the refusal both conditional settings writes return.
+// Shared so the two cannot drift: DeleteSettings answers 412 for its state
+// guards as well, so the message is the only thing telling a client that it is
+// working from an old read rather than tripping over providers or a serving
+// proxy.
+const stalePreconditionMsg = "if-match precondition failed: the settings have changed since they were read; GET them again and retry"
+
 // UpdateSettings replaces the mutable account-level settings — the collection
 // toggles and retention — on the account's row. The identity fields (Domain,
 // ProxyAddress) are assigned at bootstrap (CreateSettings) and immutable: the
@@ -589,7 +596,7 @@ func (m *managerImpl) UpdateSettings(ctx context.Context, userID string, setting
 		// working from an old read" is the more accurate answer than "the
 		// endpoint is immutable".
 		if !precondition.Matches(existing.ETag()) {
-			return status.Errorf(status.PreconditionFailed, "if-match precondition failed: the settings have changed since they were read; GET them again and retry")
+			return status.Errorf(status.PreconditionFailed, "%s", stalePreconditionMsg)
 		}
 
 		// The identity echo is compared leniently (trimmed, case-insensitive):
@@ -679,7 +686,7 @@ func (m *managerImpl) DeleteSettings(ctx context.Context, accountID, userID stri
 		// before the state guards: a caller working from an old read should
 		// learn that first, not be told about providers it may not know exist.
 		if !precondition.Matches(existing.ETag()) {
-			return status.Errorf(status.PreconditionFailed, "if-match precondition failed: the settings have changed since they were read; GET them again and retry")
+			return status.Errorf(status.PreconditionFailed, "%s", stalePreconditionMsg)
 		}
 
 		providers, err := tx.GetAccountAgentNetworkProviders(ctx, store.LockingStrengthNone, accountID)

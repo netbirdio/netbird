@@ -251,7 +251,10 @@ func TestSettingsConditionalWrites(t *testing.T) {
 
 	// The delete is conditional too, and refusing a stale one leaves the
 	// endpoint claimed.
-	require.Error(t, fresh.DeleteSettingsIfMatch(ctx, etag), "a stale precondition must refuse the delete")
+	err = fresh.DeleteSettingsIfMatch(ctx, etag)
+	require.Error(t, err, "a stale precondition must refuse the delete")
+	require.True(t, rest.IsPreconditionFailed(err),
+		"the delete must be refused for staleness rather than for a state guard or a server error, got: %v", err)
 	stillThere, err := fresh.GetSettings(ctx)
 	require.NoError(t, err, "read after the refused delete must succeed")
 	assert.Equal(t, planned.Endpoint, stillThere.Endpoint, "the refused delete must leave the endpoint claimed")
