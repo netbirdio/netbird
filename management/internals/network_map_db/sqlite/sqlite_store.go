@@ -118,7 +118,3 @@ func CollectRowsForSqlite[T any](rows *sql.Rows) ([]T, error) {
 
 	return toret, nil
 }
-
-func (s *SqliteStoreConn) GetAllowedUsers(ctx context.Context, accountId string) (map[string]struct{}, map[string][]string, error) {
-	return nil, nil, nil
-}

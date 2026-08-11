@@ -6,14 +6,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestGetAllowedUsers(t *testing.T) {
-	if engine == string(types.SqliteStoreEngine) {
-		t.Skip()
-	}
 	ctx := context.TODO()
 
 	execQuery(t, ctx,
