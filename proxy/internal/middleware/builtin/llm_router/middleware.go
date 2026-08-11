@@ -110,6 +110,9 @@ func (m *Middleware) MetadataKeys() []string {
 		middleware.KeyLLMPolicyDecision,
 		middleware.KeyLLMPolicyReason,
 		middleware.KeyLLMNonInference,
+		// Emitted only for the per-model lookup, whose model lives in the path
+		// rather than a body the parser could read.
+		middleware.KeyLLMModel,
 	}
 }
 
@@ -181,7 +184,14 @@ func (m *Middleware) Invoke(_ context.Context, in *middleware.Input) (*middlewar
 	// the token pre-flight it would otherwise charge nothing against.
 	if detail, isDetail := modelDetailID(reqPath); isDetail && isNonInferenceMethod(in.Method) {
 		route, outcome := m.matchRoute(detail, surface, reqPath, in.UserGroups)
-		return m.decide(route, outcome, surface, detail, in.UserGroups, markNonInference), nil
+		return m.decide(route, outcome, surface, detail, in.UserGroups, func(out *middleware.Output) {
+			markNonInference(out)
+			// The parser reads models from JSON bodies only, and this request
+			// has none, so stamp the one the path names. Without it the
+			// guardrail's own allowlist — a separate, possibly narrower list
+			// than the route's — never sees a model to check.
+			out.Metadata = append(out.Metadata, middleware.KV{Key: middleware.KeyLLMModel, Value: detail})
+		}), nil
 	}
 
 	if model == "" {
@@ -692,9 +702,13 @@ func routeClaimsModel(route ProviderRoute, model string) bool {
 			return true
 		}
 		// A client may pin a dated Anthropic id ("claude-sonnet-4-5-20250929")
-		// where the operator registered the undated one. Exact matches above
-		// win, so two dated releases stay distinct when both are registered.
-		if llm.NormalizeAnthropicModel(candidate) == llm.NormalizeAnthropicModel(model) {
+		// where the operator registered the undated one. Only an undated
+		// registration absorbs a dated request: normalising both sides would
+		// let a route pinned to one dated release claim a different one, so an
+		// operator who deliberately pinned a build would silently serve
+		// another — and with several such routes, ordering would decide which.
+		if candidate == llm.NormalizeAnthropicModel(candidate) &&
+			candidate == llm.NormalizeAnthropicModel(model) {
 			return true
 		}
 	}

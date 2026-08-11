@@ -62,6 +62,7 @@ func TestMiddlewareIdentity(t *testing.T) {
 			middleware.KeyLLMResolvedProviderID,
 			middleware.KeyLLMAuthorisingGroups,
 			middleware.KeyLLMNonInference,
+			middleware.KeyLLMModel,
 			middleware.KeyLLMPolicyDecision,
 			middleware.KeyLLMPolicyReason,
 		},
@@ -1085,5 +1086,62 @@ func TestRouter_NonInferenceRequiresReadMethod(t *testing.T) {
 		nonInference, _ := metaValue(t, out.Metadata, middleware.KeyLLMNonInference)
 		assert.Equal(t, "true", nonInference,
 			"the HEAD warm probe carries no model to meter")
+	})
+}
+
+// TestRouter_PinnedDatedModelStaysDistinct pins that a route registered
+// against one dated Anthropic release does not claim another. Normalising
+// both sides of the comparison made every dated build of a family
+// interchangeable, so an operator who deliberately pinned a build would have
+// served a different one — and with several such routes, declaration or path
+// order would have decided which.
+func TestRouter_PinnedDatedModelStaysDistinct(t *testing.T) {
+	pinned := ProviderRoute{
+		ID:              "anthropic-pinned",
+		Vendor:          "anthropic",
+		Models:          []string{"claude-sonnet-4-5-20250101"},
+		AllowedGroupIDs: []string{defaultTestGroup},
+		UpstreamScheme:  "https",
+		UpstreamHost:    "pinned.example.com",
+	}
+
+	t.Run("a different dated release is not claimed", func(t *testing.T) {
+		mw := New(Config{Providers: []ProviderRoute{pinned}})
+		in := newInputWithModelAndURL("claude-sonnet-4-5-20250202", "/v1/messages")
+		in.Metadata = append(in.Metadata, middleware.KV{Key: middleware.KeyLLMProvider, Value: "anthropic"})
+
+		out, err := mw.Invoke(context.Background(), in)
+		require.NoError(t, err)
+		assert.Equal(t, middleware.DecisionDeny, out.Decision,
+			"a route pinned to one dated build must not serve another")
+	})
+
+	t.Run("its own dated release still routes", func(t *testing.T) {
+		mw := New(Config{Providers: []ProviderRoute{pinned}})
+		in := newInputWithModelAndURL("claude-sonnet-4-5-20250101", "/v1/messages")
+		in.Metadata = append(in.Metadata, middleware.KV{Key: middleware.KeyLLMProvider, Value: "anthropic"})
+
+		out, err := mw.Invoke(context.Background(), in)
+		require.NoError(t, err)
+		assert.Equal(t, middleware.DecisionAllow, out.Decision, "the exact match must still route")
+	})
+
+	t.Run("two pinned builds each route to their own provider", func(t *testing.T) {
+		other := pinned
+		other.ID = "anthropic-pinned-newer"
+		other.Models = []string{"claude-sonnet-4-5-20250202"}
+		other.UpstreamHost = "newer.example.com"
+		mw := New(Config{Providers: []ProviderRoute{pinned, other}})
+
+		in := newInputWithModelAndURL("claude-sonnet-4-5-20250202", "/v1/messages")
+		in.Metadata = append(in.Metadata, middleware.KV{Key: middleware.KeyLLMProvider, Value: "anthropic"})
+
+		out, err := mw.Invoke(context.Background(), in)
+		require.NoError(t, err)
+		require.Equal(t, middleware.DecisionAllow, out.Decision)
+		require.NotNil(t, out.Mutations)
+		require.NotNil(t, out.Mutations.RewriteUpstream)
+		assert.Equal(t, "newer.example.com", out.Mutations.RewriteUpstream.Host,
+			"declaration order must not decide between two deliberately pinned builds")
 	})
 }
