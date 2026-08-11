@@ -143,23 +143,26 @@ func (m *Middleware) Invoke(_ context.Context, in *middleware.Input) (*middlewar
 	// the model lookup so a model the parser extracted from the path can't be
 	// claimed by a same-vendor direct provider (e.g. claude-* on api.anthropic.com).
 	reqPath := requestPath(in.URL)
+	// The caller's API dialect, used to mirror a denial in the vendor's own
+	// error shape so the client can explain it to the user.
+	surface, _ := lookupMetadata(in.Metadata, middleware.KeyLLMProvider)
 	if isVertexPath(reqPath) {
 		model, _ := lookupMetadata(in.Metadata, middleware.KeyLLMModel)
 		// The request parser emits no llm.provider for a Vertex publisher it
 		// can't parse (e.g. google/gemini). Forwarding such a request would
 		// bypass token/budget metering, so deny it rather than serve it
 		// unmetered.
-		if vendor, _ := lookupMetadata(in.Metadata, middleware.KeyLLMProvider); vendor == "" {
-			return denyUnmeterable(), nil
+		if surface == "" {
+			return denyUnmeterable(surface), nil
 		}
 		route, outcome := m.matchVertex(reqPath, model, in.UserGroups)
 		switch outcome {
 		case matchOutcomeFound:
-			return m.allowWithRoute(route, in.UserGroups), nil
+			return m.allowWithRoute(route, surface, in.UserGroups), nil
 		case matchOutcomeUnauthorised:
-			return denyNoAuthorisedRoute(model), nil
+			return denyNoAuthorisedRoute(surface, model), nil
 		default:
-			return denyUnknownModel(model), nil
+			return denyUnknownModel(surface, model), nil
 		}
 	}
 
@@ -173,15 +176,15 @@ func (m *Middleware) Invoke(_ context.Context, in *middleware.Input) (*middlewar
 		route, outcome := m.matchBedrock(native, model, in.UserGroups)
 		switch outcome {
 		case matchOutcomeFound:
-			out := m.allowWithRoute(route, in.UserGroups)
+			out := m.allowWithRoute(route, surface, in.UserGroups)
 			if hadPrefix && out.Mutations != nil && out.Mutations.RewriteUpstream != nil {
 				out.Mutations.RewriteUpstream.StripPathPrefix = bedrockNamespacePrefix
 			}
 			return out, nil
 		case matchOutcomeUnauthorised:
-			return denyNoAuthorisedRoute(model), nil
+			return denyNoAuthorisedRoute(surface, model), nil
 		default:
-			return denyUnknownModel(model), nil
+			return denyUnknownModel(surface, model), nil
 		}
 	}
 
@@ -194,28 +197,27 @@ func (m *Middleware) Invoke(_ context.Context, in *middleware.Input) (*middlewar
 		route, outcome := m.matchModelless(requestPath(in.URL), in.UserGroups)
 		switch outcome {
 		case matchOutcomeFound:
-			out := m.allowWithRoute(route, in.UserGroups)
+			out := m.allowWithRoute(route, surface, in.UserGroups)
 			out.Metadata = append(out.Metadata, middleware.KV{Key: middleware.KeyLLMNonInference, Value: "true"})
 			return out, nil
 		case matchOutcomeUnauthorised:
 			// A recognised model-less endpoint exists but no provider
 			// authorises the caller — deny as an authorisation failure
 			// rather than masking it as a missing model.
-			return denyNoAuthorisedRoute(model), nil
+			return denyNoAuthorisedRoute(surface, model), nil
 		default:
-			return denyMissingModel(), nil
+			return denyMissingModel(surface), nil
 		}
 	}
 
-	vendor, _ := lookupMetadata(in.Metadata, middleware.KeyLLMProvider)
-	route, outcome := m.matchRoute(model, vendor, requestPath(in.URL), in.UserGroups)
+	route, outcome := m.matchRoute(model, surface, requestPath(in.URL), in.UserGroups)
 	switch outcome {
 	case matchOutcomeFound:
-		return m.allowWithRoute(route, in.UserGroups), nil
+		return m.allowWithRoute(route, surface, in.UserGroups), nil
 	case matchOutcomeUnauthorised:
-		return denyNoAuthorisedRoute(model), nil
+		return denyNoAuthorisedRoute(surface, model), nil
 	default:
-		return denyUnknownModel(model), nil
+		return denyUnknownModel(surface, model), nil
 	}
 }
 
@@ -621,7 +623,7 @@ func requestPath(raw string) string {
 // provider id so identity-stamping middlewares (llm_identity_inject)
 // tag the request with ONLY the groups that authorised this specific
 // route — not every group the peer happens to be in.
-func (m *Middleware) allowWithRoute(route ProviderRoute, userGroups []string) *middleware.Output {
+func (m *Middleware) allowWithRoute(route ProviderRoute, surface string, userGroups []string) *middleware.Output {
 	rewrite := &middleware.UpstreamRewrite{
 		Scheme: route.UpstreamScheme,
 		Host:   route.UpstreamHost,
@@ -643,7 +645,7 @@ func (m *Middleware) allowWithRoute(route ProviderRoute, userGroups []string) *m
 		// request time (cached + auto-refreshed) instead of a static value.
 		bearer, err := m.gcpBearer(route.GCPServiceAccountKeyB64)
 		if err != nil {
-			return denyUpstreamAuth()
+			return denyUpstreamAuth(surface)
 		}
 		authValue = bearer
 	}
@@ -713,11 +715,12 @@ func (m *Middleware) gcpTokenSource(saKeyB64 string) (oauth2.TokenSource, error)
 // denyUpstreamAuth is returned when the router cannot obtain the upstream
 // credential (e.g. a malformed service-account key or an unreachable token
 // endpoint). It surfaces as a 502 — an upstream problem, not a policy denial.
-func denyUpstreamAuth() *middleware.Output {
+func denyUpstreamAuth(surface string) *middleware.Output {
 	return &middleware.Output{
 		Decision:   middleware.DecisionDeny,
 		DenyStatus: 502,
 		DenyReason: &middleware.DenyReason{
+			Surface: surface,
 			Code:    denyCodeUpstreamAuth,
 			Message: "could not obtain upstream credential",
 		},
@@ -731,11 +734,12 @@ func denyUpstreamAuth() *middleware.Output {
 // denyUnmeterable returns the deny envelope for a path-routed request whose
 // publisher has no parser surface, so its usage can't be metered. Serving it
 // would bypass token/budget caps, so it is rejected with a 403.
-func denyUnmeterable() *middleware.Output {
+func denyUnmeterable(surface string) *middleware.Output {
 	return &middleware.Output{
 		Decision:   middleware.DecisionDeny,
 		DenyStatus: 403,
 		DenyReason: &middleware.DenyReason{
+			Surface: surface,
 			Code:    denyCodeUnmeterable,
 			Message: "request publisher is not supported for metering",
 		},
@@ -748,11 +752,12 @@ func denyUnmeterable() *middleware.Output {
 
 // denyMissingModel returns the deny envelope for a request whose
 // envelope has no llm.model metadata.
-func denyMissingModel() *middleware.Output {
+func denyMissingModel(surface string) *middleware.Output {
 	return &middleware.Output{
 		Decision:   middleware.DecisionDeny,
 		DenyStatus: 403,
 		DenyReason: &middleware.DenyReason{
+			Surface: surface,
 			Code:    denyCodeNotRoutable,
 			Message: "missing llm.model on request envelope",
 		},
@@ -765,11 +770,12 @@ func denyMissingModel() *middleware.Output {
 
 // denyUnknownModel returns the deny envelope for a model that no
 // configured provider claims.
-func denyUnknownModel(model string) *middleware.Output {
+func denyUnknownModel(surface, model string) *middleware.Output {
 	return &middleware.Output{
 		Decision:   middleware.DecisionDeny,
 		DenyStatus: 403,
 		DenyReason: &middleware.DenyReason{
+			Surface: surface,
 			Code:    denyCodeNotRoutable,
 			Message: fmt.Sprintf("no provider configured for model %s", model),
 			Details: map[string]string{"model": model},
@@ -784,11 +790,12 @@ func denyUnknownModel(model string) *middleware.Output {
 // denyNoAuthorisedRoute returns the deny envelope for a model that one
 // or more providers claim, but where no policy authorises the caller's
 // groups for any of those providers.
-func denyNoAuthorisedRoute(model string) *middleware.Output {
+func denyNoAuthorisedRoute(surface, model string) *middleware.Output {
 	return &middleware.Output{
 		Decision:   middleware.DecisionDeny,
 		DenyStatus: 403,
 		DenyReason: &middleware.DenyReason{
+			Surface: surface,
 			Code:    denyCodeNoAuthorisedRoute,
 			Message: fmt.Sprintf("no policy authorises model %s for the caller's groups", model),
 			Details: map[string]string{"model": model},

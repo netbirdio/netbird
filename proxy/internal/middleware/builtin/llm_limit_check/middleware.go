@@ -126,7 +126,7 @@ func (m *Middleware) Invoke(ctx context.Context, in *middleware.Input) (*middlew
 	}
 
 	if resp.GetDecision() == "deny" {
-		return denyFromManagement(resp), nil
+		return denyFromManagement(resp, lookupKV(in.Metadata, middleware.KeyLLMProvider)), nil
 	}
 	return allowFromManagement(resp), nil
 }
@@ -170,7 +170,7 @@ func allowFromManagement(resp *proto.CheckLLMPolicyLimitsResponse) *middleware.O
 // envelope. The deny code surfaces verbatim through the framework's
 // fixed JSON template; arbitrary middleware bytes can't reach the
 // wire.
-func denyFromManagement(resp *proto.CheckLLMPolicyLimitsResponse) *middleware.Output {
+func denyFromManagement(resp *proto.CheckLLMPolicyLimitsResponse, surface string) *middleware.Output {
 	code := resp.GetDenyCode()
 	if code == "" {
 		code = "llm_policy.cap_exceeded"
@@ -185,6 +185,7 @@ func denyFromManagement(resp *proto.CheckLLMPolicyLimitsResponse) *middleware.Ou
 		DenyReason: &middleware.DenyReason{
 			Code:    code,
 			Message: denyMessageForCode(code),
+			Surface: surface,
 		},
 		Metadata: []middleware.KV{
 			{Key: middleware.KeyLLMPolicyDecision, Value: "deny"},
