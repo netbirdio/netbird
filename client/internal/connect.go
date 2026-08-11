@@ -711,6 +711,7 @@ func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte,
 		config.EnableSSHLocalPortForwarding,
 		config.EnableSSHRemotePortForwarding,
 		config.DisableSSHAuth,
+		config.RemoteJobsAllowed,
 	)
 	return client.Login(sysInfo, pubSSHKey, config.DNSLabels)
 }

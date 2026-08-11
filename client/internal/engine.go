@@ -1252,6 +1252,7 @@ func (e *Engine) applyInfoFlags(info *system.Info) {
 		e.config.EnableSSHLocalPortForwarding,
 		e.config.EnableSSHRemotePortForwarding,
 		e.config.DisableSSHAuth,
+		&e.config.RemoteJobsAllowed,
 	)
 }
 
