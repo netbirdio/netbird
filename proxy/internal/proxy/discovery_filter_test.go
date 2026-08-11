@@ -153,3 +153,20 @@ func TestModelDiscoveryFilter_RunsNextHook(t *testing.T) {
 	require.NoError(t, modelDiscoveryFilter([]string{"claude-sonnet-5"}, next)(resp)) //nolint:bodyclose // in-memory body, replaced by the filter
 	assert.True(t, called, "the chained hook must still run")
 }
+
+// TestModelDiscoveryFilter_KeepsSlashBearingIDs covers self-hosted backends
+// whose model ids carry a slash of their own. Treating the slash as a
+// gateway prefix and keeping only the tail dropped every such model from
+// the picker even though the policy named it exactly.
+func TestModelDiscoveryFilter_KeepsSlashBearingIDs(t *testing.T) {
+	ids := listedIDs(t, []string{"Qwen/Qwen2.5-0.5B-Instruct"}, `{
+		"object": "list",
+		"data": [
+			{"id": "Qwen/Qwen2.5-0.5B-Instruct"},
+			{"id": "Qwen/Qwen2.5-7B-Instruct"}
+		]
+	}`)
+
+	assert.Equal(t, []string{"Qwen/Qwen2.5-0.5B-Instruct"}, ids,
+		"a slash inside the model id is part of the id, not a provider prefix")
+}

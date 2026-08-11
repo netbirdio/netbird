@@ -109,7 +109,7 @@ func filterListingBody(body []byte, permitted map[string]struct{}) ([]byte, bool
 
 	kept := make([]map[string]json.RawMessage, 0, len(entries))
 	for _, entry := range entries {
-		if _, ok := permitted[entryModelID(entry)]; ok {
+		if entryPermitted(entry, permitted) {
 			kept = append(kept, entry)
 		}
 	}
@@ -126,23 +126,40 @@ func filterListingBody(body []byte, permitted map[string]struct{}) ([]byte, bool
 	return out, true
 }
 
-// entryModelID returns the entry's model id in the form the policy stores
-// it, or "" when the entry carries no usable id. A provider-prefixed id
-// ("bedrock/anthropic.claude-sonnet-5") keeps only its last segment, which
-// is what the operator registers.
-func entryModelID(entry map[string]json.RawMessage) string {
+// entryPermitted reports whether a listing entry names a model the policy
+// authorises, trying every form the same model is written in.
+func entryPermitted(entry map[string]json.RawMessage, permitted map[string]struct{}) bool {
 	raw, ok := entry["id"]
 	if !ok {
-		return ""
+		return false
 	}
 	var id string
 	if err := json.Unmarshal(raw, &id); err != nil {
-		return ""
+		return false
 	}
+	for _, candidate := range modelIDForms(id) {
+		if _, ok := permitted[candidate]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// modelIDForms returns the forms a single model id may be written in: the id
+// itself, its undated form, and the same two with a gateway's provider
+// prefix removed ("vertex_ai/claude-sonnet-5"). The bare id is tried first,
+// because a self-hosted id can legitimately contain a slash of its own
+// ("Qwen/Qwen2.5-0.5B-Instruct") and must not be cut down to its tail.
+func modelIDForms(id string) []string {
+	if id == "" {
+		return nil
+	}
+	forms := []string{id, sharedllm.NormalizeAnthropicModel(id)}
 	if slash := strings.LastIndex(id, "/"); slash >= 0 {
-		id = id[slash+1:]
+		tail := id[slash+1:]
+		forms = append(forms, tail, sharedllm.NormalizeAnthropicModel(tail))
 	}
-	return sharedllm.NormalizeAnthropicModel(id)
+	return forms
 }
 
 // restoreBody puts body back on the response and fixes the length headers
