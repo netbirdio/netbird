@@ -435,12 +435,27 @@ func (s *SSHClient) dialAndHandshake(host string, port int, clientConfig *gossh.
 		return fmt.Errorf("dial %s: %w", addr, err)
 	}
 
+	// DialContext bounds only the TCP establishment; without a deadline on the
+	// socket a peer that accepts and then goes silent blocks the handshake
+	// forever.
+	if deadline, ok := ctx.Deadline(); ok {
+		if err := conn.SetDeadline(deadline); err != nil {
+			closeQuiet(conn, "conn after deadline error")
+			return fmt.Errorf("set handshake deadline: %w", err)
+		}
+	}
+
 	sshConn, chans, reqs, err := gossh.NewClientConn(conn, addr, clientConfig)
 	if err != nil {
 		if cerr := conn.Close(); cerr != nil {
 			log.Debugf("ssh: close after handshake error: %v", cerr)
 		}
 		return fmt.Errorf("ssh handshake: %w", err)
+	}
+
+	if err := conn.SetDeadline(time.Time{}); err != nil {
+		closeQuiet(sshConn, "ssh conn after deadline clear error")
+		return fmt.Errorf("clear handshake deadline: %w", err)
 	}
 
 	s.mu.Lock()
