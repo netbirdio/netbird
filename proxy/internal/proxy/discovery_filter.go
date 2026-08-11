@@ -51,17 +51,24 @@ func filterModelListing(resp *http.Response, permitted map[string]struct{}) erro
 		return nil
 	}
 
+	// One byte past the cap, so an oversized body is detectable without
+	// buffering all of it.
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxDiscoveryBodyBytes+1))
-	closeErr := resp.Body.Close()
 	if err != nil {
+		_ = resp.Body.Close()
 		return err
 	}
-	if closeErr != nil {
-		return closeErr
-	}
 	if len(body) > maxDiscoveryBodyBytes {
-		restoreBody(resp, body)
+		// Too large to filter. Put the bytes already read back in front of the
+		// unread remainder and forward the response exactly as the upstream
+		// sent it, headers included. Buffering what was read and closing here
+		// would truncate the body at the cap and hand the client a short,
+		// invalid listing — worse than not filtering at all.
+		resp.Body = spliceBody(body, resp.Body)
 		return nil
+	}
+	if err := resp.Body.Close(); err != nil {
+		return err
 	}
 
 	filtered, ok := filterListingBody(body, permitted)
@@ -164,6 +171,19 @@ func modelIDForms(id string) []string {
 
 // restoreBody puts body back on the response and fixes the length headers
 // so the client reads exactly what is there.
+// spliceBody returns a ReadCloser that yields prefix followed by whatever is
+// left in rest, closing rest when closed. It lets the filter put back bytes it
+// consumed while deciding, without owning the rest of the stream.
+func spliceBody(prefix []byte, rest io.ReadCloser) io.ReadCloser {
+	return struct {
+		io.Reader
+		io.Closer
+	}{
+		Reader: io.MultiReader(bytes.NewReader(prefix), rest),
+		Closer: rest,
+	}
+}
+
 func restoreBody(resp *http.Response, body []byte) {
 	resp.Body = io.NopCloser(bytes.NewReader(body))
 	resp.ContentLength = int64(len(body))

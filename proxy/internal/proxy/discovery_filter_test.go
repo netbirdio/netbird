@@ -170,3 +170,48 @@ func TestModelDiscoveryFilter_KeepsSlashBearingIDs(t *testing.T) {
 	assert.Equal(t, []string{"Qwen/Qwen2.5-0.5B-Instruct"}, ids,
 		"a slash inside the model id is part of the id, not a provider prefix")
 }
+
+// TestModelDiscoveryFilter_ForwardsOversizedBodyIntact covers a listing past
+// the buffering cap. The filter reads one byte beyond the cap to detect the
+// size; forwarding only what it read would hand the client a body truncated
+// at exactly 1 MiB — valid-looking, short, and unparseable as JSON. The bytes
+// already read must be spliced back in front of the unread remainder so the
+// response reaches the client exactly as the upstream sent it.
+func TestModelDiscoveryFilter_ForwardsOversizedBodyIntact(t *testing.T) {
+	// A well-formed listing whose single entry pads the body past the cap.
+	padding := strings.Repeat("x", maxDiscoveryBodyBytes)
+	body := `{"object":"list","data":[{"id":"gpt-4o","note":"` + padding + `"}]}`
+	require.Greater(t, len(body), maxDiscoveryBodyBytes+1,
+		"the fixture must exceed the cap by more than the one-byte probe")
+
+	resp := jsonListingResponse(body)                        //nolint:bodyclose // in-memory body
+	require.NoError(t, modelDiscoveryFilter(nil, nil)(resp)) //nolint:bodyclose // in-memory body
+
+	got, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Equal(t, len(body), len(got),
+		"an oversized listing must reach the client whole, not truncated at the cap")
+	assert.Equal(t, body, string(got), "the forwarded bytes must be the upstream's own")
+
+	var doc map[string]json.RawMessage
+	assert.NoError(t, json.Unmarshal(got, &doc),
+		"the forwarded body must still parse as JSON")
+}
+
+// TestModelDiscoveryFilter_OversizedBodyKeepsUpstreamHeaders pins that the
+// oversized path leaves the response metadata alone. Rewriting Content-Length
+// to the truncated prefix is what made the corruption invisible to the client
+// until it tried to parse.
+func TestModelDiscoveryFilter_OversizedBodyKeepsUpstreamHeaders(t *testing.T) {
+	padding := strings.Repeat("x", maxDiscoveryBodyBytes)
+	body := `{"object":"list","data":[{"id":"gpt-4o","note":"` + padding + `"}]}`
+
+	resp := jsonListingResponse(body) //nolint:bodyclose // in-memory body
+	resp.Header.Set("Content-Length", strconv.Itoa(len(body)))
+	require.NoError(t, modelDiscoveryFilter(nil, nil)(resp)) //nolint:bodyclose // in-memory body
+
+	assert.Equal(t, int64(len(body)), resp.ContentLength,
+		"ContentLength must keep describing the body the client receives")
+	assert.Equal(t, strconv.Itoa(len(body)), resp.Header.Get("Content-Length"),
+		"the Content-Length header must not be rewritten to the truncated prefix")
+}
