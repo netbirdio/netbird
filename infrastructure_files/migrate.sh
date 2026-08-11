@@ -10,6 +10,9 @@
 #
 # Usage:
 #   ./migrate.sh [--install-dir /path/to/netbird] [--non-interactive]
+#
+# Environment:
+#   NETBIRD_DOCKER_SUBNET   /24 for the generated Docker network (default 172.30.0.0/24)
 
 set -euo pipefail
 
@@ -64,6 +67,14 @@ TRUSTED_PEERS=""
 MANAGEMENT_JSON_PATH=""
 BACKUP_DIR=""
 
+# Docker network for the generated Traefik compose. The Traefik container needs
+# a static address so the generated config can trust it, and Traefik's IP is
+# derived from the subnet, so both values stay in the same /24. Override with
+# NETBIRD_DOCKER_SUBNET.
+DOCKER_SUBNET="172.30.0.0/24"
+DOCKER_GATEWAY="172.30.0.1"
+TRAEFIK_IP="172.30.0.10"
+
 ############################################
 # Utility Functions
 ############################################
@@ -114,6 +125,144 @@ confirm_action() {
     log_error "Aborted by user."
     exit 1
   fi
+  return 0
+}
+
+############################################
+# Docker Network Subnet Override and Conflict Check
+############################################
+
+ip_to_int() {
+  local a b c d
+  IFS=. read -r a b c d <<< "$1"
+  echo $(( (10#$a << 24) + (10#$b << 16) + (10#$c << 8) + 10#$d ))
+}
+
+# cidrs_overlap <cidr> <cidr> — succeeds if the networks overlap
+cidrs_overlap() {
+  local net1="${1%/*}" len1="${1#*/}" net2="${2%/*}" len2="${2#*/}"
+  local min_len=$(( len1 < len2 ? len1 : len2 ))
+  local mask=0
+  if [[ "$min_len" -gt 0 ]]; then
+    mask=$(( (0xFFFFFFFF << (32 - min_len)) & 0xFFFFFFFF ))
+  fi
+  [[ $(( $(ip_to_int "$net1") & mask )) -eq $(( $(ip_to_int "$net2") & mask )) ]]
+}
+
+# valid_ipv4_slash24 <cidr> — accepts a unicast IPv4 /24 like 10.123.45.0/24
+valid_ipv4_slash24() {
+  local octet='(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])'
+  local re="^${octet}\.${octet}\.${octet}\.0/24$"
+  [[ "$1" =~ $re ]] || return 1
+  # Reject non-unicast/reserved ranges: 0/8, loopback, link-local, 224+
+  case "$1" in
+    0.*|127.*|169.254.*|22[4-9].*|2[34][0-9].*|25[0-5].*) return 1 ;;
+  esac
+  return 0
+}
+
+# Apply NETBIRD_DOCKER_SUBNET and derive the gateway (.1) and Traefik IP (.10).
+# Runs during preflight so a bad value fails before anything is touched.
+apply_docker_subnet_override() {
+  if [[ -n "${NETBIRD_DOCKER_SUBNET:-}" ]]; then
+    if ! valid_ipv4_slash24 "$NETBIRD_DOCKER_SUBNET"; then
+      log_error "NETBIRD_DOCKER_SUBNET must be a unicast IPv4 /24 network like 10.123.45.0/24 (0/8, 127/8, 169.254/16, and 224+ are not allowed), got: $NETBIRD_DOCKER_SUBNET"
+      exit 1
+    fi
+    DOCKER_SUBNET="$NETBIRD_DOCKER_SUBNET"
+  fi
+  local base="${DOCKER_SUBNET%.0/24}"
+  DOCKER_GATEWAY="${base}.1"
+  TRAEFIK_IP="${base}.10"
+  return 0
+}
+
+# check_docker_subnet_conflicts <compose network name>
+# Fail before the new docker-compose.yml is written if an existing Docker
+# network overlaps DOCKER_SUBNET, instead of letting "docker compose up" fail
+# later. Host routes are not checked; NETBIRD_DOCKER_SUBNET covers those cases.
+check_docker_subnet_conflicts() {
+  local expected_network="$1"
+  command -v docker &> /dev/null || return 0
+
+  # docker's own stderr is left visible on purpose: "is the daemon running"
+  # and socket permission errors are the actionable part. Only the exit status
+  # is handled here, because skipping the check silently would resurface later
+  # as a confusing "docker compose up" failure.
+  local ids_raw ls_status=0
+  ids_raw="$(docker network ls -q)" || ls_status=$?
+  if [[ "$ls_status" -ne 0 ]]; then
+    log_error "Could not list the existing Docker networks (docker network ls exited $ls_status)."
+    echo "Without it this script cannot verify that $DOCKER_SUBNET is free."
+    echo "Make sure the Docker daemon is running and reachable by this user, then run this script again."
+    echo "The old deployment is stopped at this point; restart it with:"
+    echo "  bash $BACKUP_DIR/rollback.sh"
+    exit 1
+  fi
+
+  # Collect the IDs in an array so they reach docker as separate arguments
+  local network_ids=() id
+  while IFS= read -r id; do
+    if [[ -n "$id" ]]; then
+      network_ids+=("$id")
+    fi
+  done <<< "$ids_raw"
+
+  # No Docker networks at all: nothing can overlap, so there is nothing to check
+  [[ "${#network_ids[@]}" -gt 0 ]] || return 0
+
+  local inspect_output inspect_status=0
+  inspect_output="$(docker network inspect --format '{{.Name}}|{{range .IPAM.Config}}{{.Subnet}} {{end}}' "${network_ids[@]}")" || inspect_status=$?
+  if [[ "$inspect_status" -ne 0 ]]; then
+    log_error "Could not inspect the existing Docker networks (docker network inspect exited $inspect_status)."
+    echo "Without it this script cannot verify that $DOCKER_SUBNET is free."
+    echo "If a Docker network was removed while this script was running, run the script again."
+    exit 1
+  fi
+
+  local name subnets subnet
+  while IFS='|' read -r name subnets; do
+    for subnet in $subnets; do
+      [[ "$subnet" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$ ]] || continue
+      if [[ "$name" == "$expected_network" ]]; then
+        # Our own leftover network: compose reuses it as-is, so its subnet
+        # must match the one we render
+        if [[ "$subnet" != "$DOCKER_SUBNET" ]]; then
+          log_error "The Docker network '$name', left over from an earlier run, uses $subnet instead of $DOCKER_SUBNET."
+          echo "docker compose would reuse it as-is, and the generated configuration would not match it."
+          echo "Remove it and run this script again:"
+          echo "  docker network rm $name"
+          exit 1
+        fi
+      elif cidrs_overlap "$DOCKER_SUBNET" "$subnet"; then
+        log_error "The existing Docker network '$name' ($subnet) overlaps $DOCKER_SUBNET, the subnet NetBird would use."
+        echo "That network is not managed by this script and is left untouched."
+        echo "If it belongs to the old NetBird deployment and is no longer in use, remove it:"
+        echo "  docker network rm $name"
+        echo "Otherwise pick a free /24 for NetBird instead and run this script again:"
+        echo "  NETBIRD_DOCKER_SUBNET=10.123.45.0/24 ./migrate.sh"
+        exit 1
+      fi
+    done
+  done <<< "$inspect_output"
+  return 0
+}
+
+configure_docker_subnet() {
+  # Only the generated Traefik compose pins a subnet; the exposed-ports compose
+  # for custom proxies lets Docker pick
+  if [[ "$PROXY_TYPE" != "$PROXY_TYPE_CADDY" ]]; then
+    return 0
+  fi
+
+  # Skip our own network (<project>_netbird) in the conflict check. The new
+  # compose runs from INSTALL_DIR, so resolve it the way compose does (a
+  # relative --install-dir still yields the real directory name) and normalize
+  # the basename the way compose-go NormalizeProjectName does.
+  local project
+  project="${COMPOSE_PROJECT_NAME:-$(basename "$(cd -- "$INSTALL_DIR" && pwd -P)")}"
+  project=$(echo "$project" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]//g; s/^[_-]*//')
+  check_docker_subnet_conflicts "${project}_netbird"
   return 0
 }
 
@@ -577,6 +726,7 @@ print_detection_summary() {
     echo "  Migration mode:     AUTOMATIC"
     echo "  A Traefik-based docker-compose.yml will be generated and services"
     echo "  will be stopped and restarted automatically."
+    echo "  Docker subnet:      $DOCKER_SUBNET (Traefik at $TRAEFIK_IP)"
   else
     echo "  Migration mode:     MANUAL"
     echo "  New config files will be generated. You will need to stop old"
@@ -843,7 +993,7 @@ services:
     restart: unless-stopped
     networks:
       netbird:
-        ipv4_address: 172.30.0.10
+        ipv4_address: ${TRAEFIK_IP}
     command:
       # Logging
       - "--log.level=INFO"
@@ -952,8 +1102,8 @@ networks:
     driver: bridge
     ipam:
       config:
-        - subnet: 172.30.0.0/24
-          gateway: 172.30.0.1
+        - subnet: ${DOCKER_SUBNET}
+          gateway: ${DOCKER_GATEWAY}
 EOF
 
   log_success "Generated docker-compose.yml"
@@ -1226,6 +1376,10 @@ main() {
         echo "  --install-dir DIR    Path to existing NetBird installation"
         echo "  --non-interactive    Skip confirmation prompts (for automation)"
         echo "  -h, --help           Show this help message"
+        echo ""
+        echo "Environment:"
+        echo "  NETBIRD_DOCKER_SUBNET  /24 for the generated Docker network"
+        echo "                         (default $DOCKER_SUBNET; Traefik takes .10)"
         exit 0
         ;;
       *)
@@ -1240,6 +1394,7 @@ main() {
 
   # Phase 0: Preflight & Detection
   check_dependencies
+  apply_docker_subnet_override
   detect_install_dir
   validate_old_setup
   check_already_migrated
@@ -1260,6 +1415,10 @@ main() {
   if [[ "$PROXY_TYPE" == "$PROXY_TYPE_CADDY" ]]; then
     # Stop old containers BEFORE overwriting docker-compose.yml
     stop_old_services
+
+    # "compose down" above released the old deployment's networks, so anything
+    # still overlapping now is a network this script must not touch
+    configure_docker_subnet
 
     # Phase 2 + 3: Generate new configuration files
     generate_config_yaml
