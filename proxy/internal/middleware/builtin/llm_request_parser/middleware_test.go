@@ -45,6 +45,8 @@ func TestMiddleware_StaticSurface(t *testing.T) {
 		middleware.KeyLLMRequestPromptRaw,
 		middleware.KeyLLMCaptureTruncated,
 		middleware.KeyLLMSessionID,
+		middleware.KeyLLMAgentID,
+		middleware.KeyLLMParentAgentID,
 	}
 	assert.Equal(t, expected, keys, "metadata key allowlist must match the spec")
 }
@@ -463,4 +465,59 @@ func TestParseVertexPath_CountTokensKeepsModel(t *testing.T) {
 		assert.Equal(t, want.stream, vx.stream, "stream flag for %q", path)
 		assert.Equal(t, "anthropic", vx.publisher, "publisher for %q", path)
 	}
+}
+
+// TestInvoke_EmitsAgentIDs covers sub-agent attribution: several agents run
+// in parallel inside one session, and without their ids every request in
+// the session attributes to the session alone.
+func TestInvoke_EmitsAgentIDs(t *testing.T) {
+	mw := newMiddleware(t)
+
+	t.Run("spawned agent", func(t *testing.T) {
+		out, err := mw.Invoke(context.Background(), &middleware.Input{
+			URL:  "/v1/messages",
+			Body: []byte(`{"model":"claude-sonnet-5","messages":[]}`),
+			Headers: []middleware.KV{
+				{Key: "X-Claude-Code-Session-Id", Value: "sess-1"},
+				{Key: "X-Claude-Code-Agent-Id", Value: "agent-7"},
+			},
+		})
+		require.NoError(t, err)
+
+		agent, ok := metaValue(t, out.Metadata, middleware.KeyLLMAgentID)
+		require.True(t, ok, "the spawned agent's id must be emitted")
+		assert.Equal(t, "agent-7", agent)
+
+		_, ok = metaValue(t, out.Metadata, middleware.KeyLLMParentAgentID)
+		assert.False(t, ok, "a top-level agent has no parent to emit")
+	})
+
+	t.Run("nested agent", func(t *testing.T) {
+		out, err := mw.Invoke(context.Background(), &middleware.Input{
+			URL:  "/v1/messages",
+			Body: []byte(`{"model":"claude-sonnet-5","messages":[]}`),
+			Headers: []middleware.KV{
+				{Key: "X-Claude-Code-Agent-Id", Value: "agent-9"},
+				{Key: "X-Claude-Code-Parent-Agent-Id", Value: "agent-7"},
+			},
+		})
+		require.NoError(t, err)
+
+		agent, _ := metaValue(t, out.Metadata, middleware.KeyLLMAgentID)
+		assert.Equal(t, "agent-9", agent)
+		parent, ok := metaValue(t, out.Metadata, middleware.KeyLLMParentAgentID)
+		require.True(t, ok, "a nested agent must carry the spawning agent's id")
+		assert.Equal(t, "agent-7", parent)
+	})
+
+	t.Run("absent on a plain request", func(t *testing.T) {
+		out, err := mw.Invoke(context.Background(), &middleware.Input{
+			URL:  "/v1/messages",
+			Body: []byte(`{"model":"claude-sonnet-5","messages":[]}`),
+		})
+		require.NoError(t, err)
+
+		_, ok := metaValue(t, out.Metadata, middleware.KeyLLMAgentID)
+		assert.False(t, ok, "no key is emitted when the client sends no agent id")
+	})
 }

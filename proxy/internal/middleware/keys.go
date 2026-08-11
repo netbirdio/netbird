@@ -22,6 +22,15 @@ const (
 	// body. Empty for clients that don't send one.
 	KeyLLMSessionID = "llm.session_id"
 
+	// Sub-agent attribution (emitted by llm_request_parser from the
+	// client's request headers). A coding agent that spawns helpers
+	// stamps the spawned agent's id, and the spawning agent's id when
+	// the helper is itself nested, so cost within one session can be
+	// split across the agents that ran in parallel. These identify an
+	// agent, not a person or a device: never treat them as a user id.
+	KeyLLMAgentID       = "llm.agent_id"
+	KeyLLMParentAgentID = "llm.parent_agent_id"
+
 	// LLM response-side metadata (emitted by llm_response_parser).
 	//nolint:gosec // metadata key name, not a credential
 	KeyLLMInputTokens = "llm.input_tokens"

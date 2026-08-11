@@ -61,6 +61,8 @@ func (middlewareImpl) MetadataKeys() []string {
 		middleware.KeyLLMRequestPromptRaw,
 		middleware.KeyLLMCaptureTruncated,
 		middleware.KeyLLMSessionID,
+		middleware.KeyLLMAgentID,
+		middleware.KeyLLMParentAgentID,
 	}
 }
 
@@ -121,9 +123,9 @@ func (m middlewareImpl) Invoke(_ context.Context, in *middleware.Input) (*middle
 	}
 	appendSessionID := func(md []middleware.KV) []middleware.KV {
 		if sessionID != "" {
-			return append(md, middleware.KV{Key: middleware.KeyLLMSessionID, Value: sessionID})
+			md = append(md, middleware.KV{Key: middleware.KeyLLMSessionID, Value: sessionID})
 		}
-		return md
+		return appendAgentIDs(md, in.Headers)
 	}
 
 	facts, err := parser.ParseRequest(in.Body)
@@ -165,6 +167,41 @@ func (m middlewareImpl) Invoke(_ context.Context, in *middleware.Input) (*middle
 	return out, nil
 }
 
+// agentIDHeader and parentAgentIDHeader carry sub-agent attribution: a
+// coding agent that spawns helpers stamps the spawned agent's id, plus the
+// spawning agent's when that helper is itself nested. Both are opaque
+// identifiers rather than content, so they're emitted regardless of the
+// prompt-collection toggle, the same way the session id is.
+const (
+	agentIDHeader       = "x-claude-code-agent-id"
+	parentAgentIDHeader = "x-claude-code-parent-agent-id"
+)
+
+// appendAgentIDs stamps the sub-agent attribution headers onto the metadata
+// bag, skipping either one the request doesn't carry.
+func appendAgentIDs(md []middleware.KV, headers []middleware.KV) []middleware.KV {
+	for _, pair := range []struct{ key, header string }{
+		{middleware.KeyLLMAgentID, agentIDHeader},
+		{middleware.KeyLLMParentAgentID, parentAgentIDHeader},
+	} {
+		if v := headerValue(headers, pair.header); v != "" {
+			md = append(md, middleware.KV{Key: pair.key, Value: v})
+		}
+	}
+	return md
+}
+
+// headerValue returns the first non-empty value for the named header.
+// Headers arrive in canonical form, so the match is case-insensitive.
+func headerValue(headers []middleware.KV, want string) string {
+	for _, kv := range headers {
+		if strings.EqualFold(kv.Key, want) && kv.Value != "" {
+			return kv.Value
+		}
+	}
+	return ""
+}
+
 // sessionIDHeaders are request header names that may carry a client
 // session identifier, checked in order, case-insensitively. Matching is
 // against Go's canonical header form, so use the hyphenated names the
@@ -178,10 +215,8 @@ var sessionIDHeaders = []string{"x-claude-code-session-id", "session-id", "x-ses
 // canonical form, so the match is case-insensitive.
 func sessionIDFromHeaders(headers []middleware.KV) string {
 	for _, want := range sessionIDHeaders {
-		for _, kv := range headers {
-			if strings.EqualFold(kv.Key, want) && kv.Value != "" {
-				return kv.Value
-			}
+		if v := headerValue(headers, want); v != "" {
+			return v
 		}
 	}
 	return ""
@@ -309,6 +344,7 @@ func (m middlewareImpl) invokeVertex(in *middleware.Input, vx vertexRequest) *mi
 	if sessionID != "" {
 		md = append(md, middleware.KV{Key: middleware.KeyLLMSessionID, Value: sessionID})
 	}
+	md = appendAgentIDs(md, in.Headers)
 
 	promptTruncated := false
 	if parser != nil && m.capturePrompt {
@@ -410,6 +446,7 @@ func (m middlewareImpl) invokeBedrock(in *middleware.Input, br bedrockRequest) *
 	if sessionID != "" {
 		md = append(md, middleware.KV{Key: middleware.KeyLLMSessionID, Value: sessionID})
 	}
+	md = appendAgentIDs(md, in.Headers)
 
 	promptTruncated := false
 	if parser != nil && m.capturePrompt {
