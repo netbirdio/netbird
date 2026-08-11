@@ -47,16 +47,10 @@ var supplementalDefaults = map[string]map[string]Entry{
 		"gpt-5-nano": {InputPer1k: 0.00005, OutputPer1k: 0.0004, CachedInputPer1k: 0.000005},
 	},
 	"anthropic": {
-		// claude-opus-5 is not yet in the catalog lineup but gateway /
-		// grandfathered traffic uses it; priced so it isn't skipped.
-		"claude-opus-5": {InputPer1k: 0.005, OutputPer1k: 0.025, CacheReadPer1k: 0.0005, CacheCreationPer1k: 0.00625},
 		// "kimi-k3[1m]" is the 1M-context alias some Claude Code guides
 		// configure against Moonshot's Anthropic-compatible endpoint;
 		// priced identically to kimi-k3 so those requests aren't skipped.
 		"kimi-k3[1m]": {InputPer1k: 0.003, OutputPer1k: 0.015, CacheReadPer1k: 0.0003},
-	},
-	"bedrock": {
-		"anthropic.claude-opus-5": {InputPer1k: 0.005, OutputPer1k: 0.025, CacheReadPer1k: 0.0005, CacheCreationPer1k: 0.00625},
 	},
 }
 
