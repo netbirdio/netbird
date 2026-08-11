@@ -1,6 +1,8 @@
 package types
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
@@ -65,6 +67,51 @@ func DefaultSettings(accountID string) *Settings {
 		EnableLogCollection:    true,
 		AccessLogRetentionDays: DefaultAccessLogRetentionDays,
 	}
+}
+
+// etagLength is how much of the hash the validator carries. 16 hex characters
+// — 64 bits — is far more than enough to make an accidental collision between
+// two representations of one account's settings unreachable, and keeps the
+// header short enough to read in a log line.
+const etagLength = 16
+
+// ETag returns a strong validator over the settings representation, for
+// conditional requests (RFC 9110 If-Match). The value is unquoted; applying
+// the quoting is the transport layer's job.
+//
+// The hash covers an explicit field tuple rather than the marshalled API
+// representation: field ordering in the generated API types is not a contract,
+// so hashing serialized output would make the validator churn with codegen.
+// Two exclusions are deliberate:
+//
+//   - AccountID identifies the resource — it is the URL, not the
+//     representation. Including it would make the validator differ between
+//     accounts whose settings are genuinely identical, which no client can
+//     observe and no precondition needs.
+//   - UpdatedAt is excluded so that equal representations always yield equal
+//     validators. A write that changes nothing must not invalidate a
+//     precondition another client is holding.
+//
+// Everything else is in, including the identity fields and CreatedAt. A
+// validator that covered only the mutable toggles would survive a delete
+// followed by a fresh bootstrap onto the same toggle values, and an If-Match
+// held across that gap would then authorize a write against what is really a
+// different resource. CreatedAt is what distinguishes the re-bootstrapped row.
+//
+// Adding a field to Settings means deciding whether it belongs here; the
+// field-count guard in the tests is what forces that decision.
+func (s *Settings) ETag() string {
+	h := sha256.New()
+	fmt.Fprintf(h, "%s\x00%s\x00%t\x00%t\x00%t\x00%d\x00%d",
+		s.Domain,
+		s.ProxyAddress,
+		s.EnableLogCollection,
+		s.EnablePromptCollection,
+		s.RedactPii,
+		s.AccessLogRetentionDays,
+		s.CreatedAt.UnixNano(),
+	)
+	return hex.EncodeToString(h.Sum(nil))[:etagLength]
 }
 
 // Endpoint returns the bare hostname agents reach this account at — the
