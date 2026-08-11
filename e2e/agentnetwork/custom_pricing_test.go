@@ -23,9 +23,10 @@ import (
 // model the client asks for. The proxy prices off the REQUEST model, not the
 // upstream response model, so a made-up model id billed at operator rates lets
 // these tests assert exact costs without a real vendor key.
+// Sourced from the harness so the counts can't drift from the mock's config.
 const (
-	vllmPromptTokens     = 11
-	vllmCompletionTokens = 2
+	vllmPromptTokens     = harness.VLLMChatInputTokens
+	vllmCompletionTokens = harness.VLLMChatOutputTokens
 )
 
 // pricedEnv is a connected single-provider agent-network deployment pointed at

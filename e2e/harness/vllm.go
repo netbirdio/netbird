@@ -22,14 +22,42 @@ const (
 	// matches a real small model commonly served by vLLM so the provider's
 	// enumerated model and the client's request line up.
 	VLLMModel = "Qwen/Qwen2.5-0.5B-Instruct"
+	// VLLMUnlistedModel is a second id the mock's model listing advertises but
+	// no test provider enumerates, so a filtered listing is observably shorter
+	// than the upstream's own.
+	VLLMUnlistedModel = "Qwen/Qwen2.5-7B-Instruct"
+)
+
+// Token counts the mock reports per wire shape. Tests assert on these rather
+// than on "> 0" so a response parsed with the wrong provider's parser (which
+// would read a different field, or none) fails loudly instead of passing on
+// a coincidental non-zero.
+const (
+	// VLLMChatInputTokens / VLLMChatOutputTokens ride the OpenAI usage block.
+	VLLMChatInputTokens  = 11
+	VLLMChatOutputTokens = 2
+	// VLLMMessagesInputTokens / VLLMMessagesOutputTokens ride the Anthropic
+	// usage block, whose field names the OpenAI parser cannot read.
+	VLLMMessagesInputTokens  = 17
+	VLLMMessagesOutputTokens = 3
 )
 
 // vllmNginxConf emulates a vLLM OpenAI-compatible server over plain HTTP (vLLM's
-// default: no TLS, port 8000). It answers /v1/models with a one-model list and
-// any chat/completions path with a canned OpenAI-shaped chat completion carrying
-// a non-zero usage block, so the proxy's OpenAI parser records real token
-// consumption. Running actual vLLM in CI is infeasible (GPU + multi-GB model
+// default: no TLS, port 8000), and additionally answers the wire shapes the
+// other catalog surfaces speak so one mock can stand in for every provider the
+// proxy routes to. Running actual vLLM in CI is infeasible (GPU + multi-GB model
 // download), so this stands in for the wire contract the proxy depends on.
+//
+// Each shape answers with its own vendor's usage block, so a response parsed
+// under the wrong surface meters zero rather than passing by accident:
+//
+//   - /v1/chat/completions (and any unmatched path): OpenAI chat completion.
+//   - /v1/messages: Anthropic Messages, snake_case usage plus a cache bucket.
+//   - /model/{id}/invoke: Bedrock InvokeModel, which carries the Anthropic body.
+//   - the token-counting endpoints: a count, with no usage block at all.
+//
+// The model listing advertises two models so a policy that authorises one
+// produces an observably shorter list than the upstream's own.
 const vllmNginxConf = `pid /tmp/nginx.pid;
 events {}
 http {
@@ -37,7 +65,26 @@ http {
     listen 8000;
     location = /v1/models {
       default_type application/json;
-      return 200 '{"object":"list","data":[{"id":"Qwen/Qwen2.5-0.5B-Instruct","object":"model","owned_by":"vllm"}]}';
+      return 200 '{"object":"list","data":[{"id":"Qwen/Qwen2.5-0.5B-Instruct","object":"model","owned_by":"vllm"},{"id":"Qwen/Qwen2.5-7B-Instruct","object":"model","owned_by":"vllm"}]}';
+    }
+    location = /v1/messages {
+      default_type application/json;
+      return 200 '{"id":"msg_e2e","type":"message","role":"assistant","model":"claude-sonnet-5","content":[{"type":"text","text":"pong"}],"stop_reason":"end_turn","usage":{"input_tokens":17,"output_tokens":3,"cache_read_input_tokens":5}}';
+    }
+    location = /v1/messages/count_tokens {
+      default_type application/json;
+      return 200 '{"input_tokens":7}';
+    }
+    location ~ ^/model/.+/invoke$ {
+      default_type application/json;
+      return 200 '{"id":"msg_e2e_bedrock","type":"message","role":"assistant","content":[{"type":"text","text":"pong"}],"stop_reason":"end_turn","usage":{"input_tokens":17,"output_tokens":3,"cache_read_input_tokens":5}}';
+    }
+    location ~ ^/model/.+/count-tokens$ {
+      default_type application/json;
+      return 200 '{"inputTokens":9}';
+    }
+    location = /api/hello {
+      return 200;
     }
     location / {
       default_type application/json;

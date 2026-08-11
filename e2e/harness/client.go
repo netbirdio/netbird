@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -322,10 +323,29 @@ func withSessionID(headers []string, sessionID string) []string {
 	return append(headers, "x-session-id: "+sessionID)
 }
 
-// post runs curl in a throwaway container sharing the client's network
-// namespace so the request traverses the WireGuard tunnel, pinning the endpoint
-// to the proxy IP. It returns the HTTP status and response body.
+// Get issues a GET to the agent-network endpoint over the client's tunnel.
+// Model discovery and the connection-warming probe are read-only endpoints
+// that carry no body, so they can't go through the chat helpers.
+func (cl *Client) Get(ctx context.Context, endpoint, proxyIP, path string, extraHeaders []string) (int, string, error) {
+	return cl.do(ctx, http.MethodGet, endpoint, proxyIP, path, "", extraHeaders)
+}
+
+// PostJSON issues an arbitrary JSON POST over the client's tunnel, for wire
+// shapes the typed helpers don't cover (token counting, say).
+func (cl *Client) PostJSON(ctx context.Context, endpoint, proxyIP, path, body string, extraHeaders []string) (int, string, error) {
+	return cl.do(ctx, http.MethodPost, endpoint, proxyIP, path, body, extraHeaders)
+}
+
+// post issues a JSON POST. Retained as the shorthand the chat helpers use.
 func (cl *Client) post(ctx context.Context, endpoint, proxyIP, path, body string, extraHeaders []string) (int, string, error) {
+	return cl.do(ctx, http.MethodPost, endpoint, proxyIP, path, body, extraHeaders)
+}
+
+// do runs curl in a throwaway container sharing the client's network
+// namespace so the request traverses the WireGuard tunnel, pinning the endpoint
+// to the proxy IP. It returns the HTTP status and response body. An empty body
+// sends no payload, which is what a GET needs.
+func (cl *Client) do(ctx context.Context, method, endpoint, proxyIP, path, body string, extraHeaders []string) (int, string, error) {
 	url := "https://" + endpoint + path
 	args := []string{
 		"run", "--rm",
@@ -334,13 +354,15 @@ func (cl *Client) post(ctx context.Context, endpoint, proxyIP, path, body string
 		"-sk", "--connect-timeout", "5", "--max-time", "90",
 		"--resolve", endpoint + ":443:" + proxyIP,
 		"-o", "/dev/stderr", "-w", "%{http_code}",
-		"-X", "POST", url,
+		"-X", method, url,
 		"-H", "Content-Type: application/json",
 	}
 	for _, h := range extraHeaders {
 		args = append(args, "-H", h)
 	}
-	args = append(args, "--data", body)
+	if body != "" {
+		args = append(args, "--data", body)
+	}
 	cmd := exec.CommandContext(ctx, "docker", args...)
 	// -w writes the status code to stdout; -o /dev/stderr writes the body to
 	// stderr so we can capture both separately.
