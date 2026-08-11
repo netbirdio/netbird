@@ -173,8 +173,12 @@ func TestRouter_MissingModel(t *testing.T) {
 // from which a model could be parsed). UserGroups matches defaultTestGroup.
 func newModellessInput(reqURL string) *middleware.Input {
 	return &middleware.Input{
-		Slot:       middleware.SlotOnRequest,
-		URL:        reqURL,
+		Slot: middleware.SlotOnRequest,
+		URL:  reqURL,
+		// The non-inference endpoints are read requests; the method is what
+		// separates them from an inference body posted to the same path, so
+		// state it rather than leaning on the zero value.
+		Method:     http.MethodGet,
 		UserGroups: []string{defaultTestGroup},
 	}
 }
@@ -1033,5 +1037,51 @@ func TestRouter_ModelDetailHonoursAllowlist(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, middleware.DecisionAllow, out.Decision,
 			"a gateway that enumerates nothing cannot refuse a lookup")
+	})
+}
+
+// TestRouter_NonInferenceRequiresReadMethod pins that the non-inference mark —
+// which exempts a request from the token pre-flight — is reachable only by the
+// read methods these endpoints actually use. A POST to the same path could
+// carry an inference body, so it must not buy the exemption; it falls through
+// to normal per-model routing instead, which denies when no model is named.
+func TestRouter_NonInferenceRequiresReadMethod(t *testing.T) {
+	route := ProviderRoute{
+		ID:              "gateway",
+		AllowedGroupIDs: []string{defaultTestGroup},
+		UpstreamScheme:  "https",
+		UpstreamHost:    "gateway.example.com",
+	}
+
+	for _, path := range []string{"/v1/models", "/v1/models/claude-sonnet-5", "/api/hello"} {
+		t.Run("POST "+path, func(t *testing.T) {
+			mw := New(Config{Providers: []ProviderRoute{route}})
+
+			in := newModellessInput(path)
+			in.Method = http.MethodPost
+
+			out, err := mw.Invoke(context.Background(), in)
+			require.NoError(t, err)
+			assert.Equal(t, middleware.DecisionDeny, out.Decision,
+				"a write to a non-inference path must not route unmetered")
+
+			nonInference, _ := metaValue(t, out.Metadata, middleware.KeyLLMNonInference)
+			assert.NotEqual(t, "true", nonInference,
+				"only a read method may skip the token pre-flight")
+		})
+	}
+
+	t.Run("HEAD keeps the warm probe working", func(t *testing.T) {
+		mw := New(Config{Providers: []ProviderRoute{route}})
+
+		in := newModellessInput(connectionWarmPath)
+		in.Method = http.MethodHead
+
+		out, err := mw.Invoke(context.Background(), in)
+		require.NoError(t, err)
+		assert.Equal(t, middleware.DecisionAllow, out.Decision)
+
+		nonInference, _ := metaValue(t, out.Metadata, middleware.KeyLLMNonInference)
+		assert.Equal(t, "true", nonInference)
 	})
 }

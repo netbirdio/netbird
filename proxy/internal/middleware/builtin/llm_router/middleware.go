@@ -179,13 +179,13 @@ func (m *Middleware) Invoke(_ context.Context, in *middleware.Input) (*middlewar
 	// exists and is reachable. Authorise it against the model table like any
 	// other per-model request, then mark it non-inference so it still skips
 	// the token pre-flight it would otherwise charge nothing against.
-	if detail, isDetail := modelDetailID(reqPath); isDetail {
+	if detail, isDetail := modelDetailID(reqPath); isDetail && isNonInferenceMethod(in.Method) {
 		route, outcome := m.matchRoute(detail, surface, reqPath, in.UserGroups)
 		return m.decide(route, outcome, surface, detail, in.UserGroups, markNonInference), nil
 	}
 
 	if model == "" {
-		return m.routeModelless(reqPath, surface, in.UserGroups), nil
+		return m.routeModelless(reqPath, surface, in.Method, in.UserGroups), nil
 	}
 
 	route, outcome := m.matchRoute(model, surface, reqPath, in.UserGroups)
@@ -223,8 +223,8 @@ func (m *Middleware) decide(
 // lookup. They still need rewriting from the synth placeholder to a real
 // upstream — clients such as Codex call GET /v1/models at startup to enumerate
 // availability and read a 403 as "model unavailable".
-func (m *Middleware) routeModelless(reqPath, surface string, userGroups []string) *middleware.Output {
-	route, outcome := m.matchModelless(reqPath, userGroups)
+func (m *Middleware) routeModelless(reqPath, surface, method string, userGroups []string) *middleware.Output {
+	route, outcome := m.matchModelless(reqPath, method, userGroups)
 	switch outcome {
 	case matchOutcomeFound:
 		out := m.allowWithRoute(route, surface, userGroups)
@@ -248,6 +248,17 @@ func (m *Middleware) routeModelless(reqPath, surface string, userGroups []string
 	default:
 		return denyMissingModel(surface)
 	}
+}
+
+// isNonInferenceMethod reports whether a request method is one the
+// non-inference endpoints actually use: the listing and the per-model lookup
+// are GET, the connection-warming probe is HEAD or GET. The method is the only
+// thing separating "GET /v1/models/{id}" from a POST to the same path carrying
+// an inference body, and the non-inference mark exempts a request from the
+// token pre-flight — so anything else falls through to normal per-model
+// routing, which denies when the request names no model.
+func isNonInferenceMethod(method string) bool {
+	return method == http.MethodGet || method == http.MethodHead
 }
 
 // markNonInference tags an allow as a request that spends no tokens, so the
@@ -534,7 +545,10 @@ func (m *Middleware) matchPathRoute(reqPath, model string, userGroups []string, 
 // declaration order), matchOutcomeUnauthorised when no provider authorises
 // the caller, or matchOutcomeUnknownModel when the path isn't a recognised
 // model-less endpoint.
-func (m *Middleware) matchModelless(reqPath string, userGroups []string) (ProviderRoute, matchOutcome) {
+func (m *Middleware) matchModelless(reqPath, method string, userGroups []string) (ProviderRoute, matchOutcome) {
+	if !isNonInferenceMethod(method) {
+		return ProviderRoute{}, matchOutcomeUnknownModel
+	}
 	var eligible func(ProviderRoute) bool
 	switch {
 	case isBedrockModelLessPath(reqPath):
