@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -31,13 +32,13 @@ type SqliteStoreConn struct {
 }
 
 func NewSqliteStore(ctx context.Context, storeFile, dataDir string) (*SqliteStore, error) {
-	// storeFile := storeSqliteFileName
-	// if envFile, ok := os.LookupEnv("NB_STORE_ENGINE_SQLITE_FILE"); ok && envFile != "" {
-	// 	storeFile = envFile
-	// }
+	dbfile := storeFile
+	if envFile, ok := os.LookupEnv("NB_STORE_ENGINE_SQLITE_FILE"); ok && envFile != "" {
+		dbfile = envFile
+	}
 
 	// Separate file path from any SQLite URI query parameters (e.g., "store.db?mode=rwc")
-	filePath, query, hasQuery := strings.Cut(storeFile, "?")
+	filePath, query, hasQuery := strings.Cut(dbfile, "?")
 
 	connStr := filePath
 	if filePath != ":memory:" && !filepath.IsAbs(filePath) {
