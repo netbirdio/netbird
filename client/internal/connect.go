@@ -113,11 +113,14 @@ func (c *ConnectClient) RunOnAndroid(
 	stateFilePath string,
 	cacheDir string,
 ) error {
+	notifier := tunnelnotifier.New(networkChangeListener, nil)
+	defer notifier.Close()
+
 	// in case of non Android os these variables will be nil
 	mobileDependency := MobileDependency{
 		TunAdapter:            tunAdapter,
 		IFaceDiscover:         iFaceDiscover,
-		NetworkChangeListener: networkChangeListener,
+		NetworkChangeListener: notifier,
 		HostDNSAddresses:      dnsAddresses,
 		DnsReadyListener:      dnsReadyListener,
 		StateFilePath:         stateFilePath,

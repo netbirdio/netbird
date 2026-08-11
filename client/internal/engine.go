@@ -23,6 +23,7 @@ import (
 	"golang.zx2c4.com/wireguard/tun/netstack"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
+	"github.com/netbirdio/netbird/client/anonymize"
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/firewall"
 	"github.com/netbirdio/netbird/client/firewall/firewalld"
@@ -572,12 +573,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	}
 	e.stateManager.Start()
 
-	initialRoutes, dnsConfig, dnsFeatureFlag, err := e.readInitialSettings()
-	if err != nil {
-		return fmt.Errorf("read initial settings: %w", err)
-	}
-
-	dnsServer, err := e.newDnsServer(dnsConfig)
+	dnsServer, err := e.newDnsServer()
 	if err != nil {
 		return fmt.Errorf("create dns server: %w", err)
 	}
@@ -595,10 +591,8 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		WGInterface:         e.wgInterface,
 		StatusRecorder:      e.statusRecorder,
 		RelayManager:        e.relayManager,
-		InitialRoutes:       initialRoutes,
 		StateManager:        e.stateManager,
 		DNSServer:           dnsServer,
-		DNSFeatureFlag:      dnsFeatureFlag,
 		PeerStore:           e.peerStore,
 		DisableClientRoutes: e.config.DisableClientRoutes,
 		DisableServerRoutes: e.config.DisableServerRoutes,
@@ -1392,6 +1386,7 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobR
 
 	bundleJobParams := debug.BundleConfig{
 		Anonymize:         params.Anonymize,
+		AnonymizeLevel:    anonymize.ParseLevel(params.AnonymizeLevel),
 		IncludeSystemInfo: true,
 		LogFileCount:      uint32(params.LogFileCount),
 	}
@@ -2102,42 +2097,6 @@ func (e *Engine) close() {
 	}
 }
 
-func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, bool, error) {
-	if runtime.GOOS != "android" {
-		// nolint:nilnil
-		return nil, nil, false, nil
-	}
-
-	info := system.GetInfo(e.ctx)
-	info.SetFlags(
-		e.config.RosenpassEnabled,
-		e.config.RosenpassPermissive,
-		&e.config.ServerSSHAllowed,
-		e.config.DisableClientRoutes,
-		e.config.DisableServerRoutes,
-		e.config.DisableDNS,
-		e.config.DisableFirewall,
-		e.config.BlockLANAccess,
-		e.config.BlockInbound,
-		e.config.DisableIPv6,
-		e.config.SyncMessageVersion,
-		e.config.EnableSSHRoot,
-		e.config.EnableSSHSFTP,
-		e.config.EnableSSHLocalPortForwarding,
-		e.config.EnableSSHRemotePortForwarding,
-		e.config.DisableSSHAuth,
-	)
-
-	netMap, err := e.mgmClient.GetNetworkMap(info)
-	if err != nil {
-		return nil, nil, false, err
-	}
-	routes := toRoutes(netMap.GetRoutes())
-	dnsCfg := toDNSConfig(netMap.GetDNSConfig(), e.wgInterface.Address())
-	dnsFeatureFlag := toDNSFeatureFlag(netMap)
-	return routes, &dnsCfg, dnsFeatureFlag, nil
-}
-
 func (e *Engine) newWgIface() (*iface.WGIface, error) {
 	transportNet, err := e.newStdNet()
 	if err != nil {
@@ -2172,7 +2131,7 @@ func (e *Engine) newWgIface() (*iface.WGIface, error) {
 func (e *Engine) wgInterfaceCreate() (err error) {
 	switch runtime.GOOS {
 	case "android":
-		err = e.wgInterface.CreateOnAndroid(e.routeManager.InitialRouteRange(), e.dnsServer.DnsIP().String(), e.dnsServer.SearchDomains())
+		err = e.wgInterface.CreateOnAndroid(e.routeManager.CurrentRouteRange(), e.dnsServer.DnsIP().String(), e.dnsServer.SearchDomains())
 	case "ios":
 		e.mobileDep.NetworkChangeListener.SetInterfaceIP(e.config.WgAddr.String())
 		if e.config.WgAddr.HasIPv6() {
@@ -2185,7 +2144,7 @@ func (e *Engine) wgInterfaceCreate() (err error) {
 	return err
 }
 
-func (e *Engine) newDnsServer(dnsConfig *nbdns.Config) (dns.Server, error) {
+func (e *Engine) newDnsServer() (dns.Server, error) {
 	// due to tests where we are using a mocked version of the DNS server
 	if e.dnsServer != nil {
 		return e.dnsServer, nil
@@ -2197,7 +2156,7 @@ func (e *Engine) newDnsServer(dnsConfig *nbdns.Config) (dns.Server, error) {
 			e.ctx,
 			e.wgInterface,
 			e.mobileDep.HostDNSAddresses,
-			*dnsConfig,
+			nbdns.Config{},
 			e.mobileDep.NetworkChangeListener,
 			e.statusRecorder,
 			e.config.DisableDNS,

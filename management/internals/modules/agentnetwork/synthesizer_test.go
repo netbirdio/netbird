@@ -19,15 +19,14 @@ import (
 const (
 	testAccountID = "acct-1"
 	testCluster   = "eu.proxy.netbird.io"
-	testSubdomain = "violet"
 	testEndpoint  = "violet.eu.proxy.netbird.io"
 )
 
 func newSynthTestSettings() *types.Settings {
 	return &types.Settings{
-		AccountID: testAccountID,
-		Cluster:   testCluster,
-		Subdomain: testSubdomain,
+		AccountID:    testAccountID,
+		Domain:       testEndpoint,
+		ProxyAddress: testCluster,
 	}
 }
 
