@@ -308,12 +308,20 @@ func (m *Middleware) matchRoute(model, vendor, reqPath string, userGroups []stri
 	return best, matchOutcomeFound
 }
 
+// connectionWarmPath is the probe Anthropic clients send before their first
+// inference request to open the upstream connection early. Forwarding it
+// warms the connection the request will actually use; denying it only fills
+// the access log with rejections at every session start.
+const connectionWarmPath = "/api/hello"
+
 // isModelLessPath reports whether reqPath is a known non-inference endpoint
-// that legitimately carries no model in its request (the model-listing
-// endpoints). These must route to an upstream rather than deny, so model
-// enumeration works end to end.
+// that legitimately carries no model in its request (model listing and the
+// connection-warming probe). These must route to an upstream rather than
+// deny, so model enumeration works end to end.
 func isModelLessPath(reqPath string) bool {
-	return reqPath == "/v1/models" || strings.HasPrefix(reqPath, "/v1/models/")
+	return reqPath == "/v1/models" ||
+		strings.HasPrefix(reqPath, "/v1/models/") ||
+		reqPath == connectionWarmPath
 }
 
 // isBedrockModelLessPath reports whether reqPath is a Bedrock

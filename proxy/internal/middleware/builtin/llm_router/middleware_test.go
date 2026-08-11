@@ -2,6 +2,7 @@ package llm_router
 
 import (
 	"context"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -904,4 +905,33 @@ func TestRouter_DatedAnthropicModelRoutes(t *testing.T) {
 	require.NotNil(t, out.Mutations)
 	require.NotNil(t, out.Mutations.RewriteUpstream)
 	assert.Equal(t, "api.anthropic.com", out.Mutations.RewriteUpstream.Host)
+}
+
+// TestRouter_ConnectionWarmProbeRoutes covers the HEAD /api/hello probe an
+// Anthropic client sends before its first request. Forwarding it warms the
+// connection that request will use; denying it only wrote a rejection into
+// the access log at every session start.
+func TestRouter_ConnectionWarmProbeRoutes(t *testing.T) {
+	mw := New(Config{Providers: []ProviderRoute{{
+		ID:              "anthropic-prod",
+		Vendor:          "anthropic",
+		Models:          []string{"claude-sonnet-5"},
+		AllowedGroupIDs: []string{defaultTestGroup},
+		UpstreamScheme:  "https",
+		UpstreamHost:    "api.anthropic.com",
+	}}})
+
+	in := newModellessInput("/api/hello")
+	in.Method = http.MethodHead
+
+	out, err := mw.Invoke(context.Background(), in)
+	require.NoError(t, err)
+	require.NotNil(t, out)
+	assert.Equal(t, middleware.DecisionAllow, out.Decision, "the warm-up probe must reach the upstream")
+	require.NotNil(t, out.Mutations)
+	require.NotNil(t, out.Mutations.RewriteUpstream)
+	assert.Equal(t, "api.anthropic.com", out.Mutations.RewriteUpstream.Host)
+
+	nonInference, _ := metaValue(t, out.Metadata, middleware.KeyLLMNonInference)
+	assert.Equal(t, "true", nonInference, "the probe carries no model to gate on")
 }
