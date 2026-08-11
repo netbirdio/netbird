@@ -115,6 +115,10 @@ func (s *SSHClient) SetURLOpener(opener URLOpener) {
 //
 // The password parameter is only consulted for regular SSH servers.
 func (s *SSHClient) Connect(host string, port int, user, password string) error {
+	if port < 1 || port > 65535 {
+		return fmt.Errorf("invalid port: %d", port)
+	}
+
 	cfg, _, cc := s.nb.stateSnapshot()
 	if cc == nil {
 		return errors.New("netbird client not running")
