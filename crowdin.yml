@@ -2,3 +2,7 @@ files:
   - source: /client/ui/i18n/locales/en/common.json
     translation: /client/ui/i18n/locales/%locale%/common.json
     type: chrome
+    languages_mapping:
+      locale:
+        es-ES: es
+        pt-BR: pt
