@@ -80,6 +80,7 @@ func TestNewJob_AnonymizeLevelValidation(t *testing.T) {
 		{name: "default", level: strPtr("default")},
 		{name: "strict", level: strPtr("strict")},
 		{name: "mixed case", level: strPtr("Strict")},
+		{name: "padded", level: strPtr(" default ")},
 		{name: "unknown", level: strPtr("verbose"), wantErr: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -94,6 +95,24 @@ func TestNewJob_AnonymizeLevelValidation(t *testing.T) {
 			require.NoError(t, err, "a known anonymize_level must be accepted")
 		})
 	}
+}
+
+// TestNewJob_AnonymizeLevelNormalized verifies an accepted level is persisted
+// trimmed and lowercased, so it reaches the client as a value the client's
+// lowercase-only parser resolves correctly rather than escalating to strict.
+func TestNewJob_AnonymizeLevelNormalized(t *testing.T) {
+	job, err := NewJob("user-1", "acc-1", "peer-1", newBundleJobRequest(t, api.BundleParameters{
+		BundleFor:      false,
+		LogFileCount:   100,
+		Anonymize:      true,
+		AnonymizeLevel: strPtr("  Default  "),
+	}))
+	require.NoError(t, err, "a padded known level must be accepted")
+
+	req, err := job.ToStreamJobRequest()
+	require.NoError(t, err, "ToStreamJobRequest must succeed")
+	assert.Equal(t, "default", req.GetBundle().GetAnonymizeLevel(),
+		"the persisted level must be normalized so the client does not resolve it to strict")
 }
 
 // TestBuildStreamBundleResponse_OmittedFieldsMapToEmpty verifies that omitted
