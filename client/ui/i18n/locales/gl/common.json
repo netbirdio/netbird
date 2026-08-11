@@ -237,7 +237,7 @@
         "message": "Sen conexión"
     },
     "notConnected.description": {
-        "message": "Conéctese á rede para ver os peers, recursos e opcións dispoñibles."
+        "message": "Conéctese primeiro a NetBird para ver información detallada sobre os seus peers, recursos de rede e nodos de saída."
     },
     "connect.status.disconnected": {
         "message": "Desconectado"
@@ -342,13 +342,13 @@
         "message": "Estableza un nome facilmente identificable para o seu perfil."
     },
     "profile.dialog.placeholder": {
-        "message": "ex. Traballo"
+        "message": "p. ex. Traballo"
     },
     "profile.dialog.submit": {
         "message": "Engadir perfil"
     },
     "profile.dialog.required": {
-        "message": "Por favor, introduza un nome de perfil, ex. traballo, casa"
+        "message": "Por favor, introduza un nome de perfil, p. ex. traballo, casa"
     },
     "profile.dialog.managementHelp": {
         "message": "Use NetBird Cloud ou o seu propio servidor."
@@ -531,10 +531,10 @@
         "message": "Conexión"
     },
     "settings.general.connectOnStartup.label": {
-        "message": "Conectar ao iniciar a aplicación"
+        "message": "Conectar ao iniciar"
     },
     "settings.general.connectOnStartup.help": {
-        "message": "Establece a conexión de rede automaticamente cada vez que se inicia NetBird."
+        "message": "Establece a conexión automaticamente cando se inicia o servizo."
     },
     "settings.general.notifications.label": {
         "message": "Notificacións de escritorio"
@@ -550,6 +550,12 @@
     },
     "settings.general.autostart.errorTitle": {
         "message": "Erro ao cambiar o inicio automático"
+    },
+    "settings.general.keepConnectedOnQuit.label": {
+        "message": "Manter conectado ao pechar"
+    },
+    "settings.general.keepConnectedOnQuit.help": {
+        "message": "Mantén a conexión de NetBird en segundo plano cando pechas a xanela principal."
     },
     "settings.general.language.label": {
         "message": "Idioma da interface"
@@ -567,19 +573,19 @@
         "message": "Servidor de xestión"
     },
     "settings.general.management.help": {
-        "message": "Conéctese a NetBird Cloud ou ao seu propio servidor de xestión autoxestionado. Os cambios volverán conectar o cliente."
+        "message": "Conéctese a NetBird Cloud ou ao seu propio servidor de xestión autoaloxado. Os cambios volverán conectar o cliente."
     },
     "settings.general.management.cloud": {
         "message": "Cloud"
     },
     "settings.general.management.selfHosted": {
-        "message": "Autoxestionado"
+        "message": "Autoaloxado"
     },
     "settings.general.management.urlPlaceholder": {
         "message": "https://netbird.selfhosted.com:443"
     },
     "settings.general.management.urlError": {
-        "message": "Por favor, introduza un URL válido, ex. https://netbird.selfhosted.com:443"
+        "message": "Por favor, introduza un URL válido, p. ex. https://netbird.selfhosted.com:443"
     },
     "settings.general.management.urlUnreachable": {
         "message": "Non se puido acadar este servidor. Comprobe o URL ou garde de todas formas se ten a certeza de que é correcto."
@@ -588,7 +594,7 @@
         "message": "Cambiar a NetBird Cloud?"
     },
     "settings.general.management.switchCloudMessage": {
-        "message": "Isto desconecta o seu servidor autoxestionado.\nPode que teña que iniciar sesión de novo."
+        "message": "Isto desconecta o seu servidor autoaloxado.\nPode que teña que iniciar sesión de novo."
     },
     "settings.general.management.switchCloudConfirm": {
         "message": "Cambiar a Cloud"
@@ -603,7 +609,7 @@
         "message": "Reconectar ao cambiar de rede"
     },
     "settings.network.monitor.help": {
-        "message": "Supervise a rede e recoñéctese automaticamente ante cambios como cambio de Wi-Fi, cambios de Ethernet ou reanudación tras suspensión."
+        "message": "Supervisa a rede e reconéctase automaticamente ante cambios como o cambio de Wi-Fi ou o reinicio tras a suspensión."
     },
     "settings.network.dns.label": {
         "message": "Activar DNS"
@@ -648,10 +654,10 @@
         "message": "Evita que os peers acaden a súa rede local ou os seus dispositivos cando este dispositivo enrute o seu tráfico."
     },
     "settings.security.rosenpass.label": {
-        "message": "Activar Rosenpass"
+        "message": "Activar resistencia cuántica"
     },
     "settings.security.rosenpass.help": {
-        "message": "Engade protección cifrada post-cuántica sobre as súas conexións de WireGuard®."
+        "message": "Engade un intercambio de chaves poscuántico mediante Rosenpass sobre WireGuard®."
     },
     "settings.security.rosenpassPermissive.label": {
         "message": "Activar modo permisivo"
@@ -690,7 +696,7 @@
         "message": "Redirección de portos locais"
     },
     "settings.ssh.localForward.help": {
-        "message": "Permite que os peers conectados crean túneles de portos locais cara a servizos accesibles dende este equipo."
+        "message": "Permite que os peers conectados creen túneles de portos locais cara a servizos accesibles dende este equipo."
     },
     "settings.ssh.remoteForward.label": {
         "message": "Redirección de portos remotos"
@@ -702,13 +708,13 @@
         "message": "Activar autenticación JWT"
     },
     "settings.ssh.jwt.help": {
-        "message": "Verifica cada sesión SSH co seu IdP para identificar o usuario e auditoría. Desactíveo para depender só de políticas ACL de rede, útil cando non hai IdP dispoñible."
+        "message": "Verifica cada sesión SSH co seu IdP para a identidade do usuario e auditar. Desactíveo para depender só de políticas ACL de rede, útil cando non hai IdP dispoñible."
     },
     "settings.ssh.jwtTtl.label": {
         "message": "TTL da caché JWT"
     },
     "settings.ssh.jwtTtl.help": {
-        "message": "Canto tempo almacena este cliente a caché dun JWT antes de solicitar de novo nas conexións SSH saíntes. Estableza en 0 para desactivar a caché e autenticar en cada conexión."
+        "message": "Canto tempo almacena este cliente un JWT na caché antes de solicitalo de novo nas conexións SSH saíntes. Estableza en 0 para desactivar a caché e autenticar en cada conexión."
     },
     "settings.ssh.jwtTtl.suffix": {
         "message": "Segundo(s)"
@@ -726,7 +732,7 @@
         "message": "Use entre 1 e 15 letras, díxitos, puntos, guións ou guións baixos."
     },
     "settings.advanced.interfaceName.errorMac": {
-        "message": "Debe comezar por \"utun\" seguido dun número (ex. utun100)."
+        "message": "Debe comezar por \"utun\" seguido dun número (p. ex. utun100)."
     },
     "settings.advanced.port.label": {
         "message": "Porto"
@@ -735,7 +741,7 @@
         "message": "Introduza un porto entre {min} e {max}."
     },
     "settings.advanced.port.help": {
-        "message": "Se se establece en 0, usarse un porto libre ao azar."
+        "message": "Se se establece en 0, usarase un porto libre ao azar."
     },
     "settings.advanced.mtu.label": {
         "message": "MTU"
@@ -758,6 +764,18 @@
     "settings.troubleshooting.anonymize.help": {
         "message": "Oculta enderezos IP públicos e dominios que non sexan de NetBird nos rexistros."
     },
+    "settings.troubleshooting.anonymize.info": {
+        "message": "Información de anonimización"
+    },
+    "settings.troubleshooting.anonymize.none": {
+        "message": "Ningunha"
+    },
+    "settings.troubleshooting.anonymize.default": {
+        "message": "Predeterminada"
+    },
+    "settings.troubleshooting.anonymize.strict": {
+        "message": "Estricta"
+    },
     "settings.troubleshooting.systemInfo.label": {
         "message": "Incluír información do sistema"
     },
@@ -777,7 +795,7 @@
         "message": "Eleva o nivel de rexistro a TRACE e restaúrao despois."
     },
     "settings.troubleshooting.capture.label": {
-        "message": "Capturar sesión"
+        "message": "Sesión de captura"
     },
     "settings.troubleshooting.capture.help": {
         "message": "Volve conectar e agarda para que poida reproducir a incidencia."
@@ -801,7 +819,7 @@
         "message": "Crear paquete"
     },
     "settings.troubleshooting.progress.description": {
-        "message": "Recopilando rexistros, detalles do sistema e estado de conexión. Isto adoita levar un momento. Pode seguir usando NetBird ou pechar a Configuración mentres remata."
+        "message": "Recompilando rexistros, detalles do sistema e estado de conexión. Isto adoita levar un momento. Pode seguir usando NetBird ou pechar a Configuración mentres remata."
     },
     "settings.troubleshooting.cancelling": {
         "message": "Cancelando…"
@@ -1053,7 +1071,7 @@
         "message": "Configurar NetBird"
     },
     "welcome.management.description": {
-        "message": "Faga clic en Continuar para comezar, ou escolla Autoxestionado se ten o seu propio servidor de NetBird."
+        "message": "Faga clic en Continuar para comezar, ou escolla Autoaloxado se ten o seu propio servidor de NetBird."
     },
     "welcome.management.cloud.title": {
         "message": "NetBird Cloud"
@@ -1062,7 +1080,7 @@
         "message": "Use o noso servizo aloxado. Sen necesidade de configuración."
     },
     "welcome.management.selfHosted.title": {
-        "message": "Autoxestionado"
+        "message": "Autoaloxado"
     },
     "welcome.management.selfHosted.description": {
         "message": "Conéctese ao seu propio servidor de xestión."
@@ -1074,7 +1092,7 @@
         "message": "https://netbird.selfhosted.com:443"
     },
     "welcome.management.urlInvalid": {
-        "message": "Por favor, introduza un URL válido, ex. https://netbird.selfhosted.com:443"
+        "message": "Por favor, introduza un URL válido, p. ex. https://netbird.selfhosted.com:443"
     },
     "welcome.management.urlUnreachable": {
         "message": "Non se puido acadar este servidor. Comprobe o URL ou a súa rede, e continúe se ten a certeza de que é correcto."
@@ -1086,7 +1104,7 @@
         "message": "Complete o inicio de sesión no navegador"
     },
     "browserLogin.notSeeing": {
-        "message": "Abrimos unha pestana no seu navegador para que poida rematar de iniciar sesión. Non a ve?"
+        "message": "Abrimos unha lapela no seu navegador para que poida rematar de iniciar sesión. Non a ve?"
     },
     "browserLogin.tryAgain": {
         "message": "Intentar de novo"
@@ -1230,7 +1248,7 @@
         "message": "Activos"
     },
     "networks.filter.overlapping": {
-        "message": "Solapados"
+        "message": "Sobrepostos"
     },
     "networks.empty.title": {
         "message": "Sen recursos dispoñibles"
@@ -1320,7 +1338,7 @@
         "message": "A súa sesión caducou. Por favor, inicie sesión de novo."
     },
     "error.invalid_setup_key": {
-        "message": "A clave de configuración falta ou non é válida."
+        "message": "A chave de configuración falta ou non é válida."
     },
     "error.permission_denied": {
         "message": "O inicio de sesión foi rexeitado polo servidor."
