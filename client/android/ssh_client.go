@@ -35,6 +35,19 @@ const PasswordRequiredMarker = "netbird-ssh-password-required"
 
 var errPasswordRequired = errors.New(PasswordRequiredMarker)
 
+// engineHostKeyVerifier adapts *internal.Engine to nbssh.HostKeyVerifier.
+type engineHostKeyVerifier struct {
+	engine *internal.Engine
+}
+
+func (v *engineHostKeyVerifier) VerifySSHHostKey(peerAddress string, presented []byte) error {
+	storedKey, found := v.engine.GetPeerSSHKey(peerAddress)
+	if !found {
+		return nbssh.ErrPeerNotFound
+	}
+	return nbssh.VerifyHostKey(storedKey, presented, peerAddress)
+}
+
 // SSHTerminalListener receives SSH session events. It is implemented in Java.
 //
 // All callbacks are invoked from goroutines and may run concurrently with each
@@ -253,6 +266,14 @@ func (s *SSHClient) Resize(cols, rows int) error {
 	return session.WindowChange(rows, cols)
 }
 
+// Reset makes a closed client usable for another Connect: Close leaves the
+// one-shot guard set, and clearing it lets the same client back a reconnect.
+func (s *SSHClient) Reset() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.closed = false
+}
+
 // Close terminates the SSH session and underlying connection. Safe to call
 // multiple times.
 func (s *SSHClient) Close() error {
@@ -358,7 +379,11 @@ func (s *SSHClient) requestJWTToken(cfg *profilemanager.Config) (string, error) 
 		return "", fmt.Errorf("request auth info: %w", err)
 	}
 
-	go urlOpener.Open(flowInfo.VerificationURIComplete, flowInfo.UserCode)
+	// Called synchronously: Open is what marks the surface as opened on the
+	// client side, and OnLoginSuccess below is a no-op until it has. Starting
+	// both in their own goroutines let them race, so a fast token left the
+	// browser in front of the terminal.
+	urlOpener.Open(flowInfo.VerificationURIComplete, flowInfo.UserCode)
 
 	// WaitToken blocks for as long as the browser round-trip takes, so say so
 	// rather than leaving the terminal blank.
@@ -378,7 +403,7 @@ func (s *SSHClient) requestJWTToken(cfg *profilemanager.Config) (string, error) 
 	// surface it opened, the same way the login and session-extend flows do.
 	// Without it the Custom Tab stays in front of the terminal even though the
 	// token has already been collected.
-	go urlOpener.OnLoginSuccess()
+	urlOpener.OnLoginSuccess()
 
 	return token, nil
 }
@@ -443,30 +468,6 @@ func (s *SSHClient) readLoop(r io.Reader, name string) {
 	}
 }
 
-// rootCause returns the innermost error of a %w chain, so the terminal shows
-// "i/o timeout" rather than every layer that added context on the way up.
-func rootCause(err error) error {
-	for {
-		// A joined error has no single root, so keep it as-is.
-		if _, ok := err.(interface{ Unwrap() []error }); ok {
-			return err
-		}
-		next := errors.Unwrap(err)
-		if next == nil {
-			return err
-		}
-		err = next
-	}
-}
-
-// Reset makes a closed client usable for another Connect: Close leaves the
-// one-shot guard set, and clearing it lets the same client back a reconnect.
-func (s *SSHClient) Reset() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.closed = false
-}
-
 // notifyStatus writes a progress line to the terminal through the normal
 // output path, so long steps are visible while nothing else is arriving.
 func (s *SSHClient) notifyStatus(text string) {
@@ -492,19 +493,6 @@ func (s *SSHClient) notifyClose(reason string) {
 	}
 }
 
-// engineHostKeyVerifier adapts *internal.Engine to nbssh.HostKeyVerifier.
-type engineHostKeyVerifier struct {
-	engine *internal.Engine
-}
-
-func (v *engineHostKeyVerifier) VerifySSHHostKey(peerAddress string, presented []byte) error {
-	storedKey, found := v.engine.GetPeerSSHKey(peerAddress)
-	if !found {
-		return nbssh.ErrPeerNotFound
-	}
-	return nbssh.VerifyHostKey(storedKey, presented, peerAddress)
-}
-
 func closeQuiet(c io.Closer, label string) {
 	if c == nil {
 		return
@@ -525,4 +513,20 @@ func detectServerType(host string, port int) detection.ServerType {
 		return detection.ServerTypeRegular
 	}
 	return serverType
+}
+
+// rootCause returns the innermost error of a %w chain, so the terminal shows
+// "i/o timeout" rather than every layer that added context on the way up.
+func rootCause(err error) error {
+	for {
+		// A joined error has no single root, so keep it as-is.
+		if _, ok := err.(interface{ Unwrap() []error }); ok {
+			return err
+		}
+		next := errors.Unwrap(err)
+		if next == nil {
+			return err
+		}
+		err = next
+	}
 }
