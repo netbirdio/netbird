@@ -11,7 +11,6 @@ import (
 	"database/sql"
 
 	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
-	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
 
 var ErrNoRows = errors.New("no rows in result set")
@@ -120,9 +119,6 @@ func CollectRowsForSqlite[T any](rows *sql.Rows) ([]T, error) {
 	return toret, nil
 }
 
-func (s *SqliteStoreConn) GetRoutes(ctx context.Context, accountId string) ([]nmdata.Route, error) {
-	return nil, nil
-}
 func (s *SqliteStoreConn) GetAllowedUsers(ctx context.Context, accountId string) (map[string]struct{}, map[string][]string, error) {
 	return nil, nil, nil
 }

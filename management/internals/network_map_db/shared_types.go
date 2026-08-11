@@ -151,6 +151,27 @@ type PostureChecks struct {
 	Checks   []byte         `nmap:"json"`
 }
 
+type Route struct {
+	ID                  string
+	AccountID           sql.NullString
+	PublicID            sql.NullString
+	Network             []byte `nmap:"json"`
+	Domains             []byte `nmap:"json"`
+	KeepRoute           sql.NullBool
+	NetID               sql.NullString
+	Description         sql.NullString
+	Peer                sql.NullString
+	PeerID              sql.NullString
+	PeerGroups          []byte `nmap:"json"`
+	NetworkType         sql.NullInt64
+	Masquerade          sql.NullBool
+	Metric              sql.NullInt64
+	Enabled             sql.NullBool
+	Groups              []byte `nmap:"json"`
+	AccessControlGroups []byte `nmap:"json"`
+	SkipAutoApply       sql.NullBool
+}
+
 func RecordTypeAndRdata(t, rdata string) (int, string, error) {
 	switch t {
 	case "A":

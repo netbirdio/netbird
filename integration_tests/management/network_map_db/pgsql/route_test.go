@@ -7,16 +7,12 @@ import (
 	"net/netip"
 	"testing"
 
-	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestGetRoutes(t *testing.T) {
-	if engine == string(types.SqliteStoreEngine) {
-		t.Skip()
-	}
 	ctx := context.TODO()
 
 	execQuery(t, ctx,
