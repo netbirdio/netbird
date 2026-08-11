@@ -551,6 +551,14 @@
     "settings.general.autostart.errorTitle": {
         "message": "Не удалось изменить автозапуск"
     },
+    "settings.general.keepConnectedOnQuit.label": {
+        "message": "Оставаться подключённым после выхода",
+        "description": "Toggle label: keep the VPN connection up after quitting the UI."
+    },
+    "settings.general.keepConnectedOnQuit.help": {
+        "message": "Соединение остаётся активным в фоне после закрытия NetBird. Оно прервётся, только когда вы отключите его сами.",
+        "description": "Helper text for the stay-connected-after-quitting toggle."
+    },
     "settings.general.language.label": {
         "message": "Язык интерфейса"
     },
