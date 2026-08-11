@@ -14,6 +14,11 @@ import (
 
 var ErrDnsUnsupportedRecordType = errors.New("unsupported record type")
 
+// The order of fields in these structs is important.
+// Mapping of results of sqlite queries relies on the order
+// of the fields in these structs, when a query or a struct changes,
+// corresponding changes must be made to its counterpart.
+
 type Account struct {
 	PeerLoginExpirationEnabled      sql.NullBool
 	PeerLoginExpiration             sql.NullInt64
