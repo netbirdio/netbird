@@ -60,6 +60,7 @@ func TestMiddlewareIdentity(t *testing.T) {
 		[]string{
 			middleware.KeyLLMResolvedProviderID,
 			middleware.KeyLLMAuthorisingGroups,
+			middleware.KeyLLMNonInference,
 			middleware.KeyLLMPolicyDecision,
 			middleware.KeyLLMPolicyReason,
 		},
@@ -197,6 +198,12 @@ func TestRouter_ModelLessPath_RoutesToAuthorisedProvider(t *testing.T) {
 
 	provider, _ := metaValue(t, out.Metadata, middleware.KeyLLMResolvedProviderID)
 	assert.Equal(t, "openai-prod", provider, "resolved provider must be the authorised route")
+
+	// The limits gate reads this to tell "no model applies here" from
+	// "the model could not be determined", which fails closed.
+	nonInference, ok := metaValue(t, out.Metadata, middleware.KeyLLMNonInference)
+	require.True(t, ok, "model-less allow must mark the request non-inference")
+	assert.Equal(t, "true", nonInference)
 }
 
 func TestRouter_ModelLessPath_MultiProviderDeclarationOrder(t *testing.T) {

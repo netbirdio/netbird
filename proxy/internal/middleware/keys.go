@@ -66,6 +66,14 @@ const (
 	// downstream gateways' spend logs.
 	KeyLLMAuthorisingGroups = "llm.authorising_groups"
 
+	// LLM non-inference marker (emitted by llm_router on the allow path
+	// for endpoints that legitimately carry no model, such as model
+	// listing). The router still authorises these against the caller's
+	// groups; the marker only tells the limits gate that a per-model
+	// allowlist has nothing to evaluate, so an empty model must not be
+	// read as an undetermined one. Never derived from client input.
+	KeyLLMNonInference = "llm.non_inference"
+
 	// LLM policy attribution (emitted by llm_limit_check on the allow
 	// path). Names the policy that paid for this request and the
 	// dimension counters the post-flight llm_limit_record middleware

@@ -109,6 +109,7 @@ func (m *Middleware) MetadataKeys() []string {
 		middleware.KeyLLMAuthorisingGroups,
 		middleware.KeyLLMPolicyDecision,
 		middleware.KeyLLMPolicyReason,
+		middleware.KeyLLMNonInference,
 	}
 }
 
@@ -193,7 +194,9 @@ func (m *Middleware) Invoke(_ context.Context, in *middleware.Input) (*middlewar
 		route, outcome := m.matchModelless(requestPath(in.URL), in.UserGroups)
 		switch outcome {
 		case matchOutcomeFound:
-			return m.allowWithRoute(route, in.UserGroups), nil
+			out := m.allowWithRoute(route, in.UserGroups)
+			out.Metadata = append(out.Metadata, middleware.KV{Key: middleware.KeyLLMNonInference, Value: "true"})
+			return out, nil
 		case matchOutcomeUnauthorised:
 			// A recognised model-less endpoint exists but no provider
 			// authorises the caller — deny as an authorisation failure

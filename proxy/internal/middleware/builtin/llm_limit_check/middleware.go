@@ -84,6 +84,15 @@ func (m *Middleware) Invoke(ctx context.Context, in *middleware.Input) (*middlew
 		return allowNoAttribution(), nil
 	}
 
+	// Model-listing and other non-inference endpoints carry no model, and
+	// management's per-model allowlist fails closed on an empty one. The
+	// router has already authorised the route against the caller's groups
+	// and the request consumes no tokens, so gating it on a model that
+	// cannot exist would only break gateway model discovery.
+	if lookupKV(in.Metadata, middleware.KeyLLMNonInference) == "true" {
+		return allowNoAttribution(), nil
+	}
+
 	providerID := lookupKV(in.Metadata, middleware.KeyLLMResolvedProviderID)
 	if providerID == "" {
 		// llm_router didn't emit a resolved provider id — usually
