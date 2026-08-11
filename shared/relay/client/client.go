@@ -427,12 +427,15 @@ func (c *Client) connect(ctx context.Context) (*RelayAddr, error) {
 			return nil, fmt.Errorf("dial via FQDN: %w", err)
 		}
 	}
-	conn = c.sweeper.WrapConn(conn)
-	c.relayConn = conn
-	c.datagramFallbackTriggered.Store(false)
+	// Read the transport off the concrete connection: the sweeper's wrapper
+	// embeds net.Conn only, so it does not promote Protocol().
 	if tc, ok := conn.(transportConn); ok {
 		c.transport = tc.Protocol()
 	}
+
+	conn = c.sweeper.WrapConn(conn)
+	c.relayConn = conn
+	c.datagramFallbackTriggered.Store(false)
 
 	instanceURL, err := c.handShake(ctx)
 	if err != nil {
