@@ -679,13 +679,15 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		if msg.Hint != nil {
 			hint = *msg.Hint
 		}
-		oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.IsUnixDesktopClient, false, hint)
+		oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.IsUnixDesktopClient, msg.GetUseDeviceAuth(), hint)
 		if err != nil {
 			state.Set(internal.StatusLoginFailed)
 			return nil, err
 		}
 
-		if s.oauthAuthFlow.flow != nil && s.oauthAuthFlow.flow.GetClientID(ctx) == oAuthFlow.GetClientID(ctx) {
+		_, cachedIsDevice := s.oauthAuthFlow.flow.(*auth.DeviceAuthorizationFlow)
+		sameAuthMode := cachedIsDevice == msg.GetUseDeviceAuth()
+		if s.oauthAuthFlow.flow != nil && sameAuthMode && s.oauthAuthFlow.flow.GetClientID(ctx) == oAuthFlow.GetClientID(ctx) {
 			if s.oauthAuthFlow.expiresAt.After(time.Now().Add(90 * time.Second)) {
 				log.Debugf("using previous oauth flow info")
 				state.Set(internal.StatusNeedsLogin)
