@@ -32,6 +32,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/activity"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/sessionkey"
@@ -127,6 +128,9 @@ type ProxyServiceServer struct {
 
 	// Manager for IdP-enriched user data (may be nil when no IdP is configured)
 	idpManager idp.Manager
+
+	// Manager that records reverse proxy usage for activity accounting
+	activityManager activity.Manager
 
 	// Store for one-time authentication tokens
 	tokenStore *OneTimeTokenStore
@@ -248,6 +252,13 @@ func (s *ProxyServiceServer) SetServiceManager(manager rpservice.Manager) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.serviceManager = manager
+}
+
+// SetActivityManager wires the manager that records reverse proxy usage.
+func (s *ProxyServiceServer) SetActivityManager(manager activity.Manager) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.activityManager = manager
 }
 
 // SetAgentNetworkSynthesizer wires the agent-network service synthesiser.
@@ -1717,7 +1728,7 @@ func (s *ProxyServiceServer) GenerateSessionToken(ctx context.Context, domain, u
 
 	groupIDs, groupNames := pairGroupIDsAndNames(userGroups)
 
-	return sessionkey.SignToken(
+	token, err := sessionkey.SignToken(
 		service.SessionPrivateKey,
 		userID,
 		user.Email,
@@ -1727,6 +1738,25 @@ func (s *ProxyServiceServer) GenerateSessionToken(ctx context.Context, domain, u
 		groupNames,
 		proxyauth.DefaultSessionExpiry,
 	)
+	if err != nil {
+		return "", err
+	}
+
+	s.recordUserLogin(ctx, service.AccountID, user)
+
+	return token, nil
+}
+
+// recordUserLogin hands the sign-in to the activity manager. The RPC must not
+// fail on it, so the error is logged and dropped here rather than returned.
+func (s *ProxyServiceServer) recordUserLogin(ctx context.Context, accountID string, user *types.User) {
+	if s.activityManager == nil {
+		return
+	}
+
+	if err := s.activityManager.RecordUserLogin(ctx, accountID, user); err != nil {
+		log.WithContext(ctx).Debugf("record proxy login for user %s: %v", user.Id, err)
+	}
 }
 
 // ValidateUserGroupAccess checks if a user has access to a service.
@@ -2076,6 +2106,8 @@ func (s *ProxyServiceServer) ValidateTunnelPeer(ctx context.Context, req *proto.
 		return nil, err
 	}
 
+	s.recordPeerSeen(ctx, service.AccountID, peer)
+
 	log.WithFields(log.Fields{
 		"domain":       domain,
 		"tunnel_ip":    tunnelIPStr,
@@ -2091,6 +2123,18 @@ func (s *ProxyServiceServer) ValidateTunnelPeer(ctx context.Context, req *proto.
 		PeerGroupIds:   groupIDs,
 		PeerGroupNames: groupNames,
 	}, nil
+}
+
+// recordPeerSeen hands the mesh request to the activity manager. The RPC must
+// not fail on it, so the error is logged and dropped here rather than returned.
+func (s *ProxyServiceServer) recordPeerSeen(ctx context.Context, accountID string, peer *peer.Peer) {
+	if s.activityManager == nil {
+		return
+	}
+
+	if err := s.activityManager.RecordPeerSeen(ctx, accountID, peer); err != nil {
+		log.WithContext(ctx).Debugf("record proxy activity for peer %s: %v", peer.ID, err)
+	}
 }
 
 // resolvePeerOwner returns the user a peer is linked to, once per request so

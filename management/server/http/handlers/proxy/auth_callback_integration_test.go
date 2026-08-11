@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
+	activitymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/activity/manager"
 	nbproxy "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
@@ -221,6 +222,7 @@ func setupAuthCallbackTest(t *testing.T) *testSetup {
 	)
 
 	proxyService.SetServiceManager(&testServiceManager{store: testStore})
+	proxyService.SetActivityManager(activitymanager.NewManager(testStore))
 
 	handler := NewAuthCallbackHandler(proxyService, nil)
 
@@ -538,6 +540,55 @@ func TestAuthCallback_UserAllowedToLogin(t *testing.T) {
 // TestAuthCallback_UserDeniedByAccountStatus asserts that a user whose account
 // is pending approval or blocked never receives a session token from the OIDC
 // callback, and that the redirect carries a description the proxy can render.
+// TestAuthCallback_RecordsUserLogin drives the real OIDC callback and asserts
+// the login lands on the user row. That timestamp is what activity accounting
+// reads, and it is the only signal that can ever count someone who reaches
+// proxy-protected services from a browser and never opens the dashboard.
+func TestAuthCallback_RecordsUserLogin(t *testing.T) {
+	setup := setupAuthCallbackTest(t)
+	defer setup.cleanup()
+
+	ctx := context.Background()
+
+	before, err := setup.store.GetUserByUserID(ctx, store.LockingStrengthNone, "allowedUserId")
+	require.NoError(t, err)
+	require.Nil(t, before.LastLogin, "fixture user starts with no login on record")
+
+	setup.oidcServer.tokenSubject = "allowedUserId"
+	state := createTestState(t, setup.proxyService, "https://test-proxy.example.com/dashboard")
+
+	req := httptest.NewRequest(http.MethodGet, "/reverse-proxy/callback?code=test-auth-code&state="+url.QueryEscape(state), nil)
+	rec := httptest.NewRecorder()
+	setup.router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusFound, rec.Code)
+
+	after, err := setup.store.GetUserByUserID(ctx, store.LockingStrengthNone, "allowedUserId")
+	require.NoError(t, err)
+	require.NotNil(t, after.LastLogin, "a completed proxy SSO login must be recorded on the user")
+	require.WithinDuration(t, time.Now().UTC(), after.LastLogin.UTC(), time.Minute, "login should be stamped at sign-in time")
+}
+
+// TestAuthCallback_DeniedUserLoginNotRecorded keeps the write on the granted
+// path: a refused sign-in is not a login.
+func TestAuthCallback_DeniedUserLoginNotRecorded(t *testing.T) {
+	setup := setupAuthCallbackTest(t)
+	defer setup.cleanup()
+
+	ctx := context.Background()
+
+	setup.oidcServer.tokenSubject = "blockedUserId"
+	state := createTestState(t, setup.proxyService, "https://test-proxy.example.com/dashboard")
+
+	req := httptest.NewRequest(http.MethodGet, "/reverse-proxy/callback?code=test-auth-code&state="+url.QueryEscape(state), nil)
+	rec := httptest.NewRecorder()
+	setup.router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusFound, rec.Code)
+
+	after, err := setup.store.GetUserByUserID(ctx, store.LockingStrengthNone, "blockedUserId")
+	require.NoError(t, err)
+	require.Nil(t, after.LastLogin, "a denied user must not be recorded as having logged in")
+}
+
 func TestAuthCallback_UserDeniedByAccountStatus(t *testing.T) {
 	tests := []struct {
 		name            string
