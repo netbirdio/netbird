@@ -25,8 +25,8 @@ var (
 
 	getEuid = os.Geteuid
 
-	getProcessElevated          = isProcessElevated
-	getWindowsAccountPrivileged = isWindowsAccountPrivileged
+	getProcessElevated                   = isProcessElevated
+	getWindowsAccountPrivilegedOrUnknown = isWindowsAccountPrivilegedOrUnknown
 )
 
 const (
@@ -80,7 +80,7 @@ func (s *Server) CheckPrivileges(req PrivilegeCheckRequest) PrivilegeCheckResult
 
 	// Handle empty username case - but still check root access controls
 	if req.RequestedUsername == "" {
-		if isPrivilegedUsername(context.currentUser.Username) && !context.allowRoot {
+		if isPrivilegedOrUnknown(context.currentUser.Username) && !context.allowRoot {
 			return PrivilegeCheckResult{
 				Allowed: false,
 				Error:   &PrivilegedUserError{Username: context.currentUser.Username},
@@ -140,7 +140,7 @@ func (s *Server) checkUserRequest(ctx *privilegeCheckContext, req PrivilegeCheck
 
 	needsUserSwitching := !isSameResolvedUser(resolvedUser, ctx.currentUser)
 
-	if isPrivilegedUsername(resolvedUser.Username) && !ctx.allowRoot {
+	if isPrivilegedOrUnknown(resolvedUser.Username) && !ctx.allowRoot {
 		return PrivilegeCheckResult{
 			Allowed:               false,
 			Error:                 &PrivilegedUserError{Username: resolvedUser.Username},
@@ -287,16 +287,22 @@ func isWindowsSameUser(requestedUsername, currentUsername string) bool {
 	return strings.EqualFold(reqDomain, curDomain)
 }
 
-// isPrivilegedUsername checks if the given username represents a privileged user across platforms.
+// isPrivilegedOrUnknown reports whether the given username represents a
+// privileged user, or on Windows an account whose privilege could not be
+// determined.
 // On Unix: root.
 // On Windows: well-known service accounts, built-in Administrator accounts,
 // and members of the local Administrators group; handles domain-qualified
-// usernames like "DOMAIN\user" or "user@domain.com".
-func isPrivilegedUsername(username string) bool {
+// usernames like "DOMAIN\user" or "user@domain.com". An account that cannot be
+// resolved or evaluated is reported as privileged.
+//
+// Use this to refuse privileged accounts, never to grant them anything: the
+// undetermined case is safe for a refusal and unsafe for a grant.
+func isPrivilegedOrUnknown(username string) bool {
 	if getCurrentOS() != "windows" {
 		return username == "root"
 	}
-	return getWindowsAccountPrivileged(username)
+	return getWindowsAccountPrivilegedOrUnknown(username)
 }
 
 // isCurrentProcessPrivileged checks if the current process is running with elevated privileges.

@@ -29,7 +29,7 @@ func setupTestDependencies(currentUser *user.User, currentUserErr error, os stri
 	originalGetCurrentOS := getCurrentOS
 	originalGetEuid := getEuid
 	originalGetProcessElevated := getProcessElevated
-	originalGetWindowsAccountPrivileged := getWindowsAccountPrivileged
+	originalGetWindowsAccountPrivilegedOrUnknown := getWindowsAccountPrivilegedOrUnknown
 
 	// Set test values - inject platform dependencies
 	getCurrentUser = func() (*user.User, error) {
@@ -66,7 +66,7 @@ func setupTestDependencies(currentUser *user.User, currentUserErr error, os stri
 	// Simulate the Windows account classifier for the fixture accounts.
 	// "root" does not exist on Windows; the real classifier fails closed on
 	// unresolvable accounts, so it counts as privileged here too.
-	getWindowsAccountPrivileged = func(username string) bool {
+	getWindowsAccountPrivilegedOrUnknown = func(username string) bool {
 		bare := username
 		if idx := strings.LastIndex(bare, `\`); idx != -1 {
 			bare = bare[idx+1:]
@@ -88,7 +88,7 @@ func setupTestDependencies(currentUser *user.User, currentUserErr error, os stri
 		getCurrentOS = originalGetCurrentOS
 		getEuid = originalGetEuid
 		getProcessElevated = originalGetProcessElevated
-		getWindowsAccountPrivileged = originalGetWindowsAccountPrivileged
+		getWindowsAccountPrivilegedOrUnknown = originalGetWindowsAccountPrivilegedOrUnknown
 	}
 }
 
@@ -460,7 +460,7 @@ func TestPrivilegedUsernameDetection(t *testing.T) {
 			cleanup := setupTestDependencies(nil, nil, tt.platform, 1000, nil, nil)
 			defer cleanup()
 
-			result := isPrivilegedUsername(tt.username)
+			result := isPrivilegedOrUnknown(tt.username)
 			assert.Equal(t, tt.privileged, result, "privilege classification for %s on %s", tt.username, tt.platform)
 		})
 	}

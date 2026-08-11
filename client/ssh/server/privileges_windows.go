@@ -36,11 +36,16 @@ func isProcessElevated() bool {
 	return windows.GetCurrentProcessToken().IsElevated()
 }
 
-// isWindowsAccountPrivileged reports whether the account is privileged on this
-// machine: a well-known service account, a built-in Administrator (RID 500),
-// or a member of the local Administrators group, directly or through nested
-// groups. Evaluation errors count as privileged so policy checks fail closed.
-func isWindowsAccountPrivileged(username string) bool {
+// isWindowsAccountPrivilegedOrUnknown reports whether the account is privileged
+// on this machine: a well-known service account, a built-in Administrator
+// (RID 500), or a member of the local Administrators group, directly or through
+// nested groups.
+//
+// An account whose privilege cannot be determined counts as privileged, which
+// is why the name says "or unknown". That is fail-closed for a caller that
+// refuses privileged accounts, and fail-open for a caller that grants something
+// to them, so only the former may use this.
+func isWindowsAccountPrivilegedOrUnknown(username string) bool {
 	sid, _, _, err := windows.LookupSID("", username)
 	if err != nil {
 		log.Warnf("privilege check: SID lookup for %q failed, treating as privileged: %v", username, err)

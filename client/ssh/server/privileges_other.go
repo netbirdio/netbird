@@ -8,8 +8,9 @@ func isProcessElevated() bool {
 	return false
 }
 
-// isWindowsAccountPrivileged is only reachable on Windows. Fail closed if it
-// is ever called on another platform.
-func isWindowsAccountPrivileged(string) bool {
+// isWindowsAccountPrivilegedOrUnknown is only reachable on Windows. Report
+// privileged on other platforms so a caller refusing privileged accounts fails
+// closed.
+func isWindowsAccountPrivilegedOrUnknown(string) bool {
 	return true
 }
