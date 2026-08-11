@@ -980,3 +980,58 @@ func TestRouter_ModelListingCarriesAuthorisedModels(t *testing.T) {
 			"the single-object lookup has no data array to filter")
 	})
 }
+
+// TestRouter_ModelDetailHonoursAllowlist pins that GET /v1/models/{id} is
+// authorised against the model table. It carries no body model, so treating
+// it as a model-less endpoint would let a caller confirm a model the route
+// does not list — the listing itself is bounded to the allowlist, so the
+// detail lookup must be too.
+func TestRouter_ModelDetailHonoursAllowlist(t *testing.T) {
+	enumerated := ProviderRoute{
+		ID:              "anthropic-prod",
+		Models:          []string{"claude-sonnet-5"},
+		AllowedGroupIDs: []string{defaultTestGroup},
+		UpstreamScheme:  "https",
+		UpstreamHost:    "api.anthropic.com",
+	}
+
+	t.Run("allowlisted model routes and skips metering", func(t *testing.T) {
+		mw := New(Config{Providers: []ProviderRoute{enumerated}})
+		out, err := mw.Invoke(context.Background(), newModellessInput("/v1/models/claude-sonnet-5"))
+		require.NoError(t, err)
+		assert.Equal(t, middleware.DecisionAllow, out.Decision)
+		require.NotNil(t, out.Mutations)
+		require.NotNil(t, out.Mutations.RewriteUpstream)
+		assert.Equal(t, "api.anthropic.com", out.Mutations.RewriteUpstream.Host)
+
+		nonInference, _ := metaValue(t, out.Metadata, middleware.KeyLLMNonInference)
+		assert.Equal(t, "true", nonInference, "a detail lookup spends no tokens")
+	})
+
+	t.Run("model outside the allowlist denies", func(t *testing.T) {
+		mw := New(Config{Providers: []ProviderRoute{enumerated}})
+		out, err := mw.Invoke(context.Background(), newModellessInput("/v1/models/claude-opus-5"))
+		require.NoError(t, err)
+		assert.Equal(t, middleware.DecisionDeny, out.Decision,
+			"a model no route lists must not be confirmed by the detail lookup")
+	})
+
+	t.Run("dated id matches its undated registration", func(t *testing.T) {
+		mw := New(Config{Providers: []ProviderRoute{enumerated}})
+		out, err := mw.Invoke(context.Background(), newModellessInput("/v1/models/claude-sonnet-5-20250929"))
+		require.NoError(t, err)
+		assert.Equal(t, middleware.DecisionAllow, out.Decision,
+			"a pinned release of an allowlisted family stays reachable")
+	})
+
+	t.Run("catch-all route still answers every lookup", func(t *testing.T) {
+		catchAll := enumerated
+		catchAll.Models = nil
+		mw := New(Config{Providers: []ProviderRoute{catchAll}})
+
+		out, err := mw.Invoke(context.Background(), newModellessInput("/v1/models/anything-at-all"))
+		require.NoError(t, err)
+		assert.Equal(t, middleware.DecisionAllow, out.Decision,
+			"a gateway that enumerates nothing cannot refuse a lookup")
+	})
+}

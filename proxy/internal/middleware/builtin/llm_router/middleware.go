@@ -188,6 +188,25 @@ func (m *Middleware) Invoke(_ context.Context, in *middleware.Input) (*middlewar
 		}
 	}
 
+	// GET /v1/models/{id} carries no body, so no model reaches the router in
+	// metadata — but the path names one, and answering it confirms a model
+	// exists and is reachable. Authorise it against the model table like any
+	// other per-model request, then mark it non-inference so it still skips
+	// the token pre-flight it would otherwise charge nothing against.
+	if detail, isDetail := modelDetailID(reqPath); isDetail {
+		route, outcome := m.matchRoute(detail, surface, reqPath, in.UserGroups)
+		switch outcome {
+		case matchOutcomeFound:
+			out := m.allowWithRoute(route, surface, in.UserGroups)
+			out.Metadata = append(out.Metadata, middleware.KV{Key: middleware.KeyLLMNonInference, Value: "true"})
+			return out, nil
+		case matchOutcomeUnauthorised:
+			return denyNoAuthorisedRoute(surface, detail), nil
+		default:
+			return denyUnknownModel(surface, detail), nil
+		}
+	}
+
 	model, ok := lookupMetadata(in.Metadata, middleware.KeyLLMModel)
 	if !ok || model == "" {
 		// Non-inference endpoints (model listing) carry no model but still
@@ -322,20 +341,36 @@ func (m *Middleware) matchRoute(model, vendor, reqPath string, userGroups []stri
 // the access log with rejections at every session start.
 const connectionWarmPath = "/api/hello"
 
-// isModelLessPath reports whether reqPath is a known non-inference endpoint
-// that legitimately carries no model in its request (model listing and the
-// connection-warming probe). These must route to an upstream rather than
-// deny, so model enumeration works end to end.
 // modelListingPath is the endpoint clients read at startup to populate
 // their model picker. Its response is a list the proxy can bound; the
 // per-model "/v1/models/{id}" lookup returns a single object and is left
 // alone.
 const modelListingPath = "/v1/models"
 
+// isModelLessPath reports whether reqPath is a known non-inference endpoint
+// that legitimately carries no model at all: the model listing and the
+// connection-warming probe. These must route to an upstream rather than
+// deny, so model enumeration works end to end. The per-model
+// "/v1/models/{id}" lookup is deliberately excluded — it names a model, so
+// it is authorised against the model table instead (see modelDetailID).
 func isModelLessPath(reqPath string) bool {
-	return reqPath == modelListingPath ||
-		strings.HasPrefix(reqPath, modelListingPath+"/") ||
-		reqPath == connectionWarmPath
+	return reqPath == modelListingPath || reqPath == connectionWarmPath
+}
+
+// modelDetailID returns the model id named by a "/v1/models/{id}" lookup.
+// reqPath comes from url.URL.Path, which is already percent-decoded, so an
+// id carrying a "/" (a self-hosted "Qwen/Qwen2.5-0.5B-Instruct" sent as
+// "Qwen%2FQwen2.5-...") arrives whole and everything after the prefix is the
+// id, separators included.
+func modelDetailID(reqPath string) (string, bool) {
+	if !strings.HasPrefix(reqPath, modelListingPath+"/") {
+		return "", false
+	}
+	id := strings.TrimPrefix(reqPath, modelListingPath+"/")
+	if id == "" {
+		return "", false
+	}
+	return id, true
 }
 
 // isBedrockModelLessPath reports whether reqPath is a Bedrock
@@ -343,6 +378,14 @@ func isModelLessPath(reqPath string) bool {
 // namespace. Clients read these at startup to resolve a configured profile
 // to its underlying model. They carry no model of their own, so they route
 // by path to a Bedrock provider rather than through the model table.
+//
+// On native AWS these live on the control plane ("bedrock.<region>") while a
+// provider's upstream is normally the runtime host ("bedrock-runtime.<region>"),
+// so forwarding yields a 404 there. That is deliberate: a client has one base
+// URL, so pointing it straight at the runtime host 404s identically, and
+// forwarding keeps the proxy transparent instead of inventing a policy denial
+// the client would never otherwise see. Operators whose Bedrock upstream is a
+// gateway that does serve the lookup get a working answer.
 func isBedrockModelLessPath(reqPath string) bool {
 	native, _ := splitBedrockNamespace(reqPath)
 	return native == "/inference-profiles" || strings.HasPrefix(native, "/inference-profiles/")
