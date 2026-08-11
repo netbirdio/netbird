@@ -37,16 +37,24 @@ func TestNormalizeVertexModel(t *testing.T) {
 
 func TestNormalizeAnthropicModel(t *testing.T) {
 	cases := map[string]string{
-		"claude-sonnet-4-5-20250929": "claude-sonnet-4-5",
-		"claude-3-5-haiku-20241022":  "claude-3-5-haiku",
-		"claude-sonnet-5":            "claude-sonnet-5",
-		"claude-opus-4-8":            "claude-opus-4-8",
-		// Other vendors' ids must survive untouched: none of them end in
-		// eight consecutive digits.
-		"gpt-4o":                     "gpt-4o",
-		"gpt-4o-2024-08-06":          "gpt-4o-2024-08-06",
-		"anthropic.claude-haiku-4-5": "anthropic.claude-haiku-4-5",
-		"":                           "",
+		"claude-sonnet-4-5-20250929":            "claude-sonnet-4-5",
+		"claude-3-5-haiku-20241022":             "claude-3-5-haiku",
+		"claude-sonnet-5":                       "claude-sonnet-5",
+		"claude-opus-4-8":                       "claude-opus-4-8",
+		"anthropic.claude-haiku-4-5":            "anthropic.claude-haiku-4-5",
+		"anthropic.claude-sonnet-4-5-20250929":  "anthropic.claude-sonnet-4-5",
+		"us.anthropic.claude-opus-4-8-20250101": "us.anthropic.claude-opus-4-8",
+		// Non-Claude ids must survive untouched even when they end in eight
+		// consecutive digits: an operator can register a custom model under
+		// any id, and pricing looks every one of them up through this helper.
+		"gpt-4o":                  "gpt-4o",
+		"gpt-4o-2024-08-06":       "gpt-4o-2024-08-06",
+		"gpt-4o-20240806":         "gpt-4o-20240806",
+		"internal-llm-20250101":   "internal-llm-20250101",
+		"deepseek-r1-20250120":    "deepseek-r1-20250120",
+		"Qwen/Qwen2.5-20250101":   "Qwen/Qwen2.5-20250101",
+		"gemini-2-5-pro-20250101": "gemini-2-5-pro-20250101",
+		"":                        "",
 	}
 	for in, want := range cases {
 		require.Equal(t, want, NormalizeAnthropicModel(in), "normalize %q", in)

@@ -46,20 +46,25 @@ func NormalizeBedrockModel(modelID string) string {
 	return bedrockVersionSuffix.ReplaceAllString(m, "")
 }
 
-// anthropicDateSuffix matches the trailing "-YYYYMMDD" release-date suffix
-// Anthropic appends to a pinned model id. No other vendor in the catalog
-// ends an id in eight consecutive digits, so the pattern is safe to apply
-// before a lookup regardless of surface.
-var anthropicDateSuffix = regexp.MustCompile(`-\d{8}$`)
+// anthropicDatedModel matches a Claude model id carrying the trailing
+// "-YYYYMMDD" release-date suffix Anthropic appends to a pinned release,
+// capturing the id without it. The "claude" anchor is load-bearing: pricing
+// looks every model up through this helper regardless of surface, and an
+// operator may register a custom id with any shape at all, so an unanchored
+// "-\d{8}$" would let "internal-llm-20250101" silently inherit the rate
+// registered for "internal-llm". The anchor also covers the vendor-prefixed
+// forms ("anthropic.claude-...", "us.anthropic.claude-...").
+var anthropicDatedModel = regexp.MustCompile(`(?i)^(.*claude.*)-\d{8}$`)
 
 // NormalizeAnthropicModel strips the trailing release-date suffix from a
-// first-party Anthropic model id, e.g. "claude-sonnet-4-5-20250929" ->
-// "claude-sonnet-4-5", so a dated id a client pins matches the undated one
-// the operator registered. Callers try the verbatim id first and fall back
-// to this, so two dated releases of the same family stay distinct wherever
-// both are registered explicitly.
+// Claude model id, e.g. "claude-sonnet-4-5-20250929" -> "claude-sonnet-4-5",
+// so a dated id a client pins matches the undated one the operator
+// registered. Ids that are not Claude-family are returned untouched.
+// Callers try the verbatim id first and fall back to this, so two dated
+// releases of the same family stay distinct wherever both are registered
+// explicitly.
 func NormalizeAnthropicModel(modelID string) string {
-	return anthropicDateSuffix.ReplaceAllString(modelID, "")
+	return anthropicDatedModel.ReplaceAllString(modelID, "$1")
 }
 
 // NormalizeVertexModel strips the "@version" suffix from a Vertex AI model id
