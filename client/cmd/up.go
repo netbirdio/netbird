@@ -421,6 +421,9 @@ func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, pro
 	if cmd.Flag(serverSSHAllowedFlag).Changed {
 		req.ServerSSHAllowed = &serverSSHAllowed
 	}
+	if cmd.Flag(remoteJobsAllowedFlag).Changed {
+		req.RemoteJobsAllowed = &remoteJobsAllowed
+	}
 	if cmd.Flag(enableSSHRootFlag).Changed {
 		req.EnableSSHRoot = &enableSSHRoot
 	}
@@ -522,6 +525,9 @@ func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configFil
 
 	if cmd.Flag(serverSSHAllowedFlag).Changed {
 		ic.ServerSSHAllowed = &serverSSHAllowed
+	}
+	if cmd.Flag(remoteJobsAllowedFlag).Changed {
+		ic.RemoteJobsAllowed = &remoteJobsAllowed
 	}
 
 	if cmd.Flag(enableSSHRootFlag).Changed {
@@ -647,6 +653,9 @@ func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte
 
 	if cmd.Flag(serverSSHAllowedFlag).Changed {
 		loginRequest.ServerSSHAllowed = &serverSSHAllowed
+	}
+	if cmd.Flag(remoteJobsAllowedFlag).Changed {
+		loginRequest.RemoteJobsAllowed = &remoteJobsAllowed
 	}
 
 	if cmd.Flag(enableSSHRootFlag).Changed {

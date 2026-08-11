@@ -172,6 +172,34 @@ func TestRequirePrivilegeForConfigChange_SSHFlags(t *testing.T) {
 			change: privilegedConfigChange{disableSSHAuth: boolPtr(false)},
 		},
 		{
+			name:     "enabling remote jobs unprivileged is refused",
+			stored:   &profilemanager.Config{RemoteJobsAllowed: boolPtr(false)},
+			change:   privilegedConfigChange{remoteJobsAllowed: boolPtr(true)},
+			wantDeny: true,
+		},
+		{
+			name:       "enabling remote jobs as root is allowed",
+			stored:     &profilemanager.Config{RemoteJobsAllowed: boolPtr(false)},
+			change:     privilegedConfigChange{remoteJobsAllowed: boolPtr(true)},
+			privileged: true,
+		},
+		{
+			name:     "a profile with no config yet counts as off, so enabling remote jobs is refused",
+			stored:   nil,
+			change:   privilegedConfigChange{remoteJobsAllowed: boolPtr(true)},
+			wantDeny: true,
+		},
+		{
+			name:   "restating already-enabled remote jobs is not a change",
+			stored: &profilemanager.Config{RemoteJobsAllowed: boolPtr(true)},
+			change: privilegedConfigChange{remoteJobsAllowed: boolPtr(true)},
+		},
+		{
+			name:   "turning remote jobs off is not guarded",
+			stored: &profilemanager.Config{RemoteJobsAllowed: boolPtr(true)},
+			change: privilegedConfigChange{remoteJobsAllowed: boolPtr(false)},
+		},
+		{
 			name:   "a request that touches none of the guarded fields is allowed",
 			stored: &profilemanager.Config{ServerSSHAllowed: boolPtr(false)},
 			change: privilegedConfigChange{},

@@ -70,6 +70,7 @@ type ConfigInput struct {
 	StateFilePath                 string
 	PreSharedKey                  *string
 	ServerSSHAllowed              *bool
+	RemoteJobsAllowed             *bool
 	EnableSSHRoot                 *bool
 	EnableSSHSFTP                 *bool
 	EnableSSHLocalPortForwarding  *bool
@@ -124,6 +125,7 @@ type Config struct {
 	RosenpassEnabled              bool
 	RosenpassPermissive           bool
 	ServerSSHAllowed              *bool
+	RemoteJobsAllowed             *bool
 	EnableSSHRoot                 *bool
 	EnableSSHSFTP                 *bool
 	EnableSSHLocalPortForwarding  *bool
@@ -183,6 +185,12 @@ type Config struct {
 	// LazyConnection is the MDM-managed lazy-connection override ("on"/"off"/"").
 	// Runtime-only: re-derived from MDM policy on each load, never persisted.
 	LazyConnection string `json:"-"`
+
+	// DebugBundleUploadURL is the MDM-managed debug-bundle upload URL override.
+	// When set, it takes precedence over the management-supplied upload URL for
+	// remote debug bundle jobs. Runtime-only: re-derived from MDM policy on each
+	// load, never persisted.
+	DebugBundleUploadURL string `json:"-"`
 
 	MTU uint16
 
@@ -265,7 +273,10 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 	config := &Config{
 		// defaults to false only for new (post 0.26) configurations
 		ServerSSHAllowed: util.False(),
-		WgPort:           iface.DefaultWgPort,
+		// Remote jobs are an explicit opt-in and default off, including for
+		// legacy configs (a nil value materializes to false at connect time).
+		RemoteJobsAllowed: util.False(),
+		WgPort:            iface.DefaultWgPort,
 	}
 
 	if _, err := config.apply(input); err != nil {
@@ -453,6 +464,21 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 			log.Infof("falling back to enabled SSH server for pre-existing configuration")
 			config.ServerSSHAllowed = util.True()
 		}
+		updated = true
+	}
+
+	if input.RemoteJobsAllowed != nil && (config.RemoteJobsAllowed == nil || *input.RemoteJobsAllowed != *config.RemoteJobsAllowed) {
+		if *input.RemoteJobsAllowed {
+			log.Infof("enabling remote jobs")
+		} else {
+			log.Infof("disabling remote jobs")
+		}
+		config.RemoteJobsAllowed = input.RemoteJobsAllowed
+		updated = true
+	} else if config.RemoteJobsAllowed == nil {
+		// Remote jobs are an explicit opt-in: unlike SSH, a pre-existing config
+		// with no value defaults to disabled rather than being turned on.
+		config.RemoteJobsAllowed = util.False()
 		updated = true
 	}
 
@@ -712,6 +738,7 @@ func (config *Config) applyMDMPolicy(policy *mdm.Policy) {
 	}
 
 	applyBool(mdm.KeyAllowServerSSH, func(v bool) { bv := v; config.ServerSSHAllowed = &bv })
+	applyBool(mdm.KeyRemoteJobsAllowed, func(v bool) { bv := v; config.RemoteJobsAllowed = &bv })
 	applyBool(mdm.KeyDisableClientRoutes, func(v bool) { config.DisableClientRoutes = v })
 	applyBool(mdm.KeyDisableServerRoutes, func(v bool) { config.DisableServerRoutes = v })
 	applyBool(mdm.KeyBlockInbound, func(v bool) { config.BlockInbound = v })
@@ -738,6 +765,18 @@ func (config *Config) applyMDMPolicy(policy *mdm.Policy) {
 		}
 		config.LazyConnection = state
 		logApplied(mdm.KeyLazyConnection, state)
+	}
+
+	if v, ok := policy.GetString(mdm.KeyBundleUploadURL); ok {
+		// Must be a well-formed https URL with a host, matching the client's
+		// remote-job upload-URL validation. Invalid values are skipped so a
+		// bad policy cannot break bundle uploads.
+		if u, err := url.Parse(v); err != nil || u.Scheme != "https" || u.Host == "" {
+			log.Warnf("MDM debug bundle upload URL %q invalid (must be an https URL with a host); keeping previous value", v)
+		} else {
+			config.DebugBundleUploadURL = v
+			logApplied(mdm.KeyBundleUploadURL, v)
+		}
 	}
 }
 

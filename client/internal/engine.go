@@ -136,6 +136,7 @@ type EngineConfig struct {
 	RosenpassPermissive bool
 
 	ServerSSHAllowed              bool
+	RemoteJobsAllowed             bool
 	EnableSSHRoot                 *bool
 	EnableSSHSFTP                 *bool
 	EnableSSHLocalPortForwarding  *bool
@@ -1336,6 +1337,13 @@ func (e *Engine) receiveJobEvents() {
 				ID:     msg.ID,
 				Status: mgmProto.JobStatus_failed,
 			}
+			// Remote jobs are an explicit opt-in. When not enabled on this
+			// peer, every job is refused before any work is done.
+			if !e.config.RemoteJobsAllowed {
+				log.Warnf("refusing remote job: remote jobs are not enabled on this peer (enable with --allow-remote-jobs)")
+				resp.Reason = []byte("remote jobs are not enabled on this peer")
+				return &resp
+			}
 			switch params := msg.WorkloadParameters.(type) {
 			case *mgmProto.JobRequest_Bundle:
 				bundleResult, err := e.handleBundle(params.Bundle)
@@ -1372,7 +1380,15 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobR
 		params.GetAnonymize(), params.GetAnonymizeLevel(), params.GetLogFileCount(), params.GetBundleFor(), params.GetBundleForTime())
 	log.Debugf("remote debug bundle request parameters: %s", params.String())
 
-	if err := validateBundleUploadURL(params.GetUploadUrl()); err != nil {
+	// Resolve the upload destination: an MDM override, when set, takes
+	// precedence over the management-supplied URL. Both are validated the same
+	// way; an empty result falls back to the default upload server downstream.
+	uploadURL := params.GetUploadUrl()
+	if override := e.config.ProfileConfig.DebugBundleUploadURL; override != "" {
+		log.Infof("using MDM debug bundle upload URL override instead of the management-supplied value")
+		uploadURL = override
+	}
+	if err := validateBundleUploadURL(uploadURL); err != nil {
 		return nil, err
 	}
 
@@ -1403,7 +1419,7 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobR
 
 	waitFor := time.Duration(params.BundleForTime) * time.Minute
 
-	uploadKey, err := e.jobExecutor.BundleJob(e.ctx, bundleDeps, bundleJobParams, waitFor, e.config.ProfileConfig.ManagementURL.String(), params.GetUploadUrl())
+	uploadKey, err := e.jobExecutor.BundleJob(e.ctx, bundleDeps, bundleJobParams, waitFor, e.config.ProfileConfig.ManagementURL.String(), uploadURL)
 	if err != nil {
 		return nil, err
 	}

@@ -614,6 +614,7 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 		RosenpassEnabled:              config.RosenpassEnabled,
 		RosenpassPermissive:           config.RosenpassPermissive,
 		ServerSSHAllowed:              util.ReturnBoolWithDefaultTrue(config.ServerSSHAllowed),
+		RemoteJobsAllowed:             util.ReturnBoolWithDefaultFalse(config.RemoteJobsAllowed),
 		EnableSSHRoot:                 config.EnableSSHRoot,
 		EnableSSHSFTP:                 config.EnableSSHSFTP,
 		EnableSSHLocalPortForwarding:  config.EnableSSHLocalPortForwarding,
