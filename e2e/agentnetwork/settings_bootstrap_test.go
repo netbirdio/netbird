@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/e2e/harness"
+	"github.com/netbirdio/netbird/shared/management/client/rest"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
@@ -176,4 +177,87 @@ func TestSettingsBootstrapSelfAddressed(t *testing.T) {
 	})
 	require.NoError(t, err, "bootstrap after delete must succeed")
 	assert.Equal(t, "gw2.e2e.netbird.selfhosted", recreated.Endpoint, "the fresh bootstrap claims the new hostname")
+}
+
+// TestSettingsConditionalWrites covers the lost-update guard end to end, over
+// the same REST client the Terraform provider uses: read the settings, take
+// the entity-tag, and have a write refused when the row moved underneath it.
+//
+// The scenario is the one that motivates the feature. A client reads the
+// settings and computes an update. An operator turns PII redaction on in the
+// dashboard in the meantime. Without a precondition the client's write puts
+// redaction straight back off — no error, no drift warning, a
+// compliance-relevant control silently disabled. With one, the write is
+// refused and the client can read again.
+func TestSettingsConditionalWrites(t *testing.T) {
+	ctx := context.Background()
+
+	fresh, err := harnessStartFresh(ctx, t)
+	require.NoError(t, err, "start dedicated combined server")
+
+	const cluster = "eu.e2e.netbird.selfhosted"
+	bootstrapped, err := fresh.CreateSettings(ctx, api.AgentNetworkSettingsCreateRequest{
+		ProxyAddress: ptr(cluster),
+	})
+	require.NoError(t, err, "bootstrap must succeed")
+
+	// What the client plans against.
+	planned, etag, err := fresh.GetSettingsWithETag(ctx)
+	require.NoError(t, err, "read must succeed")
+	require.NotEmpty(t, etag, "the read must carry a validator")
+	assert.Equal(t, bootstrapped.Endpoint, planned.Endpoint)
+
+	_, again, err := fresh.GetSettingsWithETag(ctx)
+	require.NoError(t, err, "second read must succeed")
+	assert.Equal(t, etag, again, "an unchanged row must read as the same validator")
+
+	update := func(redactPii bool, retention int) api.AgentNetworkSettingsRequest {
+		return api.AgentNetworkSettingsRequest{
+			Endpoint:               planned.Endpoint,
+			ProxyAddress:           planned.ProxyAddress,
+			EnableLogCollection:    true,
+			EnablePromptCollection: true,
+			RedactPii:              redactPii,
+			AccessLogRetentionDays: retention,
+		}
+	}
+
+	// The operator's change, which the planning client never saw.
+	_, err = fresh.UpdateSettings(ctx, update(true, 21))
+	require.NoError(t, err, "the intervening update must succeed")
+
+	// The client's write, planned against the earlier read, would have turned
+	// redaction back off. It is refused instead.
+	_, _, err = fresh.UpdateSettingsIfMatch(ctx, update(false, 7), etag)
+	require.Error(t, err, "a stale precondition must be refused")
+	require.True(t, rest.IsPreconditionFailed(err),
+		"the refusal must be a precondition failure, got: %v", err)
+
+	intact, current, err := fresh.GetSettingsWithETag(ctx)
+	require.NoError(t, err, "read after the refusal must succeed")
+	assert.True(t, intact.RedactPii, "the refused write must not have turned redaction off")
+	require.NotNil(t, intact.AccessLogRetentionDays)
+	assert.Equal(t, 21, *intact.AccessLogRetentionDays, "the refused write must not have changed retention")
+	assert.NotEqual(t, etag, current, "the validator must have moved with the intervening update")
+
+	// Retrying against the current validator goes through, and hands back the
+	// validator for the write after it.
+	updated, next, err := fresh.UpdateSettingsIfMatch(ctx, update(true, 7), current)
+	require.NoError(t, err, "a matching precondition must be honoured")
+	require.NotNil(t, updated.AccessLogRetentionDays)
+	assert.Equal(t, 7, *updated.AccessLogRetentionDays, "the conditional write must apply")
+	assert.NotEmpty(t, next, "the write must return a validator")
+	assert.NotEqual(t, current, next, "the write must move the validator")
+
+	// The delete is conditional too, and refusing a stale one leaves the
+	// endpoint claimed.
+	require.Error(t, fresh.DeleteSettingsIfMatch(ctx, etag), "a stale precondition must refuse the delete")
+	stillThere, err := fresh.GetSettings(ctx)
+	require.NoError(t, err, "read after the refused delete must succeed")
+	assert.Equal(t, planned.Endpoint, stillThere.Endpoint, "the refused delete must leave the endpoint claimed")
+
+	require.NoError(t, fresh.DeleteSettingsIfMatch(ctx, next), "a matching precondition must be honoured")
+	gone, err := fresh.GetSettings(ctx)
+	require.NoError(t, err, "read after the delete must succeed")
+	assert.Empty(t, gone.Endpoint, "the row must be gone")
 }
