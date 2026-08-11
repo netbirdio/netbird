@@ -6,15 +6,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestGetPolicies(t *testing.T) {
-	if engine == string(types.SqliteStoreEngine) {
-		t.Skip()
-	}
 	ctx := context.TODO()
 
 	execQuery(t, ctx,
@@ -114,7 +110,7 @@ func TestGetPolicies(t *testing.T) {
 		ID:                  "policy-3",
 		PublicID:            "policy-3-public",
 		Enabled:             true,
-		SourcePostureChecks: []string{},
+		SourcePostureChecks: nil,
 		Rules: []*nmdata.PolicyRule{
 			{
 				ID:       "policy-3",
@@ -127,7 +123,7 @@ func TestGetPolicies(t *testing.T) {
 		ID:                  "policy-4",
 		PublicID:            "policy-4-public",
 		Enabled:             true,
-		SourcePostureChecks: []string{},
+		SourcePostureChecks: nil,
 		Rules: []*nmdata.PolicyRule{
 			{
 				ID:                  "policy-4",

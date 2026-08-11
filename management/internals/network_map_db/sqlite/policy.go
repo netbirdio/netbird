@@ -1,9 +1,8 @@
-package networkmap_pgsql
+package networkmap_sqlite
 
 import (
 	"context"
 
-	"github.com/jackc/pgx/v5"
 	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
@@ -15,17 +14,17 @@ const (
 	pr.authorized_groups, pr.authorized_user
 	from policies as p
 	left join policy_rules as pr on p.id = pr.policy_id 
-	where account_id=$1
+	where account_id=?
 	`
 )
 
-func (pgc *PgStoreConn) GetPolicies(ctx context.Context, accountId string) ([]nmdata.Policy, map[string]map[string]any, map[string]map[string]any, error) {
-	rows, err := pgc.Conn.Query(ctx, GetPoliciesQuery, accountId)
+func (sc *SqliteStoreConn) GetPolicies(ctx context.Context, accountId string) ([]nmdata.Policy, map[string]map[string]any, map[string]map[string]any, error) {
+	rows, err := sc.Conn.QueryContext(ctx, GetPoliciesQuery, accountId)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
-	policies, err := pgx.CollectRows(rows, pgx.RowToStructByName[networkmapdb.Policy])
+	policies, err := CollectRowsForSqlite[networkmapdb.Policy](rows)
 	if err != nil {
 		return nil, nil, nil, err
 	}

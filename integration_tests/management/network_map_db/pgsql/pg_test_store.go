@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -19,7 +20,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func createPGTestStore(baseData string) (*networkmap_pgsql.PgStore, func()) {
+func createPGTestStore(baseData, pgData string) (*networkmap_pgsql.PgStore, func()) {
 	_, tmpdsn, err := testutil.CreatePostgresTestContainer()
 	if err != nil {
 		log.Fatalf("error starting postres container %v", err)
@@ -63,7 +64,7 @@ func createPGTestStore(baseData string) (*networkmap_pgsql.PgStore, func()) {
 		log.Fatal("error creating postgres store %w", err)
 	}
 
-	for _, query := range strings.Split(baseData, ";") {
+	for _, query := range slices.Concat(strings.Split(baseData, ";"), strings.Split(pgData, ";")) {
 		if _, err := pgstore.Pool.Exec(ctx, query); err != nil {
 			log.Fatalf("error initializing db: %s", err.Error())
 		}
