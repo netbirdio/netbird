@@ -166,7 +166,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 				rec.PublishEvent(
 					cProto.SystemEvent_CRITICAL, cProto.SystemEvent_SYSTEM,
 					"panic occurred",
-					"The Netbird service panicked. Please restart the service and submit a bug report with the client logs.",
+					cProto.NewUserMessage(cProto.UserMsgPanic),
 					nil,
 				)
 			}

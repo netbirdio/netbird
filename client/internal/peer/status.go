@@ -1281,12 +1281,15 @@ func (d *Status) numOfPeers() int {
 	return len(d.peers) + len(d.offlinePeers)
 }
 
-// PublishEvent adds an event to the queue and distributes it to all subscribers
+// PublishEvent adds an event to the queue and distributes it to all subscribers.
+// msg is the English log-facing description; userMsg is the localizable
+// user-facing message, or nil for an internal control event that must not
+// surface as a notification.
 func (d *Status) PublishEvent(
 	severity proto.SystemEvent_Severity,
 	category proto.SystemEvent_Category,
 	msg string,
-	userMsg string,
+	userMsg *proto.UserMessage,
 	metadata map[string]string,
 ) {
 	event := &proto.SystemEvent{
@@ -1294,7 +1297,10 @@ func (d *Status) PublishEvent(
 		Severity:    severity,
 		Category:    category,
 		Message:     msg,
-		UserMessage: userMsg,
+		UserMessage: userMsg.Text(),
+		MessageKey:  string(userMsg.Key()),
+		MessageArgs: userMsg.Args(),
+		TitleKey:    string(userMsg.TitleKey()),
 		Metadata:    metadata,
 		Timestamp:   timestamppb.Now(),
 	}
