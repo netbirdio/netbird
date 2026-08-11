@@ -194,11 +194,14 @@ func (m *Middleware) Invoke(_ context.Context, in *middleware.Input) (*middlewar
 		// need rewriting from the synth placeholder to a real upstream;
 		// clients such as Codex call GET /v1/models at startup to enumerate
 		// availability and read a 403 as "model unavailable".
-		route, outcome := m.matchModelless(requestPath(in.URL), in.UserGroups)
+		route, outcome := m.matchModelless(reqPath, in.UserGroups)
 		switch outcome {
 		case matchOutcomeFound:
 			out := m.allowWithRoute(route, surface, in.UserGroups)
 			out.Metadata = append(out.Metadata, middleware.KV{Key: middleware.KeyLLMNonInference, Value: "true"})
+			if _, hadPrefix := splitBedrockNamespace(reqPath); hadPrefix && out.Mutations != nil && out.Mutations.RewriteUpstream != nil {
+				out.Mutations.RewriteUpstream.StripPathPrefix = bedrockNamespacePrefix
+			}
 			return out, nil
 		case matchOutcomeUnauthorised:
 			// A recognised model-less endpoint exists but no provider
@@ -305,12 +308,22 @@ func (m *Middleware) matchRoute(model, vendor, reqPath string, userGroups []stri
 	return best, matchOutcomeFound
 }
 
-// isModelLessPath reports whether reqPath is a known OpenAI-shaped
-// non-inference endpoint that legitimately carries no model in its
-// request (the model-listing endpoints). These must route to an upstream
-// rather than deny, so model enumeration works end to end.
+// isModelLessPath reports whether reqPath is a known non-inference endpoint
+// that legitimately carries no model in its request (the model-listing
+// endpoints). These must route to an upstream rather than deny, so model
+// enumeration works end to end.
 func isModelLessPath(reqPath string) bool {
 	return reqPath == "/v1/models" || strings.HasPrefix(reqPath, "/v1/models/")
+}
+
+// isBedrockModelLessPath reports whether reqPath is a Bedrock
+// inference-profile lookup, optionally behind the "/bedrock" gateway
+// namespace. Clients read these at startup to resolve a configured profile
+// to its underlying model. They carry no model of their own, so they route
+// by path to a Bedrock provider rather than through the model table.
+func isBedrockModelLessPath(reqPath string) bool {
+	native, _ := splitBedrockNamespace(reqPath)
+	return native == "/inference-profiles" || strings.HasPrefix(native, "/inference-profiles/")
 }
 
 // isVertexPath reports whether reqPath is a Google Vertex AI publisher
@@ -444,18 +457,22 @@ func (m *Middleware) matchPathRoute(reqPath, model string, userGroups []string, 
 // the caller, or matchOutcomeUnknownModel when the path isn't a recognised
 // model-less endpoint.
 func (m *Middleware) matchModelless(reqPath string, userGroups []string) (ProviderRoute, matchOutcome) {
-	if !isModelLessPath(reqPath) {
-		return ProviderRoute{}, matchOutcomeUnknownModel
-	}
-	var candidates []ProviderRoute
-	for _, route := range m.cfg.Providers {
+	var eligible func(ProviderRoute) bool
+	switch {
+	case isBedrockModelLessPath(reqPath):
+		eligible = func(r ProviderRoute) bool { return r.Bedrock }
+	case isModelLessPath(reqPath):
 		// Vertex/Bedrock are path-routed and don't serve OpenAI-style
 		// model-listing endpoints; including them here could rewrite a
 		// GET /v1/models to an upstream that 404s it.
-		if route.Vertex || route.Bedrock {
-			continue
-		}
-		if routeAuthorisesGroups(route, userGroups) {
+		eligible = func(r ProviderRoute) bool { return !r.Vertex && !r.Bedrock }
+	default:
+		return ProviderRoute{}, matchOutcomeUnknownModel
+	}
+
+	var candidates []ProviderRoute
+	for _, route := range m.cfg.Providers {
+		if eligible(route) && routeAuthorisesGroups(route, userGroups) {
 			candidates = append(candidates, route)
 		}
 	}

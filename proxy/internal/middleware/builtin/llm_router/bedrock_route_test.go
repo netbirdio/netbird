@@ -57,3 +57,61 @@ func TestRouter_BedrockCountTokensRoutes(t *testing.T) {
 	require.NotNil(t, out.Mutations.RewriteUpstream)
 	assert.Equal(t, "bedrock-runtime.eu-central-1.amazonaws.com", out.Mutations.RewriteUpstream.Host)
 }
+
+// TestRouter_BedrockInferenceProfilesRoutes covers the startup lookups a
+// client makes to resolve a configured inference profile. They carry no
+// model, so before they were recognised they denied and wrote a policy
+// rejection into the access log on every session start.
+func TestRouter_BedrockInferenceProfilesRoutes(t *testing.T) {
+	bedrock := ProviderRoute{
+		ID:              "bedrock-prod",
+		Bedrock:         true,
+		AllowedGroupIDs: []string{defaultTestGroup},
+		UpstreamScheme:  "https",
+		UpstreamHost:    "bedrock-runtime.eu-central-1.amazonaws.com",
+	}
+	openai := ProviderRoute{
+		ID:              "openai-prod",
+		Models:          []string{"gpt-4o"},
+		AllowedGroupIDs: []string{defaultTestGroup},
+		UpstreamScheme:  "https",
+		UpstreamHost:    "api.openai.com",
+	}
+	mw := New(Config{Providers: []ProviderRoute{openai, bedrock}})
+
+	for _, path := range []string{
+		"/inference-profiles?type=SYSTEM_DEFINED",
+		"/inference-profiles/us.anthropic.claude-sonnet-5",
+	} {
+		out, err := mw.Invoke(context.Background(), newModellessInput(path))
+		require.NoError(t, err)
+		require.NotNil(t, out)
+		assert.Equal(t, middleware.DecisionAllow, out.Decision, "%s must route", path)
+		require.NotNil(t, out.Mutations)
+		require.NotNil(t, out.Mutations.RewriteUpstream)
+		assert.Equal(t, "bedrock-runtime.eu-central-1.amazonaws.com", out.Mutations.RewriteUpstream.Host,
+			"%s must reach the Bedrock provider, not the first authorised one", path)
+
+		nonInference, _ := metaValue(t, out.Metadata, middleware.KeyLLMNonInference)
+		assert.Equal(t, "true", nonInference, "%s carries no model to gate on", path)
+	}
+}
+
+// TestRouter_BedrockNamespacedInferenceProfilesStripsPrefix pins that the
+// optional gateway namespace is removed before the request goes upstream.
+func TestRouter_BedrockNamespacedInferenceProfilesStripsPrefix(t *testing.T) {
+	mw := New(Config{Providers: []ProviderRoute{{
+		ID:              "bedrock-prod",
+		Bedrock:         true,
+		AllowedGroupIDs: []string{defaultTestGroup},
+		UpstreamScheme:  "https",
+		UpstreamHost:    "bedrock-runtime.eu-central-1.amazonaws.com",
+	}}})
+
+	out, err := mw.Invoke(context.Background(), newModellessInput("/bedrock/inference-profiles"))
+	require.NoError(t, err)
+	require.NotNil(t, out.Mutations)
+	require.NotNil(t, out.Mutations.RewriteUpstream)
+	assert.Equal(t, "/bedrock", out.Mutations.RewriteUpstream.StripPathPrefix,
+		"the namespace prefix must not reach the real Bedrock endpoint")
+}
