@@ -92,6 +92,37 @@ type Network struct {
 	PublicID sql.NullString
 }
 
+// TODO add support for creating struct fields from denormalized fields
+type Peer struct {
+	ID                         string
+	Key                        sql.NullString
+	SSHKey                     sql.NullString
+	DNSLabel                   sql.NullString
+	ExtraDNSLabels             []byte `nmap:"json"`
+	UserID                     sql.NullString
+	SSHEnabled                 sql.NullBool
+	LoginExpirationEnabled     sql.NullBool
+	LastLogin                  sql.NullTime
+	IP                         []byte         `nmap:"json"`
+	IPv6                       []byte         `nmap:"json"`
+	PeerStatusRequiresApproval sql.NullBool   `nmap:"map_to:RequiresApproval"`
+	PeerStatusConnected        sql.NullBool   `nmap:"skip"`
+	ProxyMetaEmbedded          sql.NullBool   `nmap:"skip"`
+	ProxyMetaCluster           sql.NullString `nmap:"skip"`
+	MetaWtVersion              sql.NullString `nmap:"skip"`
+	MetaGoOS                   sql.NullString `nmap:"skip"`
+	MetaOSVersion              sql.NullString `nmap:"skip"`
+	MetaKernelVersion          sql.NullString `nmap:"skip"`
+	MetaNetworkAddresses       []byte         `nmap:"skip,json"`
+	MetaFiles                  []byte         `nmap:"skip,json"`
+	MetaCapabilities           []byte         `nmap:"skip,json"`
+	MetaFlags                  []byte         `nmap:"skip,json"`
+	MetaSyncMessageVersion     sql.NullInt64  `nmap:"skip"`
+	LocationCountryCode        sql.NullString `nmap:"skip"`
+	LocationCityName           sql.NullString `nmap:"skip"`
+	LocationConnectionIp       []byte         `nmap:"skip,json"`
+}
+
 func RecordTypeAndRdata(t, rdata string) (int, string, error) {
 	switch t {
 	case "A":
@@ -156,4 +187,80 @@ func AppliedZoneCandidateFromZone(z nmdata.CustomZone, distributionGroups []stri
 		DistributionGroups: distributionGroups,
 		Zone:               z,
 	}
+}
+
+func ConvertToNmdataPeers(peers []Peer) ([]nmdata.Peer, map[string][]*nmdata.Peer, error) {
+	toret := make([]nmdata.Peer, 0, len(peers))
+	clusterToPeerIdx := make(map[string][]*nmdata.Peer)
+	for _, p := range peers {
+		dp := nmdata.Peer{}
+		err := FromSqlTypesToSharedTypes(
+			reflect.ValueOf(&p), reflect.ValueOf(&dp))
+		if err != nil {
+			return nil, nil, err
+		}
+
+		if p.ProxyMetaEmbedded.Valid {
+			dp.ProxyMeta.Embedded = p.ProxyMetaEmbedded.Bool
+		}
+		// This is only used to build private service candidates, not connected peers are skipped
+		if dp.ProxyMeta.Embedded && p.PeerStatusConnected.Bool {
+			clusterToPeerIdx[p.ProxyMetaCluster.String] = append(clusterToPeerIdx[p.ProxyMetaCluster.String], &dp)
+		}
+		if p.MetaWtVersion.Valid {
+			dp.Meta.WtVersion = p.MetaWtVersion.String
+		}
+		if p.MetaSyncMessageVersion.Valid {
+			dp.Meta.SyncMessageVersion = int(p.MetaSyncMessageVersion.Int64)
+		}
+		if p.MetaGoOS.Valid {
+			dp.Meta.GoOS = p.MetaGoOS.String
+		}
+		if p.MetaOSVersion.Valid {
+			dp.Meta.OSVersion = p.MetaOSVersion.String
+		}
+		if p.MetaKernelVersion.Valid {
+			dp.Meta.KernelVersion = p.MetaKernelVersion.String
+		}
+		if p.LocationCountryCode.Valid {
+			dp.Location.CountryCode = p.LocationCountryCode.String
+		}
+		if p.LocationCityName.Valid {
+			dp.Location.CityName = p.LocationCityName.String
+		}
+		if p.LocationConnectionIp != nil {
+			err := json.Unmarshal(p.LocationConnectionIp, &dp.Location.ConnectionIP)
+			if err != nil {
+				return toret, nil, err
+			}
+		}
+		if p.MetaFiles != nil {
+			err := json.Unmarshal(p.MetaFiles, &dp.Meta.Files)
+			if err != nil {
+				return toret, nil, err
+			}
+		}
+		if p.MetaCapabilities != nil {
+			err := json.Unmarshal(p.MetaCapabilities, &dp.Meta.Capabilities)
+			if err != nil {
+				return toret, nil, err
+			}
+		}
+		if p.MetaFlags != nil {
+			err := json.Unmarshal(p.MetaFlags, &dp.Meta.Flags)
+			if err != nil {
+				return toret, nil, err
+			}
+		}
+		if p.MetaNetworkAddresses != nil {
+			err := json.Unmarshal(p.MetaNetworkAddresses, &dp.Meta.NetworkAddresses)
+			if err != nil {
+				return toret, nil, err
+			}
+		}
+
+		toret = append(toret, dp)
+	}
+
+	return toret, clusterToPeerIdx, nil
 }

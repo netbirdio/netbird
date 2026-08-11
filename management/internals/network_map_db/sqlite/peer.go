@@ -1,9 +1,8 @@
-package networkmap_pgsql
+package networkmap_sqlite
 
 import (
 	"context"
 
-	"github.com/jackc/pgx/v5"
 	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
@@ -15,17 +14,17 @@ const (
 	meta_wt_version, meta_go_os, meta_os_version, meta_kernel_version, meta_network_addresses, meta_files, meta_capabilities, meta_flags, meta_sync_message_version,
 	location_country_code, location_city_name, location_connection_ip
 	from peers
-	where account_id = $1
+	where account_id = ?
 	`
 )
 
-func (pgc *PgStoreConn) GetPeers(ctx context.Context, accountId string) ([]nmdata.Peer, map[string][]*nmdata.Peer, error) {
-	rows, err := pgc.Conn.Query(ctx, GetPeersQuery, accountId)
+func (sc *SqliteStoreConn) GetPeers(ctx context.Context, accountId string) ([]nmdata.Peer, map[string][]*nmdata.Peer, error) {
+	rows, err := sc.Conn.QueryContext(ctx, GetPeersQuery, accountId)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	peers, err := pgx.CollectRows(rows, pgx.RowToStructByName[networkmapdb.Peer])
+	peers, err := CollectRowsForSqlite[networkmapdb.Peer](rows)
 	if err != nil {
 		return nil, nil, err
 	}

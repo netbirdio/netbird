@@ -120,9 +120,6 @@ func CollectRowsForSqlite[T any](rows *sql.Rows) ([]T, error) {
 	return toret, nil
 }
 
-func (s *SqliteStoreConn) GetPeers(ctx context.Context, accountId string) ([]nmdata.Peer, map[string][]*nmdata.Peer, error) {
-	return nil, nil, nil
-}
 func (s *SqliteStoreConn) GetPolicies(ctx context.Context, accountId string) ([]nmdata.Policy, map[string]map[string]any, map[string]map[string]any, error) {
 	return nil, nil, nil, nil
 }
