@@ -764,6 +764,18 @@
     "settings.troubleshooting.anonymize.help": {
         "message": "Приховує публічні IP-адреси та домени, не пов’язані з NetBird, у журналах."
     },
+        "settings.troubleshooting.anonymize.info": {
+        "message": " Рівень анонімізації."
+    },
+    "settings.troubleshooting.anonymize.none": {
+        "message": "Вимкнено"
+    },
+    "settings.troubleshooting.anonymize.default": {
+        "message": "Стандартний"
+    },
+    "settings.troubleshooting.anonymize.strict": {
+        "message": "Суворий"
+    },
     "settings.troubleshooting.systemInfo.label": {
         "message": "Додати інформацію про систему"
     },
