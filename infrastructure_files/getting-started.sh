@@ -808,13 +808,22 @@ init_environment() {
 
   initialize_default_values
   apply_docker_subnet_override
-  # Settle the subnet (and fail on conflicts) before the prompts, so a
-  # conflict does not surface after the operator has answered them.
-  # REVERSE_PROXY_TYPE still holds its "0" default here, which is the only
-  # mode that pins the subnet.
-  configure_docker_subnet
+
+  # The agent-network preset pins built-in Traefik up front, so the subnet is
+  # already settled and a conflict can be reported before the prompts.
+  local subnet_checked="false"
+  if [[ "${NETBIRD_AGENT_NETWORK}" == "true" ]]; then
+    configure_docker_subnet
+    subnet_checked="true"
+  fi
+
   configure_domain
   configure_reverse_proxy
+  # Interactive runs only learn the proxy type above, and modes 1-5 never pin a
+  # subnet, so their check has to wait for that choice.
+  if [[ "$subnet_checked" != "true" ]]; then
+    configure_docker_subnet
+  fi
 
   check_jq
 
