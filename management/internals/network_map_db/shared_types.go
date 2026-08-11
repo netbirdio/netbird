@@ -145,6 +145,12 @@ type Peer struct {
 	LocationConnectionIp       []byte         `nmap:"skip,json"`
 }
 
+type PostureChecks struct {
+	ID       string
+	PublicID sql.NullString `nmap:"skip"`
+	Checks   []byte         `nmap:"json"`
+}
+
 func RecordTypeAndRdata(t, rdata string) (int, string, error) {
 	switch t {
 	case "A":
