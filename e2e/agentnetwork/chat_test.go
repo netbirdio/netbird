@@ -438,14 +438,10 @@ func TestProvidersMatrix(t *testing.T) {
 	// Create every provider, all enabled, each with a unique model string so the
 	// proxy's connect-time snapshot carries them all and model→provider routing
 	// is unambiguous (provider toggles after connect don't reconcile to the
-	// proxy, so we enable everything up front). The first create bootstraps the
-	// cluster.
+	// proxy, so we enable everything up front).
 	ids := make([]string, 0, len(matrix))
-	for i, pc := range matrix {
+	for _, pc := range matrix {
 		req := providerRequest(pc)
-		if i == 0 {
-			req.BootstrapCluster = ptr(harness.AgentNetworkCluster)
-		}
 		prov, perr := srv.CreateProvider(ctx, req)
 		require.NoError(t, perr, "create provider %s", pc.name)
 		ids = append(ids, prov.Id)

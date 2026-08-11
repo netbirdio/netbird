@@ -453,6 +453,7 @@ initialize_default_values() {
   NETBIRD_RELAY_AUTH_SECRET=$(openssl rand -base64 32 | sed "$SED_STRIP_PADDING")
   # Note: DataStoreEncryptionKey must keep base64 padding (=) for Go's base64.StdEncoding
   DATASTORE_ENCRYPTION_KEY=$(openssl rand -base64 32)
+  SESSION_COOKIE_ENCRYPTION_KEY=$(openssl rand -base64 32)
   NETBIRD_STUN_PORT=3478
 
   # Docker images
@@ -636,7 +637,8 @@ generate_configuration_files() {
 
   # Common files for all configurations
   render_dashboard_env > dashboard.env
-  render_combined_yaml > config.yaml
+  install -m 600 /dev/null config.yaml
+  render_combined_yaml >> config.yaml
   return 0
 }
 
@@ -1023,6 +1025,7 @@ server:
   auth:
     issuer: "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/oauth2"
     signKeyRefreshEnabled: true
+    sessionCookieEncryptionKey: "$SESSION_COOKIE_ENCRYPTION_KEY"
     dashboardRedirectURIs:
       - "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/nb-auth"
       - "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/nb-silent-auth"

@@ -23,6 +23,7 @@ import (
 	"golang.zx2c4.com/wireguard/tun/netstack"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
+	"github.com/netbirdio/netbird/client/anonymize"
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/firewall"
 	"github.com/netbirdio/netbird/client/firewall/firewalld"
@@ -1385,6 +1386,7 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobR
 
 	bundleJobParams := debug.BundleConfig{
 		Anonymize:         params.Anonymize,
+		AnonymizeLevel:    anonymize.ParseLevel(params.AnonymizeLevel),
 		IncludeSystemInfo: true,
 		LogFileCount:      uint32(params.LogFileCount),
 	}

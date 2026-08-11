@@ -352,6 +352,7 @@ init_environment() {
   POSTGRES_DB="netbird"
   POSTGRES_PASSWORD=$(rand_secret)
   NETBIRD_ENCRYPTION_KEY=$(rand_b64_key)
+  NETBIRD_SESSION_COOKIE_ENCRYPTION_KEY=$(rand_b64_key)
   NETBIRD_RELAY_AUTH_SECRET=$(rand_secret)
 
   POSTGRES_DSN="host=postgres user=${POSTGRES_USER} password=${POSTGRES_PASSWORD} dbname=${POSTGRES_DB} port=5432 sslmode=disable TimeZone=UTC"
@@ -795,6 +796,7 @@ server:
     issuer: "https://${NETBIRD_DOMAIN}/oauth2"
     localAuthDisabled: false
     signKeyRefreshEnabled: false
+    sessionCookieEncryptionKey: "${NETBIRD_SESSION_COOKIE_ENCRYPTION_KEY}"
     dashboardRedirectURIs:
       - "https://${NETBIRD_DOMAIN}/nb-auth"
       - "https://${NETBIRD_DOMAIN}/nb-silent-auth"

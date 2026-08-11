@@ -96,6 +96,7 @@ nfpms:
       - netbird (>= 0.75.0)
       - libgtk-4-1 (>= 4.14)
       - libwebkitgtk-6.0-4
+      - xdg-utils
 
   - maintainer: Netbird <dev@netbird.io>
     description: Netbird client UI.
@@ -119,6 +120,7 @@ nfpms:
       - netbird >= 0.75.0
       - (gtk4 >= 4.14 or libgtk-4-1 >= 4.14)
       - (webkitgtk6.0 or libwebkitgtk-6_0-4)
+      - xdg-utils
 
     rpm:
       signature:

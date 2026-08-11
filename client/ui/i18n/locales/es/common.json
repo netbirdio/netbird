@@ -551,6 +551,14 @@
     "settings.general.autostart.errorTitle": {
         "message": "Error al cambiar el inicio automático"
     },
+    "settings.general.keepConnectedOnQuit.label": {
+        "message": "Permanecer conectado al salir",
+        "description": "Toggle label: keep the VPN connection up after quitting the UI."
+    },
+    "settings.general.keepConnectedOnQuit.help": {
+        "message": "La conexión sigue activa en segundo plano después de cerrar NetBird. Solo se detiene cuando la desconectas tú.",
+        "description": "Helper text for the stay-connected-after-quitting toggle."
+    },
     "settings.general.language.label": {
         "message": "Idioma de la interfaz"
     },
