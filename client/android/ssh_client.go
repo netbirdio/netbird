@@ -3,11 +3,14 @@
 package android
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -15,6 +18,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	gossh "golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/auth"
@@ -33,7 +37,24 @@ const (
 // value would not survive the binding.
 const PasswordRequiredMarker = "netbird-ssh-password-required"
 
+// HostKeyUnknownMarker tells Java to show the fingerprint and, on confirmation,
+// retry with TrustHostKey set. The presented fingerprint is appended after the
+// marker so the prompt can display it and the retry can guard against a key
+// that changed between the two connects. Only regular (non-NetBird) servers
+// reach this: NetBird peers verify against the registry.
+const HostKeyUnknownMarker = "netbird-ssh-hostkey-unknown"
+
 var errPasswordRequired = errors.New(PasswordRequiredMarker)
+
+// errHostKeyUnknown carries the presented fingerprint so Connect can build the
+// marker message the Java side parses.
+type errHostKeyUnknown struct {
+	fingerprint string
+}
+
+func (e *errHostKeyUnknown) Error() string {
+	return HostKeyUnknownMarker + ":" + e.fingerprint
+}
 
 // engineHostKeyVerifier adapts *internal.Engine to nbssh.HostKeyVerifier.
 type engineHostKeyVerifier struct {
@@ -74,6 +95,15 @@ type SSHClient struct {
 	session   *gossh.Session
 	stdin     io.WriteCloser
 	closed    bool
+
+	// knownHostsPath is the TOFU store for regular SSH servers. Java supplies a
+	// per-profile path, since an overlay IP is a different host under a
+	// different profile. Empty until set: without it a regular server cannot be
+	// verified and Connect refuses one.
+	knownHostsPath string
+	// trustHostKey carries the fingerprint the user confirmed on a previous
+	// attempt, so the retry accepts exactly that key and persists it.
+	trustHostKey string
 }
 
 // NewSSHClient creates a new SSH client bound to the running NetBird Client.
@@ -98,6 +128,25 @@ func (s *SSHClient) SetURLOpener(opener URLOpener) {
 	s.mu.Unlock()
 }
 
+// SetKnownHostsPath points the TOFU host-key store at a per-profile file. Must
+// be set before connecting to a regular SSH server; without it such a server
+// cannot be verified and Connect refuses one.
+func (s *SSHClient) SetKnownHostsPath(path string) {
+	s.mu.Lock()
+	s.knownHostsPath = path
+	s.mu.Unlock()
+}
+
+// TrustHostKey records the fingerprint the user confirmed for a regular server,
+// so the next Connect accepts that exact key and adds it to the known-hosts
+// store. Passing a fingerprint that no longer matches makes the connect fail
+// rather than trust a key that changed since the prompt.
+func (s *SSHClient) TrustHostKey(fingerprint string) {
+	s.mu.Lock()
+	s.trustHostKey = fingerprint
+	s.mu.Unlock()
+}
+
 // Connect dials the SSH server through the NetBird tunnel and performs the
 // SSH handshake. It auto-detects the server type via SSH banner inspection
 // and selects the appropriate authentication path:
@@ -111,7 +160,7 @@ func (s *SSHClient) SetURLOpener(opener URLOpener) {
 //   - Regular SSH server (e.g. OpenSSH): authenticates with the NetBird key
 //     first (so a user-installed NetBird public key works), then falls back
 //     to the supplied password if non-empty. Host-key verification is
-//     disabled (TOFU pending).
+//     trust-on-first-use against the per-profile known-hosts store.
 //
 // The password parameter is only consulted for regular SSH servers.
 func (s *SSHClient) Connect(host string, port int, user, password string) error {
@@ -146,6 +195,13 @@ func (s *SSHClient) Connect(host string, port int, user, password string) error 
 		Timeout:         sshDialTimeout,
 	}
 	err = s.dialAndHandshake(host, port, clientConfig)
+
+	// An unknown host key is a prompt, not a failure: return the marker intact
+	// (rootCause would unwrap it) so Java can show the fingerprint and retry.
+	var unknownHost *errHostKeyUnknown
+	if errors.As(err, &unknownHost) {
+		return errors.New(unknownHost.Error())
+	}
 
 	// A regular server may still accept a password, so let the caller ask for
 	// one instead of failing. NetBird servers never use a password, so a
@@ -345,7 +401,7 @@ func (s *SSHClient) buildAuth(cfg *profilemanager.Config, engine *internal.Engin
 		auths := []gossh.AuthMethod{gossh.PublicKeys(signer)}
 		return auths, nbssh.CreateHostKeyCallback(&engineHostKeyVerifier{engine: engine}), nil
 
-	default: // regular SSH
+	case detection.ServerTypeRegular:
 		var auths []gossh.AuthMethod
 		if cfg.SSHKey != "" {
 			if signer, err := gossh.ParsePrivateKey([]byte(cfg.SSHKey)); err == nil {
@@ -370,8 +426,76 @@ func (s *SSHClient) buildAuth(cfg *profilemanager.Config, engine *internal.Engin
 			// so the caller can retry once the user supplies one.
 			return nil, nil, errPasswordRequired
 		}
-		return auths, gossh.InsecureIgnoreHostKey(), nil // nolint:gosec // TOFU not yet implemented
+		callback, err := s.tofuHostKeyCallback()
+		if err != nil {
+			return nil, nil, err
+		}
+		return auths, callback, nil
+
+	default:
+		return nil, nil, fmt.Errorf("unsupported SSH server type: %v", serverType)
 	}
+}
+
+// tofuHostKeyCallback verifies a regular server's host key against the
+// per-profile known-hosts file. An unknown host returns errHostKeyUnknown so
+// Java can show the fingerprint and, once confirmed, retry with the key
+// trusted; a changed key is rejected outright, as OpenSSH does. When the user
+// has confirmed a fingerprint, the callback accepts exactly that key and
+// appends it to the store.
+func (s *SSHClient) tofuHostKeyCallback() (gossh.HostKeyCallback, error) {
+	s.mu.Lock()
+	path := s.knownHostsPath
+	trusted := s.trustHostKey
+	s.mu.Unlock()
+
+	if path == "" {
+		return nil, errors.New("no known-hosts store configured for regular SSH")
+	}
+
+	if err := ensureFileExists(path); err != nil {
+		return nil, fmt.Errorf("prepare known-hosts store: %w", err)
+	}
+
+	known, err := knownhosts.New(path)
+	if err != nil {
+		return nil, fmt.Errorf("load known-hosts store: %w", err)
+	}
+
+	return func(hostname string, remote net.Addr, key gossh.PublicKey) error {
+		err := known(hostname, remote, key)
+		if err == nil {
+			return nil
+		}
+
+		var keyErr *knownhosts.KeyError
+		if !errors.As(err, &keyErr) {
+			return err
+		}
+		// Want holds the keys already stored for this host: non-empty means the
+		// presented key replaced a known one, which TOFU must never accept
+		// silently.
+		if len(keyErr.Want) > 0 {
+			return fmt.Errorf("SSH host key changed for %s (possible attack)", hostname)
+		}
+
+		fingerprint := gossh.FingerprintSHA256(key)
+		if trusted == "" {
+			return &errHostKeyUnknown{fingerprint: fingerprint}
+		}
+		if trusted != fingerprint {
+			return fmt.Errorf("SSH host key changed since it was confirmed for %s", hostname)
+		}
+		if err := appendKnownHost(path, hostname, remote, key); err != nil {
+			return fmt.Errorf("persist trusted host key: %w", err)
+		}
+		// The confirmation is spent: now that the key is stored, a later
+		// reconnect must verify against the file, not re-accept this fingerprint.
+		s.mu.Lock()
+		s.trustHostKey = ""
+		s.mu.Unlock()
+		return nil
+	}, nil
 }
 
 func (s *SSHClient) requestJWTToken(cfg *profilemanager.Config) (string, error) {
@@ -557,4 +681,98 @@ func rootCause(err error) error {
 		}
 		err = next
 	}
+}
+
+// ensureFileExists creates an empty known-hosts file when none exists yet, so
+// knownhosts.New has something to parse on the first connection to any host.
+func ensureFileExists(path string) error {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	return f.Close()
+}
+
+// appendKnownHost adds the confirmed key to the store in the standard
+// known_hosts format, so it verifies silently on later connections and can be
+// inspected or edited like any OpenSSH known_hosts file.
+func appendKnownHost(path, hostname string, remote net.Addr, key gossh.PublicKey) error {
+	addresses := []string{knownhosts.Normalize(hostname)}
+	if remote != nil {
+		if normalized := knownhosts.Normalize(remote.String()); normalized != addresses[0] {
+			addresses = append(addresses, normalized)
+		}
+	}
+	line := knownhosts.Line(addresses, key)
+
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if cerr := f.Close(); cerr != nil {
+			log.Debugf("ssh: close known-hosts after append: %v", cerr)
+		}
+	}()
+	_, err = f.WriteString(line + "\n")
+	return err
+}
+
+// RemoveKnownHost deletes every known_hosts entry for host:port from the store,
+// so a host trusted for a session that is being deleted does not linger. Java
+// calls this only once no session targets that host, so a shared host stays
+// trusted. Missing file or entry is not an error: the goal state is "absent".
+func RemoveKnownHost(path, host string, port int) error {
+	target := knownhosts.Normalize(net.JoinHostPort(host, strconv.Itoa(port)))
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+
+	var kept []string
+	changed := false
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if knownHostsLineMatches(line, target) {
+			changed = true
+			continue
+		}
+		kept = append(kept, line)
+	}
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+	if !changed {
+		return nil
+	}
+
+	out := strings.Join(kept, "\n")
+	if len(kept) > 0 {
+		out += "\n"
+	}
+	return os.WriteFile(path, []byte(out), 0o600)
+}
+
+// knownHostsLineMatches reports whether a known_hosts line's address list
+// contains the normalized target. Comment and blank lines never match.
+func knownHostsLineMatches(line, target string) bool {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+		return false
+	}
+	fields := strings.Fields(trimmed)
+	if len(fields) == 0 {
+		return false
+	}
+	for _, addr := range strings.Split(fields[0], ",") {
+		if addr == target {
+			return true
+		}
+	}
+	return false
 }
