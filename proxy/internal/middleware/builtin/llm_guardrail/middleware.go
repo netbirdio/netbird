@@ -85,8 +85,9 @@ func (m *Middleware) Invoke(_ context.Context, in *middleware.Input) (*middlewar
 	model, modelPresent := lookupMetadata(in.Metadata, middleware.KeyLLMModel)
 	providerID, _ := lookupMetadata(in.Metadata, middleware.KeyLLMResolvedProviderID)
 	surface, _ := lookupMetadata(in.Metadata, middleware.KeyLLMProvider)
+	nonInference, _ := lookupMetadata(in.Metadata, middleware.KeyLLMNonInference)
 
-	if denial := m.evaluateAllowlist(providerID, surface, model, modelPresent); denial != nil {
+	if denial := m.evaluateAllowlist(providerID, surface, model, modelPresent, nonInference == "true"); denial != nil {
 		return denial, nil
 	}
 
@@ -115,7 +116,7 @@ func (m *Middleware) Close() error { return nil }
 // evaluateAllowlist denies when the resolved provider's allowlist rejects the
 // model; nil means proceed. Scoped to the provider llm_router resolved, so an
 // unrestricted provider (absent from config) is never caught by another's list.
-func (m *Middleware) evaluateAllowlist(providerID, surface, model string, modelPresent bool) *middleware.Output {
+func (m *Middleware) evaluateAllowlist(providerID, surface, model string, modelPresent, nonInference bool) *middleware.Output {
 	if len(m.cfg.ProviderAllowlists) == 0 {
 		return nil
 	}
@@ -134,7 +135,18 @@ func (m *Middleware) evaluateAllowlist(providerID, surface, model string, modelP
 	// Fail closed: with an allowlist in effect for this provider, a request whose
 	// model the parser couldn't extract (absent/empty) is denied. This enforces
 	// the allowlist for path-routed providers (Bedrock, Vertex) with no body model.
+	//
+	// The exception is a non-inference endpoint the router already authorised.
+	// The model listing and the connection-warming probe name no model
+	// anywhere — not in a body, not in the path — so failing closed here
+	// rejected model discovery for exactly the accounts that configured an
+	// allowlist, which is the outage this endpoint is meant to avoid. The
+	// per-model lookup does name one (the router stamps it from the path), so
+	// it still falls through to the allowlist check below.
 	if !modelPresent || normaliseModel(model) == "" {
+		if nonInference {
+			return nil
+		}
 		return denyModel(surface, "", denyCodeModelUnknown, denyMessageModelUnknown, denyReasonModelUnknown)
 	}
 	if modelInAllowlist(allowlist, model) {
