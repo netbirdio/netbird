@@ -122,9 +122,3 @@ func CollectRowsForSqlite[T any](rows *sql.Rows) ([]T, error) {
 func (s *SqliteStoreConn) GetAllowedUsers(ctx context.Context, accountId string) (map[string]struct{}, map[string][]string, error) {
 	return nil, nil, nil
 }
-func (s *SqliteStoreConn) GetPrivateServices(ctx context.Context, accountId string) ([]networkmapdb.Service, error) {
-	return nil, nil
-}
-func (s *SqliteStoreConn) GetProxyTargetedDomainResourceIDs(ctx context.Context, accountId string) (map[string]struct{}, error) {
-	return nil, nil
-}

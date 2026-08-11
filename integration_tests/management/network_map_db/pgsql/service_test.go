@@ -10,13 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
-	"github.com/netbirdio/netbird/management/server/types"
 )
 
-func TestGetPrivateServicesViaPgxConnection(t *testing.T) {
-	if engine == string(types.SqliteStoreEngine) {
-		t.Skip()
-	}
+func TestGetPrivateServices(t *testing.T) {
 	ctx := context.TODO()
 
 	execQuery(t, ctx,
@@ -54,11 +50,7 @@ func TestGetPrivateServicesViaPgxConnection(t *testing.T) {
 	})
 }
 
-func TestGetProxyTargetedDomainResourceIDsViaPgxConnection(t *testing.T) {
-	if engine == string(types.SqliteStoreEngine) {
-		t.Skip()
-	}
-
+func TestGetProxyTargetedDomainResourceIDs(t *testing.T) {
 	ctx := context.TODO()
 
 	execQuery(t, ctx,
