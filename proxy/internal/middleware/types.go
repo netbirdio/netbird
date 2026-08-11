@@ -253,6 +253,12 @@ type UpstreamRewrite struct {
 	// without verifying its TLS certificate. Set by llm_router from the
 	// provider's skip_tls_verification for self-hosted / internal gateways.
 	SkipTLSVerify bool
+	// DiscoveryModels, when non-empty, is the set of model ids the resolved
+	// route authorises, and the proxy drops everything else from the
+	// model-listing response. Empty leaves the upstream's list untouched,
+	// which is what a route that claims every model wants. Set by
+	// llm_router on a model-listing request only.
+	DiscoveryModels []string
 }
 
 // AuthHeader is a single name/value pair the proxy injects on the

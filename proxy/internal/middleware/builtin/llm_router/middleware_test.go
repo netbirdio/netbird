@@ -935,3 +935,48 @@ func TestRouter_ConnectionWarmProbeRoutes(t *testing.T) {
 	nonInference, _ := metaValue(t, out.Metadata, middleware.KeyLLMNonInference)
 	assert.Equal(t, "true", nonInference, "the probe carries no model to gate on")
 }
+
+// TestRouter_ModelListingCarriesAuthorisedModels pins the list the proxy
+// bounds the discovery response with. A catch-all route enumerates nothing,
+// so it must not bound the upstream's list at all.
+func TestRouter_ModelListingCarriesAuthorisedModels(t *testing.T) {
+	enumerated := ProviderRoute{
+		ID:              "anthropic-prod",
+		Models:          []string{"claude-sonnet-5", "claude-haiku-4-5"},
+		AllowedGroupIDs: []string{defaultTestGroup},
+		UpstreamScheme:  "https",
+		UpstreamHost:    "api.anthropic.com",
+	}
+
+	t.Run("enumerated route bounds the listing", func(t *testing.T) {
+		mw := New(Config{Providers: []ProviderRoute{enumerated}})
+		out, err := mw.Invoke(context.Background(), newModellessInput("/v1/models"))
+		require.NoError(t, err)
+		require.NotNil(t, out.Mutations)
+		require.NotNil(t, out.Mutations.RewriteUpstream)
+		assert.Equal(t, []string{"claude-sonnet-5", "claude-haiku-4-5"},
+			out.Mutations.RewriteUpstream.DiscoveryModels,
+			"the picker must be bounded by what the route authorises")
+	})
+
+	t.Run("catch-all route leaves the listing alone", func(t *testing.T) {
+		catchAll := enumerated
+		catchAll.Models = nil
+		mw := New(Config{Providers: []ProviderRoute{catchAll}})
+
+		out, err := mw.Invoke(context.Background(), newModellessInput("/v1/models"))
+		require.NoError(t, err)
+		require.NotNil(t, out.Mutations.RewriteUpstream)
+		assert.Empty(t, out.Mutations.RewriteUpstream.DiscoveryModels,
+			"a route that claims every model cannot bound the upstream's list")
+	})
+
+	t.Run("per-model lookup is not a listing", func(t *testing.T) {
+		mw := New(Config{Providers: []ProviderRoute{enumerated}})
+		out, err := mw.Invoke(context.Background(), newModellessInput("/v1/models/claude-sonnet-5"))
+		require.NoError(t, err)
+		require.NotNil(t, out.Mutations.RewriteUpstream)
+		assert.Empty(t, out.Mutations.RewriteUpstream.DiscoveryModels,
+			"the single-object lookup has no data array to filter")
+	})
+}

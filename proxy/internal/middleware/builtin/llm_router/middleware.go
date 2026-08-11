@@ -199,8 +199,16 @@ func (m *Middleware) Invoke(_ context.Context, in *middleware.Input) (*middlewar
 		case matchOutcomeFound:
 			out := m.allowWithRoute(route, surface, in.UserGroups)
 			out.Metadata = append(out.Metadata, middleware.KV{Key: middleware.KeyLLMNonInference, Value: "true"})
-			if _, hadPrefix := splitBedrockNamespace(reqPath); hadPrefix && out.Mutations != nil && out.Mutations.RewriteUpstream != nil {
-				out.Mutations.RewriteUpstream.StripPathPrefix = bedrockNamespacePrefix
+			if out.Mutations != nil && out.Mutations.RewriteUpstream != nil {
+				if _, hadPrefix := splitBedrockNamespace(reqPath); hadPrefix {
+					out.Mutations.RewriteUpstream.StripPathPrefix = bedrockNamespacePrefix
+				}
+				// A route that enumerates its models bounds what the caller
+				// may use, so the picker must not offer the rest: every
+				// entry outside the list is a request the chain will deny.
+				if reqPath == modelListingPath && len(route.Models) > 0 {
+					out.Mutations.RewriteUpstream.DiscoveryModels = append([]string(nil), route.Models...)
+				}
 			}
 			return out, nil
 		case matchOutcomeUnauthorised:
@@ -318,9 +326,15 @@ const connectionWarmPath = "/api/hello"
 // that legitimately carries no model in its request (model listing and the
 // connection-warming probe). These must route to an upstream rather than
 // deny, so model enumeration works end to end.
+// modelListingPath is the endpoint clients read at startup to populate
+// their model picker. Its response is a list the proxy can bound; the
+// per-model "/v1/models/{id}" lookup returns a single object and is left
+// alone.
+const modelListingPath = "/v1/models"
+
 func isModelLessPath(reqPath string) bool {
-	return reqPath == "/v1/models" ||
-		strings.HasPrefix(reqPath, "/v1/models/") ||
+	return reqPath == modelListingPath ||
+		strings.HasPrefix(reqPath, modelListingPath+"/") ||
 		reqPath == connectionWarmPath
 }
 
