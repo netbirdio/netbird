@@ -151,7 +151,8 @@ func (s *SSHClient) Connect(host string, port int, user, password string) error 
 	// one instead of failing. NetBird servers never use a password, so a
 	// failure there is genuine.
 	if err != nil && serverType != detection.ServerTypeNetBirdJWT &&
-		serverType != detection.ServerTypeNetBirdNoJWT && isAuthFailure(err) {
+		serverType != detection.ServerTypeNetBirdNoJWT && isAuthFailure(err) &&
+		passwordCouldHelp(err, password != "") {
 		return errPasswordRequired
 	}
 	if err != nil {
@@ -171,6 +172,18 @@ func isAuthFailure(err error) bool {
 		return true
 	}
 	return strings.Contains(err.Error(), "unable to authenticate")
+}
+
+// passwordCouldHelp reports whether prompting for a password again can change
+// the outcome. gossh lists a method under "attempted methods" only when the
+// server offered it, so a supplied password that was never attempted means the
+// server does not accept passwords and the real error should surface instead.
+func passwordCouldHelp(err error, passwordOffered bool) bool {
+	if !passwordOffered {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "password") || strings.Contains(msg, "keyboard-interactive")
 }
 
 // StartSession requests a PTY and starts an interactive shell. Output from
