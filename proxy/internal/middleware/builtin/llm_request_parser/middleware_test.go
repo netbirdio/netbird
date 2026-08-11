@@ -230,6 +230,31 @@ func TestInvoke_ProviderIDConfigBypassesURLSniff(t *testing.T) {
 	assert.Equal(t, "gpt-4o-mini", model)
 }
 
+func TestInvoke_PathSurfaceBeatsProviderIDConfig(t *testing.T) {
+	// Gateway records (LiteLLM, Portkey, OpenRouter) pin provider_id
+	// "openai", but the same record serves Claude Code on /v1/messages.
+	// Parsing that body as OpenAI reads no usage off the Anthropic
+	// response and prices the request on a surface where no claude-*
+	// model exists, so the path has to win.
+	mw, err := Factory{}.New([]byte(`{"provider_id":"openai"}`))
+	require.NoError(t, err, "factory must accept provider_id config")
+
+	out, err := mw.Invoke(context.Background(), &middleware.Input{
+		URL:  "/v1/messages",
+		Body: []byte(`{"model":"claude-sonnet-5","stream":true,"messages":[{"role":"user","content":"Hi"}]}`),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out)
+
+	provider, ok := metaValue(t, out.Metadata, middleware.KeyLLMProvider)
+	require.True(t, ok, "provider must be emitted")
+	assert.Equal(t, "anthropic", provider, "the /v1/messages path selects the Anthropic surface")
+
+	model, ok := metaValue(t, out.Metadata, middleware.KeyLLMModel)
+	require.True(t, ok, "model must be extracted")
+	assert.Equal(t, "claude-sonnet-5", model)
+}
+
 func TestInvoke_UnknownProviderIDFallsBackToURL(t *testing.T) {
 	mw, err := Factory{}.New([]byte(`{"provider_id":"not-a-real-parser"}`))
 	require.NoError(t, err, "factory must accept any provider_id string")

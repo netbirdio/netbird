@@ -72,9 +72,9 @@ func (middlewareImpl) Close() error { return nil }
 
 // Invoke detects the LLM provider, parses request facts, and emits
 // metadata. Always returns DecisionAllow; never errors. Provider
-// selection prefers the configured providerID (synthesiser-stamped on
-// agent-network targets) so requests routed to a custom upstream URL
-// still resolve. Falls back to URL sniffing when no providerID is set.
+// selection prefers the request path, falling back to the configured
+// providerID (synthesiser-stamped on agent-network targets) so requests
+// routed to a custom upstream URL still resolve.
 func (m middlewareImpl) Invoke(_ context.Context, in *middleware.Input) (*middleware.Output, error) {
 	out := &middleware.Output{Decision: middleware.DecisionAllow}
 	if in == nil {
@@ -92,9 +92,14 @@ func (m middlewareImpl) Invoke(_ context.Context, in *middleware.Input) (*middle
 		return m.invokeBedrock(in, br), nil
 	}
 
-	parser, ok := llm.ParserByName(m.providerID)
+	// A path that names an API surface wins over the configured providerID:
+	// a gateway record pinned to "openai" still serves Claude Code on
+	// /v1/messages, and reading that body with the OpenAI parser loses the
+	// Anthropic usage block and prices the request on the wrong surface.
+	// providerID stays the fallback for upstreams whose path says nothing.
+	parser, ok := llm.DetectParser(extractPath(in.URL))
 	if !ok {
-		parser, ok = llm.DetectParser(extractPath(in.URL))
+		parser, ok = llm.ParserByName(m.providerID)
 	}
 	if !ok {
 		return out, nil
