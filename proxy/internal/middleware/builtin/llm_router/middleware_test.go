@@ -1079,9 +1079,11 @@ func TestRouter_NonInferenceRequiresReadMethod(t *testing.T) {
 
 		out, err := mw.Invoke(context.Background(), in)
 		require.NoError(t, err)
-		assert.Equal(t, middleware.DecisionAllow, out.Decision)
+		assert.Equal(t, middleware.DecisionAllow, out.Decision,
+			"the HEAD warm probe must still reach the upstream")
 
 		nonInference, _ := metaValue(t, out.Metadata, middleware.KeyLLMNonInference)
-		assert.Equal(t, "true", nonInference)
+		assert.Equal(t, "true", nonInference,
+			"the HEAD warm probe carries no model to meter")
 	})
 }
