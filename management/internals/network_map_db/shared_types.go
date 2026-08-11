@@ -87,6 +87,11 @@ type AccountNetwork struct {
 	Serial     sql.NullInt64
 }
 
+type Network struct {
+	ID       string
+	PublicID sql.NullString
+}
+
 func RecordTypeAndRdata(t, rdata string) (int, string, error) {
 	switch t {
 	case "A":

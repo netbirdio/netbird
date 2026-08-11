@@ -135,9 +135,6 @@ func (s *SqliteStoreConn) GetPostureChecks(ctx context.Context, accountId string
 func (s *SqliteStoreConn) GetAllowedUsers(ctx context.Context, accountId string) (map[string]struct{}, map[string][]string, error) {
 	return nil, nil, nil
 }
-func (s *SqliteStoreConn) GetNetworkXIDToPublicIdMap(ctx context.Context, accountId string) (map[string]string, error) {
-	return nil, nil
-}
 func (s *SqliteStoreConn) GetPrivateServices(ctx context.Context, accountId string) ([]networkmapdb.Service, error) {
 	return nil, nil
 }
