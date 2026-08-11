@@ -52,6 +52,50 @@ func TestBuildStreamBundleResponse_CarriesIdentityAndUploadFields(t *testing.T) 
 	assert.Equal(t, int32(100), bundle.GetLogFileCount(), "existing fields must still map")
 }
 
+// newBundleJobRequest builds an api.JobRequest carrying a bundle workload with
+// the given parameters, mirroring what the REST handler decodes.
+func newBundleJobRequest(t *testing.T, p api.BundleParameters) *api.JobRequest {
+	t.Helper()
+	var wr api.WorkloadRequest
+	require.NoError(t, wr.FromBundleWorkloadRequest(api.BundleWorkloadRequest{
+		Type:       api.WorkloadTypeBundle,
+		Parameters: p,
+	}), "build bundle workload request")
+	return &api.JobRequest{Workload: wr}
+}
+
+// TestNewJob_AnonymizeLevelValidation verifies the management API accepts only
+// known anonymization levels (empty defaults on the client) and rejects an
+// unknown value instead of silently escalating it.
+func TestNewJob_AnonymizeLevelValidation(t *testing.T) {
+	base := api.BundleParameters{BundleFor: false, LogFileCount: 100, Anonymize: true}
+
+	for _, tc := range []struct {
+		name    string
+		level   *string
+		wantErr bool
+	}{
+		{name: "omitted", level: nil},
+		{name: "empty", level: strPtr("")},
+		{name: "default", level: strPtr("default")},
+		{name: "strict", level: strPtr("strict")},
+		{name: "mixed case", level: strPtr("Strict")},
+		{name: "unknown", level: strPtr("verbose"), wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := base
+			p.AnonymizeLevel = tc.level
+			_, err := NewJob("user-1", "acc-1", "peer-1", newBundleJobRequest(t, p))
+			if tc.wantErr {
+				require.Error(t, err, "an unknown anonymize_level must be rejected")
+				assert.Contains(t, err.Error(), "anonymize_level", "the error must name the offending field")
+				return
+			}
+			require.NoError(t, err, "a known anonymize_level must be accepted")
+		})
+	}
+}
+
 // TestBuildStreamBundleResponse_OmittedFieldsMapToEmpty verifies that omitted
 // optional fields map to the empty proto string, which the client resolves to
 // its defaults (default anonymization level, default upload server).

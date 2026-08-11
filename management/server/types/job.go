@@ -3,10 +3,12 @@ package types
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/netbirdio/netbird/client/anonymize"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -149,6 +151,16 @@ func validateAndBuildBundleParams(req api.WorkloadRequest, workload *Workload) e
 	// validate log-file-count ≥ 1 and ≤ 1000
 	if bundle.Parameters.LogFileCount < 1 || bundle.Parameters.LogFileCount > 1000 {
 		return fmt.Errorf("log-file-count must be between 1 and 1000, got %d", bundle.Parameters.LogFileCount)
+	}
+	// validate anonymize_level: omitted or empty defaults on the client;
+	// otherwise it must name a known level. An unknown value is rejected here
+	// rather than silently escalated, so a typo surfaces at job creation.
+	if lvl := bundle.Parameters.AnonymizeLevel; lvl != nil {
+		switch strings.ToLower(strings.TrimSpace(*lvl)) {
+		case "", anonymize.LevelDefaultString, anonymize.LevelStrictString:
+		default:
+			return fmt.Errorf("anonymize_level must be %q or %q, got %q", anonymize.LevelDefaultString, anonymize.LevelStrictString, *lvl)
+		}
 	}
 
 	workload.Parameters, err = json.Marshal(bundle.Parameters)
