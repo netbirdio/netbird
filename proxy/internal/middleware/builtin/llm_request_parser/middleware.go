@@ -350,7 +350,9 @@ func trimBedrockNamespace(reqPath string) string {
 //
 //	/model/{modelId}/{action}
 //
-// action ∈ {invoke, invoke-with-response-stream, converse, converse-stream}.
+// action ∈ {invoke, invoke-with-response-stream, converse, converse-stream,
+// count-tokens}. Token counting carries a model and no usage, so it routes
+// like any other action and meters to zero.
 // The modelId may be URL-encoded and may carry a cross-region inference-profile
 // prefix and a version suffix; normalizeBedrockModel strips both so the model
 // matches catalog pricing.
@@ -374,7 +376,7 @@ func parseBedrockPath(reqPath string) (bedrockRequest, bool) {
 		return bedrockRequest{}, false
 	}
 	switch action {
-	case "invoke", "converse":
+	case "invoke", "converse", "count-tokens":
 		return bedrockRequest{model: model}, true
 	case "invoke-with-response-stream", "converse-stream":
 		return bedrockRequest{model: model, stream: true}, true

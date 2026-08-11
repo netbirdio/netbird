@@ -1,9 +1,13 @@
 package llm_router
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/proxy/internal/middleware"
 )
 
 // TestRouteClaimsModel_BedrockNormalizesCandidate guards the fix for the native
@@ -27,4 +31,29 @@ func TestRouteClaimsModel_BedrockNormalizesCandidate(t *testing.T) {
 	assert.True(t, routeClaimsModel(openai, "gpt-4o"), "exact model must match")
 	assert.False(t, routeClaimsModel(openai, "us.gpt-4o"),
 		"non-Bedrock routes must not strip a us. prefix")
+}
+
+// TestRouter_BedrockCountTokensRoutes pins that the token-counting action
+// reaches the Bedrock route instead of denying as not-routable.
+func TestRouter_BedrockCountTokensRoutes(t *testing.T) {
+	mw := New(Config{Providers: []ProviderRoute{{
+		ID:              "bedrock-prod",
+		Bedrock:         true,
+		Models:          []string{"anthropic.claude-sonnet-4-5"},
+		AllowedGroupIDs: []string{defaultTestGroup},
+		UpstreamScheme:  "https",
+		UpstreamHost:    "bedrock-runtime.eu-central-1.amazonaws.com",
+	}}})
+
+	in := newInputWithModelAndURL("anthropic.claude-sonnet-4-5",
+		"/model/anthropic.claude-sonnet-4-5-20250929-v1:0/count-tokens")
+	in.Metadata = append(in.Metadata, middleware.KV{Key: middleware.KeyLLMProvider, Value: "bedrock"})
+
+	out, err := mw.Invoke(context.Background(), in)
+	require.NoError(t, err)
+	require.NotNil(t, out)
+	assert.Equal(t, middleware.DecisionAllow, out.Decision, "count-tokens must route, not deny")
+	require.NotNil(t, out.Mutations)
+	require.NotNil(t, out.Mutations.RewriteUpstream)
+	assert.Equal(t, "bedrock-runtime.eu-central-1.amazonaws.com", out.Mutations.RewriteUpstream.Host)
 }

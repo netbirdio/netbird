@@ -337,20 +337,33 @@ func splitBedrockNamespace(reqPath string) (string, bool) {
 	return reqPath, false
 }
 
+// bedrockActions are the runtime actions that follow the model id in a
+// Bedrock path. count-tokens is here so a client can price its context
+// against the dedicated endpoint; denying it pushes that work back onto
+// the inference endpoint, which bills for it.
+var bedrockActions = []string{
+	"/invoke",
+	"/invoke-with-response-stream",
+	"/converse",
+	"/converse-stream",
+	"/count-tokens",
+}
+
 // isBedrockPath reports whether reqPath is an AWS Bedrock runtime model
-// endpoint: /model/{modelId}/{action} where action is invoke,
-// invoke-with-response-stream, converse, or converse-stream — optionally behind
-// a "/bedrock" gateway-namespace prefix. The model lives in the path, so these
-// requests are routed by path to the Bedrock provider.
+// endpoint: /model/{modelId}/{action} — optionally behind a "/bedrock"
+// gateway-namespace prefix. The model lives in the path, so these requests
+// are routed by path to the Bedrock provider.
 func isBedrockPath(reqPath string) bool {
 	native, _ := splitBedrockNamespace(reqPath)
 	if !strings.HasPrefix(native, "/model/") {
 		return false
 	}
-	return strings.HasSuffix(native, "/invoke") ||
-		strings.HasSuffix(native, "/invoke-with-response-stream") ||
-		strings.HasSuffix(native, "/converse") ||
-		strings.HasSuffix(native, "/converse-stream")
+	for _, action := range bedrockActions {
+		if strings.HasSuffix(native, action) {
+			return true
+		}
+	}
+	return false
 }
 
 // matchVertex selects the Vertex provider authorised for the caller's groups
