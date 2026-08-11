@@ -111,32 +111,20 @@ changelog:
   disable: true
 
 uploads:
-  # The gtk3 packages reuse the netbird-ui package name, so they live in
-  # dedicated repo paths (deb distribution `gtk3`, yum path `yum-gtk3`) that
-  # legacy distros point their repo config at.
-  #
-  # GoReleaser derives the credential env var from the upload name, so these
-  # would look for UPLOAD_DEBIAN-GTK3_SECRET / UPLOAD_YUM-GTK3_SECRET. The
-  # release workflow only exports UPLOAD_DEBIAN_SECRET / UPLOAD_YUM_SECRET, and
-  # a missing secret is a silent skip rather than a failure -- the packages
-  # reached the GitHub release but never the package repositories. Point
-  # `password` at the exported vars so both uploads authenticate.
-  - name: debian-gtk3
+  - name: debian
     skip: "{{ .Env.SKIP_PUBLISH }}"
     ids:
       - netbird_ui_deb_gtk3
     mode: archive
-    target: https://pkgs.wiretrustee.com/debian/pool/{{ .ArtifactName }};deb.distribution=gtk3;deb.component=main;deb.architecture={{ if .Arm }}armhf{{ else }}{{ .Arch }}{{ end }};deb.package=
+    target: https://pkgs.wiretrustee.com/debian/pool/{{ .ArtifactName }};deb.distribution=stable;deb.component=main;deb.architecture={{ if .Arm }}armhf{{ else }}{{ .Arch }}{{ end }};deb.package=
     username: dev@wiretrustee.com
-    password: "{{ .Env.UPLOAD_DEBIAN_SECRET }}"
     method: PUT
 
-  - name: yum-gtk3
+  - name: yum
     skip: "{{ .Env.SKIP_PUBLISH }}"
     ids:
       - netbird_ui_rpm_gtk3
     mode: archive
-    target: https://pkgs.wiretrustee.com/yum-gtk3/{{ .Arch }}{{ if .Arm }}{{ .Arm }}{{ end }}
+    target: https://pkgs.wiretrustee.com/yum/{{ .Arch }}{{ if .Arm }}{{ .Arm }}{{ end }}
     username: dev@wiretrustee.com
-    password: "{{ .Env.UPLOAD_YUM_SECRET }}"
     method: PUT
