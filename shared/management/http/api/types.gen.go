@@ -4468,10 +4468,10 @@ type PolicyRule struct {
 	// Name Policy rule name identifier
 	Name string `json:"name"`
 
-	// PortRanges Policy rule affected ports ranges list
+	// PortRanges Policy rule affected ports ranges list. Mutually exclusive with `ports`. To mix individual ports with ranges in one rule, express each single port as a range with identical start and end values (for example, start 443, end 443).
 	PortRanges *[]RulePortRange `json:"port_ranges,omitempty"`
 
-	// Ports Policy rule affected ports
+	// Ports Policy rule affected ports. Mutually exclusive with `port_ranges`. A rule accepts either individual ports or port ranges, not both.
 	Ports *[]string `json:"ports,omitempty"`
 
 	// Protocol Policy rule type of the traffic
@@ -4508,10 +4508,10 @@ type PolicyRuleMinimum struct {
 	// Name Policy rule name identifier
 	Name string `json:"name"`
 
-	// PortRanges Policy rule affected ports ranges list
+	// PortRanges Policy rule affected ports ranges list. Mutually exclusive with `ports`. To mix individual ports with ranges in one rule, express each single port as a range with identical start and end values (for example, start 443, end 443).
 	PortRanges *[]RulePortRange `json:"port_ranges,omitempty"`
 
-	// Ports Policy rule affected ports
+	// Ports Policy rule affected ports. Mutually exclusive with `port_ranges`. A rule accepts either individual ports or port ranges, not both.
 	Ports *[]string `json:"ports,omitempty"`
 
 	// Protocol Policy rule type of the traffic
@@ -4551,10 +4551,10 @@ type PolicyRuleUpdate struct {
 	// Name Policy rule name identifier
 	Name string `json:"name"`
 
-	// PortRanges Policy rule affected ports ranges list
+	// PortRanges Policy rule affected ports ranges list. Mutually exclusive with `ports`. To mix individual ports with ranges in one rule, express each single port as a range with identical start and end values (for example, start 443, end 443).
 	PortRanges *[]RulePortRange `json:"port_ranges,omitempty"`
 
-	// Ports Policy rule affected ports
+	// Ports Policy rule affected ports. Mutually exclusive with `port_ranges`. A rule accepts either individual ports or port ranges, not both.
 	Ports *[]string `json:"ports,omitempty"`
 
 	// Protocol Policy rule type of the traffic
@@ -4962,7 +4962,7 @@ type RouteRequest struct {
 	SkipAutoApply *bool `json:"skip_auto_apply,omitempty"`
 }
 
-// RulePortRange Policy rule affected ports range
+// RulePortRange Policy rule affected ports range. A range with identical start and end values represents a single port.
 type RulePortRange struct {
 	// End The ending port of the range
 	End int `json:"end"`
