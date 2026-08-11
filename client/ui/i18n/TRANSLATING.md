@@ -2,7 +2,7 @@
 
 A short brief for translating the desktop UI — for any translator, human or AI agent (*"you"* = whoever's translating).
 
-**Translations are managed on Crowdin: <https://crowdin.com/project/netbird>.** Join the project, pick your language, and translate in the editor. Each string carries a context note (the `description` from the source file) telling you what it is and where it shows up, and the project's glossary, style guide, and QA checks are generated from this document.
+**Translations are managed on Crowdin: <https://crowdin.com/project/netbird>.** Join the project, pick your language, and translate in the editor. Each string carries a context note (the `description` from the source file) telling you what it is and where it shows up, and the project's glossary, style guide, and QA checks mirror this document.
 
 > 💡 **The one habit that matters most:** read each string's context before translating it. Labels are terse and ambiguous on their own; the context tells you what the string is, where it shows up, what to keep verbatim, and what it actually means.
 
@@ -10,14 +10,16 @@ A short brief for translating the desktop UI — for any translator, human or AI
 
 ## How contributions flow
 
-```
+```text
 i18n/locales/en/common.json ──sync──▶ Crowdin ──service PR──▶ i18n/locales/<code>/common.json
 ```
 
 - `i18n/locales/en/common.json` is the source of truth. New and changed strings sync to Crowdin automatically (see `crowdin.yml` in the repository root).
-- Crowdin opens and updates a service pull request with the translated bundles. Maintainers review and merge it; key parity, key order, and file shape are guaranteed by the export.
+- Crowdin opens and updates a service pull request with the translated bundles, keeping the source's file shape and key order. Keys nobody has translated yet are left out of the export; the app falls back to English for them at runtime. Maintainers review and merge that PR.
 - Don't hand-edit `i18n/locales/<code>/common.json` in your own PRs: the next sync would conflict with or overwrite your changes. Translate on Crowdin instead.
-- Missing your language? Request it on the Crowdin project page or in a [GitHub discussion](https://github.com/netbirdio/netbird/discussions). When a language first ships, a maintainer adds its row to `i18n/locales/_index.json` (`{"code","displayName"` = native name`,"englishName"}`), which puts it in the app's language picker.
+- Missing your language? Request it on the Crowdin project page or in a [GitHub discussion](https://github.com/netbirdio/netbird/discussions). When a language first ships, a maintainer adds its row to `i18n/locales/_index.json` with `code`, `displayName` (the native name), and `englishName`, which puts it in the app's language picker.
+
+**Prefer translating with an AI agent?** That still works: drive it with *"Read `i18n/TRANSLATING.md` and translate the UI to Russian"* as before, but deliver the result to Crowdin instead of a pull request. Download your language's file from the Crowdin editor, let the agent translate it, and upload it back (the editor's offline translation flow). Crowdin runs its QA checks on upload, and the next service PR carries the strings into the repo.
 
 ---
 
