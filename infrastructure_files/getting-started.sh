@@ -401,6 +401,39 @@ check_docker_subnet_conflicts() {
   local expected_network="$1"
   command -v docker &> /dev/null || return 0
 
+  # docker's own stderr is left visible on purpose: "is the daemon running"
+  # and socket permission errors are the actionable part. Only the exit status
+  # is handled here, because skipping the check silently would resurface later
+  # as a confusing "docker compose up" failure.
+  local ids_raw ls_status=0
+  ids_raw="$(docker network ls -q)" || ls_status=$?
+  if [[ "$ls_status" -ne 0 ]]; then
+    echo "ERROR: could not list the existing Docker networks (docker network ls exited $ls_status)." > /dev/stderr
+    echo "Without it this script cannot verify that $DOCKER_SUBNET is free." > /dev/stderr
+    echo "Make sure the Docker daemon is running and reachable by this user, then run this script again." > /dev/stderr
+    exit 1
+  fi
+
+  # Collect the IDs in an array so they reach docker as separate arguments
+  local network_ids=() id
+  while IFS= read -r id; do
+    if [[ -n "$id" ]]; then
+      network_ids+=("$id")
+    fi
+  done <<< "$ids_raw"
+
+  # No Docker networks at all: nothing can overlap, so there is nothing to check
+  [[ "${#network_ids[@]}" -gt 0 ]] || return 0
+
+  local inspect_output inspect_status=0
+  inspect_output="$(docker network inspect --format '{{.Name}}|{{range .IPAM.Config}}{{.Subnet}} {{end}}' "${network_ids[@]}")" || inspect_status=$?
+  if [[ "$inspect_status" -ne 0 ]]; then
+    echo "ERROR: could not inspect the existing Docker networks (docker network inspect exited $inspect_status)." > /dev/stderr
+    echo "Without it this script cannot verify that $DOCKER_SUBNET is free." > /dev/stderr
+    echo "If a Docker network was removed while this script was running, run the script again." > /dev/stderr
+    exit 1
+  fi
+
   local name subnets subnet
   while IFS='|' read -r name subnets; do
     for subnet in $subnets; do
@@ -423,7 +456,7 @@ check_docker_subnet_conflicts() {
         exit 1
       fi
     done
-  done < <(docker network inspect --format '{{.Name}}|{{range .IPAM.Config}}{{.Subnet}} {{end}}' $(docker network ls -q 2>/dev/null) 2>/dev/null || true)
+  done <<< "$inspect_output"
   return 0
 }
 
@@ -775,9 +808,13 @@ init_environment() {
 
   initialize_default_values
   apply_docker_subnet_override
+  # Settle the subnet (and fail on conflicts) before the prompts, so a
+  # conflict does not surface after the operator has answered them.
+  # REVERSE_PROXY_TYPE still holds its "0" default here, which is the only
+  # mode that pins the subnet.
+  configure_docker_subnet
   configure_domain
   configure_reverse_proxy
-  configure_docker_subnet
 
   check_jq
 
