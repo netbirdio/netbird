@@ -373,6 +373,13 @@ func (s *SSHClient) requestJWTToken(cfg *profilemanager.Config) (string, error) 
 	if token == "" {
 		return "", errors.New("empty token returned by IdP")
 	}
+
+	// Tells the client the browser round-trip is over so it can dismiss the
+	// surface it opened, the same way the login and session-extend flows do.
+	// Without it the Custom Tab stays in front of the terminal even though the
+	// token has already been collected.
+	go urlOpener.OnLoginSuccess()
+
 	return token, nil
 }
 
