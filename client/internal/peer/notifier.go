@@ -5,6 +5,10 @@ import (
 )
 
 type notifier struct {
+	// publishLock orders state publication: it is held across computing the
+	// effective state and handing it to the listener, so a transition cannot
+	// overtake a newer one and leave the listener on a stale state.
+	publishLock        sync.Mutex
 	serverStateLock    sync.Mutex
 	listenersLock      sync.Mutex
 	listener           Listener
@@ -37,6 +41,9 @@ func (n *notifier) effectiveState(state ClientState) ClientState {
 // the listener when the flag flips the effective state (Connecting <->
 // NoNetwork).
 func (n *notifier) setNetworkAvailable(available bool) {
+	n.publishLock.Lock()
+	defer n.publishLock.Unlock()
+
 	n.serverStateLock.Lock()
 	if n.networkAvailable == available {
 		n.serverStateLock.Unlock()
@@ -78,6 +85,9 @@ func (n *notifier) removeListener() {
 }
 
 func (n *notifier) updateServerStates(mgmState bool, signalState bool) {
+	n.publishLock.Lock()
+	defer n.publishLock.Unlock()
+
 	n.serverStateLock.Lock()
 	calculatedState := n.calculateState(mgmState, signalState)
 
@@ -94,6 +104,9 @@ func (n *notifier) updateServerStates(mgmState bool, signalState bool) {
 }
 
 func (n *notifier) clientStart() {
+	n.publishLock.Lock()
+	defer n.publishLock.Unlock()
+
 	n.serverStateLock.Lock()
 	n.currentClientState = true
 	n.lastNotification = ClientStateConnecting
@@ -104,6 +117,9 @@ func (n *notifier) clientStart() {
 }
 
 func (n *notifier) clientStop() {
+	n.publishLock.Lock()
+	defer n.publishLock.Unlock()
+
 	n.serverStateLock.Lock()
 	n.currentClientState = false
 	n.lastNotification = ClientStateDisconnected
@@ -113,6 +129,9 @@ func (n *notifier) clientStop() {
 }
 
 func (n *notifier) clientTearDown() {
+	n.publishLock.Lock()
+	defer n.publishLock.Unlock()
+
 	n.serverStateLock.Lock()
 	n.currentClientState = false
 	n.lastNotification = ClientStateDisconnecting
