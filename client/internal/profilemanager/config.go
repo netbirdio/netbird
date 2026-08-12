@@ -770,13 +770,18 @@ func (config *Config) applyMDMPolicy(policy *mdm.Policy) {
 	if v, ok := policy.GetString(mdm.KeyBundleUploadURL); ok {
 		// Must be a well-formed https URL with a host, matching the client's
 		// remote-job upload-URL validation. Invalid values are skipped so a
-		// bad policy cannot break bundle uploads.
+		// bad policy cannot break bundle uploads. The URL is not logged: it
+		// can embed credentials or signed query tokens.
 		if u, err := url.Parse(v); err != nil || u.Scheme != "https" || u.Host == "" {
-			log.Warnf("MDM debug bundle upload URL %q invalid (must be an https URL with a host); keeping previous value", v)
+			log.Warnf("MDM debug bundle upload URL is invalid (must be an https URL with a host); keeping previous value")
 		} else {
 			config.DebugBundleUploadURL = v
-			logApplied(mdm.KeyBundleUploadURL, v)
+			logApplied(mdm.KeyBundleUploadURL, "")
 		}
+	} else {
+		// The key was dropped from the policy: clear any stale override so it
+		// can never keep directing uploads to a previously-enforced host.
+		config.DebugBundleUploadURL = ""
 	}
 }
 

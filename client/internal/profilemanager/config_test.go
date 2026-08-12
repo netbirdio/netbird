@@ -324,6 +324,14 @@ func TestApplyMDMPolicyRemoteJobs(t *testing.T) {
 		}))
 		assert.Empty(t, cfg.DebugBundleUploadURL, "a non-https upload URL must be skipped")
 	})
+
+	t.Run("dropping the key clears a previously-applied override", func(t *testing.T) {
+		cfg := &Config{DebugBundleUploadURL: "https://old.example.com"}
+		// A replacement policy that no longer carries the key must not leave
+		// the old upload target directing bundles.
+		cfg.applyMDMPolicy(mdm.NewPolicy(map[string]any{mdm.KeyRemoteJobsAllowed: true}))
+		assert.Empty(t, cfg.DebugBundleUploadURL, "the stale upload URL override must be cleared")
+	})
 }
 
 func TestUpdateOldManagementURL(t *testing.T) {

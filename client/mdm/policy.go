@@ -82,6 +82,8 @@ const (
 // SecretKeys lists keys whose values must be redacted in logs.
 var SecretKeys = map[string]struct{}{
 	KeyPreSharedKey: {},
+	// The upload URL can embed credentials or signed query tokens.
+	KeyBundleUploadURL: {},
 }
 
 // boolStringLiterals enumerates the textual boolean encodings the
