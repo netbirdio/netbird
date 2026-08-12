@@ -3,11 +3,15 @@
 package harness
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // The options exist so a suite can ask for a deployment this harness would not
@@ -18,18 +22,15 @@ import (
 
 func TestCombinedEnvGeolocation(t *testing.T) {
 	var off combinedOptions
-	if got := combinedEnv(off)["NB_DISABLE_GEOLOCATION"]; got != "true" {
-		t.Errorf("geolocation should be off by default, NB_DISABLE_GEOLOCATION = %q", got)
-	}
+	assert.Equal(t, "true", combinedEnv(off)["NB_DISABLE_GEOLOCATION"],
+		"geolocation should be off by default")
 
 	var on combinedOptions
 	WithGeolocation()(&on)
-	if _, set := combinedEnv(on)["NB_DISABLE_GEOLOCATION"]; set {
-		t.Error("WithGeolocation must leave NB_DISABLE_GEOLOCATION unset, so the server downloads the database")
-	}
-	if combinedEnv(on)["NB_SETUP_PAT_ENABLED"] != "true" {
-		t.Error("the setup PAT must stay enabled whatever else is configured; Bootstrap depends on it")
-	}
+	assert.NotContains(t, combinedEnv(on), "NB_DISABLE_GEOLOCATION",
+		"WithGeolocation must leave NB_DISABLE_GEOLOCATION unset, so the server downloads the database")
+	assert.Equal(t, "true", combinedEnv(on)["NB_SETUP_PAT_ENABLED"],
+		"the setup PAT must stay enabled whatever else is configured; Bootstrap depends on it")
 }
 
 // The config file carries the same decision as the environment variable, and the
@@ -50,14 +51,10 @@ func TestCombinedConfigGeolocation(t *testing.T) {
 				opt(&o)
 			}
 			cfg := fmt.Sprintf(combinedConfigYAML, combinedExposedURL, !o.geolocation, containerIssuer)
-			if !strings.Contains(cfg, tc.want) {
-				t.Errorf("config should contain %q, got:\n%s", tc.want, cfg)
-			}
+			assert.Contains(t, cfg, tc.want, "geolocation not rendered as expected")
 			// The issuer is the last verb; a mis-ordered argument list would put
 			// the boolean here instead and the server would fail to start.
-			if !strings.Contains(cfg, `issuer: "`+containerIssuer+`"`) {
-				t.Errorf("issuer not rendered, got:\n%s", cfg)
-			}
+			assert.Contains(t, cfg, `issuer: "`+containerIssuer+`"`, "issuer not rendered")
 		})
 	}
 }
@@ -68,12 +65,8 @@ func TestWithServerEnvOverrides(t *testing.T) {
 	WithServerEnv(map[string]string{"NB_SETUP_PAT_ENABLED": "false"})(&o)
 
 	env := combinedEnv(o)
-	if env["NB_LOG_LEVEL"] != "debug" {
-		t.Errorf("added variable missing, NB_LOG_LEVEL = %q", env["NB_LOG_LEVEL"])
-	}
-	if env["NB_SETUP_PAT_ENABLED"] != "false" {
-		t.Errorf("a suite must be able to override a default, NB_SETUP_PAT_ENABLED = %q", env["NB_SETUP_PAT_ENABLED"])
-	}
+	assert.Equal(t, "debug", env["NB_LOG_LEVEL"], "added variable missing")
+	assert.Equal(t, "false", env["NB_SETUP_PAT_ENABLED"], "a suite must be able to override a default")
 }
 
 // Two agents on one network cannot share an alias, so the name has to reach both
@@ -81,14 +74,10 @@ func TestWithServerEnvOverrides(t *testing.T) {
 // also what the peer is addressable by through the API.
 func TestWithClientName(t *testing.T) {
 	o := clientOptions{name: clientAlias}
-	if o.name != "client" {
-		t.Fatalf("unexpected default client name %q", o.name)
-	}
+	require.Equal(t, "client", o.name, "unexpected default client name")
 
 	WithClientName("peer2")(&o)
-	if o.name != "peer2" {
-		t.Errorf("WithClientName did not take, name = %q", o.name)
-	}
+	assert.Equal(t, "peer2", o.name, "WithClientName did not take")
 }
 
 // repoRoot has to recognise this module rather than merely finding a go.mod, or a
@@ -96,41 +85,77 @@ func TestWithClientName(t *testing.T) {
 // component Dockerfiles in it.
 func TestIsModule(t *testing.T) {
 	dir := t.TempDir()
+
 	other := filepath.Join(dir, "go.mod")
-	if err := os.WriteFile(other, []byte("module example.com/other\n\ngo 1.25\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if isModule(other, modulePath) {
-		t.Error("another module's go.mod must not be taken for this repo")
-	}
+	require.NoError(t, os.WriteFile(other, []byte("module example.com/other\n\ngo 1.25\n"), 0o600))
+	assert.False(t, isModule(other, modulePath), "another module's go.mod must not be taken for this repo")
 
 	ours := filepath.Join(dir, "ours.mod")
-	if err := os.WriteFile(ours, []byte("// a comment\n\nmodule "+modulePath+"\n\ngo 1.25\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if !isModule(ours, modulePath) {
-		t.Error("this repo's go.mod was not recognised")
-	}
+	require.NoError(t, os.WriteFile(ours, []byte("// a comment\n\nmodule "+modulePath+"\n\ngo 1.25\n"), 0o600))
+	assert.True(t, isModule(ours, modulePath), "this repo's go.mod was not recognised")
 
-	if isModule(filepath.Join(dir, "absent.mod"), modulePath) {
-		t.Error("a missing go.mod must not report a match")
-	}
+	assert.False(t, isModule(filepath.Join(dir, "absent.mod"), modulePath),
+		"a missing go.mod must not report a match")
 }
 
 // Running from inside the repo, repoRoot finds it by walking up — the module
-// lookup is only the fallback, and this asserts the walk still wins so an
-// in-repo run never depends on the module cache.
+// lookup is only the fallback, and this asserts the walk still wins so an in-repo
+// run never depends on the module cache.
 func TestRepoRootFindsThisRepo(t *testing.T) {
-	root, err := repoRoot()
-	if err != nil {
-		t.Fatalf("repoRoot: %v", err)
-	}
-	if !isModule(filepath.Join(root, "go.mod"), modulePath) {
-		t.Errorf("repoRoot returned %s, which is not this module", root)
-	}
+	root, err := repoRoot(context.Background())
+	require.NoError(t, err)
+	assert.True(t, isModule(filepath.Join(root, "go.mod"), modulePath),
+		"repoRoot returned %s, which is not this module", root)
+
 	for _, f := range []string{combinedDockerfile, clientDockerfile} {
-		if _, err := os.Stat(filepath.Join(root, f)); err != nil {
-			t.Errorf("%s is not present under the reported root %s: %v", f, root, err)
-		}
+		_, err := os.Stat(filepath.Join(root, f))
+		assert.NoError(t, err, "%s is not present under the reported root %s", f, root)
 	}
+}
+
+// A caller that vendors its dependencies puts the go command in automatic vendor
+// mode, where `go list -m -f {{.Dir}}` succeeds and reports an EMPTY directory:
+// vendor/ holds packages, not module source. Without -mod=readonly the lookup
+// would come back empty and the harness would report a missing module for a
+// dependency that is present.
+func TestModuleDirResolvesUnderVendorMode(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("no go tool on PATH")
+	}
+	ctx := context.Background()
+
+	base := t.TempDir()
+	dep := filepath.Join(base, "dep")
+	main := filepath.Join(base, "main")
+	require.NoError(t, os.MkdirAll(dep, 0o750))
+	require.NoError(t, os.MkdirAll(main, 0o750))
+
+	// A local replacement rather than a real dependency, so this needs no network.
+	require.NoError(t, os.WriteFile(filepath.Join(dep, "go.mod"),
+		[]byte("module example.com/dep\n\ngo 1.25\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dep, "dep.go"),
+		[]byte("package dep\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(main, "go.mod"),
+		[]byte("module example.com/main\n\ngo 1.25\n\nrequire example.com/dep v0.0.0\n\nreplace example.com/dep v0.0.0 => ../dep\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(main, "main.go"),
+		[]byte("package main\n\nimport _ \"example.com/dep\"\n\nfunc main() {}\n"), 0o600))
+
+	t.Chdir(main)
+	vendor := exec.CommandContext(ctx, "go", "mod", "vendor")
+	out, err := vendor.CombinedOutput()
+	require.NoError(t, err, "go mod vendor: %s", out)
+
+	dir, err := moduleDir(ctx, "example.com/dep")
+	require.NoError(t, err, "the module must still resolve with a vendor directory present")
+	assert.Equal(t, dep, dir, "resolved the wrong directory")
+}
+
+// A cancelled context has to stop the lookup rather than leaving the caller
+// waiting on a subprocess it has already given up on.
+func TestModuleDirHonoursContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := moduleDir(ctx, modulePath)
+	assert.Error(t, err, "a cancelled context must fail the lookup")
 }

@@ -122,7 +122,7 @@ func StartCombined(ctx context.Context, opts ...CombinedOption) (*Combined, erro
 		opt(&o)
 	}
 
-	root, err := repoRoot()
+	root, err := repoRoot(ctx)
 	if err != nil {
 		return nil, err
 	}

@@ -61,7 +61,7 @@ func StartClient(ctx context.Context, c *Combined, setupKey string, opts ...Clie
 		opt(&o)
 	}
 
-	root, err := repoRoot()
+	root, err := repoRoot(ctx)
 	if err != nil {
 		return nil, err
 	}
