@@ -120,22 +120,22 @@ func MaxRecvMsgSize() int {
 	return size
 }
 
-// ClientOption configures optional GrpcClient behavior.
-type ClientOption func(*GrpcClient)
+// Option configures optional GrpcClient behavior.
+type Option func(*GrpcClient)
 
 // WithNetworkState injects the OS network availability state that gates the
 // stream retry loop; without it gating is disabled.
-func WithNetworkState(netState *netstate.State) ClientOption {
+func WithNetworkState(netState *netstate.State) Option {
 	return func(c *GrpcClient) { c.netState = netState }
 }
 
 // WithSweeper injects the network change sweeper.
-func WithSweeper(sweeper *netsweep.Sweeper) ClientOption {
+func WithSweeper(sweeper *netsweep.Sweeper) Option {
 	return func(c *GrpcClient) { c.sweeper = sweeper }
 }
 
 // NewClient creates a new client to Management service
-func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsEnabled bool, opts ...ClientOption) (*GrpcClient, error) {
+func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsEnabled bool, opts ...Option) (*GrpcClient, error) {
 	// Options apply before dialing: the sweeper must wrap the first connection too.
 	c := &GrpcClient{
 		key:                   ourPrivateKey,
@@ -242,7 +242,7 @@ func (c *GrpcClient) withMgmtStream(
 		// stop the loop without reporting a failure.
 		if waited, err := c.netState.Wait(ctx); err != nil {
 			log.Debugf("management connection context has been canceled while offline, this usually indicates shutdown")
-			return nil
+			return nil //nolint:nilerr // a cancelled context means shutdown, not a retryable failure
 		} else if waited {
 			backOff.Reset()
 		}
