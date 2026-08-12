@@ -729,6 +729,11 @@ jobs:
       - name: Install modules
         run: go mod tidy
 
+      - name: Run Mage
+        uses: magefile/mage-action@v4
+        with:
+          install-only: true
+
       - name: check git status
         run: git --no-pager diff --exit-code
 
@@ -737,9 +742,7 @@ jobs:
           CGO_ENABLED=1 GOARCH=${{ matrix.arch }} \
           NETBIRD_STORE_ENGINE=${{ matrix.store }} \
           CI=true \
-          go test -tags=integration -coverprofile=coverage.txt \
-          -exec 'sudo --preserve-env=CI,NETBIRD_STORE_ENGINE' \
-          -timeout 20m ./management/server/http/...
+          mage integrationtest:all -gotestflags="-coverprofile=coverage.txt"
 
       - name: Upload coverage reports to Codecov
         if: matrix.arch == 'amd64'
