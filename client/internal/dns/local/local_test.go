@@ -37,8 +37,8 @@ type mockPeerConnectivity struct {
 	byIP map[string]struct{ known, connected bool }
 }
 
-func (m mockPeerConnectivity) IsConnectedByIP(ip string) (known, connected bool) {
-	v, ok := m.byIP[ip]
+func (m mockPeerConnectivity) IsConnectedByIP(ip netip.Addr) (known, connected bool) {
+	v, ok := m.byIP[ip.String()]
 	if !ok {
 		return false, false
 	}
@@ -2737,6 +2737,17 @@ func TestLocalResolver_FilterDisconnectedPeerAnswers(t *testing.T) {
 			records:     []nbdns.SimpleRecord{connectedRec, disconnectedRec},
 			connByIP:    nil,
 			wantInOrder: []string{"100.64.0.10", "100.64.0.11"},
+		},
+		{
+			// A single answer is never filtered: dropping it would only
+			// trigger the empty-answer escape hatch, so the fast path
+			// returns it untouched.
+			name:    "single disconnected answer passes through",
+			records: []nbdns.SimpleRecord{disconnectedRec},
+			connByIP: map[string]ipState{
+				"100.64.0.11": {known: true, connected: false},
+			},
+			wantInOrder: []string{"100.64.0.11"},
 		},
 	}
 

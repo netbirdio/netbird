@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
+	"github.com/google/uuid"
 	"github.com/pires/go-proxyproto"
 	prometheus2 "github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -54,6 +55,8 @@ import (
 	"github.com/netbirdio/netbird/proxy/internal/health"
 	"github.com/netbirdio/netbird/proxy/internal/k8s"
 	proxymetrics "github.com/netbirdio/netbird/proxy/internal/metrics"
+	"github.com/netbirdio/netbird/proxy/internal/middleware"
+	mwbuiltin "github.com/netbirdio/netbird/proxy/internal/middleware/builtin"
 	"github.com/netbirdio/netbird/proxy/internal/netutil"
 	"github.com/netbirdio/netbird/proxy/internal/proxy"
 	"github.com/netbirdio/netbird/proxy/internal/restrict"
@@ -64,6 +67,7 @@ import (
 	"github.com/netbirdio/netbird/proxy/web"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/trustedproxy"
 	"github.com/netbirdio/netbird/util/embeddedroots"
 )
 
@@ -75,29 +79,37 @@ type portRouter struct {
 }
 
 type Server struct {
-	ctx           context.Context
-	mgmtClient    proto.ProxyServiceClient
-	proxy         *proxy.ReverseProxy
-	netbird       *roundtrip.NetBird
-	acme          *acme.Manager
-	auth          *auth.Middleware
-	http          *http.Server
-	https         *http.Server
-	debug         *http.Server
-	healthServer  *health.Server
-	healthChecker *health.Checker
-	meter         *proxymetrics.Metrics
-	accessLog     *accesslog.Logger
-	mainRouter    *nbtcp.Router
-	mainPort      uint16
-	udpMu         sync.Mutex
-	udpRelays     map[types.ServiceID]*udprelay.Relay
-	udpRelayWg    sync.WaitGroup
-	portMu        sync.RWMutex
-	portRouters   map[uint16]*portRouter
-	svcPorts      map[types.ServiceID][]uint16
-	lastMappings  map[types.ServiceID]*proto.ProxyMapping
-	portRouterWg  sync.WaitGroup
+	ctx               context.Context
+	mgmtClient        proto.ProxyServiceClient
+	proxy             *proxy.ReverseProxy
+	netbird           *roundtrip.NetBird
+	acme              *acme.Manager
+	staticCertWatcher *certwatch.Watcher
+	auth              *auth.Middleware
+	http              *http.Server
+	https             *http.Server
+	debug             *http.Server
+	healthServer      *health.Server
+	healthChecker     *health.Checker
+	meter             *proxymetrics.Metrics
+	accessLog         *accesslog.Logger
+	// middlewareManager drives per-target middleware dispatch. Always
+	// constructed during boot; an empty registry produces empty chains and
+	// the reverse-proxy stays on the no-capture fast path.
+	middlewareManager *middleware.Manager
+	// middlewareRegistry is the source of registered middleware factories.
+	// Concrete middlewares register themselves through init().
+	middlewareRegistry *middleware.Registry
+	mainRouter         *nbtcp.Router
+	mainPort           uint16
+	udpMu              sync.Mutex
+	udpRelays          map[types.ServiceID]*udprelay.Relay
+	udpRelayWg         sync.WaitGroup
+	portMu             sync.RWMutex
+	portRouters        map[uint16]*portRouter
+	svcPorts           map[types.ServiceID][]uint16
+	lastMappings       map[types.ServiceID]*proto.ProxyMapping
+	portRouterWg       sync.WaitGroup
 
 	// hijackTracker tracks hijacked connections (e.g. WebSocket upgrades)
 	// so they can be closed during graceful shutdown, since http.Server.Shutdown
@@ -117,6 +129,9 @@ type Server struct {
 	// routerReady is closed once mainRouter is fully initialized.
 	// The mapping worker waits on this before processing updates.
 	routerReady chan struct{}
+
+	// removePeer defaults to netbird.RemovePeer; overridable in tests.
+	removePeer func(ctx context.Context, accountID types.AccountID, key roundtrip.ServiceKey) error
 
 	// inbound, when non-nil, manages per-account inbound listeners. Set by
 	// initPrivateInbound only when Private is true so the standalone
@@ -178,10 +193,10 @@ type Server struct {
 	// ForwardedProto overrides the X-Forwarded-Proto value sent to backends.
 	// Valid values: "auto" (detect from TLS), "http", "https".
 	ForwardedProto string
-	// TrustedProxies is a list of IP prefixes for trusted upstream proxies.
-	// When set, forwarding headers from these sources are preserved and
-	// appended to instead of being stripped.
-	TrustedProxies []netip.Prefix
+	// TrustedProxies is the set of trusted upstream proxies. When set,
+	// forwarding headers from these sources are preserved and appended to
+	// instead of being stripped.
+	TrustedProxies *trustedproxy.List
 	// WireguardPort is the port for the NetBird tunnel interface. Use 0
 	// for a random OS-assigned port. A fixed port only works with
 	// single-account deployments; multiple accounts will fail to bind
@@ -227,7 +242,19 @@ type Server struct {
 	// Zero means no cap (the proxy honors whatever management sends).
 	// Set via NB_PROXY_MAX_SESSION_IDLE_TIMEOUT for shared deployments.
 	MaxSessionIdleTimeout time.Duration
+	// MappingBatchWatchdog bounds how long a single mapping batch may spend
+	// in processMappings before the receive loop reconnects to resync.
+	// Zero uses defaultMappingBatchWatchdog.
+	MappingBatchWatchdog time.Duration
+	// MiddlewareCaptureBudgetBytes overrides the proxy-wide in-flight capture
+	// budget passed to middleware.NewManager. Zero or negative values fall
+	// back to defaultMiddlewareCaptureBudgetBytes (256 MiB).
+	MiddlewareCaptureBudgetBytes int64
 }
+
+// defaultMiddlewareCaptureBudgetBytes is the proxy-wide in-flight capture cap
+// passed to middleware.NewManager when MiddlewareCaptureBudgetBytes is unset.
+const defaultMiddlewareCaptureBudgetBytes = 256 << 20
 
 // clampIdleTimeout returns d capped to MaxSessionIdleTimeout when configured.
 func (s *Server) clampIdleTimeout(d time.Duration) time.Duration {
@@ -332,6 +359,15 @@ func (s *Server) Start(ctx context.Context) error {
 
 	if err := s.initManagementClient(); err != nil {
 		return err
+	}
+
+	// Management client must be initialised BEFORE the middleware manager —
+	// initMiddlewareManager passes s.mgmtClient into the builtin FactoryContext
+	// that the limit-check / limit-record middlewares pull from. Reversed
+	// order would silently disable enforcement (mgmt=nil → allow-without-
+	// attribution + no-record).
+	if err := s.initMiddlewareManager(ctx); err != nil {
+		return fmt.Errorf("init middleware manager: %w", err)
 	}
 
 	runCtx, runCancel := context.WithCancel(ctx)
@@ -553,7 +589,11 @@ func (s *Server) initNetBirdClient() {
 // proxy host's resolver instead of the tunnel's DNS.
 func (s *Server) initReverseProxy() {
 	upstreamRT := roundtrip.NewMultiTransport(s.netbird, s.Logger)
-	s.proxy = proxy.NewReverseProxy(s.meter.RoundTripper(upstreamRT), s.ForwardedProto, s.TrustedProxies, s.Logger)
+	var rpOpts []proxy.Option
+	if s.middlewareManager != nil {
+		rpOpts = append(rpOpts, proxy.WithMiddlewareManager(s.middlewareManager))
+	}
+	s.proxy = proxy.NewReverseProxy(s.meter.RoundTripper(upstreamRT), s.ForwardedProto, s.TrustedProxies, s.Logger, rpOpts...)
 }
 
 // initGeoLookup configures the GeoLite2 lookup used for country-based
@@ -607,7 +647,7 @@ func (s *Server) initDefaults() {
 
 	// If no ID is set then one can be generated.
 	if s.ID == "" {
-		s.ID = "netbird-proxy-" + s.startTime.Format("20060102150405")
+		s.ID = fmt.Sprintf("netbird-proxy-%s", uuid.NewString())
 	}
 	// Fallback version option in case it is not set.
 	if s.Version == "" {
@@ -675,7 +715,7 @@ func (s *Server) wrapProxyProtocol(ln net.Listener) net.Listener {
 		Listener:          ln,
 		ReadHeaderTimeout: proxyProtoHeaderTimeout,
 	}
-	if len(s.TrustedProxies) > 0 {
+	if !s.TrustedProxies.Empty() {
 		ppListener.ConnPolicy = s.proxyProtocolPolicy
 	} else {
 		s.Logger.Warn("PROXY protocol enabled without trusted proxies; any source may send PROXY headers")
@@ -699,10 +739,8 @@ func (s *Server) proxyProtocolPolicy(opts proxyproto.ConnPolicyOptions) (proxypr
 	addr = addr.Unmap()
 
 	// called per accept
-	for _, prefix := range s.TrustedProxies {
-		if prefix.Contains(addr) {
-			return proxyproto.REQUIRE, nil
-		}
+	if s.TrustedProxies.Contains(addr) {
+		return proxyproto.REQUIRE, nil
 	}
 	return proxyproto.IGNORE, nil
 }
@@ -785,6 +823,7 @@ func (s *Server) configureTLS(ctx context.Context) (*tls.Config, error) {
 			return nil, fmt.Errorf("initialize certificate watcher: %w", err)
 		}
 		go certWatcher.Watch(ctx)
+		s.staticCertWatcher = certWatcher
 		tlsConfig.GetCertificate = certWatcher.GetCertificate
 		return tlsConfig, nil
 	}
@@ -1095,7 +1134,7 @@ func (s *Server) getOrCreatePortRouter(ctx context.Context, port uint16) (*nbtcp
 	router := nbtcp.NewPortRouter(s.Logger, s.resolveDialFunc)
 	router.SetObserver(s.meter)
 	router.SetAccessLogger(s.accessLog)
-	portCtx, cancel := context.WithCancel(ctx)
+	portCtx, cancel := context.WithCancel(s.portRouterContext(ctx))
 
 	s.portRouters[port] = &portRouter{
 		router:   router,
@@ -1111,8 +1150,24 @@ func (s *Server) getOrCreatePortRouter(ctx context.Context, port uint16) (*nbtcp
 		}
 	}()
 
-	s.Logger.Debugf("started per-port router on %s", listenAddr)
+	s.Logger.WithFields(log.Fields{
+		"port":           port,
+		"listen_addr":    listenAddr,
+		"bound_addr":     ln.Addr().String(),
+		"proxy_protocol": s.ProxyProtocol,
+	}).Info("custom TCP listener started")
 	return router, nil
+}
+
+// portRouterContext returns the server-lifetime context for custom TCP
+// listeners. Mapping-batch contexts are cancelled after a batch is applied; a
+// per-port listener must outlive that batch and only stop on service removal or
+// server shutdown.
+func (s *Server) portRouterContext(ctx context.Context) context.Context {
+	if s.ctx != nil {
+		return s.ctx
+	}
+	return ctx
 }
 
 // cleanupPortIfEmpty tears down a per-port router if it has no remaining
@@ -1172,24 +1227,30 @@ func (s *Server) newManagementMappingWorker(ctx context.Context, client proto.Pr
 			s.healthChecker.SetManagementConnected(false)
 		}
 
+		connected := false
+		onConnected := func() { connected = true }
+
 		var streamErr error
 		if syncSupported {
-			streamErr = s.trySyncMappings(ctx, client, &initialSyncDone)
+			streamErr = s.trySyncMappings(ctx, client, &initialSyncDone, onConnected)
 			if isSyncUnimplemented(streamErr) {
 				syncSupported = false
 				s.Logger.Info("management does not support SyncMappings, falling back to GetMappingUpdate")
-				streamErr = s.tryGetMappingUpdate(ctx, client, &initialSyncDone)
+				streamErr = s.tryGetMappingUpdate(ctx, client, &initialSyncDone, onConnected)
 			}
 		} else {
-			streamErr = s.tryGetMappingUpdate(ctx, client, &initialSyncDone)
+			streamErr = s.tryGetMappingUpdate(ctx, client, &initialSyncDone, onConnected)
 		}
 
 		if s.healthChecker != nil {
 			s.healthChecker.SetManagementConnected(false)
 		}
 
-		// Stream established — reset backoff so the next failure retries quickly.
-		bo.Reset()
+		// Reset backoff only when a stream actually connected, so immediate
+		// connect failures still back off instead of spinning.
+		if connected {
+			bo.Reset()
+		}
 
 		if streamErr == nil {
 			return fmt.Errorf("stream closed by server")
@@ -1221,7 +1282,7 @@ func (s *Server) proxyCapabilities() *proto.ProxyCapabilities {
 	}
 }
 
-func (s *Server) tryGetMappingUpdate(ctx context.Context, client proto.ProxyServiceClient, initialSyncDone *bool) error {
+func (s *Server) tryGetMappingUpdate(ctx context.Context, client proto.ProxyServiceClient, initialSyncDone *bool, onConnected func()) error {
 	connectTime := time.Now()
 	mappingClient, err := client.GetMappingUpdate(ctx, &proto.GetMappingUpdateRequest{
 		ProxyId:      s.ID,
@@ -1234,6 +1295,7 @@ func (s *Server) tryGetMappingUpdate(ctx context.Context, client proto.ProxyServ
 		return fmt.Errorf("create mapping stream: %w", err)
 	}
 
+	onConnected()
 	if s.healthChecker != nil {
 		s.healthChecker.SetManagementConnected(true)
 	}
@@ -1242,7 +1304,7 @@ func (s *Server) tryGetMappingUpdate(ctx context.Context, client proto.ProxyServ
 	return s.handleMappingStream(ctx, mappingClient, initialSyncDone, connectTime)
 }
 
-func (s *Server) trySyncMappings(ctx context.Context, client proto.ProxyServiceClient, initialSyncDone *bool) error {
+func (s *Server) trySyncMappings(ctx context.Context, client proto.ProxyServiceClient, initialSyncDone *bool, onConnected func()) error {
 	connectTime := time.Now()
 	stream, err := client.SyncMappings(ctx)
 	if err != nil {
@@ -1263,6 +1325,7 @@ func (s *Server) trySyncMappings(ctx context.Context, client proto.ProxyServiceC
 		return fmt.Errorf("send sync init: %w", err)
 	}
 
+	onConnected()
 	if s.healthChecker != nil {
 		s.healthChecker.SetManagementConnected(true)
 	}
@@ -1307,7 +1370,9 @@ func (s *Server) handleSyncMappingsStream(ctx context.Context, stream proto.Prox
 
 			batchStart := time.Now()
 			s.Logger.Debug("Received mapping update, starting processing")
-			s.processMappings(ctx, msg.GetMapping())
+			if err := s.processMappingsGuarded(ctx, msg.GetMapping()); err != nil {
+				return err
+			}
 			s.Logger.Debug("Processing mapping update completed")
 			tracker.recordBatch(ctx, s, msg.GetMapping(), msg.GetInitialSyncComplete(), batchStart)
 
@@ -1391,7 +1456,9 @@ func (s *Server) handleMappingStream(ctx context.Context, mappingClient proto.Pr
 
 			batchStart := time.Now()
 			s.Logger.Debug("Received mapping update, starting processing")
-			s.processMappings(ctx, msg.GetMapping())
+			if err := s.processMappingsGuarded(ctx, msg.GetMapping()); err != nil {
+				return err
+			}
 			s.Logger.Debug("Processing mapping update completed")
 			tracker.recordBatch(ctx, s, msg.GetMapping(), msg.GetInitialSyncComplete(), batchStart)
 		}
@@ -1454,6 +1521,44 @@ func redactMappingForLog(m *proto.ProxyMapping) *proto.ProxyMapping {
 		opts.CustomHeaders = redacted
 	}
 	return c
+}
+
+const defaultMappingBatchWatchdog = 2 * time.Minute
+
+// mappingBatchWatchdog returns the configured batch watchdog or the default.
+func (s *Server) mappingBatchWatchdog() time.Duration {
+	if s.MappingBatchWatchdog > 0 {
+		return s.MappingBatchWatchdog
+	}
+	return defaultMappingBatchWatchdog
+}
+
+// processMappingsGuarded applies a batch under a watchdog, returning an error
+// if processing exceeds the watchdog so the caller reconnects and resyncs
+// instead of wedging silently.
+func (s *Server) processMappingsGuarded(ctx context.Context, mappings []*proto.ProxyMapping) error {
+	batchCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.processMappings(batchCtx, mappings)
+	}()
+
+	watchdog := s.mappingBatchWatchdog()
+	timer := time.NewTimer(watchdog)
+	defer timer.Stop()
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		s.Logger.Errorf("processing mapping batch exceeded %s, cancelling and reconnecting to resync", watchdog)
+		return fmt.Errorf("mapping batch processing stalled after %s", watchdog)
+	}
 }
 
 func (s *Server) processMappings(ctx context.Context, mappings []*proto.ProxyMapping) {
@@ -1566,6 +1671,8 @@ func (s *Server) setupHTTPMapping(ctx context.Context, mapping *proto.ProxyMappi
 	var wildcardHit bool
 	if s.acme != nil {
 		wildcardHit = s.acme.AddDomain(d, accountID, svcID)
+	} else {
+		wildcardHit = s.staticCertCovers(d)
 	}
 	httpRoute := nbtcp.Route{
 		Type:      nbtcp.RouteHTTP,
@@ -1588,6 +1695,26 @@ func (s *Server) setupHTTPMapping(ctx context.Context, mapping *proto.ProxyMappi
 	}
 
 	return nil
+}
+
+// staticCertCovers reports whether the static certificate loaded when ACME is
+// disabled covers the given domain, making it certificate-ready immediately —
+// the equivalent of a wildcard hit in the ACME path. Domains the certificate
+// does not cover are logged: clients connecting to them will get TLS errors.
+func (s *Server) staticCertCovers(d domain.Domain) bool {
+	if s.staticCertWatcher == nil {
+		return false
+	}
+	leaf := s.staticCertWatcher.Leaf()
+	if leaf == nil {
+		return false
+	}
+	name := d.PunycodeString()
+	if err := leaf.VerifyHostname(name); err != nil {
+		s.Logger.Warnf("static certificate (SANs %v) does not cover domain %q: %v", leaf.DNSNames, name, err)
+		return false
+	}
+	return true
 }
 
 // setupTCPMapping sets up a TCP port-forwarding fallback route on the listen port.
@@ -1636,6 +1763,13 @@ func (s *Server) setupTCPMapping(ctx context.Context, mapping *proto.ProxyMappin
 
 	s.meter.L4ServiceAdded(types.ServiceModeTCP)
 	s.sendStatusUpdate(ctx, accountID, svcID, proto.ProxyStatus_PROXY_STATUS_ACTIVE, nil)
+
+	s.Logger.WithFields(log.Fields{
+		"domain":  mapping.GetDomain(),
+		"target":  targetAddr,
+		"port":    port,
+		"service": svcID,
+	}).Info("TCP mapping added")
 	return nil
 }
 
@@ -1884,7 +2018,7 @@ func (s *Server) addUDPRelay(ctx context.Context, mapping *proto.ProxyMapping, t
 		"service_id":  svcID,
 	})
 
-	relay := udprelay.New(ctx, udprelay.RelayConfig{
+	relay := udprelay.New(s.portRouterContext(ctx), udprelay.RelayConfig{
 		Logger:      entry,
 		Listener:    listener,
 		Target:      targetAddress,
@@ -1942,7 +2076,92 @@ func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping)
 	m := s.protoToMapping(ctx, mapping)
 	s.proxy.AddMapping(m)
 	s.meter.AddMapping(m)
+	s.rebuildMiddlewareChains(svcID, m)
 	return nil
+}
+
+// initMiddlewareManager wires the middleware subsystem at boot. It configures
+// the per-process FactoryContext concrete middlewares consult, installs the
+// live-service check, and binds the resolver to the registry concrete
+// middlewares register themselves into via init().
+func (s *Server) initMiddlewareManager(ctx context.Context) error {
+	if s.meter == nil {
+		return fmt.Errorf("middleware manager requires metrics bundle")
+	}
+	otelMeter := s.meter.Meter()
+	mwbuiltin.Configure(ctx, otelMeter, s.Logger, s.mgmtClient)
+
+	mwMetrics, err := middleware.NewMetrics(otelMeter)
+	if err != nil {
+		return fmt.Errorf("init middleware metrics: %w", err)
+	}
+	budgetBytes := s.MiddlewareCaptureBudgetBytes
+	if budgetBytes <= 0 {
+		budgetBytes = defaultMiddlewareCaptureBudgetBytes
+	}
+
+	registry := mwbuiltin.DefaultRegistry()
+	mgr := middleware.NewManager(budgetBytes, mwMetrics, s.Logger)
+	mgr.SetResolver(middleware.NewResolver(registry))
+	mgr.SetLiveServiceCheck(s.isLiveService)
+
+	s.middlewareRegistry = registry
+	s.middlewareManager = mgr
+	ids := registry.IDs()
+	s.Logger.Infof("middleware system enabled: %d built-in middlewares registered %v, capture budget %d bytes",
+		len(ids), ids, budgetBytes)
+	return nil
+}
+
+// rebuildMiddlewareChains converts m into per-path bindings and calls
+// Manager.Rebuild. Short-circuits when the middleware manager is unset.
+func (s *Server) rebuildMiddlewareChains(svcID types.ServiceID, m proxy.Mapping) {
+	if s.middlewareManager == nil {
+		return
+	}
+	bindings := buildMiddlewareBindings(svcID, m)
+	if err := s.middlewareManager.Rebuild(string(svcID), bindings); err != nil {
+		s.Logger.WithError(err).WithField("service_id", svcID).Error("failed to rebuild middleware chains")
+	}
+}
+
+// isLiveService reports whether svcID is currently present in the live
+// mapping cache. Used by the middleware manager to confirm a chain is still
+// referenced before rebuilding it from cached bindings.
+func (s *Server) isLiveService(svcID string) bool {
+	s.portMu.RLock()
+	defer s.portMu.RUnlock()
+	_, ok := s.lastMappings[types.ServiceID(svcID)]
+	return ok
+}
+
+// invalidateMiddlewareChains drops every middleware chain registered for svcID.
+func (s *Server) invalidateMiddlewareChains(svcID types.ServiceID) {
+	if s.middlewareManager == nil {
+		return
+	}
+	s.middlewareManager.Invalidate(string(svcID))
+}
+
+// buildMiddlewareBindings converts the path targets of m into the per-path
+// binding list the middleware manager's Rebuild expects. Targets without any
+// middleware specs are skipped.
+func buildMiddlewareBindings(svcID types.ServiceID, m proxy.Mapping) []middleware.PathTargetBinding {
+	if len(m.Paths) == 0 {
+		return nil
+	}
+	bindings := make([]middleware.PathTargetBinding, 0, len(m.Paths))
+	for pathID, pt := range m.Paths {
+		if pt == nil || len(pt.Middlewares) == 0 {
+			continue
+		}
+		bindings = append(bindings, middleware.PathTargetBinding{
+			ServiceID: string(svcID),
+			PathID:    pathID,
+			Specs:     pt.Middlewares,
+		})
+	}
+	return bindings
 }
 
 // removeMapping tears down routes/relays and the NetBird peer for a service.
@@ -1951,7 +2170,11 @@ func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping)
 func (s *Server) removeMapping(ctx context.Context, mapping *proto.ProxyMapping) {
 	accountID := types.AccountID(mapping.GetAccountId())
 	svcKey := s.serviceKeyForMapping(mapping)
-	if err := s.netbird.RemovePeer(ctx, accountID, svcKey); err != nil {
+	removePeer := s.removePeer
+	if removePeer == nil {
+		removePeer = s.netbird.RemovePeer
+	}
+	if err := removePeer(ctx, accountID, svcKey); err != nil {
 		s.Logger.WithFields(log.Fields{
 			"account_id": accountID,
 			"service_id": mapping.GetId(),
@@ -1975,6 +2198,8 @@ func (s *Server) removeMapping(ctx context.Context, mapping *proto.ProxyMapping)
 func (s *Server) cleanupMappingRoutes(mapping *proto.ProxyMapping) {
 	svcID := types.ServiceID(mapping.GetId())
 	host := mapping.GetDomain()
+
+	s.invalidateMiddlewareChains(svcID)
 
 	// HTTP/TLS cleanup (only relevant when a domain is set).
 	if host != "" {
@@ -2083,6 +2308,12 @@ func (s *Server) protoToMapping(ctx context.Context, mapping *proto.ProxyMapping
 				pt.RequestTimeout = d.AsDuration()
 			}
 			pt.DirectUpstream = opts.GetDirectUpstream()
+			// Agent-network middleware specs + capture config + flag ride on
+			// the same per-target options.
+			pt.CaptureConfig = translateMiddlewareCaptureConfig(mapping.GetId(), opts)
+			pt.Middlewares = translateMiddlewareConfigs(ctx, mapping.GetId(), opts.GetMiddlewares(), s.middlewareRegistry)
+			pt.AgentNetwork = opts.GetAgentNetwork()
+			pt.DisableAccessLog = opts.GetDisableAccessLog()
 		}
 		pt.RequestTimeout = s.clampDialTimeout(pt.RequestTimeout)
 		paths[pathMapping.GetPath()] = pt

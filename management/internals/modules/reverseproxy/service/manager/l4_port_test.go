@@ -488,6 +488,195 @@ func TestUpdate_AllowsPortChange(t *testing.T) {
 	assert.Equal(t, uint16(54321), updated.ListenPort, "explicit port change should be applied")
 }
 
+func TestUpdate_PreservesPortWhenCustomPortsNotSupported(t *testing.T) {
+	mgr, testStore, _ := setupL4Test(t, boolPtr(false))
+	ctx := context.Background()
+
+	existing := seedService(t, testStore, "tcp-svc", "tcp", testCluster, testCluster, 12345)
+
+	updated := &rpservice.Service{
+		ID:           existing.ID,
+		AccountID:    testAccountID,
+		Name:         "tcp-svc-renamed",
+		Mode:         "tcp",
+		Domain:       testCluster,
+		ProxyCluster: testCluster,
+		ListenPort:   0,
+		Enabled:      true,
+		Targets: []*rpservice.Target{
+			{AccountID: testAccountID, TargetId: testPeerID, TargetType: rpservice.TargetTypePeer, Protocol: "tcp", Port: 9090, Enabled: true},
+		},
+	}
+
+	_, err := mgr.persistServiceUpdate(ctx, testAccountID, updated)
+	require.NoError(t, err, "update must not be rejected by the custom-port capability check")
+	assert.Equal(t, uint16(12345), updated.ListenPort, "existing listen port should be preserved on unsupported cluster")
+}
+
+func TestUpdate_PreservesPortWhenCustomPortsUnknown(t *testing.T) {
+	mgr, testStore, _ := setupL4Test(t, nil)
+	ctx := context.Background()
+
+	existing := seedService(t, testStore, "tcp-svc", "tcp", testCluster, testCluster, 12345)
+
+	updated := &rpservice.Service{
+		ID:           existing.ID,
+		AccountID:    testAccountID,
+		Name:         "tcp-svc-renamed",
+		Mode:         "tcp",
+		Domain:       testCluster,
+		ProxyCluster: testCluster,
+		ListenPort:   0,
+		Enabled:      true,
+		Targets: []*rpservice.Target{
+			{AccountID: testAccountID, TargetId: testPeerID, TargetType: rpservice.TargetTypePeer, Protocol: "tcp", Port: 9090, Enabled: true},
+		},
+	}
+
+	_, err := mgr.persistServiceUpdate(ctx, testAccountID, updated)
+	require.NoError(t, err, "update must not be rejected when cluster capability is unknown")
+	assert.Equal(t, uint16(12345), updated.ListenPort, "existing listen port should be preserved when capability is unknown")
+}
+
+func TestUpdate_RejectsPortChangeWhenCustomPortsNotSupported(t *testing.T) {
+	mgr, testStore, _ := setupL4Test(t, boolPtr(false))
+	ctx := context.Background()
+
+	existing := seedService(t, testStore, "tcp-svc", "tcp", testCluster, testCluster, 12345)
+
+	updated := &rpservice.Service{
+		ID:           existing.ID,
+		AccountID:    testAccountID,
+		Name:         "tcp-svc",
+		Mode:         "tcp",
+		Domain:       testCluster,
+		ProxyCluster: testCluster,
+		ListenPort:   54321,
+		Enabled:      true,
+		Targets: []*rpservice.Target{
+			{AccountID: testAccountID, TargetId: testPeerID, TargetType: rpservice.TargetTypePeer, Protocol: "tcp", Port: 9090, Enabled: true},
+		},
+	}
+
+	_, err := mgr.persistServiceUpdate(ctx, testAccountID, updated)
+	require.Error(t, err, "explicit port change on update must be rejected on unsupported clusters")
+	assert.Contains(t, err.Error(), "custom ports not supported on target cluster")
+}
+
+func TestUpdate_TLSPortChangeAllowedWhenNotSupported(t *testing.T) {
+	mgr, testStore, _ := setupL4Test(t, boolPtr(false))
+	ctx := context.Background()
+
+	existing := seedService(t, testStore, "tls-svc", "tls", "app.example.com", testCluster, 443)
+
+	updated := &rpservice.Service{
+		ID:           existing.ID,
+		AccountID:    testAccountID,
+		Name:         "tls-svc",
+		Mode:         "tls",
+		Domain:       "app.example.com",
+		ProxyCluster: testCluster,
+		ListenPort:   9999,
+		Enabled:      true,
+		Targets: []*rpservice.Target{
+			{AccountID: testAccountID, TargetId: testPeerID, TargetType: rpservice.TargetTypePeer, Protocol: "tcp", Port: 8443, Enabled: true},
+		},
+	}
+
+	_, err := mgr.persistServiceUpdate(ctx, testAccountID, updated)
+	require.NoError(t, err, "TLS port change uses SNI routing and is exempt from the custom-port check")
+	assert.Equal(t, uint16(9999), updated.ListenPort, "TLS port change should be applied")
+}
+
+func TestValidateL4PortDiffOnClusterDiff(t *testing.T) {
+	tests := []struct {
+		name        string
+		mode        string
+		customPorts *bool
+		newPort     uint16
+		oldPort     uint16
+		wantErr     bool
+	}{
+		{"tcp port change unsupported", "tcp", boolPtr(false), 54321, 12345, true},
+		{"tcp port change unknown capability", "tcp", nil, 54321, 12345, true},
+		{"udp port change unsupported", "udp", boolPtr(false), 54321, 12345, true},
+		{"tcp first port assignment unsupported", "tcp", boolPtr(false), 54321, 0, true},
+		{"tcp port change supported", "tcp", boolPtr(true), 54321, 12345, false},
+		{"tcp port unchanged unsupported", "tcp", boolPtr(false), 12345, 12345, false},
+		{"tcp zero port unsupported", "tcp", boolPtr(false), 0, 12345, false},
+		{"tls port change unsupported", "tls", boolPtr(false), 9999, 443, false},
+		{"http mode ignored", "http", boolPtr(false), 54321, 12345, false},
+		{"empty mode ignored", "", boolPtr(false), 54321, 12345, false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			newSvc := &rpservice.Service{Mode: tc.mode, ListenPort: tc.newPort, ProxyCluster: testCluster}
+			oldSvc := &rpservice.Service{Mode: tc.mode, ListenPort: tc.oldPort, ProxyCluster: testCluster}
+
+			err := validateL4PortDiffOnClusterDiff(tc.customPorts, newSvc, oldSvc)
+			if tc.wantErr {
+				assert.Error(t, err, "port diff should be rejected for %s", tc.name)
+			} else {
+				assert.NoError(t, err, "port diff should be allowed for %s", tc.name)
+			}
+		})
+	}
+}
+
+func TestUpdate_PortConflictRejected(t *testing.T) {
+	mgr, testStore, _ := setupL4Test(t, boolPtr(true))
+	ctx := context.Background()
+
+	seedService(t, testStore, "tcp-a", "tcp", "tcp-a."+testCluster, testCluster, 5432)
+	svcB := seedService(t, testStore, "tcp-b", "tcp", "tcp-b."+testCluster, testCluster, 6543)
+
+	updated := &rpservice.Service{
+		ID:           svcB.ID,
+		AccountID:    testAccountID,
+		Name:         "tcp-b",
+		Mode:         "tcp",
+		Domain:       "tcp-b." + testCluster,
+		ProxyCluster: testCluster,
+		ListenPort:   5432,
+		Enabled:      true,
+		Targets: []*rpservice.Target{
+			{AccountID: testAccountID, TargetId: testPeerID, TargetType: rpservice.TargetTypePeer, Protocol: "tcp", Port: 9090, Enabled: true},
+		},
+	}
+
+	_, err := mgr.persistServiceUpdate(ctx, testAccountID, updated)
+	require.Error(t, err, "updating to a port held by another service should be rejected")
+	assert.Contains(t, err.Error(), "already in use")
+}
+
+func TestUpdate_AutoAssignsWhenNoPort(t *testing.T) {
+	mgr, testStore, _ := setupL4Test(t, boolPtr(false))
+	ctx := context.Background()
+
+	existing := seedService(t, testStore, "tcp-svc", "tcp", testCluster, testCluster, 0)
+
+	updated := &rpservice.Service{
+		ID:           existing.ID,
+		AccountID:    testAccountID,
+		Name:         "tcp-svc",
+		Mode:         "tcp",
+		Domain:       testCluster,
+		ProxyCluster: testCluster,
+		ListenPort:   0,
+		Enabled:      true,
+		Targets: []*rpservice.Target{
+			{AccountID: testAccountID, TargetId: testPeerID, TargetType: rpservice.TargetTypePeer, Protocol: "tcp", Port: 9090, Enabled: true},
+		},
+	}
+
+	_, err := mgr.persistServiceUpdate(ctx, testAccountID, updated)
+	require.NoError(t, err)
+	assert.True(t, updated.ListenPort >= autoAssignPortMin && updated.ListenPort <= autoAssignPortMax,
+		"auto-assigned port %d should be in range [%d, %d]", updated.ListenPort, autoAssignPortMin, autoAssignPortMax)
+	assert.True(t, updated.PortAutoAssigned, "PortAutoAssigned should be set when update triggers auto-assignment")
+}
+
 func TestCreateServiceFromPeer_TCP(t *testing.T) {
 	mgr, _, _ := setupL4Test(t, boolPtr(false))
 	ctx := context.Background()

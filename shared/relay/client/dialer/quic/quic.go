@@ -23,6 +23,12 @@ func (d Dialer) Protocol() string {
 	return Network
 }
 
+// DatagramSized marks QUIC as a datagram-sized transport: relay traffic is
+// carried in QUIC DATAGRAM frames, which must fit a single packet.
+func (d Dialer) DatagramSized() {
+	// Intentional marker method; presence is the capability signal.
+}
+
 func (d Dialer) Dial(ctx context.Context, address, serverName string) (net.Conn, error) {
 	quicURL, err := prepareURL(address)
 	if err != nil {
@@ -47,18 +53,17 @@ func (d Dialer) Dial(ctx context.Context, address, serverName string) (net.Conn,
 		MaxIdleTimeout:    4 * time.Minute,
 		EnableDatagrams:   true,
 		InitialPacketSize: nbRelay.QUICInitialPacketSize,
+		Tracer:            connectionTracer(quicURL),
 	}
 
 	udpConn, err := nbnet.ListenUDP("udp", &net.UDPAddr{Port: 0})
 	if err != nil {
-		log.Errorf("failed to listen on UDP: %s", err)
-		return nil, err
+		return nil, fmt.Errorf("listen udp: %w", err)
 	}
 
 	udpAddr, err := net.ResolveUDPAddr("udp", quicURL)
 	if err != nil {
-		log.Errorf("failed to resolve UDP address: %s", err)
-		return nil, err
+		return nil, fmt.Errorf("resolve %s: %w", quicURL, err)
 	}
 
 	session, err := quic.Dial(ctx, udpConn, udpAddr, tlsClientConfig, quicConfig)
@@ -66,7 +71,7 @@ func (d Dialer) Dial(ctx context.Context, address, serverName string) (net.Conn,
 		if errors.Is(err, context.Canceled) {
 			return nil, err
 		}
-		log.Errorf("failed to dial to Relay server via QUIC '%s': %s", quicURL, err)
+		log.Debugf("failed to dial to Relay server via QUIC '%s': %s", quicURL, err)
 		return nil, err
 	}
 

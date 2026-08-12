@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-multierror"
+	"github.com/mitchellh/hashstructure/v2"
 	log "github.com/sirupsen/logrus"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
@@ -30,11 +31,13 @@ type Manager interface {
 
 // DefaultManager uses firewall manager to handle
 type DefaultManager struct {
-	firewall       firewall.Manager
-	ipsetCounter   int
-	peerRulesPairs map[id.RuleID][]firewall.Rule
-	routeRules     map[id.RuleID]struct{}
-	mutex          sync.Mutex
+	firewall           firewall.Manager
+	ipsetCounter       int
+	peerRulesPairs     map[id.RuleID][]firewall.Rule
+	routeRules         map[id.RuleID]struct{}
+	previousConfigHash uint64
+	hasAppliedConfig   bool
+	mutex              sync.Mutex
 }
 
 func NewDefaultManager(fm firewall.Manager) *DefaultManager {
@@ -57,6 +60,23 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap, dnsRout
 		return
 	}
 
+	// Skip the full rebuild + flush when the inputs that drive the firewall
+	// state are byte-for-byte identical to the last successfully applied
+	// update. Management re-sends the same network map far more often than it
+	// actually changes (account-wide updates, peer meta churn), and rebuilding
+	// every peer/route ACL and flushing the firewall on every such sync is the
+	// dominant client-side cost when nothing changed. Mirrors the same guard the
+	// DNS server already uses (previousConfigHash). Only the fields ApplyFiltering
+	// consumes participate in the hash, so an unrelated map change cannot mask a
+	// real ACL change.
+	hash, err := d.firewallConfigHash(networkMap, dnsRouteFeatureFlag)
+	if err != nil {
+		log.Errorf("unable to hash firewall configuration, applying unconditionally: %v", err)
+	} else if d.hasAppliedConfig && d.previousConfigHash == hash {
+		log.Debugf("not applying the firewall configuration update as there is nothing new (hash: %d)", hash)
+		return
+	}
+
 	start := time.Now()
 	defer func() {
 		total := 0
@@ -70,13 +90,49 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap, dnsRout
 
 	d.applyPeerACLs(networkMap)
 
-	if err := d.applyRouteACLs(networkMap.RoutesFirewallRules, dnsRouteFeatureFlag); err != nil {
-		log.Errorf("Failed to apply route ACLs: %v", err)
+	routeErr := d.applyRouteACLs(networkMap.RoutesFirewallRules, dnsRouteFeatureFlag)
+	if routeErr != nil {
+		log.Errorf("Failed to apply route ACLs: %v", routeErr)
 	}
 
-	if err := d.firewall.Flush(); err != nil {
-		log.Error("failed to flush firewall rules: ", err)
+	flushErr := d.firewall.Flush()
+	if flushErr != nil {
+		log.Error("failed to flush firewall rules: ", flushErr)
 	}
+
+	// Only remember the hash once the firewall actually reflects this config.
+	// If applying or flushing failed, leave the previous hash untouched so the
+	// next (possibly identical) update is not skipped and gets a chance to
+	// reconcile the firewall state.
+	if err == nil && routeErr == nil && flushErr == nil {
+		d.previousConfigHash = hash
+		d.hasAppliedConfig = true
+	} else {
+		d.hasAppliedConfig = false
+	}
+}
+
+// firewallConfigHash hashes exactly the inputs ApplyFiltering uses to build the
+// firewall state, so an identical hash means an identical resulting ruleset.
+func (d *DefaultManager) firewallConfigHash(networkMap *mgmProto.NetworkMap, dnsRouteFeatureFlag bool) (uint64, error) {
+	return hashstructure.Hash(struct {
+		PeerRules            []*mgmProto.FirewallRule
+		PeerRulesIsEmpty     bool
+		RouteRules           []*mgmProto.RouteFirewallRule
+		RouteRulesIsEmpty    bool
+		DNSRouteFeatureFlag  bool
+	}{
+		PeerRules:           networkMap.GetFirewallRules(),
+		PeerRulesIsEmpty:    networkMap.GetFirewallRulesIsEmpty(),
+		RouteRules:          networkMap.GetRoutesFirewallRules(),
+		RouteRulesIsEmpty:   networkMap.GetRoutesFirewallRulesIsEmpty(),
+		DNSRouteFeatureFlag: dnsRouteFeatureFlag,
+	}, hashstructure.FormatV2, &hashstructure.HashOptions{
+		ZeroNil:         true,
+		IgnoreZeroValue: true,
+		SlicesAsSets:    true,
+		UseStringer:     true,
+	})
 }
 
 func (d *DefaultManager) applyPeerACLs(networkMap *mgmProto.NetworkMap) {

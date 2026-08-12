@@ -2,17 +2,22 @@ package grpc
 
 import (
 	"fmt"
+	"net"
 	"net/netip"
 	"reflect"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller/cache"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/management/networkmap"
 )
 
 func TestToProtocolDNSConfigWithCache(t *testing.T) {
@@ -62,13 +67,13 @@ func TestToProtocolDNSConfigWithCache(t *testing.T) {
 	}
 
 	// First run with config1
-	result1 := toProtocolDNSConfig(config1, &cache, int64(network_map.DnsForwarderPort))
+	result1 := networkmap.ToProtocolDNSConfig(config1, &cache, int64(network_map.DnsForwarderPort))
 
 	// Second run with config2
-	result2 := toProtocolDNSConfig(config2, &cache, int64(network_map.DnsForwarderPort))
+	result2 := networkmap.ToProtocolDNSConfig(config2, &cache, int64(network_map.DnsForwarderPort))
 
 	// Third run with config1 again
-	result3 := toProtocolDNSConfig(config1, &cache, int64(network_map.DnsForwarderPort))
+	result3 := networkmap.ToProtocolDNSConfig(config1, &cache, int64(network_map.DnsForwarderPort))
 
 	// Verify that result1 and result3 are identical
 	if !reflect.DeepEqual(result1, result3) {
@@ -100,15 +105,14 @@ func BenchmarkToProtocolDNSConfig(b *testing.B) {
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				toProtocolDNSConfig(testData, cache, int64(network_map.DnsForwarderPort))
+				networkmap.ToProtocolDNSConfig(testData, cache, int64(network_map.DnsForwarderPort))
 			}
 		})
 
 		b.Run(fmt.Sprintf("WithoutCache-Size%d", size), func(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				cache := &cache.DNSConfigCache{}
-				toProtocolDNSConfig(testData, cache, int64(network_map.DnsForwarderPort))
+				networkmap.ToProtocolDNSConfig(testData, nil, int64(network_map.DnsForwarderPort))
 			}
 		})
 	}
@@ -202,6 +206,42 @@ func TestBuildJWTConfig_Audiences(t *testing.T) {
 	}
 }
 
+// TestShouldSkipSendingDeprecatedRemotePeers covers the version gate that
+// stops populating the deprecated top-level SyncResponse.RemotePeers field for
+// peers new enough to read RemotePeers off the NetworkMap. Development builds
+// are treated as latest and skip the field. The gate otherwise fails safe: a
+// release version older than the boundary, or one that can't be parsed (empty,
+// garbage, prereleases of the boundary) still receives the deprecated field so
+// older/unknown clients keep working.
+func TestShouldSkipSendingDeprecatedRemotePeers(t *testing.T) {
+	tests := []struct {
+		name        string
+		peerVersion string
+		wantSkip    bool
+	}{
+		{"exact boundary skips", "0.29.3", true},
+		{"newer patch skips", "0.29.4", true},
+		{"newer minor skips", "0.30.0", true},
+		{"newer major skips", "1.0.0", true},
+		{"v-prefixed newer skips", "v0.30.0", true},
+		{"development build skips", "development", true},
+		{"development build with commit skips", "development-abc123def456-dirty", true},
+		{"older patch keeps field", "0.29.2", false},
+		{"older minor keeps field", "0.28.0", false},
+		{"prerelease of boundary keeps field", "0.29.3-SNAPSHOT", false},
+		{"tagged dev prerelease keeps field", "v0.31.1-dev", false},
+		{"empty version keeps field", "", false},
+		{"garbage version keeps field", "not-a-version", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := shouldSkipSendingDeprecatedRemotePeers(tc.peerVersion)
+			assert.Equal(t, tc.wantSkip, got, "skip decision for peer version %q", tc.peerVersion)
+		})
+	}
+}
+
 // TestEncodeSessionExpiresAt pins the wire encoding the client's
 // applySessionDeadline depends on:
 //
@@ -226,4 +266,72 @@ func TestEncodeSessionExpiresAt(t *testing.T) {
 		assert.NotNil(t, got)
 		assert.True(t, got.AsTime().Equal(deadline))
 	})
+}
+
+// TestToNetbirdConfig_RelayInvariant guards against the v0.74.0 relay-wipe regression.
+// Clients treat any non-nil NetbirdConfig as authoritative and interpret a missing relay
+// section as relay disabled, wiping their relay URLs. toNetbirdConfig must therefore
+// return nil when no server config is set (the fan-out network-map path) instead of a
+// partial config, and a result built from a relay-enabled config must carry the relay
+// section.
+func TestToNetbirdConfig_RelayInvariant(t *testing.T) {
+	settings := &types.Settings{MetricsPushEnabled: true}
+
+	t.Run("nil server config returns nil config", func(t *testing.T) {
+		nbCfg := toNetbirdConfig(nil, nil, nil, nil, settings)
+		assert.Nil(t, nbCfg, "fan-out updates must not carry a partial NetbirdConfig even when settings are present")
+	})
+
+	t.Run("relay-enabled config carries relay section", func(t *testing.T) {
+		cfg := &nbconfig.Config{
+			Stuns: []*nbconfig.Host{{Proto: nbconfig.UDP, URI: "stun:stun.example.com:3478"}},
+			TURNConfig: &nbconfig.TURNConfig{
+				Turns: []*nbconfig.Host{{Proto: nbconfig.UDP, URI: "turn:turn.example.com:3478", Username: "user", Password: "pass"}},
+			},
+			Relay:  &nbconfig.Relay{Addresses: []string{"rels://relay.example.com:443"}},
+			Signal: &nbconfig.Host{Proto: nbconfig.HTTP, URI: "signal.example.com:10000"},
+		}
+		relayToken := &Token{Payload: "token-payload", Signature: "token-signature"}
+
+		nbCfg := toNetbirdConfig(cfg, nil, relayToken, nil, settings)
+		require.NotNil(t, nbCfg)
+		require.NotNil(t, nbCfg.Relay, "non-nil NetbirdConfig must include the relay section")
+		assert.Equal(t, cfg.Relay.Addresses, nbCfg.Relay.Urls, "relay URLs should match the server config")
+		assert.Equal(t, relayToken.Payload, nbCfg.Relay.TokenPayload, "relay token payload should be set")
+		assert.Equal(t, relayToken.Signature, nbCfg.Relay.TokenSignature, "relay token signature should be set")
+		require.NotNil(t, nbCfg.Metrics)
+		assert.True(t, nbCfg.Metrics.Enabled, "metrics flag should carry the settings value")
+	})
+}
+
+func TestToPeerConfig_RoutingPeerDNSResolution(t *testing.T) {
+	network := &types.Network{Net: net.IPNet{IP: net.IPv4(100, 0, 0, 0), Mask: net.CIDRMask(8, 32)}}
+
+	newPeer := func(embedded bool) *nbpeer.Peer {
+		p := &nbpeer.Peer{IP: netip.MustParseAddr("100.0.0.1")}
+		p.ProxyMeta.Embedded = embedded
+		return p
+	}
+
+	tests := []struct {
+		name        string
+		globalFlag  bool
+		embedded    bool
+		forceParam  bool
+		wantEnabled bool
+	}{
+		{name: "global off, regular peer, no force", wantEnabled: false},
+		{name: "global on wins", globalFlag: true, wantEnabled: true},
+		{name: "embedded proxy peer forced", embedded: true, wantEnabled: true},
+		{name: "routing peer forced via param", forceParam: true, wantEnabled: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			settings := &types.Settings{RoutingPeerDNSResolutionEnabled: tt.globalFlag}
+			cfg := toPeerConfig(newPeer(tt.embedded), network, "netbird.selfhosted", settings, nil, nil, false, tt.forceParam)
+			assert.Equal(t, tt.wantEnabled, cfg.RoutingPeerDnsResolutionEnabled,
+				"RoutingPeerDnsResolutionEnabled should reflect global || embedded || forced")
+		})
+	}
 }

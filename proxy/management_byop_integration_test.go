@@ -125,6 +125,7 @@ func setupBYOPIntegrationTest(t *testing.T) *byopTestSetup {
 		oidcConfig,
 		nil,
 		usersManager,
+		nil,
 		realProxyManager,
 		nil,
 	)

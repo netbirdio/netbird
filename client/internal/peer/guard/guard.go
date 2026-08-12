@@ -85,7 +85,11 @@ func (g *Guard) reconnectLoopWithRetry(ctx context.Context, callback func()) {
 	defer g.srWatcher.RemoveListener(srReconnectedChan)
 
 	ticker := g.initialTicker(ctx)
-	defer ticker.Stop()
+	defer func() {
+		// If backoff.Ticker.send is blocked, context.Done will not close the Ticker goroutine.
+		// We have to explicitly call Stop, even if we use backoff.WithContext.
+		ticker.Stop()
+	}()
 
 	tickerChannel := ticker.C
 

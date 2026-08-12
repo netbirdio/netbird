@@ -250,3 +250,66 @@ func TestRaceDialFirstSuccessfulDialerWins(t *testing.T) {
 		}
 	}
 }
+
+func TestRaceDialSequentialFallback(t *testing.T) {
+	logger := logrus.NewEntry(logrus.New())
+	serverURL := "test.server.com"
+
+	var firstDialed, secondDialed bool
+	preferred := &MockDialer{
+		protocolStr: "quic",
+		dialFunc: func(ctx context.Context, address string) (net.Conn, error) {
+			firstDialed = true
+			return nil, errors.New("quic unreachable")
+		},
+	}
+	fallbackConn := &MockConn{remoteAddr: &MockAddr{network: "ws"}}
+	fallback := &MockDialer{
+		protocolStr: "ws",
+		dialFunc: func(ctx context.Context, address string) (net.Conn, error) {
+			secondDialed = true
+			return fallbackConn, nil
+		},
+	}
+
+	rd := NewRaceDial(logger, DefaultConnectionTimeout, serverURL, preferred, fallback).WithSequential()
+	conn, err := rd.Dial(context.Background())
+	if err != nil {
+		t.Fatalf("expected fallback to succeed, got %v", err)
+	}
+	if conn != fallbackConn {
+		t.Errorf("expected fallback connection, got %v", conn)
+	}
+	if !firstDialed || !secondDialed {
+		t.Errorf("expected both dialers attempted in order, first=%v second=%v", firstDialed, secondDialed)
+	}
+}
+
+func TestRaceDialSequentialPreferredWins(t *testing.T) {
+	logger := logrus.NewEntry(logrus.New())
+	serverURL := "test.server.com"
+
+	preferredConn := &MockConn{remoteAddr: &MockAddr{network: "quic"}}
+	preferred := &MockDialer{
+		protocolStr: "quic",
+		dialFunc: func(ctx context.Context, address string) (net.Conn, error) {
+			return preferredConn, nil
+		},
+	}
+	fallback := &MockDialer{
+		protocolStr: "ws",
+		dialFunc: func(ctx context.Context, address string) (net.Conn, error) {
+			t.Errorf("fallback dialer must not be tried when preferred succeeds")
+			return nil, errors.New("should not happen")
+		},
+	}
+
+	rd := NewRaceDial(logger, DefaultConnectionTimeout, serverURL, preferred, fallback).WithSequential()
+	conn, err := rd.Dial(context.Background())
+	if err != nil {
+		t.Fatalf("expected preferred to succeed, got %v", err)
+	}
+	if conn != preferredConn {
+		t.Errorf("expected preferred connection, got %v", conn)
+	}
+}

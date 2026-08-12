@@ -73,6 +73,18 @@ type Settings struct {
 	// For new accounts this defaults to the All group.
 	IPv6EnabledGroups []string `gorm:"serializer:json"`
 
+	// MetricsPushEnabled globally enables or disables client metrics push for the account
+	MetricsPushEnabled bool `gorm:"default:false"`
+
+	// AgentNetworkOnly limits the dashboard to the Agent Network surface for this account.
+	// Set for accounts created via netbird.ai signups; users can disable it later.
+	AgentNetworkOnly bool `gorm:"default:false"`
+
+	// DashboardFeatures holds per-account dashboard section visibility overrides.
+	// It serializes to a single JSON column so new sections can be added without
+	// a schema change.
+	DashboardFeatures *DashboardFeatures `gorm:"serializer:json"`
+
 	// EmbeddedIdpEnabled indicates if the embedded identity provider is enabled.
 	// This is a runtime-only field, not stored in the database.
 	EmbeddedIdpEnabled bool `gorm:"-"`
@@ -110,6 +122,8 @@ func (s *Settings) Copy() *Settings {
 		AutoUpdateVersion:               s.AutoUpdateVersion,
 		AutoUpdateAlways:                s.AutoUpdateAlways,
 		IPv6EnabledGroups:               slices.Clone(s.IPv6EnabledGroups),
+		MetricsPushEnabled:              s.MetricsPushEnabled,
+		AgentNetworkOnly:                s.AgentNetworkOnly,
 		EmbeddedIdpEnabled:              s.EmbeddedIdpEnabled,
 		LocalAuthDisabled:               s.LocalAuthDisabled,
 		LocalMfaEnabled:                 s.LocalMfaEnabled,
@@ -117,7 +131,29 @@ func (s *Settings) Copy() *Settings {
 	if s.Extra != nil {
 		settings.Extra = s.Extra.Copy()
 	}
+	if s.DashboardFeatures != nil {
+		settings.DashboardFeatures = s.DashboardFeatures.Copy()
+	}
 	return settings
+}
+
+// DashboardFeatures holds per-account dashboard section visibility overrides.
+// Nil fields are unset and follow the default dashboard behavior; an explicit
+// value forces that section shown or hidden for the account.
+type DashboardFeatures struct {
+	// AgentNetwork, when set, forces the Agent Network menu shown (true) or
+	// hidden (false) regardless of the deployment feature flag.
+	AgentNetwork *bool `json:"agent_network,omitempty"`
+}
+
+// Copy returns a deep copy of the DashboardFeatures struct.
+func (d *DashboardFeatures) Copy() *DashboardFeatures {
+	c := &DashboardFeatures{}
+	if d.AgentNetwork != nil {
+		v := *d.AgentNetwork
+		c.AgentNetwork = &v
+	}
+	return c
 }
 
 type ExtraSettings struct {

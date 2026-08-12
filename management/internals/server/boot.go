@@ -24,8 +24,12 @@ import (
 
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/formatter/hook"
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	accesslogsmanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs/manager"
+	proxyactivity "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/activity"
+	proxyactivitymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/activity/manager"
+	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/activity"
 	activitystore "github.com/netbirdio/netbird/management/server/activity/store"
@@ -120,7 +124,7 @@ func (s *BaseServer) EventStore() activity.Store {
 
 func (s *BaseServer) APIHandler() http.Handler {
 	return Create(s, func() http.Handler {
-		httpAPIHandler, err := nbhttp.NewAPIHandler(context.Background(), s.Router(), s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(), s.GroupsManager(), s.GeoLocationManager(), s.AuthManager(), s.Metrics(), s.PermissionsManager(), s.SettingsManager(), s.ZonesManager(), s.RecordsManager(), s.NetworkMapController(), s.IdpManager(), s.ServiceManager(), s.ReverseProxyDomainManager(), s.AccessLogsManager(), s.ReverseProxyGRPCServer(), s.Config.ReverseProxy.TrustedHTTPProxies, s.RateLimiter(), s.IsValidChildAccount)
+		httpAPIHandler, err := nbhttp.NewAPIHandler(context.Background(), s.Router(), s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(), s.GroupsManager(), s.GeoLocationManager(), s.AuthManager(), s.Metrics(), s.PermissionsManager(), s.SettingsManager(), s.ZonesManager(), s.RecordsManager(), s.NetworkMapController(), s.IdpManager(), s.ServiceManager(), s.ReverseProxyDomainManager(), s.AccessLogsManager(), s.ReverseProxyGRPCServer(), s.Config.ReverseProxy.TrustedHTTPProxies, s.RateLimiter(), s.IsValidChildAccount, s.AgentNetworkManager())
 		if err != nil {
 			log.Fatalf("failed to create API handler: %v", err)
 		}
@@ -182,6 +186,10 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 			grpc.ChainStreamInterceptor(realip.StreamServerInterceptorOpts(realipOpts...), streamInterceptor, proxyStream),
 		}
 
+		// Append interceptors contributed by registered gRPC extensions. These
+		// run after the built-in chain (ChainUnaryInterceptor is additive).
+		gRPCOpts = appendExtensionInterceptors(gRPCOpts, s.grpcExtensions)
+
 		if s.Config.HttpConfig.LetsEncryptDomain != "" {
 			certManager, err := encryption.CreateCertManager(s.Config.Datadir, s.Config.HttpConfig.LetsEncryptDomain)
 			if err != nil {
@@ -213,19 +221,47 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 		mgmtProto.RegisterProxyServiceServer(gRPCAPIHandler, s.ReverseProxyGRPCServer())
 		log.Info("ProxyService registered on gRPC server")
 
+		// Register services contributed by external modules via the extension seam.
+		registerExtensions(gRPCAPIHandler, s.grpcExtensions)
+
 		return gRPCAPIHandler
 	})
 }
 
 func (s *BaseServer) ReverseProxyGRPCServer() *nbgrpc.ProxyServiceServer {
 	return Create(s, func() *nbgrpc.ProxyServiceServer {
-		proxyService := nbgrpc.NewProxyServiceServer(s.AccessLogsManager(), s.ProxyTokenStore(), s.PKCEVerifierStore(), s.proxyOIDCConfig(), s.PeersManager(), s.UsersManager(), s.ProxyManager(), s.Store())
+		proxyService := nbgrpc.NewProxyServiceServer(s.AccessLogsManager(), s.ProxyTokenStore(), s.PKCEVerifierStore(), s.proxyOIDCConfig(), s.PeersManager(), s.UsersManager(), s.IdpManager(), s.ProxyManager(), s.Store())
 		s.AfterInit(func(s *BaseServer) {
 			proxyService.SetServiceManager(s.ServiceManager())
+			proxyService.SetActivityManager(s.ProxyActivityManager())
 			proxyService.SetProxyController(s.ServiceProxyController())
+			proxyService.SetAgentNetworkSynthesizer(newAgentNetworkSynthesizer(s.Store()))
+			proxyService.SetAgentNetworkLimitsService(s.AgentNetworkManager())
 		})
 		return proxyService
 	})
+}
+
+// agentNetworkSynthesizerAdapter implements nbgrpc.AgentNetworkSynthesizer by
+// delegating to the agentnetwork package's store-backed synthesiser.
+type agentNetworkSynthesizerAdapter struct {
+	store store.Store
+}
+
+func newAgentNetworkSynthesizer(s store.Store) *agentNetworkSynthesizerAdapter {
+	return &agentNetworkSynthesizerAdapter{store: s}
+}
+
+func (a *agentNetworkSynthesizerAdapter) SynthesizeServicesForCluster(ctx context.Context, clusterAddr string) ([]*rpservice.Service, error) {
+	return agentnetwork.SynthesizeServicesForCluster(ctx, a.store, clusterAddr)
+}
+
+func (a *agentNetworkSynthesizerAdapter) SynthesizeServicesForAccount(ctx context.Context, accountID string) ([]*rpservice.Service, error) {
+	return agentnetwork.SynthesizeServices(ctx, a.store, accountID)
+}
+
+func (a *agentNetworkSynthesizerAdapter) SynthesizeServiceForDomain(ctx context.Context, domain string) (*rpservice.Service, error) {
+	return agentnetwork.SynthesizeServiceForDomain(ctx, a.store, domain)
 }
 
 func (s *BaseServer) proxyOIDCConfig() nbgrpc.ProxyOIDCConfig {
@@ -254,6 +290,13 @@ func (s *BaseServer) ProxyTokenStore() *nbgrpc.OneTimeTokenStore {
 func (s *BaseServer) PKCEVerifierStore() *nbgrpc.PKCEVerifierStore {
 	return Create(s, func() *nbgrpc.PKCEVerifierStore {
 		return nbgrpc.NewPKCEVerifierStore(context.Background(), s.CacheStore())
+	})
+}
+
+// ProxyActivityManager records reverse proxy usage for activity accounting.
+func (s *BaseServer) ProxyActivityManager() proxyactivity.Manager {
+	return Create(s, func() proxyactivity.Manager {
+		return proxyactivitymanager.NewManager(s.Store())
 	})
 }
 

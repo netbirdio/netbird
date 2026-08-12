@@ -12,6 +12,7 @@ const (
 	RoleKey      = nbcontext.RoleKey
 	UserIDKey    = nbcontext.UserIDKey
 	PeerIDKey    = nbcontext.PeerIDKey
+	UserAgentKey = nbcontext.UserAgentKey
 )
 
 // RoleFromContext returns the role stored in ctx, or empty string and false if absent.

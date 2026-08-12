@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -19,6 +20,18 @@ import (
 type mockMgmtClient struct{}
 
 func (m *mockMgmtClient) CreateProxyPeer(_ context.Context, _ *proto.CreateProxyPeerRequest, _ ...grpc.CallOption) (*proto.CreateProxyPeerResponse, error) {
+	return &proto.CreateProxyPeerResponse{Success: true}, nil
+}
+
+// signalMgmtClient closes entered the first time CreateProxyPeer is called, so
+// tests can detect AddPeer reaching client creation.
+type signalMgmtClient struct {
+	entered chan struct{}
+	once    sync.Once
+}
+
+func (m *signalMgmtClient) CreateProxyPeer(_ context.Context, _ *proto.CreateProxyPeerRequest, _ ...grpc.CallOption) (*proto.CreateProxyPeerResponse, error) {
+	m.once.Do(func() { close(m.entered) })
 	return &proto.CreateProxyPeerResponse{Success: true}, nil
 }
 
@@ -52,11 +65,15 @@ func (m *mockStatusNotifier) calls() []statusCall {
 // mockNetBird creates a NetBird instance for testing without actually connecting.
 // It uses an invalid management URL to prevent real connections.
 func mockNetBird() *NetBird {
-	return NewNetBird(context.Background(), "test-proxy", "invalid.test", ClientConfig{
+	nb := NewNetBird(context.Background(), "test-proxy", "invalid.test", ClientConfig{
 		MgmtAddr:     "http://invalid.test:9999",
 		WGPort:       0,
 		PreSharedKey: "",
 	}, nil, nil, &mockMgmtClient{})
+	// Skip the real embed client.Start, which would hang against the unreachable
+	// mgmt URL and (now that the lifecycle lock spans startup) serialise removes.
+	nb.startClient = func(types.AccountID, *embed.Client) {}
+	return nb
 }
 
 func TestNetBird_AddPeer_CreatesClientForNewAccount(t *testing.T) {
@@ -288,6 +305,7 @@ func TestNetBird_AddPeer_ExistingStartedClient_NotifiesStatus(t *testing.T) {
 		WGPort:       0,
 		PreSharedKey: "",
 	}, nil, notifier, &mockMgmtClient{})
+	nb.startClient = func(types.AccountID, *embed.Client) {}
 	accountID := types.AccountID("account-1")
 
 	// Add first service — creates a new client entry.
@@ -370,6 +388,117 @@ func TestNetBird_RemovePeer_NotifiesDisconnection(t *testing.T) {
 	require.Len(t, calls, 1)
 	assert.Equal(t, types.ServiceID("svc-1"), calls[0].serviceID)
 	assert.False(t, calls[0].connected)
+}
+
+// TestNetBird_RemovePeer_TeardownIsAsync proves the fix for the receive-loop
+// stall: RemovePeer must return promptly even when the client teardown blocks,
+// because teardown runs off the caller's goroutine. The receive loop calls
+// RemovePeer synchronously, so a blocking teardown inline would wedge it.
+func TestNetBird_RemovePeer_TeardownIsAsync(t *testing.T) {
+	nb := NewNetBird(context.Background(), "test-proxy", "invalid.test", ClientConfig{
+		MgmtAddr: "http://invalid.test:9999",
+	}, nil, &mockStatusNotifier{}, &mockMgmtClient{})
+
+	accountID := types.AccountID("acct-async-teardown")
+	key := DomainServiceKey("svc.example")
+
+	teardownEntered := make(chan struct{})
+	releaseTeardown := make(chan struct{})
+	nb.SetClientLifecycle(nil, func(types.AccountID, any) {
+		close(teardownEntered)
+		<-releaseTeardown
+	})
+
+	nb.clientsMux.Lock()
+	nb.clients[accountID] = &clientEntry{
+		services: map[ServiceKey]serviceInfo{key: {serviceID: types.ServiceID("svc-1")}},
+		started:  true,
+		inbound:  struct{}{},
+	}
+	nb.clientsMux.Unlock()
+
+	done := make(chan error, 1)
+	go func() { done <- nb.RemovePeer(context.Background(), accountID, key) }()
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("RemovePeer did not return while teardown was blocked — teardown is not async")
+	}
+
+	select {
+	case <-teardownEntered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("teardown never ran")
+	}
+
+	close(releaseTeardown)
+}
+
+// TestNetBird_AddPeer_WaitsForTeardown proves the lifecycle lock serialises a
+// new client bringup behind an in-flight teardown for the same account, so a
+// slow client.Stop can never race a new client.Start for that account.
+//
+// It targets the handoff race specifically: AddPeer is launched immediately
+// after RemovePeer returns, WITHOUT waiting for the teardown goroutine to start.
+// This only passes if RemovePeer acquires the lifecycle lock synchronously
+// (before returning) and hands it to the teardown goroutine — if the goroutine
+// acquired the lock itself, AddPeer could win the lock in this window and start
+// a replacement client while the old teardown is still pending.
+func TestNetBird_AddPeer_WaitsForTeardown(t *testing.T) {
+	nb := NewNetBird(context.Background(), "test-proxy", "invalid.test", ClientConfig{
+		MgmtAddr: "http://invalid.test:9999",
+	}, nil, &mockStatusNotifier{}, &mockMgmtClient{})
+	nb.startClient = func(types.AccountID, *embed.Client) {}
+
+	accountID := types.AccountID("acct-serialize")
+	key := DomainServiceKey("svc.example")
+
+	addEntered := make(chan struct{})
+	releaseTeardown := make(chan struct{})
+	nb.SetClientLifecycle(nil, func(types.AccountID, any) {
+		// Block teardown until released. If AddPeer ever reaches createClientEntry
+		// (signalled via the mgmt client below) while we hold the lock, the lock
+		// failed to serialise and the test fails before we release.
+		<-releaseTeardown
+	})
+
+	nb.clientsMux.Lock()
+	nb.clients[accountID] = &clientEntry{
+		services: map[ServiceKey]serviceInfo{key: {serviceID: types.ServiceID("svc-1")}},
+		started:  true,
+		inbound:  struct{}{},
+	}
+	nb.clientsMux.Unlock()
+
+	// createClientEntry calls CreateProxyPeer; closing addEntered there tells us
+	// AddPeer got past the lifecycle lock and into client creation.
+	nb.mgmtClient = &signalMgmtClient{entered: addEntered}
+
+	require.NoError(t, nb.RemovePeer(context.Background(), accountID, key))
+
+	// Launch AddPeer with NO synchronisation against the teardown goroutine.
+	addReturned := make(chan struct{})
+	go func() {
+		_ = nb.AddPeer(context.Background(), accountID, DomainServiceKey("svc2.example"), "key-2", types.ServiceID("svc-2"))
+		close(addReturned)
+	}()
+
+	select {
+	case <-addEntered:
+		t.Fatal("AddPeer entered client creation while teardown held the lifecycle lock — handoff race not closed")
+	case <-addReturned:
+		t.Fatal("AddPeer completed while teardown held the lifecycle lock — not serialised")
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	close(releaseTeardown)
+	select {
+	case <-addReturned:
+	case <-time.After(2 * time.Second):
+		t.Fatal("AddPeer never completed after teardown released the lifecycle lock")
+	}
 }
 
 // TestNotifyClientReady_UsesBackgroundCtx pins the contract that the

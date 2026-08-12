@@ -15,7 +15,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
+	"golang.org/x/net/http2/h2c" //nolint:staticcheck
 	"google.golang.org/grpc"
 
 	"github.com/netbirdio/netbird/encryption"
@@ -67,6 +67,11 @@ type BaseServer struct {
 	autoResolveDomains          bool
 
 	proxyAuthClose func()
+
+	// grpcExtensions holds additional gRPC services, interceptors, and shutdown
+	// hooks registered by external modules via RegisterGRPCExtension. Populated
+	// during boot (single-threaded), consumed by GRPCServer() and Stop().
+	grpcExtensions []GRPCExtension
 
 	listener    net.Listener
 	certManager *autocert.Manager
@@ -122,7 +127,7 @@ func (s *BaseServer) Start(ctx context.Context) error {
 	s.errCh = make(chan error, 4)
 
 	if s.autoResolveDomains {
-		s.resolveDomains(srvCtx)
+		s.ResolveDomains(srvCtx)
 	}
 
 	s.PeersManager()
@@ -257,6 +262,7 @@ func (s *BaseServer) Stop() error {
 		s.proxyAuthClose()
 		s.proxyAuthClose = nil
 	}
+	runExtensionShutdownHooks(ctx, s.grpcExtensions)
 	_ = s.Store().Close(ctx)
 	_ = s.EventStore().Close(ctx)
 	if s.update != nil {
@@ -382,6 +388,7 @@ func (s *BaseServer) serveGRPCWithHTTP(ctx context.Context, listener net.Listene
 			// the following magic is needed to support HTTP2 without TLS
 			// and still share a single port between gRPC and HTTP APIs
 			h1s := &http.Server{
+				//nolint:staticcheck // h2c also handles the HTTP/1 Upgrade mechanism, which http.Server's UnencryptedHTTP2 does not
 				Handler: h2c.NewHandler(handler, &http2.Server{}),
 			}
 			err = h1s.Serve(listener)
@@ -398,10 +405,10 @@ func (s *BaseServer) serveGRPCWithHTTP(ctx context.Context, listener net.Listene
 	}()
 }
 
-// resolveDomains determines dnsDomain and mgmtSingleAccModeDomain based on store state.
+// ResolveDomains determines dnsDomain and mgmtSingleAccModeDomain based on store state.
 // Fresh installs use the default self-hosted domain, while existing installs reuse the
 // persisted account domain to keep addressing stable across config changes.
-func (s *BaseServer) resolveDomains(ctx context.Context) {
+func (s *BaseServer) ResolveDomains(ctx context.Context) {
 	st := s.Store()
 
 	setDefault := func(logMsg string, args ...any) {

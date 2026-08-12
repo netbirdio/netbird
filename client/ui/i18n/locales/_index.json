@@ -1,0 +1,14 @@
+{
+    "languages": [
+        {"code": "en", "displayName": "English (US)", "englishName": "English (US)"},
+        {"code": "de", "displayName": "Deutsch", "englishName": "German"},
+        {"code": "hu", "displayName": "Magyar", "englishName": "Hungarian"},
+        {"code": "ru", "displayName": "Русский", "englishName": "Russian"},
+        {"code": "es", "displayName": "Español", "englishName": "Spanish"},
+        {"code": "fr", "displayName": "Français", "englishName": "French"},
+        {"code": "it", "displayName": "Italiano", "englishName": "Italian"},
+        {"code": "pt", "displayName": "Português", "englishName": "Portuguese"},
+        {"code": "zh-CN", "displayName": "简体中文", "englishName": "Simplified Chinese"},
+        {"code": "ja", "displayName": "日本語", "englishName": "Japanese"}
+    ]
+}
