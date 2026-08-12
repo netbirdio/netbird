@@ -104,12 +104,13 @@ func (g *Guard) reconnectLoopWithRetry(ctx context.Context, callback func()) {
 	iceState := &iceRetryState{log: g.log}
 	defer iceState.reset()
 
+	netChanged := g.netState.Changed()
+
 	for {
 		select {
 		case <-tickerChannel:
-			// skip attempts while the OS reports no usable network; the ticker
-			// keeps running so other events remain responsive, and the guard
-			// resumes via the signal/relay reconnect events once network returns
+			// skip attempts while the OS reports no usable network; the
+			// netChanged case below resumes the loop once it returns
 			if !g.netState.IsOnline() {
 				continue
 			}
@@ -144,6 +145,23 @@ func (g *Guard) reconnectLoopWithRetry(ctx context.Context, callback func()) {
 
 		case <-srReconnectedChan:
 			g.log.Debugf("has network changes, reset reconnection ticker")
+			ticker.Stop()
+			ticker = g.newReconnectTicker(ctx)
+			tickerChannel = ticker.C
+			iceState.reset()
+
+		case <-netChanged:
+			// Re-arm for the next transition before acting on this one.
+			netChanged = g.netState.Changed()
+			if !g.netState.IsOnline() {
+				continue
+			}
+			// Ticks skipped while offline drove the backoff towards its
+			// maximum without ever attempting, and left the ICE budget
+			// frozen — possibly in hourly mode. Recover on our own so the
+			// peer does not depend on a signal or relay event that never
+			// comes when both stayed up across the outage.
+			g.log.Debugf("network is back, reset reconnection ticker")
 			ticker.Stop()
 			ticker = g.newReconnectTicker(ctx)
 			tickerChannel = ticker.C

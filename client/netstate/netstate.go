@@ -61,6 +61,20 @@ func (s *State) IsOnline() bool {
 	return s.online
 }
 
+// Changed returns a channel closed on the next availability transition, for
+// callers that already own a select loop and cannot block in Wait. Re-read it
+// after every fire: each transition installs a fresh channel. On a nil
+// receiver — no State injected — it returns nil, which blocks forever in a
+// select, so the caller simply never observes a transition.
+func (s *State) Changed() <-chan struct{} {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.changed
+}
+
 // Wait blocks while the network is offline. It reports whether it had to
 // wait, so callers can reset their backoff after an outage. It returns early
 // with the context error when ctx is done. On a nil receiver — no State
