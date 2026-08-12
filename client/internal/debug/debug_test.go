@@ -839,12 +839,13 @@ COMMIT`
 // the excluded set with a justification.
 func TestAddConfig_AllFieldsCovered(t *testing.T) {
 	excluded := map[string]string{
-		"PrivateKey":        "sensitive: WireGuard private key",
-		"PreSharedKey":      "sensitive: WireGuard pre-shared key",
-		"SSHKey":            "sensitive: SSH private key",
-		"ClientCertKeyPair": "non-config: parsed cert pair, not serialized",
-		"Name":              "non-config: profile name is not needed for debug purposes",
-		"policy":            "non-config: in-memory MDM policy snapshot, surfaced via Config.Policy() / GetConfigResponse.MDMManagedFields",
+		"PrivateKey":           "sensitive: WireGuard private key",
+		"PreSharedKey":         "sensitive: WireGuard pre-shared key",
+		"SSHKey":               "sensitive: SSH private key",
+		"ClientCertKeyPair":    "non-config: parsed cert pair, not serialized",
+		"Name":                 "non-config: profile name is not needed for debug purposes",
+		"policy":               "non-config: in-memory MDM policy snapshot, surfaced via Config.Policy() / GetConfigResponse.MDMManagedFields",
+		"DebugBundleUploadURL": "sensitive: MDM-provided upload URL may carry credentials or query tokens; kept out of the shared bundle",
 	}
 
 	mURL, _ := url.Parse("https://api.example.com:443")
@@ -864,6 +865,7 @@ func TestAddConfig_AllFieldsCovered(t *testing.T) {
 		RosenpassEnabled:              true,
 		RosenpassPermissive:           true,
 		ServerSSHAllowed:              &bTrue,
+		RemoteJobsAllowed:             &bTrue,
 		EnableSSHRoot:                 &bTrue,
 		EnableSSHSFTP:                 &bTrue,
 		EnableSSHLocalPortForwarding:  &bTrue,
