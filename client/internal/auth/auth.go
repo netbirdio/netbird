@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"strings"
 	"sync"
@@ -140,25 +141,21 @@ func (a *Auth) IsSSOSupported(ctx context.Context) (bool, error) {
 // This avoids creating a new connection to the management server
 func (a *Auth) GetOAuthFlow(ctx context.Context, forceDeviceAuth bool) (OAuthFlow, error) {
 	var flow OAuthFlow
-	var err error
 
-	err = a.withRetry(ctx, func(client *mgm.GrpcClient) error {
-		if forceDeviceAuth {
-			flow, err = a.getDeviceFlow(client)
-			return err
-		}
+	// the connection is owned by a and outlives this call, so a later fallback reuses it
+	newAuth := func(context.Context) (*Auth, func(), error) {
+		return a, func() {}, nil
+	}
 
-		// Try PKCE flow first
-		flow, err = a.getPKCEFlow(client)
-		if err != nil {
-			// If PKCE not supported, try Device flow
-			if s, ok := status.FromError(err); ok && (s.Code() == codes.NotFound || s.Code() == codes.Unimplemented) {
-				flow, err = a.getDeviceFlow(client)
-				return err
-			}
-			return err
+	err := a.withRetry(ctx, func(client *mgm.GrpcClient) error {
+		var err error
+		flow, err = oauthFlowWithFallback(a, client, flowOrder(forceDeviceAuth), "", newAuth)
+
+		var ssoUnavailable *ssoUnavailableError
+		if errors.As(err, &ssoUnavailable) {
+			return backoff.Permanent(err)
 		}
-		return nil
+		return err
 	})
 
 	return flow, err

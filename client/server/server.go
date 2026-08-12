@@ -682,6 +682,11 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.IsUnixDesktopClient, false, hint)
 		if err != nil {
 			state.Set(internal.StatusLoginFailed)
+			// enrolling a device is the one flow a setup key can replace
+			if auth.IsSSOUnavailable(err) {
+				return nil, fmt.Errorf("%w. Set this device up with a setup key instead: "+
+					"https://docs.netbird.io/how-to/register-machines-using-setup-keys", err)
+			}
 			return nil, err
 		}
 
@@ -1723,8 +1728,8 @@ func (s *Server) RequestJWTAuth(
 		hint = profilemanager.GetLoginHint()
 	}
 
-	isDesktop := isUnixRunningDesktop()
-	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, isDesktop, false, hint)
+	// the daemon has no graphical session of its own, only the caller can answer this
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.GetHasGraphicalSession(), false, hint)
 	if err != nil {
 		return nil, gstatus.Errorf(codes.Internal, "failed to create OAuth flow: %v", err)
 	}
@@ -1827,8 +1832,8 @@ func (s *Server) RequestExtendAuthSession(
 		hint = profilemanager.GetLoginHint()
 	}
 
-	isDesktop := isUnixRunningDesktop()
-	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, isDesktop, false, hint)
+	// the daemon has no graphical session of its own, only the caller can answer this
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.GetHasGraphicalSession(), false, hint)
 	if err != nil {
 		return nil, gstatus.Errorf(codes.Internal, "failed to create OAuth flow: %v", err)
 	}
@@ -1998,13 +2003,6 @@ func (s *Server) ExposeService(req *proto.ExposeServiceRequest, srv proto.Daemon
 		return err
 	}
 	return nil
-}
-
-func isUnixRunningDesktop() bool {
-	if runtime.GOOS != "linux" && runtime.GOOS != "freebsd" {
-		return false
-	}
-	return os.Getenv("DESKTOP_SESSION") != "" || os.Getenv("XDG_CURRENT_DESKTOP") != ""
 }
 
 func (s *Server) runProbes(ctx context.Context, waitForProbeResult bool) {
