@@ -232,31 +232,6 @@ func (s *SSHClient) Connect(host string, port int, user, password string) error 
 	return nil
 }
 
-// isAuthFailure distinguishes credential rejection from dial, timeout and
-// host-key errors, which retrying with a password would not fix.
-func isAuthFailure(err error) bool {
-	if errors.Is(err, errPasswordRequired) {
-		return true
-	}
-	var partial *gossh.PartialSuccessError
-	if errors.As(err, &partial) {
-		return true
-	}
-	return strings.Contains(err.Error(), "unable to authenticate")
-}
-
-// passwordCouldHelp reports whether prompting for a password again can change
-// the outcome. gossh lists a method under "attempted methods" only when the
-// server offered it, so a supplied password that was never attempted means the
-// server does not accept passwords and the real error should surface instead.
-func passwordCouldHelp(err error, passwordOffered bool) bool {
-	if !passwordOffered {
-		return true
-	}
-	msg := err.Error()
-	return strings.Contains(msg, "password") || strings.Contains(msg, "keyboard-interactive")
-}
-
 // StartSession requests a PTY and starts an interactive shell. Output from
 // the session is forwarded to the listener via OnData.
 func (s *SSHClient) StartSession(cols, rows int) error {
@@ -265,80 +240,6 @@ func (s *SSHClient) StartSession(cols, rows int) error {
 		log.Infof("SSH: start session failed: %v", err)
 		return rootCause(err)
 	}
-	return nil
-}
-
-func (s *SSHClient) startSession(cols, rows int) error {
-	log.Debugf("SSH: starting session %dx%d", cols, rows)
-	s.mu.Lock()
-	sshClient := s.sshClient
-	gen := s.gen
-	s.mu.Unlock()
-
-	if sshClient == nil {
-		return errors.New("ssh client not connected")
-	}
-
-	session, err := sshClient.NewSession()
-	if err != nil {
-		return fmt.Errorf("new session: %w", err)
-	}
-
-	modes := gossh.TerminalModes{
-		gossh.ECHO:          1,
-		gossh.TTY_OP_ISPEED: 14400,
-		gossh.TTY_OP_OSPEED: 14400,
-		gossh.VINTR:         3,
-		gossh.VQUIT:         28,
-		gossh.VERASE:        127,
-	}
-	if err := session.RequestPty("xterm-256color", rows, cols, modes); err != nil {
-		closeQuiet(session, "session after pty error")
-		return fmt.Errorf("request pty: %w", err)
-	}
-
-	stdin, err := session.StdinPipe()
-	if err != nil {
-		closeQuiet(session, "session after stdin error")
-		return fmt.Errorf("stdin pipe: %w", err)
-	}
-	stdout, err := session.StdoutPipe()
-	if err != nil {
-		closeQuiet(session, "session after stdout error")
-		return fmt.Errorf("stdout pipe: %w", err)
-	}
-	stderr, err := session.StderrPipe()
-	if err != nil {
-		closeQuiet(session, "session after stderr error")
-		return fmt.Errorf("stderr pipe: %w", err)
-	}
-
-	if err := session.Shell(); err != nil {
-		closeQuiet(session, "session after shell error")
-		return fmt.Errorf("start shell: %w", err)
-	}
-
-	s.mu.Lock()
-	if gen != s.gen {
-		s.mu.Unlock()
-		closeQuiet(session, "stale session")
-		return errClientClosed
-	}
-	s.session = session
-	s.stdin = stdin
-	s.mu.Unlock()
-
-	readerDone := make(chan string, 2)
-	go func() { readerDone <- s.readLoop(stdout, "stdout") }()
-	go func() { readerDone <- s.readLoop(stderr, "stderr") }()
-	go func() {
-		reason := <-readerDone
-		if second := <-readerDone; reason == "" {
-			reason = second
-		}
-		s.notifyClose(gen, reason)
-	}()
-	log.Debug("SSH: session started, shell running")
 	return nil
 }
 
@@ -415,6 +316,80 @@ func (s *SSHClient) Close() error {
 		listener.OnClose("closed by client")
 	}
 	return firstErr
+}
+
+func (s *SSHClient) startSession(cols, rows int) error {
+	log.Debugf("SSH: starting session %dx%d", cols, rows)
+	s.mu.Lock()
+	sshClient := s.sshClient
+	gen := s.gen
+	s.mu.Unlock()
+
+	if sshClient == nil {
+		return errors.New("ssh client not connected")
+	}
+
+	session, err := sshClient.NewSession()
+	if err != nil {
+		return fmt.Errorf("new session: %w", err)
+	}
+
+	modes := gossh.TerminalModes{
+		gossh.ECHO:          1,
+		gossh.TTY_OP_ISPEED: 14400,
+		gossh.TTY_OP_OSPEED: 14400,
+		gossh.VINTR:         3,
+		gossh.VQUIT:         28,
+		gossh.VERASE:        127,
+	}
+	if err := session.RequestPty("xterm-256color", rows, cols, modes); err != nil {
+		closeQuiet(session, "session after pty error")
+		return fmt.Errorf("request pty: %w", err)
+	}
+
+	stdin, err := session.StdinPipe()
+	if err != nil {
+		closeQuiet(session, "session after stdin error")
+		return fmt.Errorf("stdin pipe: %w", err)
+	}
+	stdout, err := session.StdoutPipe()
+	if err != nil {
+		closeQuiet(session, "session after stdout error")
+		return fmt.Errorf("stdout pipe: %w", err)
+	}
+	stderr, err := session.StderrPipe()
+	if err != nil {
+		closeQuiet(session, "session after stderr error")
+		return fmt.Errorf("stderr pipe: %w", err)
+	}
+
+	if err := session.Shell(); err != nil {
+		closeQuiet(session, "session after shell error")
+		return fmt.Errorf("start shell: %w", err)
+	}
+
+	s.mu.Lock()
+	if gen != s.gen {
+		s.mu.Unlock()
+		closeQuiet(session, "stale session")
+		return errClientClosed
+	}
+	s.session = session
+	s.stdin = stdin
+	s.mu.Unlock()
+
+	readerDone := make(chan string, 2)
+	go func() { readerDone <- s.readLoop(stdout, "stdout") }()
+	go func() { readerDone <- s.readLoop(stderr, "stderr") }()
+	go func() {
+		reason := <-readerDone
+		if second := <-readerDone; reason == "" {
+			reason = second
+		}
+		s.notifyClose(gen, reason)
+	}()
+	log.Debug("SSH: session started, shell running")
+	return nil
 }
 
 func (s *SSHClient) buildAuth(cfg *profilemanager.Config, engine *internal.Engine,
@@ -696,6 +671,46 @@ func (s *SSHClient) notifyClose(gen uint64, reason string) {
 	}
 }
 
+// RemoveKnownHost deletes every known_hosts entry for host:port from the store,
+// so a host trusted for a session that is being deleted does not linger. Java
+// calls this only once no session targets that host, so a shared host stays
+// trusted. Missing file or entry is not an error: the goal state is "absent".
+func RemoveKnownHost(path, host string, port int) error {
+	target := knownhosts.Normalize(net.JoinHostPort(host, strconv.Itoa(port)))
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+
+	var kept []string
+	changed := false
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if knownHostsLineMatches(line, target) {
+			changed = true
+			continue
+		}
+		kept = append(kept, line)
+	}
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+	if !changed {
+		return nil
+	}
+
+	out := strings.Join(kept, "\n")
+	if len(kept) > 0 {
+		out += "\n"
+	}
+	return os.WriteFile(path, []byte(out), 0o600)
+}
+
 func closeQuiet(c io.Closer, label string) {
 	if c == nil {
 		return
@@ -769,46 +784,6 @@ func appendKnownHost(path, hostname string, remote net.Addr, key gossh.PublicKey
 	return err
 }
 
-// RemoveKnownHost deletes every known_hosts entry for host:port from the store,
-// so a host trusted for a session that is being deleted does not linger. Java
-// calls this only once no session targets that host, so a shared host stays
-// trusted. Missing file or entry is not an error: the goal state is "absent".
-func RemoveKnownHost(path, host string, port int) error {
-	target := knownhosts.Normalize(net.JoinHostPort(host, strconv.Itoa(port)))
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-
-	var kept []string
-	changed := false
-	scanner := bufio.NewScanner(bytes.NewReader(data))
-	for scanner.Scan() {
-		line := scanner.Text()
-		if knownHostsLineMatches(line, target) {
-			changed = true
-			continue
-		}
-		kept = append(kept, line)
-	}
-	if err := scanner.Err(); err != nil {
-		return err
-	}
-	if !changed {
-		return nil
-	}
-
-	out := strings.Join(kept, "\n")
-	if len(kept) > 0 {
-		out += "\n"
-	}
-	return os.WriteFile(path, []byte(out), 0o600)
-}
-
 // knownHostsLineMatches reports whether a known_hosts line's address list
 // contains the normalized target. Comment and blank lines never match.
 func knownHostsLineMatches(line, target string) bool {
@@ -826,4 +801,29 @@ func knownHostsLineMatches(line, target string) bool {
 		}
 	}
 	return false
+}
+
+// isAuthFailure distinguishes credential rejection from dial, timeout and
+// host-key errors, which retrying with a password would not fix.
+func isAuthFailure(err error) bool {
+	if errors.Is(err, errPasswordRequired) {
+		return true
+	}
+	var partial *gossh.PartialSuccessError
+	if errors.As(err, &partial) {
+		return true
+	}
+	return strings.Contains(err.Error(), "unable to authenticate")
+}
+
+// passwordCouldHelp reports whether prompting for a password again can change
+// the outcome. gossh lists a method under "attempted methods" only when the
+// server offered it, so a supplied password that was never attempted means the
+// server does not accept passwords and the real error should surface instead.
+func passwordCouldHelp(err error, passwordOffered bool) bool {
+	if !passwordOffered {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "password") || strings.Contains(msg, "keyboard-interactive")
 }
