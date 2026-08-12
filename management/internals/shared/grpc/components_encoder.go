@@ -173,10 +173,9 @@ func (e *componentEncoder) appendPeer(p *nmdata.Peer) uint32 {
 	return idx
 }
 
-// indexRouterPeers ensures every router peer is in the peer dedup table
-// (c.RouterPeers may contain peers not in c.Peers when validation rules drop
-// them) and returns their wire indexes for the RouterPeerIndexes field. Must
-// run before any encoder that resolves peer ids via e.peerOrder.
+// indexRouterPeers ensures every router peer is in the peer dedup table and
+// returns their wire indexes for the RouterPeerIndexes field. Must run before
+// any encoder that resolves peer ids via e.peerOrder.
 func (e *componentEncoder) indexRouterPeers(routers map[string]*nmdata.Peer) []uint32 {
 	if len(routers) == 0 {
 		return nil
@@ -333,22 +332,39 @@ func unionPolicies(policies []*nmdata.Policy, resourcePolicies map[string][]*nmd
 }
 
 // encodeAuthorizedGroups translates rule.AuthorizedGroups (map keyed by
-// group xid → local-user names) to the wire form (map keyed by group
-// account_seq_id → UserNameList). Groups without a seq id are dropped —
-// matches how source/destination group references handle the same case.
+// group xid → local-user names) to the wire form (map keyed by
+// authorizedGroupKey → UserNameList).
 func (e *componentEncoder) encodeAuthorizedGroups(m map[string][]string) map[string]*proto.UserNameList {
 	if len(m) == 0 {
 		return nil
 	}
 	out := make(map[string]*proto.UserNameList, len(m))
 	for groupID, names := range m {
-		id, ok := e.groupPublicXid(groupID)
+		id, ok := e.authorizedGroupKey(groupID)
 		if !ok {
 			continue
 		}
 		out[id] = &proto.UserNameList{Names: names}
 	}
 	return out
+}
+
+// authorizedGroupKey resolves the wire key for a group that grants SSH access.
+// These are user groups: they hold no peers, so nothing puts them in
+// components.Groups and groupPublicXid cannot see them. Dropping them the way a
+// missing source/destination group is dropped would strip every authorized user
+// from the envelope while PeerConfig still reports SSH enabled, leaving the peer
+// running sshd with nobody able to log in — so the id is passed through instead.
+// AuthorizedGroups and GroupIDToUserIDs are only ever used against each other,
+// on both sides of the wire, so they just have to agree.
+func (e *componentEncoder) authorizedGroupKey(groupID string) (string, bool) {
+	if groupID == "" {
+		return "", false
+	}
+	if id, ok := e.groupPublicXid(groupID); ok {
+		return id, true
+	}
+	return groupID, true
 }
 
 func (e *componentEncoder) groupPublicXid(groupID string) (string, bool) {
@@ -650,7 +666,7 @@ func (e *componentEncoder) encodeGroupIDToUserIDs(m map[string][]string) map[str
 	}
 	out := make(map[string]*proto.UserIDList, len(m))
 	for groupID, userIDs := range m {
-		id, ok := e.groupPublicXid(groupID)
+		id, ok := e.authorizedGroupKey(groupID)
 		if !ok || len(userIDs) == 0 {
 			continue
 		}

@@ -1103,8 +1103,9 @@ func TestGetPeerNetworkMapComponents_NetworkResources_SourceSide(t *testing.T) {
 	assert.Equal(t, []*nmdata.NetworkResource{res}, c.NetworkResources)
 	assert.Equal(t, map[string][]*nmdata.Policy{"res-1": {rp}}, c.ResourcePoliciesMap)
 	assert.Equal(t, map[string]map[string]*nmdata.NetworkRouter{"net-1": routers}, c.RoutersMap)
-	assert.ElementsMatch(t, []string{routerOK.ID, routerUnval.ID}, peerIDSet(c.RouterPeers),
-		"RouterPeers carries all routing peers regardless of validation")
+	assert.ElementsMatch(t, []string{routerOK.ID}, peerIDSet(c.RouterPeers),
+		"an unvalidated routing peer is withheld from RouterPeers too, since the envelope encoder "+
+			"indexes that map into the wire peer table and the client restores every entry from it")
 	assert.ElementsMatch(t, []string{targetID, routerOK.ID}, peerIDSet(c.Peers),
 		"only validated routing peers are connected")
 	assert.ElementsMatch(t, []string{"g-clients", "g-resource"}, groupIDSet(c.Groups))

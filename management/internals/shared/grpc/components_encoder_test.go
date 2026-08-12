@@ -697,15 +697,20 @@ func TestEncodeNetworkMapEnvelope_RouterPeerNotInComponentsPeers(t *testing.T) {
 func TestEncodeNetworkMapEnvelope_GroupIDToUserIDs(t *testing.T) {
 	c := newTestComponents()
 	c.GroupIDToUserIDs = map[string][]string{
-		"group-src":     {"user-1", "user-2"},
-		"group-missing": {"user-4"}, // group not in components → drop
+		"group-src":   {"user-1", "user-2"},
+		"group-users": {"user-4"},
 	}
 
 	full := EncodeNetworkMapEnvelope(ComponentsEnvelopeInput{Components: c}).GetFull()
 
-	require.Len(t, full.GroupIdToUserIds, 1, "only present groups survive")
+	require.Len(t, full.GroupIdToUserIds, 2,
+		"a peer group is keyed by its public id, and a user group — which never appears in "+
+			"components.Groups — keeps its own id rather than being dropped, or the peer would "+
+			"receive no authorized SSH users at all")
 	require.Contains(t, full.GroupIdToUserIds, "1")
 	assert.ElementsMatch(t, []string{"user-1", "user-2"}, full.GroupIdToUserIds["1"].UserIds)
+	require.Contains(t, full.GroupIdToUserIds, "group-users")
+	assert.ElementsMatch(t, []string{"user-4"}, full.GroupIdToUserIds["group-users"].UserIds)
 }
 
 func TestToProxyPatch_EmptyInputReturnsNil(t *testing.T) {

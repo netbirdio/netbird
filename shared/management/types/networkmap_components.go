@@ -819,7 +819,7 @@ func (c *NetworkMapComponents) processResourcePolicies(
 	var routes []*nmdata.Route
 
 	for _, policy := range c.ResourcePoliciesMap[resource.ID] {
-		if policy == nil || len(policy.Rules) == 0 || policy.Rules[0] == nil {
+		if policy == nil || !policy.Enabled || len(policy.Rules) == 0 || policy.Rules[0] == nil {
 			continue
 		}
 		peers := c.getResourcePolicyPeers(policy)

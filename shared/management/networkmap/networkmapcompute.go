@@ -105,7 +105,7 @@ func (nmd *NetworkMapData) GetPeerNetworkMapComponents(peerID string, peersCusto
 		}
 
 		for _, policy := range policies {
-			if policy == nil || len(policy.Rules) == 0 || policy.Rules[0] == nil {
+			if policy == nil || !policy.Enabled || len(policy.Rules) == 0 || policy.Rules[0] == nil {
 				continue
 			}
 			if addSourcePeers {
@@ -147,7 +147,7 @@ func (nmd *NetworkMapData) GetPeerNetworkMapComponents(peerID string, peersCusto
 			}
 
 			for _, rule := range policy.Rules {
-				if rule == nil {
+				if rule == nil || !rule.Enabled {
 					continue
 				}
 				for _, srcGroupID := range rule.Sources {
@@ -171,15 +171,21 @@ func (nmd *NetworkMapData) GetPeerNetworkMapComponents(peerID string, peersCusto
 		if addSourcePeers {
 			components.RoutersMap[resource.NetworkID] = networkRoutingPeers
 			for peerIDKey := range networkRoutingPeers {
-				if p := nmd.Peers[peerIDKey]; p != nil {
-					if _, exists := components.RouterPeers[peerIDKey]; !exists {
-						components.RouterPeers[peerIDKey] = p
-					}
-					if _, exists := components.Peers[peerIDKey]; !exists {
-						if _, validated := nmd.ValidatedPeers[peerIDKey]; validated {
-							components.Peers[peerIDKey] = p
-						}
-					}
+				p := nmd.Peers[peerIDKey]
+				if p == nil {
+					continue
+				}
+				// An unapproved peer must not carry traffic, so it is kept out of
+				// RouterPeers as well: the envelope encoder indexes that map into
+				// the wire peer table, from which the client restores every entry.
+				if _, validated := nmd.ValidatedPeers[peerIDKey]; !validated {
+					continue
+				}
+				if _, exists := components.RouterPeers[peerIDKey]; !exists {
+					components.RouterPeers[peerIDKey] = p
+				}
+				if _, exists := components.Peers[peerIDKey]; !exists {
+					components.Peers[peerIDKey] = p
 				}
 			}
 			components.NetworkResources = append(components.NetworkResources, resource)
