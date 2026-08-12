@@ -108,10 +108,11 @@ func (s *Connection) Login(ctx context.Context, p LoginParams) (LoginResult, err
 	}
 
 	req := &proto.LoginRequest{
-		ManagementUrl:       p.ManagementURL,
-		SetupKey:            p.SetupKey,
-		Hostname:            p.Hostname,
-		IsUnixDesktopClient: runtime.GOOS == "linux",
+		ManagementUrl: p.ManagementURL,
+		SetupKey:      p.SetupKey,
+		Hostname:      p.Hostname,
+		// a login driven by the UI always has a graphical session available
+		IsUnixDesktopClient: true,
 	}
 	if profileName != "" {
 		req.ProfileName = ptrStr(profileName)
