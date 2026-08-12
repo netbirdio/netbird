@@ -176,6 +176,7 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 	semaphore := make(chan struct{}, 10)
 
 	c.injectAllProxyPolicies(ctx, account)
+	account.PrecomputePostureValidation(ctx)
 	dnsCache := &cache.DNSConfigCache{}
 	dnsDomain := c.GetDNSDomain(account.Settings)
 	peersCustomZone := account.GetPeersCustomZone(ctx, dnsDomain)
@@ -357,6 +358,7 @@ func (c *Controller) sendUpdateForAffectedPeers(ctx context.Context, accountID s
 	// network map that omitted the synth DNS zone, and the agent kept
 	// resolving against the stale or absent record.
 	c.injectAllProxyPolicies(ctx, account)
+	account.PrecomputePostureValidation(ctx)
 	dnsCache := &cache.DNSConfigCache{}
 	dnsDomain := c.GetDNSDomain(account.Settings)
 	peersCustomZone := account.GetPeersCustomZone(ctx, dnsDomain)
