@@ -14,6 +14,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	nbAnonymize "github.com/netbirdio/netbird/client/anonymize"
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/debug"
@@ -28,6 +29,13 @@ import (
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	types "github.com/netbirdio/netbird/upload-server/types"
+)
+
+// AnonymizeLevelDefault and AnonymizeLevelStrict are the accepted
+// anonymizeLevel values for DebugBundle.
+const (
+	AnonymizeLevelDefault = nbAnonymize.LevelDefaultString
+	AnonymizeLevelStrict  = nbAnonymize.LevelStrictString
 )
 
 // RouteListener export internal RouteListener for mobile
@@ -224,8 +232,10 @@ func (c *Client) Stop() {
 // DebugBundle generates a debug bundle, uploads it and returns the upload key.
 // It works with or without a running engine: when the engine is up it reuses
 // the live config, sync response and client metrics; otherwise it loads the
-// config from disk (or the preloaded tvOS config).
-func (c *Client) DebugBundle(anonymize bool) (string, error) {
+// config from disk (or the preloaded tvOS config). anonymizeLevel is "default"
+// or "strict"; strict also anonymizes internal IP ranges, peer names, and
+// WireGuard public keys, and implies anonymize.
+func (c *Client) DebugBundle(anonymize bool, anonymizeLevel string) (string, error) {
 	cfg, cc := c.stateSnapshot()
 
 	// If the engine hasn't been started, load config so we can reach management.
@@ -275,6 +285,7 @@ func (c *Client) DebugBundle(anonymize bool) (string, error) {
 		deps,
 		debug.BundleConfig{
 			Anonymize:         anonymize,
+			AnonymizeLevel:    nbAnonymize.ParseLevel(anonymizeLevel),
 			IncludeSystemInfo: true,
 		},
 	)
