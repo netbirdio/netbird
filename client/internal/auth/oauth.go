@@ -312,12 +312,16 @@ func IsSSOUnavailable(err error) bool {
 // WithSetupKeyAdvice appends enrollment guidance to an SSO-unavailable error and returns any
 // other error unchanged. Only enrollment can fall back to a setup key: extending a session and
 // authenticating SSH cannot, so those paths must not call this.
+//
+// The login paths that do call it cannot tell an unregistered peer from an SSO-enrolled one
+// whose session expired, since both answer PermissionDenied, so the advice names the case it
+// applies to rather than telling an enrolled peer to do something that cannot work.
 func WithSetupKeyAdvice(err error) error {
 	if !IsSSOUnavailable(err) {
 		return err
 	}
 
-	return fmt.Errorf("%w. Set this device up with a setup key instead: "+
+	return fmt.Errorf("%w. If this device is not enrolled yet, enroll it with a setup key instead: "+
 		"https://docs.netbird.io/how-to/register-machines-using-setup-keys", err)
 }
 

@@ -222,6 +222,19 @@ func TestFallbackFlowRequestAuthInfo(t *testing.T) {
 	})
 }
 
+func TestWithSetupKeyAdvice(t *testing.T) {
+	other := errors.New("connection refused")
+	assert.Equal(t, other, WithSetupKeyAdvice(other), "only an SSO-unavailable error gets advice")
+
+	advised := WithSetupKeyAdvice(&ssoUnavailableError{msg: "no SSO provider configured"})
+	assert.Contains(t, advised.Error(), "no SSO provider configured", "the original message must survive")
+	assert.Contains(t, advised.Error(), "setup key")
+	// a setup key cannot re-enrol a peer whose SSO session expired, and the login paths cannot
+	// tell that peer apart from an unregistered one, so the advice must state its condition
+	assert.Contains(t, advised.Error(), "not enrolled yet")
+	assert.True(t, IsSSOUnavailable(advised), "advice must keep the error classifiable")
+}
+
 func TestFlowOrder(t *testing.T) {
 	assert.Equal(t, "pkce authorization flow", flowOrder(false)[0].name)
 	assert.Equal(t, "device code flow", flowOrder(true)[0].name)
