@@ -332,6 +332,21 @@ func TestApplyMDMPolicyRemoteJobs(t *testing.T) {
 		cfg.applyMDMPolicy(mdm.NewPolicy(map[string]any{mdm.KeyRemoteJobsAllowed: true}))
 		assert.Empty(t, cfg.DebugBundleUploadURL, "the stale upload URL override must be cleared")
 	})
+
+	t.Run("an empty replacement policy clears a previously-applied override", func(t *testing.T) {
+		cfg := &Config{DebugBundleUploadURL: "https://old.example.com"}
+		// A policy that becomes empty entirely hits the IsEmpty early return;
+		// the override must still be cleared rather than surviving on the
+		// reused Config instance.
+		cfg.applyMDMPolicy(mdm.NewPolicy(map[string]any{}))
+		assert.Empty(t, cfg.DebugBundleUploadURL, "the stale upload URL override must be cleared when the policy empties")
+	})
+
+	t.Run("an invalid upload URL clears a previously-applied override (fail closed)", func(t *testing.T) {
+		cfg := &Config{DebugBundleUploadURL: "https://old.example.com"}
+		cfg.applyMDMPolicy(mdm.NewPolicy(map[string]any{mdm.KeyBundleUploadURL: "not-a-url"}))
+		assert.Empty(t, cfg.DebugBundleUploadURL, "an invalid override must fail closed, not keep the stale target")
+	})
 }
 
 func TestUpdateOldManagementURL(t *testing.T) {

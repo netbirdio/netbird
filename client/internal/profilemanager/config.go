@@ -691,6 +691,14 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 // for the key, so per-field rejection of user writes still applies).
 func (config *Config) applyMDMPolicy(policy *mdm.Policy) {
 	config.policy = policy
+
+	// DebugBundleUploadURL is a runtime-only override re-derived from MDM on
+	// every apply. Resolve it unconditionally (before the IsEmpty early return)
+	// so a policy that drops the key, becomes empty, or carries an invalid
+	// value can never leave a previously-enforced upload target active on a
+	// reused Config instance.
+	config.DebugBundleUploadURL = mdmDebugBundleUploadURL(policy)
+
 	if policy.IsEmpty() {
 		return
 	}
@@ -767,22 +775,28 @@ func (config *Config) applyMDMPolicy(policy *mdm.Policy) {
 		logApplied(mdm.KeyLazyConnection, state)
 	}
 
-	if v, ok := policy.GetString(mdm.KeyBundleUploadURL); ok {
-		// Must be a well-formed https URL with a host, matching the client's
-		// remote-job upload-URL validation. Invalid values are skipped so a
-		// bad policy cannot break bundle uploads. The URL is not logged: it
-		// can embed credentials or signed query tokens.
-		if u, err := url.Parse(v); err != nil || u.Scheme != "https" || u.Host == "" {
-			log.Warnf("MDM debug bundle upload URL is invalid (must be an https URL with a host); keeping previous value")
-		} else {
-			config.DebugBundleUploadURL = v
-			logApplied(mdm.KeyBundleUploadURL, "")
-		}
-	} else {
-		// The key was dropped from the policy: clear any stale override so it
-		// can never keep directing uploads to a previously-enforced host.
-		config.DebugBundleUploadURL = ""
+}
+
+// mdmDebugBundleUploadURL resolves the MDM-enforced debug-bundle upload URL
+// override from the policy, returning the empty string when the policy does
+// not carry a valid KeyBundleUploadURL. An absent or invalid value fails
+// closed to "" so it falls back to the management-supplied or default upload
+// target rather than a previously-enforced one. The URL is never logged: it
+// can embed credentials or signed query tokens (KeyBundleUploadURL is in
+// mdm.SecretKeys).
+func mdmDebugBundleUploadURL(policy *mdm.Policy) string {
+	v, ok := policy.GetString(mdm.KeyBundleUploadURL)
+	if !ok {
+		return ""
 	}
+	// Must be a well-formed https URL with a host, matching the client's
+	// remote-job upload-URL validation.
+	if u, err := url.Parse(v); err != nil || u.Scheme != "https" || u.Host == "" {
+		log.Warnf("MDM debug bundle upload URL is invalid (must be an https URL with a host); ignoring the override")
+		return ""
+	}
+	log.Infof("MDM override %s = ********** (secret)", mdm.KeyBundleUploadURL)
+	return v
 }
 
 // parseURL parses and validates the URL for the named service. The URL
