@@ -55,11 +55,14 @@ func TestGuard_RecoversAfterOfflineToOnline(t *testing.T) {
 
 	// The next organic tick is now several seconds out, so anything within
 	// this window can only come from reacting to the transition itself.
+	pollCtx, stopPolling := context.WithTimeout(ctx, 2*time.Second)
+	defer stopPolling()
+
 	select {
-	case <-time.After(2 * time.Second):
+	case <-pollCtx.Done():
 		t.Fatal("peer was not retried within 2s of the network coming back, " +
 			"with neither a signal nor a relay event to fall back on")
-	case <-pollUntil(func() bool { return attempts.Load() > 0 }):
+	case <-pollUntil(pollCtx, func() bool { return attempts.Load() > 0 }):
 	}
 }
 
@@ -83,7 +86,9 @@ func TestGuard_OfflineTransitionDoesNotRetry(t *testing.T) {
 	}
 }
 
-func pollUntil(cond func() bool) <-chan struct{} {
+// pollUntil closes the returned channel once cond holds. It gives up when ctx
+// is done, so the polling goroutine never outlives the test that started it.
+func pollUntil(ctx context.Context, cond func() bool) <-chan struct{} {
 	done := make(chan struct{})
 	go func() {
 		for {
@@ -91,7 +96,11 @@ func pollUntil(cond func() bool) <-chan struct{} {
 				close(done)
 				return
 			}
-			time.Sleep(10 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(10 * time.Millisecond):
+			}
 		}
 	}()
 	return done
