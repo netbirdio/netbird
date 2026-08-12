@@ -157,5 +157,5 @@ func TestModuleDirHonoursContext(t *testing.T) {
 	cancel()
 
 	_, err := moduleDir(ctx, modulePath)
-	assert.Error(t, err, "a cancelled context must fail the lookup")
+	assert.ErrorIs(t, err, context.Canceled, "a cancelled context must stop the lookup")
 }
