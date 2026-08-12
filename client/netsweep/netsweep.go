@@ -20,6 +20,10 @@ import (
 // as a failed dial and redial on the new network.
 var ErrSwept = errors.New("netsweep: connection swept by network change")
 
+// sweepID identifies one registration in a sweeper. Connections and dials
+// draw from the same counter, so an id is unique across both registries.
+type sweepID uint64
+
 // Dial tracks one dial from start to connection registration. It hands the
 // dialed connection to the sweeper atomically, so a sweep can never fall
 // between the dial finishing and the connection being registered.
@@ -27,7 +31,7 @@ type Dial struct {
 	sweeper *Sweeper
 	ctx     context.Context
 	cancel  context.CancelFunc
-	id      uint64
+	id      sweepID
 	done    bool // set by Sweep, WrapConn or Release; guarded by sweeper.mu
 }
 
@@ -57,7 +61,7 @@ func (d *Dial) Release() {
 type sweptConn struct {
 	net.Conn
 	sweeper *Sweeper
-	id      uint64
+	id      sweepID
 }
 
 func (c *sweptConn) Close() error {
@@ -69,16 +73,16 @@ func (c *sweptConn) Close() error {
 // everything that started before the network changed.
 type Sweeper struct {
 	mu     sync.Mutex
-	conns  map[uint64]net.Conn
-	dials  map[uint64]*Dial
-	nextID uint64
+	conns  map[sweepID]net.Conn
+	dials  map[sweepID]*Dial
+	nextID sweepID
 }
 
 // New creates an empty sweeper.
 func New() *Sweeper {
 	return &Sweeper{
-		conns: make(map[uint64]net.Conn),
-		dials: make(map[uint64]*Dial),
+		conns: make(map[sweepID]net.Conn),
+		dials: make(map[sweepID]*Dial),
 	}
 }
 
@@ -141,8 +145,8 @@ func (s *Sweeper) Sweep() int {
 	s.mu.Lock()
 	conns := s.conns
 	dials := s.dials
-	s.conns = make(map[uint64]net.Conn)
-	s.dials = make(map[uint64]*Dial)
+	s.conns = make(map[sweepID]net.Conn)
+	s.dials = make(map[sweepID]*Dial)
 	for _, d := range dials {
 		d.done = true
 	}
@@ -164,7 +168,7 @@ func (s *Sweeper) Sweep() int {
 	return len(conns)
 }
 
-func (s *Sweeper) deregister(id uint64) {
+func (s *Sweeper) deregister(id sweepID) {
 	s.mu.Lock()
 	delete(s.conns, id)
 	s.mu.Unlock()
