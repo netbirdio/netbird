@@ -599,6 +599,34 @@ func (s *SqlStore) ApproveAccountPeers(ctx context.Context, accountID string) (i
 	return int(result.RowsAffected), nil
 }
 
+// RefreshPeerLastSeen updates only peer_status_last_seen. Every other status
+// column is left untouched: peer_status_connected and
+// peer_status_session_started_at belong to the sync stream that owns the
+// session, and a blind write here would corrupt the fencing
+// MarkPeerConnectedIfNewerSession relies on.
+//
+// LastSeen comes from the database clock for the same reason it does there: a
+// Go-side timestamp is taken before the write and can land after a connect that
+// used CURRENT_TIMESTAMP, dragging the column backwards.
+//
+// staleBefore carries the caller's throttle into the same statement, so
+// concurrent requests for one peer collapse into a single write instead of
+// each racing on its own stale read. The column is nullable — Status is an
+// embedded pointer, so a peer stored without one leaves it NULL — and NULL
+// loses every comparison, hence the explicit branch for a peer never seen.
+func (s *SqlStore) RefreshPeerLastSeen(ctx context.Context, accountID, peerID string, staleBefore time.Time) (bool, error) {
+	result := s.db.WithContext(ctx).
+		Model(&nbpeer.Peer{}).
+		Where(accountAndIDQueryCondition, accountID, peerID).
+		Where("(peer_status_last_seen IS NULL OR peer_status_last_seen < ?)", staleBefore).
+		Update("peer_status_last_seen", gorm.Expr("CURRENT_TIMESTAMP"))
+	if result.Error != nil {
+		return false, status.Errorf(status.Internal, "refresh peer last seen: %v", result.Error)
+	}
+
+	return result.RowsAffected > 0, nil
+}
+
 // SaveUsers saves the given list of users to the database.
 func (s *SqlStore) SaveUsers(ctx context.Context, users []*types.User) error {
 	if len(users) == 0 {

@@ -112,6 +112,7 @@ aligns with our security standards and design expectations.
         - [Test suite](#test-suite)
     - [Checklist before submitting a PR](#checklist-before-submitting-a-pr)
     - [When we close a PR](#when-we-close-a-pr)
+    - [Translations](#translations)
     - [Other project repositories](#other-project-repositories)
     - [Contributor License Agreement](#contributor-license-agreement)
 
@@ -611,6 +612,17 @@ We would rather redirect early than let a PR sit. We may close one if:
 A closed PR is not a rejected idea. Take it back to the
 [discussion](https://github.com/netbirdio/netbird/discussions), settle the
 approach, and reopen the work from there.
+
+## Translations
+
+Desktop UI translations are not contributed through pull requests. Translate on
+[Crowdin](https://crowdin.com/project/netbird) instead: no ticket needed, just
+join the project and pick your language. Crowdin syncs with this repository and
+opens the service PRs itself, so hand-edited locale files would conflict with
+the next sync. Style, terminology, and review guidance live in
+[client/ui/i18n/TRANSLATING.md](client/ui/i18n/TRANSLATING.md). To request a
+language the project does not offer yet, ask on the Crowdin project page or in
+a [discussion](https://github.com/netbirdio/netbird/discussions).
 
 ## Other project repositories
 

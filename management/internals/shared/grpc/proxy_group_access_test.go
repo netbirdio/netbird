@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -153,6 +154,27 @@ type mockTunnelPeersManager struct {
 	peerErr   error
 	groups    []*types.Group
 	groupsErr error
+}
+
+// mockActivityManager records what the RPC handed to the activity manager. The
+// policy (throttling, exclusions) is the manager's and is tested there; these
+// tests only pin which requests reach it.
+type mockActivityManager struct {
+	seenMarks []seenMark
+}
+
+type seenMark struct {
+	accountID string
+	peerID    string
+}
+
+func (m *mockActivityManager) RecordUserLogin(_ context.Context, _ string, _ *types.User) error {
+	return nil
+}
+
+func (m *mockActivityManager) RecordPeerSeen(_ context.Context, accountID string, peer *peer.Peer) error {
+	m.seenMarks = append(m.seenMarks, seenMark{accountID: accountID, peerID: peer.ID})
+	return nil
 }
 
 func (m *mockTunnelPeersManager) GetPeerByTunnelIP(_ context.Context, _ string, _ net.IP) (*peer.Peer, error) {
@@ -743,6 +765,78 @@ func TestValidateTunnelPeerOwnerStatus(t *testing.T) {
 			assert.Equal(t, wantLookups, usersManager.getUserCalls, "owner must be resolved exactly once per request")
 		})
 	}
+}
+
+// TestValidateTunnelPeerRecordsActivity pins that a granted mesh request is
+// handed to the activity manager. Which of those the manager then writes is its
+// own decision, covered by its tests.
+func TestValidateTunnelPeerRecordsActivity(t *testing.T) {
+	const (
+		domain    = "app.example.com"
+		accountID = "account1"
+		peerID    = "peer1"
+	)
+
+	activityManager := &mockActivityManager{}
+	server := &ProxyServiceServer{
+		activityManager: activityManager,
+		serviceManager: &mockReverseProxyManager{
+			proxiesByAccount: map[string][]*service.Service{
+				accountID: {{Domain: domain, AccountID: accountID}},
+			},
+		},
+		peersManager: &mockTunnelPeersManager{
+			peer: &peer.Peer{ID: peerID, Name: "agent", Status: &peer.PeerStatus{LastSeen: time.Now().Add(-3 * time.Hour)}},
+		},
+		usersManager: &mockUsersManager{users: map[string]*types.User{}},
+	}
+
+	resp, err := server.ValidateTunnelPeer(context.Background(), &proto.ValidateTunnelPeerRequest{
+		Domain:   domain,
+		TunnelIp: "100.64.0.1",
+	})
+
+	require.NoError(t, err)
+	require.True(t, resp.GetValid(), "peer should be granted access")
+
+	require.Len(t, activityManager.seenMarks, 1, "a granted peer should reach the activity manager once")
+	assert.Equal(t, accountID, activityManager.seenMarks[0].accountID, "activity must be attributed to the service account")
+	assert.Equal(t, peerID, activityManager.seenMarks[0].peerID, "activity must be attributed to the calling peer")
+}
+
+// TestValidateTunnelPeerDeniedRecordsNoActivity keeps the write on the granted
+// path only: a refused peer is not evidence its owner was active.
+func TestValidateTunnelPeerDeniedRecordsNoActivity(t *testing.T) {
+	const (
+		domain    = "app.example.com"
+		accountID = "account1"
+	)
+
+	activityManager := &mockActivityManager{}
+	server := &ProxyServiceServer{
+		activityManager: activityManager,
+		serviceManager: &mockReverseProxyManager{
+			proxiesByAccount: map[string][]*service.Service{
+				accountID: {{Domain: domain, AccountID: accountID}},
+			},
+		},
+		peersManager: &mockTunnelPeersManager{
+			peer: &peer.Peer{ID: "peer1", Name: "agent", UserID: "user1", Status: &peer.PeerStatus{LastSeen: time.Now().Add(-3 * time.Hour)}},
+		},
+		// The owner is blocked, so the tunnel gate denies before the mint.
+		usersManager: &mockUsersManager{users: map[string]*types.User{
+			"user1": {Id: "user1", AccountID: accountID, Blocked: true},
+		}},
+	}
+
+	resp, err := server.ValidateTunnelPeer(context.Background(), &proto.ValidateTunnelPeerRequest{
+		Domain:   domain,
+		TunnelIp: "100.64.0.1",
+	})
+
+	require.NoError(t, err)
+	require.False(t, resp.GetValid(), "blocked owner should be denied")
+	assert.Empty(t, activityManager.seenMarks, "a denied peer must not be marked seen")
 }
 
 func TestGetAccountProxyByDomain(t *testing.T) {
