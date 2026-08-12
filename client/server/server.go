@@ -682,6 +682,11 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.IsUnixDesktopClient, false, hint)
 		if err != nil {
 			state.Set(internal.StatusLoginFailed)
+			// enrolling a device is the one flow a setup key can replace. NotFound so the CLI
+			// stops its backoff loop and shows this instead of retrying a permanent condition.
+			if auth.IsSSOUnavailable(err) {
+				return nil, gstatus.Error(codes.NotFound, auth.WithSetupKeyAdvice(err).Error())
+			}
 			return nil, err
 		}
 
