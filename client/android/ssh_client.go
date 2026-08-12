@@ -307,8 +307,16 @@ func (s *SSHClient) startSession(cols, rows int) error {
 	s.stdin = stdin
 	s.mu.Unlock()
 
-	go s.readLoop(stdout, "stdout")
-	go s.readLoop(stderr, "stderr")
+	readerDone := make(chan string, 2)
+	go func() { readerDone <- s.readLoop(stdout, "stdout") }()
+	go func() { readerDone <- s.readLoop(stderr, "stderr") }()
+	go func() {
+		reason := <-readerDone
+		if second := <-readerDone; reason == "" {
+			reason = second
+		}
+		s.notifyClose(reason)
+	}()
 	log.Debug("SSH: session started, shell running")
 	return nil
 }
@@ -593,7 +601,7 @@ func (s *SSHClient) dialAndHandshake(host string, port int, clientConfig *gossh.
 	return nil
 }
 
-func (s *SSHClient) readLoop(r io.Reader, name string) {
+func (s *SSHClient) readLoop(r io.Reader, name string) string {
 	buf := make([]byte, 4096)
 	for {
 		n, err := r.Read(buf)
@@ -610,12 +618,10 @@ func (s *SSHClient) readLoop(r io.Reader, name string) {
 		if err != nil {
 			// EOF is a normal shell exit, so report it without a reason.
 			if errors.Is(err, io.EOF) {
-				s.notifyClose("")
-				return
+				return ""
 			}
 			log.Debugf("ssh %s read: %v", name, err)
-			s.notifyClose(rootCause(err).Error())
-			return
+			return rootCause(err).Error()
 		}
 	}
 }
