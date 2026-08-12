@@ -259,10 +259,14 @@ jobs:
         run: |
           set -euo pipefail
 
+          # $GITHUB_REF / $GITHUB_EVENT_NAME are read from the runner
+          # environment rather than ${{ }}-interpolated into this script:
+          # branch names may legally contain $(…), and interpolating
+          # github.ref would execute it.
           resolve_tags() {
-            if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
               echo "pr-${{ github.event.pull_request.number }}"
-            elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            elif [[ "$GITHUB_REF" == "refs/heads/main" ]]; then
               echo "main sha-$(git rev-parse --short HEAD)"
             else
               # Release branches get an immutable sha-* tag only — the floating
