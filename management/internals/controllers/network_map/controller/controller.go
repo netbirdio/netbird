@@ -377,9 +377,9 @@ func (c *Controller) sendUpdatesFromData(ctx context.Context, accountID string, 
 
 	dnsCache := &cache.DNSConfigCache{}
 	dnsDomain := c.getDNSDomainFromData(nmData.AccountSettings)
-	peersCustomZone := networkmap.PeersCustomZone(ctx, accountID, dnsDomain, nmData.Peers, ipv6AllowedPeersFromData(nmData))
+	peersCustomZone := networkmap.PeersCustomZone(ctx, accountID, dnsDomain, nmData.Peers, IPv6AllowedPeersFromData(nmData))
 
-	dnsFwdPort := computeForwarderPortFromData(nmData.Peers, network_map.DnsForwarderPortMinVersion)
+	dnsFwdPort := ComputeForwarderPortFromData(nmData.Peers, network_map.DnsForwarderPortMinVersion)
 
 	var wg sync.WaitGroup
 	semaphore := make(chan struct{}, 10)
@@ -433,7 +433,7 @@ func (c *Controller) sendUpdatesFromData(ctx context.Context, accountID string, 
 				return
 			}
 
-			nmap := networkMapFromData(ctx, nmData, p.ID, peersCustomZone)
+			nmap := NetworkMapFromData(ctx, nmData, p.ID, peersCustomZone)
 
 			c.metrics.CountCalcPeerNetworkMapDuration(time.Since(start))
 
@@ -477,7 +477,7 @@ func (c *Controller) getDNSDomainFromData(settings *nmdata.AccountSettingsInfo) 
 	return settings.DNSDomain
 }
 
-func ipv6AllowedPeersFromData(nmData *networkmap.NetworkMapData) map[string]struct{} {
+func IPv6AllowedPeersFromData(nmData *networkmap.NetworkMapData) map[string]struct{} {
 	result := make(map[string]struct{})
 	if nmData.AccountSettings != nil {
 		for _, groupID := range nmData.AccountSettings.IPv6EnabledGroups {
@@ -498,7 +498,7 @@ func ipv6AllowedPeersFromData(nmData *networkmap.NetworkMapData) map[string]stru
 	return result
 }
 
-func networkMapFromData(ctx context.Context, nmData *networkmap.NetworkMapData, peerID string, peersCustomZone nmdata.CustomZone) *types.NetworkMap {
+func NetworkMapFromData(ctx context.Context, nmData *networkmap.NetworkMapData, peerID string, peersCustomZone nmdata.CustomZone) *types.NetworkMap {
 	components := nmData.GetPeerNetworkMapComponents(peerID, peersCustomZone)
 	if components.IsEmpty() {
 		return &types.NetworkMap{Network: components.Network}
@@ -971,10 +971,10 @@ func (c *Controller) getValidatedPeerWithComponentsFromData(ctx context.Context,
 	postureChecks := peerPostureChecksFromData(nmData, peer.ID)
 
 	dnsDomain := c.getDNSDomainFromData(nmData.AccountSettings)
-	peersCustomZone := networkmap.PeersCustomZone(ctx, accountID, dnsDomain, nmData.Peers, ipv6AllowedPeersFromData(nmData))
+	peersCustomZone := networkmap.PeersCustomZone(ctx, accountID, dnsDomain, nmData.Peers, IPv6AllowedPeersFromData(nmData))
 
 	components := nmData.GetPeerNetworkMapComponents(peer.ID, peersCustomZone)
-	dnsFwdPort := computeForwarderPortFromData(nmData.Peers, network_map.DnsForwarderPortMinVersion)
+	dnsFwdPort := ComputeForwarderPortFromData(nmData.Peers, network_map.DnsForwarderPortMinVersion)
 
 	return peer, components, nil, postureChecks, dnsFwdPort, nil
 }
@@ -1148,10 +1148,10 @@ func (c *Controller) getValidatedPeerWithMapFromData(ctx context.Context, accoun
 	postureChecks := peerPostureChecksFromData(nmData, peerID)
 
 	dnsDomain := c.getDNSDomainFromData(nmData.AccountSettings)
-	peersCustomZone := networkmap.PeersCustomZone(ctx, accountID, dnsDomain, nmData.Peers, ipv6AllowedPeersFromData(nmData))
+	peersCustomZone := networkmap.PeersCustomZone(ctx, accountID, dnsDomain, nmData.Peers, IPv6AllowedPeersFromData(nmData))
 
-	networkMap := networkMapFromData(ctx, nmData, peerID, peersCustomZone)
-	dnsFwdPort := computeForwarderPortFromData(nmData.Peers, network_map.DnsForwarderPortMinVersion)
+	networkMap := NetworkMapFromData(ctx, nmData, peerID, peersCustomZone)
+	dnsFwdPort := ComputeForwarderPortFromData(nmData.Peers, network_map.DnsForwarderPortMinVersion)
 
 	return networkMap, postureChecks, dnsFwdPort, nil
 }
@@ -1225,7 +1225,7 @@ func computeForwarderPort(peers []*nbpeer.Peer, requiredVersion string) int64 {
 	return computeForwarderPortFromVersions(versions, requiredVersion)
 }
 
-func computeForwarderPortFromData(peers map[string]*nmdata.Peer, requiredVersion string) int64 {
+func ComputeForwarderPortFromData(peers map[string]*nmdata.Peer, requiredVersion string) int64 {
 	versions := make([]string, 0, len(peers))
 	for _, peer := range peers {
 		versions = append(versions, peer.Meta.WtVersion)
