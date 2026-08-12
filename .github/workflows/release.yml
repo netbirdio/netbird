@@ -260,9 +260,9 @@ jobs:
           set -euo pipefail
 
           # $GITHUB_REF / $GITHUB_EVENT_NAME are read from the runner
-          # environment rather than ${{ }}-interpolated into this script:
-          # branch names may legally contain $(…), and interpolating
-          # github.ref would execute it.
+          # environment rather than substituted into this script with the
+          # workflow expression syntax: branch names may legally contain
+          # $(…), and interpolating github.ref would execute it.
           resolve_tags() {
             if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
               echo "pr-${{ github.event.pull_request.number }}"
