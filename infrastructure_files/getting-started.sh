@@ -110,10 +110,16 @@ check_nb_domain() {
   fi
 
   # Letters, digits, dots, and hyphens only; the domain is embedded in
-  # generated YAML and env files
+  # generated YAML and env files. This is not FQDN validation: "use-ip" and
+  # bare IP addresses are valid inputs here and both satisfy the pattern.
   local re='^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$'
-  if [[ "$DOMAIN" != "use-ip" ]] && [[ ! "$DOMAIN" =~ $re ]]; then
-    echo "The NETBIRD_DOMAIN may only contain letters, digits, dots, and hyphens." > /dev/stderr
+  if [[ ! "$DOMAIN" =~ $re ]] || [[ "$DOMAIN" == *..* ]]; then
+    echo "The NETBIRD_DOMAIN may only contain letters, digits, dots, and hyphens, and cannot begin or end with a dot or hyphen." > /dev/stderr
+    return 1
+  fi
+
+  if [[ "${#DOMAIN}" -gt 253 ]]; then
+    echo "The NETBIRD_DOMAIN cannot be longer than 253 characters." > /dev/stderr
     return 1
   fi
   return 0
@@ -371,9 +377,13 @@ valid_ipv4_slash24() {
   local octet='(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])'
   local re="^${octet}\.${octet}\.${octet}\.0/24$"
   [[ "$1" =~ $re ]] || return 1
-  # Reject non-unicast/reserved ranges: 0/8, loopback, link-local, 224+
+  # Reject non-unicast/reserved ranges: 0/8, loopback, link-local, 224+.
+  # 100.64/10 is rejected too: NetBird allocates overlay peer addresses from
+  # it by default, and a bridge there shadows the overlay without any Docker
+  # network overlapping, so the conflict check below would not catch it.
   case "$1" in
     0.*|127.*|169.254.*|22[4-9].*|2[34][0-9].*|25[0-5].*) return 1 ;;
+    100.6[4-9].*|100.[7-9][0-9].*|100.1[01][0-9].*|100.12[0-7].*) return 1 ;;
   esac
   return 0
 }
@@ -382,7 +392,7 @@ valid_ipv4_slash24() {
 apply_docker_subnet_override() {
   if [[ -n "${NETBIRD_DOCKER_SUBNET:-}" ]]; then
     if ! valid_ipv4_slash24 "$NETBIRD_DOCKER_SUBNET"; then
-      echo "NETBIRD_DOCKER_SUBNET must be a unicast IPv4 /24 network like 10.123.45.0/24 (0/8, 127/8, 169.254/16, and 224+ are not allowed), got: $NETBIRD_DOCKER_SUBNET" > /dev/stderr
+      echo "NETBIRD_DOCKER_SUBNET must be a unicast IPv4 /24 network like 10.123.45.0/24 (0/8, 127/8, 169.254/16, 100.64/10, and 224+ are not allowed), got: $NETBIRD_DOCKER_SUBNET" > /dev/stderr
       exit 1
     fi
     DOCKER_SUBNET="$NETBIRD_DOCKER_SUBNET"
@@ -466,11 +476,17 @@ configure_docker_subnet() {
     return 0
   fi
 
-  # Skip our own network (<project>_netbird) in the conflict check;
-  # normalization matches compose-go's NormalizeProjectName
+  # Skip our own network (<project>_netbird) in the conflict check. Resolve the
+  # directory the way compose does (physical path, so a symlinked install dir
+  # still yields the real directory name) and normalize the basename the way
+  # compose-go NormalizeProjectName does: lowercase, drop leading and trailing
+  # invalid characters, collapse each inner run of invalid characters to a
+  # single "-", then trim leading "_" and "-". Deleting invalid characters
+  # instead would be compose v1 behaviour and would miss our own network.
   local project
-  project="${COMPOSE_PROJECT_NAME:-$(basename "$PWD")}"
-  project=$(echo "$project" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]//g; s/^[_-]*//')
+  project="${COMPOSE_PROJECT_NAME:-$(basename "$(pwd -P)")}"
+  project=$(echo "$project" | tr '[:upper:]' '[:lower:]' \
+    | sed 's/^[^a-z0-9_-]*//; s/[^a-z0-9_-]*$//; s/[^a-z0-9_-][^a-z0-9_-]*/-/g; s/^[_-]*//')
   check_docker_subnet_conflicts "${project}_netbird"
   return 0
 }
@@ -845,7 +861,6 @@ render_docker_compose_traefik_builtin() {
   local crowdsec_volumes=""
   local traefik_file_provider=""
   local traefik_dynamic_volume=""
-
   if [[ "$ENABLE_PROXY" == "true" ]]; then
     traefik_file_provider='      - "--providers.file.filename=/etc/traefik/dynamic.yaml"'
     traefik_dynamic_volume="      - ./traefik-dynamic.yaml:/etc/traefik/dynamic.yaml:ro"

@@ -74,9 +74,13 @@ valid_ipv4_slash24() {
   local octet='(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])'
   local re="^${octet}\.${octet}\.${octet}\.0/24$"
   [[ "$1" =~ $re ]] || return 1
-  # Reject non-unicast/reserved ranges: 0/8, loopback, link-local, 224+
+  # Reject non-unicast/reserved ranges: 0/8, loopback, link-local, 224+.
+  # 100.64/10 is rejected too: NetBird allocates overlay peer addresses from
+  # it by default, and a bridge there shadows the overlay without any Docker
+  # network overlapping, so the conflict check below would not catch it.
   case "$1" in
     0.*|127.*|169.254.*|22[4-9].*|2[34][0-9].*|25[0-5].*) return 1 ;;
+    100.6[4-9].*|100.[7-9][0-9].*|100.1[01][0-9].*|100.12[0-7].*) return 1 ;;
   esac
   return 0
 }
@@ -85,7 +89,7 @@ valid_ipv4_slash24() {
 apply_docker_subnet_override() {
   if [[ -n "${NETBIRD_DOCKER_SUBNET:-}" ]]; then
     if ! valid_ipv4_slash24 "$NETBIRD_DOCKER_SUBNET"; then
-      echo "NETBIRD_DOCKER_SUBNET must be a unicast IPv4 /24 network like 10.123.45.0/24 (0/8, 127/8, 169.254/16, and 224+ are not allowed), got: $NETBIRD_DOCKER_SUBNET" > /dev/stderr
+      echo "NETBIRD_DOCKER_SUBNET must be a unicast IPv4 /24 network like 10.123.45.0/24 (0/8, 127/8, 169.254/16, 100.64/10, and 224+ are not allowed), got: $NETBIRD_DOCKER_SUBNET" > /dev/stderr
       exit 1
     fi
     DOCKER_SUBNET="$NETBIRD_DOCKER_SUBNET"

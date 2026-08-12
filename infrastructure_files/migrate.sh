@@ -154,19 +154,30 @@ valid_ipv4_slash24() {
   local octet='(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])'
   local re="^${octet}\.${octet}\.${octet}\.0/24$"
   [[ "$1" =~ $re ]] || return 1
-  # Reject non-unicast/reserved ranges: 0/8, loopback, link-local, 224+
+  # Reject non-unicast/reserved ranges: 0/8, loopback, link-local, 224+.
+  # 100.64/10 is rejected too: NetBird allocates overlay peer addresses from
+  # it by default, and a bridge there shadows the overlay without any Docker
+  # network overlapping, so the conflict check below would not catch it.
   case "$1" in
     0.*|127.*|169.254.*|22[4-9].*|2[34][0-9].*|25[0-5].*) return 1 ;;
+    100.6[4-9].*|100.[7-9][0-9].*|100.1[01][0-9].*|100.12[0-7].*) return 1 ;;
   esac
   return 0
 }
 
 # Apply NETBIRD_DOCKER_SUBNET and derive the gateway (.1) and Traefik IP (.10).
 # Runs during preflight so a bad value fails before anything is touched.
+#
+# Unlike the getting-started scripts, the subnet has a single consumer here: the
+# generated docker-compose.yml. The reverseProxy trust pins in the generated
+# config.yaml are carried over verbatim from the old management.json (see
+# extract_config_values), so TRAEFIK_IP is deliberately not wired into them. If
+# an old config already pinned an address inside the default 172.30.0.0/24,
+# overriding the subnet will not update that pin.
 apply_docker_subnet_override() {
   if [[ -n "${NETBIRD_DOCKER_SUBNET:-}" ]]; then
     if ! valid_ipv4_slash24 "$NETBIRD_DOCKER_SUBNET"; then
-      log_error "NETBIRD_DOCKER_SUBNET must be a unicast IPv4 /24 network like 10.123.45.0/24 (0/8, 127/8, 169.254/16, and 224+ are not allowed), got: $NETBIRD_DOCKER_SUBNET"
+      log_error "NETBIRD_DOCKER_SUBNET must be a unicast IPv4 /24 network like 10.123.45.0/24 (0/8, 127/8, 169.254/16, 100.64/10, and 224+ are not allowed), got: $NETBIRD_DOCKER_SUBNET"
       exit 1
     fi
     DOCKER_SUBNET="$NETBIRD_DOCKER_SUBNET"
@@ -217,6 +228,8 @@ check_docker_subnet_conflicts() {
     log_error "Could not inspect the existing Docker networks (docker network inspect exited $inspect_status)."
     echo "Without it this script cannot verify that $DOCKER_SUBNET is free."
     echo "If a Docker network was removed while this script was running, run the script again."
+    echo "The old deployment is stopped at this point; restart it with:"
+    echo "  bash $BACKUP_DIR/rollback.sh"
     exit 1
   fi
 
@@ -248,20 +261,22 @@ check_docker_subnet_conflicts() {
   return 0
 }
 
+# Only reached on the automatic (embedded Caddy) path, which is the only one
+# that generates a compose file pinning a subnet; the exposed-ports compose for
+# custom proxies lets Docker pick.
 configure_docker_subnet() {
-  # Only the generated Traefik compose pins a subnet; the exposed-ports compose
-  # for custom proxies lets Docker pick
-  if [[ "$PROXY_TYPE" != "$PROXY_TYPE_CADDY" ]]; then
-    return 0
-  fi
-
   # Skip our own network (<project>_netbird) in the conflict check. The new
   # compose runs from INSTALL_DIR, so resolve it the way compose does (a
   # relative --install-dir still yields the real directory name) and normalize
-  # the basename the way compose-go NormalizeProjectName does.
+  # the basename the way compose-go NormalizeProjectName does: lowercase, drop
+  # leading and trailing invalid characters, collapse each inner run of invalid
+  # characters to a single "-", then trim leading "_" and "-". Deleting invalid
+  # characters instead would be compose v1 behaviour and would miss our own
+  # network.
   local project
   project="${COMPOSE_PROJECT_NAME:-$(basename "$(cd -- "$INSTALL_DIR" && pwd -P)")}"
-  project=$(echo "$project" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]//g; s/^[_-]*//')
+  project=$(echo "$project" | tr '[:upper:]' '[:lower:]' \
+    | sed 's/^[^a-z0-9_-]*//; s/[^a-z0-9_-]*$//; s/[^a-z0-9_-][^a-z0-9_-]*/-/g; s/^[_-]*//')
   check_docker_subnet_conflicts "${project}_netbird"
   return 0
 }
