@@ -20,6 +20,39 @@ import (
 // as a failed dial and redial on the new network.
 var ErrSwept = errors.New("netsweep: connection swept by network change")
 
+// Dial tracks one dial from start to connection registration. It hands the
+// dialed connection to the sweeper atomically, so a sweep can never fall
+// between the dial finishing and the connection being registered.
+type Dial struct {
+	sweeper *Sweeper
+	ctx     context.Context
+	cancel  context.CancelFunc
+	id      uint64
+	done    bool // set by Sweep, WrapConn or Release; guarded by sweeper.mu
+}
+
+// Ctx returns the dial's context. Sweep cancels it, so a dial started on the
+// old network aborts instead of waiting out its handshake timeout.
+func (d *Dial) Ctx() context.Context {
+	return d.ctx
+}
+
+// Release ends the dial's registration and cancels its context. It is
+// idempotent and safe after WrapConn, so callers can defer it.
+func (d *Dial) Release() {
+	s := d.sweeper
+	if s == nil {
+		return
+	}
+
+	s.mu.Lock()
+	d.done = true
+	delete(s.dials, d.id)
+	s.mu.Unlock()
+
+	d.cancel()
+}
+
 // sweptConn deregisters itself from the sweeper when closed.
 type sweptConn struct {
 	net.Conn
@@ -49,17 +82,6 @@ func New() *Sweeper {
 	}
 }
 
-// Dial tracks one dial from start to connection registration. It hands the
-// dialed connection to the sweeper atomically, so a sweep can never fall
-// between the dial finishing and the connection being registered.
-type Dial struct {
-	sweeper *Sweeper
-	ctx     context.Context
-	cancel  context.CancelFunc
-	id      uint64
-	done    bool // set by Sweep, WrapConn or Release; guarded by sweeper.mu
-}
-
 // StartDial registers an in-flight dial. Dial with Ctx, hand the result to
 // WrapConn, and Release the dial when the attempt is over, typically deferred.
 func (s *Sweeper) StartDial(ctx context.Context) *Dial {
@@ -77,12 +99,6 @@ func (s *Sweeper) StartDial(ctx context.Context) *Dial {
 	s.mu.Unlock()
 
 	return d
-}
-
-// Ctx returns the dial's context. Sweep cancels it, so a dial started on the
-// old network aborts instead of waiting out its handshake timeout.
-func (d *Dial) Ctx() context.Context {
-	return d.ctx
 }
 
 // WrapConn hands conn over to the sweeper. If a sweep ran since StartDial,
@@ -111,22 +127,6 @@ func (d *Dial) WrapConn(conn net.Conn) (net.Conn, error) {
 	s.mu.Unlock()
 
 	return &sweptConn{Conn: conn, sweeper: s, id: id}, nil
-}
-
-// Release ends the dial's registration and cancels its context. It is
-// idempotent and safe after WrapConn, so callers can defer it.
-func (d *Dial) Release() {
-	s := d.sweeper
-	if s == nil {
-		return
-	}
-
-	s.mu.Lock()
-	d.done = true
-	delete(s.dials, d.id)
-	s.mu.Unlock()
-
-	d.cancel()
 }
 
 // Sweep closes every registered connection, aborts every in-flight dial, and

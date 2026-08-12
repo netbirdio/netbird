@@ -157,23 +157,6 @@ func NewClient(androidSDKVersion int, deviceName string, uiVersion string, tunAd
 	}
 }
 
-// SetNetworkAvailable feeds OS-reported network availability into the client.
-// While unavailable, the internal reconnect loops suspend their attempts and
-// the connection listener reports NoNetwork instead of Connecting; when
-// availability returns, the loops resume immediately with a fresh backoff.
-func (c *Client) SetNetworkAvailable(available bool) {
-	c.netState.Set(available)
-	c.recorder.SetNetworkAvailable(available)
-}
-
-// NotifyNetworkChange cuts the management, signal and relay connections
-// after the OS switched networks, so the reconnect loops redial immediately
-// on the new one. The engine and the TUN device stay untouched.
-func (c *Client) NotifyNetworkChange() {
-	n := c.sweeper.Sweep()
-	log.Infof("network change: swept %d connections", n)
-}
-
 // Run start the internal client. It is a blocker function
 func (c *Client) Run(platformFiles PlatformFiles, urlOpener URLOpener, isAndroidTV bool, dns *DNSList, dnsReadyListener DnsReadyListener, envList *EnvList) error {
 	exportEnvList(envList)
@@ -300,6 +283,23 @@ func (c *Client) GetTunSettings() (*TunSettings, error) {
 		Routes:        strings.Join(routes, ";"),
 		SearchDomains: strings.Join(searchDomains, ";"),
 	}, nil
+}
+
+// SetNetworkAvailable feeds OS-reported network availability into the client.
+// While unavailable, the internal reconnect loops suspend their attempts and
+// the connection listener reports NoNetwork instead of Connecting; when
+// availability returns, the loops resume immediately with a fresh backoff.
+func (c *Client) SetNetworkAvailable(available bool) {
+	c.netState.Set(available)
+	c.recorder.SetNetworkAvailable(available)
+}
+
+// NotifyNetworkChange cuts the management, signal and relay connections
+// after the OS switched networks, so the reconnect loops redial immediately
+// on the new one. The engine and the TUN device stay untouched.
+func (c *Client) NotifyNetworkChange() {
+	n := c.sweeper.Sweep()
+	log.Infof("network change: swept %d connections", n)
 }
 
 // DebugBundle generates a debug bundle, uploads it, and returns the upload key.
