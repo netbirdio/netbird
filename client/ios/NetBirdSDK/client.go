@@ -344,6 +344,10 @@ func (c *Client) GetStatusDetails() *StatusDetails {
 
 // SetConnectionListener set the network connection listener
 func (c *Client) SetConnectionListener(listener ConnectionListener) {
+	if listener == nil {
+		c.recorder.RemoveConnectionListener()
+		return
+	}
 	c.recorder.SetConnectionListener(connectionListenerAdapter{listener})
 }
 
