@@ -476,17 +476,16 @@ configure_docker_subnet() {
     return 0
   fi
 
-  # Skip our own network (<project>_netbird) in the conflict check. Resolve the
-  # directory the way compose does (physical path, so a symlinked install dir
-  # still yields the real directory name) and normalize the basename the way
-  # compose-go NormalizeProjectName does: lowercase, drop leading and trailing
-  # invalid characters, collapse each inner run of invalid characters to a
-  # single "-", then trim leading "_" and "-". Deleting invalid characters
-  # instead would be compose v1 behaviour and would miss our own network.
+  # Skip our own network (<project>_netbird) in the conflict check. Compose
+  # derives the project name from the basename of the logical working directory
+  # (verified against Compose v5.4.0: a symlinked directory yields the symlink
+  # name, not its target), lowercases it, deletes every character outside
+  # [a-z0-9_-], then trims leading "_" and "-". Verified: "nb.test" -> "nbtest",
+  # "my nb" -> "mynb", "NetBird-1.0" -> "netbird-10". Networks are then named
+  # <project>_<key>.
   local project
-  project="${COMPOSE_PROJECT_NAME:-$(basename "$(pwd -P)")}"
-  project=$(echo "$project" | tr '[:upper:]' '[:lower:]' \
-    | sed 's/^[^a-z0-9_-]*//; s/[^a-z0-9_-]*$//; s/[^a-z0-9_-][^a-z0-9_-]*/-/g; s/^[_-]*//')
+  project="${COMPOSE_PROJECT_NAME:-$(basename "$PWD")}"
+  project=$(echo "$project" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]//g; s/^[_-]*//')
   check_docker_subnet_conflicts "${project}_netbird"
   return 0
 }

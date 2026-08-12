@@ -265,18 +265,18 @@ check_docker_subnet_conflicts() {
 # that generates a compose file pinning a subnet; the exposed-ports compose for
 # custom proxies lets Docker pick.
 configure_docker_subnet() {
-  # Skip our own network (<project>_netbird) in the conflict check. The new
-  # compose runs from INSTALL_DIR, so resolve it the way compose does (a
-  # relative --install-dir still yields the real directory name) and normalize
-  # the basename the way compose-go NormalizeProjectName does: lowercase, drop
-  # leading and trailing invalid characters, collapse each inner run of invalid
-  # characters to a single "-", then trim leading "_" and "-". Deleting invalid
-  # characters instead would be compose v1 behaviour and would miss our own
-  # network.
+  # Skip our own network (<project>_netbird) in the conflict check. start_new_services
+  # runs "cd $INSTALL_DIR && compose up", a logical cd, and compose derives the
+  # project name from the basename of that logical path -- so resolve it the same
+  # way with a plain "pwd" (a relative --install-dir still yields an absolute
+  # path, and a symlinked install dir keeps the symlink name, which is what
+  # compose sees). "pwd -P" here would resolve the symlink target and no longer
+  # match. Compose then lowercases, deletes every character outside [a-z0-9_-],
+  # and trims leading "_" and "-"; verified against Compose v5.4.0 that
+  # "nb.test" -> "nbtest" and "my nb" -> "mynb".
   local project
-  project="${COMPOSE_PROJECT_NAME:-$(basename "$(cd -- "$INSTALL_DIR" && pwd -P)")}"
-  project=$(echo "$project" | tr '[:upper:]' '[:lower:]' \
-    | sed 's/^[^a-z0-9_-]*//; s/[^a-z0-9_-]*$//; s/[^a-z0-9_-][^a-z0-9_-]*/-/g; s/^[_-]*//')
+  project="${COMPOSE_PROJECT_NAME:-$(basename "$(cd -- "$INSTALL_DIR" && pwd)")}"
+  project=$(echo "$project" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]//g; s/^[_-]*//')
   check_docker_subnet_conflicts "${project}_netbird"
   return 0
 }
