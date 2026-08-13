@@ -85,7 +85,7 @@ func NewAuth(cfgPath string, mgmURL string) (*Auth, error) {
 	}, nil
 }
 
-// NewAuthWithConfig instantiate Auth based on existing config. It carries no
+// NewAuthWithConfig instantiates Auth based on an existing config. It carries no
 // config path, so an interactive login started from it sends no login_hint — the
 // caller holds a config, not a profile to attribute an account to. NewAuth, which
 // the interactive path uses, does have the path.
