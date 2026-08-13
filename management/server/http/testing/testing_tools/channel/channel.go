@@ -59,13 +59,21 @@ func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPee
 	}
 	t.Cleanup(cleanup)
 
-	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
+	// Bound the background loops these managers start (account request buffer,
+	// telemetry P95 flushers, PAT usage tracker, API rate limiter, proxy service
+	// cleanup, cache janitors, DB connection pools) to the test's lifetime. On
+	// context.Background() they never stop and accumulate across the package,
+	// exhausting DB connections until the suite hits the 20m test timeout.
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	metrics, err := telemetry.NewDefaultAppMetrics(ctx)
 	if err != nil {
 		t.Fatalf("Failed to create metrics: %v", err)
 	}
 
 	peersUpdateManager := update_channel.NewPeersUpdateManager(nil)
-	updMsg := peersUpdateManager.CreateChannel(context.Background(), testing_tools.TestPeerId)
+	updMsg := peersUpdateManager.CreateChannel(ctx, testing_tools.TestPeerId)
 	done := make(chan struct{})
 	if validateUpdate {
 		go func() {
@@ -87,8 +95,6 @@ func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPee
 	peersManager := peers.NewManager(store, permissionsManager)
 
 	jobManager := job.NewJobManager(nil, store, peersManager)
-
-	ctx := context.Background()
 
 	cacheStore, err := nbcache.NewStore(ctx, 100*time.Millisecond, 300*time.Millisecond, 100)
 	if err != nil {
@@ -137,7 +143,7 @@ func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPee
 	zoneRecordsManager := recordsManager.NewManager(store, am, permissionsManager)
 
 	apiRouter := mux.NewRouter().PathPrefix("/api").Subrouter()
-	apiHandler, err := http2.NewAPIHandler(context.Background(), apiRouter, am, networksManager, resourcesManager, routersManager, groupsManager, geoMock, authManagerMock, metrics, permissionsManager, settingsManager, customZonesManager, zoneRecordsManager, networkMapController, nil, serviceManager, nil, nil, nil, nil, nil, nil, nil)
+	apiHandler, err := http2.NewAPIHandler(ctx, apiRouter, am, networksManager, resourcesManager, routersManager, groupsManager, geoMock, authManagerMock, metrics, permissionsManager, settingsManager, customZonesManager, zoneRecordsManager, networkMapController, nil, serviceManager, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Failed to create API handler: %v", err)
 	}
@@ -200,13 +206,21 @@ func BuildApiBlackBoxWithDBStateAndPeerChannel(t testing_tools.TB, sqlFile strin
 	}
 	t.Cleanup(cleanup)
 
-	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
+	// Bound the background loops these managers start (account request buffer,
+	// telemetry P95 flushers, PAT usage tracker, API rate limiter, proxy service
+	// cleanup, cache janitors, DB connection pools) to the test's lifetime. On
+	// context.Background() they never stop and accumulate across the package,
+	// exhausting DB connections until the suite hits the 20m test timeout.
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	metrics, err := telemetry.NewDefaultAppMetrics(ctx)
 	if err != nil {
 		t.Fatalf("Failed to create metrics: %v", err)
 	}
 
 	peersUpdateManager := update_channel.NewPeersUpdateManager(nil)
-	updMsg := peersUpdateManager.CreateChannel(context.Background(), testing_tools.TestPeerId)
+	updMsg := peersUpdateManager.CreateChannel(ctx, testing_tools.TestPeerId)
 
 	geoMock := &geolocation.Mock{}
 	validatorMock := server.MockIntegratedValidator{}
@@ -217,8 +231,6 @@ func BuildApiBlackBoxWithDBStateAndPeerChannel(t testing_tools.TB, sqlFile strin
 	peersManager := peers.NewManager(store, permissionsManager)
 
 	jobManager := job.NewJobManager(nil, store, peersManager)
-
-	ctx := context.Background()
 
 	cacheStore, err := nbcache.NewStore(ctx, 100*time.Millisecond, 300*time.Millisecond, 100)
 	if err != nil {
@@ -267,7 +279,7 @@ func BuildApiBlackBoxWithDBStateAndPeerChannel(t testing_tools.TB, sqlFile strin
 	zoneRecordsManager := recordsManager.NewManager(store, am, permissionsManager)
 
 	apiRouter := mux.NewRouter().PathPrefix("/api").Subrouter()
-	apiHandler, err := http2.NewAPIHandler(context.Background(), apiRouter, am, networksManager, resourcesManager, routersManager, groupsManager, geoMock, authManagerMock, metrics, permissionsManager, settingsManager, customZonesManager, zoneRecordsManager, networkMapController, nil, serviceManager, nil, nil, nil, nil, nil, nil, nil)
+	apiHandler, err := http2.NewAPIHandler(ctx, apiRouter, am, networksManager, resourcesManager, routersManager, groupsManager, geoMock, authManagerMock, metrics, permissionsManager, settingsManager, customZonesManager, zoneRecordsManager, networkMapController, nil, serviceManager, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Failed to create API handler: %v", err)
 	}
