@@ -39,6 +39,10 @@ func (s *stubFlow) GetClientID(context.Context) string {
 	return ""
 }
 
+func (s *stubFlow) SetLoginHint(hint string) {
+	s.hint = hint
+}
+
 // stubInit returns a flow initializer that yields a named stub flow, or err when err is non-nil.
 func stubInit(name string, err error) oauthFlowInit {
 	return stubInitFlow(name, err, nil)
@@ -220,6 +224,31 @@ func TestFallbackFlowRequestAuthInfo(t *testing.T) {
 		require.Error(t, err)
 		assert.Equal(t, "device", activeStub(t, flow).name, "the preferred flow must stay active")
 	})
+}
+
+// TestFallbackFlowSetLoginHint covers the Android SDK's pattern: it sets the login hint after the
+// flow is built, through a type assertion that the wrapper must satisfy.
+func TestFallbackFlowSetLoginHint(t *testing.T) {
+	mgmURL, err := url.Parse("https://api.netbird.io:443")
+	require.NoError(t, err)
+	a := &Auth{mgmURL: mgmURL}
+
+	idpRejects := fmt.Errorf("%w: request device code returned status 404", errFlowNotConfigured)
+	flows := []oauthFlowInit{stubInitFlow("device", nil, idpRejects), stubInit("pkce", nil)}
+
+	flow, err := oauthFlowWithFallback(a, nil, flows, "", stubAuthFactory(a))
+	require.NoError(t, err)
+
+	setter, ok := flow.(loginHintSetter)
+	require.True(t, ok, "the wrapper must accept a login hint like the concrete flows do")
+	setter.SetLoginHint("user@example.com")
+	assert.Equal(t, "user@example.com", activeStub(t, flow).hint, "the active flow must get the hint")
+
+	// the device flow is rejected by the IdP here, so the hint has to survive into the fallback
+	_, err = flow.RequestAuthInfo(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "pkce", activeStub(t, flow).name)
+	assert.Equal(t, "user@example.com", activeStub(t, flow).hint, "the fallback flow must get the hint too")
 }
 
 func TestWithSetupKeyAdvice(t *testing.T) {

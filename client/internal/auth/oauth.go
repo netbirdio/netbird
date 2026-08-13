@@ -89,6 +89,12 @@ type oauthFlowInit struct {
 // releases it. Callers that own a long-lived connection return it with a no-op cleanup.
 type authFactory func(ctx context.Context) (*Auth, func(), error)
 
+// loginHintSetter is implemented by both concrete flows but is deliberately not part of
+// OAuthFlow, so callers reach it through a type assertion.
+type loginHintSetter interface {
+	SetLoginHint(hint string)
+}
+
 // fallbackFlow wraps the flow that was picked at initialization time with the flows that were
 // not tried. Whether the IdP actually serves a flow only shows up when the flow is run: an IdP
 // with the device grant disabled answers the device code request with 404 even though
@@ -123,6 +129,20 @@ func (f *fallbackFlow) WaitToken(ctx context.Context, info AuthFlowInfo) (TokenI
 
 func (f *fallbackFlow) GetClientID(ctx context.Context) string {
 	return f.current().GetClientID(ctx)
+}
+
+// SetLoginHint forwards the hint to the active flow and keeps it for a flow a later fallback
+// initializes. Callers that set the hint after building the flow reach the concrete flow through
+// a type assertion, which the OAuthFlow interface does not carry, so the wrapper has to offer it
+// too or the hint is silently dropped.
+func (f *fallbackFlow) SetLoginHint(hint string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.hint = hint
+	if setter, ok := f.active.(loginHintSetter); ok {
+		setter.SetLoginHint(hint)
+	}
 }
 
 func (f *fallbackFlow) current() OAuthFlow {
