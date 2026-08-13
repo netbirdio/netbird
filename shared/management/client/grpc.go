@@ -235,7 +235,7 @@ func (c *GrpcClient) withMgmtStream(
 	ctx context.Context,
 	handler func(ctx context.Context, serverPubKey wgtypes.Key, backOff backoff.BackOff) error,
 ) error {
-	backOff := defaultBackoff(ctx)
+	backOff := c.sweeper.QuickRetryBackoff(ctx, defaultBackoff(ctx), c.netState)
 	operation := func() error {
 		// suspend reconnect attempts while the OS reports no usable network.
 		// Wait only errors on a cancelled context, which means shutdown, so
@@ -247,14 +247,21 @@ func (c *GrpcClient) withMgmtStream(
 			backOff.Reset()
 		}
 
-		log.Debugf("management connection state %v", c.conn.GetState())
 		connState := c.conn.GetState()
-
+		log.Debugf("management connection state %v", connState)
 		if connState == connectivity.Shutdown {
 			return backoff.Permanent(fmt.Errorf("connection to management has been shut down"))
-		} else if !(connState == connectivity.Ready || connState == connectivity.Idle) {
+		}
+		if !(connState == connectivity.Ready || connState == connectivity.Idle) {
+			// A dial may already be in flight (e.g. the other stream triggered
+			// it after a network change); wait for it to settle and proceed if
+			// the channel became usable, instead of burning a backoff round on
+			// a successful dial. A failed dial errors out as before.
 			c.conn.WaitForStateChange(ctx, connState)
-			return fmt.Errorf("connection to management is not ready and in %s state", connState)
+			connState = c.conn.GetState()
+			if !(connState == connectivity.Ready || connState == connectivity.Idle) {
+				return fmt.Errorf("connection to management is not ready and in %s state", connState)
+			}
 		}
 
 		serverPubKey, err := c.getServerPublicKey()
@@ -266,7 +273,7 @@ func (c *GrpcClient) withMgmtStream(
 		return handler(ctx, *serverPubKey, backOff)
 	}
 
-	err := backoff.Retry(operation, backOff)
+	err := nbgrpc.Retry(ctx, operation, backOff, c.netState)
 	if err != nil {
 		log.Warnf("exiting the Management service connection retry loop due to the unrecoverable error: %s", err)
 	}

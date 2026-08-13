@@ -13,12 +13,17 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/netstate"
 )
 
 // DefaultSweepDelay absorbs network flapping while the OS settles on a
 // default network before the stale registrations are cut.
 const DefaultSweepDelay = 500 * time.Millisecond
+
+const recentMarkWindow = 3 * time.Second
 
 // Config customizes a Sweeper. The zero value applies the defaults.
 type Config struct {
@@ -96,6 +101,7 @@ type Sweeper struct {
 	gen        uint64
 	timer      *time.Timer
 	sweepDelay time.Duration
+	lastMark   time.Time
 }
 
 // New creates an empty sweeper with the default configuration.
@@ -179,6 +185,7 @@ func (s *Sweeper) MarkNetworkChange() {
 	s.mu.Lock()
 	s.gen++
 	cutoff := s.gen
+	s.lastMark = time.Now()
 	if s.timer != nil {
 		s.timer.Stop()
 	}
@@ -187,6 +194,27 @@ func (s *Sweeper) MarkNetworkChange() {
 		log.Infof("network change sweep: closed %d stale connections", n)
 	})
 	s.mu.Unlock()
+}
+
+// QuickRetryBackoff wraps bo so that after each Reset the first retry comes
+// quickly when the disconnect followed a recent network change and the
+// network is online. Any other failure keeps bo's spread, so the clients of
+// a restarted server still scatter their reconnects. A nil sweeper returns
+// bo unchanged.
+func (s *Sweeper) QuickRetryBackoff(ctx context.Context, bo backoff.BackOff, netState *netstate.State) backoff.BackOff {
+	if s == nil {
+		return bo
+	}
+	return backoff.WithContext(newQuickRetryBackoff(bo, s, netState), ctx)
+}
+
+func (s *Sweeper) markedRecently() bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return !s.lastMark.IsZero() && time.Since(s.lastMark) < recentMarkWindow
 }
 
 // sweep closes the registered connections and aborts the in-flight dials

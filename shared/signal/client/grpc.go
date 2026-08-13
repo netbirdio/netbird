@@ -198,7 +198,7 @@ func defaultBackoff(ctx context.Context) backoff.BackOff {
 // The connection retry logic will try to reconnect for 30 min and if wasn't successful will propagate the error to the function caller.
 func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Message) error) error {
 
-	var backOff = defaultBackoff(ctx)
+	backOff := c.sweeper.QuickRetryBackoff(ctx, defaultBackoff(ctx), c.netState)
 
 	operation := func() error {
 		// suspend reconnect attempts while the OS reports no usable network.
@@ -213,13 +213,21 @@ func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Mes
 
 		c.notifyStreamDisconnected()
 
-		log.Debugf("signal connection state %v", c.signalConn.GetState())
 		connState := c.signalConn.GetState()
+		log.Debugf("signal connection state %v", connState)
 		if connState == connectivity.Shutdown {
 			return backoff.Permanent(fmt.Errorf("connection to signal has been shut down"))
-		} else if !(connState == connectivity.Ready || connState == connectivity.Idle) {
+		}
+		if !(connState == connectivity.Ready || connState == connectivity.Idle) {
+			// A dial may already be in flight (e.g. triggered by another RPC
+			// after a network change); wait for it to settle and proceed if
+			// the channel became usable, instead of burning a backoff round on
+			// a successful dial. A failed dial errors out as before.
 			c.signalConn.WaitForStateChange(ctx, connState)
-			return fmt.Errorf("connection to signal is not ready and in %s state", connState)
+			connState = c.signalConn.GetState()
+			if !(connState == connectivity.Ready || connState == connectivity.Idle) {
+				return fmt.Errorf("connection to signal is not ready and in %s state", connState)
+			}
 		}
 
 		// connect to Signal stream identifying ourselves with a public WireGuard key
@@ -273,7 +281,7 @@ func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Mes
 		return nil
 	}
 
-	err := backoff.Retry(operation, backOff)
+	err := nbgrpc.Retry(ctx, operation, backOff, c.netState)
 	if err != nil {
 		log.Errorf("exiting the Signal service connection retry loop due to the unrecoverable error: %v", err)
 		return err
