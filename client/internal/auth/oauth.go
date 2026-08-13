@@ -183,19 +183,28 @@ func (f *fallbackFlow) initNext(ctx context.Context) (OAuthFlow, error) {
 // a browser on this host and a loopback listener to receive the redirect, neither of which
 // exists on a Unix host without a graphical session. The GOOS guard keeps a caller that reports
 // no graphical session on a platform that always has one from changing the preference.
-func preferDeviceFlow(force bool, hasGraphicalSession bool) bool {
-	return force || (runtime.GOOS == "linux" || runtime.GOOS == "freebsd") && !hasGraphicalSession
+func preferDeviceFlow(hasGraphicalSession bool) bool {
+	return (runtime.GOOS == "linux" || runtime.GOOS == "freebsd") && !hasGraphicalSession
 }
 
-// flowOrder returns both flows in the order they should be attempted.
-func flowOrder(preferDevice bool) []oauthFlowInit {
+// flowOrder returns the flows to attempt, in order.
+//
+// force leaves the device code flow on its own rather than first: it marks a device with no
+// browser at all, such as Android TV or tvOS. PKCE cannot work there even from another device,
+// because the redirect has to arrive on the loopback listener of the device being enrolled, so
+// offering it as a fallback would only replace a clear error with a login that cannot complete.
+func flowOrder(force bool, hasGraphicalSession bool) []oauthFlowInit {
 	pkce := oauthFlowInit{name: "pkce authorization flow", init: initPKCEFlow}
 	device := oauthFlowInit{name: "device code flow", init: initDeviceFlow}
 
-	if preferDevice {
+	switch {
+	case force:
+		return []oauthFlowInit{device}
+	case preferDeviceFlow(hasGraphicalSession):
 		return []oauthFlowInit{device, pkce}
+	default:
+		return []oauthFlowInit{pkce, device}
 	}
-	return []oauthFlowInit{pkce, device}
 }
 
 func initPKCEFlow(a *Auth, client *mgm.GrpcClient, hint string) (OAuthFlow, error) {
@@ -228,8 +237,8 @@ func initDeviceFlow(a *Auth, client *mgm.GrpcClient, hint string) (OAuthFlow, er
 //
 // Both flows are optional server side: management answers NotFound for a flow it has no
 // configuration for. The preferred flow is tried first and the other one is used as a fallback,
-// so a server that only offers one of them still works. forceDeviceCodeFlow prefers the device
-// code flow regardless of platform (e.g. for Android TV).
+// so a server that only offers one of them still works. forceDeviceCodeFlow restricts the client
+// to the device code flow with no fallback, for a device that has no browser at all.
 func NewOAuthFlow(ctx context.Context, config *profilemanager.Config, hasGraphicalSession bool, forceDeviceCodeFlow bool, hint string) (OAuthFlow, error) {
 	authClient, err := NewAuth(ctx, config.PrivateKey, config.ManagementURL, config)
 	if err != nil {
@@ -254,7 +263,7 @@ func NewOAuthFlow(ctx context.Context, config *profilemanager.Config, hasGraphic
 		}, nil
 	}
 
-	flows := flowOrder(preferDeviceFlow(forceDeviceCodeFlow, hasGraphicalSession))
+	flows := flowOrder(forceDeviceCodeFlow, hasGraphicalSession)
 	return oauthFlowWithFallback(authClient, authClient.grpcClient(), flows, hint, newAuth)
 }
 

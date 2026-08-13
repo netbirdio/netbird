@@ -226,6 +226,35 @@ func TestFallbackFlowRequestAuthInfo(t *testing.T) {
 	})
 }
 
+// TestForcedDeviceFlowHasNoFallback covers Android TV and tvOS: a browserless device must get the
+// device code error rather than a PKCE flow it can never complete.
+func TestForcedDeviceFlowHasNoFallback(t *testing.T) {
+	mgmURL, err := url.Parse("https://api.netbird.io:443")
+	require.NoError(t, err)
+	a := &Auth{mgmURL: mgmURL}
+
+	notFound := status.Error(codes.NotFound, "no device authorization flow information available")
+
+	t.Run("no wrapper when the device flow works", func(t *testing.T) {
+		// flowOrder(force) yields this single-entry list, see TestFlowOrder
+		forced := []oauthFlowInit{stubInit("device", nil)}
+
+		flow, err := oauthFlowWithFallback(a, nil, forced, "", stubAuthFactory(a))
+		require.NoError(t, err)
+
+		_, wrapped := flow.(*fallbackFlow)
+		assert.False(t, wrapped, "nothing may swap the flow later on a browserless device")
+	})
+
+	t.Run("reports the device flow error instead of falling back", func(t *testing.T) {
+		forced := []oauthFlowInit{stubInit("device", notFound)}
+
+		_, err := oauthFlowWithFallback(a, nil, forced, "", stubAuthFactory(a))
+		require.Error(t, err)
+		assert.True(t, IsSSOUnavailable(err), "the caller must see that SSO is unavailable here")
+	})
+}
+
 // TestFallbackFlowSetLoginHint covers the Android SDK's pattern: it sets the login hint after the
 // flow is built, through a type assertion that the wrapper must satisfy.
 func TestFallbackFlowSetLoginHint(t *testing.T) {
@@ -265,15 +294,27 @@ func TestWithSetupKeyAdvice(t *testing.T) {
 }
 
 func TestFlowOrder(t *testing.T) {
-	assert.Equal(t, "pkce authorization flow", flowOrder(false)[0].name)
-	assert.Equal(t, "device code flow", flowOrder(true)[0].name)
-	assert.Len(t, flowOrder(false), 2, "both flows must always be attempted")
+	graphical := flowOrder(false, true)
+	require.Len(t, graphical, 2, "both flows must be attempted when the device has a browser")
+	assert.Equal(t, "pkce authorization flow", graphical[0].name)
+
+	headless := flowOrder(false, false)
+	require.Len(t, headless, 2)
+	if runtime.GOOS == "linux" || runtime.GOOS == "freebsd" {
+		assert.Equal(t, "device code flow", headless[0].name, "a headless unix host prefers the device flow")
+	}
+
+	// Android TV and tvOS have no browser, so PKCE cannot complete there even from another
+	// device: the redirect must reach the loopback listener of the device being enrolled.
+	forced := flowOrder(true, false)
+	require.Len(t, forced, 1, "a forced device code flow must not fall back to PKCE")
+	assert.Equal(t, "device code flow", forced[0].name)
+	assert.Len(t, flowOrder(true, true), 1, "force wins over a reported graphical session")
 }
 
 func TestPreferDeviceFlow(t *testing.T) {
 	isUnix := runtime.GOOS == "linux" || runtime.GOOS == "freebsd"
 
-	assert.True(t, preferDeviceFlow(true, true), "forced device flow wins over a desktop session")
-	assert.Equal(t, isUnix, preferDeviceFlow(false, false), "headless unix hosts prefer the device flow")
-	assert.False(t, preferDeviceFlow(false, true), "desktop clients prefer PKCE")
+	assert.Equal(t, isUnix, preferDeviceFlow(false), "headless unix hosts prefer the device flow")
+	assert.False(t, preferDeviceFlow(true), "clients with a graphical session prefer PKCE")
 }

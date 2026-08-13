@@ -157,7 +157,7 @@ func (a *Auth) GetOAuthFlow(ctx context.Context, forceDeviceAuth bool) (OAuthFlo
 
 	err := a.withRetry(ctx, func(client *mgm.GrpcClient) error {
 		var err error
-		flow, err = oauthFlowWithFallback(a, client, flowOrder(forceDeviceAuth), "", newAuth)
+		flow, err = oauthFlowWithFallback(a, client, flowOrder(forceDeviceAuth, true), "", newAuth)
 
 		if IsSSOUnavailable(err) {
 			return backoff.Permanent(err)
