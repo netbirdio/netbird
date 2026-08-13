@@ -31,7 +31,7 @@ type SqliteStoreConn struct {
 	Conn sqliteInterface
 }
 
-func NewSqliteStore(ctx context.Context, storeFile, dataDir string) (*SqliteStore, error) {
+func NewSqliteStore(storeFile, dataDir string) (*SqliteStore, error) {
 	dbfile := storeFile
 	if envFile, ok := os.LookupEnv("NB_STORE_ENGINE_SQLITE_FILE"); ok && envFile != "" {
 		dbfile = envFile
@@ -76,7 +76,7 @@ func NewSqliteStore(ctx context.Context, storeFile, dataDir string) (*SqliteStor
 	return &SqliteStore{Db: db}, nil
 }
 
-func (s *SqliteStore) BeginTx(ctx context.Context) (*SqliteStoreConn, error) {
+func (s *SqliteStore) BeginTx(ctx context.Context) (networkmapdb.NetworkMapDBStoreConn, error) {
 	tx, err := s.Db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true, Isolation: sql.LevelRepeatableRead})
 	if err != nil {
 		return nil, err

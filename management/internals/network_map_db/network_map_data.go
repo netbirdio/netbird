@@ -14,7 +14,7 @@ import (
 )
 
 func (s *NetworkMapDBStoreImpl) GetNetworkMapData(ctx context.Context, accountId string) (*networkmap.NetworkMapData, error) {
-	tx, err := s.store.BeginTx(ctx)
+	tx, err := s.Store.BeginTx(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -139,12 +139,12 @@ func (s *NetworkMapDBStoreImpl) GetNetworkMapData(ctx context.Context, accountId
 		ProxyTargetedDomainResourceIDs: proxyTargetedDomainResourceIDs,
 	}
 
-	extraSettings, err := s.extraSettingsManager.GetExtraSettings(ctx, accountId)
+	extraSettings, err := s.ExtraSettingsManager.GetExtraSettings(ctx, accountId)
 	if err != nil {
 		return nil, err
 	}
 
-	toret.ValidatedPeers, err = s.integratedPeerValidator.GetValidatedPeers(ctx, accountId, maps.Values(toret.Groups), maps.Values(toret.Peers), extraSettings)
+	toret.ValidatedPeers, err = s.IntegratedPeerValidator.GetValidatedPeers(ctx, accountId, maps.Values(toret.Groups), maps.Values(toret.Peers), extraSettings)
 	if err != nil {
 		return nil, err
 	}
