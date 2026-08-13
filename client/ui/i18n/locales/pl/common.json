@@ -231,7 +231,7 @@
         "message": "Nie znaleziono wyników"
     },
     "common.noResults.description": {
-        "message": "Nie znaleziono wyników. Spróbuj użyć innego hasła lub zmienić filtry."
+        "message": "Nie znaleziono wyników. Spróbuj użyć innej frazy wyszukiwania lub zmienić filtry."
     },
     "notConnected.title": {
         "message": "Rozłączono"
@@ -306,7 +306,7 @@
         "message": "Nie znaleziono profili"
     },
     "profile.selector.emptyDescription": {
-        "message": "Spróbuj użyć innego hasła lub utwórz nowy profil."
+        "message": "Spróbuj użyć innej frazy wyszukiwania lub utwórz nowy profil."
     },
     "profile.selector.newProfile": {
         "message": "Nowy profil"
@@ -551,6 +551,12 @@
     "settings.general.autostart.errorTitle": {
         "message": "Zmiana autostartu nie powiodła się"
     },
+    "settings.general.keepConnectedOnQuit.label": {
+        "message": "Utrzymuj połączenie po zamknięciu"
+    },
+    "settings.general.keepConnectedOnQuit.help": {
+        "message": "Połączenie pozostaje aktywne w tle po zamknięciu NetBird. Zostanie zakończone dopiero po ręcznym rozłączeniu."
+    },
     "settings.general.language.label": {
         "message": "Język interfejsu"
     },
@@ -639,7 +645,7 @@
         "message": "Blokuj ruch przychodzący"
     },
     "settings.security.blockInbound.help": {
-        "message": "Odrzucaj niezainicjowane połączenia od innych urządzeń do tego urządzenia i trasowanych przez nie sieci. Nie wpływa to na ruch wychodzący."
+        "message": "Odrzucaj połączenia inicjowane przez inne urządzenia, kierowane do tego urządzenia lub sieci trasowanych przez to urządzenie. Nie wpływa to na ruch wychodzący."
     },
     "settings.security.blockLan.label": {
         "message": "Blokuj dostęp do LAN"
@@ -711,7 +717,7 @@
         "message": "Określa, jak długo klient przechowuje JWT przed ponownym monitem przy wychodzących połączeniach SSH. Ustaw 0, aby wyłączyć pamięć podręczną i uwierzytelniać każde połączenie."
     },
     "settings.ssh.jwtTtl.suffix": {
-        "message": "s"
+        "message": "sek."
     },
     "settings.advanced.section.interface": {
         "message": "Interfejs"
@@ -756,7 +762,19 @@
         "message": "Anonimizuj dane wrażliwe"
     },
     "settings.troubleshooting.anonymize.help": {
-        "message": "Ukrywa w dziennikach publiczne adresy IP i domeny niezwiązane z NetBird."
+        "message": "Ukrywa adresy IP, domeny i inne dane wrażliwe."
+    },
+    "settings.troubleshooting.anonymize.info": {
+        "message": "Poziom domyślny pozostawia wewnętrzne adresy IPv4 i nazwy urządzeń czytelne dla pomocy technicznej. Poziom ścisły dodatkowo anonimizuje prywatne adresy IP (RFC 1918), adresy CGNAT i link-local, nazwy urządzeń oraz klucze publiczne WireGuard. Powtarzające się wartości są zastępowane tym samym symbolem zastępczym, dzięki czemu urządzenia pozostają rozróżnialne. Użyj poziomu ścisłego, udostępniając pakiet poza organizacją."
+    },
+    "settings.troubleshooting.anonymize.none": {
+        "message": "Brak"
+    },
+    "settings.troubleshooting.anonymize.default": {
+        "message": "Domyślny"
+    },
+    "settings.troubleshooting.anonymize.strict": {
+        "message": "Ścisły"
     },
     "settings.troubleshooting.systemInfo.label": {
         "message": "Dołącz informacje o systemie"
@@ -777,7 +795,7 @@
         "message": "Ustawia poziom dziennika na TRACE, a następnie go przywraca."
     },
     "settings.troubleshooting.capture.label": {
-        "message": "Przechwyć sesję"
+        "message": "Sesja przechwytywania"
     },
     "settings.troubleshooting.capture.help": {
         "message": "Ponownie nawiązuje połączenie i czeka, umożliwiając odtworzenie problemu."
@@ -930,7 +948,7 @@
         "message": "Dostępna aktualizacja"
     },
     "update.overlay.updatingVersion": {
-        "message": "Aktualizowanie NetBird do wersji v{version}"
+        "message": "Aktualizowanie NetBird do v{version}"
     },
     "update.overlay.updating": {
         "message": "Aktualizowanie NetBird"
@@ -1110,10 +1128,10 @@
         "message": "Odnów sesję"
     },
     "sessionExpiration.authenticate": {
-        "message": "Uwierzytelnij"
+        "message": "Uwierzytelnij się"
     },
     "sessionExpiration.logout": {
-        "message": "Wyloguj"
+        "message": "Wyloguj się"
     },
     "sessionExpiration.expired": {
         "message": "Sesja wygasła"
@@ -1335,9 +1353,9 @@
         "message": "Wymagane uprawnienia: {actor}. Zamiast tego uruchom:"
     },
     "settings.ssh.privilege.oneWay": {
-        "message": "Możesz to wyłączyć, ale ponowne włączenie wymaga uprawnień: {actor}:"
+        "message": "Możesz to wyłączyć, ale do ponownego włączenia potrzebne są uprawnienia {actor}:"
     },
     "settings.ssh.privilege.oneWayInverted": {
-        "message": "Możesz to włączyć, ale ponowne wyłączenie wymaga uprawnień: {actor}:"
+        "message": "Możesz to włączyć, ale do ponownego wyłączenia potrzebne są uprawnienia {actor}:"
     }
 }
