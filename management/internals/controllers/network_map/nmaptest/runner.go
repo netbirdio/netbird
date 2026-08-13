@@ -232,33 +232,6 @@ func computeMode(t *testing.T, ctx context.Context, mode Mode, nmData *networkma
 	}
 }
 
-// caseInputs prepares a loaded case for computation, returning the values every
-// mode needs. Exposed for tests in this package that drive modes directly.
-func caseInputs(t *testing.T, c Case) (*networkmap.NetworkMapData, nmdata.CustomZone, string, int64) {
-	t.Helper()
-
-	nmData := c.Data
-	applyFixtureDefaults(nmData)
-	nmData.PrecomputePostureValidation()
-
-	dnsDomain := defaultDNSDomain
-	if c.DNSDomain != "" {
-		dnsDomain = c.DNSDomain
-	}
-	if nmData.AccountSettings.DNSDomain != "" {
-		dnsDomain = nmData.AccountSettings.DNSDomain
-	}
-
-	accountID := c.AccountID
-	if accountID == "" {
-		accountID = defaultAccountID
-	}
-
-	ctx := context.Background()
-	zone := networkmap.PeersCustomZone(ctx, accountID, dnsDomain, nmData.Peers, controller.IPv6AllowedPeersFromData(nmData))
-	return nmData, zone, dnsDomain, controller.ComputeForwarderPortFromData(nmData.Peers, network_map.DnsForwarderPortMinVersion)
-}
-
 // requireEnvelopeSafeKeys fails fast on peer keys the envelope decoder would
 // silently drop: it re-keys peers by base64 of the raw 32-byte WG public key.
 func requireEnvelopeSafeKeys(t *testing.T, nmData *networkmap.NetworkMapData, caseName string) {
