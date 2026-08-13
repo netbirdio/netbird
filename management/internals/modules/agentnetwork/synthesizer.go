@@ -89,7 +89,7 @@ func SynthesizeServicesForCluster(ctx context.Context, s store.Store, clusterAdd
 		return nil, nil
 	}
 
-	settingsRows, err := s.GetAgentNetworkSettingsByCluster(ctx, store.LockingStrengthNone, clusterAddr)
+	settingsRows, err := s.GetAgentNetworkSettingsByProxyAddress(ctx, store.LockingStrengthNone, clusterAddr)
 	if err != nil {
 		return nil, fmt.Errorf("list agent network settings on cluster: %w", err)
 	}
@@ -116,45 +116,33 @@ func SynthesizeServicesForCluster(ctx context.Context, s store.Store, clusterAdd
 }
 
 // SynthesizeServiceForDomain resolves a single agent-network service by its
-// public endpoint domain. It lists the (few) settings rows on the domain's
-// cluster, matches the one whose endpoint equals the domain, and synthesises
-// only that account — avoiding full per-account synthesis for every tenant on
-// the cluster, which is what auth/session paths previously paid. Returns nil
-// (no error) when no account owns the domain.
+// public endpoint domain — a point query on the settings domain unique index,
+// then synthesis of just that account. Returns nil (no error) when no account
+// owns the domain.
 func SynthesizeServiceForDomain(ctx context.Context, s store.Store, domain string) (*rpservice.Service, error) {
-	domain = strings.TrimSpace(domain)
-	cluster := clusterFromDomain(domain)
-	if domain != "" && cluster != "" {
-		settingsRows, err := s.GetAgentNetworkSettingsByCluster(ctx, store.LockingStrengthNone, cluster)
-		if err != nil {
-			return nil, fmt.Errorf("list agent network settings on cluster: %w", err)
+	domain = strings.ToLower(strings.TrimSpace(domain))
+	if domain == "" {
+		return nil, nil //nolint:nilnil // optional lookup: no account owns the domain
+	}
+
+	settings, err := s.GetAgentNetworkSettingsByDomain(ctx, store.LockingStrengthNone, domain)
+	if err != nil {
+		if isNotFound(err) {
+			return nil, nil //nolint:nilnil // optional lookup: no account owns the domain
 		}
-		for _, settings := range settingsRows {
-			if settings == nil || settings.Endpoint() != domain {
-				continue
-			}
-			services, serr := SynthesizeServices(ctx, s, settings.AccountID)
-			if serr != nil {
-				return nil, serr
-			}
-			for _, svc := range services {
-				if svc != nil && svc.Domain == domain {
-					return svc, nil
-				}
-			}
-			break
+		return nil, fmt.Errorf("get agent network settings by domain: %w", err)
+	}
+
+	services, err := SynthesizeServices(ctx, s, settings.AccountID)
+	if err != nil {
+		return nil, err
+	}
+	for _, svc := range services {
+		if svc != nil && svc.Domain == domain {
+			return svc, nil
 		}
 	}
 	return nil, nil //nolint:nilnil // optional lookup: no account owns the domain
-}
-
-// clusterFromDomain returns the cluster portion of an endpoint domain (every
-// label after the first).
-func clusterFromDomain(domain string) string {
-	if i := strings.IndexByte(domain, '.'); i >= 0 {
-		return domain[i+1:]
-	}
-	return ""
 }
 
 // SynthesizeServices builds the in-memory reverse-proxy service that
@@ -162,7 +150,7 @@ func clusterFromDomain(domain string) string {
 // account has no settings row, no enabled providers, or no enabled
 // policies — in any of those cases there's nothing useful to expose.
 //
-// One service per (account, settings.Cluster) is emitted. The router
+// One service per (account, settings.ProxyAddress) is emitted. The router
 // middleware encodes a denormalised model→provider routing table
 // (auth headers + decrypted API keys baked in); the policy_check
 // middleware encodes per-provider authorised group IDs derived from
@@ -175,7 +163,7 @@ func SynthesizeServices(ctx context.Context, s store.Store, accountID string) ([
 	if err != nil {
 		return nil, err
 	}
-	if !ok || strings.TrimSpace(settings.Cluster) == "" {
+	if !ok || strings.TrimSpace(settings.ProxyAddress) == "" {
 		return nil, nil
 	}
 
@@ -233,6 +221,11 @@ func SynthesizeServices(ctx context.Context, s store.Store, accountID string) ([
 		return nil, err
 	}
 
+	costMeterJSON, err := buildCostMeterConfigJSON(enabledProviders, groupIndex)
+	if err != nil {
+		return nil, err
+	}
+
 	mergedGuardrails := mergeGuardrails(enabledPolicies, guardrailsByID)
 	applyAccountCollectionControls(&mergedGuardrails, settings)
 	// The proxy guardrail is a per-provider fail-closed backstop; the
@@ -248,7 +241,7 @@ func SynthesizeServices(ctx context.Context, s store.Store, accountID string) ([
 	// Use the merged decision (account settings OR policy-required redaction),
 	// not the raw account flag, so a policy that mandates PII redaction is
 	// honored by the capture parsers even when the account toggle is off.
-	middlewares := buildMiddlewareChain(routerCfgJSON, identityInjectJSON, guardrailJSON, mergedGuardrails.PromptCapture.RedactPii, mergedGuardrails.PromptCapture.Enabled)
+	middlewares := buildMiddlewareChain(routerCfgJSON, identityInjectJSON, guardrailJSON, costMeterJSON, mergedGuardrails.PromptCapture.RedactPii, mergedGuardrails.PromptCapture.Enabled)
 
 	priv, pub, err := pickServiceSessionKeys(enabledProviders)
 	if err != nil {
@@ -700,7 +693,7 @@ func buildIdentityExtraHeaders(p *types.Provider, extras []catalog.ExtraHeader) 
 // requests bound for gateways like LiteLLM that key budgets and
 // attribution off request headers. CanMutate is required so its
 // HeadersAdd / HeadersRemove pass the framework's mutation gate.
-func buildMiddlewareChain(routerCfgJSON, identityInjectJSON, guardrailJSON []byte, redactPii, capturePromptContent bool) []rpservice.MiddlewareConfig {
+func buildMiddlewareChain(routerCfgJSON, identityInjectJSON, guardrailJSON, costMeterJSON []byte, redactPii, capturePromptContent bool) []rpservice.MiddlewareConfig {
 	// Both parsers receive an explicit capture flag derived from the account's
 	// enable_prompt_collection toggle; nil/unset would default to the legacy
 	// "always emit" behavior in the middleware, which is precisely what we
@@ -769,10 +762,13 @@ func buildMiddlewareChain(routerCfgJSON, identityInjectJSON, guardrailJSON []byt
 			ConfigJSON: []byte("{}"),
 		},
 		{
+			// Carries the full pricing table (defaults + per-provider
+			// operator prices) so the proxy bills without an embedded
+			// price list; see buildCostMeterConfigJSON.
 			ID:         middlewareIDCostMeter,
 			Enabled:    true,
 			Slot:       rpservice.MiddlewareSlotOnResponse,
-			ConfigJSON: []byte("{}"),
+			ConfigJSON: costMeterJSON,
 		},
 		{
 			ID:         middlewareIDLLMResponseParser,
@@ -926,7 +922,7 @@ func buildAccountService(
 	middlewares []rpservice.MiddlewareConfig,
 	sessionPriv, sessionPub string,
 ) *rpservice.Service {
-	cluster := settings.Cluster
+	cluster := settings.ProxyAddress
 	domain := settings.Endpoint()
 	serviceID := SynthesizedServiceIDPrefix + accountID
 

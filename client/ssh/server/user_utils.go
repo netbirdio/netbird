@@ -16,11 +16,6 @@ var (
 	ErrPrivilegedUserSwitch = errors.New("cannot switch to privileged user - current user lacks required privileges")
 )
 
-// isPlatformUnix returns true for Unix-like platforms (Linux, macOS, etc.)
-func isPlatformUnix() bool {
-	return getCurrentOS() != "windows"
-}
-
 // Dependency injection variables for testing - allows mocking dynamic runtime checks
 var (
 	getCurrentUser         = currentUserWithGetent
@@ -29,6 +24,9 @@ var (
 	getIsProcessPrivileged = isCurrentProcessPrivileged
 
 	getEuid = os.Geteuid
+
+	getProcessElevated                   = isProcessElevated
+	getWindowsAccountPrivilegedOrUnknown = isWindowsAccountPrivilegedOrUnknown
 )
 
 const (
@@ -65,6 +63,13 @@ type PrivilegeCheckResult struct {
 	RequiresUserSwitching bool
 }
 
+// privilegeCheckContext holds all context needed for privilege checking
+type privilegeCheckContext struct {
+	currentUser           *user.User
+	currentUserPrivileged bool
+	allowRoot             bool
+}
+
 // CheckPrivileges performs comprehensive privilege checking for all SSH features.
 // This is the single source of truth for privilege decisions across the SSH server.
 func (s *Server) CheckPrivileges(req PrivilegeCheckRequest) PrivilegeCheckResult {
@@ -75,7 +80,7 @@ func (s *Server) CheckPrivileges(req PrivilegeCheckRequest) PrivilegeCheckResult
 
 	// Handle empty username case - but still check root access controls
 	if req.RequestedUsername == "" {
-		if isPrivilegedUsername(context.currentUser.Username) && !context.allowRoot {
+		if isPrivilegedOrUnknown(context.currentUser.Username) && !context.allowRoot {
 			return PrivilegeCheckResult{
 				Allowed: false,
 				Error:   &PrivilegedUserError{Username: context.currentUser.Username},
@@ -135,7 +140,7 @@ func (s *Server) checkUserRequest(ctx *privilegeCheckContext, req PrivilegeCheck
 
 	needsUserSwitching := !isSameResolvedUser(resolvedUser, ctx.currentUser)
 
-	if isPrivilegedUsername(resolvedUser.Username) && !ctx.allowRoot {
+	if isPrivilegedOrUnknown(resolvedUser.Username) && !ctx.allowRoot {
 		return PrivilegeCheckResult{
 			Allowed:               false,
 			Error:                 &PrivilegedUserError{Username: resolvedUser.Username},
@@ -175,19 +180,48 @@ func (s *Server) resolveRequestedUser(requestedUsername string) (*user.User, err
 	return u, nil
 }
 
+// SetAllowRootLogin configures root login access
+func (s *Server) SetAllowRootLogin(allow bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.allowRootLogin = allow
+}
+
+// userNameLookup performs user lookup with root login permission check
+func (s *Server) userNameLookup(username string) (*user.User, error) {
+	result, err := s.userPrivilegeCheck(username)
+	if err != nil {
+		return nil, err
+	}
+	return result.User, nil
+}
+
+// userPrivilegeCheck performs user lookup with full privilege check result
+func (s *Server) userPrivilegeCheck(username string) (PrivilegeCheckResult, error) {
+	result := s.CheckPrivileges(PrivilegeCheckRequest{
+		RequestedUsername:         username,
+		FeatureSupportsUserSwitch: true,
+		FeatureName:               FeatureSSHLogin,
+	})
+
+	if !result.Allowed {
+		return result, result.Error
+	}
+
+	return result, nil
+}
+
+// isPlatformUnix returns true for Unix-like platforms (Linux, macOS, etc.)
+func isPlatformUnix() bool {
+	return getCurrentOS() != "windows"
+}
+
 // isSameResolvedUser compares two resolved user identities
 func isSameResolvedUser(user1, user2 *user.User) bool {
 	if user1 == nil || user2 == nil {
 		return user1 == user2
 	}
 	return user1.Uid == user2.Uid
-}
-
-// privilegeCheckContext holds all context needed for privilege checking
-type privilegeCheckContext struct {
-	currentUser           *user.User
-	currentUserPrivileged bool
-	allowRoot             bool
 }
 
 // isSameUser checks if two usernames refer to the same user
@@ -253,159 +287,30 @@ func isWindowsSameUser(requestedUsername, currentUsername string) bool {
 	return strings.EqualFold(reqDomain, curDomain)
 }
 
-// SetAllowRootLogin configures root login access
-func (s *Server) SetAllowRootLogin(allow bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.allowRootLogin = allow
-}
-
-// userNameLookup performs user lookup with root login permission check
-func (s *Server) userNameLookup(username string) (*user.User, error) {
-	result := s.CheckPrivileges(PrivilegeCheckRequest{
-		RequestedUsername:         username,
-		FeatureSupportsUserSwitch: true,
-		FeatureName:               FeatureSSHLogin,
-	})
-
-	if !result.Allowed {
-		return nil, result.Error
-	}
-
-	return result.User, nil
-}
-
-// userPrivilegeCheck performs user lookup with full privilege check result
-func (s *Server) userPrivilegeCheck(username string) (PrivilegeCheckResult, error) {
-	result := s.CheckPrivileges(PrivilegeCheckRequest{
-		RequestedUsername:         username,
-		FeatureSupportsUserSwitch: true,
-		FeatureName:               FeatureSSHLogin,
-	})
-
-	if !result.Allowed {
-		return result, result.Error
-	}
-
-	return result, nil
-}
-
-// isPrivilegedUsername checks if the given username represents a privileged user across platforms.
-// On Unix: root
-// On Windows: Administrator, SYSTEM (case-insensitive)
-// Handles domain-qualified usernames like "DOMAIN\Administrator" or "user@domain.com"
-func isPrivilegedUsername(username string) bool {
+// isPrivilegedOrUnknown reports whether the given username represents a
+// privileged user, or on Windows an account whose privilege could not be
+// determined.
+// On Unix: root.
+// On Windows: well-known service accounts, built-in Administrator accounts,
+// and members of the local Administrators group; handles domain-qualified
+// usernames like "DOMAIN\user" or "user@domain.com". An account that cannot be
+// resolved or evaluated is reported as privileged.
+//
+// Use this to refuse privileged accounts, never to grant them anything: the
+// undetermined case is safe for a refusal and unsafe for a grant.
+func isPrivilegedOrUnknown(username string) bool {
 	if getCurrentOS() != "windows" {
 		return username == "root"
 	}
-
-	bareUsername := username
-	// Handle Windows domain format: DOMAIN\username
-	if idx := strings.LastIndex(username, `\`); idx != -1 {
-		bareUsername = username[idx+1:]
-	}
-	// Handle email-style format: username@domain.com
-	if idx := strings.Index(bareUsername, "@"); idx != -1 {
-		bareUsername = bareUsername[:idx]
-	}
-
-	return isWindowsPrivilegedUser(bareUsername)
-}
-
-// isWindowsPrivilegedUser checks if a bare username (domain already stripped) represents a Windows privileged account
-func isWindowsPrivilegedUser(bareUsername string) bool {
-	// common privileged usernames (case insensitive)
-	privilegedNames := []string{
-		"administrator",
-		"admin",
-		"root",
-		"system",
-		"localsystem",
-		"networkservice",
-		"localservice",
-	}
-
-	usernameLower := strings.ToLower(bareUsername)
-	for _, privilegedName := range privilegedNames {
-		if usernameLower == privilegedName {
-			return true
-		}
-	}
-
-	// computer accounts (ending with $) are not privileged by themselves
-	// They only gain privileges through group membership or specific SIDs
-
-	if targetUser, err := lookupUser(bareUsername); err == nil {
-		return isWindowsPrivilegedSID(targetUser.Uid)
-	}
-
-	return false
-}
-
-// isWindowsPrivilegedSID checks if a Windows SID represents a privileged account
-func isWindowsPrivilegedSID(sid string) bool {
-	privilegedSIDs := []string{
-		"S-1-5-18",     // Local System (SYSTEM)
-		"S-1-5-19",     // Local Service (NT AUTHORITY\LOCAL SERVICE)
-		"S-1-5-20",     // Network Service (NT AUTHORITY\NETWORK SERVICE)
-		"S-1-5-32-544", // Administrators group (BUILTIN\Administrators)
-		"S-1-5-500",    // Built-in Administrator account (local machine RID 500)
-	}
-
-	for _, privilegedSID := range privilegedSIDs {
-		if sid == privilegedSID {
-			return true
-		}
-	}
-
-	// Check for domain administrator accounts (RID 500 in any domain)
-	// Format: S-1-5-21-domain-domain-domain-500
-	// This is reliable as RID 500 is reserved for the domain Administrator account
-	if strings.HasPrefix(sid, "S-1-5-21-") && strings.HasSuffix(sid, "-500") {
-		return true
-	}
-
-	// Check for other well-known privileged RIDs in domain contexts
-	// RID 512 = Domain Admins group, RID 516 = Domain Controllers group
-	if strings.HasPrefix(sid, "S-1-5-21-") {
-		if strings.HasSuffix(sid, "-512") || // Domain Admins group
-			strings.HasSuffix(sid, "-516") || // Domain Controllers group
-			strings.HasSuffix(sid, "-519") { // Enterprise Admins group
-			return true
-		}
-	}
-
-	return false
+	return getWindowsAccountPrivilegedOrUnknown(username)
 }
 
 // isCurrentProcessPrivileged checks if the current process is running with elevated privileges.
 // On Unix systems, this means running as root (UID 0).
-// On Windows, this means running as Administrator or SYSTEM.
+// On Windows, this means the process token is elevated (administrators, SYSTEM).
 func isCurrentProcessPrivileged() bool {
 	if getCurrentOS() == "windows" {
-		return isWindowsElevated()
+		return getProcessElevated()
 	}
 	return getEuid() == 0
-}
-
-// isWindowsElevated checks if the current process is running with elevated privileges on Windows
-func isWindowsElevated() bool {
-	currentUser, err := getCurrentUser()
-	if err != nil {
-		log.Errorf("failed to get current user for privilege check, assuming non-privileged: %v", err)
-		return false
-	}
-
-	if isWindowsPrivilegedSID(currentUser.Uid) {
-		log.Debugf("Windows user switching supported: running as privileged SID %s", currentUser.Uid)
-		return true
-	}
-
-	if isPrivilegedUsername(currentUser.Username) {
-		log.Debugf("Windows user switching supported: running as privileged username %s", currentUser.Username)
-		return true
-	}
-
-	log.Debugf("Windows user switching not supported: not running as privileged user (current: %s)", currentUser.Uid)
-	return false
 }

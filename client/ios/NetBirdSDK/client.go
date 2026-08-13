@@ -14,6 +14,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	nbAnonymize "github.com/netbirdio/netbird/client/anonymize"
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/debug"
@@ -26,6 +27,13 @@ import (
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	types "github.com/netbirdio/netbird/upload-server/types"
+)
+
+// AnonymizeLevelDefault and AnonymizeLevelStrict are the accepted
+// anonymizeLevel values for DebugBundle.
+const (
+	AnonymizeLevelDefault = nbAnonymize.LevelDefaultString
+	AnonymizeLevelStrict  = nbAnonymize.LevelStrictString
 )
 
 // ConnectionListener export internal Listener for mobile
@@ -158,13 +166,19 @@ func (c *Client) Run(fd int32, interfaceName string, envList *EnvList) error {
 	defer c.ctxCancel()
 	c.ctxCancelLock.Unlock()
 
-	auth := NewAuthWithConfig(ctx, cfg)
-	err = auth.LoginSync()
-	if err != nil {
-		return err
-	}
-
-	log.Infof("Auth successful")
+	// No login pre-flight here. The engine's own loginToManagement (connect.go) performs
+	// the authoritative Login immediately before the first Sync, so a LoginSync() call at
+	// this point only duplicated it — costing two extra Login RPCs (IsLoginRequired +
+	// Login) on every engine start, since IsLoginRequired is itself a full Login RPC.
+	//
+	// Auth failures still reach the caller through the engine path: loginToManagement
+	// returns PermissionDenied, which marks the shared status recorder
+	// (MarkManagementDisconnected) and fires ClientStop → onDisconnected, where
+	// IsLoginRequiredCached() reports login-required. The error is also returned out of Run().
+	//
+	// A pre-flight was also actively harmful when the server is unreachable: its 2-minute
+	// backoff blocked the start and then reported "login required" for what was really a
+	// timeout. The engine instead keeps retrying and recovers when the server returns.
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
 	c.onHostDnsFn = func([]string) {}
@@ -194,8 +208,10 @@ func (c *Client) Stop() {
 // DebugBundle generates a debug bundle, uploads it and returns the upload key.
 // It works with or without a running engine: when the engine is up it reuses
 // the live config, sync response and client metrics; otherwise it loads the
-// config from disk (or the preloaded tvOS config).
-func (c *Client) DebugBundle(anonymize bool) (string, error) {
+// config from disk (or the preloaded tvOS config). anonymizeLevel is "default"
+// or "strict"; strict also anonymizes internal IP ranges, peer names, and
+// WireGuard public keys, and implies anonymize.
+func (c *Client) DebugBundle(anonymize bool, anonymizeLevel string) (string, error) {
 	cfg, cc := c.stateSnapshot()
 
 	// If the engine hasn't been started, load config so we can reach management.
@@ -245,6 +261,7 @@ func (c *Client) DebugBundle(anonymize bool) (string, error) {
 		deps,
 		debug.BundleConfig{
 			Anonymize:         anonymize,
+			AnonymizeLevel:    nbAnonymize.ParseLevel(anonymizeLevel),
 			IncludeSystemInfo: true,
 		},
 	)
@@ -262,7 +279,7 @@ func (c *Client) DebugBundle(anonymize bool) (string, error) {
 	uploadCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	key, err := debug.UploadDebugBundle(uploadCtx, types.DefaultBundleURL, cfg.ManagementURL.String(), path)
+	key, err := debug.UploadDebugBundle(uploadCtx, types.DefaultBundleURL, cfg.ManagementURL.String(), path, false)
 	if err != nil {
 		return "", fmt.Errorf("upload debug bundle: %w", err)
 	}

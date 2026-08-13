@@ -551,6 +551,14 @@
     "settings.general.autostart.errorTitle": {
         "message": "Ändern des Autostarts fehlgeschlagen"
     },
+    "settings.general.keepConnectedOnQuit.label": {
+        "message": "Nach dem Beenden verbunden bleiben",
+        "description": "Toggle label: keep the VPN connection up after quitting the UI."
+    },
+    "settings.general.keepConnectedOnQuit.help": {
+        "message": "Die Verbindung bleibt im Hintergrund bestehen, nachdem Sie NetBird schließen. Sie endet erst, wenn Sie sie selbst trennen.",
+        "description": "Helper text for the stay-connected-after-quitting toggle."
+    },
     "settings.general.language.label": {
         "message": "Anzeigesprache"
     },

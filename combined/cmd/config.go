@@ -76,6 +76,13 @@ type ServerConfig struct {
 
 	SupportedSyncMessageVersions           *int           `yaml:"supportedSyncMessageVersions,omitempty"`
 	PerAccountSupportedSyncMessageVersions map[string]int `yaml:"perAccountSupportedSyncMessageVersions,omitempty"`
+
+	AgentNetwork AgentNetworkConfig `yaml:"agentNetwork"`
+}
+
+// AgentNetworkConfig contains agent-network (LLM gateway) configuration.
+type AgentNetworkConfig struct {
+	PricingDefaultsFile string `yaml:"pricingDefaultsFile"`
 }
 
 // TLSConfig contains TLS/HTTPS settings
@@ -723,6 +730,9 @@ func (c *CombinedConfig) ToManagementConfig() (*nbconfig.Config, error) {
 		EmbeddedIdP:                        embeddedIdP,
 		HighestSupportedSyncMessageVersion: c.Server.SupportedSyncMessageVersions,
 		PerAccountHighestSupportedSyncMessageVersion: c.Server.PerAccountSupportedSyncMessageVersions,
+		AgentNetwork: nbconfig.AgentNetwork{
+			PricingDefaultsFile: c.Server.AgentNetwork.PricingDefaultsFile,
+		},
 	}, nil
 }
 

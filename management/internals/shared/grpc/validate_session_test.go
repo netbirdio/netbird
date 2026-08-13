@@ -46,6 +46,7 @@ func setupValidateSessionTest(t *testing.T) *validateSessionTestSetup {
 	proxyService.SetServiceManager(serviceManager)
 
 	createTestProxies(t, ctx, testStore)
+	createStatusTestUsers(t, ctx, testStore)
 
 	return &validateSessionTestSetup{
 		proxyService: proxyService,
@@ -91,6 +92,82 @@ func createTestProxies(t *testing.T, ctx context.Context, testStore store.Store)
 		},
 	}
 	require.NoError(t, testStore.CreateService(ctx, restrictedProxy))
+
+	// Distributed to the account's "All" group, the configuration that hands a
+	// service to every user in the account.
+	allUsersProxy := &service.Service{
+		ID:                "allUsersProxyId",
+		AccountID:         "testAccountId",
+		Name:              "All Users Proxy",
+		Domain:            "all-users-proxy.example.com",
+		Enabled:           true,
+		SessionPrivateKey: privKey,
+		SessionPublicKey:  pubKey,
+		Auth: service.AuthConfig{
+			BearerAuth: &service.BearerAuthConfig{
+				Enabled:            true,
+				DistributionGroups: []string{allUsersGroupID},
+			},
+		},
+	}
+	require.NoError(t, testStore.CreateService(ctx, allUsersProxy))
+}
+
+const (
+	allUsersGroupID   = "allUsersGroupId"
+	pendingUserID     = "pendingUserId"
+	blockedUserID     = "blockedUserId"
+	pendingAllUsersID = "pendingAllUsersUserId"
+)
+
+// createStatusTestUsers adds the users whose account status must keep them out
+// of a proxy session. A user awaiting approval is persisted as both blocked and
+// pending approval, the way the approval flow stores one.
+func createStatusTestUsers(t *testing.T, ctx context.Context, testStore store.Store) {
+	t.Helper()
+
+	require.NoError(t, testStore.CreateGroup(ctx, &types.Group{
+		ID:        allUsersGroupID,
+		AccountID: "testAccountId",
+		Name:      "All",
+		Issued:    types.GroupIssuedAPI,
+	}))
+
+	users := []*types.User{
+		{
+			Id:              pendingUserID,
+			AccountID:       "testAccountId",
+			Role:            types.UserRoleUser,
+			AutoGroups:      []string{"allowedGroupId"},
+			Blocked:         true,
+			PendingApproval: true,
+			Issued:          "api",
+			CreatedAt:       time.Now(),
+		},
+		{
+			Id:              pendingAllUsersID,
+			AccountID:       "testAccountId",
+			Role:            types.UserRoleUser,
+			AutoGroups:      []string{allUsersGroupID},
+			Blocked:         true,
+			PendingApproval: true,
+			Issued:          "api",
+			CreatedAt:       time.Now(),
+		},
+		{
+			Id:              blockedUserID,
+			AccountID:       "testAccountId",
+			Role:            types.UserRoleUser,
+			AutoGroups:      []string{"allowedGroupId"},
+			Blocked:         true,
+			PendingApproval: false,
+			Issued:          "api",
+			CreatedAt:       time.Now(),
+		},
+	}
+	for _, user := range users {
+		require.NoError(t, testStore.SaveUser(ctx, user))
+	}
 }
 
 func generateSessionKeyPair(t *testing.T) (string, string) {
@@ -147,6 +224,114 @@ func TestValidateSession_UserNotInAllowedGroup(t *testing.T) {
 	assert.Equal(t, "not_in_group", resp.DeniedReason)
 	assert.Equal(t, "nonGroupUserId", resp.UserId)
 	assert.Empty(t, resp.GetPeerGroupIds(), "PeerGroupIds must mirror the resolved user's actual (empty) memberships on denial")
+}
+
+// TestValidateSession_PendingApprovalUserDenied covers a user who is a member of
+// the service's distribution group but is still waiting for an administrator to
+// approve the account. Group membership alone must not open the service.
+func TestValidateSession_PendingApprovalUserDenied(t *testing.T) {
+	setup := setupValidateSessionTest(t)
+	defer setup.cleanup()
+
+	proxy, err := setup.store.GetServiceByID(context.Background(), store.LockingStrengthNone, "testAccountId", "restrictedProxyId")
+	require.NoError(t, err)
+
+	token := createSessionToken(t, proxy.SessionPrivateKey, pendingUserID, "restricted-proxy.example.com")
+
+	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
+		Domain:       "restricted-proxy.example.com",
+		SessionToken: token,
+	})
+
+	require.NoError(t, err)
+	assert.False(t, resp.Valid, "User pending approval should be denied")
+	assert.Equal(t, deniedReasonPendingApproval, resp.DeniedReason, "Denied reason should name the pending approval state")
+	assert.Equal(t, pendingUserID, resp.UserId, "Denial should identify the user it applies to")
+	assert.Equal(t, []string{"allowedGroupId"}, resp.GetPeerGroupIds(), "PeerGroupIds must mirror the resolved user's group memberships on denial")
+	assert.Equal(t, []string{"Allowed Group"}, resp.GetPeerGroupNames(), "PeerGroupNames must pair with PeerGroupIds on denial")
+}
+
+// TestValidateSession_PendingApprovalUserInAllUsersGroupDenied covers the same
+// user against a service distributed to the account's "All" group, where every
+// user of the account is a member by default.
+func TestValidateSession_PendingApprovalUserInAllUsersGroupDenied(t *testing.T) {
+	setup := setupValidateSessionTest(t)
+	defer setup.cleanup()
+
+	proxy, err := setup.store.GetServiceByID(context.Background(), store.LockingStrengthNone, "testAccountId", "allUsersProxyId")
+	require.NoError(t, err)
+
+	token := createSessionToken(t, proxy.SessionPrivateKey, pendingAllUsersID, "all-users-proxy.example.com")
+
+	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
+		Domain:       "all-users-proxy.example.com",
+		SessionToken: token,
+	})
+
+	require.NoError(t, err)
+	assert.False(t, resp.Valid, "User pending approval should be denied even in the All Users group")
+	assert.Equal(t, deniedReasonPendingApproval, resp.DeniedReason, "Denied reason should name the pending approval state")
+	assert.Equal(t, pendingAllUsersID, resp.UserId, "Denial should identify the user it applies to")
+	assert.Equal(t, []string{allUsersGroupID}, resp.GetPeerGroupIds(), "PeerGroupIds must mirror the resolved user's group memberships on denial")
+}
+
+// TestValidateSession_BlockedUserDenied covers a user blocked after having been
+// approved, so PendingApproval is false and only the blocked flag is set.
+func TestValidateSession_BlockedUserDenied(t *testing.T) {
+	setup := setupValidateSessionTest(t)
+	defer setup.cleanup()
+
+	proxy, err := setup.store.GetServiceByID(context.Background(), store.LockingStrengthNone, "testAccountId", "restrictedProxyId")
+	require.NoError(t, err)
+
+	token := createSessionToken(t, proxy.SessionPrivateKey, blockedUserID, "restricted-proxy.example.com")
+
+	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
+		Domain:       "restricted-proxy.example.com",
+		SessionToken: token,
+	})
+
+	require.NoError(t, err)
+	assert.False(t, resp.Valid, "Blocked user should be denied")
+	assert.Equal(t, deniedReasonUserBlocked, resp.DeniedReason, "Denied reason should name the blocked state")
+	assert.Equal(t, blockedUserID, resp.UserId, "Denial should identify the user it applies to")
+}
+
+// TestValidateSession_UserAllowedAfterApproval walks the same session token
+// through the approval transition: denied while pending, allowed once an
+// administrator clears both flags.
+func TestValidateSession_UserAllowedAfterApproval(t *testing.T) {
+	setup := setupValidateSessionTest(t)
+	defer setup.cleanup()
+
+	ctx := context.Background()
+
+	proxy, err := setup.store.GetServiceByID(ctx, store.LockingStrengthNone, "testAccountId", "restrictedProxyId")
+	require.NoError(t, err)
+
+	token := createSessionToken(t, proxy.SessionPrivateKey, pendingUserID, "restricted-proxy.example.com")
+	req := &proto.ValidateSessionRequest{
+		Domain:       "restricted-proxy.example.com",
+		SessionToken: token,
+	}
+
+	resp, err := setup.proxyService.ValidateSession(ctx, req)
+	require.NoError(t, err)
+	require.False(t, resp.Valid, "User pending approval should be denied before approval")
+	assert.Equal(t, deniedReasonPendingApproval, resp.DeniedReason, "Denied reason should name the pending approval state")
+
+	user, err := setup.store.GetUserByUserID(ctx, store.LockingStrengthNone, pendingUserID)
+	require.NoError(t, err)
+	user.PendingApproval = false
+	user.Blocked = false
+	require.NoError(t, setup.store.SaveUser(ctx, user))
+
+	resp, err = setup.proxyService.ValidateSession(ctx, req)
+	require.NoError(t, err)
+	assert.True(t, resp.Valid, "Approved user should be allowed access")
+	assert.Empty(t, resp.DeniedReason)
+	assert.Equal(t, pendingUserID, resp.UserId, "Approved user should be identified in the response")
+	assert.Equal(t, []string{"allowedGroupId"}, resp.GetPeerGroupIds(), "PeerGroupIds must mirror the approved user's group memberships")
 }
 
 func TestValidateSession_UserInDifferentAccount(t *testing.T) {
