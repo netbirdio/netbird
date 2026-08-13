@@ -2,8 +2,10 @@ package netsweep
 
 import (
 	"context"
+	"math"
 	"net"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -15,7 +17,7 @@ func TestSweepClosesRegisteredConns(t *testing.T) {
 	c1 := wrap(t, sweeper, connPair(t))
 	c2 := wrap(t, sweeper, connPair(t))
 
-	assert.Equal(t, 2, sweeper.Sweep(), "both live connections should be closed")
+	assert.Equal(t, 2, sweeper.sweepAll(), "both live connections should be closed")
 
 	// The wrappers must report closed now.
 	buf := make([]byte, 1)
@@ -24,7 +26,7 @@ func TestSweepClosesRegisteredConns(t *testing.T) {
 	_, err = c2.Read(buf)
 	assert.Error(t, err, "second connection should be unusable after the sweep")
 
-	assert.Equal(t, 0, sweeper.Sweep(), "second sweep should find nothing")
+	assert.Equal(t, 0, sweeper.sweepAll(), "second sweep should find nothing")
 }
 
 func TestCloseDeregisters(t *testing.T) {
@@ -33,7 +35,7 @@ func TestCloseDeregisters(t *testing.T) {
 	conn := wrap(t, sweeper, connPair(t))
 	require.NoError(t, conn.Close())
 
-	assert.Equal(t, 0, sweeper.Sweep(), "closed connection must leave the registry")
+	assert.Equal(t, 0, sweeper.sweepAll(), "closed connection must leave the registry")
 }
 
 func TestCloseIsIdempotent(t *testing.T) {
@@ -48,11 +50,11 @@ func TestSweepOnlyAffectsOlderConns(t *testing.T) {
 	sweeper := New()
 
 	_ = wrap(t, sweeper, connPair(t))
-	assert.Equal(t, 1, sweeper.Sweep())
+	assert.Equal(t, 1, sweeper.sweepAll())
 
 	// A connection dialed after the sweep must survive until the next one.
 	_ = wrap(t, sweeper, connPair(t))
-	assert.Equal(t, 1, sweeper.Sweep(), "post-sweep connection belongs to the next sweep")
+	assert.Equal(t, 1, sweeper.sweepAll(), "post-sweep connection belongs to the next sweep")
 }
 
 func TestSweepAbortsInFlightDials(t *testing.T) {
@@ -61,7 +63,7 @@ func TestSweepAbortsInFlightDials(t *testing.T) {
 	dial := sweeper.StartDial(context.Background())
 	defer dial.Release()
 
-	sweeper.Sweep()
+	sweeper.sweepAll()
 
 	assert.ErrorIs(t, dial.Ctx().Err(), context.Canceled, "sweep must cancel the in-flight dial context")
 }
@@ -77,7 +79,7 @@ func TestReleasedDialIsNotAborted(t *testing.T) {
 	pending := sweeper.StartDial(context.Background())
 	defer pending.Release()
 
-	sweeper.Sweep()
+	sweeper.sweepAll()
 	assert.ErrorIs(t, pending.Ctx().Err(), context.Canceled, "pending dial must be aborted")
 }
 
@@ -90,7 +92,7 @@ func TestSweepBetweenDialAndHandoffClosesConn(t *testing.T) {
 	// The dial succeeds on the old network, then the sweep lands before the
 	// connection is handed over.
 	conn := connPair(t)
-	assert.Equal(t, 0, sweeper.Sweep(), "the connection is not registered yet")
+	assert.Equal(t, 0, sweeper.sweepAll(), "the connection is not registered yet")
 
 	wrapped, err := dial.WrapConn(conn)
 	require.ErrorIs(t, err, ErrSwept)
@@ -100,7 +102,73 @@ func TestSweepBetweenDialAndHandoffClosesConn(t *testing.T) {
 	_, err = conn.Read(buf)
 	assert.Error(t, err, "the old-network connection must be closed, not leaked")
 
-	assert.Equal(t, 0, sweeper.Sweep(), "nothing may leak into the next sweep")
+	assert.Equal(t, 0, sweeper.sweepAll(), "nothing may leak into the next sweep")
+}
+
+func TestMarkNetworkChangeSparesFreshConns(t *testing.T) {
+	sweeper := NewWithConfig(Config{SweepDelay: 10 * time.Millisecond})
+
+	stale := wrap(t, sweeper, connPair(t))
+	sweeper.MarkNetworkChange()
+	_ = wrap(t, sweeper, connPair(t))
+
+	_ = stale.SetReadDeadline(time.Now().Add(time.Second))
+	buf := make([]byte, 1)
+	_, err := stale.Read(buf)
+	require.ErrorIs(t, err, net.ErrClosed, "stale connection must be closed by the delayed sweep")
+
+	assert.Equal(t, 1, sweeper.sweepAll(), "the fresh connection must survive the stale sweep")
+}
+
+func TestMarkNetworkChangeAbortsStaleDials(t *testing.T) {
+	sweeper := NewWithConfig(Config{SweepDelay: 10 * time.Millisecond})
+
+	stale := sweeper.StartDial(context.Background())
+	defer stale.Release()
+	sweeper.MarkNetworkChange()
+	fresh := sweeper.StartDial(context.Background())
+	defer fresh.Release()
+
+	assert.Eventually(t, func() bool {
+		return stale.Ctx().Err() != nil
+	}, time.Second, 5*time.Millisecond, "stale dial must be aborted by the delayed sweep")
+	assert.NoError(t, fresh.Ctx().Err(), "post-mark dial must not be aborted")
+}
+
+func TestConnInheritsDialGeneration(t *testing.T) {
+	sweeper := NewWithConfig(Config{SweepDelay: 20 * time.Millisecond})
+
+	// The dial starts before the network change but completes after it: the
+	// socket is bound to the old network, so the sweep must still cut it.
+	dial := sweeper.StartDial(context.Background())
+	defer dial.Release()
+	sweeper.MarkNetworkChange()
+
+	wrapped, err := dial.WrapConn(connPair(t))
+	require.NoError(t, err)
+
+	_ = wrapped.SetReadDeadline(time.Now().Add(time.Second))
+	buf := make([]byte, 1)
+	_, err = wrapped.Read(buf)
+	require.ErrorIs(t, err, net.ErrClosed, "old-generation connection must be swept")
+}
+
+func TestRepeatedMarksCoalesce(t *testing.T) {
+	sweeper := NewWithConfig(Config{SweepDelay: 20 * time.Millisecond})
+
+	first := wrap(t, sweeper, connPair(t))
+	sweeper.MarkNetworkChange()
+	second := wrap(t, sweeper, connPair(t))
+	sweeper.MarkNetworkChange()
+	_ = wrap(t, sweeper, connPair(t))
+
+	buf := make([]byte, 1)
+	for _, conn := range []net.Conn{first, second} {
+		_ = conn.SetReadDeadline(time.Now().Add(time.Second))
+		_, err := conn.Read(buf)
+		require.ErrorIs(t, err, net.ErrClosed, "every pre-mark connection must be swept by the rescheduled sweep")
+	}
+	assert.Equal(t, 1, sweeper.sweepAll(), "only the newest-generation connection may remain")
 }
 
 func TestNilSweeperIsNoop(t *testing.T) {
@@ -114,7 +182,7 @@ func TestNilSweeperIsNoop(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, conn, wrapped, "nil sweeper must return the conn unchanged")
 	assert.NoError(t, dial.Ctx().Err(), "nil sweeper must not cancel the dial context")
-	assert.Equal(t, 0, sweeper.Sweep(), "nil sweeper closes nothing")
+	assert.Equal(t, 0, sweeper.sweepAll(), "nil sweeper closes nothing")
 }
 
 // wrap registers conn with the sweeper through a completed dial.
@@ -165,4 +233,9 @@ func connPair(t *testing.T) net.Conn {
 	})
 
 	return conn
+}
+
+// sweepAll cuts every registration regardless of generation.
+func (s *Sweeper) sweepAll() int {
+	return s.sweep(math.MaxUint64)
 }

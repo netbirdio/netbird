@@ -11,9 +11,20 @@ import (
 	"errors"
 	"net"
 	"sync"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 )
+
+// DefaultSweepDelay absorbs network flapping while the OS settles on a
+// default network before the stale registrations are cut.
+const DefaultSweepDelay = 500 * time.Millisecond
+
+// Config customizes a Sweeper. The zero value applies the defaults.
+type Config struct {
+	// SweepDelay overrides DefaultSweepDelay when positive.
+	SweepDelay time.Duration
+}
 
 // ErrSwept reports that a dial finished after a network change swept its
 // registration. The connection is already closed; the caller must treat it
@@ -24,6 +35,11 @@ var ErrSwept = errors.New("netsweep: connection swept by network change")
 // draw from the same counter, so an id is unique across both registries.
 type sweepID uint64
 
+type connEntry struct {
+	conn net.Conn
+	gen  uint64
+}
+
 // Dial tracks one dial from start to connection registration. It hands the
 // dialed connection to the sweeper atomically, so a sweep can never fall
 // between the dial finishing and the connection being registered.
@@ -32,10 +48,11 @@ type Dial struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 	id      sweepID
-	done    bool // set by Sweep, WrapConn or Release; guarded by sweeper.mu
+	done    bool // set by a sweep, WrapConn or Release; guarded by sweeper.mu
+	gen     uint64
 }
 
-// Ctx returns the dial's context. Sweep cancels it, so a dial started on the
+// Ctx returns the dial's context. A sweep cancels it, so a dial started on the
 // old network aborts instead of waiting out its handshake timeout.
 func (d *Dial) Ctx() context.Context {
 	return d.ctx
@@ -69,20 +86,33 @@ func (c *sweptConn) Close() error {
 	return c.Conn.Close()
 }
 
-// Sweeper registers live connections and in-flight dials so Sweep can cut
-// everything that started before the network changed.
+// Sweeper registers live connections and in-flight dials so the
+// network-change sweep can cut everything registered before the change.
 type Sweeper struct {
-	mu     sync.Mutex
-	conns  map[sweepID]net.Conn
-	dials  map[sweepID]*Dial
-	nextID sweepID
+	mu         sync.Mutex
+	conns      map[sweepID]connEntry
+	dials      map[sweepID]*Dial
+	nextID     sweepID
+	gen        uint64
+	timer      *time.Timer
+	sweepDelay time.Duration
 }
 
-// New creates an empty sweeper.
+// New creates an empty sweeper with the default configuration.
 func New() *Sweeper {
+	return NewWithConfig(Config{})
+}
+
+// NewWithConfig creates an empty sweeper customized by cfg.
+func NewWithConfig(cfg Config) *Sweeper {
+	delay := cfg.SweepDelay
+	if delay <= 0 {
+		delay = DefaultSweepDelay
+	}
 	return &Sweeper{
-		conns: make(map[sweepID]net.Conn),
-		dials: make(map[sweepID]*Dial),
+		conns:      make(map[sweepID]connEntry),
+		dials:      make(map[sweepID]*Dial),
+		sweepDelay: delay,
 	}
 }
 
@@ -99,6 +129,7 @@ func (s *Sweeper) StartDial(ctx context.Context) *Dial {
 	s.mu.Lock()
 	d.id = s.nextID
 	s.nextID++
+	d.gen = s.gen
 	s.dials[d.id] = d
 	s.mu.Unlock()
 
@@ -127,28 +158,61 @@ func (d *Dial) WrapConn(conn net.Conn) (net.Conn, error) {
 	delete(s.dials, d.id)
 	id := s.nextID
 	s.nextID++
-	s.conns[id] = conn
+	// The conn inherits the dial's generation: the socket was bound to the
+	// network that was default when the dial started, not when it finished.
+	s.conns[id] = connEntry{conn: conn, gen: d.gen}
 	s.mu.Unlock()
 
 	return &sweptConn{Conn: conn, sweeper: s, id: id}, nil
 }
 
-// Sweep closes every registered connection, aborts every in-flight dial, and
-// returns how many connections it closed. A dial whose connection was not
-// yet handed to WrapConn is marked, so the late WrapConn closes it instead
-// of registering it.
-func (s *Sweeper) Sweep() int {
+// MarkNetworkChange records that the OS switched networks: everything
+// registered so far becomes stale, and a sweep is (re)scheduled after the
+// configured delay to cut whatever is still stale by then. Owners that
+// redialed in the meantime hold fresh-generation registrations and survive,
+// so no cancellation is needed around the sweep.
+func (s *Sweeper) MarkNetworkChange() {
+	if s == nil {
+		return
+	}
+
+	s.mu.Lock()
+	s.gen++
+	cutoff := s.gen
+	if s.timer != nil {
+		s.timer.Stop()
+	}
+	s.timer = time.AfterFunc(s.sweepDelay, func() {
+		n := s.sweep(cutoff)
+		log.Infof("network change sweep: closed %d stale connections", n)
+	})
+	s.mu.Unlock()
+}
+
+// sweep closes the registered connections and aborts the in-flight dials
+// older than cutoff, and returns how many connections it closed. A dial
+// whose connection was not yet handed to WrapConn is marked, so the late
+// WrapConn closes it instead of registering it.
+func (s *Sweeper) sweep(cutoff uint64) int {
 	if s == nil {
 		return 0
 	}
 
 	s.mu.Lock()
-	conns := s.conns
-	dials := s.dials
-	s.conns = make(map[sweepID]net.Conn)
-	s.dials = make(map[sweepID]*Dial)
-	for _, d := range dials {
-		d.done = true
+	var conns []net.Conn
+	for id, e := range s.conns {
+		if e.gen < cutoff {
+			delete(s.conns, id)
+			conns = append(conns, e.conn)
+		}
+	}
+	var dials []*Dial
+	for id, d := range s.dials {
+		if d.gen < cutoff {
+			d.done = true
+			delete(s.dials, id)
+			dials = append(dials, d)
+		}
 	}
 	s.mu.Unlock()
 

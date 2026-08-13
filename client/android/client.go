@@ -302,12 +302,13 @@ func (c *Client) SetNetworkAvailable(available bool) {
 	c.recorder.SetNetworkAvailable(available)
 }
 
-// NotifyNetworkChange cuts the management, signal and relay connections
-// after the OS switched networks, so the reconnect loops redial immediately
-// on the new one. The engine and the TUN device stay untouched.
+// NotifyNetworkChange marks the management, signal and relay connections
+// stale after the OS switched networks and schedules a sweep that cuts
+// whatever has not redialed on the new network by then. The engine and the
+// TUN device stay untouched.
 func (c *Client) NotifyNetworkChange() {
-	n := c.sweeper.Sweep()
-	log.Infof("network change: swept %d connections", n)
+	c.sweeper.MarkNetworkChange()
+	log.Infof("network change: connections marked stale")
 }
 
 // DebugBundle generates a debug bundle, uploads it, and returns the upload key.
