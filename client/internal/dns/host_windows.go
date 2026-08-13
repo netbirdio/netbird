@@ -552,13 +552,19 @@ func (r *registryConfigurator) restoreUncleanShutdownDNS() error {
 }
 
 // listNRPTRuleKeys returns the names of our NRPT rule keys under a policy store
-// root. A root that cannot be opened holds nothing to clean up: the GPO store is
-// absent on a machine without DNS Client policy.
+// root. An absent root holds nothing to clean up, which is the normal state of
+// the GPO store on a machine without DNS Client policy.
 func listNRPTRuleKeys(root string) ([]string, error) {
 	k, err := registry.OpenKey(registry.LOCAL_MACHINE, root, registry.ENUMERATE_SUB_KEYS)
-	if err != nil {
-		log.Debugf("failed to open HKEY_LOCAL_MACHINE\\%s: %v", root, err)
+	switch {
+	case errors.Is(err, registry.ErrNotExist), errors.Is(err, syscall.ERROR_PATH_NOT_FOUND):
+		// the GPO store is absent on a machine without DNS client policy
+		log.Debugf("HKEY_LOCAL_MACHINE\\%s does not exist", root)
 		return nil, nil
+	case err != nil:
+		// any other failure has to reach the caller: reporting no rules would
+		// report a successful cleanup while leaving the rules in place
+		return nil, fmt.Errorf("open HKEY_LOCAL_MACHINE\\%s: %w", root, err)
 	}
 	defer closer(k)
 
