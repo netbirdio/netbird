@@ -11,7 +11,18 @@ import (
 	"github.com/netbirdio/netbird/client/netstate"
 )
 
-const defaultMaxBackoffInterval = 60 * time.Second
+const (
+	defaultMaxBackoffInterval = 60 * time.Second
+
+	// quickReconnectBudget bounds how long a quick reconnect waits for the
+	// network before handing the retry over to the ticker.
+	quickReconnectBudget = 1500 * time.Millisecond
+
+	// verdictSettleWindow is how long an online verdict must hold before it
+	// is trusted: the disconnect often precedes the OS offline flag by a few
+	// milliseconds.
+	verdictSettleWindow = 200 * time.Millisecond
+)
 
 // Guard manage the reconnection tries to the Relay server in case of disconnection event.
 type Guard struct {
@@ -118,13 +129,11 @@ func (g *Guard) tryToQuickReconnect(parentCtx context.Context, rc *Client) bool 
 		return false
 	}
 
-	if cancelled := waiteBeforeRetry(parentCtx); !cancelled {
+	if ok := g.waitForNetwork(parentCtx); !ok {
 		return false
 	}
 
-	// Re-check after the wait: the disconnect that triggered this reconnect
-	// is often the first symptom of the network going away, so the
-	// availability flag typically arrives while we sleep here.
+	// Still offline after the budget: leave the retry to the ticker.
 	if !g.netState.IsOnline() {
 		return false
 	}
@@ -191,14 +200,40 @@ func (g *Guard) exponentTicker(ctx context.Context) *backoff.Ticker {
 	return backoff.NewTicker(bo)
 }
 
-func waiteBeforeRetry(ctx context.Context) bool {
-	timer := time.NewTimer(1500 * time.Millisecond)
-	defer timer.Stop()
+// waitForNetwork waits out the settle window while online, or waits for the
+// network to return while offline, within the budget. Returns false when ctx
+// is cancelled. Without an injected netState it degrades to a fixed
+// budget-long sleep, the pre-netstate behavior.
+func (g *Guard) waitForNetwork(ctx context.Context) bool {
+	budget := time.NewTimer(quickReconnectBudget)
+	defer budget.Stop()
 
-	select {
-	case <-timer.C:
-		return true
-	case <-ctx.Done():
-		return false
+	settleWindow := verdictSettleWindow
+	if g.netState == nil {
+		settleWindow = quickReconnectBudget
+	}
+	settle := time.NewTimer(settleWindow)
+	defer settle.Stop()
+
+	for {
+		// Channel first, flag second: a flip in between still fires the channel.
+		changedCh := g.netState.Changed()
+		if g.netState.IsOnline() {
+			select {
+			case <-settle.C:
+				return true
+			case <-changedCh:
+				continue
+			case <-ctx.Done():
+				return false
+			}
+		}
+		select {
+		case <-budget.C:
+			return true
+		case <-changedCh:
+		case <-ctx.Done():
+			return false
+		}
 	}
 }
